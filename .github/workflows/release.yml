@@ -1,0 +1,72 @@
+name: Release
+
+# Builds DrakanPC-Setup.exe (and the zip builder kit) from the tagged commit and publishes them as a GitHub Release.
+# Both contain source, build scripts and build tools only; the game is built on the player's PC from their own disc.
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Release tag to create (e.g. v1.0.0); the selected branch's head is released
+        required: true
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.event.inputs.tag || github.ref_name }}
+  cancel-in-progress: false
+
+jobs:
+  installer:
+    runs-on: windows-2022
+    env:
+      TAG: ${{ github.event.inputs.tag || github.ref_name }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: '3.12'
+      - name: Inno Setup
+        shell: pwsh
+        run: |
+          $iscc = @("${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe", "$env:ProgramFiles\Inno Setup 6\ISCC.exe") |
+            Where-Object { Test-Path -LiteralPath $_ } | Select-Object -First 1
+          if (-not $iscc) {
+            choco install innosetup --no-progress -y
+            $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+          }
+          if (-not (Test-Path -LiteralPath $iscc)) { throw 'Inno Setup 6 is not available' }
+          "ISCC=$iscc" >> $env:GITHUB_ENV
+      - name: Repository audit
+        run: python scripts/repository_guard.py
+      - name: Build the installer
+        run: python scripts/buildtool/package_builder_kit.py --installer --iscc "$env:ISCC" --output-directory build/release
+      - name: Build the zip kit
+        run: python scripts/buildtool/package_builder_kit.py --output-directory build/release
+      - name: Stage release files
+        shell: pwsh
+        run: |
+          $out = New-Item -ItemType Directory -Force build/publish
+          Copy-Item (Get-ChildItem build/release -Filter 'DrakanPC-Setup-*.exe' | Select-Object -First 1).FullName (Join-Path $out 'DrakanPC-Setup.exe')
+          Copy-Item (Get-ChildItem build/release -Filter 'DrakanPC-Builder-*.zip' | Select-Object -First 1).FullName (Join-Path $out 'DrakanPC-Builder.zip')
+          Get-ChildItem $out -File | ForEach-Object { "$((Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLower())  $($_.Name)" } |
+            Set-Content -Encoding ascii (Join-Path $out 'SHA256SUMS.txt')
+      - name: Publish the release
+        shell: pwsh
+        run: |
+          $files = (Get-ChildItem build/publish -File).FullName
+          $PSNativeCommandUseErrorActionPreference = $false
+          gh release view $env:TAG *> $null
+          $exists = $LASTEXITCODE -eq 0
+          $PSNativeCommandUseErrorActionPreference = $true
+          if ($exists) {
+            gh release upload $env:TAG @files --clobber
+          } else {
+            gh release create $env:TAG @files --title "Drakan PC $env:TAG" `
+              --notes-file scripts/buildtool/kit/RELEASE-NOTES.md --target $env:GITHUB_SHA
+          }

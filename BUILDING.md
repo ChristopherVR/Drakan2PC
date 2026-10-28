@@ -127,6 +127,10 @@ developer-only material (`docs/journal`, `scripts/archive`, CI, agent notes). Ev
 `repository_guard.reason`, so neither holds an ISO, ELF, generated C++ or VU image. The root gets `Build-Drakan.cmd`
 and `README.txt` from `scripts/buildtool/kit/`, plus `KIT-VERSION.txt` with the commit.
 
+**Releases.** Pushing a `v*` tag (or running the *Release* workflow with a tag) builds both packages on a Windows
+runner (`.github/workflows/release.yml`) and publishes `DrakanPC-Setup.exe`, `DrakanPC-Builder.zip` and
+`SHA256SUMS.txt` as a GitHub Release with the notes in `scripts/buildtool/kit/RELEASE-NOTES.md`.
+
 The setup (for non-technical players) additionally bundles everything that would otherwise be a prerequisite, pinned
 by SHA-256/commit in `scripts/buildtool/kit/installer.lock.json`: portable PowerShell 7 (`tools/pwsh`), the Python
 embeddable package (`tools/python`), `ps2_recomp.exe` built from the same snapshot (`scripts/buildtool/`, so

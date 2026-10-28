@@ -28,8 +28,9 @@ other regions would need their own validated configuration.
 
 ### Installer (Windows)
 
-1. Run `DrakanPC-Setup.exe` (from this repository's Releases, or build it yourself with
-   `python scripts/buildtool/package_builder_kit.py --installer`).
+1. Download **[DrakanPC-Setup.exe](https://github.com/ChristopherVR/Drakan2PC/releases/latest/download/DrakanPC-Setup.exe)**
+   from the [latest release](https://github.com/ChristopherVR/Drakan2PC/releases/latest) and run it (or build it
+   yourself with `python scripts/buildtool/package_builder_kit.py --installer`).
 2. Choose an install folder and your `.iso`. Optionally tick **NVIDIA DLSS** (accepts NVIDIA's SDK licence) and
    **browser version** (needs WSL with Ubuntu).
 3. Leave "Build the game now" ticked. On first run the builder installs Microsoft's free C++ Build Tools. The first
