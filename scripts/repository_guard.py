@@ -44,6 +44,7 @@ ROOT_FILES = {
     "README.md",
     "BUILDING.md",
     "THIRD_PARTY.md",
+    "LICENSES.md",
     "CLAUDE.md",
     "AGENTS.md",
     "LICENSE",
