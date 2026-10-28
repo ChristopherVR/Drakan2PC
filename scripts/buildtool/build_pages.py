@@ -19,8 +19,67 @@ REPOSITORY = "https://github.com/ChristopherVR/Drakan2PC"
 PLAYER_FILES = ("loader.js", "handles.js", "sw.js", "loader.css")
 
 
+MEDIA_URL_KEYS = ("url", "animation_url", "video_url", "before_url", "after_url")
+
+
+def media_urls(item):
+    for entry in (item, *item.get("scenes", ())):
+        yield from (entry[key] for key in MEDIA_URL_KEYS if key in entry)
+
+
+def compare_figure(item):
+    """Before/after slider. Without JavaScript the first scene shows half original, half HD."""
+    size = f'width="{int(item["width"])}" height="{int(item["height"])}"'
+    scenes = item["scenes"]
+    first = scenes[0]
+    tabs = "".join(
+        f'<button type="button" class="compare-tab" data-before="{html.escape(s["before_url"], quote=True)}" '
+        f'data-after="{html.escape(s["after_url"], quote=True)}" aria-pressed="{str(i == 0).lower()}">'
+        f"{html.escape(s['label'])}</button>"
+        for i, s in enumerate(scenes)
+    )
+    label = html.escape(first["label"], quote=True)
+    return (
+        f'<figure class="compare"><div class="compare-tabs" role="group" aria-label="Scene">{tabs}</div>'
+        f'<div class="compare-stage">'
+        f'<img class="compare-after" src="{html.escape(first["after_url"], quote=True)}" alt="{label} with HD textures" '
+        f'{size} loading="lazy" decoding="async">'
+        f'<img class="compare-before" src="{html.escape(first["before_url"], quote=True)}" '
+        f'alt="{label} with the original textures" {size} loading="lazy" decoding="async">'
+        f'<span class="compare-label compare-label-before" aria-hidden="true">Original</span>'
+        f'<span class="compare-label compare-label-after" aria-hidden="true">HD</span>'
+        f'<span class="compare-handle" aria-hidden="true"></span>'
+        f'<input class="compare-range" type="range" min="0" max="100" value="50" '
+        f'aria-label="Original / HD split position"></div>'
+        f"<figcaption>{html.escape(item['caption'])}</figcaption></figure>"
+    )
+
+
+def video_figure(item):
+    """Short muted clip with its poster; site.js plays it while visible unless reduced motion is requested."""
+    poster = html.escape(item["url"], quote=True)
+    alt = html.escape(item["alt"], quote=True)
+    return (
+        f'<figure class="media-figure media-video"><video src="{html.escape(item["video_url"], quote=True)}" '
+        f'poster="{poster}" width="{int(item["width"])}" height="{int(item["height"])}" aria-label="{alt}" '
+        f'muted loop playsinline preload="none" controls></video>'
+        f'<button type="button" class="video-toggle" aria-pressed="false" hidden>Play</button>'
+        f"<figcaption>{html.escape(item['caption'])}</figcaption></figure>"
+    )
+
+
 def media_figure(item):
     """Render externally hosted, reviewed captures; never copy game media into Git or Pages artifacts."""
+    kind = item.get("kind")
+    if kind == "compare":
+        return compare_figure(item)
+    if kind == "backdrop":
+        return (
+            f'<img class="backdrop" src="{html.escape(item["url"], quote=True)}" alt="" '
+            f'width="{int(item["width"])}" height="{int(item["height"])}" decoding="async">'
+        )
+    if item.get("video_url"):
+        return video_figure(item)
     url = html.escape(item["url"], quote=True)
     alt = html.escape(item["alt"], quote=True)
     caption = html.escape(item["caption"])
@@ -42,7 +101,11 @@ def media_figure(item):
 def render_media(content, media):
     for key, item in media.items():
         figure = media_figure(item)
+        # Markdown renders a lone marker as its own paragraph-free block; drop any wrapper paragraph.
+        content = content.replace(f"<p><!-- media:{key} --></p>", figure)
         content = content.replace(f"<!-- media:{key} -->", figure)
+        if "url" not in item:
+            continue
         pattern = r'<p><img\b[^>]*\bsrc="' + re.escape(html.escape(item["url"], quote=True)) + r'"[^>]*>\s*</p>'
         content = re.sub(pattern, lambda _, replacement=figure: replacement, content)
     if re.search(r"<!--\s*media:", content):
@@ -176,9 +239,9 @@ def build(output: Path, base_path: str = "/Drakan2PC/"):
     pages = json.loads((SITE / "pages.json").read_text(encoding="utf-8"))
     media = json.loads((SITE / "media.json").read_text(encoding="utf-8"))
     for item in media.values():
-        for key in ("url", "animation_url"):
-            if key in item and not item[key].startswith(f"{REPOSITORY}/releases/download/site-media-"):
-                raise ValueError(f"Media must use the reviewed GitHub release host: {item[key]}")
+        for url in media_urls(item):
+            if not url.startswith(f"{REPOSITORY}/releases/download/site-media-"):
+                raise ValueError(f"Media must use the reviewed GitHub release host: {url}")
     published = {(ROOT / page["source"]).resolve(): page["url"] for page in pages}
     published[(ROOT / "runtime/web/pages/index.html").resolve()] = "browser.html"
     template = Template((SITE / "template.html").read_text(encoding="utf-8"))

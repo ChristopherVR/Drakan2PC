@@ -1,0 +1,281 @@
+0 sync play 90
+5 key down W
+11 key up W
+15 key down E
+25 key up E
+45 key tap ENTER
+100 key tap TAB
+230 key tap ENTER
+290 key tap RIGHT
+340 key tap E
+420 key tap TAB
+491 shot b0490
+493 shot b0492
+495 shot b0494
+497 shot b0496
+499 shot b0498
+500 button down 1
+501 shot b0500
+503 shot b0502
+505 shot b0504
+507 shot b0506
+509 shot b0508
+511 shot b0510
+513 shot b0512
+515 shot b0514
+517 shot b0516
+519 shot b0518
+521 shot b0520
+523 shot b0522
+525 shot b0524
+527 shot b0526
+529 shot b0528
+531 shot b0530
+533 shot b0532
+535 shot b0534
+537 shot b0536
+539 shot b0538
+540 mouse 5 -2
+541 mouse 5 -2
+541 shot b0540
+542 mouse 5 -2
+543 mouse 5 -2
+543 shot b0542
+544 mouse 5 -2
+545 mouse 5 -2
+545 shot b0544
+546 mouse 5 -2
+547 mouse 5 -2
+547 shot b0546
+548 mouse 5 -2
+549 mouse 5 -2
+549 shot b0548
+550 mouse 5 -2
+551 mouse 5 -2
+551 shot b0550
+552 mouse 5 -2
+553 mouse 5 -2
+553 shot b0552
+554 mouse 5 -2
+555 mouse 5 -2
+555 shot b0554
+556 mouse 5 -2
+557 mouse 5 -2
+557 shot b0556
+558 mouse 5 -2
+559 mouse 5 -2
+559 shot b0558
+560 mouse 5 -2
+561 mouse 5 -2
+561 shot b0560
+562 mouse 5 -2
+563 mouse 5 -2
+563 shot b0562
+564 mouse 5 -2
+565 mouse 5 -2
+565 shot b0564
+566 mouse 5 -2
+567 mouse 5 -2
+567 shot b0566
+568 mouse 5 -2
+569 mouse 5 -2
+569 shot b0568
+570 mouse 5 -2
+571 mouse 5 -2
+571 shot b0570
+572 mouse 5 -2
+573 mouse 5 -2
+573 shot b0572
+574 mouse 5 -2
+575 mouse 5 -2
+575 shot b0574
+576 mouse 5 -2
+577 mouse 5 -2
+577 shot b0576
+578 mouse 5 -2
+579 mouse 5 -2
+579 shot b0578
+580 mouse 5 -2
+581 mouse 5 -2
+581 shot b0580
+582 mouse 5 -2
+583 mouse 5 -2
+583 shot b0582
+584 mouse 5 -2
+585 mouse 5 -2
+585 shot b0584
+586 mouse 5 -2
+587 mouse 5 -2
+587 shot b0586
+588 mouse 5 -2
+589 mouse 5 -2
+589 shot b0588
+591 shot b0590
+593 shot b0592
+595 shot b0594
+597 shot b0596
+599 shot b0598
+600 button up 1
+601 shot b0600
+603 shot b0602
+605 shot b0604
+607 shot b0606
+609 shot b0608
+611 shot b0610
+613 shot b0612
+615 shot b0614
+617 shot b0616
+619 shot b0618
+621 shot b0620
+623 shot b0622
+625 shot b0624
+627 shot b0626
+629 shot b0628
+631 shot b0630
+633 shot b0632
+635 shot b0634
+637 shot b0636
+639 shot b0638
+641 shot b0640
+643 shot b0642
+645 shot b0644
+647 shot b0646
+649 shot b0648
+651 shot b0650
+653 shot b0652
+655 shot b0654
+657 shot b0656
+659 shot b0658
+660 button down 1
+661 shot b0660
+663 shot b0662
+665 shot b0664
+667 shot b0666
+669 shot b0668
+671 shot b0670
+673 shot b0672
+675 shot b0674
+677 shot b0676
+679 shot b0678
+681 shot b0680
+683 shot b0682
+685 shot b0684
+687 shot b0686
+689 shot b0688
+691 shot b0690
+693 shot b0692
+695 shot b0694
+697 shot b0696
+699 shot b0698
+700 mouse -7 1
+701 mouse -7 1
+701 shot b0700
+702 mouse -7 1
+703 mouse -7 1
+703 shot b0702
+704 mouse -7 1
+705 mouse -7 1
+705 shot b0704
+706 mouse -7 1
+707 mouse -7 1
+707 shot b0706
+708 mouse -7 1
+709 mouse -7 1
+709 shot b0708
+710 mouse -7 1
+711 mouse -7 1
+711 shot b0710
+712 mouse -7 1
+713 mouse -7 1
+713 shot b0712
+714 mouse -7 1
+715 mouse -7 1
+715 shot b0714
+716 mouse -7 1
+717 mouse -7 1
+717 shot b0716
+718 mouse -7 1
+719 mouse -7 1
+719 shot b0718
+720 mouse -7 1
+721 mouse -7 1
+721 shot b0720
+722 mouse -7 1
+723 mouse -7 1
+723 shot b0722
+724 mouse -7 1
+725 mouse -7 1
+725 shot b0724
+726 mouse -7 1
+727 mouse -7 1
+727 shot b0726
+728 mouse -7 1
+729 mouse -7 1
+729 shot b0728
+730 mouse -7 1
+731 mouse -7 1
+731 shot b0730
+732 mouse -7 1
+733 mouse -7 1
+733 shot b0732
+734 mouse -7 1
+735 mouse -7 1
+735 shot b0734
+736 mouse -7 1
+737 mouse -7 1
+737 shot b0736
+738 mouse -7 1
+739 mouse -7 1
+739 shot b0738
+740 mouse -7 1
+741 mouse -7 1
+741 shot b0740
+742 mouse -7 1
+743 mouse -7 1
+743 shot b0742
+744 mouse -7 1
+745 mouse -7 1
+745 shot b0744
+746 mouse -7 1
+747 mouse -7 1
+747 shot b0746
+748 mouse -7 1
+749 mouse -7 1
+749 shot b0748
+751 shot b0750
+753 shot b0752
+755 shot b0754
+757 shot b0756
+759 shot b0758
+760 button up 1
+761 shot b0760
+763 shot b0762
+765 shot b0764
+767 shot b0766
+769 shot b0768
+771 shot b0770
+773 shot b0772
+775 shot b0774
+777 shot b0776
+779 shot b0778
+781 shot b0780
+783 shot b0782
+785 shot b0784
+787 shot b0786
+789 shot b0788
+791 shot b0790
+793 shot b0792
+795 shot b0794
+797 shot b0796
+799 shot b0798
+801 shot b0800
+803 shot b0802
+805 shot b0804
+807 shot b0806
+809 shot b0808
+811 shot b0810
+813 shot b0812
+815 shot b0814
+817 shot b0816
+819 shot b0818
+830 quit

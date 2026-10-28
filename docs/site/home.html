@@ -1,62 +1,58 @@
 <main id="main" class="home-main" tabindex="-1">
-  <section class="title-banner" aria-labelledby="game-title">
-    <div class="crest" aria-hidden="true"><span></span><b>◆</b><span></span></div>
-    <h1 id="game-title">Drakan</h1>
-    <p class="game-subtitle">The Ancients' Gates</p>
-    <p class="port-subtitle">PC recompilation project</p>
-  </section>
-  <section class="welcome-frame game-frame">
-    <div class="welcome-copy">
-      <h2>Welcome to Drakan2PC</h2>
-      <p>Return to the world of Rynn and Arokh with a native PC port of <em>Drakan: The Ancients' Gates</em>.</p>
-      <p>Built from your own PlayStation 2 disc, with higher frame rates, proper mouse and keyboard controls, and optional graphics and gameplay improvements.</p>
-      <p class="disc-requirement"><strong>You will need your own PAL disc image.</strong><br>Supported release: SCES-500.06. No game files are included.</p>
+  <section class="hero" aria-labelledby="game-title">
+    <!-- media:hero -->
+    <div class="hero-inner">
+      <h1 id="game-title" class="logo">Drakan<span>The Ancients' Gates</span></h1>
+      <p class="tagline">The PlayStation 2 adventure, recompiled to run natively on PC.</p>
+      <nav class="title-menu ornate" aria-label="Get started">
+        <a class="selected" href="guides/install.html">Install on Windows</a>
+        <a href="guides/linux.html">Install on Linux</a>
+        <a href="browser.html">Play in your browser</a>
+        <a href="guides/enhancements.html">PC features</a>
+      </nav>
+      <p class="disc-note">You need your own PAL disc image (SCES-500.06). No game files are included.</p>
     </div>
-    <nav class="game-menu" aria-label="Get started">
-      <h2>Begin your adventure</h2>
-      <a class="menu-primary" href="guides/install.html">Install on Windows</a>
-      <a href="guides/linux.html">Install on Linux</a>
-      <a href="guides/enhancements.html">PC enhancements</a>
-      <a href="browser.html">Launch browser player</a>
-      <a href="development/index.html">Developer documentation</a>
-      <a href="https://github.com/ChristopherVR/Drakan2PC">Visit the repository</a>
-      <p>Experimental fan project<br>Windows · Linux · Browser</p>
-    </nav>
   </section>
-  <section class="home-showcase" aria-labelledby="showcase-title">
-    <h2 id="showcase-title">Beyond the PS2 original</h2>
+
+  <section class="band" aria-labelledby="hd-title">
+    <header class="band-head"><h2 id="hd-title">HD textures</h2><p>Upscaled from your own disc. Drag to compare.</p></header>
+    <!-- media:hd-compare -->
+  </section>
+
+  <section class="band" aria-labelledby="controls-title">
+    <header class="band-head"><h2 id="controls-title">Mouse and keyboard</h2><p>Direct mouse look, WASD and a crosshair for the bow.</p></header>
+    <div class="clip-grid">
+      <!-- media:mouse-look -->
+      <!-- media:bow-aim -->
+    </div>
+  </section>
+
+  <section class="band" aria-labelledby="more-title">
+    <header class="band-head"><h2 id="more-title">Also new on PC</h2></header>
     <div class="showcase-grid">
-      <div><!-- media:modern-inventory --></div>
-      <div><!-- media:dual-wield --></div>
-      <div><!-- media:fullscreen-map --></div>
-      <div><!-- media:hd-textures --></div>
+      <!-- media:modern-inventory -->
+      <!-- media:fullscreen-map -->
+      <!-- media:dual-wield -->
+      <!-- media:hd-movie -->
     </div>
-    <p class="showcase-more"><a href="guides/enhancements.html">Explore all PC enhancements, screenshots and clips</a></p>
+    <ul class="spec-list">
+      <li>30, 60 or uncapped FPS</li>
+      <li>Widescreen up to 4K</li>
+      <li>Rebindable keys</li>
+      <li>F5 / F8 quicksave</li>
+      <li>Narration subtitles</li>
+      <li>DLSS and ray-traced water (Windows)</li>
+    </ul>
   </section>
-  <div class="home-columns">
-    <section class="guide-panel game-frame">
-      <h2>Player's guide</h2>
-      <ul class="guide-list">
-        <li><a href="guides/install.html">Install on Windows</a><span>Requirements, your disc and the first build</span></li>
-        <li><a href="guides/linux.html">Install on Linux</a><span>Native x86-64 Linux setup and launch instructions</span></li>
-        <li><a href="guides/controls.html">Controls &amp; combat</a><span>Keyboard, mouse, bow aiming and dual wielding</span></li>
-        <li><a href="guides/settings.html">Graphics &amp; PC settings</a><span>Frame rate, display options and interface choices</span></li>
-        <li><a href="guides/extras.html">HD textures, movies &amp; subtitles</a><span>Set up the optional visual and narration packs</span></li>
-        <li><a href="guides/saves.html">Saves &amp; updates</a><span>Quicksave, backups and rebuilding your game</span></li>
-        <li><a href="guides/troubleshooting.html">Troubleshooting</a><span>Build failures, performance and common questions</span></li>
-      </ul>
-    </section>
-    <section class="improvements-panel game-frame">
-      <h2>Make it your own</h2>
-      <dl class="improvement-list">
-        <dt>60 FPS and beyond</dt><dd>Choose 30, 60 or uncapped world frame rates. Performance depends on your hardware.</dd>
-        <dt>PC controls and combat</dt><dd>Direct mouse look, rebindable keys, crosshair bow aiming and optional dual wielding.</dd>
-        <dt>A configurable interface</dt><dd>Modern Tab inventory, an M map, an I inventory strip and full PC settings.</dd>
-        <dt>Enhanced graphics and movies</dt><dd>Optional HD textures, upscaled video, narration subtitles and supported DLSS / ray-traced effects.</dd>
-      </dl>
-      <p class="panel-note">Prefer the original style? Keep 30 FPS, classic bow controls and the original menus, and disable optional effects. Windows currently has the fullest feature set.</p>
-      <a class="panel-link" href="guides/enhancements.html">Read the full PS2 comparison</a>
-    </section>
-  </div>
-  <section class="developer-strip"><div><h2>For modders &amp; developers</h2><p>Build from source, explore the runtime or follow the reverse-engineering notes.</p></div><div><a href="development/building.html">Build instructions</a><a href="development/reference.html">Technical reference</a><a href="development/portability.html">Platform status</a></div></section>
+
+  <nav class="guide-strip ornate" aria-label="Guides">
+    <h2>Guides</h2>
+    <a href="guides/install.html">Install</a>
+    <a href="guides/controls.html">Controls</a>
+    <a href="guides/settings.html">Settings</a>
+    <a href="guides/extras.html">HD extras</a>
+    <a href="guides/saves.html">Saves</a>
+    <a href="guides/troubleshooting.html">Troubleshooting</a>
+    <a href="development/index.html">Developers</a>
+  </nav>
 </main>

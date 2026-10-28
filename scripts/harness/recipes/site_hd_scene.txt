@@ -1,0 +1,10 @@
+0 sync play 90
+20 shot field
+70 mouse 300 -60
+100 shot tent
+110 mouse 700 40
+140 shot gate_far
+150 key down W
+330 key up W
+360 shot gate_near
+380 quit

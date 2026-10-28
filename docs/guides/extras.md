@@ -1,6 +1,6 @@
 # HD textures, video & subtitles
 
-These additions are optional. Textures and movies are generated from your disc, and narration subtitles are locally supplied. None of these game-derived packs are distributed by this site.
+All optional. Textures and movies are generated from your own disc; narration subtitles are files you supply. None of them are distributed here.
 
 ## HD textures
 
@@ -11,15 +11,15 @@ python -I analysis/scripts/hd_pack.py extract --iso "D:/MyDiscs/Drakan.iso"
 python -I analysis/scripts/hd_pack.py upscale
 ```
 
-Extraction writes source images under `build/hdpack`; upscaling writes hash-named replacements under `dist/DrakanPC/textures`. Upscaling is resumable. Time and output can vary with hardware and drivers.
+Extraction writes to `build/hdpack`; upscaling writes replacements to `dist/DrakanPC/textures` and can be resumed.
 
-Enable **HD texture replacement** in PC Settings to use the pack; disable it to use native textures. Existing texture packs are preserved by the canonical game builder. Linux and browser can reuse the shared pack through their supported replacement path, but are not at full Windows renderer parity.
+Turn **HD texture replacement** on or off in PC Settings. Rebuilds keep the pack. Linux and browser builds can use it too.
 
-![Side-by-side texture comparison, original on left and HD replacements on right](https://github.com/ChristopherVR/Drakan2PC/releases/download/site-media-20261028/hd-textures.jpg)
+<!-- media:hd-compare -->
 
 ## Upscaled movies
 
-The Windows HD movie implementation replaces the intro, outro and logo with **4× AI-upscaled frames** generated from your ISO. It requires FFmpeg with IPU decoding and a Real-ESRGAN installation. This is a separate, potentially lengthy processing step; the normal installer build does not automatically create the movie pack.
+Replaces the intro, outro and logo with **4× upscaled frames** generated from your ISO (Windows). Needs FFmpeg with IPU decoding and Real-ESRGAN. The normal build does not create it.
 
 From the repository root:
 
@@ -37,7 +37,7 @@ The Windows runtime enables the replacement path when a compatible pack is prese
 hd_movies = 0
 ```
 
-Set `hd_movies = 1` to enable it again. Missing HD frames fall back to the original video. Upscaling does not add new animation frames or change the original movie cadence.
+Set `hd_movies = 1` to enable it again. Missing HD frames fall back to the original video.
 
 ![A dragon illustration in the locally upscaled intro movie](https://github.com/ChristopherVR/Drakan2PC/releases/download/site-media-20261028/hd-movie.jpg)
 

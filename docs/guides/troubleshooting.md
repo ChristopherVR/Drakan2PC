@@ -24,7 +24,7 @@ Press **F10** to release or recapture it. After returning from another window, c
 
 ## Performance is lower than expected
 
-Start by lowering internal render scale and disabling optional ray-traced effects. Compare 30, 60 and Uncapped world modes, restarting after a mode change. Check VSync and the presentation limiter separately. “60+ FPS support” describes the available mode, not a performance guarantee for every scene or computer.
+Lower the internal render scale and turn off ray-traced effects first. Compare 30, 60 and Uncapped world modes (restart after changing), and check VSync and the frame limiter.
 
 Linux and browser currently use the software GS path. They do not have the same performance or feature coverage as the Windows D3D11 renderer. See [Platforms & portability](../reference/portability.md).
 

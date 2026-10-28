@@ -100,6 +100,22 @@ class PagesTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "Unknown media entry"):
             pages.render_media("<!-- media:missing -->", {})
 
+    def test_comparison_and_clips(self):
+        home = (self.output / "index.html").read_text(encoding="utf-8")
+        self.assertIn('class="compare"', home)
+        self.assertEqual(home.count('class="compare-tab"'), 4)
+        self.assertIn('class="compare-range" type="range"', home)
+        self.assertRegex(
+            home, r'<video src="https://github\.com/[^"]+\.mp4"[^>]* muted loop playsinline preload="none"'
+        )
+        self.assertIn('class="backdrop"', home)
+        self.assertNotIn("<!-- media:", home)
+        controls = (self.output / "guides/controls.html").read_text(encoding="utf-8")
+        self.assertIn('class="media-figure media-video"', controls)
+        media = json.loads((ROOT / "docs/site/media.json").read_text(encoding="utf-8"))
+        scene = {**media["hd-compare"]["scenes"][0], "after_url": "https://x/a.jpg"}
+        self.assertIn("https://x/a.jpg", pages.media_urls({**media["hd-compare"], "scenes": [scene]}))
+
 
 if __name__ == "__main__":
     unittest.main()

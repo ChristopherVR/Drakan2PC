@@ -1,0 +1,7 @@
+0 sync play 90
+150 shot a
+160 mouse 500 0
+200 shot b
+210 mouse 600 -40
+250 shot c
+260 quit

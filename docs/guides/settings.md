@@ -1,6 +1,6 @@
 # Graphics & PC settings
 
-Open **F1** for PC Settings. Settings availability depends on the target, graphics hardware and build. Windows has the most complete renderer and enhancement options.
+Press **F1** for PC Settings. Some options depend on your platform and GPU; Windows has the most.
 
 ![PC Settings categories in the native Linux player](https://github.com/ChristopherVR/Drakan2PC/releases/download/site-media-20261028/pc-settings.jpg)
 
@@ -20,7 +20,7 @@ The supplied Windows `Play-Original30.cmd` launcher is another way to run the wo
 
 ## Resolution, aspect ratio and fullscreen
 
-Choose a window size, internal render scale and aspect ratio to suit your display. Widescreen and native-aspect modes change presentation beyond the original 4:3 layout; some HUD and scene edge cases remain experimental.
+Choose a window size, internal render scale and aspect ratio. Widescreen widens the 3D view; menus and movies stay 4:3.
 
 Use F11 or Alt+Enter for borderless fullscreen on Windows. Increase render scale gradually: a larger scale increases GPU work and memory demand.
 
@@ -37,7 +37,7 @@ Use F11 or Alt+Enter for borderless fullscreen on Windows. Increase render scale
 | Ray-traced water and shadows | Optional rendering effects | Compatible DirectX Raytracing hardware and a build with DXR support |
 | HD movies | Replace selected FMVs with locally upscaled video | Local movie pack and `hd_movies` enabled |
 
-These features can be disabled. If an option says it is unavailable in this build, toggling an INI value cannot add the missing renderer or SDK. DLSS Super Resolution / DLAA remain supported; the experimental DLSS 5 neural rendering bridge was removed on 28 October 2026.
+Every feature can be turned off. An option marked unavailable needs hardware or a build component you do not have.
 
 See [HD textures, video & subtitles](extras.md) for local packs, and the [DLSS reference](../reference/dlss.md) for current integration status and historical notes.
 
@@ -55,4 +55,4 @@ Gameplay dialogue uses the game's **Show Subtitles** option. **Narration subtitl
 
 ## Original-style setup
 
-Choose 30 FPS, 4:3, original menus and inventory, Classic bow aiming and no dual wielding. Disable HD replacement, live upscaling and optional DLSS/DXR effects as desired. You can retain convenient PC controls while making these choices.
+Choose 30 FPS, 4:3, original menus and inventory, Classic bow aiming and no dual wielding, and turn off HD textures, upscaling, DLSS and ray tracing.

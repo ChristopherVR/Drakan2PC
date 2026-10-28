@@ -1,8 +1,89 @@
 {
+  "hero": {
+    "kind": "backdrop",
+    "file": "hero.jpg",
+    "alt": "",
+    "width": 1920,
+    "height": 972,
+    "url": "https://github.com/ChristopherVR/Drakan2PC/releases/download/site-media-20261029/hero.jpg",
+    "sha256": "562fb0bdde8b548a92e4086e23b16c4f1acf1b2575d1b3544ffdd01ff4f9580a",
+    "source": "build/harness/site-hd-on/tent.png (top 10% cropped)"
+  },
+  "hd-compare": {
+    "kind": "compare",
+    "alt": "HD texture comparison",
+    "caption": "Same frame, same input. Drag the handle to compare.",
+    "width": 1920,
+    "height": 1080,
+    "scenes": [
+      {
+        "id": "surdana-field",
+        "label": "Surdana",
+        "before_url": "https://github.com/ChristopherVR/Drakan2PC/releases/download/site-media-20261029/hd-surdana-field-original.jpg",
+        "after_url": "https://github.com/ChristopherVR/Drakan2PC/releases/download/site-media-20261029/hd-surdana-field-hd.jpg",
+        "before_sha256": "c34b046a270fb6534a10b67b0976c6d557e1c4dcabba87f703262ef79146e4a4",
+        "after_sha256": "23039314f43a73754fc5858a17fa8c01bae26fa813a072ec9c0ed2c754ee7fc2",
+        "source": "build/harness/site-hd-off/field.png / build/harness/site-hd-on/field.png"
+      },
+      {
+        "id": "surdana-gate",
+        "label": "Palace gate",
+        "before_url": "https://github.com/ChristopherVR/Drakan2PC/releases/download/site-media-20261029/hd-surdana-gate-original.jpg",
+        "after_url": "https://github.com/ChristopherVR/Drakan2PC/releases/download/site-media-20261029/hd-surdana-gate-hd.jpg",
+        "before_sha256": "070a1af7c57b97a7ea1591b9280fbe93114c1bfdf7154cfe1ba35ac5b57c95a4",
+        "after_sha256": "04eac2f12e87035781806fde4d26bf28de96c4f3e8326ef3b9ddc09a8efc1490",
+        "source": "build/harness/site-hd-off/gate_far.png / build/harness/site-hd-on/gate_far.png"
+      },
+      {
+        "id": "catacombs",
+        "label": "Catacombs",
+        "before_url": "https://github.com/ChristopherVR/Drakan2PC/releases/download/site-media-20261029/hd-catacombs-original.jpg",
+        "after_url": "https://github.com/ChristopherVR/Drakan2PC/releases/download/site-media-20261029/hd-catacombs-hd.jpg",
+        "before_sha256": "ea9a2638037afb42ba3bd680908f13114a321d319d925a6e8b884e03c5a1d869",
+        "after_sha256": "91ab0ec5363df2499eceb5e9030944b5f30c685510ab6863444cd7eae73408e6",
+        "source": "build/harness/site-hd-1c-off/a.png / build/harness/site-hd-1c-on/a.png"
+      },
+      {
+        "id": "city-of-the-damned",
+        "label": "City of the Damned",
+        "before_url": "https://github.com/ChristopherVR/Drakan2PC/releases/download/site-media-20261029/hd-city-of-the-damned-original.jpg",
+        "after_url": "https://github.com/ChristopherVR/Drakan2PC/releases/download/site-media-20261029/hd-city-of-the-damned-hd.jpg",
+        "before_sha256": "e4dc3deeac1c78669bdee2bf61ebce7a3538352cbd573b4906dd8803a7abc87d",
+        "after_sha256": "c64fa6a54ade39c48e2bddab9fc235e15a78dd519e5b38825d694b60d23059f6",
+        "source": "build/harness/site-hd-1d-off/c.png / build/harness/site-hd-1d-on/c.png"
+      }
+    ]
+  },
+  "mouse-look": {
+    "file": "mouse-look.jpg",
+    "alt": "Rynn turning and looking up and down with the mouse in Surdana",
+    "caption": "Direct mouse look. The panel at the top right shows the mouse input.",
+    "width": 1280,
+    "height": 720,
+    "source": "build/harness/site-look2",
+    "video": "mouse-look.mp4",
+    "video_url": "https://github.com/ChristopherVR/Drakan2PC/releases/download/site-media-20261029/mouse-look.mp4",
+    "video_sha256": "31a5ef94913367a396f3cddfe8c87cb37ee813dfeb2f8c3c239121eb16825402",
+    "url": "https://github.com/ChristopherVR/Drakan2PC/releases/download/site-media-20261029/mouse-look.jpg",
+    "sha256": "0b6489da9948dee6820c6a71f3dffb49d0b11f9f287d9a86c988c349a58ca8d2"
+  },
+  "bow-aim": {
+    "file": "bow-aim.jpg",
+    "alt": "Rynn drawing the bow, aiming at the crosshair and firing two arrows",
+    "caption": "Modern bow aiming: hold the left button to draw and aim, release to shoot.",
+    "width": 1280,
+    "height": 720,
+    "source": "build/harness/site-bow",
+    "video": "bow-aim.mp4",
+    "video_url": "https://github.com/ChristopherVR/Drakan2PC/releases/download/site-media-20261029/bow-aim.mp4",
+    "video_sha256": "f41fca0e5407e4640e37f72ec06a3d433e0018601e19cfbff0c85dd551bb7eb4",
+    "url": "https://github.com/ChristopherVR/Drakan2PC/releases/download/site-media-20261029/bow-aim.jpg",
+    "sha256": "a5b0e94469e9e3718ce6dbc7c6f389322ec7b4f0487cdc575e519175b159349e"
+  },
   "modern-inventory": {
     "file": "modern-inventory.jpg",
     "alt": "Modern Tab inventory on Windows",
-    "caption": "The optional modern Tab inventory, with mouse-friendly equipment and item panels. Development capture; debug counters are not a performance benchmark.",
+    "caption": "Modern Tab inventory (Windows).",
     "width": 1280,
     "height": 720,
     "source": "build/harness/aui-after/tab_inv.png",
@@ -12,7 +93,7 @@
   "fullscreen-map": {
     "file": "fullscreen-map.jpg",
     "alt": "Full-screen map showing Surdana and objectives",
-    "caption": "The M map keeps objectives and marked locations beside the full-screen map. Windows development capture.",
+    "caption": "Full-screen map with objectives on M.",
     "width": 1280,
     "height": 720,
     "source": "build/harness/aui-after/map.png",
@@ -22,7 +103,7 @@
   "inventory-strip": {
     "file": "inventory-strip.jpg",
     "alt": "Inventory strip over gameplay with a bow selected",
-    "caption": "The I inventory strip keeps equipment close at hand without opening the full Tab screen. Windows development capture.",
+    "caption": "Inventory strip on I, over the live game.",
     "width": 1280,
     "height": 720,
     "source": "build/harness/aui-after/strip.png",
@@ -32,7 +113,7 @@
   "pc-settings": {
     "file": "pc-settings.jpg",
     "alt": "PC Settings categories in the native Linux player",
-    "caption": "PC Settings in the native Linux player: display, audio, controls, gameplay and key bindings.",
+    "caption": "PC Settings (Linux build).",
     "width": 1280,
     "height": 960,
     "source": "build/modern6-settings-linux.png",
@@ -42,7 +123,7 @@
   "display-settings": {
     "file": "display-settings.jpg",
     "alt": "Display settings in the native Linux player",
-    "caption": "The portable Display settings screen. Unavailable renderer options are disabled on this target.",
+    "caption": "Display settings (Linux build).",
     "width": 1280,
     "height": 960,
     "source": "build/modern8-display-linux.png",
@@ -52,7 +133,7 @@
   "save-browser": {
     "file": "save-browser.jpg",
     "alt": "Modern save browser with a Surdana save preview",
-    "caption": "The modern save browser with a manual save and preview, captured on Linux.",
+    "caption": "Save browser with slot previews (Linux build).",
     "width": 1280,
     "height": 960,
     "source": "build/modern6-save-linux.png",
@@ -62,7 +143,7 @@
   "linux-gameplay": {
     "file": "linux-gameplay.jpg",
     "alt": "Rynn in Surdana in the native Linux player",
-    "caption": "Native Linux gameplay in Surdana, using the software renderer.",
+    "caption": "Native Linux build, Surdana.",
     "width": 1280,
     "height": 960,
     "source": "build/high-resolution-profile6-game-linux.png",
@@ -72,47 +153,27 @@
   "browser-gameplay": {
     "file": "browser-gameplay.jpg",
     "alt": "Rynn in Surdana in the browser player",
-    "caption": "The browser build running from local files. Browser and native saves use separate storage.",
+    "caption": "Browser build, running from local files.",
     "width": 1252,
     "height": 574,
     "source": "build/portable-clarity-browser-game.png",
     "sha256": "35a6fa84264fd38863c821273471f843f6f6d1954a65cce6411aa9ead49cfc7d",
     "url": "https://github.com/ChristopherVR/Drakan2PC/releases/download/site-media-20261028/browser-gameplay.jpg"
   },
-  "hd-textures": {
-    "file": "hd-textures.jpg",
-    "alt": "Side-by-side texture comparison, original on left and HD replacements on right",
-    "caption": "Texture comparison from a local test: original on the left, HD replacement textures on the right. These are different captured frames, not a synchronized PS2-versus-PC benchmark.",
-    "width": 1280,
-    "height": 640,
-    "source": "build/screenshots/hd_level0_full_before_after.png",
-    "sha256": "e94b7d782026f816779d69f500724253bd1e7e4bf918fba62ca17d6ff6d62dd9",
-    "url": "https://github.com/ChristopherVR/Drakan2PC/releases/download/site-media-20261028/hd-textures.jpg"
-  },
   "narration-subtitles": {
     "file": "narration-subtitles.jpg",
     "alt": "Intro narration with the added subtitle overlay",
-    "caption": "Intro narration with locally supplied subtitles enabled. Narration SRT files are not bundled with the source or installer.",
+    "caption": "Intro narration with subtitles.",
     "width": 1280,
     "height": 720,
     "source": "build/screenshots/r3_subtitle_intro_1.png",
     "sha256": "21c3ccc14f30761e88b462d4b727edb2eb5db3fd8af31350a24362737d4cee2d",
     "url": "https://github.com/ChristopherVR/Drakan2PC/releases/download/site-media-20261028/narration-subtitles.jpg"
   },
-  "bow-aiming": {
-    "file": "bow-aiming.jpg",
-    "alt": "Rynn aiming with the modern bow crosshair",
-    "caption": "Modern bow aiming uses a center-screen crosshair. This sampled development capture illustrates the control mode, not game performance.",
-    "width": 1280,
-    "height": 720,
-    "source": "build/harness/bow6_modern/aiming.png",
-    "sha256": "9e11439eaf971126a0813e66ae8122deccdc1ee896988ba167e32b16aa624df5",
-    "url": "https://github.com/ChristopherVR/Drakan2PC/releases/download/site-media-20261028/bow-aiming.jpg"
-  },
   "dual-wield": {
     "file": "dual-wield.jpg",
     "alt": "Rynn holding a one-handed weapon in each hand",
-    "caption": "Optional dual wielding on Windows: a second one-handed weapon takes the shield slot. Animation assembled from sampled test frames; not a frame-rate demonstration.",
+    "caption": "Dual wielding: a second one-handed weapon instead of the shield.",
     "width": 1280,
     "height": 960,
     "source": "build/harness/dualwield08/b_70.png",
@@ -124,7 +185,7 @@
   "hd-movie": {
     "file": "hd-movie.jpg",
     "alt": "A dragon illustration in the locally upscaled intro movie",
-    "caption": "A short excerpt from the locally generated 4x HD intro pack. The movie pack itself is not distributed.",
+    "caption": "Intro movie, upscaled 4× from the disc.",
     "width": 1280,
     "height": 1280,
     "source": "build/site-media/hd-movie-preview.jpg",

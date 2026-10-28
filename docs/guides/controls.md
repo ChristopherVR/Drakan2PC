@@ -1,6 +1,6 @@
 # Controls & combat
 
-These are the default PC bindings. Existing configurations and rebindings take precedence. The complete keyboard/mouse feature set is on Windows; see the [platform reference](../reference/portability.md) for portable input differences.
+Default PC bindings. Rebind anything under **F1 → Key Bindings**. Linux and browser input differences are in the [platform reference](../reference/portability.md).
 
 ## Essential controls
 
@@ -16,7 +16,7 @@ These are the default PC bindings. Existing configurations and rebindings take p
 | F / middle mouse | Toggle target lock |
 | E | Use / call Arokh |
 | Q | Quick Inventory |
-| 1â€“5 | Use or equip a quick-slot item |
+| 1–5 | Use or equip a quick-slot item |
 | Mouse wheel | Previous / next weapon |
 | Tab | Full inventory |
 | I | Inventory strip |
@@ -27,17 +27,19 @@ These are the default PC bindings. Existing configurations and rebindings take p
 | F10 | Release / recapture mouse |
 | F11 / Alt+Enter | Borderless fullscreen on Windows |
 
-Quickload discards unsaved progress without asking. It uses the separate quicksave slot, not the newest manual save. See [Saves & updates](saves.md).
+Quickload discards unsaved progress without asking and uses its own slot, not your newest manual save. See [Saves & updates](saves.md).
 
 ## Mouse capture and menus
 
-The pointer is captured during gameplay and released for menus or when the window loses focus. **F10** toggles capture. Clicking back into the game recaptures it; that first click is consumed so it does not also attack.
+The pointer is captured during gameplay and released in menus or when the window loses focus. **F10** toggles capture. Clicking back into the game recaptures it without attacking.
+
+![Rynn turning and looking up and down with the mouse in Surdana](https://github.com/ChristopherVR/Drakan2PC/releases/download/site-media-20261029/mouse-look.jpg)
 
 In menus, use the mouse or arrows/WASD to select, **Enter / Space** to confirm and **Backspace / right mouse** to go back. **PgUp / PgDn** switch inventory sections or save pages where supported.
 
 ## Rebind keys and adjust the mouse
 
-Open **F1 â†’ Key Bindings** to change actions, and the mouse settings for sensitivity and inversion. Windows bindings are stored in `drakan_input.ini` next to the executable. Close the game before editing the file by hand.
+Open **F1 → Key Bindings** to change actions, and the mouse settings for sensitivity and inversion. Windows bindings are stored in `drakan_input.ini` next to the executable. Close the game before editing the file by hand.
 
 The Windows controller path uses XInput and maps the original DualShock layout onto the controller. Controller and keyboard prompts can be selected in PC Settings.
 
@@ -52,13 +54,13 @@ The corresponding setting in `drakan_input.ini` is:
 bow_aim = modern
 ```
 
-Use `classic` to restore the original behavior. This is a control option for the existing bow, not an added crossbow weapon.
+Use `classic` for the original behavior.
 
-![Rynn aiming with the modern bow crosshair](https://github.com/ChristopherVR/Drakan2PC/releases/download/site-media-20261028/bow-aiming.jpg)
+![Rynn drawing the bow, aiming at the crosshair and firing two arrows](https://github.com/ChristopherVR/Drakan2PC/releases/download/site-media-20261029/bow-aim.jpg)
 
 ## Optional dual wielding
 
-In **PC Settings â†’ Gameplay â†’ Combat**, enable **Dual wielding**. While Rynn holds a one-handed weapon, equip another one-handed weapon to put it in the left hand instead of a shield. Strikes alternate between the two hands. Use it again to stow it.
+In **PC Settings → Gameplay → Combat**, enable **Dual wielding**. While Rynn holds a one-handed weapon, equip another one-handed weapon to put it in the left hand instead of a shield. Strikes alternate between the two hands. Use it again to stow it.
 
 In `drakan.ini`:
 
@@ -67,13 +69,13 @@ In `drakan.ini`:
 dual_wield = 1
 ```
 
-Set it to `0` to disable the feature. Disabling stows the off-hand weapon when gameplay resumes. See the [combat reference](../reference/combat-controls.md) for implementation details and investigation history.
+Set it to `0` to turn it off; the off-hand weapon goes back to the inventory. Details: [combat reference](../reference/combat-controls.md).
 
 ![Rynn holding a one-handed weapon in each hand](https://github.com/ChristopherVR/Drakan2PC/releases/download/site-media-20261028/dual-wield.jpg)
 
 ## Tab inventory, I strip and M map
 
-Choose **Gameplay â†’ Inventory screen â†’ Modern / Original** for the full Tab inventory. The dedicated I and M views are independent. To return these shortcuts to ordinary inventory pages, edit `drakan_input.ini`:
+Choose **Gameplay → Inventory screen → Modern / Original** for the full Tab inventory. The dedicated I and M views are independent. To return these shortcuts to ordinary inventory pages, edit `drakan_input.ini`:
 
 ```ini
 [menu]
@@ -81,7 +83,7 @@ map_view = 0
 inventory_strip = 0
 ```
 
-Use `1` to enable each dedicated view again. These overlay improvements are currently most complete on Windows.
+Use `1` to turn each view back on.
 
 ![Full-screen map showing Surdana and objectives](https://github.com/ChristopherVR/Drakan2PC/releases/download/site-media-20261028/fullscreen-map.jpg)
 

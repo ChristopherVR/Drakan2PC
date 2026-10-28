@@ -43,8 +43,6 @@ Browser saves and settings live in IndexedDB. Keep the **same browser profile an
 
 When a storage error appears, use **Retry** and resolve storage access before closing the page. See [Saves & updates](saves.md).
 
-The documentation redesign retains the hosted player's original `play/` path, service worker scope and database names.
-
 ## Feature differences
 
-The browser uses the software GS renderer and portable input/audio paths. Modern title, pause, save/load and PC Settings screens are available, but Windows-only D3D11/DXR/DLSS features and full inventory/map overlay parity should not be assumed. Check [Platforms & portability](../reference/portability.md) for current limitations and validation evidence.
+The browser uses the software renderer. Modern menus and PC Settings work; DLSS, ray tracing and the modern Tab inventory are Windows only. See [Platforms & portability](../reference/portability.md).

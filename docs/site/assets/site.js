@@ -13,6 +13,47 @@ document.querySelectorAll('.animation-toggle').forEach(button => {
   });
 });
 
+document.querySelectorAll('.compare').forEach(figure => {
+  const stage = figure.querySelector('.compare-stage');
+  const range = figure.querySelector('.compare-range');
+  const before = figure.querySelector('.compare-before');
+  const after = figure.querySelector('.compare-after');
+  range.addEventListener('input', () => stage.style.setProperty('--pos', range.value + '%'));
+  figure.querySelectorAll('.compare-tab').forEach(tab => tab.addEventListener('click', () => {
+    figure.querySelectorAll('.compare-tab').forEach(other => other.setAttribute('aria-pressed', String(other === tab)));
+    before.src = tab.dataset.before;
+    after.src = tab.dataset.after;
+    before.alt = tab.textContent + ' with the original textures';
+    after.alt = tab.textContent + ' with HD textures';
+  }));
+});
+
+// Clips play while on screen, unless reduced motion is requested; the button always works.
+const reduceMotion = matchMedia('(prefers-reduced-motion: reduce)').matches;
+document.querySelectorAll('.media-video').forEach(figure => {
+  const video = figure.querySelector('video');
+  const button = figure.querySelector('.video-toggle');
+  video.removeAttribute('controls');
+  button.hidden = false;
+  const sync = () => {
+    button.textContent = video.paused ? 'Play' : 'Pause';
+    button.setAttribute('aria-pressed', String(!video.paused));
+  };
+  video.addEventListener('play', sync);
+  video.addEventListener('pause', sync);
+  button.addEventListener('click', () => {
+    figure.dataset.chosen = 'true';
+    if (video.paused) video.play().catch(() => {});
+    else video.pause();
+  });
+  if (reduceMotion || !('IntersectionObserver' in window)) return;
+  new IntersectionObserver(([entry]) => {
+    if (figure.dataset.chosen) return;
+    if (entry.isIntersecting) video.play().catch(() => {});
+    else video.pause();
+  }, {threshold: 0.4}).observe(video);
+});
+
 const mediaDialog = document.querySelector('.media-dialog');
 document.querySelectorAll('.media-enlarge').forEach(link => {
   link.addEventListener('click', event => {

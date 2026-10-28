@@ -1,0 +1,381 @@
+0 sync play 90
+140 shot m0140
+141 shot m0141
+142 shot m0142
+143 shot m0143
+144 shot m0144
+145 shot m0145
+146 shot m0146
+147 shot m0147
+148 shot m0148
+149 shot m0149
+150 mouse 15 0
+150 shot m0150
+151 mouse 15 0
+151 shot m0151
+152 mouse 15 0
+152 shot m0152
+153 mouse 15 0
+153 shot m0153
+154 mouse 15 0
+154 shot m0154
+155 mouse 15 0
+155 shot m0155
+156 mouse 15 0
+156 shot m0156
+157 mouse 15 0
+157 shot m0157
+158 mouse 15 0
+158 shot m0158
+159 mouse 15 0
+159 shot m0159
+160 mouse 15 0
+160 shot m0160
+161 mouse 15 0
+161 shot m0161
+162 mouse 15 0
+162 shot m0162
+163 mouse 15 0
+163 shot m0163
+164 mouse 15 0
+164 shot m0164
+165 mouse 15 0
+165 shot m0165
+166 mouse 15 0
+166 shot m0166
+167 mouse 15 0
+167 shot m0167
+168 mouse 15 0
+168 shot m0168
+169 mouse 15 0
+169 shot m0169
+170 mouse 15 0
+170 shot m0170
+171 mouse 15 0
+171 shot m0171
+172 mouse 15 0
+172 shot m0172
+173 mouse 15 0
+173 shot m0173
+174 mouse 15 0
+174 shot m0174
+175 mouse 15 0
+175 shot m0175
+176 mouse 15 0
+176 shot m0176
+177 mouse 15 0
+177 shot m0177
+178 mouse 15 0
+178 shot m0178
+179 mouse 15 0
+179 shot m0179
+180 mouse 15 0
+180 shot m0180
+181 mouse 15 0
+181 shot m0181
+182 mouse 15 0
+182 shot m0182
+183 mouse 15 0
+183 shot m0183
+184 mouse 15 0
+184 shot m0184
+185 mouse 15 0
+185 shot m0185
+186 mouse 15 0
+186 shot m0186
+187 mouse 15 0
+187 shot m0187
+188 mouse 15 0
+188 shot m0188
+189 mouse 15 0
+189 shot m0189
+190 mouse 0 -9
+190 shot m0190
+191 mouse 0 -9
+191 shot m0191
+192 mouse 0 -9
+192 shot m0192
+193 mouse 0 -9
+193 shot m0193
+194 mouse 0 -9
+194 shot m0194
+195 mouse 0 -9
+195 shot m0195
+196 mouse 0 -9
+196 shot m0196
+197 mouse 0 -9
+197 shot m0197
+198 mouse 0 -9
+198 shot m0198
+199 mouse 0 -9
+199 shot m0199
+200 mouse 0 -9
+200 shot m0200
+201 mouse 0 -9
+201 shot m0201
+202 mouse 0 -9
+202 shot m0202
+203 mouse 0 -9
+203 shot m0203
+204 mouse 0 -9
+204 shot m0204
+205 mouse 0 -9
+205 shot m0205
+206 mouse 0 -9
+206 shot m0206
+207 mouse 0 -9
+207 shot m0207
+208 mouse 0 -9
+208 shot m0208
+209 mouse 0 -9
+209 shot m0209
+210 mouse -15 0
+210 shot m0210
+211 mouse -15 0
+211 shot m0211
+212 mouse -15 0
+212 shot m0212
+213 mouse -15 0
+213 shot m0213
+214 mouse -15 0
+214 shot m0214
+215 mouse -15 0
+215 shot m0215
+216 mouse -15 0
+216 shot m0216
+217 mouse -15 0
+217 shot m0217
+218 mouse -15 0
+218 shot m0218
+219 mouse -15 0
+219 shot m0219
+220 mouse -15 0
+220 shot m0220
+221 mouse -15 0
+221 shot m0221
+222 mouse -15 0
+222 shot m0222
+223 mouse -15 0
+223 shot m0223
+224 mouse -15 0
+224 shot m0224
+225 mouse -15 0
+225 shot m0225
+226 mouse -15 0
+226 shot m0226
+227 mouse -15 0
+227 shot m0227
+228 mouse -15 0
+228 shot m0228
+229 mouse -15 0
+229 shot m0229
+230 mouse -15 0
+230 shot m0230
+231 mouse -15 0
+231 shot m0231
+232 mouse -15 0
+232 shot m0232
+233 mouse -15 0
+233 shot m0233
+234 mouse -15 0
+234 shot m0234
+235 mouse -15 0
+235 shot m0235
+236 mouse -15 0
+236 shot m0236
+237 mouse -15 0
+237 shot m0237
+238 mouse -15 0
+238 shot m0238
+239 mouse -15 0
+239 shot m0239
+240 mouse -15 0
+240 shot m0240
+241 mouse -15 0
+241 shot m0241
+242 mouse -15 0
+242 shot m0242
+243 mouse -15 0
+243 shot m0243
+244 mouse -15 0
+244 shot m0244
+245 mouse -15 0
+245 shot m0245
+246 mouse -15 0
+246 shot m0246
+247 mouse -15 0
+247 shot m0247
+248 mouse -15 0
+248 shot m0248
+249 mouse -15 0
+249 shot m0249
+250 mouse -15 0
+250 shot m0250
+251 mouse -15 0
+251 shot m0251
+252 mouse -15 0
+252 shot m0252
+253 mouse -15 0
+253 shot m0253
+254 mouse -15 0
+254 shot m0254
+255 mouse -15 0
+255 shot m0255
+256 mouse -15 0
+256 shot m0256
+257 mouse -15 0
+257 shot m0257
+258 mouse -15 0
+258 shot m0258
+259 mouse -15 0
+259 shot m0259
+260 mouse -15 0
+260 shot m0260
+261 mouse -15 0
+261 shot m0261
+262 mouse -15 0
+262 shot m0262
+263 mouse -15 0
+263 shot m0263
+264 mouse -15 0
+264 shot m0264
+265 mouse 0 10
+265 shot m0265
+266 mouse 0 10
+266 shot m0266
+267 mouse 0 10
+267 shot m0267
+268 mouse 0 10
+268 shot m0268
+269 mouse 0 10
+269 shot m0269
+270 mouse 0 10
+270 shot m0270
+271 mouse 0 10
+271 shot m0271
+272 mouse 0 10
+272 shot m0272
+273 mouse 0 10
+273 shot m0273
+274 mouse 0 10
+274 shot m0274
+275 mouse 0 10
+275 shot m0275
+276 mouse 0 10
+276 shot m0276
+277 mouse 0 10
+277 shot m0277
+278 mouse 0 10
+278 shot m0278
+279 mouse 0 10
+279 shot m0279
+280 mouse 0 10
+280 shot m0280
+281 mouse 0 10
+281 shot m0281
+282 mouse 0 10
+282 shot m0282
+283 mouse 0 10
+283 shot m0283
+284 mouse 0 10
+284 shot m0284
+285 mouse 0 10
+285 shot m0285
+286 mouse 0 10
+286 shot m0286
+287 mouse 0 10
+287 shot m0287
+288 mouse 0 10
+288 shot m0288
+289 mouse 0 10
+289 shot m0289
+290 mouse 0 10
+290 shot m0290
+291 mouse 0 10
+291 shot m0291
+292 mouse 0 10
+292 shot m0292
+293 mouse 0 10
+293 shot m0293
+294 mouse 0 10
+294 shot m0294
+295 mouse 10 -3
+295 shot m0295
+296 mouse 10 -3
+296 shot m0296
+297 mouse 10 -3
+297 shot m0297
+298 mouse 10 -3
+298 shot m0298
+299 mouse 10 -3
+299 shot m0299
+300 mouse 10 -3
+300 shot m0300
+301 mouse 10 -3
+301 shot m0301
+302 mouse 10 -3
+302 shot m0302
+303 mouse 10 -3
+303 shot m0303
+304 mouse 10 -3
+304 shot m0304
+305 mouse 10 -3
+305 shot m0305
+306 mouse 10 -3
+306 shot m0306
+307 mouse 10 -3
+307 shot m0307
+308 mouse 10 -3
+308 shot m0308
+309 mouse 10 -3
+309 shot m0309
+310 mouse 10 -3
+310 shot m0310
+311 mouse 10 -3
+311 shot m0311
+312 mouse 10 -3
+312 shot m0312
+313 mouse 10 -3
+313 shot m0313
+314 mouse 10 -3
+314 shot m0314
+315 mouse 10 -3
+315 shot m0315
+316 mouse 10 -3
+316 shot m0316
+317 mouse 10 -3
+317 shot m0317
+318 mouse 10 -3
+318 shot m0318
+319 mouse 10 -3
+319 shot m0319
+320 mouse 10 -3
+320 shot m0320
+321 mouse 10 -3
+321 shot m0321
+322 mouse 10 -3
+322 shot m0322
+323 mouse 10 -3
+323 shot m0323
+324 mouse 10 -3
+324 shot m0324
+325 shot m0325
+326 shot m0326
+327 shot m0327
+328 shot m0328
+329 shot m0329
+330 shot m0330
+331 shot m0331
+332 shot m0332
+333 shot m0333
+334 shot m0334
+335 shot m0335
+336 shot m0336
+337 shot m0337
+338 shot m0338
+339 shot m0339
+340 shot m0340
+341 shot m0341
+342 shot m0342
+343 shot m0343
+350 quit

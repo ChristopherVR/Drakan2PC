@@ -13,15 +13,37 @@ GitHub Pages hosts a source-only project website: a landing page, PS2-to-PC feat
 
 The site uses one pinned build dependency, Python-Markdown. There is no frontend dependency installation, remote font, analytics script or game-data build. Existing `BUILDING.md` and the portability reference are rendered from their canonical files rather than copied into a second document.
 
-The visual design follows the port's game menus: bronze frames, warm dark panels, cream serif text and a red/gold selected row. The palette is informed by `runtime/settings/src/Menu.cpp`. The mark and stone texture are original SVG source. Display text uses local Castellar with serif fallbacks; body text uses local Goudy Old Style with Palatino/Georgia fallbacks.
+The visual design follows the game's title screen: a dusk-lit gameplay backdrop, gilt frames with corner studs, cream serif menu text and an ember-orange selected row. The palette is informed by `runtime/settings/src/Menu.cpp`. The mark and stone texture are original SVG source. Display text uses local Castellar with serif fallbacks; body text uses local Goudy Old Style with Palatino/Georgia fallbacks.
 
 ## Screenshots and animations
 
 Documentation captures are hosted separately as attachments to the `site-media-20261028` GitHub release. No captures are committed or copied into the Pages artifact. `docs/site/media.json` records each screenshot's URL, dimensions, local source, SHA-256 and caption. The README uses the same public URLs. Keep source captures and conversion outputs under ignored `build/`.
 
-Guides use ordinary Markdown image links; the builder expands recognized URLs into captioned figures. The homepage uses `<!-- media:ID -->` markers. Images open in an accessible dialog, with ordinary image links as a no-JavaScript fallback. GIFs load only after Play animation is selected, and can be stopped. README animations are placed in collapsed details blocks.
+The second batch (HD comparisons, mouse-look and bow clips, hero backdrop) is attached to `site-media-20261029`.
 
-Captions distinguish Windows, Linux and browser captures and identify sampled development frames. Debug counters and sampled GIFs are not frame-rate benchmarks. The short movie excerpt illustrates a locally generated pack; full movie packs, subtitle transcripts and playable game files are not distributed with the site. New media requires deliberate review and upload; the site build never uploads or generates it automatically.
+Guides use ordinary Markdown image links; the builder expands recognized URLs into captioned figures. The homepage and guides can also use `<!-- media:ID -->` markers. `media.json` entries render by kind:
+
+- plain entries: a figure that opens in the image dialog; `animation_url` adds a Play animation button that swaps in a GIF.
+- `video_url`: a muted, looping MP4 with the `url` image as poster. `site.js` plays it while it is on screen and offers a Play/Pause button; with reduced motion it only plays on request. Without JavaScript the native controls stay.
+- `"kind": "compare"`: the before/after slider. Each scene has `before_url` (original textures) and `after_url` (HD). Tabs switch scenes; a transparent range input moves the split, so keyboard and touch work.
+- `"kind": "backdrop"`: the homepage hero image.
+
+Every URL in an entry, including scene URLs, must point at a `site-media-*` release.
+
+### Capturing comparison and clip media
+
+Comparisons must show the same frame: run the same harness recipe twice and change only the texture settings. Camera moves are deterministic between runs; walking and animation phase (Arokh's wings, for example) are not, so use still-camera scenes.
+
+```powershell
+python scripts/harness/play_run.py --name site-hd-on --recipe scripts/harness/recipes/site_hd_scene.txt --env DRAKAN_SHOW_FPS=0
+python scripts/harness/play_run.py --name site-hd-off --recipe scripts/harness/recipes/site_hd_scene.txt --env DRAKAN_SHOW_FPS=0 --env GSR_TEXREPLACE=0 --env GSR_TEXUP=1
+```
+
+`GSR_TEXREPLACE=0 GSR_TEXUP=1` gives the original textures (no replacement and no live upscaling). Other levels use `--level 1c` etc. with `site_hd_level.txt`.
+
+For clips, point `DRAKAN_INI` at a copy of `drakan.ini` with a 1280×720 windowed mode, `show_fps = 0`, `inventory_screen = native` (the bow recipe navigates the original Tab screen) and `dual_wield = 0`. A 4K window drops `shot` requests when they come every sample. `site_mouse_look.txt` needs `world_rate = 30` (one shot per sample = 30 FPS video). `site_bow.txt` needs `world_rate = uncapped` and starts from the bow fixture card (`--save` with a Surdana save next to the bow table). Script events must be in frame order. The mouse/LMB overlay is drawn afterwards from the recipe's own input, and the frames are encoded with FFmpeg (H.264, `yuv420p`, `+faststart`).
+
+Captions are short and say what the capture shows. Full movie packs, subtitle transcripts and playable game files are not distributed with the site. New media requires deliberate review and upload; the site build never uploads or generates it automatically.
 
 ## Build and preview
 
