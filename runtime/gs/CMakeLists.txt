@@ -83,6 +83,8 @@ target_link_libraries(gsr PUBLIC drakan::gs_headers d3d11 dxgi d3dcompiler PRIVA
 option(GSR_DXR "Build the DXR ray-traced water / shadows when dxc is available" ON)
 if(GSR_DXR)
   file(GLOB GSR_DXC_SDK_DIRS "C:/Program Files (x86)/Windows Kits/10/bin/*/x64")
+  # Newest SDK first: old SDKs ship a dxc without shader model 6.5.
+  list(SORT GSR_DXC_SDK_DIRS COMPARE NATURAL ORDER DESCENDING)
   find_program(GSR_DXC NAMES dxc HINTS "$ENV{WindowsSdkDir}/bin/$ENV{WindowsSDKVersion}/x64" ${GSR_DXC_SDK_DIRS})
   if(GSR_DXC)
     add_custom_command(OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/ray_water_bytecode.h"
