@@ -1,0 +1,16 @@
+[
+  {"source":"docs/guides/enhancements.md","url":"guides/enhancements.html","title":"PC enhancements","section":"Start here","description":"How Drakan2PC builds on the PS2 original, with optional enhancements and classic settings."},
+  {"source":"docs/guides/install.md","url":"guides/install.html","title":"Install on Windows","section":"Start here","description":"From your own PAL disc image to your first game on Windows."},
+  {"source":"docs/guides/linux.md","url":"guides/linux.html","title":"Install on Linux","section":"Start here","description":"Build the native Linux player from your own disc on x86-64 Ubuntu or Debian."},
+  {"source":"docs/guides/browser.md","url":"guides/browser.html","title":"Play in your browser","section":"Start here","description":"Build once, choose your local files and play in desktop Chrome or Edge."},
+  {"source":"docs/guides/controls.md","url":"guides/controls.html","title":"Controls & combat","section":"Player guides","description":"Mouse, keyboard, controllers, modern bow aiming and optional dual wielding."},
+  {"source":"docs/guides/settings.md","url":"guides/settings.html","title":"Graphics & PC settings","section":"Player guides","description":"Choose your frame rate, graphics, interface and original-style options."},
+  {"source":"docs/guides/extras.md","url":"guides/extras.html","title":"HD textures, video & subtitles","section":"Player guides","description":"Optional upgrades generated from your disc and locally supplied narration subtitles."},
+  {"source":"docs/guides/saves.md","url":"guides/saves.html","title":"Saves & updates","section":"Player guides","description":"Back up your progress, use quicksave and rebuild safely."},
+  {"source":"docs/guides/troubleshooting.md","url":"guides/troubleshooting.html","title":"Troubleshooting","section":"Player guides","description":"Help with builds, unsupported discs, mouse capture, performance and browser saves."},
+  {"source":"docs/guides/development.md","url":"development/index.html","title":"Developer overview","section":"Development","description":"Repository structure, contribution rules and the path from PS2 code to a native runtime."},
+  {"source":"BUILDING.md","url":"development/building.html","title":"Build from source","section":"Development","description":"The canonical build instructions for Windows, Linux and WebAssembly."},
+  {"source":"docs/reference/portability.md","url":"development/portability.html","title":"Platforms & portability","section":"Development","description":"Current Windows, Linux and browser implementations, validation and remaining limits."},
+  {"source":"docs/guides/reference.md","url":"development/reference.html","title":"Technical reference","section":"Development","description":"Find subsystem documentation, current status trackers and dated research notes."},
+  {"source":"docs/reference/github-pages.md","url":"development/site.html","title":"Maintain this site","section":"Development","description":"Build, preview and publish the documentation site without game data."}
+]

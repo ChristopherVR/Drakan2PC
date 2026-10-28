@@ -310,8 +310,8 @@ of opening `index.html` directly. WSL builds also stage a Windows launcher and t
 Windows ISO path. `serve_web.py --iso <path>` selects a moved ISO; `--port` is optional, but changing
 the port changes the browser origin and therefore its saved-game storage.
 
-**Browser player page.** The project site (GitHub Pages, published from `runtime/web/pages` by
-`.github/workflows/pages.yml`) is an alternative to the launcher: choose your `dist/DrakanPC-web` folder, your ISO and
+**Browser player page.** The project site's `browser.html` page (published by `.github/workflows/pages.yml`,
+alongside the [user guides](docs/guides/browser.md)) is an alternative to the launcher: choose your `dist/DrakanPC-web` folder, your ISO and
 optionally an HD texture folder, then Play. The page holds no game code; its service worker (`sw.js`) serves `play/`
 straight from the chosen files with the isolation headers and bounded disc reads, so nothing is uploaded. It needs a
 desktop Chromium browser (File System Access API). Saves made there belong to the site's origin, separate from the

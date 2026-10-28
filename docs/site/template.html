@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="$description">
+  <meta name="theme-color" content="#100d0b">
+  <title>$title · Drakan2PC</title>
+  <link rel="icon" href="$base/assets/mark.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="$base/assets/site.css">
+  <script src="$base/assets/site.js" defer></script>
+</head>
+<body data-base="$base" class="$page_class">
+  <a class="skip-link" href="#main">Skip to content</a>
+  <header class="site-header">
+    <a class="brand" href="$base/index.html" aria-label="Drakan2PC home"><img src="$base/assets/mark.svg" width="26" height="32" alt=""><span>Drakan<span class="brand-pc">2PC</span></span></a>
+    <nav class="top-nav" aria-label="Main navigation">
+      <a href="$base/guides/enhancements.html">PC enhancements</a>
+      <a href="$base/guides/install.html">Guides</a>
+      <a href="$base/development/index.html">Developers</a>
+      <a href="$base/browser.html">Browser player</a>
+    </nav>
+    <button class="search-open" type="button" hidden>Search docs <kbd>/</kbd></button>
+    <a class="github-link" href="https://github.com/ChristopherVR/Drakan2PC">GitHub</a>
+  </header>
+  $layout
+  <footer class="site-footer"><span>Drakan2PC <span class="footer-divider">◆</span> An unofficial fan project.</span><span>Game and trademarks belong to their respective owners. <a href="https://github.com/ChristopherVR/Drakan2PC#legal-notice">Legal &amp; licences</a></span></footer>
+  <dialog class="search-dialog" aria-labelledby="search-title">
+    <div class="search-heading"><h2 id="search-title">Search documentation</h2><button class="search-close" type="button" aria-label="Close search">Close <kbd>Esc</kbd></button></div>
+    <label class="sr-only" for="search-input">Search documentation</label>
+    <input id="search-input" type="search" placeholder="Try “dual wield”, “subtitles” or “saves”…" autocomplete="off">
+    <p id="search-status" role="status" aria-live="polite">Search player guides and developer documentation.</p>
+    <ul id="search-results"></ul>
+  </dialog>
+  <dialog class="media-dialog" aria-label="Screenshot viewer">
+    <button class="media-close" type="button" aria-label="Close screenshot">Close <kbd>Esc</kbd></button>
+    <img alt="">
+    <p class="media-description"></p>
+  </dialog>
+  $scripts
+</body>
+</html>

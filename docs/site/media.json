@@ -1,0 +1,136 @@
+{
+  "modern-inventory": {
+    "file": "modern-inventory.jpg",
+    "alt": "Modern Tab inventory on Windows",
+    "caption": "The optional modern Tab inventory, with mouse-friendly equipment and item panels. Development capture; debug counters are not a performance benchmark.",
+    "width": 1280,
+    "height": 720,
+    "source": "build/harness/aui-after/tab_inv.png",
+    "sha256": "ab28a0ab7ab87958c9afb3fe1ef568512148d1a751a22fc2ffd9286a272fa517",
+    "url": "https://github.com/ChristopherVR/Drakan2PC/releases/download/site-media-20261028/modern-inventory.jpg"
+  },
+  "fullscreen-map": {
+    "file": "fullscreen-map.jpg",
+    "alt": "Full-screen map showing Surdana and objectives",
+    "caption": "The M map keeps objectives and marked locations beside the full-screen map. Windows development capture.",
+    "width": 1280,
+    "height": 720,
+    "source": "build/harness/aui-after/map.png",
+    "sha256": "42b825d7f123bca6273176a5b6c83df8a2c7c8b18374d0b85b8d62921bab1c0b",
+    "url": "https://github.com/ChristopherVR/Drakan2PC/releases/download/site-media-20261028/fullscreen-map.jpg"
+  },
+  "inventory-strip": {
+    "file": "inventory-strip.jpg",
+    "alt": "Inventory strip over gameplay with a bow selected",
+    "caption": "The I inventory strip keeps equipment close at hand without opening the full Tab screen. Windows development capture.",
+    "width": 1280,
+    "height": 720,
+    "source": "build/harness/aui-after/strip.png",
+    "sha256": "5f8ea823eabe0f4db49d8e92ad9599fd7e58d3ec39604ac40cc684fcba7cd6e5",
+    "url": "https://github.com/ChristopherVR/Drakan2PC/releases/download/site-media-20261028/inventory-strip.jpg"
+  },
+  "pc-settings": {
+    "file": "pc-settings.jpg",
+    "alt": "PC Settings categories in the native Linux player",
+    "caption": "PC Settings in the native Linux player: display, audio, controls, gameplay and key bindings.",
+    "width": 1280,
+    "height": 960,
+    "source": "build/modern6-settings-linux.png",
+    "sha256": "8cf4b0f14be4fbc6882bc2d40c52e42ae4edb0472da1501fa509dae63db8cc1e",
+    "url": "https://github.com/ChristopherVR/Drakan2PC/releases/download/site-media-20261028/pc-settings.jpg"
+  },
+  "display-settings": {
+    "file": "display-settings.jpg",
+    "alt": "Display settings in the native Linux player",
+    "caption": "The portable Display settings screen. Unavailable renderer options are disabled on this target.",
+    "width": 1280,
+    "height": 960,
+    "source": "build/modern8-display-linux.png",
+    "sha256": "ad4504403be83ce445f9965d0dfaf2ef31e30025aacdf8e49c7cb8a8966523f9",
+    "url": "https://github.com/ChristopherVR/Drakan2PC/releases/download/site-media-20261028/display-settings.jpg"
+  },
+  "save-browser": {
+    "file": "save-browser.jpg",
+    "alt": "Modern save browser with a Surdana save preview",
+    "caption": "The modern save browser with a manual save and preview, captured on Linux.",
+    "width": 1280,
+    "height": 960,
+    "source": "build/modern6-save-linux.png",
+    "sha256": "459a4de91097b7438f512ba2ba1c8692f71ef0b39c98f8d87bc90a306263c2af",
+    "url": "https://github.com/ChristopherVR/Drakan2PC/releases/download/site-media-20261028/save-browser.jpg"
+  },
+  "linux-gameplay": {
+    "file": "linux-gameplay.jpg",
+    "alt": "Rynn in Surdana in the native Linux player",
+    "caption": "Native Linux gameplay in Surdana, using the software renderer.",
+    "width": 1280,
+    "height": 960,
+    "source": "build/high-resolution-profile6-game-linux.png",
+    "sha256": "85a357b7a52afe12691efb9b1bdc25a96622db1f1196672eef58ad2422be303c",
+    "url": "https://github.com/ChristopherVR/Drakan2PC/releases/download/site-media-20261028/linux-gameplay.jpg"
+  },
+  "browser-gameplay": {
+    "file": "browser-gameplay.jpg",
+    "alt": "Rynn in Surdana in the browser player",
+    "caption": "The browser build running from local files. Browser and native saves use separate storage.",
+    "width": 1252,
+    "height": 574,
+    "source": "build/portable-clarity-browser-game.png",
+    "sha256": "35a6fa84264fd38863c821273471f843f6f6d1954a65cce6411aa9ead49cfc7d",
+    "url": "https://github.com/ChristopherVR/Drakan2PC/releases/download/site-media-20261028/browser-gameplay.jpg"
+  },
+  "hd-textures": {
+    "file": "hd-textures.jpg",
+    "alt": "Side-by-side texture comparison, original on left and HD replacements on right",
+    "caption": "Texture comparison from a local test: original on the left, HD replacement textures on the right. These are different captured frames, not a synchronized PS2-versus-PC benchmark.",
+    "width": 1280,
+    "height": 640,
+    "source": "build/screenshots/hd_level0_full_before_after.png",
+    "sha256": "e94b7d782026f816779d69f500724253bd1e7e4bf918fba62ca17d6ff6d62dd9",
+    "url": "https://github.com/ChristopherVR/Drakan2PC/releases/download/site-media-20261028/hd-textures.jpg"
+  },
+  "narration-subtitles": {
+    "file": "narration-subtitles.jpg",
+    "alt": "Intro narration with the added subtitle overlay",
+    "caption": "Intro narration with locally supplied subtitles enabled. Narration SRT files are not bundled with the source or installer.",
+    "width": 1280,
+    "height": 720,
+    "source": "build/screenshots/r3_subtitle_intro_1.png",
+    "sha256": "21c3ccc14f30761e88b462d4b727edb2eb5db3fd8af31350a24362737d4cee2d",
+    "url": "https://github.com/ChristopherVR/Drakan2PC/releases/download/site-media-20261028/narration-subtitles.jpg"
+  },
+  "bow-aiming": {
+    "file": "bow-aiming.jpg",
+    "alt": "Rynn aiming with the modern bow crosshair",
+    "caption": "Modern bow aiming uses a center-screen crosshair. This sampled development capture illustrates the control mode, not game performance.",
+    "width": 1280,
+    "height": 720,
+    "source": "build/harness/bow6_modern/aiming.png",
+    "sha256": "9e11439eaf971126a0813e66ae8122deccdc1ee896988ba167e32b16aa624df5",
+    "url": "https://github.com/ChristopherVR/Drakan2PC/releases/download/site-media-20261028/bow-aiming.jpg"
+  },
+  "dual-wield": {
+    "file": "dual-wield.jpg",
+    "alt": "Rynn holding a one-handed weapon in each hand",
+    "caption": "Optional dual wielding on Windows: a second one-handed weapon takes the shield slot. Animation assembled from sampled test frames; not a frame-rate demonstration.",
+    "width": 1280,
+    "height": 960,
+    "source": "build/harness/dualwield08/b_70.png",
+    "sha256": "950da3e8f4f9bb9ae0909b90524e50337b1f89c97c473d234516b9fce5fa6644",
+    "animation": "dual-wield.gif",
+    "url": "https://github.com/ChristopherVR/Drakan2PC/releases/download/site-media-20261028/dual-wield.jpg",
+    "animation_url": "https://github.com/ChristopherVR/Drakan2PC/releases/download/site-media-20261028/dual-wield.gif"
+  },
+  "hd-movie": {
+    "file": "hd-movie.jpg",
+    "alt": "A dragon illustration in the locally upscaled intro movie",
+    "caption": "A short excerpt from the locally generated 4x HD intro pack. The movie pack itself is not distributed.",
+    "width": 1280,
+    "height": 1280,
+    "source": "build/site-media/hd-movie-preview.jpg",
+    "sha256": "5ec3e9665090d66d22015e3e84cac4339433f06122fe39f21332b4be7d5a6527",
+    "animation": "hd-movie.gif",
+    "url": "https://github.com/ChristopherVR/Drakan2PC/releases/download/site-media-20261028/hd-movie.jpg",
+    "animation_url": "https://github.com/ChristopherVR/Drakan2PC/releases/download/site-media-20261028/hd-movie.gif"
+  }
+}

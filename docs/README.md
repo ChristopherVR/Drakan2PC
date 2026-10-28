@@ -2,7 +2,22 @@
 
 Convention: **reference** docs describe a feature or subsystem and are kept current as the code changes. **status** docs are living trackers, updated in place. **journal** entries are append-only dated records of investigations, measurements and handoffs; they are not rewritten to match later results, so read them as of their date.
 
-## Reference (23)
+## Player guides and website
+
+The [GitHub Pages site](https://christophervr.github.io/Drakan2PC/) presents the guides with navigation and search.
+The canonical Markdown remains in this repository:
+
+- [PC enhancements compared with PS2](guides/enhancements.md)
+- [Install on Windows](guides/install.md), [install on Linux](guides/linux.md) and [play in your browser](guides/browser.md)
+- [Controls & combat](guides/controls.md) and [graphics & PC settings](guides/settings.md)
+- [HD textures, video & subtitles](guides/extras.md)
+- [Saves & updates](guides/saves.md) and [troubleshooting](guides/troubleshooting.md)
+- [Developer overview](guides/development.md) and [technical reference index](guides/reference.md)
+- [Maintain the GitHub Pages site](reference/github-pages.md)
+
+## Reference (24)
+
+- [GitHub Pages documentation site](reference/github-pages.md)
 
 - [Combat input investigation — 17 October 2026](reference/combat-controls.md)
 - [Optional DLSS integration: actual status](reference/dlss.md)

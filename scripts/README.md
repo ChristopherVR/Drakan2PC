@@ -19,6 +19,8 @@ either.
 
 ## Main entry points
 
+- Documentation site: `python scripts/buildtool/build_pages.py` (install `docs/site/requirements.txt` first).
+  Generates and validates `build/github-pages`; see `docs/reference/github-pages.md` for preview and publication.
 - Build: `pwsh scripts/buildtool/Build-LocalGame.ps1 -IsoPath <iso>` (Windows), or `bash scripts/buildtool/Build-Drakan.sh <iso> [--web]` (Linux/browser). Windows browser builds use `-TargetPlatform web` through WSL.
   `pwsh scripts/harness/build_game.ps1 [-BuildDir build/recomp_combat] [-Gen] [-Jobs N] [-CompilerJobs N]`
   is the incremental rebuild of a private `build/recomp_*` dev tree (replaces the former

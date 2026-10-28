@@ -1,23 +1,82 @@
 # Drakan2PC
 
 A PC port of **Drakan: The Ancients' Gates** (PlayStation 2, 2002), built by **static recompilation**: the game's
-own PS2 program is translated to C++ and compiled into a native Windows executable, or a WebAssembly build for the
+own PS2 program is translated to C++ and compiled into a native Windows or Linux executable, or a WebAssembly build for the
 browser. A new runtime supplies graphics, audio, input, saves and the PS2 system services the game expects.
 
 **You need your own copy of the game.** This repository holds only source code and build tools. The game is built on
-your PC from a disc image of your own disc, and everything made from it stays on your PC.
+your PC from a disc image of your own disc; the builder does not upload your game files.
 
-## Features
+**[Project website & user guides](https://christophervr.github.io/Drakan2PC/)** ·
+[Install on Windows](docs/guides/install.md) · [Install on Linux](docs/guides/linux.md) · [Controls](docs/guides/controls.md) ·
+[Troubleshooting](docs/guides/troubleshooting.md) · [Developer documentation](docs/guides/development.md)
 
-- Native Windows build: Direct3D 11, any resolution, borderless fullscreen, widescreen HUD and
-  higher frame rates (the original 30 fps is still available).
-- Mouse and keyboard controls with rebindable keys, plus XInput controllers. F1 opens the PC settings
-  (video, controls, mouse, frame rate).
-- Optional HD texture pack, generated from your disc with an AI upscaler.
-- Optional ray-traced water and shadows (needs a GPU with DirectX Raytracing).
-- Optional NVIDIA DLSS Super Resolution / DLAA on NVIDIA RTX GPUs (downloaded from NVIDIA only if you opt in).
-- Browser version: WebAssembly, played locally or through the [browser player page](https://christophervr.github.io/Drakan2PC/).
-- Saves on virtual memory cards next to the game (or in browser storage).
+## PC enhancements compared with PS2
+
+The original adventure, with configurable PC improvements. Windows has the fullest feature set;
+Linux and browser support differs ([platform details](docs/reference/portability.md)).
+
+| Area | PC improvements |
+| --- | --- |
+| **60+ FPS support** | 30, 60 and uncapped world frame-rate modes. Actual FPS depends on hardware and scene; the original 30 FPS cadence remains available. |
+| **Enhanced graphics, optional** | Higher resolutions, widescreen, borderless fullscreen, improved filtering and HD texture replacement. Optional DLSS Super Resolution / DLAA on compatible NVIDIA RTX GPUs, and ray-traced water/shadows on compatible DXR hardware. Enhancements can be disabled. |
+| **Mouse and keyboard** | Direct mouse look, WASD movement/strafe, rebindable controls, sensitivity/inversion settings, keyboard prompts and mouse-driven menus. XInput controllers remain supported on Windows. |
+| **Modern bow aiming, configurable** | Hold left mouse to aim with a crosshair and slight zoom; release to shoot. Choose Classic for the original bow controls. This changes the existing bow, rather than adding a crossbow weapon. |
+| **Dual wielding, configurable** | Equip a second one-handed weapon in Rynn's left hand instead of a shield; attacks alternate hands. Can be enabled or disabled in PC Settings. |
+| **Modern inventory, configurable** | Optional full-screen PC inventory on **Tab**, with the original inventory still selectable. |
+| **Dedicated map and inventory strip** | **M** opens a full-screen map; **I** opens an equipment strip over the world. Each can revert to the normal inventory pages independently of the Tab inventory setting. |
+| **PC Settings and menus** | **F1** opens display, audio, input and gameplay options. Configurable modern title, pause and save/load screens, plus original-menu choices. |
+| **Upscaled video, optional** | Locally generated **4× AI-upscaled intro, outro and logo movies** on Windows. Original video remains available; a movie pack must be generated separately. |
+| **Narration subtitles** | Added intro/ending subtitle support with scalable text, alongside the game's existing dialogue subtitles. Requires local language-specific SRT files; transcripts are not included. |
+| **Save conveniences** | **F5 quicksave / F8 quickload**, additional manual save pages and optional modern save previews. Native saves live beside the game; browser saves use browser storage. |
+| **More ways to play** | Native Windows and Linux builds, plus WebAssembly through the local or [hosted browser player](https://christophervr.github.io/Drakan2PC/browser.html). |
+
+The modern Tab inventory, dedicated map/strip overlays and advanced graphics are most complete on Windows;
+do not assume full Linux/browser parity. HD textures and movies are generated from your own disc, and narration
+SRTs are supplied locally. No such packs or game assets are distributed here.
+
+See **[the full PS2-to-PC comparison](docs/guides/enhancements.md)** for feature details, platform limits and
+original-style options; [PC settings](docs/guides/settings.md) and [optional extras](docs/guides/extras.md) explain setup.
+
+## Screenshots and demonstrations
+
+Development captures of the PC port. Click a screenshot to enlarge it. The GIFs below are reduced-size demonstrations, not frame-rate benchmarks.
+
+| Modern Tab inventory on Windows | Full-screen map showing Surdana and objectives |
+| --- | --- |
+| [![Modern Tab inventory on Windows](https://github.com/ChristopherVR/Drakan2PC/releases/download/site-media-20261028/modern-inventory.jpg)](https://github.com/ChristopherVR/Drakan2PC/releases/download/site-media-20261028/modern-inventory.jpg) | [![Full-screen map showing Surdana and objectives](https://github.com/ChristopherVR/Drakan2PC/releases/download/site-media-20261028/fullscreen-map.jpg)](https://github.com/ChristopherVR/Drakan2PC/releases/download/site-media-20261028/fullscreen-map.jpg) |
+
+| Inventory strip over gameplay with a bow selected | PC Settings categories in the native Linux player |
+| --- | --- |
+| [![Inventory strip over gameplay with a bow selected](https://github.com/ChristopherVR/Drakan2PC/releases/download/site-media-20261028/inventory-strip.jpg)](https://github.com/ChristopherVR/Drakan2PC/releases/download/site-media-20261028/inventory-strip.jpg) | [![PC Settings categories in the native Linux player](https://github.com/ChristopherVR/Drakan2PC/releases/download/site-media-20261028/pc-settings.jpg)](https://github.com/ChristopherVR/Drakan2PC/releases/download/site-media-20261028/pc-settings.jpg) |
+
+| Side-by-side texture comparison, original on left and HD replacements on right | Modern save browser with a Surdana save preview |
+| --- | --- |
+| [![Side-by-side texture comparison, original on left and HD replacements on right](https://github.com/ChristopherVR/Drakan2PC/releases/download/site-media-20261028/hd-textures.jpg)](https://github.com/ChristopherVR/Drakan2PC/releases/download/site-media-20261028/hd-textures.jpg) | [![Modern save browser with a Surdana save preview](https://github.com/ChristopherVR/Drakan2PC/releases/download/site-media-20261028/save-browser.jpg)](https://github.com/ChristopherVR/Drakan2PC/releases/download/site-media-20261028/save-browser.jpg) |
+
+| Rynn in Surdana in the native Linux player | Rynn in Surdana in the browser player |
+| --- | --- |
+| [![Rynn in Surdana in the native Linux player](https://github.com/ChristopherVR/Drakan2PC/releases/download/site-media-20261028/linux-gameplay.jpg)](https://github.com/ChristopherVR/Drakan2PC/releases/download/site-media-20261028/linux-gameplay.jpg) | [![Rynn in Surdana in the browser player](https://github.com/ChristopherVR/Drakan2PC/releases/download/site-media-20261028/browser-gameplay.jpg)](https://github.com/ChristopherVR/Drakan2PC/releases/download/site-media-20261028/browser-gameplay.jpg) |
+
+<details>
+<summary>Watch dual wielding (sampled capture sequence)</summary>
+
+![Rynn holding a one-handed weapon in each hand](https://github.com/ChristopherVR/Drakan2PC/releases/download/site-media-20261028/dual-wield.gif)
+
+Optional dual wielding on Windows: a second one-handed weapon takes the shield slot. Animation assembled from sampled test frames; not a frame-rate demonstration.
+
+</details>
+
+<details>
+<summary>Watch a short HD intro excerpt</summary>
+
+![A dragon illustration in the locally upscaled intro movie](https://github.com/ChristopherVR/Drakan2PC/releases/download/site-media-20261028/hd-movie.gif)
+
+A short excerpt from the locally generated 4x HD intro pack. The movie pack itself is not distributed.
+
+</details>
+
+[More screenshots, setup instructions and optional features](docs/guides/enhancements.md).
 
 ## Supported disc
 
@@ -41,11 +100,23 @@ Needs Windows 10/11 64-bit, about 10 GB of free disk space and 16 GB of memory (
 game reads the `.iso` while it runs, so leave it where it is. "Rebuild Drakan" in the Start menu continues an
 interrupted build and keeps your saves and settings.
 
+### Linux
+
+On x86-64 Ubuntu 22.04+ or Debian, clone this repository and run the ISO bootstrap from its root:
+
+```sh
+bash scripts/buildtool/Build-Drakan.sh "/path/to/Drakan.iso"
+./dist/DrakanPC-linux/Play-Drakan.sh
+```
+
+The bootstrap installs missing public dependencies and reuses `build/final-game` for incremental rebuilds.
+See **[Install on Linux](docs/guides/linux.md)** for requirements, controls, saves and troubleshooting.
+
 ### Browser
 
 Build the browser version (installer option, or `Build-LocalGame.ps1 -TargetPlatform web`). Then either run
 `Play-Browser.cmd` in `dist\DrakanPC-web`, or open the
-**[browser player page](https://christophervr.github.io/Drakan2PC/)** in desktop Chrome or Edge and choose your
+**[browser player page](https://christophervr.github.io/Drakan2PC/browser.html)** in desktop Chrome or Edge and choose your
 `DrakanPC-web` folder and `.iso`. The page contains no game code: it runs your own build from your own disk, and
 nothing is uploaded.
 
@@ -119,9 +190,9 @@ licences; see [LICENSES.md](LICENSES.md) and [THIRD_PARTY.md](THIRD_PARTY.md).
 Drakan2PC is an unofficial fan project. It is not affiliated with, endorsed by or sponsored by Surreal Software,
 Sony Interactive Entertainment, Warner Bros. Games or any other holder of rights in *Drakan: The Ancients' Gates*.
 
-- **No game content is included.** This repository and its packages contain no disc images, game executables,
-  game code (original or translated), assets, audio, video or text from the game. The game is built locally from a
-  disc image you make from a disc you own.
+- **Bring your own game.** Source and installer packages contain no disc images, game executables,
+  translated game code or playable game data. The game is built locally from a disc image you make from a disc you own.
+  Documentation links to separately hosted screenshots and short demonstration clips; these are not game packs.
 - **Use your own disc.** Do not download disc images you do not own, and do not share disc images, built games or
   files generated from your disc. This project does not support piracy.
 - **Trademarks.** Drakan is a trademark of its respective owner. PlayStation and PS2 are trademarks of Sony
