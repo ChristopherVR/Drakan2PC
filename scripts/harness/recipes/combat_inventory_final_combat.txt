@@ -1,0 +1,38 @@
+# Virtual script client = 640x512; scaled to the actual host client by InputModule.
+# Requires occupied cells 0 and 1; empty cell7. Inspect calibration log first.
+1 log on 5
+0 sync play 90
+5 key down W
+11 key up W
+15 key down E
+25 key up E
+45 key tap ENTER
+100 key tap TAB
+230 key tap ENTER
+245 dump ram_mouse_before
+250 key tap RIGHT
+275 cursor 132 126
+280 button down 1
+282 button up 1
+310 dump ram_mouse_item0
+325 cursor 369 126
+330 button down 1
+332 button up 1
+360 dump ram_mouse_empty
+375 cursor 166 126
+380 button down 1
+382 button up 1
+410 dump ram_mouse_item1
+440 key tap TAB
+470 dump ram_mouse_closed
+500 dump ram_before_combat
+520 button down 1
+540 button up 1
+550 dump ram_after_first_bow
+580 button down 1
+600 button up 1
+610 dump ram_after_second_bow
+625 key down 6
+645 key up 6
+680 dump ram_after_combat
+720 quit

@@ -1,0 +1,137 @@
+{
+  "schema": 1,
+  "date": "2026-10-18",
+  "old_build03_sha256": "26CF253402B4DC21ECDF8C7FEC003517A096D3937FA748C27F9D1C73DAC76EB8",
+  "new_build04_sha256": "A31156A75FC585F6BE7E40B25BB6230FC9B26C50A289C77F72B6F571E2D31455",
+  "identity_timing_eligible": true,
+  "errors": [],
+  "comparisons": {
+    "native": {
+      "old_worlds_per_second": 48.54944534852183,
+      "new_worlds_per_second": 48.37592401861137,
+      "rate_change_percent": -0.35741155983307626,
+      "old_world_interval_ms": 20.59755766149956,
+      "new_world_interval_ms": 20.67143977684594,
+      "interval_reduction_ms": -0.0738821153463789,
+      "old_guest_vblank_hz": 59.98460898652925,
+      "new_guest_vblank_hz": 59.985430726837414,
+      "old_seconds": 22.122,
+      "new_seconds": 22.137
+    },
+    "combined": {
+      "old_worlds_per_second": 38.031029099932326,
+      "new_worlds_per_second": 37.95470074643745,
+      "rate_change_percent": -0.2007002053357798,
+      "old_world_interval_ms": 26.29431870939773,
+      "new_world_interval_ms": 26.347197589059192,
+      "interval_reduction_ms": -0.05287887966146343,
+      "old_guest_vblank_hz": 60.00052154297316,
+      "new_guest_vblank_hz": 59.98579325944356,
+      "old_seconds": 22.165,
+      "new_seconds": 22.105
+    }
+  },
+  "settings": {
+    "scale": 4,
+    "output": [
+      1920,
+      1080
+    ],
+    "aspect": "4:3",
+    "world_rate": "uncapped",
+    "vsync": 0,
+    "frame_limiter": 0,
+    "audio_output": 0,
+    "profiling": "off except pacing counters"
+  },
+  "matching": "Same frozen DLL/INI/NR/input/fixture files; only executable differs. Four runs, paired old/new native then old/new combined.",
+  "conclusion": "No measured gameplay FPS gain in this forward pair. CPU decoder microbenchmark gain does not translate into an established world-FPS improvement here.",
+  "limitations": [
+    "Requested settings; quiet logs do not prove every feature evaluation succeeded or establish pixels.",
+    "Parent reports a separate baseline combined probe with 23 checks passed, SR 1797 and NR 1685 successful evaluations; that is not this performance run's activation receipt.",
+    "New executable may also include camera/viewport changes; whole-candidate FPS change cannot be attributed solely to the decoder.",
+    "Forward paired order only. Repeat/reverse only if the gain is small, unstable or requires narrower attribution.",
+    "Completed worlds are not confirmed scanouts. Preserve guest clock behavior when evaluating a gain.",
+    "Small negative changes in one forward pair are not sufficient to establish a regression. No reverse/additional runs were authorized or performed."
+  ],
+  "runs": [
+    {
+      "case": {
+        "diagnostics": "off",
+        "mode": "native",
+        "pass": "forward"
+      },
+      "variant": "old-build03",
+      "worlds_per_second": 48.54944534852183,
+      "unique_world_presents_per_second": 48.54995117982099,
+      "guest_vblank_hz": 59.98460898652925,
+      "selected_seconds": 22.122,
+      "windows": 11,
+      "errors": []
+    },
+    {
+      "case": {
+        "diagnostics": "off",
+        "mode": "native",
+        "pass": "forward"
+      },
+      "variant": "optimized",
+      "worlds_per_second": 48.37592401861137,
+      "unique_world_presents_per_second": 48.42116501784343,
+      "guest_vblank_hz": 59.985430726837414,
+      "selected_seconds": 22.137,
+      "windows": 11,
+      "errors": []
+    },
+    {
+      "case": {
+        "diagnostics": "off",
+        "mode": "combined",
+        "pass": "forward"
+      },
+      "variant": "old-build03",
+      "worlds_per_second": 38.031029099932326,
+      "unique_world_presents_per_second": 38.031029099932326,
+      "guest_vblank_hz": 60.00052154297316,
+      "selected_seconds": 22.165,
+      "windows": 11,
+      "errors": []
+    },
+    {
+      "case": {
+        "diagnostics": "off",
+        "mode": "combined",
+        "pass": "forward"
+      },
+      "variant": "optimized",
+      "worlds_per_second": 37.95470074643745,
+      "unique_world_presents_per_second": 37.95418050214884,
+      "guest_vblank_hz": 59.98579325944356,
+      "selected_seconds": 22.105,
+      "windows": 11,
+      "errors": []
+    }
+  ],
+  "deployment_evidence": {
+    "absolute_run_path": "C:\\Games\\Drakan - The Ancients Gates\\decomp\\build\\private-runtime-matrix\\decoder-pair-20261018-074629\\build03-build04-quiet-final\\04-optimized-combined\\01-forward-combined-off",
+    "manifest_sha256": "A31156A75FC585F6BE7E40B25BB6230FC9B26C50A289C77F72B6F571E2D31455",
+    "completion_sha256After": "A31156A75FC585F6BE7E40B25BB6230FC9B26C50A289C77F72B6F571E2D31455",
+    "environment": {
+      "DRAKAN_DLSS": "quality",
+      "DRAKAN_DLSS_NEURAL": "1",
+      "GSR_UPSCALE": "quality",
+      "PS2X_GS_SCALE": "4",
+      "DRAKAN_WORLD_RATE": "uncapped",
+      "DRAKAN_VSYNC": "0",
+      "DRAKAN_FRAME_LIMIT": "0"
+    },
+    "scriptQuit": true,
+    "exitCode": 0,
+    "candidateUnchanged": true,
+    "savePreservation": {
+      "source": true,
+      "private": true
+    }
+  },
+  "gpu_slot_returned": "2026-10-18T07:58:20+10:00; no game process remains; no additional runs."
+}

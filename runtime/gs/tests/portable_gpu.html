@@ -1,0 +1,19 @@
+<!doctype html>
+<title>Drakan portable GPU bridge regression</title>
+<pre id="output">Running GPU regression</pre>
+<script>
+const lines = [];
+var Module = {
+  print: line => lines.push(line),
+  printErr: line => lines.push(line),
+  onExit: code => {
+    window.gpuTestResult = {code, lines};
+    document.getElementById('output').textContent = JSON.stringify(gpuTestResult);
+  },
+  onAbort: error => {
+    window.gpuTestResult = {error: String(error), lines};
+    document.getElementById('output').textContent = JSON.stringify(gpuTestResult);
+  }
+};
+</script>
+<script src="gsr_test_portable_gpu.js"></script>

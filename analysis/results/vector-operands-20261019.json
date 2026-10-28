@@ -1,0 +1,338 @@
+{
+  "date": "2026-10-19T07:41:29.464289+10:00",
+  "status": "deployed",
+  "executable_sha256": "cd25328dbe3e3ba8d962636216667d5990636731f7ffc9c76404aa1efca3e1cb",
+  "previous_executable_sha256": "0ea05b06ac5c7a9a3f87846df9aa3bd4836f0347bd82d1e9b0e2cb17638b075e",
+  "backup_directory": "C:\\Games\\Drakan - The Ancients Gates\\decomp\\build\\release_backups\\vector-operands-20261019-074129",
+  "goal_raw_fps": 144,
+  "goal_achieved": false,
+  "changes": [
+    "Compact exact SIMD operand normalization: magnitude MIN plus threshold maps all IEEE input bits identically to the prior normalizer.",
+    "One biased signed comparison for ordinary classes; XOR positive saturation; immediate-mask lane merging.",
+    "Original floating arithmetic order, flags, interlocks, cycles and packet timing retained. Public interpreter header and object layout unchanged.",
+    "Shared cold flags, AVX dispatch and packet batching experiments are excluded. Existing settings and original-30 controls retained."
+  ],
+  "raw_benchmark": {
+    "before_fps": 98.56000550313189,
+    "after_fps": 100.4581826700852,
+    "improvement_percent": 1.9259101673781753,
+    "before_runs": [
+      "normalize-before-a",
+      "normalize-before-b"
+    ],
+    "after_runs": [
+      "normalize-after-a",
+      "normalize-after-b"
+    ],
+    "settings": "4x internal, 3840x2160 window target, audio on, uncapped; DLSS/neural/water/rays/FG/VSync/cap off",
+    "required_additional_throughput_percent_for_144": 43.34322617890722
+  },
+  "enhanced_benchmark": {
+    "before_fps": 25.682209440698138,
+    "after_fps": 25.630500695410294,
+    "observed_change_percent": -0.20134071956403599,
+    "before_runs": [
+      "normalize-enhanced-before"
+    ],
+    "after_runs": [
+      "normalize-enhanced-after"
+    ],
+    "settings": "Same resolution/audio/rate; DLSS quality, neural rendering, modern water, ray reflections/shadows on; FG off",
+    "conclusion": "Single control/candidate pair remains about 27 FPS; no material enhanced gain established."
+  },
+  "validation": {
+    "exhaustive_input_bit_patterns_per_helper": 4294967296,
+    "exact_lane_merges": 1048576,
+    "existing_simd_comparisons": 150000000,
+    "frozen_reference_fmac_cases": 131072,
+    "caller_rounding_modes": 4,
+    "packet_exact_state_data_packet_resume_cases": 114688,
+    "uv_exact_state_data_packet_resume_cases": 114688,
+    "live_vector_runs_final_binary": 327680,
+    "live_vector_mismatches": 0,
+    "visual": "Final enhanced world, character, HUD and water inspected",
+    "saves_unchanged": true,
+    "patch_reverse_check": "passed",
+    "release_build": "Full Release SSE vector program rebuilt, including all four generated image slices and both existing native kernels. No reused AOT objects. Only private operand helpers and regression targets change; no public interpreter layout or header change.",
+    "canonical_standalone_ctest": "vu_operand_bits.exhaustive passed (2.92 seconds)",
+    "normal_build_override": "removed; full-bin output and normal linker flags restored"
+  },
+  "rejected_experiments": {
+    "shared_flag_path": {
+      "before_fps": 97.43,
+      "after_fps": 89.712
+    },
+    "avx_dispatch": {
+      "sse_fps": 98.143,
+      "avx_fps": 99.255,
+      "conclusion": "Within run spread; not retained"
+    },
+    "packet_flag_batch": {
+      "queue_fps": 98.583,
+      "batch_fps": 98.536,
+      "conclusion": "Flat; not retained"
+    },
+    "included_in_deployment": false
+  },
+  "remaining_profile": "busiest thread 25036, 7729 samples\n   5896  76.3%  VU1Interpreter\n    639   8.3%  dll:ntdll.dll\n    507   6.6%  other\n    390   5.0%  PS2Memory\n    174   2.3%  dll:VCRUNTIME140.dll\n     60   0.8%  dll:ucrtbase.dll\n     23   0.3%  PS2Runtime\n     18   0.2%  dll:MSVCP140.dll\n     14   0.2%  dll:KERNEL32.DLL\n      8   0.1%  gsr (d3d11 GS)\n-- top functions\n    472   6.1%  ?packetKernel@Vu1Step@@SA_NAEAVVU1Interpreter@@AEAUCtx@1@@Z\n    429   5.6%  ?run@VU1Interpreter@@AEAAXPEAEI0IAEAVGS@@PEAVPS2Memory@@I@Z\n    374   4.8%  ?processVIF1Data@PS2Memory@@QEAAXPEBEI@Z\n    354   4.6%  ??$blockFn@$0CP@$0A@@?A0x5f570f00@@YA_NAEAVVU1Interpreter@@AEAUCtx@Vu1Step@@@Z\n    252   3.3%  ?settleFlags@Vu1Fast@@SAXAEAVVU1Interpreter@@@Z\n    214   2.8%  ?execLower@VU1Interpreter@@AEAAXIPEAEIAEAVGS@@PEAVPS2Memory@@I@Z\n    210   2.7%  ?progressXgkick@VU1Interpreter@@AEAAXXZ\n    186   2.4%  ??$blockFn@$0NB@$0A@@?A0x129fae0b@@YA_NAEAVVU1Interpreter@@AEAUCtx@Vu1Step@@@Z\n    174   2.3%  ?uvKernel@Vu1Step@@SA_NAEAVVU1Interpreter@@AEAUCtx@1@@Z\n    170   2.2%  ??$blockFn@$0NE@$0A@@?A0x129fae0b@@YA_NAEAVVU1Interpreter@@AEAUCtx@Vu1Step@@@Z\n    139   1.8%  ??$blockFn@$0BJ@$0A@@?A0x940bdca5@@YA_NAEAVVU1Interpreter@@AEAUCtx@Vu1Step@@@Z\n    134   1.7%  ?blockReadsReady@Vu1Step@@SA_NAEBVVU1Interpreter@@PEB_K1PEBI@Z\n    130   1.7%  ?run@Worker@?A0x0b481fcb@vu1async@@QEAAXXZ\n    123   1.6%  ?fast@vif_unpack@@YA_NPEAEPEBEIIIIEE_N2IAEAI3@Z\n    117   1.5%  ??$blockFn@$0CI@$0A@@?A0x940bdca5@@YA_NAEAVVU1Interpreter@@AEAUCtx@Vu1Step@@@Z\n    117   1.5%  ??$blockFn@$0GL@$0A@@?A0x5f570f00@@YA_NAEAVVU1Interpreter@@AEAUCtx@Vu1Step@@@Z\n    105   1.4%  ??$blockFn@$0M@$0A@@?A0x940bdca5@@YA_NAEAVVU1Interpreter@@AEAUCtx@Vu1Step@@@Z\n     93   1.2%  ??$blockFn@$0EO@$0A@@?A0x5f570f00@@YA_NAEAVVU1Interpreter@@AEAUCtx@Vu1Step@@@Z\n-- system-DLL samples by (module, rva, first caller in the exe)\n    470   6.1%  ntdll.dll+1659c4  <- ?run@Worker@?A0x0b481fcb@vu1async@@QEAAXXZ\n     44   0.6%  ntdll.dll+162114  <- ?run@Worker@?A0x0b481fcb@vu1async@@QEAAXXZ\n     38   0.5%  ntdll.dll+6ed2d  <- ?now@steady_clock@chrono@std@@SA?AV?$time_point@Usteady_clock@chrono@std@@V?$duration@_JU?$ratio@$00\n     21   0.3%  VCRUNTIME140.dll+1dafb  <- ??$_Insert_counted_range@PEBE@?$vector@EV?$allocator@E@std@@@std@@AEAAXV?$_Vector_const_iterator@V?$\n     18   0.2%  VCRUNTIME140.dll+1dafb  <- ??$assign@PEBE$0A@@?$vector@EV?$allocator@E@std@@@std@@QEAAXPEBE0@Z\n     12   0.2%  ntdll.dll+44d0b  <- ?processGIFPacketPath@GS@@QEAAXEPEBEI@Z\n     11   0.1%  ntdll.dll+44d0b  <- ?submitGif@GsrBridge@@QEAAXEPEBEI@Z\n     10   0.1%  ucrtbase.dll+56835  <- ?run@VU1Interpreter@@AEAAXPEAEI0IAEAVGS@@PEAVPS2Memory@@I@Z\n      7   0.1%  MSVCP140.dll+18514  <- ?now@steady_clock@chrono@std@@SA?AV?$time_point@Usteady_clock@chrono@std@@V?$duration@_JU?$ratio@$00\n      7   0.1%  VCRUNTIME140.dll+1dd6c  <- ??$assign@PEBE$0A@@?$vector@EV?$allocator@E@std@@@std@@QEAAXPEBE0@Z\n      7   0.1%  ucrtbase.dll+566e5  <- ?run@VU1Interpreter@@AEAAXPEAEI0IAEAVGS@@PEAVPS2Memory@@I@Z\n      7   0.1%  ucrtbase.dll+56830  <- ?run@VU1Interpreter@@AEAAXPEAEI0IAEAVGS@@PEAVPS2Memory@@I@Z\n      7   0.1%  ucrtbase.dll+56839  <- ?run@VU1Interpreter@@AEAAXPEAEI0IAEAVGS@@PEAVPS2Memory@@I@Z\n      6   0.1%  VCRUNTIME140.dll+1db00  <- ??$assign@PEBE$0A@@?$vector@EV?$allocator@E@std@@@std@@QEAAXPEBE0@Z\n      5   0.1%  KERNEL32.DLL+18629  <- ?processGIFPacketPath@GS@@QEAAXEPEBEI@Z\n",
+  "preserved_files_sha256": {
+    "drakan.ini": "f917c352dc7153fcf13bddc36ec3f0c18bb70320ada0ae57dc14ec6247be7efe",
+    "drakan_input.ini": "3ecf546900e9858a587ef9c4b62385b074c9281431d3eac0ef73619be0dd078f",
+    "Play-Original30.cmd": "9abe8038dd597ff2fae10b2cbfd2ec19f75d54f2265b0784db0da2389b0dc951",
+    "Play-RawFPS.cmd": "c585270901be6b380f8737f9fb497b1a896197d8d658a096689ccb105e914afc",
+    "Play.cmd": "d2c231edea7c0191dfa002087e32d56470a5f570017599da715c84e8b1e97bfb"
+  },
+  "original_30_fps_mode": "Existing launcher and in-game controls retained",
+  "runtime_patch_sha256": "9fd810ef4ccc4f91e55dea1e74a96f6d8e715d88f9c570d462eb18d63a6e347c",
+  "source_sha256": {
+    "ps2xRuntime/src/lib/vu/ps2_vu1_step.h": "bd334e8af569722da63e951d193841d61c0cf0425faede266fc844af9fd34d12",
+    "ps2xRuntime/src/lib/vu/ps2_vu1_simd.h": "4f64789e73c6dc89f822b26b83d602c7613ea2cd13e1b91f31dc9ba94f1153ad",
+    "ps2xRuntime/tests/vu_operand_bits_tests.cpp": "ddfb2e401b900ceb5a74709f04c7930e8ae90e3bd3bf59a191c6ec5a673f12c5",
+    "ps2xRuntime/tests/vu_fmac_reference_tests.cpp": "05078cd505bc5ea83e33789b89985c0f2711cabfb2441a261e4a2236457e48cc",
+    "ps2xTest/vif_unpack/CMakeLists.txt": "8423438f0b0c225a14f1be238a6a2e1268c03ce4b45cbca4032ad801b952699d"
+  },
+  "runs": {
+    "normalize-before-a": {
+      "exe_sha256": "0EA05B06AC5C7A9A3F87846DF9AA3BD4836F0347BD82D1E9B0E2CB17638B075E",
+      "world_fps": 98.33010370961308,
+      "last_five_world_windows": [
+        [
+          2.005,
+          98.28
+        ],
+        [
+          2.003,
+          97.84
+        ],
+        [
+          2.005,
+          98.74
+        ],
+        [
+          2.007,
+          98.66
+        ],
+        [
+          2.008,
+          98.13
+        ]
+      ],
+      "saves_unchanged": true,
+      "contended": false,
+      "overlap_samples": 0
+    },
+    "normalize-before-b": {
+      "exe_sha256": "0EA05B06AC5C7A9A3F87846DF9AA3BD4836F0347BD82D1E9B0E2CB17638B075E",
+      "world_fps": 98.78990729665071,
+      "last_five_world_windows": [
+        [
+          2.006,
+          98.7
+        ],
+        [
+          2.009,
+          99.06
+        ],
+        [
+          2.007,
+          98.67
+        ],
+        [
+          2.001,
+          98.97
+        ],
+        [
+          2.009,
+          98.55
+        ]
+      ],
+      "saves_unchanged": true,
+      "contended": false,
+      "overlap_samples": 0
+    },
+    "normalize-after-a": {
+      "exe_sha256": "CD25328DBE3E3BA8D962636216667D5990636731F7FFC9C76404AA1EFCA3E1CB",
+      "world_fps": 100.47631647211414,
+      "last_five_world_windows": [
+        [
+          2.007,
+          100.65
+        ],
+        [
+          2.006,
+          100.7
+        ],
+        [
+          2.008,
+          100.62
+        ],
+        [
+          2.001,
+          100.45
+        ],
+        [
+          2.001,
+          99.96
+        ]
+      ],
+      "saves_unchanged": true,
+      "contended": false,
+      "overlap_samples": 0
+    },
+    "normalize-after-b": {
+      "exe_sha256": "CD25328DBE3E3BA8D962636216667D5990636731F7FFC9C76404AA1EFCA3E1CB",
+      "world_fps": 100.44004886805627,
+      "last_five_world_windows": [
+        [
+          2.009,
+          100.56
+        ],
+        [
+          2.008,
+          100.61
+        ],
+        [
+          2.002,
+          100.4
+        ],
+        [
+          2.007,
+          100.17
+        ],
+        [
+          2.001,
+          100.46
+        ]
+      ],
+      "saves_unchanged": true,
+      "contended": false,
+      "overlap_samples": 0
+    },
+    "normalize-enhanced-before": {
+      "exe_sha256": "0EA05B06AC5C7A9A3F87846DF9AA3BD4836F0347BD82D1E9B0E2CB17638B075E",
+      "world_fps": 25.682209440698138,
+      "last_five_world_windows": [
+        [
+          2.016,
+          25.79
+        ],
+        [
+          2.016,
+          25.79
+        ],
+        [
+          2.003,
+          25.46
+        ],
+        [
+          2.03,
+          25.61
+        ],
+        [
+          2.019,
+          25.76
+        ]
+      ],
+      "saves_unchanged": true,
+      "contended": false,
+      "overlap_samples": 0
+    },
+    "normalize-enhanced-after": {
+      "exe_sha256": "CD25328DBE3E3BA8D962636216667D5990636731F7FFC9C76404AA1EFCA3E1CB",
+      "world_fps": 25.630500695410294,
+      "last_five_world_windows": [
+        [
+          2.018,
+          25.76
+        ],
+        [
+          2.019,
+          25.75
+        ],
+        [
+          2.001,
+          25.49
+        ],
+        [
+          2.008,
+          25.4
+        ],
+        [
+          2.02,
+          25.75
+        ]
+      ],
+      "saves_unchanged": true,
+      "contended": false,
+      "overlap_samples": 0
+    },
+    "normalize-enhanced-visual": {
+      "exe_sha256": "CD25328DBE3E3BA8D962636216667D5990636731F7FFC9C76404AA1EFCA3E1CB",
+      "world_fps": 25.721929165017805,
+      "last_five_world_windows": [
+        [
+          2.019,
+          25.75
+        ],
+        [
+          2.025,
+          25.68
+        ],
+        [
+          2.021,
+          25.73
+        ],
+        [
+          2.026,
+          25.67
+        ],
+        [
+          2.017,
+          25.78
+        ]
+      ],
+      "saves_unchanged": true,
+      "contended": false,
+      "overlap_samples": 0
+    },
+    "normalize-livecheck-final": {
+      "exe_sha256": "CD25328DBE3E3BA8D962636216667D5990636731F7FFC9C76404AA1EFCA3E1CB",
+      "saves_unchanged": true,
+      "contended": false,
+      "overlap_samples": 0,
+      "fps_excluded": "live reference instrumentation"
+    },
+    "normalize-profile-final": {
+      "exe_sha256": "CD25328DBE3E3BA8D962636216667D5990636731F7FFC9C76404AA1EFCA3E1CB",
+      "world_fps": 93.1154002591965,
+      "last_five_world_windows": [
+        [
+          2.005,
+          92.76
+        ],
+        [
+          2.007,
+          92.68
+        ],
+        [
+          2.006,
+          92.23
+        ],
+        [
+          2.009,
+          92.6
+        ],
+        [
+          2.004,
+          95.31
+        ]
+      ],
+      "saves_unchanged": true,
+      "contended": false,
+      "overlap_samples": 0
+    }
+  },
+  "evidence_directory": "C:\\Games\\Drakan - The Ancients Gates\\decomp\\build\\vu-normalize-20261019",
+  "visual_sha256": "ba8cd75f5b18efe97d687fe1df0ebceb2e83113b569225c3ed08f433c0ce22bf",
+  "map_sha256": "90f5679075bcdd2b00861f07ba1f15815233c3eff3ff64e8dd4949aac5fc7b8b"
+}

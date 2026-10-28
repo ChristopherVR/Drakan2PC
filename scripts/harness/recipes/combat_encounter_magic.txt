@@ -1,0 +1,31 @@
+1 log on 5
+0 sync play 1
+2 pad tap L1
+6 pad tap R2
+10 pad tap L2
+14 pad tap R1
+18 pad tap DPAD_UP
+22 pad tap DPAD_DOWN
+26 pad tap DPAD_LEFT
+30 pad tap DPAD_RIGHT
+34 pad tap DPAD_RIGHT
+38 pad tap DPAD_LEFT
+42 pad tap DPAD_DOWN
+46 pad tap DPAD_UP
+60 dump ram_unlocked
+70 key tap TAB
+160 key tap ENTER
+180 key tap PGDN
+260 key tap ENTER
+280 key tap E
+320 key tap TAB
+340 key tap ESC
+350 sync play 1
+10 dump ram_magic_ready
+20 button down 1
+26 button up 1
+35 dump ram_magic_projectile
+90 button down 1
+96 button up 1
+105 dump ram_magic_after
+160 quit

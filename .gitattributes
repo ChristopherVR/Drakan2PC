@@ -1,0 +1,9 @@
+# Everything text is stored and checked out as LF (portable to Linux/WASM builds).
+* text=auto eol=lf
+*.bat text eol=crlf
+*.cmd text eol=crlf
+
+*.ttf binary
+*.png binary
+*.ico binary
+*.dll binary

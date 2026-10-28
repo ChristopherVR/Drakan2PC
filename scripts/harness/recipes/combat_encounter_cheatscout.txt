@@ -1,0 +1,31 @@
+1 log on 15
+0 sync play 90
+2 dump ram_start
+100 key tap TAB
+230 key tap ENTER
+300 key tap E
+380 key tap TAB
+400 dump ram_equipped
+410 pad tap L1
+414 pad tap R2
+418 pad tap L2
+422 pad tap R1
+430 pad tap DPAD_UP
+434 pad tap DPAD_DOWN
+438 pad tap DPAD_LEFT
+442 pad tap DPAD_RIGHT
+446 pad tap DPAD_RIGHT
+450 pad tap DPAD_LEFT
+454 pad tap DPAD_DOWN
+458 pad tap DPAD_UP
+470 dump ram_shaman
+480 key down W
+1080 key up W
+1090 dump ram_walk
+1100 key tap F
+1120 button down 1
+1126 button up 1
+1150 button down 2
+1210 button up 2
+1220 dump ram_final
+1230 quit

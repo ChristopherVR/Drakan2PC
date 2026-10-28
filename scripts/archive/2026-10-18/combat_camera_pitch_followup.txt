@@ -1,0 +1,23 @@
+# Existing hostile675 save only. Requires parent GPU grant and rebuilt candidate.
+# Mouse counts are PER FRAME. R2 is injected directly, independent of F binding.
+# No attacks, movement keys, save writes, screenshots, or forced guest state.
+1 log on 1
+0 sync play 90
+10 dump ram_look_base
+20 mouse 4 -2 10
+32 dump ram_look_moved
+40 mouse -4 2 10
+52 dump ram_look_return
+60 pad down R2
+62 pad up R2
+64 dump ram_aim_acquired
+70 mouse 0 -2 10
+82 dump ram_aim_moved
+112 dump ram_aim_neutral
+120 pad down R2
+122 pad up R2
+124 dump ram_aim_released
+130 mouse 0 2 10
+142 dump ram_free_moved
+172 dump ram_free_neutral
+180 quit

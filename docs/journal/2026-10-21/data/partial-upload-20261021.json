@@ -1,0 +1,798 @@
+{
+  "status": "Private candidate; 144+ consistent raw FPS not demonstrated",
+  "patch_verified": true,
+  "renderer_test_log": "PASS 11698176 exact rendered RGBA comparisons; full, aliased, partial, truncated, fragmented, interposed, and CT24 uploads\n",
+  "renderer_vram_checks": "42 complete 65536-byte ranges, including alpha; 21 modes at scales 1 and 4",
+  "scope": "Complete CT32/T8 upload payloads with no wrap. Dirty CT32 render targets without pending world resolve. CPU-owned complete blocks are excluded from readback until a subsequent GPU write. Other dirty blocks remain GPU-owned. syncRT copies only CPU-owned blocks in dirty rows, and readback merges those blocks before materializing GPU-owned pixels. First raw pointer exposure drains pending writes and readback, then permanently disables deferred uploads.",
+  "sha256": {
+    "buffered-upload": "bd72967ad3b0cac85b8b7299abab56299bc5837da154416c1fc9784caf62766a",
+    "partial-upload": "ef7a8ed308e730b3e9915c9221104d9407a32921dda4f2d9a6762f732b890b58"
+  },
+  "runs": {
+    "rb-motion-partial-a": {
+      "measurement": {
+        "general_cpu_audited": true,
+        "external_core_average": 6.66453605757299,
+        "external_core_peak": 7.761388547180902,
+        "external_cpu_busy_samples": 26,
+        "exe_sha256": "EF7A8ED308E730B3E9915C9221104D9407A32921DDA4F2D9A6762F732B890B58",
+        "world_fps": 75.08653869166335,
+        "last_five_world_windows": [
+          [
+            2.005,
+            76.81
+          ],
+          [
+            2.009,
+            75.16
+          ],
+          [
+            2.012,
+            74.54
+          ],
+          [
+            2.0,
+            72.5
+          ],
+          [
+            2.002,
+            76.42
+          ]
+        ],
+        "saves_unchanged": true,
+        "contended": true,
+        "overlap_samples": 0,
+        "valid_configuration": true,
+        "invalid_configuration_reason": null,
+        "raw_fps_measurement": false
+      },
+      "reuse_check": [
+        "32",
+        "1353856",
+        "0"
+      ],
+      "world_intervals": [
+        {
+          "n": 111.0,
+          "mean_ms": 18.166,
+          "p50_ms": 17.538,
+          "p95_ms": 22.364,
+          "p99_ms": 28.08,
+          "max_ms": 43.658,
+          "over144": 111.0,
+          "over60": 67.0,
+          "over30": 1.0
+        },
+        {
+          "n": 116.0,
+          "mean_ms": 17.316,
+          "p50_ms": 16.228,
+          "p95_ms": 21.691,
+          "p99_ms": 22.464,
+          "max_ms": 23.475,
+          "over144": 116.0,
+          "over60": 52.0,
+          "over30": 0.0
+        },
+        {
+          "n": 133.0,
+          "mean_ms": 15.088,
+          "p50_ms": 15.06,
+          "p95_ms": 20.98,
+          "p99_ms": 21.853,
+          "max_ms": 22.509,
+          "over144": 133.0,
+          "over60": 13.0,
+          "over30": 0.0
+        },
+        {
+          "n": 141.0,
+          "mean_ms": 14.185,
+          "p50_ms": 13.71,
+          "p95_ms": 18.852,
+          "p99_ms": 20.182,
+          "max_ms": 23.035,
+          "over144": 141.0,
+          "over60": 22.0,
+          "over30": 0.0
+        },
+        {
+          "n": 134.0,
+          "mean_ms": 14.933,
+          "p50_ms": 14.891,
+          "p95_ms": 18.819,
+          "p99_ms": 20.919,
+          "max_ms": 20.941,
+          "over144": 134.0,
+          "over60": 20.0,
+          "over30": 0.0
+        },
+        {
+          "n": 137.0,
+          "mean_ms": 14.652,
+          "p50_ms": 14.697,
+          "p95_ms": 17.728,
+          "p99_ms": 23.572,
+          "max_ms": 25.955,
+          "over144": 137.0,
+          "over60": 19.0,
+          "over30": 0.0
+        },
+        {
+          "n": 129.0,
+          "mean_ms": 15.553,
+          "p50_ms": 15.249,
+          "p95_ms": 21.642,
+          "p99_ms": 22.949,
+          "max_ms": 23.389,
+          "over144": 129.0,
+          "over60": 22.0,
+          "over30": 0.0
+        },
+        {
+          "n": 146.0,
+          "mean_ms": 13.739,
+          "p50_ms": 13.918,
+          "p95_ms": 17.495,
+          "p99_ms": 20.774,
+          "max_ms": 21.256,
+          "over144": 146.0,
+          "over60": 13.0,
+          "over30": 0.0
+        },
+        {
+          "n": 144.0,
+          "mean_ms": 13.961,
+          "p50_ms": 13.678,
+          "p95_ms": 18.508,
+          "p99_ms": 20.727,
+          "max_ms": 21.298,
+          "over144": 144.0,
+          "over60": 20.0,
+          "over30": 0.0
+        },
+        {
+          "n": 151.0,
+          "mean_ms": 13.291,
+          "p50_ms": 13.044,
+          "p95_ms": 15.742,
+          "p99_ms": 20.028,
+          "max_ms": 21.903,
+          "over144": 151.0,
+          "over60": 6.0,
+          "over30": 0.0
+        },
+        {
+          "n": 155.0,
+          "mean_ms": 12.994,
+          "p50_ms": 12.992,
+          "p95_ms": 15.774,
+          "p99_ms": 16.773,
+          "max_ms": 20.206,
+          "over144": 155.0,
+          "over60": 2.0,
+          "over30": 0.0
+        },
+        {
+          "n": 151.0,
+          "mean_ms": 13.275,
+          "p50_ms": 13.347,
+          "p95_ms": 15.919,
+          "p99_ms": 18.588,
+          "max_ms": 24.718,
+          "over144": 151.0,
+          "over60": 5.0,
+          "over30": 0.0
+        },
+        {
+          "n": 150.0,
+          "mean_ms": 13.357,
+          "p50_ms": 13.287,
+          "p95_ms": 17.622,
+          "p99_ms": 20.221,
+          "max_ms": 21.548,
+          "over144": 150.0,
+          "over60": 13.0,
+          "over30": 0.0
+        },
+        {
+          "n": 147.0,
+          "mean_ms": 13.701,
+          "p50_ms": 13.697,
+          "p95_ms": 17.335,
+          "p99_ms": 20.182,
+          "max_ms": 20.358,
+          "over144": 147.0,
+          "over60": 10.0,
+          "over30": 0.0
+        },
+        {
+          "n": 151.0,
+          "mean_ms": 13.286,
+          "p50_ms": 13.476,
+          "p95_ms": 16.48,
+          "p99_ms": 18.543,
+          "max_ms": 19.724,
+          "over144": 151.0,
+          "over60": 5.0,
+          "over30": 0.0
+        }
+      ],
+      "sample_latches": 751.0,
+      "scopes": {
+        "draw": {
+          "calls_per_latch": 199.26231691078561,
+          "inclusive_ms_per_latch": 6.191810918774967,
+          "max_ms": 12.3
+        },
+        "resolveTexture": {
+          "calls_per_latch": 194.25699067909454,
+          "inclusive_ms_per_latch": 2.3128761651131824,
+          "max_ms": 1.07
+        },
+        "syncRT": {
+          "calls_per_latch": 204.26498002663115,
+          "inclusive_ms_per_latch": 0.1488681757656458,
+          "max_ms": 0.45
+        },
+        "presentLatched": {
+          "calls_per_latch": 1.0,
+          "inclusive_ms_per_latch": 0.2757656458055926,
+          "max_ms": 4.3
+        },
+        "presentCall": {
+          "calls_per_latch": 1.0,
+          "inclusive_ms_per_latch": 0.09825565912117176,
+          "max_ms": 0.51
+        },
+        "pumpUp": {
+          "calls_per_latch": 1.0,
+          "inclusive_ms_per_latch": 0.00013315579227696407,
+          "max_ms": 0
+        },
+        "snapshot": {
+          "calls_per_latch": 2.0026631158455395,
+          "inclusive_ms_per_latch": 0.0013448735019973368,
+          "max_ms": 0.02
+        },
+        "latchDisplay": {
+          "calls_per_latch": 1.0,
+          "inclusive_ms_per_latch": 0.008295605858854862,
+          "max_ms": 0.58
+        },
+        "endFrame": {
+          "calls_per_latch": 1.0,
+          "inclusive_ms_per_latch": 0.0039946737683089215,
+          "max_ms": 0.05
+        },
+        "textureCoherenceFlush": {
+          "calls_per_latch": 276.3648468708389,
+          "inclusive_ms_per_latch": 0.018308921438082555,
+          "max_ms": 0.04
+        },
+        "textureStampCheck": {
+          "calls_per_latch": 60.0745672436751,
+          "inclusive_ms_per_latch": 0.006844207723035952,
+          "max_ms": 0.08
+        },
+        "textureDecode": {
+          "calls_per_latch": 86.11051930758988,
+          "inclusive_ms_per_latch": 0.8503062583222369,
+          "max_ms": 0.52
+        },
+        "textureUpscale": {
+          "calls_per_latch": 32.03861517976032,
+          "inclusive_ms_per_latch": 0.8497869507323568,
+          "max_ms": 0.52
+        },
+        "textureCreate": {
+          "calls_per_latch": 32.03861517976032,
+          "inclusive_ms_per_latch": 0.18161118508655127,
+          "max_ms": 0.47
+        },
+        "textureResourceReuse": {
+          "calls_per_latch": 31.88015978695073,
+          "inclusive_ms_per_latch": 0.0016245006657789613,
+          "max_ms": 0.01
+        },
+        "readbackOverwriteDiscard": {
+          "calls_per_latch": 6.0079893475366175,
+          "inclusive_ms_per_latch": 0.001118508655126498,
+          "max_ms": 0.01
+        }
+      }
+    },
+    "rb-combat-partial-a": {
+      "measurement": {
+        "general_cpu_audited": true,
+        "external_core_average": 6.968827660598318,
+        "external_core_peak": 7.925106370502848,
+        "external_cpu_busy_samples": 26,
+        "exe_sha256": "EF7A8ED308E730B3E9915C9221104D9407A32921DDA4F2D9A6762F732B890B58",
+        "world_fps": 55.32361080649985,
+        "last_five_world_windows": [
+          [
+            2.003,
+            57.41
+          ],
+          [
+            2.004,
+            55.38
+          ],
+          [
+            2.007,
+            55.8
+          ],
+          [
+            2.006,
+            56.33
+          ],
+          [
+            2.011,
+            51.71
+          ]
+        ],
+        "saves_unchanged": true,
+        "contended": true,
+        "overlap_samples": 0,
+        "valid_configuration": true,
+        "invalid_configuration_reason": null,
+        "raw_fps_measurement": false
+      },
+      "reuse_check": [
+        "32",
+        "1299200",
+        "0"
+      ],
+      "world_intervals": [
+        {
+          "n": 69.0,
+          "mean_ms": 29.105,
+          "p50_ms": 26.72,
+          "p95_ms": 44.506,
+          "p99_ms": 56.836,
+          "max_ms": 56.836,
+          "over144": 69.0,
+          "over60": 69.0,
+          "over30": 17.0
+        },
+        {
+          "n": 76.0,
+          "mean_ms": 26.606,
+          "p50_ms": 24.79,
+          "p95_ms": 36.189,
+          "p99_ms": 48.135,
+          "max_ms": 48.135,
+          "over144": 76.0,
+          "over60": 76.0,
+          "over30": 9.0
+        },
+        {
+          "n": 78.0,
+          "mean_ms": 25.646,
+          "p50_ms": 24.316,
+          "p95_ms": 33.954,
+          "p99_ms": 37.889,
+          "max_ms": 37.889,
+          "over144": 78.0,
+          "over60": 78.0,
+          "over30": 4.0
+        },
+        {
+          "n": 95.0,
+          "mean_ms": 21.186,
+          "p50_ms": 20.698,
+          "p95_ms": 27.528,
+          "p99_ms": 39.827,
+          "max_ms": 39.827,
+          "over144": 95.0,
+          "over60": 86.0,
+          "over30": 2.0
+        },
+        {
+          "n": 99.0,
+          "mean_ms": 20.369,
+          "p50_ms": 20.004,
+          "p95_ms": 26.076,
+          "p99_ms": 30.008,
+          "max_ms": 30.008,
+          "over144": 99.0,
+          "over60": 96.0,
+          "over30": 0.0
+        },
+        {
+          "n": 98.0,
+          "mean_ms": 20.586,
+          "p50_ms": 20.653,
+          "p95_ms": 25.612,
+          "p99_ms": 29.402,
+          "max_ms": 29.402,
+          "over144": 98.0,
+          "over60": 92.0,
+          "over30": 0.0
+        },
+        {
+          "n": 92.0,
+          "mean_ms": 21.876,
+          "p50_ms": 21.161,
+          "p95_ms": 26.625,
+          "p99_ms": 40.141,
+          "max_ms": 40.141,
+          "over144": 92.0,
+          "over60": 89.0,
+          "over30": 1.0
+        },
+        {
+          "n": 97.0,
+          "mean_ms": 20.631,
+          "p50_ms": 20.64,
+          "p95_ms": 25.569,
+          "p99_ms": 26.254,
+          "max_ms": 26.254,
+          "over144": 97.0,
+          "over60": 91.0,
+          "over30": 0.0
+        },
+        {
+          "n": 101.0,
+          "mean_ms": 19.899,
+          "p50_ms": 19.861,
+          "p95_ms": 23.596,
+          "p99_ms": 24.856,
+          "max_ms": 25.791,
+          "over144": 101.0,
+          "over60": 94.0,
+          "over30": 0.0
+        },
+        {
+          "n": 117.0,
+          "mean_ms": 17.222,
+          "p50_ms": 17.078,
+          "p95_ms": 19.601,
+          "p99_ms": 22.524,
+          "max_ms": 29.21,
+          "over144": 117.0,
+          "over60": 76.0,
+          "over30": 0.0
+        },
+        {
+          "n": 114.0,
+          "mean_ms": 17.559,
+          "p50_ms": 17.491,
+          "p95_ms": 21.084,
+          "p99_ms": 21.771,
+          "max_ms": 22.854,
+          "over144": 114.0,
+          "over60": 80.0,
+          "over30": 0.0
+        },
+        {
+          "n": 115.0,
+          "mean_ms": 17.525,
+          "p50_ms": 17.377,
+          "p95_ms": 20.809,
+          "p99_ms": 21.33,
+          "max_ms": 21.638,
+          "over144": 115.0,
+          "over60": 76.0,
+          "over30": 0.0
+        },
+        {
+          "n": 111.0,
+          "mean_ms": 18.19,
+          "p50_ms": 17.827,
+          "p95_ms": 22.174,
+          "p99_ms": 25.637,
+          "max_ms": 30.004,
+          "over144": 111.0,
+          "over60": 86.0,
+          "over30": 0.0
+        },
+        {
+          "n": 112.0,
+          "mean_ms": 17.885,
+          "p50_ms": 17.708,
+          "p95_ms": 21.313,
+          "p99_ms": 23.788,
+          "max_ms": 23.98,
+          "over144": 112.0,
+          "over60": 91.0,
+          "over30": 0.0
+        },
+        {
+          "n": 110.0,
+          "mean_ms": 18.311,
+          "p50_ms": 17.469,
+          "p95_ms": 23.825,
+          "p99_ms": 27.411,
+          "max_ms": 29.195,
+          "over144": 110.0,
+          "over60": 74.0,
+          "over30": 0.0
+        },
+        {
+          "n": 102.0,
+          "mean_ms": 19.763,
+          "p50_ms": 20.114,
+          "p95_ms": 24.957,
+          "p99_ms": 29.054,
+          "max_ms": 30.447,
+          "over144": 102.0,
+          "over60": 78.0,
+          "over30": 0.0
+        }
+      ],
+      "sample_latches": 554.0,
+      "scopes": {
+        "draw": {
+          "calls_per_latch": 218.92960288808663,
+          "inclusive_ms_per_latch": 6.754747292418773,
+          "max_ms": 13.33
+        },
+        "resolveTexture": {
+          "calls_per_latch": 205.14440433212997,
+          "inclusive_ms_per_latch": 2.6498194945848375,
+          "max_ms": 1.05
+        },
+        "syncRT": {
+          "calls_per_latch": 223.3682310469314,
+          "inclusive_ms_per_latch": 0.08989169675090253,
+          "max_ms": 0.37
+        },
+        "presentLatched": {
+          "calls_per_latch": 1.0,
+          "inclusive_ms_per_latch": 0.27371841155234655,
+          "max_ms": 5.29
+        },
+        "presentCall": {
+          "calls_per_latch": 1.0,
+          "inclusive_ms_per_latch": 0.0923465703971119,
+          "max_ms": 0.36
+        },
+        "pumpUp": {
+          "calls_per_latch": 1.0,
+          "inclusive_ms_per_latch": 0.006444043321299639,
+          "max_ms": 2.39
+        },
+        "snapshot": {
+          "calls_per_latch": 9.449458483754512,
+          "inclusive_ms_per_latch": 0.0051985559566787,
+          "max_ms": 0.15
+        },
+        "latchDisplay": {
+          "calls_per_latch": 1.0,
+          "inclusive_ms_per_latch": 0.008050541516245489,
+          "max_ms": 0.52
+        },
+        "endFrame": {
+          "calls_per_latch": 1.0,
+          "inclusive_ms_per_latch": 0.014566787003610108,
+          "max_ms": 2.4
+        },
+        "textureCoherenceFlush": {
+          "calls_per_latch": 342.8086642599278,
+          "inclusive_ms_per_latch": 0.036498194945848376,
+          "max_ms": 0.07
+        },
+        "textureStampCheck": {
+          "calls_per_latch": 94.7129963898917,
+          "inclusive_ms_per_latch": 0.009693140794223827,
+          "max_ms": 0.02
+        },
+        "textureDecode": {
+          "calls_per_latch": 141.1913357400722,
+          "inclusive_ms_per_latch": 0.9596750902527075,
+          "max_ms": 0.81
+        },
+        "textureUpscale": {
+          "calls_per_latch": 50.37364620938628,
+          "inclusive_ms_per_latch": 0.9650541516245487,
+          "max_ms": 0.96
+        },
+        "textureCreate": {
+          "calls_per_latch": 50.37364620938628,
+          "inclusive_ms_per_latch": 0.2255234657039711,
+          "max_ms": 0.56
+        },
+        "textureResourceReuse": {
+          "calls_per_latch": 50.22924187725632,
+          "inclusive_ms_per_latch": 0.0022382671480144405,
+          "max_ms": 0.03
+        },
+        "readbackOverwriteDiscard": {
+          "calls_per_latch": 13.828519855595667,
+          "inclusive_ms_per_latch": 0.0018231046931407942,
+          "max_ms": 0.01
+        },
+        "readbackRT": {
+          "calls_per_latch": 0.14259927797833935,
+          "inclusive_ms_per_latch": 1.0112996389891697,
+          "max_ms": 15.33
+        },
+        "readbackMap": {
+          "calls_per_latch": 0.14259927797833935,
+          "inclusive_ms_per_latch": 0.9958303249097474,
+          "max_ms": 15.25
+        },
+        "readbackPackUnmap": {
+          "calls_per_latch": 0.14259927797833935,
+          "inclusive_ms_per_latch": 0.012924187725631768,
+          "max_ms": 0.29
+        },
+        "readbackUpload": {
+          "calls_per_latch": 0.14259927797833935,
+          "inclusive_ms_per_latch": 1.0278158844765344,
+          "max_ms": 15.44
+        }
+      }
+    },
+    "raw-motion-buffered-b": {
+      "measurement": {
+        "general_cpu_audited": true,
+        "external_core_average": 6.602001984457974,
+        "external_core_peak": 7.098315367568836,
+        "external_cpu_busy_samples": 26,
+        "exe_sha256": "BD72967AD3B0CAC85B8B7299ABAB56299BC5837DA154416C1FC9784CAF62766A",
+        "world_fps": 71.36063473053892,
+        "last_five_world_windows": [
+          [
+            2.01,
+            68.15
+          ],
+          [
+            2.001,
+            67.97
+          ],
+          [
+            2.004,
+            74.36
+          ],
+          [
+            2.005,
+            73.33
+          ],
+          [
+            2.0,
+            73.0
+          ]
+        ],
+        "saves_unchanged": true,
+        "contended": true,
+        "overlap_samples": 0,
+        "valid_configuration": true,
+        "invalid_configuration_reason": null,
+        "raw_fps_measurement": true
+      },
+      "reuse_check": null,
+      "world_intervals": [],
+      "sample_latches": 0,
+      "scopes": {}
+    },
+    "raw-motion-partial-b": {
+      "measurement": {
+        "general_cpu_audited": true,
+        "external_core_average": 6.262012125308352,
+        "external_core_peak": 9.139574677317807,
+        "external_cpu_busy_samples": 25,
+        "exe_sha256": "EF7A8ED308E730B3E9915C9221104D9407A32921DDA4F2D9A6762F732B890B58",
+        "world_fps": 70.19628062139016,
+        "last_five_world_windows": [
+          [
+            2.013,
+            75.5
+          ],
+          [
+            2.002,
+            74.92
+          ],
+          [
+            2.009,
+            69.18
+          ],
+          [
+            2.005,
+            61.34
+          ],
+          [
+            2.013,
+            70.03
+          ]
+        ],
+        "saves_unchanged": true,
+        "contended": true,
+        "overlap_samples": 0,
+        "valid_configuration": true,
+        "invalid_configuration_reason": null,
+        "raw_fps_measurement": true
+      },
+      "reuse_check": null,
+      "world_intervals": [],
+      "sample_latches": 0,
+      "scopes": {}
+    },
+    "raw-combat-partial-b": {
+      "measurement": {
+        "general_cpu_audited": true,
+        "external_core_average": 6.908261394103675,
+        "external_core_peak": 8.546769680314888,
+        "external_cpu_busy_samples": 27,
+        "exe_sha256": "EF7A8ED308E730B3E9915C9221104D9407A32921DDA4F2D9A6762F732B890B58",
+        "world_fps": 50.43751869205463,
+        "last_five_world_windows": [
+          [
+            2.001,
+            50.47
+          ],
+          [
+            2.001,
+            48.48
+          ],
+          [
+            2.015,
+            51.6
+          ],
+          [
+            2.01,
+            53.22
+          ],
+          [
+            2.004,
+            48.4
+          ]
+        ],
+        "saves_unchanged": true,
+        "contended": true,
+        "overlap_samples": 0,
+        "valid_configuration": true,
+        "invalid_configuration_reason": null,
+        "raw_fps_measurement": true
+      },
+      "reuse_check": null,
+      "world_intervals": [],
+      "sample_latches": 0,
+      "scopes": {}
+    },
+    "raw-combat-buffered-b": {
+      "measurement": {
+        "general_cpu_audited": true,
+        "external_core_average": 6.403859434444147,
+        "external_core_peak": 7.768059306246645,
+        "external_cpu_busy_samples": 26,
+        "exe_sha256": "BD72967AD3B0CAC85B8B7299ABAB56299BC5837DA154416C1FC9784CAF62766A",
+        "world_fps": 51.57908169350029,
+        "last_five_world_windows": [
+          [
+            2.02,
+            53.96
+          ],
+          [
+            2.01,
+            52.73
+          ],
+          [
+            2.018,
+            51.04
+          ],
+          [
+            2.008,
+            51.3
+          ],
+          [
+            2.006,
+            48.85
+          ]
+        ],
+        "saves_unchanged": true,
+        "contended": true,
+        "overlap_samples": 0,
+        "valid_configuration": true,
+        "invalid_configuration_reason": null,
+        "raw_fps_measurement": true
+      },
+      "reuse_check": null,
+      "world_intervals": [],
+      "sample_latches": 0,
+      "scopes": {}
+    }
+  }
+}

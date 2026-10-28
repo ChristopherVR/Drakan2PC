@@ -1,0 +1,13 @@
+# Equal-duration actions; RAM captures are separated from held movement.
+clock milliseconds
+0 sync play 90
+500 dump ram_fps_base
+1500 key down S
+2500 key up S
+3500 dump ram_fps_back
+4000 mouse 40 20
+4500 dump ram_fps_look
+5000 button down 1
+5100 button up 1
+8000 dump ram_fps_settled
+10000 quit

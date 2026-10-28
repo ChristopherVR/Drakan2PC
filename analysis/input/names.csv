@@ -1,0 +1,73 @@
+addr,name,confidence,notes
+004b0948,scePadInit,high,libpad init; binds padman SIDs 0x80000100/101 (IOP_AND_IO.md lists 0x4b0944; Ghidra function entry is 0x4b0948)
+004b0ba8,scePadPortOpen,high,(port,slot,buf64B-aligned)
+004b0ef8,scePadRead,high,"(port,slot,buf)->len; copies 32B from padman ring (+0x60 = len). THE raw pad read hook point"
+004b0f78,scePadGetState,high,returns 6 (STABLE) when ready; 99 if port not open
+004b1490,scePadSetMainMode,high,"(port,slot,1,3) -> DualShock analog locked"
+004b1548,scePadSetActDirect,high,rumble
+004b2d08,powf,medium,"used as pow(|stick|,2.0) in stick response"
+004b2430,cosf,medium,
+004b2518,sinf,medium,
+001e37d8,PadMgr_Open,high,"scePadInit + PortOpen(0,0,this+0x500) PortOpen(1,0,this+0x600) + alloc 2 rings of 8x0x20 samples"
+001e3970,PadMgr_Update,high,"virtual slot +0x1c of the pad manager. Per-frame: GetState/SetMainMode, scePadRead x2 ports into ring, per sample: buttons ^ 0xffff, stick bytes -> ProcessStickAxis, button edge events, accumulate axis floats at this+0x44c"
+001e3f78,PadMgr_DispatchGuiKeyEvents,high,"table 0x4e98d0 (15x{id,mask,name}); pad button edges -> GUI event mgr (DAT_005565d8) keydown(id)/keyup(id|0x10000); ids are DIK scancodes or 0x100/0x101 = L/R MOUSE"
+001e40f0,PadMgr_DispatchActionEvents,high,"table 0x4e9800 (17x{action,mask,name}); pad button edges -> device callback (this+0x410) (keymap[action],action,pressed,time); also feeds cheat detector"
+001e4278,PadMgr_UpdateRumble,high,"decays active rumble entries (this+0x708/0x710), SetActDirect"
+001e4528,PadMgr_CheatSequenceDetect,medium,"8-button sequences -> lvlup/shaman/heal/atm cheats (0x51f108..)"
+001e4b30,PadMgr_ProcessStickAxis,high,"(this,byte,|delta|,stickIdx 0=lx 1=ly 2=rx 3=ry): v=(b-128); if b in [0x51,0xaf] and |delta|<4 -> 0; f=v/128 clamp +-1; out=sign*pow(|f|,2)*scale -> this+0x498+idx*12+4"
+001e48a8,PadMgr_GetInstance,high,returns &DAT_004e90c0
+001e48f0,PadMgr_Ctor,high,
+001e4700,PadMgr_Reset,medium,
+001e3690,PadMgr_Dtor,medium,
+001e49c0,PadMgr_ClearAxes,high,"zeroes 19 floats at this+0x44c"
+001e49e0,PadMgr_PollToRing,medium,"alternate poller (no callers; scePadRead into ring)"
+001e4c70,InputDev_GetAxis,high,"vslot +0x54: returns float axis[i] (this+0x44c+4*i). THE game-side analog read"
+001e4c80,InputDev_GetAxisDigital,high,vslot +0x5c: -1/0/+1 vs threshold
+001e4cd8,InputDev_SetAxis,high,vslot +0x64
+001e4ce8,InputDev_AddAxis,high,vslot +0x6c (used for scripted nudges)
+001e4d08,InputDev_SetStickAxisMap,high,"vslot +0x74 (devType=2,stick,axisId; -1 = unmapped)"
+001e4d30,InputDev_GetStickAxisMap,high,vslot +0x7c
+001e4d58,InputDev_FindStickForAxis,high,vslot +0x84
+001e4d90,InputDev_SetStickValue,medium,vslot +0x8c
+001e4db8,InputDev_GetStickValue,medium,vslot +0x94
+001e4de0,InputDev_SetStickScale,high,"vslot +0x9c (scale,devType,stick)"
+001e4e08,InputDev_GetStickScale,high,vslot +0xa4
+001e4ed0,InputDev_IsActionDown,high,"vslot +0xb4 (ids 0x100-0x10f / 0x120-0x12f via bitmask this+0x444)"
+001e4e30,InputDev_SetAllStickScales,high,
+00131da8,InputDev_Ctor,high,"base: keymap u16[512] at +8, callback +0x410/+0x414, vptr +0x434"
+00131e58,InputDev_SetCallback,high,vslot +0xec (+0x410)
+00131e80,InputDev_SetCallback2,medium,vslot +0xf4 (+0x414)
+00131e60,InputDev_SetKeymap,high,"vslot +0xfc (actionId -> u16 command)"
+00131e70,InputDev_GetKeymap,high,vslot +0x104
+00131e88,InputDev_SetCursorPos,high,"vslot +0x10c; clamps to screen DAT_005565c8+0xf8/+0xfc; cursor x,y at device(this)+0"
+00131ee8,InputDev_GetCursorPos,high,vslot +0x114
+00131f18,InputDev_SetEnabled,medium,vslot +0x11c
+00131d88,InputDev_IsRumbleEnabled,medium,vslot +0x12c
+001e4830,InputDev_SetRumbleEnabled,medium,vslot +0x124
+00131be8,InputDev_WaitAnyKey,low,
+00131fa8,InputDev_InvokeCallback,high,"vslot +0x144: calls this+0x410 callback (cmd,actionId,pressed,time)"
+0023ce18,Game_OnInputCommand,high,"callback registered by 0x243e88; (cmd 0x40xx, actionId, pressed, time): big switch = all digital gameplay commands"
+00243e88,Input_RegisterGameCallbacks,high,"SetCallback(0x23ce18), SetCallback2(0x2cc7c0)"
+00243f98,Player_AxesToDigitalCommands,high,"axes 2/3/4 -> digital cmds 0x4019/0x4020 (fwd/back, axis2 +-0.1), 0x4014/0x4013 (axis3 +-0.2), 0x4011/0x4012 (axis4 +-0.25) via Game_OnInputCommand"
+0044c2f8,Player_GatherInput,high,"(player, float out[5]): out0=-axis0 (turn), out1=axis1, out2=axis2, out3=axis3 clamped, out4=axis4; also scripted nudges (DAT_004fbb0c/10); callers 0x271e18 0x274c18 0x311220"
+0044e4a8,Camera_UpdateLook,high,"(player, float limits[], bool dragonMode): reads axes 0,1,5; updates camera obj (FUN_00283ac8) pitch +0x84, yaw-offset +0x90, rates +0x9c/+0xa0/+0xa4; rotates player heading via FUN_0013ee90; dt = *(DAT_005565d4+0x24); 2.2 rad/s factor"
+0044e2d8,Camera_SoftLimitAxis,low,
+0044de40,Player_CameraLookTick,medium,"calls Camera_UpdateLook with limit 0.6283 rad (foot) / 1.0472 (dragon), then applies pitch to head/torso bones"
+00327700,Player_CameraLookTick2,low,
+00283ac8,Cam_GetObjFromHandle,medium,"handle->+0xfc->+0x10"
+003fa4a0,Options_ApplyStickAxisMapping,high,"for stick 0..3: SetStickAxisMap(2,stick,|cfg[+0x7c+4*stick]|) + scale (sens pow for axes 0,1; invert if negative or Y-invert)"
+003fa830,Options_LoadStickScheme,high,"copies scheme table PTR_DAT_00511ef8/00511f08[scheme] into options+0x7c"
+003fa258,Options_ApplyButtonScheme,high,"first applies DIK->command table 0x54b6c8 (56 entries), then pad button->command scheme tables 0x511ed8/0x511ee8"
+003fa6d8,Options_ApplyButtonTable,medium,
+003fa760,Options_ApplyButtonSchemeNoDefaults,medium,
+003fa8d0,Options_LookSensitivity,high,"10^(opt.sens(+0x78)*x - 1.45)"
+003fa0f0,Options_ApplyControllerSettings,high,
+003f9e20,Options_ApplyAll,medium,
+003f9658,Options_Validate,medium,
+00457390,Input_SetAimAxisMode,medium,"remaps stick 2 axis to 3 or 0 (aim/strafe-lock)"
+00453ba8,Input_ResetAimAxisMode,medium,
+003af500,Gui_PollMouseState,high,"GetCursorPos->DAT_0051013c/40, IsActionDown(0x100)/(0x101) -> L/R mouse flags DAT_00510108 (1/2 down, 4/8 pressed, 0x10/0x20 released)"
+00135c40,Engine_Tick,medium,"calls PadMgr_Update (vslot 0x1c) once per frame via DAT gp-0x7f68"
+00271e18,Controller_Update_A,low,"calls Player_GatherInput; uses out[2..4]*2048*speed; flight/dragon-like"
+00274c18,Controller_Update_B,low,calls Player_GatherInput
+00311220,Controller_Update_C,low,"huge; calls Player_GatherInput; rynn?"

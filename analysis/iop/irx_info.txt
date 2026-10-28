@@ -1,0 +1,99 @@
+== LIBSD.IRX 26301 bytes
+ sections: [('.iopmod', '0x0', '0x2f'), ('.text', '0x0', '0x3fd0'), ('.rel.text', '0x0', '0x1748'), ('.rodata', '0x3fd0', '0x200'), ('.rel.rodata', '0x0', '0x1b0'), ('.data', '0x41d0', '0x8f0'), ('.rel.data', '0x0', '0x8'), ('.bss', '0x4ac0', '0x44'), ('.shstrtab', '0x0', '0x5c'), ('.symtab', '0x0', '0x10'), ('.strtab', '0x0', '0x1')]
+ iopmod: {'entry': 144, 'gp': 51888, 'textsz': 16336, 'datasz': 2800, 'bsssz': 68, 'version': '1.4', 'name': 'Sound_Device_Library'}
+  IMPORT intrman  v0102 @3e90: 4,5,6,7,17,18,23
+  IMPORT loadcore v0102 @3ee4: 5,6
+  IMPORT sifman   v0101 @3f10: 7,8
+  IMPORT stdio    v0103 @3f3c: 4
+  IMPORT thbase   v0101 @3f60: 33
+  IMPORT thevent  v0101 @3f84: 4,5,7,8,9,10
+  EXPORT libsd    v0104 @0: 28 funcs ['0x90', '0x88', '0x1794', '0x88', '0x16cc', '0x36a0', '0x36fc', '0x375c', '0x37a0', '0x37d8', '0x3838', '0x3ca0', '0x3d60', '0x38e0', '0x39f4', '0x3128', '0x3304', '0x1850', '0x1b00', '0x19f0', '0x1c80', '0x3df0', '0x3e50', '0x900', '0x88c', '0x600', '0x3e18', '0x3e68']
+== MCMAN.IRX 90533 bytes
+ sections: [('.iopmod', '0x0', '0x20'), ('.text', '0x0', '0x10c10'), ('.rel.text', '0x0', '0x4de8'), ('.rodata', '0x10c10', '0x110'), ('.rel.rodata', '0x0', '0xb8'), ('.data', '0x10d20', '0x200'), ('.rel.data', '0x0', '0xf8'), ('.bss', '0x10f20', '0x1464c'), ('.shstrtab', '0x0', '0x5c'), ('.symtab', '0x0', '0x10'), ('.strtab', '0x0', '0x1')]
+ iopmod: {'entry': 344, 'gp': 102160, 'textsz': 68624, 'datasz': 784, 'bsssz': 83532, 'version': '2.26', 'name': 'mcman'}
+  IMPORT loadcore v0103 @109c0: 6,7
+  IMPORT intrman  v0102 @109ec: 9,17,18
+  IMPORT sio2man  v0203 @10a20: 24,25,26,57,59
+  IMPORT sysclib  v0102 @10a64: 12,14,20,22,23,27,29,30
+  IMPORT stdio    v0103 @10ac0: 4
+  IMPORT thbase   v0101 @10ae4: 33,35,39
+  IMPORT thsemap  v0101 @10b18: 4,5,6,7,8
+  IMPORT modload  v0103 @10b5c: 13
+  IMPORT ioman    v0104 @10b80: 20,21
+  IMPORT secrman  v0103 @10bac: 4,5,6
+  IMPORT cdvdman  v0101 @10be0: 51
+  EXPORT mcman    v0206 @0: 56 funcs ['0xf8', '0xf8', '0xf8', '0xf8', '0xf8', '0x750', '0xbe8', '0xd08', '0x1170', '0x1328', '0x1098', '0x1d24', '0x14e0', '0x1c0c', '0xec8', '0x1b10', '0x19ac', '0x2770', '0x30ec', '0x2a60', '0x3b48', '0x99c', '0x260', '0x1614', '0xedf8', '0x6d0', '0x23c', '0xf8', '0xf8', '0xa098', '0x9e4c', '0xf8', '0xf8', '0xf8', '0xf8', '0xf8', '0x1e08', '0xd13c', '0x2f8', '0x2a0']
+== MCSERV.IRX 7353 bytes
+ sections: [('.iopmod', '0x0', '0x21'), ('.text', '0x0', '0x1230'), ('.rel.text', '0x0', '0x768'), ('.rodata', '0x1230', '0x40'), ('.data', '0x1270', '0x20'), ('.rel.data', '0x0', '0x8'), ('.bss', '0x1290', '0x24a0'), ('.shstrtab', '0x0', '0x50'), ('.symtab', '0x0', '0x10'), ('.strtab', '0x0', '0x1')]
+ iopmod: {'entry': 64, 'gp': 37504, 'textsz': 4656, 'datasz': 96, 'bsssz': 9376, 'version': '2.14', 'name': 'mcserv'}
+  IMPORT loadcore v0103 @f80: 6,7
+  IMPORT intrman  v0102 @fac: 9,17,18
+  IMPORT sysclib  v0102 @fe0: 12,29,36
+  IMPORT stdio    v0103 @1014: 4
+  IMPORT sifman   v0101 @1038: 5,7,8,29
+  IMPORT sifcmd   v0101 @1074: 14,17,19,22,23,24,25
+  IMPORT thbase   v0101 @10c8: 4,5,6,10,14,20,22,33
+  IMPORT thsemap  v0101 @1124: 6,8
+  IMPORT mcman    v0206 @1150: 6,7,8,9,10,11,12,13,14,15,16,21,22,23,24,26,36,37,38,39,42,45,53
+  EXPORT mcserv   v0201 @0: 8 funcs ['0x38', '0x38', '0x38', '0x38', '0x38', '0x204', '0x38', '0x38']
+== PADMAN.IRX 43861 bytes
+ sections: [('.iopmod', '0x0', '0x21'), ('.text', '0x0', '0x7a90'), ('.rel.text', '0x0', '0x2a28'), ('.rodata', '0x7a90', '0x290'), ('.rel.rodata', '0x0', '0xd8'), ('.data', '0x7d20', '0x40'), ('.rel.data', '0x0', '0x8'), ('.bss', '0x7d60', '0x1bd0'), ('.shstrtab', '0x0', '0x5c'), ('.symtab', '0x0', '0x10'), ('.strtab', '0x0', '0x1')]
+ iopmod: {'entry': 12680, 'gp': 64848, 'textsz': 31376, 'datasz': 720, 'bsssz': 7120, 'version': '4.2', 'name': 'padman'}
+  IMPORT sysmem   v0101 @7820: 14
+  IMPORT loadcore v0102 @7844: 6
+  IMPORT intrman  v0102 @7868: 9,17,18
+  IMPORT stdio    v0103 @789c: 4
+  IMPORT sio2man  v0203 @78c0: 11,23,25,52,57,58,60
+  IMPORT thbase   v0101 @7914: 4,5,6,8,20,22,23
+  IMPORT thevent  v0101 @7968: 4,5,6,7,8,10
+  IMPORT sifman   v0101 @79b4: 5,7,8,29
+  IMPORT sifcmd   v0101 @79f0: 14,17,19,22
+  IMPORT vblank   v0101 @7a2c: 8,9
+  IMPORT sysclib  v0102 @7a58: 8,29,36
+  EXPORT padman   v0203 @77b0: 18 funcs ['0x3188', '0x7810', '0x7810', '0x7810', '0x32ac', '0x348c', '0x3590', '0x383c', '0x390c', '0x3cd8', '0x3d1c', '0x3e1c', '0x3f08', '0x40f4', '0x4040', '0x41a4', '0x4404', '0x4320']
+== PANICSYS.IRX 3465 bytes
+ sections: [('.iopmod', '0x0', '0x30'), ('.text', '0x0', '0x570'), ('.rel.text', '0x0', '0x190'), ('.rodata', '0x570', '0x150'), ('.data', '0x6c0', '0xd0'), ('.rel.data', '0x0', '0x170'), ('.sbss', '0x790', '0x8'), ('.bss', '0x7a0', '0x0'), ('.shstrtab', '0x0', '0x56'), ('.symtab', '0x0', '0x10'), ('.strtab', '0x0', '0x1')]
+ iopmod: {'entry': 0, 'gp': 34688, 'textsz': 1392, 'datasz': 544, 'bsssz': 16, 'version': '1.1', 'name': 'System_Panic_Reporter'}
+  IMPORT sysmem   v0101 @470: 6,14
+  IMPORT loadcore v0101 @49c: 3
+  IMPORT intrman  v0102 @4c0: 17,18
+  IMPORT excepman v0101 @4ec: 5,6
+  IMPORT sifcmd   v0101 @518: 4,13
+  IMPORT sysclib  v0101 @544: 36
+== RSRCIOP.IRX 36652 bytes
+ sections: [('.iopmod', '0x0', '0x25'), ('.text', '0x0', '0x59d0'), ('.rel.text', '0x0', '0x16f0'), ('.rodata', '0x59d0', '0x2d0'), ('.rel.rodata', '0x0', '0x30'), ('.data', '0x5ca0', '0x1610'), ('.rel.data', '0x0', '0xd0'), ('.sdata', '0x72b0', '0xe0'), ('.rel.sdata', '0x0', '0x18'), ('.sbss', '0x7390', '0x20'), ('.bss', '0x73b0', '0xb10'), ('.shstrtab', '0x0', '0x7d')]
+ iopmod: {'entry': 6096, 'gp': 62112, 'textsz': 22992, 'datasz': 6592, 'bsssz': 2864, 'version': '1.1', 'name': 'RsrcLoader'}
+  IMPORT sysmem   v0101 @5530: 4,5,6,8
+  IMPORT intrman  v0102 @556c: 9,17,18
+  IMPORT ioman    v0104 @55a0: 4,5,6,8
+  IMPORT loadcore v0102 @55dc: 5
+  IMPORT sifcmd   v0101 @5600: 14,15,16,17,18,19,20,21
+  IMPORT sifman   v0101 @565c: 7,8
+  IMPORT stdio    v0103 @5688: 4
+  IMPORT sysclib  v0102 @56ac: 5,6,12,13,14,19,20,23,27,29,30
+  IMPORT thbase   v0101 @5720: 4,6,20,24,25,26,33,34,40
+  IMPORT thsemap  v0101 @5784: 4,5,6,7,8
+  IMPORT libsd    v0104 @57c8: 15,16,17,19,26
+  IMPORT cdvdman  v0101 @580c: 4,6,8,10,11,13,37,75
+== SDRDRV.IRX 6345 bytes
+ sections: [('.iopmod', '0x0', '0x25'), ('.text', '0x0', '0xca0'), ('.rel.text', '0x0', '0x7d8'), ('.rodata', '0xca0', '0x160'), ('.data', '0xe00', '0x30'), ('.rel.data', '0x0', '0x8'), ('.bss', '0xe30', '0xe8'), ('.shstrtab', '0x0', '0x50'), ('.symtab', '0x0', '0x10'), ('.strtab', '0x0', '0x1')]
+ iopmod: {'entry': 0, 'gp': 36384, 'textsz': 3232, 'datasz': 400, 'bsssz': 232, 'version': '4.1', 'name': 'sdr_driver'}
+  IMPORT libsd    v0104 @a80: 4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,23,24,25,26,27
+  IMPORT intrman  v0102 @b4c: 17,18
+  IMPORT loadcore v0102 @b78: 5,6
+  IMPORT sifcmd   v0101 @ba4: 14,15,16,17,19,22
+  IMPORT stdio    v0103 @bf0: 4
+  IMPORT sysclib  v0102 @c14: 8,29,36
+  IMPORT thbase   v0101 @c48: 4,6,14,20,22,24,26
+  EXPORT sdrdrv   v0101 @a40: 0 funcs []
+== SIO2MAN.IRX 6161 bytes
+ sections: [('.iopmod', '0x0', '0x22'), ('.text', '0x0', '0xe30'), ('.rel.text', '0x0', '0x6a0'), ('.rodata', '0xe30', '0x60'), ('.data', '0xe90', '0x20'), ('.rel.data', '0x0', '0x8'), ('.bss', '0xeb0', '0x30'), ('.shstrtab', '0x0', '0x50'), ('.symtab', '0x0', '0x10'), ('.strtab', '0x0', '0x1')]
+ iopmod: {'entry': 1536, 'gp': 36512, 'textsz': 3632, 'datasz': 128, 'bsssz': 48, 'version': '2.4', 'name': 'sio2man'}
+  IMPORT loadcore v0102 @ca0: 6
+  IMPORT intrman  v0102 @cc4: 4,5,6,7,17,18
+  IMPORT stdio    v0103 @d10: 4
+  IMPORT dmacman  v0102 @d34: 28,32,33,34,35
+  IMPORT thbase   v0101 @d78: 4,6,20
+  IMPORT thevent  v0101 @dac: 4,6,7,8,10
+  IMPORT sysclib  v0102 @df0: 8,29,36
+  EXPORT sio2man  v0203 @b80: 61 funcs ['0x600', '0xc8c', '0x7c4', '0xc8c', '0x18', '0x2c', '0x40', '0x54', '0x6c', '0x84', '0x9c', '0xb4', '0xc8', '0xe0', '0xf8', '0x10c', '0x120', '0x134', '0x148', '0x15c', '0x16c', '0x17c', '0x190', '0x81c', '0x86c', '0x9ac', '0xa04', '0x18', '0x2c', '0x40', '0x54', '0x6c', '0x84', '0x9c', '0xb4', '0xc8', '0xe0', '0xf8', '0x10c', '0x120']

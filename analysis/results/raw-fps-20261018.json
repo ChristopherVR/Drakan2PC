@@ -1,0 +1,45 @@
+{
+  "Date": "2026-10-18T15:42:39.436886+10:00",
+  "ExecutableSHA256": "DC21E34446503354A64E9B2A67F08CB61C3F666C1ADA87FC7BFCAD43A0970FA2",
+  "BackupDirectory": "C:\\Games\\Drakan - The Ancients Gates\\decomp\\build\\release_backups\\raw-fps-20261018-154239",
+  "RetainedChanges": [
+    "Exact page-address lookup tables for texture decode",
+    "Bulk GS image upload with constant-format page traversal"
+  ],
+  "RawPreset": {
+    "scale": "4",
+    "world_rate": "uncapped",
+    "vsync": "0",
+    "frame_limit": "0",
+    "dlss": "off",
+    "dlss_neural": "0",
+    "modern_water": "0",
+    "ray_reflections": "0",
+    "show_fps": "1"
+  },
+  "HigherResolutionTest": {
+    "internal_scale": 8,
+    "before_world_fps": 39.36636001196053,
+    "after_world_fps": 42.61429752066116,
+    "improvement_percent": 8.250540582654375
+  },
+  "Limit": "At 4x this scene remains CPU-bound around 43 FPS; no claim of 60 FPS or whole-game throughput.",
+  "Validation": {
+    "texture_cases": 403335,
+    "exact_texels": 546252570,
+    "full_vram_upload_cases": 1980,
+    "split_upload_packets": 145725,
+    "coherence_checks": 18,
+    "overlap_checks": 16,
+    "inventory_checks": 45
+  },
+  "RejectedExperiments": [
+    "VU store inlining",
+    "AVX2 VU compilation",
+    "Q/status block splitting"
+  ],
+  "LegacyVUTests": "73/84 passed; same 11 failures with AOT disabled. No VU runtime change retained.",
+  "BenchmarkCaveat": "Final baseline-4x run overlapped the startup of the 8x baseline and is not used for causal comparison. 8x baseline tail occurs well after that process exited.",
+  "Evidence": "C:\\Games\\Drakan - The Ancients Gates\\decomp\\build\\raw-fps-20261018\\metrics.json",
+  "RestartRequired": true
+}

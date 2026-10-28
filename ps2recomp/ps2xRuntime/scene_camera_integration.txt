@@ -1,0 +1,78 @@
+ENGINE CAMERA CAPTURE HANDOFF (2026-10-17)
+
+Canonical packet: outer runtime/gs/include/gsr/scene_guide_camera.h, 352 bytes.
+The nested include/runtime/gs/scene_guide_camera.h is a wrapper. Integrator must
+retain the outer canonical header; tool commit alone cannot carry that file.
+No further outer-header writes by this worker after the successful syntax check.
+
+Isolated sources: src/lib/drakan_scene_camera.{h,cpp}. Add the .cpp to runtime
+CMake, include drakan_dlss.h in overrides if absent, add install in overrides
+immediately after drakan_ws::install. The bridge patch is a CODE PROPOSAL with
+approximate context/line counts, not an automatically applied/tested patch.
+Main already implements RecScene6/noteSceneCamera, so do not duplicate those.
+
+Drain in the EE sceneSink, before acquiring a GsrBridge attachment Lease:
+    rt.memory().processPendingTransfers();
+    vu1async::sync();
+    Lease lease;
+    if (lease.bridge) lease.bridge->noteSceneCamera(packet);
+Include runtime/ps2_vu1_async.h and ps2_runtime.h. No GS renderer wait is needed
+for ordering: RecScene queues behind the older GIF records and ahead of this
+scene's subsequently submitted packets. Never call the backend directly from EE.
+This relies on engine per-scene DMA submission: endScene1ed508 sends VIF1 at
+1ed764 before a new scene; viewport caller paths also flush via1dacb8. A CPU
+phase hook alone is NOT a GPU/DMA fence; keep this drain before that marker too.
+
+Installation may precede bridge attachment: hooks do not call renderer during
+installation; the callback resolves attachment through a fresh Lease at calltime.
+Global tick is &runtime.memory().gs().vsyncTick. Hooks install once, process-wide.
+
+Capture semantics:
+* Begin1e8c78 entry R5 is 12 packed floats. For source s, VU columns (also the
+  row-vector matrix rows) are [s3,s6,0,-s9], [s4,s7,0,-s10],
+  [s5,s8,0,-s11], [s0,s1,32,-s2].
+* Validate against the actual world template4dad58 scaled by renderObj+48/+4c,
+  renderObj=*(5565c8). Do NOT accept every per-object UNPACK0..3 as a camera.
+* A nonmatching source is skipped, NOT classified as HUD. Object-local MVP
+  changes must not terminate world. Identical camera/viewport in one tick is
+  deduplicated to avoid a drain/resolve per object.
+* Viewport1e93b8 entry R5 is fog params. VU4=[0,p7,p4,255*p6],
+  VU5=[obj100,obj104,0,255+255*p6*p7],
+  VU6=[obj40,-obj44,floatbits(4d7fff00),0].
+* Viewport1e97a0 is a thumbnail/preview path; emits an ineligible reset packet.
+* Known front-end/movie/loading GUI IDs8,e,13,1d,1e disallow World. Unknown
+  IDs remain observable and require matching world source. A menu which emits
+  no scene hook cannot invalidate the packet through this hook alone: renderer
+  must reject stale captureTick (>6 vsync ticks) and/or use its page state.
+* Reset on first World, eligibility/GUI change, >6-tick gap, projection/dimension
+  change, >4096-unit jump or >60-degree forward turn. Last two are conservative
+  HISTORY RESET POLICY, not decoded engine cutscene flags.
+* No exact HUD boundary is installed by this helper. Separate boundary worker
+  identified candidate entry147690 with RA139344; main must order/fence it.
+
+Math for NR helper (Heisenberg has been sent these details):
+    screen.xyz = offset.xyz + scale.xyz * clip.xyz/clip.w
+    XYZfixed.xyz = trunc(16 * screen.xyz)
+    pixel.xy = (XYZfixed.xy - GS_XYOFFSETfixed.xy)/16
+    positive view distance = clip.w = -view.z
+    rawZ = trunc(16*scale.z*32 / distance)
+    distance = 16*scale.z*32 / (guideDepth*zmax)  [only unsaturated/unmasked]
+Convert VU XY to canonical NDC using actual XYOFFSET, dimensions and viewport.
+For centered512 viewport(-256,+256), canonical projection XY=(-sx,-sy).
+Public row-vector row-major constants must not use the VU matrix unconverted.
+Fog bounds53760..153600 are NOT near/far clip. Matrix has near32 from CLIP and
+no finite far plane. Match projection Z constant to actual normalized guide
+depth: 16*scale.z*32/zmax, or convert guide depth to canonical32/distance.
+Clamp/wrap/packed-Z truncation can make observed depth noninvertible.
+
+Measured RAM build/t/combined-off/ram_combat_end.ram:
+renderObj6c5d80, camera6c5f90, source6c6008; scales(-.8938152194,-1.7025052309).
+Raw-template eye reconstructed(449110.54,171693.05,346415.09), independently
+stored direct eye at4dadc4=(449110.5,171693.03125,346415.09375).
+614 V4-32 camera and614 viewport headers found in RAM, including changing
+object matrices and thumbnail scales61,61. This is historical buffer evidence,
+not 614 distinct presented frames or a trace-order proof.
+
+Validation: MSVC cl /std:c++20 /EHsc /Zs /Zc:preprocessor- against nested runtime,
+IOP and outer GS includes passed (build/recomp_stab/scene_camera_syntax.log).
+No full build, game launch or live hook validation by this worker.

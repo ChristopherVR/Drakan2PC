@@ -1,0 +1,30 @@
+# Private copy of existing fixture-hostile675; no relocation or save edits here.
+1 log on 5
+0 sync play 90
+2 key tap Q
+4 dump ram_melee_equipped
+30 key tap F
+60 dump ram_target
+65 key down W
+80 key up W
+84 dump ram_before_hit
+85 button down 1
+87 mouse 2 0 3
+91 button up 1
+100 dump ram_hit1
+110 button down 1
+114 button up 1
+120 dump ram_hit2
+130 button down 1
+134 button up 1
+150 dump ram_hit3
+160 button down 2
+180 dump ram_block_start
+220 dump ram_block_held
+280 button up 2
+285 dump ram_block_up
+310 key down D
+340 key up D
+350 dump ram_strafe
+370 dump ram_neutral
+380 quit

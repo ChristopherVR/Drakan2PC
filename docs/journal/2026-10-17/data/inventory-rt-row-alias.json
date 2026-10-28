@@ -1,0 +1,80 @@
+{
+  "production_commit": "bb244c88841662446ce99bbd6f88bf32ba7534e3",
+  "main_integration_commit": "76d8e18",
+  "private_evidence_root": "tools/graphics-followup/build/graphics-orb",
+  "failing_exe_sha256": "7F80774EEBE4634BFEFD7DF60B5E674C9E05BD6EAAC68A1F1E2E2A0EC292F387",
+  "capture": {
+    "file": "captures/gscap_20261017_222753.bin",
+    "bytes": 9471248,
+    "sha256": "932F517699771AFFECA8F6B60420571FF394D0001D3515016063ABEAAC9C33C1",
+    "frames": 3,
+    "submitted_vertex_kicks": 87701,
+    "start_after_seconds": 41.6,
+    "initial_vram_present": false
+  },
+  "failing_png": {
+    "file": "render_2500.png",
+    "sha256": "CF71DA1F7C4C68C0531E5F407BB5FBDFF9E0C8245008599EE4FF5BDDA1D7D0BA"
+  },
+  "private_run": {
+    "elapsed_seconds": 56.3850945,
+    "exit_code": 0,
+    "script_quit": true,
+    "original_cards_unchanged": true,
+    "source_cards_unchanged": true,
+    "gpu_released_after_capture": true
+  },
+  "rt_producer": {
+    "frame": "0x201cc",
+    "fbp": 460,
+    "fbw": 2,
+    "psm": "CT32",
+    "parent_width": 128,
+    "native_clear_size": [128,128],
+    "clear_first_kick": 32180,
+    "geometry_first_kick": 32182
+  },
+  "health_upload": {
+    "after_kicks": [38046,81903],
+    "bitbltbuf": "0x00023aa000000000",
+    "dbp": 15008,
+    "dbw": 2,
+    "psm": "CT32",
+    "size": [128,128]
+  },
+  "equipment_consumer": {
+    "kicks": [[40540,40541],[84397,84398]],
+    "native_rect": [14,433,74,493],
+    "rgba": [72,0,0,128],
+    "tex0": "0x00075405dc00baa0",
+    "tbp": 15008,
+    "tbw": 2,
+    "logical_size": [128,128],
+    "uv_endpoints": [[28.5,127.5],[88.5,67.5]],
+    "test": "0x3002d",
+    "alpha": "0x44",
+    "clamp_modes": [1,1],
+    "selected_rt_origin": [64,128],
+    "translated_max_x": 152.5
+  },
+  "regression": {
+    "command": "gsr_test_synthetic --warp --scale 1 --rt-shifted-row-only",
+    "before": {"checks":16,"failed":3,"exit_code":1},
+    "after": {"checks":16,"failed":0,"exit_code":0},
+    "controls": ["aligned-row subview","zero-origin larger logical texture","existing exact-base shadow-overlap regression"]
+  },
+  "native_actual_validation": {
+    "owner": "main",
+    "exe_sha256": "77AF378BC98F14757262C902B995C115D37B2DB025DC78CBD565D5A9BE52298E",
+    "png": "build/t/followup-release-orb-native/render_2500.png",
+    "png_sha256": "908176820B702C07395CE227A2337AE4E19CBC42336495E443E091499DBEF305",
+    "red_exterior_rectangle": "gone on visual inspection by main and worker",
+    "mana_swirl": "curved shape restored on visual inspection",
+    "full_native_run_completion_at_authorship": "not yet recorded"
+  },
+  "srnr_actual_validation": "pending at authorship",
+  "performance_measurement": "pending at authorship; fallback readback/decode cost not assumed zero",
+  "pale_overhead_shape": "unchanged; possible booth awning; unverified world/preview placement, not a proven renderer defect",
+  "smoke": "not exercised",
+  "shared_stage_or_dist_modified_by_worker": false
+}

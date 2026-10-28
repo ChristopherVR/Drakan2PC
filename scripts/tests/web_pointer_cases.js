@@ -1,0 +1,16 @@
+const assert = require('node:assert/strict');
+const Motion = require('../../runtime/web/pointer_motion.js');
+const events = [];
+const motion = new Motion((x, y) => events.push([x, y]));
+for (let i = 0; i < 4; ++i) motion.move(.25, -.25);
+assert.deepEqual(events, [[1, -1]]);
+motion.move(.5, -.5);
+motion.reset();
+motion.move(.5, -.5);
+assert.equal(events.length, 1, 'capture changes discard fractional old motion');
+motion.move(.5, -.5);
+assert.deepEqual(events[1], [1, -1]);
+motion.move(NaN, Infinity);
+motion.move(100, -200);
+assert.deepEqual(events[2], [100, -200], 'legitimate fast movement is not clipped');
+console.log('Fractional pointer motion, capture reset and invalid-event rejection passed');

@@ -1,0 +1,23 @@
+:root { color-scheme: dark; --gold: #c3aa73; --paper: #e1d6b8; --ember: #e7ad54; }
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+html, body { width: 100%; height: 100%; margin: 0; overflow: hidden; background: #000; }
+body { color: var(--paper); font-family: "Palatino Linotype", "Book Antiqua", Palatino, Georgia, serif; }
+#player { position: relative; width: 100%; height: 100dvh; background: #000; }
+canvas { display: block; width: 100%; height: 100%; object-fit: contain; outline: none; background: #000; }
+#startup { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 28px; padding: 24px; text-align: center; background: #080c0e; }
+.title h1 { margin: 0; font-size: clamp(48px, 8vw, 88px); font-weight: normal; font-variant: small-caps; color: var(--gold); letter-spacing: .025em; line-height: 1; text-shadow: 0 2px 0 #21170e, 0 -1px 0 #dfc798; }
+.title p { margin: 8px 0 0; color: #b3a07b; font-size: clamp(15px, 2vw, 21px); }
+button { min-width: 160px; padding: 10px 24px; border: 1px solid #725b35; border-width: 1px 0; background: transparent; color: #f1c77d; font: 24px/1.4 "Palatino Linotype", "Book Antiqua", Palatino, Georgia, serif; cursor: pointer; text-shadow: 0 2px 1px #000; }
+button:hover:not(:disabled) { color: #ffe0a0; border-color: #d0a05b; text-shadow: 0 0 14px #c77b3c88, 0 2px 1px #000; }
+button:focus-visible { outline: 2px solid var(--ember); outline-offset: 5px; }
+button:disabled { color: #9d9c8d; cursor: default; }
+#status { margin: 0; max-width: 48ch; color: #b8b7a5; font-size: 14px; line-height: 1.6; }
+#status:empty { display: none; }
+#load-progress { width: min(220px, 80%); height: 5px; border: 1px solid #725b35; background: #080c0e; accent-color: var(--gold); }
+#load-progress::-webkit-progress-bar { background: #080c0e; }
+#load-progress::-webkit-progress-value { background: #b69458; }
+#save-error { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); width: min(420px, calc(100% - 40px)); padding: 24px; text-align: center; background: #0c1112; border: 1px solid #80643e; box-shadow: 0 8px 40px #0009; }
+#save-error p { margin: 0 0 16px; line-height: 1.5; }
+#save-error button { min-width: 120px; font-size: 20px; }
+@media (max-height: 420px) { #startup { gap: 16px; } .title h1 { font-size: 44px; } .title p { font-size: 14px; } button { font-size: 20px; padding: 7px 20px; } }

@@ -1,0 +1,234 @@
+{
+  "goal": "144+ raw gameplay FPS; not demonstrated",
+  "status": "Private experiment; not promoted",
+  "graphics_change": "Decode CT32/CT24 render target rows using one shared GS block address per eight pixels; other formats keep the reference path.",
+  "reference_pixel_comparisons": 8573040,
+  "patch_apply_verified": true,
+  "decoder_only_log": "decode-only reference 106.251 ms checksum 434188150542\ndecode-only block 14.719 ms checksum 868376301084\ndecode-only block 13.459 ms checksum 1302564451626\ndecode-only reference 104.760 ms checksum 1736752602168\ndecode-only reference 99.284 ms checksum 2170940752710\ndecode-only block 16.912 ms checksum 2605128903252\ndecode-only block 15.588 ms checksum 3039317053794\ndecode-only reference 108.788 ms checksum 3473505204336\nPASS: 8573040 exact pixel comparisons, boundaries and unsupported format fallback\n",
+  "decoder_only_caveat": "Component timings under external contention; not gameplay FPS gains.",
+  "gameplay": {
+    "audited-decode-change-c": {
+      "general_cpu_audited": true,
+      "external_core_average": 9.48058271109977,
+      "external_core_peak": 13.32559751895773,
+      "external_cpu_busy_samples": 26,
+      "exe_sha256": "15F49BD0A7B5EE03E2860B6846689B8297A766F6BD53F7C5D683A3E5DB12F919",
+      "world_fps": 17.6584634460867,
+      "last_five_world_windows": [
+        [
+          2.02,
+          28.22
+        ],
+        [
+          2.04,
+          16.67
+        ],
+        [
+          2.006,
+          10.97
+        ],
+        [
+          2.012,
+          13.42
+        ],
+        [
+          2.003,
+          18.97
+        ]
+      ],
+      "saves_unchanged": true,
+      "contended": true,
+      "overlap_samples": 0,
+      "valid_configuration": true,
+      "invalid_configuration_reason": null,
+      "raw_fps_measurement": true
+    },
+    "audited-decode-control-c": {
+      "general_cpu_audited": true,
+      "external_core_average": 7.019351071345423,
+      "external_core_peak": 9.474321016188323,
+      "external_cpu_busy_samples": 25,
+      "exe_sha256": "AF27A43C260FBEC27C718C7854B2DF2EC4957CAB7EED68271466E7A181FE1B21",
+      "world_fps": 51.38962682099382,
+      "last_five_world_windows": [
+        [
+          2.002,
+          53.96
+        ],
+        [
+          2.0,
+          54.0
+        ],
+        [
+          2.001,
+          49.47
+        ],
+        [
+          2.017,
+          54.03
+        ],
+        [
+          2.002,
+          45.47
+        ]
+      ],
+      "saves_unchanged": true,
+      "contended": true,
+      "overlap_samples": 0,
+      "valid_configuration": true,
+      "invalid_configuration_reason": null,
+      "raw_fps_measurement": true
+    },
+    "audited-full-change-c": {
+      "general_cpu_audited": true,
+      "external_core_average": 4.761620177822917,
+      "external_core_peak": 5.846435552518637,
+      "external_cpu_busy_samples": 24,
+      "exe_sha256": "AF27A43C260FBEC27C718C7854B2DF2EC4957CAB7EED68271466E7A181FE1B21",
+      "world_fps": 74.35894138755981,
+      "last_five_world_windows": [
+        [
+          2.005,
+          75.82
+        ],
+        [
+          2.006,
+          70.3
+        ],
+        [
+          2.013,
+          69.53
+        ],
+        [
+          2.003,
+          78.37
+        ],
+        [
+          2.005,
+          77.8
+        ]
+      ],
+      "saves_unchanged": true,
+      "contended": true,
+      "overlap_samples": 0,
+      "valid_configuration": true,
+      "invalid_configuration_reason": null,
+      "raw_fps_measurement": true
+    },
+    "audited-full-control-c": {
+      "general_cpu_audited": true,
+      "external_core_average": 3.8516931610179923,
+      "external_core_peak": 6.361251598450997,
+      "external_cpu_busy_samples": 25,
+      "exe_sha256": "7B53D09E9ECCD6438673F91FED0204D150B011584D58E5D666B9912176532790",
+      "world_fps": 84.47186995113195,
+      "last_five_world_windows": [
+        [
+          2.003,
+          80.87
+        ],
+        [
+          2.002,
+          90.4
+        ],
+        [
+          2.009,
+          89.09
+        ],
+        [
+          2.007,
+          82.22
+        ],
+        [
+          2.006,
+          79.78
+        ]
+      ],
+      "saves_unchanged": true,
+      "contended": true,
+      "overlap_samples": 0,
+      "valid_configuration": true,
+      "invalid_configuration_reason": null,
+      "raw_fps_measurement": true
+    },
+    "audited-geometry-change-c": {
+      "general_cpu_audited": true,
+      "external_core_average": 8.947866497529665,
+      "external_core_peak": 13.545041892688678,
+      "external_cpu_busy_samples": 27,
+      "exe_sha256": "AAE585E33E726E969494DCD8747FF28D4377CDBCE2965B66AE03C23457FA3F13",
+      "world_fps": 51.00122820998107,
+      "last_five_world_windows": [
+        [
+          2.001,
+          65.96
+        ],
+        [
+          2.013,
+          55.65
+        ],
+        [
+          2.009,
+          47.28
+        ],
+        [
+          2.016,
+          44.15
+        ],
+        [
+          2.0,
+          42.0
+        ]
+      ],
+      "saves_unchanged": true,
+      "contended": true,
+      "overlap_samples": 0,
+      "valid_configuration": true,
+      "invalid_configuration_reason": null,
+      "raw_fps_measurement": true
+    },
+    "audited-geometry-control-c": {
+      "general_cpu_audited": true,
+      "external_core_average": 4.941480624174399,
+      "external_core_peak": 6.799864153586507,
+      "external_cpu_busy_samples": 24,
+      "exe_sha256": "2B746C3D0040B17BFE1C90959B5ED8448D1201F943120310BB4F9BB24AFB8C39",
+      "world_fps": 77.68240925408855,
+      "last_five_world_windows": [
+        [
+          2.0,
+          82.98
+        ],
+        [
+          2.004,
+          82.32
+        ],
+        [
+          2.009,
+          83.64
+        ],
+        [
+          2.006,
+          72.78
+        ],
+        [
+          2.009,
+          66.72
+        ]
+      ],
+      "saves_unchanged": true,
+      "contended": true,
+      "overlap_samples": 0,
+      "valid_configuration": true,
+      "invalid_configuration_reason": null,
+      "raw_fps_measurement": true
+    }
+  },
+  "sha256": {
+    "candidate": "7b53d09e9eccd6438673f91fed0204d150b011584d58e5d666b9912176532790",
+    "coalesced": "af27a43c260fbec27c718c7854b2df2ec4957cab7eed68271466e7a181fe1b21",
+    "zero-control": "2b746c3d0040b17bfe1c90959b5ed8448d1201f943120310bb4f9bb24afb8c39",
+    "zero-candidate": "aae585e33e726e969494dcd8747ff28d4377cdbce2965b66ae03c23457fa3f13",
+    "blockdecode": "15f49bd0a7b5ee03e2860b6846689b8297a766f6bd53f7c5d683a3e5db12f919"
+  }
+}

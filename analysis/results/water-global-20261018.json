@@ -1,0 +1,126 @@
+{
+  "date": "2026-10-18",
+  "candidate_sha256": "30f5255015eb23c7456d769b69aa6a83c3b7db8bcc25e4c137cbcd25239b2053",
+  "scope_complete": false,
+  "native_layers": 483,
+  "native_water_layers": 171,
+  "native_triangles": 168889,
+  "water_triangles_beyond_old_tint": 767,
+  "gameplay_maps_verified": [
+    "Surdana only; pond and snowy riverbank positions"
+  ],
+  "later_saves_available": false,
+  "runs": {
+    "global-water-verified-water": {
+      "completion": {
+        "exitCode": 0,
+        "scriptQuit": true,
+        "sha256After": "30F5255015EB23C7456D769B69AA6A83C3B7DB8BCC25E4C137CBCD25239B2053",
+        "elapsedSeconds": 28.1839576
+      },
+      "saves_unchanged": true
+    },
+    "global-water-verified-combined": {
+      "completion": {
+        "scriptQuit": true,
+        "sha256After": "30F5255015EB23C7456D769B69AA6A83C3B7DB8BCC25E4C137CBCD25239B2053",
+        "elapsedSeconds": 32.2554824,
+        "exitCode": 0
+      },
+      "saves_unchanged": true
+    },
+    "global-water-verified-pond": {
+      "completion": {
+        "exitCode": 0,
+        "sha256After": "30F5255015EB23C7456D769B69AA6A83C3B7DB8BCC25E4C137CBCD25239B2053",
+        "scriptQuit": true,
+        "elapsedSeconds": 36.2123119
+      },
+      "saves_unchanged": true
+    },
+    "global-water-live-pond": {
+      "completion": {
+        "elapsedSeconds": 110.4578733,
+        "sha256After": "30F5255015EB23C7456D769B69AA6A83C3B7DB8BCC25E4C137CBCD25239B2053",
+        "scriptQuit": false,
+        "exitCode": 0
+      },
+      "saves_unchanged": true
+    }
+  },
+  "image_checks": {
+    "same_world_epoch": 200,
+    "water_pair_sr_and_nr": "off",
+    "image_size": [
+      1920,
+      1080
+    ],
+    "crop": [
+      0,
+      300,
+      840,
+      840
+    ],
+    "terrain_top350_exact": true,
+    "shoreline_roi": [
+      10,
+      600,
+      200,
+      620
+    ],
+    "shoreline_pixels_all_processed": true,
+    "world_left_roi_changed_pixels": 254070,
+    "world_left_roi_max_delta": 140
+  },
+  "swapchain_verify": {
+    "width": 1920,
+    "height": 1080,
+    "evaluated_epoch": 200,
+    "differing_bytes": 0,
+    "saved": true
+  },
+  "cold_off_frustum_changed_pixels": 793,
+  "cold_texture_changed_pixels": 793,
+  "native_regression": {
+    "checks": 180,
+    "failed": 0
+  },
+  "optional_features_off_build": "passed",
+  "presentation_transitions": "passed",
+  "patch": {
+    "patch_sha256": "4cce198cdd5a16173369c3c26f2cdf8a99719cf997aea56e231b2ead1a9100a4",
+    "clean_upstream_apply": true,
+    "updated_sources_match": [
+      "ps2xRuntime/src/lib/drakan_dlss.cpp",
+      "ps2xRuntime/src/lib/gs/gs_gsr_bridge.cpp",
+      "ps2xRuntime/include/runtime/gs/gs_gsr_bridge.h",
+      "ps2xRuntime/src/lib/drakan_scene_geometry.h",
+      "ps2xRuntime/src/lib/drakan_scene_camera.cpp",
+      "ps2xRuntime/src/lib/drakan_scene_camera.h"
+    ],
+    "validation_directory": "%TEMP%\\drakan-global-water-patch-emx0q3tw"
+  },
+  "source_sha256": {
+    "runtime/gs/include/gsr/scene_geometry.h": "fc29447ddddf46080e2a5d8add45c2e8c8f47518129ea9258865434967ffdfd0",
+    "runtime/gs/src/d3d11_backend.cpp": "4413f848d3f2050b36c757ac38e0fd791082147120aa93c7c241b4ba8c30fb83",
+    "runtime/gs/src/gs_core.cpp": "bd070cbda715a8541d6343e4d16c3036781e6bd032414ef2fd6ee2a2a0164954",
+    "runtime/gs/src/ray_water.cpp": "aee94b9f824e97ba7741843eac33ae25cb98805d4371bd64e75ceab7e99c7840",
+    "runtime/gs/src/ray_water.h": "4bb863c672a2a21988a9a78abf0785278888235bd55162ca070d37b86da2ac0e",
+    "runtime/gs/src/ray_water.hlsl": "7d2e08bb10dccda9a7fef60cd9537e29a557d6f3899ced43c35ff678fd0a8d05",
+    "runtime/gs/src/resident_scene.h": "534f3e018c0f41e3de52ecf3035fb0758618d9d6fd6ec815b49da2c409d59c2d",
+    "runtime/gs/tests/test_scene_geometry.cpp": "6f8ce3d6f771f7e530e0467c0a7ec2d7056eef4cf87bee230980516674d988a0",
+    "runtime/gs/tests/test_ray_water.cpp": "2489fe14194b28e4b7a5aa72aa6d8fee2a4e27c72001a676c26fca26f17acc0e",
+    "tools/PS2Recomp/ps2xRuntime/src/lib/drakan_dlss.cpp": "8a0aa539fbbfe133f5daf1f76a76157c4f10607051f0795e03b1879305481870",
+    "tools/PS2Recomp/ps2xRuntime/src/lib/gs/gs_gsr_bridge.cpp": "edda2aad20f5619817a639bc69d7654f29fa588262433f957155ef47b97a508b",
+    "tools/PS2Recomp/ps2xRuntime/include/runtime/gs/gs_gsr_bridge.h": "6dc8cf527b04cb8ab5c63db4d3c89ae7feac4f7ae189b7d6c902d9e6d8d02523",
+    "tools/PS2Recomp/ps2xRuntime/src/lib/drakan_scene_geometry.h": "d3417d2232d1ae367372611a07447887ab5021fac5a3127f3208ac4eea2ae577",
+    "tools/PS2Recomp/ps2xRuntime/src/lib/drakan_scene_camera.cpp": "1ef0ce192b5e825ec82e198e8b6e60336b37c960ef6c1e1a7462c608c003365a",
+    "tools/PS2Recomp/ps2xRuntime/src/lib/drakan_scene_camera.h": "f5cfb61fef3967879157fb81ba48c7fbac99de4fbc38c76ab7a411a5eab68819"
+  },
+  "remaining": [
+    "Comprehensive unseen prop/model export",
+    "Alpha-tested foliage/transparent coverage",
+    "Never-observed offscreen texture material fallback",
+    "Other maps and long-session/device-loss validation"
+  ]
+}

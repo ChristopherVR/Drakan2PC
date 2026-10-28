@@ -1,0 +1,67 @@
+--- a/runtime/gs/src/d3d11_backend.cpp
++++ b/runtime/gs/src/d3d11_backend.cpp
+@@ -165,6 +165,7 @@
+     uint64_t checkedClock = 0;
+     uint64_t lastFrame = 0;
+     uint64_t bytes = 0;
++    std::vector<uint16_t> dependencyBlocks;
+     std::vector<std::pair<uint32_t, uint32_t>> spans;
+     std::vector<std::vector<uint32_t>> cpu; // CPU copies of the levels (only kept when Config::onTexture is set, for the audit)
+     uint32_t w = 0, h = 0;
+@@ -1734,8 +1735,8 @@
+             if (e.checkedClock != mem.clock())
+             {
+                 CpuProfile::Scope detail(cpuProfile,CpuProfile::TextureStampCheck);
+-                for (auto& sp : e.spans)
+-                    if (mem.maxStamp(sp.first, sp.second - sp.first + 1) > e.stamp) { valid = false; break; }
++                for (uint16_t block : e.dependencyBlocks)
++                    if (mem.blockStamp(block) > e.stamp) { valid = false; break; }
+                 if (valid) e.checkedClock = mem.clock();
+             }
+             if (valid)
+@@ -1781,6 +1782,7 @@
+         }
+ 
+         // decode
++        std::vector<uint16_t> dependencyBlocks;
+         std::vector<std::pair<uint32_t, uint32_t>> spans;
+         std::vector<std::vector<uint32_t>> levels;
+         std::vector<uint32_t> lw, lh;
+@@ -1798,6 +1800,7 @@
+             uint32_t lo, hi;
+             spanBlocks(psm, lbp, std::max(lbw, 1u), 0, 0, w, h, lo, hi);
+             spans.push_back({lo, hi});
++            appendTextureBlocks(dependencyBlocks, psm, lbp, std::max(lbw, 1u), w, h);
+             {
+                 CpuProfile::Scope detail(cpuProfile,CpuProfile::TextureCoherenceFlush);
+                 flushToMemory(lo, hi);
+@@ -1956,6 +1959,9 @@
+         e.lastFrame = frame;
+         e.bytes = bytes;
+         e.spans = std::move(spans);
++        std::sort(dependencyBlocks.begin(), dependencyBlocks.end());
++        dependencyBlocks.erase(std::unique(dependencyBlocks.begin(), dependencyBlocks.end()), dependencyBlocks.end());
++        e.dependencyBlocks = std::move(dependencyBlocks);
+         { // Explicit runtime atlases also apply when automatic upscaling is off.
+             CpuProfile::Scope detail(cpuProfile,CpuProfile::TextureUpscale);
+             setupUpscale(e, levels[0], W, H, mxl, s, uiHint, volatileSlot, decodedHashValid ? &decodedHash : nullptr);
+--- a/runtime/gs/src/gs_mem.h
++++ b/runtime/gs/src/gs_mem.h
+@@ -230,6 +230,17 @@
+         }
+ }
+ 
++// Exact storage-block footprint for a decoded mip starting at pixel (0,0).
++// Keep render-target coherence flushes conservative; narrow only RAM stamps.
++inline void appendTextureBlocks(std::vector<uint16_t>& out, uint32_t psm,
++                                uint32_t bp, uint32_t bw, uint32_t w, uint32_t h)
++{
++    const auto g = geomOf(psm);
++    for (uint32_t y = 0; y < h; y += g.blockH)
++        for (uint32_t x = 0; x < w; x += g.blockW)
++            out.push_back(static_cast<uint16_t>(blockOf(psm,bp,bw,x,y)));
++}
++
+ class LocalMemory
+ {
+ public:

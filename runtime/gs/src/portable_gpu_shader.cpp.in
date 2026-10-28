@@ -1,0 +1,4 @@
+#include "portable_gpu.h"
+namespace gsr::gpu {
+const char* rasterShader() { return R"WGSL(@DRAKAN_GPU_WGSL@)WGSL"; }
+} // namespace gsr::gpu

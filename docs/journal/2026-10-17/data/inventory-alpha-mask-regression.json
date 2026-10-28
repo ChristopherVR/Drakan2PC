@@ -1,0 +1,31 @@
+{
+  "base": "00a0f85",
+  "branch": "graphics-orb-alpha",
+  "command": "gsr_test_synthetic --warp --scale 1 --inventory-alpha-only",
+  "renderer": "D3D11 WARP",
+  "before": {"checks": 22, "failed": 8, "exit_code": 1, "backend": "unmodified 00a0f85"},
+  "after": {"checks": 22, "failed": 0, "exit_code": 0},
+  "modes": [
+    "inventory alpha-only DATE DATM1 with tight mapped scissor",
+    "identity page alpha-only mask",
+    "world phase preserves native geometry with inventory metadata",
+    "inventory depth-only clear stays native, verified by world depth-tested RGB",
+    "inventory alpha-only inverse DATE DATM0"
+  ],
+  "native_mask_scissor_x": [48, 80],
+  "mapped_mask_scissor_x": [100, 124],
+  "fixed_datm1_samples": [
+    {"x":112,"y":432,"stored_mask_alpha":128,"rgb":[200,0,0]},
+    {"x":72,"y":432,"stored_mask_alpha":0,"rgb":[0,0,200]}
+  ],
+  "public_hud_settings_applied_before_scene": "vsync(false)",
+  "depth_only_controls_passed_before_and_after": true,
+  "world_and_identity_controls_passed_before_and_after": true,
+  "full_game_with_fix_run_here": false,
+  "actual_orb_spill_resolution": "NOT RESOLVED: still visible in followup-release-alpha-native/render_2500.png",
+  "actual_game_exe_sha256": "7F80774EEBE4634BFEFD7DF60B5E674C9E05BD6EAAC68A1F1E2E2A0EC292F387",
+  "actual_game_capture_inspection": "Read-only PNG inspection; main owns and runs game validation",
+  "pale_mesh_above_rynn_preview": "Still visible; cause unresolved",
+  "matching_inventory_gif_capture_available": false,
+  "shared_stage_or_dist_modified": false
+}

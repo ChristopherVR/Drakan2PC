@@ -1,0 +1,9 @@
+# Camera-only private-config comparison. Same counts as movement/bow baseline.
+1 log on 5
+0 sync play 90
+10 dump ram_look_base
+20 mouse 4 -2 10
+32 dump ram_look_moved
+40 mouse -4 2 10
+62 dump ram_look_return
+80 quit

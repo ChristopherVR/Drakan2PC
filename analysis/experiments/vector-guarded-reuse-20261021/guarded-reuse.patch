@@ -1,0 +1,324 @@
+diff --git a/ps2xRuntime/src/lib/vu/ps2_vu1_batch.cpp b/ps2xRuntime/src/lib/vu/ps2_vu1_batch.cpp
+index 89161c9..87a0ed7 100644
+--- a/ps2xRuntime/src/lib/vu/ps2_vu1_batch.cpp
++++ b/ps2xRuntime/src/lib/vu/ps2_vu1_batch.cpp
+@@ -167,7 +167,30 @@ constexpr bool kMonotoneStatus=[] {
+ }();
+ }
+ 
++// Private prototype. Hashes never authorize reuse.
++struct GuardMiss {};
++enum class GuardKind : uint8_t { Command, Run, Block };
++struct GuardStep {
++    GuardKind kind=GuardKind::Command;
++    Vu1Aot::Fn fn=nullptr;
++    uint64_t cycle=0,budget=0,endCycle=0,pairs=0;
++    uint32_t pc=0,endPc=0,viMask=0,vi[16]{},args[8]{},packet[4]{};
++    uint32_t backupValue=0;
++    uint8_t backupReg=0;
++    bool backup=false,nativePacket=false;
++    std::vector<std::pair<uint32_t,uint32_t>> controls;
++    std::vector<std::pair<uint8_t,uint64_t>> stores;
++};
++struct GuardTape {std::vector<GuardStep> steps;};
++std::atomic<bool> guardCacheFailed{false};
++bool traceCacheEnabled(){static const bool on=[]{const char* e=std::getenv("DRAKAN_VU_BATCH_TRACE_CACHE");return e && e[0]=='1';}();return on && !guardCacheFailed.load(std::memory_order_relaxed);}
++bool traceCacheVerify(){static const bool on=[]{const char* e=std::getenv("DRAKAN_VU_BATCH_TRACE_CACHE_VERIFY");return e && e[0]=='1';}();return on;}
++
+ struct Vu1Batch {
++    static bool guardBackupValid(const VU1Interpreter& v){return v.m_viBranchBackupValid;}
++    static uint8_t guardBackupReg(const VU1Interpreter& v){return v.m_viBranchBackupReg;}
++    static uint32_t guardBackupValue(const VU1Interpreter& v){return v.m_viBranchBackupValue;}
++
+     // Compact, relocatable VU state. Decoded instructions and their host cache
+     // keys stay with each interpreter. No call-frame pointer is transferred.
+     struct Checkpoint {
+@@ -410,6 +433,8 @@ struct Vu1Batch {
+             trace.writtenLo|=d.writeLo;trace.writtenHi|=d.writeHi;trace.writtenVa|=d.writeVa;
+             ++trace.staticRegBlocks;trace.staticRegPairs+=count;
+         }
++        const uint32_t guardViMask=nativePacket?0xffffu:enter && regPlan?regPlan->deps.readVa&0xffffu:kTracePlan[pc].rdVa&0xffffu;
++        trace.guardBeginBlock(v,c,nativePacket,guardViMask);
+         int32_t vi[16];std::memcpy(vi,v.m_state.vi,sizeof vi);
+         bool known[16];std::fill(std::begin(known),std::end(known),true);
+         if constexpr(!StaticRegisters)trace.blockWrites.fill(0);
+@@ -436,6 +461,7 @@ struct Vu1Batch {
+         auto loadInt=[&](unsigned dest,uint32_t at,unsigned comp,bool positiveOnly=false){
+             const bool forwarded=forwardedLanes(at)&(1u<<comp);
+             uint32_t value;std::memcpy(&value,c.vuData+at+comp*4u,4);
++            if(!forwarded)trace.guardMemory(at+comp*4u,value);
+             if(!forwarded){
+                 if(positiveOnly && at==65u*16u && comp==0 && dest==7 && int16_t(value)>0 && !(trace.writtenMemory[4]&(1ull<<4)))trace.positiveClipGate=true;
+                 else trace.readLow(at+comp*4u);
+@@ -565,7 +591,7 @@ struct Vu1Batch {
+                         const auto localHi=bulkRegs?(regPlan->before[slot].hi|(i>=width?regPlan->deps.writeHi:0ull)):writtenHi;
+                         const bool ready=((fs<16?localLo:localHi)&bit)==0;
+                         if(checkRegs && ready!=(((fs<16?writtenLo:writtenHi)&bit)==0))badPrefix=true;
+-                        uint32_t value;if(nativePacket && instructionPc==489u)value=packetIndices[(i/width)&3u];else std::memcpy(&value,&v.m_state.vf[fs][comp],4);writeVi(it,int16_t(value),nativePacket && instructionPc==489u?true:ready);break;
++                        uint32_t value;if(nativePacket && instructionPc==489u)value=packetIndices[(i/width)&3u];else std::memcpy(&value,&v.m_state.vf[fs][comp],4);if(ready)trace.guardVf(fs*4u+comp,value);writeVi(it,int16_t(value),nativePacket && instructionPc==489u?true:ready);break;
+                     }
+                     case 0x3e:loadInt(it,address(is,0),std::countr_zero(unsigned(lanes?lanes:8u)));break;
+                     case 0x3f:store(address(is,0),lanes);break;
+@@ -608,7 +634,9 @@ struct Vu1Batch {
+         }
+         const uint64_t before=c.pairs;
+         const auto fn=nativePacket?Vu1Aot::g_dispatch[pc]:(nativeUv || nativeTransform)?Vu1Aot::g_dispatch[pc]:pc==489u?Vu1Aot::g_table[pc]:Vu1Aot::g_blockDispatch[pc];
++        trace.guardIssue(fn);
+         const bool result=fn(v,c);
++        trace.guardEndBlock(v,c,before);
+         if(reuseProfileEnabled()){trace.pathHash=(trace.pathHash^pc)*1099511628211ull;trace.pathHash=(trace.pathHash^(c.pairs-before))*1099511628211ull;trace.pathHash=(trace.pathHash^v.m_state.pc)*1099511628211ull;}
+         if(c.pairs-before!=count)trace.supported=false;
+         // An exact pair can stall before issue. Its retirement stamp must use
+@@ -631,7 +659,7 @@ using WordMask=std::array<uint64_t,64>;
+ struct Trace {
+     uint64_t pathHash=1469598103934665603ull,controlHash=1469598103934665603ull;
+     WordMask liveMemory{},lowMemory{},writtenMemory{},blockWrites{};
+-    std::unique_ptr<WordMask> packetInputs;
++    std::shared_ptr<WordMask> packetInputs;
+     std::vector<std::pair<uint32_t,uint32_t>> packetWords,tagInputs;
+     uint64_t liveLo=0,liveHi=0,writtenLo=0,writtenHi=0;
+     uint32_t liveVa=0,writtenVa=0;
+@@ -650,6 +678,83 @@ struct Trace {
+     bool readQ=false,readP=false,readI=false,qAssigned=false,pAssigned=false,iAssigned=false;
+     bool qWritten=false,pWritten=false,iWritten=false,fmacWritten=false,statusWritten=false,clipWritten=false;
+     bool needMac=false,backupBase=false,supported=true,complete=true,idle=true,startsReset=false,seenRun=false;
++    std::shared_ptr<GuardTape> guardTape;
++    GuardStep* guardActive=nullptr;
++    size_t guardCursor=0;
++    uint64_t guardOrigin=0;
++    bool guardReplay=false;
++    const GuardStep& guardNext(GuardKind kind){
++        if(!guardTape || guardCursor>=guardTape->steps.size())throw GuardMiss{};
++        const auto& step=guardTape->steps[guardCursor++];
++        if(step.kind!=kind)throw GuardMiss{};
++        return step;
++    }
++    void guardCommand(uint32_t code,uint32_t offset){
++        if(!guardTape)return;
++        if(guardReplay){const auto& s=guardNext(GuardKind::Command);if(s.args[0]!=code || s.args[1]!=offset)throw GuardMiss{};}
++        else {guardTape->steps.emplace_back();auto& s=guardTape->steps.back();s.kind=GuardKind::Command;s.args[0]=code;s.args[1]=offset;}
++    }
++    void guardRun(bool resume,uint32_t pc,uint32_t top,uint32_t itop,bool den,bool ten,const uint8_t* data){
++        if(!guardTape)return;
++        uint32_t flags,count;std::memcpy(&flags,data+7u*16u,4);std::memcpy(&count,data+9u*16u+8u,4);
++        const uint32_t args[]={uint32_t(resume),pc,top,itop,uint32_t(den),uint32_t(ten),flags&1u,uint32_t(int16_t(count)>0)};
++        if(guardReplay){
++            const auto& s=guardNext(GuardKind::Run);
++            if(std::memcmp(s.args,args,sizeof args))throw GuardMiss{};
++            size_t index=0;for(unsigned chunk=0;chunk<64;++chunk)if(writtenMemory[chunk]){
++                if(index>=s.stores.size() || s.stores[index].first!=chunk || s.stores[index].second!=writtenMemory[chunk])throw GuardMiss{};
++                ++index;
++            }
++            if(index!=s.stores.size())throw GuardMiss{};
++        }else {
++            guardTape->steps.emplace_back();auto& s=guardTape->steps.back();s.kind=GuardKind::Run;
++            std::memcpy(s.args,args,sizeof args);
++            for(unsigned chunk=0;chunk<64;++chunk)if(writtenMemory[chunk])s.stores.emplace_back(uint8_t(chunk),writtenMemory[chunk]);
++        }
++    }
++    void guardBeginBlock(const VU1Interpreter& v,const Vu1Step::Ctx& c,bool nativePacket,uint32_t mask){
++        if(!guardTape || guardReplay)return;
++        if(guardTape->steps.size()>=65536){guardTape.reset();guardActive=nullptr;return;}
++        guardTape->steps.emplace_back();auto& s=guardTape->steps.back();s.kind=GuardKind::Block;
++        s.pc=v.state().pc;s.cycle=v.totalCycles()-guardOrigin;s.budget=c.budgetEnd-v.totalCycles();s.viMask=mask;s.nativePacket=nativePacket;
++        for(unsigned reg=0;reg<16;++reg)if(mask>>reg&1u)s.vi[reg]=uint32_t(v.state().vi[reg]);
++        s.backup=Vu1Batch::guardBackupValid(v);
++        if(s.backup){s.backupReg=Vu1Batch::guardBackupReg(v);s.backupValue=Vu1Batch::guardBackupValue(v);}
++        if(nativePacket)std::memcpy(s.packet,v.state().vf[19],16);
++        guardActive=&s;
++    }
++    void guardMemory(uint32_t address,uint32_t value){if(guardActive)guardActive->controls.emplace_back(address,value&0xffffu);}
++    void guardVf(unsigned lane,uint32_t value){if(guardActive)guardActive->controls.emplace_back(0x80000000u|lane,value&0xffffu);}
++    void guardIssue(Vu1Aot::Fn fn){
++        if(!guardActive)return;
++        guardActive->fn=fn;
++        for(unsigned chunk=0;chunk<64;++chunk)if(blockWrites[chunk])guardActive->stores.emplace_back(uint8_t(chunk),blockWrites[chunk]);
++    }
++    void guardEndBlock(const VU1Interpreter& v,const Vu1Step::Ctx& c,uint64_t before){
++        if(!guardActive)return;
++        guardActive->endPc=v.state().pc;guardActive->endCycle=v.totalCycles()-guardOrigin;guardActive->pairs=c.pairs-before;
++        guardActive=nullptr;
++    }
++    bool guardDispatch(VU1Interpreter& v,Vu1Step::Ctx& c){
++        const auto& s=guardNext(GuardKind::Block);
++        if(s.pc!=v.state().pc || s.cycle!=v.totalCycles()-guardOrigin || s.budget!=c.budgetEnd-v.totalCycles() || !s.fn)throw GuardMiss{};
++        for(unsigned reg=0;reg<16;++reg)if((s.viMask>>reg&1u) && s.vi[reg]!=uint32_t(v.state().vi[reg]))throw GuardMiss{};
++        if(s.backup!=Vu1Batch::guardBackupValid(v) || (s.backup && (s.backupReg!=Vu1Batch::guardBackupReg(v) || s.backupValue!=uint32_t(Vu1Batch::guardBackupValue(v)))))throw GuardMiss{};
++        if(s.nativePacket && std::memcmp(s.packet,v.state().vf[19],16))throw GuardMiss{};
++        for(const auto [key,value]:s.controls){
++            uint32_t actual;
++            if(key&0x80000000u){const unsigned lane=key&127u;std::memcpy(&actual,&v.state().vf[lane/4u][lane&3u],4);}
++            else std::memcpy(&actual,c.vuData+key,4);
++            if((actual&0xffffu)!=value)throw GuardMiss{};
++        }
++        for(const auto [chunk,mask]:s.stores)blockWrites[chunk]=mask;
++        const uint64_t before=c.pairs;
++        const bool result=s.fn(v,c);
++        if(s.endPc!=v.state().pc || s.endCycle!=v.totalCycles()-guardOrigin || s.pairs!=c.pairs-before)throw GuardMiss{};
++        for(const auto [chunk,mask]:s.stores){writtenMemory[chunk]|=mask;blockWrites[chunk]=0;}
++        return result;
++    }
++
+     void consumeAliases(uint64_t lo,uint64_t hi){
+         if(!((aliasLo&lo)|(aliasHi&hi)))return;
+         for(unsigned half=0;half<2;++half){
+@@ -817,6 +922,57 @@ struct History {
+     unsigned failures=0,cooldown=0;
+     History(uint64_t key,uint64_t age,const PS2Memory& memory,const VU1Interpreter& vu):key(key),age(age),state(vu.state()),cycle(vu.totalCycles()){std::memcpy(clipping.data(),memory.getVU1Data()+65u*16u,clipping.size());}
+ };
++struct GuardCached {uint64_t key=0,origin=0;Trace trace;};
++struct GuardCacheStats {std::atomic<uint64_t> hits{0},misses{0},recorded{0},verified{0},bad{0},pairs{0};} guardStats;
++struct GuardCache {
++    std::mutex mutex;
++    std::array<std::shared_ptr<const GuardCached>,2048> slots{};
++    size_t records=0,evict=0;
++    std::shared_ptr<const GuardCached> find(uint64_t key){
++        if(!traceCacheEnabled() || !key)return {};
++        std::lock_guard lock(mutex);const auto& p=slots[key&(slots.size()-1u)];return p && p->key==key?p:nullptr;
++    }
++    void remember(const Group& g){
++        if(!traceCacheEnabled() || !g.key || !g.trace.guardTape || !g.trace.supported || !g.trace.complete || !g.trace.idle || !g.trace.startsReset)return;
++        auto entry=std::make_shared<GuardCached>();entry->key=g.key;entry->origin=g.trace.guardOrigin;entry->trace=g.trace;
++        if(entry->trace.packetInputs)entry->trace.packetInputs=std::make_shared<WordMask>(*entry->trace.packetInputs);
++        entry->trace.guardReplay=false;entry->trace.guardCursor=0;entry->trace.guardActive=nullptr;
++        std::lock_guard lock(mutex);const size_t index=g.key&(slots.size()-1u);
++        if(slots[index]){records-=slots[index]->trace.guardTape->steps.size();slots[index].reset();}
++        const size_t n=entry->trace.guardTape->steps.size();
++        while(records+n>1000000u){auto& old=slots[evict++&(slots.size()-1u)];if(old){records-=old->trace.guardTape->steps.size();old.reset();}}
++        records+=n;slots[index]=std::move(entry);++guardStats.recorded;
++    }
++};
++GuardCache& guardCache(){static GuardCache* cache=new GuardCache;return *cache;}
++Trace replayTrace(const GuardCached& cached,uint64_t origin){
++    Trace t=cached.trace;
++    if(t.packetInputs)t.packetInputs=std::make_shared<WordMask>(*t.packetInputs);
++    const uint64_t delta=origin-cached.origin;
++    if(t.firstMacReady!=~0ull)t.firstMacReady+=delta;
++    for(auto& clip:t.clips)if(clip.ready)clip.ready+=delta;
++    t.generatedSticky=0;t.writtenMemory.fill(0);t.blockWrites.fill(0);t.tagInputs.clear();t.packetWords.clear();
++    t.guardOrigin=origin;t.guardReplay=true;t.guardCursor=0;t.guardActive=nullptr;
++    t.staticRegChecks=t.staticRegBad=0;
++    return t;
++}
++bool guardMetadataCovers(const Trace& fast,const Trace& full){
++    for(unsigned i=0;i<64;++i)if((full.liveMemory[i]&~fast.liveMemory[i]) || (full.lowMemory[i]&~fast.lowMemory[i]) || full.writtenMemory[i]!=fast.writtenMemory[i])return false;
++    if((full.liveLo&~fast.liveLo) || (full.liveHi&~fast.liveHi) || (full.liveVa&~fast.liveVa) ||
++       full.writtenLo!=fast.writtenLo || full.writtenHi!=fast.writtenHi || full.writtenVa!=fast.writtenVa ||
++       full.aliasLo!=fast.aliasLo || full.aliasHi!=fast.aliasHi)return false;
++    for(unsigned half=0;half<2;++half){uint64_t bits=half?full.aliasHi:full.aliasLo;while(bits){const unsigned bit=std::countr_zero(bits)+half*64u;if(full.aliasWords[bit]!=fast.aliasWords[bit])return false;bits&=bits-1;}}
++    if((full.clipInputMask&~fast.clipInputMask) || full.clipWorkingShift!=fast.clipWorkingShift || full.clipCommittedShift!=fast.clipCommittedShift ||
++       full.clipCount!=fast.clipCount || full.firstMacReady!=fast.firstMacReady || full.generatedSticky!=fast.generatedSticky || full.tagInputs!=fast.tagInputs)return false;
++    for(unsigned i=0;i<full.clipCount;++i){const auto& a=full.clips[(full.clipHead+i)&7u];const auto& b=fast.clips[(fast.clipHead+i)&7u];if(a.ready!=b.ready || a.shift!=b.shift)return false;}
++    if((full.readQ && !fast.readQ) || (full.readP && !fast.readP) || (full.readI && !fast.readI) || (full.needMac && !fast.needMac) ||
++       full.qWritten!=fast.qWritten || full.pWritten!=fast.pWritten || full.iWritten!=fast.iWritten || full.fmacWritten!=fast.fmacWritten ||
++       full.statusWritten!=fast.statusWritten || full.clipWritten!=fast.clipWritten || full.positiveClipGate!=fast.positiveClipGate ||
++       full.sanitizedStatus!=fast.sanitizedStatus || full.statusSafe!=fast.statusSafe || full.supported!=fast.supported ||
++       full.complete!=fast.complete || full.idle!=fast.idle || full.startsReset!=fast.startsReset)return false;
++    return true;
++}
++
+ struct Executor {
+     std::unique_ptr<PS2Memory> memory=std::make_unique<PS2Memory>(PS2Memory::IsolatedVU::Yes);
+     std::unique_ptr<VU1Interpreter> vu=std::make_unique<VU1Interpreter>();
+@@ -835,7 +991,10 @@ struct Executor {
+     }
+     void run(bool resume,uint32_t pc,uint32_t top,uint32_t itop) {
+         if(prepare)return;
+-        if(current && current->trace)current->trace->begin(resume,resume?vu->state().pc:pc,memory->getVU1Data());
++        if(current && current->trace){
++            auto& t=*current->trace;t.guardRun(resume,resume?vu->state().pc:pc,top,itop,active->meta.dEn,active->meta.tEn,memory->getVU1Data());
++            if(!t.guardReplay)t.begin(resume,resume?vu->state().pc:pc,memory->getVU1Data());
++        }
+         Trace* trace=current?current->trace:nullptr;
+         const bool isolateStatus=trace && kMonotoneStatus;
+         const uint32_t inheritedSticky=vu->state().status&0xfc0u;
+@@ -843,15 +1002,16 @@ struct Executor {
+         vu->state().dBitEnabled=active->meta.dEn;vu->state().tBitEnabled=active->meta.tEn;
+         if(resume)vu->resume(memory->getVU1Code(),PS2_VU1_CODE_SIZE,memory->getVU1Data(),PS2_VU1_DATA_SIZE,gs,memory.get(),top,itop);
+         else vu->execute(memory->getVU1Code(),PS2_VU1_CODE_SIZE,memory->getVU1Data(),PS2_VU1_DATA_SIZE,gs,memory.get(),pc,top,itop);
+-        if(trace)trace->advanceClip(vu->totalCycles());
++        if(trace && !trace->guardReplay)trace->advanceClip(vu->totalCycles());
+         if(isolateStatus){trace->generatedSticky|=vu->state().status&0xfc0u;vu->state().status|=inheritedSticky;}
+         ++calls;
+     }
+     void job(const Input& in) {
+         active=&in;memory->runVif1Slice(in.data.data(),uint32_t(in.data.size()),in.offset,in.meta.objectMotion.get(),in.begin,in.end);active=nullptr;
+     }
+-    void execute(Group& g) {
++    void executeBody(Group& g) {
+         PhaseClock timer;
++        g.events.clear();
+         code(*g.code);g.input->restore(*memory);g.seed.restore(*vu);calls=0;
+         drakan_object_motion::restoreCursor(g.motionInput);
+         Capture c{memory.get(),&g.events,false,true};c.trace=dependencies()?&g.trace:nullptr;CaptureScope scope(c);
+@@ -865,6 +1025,36 @@ struct Executor {
+         g.motionOutput=drakan_object_motion::captureCursor();
+         timer.mark(Phase::Worker);
+     }
++    void execute(Group& g){
++        const auto cached=guardCache().find(g.key);
++        if(cached){
++            g.trace=replayTrace(*cached,g.seed.cycle());
++            try {
++                executeBody(g);
++                if(g.trace.guardCursor!=g.trace.guardTape->steps.size())throw GuardMiss{};
++                ++guardStats.hits;guardStats.pairs+=g.pairs;
++                if(!traceCacheVerify())return;
++                Group shadow(g.first,std::make_unique<MemoryState>(*g.input),*g.seed.base);
++                shadow.seed=g.seed;shadow.last=g.last;shadow.jobs=g.jobs;shadow.code=g.code;shadow.key=g.key;shadow.motionInput=g.motionInput;
++                shadow.trace.guardTape=std::make_shared<GuardTape>();shadow.trace.guardOrigin=g.seed.cycle();
++                executeBody(shadow);
++                const bool same=g.calls==shadow.calls && g.pairs==shadow.pairs && g.cycles==shadow.cycles &&
++                    *g.output==*shadow.output && *g.result==*shadow.result && g.events==shadow.events &&
++                    g.motionOutput.same(shadow.motionOutput) && guardMetadataCovers(g.trace,shadow.trace);
++                if(!same){++guardStats.bad;guardCacheFailed.store(true,std::memory_order_release);std::fprintf(stderr,"[vu-trace-cache] MISMATCH key=%llx\n",(unsigned long long)g.key);}
++                else ++guardStats.verified;
++                // Shadow mode always retains the original fully observed path.
++                g.trace=std::move(shadow.trace);g.output=std::move(shadow.output);g.result=std::move(shadow.result);g.events=std::move(shadow.events);
++                g.calls=shadow.calls;g.pairs=shadow.pairs;g.cycles=shadow.cycles;g.motionOutput=shadow.motionOutput;
++                guardCache().remember(g);
++                return;
++            }catch(const GuardMiss&){++guardStats.misses;active=nullptr;}
++        }
++        g.events.clear();g.output.reset();g.result.reset();g.trace=Trace{};
++        if(traceCacheEnabled()){g.trace.guardTape=std::make_shared<GuardTape>();g.trace.guardOrigin=g.seed.cycle();}
++        executeBody(g);guardCache().remember(g);
++    }
++
+ };
+ struct Pool {
+     std::mutex mutex;
+@@ -1008,6 +1198,7 @@ bool captureMotion(const gsr::ObjectMotionScope& motion) {
+ void command(PS2Memory* m,uint32_t code,uint32_t offset) {
+     if(!current || current->memory!=m)return;
+     if(current->trace && reuseProfileEnabled()){auto& hash=current->trace->controlHash;hash=(hash^code)*1099511628211ull;hash=(hash^offset)*1099511628211ull;}
++    if(current->trace)current->trace->guardCommand(code,offset);
+     const unsigned op=(code>>24)&127;
+     if(op==0x14 || op==0x15){current->mscal=true;if(current->cuts){if(current->cuts->size()<512)current->makeCut(code,offset);else current->unsupported=true;}}
+     // Code changes remain ordered serial barriers. PATH3 mask transitions are
+@@ -1031,7 +1222,7 @@ bool capturePairs(uint64_t pairs) {
+ 
+ bool tracking(){return current && current->trace;}
+ bool trackVif(PS2Memory* m){return tracking() && current->memory==m;}
+-bool dispatch(VU1Interpreter& v,Vu1Step::Ctx& c){return staticRegsEnabled()?Vu1Batch::dispatch<true>(v,c,*current->trace):Vu1Batch::dispatch<false>(v,c,*current->trace);}
++bool dispatch(VU1Interpreter& v,Vu1Step::Ctx& c){if(current->trace->guardReplay)return current->trace->guardDispatch(v,c);return staticRegsEnabled()?Vu1Batch::dispatch<true>(v,c,*current->trace):Vu1Batch::dispatch<false>(v,c,*current->trace);}
+ void memoryRead(PS2Memory* m,uint32_t address,uint32_t bytes){
+     if(!trackVif(m))return;
+     for(uint32_t i=0;i<bytes;i+=4)current->trace->read((address+i)&16383u,1);
+@@ -1046,7 +1237,7 @@ void packetRead(PS2Memory* m,uint32_t address,uint32_t bytes,uint32_t offset,boo
+         // the original dependency unless its transfer-time provenance is known.
+         if(t.blockWrites[w/64u]&bit){
+             t.read(w*4u,1);
+-            if(profileEnabled()){if(!t.packetInputs)t.packetInputs=std::make_unique<WordMask>();(*t.packetInputs)[w/64u]|=bit;}
++            if(profileEnabled()){if(!t.packetInputs)t.packetInputs=std::make_shared<WordMask>();(*t.packetInputs)[w/64u]|=bit;}
+             continue;
+         }
+         t.packetWords.emplace_back(offset+i,w);
+@@ -1287,6 +1478,7 @@ void printStats(){
+         static const char* names[]={"prepare","queue","history","serial","wait","validate","collect","worker-sum"};
+         std::fprintf(stderr,"[vu-batch-profile] milliseconds:");for(size_t i=0;i<std::size(names);++i)std::fprintf(stderr," %s=%.3f",names[i],double(phaseNs[i].load())/1e6);std::fprintf(stderr,"\n");
+     }
++    std::fprintf(stderr,"[vu-trace-cache] enabled=%u shadow=%u hits=%llu guard-misses=%llu recorded=%llu verified=%llu mismatches=%llu pairs=%llu\n",unsigned(traceCacheEnabled()),unsigned(traceCacheVerify()),(unsigned long long)guardStats.hits.load(),(unsigned long long)guardStats.misses.load(),(unsigned long long)guardStats.recorded.load(),(unsigned long long)guardStats.verified.load(),(unsigned long long)guardStats.bad.load(),(unsigned long long)guardStats.pairs.load());
+     std::fprintf(stderr,"[vu-batch] owner heads=%llu native UV traced pairs=%llu\n",(unsigned long long)stats.ownerHeads.load(),(unsigned long long)stats.nativeUvPairs.load());
+     std::fprintf(stderr,"[vu-batch] adaptive serial bypass=%llu enabled=%u\n",(unsigned long long)stats.serialBypass.load(),unsigned(adaptive()));
+     std::fprintf(stderr,"[vu-batch] history predictions=%llu accepted=%llu misses=%llu enabled=%u\n",(unsigned long long)stats.predictions.load(),(unsigned long long)stats.predictionAccepted.load(),(unsigned long long)stats.historyMisses.load(),unsigned(predict()));

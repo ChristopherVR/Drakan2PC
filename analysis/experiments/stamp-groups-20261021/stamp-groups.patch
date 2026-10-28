@@ -1,0 +1,66 @@
+--- a/runtime/gs/src/gs_mem.h
++++ b/runtime/gs/src/gs_mem.h
+@@ -5,6 +5,7 @@
+ #include <cstdint>
+ #include <cstring>
+ #include <vector>
++#include <array>
+ 
+ namespace gsr
+ {
+@@ -244,17 +245,30 @@
+     uint64_t maxStamp(uint32_t firstBlock, uint32_t count) const
+     {
+         uint64_t m = 0;
+-        for (uint32_t i = 0; i < count; ++i)
+-        {
+-            const uint32_t b = (firstBlock + i) & (kVramBlocks - 1);
+-            if (m_stamp[b] > m) m = m_stamp[b];
++        // Whole aligned groups use their exact maximum. Boundary blocks retain
++        // scalar checks, so writes outside the requested span cannot invalidate it.
++        uint32_t b=firstBlock & (kVramBlocks-1);
++        while(count && (b & 63u)) {
++            if(m_stamp[b]>m)m=m_stamp[b];
++            b=(b+1)&(kVramBlocks-1);--count;
++        }
++        while(count>=64) {
++            if(m_stampGroups[b>>6]>m)m=m_stampGroups[b>>6];
++            b=(b+64)&(kVramBlocks-1);count-=64;
++        }
++        while(count--) {
++            if(m_stamp[b]>m)m=m_stamp[b];
++            b=(b+1)&(kVramBlocks-1);
+         }
+         return m;
+     }
+     void touchBlocks(uint32_t firstBlock, uint32_t count)
+     {
+         ++m_clock;
+-        for (uint32_t i = 0; i < count; ++i) m_stamp[(firstBlock + i) & (kVramBlocks - 1)] = m_clock;
++        for (uint32_t i = 0; i < count; ++i) {
++            const auto b=(firstBlock+i)&(kVramBlocks-1);
++            m_stamp[b]=m_clock;m_stampGroups[b>>6]=m_clock;
++        }
+     }
+     void touchRect(uint32_t psm, uint32_t bp, uint32_t bw, uint32_t x, uint32_t y, uint32_t w, uint32_t h)
+     {
+@@ -263,7 +277,10 @@
+         const PsmGeom g = geomOf(psm);
+         for (uint32_t by = y & ~(g.blockH - 1); by < y + h; by += g.blockH)
+             for (uint32_t bx = x & ~(g.blockW - 1); bx < x + w; bx += g.blockW)
+-                m_stamp[blockOf(psm, bp, bw, bx, by)] = m_clock;
++                {
++                    const auto b=blockOf(psm,bp,bw,bx,by);
++                    m_stamp[b]=m_clock;m_stampGroups[b>>6]=m_clock;
++                }
+     }
+ 
+     uint32_t read(uint32_t psm, uint32_t bp, uint32_t bw, uint32_t x, uint32_t y) const
+@@ -308,6 +325,7 @@
+ private:
+     std::vector<uint8_t> m_data;
+     std::vector<uint64_t> m_stamp;
++    std::array<uint64_t,kVramBlocks/64> m_stampGroups{};
+     uint64_t m_clock = 1;
+ };
+ 

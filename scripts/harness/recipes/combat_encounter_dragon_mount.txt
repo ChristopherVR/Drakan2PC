@@ -1,0 +1,26 @@
+1 log on 5
+0 sync play 1
+2 dump ram_dragon_start
+5 key down W
+9 key up W
+15 key down E
+25 key up E
+30 dump ram_near_dragon
+40 key down SPACE
+48 key up SPACE
+70 dump ram_mount_check
+90 key down W
+110 key up W
+120 key down SPACE
+150 key up SPACE
+170 dump ram_flight_check
+190 button down 1
+220 button up 1
+225 dump ram_primary_check
+240 button down 2
+270 button up 2
+280 dump ram_secondary_check
+290 key down C
+330 key up C
+360 dump ram_final_check
+380 quit

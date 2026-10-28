@@ -1,0 +1,772 @@
+{
+  "baseline_head": "edd4fff",
+  "deployed_game_sha256": "54F082B55C3A768391EC5B39DB48033F2AA77DEA6B51CDFBBE1E81A61D92D557",
+  "production_changed": false,
+  "scope": "CPU capture/atlas evidence and asset-free characterization, no renderer fix or GPU run",
+  "capture": {
+    "vertex_kicks": 87701,
+    "primitive_vertex_counts": {
+      "6": 1920,
+      "4": 82272,
+      "5": 3509
+    },
+    "uploads": [
+      {
+        "after_kick": 38046,
+        "frame": 0,
+        "tbp": 15008,
+        "tbw": 2,
+        "trxpos": "0x0",
+        "width": 128,
+        "height": 128,
+        "received_bytes": 65536,
+        "complete": true,
+        "sha256": "c891e7a6fa92a5790bddd4b6c892356c746f8639d701ccc29b60ecb864ae8956"
+      },
+      {
+        "after_kick": 81903,
+        "frame": 2,
+        "tbp": 15008,
+        "tbw": 2,
+        "trxpos": "0x0",
+        "width": 128,
+        "height": 128,
+        "received_bytes": 65536,
+        "complete": true,
+        "sha256": "c891e7a6fa92a5790bddd4b6c892356c746f8639d701ccc29b60ecb864ae8956"
+      }
+    ],
+    "sprites": [
+      {
+        "frame": 0,
+        "prim": "0x27e",
+        "tex0": "0x75405dc00baa0",
+        "tex1": "0xfffffed000000000",
+        "clamp": "0x5",
+        "alpha": "0x44",
+        "test": "0x3002d",
+        "target": "0x80080",
+        "vertices": [
+          {
+            "kick": 38047,
+            "xy": [
+              48.0,
+              432.0
+            ],
+            "uv": [
+              28.5,
+              127.5
+            ]
+          },
+          {
+            "kick": 38048,
+            "xy": [
+              108.0,
+              492.0
+            ],
+            "uv": [
+              88.5,
+              67.5
+            ]
+          }
+        ]
+      },
+      {
+        "frame": 0,
+        "prim": "0x27e",
+        "tex0": "0x75405dc00baa0",
+        "tex1": "0xfffffed000000000",
+        "clamp": "0x5",
+        "alpha": "0x44",
+        "test": "0x3002d",
+        "target": "0x80080",
+        "vertices": [
+          {
+            "kick": 38053,
+            "xy": [
+              39.0,
+              387.0
+            ],
+            "uv": [
+              2.5,
+              124.5
+            ]
+          },
+          {
+            "kick": 38054,
+            "xy": [
+              46.0,
+              484.0
+            ],
+            "uv": [
+              9.5,
+              27.5
+            ]
+          }
+        ]
+      },
+      {
+        "frame": 0,
+        "prim": "0x27e",
+        "tex0": "0x75405dc00baa0",
+        "tex1": "0xfffffed000000000",
+        "clamp": "0x5",
+        "alpha": "0x44",
+        "test": "0x3002d",
+        "target": "0x80080",
+        "vertices": [
+          {
+            "kick": 38055,
+            "xy": [
+              47.0,
+              435.0
+            ],
+            "uv": [
+              28.5,
+              60.5
+            ]
+          },
+          {
+            "kick": 38056,
+            "xy": [
+              107.0,
+              493.0
+            ],
+            "uv": [
+              88.5,
+              2.5
+            ]
+          }
+        ]
+      },
+      {
+        "frame": 0,
+        "prim": "0x27e",
+        "tex0": "0x75405dc00baa0",
+        "tex1": "0xfffffed000000000",
+        "clamp": "0x5",
+        "alpha": "0x44",
+        "test": "0x3002d",
+        "target": "0x80080",
+        "vertices": [
+          {
+            "kick": 38059,
+            "xy": [
+              421.0,
+              434.0
+            ],
+            "uv": [
+              28.5,
+              60.5
+            ]
+          },
+          {
+            "kick": 38060,
+            "xy": [
+              481.0,
+              492.0
+            ],
+            "uv": [
+              88.5,
+              2.5
+            ]
+          }
+        ]
+      },
+      {
+        "frame": 0,
+        "prim": "0x25e",
+        "tex0": "0x75405dc00baa0",
+        "tex1": "0xfffffed000000000",
+        "clamp": "0x5",
+        "alpha": "0x44",
+        "test": "0x3002d",
+        "target": "0x80080",
+        "vertices": [
+          {
+            "kick": 40540,
+            "xy": [
+              14.0,
+              433.0
+            ],
+            "uv": [
+              28.5,
+              127.5
+            ]
+          },
+          {
+            "kick": 40541,
+            "xy": [
+              74.0,
+              493.0
+            ],
+            "uv": [
+              88.5,
+              67.5
+            ]
+          }
+        ]
+      },
+      {
+        "frame": 0,
+        "prim": "0x25e",
+        "tex0": "0x75405dc00baa0",
+        "tex1": "0xfffffed000000000",
+        "clamp": "0x5",
+        "alpha": "0x44",
+        "test": "0x3002d",
+        "target": "0x80080",
+        "vertices": [
+          {
+            "kick": 40546,
+            "xy": [
+              5.0,
+              388.0
+            ],
+            "uv": [
+              2.5,
+              124.5
+            ]
+          },
+          {
+            "kick": 40547,
+            "xy": [
+              12.0,
+              485.0
+            ],
+            "uv": [
+              9.5,
+              27.5
+            ]
+          }
+        ]
+      },
+      {
+        "frame": 0,
+        "prim": "0x25e",
+        "tex0": "0x75405dc00baa0",
+        "tex1": "0xfffffed000000000",
+        "clamp": "0x5",
+        "alpha": "0x44",
+        "test": "0x3002d",
+        "target": "0x80080",
+        "vertices": [
+          {
+            "kick": 40548,
+            "xy": [
+              13.0,
+              436.0
+            ],
+            "uv": [
+              28.5,
+              60.5
+            ]
+          },
+          {
+            "kick": 40549,
+            "xy": [
+              73.0,
+              494.0
+            ],
+            "uv": [
+              88.5,
+              2.5
+            ]
+          }
+        ]
+      },
+      {
+        "frame": 2,
+        "prim": "0x7e",
+        "tex0": "0x75405dc00baa0",
+        "tex1": "0xfffffed000000000",
+        "clamp": "0x5",
+        "alpha": "0x44",
+        "test": "0x3002d",
+        "target": "0x80000",
+        "vertices": [
+          {
+            "kick": 81904,
+            "xy": [
+              48.0,
+              432.0
+            ],
+            "uv": [
+              28.5,
+              127.5
+            ]
+          },
+          {
+            "kick": 81905,
+            "xy": [
+              108.0,
+              492.0
+            ],
+            "uv": [
+              88.5,
+              67.5
+            ]
+          }
+        ]
+      },
+      {
+        "frame": 2,
+        "prim": "0x7e",
+        "tex0": "0x75405dc00baa0",
+        "tex1": "0xfffffed000000000",
+        "clamp": "0x5",
+        "alpha": "0x44",
+        "test": "0x3002d",
+        "target": "0x80000",
+        "vertices": [
+          {
+            "kick": 81910,
+            "xy": [
+              39.0,
+              387.0
+            ],
+            "uv": [
+              2.5,
+              124.5
+            ]
+          },
+          {
+            "kick": 81911,
+            "xy": [
+              46.0,
+              484.0
+            ],
+            "uv": [
+              9.5,
+              27.5
+            ]
+          }
+        ]
+      },
+      {
+        "frame": 2,
+        "prim": "0x7e",
+        "tex0": "0x75405dc00baa0",
+        "tex1": "0xfffffed000000000",
+        "clamp": "0x5",
+        "alpha": "0x44",
+        "test": "0x3002d",
+        "target": "0x80000",
+        "vertices": [
+          {
+            "kick": 81912,
+            "xy": [
+              47.0,
+              435.0
+            ],
+            "uv": [
+              28.5,
+              60.5
+            ]
+          },
+          {
+            "kick": 81913,
+            "xy": [
+              107.0,
+              493.0
+            ],
+            "uv": [
+              88.5,
+              2.5
+            ]
+          }
+        ]
+      },
+      {
+        "frame": 2,
+        "prim": "0x7e",
+        "tex0": "0x75405dc00baa0",
+        "tex1": "0xfffffed000000000",
+        "clamp": "0x5",
+        "alpha": "0x44",
+        "test": "0x3002d",
+        "target": "0x80000",
+        "vertices": [
+          {
+            "kick": 81916,
+            "xy": [
+              421.0,
+              434.0
+            ],
+            "uv": [
+              28.5,
+              60.5
+            ]
+          },
+          {
+            "kick": 81917,
+            "xy": [
+              481.0,
+              492.0
+            ],
+            "uv": [
+              88.5,
+              2.5
+            ]
+          }
+        ]
+      },
+      {
+        "frame": 2,
+        "prim": "0x5e",
+        "tex0": "0x75405dc00baa0",
+        "tex1": "0xfffffed000000000",
+        "clamp": "0x5",
+        "alpha": "0x44",
+        "test": "0x3002d",
+        "target": "0x80000",
+        "vertices": [
+          {
+            "kick": 84397,
+            "xy": [
+              14.0,
+              433.0
+            ],
+            "uv": [
+              28.5,
+              127.5
+            ]
+          },
+          {
+            "kick": 84398,
+            "xy": [
+              74.0,
+              493.0
+            ],
+            "uv": [
+              88.5,
+              67.5
+            ]
+          }
+        ]
+      },
+      {
+        "frame": 2,
+        "prim": "0x5e",
+        "tex0": "0x75405dc00baa0",
+        "tex1": "0xfffffed000000000",
+        "clamp": "0x5",
+        "alpha": "0x44",
+        "test": "0x3002d",
+        "target": "0x80000",
+        "vertices": [
+          {
+            "kick": 84403,
+            "xy": [
+              5.0,
+              388.0
+            ],
+            "uv": [
+              2.5,
+              124.5
+            ]
+          },
+          {
+            "kick": 84404,
+            "xy": [
+              12.0,
+              485.0
+            ],
+            "uv": [
+              9.5,
+              27.5
+            ]
+          }
+        ]
+      },
+      {
+        "frame": 2,
+        "prim": "0x5e",
+        "tex0": "0x75405dc00baa0",
+        "tex1": "0xfffffed000000000",
+        "clamp": "0x5",
+        "alpha": "0x44",
+        "test": "0x3002d",
+        "target": "0x80000",
+        "vertices": [
+          {
+            "kick": 84405,
+            "xy": [
+              13.0,
+              436.0
+            ],
+            "uv": [
+              28.5,
+              60.5
+            ]
+          },
+          {
+            "kick": 84406,
+            "xy": [
+              73.0,
+              494.0
+            ],
+            "uv": [
+              88.5,
+              2.5
+            ]
+          }
+        ]
+      }
+    ],
+    "capture_sha256": "932f517699771affeca8f6b60420571ff394d0001d3515016063abeaac9c33c1",
+    "limits": "Submitted sprites and complete host uploads only. No initial VRAM, raster replay, GS reference or live before/after proof."
+  },
+  "disc_match": {
+    "file": [
+      "ENGLISH/COMMON/INTERFCE/INTERFCE.TXD",
+      1016257,
+      5607812
+    ],
+    "entry": [
+      64,
+      128,
+      0,
+      1777864,
+      65600
+    ],
+    "info": {
+      "w": 128,
+      "h": 128,
+      "bpp": 32,
+      "flags": 7,
+      "kind": 0
+    },
+    "byte_equal": true,
+    "sha256": "c891e7a6fa92a5790bddd4b6c892356c746f8639d701ccc29b60ecb864ae8956"
+  },
+  "border": {
+    "rectangle_inclusive": [
+      27,
+      2,
+      88,
+      61
+    ],
+    "rgba": [
+      255,
+      255,
+      255,
+      127
+    ],
+    "original_disc_content": true
+  },
+  "current_point_model": {
+    "untransformed_sprite": [
+      13,
+      436,
+      73,
+      494
+    ],
+    "uv": [
+      28.5,
+      60.5,
+      88.5,
+      2.5
+    ],
+    "scale": 4,
+    "right_border_columns": 2,
+    "bottom_border_rows": 2,
+    "total_border_samples": 940,
+    "renderer_execution": false,
+    "shift_counterexample_is_not_a_proven_fix": true
+  },
+  "screenshots": [
+    {
+      "path": "build/t/followup-20261018-final-native/render_1900.png",
+      "sha256": "0b8489380bdacaf2a342b1fd3f081fbb91e42d3d81c0b8388f1837ff04c69bdc",
+      "size": [
+        3840,
+        2160
+      ]
+    },
+    {
+      "path": "build/t/followup-20261018-final-native/render_2500.png",
+      "sha256": "b9ec256a778ffd8c3375782394a8e6b99c63a5e5308bb126181a018ba3095d68",
+      "size": [
+        3840,
+        2160
+      ],
+      "straight_white_border_probe": {
+        "x": [
+          560,
+          599
+        ],
+        "y_hits": [
+          [
+            2082,
+            40
+          ],
+          [
+            2083,
+            40
+          ]
+        ]
+      }
+    },
+    {
+      "path": "build/t/followup-20261018-final-native/render_4000.png",
+      "sha256": "2be61b61852fb36c2d97327c866022b59c3f859cdaa34181923c4fa6be132a99",
+      "size": [
+        3840,
+        2160
+      ],
+      "straight_white_border_probe": {
+        "x": [
+          560,
+          599
+        ],
+        "y_hits": [
+          [
+            2082,
+            40
+          ],
+          [
+            2083,
+            40
+          ]
+        ]
+      }
+    },
+    {
+      "path": "build/t/followup-20261018-final-native/render_4500.png",
+      "sha256": "f587811afeaab64835976612f602caee25043b219ce7011de0fd0adbca855a59",
+      "size": [
+        3840,
+        2160
+      ],
+      "straight_white_border_probe": {
+        "x": [
+          560,
+          599
+        ],
+        "y_hits": [
+          [
+            2082,
+            40
+          ],
+          [
+            2083,
+            40
+          ]
+        ]
+      }
+    },
+    {
+      "path": "build/t/followup-20261018-final-srnr/render_1900.png",
+      "sha256": "cc132f958a8276c299a4b9ca8a83099f8ac9682727752157927c83140ebe3a4f",
+      "size": [
+        3840,
+        2160
+      ]
+    },
+    {
+      "path": "build/t/followup-20261018-final-srnr/render_2500.png",
+      "sha256": "d9518cc99f721f2f1445c4317bed5a58c30e15fdc38448790d88ca9a67f356a1",
+      "size": [
+        3840,
+        2160
+      ],
+      "straight_white_border_probe": {
+        "x": [
+          560,
+          599
+        ],
+        "y_hits": [
+          [
+            2082,
+            40
+          ],
+          [
+            2083,
+            40
+          ]
+        ]
+      }
+    },
+    {
+      "path": "build/t/followup-20261018-final-srnr/render_4000.png",
+      "sha256": "ce620390a05edc35dff59a4d14a24e547eebdd4da976717f0f44f75cbce7b2ec",
+      "size": [
+        3840,
+        2160
+      ],
+      "straight_white_border_probe": {
+        "x": [
+          560,
+          599
+        ],
+        "y_hits": [
+          [
+            2082,
+            40
+          ],
+          [
+            2083,
+            40
+          ]
+        ]
+      }
+    },
+    {
+      "path": "build/t/followup-20261018-final-srnr/render_4500.png",
+      "sha256": "3b902f1d6534b6b0af25b803188ae19ae0fb804538a63e1efe9870d8aaaa55a3",
+      "size": [
+        3840,
+        2160
+      ],
+      "straight_white_border_probe": {
+        "x": [
+          560,
+          599
+        ],
+        "y_hits": [
+          [
+            2082,
+            40
+          ],
+          [
+            2083,
+            40
+          ]
+        ]
+      }
+    }
+  ],
+  "tests": {
+    "command": "python -m unittest discover -s analysis/scripts -p test_gs_hud_edge_audit.py -v",
+    "tests": 12,
+    "failures": 0,
+    "kind": "CPU characterization; not production before/after"
+  },
+  "smoke": {
+    "validated": false,
+    "reproducible_emitter_identified": false,
+    "needed": [
+      "Identified active smoke emitter or trigger in existing save",
+      "Fixed camera and timed visible-plume recipe",
+      "Coordinated GPU slot and bounded producer/consumer capture"
+    ]
+  },
+  "changed_paths": [
+    "analysis/scripts/gs_hud_edge_audit.py",
+    "analysis/scripts/test_gs_hud_edge_audit.py",
+    "docs/HUD_ORB_EDGE_20261018.md",
+    "analysis/results/hud-orb-edge-20261018.json"
+  ],
+  "source_sha256": {
+    "analysis/scripts/gs_hud_edge_audit.py": "b35ef17724283bf22f080f1423d74ad335c203f27ab5c5fac09806cbbbf21d7d",
+    "analysis/scripts/test_gs_hud_edge_audit.py": "b04845649f01df398ed3d264757b81d2cf7262b193c0cf6465290e9240acfd68",
+    "docs/HUD_ORB_EDGE_20261018.md": "863a6baa34f6acc9aabf1a01eda1412d4a02c5630552585ee7f04fb6994042ec"
+  },
+  "source_followup": {
+    "receipt": "analysis/results/sprite-sampling-convention-20261018.json",
+    "native_convention_established": true,
+    "renderer_fix_applied": false,
+    "scale4_policy_pending": true
+  }
+}

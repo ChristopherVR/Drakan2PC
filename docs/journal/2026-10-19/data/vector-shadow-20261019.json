@@ -1,0 +1,274 @@
+{
+  "status": "not deployed; no repeatable FPS gain",
+  "goal_raw_fps": 144,
+  "goal_achieved": false,
+  "raw_before_fps": 100.45112154189218,
+  "raw_after_fps": 100.55402743431941,
+  "observed_change_percent": 0.10244374661791955,
+  "control_spread_fps": 0.13391804893076653,
+  "candidate_spread_fps": 0.06001936804047148,
+  "candidate_sha256": "db27938c9011eb5f5f9a0a1a6711797a5a8f05832aae49a4c790b396b13a2f1f",
+  "installed_sha256_at_review": "cd25328dbe3e3ba8d962636216667d5990636731f7ffc9c76404aa1efca3e1cb",
+  "runs": {
+    "shadow-before-a": {
+      "exe_sha256": "CD25328DBE3E3BA8D962636216667D5990636731F7FFC9C76404AA1EFCA3E1CB",
+      "world_fps": 100.51808056635757,
+      "last_five_world_windows": [
+        [
+          2.005,
+          100.77
+        ],
+        [
+          2.008,
+          101.12
+        ],
+        [
+          2.003,
+          100.36
+        ],
+        [
+          2.008,
+          100.08
+        ],
+        [
+          2.005,
+          100.26
+        ]
+      ],
+      "saves_unchanged": true,
+      "contended": false,
+      "overlap_samples": 0
+    },
+    "shadow-before-b": {
+      "exe_sha256": "CD25328DBE3E3BA8D962636216667D5990636731F7FFC9C76404AA1EFCA3E1CB",
+      "world_fps": 100.3841625174268,
+      "last_five_world_windows": [
+        [
+          2.008,
+          100.61
+        ],
+        [
+          2.008,
+          101.09
+        ],
+        [
+          2.003,
+          99.87
+        ],
+        [
+          2.01,
+          100.0
+        ],
+        [
+          2.013,
+          100.35
+        ]
+      ],
+      "saves_unchanged": true,
+      "contended": false,
+      "overlap_samples": 0
+    },
+    "shadow-after-a": {
+      "exe_sha256": "DB27938C9011EB5F5F9A0A1A6711797A5A8F05832AAE49A4C790B396B13A2F1F",
+      "world_fps": 100.52401775029918,
+      "last_five_world_windows": [
+        [
+          2.006,
+          100.7
+        ],
+        [
+          2.007,
+          100.65
+        ],
+        [
+          2.007,
+          100.16
+        ],
+        [
+          2.002,
+          100.42
+        ],
+        [
+          2.006,
+          100.69
+        ]
+      ],
+      "saves_unchanged": true,
+      "contended": false,
+      "overlap_samples": 0
+    },
+    "shadow-after-b": {
+      "exe_sha256": "DB27938C9011EB5F5F9A0A1A6711797A5A8F05832AAE49A4C790B396B13A2F1F",
+      "world_fps": 100.58403711833965,
+      "last_five_world_windows": [
+        [
+          2.004,
+          100.81
+        ],
+        [
+          2.005,
+          100.76
+        ],
+        [
+          2.005,
+          100.24
+        ],
+        [
+          2.002,
+          100.42
+        ],
+        [
+          2.006,
+          100.69
+        ]
+      ],
+      "saves_unchanged": true,
+      "contended": false,
+      "overlap_samples": 0
+    }
+  },
+  "validation": {
+    "upper_shadow_frozen_reference": 131072,
+    "baseline_control_for_new_test": "passed",
+    "frozen_fmac": 131072,
+    "native_packet": 114688,
+    "native_uv": 114688,
+    "timed_scalar": 8192,
+    "caller_rounding_modes": 4,
+    "live_differential_and_visual": "not run after FPS gate failed"
+  },
+  "codegen": {
+    "instructions": 3240,
+    "code_bytes": 14919,
+    "baseline_instructions": 3839,
+    "baseline_code_bytes": 17336,
+    "baseline_stack_bytes": 2744,
+    "candidate_stack_bytes": 2528,
+    "full_image_baseline_block_bytes": 17344,
+    "full_image_candidate_block_bytes": 14928
+  },
+  "actual_thread_cpu_time": {
+    "vu": {
+      "mean_percent_of_one_core": 94.6,
+      "min": 89,
+      "max": 97
+    },
+    "gs": {
+      "mean_percent_of_one_core": 81.53333333333333,
+      "min": 71,
+      "max": 88
+    },
+    "ee": {
+      "mean_percent_of_one_core": 41.8,
+      "min": 36,
+      "max": 49
+    }
+  },
+  "thread_cpu_time_rows": [
+    {
+      "second": 25,
+      "ee": 40,
+      "gs": 83,
+      "vu": 95
+    },
+    {
+      "second": 26,
+      "ee": 39,
+      "gs": 83,
+      "vu": 92
+    },
+    {
+      "second": 27,
+      "ee": 37,
+      "gs": 86,
+      "vu": 97
+    },
+    {
+      "second": 28,
+      "ee": 43,
+      "gs": 86,
+      "vu": 97
+    },
+    {
+      "second": 29,
+      "ee": 43,
+      "gs": 76,
+      "vu": 97
+    },
+    {
+      "second": 30,
+      "ee": 46,
+      "gs": 77,
+      "vu": 92
+    },
+    {
+      "second": 31,
+      "ee": 46,
+      "gs": 83,
+      "vu": 89
+    },
+    {
+      "second": 32,
+      "ee": 39,
+      "gs": 77,
+      "vu": 97
+    },
+    {
+      "second": 33,
+      "ee": 45,
+      "gs": 85,
+      "vu": 94
+    },
+    {
+      "second": 34,
+      "ee": 49,
+      "gs": 85,
+      "vu": 94
+    },
+    {
+      "second": 35,
+      "ee": 37,
+      "gs": 82,
+      "vu": 95
+    },
+    {
+      "second": 36,
+      "ee": 42,
+      "gs": 83,
+      "vu": 97
+    },
+    {
+      "second": 37,
+      "ee": 42,
+      "gs": 71,
+      "vu": 94
+    },
+    {
+      "second": 38,
+      "ee": 36,
+      "gs": 88,
+      "vu": 97
+    },
+    {
+      "second": 39,
+      "ee": 43,
+      "gs": 78,
+      "vu": 92
+    }
+  ],
+  "cpu_profile_note": "GetThreadTimes CPU time, measured alongside sampled-PC profiling. Profile run excluded from raw averages. VU thread 6180, GS thread 59308.",
+  "profile": "busiest thread 6180, 7238 samples\n   5657  78.2%  VU1Interpreter\n    476   6.6%  dll:ntdll.dll\n    456   6.3%  other\n    355   4.9%  PS2Memory\n    160   2.2%  dll:VCRUNTIME140.dll\n     76   1.1%  dll:ucrtbase.dll\n     22   0.3%  PS2Runtime\n     17   0.2%  dll:MSVCP140.dll\n     12   0.2%  gsr (d3d11 GS)\n      7   0.1%  dll:KERNEL32.DLL\n-- top functions\n    425   5.9%  ?packetKernel@Vu1Step@@SA_NAEAVVU1Interpreter@@AEAUCtx@1@@Z\n    365   5.0%  ??$blockFn@$0CP@$0A@@?A0x5f570f00@@YA_NAEAVVU1Interpreter@@AEAUCtx@Vu1Step@@@Z\n    341   4.7%  ?processVIF1Data@PS2Memory@@QEAAXPEBEI@Z\n    301   4.2%  ?run@VU1Interpreter@@AEAAXPEAEI0IAEAVGS@@PEAVPS2Memory@@I@Z\n    184   2.5%  ?settleFlags@Vu1Fast@@SAXAEAVVU1Interpreter@@@Z\n    172   2.4%  ?progressXgkick@VU1Interpreter@@AEAAXXZ\n    170   2.3%  ??$blockFn@$0NE@$0A@@?A0x129fae0b@@YA_NAEAVVU1Interpreter@@AEAUCtx@Vu1Step@@@Z\n    160   2.2%  ?execLower@VU1Interpreter@@AEAAXIPEAEIAEAVGS@@PEAVPS2Memory@@I@Z\n    157   2.2%  ??$blockFn@$0NB@$0A@@?A0x129fae0b@@YA_NAEAVVU1Interpreter@@AEAUCtx@Vu1Step@@@Z\n    150   2.1%  ?uvKernel@Vu1Step@@SA_NAEAVVU1Interpreter@@AEAUCtx@1@@Z\n    143   2.0%  ?blockReadsReady@Vu1Step@@SA_NAEBVVU1Interpreter@@PEB_K1PEBI@Z\n    127   1.8%  ??$blockFn@$0CI@$0A@@?A0x940bdca5@@YA_NAEAVVU1Interpreter@@AEAUCtx@Vu1Step@@@Z\n-- system-DLL samples by (module, rva, first caller in the exe)\n    310   4.3%  ntdll.dll+1659c4  <- ?run@Worker@?A0x0b481fcb@vu1async@@QEAAXXZ\n     26   0.4%  ntdll.dll+6ed2d  <- ?now@steady_clock@chrono@std@@SA?AV?$time_point@Usteady_clock@chrono@std@@V?$duration@_JU?$ratio@$00\n     26   0.4%  ntdll.dll+162114  <- ?run@Worker@?A0x0b481fcb@vu1async@@QEAAXXZ\n     24   0.3%  ntdll.dll+44d0b  <- ?submitGif@GsrBridge@@QEAAXEPEBEI@Z\n     17   0.2%  ntdll.dll+44d0b  <- ?processGIFPacketPath@GS@@QEAAXEPEBEI@Z\n     16   0.2%  VCRUNTIME140.dll+1dafb  <- ??$assign@PEBE$0A@@?$vector@EV?$allocator@E@std@@@std@@QEAAXPEBE0@Z\n     15   0.2%  VCRUNTIME140.dll+1dafb  <- ??$_Insert_counted_range@PEBE@?$vector@EV?$allocator@E@std@@@std@@AEAAXV?$_Vector_const_iterator@V?$\n     12   0.2%  ucrtbase.dll+56835  <- ?run@VU1Interpreter@@AEAAXPEAEI0IAEAVGS@@PEAVPS2Memory@@I@Z\n     10   0.1%  ntdll.dll+45a30  <- ?processGIFPacketPath@GS@@QEAAXEPEBEI@Z\n      9   0.1%  VCRUNTIME140.dll+1dc91  <- ??$_Insert_counted_range@PEBE@?$vector@EV?$allocator@E@std@@@std@@AEAAXV?$_Vector_const_iterator@V?$\n      9   0.1%  ntdll.dll+45a4e  <- ?processGIFPacketPath@GS@@QEAAXEPEBEI@Z\n      9   0.1%  ntdll.dll+45a4e  <- ?submitGif@GsrBridge@@QEAAXEPEBEI@Z\n      9   0.1%  ucrtbase.dll+566e5  <- ?run@VU1Interpreter@@AEAAXPEAEI0IAEAVGS@@PEAVPS2Memory@@I@Z\n      8   0.1%  ucrtbase.dll+55e6e  <- ?run@VU1Interpreter@@AEAAXPEAEI0IAEAVGS@@PEAVPS2Memory@@I@Z\n      7   0.1%  ucrtbase.dll+56830  <- ?run@VU1Interpreter@@AEAAXPEAEI0IAEAVGS@@PEAVPS2Memory@@I@Z\n",
+  "hardware_counter_trace": "Named WPR start rejected by OS with 0x80070005; no trace started",
+  "preserved_files_sha256": {
+    "drakan.ini": "18daf5933b1fa924fc21d4c6b4e1aa92816e024d3cb0b924797fa769ad738b79",
+    "drakan_input.ini": "3ecf546900e9858a587ef9c4b62385b074c9281431d3eac0ef73619be0dd078f",
+    "Play-Original30.cmd": "9abe8038dd597ff2fae10b2cbfd2ec19f75d54f2265b0784db0da2389b0dc951",
+    "Play-RawFPS.cmd": "c585270901be6b380f8737f9fb497b1a896197d8d658a096689ccb105e914afc",
+    "Play.cmd": "d2c231edea7c0191dfa002087e32d56470a5f570017599da715c84e8b1e97bfb"
+  },
+  "protected_files_same_as_start": false,
+  "code_installed_by_this_iteration": false,
+  "canonical_source_promotion": false,
+  "affinity_check": "Prepared separate reversible process-only test. Waiting harness stopped when another compiler build and installed game were running. No affinity experiment ran; no result claimed.",
+  "evidence_directory": "C:\\Games\\Drakan - The Ancients Gates\\decomp\\build\\vu-shadow-20261019"
+}

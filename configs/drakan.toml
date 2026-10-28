@@ -1,0 +1,862 @@
+# PS2Recomp configuration for: SCES_500.06
+# Public address/stub metadata only; paths below are relative placeholders.
+# scripts/buildtool/prepare_iso.py resolves owned ELF and private output paths.
+
+[general]
+# Path to input ELF file
+input = "../build/local-game/SCES_500.06"
+
+# Drakan: authoritative function boundaries + jump tables from Ghidra
+functions_csv = "../analysis/functions.csv"
+jump_tables_csv = "../analysis/jumptables.csv"
+functions_per_file = 150
+emit_comments = false
+indirect_fallback = false
+
+# Path to Ghidra exported function map (optional CSV)
+ghidra_output = ""
+
+# Path to output directory
+output = "../build/local-game/generated/"
+
+# Single file output mode (recommended for large games)
+single_file_output = false
+
+# Patch policy (instruction-driven handling is preferred for syscalls)
+patch_syscalls = false
+patch_cop0 = true
+patch_cache = true
+
+# Functions to stub (only names with runtime syscall/stub handlers)
+stubs = [
+  "sceGsResetGraph@0x004AFB48",
+  "memclr@0x004AFD48",
+  "sceDmaGetChan@0x004AFD80",
+  "sceDmaReset@0x004AFDA8",
+  "sceDmaPutEnv@0x004AFE98",
+  "sceDmaGetEnv@0x004B0070",
+  "sceDmaPutStallAddr@0x004B00A8",
+  "sceDmaSend@0x004B00D0",
+  "sceDmaSendN@0x004B01A8",
+  "sceDmaSendI@0x004B0290",
+  "sceDmaRecv@0x004B0378",
+  "sceDmaRecvN@0x004B0440",
+  "sceDmaRecvI@0x004B0530",
+  "sceDmaSync@0x004B0620",
+  "sceDmaWatch@0x004B06E8",
+  "sceDmaPause@0x004B07B8",
+  "scePadInit@0x004B0948",
+  "scePadInit2@0x004B0A88",
+  "scePadEnd@0x004B0B28",
+  "scePadPortOpen@0x004B0BA8",
+  "scePadPortClose@0x004B0D90",
+  "scePadGetDmaStr@0x004B0E48",
+  "scePadGetFrameCount@0x004B0EA8",
+  "scePadRead@0x004B0EF8",
+  "scePadGetState@0x004B0F78",
+  "scePadStateIntToStr@0x004B0FF0",
+  "scePadSetReqState@0x004B1028",
+  "scePadGetReqState@0x004B1090",
+  "scePadInfoAct@0x004B1118",
+  "scePadInfoComb@0x004B1238",
+  "scePadInfoMode@0x004B1358",
+  "scePadSetMainMode@0x004B1490",
+  "scePadSetActDirect@0x004B1548",
+  "scePadSetActAlign@0x004B1600",
+  "scePadGetButtonMask@0x004B16D8",
+  "scePadSetButtonInfo@0x004B1790",
+  "scePadInfoPressMode@0x004B1840",
+  "scePadEnterPressMode@0x004B18A0",
+  "scePadExitPressMode@0x004B18F8",
+  "scePadSetVrefParam@0x004B1950",
+  "scePadGetPortMax@0x004B1A20",
+  "scePadGetSlotMax@0x004B1A88",
+  "scePadGetModVersion@0x004B1AF0",
+  "scePadSetWarningLevel@0x004B1B58",
+  "atan@0x004B1BC0",
+  "ceil@0x004B1FD0",
+  "fabs@0x004B2190",
+  "floor@0x004B21C8",
+  "tan@0x004B23A0",
+  "atan2@0x004B2608",
+  "exp@0x004B2720",
+  "__ieee754_rem_pio2f@0x004B5248",
+  "__kernel_cosf@0x004B6740",
+  "__kernel_sinf@0x004B71E8",
+  "sceCdDelayThread@0x004B7DA8",
+  "sceCdCallback@0x004B7E10",
+  "sceCdInitEeCB@0x004B7FC8",
+  "sceCdSearchFile@0x004B8370",
+  "sceCdNcmdDiskReady@0x004B87E0",
+  "sceCdSync@0x004B8878",
+  "sceCdSyncS@0x004B8918",
+  "sceCdInit@0x004B8AF8",
+  "sceCdMmode@0x004B8FD0",
+  "sceSdRemoteInit@0x004B9098",
+  "sceSdTransToIOP@0x004B9140",
+  "sceSdRemote@0x004B91D8",
+  "sceMcInit@0x004B95B0",
+  "sceMcChangeThreadPriority@0x004B9798",
+  "sceMcGetSlotMax@0x004B9850",
+  "sceMcOpen@0x004B9910",
+  "sceMcMkdir@0x004B9A48",
+  "sceMcClose@0x004B9A80",
+  "sceMcSeek@0x004B9B38",
+  "mceIntrReadFixAlign@0x004B9C10",
+  "sceMcRead@0x004B9CA0",
+  "sceMcWrite@0x004B9DC0",
+  "sceMcSync@0x004B9FB0",
+  "mceGetInfoApdx@0x004BA090",
+  "sceMcGetInfo@0x004BA0E8",
+  "sceMcGetDir@0x004BA270",
+  "mceStorePwd@0x004BA3C8",
+  "sceMcChdir@0x004BA450",
+  "sceMcFormat@0x004BA5A0",
+  "sceMcDelete@0x004BA668",
+  "sceMcFlush@0x004BA790",
+  "sceMcSetFileInfo@0x004BA848",
+  "sceMcRename@0x004BAA20",
+  "sceMcUnformat@0x004BAB88",
+  "sceMcGetEntSpace@0x004BAC50",
+  "sceIpuStopDMA@0x004BB7E8",
+  "sceIpuRestartDMA@0x004BB8D0",
+  "sceIpuSync@0x004BBA20",
+  "sceIpuInit@0x004BBAF0",
+  "write@0x004BC680",
+  "read@0x004BC700",
+  "_sceSDC@0x004BC908",
+  "_sceIDC@0x004BCA48",
+  "InitAlarm@0x004BCE10",
+  "InitThread@0x004BCFC0",
+  "iWakeupThread@0x004BD098",
+  "iRotateThreadReadyQueue@0x004BD130",
+  "sceTtyHandler@0x004BD2F0",
+  "sceTtyWrite@0x004BD488",
+  "sceTtyRead@0x004BD5D8",
+  "sceTtyInit@0x004BD6A8",
+  "_printf@0x004BDA80",
+  "scePrintf@0x004BE080",
+  "sceSifInitCmd@0x004BE158",
+  "sceSifExitCmd@0x004BE3D8",
+  "sceSifAddCmdHandler@0x004BE440",
+  "sceSifRemoveCmdHandler@0x004BE470",
+  "_sceSifSendCmd@0x004BE498",
+  "sceSifSendCmd@0x004BE5D0",
+  "_sceSifCmdIntrHdlr@0x004BE650",
+  "sceSifWriteBackDCache@0x004BE778",
+  "sceSifInitRpc@0x004BE828",
+  "_sceRpcGetFPacket@0x004BEAB8",
+  "_sceRpcGetFPacket2@0x004BEAE8",
+  "sceSifGetOtherData@0x004BEC40",
+  "sceSifBindRpc@0x004BEE98",
+  "sceSifCallRpc@0x004BF068",
+  "sceSifCheckStatRpc@0x004BF258",
+  "sceSifSetRpcQueue@0x004BF298",
+  "sceSifRegisterRpc@0x004BF330",
+  "sceSifRemoveRpc@0x004BF400",
+  "sceSifRemoveRpcQueue@0x004BF498",
+  "sceSifGetNextRequest@0x004BF528",
+  "sceSifExecRequest@0x004BF580",
+  "sceSifRpcLoop@0x004BF748",
+  "_sceFsSemInit@0x004BFCA0",
+  "sceFsInit@0x004BFD30",
+  "sceFsReset@0x004BFF60",
+  "sceOpen@0x004BFF98",
+  "sceClose@0x004C0220",
+  "sceLseek@0x004C03A0",
+  "sceRead@0x004C05D8",
+  "sceWrite@0x004C0848",
+  "sceIoctl@0x004C0B08",
+  "sceSifInitIopHeap@0x004C2D00",
+  "sceSifAllocIopHeap@0x004C2D88",
+  "sceSifAllocSysMemory@0x004C2DF8",
+  "sceSifLoadIopHeap@0x004C2F10",
+  "sceSifLoadFileReset@0x004C3190",
+  "_sceSifLoadModuleBuffer@0x004C31C8",
+  "_sceSifLoadModule@0x004C37D8",
+  "_sceSifLoadElfPart@0x004C3A40",
+  "sceSifLoadElf@0x004C3B68",
+  "sceSifGetIopAddr@0x004C3B90",
+  "sceSifSetIopAddr@0x004C3C80",
+  "sceSifResetIop@0x004C3D60",
+  "sceSifIsAliveIop@0x004C3EA0",
+  "sceSifSyncIop@0x004C3EC8",
+  "sceSifRebootIop@0x004C3F00",
+  "sceDeci2Open@0x004C4070",
+  "sceDeci2Close@0x004C40B8",
+  "sceDeci2ReqSend@0x004C40E0",
+  "sceDeci2Poll@0x004C4110",
+  "sceDeci2ExRecv@0x004C4138",
+  "sceDeci2ExSend@0x004C4170",
+  "sceDeci2ExReqSend@0x004C41A8",
+  "sceDeci2ExLock@0x004C41D8",
+  "sceDeci2ExUnLock@0x004C4200",
+  "__divdi3@0x004C4378",
+  "fclose@0x004CB4C0",
+  "fflush@0x004CB5C8",
+  "_free_r@0x004CBBD0",
+  "_malloc_trim_r@0x004CBEF0",
+  "fseek@0x004CC060",
+  "malloc_extend_top@0x004CC738",
+  "_malloc_r@0x004CC990",
+  "memchr@0x004CD108",
+  "memcmp@0x004CD1E8",
+  "memcpy@0x004CD27C",
+  "memmove@0x004CD32C",
+  "memset@0x004CD430",
+  "_printf_r@0x004CD560",
+  "printf@0x004CD5A0",
+  "rand@0x004CE028",
+  "sprintf@0x004CE688",
+  "strcat@0x004CE8F8",
+  "strchr@0x004CEA24",
+  "strcmp@0x004CEBB4",
+  "strcpy@0x004CECF8",
+  "strlen@0x004CEE6C",
+  "strncat@0x004CEFA8",
+  "strncmp@0x004CF158",
+  "strncpy@0x004CF310",
+  "strrchr@0x004CF4D0",
+  "strstr@0x004CF520",
+  "vsprintf@0x004D3A98",
+  "fread@0x004D5148",
+  "_mbtowc_r@0x004D5790",
+  "_calloc_r@0x004D6D68",
+  "_realloc_r@0x004D6E28",
+]
+
+# Guest functions without runtime handlers that may be referenced by address.
+# PS2Recomp keeps their guest implementation and exposes exact callable entries.
+entry_points = [
+  "_send_to_iop@0x004B0818",
+  "cosf@0x004B2430",
+  "sinf@0x004B2518",
+  "fmodf@0x004B2A78",
+  "log10f@0x004B2BB8",
+  "powf@0x004B2D08",
+  "__ieee754_atan2@0x004B3210",
+  "__ieee754_exp@0x004B3548",
+  "__ieee754_rem_pio2@0x004B3948",
+  "__ieee754_acosf@0x004B3E68",
+  "__ieee754_asinf@0x004B4298",
+  "__ieee754_fmodf@0x004B4638",
+  "__ieee754_log10f@0x004B4888",
+  "__ieee754_powf@0x004B49B8",
+  "__ieee754_sqrtf@0x004B5628",
+  "__kernel_rem_pio2@0x004B5760",
+  "__kernel_tan@0x004B62C8",
+  "__kernel_rem_pio2f@0x004B6898",
+  "matherr@0x004B7348",
+  "rint@0x004B7370",
+  "floorf@0x004B7770",
+  "__ieee754_logf@0x004B79E0",
+  "_Cdvd_cbLoop@0x004B7F08",
+  "cmd_sem_init@0x004B8140",
+  "cdvd_exit@0x004B81D8",
+  "sceCdPOffCallback@0x004B8258",
+  "_sceCd_Poff_Intr@0x004B82C8",
+  "PowerOffCB@0x004B8308",
+  "sceSdRemoteCallbackInit@0x004B9390",
+  "_sdrCBThread@0x004B9468",
+  "_sdrCB@0x004B94D0",
+  "_lmcGetClientPtr@0x004B9768",
+  "mcDelayThread@0x004B9F68",
+  "GetRomName@0x004BAD68",
+  "IsT10K@0x004BAE08",
+  "sceScfGetLanguage@0x004BAE48",
+  "sceScfGetAspect@0x004BAEC8",
+  "sceScfGetSpdif@0x004BAF08",
+  "sceScfGetTimeZone@0x004BAF48",
+  "sceScfGetDateNotation@0x004BAFB0",
+  "sceScfGetSummerTime@0x004BB030",
+  "sceScfGetTimeNotation@0x004BB0B0",
+  "tobcd@0x004BB130",
+  "frombcd@0x004BB198",
+  "convertfrombcd@0x004BB1F0",
+  "converttobcd@0x004BB278",
+  "adddate@0x004BB300",
+  "subdate@0x004BB3E8",
+  "addhour@0x004BB4C0",
+  "subhour@0x004BB530",
+  "AdjustTime@0x004BB598",
+  "sceScfGetGMTfromRTC@0x004BB668",
+  "sceScfGetLocalTimefromRTC@0x004BB6B0",
+  "setD3_CHCR@0x004BB718",
+  "setD4_CHCR@0x004BB780",
+  "setD4_CHCR@0x004BBA88",
+  "VSync@0x004BC5E0",
+  "VSync2@0x004BC620",
+  "sbrk@0x004BC7B8",
+  "kill@0x004BC890",
+  "kCopy@0x004BCDC8",
+  "topThread@0x004BCEE8",
+  "iSuspendThread@0x004BD1B0",
+  "QueuePeekWriteDone@0x004BD270",
+  "QueuePeekReadDone@0x004BD2B0",
+  "kputchar@0x004BD768",
+  "deci2Putchar@0x004BD7A0",
+  "serialPutchar@0x004BD850",
+  "ftoi@0x004BD888",
+  "printfloat@0x004BD918",
+  "kprintf@0x004BE048",
+  "isceSifSendCmd@0x004BE610",
+  "_request_end@0x004BEB28",
+  "_request_rdata@0x004BEBE0",
+  "_search_svdata@0x004BED98",
+  "_request_bind@0x004BEDE8",
+  "_request_call@0x004BEFD8",
+  "_sceFsIobSemaMK@0x004BF788",
+  "new_iob@0x004BF7E8",
+  "get_iob@0x004BF870",
+  "_sceFs_Rcv_Intr@0x004BF8E0",
+  "_sceFsWaitS@0x004BFCF0",
+  "sceIoctl2@0x004C0E58",
+  "_sceCallCode@0x004C1030",
+  "sceMkdir@0x004C11F8",
+  "sceFormat@0x004C13C8",
+  "sceAddDrv@0x004C1638",
+  "sceDopen@0x004C1778",
+  "sceDclose@0x004C1818",
+  "sceDread@0x004C1980",
+  "sceGetstat@0x004C1AD8",
+  "sceChstat@0x004C1C78",
+  "sceRename@0x004C1EB8",
+  "sceSync@0x004C20C8",
+  "sceMount@0x004C2260",
+  "sceLseek64@0x004C24F0",
+  "sceDevctl@0x004C2728",
+  "sceSymlink@0x004C2958",
+  "sceReadlink@0x004C2B38",
+  "_lf_bind@0x004C3000",
+  "sceSifStopModule@0x004C33D0",
+  "sceSifUnloadModule@0x004C35D8",
+  "sceSifSearchModuleByName@0x004C3668",
+  "sceSifSearchModuleByAddress@0x004C3708",
+  "DIntr@0x004C4010",
+  "kputs@0x004C4228",
+  "__terminate@0x004C4A78",
+  "__throw_type_match@0x004C4AA0",
+  "new_eh_context@0x004C4AD8",
+  "__get_eh_info@0x004C4B58",
+  "eh_context_initialize@0x004C4B80",
+  "eh_context_static@0x004C4BA8",
+  "__get_dynamic_handler_chain@0x004C4C10",
+  "__sjthrow@0x004C4C38",
+  "__sjpopnthrow@0x004C4DB0",
+  "__eh_rtime_match@0x004C4EC8",
+  "old_find_exception_handler@0x004C4F20",
+  "find_exception_handler@0x004C4FF8",
+  "get_reg_addr@0x004C5140",
+  "copy_reg@0x004C51C8",
+  "next_stack_level@0x004C5248",
+  "throw_helper@0x004C52E0",
+  "__throw@0x004C5610",
+  "__rethrow@0x004C57F0",
+  "__fixunsdfdi@0x004C59D8",
+  "__floatdidf@0x004C5AC8",
+  "__moddi3@0x004C5B60",
+  "__muldi3@0x004C61C8",
+  "__udivdi3@0x004C6230",
+  "__umoddi3@0x004C6800",
+  "__pack_d@0x004C6D40",
+  "__unpack_d@0x004C6E70",
+  "_fpadd_parts@0x004C6F10",
+  "dpadd@0x004C7150",
+  "dpsub@0x004C71A8",
+  "dpmul@0x004C7210",
+  "dpdiv@0x004C74B8",
+  "__fpcmp_parts_d@0x004C7620",
+  "dpcmp@0x004C7738",
+  "litodp@0x004C7788",
+  "dptoli@0x004C7840",
+  "dptoul@0x004C78D8",
+  "__negdf2@0x004C7978",
+  "__make_dp@0x004C79B0",
+  "dptofp@0x004C79E0",
+  "__cp_exception_info@0x004C7A98",
+  "__start_cp_handler@0x004C7AE0",
+  "__eh_alloc@0x004C7B18",
+  "__cplus_type_matcher@0x004C7B60",
+  "__cp_push_exception@0x004C7BD0",
+  "__cp_pop_exception@0x004C7C60",
+  "__uncatch_exception@0x004C7D28",
+  "__check_eh_spec@0x004C7D58",
+  "uncaught_exception__Fv@0x004C8010",
+  "what__C9exception@0x004C8048",
+  "__pack_f@0x004C8190",
+  "__unpack_f@0x004C82A0",
+  "_fpadd_parts@0x004C8330",
+  "fpadd@0x004C8568",
+  "fpsub@0x004C85C0",
+  "fpmul@0x004C8628",
+  "fpdiv@0x004C8820",
+  "__fpcmp_parts_f@0x004C8980",
+  "fpcmp@0x004C8A98",
+  "sitofp@0x004C8AE8",
+  "fptosi@0x004C8BA0",
+  "fptoui@0x004C8C30",
+  "__negsf2@0x004C8CC8",
+  "__make_fp@0x004C8D00",
+  "fptodp@0x004C8D30",
+  "decode_uleb128@0x004C8D70",
+  "decode_sleb128@0x004C8DB8",
+  "fde_merge@0x004C8E08",
+  "end_fde_sort@0x004C8F08",
+  "count_fdes@0x004C9170",
+  "add_fdes@0x004C91B8",
+  "frame_init@0x004C9240",
+  "find_fde@0x004C9380",
+  "extract_cie_info@0x004C9468",
+  "execute_cfa_insn@0x004C9570",
+  "__register_frame_info@0x004C9908",
+  "__register_frame_info_table@0x004C9960",
+  "__deregister_frame_info@0x004C99B8",
+  "__frame_state_for@0x004C9A50",
+  "fde_split@0x004C9C28",
+  "_$_9type_info@0x004C9E50",
+  "__eq__C9type_infoRC9type_info@0x004C9E80",
+  "__rtti_class@0x004C9EC0",
+  "dcast__C16__user_type_infoRC9type_infoiPvPC9type_infoT3@0x004C9F28",
+  "dcast__C14__si_type_infoRC9type_infoiPvPC9type_infoT3@0x004C9F58",
+  "dcast__C17__class_type_infoRC9type_infoiPvPC9type_infoT3@0x004C9FF0",
+  "before__C9type_infoRC9type_info@0x004CA520",
+  "__throw_type_match_rtti@0x004CA548",
+  "__is_pointer__FPv@0x004CAA10",
+  "__rtti_attr@0x004CAA80",
+  "__dynamic_cast@0x004CAB28",
+  "__assert@0x004CB2C0",
+  "atexit@0x004CB2F8",
+  "atoi@0x004CB3B0",
+  "bsearch@0x004CB3D8",
+  "fgets@0x004CB6D0",
+  "std@0x004CB7F8",
+  "__sfmoreglue@0x004CB850",
+  "__sfp@0x004CB8C0",
+  "__sinit@0x004CB9C0",
+  "_fopen_r@0x004CBA88",
+  "_fwalk@0x004CC550",
+  "__smakebuf@0x004CC5E8",
+  "qsort@0x004CD5F0",
+  "__srefill@0x004CE078",
+  "_sbrk_r@0x004CE1F0",
+  "_init_signal_r@0x004CE250",
+  "_signal_r@0x004CE2C0",
+  "_raise_r@0x004CE350",
+  "__sigtramp_r@0x004CE440",
+  "_sprintf_r@0x004CE620",
+  "sscanf@0x004CE700",
+  "__sread@0x004CE788",
+  "__swrite@0x004CE7F0",
+  "__sseek@0x004CE870",
+  "strcspn@0x004CEE10",
+  "_strtod_r@0x004CF590",
+  "strtok_r@0x004D0510",
+  "_strtol_r@0x004D05B0",
+  "__sprint@0x004D0820",
+  "__sbprintf@0x004D0868",
+  "_vfiprintf_r@0x004D0998",
+  "__sprint@0x004D1568",
+  "__sbprintf@0x004D15B0",
+  "_vfprintf_r@0x004D16E0",
+  "cvt@0x004D2BF8",
+  "exponent@0x004D2DA8",
+  "__svfscanf@0x004D2E88",
+  "__sccl@0x004D3990",
+  "__swsetup@0x004D3B50",
+  "_close_r@0x004D3C60",
+  "quorem@0x004D3CB8",
+  "_dtoa_r@0x004D3ED0",
+  "__sflags@0x004D50A0",
+  "__sfvwrite@0x004D5268",
+  "_setlocale_r@0x004D5640",
+  "_Balloc@0x004D57D0",
+  "_Bfree@0x004D5878",
+  "_multadd@0x004D58A8",
+  "_s2b@0x004D59C0",
+  "_hi0bits@0x004D5B08",
+  "_lo0bits@0x004D5B90",
+  "_i2b@0x004D5C50",
+  "_multiply@0x004D5C88",
+  "_pow5mult@0x004D5EB8",
+  "_lshift@0x004D5FB8",
+  "__mcmp@0x004D6130",
+  "__mdiff@0x004D6198",
+  "_ulp@0x004D6328",
+  "_b2d@0x004D63C0",
+  "_d2b@0x004D6540",
+  "_ratio@0x004D66C0",
+  "_mprec_log10@0x004D6780",
+  "_strtoul_r@0x004D6898",
+  "__submore@0x004D6AF0",
+  "ungetc@0x004D6BE0",
+  "__fixdfdi@0x004D7398",
+]
+
+# Legacy compatibility field. The analyzer no longer auto-populates skip entries.
+skip = []
+
+# Detected MMIO accesses
+[mmio]
+"0x176a58" = "0x10002010"
+"0x1db49c" = "0x10003010"
+"0x176a74" = "0x10002000"
+"0x1db490" = "0x10003010"
+"0x177728" = "0x1000b400"
+"0x4bb7cc" = "0x1000f520"
+"0x176be4" = "0x10002000"
+"0x4bb848" = "0x10002010"
+"0x176c08" = "0x10002000"
+"0x4bb960" = "0x10002010"
+"0x176d08" = "0x1000b000"
+"0x1d79d4" = "0x1000f590"
+"0x1dc6ac" = "0x10003c00"
+"0x4afa34" = "0x10003c20"
+"0x1e8a80" = "0x10003c20"
+"0x1f1440" = "0x1000f590"
+"0x4bb8b0" = "0x10002020"
+"0x1f18b4" = "0x1000e020"
+"0x1f14b0" = "0x1000f590"
+"0x4bb87c" = "0x1000b010"
+"0x1f1818" = "0x1000e020"
+"0x1f14cc" = "0x1000f590"
+"0x4bb89c" = "0x1000b020"
+"0x1f14ec" = "0x1000e020"
+"0x1f1558" = "0x1000f590"
+"0x1f1570" = "0x1000e020"
+"0x4bb7bc" = "0x1000f590"
+"0x4bb73c" = "0x1000f520"
+"0x1f1778" = "0x1000e020"
+"0x4bb93c" = "0x1000b010"
+"0x1f1940" = "0x1000f590"
+"0x4bc5ec" = "0x1000f000"
+"0x1f1964" = "0x1000f590"
+"0x4bb944" = "0x1000b020"
+"0x1f19e8" = "0x1000e020"
+"0x4bbacc" = "0x1000b400"
+"0x1f1a08" = "0x1000f590"
+"0x4afae8" = "0x1000a000"
+"0x4afa28" = "0x10003c10"
+"0x4bb990" = "0x10002010"
+"0x4afaac" = "0x10003000"
+"0x4bb9e4" = "0x1000b430"
+"0x4afae0" = "0x10009000"
+"0x4afaf0" = "0x10003c00"
+"0x4bb754" = "0x1000f590"
+"0x4bb75c" = "0x1000b000"
+"0x4bb7a4" = "0x1000f520"
+"0x4bb764" = "0x1000f520"
+"0x4bb7c4" = "0x1000b400"
+"0x4bb810" = "0x1000b410"
+"0x4bb82c" = "0x1000b430"
+"0x4bb8b8" = "0x10002010"
+"0x4bb838" = "0x1000b420"
+"0x4bb840" = "0x1000b400"
+"0x4bb8a8" = "0x1000b000"
+"0x4bb9cc" = "0x1000b410"
+"0x4bb98c" = "0x10002000"
+"0x4bb9e8" = "0x1000b420"
+"0x4bbaac" = "0x1000f520"
+"0x4bbac4" = "0x1000f590"
+"0x4bbad4" = "0x1000f520"
+"0x4bc5f4" = "0x1000f000"
+"0x4bc644" = "0x1000f000"
+"0x4bc64c" = "0x1000f000"
+"0x4bc670" = "0x1000f000"
+"0x4bce2c" = "0x10001810"
+"0x4bd770" = "0x1000f130"
+
+# Performance critical functions (may need manual optimization)
+[performance]
+critical = [
+  "sub_00101710", # Contains heavy loops
+  "sub_00103268", # Contains heavy loops
+  "sub_00106C08", # Contains heavy loops
+  "sub_0010B690", # Contains heavy loops
+  "sub_0010BB10", # Contains heavy loops
+  "sub_00112FF0", # Contains heavy loops
+  "sub_001156C0", # Contains heavy loops
+  "sub_001165B0", # Uses SIMD instructions
+  "sub_00116990", # Uses SIMD instructions
+  "sub_00116FA0", # Uses SIMD instructions
+  "sub_001171E8", # Contains heavy loops
+  "sub_0011BC68", # Contains heavy loops
+  "sub_0011D368", # Contains heavy loops
+  "sub_0011EAD8", # Uses SIMD instructions
+  "sub_0011F1A0", # Contains heavy loops
+  "sub_001212A8", # Contains heavy loops
+  "sub_00122340", # Uses SIMD instructions
+  "sub_00124940", # Contains heavy loops
+  "sub_00125468", # Contains heavy loops
+  "sub_00128708", # Uses SIMD instructions
+  "sub_001288A0", # Uses SIMD instructions
+  "sub_00128BC8", # Uses SIMD instructions
+  "sub_0012A760", # Contains heavy loops
+  "sub_0012DC30", # Contains heavy loops
+  "sub_0012EC80", # Contains heavy loops
+  "sub_0012F0A8", # Contains heavy loops
+  "sub_0012F5F0", # Contains heavy loops
+  "sub_001301B8", # Contains heavy loops
+  "sub_00133128", # Contains heavy loops
+  "sub_0013E6A8", # Contains heavy loops
+  "sub_0013F968", # Contains heavy loops
+  "sub_0013FF10", # Contains heavy loops
+  "sub_00140708", # Contains heavy loops
+  "sub_00140BA8", # Contains heavy loops
+  "sub_00144CE8", # Contains heavy loops
+  "sub_00145E78", # Contains heavy loops
+  "sub_00148CA0", # Contains heavy loops
+  "sub_00149D10", # Contains heavy loops
+  "sub_0014DB68", # Contains heavy loops
+  "sub_0014EEA8", # Contains heavy loops
+  "sub_0014F708", # Contains heavy loops
+  "sub_001509D0", # Contains heavy loops
+  "sub_00152980", # Contains heavy loops
+  "sub_00153150", # Contains heavy loops
+  "sub_00154060", # Contains heavy loops
+  "sub_00154D98", # Contains heavy loops
+  "sub_00156730", # Contains heavy loops
+  "sub_00156F58", # Contains heavy loops
+  "sub_00157A08", # Contains heavy loops
+  "sub_0015B820", # Contains heavy loops
+  "sub_0015C020", # Contains heavy loops
+  "sub_0015F350", # Contains heavy loops
+  "sub_0015FF38", # Contains heavy loops
+  "sub_001626A8", # Contains heavy loops
+  "sub_00164E80", # Contains heavy loops
+  "sub_00165940", # Contains heavy loops
+  "sub_00165CB0", # Contains heavy loops
+  "sub_00166288", # Uses SIMD instructions
+  "sub_00167480", # Contains heavy loops
+  "sub_001684B0", # Contains heavy loops
+  "sub_0016ADB8", # Contains heavy loops
+  "sub_0016D8E8", # Contains heavy loops
+  "sub_00170498", # Contains heavy loops
+  "sub_001707F8", # Contains heavy loops
+  "sub_00174A30", # Contains heavy loops
+  "sub_00175238", # Contains heavy loops
+  "sub_00175798", # Contains heavy loops
+  "sub_001767A0", # Contains heavy loops
+  "sub_00180770", # Contains heavy loops
+  "sub_00181428", # Contains heavy loops
+  "sub_00182470", # Contains heavy loops
+  "sub_00183B98", # Contains heavy loops
+  "sub_00184AF8", # Contains heavy loops
+  "sub_00186260", # Contains heavy loops
+  "sub_00188678", # Contains heavy loops
+  "sub_00189B38", # Contains heavy loops
+  "sub_0018BB90", # Uses SIMD instructions
+  "sub_0018CFA8", # Contains heavy loops
+  "sub_0018D658", # Contains heavy loops
+  "sub_0018F878", # Contains heavy loops
+  "sub_001906B0", # Contains heavy loops
+  "sub_00190ED0", # Contains heavy loops
+  "sub_00197AC0", # Uses SIMD instructions
+  "sub_00197E40", # Uses SIMD instructions
+  "sub_00198BD0", # Uses SIMD instructions
+  "sub_00199238", # Contains heavy loops
+  "sub_0019C4A0", # Contains heavy loops
+  "sub_0019CF00", # Contains heavy loops
+  "sub_0019EC98", # Contains heavy loops
+  "sub_001A4C50", # Contains heavy loops
+  "sub_001AA100", # Contains heavy loops
+  "sub_001AB890", # Contains heavy loops
+  "sub_001AC460", # Uses SIMD instructions
+  "sub_001AD6B8", # Contains heavy loops
+  "sub_001AEE10", # Contains heavy loops
+  "sub_001B91B8", # Contains heavy loops
+  "sub_001BA558", # Contains heavy loops
+  "sub_001BBA10", # Contains heavy loops
+  "sub_001BF838", # Contains heavy loops
+  "sub_001C0F28", # Contains heavy loops
+  "sub_001C3310", # Contains heavy loops
+  "sub_001C35F8", # Contains heavy loops
+  "sub_001C3DE8", # Contains heavy loops
+  "sub_001C4148", # Contains heavy loops
+  "sub_001C65A8", # Uses SIMD instructions
+  "sub_001C8810", # Contains heavy loops
+  "sub_001C94C8", # Contains heavy loops
+  "sub_001CAB40", # Contains heavy loops
+  "sub_001CADF8", # Contains heavy loops
+  "sub_001CC218", # Contains heavy loops
+  "sub_001CCD68", # Contains heavy loops
+  "sub_001D7D38", # Contains heavy loops
+  "sub_001D9DE8", # Uses SIMD instructions
+  "sub_001DD2D0", # Uses SIMD instructions
+  "sub_001DDB48", # Contains heavy loops
+  "sub_001E05F8", # Uses SIMD instructions
+  "sub_001E0610", # Uses SIMD instructions
+  "sub_001E0E30", # Contains heavy loops
+  "sub_001E18D8", # Contains heavy loops
+  "sub_001E2270", # Contains heavy loops
+  "sub_001E3970", # Contains heavy loops
+  "sub_001E9BB0", # Uses SIMD instructions
+  "sub_001E9FA0", # Uses SIMD instructions
+  "sub_001EA918", # Uses SIMD instructions
+  "sub_001EADA8", # Uses SIMD instructions
+  "sub_001EC160", # Uses SIMD instructions
+  "sub_001EC8F0", # Uses SIMD instructions
+  "sub_001EDF90", # Uses SIMD instructions
+  "sub_001EE840", # Uses SIMD instructions
+  "sub_001EEA90", # Uses SIMD instructions
+  "sub_001EF8B0", # Uses SIMD instructions
+  "sub_001F0918", # Uses SIMD instructions
+  "sub_001F1BB8", # Contains heavy loops
+  "sub_001F4AF8", # Contains heavy loops
+  "sub_001F6810", # Contains heavy loops
+  "sub_002067D8", # Contains heavy loops
+  "sub_00216FB8", # Contains heavy loops
+  "sub_00229F20", # Contains heavy loops
+  "sub_0022CF78", # Uses SIMD instructions
+  "sub_002318A8", # Uses SIMD instructions
+  "sub_00232250", # Uses SIMD instructions
+  "sub_00232FD8", # Uses SIMD instructions
+  "sub_00235A00", # Contains heavy loops
+  "sub_00238F50", # Contains heavy loops
+  "sub_0023CE18", # Contains heavy loops
+  "sub_0023F650", # Contains heavy loops
+  "sub_00240480", # Contains heavy loops
+  "sub_002447C0", # Contains heavy loops
+  "sub_00247E30", # Contains heavy loops
+  "sub_00251860", # Uses SIMD instructions
+  "sub_002527D8", # Contains heavy loops
+  "sub_0025F668", # Contains heavy loops
+  "sub_0026B238", # Contains heavy loops
+  "sub_0027A010", # Contains heavy loops
+  "sub_0027D0E0", # Contains heavy loops
+  "sub_00283490", # Contains heavy loops
+  "sub_00285AA8", # Contains heavy loops
+  "sub_00286170", # Contains heavy loops
+  "sub_002865D8", # Contains heavy loops
+  "sub_00286990", # Contains heavy loops
+  "sub_0028ACF0", # Contains heavy loops
+  "sub_0028D430", # Contains heavy loops
+  "sub_00291F80", # Contains heavy loops
+  "sub_00294DF8", # Contains heavy loops
+  "sub_002957E0", # Contains heavy loops
+  "sub_002965D8", # Contains heavy loops
+  "sub_0029BBD8", # Contains heavy loops
+  "sub_0029C928", # Contains heavy loops
+  "sub_002A05D8", # Contains heavy loops
+  "sub_002A4350", # Contains heavy loops
+  "sub_002A7950", # Contains heavy loops
+  "sub_002B4058", # Contains heavy loops
+  "sub_002BB518", # Contains heavy loops
+  "sub_002BCDC8", # Contains heavy loops
+  "sub_002C4458", # Contains heavy loops
+  "sub_002D7120", # Contains heavy loops
+  "sub_002E0D00", # Contains heavy loops
+  "sub_002E4770", # Contains heavy loops
+  "sub_002E5598", # Contains heavy loops
+  "sub_002E7708", # Contains heavy loops
+  "sub_002EDC58", # Contains heavy loops
+  "sub_002EEB98", # Contains heavy loops
+  "sub_002F1D60", # Contains heavy loops
+  "sub_002F3580", # Contains heavy loops
+  "sub_002F4490", # Contains heavy loops
+  "sub_002F5DA8", # Contains heavy loops
+  "sub_002F8A60", # Contains heavy loops
+  "sub_00306918", # Contains heavy loops
+  "sub_003081B8", # Contains heavy loops
+  "sub_003085E8", # Contains heavy loops
+  "sub_0030CF08", # Contains heavy loops
+  "sub_0031B660", # Contains heavy loops
+  "sub_0032BED8", # Contains heavy loops
+  "sub_003395D0", # Contains heavy loops
+  "sub_0033ED28", # Contains heavy loops
+  "sub_00344DE0", # Contains heavy loops
+  "sub_003536A8", # Contains heavy loops
+  "sub_0035B5B8", # Contains heavy loops
+  "sub_00360300", # Contains heavy loops
+  "sub_00362D38", # Contains heavy loops
+  "sub_00368870", # Contains heavy loops
+  "sub_003730E8", # Contains heavy loops
+  "sub_0037ED10", # Contains heavy loops
+  "sub_0037FCB0", # Contains heavy loops
+  "sub_00380F70", # Contains heavy loops
+  "sub_00385608", # Contains heavy loops
+  "sub_00386E90", # Contains heavy loops
+  "sub_0039F4E0", # Uses SIMD instructions
+  "sub_003A0E10", # Contains heavy loops
+  "sub_003A30D8", # Uses SIMD instructions
+  "sub_003A6638", # Contains heavy loops
+  "sub_003A8580", # Contains heavy loops
+  "sub_003B2A50", # Contains heavy loops
+  "sub_003B35F0", # Contains heavy loops
+  "sub_003B94B0", # Contains heavy loops
+  "sub_003BD4C0", # Contains heavy loops
+  "sub_003BECD8", # Contains heavy loops
+  "sub_003C0800", # Contains heavy loops
+  "sub_003C1CE0", # Contains heavy loops
+  "sub_003C2530", # Contains heavy loops
+  "sub_003C6DA8", # Contains heavy loops
+  "sub_003C85E8", # Contains heavy loops
+  "sub_003D05E0", # Contains heavy loops
+  "sub_003D0FB0", # Uses SIMD instructions
+  "sub_003D2F90", # Contains heavy loops
+  "sub_003D9B58", # Contains heavy loops
+  "sub_003DCC90", # Contains heavy loops
+  "sub_003E0D90", # Contains heavy loops
+  "sub_003E91D0", # Contains heavy loops
+  "sub_003EEB78", # Contains heavy loops
+  "sub_003EF700", # Contains heavy loops
+  "sub_003F7708", # Contains heavy loops
+  "sub_003F8CC8", # Contains heavy loops
+  "sub_003FB520", # Contains heavy loops
+  "sub_003FBEE0", # Contains heavy loops
+  "sub_003FF1B0", # Contains heavy loops
+  "sub_0041D218", # Contains heavy loops
+  "sub_00426770", # Contains heavy loops
+  "sub_00427890", # Contains heavy loops
+  "sub_00429AE8", # Contains heavy loops
+  "sub_0042C9A0", # Contains heavy loops
+  "sub_0042DF48", # Contains heavy loops
+  "sub_00433850", # Contains heavy loops
+  "sub_004424E0", # Contains heavy loops
+  "sub_00445B78", # Uses SIMD instructions
+  "sub_0045F568", # Contains heavy loops
+  "sub_00463808", # Contains heavy loops
+  "sub_00465878", # Contains heavy loops
+  "sub_00468618", # Contains heavy loops
+  "sub_00469EC8", # Contains heavy loops
+  "sub_0048A4A0", # Contains heavy loops
+  "sub_0048AE08", # Contains heavy loops
+  "sub_0048CC58", # Contains heavy loops
+  "sub_0048D0D0", # Contains heavy loops
+  "sub_00495DE0", # Contains heavy loops
+  "sub_00499988", # Contains heavy loops
+  "sub_0049D3F8", # Contains heavy loops
+  "sub_004A0018", # Uses SIMD instructions
+  "sub_004A0808", # Contains heavy loops
+  "sub_004A26C8", # Contains heavy loops
+  "sub_004A3B50", # Contains heavy loops
+  "sub_004A6D90", # Contains heavy loops
+  "sub_004A7740", # Contains heavy loops
+  "sub_004A7A50", # Contains heavy loops
+  "sub_004A9D78", # Contains heavy loops
+  "sub_004AAAE8", # Contains heavy loops
+  "sub_004AB388", # Contains heavy loops
+  "sub_004AB758", # Contains heavy loops
+  "sub_004AC628", # Contains heavy loops
+  "sub_004AECE0", # Contains heavy loops
+  "sub_004AF310", # Contains heavy loops
+  "sub_004AFA18", # Uses SIMD instructions
+  "_send_to_iop", # Uses SIMD instructions
+  "__ieee754_fmodf", # Contains heavy loops
+  "__kernel_rem_pio2", # Contains heavy loops
+  "__kernel_rem_pio2f", # Contains heavy loops
+  "_sceCallCode", # Contains heavy loops
+  "__muldi3", # Uses SIMD instructions
+  "_fpadd_parts", # Contains heavy loops
+  "__check_eh_spec", # Contains heavy loops
+  "_fpadd_parts", # Contains heavy loops
+  "__fpcmp_parts_f", # Contains heavy loops
+  "qsort", # Contains heavy loops
+  "_strtod_r", # Uses SIMD instructions
+  "_vfiprintf_r", # Contains heavy loops
+  "_vfprintf_r", # Contains heavy loops
+  "__svfscanf", # Contains heavy loops
+  "__sccl", # Contains heavy loops
+  "_dtoa_r", # Contains heavy loops
+  "__sfvwrite", # Contains heavy loops
+  "_multiply", # Uses SIMD instructions
+]

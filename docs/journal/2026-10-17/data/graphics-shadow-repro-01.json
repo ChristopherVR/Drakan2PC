@@ -1,0 +1,55 @@
+{
+  "status": "striped_shadow_not_reproduced_at_nearby_hostile_pose",
+  "production_renderer_changes_in_this_followup": false,
+  "evidence_root": "tools/graphics-followup/build/graphics-shadow",
+  "exe_sha256": "C27468C483C42639C6E8911AB956C1A39A47F64253847B8427CD522BEC67F3CB",
+  "exe_hash_unchanged": true,
+  "fixture": "build/recomp_combat/encounter/fixture-hostile675",
+  "private_executable_and_cards": true,
+  "source_card_hashes_unchanged": 4,
+  "original_iso_card_hashes_measured": false,
+  "dlss": "off",
+  "nr": false,
+  "gs_scale": 4,
+  "script_quit": true,
+  "exit_code": 0,
+  "elapsed_seconds": 54.3159516,
+  "gpu_released": true,
+  "png_dimensions": [3840, 2160],
+  "png_sha256": {
+    "render_1900.png": "7C8F30AD1A9949711E9B165BB62A4AE3C1A30C333032957A0284FC987B6312EC",
+    "render_2200.png": "19831E460934494724197E2A39D2F1079A2407374E7D5E0F282A44D8EEAB1E03",
+    "render_2500.png": "F1EC705C7E051BE588AAEB677AD15EC029B33405BF96948CD30C3440A6CD07A2"
+  },
+  "capture": {
+    "path": "captures/gscap_20261017_214445.bin",
+    "bytes": 5441160,
+    "sha256": "0E6AEB5BB7EF5A3A91DC47FD00B9F5EE5BC3585A8A91521221EADA3E1C192E02",
+    "vsync_records": 3,
+    "gif_packets": 5899,
+    "vertex_kicks": 50364,
+    "frame_markers": [[0, 0], [1, 2222], [2, 2223]],
+    "initial_vram_present": false
+  },
+  "shadow_texture_states": [
+    {"fbp": 496, "tbp": 15872, "tbw": 2, "psm": "CT32", "logical_size": [128, 128], "clamp": [1, 1]},
+    {"fbp": 504, "tbp": 16128, "tbw": 2, "psm": "CT32", "logical_size": [128, 128], "clamp": [1, 1]}
+  ],
+  "detached_blade_qualification": {
+    "png": "render_2200.png",
+    "bright_component_bbox": [3368, 951, 3389, 1421],
+    "same_component_in_png1900_or_2500": false,
+    "current_stream_preview_depth_clear_region": [429, 218, 493, 410],
+    "nearby_current_stream_geometry_region": [442.5, 219.4375, 460.3125, 344.8125],
+    "interpretation": "Supports actively rendered native gameplay weapon/selector preview; normal scale/placement not established.",
+    "exact_live_pc_stack_or_draw_isolation_obtained": false,
+    "inventory_gui21_opened_by_recipe": false
+  },
+  "limits": [
+    "Different actor/location from original gate-guard photograph; no old/new paired build comparison.",
+    "Hair cutout visible, but no controlled hair-alpha reference comparison.",
+    "Torch flame present; no controlled smoke effect exercised.",
+    "Late GIF capture has no initial VRAM/register snapshot and is not a faithful standalone replay.",
+    "Opt-in RT filter diagnostic fixtures compiled but have not been executed."
+  ]
+}

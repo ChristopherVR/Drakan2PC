@@ -1,0 +1,261 @@
+{
+  "status": "rejected; not deployed",
+  "baseline_raw_fps": 100.29098214084733,
+  "candidate_raw_fps": 99.90919175268454,
+  "change_percent": -0.3806826695810117,
+  "goal_raw_fps": 144,
+  "goal_achieved": false,
+  "candidate_sha256": "7ba6d51d359fdd26a47e682dd76e66ce06941be3b011ff7911e7f6df83049aec",
+  "installed_sha256": "cd25328dbe3e3ba8d962636216667d5990636731f7ffc9c76404aa1efca3e1cb",
+  "runs": {
+    "noalias-after-a": {
+      "exe_sha256": "7BA6D51D359FDD26A47E682DD76E66CE06941BE3B011FF7911E7F6DF83049AEC",
+      "world_fps": 99.94606284289277,
+      "last_five_world_windows": [
+        [
+          2.005,
+          99.73
+        ],
+        [
+          2.008,
+          100.09
+        ],
+        [
+          2.01,
+          100.0
+        ],
+        [
+          2.001,
+          99.95
+        ],
+        [
+          2.001,
+          99.96
+        ]
+      ],
+      "saves_unchanged": true,
+      "contended": false,
+      "overlap_samples": 0
+    },
+    "noalias-after-b": {
+      "exe_sha256": "7BA6D51D359FDD26A47E682DD76E66CE06941BE3B011FF7911E7F6DF83049AEC",
+      "world_fps": 99.87232066247631,
+      "last_five_world_windows": [
+        [
+          2.008,
+          100.09
+        ],
+        [
+          2.01,
+          100.02
+        ],
+        [
+          2.003,
+          99.85
+        ],
+        [
+          2.0,
+          99.5
+        ],
+        [
+          2.002,
+          99.9
+        ]
+      ],
+      "saves_unchanged": true,
+      "contended": false,
+      "overlap_samples": 0
+    },
+    "noalias-before-a": {
+      "exe_sha256": "CD25328DBE3E3BA8D962636216667D5990636731F7FFC9C76404AA1EFCA3E1CB",
+      "world_fps": 100.37795649570944,
+      "last_five_world_windows": [
+        [
+          2.001,
+          100.45
+        ],
+        [
+          2.008,
+          100.59
+        ],
+        [
+          2.002,
+          100.39
+        ],
+        [
+          2.008,
+          100.11
+        ],
+        [
+          2.003,
+          100.35
+        ]
+      ],
+      "saves_unchanged": true,
+      "contended": false,
+      "overlap_samples": 0
+    },
+    "noalias-before-b": {
+      "exe_sha256": "CD25328DBE3E3BA8D962636216667D5990636731F7FFC9C76404AA1EFCA3E1CB",
+      "world_fps": 100.20400778598523,
+      "last_five_world_windows": [
+        [
+          2.003,
+          100.33
+        ],
+        [
+          2.006,
+          100.69
+        ],
+        [
+          2.005,
+          99.74
+        ],
+        [
+          2.001,
+          100.43
+        ],
+        [
+          2.003,
+          99.83
+        ]
+      ],
+      "saves_unchanged": true,
+      "contended": false,
+      "overlap_samples": 0
+    }
+  },
+  "validation": {
+    "frozen_reference_fmac": 131072,
+    "packet": 114688,
+    "uv": 114688,
+    "timed_scalar": 8192
+  },
+  "codegen": {
+    "before": {
+      "instructions": 3839,
+      "counts": {
+        "mov": 958,
+        "push": 6,
+        "lea": 247,
+        "sub": 11,
+        "cmp": 158,
+        "je": 147,
+        "jg": 1,
+        "or": 112,
+        "jne": 88,
+        "jbe": 1,
+        "and": 220,
+        "call": 57,
+        "test": 141,
+        "inc": 15,
+        "add": 51,
+        "movaps": 173,
+        "jae": 5,
+        "ja": 21,
+        "movzx": 119,
+        "movdqa": 224,
+        "xor": 17,
+        "xorps": 41,
+        "movups": 91,
+        "andps": 168,
+        "pminud": 36,
+        "pcmpgtd": 64,
+        "movss": 173,
+        "orps": 36,
+        "shufps": 16,
+        "mulps": 18,
+        "paddd": 28,
+        "neg": 52,
+        "sbb": 52,
+        "jmp": 74,
+        "pcmpeqd": 50,
+        "setne": 26,
+        "shl": 43,
+        "jb": 7,
+        "shr": 24,
+        "npad": 2,
+        "jl": 6,
+        "tzcnt": 6,
+        "bsf": 6,
+        "addps": 10,
+        "cmpleps": 2,
+        "movdqu": 2,
+        "maxps": 2,
+        "blendps": 6,
+        "dec": 2,
+        "subps": 2,
+        "cmove": 3,
+        "movsd": 4,
+        "cmovbe": 1,
+        "pop": 12,
+        "ret": 2
+      },
+      "code_bytes": 17336
+    },
+    "private": {
+      "instructions": 3791,
+      "counts": {
+        "mov": 945,
+        "push": 6,
+        "lea": 243,
+        "sub": 11,
+        "cmp": 157,
+        "je": 142,
+        "jg": 1,
+        "or": 112,
+        "jne": 87,
+        "jbe": 1,
+        "and": 219,
+        "call": 57,
+        "test": 136,
+        "inc": 15,
+        "add": 50,
+        "movaps": 172,
+        "jae": 5,
+        "ja": 21,
+        "movzx": 115,
+        "movdqa": 224,
+        "xor": 15,
+        "xorps": 42,
+        "movups": 90,
+        "andps": 168,
+        "pminud": 36,
+        "pcmpgtd": 64,
+        "movss": 165,
+        "orps": 36,
+        "shufps": 16,
+        "mulps": 18,
+        "paddd": 28,
+        "neg": 52,
+        "sbb": 52,
+        "jmp": 73,
+        "pcmpeqd": 50,
+        "setne": 26,
+        "shl": 42,
+        "jb": 7,
+        "shr": 24,
+        "jl": 6,
+        "tzcnt": 6,
+        "bsf": 6,
+        "addps": 10,
+        "cmpleps": 2,
+        "movdqu": 2,
+        "maxps": 2,
+        "blendps": 6,
+        "dec": 2,
+        "subps": 2,
+        "cmove": 3,
+        "npad": 2,
+        "movsd": 4,
+        "cmovbe": 1,
+        "pop": 12,
+        "ret": 2
+      },
+      "code_bytes": 16502
+    }
+  },
+  "protected_files_unchanged": true,
+  "canonical_source_and_patch_unchanged": true,
+  "conclusion": "Smaller code did not improve FPS. The annotation remains private and is not promoted."
+}

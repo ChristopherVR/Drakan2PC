@@ -1,0 +1,36 @@
+# SCES_500.06 loaded save; frame numbers after sync are relative to gameplay.
+1 log on 30
+0 sync play 90
+2 dump ram_combat_begin
+5 button tap 1
+7 button tap 1
+9 button tap 1
+30 button down 1
+75 button up 1
+90 button down 2
+105 key down D
+125 button tap 1
+145 key up D
+150 button up 2
+165 key down A
+195 key up A
+210 key tap F
+225 key down R
+255 key up R
+270 key tap F
+285 wheel -3
+300 wheel 3
+315 key tap 1
+325 key tap 2
+335 key tap 3
+345 key tap 4
+355 key tap 5
+# Quick Inventory (6 / CMD:0x403a) is isolated in combat_quick_inventory.txt:
+# combat-resume-01 stopped advancing after that command in the unarmed save.
+380 key tap ESC
+410 key tap ESC
+440 button tap 1
+455 button down 2
+480 button up 2
+500 dump ram_combat_end
+510 quit

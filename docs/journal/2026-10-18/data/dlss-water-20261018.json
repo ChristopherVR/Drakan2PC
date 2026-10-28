@@ -1,0 +1,237 @@
+{
+  "date": "2026-10-18T10:09:08.730604+10:00",
+  "deployment": {
+    "Date": "2026-10-18T10:09:08.730604+10:00",
+    "ExecutableSHA256": "faa4225ac03650a6b1c072f65010121eaaf2e82be5dc24d0356b3779bf1d7cb8",
+    "PreviousExecutableSHA256": "020488ff1d94dc58690a1dd513ff4fd7dd02b4a8d64c224171a405cb85241bf8",
+    "BackupDirectory": "C:\\Games\\Drakan - The Ancients Gates\\decomp\\build\\release_backups\\dlss-water-20261018-100908",
+    "EvidenceDirectory": "C:\\Games\\Drakan - The Ancients Gates\\decomp\\build\\dlss-water-review",
+    "Receipt": "analysis/results/dlss-water-20261018.json",
+    "NeuralComparison": "same world epoch 200; SR Quality and modern water fixed; world ROI only",
+    "SwapchainDifferingBytes": 0,
+    "ModernWaterEnabled": true,
+    "RayReflectionsEnabled": true,
+    "Scope": "Verified Surdana water; submitted geometry DXR; partial material/offscreen coverage",
+    "CompleteCurrentRuntimeBuild": true,
+    "ExistingReceiptsPreserved": true,
+    "ProtectedFileCount": 3014,
+    "ProtectedFilesUnchanged": true,
+    "DLSSModesPreserved": true
+  },
+  "comparisons": {
+    "neural": {
+      "roi_xyxy": [
+        0,
+        0,
+        1280,
+        420
+      ],
+      "world_epoch": 200,
+      "changed_pixels": 534768,
+      "total_pixels": 537600,
+      "mean_absolute_rgb_difference_255": 6.271580481150794,
+      "maximum_channel_difference": 52,
+      "changed_bounds_xyxy": [
+        0,
+        0,
+        1280,
+        420
+      ],
+      "baseline_excludes_native_hud_and_host_overlay": true
+    },
+    "water": {
+      "roi_xyxy": [
+        0,
+        0,
+        1280,
+        420
+      ],
+      "world_epoch": 200,
+      "changed_pixels": 40727,
+      "total_pixels": 537600,
+      "mean_absolute_rgb_difference_255": 0.3465469990079365,
+      "maximum_channel_difference": 66,
+      "changed_bounds_xyxy": [
+        208,
+        286,
+        998,
+        375
+      ],
+      "baseline_excludes_native_hud_and_host_overlay": true
+    },
+    "swapchain": {
+      "width": 1280,
+      "height": 720,
+      "dxgi_format": 28,
+      "bytes_per_pixel": 4,
+      "differing_bytes_reported_by_gpu_readback": 0,
+      "includes_native_hud": true
+    }
+  },
+  "tests": {
+    "synthetic_scale_1": "152 checks, 0 failed",
+    "synthetic_scale_4": "152 checks, 0 failed",
+    "alpha_pipeline": "263692 checks; 8 actual shader compilations; passed",
+    "motion_history": "17 checks, 0 failures",
+    "sr_nr_composition": "14 synthetic cases passed; no NGX evaluation",
+    "temporal_presentation": "passed",
+    "dxr_hardware_debug": "passed; reflection 1107 pixels, water 1152 pixels; jitter/depth/alpha/finite/sky/no-water checks",
+    "guides_hardware": "passed; see guides-test.log",
+    "settings_core": "331 checks, 0 failed",
+    "settings_menu": "125 checks, 0 failed",
+    "dlss_nr_off_build": "passed"
+  },
+  "patch": {
+    "patch_sha256": "3bc75a24ed24c6cce0d83bb140e8c1503182ed574b2da042558b2bc9839692d7",
+    "clean_upstream_apply": true,
+    "updated_sources_match": [
+      "gsr_nr/src/gsr_nr.cpp",
+      "ps2xRuntime/src/lib/drakan_settings_host.cpp"
+    ],
+    "validation_directory": "%TEMP%\\drakan-water-patch-5qyh7pdn"
+  },
+  "runs": {
+    "combined": {
+      "completion": {
+        "sha256After": "FAA4225AC03650A6B1C072F65010121EAAF2E82BE5DC24D0356B3779BF1D7CB8",
+        "elapsedSeconds": 36.292961,
+        "exitCode": 0,
+        "scriptQuit": true
+      },
+      "saves": {
+        "private_saves_unchanged": true,
+        "original_saves_unchanged": true,
+        "source_saves_unchanged": true
+      }
+    },
+    "water": {
+      "completion": {
+        "elapsedSeconds": 32.2102671,
+        "exitCode": 0,
+        "scriptQuit": true,
+        "sha256After": "FAA4225AC03650A6B1C072F65010121EAAF2E82BE5DC24D0356B3779BF1D7CB8"
+      },
+      "saves": {
+        "original_saves_unchanged": true,
+        "source_saves_unchanged": true,
+        "private_saves_unchanged": true
+      }
+    },
+    "status": {
+      "completion": {
+        "exitCode": 0,
+        "elapsedSeconds": 62.2941684,
+        "sha256After": "FAA4225AC03650A6B1C072F65010121EAAF2E82BE5DC24D0356B3779BF1D7CB8",
+        "scriptQuit": false
+      },
+      "saves": {
+        "private_saves_unchanged": true,
+        "source_saves_unchanged": true,
+        "original_saves_unchanged": true
+      }
+    }
+  },
+  "limitations": [
+    "Surdana signature only; other water materials unverified",
+    "Only submitted geometry is ray traced; culled/offscreen and alpha-tested coverage incomplete",
+    "Material-average reflection fallback is approximate",
+    "No Frame Generation or Ray Reconstruction added",
+    "Long sessions, device loss and whole-game performance/image quality not verified"
+  ],
+  "source_sha256": {
+    "runtime\\gs\\CMakeLists.txt": "b370b46750ff60e4523edc4f4843beaa07ad51fb5cc77030c3750705e3b2e02e",
+    "runtime\\gs\\include\\gsr\\gsr.h": "c744e7b7bc0df4718063b8b4458dd5e6c8714edde26da08475292f9806c67562",
+    "runtime\\gs\\include\\gsr\\object_motion_scope.h": "426923f41c59a9c6903f580f4f088a69004aae3def8f2938f12b3828af65cd47",
+    "runtime\\gs\\include\\gsr\\scene_guide_camera.h": "6db2195882058e8edfd896cfc6f37263a8117bf0b67442009481d938f851e99d",
+    "runtime\\gs\\src\\cpu_profile.h": "860f0b2f1b94e18b5a99651cf122ba7f176f3d4e43dbc16c3fd3a008b5f882ef",
+    "runtime\\gs\\src\\d3d11_backend.cpp": "b67eb3e24dff7bd8069420c3d0e21db40a4a1d5155227934c0d7fe33c1941826",
+    "runtime\\gs\\src\\dlss_ngx.cpp": "8d59f55d4948e1faf80fb0cc00c6cb35efbfb7233979ad7b823d74f5e991cf9a",
+    "runtime\\gs\\src\\dlss_stub.cpp": "888ac38520c4de27544065de7c1d112412513e44e2718c2a813bead0707b8f74",
+    "runtime\\gs\\src\\gs_alpha.h": "d695706b7de93b72527aca50b02b51ccfca7f737bdfa52f5d1ff5ea52059a713",
+    "runtime\\gs\\src\\gs_core.cpp": "9daef181d51d39b398d5612014f303cc393e7a9cc210241984f95ce6bd7a13e9",
+    "runtime\\gs\\src\\gs_internal.h": "5f2976a4ca3df00724081d6c401cb9fd185029525f6b645e61a2283a76363ec2",
+    "runtime\\gs\\src\\gs_mem.h": "e7e216499564220e156d4d614330af9763e363dd8a17ef5b1b3e87edb2366aa2",
+    "runtime\\gs\\src\\gs_rt_sampling.h": "fa2c18b8d8141bff1a896e895fe028aa62ca99415f26debdcca2756c375514cf",
+    "runtime\\gs\\src\\gs_shaders.h": "ff8fe7bae41697a533a3a38b91ac51c9c76f36ea62257b4aebd4fe59c3c50e70",
+    "runtime\\gs\\src\\gs_texdecode.h": "8617daff270e2cd008d9815b5555371b3103a4efe6031761d984f019368bac94",
+    "runtime\\gs\\src\\gs_texup.cpp": "a9c22cf6169624ce618e12192c62acb46fb401d41c9a751438f4567c410b3ce2",
+    "runtime\\gs\\src\\gs_texup.h": "a663d31526074c603a99a3540120c0f5f9097054657b46a48fa4519575a3a8ad",
+    "runtime\\gs\\src\\hud_page.h": "01cbda0b404dcb7fa4e231a4b6fe3839ee248d417a49f2318105e826bc019c07",
+    "runtime\\gs\\src\\image_io.cpp": "ae6879788be1ae9314c15a460760e777d9ee904237c7dd9962c8407cfe18388e",
+    "runtime\\gs\\src\\motion_history.cpp": "36c17e5492d1646ea4a3db091bbd6483ae77804ffda842bf437dfcf843c58b5b",
+    "runtime\\gs\\src\\motion_history.h": "99df39578f156898530446dfdc6a7dbe9e28ceeb3ac881f0f98357f4eb66743d",
+    "runtime\\gs\\src\\nr_guides.cpp": "58dd1695b1df02711ee56a6b0f57d5462ba0af8879e621adaa6cf00559e2b0d4",
+    "runtime\\gs\\src\\nr_guides.h": "19020ac1ffa0f82a23f0999e286beb4eec33d7540250cbcad78621bde693a8de",
+    "runtime\\gs\\src\\ray_water.cpp": "288bfde6838ae37bdca4d50afe6dfe9d5a963e24b52846cbb143d8475f31e3b6",
+    "runtime\\gs\\src\\ray_water.h": "0c2def18ee12135072b7e60715a5e613a8ac031f1b97c661279ab0dfb0cb39fd",
+    "runtime\\gs\\src\\ray_water.hlsl": "1f1bff626cc93f191c2ec17de02018f87b7a564dbf787847cd401dbb068ce854",
+    "runtime\\gs\\src\\rt_upload.h": "e35244c8ed126cad76f3d5e88db23d2e58c8adab303277a8aad53bf6ef8a28b9",
+    "runtime\\gs\\src\\sprite_footprint.h": "944bc5192691a77026e0e8f14235fe4dc5a158fade1bc9bfa6e763ddfca14cba",
+    "runtime\\gs\\src\\sr_combined.cpp": "d94f8fbd12e8fe5a59ed8a0b44acebcd5859663286dc01bd3c0850897546fc44",
+    "runtime\\gs\\src\\sr_combined.h": "8afaab9695a65578b22b9cb5d8cf390020b81f48eed4ace3c9dafeac0aa2b6b9",
+    "runtime\\gs\\src\\surface_geometry.h": "0a0f322c3a765262210e1f1ca44d3d4147483ca0dd11bf7f70c85dc03d50a03d",
+    "runtime\\gs\\src\\temporal.cpp": "1f5ab8599b0105352f6577e65296cd8e3d22ecd1d7697f07e5ca0c3a61785a49",
+    "runtime\\gs\\src\\temporal.h": "6fae4eda82b3417b4144b8cdd7c9c1e7e5f475037512ba2d68ed8101e0161425",
+    "runtime\\gs\\src\\temporal_presentation.h": "eca937751173a42fa03c364eb07ddae6996bcc983604dfa8ecb78f25b45bf9b6",
+    "runtime\\gs\\src\\upscale_controls.h": "d0625115bf97d6fa95c8f17c01d7e7336dfd56549b64034d3658f76a6418f456",
+    "runtime\\gs\\tests\\replay.cpp": "65d07c3de4617d2774595311b78f54219cbf9956a9955fa825a0fabecb0b1084",
+    "runtime\\gs\\tests\\test_alpha_pipeline.cpp": "f9637b8524456f2bf09c97b036e439ea276eb8c29c8eb96503a02317537d6cd8",
+    "runtime\\gs\\tests\\test_hud_page.cpp": "b7f378517050abf42a079f349238f15032783ec3bdc42f0e07958d812c70b30d",
+    "runtime\\gs\\tests\\test_live.cpp": "9320648672fe71466f6f7eb795dbed4f6034f3d135b5bff191b24fe16f56ddef",
+    "runtime\\gs\\tests\\test_motion_history.cpp": "e748300078c600fbf8a0db7c7dee5be22efdc859f28ba5fd97d2d20f6151b559",
+    "runtime\\gs\\tests\\test_motion_shader.cpp": "49eafc02f1c0ef8b4f9033734fc81cf616284c0ebc483112263df92fb2e2660e",
+    "runtime\\gs\\tests\\test_nr_guides.cpp": "30c5cac0468c87e0e26e3439bc2762cec370dc7b9ba4abff5772932d0543df46",
+    "runtime\\gs\\tests\\test_ray_water.cpp": "768b157d43448b262e7378fafc00a4c82f874f58bc40268f0e16c6e5b1d9f19b",
+    "runtime\\gs\\tests\\test_rt_sampling.cpp": "4cdeb1bc71f2508dadebcb753903990c04577c6d00d200536638184557e60126",
+    "runtime\\gs\\tests\\test_rt_sampling_pixels.cpp": "0c4cb07d90503f740dca566ab41598ddc4c305696c6422786eafb477140dafdf",
+    "runtime\\gs\\tests\\test_rt_upload.cpp": "8718aea292c2c34ce413ad6ebde361d54f396d8fc8f78e0f630bb982ed9b5a79",
+    "runtime\\gs\\tests\\test_sprite_footprint.cpp": "3a8b3fed0dd8d53267cd257337b1d953b28a0ca84a62328d23bce0a0255b3333",
+    "runtime\\gs\\tests\\test_sr_sharpness.cpp": "b2c6c6714a83e3bfbd4e217bcfcb7c0f3b33d826809734c935be34818d238a89",
+    "runtime\\gs\\tests\\test_stretch_depth.cpp": "f435408f81d430699394e66b9f101c4d101a33465d6b10eaa46463dcb64b9c4e",
+    "runtime\\gs\\tests\\test_swizzle.cpp": "d842926677bbaec114fb8b2558fed2dd627e3075a36de5c8b409ca365cd5ad04",
+    "runtime\\gs\\tests\\test_synthetic.cpp": "beabbaafcc5171b222e57b26a1c75ad9056b35956bca1f5902fa6469257e1bdf",
+    "runtime\\gs\\tests\\test_temporal_presentation.cpp": "de7eef3277050ae8c31ccbba7d44472f84cc48fcbd25b291e7076cfb081c1d40",
+    "runtime\\gs\\tests\\test_texture_decode.cpp": "53ffc430861a4e57662d07a8b91f7160961c9c1ea0a0789fee57d6eaf000e729",
+    "runtime\\gs\\tests\\test_texup.cpp": "525de0afb733f7c3fdc2c1785b092507e172a9246b644f27d77f99088ce630b4",
+    "runtime\\gs\\tests\\texaudit.cpp": "5e4bbc923add0b81e82511b1b9e23bb5d57a2717a127634fd60342f69fd16fcd",
+    "runtime\\gs\\tests\\wincap.cpp": "192ce7b43b7d6dcaff9d1112ea9ede90d3af26fe4fdd8c758f94a96eb536c59a",
+    "runtime\\settings\\CMakeLists.txt": "a5d42bd9fb39e4d7473ec20a431b38f2bea889eeffaee54d405d6652fdeb888d",
+    "runtime\\settings\\include\\settings\\Bindings.h": "e1032c5ee7c53c0040d3b7c1f6d7b6fa30f39091a369d03e1ca47a0ff548b1d2",
+    "runtime\\settings\\include\\settings\\Host.h": "f2af1890353dbb2658e39a451f86d05c3523e9688dbf5283888c8f703fc0f09e",
+    "runtime\\settings\\include\\settings\\IniDoc.h": "1bbe63b0cf3b1339e154388e1f394722eeec321ffc68d5d87e00bb5ed4cf48c2",
+    "runtime\\settings\\include\\settings\\Menu.h": "e975957e151f9b554a36a621b8d6d050134611a0c78dfa19eba94e1385e854d4",
+    "runtime\\settings\\include\\settings\\Overlay.h": "638fc0676fe3e61e9ea3591c428ddaaa26f3849d3b4e74e656422c1cf9f9fbda",
+    "runtime\\settings\\include\\settings\\Skin.h": "671ab85cf2cee24fa7da2252caa5968747eb1c7ab8d2b98a6250c272e87170da",
+    "runtime\\settings\\include\\settings\\Store.h": "847743525745d172caeae1f4331018a4d438716a7049febf7c2f3b1b643f7abc",
+    "runtime\\settings\\include\\settings\\Subtitles.h": "3100a65df259d592facc9af84c0fe520f4e5e5e2c2e63ee12da99ea38c5f8141",
+    "runtime\\settings\\include\\settings\\TxdImage.h": "5af89855e35769cd80b6282155c0d4ac31f416c77b94e0e88b7ae316cbf5462c",
+    "runtime\\settings\\include\\settings\\Types.h": "3f4c5f507f88f70e5862150b83449b95aa05ad8061b73ec6fbace7964da19291",
+    "runtime\\settings\\src\\Bindings.cpp": "89c85911efd1ba1a24035bb2ca5af6cab99421ac465f372bda9caf331915bb94",
+    "runtime\\settings\\src\\IniDoc.cpp": "e23cc0ec9bf6e98ad19ae66d756e841a5feafd9d129056c8d18de32095b7b700",
+    "runtime\\settings\\src\\Menu.cpp": "e845fa6b13d305cb9e855d59510f6a30fa8043f0c0240349e082aabb10787c9e",
+    "runtime\\settings\\src\\Overlay.cpp": "e2921bc4c6dcd6adce882eb6e376860ebbe054c13ad30ae08b95b39a56d73601",
+    "runtime\\settings\\src\\Skin.cpp": "23742ff1086aaf98a2e4f35a946ca330e5b19a3c30083d59eb8be6cb9f0e2a4b",
+    "runtime\\settings\\src\\Store.cpp": "c93cfe9d03d3d3bbd07e40f3d32c05c29ee1f94d34e0ba9df67035e356764372",
+    "runtime\\settings\\tests\\FakeHost.h": "5b3900e7069895034026a4c9405842d928099bf153888a5f78a60b5bb2ef6bc3",
+    "runtime\\settings\\tests\\settings_demo.cpp": "814d89d4e774d8cd1cce3c9f08a50693b4021d39cb2b179a83b5a726226e08b8",
+    "runtime\\settings\\tests\\settings_menu_test.cpp": "50310c82dbf27cc112cad8d660ab8cae888b4ca29f8187179b126bac1e9a8284",
+    "runtime\\settings\\tests\\settings_test.cpp": "0e5ea3a337e3467e39382acc55be837512389c603332871e66e250e05583a978",
+    "runtime\\settings\\tests\\subtitle_render_test.cpp": "040a3595032c57df801d30e1db03d62fde528c5ee1b740217f9ff907931a98dc",
+    "runtime\\settings\\third_party\\imgui\\backends\\imgui_impl_dx11.cpp": "7a8f7294b86065d514a9e19f1bed3bc84d4587f0142b2c551a584b4067cb2902",
+    "runtime\\settings\\third_party\\imgui\\backends\\imgui_impl_dx11.h": "cf55f23132dcd240c31995494e0828abb84e552adee71be20f384d68eca21697",
+    "runtime\\settings\\third_party\\imgui\\backends\\imgui_impl_win32.cpp": "e572de10045298bbf833aa7a15e28d2777df57603b4e50b9c8aa4c878f1e4cfa",
+    "runtime\\settings\\third_party\\imgui\\backends\\imgui_impl_win32.h": "606df46db972371ac6b5f5ad94bba75a09657da47b259105c4845c1f8638fa0c",
+    "runtime\\settings\\third_party\\imgui\\fonts\\binary_to_compressed_c.cpp": "51f8207ac1582e260467adf6d6a637ce566138bdeb6736b1e848b079bc541dd3",
+    "runtime\\settings\\third_party\\imgui\\imconfig.h": "0884061cc43e27e1d346fe18dcd1425792eb2532d3d16610a82eb5ac751f7594",
+    "runtime\\settings\\third_party\\imgui\\imgui.cpp": "fa9043765c8b8ae24fc440e036d592654f13fb52524dc8939680841ac2221489",
+    "runtime\\settings\\third_party\\imgui\\imgui.h": "d9d28b1dfbd23841d99bb0a3f2474a28a2cae4e706919f74ef803ab9d9a67c9d",
+    "runtime\\settings\\third_party\\imgui\\imgui_draw.cpp": "5010a15d7797b4f96e0314087f961e16af83e0f2eba6f832c358ff890ef491d2",
+    "runtime\\settings\\third_party\\imgui\\imgui_internal.h": "da27f62ccb1d9ece6a4c14b63cca4cf6cfd713f5f18bdb8868e0d199ead6d333",
+    "runtime\\settings\\third_party\\imgui\\imgui_tables.cpp": "d7582d149df53bf625c2706e3313596935add7e0b283d1112edc30db4a7d8e4e",
+    "runtime\\settings\\third_party\\imgui\\imgui_widgets.cpp": "263c45ee621555af417255fa5050176a193b70a9b3da4fd32da86b8ae5364d0d",
+    "runtime\\settings\\third_party\\imgui\\imstb_rectpack.h": "2efa3d5f7d003c19743b15155dad9f46d9f9fc783a18893d703b431d3c990972",
+    "runtime\\settings\\third_party\\imgui\\imstb_textedit.h": "77010e494caf72c178b573569612aec409d24380409676325a31d02de0ec64b7",
+    "runtime\\settings\\third_party\\imgui\\imstb_truetype.h": "87f08919ae8e7223451d0e9d06b62829075d3e920c9e6ad436db9d7e7427ffce",
+    "runtime\\settings\\third_party\\imgui\\LICENSE.txt": "c80c5789748d955c4a650562baa0d750494e2c7128c2ca66aaebe2e3c4e198bf"
+  }
+}

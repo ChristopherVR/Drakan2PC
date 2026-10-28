@@ -1,0 +1,746 @@
+diff --git a/ps2xRuntime/src/lib/vu/ps2_vu1_batch.cpp b/ps2xRuntime/src/lib/vu/ps2_vu1_batch.cpp
+index 89161c9..3220981 100644
+--- a/ps2xRuntime/src/lib/vu/ps2_vu1_batch.cpp
++++ b/ps2xRuntime/src/lib/vu/ps2_vu1_batch.cpp
+@@ -40,6 +40,7 @@ unsigned lazyLoadsMode(){static const unsigned mode=[] {const char* e=std::geten
+ unsigned packetKernelMode(){static const unsigned mode=[] {const char* e=std::getenv("DRAKAN_VU_BATCH_NATIVE_PACKET");return unsigned(std::clamp(e?std::strtol(e,nullptr,10):0l,0l,2l));}();return mode;}
+ bool streamingEnabled(){static const bool on=[] {const char* e=std::getenv("DRAKAN_VU_BATCH_STREAM");return e && e[0] && e[0]!='0';}();return on;}
+ bool reuseProfileEnabled(){static const bool on=[] {const char* e=std::getenv("DRAKAN_VU_BATCH_REUSE_PROFILE");return e && e[0] && e[0]!='0';}();return on;}
++bool aliasCopiesEnabled(){static const bool on=[] {const char* e=std::getenv("DRAKAN_VU_BATCH_ALIAS_COPIES");return e && e[0]=='1';}();return on;}
+ bool staticRegsEnabled(){static const bool on=[] {const char* e=std::getenv("DRAKAN_VU_BATCH_STATIC_REGS");return e && e[0] && e[0]!='0';}();return on;}
+ bool staticRegsVerify(){static const bool on=[] {const char* e=std::getenv("DRAKAN_VU_BATCH_STATIC_REGS_VERIFY");return e && e[0] && e[0]!='0';}();return on;}
+ // On this fixed positive branch the loaded clipping count is used only by
+@@ -167,7 +168,69 @@ constexpr bool kMonotoneStatus=[] {
+ }();
+ }
+ 
++// Private prototype. Hashes never authorize reuse.
++struct GuardMiss {};
++enum class GuardKind : uint8_t { Command, Run, Block };
++struct GuardStep {
++    GuardKind kind=GuardKind::Command;
++    Vu1Aot::Fn fn=nullptr;
++    uint64_t cycle=0,budget=0,endCycle=0,pairs=0;
++    uint32_t pc=0,endPc=0,viMask=0,vi[16]{},args[8]{},packet[4]{};
++    uint32_t backupValue=0;
++    uint8_t backupReg=0;
++    bool backup=false,nativePacket=false;
++    std::vector<std::pair<uint32_t,uint32_t>> controls;
++    std::vector<std::pair<uint8_t,uint64_t>> stores;
++};
++struct GuardTape {std::vector<GuardStep> steps;std::vector<uint64_t> words;size_t recordCount=0;};
++std::shared_ptr<GuardTape> packGuardTape(const GuardTape& source){
++    auto tape=std::make_shared<GuardTape>();tape->recordCount=source.steps.size();
++    auto& words=tape->words;words.reserve(source.steps.size()*6u);
++    auto pair=[](uint32_t a,uint32_t b){return uint64_t(a)|(uint64_t(b)<<32u);};
++    auto stores=[&](const GuardStep& s){
++        uint64_t chunks=0;for(const auto [chunk,mask]:s.stores)chunks|=1ull<<chunk;
++        words.push_back(chunks);for(const auto [chunk,mask]:s.stores)words.push_back(mask);
++    };
++    for(const auto& s:source.steps){
++        if(s.kind==GuardKind::Command){words.push_back(0);words.push_back(pair(s.args[0],s.args[1]));continue;}
++        if(s.kind==GuardKind::Run){
++            words.push_back(1ull<<62u);for(unsigned i=0;i<8;i+=2)words.push_back(pair(s.args[i],s.args[i+1]));stores(s);continue;
++        }
++        if(s.pc>65535u || s.endPc>65535u || s.viMask>65535u || s.cycle>UINT32_MAX || s.budget>UINT32_MAX ||
++           s.endCycle>UINT32_MAX || s.pairs>65535u || s.controls.size()>65535u || s.stores.size()>64u)return {};
++        const uint64_t header=(2ull<<62u)|s.pc|(uint64_t(s.viMask)<<16u)|(uint64_t(s.controls.size())<<32u)|
++            (uint64_t(s.stores.size())<<48u)|(uint64_t(s.backup)<<56u)|(uint64_t(s.nativePacket)<<57u);
++        words.push_back(header);words.push_back(pair(uint32_t(s.cycle),uint32_t(s.budget)));
++        words.push_back(uint64_t(s.endCycle)|(uint64_t(s.endPc)<<32u)|(s.pairs<<48u));
++        uint64_t fn;static_assert(sizeof fn==sizeof s.fn);std::memcpy(&fn,&s.fn,sizeof fn);words.push_back(fn);
++        bool pending=false;uint32_t low=0;
++        for(unsigned reg=0;reg<16;++reg)if(s.viMask>>reg&1u){if(!pending)low=s.vi[reg];else words.push_back(pair(low,s.vi[reg]));pending=!pending;}
++        if(pending)words.push_back(low);
++        if(s.backup)words.push_back(uint64_t(s.backupValue)|(uint64_t(s.backupReg)<<32u));
++        if(s.nativePacket){words.push_back(pair(s.packet[0],s.packet[1]));words.push_back(pair(s.packet[2],s.packet[3]));}
++        pending=false;
++        for(const auto [key,value]:s.controls){
++            uint32_t at;
++            if(key&0x80000000u){if((key&0x7fffffffu)>=128u)return {};at=0x8000u|(key&127u);}
++            else {if(key>=16384u)return {};at=key;}
++            const uint32_t packed=at|((value&0xffffu)<<16u);
++            if(!pending)low=packed;else words.push_back(pair(low,packed));pending=!pending;
++        }
++        if(pending)words.push_back(low);
++        if(!s.stores.empty())stores(s);
++    }
++    words.shrink_to_fit();return tape;
++}
++
++std::atomic<bool> guardCacheFailed{false};
++bool traceCacheEnabled(){static const bool on=[]{const char* e=std::getenv("DRAKAN_VU_BATCH_TRACE_CACHE");return e && e[0]=='1';}();return on && !guardCacheFailed.load(std::memory_order_relaxed);}
++bool traceCacheVerify(){static const bool on=[]{const char* e=std::getenv("DRAKAN_VU_BATCH_TRACE_CACHE_VERIFY");return e && e[0]=='1';}();return on;}
++
+ struct Vu1Batch {
++    static bool guardBackupValid(const VU1Interpreter& v){return v.m_viBranchBackupValid;}
++    static uint8_t guardBackupReg(const VU1Interpreter& v){return v.m_viBranchBackupReg;}
++    static uint32_t guardBackupValue(const VU1Interpreter& v){return v.m_viBranchBackupValue;}
++
+     // Compact, relocatable VU state. Decoded instructions and their host cache
+     // keys stay with each interpreter. No call-frame pointer is transferred.
+     struct Checkpoint {
+@@ -309,6 +372,13 @@ struct Vu1Batch {
+         if(a.vi[0] || s.vi[0] || std::memcmp(a.vf[0],s.vf[0],sizeof a.vf[0]))return false;
+         auto equal=[](const auto& x,const auto& y){return !std::memcmp(&x,&y,sizeof x);};
+         reason=7;for(unsigned r=0;r<32;++r)for(unsigned c=0;c<4;++c){const auto bits=r<16?t.liveLo:t.liveHi;if((bits>>(4*(r&15)+c)&1) && !equal(a.vf[r][c],s.vf[r][c]))return false;}
++        if(t.lowRegisterLo || t.lowRegisterHi)for(unsigned half=0;half<2;++half){
++            uint64_t bits=half?t.lowRegisterHi:t.lowRegisterLo;
++            while(bits){const unsigned lane=std::countr_zero(bits)+half*64u;uint32_t x,y;
++                std::memcpy(&x,&a.vf[lane/4u][lane&3u],4);std::memcpy(&y,&s.vf[lane/4u][lane&3u],4);
++                if((x^y)&0xffffu)return false;bits&=bits-1;
++            }
++        }
+         reason=8;
+         for(unsigned r=0;r<16;++r)if((t.liveVa>>r&1) && a.vi[r]!=s.vi[r])return false;
+         reason=9;
+@@ -323,7 +393,13 @@ struct Vu1Batch {
+         for(unsigned r=0;r<32;++r)for(unsigned c=0;c<4;++c){const auto bits=r<16?t.writtenLo:t.writtenHi;if(!(bits>>(4*(r&15)+c)&1))z.vf[r][c]=a.vf[r][c];}
+         for(unsigned half=0;half<2;++half){
+             uint64_t aliases=half?t.aliasHi:t.aliasLo;
+-            while(aliases){const unsigned lane=std::countr_zero(aliases)+half*64u;const unsigned word=t.aliasWords[lane]-1u;std::memcpy(&z.vf[lane/4][lane&3],input+word*4u,4);aliases&=aliases-1;}
++            while(aliases){
++                const unsigned lane=std::countr_zero(aliases)+half*64u,origin=t.aliasWords[lane];
++                if(!origin || origin>4224u)return false;
++                if(origin<=4096u)std::memcpy(&z.vf[lane/4u][lane&3u],input+(origin-1u)*4u,4);
++                else {const unsigned source=origin-4097u;std::memcpy(&z.vf[lane/4u][lane&3u],&a.vf[source/4u][source&3u],4);}
++                aliases&=aliases-1;
++            }
+         }
+         for(unsigned r=0;r<16;++r)if(!(t.writtenVa>>r&1))z.vi[r]=a.vi[r];
+         for(unsigned c=0;c<4;++c)if(!(t.writtenVa>>(16+c)&1))z.acc[c]=a.acc[c];
+@@ -410,6 +486,8 @@ struct Vu1Batch {
+             trace.writtenLo|=d.writeLo;trace.writtenHi|=d.writeHi;trace.writtenVa|=d.writeVa;
+             ++trace.staticRegBlocks;trace.staticRegPairs+=count;
+         }
++        const uint32_t guardViMask=nativePacket?0xffffu:enter && regPlan?regPlan->deps.readVa&0xffffu:kTracePlan[pc].rdVa&0xffffu;
++        trace.guardBeginBlock(v,c,nativePacket,guardViMask);
+         int32_t vi[16];std::memcpy(vi,v.m_state.vi,sizeof vi);
+         bool known[16];std::fill(std::begin(known),std::end(known),true);
+         if constexpr(!StaticRegisters)trace.blockWrites.fill(0);
+@@ -436,6 +514,7 @@ struct Vu1Batch {
+         auto loadInt=[&](unsigned dest,uint32_t at,unsigned comp,bool positiveOnly=false){
+             const bool forwarded=forwardedLanes(at)&(1u<<comp);
+             uint32_t value;std::memcpy(&value,c.vuData+at+comp*4u,4);
++            if(!forwarded)trace.guardMemory(at+comp*4u,value);
+             if(!forwarded){
+                 if(positiveOnly && at==65u*16u && comp==0 && dest==7 && int16_t(value)>0 && !(trace.writtenMemory[4]&(1ull<<4)))trace.positiveClipGate=true;
+                 else trace.readLow(at+comp*4u);
+@@ -492,10 +571,30 @@ struct Vu1Batch {
+             if(d.fmB==4 && d.fmKind && !trace.qAssigned)trace.readQ=true;
+             const uint32_t upperOp=d.upper&63u;
+             if(((d.fmB==5 && d.fmKind) || upperOp==0x1d || upperOp==0x1f) && !trace.iAssigned)trace.readI=true;
+-            if(lazyMode==1)trace.consumeAliases(d.rdLo,d.rdHi);
++            uint16_t copiedAliases[4]{};
++            unsigned copiedReg=0;uint8_t copiedMask=0;bool deferredBitRead=false;
++            if(lazyMode==1){
++                const uint32_t instruction=d.lower,fun=instruction&63u,special=(instruction&3u)|((instruction>>4)&124u);
++                const bool pure=aliasCopiesEnabled() && !d.iBit && d.upper==0x2ffu && (instruction>>25)==0x40u && fun>=0x3cu;
++                const unsigned from=(instruction>>11)&31u,to=(instruction>>16)&31u;
++                if(pure && special==0x3cu){
++                    // MTIR consumes only the low halfword. Keep the alias so
++                    // a later floating-point use still materializes all bits.
++                    trace.consumeAliasLow(from*4u+((instruction>>21)&3u));deferredBitRead=true;
++                }else if(pure && to && (special==0x30u || special==0x31u)){
++                    deferredBitRead=true;copiedReg=to;copiedMask=reversed(d.lowerUsage.vfWrite.lanes);
++                    // MOVE/MR32 copy bits without consuming their numeric value.
++                    // Snapshot before any overlapping destination is replaced.
++                    for(unsigned lane=0;lane<4;++lane)if(copiedMask>>lane&1u){
++                        const unsigned source=from*4u+(special==0x31u?(lane+1u)&3u:lane);
++                        if((source<64?trace.aliasLo:trace.aliasHi)>>(source&63u)&1u)copiedAliases[lane]=trace.aliasWords[source];
++                        else if(!((source<64?trace.writtenLo:trace.writtenHi)>>(source&63u)&1u))copiedAliases[lane]=uint16_t(4097u+source);
++                    }
++                    ++trace.aliasCopies;
++                }else trace.consumeAliases(d.rdLo,d.rdHi);
++            }
+             if(!bulkRegs){
+-                trace.liveLo|=d.rdLo&~(trace.writtenLo|15ull);
+-                trace.liveHi|=d.rdHi&~trace.writtenHi;
++                if(!deferredBitRead){trace.liveLo|=d.rdLo&~(trace.writtenLo|15ull);trace.liveHi|=d.rdHi&~trace.writtenHi;}
+                 trace.liveVa|=d.rdVa&~(trace.writtenVa|1u);
+             }else if(checkRegs){
+                 shadow.liveLo|=d.rdLo&~(shadow.writtenLo|15ull);shadow.liveHi|=d.rdHi&~shadow.writtenHi;shadow.liveVa|=d.rdVa&~(shadow.writtenVa|1u);
+@@ -565,7 +664,7 @@ struct Vu1Batch {
+                         const auto localHi=bulkRegs?(regPlan->before[slot].hi|(i>=width?regPlan->deps.writeHi:0ull)):writtenHi;
+                         const bool ready=((fs<16?localLo:localHi)&bit)==0;
+                         if(checkRegs && ready!=(((fs<16?writtenLo:writtenHi)&bit)==0))badPrefix=true;
+-                        uint32_t value;if(nativePacket && instructionPc==489u)value=packetIndices[(i/width)&3u];else std::memcpy(&value,&v.m_state.vf[fs][comp],4);writeVi(it,int16_t(value),nativePacket && instructionPc==489u?true:ready);break;
++                        uint32_t value;if(nativePacket && instructionPc==489u)value=packetIndices[(i/width)&3u];else std::memcpy(&value,&v.m_state.vf[fs][comp],4);if(ready)trace.guardVf(fs*4u+comp,value);writeVi(it,int16_t(value),nativePacket && instructionPc==489u?true:ready);break;
+                     }
+                     case 0x3e:loadInt(it,address(is,0),std::countr_zero(unsigned(lanes?lanes:8u)));break;
+                     case 0x3f:store(address(is,0),lanes);break;
+@@ -589,6 +688,10 @@ struct Vu1Batch {
+                 vfWrite(d.upperUsage.vfWrite);
+                 if(!d.iBit && d.lowerUsage.vfWrite.reg!=d.suppressedLowerVf)vfWrite(d.lowerUsage.vfWrite);
+             }
++            if(copiedReg)for(unsigned lane=0;lane<4;++lane)if((copiedMask>>lane&1u) && copiedAliases[lane]){
++                const unsigned index=copiedReg*4u+lane;trace.aliasWords[index]=copiedAliases[lane];
++                (index<64?trace.aliasLo:trace.aliasHi)|=1ull<<(index&63u);
++            }
+             if(aliasReg)for(unsigned lane=0;lane<4;++lane){
+                 const uint16_t word=uint16_t(loadedAliases>>(lane*16u));
+                 if(word){const unsigned index=aliasReg*4u+lane;trace.aliasWords[index]=word;(index<64?trace.aliasLo:trace.aliasHi)|=1ull<<(index&63u);++trace.deferredLoads;}
+@@ -608,7 +711,9 @@ struct Vu1Batch {
+         }
+         const uint64_t before=c.pairs;
+         const auto fn=nativePacket?Vu1Aot::g_dispatch[pc]:(nativeUv || nativeTransform)?Vu1Aot::g_dispatch[pc]:pc==489u?Vu1Aot::g_table[pc]:Vu1Aot::g_blockDispatch[pc];
++        trace.guardIssue(fn);
+         const bool result=fn(v,c);
++        trace.guardEndBlock(v,c,before);
+         if(reuseProfileEnabled()){trace.pathHash=(trace.pathHash^pc)*1099511628211ull;trace.pathHash=(trace.pathHash^(c.pairs-before))*1099511628211ull;trace.pathHash=(trace.pathHash^v.m_state.pc)*1099511628211ull;}
+         if(c.pairs-before!=count)trace.supported=false;
+         // An exact pair can stall before issue. Its retirement stamp must use
+@@ -617,8 +722,8 @@ struct Vu1Batch {
+         if(c.pairs-before==1){if(singleClip)trace.queueClip(v.m_cycle-1u,false);if(singleClipSet)trace.queueClip(v.m_cycle-1u,true);}
+         // Transfer callbacks use this block's stores while it executes. Fresh
+         // traces start empty; completed dispatches clear every touched chunk.
+-        if constexpr(StaticRegisters){while(dirtyWriteChunks){const unsigned chunk=std::countr_zero(dirtyWriteChunks);trace.writtenMemory[chunk]|=trace.blockWrites[chunk];trace.blockWrites[chunk]=0;dirtyWriteChunks&=dirtyWriteChunks-1;}}
+-        else {for(unsigned i=0;i<nstores;++i)trace.write(stores[i].address,stores[i].lanes);trace.blockWrites.fill(0);}
++        if constexpr(StaticRegisters){while(dirtyWriteChunks){const unsigned chunk=std::countr_zero(dirtyWriteChunks);trace.writtenMemory[chunk]|=trace.blockWrites[chunk];trace.geometryStores[chunk]|=trace.blockWrites[chunk];trace.blockWrites[chunk]=0;dirtyWriteChunks&=dirtyWriteChunks-1;}}
++        else {for(unsigned i=0;i<nstores;++i)trace.writeGeometry(stores[i].address,stores[i].lanes);trace.blockWrites.fill(0);}
+         return result;
+     }
+ };
+@@ -630,8 +735,8 @@ using Data = std::array<uint8_t,PS2_VU1_DATA_SIZE>;
+ using WordMask=std::array<uint64_t,64>;
+ struct Trace {
+     uint64_t pathHash=1469598103934665603ull,controlHash=1469598103934665603ull;
+-    WordMask liveMemory{},lowMemory{},writtenMemory{},blockWrites{};
+-    std::unique_ptr<WordMask> packetInputs;
++    WordMask liveMemory{},lowMemory{},writtenMemory{},blockWrites{},geometryStores{};
++    std::shared_ptr<WordMask> packetInputs;
+     std::vector<std::pair<uint32_t,uint32_t>> packetWords,tagInputs;
+     uint64_t liveLo=0,liveHi=0,writtenLo=0,writtenHi=0;
+     uint32_t liveVa=0,writtenVa=0;
+@@ -650,11 +755,127 @@ struct Trace {
+     bool readQ=false,readP=false,readI=false,qAssigned=false,pAssigned=false,iAssigned=false;
+     bool qWritten=false,pWritten=false,iWritten=false,fmacWritten=false,statusWritten=false,clipWritten=false;
+     bool needMac=false,backupBase=false,supported=true,complete=true,idle=true,startsReset=false,seenRun=false;
++    std::shared_ptr<GuardTape> guardTape;
++    GuardStep* guardActive=nullptr;
++    size_t guardCursor=0;
++    uint64_t guardOrigin=0;
++    bool guardReplay=false;
++    const GuardStep& guardNext(GuardKind kind){
++        if(!guardTape || guardCursor>=guardTape->steps.size())throw GuardMiss{};
++        const auto& step=guardTape->steps[guardCursor++];
++        if(step.kind!=kind)throw GuardMiss{};
++        return step;
++    }
++    void guardCommand(uint32_t code,uint32_t offset){
++        if(!guardTape)return;
++        if(guardReplay){
++            const auto& words=guardTape->words;
++            if(guardCursor>words.size() || words.size()-guardCursor<2u)throw GuardMiss{};
++            const uint64_t kind=words[guardCursor++],value=words[guardCursor++];
++            if(kind || uint32_t(value)!=code || uint32_t(value>>32u)!=offset)throw GuardMiss{};
++        }else {guardTape->steps.emplace_back();auto& s=guardTape->steps.back();s.kind=GuardKind::Command;s.args[0]=code;s.args[1]=offset;}
++    }
++    void guardRun(bool resume,uint32_t pc,uint32_t top,uint32_t itop,bool den,bool ten,const uint8_t* data){
++        if(!guardTape)return;
++        uint32_t flags,count;std::memcpy(&flags,data+7u*16u,4);std::memcpy(&count,data+9u*16u+8u,4);
++        const uint32_t args[]={uint32_t(resume),pc,top,itop,uint32_t(den),uint32_t(ten),flags&1u,uint32_t(int16_t(count)>0)};
++        if(guardReplay){
++            const auto& words=guardTape->words;
++            if(guardCursor>words.size() || words.size()-guardCursor<6u || words[guardCursor++]!=(1ull<<62u))throw GuardMiss{};
++            if(std::memcmp(words.data()+guardCursor,args,sizeof args))throw GuardMiss{};guardCursor+=4u;
++            const uint64_t chunks=words[guardCursor++];const size_t n=std::popcount(chunks);
++            if(n>words.size()-guardCursor)throw GuardMiss{};
++            for(unsigned chunk=0;chunk<64;++chunk){const uint64_t expected=chunks>>chunk&1u?words[guardCursor++]:0u;if(expected!=writtenMemory[chunk])throw GuardMiss{};}
++        }else {
++            guardTape->steps.emplace_back();auto& s=guardTape->steps.back();s.kind=GuardKind::Run;
++            std::memcpy(s.args,args,sizeof args);
++            for(unsigned chunk=0;chunk<64;++chunk)if(writtenMemory[chunk])s.stores.emplace_back(uint8_t(chunk),writtenMemory[chunk]);
++        }
++    }
++    void guardBeginBlock(const VU1Interpreter& v,const Vu1Step::Ctx& c,bool nativePacket,uint32_t mask){
++        if(!guardTape || guardReplay)return;
++        if(guardTape->steps.size()>=65536){guardTape.reset();guardActive=nullptr;return;}
++        guardTape->steps.emplace_back();auto& s=guardTape->steps.back();s.kind=GuardKind::Block;
++        s.pc=v.state().pc;s.cycle=v.totalCycles()-guardOrigin;s.budget=c.budgetEnd-v.totalCycles();s.viMask=mask;s.nativePacket=nativePacket;
++        for(unsigned reg=0;reg<16;++reg)if(mask>>reg&1u)s.vi[reg]=uint32_t(v.state().vi[reg]);
++        s.backup=Vu1Batch::guardBackupValid(v);
++        if(s.backup){s.backupReg=Vu1Batch::guardBackupReg(v);s.backupValue=Vu1Batch::guardBackupValue(v);}
++        if(nativePacket)std::memcpy(s.packet,v.state().vf[19],16);
++        guardActive=&s;
++    }
++    void guardMemory(uint32_t address,uint32_t value){if(guardActive)guardActive->controls.emplace_back(address,value&0xffffu);}
++    void guardVf(unsigned lane,uint32_t value){if(guardActive)guardActive->controls.emplace_back(0x80000000u|lane,value&0xffffu);}
++    void guardIssue(Vu1Aot::Fn fn){
++        if(!guardActive)return;
++        guardActive->fn=fn;
++        for(unsigned chunk=0;chunk<64;++chunk)if(blockWrites[chunk])guardActive->stores.emplace_back(uint8_t(chunk),blockWrites[chunk]);
++    }
++    void guardEndBlock(const VU1Interpreter& v,const Vu1Step::Ctx& c,uint64_t before){
++        if(!guardActive)return;
++        guardActive->endPc=v.state().pc;guardActive->endCycle=v.totalCycles()-guardOrigin;guardActive->pairs=c.pairs-before;
++        guardActive=nullptr;
++    }
++    bool guardDispatch(VU1Interpreter& v,Vu1Step::Ctx& c){
++        const auto& words=guardTape->words;
++        if(guardCursor>words.size() || words.size()-guardCursor<4u)throw GuardMiss{};
++        const uint64_t header=words[guardCursor++],timing=words[guardCursor++],end=words[guardCursor++],fnBits=words[guardCursor++];
++        if((header>>62u)!=2u)throw GuardMiss{};
++        const uint32_t pc=uint16_t(header),viMask=uint16_t(header>>16u),controls=uint16_t(header>>32u),storeCount=uint8_t(header>>48u);
++        const bool backup=header>>56u&1u,nativePacket=header>>57u&1u;
++        const unsigned viCount=std::popcount(viMask);
++        const size_t required=(viCount+1u)/2u+unsigned(backup)+2u*unsigned(nativePacket)+(controls+1u)/2u+(storeCount?1u+storeCount:0u);
++        if(required>words.size()-guardCursor || pc!=v.state().pc || uint32_t(timing)!=v.totalCycles()-guardOrigin ||
++           uint32_t(timing>>32u)!=c.budgetEnd-v.totalCycles())throw GuardMiss{};
++        const size_t viStart=guardCursor;guardCursor+=(viCount+1u)/2u;
++        unsigned n=0;uint32_t regs=viMask;
++        while(regs){const unsigned reg=std::countr_zero(regs);const uint32_t expected=uint32_t(words[viStart+n/2u]>>(32u*(n&1u)));
++            if(expected!=uint32_t(v.state().vi[reg]))throw GuardMiss{};++n;regs&=regs-1;}
++        if(backup!=Vu1Batch::guardBackupValid(v))throw GuardMiss{};
++        if(backup){const uint64_t value=words[guardCursor++];if(uint32_t(value)!=Vu1Batch::guardBackupValue(v) || uint8_t(value>>32u)!=Vu1Batch::guardBackupReg(v))throw GuardMiss{};}
++        if(nativePacket){uint64_t packet[2];std::memcpy(packet,v.state().vf[19],16);if(packet[0]!=words[guardCursor++] || packet[1]!=words[guardCursor++])throw GuardMiss{};}
++        const size_t controlStart=guardCursor;guardCursor+=(controls+1u)/2u;
++        for(unsigned i=0;i<controls;++i){
++            const uint32_t packed=uint32_t(words[controlStart+i/2u]>>(32u*(i&1u)));const unsigned key=uint16_t(packed);
++            uint32_t actual;if(key&0x8000u){const unsigned lane=key&127u;std::memcpy(&actual,&v.state().vf[lane/4u][lane&3u],4);}
++            else std::memcpy(&actual,c.vuData+key,4);
++            if((actual&0xffffu)!=(packed>>16u))throw GuardMiss{};
++        }
++        const uint64_t chunks=storeCount?words[guardCursor++]:0;
++        if(std::popcount(chunks)!=storeCount)throw GuardMiss{};
++        const size_t storeStart=guardCursor;guardCursor+=storeCount;
++        uint64_t pending=chunks;n=0;
++        while(pending){const unsigned chunk=std::countr_zero(pending);blockWrites[chunk]=words[storeStart+n++];pending&=pending-1;}
++        Vu1Aot::Fn fn;std::memcpy(&fn,&fnBits,sizeof fn);if(!fn)throw GuardMiss{};
++        const uint64_t before=c.pairs;const bool result=fn(v,c);
++        if(uint16_t(end>>32u)!=v.state().pc || uint32_t(end)!=v.totalCycles()-guardOrigin || uint16_t(end>>48u)!=c.pairs-before)throw GuardMiss{};
++        pending=chunks;n=0;while(pending){const unsigned chunk=std::countr_zero(pending);writtenMemory[chunk]|=words[storeStart+n++];blockWrites[chunk]=0;pending&=pending-1;}
++        return result;
++    }
++
++    uint64_t lowRegisterLo=0,lowRegisterHi=0;
++    uint64_t aliasLowReads=0,aliasCopies=0;
++    void consumeAliasLow(unsigned lane){
++        const auto bit=1ull<<(lane&63u);
++        if((lane<64?aliasLo:aliasHi)&bit){
++            const unsigned origin=aliasWords[lane];if(!origin || origin>4224u){supported=false;return;}
++            if(origin<=4096u){const unsigned word=origin-1u;lowMemory[word/64u]|=1ull<<(word&63u);}
++            else {const unsigned source=origin-4097u;(source<64?lowRegisterLo:lowRegisterHi)|=1ull<<(source&63u);}
++            ++aliasLowReads;
++        }else if(!((lane<64?writtenLo:writtenHi)&bit)){
++            (lane<64?lowRegisterLo:lowRegisterHi)|=bit;++aliasLowReads;
++        }
++    }
+     void consumeAliases(uint64_t lo,uint64_t hi){
+         if(!((aliasLo&lo)|(aliasHi&hi)))return;
+         for(unsigned half=0;half<2;++half){
+             auto& aliases=half?aliasHi:aliasLo;uint64_t reads=aliases&(half?hi:lo);aliases&=~reads;
+-            while(reads){const unsigned lane=std::countr_zero(reads)+half*64u,word=aliasWords[lane]-1u;liveMemory[word/64u]|=1ull<<(word&63u);reads&=reads-1;}
++            while(reads){
++                const unsigned lane=std::countr_zero(reads)+half*64u,origin=aliasWords[lane];
++                if(!origin || origin>4224u){supported=false;reads&=reads-1;continue;}
++                if(origin<=4096u){const unsigned word=origin-1u;liveMemory[word/64u]|=1ull<<(word&63u);}
++                else {const unsigned source=origin-4097u;(source<64?liveLo:liveHi)|=1ull<<(source&63u);}
++                reads&=reads-1;
++            }
+         }
+     }
+     void read(uint32_t address,uint8_t lanes){
+@@ -668,6 +889,12 @@ struct Trace {
+             const auto word=((address&16383u)/4u+c)&4095u;writtenMemory[word/64u]|=1ull<<(word&63u);
+         }
+     }
++    void writeGeometry(uint32_t address,uint8_t lanes){
++        write(address,lanes);
++        for(unsigned c=0;c<4;++c)if(lanes&(1u<<c)){
++            const auto word=((address&16383u)/4u+c)&4095u;geometryStores[word/64u]|=1ull<<(word&63u);
++        }
++    }
+     void readLow(uint32_t address){const auto w=(address&16383u)/4u;lowMemory[w/64u]|=(1ull<<(w&63u))&~writtenMemory[w/64u];}
+     // CLIP shifts six new bits into a 24-bit history. Carry the provenance of
+     // pending writes, so a query depends only on surviving original bits. FCSET
+@@ -741,9 +968,9 @@ struct Cut {
+     uint32_t offset;
+     std::unique_ptr<MemoryState> memory;
+     drakan_object_motion::Cursor motion;
+-    uint64_t key;
++    uint64_t key,producerKey;
+     bool bypass;
+-    Cut(uint32_t offset,PS2Memory& m,uint64_t key,bool bypass):offset(offset),memory(bypass?nullptr:std::make_unique<MemoryState>(m)),motion(drakan_object_motion::captureCursor()),key(key),bypass(bypass){}
++    Cut(uint32_t offset,PS2Memory& m,uint64_t key,bool bypass,uint64_t producerKey):offset(offset),memory(bypass?nullptr:std::make_unique<MemoryState>(m)),motion(drakan_object_motion::captureCursor()),key(key),producerKey(producerKey),bypass(bypass){}
+ };
+ struct Capture {
+     PS2Memory* memory=nullptr;
+@@ -770,6 +997,7 @@ struct Binding {
+     std::function<void(uint64_t,uint64_t,uint64_t)> publish;
+ } binding;
+ struct Stats {
++    std::atomic<uint64_t> aliasLowReads{0},aliasCopies{0};
+     std::atomic<uint64_t> batches{0},groups{0},accepted{0},rejected{0},verified{0},bad{0},unsupported{0},single{0},exceptions{0};
+     std::atomic<uint64_t> attempts{0},small{0},arbiter{0},code{0},abandoned{0};
+     std::array<std::atomic<uint64_t>,14> reasons{};
+@@ -779,6 +1007,7 @@ struct Stats {
+     std::atomic<uint64_t> staticRegBlocks{0},staticRegPairs{0},staticRegChecks{0},staticRegBad{0};
+     std::atomic<uint64_t> reuseEligible{0},reuseRepeated{0},reusePairs{0},reuseRepeatedPairs{0},reuseSidecars{0},reuseMetadata{0},reuseMetadataPairs{0};
+     std::atomic<uint64_t> acceptedRuns{0},rejectedRuns{0},acceptedPairs{0},rejectedPairs{0};
++    std::atomic<uint64_t> fusedCuts{0},fusedAccepted{0},fusedRejected{0},fusedVerified{0},fusedRuns{0},fusedOwnerCuts{0},producerHints{0};
+     std::atomic<uint64_t> predictions{0},predictionAccepted{0},historyMisses{0},serialBypass{0},ownerHeads{0},nativeUvPairs{0},nativeTransformPairs{0},nativePacketPairs{0},nativePacketBulk{0},positiveQueries{0},positiveAccepted{0},deferredLoads{0},repairedLanes{0};
+ } stats;
+ bool verify() {
+@@ -786,11 +1015,13 @@ bool verify() {
+ }
+ bool predict(){static const bool on=[] {const char* e=std::getenv("DRAKAN_VU_BATCH_PREDICT");return !(e && e[0]=='0');}();return on;}
+ bool adaptive(){static const bool on=[] {const char* e=std::getenv("DRAKAN_VU_BATCH_ADAPTIVE");return !(e && e[0]=='0');}();return on;}
++unsigned fusionLimit(){static const unsigned limit=[] {const char* e=std::getenv("DRAKAN_VU_BATCH_FUSE");return unsigned(std::clamp(e?std::strtol(e,nullptr,10):1l,1l,16l));}();return limit;}
+ unsigned threads() {
+     static const unsigned n=[] {const char* e=std::getenv("DRAKAN_VU_BATCH_THREADS");long n=e?std::strtol(e,nullptr,10):4;return unsigned(std::clamp(n,1l,8l));}();return n;
+ }
+ struct Group {
+     size_t first,last;
++    unsigned geometryStarts=0,fused=0;
+     std::unique_ptr<MemoryState> input;
+     Vu1Batch::Seed seed;
+     std::unique_ptr<MemoryState> output;
+@@ -799,7 +1030,7 @@ struct Group {
+     uint64_t calls=0,pairs=0,cycles=0;
+     std::mutex mutex;
+     std::condition_variable doneCv;
+-    bool done=false,queued=false,collected=false;
++    bool done=false,queued=false,collected=false,validated=false;
+     std::exception_ptr error;
+     const Input* jobs=nullptr;
+     const std::array<uint8_t,PS2_VU1_CODE_SIZE>* code=nullptr;
+@@ -811,12 +1042,109 @@ struct Group {
+ };
+ struct History {
+     uint64_t key,age;
++    uint64_t producerKey=0;
+     VU1State state;
+     uint64_t cycle;
+     std::array<uint8_t,12> clipping;
+     unsigned failures=0,cooldown=0;
+     History(uint64_t key,uint64_t age,const PS2Memory& memory,const VU1Interpreter& vu):key(key),age(age),state(vu.state()),cycle(vu.totalCycles()){std::memcpy(clipping.data(),memory.getVU1Data()+65u*16u,clipping.size());}
+ };
++// A scheduling hint only: current inputs and the complete fused result are
++// still validated normally. Require every differing word to come from the
++// immediately preceding, validated geometry producer, excluding VIF uploads.
++uint64_t fusionProducer(const Group* producer,const Group& consumer,const PS2Memory& memory,
++                        const VU1Interpreter& actual,VU1Interpreter& scratch){
++    if(!producer || !producer->validated || !producer->key || !consumer.input || !consumer.result ||
++       consumer.error || !consumer.trace.supported || !consumer.trace.complete || !consumer.trace.idle ||
++       !consumer.input->controlsMatch(memory))return 0;
++    const auto* data=memory.getVU1Data();const auto& trace=consumer.trace;
++    bool changed=false;
++    auto covered=[&](unsigned word,uint32_t mask,bool positive){
++        if(word>=4096)return false;
++        uint32_t a,b;std::memcpy(&a,data+word*4,4);std::memcpy(&b,consumer.input->data.data()+word*4,4);
++        if(!((a^b)&mask) && !(positive && int16_t(a)<=0))return true;
++        changed=true;return bool(producer->trace.geometryStores[word/64u]>>(word&63u)&1u);
++    };
++    for(unsigned chunk=0;chunk<64;++chunk){
++        uint64_t words=trace.liveMemory[chunk]|trace.lowMemory[chunk]|(chunk==4 && trace.positiveClipGate?1ull<<4:0ull);
++        while(words){const unsigned bit=std::countr_zero(words),word=chunk*64u+bit;
++            const uint32_t mask=trace.liveMemory[chunk]>>bit&1u?~0u:trace.lowMemory[chunk]>>bit&1u?0xffffu:0u;
++            if(!covered(word,mask,word==260 && trace.positiveClipGate))return 0;
++            words&=words-1;
++        }
++    }
++    for(const auto [word,mask]:trace.tagInputs)if(!covered(word,mask,false))return 0;
++    if(!changed)return 0;
++    auto seed=consumer.seed;const auto& writes=producer->trace;const auto& state=actual.state();
++    for(unsigned half=0;half<2;++half){uint64_t lanes=half?writes.writtenHi:writes.writtenLo;
++        while(lanes){const unsigned lane=std::countr_zero(lanes),reg=half*16u+lane/4u;
++            std::memcpy(&seed.state.vf[reg][lane&3u],&state.vf[reg][lane&3u],4);lanes&=lanes-1;
++        }
++    }
++    for(unsigned reg=1;reg<16;++reg)if(writes.writtenVa>>reg&1u)seed.state.vi[reg]=state.vi[reg];
++    for(unsigned lane=0;lane<4;++lane)if(writes.writtenVa>>(16u+lane)&1u)seed.state.acc[lane]=state.acc[lane];
++    if(writes.qWritten)seed.state.q=state.q;if(writes.pWritten)seed.state.p=state.p;if(writes.iWritten)seed.state.i=state.i;
++    if(writes.fmacWritten)seed.state.mac=state.mac;
++    if(writes.clipWritten)seed.state.clip=state.clip;
++    const uint32_t statusMask=(writes.fmacWritten?15u:0u)|(writes.qWritten?0x30u:0u)|writes.generatedSticky;
++    seed.state.status=(seed.state.status&~statusMask)|(state.status&statusMask);
++    unsigned reason=0;
++    return Vu1Batch::merge(seed,*consumer.result,actual,scratch,trace,reason,data)?producer->key:0;
++}
++struct GuardCached {uint64_t key=0,origin=0;Trace trace;};
++struct GuardCacheStats {std::atomic<uint64_t> hits{0},misses{0},recorded{0},verified{0},bad{0},pairs{0};} guardStats;
++struct GuardCache {
++    std::mutex mutex;
++    std::array<std::shared_ptr<const GuardCached>,2048> slots{};
++    size_t records=0,evict=0;
++    std::shared_ptr<const GuardCached> find(uint64_t key){
++        if(!traceCacheEnabled() || !key)return {};
++        std::lock_guard lock(mutex);const auto& p=slots[key&(slots.size()-1u)];return p && p->key==key?p:nullptr;
++    }
++    void remember(const Group& g){
++        if(!traceCacheEnabled() || !g.key || !g.trace.guardTape || !g.trace.supported || !g.trace.complete || !g.trace.idle || !g.trace.startsReset)return;
++        const auto packed=packGuardTape(*g.trace.guardTape);if(!packed)return;
++        auto entry=std::make_shared<GuardCached>();entry->key=g.key;entry->origin=g.trace.guardOrigin;entry->trace=g.trace;entry->trace.guardTape=packed;
++        if(entry->trace.packetInputs)entry->trace.packetInputs=std::make_shared<WordMask>(*entry->trace.packetInputs);
++        entry->trace.guardReplay=false;entry->trace.guardCursor=0;entry->trace.guardActive=nullptr;
++        std::lock_guard lock(mutex);const size_t index=g.key&(slots.size()-1u);
++        if(slots[index]){records-=slots[index]->trace.guardTape->recordCount;slots[index].reset();}
++        const size_t n=entry->trace.guardTape->recordCount;
++        while(records+n>1000000u){auto& old=slots[evict++&(slots.size()-1u)];if(old){records-=old->trace.guardTape->recordCount;old.reset();}}
++        records+=n;slots[index]=std::move(entry);++guardStats.recorded;
++    }
++};
++GuardCache& guardCache(){static GuardCache* cache=new GuardCache;return *cache;}
++Trace replayTrace(const GuardCached& cached,uint64_t origin){
++    Trace t=cached.trace;
++    if(t.packetInputs)t.packetInputs=std::make_shared<WordMask>(*t.packetInputs);
++    const uint64_t delta=origin-cached.origin;
++    if(t.firstMacReady!=~0ull)t.firstMacReady+=delta;
++    for(auto& clip:t.clips)if(clip.ready)clip.ready+=delta;
++    t.generatedSticky=0;t.writtenMemory.fill(0);t.blockWrites.fill(0);t.tagInputs.clear();t.packetWords.clear();
++    t.guardOrigin=origin;t.guardReplay=true;t.guardCursor=0;t.guardActive=nullptr;
++    t.staticRegChecks=t.staticRegBad=0;
++    return t;
++}
++bool guardMetadataCovers(const Trace& fast,const Trace& full){
++    if((full.lowRegisterLo&~(fast.lowRegisterLo|fast.liveLo)) || (full.lowRegisterHi&~(fast.lowRegisterHi|fast.liveHi)))return false;
++    if(fast.geometryStores!=full.geometryStores)return false;
++    for(unsigned i=0;i<64;++i)if((full.liveMemory[i]&~fast.liveMemory[i]) || (full.lowMemory[i]&~fast.lowMemory[i]) || full.writtenMemory[i]!=fast.writtenMemory[i])return false;
++    if((full.liveLo&~fast.liveLo) || (full.liveHi&~fast.liveHi) || (full.liveVa&~fast.liveVa) ||
++       full.writtenLo!=fast.writtenLo || full.writtenHi!=fast.writtenHi || full.writtenVa!=fast.writtenVa ||
++       full.aliasLo!=fast.aliasLo || full.aliasHi!=fast.aliasHi)return false;
++    for(unsigned half=0;half<2;++half){uint64_t bits=half?full.aliasHi:full.aliasLo;while(bits){const unsigned bit=std::countr_zero(bits)+half*64u;if(full.aliasWords[bit]!=fast.aliasWords[bit])return false;bits&=bits-1;}}
++    if((full.clipInputMask&~fast.clipInputMask) || full.clipWorkingShift!=fast.clipWorkingShift || full.clipCommittedShift!=fast.clipCommittedShift ||
++       full.clipCount!=fast.clipCount || full.firstMacReady!=fast.firstMacReady || full.generatedSticky!=fast.generatedSticky || full.tagInputs!=fast.tagInputs)return false;
++    for(unsigned i=0;i<full.clipCount;++i){const auto& a=full.clips[(full.clipHead+i)&7u];const auto& b=fast.clips[(fast.clipHead+i)&7u];if(a.ready!=b.ready || a.shift!=b.shift)return false;}
++    if((full.readQ && !fast.readQ) || (full.readP && !fast.readP) || (full.readI && !fast.readI) || (full.needMac && !fast.needMac) ||
++       full.qWritten!=fast.qWritten || full.pWritten!=fast.pWritten || full.iWritten!=fast.iWritten || full.fmacWritten!=fast.fmacWritten ||
++       full.statusWritten!=fast.statusWritten || full.clipWritten!=fast.clipWritten || full.positiveClipGate!=fast.positiveClipGate ||
++       full.sanitizedStatus!=fast.sanitizedStatus || full.statusSafe!=fast.statusSafe || full.supported!=fast.supported ||
++       full.complete!=fast.complete || full.idle!=fast.idle || full.startsReset!=fast.startsReset)return false;
++    return true;
++}
++
+ struct Executor {
+     std::unique_ptr<PS2Memory> memory=std::make_unique<PS2Memory>(PS2Memory::IsolatedVU::Yes);
+     std::unique_ptr<VU1Interpreter> vu=std::make_unique<VU1Interpreter>();
+@@ -835,7 +1163,10 @@ struct Executor {
+     }
+     void run(bool resume,uint32_t pc,uint32_t top,uint32_t itop) {
+         if(prepare)return;
+-        if(current && current->trace)current->trace->begin(resume,resume?vu->state().pc:pc,memory->getVU1Data());
++        if(current && current->trace){
++            auto& t=*current->trace;t.guardRun(resume,resume?vu->state().pc:pc,top,itop,active->meta.dEn,active->meta.tEn,memory->getVU1Data());
++            if(!t.guardReplay)t.begin(resume,resume?vu->state().pc:pc,memory->getVU1Data());
++        }
+         Trace* trace=current?current->trace:nullptr;
+         const bool isolateStatus=trace && kMonotoneStatus;
+         const uint32_t inheritedSticky=vu->state().status&0xfc0u;
+@@ -843,15 +1174,16 @@ struct Executor {
+         vu->state().dBitEnabled=active->meta.dEn;vu->state().tBitEnabled=active->meta.tEn;
+         if(resume)vu->resume(memory->getVU1Code(),PS2_VU1_CODE_SIZE,memory->getVU1Data(),PS2_VU1_DATA_SIZE,gs,memory.get(),top,itop);
+         else vu->execute(memory->getVU1Code(),PS2_VU1_CODE_SIZE,memory->getVU1Data(),PS2_VU1_DATA_SIZE,gs,memory.get(),pc,top,itop);
+-        if(trace)trace->advanceClip(vu->totalCycles());
++        if(trace && !trace->guardReplay)trace->advanceClip(vu->totalCycles());
+         if(isolateStatus){trace->generatedSticky|=vu->state().status&0xfc0u;vu->state().status|=inheritedSticky;}
+         ++calls;
+     }
+     void job(const Input& in) {
+         active=&in;memory->runVif1Slice(in.data.data(),uint32_t(in.data.size()),in.offset,in.meta.objectMotion.get(),in.begin,in.end);active=nullptr;
+     }
+-    void execute(Group& g) {
++    void executeBody(Group& g) {
+         PhaseClock timer;
++        g.events.clear();
+         code(*g.code);g.input->restore(*memory);g.seed.restore(*vu);calls=0;
+         drakan_object_motion::restoreCursor(g.motionInput);
+         Capture c{memory.get(),&g.events,false,true};c.trace=dependencies()?&g.trace:nullptr;CaptureScope scope(c);
+@@ -865,6 +1197,36 @@ struct Executor {
+         g.motionOutput=drakan_object_motion::captureCursor();
+         timer.mark(Phase::Worker);
+     }
++    void execute(Group& g){
++        const auto cached=guardCache().find(g.key);
++        if(cached){
++            g.trace=replayTrace(*cached,g.seed.cycle());
++            try {
++                executeBody(g);
++                if(g.trace.guardCursor!=g.trace.guardTape->words.size())throw GuardMiss{};
++                ++guardStats.hits;guardStats.pairs+=g.pairs;
++                if(!traceCacheVerify())return;
++                Group shadow(g.first,std::make_unique<MemoryState>(*g.input),*g.seed.base);
++                shadow.seed=g.seed;shadow.last=g.last;shadow.jobs=g.jobs;shadow.code=g.code;shadow.key=g.key;shadow.motionInput=g.motionInput;
++                shadow.trace.guardTape=std::make_shared<GuardTape>();shadow.trace.guardOrigin=g.seed.cycle();
++                executeBody(shadow);
++                const bool same=g.calls==shadow.calls && g.pairs==shadow.pairs && g.cycles==shadow.cycles &&
++                    *g.output==*shadow.output && *g.result==*shadow.result && g.events==shadow.events &&
++                    g.motionOutput.same(shadow.motionOutput) && guardMetadataCovers(g.trace,shadow.trace);
++                if(!same){++guardStats.bad;guardCacheFailed.store(true,std::memory_order_release);std::fprintf(stderr,"[vu-trace-cache] MISMATCH key=%llx\n",(unsigned long long)g.key);}
++                else ++guardStats.verified;
++                // Shadow mode always retains the original fully observed path.
++                g.trace=std::move(shadow.trace);g.output=std::move(shadow.output);g.result=std::move(shadow.result);g.events=std::move(shadow.events);
++                g.calls=shadow.calls;g.pairs=shadow.pairs;g.cycles=shadow.cycles;g.motionOutput=shadow.motionOutput;
++                guardCache().remember(g);
++                return;
++            }catch(const GuardMiss&){++guardStats.misses;active=nullptr;}
++        }
++        g.events.clear();g.output.reset();g.result.reset();g.trace=Trace{};
++        if(traceCacheEnabled()){g.trace.guardTape=std::make_shared<GuardTape>();g.trace.guardOrigin=g.seed.cycle();}
++        executeBody(g);guardCache().remember(g);
++    }
++
+ };
+ struct Pool {
+     std::mutex mutex;
+@@ -927,8 +1289,10 @@ struct Pool {
+         else {
+             const bool same=history[slot]->key==key;
+             const unsigned failures=same?history[slot]->failures:0,cooldown=same?history[slot]->cooldown:0;
++            const uint64_t producerKey=same?history[slot]->producerKey:0;
+             *history[slot]=History(key,++age,memory,vu);
+             history[slot]->failures=failures;history[slot]->cooldown=cooldown;
++            history[slot]->producerKey=producerKey;
+         }
+     }
+     void start() {
+@@ -1008,6 +1372,7 @@ bool captureMotion(const gsr::ObjectMotionScope& motion) {
+ void command(PS2Memory* m,uint32_t code,uint32_t offset) {
+     if(!current || current->memory!=m)return;
+     if(current->trace && reuseProfileEnabled()){auto& hash=current->trace->controlHash;hash=(hash^code)*1099511628211ull;hash=(hash^offset)*1099511628211ull;}
++    if(current->trace)current->trace->guardCommand(code,offset);
+     const unsigned op=(code>>24)&127;
+     if(op==0x14 || op==0x15){current->mscal=true;if(current->cuts){if(current->cuts->size()<512)current->makeCut(code,offset);else current->unsupported=true;}}
+     // Code changes remain ordered serial barriers. PATH3 mask transitions are
+@@ -1031,7 +1396,7 @@ bool capturePairs(uint64_t pairs) {
+ 
+ bool tracking(){return current && current->trace;}
+ bool trackVif(PS2Memory* m){return tracking() && current->memory==m;}
+-bool dispatch(VU1Interpreter& v,Vu1Step::Ctx& c){return staticRegsEnabled()?Vu1Batch::dispatch<true>(v,c,*current->trace):Vu1Batch::dispatch<false>(v,c,*current->trace);}
++bool dispatch(VU1Interpreter& v,Vu1Step::Ctx& c){if(current->trace->guardReplay)return current->trace->guardDispatch(v,c);return staticRegsEnabled()?Vu1Batch::dispatch<true>(v,c,*current->trace):Vu1Batch::dispatch<false>(v,c,*current->trace);}
+ void memoryRead(PS2Memory* m,uint32_t address,uint32_t bytes){
+     if(!trackVif(m))return;
+     for(uint32_t i=0;i<bytes;i+=4)current->trace->read((address+i)&16383u,1);
+@@ -1046,7 +1411,7 @@ void packetRead(PS2Memory* m,uint32_t address,uint32_t bytes,uint32_t offset,boo
+         // the original dependency unless its transfer-time provenance is known.
+         if(t.blockWrites[w/64u]&bit){
+             t.read(w*4u,1);
+-            if(profileEnabled()){if(!t.packetInputs)t.packetInputs=std::make_unique<WordMask>();(*t.packetInputs)[w/64u]|=bit;}
++            if(profileEnabled()){if(!t.packetInputs)t.packetInputs=std::make_shared<WordMask>();(*t.packetInputs)[w/64u]|=bit;}
+             continue;
+         }
+         t.packetWords.emplace_back(offset+i,w);
+@@ -1105,6 +1470,7 @@ bool process(std::vector<Input>& original,const std::function<void(const Input&)
+     };
+     // Preparation runs only VIF state/uploads in a private memory view. It has
+     // no geometry, GS, camera, provenance or guest-visible publication effects.
++    const unsigned fuseLimit=fusionLimit();
+     try {
+         CursorScope cursorScope;
+         auto& prep=*p.preparer;prep.code(code);MemoryState(memory).restore(*prep.memory);
+@@ -1122,7 +1488,7 @@ bool process(std::vector<Input>& original,const std::function<void(const Input&)
+                     key=signature^(previous*0x9e3779b97f4a7c15ull);if(!key)key=1;previous=signature;
+                 }
+                 const auto* h=adaptive()?p.lookup(key):nullptr;
+-                cuts.emplace_back(offset,*prep.memory,key,h && h->cooldown);
++                cuts.emplace_back(offset,*prep.memory,key,h && h->cooldown,h?h->producerKey:0);
+             };
+             {CaptureScope scope(c);prep.job(in);}
+             if(c.unsupported){++stats.unsupported;return false;}
+@@ -1135,8 +1501,22 @@ bool process(std::vector<Input>& original,const std::function<void(const Input&)
+             for(auto& cut:cuts){
+                 slice(cut.offset-in.offset);if(jobs.size()>512)return false;
+                 const auto first=jobs.size();
++                auto& open=*groups.back();
++                // A failed input prediction often reflects a real producer /
++                // consumer edge. Keep the consumer behind its producer in one
++                // isolated executor instead of bypassing it on the owner.
++                // Only the still-open, undispatched group can grow. Original
++                // VIF slices, sidecars and packet order remain unchanged.
++                if(fuseLimit>1 && cut.bypass && cut.producerKey==open.key && !open.ownerHead && !open.bypass && !open.queued && open.geometryStarts &&
++                   open.geometryStarts<fuseLimit && open.first<first){
++                    ++open.geometryStarts;++open.fused;++stats.fusedCuts;
++                    // Retest the unfused edge after its usual backoff expires.
++                    if(auto* h=p.lookup(cut.key);h && h->cooldown)--h->cooldown;
++                    continue;
++                }
+                 if(groups.back()->first==first)groups.pop_back();else {groups.back()->last=first;submit(*groups.back());}
+                 groups.push_back(std::make_unique<Group>(first,std::move(cut.memory),seed));groups.back()->motionInput=cut.motion;groups.back()->key=cut.key;groups.back()->bypass=cut.bypass;groups.back()->ownerHead=groups.size()==1;
++                groups.back()->geometryStarts=1;
+             }
+             slice(uint32_t(in.data.size()));
+             if(jobs.size()>512)return false;
+@@ -1156,19 +1536,22 @@ bool process(std::vector<Input>& original,const std::function<void(const Input&)
+     }
+     for(auto& g:groups)if(g->bypass && !g->ownerHead)if(auto* h=p.lookup(g->key);h && h->cooldown)--h->cooldown;
+     timer.mark(Phase::Queue);
++    Group* previousCollected=nullptr;
+     for(auto& ptr:groups){
+         auto& g=*ptr;
+         if(!g.queued){
+-            if(g.ownerHead)++stats.ownerHeads;else ++stats.serialBypass;
++            if(g.ownerHead){++stats.ownerHeads;stats.fusedOwnerCuts+=g.fused;}else ++stats.serialBypass;
+             if(predict() || adaptive())try{p.remember(g.key,memory,vu);}catch(...){++stats.exceptions;}
+             timer.mark(Phase::History);
+             for(size_t i=g.first;i<g.last;++i)serial(jobs[i]);
+             timer.mark(Phase::Serial);
++            previousCollected=nullptr;
+             continue;
+         }
+         {std::unique_lock lock(g.mutex);g.doneCv.wait(lock,[&]{return g.done;});}
+         timer.mark(Phase::Wait);
+         stats.nativeUvPairs+=g.trace.nativeUvPairs;stats.nativeTransformPairs+=g.trace.nativeTransformPairs;stats.nativePacketPairs+=g.trace.nativePacketPairs;stats.nativePacketBulk+=g.trace.nativePacketBulk;stats.deferredLoads+=g.trace.deferredLoads;
++        stats.aliasLowReads+=g.trace.aliasLowReads;stats.aliasCopies+=g.trace.aliasCopies;
+         stats.staticRegBlocks+=g.trace.staticRegBlocks;stats.staticRegPairs+=g.trace.staticRegPairs;stats.staticRegChecks+=g.trace.staticRegChecks;stats.staticRegBad+=g.trace.staticRegBad;
+         if(g.trace.positiveClipGate)++stats.positiveQueries;
+         bool positiveDifference=false;
+@@ -1213,18 +1596,24 @@ bool process(std::vector<Input>& original,const std::function<void(const Input&)
+             if(!valid)++stats.reasons[reason];
+         }
+         timer.mark(Phase::Validate);
++        const uint64_t producerKey=!valid && fuseLimit>1 && safeStatus && motionCompatible?
++            fusionProducer(previousCollected,g,memory,vu,*p.preparer->vu):0;
+         if(adaptive())if(auto* h=p.lookup(g.key)){
++            h->producerKey=producerKey;if(producerKey)++stats.producerHints;
+             if(valid){h->failures=0;h->cooldown=0;}
+             else {h->failures=std::min(h->failures+1,5u);h->cooldown=(32u<<h->failures)-1u;}
+         }
+         if(!valid){
++            if(g.fused)++stats.fusedRejected;
+             ++stats.rejected;if(g.error)++stats.exceptions;
+             stats.rejectedRuns+=g.calls;stats.rejectedPairs+=g.pairs;
+             for(size_t i=g.first;i<g.last;++i)serial(jobs[i]);
+             g.collected=true;timer.mark(Phase::Serial);
++            previousCollected=nullptr;
+             continue;
+         }
+         ++stats.accepted;if(positiveDifference)++stats.positiveAccepted;
++        if(g.fused){++stats.fusedAccepted;stats.fusedRuns+=g.calls;}
+         if(g.predicted)++stats.predictionAccepted;
+         stats.acceptedRuns+=g.calls;stats.acceptedPairs+=g.pairs;
+         p.profileReuse(g,memory,vu,jobs);
+@@ -1235,6 +1624,7 @@ bool process(std::vector<Input>& original,const std::function<void(const Input&)
+                 else {Event e;e.kind=Event::Forward;e.first=uint32_t(i);actual.push_back(std::move(e));}
+             }}
+             ++stats.verified;
++            if(g.fused)++stats.fusedVerified;
+             if(!(MemoryState(memory)==*g.output) || !(Vu1Batch::Checkpoint(vu)==*g.result) || actual!=g.events || !g.motionOutput.same(drakan_object_motion::captureCursor())){
+                 if(stats.bad.fetch_add(1)==0) {
+                     const auto actualState=Vu1Batch::Checkpoint(vu);
+@@ -1256,7 +1646,7 @@ bool process(std::vector<Input>& original,const std::function<void(const Input&)
+             memory.m_path3Masked=actualMasked;
+             emit(memory,g.events,jobs);
+         }
+-        g.collected=true;timer.mark(Phase::Collect);
++        g.collected=true;g.validated=stats.bad.load()==0;previousCollected=&g;timer.mark(Phase::Collect);
+     }
+     if(predict() || adaptive())p.previousSignature=previous;
+     return true;
+@@ -1280,6 +1670,8 @@ void printStats(){
+     std::fprintf(stderr,"[vu-batch] native packet traced pairs=%llu bulk calls=%llu enabled=%u\n",(unsigned long long)stats.nativePacketPairs.load(),(unsigned long long)stats.nativePacketBulk.load(),packetKernelMode());
+     std::fprintf(stderr,"[vu-batch] deferred load lanes=%llu final alias repairs=%llu enabled=%u\n",(unsigned long long)stats.deferredLoads.load(),(unsigned long long)stats.repairedLanes.load(),lazyLoadsMode());
+     std::fprintf(stderr,"[vu-batch] streaming preparation=%u\n",unsigned(streamingEnabled()));
++    std::fprintf(stderr,"[vu-batch] learned adjacent geometry producers=%llu\n",(unsigned long long)stats.producerHints.load());
++    std::fprintf(stderr,"[vu-batch] fusion limit=%u cuts=%llu accepted=%llu rejected=%llu verified=%llu geometry calls=%llu owner cuts=%llu\n",fusionLimit(),(unsigned long long)stats.fusedCuts.load(),(unsigned long long)stats.fusedAccepted.load(),(unsigned long long)stats.fusedRejected.load(),(unsigned long long)stats.fusedVerified.load(),(unsigned long long)stats.fusedRuns.load(),(unsigned long long)stats.fusedOwnerCuts.load());
+     std::fprintf(stderr,"[vu-batch] positive clipping gates=%llu relaxed accepted=%llu enabled=%u\n",(unsigned long long)stats.positiveQueries.load(),(unsigned long long)stats.positiveAccepted.load(),unsigned(predicateEnabled()));
+     std::fprintf(stderr,"[vu-batch] abandoned worker results=%llu\n",(unsigned long long)stats.abandoned.load());
+     if(profileEnabled()){
+@@ -1287,6 +1679,8 @@ void printStats(){
+         static const char* names[]={"prepare","queue","history","serial","wait","validate","collect","worker-sum"};
+         std::fprintf(stderr,"[vu-batch-profile] milliseconds:");for(size_t i=0;i<std::size(names);++i)std::fprintf(stderr," %s=%.3f",names[i],double(phaseNs[i].load())/1e6);std::fprintf(stderr,"\n");
+     }
++    std::fprintf(stderr,"[vu-trace-cache] enabled=%u shadow=%u hits=%llu guard-misses=%llu recorded=%llu verified=%llu mismatches=%llu pairs=%llu\n",unsigned(traceCacheEnabled()),unsigned(traceCacheVerify()),(unsigned long long)guardStats.hits.load(),(unsigned long long)guardStats.misses.load(),(unsigned long long)guardStats.recorded.load(),(unsigned long long)guardStats.verified.load(),(unsigned long long)guardStats.bad.load(),(unsigned long long)guardStats.pairs.load());
++    std::fprintf(stderr,"[vu-alias-copy] enabled=%u copies=%llu low-half=%llu\n",unsigned(aliasCopiesEnabled()),(unsigned long long)stats.aliasCopies.load(),(unsigned long long)stats.aliasLowReads.load());
+     std::fprintf(stderr,"[vu-batch] owner heads=%llu native UV traced pairs=%llu\n",(unsigned long long)stats.ownerHeads.load(),(unsigned long long)stats.nativeUvPairs.load());
+     std::fprintf(stderr,"[vu-batch] adaptive serial bypass=%llu enabled=%u\n",(unsigned long long)stats.serialBypass.load(),unsigned(adaptive()));
+     std::fprintf(stderr,"[vu-batch] history predictions=%llu accepted=%llu misses=%llu enabled=%u\n",(unsigned long long)stats.predictions.load(),(unsigned long long)stats.predictionAccepted.load(),(unsigned long long)stats.historyMisses.load(),unsigned(predict()));

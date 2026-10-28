@@ -1,0 +1,33 @@
+{
+  "experimental": true,
+  "promoted": false,
+  "goal_raw_fps": 144,
+  "goal_met": false,
+  "baseline_sha256": "f967f27c30209f43088ffe4491a47e5338ab353d50b5ad493c7151e9942f2367",
+  "files": {
+    "guarded-reuse": {
+      "patch": "guarded-reuse.patch",
+      "patch_sha256": "811ce1784b82a04c6b632e1fa9176d02cb634f70f4557e5dfa774f77109924b7",
+      "source_sha256": "9b71da3de78914263b197a6ee3a39e666ab5fc8fecc9551ed80ff95843a516b1",
+      "exe_sha256": "ddc67d6fcde8d6672bfed28d37991edd4f67387c207b2fe4cd6390ba3e9635d5",
+      "normalized_source_sha256": "006808c991f2c0d0eda9ad500148b09c860ff4c96a163d67988fe208fc44662a",
+      "normalized_apply_verified": true
+    },
+    "packed-producer-groups": {
+      "patch": "packed-producer-groups.patch",
+      "patch_sha256": "462d71bcf54f6def6a8840b2e432c46dc92ded7fe258e6140e438eea3527316c",
+      "source_sha256": "8ae63298c2fa14cff0d67a5991da0cd70540d56c8e300c09d55dab58e03b6721",
+      "exe_sha256": "b725bb67cdb401513460ed2edb3f54f80e870a6ad87d3149632c4f0d7d71869b",
+      "normalized_source_sha256": "3d80ec32430e2b138da17e091db670eb9da1e17385fa38cd4267af475b934418",
+      "normalized_apply_verified": true
+    },
+    "precise-bitwise-origins": {
+      "patch": "precise-bitwise-origins.patch",
+      "patch_sha256": "92d4e807991b1035ac8bb4298370cecafc93fde9b406107da4b52dfdc1f03625",
+      "source_sha256": "ef6c5c0083eef76ceec5d3c0badf55cd52b78e6cb016534d859acb318a03480f",
+      "exe_sha256": "553a3b6b141d96773c00610d74cd45bdd4ced7decb26b85161fdbf3279e348ee",
+      "normalized_source_sha256": "62d81b99d92e7c906f2a74359787aff6aabcf5b47804f7934152009ec9e979f2",
+      "normalized_apply_verified": true
+    }
+  }
+}

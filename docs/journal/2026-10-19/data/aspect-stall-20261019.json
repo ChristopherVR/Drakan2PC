@@ -1,0 +1,361 @@
+{
+  "status": "deployed",
+  "date": "2026-10-19T09:17:51.568248+10:00",
+  "executable_sha256": "50ab33c2996ab90d65874a8d6294207ebccbe0f0ba06cd8a853a938e35a90d36",
+  "previous_executable_sha256": "cd25328dbe3e3ba8d962636216667d5990636731f7ffc9c76404aa1efca3e1cb",
+  "backup_directory": "C:\\Games\\Drakan - The Ancients Gates\\decomp\\build\\release_backups\\aspect-stall-20261019-091751",
+  "change": "Hold established widescreen while the active native page remains gameplay (-1), including slow render and streaming intervals; retain frontend/menu/movie policy.",
+  "policy_checks": 4559,
+  "source_export": {
+    "patch_sha256": "c2cb8d507eb83b522bef70d040542a82eca59bcf9da6129ce152db653d59153c",
+    "sources": {
+      "ps2xRuntime/src/lib/drakan_widescreen_policy.h": "7a25d51db201e185e49f0efb9a179c86b5a9710d336c6b563801a7dbf9e56698",
+      "ps2xRuntime/tests/widescreen_policy_tests.cpp": "9f6e6d8282636b02c74e3219df6579faed3c4be54ed6c20841abadbf56ed13a9"
+    }
+  },
+  "link_inputs": {
+    "C:\\Games\\Drakan - The Ancients Gates\\decomp\\build\\dlss-water-review\\full-runtime\\ps2xRuntime\\RELEASE\\PS2_GENERATED.LIB": "b1f06ce204a465a77606e9bcbf4e31db04b9b9d791b768f2750cf55ec1035bb8",
+    "C:\\Games\\Drakan - The Ancients Gates\\decomp\\build\\dlss-water-review\\full-runtime\\ps2xRuntime\\RELEASE\\PS2_RUNTIME.LIB": "ef46272c870e25b78880bfddd9caccea13c8fc47c1e83e07ff04b717be5e42a3",
+    "C:\\Games\\Drakan - The Ancients Gates\\decomp\\build\\dlss-water-review\\full-runtime\\ps2xRuntime\\..\\DRAKAN_FMV\\RELEASE\\DRAKAN_FMV.LIB": "8c16c4b9f700e3b962cd9125664bfb4945e4232ea780053dac537fb9cced7de8",
+    "C:\\Games\\Drakan - The Ancients Gates\\decomp\\build\\dlss-water-review\\full-runtime\\ps2xRuntime\\..\\DRAKAN_UI\\RELEASE\\DRAKAN_UI.LIB": "9f38d2252a8b7cd492ffc27af20493114f75e35bc1d65b6cd3dd7560c5a4c889",
+    "C:\\Games\\Drakan - The Ancients Gates\\decomp\\build\\dlss-water-review\\full-runtime\\ps2xRuntime\\..\\DRAKAN_SPU2\\RELEASE\\DRAKAN_SPU2.LIB": "00f865c12818156cb1c18ef08d73ab8d2dd2e7044e3383a2b1513f3c44608cc7",
+    "C:\\Games\\Drakan - The Ancients Gates\\decomp\\build\\dlss-water-review\\full-runtime\\ps2xRuntime\\..\\DRAKAN_HLE\\RELEASE\\DRAKAN_HLE.LIB": "5b7272ded56de0cb462ebe409a5e75c4872ae4758cc56e5ee41e4b74dae29163",
+    "C:\\Games\\Drakan - The Ancients Gates\\decomp\\build\\dlss-water-review\\full-runtime\\ps2xRuntime\\..\\DRAKAN_INPUT\\RELEASE\\DRAKAN_INPUT.LIB": "1a07004d0f5b8368cc21ca07d929191a58d0013c956d0a436918bb9375bd7d19",
+    "C:\\Games\\Drakan - The Ancients Gates\\decomp\\build\\dlss-water-review\\full-runtime\\ps2xRuntime\\..\\DRAKAN_GSR\\RELEASE\\GSR.LIB": "7fa7a8dc45236147ba857f9b99dc5aca597fc11c53d372d1d801ecda24a69331",
+    "C:\\Games\\Drakan - The Ancients Gates\\decomp\\build\\dlss-water-review\\full-runtime\\ps2xRuntime\\..\\DRAKAN_GSR\\GSR_NR\\RELEASE\\GSR_NR.LIB": "fb0209f866f3197b0abd8ec39b879027433b6f677ec40bb9e1fac632cc85c600",
+    "C:\\GAMES\\DRAKAN - THE ANCIENTS GATES\\DECOMP\\RUNTIME\\GS\\..\\..\\TOOLS\\DLSS\\DLSS_SDK\\LIB\\WINDOWS_X86_64\\X64\\NVSDK_NGX_D.LIB": "bc43df9ec032004fde681d3e3afd01cde239e03a0125b822e88674c84287f99c",
+    "C:\\Games\\Drakan - The Ancients Gates\\decomp\\build\\dlss-water-review\\full-runtime\\ps2xRuntime\\..\\DRAKAN_SETTINGS\\RELEASE\\DRAKAN_SETTINGS_D3D11.LIB": "f253f15632501e8eafd351762cac93756057492940d014cc78cbbc49d63b9481",
+    "C:\\Games\\Drakan - The Ancients Gates\\decomp\\build\\dlss-water-review\\full-runtime\\ps2xRuntime\\..\\DRAKAN_SETTINGS\\RELEASE\\DRAKAN_SETTINGS_UI.LIB": "f4eff41a838753074c9274c7365f427de6180a55782e3a16b4282629b3a0118d",
+    "C:\\Games\\Drakan - The Ancients Gates\\decomp\\build\\dlss-water-review\\full-runtime\\ps2xRuntime\\..\\DRAKAN_SETTINGS\\RELEASE\\DRAKAN_SETTINGS_CORE.LIB": "9c0fe503473f8ec1acb3a469ce86f03094d0cdb13e27952a9f3923f0c7ef21f3",
+    "C:\\Games\\Drakan - The Ancients Gates\\decomp\\build\\dlss-water-review\\full-runtime\\ps2xRuntime\\..\\DRAKAN_SETTINGS\\RELEASE\\DRAKAN_IMGUI.LIB": "cf41f91509d7af19f4584fc383b61f78c7878d1853bb493533b4af66424363c9",
+    "C:\\Games\\Drakan - The Ancients Gates\\decomp\\build\\dlss-water-review\\full-runtime\\ps2xRuntime\\..\\_DEPS\\RAYLIB-BUILD\\RAYLIB\\RELEASE\\RAYLIB.LIB": "2f31049013fcd034cfb8b5436c6273944d6f364d0a2d6ea948dcf20b7b219ddd",
+    "C:\\Games\\Drakan - The Ancients Gates\\decomp\\build\\dlss-water-review\\full-runtime\\ps2xRuntime\\..\\THIRDPARTY\\FFMPEG-PREFIX\\SRC\\FFMPEG_EXTERNAL\\BIN\\AVCODEC.LIB": "9284e8f29c7adaebbe46c5ec4c4c75616bd6d1f2945864e9fad73b61e8aab0cb",
+    "C:\\Games\\Drakan - The Ancients Gates\\decomp\\build\\dlss-water-review\\full-runtime\\ps2xRuntime\\..\\THIRDPARTY\\FFMPEG-PREFIX\\SRC\\FFMPEG_EXTERNAL\\BIN\\AVFORMAT.LIB": "5b7872f4c9a9436c6fe4f37ea1a97e2f55eccb43ef691a9f7e9e95454cf57525",
+    "C:\\Games\\Drakan - The Ancients Gates\\decomp\\build\\dlss-water-review\\full-runtime\\ps2xRuntime\\..\\THIRDPARTY\\FFMPEG-PREFIX\\SRC\\FFMPEG_EXTERNAL\\BIN\\AVUTIL.LIB": "6407c01f6d54ff1fe05e1f14e0969966cb5e7f5f5efe3a01ee40f350294ecf60",
+    "C:\\Games\\Drakan - The Ancients Gates\\decomp\\build\\dlss-water-review\\full-runtime\\ps2xRuntime\\..\\THIRDPARTY\\FFMPEG-PREFIX\\SRC\\FFMPEG_EXTERNAL\\BIN\\SWRESAMPLE.LIB": "4e50d5bb4cdcef9e00a64285b256351b409a919c6ea6a2318ae95111f941cfaf",
+    "C:\\Games\\Drakan - The Ancients Gates\\decomp\\build\\dlss-water-review\\full-runtime\\ps2xRuntime\\..\\THIRDPARTY\\FFMPEG-PREFIX\\SRC\\FFMPEG_EXTERNAL\\BIN\\SWSCALE.LIB": "29a5ee898809c31341c04908c560365debba027508f6fef43c961a3c01cb8446",
+    "C:\\Games\\Drakan - The Ancients Gates\\decomp\\build\\dlss-water-review\\full-runtime\\ps2xRuntime\\..\\PS2XIOP\\RELEASE\\PS2_IOP.LIB": "eca45266f37f8d84bccbec76b63d9c8db5406382d8fb3b2c6727f5be84b582c7",
+    "C:\\Games\\Drakan - The Ancients Gates\\decomp\\build\\dlss-water-review\\full-runtime\\ps2xRuntime\\PS2ENTRYRUNNER.DIR\\RELEASE\\DRAKAN.RES": "1832ec484cb59bb6c5f9371c42004c96d8c4545a24ba7ebe26c166f371fd3358",
+    "C:\\Games\\Drakan - The Ancients Gates\\decomp\\build\\dlss-water-review\\full-runtime\\ps2xRuntime\\PS2ENTRYRUNNER.DIR\\RELEASE\\CMAKE_PCH.OBJ": "e0cbdf6494429fb1030cc62129a458990892148384232577582a09ec51f0d396",
+    "C:\\Games\\Drakan - The Ancients Gates\\decomp\\build\\dlss-water-review\\full-runtime\\ps2xRuntime\\PS2ENTRYRUNNER.DIR\\RELEASE\\UNITY_0_CXX.OBJ": "ad8681c1c869328e3a7649bcf5253c86c4dab64777eb43e8fda5db4b543c9e8c"
+  },
+  "validation_runs": {
+    "checked-all": {
+      "name": "checked-all",
+      "sha256": "50ab33c2996ab90d65874a8d6294207ebccbe0f0ba06cd8a853a938e35a90d36",
+      "exit_code": 0,
+      "fps_tail5": 16.915474945231235,
+      "cadence_tail5": [
+        [
+          2.022928,
+          33
+        ],
+        [
+          2.037077,
+          34
+        ],
+        [
+          2.005588,
+          34
+        ],
+        [
+          2.051613,
+          37
+        ],
+        [
+          2.050998,
+          34
+        ]
+      ],
+      "aspect": [
+        "[ws] vsync=0 world=0 screen=-1 worldAge=0",
+        "[ws] push: wide=0 projection aspect 1.333, present aspect 1.333, hud scale 1.000 size 1.000",
+        "[ws] vsync=3 world=1 screen=31 worldAge=1",
+        "[ws] push: wide=1 projection aspect 1.778, present aspect 1.778, hud scale 0.750 size 0.620",
+        "[ws] vsync=122 world=1 screen=30 worldAge=0",
+        "[ws] vsync=260 world=0 screen=8 worldAge=0",
+        "[ws] push: wide=1 projection aspect 1.333, present aspect 1.778, hud scale 0.750 size 1.000",
+        "[ws] vsync=461 world=1 screen=4 worldAge=0",
+        "[ws] vsync=696 world=0 screen=14 worldAge=0",
+        "[ws] vsync=1632 world=1 screen=-1 worldAge=0",
+        "[ws] push: wide=1 projection aspect 1.778, present aspect 1.778, hud scale 0.750 size 0.620"
+      ],
+      "profile_tail5": [
+        "[gsr-profile] 2.009s root=1771.34ms readbackCopy=2.25MiB syncUpload=144.00MiB; calls/inclusive_ms/exclusive_ms/max_ms: draw=6410/1697.58/559.81/29.04 resolveTexture=5978/255.93/85.38/7.71 syncRT=6482/38.61/38.61/5.03 readbackRT=36/61.71/0.40/8.43 readbackMap=36/55.88/55.88/8.24 readbackPackUnmap=36/5.43/5.43/0.31 temporalResolve=498/839.96/839.96/28.85 presentLatched=36/14.65/8.88/0.49 presentCall=36/5.78/5.78/0.21 pumpUp=36/0.01/0.01/0.00 snapshot=108/0.23/0.23/0.01 latchDisplay=36/0.24/0.24/0.01 endFrame=36/0.20/0.19/0.03 textureCoherenceFlush=9902/0.81/0.81/0.00 textureStampCheck=2412/0.54/0.54/0.00 textureDecode=3960/52.58/52.58/0.42 textureUpscale=1512/54.69/54.69/7.55 textureCreate=1512/61.94/61.94/0.56",
+        "[gsr-profile] 2.066s root=1853.65ms readbackCopy=2.12MiB syncUpload=136.00MiB; calls/inclusive_ms/exclusive_ms/max_ms: draw=6053/1751.72/439.18/149.43 resolveTexture=5645/238.33/72.35/5.53 syncRT=6121/36.10/36.10/5.38 readbackRT=34/89.94/5.83/12.70 readbackMap=34/79.07/79.07/12.52 readbackPackUnmap=34/5.04/5.04/0.19 temporalResolve=434/1034.90/1034.90/149.22 presentLatched=34/14.55/8.62/0.61 presentCall=34/5.93/5.93/0.35 pumpUp=34/0.01/0.01/0.00 snapshot=102/0.22/0.22/0.01 latchDisplay=34/0.23/0.23/0.01 endFrame=34/0.20/0.19/0.03 textureCoherenceFlush=9351/0.80/0.80/0.03 textureStampCheck=2278/0.50/0.50/0.00 textureDecode=3740/50.46/50.46/0.47 textureUpscale=1428/46.44/46.44/2.45 textureCreate=1428/67.78/67.78/5.37",
+        "[gsr-profile] 2.001s root=1653.29ms readbackCopy=2.12MiB syncUpload=136.00MiB; calls/inclusive_ms/exclusive_ms/max_ms: draw=6214/1561.50/437.63/77.19 resolveTexture=5797/238.49/79.32/5.42 syncRT=6283/39.17/39.17/9.17 readbackRT=34/79.11/0.41/7.19 readbackMap=34/73.90/73.90/7.03 readbackPackUnmap=34/4.80/4.80/0.18 temporalResolve=382/843.23/843.23/77.00 presentLatched=35/14.98/8.95/0.53 presentCall=35/6.03/6.03/0.24 pumpUp=35/0.01/0.01/0.00 snapshot=103/0.24/0.24/0.00 latchDisplay=35/0.23/0.23/0.01 endFrame=35/0.19/0.18/0.02 textureCoherenceFlush=9587/0.75/0.75/0.01 textureStampCheck=2335/0.50/0.50/0.01 textureDecode=3824/47.94/47.94/0.35 textureUpscale=1460/44.72/44.72/0.47 textureCreate=1460/65.27/65.27/3.11",
+        "[gsr-profile] 2.001s root=1768.65ms readbackCopy=2.25MiB syncUpload=144.00MiB; calls/inclusive_ms/exclusive_ms/max_ms: draw=6408/1667.20/501.13/40.04 resolveTexture=5976/262.86/79.44/12.22 syncRT=6480/38.45/38.45/4.02 readbackRT=36/87.40/0.45/6.64 readbackMap=36/81.36/81.36/6.45 readbackPackUnmap=36/5.59/5.59/0.45 temporalResolve=382/861.86/861.86/39.80 presentLatched=36/16.19/9.45/0.63 presentCall=36/6.74/6.74/0.38 pumpUp=36/0.01/0.01/0.00 snapshot=108/0.25/0.25/0.01 latchDisplay=36/0.25/0.25/0.01 endFrame=36/0.26/0.25/0.06 textureCoherenceFlush=9900/0.82/0.82/0.00 textureStampCheck=2412/0.52/0.52/0.01 textureDecode=3960/58.27/58.27/5.05 textureUpscale=1512/57.53/57.53/12.03 textureCreate=1512/66.28/66.28/2.26",
+        "[gsr-profile] 2.000s root=1777.67ms readbackCopy=2.19MiB syncUpload=140.00MiB; calls/inclusive_ms/exclusive_ms/max_ms: draw=6067/1666.60/406.78/144.84 resolveTexture=5656/236.91/69.90/6.81 syncRT=6136/31.31/31.31/1.00 readbackRT=35/98.95/0.41/6.76 readbackMap=35/93.50/93.50/6.61 readbackPackUnmap=35/5.03/5.03/0.18 temporalResolve=292/988.71/988.71/144.58 presentLatched=34/14.08/8.65/0.55 presentCall=34/5.43/5.43/0.20 pumpUp=34/0.01/0.01/0.00 snapshot=104/0.22/0.22/0.00 latchDisplay=34/0.42/0.42/0.19 endFrame=34/0.28/0.27/0.08 textureCoherenceFlush=9386/0.69/0.69/0.00 textureStampCheck=2287/0.48/0.48/0.00 textureDecode=3765/53.34/53.34/4.70 textureUpscale=1437/53.92/53.92/6.74 textureCreate=1437/58.58/58.58/0.42"
+      ],
+      "script_finished": true,
+      "other_game_pids": [
+        67100
+      ]
+    },
+    "release-visual": {
+      "name": "release-visual",
+      "sha256": "50ab33c2996ab90d65874a8d6294207ebccbe0f0ba06cd8a853a938e35a90d36",
+      "exit_code": 0,
+      "fps_tail5": 31.493667395972853,
+      "cadence_tail5": [
+        [
+          2.021451,
+          67
+        ],
+        [
+          2.006317,
+          76
+        ],
+        [
+          2.034809,
+          59
+        ],
+        [
+          2.007575,
+          58
+        ],
+        [
+          2.027116,
+          58
+        ]
+      ],
+      "aspect": [
+        "[ws] vsync=0 world=0 screen=-1 worldAge=0",
+        "[ws] push: wide=0 projection aspect 1.333, present aspect 1.333, hud scale 1.000 size 1.000",
+        "[ws] vsync=2 world=1 screen=31 worldAge=1",
+        "[ws] push: wide=1 projection aspe[MC] Sync cmd=2 result=1ct 1.778, present[MC] Sync cmd=3 result=0 aspect 1.778, hud scale 0.750 size 0.620",
+        "[ws] vsync=121 world=1 screen=30 worldAge=0",
+        "[ws] vsync=228 world=0 screen=8 worldAge=0",
+        "[ws] push: wide=1 projection aspect 1.333, present aspect 1.778, hud scale 0.750 size 1.000",
+        "[ws] vsync=466 world=1 screen=4 worldAge=0",
+        "[ws] vsync=706 world=0 screen=14 worldAge=0",
+        "[ws] vsync=1163 world=1 screen=-1 worldAge=1",
+        "[ws] push: wide=1 projection aspect 1.778, present aspect 1.778, hud scale 0.750 size 0.620",
+        "[ws] vsync=1785 world=1 screen=23 worldAge=1",
+        "[ws] push: wide=1 projection aspect 1.778, present aspect 1.778, hud scale 0.750 size 1.000",
+        "[ws] vsync=2017 world=1 screen=-1 worldAge=1",
+        "[ws] push: wide=1 projection aspect 1.778, present aspect 1.778, hud scale 0.750 size 0.620"
+      ],
+      "profile_tail5": [
+        "[gsr-profile] 2.005s root=1797.03ms readbackCopy=4.69MiB syncUpload=93.50MiB; calls/inclusive_ms/exclusive_ms/max_ms: draw=11509/1702.06/300.61/153.46 resolveTexture=11029/331.42/106.96/5.48 syncRT=11629/18.37/18.37/0.46 readbackRT=60/64.85/0.54/3.10 readbackMap=60/58.69/58.69/2.10 readbackPackUnmap=60/5.62/5.62/0.98 temporalResolve=474/1049.11/1049.11/153.30 presentLatched=60/17.68/12.24/0.47 presentCall=60/5.43/5.43/0.15 pumpUp=61/17.74/17.74/3.66 snapshot=180/0.32/0.32/0.00 latchDisplay=60/0.33/0.33/0.02 endFrame=60/14.34/0.26/1.23 textureCoherenceFlush=17445/0.86/0.86/0.00 textureStampCheck=3906/0.62/0.62/0.00 textureDecode=6491/58.59/58.59/0.09 textureUpscale=2411/83.40/79.73/5.37 textureCreate=2411/81.00/81.00/0.24",
+        "[gsr-profile] 2.000s root=1715.83ms readbackCopy=4.75MiB syncUpload=0.00MiB; calls/inclusive_ms/exclusive_ms/max_ms: draw=14699/1604.57/233.59/14.73 resolveTexture=14086/430.83/142.14/0.52 syncRT=14852/5.97/5.97/0.05 readbackRT=76/66.68/0.85/1.49 readbackMap=76/59.23/59.23/1.41 readbackPackUnmap=76/6.61/6.61/0.18 temporalResolve=314/933.84/933.84/14.62 presentLatched=77/24.27/16.86/0.59 presentCall=77/7.41/7.41/0.15 pumpUp=77/19.57/19.57/0.95 snapshot=229/0.34/0.34/0.00 latchDisplay=77/0.41/0.41/0.02 endFrame=77/19.89/0.32/0.96 textureCoherenceFlush=22314/1.18/1.18/0.00 textureStampCheck=4847/0.77/0.77/0.00 textureDecode=8304/76.43/76.43/0.10 textureUpscale=3076/103.77/103.77/0.21 textureCreate=3076/106.53/106.53/0.11",
+        "[gsr-profile] 2.000s root=1779.08ms readbackCopy=4.06MiB syncUpload=29.75MiB; calls/inclusive_ms/exclusive_ms/max_ms: draw=11989/1535.58/294.97/21.10 resolveTexture=11477/364.42/120.36/0.51 syncRT=12117/10.29/10.29/0.85 readbackRT=65/59.18/0.69/1.50 readbackMap=65/52.23/52.23/1.41 readbackPackUnmap=65/6.27/6.27/0.15 temporalResolve=256/1030.68/1030.68/95.25 presentLatched=64/18.56/12.66/0.43 presentCall=64/5.90/5.90/0.16 pumpUp=64/0.01/0.01/0.00 snapshot=192/0.32/0.32/0.01 latchDisplay=64/0.37/0.37/0.01 endFrame=64/0.29/0.28/0.02 textureCoherenceFlush=18196/0.98/0.98/0.01 textureStampCheck=3976/0.69/0.69/0.01 textureDecode=6785/67.57/67.57/0.24 textureUpscale=2478/83.75/83.75/0.16 textureCreate=2478/91.06/91.06/0.24",
+        "[gsr-profile] 2.008s root=1831.46ms readbackCopy=3.62MiB syncUpload=101.50MiB; calls/inclusive_ms/exclusive_ms/max_ms: draw=10654/1753.91/386.33/21.67 resolveTexture=10195/295.78/96.11/0.45 syncRT=10769/17.91/17.91/0.34 readbackRT=58/57.86/0.50/1.41 readbackMap=58/52.61/52.61/1.28 readbackPackUnmap=58/4.75/4.75/0.14 temporalResolve=188/1050.71/1050.71/21.50 presentLatched=57/22.04/17.18/6.34 presentCall=57/4.86/4.86/0.13 pumpUp=57/0.01/0.01/0.00 snapshot=173/0.31/0.31/0.00 latchDisplay=57/0.29/0.29/0.01 endFrame=57/0.24/0.23/0.02 textureCoherenceFlush=16253/0.77/0.77/0.04 textureStampCheck=3614/0.61/0.61/0.00 textureDecode=6116/51.66/51.66/0.09 textureUpscale=2187/71.12/71.12/0.13 textureCreate=2187/75.49/75.49/0.23",
+        "[gsr-profile] 2.000s root=1808.21ms readbackCopy=3.56MiB syncUpload=99.75MiB; calls/inclusive_ms/exclusive_ms/max_ms: draw=10718/1731.78/392.23/19.84 resolveTexture=10257/300.70/98.55/0.48 syncRT=10833/18.36/18.36/0.43 readbackRT=57/57.68/0.49/1.79 readbackMap=57/52.71/52.71/1.71 readbackPackUnmap=57/4.48/4.48/0.14 temporalResolve=171/1017.34/1017.34/19.65 presentLatched=58/20.99/16.04/5.03 presentCall=58/4.94/4.94/0.10 pumpUp=58/0.01/0.01/0.00 snapshot=172/0.32/0.32/0.01 latchDisplay=58/0.30/0.29/0.01 endFrame=58/0.30/0.29/0.04 textureCoherenceFlush=16274/0.74/0.74/0.00 textureStampCheck=3626/0.64/0.64/0.03 textureDecode=6074/52.90/52.90/0.10 textureUpscale=2183/71.57/71.57/0.21 textureCreate=2183/76.29/76.29/0.20"
+      ],
+      "script_finished": true,
+      "other_game_pids": []
+    },
+    "checked-profile": {
+      "name": "checked-profile",
+      "sha256": "50ab33c2996ab90d65874a8d6294207ebccbe0f0ba06cd8a853a938e35a90d36",
+      "exit_code": 0,
+      "fps_tail5": 42.36318555642105,
+      "cadence_tail5": [
+        [
+          2.007817,
+          78
+        ],
+        [
+          2.0228,
+          86
+        ],
+        [
+          2.003687,
+          87
+        ],
+        [
+          2.000707,
+          87
+        ],
+        [
+          2.02089,
+          88
+        ]
+      ],
+      "aspect": [
+        "[ws] vsync=0 world=0 screen=-1 worldAge=0",
+        "[ws] push: wide=0 projection aspect 1.333, present aspect 1.333, hud scale 1.000 size 1.000",
+        "[ws] vsync=2 world=1 screen=31 worldAge=0",
+        "[ws] push: wide=1 projection aspect 1.778, present aspect 1.778, hud scale 0.750 size 0.620",
+        "[ws] vsync=122 world=1 screen=30 worldAge=0",
+        "[ws] vsync=260 world=0 screen=8 worldAge=0",
+        "[ws] push: wide=1 projection aspect 1.333, present aspect 1.778, hud scale 0.750 size 1.000",
+        "[ws] vsync=462 world=1 screen=4 worldAge=0",
+        "[ws] vsync=[MC] Sync cmd=5 result=409701 wor6ld=0 screen=14 w[MC] Sync cmd=4 result=149504orldAge=0",
+        "[ws] vsync=1490 world=1 screen=-1 worldAge=0",
+        "[ws] push: wide=1 projection aspect 1.778, present aspect 1.778, hud scale 0.750 size 0.620"
+      ],
+      "profile_tail5": [
+        "[gsr-profile] 2.001s root=952.19ms readbackCopy=4.81MiB syncUpload=308.00MiB; calls/inclusive_ms/exclusive_ms/max_ms: draw=13890/828.12/362.74/4.57 resolveTexture=13043/377.20/46.79/0.44 syncRT=14044/63.73/63.73/0.98 readbackRT=77/100.07/0.86/1.58 readbackMap=77/88.58/88.58/1.44 readbackPackUnmap=77/10.62/10.62/0.19 temporalResolve=360/19.06/19.06/0.32 presentLatched=77/28.08/19.94/0.70 presentCall=77/8.14/8.14/0.30 pumpUp=77/0.01/0.01/0.00 snapshot=231/0.47/0.47/0.01 latchDisplay=77/0.49/0.49/0.03 endFrame=77/0.36/0.35/0.02 textureCoherenceFlush=21555/1.45/1.45/0.02 textureStampCheck=5251/1.00/1.00/0.00 textureDecode=8589/97.01/97.01/0.22 textureUpscale=3324/96.32/96.32/0.28 textureCreate=3324/134.62/134.62/0.15",
+        "[gsr-profile] 2.001s root=983.71ms readbackCopy=5.25MiB syncUpload=336.00MiB; calls/inclusive_ms/exclusive_ms/max_ms: draw=15127/837.24/392.87/5.52 resolveTexture=14203/359.83/40.92/0.46 syncRT=15295/59.47/59.47/1.10 readbackRT=84/117.35/0.88/4.34 readbackMap=84/105.49/105.49/4.16 readbackPackUnmap=84/10.98/10.98/0.18 temporalResolve=336/19.60/19.60/0.43 presentLatched=84/33.08/24.57/5.63 presentCall=84/8.51/8.51/0.19 pumpUp=84/0.01/0.01/0.00 snapshot=252/0.48/0.48/0.01 latchDisplay=84/0.50/0.50/0.01 endFrame=84/0.55/0.54/0.18 textureCoherenceFlush=23449/1.29/1.29/0.01 textureStampCheck=5714/0.97/0.97/0.01 textureDecode=9330/91.07/91.07/0.28 textureUpscale=3614/101.06/101.06/0.27 textureCreate=3614/124.52/124.52/0.26",
+        "[gsr-profile] 2.000s root=953.36ms readbackCopy=5.44MiB syncUpload=352.00MiB; calls/inclusive_ms/exclusive_ms/max_ms: draw=15675/804.24/358.66/1.19 resolveTexture=14716/361.27/40.35/0.55 syncRT=15849/59.19/59.19/0.85 readbackRT=87/116.27/0.90/8.45 readbackMap=87/104.87/104.87/8.30 readbackPackUnmap=87/10.50/10.50/0.18 temporalResolve=348/19.50/19.50/0.28 presentLatched=87/37.11/28.16/5.58 presentCall=87/8.95/8.95/0.13 pumpUp=87/0.01/0.01/0.00 snapshot=263/0.50/0.50/0.01 latchDisplay=87/0.49/0.49/0.01 endFrame=87/0.37/0.36/0.01 textureCoherenceFlush=24310/1.29/1.29/0.00 textureStampCheck=5924/1.02/1.02/0.00 textureDecode=9681/90.34/90.34/0.09 textureUpscale=3749/103.37/103.37/0.21 textureCreate=3749/124.90/124.90/0.44",
+        "[gsr-profile] 2.002s root=940.10ms readbackCopy=5.44MiB syncUpload=344.00MiB; calls/inclusive_ms/exclusive_ms/max_ms: draw=15654/801.20/355.54/1.24 resolveTexture=14699/360.89/40.16/0.36 syncRT=15828/58.78/58.78/0.87 readbackRT=87/113.23/0.91/4.92 readbackMap=87/101.67/101.67/4.76 readbackPackUnmap=87/10.65/10.65/0.16 temporalResolve=348/20.35/20.35/0.42 presentLatched=87/29.94/20.76/0.55 presentCall=87/9.18/9.18/0.27 pumpUp=87/0.01/0.01/0.00 snapshot=259/0.50/0.50/0.00 latchDisplay=87/0.51/0.51/0.01 endFrame=87/0.38/0.36/0.01 textureCoherenceFlush=24245/1.29/1.29/0.00 textureStampCheck=5908/1.02/1.02/0.00 textureDecode=9633/89.88/89.88/0.13 textureUpscale=3733/102.47/102.47/0.15 textureCreate=3733/126.07/126.07/0.22",
+        "[gsr-profile] 2.000s root=953.69ms readbackCopy=5.50MiB syncUpload=352.00MiB; calls/inclusive_ms/exclusive_ms/max_ms: draw=15677/817.71/363.46/1.22 resolveTexture=14718/367.93/41.31/0.49 syncRT=15852/60.74/60.74/1.06 readbackRT=88/110.53/0.92/1.62 readbackMap=88/98.81/98.81/1.51 readbackPackUnmap=88/10.80/10.80/0.17 temporalResolve=282/20.05/20.05/0.30 presentLatched=87/29.59/20.48/0.59 presentCall=87/9.11/9.11/0.36 pumpUp=87/0.01/0.01/0.00 snapshot=263/0.50/0.50/0.01 latchDisplay=87/0.52/0.51/0.02 endFrame=87/0.38/0.37/0.02 textureCoherenceFlush=24312/1.30/1.30/0.00 textureStampCheck=5925/0.99/0.99/0.00 textureDecode=9682/92.76/92.76/0.29 textureUpscale=3750/103.88/103.88/0.21 textureCreate=3750/127.68/127.68/0.39"
+      ],
+      "script_finished": true,
+      "other_game_pids": []
+    }
+  },
+  "performance_diagnostic_runs": {
+    "baseline-all": {
+      "name": "baseline-all",
+      "sha256": "cd25328dbe3e3ba8d962636216667d5990636731f7ffc9c76404aa1efca3e1cb",
+      "exit_code": 0,
+      "fps_tail5": 26.64617165105844,
+      "cadence_tail5": [
+        [
+          2.02616,
+          53
+        ],
+        [
+          2.006116,
+          54
+        ],
+        [
+          2.000491,
+          53
+        ],
+        [
+          2.018063,
+          53
+        ],
+        [
+          2.0069,
+          55
+        ]
+      ],
+      "aspect": [
+        "[ws] vsync=0 world=0 screen=-1 worldAge=0",
+        "[ws] push: wide=0 projection aspect 1.333, present aspect 1.333, hud scale 1.000 size 1.000",
+        "[ws] vsync=0 world=0 screen=28 worldAge=0",
+        "[ws] push: wide=1 projection aspect 1.333, present aspect 1.778, hud scale 0.750 size 1.000",
+        "[ws] vsync=1 world=1 screen=31 worldAge=0",
+        "[ws] push: wide=1 projection aspect 1.778, present aspect 1.778, hud scale 0.750 size 0.620",
+        "[ws] vsync=121 world=1 screen=30 worldAge=0",
+        "[ws] vsync=226 world=0 screen=8 worldAge=0",
+        "[ws] push: wide=1 projection aspect 1.333, present aspect 1.778, hud scale 0.750 size 1.000",
+        "[ws] vsync=465 world=1 screen=4 worldAge=0",
+        "[ws] vsync=705 world=0 screen=14 worldAge=0",
+        "[ws] vsync=1142 world=1 screen=-1 worldAge=0",
+        "[ws] push: wide=1 projection aspect 1.778, present aspect 1.778, hud scale 0.750 size 0.620"
+      ],
+      "profile_tail5": [
+        "[gsr-profile] 2.000s root=1805.08ms readbackCopy=3.25MiB syncUpload=91.00MiB; calls/inclusive_ms/exclusive_ms/max_ms: draw=9231/1744.93/427.45/24.34 resolveTexture=8658/254.25/85.59/0.53 syncRT=9336/15.69/15.69/0.35 readbackRT=52/46.65/0.43/2.26 readbackMap=52/42.15/42.15/2.19 readbackPackUnmap=52/4.06/4.06/0.14 temporalResolve=293/1045.03/1045.03/24.21 presentLatched=53/15.30/9.28/0.39 presentCall=53/6.02/6.02/0.17 pumpUp=53/0.01/0.01/0.00 snapshot=157/0.25/0.25/0.00 latchDisplay=53/0.25/0.25/0.01 endFrame=53/0.22/0.21/0.03 textureCoherenceFlush=14148/0.69/0.69/0.01 textureStampCheck=3513/0.53/0.53/0.00 textureDecode=5542/43.79/43.79/0.09 textureUpscale=2199/58.48/58.48/0.16 textureCreate=2199/65.16/65.16/0.36",
+        "[gsr-profile] 2.000s root=1809.83ms readbackCopy=3.38MiB syncUpload=94.50MiB; calls/inclusive_ms/exclusive_ms/max_ms: draw=9533/1747.61/419.91/21.49 resolveTexture=8939/254.35/87.87/0.52 syncRT=9641/15.60/15.60/0.33 readbackRT=54/48.66/0.41/1.53 readbackMap=54/44.33/44.33/1.39 readbackPackUnmap=54/3.91/3.91/0.13 temporalResolve=270/1055.26/1055.26/21.35 presentLatched=54/15.32/9.36/0.41 presentCall=54/5.96/5.96/0.16 pumpUp=54/0.01/0.01/0.00 snapshot=162/0.25/0.25/0.01 latchDisplay=54/0.25/0.25/0.01 endFrame=54/0.23/0.22/0.06 textureCoherenceFlush=14588/0.63/0.63/0.00 textureStampCheck=3602/0.50/0.50/0.00 textureDecode=5703/42.24/42.24/0.15 textureUpscale=2262/59.81/59.81/0.34 textureCreate=2262/63.29/63.29/0.09",
+        "[gsr-profile] 2.000s root=1807.27ms readbackCopy=3.31MiB syncUpload=92.75MiB; calls/inclusive_ms/exclusive_ms/max_ms: draw=9497/1741.29/424.94/21.68 resolveTexture=8910/254.41/87.23/0.39 syncRT=9603/15.66/15.66/0.32 readbackRT=53/53.28/0.42/1.46 readbackMap=53/49.07/49.07/1.34 readbackPackUnmap=53/3.79/3.79/0.15 temporalResolve=265/1043.81/1043.81/21.55 presentLatched=53/14.49/8.94/0.32 presentCall=53/5.55/5.55/0.13 pumpUp=53/0.01/0.01/0.00 snapshot=159/0.25/0.25/0.01 latchDisplay=53/0.24/0.24/0.01 endFrame=53/0.19/0.18/0.01 textureCoherenceFlush=14498/0.63/0.63/0.00 textureStampCheck=3573/0.52/0.52/0.00 textureDecode=5641/43.07/43.07/0.07 textureUpscale=2234/59.26/59.26/0.23 textureCreate=2234/63.70/63.70/0.14",
+        "[gsr-profile] 2.016s root=1818.78ms readbackCopy=3.31MiB syncUpload=92.75MiB; calls/inclusive_ms/exclusive_ms/max_ms: draw=9293/1754.44/423.28/23.17 resolveTexture=8715/258.99/89.54/2.38 syncRT=9398/16.15/16.15/0.43 readbackRT=53/51.78/0.41/2.24 readbackMap=53/47.50/47.50/2.10 readbackPackUnmap=53/3.87/3.87/0.13 temporalResolve=224/1053.58/1053.58/23.01 presentLatched=52/14.33/8.93/0.37 presentCall=52/5.40/5.40/0.18 pumpUp=52/0.01/0.01/0.00 snapshot=158/0.25/0.25/0.01 latchDisplay=52/0.24/0.24/0.01 endFrame=52/0.19/0.18/0.01 textureCoherenceFlush=14248/0.65/0.65/0.00 textureStampCheck=3516/0.50/0.50/0.00 textureDecode=5586/44.77/44.77/1.16 textureUpscale=2209/58.93/58.93/0.28 textureCreate=2209/64.60/64.60/0.47",
+        "[gsr-profile] 2.010s root=1804.87ms readbackCopy=3.44MiB syncUpload=96.25MiB; calls/inclusive_ms/exclusive_ms/max_ms: draw=9681/1746.35/422.87/21.29 resolveTexture=9076/256.82/88.65/0.44 syncRT=9791/15.50/15.50/0.31 readbackRT=55/46.85/0.40/1.32 readbackMap=55/42.68/42.68/1.25 readbackPackUnmap=55/3.77/3.77/0.12 temporalResolve=220/1048.67/1048.67/21.16 presentLatched=55/13.49/9.26/0.31 presentCall=55/4.24/4.24/0.13 pumpUp=55/0.01/0.01/0.00 snapshot=165/0.24/0.24/0.00 latchDisplay=55/0.25/0.24/0.01 endFrame=55/0.19/0.18/0.01 textureCoherenceFlush=14851/0.62/0.62/0.00 textureStampCheck=3685/0.52/0.52/0.00 textureDecode=5830/42.49/42.49/0.08 textureUpscale=2310/60.68/60.68/0.29 textureCreate=2310/63.86/63.86/0.16"
+      ],
+      "script_finished": true
+    },
+    "baseline-water": {
+      "name": "baseline-water",
+      "sha256": "cd25328dbe3e3ba8d962636216667d5990636731f7ffc9c76404aa1efca3e1cb",
+      "exit_code": 0,
+      "fps_tail5": 31.980327132923946,
+      "cadence_tail5": [
+        [
+          2.010597,
+          65
+        ],
+        [
+          2.004032,
+          63
+        ],
+        [
+          2.01216,
+          64
+        ],
+        [
+          2.018657,
+          65
+        ],
+        [
+          2.023244,
+          65
+        ]
+      ],
+      "aspect": [
+        "[ws] vsync=0 world=0 screen=-1 worldAge=0",
+        "[ws] push: wide=0 projection aspect 1.333, present aspect 1.333, hud scale 1.000 size 1.000",
+        "[ws] vsync=1 world=1 screen=31 worldAge=0",
+        "[ws] push: wide=1 projection aspect 1.778, present aspect 1.778, hud scale 0.750 size 0.620",
+        "[ws] vsync=121 world=1 screen=30 worldAge=0",
+        "[ws] vsync=237 world=0 screen=8 worldAge=0",
+        "[ws] push: wide=1 projection aspect 1.333, present aspect 1.778, hud scale 0.750 size 1.000",
+        "[ws] vsync=465 world=1 screen=4 worldAge=0",
+        "[ws] vsync=705 world=0 screen=14 worldAge=0",
+        "[ws] vsync=1136 world=1 screen=-1 worldAge=0",
+        "[ws] push: wide=1 projection aspect 1.778, present aspect 1.778, hud scale 0.750 size 0.620"
+      ],
+      "profile_tail5": [
+        "[gsr-profile] 2.014s root=1788.69ms readbackCopy=4.06MiB syncUpload=113.75MiB; calls/inclusive_ms/exclusive_ms/max_ms: draw=11441/1721.50/486.80/18.04 resolveTexture=10726/298.84/104.24/0.40 syncRT=11571/18.06/18.06/0.31 readbackRT=65/53.48/0.37/1.50 readbackMap=65/48.76/48.76/1.43 readbackPackUnmap=65/4.35/4.35/0.12 temporalResolve=325/915.10/915.10/17.86 presentLatched=65/15.71/10.33/0.41 presentCall=65/5.39/5.39/0.25 pumpUp=65/0.01/0.01/0.00 snapshot=195/0.18/0.18/0.00 latchDisplay=65/0.27/0.27/0.01 endFrame=65/0.25/0.24/0.04 textureCoherenceFlush=17551/0.65/0.65/0.00 textureStampCheck=4355/0.55/0.55/0.01 textureDecode=6890/49.40/49.40/0.07 textureUpscale=2730/71.39/71.39/0.21 textureCreate=2730/72.60/72.60/0.10",
+        "[gsr-profile] 2.000s root=1778.42ms readbackCopy=3.94MiB syncUpload=110.25MiB; calls/inclusive_ms/exclusive_ms/max_ms: draw=11225/1712.80/477.18/16.02 resolveTexture=10532/301.36/102.95/0.59 syncRT=11351/17.65/17.65/0.32 readbackRT=63/52.75/0.37/1.17 readbackMap=63/47.86/47.86/1.10 readbackPackUnmap=63/4.51/4.51/0.12 temporalResolve=312/913.97/913.97/15.87 presentLatched=63/14.86/9.66/0.31 presentCall=63/5.19/5.19/0.12 pumpUp=63/0.01/0.01/0.00 snapshot=189/0.19/0.19/0.00 latchDisplay=63/0.27/0.27/0.01 endFrame=63/0.21/0.20/0.01 textureCoherenceFlush=17312/0.67/0.67/0.00 textureStampCheck=4254/0.55/0.55/0.01 textureDecode=6843/50.41/50.41/0.16 textureUpscale=2679/72.57/72.57/0.21 textureCreate=2679/74.21/74.21/0.17",
+        "[gsr-profile] 2.001s root=1773.73ms readbackCopy=3.94MiB syncUpload=110.25MiB; calls/inclusive_ms/exclusive_ms/max_ms: draw=11496/1712.29/486.18/16.60 resolveTexture=10794/311.17/104.99/0.42 syncRT=11623/17.77/17.77/0.37 readbackRT=63/48.59/0.37/1.16 readbackMap=63/43.98/43.98/1.09 readbackPackUnmap=63/4.24/4.24/0.12 temporalResolve=252/894.47/894.47/16.48 presentLatched=64/14.91/9.69/0.29 presentCall=64/5.22/5.22/0.10 pumpUp=64/0.01/0.01/0.00 snapshot=190/0.18/0.18/0.00 latchDisplay=64/0.27/0.27/0.01 endFrame=64/0.20/0.19/0.01 textureCoherenceFlush=17794/0.69/0.69/0.01 textureStampCheck=4339/0.55/0.55/0.00 textureDecode=7063/51.42/51.42/0.06 textureUpscale=2739/77.82/77.82/0.24 textureCreate=2739/75.70/75.70/0.17",
+        "[gsr-profile] 2.004s root=1779.63ms readbackCopy=4.06MiB syncUpload=113.75MiB; calls/inclusive_ms/exclusive_ms/max_ms: draw=11332/1715.83/480.57/16.14 resolveTexture=10626/301.15/104.12/0.50 syncRT=11461/17.83/17.83/0.32 readbackRT=65/50.81/0.36/1.13 readbackMap=65/46.18/46.18/1.06 readbackPackUnmap=65/4.27/4.27/0.12 temporalResolve=260/913.57/913.57/16.04 presentLatched=64/15.08/9.97/0.34 presentCall=64/5.11/5.11/0.12 pumpUp=64/0.01/0.01/0.00 snapshot=194/0.17/0.17/0.00 latchDisplay=64/0.27/0.26/0.01 endFrame=64/0.20/0.19/0.01 textureCoherenceFlush=17426/0.66/0.66/0.01 textureStampCheck=4309/0.54/0.54/0.00 textureDecode=6865/50.02/50.02/0.17 textureUpscale=2709/72.57/72.57/0.23 textureCreate=2709/73.24/73.24/0.19",
+        "[gsr-profile] 2.000s root=1771.42ms readbackCopy=4.00MiB syncUpload=112.00MiB; calls/inclusive_ms/exclusive_ms/max_ms: draw=11350/1703.34/483.43/15.49 resolveTexture=10645/297.57/103.08/0.51 syncRT=11479/17.66/17.66/0.31 readbackRT=64/54.33/0.36/1.19 readbackMap=64/49.60/49.60/1.11 readbackPackUnmap=64/4.37/4.37/0.12 temporalResolve=256/901.95/901.95/15.37 presentLatched=65/15.82/10.53/0.77 presentCall=65/5.29/5.29/0.12 pumpUp=65/0.01/0.01/0.00 snapshot=193/0.18/0.18/0.00 latchDisplay=65/0.27/0.27/0.01 endFrame=65/0.21/0.20/0.01 textureCoherenceFlush=17396/0.66/0.66/0.00 textureStampCheck=4318/0.54/0.54/0.00 textureDecode=6815/50.24/50.24/0.28 textureUpscale=2704/71.12/71.12/0.21 textureCreate=2704/71.93/71.93/0.16"
+      ],
+      "script_finished": true
+    },
+    "baseline-none": {
+      "name": "baseline-none",
+      "sha256": "cd25328dbe3e3ba8d962636216667d5990636731f7ffc9c76404aa1efca3e1cb",
+      "exit_code": 0,
+      "fps_tail5": 37.23167134461933,
+      "cadence_tail5": [
+        [
+          2.006455,
+          75
+        ],
+        [
+          2.018565,
+          75
+        ],
+        [
+          2.019411,
+          75
+        ],
+        [
+          2.016221,
+          74
+        ],
+        [
+          2.011418,
+          76
+        ]
+      ],
+      "aspect": [
+        "[ws] vsync=0 world=0 screen=-1 worldAge=0",
+        "[ws] push: wide=0 projection aspect 1.333, present aspect 1.333, hud scale 1.000 size 1.000",
+        "[ws] vsync=2 world=1 screen=31 worldAge=1",
+        "[ws] push: wide=1 projection aspect 1.778, present aspect 1[MC] Sync cmd=2 result=1.778, hud scale 0.750 size 0.620",
+        "[ws] vsync=121 world=1 screen=30 worldAge=0",
+        "[ws] vsync=225 world=0 screen=8 worldAge=0",
+        "[ws] push: wide=1 projection aspect 1.333, present aspect 1.778, hud scale 0.750 size 1.000",
+        "[ws] vsync=227 world=1 screen=4 worldAge=0",
+        "[ws] vsync=467 world=0 screen=14 worldAge=1",
+        "[ws] vsync=909 world=1 screen=-1 worldAge=0",
+        "[ws] push: wide=1 projection aspect 1.778, present aspect 1.778, hud scale 0.750 size 0.620"
+      ],
+      "profile_tail5": [
+        "[gsr-profile] 2.000s root=1369.85ms readbackCopy=4.69MiB syncUpload=300.00MiB; calls/inclusive_ms/exclusive_ms/max_ms: draw=13393/1132.10/667.78/15.64 resolveTexture=12576/372.96/45.03/0.55 syncRT=13543/66.60/66.60/1.14 readbackRT=75/213.94/0.88/10.19 readbackMap=75/202.19/202.19/10.03 readbackPackUnmap=75/10.87/10.87/0.18 temporalResolve=375/19.59/19.59/0.39 presentLatched=75/27.71/19.53/0.62 presentCall=75/8.18/8.18/0.37 pumpUp=75/0.02/0.02/0.00 snapshot=225/0.46/0.46/0.01 latchDisplay=75/0.43/0.43/0.01 endFrame=75/0.40/0.38/0.05 textureCoherenceFlush=20777/1.38/1.38/0.01 textureStampCheck=5068/0.91/0.91/0.01 textureDecode=8276/104.80/104.80/0.29 textureUpscale=3212/93.46/93.46/0.36 textureCreate=3212/127.37/127.37/0.36",
+        "[gsr-profile] 2.000s root=1374.87ms readbackCopy=4.62MiB syncUpload=296.00MiB; calls/inclusive_ms/exclusive_ms/max_ms: draw=13437/1109.38/651.76/10.32 resolveTexture=12615/364.70/44.45/0.59 syncRT=13585/68.12/68.12/1.41 readbackRT=74/241.47/0.84/9.03 readbackMap=74/229.59/229.59/8.88 readbackPackUnmap=74/11.05/11.05/0.40 temporalResolve=330/19.72/19.72/0.39 presentLatched=74/27.86/19.50/0.59 presentCall=74/8.36/8.36/0.33 pumpUp=74/0.02/0.02/0.00 snapshot=222/0.45/0.45/0.01 latchDisplay=74/0.43/0.42/0.01 endFrame=74/0.35/0.34/0.01 textureCoherenceFlush=20818/1.27/1.27/0.01 textureStampCheck=5072/0.88/0.88/0.01 textureDecode=8277/100.91/100.91/0.11 textureUpscale=3201/92.80/92.80/0.26 textureCreate=3201/124.38/124.38/0.35",
+        "[gsr-profile] 2.000s root=1365.57ms readbackCopy=4.69MiB syncUpload=300.00MiB; calls/inclusive_ms/exclusive_ms/max_ms: draw=13371/1122.44/661.71/9.39 resolveTexture=12554/370.21/45.76/0.59 syncRT=13521/66.14/66.14/1.27 readbackRT=75/220.03/0.82/8.31 readbackMap=75/208.24/208.24/8.15 readbackPackUnmap=75/10.97/10.97/0.18 temporalResolve=300/19.23/19.23/0.43 presentLatched=75/26.91/19.15/0.78 presentCall=75/7.76/7.76/0.33 pumpUp=75/0.15/0.15/0.14 snapshot=225/0.42/0.42/0.01 latchDisplay=75/0.43/0.43/0.01 endFrame=75/0.48/0.33/0.14 textureCoherenceFlush=20739/1.26/1.26/0.00 textureStampCheck=5057/0.89/0.89/0.01 textureDecode=8260/103.67/103.67/0.24 textureUpscale=3204/93.38/93.38/0.45 textureCreate=3204/125.26/125.26/0.28",
+        "[gsr-profile] 2.003s root=1264.78ms readbackCopy=4.56MiB syncUpload=292.00MiB; calls/inclusive_ms/exclusive_ms/max_ms: draw=13191/1023.52/573.95/9.54 resolveTexture=12388/359.42/44.58/0.59 syncRT=13337/65.80/65.80/1.17 readbackRT=73/215.70/0.89/8.00 readbackMap=73/204.46/204.46/7.81 readbackPackUnmap=73/10.36/10.36/0.18 temporalResolve=292/18.97/18.97/0.62 presentLatched=73/29.78/21.75/1.24 presentCall=73/8.03/8.03/0.26 pumpUp=73/0.01/0.01/0.00 snapshot=219/0.43/0.43/0.00 latchDisplay=73/0.41/0.40/0.01 endFrame=73/0.32/0.30/0.01 textureCoherenceFlush=20439/1.26/1.26/0.04 textureStampCheck=4981/0.84/0.84/0.00 textureDecode=8124/97.05/97.05/0.32 textureUpscale=3145/90.73/90.73/0.26 textureCreate=3145/124.96/124.96/0.37",
+        "[gsr-profile] 2.000s root=1374.73ms readbackCopy=4.69MiB syncUpload=300.00MiB; calls/inclusive_ms/exclusive_ms/max_ms: draw=13557/1125.94/663.57/9.33 resolveTexture=12724/372.81/45.31/0.62 syncRT=13707/64.88/64.88/0.93 readbackRT=75/225.91/0.85/9.14 readbackMap=75/214.16/214.16/8.97 readbackPackUnmap=75/10.89/10.89/0.19 temporalResolve=300/19.66/19.66/0.48 presentLatched=75/26.17/18.32/0.48 presentCall=75/7.85/7.85/0.25 pumpUp=75/0.02/0.02/0.00 snapshot=225/0.44/0.44/0.00 latchDisplay=75/0.68/0.67/0.25 endFrame=75/0.63/0.61/0.28 textureCoherenceFlush=20976/1.28/1.28/0.00 textureStampCheck=5111/0.90/0.90/0.02 textureDecode=8327/103.56/103.56/0.51 textureUpscale=3227/93.26/93.26/0.32 textureCreate=3227/128.50/128.50/0.35"
+      ],
+      "script_finished": true
+    }
+  },
+  "performance_limit": "Background compiler work remained active; some later runs overlap another game, identified by PID. These are diagnostic rates, not a clean before/after performance claim. No ray settings or resolution reductions are deployed.",
+  "protected_settings": {
+    "drakan.ini": "18daf5933b1fa924fc21d4c6b4e1aa92816e024d3cb0b924797fa769ad738b79",
+    "drakan_input.ini": "3ecf546900e9858a587ef9c4b62385b074c9281431d3eac0ef73619be0dd078f",
+    "Play-Original30.cmd": "9abe8038dd597ff2fae10b2cbfd2ec19f75d54f2265b0784db0da2389b0dc951",
+    "Play-RawFPS.cmd": "c585270901be6b380f8737f9fb497b1a896197d8d658a096689ccb105e914afc",
+    "Play.cmd": "d2c231edea7c0191dfa002087e32d56470a5f570017599da715c84e8b1e97bfb"
+  },
+  "save_hashes_match_original": true,
+  "evidence_directory": "C:\\Games\\Drakan - The Ancients Gates\\decomp\\build\\walking-fix-20261019"
+}

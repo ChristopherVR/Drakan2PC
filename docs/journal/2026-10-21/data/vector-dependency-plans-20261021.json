@@ -1,0 +1,649 @@
+{
+  "date": "2026-10-21",
+  "goal_raw_fps": 144,
+  "goal_met": false,
+  "installed_or_defaults_changed": false,
+  "sources": {
+    "ps2xRuntime/CMakeLists.txt": "5bc9ecc7379920d613557722840708af67319641a894a572c4ace75848ebc89d",
+    "ps2xRuntime/include/runtime/ps2_memory.h": "f348e3abe444732de24dd10b3cf18c8d949bd09ba5f8a25889ce92cc1e62a4b4",
+    "ps2xRuntime/include/runtime/ps2_vu1.h": "5d9ec8503b67e12e5b43f45a4cd39f308d778f133f9694a6141e1dc2f07a62e4",
+    "ps2xRuntime/include/runtime/ps2_render_queue.h": "af86ebbffa95040368521cd6d836b2fc2c826959e093699457ee7e65073d5e3e",
+    "ps2xRuntime/include/runtime/object_motion_tracker.h": "6e18998337a0e151c5a93a2055d5458fc3f66ae26711ec9cce4df23199ccd5a4",
+    "ps2xRuntime/src/lib/ps2_memory.cpp": "fd320c69fa0e6b543d1faedd1c9429abc95b958819765ade83dfe0ef30c72609",
+    "ps2xRuntime/src/lib/ps2_runtime.cpp": "218a884f51346a41196d5ad09e3dbbfd404b41bff9f82097c8bb0dabb1aac725",
+    "ps2xRuntime/src/lib/ps2_vif1_interpreter.cpp": "49747e73dce9fbbdd06b01defd8012369199bf7fc9b9b052d735fd0918ef8568",
+    "ps2xRuntime/src/lib/drakan_object_motion.cpp": "d04a62aab6ffb435bff1258984aafecdd30748c491840e22167239fc78a96a5a",
+    "ps2xRuntime/src/lib/drakan_object_motion.h": "c00dd7c85abc5791da219abdb95b3db7c39900a8e766928380d92d48aab90494",
+    "ps2xRuntime/src/lib/ps2_vu1_batch.h": "f3cf1c9396bee795e3c44f68c438e85fd162386c94f65aed64b8423da87b4d88",
+    "ps2xRuntime/src/lib/ps2_vu1_batch_capture.h": "cc4c441e05774c70ed55e8155333adde9a9392060173e50f034e3d91feecd492",
+    "ps2xRuntime/src/lib/ps2_vu1_batch_dispatch.h": "94d8331fa95119848e00257d0fab9d30a39b7b028ced2627fa50b60d3ccf1066",
+    "ps2xRuntime/src/lib/vu/ps2_vu1_core.cpp": "8c2234ba096cfe85213459116af2681ff2dd28ba0fafae15ce1f8388bc179f65",
+    "ps2xRuntime/src/lib/vu/ps2_vu1_async.cpp": "c04744caadc73d652a222b161cbbedc22ead91c6ebba3f83277f6f8e6a8276e7",
+    "ps2xRuntime/src/lib/vu/ps2_vu1_batch.cpp": "f967f27c30209f43088ffe4491a47e5338ab353d50b5ad493c7151e9942f2367",
+    "ps2xRuntime/src/lib/vu/aot/ps2_vu1_aot.h": "f9c001d35cee1e8ffead138cec974e11e507195cc6b00fa091864e23461fdd4c",
+    "ps2xRuntime/src/lib/vu/aot/ps2_vu1_aot.cpp": "4a8f0406c969946fd83001fc26cf39cb8a85a2c3b7d4ca7c978f66bebcaf1d48",
+    "ps2xRuntime/tests/vu_live_batch_tests.cpp": "2ae9cb3595dfa69cb258d9e2b031d78f40a4dedb5438ccfe056eeae320fe8316",
+    "ps2xRuntime/src/lib/vu/ps2_vu1_step.h": "a02f9e49d71cf4a9c5ecb0e135a4adffe50e58025fd97da675d531a72ea6f427",
+    "ps2xRuntime/src/lib/vu/ps2_vu1_native_kernels.cpp": "ca1c5f58b8ad89294a540901750ed2743795e9da2a78fc40f3e4525a59281794",
+    "ps2xRuntime/tests/vu_transform_kernel_tests.cpp": "5ec3978a7c8f6349a06b15575b3707b9434556e9499d6a82a8927c903321d0e6",
+    "ps2xRuntime/tests/vu_uv_kernel_tests.cpp": "0a8c7a0b33766ede5783df14f15d46284dcdc84faea74e5a890d874791e00a20",
+    "ps2xRuntime/tests/vu_packet_kernel_tests.cpp": "8de8b56d3a539276aabff3dad5e135550ed6e3b961d4df4de95be611abaab830",
+    "ps2xTest/vif_unpack/CMakeLists.txt": "bcf6b3dcdeb4d351de207276539b31a1fb89cba4a35f76457e2ea4f5b7e32d49",
+    "ps2xTest/vif_unpack/vu_async_batch_stubs.cpp": "805e667c6d693f4990718366ffe559073cd4fc3246d3989bf200d78e3363a457",
+    "ps2xTest/vif_unpack/mock/runtime/ps2_memory.h": "adcd5f9afd86a8866d025a6a78c34025e886f21d2360ac859a4e91ab7c83187b"
+  },
+  "candidate_exe_sha256": "834b5a1fbf2b3199c7bada8255fa42dab7705f14edd913b9ea0b28f3a03c8486",
+  "controls": {
+    "DRAKAN_VU_BATCH_STATIC_REGS": "off by default",
+    "DRAKAN_VU_BATCH_STATIC_REGS_VERIFY": "off by default"
+  },
+  "quality": {
+    "window": [
+      3840,
+      2160
+    ],
+    "gs_scale": 4,
+    "audio": true,
+    "frame_limit": 0,
+    "vsync": false,
+    "frame_generation": false,
+    "dlss": "off",
+    "ray_effects": false
+  },
+  "correctness": [
+    {
+      "log": "build/vu-store-provenance-20261021/provenance-recent-8-verify.log",
+      "sha256": "3b10139a899ed5f2e3d1536dd78ea4cb2dd2a7d5e3db5e8c2d4e7104d1510e03",
+      "register_plans": {
+        "blocks": 588687,
+        "pairs": 4259139,
+        "checks": 588687,
+        "mismatches": 0
+      },
+      "groups": {
+        "batches": 309,
+        "total": 1285,
+        "accepted": 666,
+        "rejected": 143,
+        "verified": 666,
+        "mismatches": 0
+      }
+    },
+    {
+      "log": "build/vu-store-provenance-20261021/provenance-original-8-verify.log",
+      "sha256": "b2a2b2ab67cf3600a1578bb27b165432e8bf5491c1f85464aab2b61fda5e2e51",
+      "register_plans": {
+        "blocks": 676210,
+        "pairs": 4314233,
+        "checks": 676210,
+        "mismatches": 0
+      },
+      "groups": {
+        "batches": 287,
+        "total": 787,
+        "accepted": 298,
+        "rejected": 77,
+        "verified": 298,
+        "mismatches": 0
+      }
+    },
+    {
+      "log": "build/vu-store-provenance-20261021/matrix-joined.log",
+      "sha256": "ba754f0bfc0cc20799ce36c6c865c87db0969ffda83581b53393c8494d8bc9b1",
+      "register_plans": {
+        "blocks": 1115204,
+        "pairs": 7454106,
+        "checks": 1115204,
+        "mismatches": 0
+      },
+      "groups": {
+        "batches": 129,
+        "total": 1105,
+        "accepted": 932,
+        "rejected": 18,
+        "verified": 0,
+        "mismatches": 0
+      }
+    },
+    {
+      "log": "build/vu-store-provenance-20261021/matrix-aliases.log",
+      "sha256": "b9df6994ecf968a905232de69c66e1ba38e368ffdb308070d07d83e193b835ef",
+      "register_plans": {
+        "blocks": 0,
+        "pairs": 0,
+        "checks": 0,
+        "mismatches": 0
+      },
+      "groups": {
+        "batches": 313,
+        "total": 1289,
+        "accepted": 685,
+        "rejected": 131,
+        "verified": 685,
+        "mismatches": 0
+      }
+    },
+    {
+      "log": "build/vu-store-provenance-20261021/matrix-exact.log",
+      "sha256": "d44463a70d7068eccf8c2b3400034e37f6c34ada608cc8411e911212a7051ed9",
+      "register_plans": {
+        "blocks": 1131939,
+        "pairs": 5717738,
+        "checks": 1131939,
+        "mismatches": 0
+      },
+      "groups": {
+        "batches": 311,
+        "total": 1287,
+        "accepted": 701,
+        "rejected": 106,
+        "verified": 701,
+        "mismatches": 0
+      }
+    },
+    {
+      "log": "build/vu-store-provenance-20261021/t/store-provenance-live-verify/stderr.log",
+      "sha256": "e4027ddf98e56e9f49b1b661abdeac36925f41a56c05f935cecc7e20ecc7de57",
+      "register_plans": {
+        "blocks": 94633545,
+        "pairs": 688934970,
+        "checks": 0,
+        "mismatches": 0
+      },
+      "groups": {
+        "batches": 10845,
+        "total": 508036,
+        "accepted": 265746,
+        "rejected": 2345,
+        "verified": 265746,
+        "mismatches": 0
+      }
+    }
+  ],
+  "raw_comparison": {
+    "control_fps": 95.55108260789271,
+    "candidate_fps": 96.28430310380733,
+    "percent": 0.7673596948382988,
+    "disposition": "No material win established; opt-in retained.",
+    "metrics": {
+      "provenance-control-a": {
+        "general_cpu_audited": true,
+        "external_core_average": 0.19819289064846765,
+        "external_core_peak": 0.9780110834084037,
+        "external_cpu_busy_samples": 0,
+        "exe_sha256": "E032E3A82CFB06706873EC9CBAF0518486C9E16AFA76F9D966EC1DE0838090AF",
+        "world_fps": 94.68356415885054,
+        "last_five_world_windows": [
+          [
+            2.006,
+            93.22
+          ],
+          [
+            2.004,
+            95.31
+          ],
+          [
+            2.006,
+            94.69
+          ],
+          [
+            2.002,
+            95.41
+          ],
+          [
+            2.004,
+            94.79
+          ]
+        ],
+        "saves_unchanged": true,
+        "contended": false,
+        "overlap_samples": 0
+      },
+      "provenance-control-b": {
+        "general_cpu_audited": true,
+        "external_core_average": 0.14095178936537558,
+        "external_core_peak": 0.36270986485387224,
+        "external_cpu_busy_samples": 0,
+        "exe_sha256": "E032E3A82CFB06706873EC9CBAF0518486C9E16AFA76F9D966EC1DE0838090AF",
+        "world_fps": 96.41860105693489,
+        "last_five_world_windows": [
+          [
+            2.001,
+            95.45
+          ],
+          [
+            2.006,
+            96.21
+          ],
+          [
+            2.006,
+            96.69
+          ],
+          [
+            2.009,
+            96.56
+          ],
+          [
+            2.007,
+            97.18
+          ]
+        ],
+        "saves_unchanged": true,
+        "contended": false,
+        "overlap_samples": 0
+      },
+      "provenance-raw-a": {
+        "general_cpu_audited": true,
+        "external_core_average": 0.14072263505191587,
+        "external_core_peak": 0.6662486632882632,
+        "external_cpu_busy_samples": 0,
+        "exe_sha256": "834B5A1FBF2B3199C7BADA8255FA42DAB7705F14EDD913B9EA0B28F3A03C8486",
+        "world_fps": 95.56371998006975,
+        "last_five_world_windows": [
+          [
+            2.005,
+            95.26
+          ],
+          [
+            2.006,
+            96.2
+          ],
+          [
+            2.003,
+            95.36
+          ],
+          [
+            2.009,
+            96.55
+          ],
+          [
+            2.012,
+            94.45
+          ]
+        ],
+        "saves_unchanged": true,
+        "contended": false,
+        "overlap_samples": 0
+      },
+      "provenance-raw-b": {
+        "general_cpu_audited": true,
+        "external_core_average": 0.1764185123807793,
+        "external_core_peak": 0.4611492005320705,
+        "external_cpu_busy_samples": 0,
+        "exe_sha256": "834B5A1FBF2B3199C7BADA8255FA42DAB7705F14EDD913B9EA0B28F3A03C8486",
+        "world_fps": 97.00488622754492,
+        "last_five_world_windows": [
+          [
+            2.003,
+            95.33
+          ],
+          [
+            2.003,
+            96.38
+          ],
+          [
+            2.001,
+            96.94
+          ],
+          [
+            2.006,
+            97.7
+          ],
+          [
+            2.007,
+            98.67
+          ]
+        ],
+        "saves_unchanged": true,
+        "contended": false,
+        "overlap_samples": 0
+      }
+    }
+  },
+  "configuration_sweep": {
+    "provenance-stream-2": {
+      "general_cpu_audited": true,
+      "external_core_average": 0.12175922993816901,
+      "external_core_peak": 0.4882718042656911,
+      "external_cpu_busy_samples": 0,
+      "exe_sha256": "834B5A1FBF2B3199C7BADA8255FA42DAB7705F14EDD913B9EA0B28F3A03C8486",
+      "world_fps": 91.9963633645605,
+      "last_five_world_windows": [
+        [
+          2.004,
+          91.33
+        ],
+        [
+          2.009,
+          94.09
+        ],
+        [
+          2.009,
+          92.1
+        ],
+        [
+          2.004,
+          92.3
+        ],
+        [
+          2.008,
+          90.16
+        ]
+      ],
+      "saves_unchanged": true,
+      "contended": false,
+      "overlap_samples": 0
+    },
+    "provenance-stream-4": {
+      "general_cpu_audited": true,
+      "external_core_average": 0.17154820870414333,
+      "external_core_peak": 0.5496206570864514,
+      "external_cpu_busy_samples": 0,
+      "exe_sha256": "834B5A1FBF2B3199C7BADA8255FA42DAB7705F14EDD913B9EA0B28F3A03C8486",
+      "world_fps": 96.9261777024332,
+      "last_five_world_windows": [
+        [
+          2.004,
+          95.3
+        ],
+        [
+          2.009,
+          97.06
+        ],
+        [
+          2.007,
+          98.17
+        ],
+        [
+          2.005,
+          95.74
+        ],
+        [
+          2.003,
+          98.36
+        ]
+      ],
+      "saves_unchanged": true,
+      "contended": false,
+      "overlap_samples": 0
+    },
+    "provenance-stream-8": {
+      "general_cpu_audited": true,
+      "external_core_average": 0.14849841671167702,
+      "external_core_peak": 0.5021134619950103,
+      "external_cpu_busy_samples": 0,
+      "exe_sha256": "834B5A1FBF2B3199C7BADA8255FA42DAB7705F14EDD913B9EA0B28F3A03C8486",
+      "world_fps": 94.3155508982036,
+      "last_five_world_windows": [
+        [
+          2.008,
+          92.64
+        ],
+        [
+          2.006,
+          94.22
+        ],
+        [
+          2.001,
+          91.43
+        ],
+        [
+          2.002,
+          95.92
+        ],
+        [
+          2.003,
+          97.37
+        ]
+      ],
+      "saves_unchanged": true,
+      "contended": false,
+      "overlap_samples": 0
+    },
+    "provenance-serial": {
+      "general_cpu_audited": true,
+      "external_core_average": 0.16053049016125892,
+      "external_core_peak": 0.5105911330780966,
+      "external_cpu_busy_samples": 0,
+      "exe_sha256": "834B5A1FBF2B3199C7BADA8255FA42DAB7705F14EDD913B9EA0B28F3A03C8486",
+      "world_fps": 99.40833815172965,
+      "last_five_world_windows": [
+        [
+          2.009,
+          99.57
+        ],
+        [
+          2.009,
+          100.07
+        ],
+        [
+          2.003,
+          99.36
+        ],
+        [
+          2.005,
+          98.78
+        ],
+        [
+          2.005,
+          99.26
+        ]
+      ],
+      "saves_unchanged": true,
+      "contended": false,
+      "overlap_samples": 0
+    },
+    "provenance-unplanned": {
+      "general_cpu_audited": true,
+      "external_core_average": 0.16153841827139465,
+      "external_core_peak": 0.5926819317393961,
+      "external_cpu_busy_samples": 0,
+      "exe_sha256": "834B5A1FBF2B3199C7BADA8255FA42DAB7705F14EDD913B9EA0B28F3A03C8486",
+      "world_fps": 94.66222820129546,
+      "last_five_world_windows": [
+        [
+          2.007,
+          93.16
+        ],
+        [
+          2.009,
+          95.56
+        ],
+        [
+          2.004,
+          94.81
+        ],
+        [
+          2.008,
+          95.6
+        ],
+        [
+          2.007,
+          94.18
+        ]
+      ],
+      "saves_unchanged": true,
+      "contended": false,
+      "overlap_samples": 0
+    }
+  },
+  "profile": {
+    "fps_excluded": true,
+    "log_sha256": "6dfa2a99c38d0b382e1ea4fcd21da1a96aa72338a412deacb51cff1e00601406",
+    "csv_sha256": "76705a5de070e32e21b119104e4d5e5b3a2a22a33e9b1e6d4328058ed9172764",
+    "phase_ms": {
+      "prepare": 2782.903,
+      "queue": 81.134,
+      "history": 20.42,
+      "serial": 21706.195,
+      "wait": 2833.691,
+      "validate": 743.723,
+      "collect": 331.627,
+      "worker-sum": 22899.431
+    }
+  },
+  "rejected_arithmetic_slot_shortcut": {
+    "control_fps": 95.4886984253743,
+    "candidate_fps": 95.39651057251147,
+    "disposition": "Discarded after clean ABBA comparison."
+  },
+  "rejected_scratch_prediction": {
+    "control_fps": 95.8176069525071,
+    "candidate_fps": 95.6524318964745,
+    "percent": -0.17238486880023496,
+    "metrics": {
+      "memory-seeds-off-a": {
+        "general_cpu_audited": true,
+        "external_core_average": 0.38283583454863507,
+        "external_core_peak": 0.8900055870681165,
+        "external_cpu_busy_samples": 0,
+        "exe_sha256": "B959A04516CE118ACF4CCBD7A8BB61CB8927469125863FB9B2B30C10EF20801D",
+        "world_fps": 95.68558357420511,
+        "last_five_world_windows": [
+          [
+            2.01,
+            95.53
+          ],
+          [
+            2.002,
+            96.39
+          ],
+          [
+            2.004,
+            95.32
+          ],
+          [
+            2.009,
+            94.58
+          ],
+          [
+            2.008,
+            96.61
+          ]
+        ],
+        "saves_unchanged": true,
+        "contended": false,
+        "overlap_samples": 0
+      },
+      "memory-seeds-off-b": {
+        "general_cpu_audited": true,
+        "external_core_average": 0.2706271464769637,
+        "external_core_peak": 0.6475269060379998,
+        "external_cpu_busy_samples": 0,
+        "exe_sha256": "B959A04516CE118ACF4CCBD7A8BB61CB8927469125863FB9B2B30C10EF20801D",
+        "world_fps": 95.94963033080909,
+        "last_five_world_windows": [
+          [
+            2.01,
+            94.51
+          ],
+          [
+            2.004,
+            95.8
+          ],
+          [
+            2.008,
+            96.11
+          ],
+          [
+            2.007,
+            97.15
+          ],
+          [
+            2.007,
+            96.18
+          ]
+        ],
+        "saves_unchanged": true,
+        "contended": false,
+        "overlap_samples": 0
+      },
+      "memory-seeds-on-a": {
+        "general_cpu_audited": true,
+        "external_core_average": 0.4538494569931817,
+        "external_core_peak": 0.9270337426933052,
+        "external_cpu_busy_samples": 0,
+        "exe_sha256": "B959A04516CE118ACF4CCBD7A8BB61CB8927469125863FB9B2B30C10EF20801D",
+        "world_fps": 96.2800569259962,
+        "last_five_world_windows": [
+          [
+            2.004,
+            95.82
+          ],
+          [
+            2.003,
+            96.35
+          ],
+          [
+            2.001,
+            95.95
+          ],
+          [
+            2.002,
+            95.91
+          ],
+          [
+            2.003,
+            97.37
+          ]
+        ],
+        "saves_unchanged": true,
+        "contended": false,
+        "overlap_samples": 0
+      },
+      "memory-seeds-on-b": {
+        "general_cpu_audited": true,
+        "external_core_average": 0.2994102321661721,
+        "external_core_peak": 0.9406172363612112,
+        "external_cpu_busy_samples": 0,
+        "exe_sha256": "B959A04516CE118ACF4CCBD7A8BB61CB8927469125863FB9B2B30C10EF20801D",
+        "world_fps": 95.02480686695279,
+        "last_five_world_windows": [
+          [
+            2.008,
+            95.12
+          ],
+          [
+            2.004,
+            95.82
+          ],
+          [
+            2.001,
+            94.95
+          ],
+          [
+            2.001,
+            92.95
+          ],
+          [
+            2.005,
+            96.28
+          ]
+        ],
+        "saves_unchanged": true,
+        "contended": false,
+        "overlap_samples": 0
+      }
+    },
+    "disposition": "Discarded; more accepted speculative work did not improve FPS or serial critical-path time.",
+    "live_check": {
+      "log": "build/vu-memory-seeds-20261021/t/memory-seeds-live-verify/stderr.log",
+      "sha256": "65cd228d1ea1df289a132f98a3d45227b6b8d4da3ff2b9003b413f3e42e2888e",
+      "register_plans": {
+        "blocks": 113096240,
+        "pairs": 775286708,
+        "checks": 0,
+        "mismatches": 0
+      },
+      "groups": {
+        "batches": 10460,
+        "total": 487236,
+        "accepted": 269162,
+        "rejected": 2375,
+        "verified": 269162,
+        "mismatches": 0
+      }
+    },
+    "targeted_cases": "Learn an inherited scratch word, collect a correct warm prediction, reject a changed value, recover after cooldown; four-worker joined and eight-worker verified replays passed."
+  }
+}

@@ -1,0 +1,89 @@
+--- a/runtime/gs/src/gs_core.cpp
++++ b/runtime/gs/src/gs_core.cpp
+@@ -843,7 +843,10 @@
+             if (!isValidPsm(dpsm)) return;
+             uint32_t lo, hi;
+             spanBlocks(dpsm, dbp, dbw, dsax, dsay, rrw, rrh, lo, hi);
+-            backend->flushToMemoryTagged(lo, hi,2);
++            const bool readback=backend->flushToMemoryTagged(lo, hi,2);
++            static unsigned audit=0;
++            if(readback && std::getenv("GSR_VALIDATE_REUSE"))
++                std::fprintf(stderr,"[readback-upload] bp=%u bw=%u psm=%u x=%u y=%u w=%u h=%u\n",dbp,dbw,dpsm,dsax,dsay,rrw,rrh);
+             xfer.active = true;
+             xfer.dbp = dbp;
+             xfer.dbw = dbw;
+--- a/runtime/gs/src/gs_internal.h
++++ b/runtime/gs/src/gs_internal.h
+@@ -115,7 +115,7 @@
+     void draw(const GsDrawState& st, const ClutBuf& clut, const DrawVertex* v, uint32_t count);
+     // make local memory reflect GPU render targets overlapping blocks [first,last]
+     void flushToMemory(uint32_t firstBlock, uint32_t lastBlock);
+-    void flushToMemoryTagged(uint32_t firstBlock,uint32_t lastBlock,unsigned reason);
++    bool flushToMemoryTagged(uint32_t firstBlock,uint32_t lastBlock,unsigned reason);
+     void flushAll();
+     void present(const DisplayState& d);                      // render the live display + blit to the window
+     void latchDisplay(const DisplayState& d, uint32_t field); // render the display into the latched image (vblank)
+--- a/runtime/gs/src/d3d11_backend.cpp
++++ b/runtime/gs/src/d3d11_backend.cpp
+@@ -607,9 +607,12 @@
+ 
+     const bool checkTextureReuse=std::getenv("GSR_VALIDATE_REUSE")!=nullptr;
+     uint32_t textureReuseChecks=0;
++    std::vector<ComPtr<ID3D11Texture2D>> checkedReuseTextures;
+     uint64_t textureReusePixels=0;
+     void validateTextureReuse(ID3D11Texture2D* texture,const std::vector<std::vector<uint32_t>>& levels) {
+-        if(!checkTextureReuse || !latchedGameWorld || textureReuseChecks>=64)return;
++        if(!checkTextureReuse || !latchedGameWorld || textureReuseChecks>=32)return;
++        for(const auto& previous:checkedReuseTextures)if(previous.Get()==texture)return;
++        checkedReuseTextures.emplace_back(texture);
+         D3D11_TEXTURE2D_DESC desc{};texture->GetDesc(&desc);
+         desc.Usage=D3D11_USAGE_STAGING;desc.BindFlags=0;desc.CPUAccessFlags=D3D11_CPU_ACCESS_READ;desc.MiscFlags=0;
+         ComPtr<ID3D11Texture2D> copy;
+@@ -627,7 +630,7 @@
+             textureReusePixels+=uint64_t(w)*h;
+         }
+         ++textureReuseChecks;
+-        std::fprintf(stderr,"[texture-reuse-check] checked=%u pixels=%llu mismatches=0\n",textureReuseChecks,textureReusePixels);
++        std::fprintf(stderr,"[texture-reuse-check] checked=%u pixels=%llu mismatches=0 unique=1 w=%u h=%u mips=%u\n",textureReuseChecks,textureReusePixels,desc.Width,desc.Height,desc.MipLevels);
+     }
+ 
+     // create the GPU texture of a finished job (render thread only)
+@@ -1545,8 +1548,9 @@
+         rt.seen = mem.clock();
+     }
+ 
+-    void flushToMemory(uint32_t first, uint32_t last, CpuProfile::Id reason=CpuProfile::ReadbackExternal)
+-    {
++    bool flushToMemory(uint32_t first, uint32_t last, CpuProfile::Id reason=CpuProfile::ReadbackExternal)
++    {
++        bool readback=false;
+         for (auto& r : rts)
+         {
+             if (!r->dirty) continue;
+@@ -1554,8 +1558,12 @@
+             rowSpan(*r, r->dy0, std::min(r->dy1, r->h), lo, hi);
+             if (hi < first || lo > last) continue;
+             CpuProfile::Scope cause(cpuProfile,reason);
+-            readbackRT(*r);
+-        }
++            static unsigned audit=0;
++            if(checkTextureReuse && latchedGameWorld && reason==CpuProfile::ReadbackUpload)
++                std::fprintf(stderr,"[readback-target] first=%u last=%u bp=%u bw=%u psm=%u w=%u h=%u dirtyY=%u..%u state=%d\n",first,last,r->base(),r->fbw,r->psm,r->w,r->h,r->dy0,r->dy1,r->wstate);
++            readbackRT(*r);readback=true;
++        }
++        return readback;
+     }
+ 
+     // ---------------------------------------------------------------------------------------------
+@@ -4319,9 +4327,9 @@
+ std::string Backend::adapterName() const { return m_impl->adapter; }
+ void Backend::draw(const GsDrawState& st, const ClutBuf& clut, const DrawVertex* v, uint32_t count) { m_impl->draw(st, clut, v, count); }
+ void Backend::flushToMemory(uint32_t a, uint32_t b) { m_impl->flushToMemory(a, b); }
+-void Backend::flushToMemoryTagged(uint32_t a,uint32_t b,unsigned reason) {
++bool Backend::flushToMemoryTagged(uint32_t a,uint32_t b,unsigned reason) {
+     const CpuProfile::Id ids[]={CpuProfile::ReadbackExternal,CpuProfile::ReadbackPalette,CpuProfile::ReadbackUpload,CpuProfile::ReadbackDownload,CpuProfile::ReadbackCopy};
+-    m_impl->flushToMemory(a,b,ids[reason<5?reason:0]);
++    return m_impl->flushToMemory(a,b,ids[reason<5?reason:0]);
+ }
+ void Backend::flushAll() { m_impl->flushAll(); }
+ void Backend::present(const DisplayState& d) { m_impl->present(d); }

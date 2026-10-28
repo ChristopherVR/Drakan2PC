@@ -1,0 +1,1058 @@
+{
+  "date": "2026-10-21",
+  "goal_raw_fps": 144,
+  "goal_met": false,
+  "promoted": false,
+  "installed_or_defaults_changed": false,
+  "retained_batch_source_sha256": "f967f27c30209f43088ffe4491a47e5338ab353d50b5ad493c7151e9942f2367",
+  "performance": {
+    "vu-producer-fusion-20261021": {
+      "producer-fusion-live-verify": {
+        "world_fps": 77.05328249601277,
+        "raw_fps_measurement": false,
+        "valid_configuration": true,
+        "contended": true,
+        "external_core_average": 1.2411759767270556,
+        "external_core_peak": 3.087472503170077,
+        "saves_unchanged": true,
+        "exe_sha256": "4F32566C63A010E5D3FE4B813578C00F4114A3C293A2732E0CCD90EFE5A5B35D"
+      },
+      "producer-fusion-off-a": {
+        "world_fps": 82.52423119192726,
+        "raw_fps_measurement": true,
+        "valid_configuration": true,
+        "contended": true,
+        "external_core_average": 2.378327220241187,
+        "external_core_peak": 5.081965870087501,
+        "saves_unchanged": true,
+        "exe_sha256": "4F32566C63A010E5D3FE4B813578C00F4114A3C293A2732E0CCD90EFE5A5B35D"
+      },
+      "producer-fusion-off-b": {
+        "world_fps": 47.000744510978045,
+        "raw_fps_measurement": true,
+        "valid_configuration": true,
+        "contended": true,
+        "external_core_average": 6.0416160984048295,
+        "external_core_peak": 8.00446507292033,
+        "saves_unchanged": true,
+        "exe_sha256": "4F32566C63A010E5D3FE4B813578C00F4114A3C293A2732E0CCD90EFE5A5B35D"
+      },
+      "producer-fusion-on-a": {
+        "world_fps": 48.48780167264038,
+        "raw_fps_measurement": true,
+        "valid_configuration": true,
+        "contended": true,
+        "external_core_average": 3.56382335148438,
+        "external_core_peak": 7.472474040307198,
+        "saves_unchanged": true,
+        "exe_sha256": "4F32566C63A010E5D3FE4B813578C00F4114A3C293A2732E0CCD90EFE5A5B35D"
+      },
+      "producer-fusion-on-b": {
+        "world_fps": 45.56948444355804,
+        "raw_fps_measurement": true,
+        "valid_configuration": true,
+        "contended": true,
+        "external_core_average": 5.863265321462403,
+        "external_core_peak": 7.357574113619717,
+        "saves_unchanged": true,
+        "exe_sha256": "4F32566C63A010E5D3FE4B813578C00F4114A3C293A2732E0CCD90EFE5A5B35D"
+      }
+    },
+    "vu-root-seed-20261021": {
+      "root-seed-live-verify-a": {
+        "world_fps": 59.195697199242495,
+        "raw_fps_measurement": false,
+        "valid_configuration": true,
+        "contended": true,
+        "external_core_average": 4.678803144410763,
+        "external_core_peak": 8.525830146901736,
+        "saves_unchanged": true,
+        "exe_sha256": "A67AF9409AFD66B4619F4CBA305E378F55BD4FEFE850E57BD11A5ED56E124FF0"
+      }
+    },
+    "vu-trace-cache-20261021": {
+      "cache-eight-workers": {
+        "world_fps": 88.98386707851733,
+        "raw_fps_measurement": true,
+        "valid_configuration": true,
+        "contended": true,
+        "external_core_average": 0.8911108421455648,
+        "external_core_peak": 3.154218526327439,
+        "saves_unchanged": true,
+        "exe_sha256": "DDC67D6FCDE8D6672BFED28D37991EDD4F67387C207B2FE4CD6390BA3E9635D5"
+      },
+      "cache-off-a": {
+        "world_fps": 94.7287326752418,
+        "raw_fps_measurement": true,
+        "valid_configuration": true,
+        "contended": true,
+        "external_core_average": 0.3574724066576555,
+        "external_core_peak": 1.4377444655036282,
+        "saves_unchanged": true,
+        "exe_sha256": "DDC67D6FCDE8D6672BFED28D37991EDD4F67387C207B2FE4CD6390BA3E9635D5"
+      },
+      "cache-off-b": {
+        "world_fps": 85.96714898284802,
+        "raw_fps_measurement": true,
+        "valid_configuration": true,
+        "contended": true,
+        "external_core_average": 2.2625156067215095,
+        "external_core_peak": 5.487013230542008,
+        "saves_unchanged": true,
+        "exe_sha256": "DDC67D6FCDE8D6672BFED28D37991EDD4F67387C207B2FE4CD6390BA3E9635D5"
+      },
+      "cache-on-a": {
+        "world_fps": 83.38452566407031,
+        "raw_fps_measurement": true,
+        "valid_configuration": true,
+        "contended": true,
+        "external_core_average": 0.7967793234786972,
+        "external_core_peak": 3.1592379718286447,
+        "saves_unchanged": true,
+        "exe_sha256": "DDC67D6FCDE8D6672BFED28D37991EDD4F67387C207B2FE4CD6390BA3E9635D5"
+      },
+      "cache-on-b": {
+        "world_fps": 93.01430266174857,
+        "raw_fps_measurement": true,
+        "valid_configuration": true,
+        "contended": true,
+        "external_core_average": 0.8229168671371035,
+        "external_core_peak": 2.69575679058685,
+        "saves_unchanged": true,
+        "exe_sha256": "DDC67D6FCDE8D6672BFED28D37991EDD4F67387C207B2FE4CD6390BA3E9635D5"
+      },
+      "cache-serial-control": {
+        "world_fps": 87.22145847871599,
+        "raw_fps_measurement": true,
+        "valid_configuration": true,
+        "contended": true,
+        "external_core_average": 2.5537721227206744,
+        "external_core_peak": 5.601433477895664,
+        "saves_unchanged": true,
+        "exe_sha256": "DDC67D6FCDE8D6672BFED28D37991EDD4F67387C207B2FE4CD6390BA3E9635D5"
+      },
+      "trace-cache-live-shadow": {
+        "world_fps": 48.80521713147411,
+        "raw_fps_measurement": false,
+        "valid_configuration": true,
+        "contended": true,
+        "external_core_average": 0.3189615863032085,
+        "external_core_peak": 1.4108575601167792,
+        "saves_unchanged": true,
+        "exe_sha256": "DDC67D6FCDE8D6672BFED28D37991EDD4F67387C207B2FE4CD6390BA3E9635D5"
+      }
+    },
+    "vu-cache-fusion-20261021": {
+      "cache-fusion-live-shadow": {
+        "world_fps": 41.84136282127914,
+        "raw_fps_measurement": false,
+        "valid_configuration": true,
+        "contended": true,
+        "external_core_average": 0.8718256368053323,
+        "external_core_peak": 1.7804174997997322,
+        "saves_unchanged": true,
+        "exe_sha256": "469BC1854525068229A37A165B43EE5D004BA7848086859E1FB8B07BD1485894"
+      },
+      "combo-direct-live-verify": {
+        "world_fps": 62.78856417910446,
+        "raw_fps_measurement": false,
+        "valid_configuration": true,
+        "contended": true,
+        "external_core_average": 0.45337954462821667,
+        "external_core_peak": 1.8488558746407342,
+        "saves_unchanged": true,
+        "exe_sha256": "8EE394AC39AFC4B02DF21327D76699A8A7BBE589F668A6C627641ABBA5E54C51"
+      },
+      "combo-four-a": {
+        "world_fps": 75.07991036749327,
+        "raw_fps_measurement": true,
+        "valid_configuration": true,
+        "contended": true,
+        "external_core_average": 1.3370576330611839,
+        "external_core_peak": 2.4839129530920947,
+        "saves_unchanged": true,
+        "exe_sha256": "8EE394AC39AFC4B02DF21327D76699A8A7BBE589F668A6C627641ABBA5E54C51"
+      },
+      "combo-four-b": {
+        "world_fps": 65.59277140863324,
+        "raw_fps_measurement": true,
+        "valid_configuration": true,
+        "contended": true,
+        "external_core_average": 1.0097042681576736,
+        "external_core_peak": 2.3700791634053084,
+        "saves_unchanged": true,
+        "exe_sha256": "8EE394AC39AFC4B02DF21327D76699A8A7BBE589F668A6C627641ABBA5E54C51"
+      },
+      "combo-four-eight-workers": {
+        "world_fps": 66.27914889376122,
+        "raw_fps_measurement": true,
+        "valid_configuration": true,
+        "contended": true,
+        "external_core_average": 1.7650481574102377,
+        "external_core_peak": 3.3019835608227956,
+        "saves_unchanged": true,
+        "exe_sha256": "8EE394AC39AFC4B02DF21327D76699A8A7BBE589F668A6C627641ABBA5E54C51"
+      },
+      "combo-off-a": {
+        "world_fps": 89.4164740518962,
+        "raw_fps_measurement": true,
+        "valid_configuration": true,
+        "contended": true,
+        "external_core_average": 0.8876158847563239,
+        "external_core_peak": 2.324745664538078,
+        "saves_unchanged": true,
+        "exe_sha256": "8EE394AC39AFC4B02DF21327D76699A8A7BBE589F668A6C627641ABBA5E54C51"
+      },
+      "combo-off-b": {
+        "world_fps": 88.15215318639675,
+        "raw_fps_measurement": true,
+        "valid_configuration": true,
+        "contended": true,
+        "external_core_average": 1.5606431314093177,
+        "external_core_peak": 2.2981796719880596,
+        "saves_unchanged": true,
+        "exe_sha256": "8EE394AC39AFC4B02DF21327D76699A8A7BBE589F668A6C627641ABBA5E54C51"
+      },
+      "combo-two": {
+        "world_fps": 80.95622931206381,
+        "raw_fps_measurement": true,
+        "valid_configuration": true,
+        "contended": true,
+        "external_core_average": 1.2995766765966905,
+        "external_core_peak": 2.447472663924633,
+        "saves_unchanged": true,
+        "exe_sha256": "8EE394AC39AFC4B02DF21327D76699A8A7BBE589F668A6C627641ABBA5E54C51"
+      }
+    },
+    "vu-packed-cache-fusion-20261021": {
+      "idle-cached-a": {
+        "world_fps": 93.6597903145282,
+        "raw_fps_measurement": true,
+        "valid_configuration": true,
+        "contended": false,
+        "external_core_average": 0.25220261408483574,
+        "external_core_peak": 0.7483158850138488,
+        "saves_unchanged": true,
+        "exe_sha256": "B725BB67CDB401513460ED2EDB3F54F80E870A6AD87D3149632C4F0D7D71869B"
+      },
+      "idle-fused-a": {
+        "world_fps": 83.80849442008768,
+        "raw_fps_measurement": true,
+        "valid_configuration": true,
+        "contended": false,
+        "external_core_average": 0.23975417299121493,
+        "external_core_peak": 0.88997631715752,
+        "saves_unchanged": true,
+        "exe_sha256": "B725BB67CDB401513460ED2EDB3F54F80E870A6AD87D3149632C4F0D7D71869B"
+      },
+      "idle-serial-a": {
+        "world_fps": 97.18807623228896,
+        "raw_fps_measurement": true,
+        "valid_configuration": true,
+        "contended": false,
+        "external_core_average": 0.2851528594347783,
+        "external_core_peak": 0.6086730158890928,
+        "saves_unchanged": true,
+        "exe_sha256": "B725BB67CDB401513460ED2EDB3F54F80E870A6AD87D3149632C4F0D7D71869B"
+      },
+      "packed-alias-live-shadow": {
+        "world_fps": 31.756800716703168,
+        "raw_fps_measurement": false,
+        "valid_configuration": true,
+        "contended": true,
+        "external_core_average": 2.5511737094376525,
+        "external_core_peak": 9.797560212472975,
+        "saves_unchanged": true,
+        "exe_sha256": "B725BB67CDB401513460ED2EDB3F54F80E870A6AD87D3149632C4F0D7D71869B"
+      },
+      "packed-alias-raw": {
+        "world_fps": 84.74413422284178,
+        "raw_fps_measurement": true,
+        "valid_configuration": true,
+        "contended": true,
+        "external_core_average": 1.493924206991171,
+        "external_core_peak": 2.7708981474144485,
+        "saves_unchanged": true,
+        "exe_sha256": "B725BB67CDB401513460ED2EDB3F54F80E870A6AD87D3149632C4F0D7D71869B"
+      },
+      "packed-cache-live-shadow": {
+        "world_fps": 42.18016313538247,
+        "raw_fps_measurement": false,
+        "valid_configuration": true,
+        "contended": true,
+        "external_core_average": 0.9829859361081548,
+        "external_core_peak": 2.616576460739893,
+        "saves_unchanged": true,
+        "exe_sha256": "B725BB67CDB401513460ED2EDB3F54F80E870A6AD87D3149632C4F0D7D71869B"
+      },
+      "packed-critical-profile": {
+        "world_fps": 48.31613457122891,
+        "raw_fps_measurement": false,
+        "valid_configuration": true,
+        "contended": true,
+        "external_core_average": 1.9608824076068903,
+        "external_core_peak": 7.086769680174973,
+        "saves_unchanged": true,
+        "exe_sha256": "B725BB67CDB401513460ED2EDB3F54F80E870A6AD87D3149632C4F0D7D71869B"
+      },
+      "packed-direct-live-verify": {
+        "world_fps": 56.10452316890881,
+        "raw_fps_measurement": false,
+        "valid_configuration": true,
+        "contended": true,
+        "external_core_average": 5.247970189638066,
+        "external_core_peak": 11.560804445337125,
+        "saves_unchanged": true,
+        "exe_sha256": "B725BB67CDB401513460ED2EDB3F54F80E870A6AD87D3149632C4F0D7D71869B"
+      },
+      "packed-four-raw": {
+        "world_fps": 68.20223950543425,
+        "raw_fps_measurement": true,
+        "valid_configuration": true,
+        "contended": true,
+        "external_core_average": 1.877658247553497,
+        "external_core_peak": 4.170259426932756,
+        "saves_unchanged": true,
+        "exe_sha256": "B725BB67CDB401513460ED2EDB3F54F80E870A6AD87D3149632C4F0D7D71869B"
+      },
+      "packed-one-raw": {
+        "world_fps": 66.13046310128473,
+        "raw_fps_measurement": true,
+        "valid_configuration": true,
+        "contended": true,
+        "external_core_average": 3.2944131299203145,
+        "external_core_peak": 7.489714308917022,
+        "saves_unchanged": true,
+        "exe_sha256": "B725BB67CDB401513460ED2EDB3F54F80E870A6AD87D3149632C4F0D7D71869B"
+      },
+      "packed-serial-raw": {
+        "world_fps": 64.8997843585412,
+        "raw_fps_measurement": true,
+        "valid_configuration": true,
+        "contended": true,
+        "external_core_average": 2.728197750823514,
+        "external_core_peak": 7.995366766513073,
+        "saves_unchanged": true,
+        "exe_sha256": "B725BB67CDB401513460ED2EDB3F54F80E870A6AD87D3149632C4F0D7D71869B"
+      }
+    },
+    "vu-alias-copies-20261021": {
+      "alias-copies-live-shadow": {
+        "world_fps": 39.977674209949164,
+        "raw_fps_measurement": false,
+        "valid_configuration": true,
+        "contended": true,
+        "external_core_average": 1.5413454435046101,
+        "external_core_peak": 5.38847347397352,
+        "saves_unchanged": true,
+        "exe_sha256": "F49B47BB44BA2A108B4BF507CDE9DDB01DB2132C6CA0211686D73C08ECBB6849"
+      }
+    },
+    "vu-register-origins-20261021": {
+      "register-origins-live-shadow": {
+        "world_fps": 40.247477585176334,
+        "raw_fps_measurement": false,
+        "valid_configuration": true,
+        "contended": false,
+        "external_core_average": 0.24078162001597245,
+        "external_core_peak": 0.565138982155489,
+        "saves_unchanged": true,
+        "exe_sha256": "553A3B6B141D96773C00610D74CD45BDD4CED7DECB26B85161FDBF3279E348EE"
+      }
+    }
+  },
+  "verification": {
+    "vu-trace-cache-20261021/cache-eight-workers": {
+      "batch_mismatch_messages": 0,
+      "cache_mismatch_messages": 0,
+      "cache": {
+        "enabled": 1,
+        "shadow": 0,
+        "hits": 293175,
+        "guard_misses": 4866,
+        "recorded": 10776,
+        "verified": 0,
+        "mismatches": 0,
+        "pairs": 888879819
+      },
+      "collector": {
+        "batches": 11991,
+        "groups": 573681,
+        "accepted": 301303,
+        "rejected": 2654,
+        "verified": 0,
+        "mismatches": 0
+      }
+    },
+    "vu-trace-cache-20261021/cache-off-a": {
+      "batch_mismatch_messages": 0,
+      "cache_mismatch_messages": 0,
+      "cache": {
+        "enabled": 0,
+        "shadow": 0,
+        "hits": 0,
+        "guard_misses": 0,
+        "recorded": 0,
+        "verified": 0,
+        "mismatches": 0,
+        "pairs": 0
+      },
+      "collector": {
+        "batches": 12731,
+        "groups": 607735,
+        "accepted": 324883,
+        "rejected": 2728,
+        "verified": 0,
+        "mismatches": 0
+      }
+    },
+    "vu-trace-cache-20261021/cache-off-b": {
+      "batch_mismatch_messages": 0,
+      "cache_mismatch_messages": 0,
+      "cache": {
+        "enabled": 0,
+        "shadow": 0,
+        "hits": 0,
+        "guard_misses": 0,
+        "recorded": 0,
+        "verified": 0,
+        "mismatches": 0,
+        "pairs": 0
+      },
+      "collector": {
+        "batches": 11556,
+        "groups": 535410,
+        "accepted": 284981,
+        "rejected": 1962,
+        "verified": 0,
+        "mismatches": 0
+      }
+    },
+    "vu-trace-cache-20261021/cache-on-a": {
+      "batch_mismatch_messages": 0,
+      "cache_mismatch_messages": 0,
+      "cache": {
+        "enabled": 1,
+        "shadow": 0,
+        "hits": 293380,
+        "guard_misses": 5016,
+        "recorded": 10947,
+        "verified": 0,
+        "mismatches": 0,
+        "pairs": 875998662
+      },
+      "collector": {
+        "batches": 11973,
+        "groups": 566188,
+        "accepted": 301785,
+        "rejected": 2549,
+        "verified": 0,
+        "mismatches": 0
+      }
+    },
+    "vu-trace-cache-20261021/cache-on-b": {
+      "batch_mismatch_messages": 0,
+      "cache_mismatch_messages": 0,
+      "cache": {
+        "enabled": 1,
+        "shadow": 0,
+        "hits": 302002,
+        "guard_misses": 4541,
+        "recorded": 10451,
+        "verified": 0,
+        "mismatches": 0,
+        "pairs": 911843024
+      },
+      "collector": {
+        "batches": 12209,
+        "groups": 580740,
+        "accepted": 310088,
+        "rejected": 2371,
+        "verified": 0,
+        "mismatches": 0
+      }
+    },
+    "vu-trace-cache-20261021/trace-cache-live-shadow": {
+      "batch_mismatch_messages": 0,
+      "cache_mismatch_messages": 0,
+      "cache": {
+        "enabled": 1,
+        "shadow": 1,
+        "hits": 163006,
+        "guard_misses": 2740,
+        "recorded": 169019,
+        "verified": 163006,
+        "mismatches": 0,
+        "pairs": 482040984
+      },
+      "collector": {
+        "batches": 6961,
+        "groups": 320645,
+        "accepted": 167864,
+        "rejected": 1160,
+        "verified": 167864,
+        "mismatches": 0
+      }
+    },
+    "vu-cache-fusion-20261021/cache-fusion-live-shadow": {
+      "batch_mismatch_messages": 0,
+      "cache_mismatch_messages": 0,
+      "cache": {
+        "enabled": 1,
+        "shadow": 1,
+        "hits": 138198,
+        "guard_misses": 2956,
+        "recorded": 143958,
+        "verified": 138198,
+        "mismatches": 0,
+        "pairs": 427108866
+      },
+      "collector": {
+        "batches": 6009,
+        "groups": 277619,
+        "accepted": 142770,
+        "rejected": 1193,
+        "verified": 142770,
+        "mismatches": 0
+      }
+    },
+    "vu-cache-fusion-20261021/combo-direct-live-verify": {
+      "batch_mismatch_messages": 0,
+      "cache_mismatch_messages": 0,
+      "cache": {
+        "enabled": 1,
+        "shadow": 0,
+        "hits": 218317,
+        "guard_misses": 4235,
+        "recorded": 8691,
+        "verified": 0,
+        "mismatches": 0,
+        "pairs": 705452928
+      },
+      "collector": {
+        "batches": 9382,
+        "groups": 423619,
+        "accepted": 225096,
+        "rejected": 1917,
+        "verified": 225096,
+        "mismatches": 0
+      }
+    },
+    "vu-cache-fusion-20261021/combo-four-a": {
+      "batch_mismatch_messages": 0,
+      "cache_mismatch_messages": 0,
+      "cache": {
+        "enabled": 1,
+        "shadow": 0,
+        "hits": 213102,
+        "guard_misses": 3767,
+        "recorded": 8114,
+        "verified": 0,
+        "mismatches": 0,
+        "pairs": 654152348
+      },
+      "collector": {
+        "batches": 9156,
+        "groups": 414378,
+        "accepted": 219683,
+        "rejected": 1539,
+        "verified": 0,
+        "mismatches": 0
+      }
+    },
+    "vu-cache-fusion-20261021/combo-four-b": {
+      "batch_mismatch_messages": 0,
+      "cache_mismatch_messages": 0,
+      "cache": {
+        "enabled": 1,
+        "shadow": 0,
+        "hits": 225040,
+        "guard_misses": 4462,
+        "recorded": 8935,
+        "verified": 0,
+        "mismatches": 0,
+        "pairs": 647893909
+      },
+      "collector": {
+        "batches": 9492,
+        "groups": 438873,
+        "accepted": 232135,
+        "rejected": 1847,
+        "verified": 0,
+        "mismatches": 0
+      }
+    },
+    "vu-cache-fusion-20261021/combo-four-eight-workers": {
+      "batch_mismatch_messages": 0,
+      "cache_mismatch_messages": 0,
+      "cache": {
+        "enabled": 1,
+        "shadow": 0,
+        "hits": 222929,
+        "guard_misses": 4417,
+        "recorded": 8897,
+        "verified": 0,
+        "mismatches": 0,
+        "pairs": 678235677
+      },
+      "collector": {
+        "batches": 9278,
+        "groups": 423777,
+        "accepted": 230079,
+        "rejected": 1752,
+        "verified": 0,
+        "mismatches": 0
+      }
+    },
+    "vu-cache-fusion-20261021/combo-off-a": {
+      "batch_mismatch_messages": 0,
+      "cache_mismatch_messages": 0,
+      "cache": {
+        "enabled": 1,
+        "shadow": 0,
+        "hits": 298452,
+        "guard_misses": 4510,
+        "recorded": 10374,
+        "verified": 0,
+        "mismatches": 0,
+        "pairs": 904875939
+      },
+      "collector": {
+        "batches": 12153,
+        "groups": 574498,
+        "accepted": 306481,
+        "rejected": 2352,
+        "verified": 0,
+        "mismatches": 0
+      }
+    },
+    "vu-cache-fusion-20261021/combo-off-b": {
+      "batch_mismatch_messages": 0,
+      "cache_mismatch_messages": 0,
+      "cache": {
+        "enabled": 1,
+        "shadow": 0,
+        "hits": 280464,
+        "guard_misses": 4435,
+        "recorded": 10030,
+        "verified": 0,
+        "mismatches": 0,
+        "pairs": 849900854
+      },
+      "collector": {
+        "batches": 11478,
+        "groups": 540441,
+        "accepted": 288305,
+        "rejected": 2195,
+        "verified": 0,
+        "mismatches": 0
+      }
+    },
+    "vu-cache-fusion-20261021/combo-two": {
+      "batch_mismatch_messages": 0,
+      "cache_mismatch_messages": 0,
+      "cache": {
+        "enabled": 1,
+        "shadow": 0,
+        "hits": 278803,
+        "guard_misses": 4645,
+        "recorded": 10160,
+        "verified": 0,
+        "mismatches": 0,
+        "pairs": 868259148
+      },
+      "collector": {
+        "batches": 11413,
+        "groups": 531874,
+        "accepted": 286742,
+        "rejected": 2227,
+        "verified": 0,
+        "mismatches": 0
+      }
+    },
+    "vu-packed-cache-fusion-20261021/idle-cached-a": {
+      "batch_mismatch_messages": 0,
+      "cache_mismatch_messages": 0,
+      "cache": {
+        "enabled": 1,
+        "shadow": 0,
+        "hits": 308164,
+        "guard_misses": 5016,
+        "recorded": 11312,
+        "verified": 0,
+        "mismatches": 0,
+        "pairs": 944677735
+      },
+      "collector": {
+        "batches": 12372,
+        "groups": 592152,
+        "accepted": 316789,
+        "rejected": 2693,
+        "verified": 0,
+        "mismatches": 0
+      }
+    },
+    "vu-packed-cache-fusion-20261021/idle-fused-a": {
+      "batch_mismatch_messages": 0,
+      "cache_mismatch_messages": 0,
+      "cache": {
+        "enabled": 1,
+        "shadow": 0,
+        "hits": 265226,
+        "guard_misses": 5355,
+        "recorded": 10758,
+        "verified": 0,
+        "mismatches": 0,
+        "pairs": 833184046
+      },
+      "collector": {
+        "batches": 10758,
+        "groups": 501069,
+        "accepted": 273453,
+        "rejected": 2539,
+        "verified": 0,
+        "mismatches": 0
+      }
+    },
+    "vu-packed-cache-fusion-20261021/packed-alias-live-shadow": {
+      "batch_mismatch_messages": 0,
+      "cache_mismatch_messages": 0,
+      "cache": {
+        "enabled": 1,
+        "shadow": 1,
+        "hits": 112590,
+        "guard_misses": 2161,
+        "recorded": 117105,
+        "verified": 112590,
+        "mismatches": 0,
+        "pairs": 348869276
+      },
+      "collector": {
+        "batches": 4931,
+        "groups": 220512,
+        "accepted": 116268,
+        "rejected": 847,
+        "verified": 116268,
+        "mismatches": 0
+      }
+    },
+    "vu-packed-cache-fusion-20261021/packed-alias-raw": {
+      "batch_mismatch_messages": 0,
+      "cache_mismatch_messages": 0,
+      "cache": {
+        "enabled": 1,
+        "shadow": 0,
+        "hits": 281720,
+        "guard_misses": 4495,
+        "recorded": 10015,
+        "verified": 0,
+        "mismatches": 0,
+        "pairs": 898892161
+      },
+      "collector": {
+        "batches": 11431,
+        "groups": 545625,
+        "accepted": 289261,
+        "rejected": 2492,
+        "verified": 0,
+        "mismatches": 0
+      }
+    },
+    "vu-packed-cache-fusion-20261021/packed-cache-live-shadow": {
+      "batch_mismatch_messages": 0,
+      "cache_mismatch_messages": 0,
+      "cache": {
+        "enabled": 1,
+        "shadow": 1,
+        "hits": 136762,
+        "guard_misses": 2490,
+        "recorded": 142092,
+        "verified": 136762,
+        "mismatches": 0,
+        "pairs": 415750306
+      },
+      "collector": {
+        "batches": 5769,
+        "groups": 266809,
+        "accepted": 141071,
+        "rejected": 1025,
+        "verified": 141071,
+        "mismatches": 0
+      }
+    },
+    "vu-packed-cache-fusion-20261021/packed-critical-profile": {
+      "batch_mismatch_messages": 0,
+      "cache_mismatch_messages": 0,
+      "cache": {
+        "enabled": 1,
+        "shadow": 0,
+        "hits": 192017,
+        "guard_misses": 3428,
+        "recorded": 7251,
+        "verified": 0,
+        "mismatches": 0,
+        "pairs": 592915725
+      },
+      "collector": {
+        "batches": 8224,
+        "groups": 367780,
+        "accepted": 197940,
+        "rejected": 1336,
+        "verified": 0,
+        "mismatches": 0
+      }
+    },
+    "vu-packed-cache-fusion-20261021/packed-direct-live-verify": {
+      "batch_mismatch_messages": 0,
+      "cache_mismatch_messages": 0,
+      "cache": {
+        "enabled": 1,
+        "shadow": 0,
+        "hits": 173165,
+        "guard_misses": 3477,
+        "recorded": 7089,
+        "verified": 0,
+        "mismatches": 0,
+        "pairs": 541406104
+      },
+      "collector": {
+        "batches": 7587,
+        "groups": 341384,
+        "accepted": 178670,
+        "rejected": 1588,
+        "verified": 178670,
+        "mismatches": 0
+      }
+    },
+    "vu-packed-cache-fusion-20261021/packed-four-raw": {
+      "batch_mismatch_messages": 0,
+      "cache_mismatch_messages": 0,
+      "cache": {
+        "enabled": 1,
+        "shadow": 0,
+        "hits": 207655,
+        "guard_misses": 3672,
+        "recorded": 7870,
+        "verified": 0,
+        "mismatches": 0,
+        "pairs": 665308412
+      },
+      "collector": {
+        "batches": 8907,
+        "groups": 403550,
+        "accepted": 213944,
+        "rejected": 1597,
+        "verified": 0,
+        "mismatches": 0
+      }
+    },
+    "vu-packed-cache-fusion-20261021/packed-one-raw": {
+      "batch_mismatch_messages": 0,
+      "cache_mismatch_messages": 0,
+      "cache": {
+        "enabled": 1,
+        "shadow": 0,
+        "hits": 220161,
+        "guard_misses": 3071,
+        "recorded": 7433,
+        "verified": 0,
+        "mismatches": 0,
+        "pairs": 659354927
+      },
+      "collector": {
+        "batches": 9526,
+        "groups": 428958,
+        "accepted": 226124,
+        "rejected": 1475,
+        "verified": 0,
+        "mismatches": 0
+      }
+    },
+    "vu-alias-copies-20261021/alias-copies-live-shadow": {
+      "batch_mismatch_messages": 0,
+      "cache_mismatch_messages": 0,
+      "cache": {
+        "enabled": 1,
+        "shadow": 1,
+        "hits": 129898,
+        "guard_misses": 2677,
+        "recorded": 135226,
+        "verified": 129898,
+        "mismatches": 0,
+        "pairs": 417781926
+      },
+      "collector": {
+        "batches": 5638,
+        "groups": 259722,
+        "accepted": 134033,
+        "rejected": 1196,
+        "verified": 134033,
+        "mismatches": 0
+      },
+      "alias_precision": {
+        "enabled": 1,
+        "copies": 11911201,
+        "low_half_reads": 0
+      }
+    },
+    "vu-register-origins-20261021/register-origins-live-shadow": {
+      "batch_mismatch_messages": 0,
+      "cache_mismatch_messages": 0,
+      "cache": {
+        "enabled": 1,
+        "shadow": 1,
+        "hits": 135338,
+        "guard_misses": 2264,
+        "recorded": 140378,
+        "verified": 135338,
+        "mismatches": 0,
+        "pairs": 454328058
+      },
+      "collector": {
+        "batches": 5877,
+        "groups": 269597,
+        "accepted": 139300,
+        "rejected": 1081,
+        "verified": 139300,
+        "mismatches": 0
+      },
+      "alias_precision": {
+        "enabled": 1,
+        "copies": 11982076,
+        "low_half_reads": 0
+      }
+    }
+  },
+  "limitations": [
+    "Experimental code remains private or source-only archived; it is not enabled by the runtime projection.",
+    "Contended measurements cannot establish speedups.",
+    "The renewed quiet comparison contains one clean sample per configuration; it rejects promotion but does not estimate a precise repeatable regression."
+  ],
+  "renewed_quiet_comparison": {
+    "idle-serial-a": {
+      "general_cpu_audited": true,
+      "external_core_average": 0.2851528594347783,
+      "external_core_peak": 0.6086730158890928,
+      "external_cpu_busy_samples": 0,
+      "exe_sha256": "B725BB67CDB401513460ED2EDB3F54F80E870A6AD87D3149632C4F0D7D71869B",
+      "world_fps": 97.18807623228896,
+      "last_five_world_windows": [
+        [
+          2.005,
+          97.75
+        ],
+        [
+          2.001,
+          97.47
+        ],
+        [
+          2.0,
+          96.5
+        ],
+        [
+          2.009,
+          96.57
+        ],
+        [
+          2.007,
+          97.65
+        ]
+      ],
+      "saves_unchanged": true,
+      "contended": false,
+      "overlap_samples": 0,
+      "valid_configuration": true,
+      "invalid_configuration_reason": null,
+      "raw_fps_measurement": true
+    },
+    "idle-cached-a": {
+      "general_cpu_audited": true,
+      "external_core_average": 0.25220261408483574,
+      "external_core_peak": 0.7483158850138488,
+      "external_cpu_busy_samples": 0,
+      "exe_sha256": "B725BB67CDB401513460ED2EDB3F54F80E870A6AD87D3149632C4F0D7D71869B",
+      "world_fps": 93.6597903145282,
+      "last_five_world_windows": [
+        [
+          2.0,
+          94.49
+        ],
+        [
+          2.008,
+          90.13
+        ],
+        [
+          2.003,
+          94.38
+        ],
+        [
+          2.002,
+          94.41
+        ],
+        [
+          2.002,
+          94.9
+        ]
+      ],
+      "saves_unchanged": true,
+      "contended": false,
+      "overlap_samples": 0,
+      "valid_configuration": true,
+      "invalid_configuration_reason": null,
+      "raw_fps_measurement": true
+    },
+    "idle-fused-a": {
+      "general_cpu_audited": true,
+      "external_core_average": 0.23975417299121493,
+      "external_core_peak": 0.88997631715752,
+      "external_cpu_busy_samples": 0,
+      "exe_sha256": "B725BB67CDB401513460ED2EDB3F54F80E870A6AD87D3149632C4F0D7D71869B",
+      "world_fps": 83.80849442008768,
+      "last_five_world_windows": [
+        [
+          2.005,
+          84.8
+        ],
+        [
+          2.008,
+          83.18
+        ],
+        [
+          2.008,
+          84.68
+        ],
+        [
+          2.006,
+          80.75
+        ],
+        [
+          2.009,
+          85.63
+        ]
+      ],
+      "saves_unchanged": true,
+      "contended": false,
+      "overlap_samples": 0,
+      "valid_configuration": true,
+      "invalid_configuration_reason": null,
+      "raw_fps_measurement": true
+    }
+  },
+  "batch_phase_milliseconds": {
+    "prepare": 2239.377,
+    "queue": 19.803,
+    "history": 17.303,
+    "serial": 16074.196,
+    "wait": 9448.952,
+    "validate": 648.814,
+    "collect": 326.887,
+    "worker-sum": 19128.332
+  },
+  "camera_copy_followup": {
+    "implemented": false,
+    "current_snapshot_bytes": 16384,
+    "production_tap_read_bytes": 112,
+    "raw_baseline_tap_enabled": false
+  },
+  "source_patch_manifest": "analysis/experiments/vector-guarded-reuse-20261021/manifest.json"
+}

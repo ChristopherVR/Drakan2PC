@@ -1,0 +1,55 @@
+{
+  "status": "historical_overlay_research_superseded_by_native_atlas",
+  "date": "2026-10-18",
+  "draw": {
+    "address": "0x00286170",
+    "end": "0x002865d8",
+    "source": "build/ps2recomp_try/output/sub_00286170_0x286170.cpp",
+    "abi": [
+      "a0=x",
+      "a1=y",
+      "a2=guest string pointer",
+      "a3=extra argument; zero in pager, full semantics unresolved",
+      "t0=font index",
+      "t1=color pointer",
+      "t2=clip pointer",
+      "t3=measure flag"
+    ],
+    "evidence": "tools/PS2Recomp/ps2xRuntime/src/lib/drakan_menus.cpp:46-47,324-328",
+    "font_records": "0x0056cad8 + fontIndex * 0x28",
+    "return": "v0 = s2 - s5 at 0x2865a4 (horizontal advance)",
+    "glyph_submission": "0x286528 indirect call; target read via t3+0xbc at 0x286514; concrete target and full side effects unresolved"
+  },
+  "width": {
+    "address": "0x002885c8",
+    "source": "build/ps2recomp_try/output/sub_002885C8_0x2885c8.cpp",
+    "evidence": "0x288600 calls 0x286170; delay slot 0x288604 sets t3=1",
+    "consequence": "Never suppress or queue measure-only calls"
+  },
+  "line_height": "0x00288658",
+  "loader": "0x00285aa8",
+  "active_screen_pointer": "0x004fb60c",
+  "gui_size_pointer": "0x005565c8 (+0xf8 width, +0xfc height)",
+  "inventory_screen": 21,
+  "layout": {
+    "source": "runtime/gs/src/hud_page.h",
+    "map": "nativeX * aspectScale (left anchored inventory; centered interactive menus)",
+    "host": "tools/PS2Recomp/ps2xRuntime/src/lib/drakan_settings_host.cpp:488-505",
+    "requirement": "Apply page mapping and presentation viewport once to both glyphs and scissor; preserve preview and draw order"
+  },
+  "fonts": {
+    "source": "runtime/settings/src/Menu.cpp:228",
+    "body": "TTF baked at 28px; Latin coverage 0x20..0x17f plus punctuation",
+    "game": "INTERFCE.TXD 96, bitmap enlarged 3x by Skin.cpp:201; ASCII only; not new high resolution outlines",
+    "prompt": "INTERFCE.TXD 97 has controller escapes rewritten by runtime/ui; preserve these glyphs or fall back"
+  },
+  "blockers": [
+    "Inventory-specific callers and live draw coverage have not been established.",
+    "Native escape grammar, per-glyph advances, bearings, clipping and color/alpha semantics need decoding.",
+    "Native glyph submission target and side effects need confirmation before suppressing duplicates.",
+    "Frame-accurate handoff between EE/GS/presentation and renderer availability acknowledgement is missing; latest-string overlays can become stale or double draw.",
+    "Overlay compositing occurs after native UI; modal occlusion and interleaving require a proven ordering contract.",
+    "Shared overlay/host integration requires parent coordination while sidebar removal is in progress."
+  ],
+  "bounded_next_step": "Completed: capture-only hooks validated native font97 rectangles. Native draws are retained; high-resolution texture registration avoids replacement draw, ordering and measurement hooks. See inventory-native-font-evidence-20261018.json and docs/NATIVE_INVENTORY_20261018.md. Blockers above describe the rejected text overlay approach."
+}

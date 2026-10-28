@@ -1,0 +1,112 @@
+{
+  "date": "2026-10-18T21:57:28.327179+10:00",
+  "executable_sha256": "f27939e2375e3e8776be0ad7574c8532242f616184b4ed81183c90ee3e7c520e",
+  "previous_executable_sha256": "5560c116fefb2d5b9040c434606670a3749ef0f33a61d6615b176f75d877c266",
+  "backup": "C:\\Games\\Drakan - The Ancients Gates\\decomp\\build\\release_backups\\default-performance-20261018-215728",
+  "default_world_rate": "uncapped",
+  "original_mode": "30 world FPS; optimized CPU path retained",
+  "normal_launcher": "Play.cmd",
+  "compatibility_launcher": "Play-RawFPS.cmd respects saved settings",
+  "original_launcher": "Play-Original30.cmd overrides world_rate and frame_limit to 30 for one process",
+  "validation": {
+    "settings_suites": "settings_test and settings_menu_test passed",
+    "modes": {
+      "default-launcher-original30": {
+        "exe_sha256": "F27939E2375E3E8776BE0AD7574C8532242F616184B4ED81183C90EE3E7C520E",
+        "world_fps": 30.000094367736164,
+        "last_five_world_windows": [
+          [
+            2.001,
+            29.99
+          ],
+          [
+            2.032,
+            30.02
+          ],
+          [
+            2.0,
+            29.99
+          ],
+          [
+            2.001,
+            29.99
+          ],
+          [
+            2.033,
+            30.01
+          ]
+        ],
+        "saves_unchanged": true
+      },
+      "default-missing-key": {
+        "exe_sha256": "F27939E2375E3E8776BE0AD7574C8532242F616184B4ED81183C90EE3E7C520E",
+        "world_fps": 63.753805159876485,
+        "last_five_world_windows": [
+          [
+            2.0,
+            63.49
+          ],
+          [
+            2.008,
+            64.23
+          ],
+          [
+            2.011,
+            64.16
+          ],
+          [
+            2.015,
+            63.04
+          ],
+          [
+            2.005,
+            63.85
+          ]
+        ],
+        "saves_unchanged": true
+      },
+      "default-saved-original30": {
+        "exe_sha256": "F27939E2375E3E8776BE0AD7574C8532242F616184B4ED81183C90EE3E7C520E",
+        "world_fps": 29.996054021728295,
+        "last_five_world_windows": [
+          [
+            2.0,
+            29.99
+          ],
+          [
+            2.0,
+            29.99
+          ],
+          [
+            2.016,
+            29.76
+          ],
+          [
+            2.017,
+            30.25
+          ],
+          [
+            2.0,
+            29.99
+          ]
+        ],
+        "saves_unchanged": true
+      }
+    },
+    "presentation_fps": {
+      "default-launcher-original30": 30.000094367736164,
+      "default-missing-key": 63.753805159876485,
+      "default-saved-original30": 59.99602910395694
+    },
+    "all_saves_unchanged": true,
+    "runtime_patch_reverse_apply": "passed"
+  },
+  "settings_sha256": {
+    "drakan.ini": "667e7be8b9791904708bc6b82db1291a647adc99fc339680f4f8fddfa911f96d",
+    "drakan_input.ini": "3ecf546900e9858a587ef9c4b62385b074c9281431d3eac0ef73619be0dd078f"
+  },
+  "settings_unchanged": true,
+  "runtime_patch_sha256": "582d9150b0b30d35d134791deebb40eea465a6837122cc6d3bc17034e17f572c",
+  "evidence": "C:\\Games\\Drakan - The Ancients Gates\\decomp\\build\\default-performance-20261018",
+  "limits": "Measured scene at raw 4x resolution, audio on, no frame generation. Audit logging enabled. This does not establish 60 FPS in every area or complete gameplay timing parity."
+}

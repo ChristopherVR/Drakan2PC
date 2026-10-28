@@ -1,0 +1,194 @@
+--- a/runtime/gs/src/gs_complete_upload.h
++++ b/runtime/gs/src/gs_complete_upload.h
+@@ -10,6 +10,9 @@
+  uint64_t tag;std::memcpy(&tag,current+16,8);
+  if(((tag>>58)&3)!=2)return 0;
+  return std::min(uint32_t(tag&0x7fff), (size-32)/16)*16;
++}
++inline bool subblockUpload(uint32_t psm,uint32_t bp,uint32_t bw,uint32_t x,uint32_t y,uint32_t w,uint32_t h,uint32_t available) {
++ return psm==PSM_T8 && bp<kVramBlocks && bw && x==0 && y==0 && w==8 && h==8 && available>=64;
+ }
+ inline bool fullUploadBlocks(uint32_t psm,uint32_t bp,uint32_t bw,uint32_t x,uint32_t y,uint32_t w,uint32_t h,uint32_t available,uint32_t& first,uint32_t& last) {
+  if((psm!=PSM_CT32 && psm!=PSM_T8) || !bw || !w || !h || x>=2048 || y>=2048 || w>2048-x || h>2048-y)return false;
+--- a/runtime/gs/src/gs_core.cpp
++++ b/runtime/gs/src/gs_core.cpp
+@@ -838,7 +838,8 @@
+         if(fullUploadBlocks(xfer.dpsm,xfer.dbp,xfer.dbw,xfer.x0,xfer.y0,xfer.w,xfer.h,available,first,last))
+             backend->discardCompleteUpload(first,last);
+         spanBlocks(xfer.dpsm,xfer.dbp,xfer.dbw,xfer.x0,xfer.y0,xfer.w,xfer.h,first,last);
+-        backend->flushToMemoryTagged(first,last,2);
++        const bool subblock=subblockUpload(xfer.dpsm,xfer.dbp,xfer.dbw,xfer.x0,xfer.y0,xfer.w,xfer.h,available) && backend->deferSubblockUpload(xfer.dbp);
++        if(!subblock)backend->flushToMemoryTagged(first,last,2);
+         mem.touchRect(xfer.dpsm,xfer.dbp,xfer.dbw,xfer.x0,xfer.y0,xfer.w,xfer.h);
+         if(!xfer.pendingImage.empty()) {
+             auto pending=std::move(xfer.pendingImage);
+@@ -866,7 +867,7 @@
+             uint32_t lo, hi;
+             spanBlocks(dpsm, dbp, dbw, dsax, dsay, rrw, rrh, lo, hi);
+             uint32_t overwriteFirst=0,overwriteLast=0;
+-            xfer.deferredCoherence=!rawVramExposed && fullUploadBlocks(dpsm,dbp,dbw,dsax,dsay,rrw,rrh,0xffffffffu,overwriteFirst,overwriteLast);
++            xfer.deferredCoherence=!rawVramExposed && (fullUploadBlocks(dpsm,dbp,dbw,dsax,dsay,rrw,rrh,0xffffffffu,overwriteFirst,overwriteLast) || subblockUpload(dpsm,dbp,dbw,dsax,dsay,rrw,rrh,0xffffffffu));
+             const bool readback=!xfer.deferredCoherence && backend->flushToMemoryTagged(lo, hi,2);
+             static unsigned audit=0;
+             if(readback && std::getenv("GSR_VALIDATE_REUSE"))
+--- a/runtime/gs/src/gs_internal.h
++++ b/runtime/gs/src/gs_internal.h
+@@ -116,6 +116,7 @@
+     // make local memory reflect GPU render targets overlapping blocks [first,last]
+     void flushToMemory(uint32_t firstBlock, uint32_t lastBlock);
+     bool flushToMemoryTagged(uint32_t firstBlock,uint32_t lastBlock,unsigned reason);
++    bool deferSubblockUpload(uint32_t bp);
+     void discardCompleteUpload(uint32_t first,uint32_t last);
+     void flushAll();
+     void present(const DisplayState& d);                      // render the live display + blit to the window
+--- a/runtime/gs/src/cpu_profile.h
++++ b/runtime/gs/src/cpu_profile.h
+@@ -15,7 +15,7 @@
+               TemporalResolve, PresentLatched, PresentCall, PumpUp, Snapshot,
+               WindowScreenshot, LatchDisplay, EndFrame,
+               TextureCoherenceFlush, TextureStampCheck, TextureDecode, TextureCallback, TextureUpscale, TextureCreate,
+-              GuidePrepare, RayScene, ModelGuides, SuperResolution, NeuralEvaluation, TemporalCompose, RayPack, RayProduce, RayBuild, RayWait, RayConsume, RayTriangles, RayModelAttributes, RayUpload, TextureResourceReuse, ReadbackPalette, ReadbackUpload, ReadbackDownload, ReadbackCopy, ReadbackTexture, ReadbackExternal, ReadbackOverwriteDiscard, Count };
++              GuidePrepare, RayScene, ModelGuides, SuperResolution, NeuralEvaluation, TemporalCompose, RayPack, RayProduce, RayBuild, RayWait, RayConsume, RayTriangles, RayModelAttributes, RayUpload, TextureResourceReuse, ReadbackPalette, ReadbackUpload, ReadbackDownload, ReadbackCopy, ReadbackTexture, ReadbackExternal, ReadbackOverwriteDiscard, SubblockDefer, SubblockTextureHit, SubblockMerge, Count };
+     struct Scope;
+ private:
+     struct Sample { unsigned long long calls=0; double inclusive=0, exclusive=0, maximum=0; };
+@@ -38,7 +38,7 @@
+         static constexpr const char* names[]={"draw","resolveTexture","syncRT","readbackRT","readbackMap","readbackPackUnmap",
+             "temporalResolve","presentLatched","presentCall","pumpUp","snapshot","windowScreenshot","latchDisplay","endFrame","textureCoherenceFlush","textureStampCheck",
+             "textureDecode","textureCallback","textureUpscale","textureCreate",
+-            "guidePrepare","rayScene","modelGuides","superResolution","neuralEvaluation","temporalCompose","rayPack","rayProduce","rayBuild","rayWait","rayConsume","rayTriangles","rayModelAttributes","rayUpload","textureResourceReuse","readbackPalette","readbackUpload","readbackDownload","readbackCopy","readbackTexture","readbackExternal","readbackOverwriteDiscard"};
++            "guidePrepare","rayScene","modelGuides","superResolution","neuralEvaluation","temporalCompose","rayPack","rayProduce","rayBuild","rayWait","rayConsume","rayTriangles","rayModelAttributes","rayUpload","textureResourceReuse","readbackPalette","readbackUpload","readbackDownload","readbackCopy","readbackTexture","readbackExternal","readbackOverwriteDiscard","subblockDefer","subblockTextureHit","subblockMerge"};
+         static_assert(sizeof(names) / sizeof(names[0]) == Count, "Profiler bucket names must match Id");
+         std::fprintf(stderr,"[gsr-profile] %.3fs root=%.2fms readbackCopy=%.2fMiB syncUpload=%.2fMiB; calls/inclusive_ms/exclusive_ms/max_ms:",
+             elapsed,rootMs,readbackBytes/1048576.0,uploadBytes/1048576.0);
+--- a/runtime/gs/src/d3d11_backend.cpp
++++ b/runtime/gs/src/d3d11_backend.cpp
+@@ -189,6 +189,7 @@
+     ComPtr<ID3D11Texture2D> tex, copy;
+     ComPtr<ID3D11RenderTargetView> rtv;
+     ComPtr<ID3D11ShaderResourceView> srv, copySrv;
++    std::unordered_map<uint32_t,std::array<uint8_t,256>> cpuBytes;
+     bool dirty = false;
+     std::vector<uint8_t> cpuBlocks; // Complete uploaded blocks; other dirty pixels remain GPU-owned.
+     uint32_t dy0 = 0, dy1 = 0;
+@@ -1460,7 +1461,10 @@
+             rt.dirty = false;
+             return;
+         }
+-        if(!rt.cpuBlocks.empty()) syncRT(rt);
++        if(!rt.cpuBlocks.empty()) syncRT(rt,false);
++        std::vector<std::pair<uint32_t,uint8_t>> savedBytes;
++        for(const auto& entry:rt.cpuBytes)for(unsigned i=0;i<256;++i)
++            if(entry.second[i])savedBytes.push_back({entry.first*256+i,mem.data()[entry.first*256+i]});
+         const uint32_t y0 = rt.dy0, y1 = std::min(rt.dy1, rt.h);
+         const uint32_t rows = y1 - y0;
+         ID3D11Texture2D* compact = scale>1 && nativeReadbackEnabled ? nativeReadback.gather(dev.Get(),ctx.Get(),rt.srv.Get(),rt.w,rows,scale,y0) : nullptr;
+@@ -1495,14 +1499,23 @@
+         rt.seen = mem.clock();
+         rt.dirty = false;
+         rt.cpuBlocks.clear();
++        if(!savedBytes.empty()) {
++            CpuProfile::Scope merge(cpuProfile,CpuProfile::SubblockMerge);
++            for(const auto& b:savedBytes)mem.data()[b.first]=b.second;
++            // CPU contains the merged image, but the GPU still has the old bytes.
++            for(uint32_t r=y0/ph;r<(y1+ph-1)/ph && r<rt.rowStamp.size();++r)rt.rowStamp[r]=0;
++            rt.seen=0;
++        }
++        rt.cpuBytes.clear();
+         st.rtReadbacks++;
+     }
+ 
+     NativeUpload nativeUpload;
+     std::vector<uint32_t> nativeUploadPixels;
+-    void syncRT(RT& rt)
++    void syncRT(RT& rt,bool resolveBytes=true)
+     {
+         CpuProfile::Scope profile(cpuProfile,CpuProfile::SyncRT);
++        if(resolveBytes && !rt.cpuBytes.empty())readbackRT(rt);
+         if (rt.seen == mem.clock()) return;
+         const uint32_t ph = rt.pageH();
+         const uint32_t pagesPerRow = rt.fbw;
+@@ -1601,6 +1614,21 @@
+     }
+ 
+     // ---------------------------------------------------------------------------------------------
++    void flushTextureLevel(uint32_t psm,uint32_t bp,uint32_t bw,uint32_t w,uint32_t h,uint32_t lo,uint32_t hi) {
++        if(psm!=PSM_T8 || w!=8 || h!=8 || lo!=hi) {flushToMemory(lo,hi,CpuProfile::ReadbackTexture);return;}
++        for(auto& r:rts) {
++            if(!r->dirty)continue;
++            uint32_t first,last;rowSpan(*r,r->dy0,std::min(r->dy1,r->h),first,last);
++            if(hi<first || lo>last)continue;
++            if(!r->cpuBlocks.empty() && r->cpuBlocks[lo])continue;
++            const auto it=r->cpuBytes.find(lo);bool covered=it!=r->cpuBytes.end();
++            if(covered)for(unsigned y=0;y<8 && covered;++y)for(unsigned x=0;x<8;++x)
++                if(!it->second[pixelAddr(psm,bp,bw,x,y)&255]){covered=false;break;}
++            if(covered){CpuProfile::Scope hit(cpuProfile,CpuProfile::SubblockTextureHit);continue;}
++            CpuProfile::Scope cause(cpuProfile,CpuProfile::ReadbackTexture);readbackRT(*r);
++        }
++    }
++
+     DepthBuf* getDepth(uint32_t zbp, uint32_t w, uint32_t h)
+     {
+         for (auto& d : depths)
+@@ -1823,7 +1851,11 @@
+             // fallback (e.g. a shifted-row alias) can reuse pre-draw pixels.
+             {
+                 CpuProfile::Scope detail(cpuProfile,CpuProfile::TextureCoherenceFlush);
+-                for (auto& sp : e.spans) flushToMemory(sp.first, sp.second,CpuProfile::ReadbackTexture);
++                for(uint32_t l=0;l<e.spans.size();++l) {
++                    uint32_t bp=tbp,bw=tbw;
++                    if(l){const uint64_t m=l<=3?s.miptbp1:s.miptbp2;const unsigned k=(l-1)%3;bp=uint32_t(bitsOf(m,20*k,14));bw=uint32_t(bitsOf(m,20*k+14,6));}
++                    flushTextureLevel(psm,bp,std::max(bw,1u),std::max(1u,W>>l),std::max(1u,H>>l),e.spans[l].first,e.spans[l].second);
++                }
+             }
+             if (e.checkedClock != mem.clock())
+             {
+@@ -1897,7 +1929,7 @@
+             spans.push_back({lo, hi});
+             {
+                 CpuProfile::Scope detail(cpuProfile,CpuProfile::TextureCoherenceFlush);
+-                flushToMemory(lo, hi,CpuProfile::ReadbackTexture);
++                flushTextureLevel(psm,lbp,std::max(lbw,1u),w,h,lo,hi);
+             }
+             levels.emplace_back();
+             {
+@@ -4370,16 +4402,37 @@
+     const CpuProfile::Id ids[]={CpuProfile::ReadbackExternal,CpuProfile::ReadbackPalette,CpuProfile::ReadbackUpload,CpuProfile::ReadbackDownload,CpuProfile::ReadbackCopy};
+     return m_impl->flushToMemory(a,b,ids[reason<5?reason:0]);
+ }
++bool Backend::deferSubblockUpload(uint32_t bp) {
++    // Validate all aliases before changing ownership for any of them.
++    for(auto& r:m_impl->rts) {
++        if(!r->dirty)continue;
++        uint32_t lo,hi;m_impl->rowSpan(*r,r->dy0,std::min(r->dy1,r->h),lo,hi);
++        if(bp<lo || bp>hi)continue;
++        if(r->psm!=PSM_CT32 || r->wstate!=0 || r->w!=r->fbw*64 || hi>=kVramBlocks)return false;
++    }
++    for(auto& r:m_impl->rts) {
++        if(!r->dirty)continue;
++        uint32_t lo,hi;m_impl->rowSpan(*r,r->dy0,std::min(r->dy1,r->h),lo,hi);
++        if(bp<lo || bp>hi)continue;
++        if(r->cpuBlocks.empty())r->cpuBlocks.resize(kVramBlocks,0);
++        if(r->cpuBlocks[bp])continue;
++        CpuProfile::Scope defer(m_impl->cpuProfile,CpuProfile::SubblockDefer);
++        auto& mask=r->cpuBytes[bp];
++        for(unsigned y=0;y<8;++y)for(unsigned x=0;x<8;++x)mask[tables::col8[y][x]]=1;
++        r->copyValid=false;
++    }
++    return true;
++}
+ void Backend::discardCompleteUpload(uint32_t first,uint32_t last) {
+     for(auto& r:m_impl->rts) {
+         if(!r->dirty || r->psm!=PSM_CT32 || r->wstate!=0 || r->w!=r->fbw*64 || r->dy1<=r->dy0)continue;
+         uint32_t lo,hi;m_impl->rowSpan(*r,r->dy0,std::min(r->dy1,r->h),lo,hi);
+         if(hi>=kVramBlocks || hi<first || lo>last)continue;
+         CpuProfile::Scope discard(m_impl->cpuProfile,CpuProfile::ReadbackOverwriteDiscard);
+-        if(lo>=first && hi<=last) {r->dirty=false;r->cpuBlocks.clear();}
++        if(lo>=first && hi<=last) {r->dirty=false;r->cpuBlocks.clear();r->cpuBytes.clear();}
+         else {
+             if(r->cpuBlocks.empty())r->cpuBlocks.resize(kVramBlocks,0);
+-            for(uint32_t b=std::max(lo,first);b<=std::min(hi,last);++b)r->cpuBlocks[b]=1;
++            for(uint32_t b=std::max(lo,first);b<=std::min(hi,last);++b){r->cpuBlocks[b]=1;r->cpuBytes.erase(b);}
+         }
+         r->copyValid=false;
+         // startTransfer will stamp the incoming full-block write. Preserve

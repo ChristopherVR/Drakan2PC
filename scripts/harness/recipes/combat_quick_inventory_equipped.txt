@@ -1,0 +1,22 @@
+# Equip recipe from scripts/harness/recipes/snd_attack_test.txt; narrow dagger + Quick Inventory check.
+1 log on 30
+0 sync play 90
+100 key tap TAB
+230 key tap ENTER
+300 key tap E
+380 key tap TAB
+400 dump ram_dagger_equipped
+420 button down 1
+426 button up 1
+480 button down 1
+486 button up 1
+540 button down 1
+546 button up 1
+570 key down 6
+590 key up 6
+620 dump ram_quick_inventory_after_hold
+650 key tap Q
+680 dump ram_quick_inventory_after_pad
+710 button down 1
+716 button up 1
+750 quit

@@ -1,0 +1,172 @@
+{
+  "date": "2026-10-18",
+  "candidate_sha256": "a5ed601a91791a6191131f2e85a2524413a38cc892ecd1e6be5923ec1af96ade",
+  "scope_complete": false,
+  "native_models": {
+    "visible_instances": 1216,
+    "unique_meshes": 99,
+    "unique_triangles": 48904,
+    "textured_triangles": 48779,
+    "rejected_animated_instances": 79,
+    "semantic_visibility_proof": "Native 15f7c8 object+4 bit0 before distance/frustum path",
+    "palette_proof": "Native 1be468 -> 1e7d20 CLUT lane exchange; disk/RAM pixel equality test"
+  },
+  "runs": {
+    "reflection-verified-props-pond": {
+      "completion": {
+        "elapsedSeconds": 42.2951038,
+        "sha256After": "A5ED601A91791A6191131F2E85A2524413A38CC892ECD1E6BE5923EC1AF96ADE",
+        "exitCode": 0,
+        "scriptQuit": true
+      },
+      "all_saves_unchanged": true,
+      "same_epoch": 200
+    },
+    "reflection-verified-coast": {
+      "completion": {
+        "scriptQuit": true,
+        "elapsedSeconds": 32.2081067,
+        "sha256After": "A5ED601A91791A6191131F2E85A2524413A38CC892ECD1E6BE5923EC1AF96ADE",
+        "exitCode": 0
+      },
+      "all_saves_unchanged": true,
+      "same_epoch": 200
+    },
+    "reflection-verified-combined": {
+      "completion": {
+        "exitCode": 0,
+        "sha256After": "A5ED601A91791A6191131F2E85A2524413A38CC892ECD1E6BE5923EC1AF96ADE",
+        "scriptQuit": true,
+        "elapsedSeconds": 130.5352408
+      },
+      "all_saves_unchanged": true,
+      "same_epoch": 200
+    },
+    "reflection-verified-quality": {
+      "completion": {
+        "elapsedSeconds": 48.2564979,
+        "exitCode": 0,
+        "sha256After": "A5ED601A91791A6191131F2E85A2524413A38CC892ECD1E6BE5923EC1AF96ADE",
+        "scriptQuit": true
+      },
+      "all_saves_unchanged": true,
+      "same_epoch": 200
+    }
+  },
+  "image_checks": {
+    "reflection-verified-props-pond": {
+      "size": [
+        1920,
+        1080
+      ],
+      "changed_pixels": 42898,
+      "max_rgb_delta": 250,
+      "changed_bbox": [
+        67,
+        443,
+        1847,
+        1048
+      ],
+      "same_frame_epoch": 200,
+      "outside_pond_world_pixels_exact_excluding_hud": true,
+      "pond_changed_pixels": 8131,
+      "comparison_note": "Same epoch and world image; off image excludes native HUD and host overlays, so full-image metrics include HUD differences."
+    },
+    "reflection-verified-coast": {
+      "size": [
+        1920,
+        1080
+      ],
+      "changed_pixels": 372013,
+      "max_rgb_delta": 190,
+      "changed_bbox": [
+        0,
+        406,
+        1847,
+        1080
+      ],
+      "same_frame_epoch": 200,
+      "comparison_note": "Same epoch and world image; off image excludes native HUD and host overlays, so full-image metrics include HUD differences."
+    },
+    "reflection-verified-combined": {
+      "size": [
+        1920,
+        1080
+      ],
+      "changed_pixels": 2073062,
+      "max_rgb_delta": 250,
+      "changed_bbox": [
+        0,
+        0,
+        1920,
+        1080
+      ],
+      "same_frame_epoch": 200,
+      "comparison_note": "Same epoch and world image; off image excludes native HUD and host overlays, so full-image metrics include HUD differences."
+    }
+  },
+  "swapchain_audits": {
+    "DLAA_plus_neural": "1920x1080 epoch 200; differingBytes=0",
+    "Quality_plus_neural": "1920x1080 epoch 200; differingBytes=0"
+  },
+  "tests": {
+    "ctest_passed": 18,
+    "synthetic_passed": true,
+    "hardware_DXR_passed": true,
+    "optional_features_off_build": "passed"
+  },
+  "runtime_patch": {
+    "patch_sha256": "98b4656187a50d3e8a33f007412f12c80f2bc57dd49b8b6b8f35eacdf96f7aee",
+    "clean_upstream_apply": true,
+    "updated_sources_match": [
+      "ps2xRuntime/src/lib/drakan_dlss.cpp",
+      "ps2xRuntime/src/lib/gs/gs_gsr_bridge.cpp",
+      "ps2xRuntime/include/runtime/gs/gs_gsr_bridge.h",
+      "ps2xRuntime/src/lib/drakan_scene_geometry.h",
+      "ps2xRuntime/src/lib/drakan_scene_camera.cpp",
+      "ps2xRuntime/src/lib/drakan_scene_camera.h",
+      "ps2xRuntime/src/lib/drakan_scene_models.h",
+      "ps2xRuntime/src/lib/drakan_scene_assets.h",
+      "ps2xRuntime/src/lib/drakan_object_motion.cpp",
+      "ps2xRuntime/src/lib/drakan_dlss.h",
+      "ps2xRuntime/src/lib/drakan_overrides.cpp"
+    ],
+    "validation_directory": "%TEMP%\\drakan-global-water-patch-0p_0wj3b"
+  },
+  "source_sha256": {
+    "runtime/gs/include/gsr/scene_models.h": "f66d6cc118ae0f2b55518d279cc9fb8678065a48d9f85378528838fad51782b2",
+    "runtime/gs/include/gsr/gsr.h": "a4a3ac5b6972440b10ae5ca44453bfe372e7321d8f15d59fbf8efcdefc169316",
+    "runtime/gs/src/gs_internal.h": "fbc87f8ced88e0cac307be1b26b197a0c46a597619fb9225aeb125e375debb57",
+    "runtime/gs/src/gs_core.cpp": "febcd69350f6eb5e6a015f3715a9e8eeb16c87396d2bc099c1f1c53b1cdaac07",
+    "runtime/gs/src/d3d11_backend.cpp": "335c364b7d00908b8fcc1e2e099ff1e55a16dea9417f783f9bf100067ce955c8",
+    "runtime/gs/src/ray_water.cpp": "d0e1d1fe664a6e44d01491be16d3451b2f57474805ec4e34adc1a47296074eb6",
+    "runtime/gs/src/ray_water.h": "2598ae4abd9db5c322ac7794ffe624756d1001c558153cb71c7b10dded2b875c",
+    "runtime/gs/src/ray_water.hlsl": "693459ae1a58ec8173c73739a6b69cb1784cf9ec4c8b126a5d5c6f1f1bbd2fd9",
+    "runtime/gs/tests/test_scene_models.cpp": "c20c1af61639e37a65c57f2247a2ecfb87592db7d60866c70620770ef464f8e6",
+    "runtime/gs/tests/test_ray_water.cpp": "2a12195c0660f379202703fd3534cc5cbe8e21b53208af7ee2c695387539f4cf",
+    "runtime/gs/CMakeLists.txt": "8d9de0691057661531db9f20042bc629e8e3b47407a9ea4c46ed1803e49d0aa2",
+    "tools/PS2Recomp/ps2xRuntime/src/lib/drakan_dlss.cpp": "6d350a030d56f11c4d06639de3b7d7e4b99c8e354cc32aa3b3e104fa59e58f18",
+    "tools/PS2Recomp/ps2xRuntime/src/lib/gs/gs_gsr_bridge.cpp": "ba838485c3d943e060dab359629841c41a04b1d1b2cc957d172bda36ceda6ba0",
+    "tools/PS2Recomp/ps2xRuntime/include/runtime/gs/gs_gsr_bridge.h": "c9b0e9803ed62d7751e1f48d51b470d6610c90edb0d472eb77e4aa45cc39bc62",
+    "tools/PS2Recomp/ps2xRuntime/src/lib/drakan_scene_geometry.h": "d3417d2232d1ae367372611a07447887ab5021fac5a3127f3208ac4eea2ae577",
+    "tools/PS2Recomp/ps2xRuntime/src/lib/drakan_scene_camera.cpp": "1ef0ce192b5e825ec82e198e8b6e60336b37c960ef6c1e1a7462c608c003365a",
+    "tools/PS2Recomp/ps2xRuntime/src/lib/drakan_scene_camera.h": "f5cfb61fef3967879157fb81ba48c7fbac99de4fbc38c76ab7a411a5eab68819",
+    "tools/PS2Recomp/ps2xRuntime/src/lib/drakan_scene_models.h": "c12f45a83be9cbe8a60318b4b2cd3fbb956ecff9b56ec618d561a58571746edf",
+    "tools/PS2Recomp/ps2xRuntime/src/lib/drakan_scene_assets.h": "cddcce3eef54086cd06aef85640e8282f42dadaecea0d3e72f00308ef91e1c9f",
+    "tools/PS2Recomp/ps2xRuntime/src/lib/drakan_object_motion.cpp": "33189e6626af0fd15cb2cb6bbbee64b87201c0bcb901e72eca064f85327d3bce",
+    "tools/PS2Recomp/ps2xRuntime/src/lib/drakan_dlss.h": "b5b693a2483d27a2dc7cd5917ecdab46b57226671baa0629223462fe67e3fd7b",
+    "tools/PS2Recomp/ps2xRuntime/src/lib/drakan_overrides.cpp": "4cf00185732a8643be82f4492f6f2f57fd686a17b7c980e941f33e86a19d1f05"
+  },
+  "gameplay_maps_verified": [
+    "Surdana pond",
+    "Surdana snowy riverbank"
+  ],
+  "later_saves_available": false,
+  "remaining": [
+    "Unloaded model resources and 79 unproven animated instances in the source snapshot",
+    "Special/additive materials, complete dynamic lighting and authored environment maps",
+    "Terrain material projection and 128x128 reflection material tiles",
+    "Abrupt foreground surface transition in snowy river capture",
+    "Other maps, extensive playthroughs and device-loss recovery"
+  ]
+}

@@ -1,0 +1,104 @@
+{
+  "schema": 1,
+  "candidate_sha256": "1A964FC65436C8041F1824A3D93DBF360EBB92AB3ABCEE470ACEC8CAC9573FD8",
+  "requested_mode": "native",
+  "fixed_scale": 4,
+  "selected_seconds": 22.081,
+  "worlds_per_second": 48.32077260993615,
+  "clock_summary": {
+    "sched-vblank": {
+      "seconds": 22.023215,
+      "starts_per_second": 59.98215973462548,
+      "ends_per_second": 59.98215973462548,
+      "maxDelayMs": 1.637
+    },
+    "frame-time": {
+      "seconds": 22.082687,
+      "updates_per_second": 48.31839531122277,
+      "dtSum_per_second": 0.9996971835900224,
+      "localCapProxy_per_second": 0.9996971835900224,
+      "over30ms_per_second": 0.0
+    }
+  },
+  "gsr_ms_per_world": {
+    "draw": {
+      "inclusive": 7.098398503244922,
+      "exclusive": 0.7710518818472442
+    },
+    "resolveTexture": {
+      "inclusive": 5.744407896214043,
+      "exclusive": 0.2527864288913186
+    },
+    "syncRT": {
+      "inclusive": 0.5817904953024324,
+      "exclusive": 0.5817904953024324
+    },
+    "readbackRT": {
+      "inclusive": 1.7057213495591188,
+      "exclusive": 0.0013551181480853925
+    },
+    "readbackMap": {
+      "inclusive": 1.6378309647813751,
+      "exclusive": 1.6378309647813751
+    },
+    "readbackPackUnmap": {
+      "inclusive": 0.06651457780297003,
+      "exclusive": 0.06651457780297003
+    },
+    "temporalResolve": {
+      "inclusive": 0.00014482178681828623,
+      "exclusive": 0.00014482178681828623
+    },
+    "presentLatched": {
+      "inclusive": 0.13024650841636012,
+      "exclusive": 0.08675859471749761
+    },
+    "presentCall": {
+      "inclusive": 0.04349825811220668,
+      "exclusive": 0.04349825811220668
+    },
+    "pumpUp": {
+      "inclusive": 7.241089340914311e-05,
+      "exclusive": 7.241089340914311e-05
+    },
+    "snapshot": {
+      "inclusive": 0.0012206407746112697,
+      "exclusive": 0.0012206407746112697
+    },
+    "latchDisplay": {
+      "inclusive": 0.0013551181480853925,
+      "exclusive": 0.001344773734741229
+    },
+    "endFrame": {
+      "inclusive": 0.002668858642794132,
+      "exclusive": 0.0026274809894174787
+    },
+    "textureCoherenceFlush": {
+      "inclusive": 0.011399543505267958,
+      "exclusive": 0.011399543505267958
+    },
+    "textureStampCheck": {
+      "inclusive": 0.00783072090153162,
+      "exclusive": 0.00783072090153162
+    },
+    "textureDecode": {
+      "inclusive": 4.125010676011967,
+      "exclusive": 4.125010676011967
+    },
+    "textureUpscale": {
+      "inclusive": 0.49875588938883364,
+      "exclusive": 0.49875588938883364
+    },
+    "textureCreate": {
+      "inclusive": 0.8485625710350597,
+      "exclusive": 0.8485625710350597
+    }
+  },
+  "completion": "Script exited 0; candidate/config and source/private fixture preservation passed.",
+  "gpu_slot_returned": "2026-10-18T07:40:12+10:00",
+  "finding": "Decode dominates shared texture CPU cost; existing coherence flush and stamp scans are small. Cache-content reuse deferred in favor of bounded pure CPU specialization.",
+  "limitations": [
+    "Independent report windows; normalized scope times are estimates. CPU elapsed is not isolated GPU timing.",
+    "No profiling-off matched run on build02; 48.32 worldFPS is not an attributed instrumentation or optimization gain."
+  ]
+}

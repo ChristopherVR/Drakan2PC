@@ -1,0 +1,19 @@
+clock milliseconds
+0 sync play 90
+1000 key tap Q
+2000 key tap F
+3000 key down W
+4200 key up W
+5000 button down 1
+5200 button up 1
+7000 button down 1
+7200 button up 1
+9000 button down 2
+12000 button up 2
+14000 key down D
+16000 key up D
+18000 button down 1
+18200 button up 1
+21000 button down 1
+21200 button up 1
+30000 quit

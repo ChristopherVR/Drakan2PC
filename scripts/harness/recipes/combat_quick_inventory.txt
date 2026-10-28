@@ -1,0 +1,7 @@
+# Separate reproducer; a timeout is a failed diagnostic, not a successful run.
+1 log on 30
+0 sync play 90
+2 dump ram_quick_inventory_before
+5 key tap 6
+30 dump ram_quick_inventory_after
+60 quit

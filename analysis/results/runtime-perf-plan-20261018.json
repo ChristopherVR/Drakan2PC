@@ -1,0 +1,58 @@
+{
+  "status": "CPU diagnostics ready; game/GPU slot not granted; no performance policy fix applied",
+  "evidence": {
+    "matched_30_vs_uncapped_worlds_per_second": [
+      29.9976002376,
+      32.6065645753
+    ],
+    "uncapped_guest_vblank_hz": 60.0595450491,
+    "uncapped_ms_per_world": {
+      "drain_plus_commit_retirement": 7.5621422083,
+      "present": 0.7404983889,
+      "handoff": 0.7862779691,
+      "host_renderer_lock": 0.0
+    },
+    "native_reference_worlds_per_second": 42.1938543641,
+    "native_reference_limitations": [
+      "1x native versus 4x SR Quality plus NR",
+      "different executable hashes"
+    ],
+    "older_combined_profile_temporal_ms_per_present_last_three": [
+      8.4104545455,
+      7.947761194,
+      8.0544615385
+    ],
+    "interpretation": "Producer stalls waiting for renderer progress are measured; exact cause of the feature gap is not isolated. Older temporal work timings support renderer cost. No evidence justifies changing the guest clock or adding repeat presents."
+  },
+  "profiling_plan": [
+    "After parent grants an exclusive GPU/game slot, build one candidate containing only approved parent changes plus these diagnostics; record executable hash and complete effective settings.",
+    "Use the same fps_steady_wall.txt script and existing parent-approved fixture, 1920x1080 output, fixed scale 4, uncapped world rate, vsync 0, frame limiter 0, identical focus/audio/window state. Disable screenshots and noisy tracing; do not change private saves.",
+    "Measure native off/off, SR Quality only, NR only, combined Quality+NR. Warm up until world output is stable; collect at least 20 seconds of steady gameplay per case, retaining every two-second world and guest-clock window. Run forward and reverse order to expose warm-up/drift.",
+    "Collect paired diagnostics-off and diagnostics-on runs with PS2X_GS_PACING=2. Diagnostics-on uses GSR_PROFILE=2, DRAKAN_RUNTIME_PROFILE=1 and DRAKAN_FRAME_AUDIT=1. Compare instrumentation overhead before attributing small differences.",
+    "Use runtime-profile to split worker GIF/scene/vblank/display-commit elapsed work, worker lock wait/idle, scheduler idle/guest dispatch, synchronous drain reasons, commit capacity/retirement waits, fairness and handoff. Guest dispatch is inclusive of bridge waits; do not add overlapping buckets.",
+    "Correlate several stable windows with backend exclusive draw/resolveTexture/syncRT/readbackMap/temporalResolve and presentCall. temporalResolve calls include early returns; normalize total elapsed by completed worlds rather than treating every call as an evaluation. Profiles have independent reporting boundaries.",
+    "If retirement dominates with active worker, locate backend work before altering queue depth. If synchronous drains dominate, identify required read/write ordering before narrowing any barrier. If worker idle and scheduler idle dominate, trace wake readiness and event deadlines. Preserve queue bounds, guest time, unique completions and present acknowledgement.",
+    "Report a specific bounded scheduler/bridge fix scope before any further runtime writes. Re-run CPU policy checks and matched A/B on that fix. Verify guest vblank near 60Hz, timestep totals and movement/look/attack parity using parent-approved fixture procedures. Never claim scanout FPS from host ticks or repeat presents."
+  ],
+  "cpu_validation": [
+    "58 production scheduler deadline/idle checks passed",
+    "MSVC C++20 syntax checks passed for EeScheduler.cpp and gs_gsr_bridge.cpp",
+    "MSVC /W4 /WX profiler header smoke compile passed with runtime CRT configuration",
+    "Four-thread smoke: 40000 timed scopes recorded; disabled profile emitted no report",
+    "Nested runtime git diff --check passed"
+  ],
+  "scope": [
+    "tools/PS2Recomp/ps2xRuntime/src/lib/drakan_runtime_profile.h",
+    "tools/PS2Recomp/ps2xRuntime/src/lib/Kernel/EeScheduler.cpp",
+    "tools/PS2Recomp/ps2xRuntime/src/lib/gs/gs_gsr_bridge.cpp",
+    "scripts/runtime_perf_summary.py",
+    "analysis/results/runtime-perf-investigation-20261018.json",
+    "analysis/results/runtime-perf-plan-20261018.json"
+  ],
+  "limitations": [
+    "No game/GPU launch, executable build, or performance A/B performed in this investigation",
+    "Runtime edits live in the tools/PS2Recomp nested checkout; public monolithic runtime patch was not regenerated",
+    "Unrelated parent input/backend changes were observed and left intact",
+    "No commits, push, distribution writes or private-save changes"
+  ]
+}

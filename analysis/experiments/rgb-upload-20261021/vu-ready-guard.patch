@@ -1,0 +1,54 @@
+--- a/tools/PS2Recomp/ps2xRuntime/src/lib/vu/ps2_vu1_core.cpp
++++ b/tools/PS2Recomp/ps2xRuntime/src/lib/vu/ps2_vu1_core.cpp
+@@ -832,7 +832,7 @@
+     {
+         if (m_fdiv.readyCycle <= m_cycle)
+         {
+-            Vu1Fast::settleFlags(*this); // flag results ready by now precede the Q/DI status update
++            Vu1Fast::settleFlagsReady(*this); // flag results ready by now precede the Q/DI status update
+             m_state.q = m_fdiv.value;
+             if(vu1batch::captureActive)vu1batch::scalarCommitted(true);
+             const uint32_t currentDi = m_fdiv.statusDi & 0x30u;
+@@ -1197,7 +1197,7 @@
+     for (;;)
+     {
+         Vu1Fast::xgkickCatchUp(*this);
+-        Vu1Fast::settleFlags(*this);
++        Vu1Fast::settleFlagsReady(*this);
+         if (!pipelinesPending())
+             break;
+         advanceOneCycle();
+@@ -1535,7 +1535,7 @@
+ 
+     if (!vu1batch::captureActive || !vu1batch::capturePairs(stepCtx.pairs))
+         ps2perf::g_vu1Pairs.fetch_add(stepCtx.pairs, std::memory_order_relaxed);
+-    Vu1Fast::settleFlags(*this);
++    Vu1Fast::settleFlagsReady(*this);
+     if (programEnded)
+     {
+         flushPipelines();
+--- a/tools/PS2Recomp/ps2xRuntime/src/lib/vu/ps2_vu1_fast.h
++++ b/tools/PS2Recomp/ps2xRuntime/src/lib/vu/ps2_vu1_fast.h
+@@ -136,6 +136,11 @@
+ 
+     // Apply every queued MAC/status/CLIP result whose ready cycle has been reached (FIFO order).
+     static void settleFlags(VU1Interpreter &v);
++    static inline void settleFlagsReady(VU1Interpreter &v) {
++        const Spare& sp=spare(v);
++        if(sp.flagCount && v.m_flagPipeline[sp.flagHead].readyCycle<=v.m_cycle)
++            settleFlags(v);
++    }
+     // Reserve the next FIFO slot (nullptr when the FIFO is full even after settling).
+     static inline VU1Interpreter::FlagPipelineEntry *allocFlag(VU1Interpreter &v)
+     {
+--- a/tools/PS2Recomp/ps2xRuntime/src/lib/vu/ps2_vu1_step.h
++++ b/tools/PS2Recomp/ps2xRuntime/src/lib/vu/ps2_vu1_step.h
+@@ -1171,7 +1171,7 @@
+ 
+     static PS2_VU_FORCEINLINE void finishFlagBatch(VU1Interpreter& v, const Vu1FlagBatch& batch)
+     {
+-        Vu1Fast::settleFlags(v); // older entries precede every batched result
++        Vu1Fast::settleFlagsReady(v); // older entries precede every batched result
+         batch.apply(v.m_state.mac, v.m_state.status);
+     }
+ 

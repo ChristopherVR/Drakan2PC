@@ -1,0 +1,433 @@
+{
+  "date": "2026-10-19T05:05:56.844076+10:00",
+  "status": "deployed",
+  "executable_sha256": "6a784a43ccb0a626996d7c7d0eca75b3f8dc9fe7cc98ca6bff153994f7ff3f7f",
+  "previous_executable_sha256": "ebb54534b8246c425a9946d3d69c24544163da6606930fc6c721153149ccbe58",
+  "backup_directory": "C:\\Games\\Drakan - The Ancients Gates\\decomp\\build\\release_backups\\cpu144-followup-20261019-050556",
+  "goal_raw_fps": 144,
+  "goal_achieved": false,
+  "changes": [
+    "Cache immutable resident triangle matching geometry; invalidate on replacement and floating-point mode changes.",
+    "Cache projected terrain attributes; invalidate on winning material updates, replacement and floating-point mode changes.",
+    "Reuse ray-scene vector capacity; dynamic geometry remains current every frame.",
+    "Inline constant-mask SQ/ISW/SQI stores; generic queueStore forwards to the same implementation. Preserve overlapping PATH1 reads and store cycles."
+  ],
+  "raw_benchmark": {
+    "before_fps": 90.01453749648537,
+    "after_fps": 90.95810963980253,
+    "observed_change_percent": 1.0482441720638613,
+    "before_runs": [
+      "cpu144-before-a",
+      "cpu144-before-b",
+      "cpu144-before-c"
+    ],
+    "after_runs": [
+      "cpu144-raw-final",
+      "cpu144-raw-final-b"
+    ],
+    "conclusion": "Raw FPS remains about 91. Small observed change is within run variation; no substantial raw gain established.",
+    "settings": "4x, 3840x2160 window target, audio on, uncapped; DLSS/neural/water/rays/FG/VSync/cap off"
+  },
+  "enhanced_benchmark": {
+    "before_fps": 25.277857045296024,
+    "after_fps": 27.323913742606916,
+    "improvement_percent": 8.094264848655918,
+    "before_runs": [
+      "scene-cache-baseline-a",
+      "cpu144-enhanced-before"
+    ],
+    "after_runs": [
+      "cpu144-enhanced-final-a",
+      "cpu144-enhanced-final-b"
+    ],
+    "settings": "Same resolution/audio/rate; DLSS quality, neural rendering, modern water, ray reflections and shadows on; FG off"
+  },
+  "validation": {
+    "live_vector_runs_final_binary": 327680,
+    "live_vector_mismatches": 0,
+    "exact_prior_runtime_store_cases": 32768,
+    "resident_cache_exact_comparisons": 1163264,
+    "rounding_modes": 4,
+    "material_update_and_scene_replacement": "passed",
+    "visual": "Final enhanced world, character, HUD, alpha and water inspected",
+    "saves_unchanged": true,
+    "patch_reverse_checks": "passed",
+    "synthetic_reference_limit": "Unrestricted synthetic PATH1 trial 7 differs from the independent reference in both the previous and new runtime. This pre-existing discrepancy remains unresolved. All 32768 old/new store comparisons match; final live-game checks report zero mismatches."
+  },
+  "remaining_bottleneck": {
+    "worker_vector_sample_percent": 81.9,
+    "packet_trace_sample_percent": 9.9,
+    "run_loop_sample_percent": 6.0,
+    "block47_sample_percent": 5.0,
+    "block19_sample_percent": 4.0,
+    "conclusion": "Vector arithmetic, packet assembly and per-pair pipeline bookkeeping remain the main raw CPU limit. Inlining store helpers does not remove their work."
+  },
+  "preserved_files_sha256": {
+    "drakan.ini": "f917c352dc7153fcf13bddc36ec3f0c18bb70320ada0ae57dc14ec6247be7efe",
+    "drakan_input.ini": "3ecf546900e9858a587ef9c4b62385b074c9281431d3eac0ef73619be0dd078f",
+    "Play-Original30.cmd": "9abe8038dd597ff2fae10b2cbfd2ec19f75d54f2265b0784db0da2389b0dc951",
+    "Play-RawFPS.cmd": "c585270901be6b380f8737f9fb497b1a896197d8d658a096689ccb105e914afc",
+    "Play.cmd": "d2c231edea7c0191dfa002087e32d56470a5f570017599da715c84e8b1e97bfb"
+  },
+  "original_30_fps_mode": "Existing launcher and in-game option retained",
+  "runtime_patch_sha256": "af4b17a8d2e4dfad5e7c497c092c823fd660e346a1ead20475faf72ff8fe6c7b",
+  "source_sha256": {
+    "ps2xRuntime/src/lib/vu/ps2_vu1_step.h": "48542de408696c19d3557b36aca5fd6507859fb5a287c16ac73f994a7913607a",
+    "ps2xRuntime/src/lib/vu/ps2_vu1_core.cpp": "b5899fbd74a14b342eb3d1c06e441d9f996ae70c59e62a3948ad864e26710e8f",
+    "runtime/gs/src/resident_scene.h": "1a867823320482f5bc42ce9e64b8cd207822c9410c33b0007441d4681d1bd88d",
+    "runtime/gs/src/d3d11_backend.cpp": "31205e8a049dd83570f26a73ade9c5e6db0abd7fa10fe51a599fad3302831276",
+    "runtime/gs/tests/test_scene_geometry.cpp": "0028a34cc95a31ba48ae0a83909da6cc991160c5fae2a471980e94674c3a4f1d"
+  },
+  "runs": {
+    "cpu144-before-a": {
+      "exe_sha256": "EBB54534B8246C425A9946D3D69C24544163DA6606930FC6C721153149CCBE58",
+      "world_fps": 90.20986428500149,
+      "last_five_world_windows": [
+        [
+          2.003,
+          90.37
+        ],
+        [
+          2.002,
+          90.4
+        ],
+        [
+          2.001,
+          89.97
+        ],
+        [
+          2.011,
+          89.99
+        ],
+        [
+          2.004,
+          90.32
+        ]
+      ],
+      "saves_unchanged": true,
+      "contended": false,
+      "overlap_samples": 0
+    },
+    "cpu144-before-b": {
+      "exe_sha256": "EBB54534B8246C425A9946D3D69C24544163DA6606930FC6C721153149CCBE58",
+      "world_fps": 90.33389669957124,
+      "last_five_world_windows": [
+        [
+          2.007,
+          91.17
+        ],
+        [
+          2.006,
+          90.24
+        ],
+        [
+          2.011,
+          90.02
+        ],
+        [
+          2.005,
+          89.76
+        ],
+        [
+          2.0,
+          90.48
+        ]
+      ],
+      "saves_unchanged": true,
+      "contended": false,
+      "overlap_samples": 0
+    },
+    "cpu144-before-c": {
+      "exe_sha256": "EBB54534B8246C425A9946D3D69C24544163DA6606930FC6C721153149CCBE58",
+      "world_fps": 89.4998515048834,
+      "last_five_world_windows": [
+        [
+          2.011,
+          89.51
+        ],
+        [
+          2.005,
+          89.77
+        ],
+        [
+          2.007,
+          88.7
+        ],
+        [
+          2.004,
+          89.83
+        ],
+        [
+          2.007,
+          89.69
+        ]
+      ],
+      "saves_unchanged": true,
+      "contended": false,
+      "overlap_samples": 0
+    },
+    "scene-cache-baseline-a": {
+      "exe_sha256": "EBB54534B8246C425A9946D3D69C24544163DA6606930FC6C721153149CCBE58",
+      "world_fps": 25.365742741056383,
+      "last_five_world_windows": [
+        [
+          2.037,
+          25.52
+        ],
+        [
+          2.031,
+          25.11
+        ],
+        [
+          2.005,
+          25.43
+        ],
+        [
+          2.003,
+          25.47
+        ],
+        [
+          2.015,
+          25.3
+        ]
+      ],
+      "saves_unchanged": true,
+      "contended": false,
+      "overlap_samples": 0
+    },
+    "cpu144-enhanced-before": {
+      "exe_sha256": "EBB54534B8246C425A9946D3D69C24544163DA6606930FC6C721153149CCBE58",
+      "world_fps": 25.189971349535664,
+      "last_five_world_windows": [
+        [
+          2.022,
+          25.22
+        ],
+        [
+          2.023,
+          25.21
+        ],
+        [
+          2.026,
+          25.17
+        ],
+        [
+          2.028,
+          25.15
+        ],
+        [
+          2.023,
+          25.2
+        ]
+      ],
+      "saves_unchanged": true,
+      "contended": false,
+      "overlap_samples": 0
+    },
+    "cpu144-raw-final": {
+      "exe_sha256": "6A784A43CCB0A626996D7C7D0ECA75B3F8DC9FE7CC98CA6BFF153994F7FF3F7F",
+      "world_fps": 90.13202293120638,
+      "last_five_world_windows": [
+        [
+          2.008,
+          90.14
+        ],
+        [
+          2.0,
+          89.99
+        ],
+        [
+          2.011,
+          90.03
+        ],
+        [
+          2.005,
+          90.26
+        ],
+        [
+          2.006,
+          90.24
+        ]
+      ],
+      "saves_unchanged": true,
+      "contended": false,
+      "overlap_samples": 0
+    },
+    "cpu144-raw-final-b": {
+      "exe_sha256": "6A784A43CCB0A626996D7C7D0ECA75B3F8DC9FE7CC98CA6BFF153994F7FF3F7F",
+      "world_fps": 91.78419634839868,
+      "last_five_world_windows": [
+        [
+          2.002,
+          92.42
+        ],
+        [
+          2.009,
+          92.09
+        ],
+        [
+          2.002,
+          90.9
+        ],
+        [
+          2.005,
+          91.26
+        ],
+        [
+          2.005,
+          92.25
+        ]
+      ],
+      "saves_unchanged": true,
+      "contended": false,
+      "overlap_samples": 0
+    },
+    "cpu144-enhanced-final-a": {
+      "exe_sha256": "6A784A43CCB0A626996D7C7D0ECA75B3F8DC9FE7CC98CA6BFF153994F7FF3F7F",
+      "world_fps": 27.27998214285714,
+      "last_five_world_windows": [
+        [
+          2.016,
+          27.28
+        ],
+        [
+          2.014,
+          27.3
+        ],
+        [
+          2.019,
+          27.24
+        ],
+        [
+          2.015,
+          27.3
+        ],
+        [
+          2.016,
+          27.28
+        ]
+      ],
+      "saves_unchanged": true,
+      "contended": false,
+      "overlap_samples": 0
+    },
+    "cpu144-enhanced-final-b": {
+      "exe_sha256": "6A784A43CCB0A626996D7C7D0ECA75B3F8DC9FE7CC98CA6BFF153994F7FF3F7F",
+      "world_fps": 27.36784534235669,
+      "last_five_world_windows": [
+        [
+          2.013,
+          27.32
+        ],
+        [
+          2.015,
+          27.3
+        ],
+        [
+          2.011,
+          27.35
+        ],
+        [
+          2.008,
+          27.39
+        ],
+        [
+          2.001,
+          27.48
+        ]
+      ],
+      "saves_unchanged": true,
+      "contended": false,
+      "overlap_samples": 0
+    },
+    "cpu144-final-livecheck": {
+      "exe_sha256": "6A784A43CCB0A626996D7C7D0ECA75B3F8DC9FE7CC98CA6BFF153994F7FF3F7F",
+      "world_fps": 2.785847423910881,
+      "last_five_world_windows": [
+        [
+          2.004,
+          0.5
+        ],
+        [
+          2.008,
+          3.49
+        ],
+        [
+          2.011,
+          3.48
+        ],
+        [
+          2.017,
+          3.47
+        ],
+        [
+          2.014,
+          2.98
+        ]
+      ],
+      "saves_unchanged": true,
+      "contended": false,
+      "overlap_samples": 0
+    },
+    "cpu144-enhanced-visual": {
+      "exe_sha256": "6A784A43CCB0A626996D7C7D0ECA75B3F8DC9FE7CC98CA6BFF153994F7FF3F7F",
+      "world_fps": 27.042459877154748,
+      "last_five_world_windows": [
+        [
+          2.02,
+          27.22
+        ],
+        [
+          2.009,
+          26.87
+        ],
+        [
+          2.028,
+          27.12
+        ],
+        [
+          2.006,
+          26.92
+        ],
+        [
+          2.031,
+          27.08
+        ]
+      ],
+      "saves_unchanged": true,
+      "contended": false,
+      "overlap_samples": 0
+    },
+    "cpu144-final-profile": {
+      "exe_sha256": "6A784A43CCB0A626996D7C7D0ECA75B3F8DC9FE7CC98CA6BFF153994F7FF3F7F",
+      "world_fps": 89.66036398085362,
+      "last_five_world_windows": [
+        [
+          2.007,
+          89.19
+        ],
+        [
+          2.006,
+          89.25
+        ],
+        [
+          2.001,
+          89.48
+        ],
+        [
+          2.004,
+          89.83
+        ],
+        [
+          2.01,
+          90.55
+        ]
+      ],
+      "saves_unchanged": true,
+      "contended": false,
+      "overlap_samples": 0
+    }
+  },
+  "evidence_directory": "C:\\Games\\Drakan - The Ancients Gates\\decomp\\build\\cpu144-20261019",
+  "visual_sha256": "41841f094ccb6d732d8188f55621f5f65b910dded45e3f374586f59225805e60"
+}

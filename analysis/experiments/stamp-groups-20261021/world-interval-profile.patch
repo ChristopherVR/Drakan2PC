@@ -1,0 +1,57 @@
+--- a/runtime/gs/src/cpu_profile.h
++++ b/runtime/gs/src/cpu_profile.h
+@@ -1,5 +1,6 @@
+ #pragma once
+ #include <array>
++#include <algorithm>
+ #include <chrono>
+ #include <cstdio>
+ #include <cstdlib>
+@@ -24,6 +25,12 @@
+     bool enabled=false;
+     double seconds=2;
+     double rootMs=0;
++    Clock::time_point lastWorld{},worldWindow{};
++    unsigned long long lastEpoch=0;
++    std::array<double,4096> worldIntervals{};
++    size_t worldCount=0;
++    double worldSum=0;
++    unsigned worldOver7=0,worldOver16=0,worldOver33=0;
+     unsigned long long readbackBytes=0, uploadBytes=0;
+     void report(Clock::time_point now) {
+         const double elapsed=std::chrono::duration<double>(now-window).count();
+@@ -50,6 +57,24 @@
+             if(enabled) seconds=n>=2 && n<=60?n:2;
+         }
+         if(enabled) window=Clock::now();
++    }
++    // Diagnostic intervals between distinct completed world epochs, not
++    // physical display latency or the game's simulation-step timer.
++    void worldFrame(bool world,unsigned long long epoch) {
++        if(!enabled)return;
++        if(!world || !epoch){lastWorld={};lastEpoch=0;worldCount=0;worldSum=0;worldOver7=worldOver16=worldOver33=0;return;}
++        if(epoch==lastEpoch)return;
++        const auto now=Clock::now();lastEpoch=epoch;
++        if(lastWorld==Clock::time_point{}){lastWorld=worldWindow=now;return;}
++        const double ms=std::chrono::duration<double,std::milli>(now-lastWorld).count();lastWorld=now;
++        worldIntervals[worldCount++]=ms;worldSum+=ms;
++        worldOver7+=ms>1000.0/144;worldOver16+=ms>1000.0/60;worldOver33+=ms>1000.0/30;
++        if(worldCount==worldIntervals.size() || std::chrono::duration<double>(now-worldWindow).count()>=2) {
++            std::sort(worldIntervals.begin(),worldIntervals.begin()+worldCount);
++            const auto quantile=[&](size_t numerator){return worldIntervals[(worldCount*numerator+99)/100-1];};
++            std::fprintf(stderr,"[gsr-world-intervals] n=%zu mean_ms=%.3f p50_ms=%.3f p95_ms=%.3f p99_ms=%.3f max_ms=%.3f over144=%u over60=%u over30=%u\n",worldCount,worldSum/worldCount,quantile(50),quantile(95),quantile(99),worldIntervals[worldCount-1],worldOver7,worldOver16,worldOver33);
++            worldCount=0;worldSum=0;worldOver7=worldOver16=worldOver33=0;worldWindow=now;
++        }
+     }
+     void copied(unsigned long long bytes) {if(enabled) readbackBytes+=bytes;}
+     void uploaded(unsigned long long bytes) {if(enabled) uploadBytes+=bytes;}
+--- a/runtime/gs/src/d3d11_backend.cpp
++++ b/runtime/gs/src/d3d11_backend.cpp
+@@ -3776,6 +3776,7 @@
+             }
+         }
+         renderDisplay(d, w, h, true);
++        cpuProfile.worldFrame(latchedGameWorld,latchedWorldEpoch);
+         if (upMode)   // targets that were just displayed start their next frame idle
+             for (int i = 0; i < 2; ++i)
+                 if (d.c[i].enable)

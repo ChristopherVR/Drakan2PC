@@ -1,0 +1,23 @@
+1 log on 5
+0 sync play 1
+2 key tap Q
+30 key tap F
+40 dump ram_block_begin
+45 button down 2
+70 dump ram_block_early
+100 dump ram_block_mid
+160 dump ram_block_late
+220 dump ram_block_held_end
+230 button up 2
+235 dump ram_block_released
+280 dump ram_after_release
+290 button down 2
+296 button up 2
+310 dump ram_parry_attempt1
+320 button down 2
+326 button up 2
+340 dump ram_parry_attempt2
+350 button down 2
+356 button up 2
+370 dump ram_parry_attempt3
+390 quit

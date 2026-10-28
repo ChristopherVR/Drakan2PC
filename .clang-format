@@ -1,0 +1,24 @@
+# Project C/C++ style. Matches the majority of existing code (4-space, attached braces).
+BasedOnStyle: LLVM
+Language: Cpp
+Standard: c++20
+IndentWidth: 4
+TabWidth: 4
+UseTab: Never
+ColumnLimit: 120
+BreakBeforeBraces: Attach
+PointerAlignment: Left
+ReferenceAlignment: Left
+AccessModifierOffset: -4
+NamespaceIndentation: None
+FixNamespaceComments: true
+AllowShortFunctionsOnASingleLine: Inline
+AllowShortIfStatementsOnASingleLine: Never
+AllowShortLoopsOnASingleLine: false
+AllowShortBlocksOnASingleLine: Never
+AlwaysBreakTemplateDeclarations: Yes
+IndentCaseLabels: true
+SortIncludes: Never  # Win32 headers are order-sensitive
+IncludeBlocks: Preserve
+InsertNewlineAtEOF: true
+LineEnding: LF

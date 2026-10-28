@@ -1,0 +1,474 @@
+{
+  "schema_version": 1,
+  "date": "2026-10-18",
+  "timezone": "Australia/Brisbane",
+  "issue": "Decoded texture cache can reuse stale pixels after overlapping GPU writes when the RAM write clock has not advanced.",
+  "proof_scope": "Synthetic renderer pixel regression; not established as the cause of smoke or sky defects.",
+  "source_provenance": {
+    "base_repo_head": "24087cd58138d59baa4be60b7ee312c9ff63d59c",
+    "hash_algorithm": "SHA256",
+    "hash_bytes": "Raw file bytes, including CRLF line endings.",
+    "before_backend": {
+      "path": "runtime/gs/src/d3d11_backend.cpp",
+      "sha256": "AAB63914302C3F677E0E65422DFE48A16C02E44313FC4427401FBCA16A4F596A",
+      "private_snapshot": "build/graphics-audit-20261018/source/d3d11_backend.before-reconstructed.cpp",
+      "provenance": "Reconstructed after the experiment by reversing only the cache-coherence hunk from the frozen after source. No contemporaneous pre-run source hash was captured. Parent rt_upload.h integration is retained."
+    },
+    "after_backend": {
+      "path": "runtime/gs/src/d3d11_backend.cpp",
+      "sha256": "48325E681A68133CBAF63AA718F26659970F10B39DA743BFB383CED6E8567714",
+      "private_snapshot": "build/graphics-audit-20261018/source/d3d11_backend.after.cpp",
+      "last_worker_edit": "2026-10-18T03:01:08.450+10:00"
+    },
+    "focused_fixture_source": {
+      "path": "runtime/gs/tests/test_synthetic.cpp",
+      "sha256": "6E5AF1740006A927F720BEA481CD385A998B875212BE4634D6DC7BEEDDDD88EA",
+      "private_snapshot": "build/graphics-audit-20261018/source/test_synthetic.focused-reconstructed.cpp",
+      "provenance": "Reconstructed initial focused fixture by reversing only the later comment and default-suite registration edits. Fixture behavior is identical to final source."
+    },
+    "final_sources": {
+      "runtime/gs/tests/test_synthetic.cpp": "05E7E7EE4C013BB6E3C833CC40582AE468F55C583B903DA0951ACA018B180B56",
+      ".github/workflows/build-tools.yml": "A0A896A17EC920C3C64B04C877F2172CC38EDACE30199A974FB2679531431F58",
+      "runtime/gs/src/rt_upload.h": "E35244C8ED126CAD76F3D5E88DB23D2E58C8ADAB303277A8AAD53BF6EF8A28B9"
+    },
+    "last_test_ci_edit": "2026-10-18T03:02:34.879+10:00",
+    "before_and_focused_after_executables": "Not separately hashed before subsequent relinking; final executable identity does not identify those earlier binaries."
+  },
+  "fix": {
+    "function": "Backend::Impl::resolveTexture",
+    "behavior": "Flush pending GPU RT writes overlapping each cached mip span before comparing checkedClock with mem.clock(); then retain existing stamp validation and re-decode policy.",
+    "parent_owned_function_unchanged_by_worker": "syncRT",
+    "performance_limit": "Every decoded-cache hit now scans dirty RT overlap. This receipt makes no performance claim."
+  },
+  "reproducer": {
+    "function": "rtCacheCoherenceDiagnostic",
+    "source_fbp": 256,
+    "source_fbw": 2,
+    "source_psm": "CT32",
+    "source_width": 128,
+    "initial_source_rect": [
+      0,
+      0,
+      128,
+      512
+    ],
+    "initial_rgba": [
+      200,
+      0,
+      0,
+      128
+    ],
+    "texture_tbp": 8480,
+    "texture_tbw": 2,
+    "texture_size": [
+      128,
+      128
+    ],
+    "logical_origin_in_parent": [
+      64,
+      128
+    ],
+    "sample_uv_rects": [
+      [
+        0,
+        0,
+        16,
+        16
+      ],
+      [
+        64,
+        0,
+        80,
+        16
+      ]
+    ],
+    "overlapping_gpu_repaint_rect": [
+      0,
+      128,
+      128,
+      288
+    ],
+    "repaint_rgba": [
+      0,
+      0,
+      200,
+      128
+    ],
+    "texflush_before_each_sample": true,
+    "intervening_readback_capture_or_vsync": false,
+    "unrelated_host_upload_control": {
+      "tbp": 16128,
+      "size": [
+        1,
+        1
+      ]
+    },
+    "nonoverlapping_gpu_repaint_control": [
+      0,
+      384,
+      128,
+      416
+    ],
+    "before_failure": "Both second samples remain RGB(200,0,0) instead of RGB(0,0,200); textureDecodes remains 1 instead of 2.",
+    "controls": "Unrelated RAM upload makes the old guard refresh; nonoverlapping GPU writes retain red and one decode."
+  },
+  "validation_build": {
+    "directory": "build/graphics-audit-20261018/cmake",
+    "configuration": "Release, MSVC 19.44.35217.0, D3D11 WARP, GSR_DLSS=OFF, GSR_NEURAL=OFF",
+    "final_executable_sha256": "2F5B8883D4770EB526439226760365C9A19C8721DACFEB9F903587368F41211C",
+    "hardware_gpu_used": false,
+    "game_or_benchmark_launched": false,
+    "parent_row_replication_helper_included": true
+  },
+  "results": {
+    "focused_before": {
+      "command": "gsr_test_synthetic --warp --scale 1 --rt-cache-coherence-only",
+      "checks": 18,
+      "failed": 3,
+      "exit_code": 1,
+      "log": "build/graphics-audit-20261018/coherence-before.log",
+      "log_sha256": "F0EF80FE58693954CFC47204CC6A26FB69CF6222A2689C3EB71582B524A217A0",
+      "completed_at": "2026-10-18T03:00:56.360+10:00"
+    },
+    "focused_after": {
+      "command": "gsr_test_synthetic --warp --scale 1 --rt-cache-coherence-only",
+      "checks": 18,
+      "failed": 0,
+      "exit_code": 0,
+      "log": "build/graphics-audit-20261018/coherence-after.log",
+      "log_sha256": "64BC7621D01CCA603D5F06BF8442C3FD6FE8406C4D70BE4C4B07F132F20C59A6",
+      "completed_at": "2026-10-18T03:01:28.880+10:00"
+    },
+    "full_scale1": {
+      "command": "gsr_test_synthetic --warp --scale 1 --out build/graphics-audit-20261018/scale1",
+      "checks": 118,
+      "failed": 0,
+      "exit_code": 0,
+      "log": "build/graphics-audit-20261018/full-scale1.log",
+      "log_sha256": "265F4878F6B4AA13B1BE7C05B6132849A666FC269B06B1F33F519B705DA1FF08",
+      "completed_at": "2026-10-18T03:03:31.975+10:00"
+    },
+    "full_scale4": {
+      "command": "gsr_test_synthetic --warp --scale 4 --out build/graphics-audit-20261018/scale4",
+      "checks": 118,
+      "failed": 0,
+      "exit_code": 0,
+      "log": "build/graphics-audit-20261018/full-scale4.log",
+      "log_sha256": "AA1BD9FA45DE0C3C8EEC7B6DCB5FDA3898C04BDFC0BA2B6E73E397422E56E9EE",
+      "completed_at": "2026-10-18T03:05:47.547+10:00"
+    }
+  },
+  "coverage": {
+    "default_full_suite": true,
+    "focused_flag": "--rt-cache-coherence-only",
+    "focused_ci_path": ".github/workflows/build-tools.yml",
+    "remote_ci_executed_for_this_change": false
+  },
+  "limits": [
+    "No game capture establishes this cache defect as the cause of smoke or sky artifacts.",
+    "Actual inventory orb row-addressing fix is a separate prior change.",
+    "No awning or preview-geometry fix is asserted.",
+    "WARP synthetic pixels do not establish native or SR/NR live-game parity.",
+    "Scale-4 validation uses the private software-renderer build, not the parent combined game executable."
+  ],
+  "parent_combined_candidate": {
+    "sha256": "54F082B55C3A768391EC5B39DB48033F2AA77DEA6B51CDFBBE1E81A61D92D557",
+    "provenance": "Identity supplied by parent; live and performance validation belongs to parent.",
+    "worker_ran_candidate": false
+  },
+  "session_scope": {
+    "production_and_regression_files_edited_earlier": [
+      "runtime/gs/src/d3d11_backend.cpp",
+      "runtime/gs/tests/test_synthetic.cpp",
+      ".github/workflows/build-tools.yml"
+    ],
+    "this_receipt_request_files": [
+      "docs/TEXTURE_COHERENCE_20261018.md",
+      "analysis/results/texture-coherence-20261018.json"
+    ],
+    "parent_followup_document_modified": false,
+    "dist_push_or_patch_regeneration": false,
+    "shared_production_temporarily_reverted": false,
+    "gpu_reservation": "Released after the scale-4 run completed at 2026-10-18T03:05:47.574+10:00; subsequent work is CPU documentation only."
+  },
+  "existing_baseline_visual_inspection": {
+    "method": "Read-only visual inspection of existing PNGs; no game, GPU replay or new capture.",
+    "baseline_executable_sha256": "77AF378BC98F14757262C902B995C115D37B2DB025DC78CBD565D5A9BE52298E",
+    "identity_evidence": [
+      "build/combat_audio_20261018/t/audio77-melee01/manifest.json",
+      "build/combat_audio_20261018/t/audio77-melee01/completion.json"
+    ],
+    "sr_nr": "Disabled in run manifest.",
+    "fixture": "build/recomp_combat/encounter/fixture-hostile675",
+    "scene_coverage": "Additional combat poses in the earlier shadow encounter fixture, not another map or the original gate-guard location.",
+    "views": [
+      {
+        "gs_frame_label": 1900,
+        "path": "build/combat_audio_20261018/t/audio77-melee01/render_1900.png",
+        "size": [
+          3840,
+          2160
+        ],
+        "sha256": "A759422D29F75DD5BA5C4BF515144204C12610B6E8B9AE781811EFA0F85D6B7A",
+        "observations": [
+          "Actor-shaped ground shadows; no original long striped rectangles observed.",
+          "Torch flame and soft yellow targeting marks visible; no controlled smoke effect.",
+          "Separate bright blade and grip components on the right; intended placement and draw cause unverified."
+        ]
+      },
+      {
+        "gs_frame_label": 2200,
+        "path": "build/combat_audio_20261018/t/audio77-melee01/render_2200.png",
+        "size": [
+          3840,
+          2160
+        ],
+        "sha256": "85D8971CCF519A888F228166748477FCF91EE00A5BBEA15EB8B8745A04F7E154",
+        "observations": [
+          "Rynn, two enemies and weapons have coherent silhouettes and ground shadows.",
+          "Soft yellow targeting arcs; no obvious opaque rectangular effect or hair backing."
+        ]
+      },
+      {
+        "gs_frame_label": 2500,
+        "path": "build/combat_audio_20261018/t/audio77-melee01/render_2500.png",
+        "size": [
+          3840,
+          2160
+        ],
+        "sha256": "637DC9633E8F25AD727D713FEEEBDEBA1F15C8FC832403238F8741D7B768056B",
+        "observations": [
+          "Actor-shaped ground shadows remain coherent.",
+          "Mana outline enlarged and displaced left/up from its blue fill; intended animation and draw cause unverified.",
+          "Jagged/fanned ponytail silhouette; insufficient reference evidence to establish a renderer alpha defect."
+        ]
+      }
+    ],
+    "sky": "No open sky visible; no skybox verdict.",
+    "smoke": "No controlled smoke effect visible; smoke remains inconclusive.",
+    "hair": "Visible cutout edge without obvious opaque rectangular backing; jagged/fanned ponytail in some poses is not independently established as a renderer defect.",
+    "shadows": "Coherent actor-shaped silhouettes; original long striped shadow rectangles not observed in these three views.",
+    "uncertainties": [
+      "Detached bright blade/grip in1900: intended placement and exact draw cause unverified.",
+      "Displaced/enlarged mana outline in2500: intended animation and exact draw cause unverified.",
+      "No same-pose combined-candidate comparison, so no causal attribution to the new cache fix."
+    ],
+    "production_edits": false
+  },
+  "final_native_visual_inspection": {
+    "method": "Read-only inspection of existing actual game PNGs supplied by parent; no game launch or GPU replay.",
+    "candidate_executable_sha256": "54F082B55C3A768391EC5B39DB48033F2AA77DEA6B51CDFBBE1E81A61D92D557",
+    "manifest": "build/t/followup-20261018-final-native/manifest.json",
+    "audio": "1",
+    "internal_scale": 4,
+    "sr": "off",
+    "nr": "0",
+    "views": [
+      {
+        "gs_frame_label": 1900,
+        "path": "build/t/followup-20261018-final-native/render_1900.png",
+        "size": [
+          3840,
+          2160
+        ],
+        "sha256": "0B8489380BDACAF2A342B1FD3F081FBB91E42D3D81C0B8388F1837FF04C69BDC",
+        "observations": [
+          "Gameplay under booth canopy; coherent ponytail and canopy silhouettes in this pose.",
+          "Health and mana fills align with bottom-corner rings.",
+          "Thin white L-shaped lines remain outside health/mana artwork borders; cause unverified."
+        ]
+      },
+      {
+        "gs_frame_label": 2500,
+        "path": "build/t/followup-20261018-final-native/render_2500.png",
+        "size": [
+          3840,
+          2160
+        ],
+        "sha256": "B9EC256A778FFD8C3375782394A8E6B99C63A5E5308BB126181A018BA3095D68",
+        "observations": [
+          "Equipment page with dagger and bow; health fill contained by ring with no exterior red rectangle.",
+          "Curved mana swirl visible; both fills align with their page-positioned rings.",
+          "Character on right and dagger preview within panel; intended reference placement/scale not established.",
+          "Thin white L-shaped lines remain outside health/mana artwork borders; cause unverified."
+        ]
+      },
+      {
+        "gs_frame_label": 4000,
+        "path": "build/t/followup-20261018-final-native/render_4000.png",
+        "size": [
+          3840,
+          2160
+        ],
+        "sha256": "2BE61B61852FB36C2D97327C866022B59C3F859CDAA34181923C4FA6BE132A99",
+        "observations": [
+          "Journal page with readable quest text; character and orb placement coherent with the inventory layout.",
+          "Thin white L-shaped lines remain outside health/mana artwork borders; cause unverified."
+        ]
+      },
+      {
+        "gs_frame_label": 4500,
+        "path": "build/t/followup-20261018-final-native/render_4500.png",
+        "size": [
+          3840,
+          2160
+        ],
+        "sha256": "F587811AFEAAB64835976612F602CAEE25043B219CE7011DE0FD0ADBCA855A59",
+        "observations": [
+          "Bow selected, held and previewed within panel; right orb displays ammo200.",
+          "Jagged/fanned ponytail edge visible during this pose; no reference-quality hair-alpha verdict.",
+          "Thin white L-shaped lines remain outside health/mana artwork borders; cause unverified."
+        ]
+      }
+    ],
+    "remaining_visible_artifacts": "Thin white L-shaped lines outside health/mana borders.",
+    "orb_2500": "Exterior red rectangle absent; curved mana swirl visible; fill/ring alignment coherent in this view.",
+    "limitations": [
+      "No claim that all graphics or HUD animations are fixed.",
+      "No controlled smoke effect or matching original sky-wedge pose.",
+      "Canopy/preview intended placement and native hair-alpha parity remain unverified.",
+      "No actual game pixel change is causally attributed to the cache-coherence fix."
+    ],
+    "production_edits": false,
+    "srnr_visual_inspection": "Completed separately in final_srnr_visual_inspection.",
+    "parent_completion_receipt": {
+      "exitCode": 0,
+      "sha256After": "54F082B55C3A768391EC5B39DB48033F2AA77DEA6B51CDFBBE1E81A61D92D557",
+      "elapsedSeconds": 94.5007101,
+      "scriptQuit": true
+    }
+  },
+  "final_srnr_visual_inspection": {
+    "method": "Read-only inspection of four existing actual game PNGs, paired visually with corresponding native views; no game launch or GPU replay.",
+    "candidate_executable_sha256": "54F082B55C3A768391EC5B39DB48033F2AA77DEA6B51CDFBBE1E81A61D92D557",
+    "manifest": "build/t/followup-20261018-final-srnr/manifest.json",
+    "audio": "1",
+    "internal_scale": 4,
+    "sr": "quality",
+    "nr_requested": "1",
+    "nr_toggle_sequence_requested": "1900:0,2000:1,2200:0,2300:1",
+    "effective_frame2500_execution_log": {
+      "path": "build/t/followup-20261018-final-srnr/stderr.log",
+      "entries": [
+        {
+          "line": 7585,
+          "text": "[dlss-sr] f2500 evaluate=1 render=1364x1364 output=2048x2048 serial=355 reset=0: DLSS SR Quality 1364x1364 -> 2048x2048, preset default (NGX SDK 310.9.16); actual RGBA16F SR evaluated, full NR guides ready"
+        },
+        {
+          "line": 7586,
+          "text": "[dlss-nr] f2500 present=2384 scene=32554 evaluate=1 reset=0 guides=2048x2048: NR evaluation submitted and completed"
+        }
+      ],
+      "qualification": "Successful evaluation establishes execution, not visual correctness."
+    },
+    "views": [
+      {
+        "gs_frame_label": 1900,
+        "path": "build/t/followup-20261018-final-srnr/render_1900.png",
+        "size": [
+          3840,
+          2160
+        ],
+        "sha256": "CC132F958A8276C299A4B9CA8A83099F8AC9682727752157927C83140EBE3A4F",
+        "observations": [
+          "Coherent canopy, ponytail and corner-orb placement in the gameplay pose.",
+          "Thin white lines outside health/mana artwork borders remain; cause unverified."
+        ]
+      },
+      {
+        "gs_frame_label": 2500,
+        "path": "build/t/followup-20261018-final-srnr/render_2500.png",
+        "size": [
+          3840,
+          2160
+        ],
+        "sha256": "D9518CC99F721F2F1445C4317BED5A58C30E15FDC38448790D88CA9A67F356A1",
+        "observations": [
+          "Equipment health fill contained by ring without exterior red rectangle; curved mana swirl visible; fill/ring alignment coherent.",
+          "Flat gray jagged lobes beneath canopy above mountains; not comparably prominent in native2500.",
+          "Thin white lines outside health/mana artwork borders remain; cause unverified."
+        ]
+      },
+      {
+        "gs_frame_label": 4000,
+        "path": "build/t/followup-20261018-final-srnr/render_4000.png",
+        "size": [
+          3840,
+          2160
+        ],
+        "sha256": "CE620390A05EDC35DFF59A4D14A24E547EEBDD4DA976717F0F44F75CBCE7B2EC",
+        "observations": [
+          "Journal layout and orb placement coherent.",
+          "Flat gray lobes persist beneath canopy above mountains; not comparably prominent in native4000.",
+          "Thin white lines outside health/mana artwork borders remain; cause unverified."
+        ]
+      },
+      {
+        "gs_frame_label": 4500,
+        "path": "build/t/followup-20261018-final-srnr/render_4500.png",
+        "size": [
+          3840,
+          2160
+        ],
+        "sha256": "3B902F1D6534B6B0AF25B803188AE19AE0FB804538A63E1EFE9870D8AAAA55A3",
+        "observations": [
+          "Bow selected, held and previewed; right orb displays ammo200.",
+          "Gray jagged/outlined shapes persist beneath canopy; not comparably prominent in native4500.",
+          "Thin white lines outside health/mana artwork borders remain; cause unverified."
+        ]
+      }
+    ],
+    "unresolved_sky_region_artifact": {
+      "classification": "Actual latest SR/NR sky-region artifact; unresolved.",
+      "approximate_3840_image_bounds": [
+        2520,
+        300,
+        3320,
+        550
+      ],
+      "observed_frames": [
+        2500,
+        4000,
+        4500
+      ],
+      "appearance": "Flat gray jagged lobes or outlined shapes beneath canopy above mountains.",
+      "native_pair": "Same prominent shapes not observed in native2500/4000/4500.",
+      "limitations": [
+        "Camera/character poses differ slightly between native and SR/NR shots.",
+        "SR and NR change together relative to native, so NR-only causality is not established.",
+        "Not established as a new regression relative to older SR/NR builds.",
+        "Responsible GS draw, texture and failing pipeline stage remain unidentified.",
+        "No sky fix claimed."
+      ],
+      "next_bounded_action": {
+        "scope": "One locked inventory camera/pose artifact frame; parent owns live GPU capture.",
+        "configuration": "Hold SR Quality constant and compare NRoff/on.",
+        "preserve": [
+          "scene camera",
+          "projection and viewport",
+          "matching GS draw state"
+        ],
+        "snapshots": [
+          "color before SR",
+          "color after SR and before NR",
+          "color after NR and before HUD",
+          "matching depth and alpha"
+        ],
+        "decision": "First locate the stage where gray shapes appear; inspect responsible sky/canopy/backdrop draws if already present before SR, otherwise isolate the first affected resolve.",
+        "replay_limit": "Late GIF capture without initial VRAM is not a faithful standalone image replay.",
+        "implementation_gate": "No geometry/decoder fix before failing stage and draw are established."
+      }
+    },
+    "orb_result": "Health exterior red rectangle absent in2500; curved mana swirl visible; fill/ring alignment coherent.",
+    "remaining_hud_artifacts": "Thin white lines outside health/mana borders.",
+    "smoke": "No controlled smoke effect; no verdict.",
+    "hair": "No obvious opaque rectangular backing in inspected poses; reference parity and cutout-edge quality unverified.",
+    "production_edits": false,
+    "parent_completion_receipt": {
+      "exitCode": 0,
+      "sha256After": "54F082B55C3A768391EC5B39DB48033F2AA77DEA6B51CDFBBE1E81A61D92D557",
+      "elapsedSeconds": 102.3348945,
+      "scriptQuit": true
+    }
+  }
+}

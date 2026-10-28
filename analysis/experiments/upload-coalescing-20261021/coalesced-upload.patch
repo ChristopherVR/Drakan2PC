@@ -1,0 +1,62 @@
+--- a/runtime/gs/src/d3d11_backend.cpp
++++ b/runtime/gs/src/d3d11_backend.cpp
+@@ -31,6 +31,7 @@
+ #include "cpu_profile.h"
+ #include "rt_upload.h"
+ #include "rt_native_upload.h"
++#include "rt_dirty_runs.h"
+ #include "rt_readback.h"
+ #include "temporal_presentation.h"
+ #include "surface_geometry.h"
+@@ -1465,19 +1466,26 @@
+     }
+ 
+     NativeUpload nativeUpload;
++    std::vector<uint32_t> nativeUploadPixels;
+     void syncRT(RT& rt)
+     {
+         CpuProfile::Scope profile(cpuProfile,CpuProfile::SyncRT);
+         if (rt.seen == mem.clock()) return;
+         const uint32_t ph = rt.pageH();
+         const uint32_t pagesPerRow = rt.fbw;
+-        std::vector<uint32_t> buf, up;
++        auto& buf=nativeUploadPixels;
++        std::vector<uint32_t> up;
++        const auto dirty=[&](uint32_t r) {
++            const uint32_t lo=rt.base()+r*pagesPerRow*32u;
++            return lo<kVramBlocks && mem.maxStamp(lo,pagesPerRow*32u)>rt.rowStamp[r];
++        };
+         for (uint32_t r = 0; r < rt.rowStamp.size(); ++r)
+         {
+             const uint32_t lo = rt.base() + r * pagesPerRow * 32u;
+             if (lo >= kVramBlocks) break;
+             if (mem.maxStamp(lo, pagesPerRow * 32u) <= rt.rowStamp[r]) continue;
+-            const uint32_t y0 = r * ph, y1 = std::min(y0 + ph, rt.h);
++            const uint32_t end=dirtyRunEnd(r,uint32_t(rt.rowStamp.size()),dirty);
++            const uint32_t y0 = r * ph, y1 = std::min(end * ph, rt.h);
+             const uint32_t rows = y1 - y0;
+ 
+             buf.resize((size_t)rt.w * rows);
+@@ -1501,7 +1509,8 @@
+                 expandRenderTargetRows(buf.data(), up.data(), rt.w, rows, scale);
+                 ctx->UpdateSubresource(rt.tex.Get(), 0, &box, up.data(), W * 4, 0);
+             }
+-            rt.rowStamp[r] = mem.clock();
++            for(uint32_t row=r;row<end;++row)rt.rowStamp[row]=mem.clock();
++            r=end-1;
+             rt.copyValid = false;
+             st.rtUploads++;
+         }
+--- /dev/null
++++ b/runtime/gs/src/rt_dirty_runs.h
+@@ -0,0 +1,10 @@
++#pragma once
++#include <cstdint>
++namespace gsr {
++// first is known dirty. Never include a clean row: it may contain GPU-only data.
++template<class Dirty> uint32_t dirtyRunEnd(uint32_t first,uint32_t count,Dirty dirty) {
++    uint32_t end=first+1;
++    while(end<count && dirty(end))++end;
++    return end;
++}
++}

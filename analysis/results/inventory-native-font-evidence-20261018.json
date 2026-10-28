@@ -1,0 +1,115 @@
+{
+  "capture": "build/native-inventory-font-01.jsonl",
+  "complete_records": 34561,
+  "events": {
+    "font": 2,
+    "text": 14559,
+    "glyph": 20000
+  },
+  "ascii_rectangles_compared": 94,
+  "ascii_rectangle_mismatches": [],
+  "fonts": [
+    {
+      "font_index": 0,
+      "atlas": 97,
+      "glyph_target": "0x1c1e90",
+      "row_height": 22,
+      "space_width": 6,
+      "source_y_offset": 0,
+      "line_height": 17,
+      "dimensions": [
+        256,
+        256
+      ],
+      "row_end_x": [
+        247,
+        251,
+        243,
+        247,
+        245,
+        243,
+        239,
+        243,
+        216,
+        240,
+        91
+      ],
+      "row_last_codes": [
+        58,
+        79,
+        100,
+        161,
+        187,
+        206,
+        225,
+        249,
+        147,
+        27,
+        9999
+      ]
+    },
+    {
+      "font_index": 1,
+      "atlas": 96,
+      "glyph_target": "0x1c1e90",
+      "row_height": 21,
+      "space_width": 13,
+      "source_y_offset": 0,
+      "line_height": 15,
+      "dimensions": [
+        256,
+        256
+      ],
+      "row_end_x": [
+        250,
+        253,
+        245,
+        250,
+        248,
+        246,
+        248,
+        239,
+        248,
+        222,
+        255,
+        111
+      ],
+      "row_last_codes": [
+        53,
+        72,
+        87,
+        108,
+        163,
+        186,
+        201,
+        218,
+        237,
+        254,
+        135,
+        9999
+      ]
+    }
+  ],
+  "source_orientation": "Stored bottom-up. source stored y=255-(nativeRowY+localY). Highres stored y=2047-(nativeRowY*8+localY). Native source row 198 covers stored rows 36..57, unchanged prompt icons.",
+  "legacy_capture_corrections": [
+    "row_origins is row_end_x, not source Y",
+    "row_first_codes is row_last_codes",
+    "extended_byte_table was read from wrong address; disregard old field. Correct address 0x4eac30."
+  ],
+  "glyph_abi": {
+    "address": "0x1c1e90",
+    "a0": "texture this (with native adjustment)",
+    "a1": "destination x integer",
+    "a2": "destination y integer",
+    "a3": "source x",
+    "t0": "source y",
+    "t1": "source width",
+    "t2": "source height",
+    "t3": "clip rectangle pointer",
+    "f12": "horizontal pixel aspect 0.7",
+    "f13": "vertical scale 1",
+    "stack_8": "packed GS color pointer"
+  },
+  "cpu_validation": "14 checks pass; generated atlas remains private/in-memory; no GPU launched",
+  "opt_in": "Initial experiment used DRAKAN_NATIVE_FONT_ATLAS=1. After native and combined live validation, default enabled; DRAKAN_NATIVE_FONT_ATLAS=0 restores source atlas. See native-inventory-20261018.json."
+}

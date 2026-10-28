@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Drakan — The Ancients’ Gates</title>
+  <link rel="stylesheet" href="player.css">
+  <link rel="icon" href="data:,">
+</head>
+<body>
+<main id="player">
+  <canvas id="canvas" width="960" height="720" tabindex="0" aria-label="Drakan game"></canvas>
+  <section id="startup" aria-label="Start Drakan">
+    <div class="title"><h1>Drakan</h1><p>The Ancients’ Gates</p></div>
+    <button id="start">Play</button>
+    <progress id="load-progress" max="1" hidden aria-label="Loading game"></progress>
+    <p id="status" role="status" aria-live="polite"></p>
+  </section>
+  <section id="save-error" hidden role="alert">
+    <p>The saved game could not be stored.</p>
+    <button id="retry-save">Retry</button>
+  </section>
+</main>
+<script src="pointer_motion.js"></script>
+<script src="player.js"></script>
+</body>
+</html>

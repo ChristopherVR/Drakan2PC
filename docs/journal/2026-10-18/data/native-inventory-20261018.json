@@ -1,0 +1,246 @@
+{
+  "schema": 1,
+  "executable_sha256": "0E4BACD82DEF9B38FEF5EB8303B88A617AB238099959D6D2041A38CC20248EB3",
+  "provenance": {
+    "sha": "0E4BACD82DEF9B38FEF5EB8303B88A617AB238099959D6D2041A38CC20248EB3",
+    "outer": "8e4e4fa3075dafa8f71027410ed8cab284b80252",
+    "runtime": "6be694b4d7173d15ef49ec1ad3fe5f322f0230b9"
+  },
+  "functional": {
+    "native": {
+      "checks": 23,
+      "saves": {
+        "source": true,
+        "original": true,
+        "private": true
+      },
+      "completion": {
+        "scriptQuit": true,
+        "sha256After": "0E4BACD82DEF9B38FEF5EB8303B88A617AB238099959D6D2041A38CC20248EB3",
+        "exitCode": 0,
+        "elapsedSeconds": 73.2745275
+      },
+      "font_atlas_registered": true,
+      "sr_evaluations": 0,
+      "nr_evaluations": 0
+    },
+    "sr_nr": {
+      "checks": 23,
+      "saves": {
+        "source": true,
+        "original": true,
+        "private": true
+      },
+      "completion": {
+        "scriptQuit": true,
+        "elapsedSeconds": 88.3228687,
+        "exitCode": 0,
+        "sha256After": "0E4BACD82DEF9B38FEF5EB8303B88A617AB238099959D6D2041A38CC20248EB3"
+      },
+      "font_atlas_registered": true,
+      "sr_evaluations": 1797,
+      "nr_evaluations": 1678
+    }
+  },
+  "aspect_visual": {
+    "21:9": {
+      "completion": {
+        "scriptQuit": true,
+        "sha256After": "0E4BACD82DEF9B38FEF5EB8303B88A617AB238099959D6D2041A38CC20248EB3",
+        "exitCode": 0,
+        "elapsedSeconds": 46.3242207
+      },
+      "environment": {
+        "DRAKAN_FULLSCREEN": "1",
+        "DRAKAN_WS_ASPECT": "21:9",
+        "DRAKAN_WINDOW_HEIGHT": "1080",
+        "DRAKAN_WINDOW_WIDTH": "1920"
+      },
+      "screenshots": [
+        "input_ingame_aspect_equipment.bmp",
+        "input_ingame_aspect_map.bmp",
+        "input_ingame_aspect_pause.bmp",
+        "input_ingame_aspect_resumed.bmp"
+      ],
+      "saves": {
+        "private": true,
+        "original": true,
+        "source": true
+      },
+      "scope": "Forced aspect on a 16:9 desktop in fullscreen; not a physical ultrawide monitor test. Windowed hidden-window captures were rejected."
+    },
+    "32:9": {
+      "completion": {
+        "scriptQuit": true,
+        "sha256After": "0E4BACD82DEF9B38FEF5EB8303B88A617AB238099959D6D2041A38CC20248EB3",
+        "exitCode": 0,
+        "elapsedSeconds": 48.2885809
+      },
+      "environment": {
+        "DRAKAN_FULLSCREEN": "1",
+        "DRAKAN_WS_ASPECT": "32:9",
+        "DRAKAN_WINDOW_HEIGHT": "1080",
+        "DRAKAN_WINDOW_WIDTH": "1920"
+      },
+      "screenshots": [
+        "input_ingame_aspect_equipment.bmp",
+        "input_ingame_aspect_map.bmp",
+        "input_ingame_aspect_pause.bmp",
+        "input_ingame_aspect_resumed.bmp"
+      ],
+      "saves": {
+        "private": true,
+        "original": true,
+        "source": true
+      },
+      "scope": "Forced aspect on a 16:9 desktop in fullscreen; not a physical ultrawide monitor test. Windowed hidden-window captures were rejected."
+    }
+  },
+  "cpu": {
+    "font_atlas": 14,
+    "texture_upscale": 26,
+    "native_inventory_feedback": 415,
+    "display_scheduler_pacing_suites": 5
+  },
+  "limits": [
+    "Original panel and icon detail is retained, not new HD artwork.",
+    "Thin HUD edge artifacts and some world/preview geometry remain.",
+    "Native script clicks cover Equipment and top categories; map contents retain relative navigation.",
+    "Whole-game combat and Arokh timing parity remain unverified.",
+    "Forced ultrawide captures reveal stale dismissed tutorial-dialog fragments beside inventory; unresolved, not a visual pass."
+  ],
+  "performance": {
+    "compared_environment_keys": [
+      "DRAKAN_AUDIO",
+      "DRAKAN_AUDIO_DUMP",
+      "DRAKAN_AUTOPRESS",
+      "DRAKAN_AUTOPRESS_NOSTART",
+      "DRAKAN_AUTOPRESS_UNTIL",
+      "DRAKAN_CMD_LOG",
+      "DRAKAN_COMBAT_AUDIT",
+      "DRAKAN_COMBAT_LOG",
+      "DRAKAN_CONSOLE",
+      "DRAKAN_DLSS",
+      "DRAKAN_DLSS_NEURAL",
+      "DRAKAN_FRAME_LIMIT",
+      "DRAKAN_INPUT_AUTOSTART",
+      "DRAKAN_PAUSE_UNFOCUSED",
+      "DRAKAN_SND_DBG",
+      "DRAKAN_SND_LOG",
+      "DRAKAN_VSYNC",
+      "DRAKAN_WINDOW_HEIGHT",
+      "DRAKAN_WINDOW_WIDTH",
+      "PS2X_GS",
+      "PS2X_GS_PACING",
+      "PS2X_GS_SCALE",
+      "PS2X_MAX_SECONDS"
+    ],
+    "comparison_eligible": true,
+    "errors": [],
+    "limitations": [
+      "Completed world submissions and present calls are not confirmed scanouts.",
+      "The last five positive-world windows may include transitions or catch-up.",
+      "Only recorded environment settings are compared; full inherited environment and graphics configuration equality are not established.",
+      "Save preservation is based on the harness receipt, not a new save-file audit.",
+      "This report does not establish gameplay-speed parity or guarantee 60 FPS."
+    ],
+    "matched_sha256": {
+      "input_ini_sha256": "3ecf546900e9858a587ef9c4b62385b074c9281431d3eac0ef73619be0dd078f",
+      "script_sha256": "3ef36c67379733a0a40133a10be9116c0af511ab763c655b07d64aa5759d252f",
+      "sha256": "0e4bacd82def9b38fef5eb8303b88a617ab238099959d6d2041a38cc20248eb3"
+    },
+    "runs": {
+      "after": {
+        "harness_elapsed_seconds": 56.2244549,
+        "input_script_clock": "milliseconds",
+        "positive_world_windows": 16,
+        "recorded_save_preservation": true,
+        "requested_world_rate": "uncapped",
+        "selected_seconds": 10.089,
+        "selected_windows": [
+          {
+            "guestVsyncs": 60.16,
+            "seconds": 2.011,
+            "worldPresents": 32.81,
+            "worldUpdates": 32.32
+          },
+          {
+            "guestVsyncs": 59.66,
+            "seconds": 2.028,
+            "worldPresents": 32.54,
+            "worldUpdates": 33.03
+          },
+          {
+            "guestVsyncs": 60.05,
+            "seconds": 2.015,
+            "worldPresents": 32.75,
+            "worldUpdates": 32.75
+          },
+          {
+            "guestVsyncs": 59.98,
+            "seconds": 2.017,
+            "worldPresents": 32.72,
+            "worldUpdates": 32.72
+          },
+          {
+            "guestVsyncs": 60.45,
+            "seconds": 2.018,
+            "worldPresents": 32.7,
+            "worldUpdates": 32.21
+          }
+        ],
+        "weighted_rates_per_second": {
+          "guestVsyncs": 60.05954504906333,
+          "worldPresents": 32.70374863712955,
+          "worldUpdates": 32.606564575280004
+        }
+      },
+      "before": {
+        "harness_elapsed_seconds": 70.2985168,
+        "input_script_clock": "milliseconds",
+        "positive_world_windows": 17,
+        "recorded_save_preservation": true,
+        "requested_world_rate": "30",
+        "selected_seconds": 10.100999999999999,
+        "selected_windows": [
+          {
+            "guestVsyncs": 59.84,
+            "seconds": 2.022,
+            "worldPresents": 30.17,
+            "worldUpdates": 29.67
+          },
+          {
+            "guestVsyncs": 60.19,
+            "seconds": 2.01,
+            "worldPresents": 30.34,
+            "worldUpdates": 30.34
+          },
+          {
+            "guestVsyncs": 60.02,
+            "seconds": 2.033,
+            "worldPresents": 29.52,
+            "worldUpdates": 30.01
+          },
+          {
+            "guestVsyncs": 59.98,
+            "seconds": 2.001,
+            "worldPresents": 29.99,
+            "worldUpdates": 29.99
+          },
+          {
+            "guestVsyncs": 59.96,
+            "seconds": 2.035,
+            "worldPresents": 29.98,
+            "worldUpdates": 29.98
+          }
+        ],
+        "weighted_rates_per_second": {
+          "guestVsyncs": 59.99778437778438,
+          "worldPresents": 29.99906840906841,
+          "worldUpdates": 29.997600237600242
+        }
+      }
+    },
+    "world_submission_rate_change_percent": 8.697243502863872
+  }
+}

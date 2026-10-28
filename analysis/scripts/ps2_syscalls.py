@@ -1,0 +1,161 @@
+"""EE kernel syscall table (key = syscall number, decimal).
+
+Source: IDAPy-PS2 Ps2Kernel.py SYSCALL_TABLE (github.com/grimdoomer/IDAPy-PS2),
+spot-checked against well-known numbers (0x01 ResetEE, 0x04 Exit, 0x10 AddIntcHandler,
+0x20 CreateThread, 0x40 CreateSema, 0x64 FlushCache, 0x7C Deci2Call).
+Note: the task's suggested 0x3C "SetupThread" is InitMainThread in this table.
+iX variants (iSignalSema etc.) are separate entries in this table.
+"""
+
+SYSCALL_NAMES = {
+    1: "ResetEE",
+    2: "SetGsCrt",
+    4: "Exit",
+    5: "_ResumeIntrDispatch",
+    6: "LoadExecPS2",
+    7: "ExecPS2",
+    8: "_ResumeT3IntrDispatch",
+    10: "AddSbusIntcHandler",
+    11: "RemoveSbusIntcHandler",
+    12: "Interrupt2Iop",
+    13: "SetVTLBRefillHandler",
+    14: "SetVCommonHandler",
+    15: "SetVInterruptHandler",
+    16: "AddIntcHandler",
+    17: "RemoveIntcHandler",
+    18: "AddDmacHandler",
+    19: "RemoveDmacHandler",
+    20: "_EnableIntc",
+    21: "_DisableIntc",
+    22: "_EnableDmac",
+    23: "_DisableDmac",
+    24: "_SetAlarm",
+    25: "_ReleaseAlarm",
+    26: "_iEnableIntc",
+    27: "_iDisableIntc",
+    28: "_iEnableDmac",
+    29: "_iDisableDmac",
+    30: "_iSetAlarm",
+    31: "_iReleaseAlarm",
+    32: "CreateThread",
+    33: "DeleteThread",
+    34: "StartThread",
+    35: "ExitThread",
+    36: "ExitDeleteThread",
+    37: "TerminateThread",
+    38: "iTerminateThread",
+    39: "DisableDispatchThread",
+    40: "EnableDispatchThread",
+    41: "ChangeThreadPriority",
+    42: "iChangeThreadPriority",
+    43: "RotateThreadReadyQueue",
+    44: "_iRotateThreadReadyQueue",
+    45: "ReleaseWaitThread",
+    46: "iReleaseWaitThread",
+    47: "GetThreadId",
+    48: "ReferThreadStatus",
+    49: "iReferThreadStatus",
+    50: "SleepThread",
+    51: "WakeupThread",
+    52: "iWakeupThread",
+    53: "CancelWakeupThread",
+    54: "iCancelWakeupThread",
+    55: "SuspendThread",
+    56: "iSuspendThread",
+    57: "ResumeThread",
+    58: "iResumeThread",
+    59: "JoinThread",
+    60: "InitMainThread",
+    61: "InitHeap",
+    62: "EndOfHeap",
+    64: "CreateSema",
+    65: "DeleteSema",
+    66: "SignalSema",
+    67: "iSignalSema",
+    68: "WaitSema",
+    69: "PollSema",
+    70: "iPollSema",
+    71: "ReferSemaStatus",
+    72: "iReferSemaStatus",
+    73: "iDeleteSema",
+    74: "SetOsdConfigParam",
+    75: "GetOsdConfigParam",
+    76: "GetGsHParam",
+    77: "GetGsVParam",
+    78: "SetGsHParam",
+    79: "SetGsVParam",
+    80: "CreateEventFlag",
+    81: "DeleteEventFlag",
+    82: "SetEventFlag",
+    83: "iSetEventFlag",
+    84: "xlaunch",
+    85: "PutTLBEntry",
+    86: "SetTLBEntry",
+    87: "GetTLBEntry",
+    88: "ProbeTLBEntry",
+    89: "ExpandScratchPad",
+    90: "Copy",
+    91: "GetEntryAddress",
+    92: "EnableIntcHandler",
+    93: "DisableIntcHandler",
+    94: "EnableDmacHandler",
+    95: "DisableDmacHandler",
+    96: "KSeg0",
+    97: "EnableCache",
+    98: "DisableCache",
+    99: "GetCop0",
+    100: "FlushCache",
+    102: "CpuConfig",
+    103: "iGetCop0",
+    104: "iFlushCache",
+    106: "iCpuConfig",
+    107: "SifStopDma",
+    108: "SetCPUTimerHandler",
+    109: "SetCPUTimer",
+    110: "SetOsdConfigParam2",
+    111: "GetOsdConfigParam2",
+    112: "GsGetIMR",
+    113: "GsPutIMR",
+    114: "SetPgifHandler",
+    115: "SetVSyncFlag",
+    116: "SetSyscall",
+    117: "_print",
+    118: "SifDmaStat",
+    119: "SifSetDma",
+    120: "SifSetDChain",
+    121: "SifSetReg",
+    122: "SifGetReg",
+    123: "ExecOSD",
+    124: "Deci2Call",
+    125: "PSMode",
+    126: "MachineType",
+    127: "GetMemorySize",
+    128: "_GetGsDxDyOffset",
+    130: "_InitTLB",
+    131: "FindAddress",
+    133: "SetMemoryMode",
+    135: "ExecPSX",
+}
+
+
+def _clean(base):
+    """Strip the table's leading-underscore markers (e.g. '_EnableIntc' -> 'EnableIntc')."""
+    return base.lstrip("_")
+
+
+def syscall_name(num):
+    """Name for a syscall stub value.
+
+    Positive N -> table[N].
+    Negative -N -> interrupt-context (iX) variant of table[N], e.g. -0x1A -> iEnableIntc,
+    -0x2F -> iGetThreadId.
+    """
+    if num >= 0:
+        base = SYSCALL_NAMES.get(num)
+        return _clean(base) if base else "UNKNOWN_0x%02X" % num
+    n = -num
+    base = SYSCALL_NAMES.get(n)
+    if not base:
+        return "UNKNOWN_i_0x%02X" % n
+    b = _clean(base)
+    return b if b.startswith("i") else "i" + b

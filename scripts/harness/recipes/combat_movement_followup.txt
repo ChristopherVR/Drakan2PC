@@ -1,0 +1,55 @@
+# Existing fixture-bow-item, private copied cards. Virtual640 client.
+# Default direct sensX/Y=.002; invertX/Y=0. No camera capture or file writes except RAM.
+1 log on 5
+0 sync play 90
+5 key down W
+11 key up W
+15 key down E
+25 key up E
+45 key tap ENTER
+100 key tap TAB
+230 key tap ENTER
+245 dump ram_mouse_before
+250 key tap RIGHT
+275 cursor 132 126
+280 button down 1
+282 button up 1
+310 dump ram_mouse_item0
+325 cursor 369 126
+330 button down 1
+332 button up 1
+360 dump ram_mouse_empty
+375 cursor 166 126
+380 button down 1
+382 button up 1
+410 dump ram_mouse_item1
+440 key tap TAB
+490 dump ram_look_base
+500 mouse 4 -2 10
+512 dump ram_look_moved
+520 mouse -4 2 10
+540 dump ram_look_return
+550 key down W
+565 key up W
+580 dump ram_forward
+590 key down D
+605 key up D
+620 dump ram_strafe
+630 key tap F
+640 dump ram_lockon
+650 button down 1
+652 mouse 2 0 4
+665 dump ram_shot1_active
+670 button up 1
+680 dump ram_shot1_release
+700 button down 1
+704 button up 1
+710 dump ram_shot2_release
+720 button down 1
+724 button up 1
+730 dump ram_shot3_release
+750 dump ram_shots_settled
+760 key down 6
+780 key up 6
+820 dump ram_quick_released
+850 quit

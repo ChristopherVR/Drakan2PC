@@ -1,0 +1,183 @@
+{
+  "date": "2026-10-19T00:36:30.770874+10:00",
+  "executable_sha256": "33b55a54b4cc1b3bc359f0823c5f28c527258691d80b2843ac92511726509383",
+  "previous_executable_sha256": "f27939e2375e3e8776be0ad7574c8532242f616184b4ed81183c90ee3e7c520e",
+  "backup": "C:\\Games\\Drakan - The Ancients Gates\\decomp\\build\\release_backups\\vector-normalization-20261019-003630",
+  "change": "Per-block conservative lane proof eliminates redundant arithmetic input normalization; memory/integer writes invalidate proof and block entry starts unknown.",
+  "benchmark": {
+    "baseline_world_fps": 63.75271872952682,
+    "optimized_world_fps": 65.54212204439861,
+    "improvement_percent": 2.806787460254667,
+    "runs": {
+      "fps144-final-base-a": {
+        "exe_sha256": "F27939E2375E3E8776BE0AD7574C8532242F616184B4ED81183C90EE3E7C520E",
+        "world_fps": 64.13986256348969,
+        "last_five_world_windows": [
+          [
+            2.007,
+            63.76
+          ],
+          [
+            2.003,
+            64.42
+          ],
+          [
+            2.007,
+            64.28
+          ],
+          [
+            2.013,
+            64.09
+          ],
+          [
+            2.011,
+            64.15
+          ]
+        ],
+        "saves_unchanged": true
+      },
+      "fps144-final-normal-a": {
+        "exe_sha256": "33B55A54B4CC1B3BC359F0823C5F28C527258691D80B2843AC92511726509383",
+        "world_fps": 65.35032576210399,
+        "last_five_world_windows": [
+          [
+            2.001,
+            65.45
+          ],
+          [
+            2.009,
+            65.71
+          ],
+          [
+            2.009,
+            65.71
+          ],
+          [
+            2.006,
+            64.3
+          ],
+          [
+            2.013,
+            65.58
+          ]
+        ],
+        "saves_unchanged": true
+      },
+      "fps144-final-normal-b": {
+        "exe_sha256": "33B55A54B4CC1B3BC359F0823C5F28C527258691D80B2843AC92511726509383",
+        "world_fps": 65.73391832669323,
+        "last_five_world_windows": [
+          [
+            2.007,
+            65.78
+          ],
+          [
+            2.0,
+            65.99
+          ],
+          [
+            2.013,
+            66.07
+          ],
+          [
+            2.013,
+            65.56
+          ],
+          [
+            2.007,
+            65.27
+          ]
+        ],
+        "saves_unchanged": true
+      },
+      "fps144-final-base-b": {
+        "exe_sha256": "F27939E2375E3E8776BE0AD7574C8532242F616184B4ED81183C90EE3E7C520E",
+        "world_fps": 63.36557489556395,
+        "last_five_world_windows": [
+          [
+            2.015,
+            63.03
+          ],
+          [
+            2.004,
+            63.88
+          ],
+          [
+            2.014,
+            63.57
+          ],
+          [
+            2.009,
+            63.22
+          ],
+          [
+            2.012,
+            63.13
+          ]
+        ],
+        "saves_unchanged": true
+      }
+    },
+    "configuration": "4x native raw rendering; 3840x2160 window; audio on; uncapped world and presentation; vsync, DLSS, frame generation, modern water and ray reflections off; threaded VU spin4096; fixed save and 30s wall-clock scene; final five 2s windows",
+    "overlapping_drakan_compilers_linkers": false
+  },
+  "validation": {
+    "randomized_pair_comparisons": 200000,
+    "proven_normalizations_skipped": 336474,
+    "host_rounding_modes": 4,
+    "timed_scalar_and_flag_comparisons": 8192,
+    "recorded_reference_runs_per_pass": 4000,
+    "recorded_reference_passes": 4,
+    "recorded_mismatches": 0,
+    "live_reference_runs": 327680,
+    "live_reference_log": [
+      "[vucheck] 98304 runs checked, 0 mismatches",
+      "[vucheck] 114688 runs checked, 0 mismatches",
+      "[vucheck] 131072 runs checked, 0 mismatches",
+      "[vucheck] 147456 runs checked, 0 mismatches",
+      "[vucheck] 163840 runs checked, 0 mismatches",
+      "[vucheck] 180224 runs checked, 0 mismatches",
+      "[vucheck] 196608 runs checked, 0 mismatches",
+      "[vucheck] 212992 runs checked, 0 mismatches",
+      "[vucheck] 229376 runs checked, 0 mismatches",
+      "[vucheck] 245760 runs checked, 0 mismatches",
+      "[vucheck] 262144 runs checked, 0 mismatches",
+      "[vucheck] 278528 runs checked, 0 mismatches",
+      "[vucheck] 294912 runs checked, 0 mismatches",
+      "[vucheck] 311296 runs checked, 0 mismatches",
+      "[vucheck] 327680 runs checked, 0 mismatches"
+    ],
+    "standalone_suites_passed": 7,
+    "runtime_patch_reverse_apply": "passed",
+    "saves_unchanged": true
+  },
+  "rejected_experiments": [
+    "Atomic completion waits: no consistent throughput gain",
+    "Packed flag queue: slower in recorded replay",
+    "Local destination refactor: no demonstrated gain",
+    "Lazy reset: variable live results; not retained",
+    "Selective LTCG: excessive link cost; not deployed"
+  ],
+  "visual_check": {
+    "path": "C:\\Games\\Drakan - The Ancients Gates\\decomp\\build\\fps144-20261018\\native-visual.png",
+    "sha256": "f76113bb269861a6a3975604b3881ae5d5b8c24880f709e97f61fefdc813f896",
+    "result": "Gameplay world, character, materials and HUD present; no visible geometry corruption"
+  },
+  "source_sha256": {
+    "ps2xRuntime/src/lib/vu/ps2_vu1_step.h": "7750b4d0301d08418a2c180e534267d67c33d94ce052ecdc4eb4eddd7c5ceaa5",
+    "ps2xRuntime/src/lib/vu/aot/ps2_vu1_aot_slice.inc": "f37127340b235acf94a11770c10b987b4316b7548644f706035b9f4c79f7ac01",
+    "ps2xRuntime/src/lib/vu/ps2_vu1_normalized.h": "e58c822d29909656b616646ece576e52ad540648e209f1d9caad1c733ddc736f",
+    "ps2xRuntime/tests/vu_normalized_tests.cpp": "a8ae696624ef9f02b5597937d8ee68d9982c1fb7bf744999fb2cee197bbf3147",
+    "ps2xTest/vif_unpack/CMakeLists.txt": "e21aa2b931933e7160505db2890c5b89d8c625ad420cf1572edebaabeb1b81fd"
+  },
+  "preserved_files_sha256": {
+    "drakan.ini": "667e7be8b9791904708bc6b82db1291a647adc99fc339680f4f8fddfa911f96d",
+    "drakan_input.ini": "3ecf546900e9858a587ef9c4b62385b074c9281431d3eac0ef73619be0dd078f",
+    "Play.cmd": "d2c231edea7c0191dfa002087e32d56470a5f570017599da715c84e8b1e97bfb",
+    "Play-RawFPS.cmd": "c585270901be6b380f8737f9fb497b1a896197d8d658a096689ccb105e914afc",
+    "Play-Original30.cmd": "9abe8038dd597ff2fae10b2cbfd2ec19f75d54f2265b0784db0da2389b0dc951"
+  },
+  "runtime_patch_sha256": "420efd4dd09a49995707ebd105dc38398379091ef86ccc27ea9932cddc68222a",
+  "evidence": "C:\\Games\\Drakan - The Ancients Gates\\decomp\\build\\fps144-20261018",
+  "limits": "144+ raw FPS not reached. Small improvement measured in one fixed gameplay scene, not a guarantee for every area. Guest math, timing, quality and original 30 FPS controls preserved."
+}

@@ -1,0 +1,34 @@
+DRAKAN: THE ANCIENTS' GATES - PC VERSION
+=========================================
+
+This setup builds a native Windows version of the PlayStation 2 game from YOUR OWN
+copy of the disc. It contains no game data: you need a disc image (.iso) of the
+PAL release (SCES-500.06), and the game is made from it on this PC.
+
+What happens:
+
+  1. You choose an install folder and your .iso file, and optionally NVIDIA DLSS
+     (downloaded from NVIDIA under its licence) and a browser version (needs WSL).
+  2. The builder is copied to the install folder.
+  3. A build window opens. On the first run it downloads and installs
+     Microsoft's free "Visual Studio 2022 Build Tools" (the C++ compiler,
+     about 3 GB). Windows asks for permission once. By continuing you accept
+     the Visual Studio Build Tools license:
+     https://visualstudio.microsoft.com/license-terms/
+  4. The game is built. This takes one to two hours, depending on your PC.
+     You can keep using the PC meanwhile; leave the window open.
+  5. When it says "Done", start the game with the "Drakan - The Ancients' Gates"
+     shortcut.
+
+You need: Windows 10 or 11 (64-bit), an internet connection for step 3,
+about 10 GB of free disk space, at least 16 GB of memory (24 GB or more
+recommended), and a DirectX 11 graphics card. Some files take about 10 minutes
+each to compile, so the build window can look stuck for a while; leave it open.
+
+Keep the .iso where it is: the game reads it while it runs.
+
+If the build window shows an error, run "Rebuild Drakan" from the Start menu
+to try again; it continues where it stopped. A log is written to
+build-log.txt in the install folder.
+
+The built game is for your own use only; please do not share it.

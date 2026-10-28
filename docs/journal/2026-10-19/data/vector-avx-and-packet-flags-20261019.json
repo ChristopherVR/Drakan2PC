@@ -1,0 +1,255 @@
+{
+  "status": "experimental; not promoted or deployed",
+  "avx_average_fps": 99.25506028496994,
+  "sse_average_fps": 98.14298141633779,
+  "avx_observed_change_percent": 1.133121138754234,
+  "avx_conclusion": "Small mean difference is within the observed run spread; no reliable gain established.",
+  "packet_queue_average_fps": 98.58346887251255,
+  "packet_batch_average_fps": 98.53618743311533,
+  "packet_batch_observed_change_percent": -0.0479608193320602,
+  "packet_conclusion": "Flat; batching is excluded from the next candidate.",
+  "runs": {
+    "avx-sse-a": {
+      "exe_sha256": "54994CF753A74D0A126E335DD5FC35AD3DF076A9DE07998EFB023988D6FEE43E",
+      "world_fps": 97.43401775029916,
+      "last_five_world_windows": [
+        [
+          2.008,
+          97.1
+        ],
+        [
+          2.001,
+          97.44
+        ],
+        [
+          2.003,
+          97.37
+        ],
+        [
+          2.007,
+          97.68
+        ],
+        [
+          2.009,
+          97.58
+        ]
+      ],
+      "saves_unchanged": true,
+      "contended": false,
+      "overlap_samples": 0
+    },
+    "avx-sse-b": {
+      "exe_sha256": "54994CF753A74D0A126E335DD5FC35AD3DF076A9DE07998EFB023988D6FEE43E",
+      "world_fps": 98.85194508237642,
+      "last_five_world_windows": [
+        [
+          2.0,
+          98.99
+        ],
+        [
+          2.005,
+          98.76
+        ],
+        [
+          2.005,
+          99.27
+        ],
+        [
+          2.004,
+          98.28
+        ],
+        [
+          2.001,
+          98.96
+        ]
+      ],
+      "saves_unchanged": true,
+      "contended": false,
+      "overlap_samples": 0
+    },
+    "avx-on-a": {
+      "exe_sha256": "54994CF753A74D0A126E335DD5FC35AD3DF076A9DE07998EFB023988D6FEE43E",
+      "world_fps": 100.5260884726512,
+      "last_five_world_windows": [
+        [
+          2.01,
+          101.0
+        ],
+        [
+          2.0,
+          100.48
+        ],
+        [
+          2.009,
+          100.03
+        ],
+        [
+          2.009,
+          100.07
+        ],
+        [
+          2.009,
+          101.05
+        ]
+      ],
+      "saves_unchanged": true,
+      "contended": false,
+      "overlap_samples": 0
+    },
+    "avx-on-b": {
+      "exe_sha256": "54994CF753A74D0A126E335DD5FC35AD3DF076A9DE07998EFB023988D6FEE43E",
+      "world_fps": 97.98403209728868,
+      "last_five_world_windows": [
+        [
+          2.001,
+          97.97
+        ],
+        [
+          2.009,
+          98.04
+        ],
+        [
+          2.007,
+          97.65
+        ],
+        [
+          2.007,
+          98.15
+        ],
+        [
+          2.008,
+          98.11
+        ]
+      ],
+      "saves_unchanged": true,
+      "contended": false,
+      "overlap_samples": 0
+    },
+    "packet-queue-a": {
+      "exe_sha256": "54994CF753A74D0A126E335DD5FC35AD3DF076A9DE07998EFB023988D6FEE43E",
+      "world_fps": 98.65926376695931,
+      "last_five_world_windows": [
+        [
+          2.006,
+          98.72
+        ],
+        [
+          2.003,
+          99.34
+        ],
+        [
+          2.006,
+          98.68
+        ],
+        [
+          2.009,
+          97.56
+        ],
+        [
+          2.0,
+          99.0
+        ]
+      ],
+      "saves_unchanged": true,
+      "contended": false,
+      "overlap_samples": 0
+    },
+    "packet-queue-b": {
+      "exe_sha256": "54994CF753A74D0A126E335DD5FC35AD3DF076A9DE07998EFB023988D6FEE43E",
+      "world_fps": 98.5076739780658,
+      "last_five_world_windows": [
+        [
+          2.009,
+          98.54
+        ],
+        [
+          2.005,
+          98.77
+        ],
+        [
+          2.01,
+          98.02
+        ],
+        [
+          2.004,
+          98.32
+        ],
+        [
+          2.002,
+          98.89
+        ]
+      ],
+      "saves_unchanged": true,
+      "contended": false,
+      "overlap_samples": 0
+    },
+    "packet-batch-a": {
+      "exe_sha256": "8C9A3F15CF19B0F2B077EC49AFDD0CDEBBDCE9F47FBE4B85E3C5442E7BBD8807",
+      "world_fps": 98.57004585326953,
+      "last_five_world_windows": [
+        [
+          2.007,
+          98.14
+        ],
+        [
+          2.002,
+          98.4
+        ],
+        [
+          2.006,
+          98.69
+        ],
+        [
+          2.007,
+          99.14
+        ],
+        [
+          2.01,
+          98.48
+        ]
+      ],
+      "saves_unchanged": true,
+      "contended": false,
+      "overlap_samples": 0
+    },
+    "packet-batch-b": {
+      "exe_sha256": "8C9A3F15CF19B0F2B077EC49AFDD0CDEBBDCE9F47FBE4B85E3C5442E7BBD8807",
+      "world_fps": 98.50232901296113,
+      "last_five_world_windows": [
+        [
+          2.008,
+          98.6
+        ],
+        [
+          2.005,
+          98.26
+        ],
+        [
+          2.003,
+          98.34
+        ],
+        [
+          2.01,
+          99.0
+        ],
+        [
+          2.004,
+          98.31
+        ]
+      ],
+      "saves_unchanged": true,
+      "contended": false,
+      "overlap_samples": 0
+    }
+  },
+  "validation": {
+    "sse_avx_exact_cases": 286720,
+    "frozen_fmac_reference_cases": 131072,
+    "simd_exact_cases": 150000000,
+    "helper_bit_patterns": 4294967296,
+    "merge_cases": 1048576,
+    "startup_and_shared_helpers": "No unguarded VEX instructions in checked final prototype; CPU/XCR0 gate assembly inspected."
+  },
+  "evidence_directory": "C:\\Games\\Drakan - The Ancients Gates\\decomp\\build\\vu-avx-20261019",
+  "installed_executable_sha256": "0ea05b06ac5c7a9a3f87846df9aa3bd4836f0347bd82d1e9b0e2cb17638b075e"
+}

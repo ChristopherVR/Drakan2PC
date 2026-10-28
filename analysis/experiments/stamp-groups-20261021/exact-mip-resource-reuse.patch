@@ -1,0 +1,78 @@
+--- a/runtime/gs/src/d3d11_backend.cpp
++++ b/runtime/gs/src/d3d11_backend.cpp
+@@ -1734,6 +1734,11 @@
+         key.mip1 = mxl ? s.miptbp1 : 0;
+         key.mip2 = mxl ? s.miptbp2 : 0;
+ 
++        // Preserve the invalidated resource until the complete decoded mip chain
++        // proves whether a guest upload changed its contents. No hash-only reuse.
++        ComPtr<ID3D11Texture2D> previousTexture;
++        ComPtr<ID3D11ShaderResourceView> previousSrv;
++        std::vector<std::vector<uint32_t>> previousPixels;
+         auto it = texCache.find(key);
+         if (it != texCache.end())
+         {
+@@ -1797,6 +1802,9 @@
+                              key.tbp, key.psm, 1u << key.tw, 1u << key.th, e.spans[0].first, e.spans[0].second, (unsigned long long)e.stamp, wb,
+                              (unsigned long long)ws, (unsigned long long)mem.clock());
+             }
++            previousTexture=std::move(e.tex);
++            previousSrv=std::move(e.srv);
++            previousPixels=std::move(e.cpu);
+             texBytes -= e.bytes;
+             texCache.erase(it);
+         }
+@@ -1966,16 +1974,21 @@
+             if(samples)for(unsigned c=0;c<3;++c)e.averageColor[c]=float(sum[c]/samples);
+         }
+         std::copy(e.averageColor,e.averageColor+3,out.averageColor);out.minimumAlpha=e.minimumAlpha;out.reflectionTexture=e.reflectionTexture;
+-        if (cfg.onTexture) e.cpu = levels;
++
+         {
+             CpuProfile::Scope detail(cpuProfile,CpuProfile::TextureCreate);
++            if(previousTexture && previousSrv && previousPixels==levels) {
++                CpuProfile::Scope reused(cpuProfile,CpuProfile::TextureResourceReuse);
++                e.tex=std::move(previousTexture);e.srv=std::move(previousSrv);
++            } else {
+             if (FAILED(dev->CreateTexture2D(&d, init.data(), &e.tex))) return false;
+             dev->CreateShaderResourceView(e.tex.Get(), nullptr, &e.srv);
++            }
+         }
+         e.stamp = mem.clock();
+         e.checkedClock = mem.clock();
+         e.lastFrame = frame;
+-        e.bytes = bytes;
++        e.bytes = bytes*2; // GPU allocation plus exact CPU comparison copy.
+         e.spans = std::move(spans);
+         { // Explicit runtime atlases also apply when automatic upscaling is off.
+             CpuProfile::Scope detail(cpuProfile,CpuProfile::TextureUpscale);
+@@ -1991,7 +2004,8 @@
+             out.srv = e.up->srv.Get();
+             out.factor = e.up->factor;
+         }
+-        texBytes += bytes;
++        e.cpu=std::move(levels);
++        texBytes += e.bytes;
+         texCache[key] = std::move(e);
+         st.textureDecodes++;
+         return true;
+--- a/runtime/gs/src/cpu_profile.h
++++ b/runtime/gs/src/cpu_profile.h
+@@ -15,7 +15,7 @@
+               TemporalResolve, PresentLatched, PresentCall, PumpUp, Snapshot,
+               WindowScreenshot, LatchDisplay, EndFrame,
+               TextureCoherenceFlush, TextureStampCheck, TextureDecode, TextureCallback, TextureUpscale, TextureCreate,
+-              GuidePrepare, RayScene, ModelGuides, SuperResolution, NeuralEvaluation, TemporalCompose, RayPack, RayProduce, RayBuild, RayWait, RayConsume, RayTriangles, RayModelAttributes, RayUpload, Count };
++              GuidePrepare, RayScene, ModelGuides, SuperResolution, NeuralEvaluation, TemporalCompose, RayPack, RayProduce, RayBuild, RayWait, RayConsume, RayTriangles, RayModelAttributes, RayUpload, TextureResourceReuse, Count };
+     struct Scope;
+ private:
+     struct Sample { unsigned long long calls=0; double inclusive=0, exclusive=0, maximum=0; };
+@@ -38,7 +38,7 @@
+         static constexpr const char* names[]={"draw","resolveTexture","syncRT","readbackRT","readbackMap","readbackPackUnmap",
+             "temporalResolve","presentLatched","presentCall","pumpUp","snapshot","windowScreenshot","latchDisplay","endFrame","textureCoherenceFlush","textureStampCheck",
+             "textureDecode","textureCallback","textureUpscale","textureCreate",
+-            "guidePrepare","rayScene","modelGuides","superResolution","neuralEvaluation","temporalCompose","rayPack","rayProduce","rayBuild","rayWait","rayConsume","rayTriangles","rayModelAttributes","rayUpload"};
++            "guidePrepare","rayScene","modelGuides","superResolution","neuralEvaluation","temporalCompose","rayPack","rayProduce","rayBuild","rayWait","rayConsume","rayTriangles","rayModelAttributes","rayUpload","textureResourceReuse"};
+         static_assert(sizeof(names) / sizeof(names[0]) == Count, "Profiler bucket names must match Id");
+         std::fprintf(stderr,"[gsr-profile] %.3fs root=%.2fms readbackCopy=%.2fMiB syncUpload=%.2fMiB; calls/inclusive_ms/exclusive_ms/max_ms:",
+             elapsed,rootMs,readbackBytes/1048576.0,uploadBytes/1048576.0);

@@ -1,0 +1,34 @@
+# Mouse on the level-change save screen (save screen mode 1): slots and page buttons must react to clicks.
+#   python scripts/harness/play_run.py --name levelsave --level-save --recipe scripts/harness/recipes/level_save_mouse.txt
+# Pass: stdout has "[menu-mouse] screen=5 ... hotspot=101" then "save page 2/4", "hotspot=100" then "save page 1/4",
+# "hotspot=0", the screen closes (5 -> 23) and the run card gets mc0/BESCES-50006Slot1/icon.sys. No .rsg: in this mode
+# the level exit's callback writes the save, and the test aid gives the screen none.
+# Cursor: virtual 640 x 512 client; menu units (512 x 512) map to x = 640 * ((gx / 512 - 0.5) * 0.75 + 0.5) with the
+# widescreen HUD scale 0.75, y = gy. Pager row at gy ~448 (Back gx ~80, Next gx ~430); slots gx ~144 / ~368, gy ~192.
+0 sync play 60
+0 pad tap START
+# pause menu: click Save Game (opens in level-change mode under DRAKAN_TEST_LEVEL_SAVE)
+40 cursor 300 210
+42 cursor 318 215
+50 button tap 1
+0 sync screen 5 150
+0 shot save_open
+# hover the second slot, then Next and Back
+0 cursor 420 190
+2 cursor 425 192
+20 shot save_hover
+30 cursor 480 446
+32 cursor 483 448
+40 button tap 1
+80 shot save_page2
+90 cursor 150 446
+92 cursor 155 448
+100 button tap 1
+140 shot save_page1
+# click the first slot: select + Cross (prepares Slot1, closes the screen)
+150 cursor 210 190
+152 cursor 215 192
+160 button tap 1
+220 shot save_click
+400 shot save_done
+420 quit

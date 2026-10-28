@@ -1,0 +1,50 @@
+# Developer commands (run from the repo root; install tooling with: python -m pip install -r requirements-dev.txt)
+#   Lint:    python -m ruff check
+#   Format:  python -m ruff format --check $(git ls-files '*.py')   (drop --check to apply; list tracked .py explicitly)
+#   Tests:   python scripts/run_tests.py [-v]   (stdlib unittest; scripts/tests + analysis/scripts/test_*.py)
+#   Guard:   python scripts/repository_guard.py
+
+[project]
+name = "drakan-tools"
+version = "0.0.0"
+description = "Build, analysis and test tooling for the Drakan PS2 port"
+requires-python = ">=3.11"
+
+[tool.ruff]
+target-version = "py311"
+line-length = 120
+extend-exclude = ["/build", "/dist", "/tools", "/iso", "third_party"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP", "PL", "RUF"]
+ignore = [
+    "PLR0911", "PLR0912", "PLR0913", "PLR0915", "PLR0917", "PLR2004",  # complexity/magic numbers: noisy for RE tooling
+    "E501",     # line length is the formatter's job
+    "E741",     # l/I/O names are conventional in disassembly/bit-twiddling code
+    "E731",     # lambda assignment is fine in throwaway analysis scripts
+    "UP031",    # %-formatting is pervasive in analysis scripts; converting risks format regressions
+    "B007",     # unused loop vars from tuple unpacking are common when parsing records
+    "RUF059",   # unused unpacked vars: same record-parsing pattern
+    "B905",     # zip() strict= is not wanted for ad-hoc scripts
+    "PLW2901",  # reassigning loop variable is common in parse loops
+    "PLW1510",  # subprocess.run without check: callers inspect returncode explicitly
+    "PLC0415",  # lazy imports are deliberate (optional deps, startup cost)
+]
+
+[tool.ruff.lint.per-file-ignores]
+# sys.path manipulation before imports is intentional in standalone scripts/tests
+"analysis/**" = ["E402"]
+"scripts/perf/hostprof.py" = ["E402"]
+"runtime/**/tests/*.py" = ["E402"]
+# star imports are deliberate in small one-off disassembly helpers
+"analysis/input/scanref.py" = ["F403", "F405"]
+"analysis/scripts/iop_dis.py" = ["F403", "F405"]
+"analysis/scripts/iop_eedis.py" = ["F403", "F405"]
+# closures are called immediately inside the loop, so late binding is harmless
+"scripts/**/combat_*.py" = ["B023"]
+"scripts/buildtool/prepare_iso.py" = ["B023"]
+"analysis/scripts/sub_retime.py" = ["RUF001"]  # typographic quote is intentional subtitle text
+
+[tool.ruff.format]
+quote-style = "double"
+line-ending = "lf"

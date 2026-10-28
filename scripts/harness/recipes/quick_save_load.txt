@@ -1,0 +1,21 @@
+# One-press save/load smoke test. Run with play_run.py on a private card.
+# Expected: missing F8 is ignored, held F5 saves once, second F5 overwrites Slot33, F8 returns to that save.
+# Numbered manual slots must remain byte-identical; the final pause remains usable after the page is restored.
+clock milliseconds
+0 sync play 60
+100 key tap F8
+400 key down F5
+1200 key up F5
+5000 shot saved
+5500 key down W
+6500 key up W
+6800 key tap F5
+11000 shot overwritten
+11500 key down S
+12500 key up S
+13000 key tap F8
+19000 shot loaded
+20000 key tap ESC
+22000 shot manual_pause
+22500 key tap ESC
+24500 quit

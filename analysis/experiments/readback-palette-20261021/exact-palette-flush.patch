@@ -1,0 +1,52 @@
+--- a/runtime/gs/src/gs_core.cpp
++++ b/runtime/gs/src/gs_core.cpp
+@@ -3,6 +3,7 @@
+ #include "gs_internal.h"
+ #include "gs_texup.h"
+ #include "gs_image_upload.h"
++#include "clut_blocks.h"
+ 
+ #include <algorithm>
+ #include <cmath>
+@@ -636,7 +637,12 @@
+         const uint32_t base = is8 ? 0 : csa * 16;
+ 
+         // make sure GPU-drawn data is visible in memory
+-        backend->flushToMemoryTagged(cbp, cbp + 63,1);
++        const auto touched=clutBlocks(rpsm,cbp,is8,csm!=0,uint32_t(bitsOf(texclut,0,6)),uint32_t(bitsOf(texclut,6,6)),uint32_t(bitsOf(texclut,12,10)));
++        for(size_t i=0;i<touched.count;) {
++            const auto first=touched.blocks[i];auto last=first;
++            while(++i<touched.count && touched.blocks[i]==last+1)last=touched.blocks[i];
++            backend->flushToMemoryTagged(first,last,1);
++        }
+ 
+         clut.is16 = is16;
+         clut.cpsm = rpsm;
+--- /dev/null
++++ b/runtime/gs/src/clut_blocks.h
+@@ -0,0 +1,25 @@
++#pragma once
++#include "gs_mem.h"
++#include <array>
++#include <algorithm>
++namespace gsr {
++struct ClutBlocks { std::array<uint32_t,64> blocks{};size_t count=0; };
++inline ClutBlocks clutBlocks(uint32_t psm,uint32_t bp,bool is8,bool csm,uint32_t bw,uint32_t cou,uint32_t cov) {
++ ClutBlocks result;const auto g=geomOf(psm);
++ const bool is16=(psm&2)!=0;
++ auto rectangle=[&](uint32_t x,uint32_t y,uint32_t w,uint32_t h,uint32_t pitch) {
++  for(uint32_t by=y&~(g.blockH-1);by<y+h;by+=g.blockH)
++   for(uint32_t bx=x&~(g.blockW-1);bx<x+w;bx+=g.blockW)
++    result.blocks[result.count++]=blockOf(psm,bp,pitch,bx,by);
++ };
++ if(!csm)rectangle(0,0,is8||is16?16:8,is8?16:is16?1:2,1);
++ else {
++  const uint32_t x=cou*16,n=is8?256:16,first=std::min(n,2048-x);
++  rectangle(x,cov,first,1,bw?bw:1);
++  if(first<n)rectangle(0,cov,n-first,1,bw?bw:1);
++ }
++ std::sort(result.blocks.begin(),result.blocks.begin()+result.count);
++ result.count=std::unique(result.blocks.begin(),result.blocks.begin()+result.count)-result.blocks.begin();
++ return result;
++}
++}

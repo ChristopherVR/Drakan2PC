@@ -1,0 +1,111 @@
+--- a/runtime/gs/src/gs_complete_upload.h
++++ b/runtime/gs/src/gs_complete_upload.h
+@@ -12,6 +12,7 @@
+  return std::min(uint32_t(tag&0x7fff), (size-32)/16)*16;
+ }
+ inline bool subblockUpload(uint32_t psm,uint32_t bp,uint32_t bw,uint32_t x,uint32_t y,uint32_t w,uint32_t h,uint32_t available) {
++ if(psm==PSM_CT24)return bw==1 && x==0 && y==0 && w==64 && h==64 && bp<=kVramBlocks-64 && available>=64*64*3;
+  return psm==PSM_T8 && bp<kVramBlocks && bw && x==0 && y==0 && w==8 && h==8 && available>=64;
+ }
+ inline bool fullUploadBlocks(uint32_t psm,uint32_t bp,uint32_t bw,uint32_t x,uint32_t y,uint32_t w,uint32_t h,uint32_t available,uint32_t& first,uint32_t& last) {
+--- a/runtime/gs/src/gs_core.cpp
++++ b/runtime/gs/src/gs_core.cpp
+@@ -838,7 +838,7 @@
+         if(fullUploadBlocks(xfer.dpsm,xfer.dbp,xfer.dbw,xfer.x0,xfer.y0,xfer.w,xfer.h,available,first,last))
+             backend->discardCompleteUpload(first,last);
+         spanBlocks(xfer.dpsm,xfer.dbp,xfer.dbw,xfer.x0,xfer.y0,xfer.w,xfer.h,first,last);
+-        const bool subblock=subblockUpload(xfer.dpsm,xfer.dbp,xfer.dbw,xfer.x0,xfer.y0,xfer.w,xfer.h,available) && backend->deferSubblockUpload(xfer.dbp);
++        const bool subblock=subblockUpload(xfer.dpsm,xfer.dbp,xfer.dbw,xfer.x0,xfer.y0,xfer.w,xfer.h,available) && backend->deferSubblockUpload(xfer.dbp,xfer.dpsm);
+         if(!subblock)backend->flushToMemoryTagged(first,last,2);
+         mem.touchRect(xfer.dpsm,xfer.dbp,xfer.dbw,xfer.x0,xfer.y0,xfer.w,xfer.h);
+         if(!xfer.pendingImage.empty()) {
+@@ -957,7 +957,7 @@
+     {
+         if (!xfer.active || trxdir != 0) return;
+         if(xfer.deferredCoherence) {
+-            const uint32_t need=xfer.w*xfer.h*(xfer.dpsm==PSM_CT32?4u:1u);
++            const uint32_t need=xfer.w*xfer.h*(xfer.dpsm==PSM_CT32?4u:xfer.dpsm==PSM_CT24?3u:1u);
+             if(xfer.pendingImage.empty() && n>=need)resolveUploadCoherence(n);
+             else {
+                 const size_t take=std::min<size_t>(n,need-xfer.pendingImage.size());
+--- a/runtime/gs/src/gs_internal.h
++++ b/runtime/gs/src/gs_internal.h
+@@ -116,7 +116,7 @@
+     // make local memory reflect GPU render targets overlapping blocks [first,last]
+     void flushToMemory(uint32_t firstBlock, uint32_t lastBlock);
+     bool flushToMemoryTagged(uint32_t firstBlock,uint32_t lastBlock,unsigned reason);
+-    bool deferSubblockUpload(uint32_t bp);
++    bool deferSubblockUpload(uint32_t bp,uint32_t psm);
+     void discardCompleteUpload(uint32_t first,uint32_t last);
+     void flushAll();
+     void present(const DisplayState& d);                      // render the live display + blit to the window
+--- a/runtime/gs/src/d3d11_backend.cpp
++++ b/runtime/gs/src/d3d11_backend.cpp
+@@ -1618,15 +1618,24 @@
+ 
+     // ---------------------------------------------------------------------------------------------
+     void flushTextureLevel(uint32_t psm,uint32_t bp,uint32_t bw,uint32_t w,uint32_t h,uint32_t lo,uint32_t hi) {
+-        if(psm!=PSM_T8 || w!=8 || h!=8 || lo!=hi) {flushToMemory(lo,hi,CpuProfile::ReadbackTexture);return;}
++        const bool rgb=psm==PSM_CT24 && bw==1 && w==64 && h==64 && bp<=kVramBlocks-64 && lo==bp && hi==bp+63;
++        if(!rgb && (psm!=PSM_T8 || w!=8 || h!=8 || lo!=hi)) {flushToMemory(lo,hi,CpuProfile::ReadbackTexture);return;}
+         for(auto& r:rts) {
+             if(!r->dirty)continue;
+             uint32_t first,last;rowSpan(*r,r->dy0,std::min(r->dy1,r->h),first,last);
+             if(hi<first || lo>last)continue;
+-            if(!r->cpuBlocks.empty() && r->cpuBlocks[lo])continue;
+-            const auto it=r->cpuBytes.find(lo);bool covered=it!=r->cpuBytes.end();
+-            if(covered)for(unsigned y=0;y<8 && covered;++y)for(unsigned x=0;x<8;++x)
+-                if(!it->second[pixelAddr(psm,bp,bw,x,y)&255]){covered=false;break;}
++            bool covered=true;
++            for(uint32_t block=std::max(lo,first);block<=std::min(hi,last) && covered;++block) {
++                if(!r->cpuBlocks.empty() && r->cpuBlocks[block])continue;
++                const auto it=r->cpuBytes.find(block);
++                if(it==r->cpuBytes.end()){covered=false;break;}
++                if(rgb) {
++                    for(unsigned i=0;i<256;i+=4)if(!it->second[i] || !it->second[i+1] || !it->second[i+2]){covered=false;break;}
++                } else {
++                    for(unsigned y=0;y<8 && covered;++y)for(unsigned x=0;x<8;++x)
++                        if(!it->second[pixelAddr(psm,bp,bw,x,y)&255]){covered=false;break;}
++                }
++            }
+             if(covered){CpuProfile::Scope hit(cpuProfile,CpuProfile::SubblockTextureHit);continue;}
+             CpuProfile::Scope cause(cpuProfile,CpuProfile::ReadbackTexture);readbackRT(*r);
+         }
+@@ -4435,23 +4444,31 @@
+     const CpuProfile::Id ids[]={CpuProfile::ReadbackExternal,CpuProfile::ReadbackPalette,CpuProfile::ReadbackUpload,CpuProfile::ReadbackDownload,CpuProfile::ReadbackCopy};
+     return m_impl->flushToMemory(a,b,ids[reason<5?reason:0]);
+ }
+-bool Backend::deferSubblockUpload(uint32_t bp) {
++bool Backend::deferSubblockUpload(uint32_t bp,uint32_t psm) {
++    const uint32_t end=bp+(psm==PSM_CT24?63:0);
+     // Validate all aliases before changing ownership for any of them.
+     for(auto& r:m_impl->rts) {
+         if(!r->dirty)continue;
+         uint32_t lo,hi;m_impl->rowSpan(*r,r->dy0,std::min(r->dy1,r->h),lo,hi);
+-        if(bp<lo || bp>hi)continue;
++        if(end<lo || bp>hi)continue;
+         if(r->psm!=PSM_CT32 || r->wstate!=0 || r->w!=r->fbw*64 || hi>=kVramBlocks)return false;
+     }
+     for(auto& r:m_impl->rts) {
+         if(!r->dirty)continue;
+         uint32_t lo,hi;m_impl->rowSpan(*r,r->dy0,std::min(r->dy1,r->h),lo,hi);
+-        if(bp<lo || bp>hi)continue;
++        if(end<lo || bp>hi)continue;
+         if(r->cpuBlocks.empty())r->cpuBlocks.resize(kVramBlocks,0);
+-        if(r->cpuBlocks[bp])continue;
+         CpuProfile::Scope defer(m_impl->cpuProfile,CpuProfile::SubblockDefer);
+-        auto& mask=r->cpuBytes[bp];
+-        for(unsigned y=0;y<8;++y)for(unsigned x=0;x<8;++x)mask[tables::col8[y][x]]=1;
++        for(uint32_t block=std::max(bp,lo);block<=std::min(end,hi);++block) {
++            if(r->cpuBlocks[block])continue;
++            auto& mask=r->cpuBytes[block];
++            if(psm==PSM_CT24) {
++                // CT24 shares CT32 addresses but leaves every alpha byte intact.
++                for(unsigned i=0;i<256;i+=4)mask[i]=mask[i+1]=mask[i+2]=1;
++            } else {
++                for(unsigned y=0;y<8;++y)for(unsigned x=0;x<8;++x)mask[tables::col8[y][x]]=1;
++            }
++        }
+         r->copyValid=false;
+     }
+     return true;

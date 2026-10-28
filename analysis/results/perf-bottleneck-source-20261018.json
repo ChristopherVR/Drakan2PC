@@ -1,0 +1,74 @@
+{
+  "schema": 1,
+  "date": "2026-10-18",
+  "status": "Source investigation and gated NR phase instrumentation only; no builds, tests, benchmarks or game/GPU launches in this turn.",
+  "measured_context": {
+    "matched_build03_build04": "Native 48.549 -> 48.376 worlds/sec; combined 38.031 -> 37.955. No measured gameplay gain.",
+    "earlier_instrumented_native": "GuestDispatch about 20.89 ms/world inclusive; worker idle about 1.80; commit retirement effectively zero.",
+    "earlier_instrumented_combined": "TemporalResolve about 8.17 ms/world; scene about 8.70 inclusive of temporal work; commit retirement about 6.99; worker idle effectively zero."
+  },
+  "source_findings": [
+    "gsr_nr.cpp submit() always calls finishGpu(), which signals a completion fence and blocks the CPU in waitCompletion(). Both evaluation and presentation use submit().",
+    "nr_interop.cpp consume() separately signals a D3D12-to-D3D11 fence, enqueues D3D11 Wait, then queues the output CopyResource. Successful evaluation transport already has GPU dependency ordering.",
+    "One command allocator/list is reused; allocator Reset must remain protected by prior GPU completion.",
+    "Failed SDK tagging/evaluation skips consume(); a deferred-wait design must keep or restore a blocking completion path there and on transport exceptions.",
+    "Configure, resize, guide extent changes and shutdown drain resources before release/reuse; those drains must remain.",
+    "Native GuestDispatch is elapsed inclusive time and can contain VU/DMA/bridge waits; current evidence does not identify a specific CPU function or establish a pure EE CPU bottleneck.",
+    "Existing hostprof.csv files predate current uncapped candidates and cannot establish the present native hotspot."
+  ],
+  "diagnostic_change": {
+    "file": "tools/PS2Recomp/gsr_nr/src/gsr_nr.cpp",
+    "flag": "GSR_NR_PROFILE=2",
+    "buckets": [
+      "evaluate",
+      "produce",
+      "beginCommands",
+      "sdkEvaluate",
+      "evalSubmit",
+      "completionWait",
+      "consume",
+      "present",
+      "presentOrder",
+      "presentSubmit",
+      "drain"
+    ],
+    "format": "Fixed bounded counters; calls/inclusive_ms/exclusive_ms/max_ms plus blockedWaits; disabled scopes do not read clock.",
+    "source_review": "Underlying execution-operation token sequence matches HEAD after removing only added scopes, profile storage/class, and blocked-wait accounting.",
+    "synchronization_change": false,
+    "compiled": false,
+    "executed": false
+  },
+  "proposed_bounded_optimization": {
+    "status": "Proposal only; await phase evidence before policy implementation.",
+    "scope": [
+      "tools/PS2Recomp/gsr_nr/src/gsr_nr.cpp only"
+    ],
+    "design": "Experimentally defer CPU completion only for successful NR evaluation; retain GPU queue fences/copy ordering. Wait on the last submitted fence before allocator/list reuse. Keep presentation submit synchronous and all lifecycle/failure drains intact.",
+    "preserved": [
+      "Same actual NR evaluations, model, strength, dimensions, guides, history/reset and pixels",
+      "No change to guest cycles/vblank/timestep/audio, uncapped setting, frame credits or repeat presents",
+      "No change to texture coherence or fidelity"
+    ],
+    "risk": "May merely move the same wait into presentation rather than increase throughput; device-loss and failed-evaluation cleanup need explicit validation. No speedup claim."
+  },
+  "next_slot_plan": {
+    "combined_flags": {
+      "GSR_NR_PROFILE": "2",
+      "GSR_PROFILE": "2",
+      "DRAKAN_RUNTIME_PROFILE": "1",
+      "DRAKAN_FRAME_AUDIT": "1",
+      "PS2X_GS_PACING": "2"
+    },
+    "questions": [
+      "How much evalSubmit elapsed is completionWait rather than SDK CPU recording/transport?",
+      "Does presentation consume substantial synchronous completion time?",
+      "If NR completion dominates, validate any deferred-wait variant with the same frozen candidate/config, successful-evaluation counts, pixels, clock audit and matched unique-world throughput."
+    ],
+    "native_diagnostic": "PS2X_PERF=1 plus a separately authorized host-RIP sample (PS2X_HOSTPROF and delay) can distinguish thread CPU from VU/DMA waits. Do not use a thread-suspending sampling run as the FPS baseline."
+  },
+  "excluded_parent_files": [
+    "tools/PS2Recomp/ps2xRuntime/src/lib/gs/gs_gsr_bridge.cpp",
+    "tools/PS2Recomp/ps2xRuntime/src/lib/drakan_settings_host.cpp",
+    "tools/PS2Recomp/ps2xRuntime/src/lib/drakan_settings_host.h"
+  ]
+}

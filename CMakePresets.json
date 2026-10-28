@@ -1,0 +1,285 @@
+{
+  "version": 3,
+  "cmakeMinimumRequired": {
+    "major": 3,
+    "minor": 21,
+    "patch": 0
+  },
+  "configurePresets": [
+    {
+      "name": "windows-base",
+      "hidden": true,
+      "generator": "Visual Studio 17 2022",
+      "architecture": {
+        "value": "x64",
+        "strategy": "set"
+      },
+      "binaryDir": "${sourceDir}/build/${presetName}",
+      "cacheVariables": {
+        "DRAKAN_BUILD_GAME": "OFF",
+        "DRAKAN_BUILD_PS2X_TESTS": "OFF"
+      },
+      "condition": {
+        "type": "equals",
+        "lhs": "${hostSystemName}",
+        "rhs": "Windows"
+      }
+    },
+    {
+      "name": "windows-gsr",
+      "hidden": true,
+      "inherits": "windows-base",
+      "description": "Renderer without the optional NVIDIA SDKs (DLSS / neural rendering bridge off)",
+      "cacheVariables": {
+        "GSR_DLSS": "OFF"
+      }
+    },
+    {
+      "name": "windows-msvc",
+      "displayName": "Windows / MSVC: recompiler + runtime libraries and tests",
+      "inherits": "windows-gsr",
+      "cacheVariables": {
+        "DRAKAN_BUILD_RECOMPILER": "ON",
+        "DRAKAN_BUILD_RUNTIME_TESTS": "ON"
+      }
+    },
+    {
+      "name": "windows-clang-cl",
+      "displayName": "Windows / clang-cl: recompiler + runtime libraries and tests",
+      "inherits": "windows-msvc",
+      "toolset": {
+        "value": "ClangCL",
+        "strategy": "set"
+      }
+    },
+    {
+      "name": "runtime-tests",
+      "displayName": "Windows / MSVC: runtime libraries and policy tests only (no game data, no network fetches)",
+      "inherits": "windows-gsr",
+      "cacheVariables": {
+        "DRAKAN_BUILD_RECOMPILER": "OFF",
+        "DRAKAN_BUILD_RUNTIME_TESTS": "ON"
+      }
+    },
+    {
+      "name": "recompiler",
+      "displayName": "Windows / MSVC: ps2_recomp only",
+      "inherits": "windows-base",
+      "cacheVariables": {
+        "DRAKAN_BUILD_RECOMPILER": "ON",
+        "DRAKAN_BUILD_RUNTIME_TESTS": "OFF",
+        "CMAKE_MSVC_RUNTIME_LIBRARY": "MultiThreaded",
+        "LIBDWARF_CRT": "MT",
+        "ENABLE_DECOMPRESSION": "OFF"
+      }
+    },
+    {
+      "name": "ps2x-tests",
+      "displayName": "Windows / MSVC: everything above plus ps2xTest (downloads raylib and FFmpeg)",
+      "inherits": "windows-msvc",
+      "cacheVariables": {
+        "DRAKAN_BUILD_PS2X_TESTS": "ON",
+        "PS2X_ENABLE_DEBUG_UI": "OFF"
+      }
+    },
+    {
+      "name": "game",
+      "displayName": "Windows / MSVC: drakan.exe (pass -DPS2X_GENERATED_DIR=<recompiler output>; Build-LocalGame.ps1 does this)",
+      "inherits": "windows-gsr",
+      "cacheVariables": {
+        "DRAKAN_BUILD_GAME": "ON",
+        "DRAKAN_BUILD_RECOMPILER": "OFF",
+        "DRAKAN_BUILD_RUNTIME_TESTS": "OFF",
+        "PS2X_ENABLE_DEBUG_UI": "OFF",
+        "PS2X_ENABLE_AGRESSIVE_LOGS": "OFF",
+        "PS2X_ENABLE_RUNTIME_LOGS": "OFF",
+        "PS2X_ENABLE_SCCACHE": "OFF",
+        "PS2X_ENABLE_RUNNER_UNITY_BUILD": "OFF"
+      }
+    },
+    {
+      "name": "linux-recompiler",
+      "displayName": "Linux / Ninja: ps2_recomp only (CI compiler job)",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build/${presetName}",
+      "cacheVariables": {
+        "DRAKAN_BUILD_RECOMPILER": "ON",
+        "DRAKAN_BUILD_RUNTIME_TESTS": "OFF",
+        "DRAKAN_BUILD_GAME": "OFF",
+        "DRAKAN_BUILD_PS2X_TESTS": "OFF",
+        "CMAKE_BUILD_TYPE": "Release",
+        "ENABLE_DECOMPRESSION": "OFF"
+      },
+      "condition": {
+        "type": "equals",
+        "lhs": "${hostSystemName}",
+        "rhs": "Linux"
+      }
+    },
+    {
+      "name": "linux-runtime-tests",
+      "displayName": "Linux / Ninja: portable runtime libraries and policy tests (no game data)",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build/${presetName}",
+      "cacheVariables": {
+        "DRAKAN_BUILD_RECOMPILER": "OFF",
+        "DRAKAN_BUILD_RUNTIME_TESTS": "ON",
+        "DRAKAN_BUILD_GAME": "OFF",
+        "DRAKAN_BUILD_PS2X_TESTS": "OFF",
+        "CMAKE_BUILD_TYPE": "Release"
+      },
+      "condition": {
+        "type": "equals",
+        "lhs": "${hostSystemName}",
+        "rhs": "Linux"
+      }
+    },
+    {
+      "name": "linux-game",
+      "displayName": "Linux / Ninja: software-rendered game",
+      "inherits": "linux-runtime-tests",
+      "cacheVariables": {
+        "DRAKAN_BUILD_RUNTIME_TESTS": "OFF",
+        "DRAKAN_BUILD_GAME": "ON",
+        "PS2X_ENABLE_DEBUG_UI": "OFF",
+        "PS2X_ENABLE_AGRESSIVE_LOGS": "OFF",
+        "PS2X_ENABLE_RUNTIME_LOGS": "OFF",
+        "PS2X_ENABLE_RUNNER_UNITY_BUILD": "OFF",
+        "PS2X_ENABLE_SCCACHE": "OFF",
+        "GSR_DLSS": "OFF"
+      }
+    },
+    {
+      "name": "web-game",
+      "displayName": "Browser / Emscripten: private ISO game",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build/final-game/runtime-build-web",
+      "cacheVariables": {
+        "DRAKAN_BUILD_RECOMPILER": "OFF",
+        "DRAKAN_BUILD_RUNTIME_TESTS": "OFF",
+        "DRAKAN_BUILD_GAME": "ON",
+        "DRAKAN_BUILD_PS2X_TESTS": "OFF",
+        "CMAKE_BUILD_TYPE": "Release",
+        "PS2X_ENABLE_DEBUG_UI": "OFF",
+        "PS2X_ENABLE_RUNTIME_LOGS": "OFF",
+        "PS2X_ENABLE_AGRESSIVE_LOGS": "OFF",
+        "PS2X_ENABLE_FFMPEG": "ON",
+        "PS2X_ENABLE_RUNNER_UNITY_BUILD": "OFF",
+        "PS2X_ENABLE_SCCACHE": "OFF",
+        "PS2X_WEB_FFMPEG_DIR": "${sourceDir}/build/final-game/web-deps/ffmpeg-install"
+      }
+    }
+  ],
+  "buildPresets": [
+    {
+      "name": "windows-msvc",
+      "configurePreset": "windows-msvc",
+      "configuration": "Release"
+    },
+    {
+      "name": "windows-clang-cl",
+      "configurePreset": "windows-clang-cl",
+      "configuration": "Release"
+    },
+    {
+      "name": "runtime-tests",
+      "configurePreset": "runtime-tests",
+      "configuration": "Release"
+    },
+    {
+      "name": "recompiler",
+      "configurePreset": "recompiler",
+      "configuration": "Release",
+      "targets": [
+        "ps2_recomp"
+      ]
+    },
+    {
+      "name": "ps2x-tests",
+      "configurePreset": "ps2x-tests",
+      "configuration": "Release"
+    },
+    {
+      "name": "game",
+      "configurePreset": "game",
+      "configuration": "Release",
+      "targets": [
+        "ps2EntryRunner"
+      ]
+    },
+    {
+      "name": "linux-runtime-tests",
+      "configurePreset": "linux-runtime-tests"
+    },
+    {
+      "name": "linux-game",
+      "configurePreset": "linux-game",
+      "targets": [
+        "ps2EntryRunner"
+      ]
+    },
+    {
+      "name": "web-game",
+      "configurePreset": "web-game",
+      "targets": [
+        "ps2EntryRunner"
+      ]
+    }
+  ],
+  "testPresets": [
+    {
+      "name": "windows-msvc",
+      "configurePreset": "windows-msvc",
+      "configuration": "Release",
+      "output": {
+        "outputOnFailure": true
+      },
+      "execution": {
+        "noTestsAction": "error"
+      }
+    },
+    {
+      "name": "windows-clang-cl",
+      "configurePreset": "windows-clang-cl",
+      "configuration": "Release",
+      "output": {
+        "outputOnFailure": true
+      },
+      "execution": {
+        "noTestsAction": "error"
+      }
+    },
+    {
+      "name": "runtime-tests",
+      "configurePreset": "runtime-tests",
+      "configuration": "Release",
+      "output": {
+        "outputOnFailure": true
+      },
+      "execution": {
+        "noTestsAction": "error"
+      }
+    },
+    {
+      "name": "ps2x-tests",
+      "configurePreset": "ps2x-tests",
+      "configuration": "Release",
+      "output": {
+        "outputOnFailure": true
+      },
+      "execution": {
+        "noTestsAction": "error"
+      }
+    },
+    {
+      "name": "linux-runtime-tests",
+      "configurePreset": "linux-runtime-tests",
+      "output": {
+        "outputOnFailure": true
+      },
+      "execution": {
+        "noTestsAction": "error"
+      }
+    }
+  ]
+}

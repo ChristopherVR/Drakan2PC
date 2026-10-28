@@ -1,0 +1,144 @@
+--- a/runtime/gs/src/gs_core.cpp
++++ b/runtime/gs/src/gs_core.cpp
+@@ -1492,7 +1492,7 @@
+     return n;
+ }
+ 
+-uint8_t* Renderer::vram() { std::lock_guard<std::recursive_mutex> lk(m_impl->mtx);m_impl->resolveUploadCoherence();m_impl->rawVramExposed=true;return m_impl->mem.data(); }
++uint8_t* Renderer::vram() { std::lock_guard<std::recursive_mutex> lk(m_impl->mtx);m_impl->resolveUploadCoherence();if(!m_impl->rawVramExposed){m_impl->flushBatch();m_impl->backend->flushAll();}m_impl->rawVramExposed=true;return m_impl->mem.data(); }
+ 
+ void Renderer::flushToMemory()
+ {
+--- a/runtime/gs/src/d3d11_backend.cpp
++++ b/runtime/gs/src/d3d11_backend.cpp
+@@ -190,6 +190,7 @@
+     ComPtr<ID3D11RenderTargetView> rtv;
+     ComPtr<ID3D11ShaderResourceView> srv, copySrv;
+     bool dirty = false;
++    std::vector<uint8_t> cpuBlocks; // Complete uploaded blocks; other dirty pixels remain GPU-owned.
+     uint32_t dy0 = 0, dy1 = 0;
+     std::vector<uint64_t> rowStamp;
+     uint64_t seen = 0;
+@@ -1393,6 +1394,7 @@
+         }
+         rt.copyValid=false;
+         const uint32_t height=std::min(rt.h,rt.displayHeight);
++        rt.cpuBlocks.clear();
+         if (!rt.dirty) {rt.dirty=true;rt.dy0=0;rt.dy1=height;}
+         else {rt.dy0=0;rt.dy1=std::max(rt.dy1,height);}
+         if(std::getenv("GSR_HUD_CANVAS_LOG") && inventoryCanvasLogLines<32) {
+@@ -1458,6 +1460,7 @@
+             rt.dirty = false;
+             return;
+         }
++        if(!rt.cpuBlocks.empty()) syncRT(rt);
+         const uint32_t y0 = rt.dy0, y1 = std::min(rt.dy1, rt.h);
+         const uint32_t rows = y1 - y0;
+         ID3D11Texture2D* compact = scale>1 && nativeReadbackEnabled ? nativeReadback.gather(dev.Get(),ctx.Get(),rt.srv.Get(),rt.w,rows,scale,y0) : nullptr;
+@@ -1491,6 +1494,7 @@
+         for (uint32_t r = y0 / ph; r < (y1 + ph - 1) / ph && r < rt.rowStamp.size(); ++r) rt.rowStamp[r] = mem.clock();
+         rt.seen = mem.clock();
+         rt.dirty = false;
++        rt.cpuBlocks.clear();
+         st.rtReadbacks++;
+     }
+ 
+@@ -1525,7 +1529,31 @@
+             }
+             D3D11_BOX box{0, y0 * scale, 0, rt.w * scale, y1 * scale, 1};
+             ID3D11Texture2D* expanded = scale>1 ? nativeUpload.expand(dev.Get(),ctx.Get(),buf.data(),rt.w,rows,scale) : nullptr;
+-            if(expanded) {
++            if(!rt.cpuBlocks.empty() && y0 < rt.dy1 && y1 > rt.dy0) {
++                // Decode a row once, but copy only CPU-owned 8x8 CT32 blocks.
++                // Copying the whole page row would destroy untouched GPU pixels.
++                const uint32_t pitch=rt.w*scale;
++                if(!expanded && scale>1) {
++                    up.resize(size_t(pitch)*rows*scale);
++                    expandRenderTargetRows(buf.data(),up.data(),rt.w,rows,scale);
++                }
++                for(uint32_t y=y0;y<y1;y+=8)for(uint32_t x=0;x<rt.w;) {
++                    auto owned=[&](uint32_t xx) {return y+8<=rt.dy0 || y>=rt.dy1 || rt.cpuBlocks[blockOf(rt.psm,rt.base(),rt.fbw,xx,y)];};
++                    if(!owned(x)){x+=8;continue;}
++                    uint32_t endX=x+8;while(endX<rt.w && owned(endX))endX+=8;
++                    const uint32_t endY=std::min(y+8,y1);
++                    D3D11_BOX dst{x*scale,y*scale,0,endX*scale,endY*scale,1};
++                    if(expanded) {
++                        D3D11_BOX src{x*scale,(y-y0)*scale,0,endX*scale,(endY-y0)*scale,1};
++                        ctx->CopySubresourceRegion(rt.tex.Get(),0,x*scale,y*scale,0,expanded,0,&src);
++                    } else {
++                        const uint32_t* pixels=scale==1?buf.data():up.data();
++                        ctx->UpdateSubresource(rt.tex.Get(),0,&dst,pixels+size_t((y-y0)*scale)*pitch+x*scale,pitch*4,0);
++                    }
++                    x=endX;
++                }
++                cpuProfile.uploaded(uint64_t(rt.w)*rows*4);
++            } else if(expanded) {
+                 const D3D11_BOX sourceBox{0,0,0,rt.w*scale,rows*scale,1};
+                 ctx->CopySubresourceRegion(rt.tex.Get(),0,0,y0*scale,0,expanded,0,&sourceBox);
+                 cpuProfile.uploaded(uint64_t(rt.w)*rows*4);
+@@ -1557,6 +1585,12 @@
+             uint32_t lo, hi;
+             rowSpan(*r, r->dy0, std::min(r->dy1, r->h), lo, hi);
+             if (hi < first || lo > last) continue;
++            if(!r->cpuBlocks.empty()) {
++                bool gpuOwned=false;
++                for(uint32_t b=std::max(lo,first);b<=std::min(hi,last);++b)
++                    if(!r->cpuBlocks[b]){gpuOwned=true;break;}
++                if(!gpuOwned)continue;
++            }
+             CpuProfile::Scope cause(cpuProfile,reason);
+             static unsigned audit=0;
+             if(checkTextureReuse && latchedGameWorld && reason==CpuProfile::ReadbackUpload)
+@@ -2687,9 +2721,11 @@
+             motionHistory.commitFrame();
+             modelMotion.commit(nativeModels);
+             neuralPreviousXY[0] = rt.neuralXY[0]; neuralPreviousXY[1] = rt.neuralXY[1];
++            rt.cpuBlocks.clear();
+             rt.copyValid = false; rt.dirty = true; rt.dy0 = 0; rt.dy1 = std::min(rt.h, guide.frame.height);
+             if(wantNR)neuralStatusText = "DLSS 5 evaluated and composed; awaiting presentation";
+         }
++        rt.cpuBlocks.clear();
+         rt.copyValid=false;rt.dirty=true;rt.dy0=0;rt.dy1=std::min(rt.h,guide.frame.height);
+     }
+ 
+@@ -2726,6 +2762,7 @@
+         lastWorldGeom = rt.wgeom;
+         rt.wstate = 2;
+         rt.wframe = frame;
++        rt.cpuBlocks.clear();
+         rt.dirty = true;
+         rt.dy0 = 0;
+         rt.dy1 = std::min(rt.h, rt.wgeom.frameH);
+@@ -2765,6 +2802,7 @@
+                 upFault=true;neuralReset=true;upStatusText="SR full-size recovery failed; reduced rendering disabled";
+                 std::fprintf(stderr,"[dlss-sr] %s\n",upStatusText.c_str());
+             }
++            rt.cpuBlocks.clear();
+             rt.dirty=true;rt.dy0=0;rt.dy1=std::min(rt.h,rt.wgeom.frameH);rt.copyValid=false;
+         }
+         rt.neuralState=2;rt.temporalSR=false;
+@@ -3655,6 +3693,7 @@
+         st.drawCalls++;
+         if (writeMask)
+         {
++            rt->cpuBlocks.clear();
+             if (!rt->dirty) { rt->dirty = true; rt->dy0 = (uint32_t)cy0; rt->dy1 = (uint32_t)cy1 + 1; }
+             else { rt->dy0 = std::min(rt->dy0, (uint32_t)cy0); rt->dy1 = std::max(rt->dy1, (uint32_t)cy1 + 1); }
+         }
+@@ -4335,9 +4374,14 @@
+     for(auto& r:m_impl->rts) {
+         if(!r->dirty || r->psm!=PSM_CT32 || r->wstate!=0 || r->w!=r->fbw*64 || r->dy1<=r->dy0)continue;
+         uint32_t lo,hi;m_impl->rowSpan(*r,r->dy0,std::min(r->dy1,r->h),lo,hi);
+-        if(lo<first || hi>last)continue;
++        if(hi>=kVramBlocks || hi<first || lo>last)continue;
+         CpuProfile::Scope discard(m_impl->cpuProfile,CpuProfile::ReadbackOverwriteDiscard);
+-        r->dirty=false;r->copyValid=false;
++        if(lo>=first && hi<=last) {r->dirty=false;r->cpuBlocks.clear();}
++        else {
++            if(r->cpuBlocks.empty())r->cpuBlocks.resize(kVramBlocks,0);
++            for(uint32_t b=std::max(lo,first);b<=std::min(hi,last);++b)r->cpuBlocks[b]=1;
++        }
++        r->copyValid=false;
+         // startTransfer will stamp the incoming full-block write. Preserve
+         // seen/rowStamp so syncRT uploads the replacement before GPU reuse.
+     }

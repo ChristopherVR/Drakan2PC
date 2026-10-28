@@ -1,0 +1,8 @@
+# Capture the native projected grid before generating the click recipe.
+1 log on 10
+0 sync play 90
+100 key tap TAB
+230 key tap ENTER
+250 dump ram_mouse_before
+310 dump ram_mouse_settled
+330 quit

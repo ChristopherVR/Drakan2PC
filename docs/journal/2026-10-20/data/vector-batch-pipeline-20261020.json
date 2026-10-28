@@ -1,0 +1,3434 @@
+{
+  "date": "2026-10-20",
+  "goal_raw_fps": 144,
+  "goal_reached": false,
+  "candidate_exe_sha256": "8a1203a32fbf9b873f988ef51de7946b6315e260509b79e52270fc58b92844bf",
+  "sources": {
+    "ps2xRuntime/src/lib/vu/ps2_vu1_batch.cpp": "522eaa92021123c8fc3b32891aa34ca4a66ba079851c7a80f66d0f0ee896dece",
+    "ps2xRuntime/tests/vu_live_batch_tests.cpp": "2ae9cb3595dfa69cb258d9e2b031d78f40a4dedb5438ccfe056eeae320fe8316"
+  },
+  "projected_sources": {
+    "ps2xRuntime/CMakeLists.txt": "5bc9ecc7379920d613557722840708af67319641a894a572c4ace75848ebc89d",
+    "ps2xRuntime/include/runtime/ps2_memory.h": "f348e3abe444732de24dd10b3cf18c8d949bd09ba5f8a25889ce92cc1e62a4b4",
+    "ps2xRuntime/include/runtime/ps2_vu1.h": "5d9ec8503b67e12e5b43f45a4cd39f308d778f133f9694a6141e1dc2f07a62e4",
+    "ps2xRuntime/include/runtime/ps2_render_queue.h": "af86ebbffa95040368521cd6d836b2fc2c826959e093699457ee7e65073d5e3e",
+    "ps2xRuntime/include/runtime/object_motion_tracker.h": "6e18998337a0e151c5a93a2055d5458fc3f66ae26711ec9cce4df23199ccd5a4",
+    "ps2xRuntime/src/lib/ps2_memory.cpp": "fd320c69fa0e6b543d1faedd1c9429abc95b958819765ade83dfe0ef30c72609",
+    "ps2xRuntime/src/lib/ps2_runtime.cpp": "218a884f51346a41196d5ad09e3dbbfd404b41bff9f82097c8bb0dabb1aac725",
+    "ps2xRuntime/src/lib/ps2_vif1_interpreter.cpp": "49747e73dce9fbbdd06b01defd8012369199bf7fc9b9b052d735fd0918ef8568",
+    "ps2xRuntime/src/lib/drakan_object_motion.cpp": "d04a62aab6ffb435bff1258984aafecdd30748c491840e22167239fc78a96a5a",
+    "ps2xRuntime/src/lib/drakan_object_motion.h": "c00dd7c85abc5791da219abdb95b3db7c39900a8e766928380d92d48aab90494",
+    "ps2xRuntime/src/lib/ps2_vu1_batch.h": "f3cf1c9396bee795e3c44f68c438e85fd162386c94f65aed64b8423da87b4d88",
+    "ps2xRuntime/src/lib/ps2_vu1_batch_capture.h": "cc4c441e05774c70ed55e8155333adde9a9392060173e50f034e3d91feecd492",
+    "ps2xRuntime/src/lib/ps2_vu1_batch_dispatch.h": "94d8331fa95119848e00257d0fab9d30a39b7b028ced2627fa50b60d3ccf1066",
+    "ps2xRuntime/src/lib/vu/ps2_vu1_core.cpp": "8c2234ba096cfe85213459116af2681ff2dd28ba0fafae15ce1f8388bc179f65",
+    "ps2xRuntime/src/lib/vu/ps2_vu1_async.cpp": "c04744caadc73d652a222b161cbbedc22ead91c6ebba3f83277f6f8e6a8276e7",
+    "ps2xRuntime/src/lib/vu/ps2_vu1_batch.cpp": "522eaa92021123c8fc3b32891aa34ca4a66ba079851c7a80f66d0f0ee896dece",
+    "ps2xRuntime/src/lib/vu/aot/ps2_vu1_aot.h": "f9c001d35cee1e8ffead138cec974e11e507195cc6b00fa091864e23461fdd4c",
+    "ps2xRuntime/src/lib/vu/aot/ps2_vu1_aot.cpp": "4a8f0406c969946fd83001fc26cf39cb8a85a2c3b7d4ca7c978f66bebcaf1d48",
+    "ps2xRuntime/tests/vu_live_batch_tests.cpp": "2ae9cb3595dfa69cb258d9e2b031d78f40a4dedb5438ccfe056eeae320fe8316",
+    "ps2xTest/vif_unpack/CMakeLists.txt": "fea61a6dc00bbadfb45d500ad7d8be419609a1677edae86f8f8abc728d1e676c",
+    "ps2xTest/vif_unpack/vu_async_batch_stubs.cpp": "805e667c6d693f4990718366ffe559073cd4fc3246d3989bf200d78e3363a457",
+    "ps2xTest/vif_unpack/mock/runtime/ps2_memory.h": "adcd5f9afd86a8866d025a6a78c34025e886f21d2360ac859a4e91ab7c83187b"
+  },
+  "host_cpu_contention": {
+    "durationSeconds": 1.0515531,
+    "utc": "2026-10-20T13:04:58.4973750Z",
+    "processor": {
+      "Name": "AMD Ryzen 7 9800X3D 8-Core Processor           ",
+      "LoadPercentage": 100
+    },
+    "processes": [
+      {
+        "name": "drakan",
+        "id": 66988,
+        "cores": 2.6151793951251725,
+        "path": "C:\\Games\\Drakan - The Ancients Gates\\decomp\\build\\vu-live-batch-20261019\\candidate\\drakan.exe"
+      },
+      {
+        "name": "node",
+        "id": 55728,
+        "cores": 1.3373076452344632,
+        "path": "C:\\Program Files\\nodejs\\node.exe"
+      },
+      {
+        "name": "chrome-headless-shell",
+        "id": 59192,
+        "cores": 1.0252691946797552,
+        "path": "%LOCALAPPDATA%\\ms-playwright\\chromium_headless_shell-1248\\chrome-headless-shell-win64\\chrome-headless-shell.exe"
+      },
+      {
+        "name": "chrome-headless-shell",
+        "id": 67856,
+        "cores": 0.7578076656328625,
+        "path": "%LOCALAPPDATA%\\ms-playwright\\chromium_headless_shell-1248\\chrome-headless-shell-win64\\chrome-headless-shell.exe"
+      },
+      {
+        "name": "chrome-headless-shell",
+        "id": 41640,
+        "cores": 0.5943589534375392,
+        "path": "%LOCALAPPDATA%\\ms-playwright\\chromium_headless_shell-1248\\chrome-headless-shell-win64\\chrome-headless-shell.exe"
+      },
+      {
+        "name": "chrome-headless-shell",
+        "id": 66072,
+        "cores": 0.5349230580937853,
+        "path": "%LOCALAPPDATA%\\ms-playwright\\chromium_headless_shell-1248\\chrome-headless-shell-win64\\chrome-headless-shell.exe"
+      },
+      {
+        "name": "chrome-headless-shell",
+        "id": 31296,
+        "cores": 0.5200640842578468,
+        "path": "%LOCALAPPDATA%\\ms-playwright\\chromium_headless_shell-1248\\chrome-headless-shell-win64\\chrome-headless-shell.exe"
+      },
+      {
+        "name": "node",
+        "id": 49416,
+        "cores": 0.4903461365859698,
+        "path": "C:\\Program Files\\nodejs\\node.exe"
+      },
+      {
+        "name": "chrome-headless-shell",
+        "id": 24720,
+        "cores": 0.41605126740627746,
+        "path": "%LOCALAPPDATA%\\ms-playwright\\chromium_headless_shell-1248\\chrome-headless-shell-win64\\chrome-headless-shell.exe"
+      },
+      {
+        "name": "chrome-headless-shell",
+        "id": 45052,
+        "cores": 0.3863333197344005,
+        "path": "%LOCALAPPDATA%\\ms-playwright\\chromium_headless_shell-1248\\chrome-headless-shell-win64\\chrome-headless-shell.exe"
+      },
+      {
+        "name": "node",
+        "id": 62392,
+        "cores": 0.35661537206252353,
+        "path": "C:\\Program Files\\nodejs\\node.exe"
+      },
+      {
+        "name": "chrome-headless-shell",
+        "id": 50560,
+        "cores": 0.35661537206252353,
+        "path": "%LOCALAPPDATA%\\ms-playwright\\chromium_headless_shell-1248\\chrome-headless-shell-win64\\chrome-headless-shell.exe"
+      },
+      {
+        "name": "chrome-headless-shell",
+        "id": 19128,
+        "cores": 0.32689742439064656,
+        "path": "%LOCALAPPDATA%\\ms-playwright\\chromium_headless_shell-1248\\chrome-headless-shell-win64\\chrome-headless-shell.exe"
+      },
+      {
+        "name": "node",
+        "id": 34620,
+        "cores": 0.32689742439064656,
+        "path": "C:\\Program Files\\nodejs\\node.exe"
+      },
+      {
+        "name": "node",
+        "id": 50632,
+        "cores": 0.2971794767187696,
+        "path": "C:\\Program Files\\nodejs\\node.exe"
+      }
+    ]
+  },
+  "defaults": {
+    "batch": false,
+    "stream": false,
+    "predicates": false,
+    "lazy_loads": 0,
+    "native_packet": 0
+  },
+  "runs": {
+    "livebatch-bulk-final-control-batch": {
+      "exe_sha256": "8A1203A32FBF9B873F988EF51DE7946B6315E260509B79E52270FC58B92844BF",
+      "world_fps": 44.2504346092504,
+      "last_five_world_windows": [
+        [
+          2.003,
+          44.92
+        ],
+        [
+          2.013,
+          42.22
+        ],
+        [
+          2.006,
+          44.86
+        ],
+        [
+          2.001,
+          44.47
+        ],
+        [
+          2.009,
+          44.79
+        ]
+      ],
+      "saves_unchanged": true,
+      "contended": false,
+      "overlap_samples": 0,
+      "environment": {
+        "PS2X_VU_ATOMIC_WAIT": "0",
+        "DRAKAN_AUDIO_DUMP": "",
+        "DRAKAN_VU_BATCH_PREDICATES": "0",
+        "DRAKAN_FRAME_LIMIT": "0",
+        "DRAKAN_AUTOPRESS_UNTIL": "30000",
+        "PS2X_HOSTPROF": "0",
+        "PS2X_VU_SPIN": "4096",
+        "DRAKAN_INPUT_LOGFILE": "C:\\Games\\Drakan - The Ancients Gates\\decomp\\build\\vu-live-batch-20261019\\t\\livebatch-bulk-final-control-batch/input.log",
+        "DRAKAN_INPUT_SCRIPT": "C:\\Games\\Drakan - The Ancients Gates\\decomp\\build\\vu-live-batch-20261019\\t\\livebatch-bulk-final-control-batch/sequence.txt",
+        "GSR_WINSHOT": "",
+        "DRAKAN_DLSS": "off",
+        "PS2X_GS_ASYNC": "1",
+        "DRAKAN_INPUT_AUTOSTART": "0",
+        "PS2X_GS_SCALE": "4",
+        "DRAKAN_AUTOPRESS_NOSTART": "1",
+        "GSR_RAY_SHADOWS": "0",
+        "PS2X_VU1_THREAD": "1",
+        "DRAKAN_VU_TIMED_Q": "1",
+        "PS2X_GS_PACING": "2",
+        "DRAKAN_WORLD_RATE": "uncapped",
+        "GSR_RAY_REFLECTIONS": "0",
+        "DRAKAN_COMBAT_LOG": "0",
+        "DRAKAN_INPUT_INI": "C:\\Games\\Drakan - The Ancients Gates\\decomp\\build\\vu-live-batch-20261019\\t\\livebatch-bulk-final-control-batch/drakan_input.ini",
+        "PS2X_MAX_SECONDS": "100",
+        "DRAKAN_VUCHECK": "0",
+        "DRAKAN_SND_DBG": "0",
+        "DRAKAN_WINDOW_WIDTH": "3840",
+        "DRAKAN_VU_COMPACT_FLAGS": "0",
+        "DRAKAN_COMBAT_AUDIT": "0",
+        "DRAKAN_VU_BATCH_NATIVE_PACKET": "0",
+        "DRAKAN_RUNTIME_PROFILE": "0",
+        "DRAKAN_SHOT_DIR": "C:\\Games\\Drakan - The Ancients Gates\\decomp\\build\\vu-live-batch-20261019\\t\\livebatch-bulk-final-control-batch",
+        "DRAKAN_CONSOLE": "0",
+        "DRAKAN_SND_LOG": "0",
+        "DRAKAN_VU_LAZY_RESET": "0",
+        "DRAKAN_AUTOPRESS": "4000",
+        "DRAKAN_VSYNC": "0",
+        "DRAKAN_VU_BATCH": "1",
+        "GSR_MODERN_WATER": "0",
+        "DRAKAN_WINDOW_HEIGHT": "2160",
+        "DRAKAN_PAUSE_UNFOCUSED": "0",
+        "DRAKAN_VU_BATCH_STREAM": "0",
+        "DRAKAN_AUDIO": "1",
+        "DRAKAN_VU_TRACE": "1",
+        "DRAKAN_VU_BATCH_VERIFY": "0",
+        "PS2X_HOSTPROF_DELAY": "22",
+        "DRAKAN_DLSS_NEURAL": "0",
+        "PS2X_GS": "d3d11",
+        "DRAKAN_FULLSCREEN": "0",
+        "DRAKAN_VU_BATCH_THREADS": "4",
+        "DRAKAN_CMD_LOG": "0",
+        "GSR_WINSHOT_AT": "",
+        "DRAKAN_VU_BATCH_LAZY_LOADS": "2",
+        "DRAKAN_VU_BATCH_PROFILE": "0",
+        "GSR_PROFILE": "0"
+      },
+      "batch_diagnostics": [
+        "[vu-batch] 6580 batches, 293805 groups: 152568 accepted, 1115 rejected; 0 verified, 0 mismatches; 0 unsupported, 0 single-group, 0 exceptions",
+        "[vu-batch] attempts=8239 short=1659 arbiter=0 code=0 workers=4 dependencies=1 verify=0",
+        "[vu-batch] dependency rejects (VIF,memory,trace,reset,complete,idle,constant,VF,VI,ACC,scalar,CLIP,MAC,status): 0 1102 0 0 0 0 0 2 0 0 0 11 0 0",
+        "[vu-batch] first conflicting qwords: 65:257 198:80 186:80 210:59 672:58 176:55 209:54 162:53; monotone-status=1",
+        "[vu-batch] validated geometry calls=515891 rejected geometry calls=20653; validated pairs=496024642 rejected speculative pairs=31972426",
+        "[vu-batch] native packet traced pairs=0 bulk calls=0 enabled=0",
+        "[vu-batch] deferred load lanes=3804836 final alias repairs=18940 enabled=2",
+        "[vu-batch] streaming preparation=0",
+        "[vu-batch] positive clipping gates=0 relaxed accepted=0 enabled=0",
+        "[vu-batch] abandoned worker results=0",
+        "[vu-batch] owner heads=6580 native UV traced pairs=3602025",
+        "[vu-batch] adaptive serial bypass=133542 enabled=1",
+        "[vu-batch] history predictions=153367 accepted=152308 misses=316 enabled=1"
+      ],
+      "timing_limit": "General CPU contention: headless Chrome and Node consumed multiple cores; total CPU load observed at 100%. Narrow audit missed it.",
+      "usable_for_speedup_claim": false
+    },
+    "livebatch-bulk-final-control-serial": {
+      "exe_sha256": "8A1203A32FBF9B873F988EF51DE7946B6315E260509B79E52270FC58B92844BF",
+      "world_fps": 48.66898487261147,
+      "last_five_world_windows": [
+        [
+          2.003,
+          47.93
+        ],
+        [
+          2.017,
+          49.59
+        ],
+        [
+          2.009,
+          48.27
+        ],
+        [
+          2.003,
+          48.93
+        ],
+        [
+          2.016,
+          48.62
+        ]
+      ],
+      "saves_unchanged": true,
+      "contended": false,
+      "overlap_samples": 0,
+      "environment": {
+        "PS2X_VU_ATOMIC_WAIT": "0",
+        "DRAKAN_AUDIO_DUMP": "",
+        "DRAKAN_VU_BATCH_PREDICATES": "0",
+        "DRAKAN_FRAME_LIMIT": "0",
+        "DRAKAN_AUTOPRESS_UNTIL": "30000",
+        "PS2X_HOSTPROF": "0",
+        "PS2X_VU_SPIN": "4096",
+        "DRAKAN_INPUT_LOGFILE": "C:\\Games\\Drakan - The Ancients Gates\\decomp\\build\\vu-live-batch-20261019\\t\\livebatch-bulk-final-control-serial/input.log",
+        "DRAKAN_INPUT_SCRIPT": "C:\\Games\\Drakan - The Ancients Gates\\decomp\\build\\vu-live-batch-20261019\\t\\livebatch-bulk-final-control-serial/sequence.txt",
+        "GSR_WINSHOT": "",
+        "DRAKAN_DLSS": "off",
+        "PS2X_GS_ASYNC": "1",
+        "DRAKAN_INPUT_AUTOSTART": "0",
+        "PS2X_GS_SCALE": "4",
+        "DRAKAN_AUTOPRESS_NOSTART": "1",
+        "GSR_RAY_SHADOWS": "0",
+        "PS2X_VU1_THREAD": "1",
+        "DRAKAN_VU_TIMED_Q": "1",
+        "PS2X_GS_PACING": "2",
+        "DRAKAN_WORLD_RATE": "uncapped",
+        "GSR_RAY_REFLECTIONS": "0",
+        "DRAKAN_COMBAT_LOG": "0",
+        "DRAKAN_INPUT_INI": "C:\\Games\\Drakan - The Ancients Gates\\decomp\\build\\vu-live-batch-20261019\\t\\livebatch-bulk-final-control-serial/drakan_input.ini",
+        "PS2X_MAX_SECONDS": "100",
+        "DRAKAN_VUCHECK": "0",
+        "DRAKAN_SND_DBG": "0",
+        "DRAKAN_WINDOW_WIDTH": "3840",
+        "DRAKAN_VU_COMPACT_FLAGS": "0",
+        "DRAKAN_COMBAT_AUDIT": "0",
+        "DRAKAN_VU_BATCH_NATIVE_PACKET": "0",
+        "DRAKAN_RUNTIME_PROFILE": "0",
+        "DRAKAN_SHOT_DIR": "C:\\Games\\Drakan - The Ancients Gates\\decomp\\build\\vu-live-batch-20261019\\t\\livebatch-bulk-final-control-serial",
+        "DRAKAN_CONSOLE": "0",
+        "DRAKAN_SND_LOG": "0",
+        "DRAKAN_VU_LAZY_RESET": "0",
+        "DRAKAN_AUTOPRESS": "4000",
+        "DRAKAN_VSYNC": "0",
+        "DRAKAN_VU_BATCH": "0",
+        "GSR_MODERN_WATER": "0",
+        "DRAKAN_WINDOW_HEIGHT": "2160",
+        "DRAKAN_PAUSE_UNFOCUSED": "0",
+        "DRAKAN_VU_BATCH_STREAM": "0",
+        "DRAKAN_AUDIO": "1",
+        "DRAKAN_VU_TRACE": "1",
+        "DRAKAN_VU_BATCH_VERIFY": "0",
+        "PS2X_HOSTPROF_DELAY": "22",
+        "DRAKAN_DLSS_NEURAL": "0",
+        "PS2X_GS": "d3d11",
+        "DRAKAN_FULLSCREEN": "0",
+        "DRAKAN_VU_BATCH_THREADS": "4",
+        "DRAKAN_CMD_LOG": "0",
+        "GSR_WINSHOT_AT": "",
+        "DRAKAN_VU_BATCH_LAZY_LOADS": "2",
+        "DRAKAN_VU_BATCH_PROFILE": "0",
+        "GSR_PROFILE": "0"
+      },
+      "batch_diagnostics": [],
+      "timing_limit": "General CPU contention: headless Chrome and Node consumed multiple cores; total CPU load observed at 100%. Narrow audit missed it.",
+      "usable_for_speedup_claim": false
+    },
+    "livebatch-bulk-final-raw": {
+      "exe_sha256": "8A1203A32FBF9B873F988EF51DE7946B6315E260509B79E52270FC58B92844BF",
+      "world_fps": 77.50283721856943,
+      "last_five_world_windows": [
+        [
+          2.012,
+          78.02
+        ],
+        [
+          2.006,
+          86.24
+        ],
+        [
+          2.008,
+          80.67
+        ],
+        [
+          2.01,
+          71.16
+        ],
+        [
+          2.002,
+          71.42
+        ]
+      ],
+      "saves_unchanged": true,
+      "contended": false,
+      "overlap_samples": 0,
+      "environment": {
+        "PS2X_VU_ATOMIC_WAIT": "0",
+        "DRAKAN_AUDIO_DUMP": "",
+        "DRAKAN_VU_BATCH_PREDICATES": "0",
+        "DRAKAN_FRAME_LIMIT": "0",
+        "DRAKAN_AUTOPRESS_UNTIL": "30000",
+        "PS2X_HOSTPROF": "0",
+        "PS2X_VU_SPIN": "4096",
+        "DRAKAN_INPUT_LOGFILE": "C:\\Games\\Drakan - The Ancients Gates\\decomp\\build\\vu-live-batch-20261019\\t\\livebatch-bulk-final-raw/input.log",
+        "DRAKAN_INPUT_SCRIPT": "C:\\Games\\Drakan - The Ancients Gates\\decomp\\build\\vu-live-batch-20261019\\t\\livebatch-bulk-final-raw/sequence.txt",
+        "GSR_WINSHOT": "",
+        "DRAKAN_DLSS": "off",
+        "PS2X_GS_ASYNC": "1",
+        "DRAKAN_INPUT_AUTOSTART": "0",
+        "PS2X_GS_SCALE": "4",
+        "DRAKAN_AUTOPRESS_NOSTART": "1",
+        "GSR_RAY_SHADOWS": "0",
+        "PS2X_VU1_THREAD": "1",
+        "DRAKAN_VU_TIMED_Q": "1",
+        "PS2X_GS_PACING": "2",
+        "DRAKAN_WORLD_RATE": "uncapped",
+        "GSR_RAY_REFLECTIONS": "0",
+        "DRAKAN_COMBAT_LOG": "0",
+        "DRAKAN_INPUT_INI": "C:\\Games\\Drakan - The Ancients Gates\\decomp\\build\\vu-live-batch-20261019\\t\\livebatch-bulk-final-raw/drakan_input.ini",
+        "PS2X_MAX_SECONDS": "100",
+        "DRAKAN_VUCHECK": "0",
+        "DRAKAN_SND_DBG": "0",
+        "DRAKAN_WINDOW_WIDTH": "3840",
+        "DRAKAN_VU_COMPACT_FLAGS": "0",
+        "DRAKAN_COMBAT_AUDIT": "0",
+        "DRAKAN_VU_BATCH_NATIVE_PACKET": "2",
+        "DRAKAN_RUNTIME_PROFILE": "0",
+        "DRAKAN_SHOT_DIR": "C:\\Games\\Drakan - The Ancients Gates\\decomp\\build\\vu-live-batch-20261019\\t\\livebatch-bulk-final-raw",
+        "DRAKAN_CONSOLE": "0",
+        "DRAKAN_SND_LOG": "0",
+        "DRAKAN_VU_LAZY_RESET": "0",
+        "DRAKAN_AUTOPRESS": "4000",
+        "DRAKAN_VSYNC": "0",
+        "DRAKAN_VU_BATCH": "1",
+        "GSR_MODERN_WATER": "0",
+        "DRAKAN_WINDOW_HEIGHT": "2160",
+        "DRAKAN_PAUSE_UNFOCUSED": "0",
+        "DRAKAN_VU_BATCH_STREAM": "0",
+        "DRAKAN_AUDIO": "1",
+        "DRAKAN_VU_TRACE": "1",
+        "DRAKAN_VU_BATCH_VERIFY": "0",
+        "PS2X_HOSTPROF_DELAY": "22",
+        "DRAKAN_DLSS_NEURAL": "0",
+        "PS2X_GS": "d3d11",
+        "DRAKAN_FULLSCREEN": "0",
+        "DRAKAN_VU_BATCH_THREADS": "4",
+        "DRAKAN_CMD_LOG": "0",
+        "GSR_WINSHOT_AT": "",
+        "DRAKAN_VU_BATCH_LAZY_LOADS": "2",
+        "DRAKAN_VU_BATCH_PROFILE": "0",
+        "GSR_PROFILE": "0"
+      },
+      "batch_diagnostics": [
+        "[vu-batch] 10737 batches, 495915 groups: 258683 accepted, 1903 rejected; 0 verified, 0 mismatches; 0 unsupported, 0 single-group, 0 exceptions",
+        "[vu-batch] attempts=13916 short=3179 arbiter=0 code=0 workers=4 dependencies=1 verify=0",
+        "[vu-batch] dependency rejects (VIF,memory,trace,reset,complete,idle,constant,VF,VI,ACC,scalar,CLIP,MAC,status): 0 1816 0 0 0 0 0 2 0 0 0 85 0 0",
+        "[vu-batch] first conflicting qwords: 65:332 186:125 210:116 198:116 209:114 176:97 138:97 672:96; monotone-status=1",
+        "[vu-batch] validated geometry calls=868340 rejected geometry calls=33100; validated pairs=831699472 rejected speculative pairs=48879502",
+        "[vu-batch] native packet traced pairs=133517261 bulk calls=13629053 enabled=2",
+        "[vu-batch] deferred load lanes=6286540 final alias repairs=33784 enabled=2",
+        "[vu-batch] streaming preparation=0",
+        "[vu-batch] positive clipping gates=0 relaxed accepted=0 enabled=0",
+        "[vu-batch] abandoned worker results=0",
+        "[vu-batch] owner heads=10737 native UV traced pairs=5909400",
+        "[vu-batch] adaptive serial bypass=224592 enabled=1",
+        "[vu-batch] history predictions=260297 accepted=258523 misses=289 enabled=1"
+      ],
+      "timing_limit": "General CPU contention: headless Chrome and Node consumed multiple cores; total CPU load observed at 100%. Narrow audit missed it.",
+      "usable_for_speedup_claim": false
+    },
+    "livebatch-bulk-final-verify": {
+      "exe_sha256": "8A1203A32FBF9B873F988EF51DE7946B6315E260509B79E52270FC58B92844BF",
+      "world_fps": 66.48870309545137,
+      "last_five_world_windows": [
+        [
+          2.016,
+          64.49
+        ],
+        [
+          2.01,
+          66.67
+        ],
+        [
+          2.012,
+          67.09
+        ],
+        [
+          2.008,
+          67.74
+        ],
+        [
+          2.001,
+          66.46
+        ]
+      ],
+      "saves_unchanged": true,
+      "contended": false,
+      "overlap_samples": 0,
+      "environment": {
+        "PS2X_VU_ATOMIC_WAIT": "0",
+        "DRAKAN_AUDIO_DUMP": "",
+        "DRAKAN_VU_BATCH_PREDICATES": "0",
+        "DRAKAN_FRAME_LIMIT": "0",
+        "DRAKAN_AUTOPRESS_UNTIL": "30000",
+        "PS2X_HOSTPROF": "0",
+        "PS2X_VU_SPIN": "4096",
+        "DRAKAN_INPUT_LOGFILE": "C:\\Games\\Drakan - The Ancients Gates\\decomp\\build\\vu-live-batch-20261019\\t\\livebatch-bulk-final-verify/input.log",
+        "DRAKAN_INPUT_SCRIPT": "C:\\Games\\Drakan - The Ancients Gates\\decomp\\build\\vu-live-batch-20261019\\t\\livebatch-bulk-final-verify/sequence.txt",
+        "GSR_WINSHOT": "",
+        "DRAKAN_DLSS": "off",
+        "PS2X_GS_ASYNC": "1",
+        "DRAKAN_INPUT_AUTOSTART": "0",
+        "PS2X_GS_SCALE": "4",
+        "DRAKAN_AUTOPRESS_NOSTART": "1",
+        "GSR_RAY_SHADOWS": "0",
+        "PS2X_VU1_THREAD": "1",
+        "DRAKAN_VU_TIMED_Q": "1",
+        "PS2X_GS_PACING": "2",
+        "DRAKAN_WORLD_RATE": "uncapped",
+        "GSR_RAY_REFLECTIONS": "0",
+        "DRAKAN_COMBAT_LOG": "0",
+        "DRAKAN_INPUT_INI": "C:\\Games\\Drakan - The Ancients Gates\\decomp\\build\\vu-live-batch-20261019\\t\\livebatch-bulk-final-verify/drakan_input.ini",
+        "PS2X_MAX_SECONDS": "100",
+        "DRAKAN_VUCHECK": "0",
+        "DRAKAN_SND_DBG": "0",
+        "DRAKAN_WINDOW_WIDTH": "3840",
+        "DRAKAN_VU_COMPACT_FLAGS": "0",
+        "DRAKAN_COMBAT_AUDIT": "0",
+        "DRAKAN_VU_BATCH_NATIVE_PACKET": "2",
+        "DRAKAN_RUNTIME_PROFILE": "0",
+        "DRAKAN_SHOT_DIR": "C:\\Games\\Drakan - The Ancients Gates\\decomp\\build\\vu-live-batch-20261019\\t\\livebatch-bulk-final-verify",
+        "DRAKAN_CONSOLE": "0",
+        "DRAKAN_SND_LOG": "0",
+        "DRAKAN_VU_LAZY_RESET": "0",
+        "DRAKAN_AUTOPRESS": "4000",
+        "DRAKAN_VSYNC": "0",
+        "DRAKAN_VU_BATCH": "1",
+        "GSR_MODERN_WATER": "0",
+        "DRAKAN_WINDOW_HEIGHT": "2160",
+        "DRAKAN_PAUSE_UNFOCUSED": "0",
+        "DRAKAN_VU_BATCH_STREAM": "0",
+        "DRAKAN_AUDIO": "1",
+        "DRAKAN_VU_TRACE": "1",
+        "DRAKAN_VU_BATCH_VERIFY": "1",
+        "PS2X_HOSTPROF_DELAY": "22",
+        "DRAKAN_DLSS_NEURAL": "0",
+        "PS2X_GS": "d3d11",
+        "DRAKAN_FULLSCREEN": "0",
+        "DRAKAN_VU_BATCH_THREADS": "4",
+        "DRAKAN_CMD_LOG": "0",
+        "GSR_WINSHOT_AT": "",
+        "DRAKAN_VU_BATCH_LAZY_LOADS": "2",
+        "DRAKAN_VU_BATCH_PROFILE": "0",
+        "GSR_PROFILE": "0"
+      },
+      "batch_diagnostics": [
+        "[vu-batch] 9675 batches, 447333 groups: 236648 accepted, 1753 rejected; 236648 verified, 0 mismatches; 0 unsupported, 0 single-group, 0 exceptions",
+        "[vu-batch] attempts=12571 short=2896 arbiter=0 code=0 workers=4 dependencies=1 verify=1",
+        "[vu-batch] dependency rejects (VIF,memory,trace,reset,complete,idle,constant,VF,VI,ACC,scalar,CLIP,MAC,status): 0 1740 0 0 0 0 0 1 0 0 0 12 0 0",
+        "[vu-batch] first conflicting qwords: 65:342 198:123 186:108 672:101 176:100 210:97 162:91 138:91; monotone-status=1",
+        "[vu-batch] validated geometry calls=789172 rejected geometry calls=31356; validated pairs=747872142 rejected speculative pairs=47078210",
+        "[vu-batch] native packet traced pairs=121548579 bulk calls=12334602 enabled=2",
+        "[vu-batch] deferred load lanes=5697228 final alias repairs=30692 enabled=2",
+        "[vu-batch] streaming preparation=0",
+        "[vu-batch] positive clipping gates=0 relaxed accepted=0 enabled=0",
+        "[vu-batch] abandoned worker results=0",
+        "[vu-batch] owner heads=9675 native UV traced pairs=5487300",
+        "[vu-batch] adaptive serial bypass=199257 enabled=1",
+        "[vu-batch] history predictions=238086 accepted=236397 misses=315 enabled=1"
+      ],
+      "timing_limit": "General CPU contention: headless Chrome and Node consumed multiple cores; total CPU load observed at 100%. Narrow audit missed it.",
+      "usable_for_speedup_claim": false
+    },
+    "livebatch-bulk-repeat-bulk": {
+      "exe_sha256": "8A1203A32FBF9B873F988EF51DE7946B6315E260509B79E52270FC58B92844BF",
+      "world_fps": 40.560576391630484,
+      "last_five_world_windows": [
+        [
+          2.0,
+          42.99
+        ],
+        [
+          2.03,
+          54.67
+        ],
+        [
+          2.003,
+          44.44
+        ],
+        [
+          2.025,
+          31.6
+        ],
+        [
+          2.074,
+          29.41
+        ]
+      ],
+      "saves_unchanged": true,
+      "contended": false,
+      "overlap_samples": 0,
+      "environment": {
+        "DRAKAN_VU_COMPACT_FLAGS": "0",
+        "DRAKAN_VU_TIMED_Q": "1",
+        "DRAKAN_PAUSE_UNFOCUSED": "0",
+        "PS2X_VU_SPIN": "4096",
+        "DRAKAN_INPUT_INI": "C:\\Games\\Drakan - The Ancients Gates\\decomp\\build\\vu-live-batch-20261019\\t\\livebatch-bulk-repeat-bulk/drakan_input.ini",
+        "DRAKAN_RUNTIME_PROFILE": "0",
+        "DRAKAN_INPUT_AUTOSTART": "0",
+        "DRAKAN_AUTOPRESS_UNTIL": "30000",
+        "DRAKAN_COMBAT_AUDIT": "0",
+        "PS2X_HOSTPROF_DELAY": "22",
+        "DRAKAN_VU_BATCH_PREDICATES": "0",
+        "DRAKAN_SHOT_DIR": "C:\\Games\\Drakan - The Ancients Gates\\decomp\\build\\vu-live-batch-20261019\\t\\livebatch-bulk-repeat-bulk",
+        "DRAKAN_VU_BATCH_THREADS": "4",
+        "DRAKAN_FRAME_LIMIT": "0",
+        "GSR_RAY_REFLECTIONS": "0",
+        "DRAKAN_VSYNC": "0",
+        "DRAKAN_AUTOPRESS": "4000",
+        "DRAKAN_AUDIO": "1",
+        "GSR_PROFILE": "0",
+        "DRAKAN_CONSOLE": "0",
+        "DRAKAN_SND_DBG": "0",
+        "DRAKAN_VUCHECK": "0",
+        "GSR_WINSHOT_AT": "",
+        "DRAKAN_WINDOW_WIDTH": "3840",
+        "GSR_MODERN_WATER": "0",
+        "DRAKAN_DLSS_NEURAL": "0",
+        "PS2X_VU_ATOMIC_WAIT": "0",
+        "PS2X_GS_ASYNC": "1",
+        "DRAKAN_VU_BATCH_VERIFY": "0",
+        "PS2X_VU1_THREAD": "1",
+        "PS2X_HOSTPROF": "0",
+        "DRAKAN_WORLD_RATE": "uncapped",
+        "DRAKAN_SND_LOG": "0",
+        "DRAKAN_VU_TRACE": "1",
+        "DRAKAN_VU_BATCH_STREAM": "0",
+        "DRAKAN_DLSS": "off",
+        "DRAKAN_VU_BATCH_LAZY_LOADS": "2",
+        "DRAKAN_VU_BATCH": "1",
+        "DRAKAN_COMBAT_LOG": "0",
+        "PS2X_GS_PACING": "2",
+        "DRAKAN_INPUT_LOGFILE": "C:\\Games\\Drakan - The Ancients Gates\\decomp\\build\\vu-live-batch-20261019\\t\\livebatch-bulk-repeat-bulk/input.log",
+        "GSR_WINSHOT": "",
+        "DRAKAN_INPUT_SCRIPT": "C:\\Games\\Drakan - The Ancients Gates\\decomp\\build\\vu-live-batch-20261019\\t\\livebatch-bulk-repeat-bulk/sequence.txt",
+        "DRAKAN_FULLSCREEN": "0",
+        "PS2X_GS_SCALE": "4",
+        "DRAKAN_VU_BATCH_NATIVE_PACKET": "2",
+        "GSR_RAY_SHADOWS": "0",
+        "PS2X_MAX_SECONDS": "100",
+        "DRAKAN_WINDOW_HEIGHT": "2160",
+        "PS2X_GS": "d3d11",
+        "DRAKAN_VU_BATCH_PROFILE": "0",
+        "DRAKAN_VU_LAZY_RESET": "0",
+        "DRAKAN_AUDIO_DUMP": "",
+        "DRAKAN_AUTOPRESS_NOSTART": "1",
+        "DRAKAN_CMD_LOG": "0"
+      },
+      "batch_diagnostics": [
+        "[vu-batch] 6282 batches, 251025 groups: 127514 accepted, 854 rejected; 0 verified, 0 mismatches; 0 unsupported, 1 single-group, 0 exceptions",
+        "[vu-batch] attempts=7940 short=1657 arbiter=0 code=0 workers=4 dependencies=1 verify=0",
+        "[vu-batch] dependency rejects (VIF,memory,trace,reset,complete,idle,constant,VF,VI,ACC,scalar,CLIP,MAC,status): 0 844 0 0 0 0 0 1 0 0 0 9 0 0",
+        "[vu-batch] first conflicting qwords: 65:179 186:64 198:60 210:48 162:42 176:39 209:38 672:37; monotone-status=1",
+        "[vu-batch] validated geometry calls=435419 rejected geometry calls=15242; validated pairs=430477381 rejected speculative pairs=24546610",
+        "[vu-batch] native packet traced pairs=64056740 bulk calls=7084612 enabled=2",
+        "[vu-batch] deferred load lanes=3206576 final alias repairs=13108 enabled=2",
+        "[vu-batch] streaming preparation=0",
+        "[vu-batch] positive clipping gates=0 relaxed accepted=0 enabled=0",
+        "[vu-batch] abandoned worker results=0",
+        "[vu-batch] owner heads=6282 native UV traced pairs=2557800",
+        "[vu-batch] adaptive serial bypass=116375 enabled=1",
+        "[vu-batch] history predictions=127976 accepted=127208 misses=392 enabled=1"
+      ],
+      "timing_limit": "General CPU contention: headless Chrome and Node consumed multiple cores; total CPU load observed at 100%. Narrow audit missed it.",
+      "usable_for_speedup_claim": false
+    },
+    "livebatch-bulk-repeat-bulk2": {
+      "exe_sha256": "8A1203A32FBF9B873F988EF51DE7946B6315E260509B79E52270FC58B92844BF",
+      "world_fps": 36.65827672078892,
+      "last_five_world_windows": [
+        [
+          2.002,
+          32.47
+        ],
+        [
+          2.005,
+          43.89
+        ],
+        [
+          2.01,
+          39.31
+        ],
+        [
+          2.015,
+          37.71
+        ],
+        [
+          2.007,
+          29.9
+        ]
+      ],
+      "saves_unchanged": true,
+      "contended": false,
+      "overlap_samples": 0,
+      "environment": {
+        "DRAKAN_VU_COMPACT_FLAGS": "0",
+        "DRAKAN_VU_TIMED_Q": "1",
+        "DRAKAN_PAUSE_UNFOCUSED": "0",
+        "PS2X_VU_SPIN": "4096",
+        "DRAKAN_INPUT_INI": "C:\\Games\\Drakan - The Ancients Gates\\decomp\\build\\vu-live-batch-20261019\\t\\livebatch-bulk-repeat-bulk2/drakan_input.ini",
+        "DRAKAN_RUNTIME_PROFILE": "0",
+        "DRAKAN_INPUT_AUTOSTART": "0",
+        "DRAKAN_AUTOPRESS_UNTIL": "30000",
+        "DRAKAN_COMBAT_AUDIT": "0",
+        "PS2X_HOSTPROF_DELAY": "22",
+        "DRAKAN_VU_BATCH_PREDICATES": "0",
+        "DRAKAN_SHOT_DIR": "C:\\Games\\Drakan - The Ancients Gates\\decomp\\build\\vu-live-batch-20261019\\t\\livebatch-bulk-repeat-bulk2",
+        "DRAKAN_VU_BATCH_THREADS": "4",
+        "DRAKAN_FRAME_LIMIT": "0",
+        "GSR_RAY_REFLECTIONS": "0",
+        "DRAKAN_VSYNC": "0",
+        "DRAKAN_AUTOPRESS": "4000",
+        "DRAKAN_AUDIO": "1",
+        "GSR_PROFILE": "0",
+        "DRAKAN_CONSOLE": "0",
+        "DRAKAN_SND_DBG": "0",
+        "DRAKAN_VUCHECK": "0",
+        "GSR_WINSHOT_AT": "",
+        "DRAKAN_WINDOW_WIDTH": "3840",
+        "GSR_MODERN_WATER": "0",
+        "DRAKAN_DLSS_NEURAL": "0",
+        "PS2X_VU_ATOMIC_WAIT": "0",
+        "PS2X_GS_ASYNC": "1",
+        "DRAKAN_VU_BATCH_VERIFY": "0",
+        "PS2X_VU1_THREAD": "1",
+        "PS2X_HOSTPROF": "0",
+        "DRAKAN_WORLD_RATE": "uncapped",
+        "DRAKAN_SND_LOG": "0",
+        "DRAKAN_VU_TRACE": "1",
+        "DRAKAN_VU_BATCH_STREAM": "0",
+        "DRAKAN_DLSS": "off",
+        "DRAKAN_VU_BATCH_LAZY_LOADS": "2",
+        "DRAKAN_VU_BATCH": "1",
+        "DRAKAN_COMBAT_LOG": "0",
+        "PS2X_GS_PACING": "2",
+        "DRAKAN_INPUT_LOGFILE": "C:\\Games\\Drakan - The Ancients Gates\\decomp\\build\\vu-live-batch-20261019\\t\\livebatch-bulk-repeat-bulk2/input.log",
+        "GSR_WINSHOT": "",
+        "DRAKAN_INPUT_SCRIPT": "C:\\Games\\Drakan - The Ancients Gates\\decomp\\build\\vu-live-batch-20261019\\t\\livebatch-bulk-repeat-bulk2/sequence.txt",
+        "DRAKAN_FULLSCREEN": "0",
+        "PS2X_GS_SCALE": "4",
+        "DRAKAN_VU_BATCH_NATIVE_PACKET": "2",
+        "GSR_RAY_SHADOWS": "0",
+        "PS2X_MAX_SECONDS": "100",
+        "DRAKAN_WINDOW_HEIGHT": "2160",
+        "PS2X_GS": "d3d11",
+        "DRAKAN_VU_BATCH_PROFILE": "0",
+        "DRAKAN_VU_LAZY_RESET": "0",
+        "DRAKAN_AUDIO_DUMP": "",
+        "DRAKAN_AUTOPRESS_NOSTART": "1",
+        "DRAKAN_CMD_LOG": "0"
+      },
+      "batch_diagnostics": [
+        "[vu-batch] 6398 batches, 259878 groups: 132402 accepted, 888 rejected; 0 verified, 0 mismatches; 0 unsupported, 1 single-group, 0 exceptions",
+        "[vu-batch] attempts=8059 short=1660 arbiter=0 code=0 workers=4 dependencies=1 verify=0",
+        "[vu-batch] dependency rejects (VIF,memory,trace,reset,complete,idle,constant,VF,VI,ACC,scalar,CLIP,MAC,status): 0 880 0 0 0 0 0 0 0 0 0 8 0 0",
+        "[vu-batch] first conflicting qwords: 65:210 198:77 186:69 672:42 176:42 210:40 166:38 162:32; monotone-status=1",
+        "[vu-batch] validated geometry calls=452276 rejected geometry calls=16347; validated pairs=448319719 rejected speculative pairs=25980156",
+        "[vu-batch] native packet traced pairs=67215671 bulk calls=7353528 enabled=2",
+        "[vu-batch] deferred load lanes=3336472 final alias repairs=14008 enabled=2",
+        "[vu-batch] streaming preparation=0",
+        "[vu-batch] positive clipping gates=0 relaxed accepted=0 enabled=0",
+        "[vu-batch] abandoned worker results=0",
+        "[vu-batch] owner heads=6398 native UV traced pairs=2753100",
+        "[vu-batch] adaptive serial bypass=120190 enabled=1",
+        "[vu-batch] history predictions=132962 accepted=132135 misses=328 enabled=1"
+      ],
+      "timing_limit": "General CPU contention: headless Chrome and Node consumed multiple cores; total CPU load observed at 100%. Narrow audit missed it.",
+      "usable_for_speedup_claim": false
+    },
+    "livebatch-bulk-repeat-serial": {
+      "exe_sha256": "8A1203A32FBF9B873F988EF51DE7946B6315E260509B79E52270FC58B92844BF",
+      "world_fps": 31.495635735439294,
+      "last_five_world_windows": [
+        [
+          2.018,
+          27.76
+        ],
+        [
+          2.051,
+          35.11
+        ],
+        [
+          2.034,
+          33.43
+        ],
+        [
+          2.006,
+          27.92
+        ],
+        [
+          2.021,
+          33.16
+        ]
+      ],
+      "saves_unchanged": true,
+      "contended": false,
+      "overlap_samples": 0,
+      "environment": {
+        "DRAKAN_VU_COMPACT_FLAGS": "0",
+        "DRAKAN_VU_TIMED_Q": "1",
+        "DRAKAN_PAUSE_UNFOCUSED": "0",
+        "PS2X_VU_SPIN": "4096",
+        "DRAKAN_INPUT_INI": "C:\\Games\\Drakan - The Ancients Gates\\decomp\\build\\vu-live-batch-20261019\\t\\livebatch-bulk-repeat-serial/drakan_input.ini",
+        "DRAKAN_RUNTIME_PROFILE": "0",
+        "DRAKAN_INPUT_AUTOSTART": "0",
+        "DRAKAN_AUTOPRESS_UNTIL": "30000",
+        "DRAKAN_COMBAT_AUDIT": "0",
+        "PS2X_HOSTPROF_DELAY": "22",
+        "DRAKAN_VU_BATCH_PREDICATES": "0",
+        "DRAKAN_SHOT_DIR": "C:\\Games\\Drakan - The Ancients Gates\\decomp\\build\\vu-live-batch-20261019\\t\\livebatch-bulk-repeat-serial",
+        "DRAKAN_VU_BATCH_THREADS": "4",
+        "DRAKAN_FRAME_LIMIT": "0",
+        "GSR_RAY_REFLECTIONS": "0",
+        "DRAKAN_VSYNC": "0",
+        "DRAKAN_AUTOPRESS": "4000",
+        "DRAKAN_AUDIO": "1",
+        "GSR_PROFILE": "0",
+        "DRAKAN_CONSOLE": "0",
+        "DRAKAN_SND_DBG": "0",
+        "DRAKAN_VUCHECK": "0",
+        "GSR_WINSHOT_AT": "",
+        "DRAKAN_WINDOW_WIDTH": "3840",
+        "GSR_MODERN_WATER": "0",
+        "DRAKAN_DLSS_NEURAL": "0",
+        "PS2X_VU_ATOMIC_WAIT": "0",
+        "PS2X_GS_ASYNC": "1",
+        "DRAKAN_VU_BATCH_VERIFY": "0",
+        "PS2X_VU1_THREAD": "1",
+        "PS2X_HOSTPROF": "0",
+        "DRAKAN_WORLD_RATE": "uncapped",
+        "DRAKAN_SND_LOG": "0",
+        "DRAKAN_VU_TRACE": "1",
+        "DRAKAN_VU_BATCH_STREAM": "0",
+        "DRAKAN_DLSS": "off",
+        "DRAKAN_VU_BATCH_LAZY_LOADS": "2",
+        "DRAKAN_VU_BATCH": "0",
+        "DRAKAN_COMBAT_LOG": "0",
+        "PS2X_GS_PACING": "2",
+        "DRAKAN_INPUT_LOGFILE": "C:\\Games\\Drakan - The Ancients Gates\\decomp\\build\\vu-live-batch-20261019\\t\\livebatch-bulk-repeat-serial/input.log",
+        "GSR_WINSHOT": "",
+        "DRAKAN_INPUT_SCRIPT": "C:\\Games\\Drakan - The Ancients Gates\\decomp\\build\\vu-live-batch-20261019\\t\\livebatch-bulk-repeat-serial/sequence.txt",
+        "DRAKAN_FULLSCREEN": "0",
+        "PS2X_GS_SCALE": "4",
+        "DRAKAN_VU_BATCH_NATIVE_PACKET": "2",
+        "GSR_RAY_SHADOWS": "0",
+        "PS2X_MAX_SECONDS": "100",
+        "DRAKAN_WINDOW_HEIGHT": "2160",
+        "PS2X_GS": "d3d11",
+        "DRAKAN_VU_BATCH_PROFILE": "0",
+        "DRAKAN_VU_LAZY_RESET": "0",
+        "DRAKAN_AUDIO_DUMP": "",
+        "DRAKAN_AUTOPRESS_NOSTART": "1",
+        "DRAKAN_CMD_LOG": "0"
+      },
+      "batch_diagnostics": [],
+      "timing_limit": "General CPU contention: headless Chrome and Node consumed multiple cores; total CPU load observed at 100%. Narrow audit missed it.",
+      "usable_for_speedup_claim": false
+    },
+    "livebatch-bulk-repeat-serial2": {
+      "exe_sha256": "8A1203A32FBF9B873F988EF51DE7946B6315E260509B79E52270FC58B92844BF",
+      "world_fps": 48.13150638803605,
+      "last_five_world_windows": [
+        [
+          2.054,
+          41.87
+        ],
+        [
+          2.019,
+          47.54
+        ],
+        [
+          2.006,
+          54.34
+        ],
+        [
+          2.009,
+          48.77
+        ],
+        [
+          2.009,
+          48.29
+        ]
+      ],
+      "saves_unchanged": true,
+      "contended": false,
+      "overlap_samples": 0,
+      "environment": {
+        "DRAKAN_VU_COMPACT_FLAGS": "0",
+        "DRAKAN_VU_TIMED_Q": "1",
+        "DRAKAN_PAUSE_UNFOCUSED": "0",
+        "PS2X_VU_SPIN": "4096",
+        "DRAKAN_INPUT_INI": "C:\\Games\\Drakan - The Ancients Gates\\decomp\\build\\vu-live-batch-20261019\\t\\livebatch-bulk-repeat-serial2/drakan_input.ini",
+        "DRAKAN_RUNTIME_PROFILE": "0",
+        "DRAKAN_INPUT_AUTOSTART": "0",
+        "DRAKAN_AUTOPRESS_UNTIL": "30000",
+        "DRAKAN_COMBAT_AUDIT": "0",
+        "PS2X_HOSTPROF_DELAY": "22",
+        "DRAKAN_VU_BATCH_PREDICATES": "0",
+        "DRAKAN_SHOT_DIR": "C:\\Games\\Drakan - The Ancients Gates\\decomp\\build\\vu-live-batch-20261019\\t\\livebatch-bulk-repeat-serial2",
+        "DRAKAN_VU_BATCH_THREADS": "4",
+        "DRAKAN_FRAME_LIMIT": "0",
+        "GSR_RAY_REFLECTIONS": "0",
+        "DRAKAN_VSYNC": "0",
+        "DRAKAN_AUTOPRESS": "4000",
+        "DRAKAN_AUDIO": "1",
+        "GSR_PROFILE": "0",
+        "DRAKAN_CONSOLE": "0",
+        "DRAKAN_SND_DBG": "0",
+        "DRAKAN_VUCHECK": "0",
+        "GSR_WINSHOT_AT": "",
+        "DRAKAN_WINDOW_WIDTH": "3840",
+        "GSR_MODERN_WATER": "0",
+        "DRAKAN_DLSS_NEURAL": "0",
+        "PS2X_VU_ATOMIC_WAIT": "0",
+        "PS2X_GS_ASYNC": "1",
+        "DRAKAN_VU_BATCH_VERIFY": "0",
+        "PS2X_VU1_THREAD": "1",
+        "PS2X_HOSTPROF": "0",
+        "DRAKAN_WORLD_RATE": "uncapped",
+        "DRAKAN_SND_LOG": "0",
+        "DRAKAN_VU_TRACE": "1",
+        "DRAKAN_VU_BATCH_STREAM": "0",
+        "DRAKAN_DLSS": "off",
+        "DRAKAN_VU_BATCH_LAZY_LOADS": "2",
+        "DRAKAN_VU_BATCH": "0",
+        "DRAKAN_COMBAT_LOG": "0",
+        "PS2X_GS_PACING": "2",
+        "DRAKAN_INPUT_LOGFILE": "C:\\Games\\Drakan - The Ancients Gates\\decomp\\build\\vu-live-batch-20261019\\t\\livebatch-bulk-repeat-serial2/input.log",
+        "GSR_WINSHOT": "",
+        "DRAKAN_INPUT_SCRIPT": "C:\\Games\\Drakan - The Ancients Gates\\decomp\\build\\vu-live-batch-20261019\\t\\livebatch-bulk-repeat-serial2/sequence.txt",
+        "DRAKAN_FULLSCREEN": "0",
+        "PS2X_GS_SCALE": "4",
+        "DRAKAN_VU_BATCH_NATIVE_PACKET": "2",
+        "GSR_RAY_SHADOWS": "0",
+        "PS2X_MAX_SECONDS": "100",
+        "DRAKAN_WINDOW_HEIGHT": "2160",
+        "PS2X_GS": "d3d11",
+        "DRAKAN_VU_BATCH_PROFILE": "0",
+        "DRAKAN_VU_LAZY_RESET": "0",
+        "DRAKAN_AUDIO_DUMP": "",
+        "DRAKAN_AUTOPRESS_NOSTART": "1",
+        "DRAKAN_CMD_LOG": "0"
+      },
+      "batch_diagnostics": [],
+      "timing_limit": "General CPU contention: headless Chrome and Node consumed multiple cores; total CPU load observed at 100%. Narrow audit missed it.",
+      "cpu_load_samples": [
+        {
+          "seconds": 2.1655356,
+          "externalCores": 14.540984198152204,
+          "top": [
+            {
+              "id": 35956,
+              "name": "chrome-headless-shell",
+              "cores": 1.2603157646695045
+            },
+            {
+              "id": 27832,
+              "name": "chrome-headless-shell",
+              "cores": 1.0126236490697174
+            },
+            {
+              "id": 56912,
+              "name": "node",
+              "cores": 0.8814925290463007
+            },
+            {
+              "id": 22120,
+              "name": "chrome-headless-shell",
+              "cores": 0.8013568445875462
+            },
+            {
+              "id": 52544,
+              "name": "chrome-headless-shell",
+              "cores": 0.64837053789356
+            },
+            {
+              "id": 55728,
+              "name": "node",
+              "cores": 0.6410854756700369
+            }
+          ]
+        },
+        {
+          "seconds": 4.3141197,
+          "externalCores": 10.232029083711451,
+          "top": [
+            {
+              "id": 27832,
+              "name": "chrome-headless-shell",
+              "cores": 1.0253845776853696
+            },
+            {
+              "id": 35956,
+              "name": "chrome-headless-shell",
+              "cores": 0.9090288809267462
+            },
+            {
+              "id": 55728,
+              "name": "node",
+              "cores": 0.8653954946422624
+            },
+            {
+              "id": 41708,
+              "name": "chrome-headless-shell",
+              "cores": 0.6181396390301874
+            },
+            {
+              "id": 29352,
+              "name": "chrome-headless-shell",
+              "cores": 0.5017839422715639
+            },
+            {
+              "id": 13860,
+              "name": "chrome-headless-shell",
+              "cores": 0.5017839422715639
+            }
+          ]
+        },
+        {
+          "seconds": 6.4543523,
+          "externalCores": 9.826618845073195,
+          "top": [
+            {
+              "id": 21836,
+              "name": "chrome-headless-shell",
+              "cores": 0.8395699607603397
+            },
+            {
+              "id": 27832,
+              "name": "chrome-headless-shell",
+              "cores": 0.7519626605070869
+            },
+            {
+              "id": 55728,
+              "name": "node",
+              "cores": 0.7519626605070869
+            },
+            {
+              "id": 49416,
+              "name": "node",
+              "cores": 0.5183431931650794
+            },
+            {
+              "id": 15304,
+              "name": "chrome-headless-shell",
+              "cores": 0.4672389346840152
+            },
+            {
+              "id": 21304,
+              "name": "chrome-headless-shell",
+              "cores": 0.4526377179751397
+            }
+          ]
+        },
+        {
+          "seconds": 8.5721788,
+          "externalCores": 13.257991152721907,
+          "top": [
+            {
+              "id": 51176,
+              "name": "chrome-headless-shell",
+              "cores": 0.9960093520408779
+            },
+            {
+              "id": 52544,
+              "name": "chrome-headless-shell",
+              "cores": 0.9664979638322594
+            },
+            {
+              "id": 27832,
+              "name": "chrome-headless-shell",
+              "cores": 0.7451625522676197
+            },
+            {
+              "id": 65072,
+              "name": "chrome-headless-shell",
+              "cores": 0.6935176229025373
+            },
+            {
+              "id": 49416,
+              "name": "node",
+              "cores": 0.6271169994331454
+            },
+            {
+              "id": 21304,
+              "name": "chrome-headless-shell",
+              "cores": 0.6049834582766814
+            }
+          ]
+        },
+        {
+          "seconds": 10.6817045,
+          "externalCores": 12.413927927021694,
+          "top": [
+            {
+              "id": 67384,
+              "name": "chrome-headless-shell",
+              "cores": 0.8517909973791736
+            },
+            {
+              "id": 52544,
+              "name": "chrome-headless-shell",
+              "cores": 0.8443841191410938
+            },
+            {
+              "id": 51176,
+              "name": "chrome-headless-shell",
+              "cores": 0.7777222149983759
+            },
+            {
+              "id": 67544,
+              "name": "chrome-headless-shell",
+              "cores": 0.7332809455698973
+            },
+            {
+              "id": 65072,
+              "name": "chrome-headless-shell",
+              "cores": 0.64439840671294
+            },
+            {
+              "id": 49416,
+              "name": "node",
+              "cores": 0.5925502590463816
+            }
+          ]
+        },
+        {
+          "seconds": 12.7879535,
+          "externalCores": 14.028196571250596,
+          "top": [
+            {
+              "id": 52544,
+              "name": "chrome-headless-shell",
+              "cores": 0.9940657538591116
+            },
+            {
+              "id": 55128,
+              "name": "chrome-headless-shell",
+              "cores": 0.8753713354878744
+            },
+            {
+              "id": 59192,
+              "name": "chrome-headless-shell",
+              "cores": 0.7715137194130418
+            },
+            {
+              "id": 13148,
+              "name": "chrome-headless-shell",
+              "cores": 0.7270033125238279
+            },
+            {
+              "id": 15304,
+              "name": "chrome-headless-shell",
+              "cores": 0.6379824987454
+            },
+            {
+              "id": 56912,
+              "name": "node",
+              "cores": 0.6305640975971977
+            }
+          ]
+        },
+        {
+          "seconds": 14.8978264,
+          "externalCores": 13.307969878185554,
+          "top": [
+            {
+              "id": 14568,
+              "name": "chrome-headless-shell",
+              "cores": 0.9923583548563522
+            },
+            {
+              "id": 67544,
+              "name": "chrome-headless-shell",
+              "cores": 0.8442451675643593
+            },
+            {
+              "id": 62392,
+              "name": "node",
+              "cores": 0.8442451675643593
+            },
+            {
+              "id": 55128,
+              "name": "chrome-headless-shell",
+              "cores": 0.7998112113767615
+            },
+            {
+              "id": 59192,
+              "name": "chrome-headless-shell",
+              "cores": 0.7849998926475622
+            },
+            {
+              "id": 49416,
+              "name": "node",
+              "cores": 0.7405659364599643
+            }
+          ]
+        },
+        {
+          "seconds": 16.9787618,
+          "externalCores": 12.809744117957715,
+          "top": [
+            {
+              "id": 14568,
+              "name": "chrome-headless-shell",
+              "cores": 1.0061580960177805
+            },
+            {
+              "id": 67544,
+              "name": "chrome-headless-shell",
+              "cores": 0.8785111733886591
+            },
+            {
+              "id": 16804,
+              "name": "chrome-headless-shell",
+              "cores": 0.8484766033582777
+            },
+            {
+              "id": 62392,
+              "name": "node",
+              "cores": 0.8184420333278961
+            },
+            {
+              "id": 59192,
+              "name": "chrome-headless-shell",
+              "cores": 0.7658815357747285
+            },
+            {
+              "id": 55728,
+              "name": "node",
+              "cores": 0.7058123957139655
+            }
+          ]
+        },
+        {
+          "seconds": 19.0515297,
+          "externalCores": 10.696747571206602,
+          "top": [
+            {
+              "id": 14568,
+              "name": "chrome-headless-shell",
+              "cores": 0.9347404501970535
+            },
+            {
+              "id": 62392,
+              "name": "node",
+              "cores": 0.8292052380780314
+            },
+            {
+              "id": 55728,
+              "name": "node",
+              "cores": 0.8292052380780314
+            },
+            {
+              "id": 41956,
+              "name": "ChatGPT",
+              "cores": 0.7387464848331552
+            },
+            {
+              "id": 67544,
+              "name": "chrome-headless-shell",
+              "cores": 0.6407495021512061
+            },
+            {
+              "id": 55128,
+              "name": "chrome-headless-shell",
+              "cores": 0.5201378311580378
+            }
+          ]
+        },
+        {
+          "seconds": 21.155445,
+          "externalCores": 10.835452834056573,
+          "top": [
+            {
+              "id": 20176,
+              "name": "chrome-headless-shell",
+              "cores": 0.8392091639810783
+            },
+            {
+              "id": 55728,
+              "name": "node",
+              "cores": 0.802076015132358
+            },
+            {
+              "id": 67544,
+              "name": "chrome-headless-shell",
+              "cores": 0.6164102708887567
+            },
+            {
+              "id": 61780,
+              "name": "chrome-headless-shell",
+              "cores": 0.542143973191316
+            },
+            {
+              "id": 64032,
+              "name": "chrome-headless-shell",
+              "cores": 0.534717343421572
+            },
+            {
+              "id": 31532,
+              "name": "chrome-headless-shell",
+              "cores": 0.4678776754938755
+            }
+          ]
+        },
+        {
+          "seconds": 23.2471717,
+          "externalCores": 12.848236817936112,
+          "top": [
+            {
+              "id": 6552,
+              "name": "chrome-headless-shell",
+              "cores": 0.9486779510917946
+            },
+            {
+              "id": 56912,
+              "name": "node",
+              "cores": 0.8515691844446031
+            },
+            {
+              "id": 52544,
+              "name": "chrome-headless-shell",
+              "cores": 0.8142196588110678
+            },
+            {
+              "id": 49416,
+              "name": "node",
+              "cores": 0.7694002280508256
+            },
+            {
+              "id": 60848,
+              "name": "chrome-headless-shell",
+              "cores": 0.7544604177974116
+            },
+            {
+              "id": 24676,
+              "name": "chrome-headless-shell",
+              "cores": 0.6424118408968058
+            }
+          ]
+        },
+        {
+          "seconds": 25.4032002,
+          "externalCores": 12.834651768285983,
+          "top": [
+            {
+              "id": 6552,
+              "name": "chrome-headless-shell",
+              "cores": 1.0073498564606167
+            },
+            {
+              "id": 52544,
+              "name": "chrome-headless-shell",
+              "cores": 1.0073498564606167
+            },
+            {
+              "id": 33036,
+              "name": "chrome-headless-shell",
+              "cores": 0.7971833396450922
+            },
+            {
+              "id": 33104,
+              "name": "chrome-headless-shell",
+              "cores": 0.7826890971060906
+            },
+            {
+              "id": 60092,
+              "name": "node",
+              "cores": 0.7754419758365898
+            },
+            {
+              "id": 30552,
+              "name": "chrome-headless-shell",
+              "cores": 0.6812293993330789
+            }
+          ]
+        },
+        {
+          "seconds": 27.4844042,
+          "externalCores": 12.687968118454512,
+          "top": [
+            {
+              "id": 52544,
+              "name": "chrome-headless-shell",
+              "cores": 1.036058935116404
+            },
+            {
+              "id": 49416,
+              "name": "node",
+              "cores": 0.9835052210162966
+            },
+            {
+              "id": 33104,
+              "name": "chrome-headless-shell",
+              "cores": 0.9234438334733166
+            },
+            {
+              "id": 33036,
+              "name": "chrome-headless-shell",
+              "cores": 0.8258440787159742
+            },
+            {
+              "id": 64032,
+              "name": "chrome-headless-shell",
+              "cores": 0.7432596708443767
+            },
+            {
+              "id": 55728,
+              "name": "node",
+              "cores": 0.6907059567442693
+            }
+          ]
+        },
+        {
+          "seconds": 29.5658112,
+          "externalCores": 11.365509004245702,
+          "top": [
+            {
+              "id": 49416,
+              "name": "node",
+              "cores": 0.8257635339940728
+            },
+            {
+              "id": 52544,
+              "name": "chrome-headless-shell",
+              "cores": 0.8257635339940728
+            },
+            {
+              "id": 55728,
+              "name": "node",
+              "cores": 0.810749651557817
+            },
+            {
+              "id": 31532,
+              "name": "chrome-headless-shell",
+              "cores": 0.7506941218127935
+            },
+            {
+              "id": 66072,
+              "name": "chrome-headless-shell",
+              "cores": 0.7281732981584097
+            },
+            {
+              "id": 60848,
+              "name": "chrome-headless-shell",
+              "cores": 0.6380900035408744
+            }
+          ]
+        },
+        {
+          "seconds": 31.6250829,
+          "externalCores": 9.605944664805522,
+          "top": [
+            {
+              "id": 56484,
+              "name": "chrome-headless-shell",
+              "cores": 0.9256913500049556
+            },
+            {
+              "id": 55728,
+              "name": "node",
+              "cores": 0.9029284479556534
+            },
+            {
+              "id": 29916,
+              "name": "chrome-headless-shell",
+              "cores": 0.7208252315612359
+            },
+            {
+              "id": 50560,
+              "name": "chrome-headless-shell",
+              "cores": 0.6828870614790656
+            },
+            {
+              "id": 59192,
+              "name": "chrome-headless-shell",
+              "cores": 0.5842478192654228
+            },
+            {
+              "id": 34620,
+              "name": "node",
+              "cores": 0.5538972831996866
+            }
+          ]
+        },
+        {
+          "seconds": 33.7018474,
+          "externalCores": 8.072954347977346,
+          "top": [
+            {
+              "id": 55728,
+              "name": "node",
+              "cores": 1.0157025507706823
+            },
+            {
+              "id": 59192,
+              "name": "chrome-headless-shell",
+              "cores": 0.8426569310097513
+            },
+            {
+              "id": 31296,
+              "name": "chrome-headless-shell",
+              "cores": 0.5341843044793958
+            },
+            {
+              "id": 45052,
+              "name": "chrome-headless-shell",
+              "cores": 0.5040894140861905
+            },
+            {
+              "id": 41640,
+              "name": "chrome-headless-shell",
+              "cores": 0.4363759107014783
+            },
+            {
+              "id": 66072,
+              "name": "chrome-headless-shell",
+              "cores": 0.42885218810317693
+            }
+          ]
+        },
+        {
+          "seconds": 35.7881176,
+          "externalCores": 11.503783162890402,
+          "top": [
+            {
+              "id": 45052,
+              "name": "chrome-headless-shell",
+              "cores": 0.9886063655608937
+            },
+            {
+              "id": 59192,
+              "name": "chrome-headless-shell",
+              "cores": 0.9286908282541728
+            },
+            {
+              "id": 56912,
+              "name": "node",
+              "cores": 0.6890286790272895
+            },
+            {
+              "id": 66072,
+              "name": "chrome-headless-shell",
+              "cores": 0.6291131417205686
+            },
+            {
+              "id": 55544,
+              "name": "chrome-headless-shell",
+              "cores": 0.4943031827804468
+            },
+            {
+              "id": 26284,
+              "name": "pwsh",
+              "cores": 0.47183485629042654
+            }
+          ]
+        },
+        {
+          "seconds": 37.9071416,
+          "externalCores": 12.513131045235898,
+          "top": [
+            {
+              "id": 52544,
+              "name": "chrome-headless-shell",
+              "cores": 1.0175675216514757
+            },
+            {
+              "id": 59192,
+              "name": "chrome-headless-shell",
+              "cores": 0.8995886785614496
+            },
+            {
+              "id": 49416,
+              "name": "node",
+              "cores": 0.7521151246989168
+            },
+            {
+              "id": 61984,
+              "name": "chrome-headless-shell",
+              "cores": 0.7373677693126636
+            },
+            {
+              "id": 28084,
+              "name": "chrome-headless-shell",
+              "cores": 0.729994091619537
+            },
+            {
+              "id": 50560,
+              "name": "chrome-headless-shell",
+              "cores": 0.6710046700745239
+            }
+          ]
+        },
+        {
+          "seconds": 39.9809728,
+          "externalCores": 10.367285437696177,
+          "top": [
+            {
+              "id": 52544,
+              "name": "chrome-headless-shell",
+              "cores": 1.1000172048718329
+            },
+            {
+              "id": 49416,
+              "name": "node",
+              "cores": 0.9568642809501561
+            },
+            {
+              "id": 55728,
+              "name": "node",
+              "cores": 0.8438488146962007
+            },
+            {
+              "id": 61984,
+              "name": "chrome-headless-shell",
+              "cores": 0.7459020772761059
+            },
+            {
+              "id": 34392,
+              "name": "chrome-headless-shell",
+              "cores": 0.5726116956867076
+            },
+            {
+              "id": 59192,
+              "name": "chrome-headless-shell",
+              "cores": 0.48973368710047355
+            }
+          ]
+        },
+        {
+          "seconds": 42.0470412,
+          "externalCores": 10.973438730295676,
+          "top": [
+            {
+              "id": 52544,
+              "name": "chrome-headless-shell",
+              "cores": 0.9150834502865447
+            },
+            {
+              "id": 55728,
+              "name": "node",
+              "cores": 0.7789553337149926
+            },
+            {
+              "id": 67856,
+              "name": "chrome-headless-shell",
+              "cores": 0.6503898902863046
+            },
+            {
+              "id": 49416,
+              "name": "node",
+              "cores": 0.6352645440005765
+            },
+            {
+              "id": 68000,
+              "name": "chrome-headless-shell",
+              "cores": 0.5823258320005285
+            },
+            {
+              "id": 41640,
+              "name": "chrome-headless-shell",
+              "cores": 0.5520751394290724
+            }
+          ]
+        },
+        {
+          "seconds": 44.1436937,
+          "externalCores": 9.278182722220311,
+          "top": [
+            {
+              "id": 55728,
+              "name": "node",
+              "cores": 0.8942826720212349
+            },
+            {
+              "id": 28084,
+              "name": "chrome-headless-shell",
+              "cores": 0.6409025816152183
+            },
+            {
+              "id": 56912,
+              "name": "node",
+              "cores": 0.6334502260150414
+            },
+            {
+              "id": 57864,
+              "name": "node",
+              "cores": 0.521664892012387
+            },
+            {
+              "id": 62912,
+              "name": "chrome-headless-shell",
+              "cores": 0.4993078252118561
+            },
+            {
+              "id": 36152,
+              "name": "chrome-headless-shell",
+              "cores": 0.4769507584113253
+            }
+          ]
+        },
+        {
+          "seconds": 46.2239587,
+          "externalCores": 9.877046914695972,
+          "top": [
+            {
+              "id": 55936,
+              "name": "chrome-headless-shell",
+              "cores": 1.2017699668071151
+            },
+            {
+              "id": 55728,
+              "name": "node",
+              "cores": 0.9013274751053364
+            },
+            {
+              "id": 19488,
+              "name": "chrome-headless-shell",
+              "cores": 0.736084104669358
+            },
+            {
+              "id": 62912,
+              "name": "chrome-headless-shell",
+              "cores": 0.7285730423768135
+            },
+            {
+              "id": 59492,
+              "name": "chrome-headless-shell",
+              "cores": 0.6459513571588245
+            },
+            {
+              "id": 56976,
+              "name": "chrome-headless-shell",
+              "cores": 0.6083960456961021
+            }
+          ]
+        },
+        {
+          "seconds": 48.3267883,
+          "externalCores": 10.261471019810644,
+          "top": [
+            {
+              "id": 56976,
+              "name": "chrome-headless-shell",
+              "cores": 0.7058940962215865
+            },
+            {
+              "id": 55728,
+              "name": "node",
+              "cores": 0.6761722395385723
+            },
+            {
+              "id": 55936,
+              "name": "chrome-headless-shell",
+              "cores": 0.6241589903432975
+            },
+            {
+              "id": 52544,
+              "name": "chrome-headless-shell",
+              "cores": 0.6018675978310368
+            },
+            {
+              "id": 56912,
+              "name": "node",
+              "cores": 0.5795762053187763
+            },
+            {
+              "id": 46452,
+              "name": "chrome-headless-shell",
+              "cores": 0.5498543486357621
+            }
+          ]
+        },
+        {
+          "seconds": 50.4391113,
+          "externalCores": 12.663782953648642,
+          "top": [
+            {
+              "id": 19972,
+              "name": "chrome-headless-shell",
+              "cores": 1.16133990871661
+            },
+            {
+              "id": 52544,
+              "name": "chrome-headless-shell",
+              "cores": 1.0503838664825391
+            },
+            {
+              "id": 55728,
+              "name": "node",
+              "cores": 0.754501087191683
+            },
+            {
+              "id": 48532,
+              "name": "chrome-headless-shell",
+              "cores": 0.7471040177094116
+            },
+            {
+              "id": 53240,
+              "name": "chrome-headless-shell",
+              "cores": 0.717515739780326
+            },
+            {
+              "id": 55544,
+              "name": "chrome-headless-shell",
+              "cores": 0.6657362534044261
+            }
+          ]
+        },
+        {
+          "seconds": 52.5844664,
+          "externalCores": 10.531473321129933,
+          "top": [
+            {
+              "id": 52544,
+              "name": "chrome-headless-shell",
+              "cores": 1.0560606027412451
+            },
+            {
+              "id": 49416,
+              "name": "node",
+              "cores": 0.8229989524811082
+            },
+            {
+              "id": 55728,
+              "name": "node",
+              "cores": 0.815715775910479
+            },
+            {
+              "id": 59192,
+              "name": "chrome-headless-shell",
+              "cores": 0.6045036553622299
+            },
+            {
+              "id": 47892,
+              "name": "chrome-headless-shell",
+              "cores": 0.5243887130853079
+            },
+            {
+              "id": 19488,
+              "name": "chrome-headless-shell",
+              "cores": 0.41514106452586874
+            }
+          ]
+        },
+        {
+          "seconds": 54.6547184,
+          "externalCores": 11.721097238403807,
+          "top": [
+            {
+              "id": 52544,
+              "name": "chrome-headless-shell",
+              "cores": 0.9207816246524562
+            },
+            {
+              "id": 55728,
+              "name": "node",
+              "cores": 0.7924759884303926
+            },
+            {
+              "id": 59192,
+              "name": "chrome-headless-shell",
+              "cores": 0.7924759884303926
+            },
+            {
+              "id": 49416,
+              "name": "node",
+              "cores": 0.7773812076983851
+            },
+            {
+              "id": 19972,
+              "name": "chrome-headless-shell",
+              "cores": 0.7547390366003739
+            },
+            {
+              "id": 48532,
+              "name": "chrome-headless-shell",
+              "cores": 0.6264334003783104
+            }
+          ]
+        },
+        {
+          "seconds": 56.7292517,
+          "externalCores": 9.957058775581,
+          "top": [
+            {
+              "id": 55728,
+              "name": "node",
+              "cores": 0.9038177405973676
+            },
+            {
+              "id": 59192,
+              "name": "chrome-headless-shell",
+              "cores": 0.7607132650027845
+            },
+            {
+              "id": 46452,
+              "name": "chrome-headless-shell",
+              "cores": 0.7004587489629599
+            },
+            {
+              "id": 4424,
+              "name": "chrome-headless-shell",
+              "cores": 0.7004587489629599
+            },
+            {
+              "id": 60732,
+              "name": "chrome-headless-shell",
+              "cores": 0.595013345893267
+            },
+            {
+              "id": 19972,
+              "name": "chrome-headless-shell",
+              "cores": 0.48956794282357413
+            }
+          ]
+        },
+        {
+          "seconds": 58.8065725,
+          "externalCores": 10.357391597869706,
+          "top": [
+            {
+              "id": 53188,
+              "name": "chrome-headless-shell",
+              "cores": 1.3238205673384662
+            },
+            {
+              "id": 55728,
+              "name": "node",
+              "cores": 0.8499529778934471
+            },
+            {
+              "id": 59192,
+              "name": "chrome-headless-shell",
+              "cores": 0.7747359002037615
+            },
+            {
+              "id": 47892,
+              "name": "chrome-headless-shell",
+              "cores": 0.7747359002037615
+            },
+            {
+              "id": 58492,
+              "name": "chrome-headless-shell",
+              "cores": 0.7596924846658244
+            },
+            {
+              "id": 18280,
+              "name": "chrome-headless-shell",
+              "cores": 0.7296056535899502
+            }
+          ]
+        },
+        {
+          "seconds": 60.8686433,
+          "externalCores": 9.032182600131861,
+          "top": [
+            {
+              "id": 27600,
+              "name": "chrome-headless-shell",
+              "cores": 0.9168574619261373
+            },
+            {
+              "id": 55728,
+              "name": "node",
+              "cores": 0.8638161211535508
+            },
+            {
+              "id": 53188,
+              "name": "chrome-headless-shell",
+              "cores": 0.7804654427966292
+            },
+            {
+              "id": 67856,
+              "name": "chrome-headless-shell",
+              "cores": 0.6364960892710374
+            },
+            {
+              "id": 4424,
+              "name": "chrome-headless-shell",
+              "cores": 0.5758774141023671
+            },
+            {
+              "id": 24788,
+              "name": "chrome-headless-shell",
+              "cores": 0.5076814045376131
+            }
+          ]
+        },
+        {
+          "seconds": 62.9275308,
+          "externalCores": 10.57913557685888,
+          "top": [
+            {
+              "id": 55728,
+              "name": "node",
+              "cores": 1.0093436382512413
+            },
+            {
+              "id": 4424,
+              "name": "chrome-headless-shell",
+              "cores": 0.9106859893996163
+            },
+            {
+              "id": 67856,
+              "name": "chrome-headless-shell",
+              "cores": 0.728548791519693
+            },
+            {
+              "id": 24788,
+              "name": "chrome-headless-shell",
+              "cores": 0.7209597416080296
+            },
+            {
+              "id": 55368,
+              "name": "chrome-headless-shell",
+              "cores": 0.5995349430214141
+            },
+            {
+              "id": 7572,
+              "name": "chrome-headless-shell",
+              "cores": 0.47052109452313506
+            }
+          ]
+        }
+      ],
+      "usable_for_speedup_claim": false
+    },
+    "livebatch-certified-final-control": {
+      "exe_sha256": "23BE361172EB15CE4E8AB84C1E1F9630F94B29CE554EE50EFF543CA2B2E1BE00",
+      "world_fps": 95.60958923230311,
+      "last_five_world_windows": [
+        [
+          2.001,
+          95.43
+        ],
+        [
+          2.007,
+          96.65
+        ],
+        [
+          2.009,
+          93.07
+        ],
+        [
+          2.007,
+          97.17
+        ],
+        [
+          2.006,
+          95.73
+        ]
+      ],
+      "saves_unchanged": true,
+      "contended": false,
+      "overlap_samples": 0,
+      "environment": {
+        "GSR_WINSHOT_AT": "",
+        "DRAKAN_RUNTIME_PROFILE": "0",
+        "DRAKAN_VU_TRACE": "1",
+        "DRAKAN_INPUT_AUTOSTART": "0",
+        "DRAKAN_VSYNC": "0",
+        "DRAKAN_AUTOPRESS_NOSTART": "1",
+        "DRAKAN_VU_BATCH_THREADS": "4",
+        "DRAKAN_AUDIO": "1",
+        "PS2X_VU_SPIN": "4096",
+        "DRAKAN_AUTOPRESS": "4000",
+        "PS2X_GS_PACING": "2",
+        "DRAKAN_VU_BATCH_STREAM": "0",
+        "DRAKAN_WINDOW_WIDTH": "3840",
+        "DRAKAN_VU_LAZY_RESET": "0",
+        "DRAKAN_COMBAT_AUDIT": "0",
+        "DRAKAN_DLSS_NEURAL": "0",
+        "DRAKAN_INPUT_INI": "C:\\Games\\Drakan - The Ancients Gates\\decomp\\build\\vu-live-batch-20261019\\t\\livebatch-certified-final-control/drakan_input.ini",
+        "DRAKAN_CONSOLE": "0",
+        "DRAKAN_VUCHECK": "0",
+        "DRAKAN_WINDOW_HEIGHT": "2160",
+        "PS2X_GS": "d3d11",
+        "DRAKAN_VU_BATCH_PREDICATES": "0",
+        "PS2X_GS_SCALE": "4",
+        "DRAKAN_SND_LOG": "0",
+        "PS2X_VU_ATOMIC_WAIT": "0",
+        "GSR_MODERN_WATER": "0",
+        "DRAKAN_VU_BATCH_LAZY_LOADS": "0",
+        "DRAKAN_VU_BATCH_VERIFY": "0",
+        "DRAKAN_INPUT_SCRIPT": "C:\\Games\\Drakan - The Ancients Gates\\decomp\\build\\vu-live-batch-20261019\\t\\livebatch-certified-final-control/sequence.txt",
+        "DRAKAN_VU_COMPACT_FLAGS": "0",
+        "DRAKAN_WORLD_RATE": "uncapped",
+        "GSR_RAY_REFLECTIONS": "0",
+        "DRAKAN_SHOT_DIR": "C:\\Games\\Drakan - The Ancients Gates\\decomp\\build\\vu-live-batch-20261019\\t\\livebatch-certified-final-control",
+        "DRAKAN_VU_BATCH_PROFILE": "0",
+        "PS2X_GS_ASYNC": "1",
+        "GSR_WINSHOT": "",
+        "DRAKAN_VU_TIMED_Q": "1",
+        "GSR_PROFILE": "0",
+        "PS2X_HOSTPROF_DELAY": "22",
+        "PS2X_HOSTPROF": "0",
+        "DRAKAN_DLSS": "off",
+        "DRAKAN_INPUT_LOGFILE": "C:\\Games\\Drakan - The Ancients Gates\\decomp\\build\\vu-live-batch-20261019\\t\\livebatch-certified-final-control/input.log",
+        "DRAKAN_FULLSCREEN": "0",
+        "DRAKAN_AUTOPRESS_UNTIL": "30000",
+        "GSR_RAY_SHADOWS": "0",
+        "PS2X_VU1_THREAD": "1",
+        "DRAKAN_FRAME_LIMIT": "0",
+        "PS2X_MAX_SECONDS": "100",
+        "DRAKAN_AUDIO_DUMP": "",
+        "DRAKAN_CMD_LOG": "0",
+        "DRAKAN_COMBAT_LOG": "0",
+        "DRAKAN_VU_BATCH": "0",
+        "DRAKAN_PAUSE_UNFOCUSED": "0",
+        "DRAKAN_SND_DBG": "0"
+      },
+      "batch_diagnostics": [],
+      "timing_limit": "Narrow audit covers games/compiler only; general CPU load was not recorded."
+    },
+    "livebatch-certified-final-exact": {
+      "exe_sha256": "23BE361172EB15CE4E8AB84C1E1F9630F94B29CE554EE50EFF543CA2B2E1BE00",
+      "world_fps": 86.44310041924535,
+      "last_five_world_windows": [
+        [
+          2.007,
+          85.22
+        ],
+        [
+          2.001,
+          88.45
+        ],
+        [
+          2.001,
+          86.94
+        ],
+        [
+          2.006,
+          86.74
+        ],
+        [
+          2.003,
+          84.87
+        ]
+      ],
+      "saves_unchanged": true,
+      "contended": false,
+      "overlap_samples": 0,
+      "environment": {
+        "GSR_WINSHOT_AT": "",
+        "DRAKAN_RUNTIME_PROFILE": "0",
+        "DRAKAN_VU_TRACE": "1",
+        "DRAKAN_INPUT_AUTOSTART": "0",
+        "DRAKAN_VSYNC": "0",
+        "DRAKAN_AUTOPRESS_NOSTART": "1",
+        "DRAKAN_VU_BATCH_THREADS": "4",
+        "DRAKAN_AUDIO": "1",
+        "PS2X_VU_SPIN": "4096",
+        "DRAKAN_AUTOPRESS": "4000",
+        "PS2X_GS_PACING": "2",
+        "DRAKAN_VU_BATCH_STREAM": "0",
+        "DRAKAN_WINDOW_WIDTH": "3840",
+        "DRAKAN_VU_LAZY_RESET": "0",
+        "DRAKAN_COMBAT_AUDIT": "0",
+        "DRAKAN_DLSS_NEURAL": "0",
+        "DRAKAN_INPUT_INI": "C:\\Games\\Drakan - The Ancients Gates\\decomp\\build\\vu-live-batch-20261019\\t\\livebatch-certified-final-exact/drakan_input.ini",
+        "DRAKAN_CONSOLE": "0",
+        "DRAKAN_VUCHECK": "0",
+        "DRAKAN_WINDOW_HEIGHT": "2160",
+        "PS2X_GS": "d3d11",
+        "DRAKAN_VU_BATCH_PREDICATES": "0",
+        "PS2X_GS_SCALE": "4",
+        "DRAKAN_SND_LOG": "0",
+        "PS2X_VU_ATOMIC_WAIT": "0",
+        "GSR_MODERN_WATER": "0",
+        "DRAKAN_VU_BATCH_LAZY_LOADS": "0",
+        "DRAKAN_VU_BATCH_VERIFY": "0",
+        "DRAKAN_INPUT_SCRIPT": "C:\\Games\\Drakan - The Ancients Gates\\decomp\\build\\vu-live-batch-20261019\\t\\livebatch-certified-final-exact/sequence.txt",
+        "DRAKAN_VU_COMPACT_FLAGS": "0",
+        "DRAKAN_WORLD_RATE": "uncapped",
+        "GSR_RAY_REFLECTIONS": "0",
+        "DRAKAN_SHOT_DIR": "C:\\Games\\Drakan - The Ancients Gates\\decomp\\build\\vu-live-batch-20261019\\t\\livebatch-certified-final-exact",
+        "DRAKAN_VU_BATCH_PROFILE": "0",
+        "PS2X_GS_ASYNC": "1",
+        "GSR_WINSHOT": "",
+        "DRAKAN_VU_TIMED_Q": "1",
+        "GSR_PROFILE": "0",
+        "PS2X_HOSTPROF_DELAY": "22",
+        "PS2X_HOSTPROF": "0",
+        "DRAKAN_DLSS": "off",
+        "DRAKAN_INPUT_LOGFILE": "C:\\Games\\Drakan - The Ancients Gates\\decomp\\build\\vu-live-batch-20261019\\t\\livebatch-certified-final-exact/input.log",
+        "DRAKAN_FULLSCREEN": "0",
+        "DRAKAN_AUTOPRESS_UNTIL": "30000",
+        "GSR_RAY_SHADOWS": "0",
+        "PS2X_VU1_THREAD": "1",
+        "DRAKAN_FRAME_LIMIT": "0",
+        "PS2X_MAX_SECONDS": "100",
+        "DRAKAN_AUDIO_DUMP": "",
+        "DRAKAN_CMD_LOG": "0",
+        "DRAKAN_COMBAT_LOG": "0",
+        "DRAKAN_VU_BATCH": "1",
+        "DRAKAN_PAUSE_UNFOCUSED": "0",
+        "DRAKAN_SND_DBG": "0"
+      },
+      "batch_diagnostics": [
+        "[vu-batch] 11751 batches, 552077 groups: 294084 accepted, 2164 rejected; 0 verified, 0 mismatches; 0 unsupported, 0 single-group, 0 exceptions",
+        "[vu-batch] attempts=15190 short=3439 arbiter=0 code=0 workers=4 dependencies=1 verify=0",
+        "[vu-batch] dependency rejects (VIF,memory,trace,reset,complete,idle,constant,VF,VI,ACC,scalar,CLIP,MAC,status): 0 2149 0 0 0 0 0 2 0 0 0 13 0 0",
+        "[vu-batch] first conflicting qwords: 65:566 186:234 210:160 209:154 660:142 154:137 138:109 166:105; monotone-status=1",
+        "[vu-batch] validated geometry calls=979160 rejected geometry calls=38113; validated pairs=930399931 rejected speculative pairs=56524656",
+        "[vu-batch] deferred load lanes=0 final alias repairs=0 enabled=0",
+        "[vu-batch] streaming preparation=0",
+        "[vu-batch] positive clipping gates=0 relaxed accepted=0 enabled=0",
+        "[vu-batch] abandoned worker results=0",
+        "[vu-batch] owner heads=11751 native UV traced pairs=6878025",
+        "[vu-batch] adaptive serial bypass=244078 enabled=1",
+        "[vu-batch] history predictions=295858 accepted=293751 misses=390 enabled=1"
+      ],
+      "timing_limit": "Narrow audit covers games/compiler only; general CPU load was not recorded."
+    },
+    "livebatch-certified-final-raw": {
+      "exe_sha256": "23BE361172EB15CE4E8AB84C1E1F9630F94B29CE554EE50EFF543CA2B2E1BE00",
+      "world_fps": 88.84476518097517,
+      "last_five_world_windows": [
+        [
+          2.007,
+          86.7
+        ],
+        [
+          2.004,
+          89.81
+        ],
+        [
+          2.001,
+          87.94
+        ],
+        [
+          2.007,
+          89.21
+        ],
+        [
+          2.01,
+          90.56
+        ]
+      ],
+      "saves_unchanged": true,
+      "contended": false,
+      "overlap_samples": 0,
+      "environment": {
+        "GSR_WINSHOT_AT": "",
+        "DRAKAN_RUNTIME_PROFILE": "0",
+        "DRAKAN_VU_TRACE": "1",
+        "DRAKAN_INPUT_AUTOSTART": "0",
+        "DRAKAN_VSYNC": "0",
+        "DRAKAN_AUTOPRESS_NOSTART": "1",
+        "DRAKAN_VU_BATCH_THREADS": "4",
+        "DRAKAN_AUDIO": "1",
+        "PS2X_VU_SPIN": "4096",
+        "DRAKAN_AUTOPRESS": "4000",
+        "PS2X_GS_PACING": "2",
+        "DRAKAN_VU_BATCH_STREAM": "0",
+        "DRAKAN_WINDOW_WIDTH": "3840",
+        "DRAKAN_VU_LAZY_RESET": "0",
+        "DRAKAN_COMBAT_AUDIT": "0",
+        "DRAKAN_DLSS_NEURAL": "0",
+        "DRAKAN_INPUT_INI": "C:\\Games\\Drakan - The Ancients Gates\\decomp\\build\\vu-live-batch-20261019\\t\\livebatch-certified-final-raw/drakan_input.ini",
+        "DRAKAN_CONSOLE": "0",
+        "DRAKAN_VUCHECK": "0",
+        "DRAKAN_WINDOW_HEIGHT": "2160",
+        "PS2X_GS": "d3d11",
+        "DRAKAN_VU_BATCH_PREDICATES": "0",
+        "PS2X_GS_SCALE": "4",
+        "DRAKAN_SND_LOG": "0",
+        "PS2X_VU_ATOMIC_WAIT": "0",
+        "GSR_MODERN_WATER": "0",
+        "DRAKAN_VU_BATCH_LAZY_LOADS": "2",
+        "DRAKAN_VU_BATCH_VERIFY": "0",
+        "DRAKAN_INPUT_SCRIPT": "C:\\Games\\Drakan - The Ancients Gates\\decomp\\build\\vu-live-batch-20261019\\t\\livebatch-certified-final-raw/sequence.txt",
+        "DRAKAN_VU_COMPACT_FLAGS": "0",
+        "DRAKAN_WORLD_RATE": "uncapped",
+        "GSR_RAY_REFLECTIONS": "0",
+        "DRAKAN_SHOT_DIR": "C:\\Games\\Drakan - The Ancients Gates\\decomp\\build\\vu-live-batch-20261019\\t\\livebatch-certified-final-raw",
+        "DRAKAN_VU_BATCH_PROFILE": "0",
+        "PS2X_GS_ASYNC": "1",
+        "GSR_WINSHOT": "",
+        "DRAKAN_VU_TIMED_Q": "1",
+        "GSR_PROFILE": "0",
+        "PS2X_HOSTPROF_DELAY": "22",
+        "PS2X_HOSTPROF": "0",
+        "DRAKAN_DLSS": "off",
+        "DRAKAN_INPUT_LOGFILE": "C:\\Games\\Drakan - The Ancients Gates\\decomp\\build\\vu-live-batch-20261019\\t\\livebatch-certified-final-raw/input.log",
+        "DRAKAN_FULLSCREEN": "0",
+        "DRAKAN_AUTOPRESS_UNTIL": "30000",
+        "GSR_RAY_SHADOWS": "0",
+        "PS2X_VU1_THREAD": "1",
+        "DRAKAN_FRAME_LIMIT": "0",
+        "PS2X_MAX_SECONDS": "100",
+        "DRAKAN_AUDIO_DUMP": "",
+        "DRAKAN_CMD_LOG": "0",
+        "DRAKAN_COMBAT_LOG": "0",
+        "DRAKAN_VU_BATCH": "1",
+        "DRAKAN_PAUSE_UNFOCUSED": "0",
+        "DRAKAN_SND_DBG": "0"
+      },
+      "batch_diagnostics": [
+        "[vu-batch] 11915 batches, 564534 groups: 301224 accepted, 2573 rejected; 0 verified, 0 mismatches; 0 unsupported, 0 single-group, 0 exceptions",
+        "[vu-batch] attempts=15390 short=3475 arbiter=0 code=0 workers=4 dependencies=1 verify=0",
+        "[vu-batch] dependency rejects (VIF,memory,trace,reset,complete,idle,constant,VF,VI,ACC,scalar,CLIP,MAC,status): 0 2554 0 0 0 0 0 0 0 0 0 19 0 0",
+        "[vu-batch] first conflicting qwords: 65:325 186:319 660:197 210:174 209:165 154:153 138:148 176:145; monotone-status=1",
+        "[vu-batch] validated geometry calls=1002141 rejected geometry calls=47663; validated pairs=948238802 rejected speculative pairs=69329902",
+        "[vu-batch] deferred load lanes=7300804 final alias repairs=40568 enabled=2",
+        "[vu-batch] streaming preparation=0",
+        "[vu-batch] positive clipping gates=0 relaxed accepted=0 enabled=0",
+        "[vu-batch] abandoned worker results=0",
+        "[vu-batch] owner heads=11915 native UV traced pairs=8766450",
+        "[vu-batch] adaptive serial bypass=248822 enabled=1",
+        "[vu-batch] history predictions=303466 accepted=300945 misses=331 enabled=1"
+      ],
+      "timing_limit": "Narrow audit covers games/compiler only; general CPU load was not recorded."
+    },
+    "livebatch-certified-final-verify": {
+      "exe_sha256": "23BE361172EB15CE4E8AB84C1E1F9630F94B29CE554EE50EFF543CA2B2E1BE00",
+      "world_fps": 75.21822275353657,
+      "last_five_world_windows": [
+        [
+          2.006,
+          76.28
+        ],
+        [
+          2.012,
+          76.54
+        ],
+        [
+          2.01,
+          73.12
+        ],
+        [
+          2.004,
+          73.87
+        ],
+        [
+          2.006,
+          76.28
+        ]
+      ],
+      "saves_unchanged": true,
+      "contended": false,
+      "overlap_samples": 0,
+      "environment": {
+        "GSR_WINSHOT_AT": "",
+        "DRAKAN_RUNTIME_PROFILE": "0",
+        "DRAKAN_VU_TRACE": "1",
+        "DRAKAN_INPUT_AUTOSTART": "0",
+        "DRAKAN_VSYNC": "0",
+        "DRAKAN_AUTOPRESS_NOSTART": "1",
+        "DRAKAN_VU_BATCH_THREADS": "4",
+        "DRAKAN_AUDIO": "1",
+        "PS2X_VU_SPIN": "4096",
+        "DRAKAN_AUTOPRESS": "4000",
+        "PS2X_GS_PACING": "2",
+        "DRAKAN_VU_BATCH_STREAM": "0",
+        "DRAKAN_WINDOW_WIDTH": "3840",
+        "DRAKAN_VU_LAZY_RESET": "0",
+        "DRAKAN_COMBAT_AUDIT": "0",
+        "DRAKAN_DLSS_NEURAL": "0",
+        "DRAKAN_INPUT_INI": "C:\\Games\\Drakan - The Ancients Gates\\decomp\\build\\vu-live-batch-20261019\\t\\livebatch-certified-final-verify/drakan_input.ini",
+        "DRAKAN_CONSOLE": "0",
+        "DRAKAN_VUCHECK": "0",
+        "DRAKAN_WINDOW_HEIGHT": "2160",
+        "PS2X_GS": "d3d11",
+        "DRAKAN_VU_BATCH_PREDICATES": "0",
+        "PS2X_GS_SCALE": "4",
+        "DRAKAN_SND_LOG": "0",
+        "PS2X_VU_ATOMIC_WAIT": "0",
+        "GSR_MODERN_WATER": "0",
+        "DRAKAN_VU_BATCH_LAZY_LOADS": "2",
+        "DRAKAN_VU_BATCH_VERIFY": "1",
+        "DRAKAN_INPUT_SCRIPT": "C:\\Games\\Drakan - The Ancients Gates\\decomp\\build\\vu-live-batch-20261019\\t\\livebatch-certified-final-verify/sequence.txt",
+        "DRAKAN_VU_COMPACT_FLAGS": "0",
+        "DRAKAN_WORLD_RATE": "uncapped",
+        "GSR_RAY_REFLECTIONS": "0",
+        "DRAKAN_SHOT_DIR": "C:\\Games\\Drakan - The Ancients Gates\\decomp\\build\\vu-live-batch-20261019\\t\\livebatch-certified-final-verify",
+        "DRAKAN_VU_BATCH_PROFILE": "0",
+        "PS2X_GS_ASYNC": "1",
+        "GSR_WINSHOT": "",
+        "DRAKAN_VU_TIMED_Q": "1",
+        "GSR_PROFILE": "0",
+        "PS2X_HOSTPROF_DELAY": "22",
+        "PS2X_HOSTPROF": "0",
+        "DRAKAN_DLSS": "off",
+        "DRAKAN_INPUT_LOGFILE": "C:\\Games\\Drakan - The Ancients Gates\\decomp\\build\\vu-live-batch-20261019\\t\\livebatch-certified-final-verify/input.log",
+        "DRAKAN_FULLSCREEN": "0",
+        "DRAKAN_AUTOPRESS_UNTIL": "30000",
+        "GSR_RAY_SHADOWS": "0",
+        "PS2X_VU1_THREAD": "1",
+        "DRAKAN_FRAME_LIMIT": "0",
+        "PS2X_MAX_SECONDS": "100",
+        "DRAKAN_AUDIO_DUMP": "",
+        "DRAKAN_CMD_LOG": "0",
+        "DRAKAN_COMBAT_LOG": "0",
+        "DRAKAN_VU_BATCH": "1",
+        "DRAKAN_PAUSE_UNFOCUSED": "0",
+        "DRAKAN_SND_DBG": "0"
+      },
+      "batch_diagnostics": [
+        "[vu-batch] 10421 batches, 489249 groups: 260499 accepted, 2204 rejected; 260499 verified, 0 mismatches; 0 unsupported, 0 single-group, 0 exceptions",
+        "[vu-batch] attempts=13459 short=3038 arbiter=0 code=0 workers=4 dependencies=1 verify=1",
+        "[vu-batch] dependency rejects (VIF,memory,trace,reset,complete,idle,constant,VF,VI,ACC,scalar,CLIP,MAC,status): 0 2194 0 0 0 0 0 0 0 0 0 10 0 0",
+        "[vu-batch] first conflicting qwords: 65:346 186:195 210:146 138:141 209:135 660:131 176:127 154:123; monotone-status=1",
+        "[vu-batch] validated geometry calls=872275 rejected geometry calls=39785; validated pairs=838073720 rejected speculative pairs=58771491",
+        "[vu-batch] deferred load lanes=6332816 final alias repairs=35284 enabled=2",
+        "[vu-batch] streaming preparation=0",
+        "[vu-batch] positive clipping gates=0 relaxed accepted=0 enabled=0",
+        "[vu-batch] abandoned worker results=0",
+        "[vu-batch] owner heads=10421 native UV traced pairs=7092225",
+        "[vu-batch] adaptive serial bypass=216125 enabled=1",
+        "[vu-batch] history predictions=262395 accepted=260242 misses=308 enabled=1"
+      ],
+      "timing_limit": "Narrow audit covers games/compiler only; general CPU load was not recorded."
+    },
+    "livebatch-final2-control": {
+      "exe_sha256": "6128AFA651FA580069FC6BBE3D9AAE222E4B995D342EC88D893960138579EEDE",
+      "world_fps": 95.88988238811922,
+      "last_five_world_windows": [
+        [
+          2.007,
+          96.68
+        ],
+        [
+          2.01,
+          95.53
+        ],
+        [
+          2.007,
+          96.15
+        ],
+        [
+          2.002,
+          95.91
+        ],
+        [
+          2.007,
+          95.18
+        ]
+      ],
+      "saves_unchanged": true,
+      "contended": false,
+      "overlap_samples": 0,
+      "environment": {
+        "DRAKAN_WINDOW_WIDTH": "3840",
+        "DRAKAN_VU_BATCH_VERIFY": "0",
+        "PS2X_GS_PACING": "2",
+        "DRAKAN_SND_LOG": "0",
+        "DRAKAN_CONSOLE": "0",
+        "DRAKAN_INPUT_INI": "C:\\Games\\Drakan - The Ancients Gates\\decomp\\build\\vu-live-batch-20261019\\t\\livebatch-final2-control/drakan_input.ini",
+        "DRAKAN_FRAME_LIMIT": "0",
+        "PS2X_VU_ATOMIC_WAIT": "0",
+        "GSR_WINSHOT_AT": "",
+        "PS2X_MAX_SECONDS": "100",
+        "DRAKAN_VUCHECK": "0",
+        "DRAKAN_VU_TRACE": "1",
+        "DRAKAN_AUTOPRESS": "4000",
+        "DRAKAN_VU_BATCH_STREAM": "0",
+        "DRAKAN_PAUSE_UNFOCUSED": "0",
+        "DRAKAN_SND_DBG": "0",
+        "GSR_RAY_SHADOWS": "0",
+        "PS2X_HOSTPROF": "0",
+        "DRAKAN_INPUT_SCRIPT": "C:\\Games\\Drakan - The Ancients Gates\\decomp\\build\\vu-live-batch-20261019\\t\\livebatch-final2-control/sequence.txt",
+        "PS2X_VU_SPIN": "4096",
+        "DRAKAN_DLSS": "off",
+        "DRAKAN_VU_BATCH_PROFILE": "0",
+        "DRAKAN_VU_TIMED_Q": "1",
+        "DRAKAN_VU_COMPACT_FLAGS": "0",
+        "DRAKAN_INPUT_LOGFILE": "C:\\Games\\Drakan - The Ancients Gates\\decomp\\build\\vu-live-batch-20261019\\t\\livebatch-final2-control/input.log",
+        "DRAKAN_VU_LAZY_RESET": "0",
+        "DRAKAN_AUTOPRESS_UNTIL": "30000",
+        "GSR_WINSHOT": "",
+        "DRAKAN_VU_BATCH_PREDICATES": "0",
+        "DRAKAN_WORLD_RATE": "uncapped",
+        "PS2X_GS": "d3d11",
+        "PS2X_GS_ASYNC": "1",
+        "DRAKAN_AUTOPRESS_NOSTART": "1",
+        "DRAKAN_CMD_LOG": "0",
+        "GSR_PROFILE": "0",
+        "PS2X_HOSTPROF_DELAY": "22",
+        "DRAKAN_AUDIO": "1",
+        "PS2X_GS_SCALE": "4",
+        "DRAKAN_INPUT_AUTOSTART": "0",
+        "DRAKAN_FULLSCREEN": "0",
+        "DRAKAN_AUDIO_DUMP": "",
+        "DRAKAN_WINDOW_HEIGHT": "2160",
+        "DRAKAN_COMBAT_AUDIT": "0",
+        "DRAKAN_VU_BATCH_THREADS": "4",
+        "PS2X_VU1_THREAD": "1",
+        "DRAKAN_VU_BATCH_LAZY_LOADS": "0",
+        "DRAKAN_COMBAT_LOG": "0",
+        "DRAKAN_RUNTIME_PROFILE": "0",
+        "DRAKAN_VSYNC": "0",
+        "GSR_MODERN_WATER": "0",
+        "DRAKAN_DLSS_NEURAL": "0",
+        "DRAKAN_VU_BATCH": "0",
+        "DRAKAN_SHOT_DIR": "C:\\Games\\Drakan - The Ancients Gates\\decomp\\build\\vu-live-batch-20261019\\t\\livebatch-final2-control",
+        "GSR_RAY_REFLECTIONS": "0"
+      },
+      "batch_diagnostics": [],
+      "timing_limit": "Narrow audit covers games/compiler only; general CPU load was not recorded."
+    },
+    "livebatch-final2-exact": {
+      "exe_sha256": "6128AFA651FA580069FC6BBE3D9AAE222E4B995D342EC88D893960138579EEDE",
+      "world_fps": 84.75614119054741,
+      "last_five_world_windows": [
+        [
+          2.002,
+          83.91
+        ],
+        [
+          2.001,
+          84.97
+        ],
+        [
+          2.008,
+          86.17
+        ],
+        [
+          2.011,
+          84.02
+        ],
+        [
+          2.007,
+          84.71
+        ]
+      ],
+      "saves_unchanged": true,
+      "contended": false,
+      "overlap_samples": 0,
+      "environment": {
+        "DRAKAN_WINDOW_WIDTH": "3840",
+        "DRAKAN_VU_BATCH_VERIFY": "0",
+        "PS2X_GS_PACING": "2",
+        "DRAKAN_SND_LOG": "0",
+        "DRAKAN_CONSOLE": "0",
+        "DRAKAN_INPUT_INI": "C:\\Games\\Drakan - The Ancients Gates\\decomp\\build\\vu-live-batch-20261019\\t\\livebatch-final2-exact/drakan_input.ini",
+        "DRAKAN_FRAME_LIMIT": "0",
+        "PS2X_VU_ATOMIC_WAIT": "0",
+        "GSR_WINSHOT_AT": "",
+        "PS2X_MAX_SECONDS": "100",
+        "DRAKAN_VUCHECK": "0",
+        "DRAKAN_VU_TRACE": "1",
+        "DRAKAN_AUTOPRESS": "4000",
+        "DRAKAN_VU_BATCH_STREAM": "0",
+        "DRAKAN_PAUSE_UNFOCUSED": "0",
+        "DRAKAN_SND_DBG": "0",
+        "GSR_RAY_SHADOWS": "0",
+        "PS2X_HOSTPROF": "0",
+        "DRAKAN_INPUT_SCRIPT": "C:\\Games\\Drakan - The Ancients Gates\\decomp\\build\\vu-live-batch-20261019\\t\\livebatch-final2-exact/sequence.txt",
+        "PS2X_VU_SPIN": "4096",
+        "DRAKAN_DLSS": "off",
+        "DRAKAN_VU_BATCH_PROFILE": "0",
+        "DRAKAN_VU_TIMED_Q": "1",
+        "DRAKAN_VU_COMPACT_FLAGS": "0",
+        "DRAKAN_INPUT_LOGFILE": "C:\\Games\\Drakan - The Ancients Gates\\decomp\\build\\vu-live-batch-20261019\\t\\livebatch-final2-exact/input.log",
+        "DRAKAN_VU_LAZY_RESET": "0",
+        "DRAKAN_AUTOPRESS_UNTIL": "30000",
+        "GSR_WINSHOT": "",
+        "DRAKAN_VU_BATCH_PREDICATES": "0",
+        "DRAKAN_WORLD_RATE": "uncapped",
+        "PS2X_GS": "d3d11",
+        "PS2X_GS_ASYNC": "1",
+        "DRAKAN_AUTOPRESS_NOSTART": "1",
+        "DRAKAN_CMD_LOG": "0",
+        "GSR_PROFILE": "0",
+        "PS2X_HOSTPROF_DELAY": "22",
+        "DRAKAN_AUDIO": "1",
+        "PS2X_GS_SCALE": "4",
+        "DRAKAN_INPUT_AUTOSTART": "0",
+        "DRAKAN_FULLSCREEN": "0",
+        "DRAKAN_AUDIO_DUMP": "",
+        "DRAKAN_WINDOW_HEIGHT": "2160",
+        "DRAKAN_COMBAT_AUDIT": "0",
+        "DRAKAN_VU_BATCH_THREADS": "4",
+        "PS2X_VU1_THREAD": "1",
+        "DRAKAN_VU_BATCH_LAZY_LOADS": "0",
+        "DRAKAN_COMBAT_LOG": "0",
+        "DRAKAN_RUNTIME_PROFILE": "0",
+        "DRAKAN_VSYNC": "0",
+        "GSR_MODERN_WATER": "0",
+        "DRAKAN_DLSS_NEURAL": "0",
+        "DRAKAN_VU_BATCH": "1",
+        "DRAKAN_SHOT_DIR": "C:\\Games\\Drakan - The Ancients Gates\\decomp\\build\\vu-live-batch-20261019\\t\\livebatch-final2-exact",
+        "GSR_RAY_REFLECTIONS": "0"
+      },
+      "batch_diagnostics": [
+        "[vu-batch] 11653 batches, 544357 groups: 289665 accepted, 2048 rejected; 0 verified, 0 mismatches; 0 unsupported, 0 single-group, 0 exceptions",
+        "[vu-batch] attempts=15080 short=3427 arbiter=0 code=0 workers=4 dependencies=1 verify=0",
+        "[vu-batch] dependency rejects (VIF,memory,trace,reset,complete,idle,constant,VF,VI,ACC,scalar,CLIP,MAC,status): 0 1964 0 0 0 0 0 0 0 0 0 84 0 0",
+        "[vu-batch] first conflicting qwords: 65:556 210:158 186:153 209:146 154:124 166:109 138:109 146:105; monotone-status=1",
+        "[vu-batch] validated geometry calls=964602 rejected geometry calls=35515; validated pairs=920013793 rejected speculative pairs=52331490",
+        "[vu-batch] deferred load lanes=0 final alias repairs=0 enabled=0",
+        "[vu-batch] streaming preparation=0",
+        "[vu-batch] positive clipping gates=0 relaxed accepted=0 enabled=0",
+        "[vu-batch] abandoned worker results=0",
+        "[vu-batch] owner heads=11653 native UV traced pairs=6403950",
+        "[vu-batch] adaptive serial bypass=240991 enabled=1",
+        "[vu-batch] history predictions=291332 accepted=289419 misses=381 enabled=1"
+      ],
+      "timing_limit": "Narrow audit covers games/compiler only; general CPU load was not recorded."
+    },
+    "livebatch-final2-lazy": {
+      "exe_sha256": "6128AFA651FA580069FC6BBE3D9AAE222E4B995D342EC88D893960138579EEDE",
+      "world_fps": 83.92207913884182,
+      "last_five_world_windows": [
+        [
+          2.004,
+          84.32
+        ],
+        [
+          2.002,
+          84.43
+        ],
+        [
+          2.003,
+          82.88
+        ],
+        [
+          2.014,
+          83.91
+        ],
+        [
+          2.01,
+          84.07
+        ]
+      ],
+      "saves_unchanged": true,
+      "contended": false,
+      "overlap_samples": 0,
+      "environment": {
+        "DRAKAN_WINDOW_WIDTH": "3840",
+        "DRAKAN_VU_BATCH_VERIFY": "0",
+        "PS2X_GS_PACING": "2",
+        "DRAKAN_SND_LOG": "0",
+        "DRAKAN_CONSOLE": "0",
+        "DRAKAN_INPUT_INI": "C:\\Games\\Drakan - The Ancients Gates\\decomp\\build\\vu-live-batch-20261019\\t\\livebatch-final2-lazy/drakan_input.ini",
+        "DRAKAN_FRAME_LIMIT": "0",
+        "PS2X_VU_ATOMIC_WAIT": "0",
+        "GSR_WINSHOT_AT": "",
+        "PS2X_MAX_SECONDS": "100",
+        "DRAKAN_VUCHECK": "0",
+        "DRAKAN_VU_TRACE": "1",
+        "DRAKAN_AUTOPRESS": "4000",
+        "DRAKAN_VU_BATCH_STREAM": "0",
+        "DRAKAN_PAUSE_UNFOCUSED": "0",
+        "DRAKAN_SND_DBG": "0",
+        "GSR_RAY_SHADOWS": "0",
+        "PS2X_HOSTPROF": "0",
+        "DRAKAN_INPUT_SCRIPT": "C:\\Games\\Drakan - The Ancients Gates\\decomp\\build\\vu-live-batch-20261019\\t\\livebatch-final2-lazy/sequence.txt",
+        "PS2X_VU_SPIN": "4096",
+        "DRAKAN_DLSS": "off",
+        "DRAKAN_VU_BATCH_PROFILE": "0",
+        "DRAKAN_VU_TIMED_Q": "1",
+        "DRAKAN_VU_COMPACT_FLAGS": "0",
+        "DRAKAN_INPUT_LOGFILE": "C:\\Games\\Drakan - The Ancients Gates\\decomp\\build\\vu-live-batch-20261019\\t\\livebatch-final2-lazy/input.log",
+        "DRAKAN_VU_LAZY_RESET": "0",
+        "DRAKAN_AUTOPRESS_UNTIL": "30000",
+        "GSR_WINSHOT": "",
+        "DRAKAN_VU_BATCH_PREDICATES": "0",
+        "DRAKAN_WORLD_RATE": "uncapped",
+        "PS2X_GS": "d3d11",
+        "PS2X_GS_ASYNC": "1",
+        "DRAKAN_AUTOPRESS_NOSTART": "1",
+        "DRAKAN_CMD_LOG": "0",
+        "GSR_PROFILE": "0",
+        "PS2X_HOSTPROF_DELAY": "22",
+        "DRAKAN_AUDIO": "1",
+        "PS2X_GS_SCALE": "4",
+        "DRAKAN_INPUT_AUTOSTART": "0",
+        "DRAKAN_FULLSCREEN": "0",
+        "DRAKAN_AUDIO_DUMP": "",
+        "DRAKAN_WINDOW_HEIGHT": "2160",
+        "DRAKAN_COMBAT_AUDIT": "0",
+        "DRAKAN_VU_BATCH_THREADS": "4",
+        "PS2X_VU1_THREAD": "1",
+        "DRAKAN_VU_BATCH_LAZY_LOADS": "1",
+        "DRAKAN_COMBAT_LOG": "0",
+        "DRAKAN_RUNTIME_PROFILE": "0",
+        "DRAKAN_VSYNC": "0",
+        "GSR_MODERN_WATER": "0",
+        "DRAKAN_DLSS_NEURAL": "0",
+        "DRAKAN_VU_BATCH": "1",
+        "DRAKAN_SHOT_DIR": "C:\\Games\\Drakan - The Ancients Gates\\decomp\\build\\vu-live-batch-20261019\\t\\livebatch-final2-lazy",
+        "GSR_RAY_REFLECTIONS": "0"
+      },
+      "batch_diagnostics": [
+        "[vu-batch] 11421 batches, 538292 groups: 289211 accepted, 2366 rejected; 0 verified, 0 mismatches; 0 unsupported, 0 single-group, 0 exceptions",
+        "[vu-batch] attempts=14704 short=3283 arbiter=0 code=0 workers=4 dependencies=1 verify=0",
+        "[vu-batch] dependency rejects (VIF,memory,trace,reset,complete,idle,constant,VF,VI,ACC,scalar,CLIP,MAC,status): 0 2309 0 0 0 0 0 3 0 0 0 54 0 0",
+        "[vu-batch] first conflicting qwords: 186:370 210:224 660:217 209:154 154:148 138:145 198:142 166:141; monotone-status=1",
+        "[vu-batch] validated geometry calls=968254 rejected geometry calls=42849; validated pairs=935469090 rejected speculative pairs=62810401",
+        "[vu-batch] deferred load lanes=220956966 final alias repairs=1113251 enabled=1",
+        "[vu-batch] streaming preparation=0",
+        "[vu-batch] positive clipping gates=0 relaxed accepted=0 enabled=0",
+        "[vu-batch] abandoned worker results=0",
+        "[vu-batch] owner heads=11421 native UV traced pairs=7674975",
+        "[vu-batch] adaptive serial bypass=235294 enabled=1",
+        "[vu-batch] history predictions=291254 accepted=288938 misses=323 enabled=1"
+      ],
+      "timing_limit": "Narrow audit covers games/compiler only; general CPU load was not recorded."
+    },
+    "livebatch-final2-verify": {
+      "exe_sha256": "6128AFA651FA580069FC6BBE3D9AAE222E4B995D342EC88D893960138579EEDE",
+      "world_fps": 74.23764823119083,
+      "last_five_world_windows": [
+        [
+          2.003,
+          72.9
+        ],
+        [
+          2.011,
+          75.09
+        ],
+        [
+          2.005,
+          72.82
+        ],
+        [
+          2.013,
+          75.49
+        ],
+        [
+          2.003,
+          74.88
+        ]
+      ],
+      "saves_unchanged": true,
+      "contended": false,
+      "overlap_samples": 0,
+      "environment": {
+        "DRAKAN_WINDOW_WIDTH": "3840",
+        "DRAKAN_VU_BATCH_VERIFY": "1",
+        "PS2X_GS_PACING": "2",
+        "DRAKAN_SND_LOG": "0",
+        "DRAKAN_CONSOLE": "0",
+        "DRAKAN_INPUT_INI": "C:\\Games\\Drakan - The Ancients Gates\\decomp\\build\\vu-live-batch-20261019\\t\\livebatch-final2-verify/drakan_input.ini",
+        "DRAKAN_FRAME_LIMIT": "0",
+        "PS2X_VU_ATOMIC_WAIT": "0",
+        "GSR_WINSHOT_AT": "",
+        "PS2X_MAX_SECONDS": "100",
+        "DRAKAN_VUCHECK": "0",
+        "DRAKAN_VU_TRACE": "1",
+        "DRAKAN_AUTOPRESS": "4000",
+        "DRAKAN_VU_BATCH_STREAM": "0",
+        "DRAKAN_PAUSE_UNFOCUSED": "0",
+        "DRAKAN_SND_DBG": "0",
+        "GSR_RAY_SHADOWS": "0",
+        "PS2X_HOSTPROF": "0",
+        "DRAKAN_INPUT_SCRIPT": "C:\\Games\\Drakan - The Ancients Gates\\decomp\\build\\vu-live-batch-20261019\\t\\livebatch-final2-verify/sequence.txt",
+        "PS2X_VU_SPIN": "4096",
+        "DRAKAN_DLSS": "off",
+        "DRAKAN_VU_BATCH_PROFILE": "0",
+        "DRAKAN_VU_TIMED_Q": "1",
+        "DRAKAN_VU_COMPACT_FLAGS": "0",
+        "DRAKAN_INPUT_LOGFILE": "C:\\Games\\Drakan - The Ancients Gates\\decomp\\build\\vu-live-batch-20261019\\t\\livebatch-final2-verify/input.log",
+        "DRAKAN_VU_LAZY_RESET": "0",
+        "DRAKAN_AUTOPRESS_UNTIL": "30000",
+        "GSR_WINSHOT": "",
+        "DRAKAN_VU_BATCH_PREDICATES": "0",
+        "DRAKAN_WORLD_RATE": "uncapped",
+        "PS2X_GS": "d3d11",
+        "PS2X_GS_ASYNC": "1",
+        "DRAKAN_AUTOPRESS_NOSTART": "1",
+        "DRAKAN_CMD_LOG": "0",
+        "GSR_PROFILE": "0",
+        "PS2X_HOSTPROF_DELAY": "22",
+        "DRAKAN_AUDIO": "1",
+        "PS2X_GS_SCALE": "4",
+        "DRAKAN_INPUT_AUTOSTART": "0",
+        "DRAKAN_FULLSCREEN": "0",
+        "DRAKAN_AUDIO_DUMP": "",
+        "DRAKAN_WINDOW_HEIGHT": "2160",
+        "DRAKAN_COMBAT_AUDIT": "0",
+        "DRAKAN_VU_BATCH_THREADS": "4",
+        "PS2X_VU1_THREAD": "1",
+        "DRAKAN_VU_BATCH_LAZY_LOADS": "1",
+        "DRAKAN_COMBAT_LOG": "0",
+        "DRAKAN_RUNTIME_PROFILE": "0",
+        "DRAKAN_VSYNC": "0",
+        "GSR_MODERN_WATER": "0",
+        "DRAKAN_DLSS_NEURAL": "0",
+        "DRAKAN_VU_BATCH": "1",
+        "DRAKAN_SHOT_DIR": "C:\\Games\\Drakan - The Ancients Gates\\decomp\\build\\vu-live-batch-20261019\\t\\livebatch-final2-verify",
+        "GSR_RAY_REFLECTIONS": "0"
+      },
+      "batch_diagnostics": [
+        "[vu-batch] 10158 batches, 474556 groups: 253917 accepted, 1902 rejected; 253917 verified, 0 mismatches; 0 unsupported, 0 single-group, 0 exceptions",
+        "[vu-batch] attempts=13137 short=2979 arbiter=0 code=0 workers=4 dependencies=1 verify=1",
+        "[vu-batch] dependency rejects (VIF,memory,trace,reset,complete,idle,constant,VF,VI,ACC,scalar,CLIP,MAC,status): 0 1846 0 0 0 0 0 4 0 0 0 52 0 0",
+        "[vu-batch] first conflicting qwords: 186:293 210:173 660:172 198:124 176:111 672:101 209:100 138:96; monotone-status=1",
+        "[vu-batch] validated geometry calls=849679 rejected geometry calls=33966; validated pairs=819040515 rejected speculative pairs=51267746",
+        "[vu-batch] deferred load lanes=194922799 final alias repairs=979198 enabled=1",
+        "[vu-batch] streaming preparation=0",
+        "[vu-batch] positive clipping gates=0 relaxed accepted=0 enabled=0",
+        "[vu-batch] abandoned worker results=0",
+        "[vu-batch] owner heads=10158 native UV traced pairs=5929875",
+        "[vu-batch] adaptive serial bypass=208579 enabled=1",
+        "[vu-batch] history predictions=255415 accepted=253576 misses=404 enabled=1"
+      ],
+      "timing_limit": "Narrow audit covers games/compiler only; general CPU load was not recorded."
+    },
+    "livebatch-native-packet-final-control-batch": {
+      "exe_sha256": "8506DB275A230F19BDCDF7FEE163A4943AE9A06C5C2600F7AB8B6A5A1A7AB3C1",
+      "world_fps": 76.93457140005988,
+      "last_five_world_windows": [
+        [
+          2.002,
+          57.44
+        ],
+        [
+          2.006,
+          67.31
+        ],
+        [
+          2.005,
+          88.28
+        ],
+        [
+          2.0,
+          86.48
+        ],
+        [
+          2.008,
+          85.15
+        ]
+      ],
+      "saves_unchanged": true,
+      "contended": false,
+      "overlap_samples": 0,
+      "environment": {
+        "DRAKAN_WINDOW_WIDTH": "3840",
+        "DRAKAN_PAUSE_UNFOCUSED": "0",
+        "DRAKAN_DLSS": "off",
+        "PS2X_VU1_THREAD": "1",
+        "DRAKAN_VU_BATCH_THREADS": "4",
+        "PS2X_VU_ATOMIC_WAIT": "0",
+        "DRAKAN_INPUT_AUTOSTART": "0",
+        "PS2X_GS": "d3d11",
+        "DRAKAN_VU_BATCH_VERIFY": "0",
+        "DRAKAN_FRAME_LIMIT": "0",
+        "DRAKAN_VU_BATCH_LAZY_LOADS": "2",
+        "DRAKAN_CMD_LOG": "0",
+        "DRAKAN_VU_LAZY_RESET": "0",
+        "PS2X_HOSTPROF": "0",
+        "DRAKAN_VU_BATCH_NATIVE_PACKET": "0",
+        "GSR_WINSHOT_AT": "",
+        "DRAKAN_INPUT_LOGFILE": "C:\\Games\\Drakan - The Ancients Gates\\decomp\\build\\vu-live-batch-20261019\\t\\livebatch-native-packet-final-control-batch/input.log",
+        "PS2X_GS_ASYNC": "1",
+        "DRAKAN_WINDOW_HEIGHT": "2160",
+        "DRAKAN_VU_BATCH_STREAM": "0",
+        "DRAKAN_FULLSCREEN": "0",
+        "DRAKAN_VU_TRACE": "1",
+        "DRAKAN_VU_BATCH_PROFILE": "0",
+        "GSR_RAY_REFLECTIONS": "0",
+        "DRAKAN_VU_BATCH_PREDICATES": "0",
+        "DRAKAN_COMBAT_LOG": "0",
+        "DRAKAN_SHOT_DIR": "C:\\Games\\Drakan - The Ancients Gates\\decomp\\build\\vu-live-batch-20261019\\t\\livebatch-native-packet-final-control-batch",
+        "GSR_MODERN_WATER": "0",
+        "PS2X_VU_SPIN": "4096",
+        "DRAKAN_AUTOPRESS_UNTIL": "30000",
+        "PS2X_GS_SCALE": "4",
+        "DRAKAN_INPUT_INI": "C:\\Games\\Drakan - The Ancients Gates\\decomp\\build\\vu-live-batch-20261019\\t\\livebatch-native-packet-final-control-batch/drakan_input.ini",
+        "DRAKAN_AUTOPRESS_NOSTART": "1",
+        "GSR_WINSHOT": "",
+        "DRAKAN_VU_COMPACT_FLAGS": "0",
+        "DRAKAN_VUCHECK": "0",
+        "PS2X_MAX_SECONDS": "100",
+        "DRAKAN_VSYNC": "0",
+        "DRAKAN_CONSOLE": "0",
+        "DRAKAN_DLSS_NEURAL": "0",
+        "DRAKAN_AUDIO_DUMP": "",
+        "DRAKAN_COMBAT_AUDIT": "0",
+        "DRAKAN_SND_LOG": "0",
+        "PS2X_GS_PACING": "2",
+        "GSR_PROFILE": "0",
+        "DRAKAN_AUTOPRESS": "4000",
+        "DRAKAN_AUDIO": "1",
+        "DRAKAN_RUNTIME_PROFILE": "0",
+        "DRAKAN_VU_TIMED_Q": "1",
+        "DRAKAN_INPUT_SCRIPT": "C:\\Games\\Drakan - The Ancients Gates\\decomp\\build\\vu-live-batch-20261019\\t\\livebatch-native-packet-final-control-batch/sequence.txt",
+        "DRAKAN_VU_BATCH": "1",
+        "DRAKAN_WORLD_RATE": "uncapped",
+        "PS2X_HOSTPROF_DELAY": "22",
+        "DRAKAN_SND_DBG": "0",
+        "GSR_RAY_SHADOWS": "0"
+      },
+      "batch_diagnostics": [
+        "[vu-batch] 9252 batches, 420213 groups: 216570 accepted, 1685 rejected; 0 verified, 0 mismatches; 0 unsupported, 0 single-group, 0 exceptions",
+        "[vu-batch] attempts=11934 short=2682 arbiter=0 code=0 workers=4 dependencies=1 verify=0",
+        "[vu-batch] dependency rejects (VIF,memory,trace,reset,complete,idle,constant,VF,VI,ACC,scalar,CLIP,MAC,status): 0 1595 0 0 0 0 0 2 0 0 0 88 0 0",
+        "[vu-batch] first conflicting qwords: 65:305 198:122 186:115 176:92 672:90 210:87 209:80 162:78; monotone-status=1",
+        "[vu-batch] validated geometry calls=727215 rejected geometry calls=29323; validated pairs=691187547 rejected speculative pairs=44508345",
+        "[vu-batch] native packet traced pairs=0 enabled=0",
+        "[vu-batch] deferred load lanes=5335796 final alias repairs=27212 enabled=2",
+        "[vu-batch] streaming preparation=0",
+        "[vu-batch] positive clipping gates=0 relaxed accepted=0 enabled=0",
+        "[vu-batch] abandoned worker results=0",
+        "[vu-batch] owner heads=9252 native UV traced pairs=5109300",
+        "[vu-batch] adaptive serial bypass=192706 enabled=1",
+        "[vu-batch] history predictions=217847 accepted=216292 misses=408 enabled=1"
+      ],
+      "timing_limit": "Narrow audit covers games/compiler only; general CPU load was not recorded."
+    },
+    "livebatch-native-packet-final-control-serial": {
+      "exe_sha256": "8506DB275A230F19BDCDF7FEE163A4943AE9A06C5C2600F7AB8B6A5A1A7AB3C1",
+      "world_fps": 90.97402992518704,
+      "last_five_world_windows": [
+        [
+          2.006,
+          97.2
+        ],
+        [
+          2.005,
+          89.29
+        ],
+        [
+          2.005,
+          85.78
+        ],
+        [
+          2.007,
+          90.18
+        ],
+        [
+          2.002,
+          92.42
+        ]
+      ],
+      "saves_unchanged": true,
+      "contended": false,
+      "overlap_samples": 0,
+      "environment": {
+        "DRAKAN_WINDOW_WIDTH": "3840",
+        "DRAKAN_PAUSE_UNFOCUSED": "0",
+        "DRAKAN_DLSS": "off",
+        "PS2X_VU1_THREAD": "1",
+        "DRAKAN_VU_BATCH_THREADS": "4",
+        "PS2X_VU_ATOMIC_WAIT": "0",
+        "DRAKAN_INPUT_AUTOSTART": "0",
+        "PS2X_GS": "d3d11",
+        "DRAKAN_VU_BATCH_VERIFY": "0",
+        "DRAKAN_FRAME_LIMIT": "0",
+        "DRAKAN_VU_BATCH_LAZY_LOADS": "2",
+        "DRAKAN_CMD_LOG": "0",
+        "DRAKAN_VU_LAZY_RESET": "0",
+        "PS2X_HOSTPROF": "0",
+        "DRAKAN_VU_BATCH_NATIVE_PACKET": "0",
+        "GSR_WINSHOT_AT": "",
+        "DRAKAN_INPUT_LOGFILE": "C:\\Games\\Drakan - The Ancients Gates\\decomp\\build\\vu-live-batch-20261019\\t\\livebatch-native-packet-final-control-serial/input.log",
+        "PS2X_GS_ASYNC": "1",
+        "DRAKAN_WINDOW_HEIGHT": "2160",
+        "DRAKAN_VU_BATCH_STREAM": "0",
+        "DRAKAN_FULLSCREEN": "0",
+        "DRAKAN_VU_TRACE": "1",
+        "DRAKAN_VU_BATCH_PROFILE": "0",
+        "GSR_RAY_REFLECTIONS": "0",
+        "DRAKAN_VU_BATCH_PREDICATES": "0",
+        "DRAKAN_COMBAT_LOG": "0",
+        "DRAKAN_SHOT_DIR": "C:\\Games\\Drakan - The Ancients Gates\\decomp\\build\\vu-live-batch-20261019\\t\\livebatch-native-packet-final-control-serial",
+        "GSR_MODERN_WATER": "0",
+        "PS2X_VU_SPIN": "4096",
+        "DRAKAN_AUTOPRESS_UNTIL": "30000",
+        "PS2X_GS_SCALE": "4",
+        "DRAKAN_INPUT_INI": "C:\\Games\\Drakan - The Ancients Gates\\decomp\\build\\vu-live-batch-20261019\\t\\livebatch-native-packet-final-control-serial/drakan_input.ini",
+        "DRAKAN_AUTOPRESS_NOSTART": "1",
+        "GSR_WINSHOT": "",
+        "DRAKAN_VU_COMPACT_FLAGS": "0",
+        "DRAKAN_VUCHECK": "0",
+        "PS2X_MAX_SECONDS": "100",
+        "DRAKAN_VSYNC": "0",
+        "DRAKAN_CONSOLE": "0",
+        "DRAKAN_DLSS_NEURAL": "0",
+        "DRAKAN_AUDIO_DUMP": "",
+        "DRAKAN_COMBAT_AUDIT": "0",
+        "DRAKAN_SND_LOG": "0",
+        "PS2X_GS_PACING": "2",
+        "GSR_PROFILE": "0",
+        "DRAKAN_AUTOPRESS": "4000",
+        "DRAKAN_AUDIO": "1",
+        "DRAKAN_RUNTIME_PROFILE": "0",
+        "DRAKAN_VU_TIMED_Q": "1",
+        "DRAKAN_INPUT_SCRIPT": "C:\\Games\\Drakan - The Ancients Gates\\decomp\\build\\vu-live-batch-20261019\\t\\livebatch-native-packet-final-control-serial/sequence.txt",
+        "DRAKAN_VU_BATCH": "0",
+        "DRAKAN_WORLD_RATE": "uncapped",
+        "PS2X_HOSTPROF_DELAY": "22",
+        "DRAKAN_SND_DBG": "0",
+        "GSR_RAY_SHADOWS": "0"
+      },
+      "batch_diagnostics": [],
+      "timing_limit": "Narrow audit covers games/compiler only; general CPU load was not recorded."
+    },
+    "livebatch-native-packet-final-raw": {
+      "exe_sha256": "8506DB275A230F19BDCDF7FEE163A4943AE9A06C5C2600F7AB8B6A5A1A7AB3C1",
+      "world_fps": 56.68029285785436,
+      "last_five_world_windows": [
+        [
+          2.001,
+          52.47
+        ],
+        [
+          2.005,
+          52.87
+        ],
+        [
+          2.018,
+          61.44
+        ],
+        [
+          2.013,
+          56.14
+        ],
+        [
+          2.002,
+          60.45
+        ]
+      ],
+      "saves_unchanged": true,
+      "contended": false,
+      "overlap_samples": 0,
+      "environment": {
+        "DRAKAN_WINDOW_WIDTH": "3840",
+        "DRAKAN_PAUSE_UNFOCUSED": "0",
+        "DRAKAN_DLSS": "off",
+        "PS2X_VU1_THREAD": "1",
+        "DRAKAN_VU_BATCH_THREADS": "4",
+        "PS2X_VU_ATOMIC_WAIT": "0",
+        "DRAKAN_INPUT_AUTOSTART": "0",
+        "PS2X_GS": "d3d11",
+        "DRAKAN_VU_BATCH_VERIFY": "0",
+        "DRAKAN_FRAME_LIMIT": "0",
+        "DRAKAN_VU_BATCH_LAZY_LOADS": "2",
+        "DRAKAN_CMD_LOG": "0",
+        "DRAKAN_VU_LAZY_RESET": "0",
+        "PS2X_HOSTPROF": "0",
+        "DRAKAN_VU_BATCH_NATIVE_PACKET": "1",
+        "GSR_WINSHOT_AT": "",
+        "DRAKAN_INPUT_LOGFILE": "C:\\Games\\Drakan - The Ancients Gates\\decomp\\build\\vu-live-batch-20261019\\t\\livebatch-native-packet-final-raw/input.log",
+        "PS2X_GS_ASYNC": "1",
+        "DRAKAN_WINDOW_HEIGHT": "2160",
+        "DRAKAN_VU_BATCH_STREAM": "0",
+        "DRAKAN_FULLSCREEN": "0",
+        "DRAKAN_VU_TRACE": "1",
+        "DRAKAN_VU_BATCH_PROFILE": "0",
+        "GSR_RAY_REFLECTIONS": "0",
+        "DRAKAN_VU_BATCH_PREDICATES": "0",
+        "DRAKAN_COMBAT_LOG": "0",
+        "DRAKAN_SHOT_DIR": "C:\\Games\\Drakan - The Ancients Gates\\decomp\\build\\vu-live-batch-20261019\\t\\livebatch-native-packet-final-raw",
+        "GSR_MODERN_WATER": "0",
+        "PS2X_VU_SPIN": "4096",
+        "DRAKAN_AUTOPRESS_UNTIL": "30000",
+        "PS2X_GS_SCALE": "4",
+        "DRAKAN_INPUT_INI": "C:\\Games\\Drakan - The Ancients Gates\\decomp\\build\\vu-live-batch-20261019\\t\\livebatch-native-packet-final-raw/drakan_input.ini",
+        "DRAKAN_AUTOPRESS_NOSTART": "1",
+        "GSR_WINSHOT": "",
+        "DRAKAN_VU_COMPACT_FLAGS": "0",
+        "DRAKAN_VUCHECK": "0",
+        "PS2X_MAX_SECONDS": "100",
+        "DRAKAN_VSYNC": "0",
+        "DRAKAN_CONSOLE": "0",
+        "DRAKAN_DLSS_NEURAL": "0",
+        "DRAKAN_AUDIO_DUMP": "",
+        "DRAKAN_COMBAT_AUDIT": "0",
+        "DRAKAN_SND_LOG": "0",
+        "PS2X_GS_PACING": "2",
+        "GSR_PROFILE": "0",
+        "DRAKAN_AUTOPRESS": "4000",
+        "DRAKAN_AUDIO": "1",
+        "DRAKAN_RUNTIME_PROFILE": "0",
+        "DRAKAN_VU_TIMED_Q": "1",
+        "DRAKAN_INPUT_SCRIPT": "C:\\Games\\Drakan - The Ancients Gates\\decomp\\build\\vu-live-batch-20261019\\t\\livebatch-native-packet-final-raw/sequence.txt",
+        "DRAKAN_VU_BATCH": "1",
+        "DRAKAN_WORLD_RATE": "uncapped",
+        "PS2X_HOSTPROF_DELAY": "22",
+        "DRAKAN_SND_DBG": "0",
+        "GSR_RAY_SHADOWS": "0"
+      },
+      "batch_diagnostics": [
+        "[vu-batch] 8632 batches, 381412 groups: 199361 accepted, 1321 rejected; 0 verified, 0 mismatches; 0 unsupported, 1 single-group, 0 exceptions",
+        "[vu-batch] attempts=11171 short=2538 arbiter=0 code=0 workers=4 dependencies=1 verify=0",
+        "[vu-batch] dependency rejects (VIF,memory,trace,reset,complete,idle,constant,VF,VI,ACC,scalar,CLIP,MAC,status): 0 1303 0 0 0 0 0 4 0 0 0 14 0 0",
+        "[vu-batch] first conflicting qwords: 65:282 198:100 186:85 162:85 176:76 672:69 660:63 210:63; monotone-status=1",
+        "[vu-batch] validated geometry calls=666148 rejected geometry calls=24086; validated pairs=629017595 rejected speculative pairs=37806527",
+        "[vu-batch] native packet traced pairs=99863593 enabled=1",
+        "[vu-batch] deferred load lanes=4824480 final alias repairs=23620 enabled=2",
+        "[vu-batch] streaming preparation=0",
+        "[vu-batch] positive clipping gates=0 relaxed accepted=0 enabled=0",
+        "[vu-batch] abandoned worker results=0",
+        "[vu-batch] owner heads=8632 native UV traced pairs=4209975",
+        "[vu-batch] adaptive serial bypass=172098 enabled=1",
+        "[vu-batch] history predictions=200288 accepted=199030 misses=394 enabled=1"
+      ],
+      "timing_limit": "Narrow audit covers games/compiler only; general CPU load was not recorded."
+    },
+    "livebatch-native-packet-final-verify": {
+      "exe_sha256": "8506DB275A230F19BDCDF7FEE163A4943AE9A06C5C2600F7AB8B6A5A1A7AB3C1",
+      "world_fps": 66.1844949091635,
+      "last_five_world_windows": [
+        [
+          2.01,
+          74.13
+        ],
+        [
+          2.002,
+          75.94
+        ],
+        [
+          2.002,
+          75.43
+        ],
+        [
+          2.001,
+          51.97
+        ],
+        [
+          2.003,
+          53.42
+        ]
+      ],
+      "saves_unchanged": true,
+      "contended": false,
+      "overlap_samples": 0,
+      "environment": {
+        "DRAKAN_WINDOW_WIDTH": "3840",
+        "DRAKAN_PAUSE_UNFOCUSED": "0",
+        "DRAKAN_DLSS": "off",
+        "PS2X_VU1_THREAD": "1",
+        "DRAKAN_VU_BATCH_THREADS": "4",
+        "PS2X_VU_ATOMIC_WAIT": "0",
+        "DRAKAN_INPUT_AUTOSTART": "0",
+        "PS2X_GS": "d3d11",
+        "DRAKAN_VU_BATCH_VERIFY": "1",
+        "DRAKAN_FRAME_LIMIT": "0",
+        "DRAKAN_VU_BATCH_LAZY_LOADS": "2",
+        "DRAKAN_CMD_LOG": "0",
+        "DRAKAN_VU_LAZY_RESET": "0",
+        "PS2X_HOSTPROF": "0",
+        "DRAKAN_VU_BATCH_NATIVE_PACKET": "1",
+        "GSR_WINSHOT_AT": "",
+        "DRAKAN_INPUT_LOGFILE": "C:\\Games\\Drakan - The Ancients Gates\\decomp\\build\\vu-live-batch-20261019\\t\\livebatch-native-packet-final-verify/input.log",
+        "PS2X_GS_ASYNC": "1",
+        "DRAKAN_WINDOW_HEIGHT": "2160",
+        "DRAKAN_VU_BATCH_STREAM": "0",
+        "DRAKAN_FULLSCREEN": "0",
+        "DRAKAN_VU_TRACE": "1",
+        "DRAKAN_VU_BATCH_PROFILE": "0",
+        "GSR_RAY_REFLECTIONS": "0",
+        "DRAKAN_VU_BATCH_PREDICATES": "0",
+        "DRAKAN_COMBAT_LOG": "0",
+        "DRAKAN_SHOT_DIR": "C:\\Games\\Drakan - The Ancients Gates\\decomp\\build\\vu-live-batch-20261019\\t\\livebatch-native-packet-final-verify",
+        "GSR_MODERN_WATER": "0",
+        "PS2X_VU_SPIN": "4096",
+        "DRAKAN_AUTOPRESS_UNTIL": "30000",
+        "PS2X_GS_SCALE": "4",
+        "DRAKAN_INPUT_INI": "C:\\Games\\Drakan - The Ancients Gates\\decomp\\build\\vu-live-batch-20261019\\t\\livebatch-native-packet-final-verify/drakan_input.ini",
+        "DRAKAN_AUTOPRESS_NOSTART": "1",
+        "GSR_WINSHOT": "",
+        "DRAKAN_VU_COMPACT_FLAGS": "0",
+        "DRAKAN_VUCHECK": "0",
+        "PS2X_MAX_SECONDS": "100",
+        "DRAKAN_VSYNC": "0",
+        "DRAKAN_CONSOLE": "0",
+        "DRAKAN_DLSS_NEURAL": "0",
+        "DRAKAN_AUDIO_DUMP": "",
+        "DRAKAN_COMBAT_AUDIT": "0",
+        "DRAKAN_SND_LOG": "0",
+        "PS2X_GS_PACING": "2",
+        "GSR_PROFILE": "0",
+        "DRAKAN_AUTOPRESS": "4000",
+        "DRAKAN_AUDIO": "1",
+        "DRAKAN_RUNTIME_PROFILE": "0",
+        "DRAKAN_VU_TIMED_Q": "1",
+        "DRAKAN_INPUT_SCRIPT": "C:\\Games\\Drakan - The Ancients Gates\\decomp\\build\\vu-live-batch-20261019\\t\\livebatch-native-packet-final-verify/sequence.txt",
+        "DRAKAN_VU_BATCH": "1",
+        "DRAKAN_WORLD_RATE": "uncapped",
+        "PS2X_HOSTPROF_DELAY": "22",
+        "DRAKAN_SND_DBG": "0",
+        "GSR_RAY_SHADOWS": "0"
+      },
+      "batch_diagnostics": [
+        "[vu-batch] 9865 batches, 455857 groups: 241574 accepted, 1808 rejected; 241574 verified, 0 mismatches; 0 unsupported, 0 single-group, 0 exceptions",
+        "[vu-batch] attempts=12700 short=2835 arbiter=0 code=0 workers=4 dependencies=1 verify=1",
+        "[vu-batch] dependency rejects (VIF,memory,trace,reset,complete,idle,constant,VF,VI,ACC,scalar,CLIP,MAC,status): 0 1796 0 0 0 0 0 1 0 0 0 11 0 0",
+        "[vu-batch] first conflicting qwords: 65:309 186:138 210:111 209:106 138:104 198:103 154:99 166:97; monotone-status=1",
+        "[vu-batch] validated geometry calls=807443 rejected geometry calls=32526; validated pairs=769495145 rejected speculative pairs=48859376",
+        "[vu-batch] native packet traced pairs=124967833 enabled=1",
+        "[vu-batch] deferred load lanes=5831996 final alias repairs=31348 enabled=2",
+        "[vu-batch] streaming preparation=0",
+        "[vu-batch] positive clipping gates=0 relaxed accepted=0 enabled=0",
+        "[vu-batch] abandoned worker results=0",
+        "[vu-batch] owner heads=9865 native UV traced pairs=5825925",
+        "[vu-batch] adaptive serial bypass=202610 enabled=1",
+        "[vu-batch] history predictions=243057 accepted=241313 misses=325 enabled=1"
+      ],
+      "timing_limit": "Narrow audit covers games/compiler only; general CPU load was not recorded."
+    }
+  },
+  "tests": {
+    "unit-native-bulk-8verify": {
+      "sha256": "6994bf1bbdfcbc00703d99a251a9f6c97a24aef167b4746495cdbb9fa0a766da",
+      "result": "PASS: 4000 live VIF calls, 16077 ordered packets, 42 camera updates; 4000 serial / 0 collected runs; mixed markers, masked uploads, code/mask barriers, EE scratchpad and completion preserved",
+      "batch_diagnostics": [
+        "[vu-batch] 287 batches, 787 groups: 250 accepted, 121 rejected; 250 verified, 0 mismatches; 3 unsupported, 95 single-group, 0 exceptions",
+        "[vu-batch] attempts=386 short=0 arbiter=0 code=0 workers=8 dependencies=1 verify=1",
+        "[vu-batch] dependency rejects (VIF,memory,trace,reset,complete,idle,constant,VF,VI,ACC,scalar,CLIP,MAC,status): 0 120 0 0 1 0 0 0 0 0 0 0 0 0",
+        "[vu-batch] first conflicting qwords: 636:15 660:11 162:9 65:9 176:6 156:6 138:6 180:5; monotone-status=1",
+        "[vu-batch] validated geometry calls=1891 rejected geometry calls=959; validated pairs=3686222 rejected speculative pairs=1924124",
+        "[vu-batch] native packet traced pairs=1374120 bulk calls=30874 enabled=2",
+        "[vu-batch] deferred load lanes=26588 final alias repairs=732 enabled=2",
+        "[vu-batch] streaming preparation=1",
+        "[vu-batch] positive clipping gates=6 relaxed accepted=1 enabled=1",
+        "[vu-batch] abandoned worker results=528",
+        "[vu-batch] owner heads=287 native UV traced pairs=239400",
+        "[vu-batch] adaptive serial bypass=113 enabled=1",
+        "[vu-batch] history predictions=163 accepted=108 misses=750 enabled=1"
+      ]
+    },
+    "unit-bulk-final-collect": {
+      "sha256": "41ca55670ad0e5ca79fda808038d5e120a120718e9346ba319dd2d86ee2902b7",
+      "result": "PASS: 4000 live VIF calls, 13411 ordered packets, 4000 camera updates; 1041 serial / 2959 collected runs; mixed markers, masked uploads, code/mask barriers, EE scratchpad and completion preserved",
+      "batch_diagnostics": [
+        "[vu-batch] 125 batches, 625 groups: 469 accepted, 10 rejected; 0 verified, 0 mismatches; 3 unsupported, 15 single-group, 0 exceptions",
+        "[vu-batch] attempts=144 short=0 arbiter=0 code=0 workers=4 dependencies=1 verify=0",
+        "[vu-batch] dependency rejects (VIF,memory,trace,reset,complete,idle,constant,VF,VI,ACC,scalar,CLIP,MAC,status): 0 5 0 0 1 0 0 0 0 0 0 4 0 0",
+        "[vu-batch] first conflicting qwords: 65:5; monotone-status=1",
+        "[vu-batch] validated geometry calls=5870 rejected geometry calls=69; validated pairs=10839777 rejected speculative pairs=397806",
+        "[vu-batch] native packet traced pairs=2827736 bulk calls=74155 enabled=2",
+        "[vu-batch] deferred load lanes=28 final alias repairs=16 enabled=2",
+        "[vu-batch] streaming preparation=0",
+        "[vu-batch] positive clipping gates=0 relaxed accepted=0 enabled=0",
+        "[vu-batch] abandoned worker results=16",
+        "[vu-batch] owner heads=125 native UV traced pairs=711900",
+        "[vu-batch] adaptive serial bypass=5 enabled=1",
+        "[vu-batch] history predictions=236 accepted=231 misses=785 enabled=1"
+      ]
+    },
+    "unit-bulk-final-limit1": {
+      "sha256": "267ad51aadf122e399b548e494412fa934ce839b460ca12e354de6e390aabb29",
+      "result": "PASS: 4000 live VIF calls, 13411 ordered packets, 4000 camera updates; 4000 serial / 0 collected runs; mixed markers, masked uploads, code/mask barriers, EE scratchpad and completion preserved",
+      "batch_diagnostics": [
+        "[vu-batch] 125 batches, 625 groups: 469 accepted, 10 rejected; 469 verified, 0 mismatches; 3 unsupported, 15 single-group, 0 exceptions",
+        "[vu-batch] attempts=144 short=0 arbiter=0 code=0 workers=4 dependencies=1 verify=1",
+        "[vu-batch] dependency rejects (VIF,memory,trace,reset,complete,idle,constant,VF,VI,ACC,scalar,CLIP,MAC,status): 0 5 0 0 1 0 0 0 0 0 0 4 0 0",
+        "[vu-batch] first conflicting qwords: 65:5; monotone-status=1",
+        "[vu-batch] validated geometry calls=5880 rejected geometry calls=81; validated pairs=10856374 rejected speculative pairs=450027",
+        "[vu-batch] native packet traced pairs=2854112 bulk calls=189220 enabled=2",
+        "[vu-batch] deferred load lanes=28 final alias repairs=16 enabled=2",
+        "[vu-batch] streaming preparation=0",
+        "[vu-batch] positive clipping gates=0 relaxed accepted=0 enabled=0",
+        "[vu-batch] abandoned worker results=16",
+        "[vu-batch] owner heads=125 native UV traced pairs=718200",
+        "[vu-batch] adaptive serial bypass=5 enabled=1",
+        "[vu-batch] history predictions=236 accepted=231 misses=785 enabled=1"
+      ]
+    },
+    "unit-bulk-final-limit256": {
+      "sha256": "20b3ad315870f6fa6f612a26c85af3400e2bdb3938a6ec4eddfa4f27080d7d2d",
+      "result": "PASS: 4000 live VIF calls, 13411 ordered packets, 4000 camera updates; 4000 serial / 0 collected runs; mixed markers, masked uploads, code/mask barriers, EE scratchpad and completion preserved",
+      "batch_diagnostics": [
+        "[vu-batch] 125 batches, 625 groups: 465 accepted, 12 rejected; 465 verified, 0 mismatches; 3 unsupported, 17 single-group, 0 exceptions",
+        "[vu-batch] attempts=146 short=0 arbiter=0 code=0 workers=4 dependencies=1 verify=1",
+        "[vu-batch] dependency rejects (VIF,memory,trace,reset,complete,idle,constant,VF,VI,ACC,scalar,CLIP,MAC,status): 0 5 0 0 1 0 0 0 0 0 0 6 0 0",
+        "[vu-batch] first conflicting qwords: 65:5; monotone-status=1",
+        "[vu-batch] validated geometry calls=5541 rejected geometry calls=99; validated pairs=9898922 rejected speculative pairs=497654",
+        "[vu-batch] native packet traced pairs=2764465 bulk calls=68368 enabled=2",
+        "[vu-batch] deferred load lanes=28 final alias repairs=16 enabled=2",
+        "[vu-batch] streaming preparation=0",
+        "[vu-batch] positive clipping gates=0 relaxed accepted=0 enabled=0",
+        "[vu-batch] abandoned worker results=16",
+        "[vu-batch] owner heads=125 native UV traced pairs=0",
+        "[vu-batch] adaptive serial bypass=7 enabled=1",
+        "[vu-batch] history predictions=234 accepted=229 misses=785 enabled=1"
+      ]
+    },
+    "unit-bulk-default-final": {
+      "sha256": "b03aa683238df6f4370109a2f51f178fa596b0a1cc38fb53fe1d1745edf91350",
+      "result": "PASS: 4000 live VIF calls, 16077 ordered packets, 42 camera updates; 4000 serial / 0 collected runs; mixed markers, masked uploads, code/mask barriers, EE scratchpad and completion preserved",
+      "batch_diagnostics": [
+        "[vu-batch] 285 batches, 785 groups: 252 accepted, 114 rejected; 252 verified, 0 mismatches; 3 unsupported, 97 single-group, 0 exceptions",
+        "[vu-batch] attempts=386 short=0 arbiter=0 code=0 workers=8 dependencies=1 verify=1",
+        "[vu-batch] dependency rejects (VIF,memory,trace,reset,complete,idle,constant,VF,VI,ACC,scalar,CLIP,MAC,status): 0 113 0 0 1 0 0 0 0 0 0 0 0 0",
+        "[vu-batch] first conflicting qwords: 65:29 636:12 162:7 660:5 186:5 176:5 624:4 138:4; monotone-status=1",
+        "[vu-batch] validated geometry calls=2029 rejected geometry calls=777; validated pairs=3980832 rejected speculative pairs=1564692",
+        "[vu-batch] native packet traced pairs=0 bulk calls=0 enabled=0",
+        "[vu-batch] deferred load lanes=0 final alias repairs=0 enabled=0",
+        "[vu-batch] streaming preparation=0",
+        "[vu-batch] positive clipping gates=0 relaxed accepted=0 enabled=0",
+        "[vu-batch] abandoned worker results=16",
+        "[vu-batch] owner heads=285 native UV traced pairs=248850",
+        "[vu-batch] adaptive serial bypass=118 enabled=1",
+        "[vu-batch] history predictions=158 accepted=117 misses=750 enabled=1"
+      ]
+    },
+    "unit-bulk-alias-final": {
+      "sha256": "b591a1eaaba6372b72f81d97340fb3375d538703739ada4f215b371800d9ca3a",
+      "result": "PASS: 4000 live VIF calls, 13411 ordered packets, 4000 camera updates; 1244 serial / 2756 collected runs; mixed markers, masked uploads, code/mask barriers, EE scratchpad and completion preserved",
+      "batch_diagnostics": [
+        "[vu-batch] 125 batches, 625 groups: 470 accepted, 9 rejected; 0 verified, 0 mismatches; 3 unsupported, 15 single-group, 0 exceptions",
+        "[vu-batch] attempts=144 short=0 arbiter=0 code=0 workers=4 dependencies=1 verify=0",
+        "[vu-batch] dependency rejects (VIF,memory,trace,reset,complete,idle,constant,VF,VI,ACC,scalar,CLIP,MAC,status): 0 4 0 0 1 0 0 0 0 0 0 4 0 0",
+        "[vu-batch] first conflicting qwords: 65:4; monotone-status=1",
+        "[vu-batch] validated geometry calls=5727 rejected geometry calls=80; validated pairs=10471463 rejected speculative pairs=449949",
+        "[vu-batch] native packet traced pairs=2814928 bulk calls=0 enabled=2",
+        "[vu-batch] deferred load lanes=18199 final alias repairs=669 enabled=1",
+        "[vu-batch] streaming preparation=0",
+        "[vu-batch] positive clipping gates=6 relaxed accepted=1 enabled=1",
+        "[vu-batch] abandoned worker results=16",
+        "[vu-batch] owner heads=125 native UV traced pairs=704025",
+        "[vu-batch] adaptive serial bypass=5 enabled=1",
+        "[vu-batch] history predictions=236 accepted=232 misses=785 enabled=1"
+      ]
+    },
+    "unit-bulk-stream-final": {
+      "sha256": "b0f59a9830a1369748f86bf738219fb9c71e702306e88d9521ece6ef6fc97104",
+      "result": "PASS: 4000 live VIF calls, 16077 ordered packets, 42 camera updates; 4000 serial / 0 collected runs; mixed markers, masked uploads, code/mask barriers, EE scratchpad and completion preserved",
+      "batch_diagnostics": [
+        "[vu-batch] 287 batches, 787 groups: 249 accepted, 122 rejected; 249 verified, 0 mismatches; 3 unsupported, 95 single-group, 0 exceptions",
+        "[vu-batch] attempts=386 short=0 arbiter=0 code=0 workers=8 dependencies=1 verify=1",
+        "[vu-batch] dependency rejects (VIF,memory,trace,reset,complete,idle,constant,VF,VI,ACC,scalar,CLIP,MAC,status): 0 121 0 0 1 0 0 0 0 0 0 0 0 0",
+        "[vu-batch] first conflicting qwords: 636:14 660:13 162:9 65:8 176:6 156:6 138:6 180:5; monotone-status=1",
+        "[vu-batch] validated geometry calls=1878 rejected geometry calls=948; validated pairs=3651626 rejected speculative pairs=1898565",
+        "[vu-batch] native packet traced pairs=1367109 bulk calls=30733 enabled=2",
+        "[vu-batch] deferred load lanes=26436 final alias repairs=728 enabled=2",
+        "[vu-batch] streaming preparation=1",
+        "[vu-batch] positive clipping gates=6 relaxed accepted=1 enabled=1",
+        "[vu-batch] abandoned worker results=528",
+        "[vu-batch] owner heads=287 native UV traced pairs=234675",
+        "[vu-batch] adaptive serial bypass=113 enabled=1",
+        "[vu-batch] history predictions=163 accepted=107 misses=750 enabled=1"
+      ]
+    }
+  },
+  "profiles": {
+    "livebatch-stage-profile": {
+      "exe_sha256": "80883B7B423B378E4D086E2F0E5215835F438E4A873360FCC26993D393BD1C03",
+      "world_fps": 86.98041745541498,
+      "last_five_world_windows": [
+        [
+          2.009,
+          86.12
+        ],
+        [
+          2.012,
+          87.99
+        ],
+        [
+          2.001,
+          86.94
+        ],
+        [
+          2.003,
+          86.85
+        ],
+        [
+          2.012,
+          87.0
+        ]
+      ],
+      "saves_unchanged": true,
+      "contended": false,
+      "overlap_samples": 0,
+      "milliseconds": {
+        "prepare": 4056.903,
+        "queue": 76.607,
+        "history": 120.39,
+        "serial": 20032.604,
+        "wait": 2719.239,
+        "validate": 1821.531,
+        "collect": 304.182,
+        "worker-sum": 22870.958
+      },
+      "limitation": "Cumulative phases overlap; different group counts/versions and general CPU load not sampled."
+    },
+    "livebatch-lazy-input-profile": {
+      "exe_sha256": "8FFD290D784916F4D1F7DEFD57F7F0BF06BCA35DF02C6074CB2EDCB78154CA26",
+      "world_fps": 82.95932801595215,
+      "last_five_world_windows": [
+        [
+          2.001,
+          83.46
+        ],
+        [
+          2.005,
+          83.29
+        ],
+        [
+          2.005,
+          82.31
+        ],
+        [
+          2.008,
+          84.18
+        ],
+        [
+          2.011,
+          81.56
+        ]
+      ],
+      "saves_unchanged": true,
+      "contended": false,
+      "overlap_samples": 0,
+      "milliseconds": {
+        "prepare": 2851.644,
+        "queue": 80.075,
+        "history": 128.552,
+        "serial": 21206.177,
+        "wait": 3614.112,
+        "validate": 1843.566,
+        "collect": 330.887,
+        "worker-sum": 24038.279
+      },
+      "limitation": "Cumulative phases overlap; different group counts/versions and general CPU load not sampled."
+    },
+    "livebatch-pipeline-proof-profile": {
+      "exe_sha256": "A2C66AF1AE25135AB2E4127AAA89983627C18F43A5F3073465FBDA981D4DC71A",
+      "world_fps": 82.42437082127533,
+      "last_five_world_windows": [
+        [
+          2.009,
+          86.6
+        ],
+        [
+          2.002,
+          82.43
+        ],
+        [
+          2.003,
+          85.35
+        ],
+        [
+          2.005,
+          86.29
+        ],
+        [
+          2.002,
+          71.43
+        ]
+      ],
+      "saves_unchanged": true,
+      "contended": true,
+      "overlap_samples": 16,
+      "milliseconds": {
+        "prepare": 2729.851,
+        "queue": 79.782,
+        "history": 22.238,
+        "serial": 20823.636,
+        "wait": 4641.092,
+        "validate": 832.35,
+        "collect": 349.715,
+        "worker-sum": 23922.212
+      },
+      "limitation": "Cumulative phases overlap; different group counts/versions and general CPU load not sampled."
+    }
+  },
+  "measurement": "Duration-weighted mean of last five nonzero worldUpdates/s windows; raw frames; cap/vsync/FG off; 3840x2160, GS scale 4, audio on.",
+  "limitation": "Historical timings and current contended runs do not establish a default-on multicore performance improvement."
+}

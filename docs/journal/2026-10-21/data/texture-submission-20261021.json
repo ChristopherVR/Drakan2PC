@@ -1,0 +1,594 @@
+{
+  "purpose": "Private paired gameplay tests; prototypes are not deployed.",
+  "common_renderer": "Snapshot of working renderer on 2026-10-21, built with GSR_NEURAL=OFF in every variant; raw benchmarks already disable DLSS/NR.",
+  "baseline": "Reverses only the preceding texture hash reuse / RGB temporary allocation changes.",
+  "candidate": "Texture hash reuse and direct RGB hashing.",
+  "footprint": "Candidate plus exact storage-block stamp validation; broad coherence flushes retained.",
+  "geometry": "Candidate plus removal of clock reads when VU statistics are disabled.",
+  "upload": "Candidate plus exact GPU nearest-neighbour expansion of native render-target row uploads, CPU fallback on setup failure.",
+  "binary_sha256": {
+    "baseline": "e2f3ea783b1ba7f29fefdefdfc3462eeea7e86c7a2bf9b0c75431e22379ea256",
+    "candidate": "7b53d09e9eccd6438673f91fed0204d150b011584d58e5d666b9912176532790",
+    "footprint": "026f975a0fcbb37a72eed10c4046f2e8347a7a73f6e5b72896385e1c014e77dc",
+    "geometry": "a85db4caf83ddedc80c9090d5c5a0f1a8839178f69f0f3e76ee1c88ab88075bd",
+    "upload": "70175cb60adbb02c796000d61666ea605cf86e2fdfaf6bcc3dbe43dce812ffe6"
+  },
+  "native_upload_rgba_checks": 4526352,
+  "phase_profiles": {
+    "texture-footprint-profile": {
+      "sample_seconds": 10.001,
+      "latched_displays": 729.0,
+      "upload_mib": 5832.0,
+      "upload_mib_per_latched_display": 8.0,
+      "inclusive_ms_per_latched_display": {
+        "draw": 6.817379972565159,
+        "resolveTexture": 3.389108367626886,
+        "syncRT": 1.1197393689986281,
+        "readbackRT": 2.1233470507544583,
+        "readbackMap": 1.929437585733882,
+        "readbackPackUnmap": 0.18373113854595335,
+        "presentLatched": 0.23536351165980793,
+        "presentCall": 0.07891632373113854,
+        "pumpUp": 6.858710562414266e-05,
+        "snapshot": 0.0023045267489711935,
+        "latchDisplay": 0.005349794238683128,
+        "endFrame": 0.0035939643347050756,
+        "textureCoherenceFlush": 0.012894375857338821,
+        "textureStampCheck": 0.0062688614540466385,
+        "textureDecode": 0.8364197530864198,
+        "textureUpscale": 0.8677777777777776,
+        "textureCreate": 1.142565157750343
+      },
+      "calls_per_latched_display": {
+        "draw": 212.8244170096022,
+        "resolveTexture": 204.82578875171467,
+        "syncRT": 215.8244170096022,
+        "readbackRT": 1.9986282578875172,
+        "readbackMap": 1.9986282578875172,
+        "readbackPackUnmap": 1.9986282578875172,
+        "presentLatched": 1.0,
+        "presentCall": 1.0,
+        "pumpUp": 1.0,
+        "snapshot": 4.0,
+        "latchDisplay": 1.0,
+        "endFrame": 1.0,
+        "textureCoherenceFlush": 297.78052126200276,
+        "textureStampCheck": 70.94924554183814,
+        "textureDecode": 94.95473251028807,
+        "textureUpscale": 36.98628257887517,
+        "textureCreate": 36.98628257887517
+      },
+      "host_sampling_enabled": true,
+      "caveat": "Scope timings are diagnostic wall time, include contention and GPU waits, and overlap. They are not raw FPS or isolated CPU execution time."
+    },
+    "upload-control-profile": {
+      "sample_seconds": 10.0,
+      "latched_displays": 650.0,
+      "upload_mib": 5196.0,
+      "upload_mib_per_latched_display": 7.993846153846154,
+      "inclusive_ms_per_latched_display": {
+        "draw": 7.507984615384617,
+        "resolveTexture": 3.6000769230769234,
+        "syncRT": 1.302430769230769,
+        "readbackRT": 2.138415384615385,
+        "readbackMap": 1.9130461538461538,
+        "readbackPackUnmap": 0.21336923076923076,
+        "presentLatched": 0.29630769230769227,
+        "presentCall": 0.10023076923076922,
+        "pumpUp": 0.00015384615384615385,
+        "snapshot": 0.0032,
+        "latchDisplay": 0.006215384615384616,
+        "endFrame": 0.0043230769230769225,
+        "textureCoherenceFlush": 0.015153846153846153,
+        "textureStampCheck": 0.0106,
+        "textureDecode": 0.8969999999999999,
+        "textureUpscale": 0.8710461538461539,
+        "textureCreate": 1.3057076923076922
+      },
+      "calls_per_latched_display": {
+        "draw": 212.72615384615384,
+        "resolveTexture": 204.73384615384614,
+        "syncRT": 215.72615384615384,
+        "readbackRT": 1.9984615384615385,
+        "readbackMap": 1.9984615384615385,
+        "readbackPackUnmap": 1.9984615384615385,
+        "presentLatched": 1.0,
+        "presentCall": 1.0,
+        "pumpUp": 1.0,
+        "snapshot": 3.996923076923077,
+        "latchDisplay": 1.0,
+        "endFrame": 1.0,
+        "textureCoherenceFlush": 297.6046153846154,
+        "textureStampCheck": 70.91230769230769,
+        "textureDecode": 94.87076923076923,
+        "textureUpscale": 36.96,
+        "textureCreate": 36.96
+      },
+      "host_sampling_enabled": false,
+      "caveat": "Scope timings are diagnostic wall time, include contention and GPU waits, and overlap. They are not raw FPS or isolated CPU execution time."
+    },
+    "upload-change-profile": {
+      "sample_seconds": 10.002999999999998,
+      "latched_displays": 526.0,
+      "upload_mib": 263.0,
+      "upload_mib_per_latched_display": 0.5,
+      "inclusive_ms_per_latched_display": {
+        "draw": 7.947794676806081,
+        "resolveTexture": 3.847243346007604,
+        "syncRT": 1.073954372623574,
+        "readbackRT": 3.509790874524715,
+        "readbackMap": 3.2383079847908744,
+        "readbackPackUnmap": 0.2535551330798479,
+        "presentLatched": 0.36553231939163494,
+        "presentCall": 0.138574144486692,
+        "pumpUp": 9.505703422053233e-05,
+        "snapshot": 0.0018821292775665398,
+        "latchDisplay": 0.006730038022813688,
+        "endFrame": 0.004695817490494296,
+        "textureCoherenceFlush": 0.015969581749049427,
+        "textureStampCheck": 0.011387832699619772,
+        "textureDecode": 1.0802851711026615,
+        "textureUpscale": 0.8936311787072243,
+        "textureCreate": 1.3257794676806083
+      },
+      "calls_per_latched_display": {
+        "draw": 213.04372623574145,
+        "resolveTexture": 205.04372623574145,
+        "syncRT": 216.04372623574145,
+        "readbackRT": 2.0019011406844105,
+        "readbackMap": 2.0019011406844105,
+        "readbackPackUnmap": 2.0019011406844105,
+        "presentLatched": 1.0,
+        "presentCall": 1.0,
+        "pumpUp": 1.0,
+        "snapshot": 4.0,
+        "latchDisplay": 1.0,
+        "endFrame": 1.0,
+        "textureCoherenceFlush": 298.0874524714829,
+        "textureStampCheck": 71.01711026615969,
+        "textureDecode": 95.04372623574145,
+        "textureUpscale": 37.01140684410647,
+        "textureCreate": 37.01140684410647
+      },
+      "host_sampling_enabled": false,
+      "caveat": "Scope timings are diagnostic wall time, include contention and GPU waits, and overlap. They are not raw FPS or isolated CPU execution time."
+    }
+  },
+  "native_upload_test_sha256": "dc44838f8be4dc55bb311c7425d455f1045e860ffac426d627ceb4d0cc45edc9",
+  "footprint_validation_cases": 5400,
+  "patch_application_verified": true,
+  "gameplay": {
+    "geometry-clock-a": {
+      "general_cpu_audited": true,
+      "external_core_average": 7.979179195609179,
+      "external_core_peak": 11.43551918510883,
+      "external_cpu_busy_samples": 26,
+      "exe_sha256": "A85DB4CAF83DDEDC80C9090D5C5A0F1A8839178F69F0F3E76EE1C88AB88075BD",
+      "world_fps": 59.33835424133811,
+      "last_five_world_windows": [
+        [
+          2.002,
+          53.95
+        ],
+        [
+          2.006,
+          59.81
+        ],
+        [
+          2.008,
+          61.26
+        ],
+        [
+          2.015,
+          58.07
+        ],
+        [
+          2.013,
+          63.58
+        ]
+      ],
+      "saves_unchanged": true,
+      "contended": true,
+      "overlap_samples": 0,
+      "valid_configuration": true,
+      "invalid_configuration_reason": null,
+      "raw_fps_measurement": true
+    },
+    "texture-change-a": {
+      "general_cpu_audited": true,
+      "external_core_average": 2.2642892609450374,
+      "external_core_peak": 8.611460113391653,
+      "external_cpu_busy_samples": 19,
+      "exe_sha256": "7B53D09E9ECCD6438673F91FED0204D150B011584D58E5D666B9912176532790",
+      "world_fps": 67.31154183704,
+      "last_five_world_windows": [
+        [
+          2.005,
+          60.35
+        ],
+        [
+          2.008,
+          60.75
+        ],
+        [
+          2.004,
+          65.36
+        ],
+        [
+          2.002,
+          82.9
+        ],
+        [
+          2.008,
+          67.23
+        ]
+      ],
+      "saves_unchanged": true,
+      "contended": true,
+      "overlap_samples": 0,
+      "valid_configuration": true,
+      "invalid_configuration_reason": null,
+      "raw_fps_measurement": true
+    },
+    "texture-change-b": {
+      "general_cpu_audited": true,
+      "external_core_average": 2.4800637686269615,
+      "external_core_peak": 7.055837390730984,
+      "external_cpu_busy_samples": 16,
+      "exe_sha256": "7B53D09E9ECCD6438673F91FED0204D150B011584D58E5D666B9912176532790",
+      "world_fps": 79.31122957353526,
+      "last_five_world_windows": [
+        [
+          2.007,
+          74.74
+        ],
+        [
+          2.011,
+          81.56
+        ],
+        [
+          2.011,
+          71.12
+        ],
+        [
+          2.004,
+          77.33
+        ],
+        [
+          2.003,
+          91.84
+        ]
+      ],
+      "saves_unchanged": true,
+      "contended": true,
+      "overlap_samples": 1,
+      "valid_configuration": true,
+      "invalid_configuration_reason": null,
+      "raw_fps_measurement": true
+    },
+    "texture-control-a": {
+      "general_cpu_audited": true,
+      "external_core_average": 1.4309340919897406,
+      "external_core_peak": 2.9157116023125433,
+      "external_cpu_busy_samples": 13,
+      "exe_sha256": "E2F3EA783B1BA7F29FEFDEFDFC3462EEEA7E86C7A2BF9B0C75431E22379EA256",
+      "world_fps": 93.49212233087208,
+      "last_five_world_windows": [
+        [
+          2.009,
+          85.63
+        ],
+        [
+          2.001,
+          96.43
+        ],
+        [
+          2.003,
+          91.86
+        ],
+        [
+          2.002,
+          95.91
+        ],
+        [
+          2.007,
+          97.65
+        ]
+      ],
+      "saves_unchanged": true,
+      "contended": true,
+      "overlap_samples": 0,
+      "valid_configuration": true,
+      "invalid_configuration_reason": null,
+      "raw_fps_measurement": true
+    },
+    "texture-control-b": {
+      "general_cpu_audited": true,
+      "external_core_average": 5.454863774766082,
+      "external_core_peak": 7.052387992437151,
+      "external_cpu_busy_samples": 24,
+      "exe_sha256": "E2F3EA783B1BA7F29FEFDEFDFC3462EEEA7E86C7A2BF9B0C75431E22379EA256",
+      "world_fps": 79.58512270243419,
+      "last_five_world_windows": [
+        [
+          2.007,
+          87.69
+        ],
+        [
+          2.013,
+          89.43
+        ],
+        [
+          2.003,
+          84.37
+        ],
+        [
+          2.025,
+          69.13
+        ],
+        [
+          2.017,
+          67.44
+        ]
+      ],
+      "saves_unchanged": true,
+      "contended": true,
+      "overlap_samples": 1,
+      "valid_configuration": true,
+      "invalid_configuration_reason": null,
+      "raw_fps_measurement": true
+    },
+    "texture-control-c": {
+      "general_cpu_audited": true,
+      "external_core_average": 7.167441700498625,
+      "external_core_peak": 9.866327063568638,
+      "external_cpu_busy_samples": 26,
+      "exe_sha256": "7B53D09E9ECCD6438673F91FED0204D150B011584D58E5D666B9912176532790",
+      "world_fps": 67.38248830496666,
+      "last_five_world_windows": [
+        [
+          2.012,
+          64.61
+        ],
+        [
+          2.011,
+          68.13
+        ],
+        [
+          2.007,
+          71.26
+        ],
+        [
+          2.013,
+          59.61
+        ],
+        [
+          2.004,
+          73.34
+        ]
+      ],
+      "saves_unchanged": true,
+      "contended": true,
+      "overlap_samples": 2,
+      "valid_configuration": true,
+      "invalid_configuration_reason": null,
+      "raw_fps_measurement": true
+    },
+    "texture-footprint-a": {
+      "general_cpu_audited": true,
+      "external_core_average": 6.169890141659716,
+      "external_core_peak": 11.454540074064244,
+      "external_cpu_busy_samples": 25,
+      "exe_sha256": "026F975A0FCBB37A72EED10C4046F2E8347A7A73F6E5B72896385E1C014E77DC",
+      "world_fps": 40.03298844851623,
+      "last_five_world_windows": [
+        [
+          2.002,
+          38.97
+        ],
+        [
+          2.006,
+          30.91
+        ],
+        [
+          2.014,
+          32.77
+        ],
+        [
+          2.011,
+          45.75
+        ],
+        [
+          2.009,
+          51.76
+        ]
+      ],
+      "saves_unchanged": true,
+      "contended": true,
+      "overlap_samples": 0,
+      "valid_configuration": true,
+      "invalid_configuration_reason": null,
+      "raw_fps_measurement": true
+    },
+    "texture-footprint-profile": {
+      "general_cpu_audited": true,
+      "external_core_average": 7.360024462243599,
+      "external_core_peak": 9.613028159844943,
+      "external_cpu_busy_samples": 26,
+      "exe_sha256": "026F975A0FCBB37A72EED10C4046F2E8347A7A73F6E5B72896385E1C014E77DC",
+      "world_fps": 67.27977209394905,
+      "last_five_world_windows": [
+        [
+          2.008,
+          54.78
+        ],
+        [
+          2.012,
+          53.68
+        ],
+        [
+          2.016,
+          55.07
+        ],
+        [
+          2.009,
+          84.11
+        ],
+        [
+          2.003,
+          88.88
+        ]
+      ],
+      "saves_unchanged": true,
+      "contended": true,
+      "overlap_samples": 0,
+      "valid_configuration": true,
+      "invalid_configuration_reason": null,
+      "raw_fps_measurement": false
+    },
+    "upload-change-a": {
+      "general_cpu_audited": true,
+      "external_core_average": 5.34286975182471,
+      "external_core_peak": 8.033915159124088,
+      "external_cpu_busy_samples": 24,
+      "exe_sha256": "70175CB60ADBB02C796000D61666EA605CF86E2FDFAF6BCC3DBE43DCE812FFE6",
+      "world_fps": 68.73517609498154,
+      "last_five_world_windows": [
+        [
+          2.002,
+          75.94
+        ],
+        [
+          2.004,
+          68.85
+        ],
+        [
+          2.004,
+          66.35
+        ],
+        [
+          2.002,
+          70.92
+        ],
+        [
+          2.011,
+          61.65
+        ]
+      ],
+      "saves_unchanged": true,
+      "contended": true,
+      "overlap_samples": 0,
+      "valid_configuration": true,
+      "invalid_configuration_reason": null,
+      "raw_fps_measurement": true
+    },
+    "upload-change-profile": {
+      "general_cpu_audited": true,
+      "external_core_average": 9.228814757816673,
+      "external_core_peak": 12.61838657306201,
+      "external_cpu_busy_samples": 25,
+      "exe_sha256": "70175CB60ADBB02C796000D61666EA605CF86E2FDFAF6BCC3DBE43DCE812FFE6",
+      "world_fps": 52.70654179535719,
+      "last_five_world_windows": [
+        [
+          2.001,
+          52.96
+        ],
+        [
+          2.003,
+          50.93
+        ],
+        [
+          2.004,
+          50.41
+        ],
+        [
+          2.012,
+          53.68
+        ],
+        [
+          2.017,
+          55.53
+        ]
+      ],
+      "saves_unchanged": true,
+      "contended": true,
+      "overlap_samples": 0,
+      "valid_configuration": true,
+      "invalid_configuration_reason": null,
+      "raw_fps_measurement": false
+    },
+    "upload-control-a": {
+      "general_cpu_audited": true,
+      "external_core_average": 4.540611598290276,
+      "external_core_peak": 5.060800906150729,
+      "external_cpu_busy_samples": 24,
+      "exe_sha256": "7B53D09E9ECCD6438673F91FED0204D150B011584D58E5D666B9912176532790",
+      "world_fps": 92.42009072781654,
+      "last_five_world_windows": [
+        [
+          2.006,
+          90.72
+        ],
+        [
+          2.007,
+          93.67
+        ],
+        [
+          2.006,
+          91.24
+        ],
+        [
+          2.005,
+          92.76
+        ],
+        [
+          2.006,
+          93.71
+        ]
+      ],
+      "saves_unchanged": true,
+      "contended": true,
+      "overlap_samples": 0,
+      "valid_configuration": true,
+      "invalid_configuration_reason": null,
+      "raw_fps_measurement": true
+    },
+    "upload-control-profile": {
+      "general_cpu_audited": true,
+      "external_core_average": 4.239852362015676,
+      "external_core_peak": 9.42553850706616,
+      "external_cpu_busy_samples": 23,
+      "exe_sha256": "7B53D09E9ECCD6438673F91FED0204D150B011584D58E5D666B9912176532790",
+      "world_fps": 64.80723914128806,
+      "last_five_world_windows": [
+        [
+          2.003,
+          63.4
+        ],
+        [
+          2.009,
+          69.21
+        ],
+        [
+          2.001,
+          60.46
+        ],
+        [
+          2.001,
+          62.97
+        ],
+        [
+          2.001,
+          67.98
+        ]
+      ],
+      "saves_unchanged": true,
+      "contended": true,
+      "overlap_samples": 0,
+      "valid_configuration": true,
+      "invalid_configuration_reason": null,
+      "raw_fps_measurement": false
+    }
+  }
+}

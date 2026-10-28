@@ -1,0 +1,7 @@
+# Control: the same Quick Inventory command through the original R1 pad path.
+1 log on 30
+0 sync play 90
+2 dump ram_quick_inventory_before
+5 key tap Q
+30 dump ram_quick_inventory_after
+60 quit

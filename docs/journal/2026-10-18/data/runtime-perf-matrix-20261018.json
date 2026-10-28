@@ -1,0 +1,473 @@
+{
+  "schema": 1,
+  "date": "2026-10-18",
+  "candidate_sha256": "0B6CB62F80ACFE341A377130685B9F5CEF7BB0AA8AB03A1BCB24744AE88E87E7",
+  "scope": "Forward-only, same frozen executable/dependencies/config, fixed4, native/SR/NR/combined requested settings. Source-only aggregate; no game assets or save contents.",
+  "settings": {
+    "internal_scale": 4,
+    "output": [
+      1920,
+      1080
+    ],
+    "aspect": "4:3",
+    "windowed": true,
+    "world_rate": "uncapped",
+    "vsync": false,
+    "presentation_limiter": 0,
+    "audio_output": false,
+    "gs_async": true
+  },
+  "selection": {
+    "anchor": "end of first positive-world pacing window",
+    "warmup_seconds": 10,
+    "measurement_envelope_seconds": 24,
+    "minimum_complete_selected_seconds": 20,
+    "fps_threshold_filter": false
+  },
+  "identity_timing_comparison_eligible": true,
+  "all_eight_completion_identity_save_checks_passed": true,
+  "feature_evaluation_success_fully_verified": false,
+  "summary": {
+    "native": {
+      "baseline_worlds_per_second": 47.52514168024624,
+      "baseline_world_interval_ms": 21.041494346888996,
+      "per_pass_baseline_rates": {
+        "forward": 47.52514168024624
+      },
+      "profile_worlds_per_second": 47.5666509476739,
+      "profile_rate_change_percent": 0.0873417015922584,
+      "added_ms_per_world_vs_native": 0.0
+    },
+    "sr": {
+      "baseline_worlds_per_second": 47.258624790847016,
+      "baseline_world_interval_ms": 21.160158689037406,
+      "per_pass_baseline_rates": {
+        "forward": 47.258624790847016
+      },
+      "profile_worlds_per_second": 46.445135452941976,
+      "profile_rate_change_percent": -1.721356348191061,
+      "added_ms_per_world_vs_native": 0.11866434214840993
+    },
+    "nr": {
+      "baseline_worlds_per_second": 36.44562132585692,
+      "baseline_world_interval_ms": 27.438138344771044,
+      "per_pass_baseline_rates": {
+        "forward": 36.44562132585692
+      },
+      "profile_worlds_per_second": 35.974610615864975,
+      "profile_rate_change_percent": -1.2923657022627766,
+      "added_ms_per_world_vs_native": 6.396643997882048
+    },
+    "combined": {
+      "baseline_worlds_per_second": 35.817064942112886,
+      "baseline_world_interval_ms": 27.919652311438362,
+      "per_pass_baseline_rates": {
+        "forward": 35.817064942112886
+      },
+      "profile_worlds_per_second": 35.62723877560247,
+      "profile_rate_change_percent": -0.5299880568583992,
+      "added_ms_per_world_vs_native": 6.8781579645493665
+    }
+  },
+  "runs": [
+    {
+      "run": "01-forward-native-off",
+      "case": {
+        "mode": "native",
+        "diagnostics": "off",
+        "pass": "forward"
+      },
+      "selected_seconds": 22.092,
+      "selected_windows": 11,
+      "worldUpdates": 47.52514168024624,
+      "worldPresents": 47.52514168024624,
+      "guestVsyncs": 59.97277249683144,
+      "world_interval_ms": 21.041494346888996,
+      "ms_per_world": {
+        "drainMs": 7.619588754984247e-05,
+        "presentMs": 0.13486672096322116,
+        "lockMs": 6.667140160611216e-05,
+        "handoffMs": 0.16951680082651202,
+        "fairMs": 0.0
+      },
+      "errors": [],
+      "clock_summary": {},
+      "profile_ms_per_world": {},
+      "feature_evidence": {
+        "sr_requested": false,
+        "nr_requested": false,
+        "sr_successful_evaluation_log_count": 0,
+        "nr_successful_evaluation_log_count": 0,
+        "nr_runtime_created_in_evaluation": false,
+        "nr_configured_enabled": false
+      }
+    },
+    {
+      "run": "02-forward-native-on",
+      "case": {
+        "mode": "native",
+        "diagnostics": "on",
+        "pass": "forward"
+      },
+      "selected_seconds": 22.054,
+      "selected_windows": 11,
+      "worldUpdates": 47.5666509476739,
+      "worldPresents": 47.61160877845289,
+      "guestVsyncs": 59.99104334814546,
+      "world_interval_ms": 21.023132385335654,
+      "ms_per_world": {
+        "drainMs": 0.00010485828250598177,
+        "presentMs": 0.13713556837555035,
+        "lockMs": 0.00010485828250598177,
+        "handoffMs": 0.16454171039415924,
+        "fairMs": 0.0
+      },
+      "errors": [],
+      "clock_summary": {
+        "sched-vblank": {
+          "seconds": 22.033324,
+          "starts_per_second": 60.00002541604707,
+          "ends_per_second": 59.95463961769908,
+          "maxDelayMs": 1.443
+        },
+        "frame-time": {
+          "seconds": 22.087634,
+          "updates_per_second": 47.62846034120268,
+          "dtSum_per_second": 0.9996996509449585,
+          "localCapProxy_per_second": 0.9996996509449585,
+          "over30ms_per_second": 0.0
+        }
+      },
+      "profile_ms_per_world": {
+        "gsr-profile": {
+          "resolveTexture": 6.317703,
+          "readbackMap": 1.67464,
+          "temporalResolve": 0.000137,
+          "presentCall": 0.043421
+        },
+        "runtime-profile": {
+          "workerIdle": 1.799161,
+          "workerLock": 0.123171,
+          "gif": 18.070285,
+          "scene": 0.544767,
+          "displayCommit": 0.007296,
+          "commitRetirement": 8.1e-05
+        }
+      },
+      "feature_evidence": {
+        "sr_requested": false,
+        "nr_requested": false,
+        "sr_successful_evaluation_log_count": 0,
+        "nr_successful_evaluation_log_count": 0,
+        "nr_runtime_created_in_evaluation": false,
+        "nr_configured_enabled": false
+      }
+    },
+    {
+      "run": "03-forward-sr-off",
+      "case": {
+        "mode": "sr",
+        "diagnostics": "off",
+        "pass": "forward"
+      },
+      "selected_seconds": 22.113,
+      "selected_windows": 11,
+      "worldUpdates": 47.258624790847016,
+      "worldPresents": 47.258624790847016,
+      "guestVsyncs": 60.00908831908832,
+      "world_interval_ms": 21.160158689037406,
+      "ms_per_world": {
+        "drainMs": 0.00010526013909438406,
+        "presentMs": 0.1333645962325846,
+        "lockMs": 8.612193198631422e-05,
+        "handoffMs": 0.1677655235093401,
+        "fairMs": 0.0
+      },
+      "errors": [],
+      "clock_summary": {},
+      "profile_ms_per_world": {},
+      "feature_evidence": {
+        "sr_requested": true,
+        "nr_requested": false,
+        "sr_successful_evaluation_log_count": 0,
+        "nr_successful_evaluation_log_count": 0,
+        "nr_runtime_created_in_evaluation": false,
+        "nr_configured_enabled": false
+      }
+    },
+    {
+      "run": "04-forward-sr-on",
+      "case": {
+        "mode": "sr",
+        "diagnostics": "on",
+        "pass": "forward"
+      },
+      "selected_seconds": 22.111,
+      "selected_windows": 11,
+      "worldUpdates": 46.445135452941976,
+      "worldPresents": 46.44551671113925,
+      "guestVsyncs": 59.96907693003482,
+      "world_interval_ms": 21.530780139788718,
+      "ms_per_world": {
+        "drainMs": 0.000107113464582188,
+        "presentMs": 0.12970466802134037,
+        "lockMs": 6.816311382502874e-05,
+        "handoffMs": 0.15596694201935504,
+        "fairMs": 0.0
+      },
+      "errors": [],
+      "clock_summary": {
+        "sched-vblank": {
+          "seconds": 22.032661,
+          "starts_per_second": 60.00183091819912,
+          "ends_per_second": 59.95644375411576,
+          "maxDelayMs": 1.617
+        },
+        "frame-time": {
+          "seconds": 22.117781,
+          "updates_per_second": 46.43322944557593,
+          "dtSum_per_second": 0.9996934140906811,
+          "localCapProxy_per_second": 0.9996934140906811,
+          "over30ms_per_second": 0.0
+        }
+      },
+      "profile_ms_per_world": {
+        "gsr-profile": {
+          "resolveTexture": 6.248652,
+          "readbackMap": 1.01388,
+          "temporalResolve": 0.074112,
+          "presentCall": 0.038429
+        },
+        "runtime-profile": {
+          "workerIdle": 2.109693,
+          "workerLock": 0.128594,
+          "gif": 13.076989,
+          "scene": 0.627172,
+          "displayCommit": 0.007555,
+          "commitRetirement": 7.1e-05
+        }
+      },
+      "feature_evidence": {
+        "sr_requested": true,
+        "nr_requested": false,
+        "sr_successful_evaluation_log_count": 0,
+        "nr_successful_evaluation_log_count": 0,
+        "nr_runtime_created_in_evaluation": false,
+        "nr_configured_enabled": false
+      }
+    },
+    {
+      "run": "05-forward-nr-off",
+      "case": {
+        "mode": "nr",
+        "diagnostics": "off",
+        "pass": "forward"
+      },
+      "selected_seconds": 22.114,
+      "selected_windows": 11,
+      "worldUpdates": 36.44562132585692,
+      "worldPresents": 36.44566564167496,
+      "guestVsyncs": 59.95779958397395,
+      "world_interval_ms": 27.438138344771044,
+      "ms_per_world": {
+        "drainMs": 6.386904774386204,
+        "presentMs": 0.590365406793231,
+        "lockMs": 0.0,
+        "handoffMs": 0.6200195402127855,
+        "fairMs": 0.0
+      },
+      "errors": [],
+      "clock_summary": {},
+      "profile_ms_per_world": {},
+      "feature_evidence": {
+        "sr_requested": false,
+        "nr_requested": true,
+        "sr_successful_evaluation_log_count": 0,
+        "nr_successful_evaluation_log_count": 0,
+        "nr_runtime_created_in_evaluation": true,
+        "nr_configured_enabled": true
+      }
+    },
+    {
+      "run": "06-forward-nr-on",
+      "case": {
+        "mode": "nr",
+        "diagnostics": "on",
+        "pass": "forward"
+      },
+      "selected_seconds": 22.099,
+      "selected_windows": 11,
+      "worldUpdates": 35.974610615864975,
+      "worldPresents": 35.92816055025114,
+      "guestVsyncs": 60.004230960676956,
+      "world_interval_ms": 27.7973821781686,
+      "ms_per_world": {
+        "drainMs": 6.681786778846043,
+        "presentMs": 0.5852431334466041,
+        "lockMs": 0.0,
+        "handoffMs": 0.6165386159839512,
+        "fairMs": 0.0
+      },
+      "errors": [],
+      "clock_summary": {
+        "sched-vblank": {
+          "seconds": 22.015602,
+          "starts_per_second": 60.002901578616836,
+          "ends_per_second": 60.002901578616836,
+          "maxDelayMs": 9.019
+        },
+        "frame-time": {
+          "seconds": 22.129325,
+          "updates_per_second": 35.970369633958555,
+          "dtSum_per_second": 0.9996689912593357,
+          "localCapProxy_per_second": 0.9983133240620758,
+          "over30ms_per_second": 2.44020095506754
+        }
+      },
+      "profile_ms_per_world": {
+        "gsr-profile": {
+          "resolveTexture": 6.33581,
+          "readbackMap": 1.350395,
+          "temporalResolve": 7.455839,
+          "presentCall": 0.490601
+        },
+        "runtime-profile": {
+          "workerIdle": 2.5e-05,
+          "workerLock": 0.128868,
+          "gif": 13.597333,
+          "scene": 8.004201,
+          "displayCommit": 0.006702,
+          "commitRetirement": 6.676404
+        }
+      },
+      "feature_evidence": {
+        "sr_requested": false,
+        "nr_requested": true,
+        "sr_successful_evaluation_log_count": 0,
+        "nr_successful_evaluation_log_count": 0,
+        "nr_runtime_created_in_evaluation": true,
+        "nr_configured_enabled": true
+      }
+    },
+    {
+      "run": "07-forward-combined-off",
+      "case": {
+        "mode": "combined",
+        "diagnostics": "off",
+        "pass": "forward"
+      },
+      "selected_seconds": 22.112,
+      "selected_windows": 11,
+      "worldUpdates": 35.817064942112886,
+      "worldPresents": 35.81690665701881,
+      "guestVsyncs": 59.96831132416787,
+      "world_interval_ms": 27.919652311438362,
+      "ms_per_world": {
+        "drainMs": 6.795541350719747,
+        "presentMs": 0.6789758427077092,
+        "lockMs": 0.0,
+        "handoffMs": 0.7080546050418456,
+        "fairMs": 0.0
+      },
+      "errors": [],
+      "clock_summary": {},
+      "profile_ms_per_world": {},
+      "feature_evidence": {
+        "sr_requested": true,
+        "nr_requested": true,
+        "sr_successful_evaluation_log_count": 0,
+        "nr_successful_evaluation_log_count": 0,
+        "nr_runtime_created_in_evaluation": true,
+        "nr_configured_enabled": true
+      }
+    },
+    {
+      "run": "08-forward-combined-on",
+      "case": {
+        "mode": "combined",
+        "diagnostics": "on",
+        "pass": "forward"
+      },
+      "selected_seconds": 22.117,
+      "selected_windows": 11,
+      "worldUpdates": 35.62723877560247,
+      "worldPresents": 35.672678934756064,
+      "guestVsyncs": 59.996465162544645,
+      "world_interval_ms": 28.068411540352095,
+      "ms_per_world": {
+        "drainMs": 6.980680069552096,
+        "presentMs": 0.6724768545063603,
+        "lockMs": 0.0,
+        "handoffMs": 0.7052193158592149,
+        "fairMs": 0.0
+      },
+      "errors": [],
+      "clock_summary": {
+        "sched-vblank": {
+          "seconds": 22.052165000000002,
+          "starts_per_second": 60.03945644339229,
+          "ends_per_second": 59.994109421909364,
+          "maxDelayMs": 9.472
+        },
+        "frame-time": {
+          "seconds": 22.217339,
+          "updates_per_second": 35.64783343315777,
+          "dtSum_per_second": 0.9997146823028626,
+          "localCapProxy_per_second": 0.9993996130679736,
+          "over30ms_per_second": 1.8454055186356926
+        }
+      },
+      "profile_ms_per_world": {
+        "gsr-profile": {
+          "resolveTexture": 6.358733,
+          "readbackMap": 0.893974,
+          "temporalResolve": 8.165891,
+          "presentCall": 0.576413
+        },
+        "runtime-profile": {
+          "workerIdle": 3.6e-05,
+          "workerLock": 0.129535,
+          "gif": 13.123449,
+          "scene": 8.70364,
+          "displayCommit": 0.006637,
+          "commitRetirement": 6.985051
+        }
+      },
+      "feature_evidence": {
+        "sr_requested": true,
+        "nr_requested": true,
+        "sr_successful_evaluation_log_count": 0,
+        "nr_successful_evaluation_log_count": 0,
+        "nr_runtime_created_in_evaluation": true,
+        "nr_configured_enabled": true
+      }
+    }
+  ],
+  "findings": [
+    "NR/combined add about 6.40/6.88 ms per completed world versus native baseline.",
+    "Profiled temporalResolve accounts for 7.46 ms/world NR and 8.17 combined; worker idle disappears and producer commit-retirement waits reach 6.68/6.99 ms/world.",
+    "resolveTexture stays about 6.3 ms/world across modes: shared cost needing finer instrumentation.",
+    "No scheduler/bridge policy change justified; no queue-depth, guest-time or repeated-presentation workaround implemented."
+  ],
+  "limitations": [
+    "Quiet logs show NR configured enabled and runtime created during evaluation, but do not confirm each evaluation succeeded; SR device-candidate startup is not successful SR evaluation evidence.",
+    "No pixel/visual correctness claim. Names denote requested settings.",
+    "CPU elapsed scopes include driver/fence/descheduling waits; not GPU kernel timings. Nested and cross-thread scopes overlap.",
+    "Profile windows are independent; normalized ms/world are estimates.",
+    "Forward-only; profiling rate changes range +0.09% to -1.72%. No reverse required before bounded-fix comparison.",
+    "Clock audit shows near-60Hz guest vblank and timestep sum near wall time; whole-game timing parity remains unverified.",
+    "Historical 32.6 versus 42 runs used different candidates/settings; this matrix does not establish a matched improvement over them."
+  ],
+  "next_step": {
+    "instrumentation": "resolveTexture plus cpu_profile.h only; six child timing buckets under existing GSR_PROFILE flag",
+    "coherence": "Existing cache-hit and decode flushes preserved before stamp checks/decode; no cache validity or upload policy change.",
+    "gpu_status": "Slot returned after forward eight. No further launch before explicit new grant.",
+    "comparison": "Profile shared texture cost first, then propose and verify a bounded optimization. Preserve GPU-dirty overwrite ordering; do not compare incoming data against stale RAM.",
+    "cpu_validation": {
+      "backend_syntax": "MSVC C++20 /Zs passed with GSR_HAVE_NR and GSR_HAVE_DLSS enabled",
+      "scope_review": "Pre-edit snapshot matches exactly outside resolveTexture; operation-token sequence inside matches after removing only added scope statements/braces",
+      "profiler_bucket_names": "Count/name cardinality checked; compile-time static_assert added",
+      "gpu_validation": "Not run; awaiting a new grant"
+    }
+  }
+}

@@ -1,0 +1,101 @@
+--- a/ps2xRuntime/src/lib/drakan_overrides.cpp
++++ b/ps2xRuntime/src/lib/drakan_overrides.cpp
+@@ -32,6 +32,7 @@
+ #include <algorithm>
+ #include <atomic>
+ #include <cctype>
++#include <cmath>
+ #include <chrono>
+ #include <condition_variable>
+ #include <cstdarg>
+@@ -64,6 +65,67 @@
+ 
+     PS2Runtime::RecompiledFunction g_origOptionsHandler = nullptr;
+ 
++    // ---- widescreen: anamorphic Hor+ (docs/reference/widescreen.md) ----
++    // The game keeps its projection in the "render/viewport" object *(u32*)0x5565c8: +0x10c = 64/tan(fov/2) (FUN_00133fc8), +0xec = 64.0,
++    // +0x48 = x projection scale = -(+0x10c)/(+0xec), +0x4c = y scale (FUN_00132d68). FUN_001480e0 (once per camera update) multiplies the
++    // 2x3 view matrix by them and every EE-side projection (particles, HUD markers, core renderer) multiplies by +0x48/+0x4c itself.
++    // Squeezing +0x48 by (4/3)/aspect makes the unchanged 512x512 (4:3) frame show a (aspect/(4/3)) times wider view; the presenter then stretches
++    // the frame to `aspect`. The VU1 bbox cull / clipper work on the same matrix, so culling follows automatically.
++    constexpr uint32_t kCameraUpdateMat = 0x1480e0u;
++    constexpr uint32_t kSetViewport = 0x132d68u;
++    constexpr uint32_t kRenderObjPtr = 0x5565c8u;
++    PS2Runtime::RecompiledFunction g_origCameraUpdateMat = nullptr;
++    PS2Runtime::RecompiledFunction g_origSetViewport = nullptr;
++    std::atomic<float> g_wsAspect{4.0f / 3.0f}; // target display aspect (width/height); 4:3 = original
++
++    void wsApplyProjection(uint8_t *rdram)
++    {
++        uint32_t obj = 0;
++        std::memcpy(&obj, rdram + kRenderObjPtr, 4);
++        obj &= 0x1FFFFFFFu;
++        if (obj < 0x100000u || obj + 0x120u >= PS2_RAM_SIZE)
++            return;
++        float f10c = 0, fEc = 0;
++        std::memcpy(&f10c, rdram + obj + 0x10c, 4);
++        std::memcpy(&fEc, rdram + obj + 0xec, 4);
++        if (!(fEc > 0.0f) || !(f10c == f10c))
++            return;
++        const float a = g_wsAspect.load(std::memory_order_relaxed);
++        const float k = (a > 0.1f) ? (4.0f / 3.0f) / a : 1.0f;
++        const float x = -f10c / fEc * k; // k == 1 reproduces the game's own value bit for bit
++        std::memcpy(rdram + obj + 0x48, &x, 4);
++    }
++    // test aid: DRAKAN_TEST_SUB="text" [DRAKAN_TEST_SUB_AT=<camera updates>] calls the game's own SetSubtitle(0x5102b0, text, 0) = FUN_004149a0
++    void testSubtitleTick(uint8_t *rdram, R5900Context *c, PS2Runtime *rt)
++    {
++        static const char *txt = std::getenv("DRAKAN_TEST_SUB");
++        static const long at = std::getenv("DRAKAN_TEST_SUB_AT") ? std::atol(std::getenv("DRAKAN_TEST_SUB_AT")) : 600;
++        static long n = 0;
++        if (!txt || ++n % at != 0)
++            return;
++        R5900Context cc = *c;
++        const uint32_t sp = getRegU32(c, 29);
++        const uint32_t buf = (sp - 0x800u) & 0x1FFFFFFFu;
++        std::memcpy(rdram + buf, txt, std::strlen(txt) + 1);
++        SET_GPR_U32(&cc, 29, sp - 0x1000u);
++        SET_GPR_U32(&cc, 4, 0x5102b0u);
++        SET_GPR_U32(&cc, 5, buf);
++        SET_GPR_U32(&cc, 6, 0u);
++        rt->lookupFunction(0x4149a0u)(rdram, &cc, rt);
++        std::fprintf(stderr, "[drakan] test subtitle queued (update %ld)\n", n);
++    }
++    void hookCameraUpdateMat(uint8_t *rdram, R5900Context *c, PS2Runtime *rt)
++    {
++        testSubtitleTick(rdram, c, rt);
++        wsApplyProjection(rdram); // before the original multiplies the matrix by +0x48
++        g_origCameraUpdateMat(rdram, c, rt);
++    }
++    void hookSetViewport(uint8_t *rdram, R5900Context *c, PS2Runtime *rt)
++    {
++        g_origSetViewport(rdram, c, rt);
++        wsApplyProjection(rdram);
++    }
++
+     // Movie-player completion callback thunk (screens 0x1d/0x1e, see docs/journal/2026-10-17/crash-listener.md section 1): void thunk(Screen *listener, int flag) calls
+     // (listener+0x98)->vslot 0x7c. The movie job stores the raw screen pointer (job+0xbc) and the game has no unregister call, it relies on the
+     // screen outliving the job. When START is pressed in the same frame as the New Game confirm the pause menu opens over the loading game and the
+@@ -826,6 +888,22 @@
+             g_origMovieDone = runtime.lookupFunction(kMovieDoneThunk);
+             runtime.replaceFunction(kMovieDoneThunk, &hookMovieDone);
+         }
++        {
++            // widescreen aspect: drakan.ini [video] aspect (4:3 | 16:9 | 21:9 | 1.78 ...), env DRAKAN_WS_ASPECT overrides; "native"/"stretch" need the presenter (drakanSetWidescreenAspect)
++            std::string a = drakan_cfg::getString("video", "aspect", "DRAKAN_WS_ASPECT", "4:3");
++            float fa = 0, fb = 0, v = 4.0f / 3.0f;
++            if (std::sscanf(a.c_str(), "%f:%f", &fa, &fb) == 2 && fa > 0 && fb > 0) v = fa / fb;
++            else if (std::sscanf(a.c_str(), "%f", &fa) == 1 && fa > 0.5f) v = fa;
++            g_wsAspect.store(v);
++            if ((std::fabs(v - 4.0f / 3.0f) > 0.01f || std::getenv("DRAKAN_TEST_SUB")) && runtime.hasFunction(kCameraUpdateMat) && runtime.hasFunction(kSetViewport))
++            {
++                g_origCameraUpdateMat = runtime.lookupFunction(kCameraUpdateMat);
++                runtime.replaceFunction(kCameraUpdateMat, &hookCameraUpdateMat);
++                g_origSetViewport = runtime.lookupFunction(kSetViewport);
++                runtime.replaceFunction(kSetViewport, &hookSetViewport);
++                std::fprintf(stderr, "[drakan] widescreen: anamorphic Hor+ for aspect %.3f (x scale * %.4f)\n", v, (4.0f / 3.0f) / v);
++            }
++        }
+         if (runtime.hasFunction(kOptionsHandler))
+         {
+             g_origOptionsHandler = runtime.lookupFunction(kOptionsHandler);

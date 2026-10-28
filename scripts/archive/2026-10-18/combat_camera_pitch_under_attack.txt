@@ -1,0 +1,19 @@
+# Existing fixture-hostile675; private cards, explicit GPU grant, rebuilt candidate.
+# Equip first: unequipped Rynn did not acquire a target in build02's first pair.
+# No outgoing attack or movement. The nearby hostiles supply incoming attacks.
+1 log on 1
+0 sync play 90
+2 key tap Q
+10 dump ram_equipped
+30 pad down R2
+32 pad up R2
+34 dump ram_target_acquired
+49 dump ram_before_mouse
+50 mouse 0 -2 10
+62 dump ram_hold_00
+72 dump ram_hold_10
+82 dump ram_hold_20
+90 pad down R2
+92 pad up R2
+94 dump ram_target_released
+100 quit

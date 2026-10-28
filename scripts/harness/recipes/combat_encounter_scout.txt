@@ -1,0 +1,15 @@
+1 log on 15
+0 sync play 90
+2 dump ram_start
+30 key down W
+330 key up W
+340 dump ram_walk10
+350 key tap F
+370 button down 1
+376 button up 1
+400 button down 2
+460 button up 2
+480 key down D
+540 key up D
+550 dump ram_actions
+600 quit

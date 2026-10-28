@@ -1,0 +1,176 @@
+name: Build compiler tools (no game data)
+
+on:
+  push:
+    branches: [main]
+    paths: ['CMakeLists.txt', 'CMakePresets.json', 'cmake/**', 'third_party/**', 'runtime/**', 'ps2recomp/**', 'scripts/buildtool/**', 'scripts/repository_guard.py', 'scripts/run_tests.py', 'scripts/prepare_local_runtime.py', 'scripts/tests/**', 'configs/**', '.github/workflows/build-tools.yml', 'BUILDING.md']
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      upload_artifacts:
+        description: Upload compiler packages (requires available account artifact storage)
+        type: boolean
+        required: false
+        default: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: tools-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint:
+    name: Lint and format checks
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12'
+      - name: Install lint tools
+        run: |
+          python -m pip install -r requirements-dev.txt
+          sudo apt-get update && sudo apt-get install -y clang-format-19
+      - name: Python lint (ruff)
+        run: python -m ruff check
+      - name: Python format (ruff)
+        run: git ls-files -z '*.py' | xargs -0 python -m ruff format --check
+      - name: C/C++ format (clang-format)
+        run: git ls-files -z -- '*.c' '*.cc' '*.cpp' '*.h' '*.hpp' ':!:third_party/**' ':!:analysis/experiments/**' ':!:docs/proposals/**' | xargs -0 clang-format-19 --dry-run --Werror
+      - name: Line endings are LF
+        run: |
+          bad=$(git ls-files --eol | awk '$1=="i/crlf" || $1=="i/mixed" {print $NF}' | grep -vE '\.(bat|cmd)$' || true)
+          if [ -n "$bad" ]; then echo "CRLF in index:"; echo "$bad"; exit 1; fi
+
+  runtime-checks:
+    name: Windows runtime checks / no game data
+    runs-on: windows-2022
+    timeout-minutes: 40
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12'
+      - name: Check source tree
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $PSNativeCommandUseErrorActionPreference = $true
+          python scripts/repository_guard.py
+      - name: Configure and build runtime libraries, tests and policy checks (root CMake, runtime-tests preset)
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $PSNativeCommandUseErrorActionPreference = $true
+          cmake --preset runtime-tests
+          cmake --build --preset runtime-tests --parallel 2
+      - name: Test runtime libraries, renderer and policies (ctest; data-dependent tests skip)
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $PSNativeCommandUseErrorActionPreference = $true
+          # Tests needing the disc, movies or captures exit 77 and show as skipped here.
+          # The full synthetic sweep takes minutes on WARP; CI runs its focused modes below instead.
+          ctest --preset runtime-tests -E "^synthetic$"
+          ./build/runtime-tests/bin/Release/gsr_test_synthetic.exe --warp --scale 1 --alpha-only
+          ./build/runtime-tests/bin/Release/gsr_test_synthetic.exe --warp --scale 1 --inventory-alpha-only
+          ./build/runtime-tests/bin/Release/gsr_test_synthetic.exe --warp --scale 1 --rt-shifted-row-only
+          ./build/runtime-tests/bin/Release/gsr_test_synthetic.exe --warp --scale 1 --rt-cache-coherence-only
+
+  linux-runtime-checks:
+    name: Linux portable runtime checks / no game data
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12'
+      - name: Install native build and audio headers
+        run: sudo apt-get update && sudo apt-get install -y cmake ninja-build g++ libasound2-dev
+      - name: Build and test portable runtime libraries and policies
+        run: |
+          cmake --preset linux-runtime-tests
+          cmake --build --preset linux-runtime-tests --parallel 2
+          ctest --preset linux-runtime-tests
+
+  web-runtime-checks:
+    name: Wasm SIMD runtime checks / no game data
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12'
+      - name: Build and execute portable VU arithmetic with the pinned browser SDK
+        run: python scripts/buildtool/check_web_runtime.py
+
+  compiler:
+    name: Compiler only / ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-2022, ubuntu-24.04]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: '3.12'
+      - name: Reject tracked game data, SDK files and binaries
+        run: python scripts/repository_guard.py
+      - name: Run Python tests (synthetic inputs only)
+        run: python scripts/run_tests.py -v
+      - name: Install Linux compiler tools
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y build-essential cmake ninja-build
+      - name: Build translator from ps2recomp/ and check its CLI usage
+        run: python scripts/buildtool/build_tool.py --work-dir build/buildtool --jobs 2
+      - name: Package compiler and corresponding source only
+        run: python scripts/buildtool/package_tool.py --work-dir build/buildtool --output-directory build/tool-package
+      - name: Verify compiler archives exclude game and vendor content
+        run: python scripts/buildtool/audit_packages.py --directory build/tool-package
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        id: upload
+        if: github.event_name != 'workflow_dispatch' || inputs.upload_artifacts
+        continue-on-error: true
+        with:
+          name: compiler-${{ matrix.os }}
+          path: |
+            build/tool-package/*.zip
+            build/tool-package/SHA256SUMS.txt
+          if-no-files-found: error
+          retention-days: 14
+      - name: Report unavailable compiler artifacts
+        if: success() && steps.upload.outcome == 'failure'
+        shell: bash
+        run: |
+          echo '::warning::Compiler build, CLI check and local packaging passed, but artifact upload failed. Downloadable artifacts are unavailable; inspect the upload log for quota or service errors.'
+          {
+            echo '### Build passed; artifact upload failed'
+            echo 'Compiler build, CLI check and local packaging passed.'
+            echo 'Downloadable artifacts are unavailable. Inspect the upload step for account storage quota or service errors. Local packaging remains available using scripts/buildtool/package_tool.py.'
+          } >> "$GITHUB_STEP_SUMMARY"
+      - name: Report intentionally skipped artifact upload
+        if: success() && steps.upload.outcome == 'skipped'
+        shell: bash
+        run: |
+          {
+            echo '### Build passed; artifact upload disabled'
+            echo 'Compiler build and local packaging passed. No downloadable artifact was requested (upload_artifacts=false).'
+          } >> "$GITHUB_STEP_SUMMARY"

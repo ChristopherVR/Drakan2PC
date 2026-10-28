@@ -1,0 +1,27 @@
+# Level 1 start (loaded from the save). Equip Rynn's dagger and swing it 8 times; look for "Short Swish" / "Rynn Attack" key-ons.
+# TAB = inventory (first time: help popup, Enter closes it), E = Square in menus = Equip, TAB closes.
+1 log on 600
+0 sync play 10
+100 key tap TAB
+230 key tap ENTER
+300 key tap E
+360 shot equip1
+380 key tap TAB
+520 shot equip2
+580 button down 1
+586 button up 1
+640 button down 1
+646 button up 1
+700 button down 1
+706 button up 1
+760 button down 1
+766 button up 1
+820 button down 1
+826 button up 1
+880 button down 1
+886 button up 1
+940 button down 1
+946 button up 1
+1000 button down 1
+1006 button up 1
+1150 quit

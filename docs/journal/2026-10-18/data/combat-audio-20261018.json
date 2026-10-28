@@ -1,0 +1,249 @@
+{
+  "schema_version": 1,
+  "date": "2026-10-18",
+  "baseline_sha256": "77AF378BC98F14757262C902B995C115D37B2DB025DC78CBD565D5A9BE52298E",
+  "combined_sha256": "54F082B55C3A768391EC5B39DB48033F2AA77DEA6B51CDFBBE1E81A61D92D557",
+  "baseline_native_melee": {
+    "completion": {
+      "exit_code": 0,
+      "script_quit": true,
+      "elapsed_seconds": 52.4114584
+    },
+    "mode": {
+      "sr": "off",
+      "nr": false,
+      "audio_output_enabled": true,
+      "audio_dump": true,
+      "internal_scale": 5,
+      "pacing_seconds": null,
+      "verbose_dlss_observed": false
+    },
+    "saves_unchanged": {
+      "original": true,
+      "source": true,
+      "private": true
+    },
+    "audio": {
+      "wasapi_output_observed": true,
+      "selected_named_keyons": 6,
+      "nonzero_postmix_windows": 6,
+      "silent_postmix_windows": 0,
+      "sample_names": [
+        "Rynn Attack Long 01",
+        "Rynn Attack Short 02",
+        "Short Swish 011",
+        "Short Swish 04"
+      ]
+    },
+    "combat": {
+      "same_enemy_verified": true,
+      "dagger_native_channel_verified": true,
+      "enemy_hp_by_snapshot": [
+        40,
+        40,
+        40,
+        36,
+        32,
+        30,
+        30,
+        22
+      ],
+      "player_hp_by_snapshot": [
+        100,
+        100,
+        90,
+        80,
+        60,
+        40,
+        30,
+        30
+      ],
+      "damage_reducer_calls": 8,
+      "damage_reduced_calls": 0,
+      "successful_parry_established": false
+    },
+    "delivery": {
+      "primary_down": 5,
+      "primary_up": 5,
+      "rmb_down": 1,
+      "rmb_up": 1,
+      "rmb_hold_frames": 120,
+      "last_cached_pad": 0
+    }
+  },
+  "baseline_native_bow_mkb": {
+    "completion": {
+      "exit_code": 0,
+      "script_quit": true,
+      "elapsed_seconds": 68.3904769
+    },
+    "mode": {
+      "sr": "off",
+      "nr": false,
+      "audio_output_enabled": true,
+      "audio_dump": true,
+      "internal_scale": 5,
+      "pacing_seconds": null,
+      "verbose_dlss_observed": false
+    },
+    "saves_unchanged": {
+      "original": true,
+      "source": true,
+      "private": true
+    },
+    "audio": {
+      "wasapi_output_observed": true,
+      "selected_named_keyons": 4,
+      "nonzero_postmix_windows": 4,
+      "silent_postmix_windows": 0,
+      "sample_names": [
+        "Arrow launch",
+        "ArrowImpact-Wood_1_22k",
+        "Equip Bow"
+      ]
+    },
+    "equipment_checks": {
+      "passed": 7,
+      "total": 7
+    },
+    "movement_bow_checks": {
+      "passed": 9,
+      "total": 9
+    },
+    "heading_delta_rad": -0.08000002210694279,
+    "pitch_delta_rad": 0.04000000283122063,
+    "heading_return_residual_rad": -1.2942507066071585e-08,
+    "pitch_return_residual_rad": -2.7939677238464355e-09,
+    "ammo_by_snapshot": {
+      "look_base": 200,
+      "shot1_active": 199,
+      "shot1_release": 199,
+      "shot2_release": 198,
+      "shot3_release": 198,
+      "shots_settled": 198
+    },
+    "arrow_launch_keyons": 2
+  },
+  "combined_sr_quality_nr_melee": {
+    "completion": {
+      "exit_code": 0,
+      "script_quit": true,
+      "elapsed_seconds": 64.3610164
+    },
+    "mode": {
+      "sr": "quality",
+      "nr": true,
+      "audio_output_enabled": true,
+      "audio_dump": true,
+      "internal_scale": 4,
+      "pacing_seconds": "2",
+      "verbose_dlss_observed": true
+    },
+    "saves_unchanged": {
+      "original": true,
+      "source": true,
+      "private": true
+    },
+    "audio": {
+      "wasapi_output_observed": true,
+      "selected_named_keyons": 7,
+      "nonzero_postmix_windows": 6,
+      "silent_postmix_windows": 1,
+      "sample_names": [
+        "Rynn Attack Long 01",
+        "Short Swish 011",
+        "Short Swish 03",
+        "Short Swish 04"
+      ]
+    },
+    "combat": {
+      "same_enemy_verified": true,
+      "dagger_native_channel_verified": true,
+      "enemy_hp_by_snapshot": [
+        40,
+        40,
+        36,
+        32,
+        28,
+        28,
+        28,
+        18
+      ],
+      "player_hp_by_snapshot": [
+        100,
+        80,
+        80,
+        70,
+        50,
+        40,
+        20,
+        0
+      ],
+      "damage_reducer_calls": 10,
+      "damage_reduced_calls": 0,
+      "successful_parry_established": false
+    },
+    "delivery": {
+      "primary_down": 5,
+      "primary_up": 5,
+      "rmb_down": 1,
+      "rmb_up": 1,
+      "rmb_hold_frames": 120,
+      "last_cached_pad": 0
+    },
+    "evaluations": {
+      "sr_success": 420,
+      "sr_failure": 0,
+      "nr_success": 420,
+      "nr_failure": 0,
+      "nr_validation": {
+        "width": 2048,
+        "height": 2048,
+        "changed_rgb_components": 12499928,
+        "total_rgb_components": 12582912,
+        "nonfinite_rgb_components": 0
+      }
+    }
+  },
+  "harness_checks": {
+    "input_driver": {
+      "passed": 9,
+      "total": 9
+    },
+    "trace_summary_unittest": {
+      "passed": 5,
+      "total": 5
+    },
+    "synthetic_save_guard": {
+      "passed": 2,
+      "total": 2,
+      "restored_environment_values": 8
+    },
+    "environment_regression": {
+      "passed": 9,
+      "total": 9,
+      "probe": "Synthetic child C getenv; absent, empty and nonempty assignment/restoration",
+      "gameplay_rerun": false
+    }
+  },
+  "limitations": [
+    "No subjective Order of the Flame parity, successful timed parry, combo progression, full weapon coverage, Arokh combat or later-game progression established.",
+    "Named key-ons, nonzero volume words and mixed-WAV windows are output evidence, not isolated audibility or a human listening verdict.",
+    "One later combined attack-voice postmix window is silent; its cause is not isolated. Rynn reaches zero HP by the final snapshot; survival/recovery is not established.",
+    "Baseline native runs use internal scale 5; combined run uses scale 4 with SR Quality and NR. Durations are functional-run receipts, not comparable performance measurements.",
+    "The wrapper attempted to clear verbose DLSS through a null environment value. This PowerShell host retained an empty variable, enabling presence-gated verbose logging. The actual combined run therefore has verbose DLSS logs.",
+    "Only one final melee/audio run was performed. Final native23 and SRNR23 checks belong to the parent and are not asserted here."
+  ],
+  "local_evidence": {
+    "baseline": "build/combat_audio_20261018/t",
+    "combined": "build/combat_audio_verification/final54-srnr-melee-audio",
+    "save_guard": "build/combat_audio_20261018/synthetic-save-guard/results.json"
+  },
+  "sanitization": "Aggregate observations only. No save payloads, game code, RAM bytes, waveforms, screenshots, absolute host paths, account/device names, object pointers or private save hashes.",
+  "harness_environment_fix": {
+    "null_assignment": "Remove environment entry",
+    "null_restore": "Remove environment entry",
+    "empty_or_nonempty": "SetEnvironmentVariable preserves exact string",
+    "final_run_still_verbose": true
+  }
+}

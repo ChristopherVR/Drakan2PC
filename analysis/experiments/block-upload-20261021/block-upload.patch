@@ -1,0 +1,39 @@
+--- a/runtime/gs/src/gs_complete_upload.h
++++ b/runtime/gs/src/gs_complete_upload.h
+@@ -1,6 +1,7 @@
+ #pragma once
+ #include "gs_mem.h"
+ #include <algorithm>
++#include <array>
+ namespace gsr {
+ // Called only at the final packed qword of a GIF tag. The next tag and its
+ // payload are in this same submission, under the renderer lock.
+@@ -11,11 +12,26 @@
+  return std::min(uint32_t(tag&0x7fff), (size-32)/16)*16;
+ }
+ inline bool fullUploadBlocks(uint32_t psm,uint32_t bp,uint32_t bw,uint32_t x,uint32_t y,uint32_t w,uint32_t h,uint32_t available,uint32_t& first,uint32_t& last) {
+- if((psm!=PSM_CT32 && psm!=PSM_T8) || !bw || x || y || !w || !h || w>2048 || h>2048 || w!=bw*64)return false;
++ if((psm!=PSM_CT32 && psm!=PSM_T8) || !bw || !w || !h || x>=2048 || y>=2048 || w>2048-x || h>2048-y)return false;
+  const auto g=geomOf(psm);
+- if(w%g.pageW || h%g.pageH)return false;
+  const uint64_t bytes=uint64_t(w)*h*(psm==PSM_CT32?4:1);
+  if(bytes>available)return false;
++ if(x || y || w!=bw*64 || w%g.pageW || h%g.pageH) {
++   // Small writes such as a 16x16 CT32 palette may replace whole blocks,
++   // even though they cover only a fraction of a page. Accept only a single
++   // page and a contiguous, non-wrapping set of completely written blocks.
++   if(x%g.blockW || y%g.blockH || w%g.blockW || h%g.blockH ||
++      x/g.pageW!=(x+w-1)/g.pageW || y/g.pageH!=(y+h-1)/g.pageH)return false;
++   std::array<uint32_t,32> blocks{};unsigned n=0;
++   for(uint32_t yy=y;yy<y+h;yy+=g.blockH)for(uint32_t xx=x;xx<x+w;xx+=g.blockW) {
++     const uint32_t b=pixelAddr(psm,bp,bw,xx,yy)>>8;
++     if(b>=kVramBlocks || n>=blocks.size())return false;
++     blocks[n++]=b;
++   }
++   std::sort(blocks.begin(),blocks.begin()+n);
++   for(unsigned i=1;i<n;++i)if(blocks[i]!=blocks[i-1]+1)return false;
++   first=blocks[0];last=blocks[n-1];return true;
++ }
+  const uint64_t blocks=bytes/256;
+  if(!blocks || uint64_t(bp)+blocks>kVramBlocks)return false;
+  first=bp;last=bp+uint32_t(blocks)-1;return true;

@@ -1,0 +1,116 @@
+--- a/runtime/gs/src/d3d11_backend.cpp
++++ b/runtime/gs/src/d3d11_backend.cpp
+@@ -30,6 +30,7 @@
+ #include "upscale_controls.h"
+ #include "cpu_profile.h"
+ #include "rt_upload.h"
++#include "rt_native_upload.h"
+ #include "rt_readback.h"
+ #include "temporal_presentation.h"
+ #include "surface_geometry.h"
+@@ -1463,6 +1464,7 @@
+         st.rtReadbacks++;
+     }
+ 
++    NativeUpload nativeUpload;
+     void syncRT(RT& rt)
+     {
+         CpuProfile::Scope profile(cpuProfile,CpuProfile::SyncRT);
+@@ -1477,16 +1479,23 @@
+             if (mem.maxStamp(lo, pagesPerRow * 32u) <= rt.rowStamp[r]) continue;
+             const uint32_t y0 = r * ph, y1 = std::min(y0 + ph, rt.h);
+             const uint32_t rows = y1 - y0;
+-            cpuProfile.uploaded(uint64_t(rt.w)*rows*scale*scale*4);
++
+             buf.resize((size_t)rt.w * rows);
+             for (uint32_t y = 0; y < rows; ++y)
+                 for (uint32_t x = 0; x < rt.w; ++x)
+                     buf[(size_t)y * rt.w + x] = unpackPixel(rt.psm, mem.read(rt.psm, rt.base(), rt.fbw, x, y0 + y));
+             D3D11_BOX box{0, y0 * scale, 0, rt.w * scale, y1 * scale, 1};
+-            if (scale == 1)
++            ID3D11Texture2D* expanded = scale>1 ? nativeUpload.expand(dev.Get(),ctx.Get(),buf.data(),rt.w,rows,scale) : nullptr;
++            if(expanded) {
++                const D3D11_BOX sourceBox{0,0,0,rt.w*scale,rows*scale,1};
++                ctx->CopySubresourceRegion(rt.tex.Get(),0,0,y0*scale,0,expanded,0,&sourceBox);
++                cpuProfile.uploaded(uint64_t(rt.w)*rows*4);
++            } else if (scale == 1) {
+                 ctx->UpdateSubresource(rt.tex.Get(), 0, &box, buf.data(), rt.w * 4, 0);
+-            else
++                cpuProfile.uploaded(uint64_t(rt.w)*rows*4);
++            } else
+             {
++                cpuProfile.uploaded(uint64_t(rt.w)*rows*scale*scale*4);
+                 const uint32_t W = rt.w * scale;
+                 up.resize((size_t)W * rows * scale);
+                 expandRenderTargetRows(buf.data(), up.data(), rt.w, rows, scale);
+--- /dev/null
++++ b/runtime/gs/src/rt_native_upload.h
+@@ -0,0 +1,68 @@
++#pragma once
++#include <d3d11.h>
++#include <d3dcompiler.h>
++#include <wrl/client.h>
++#include <cstdint>
++namespace gsr {
++class NativeUpload {
++    template<class T> using Ptr=Microsoft::WRL::ComPtr<T>;
++    Ptr<ID3D11ComputeShader> shader;
++    Ptr<ID3D11Buffer> constants;
++    Ptr<ID3D11Texture2D> input, texture;
++    Ptr<ID3D11ShaderResourceView> source;
++    Ptr<ID3D11UnorderedAccessView> output;
++    uint32_t iw=0,ih=0,ow=0,oh=0;
++public:
++    ID3D11Texture2D* expand(ID3D11Device* dev,ID3D11DeviceContext* ctx,
++                           const uint32_t* pixels,uint32_t w,uint32_t rows,uint32_t scale) {
++        if(!w || !rows || !scale || w>16384/scale || rows>16384/scale) return nullptr;
++        if(!shader) {
++            static constexpr char code[]=R"(
++Texture2D<float4> source : register(t0);
++RWTexture2D<unorm float4> output : register(u0);
++cbuffer Constants : register(b0) { uint width, rows, scale, unused; };
++[numthreads(8,8,1)] void main(uint3 p:SV_DispatchThreadID) {
++    if(p.x<width*scale && p.y<rows*scale)
++        output[p.xy]=source.Load(int3(p.xy/scale,0));
++})";
++            Ptr<ID3DBlob> binary,errors;
++            if(FAILED(D3DCompile(code,sizeof(code)-1,"native_upload",nullptr,nullptr,"main","cs_5_0",D3DCOMPILE_OPTIMIZATION_LEVEL3,0,&binary,&errors)))return nullptr;
++            if(FAILED(dev->CreateComputeShader(binary->GetBufferPointer(),binary->GetBufferSize(),nullptr,&shader)))return nullptr;
++            D3D11_BUFFER_DESC cb{};cb.ByteWidth=16;cb.BindFlags=D3D11_BIND_CONSTANT_BUFFER;
++            if(FAILED(dev->CreateBuffer(&cb,nullptr,&constants))){shader.Reset();return nullptr;}
++        }
++        if(!input || iw<w || ih<rows) {
++            source.Reset();input.Reset();iw=ih=0;
++            D3D11_TEXTURE2D_DESC d{};d.Width=w;d.Height=rows;d.MipLevels=d.ArraySize=d.SampleDesc.Count=1;
++            d.Format=DXGI_FORMAT_R8G8B8A8_UNORM;d.BindFlags=D3D11_BIND_SHADER_RESOURCE;
++            if(FAILED(dev->CreateTexture2D(&d,nullptr,&input)) || FAILED(dev->CreateShaderResourceView(input.Get(),nullptr,&source))){input.Reset();return nullptr;}
++            iw=w;ih=rows;
++        }
++        if(!texture || ow<w*scale || oh<rows*scale) {
++            output.Reset();texture.Reset();ow=oh=0;
++            D3D11_TEXTURE2D_DESC d{};d.Width=w*scale;d.Height=rows*scale;d.MipLevels=d.ArraySize=d.SampleDesc.Count=1;
++            d.Format=DXGI_FORMAT_R8G8B8A8_UNORM;d.BindFlags=D3D11_BIND_UNORDERED_ACCESS;
++            if(FAILED(dev->CreateTexture2D(&d,nullptr,&texture)) || FAILED(dev->CreateUnorderedAccessView(texture.Get(),nullptr,&output))){texture.Reset();return nullptr;}
++            ow=w*scale;oh=rows*scale;
++        }
++        const D3D11_BOX box{0,0,0,w,rows,1};
++        ctx->UpdateSubresource(input.Get(),0,&box,pixels,w*4,0);
++        const uint32_t values[]={w,rows,scale,0};ctx->UpdateSubresource(constants.Get(),0,nullptr,values,0,0);
++        Ptr<ID3D11ComputeShader> oldShader;Ptr<ID3D11Buffer> oldConstants;
++        Ptr<ID3D11ShaderResourceView> oldSource;Ptr<ID3D11UnorderedAccessView> oldOutput;
++        ID3D11ClassInstance* classes[256]{};UINT classCount=256;
++        ctx->CSGetShader(&oldShader,classes,&classCount);ctx->CSGetConstantBuffers(0,1,&oldConstants);
++        ctx->CSGetShaderResources(0,1,&oldSource);ctx->CSGetUnorderedAccessViews(0,1,&oldOutput);
++        auto* cb=constants.Get();auto* srv=source.Get();auto* uav=output.Get();
++        ctx->CSSetShader(shader.Get(),nullptr,0);ctx->CSSetConstantBuffers(0,1,&cb);
++        ctx->CSSetShaderResources(0,1,&srv);ctx->CSSetUnorderedAccessViews(0,1,&uav,nullptr);
++        ctx->Dispatch((w*scale+7)/8,(rows*scale+7)/8,1);
++        srv=nullptr;uav=nullptr;ctx->CSSetShaderResources(0,1,&srv);ctx->CSSetUnorderedAccessViews(0,1,&uav,nullptr);
++        cb=oldConstants.Get();srv=oldSource.Get();uav=oldOutput.Get();
++        ctx->CSSetShader(oldShader.Get(),classes,classCount);ctx->CSSetConstantBuffers(0,1,&cb);
++        ctx->CSSetShaderResources(0,1,&srv);ctx->CSSetUnorderedAccessViews(0,1,&uav,nullptr);
++        for(UINT i=0;i<classCount;++i)if(classes[i])classes[i]->Release();
++        return texture.Get();
++    }
++};
++}

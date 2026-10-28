@@ -1,0 +1,3 @@
+clock milliseconds
+0 sync play 1
+30000 quit

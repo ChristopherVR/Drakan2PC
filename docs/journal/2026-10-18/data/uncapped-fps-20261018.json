@@ -1,0 +1,213 @@
+{
+  "schema": 1,
+  "executable_sha256": "6D0224EF0305B43C93C24860840586D2A0A39268FE1C0B9CFCAE52D018932084",
+  "provenance": {
+    "outer": "78b05ac44241bcc767641f5497d79e6867150993",
+    "runtime": "a03c6bba7ff43c6c644afec54a09783b6f63bfad",
+    "sha": "6D0224EF0305B43C93C24860840586D2A0A39268FE1C0B9CFCAE52D018932084"
+  },
+  "functional": {
+    "native": {
+      "checks_passed": 23,
+      "exit_code": 0,
+      "saves_preserved": {
+        "original": true,
+        "private": true,
+        "source": true
+      },
+      "elapsed_seconds": 70.3743108,
+      "internal_scale": "auto",
+      "sr_evaluations": 0,
+      "nr_evaluations": 0,
+      "auto_scale_changes": [
+        "[gsr-auto-scale] startup output=3840x2160 viewportAspect=1.333333 scale=5",
+        "[gsr-auto-scale] output=3840x2160->3840x2160 viewportAspect=1.333333 native512=1 scale=5->6",
+        "[gsr-auto-scale] output=3840x2160->3840x2160 viewportAspect=1.777778 native512=1 scale=6->8",
+        "[gsr-auto-scale] output=3840x2160->3840x2160 viewportAspect=1.333333 native512=1 scale=8->6",
+        "[gsr-auto-scale] output=3840x2160->3840x2160 viewportAspect=1.777778 native512=1 scale=6->8",
+        "[gsr-auto-scale] output=3840x2160->3840x2160 viewportAspect=1.333333 native512=1 scale=8->6",
+        "[gsr-auto-scale] output=3840x2160->3840x2160 viewportAspect=1.777778 native512=1 scale=6->8"
+      ]
+    },
+    "sr_nr": {
+      "checks_passed": 23,
+      "exit_code": 0,
+      "saves_preserved": {
+        "original": true,
+        "private": true,
+        "source": true
+      },
+      "elapsed_seconds": 82.3746194,
+      "internal_scale": "4",
+      "sr_evaluations": 1797,
+      "nr_evaluations": 1677,
+      "auto_scale_changes": []
+    }
+  },
+  "cpu_checks": {
+    "settings": 316,
+    "settings_menu": 123,
+    "scheduler_deadlines": 58,
+    "legacy_cadence": 403,
+    "frame_report": 12,
+    "native_display_commit": 202,
+    "vblank_handoff": 332,
+    "widescreen_policy": 2171
+  },
+  "limitations": [
+    "Performance is scene- and configuration-specific; removing a cadence limit does not guarantee 60+ gameplay FPS.",
+    "Menu bitmap artwork remains limited by original source detail.",
+    "Whole-game combat, cutscene, physics and Arokh timing remain unverified.",
+    "Smoke/shadow, HUD border and other pre-existing visual defects remain."
+  ],
+  "performance": {
+    "comparison_eligible": true,
+    "errors": [],
+    "runs": {
+      "before": {
+        "requested_world_rate": "30",
+        "input_script_clock": "milliseconds",
+        "harness_elapsed_seconds": 68.2542217,
+        "recorded_save_preservation": true,
+        "positive_world_windows": 16,
+        "selected_windows": [
+          {
+            "seconds": 2.0,
+            "worldUpdates": 30.0,
+            "worldPresents": 30.0,
+            "guestVsyncs": 60.0
+          },
+          {
+            "seconds": 2.0,
+            "worldUpdates": 30.0,
+            "worldPresents": 30.0,
+            "guestVsyncs": 59.99
+          },
+          {
+            "seconds": 2.0,
+            "worldUpdates": 30.0,
+            "worldPresents": 30.0,
+            "guestVsyncs": 59.99
+          },
+          {
+            "seconds": 2.032,
+            "worldUpdates": 30.01,
+            "worldPresents": 29.52,
+            "guestVsyncs": 60.03
+          },
+          {
+            "seconds": 2.0,
+            "worldUpdates": 29.99,
+            "worldPresents": 30.49,
+            "guestVsyncs": 59.99
+          }
+        ],
+        "selected_seconds": 10.032,
+        "weighted_rates_per_second": {
+          "worldUpdates": 30.000031897926636,
+          "worldPresents": 30.000462519936203,
+          "guestVsyncs": 60.000095693779905
+        }
+      },
+      "after": {
+        "requested_world_rate": "uncapped",
+        "input_script_clock": "milliseconds",
+        "harness_elapsed_seconds": 56.2180724,
+        "recorded_save_preservation": true,
+        "positive_world_windows": 16,
+        "selected_windows": [
+          {
+            "seconds": 2.028,
+            "worldUpdates": 33.05,
+            "worldPresents": 33.05,
+            "guestVsyncs": 59.68
+          },
+          {
+            "seconds": 2.002,
+            "worldUpdates": 32.96,
+            "worldPresents": 32.96,
+            "guestVsyncs": 59.93
+          },
+          {
+            "seconds": 2.028,
+            "worldUpdates": 33.04,
+            "worldPresents": 33.04,
+            "guestVsyncs": 60.16
+          },
+          {
+            "seconds": 2.008,
+            "worldUpdates": 32.87,
+            "worldPresents": 33.37,
+            "guestVsyncs": 60.27
+          },
+          {
+            "seconds": 2.027,
+            "worldUpdates": 33.06,
+            "worldPresents": 32.56,
+            "guestVsyncs": 59.7
+          }
+        ],
+        "selected_seconds": 10.093,
+        "weighted_rates_per_second": {
+          "worldUpdates": 32.996336074507084,
+          "worldPresents": 32.99539482809868,
+          "guestVsyncs": 59.947432874269296
+        }
+      }
+    },
+    "limitations": [
+      "Completed world submissions and present calls are not confirmed scanouts.",
+      "The last five positive-world windows may include transitions or catch-up.",
+      "Only recorded environment settings are compared; full inherited environment and graphics configuration equality are not established.",
+      "Save preservation is based on the harness receipt, not a new save-file audit.",
+      "This report does not establish gameplay-speed parity or guarantee 60 FPS."
+    ],
+    "matched_sha256": {
+      "sha256": "6d0224ef0305b43c93c24860840586d2a0a39268fe1c0b9cfcae52d018932084",
+      "script_sha256": "3ef36c67379733a0a40133a10be9116c0af511ab763c655b07d64aa5759d252f",
+      "input_ini_sha256": "3ecf546900e9858a587ef9c4b62385b074c9281431d3eac0ef73619be0dd078f"
+    },
+    "compared_environment_keys": [
+      "DRAKAN_AUDIO",
+      "DRAKAN_AUDIO_DUMP",
+      "DRAKAN_AUTOPRESS",
+      "DRAKAN_AUTOPRESS_NOSTART",
+      "DRAKAN_AUTOPRESS_UNTIL",
+      "DRAKAN_CMD_LOG",
+      "DRAKAN_COMBAT_AUDIT",
+      "DRAKAN_COMBAT_LOG",
+      "DRAKAN_CONSOLE",
+      "DRAKAN_DLSS",
+      "DRAKAN_DLSS_NEURAL",
+      "DRAKAN_FRAME_LIMIT",
+      "DRAKAN_INPUT_AUTOSTART",
+      "DRAKAN_PAUSE_UNFOCUSED",
+      "DRAKAN_SND_DBG",
+      "DRAKAN_SND_LOG",
+      "DRAKAN_VSYNC",
+      "DRAKAN_WINDOW_HEIGHT",
+      "DRAKAN_WINDOW_WIDTH",
+      "PS2X_GS",
+      "PS2X_GS_PACING",
+      "PS2X_GS_SCALE",
+      "PS2X_MAX_SECONDS"
+    ],
+    "world_submission_rate_change_percent": 9.987669969069369
+  },
+  "movement": {
+    "original30": {
+      "backward_distance_xz": 1400.4855805498767,
+      "mouse_pitch_delta": -0.04000000283122063,
+      "mouse_yaw_delta": -0.07999999925015988,
+      "released_attack_state": 0
+    },
+    "uncapped": {
+      "backward_distance_xz": 1392.2101260787647,
+      "mouse_pitch_delta": -0.04000000283122063,
+      "mouse_yaw_delta": -0.07999999925015988,
+      "released_attack_state": 0
+    },
+    "distance_difference_percent": -0.5908989414844745,
+    "scope": "One one-second backward hold in the existing early-area save, separated from RAM captures; not whole-game speed parity."
+  }
+}

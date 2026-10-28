@@ -1,0 +1,101 @@
+# Left-anchored inventory: 16:9 native page x offset removed (80/640).
+# Measured native category boxes; virtual script client640x512.
+# Private fixture-bow-item copy; page scale .75; direct mouse sensitivity .002, no inversion.
+# pageScaleX=0.75; view=[0.0, 0.0, 640.0, 512.0]; captureLog=build\t\inventory-category-calibration-01\input.log
+1 log on 5
+0 sync play 90
+5 key down W
+11 key up W
+15 key down E
+25 key up E
+45 key tap ENTER
+100 key tap TAB
+230 key tap ENTER
+250 dump ram_cat_baseline
+280 cursor 58 54
+285 button down 1
+287 button up 1
+370 dump ram_cat_equipment
+370 shot category_equipment
+420 cursor 112 54
+425 button down 1
+427 button up 1
+450 dump ram_cat_spells_prehelp
+475 key tap ENTER
+510 dump ram_cat_spells
+510 shot category_spells
+560 cursor 166 54
+565 button down 1
+567 button up 1
+590 dump ram_cat_skills_prehelp
+615 key tap ENTER
+650 dump ram_cat_skills
+650 shot category_skills
+700 cursor 221 54
+705 button down 1
+707 button up 1
+730 dump ram_cat_map_prehelp
+755 key tap ENTER
+790 dump ram_cat_map
+790 shot category_map
+840 cursor 275 54
+845 button down 1
+847 button up 1
+870 dump ram_cat_journal_prehelp
+895 key tap ENTER
+930 dump ram_cat_journal
+930 shot category_journal
+980 cursor 85 54
+985 button down 1
+987 button up 1
+1015 dump ram_cat_outside
+1050 cursor 58 54
+1055 button down 1
+1057 button up 1
+1100 dump ram_cat_return
+1100 shot category_return
+1110 dump ram_mouse_before
+1115 key tap RIGHT
+1140 cursor 42 126
+1145 button down 1
+1147 button up 1
+1175 dump ram_mouse_item0
+1190 cursor 291 126
+1195 button down 1
+1197 button up 1
+1225 dump ram_mouse_empty
+1240 cursor 77 126
+1245 button down 1
+1247 button up 1
+1275 dump ram_mouse_item1
+# Final combined: close Equipment, then unchanged movement/bow segment shifted +855 frames.
+1295 key tap TAB
+1345 dump ram_look_base
+1355 mouse 4 -2 10
+1367 dump ram_look_moved
+1375 mouse -4 2 10
+1395 dump ram_look_return
+1405 key down W
+1420 key up W
+1435 dump ram_forward
+1445 key down D
+1460 key up D
+1475 dump ram_strafe
+1485 key tap F
+1495 dump ram_lockon
+1505 button down 1
+1507 mouse 2 0 4
+1520 dump ram_shot1_active
+1525 button up 1
+1535 dump ram_shot1_release
+1555 button down 1
+1559 button up 1
+1565 dump ram_shot2_release
+1575 button down 1
+1579 button up 1
+1585 dump ram_shot3_release
+1605 dump ram_shots_settled
+1615 key down 6
+1635 key up 6
+1675 dump ram_quick_released
+1705 quit

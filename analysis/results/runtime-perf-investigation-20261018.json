@@ -1,0 +1,621 @@
+[
+  {
+    "run": "native-inventory-perf30",
+    "eligible_windows": 16,
+    "selected_windows": 5,
+    "seconds": 10.100999999999999,
+    "worlds_estimated_from_rounded_rates": 303.00576,
+    "rates": {
+      "worldUpdates": 29.997600237600242,
+      "worldPresents": 29.99906840906841,
+      "guestVsyncs": 59.99778437778438,
+      "hostTicks": 59.9952380952381,
+      "presentCalls": 29.99906840906841
+    },
+    "ms_per_world": {
+      "lockMs": 0.0,
+      "presentMs": 0.73533255605438,
+      "drainMs": 0.0,
+      "handoffMs": 0.7753978010187,
+      "fairMs": 0.0
+    },
+    "world_interval_ms": 33.33599994930789,
+    "identity": {
+      "sha256": "0E4BACD82DEF9B38FEF5EB8303B88A617AB238099959D6D2041A38CC20248EB3",
+      "script_sha256": "3EF36C67379733A0A40133A10BE9116C0AF511AB763C655B07D64AA5759D252F",
+      "input_ini_sha256": "3ECF546900E9858A587EF9C4B62385B074C9281431D3EAC0EF73619BE0DD078F"
+    },
+    "settings": {
+      "DRAKAN_AUDIO": "0",
+      "DRAKAN_FRAME_LIMIT": "0",
+      "DRAKAN_WINDOW_HEIGHT": "1080",
+      "DRAKAN_WINDOW_WIDTH": "1920",
+      "DRAKAN_DLSS": "quality",
+      "DRAKAN_DLSS_NEURAL": "1",
+      "DRAKAN_WORLD_RATE": "30",
+      "PS2X_GS_SCALE": "4",
+      "DRAKAN_VSYNC": "0"
+    },
+    "last_profile_windows_unaligned": [],
+    "limitations": [
+      "Tail selection can include transitions; inspect selected scene and input timeline.",
+      "Waits overlap work on other threads and must not be summed as CPU usage.",
+      "Different executable hashes, scripts, or render scales prevent causal A/B attribution."
+    ]
+  },
+  {
+    "run": "native-inventory-perfuncapped",
+    "eligible_windows": 16,
+    "selected_windows": 5,
+    "seconds": 10.089,
+    "worlds_estimated_from_rounded_rates": 328.96763,
+    "rates": {
+      "worldUpdates": 32.606564575280004,
+      "worldPresents": 32.70374863712955,
+      "guestVsyncs": 60.05954504906333,
+      "hostTicks": 65.40949449895926,
+      "presentCalls": 32.70374863712955
+    },
+    "ms_per_world": {
+      "lockMs": 0.0,
+      "presentMs": 0.740498388853639,
+      "drainMs": 7.562142208338249,
+      "handoffMs": 0.7862779690512408,
+      "fairMs": 0.0
+    },
+    "world_interval_ms": 30.668670957078668,
+    "identity": {
+      "sha256": "0E4BACD82DEF9B38FEF5EB8303B88A617AB238099959D6D2041A38CC20248EB3",
+      "script_sha256": "3EF36C67379733A0A40133A10BE9116C0AF511AB763C655B07D64AA5759D252F",
+      "input_ini_sha256": "3ECF546900E9858A587EF9C4B62385B074C9281431D3EAC0EF73619BE0DD078F"
+    },
+    "settings": {
+      "DRAKAN_AUDIO": "0",
+      "DRAKAN_FRAME_LIMIT": "0",
+      "DRAKAN_WINDOW_HEIGHT": "1080",
+      "DRAKAN_WINDOW_WIDTH": "1920",
+      "DRAKAN_DLSS": "quality",
+      "DRAKAN_DLSS_NEURAL": "1",
+      "DRAKAN_WORLD_RATE": "uncapped",
+      "PS2X_GS_SCALE": "4",
+      "DRAKAN_VSYNC": "0"
+    },
+    "last_profile_windows_unaligned": [],
+    "limitations": [
+      "Tail selection can include transitions; inspect selected scene and input timeline.",
+      "Waits overlap work on other threads and must not be summed as CPU usage.",
+      "Different executable hashes, scripts, or render scales prevent causal A/B attribution."
+    ]
+  },
+  {
+    "run": "uncapped-native-lowres-04",
+    "eligible_windows": 16,
+    "selected_windows": 5,
+    "seconds": 10.024999999999999,
+    "worlds_estimated_from_rounded_rates": 422.99339,
+    "rates": {
+      "worldUpdates": 42.19385436408978,
+      "worldPresents": 42.19385436408978,
+      "guestVsyncs": 59.95006683291771,
+      "hostTicks": 84.3877735660848,
+      "presentCalls": 42.19385436408978
+    },
+    "ms_per_world": {
+      "lockMs": 9.456412545831981e-05,
+      "presentMs": 0.15900957695816478,
+      "drainMs": 0.21227282062256342,
+      "handoffMs": 0.17314691371418356,
+      "fairMs": 0.0
+    },
+    "world_interval_ms": 23.7001339429914,
+    "identity": {
+      "sha256": "F59F6BAE10FB219D24018D09BEB7739528FECBEA1616716BDB508380897BA376",
+      "script_sha256": "3EF36C67379733A0A40133A10BE9116C0AF511AB763C655B07D64AA5759D252F",
+      "input_ini_sha256": "3ECF546900E9858A587EF9C4B62385B074C9281431D3EAC0EF73619BE0DD078F"
+    },
+    "settings": {
+      "DRAKAN_DLSS_NEURAL": "0",
+      "DRAKAN_AUDIO": "0",
+      "PS2X_GS_SCALE": "1",
+      "DRAKAN_WINDOW_HEIGHT": "1080",
+      "DRAKAN_VSYNC": "0",
+      "DRAKAN_WINDOW_WIDTH": "1920",
+      "DRAKAN_DLSS": "off",
+      "DRAKAN_FRAME_LIMIT": "0",
+      "DRAKAN_WORLD_RATE": "uncapped"
+    },
+    "last_profile_windows_unaligned": [],
+    "limitations": [
+      "Tail selection can include transitions; inspect selected scene and input timeline.",
+      "Waits overlap work on other threads and must not be summed as CPU usage.",
+      "Different executable hashes, scripts, or render scales prevent causal A/B attribution."
+    ]
+  },
+  {
+    "run": "uncapped-motion-release",
+    "eligible_windows": 5,
+    "selected_windows": 5,
+    "seconds": 10.056999999999999,
+    "worlds_estimated_from_rounded_rates": 420.98685,
+    "rates": {
+      "worldUpdates": 41.86008252958139,
+      "worldPresents": 41.85834244804614,
+      "guestVsyncs": 60.05847668290744,
+      "hostTicks": 83.82022670776574,
+      "presentCalls": 41.85834244804614
+    },
+    "ms_per_world": {
+      "lockMs": 4.750742214394583e-05,
+      "presentMs": 0.14138208830038276,
+      "drainMs": 0.0,
+      "handoffMs": 0.17126425682892468,
+      "fairMs": 0.0
+    },
+    "world_interval_ms": 23.889107225083155,
+    "identity": {
+      "sha256": "6D0224EF0305B43C93C24860840586D2A0A39268FE1C0B9CFCAE52D018932084",
+      "script_sha256": "71DD8625CB0AA36ECF7F05A60F1B8FC27350E4AC2C44A15A46228395EFFB20E9",
+      "input_ini_sha256": "3ECF546900E9858A587EF9C4B62385B074C9281431D3EAC0EF73619BE0DD078F"
+    },
+    "settings": {
+      "DRAKAN_FRAME_LIMIT": "0",
+      "DRAKAN_DLSS_NEURAL": "0",
+      "PS2X_GS_SCALE": "4",
+      "DRAKAN_WINDOW_HEIGHT": "1080",
+      "DRAKAN_VSYNC": "0",
+      "DRAKAN_AUDIO": "0",
+      "DRAKAN_WINDOW_WIDTH": "1920",
+      "DRAKAN_WORLD_RATE": "uncapped",
+      "DRAKAN_DLSS": "off"
+    },
+    "last_profile_windows_unaligned": [],
+    "limitations": [
+      "Tail selection can include transitions; inspect selected scene and input timeline.",
+      "Waits overlap work on other threads and must not be summed as CPU usage.",
+      "Different executable hashes, scripts, or render scales prevent causal A/B attribution."
+    ]
+  },
+  {
+    "run": "followup-20261018-profile-combined",
+    "eligible_windows": 5,
+    "selected_windows": 5,
+    "seconds": 10.024999999999999,
+    "worlds_estimated_from_rounded_rates": 332.0253,
+    "rates": {
+      "worldUpdates": 33.11973067331672,
+      "worldPresents": 33.11973067331672,
+      "guestVsyncs": 66.13561496259352,
+      "hostTicks": 66.33586433915212,
+      "presentCalls": 33.11973067331672
+    },
+    "ms_per_world": {
+      "lockMs": 0.0,
+      "presentMs": 0.8099683969866152,
+      "drainMs": 0.0,
+      "handoffMs": 0.8187930257121973,
+      "fairMs": 0.0
+    },
+    "world_interval_ms": 30.19348224367239,
+    "identity": {
+      "sha256": "54F082B55C3A768391EC5B39DB48033F2AA77DEA6B51CDFBBE1E81A61D92D557",
+      "script_sha256": "D9369B587A6D247ED206EA8BFFA9B77C0227F92500A67C09B7AD68512D7954B8",
+      "input_ini_sha256": "3ECF546900E9858A587EF9C4B62385B074C9281431D3EAC0EF73619BE0DD078F"
+    },
+    "settings": {
+      "GSR_PROFILE": "2",
+      "PS2X_GS_SCALE": "4",
+      "DRAKAN_WINDOW_WIDTH": "1920",
+      "DRAKAN_DLSS_NEURAL": "1",
+      "DRAKAN_DLSS": "quality",
+      "DRAKAN_AUDIO": "0",
+      "DRAKAN_WINDOW_HEIGHT": "1080"
+    },
+    "last_profile_windows_unaligned": [
+      {
+        "draw": {
+          "calls": 11864.0,
+          "inclusive_ms": 762.63,
+          "exclusive_ms": 306.59,
+          "max_ms": 1.03
+        },
+        "resolveTexture": {
+          "calls": 10837.0,
+          "inclusive_ms": 441.47,
+          "exclusive_ms": 414.59,
+          "max_ms": 0.78
+        },
+        "syncRT": {
+          "calls": 12559.0,
+          "inclusive_ms": 40.91,
+          "exclusive_ms": 40.91,
+          "max_ms": 0.47
+        },
+        "readbackRT": {
+          "calls": 59.0,
+          "inclusive_ms": 33.72,
+          "exclusive_ms": 0.11,
+          "max_ms": 0.99
+        },
+        "readbackMap": {
+          "calls": 59.0,
+          "inclusive_ms": 29.71,
+          "exclusive_ms": 29.71,
+          "max_ms": 0.92
+        },
+        "readbackPackUnmap": {
+          "calls": 59.0,
+          "inclusive_ms": 3.9,
+          "exclusive_ms": 3.9,
+          "max_ms": 0.12
+        },
+        "temporalResolve": {
+          "calls": 240.0,
+          "inclusive_ms": 494.87,
+          "exclusive_ms": 494.87,
+          "max_ms": 9.0
+        },
+        "presentLatched": {
+          "calls": 118.0,
+          "inclusive_ms": 118.79,
+          "exclusive_ms": 53.55,
+          "max_ms": 9.74
+        },
+        "presentCall": {
+          "calls": 118.0,
+          "inclusive_ms": 65.24,
+          "exclusive_ms": 65.24,
+          "max_ms": 9.27
+        },
+        "pumpUp": {
+          "calls": 148.0,
+          "inclusive_ms": 1.47,
+          "exclusive_ms": 1.47,
+          "max_ms": 0.41
+        },
+        "snapshot": {
+          "calls": 253.0,
+          "inclusive_ms": 0.11,
+          "exclusive_ms": 0.11,
+          "max_ms": 0.0
+        },
+        "latchDisplay": {
+          "calls": 118.0,
+          "inclusive_ms": 0.47,
+          "exclusive_ms": 0.33,
+          "max_ms": 0.01
+        },
+        "endFrame": {
+          "calls": 118.0,
+          "inclusive_ms": 1.36,
+          "exclusive_ms": 0.47,
+          "max_ms": 0.26
+        }
+      },
+      {
+        "draw": {
+          "calls": 12929.0,
+          "inclusive_ms": 703.53,
+          "exclusive_ms": 243.23,
+          "max_ms": 1.07
+        },
+        "resolveTexture": {
+          "calls": 11862.0,
+          "inclusive_ms": 441.14,
+          "exclusive_ms": 422.47,
+          "max_ms": 0.78
+        },
+        "syncRT": {
+          "calls": 13367.0,
+          "inclusive_ms": 37.57,
+          "exclusive_ms": 37.57,
+          "max_ms": 0.63
+        },
+        "readbackRT": {
+          "calls": 59.0,
+          "inclusive_ms": 25.06,
+          "exclusive_ms": 0.11,
+          "max_ms": 0.96
+        },
+        "readbackMap": {
+          "calls": 59.0,
+          "inclusive_ms": 20.93,
+          "exclusive_ms": 20.93,
+          "max_ms": 0.9
+        },
+        "readbackPackUnmap": {
+          "calls": 59.0,
+          "inclusive_ms": 4.01,
+          "exclusive_ms": 4.01,
+          "max_ms": 0.15
+        },
+        "temporalResolve": {
+          "calls": 284.0,
+          "inclusive_ms": 480.63,
+          "exclusive_ms": 480.63,
+          "max_ms": 8.72
+        },
+        "presentLatched": {
+          "calls": 108.0,
+          "inclusive_ms": 156.31,
+          "exclusive_ms": 31.71,
+          "max_ms": 12.74
+        },
+        "presentCall": {
+          "calls": 108.0,
+          "inclusive_ms": 124.59,
+          "exclusive_ms": 124.59,
+          "max_ms": 12.65
+        },
+        "pumpUp": {
+          "calls": 190.0,
+          "inclusive_ms": 6.26,
+          "exclusive_ms": 6.26,
+          "max_ms": 1.32
+        },
+        "snapshot": {
+          "calls": 291.0,
+          "inclusive_ms": 0.2,
+          "exclusive_ms": 0.2,
+          "max_ms": 0.07
+        },
+        "latchDisplay": {
+          "calls": 118.0,
+          "inclusive_ms": 0.46,
+          "exclusive_ms": 0.31,
+          "max_ms": 0.01
+        },
+        "endFrame": {
+          "calls": 118.0,
+          "inclusive_ms": 6.54,
+          "exclusive_ms": 0.48,
+          "max_ms": 1.32
+        }
+      },
+      {
+        "draw": {
+          "calls": 15162.0,
+          "inclusive_ms": 617.59,
+          "exclusive_ms": 96.83,
+          "max_ms": 0.77
+        },
+        "resolveTexture": {
+          "calls": 14639.0,
+          "inclusive_ms": 490.74,
+          "exclusive_ms": 461.01,
+          "max_ms": 0.76
+        },
+        "syncRT": {
+          "calls": 15544.0,
+          "inclusive_ms": 59.77,
+          "exclusive_ms": 59.77,
+          "max_ms": 0.69
+        },
+        "readbackRT": {
+          "calls": 66.0,
+          "inclusive_ms": 26.03,
+          "exclusive_ms": 0.11,
+          "max_ms": 0.64
+        },
+        "readbackMap": {
+          "calls": 66.0,
+          "inclusive_ms": 21.55,
+          "exclusive_ms": 21.55,
+          "max_ms": 0.55
+        },
+        "readbackPackUnmap": {
+          "calls": 66.0,
+          "inclusive_ms": 4.37,
+          "exclusive_ms": 4.37,
+          "max_ms": 0.13
+        },
+        "temporalResolve": {
+          "calls": 398.0,
+          "inclusive_ms": 555.09,
+          "exclusive_ms": 555.09,
+          "max_ms": 8.7
+        },
+        "presentLatched": {
+          "calls": 66.0,
+          "inclusive_ms": 58.16,
+          "exclusive_ms": 5.8,
+          "max_ms": 1.65
+        },
+        "presentCall": {
+          "calls": 66.0,
+          "inclusive_ms": 52.36,
+          "exclusive_ms": 52.36,
+          "max_ms": 1.57
+        },
+        "pumpUp": {
+          "calls": 132.0,
+          "inclusive_ms": 0.04,
+          "exclusive_ms": 0.04,
+          "max_ms": 0.03
+        },
+        "snapshot": {
+          "calls": 325.0,
+          "inclusive_ms": 0.14,
+          "exclusive_ms": 0.14,
+          "max_ms": 0.01
+        },
+        "latchDisplay": {
+          "calls": 132.0,
+          "inclusive_ms": 0.49,
+          "exclusive_ms": 0.33,
+          "max_ms": 0.01
+        },
+        "endFrame": {
+          "calls": 132.0,
+          "inclusive_ms": 0.59,
+          "exclusive_ms": 0.56,
+          "max_ms": 0.03
+        }
+      },
+      {
+        "draw": {
+          "calls": 15368.0,
+          "inclusive_ms": 620.67,
+          "exclusive_ms": 94.91,
+          "max_ms": 0.8
+        },
+        "resolveTexture": {
+          "calls": 14845.0,
+          "inclusive_ms": 496.02,
+          "exclusive_ms": 463.44,
+          "max_ms": 0.58
+        },
+        "syncRT": {
+          "calls": 15769.0,
+          "inclusive_ms": 62.36,
+          "exclusive_ms": 62.36,
+          "max_ms": 0.54
+        },
+        "readbackRT": {
+          "calls": 67.0,
+          "inclusive_ms": 40.1,
+          "exclusive_ms": 0.1,
+          "max_ms": 1.33
+        },
+        "readbackMap": {
+          "calls": 67.0,
+          "inclusive_ms": 35.46,
+          "exclusive_ms": 35.46,
+          "max_ms": 1.26
+        },
+        "readbackPackUnmap": {
+          "calls": 67.0,
+          "inclusive_ms": 4.54,
+          "exclusive_ms": 4.54,
+          "max_ms": 0.12
+        },
+        "temporalResolve": {
+          "calls": 400.0,
+          "inclusive_ms": 532.5,
+          "exclusive_ms": 532.5,
+          "max_ms": 8.76
+        },
+        "presentLatched": {
+          "calls": 67.0,
+          "inclusive_ms": 59.18,
+          "exclusive_ms": 5.93,
+          "max_ms": 1.01
+        },
+        "presentCall": {
+          "calls": 67.0,
+          "inclusive_ms": 53.24,
+          "exclusive_ms": 53.24,
+          "max_ms": 0.91
+        },
+        "pumpUp": {
+          "calls": 136.0,
+          "inclusive_ms": 0.45,
+          "exclusive_ms": 0.45,
+          "max_ms": 0.45
+        },
+        "snapshot": {
+          "calls": 322.0,
+          "inclusive_ms": 0.12,
+          "exclusive_ms": 0.12,
+          "max_ms": 0.0
+        },
+        "latchDisplay": {
+          "calls": 134.0,
+          "inclusive_ms": 0.48,
+          "exclusive_ms": 0.32,
+          "max_ms": 0.01
+        },
+        "endFrame": {
+          "calls": 134.0,
+          "inclusive_ms": 1.03,
+          "exclusive_ms": 0.57,
+          "max_ms": 0.45
+        }
+      },
+      {
+        "draw": {
+          "calls": 14754.0,
+          "inclusive_ms": 588.2,
+          "exclusive_ms": 89.62,
+          "max_ms": 0.77
+        },
+        "resolveTexture": {
+          "calls": 14308.0,
+          "inclusive_ms": 469.56,
+          "exclusive_ms": 439.17,
+          "max_ms": 0.74
+        },
+        "syncRT": {
+          "calls": 15144.0,
+          "inclusive_ms": 59.3,
+          "exclusive_ms": 59.3,
+          "max_ms": 0.66
+        },
+        "readbackRT": {
+          "calls": 65.0,
+          "inclusive_ms": 43.5,
+          "exclusive_ms": 0.1,
+          "max_ms": 1.34
+        },
+        "readbackMap": {
+          "calls": 65.0,
+          "inclusive_ms": 39.19,
+          "exclusive_ms": 39.19,
+          "max_ms": 1.28
+        },
+        "readbackPackUnmap": {
+          "calls": 65.0,
+          "inclusive_ms": 4.22,
+          "exclusive_ms": 4.22,
+          "max_ms": 0.12
+        },
+        "temporalResolve": {
+          "calls": 390.0,
+          "inclusive_ms": 523.54,
+          "exclusive_ms": 523.54,
+          "max_ms": 9.16
+        },
+        "presentLatched": {
+          "calls": 65.0,
+          "inclusive_ms": 55.31,
+          "exclusive_ms": 5.89,
+          "max_ms": 1.05
+        },
+        "presentCall": {
+          "calls": 65.0,
+          "inclusive_ms": 49.42,
+          "exclusive_ms": 49.42,
+          "max_ms": 0.94
+        },
+        "pumpUp": {
+          "calls": 162.0,
+          "inclusive_ms": 1.79,
+          "exclusive_ms": 1.79,
+          "max_ms": 1.28
+        },
+        "snapshot": {
+          "calls": 251.0,
+          "inclusive_ms": 0.13,
+          "exclusive_ms": 0.13,
+          "max_ms": 0.01
+        },
+        "latchDisplay": {
+          "calls": 130.0,
+          "inclusive_ms": 0.46,
+          "exclusive_ms": 0.3,
+          "max_ms": 0.01
+        },
+        "endFrame": {
+          "calls": 130.0,
+          "inclusive_ms": 2.09,
+          "exclusive_ms": 0.44,
+          "max_ms": 1.29
+        }
+      }
+    ],
+    "limitations": [
+      "Tail selection can include transitions; inspect selected scene and input timeline.",
+      "Waits overlap work on other threads and must not be summed as CPU usage.",
+      "Different executable hashes, scripts, or render scales prevent causal A/B attribution."
+    ]
+  }
+]

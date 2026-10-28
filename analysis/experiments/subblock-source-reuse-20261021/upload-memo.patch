@@ -1,0 +1,136 @@
+--- a/runtime/gs/src/gs_core.cpp
++++ b/runtime/gs/src/gs_core.cpp
+@@ -15,6 +15,7 @@
+ #include <unordered_set>
+ #include <unordered_map>
+ #include <deque>
++#include <map>
+ 
+ namespace gsr
+ {
+@@ -167,6 +168,8 @@
+     {
+         bool active = false;
+         bool deferredCoherence = false;
++        uint32_t memoBytes=0;
++        uint64_t memoStamp=0;
+         std::vector<uint8_t> pendingImage;
+         uint32_t dbp = 0, dbw = 0, dpsm = 0;
+         uint32_t x0 = 0, y0 = 0, w = 0, h = 0;
+@@ -177,6 +180,11 @@
+         bool nibbleHalf = false;
+         std::vector<uint8_t> raw; // only when cfg.onUpload is set
+     } xfer;
++    struct UploadMemo {std::vector<uint8_t> bytes;uint64_t stamp=0,use=0;};
++    using UploadKey=std::array<uint32_t,7>;
++    std::map<UploadKey,UploadMemo> uploadMemo;
++    uint64_t uploadMemoTick=0,uploadMemoChecks=0;
++    const bool checkUploadMemo=std::getenv("GSR_VALIDATE_REUSE")!=nullptr;
+     std::vector<uint8_t> l2h; // pending local->host bytes
+     size_t l2hPos = 0;
+ 
+@@ -835,11 +843,16 @@
+         if(!xfer.deferredCoherence)return;
+         xfer.deferredCoherence=false;
+         uint32_t first=0,last=0;
+-        if(fullUploadBlocks(xfer.dpsm,xfer.dbp,xfer.dbw,xfer.x0,xfer.y0,xfer.w,xfer.h,available,first,last))
+-            backend->discardCompleteUpload(first,last);
++        const bool complete=fullUploadBlocks(xfer.dpsm,xfer.dbp,xfer.dbw,xfer.x0,xfer.y0,xfer.w,xfer.h,available,first,last);
++        if(complete)backend->discardCompleteUpload(first,last);
+         spanBlocks(xfer.dpsm,xfer.dbp,xfer.dbw,xfer.x0,xfer.y0,xfer.w,xfer.h,first,last);
+         const bool subblock=subblockUpload(xfer.dpsm,xfer.dbp,xfer.dbw,xfer.x0,xfer.y0,xfer.w,xfer.h,available) && backend->deferSubblockUpload(xfer.dbp);
+         if(!subblock)backend->flushToMemoryTagged(first,last,2);
++        const uint64_t bytes=uint64_t(xfer.w)*xfer.h*(xfer.dpsm==PSM_CT32?4u:1u);
++        if((complete || subblock) && !rawVramExposed && bytes<=65536 && bytes<=available && first<=last && last<kVramBlocks) {
++            xfer.memoBytes=uint32_t(bytes);
++            xfer.memoStamp=mem.maxStamp(first,last-first+1);
++        }
+         mem.touchRect(xfer.dpsm,xfer.dbp,xfer.dbw,xfer.x0,xfer.y0,xfer.w,xfer.h);
+         if(!xfer.pendingImage.empty()) {
+             auto pending=std::move(xfer.pendingImage);
+@@ -974,7 +987,21 @@
+             const uint64_t take = std::min<uint64_t>(n, need > xfer.raw.size() ? need - xfer.raw.size() : 0);
+             xfer.raw.insert(xfer.raw.end(), d, d + take);
+         }
+-        if (writeImageChunk(mem,xfer.dpsm,xfer.dbp,xfer.dbw,xfer.x0,xfer.y0,xfer.w,
++        const bool memoReady=xfer.memoBytes && n>=xfer.memoBytes && xfer.pixelsLeft==uint64_t(xfer.w)*xfer.h;
++        const UploadKey memoKey={xfer.dpsm,xfer.dbp,xfer.dbw,xfer.x0,xfer.y0,xfer.w,xfer.h};
++        auto memo=memoReady?uploadMemo.find(memoKey):uploadMemo.end();
++        const bool memoHit=memo!=uploadMemo.end() && xfer.memoStamp<=memo->second.stamp && memo->second.bytes.size()==xfer.memoBytes && !std::memcmp(d,memo->second.bytes.data(),xfer.memoBytes);
++        if(memoHit) {
++            if(checkUploadMemo && uploadMemoChecks<32) {
++                const unsigned bpp=xfer.dpsm==PSM_CT32?4:1;
++                for(unsigned y=0;y<xfer.h;++y)for(unsigned x=0;x<xfer.w;++x){uint32_t expected=0;for(unsigned k=0;k<bpp;++k)expected|=uint32_t(d[(size_t(y)*xfer.w+x)*bpp+k])<<(8*k);
++                    if(mem.read(xfer.dpsm,xfer.dbp,xfer.dbw,xfer.x0+x,xfer.y0+y)!=expected){std::fprintf(stderr,"[upload-byte-check] MISMATCH\n");std::abort();}}
++                std::fprintf(stderr,"[upload-byte-check] checked=%llu bytes=%u mismatches=0\n",++uploadMemoChecks,xfer.memoBytes);
++            }
++            backend->recordUploadByteReuse();
++            xfer.cx=0;xfer.cy=xfer.h;xfer.pixelsLeft=0;
++        }
++        else if (writeImageChunk(mem,xfer.dpsm,xfer.dbp,xfer.dbw,xfer.x0,xfer.y0,xfer.w,
+                             xfer.cx,xfer.cy,xfer.pixelsLeft,d,n)) {
+             // Pixel storage only; transfer completion below remains shared.
+         }
+@@ -1026,6 +1053,14 @@
+         {
+             xfer.active = false;
+             mem.touchRect(xfer.dpsm, xfer.dbp, xfer.dbw, xfer.x0, xfer.y0, xfer.w, xfer.h);
++            if(memoReady) {
++                if(memo==uploadMemo.end() && uploadMemo.size()>=128) {
++                    auto oldest=std::min_element(uploadMemo.begin(),uploadMemo.end(),[](const auto& a,const auto& b){return a.second.use<b.second.use;});uploadMemo.erase(oldest);
++                }
++                auto& entry=uploadMemo[memoKey];
++                if(!memoHit)entry.bytes.assign(d,d+xfer.memoBytes);
++                entry.stamp=mem.clock();entry.use=++uploadMemoTick;
++            }
+             if (cfg.onUpload)
+             {
+                 UploadEvent ev;
+@@ -1246,6 +1281,7 @@
+     s.qn = 0;
+     s.paths[0] = s.paths[1] = s.paths[2] = PathState{};
+     s.xfer = Impl::Xfer{};
++    s.uploadMemo.clear();s.uploadMemoTick=0;
+     s.clut = ClutBuf{};
+     s.csr = 0;
+ }
+--- a/runtime/gs/src/gs_internal.h
++++ b/runtime/gs/src/gs_internal.h
+@@ -116,6 +116,7 @@
+     // make local memory reflect GPU render targets overlapping blocks [first,last]
+     void flushToMemory(uint32_t firstBlock, uint32_t lastBlock);
+     bool flushToMemoryTagged(uint32_t firstBlock,uint32_t lastBlock,unsigned reason);
++    void recordUploadByteReuse();
+     bool deferSubblockUpload(uint32_t bp);
+     void discardCompleteUpload(uint32_t first,uint32_t last);
+     void flushAll();
+--- a/runtime/gs/src/cpu_profile.h
++++ b/runtime/gs/src/cpu_profile.h
+@@ -15,7 +15,7 @@
+               TemporalResolve, PresentLatched, PresentCall, PumpUp, Snapshot,
+               WindowScreenshot, LatchDisplay, EndFrame,
+               TextureCoherenceFlush, TextureStampCheck, TextureDecode, TextureCallback, TextureUpscale, TextureCreate,
+-              GuidePrepare, RayScene, ModelGuides, SuperResolution, NeuralEvaluation, TemporalCompose, RayPack, RayProduce, RayBuild, RayWait, RayConsume, RayTriangles, RayModelAttributes, RayUpload, TextureResourceReuse, ReadbackPalette, ReadbackUpload, ReadbackDownload, ReadbackCopy, ReadbackTexture, ReadbackExternal, ReadbackOverwriteDiscard, SubblockDefer, SubblockTextureHit, SubblockMerge, TextureSourceReuse, Count };
++              GuidePrepare, RayScene, ModelGuides, SuperResolution, NeuralEvaluation, TemporalCompose, RayPack, RayProduce, RayBuild, RayWait, RayConsume, RayTriangles, RayModelAttributes, RayUpload, TextureResourceReuse, ReadbackPalette, ReadbackUpload, ReadbackDownload, ReadbackCopy, ReadbackTexture, ReadbackExternal, ReadbackOverwriteDiscard, SubblockDefer, SubblockTextureHit, SubblockMerge, TextureSourceReuse, UploadByteReuse, Count };
+     struct Scope;
+ private:
+     struct Sample { unsigned long long calls=0; double inclusive=0, exclusive=0, maximum=0; };
+@@ -38,7 +38,7 @@
+         static constexpr const char* names[]={"draw","resolveTexture","syncRT","readbackRT","readbackMap","readbackPackUnmap",
+             "temporalResolve","presentLatched","presentCall","pumpUp","snapshot","windowScreenshot","latchDisplay","endFrame","textureCoherenceFlush","textureStampCheck",
+             "textureDecode","textureCallback","textureUpscale","textureCreate",
+-            "guidePrepare","rayScene","modelGuides","superResolution","neuralEvaluation","temporalCompose","rayPack","rayProduce","rayBuild","rayWait","rayConsume","rayTriangles","rayModelAttributes","rayUpload","textureResourceReuse","readbackPalette","readbackUpload","readbackDownload","readbackCopy","readbackTexture","readbackExternal","readbackOverwriteDiscard","subblockDefer","subblockTextureHit","subblockMerge","textureSourceReuse"};
++            "guidePrepare","rayScene","modelGuides","superResolution","neuralEvaluation","temporalCompose","rayPack","rayProduce","rayBuild","rayWait","rayConsume","rayTriangles","rayModelAttributes","rayUpload","textureResourceReuse","readbackPalette","readbackUpload","readbackDownload","readbackCopy","readbackTexture","readbackExternal","readbackOverwriteDiscard","subblockDefer","subblockTextureHit","subblockMerge","textureSourceReuse","uploadByteReuse"};
+         static_assert(sizeof(names) / sizeof(names[0]) == Count, "Profiler bucket names must match Id");
+         std::fprintf(stderr,"[gsr-profile] %.3fs root=%.2fms readbackCopy=%.2fMiB syncUpload=%.2fMiB; calls/inclusive_ms/exclusive_ms/max_ms:",
+             elapsed,rootMs,readbackBytes/1048576.0,uploadBytes/1048576.0);
+--- a/runtime/gs/src/d3d11_backend.cpp
++++ b/runtime/gs/src/d3d11_backend.cpp
+@@ -4435,6 +4435,7 @@
+     const CpuProfile::Id ids[]={CpuProfile::ReadbackExternal,CpuProfile::ReadbackPalette,CpuProfile::ReadbackUpload,CpuProfile::ReadbackDownload,CpuProfile::ReadbackCopy};
+     return m_impl->flushToMemory(a,b,ids[reason<5?reason:0]);
+ }
++void Backend::recordUploadByteReuse(){CpuProfile::Scope reused(m_impl->cpuProfile,CpuProfile::UploadByteReuse);}
+ bool Backend::deferSubblockUpload(uint32_t bp) {
+     // Validate all aliases before changing ownership for any of them.
+     for(auto& r:m_impl->rts) {

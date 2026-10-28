@@ -1,0 +1,22 @@
+# Wall-clock visual checks in an existing save. No save writes.
+clock milliseconds
+0 sync play 90
+1000 key tap TAB
+3000 key tap ENTER
+4500 key tap ENTER
+5000 shot aspect_equipment
+5200 dump ram_aspect_equipment
+5500 key tap PGDN
+7500 key tap ENTER
+8500 key tap PGDN
+10500 key tap ENTER
+11500 key tap PGDN
+13500 key tap ENTER
+14500 shot aspect_map
+14700 dump ram_aspect_map
+15000 key tap TAB
+17000 key tap ESC
+19000 shot aspect_pause
+21000 key tap ESC
+23000 shot aspect_resumed
+24000 quit

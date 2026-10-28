@@ -1,0 +1,168 @@
+{
+  "installed_exe_sha256": "5074444FA319F7417CF97A58EC81AA67228216E6B1FFE6DDE78F23F116747F74",
+  "previous_exe_sha256": "68F71760D5D37E7C4ACBA2156605679806110A8BBA674D1DE7E096363305F293",
+  "backup": "C:\\Games\\Drakan - The Ancients Gates\\decomp\\build\\release_backups\\vector-stream-20261018-194602",
+  "changes": [
+    "Retire ready VU flags in FIFO order using local accumulators and publish once",
+    "Copy already-due PATH1 payload in contiguous ring spans, preserving GIFtag boundaries and cycle credit",
+    "Copy full-register vector results in one 128-bit operation; preserve partial-lane writes"
+  ],
+  "benchmark": {
+    "scale": 4,
+    "world_rate": "uncapped",
+    "dlss": "off",
+    "audio": true,
+    "before_world_fps": 47.21004062317116,
+    "after_world_fps": 48.72495438256425,
+    "improvement_percent": 3.2088804402543802,
+    "method": "Sequential before/after/after/before private-fixture runs. Duration-weighted final five 2-second world-update windows per run; mean of each pair. Profiling, live checking and exploratory variants excluded.",
+    "runs": {
+      "stream-full-before1": {
+        "exe_sha256": "68F71760D5D37E7C4ACBA2156605679806110A8BBA674D1DE7E096363305F293",
+        "world_fps": 47.188076463560336,
+        "last_five_world_windows": [
+          [
+            2.01,
+            47.25
+          ],
+          [
+            2.017,
+            47.09
+          ],
+          [
+            2.001,
+            46.97
+          ],
+          [
+            2.008,
+            47.31
+          ],
+          [
+            2.008,
+            47.32
+          ]
+        ],
+        "saves_unchanged": true
+      },
+      "stream-full-after1": {
+        "exe_sha256": "5074444FA319F7417CF97A58EC81AA67228216E6B1FFE6DDE78F23F116747F74",
+        "world_fps": 48.64799223957815,
+        "last_five_world_windows": [
+          [
+            2.004,
+            48.4
+          ],
+          [
+            2.016,
+            48.6
+          ],
+          [
+            2.014,
+            48.66
+          ],
+          [
+            2.004,
+            48.89
+          ],
+          [
+            2.013,
+            48.69
+          ]
+        ],
+        "saves_unchanged": true
+      },
+      "stream-full-after2": {
+        "exe_sha256": "5074444FA319F7417CF97A58EC81AA67228216E6B1FFE6DDE78F23F116747F74",
+        "world_fps": 48.801916525550354,
+        "last_five_world_windows": [
+          [
+            2.006,
+            48.84
+          ],
+          [
+            2.011,
+            48.73
+          ],
+          [
+            2.011,
+            48.72
+          ],
+          [
+            2.005,
+            48.87
+          ],
+          [
+            2.006,
+            48.85
+          ]
+        ],
+        "saves_unchanged": true
+      },
+      "stream-full-before2": {
+        "exe_sha256": "68F71760D5D37E7C4ACBA2156605679806110A8BBA674D1DE7E096363305F293",
+        "world_fps": 47.232004782781985,
+        "last_five_world_windows": [
+          [
+            2.01,
+            47.27
+          ],
+          [
+            2.006,
+            46.86
+          ],
+          [
+            2.007,
+            47.34
+          ],
+          [
+            2.004,
+            47.41
+          ],
+          [
+            2.009,
+            47.28
+          ]
+        ],
+        "saves_unchanged": true
+      }
+    }
+  },
+  "validation": {
+    "unique_recorded_vu_runs": 4000,
+    "reference": "registers, data memory, GIF packets and cycles match original interpreter",
+    "flag_retirement_comparisons": 4500000,
+    "wrapped_payload_comparisons": 10000,
+    "ctest_suites": "5/5 passed",
+    "replays": [
+      {
+        "log": "C:\\Games\\Drakan - The Ancients Gates\\decomp\\build\\vector-stream-20261018\\full-write-off1.log",
+        "best_ms": 32.37
+      },
+      {
+        "log": "C:\\Games\\Drakan - The Ancients Gates\\decomp\\build\\vector-stream-20261018\\full-write-off2.log",
+        "best_ms": 32.63
+      },
+      {
+        "log": "C:\\Games\\Drakan - The Ancients Gates\\decomp\\build\\vector-stream-20261018\\full-write-on1.log",
+        "best_ms": 31.57
+      },
+      {
+        "log": "C:\\Games\\Drakan - The Ancients Gates\\decomp\\build\\vector-stream-20261018\\full-write-on2.log",
+        "best_ms": 31.53
+      }
+    ],
+    "live_checks": "C:\\Games\\Drakan - The Ancients Gates\\decomp\\build\\vector-stream-20261018\\t\\stream-full-live\\stderr.log",
+    "live_vu_runs_observed": 327680,
+    "live_vu_mismatches": 0,
+    "visual": "C:\\Games\\Drakan - The Ancients Gates\\decomp\\build\\vector-stream-20261018\\native-visual.png",
+    "all_saves_unchanged": true
+  },
+  "rejected_experiment": "SIMD blend for partial-register writes was slower in replay; removed",
+  "settings_sha256": {
+    "drakan.ini": "667e7be8b9791904708bc6b82db1291a647adc99fc339680f4f8fddfa911f96d",
+    "drakan_input.ini": "3ecf546900e9858a587ef9c4b62385b074c9281431d3eac0ef73619be0dd078f"
+  },
+  "settings_unchanged": true,
+  "restart_required": true,
+  "limits": "Measured scene only. 60 raw FPS has not been established."
+}

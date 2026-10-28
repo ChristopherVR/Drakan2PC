@@ -1,0 +1,150 @@
+{
+  "date": "2026-10-18",
+  "scope": "Native timed dagger parry; private observer build; existing hostile675 save copies",
+  "tested_executable_sha256": "5B3333E2A13FFE38E177163F3FEC9EDB3269CF31641958EA38612E3C2647CE68",
+  "tested_observer_version": 1,
+  "committed_observer_version": 2,
+  "nested_runtime_commit": "35443440fec23c6fab551e8978ee7929777d2be5",
+  "production_mkb_behavior_change": false,
+  "timed_damage_reduction_established": false,
+  "committed_observer_live_validation": false,
+  "cpu_cpp_checks": 34,
+  "python_test_methods": 8,
+  "runs": [
+    {
+      "name": "parry01-neutral",
+      "completion": {
+        "sha256After": "5B3333E2A13FFE38E177163F3FEC9EDB3269CF31641958EA38612E3C2647CE68",
+        "elapsedSeconds": 46.3461704,
+        "scriptQuit": true,
+        "exitCode": 0
+      },
+      "failures": [],
+      "reducer_call_count": 5,
+      "damage_pairs": [
+        [
+          10,
+          10
+        ],
+        [
+          10,
+          10
+        ],
+        [
+          10,
+          10
+        ],
+        [
+          10,
+          10
+        ],
+        [
+          10,
+          10
+        ]
+      ],
+      "observed_window_frames": [],
+      "save_preservation": {
+        "private_saves_unchanged": true,
+        "source_saves_unchanged": true,
+        "original_saves_unchanged": true
+      },
+      "evidence_hashes": {
+        "stderr.log": "c4607f212bce31adf74dbec9402cd6c7f7ed5348dd05b2cb0b3b396e4e8f206d",
+        "input.log": "21d1792f795259ac592a1c3e253a362ae98aa84bbb0eaeac62664c2130b9526e",
+        "manifest.json": "16410205470298c096e1c85e7844504fdbe3fde161109a73113d8f01a5f3fe5c",
+        "encounter-manifest.json": "5408a772227f3d75e8032b756eedfef9ca2fca13ebdbec30a247d1b59ffea611",
+        "sequence.txt": "de215c5d9be10778be479732651cccb68489c7ac15b4505192ae7e45a5bb31ae"
+      }
+    },
+    {
+      "name": "parry01-held",
+      "completion": {
+        "sha256After": "5B3333E2A13FFE38E177163F3FEC9EDB3269CF31641958EA38612E3C2647CE68",
+        "elapsedSeconds": 44.2103199,
+        "scriptQuit": true,
+        "exitCode": 0
+      },
+      "failures": [],
+      "reducer_call_count": 5,
+      "damage_pairs": [
+        [
+          10,
+          10
+        ],
+        [
+          10,
+          10
+        ],
+        [
+          10,
+          10
+        ],
+        [
+          10,
+          10
+        ],
+        [
+          10,
+          10
+        ]
+      ],
+      "observed_window_frames": [
+        558,
+        559,
+        560,
+        561,
+        562,
+        563,
+        564,
+        565,
+        566,
+        567,
+        568,
+        569,
+        570,
+        571
+      ],
+      "save_preservation": {
+        "private_saves_unchanged": true,
+        "source_saves_unchanged": true,
+        "original_saves_unchanged": true
+      },
+      "evidence_hashes": {
+        "stderr.log": "ca784ff565d9947e0756017fccfb883c6ad7ef4e94bb810eea3314a3acb32c48",
+        "input.log": "9d17efa1c3d4418badfcb0d09392b4dd298bf3ac0aad922b28507db34cf312df",
+        "manifest.json": "f0e62a61f2c6169e7ae86489ecd448329e3cb25be659766197008ce9264cf3fc",
+        "encounter-manifest.json": "f51d6d79c48ad41ffbd352e81d23767fc90d35755586a172a64b19045038f91a",
+        "sequence.txt": "fe84506bb33390e3716a7bc2ddd06f4d32324d0a310fd089042aed273cc477a2"
+      }
+    },
+    {
+      "name": "parry01-tap",
+      "completion": {},
+      "failures": [
+        "incomplete_run"
+      ],
+      "reducer_call_count": 0,
+      "damage_pairs": [],
+      "observed_window_frames": [],
+      "save_preservation": {
+        "private_saves_unchanged": true,
+        "source_saves_unchanged": true,
+        "original_saves_unchanged": true
+      },
+      "evidence_hashes": {
+        "stderr.log": "9cc48f04442db349a5fa7a426f93e0589e011aeb8ca5ac00fd10c9456dca5183",
+        "input.log": "5f9f06c754b3d214a3b566f49dd7622c8525aa411e8c5ee6e0d85eba9346432f",
+        "manifest.json": "de0c31667226b673f41239d182a55979668face780c6ac065596201c5e1ab804",
+        "encounter-manifest.json": "91bb3ac9a5fdd3b496beda8b8f74e7d6543d1696eb8cde00cb4fd66ea3597cda",
+        "sequence.txt": "98ce467af404803e2f54fd7a612151ddc6646a166c35c53c7a0cfa2562f3a3e2"
+      }
+    }
+  ],
+  "limitations": [
+    "Private observer executable is not deployed 54F082 or main final candidate.",
+    "Tap run incomplete after GPU handoff; no parry success claimed.",
+    "Observer v2 HP correlation CPU checked only.",
+    "No subjective OotF parity, continuous protection or weapon-wide claim."
+  ]
+}

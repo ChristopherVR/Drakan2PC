@@ -1,0 +1,429 @@
+diff --git a/ps2xRuntime/src/lib/vu/ps2_vu1_fast.h b/ps2xRuntime/src/lib/vu/ps2_vu1_fast.h
+--- a/ps2xRuntime/src/lib/vu/ps2_vu1_fast.h
++++ b/ps2xRuntime/src/lib/vu/ps2_vu1_fast.h
+@@ -62,6 +62,13 @@
+         // three slots can still contain entry writes. Block writes are installed
+         // separately after this retirement, as in the original full-ring scan.
+         constexpr uint32_t horizon = VU1Interpreter::kFmacLatency - 1u;
++        if (cycles >= horizon)
++        {
++            sp.pending = {};
++            for (uint32_t i = 1; i <= horizon; ++i)
++                sp.clearAt[(base + i) & 15u] = {};
++            return;
++        }
+         const uint32_t advance = cycles < horizon ? cycles : horizon;
+         for (uint32_t i = 1; i <= advance; ++i)
+             advanceBusy(sp, base + i);
+diff --git a/ps2xRuntime/src/lib/vu/ps2_vu1_step.h b/ps2xRuntime/src/lib/vu/ps2_vu1_step.h
+--- a/ps2xRuntime/src/lib/vu/ps2_vu1_step.h
++++ b/ps2xRuntime/src/lib/vu/ps2_vu1_step.h
+@@ -1083,6 +1083,11 @@
+         batch.apply(v.m_state.mac, v.m_state.status);
+     }
+ 
++    static PS2_VU_FORCEINLINE bool nativeContinue(const VU1Interpreter& v, const Ctx& c)
++    {
++        return v.m_cycle < c.budgetEnd && !v.m_stopRequested;
++    }
++
+     static PS2_VU_FORCEINLINE uint64_t blockBase(const VU1Interpreter &v) { return v.m_cycle; }
+     static PS2_VU_FORCEINLINE void blockCount(VU1Interpreter &v, bool fast, uint32_t pairs)
+     {
+diff --git a/ps2xRuntime/src/lib/vu/aot/ps2_vu1_aot_slice.inc b/ps2xRuntime/src/lib/vu/aot/ps2_vu1_aot_slice.inc
+--- a/ps2xRuntime/src/lib/vu/aot/ps2_vu1_aot_slice.inc
++++ b/ps2xRuntime/src/lib/vu/aot/ps2_vu1_aot_slice.inc
+@@ -104,10 +104,19 @@
+         blockPairs<B>(v,c,base,indices,batch);
+     }
+ 
+-    template <uint32_t B>
++    const uint32_t kNativeLoopLimit = [] {
++        const char* setting = std::getenv("DRAKAN_VU_NATIVE_LOOP_LIMIT");
++        const long limit = setting ? std::strtol(setting, nullptr, 10) : 32;
++        return static_cast<uint32_t>(limit < 1 ? 1 : limit > 256 ? 256 : limit);
++    }();
++
++    template <uint32_t B, bool NativeLoop = false>
+     bool blockFn(VU1Interpreter &v, Vu1Step::Ctx &c)
+     {
+         constexpr const Vu1Blocks::Info &bi = kTable.b[B];
++        uint32_t remaining = NativeLoop ? kNativeLoopLimit : 1u;
++        do
++        {
+         if (!Vu1Step::blockCanEnter(v, c, bi.cycles, bi.qSafe, bi.eLo, bi.eHi, bi.eVa, bi.rLo, bi.rHi, bi.rVa))
+         {
+             if (Vu1Aot::g_blockStats)
+@@ -131,7 +140,13 @@
+             chooseBlockPairs<B>(v, c, base, std::make_index_sequence<bi.count>{});
+             Vu1Step::blockExit(v, c, base, bi.cycles, bi.count, static_cast<uint32_t>((bi.first + bi.count) * 8u), bi.branchEnd, bi.ev, bi.evCount);
+         }
+-        return true;
++        if constexpr (NativeLoop)
++        {
++            if (--remaining && v.state().pc == bi.first * 8u && Vu1Step::nativeContinue(v,c))
++                continue;
++        }
++        return true;
++        } while (true);
+     }
+ 
+ #if AOT_FIRST <= 489 && (AOT_FIRST + AOT_COUNT) > 489
+@@ -229,6 +244,13 @@
+         if constexpr (kTable.b[B].recovery)
+             if (!Vu1Aot::recoveryEnabled()) return;
+         Vu1Aot::g_dispatch[kTable.b[B].first] = &blockFn<B>;
++        if constexpr (kTable.b[B].first == 55 || kTable.b[B].first == 155 ||
++                      kTable.b[B].first == 188 || kTable.b[B].first == 334)
++        {
++            const char* setting=std::getenv("DRAKAN_VU_NATIVE_LOOPS");
++            if (setting && setting[0] && setting[0] != '0')
++                Vu1Aot::g_dispatch[kTable.b[B].first] = &blockFn<B,true>;
++        }
+     }
+ 
+     template <size_t... Is>
+diff --git a/ps2xRuntime/src/lib/vu/aot/ps2_vu1_aot_0.cpp b/ps2xRuntime/src/lib/vu/aot/ps2_vu1_aot_0.cpp
+--- a/ps2xRuntime/src/lib/vu/aot/ps2_vu1_aot_0.cpp
++++ b/ps2xRuntime/src/lib/vu/aot/ps2_vu1_aot_0.cpp
+@@ -1,5 +1,7 @@
+ #define AOT_FIRST 0
+ #define AOT_COUNT 381
+ #define AOT_REGISTER registerSlice0
+-#define AOT_REGISTER_BLOCKS registerBlocks0
++#define AOT_REGISTER_BLOCKS registerBlocks0Base
+ #include "ps2_vu1_aot_slice.inc"
++
++#include "ps2_vu1_native_loops.inc"
+diff --git a/ps2xRuntime/src/lib/vu/aot/ps2_vu1_native_loops.inc b/ps2xRuntime/src/lib/vu/aot/ps2_vu1_native_loops.inc
+new file mode 100644
+--- /dev/null
++++ b/ps2xRuntime/src/lib/vu/aot/ps2_vu1_native_loops.inc
+@@ -0,0 +1,83 @@
++// Only slice 0 includes these four checked, bounded self loops.
++#include "../ps2_vu1_normalized_lanes.h"
++namespace
++{
++    bool disjointNativeRanges(const void* a, size_t an, const void* b, size_t bn)
++    {
++        if (!an || !bn) return true;
++        const uintptr_t x=reinterpret_cast<uintptr_t>(a), y=reinterpret_cast<uintptr_t>(b);
++        return x<=y ? y-x>=an : x-y>=bn;
++    }
++    bool nativeLoopDataSafe(const VU1Interpreter& v,const Vu1Step::Ctx& c)
++    {
++        // A guest store must not alter the interpreter or its host context.
++        return disjointNativeRanges(&v,sizeof v,&c,sizeof c) &&
++               disjointNativeRanges(c.vuData,c.dataSize,&v,sizeof v) &&
++               disjointNativeRanges(c.vuData,c.dataSize,&c,sizeof c);
++    }
++    template<uint32_t B>
++    inline constexpr auto kNativeLaneInputs=[] {
++        std::array<uint8_t,Vu1Blocks::kMaxPairs> result{};
++        Vu1SelectedNormalized::State known;
++        for(uint32_t k=0;k<kTable.b[B].count;++k) {
++            const uint64_t word=kVu1Image[kTable.b[B].first+k];
++            const auto d=Vu1Decode::decodePair(uint32_t(word),uint32_t(word>>32),true);
++            result[k]=known.inputs(d);known.apply(d);
++        }
++        return result;
++    }();
++    template<uint32_t B,size_t... K>
++    PS2_VU_FORCEINLINE void nativeLanePairs(VU1Interpreter& v,Vu1Step::Ctx& c,uint64_t base,std::index_sequence<K...>,Vu1FlagBatch* batch=nullptr)
++    {
++        constexpr auto& bi=kTable.b[B];
++        (Vu1Step::blockPair<kBatchFlags[B] && bi.T[K]+4u<=bi.cycles,false,kNativeLaneInputs<B>[K]>(v,kDec<bi.first+K>,c,base+bi.T[K],(bi.first+K)*8u,batch),...);
++    }
++    template<uint32_t B>
++    bool nativeSteadyLoop(VU1Interpreter& v,Vu1Step::Ctx& c)
++    {
++        constexpr auto& bi=kTable.b[B];
++        // All entry writes have retired at each backedge. These blocks cannot
++        // introduce scalar pipelines, stop bits or unresolved delayed branches.
++        static_assert(bi.cycles>=3 && bi.evCount==0 && bi.qSafe && bi.branchEnd);
++        if(!nativeLoopDataSafe(v,c))return blockFn<B,true>(v,c);
++        uint32_t remaining=kNativeLoopLimit;
++        bool first=true;
++        do {
++            if(first) {
++                if(!Vu1Step::blockCanEnter(v,c,bi.cycles,bi.qSafe,bi.eLo,bi.eHi,bi.eVa,bi.rLo,bi.rHi,bi.rVa))
++                    return Vu1Aot::g_table[bi.first](v,c);
++                first=false;
++            } else if(c.budgetEnd-Vu1Step::blockBase(v)<=bi.cycles) {
++                return Vu1Aot::g_table[bi.first](v,c);
++            }
++            if(Vu1Aot::g_blockStats)Vu1Step::blockCount(v,true,bi.count);
++            const uint64_t base=Vu1Step::blockBase(v);
++            if constexpr(kBatchFlags[B]) {
++                Vu1FlagBatch batch;
++                nativeLanePairs<B>(v,c,base,std::make_index_sequence<bi.count>{},&batch);
++                Vu1Step::blockExit(v,c,base,bi.cycles,bi.count,(bi.first+bi.count)*8u,bi.branchEnd,bi.ev,bi.evCount);
++                Vu1Step::finishFlagBatch(v,batch);
++            } else {
++                nativeLanePairs<B>(v,c,base,std::make_index_sequence<bi.count>{});
++                Vu1Step::blockExit(v,c,base,bi.cycles,bi.count,(bi.first+bi.count)*8u,bi.branchEnd,bi.ev,bi.evCount);
++            }
++            if(--remaining && v.state().pc==bi.first*8u && Vu1Step::nativeContinue(v,c))continue;
++            return true;
++        } while(true);
++    }
++}
++namespace Vu1Aot
++{
++    void registerBlocks0()
++    {
++        registerBlocks0Base();
++        const char* mode=std::getenv("DRAKAN_VU_NATIVE_LOOPS");
++        if(!mode || mode[0]!='2')return;
++        static_assert(kTable.b[4].first==55 && kTable.b[19].first==155 &&
++                      kTable.b[25].first==188 && kTable.b[40].first==334);
++        g_dispatch[55]=&nativeSteadyLoop<4>;
++        g_dispatch[155]=&nativeSteadyLoop<19>;
++        g_dispatch[188]=&nativeSteadyLoop<25>;
++        g_dispatch[334]=&nativeSteadyLoop<40>;
++    }
++}
+diff --git a/ps2xRuntime/src/lib/vu/ps2_vu1_normalized_lanes.h b/ps2xRuntime/src/lib/vu/ps2_vu1_normalized_lanes.h
+new file mode 100644
+--- /dev/null
++++ b/ps2xRuntime/src/lib/vu/ps2_vu1_normalized_lanes.h
+@@ -0,0 +1,41 @@
++#pragma once
++#include <cstdint>
++
++namespace Vu1SelectedNormalized
++{
++// Lane bits use DEST ordering. Entry values and memory/integer writes remain
++// unknown and keep runtime normalization. Only selected destination lanes
++// are consumed: FMAC arithmetic and classification have no cross-lane operations. Arithmetic FMAC writes are normalized by the
++// existing arithmetic path; normalizing those lanes again is an identity.
++struct State
++{
++    uint8_t vf[32]{};
++    uint8_t acc = 0;
++    constexpr State() { vf[0] = 15; }
++    template<class Dec> constexpr uint8_t inputs(const Dec& d) const
++    {
++        if (d.fmKind < 1 || d.fmKind > 5) return 0;
++        const uint32_t fs = (d.upper >> 11) & 31u;
++        const uint32_t ft = (d.upper >> 16) & 31u;
++        const uint8_t need = uint8_t((d.upper >> 21) & 15u);
++        uint8_t result = (vf[fs] & need) == need ? 1 : 0;
++        if (d.fmB <= 3) {
++            if (vf[ft] & (8u >> d.fmB)) result |= 2;
++        } else if (d.fmB > 5 && (vf[ft] & need) == need) result |= 2;
++        if ((acc & need) == need) result |= 4;
++        return result;
++    }
++    template<class Dec> constexpr void apply(const Dec& d)
++    {
++        const auto lower = d.lowerUsage.vfWrite;
++        if (!d.iBit && lower.reg != 0) vf[lower.reg] &= ~lower.lanes;
++        const auto upper = d.upperUsage.vfWrite;
++        if (upper.reg != 0) vf[upper.reg] &= ~upper.lanes;
++        acc &= ~d.upperUsage.accWrite;
++        if (d.fmKind >= 1 && d.fmKind <= 5) {
++            if (upper.reg != 0) vf[upper.reg] |= upper.lanes;
++            acc |= d.upperUsage.accWrite;
++        }
++    }
++};
++}
+diff --git a/ps2xRuntime/tests/vu_native_loop_tests.cpp b/ps2xRuntime/tests/vu_native_loop_tests.cpp
+new file mode 100644
+--- /dev/null
++++ b/ps2xRuntime/tests/vu_native_loop_tests.cpp
+@@ -0,0 +1,97 @@
++#include "vu/aot/ps2_vu1_aot.h"
++#include "vu/ref/ps2_vu1_ref.h"
++#include "vu/aot/ps2_vu1_image.inc"
++#include "runtime/gs/gs_frontend.h"
++#include <array>
++#include <cstdio>
++#include <cstdlib>
++#include <cstring>
++#include <memory>
++#include <random>
++#include <vector>
++namespace Vu1Aot { void registerBlocks0(); }
++static bool same(const VU1State& a,const VU1State& b)
++{
++    return !std::memcmp(a.vf,b.vf,sizeof a.vf) && !std::memcmp(a.vi,b.vi,sizeof a.vi) &&
++        !std::memcmp(a.acc,b.acc,sizeof a.acc) && !std::memcmp(&a.q,&b.q,sizeof(float)*3) &&
++        a.r==b.r && a.pc==b.pc && a.mac==b.mac && a.clip==b.clip && a.status==b.status && a.cycles==b.cycles &&
++        a.ebit==b.ebit && a.haltAfterDelaySlot==b.haltAfterDelaySlot && a.dBitEnabled==b.dBitEnabled &&
++        a.tBitEnabled==b.tBitEnabled && a.stoppedByD==b.stoppedByD && a.stoppedByT==b.stoppedByT &&
++        a.top==b.top && a.itop==b.itop && a.branchPending==b.branchPending &&
++        a.branchTarget==b.branchTarget && a.branchDelay==b.branchDelay;
++}
++
++static void selectMode(const char* mode)
++{
++#if defined(_WIN32)
++    _putenv_s("DRAKAN_VU_NATIVE_LOOPS",mode);
++#else
++    setenv("DRAKAN_VU_NATIVE_LOOPS",mode,1);
++#endif
++}
++int main(int argc,char** argv)
++{
++    GS gs;
++    std::vector<uint64_t> code(std::begin(kVu1Image),std::end(kVu1Image));
++    auto* bytes=reinterpret_cast<uint8_t*>(code.data());
++    const uint32_t size=uint32_t(code.size()*8);
++    if(!Vu1Aot::imageMatches(bytes,size))return 1;
++    selectMode("0");Vu1Aot::registerBlocks0();
++    std::vector<Vu1Aot::Fn> ordinary(Vu1Aot::g_dispatch,Vu1Aot::g_dispatch+Vu1Aot::kPairs);
++    selectMode(argc>1?argv[1]:"1");Vu1Aot::registerBlocks0();
++    std::vector<Vu1Aot::Fn> chained(Vu1Aot::g_dispatch,Vu1Aot::g_dispatch+Vu1Aot::kPairs);
++    const uint32_t entries[]={55,155,188,334};
++    for(auto pc:entries)if(ordinary[pc]==chained[pc])return 2;
++    auto a=std::make_unique<VU1Interpreter>(), b=std::make_unique<VU1Interpreter>();
++    std::array<uint8_t,16384> da{},db{};
++    std::vector<std::vector<uint8_t>> pa,pb;
++    a->setPacketTap(&pa);b->setPacketTap(&pb);
++    std::mt19937 rng(0x1951ec);
++    unsigned checks=0;
++    for(uint32_t trial=0;trial<2048;++trial)
++    {
++        a->reset();b->reset();pa.clear();pb.clear();
++        Vu1Fast::spare(*a).sinkNone=Vu1Fast::spare(*b).sinkNone=1;
++        da.fill(0);
++        for(unsigned i=0;i<32;++i)for(float& lane:a->state().vf[i])lane=float(int(rng()%33)-16)/4.0f;
++        for(unsigned i=1;i<16;++i)a->state().vi[i]=rng()%9;
++        for(float& lane:a->state().acc)lane=float(int(rng()%33)-16)/4.0f;
++        a->state().mac=rng()&0xffff;a->state().status=rng()&0xfff;a->state().clip=rng()&0xffffff;
++        b->state()=a->state();db=da;
++        const uint32_t pc=entries[trial%4]*8u, budget=1u+(trial/4)%256;
++        if(trial&1024u) {
++            uint64_t prime=0x000002ff800313bcull;
++            switch((trial/4)%6) {
++            case 1:prime=0x000002ff800313bdull;break;
++            case 2:prime=0x000002ff800313beull;break;
++            case 3:prime=uint64_t((15u<<21)|(3u<<16)|(2u<<11)|(10u<<6)|0x28u)<<32|0x8000033cull;break;
++            case 4:prime=uint64_t((15u<<21)|(3u<<16)|(2u<<11)|0x2bcu)<<32|0x8000033cull;break;
++            case 5:prime=0x000002ff100b5801ull;break;
++            }
++            a->execute(reinterpret_cast<uint8_t*>(&prime),8,da.data(),da.size(),gs,nullptr,0,0,0,1);
++            b->execute(reinterpret_cast<uint8_t*>(&prime),8,db.data(),db.size(),gs,nullptr,0,0,0,1);
++            a->state().pc=b->state().pc=pc;
++            std::copy(ordinary.begin(),ordinary.end(),Vu1Aot::g_dispatch);
++            a->resume(bytes,size,da.data(),da.size(),gs,nullptr,0,0,budget);
++            std::copy(chained.begin(),chained.end(),Vu1Aot::g_dispatch);
++            b->resume(bytes,size,db.data(),db.size(),gs,nullptr,0,0,budget);
++        } else {
++            std::copy(ordinary.begin(),ordinary.end(),Vu1Aot::g_dispatch);
++            a->execute(bytes,size,da.data(),da.size(),gs,nullptr,pc,0,0,budget);
++            std::copy(chained.begin(),chained.end(),Vu1Aot::g_dispatch);
++            b->execute(bytes,size,db.data(),db.size(),gs,nullptr,pc,0,0,budget);
++        }
++        if(!same(a->state(),b->state())||da!=db||pa!=pb) {
++            std::printf("native loop mismatch trial=%u pc=%u budget=%u cycles=%llu/%llu endpc=%u/%u\n",trial,pc/8,budget,(unsigned long long)a->state().cycles,(unsigned long long)b->state().cycles,a->state().pc,b->state().pc);return 3;
++        }
++        // Resume across the boundary to expose any disagreement in pending writes.
++        a->state().pc=b->state().pc=0;
++        a->state().branchPending=b->state().branchPending=false;
++        uint64_t nop=0x000002ff8000033cull;
++        a->resume(reinterpret_cast<uint8_t*>(&nop),8,da.data(),da.size(),gs,nullptr,0,0,16);
++        b->resume(reinterpret_cast<uint8_t*>(&nop),8,db.data(),db.size(),gs,nullptr,0,0,16);
++        if(!same(a->state(),b->state())||da!=db||pa!=pb)return 4;
++        checks+=2;
++    }
++    std::printf("PASS: %u native-loop state/data/packet comparisons, budgets 1..256, four entry PCs, pending DIV/SQRT/RSQRT/VF/ACC/VI and resumed tails\n",checks);
++}
+diff --git a/ps2xRuntime/tests/vu_normalized_lane_tests.cpp b/ps2xRuntime/tests/vu_normalized_lane_tests.cpp
+new file mode 100644
+--- /dev/null
++++ b/ps2xRuntime/tests/vu_normalized_lane_tests.cpp
+@@ -0,0 +1,64 @@
++#include "vu/ps2_vu1_step.h"
++#include "vu/ps2_vu1_decode.h"
++#include "vu/ps2_vu1_normalized_lanes.h"
++#include "runtime/gs/gs_frontend.h"
++#include <array>
++#include <bit>
++#include <cfenv>
++#include <cstdio>
++#include <cstring>
++#include <memory>
++#include <random>
++
++template<unsigned Mask> static void issue(VU1Interpreter& v,const Vu1Step::Dec& d,Vu1Step::Ctx& c,uint64_t cycle)
++{ Vu1Step::blockPair<false,false,Mask>(v,d,c,cycle,0); }
++int main()
++{
++    auto plain=std::make_unique<VU1Interpreter>();
++    auto proven=std::make_unique<VU1Interpreter>();
++    GS gs;
++    std::array<uint8_t,16384> data{};
++    std::mt19937 rng(0x144fa57);
++    for(auto& b:data) b=uint8_t(rng());
++    using Fn=void(*)(VU1Interpreter&,const Vu1Step::Dec&,Vu1Step::Ctx&,uint64_t);
++    const Fn functions[]={issue<0>,issue<1>,issue<2>,issue<3>,issue<4>,issue<5>,issue<6>,issue<7>};
++    unsigned checks=0,skipped=0;
++    for(int mode:{FE_TONEAREST,FE_TOWARDZERO,FE_DOWNWARD,FE_UPWARD}) {
++        std::fesetround(mode);
++        plain->reset();proven->reset();
++        for(auto& vf:plain->state().vf)for(float& f:vf)f=std::bit_cast<float>(rng());
++        for(float& f:plain->state().acc)f=std::bit_cast<float>(rng());
++        plain->state().vf[0][0]=plain->state().vf[0][1]=plain->state().vf[0][2]=0;
++        plain->state().vf[0][3]=1;
++        proven->state()=plain->state();
++        Vu1SelectedNormalized::State known;
++        Vu1Step::Ctx a{~0ull,data.data(),uint32_t(data.size()),&gs,nullptr,16384,false,0},b=a;
++        for(unsigned n=0;n<50000;++n) {
++            const unsigned fs=1+rng()%7,ft=1+rng()%7,fd=1+rng()%7,dest=rng()%16;
++            // Include full writes often enough to prove vector inputs; partial
++            // writes and raw loads/conversions must invalidate individual lanes.
++            const unsigned lanes=(n%3==0)?15:dest;
++            const unsigned ops[]={0x28,0x2c,0x2a,0x29,0x2d,0x00,0x08,0x18,0x1c};
++            uint32_t upper=(lanes<<21)|(ft<<16)|(fs<<11)|(fd<<6)|ops[rng()%9];
++            uint32_t lower=0x8000033cu;
++            if(n%13==0)lower=(lanes<<21)|(ft<<16); // raw LQ into VF, VI00 base
++            if(n%17==0)upper=(lanes<<21)|(ft<<16)|(fs<<11)|0x17cu; // FTOI0 raw integer bits
++            if(n%19==0)upper=(lanes<<21)|(ft<<16)|(fs<<11)|0x2bcu; // MUL accumulator
++            if(n%23==0){upper|=0x80000000u;lower=rng();} // immediate is normalized independently
++            const auto d=Vu1Decode::decodePair(lower,upper,true);
++            const uint8_t mask=known.inputs(d);
++            issue<0>(*plain,d,a,n);
++            functions[mask](*proven,d,b,n);
++            Vu1Fast::settleFlags(*plain);Vu1Fast::settleFlags(*proven);
++            const auto& x=plain->state();const auto& y=proven->state();
++            if(std::memcmp(x.vf,y.vf,sizeof x.vf)||std::memcmp(x.acc,y.acc,sizeof x.acc)||x.mac!=y.mac||x.status!=y.status||std::memcmp(&x.i,&y.i,sizeof(float))) {
++                std::printf("selected-lane normalized-input mismatch mode=%d pair=%u mask=%u upper=%x lower=%x\n",mode,n,mask,upper,lower);return 1;
++            }
++            known.apply(d);++checks;
++            if ((d.upper >> 21) & 15u) skipped+=std::popcount(unsigned(mask) & (d.fmKind>=4 ? 7u : 3u));
++        }
++    }
++    std::fesetround(FE_TONEAREST);
++    if(skipped<1000)return 2;
++    std::printf("%u selected-lane normalized-input pair comparisons, %u proven operand normalizations skipped; four host rounding modes\n",checks,skipped);
++}
+diff --git a/ps2xTest/vif_unpack/CMakeLists.txt b/ps2xTest/vif_unpack/CMakeLists.txt
+--- a/ps2xTest/vif_unpack/CMakeLists.txt
++++ b/ps2xTest/vif_unpack/CMakeLists.txt
+@@ -61,3 +61,23 @@
+         set_tests_properties(vu_normalized.exact PROPERTIES WORKING_DIRECTORY "$<TARGET_FILE_DIR:ps2EntryRunner>")
+     endif()
+ endif()
++
++# Experimental native-loop paths are opt-in until clean throughput validation.
++if(TARGET ps2_runtime AND TARGET ps2_iop)
++    foreach(name IN ITEMS vu_native_loop_tests vu_normalized_lane_tests)
++        add_executable(${name} ../../ps2xRuntime/tests/${name}.cpp ../src/test_function_table.cpp)
++        target_compile_features(${name} PRIVATE cxx_std_20)
++        target_include_directories(${name} PRIVATE ../../ps2xRuntime/src/lib ../../ps2xRuntime/include ../../ps2xIOP/include)
++        target_link_libraries(${name} PRIVATE ps2_runtime ps2_iop)
++        if(MSVC)
++            target_link_options(${name} PRIVATE /FORCE:MULTIPLE /STACK:16777216)
++        endif()
++    endforeach()
++    add_test(NAME vu_native_loop.exact COMMAND vu_native_loop_tests 1)
++    add_test(NAME vu_native_steady.exact COMMAND vu_native_loop_tests 2)
++    add_test(NAME vu_normalized_lanes.exact COMMAND vu_normalized_lane_tests)
++    if(TARGET ps2EntryRunner)
++        set_tests_properties(vu_native_loop.exact vu_native_steady.exact vu_normalized_lanes.exact
++                             PROPERTIES WORKING_DIRECTORY "$<TARGET_FILE_DIR:ps2EntryRunner>")
++    endif()
++endif()

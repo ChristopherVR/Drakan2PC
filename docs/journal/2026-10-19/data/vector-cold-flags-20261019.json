@@ -1,0 +1,75 @@
+{
+  "status": "rejected; not promoted or deployed",
+  "change": "Outline flagsKnownClasses into the existing fmacSlow shared helper, retaining ordinary fast path.",
+  "raw_before_fps": 97.42992313835097,
+  "raw_after_fps": 89.7120247233576,
+  "change_percent": -7.921486712079117,
+  "runs": {
+    "cold-candidate-a": {
+      "exe_sha256": "4216F24A22B89CEF703A7B415B2DFE60C60C13376436A74948A559FB8A94CB29",
+      "world_fps": 89.7120247233576,
+      "last_five_world_windows": [
+        [
+          2.01,
+          90.03
+        ],
+        [
+          2.001,
+          89.97
+        ],
+        [
+          2.001,
+          89.44
+        ],
+        [
+          2.009,
+          89.59
+        ],
+        [
+          2.01,
+          89.53
+        ]
+      ],
+      "saves_unchanged": true,
+      "contended": false,
+      "overlap_samples": 0
+    },
+    "cold-control-a2": {
+      "exe_sha256": "0EA05B06AC5C7A9A3F87846DF9AA3BD4836F0347BD82D1E9B0E2CB17638B075E",
+      "world_fps": 97.42992313835097,
+      "last_five_world_windows": [
+        [
+          2.005,
+          97.76
+        ],
+        [
+          2.005,
+          97.25
+        ],
+        [
+          2.002,
+          97.91
+        ],
+        [
+          2.004,
+          96.82
+        ],
+        [
+          2.002,
+          97.41
+        ]
+      ],
+      "saves_unchanged": true,
+      "contended": false,
+      "overlap_samples": 0
+    }
+  },
+  "exact_frozen_fmac_cases": 131072,
+  "exact_packet_cases": 114688,
+  "exact_uv_cases": 114688,
+  "exact_timed_scalar_cases": 8192,
+  "normalization_cases": 400000,
+  "compiled_header_sha256": "5867153a27d23b09b6510f6ac4b92ecd49c792139443ea2b64bd9d499daf891a",
+  "installed_executable_unchanged": true,
+  "evidence_directory": "C:\\Games\\Drakan - The Ancients Gates\\decomp\\build\\vu-cold-20261019"
+}

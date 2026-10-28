@@ -1,0 +1,209 @@
+{
+  "date": "2026-10-19T01:10:45.395305+10:00",
+  "status": "Source promoted; native loop modes default off after clean live ABBA showed no repeatable gain. Larger queue/ray CPU improvements deployed; see current receipt.",
+  "goal_raw_fps": 144,
+  "goal_achieved": false,
+  "candidate_sha256": "d0ee9d28b935abe46dce1fda05af130e6fe5d4a17b6c8212cf82563f9c1860d2",
+  "installed_sha256": "ebb54534b8246c425a9946d3d69c24544163da6606930fc6c721153149ccbe58",
+  "patch": "C:\\Games\\Drakan - The Ancients Gates\\decomp\\patches\\proposed\\native-vu-loops-20261019.patch",
+  "patch_sha256": "2f58a1d2cc26998809f46f8a55307c1d345f620d707e3326f83088cb6165959a",
+  "patch_forward_check": "passed",
+  "source_sha256": {
+    "ps2xRuntime/src/lib/vu/ps2_vu1_fast.h": "24bf41a5ababd998c6e9f2779e95061146bc9bf0d913c70699d08b4609209485",
+    "ps2xRuntime/src/lib/vu/ps2_vu1_step.h": "47c145f046c349f548b7012f99932424d67065f20ae431310aaa1b1e429ed367",
+    "ps2xRuntime/src/lib/vu/aot/ps2_vu1_aot_slice.inc": "6bb0b6d84048ce5add462a8046ccd62f21018c93eec3fca714c652c71bd9819d",
+    "ps2xRuntime/src/lib/vu/aot/ps2_vu1_aot_0.cpp": "9c90d4e7a5989dbffef487f43508bfad21e7fa5b89b8f5feacbe7e1d19d0f566",
+    "ps2xRuntime/src/lib/vu/aot/ps2_vu1_native_loops.inc": "71f7cfc02f580640eaaa09f5bf8ecc15c5800a0f43a964017b4e041c92732360",
+    "ps2xRuntime/src/lib/vu/ps2_vu1_normalized_lanes.h": "6de162bd59ff50728546b8c8ecfdd67d101245cbfb4606e3e348cf69d2fb9d97",
+    "ps2xRuntime/tests/vu_native_loop_tests.cpp": "75e9c5e5e3d559b722974c8b39898e7d58d313983ec5a6a2bb815258562c8271",
+    "ps2xRuntime/tests/vu_normalized_lane_tests.cpp": "f15a29393411ba6f4542e86764b40cda5f72f4d718ce54b2ba123d4706be0f85"
+  },
+  "controls": {
+    "DRAKAN_VU_NATIVE_LOOPS=0": "Original block dispatch plus simplified register retirement",
+    "DRAKAN_VU_NATIVE_LOOPS=1": "Bounded self loops with full entry checks each iteration",
+    "DRAKAN_VU_NATIVE_LOOPS=2": "Proven-ready backedge checks plus partial-lane normalization proof",
+    "DRAKAN_VU_NATIVE_LOOP_LIMIT": "Process startup setting, default32, clamp1..256; exact budget and stop checks retained",
+    "DRAKAN_VU_NATIVE_LOOPS=3": "Mode2 plus guarded bulk fill at PC55"
+  },
+  "changes": [
+    "Clear entry busy state directly after its guaranteed three-cycle retirement horizon",
+    "Native execution of self loops at pair PCs55,155,188,334",
+    "Backedge reuse only for cycles>=3, no pending exit writes, Q-safe eligible blocks; host/data non-overlap guard",
+    "Selected destination-lane proof for FMAC inputs in the four native steady loops"
+  ],
+  "tests": {
+    "retirement_cases": 200000,
+    "native_state_data_packet_comparisons": 32768,
+    "iteration_limits": [
+      1,
+      2,
+      32,
+      256
+    ],
+    "pending_pipelines": [
+      "DIV",
+      "SQRT",
+      "RSQRT",
+      "VF",
+      "ACC",
+      "VI"
+    ],
+    "cycle_budgets": "1..256, resumed tails",
+    "selected_lane_pair_comparisons": 200000,
+    "selected_lane_skips": 344191,
+    "ordinary_normalization_pair_comparisons": 200000,
+    "timed_scalar_flag_checks": 8192,
+    "recorded_reference_replays": {
+      "final-reference-mode0-recovery0.log": {
+        "runs": 4000,
+        "mismatches": 0
+      },
+      "final-reference-mode0-recovery1.log": {
+        "runs": 4000,
+        "mismatches": 0
+      },
+      "final-reference-mode1-recovery0.log": {
+        "runs": 4000,
+        "mismatches": 0
+      },
+      "final-reference-mode1-recovery1.log": {
+        "runs": 4000,
+        "mismatches": 0
+      },
+      "final-reference-mode2-recovery0.log": {
+        "runs": 4000,
+        "mismatches": 0
+      },
+      "final-reference-mode2-recovery1.log": {
+        "runs": 4000,
+        "mismatches": 0
+      }
+    },
+    "recorded_total_runs": 24000,
+    "recorded_mismatches": 0
+  },
+  "performance": "Unmeasured. No claim of FPS improvement or 144 FPS. Reference-replay timings excluded from throughput conclusions.",
+  "unchanged": "Installed executable, settings, saves, default uncapped and original30 launchers. Canonical runtime performance patch unchanged; source-only generic FMAC call repaired to match canonical implementation.",
+  "next_required_step": "C:\\Games\\Drakan - The Ancients Gates\\decomp\\build\\vector-loops-20261019\\benchmark-later.ps1",
+  "evidence": "C:\\Games\\Drakan - The Ancients Gates\\decomp\\build\\vector-loops-20261019",
+  "historical_v2_candidate_sha256": "d0ee9d28b935abe46dce1fda05af130e6fe5d4a17b6c8212cf82563f9c1860d2",
+  "current_receipt": "analysis/results/cpu-render-queue-20261019.json",
+  "current_native_benchmark": {
+    "production-default-a": {
+      "exe_sha256": "FC67706B26C1A7BA4B6EEC9A4BD46543A34D3E7AB0EB466BDA576CE21CEF9FE9",
+      "world_fps": 89.51240963855422,
+      "last_five_world_windows": [
+        [
+          2.006,
+          88.72
+        ],
+        [
+          2.01,
+          89.57
+        ],
+        [
+          2.007,
+          89.17
+        ],
+        [
+          2.011,
+          90.01
+        ],
+        [
+          2.009,
+          90.09
+        ]
+      ],
+      "saves_unchanged": true,
+      "contended": false,
+      "overlap_samples": 0
+    },
+    "production-default-b": {
+      "exe_sha256": "FC67706B26C1A7BA4B6EEC9A4BD46543A34D3E7AB0EB466BDA576CE21CEF9FE9",
+      "world_fps": 89.4886028898854,
+      "last_five_world_windows": [
+        [
+          2.001,
+          88.44
+        ],
+        [
+          2.011,
+          89.52
+        ],
+        [
+          2.01,
+          90.03
+        ],
+        [
+          2.011,
+          89.53
+        ],
+        [
+          2.002,
+          89.92
+        ]
+      ],
+      "saves_unchanged": true,
+      "contended": false,
+      "overlap_samples": 0
+    },
+    "production-native3-a": {
+      "exe_sha256": "FC67706B26C1A7BA4B6EEC9A4BD46543A34D3E7AB0EB466BDA576CE21CEF9FE9",
+      "world_fps": 89.39539658784794,
+      "last_five_world_windows": [
+        [
+          2.005,
+          89.78
+        ],
+        [
+          2.001,
+          89.45
+        ],
+        [
+          2.006,
+          88.73
+        ],
+        [
+          2.011,
+          89.03
+        ],
+        [
+          2.0,
+          89.99
+        ]
+      ],
+      "saves_unchanged": true,
+      "contended": false,
+      "overlap_samples": 0
+    },
+    "production-native3-b": {
+      "exe_sha256": "FC67706B26C1A7BA4B6EEC9A4BD46543A34D3E7AB0EB466BDA576CE21CEF9FE9",
+      "world_fps": 90.06806895177361,
+      "last_five_world_windows": [
+        [
+          2.009,
+          90.57
+        ],
+        [
+          2.001,
+          89.95
+        ],
+        [
+          2.01,
+          90.04
+        ],
+        [
+          2.009,
+          89.6
+        ],
+        [
+          2.007,
+          90.18
+        ]
+      ],
+      "saves_unchanged": true,
+      "contended": false,
+      "overlap_samples": 0
+    }
+  }
+}

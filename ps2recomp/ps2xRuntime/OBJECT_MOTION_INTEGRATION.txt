@@ -1,0 +1,238 @@
+Engine object motion capture (isolated runtime contribution)
+==========================================================
+Baseline: main 489713433e48c9a92f4248c47cd42a67ae11a3b3 merged into
+the stability worktree as 701555b3. Integrate ONLY the subsequent object-motion
+feature commit, not that baseline merge or the older stability/camera commits.
+
+Frozen ABI / main-owned bridge
+-----------------------------
+sizeof(gsr::ObjectMotionScope) == 160. Nested runtime header is a wrapper for
+<gsr/object_motion_scope.h>; canonical outer header remains main-owned.
+No packet layout changes in this contribution.
+
+Install once from drakan_dlss::installSceneHooks after scene-camera hooks:
+  drakan_object_motion::install(runtime, objectSink, opaque);
+Toggle from installTap(on): drakan_object_motion::setEnabled(on).
+See src/lib/drakan_object_motion.h. Sink signature:
+  void objectSink(const gsr::ObjectMotionScope&, void*);
+In the worker sink, acquire the current bridge lease and forward packet by value
+with lease->bridge->noteObjectMotion(scope). Never call vu1async::sync there.
+GS queue handling must flush any buffered GS primitives before applying scope.
+All hooks chain existing function replacements, including shared camera hooks.
+
+Key = objectId/generation/meshId/partId/passKey plus main's batch ordinal.
+partId is a real guest part-descriptor address, passKey is the part-builder PC.
+Begin is a scope boundary, NOT a request to reset the batch ordinal. Maintain
+part/pass batch counters across VIF jobs and reset on complete world epoch.
+Main owns successful-presentation history commit and clipped/UV/count checks.
+Only Valid AND TopologyStable, without Rejected/Ambiguous/Clipped/Reset, can
+become eligible. HasTransform remains unset. Animated is asserted only for the
+verified bone-output chain described below, matched to renderer position source.
+
+Verified static engine sources
+------------------------------
+152330, caller RA1392ec: complete engine world render epoch begins.
+189b38: entry a0 -> s2 is the render object (not temporary matrix address).
+18a538 calls173658; returned resource -> s4 -> a1 supplies mesh identity.
+1485c8, RA18a700: entry SP+38 is saved actual object; a1 is mesh resource.
+1c7410, RA18a854: entry SP+10 is saved actual object; a1 is mesh resource.
+178d98 constructor stores vtable51b8b0 and initializes 0x120-byte instances.
+178f28 destructor: invalidate exact pool-slot lifetime. Pool reuse increments
+generation even with identical vtable/address/mesh. object+4 is mutable flags,
+not a lifetime generation. Only vtable51b8b0 instances are currently accepted.
+4acc40 allocator free: invalidate objects/resources inside freed allocation.
+1ec160 indexed builder: a0 renderer, a1 actual 0x30-byte part descriptor.
+Hash descriptor plus two selector bytes per group from *(part+c), count part+8,
+AND actual selected {start,count} records in *(mesh+8). Those records select the
+exact original vertex indices (start+i), independent of animated position values.
+1ec8f0 sequential builder: descriptor, vertex count *(part+10), and all packed
+ordering bytes from *(part+14), rounded to 64 bytes exactly as VIF uploads them.
+state = *renderer; command tag = *(state+5c); buffer base = *(state+70).
+The state can be scratchpad70000000. resolveState explicitly supports scratchpad
+and RAM aliases; masking this pointer to RAM zero wrongly drops all such scopes.
+159670 command-buffer tag allocator: conservatively discard all outstanding
+tag provenance on entry. Builders call it after buffer rewind; rejecting these
+jobs avoids inheriting another part from the same object scene.
+1f1420, RA1ed76c: final per-object VIF send; closing scope is consumed at the
+actual VIF1 CHCR chain copy, not prematurely at another DMA channel.
+147690, RA139344: world-end cleanup, after complete152330 and before HUD.
+
+Ordering and rejection
+----------------------
+At VIF1 CHCR chain flattening, original physical DMAtag addresses are translated
+to copied VIF byte offsets. Metadata is copied into shared_ptr<const Job> inside
+PendingTransfer and vu1async::Meta. Buffer overwrites, later engine scenes and
+delayed worker dispatch cannot change the copied identity. Inline execution
+uses the same cursor. Before each metadata boundary drain older GIF; emit End
+then Begin. Drain final GIF before job End. Boundaries falling inside payload
+reject correspondence. Normal/FIFO/unmarked jobs carry no eligible identity.
+VU data row7.x clip-needed bit causes conservative rejection before MSCAL/MSCNT.
+No claim that clipping preserves output ordinals. Input topology certificate
+requires unchanged descriptor/selector hash and counts on adjacent epochs;
+duplicates, gaps, pool reuse, buffer rewind and resets reject. This is only an
+input certificate: main must also validate actual output topology/UV/clipping.
+
+Measured evidence (2026-10-17)
+-----------------------------
+tests/run_object_motion.ps1: 30 focused standard-library checks PASS, MSVC /O2
+/W4. Covers pooled lifetime/reuse, neighboring slots, unique objects, mesh/part/
+pass separation, duplicates/gaps/topology changes, immutable delayed jobs on
+std::thread, ordered boundaries, clip rejection, payload crossing, and rewinds.
+MSVC /Zs syntax checks pass for drakan_object_motion.cpp, ps2_memory.cpp,
+ps2_vif1_interpreter.cpp and vu/ps2_vu1_async.cpp. No game build/run performed.
+
+tests/object_motion_ram.py reads the existing combined-off combat begin/end RAM
+snapshots without mutation. Found 4655/4658 aligned vtable candidates, 4655
+common addresses. Six explicit addresses retain vtable and change their packed
+translation words: 86d560,a5b6a0,a5b7c0,b94710,a6a780,a6a9c0. At86d560 the
+three floats change (422325.90625,171709.03125,346325.125) to
+(422324.15625,171709.1875,346318.09375); word before object is zero. These
+snapshots corroborate persistent moving render nodes and disprove a universal
+malloc-header assumption. They DO NOT prove those nodes emitted eligible draws.
+Evidence outputs: build/recomp_stab/object_motion_ram.json,
+object_motion_tests/compile.log, object_motion_syntax.log (outside worktree).
+
+Remaining live validation / coverage limits
+------------------------------------------
+Main must build once with bridge hooks and run private bounded combat capture.
+DRAKAN_OBJECT_MOTION_LOG=1 prints engine-object/engine-part/vif-replay identity,
+epoch, scene/job serial, hash and flags; pair engine and VIF records to prove
+actual scene transport. Measure eligible unique object/mesh/part/pass/batch keys
+across successful SR/NR consumed frames, duplication and rejection counts.
+CPU-clipped direct-GIF paths bypassing VIF remain unsupported; do not claim
+complete actor coverage before live measurement. Camera-only or invalid motion
+fallback is required for unknown paths. No performance/visual
+claim, full combined validation, outer source changes, or dist update here.
+
+Follow-up: verified bone source and inline builder coverage
+---------------------------------------------------------
+The capture helper now resolves owner+50 -> controller, requires controller+d4
+to point back to that exact owner, virtual slot+144=106aa8 with zero adjustment,
+slot zero, controller flag100000 (the bone path, not static-copy branch), at least
+two valid 0x6c bone records, and a complete controller+120 output header with
+count matching controller+118. 106aa8 invokes1165b0: at1167c4..1167ec it computes
+bone matrices via1e08f0; 116880..1168fc applies per-vertex bone indices/matrices
+and writes XYZ output. Only if *(renderer+c) equals this exact per-object output
+does the part packet carry Animated. Indexed source ranges must fit its count.
+This uses controller provenance, not mutable object flags or observed motion.
+
+1ed8f0, caller RA148710: inline group emitter bypassing 1ec160/1ec8f0. At entry
+1c63c0 preprocessing has finished. Mesh+c/10 supplies actual part descriptors;
+part+20/28 supplies real 16-byte groups. part+2c/10 is original uint16 index
+stream/count. Hash original index bytes, descriptor, group, and ordered UVs;
+exclude position contents. Stable group ID is its guest descriptor address.
+At chain copy, REF/REFE/REFS upper VIF code 78nn0036 identifies position upload
+to0x36. Match its actual source address to the recorded group in that scene;
+require VIF NUM equals group vertex count. Following UV/color commands retain
+the scope. Unknown/aliased sources reject. This source-based path survives
+command-buffer rewinds without relying on physical output-tag addresses.
+No public memory/worker method signature or packet ABI change in follow-up.
+
+67 focused checks PASS (62 synthetic plus 5 RAM-backed checks), including
+scratchpad bounds, deforming input with unchanged original indices/UVs, REF
+counts/aliases, strict controller ownership and static-copy rejection, indexed
+range mutation and packed strip-order mutation. Follow-up MSVC /Zs checks PASS
+for drakan_object_motion.cpp and ps2_memory.cpp. No game build or run here.
+
+Measured combat RAM: owner a5b6a0 -> controller bb75a8 -> output14d61d0,1628
+vertices. Resource manager12b640 handle2 resolves bb14b0; 173658 slot0 resolves
+mesh bcbca0, first part bcbda0. Indexed topology hash8f937deeb23e74ac and packed
+ordering hash664b771b7954a7e1 are unchanged between begin/end snapshots. Squared
+distance of vertices500/1200 changes23923.880571 ->25013.740366 (>4%), proving
+deformation beyond a common rigid transform while these source indices persist.
+This establishes this render node's bone/deformation provenance, not its name or
+live draw eligibility. Follow-up tests execute the same capture helper on RAM.
+Reproduce:
+  tests/run_object_motion.ps1 -RamBegin <combat_begin.ram> -RamEnd <combat_end.ram>
+tests/object_motion_actor_ram.py independently resolves owner/resource/mesh.
+
+DRAKAN_OBJECT_MOTION_LOG=1 additionally prints object-motion-pose and
+object-motion-source hashes. object-motion-cpu-unsupported logs18bb90 owner,
+resource, original face range, optional sorted-order/face-list addresses and RA.
+18a978 (RA18a8a8) /18ac30 (RA18a87c) pass actual owner in a0; they lead to CPU
+transform18af70/1288a0 and clipped per-face direct-GIF18bb90. Do not certify a
+whole CPU call as a part: clipping, sorting and culled face subsets can change
+its output order. Future coverage needs per-face identity attached at GIF copy
+and replayed at GIF arbitration, with the same clipping rejection guarantees.
+
+Build coordination: object_motion_tracker.h is included through ps2_memory.h
+by the first feature commit; this follow-up therefore invalidates generated
+translation units on the next build. Main owns that build and live validation.
+
+Follow-up: public-header decoupling
+----------------------------------
+Apply the separate decoupling commit AFTER 4db848e, BEFORE restarting the main
+build. ps2_memory.h and ps2_vu1_async.h now include only object_motion_job_fwd.h:
+  struct Job; using JobPtr=std::shared_ptr<const Job>;
+Tracker, packet, maps, vectors of markers and capture math remain available only
+through actual capture consumers (drakan_object_motion.h/.cpp, ps2_memory.cpp,
+ps2_vif1_interpreter.cpp and focused tests). The worker needs only an incomplete
+Job pointer and shared_ptr ownership; it does not dereference Job internals.
+No PS2Memory member, member order, signature, JobPtr type, or packet ABI changes.
+
+MSVC x64 /O2 /W4 public-header probe, identical settings before/after:
+  PS2Memory size1600 alignment8
+  PendingTransfer size56 alignment8 objectMotion offset40
+  vu1async::Meta size32 alignment8 objectMotion offset16
+Copy/move/reset/destruction of PendingTransfer and Meta compile and run with
+Job incomplete. /showIncludes confirms no tracker/capture/object-scope/camera
+packet header in public includes. tests/run_object_motion_headers.ps1 compiles
+this probe WITHOUT the outer GS include directory and enforces that exclusion.
+One public-header rebuild is still required to adopt the decoupling; subsequent
+tracker/capture changes no longer invalidate generated EE translation units.
+
+Bounded eligibility diagnostics
+------------------------------
+Set DRAKAN_OBJECT_MOTION_DIAG=1; leave DRAKAN_OBJECT_MOTION_LOG UNSET. Diagnostic
+mode does not enable the unbounded object/pose/CPU traces. Hard limit:20 summary
+lines and24 sample lines per process (four per stage/eligibility/rejection bucket).
+Summaries sample first16 populated engine epochs, first2 empty epochs, and sparse
+120-epoch checkpoints until the hard cap. Counters are cumulative atomics so a
+delayed worker cannot race EE logging. Part/replay eligible counts use the same
+required Valid|TopologyStable and rejected Reset|Clipped|Ambiguous|Rejected mask
+as main's renderer. Samples include exact IDs, generation, scene/job serial,
+source PC, topology hash, counts and flags. No public headers or gameplay state
+changed by this instrumentation; only drakan_object_motion.cpp needs recompiling.
+
+Interpretation: owner=0 with ra/range/vtable rejects diagnoses identity capture;
+parts=0 with scratch/state/buffer/mesh counters diagnoses builder eligibility;
+partEligible>0 but replayEligible=0 with replayNoObject points to chain provenance;
+replayClipped or replayAmbiguous identifies VIF rejection; forwardBegin confirms
+sink calls. replayEligible>0 with renderer historyBytes=0 needs downstream bridge/
+scope-at-draw and history-input reason counters owned by main. Useful renderer
+counters: eligibleBeginReceived, scopedDraws, missingScope, each rejecting flag,
+badVertex/depth/UV/scale, storedHistoryEntries, duplicateKey and referenceMismatch.
+Limit downstream samples to four keys per reason and summaries to consumed frames.
+
+Read-only first-run audit: srnr-object-first/stderr.log has839 world epochs,
+29955 rejected batches on250 consumed worlds, zero matched batches/history bytes.
+SR and NR each evaluate successfully250 times (179 reset0,71 reset1). No engine
+object/part/replay trace is present, so it cannot identify the exact rejection
+stage. First revision masks scratch state70000000 to RAM0 and returns before
+part marking; it also misses inline1ed8f0 groups. Both are fixed in4db848e, but
+live eligibility is not established until bounded diagnostics confirm the path.
+
+Camera HUD-preview anchor fix (after8b61ad5)
+------------------------------------------
+Measured srnr-camera-probe: worlds64 resets54 previews379 nonworld394;
+firstWorld54, guiChange1, tickGap3, backwards/jump/turn/size/projection0.
+First16 reset samples:13 reason2 (first-world only),2 reasonA (first+gap),
+1 reasonE (first+GUI+gap). Native preview setup clears render-context World/
+Valid and previously also wrote hadWorld=false, even with unchanged gameplay
+GUI=-1. This repeatedly erased the last real world temporal anchor.
+
+Fix: retain hadWorld and lastGui only across non-world PREVIEW packets when
+current GUI and last real-world GUI are both -1. Preview packets still carry
+their own invalid/reset render boundary. Known GUI transitions, non-preview
+invalidations, capture-mode reset and all original tick/cut/projection/size
+thresholds retain their behavior. Last-world pose/tick remain updated only by
+real world packets. No tick threshold change (gap>6 still resets).
+
+Private src/lib/drakan_scene_camera_policy.h shares the actual reset/context
+logic with tests; it is not imported by public memory/worker headers. No packet
+ABI or generated-code dependency change. tests/run_scene_camera_policy.ps1:
+19 focused CPU checks PASS, MSVC /O2 /W4 warning-free; camera.cpp /Zs PASS.
+Checks replay the measured five HUD previews +delta5, six/seven tick boundary,
+backwards ticks, initial/mode resets, known GUI transition, non-preview invalid
+context, and unchanged jump/turn/size/projection cuts. Main must validate lower
+reset frequency and more matched geometry on the next private live run.

@@ -1,0 +1,21 @@
+1 log on 5
+0 sync play 1
+2 dump ram_dragon_spawn
+10 key down W
+40 key up W
+50 key tap E
+100 dump ram_mount_attempt
+120 key down SPACE
+150 key up SPACE
+180 dump ram_takeoff_attempt
+190 button down 1
+220 button up 1
+230 dump ram_primary_attempt
+240 button down 2
+270 button up 2
+280 dump ram_secondary_attempt
+290 key tap E
+310 key down C
+350 key up C
+380 dump ram_landing_attempt
+400 quit

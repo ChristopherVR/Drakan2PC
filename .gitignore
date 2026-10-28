@@ -1,0 +1,78 @@
+# Copyrighted game data - never commit
+iso/
+*.iso
+*.elf
+# Tools / build output
+tools/*/
+build/
+out/
+*.gpr
+*.rep/
+__pycache__/
+tools/*.log
+# Regenerable dumps derived from game/SDK binaries (keep repo free of copyrighted code)
+*.irx
+*.bin
+*.dec
+analysis/iop/embedded*/
+analysis/iop/ioprp_modules/
+analysis/iop/*.asm
+analysis/vu/
+analysis/input/*.c
+dist/
+analysis/sound/*.c
+controls_v2_test.ini
+
+# Local game files, saves, caches and compiled outputs must stay local even
+# when they are created outside the conventional iso/build/dist directories.
+mc0/
+mc1/
+*.rsg
+*.rrc
+*.vdb
+*.xdb
+*.sdb
+*.txd
+SCES_*
+SCUS_*
+SLES_*
+SLUS_*
+*.exe
+*.dll
+*.pdb
+*.obj
+*.o
+*.lib
+*.a
+*.cso
+*.log
+*.ram
+*.wav
+*.mp4
+*.gscap
+/Screenshot*.png
+/codex-clipboard-*.png
+/440610
+/abc
+*.srt
+*.vtt
+docs/proposals/subtitles/*
+!docs/proposals/subtitles/README.txt
+analysis/strings_vaddr.csv
+analysis/sdk_strings.csv
+/patches/ps2recomp/
+
+# Private input generated locally by scripts/prepare_local_runtime.py (game VU1 microcode)
+/ps2recomp/ps2xRuntime/src/lib/vu/aot/ps2_vu1_image.inc
+
+# Claude Code agent worktrees and local settings
+/.claude/
+
+# Local-only staged assets (e.g. local/subtitles/*.srt copied into dist by Build-LocalGame.ps1)
+/local/
+
+# Builder kit: offline third-party sources, prebuilt recompiler and the guided build log.
+/deps/
+/build-log.txt
+scripts/buildtool/ps2_recomp.exe
+analysis/iop/iso_listing.txt

@@ -1,0 +1,192 @@
+{
+  "date": "2026-10-18T21:45:15.454648+10:00",
+  "installed_exe_sha256": "5560C116FEFB2D5B9040C434606670A3749EF0F33A61D6615B176F75D877C266",
+  "previous_exe_sha256": "5074444FA319F7417CF97A58EC81AA67228216E6B1FFE6DDE78F23F116747F74",
+  "backup": "C:\\Games\\Drakan - The Ancients Gates\\decomp\\build\\release_backups\\vector-specialize-20261018-214515",
+  "changes": [
+    "SIMD saturating conversions, constant VF00 operands and constant lane writes; inlined common lower-unit moves and branch reads",
+    "Aggregate already-due FMAC flags only in blocks without internal flag observers; late results retain their queues",
+    "Guarded 17-pair packet-emission schedule with complete prefix exits for alternate branches and scalar-pending fallback",
+    "Retire pending scalar results at their exact cycles in Q-sensitive blocks; cancel superseded short-block register deadlines",
+    "Bounded worker and completion handoff spin before OS parking; measured default 4096 PAUSE iterations, PS2X_VU_SPIN=0 diagnostic control"
+  ],
+  "benchmark": {
+    "scale": 4,
+    "output": "3840x2160 window configuration",
+    "world_rate": "uncapped",
+    "vsync": false,
+    "frame_limit": 0,
+    "dlss": "off",
+    "audio": true,
+    "vu_spin_iterations": 4096,
+    "before_world_fps": 48.829986507748615,
+    "after_world_fps": 65.56708890911898,
+    "improvement_percent": 34.27627898015992,
+    "minimum_two_second_window_fps": 65.31,
+    "method": "Sequential before/after/after/before private-fixture runs. Duration-weighted final five 2-second world-update windows per run; mean of each pair. Profile, live checking and exploratory runs excluded.",
+    "runs": {
+      "spec-final-before1": {
+        "exe_sha256": "5074444FA319F7417CF97A58EC81AA67228216E6B1FFE6DDE78F23F116747F74",
+        "world_fps": 48.91156489690208,
+        "last_five_world_windows": [
+          [
+            2.017,
+            48.59
+          ],
+          [
+            2.009,
+            48.79
+          ],
+          [
+            2.005,
+            48.89
+          ],
+          [
+            2.005,
+            49.37
+          ],
+          [
+            2.003,
+            48.92
+          ]
+        ],
+        "saves_unchanged": true
+      },
+      "spec-final-after1": {
+        "exe_sha256": "5560C116FEFB2D5B9040C434606670A3749EF0F33A61D6615B176F75D877C266",
+        "world_fps": 65.62200039888313,
+        "last_five_world_windows": [
+          [
+            2.011,
+            65.65
+          ],
+          [
+            2.006,
+            65.8
+          ],
+          [
+            2.003,
+            65.91
+          ],
+          [
+            2.002,
+            65.44
+          ],
+          [
+            2.006,
+            65.31
+          ]
+        ],
+        "saves_unchanged": true
+      },
+      "spec-final-after2": {
+        "exe_sha256": "5560C116FEFB2D5B9040C434606670A3749EF0F33A61D6615B176F75D877C266",
+        "world_fps": 65.51217741935484,
+        "last_five_world_windows": [
+          [
+            2.011,
+            65.65
+          ],
+          [
+            2.014,
+            65.53
+          ],
+          [
+            2.009,
+            65.71
+          ],
+          [
+            2.005,
+            65.33
+          ],
+          [
+            2.005,
+            65.34
+          ]
+        ],
+        "saves_unchanged": true
+      },
+      "spec-final-before2": {
+        "exe_sha256": "5074444FA319F7417CF97A58EC81AA67228216E6B1FFE6DDE78F23F116747F74",
+        "world_fps": 48.74840811859516,
+        "last_five_world_windows": [
+          [
+            2.013,
+            48.19
+          ],
+          [
+            2.017,
+            49.08
+          ],
+          [
+            2.009,
+            48.78
+          ],
+          [
+            2.0,
+            48.49
+          ],
+          [
+            2.012,
+            49.2
+          ]
+        ],
+        "saves_unchanged": true
+      }
+    }
+  },
+  "validation": {
+    "standalone_cpu_suites": "7/7 passed",
+    "conversion_operand_and_lane_checks": 150000000,
+    "flag_batch_boundary_and_future_checks": 1800000,
+    "retirement_checks": 100000,
+    "overwritten_deadline_cases": 100000,
+    "pending_scalar_batch_and_dependent_tail_checks": 8192,
+    "ordered_async_jobs_per_stress_run": 101258,
+    "unique_recorded_vu_runs": 4000,
+    "reference_replay": "registers, data memory, PATH1 packets and cycles matched original interpreter",
+    "replays": [
+      {
+        "log": "C:\\Games\\Drakan - The Ancients Gates\\decomp\\build\\vector-specialize-20261018\\final-replay-off1.log",
+        "best_ms": 26.25
+      },
+      {
+        "log": "C:\\Games\\Drakan - The Ancients Gates\\decomp\\build\\vector-specialize-20261018\\final-replay-off2.log",
+        "best_ms": 26.25
+      },
+      {
+        "log": "C:\\Games\\Drakan - The Ancients Gates\\decomp\\build\\vector-specialize-20261018\\final-replay-on1.log",
+        "best_ms": 23.37
+      },
+      {
+        "log": "C:\\Games\\Drakan - The Ancients Gates\\decomp\\build\\vector-specialize-20261018\\final-replay-on2.log",
+        "best_ms": 23.27
+      }
+    ],
+    "live_vu_runs_observed": 327680,
+    "live_vu_mismatches": 0,
+    "live_log": "C:\\Games\\Drakan - The Ancients Gates\\decomp\\build\\vector-specialize-20261018\\t\\spec-final-live\\stderr.log",
+    "visual": "C:\\Games\\Drakan - The Ancients Gates\\decomp\\build\\vector-specialize-20261018\\native-visual.png",
+    "visual_dimensions": [
+      3818,
+      2032
+    ],
+    "visual_checked": true,
+    "all_saves_unchanged": true
+  },
+  "rejected_experiments": [
+    "Shorter operand normalizer: exhaustive equality passed, no measured gameplay benefit",
+    "Looping existing compiled blocks: generated-code growth slowed replay; replaced by one guarded static schedule",
+    "Texture hash memoization: 50260 exact hash checks passed, gameplay regressed, removed"
+  ],
+  "settings_sha256": {
+    "drakan.ini": "667e7be8b9791904708bc6b82db1291a647adc99fc339680f4f8fddfa911f96d",
+    "drakan_input.ini": "3ecf546900e9858a587ef9c4b62385b074c9281431d3eac0ef73619be0dd078f"
+  },
+  "settings_unchanged": true,
+  "restart_required": true,
+  "runtime_patch_sha256": "429b1cc993fc1854b431f5ad12096866288d0c5b60de175433180d15e7464c31",
+  "evidence": "C:\\Games\\Drakan - The Ancients Gates\\decomp\\build\\vector-specialize-20261018\\metrics.json",
+  "profile": "C:\\Games\\Drakan - The Ancients Gates\\decomp\\build\\vector-specialize-20261018\\host-category-final.txt",
+  "limits": "Measured scene and configuration; this does not establish 60 FPS in every area. Guest instruction timing and packet contents retained."
+}

@@ -1,0 +1,160 @@
+Combat probe (reverse-engineering aid), rescued from an uncommitted change in the old
+PS2Recomp-combat worktree on 2026-10-22. Not applied.
+
+Adds a hook on the input-command handler (kOnInputCommand 0x23ce18) and the three controller
+updates, logging command traces, controller identity and nearby objects. Env flags:
+DRAKAN_CMD_LOG=1, DRAKAN_COMBAT_LOG=<n>, DRAKAN_COMBAT_RADIUS=<f>.
+
+Paths are relative to ps2recomp/ (git apply --directory=ps2recomp) and the diff predates the
+clang-format pass, so it no longer applies cleanly: port the hunk by hand into
+ps2recomp/ps2xRuntime/src/lib/drakan_input_glue.cpp if it is needed again.
+
+diff --git a/ps2xRuntime/src/lib/drakan_input_glue.cpp b/ps2xRuntime/src/lib/drakan_input_glue.cpp
+index 93b5870..d838494 100644
+--- a/ps2xRuntime/src/lib/drakan_input_glue.cpp
++++ b/ps2xRuntime/src/lib/drakan_input_glue.cpp
+@@ -317,6 +317,104 @@ namespace
+         ilog("\n  turnUpVec(0x4e8c48)= %08x %08x %08x %08x\n", g.read32(0x4e8c48), g.read32(0x4e8c4c), g.read32(0x4e8c50), g.read32(0x4e8c54));
+     }
+ 
++
++    // ---- combat probe (DRAKAN_CMD_LOG=1 / DRAKAN_COMBAT_LOG=<n>): command trace, controller identity, nearby objects (reverse engineering aid)
++    constexpr uint32_t kOnInputCommand = 0x23ce18u, kCtrlA = 0x271e18u, kCtrlB = 0x274c18u, kCtrlC = 0x311220u;
++    PS2Runtime::RecompiledFunction g_origCmd = nullptr, g_origCtrl[3] = {nullptr, nullptr, nullptr};
++    bool g_cmdLog = false;
++    float g_entRadius = 1.0e12f;
++    int g_combatLog = 0;
++    std::atomic<int> g_ctrlFrame[3] = {-100, -100, -100};
++    std::atomic<int> g_frameNo{0};
++
++    void hookOnInputCommand(uint8_t *rdram, R5900Context *c, PS2Runtime *rt)
++    {
++        const uint32_t cmd = getRegU32(c, 4), act = getRegU32(c, 5), pr = getRegU32(c, 6), ms = getRegU32(c, 7);
++        const uint32_t ra = getRegU32(c, 31);
++        g_origCmd(rdram, c, rt);
++        if (g_cmdLog)
++        {
++            uint32_t pf = 0, st = 0;
++            const uint32_t p = g_player.load();
++            if (p)
++            {
++                std::memcpy(&pf, rdram + ((p + 0x90) & 0x1FFFFFFFu), 4);
++                std::memcpy(&st, rdram + ((p + 0xc4) & 0x1FFFFFFFu), 4);
++            }
++            ilog("[cmd] f=%d t=%.3f cmd=0x%04x act=0x%x %s ms=%u -> %d  p90=%08x pc4=%u ra=%x\n", g_frameNo.load(), nowS(), cmd, act, pr ? "DOWN" : "up", ms, static_cast<int>(getRegU32(c, 2)), pf, st, ra);
++        }
++    }
++    template <int N> void hookCtrl(uint8_t *rdram, R5900Context *c, PS2Runtime *rt)
++    {
++        if (g_ctrlFrame[N].load() < 0 && g_cmdLog)
++            ilog("[ctrl] controller %c first call at frame %d\n", 'A' + N, g_frameNo.load());
++        g_ctrlFrame[N] = g_frameNo.load();
++        g_origCtrl[N](rdram, c, rt);
++    }
++    uint32_t objFromHandle(RecompGuest &g, uint32_t h)
++    {
++        if (!h)
++            return 0;
++        const uint32_t in = g.read32(h + 0xfc);
++        return in ? g.read32(in + 0x10) : 0;
++    }
++    uint32_t handleType(RecompGuest &g, uint32_t ctx, uint32_t h)
++    {
++        const uint32_t idx = g.read16(h + 0x10);
++        if (idx == 0xffff)
++            return 0;
++        const uint32_t tbl = g.read32(ctx + 800);
++        if (!tbl || static_cast<int>(g.read32(tbl + 0x10)) < static_cast<int>(idx))
++            return 0;
++        return g.read32(g.read32(tbl + 8) + idx * 0x24 + 8);
++    }
++    void logCombat(RecompGuest &g)
++    {
++        const uint32_t ctx = g.read32(0x5565d4);
++        const uint32_t p = g_player.load();
++        if (!ctx || !p)
++            return;
++        const uint32_t ph = g.read32(p + 0x80);
++        const float px = g.readF(ph + 0x14), py = g.readF(ph + 0x18), pz = g.readF(ph + 0x1c);
++        ilog("[cmb] f=%d ctrl=%c%c%c p90=%08x pc4=%u p4b4=%u p4b8=%u d504=%08x %08x %08x d510=%08x %08x %08x p584=%08x aimMode=%u pad(p4b8..)\n", g_frameNo.load(),
++             g_frameNo.load() - g_ctrlFrame[0].load() < 3 ? 'A' : '-', g_frameNo.load() - g_ctrlFrame[1].load() < 3 ? 'B' : '-', g_frameNo.load() - g_ctrlFrame[2].load() < 3 ? 'C' : '-',
++             g.read32(p + 0x90), g.read32(p + 0xc4), g.read32(p + 0x4b4), g.read32(p + 0x4b8), g.read32(p + 0x504), g.read32(p + 0x508), g.read32(p + 0x50c), g.read32(p + 0x510),
++             g.read32(p + 0x514), g.read32(p + 0x518), g.read32(p + 0x584), g.read32(0x4e9594));
++        {
++            const uint32_t camH = g.read32(ctx + 0x4b4);
++            const uint32_t cam = objFromHandle(g, camH);
++            ilog("[cmb2] f=%d p94=%08x p9c=%u pab0=%08x pab4=%08x pe90=%u peb4=%u p1040=%u paec=%u pcc0=%08x pcc4=%08x pb1c=%u pb20=%d p6a4=%d p0x10=%.3f p0x2c=%.3f cam14c=%u cam48=%08x camP=%.3f camYoff=%.3f cam94=%.3f cam98=%.3f camA0=%.3f\n", g_frameNo.load(), g.read32(p + 0x94), g.read32(p + 0x9c),
++                 g.read32(p + 0xab0), g.read32(p + 0xab4), g.read32(p + 0xe90), g.read32(p + 0xeb4), g.read32(p + 0x1040), g.read32(p + 0xaec), g.read32(p + 0xcc0), g.read32(p + 0xcc4), g.read32(p + 0xb1c),
++                 static_cast<int>(g.read32(p + 0xb20)), static_cast<int>(g.read32(p + 0x6a4)), g.readF(p + 0x10), g.readF(p + 0x2c), cam ? g.read32(cam + 0x14c) : 0, cam ? g.read32(cam + 0x48) : 0,
++                 cam ? g.readF(cam + 0x84) : 0.f, cam ? g.readF(cam + 0x90) : 0.f, cam ? g.readF(cam + 0x94) : 0.f, cam ? g.readF(cam + 0x98) : 0.f, cam ? g.readF(cam + 0xa0) : 0.f);
++        }
++        const uint32_t list = g.read32(ctx + 0x44c);
++        const int n = static_cast<int>(g.read32(ctx + 0x454));
++        int shown = 0;
++        ilog("[cmb] objs=%d player pos=(%.0f %.0f %.0f)\n", n, px, py, pz);
++        const uint32_t list2 = g.read32(ctx + 0x458);
++        const int n2 = static_cast<int>(g.read32(ctx + 0x460));
++        for (int i = 0; i < n + n2 && i < 400 && shown < 40; ++i)
++        {
++            const uint32_t h = i < n ? g.read32(list + i * 4) : g.read32(list2 + (i - n) * 4);
++            const uint32_t o = objFromHandle(g, h);
++            if (!o || o == p)
++                continue;
++            const uint32_t oh = g.read32(o + 0x80);
++            if (!oh)
++            {
++                ilog("[ent] #%d h=%x obj=%x type=%x (no body)\n", i, h, o, handleType(g, ctx, h));
++                continue;
++            }
++            const float dx = g.readF(oh + 0x14) - px, dy = g.readF(oh + 0x18) - py, dz = g.readF(oh + 0x1c) - pz;
++            const float d = std::sqrt(dx * dx + dy * dy + dz * dz);
++            if (!(d < g_entRadius) || (std::fabs(dx + px) + std::fabs(dy + py) + std::fabs(dz + pz) < 1.0f))
++                continue;
++            ilog("[ent] #%d h=%x obj=%x type=%x dist=%.0f d=(%.0f %.0f %.0f) o90=%08x oc4=%u\n", i, h, o, handleType(g, ctx, h), d, dx, dy, dz, g.read32(o + 0x90), g.read32(o + 0xc4));
++            ++shown;
++        }
++    }
++
+     void hookPadMgrUpdate(uint8_t *rdram, R5900Context *c, PS2Runtime *rt)
+     {
+         // Settings overlay open: hold the game at this frame boundary (nothing is mid-frame). The host thread keeps presenting the
+@@ -362,6 +460,7 @@ namespace
+             gameplay = false;
+         if (g_menuForce >= 0)
+             gameplay = g_menuForce == 0;
++        g_frameNo = upcoming;
+         g_playRun = gameplay ? g_playRun + 1 : 0;
+         m.setPlayRun((g_autoStart && !g_steady) ? 0 : g_playRun);
+         drakan_pause::setGameState(scr, gameplay && scr < 0);
+@@ -521,6 +620,8 @@ namespace
+                 rt->requestStop();
+             }
+         }
++        if (g_combatLog > 0 && (m.frameNo() % g_combatLog) == 0)
++            logCombat(g);
+         if (g_logEvery > 0 && (m.frameNo() % g_logEvery) == 0)
+         {
+             const uint32_t p = g_player.load();
+@@ -666,6 +767,22 @@ void drakanInstallInput(PS2Runtime &rt)
+         rt.replaceFunction(kPadMgrUpdate, &hookPadMgrUpdate);
+     if (!(skip & 2))
+         rt.replaceFunction(kCameraUpdateLook, &hookCameraUpdateLook);
++    g_cmdLog = std::getenv("DRAKAN_CMD_LOG") && std::atoi(std::getenv("DRAKAN_CMD_LOG")) != 0;
++    if (const char *e = std::getenv("DRAKAN_COMBAT_LOG"))
++        g_combatLog = std::atoi(e);
++    if (const char *e = std::getenv("DRAKAN_COMBAT_RADIUS"))
++        g_entRadius = static_cast<float>(std::atof(e));
++    if (g_cmdLog || g_combatLog > 0)
++    {
++        g_origCmd = rt.lookupFunction(kOnInputCommand);
++        rt.replaceFunction(kOnInputCommand, &hookOnInputCommand);
++        g_origCtrl[0] = rt.lookupFunction(kCtrlA);
++        g_origCtrl[1] = rt.lookupFunction(kCtrlB);
++        g_origCtrl[2] = rt.lookupFunction(kCtrlC);
++        rt.replaceFunction(kCtrlA, &hookCtrl<0>);
++        rt.replaceFunction(kCtrlB, &hookCtrl<1>);
++        rt.replaceFunction(kCtrlC, &hookCtrl<2>);
++    }
+     rt.replaceFunction(kPadInit, &hookPadInit);
+     rt.replaceFunction(kPadPortOpen, &hookPadPortOpen);
+     rt.replaceFunction(kPadGetState, &hookPadGetState);

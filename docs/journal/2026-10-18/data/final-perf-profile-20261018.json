@@ -1,0 +1,535 @@
+{
+  "schema": 1,
+  "date": "2026-10-18",
+  "candidate_sha256": "F40A8EACDB9DD8CCF69334EDC70C162646B70B7A5C680245A1CDB721CD2A64E5",
+  "source_commits": {
+    "outer": "e23d53f",
+    "nested": "7114bb9"
+  },
+  "all_three_runs_passed": true,
+  "gpu_quiet_cpu_slot_returned": "2026-10-18T08:25:22+10:00; no process remains; no further launch authorized.",
+  "user_config_preservation": {
+    "user_config_unchanged": true,
+    "private_config_unchanged": true
+  },
+  "user_config_sha256": "E7245B3F8126E3D506D68D7ECDA9722ACC72AB0F4585FEB39A1FE67E98BBBCD7",
+  "scenarios": {
+    "combined_fixed4_profile": {
+      "run_path": "C:\\Games\\Drakan - The Ancients Gates\\decomp\\build\\private-runtime-matrix\\final-nr-20261018-082133\\final-three-runs\\fixed4-combined\\01-reverse-combined-on",
+      "worlds_per_second": 36.47930880159125,
+      "world_presents_per_second": 36.47930880159125,
+      "guest_vblank_hz": 59.985267392975004,
+      "selected_seconds": 22.121,
+      "selected_windows": 11,
+      "actual_internal_scales": [
+        4
+      ],
+      "environment": {
+        "PS2X_GS_SCALE": "4",
+        "DRAKAN_WINDOW_WIDTH": "1920",
+        "DRAKAN_WINDOW_HEIGHT": "1080",
+        "DRAKAN_FULLSCREEN": "0",
+        "DRAKAN_WS_ASPECT": "4:3",
+        "DRAKAN_DLSS": "quality",
+        "DRAKAN_DLSS_NEURAL": "1",
+        "GSR_UPSCALE": "quality",
+        "DRAKAN_AUDIO": "0",
+        "DRAKAN_WORLD_RATE": "uncapped",
+        "DRAKAN_VSYNC": "0",
+        "DRAKAN_FRAME_LIMIT": "0",
+        "GSR_PROFILE": "2",
+        "GSR_NR_PROFILE": "2",
+        "DRAKAN_RUNTIME_PROFILE": "1",
+        "DRAKAN_FRAME_AUDIT": "1"
+      },
+      "completion": {
+        "exitCode": 0,
+        "scriptQuit": true,
+        "sha256After": "F40A8EACDB9DD8CCF69334EDC70C162646B70B7A5C680245A1CDB721CD2A64E5",
+        "candidateUnchanged": true,
+        "savePreservation": {
+          "private": true,
+          "source": true
+        }
+      },
+      "clock_summary": {
+        "sched-vblank": {
+          "seconds": 22.039901999999998,
+          "starts_per_second": 59.98211788782002,
+          "ends_per_second": 59.98211788782002,
+          "maxDelayMs": 8.614
+        },
+        "frame-time": {
+          "seconds": 22.169088000000002,
+          "updates_per_second": 36.49225444005635,
+          "dtSum_per_second": 0.9997253833806784,
+          "localCapProxy_per_second": 0.9986879027229265,
+          "over30ms_per_second": 0.9923728030670453
+        }
+      },
+      "bridge_ms_per_world": {
+        "drainMs": 6.1473523325769825,
+        "presentMs": 0.6992054699596246,
+        "lockMs": 0.0,
+        "handoffMs": 0.7315119524257242,
+        "fairMs": 0.0
+      },
+      "phase_profiles": {
+        "gsr-profile": {
+          "seconds": 20.029999999999998,
+          "reports": 10,
+          "buckets": {
+            "draw": {
+              "calls": 147687.0,
+              "inclusive_ms": 5487.840000000001,
+              "exclusive_ms": 1156.7,
+              "max_ms": 0.78,
+              "inclusive_ms_per_second": 273.9810284573141,
+              "estimated_ms_per_world": 7.510587164561705,
+              "estimated_exclusive_ms_per_world": 1.5830447267501464
+            },
+            "resolveTexture": {
+              "calls": 144032.0,
+              "inclusive_ms": 3878.5299999999997,
+              "exclusive_ms": 199.23000000000002,
+              "max_ms": 0.59,
+              "inclusive_ms_per_second": 193.63604593110335,
+              "estimated_ms_per_world": 5.30810621945383,
+              "estimated_exclusive_ms_per_world": 0.2726636127867483
+            },
+            "syncRT": {
+              "calls": 149880.0,
+              "inclusive_ms": 433.05,
+              "exclusive_ms": 433.05,
+              "max_ms": 0.55,
+              "inclusive_ms_per_second": 21.62006989515727,
+              "estimated_ms_per_world": 0.5926666542051966,
+              "estimated_exclusive_ms_per_world": 0.5926666542051966
+            },
+            "readbackRT": {
+              "calls": 731.0,
+              "inclusive_ms": 648.64,
+              "exclusive_ms": 1.1,
+              "max_ms": 1.6,
+              "inclusive_ms_per_second": 32.383424862705944,
+              "estimated_ms_per_world": 0.8877203523465159,
+              "estimated_exclusive_ms_per_world": 0.0015054458367987906
+            },
+            "readbackMap": {
+              "calls": 731.0,
+              "inclusive_ms": 597.6,
+              "exclusive_ms": 597.6,
+              "max_ms": 1.53,
+              "inclusive_ms_per_second": 29.835247129306044,
+              "estimated_ms_per_world": 0.817867665519052,
+              "estimated_exclusive_ms_per_world": 0.817867665519052
+            },
+            "readbackPackUnmap": {
+              "calls": 731.0,
+              "inclusive_ms": 49.93000000000001,
+              "exclusive_ms": 49.93000000000001,
+              "max_ms": 0.18,
+              "inclusive_ms_per_second": 2.4927608587119328,
+              "estimated_ms_per_world": 0.06833355511942148,
+              "estimated_exclusive_ms_per_world": 0.06833355511942148
+            },
+            "temporalResolve": {
+              "calls": 4387.0,
+              "inclusive_ms": 6066.04,
+              "exclusive_ms": 6066.04,
+              "max_ms": 9.91,
+              "inclusive_ms_per_second": 302.84772840738896,
+              "estimated_ms_per_world": 8.301904239868124,
+              "estimated_exclusive_ms_per_world": 8.301904239868124
+            },
+            "presentLatched": {
+              "calls": 731.0,
+              "inclusive_ms": 508.11,
+              "exclusive_ms": 78.77,
+              "max_ms": 4.14,
+              "inclusive_ms_per_second": 25.367448826759865,
+              "estimated_ms_per_world": 0.6953928037598487,
+              "estimated_exclusive_ms_per_world": 0.10780360778603702
+            },
+            "presentCall": {
+              "calls": 731.0,
+              "inclusive_ms": 429.37,
+              "exclusive_ms": 429.37,
+              "max_ms": 1.05,
+              "inclusive_ms_per_second": 21.436345481777337,
+              "estimated_ms_per_world": 0.5876302535875425,
+              "estimated_exclusive_ms_per_world": 0.5876302535875425
+            },
+            "pumpUp": {
+              "calls": 731.0,
+              "inclusive_ms": 0.01,
+              "exclusive_ms": 0.01,
+              "max_ms": 0,
+              "inclusive_ms_per_second": 0.0004992511233150275,
+              "estimated_ms_per_world": 1.3685871243625367e-05,
+              "estimated_exclusive_ms_per_world": 1.3685871243625367e-05
+            },
+            "snapshot": {
+              "calls": 3655.0,
+              "inclusive_ms": 1.5299999999999998,
+              "exclusive_ms": 1.5299999999999998,
+              "max_ms": 0.01,
+              "inclusive_ms_per_second": 0.0763854218671992,
+              "estimated_ms_per_world": 0.002093938300274681,
+              "estimated_exclusive_ms_per_world": 0.002093938300274681
+            },
+            "latchDisplay": {
+              "calls": 731.0,
+              "inclusive_ms": 0.8099999999999999,
+              "exclusive_ms": 0.7699999999999999,
+              "max_ms": 0.01,
+              "inclusive_ms_per_second": 0.040439340988517224,
+              "estimated_ms_per_world": 0.0011085555707336548,
+              "estimated_exclusive_ms_per_world": 0.0010538120857591531
+            },
+            "endFrame": {
+              "calls": 731.0,
+              "inclusive_ms": 2.12,
+              "exclusive_ms": 2.08,
+              "max_ms": 0.01,
+              "inclusive_ms_per_second": 0.10584123814278584,
+              "estimated_ms_per_world": 0.0029014047036485784,
+              "estimated_exclusive_ms_per_world": 0.002846661218674077
+            },
+            "textureCoherenceFlush": {
+              "calls": 206898.0,
+              "inclusive_ms": 8.06,
+              "exclusive_ms": 8.06,
+              "max_ms": 0.02,
+              "inclusive_ms_per_second": 0.4023964053919122,
+              "estimated_ms_per_world": 0.011030812222362046,
+              "estimated_exclusive_ms_per_world": 0.011030812222362046
+            },
+            "textureStampCheck": {
+              "calls": 45322.0,
+              "inclusive_ms": 5.74,
+              "exclusive_ms": 5.74,
+              "max_ms": 0.03,
+              "inclusive_ms_per_second": 0.28657014478282583,
+              "estimated_ms_per_world": 0.007855690093840963,
+              "estimated_exclusive_ms_per_world": 0.007855690093840963
+            },
+            "textureDecode": {
+              "calls": 64328.0,
+              "inclusive_ms": 2658.0099999999998,
+              "exclusive_ms": 2658.0099999999998,
+              "max_ms": 0.39,
+              "inclusive_ms_per_second": 132.7014478282576,
+              "estimated_ms_per_world": 3.637718262426866,
+              "estimated_exclusive_ms_per_world": 3.637718262426866
+            },
+            "textureUpscale": {
+              "calls": 24854.0,
+              "inclusive_ms": 365.69000000000005,
+              "exclusive_ms": 365.69000000000005,
+              "max_ms": 0.16,
+              "inclusive_ms_per_second": 18.257114328507242,
+              "estimated_ms_per_world": 0.5004786255081362,
+              "estimated_exclusive_ms_per_world": 0.5004786255081362
+            },
+            "textureCreate": {
+              "calls": 24854.0,
+              "inclusive_ms": 641.7900000000001,
+              "exclusive_ms": 641.7900000000001,
+              "max_ms": 0.21,
+              "inclusive_ms_per_second": 32.04143784323516,
+              "estimated_ms_per_world": 0.8783455305446327,
+              "estimated_exclusive_ms_per_world": 0.8783455305446327
+            }
+          }
+        },
+        "runtime-profile": {
+          "seconds": 20.110473000000002,
+          "reports": 10,
+          "buckets": {
+            "guestDispatch": {
+              "calls": 120032.0,
+              "inclusive_ms": 20051.506,
+              "inclusive_ms_per_second": 997.0678461913849,
+              "estimated_ms_per_world": 27.33242155476071
+            },
+            "workerIdle": {
+              "calls": 734.0,
+              "inclusive_ms": 0.028999999999999995,
+              "inclusive_ms_per_second": 0.0014420347050017168,
+              "estimated_ms_per_world": 3.953020910689005e-05
+            },
+            "workerLock": {
+              "calls": 3655738.0,
+              "inclusive_ms": 95.742,
+              "inclusive_ms_per_second": 4.760802990561186,
+              "estimated_ms_per_world": 0.13050694070040922
+            },
+            "gif": {
+              "calls": 3350568.0,
+              "inclusive_ms": 9623.466,
+              "inclusive_ms_per_second": 478.53006739324326,
+              "estimated_ms_per_world": 13.117849079760235
+            },
+            "scene": {
+              "calls": 5075.0,
+              "inclusive_ms": 6507.92,
+              "inclusive_ms_per_second": 323.608499909475,
+              "estimated_ms_per_world": 8.871015118996963
+            },
+            "vblank": {
+              "calls": 1207.0,
+              "inclusive_ms": 0.3330000000000001,
+              "inclusive_ms_per_second": 0.016558536440192135,
+              "estimated_ms_per_world": 0.0004539158493998066
+            },
+            "displayCommit": {
+              "calls": 734.0,
+              "inclusive_ms": 4.545999999999999,
+              "inclusive_ms_per_second": 0.22605137134268294,
+              "estimated_ms_per_world": 0.0061967010551697305
+            },
+            "otherRecord": {
+              "calls": 298154.0,
+              "inclusive_ms": 3108.678,
+              "inclusive_ms_per_second": 154.58005388535614,
+              "estimated_ms_per_world": 4.237472116758234
+            },
+            "commitCapacity": {
+              "calls": 734.0,
+              "inclusive_ms": 0.020999999999999998,
+              "inclusive_ms_per_second": 0.001044232027759864,
+              "estimated_ms_per_world": 2.862532383602383e-05
+            },
+            "commitRetirement": {
+              "calls": 734.0,
+              "inclusive_ms": 4506.954,
+              "inclusive_ms_per_second": 224.10979592573477,
+              "estimated_ms_per_world": 6.14347703638395
+            },
+            "handoff": {
+              "calls": 734.0,
+              "inclusive_ms": 536.7669999999999,
+              "inclusive_ms_per_second": 26.69091870688471,
+              "estimated_ms_per_world": 0.7316728190233811
+            }
+          }
+        },
+        "nr-cpu-profile": {
+          "seconds": 20.108894,
+          "reports": 10,
+          "buckets": {
+            "evaluate": {
+              "calls": 734.0,
+              "inclusive_ms": 6021.619,
+              "exclusive_ms": 8.945000000000002,
+              "max_ms": 9.734,
+              "inclusive_ms_per_second": 299.45053169010686,
+              "estimated_ms_per_world": 8.208777565353557,
+              "estimated_exclusive_ms_per_world": 0.012193982269899109
+            },
+            "produce": {
+              "calls": 734.0,
+              "inclusive_ms": 93.07199999999999,
+              "exclusive_ms": 93.07199999999999,
+              "max_ms": 0.28,
+              "inclusive_ms_per_second": 4.628399751870988,
+              "estimated_ms_per_world": 0.12687739718547228,
+              "estimated_exclusive_ms_per_world": 0.12687739718547228
+            },
+            "beginCommands": {
+              "calls": 1468.0,
+              "inclusive_ms": 16.168,
+              "exclusive_ms": 16.168,
+              "max_ms": 0.044,
+              "inclusive_ms_per_second": 0.8040223395677555,
+              "estimated_ms_per_world": 0.022040503671294436,
+              "estimated_exclusive_ms_per_world": 0.022040503671294436
+            },
+            "sdkEvaluate": {
+              "calls": 734.0,
+              "inclusive_ms": 187.526,
+              "exclusive_ms": 187.526,
+              "max_ms": 0.54,
+              "inclusive_ms_per_second": 9.325525312331948,
+              "estimated_ms_per_world": 0.2556387612235998,
+              "estimated_exclusive_ms_per_world": 0.2556387612235998
+            },
+            "evalSubmit": {
+              "calls": 734.0,
+              "inclusive_ms": 5674.409000000001,
+              "exclusive_ms": 27.043999999999997,
+              "max_ms": 8.82,
+              "inclusive_ms_per_second": 282.1840425435631,
+              "estimated_ms_per_world": 7.735454749933586,
+              "estimated_exclusive_ms_per_world": 0.03686685930767484
+            },
+            "completionWait": {
+              "calls": 1468.0,
+              "inclusive_ms": 5854.076,
+              "exclusive_ms": 5854.076,
+              "max_ms": 8.74,
+              "inclusive_ms_per_second": 291.1187457649337,
+              "estimated_ms_per_world": 7.980379983302614,
+              "estimated_exclusive_ms_per_world": 7.980379983302614
+            },
+            "consume": {
+              "calls": 734.0,
+              "inclusive_ms": 49.565999999999995,
+              "exclusive_ms": 49.565999999999995,
+              "max_ms": 0.16,
+              "inclusive_ms_per_second": 2.464879470745631,
+              "estimated_ms_per_world": 0.06756924820456334,
+              "estimated_exclusive_ms_per_world": 0.06756924820456334
+            },
+            "present": {
+              "calls": 734.0,
+              "inclusive_ms": 429.841,
+              "exclusive_ms": 115.89600000000002,
+              "max_ms": 0.949,
+              "inclusive_ms_per_second": 21.375665911809968,
+              "estimated_ms_per_world": 0.5859668566658135,
+              "estimated_exclusive_ms_per_world": 0.15799147782584985
+            },
+            "presentOrder": {
+              "calls": 734.0,
+              "inclusive_ms": 71.415,
+              "exclusive_ms": 71.415,
+              "max_ms": 0.227,
+              "inclusive_ms_per_second": 3.5514136182725915,
+              "estimated_ms_per_world": 0.09735419159361036,
+              "estimated_exclusive_ms_per_world": 0.09735419159361036
+            },
+            "presentSubmit": {
+              "calls": 734.0,
+              "inclusive_ms": 234.463,
+              "exclusive_ms": 27.754,
+              "max_ms": 0.626,
+              "inclusive_ms_per_second": 11.659666613191158,
+              "estimated_ms_per_world": 0.3196241101114985,
+              "estimated_exclusive_ms_per_world": 0.0378347438701822
+            }
+          }
+        }
+      }
+    },
+    "combined_fixed4_quiet": {
+      "run_path": "C:\\Games\\Drakan - The Ancients Gates\\decomp\\build\\private-runtime-matrix\\final-nr-20261018-082133\\final-three-runs\\fixed4-combined\\02-reverse-combined-off",
+      "worlds_per_second": 36.93286502124582,
+      "world_presents_per_second": 36.93365880119338,
+      "guest_vblank_hz": 59.98931696953259,
+      "selected_seconds": 22.122,
+      "selected_windows": 11,
+      "actual_internal_scales": [
+        4
+      ],
+      "environment": {
+        "PS2X_GS_SCALE": "4",
+        "DRAKAN_WINDOW_WIDTH": "1920",
+        "DRAKAN_WINDOW_HEIGHT": "1080",
+        "DRAKAN_FULLSCREEN": "0",
+        "DRAKAN_WS_ASPECT": "4:3",
+        "DRAKAN_DLSS": "quality",
+        "DRAKAN_DLSS_NEURAL": "1",
+        "GSR_UPSCALE": "quality",
+        "DRAKAN_AUDIO": "0",
+        "DRAKAN_WORLD_RATE": "uncapped",
+        "DRAKAN_VSYNC": "0",
+        "DRAKAN_FRAME_LIMIT": "0",
+        "GSR_PROFILE": "0",
+        "GSR_NR_PROFILE": "0",
+        "DRAKAN_RUNTIME_PROFILE": "0",
+        "DRAKAN_FRAME_AUDIT": "0"
+      },
+      "completion": {
+        "exitCode": 0,
+        "scriptQuit": true,
+        "sha256After": "F40A8EACDB9DD8CCF69334EDC70C162646B70B7A5C680245A1CDB721CD2A64E5",
+        "candidateUnchanged": true,
+        "savePreservation": {
+          "private": true,
+          "source": true
+        }
+      },
+      "clock_summary": {},
+      "bridge_ms_per_world": {
+        "drainMs": 4.757053618817177,
+        "presentMs": 0.7026190164841671,
+        "lockMs": 0.0,
+        "handoffMs": 0.7294112163776252,
+        "fairMs": 0.0
+      }
+    },
+    "native_auto_user_config_quiet": {
+      "run_path": "C:\\Games\\Drakan - The Ancients Gates\\decomp\\build\\private-runtime-matrix\\final-nr-20261018-082133\\final-three-runs\\native-auto-fullscreen\\01-forward-native-off",
+      "worlds_per_second": 39.30615506114897,
+      "world_presents_per_second": 39.305614874317435,
+      "guest_vblank_hz": 59.97299381741053,
+      "selected_seconds": 22.159,
+      "selected_windows": 11,
+      "actual_internal_scales": [
+        8
+      ],
+      "environment": {
+        "PS2X_GS_SCALE": "auto",
+        "DRAKAN_WINDOW_WIDTH": "3840",
+        "DRAKAN_WINDOW_HEIGHT": "2160",
+        "DRAKAN_FULLSCREEN": "1",
+        "DRAKAN_WS_ASPECT": "16:9",
+        "DRAKAN_DLSS": "off",
+        "DRAKAN_DLSS_NEURAL": "0",
+        "GSR_UPSCALE": "off",
+        "DRAKAN_AUDIO": "1",
+        "DRAKAN_WORLD_RATE": "uncapped",
+        "DRAKAN_VSYNC": "0",
+        "DRAKAN_FRAME_LIMIT": "0",
+        "GSR_PROFILE": "0",
+        "GSR_NR_PROFILE": "0",
+        "DRAKAN_RUNTIME_PROFILE": "0",
+        "DRAKAN_FRAME_AUDIT": "0"
+      },
+      "completion": {
+        "exitCode": 0,
+        "scriptQuit": true,
+        "sha256After": "F40A8EACDB9DD8CCF69334EDC70C162646B70B7A5C680245A1CDB721CD2A64E5",
+        "candidateUnchanged": true,
+        "savePreservation": {
+          "private": true,
+          "source": true
+        }
+      },
+      "clock_summary": {},
+      "bridge_ms_per_world": {
+        "drainMs": 1.1602954075826948,
+        "presentMs": 0.158590544873736,
+        "lockMs": 0.0,
+        "handoffMs": 0.20117451149479493,
+        "fairMs": 0.0
+      }
+    }
+  },
+  "nr_localization_ms_per_world": {
+    "evaluate_total": 8.208777565353557,
+    "sdk_evaluate_cpu_recording": 0.2556387612235998,
+    "produce_transport_cpu": 0.12687739718547228,
+    "evaluation_submission_inclusive": 7.735454749933586,
+    "evaluation_submission_cpu_completion_wait": 7.6985878906259115,
+    "consume_transport_cpu": 0.06756924820456334,
+    "presentation_submission_cpu_completion_wait": 0.2817893662413163,
+    "presentation_total": 0.5859668566658135
+  },
+  "instrumentation_rate_change_percent": -1.2280558775866868,
+  "conclusion": "The combined temporal path is dominated by CPU waiting for queued GPU completion, not the SDK evaluate CPU call. The waited fence includes preceding D3D11 rendering/SR/transport plus NR GPU work; it does not identify NR kernel cost alone.",
+  "bottleneck_recommendation": [
+    "Do not make a speculative synchronization change for deployment; preserve current waits, allocator lifetimes, failure drains, fidelity, uncapped policy and guest clocks.",
+    "Next isolated diagnostic: bracket the D3D12 evaluation command stream with timestamp queries and resolve after its existing completion fence, with no new forced GPU waits. Correlate against the existing D3D11/SR work to distinguish producer queue backlog from NR GPU execution.",
+    "If successful-evaluation CPU completion can overlap useful CPU work, consider an opt-in deferred wait at allocator reuse in gsr_nr.cpp only. Preserve producer/consumer GPU fences, synchronous presentation, failed SDK/transport drains, and resize/reconfigure/shutdown lifetimes. It may only move the same wait and cannot be called a throughput fix before a matched A/B.",
+    "Native Auto performance is a separate real-settings workload. It uses 8x (four times fixed4 target pixel area), 16:9, audio on and copied user texture assets. It is not a native-vs-NR or decoder-only comparison."
+  ],
+  "limitations": [
+    "Worlds/presents telemetry is not confirmed scanout FPS. Quiet scenarios do not log every successful feature evaluation or establish visual quality.",
+    "CPU elapsed includes driver waits and descheduling; profile periods are independent and per-world normalizations are estimates. Nested buckets must not be summed.",
+    "Historical fixed4/windowed rates do not represent native Auto/4K gameplay. No optimization/performance gain claim follows from this final three-scenario run.",
+    "Clock audit is available only for the profiled fixed4 case; quiet scenarios establish guest-vblank rate, not full game-timing parity."
+  ]
+}

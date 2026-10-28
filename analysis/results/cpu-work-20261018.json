@@ -1,0 +1,143 @@
+{
+  "installed_exe_sha256": "C23BD273EBB6B34A3693F9BEBBD6579B8C25B67CD50A349553B217684152EDCA",
+  "previous_exe_sha256": "DC21E34446503354A64E9B2A67F08CB61C3F666C1ADA87FC7BFCAD43A0970FA2",
+  "backup": "C:\\Games\\Drakan - The Ancients Gates\\decomp\\build\\release_backups\\cpu-work-20261018-181150",
+  "changes": [
+    "SSE2 format dispatch and contiguous runs for unmasked VIF1 vertex/data uploads; exact VU wrap, cycle gaps, lane preservation and camera taps",
+    "VU job completion publishes through the pending counter; mutex and completion notification only at the barrier, queue-space notification only when the queue was full"
+  ],
+  "validation": {
+    "exact_uploads": 96000,
+    "exact_vectors": 12388756,
+    "ordered_queue_jobs": 101258,
+    "tests": "2/2 CTest suites passed",
+    "visual": "C:\\Games\\Drakan - The Ancients Gates\\decomp\\build\\cpu-work-20261018\\native-visual.png",
+    "all_gameplay_runs_exited_cleanly": true,
+    "all_save_hashes_unchanged": true
+  },
+  "benchmark": {
+    "internal_scale": 4,
+    "dlss": "off",
+    "audio": true,
+    "world_rate": "uncapped",
+    "before_world_fps": 41.32877762536974,
+    "after_world_fps": 42.828588645418336,
+    "improvement_percent": 3.6289750295637413,
+    "method": "Sequential before/after/after/before runs of the same private fixture; duration-weighted final five 2-second world-update windows per run, mean across each pair. Profiling/visual run excluded.",
+    "runs": {
+      "cpu-before": {
+        "exe_sha256": "DC21E34446503354A64E9B2A67F08CB61C3F666C1ADA87FC7BFCAD43A0970FA2",
+        "world_fps": 41.26770186953062,
+        "last_five_world_windows": [
+          [
+            2.011,
+            41.27
+          ],
+          [
+            2.015,
+            41.19
+          ],
+          [
+            2.001,
+            41.48
+          ],
+          [
+            2.013,
+            41.23
+          ],
+          [
+            2.016,
+            41.17
+          ]
+        ],
+        "saves_unchanged": true
+      },
+      "cpu-before-repeat": {
+        "exe_sha256": "DC21E34446503354A64E9B2A67F08CB61C3F666C1ADA87FC7BFCAD43A0970FA2",
+        "world_fps": 41.38985338120885,
+        "last_five_world_windows": [
+          [
+            2.0,
+            41.0
+          ],
+          [
+            2.002,
+            41.95
+          ],
+          [
+            2.013,
+            41.23
+          ],
+          [
+            2.002,
+            41.45
+          ],
+          [
+            2.009,
+            41.32
+          ]
+        ],
+        "saves_unchanged": true
+      },
+      "cpu-after": {
+        "exe_sha256": "C23BD273EBB6B34A3693F9BEBBD6579B8C25B67CD50A349553B217684152EDCA",
+        "world_fps": 43.0279501992032,
+        "last_five_world_windows": [
+          [
+            2.01,
+            42.78
+          ],
+          [
+            2.002,
+            42.95
+          ],
+          [
+            2.008,
+            42.84
+          ],
+          [
+            2.016,
+            43.16
+          ],
+          [
+            2.004,
+            43.41
+          ]
+        ],
+        "saves_unchanged": true
+      },
+      "cpu-after-repeat": {
+        "exe_sha256": "C23BD273EBB6B34A3693F9BEBBD6579B8C25B67CD50A349553B217684152EDCA",
+        "world_fps": 42.62922709163347,
+        "last_five_world_windows": [
+          [
+            2.009,
+            42.8
+          ],
+          [
+            2.014,
+            41.71
+          ],
+          [
+            2.005,
+            42.9
+          ],
+          [
+            2.002,
+            42.95
+          ],
+          [
+            2.01,
+            42.79
+          ]
+        ],
+        "saves_unchanged": true
+      }
+    }
+  },
+  "remaining_limit": "This scene remains CPU limited around 43 raw FPS. Profile: VU execution 63.5% of VU-worker samples; VIF processing 1.9%; system DLLs include waiting for more jobs and queue locks. No whole-game or 60 FPS claim.",
+  "evidence": "C:\\Games\\Drakan - The Ancients Gates\\decomp\\build\\cpu-work-20261018\\metrics.json",
+  "settings_sha256": "667E7BE8B9791904708BC6B82DB1291A647ADC99FC339680F4F8FDDFA911F96D",
+  "settings_unchanged": true,
+  "restart_required": true
+}

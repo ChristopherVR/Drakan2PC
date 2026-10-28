@@ -1,0 +1,135 @@
+{
+  "schema": 1,
+  "candidate_sha256": "F40A8EACDB9DD8CCF69334EDC70C162646B70B7A5C680245A1CDB721CD2A64E5",
+  "source": "780301d6abbddca211fbe163f4fccacdddace0b1",
+  "runtime": "7114bb9d56c9a3cb4170294132e46f267a7c50a8",
+  "deployed": true,
+  "runs": {
+    "build06-final-native32": {
+      "completion": {
+        "sha256After": "F40A8EACDB9DD8CCF69334EDC70C162646B70B7A5C680245A1CDB721CD2A64E5",
+        "elapsedSeconds": 88.5357106,
+        "exitCode": 0,
+        "scriptQuit": true
+      },
+      "save_preservation": {
+        "private": true,
+        "original": true,
+        "source": true
+      },
+      "checks": {
+        "combat_inventory_categories_ram_check.py": {
+          "total": 7,
+          "passed": 7,
+          "errors": []
+        },
+        "combat_inventory_mouse_ram_check.py": {
+          "total": 7,
+          "passed": 7,
+          "errors": []
+        },
+        "combat_movement_followup_check.py": {
+          "total": 9,
+          "passed": 9,
+          "errors": []
+        }
+      },
+      "evaluations": {
+        "sr": {
+          "logged_success_events": 0,
+          "unique_success_frames": 0,
+          "logged_zero_events": 0,
+          "first_success_frame": null,
+          "last_success_frame": null
+        },
+        "nr": {
+          "logged_success_events": 0,
+          "unique_success_frames": 0,
+          "logged_zero_events": 0,
+          "first_success_frame": null,
+          "last_success_frame": null
+        }
+      }
+    },
+    "build06-final-neural21": {
+      "completion": {
+        "elapsedSeconds": 88.3460049,
+        "exitCode": 0,
+        "scriptQuit": true,
+        "sha256After": "F40A8EACDB9DD8CCF69334EDC70C162646B70B7A5C680245A1CDB721CD2A64E5"
+      },
+      "save_preservation": {
+        "source": true,
+        "private": true,
+        "original": true
+      },
+      "checks": {
+        "combat_inventory_categories_ram_check.py": {
+          "total": 7,
+          "passed": 7,
+          "errors": []
+        },
+        "combat_inventory_mouse_ram_check.py": {
+          "total": 7,
+          "passed": 7,
+          "errors": []
+        },
+        "combat_movement_followup_check.py": {
+          "total": 9,
+          "passed": 9,
+          "errors": []
+        }
+      },
+      "evaluations": {
+        "sr": {
+          "logged_success_events": 1798,
+          "unique_success_frames": 1798,
+          "logged_zero_events": 0,
+          "first_success_frame": 3037,
+          "last_success_frame": 4834
+        },
+        "nr": {
+          "logged_success_events": 1695,
+          "unique_success_frames": 1695,
+          "logged_zero_events": 0,
+          "first_success_frame": 3037,
+          "last_success_frame": 4834
+        }
+      }
+    }
+  },
+  "limits": [
+    "Forced aspect ratios on a 16:9 desktop, not physical ultrawide hardware",
+    "Map marker interaction and final performance measured separately",
+    "No whole-game visual, combat or frame-rate guarantee",
+    "Neural21 desktop BMP captures invalid/obscured; only direct renderer PNGs support limited visual inspection"
+  ],
+  "map": {
+    "status": "LIMITED",
+    "runs": [
+      "map-live21-click03",
+      "map-live32-click03"
+    ],
+    "normal_exit_and_saves_preserved": true,
+    "selected_indices": [
+      0,
+      0,
+      0
+    ],
+    "native_marker_capture": true,
+    "changed_selection_exercised": false,
+    "click_acknowledgement_proven": false,
+    "raw_geometry_same_run": {
+      "21:9": true,
+      "32:9": false
+    },
+    "limitations": "One visible Palace marker; no proof of accepted click or multi-location navigation. Image-marker branch only."
+  },
+  "deployment": {
+    "protected_files_unchanged": true,
+    "protected_file_count": 3001,
+    "source_commit": "c3edb7ebf3b5c6ba9eb16eaa324c1f8b408574d3",
+    "previous_executable_sha256": "0E4BACD82DEF9B38FEF5EB8303B88A617AB238099959D6D2041A38CC20248EB3",
+    "date": "2026-10-18T08:27:33+10:00"
+  }
+}

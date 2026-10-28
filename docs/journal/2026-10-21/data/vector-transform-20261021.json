@@ -1,0 +1,1110 @@
+{
+  "date": "2026-10-21",
+  "goal_raw_fps": 144,
+  "goal_reached": false,
+  "candidate_exe_sha256": "212ce10e9b4378c8e1d470b2f92fc5e15d4e026e04849aa568d2b1205382fbaf",
+  "initial_candidate_exe_sha256": "3271a6a056b729ae76ea372cebbda70b2d4d732b49aa513cf14e0ce85b4a658a",
+  "sources": {
+    "ps2xRuntime/CMakeLists.txt": "5bc9ecc7379920d613557722840708af67319641a894a572c4ace75848ebc89d",
+    "ps2xRuntime/include/runtime/ps2_memory.h": "f348e3abe444732de24dd10b3cf18c8d949bd09ba5f8a25889ce92cc1e62a4b4",
+    "ps2xRuntime/include/runtime/ps2_vu1.h": "5d9ec8503b67e12e5b43f45a4cd39f308d778f133f9694a6141e1dc2f07a62e4",
+    "ps2xRuntime/include/runtime/ps2_render_queue.h": "af86ebbffa95040368521cd6d836b2fc2c826959e093699457ee7e65073d5e3e",
+    "ps2xRuntime/include/runtime/object_motion_tracker.h": "6e18998337a0e151c5a93a2055d5458fc3f66ae26711ec9cce4df23199ccd5a4",
+    "ps2xRuntime/src/lib/ps2_memory.cpp": "fd320c69fa0e6b543d1faedd1c9429abc95b958819765ade83dfe0ef30c72609",
+    "ps2xRuntime/src/lib/ps2_runtime.cpp": "218a884f51346a41196d5ad09e3dbbfd404b41bff9f82097c8bb0dabb1aac725",
+    "ps2xRuntime/src/lib/ps2_vif1_interpreter.cpp": "49747e73dce9fbbdd06b01defd8012369199bf7fc9b9b052d735fd0918ef8568",
+    "ps2xRuntime/src/lib/drakan_object_motion.cpp": "d04a62aab6ffb435bff1258984aafecdd30748c491840e22167239fc78a96a5a",
+    "ps2xRuntime/src/lib/drakan_object_motion.h": "c00dd7c85abc5791da219abdb95b3db7c39900a8e766928380d92d48aab90494",
+    "ps2xRuntime/src/lib/ps2_vu1_batch.h": "f3cf1c9396bee795e3c44f68c438e85fd162386c94f65aed64b8423da87b4d88",
+    "ps2xRuntime/src/lib/ps2_vu1_batch_capture.h": "cc4c441e05774c70ed55e8155333adde9a9392060173e50f034e3d91feecd492",
+    "ps2xRuntime/src/lib/ps2_vu1_batch_dispatch.h": "94d8331fa95119848e00257d0fab9d30a39b7b028ced2627fa50b60d3ccf1066",
+    "ps2xRuntime/src/lib/vu/ps2_vu1_core.cpp": "8c2234ba096cfe85213459116af2681ff2dd28ba0fafae15ce1f8388bc179f65",
+    "ps2xRuntime/src/lib/vu/ps2_vu1_async.cpp": "c04744caadc73d652a222b161cbbedc22ead91c6ebba3f83277f6f8e6a8276e7",
+    "ps2xRuntime/src/lib/vu/ps2_vu1_batch.cpp": "b1cb49233978d9024b9c7be7f2b4d6eec6cefaa6495029bbc9961c7893fd8dbd",
+    "ps2xRuntime/src/lib/vu/aot/ps2_vu1_aot.h": "f9c001d35cee1e8ffead138cec974e11e507195cc6b00fa091864e23461fdd4c",
+    "ps2xRuntime/src/lib/vu/aot/ps2_vu1_aot.cpp": "4a8f0406c969946fd83001fc26cf39cb8a85a2c3b7d4ca7c978f66bebcaf1d48",
+    "ps2xRuntime/tests/vu_live_batch_tests.cpp": "2ae9cb3595dfa69cb258d9e2b031d78f40a4dedb5438ccfe056eeae320fe8316",
+    "ps2xRuntime/src/lib/vu/ps2_vu1_step.h": "a02f9e49d71cf4a9c5ecb0e135a4adffe50e58025fd97da675d531a72ea6f427",
+    "ps2xRuntime/src/lib/vu/ps2_vu1_native_kernels.cpp": "ca1c5f58b8ad89294a540901750ed2743795e9da2a78fc40f3e4525a59281794",
+    "ps2xRuntime/tests/vu_transform_kernel_tests.cpp": "5ec3978a7c8f6349a06b15575b3707b9434556e9499d6a82a8927c903321d0e6",
+    "ps2xRuntime/tests/vu_uv_kernel_tests.cpp": "0a8c7a0b33766ede5783df14f15d46284dcdc84faea74e5a890d874791e00a20",
+    "ps2xRuntime/tests/vu_packet_kernel_tests.cpp": "8de8b56d3a539276aabff3dad5e135550ed6e3b961d4df4de95be611abaab830",
+    "ps2xTest/vif_unpack/CMakeLists.txt": "bcf6b3dcdeb4d351de207276539b31a1fb89cba4a35f76457e2ea4f5b7e32d49",
+    "ps2xTest/vif_unpack/vu_async_batch_stubs.cpp": "805e667c6d693f4990718366ffe559073cd4fc3246d3989bf200d78e3363a457",
+    "ps2xTest/vif_unpack/mock/runtime/ps2_memory.h": "adcd5f9afd86a8866d025a6a78c34025e886f21d2360ac859a4e91ab7c83187b"
+  },
+  "runtime_patch_sha256": "8454e0f12c9471e17cec3b5a8ca26af9065cfcaf80a4ee12608622ae58f5a17a",
+  "default_transform_kernel": false,
+  "default_live_batch": false,
+  "cpu_dense": {
+    "rows": [
+      {
+        "mode": "original",
+        "round": 0,
+        "calls": 240000,
+        "budget": 2048,
+        "thread_ms": 1484.375,
+        "wall_ms": 1676.308
+      },
+      {
+        "mode": "fused",
+        "round": 1,
+        "calls": 240000,
+        "budget": 2048,
+        "thread_ms": 546.875,
+        "wall_ms": 611.365
+      },
+      {
+        "mode": "fused",
+        "round": 2,
+        "calls": 240000,
+        "budget": 2048,
+        "thread_ms": 484.375,
+        "wall_ms": 623.931
+      },
+      {
+        "mode": "original",
+        "round": 3,
+        "calls": 240000,
+        "budget": 2048,
+        "thread_ms": 2093.75,
+        "wall_ms": 2634.041
+      },
+      {
+        "mode": "original",
+        "round": 4,
+        "calls": 240000,
+        "budget": 2048,
+        "thread_ms": 2109.375,
+        "wall_ms": 2652.067
+      },
+      {
+        "mode": "fused",
+        "round": 5,
+        "calls": 240000,
+        "budget": 2048,
+        "thread_ms": 656.25,
+        "wall_ms": 800.485
+      },
+      {
+        "mode": "fused",
+        "round": 6,
+        "calls": 240000,
+        "budget": 2048,
+        "thread_ms": 703.125,
+        "wall_ms": 709.308
+      },
+      {
+        "mode": "original",
+        "round": 7,
+        "calls": 240000,
+        "budget": 2048,
+        "thread_ms": 2062.5,
+        "wall_ms": 2247.428
+      }
+    ],
+    "mean_thread_ms": {
+      "original": 1937.5,
+      "fused": 597.65625
+    },
+    "throughput_ratio": 3.241830065359477,
+    "cpu_reduction_percent": 69.15322580645162,
+    "measurement": "Eight ABBA rounds; GetThreadTimes CPU time; 240000 calls x 2048 guest-cycle budget. This is an isolated transform loop, not gameplay FPS.",
+    "log_sha256": "b75f838cf67a8db20e39b76af1be38052cdd6dc0a1d1dc6222f7ef0c937dbf5a"
+  },
+  "cpu_sparse": {
+    "rows": [
+      {
+        "mode": "original",
+        "round": 0,
+        "calls": 240000,
+        "budget": 2048,
+        "thread_ms": 1750.0,
+        "wall_ms": 1933.853
+      },
+      {
+        "mode": "fused",
+        "round": 1,
+        "calls": 240000,
+        "budget": 2048,
+        "thread_ms": 703.125,
+        "wall_ms": 816.487
+      },
+      {
+        "mode": "fused",
+        "round": 2,
+        "calls": 240000,
+        "budget": 2048,
+        "thread_ms": 781.25,
+        "wall_ms": 918.129
+      },
+      {
+        "mode": "original",
+        "round": 3,
+        "calls": 240000,
+        "budget": 2048,
+        "thread_ms": 2390.625,
+        "wall_ms": 2861.092
+      },
+      {
+        "mode": "original",
+        "round": 4,
+        "calls": 240000,
+        "budget": 2048,
+        "thread_ms": 2312.5,
+        "wall_ms": 2933.734
+      },
+      {
+        "mode": "fused",
+        "round": 5,
+        "calls": 240000,
+        "budget": 2048,
+        "thread_ms": 859.375,
+        "wall_ms": 1230.078
+      },
+      {
+        "mode": "fused",
+        "round": 6,
+        "calls": 240000,
+        "budget": 2048,
+        "thread_ms": 859.375,
+        "wall_ms": 928.744
+      },
+      {
+        "mode": "original",
+        "round": 7,
+        "calls": 240000,
+        "budget": 2048,
+        "thread_ms": 2265.625,
+        "wall_ms": 2506.421
+      }
+    ],
+    "mean_thread_ms": {
+      "original": 2179.6875,
+      "fused": 800.78125
+    },
+    "throughput_ratio": 2.7219512195121953,
+    "cpu_reduction_percent": 63.261648745519715,
+    "measurement": "Eight ABBA rounds; GetThreadTimes CPU time; 240000 calls x 2048 guest-cycle budget. This is an isolated transform loop, not gameplay FPS.",
+    "log_sha256": "d91857a4d196d0c790a9acc644538194822c0b87bd1123c48b62ee1ba88799e1"
+  },
+  "tests": {
+    "general-vu_transform_kernel_tests": {
+      "result": "PASS: 114688 fused-transform state/data/packet comparisons, budgets 1..1024, transform entry 334, branch exits, exceptional IEEE bits, wrapping stores/transfers, pending DIV/SQRT/RSQRT/VF/ACC/VI and resumed tails",
+      "log_sha256": "12c24b7cbff4f667072e1b4607fad1171e70a946d27eb433537227ca43c8c352",
+      "batch_diagnostics": []
+    },
+    "general-vu_uv_kernel_tests": {
+      "result": "PASS: 114688 fused-UV state/data/packet comparisons, budgets 1..1024, UV entry 155, branch exits, exceptional IEEE bits, wrapping stores/transfers, pending DIV/SQRT/RSQRT/VF/ACC/VI and resumed tails",
+      "log_sha256": "5f5fbae046f1445909e77a7e8b48b20d2b9d759ebe74329508917a5e2a9a8b86",
+      "batch_diagnostics": []
+    },
+    "general-vu_packet_kernel_tests": {
+      "result": "PASS: 114688 fused-packet state/data/packet comparisons, budgets 1..1024, packet entry 489, all branch-prefix exits, exceptional IEEE bits, wrapping stores/transfers, pending DIV/SQRT/RSQRT/VF/ACC/VI and resumed tails",
+      "log_sha256": "fd7f708525a0abb032e97cbcfcc9f047270ac83f6093a758227f2e8efebf9e68",
+      "batch_diagnostics": []
+    },
+    "general-limit-1": {
+      "result": "PASS: 114688 fused-transform state/data/packet comparisons, budgets 1..1024, transform entry 334, branch exits, exceptional IEEE bits, wrapping stores/transfers, pending DIV/SQRT/RSQRT/VF/ACC/VI and resumed tails",
+      "log_sha256": "12c24b7cbff4f667072e1b4607fad1171e70a946d27eb433537227ca43c8c352",
+      "batch_diagnostics": []
+    },
+    "general-limit-256": {
+      "result": "PASS: 114688 fused-transform state/data/packet comparisons, budgets 1..1024, transform entry 334, branch exits, exceptional IEEE bits, wrapping stores/transfers, pending DIV/SQRT/RSQRT/VF/ACC/VI and resumed tails",
+      "log_sha256": "12c24b7cbff4f667072e1b4607fad1171e70a946d27eb433537227ca43c8c352",
+      "batch_diagnostics": []
+    },
+    "general-batch-8-verify": {
+      "result": "PASS: 4000 live VIF calls, 16077 ordered packets, 42 camera updates; 4000 serial / 0 collected runs; mixed markers, masked uploads, code/mask barriers, EE scratchpad and completion preserved",
+      "log_sha256": "77da603daa11b4cd86e2a9f7bae6645bd844d4914da2406f3e6557cf3478f97e",
+      "batch_diagnostics": [
+        "[vu-batch] 282 batches, 782 groups: 257 accepted, 114 rejected; 257 verified, 0 mismatches; 3 unsupported, 102 single-group, 0 exceptions",
+        "[vu-batch] attempts=389 short=1 arbiter=0 code=0 workers=8 dependencies=1 verify=1",
+        "[vu-batch] dependency rejects (VIF,memory,trace,reset,complete,idle,constant,VF,VI,ACC,scalar,CLIP,MAC,status): 0 113 0 0 1 0 0 0 0 0 0 0 0 0",
+        "[vu-batch] first conflicting qwords: 636:10 162:10 65:10 660:9 186:6 156:6 138:6 180:5; monotone-status=1",
+        "[vu-batch] validated geometry calls=1906 rejected geometry calls=793; validated pairs=3648537 rejected speculative pairs=1568742",
+        "[vu-batch] native transform traced pairs=258461",
+        "[vu-batch] native packet traced pairs=1329608 bulk calls=28977 enabled=2",
+        "[vu-batch] deferred load lanes=25328 final alias repairs=732 enabled=2",
+        "[vu-batch] streaming preparation=1",
+        "[vu-batch] positive clipping gates=0 relaxed accepted=0 enabled=0",
+        "[vu-batch] abandoned worker results=528",
+        "[vu-batch] owner heads=282 native UV traced pairs=215775",
+        "[vu-batch] adaptive serial bypass=113 enabled=1",
+        "[vu-batch] history predictions=163 accepted=116 misses=750 enabled=1"
+      ]
+    },
+    "general-batch-4-collect": {
+      "result": "PASS: 4000 live VIF calls, 13411 ordered packets, 4000 camera updates; 1100 serial / 2900 collected runs; mixed markers, masked uploads, code/mask barriers, EE scratchpad and completion preserved",
+      "log_sha256": "a6e6d4dea78f702873b84ed868963a30326236e327e289a403486aad22407aef",
+      "batch_diagnostics": [
+        "[vu-batch] 125 batches, 625 groups: 469 accepted, 10 rejected; 0 verified, 0 mismatches; 3 unsupported, 15 single-group, 0 exceptions",
+        "[vu-batch] attempts=144 short=0 arbiter=0 code=0 workers=4 dependencies=1 verify=0",
+        "[vu-batch] dependency rejects (VIF,memory,trace,reset,complete,idle,constant,VF,VI,ACC,scalar,CLIP,MAC,status): 0 5 0 0 1 0 0 0 0 0 0 4 0 0",
+        "[vu-batch] first conflicting qwords: 65:5; monotone-status=1",
+        "[vu-batch] validated geometry calls=5811 rejected geometry calls=69; validated pairs=10740530 rejected speculative pairs=397806",
+        "[vu-batch] native transform traced pairs=338954",
+        "[vu-batch] native packet traced pairs=2802724 bulk calls=72599 enabled=2",
+        "[vu-batch] deferred load lanes=28 final alias repairs=16 enabled=2",
+        "[vu-batch] streaming preparation=0",
+        "[vu-batch] positive clipping gates=0 relaxed accepted=0 enabled=0",
+        "[vu-batch] abandoned worker results=16",
+        "[vu-batch] owner heads=125 native UV traced pairs=704025",
+        "[vu-batch] adaptive serial bypass=5 enabled=1",
+        "[vu-batch] history predictions=236 accepted=231 misses=785 enabled=1"
+      ]
+    }
+  },
+  "recorded_gameplay_reference": {
+    "0": {
+      "log_sha256": "3dde606e756320077082972ff5e4aa57283c7104e35a6e9f2f09c385d3f71efd",
+      "diagnostics": [
+        "[vubench] 4000 runs loaded",
+        "[vubench] check: 4000 runs, 0 mismatches",
+        "[vubench] block fallbacks per pass: xgkick 0, xgkick+other 0, Q 0, other-pending 1830, state 0, budget 0, read-conflict 41776, write-conflict 0, coarse-false-positive 0",
+        "[vubench] blocks: 1098300 fast, 43606 exact-fallback per pass; 7012806 of 7301768 pairs in fast blocks",
+        "[vubench] 4000 runs: 25.35 ms (best of 5), 6.3 us/run, 7719547 cycles (304.6 Mcyc/s), 7301768 pairs (3.5 ns/pair, 288.1 Mpairs/s)"
+      ]
+    },
+    "1": {
+      "log_sha256": "8162cfa8e41e3a52ce06bf9172c2cf1e394d5c5f7a013ad28807b033bf11f228",
+      "diagnostics": [
+        "[vubench] 4000 runs loaded",
+        "[vubench] check: 4000 runs, 0 mismatches",
+        "[vubench] block fallbacks per pass: xgkick 0, xgkick+other 0, Q 0, other-pending 1830, state 0, budget 0, read-conflict 41776, write-conflict 0, coarse-false-positive 0",
+        "[vubench] blocks: 1098300 fast, 43606 exact-fallback per pass; 7012806 of 7301768 pairs in fast blocks",
+        "[vubench] 4000 runs: 42.03 ms (best of 5), 10.5 us/run, 7719547 cycles (183.7 Mcyc/s), 7301768 pairs (5.8 ns/pair, 173.7 Mpairs/s)"
+      ]
+    }
+  },
+  "runs": {
+    "transform-batch-live-check": {
+      "general_cpu_audited": true,
+      "external_core_average": 9.158025724598083,
+      "external_core_peak": 11.458124291213894,
+      "external_cpu_busy_samples": 26,
+      "exe_sha256": "3271A6A056B729AE76EA372CEBBDA70B2D4D732B49AA513CF14E0CE85B4A658A",
+      "world_fps": 37.78180483934946,
+      "last_five_world_windows": [
+        [
+          2.016,
+          40.18
+        ],
+        [
+          2.02,
+          33.66
+        ],
+        [
+          2.022,
+          35.61
+        ],
+        [
+          2.012,
+          40.25
+        ],
+        [
+          2.014,
+          39.23
+        ]
+      ],
+      "saves_unchanged": true,
+      "contended": true,
+      "overlap_samples": 0,
+      "environment": {
+        "DRAKAN_VU_BATCH_LAZY_LOADS": "2",
+        "PS2X_VU1_THREAD": "1",
+        "DRAKAN_WINDOW_HEIGHT": "2160",
+        "DRAKAN_VU_BATCH_THREADS": "4",
+        "DRAKAN_VU_TIMED_Q": "1",
+        "DRAKAN_WINDOW_WIDTH": "3840",
+        "PS2X_VU_ATOMIC_WAIT": "0",
+        "DRAKAN_VU_BATCH_PROFILE": "0",
+        "DRAKAN_VU_BATCH_STREAM": "0",
+        "DRAKAN_WORLD_RATE": "uncapped",
+        "PS2X_VU_SPIN": "4096",
+        "DRAKAN_VU_BATCH_PREDICATES": "0",
+        "PS2X_GS_SCALE": "4",
+        "DRAKAN_VU_TRANSFORM_KERNEL": "1",
+        "DRAKAN_VSYNC": "0",
+        "DRAKAN_VU_BATCH_NATIVE_PACKET": "2",
+        "DRAKAN_VU_TRACE": "1",
+        "DRAKAN_FRAME_LIMIT": "0",
+        "DRAKAN_VU_COMPACT_FLAGS": "0",
+        "DRAKAN_VU_BATCH_VERIFY": "1",
+        "DRAKAN_VUCHECK": "0",
+        "DRAKAN_AUDIO": "1",
+        "DRAKAN_VU_BATCH": "1",
+        "DRAKAN_VU_LAZY_RESET": "0"
+      },
+      "batch_diagnostics": [
+        "[vu-batch] 6042 batches, 257785 groups: 132148 accepted, 971 rejected; 132148 verified, 0 mismatches; 0 unsupported, 0 single-group, 0 exceptions",
+        "[vu-batch] attempts=7567 short=1525 arbiter=0 code=0 workers=4 dependencies=1 verify=1",
+        "[vu-batch] dependency rejects (VIF,memory,trace,reset,complete,idle,constant,VF,VI,ACC,scalar,CLIP,MAC,status): 0 957 0 0 0 0 0 3 0 0 0 11 0 0",
+        "[vu-batch] first conflicting qwords: 65:258 198:83 186:65 672:46 210:46 209:42 162:42 166:41; monotone-status=1",
+        "[vu-batch] validated geometry calls=448331 rejected geometry calls=17825; validated pairs=433794559 rejected speculative pairs=28143077",
+        "[vu-batch] native transform traced pairs=1511874",
+        "[vu-batch] native packet traced pairs=67996431 bulk calls=7274217 enabled=2",
+        "[vu-batch] deferred load lanes=3319480 final alias repairs=14512 enabled=2",
+        "[vu-batch] streaming preparation=0",
+        "[vu-batch] positive clipping gates=0 relaxed accepted=0 enabled=0",
+        "[vu-batch] abandoned worker results=0",
+        "[vu-batch] owner heads=6042 native UV traced pairs=3082275",
+        "[vu-batch] adaptive serial bypass=118624 enabled=1",
+        "[vu-batch] history predictions=132705 accepted=131796 misses=414 enabled=1"
+      ],
+      "usable_for_speedup_claim": false,
+      "cpu_audit_sample_count": 26,
+      "script_sha256": "3EF36C67379733A0A40133A10BE9116C0AF511AB763C655B07D64AA5759D252F"
+    },
+    "transform-batch-raw-2": {
+      "general_cpu_audited": true,
+      "external_core_average": 9.780235171066634,
+      "external_core_peak": 11.982659703023753,
+      "external_cpu_busy_samples": 27,
+      "exe_sha256": "3271A6A056B729AE76EA372CEBBDA70B2D4D732B49AA513CF14E0CE85B4A658A",
+      "world_fps": 39.91201072386059,
+      "last_five_world_windows": [
+        [
+          2.02,
+          42.07
+        ],
+        [
+          2.008,
+          40.83
+        ],
+        [
+          2.013,
+          39.24
+        ],
+        [
+          2.012,
+          36.28
+        ],
+        [
+          2.018,
+          41.13
+        ]
+      ],
+      "saves_unchanged": true,
+      "contended": true,
+      "overlap_samples": 0,
+      "environment": {
+        "DRAKAN_VU_TRACE": "1",
+        "DRAKAN_FRAME_LIMIT": "0",
+        "PS2X_GS_SCALE": "4",
+        "DRAKAN_VU_BATCH_THREADS": "2",
+        "DRAKAN_VU_BATCH_STREAM": "0",
+        "DRAKAN_WINDOW_WIDTH": "3840",
+        "DRAKAN_VU_TRANSFORM_KERNEL": "1",
+        "DRAKAN_VU_COMPACT_FLAGS": "0",
+        "DRAKAN_VU_BATCH_NATIVE_PACKET": "2",
+        "DRAKAN_VU_TIMED_Q": "1",
+        "DRAKAN_AUDIO": "1",
+        "PS2X_VU1_THREAD": "1",
+        "DRAKAN_VU_BATCH_LAZY_LOADS": "2",
+        "DRAKAN_VU_LAZY_RESET": "0",
+        "PS2X_VU_SPIN": "4096",
+        "DRAKAN_VU_BATCH_PREDICATES": "0",
+        "DRAKAN_WORLD_RATE": "uncapped",
+        "DRAKAN_VU_BATCH": "1",
+        "DRAKAN_WINDOW_HEIGHT": "2160",
+        "DRAKAN_VU_BATCH_VERIFY": "0",
+        "DRAKAN_VUCHECK": "0",
+        "DRAKAN_VSYNC": "0",
+        "PS2X_VU_ATOMIC_WAIT": "0"
+      },
+      "batch_diagnostics": [
+        "[vu-batch] 6452 batches, 272215 groups: 140137 accepted, 942 rejected; 0 verified, 0 mismatches; 0 unsupported, 0 single-group, 0 exceptions",
+        "[vu-batch] attempts=8118 short=1666 arbiter=0 code=0 workers=2 dependencies=1 verify=0",
+        "[vu-batch] dependency rejects (VIF,memory,trace,reset,complete,idle,constant,VF,VI,ACC,scalar,CLIP,MAC,status): 0 930 0 0 0 0 0 2 0 0 0 10 0 0",
+        "[vu-batch] first conflicting qwords: 65:230 186:71 198:69 210:48 176:45 672:44 162:43 166:40; monotone-status=1",
+        "[vu-batch] validated geometry calls=473267 rejected geometry calls=17600; validated pairs=460250636 rejected speculative pairs=27867471",
+        "[vu-batch] native transform traced pairs=1415729",
+        "[vu-batch] native packet traced pairs=70007344 bulk calls=7594918 enabled=2",
+        "[vu-batch] deferred load lanes=3454668 final alias repairs=14752 enabled=2",
+        "[vu-batch] streaming preparation=0",
+        "[vu-batch] positive clipping gates=0 relaxed accepted=0 enabled=0",
+        "[vu-batch] abandoned worker results=0",
+        "[vu-batch] owner heads=6452 native UV traced pairs=3087000",
+        "[vu-batch] adaptive serial bypass=124684 enabled=1",
+        "[vu-batch] history predictions=140752 accepted=139867 misses=327 enabled=1"
+      ],
+      "usable_for_speedup_claim": false,
+      "cpu_audit_sample_count": 27,
+      "script_sha256": "3EF36C67379733A0A40133A10BE9116C0AF511AB763C655B07D64AA5759D252F"
+    },
+    "transform-batch-raw-4": {
+      "general_cpu_audited": true,
+      "external_core_average": 9.85728905189532,
+      "external_core_peak": 12.603990029236174,
+      "external_cpu_busy_samples": 27,
+      "exe_sha256": "3271A6A056B729AE76EA372CEBBDA70B2D4D732B49AA513CF14E0CE85B4A658A",
+      "world_fps": 41.519946236559136,
+      "last_five_world_windows": [
+        [
+          2.027,
+          34.53
+        ],
+        [
+          2.005,
+          40.91
+        ],
+        [
+          2.008,
+          40.83
+        ],
+        [
+          2.002,
+          46.47
+        ],
+        [
+          2.002,
+          44.95
+        ]
+      ],
+      "saves_unchanged": true,
+      "contended": true,
+      "overlap_samples": 0,
+      "environment": {
+        "DRAKAN_VU_TRACE": "1",
+        "DRAKAN_FRAME_LIMIT": "0",
+        "PS2X_GS_SCALE": "4",
+        "DRAKAN_VU_BATCH_THREADS": "4",
+        "DRAKAN_VU_BATCH_STREAM": "0",
+        "DRAKAN_WINDOW_WIDTH": "3840",
+        "DRAKAN_VU_TRANSFORM_KERNEL": "1",
+        "DRAKAN_VU_COMPACT_FLAGS": "0",
+        "DRAKAN_VU_BATCH_NATIVE_PACKET": "2",
+        "DRAKAN_VU_TIMED_Q": "1",
+        "DRAKAN_AUDIO": "1",
+        "PS2X_VU1_THREAD": "1",
+        "DRAKAN_VU_BATCH_LAZY_LOADS": "2",
+        "DRAKAN_VU_LAZY_RESET": "0",
+        "PS2X_VU_SPIN": "4096",
+        "DRAKAN_VU_BATCH_PREDICATES": "0",
+        "DRAKAN_WORLD_RATE": "uncapped",
+        "DRAKAN_VU_BATCH": "1",
+        "DRAKAN_WINDOW_HEIGHT": "2160",
+        "DRAKAN_VU_BATCH_VERIFY": "0",
+        "DRAKAN_VUCHECK": "0",
+        "DRAKAN_VSYNC": "0",
+        "PS2X_VU_ATOMIC_WAIT": "0"
+      },
+      "batch_diagnostics": [
+        "[vu-batch] 6777 batches, 284489 groups: 141842 accepted, 1000 rejected; 0 verified, 0 mismatches; 0 unsupported, 0 single-group, 0 exceptions",
+        "[vu-batch] attempts=8508 short=1731 arbiter=0 code=0 workers=4 dependencies=1 verify=0",
+        "[vu-batch] dependency rejects (VIF,memory,trace,reset,complete,idle,constant,VF,VI,ACC,scalar,CLIP,MAC,status): 0 913 0 0 0 0 0 2 0 0 0 85 0 0",
+        "[vu-batch] first conflicting qwords: 65:243 186:68 198:55 210:44 176:43 166:38 672:37 209:37; monotone-status=1",
+        "[vu-batch] validated geometry calls=483169 rejected geometry calls=17473; validated pairs=465864940 rejected speculative pairs=27735586",
+        "[vu-batch] native transform traced pairs=1414224",
+        "[vu-batch] native packet traced pairs=72384887 bulk calls=7935942 enabled=2",
+        "[vu-batch] deferred load lanes=3599816 final alias repairs=15268 enabled=2",
+        "[vu-batch] streaming preparation=0",
+        "[vu-batch] positive clipping gates=0 relaxed accepted=0 enabled=0",
+        "[vu-batch] abandoned worker results=0",
+        "[vu-batch] owner heads=6777 native UV traced pairs=2970450",
+        "[vu-batch] adaptive serial bypass=134870 enabled=1",
+        "[vu-batch] history predictions=142522 accepted=141647 misses=320 enabled=1"
+      ],
+      "usable_for_speedup_claim": false,
+      "cpu_audit_sample_count": 27,
+      "script_sha256": "3EF36C67379733A0A40133A10BE9116C0AF511AB763C655B07D64AA5759D252F"
+    },
+    "transform-control-a": {
+      "general_cpu_audited": true,
+      "external_core_average": 9.961281496123638,
+      "external_core_peak": 12.463774747712897,
+      "external_cpu_busy_samples": 30,
+      "exe_sha256": "3271A6A056B729AE76EA372CEBBDA70B2D4D732B49AA513CF14E0CE85B4A658A",
+      "world_fps": 53.247263859858656,
+      "last_five_world_windows": [
+        [
+          2.021,
+          50.46
+        ],
+        [
+          2.004,
+          58.88
+        ],
+        [
+          2.002,
+          54.94
+        ],
+        [
+          2.02,
+          49.51
+        ],
+        [
+          2.0,
+          52.5
+        ]
+      ],
+      "saves_unchanged": true,
+      "contended": true,
+      "overlap_samples": 0,
+      "environment": {
+        "DRAKAN_VU_BATCH_LAZY_LOADS": "2",
+        "PS2X_VU1_THREAD": "1",
+        "DRAKAN_WINDOW_HEIGHT": "2160",
+        "DRAKAN_VU_BATCH_THREADS": "4",
+        "DRAKAN_VU_TIMED_Q": "1",
+        "DRAKAN_WINDOW_WIDTH": "3840",
+        "PS2X_VU_ATOMIC_WAIT": "0",
+        "DRAKAN_VU_BATCH_PROFILE": "0",
+        "DRAKAN_VU_BATCH_STREAM": "0",
+        "DRAKAN_WORLD_RATE": "uncapped",
+        "PS2X_VU_SPIN": "4096",
+        "DRAKAN_VU_BATCH_PREDICATES": "0",
+        "PS2X_GS_SCALE": "4",
+        "DRAKAN_VU_TRANSFORM_KERNEL": "0",
+        "DRAKAN_VSYNC": "0",
+        "DRAKAN_VU_BATCH_NATIVE_PACKET": "2",
+        "DRAKAN_VU_TRACE": "1",
+        "DRAKAN_FRAME_LIMIT": "0",
+        "DRAKAN_VU_COMPACT_FLAGS": "0",
+        "DRAKAN_VU_BATCH_VERIFY": "0",
+        "DRAKAN_VUCHECK": "0",
+        "DRAKAN_AUDIO": "1",
+        "DRAKAN_VU_BATCH": "0",
+        "DRAKAN_VU_LAZY_RESET": "0"
+      },
+      "batch_diagnostics": [],
+      "usable_for_speedup_claim": false,
+      "cpu_audit_sample_count": 30,
+      "script_sha256": "3EF36C67379733A0A40133A10BE9116C0AF511AB763C655B07D64AA5759D252F"
+    },
+    "transform-control-b": {
+      "general_cpu_audited": true,
+      "external_core_average": 8.618242300828197,
+      "external_core_peak": 11.012838316793715,
+      "external_cpu_busy_samples": 26,
+      "exe_sha256": "3271A6A056B729AE76EA372CEBBDA70B2D4D732B49AA513CF14E0CE85B4A658A",
+      "world_fps": 62.630575525241454,
+      "last_five_world_windows": [
+        [
+          2.014,
+          60.07
+        ],
+        [
+          2.013,
+          69.07
+        ],
+        [
+          2.006,
+          71.28
+        ],
+        [
+          2.0,
+          57.49
+        ],
+        [
+          2.01,
+          55.23
+        ]
+      ],
+      "saves_unchanged": true,
+      "contended": true,
+      "overlap_samples": 0,
+      "environment": {
+        "DRAKAN_VU_BATCH_LAZY_LOADS": "2",
+        "PS2X_VU1_THREAD": "1",
+        "DRAKAN_WINDOW_HEIGHT": "2160",
+        "DRAKAN_VU_BATCH_THREADS": "4",
+        "DRAKAN_VU_TIMED_Q": "1",
+        "DRAKAN_WINDOW_WIDTH": "3840",
+        "PS2X_VU_ATOMIC_WAIT": "0",
+        "DRAKAN_VU_BATCH_PROFILE": "0",
+        "DRAKAN_VU_BATCH_STREAM": "0",
+        "DRAKAN_WORLD_RATE": "uncapped",
+        "PS2X_VU_SPIN": "4096",
+        "DRAKAN_VU_BATCH_PREDICATES": "0",
+        "PS2X_GS_SCALE": "4",
+        "DRAKAN_VU_TRANSFORM_KERNEL": "0",
+        "DRAKAN_VSYNC": "0",
+        "DRAKAN_VU_BATCH_NATIVE_PACKET": "2",
+        "DRAKAN_VU_TRACE": "1",
+        "DRAKAN_FRAME_LIMIT": "0",
+        "DRAKAN_VU_COMPACT_FLAGS": "0",
+        "DRAKAN_VU_BATCH_VERIFY": "0",
+        "DRAKAN_VUCHECK": "0",
+        "DRAKAN_AUDIO": "1",
+        "DRAKAN_VU_BATCH": "0",
+        "DRAKAN_VU_LAZY_RESET": "0"
+      },
+      "batch_diagnostics": [],
+      "usable_for_speedup_claim": false,
+      "cpu_audit_sample_count": 26,
+      "script_sha256": "3EF36C67379733A0A40133A10BE9116C0AF511AB763C655B07D64AA5759D252F"
+    },
+    "transform-current-profile": {
+      "general_cpu_audited": true,
+      "external_core_average": 8.656237357467122,
+      "external_core_peak": 11.652099877234436,
+      "external_cpu_busy_samples": 26,
+      "exe_sha256": "212CE10E9B4378C8E1D470B2F92FC5E15D4E026E04849AA568D2B1205382FBAF",
+      "world_fps": 56.78836184603143,
+      "last_five_world_windows": [
+        [
+          2.012,
+          66.1
+        ],
+        [
+          2.015,
+          63.02
+        ],
+        [
+          2.006,
+          52.35
+        ],
+        [
+          2.013,
+          55.63
+        ],
+        [
+          2.008,
+          46.8
+        ]
+      ],
+      "saves_unchanged": true,
+      "contended": true,
+      "overlap_samples": 0,
+      "environment": {
+        "DRAKAN_VU_COMPACT_FLAGS": "0",
+        "DRAKAN_VU_TRACE": "1",
+        "DRAKAN_WINDOW_WIDTH": "3840",
+        "DRAKAN_FRAME_LIMIT": "0",
+        "DRAKAN_VU_TRANSFORM_KERNEL": "1",
+        "DRAKAN_AUDIO": "1",
+        "DRAKAN_WINDOW_HEIGHT": "2160",
+        "DRAKAN_VU_BATCH": "0",
+        "DRAKAN_VU_BATCH_PROFILE": "0",
+        "DRAKAN_VU_TIMED_Q": "1",
+        "DRAKAN_VU_BATCH_VERIFY": "0",
+        "PS2X_VU1_THREAD": "1",
+        "PS2X_VU_SPIN": "4096",
+        "PS2X_VU_ATOMIC_WAIT": "0",
+        "DRAKAN_WORLD_RATE": "uncapped",
+        "DRAKAN_VU_LAZY_RESET": "0",
+        "DRAKAN_VSYNC": "0",
+        "DRAKAN_VUCHECK": "0",
+        "PS2X_GS_SCALE": "4"
+      },
+      "batch_diagnostics": [],
+      "usable_for_speedup_claim": false,
+      "cpu_audit_sample_count": 26,
+      "script_sha256": "3EF36C67379733A0A40133A10BE9116C0AF511AB763C655B07D64AA5759D252F"
+    },
+    "transform-fused-a": {
+      "general_cpu_audited": true,
+      "external_core_average": 9.158881490838764,
+      "external_core_peak": 11.961406221348255,
+      "external_cpu_busy_samples": 26,
+      "exe_sha256": "3271A6A056B729AE76EA372CEBBDA70B2D4D732B49AA513CF14E0CE85B4A658A",
+      "world_fps": 56.4703831188267,
+      "last_five_world_windows": [
+        [
+          2.004,
+          64.37
+        ],
+        [
+          2.004,
+          54.4
+        ],
+        [
+          2.011,
+          51.72
+        ],
+        [
+          2.001,
+          48.48
+        ],
+        [
+          2.003,
+          63.39
+        ]
+      ],
+      "saves_unchanged": true,
+      "contended": true,
+      "overlap_samples": 0,
+      "environment": {
+        "DRAKAN_VU_BATCH_LAZY_LOADS": "2",
+        "PS2X_VU1_THREAD": "1",
+        "DRAKAN_WINDOW_HEIGHT": "2160",
+        "DRAKAN_VU_BATCH_THREADS": "4",
+        "DRAKAN_VU_TIMED_Q": "1",
+        "DRAKAN_WINDOW_WIDTH": "3840",
+        "PS2X_VU_ATOMIC_WAIT": "0",
+        "DRAKAN_VU_BATCH_PROFILE": "0",
+        "DRAKAN_VU_BATCH_STREAM": "0",
+        "DRAKAN_WORLD_RATE": "uncapped",
+        "PS2X_VU_SPIN": "4096",
+        "DRAKAN_VU_BATCH_PREDICATES": "0",
+        "PS2X_GS_SCALE": "4",
+        "DRAKAN_VU_TRANSFORM_KERNEL": "1",
+        "DRAKAN_VSYNC": "0",
+        "DRAKAN_VU_BATCH_NATIVE_PACKET": "2",
+        "DRAKAN_VU_TRACE": "1",
+        "DRAKAN_FRAME_LIMIT": "0",
+        "DRAKAN_VU_COMPACT_FLAGS": "0",
+        "DRAKAN_VU_BATCH_VERIFY": "0",
+        "DRAKAN_VUCHECK": "0",
+        "DRAKAN_AUDIO": "1",
+        "DRAKAN_VU_BATCH": "0",
+        "DRAKAN_VU_LAZY_RESET": "0"
+      },
+      "batch_diagnostics": [],
+      "usable_for_speedup_claim": false,
+      "cpu_audit_sample_count": 26,
+      "script_sha256": "3EF36C67379733A0A40133A10BE9116C0AF511AB763C655B07D64AA5759D252F"
+    },
+    "transform-fused-b": {
+      "general_cpu_audited": true,
+      "external_core_average": 8.189774108039915,
+      "external_core_peak": 11.494934514535313,
+      "external_cpu_busy_samples": 26,
+      "exe_sha256": "3271A6A056B729AE76EA372CEBBDA70B2D4D732B49AA513CF14E0CE85B4A658A",
+      "world_fps": 67.30328056551174,
+      "last_five_world_windows": [
+        [
+          2.008,
+          68.22
+        ],
+        [
+          2.009,
+          75.66
+        ],
+        [
+          2.005,
+          75.32
+        ],
+        [
+          2.011,
+          64.64
+        ],
+        [
+          2.011,
+          52.71
+        ]
+      ],
+      "saves_unchanged": true,
+      "contended": true,
+      "overlap_samples": 0,
+      "environment": {
+        "DRAKAN_VU_BATCH_LAZY_LOADS": "2",
+        "PS2X_VU1_THREAD": "1",
+        "DRAKAN_WINDOW_HEIGHT": "2160",
+        "DRAKAN_VU_BATCH_THREADS": "4",
+        "DRAKAN_VU_TIMED_Q": "1",
+        "DRAKAN_WINDOW_WIDTH": "3840",
+        "PS2X_VU_ATOMIC_WAIT": "0",
+        "DRAKAN_VU_BATCH_PROFILE": "0",
+        "DRAKAN_VU_BATCH_STREAM": "0",
+        "DRAKAN_WORLD_RATE": "uncapped",
+        "PS2X_VU_SPIN": "4096",
+        "DRAKAN_VU_BATCH_PREDICATES": "0",
+        "PS2X_GS_SCALE": "4",
+        "DRAKAN_VU_TRANSFORM_KERNEL": "1",
+        "DRAKAN_VSYNC": "0",
+        "DRAKAN_VU_BATCH_NATIVE_PACKET": "2",
+        "DRAKAN_VU_TRACE": "1",
+        "DRAKAN_FRAME_LIMIT": "0",
+        "DRAKAN_VU_COMPACT_FLAGS": "0",
+        "DRAKAN_VU_BATCH_VERIFY": "0",
+        "DRAKAN_VUCHECK": "0",
+        "DRAKAN_AUDIO": "1",
+        "DRAKAN_VU_BATCH": "0",
+        "DRAKAN_VU_LAZY_RESET": "0"
+      },
+      "batch_diagnostics": [],
+      "usable_for_speedup_claim": false,
+      "cpu_audit_sample_count": 26,
+      "script_sha256": "3EF36C67379733A0A40133A10BE9116C0AF511AB763C655B07D64AA5759D252F"
+    },
+    "transform-general-batch-check": {
+      "general_cpu_audited": true,
+      "external_core_average": 9.899042511600712,
+      "external_core_peak": 12.479801210633156,
+      "external_cpu_busy_samples": 28,
+      "exe_sha256": "212CE10E9B4378C8E1D470B2F92FC5E15D4E026E04849AA568D2B1205382FBAF",
+      "world_fps": 42.51327093497959,
+      "last_five_world_windows": [
+        [
+          2.008,
+          41.82
+        ],
+        [
+          2.006,
+          40.87
+        ],
+        [
+          2.011,
+          42.76
+        ],
+        [
+          2.002,
+          45.96
+        ],
+        [
+          2.016,
+          41.17
+        ]
+      ],
+      "saves_unchanged": true,
+      "contended": true,
+      "overlap_samples": 0,
+      "environment": {
+        "PS2X_GS_SCALE": "4",
+        "DRAKAN_VU_COMPACT_FLAGS": "0",
+        "DRAKAN_VUCHECK": "0",
+        "DRAKAN_VU_BATCH_VERIFY": "1",
+        "DRAKAN_VU_LAZY_RESET": "0",
+        "PS2X_VU_ATOMIC_WAIT": "0",
+        "DRAKAN_WINDOW_HEIGHT": "2160",
+        "DRAKAN_VU_BATCH_STREAM": "0",
+        "DRAKAN_VU_BATCH_NATIVE_PACKET": "2",
+        "DRAKAN_VU_TRANSFORM_KERNEL": "1",
+        "DRAKAN_VU_TIMED_Q": "1",
+        "DRAKAN_WORLD_RATE": "uncapped",
+        "DRAKAN_VU_BATCH_LAZY_LOADS": "2",
+        "DRAKAN_VU_BATCH": "1",
+        "DRAKAN_VU_BATCH_THREADS": "4",
+        "PS2X_VU_SPIN": "4096",
+        "DRAKAN_AUDIO": "1",
+        "DRAKAN_VSYNC": "0",
+        "DRAKAN_FRAME_LIMIT": "0",
+        "DRAKAN_VU_TRACE": "1",
+        "PS2X_VU1_THREAD": "1",
+        "DRAKAN_WINDOW_WIDTH": "3840"
+      },
+      "batch_diagnostics": [
+        "[vu-batch] 6846 batches, 290274 groups: 149406 accepted, 977 rejected; 149406 verified, 0 mismatches; 0 unsupported, 0 single-group, 0 exceptions",
+        "[vu-batch] attempts=8589 short=1743 arbiter=0 code=0 workers=4 dependencies=1 verify=1",
+        "[vu-batch] dependency rejects (VIF,memory,trace,reset,complete,idle,constant,VF,VI,ACC,scalar,CLIP,MAC,status): 0 963 0 0 0 0 0 3 0 0 0 11 0 0",
+        "[vu-batch] first conflicting qwords: 65:229 186:72 198:66 162:49 210:48 672:42 209:41 176:39; monotone-status=1",
+        "[vu-batch] validated geometry calls=505288 rejected geometry calls=18382; validated pairs=483947516 rejected speculative pairs=29004080",
+        "[vu-batch] native transform traced pairs=1619590",
+        "[vu-batch] native packet traced pairs=75367789 bulk calls=8192423 enabled=2",
+        "[vu-batch] deferred load lanes=3723000 final alias repairs=16500 enabled=2",
+        "[vu-batch] streaming preparation=0",
+        "[vu-batch] positive clipping gates=0 relaxed accepted=0 enabled=0",
+        "[vu-batch] abandoned worker results=0",
+        "[vu-batch] owner heads=6846 native UV traced pairs=3009825",
+        "[vu-batch] adaptive serial bypass=133045 enabled=1",
+        "[vu-batch] history predictions=149962 accepted=149047 misses=421 enabled=1"
+      ],
+      "usable_for_speedup_claim": false,
+      "cpu_audit_sample_count": 28,
+      "script_sha256": "3EF36C67379733A0A40133A10BE9116C0AF511AB763C655B07D64AA5759D252F"
+    },
+    "transform-general-batch-raw": {
+      "general_cpu_audited": true,
+      "external_core_average": 9.181052889727209,
+      "external_core_peak": 11.538394485278793,
+      "external_cpu_busy_samples": 25,
+      "exe_sha256": "212CE10E9B4378C8E1D470B2F92FC5E15D4E026E04849AA568D2B1205382FBAF",
+      "world_fps": 47.197587614496214,
+      "last_five_world_windows": [
+        [
+          2.002,
+          38.95
+        ],
+        [
+          2.005,
+          42.4
+        ],
+        [
+          2.015,
+          55.6
+        ],
+        [
+          2.011,
+          51.73
+        ],
+        [
+          2.011,
+          47.24
+        ]
+      ],
+      "saves_unchanged": true,
+      "contended": true,
+      "overlap_samples": 0,
+      "environment": {
+        "PS2X_GS_SCALE": "4",
+        "DRAKAN_VU_COMPACT_FLAGS": "0",
+        "DRAKAN_VUCHECK": "0",
+        "DRAKAN_VU_BATCH_VERIFY": "0",
+        "DRAKAN_VU_LAZY_RESET": "0",
+        "PS2X_VU_ATOMIC_WAIT": "0",
+        "DRAKAN_WINDOW_HEIGHT": "2160",
+        "DRAKAN_VU_BATCH_STREAM": "0",
+        "DRAKAN_VU_BATCH_NATIVE_PACKET": "2",
+        "DRAKAN_VU_TRANSFORM_KERNEL": "1",
+        "DRAKAN_VU_TIMED_Q": "1",
+        "DRAKAN_WORLD_RATE": "uncapped",
+        "DRAKAN_VU_BATCH_LAZY_LOADS": "2",
+        "DRAKAN_VU_BATCH": "1",
+        "DRAKAN_VU_BATCH_THREADS": "4",
+        "PS2X_VU_SPIN": "4096",
+        "DRAKAN_AUDIO": "1",
+        "DRAKAN_VSYNC": "0",
+        "DRAKAN_FRAME_LIMIT": "0",
+        "DRAKAN_VU_TRACE": "1",
+        "PS2X_VU1_THREAD": "1",
+        "DRAKAN_WINDOW_WIDTH": "3840"
+      },
+      "batch_diagnostics": [
+        "[vu-batch] 7107 batches, 294946 groups: 152393 accepted, 947 rejected; 0 verified, 0 mismatches; 0 unsupported, 0 single-group, 0 exceptions",
+        "[vu-batch] attempts=9055 short=1948 arbiter=0 code=0 workers=4 dependencies=1 verify=0",
+        "[vu-batch] dependency rejects (VIF,memory,trace,reset,complete,idle,constant,VF,VI,ACC,scalar,CLIP,MAC,status): 0 937 0 0 0 0 0 2 0 0 0 8 0 0",
+        "[vu-batch] first conflicting qwords: 65:192 186:74 198:65 210:50 672:49 209:43 176:43 660:41; monotone-status=1",
+        "[vu-batch] validated geometry calls=513060 rejected geometry calls=17674; validated pairs=494285656 rejected speculative pairs=28378729",
+        "[vu-batch] native transform traced pairs=1615747",
+        "[vu-batch] native packet traced pairs=75283374 bulk calls=8176881 enabled=2",
+        "[vu-batch] deferred load lanes=3716884 final alias repairs=16604 enabled=2",
+        "[vu-batch] streaming preparation=0",
+        "[vu-batch] positive clipping gates=0 relaxed accepted=0 enabled=0",
+        "[vu-batch] abandoned worker results=0",
+        "[vu-batch] owner heads=7107 native UV traced pairs=3011400",
+        "[vu-batch] adaptive serial bypass=134499 enabled=1",
+        "[vu-batch] history predictions=152996 accepted=152113 misses=344 enabled=1"
+      ],
+      "usable_for_speedup_claim": false,
+      "cpu_audit_sample_count": 25,
+      "script_sha256": "3EF36C67379733A0A40133A10BE9116C0AF511AB763C655B07D64AA5759D252F"
+    },
+    "transform-general-control": {
+      "general_cpu_audited": true,
+      "external_core_average": 10.735428279308449,
+      "external_core_peak": 12.266582090414722,
+      "external_cpu_busy_samples": 26,
+      "exe_sha256": "212CE10E9B4378C8E1D470B2F92FC5E15D4E026E04849AA568D2B1205382FBAF",
+      "world_fps": 52.603729201952774,
+      "last_five_world_windows": [
+        [
+          2.014,
+          50.15
+        ],
+        [
+          2.015,
+          60.05
+        ],
+        [
+          2.001,
+          60.96
+        ],
+        [
+          2.002,
+          46.46
+        ],
+        [
+          2.005,
+          45.38
+        ]
+      ],
+      "saves_unchanged": true,
+      "contended": true,
+      "overlap_samples": 0,
+      "environment": {
+        "PS2X_GS_SCALE": "4",
+        "DRAKAN_VU_COMPACT_FLAGS": "0",
+        "DRAKAN_VUCHECK": "0",
+        "DRAKAN_VU_BATCH_VERIFY": "0",
+        "DRAKAN_VU_LAZY_RESET": "0",
+        "PS2X_VU_ATOMIC_WAIT": "0",
+        "DRAKAN_WINDOW_HEIGHT": "2160",
+        "DRAKAN_VU_BATCH_STREAM": "0",
+        "DRAKAN_VU_BATCH_NATIVE_PACKET": "2",
+        "DRAKAN_VU_TRANSFORM_KERNEL": "0",
+        "DRAKAN_VU_TIMED_Q": "1",
+        "DRAKAN_WORLD_RATE": "uncapped",
+        "DRAKAN_VU_BATCH_LAZY_LOADS": "2",
+        "DRAKAN_VU_BATCH": "0",
+        "DRAKAN_VU_BATCH_THREADS": "4",
+        "PS2X_VU_SPIN": "4096",
+        "DRAKAN_AUDIO": "1",
+        "DRAKAN_VSYNC": "0",
+        "DRAKAN_FRAME_LIMIT": "0",
+        "DRAKAN_VU_TRACE": "1",
+        "PS2X_VU1_THREAD": "1",
+        "DRAKAN_WINDOW_WIDTH": "3840"
+      },
+      "batch_diagnostics": [],
+      "usable_for_speedup_claim": false,
+      "cpu_audit_sample_count": 26,
+      "script_sha256": "3EF36C67379733A0A40133A10BE9116C0AF511AB763C655B07D64AA5759D252F"
+    },
+    "transform-general-fused": {
+      "general_cpu_audited": true,
+      "external_core_average": 10.749630598720772,
+      "external_core_peak": 13.105210909779872,
+      "external_cpu_busy_samples": 27,
+      "exe_sha256": "212CE10E9B4378C8E1D470B2F92FC5E15D4E026E04849AA568D2B1205382FBAF",
+      "world_fps": 54.16509509110824,
+      "last_five_world_windows": [
+        [
+          2.011,
+          56.7
+        ],
+        [
+          2.013,
+          58.13
+        ],
+        [
+          2.013,
+          57.12
+        ],
+        [
+          2.0,
+          52.49
+        ],
+        [
+          2.006,
+          46.35
+        ]
+      ],
+      "saves_unchanged": true,
+      "contended": true,
+      "overlap_samples": 0,
+      "environment": {
+        "PS2X_GS_SCALE": "4",
+        "DRAKAN_VU_COMPACT_FLAGS": "0",
+        "DRAKAN_VUCHECK": "0",
+        "DRAKAN_VU_BATCH_VERIFY": "0",
+        "DRAKAN_VU_LAZY_RESET": "0",
+        "PS2X_VU_ATOMIC_WAIT": "0",
+        "DRAKAN_WINDOW_HEIGHT": "2160",
+        "DRAKAN_VU_BATCH_STREAM": "0",
+        "DRAKAN_VU_BATCH_NATIVE_PACKET": "2",
+        "DRAKAN_VU_TRANSFORM_KERNEL": "1",
+        "DRAKAN_VU_TIMED_Q": "1",
+        "DRAKAN_WORLD_RATE": "uncapped",
+        "DRAKAN_VU_BATCH_LAZY_LOADS": "2",
+        "DRAKAN_VU_BATCH": "0",
+        "DRAKAN_VU_BATCH_THREADS": "4",
+        "PS2X_VU_SPIN": "4096",
+        "DRAKAN_AUDIO": "1",
+        "DRAKAN_VSYNC": "0",
+        "DRAKAN_FRAME_LIMIT": "0",
+        "DRAKAN_VU_TRACE": "1",
+        "PS2X_VU1_THREAD": "1",
+        "DRAKAN_WINDOW_WIDTH": "3840"
+      },
+      "batch_diagnostics": [],
+      "usable_for_speedup_claim": false,
+      "cpu_audit_sample_count": 27,
+      "script_sha256": "3EF36C67379733A0A40133A10BE9116C0AF511AB763C655B07D64AA5759D252F"
+    }
+  },
+  "initial_live_reference": {
+    "checked_lower_bound": 212992,
+    "reported_mismatches": 0,
+    "completed_gameplay_script": false,
+    "limit_seconds": 100,
+    "limitation": "Initial ordinary-only kernel; reference loading exceeded the run limit. Not a completed gameplay benchmark."
+  },
+  "limitations": [
+    "CPU-loop throughput excludes VIF, GS, dependency observation and ordered collection.",
+    "FPS comparisons with external CPU contention do not establish an idle-host speedup or the 144+ FPS goal.",
+    "Raw FPS uses the duration-weighted mean of the last five nonzero worldUpdates/s windows; cap/vsync/FG off, 4K window, GS scale 4, audio on."
+  ]
+}

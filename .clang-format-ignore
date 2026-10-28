@@ -1,0 +1,10 @@
+# Vendored third-party code
+third_party/**
+# Generated / data tables
+**/*.inc
+# Shaders
+**/*.hlsl
+# Dated experiment snapshots
+analysis/experiments/**
+# Unmerged proposal snapshots
+docs/proposals/**

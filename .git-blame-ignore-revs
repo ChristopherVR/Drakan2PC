@@ -1,0 +1,49 @@
+# Revisions to skip in git blame: git config blame.ignoreRevsFile .git-blame-ignore-revs
+
+# Normalise all text files to LF line endings
+a712d6514032c7e7f471bef8124f65614c09c915
+
+# Format runtime/fmv with clang-format
+fa441211c415a887596f20a0a5963c92c85f3a03
+
+# Format runtime/gs with clang-format
+ab4c15f04b5ee74ea3f03d594e772aa85ffa387b
+
+# Format runtime/hle with clang-format
+30dc5836f8a0318f454ac3cb83f99cfa935f6d47
+
+# Format runtime/input with clang-format
+e14733a634c07b0cbfc40989e1e9b0b63a5911c1
+
+# Format runtime/settings with clang-format
+0861c6e1162be4c04020fca660c134c4e770e50b
+
+# Format runtime/spu2 with clang-format
+1695b5546c42c75989445b5602056eceaf4106e1
+
+# Format runtime/ui with clang-format
+694b0db6ce3b67bb8038bf8e0bfeff2587b5b329
+
+# Format runtime/vu1ref with clang-format
+3286663f6af48efe73b5be8fd69cf2e494b5ea13
+
+# Format scripts with clang-format
+fc83a66429785024488a9abe71b1e74a79a83ec0
+
+# Format ps2recomp/ps2xRecomp with clang-format
+cab12a8a711cca6aa7f57781e7f9a66e148994cc
+
+# Format ps2recomp/ps2xRuntime with clang-format
+a3680ce8bdb174c1fa78418b1f2c32924d34d08e
+
+# Format rest of ps2recomp with clang-format
+b9ab477eedca0d9ba83c17fc814e05a2f50cbe9c
+
+# Keep EeEvent brace layout for the scheduler fixture generator
+354f5b8f56be01885fc8c797e35b4a7a36268a76
+
+# Format Python with ruff
+4cd4a30ef5cca8970609a317abd70bf15149ec89
+
+# clang-format drift fixes
+34deba4c28d9ff988b355508ef881fa6cd7c5f40

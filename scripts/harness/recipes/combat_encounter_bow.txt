@@ -1,0 +1,17 @@
+1 log on 5
+0 sync play 1
+2 dump ram_spawn
+5 key down W
+20 key up W
+25 key tap E
+50 dump ram_pickup
+70 key tap TAB
+160 key tap ENTER
+190 dump ram_inventory
+200 key tap E
+260 key tap TAB
+300 key tap Q
+330 button down 1
+360 button up 1
+400 dump ram_shot
+450 quit

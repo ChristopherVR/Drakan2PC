@@ -1,0 +1,732 @@
+{
+  "date": "2026-10-19",
+  "status": "offline multicore proof; live integration pending",
+  "raw_fps_target": 144,
+  "runtime_deployed": false,
+  "measurement_quality": "Final audited offline compute replays: no observed competing game/compiler/linker processes. Serial checkpoint preparation and live rendering excluded; no FPS claim.",
+  "oracle": "serial replay using the saved noalias-control-runtime.lib; the noalias attribute experiment was previously rejected for deployment",
+  "source_sha256": {
+    "tools/PS2Recomp/ps2xRuntime/tests/vu_parallel_replay.cpp": "e4652087e372112aa69894ab97be285952588b5b552623a44f11be73b0b0632e",
+    "tools/PS2Recomp/ps2xTest/vif_unpack/CMakeLists.txt": "5e3d7e2087ff2f8bb458fc7e9e7c33862292ba589663d1d5119846ee52671bb4",
+    "build/vu-shadow-20261019/noalias-control-runtime.lib": "65c931f38f13c1d04beb4eef9214a78eb783da1c8807365f5f0e39b690bcfc1c",
+    "build/raw-fps-20261018/gameplay.vur": "cc0cff37a0f87b9cc6ff879867a64860e246d483fa66f0cad0774cfd73ed38b7",
+    "build/vu-parallel-20261019/vu_parallel_replay.exe": "a621f7b5ebe954e9691e9f1791d3bfa67bd5759aa85edc791ab35c582398455a",
+    "build/vu-parallel-20261019/vu_selected_replay.exe": "9a4b4a3d1018c3a3210559efff9ff19a5993822ac063e8dfce1348172de5a377",
+    "build/vu-parallel-20261019/selected_inputs.cpp": "4ec03392caaeba3728d3ca9f4535460ca188f25fcf8091a89084031c86ecf88a"
+  },
+  "replay": {
+    "runs": 4000,
+    "resumes": 3766,
+    "active_path1_checkpoints": 0,
+    "checkpoint_bytes": 9392,
+    "interpreter_bytes": 484544,
+    "packet_bytes": 8885296,
+    "serial_seed_ms": 35.2081,
+    "serial_best_ms": 20.9737,
+    "workers": [
+      {
+        "count": 1,
+        "best_ms": 23.101,
+        "speedup_vs_serial": 0.907913,
+        "mismatches": 0
+      },
+      {
+        "count": 2,
+        "best_ms": 11.3033,
+        "speedup_vs_serial": 1.855538,
+        "mismatches": 0
+      },
+      {
+        "count": 4,
+        "best_ms": 5.8222,
+        "speedup_vs_serial": 3.602367,
+        "mismatches": 0
+      },
+      {
+        "count": 8,
+        "best_ms": 3.6306,
+        "speedup_vs_serial": 5.776924,
+        "mismatches": 0
+      }
+    ],
+    "groups": 235,
+    "cold_group_probe": {
+      "geometry_mismatches": 0,
+      "state_mismatches_ignoring_absolute_clock": 3996,
+      "differing_vf_mask": 1073741568,
+      "differing_vi_mask": 65464
+    },
+    "grouped_workers": [
+      {
+        "count": 1,
+        "best_ms": 21.3991,
+        "speedup_vs_serial": 0.980121,
+        "mismatches": 0
+      },
+      {
+        "count": 2,
+        "best_ms": 10.7826,
+        "speedup_vs_serial": 1.945143,
+        "mismatches": 0
+      },
+      {
+        "count": 4,
+        "best_ms": 5.4742,
+        "speedup_vs_serial": 3.831373,
+        "mismatches": 0
+      },
+      {
+        "count": 8,
+        "best_ms": 3.0845,
+        "speedup_vs_serial": 6.799708,
+        "mismatches": 0
+      }
+    ],
+    "register_dependency_trace": {
+      "groups_with_live_register_reads": 89,
+      "vf_lane_mask_lo": "0000000700000000",
+      "vf_lane_mask_hi": "0000000000000000",
+      "vi_acc_mask": "00000000",
+      "instrumented_output_mismatches": 0,
+      "scope": "dynamic VF/VI/ACC reads before writes; excludes scalar/flag and scratch-memory dependency proof"
+    },
+    "suspended_checkpoint_checks": 3072,
+    "suspended_active_path1_checks": 131,
+    "suspended_checkpoint_mismatches": 0,
+    "scope": "offline compute ceiling; serial oracle seed cost excluded from worker timings; no live FPS claim"
+  },
+  "earlier_contended_replays": [
+    {
+      "runs": 4000,
+      "resumes": 3766,
+      "active_path1_checkpoints": 0,
+      "checkpoint_bytes": 9392,
+      "interpreter_bytes": 484544,
+      "packet_bytes": 8885296,
+      "serial_seed_ms": 47.0739,
+      "serial_best_ms": 22.8436,
+      "workers": [
+        {
+          "count": 1,
+          "best_ms": 24.34,
+          "speedup_vs_serial": 0.938521,
+          "mismatches": 0
+        },
+        {
+          "count": 2,
+          "best_ms": 13.0258,
+          "speedup_vs_serial": 1.75372,
+          "mismatches": 0
+        },
+        {
+          "count": 4,
+          "best_ms": 7.3929,
+          "speedup_vs_serial": 3.089938,
+          "mismatches": 0
+        },
+        {
+          "count": 8,
+          "best_ms": 4.8511,
+          "speedup_vs_serial": 4.708953,
+          "mismatches": 0
+        }
+      ],
+      "groups": 235,
+      "cold_group_probe": {
+        "geometry_mismatches": 0,
+        "state_mismatches_ignoring_absolute_clock": 3996,
+        "differing_vf_mask": 1073741568,
+        "differing_vi_mask": 65464
+      },
+      "grouped_workers": [
+        {
+          "count": 1,
+          "best_ms": 22.9624,
+          "speedup_vs_serial": 0.994826,
+          "mismatches": 0
+        },
+        {
+          "count": 2,
+          "best_ms": 11.8319,
+          "speedup_vs_serial": 1.930679,
+          "mismatches": 0
+        },
+        {
+          "count": 4,
+          "best_ms": 5.8494,
+          "speedup_vs_serial": 3.905289,
+          "mismatches": 0
+        },
+        {
+          "count": 8,
+          "best_ms": 4.2067,
+          "speedup_vs_serial": 5.43029,
+          "mismatches": 0
+        }
+      ],
+      "scope": "offline compute ceiling; serial oracle seed cost excluded from worker timings; no live FPS claim"
+    },
+    {
+      "runs": 4000,
+      "resumes": 3766,
+      "active_path1_checkpoints": 0,
+      "checkpoint_bytes": 9392,
+      "interpreter_bytes": 484544,
+      "packet_bytes": 8885296,
+      "serial_seed_ms": 40.0891,
+      "serial_best_ms": 22.8938,
+      "workers": [
+        {
+          "count": 1,
+          "best_ms": 25.4839,
+          "speedup_vs_serial": 0.898363,
+          "mismatches": 0
+        },
+        {
+          "count": 2,
+          "best_ms": 12.9687,
+          "speedup_vs_serial": 1.765312,
+          "mismatches": 0
+        },
+        {
+          "count": 4,
+          "best_ms": 6.3832,
+          "speedup_vs_serial": 3.586571,
+          "mismatches": 0
+        },
+        {
+          "count": 8,
+          "best_ms": 4.2457,
+          "speedup_vs_serial": 5.392232,
+          "mismatches": 0
+        }
+      ],
+      "groups": 235,
+      "cold_group_probe": {
+        "geometry_mismatches": 0,
+        "state_mismatches_ignoring_absolute_clock": 3996,
+        "differing_vf_mask": 1073741568,
+        "differing_vi_mask": 65464
+      },
+      "grouped_workers": [
+        {
+          "count": 1,
+          "best_ms": 22.7515,
+          "speedup_vs_serial": 1.006255,
+          "mismatches": 0
+        },
+        {
+          "count": 2,
+          "best_ms": 12.096,
+          "speedup_vs_serial": 1.892675,
+          "mismatches": 0
+        },
+        {
+          "count": 4,
+          "best_ms": 6.4168,
+          "speedup_vs_serial": 3.567791,
+          "mismatches": 0
+        },
+        {
+          "count": 8,
+          "best_ms": 4.2362,
+          "speedup_vs_serial": 5.404325,
+          "mismatches": 0
+        }
+      ],
+      "register_dependency_trace": {
+        "groups_with_live_register_reads": 89,
+        "vf_lane_mask_lo": "0000000700000000",
+        "vf_lane_mask_hi": "0000000000000000",
+        "vi_acc_mask": "00000000",
+        "instrumented_output_mismatches": 0,
+        "scope": "dynamic VF/VI/ACC reads before writes; excludes scalar/flag and scratch-memory dependency proof"
+      },
+      "scope": "offline compute ceiling; serial oracle seed cost excluded from worker timings; no live FPS claim"
+    }
+  ],
+  "checks": {
+    "per_run_checkpoint_output_comparisons": 16000,
+    "grouped_output_comparisons": 16000,
+    "instrumented_pair_dispatch_comparisons": 4000,
+    "suspended_checkpoint_comparisons": 3072,
+    "total_exact_comparisons": 39072,
+    "active_path1_suspensions": 131,
+    "mismatches": 0
+  },
+  "limitations": [
+    "Serial oracle creates checkpoints and recorded scratch inputs before timing; this is not a live producer.",
+    "Each MSCAL/MSCNT continuation chain must stay together until dependency proof permits a finer split.",
+    "Dynamic VF/VI/ACC trace is not a proof of scratch-memory, scalar, flags, arbitrary control-flow or motion-metadata independence.",
+    "Final architectural state differs in the cold-register experiment even when geometry matches; do not reset live state based on that probe.",
+    "No graphics callbacks or ordered GS submission included in worker timing."
+  ],
+  "installed_exe_sha256": "cd25328dbe3e3ba8d962636216667d5990636731f7ffc9c76404aa1efca3e1cb",
+  "cmake_target_check": {
+    "isolated_configure": "passed",
+    "excluded_from_all": true,
+    "project_generated": true
+  },
+  "group_sizes": {
+    "min_runs": 3,
+    "median_runs": 7,
+    "max_runs": 132
+  },
+  "runtime_export": {
+    "runtime_patch_sha256": "c3eb5e37eebc1249cc48c5184a104a818cdb3de32ceab305bbdf514c6961122a",
+    "paths": [
+      "ps2xRuntime/tests/vu_parallel_replay.cpp",
+      "ps2xTest/vif_unpack/CMakeLists.txt"
+    ],
+    "source_sha256": {
+      "ps2xRuntime/tests/vu_parallel_replay.cpp": "e4652087e372112aa69894ab97be285952588b5b552623a44f11be73b0b0632e",
+      "ps2xTest/vif_unpack/CMakeLists.txt": "5e3d7e2087ff2f8bb458fc7e9e7c33862292ba589663d1d5119846ee52671bb4"
+    },
+    "forward_and_reverse_checks": "passed",
+    "unrelated_sections_preserved": true
+  },
+  "normalization_probe": {
+    "status": "validated offline; private, live FPS benefit unproven",
+    "changed_entry_pairs": [
+      118,
+      126,
+      127,
+      218,
+      257,
+      277,
+      298,
+      315,
+      334,
+      947,
+      1132
+    ],
+    "runtime_deployed": false,
+    "clean_abba": [
+      {
+        "name": "clean-selected-a",
+        "milliseconds": [
+          21.4068,
+          20.8309,
+          20.8883,
+          20.791
+        ],
+        "speedup": 1.011472,
+        "replay": {
+          "runs": 4000,
+          "resumes": 3766,
+          "active_path1_checkpoints": 0,
+          "checkpoint_bytes": 9392,
+          "interpreter_bytes": 484544,
+          "packet_bytes": 8885296,
+          "serial_seed_ms": 35.4779,
+          "serial_best_ms": 21.4068,
+          "workers": [
+            {
+              "count": 1,
+              "best_ms": 22.58,
+              "speedup_vs_serial": 0.948043,
+              "mismatches": 0
+            },
+            {
+              "count": 2,
+              "best_ms": 11.4083,
+              "speedup_vs_serial": 1.876423,
+              "mismatches": 0
+            },
+            {
+              "count": 4,
+              "best_ms": 5.9229,
+              "speedup_vs_serial": 3.614243,
+              "mismatches": 0
+            },
+            {
+              "count": 8,
+              "best_ms": 3.3399,
+              "speedup_vs_serial": 6.409413,
+              "mismatches": 0
+            }
+          ],
+          "groups": 235,
+          "cold_group_probe": {
+            "geometry_mismatches": 0,
+            "state_mismatches_ignoring_absolute_clock": 3996,
+            "differing_vf_mask": 1073741568,
+            "differing_vi_mask": 65464
+          },
+          "grouped_workers": [
+            {
+              "count": 1,
+              "best_ms": 21.5464,
+              "speedup_vs_serial": 0.993521,
+              "mismatches": 0
+            },
+            {
+              "count": 2,
+              "best_ms": 10.7138,
+              "speedup_vs_serial": 1.998059,
+              "mismatches": 0
+            },
+            {
+              "count": 4,
+              "best_ms": 5.5405,
+              "speedup_vs_serial": 3.863695,
+              "mismatches": 0
+            },
+            {
+              "count": 8,
+              "best_ms": 3.3154,
+              "speedup_vs_serial": 6.456777,
+              "mismatches": 0
+            }
+          ],
+          "register_dependency_trace": {
+            "groups_with_live_register_reads": 89,
+            "vf_lane_mask_lo": "0000000700000000",
+            "vf_lane_mask_hi": "0000000000000000",
+            "vi_acc_mask": "00000000",
+            "instrumented_output_mismatches": 0,
+            "scope": "dynamic VF/VI/ACC reads before writes; excludes scalar/flag and scratch-memory dependency proof"
+          },
+          "suspended_checkpoint_checks": 3072,
+          "suspended_active_path1_checks": 131,
+          "suspended_checkpoint_mismatches": 0,
+          "scope": "offline compute ceiling; serial oracle seed cost excluded from worker timings; no live FPS claim"
+        }
+      },
+      {
+        "name": "clean-selected-b",
+        "milliseconds": [
+          21.7668,
+          21.4564,
+          20.8667,
+          21.0735
+        ],
+        "speedup": 1.01222,
+        "replay": {
+          "runs": 4000,
+          "resumes": 3766,
+          "active_path1_checkpoints": 0,
+          "checkpoint_bytes": 9392,
+          "interpreter_bytes": 484544,
+          "packet_bytes": 8885296,
+          "serial_seed_ms": 35.9167,
+          "serial_best_ms": 21.7668,
+          "workers": [
+            {
+              "count": 1,
+              "best_ms": 22.7491,
+              "speedup_vs_serial": 0.95682,
+              "mismatches": 0
+            },
+            {
+              "count": 2,
+              "best_ms": 11.3006,
+              "speedup_vs_serial": 1.926163,
+              "mismatches": 0
+            },
+            {
+              "count": 4,
+              "best_ms": 5.8528,
+              "speedup_vs_serial": 3.71904,
+              "mismatches": 0
+            },
+            {
+              "count": 8,
+              "best_ms": 3.0766,
+              "speedup_vs_serial": 7.074953,
+              "mismatches": 0
+            }
+          ],
+          "groups": 235,
+          "cold_group_probe": {
+            "geometry_mismatches": 0,
+            "state_mismatches_ignoring_absolute_clock": 3996,
+            "differing_vf_mask": 1073741568,
+            "differing_vi_mask": 65464
+          },
+          "grouped_workers": [
+            {
+              "count": 1,
+              "best_ms": 21.5398,
+              "speedup_vs_serial": 1.010539,
+              "mismatches": 0
+            },
+            {
+              "count": 2,
+              "best_ms": 10.6074,
+              "speedup_vs_serial": 2.052039,
+              "mismatches": 0
+            },
+            {
+              "count": 4,
+              "best_ms": 5.6291,
+              "speedup_vs_serial": 3.866835,
+              "mismatches": 0
+            },
+            {
+              "count": 8,
+              "best_ms": 3.3615,
+              "speedup_vs_serial": 6.475324,
+              "mismatches": 0
+            }
+          ],
+          "register_dependency_trace": {
+            "groups_with_live_register_reads": 89,
+            "vf_lane_mask_lo": "0000000700000000",
+            "vf_lane_mask_hi": "0000000000000000",
+            "vi_acc_mask": "00000000",
+            "instrumented_output_mismatches": 0,
+            "scope": "dynamic VF/VI/ACC reads before writes; excludes scalar/flag and scratch-memory dependency proof"
+          },
+          "suspended_checkpoint_checks": 3072,
+          "suspended_active_path1_checks": 131,
+          "suspended_checkpoint_mismatches": 0,
+          "scope": "offline compute ceiling; serial oracle seed cost excluded from worker timings; no live FPS claim"
+        }
+      },
+      {
+        "name": "clean-selected-c",
+        "milliseconds": [
+          21.7085,
+          21.0109,
+          21.0939,
+          21.281
+        ],
+        "speedup": 1.021012,
+        "replay": {
+          "runs": 4000,
+          "resumes": 3766,
+          "active_path1_checkpoints": 0,
+          "checkpoint_bytes": 9392,
+          "interpreter_bytes": 484544,
+          "packet_bytes": 8885296,
+          "serial_seed_ms": 35.2398,
+          "serial_best_ms": 21.7085,
+          "workers": [
+            {
+              "count": 1,
+              "best_ms": 22.6471,
+              "speedup_vs_serial": 0.958555,
+              "mismatches": 0
+            },
+            {
+              "count": 2,
+              "best_ms": 11.4053,
+              "speedup_vs_serial": 1.903369,
+              "mismatches": 0
+            },
+            {
+              "count": 4,
+              "best_ms": 5.7631,
+              "speedup_vs_serial": 3.76681,
+              "mismatches": 0
+            },
+            {
+              "count": 8,
+              "best_ms": 3.1042,
+              "speedup_vs_serial": 6.993267,
+              "mismatches": 0
+            }
+          ],
+          "groups": 235,
+          "cold_group_probe": {
+            "geometry_mismatches": 0,
+            "state_mismatches_ignoring_absolute_clock": 3996,
+            "differing_vf_mask": 1073741568,
+            "differing_vi_mask": 65464
+          },
+          "grouped_workers": [
+            {
+              "count": 1,
+              "best_ms": 21.4686,
+              "speedup_vs_serial": 1.011174,
+              "mismatches": 0
+            },
+            {
+              "count": 2,
+              "best_ms": 10.7539,
+              "speedup_vs_serial": 2.018663,
+              "mismatches": 0
+            },
+            {
+              "count": 4,
+              "best_ms": 5.4887,
+              "speedup_vs_serial": 3.955126,
+              "mismatches": 0
+            },
+            {
+              "count": 8,
+              "best_ms": 3.224,
+              "speedup_vs_serial": 6.733406,
+              "mismatches": 0
+            }
+          ],
+          "register_dependency_trace": {
+            "groups_with_live_register_reads": 89,
+            "vf_lane_mask_lo": "0000000700000000",
+            "vf_lane_mask_hi": "0000000000000000",
+            "vi_acc_mask": "00000000",
+            "instrumented_output_mismatches": 0,
+            "scope": "dynamic VF/VI/ACC reads before writes; excludes scalar/flag and scratch-memory dependency proof"
+          },
+          "suspended_checkpoint_checks": 3072,
+          "suspended_active_path1_checks": 131,
+          "suspended_checkpoint_mismatches": 0,
+          "scope": "offline compute ceiling; serial oracle seed cost excluded from worker timings; no live FPS claim"
+        }
+      }
+    ]
+  },
+  "earlier_contended_final_replay": {
+    "runs": 4000,
+    "resumes": 3766,
+    "active_path1_checkpoints": 0,
+    "checkpoint_bytes": 9392,
+    "interpreter_bytes": 484544,
+    "packet_bytes": 8885296,
+    "serial_seed_ms": 78.0927,
+    "serial_best_ms": 39.1843,
+    "workers": [
+      {
+        "count": 1,
+        "best_ms": 43.0816,
+        "speedup_vs_serial": 0.909537,
+        "mismatches": 0
+      },
+      {
+        "count": 2,
+        "best_ms": 22.3536,
+        "speedup_vs_serial": 1.75293,
+        "mismatches": 0
+      },
+      {
+        "count": 4,
+        "best_ms": 10.3395,
+        "speedup_vs_serial": 3.789767,
+        "mismatches": 0
+      },
+      {
+        "count": 8,
+        "best_ms": 5.7297,
+        "speedup_vs_serial": 6.838805,
+        "mismatches": 0
+      }
+    ],
+    "groups": 235,
+    "cold_group_probe": {
+      "geometry_mismatches": 0,
+      "state_mismatches_ignoring_absolute_clock": 3996,
+      "differing_vf_mask": 1073741568,
+      "differing_vi_mask": 65464
+    },
+    "grouped_workers": [
+      {
+        "count": 1,
+        "best_ms": 37.8017,
+        "speedup_vs_serial": 1.036575,
+        "mismatches": 0
+      },
+      {
+        "count": 2,
+        "best_ms": 18.6129,
+        "speedup_vs_serial": 2.105223,
+        "mismatches": 0
+      },
+      {
+        "count": 4,
+        "best_ms": 10.2984,
+        "speedup_vs_serial": 3.804892,
+        "mismatches": 0
+      },
+      {
+        "count": 8,
+        "best_ms": 5.387,
+        "speedup_vs_serial": 7.273863,
+        "mismatches": 0
+      }
+    ],
+    "register_dependency_trace": {
+      "groups_with_live_register_reads": 89,
+      "vf_lane_mask_lo": "0000000700000000",
+      "vf_lane_mask_hi": "0000000000000000",
+      "vi_acc_mask": "00000000",
+      "instrumented_output_mismatches": 0,
+      "scope": "dynamic VF/VI/ACC reads before writes; excludes scalar/flag and scratch-memory dependency proof"
+    },
+    "suspended_checkpoint_checks": 3072,
+    "suspended_active_path1_checks": 131,
+    "suspended_checkpoint_mismatches": 0,
+    "scope": "offline compute ceiling; serial oracle seed cost excluded from worker timings; no live FPS claim"
+  },
+  "clean_audit": [
+    {
+      "name": "clean-baseline",
+      "exit_code": 0,
+      "exe": "vu_parallel_replay.exe",
+      "start": "2026-10-19T09:27:27.6938959+10:00",
+      "overlap": [],
+      "end": "2026-10-19T09:27:29.0234917+10:00"
+    },
+    {
+      "name": "clean-selected-a",
+      "exit_code": 0,
+      "exe": "vu_selected_replay.exe",
+      "start": "2026-10-19T09:27:29.1092335+10:00",
+      "overlap": [],
+      "end": "2026-10-19T09:27:30.8092717+10:00"
+    },
+    {
+      "name": "clean-selected-b",
+      "exit_code": 0,
+      "exe": "vu_selected_replay.exe",
+      "start": "2026-10-19T09:27:30.8897549+10:00",
+      "overlap": [],
+      "end": "2026-10-19T09:27:32.7729666+10:00"
+    },
+    {
+      "name": "clean-selected-c",
+      "exit_code": 0,
+      "exe": "vu_selected_replay.exe",
+      "start": "2026-10-19T09:27:32.8541386+10:00",
+      "overlap": [],
+      "end": "2026-10-19T09:27:34.6866811+10:00"
+    }
+  ],
+  "first_clean_pass_summary": {
+    "serial_ms": 21.2005,
+    "grouped_2_workers_ms": 10.8915,
+    "grouped_4_workers_ms": 5.545,
+    "grouped_8_workers_ms": 2.9709,
+    "selected_abba_ms": [
+      [
+        22.155,
+        21.4888,
+        21.381,
+        21.6606
+      ],
+      [
+        21.4549,
+        21.2943,
+        21.5681,
+        21.5062
+      ],
+      [
+        21.3908,
+        21.3095,
+        21.5409,
+        21.1953
+      ]
+    ],
+    "selected_speedups": [
+      1.022062,
+      1.002303,
+      0.993832
+    ],
+    "all_replay_mismatches": 0,
+    "observed_overlaps": 0
+  },
+  "installed_exe_sha256_at_final_audit": "cc55bc7f8fb350e579d1c55c3aac9d4c854bcd274c2ffbc7085bba5a524d9b94",
+  "no_distribution_write_performed_by_this_iteration": true,
+  "installed_executable_changed_externally_during_iteration": true,
+  "distribution_note": "Another chat installed an updated executable during this investigation; this iteration wrote no distribution files."
+}

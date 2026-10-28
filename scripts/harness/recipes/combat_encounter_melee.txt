@@ -1,0 +1,29 @@
+1 log on 5
+0 sync play 1
+2 key tap Q
+4 dump ram_begin
+30 key tap F
+60 dump ram_target
+65 key down W
+80 key up W
+85 button down 1
+91 button up 1
+100 dump ram_hit1
+110 button down 1
+116 button up 1
+130 button down 1
+136 button up 1
+150 dump ram_hit3
+160 button down 2
+220 dump ram_block_held
+280 button up 2
+285 dump ram_block_up
+310 key down D
+340 key up D
+350 dump ram_strafe
+360 button down 1
+366 button up 1
+380 button down 1
+386 button up 1
+410 dump ram_end
+420 quit

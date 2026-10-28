@@ -1,0 +1,63 @@
+{
+  "scope": "Source-only sprite convention analysis; no production renderer edit or game/GPU/WARP execution.",
+  "conclusion": {
+    "native_gs_screen_pixel_center": 0,
+    "linear_texture_texel_center": 0.5,
+    "d3d11_screen_pixel_center": 0.5,
+    "current_source_keeps_gs_xy_without_origin_conversion": true,
+    "native_scale1_equivalent_destination_translation": [0.5, 0.5],
+    "universal_uv_minus_half_texel_justified": false,
+    "affine_uv_delta_for_already_covered_native_pixels": "-0.5*dUV/dXY; does not fix fractional coverage",
+    "captured_native_highlight_texel_columns_inclusive": [28, 87],
+    "captured_native_highlight_texel_rows_inclusive": [3, 60],
+    "native_origin_change_alone_solves_scale4": false,
+    "enlarged_hud_policy_and_renderer_pixel_regression_pending": true
+  },
+  "references": {
+    "pcsx2_commit": "091ab68708a555198d80a7216965481c7ddd0d98",
+    "pcsx2_files": [
+      "pcsx2/GS/Renderers/SW/GSRasterizer.cpp",
+      "pcsx2/GS/Renderers/SW/GSDrawScanline.cpp",
+      "pcsx2/GS/Renderers/HW/GSRendererHW.cpp"
+    ],
+    "hardware_experiment": "https://jbit.net/Pixel_Perfect_Sprites_on_the_PS2/",
+    "d3d11_spec": "https://microsoft.github.io/DirectX-Specs/d3d/archive/D3D11_3_FunctionalSpec.htm",
+    "downloaded_references_location": "build/hud-orb-edge-20261018/references/",
+    "no_upstream_code_incorporated_into_renderer_or_fixtures": true
+  },
+  "tests": [
+    {
+      "command": "python -m unittest discover -s analysis/scripts -p test_gs_sprite_sampling.py -v",
+      "tests": 12,
+      "failures": 0,
+      "kind": "Exact rational CPU model, not production HLSL execution"
+    },
+    {
+      "command": "python -m unittest discover -s analysis/scripts -p test_gs_hud_edge_audit.py -v",
+      "tests": 12,
+      "failures": 0,
+      "kind": "CPU packet/atlas characterization"
+    }
+  ],
+  "existing_test_gap": "Solid textures hide UV-selection changes; seam test omits distinguishing row133. Local PS2Recomp software sprites also add0.5 and are not an independent GS oracle.",
+  "renderer_pixel_regression": {
+    "executed": false,
+    "requires_coordinated_gpu_slot": true,
+    "needed_cases": [
+      "Native point/linear distinct-texel colours, FST and STQ/Q=1",
+      "Fractional1/16 coverage X8.0625..12.0625 excludes8 and includes12",
+      "Constant UV, reversed UV, slope2 and adjacent fractional sprites",
+      "Synthetic captured-perimeter mapping plus intentionally included border",
+      "Separate explicitly chosen scale4 HUD policy"
+    ]
+  },
+  "production_changed": false,
+  "changed_paths_this_followup": [
+    "analysis/scripts/gs_hud_edge_audit.py",
+    "analysis/scripts/test_gs_sprite_sampling.py",
+    "docs/HUD_ORB_EDGE_20261018.md",
+    "docs/SPRITE_SAMPLING_CONVENTION_20261018.md",
+    "analysis/results/hud-orb-edge-20261018.json",
+    "analysis/results/sprite-sampling-convention-20261018.json"
+  ]
+}

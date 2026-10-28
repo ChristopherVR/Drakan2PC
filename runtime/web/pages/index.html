@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Drakan: The Ancients' Gates - browser player</title>
+  <link rel="stylesheet" href="loader.css">
+  <link rel="icon" href="data:,">
+</head>
+<body>
+<main>
+  <header>
+    <h1>Drakan</h1>
+    <p class="subtitle">The Ancients' Gates - browser player</p>
+  </header>
+  <p>
+    This page runs the browser version that <strong>you built on your own PC</strong> from your own disc
+    (<code>dist\DrakanPC-web</code>, made by the installer's "browser version" option). It contains no game code or
+    data: the files you choose below are read straight from your disk and nothing is uploaded.
+  </p>
+  <ol class="steps">
+    <li>
+      <button id="pick-build">Choose the browser build folder</button>
+      <span id="build-state" class="state">not chosen</span>
+      <p class="hint">The <code>DrakanPC-web</code> folder (it contains <code>drakan.wasm</code>).</p>
+    </li>
+    <li>
+      <button id="pick-iso">Choose your disc image</button>
+      <span id="iso-state" class="state">not chosen</span>
+      <p class="hint">The same PAL <code>.iso</code> the game was built from.</p>
+    </li>
+    <li>
+      <button id="pick-textures" class="secondary">Choose an HD texture folder (optional)</button>
+      <span id="textures-state" class="state">none</span>
+    </li>
+  </ol>
+  <button id="play" class="play" disabled>Play</button>
+  <p id="status" role="status" aria-live="polite"></p>
+  <p class="small">
+    Needs a current desktop Chrome, Edge or another Chromium browser (folder access, WebAssembly threads and SIMD).
+    Your choices are remembered in this browser; saved games are stored in this browser for this site.
+  </p>
+</main>
+<script src="handles.js"></script>
+<script src="loader.js"></script>
+</body>
+</html>

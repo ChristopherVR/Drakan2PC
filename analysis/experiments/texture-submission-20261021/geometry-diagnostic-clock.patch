@@ -1,0 +1,20 @@
+--- a/ps2xRuntime/src/lib/vu/ps2_vu1_core.cpp
++++ b/ps2xRuntime/src/lib/vu/ps2_vu1_core.cpp
+@@ -1355,7 +1355,7 @@
+ {
+     struct StatScope
+     {
+-        std::chrono::steady_clock::time_point t0 = std::chrono::steady_clock::now();
++        std::chrono::steady_clock::time_point t0 = g_vu1Stats.enabled ? std::chrono::steady_clock::now() : std::chrono::steady_clock::time_point{};
+         VU1Interpreter *self;
+         uint64_t c0;
+         StatScope(VU1Interpreter *s) : self(s), c0(s->m_state.cycles) {}
+@@ -1451,7 +1451,7 @@
+ {
+     struct StatScope
+     {
+-        std::chrono::steady_clock::time_point t0 = std::chrono::steady_clock::now();
++        std::chrono::steady_clock::time_point t0 = g_vu1Stats.enabled ? std::chrono::steady_clock::now() : std::chrono::steady_clock::time_point{};
+         VU1Interpreter *self;
+         uint64_t c0;
+         StatScope(VU1Interpreter *s) : self(s), c0(s->m_state.cycles) {}

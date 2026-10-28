@@ -1,0 +1,24 @@
+1 log on 5
+0 sync play 1
+2 dump ram_spawn
+5 key down W
+11 key up W
+15 key down E
+25 key up E
+45 key tap ENTER
+60 dump ram_pickup
+70 key tap TAB
+160 key tap ENTER
+170 key tap RIGHT
+190 key tap E
+220 dump ram_bow_inventory
+230 key tap TAB
+280 dump ram_bow_ready
+300 button down 1
+330 button up 1
+331 dump ram_bow_projectile
+340 dump ram_bow_after
+350 button down 1
+380 button up 1
+390 dump ram_bow_after2
+410 quit

@@ -1,0 +1,18 @@
+1 log on 15
+0 sync play 90
+2 dump ram_start
+5 shot start
+100 key tap TAB
+200 key tap ENTER
+230 shot inventory
+260 key tap E
+320 key tap TAB
+360 dump ram_equipped
+370 key down W
+670 shot walk10
+970 key up W
+980 dump ram_walk
+990 shot walk20
+1010 key tap F
+1040 shot target
+1060 quit

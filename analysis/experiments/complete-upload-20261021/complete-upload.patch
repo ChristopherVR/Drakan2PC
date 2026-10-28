@@ -1,0 +1,212 @@
+--- /dev/null
++++ b/runtime/gs/src/gs_complete_upload.h
+@@ -0,0 +1,23 @@
++#pragma once
++#include "gs_mem.h"
++#include <algorithm>
++namespace gsr {
++// Called only at the final packed qword of a GIF tag. The next tag and its
++// payload are in this same submission, under the renderer lock.
++inline uint32_t followingImageBytes(const uint8_t* current,uint32_t size) {
++ if(size<32)return 0;
++ uint64_t tag;std::memcpy(&tag,current+16,8);
++ if(((tag>>58)&3)!=2)return 0;
++ return std::min(uint32_t(tag&0x7fff), (size-32)/16)*16;
++}
++inline bool fullUploadBlocks(uint32_t psm,uint32_t bp,uint32_t bw,uint32_t x,uint32_t y,uint32_t w,uint32_t h,uint32_t available,uint32_t& first,uint32_t& last) {
++ if((psm!=PSM_CT32 && psm!=PSM_T8) || !bw || x || y || !w || !h || w>2048 || h>2048 || w!=bw*64)return false;
++ const auto g=geomOf(psm);
++ if(w%g.pageW || h%g.pageH)return false;
++ const uint64_t bytes=uint64_t(w)*h*(psm==PSM_CT32?4:1);
++ if(bytes>available)return false;
++ const uint64_t blocks=bytes/256;
++ if(!blocks || uint64_t(bp)+blocks>kVramBlocks)return false;
++ first=bp;last=bp+uint32_t(blocks)-1;return true;
++}
++}
+--- a/runtime/gs/src/gs_core.cpp
++++ b/runtime/gs/src/gs_core.cpp
+@@ -4,6 +4,7 @@
+ #include "gs_texup.h"
+ #include "gs_image_upload.h"
+ #include "clut_blocks.h"
++#include "gs_complete_upload.h"
+ 
+ #include <algorithm>
+ #include <cmath>
+@@ -141,6 +142,7 @@
+     uint64_t texa = 0, fogcol = 0, dimx = 0, dthe = 0, colclamp = 0, pabe = 0, scanmsk = 0, texclut = 0;
+     uint64_t bitbltbuf = 0, trxpos = 0, trxreg = 0, trxdir = 3;
+     uint64_t vsyncCount = 0;
++    bool rawVramExposed=false;
+     bool xferLog = std::getenv("GSR_XFERLOG") != nullptr; // debug: log every transfer start to stderr
+     uint64_t siglblid = 0;
+ 
+@@ -164,6 +166,8 @@
+     struct Xfer
+     {
+         bool active = false;
++        bool deferredCoherence = false;
++        std::vector<uint8_t> pendingImage;
+         uint32_t dbp = 0, dbw = 0, dpsm = 0;
+         uint32_t x0 = 0, y0 = 0, w = 0, h = 0;
+         uint32_t cx = 0, cy = 0; // current pixel
+@@ -207,6 +211,7 @@
+ 
+     void flushBatch()
+     {
++        resolveUploadCoherence();
+         if (!batchActive || batch.empty())
+         {
+             batch.clear();
+@@ -541,6 +546,7 @@
+ 
+     void kick(uint32_t X, uint32_t Y, uint32_t Z, int fogOverride, bool doDraw)
+     {
++        resolveUploadCoherence();
+         const Ctx& c = ctx[curCtx()];
+         const int ofx = (int)(c.xyoffset & 0xFFFF), ofy = (int)((c.xyoffset >> 32) & 0xFFFF);
+         Vtx v;
+@@ -699,6 +705,7 @@
+ 
+     void writeReg(uint32_t reg, uint64_t v)
+     {
++        resolveUploadCoherence();
+         switch (reg)
+         {
+         case R_PRIM:
+@@ -824,6 +831,21 @@
+             }
+     }
+ 
++    void resolveUploadCoherence(uint32_t available=0) {
++        if(!xfer.deferredCoherence)return;
++        xfer.deferredCoherence=false;
++        uint32_t first=0,last=0;
++        if(fullUploadBlocks(xfer.dpsm,xfer.dbp,xfer.dbw,xfer.x0,xfer.y0,xfer.w,xfer.h,available,first,last))
++            backend->discardCompleteUpload(first,last);
++        spanBlocks(xfer.dpsm,xfer.dbp,xfer.dbw,xfer.x0,xfer.y0,xfer.w,xfer.h,first,last);
++        backend->flushToMemoryTagged(first,last,2);
++        mem.touchRect(xfer.dpsm,xfer.dbp,xfer.dbw,xfer.x0,xfer.y0,xfer.w,xfer.h);
++        if(!xfer.pendingImage.empty()) {
++            auto pending=std::move(xfer.pendingImage);
++            imageData(pending.data(),uint32_t(pending.size()));
++        }
++    }
++
+     void startTransfer(uint32_t dir)
+     {
+         trxdir = dir;
+@@ -843,7 +865,9 @@
+             if (!isValidPsm(dpsm)) return;
+             uint32_t lo, hi;
+             spanBlocks(dpsm, dbp, dbw, dsax, dsay, rrw, rrh, lo, hi);
+-            const bool readback=backend->flushToMemoryTagged(lo, hi,2);
++            uint32_t overwriteFirst=0,overwriteLast=0;
++            xfer.deferredCoherence=!rawVramExposed && fullUploadBlocks(dpsm,dbp,dbw,dsax,dsay,rrw,rrh,0xffffffffu,overwriteFirst,overwriteLast);
++            const bool readback=!xfer.deferredCoherence && backend->flushToMemoryTagged(lo, hi,2);
+             static unsigned audit=0;
+             if(readback && std::getenv("GSR_VALIDATE_REUSE"))
+                 std::fprintf(stderr,"[readback-upload] bp=%u bw=%u psm=%u x=%u y=%u w=%u h=%u\n",dbp,dbw,dpsm,dsax,dsay,rrw,rrh);
+@@ -859,7 +883,7 @@
+             xfer.cy = 0;
+             xfer.pixelsLeft = (uint64_t)rrw * rrh;
+             if (cfg.onUpload) xfer.raw.clear();
+-            mem.touchRect(dpsm, dbp, dbw, dsax, dsay, rrw, rrh);
++            if(!xfer.deferredCoherence)mem.touchRect(dpsm, dbp, dbw, dsax, dsay, rrw, rrh);
+             stats.transfersH2L++;
+         }
+         else if (dir == 1)
+@@ -911,7 +935,7 @@
+                     const uint32_t v = mem.read(spsm, sbp, sbw, (ssax + x) & 2047, (ssay + y) & 2047);
+                     mem.write(dpsm, dbp, dbw, (dsax + x) & 2047, (dsay + y) & 2047, v);
+                 }
+-            mem.touchRect(dpsm, dbp, dbw, dsax, dsay, rrw, rrh);
++            if(!xfer.deferredCoherence)mem.touchRect(dpsm, dbp, dbw, dsax, dsay, rrw, rrh);
+             stats.transfersL2L++;
+         }
+     }
+@@ -931,6 +955,16 @@
+     void imageData(const uint8_t* d, uint32_t n)
+     {
+         if (!xfer.active || trxdir != 0) return;
++        if(xfer.deferredCoherence) {
++            const uint32_t need=xfer.w*xfer.h*(xfer.dpsm==PSM_CT32?4u:1u);
++            if(xfer.pendingImage.empty() && n>=need)resolveUploadCoherence(n);
++            else {
++                const size_t take=std::min<size_t>(n,need-xfer.pendingImage.size());
++                xfer.pendingImage.insert(xfer.pendingImage.end(),d,d+take);
++                if(xfer.pendingImage.size()==need)resolveUploadCoherence(need);
++                return;
++            }
++        }
+         const uint32_t bits = transferBits(xfer.dpsm);
+         uint32_t i = 0;
+         if (cfg.onUpload)
+@@ -1458,7 +1492,7 @@
+     return n;
+ }
+ 
+-uint8_t* Renderer::vram() { return m_impl->mem.data(); }
++uint8_t* Renderer::vram() { std::lock_guard<std::recursive_mutex> lk(m_impl->mtx);m_impl->resolveUploadCoherence();m_impl->rawVramExposed=true;return m_impl->mem.data(); }
+ 
+ void Renderer::flushToMemory()
+ {
+@@ -1470,6 +1504,7 @@
+ void Renderer::vramTouched(uint32_t firstBlock, uint32_t blockCount)
+ {
+     std::lock_guard<std::recursive_mutex> lk(m_impl->mtx);
++    m_impl->resolveUploadCoherence();
+     m_impl->mem.touchBlocks(firstBlock, blockCount);
+ }
+ 
+--- a/runtime/gs/src/gs_internal.h
++++ b/runtime/gs/src/gs_internal.h
+@@ -116,6 +116,7 @@
+     // make local memory reflect GPU render targets overlapping blocks [first,last]
+     void flushToMemory(uint32_t firstBlock, uint32_t lastBlock);
+     bool flushToMemoryTagged(uint32_t firstBlock,uint32_t lastBlock,unsigned reason);
++    void discardCompleteUpload(uint32_t first,uint32_t last);
+     void flushAll();
+     void present(const DisplayState& d);                      // render the live display + blit to the window
+     void latchDisplay(const DisplayState& d, uint32_t field); // render the display into the latched image (vblank)
+--- a/runtime/gs/src/cpu_profile.h
++++ b/runtime/gs/src/cpu_profile.h
+@@ -15,7 +15,7 @@
+               TemporalResolve, PresentLatched, PresentCall, PumpUp, Snapshot,
+               WindowScreenshot, LatchDisplay, EndFrame,
+               TextureCoherenceFlush, TextureStampCheck, TextureDecode, TextureCallback, TextureUpscale, TextureCreate,
+-              GuidePrepare, RayScene, ModelGuides, SuperResolution, NeuralEvaluation, TemporalCompose, RayPack, RayProduce, RayBuild, RayWait, RayConsume, RayTriangles, RayModelAttributes, RayUpload, TextureResourceReuse, ReadbackPalette, ReadbackUpload, ReadbackDownload, ReadbackCopy, ReadbackTexture, ReadbackExternal, Count };
++              GuidePrepare, RayScene, ModelGuides, SuperResolution, NeuralEvaluation, TemporalCompose, RayPack, RayProduce, RayBuild, RayWait, RayConsume, RayTriangles, RayModelAttributes, RayUpload, TextureResourceReuse, ReadbackPalette, ReadbackUpload, ReadbackDownload, ReadbackCopy, ReadbackTexture, ReadbackExternal, ReadbackOverwriteDiscard, Count };
+     struct Scope;
+ private:
+     struct Sample { unsigned long long calls=0; double inclusive=0, exclusive=0, maximum=0; };
+@@ -38,7 +38,7 @@
+         static constexpr const char* names[]={"draw","resolveTexture","syncRT","readbackRT","readbackMap","readbackPackUnmap",
+             "temporalResolve","presentLatched","presentCall","pumpUp","snapshot","windowScreenshot","latchDisplay","endFrame","textureCoherenceFlush","textureStampCheck",
+             "textureDecode","textureCallback","textureUpscale","textureCreate",
+-            "guidePrepare","rayScene","modelGuides","superResolution","neuralEvaluation","temporalCompose","rayPack","rayProduce","rayBuild","rayWait","rayConsume","rayTriangles","rayModelAttributes","rayUpload","textureResourceReuse","readbackPalette","readbackUpload","readbackDownload","readbackCopy","readbackTexture","readbackExternal"};
++            "guidePrepare","rayScene","modelGuides","superResolution","neuralEvaluation","temporalCompose","rayPack","rayProduce","rayBuild","rayWait","rayConsume","rayTriangles","rayModelAttributes","rayUpload","textureResourceReuse","readbackPalette","readbackUpload","readbackDownload","readbackCopy","readbackTexture","readbackExternal","readbackOverwriteDiscard"};
+         static_assert(sizeof(names) / sizeof(names[0]) == Count, "Profiler bucket names must match Id");
+         std::fprintf(stderr,"[gsr-profile] %.3fs root=%.2fms readbackCopy=%.2fMiB syncUpload=%.2fMiB; calls/inclusive_ms/exclusive_ms/max_ms:",
+             elapsed,rootMs,readbackBytes/1048576.0,uploadBytes/1048576.0);
+--- a/runtime/gs/src/d3d11_backend.cpp
++++ b/runtime/gs/src/d3d11_backend.cpp
+@@ -4331,6 +4331,17 @@
+     const CpuProfile::Id ids[]={CpuProfile::ReadbackExternal,CpuProfile::ReadbackPalette,CpuProfile::ReadbackUpload,CpuProfile::ReadbackDownload,CpuProfile::ReadbackCopy};
+     return m_impl->flushToMemory(a,b,ids[reason<5?reason:0]);
+ }
++void Backend::discardCompleteUpload(uint32_t first,uint32_t last) {
++    for(auto& r:m_impl->rts) {
++        if(!r->dirty || r->psm!=PSM_CT32 || r->wstate!=0 || r->w!=r->fbw*64 || r->dy1<=r->dy0)continue;
++        uint32_t lo,hi;m_impl->rowSpan(*r,r->dy0,std::min(r->dy1,r->h),lo,hi);
++        if(lo<first || hi>last)continue;
++        CpuProfile::Scope discard(m_impl->cpuProfile,CpuProfile::ReadbackOverwriteDiscard);
++        r->dirty=false;r->copyValid=false;
++        // startTransfer will stamp the incoming full-block write. Preserve
++        // seen/rowStamp so syncRT uploads the replacement before GPU reuse.
++    }
++}
+ void Backend::flushAll() { m_impl->flushAll(); }
+ void Backend::present(const DisplayState& d) { m_impl->present(d); }
+ void Backend::latchDisplay(const DisplayState& d, uint32_t field) { m_impl->latchDisplay(d, field); }

@@ -1,0 +1,178 @@
+{
+  "compared_environment_keys": [
+    "DRAKAN_AUDIO",
+    "DRAKAN_AUDIO_DUMP",
+    "DRAKAN_AUTOPRESS",
+    "DRAKAN_AUTOPRESS_NOSTART",
+    "DRAKAN_AUTOPRESS_UNTIL",
+    "DRAKAN_CMD_LOG",
+    "DRAKAN_COMBAT_AUDIT",
+    "DRAKAN_COMBAT_LOG",
+    "DRAKAN_CONSOLE",
+    "DRAKAN_DLSS",
+    "DRAKAN_DLSS_NEURAL",
+    "DRAKAN_INPUT_AUTOSTART",
+    "DRAKAN_PAUSE_UNFOCUSED",
+    "DRAKAN_SND_DBG",
+    "DRAKAN_SND_LOG",
+    "DRAKAN_VSYNC",
+    "DRAKAN_WINDOW_HEIGHT",
+    "DRAKAN_WINDOW_WIDTH",
+    "PS2X_GS",
+    "PS2X_GS_PACING",
+    "PS2X_GS_SCALE",
+    "PS2X_MAX_SECONDS"
+  ],
+  "comparison_eligible": true,
+  "errors": [],
+  "limitations": [
+    "Completed world submissions and present calls are not confirmed scanouts.",
+    "The last five positive-world windows may include transitions or catch-up.",
+    "Only recorded environment settings are compared; full inherited environment and graphics configuration equality are not established.",
+    "Save preservation is based on the harness receipt, not a new save-file audit.",
+    "This report does not establish gameplay-speed parity or guarantee 60 FPS."
+  ],
+  "matched_sha256": {
+    "input_ini_sha256": "3ecf546900e9858a587ef9c4b62385b074c9281431d3eac0ef73619be0dd078f",
+    "script_sha256": "3ef36c67379733a0a40133a10be9116c0af511ab763c655b07d64aa5759d252f",
+    "sha256": "a98444fe822efdb4b8f03a6966ca2c206b21b4fe324606850c07643b4aa0652e"
+  },
+  "runs": {
+    "after": {
+      "harness_elapsed_seconds": 60.2335542,
+      "input_script_clock": "milliseconds",
+      "positive_world_windows": 15,
+      "recorded_save_preservation": true,
+      "requested_world_rate": "60",
+      "selected_seconds": 10.033,
+      "selected_windows": [
+        {
+          "guestVsyncs": 33.37,
+          "seconds": 2.008,
+          "worldPresents": 33.37,
+          "worldUpdates": 33.37
+        },
+        {
+          "guestVsyncs": 33.88,
+          "seconds": 2.007,
+          "worldPresents": 33.88,
+          "worldUpdates": 33.88
+        },
+        {
+          "guestVsyncs": 33.89,
+          "seconds": 2.007,
+          "worldPresents": 33.89,
+          "worldUpdates": 33.89
+        },
+        {
+          "guestVsyncs": 33.48,
+          "seconds": 2.001,
+          "worldPresents": 33.48,
+          "worldUpdates": 33.48
+        },
+        {
+          "guestVsyncs": 33.82,
+          "seconds": 2.01,
+          "worldPresents": 33.82,
+          "worldUpdates": 33.82
+        }
+      ],
+      "weighted_rates_per_second": {
+        "guestVsyncs": 33.688132163859265,
+        "worldPresents": 33.688132163859265,
+        "worldUpdates": 33.688132163859265
+      }
+    },
+    "before": {
+      "harness_elapsed_seconds": 66.2168848,
+      "input_script_clock": "milliseconds",
+      "positive_world_windows": 14,
+      "recorded_save_preservation": true,
+      "requested_world_rate": "30",
+      "selected_seconds": 10.031,
+      "selected_windows": [
+        {
+          "guestVsyncs": 59.99,
+          "seconds": 2.0,
+          "worldPresents": 30.0,
+          "worldUpdates": 30.0
+        },
+        {
+          "guestVsyncs": 60.04,
+          "seconds": 2.015,
+          "worldPresents": 30.27,
+          "worldUpdates": 30.27
+        },
+        {
+          "guestVsyncs": 60.0,
+          "seconds": 2.0,
+          "worldPresents": 30.0,
+          "worldUpdates": 30.0
+        },
+        {
+          "guestVsyncs": 60.01,
+          "seconds": 2.016,
+          "worldPresents": 29.75,
+          "worldUpdates": 29.75
+        },
+        {
+          "guestVsyncs": 60.0,
+          "seconds": 2.0,
+          "worldPresents": 30.0,
+          "worldUpdates": 30.0
+        }
+      ],
+      "weighted_rates_per_second": {
+        "guestVsyncs": 60.0080510417705,
+        "worldPresents": 30.003992622869106,
+        "worldUpdates": 30.003992622869106
+      }
+    }
+  },
+  "world_submission_rate_change_percent": 12.278830978588173,
+  "build_provenance": {
+    "outer": "b2165a47296497de6fa6bf3f1c6af12f10350fff",
+    "runtime": "ba5d57213d9f6efee124439b1916699b6052c1fa",
+    "sha": "A98444FE822EFDB4B8F03A6966CA2C206B21B4FE324606850C07643B4AA0652E"
+  },
+  "cpu_checks": {
+    "input": 1021,
+    "settings_core": 269,
+    "settings_menu": 43,
+    "cadence": 403,
+    "comparison_unittests": 12
+  },
+  "functional_runs": {
+    "native": {
+      "name": "fps60-final-native-01",
+      "passed_checks": 23,
+      "completion": {
+        "sha256After": "A98444FE822EFDB4B8F03A6966CA2C206B21B4FE324606850C07643B4AA0652E",
+        "elapsedSeconds": 70.3593819,
+        "scriptQuit": true,
+        "exitCode": 0
+      },
+      "save_preservation": {
+        "private": true,
+        "original": true,
+        "source": true
+      }
+    },
+    "sr_nr": {
+      "name": "fps60-final-neural-01",
+      "passed_checks": 23,
+      "completion": {
+        "exitCode": 0,
+        "sha256After": "A98444FE822EFDB4B8F03A6966CA2C206B21B4FE324606850C07643B4AA0652E",
+        "scriptQuit": true,
+        "elapsedSeconds": 86.4355807
+      },
+      "save_preservation": {
+        "private": true,
+        "original": true,
+        "source": true
+      }
+    }
+  },
+  "scope": "Experimental up-to-60 cadence; unrestricted above-60 rendering and full timing parity remain unresolved."
+}

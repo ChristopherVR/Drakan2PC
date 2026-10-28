@@ -1,0 +1,51 @@
+--- a/runtime/gs/src/d3d11_backend.cpp
++++ b/runtime/gs/src/d3d11_backend.cpp
+@@ -32,6 +32,7 @@
+ #include "rt_upload.h"
+ #include "rt_native_upload.h"
+ #include "rt_dirty_runs.h"
++#include "rt_color_decode.h"
+ #include "rt_readback.h"
+ #include "temporal_presentation.h"
+ #include "surface_geometry.h"
+@@ -1489,9 +1490,11 @@
+             const uint32_t rows = y1 - y0;
+ 
+             buf.resize((size_t)rt.w * rows);
++            if(!decodeColorRows(mem,rt.psm,rt.base(),rt.fbw,rt.w,y0,rows,buf.data())) {
+             for (uint32_t y = 0; y < rows; ++y)
+                 for (uint32_t x = 0; x < rt.w; ++x)
+                     buf[(size_t)y * rt.w + x] = unpackPixel(rt.psm, mem.read(rt.psm, rt.base(), rt.fbw, x, y0 + y));
++            }
+             D3D11_BOX box{0, y0 * scale, 0, rt.w * scale, y1 * scale, 1};
+             ID3D11Texture2D* expanded = scale>1 ? nativeUpload.expand(dev.Get(),ctx.Get(),buf.data(),rt.w,rows,scale) : nullptr;
+             if(expanded) {
+--- /dev/null
++++ b/runtime/gs/src/rt_color_decode.h
+@@ -0,0 +1,26 @@
++#pragma once
++#include "gs_mem.h"
++#include <algorithm>
++namespace gsr {
++// Color render targets only. Other storage formats retain the reference reader.
++inline bool decodeColorRows(const LocalMemory& mem,uint32_t psm,uint32_t bp,uint32_t bw,
++                            uint32_t width,uint32_t y0,uint32_t rows,uint32_t* out) {
++    if(psm!=PSM_CT32 && psm!=PSM_CT24)return false;
++    for(uint32_t row=0;row<rows;++row) {
++        const uint32_t y=y0+row;
++        const uint32_t rowBase=bp*256u+(y>>5)*(bw?bw:1u)*8192u;
++        const auto* blocks=tables::block32[(y>>3)&3];
++        const auto* columns=tables::col32[y&7];
++        for(uint32_t x=0;x<width;x+=8) {
++            const uint32_t base=(rowBase+(x>>6)*8192u+blocks[(x>>3)&7]*256u)&(kVramSize-1);
++            const uint32_t n=std::min(8u,width-x);
++            for(uint32_t i=0;i<n;++i) {
++                uint32_t value;
++                std::memcpy(&value,mem.data()+base+columns[i]*4u,4);
++                out[size_t(row)*width+x+i]=psm==PSM_CT24 ? ((value&0xffffffu)|0x80000000u) : value;
++            }
++        }
++    }
++    return true;
++}
++}

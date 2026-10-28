@@ -1,0 +1,730 @@
+{
+  "sha256": "7B987758130784ECE01461DCB0DB1C36D27F04A9C6E9C15B7D2C6C53976E6CD4",
+  "source_commit": "186443017ade0186898669dc329c9ec441a74666",
+  "runs": {
+    "native": {
+      "run": "build/t/depth-final-native-03",
+      "sha256": "7B987758130784ECE01461DCB0DB1C36D27F04A9C6E9C15B7D2C6C53976E6CD4",
+      "completion": {
+        "sha256After": "7B987758130784ECE01461DCB0DB1C36D27F04A9C6E9C15B7D2C6C53976E6CD4",
+        "scriptQuit": true,
+        "exitCode": 0,
+        "elapsedSeconds": 96.4137726
+      },
+      "saves": {
+        "original": true,
+        "private": true,
+        "source": true
+      },
+      "checks_passed": 23,
+      "script_sha256": "5DD4A7D8EEBADC4D18C05B9E78598757062CF922AF3932DBBAEA3F717A445262",
+      "input_ini_sha256": "3ECF546900E9858A587EF9C4B62385B074C9281431D3EAC0EF73619BE0DD078F"
+    },
+    "srnr": {
+      "run": "build/t/depth-final-srnr-03",
+      "sha256": "7B987758130784ECE01461DCB0DB1C36D27F04A9C6E9C15B7D2C6C53976E6CD4",
+      "completion": {
+        "sha256After": "7B987758130784ECE01461DCB0DB1C36D27F04A9C6E9C15B7D2C6C53976E6CD4",
+        "scriptQuit": true,
+        "exitCode": 0,
+        "elapsedSeconds": 103.0422875
+      },
+      "saves": {
+        "original": true,
+        "private": true,
+        "source": true
+      },
+      "checks_passed": 23,
+      "script_sha256": "5DD4A7D8EEBADC4D18C05B9E78598757062CF922AF3932DBBAEA3F717A445262",
+      "input_ini_sha256": "3ECF546900E9858A587EF9C4B62385B074C9281431D3EAC0EF73619BE0DD078F",
+      "evaluations": {
+        "sr": 1794,
+        "nr": 1676
+      }
+    },
+    "performance": {
+      "run": "build/t/depth-final-performance-03",
+      "sha256": "7B987758130784ECE01461DCB0DB1C36D27F04A9C6E9C15B7D2C6C53976E6CD4",
+      "completion": {
+        "sha256After": "7B987758130784ECE01461DCB0DB1C36D27F04A9C6E9C15B7D2C6C53976E6CD4",
+        "scriptQuit": true,
+        "exitCode": 0,
+        "elapsedSeconds": 120.3251469
+      },
+      "saves": {
+        "original": true,
+        "private": true,
+        "source": true
+      },
+      "checks_passed": 0,
+      "script_sha256": "9A028E2B0E99143B6050306D58517F94FF1565A88A8E06E16071DA46DEF4D352",
+      "input_ini_sha256": "3ECF546900E9858A587EF9C4B62385B074C9281431D3EAC0EF73619BE0DD078F"
+    }
+  },
+  "performance": {
+    "baseline": {
+      "run": "followup-20261018-steady-combined",
+      "sha256": "54F082B55C3A768391EC5B39DB48033F2AA77DEA6B51CDFBBE1E81A61D92D557",
+      "completion": {
+        "scriptQuit": true,
+        "exitCode": 0,
+        "elapsedSeconds": 120.4594417,
+        "sha256After": "54F082B55C3A768391EC5B39DB48033F2AA77DEA6B51CDFBBE1E81A61D92D557"
+      },
+      "script_sha256": "9A028E2B0E99143B6050306D58517F94FF1565A88A8E06E16071DA46DEF4D352",
+      "input_ini_sha256": "3ECF546900E9858A587EF9C4B62385B074C9281431D3EAC0EF73619BE0DD078F",
+      "environment": {
+        "DRAKAN_DLSS": "quality",
+        "DRAKAN_DLSS_NEURAL": "1",
+        "PS2X_GS_SCALE": "4",
+        "PS2X_GS_PACING": "2",
+        "DRAKAN_AUDIO": "0",
+        "GSR_PROFILE": null,
+        "DRAKAN_DLSS_LOG": null
+      },
+      "log_sha256": "d18e61df6906a93147c46254978f0b983e42b6624e35aaaf3193e078f7728b27",
+      "windows": [
+        {
+          "seconds": 2.016,
+          "hostTicks": 62.01,
+          "presentCalls": 29.76,
+          "worldUpdates": 29.76,
+          "worldPresents": 29.76,
+          "guestVsyncs": 60.02,
+          "tickMs": 16.13,
+          "waitMs": 1975.84,
+          "lockMs": 0.0,
+          "presentMs": 38.71,
+          "drainMs": 0.0,
+          "handoffMs": 40.02,
+          "fairMs": 0.0
+        },
+        {
+          "seconds": 2.016,
+          "hostTicks": 63.49,
+          "presentCalls": 29.76,
+          "worldUpdates": 30.26,
+          "worldPresents": 29.76,
+          "guestVsyncs": 59.52,
+          "tickMs": 15.75,
+          "waitMs": 1975.11,
+          "lockMs": 0.0,
+          "presentMs": 39.65,
+          "drainMs": 0.0,
+          "handoffMs": 40.32,
+          "fairMs": 0.0
+        },
+        {
+          "seconds": 2.001,
+          "hostTicks": 60.97,
+          "presentCalls": 30.48,
+          "worldUpdates": 29.98,
+          "worldPresents": 30.48,
+          "guestVsyncs": 60.47,
+          "tickMs": 16.4,
+          "waitMs": 1960.07,
+          "lockMs": 0.0,
+          "presentMs": 39.62,
+          "drainMs": 0.0,
+          "handoffMs": 39.66,
+          "fairMs": 0.0
+        },
+        {
+          "seconds": 2.016,
+          "hostTicks": 62.99,
+          "presentCalls": 29.76,
+          "worldUpdates": 29.76,
+          "worldPresents": 29.76,
+          "guestVsyncs": 60.01,
+          "tickMs": 15.88,
+          "waitMs": 1973.24,
+          "lockMs": 0.0,
+          "presentMs": 41.73,
+          "drainMs": 0.0,
+          "handoffMs": 43.11,
+          "fairMs": 0.0
+        },
+        {
+          "seconds": 2.001,
+          "hostTicks": 61.48,
+          "presentCalls": 29.99,
+          "worldUpdates": 29.99,
+          "worldPresents": 29.99,
+          "guestVsyncs": 59.98,
+          "tickMs": 16.27,
+          "waitMs": 1960.36,
+          "lockMs": 0.0,
+          "presentMs": 39.01,
+          "drainMs": 0.0,
+          "handoffMs": 39.65,
+          "fairMs": 0.0
+        },
+        {
+          "seconds": 2.016,
+          "hostTicks": 61.5,
+          "presentCalls": 30.25,
+          "worldUpdates": 30.25,
+          "worldPresents": 30.25,
+          "guestVsyncs": 60.01,
+          "tickMs": 16.26,
+          "waitMs": 1975.06,
+          "lockMs": 0.0,
+          "presentMs": 40.03,
+          "drainMs": 0.0,
+          "handoffMs": 40.08,
+          "fairMs": 0.0
+        },
+        {
+          "seconds": 2.017,
+          "hostTicks": 60.48,
+          "presentCalls": 29.75,
+          "worldUpdates": 29.75,
+          "worldPresents": 29.75,
+          "guestVsyncs": 59.99,
+          "tickMs": 16.53,
+          "waitMs": 1977.35,
+          "lockMs": 0.0,
+          "presentMs": 38.48,
+          "drainMs": 0.0,
+          "handoffMs": 39.69,
+          "fairMs": 0.0
+        },
+        {
+          "seconds": 2.016,
+          "hostTicks": 62.5,
+          "presentCalls": 30.26,
+          "worldUpdates": 30.26,
+          "worldPresents": 30.26,
+          "guestVsyncs": 60.02,
+          "tickMs": 16.0,
+          "waitMs": 1972.75,
+          "lockMs": 0.0,
+          "presentMs": 41.76,
+          "drainMs": 0.0,
+          "handoffMs": 41.73,
+          "fairMs": 0.0
+        },
+        {
+          "seconds": 2.0,
+          "hostTicks": 62.99,
+          "presentCalls": 29.99,
+          "worldUpdates": 29.99,
+          "worldPresents": 29.99,
+          "guestVsyncs": 59.99,
+          "tickMs": 15.88,
+          "waitMs": 1960.37,
+          "lockMs": 0.0,
+          "presentMs": 38.66,
+          "drainMs": 0.0,
+          "handoffMs": 39.19,
+          "fairMs": 0.0
+        },
+        {
+          "seconds": 2.016,
+          "hostTicks": 62.5,
+          "presentCalls": 29.76,
+          "worldUpdates": 29.76,
+          "worldPresents": 29.76,
+          "guestVsyncs": 60.02,
+          "tickMs": 16.0,
+          "waitMs": 1972.03,
+          "lockMs": 0.0,
+          "presentMs": 42.59,
+          "drainMs": 0.0,
+          "handoffMs": 43.96,
+          "fairMs": 0.0
+        }
+      ],
+      "seconds": 20.115,
+      "worlds_per_second": 29.97596420581656,
+      "presents_per_second": 29.975591349739002,
+      "saves": {
+        "source": true,
+        "original": true,
+        "private": true
+      }
+    },
+    "combined": {
+      "run": "depth-final-performance-03",
+      "sha256": "7B987758130784ECE01461DCB0DB1C36D27F04A9C6E9C15B7D2C6C53976E6CD4",
+      "completion": {
+        "sha256After": "7B987758130784ECE01461DCB0DB1C36D27F04A9C6E9C15B7D2C6C53976E6CD4",
+        "scriptQuit": true,
+        "exitCode": 0,
+        "elapsedSeconds": 120.3251469
+      },
+      "script_sha256": "9A028E2B0E99143B6050306D58517F94FF1565A88A8E06E16071DA46DEF4D352",
+      "input_ini_sha256": "3ECF546900E9858A587EF9C4B62385B074C9281431D3EAC0EF73619BE0DD078F",
+      "environment": {
+        "DRAKAN_DLSS": "quality",
+        "DRAKAN_DLSS_NEURAL": "1",
+        "PS2X_GS_SCALE": "4",
+        "PS2X_GS_PACING": "2",
+        "DRAKAN_AUDIO": "0",
+        "GSR_PROFILE": null,
+        "DRAKAN_DLSS_LOG": null
+      },
+      "log_sha256": "dc2436e610618c9b54c60d10681178253b94d86aa2a0f2510b13cf1c3b3459a0",
+      "windows": [
+        {
+          "seconds": 2.016,
+          "hostTicks": 62.5,
+          "presentCalls": 30.26,
+          "worldUpdates": 30.26,
+          "worldPresents": 30.26,
+          "guestVsyncs": 60.02,
+          "tickMs": 16.0,
+          "waitMs": 1974.38,
+          "lockMs": 0.0,
+          "presentMs": 40.07,
+          "drainMs": 0.0,
+          "handoffMs": 40.04,
+          "fairMs": 0.0
+        },
+        {
+          "seconds": 2.0,
+          "hostTicks": 60.5,
+          "presentCalls": 30.0,
+          "worldUpdates": 30.0,
+          "worldPresents": 30.0,
+          "guestVsyncs": 60.0,
+          "tickMs": 16.53,
+          "waitMs": 1957.73,
+          "lockMs": 0.0,
+          "presentMs": 41.0,
+          "drainMs": 0.0,
+          "handoffMs": 41.68,
+          "fairMs": 0.0
+        },
+        {
+          "seconds": 2.016,
+          "hostTicks": 60.52,
+          "presentCalls": 29.76,
+          "worldUpdates": 29.76,
+          "worldPresents": 29.76,
+          "guestVsyncs": 60.02,
+          "tickMs": 16.52,
+          "waitMs": 1975.44,
+          "lockMs": 0.0,
+          "presentMs": 39.22,
+          "drainMs": 0.0,
+          "handoffMs": 40.59,
+          "fairMs": 0.0
+        },
+        {
+          "seconds": 2.0,
+          "hostTicks": 60.49,
+          "presentCalls": 30.0,
+          "worldUpdates": 30.0,
+          "worldPresents": 30.0,
+          "guestVsyncs": 59.99,
+          "tickMs": 16.53,
+          "waitMs": 1959.42,
+          "lockMs": 0.0,
+          "presentMs": 39.63,
+          "drainMs": 0.0,
+          "handoffMs": 40.31,
+          "fairMs": 0.0
+        },
+        {
+          "seconds": 2.0,
+          "hostTicks": 61.99,
+          "presentCalls": 30.0,
+          "worldUpdates": 30.0,
+          "worldPresents": 30.0,
+          "guestVsyncs": 59.99,
+          "tickMs": 16.13,
+          "waitMs": 1959.16,
+          "lockMs": 0.0,
+          "presentMs": 39.74,
+          "drainMs": 0.0,
+          "handoffMs": 40.49,
+          "fairMs": 0.0
+        },
+        {
+          "seconds": 2.001,
+          "hostTicks": 61.47,
+          "presentCalls": 29.98,
+          "worldUpdates": 29.98,
+          "worldPresents": 29.98,
+          "guestVsyncs": 59.97,
+          "tickMs": 16.27,
+          "waitMs": 1959.95,
+          "lockMs": 0.0,
+          "presentMs": 39.68,
+          "drainMs": 0.0,
+          "handoffMs": 40.32,
+          "fairMs": 0.0
+        },
+        {
+          "seconds": 2.0,
+          "hostTicks": 60.5,
+          "presentCalls": 30.0,
+          "worldUpdates": 30.0,
+          "worldPresents": 30.0,
+          "guestVsyncs": 60.0,
+          "tickMs": 16.53,
+          "waitMs": 1959.45,
+          "lockMs": 0.0,
+          "presentMs": 39.14,
+          "drainMs": 0.0,
+          "handoffMs": 39.71,
+          "fairMs": 0.0
+        },
+        {
+          "seconds": 2.001,
+          "hostTicks": 61.48,
+          "presentCalls": 29.99,
+          "worldUpdates": 29.99,
+          "worldPresents": 29.99,
+          "guestVsyncs": 59.98,
+          "tickMs": 16.27,
+          "waitMs": 1958.92,
+          "lockMs": 0.0,
+          "presentMs": 40.44,
+          "drainMs": 0.0,
+          "handoffMs": 41.11,
+          "fairMs": 0.0
+        },
+        {
+          "seconds": 2.015,
+          "hostTicks": 61.03,
+          "presentCalls": 30.27,
+          "worldUpdates": 30.27,
+          "worldPresents": 30.27,
+          "guestVsyncs": 60.04,
+          "tickMs": 16.38,
+          "waitMs": 1974.14,
+          "lockMs": 0.0,
+          "presentMs": 39.75,
+          "drainMs": 0.0,
+          "handoffMs": 39.76,
+          "fairMs": 0.0
+        },
+        {
+          "seconds": 2.001,
+          "hostTicks": 60.48,
+          "presentCalls": 29.99,
+          "worldUpdates": 29.99,
+          "worldPresents": 29.99,
+          "guestVsyncs": 59.98,
+          "tickMs": 16.53,
+          "waitMs": 1959.22,
+          "lockMs": 0.0,
+          "presentMs": 40.06,
+          "drainMs": 0.0,
+          "handoffMs": 39.76,
+          "fairMs": 0.0
+        }
+      ],
+      "seconds": 20.05,
+      "worlds_per_second": 30.025153615960097,
+      "presents_per_second": 30.025153615960097,
+      "saves": {
+        "original": true,
+        "private": true,
+        "source": true
+      }
+    },
+    "world_rate_change_percent": 0.16409617320662928,
+    "limits": "One run each; last ten two-second gameplay windows; CPU submission cadence, not scanout FPS."
+  },
+  "parry": {
+    "failures": [],
+    "timed_dagger_parry_established": false
+  },
+  "parry_runs": [
+    {
+      "run": "depth-final-parry-tap",
+      "sha256": "7B987758130784ECE01461DCB0DB1C36D27F04A9C6E9C15B7D2C6C53976E6CD4",
+      "script_sha256": "98CE467AF404803E2F54FD7A612151DDC6646A166C35C53C7A0CFA2562F3A3E2",
+      "input_ini_sha256": "3ECF546900E9858A587EF9C4B62385B074C9281431D3EAC0EF73619BE0DD078F",
+      "completion": {
+        "sha256After": "7B987758130784ECE01461DCB0DB1C36D27F04A9C6E9C15B7D2C6C53976E6CD4",
+        "scriptQuit": true,
+        "exitCode": 0,
+        "elapsedSeconds": 44.2306087
+      },
+      "failures": [],
+      "verified_hp_updates": 7,
+      "active_window_samples": 172,
+      "timed_dagger_parry_established": false,
+      "damage_reduction_established": false,
+      "all_save_roots_unchanged": true,
+      "hit_gates": [
+        {
+          "frame": 662,
+          "incoming": 10,
+          "returned": 10,
+          "hp_loss": 10,
+          "window_active": true,
+          "facing_dot": -0.96509182
+        },
+        {
+          "frame": 712,
+          "incoming": 10,
+          "returned": 10,
+          "hp_loss": 10,
+          "window_active": true,
+          "facing_dot": -0.96650612
+        },
+        {
+          "frame": 762,
+          "incoming": 10,
+          "returned": 10,
+          "hp_loss": 10,
+          "window_active": true,
+          "facing_dot": -0.96253139
+        },
+        {
+          "frame": 770,
+          "incoming": 10,
+          "returned": 10,
+          "hp_loss": 10,
+          "window_active": false,
+          "facing_dot": 0.9931795
+        },
+        {
+          "frame": 812,
+          "incoming": 10,
+          "returned": 10,
+          "hp_loss": 10,
+          "window_active": true,
+          "facing_dot": -0.97021776
+        },
+        {
+          "frame": 819,
+          "incoming": 10,
+          "returned": 10,
+          "hp_loss": 10,
+          "window_active": false,
+          "facing_dot": 0.99249315
+        },
+        {
+          "frame": 839,
+          "incoming": 10,
+          "returned": 10,
+          "hp_loss": 10,
+          "window_active": false,
+          "facing_dot": -0.95626187
+        }
+      ]
+    },
+    {
+      "run": "depth-parry-front-neutral",
+      "sha256": "7B987758130784ECE01461DCB0DB1C36D27F04A9C6E9C15B7D2C6C53976E6CD4",
+      "script_sha256": "412D3E2BF36E52CB6A6A7E61AB1C9F4D2657ABF4B228AA0A2309A423CAD3C920",
+      "input_ini_sha256": "3ECF546900E9858A587EF9C4B62385B074C9281431D3EAC0EF73619BE0DD078F",
+      "completion": {
+        "scriptQuit": true,
+        "exitCode": 0,
+        "sha256After": "7B987758130784ECE01461DCB0DB1C36D27F04A9C6E9C15B7D2C6C53976E6CD4",
+        "elapsedSeconds": 44.2663918
+      },
+      "failures": [],
+      "verified_hp_updates": 8,
+      "active_window_samples": 0,
+      "timed_dagger_parry_established": false,
+      "damage_reduction_established": false,
+      "all_save_roots_unchanged": true,
+      "hit_gates": [
+        {
+          "frame": 641,
+          "incoming": 10,
+          "returned": 10,
+          "hp_loss": 10,
+          "window_active": false,
+          "facing_dot": 0.99252248
+        },
+        {
+          "frame": 656,
+          "incoming": 10,
+          "returned": 10,
+          "hp_loss": 10,
+          "window_active": false,
+          "facing_dot": -0.91463101
+        },
+        {
+          "frame": 692,
+          "incoming": 10,
+          "returned": 10,
+          "hp_loss": 10,
+          "window_active": false,
+          "facing_dot": 0.93962693
+        },
+        {
+          "frame": 714,
+          "incoming": 10,
+          "returned": 10,
+          "hp_loss": 10,
+          "window_active": false,
+          "facing_dot": -0.90443391
+        },
+        {
+          "frame": 749,
+          "incoming": 10,
+          "returned": 10,
+          "hp_loss": 10,
+          "window_active": false,
+          "facing_dot": 0.94491076
+        },
+        {
+          "frame": 771,
+          "incoming": 10,
+          "returned": 10,
+          "hp_loss": 10,
+          "window_active": false,
+          "facing_dot": -0.94660807
+        },
+        {
+          "frame": 807,
+          "incoming": 10,
+          "returned": 10,
+          "hp_loss": 10,
+          "window_active": false,
+          "facing_dot": 0.94729668
+        },
+        {
+          "frame": 821,
+          "incoming": 10,
+          "returned": 10,
+          "hp_loss": 10,
+          "window_active": false,
+          "facing_dot": -0.94414544
+        }
+      ]
+    },
+    {
+      "run": "depth-parry-front-tap",
+      "sha256": "7B987758130784ECE01461DCB0DB1C36D27F04A9C6E9C15B7D2C6C53976E6CD4",
+      "script_sha256": "8F3FC201C2D0C10BDFD2E50B19F43DD1E5EB5B1B6A3C001C22ED9D091C3DF041",
+      "input_ini_sha256": "3ECF546900E9858A587EF9C4B62385B074C9281431D3EAC0EF73619BE0DD078F",
+      "completion": {
+        "scriptQuit": true,
+        "exitCode": 0,
+        "sha256After": "7B987758130784ECE01461DCB0DB1C36D27F04A9C6E9C15B7D2C6C53976E6CD4",
+        "elapsedSeconds": 46.262953
+      },
+      "failures": [],
+      "verified_hp_updates": 2,
+      "active_window_samples": 153,
+      "timed_dagger_parry_established": false,
+      "damage_reduction_established": false,
+      "all_save_roots_unchanged": true,
+      "hit_gates": [
+        {
+          "frame": 600,
+          "incoming": 10,
+          "returned": 10,
+          "hp_loss": 10,
+          "window_active": false,
+          "facing_dot": 0.94332904
+        },
+        {
+          "frame": 666,
+          "incoming": 10,
+          "returned": 10,
+          "hp_loss": 10,
+          "window_active": false,
+          "facing_dot": -0.49357799
+        }
+      ]
+    },
+    {
+      "run": "depth-parry-front-tap12",
+      "sha256": "7B987758130784ECE01461DCB0DB1C36D27F04A9C6E9C15B7D2C6C53976E6CD4",
+      "script_sha256": "73972E6BACD26159DA433F39958E5E567C29EEB181CFD6331EB4B908735EA1D9",
+      "input_ini_sha256": "3ECF546900E9858A587EF9C4B62385B074C9281431D3EAC0EF73619BE0DD078F",
+      "completion": {
+        "exitCode": 0,
+        "scriptQuit": true,
+        "sha256After": "7B987758130784ECE01461DCB0DB1C36D27F04A9C6E9C15B7D2C6C53976E6CD4",
+        "elapsedSeconds": 44.2595996
+      },
+      "failures": [],
+      "verified_hp_updates": 7,
+      "active_window_samples": 123,
+      "timed_dagger_parry_established": false,
+      "damage_reduction_established": false,
+      "all_save_roots_unchanged": true,
+      "hit_gates": [
+        {
+          "frame": 639,
+          "incoming": 10,
+          "returned": 10,
+          "hp_loss": 10,
+          "window_active": false,
+          "facing_dot": 0.99334669
+        },
+        {
+          "frame": 654,
+          "incoming": 10,
+          "returned": 10,
+          "hp_loss": 10,
+          "window_active": true,
+          "facing_dot": -0.9538995
+        },
+        {
+          "frame": 703,
+          "incoming": 10,
+          "returned": 10,
+          "hp_loss": 10,
+          "window_active": true,
+          "facing_dot": -0.95132136
+        },
+        {
+          "frame": 733,
+          "incoming": 10,
+          "returned": 10,
+          "hp_loss": 10,
+          "window_active": false,
+          "facing_dot": 0.99356806
+        },
+        {
+          "frame": 754,
+          "incoming": 10,
+          "returned": 10,
+          "hp_loss": 10,
+          "window_active": false,
+          "facing_dot": -0.87427133
+        },
+        {
+          "frame": 782,
+          "incoming": 10,
+          "returned": 10,
+          "hp_loss": 10,
+          "window_active": false,
+          "facing_dot": 0.94626981
+        },
+        {
+          "frame": 811,
+          "incoming": 10,
+          "returned": 10,
+          "hp_loss": 10,
+          "window_active": true,
+          "facing_dot": -0.93970394
+        }
+      ]
+    }
+  ],
+  "renderer_regressions": {
+    "ctest_passed": 9,
+    "ctest_failed": 0,
+    "depth_transition_cases": 3,
+    "synthetic": [
+      {
+        "scale": 1,
+        "checks": 118,
+        "failed": 0
+      },
+      {
+        "scale": 4,
+        "checks": 118,
+        "failed": 0
+      }
+    ],
+    "sprite_cpu_checks": 24,
+    "parry_cpu_checks": 34,
+    "parry_python_methods": 8
+  }
+}

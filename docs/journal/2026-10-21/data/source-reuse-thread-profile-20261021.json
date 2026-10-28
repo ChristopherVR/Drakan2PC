@@ -1,0 +1,1369 @@
+{
+  "window_start": "2026-10-21T03:04:45.102698+00:00",
+  "requested_seconds": 18.0,
+  "caveat": "Wall RIP samples include blocked time; CPU counters rank threads, not functions. Window starts at process start plus configured delay, which approximates sampler initialization.",
+  "threads": [
+    {
+      "tid": 57588,
+      "observed_seconds": 17.573966026306152,
+      "cpu_ms": 13218.75,
+      "cores": 0.7521779648494308,
+      "wall_sample_states": [
+        [
+          "??$blockFn@$0NE@$0A@$0A@@?A0x6d06d49a@@YA_NAEAVVU1Interpreter@@AEAUCtx@Vu1Step@@@Z",
+          86
+        ],
+        [
+          "ntdll.dll",
+          86
+        ],
+        [
+          "??$blockFn@$0NB@$0A@$0A@@?A0x6d06d49a@@YA_NAEAVVU1Interpreter@@AEAUCtx@Vu1Step@@@Z",
+          83
+        ],
+        [
+          "?processVIF1Data@PS2Memory@@QEAAXPEBEII@Z",
+          46
+        ],
+        [
+          "??$blockFn@$0CP@$0A@$0A@@?A0x20ce7591@@YA_NAEAVVU1Interpreter@@AEAUCtx@Vu1Step@@@Z",
+          33
+        ],
+        [
+          "?run@VU1Interpreter@@AEAAXPEAEI0IAEAVGS@@PEAVPS2Memory@@I@Z",
+          32
+        ],
+        [
+          "?settleFlags@Vu1Fast@@SAXAEAVVU1Interpreter@@@Z",
+          27
+        ],
+        [
+          "VCRUNTIME140.dll",
+          25
+        ],
+        [
+          "?packetKernel@Vu1Step@@SA_NAEAVVU1Interpreter@@AEAUCtx@1@@Z",
+          24
+        ],
+        [
+          "?execLower@VU1Interpreter@@AEAAXIPEAEIAEAVGS@@PEAVPS2Memory@@I@Z",
+          17
+        ]
+      ],
+      "external_sample_callers": [
+        [
+          "?submitGif@GsrBridge@@QEAAXEPEBEI@Z",
+          58
+        ],
+        [
+          "?run@Worker@?A0x5e94a6aa@vu1async@@QEAAXXZ",
+          20
+        ],
+        [
+          "??$_Insert_counted_range@PEBE@?$vector@EV?$allocator@E@std@@@std@@AEAAXV?$_Vector_const_iterator@V?$_Vector_val@U?$_Simple_types@E@std@@@std@@@1@PEBE_K@Z",
+          9
+        ],
+        [
+          "?processGIFPacketPath@GS@@QEAAXEPEBEI@Z",
+          8
+        ],
+        [
+          "?processVIF1Data@PS2Memory@@QEAAXPEBEII@Z",
+          6
+        ]
+      ]
+    },
+    {
+      "tid": 12000,
+      "observed_seconds": 17.573966026306152,
+      "cpu_ms": 9140.625,
+      "cores": 0.5201230608001383,
+      "wall_sample_states": [
+        [
+          "ntdll.dll",
+          531
+        ],
+        [
+          "ucrtbase.dll",
+          68
+        ],
+        [
+          "VCRUNTIME140.dll",
+          23
+        ],
+        [
+          "??$write@$0BD@@image_upload@gsr@@YAXAEAVLocalMemory@1@IIIIIAEAI1AEA_KPEBEI@Z",
+          23
+        ],
+        [
+          "?kick@Impl@Renderer@gsr@@QEAAXIIIH_N@Z",
+          18
+        ],
+        [
+          "?toDV@Impl@Renderer@gsr@@QEBA?AUDrawVertex@3@AEBUVtx@?A0xf741d302@3@_N@Z",
+          14
+        ],
+        [
+          "?gifSubmit@Impl@Renderer@gsr@@QEAAXIPEBEI@Z",
+          13
+        ],
+        [
+          "?emitTri@Impl@Renderer@gsr@@QEAAXAEBUVtx@?A0xf741d302@3@00@Z",
+          12
+        ],
+        [
+          "??$decodeTexturePixels@$0BD@$00@detail@gsr@@YAXAEBVLocalMemory@1@IIIII_KPEBIAEAV?$vector@IV?$allocator@I@std@@@std@@PEBUClutBuf@1@I@Z",
+          11
+        ],
+        [
+          "MSVCP140.dll",
+          9
+        ]
+      ],
+      "external_sample_callers": [
+        [
+          "?workerMain@Impl@GsrBridge@@QEAAXXZ",
+          484
+        ],
+        [
+          "?draw@Impl@Backend@gsr@@QEAAXAEBUGsDrawState@3@AEBUClutBuf@3@PEBUDrawVertex@3@I@Z",
+          88
+        ],
+        [
+          "?now@steady_clock@chrono@std@@SA?AV?$time_point@Usteady_clock@chrono@std@@V?$duration@_JU?$ratio@$00$0DLJKMKAA@@std@@@23@@23@XZ",
+          21
+        ],
+        [
+          "_Cnd_timedwait_for_impl",
+          17
+        ],
+        [
+          "?resolveTexture@Impl@Backend@gsr@@QEAA_NAEBUGsDrawState@3@AEBUClutBuf@3@AEAUTexBind@123@_N@Z",
+          12
+        ]
+      ]
+    },
+    {
+      "tid": 22688,
+      "observed_seconds": 17.573966026306152,
+      "cpu_ms": 4296.875,
+      "cores": 0.24450229353852657,
+      "wall_sample_states": [
+        [
+          "ntdll.dll",
+          651
+        ],
+        [
+          "?f_0x116990@@YAXPEAEPEAUR5900Context@@PEAVPS2Runtime@@@Z",
+          7
+        ],
+        [
+          "VCRUNTIME140.dll",
+          6
+        ],
+        [
+          "?read32@PS2Memory@@QEAAII@Z",
+          5
+        ],
+        [
+          "KERNEL32.DLL",
+          4
+        ],
+        [
+          "?writeIORegister@PS2Memory@@QEAA_NII@Z",
+          4
+        ],
+        [
+          "?f_0x158148@@YAXPEAEPEAUR5900Context@@PEAVPS2Runtime@@@Z",
+          3
+        ],
+        [
+          "?f_0x1e08f0@@YAXPEAEPEAUR5900Context@@PEAVPS2Runtime@@@Z",
+          3
+        ],
+        [
+          "?f_0x12b640@@YAXPEAEPEAUR5900Context@@PEAVPS2Runtime@@@Z",
+          3
+        ],
+        [
+          "?f_0x12bd80@@YAXPEAEPEAUR5900Context@@PEAVPS2Runtime@@@Z",
+          3
+        ]
+      ],
+      "external_sample_callers": [
+        [
+          "?syncSlow@vu1async@@YAXXZ",
+          629
+        ],
+        [
+          "?consumeCompletedDmacCauses@PS2Memory@@QEAA?AV?$vector@IV?$allocator@I@std@@@std@@XZ",
+          10
+        ],
+        [
+          "?now@steady_clock@chrono@std@@SA?AV?$time_point@Usteady_clock@chrono@std@@V?$duration@_JU?$ratio@$00$0DLJKMKAA@@std@@@23@@23@XZ",
+          6
+        ],
+        [
+          "??$_Insert_counted_range@PEBE@?$vector@EV?$allocator@E@std@@@std@@AEAAXV?$_Vector_const_iterator@V?$_Vector_val@U?$_Simple_types@E@std@@@std@@@1@PEBE_K@Z",
+          6
+        ],
+        [
+          "??2@YAPEAX_K@Z",
+          6
+        ]
+      ]
+    },
+    {
+      "tid": 23780,
+      "observed_seconds": 17.573966026306152,
+      "cpu_ms": 2625.0,
+      "cores": 0.14936867387080896,
+      "wall_sample_states": [],
+      "external_sample_callers": []
+    },
+    {
+      "tid": 33100,
+      "observed_seconds": 17.573966026306152,
+      "cpu_ms": 1000.0,
+      "cores": 0.056902351950784365,
+      "wall_sample_states": [
+        [
+          "ntdll.dll",
+          794
+        ],
+        [
+          "?decodeSamples@Spu2@spu2@@AEAAXHH@Z",
+          12
+        ],
+        [
+          "?mixVoice@Spu2@spu2@@AEAA?AUStereo@12@HH@Z",
+          10
+        ],
+        [
+          "?doReverb@Spu2@spu2@@AEAA?AUStereo@12@HU312@@Z",
+          8
+        ],
+        [
+          "?mixSample@Spu2@spu2@@AEAAXAEAH0@Z",
+          3
+        ],
+        [
+          "?update@VolSlide@spu2@@QEAAXXZ",
+          2
+        ],
+        [
+          "?calculate@Adsr@spu2@@QEAA_NXZ",
+          1
+        ],
+        [
+          "?checkIrq@Spu2@spu2@@AEAAXI@Z",
+          1
+        ],
+        [
+          "?mixCore@Spu2@spu2@@AEAA?AUStereo@12@HAEBU312@000@Z",
+          1
+        ]
+      ],
+      "external_sample_callers": [
+        [
+          "?threadMain@AudioOutput@spu2@@AEAAXXZ",
+          794
+        ]
+      ]
+    },
+    {
+      "tid": 60404,
+      "observed_seconds": 17.573966026306152,
+      "cpu_ms": 625.0,
+      "cores": 0.035563969969240224,
+      "wall_sample_states": [
+        [
+          "ntdll.dll",
+          817
+        ],
+        [
+          "nvwgf2umx.dll",
+          15
+        ]
+      ],
+      "external_sample_callers": []
+    },
+    {
+      "tid": 16776,
+      "observed_seconds": 17.573966026306152,
+      "cpu_ms": 250.0,
+      "cores": 0.014225587987696091,
+      "wall_sample_states": [
+        [
+          "ntdll.dll",
+          825
+        ],
+        [
+          "win32u.dll",
+          3
+        ],
+        [
+          "?NavUpdateWindowing@ImGui@@YAXXZ",
+          1
+        ],
+        [
+          "nvwgf2umx.dll",
+          1
+        ],
+        [
+          "ucrtbase.dll",
+          1
+        ],
+        [
+          "uxtheme.dll",
+          1
+        ]
+      ],
+      "external_sample_callers": [
+        [
+          "_Cnd_timedwait_for_impl",
+          820
+        ],
+        [
+          "?pollGamepadCombo@Impl@SettingsOverlay@dsettings@@QEAAXAEAV23@@Z",
+          3
+        ],
+        [
+          "?presentLatched@Impl@Backend@gsr@@QEAAXXZ",
+          2
+        ],
+        [
+          "?now@steady_clock@chrono@std@@SA?AV?$time_point@Usteady_clock@chrono@std@@V?$duration@_JU?$ratio@$00$0DLJKMKAA@@std@@@23@@23@XZ",
+          1
+        ],
+        [
+          "?tickWindow@Impl@GsrBridge@@QEAAXXZ",
+          1
+        ]
+      ]
+    },
+    {
+      "tid": 58988,
+      "observed_seconds": 17.573966026306152,
+      "cpu_ms": 250.0,
+      "cores": 0.014225587987696091,
+      "wall_sample_states": [
+        [
+          "ntdll.dll",
+          832
+        ]
+      ],
+      "external_sample_callers": [
+        [
+          "?writerMain@?A0xb508b80a@drakan_log@@YAXXZ",
+          832
+        ]
+      ]
+    },
+    {
+      "tid": 32684,
+      "observed_seconds": 17.573966026306152,
+      "cpu_ms": 78.125,
+      "cores": 0.004445496246155028,
+      "wall_sample_states": [
+        [
+          "ntdll.dll",
+          825
+        ],
+        [
+          "win32u.dll",
+          7
+        ]
+      ],
+      "external_sample_callers": []
+    },
+    {
+      "tid": 62980,
+      "observed_seconds": 17.573966026306152,
+      "cpu_ms": 31.25,
+      "cores": 0.0017781984984620114,
+      "wall_sample_states": [
+        [
+          "ntdll.dll",
+          832
+        ]
+      ],
+      "external_sample_callers": []
+    },
+    {
+      "tid": 44804,
+      "observed_seconds": 17.573966026306152,
+      "cpu_ms": 31.25,
+      "cores": 0.0017781984984620114,
+      "wall_sample_states": [
+        [
+          "ntdll.dll",
+          832
+        ]
+      ],
+      "external_sample_callers": [
+        [
+          "??R<lambda_1>@?2???0Pool@texup@gsr@@QEAA@I@Z@QEBA@XZ",
+          832
+        ]
+      ]
+    },
+    {
+      "tid": 888,
+      "observed_seconds": 17.573966026306152,
+      "cpu_ms": 31.25,
+      "cores": 0.0017781984984620114,
+      "wall_sample_states": [
+        [
+          "ntdll.dll",
+          832
+        ]
+      ],
+      "external_sample_callers": []
+    },
+    {
+      "tid": 43432,
+      "observed_seconds": 17.573966026306152,
+      "cpu_ms": 15.625,
+      "cores": 0.0008890992492310057,
+      "wall_sample_states": [
+        [
+          "ntdll.dll",
+          832
+        ]
+      ],
+      "external_sample_callers": [
+        [
+          "?readerMain@?A0xb508b80a@drakan_log@@YAXXZ",
+          832
+        ]
+      ]
+    },
+    {
+      "tid": 20632,
+      "observed_seconds": 17.573966026306152,
+      "cpu_ms": 15.625,
+      "cores": 0.0008890992492310057,
+      "wall_sample_states": [
+        [
+          "ntdll.dll",
+          832
+        ]
+      ],
+      "external_sample_callers": []
+    },
+    {
+      "tid": 52968,
+      "observed_seconds": 17.573966026306152,
+      "cpu_ms": 15.625,
+      "cores": 0.0008890992492310057,
+      "wall_sample_states": [
+        [
+          "ntdll.dll",
+          832
+        ]
+      ],
+      "external_sample_callers": [
+        [
+          "ma_device_write__wasapi",
+          832
+        ]
+      ]
+    },
+    {
+      "tid": 42556,
+      "observed_seconds": 17.573966026306152,
+      "cpu_ms": 15.625,
+      "cores": 0.0008890992492310057,
+      "wall_sample_states": [
+        [
+          "ntdll.dll",
+          832
+        ]
+      ],
+      "external_sample_callers": [
+        [
+          "??R<lambda_1>@?2???0Pool@texup@gsr@@QEAA@I@Z@QEBA@XZ",
+          832
+        ]
+      ]
+    },
+    {
+      "tid": 7648,
+      "observed_seconds": 17.573966026306152,
+      "cpu_ms": 15.625,
+      "cores": 0.0008890992492310057,
+      "wall_sample_states": [
+        [
+          "ntdll.dll",
+          832
+        ]
+      ],
+      "external_sample_callers": []
+    },
+    {
+      "tid": 48660,
+      "observed_seconds": 17.573966026306152,
+      "cpu_ms": 15.625,
+      "cores": 0.0008890992492310057,
+      "wall_sample_states": [
+        [
+          "ntdll.dll",
+          832
+        ]
+      ],
+      "external_sample_callers": []
+    },
+    {
+      "tid": 58644,
+      "observed_seconds": 17.573966026306152,
+      "cpu_ms": 15.625,
+      "cores": 0.0008890992492310057,
+      "wall_sample_states": [
+        [
+          "ntdll.dll",
+          832
+        ]
+      ],
+      "external_sample_callers": []
+    },
+    {
+      "tid": 14056,
+      "observed_seconds": 17.573966026306152,
+      "cpu_ms": 15.625,
+      "cores": 0.0008890992492310057,
+      "wall_sample_states": [
+        [
+          "ntdll.dll",
+          832
+        ]
+      ],
+      "external_sample_callers": []
+    },
+    {
+      "tid": 23340,
+      "observed_seconds": 17.573966026306152,
+      "cpu_ms": 15.625,
+      "cores": 0.0008890992492310057,
+      "wall_sample_states": [
+        [
+          "ntdll.dll",
+          832
+        ]
+      ],
+      "external_sample_callers": []
+    },
+    {
+      "tid": 54256,
+      "observed_seconds": 17.573966026306152,
+      "cpu_ms": 15.625,
+      "cores": 0.0008890992492310057,
+      "wall_sample_states": [
+        [
+          "ntdll.dll",
+          831
+        ],
+        [
+          "win32u.dll",
+          1
+        ]
+      ],
+      "external_sample_callers": []
+    },
+    {
+      "tid": 52496,
+      "observed_seconds": 17.573966026306152,
+      "cpu_ms": 15.625,
+      "cores": 0.0008890992492310057,
+      "wall_sample_states": [
+        [
+          "ntdll.dll",
+          832
+        ]
+      ],
+      "external_sample_callers": []
+    },
+    {
+      "tid": 58480,
+      "observed_seconds": 17.573966026306152,
+      "cpu_ms": 15.625,
+      "cores": 0.0008890992492310057,
+      "wall_sample_states": [
+        [
+          "ntdll.dll",
+          832
+        ]
+      ],
+      "external_sample_callers": []
+    },
+    {
+      "tid": 56588,
+      "observed_seconds": 17.573966026306152,
+      "cpu_ms": 15.625,
+      "cores": 0.0008890992492310057,
+      "wall_sample_states": [
+        [
+          "ntdll.dll",
+          832
+        ]
+      ],
+      "external_sample_callers": []
+    },
+    {
+      "tid": 43024,
+      "observed_seconds": 17.573966026306152,
+      "cpu_ms": 15.625,
+      "cores": 0.0008890992492310057,
+      "wall_sample_states": [
+        [
+          "ntdll.dll",
+          832
+        ]
+      ],
+      "external_sample_callers": [
+        [
+          "??R<lambda_1>@?1??startWorker@HleHost@?A0x1e0bc91c@@QEAAXXZ@QEBA@XZ",
+          790
+        ],
+        [
+          "_Cnd_timedwait_for_impl",
+          42
+        ]
+      ]
+    },
+    {
+      "tid": 53364,
+      "observed_seconds": 17.573966026306152,
+      "cpu_ms": 15.625,
+      "cores": 0.0008890992492310057,
+      "wall_sample_states": [
+        [
+          "ntdll.dll",
+          832
+        ]
+      ],
+      "external_sample_callers": []
+    },
+    {
+      "tid": 19388,
+      "observed_seconds": 17.573966026306152,
+      "cpu_ms": 15.625,
+      "cores": 0.0008890992492310057,
+      "wall_sample_states": [
+        [
+          "ntdll.dll",
+          832
+        ]
+      ],
+      "external_sample_callers": []
+    },
+    {
+      "tid": 13204,
+      "observed_seconds": 17.573966026306152,
+      "cpu_ms": 0.0,
+      "cores": 0.0,
+      "wall_sample_states": [
+        [
+          "ntdll.dll",
+          832
+        ]
+      ],
+      "external_sample_callers": []
+    },
+    {
+      "tid": 27376,
+      "observed_seconds": 17.573966026306152,
+      "cpu_ms": 0.0,
+      "cores": 0.0,
+      "wall_sample_states": [
+        [
+          "ntdll.dll",
+          832
+        ]
+      ],
+      "external_sample_callers": []
+    },
+    {
+      "tid": 65148,
+      "observed_seconds": 17.573966026306152,
+      "cpu_ms": 0.0,
+      "cores": 0.0,
+      "wall_sample_states": [
+        [
+          "ntdll.dll",
+          832
+        ]
+      ],
+      "external_sample_callers": [
+        [
+          "ma_context_command_thread__wasapi",
+          832
+        ]
+      ]
+    },
+    {
+      "tid": 64304,
+      "observed_seconds": 17.573966026306152,
+      "cpu_ms": 0.0,
+      "cores": 0.0,
+      "wall_sample_states": [
+        [
+          "ntdll.dll",
+          832
+        ]
+      ],
+      "external_sample_callers": []
+    },
+    {
+      "tid": 46128,
+      "observed_seconds": 17.573966026306152,
+      "cpu_ms": 0.0,
+      "cores": 0.0,
+      "wall_sample_states": [
+        [
+          "ntdll.dll",
+          831
+        ],
+        [
+          "?inflateRaw@?A0xb3cfc40e@texup@gsr@@YA_NPEBE_KAEAV?$vector@EV?$allocator@E@std@@@std@@@Z",
+          1
+        ]
+      ],
+      "external_sample_callers": [
+        [
+          "??R<lambda_1>@?2???0Pool@texup@gsr@@QEAA@I@Z@QEBA@XZ",
+          831
+        ]
+      ]
+    },
+    {
+      "tid": 39340,
+      "observed_seconds": 17.573966026306152,
+      "cpu_ms": 0.0,
+      "cores": 0.0,
+      "wall_sample_states": [
+        [
+          "ntdll.dll",
+          832
+        ]
+      ],
+      "external_sample_callers": [
+        [
+          "??R<lambda_1>@?2???0Pool@texup@gsr@@QEAA@I@Z@QEBA@XZ",
+          832
+        ]
+      ]
+    },
+    {
+      "tid": 62896,
+      "observed_seconds": 8.25614309310913,
+      "cpu_ms": 0.0,
+      "cores": 0.0,
+      "wall_sample_states": [
+        [
+          "ntdll.dll",
+          210
+        ]
+      ],
+      "external_sample_callers": []
+    },
+    {
+      "tid": 65292,
+      "observed_seconds": 17.573966026306152,
+      "cpu_ms": 0.0,
+      "cores": 0.0,
+      "wall_sample_states": [
+        [
+          "ntdll.dll",
+          832
+        ]
+      ],
+      "external_sample_callers": []
+    },
+    {
+      "tid": 29020,
+      "observed_seconds": 17.573966026306152,
+      "cpu_ms": 0.0,
+      "cores": 0.0,
+      "wall_sample_states": [
+        [
+          "ntdll.dll",
+          832
+        ]
+      ],
+      "external_sample_callers": []
+    },
+    {
+      "tid": 64880,
+      "observed_seconds": 17.573966026306152,
+      "cpu_ms": 0.0,
+      "cores": 0.0,
+      "wall_sample_states": [
+        [
+          "ntdll.dll",
+          832
+        ]
+      ],
+      "external_sample_callers": []
+    },
+    {
+      "tid": 58040,
+      "observed_seconds": 17.573966026306152,
+      "cpu_ms": 0.0,
+      "cores": 0.0,
+      "wall_sample_states": [
+        [
+          "ntdll.dll",
+          832
+        ]
+      ],
+      "external_sample_callers": []
+    },
+    {
+      "tid": 13868,
+      "observed_seconds": 17.573966026306152,
+      "cpu_ms": 0.0,
+      "cores": 0.0,
+      "wall_sample_states": [
+        [
+          "ntdll.dll",
+          832
+        ]
+      ],
+      "external_sample_callers": []
+    },
+    {
+      "tid": 68116,
+      "observed_seconds": 17.573966026306152,
+      "cpu_ms": 0.0,
+      "cores": 0.0,
+      "wall_sample_states": [
+        [
+          "ntdll.dll",
+          832
+        ]
+      ],
+      "external_sample_callers": []
+    },
+    {
+      "tid": 32412,
+      "observed_seconds": 17.573966026306152,
+      "cpu_ms": 0.0,
+      "cores": 0.0,
+      "wall_sample_states": [
+        [
+          "ntdll.dll",
+          832
+        ]
+      ],
+      "external_sample_callers": []
+    },
+    {
+      "tid": 22028,
+      "observed_seconds": 17.573966026306152,
+      "cpu_ms": 0.0,
+      "cores": 0.0,
+      "wall_sample_states": [
+        [
+          "ntdll.dll",
+          832
+        ]
+      ],
+      "external_sample_callers": []
+    },
+    {
+      "tid": 39624,
+      "observed_seconds": 17.573966026306152,
+      "cpu_ms": 0.0,
+      "cores": 0.0,
+      "wall_sample_states": [
+        [
+          "ntdll.dll",
+          832
+        ]
+      ],
+      "external_sample_callers": []
+    },
+    {
+      "tid": 27276,
+      "observed_seconds": 17.573966026306152,
+      "cpu_ms": 0.0,
+      "cores": 0.0,
+      "wall_sample_states": [
+        [
+          "ntdll.dll",
+          832
+        ]
+      ],
+      "external_sample_callers": []
+    },
+    {
+      "tid": 42916,
+      "observed_seconds": 17.573966026306152,
+      "cpu_ms": 0.0,
+      "cores": 0.0,
+      "wall_sample_states": [
+        [
+          "ntdll.dll",
+          832
+        ]
+      ],
+      "external_sample_callers": []
+    },
+    {
+      "tid": 64340,
+      "observed_seconds": 17.573966026306152,
+      "cpu_ms": 0.0,
+      "cores": 0.0,
+      "wall_sample_states": [
+        [
+          "ntdll.dll",
+          832
+        ]
+      ],
+      "external_sample_callers": []
+    },
+    {
+      "tid": 57188,
+      "observed_seconds": 17.573966026306152,
+      "cpu_ms": 0.0,
+      "cores": 0.0,
+      "wall_sample_states": [
+        [
+          "ntdll.dll",
+          832
+        ]
+      ],
+      "external_sample_callers": []
+    },
+    {
+      "tid": 28172,
+      "observed_seconds": 17.573966026306152,
+      "cpu_ms": 0.0,
+      "cores": 0.0,
+      "wall_sample_states": [
+        [
+          "ntdll.dll",
+          832
+        ]
+      ],
+      "external_sample_callers": []
+    },
+    {
+      "tid": 29416,
+      "observed_seconds": 17.573966026306152,
+      "cpu_ms": 0.0,
+      "cores": 0.0,
+      "wall_sample_states": [
+        [
+          "ntdll.dll",
+          832
+        ]
+      ],
+      "external_sample_callers": []
+    },
+    {
+      "tid": 64232,
+      "observed_seconds": 17.573966026306152,
+      "cpu_ms": 0.0,
+      "cores": 0.0,
+      "wall_sample_states": [
+        [
+          "ntdll.dll",
+          832
+        ]
+      ],
+      "external_sample_callers": []
+    },
+    {
+      "tid": 16332,
+      "observed_seconds": 17.573966026306152,
+      "cpu_ms": 0.0,
+      "cores": 0.0,
+      "wall_sample_states": [
+        [
+          "ntdll.dll",
+          832
+        ]
+      ],
+      "external_sample_callers": []
+    },
+    {
+      "tid": 19672,
+      "observed_seconds": 17.573966026306152,
+      "cpu_ms": 0.0,
+      "cores": 0.0,
+      "wall_sample_states": [
+        [
+          "ntdll.dll",
+          832
+        ]
+      ],
+      "external_sample_callers": []
+    },
+    {
+      "tid": 14652,
+      "observed_seconds": 17.573966026306152,
+      "cpu_ms": 0.0,
+      "cores": 0.0,
+      "wall_sample_states": [
+        [
+          "ntdll.dll",
+          832
+        ]
+      ],
+      "external_sample_callers": []
+    },
+    {
+      "tid": 25488,
+      "observed_seconds": 17.573966026306152,
+      "cpu_ms": 0.0,
+      "cores": 0.0,
+      "wall_sample_states": [
+        [
+          "ntdll.dll",
+          832
+        ]
+      ],
+      "external_sample_callers": []
+    },
+    {
+      "tid": 51620,
+      "observed_seconds": 17.573966026306152,
+      "cpu_ms": 0.0,
+      "cores": 0.0,
+      "wall_sample_states": [
+        [
+          "ntdll.dll",
+          832
+        ]
+      ],
+      "external_sample_callers": []
+    },
+    {
+      "tid": 35692,
+      "observed_seconds": 17.573966026306152,
+      "cpu_ms": 0.0,
+      "cores": 0.0,
+      "wall_sample_states": [
+        [
+          "ntdll.dll",
+          832
+        ]
+      ],
+      "external_sample_callers": []
+    },
+    {
+      "tid": 57392,
+      "observed_seconds": 17.573966026306152,
+      "cpu_ms": 0.0,
+      "cores": 0.0,
+      "wall_sample_states": [
+        [
+          "ntdll.dll",
+          832
+        ]
+      ],
+      "external_sample_callers": []
+    },
+    {
+      "tid": 47496,
+      "observed_seconds": 17.573966026306152,
+      "cpu_ms": 0.0,
+      "cores": 0.0,
+      "wall_sample_states": [
+        [
+          "ntdll.dll",
+          832
+        ]
+      ],
+      "external_sample_callers": []
+    },
+    {
+      "tid": 52244,
+      "observed_seconds": 17.573966026306152,
+      "cpu_ms": 0.0,
+      "cores": 0.0,
+      "wall_sample_states": [
+        [
+          "ntdll.dll",
+          832
+        ]
+      ],
+      "external_sample_callers": []
+    },
+    {
+      "tid": 26048,
+      "observed_seconds": 17.573966026306152,
+      "cpu_ms": 0.0,
+      "cores": 0.0,
+      "wall_sample_states": [
+        [
+          "ntdll.dll",
+          832
+        ]
+      ],
+      "external_sample_callers": []
+    },
+    {
+      "tid": 23796,
+      "observed_seconds": 17.573966026306152,
+      "cpu_ms": 0.0,
+      "cores": 0.0,
+      "wall_sample_states": [
+        [
+          "ntdll.dll",
+          832
+        ]
+      ],
+      "external_sample_callers": [
+        [
+          "??$sleep_until@Usteady_clock@chrono@std@@V?$duration@_JU?$ratio@$00$0DLJKMKAA@@std@@@23@@this_thread@std@@YAXAEBV?$time_point@Usteady_clock@chrono@std@@V?$duration@_JU?$ratio@$00$0DLJKMKAA@@std@@@23@@chrono@1@@Z",
+          817
+        ],
+        [
+          "_Cnd_timedwait_for_impl",
+          14
+        ],
+        [
+          "?popEvents@Spu2@spu2@@QEAA_NAEAV?$vector@UEvent@spu2@@V?$allocator@UEvent@spu2@@@std@@@std@@@Z",
+          1
+        ]
+      ]
+    },
+    {
+      "tid": 63756,
+      "observed_seconds": 17.573966026306152,
+      "cpu_ms": 0.0,
+      "cores": 0.0,
+      "wall_sample_states": [
+        [
+          "ntdll.dll",
+          832
+        ]
+      ],
+      "external_sample_callers": []
+    },
+    {
+      "tid": 11792,
+      "observed_seconds": 17.573966026306152,
+      "cpu_ms": 0.0,
+      "cores": 0.0,
+      "wall_sample_states": [
+        [
+          "ntdll.dll",
+          832
+        ]
+      ],
+      "external_sample_callers": []
+    },
+    {
+      "tid": 62340,
+      "observed_seconds": 17.573966026306152,
+      "cpu_ms": 0.0,
+      "cores": 0.0,
+      "wall_sample_states": [
+        [
+          "ntdll.dll",
+          832
+        ]
+      ],
+      "external_sample_callers": []
+    },
+    {
+      "tid": 15948,
+      "observed_seconds": 17.573966026306152,
+      "cpu_ms": 0.0,
+      "cores": 0.0,
+      "wall_sample_states": [
+        [
+          "ntdll.dll",
+          832
+        ]
+      ],
+      "external_sample_callers": []
+    },
+    {
+      "tid": 764,
+      "observed_seconds": 17.573966026306152,
+      "cpu_ms": 0.0,
+      "cores": 0.0,
+      "wall_sample_states": [
+        [
+          "ntdll.dll",
+          832
+        ]
+      ],
+      "external_sample_callers": []
+    },
+    {
+      "tid": 43204,
+      "observed_seconds": 17.573966026306152,
+      "cpu_ms": 0.0,
+      "cores": 0.0,
+      "wall_sample_states": [
+        [
+          "ntdll.dll",
+          832
+        ]
+      ],
+      "external_sample_callers": []
+    },
+    {
+      "tid": 37128,
+      "observed_seconds": 17.573966026306152,
+      "cpu_ms": 0.0,
+      "cores": 0.0,
+      "wall_sample_states": [
+        [
+          "ntdll.dll",
+          832
+        ]
+      ],
+      "external_sample_callers": []
+    },
+    {
+      "tid": 52252,
+      "observed_seconds": 17.573966026306152,
+      "cpu_ms": 0.0,
+      "cores": 0.0,
+      "wall_sample_states": [
+        [
+          "ntdll.dll",
+          832
+        ]
+      ],
+      "external_sample_callers": []
+    },
+    {
+      "tid": 23664,
+      "observed_seconds": 17.573966026306152,
+      "cpu_ms": 0.0,
+      "cores": 0.0,
+      "wall_sample_states": [
+        [
+          "ntdll.dll",
+          832
+        ]
+      ],
+      "external_sample_callers": []
+    },
+    {
+      "tid": 53184,
+      "observed_seconds": 17.573966026306152,
+      "cpu_ms": 0.0,
+      "cores": 0.0,
+      "wall_sample_states": [
+        [
+          "ntdll.dll",
+          832
+        ]
+      ],
+      "external_sample_callers": []
+    },
+    {
+      "tid": 60268,
+      "observed_seconds": 17.573966026306152,
+      "cpu_ms": 0.0,
+      "cores": 0.0,
+      "wall_sample_states": [
+        [
+          "ntdll.dll",
+          832
+        ]
+      ],
+      "external_sample_callers": []
+    },
+    {
+      "tid": 61284,
+      "observed_seconds": 17.573966026306152,
+      "cpu_ms": 0.0,
+      "cores": 0.0,
+      "wall_sample_states": [
+        [
+          "ntdll.dll",
+          832
+        ]
+      ],
+      "external_sample_callers": []
+    },
+    {
+      "tid": 38664,
+      "observed_seconds": 17.573966026306152,
+      "cpu_ms": 0.0,
+      "cores": 0.0,
+      "wall_sample_states": [
+        [
+          "ntdll.dll",
+          832
+        ]
+      ],
+      "external_sample_callers": []
+    },
+    {
+      "tid": 42892,
+      "observed_seconds": 17.573966026306152,
+      "cpu_ms": 0.0,
+      "cores": 0.0,
+      "wall_sample_states": [
+        [
+          "ntdll.dll",
+          832
+        ]
+      ],
+      "external_sample_callers": []
+    },
+    {
+      "tid": 54136,
+      "observed_seconds": 17.573966026306152,
+      "cpu_ms": 0.0,
+      "cores": 0.0,
+      "wall_sample_states": [
+        [
+          "ntdll.dll",
+          832
+        ]
+      ],
+      "external_sample_callers": []
+    },
+    {
+      "tid": 27520,
+      "observed_seconds": 17.573966026306152,
+      "cpu_ms": 0.0,
+      "cores": 0.0,
+      "wall_sample_states": [
+        [
+          "ntdll.dll",
+          832
+        ]
+      ],
+      "external_sample_callers": []
+    },
+    {
+      "tid": 42092,
+      "observed_seconds": 9.317822933197021,
+      "cpu_ms": 0.0,
+      "cores": 0.0,
+      "wall_sample_states": [
+        [
+          "ntdll.dll",
+          622
+        ]
+      ],
+      "external_sample_callers": []
+    },
+    {
+      "tid": 27448,
+      "observed_seconds": 9.317822933197021,
+      "cpu_ms": 0.0,
+      "cores": 0.0,
+      "wall_sample_states": [
+        [
+          "ntdll.dll",
+          622
+        ]
+      ],
+      "external_sample_callers": []
+    }
+  ]
+}

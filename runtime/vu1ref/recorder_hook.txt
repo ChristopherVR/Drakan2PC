@@ -1,0 +1,72 @@
+// vu1ref run recorder (reference only; pasted into ps2_vu1_core.cpp of the tree used for capture, see docs/reference/vu1-correctness.md).
+// Record format (per run): u32 hdr[8] = {'VREC', recIdx, startPc, maxCycles, programEnded, nKicks, sizeof(VU1State), runIdx},
+// VU1State entry, VU1State exit, u8 data_entry[16384], u8 data_exit[16384], u32 xgkickAddr[64].
+// Env: DRAKAN_VUREC="<file>,<after seconds | -1 = wait for <file>.go>,<max records>,<hex mask on [7].x>[,<stride>[,<failOnly 0/1>]]"
+// (1) file-scope part, placed before VU1Interpreter::VU1Interpreter:
+// ---- VU1 run recorder (vu1ref capture): DRAKAN_VUREC="<file>,<after seconds>,<count>,<flagmask hex>" ----
+#include <chrono>
+#include <vector>
+#include <string>
+namespace {
+struct VuRec {
+    bool enabled=false, init=false; FILE *f=nullptr; double after=0; int count=0; uint32_t mask=0; int stride=1; uint64_t seen=0; bool failOnly=false; std::vector<std::vector<uint8_t>> ring; int done=0; bool active=false;
+    std::vector<uint8_t> entryData; VU1State entry{}; uint32_t startPc=0, maxCycles=0; uint32_t xg[64]; uint32_t nxg=0;
+    std::chrono::steady_clock::time_point t0 = std::chrono::steady_clock::now();
+    uint64_t runNo=0; std::string goPath; bool goSeen=false;
+    bool go(){ if (goSeen) return true; if (after >= 0) { if (std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count() >= after) goSeen = true; return goSeen; } static int n=0; if ((++n & 63)==0) { if (FILE *g = std::fopen(goPath.c_str(),"rb")) { std::fclose(g); goSeen = true; } } return goSeen; }
+    void setup(){ init=true; const char*e=std::getenv("DRAKAN_VUREC"); if(!e) return; std::string s(e); std::vector<std::string> v; size_t a=0; for(;;){size_t c=s.find(',',a); v.push_back(s.substr(a,c==std::string::npos?c:c-a)); if(c==std::string::npos)break; a=c+1;} if(v.size()<4) return; f=std::fopen(v[0].c_str(),"wb"); goPath=v[0]+".go"; after=std::atof(v[1].c_str()); count=std::atoi(v[2].c_str()); mask=(uint32_t)std::strtoul(v[3].c_str(),nullptr,16); if(v.size()>4) stride=std::max(1,std::atoi(v[4].c_str())); if(v.size()>5) failOnly=std::atoi(v[5].c_str())!=0; enabled=f!=nullptr; }
+} g_rec;
+}
+uint64_t g_vuRunTotal = 0;
+extern void g_vifLogFlush();
+bool g_vuRecGo() { return g_rec.goSeen; }
+
+
+
+// (2) at the start of VU1Interpreter::run(), after m_activeMemory = memory;
+    if (!g_rec.init) g_rec.setup();
+    ++g_vuRunTotal;
+    g_rec.active = false;
+    if (g_rec.enabled && m_unit == Unit::VU1 && g_rec.done < g_rec.count && dataSize == 16384 && g_rec.go())
+    {
+        uint32_t fl; std::memcpy(&fl, vuData + 7 * 16, 4);
+        if ((fl & g_rec.mask) && (g_rec.seen++ % g_rec.stride) == 0)
+        {
+            g_rec.active = true; g_rec.entry = m_state; g_rec.entryData.assign(vuData, vuData + dataSize); g_rec.nxg = 0; g_rec.maxCycles = maxCycles; g_rec.startPc = m_state.pc;
+        }
+    }
+
+
+// (3) at the end of run(), before restoring the rounding mode ("m_state.cycles = m_cycle;" ... ):
+    if (g_rec.active)
+    {
+        g_rec.active = false;
+        uint32_t hdr[8] = {0x43455256u, (uint32_t)g_rec.done, g_rec.startPc, g_rec.maxCycles, programEnded ? 1u : 0u, g_rec.nxg, (uint32_t)sizeof(VU1State), (uint32_t)(g_vuRunTotal - 1)};
+        std::vector<uint8_t> buf(32 + 2 * sizeof(VU1State) + 16384 * 2 + 256);
+        uint8_t *w = buf.data();
+        std::memcpy(w, hdr, 32); w += 32;
+        std::memcpy(w, &g_rec.entry, sizeof(VU1State)); w += sizeof(VU1State);
+        std::memcpy(w, &m_state, sizeof(VU1State)); w += sizeof(VU1State);
+        std::memcpy(w, g_rec.entryData.data(), 16384); w += 16384;
+        std::memcpy(w, vuData, 16384); w += 16384;
+        std::memcpy(w, g_rec.xg, 256);
+        if (g_rec.failOnly)
+        {
+            g_rec.ring.push_back(std::move(buf));
+            if (g_rec.ring.size() > 8) g_rec.ring.erase(g_rec.ring.begin());
+            if (!programEnded)
+            {
+                for (auto &b : g_rec.ring) { std::fwrite(b.data(), 1, b.size(), g_rec.f); ++g_rec.done; }
+                g_rec.ring.clear(); std::fflush(g_rec.f); g_vifLogFlush();
+            }
+        }
+        else
+        {
+            std::fwrite(buf.data(), 1, buf.size(), g_rec.f);
+            std::fflush(g_rec.f);
+            ++g_rec.done;
+        }
+    }
+
+// (4) in startXgkick(): if (g_rec.active && g_rec.nxg < 64) g_rec.xg[g_rec.nxg++] = qwordAddress;
+// (5) g_vifLogFlush() / g_vuRunTotal are only needed for the optional VIF log (DRAKAN_VIFLOG) in ps2_vif1_interpreter.cpp; drop them if unused.

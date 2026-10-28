@@ -1,0 +1,20 @@
+{
+  "emsdk": {
+    "version": "4.0.23",
+    "commit": "c0bb220cb6e6f4e0fabb6f6db9efd53390ef5e56"
+  },
+  "ffmpeg": {
+    "version": "7.1.1",
+    "url": "https://ffmpeg.org/releases/ffmpeg-7.1.1.tar.xz",
+    "sha256": "733984395e0dbbe5c046abda2dc49a5544e7e0e1e2366bba849222ae9e3a03b1"
+  },
+  "linux_python": {
+    "version": "3.12.15",
+    "uv_version": "0.13.5",
+    "uv_sha256": "f68d291c75783122dad58ab77def0e13f3233f358731db5d6d7e8715603b928f"
+  },
+  "powershell": {
+    "version": "7.6.8",
+    "sha256": "59112e38ad83350e4f6dc0195953c66b5926792f300ca2e7691b8242e7a16e7f"
+  }
+}

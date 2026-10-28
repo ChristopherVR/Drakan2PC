@@ -1,0 +1,79 @@
+--- a/runtime/gs/src/cpu_profile.h
++++ b/runtime/gs/src/cpu_profile.h
+@@ -15,7 +15,7 @@
+               TemporalResolve, PresentLatched, PresentCall, PumpUp, Snapshot,
+               WindowScreenshot, LatchDisplay, EndFrame,
+               TextureCoherenceFlush, TextureStampCheck, TextureDecode, TextureCallback, TextureUpscale, TextureCreate,
+-              GuidePrepare, RayScene, ModelGuides, SuperResolution, NeuralEvaluation, TemporalCompose, RayPack, RayProduce, RayBuild, RayWait, RayConsume, RayTriangles, RayModelAttributes, RayUpload, TextureResourceReuse, ReadbackPalette, ReadbackUpload, ReadbackDownload, ReadbackCopy, ReadbackTexture, ReadbackExternal, ReadbackOverwriteDiscard, SubblockDefer, SubblockTextureHit, SubblockMerge, Count };
++              GuidePrepare, RayScene, ModelGuides, SuperResolution, NeuralEvaluation, TemporalCompose, RayPack, RayProduce, RayBuild, RayWait, RayConsume, RayTriangles, RayModelAttributes, RayUpload, TextureResourceReuse, ReadbackPalette, ReadbackUpload, ReadbackDownload, ReadbackCopy, ReadbackTexture, ReadbackExternal, ReadbackOverwriteDiscard, SubblockDefer, SubblockTextureHit, SubblockMerge, TextureSourceReuse, Count };
+     struct Scope;
+ private:
+     struct Sample { unsigned long long calls=0; double inclusive=0, exclusive=0, maximum=0; };
+@@ -38,7 +38,7 @@
+         static constexpr const char* names[]={"draw","resolveTexture","syncRT","readbackRT","readbackMap","readbackPackUnmap",
+             "temporalResolve","presentLatched","presentCall","pumpUp","snapshot","windowScreenshot","latchDisplay","endFrame","textureCoherenceFlush","textureStampCheck",
+             "textureDecode","textureCallback","textureUpscale","textureCreate",
+-            "guidePrepare","rayScene","modelGuides","superResolution","neuralEvaluation","temporalCompose","rayPack","rayProduce","rayBuild","rayWait","rayConsume","rayTriangles","rayModelAttributes","rayUpload","textureResourceReuse","readbackPalette","readbackUpload","readbackDownload","readbackCopy","readbackTexture","readbackExternal","readbackOverwriteDiscard","subblockDefer","subblockTextureHit","subblockMerge"};
++            "guidePrepare","rayScene","modelGuides","superResolution","neuralEvaluation","temporalCompose","rayPack","rayProduce","rayBuild","rayWait","rayConsume","rayTriangles","rayModelAttributes","rayUpload","textureResourceReuse","readbackPalette","readbackUpload","readbackDownload","readbackCopy","readbackTexture","readbackExternal","readbackOverwriteDiscard","subblockDefer","subblockTextureHit","subblockMerge","textureSourceReuse"};
+         static_assert(sizeof(names) / sizeof(names[0]) == Count, "Profiler bucket names must match Id");
+         std::fprintf(stderr,"[gsr-profile] %.3fs root=%.2fms readbackCopy=%.2fMiB syncUpload=%.2fMiB; calls/inclusive_ms/exclusive_ms/max_ms:",
+             elapsed,rootMs,readbackBytes/1048576.0,uploadBytes/1048576.0);
+--- a/runtime/gs/src/d3d11_backend.cpp
++++ b/runtime/gs/src/d3d11_backend.cpp
+@@ -166,6 +166,9 @@
+     uint32_t reflectionTexture=~0u;
+     uint64_t stamp = 0;
+     uint64_t checkedClock = 0;
++    std::vector<uint8_t> sourceBytes;
++    bool sourceUi=false;
++    uint64_t sourceClamp=0;
+     uint64_t lastFrame = 0;
+     uint64_t bytes = 0;
+     std::vector<std::pair<uint32_t, uint32_t>> spans;
+@@ -1860,8 +1863,30 @@
+             if (e.checkedClock != mem.clock())
+             {
+                 CpuProfile::Scope detail(cpuProfile,CpuProfile::TextureStampCheck);
++                bool changed=false;
+                 for (auto& sp : e.spans)
+-                    if (mem.maxStamp(sp.first, sp.second - sp.first + 1) > e.stamp) { valid = false; break; }
++                    if (mem.maxStamp(sp.first, sp.second - sp.first + 1) > e.stamp) { changed=true;break; }
++                if(changed && valid && !e.sourceBytes.empty() && e.sourceUi==uiHint && e.sourceClamp==s.clamp &&
++                   !(W==128 && H==128 && mxl==0 && (psm==PSM_T8 || psm==PSM_CT16) && (s.flags&DF_SPRITE) && (s.flags&DF_ABE) && (s.alpha&0xFF)==0x48)) {
++                    // Only stable slots: preserve the original volatility window and
++                    // route preview/highlight changes through normal decoding.
++                    const uint64_t slotKey=(uint64_t(tbp)<<40)^(uint64_t(tbw)<<32)^(uint64_t(psm)<<24)^(uint64_t(tw)<<12)^(uint64_t(th)<<4)^uint64_t(indexed?1:0);
++                    auto slot=slots.find(slotKey);
++                    bool equal=slot!=slots.end() && !slot->second.isVolatile && slot->second.sameRun>=6 && frame-slot->second.windowStart<=90;
++                    size_t offset=0;
++                    if(equal)for(const auto& sp:e.spans) {
++                        const size_t bytes=size_t(sp.second-sp.first+1)*256;
++                        if(offset+bytes>e.sourceBytes.size() || std::memcmp(mem.data()+size_t(sp.first)*256,e.sourceBytes.data()+offset,bytes)){equal=false;break;}
++                        offset+=bytes;
++                    }
++                    if(equal && offset==e.sourceBytes.size()) {
++                        CpuProfile::Scope reuse(cpuProfile,CpuProfile::TextureSourceReuse);
++                        ++slot->second.count;slot->second.lastDecode=frame;
++                        e.stamp=mem.clock();changed=false;
++                        validateTextureReuse(e.tex.Get(),e.cpu);
++                    }
++                }
++                if(changed)valid=false;
+                 if (valid) e.checkedClock = mem.clock();
+             }
+             if (valid)
+@@ -2091,6 +2116,14 @@
+         e.lastFrame = frame;
+         e.bytes = bytes*2; // GPU allocation plus exact CPU comparison copy.
+         e.spans = std::move(spans);
++        e.sourceUi=uiHint;e.sourceClamp=s.clamp;
++        const uint64_t sourceSlot=(uint64_t(tbp)<<40)^(uint64_t(tbw)<<32)^(uint64_t(psm)<<24)^(uint64_t(tw)<<12)^(uint64_t(th)<<4)^uint64_t(indexed?1:0);
++        const auto sourceState=slots.find(sourceSlot);
++        if(!hlShape && !volatileSlot && sourceState!=slots.end() && sourceState->second.sameRun>=6) {
++            bool safe=true;size_t count=0;
++            for(const auto& sp:e.spans){if(sp.first>sp.second || sp.second>=kVramBlocks){safe=false;break;}count+=size_t(sp.second-sp.first+1)*256;}
++            if(safe){e.sourceBytes.reserve(count);for(const auto& sp:e.spans)e.sourceBytes.insert(e.sourceBytes.end(),mem.data()+size_t(sp.first)*256,mem.data()+size_t(sp.second+1)*256);e.bytes+=e.sourceBytes.size();}
++        }
+         { // Explicit runtime atlases also apply when automatic upscaling is off.
+             CpuProfile::Scope detail(cpuProfile,CpuProfile::TextureUpscale);
+             setupUpscale(e, levels[0], W, H, mxl, s, uiHint, volatileSlot, decodedHashValid ? &decodedHash : nullptr);
