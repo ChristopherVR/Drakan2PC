@@ -102,13 +102,16 @@
   },
   "inventory-strip": {
     "file": "inventory-strip.jpg",
-    "alt": "Inventory strip over gameplay with a bow selected",
-    "caption": "Inventory strip on I, over the live game.",
+    "alt": "Scrolling through the I inventory strip over the game",
+    "caption": "I strip: browse and equip without leaving the game.",
     "width": 1280,
     "height": 720,
-    "source": "build/harness/aui-after/strip.png",
-    "sha256": "5f8ea823eabe0f4db49d8e92ad9599fd7e58d3ec39604ac40cc684fcba7cd6e5",
-    "url": "https://github.com/ChristopherVR/Drakan2PC/releases/download/site-media-20261028/inventory-strip.jpg"
+    "source": "build/harness/rec-ui (live window recording)",
+    "url": "https://github.com/ChristopherVR/Drakan2PC/releases/download/site-media-20261030/inventory-strip.jpg",
+    "sha256": "b5907f0c4731a25d1d44f6a0503515975549d874f2b01d1f9b3d51f09905d570",
+    "video": "inventory-strip.mp4",
+    "video_url": "https://github.com/ChristopherVR/Drakan2PC/releases/download/site-media-20261030/inventory-strip.mp4",
+    "video_sha256": "55d8fd9659c957baa9c144c9b9981b785bf747c875bd73af77d690e01e4dcd18"
   },
   "pc-settings": {
     "file": "pc-settings.jpg",
@@ -193,5 +196,100 @@
     "animation": "hd-movie.gif",
     "url": "https://github.com/ChristopherVR/Drakan2PC/releases/download/site-media-20261028/hd-movie.jpg",
     "animation_url": "https://github.com/ChristopherVR/Drakan2PC/releases/download/site-media-20261028/hd-movie.gif"
+  },
+  "rt-compare": {
+    "kind": "compare",
+    "before_label": "Ray tracing off",
+    "after_label": "On",
+    "width": 1920,
+    "height": 1080,
+    "caption": "Ray-traced water and shadows (Windows, DXR GPU). Same frame, same save.",
+    "scenes": [
+      {
+        "id": "rt-pond",
+        "label": "Surdana pond",
+        "before_url": "https://github.com/ChristopherVR/Drakan2PC/releases/download/site-media-20261030/rt-pond-off.jpg",
+        "after_url": "https://github.com/ChristopherVR/Drakan2PC/releases/download/site-media-20261030/rt-pond-on.jpg",
+        "before_sha256": "acabd886031e57cadef14acbea7debf8f4c7d8c40bd2d4e24aedba92f9d70856",
+        "after_sha256": "ac0065210ef1f64529e135d3d7ede1e6e407f7ce62f21b1b5e5f79e56716f7fe",
+        "source": "build/harness/st-open-pond-rt-{off,on}/a.png"
+      },
+      {
+        "id": "rt-river",
+        "label": "Frozen river",
+        "before_url": "https://github.com/ChristopherVR/Drakan2PC/releases/download/site-media-20261030/rt-river-off.jpg",
+        "after_url": "https://github.com/ChristopherVR/Drakan2PC/releases/download/site-media-20261030/rt-river-on.jpg",
+        "before_sha256": "a7c9f8c8c305433763b6c3269f1d596a2be5dc712d5b3008285190e56e0f4eec",
+        "after_sha256": "785d1778a2080b362960b41ab23f9b562a2c7af3f7a0c0ee6b12ce2daeba16b8",
+        "source": "build/harness/st-coast-bank-rt-{off,on}/a.png"
+      }
+    ]
+  },
+  "dlaa-compare": {
+    "kind": "compare",
+    "before_label": "DLAA off",
+    "after_label": "DLAA",
+    "width": 1920,
+    "height": 1080,
+    "caption": "NVIDIA DLAA at internal scale 1, where its antialiasing is easiest to see. Same frame.",
+    "scenes": [
+      {
+        "id": "dlaa-gate",
+        "label": "Palace gate",
+        "before_url": "https://github.com/ChristopherVR/Drakan2PC/releases/download/site-media-20261030/dlaa-gate-off.jpg",
+        "after_url": "https://github.com/ChristopherVR/Drakan2PC/releases/download/site-media-20261030/dlaa-gate-on.jpg",
+        "before_sha256": "1b22eb77db024316afae3a0fa92704fb77a875f708f6a3cd732d84cf31eec134",
+        "after_sha256": "0bbd12774a3889b4393dbf5029a1b53365326a38a07e28d5117a5e1ff71a3eaa",
+        "source": "build/harness/st-dlss1-{off,on}/gate_far.png"
+      },
+      {
+        "id": "dlaa-field",
+        "label": "Surdana",
+        "before_url": "https://github.com/ChristopherVR/Drakan2PC/releases/download/site-media-20261030/dlaa-field-off.jpg",
+        "after_url": "https://github.com/ChristopherVR/Drakan2PC/releases/download/site-media-20261030/dlaa-field-on.jpg",
+        "before_sha256": "dee7658bd22cc43f349d47308bcd6f51174074dc95ee80b0006984e2d12e6ea7",
+        "after_sha256": "03f868aa0771ca569584f6f0d2e37545b388dd4dd7a92e6d45516bacad3acee5",
+        "source": "build/harness/st-dlss1-{off,on}/field.png"
+      }
+    ]
+  },
+  "frame-rate": {
+    "file": "frame-rate.jpg",
+    "alt": "The same run at 30 FPS and uncapped, side by side, with the FPS counter enlarged",
+    "caption": "Same route at 30 FPS and uncapped. The video is 60 FPS, so the counter shows the real rate.",
+    "width": 1920,
+    "height": 540,
+    "source": "build/harness/rec-fps-{30,uncapped} (live window recording)",
+    "url": "https://github.com/ChristopherVR/Drakan2PC/releases/download/site-media-20261030/frame-rate.jpg",
+    "sha256": "3f0e08da8cfec90ad4ddad596891bdc6b469de44ba07ee5598c6787de7985a0b",
+    "video": "frame-rate.mp4",
+    "video_url": "https://github.com/ChristopherVR/Drakan2PC/releases/download/site-media-20261030/frame-rate.mp4",
+    "video_sha256": "310310b68a8053c69228a23de112bc9e24f18e6cc645658c64993c9b738812a6"
+  },
+  "tab-inventory": {
+    "file": "tab-inventory.jpg",
+    "alt": "Hovering items in the modern Tab inventory, equipping a dagger and switching tabs",
+    "caption": "Tab inventory: hover for details, Enter to equip, Q / E to switch tabs.",
+    "width": 1280,
+    "height": 720,
+    "source": "build/harness/rec-ui (live window recording)",
+    "url": "https://github.com/ChristopherVR/Drakan2PC/releases/download/site-media-20261030/tab-inventory.jpg",
+    "sha256": "020489f857fb7039dacd5961a8f99584b31587aff23f75c50c2bf353dd71498f",
+    "video": "tab-inventory.mp4",
+    "video_url": "https://github.com/ChristopherVR/Drakan2PC/releases/download/site-media-20261030/tab-inventory.mp4",
+    "video_sha256": "d69925e33c7e7a0a79643883eb10a599899c9bcd343585f176ef3ab98da8492a"
+  },
+  "map-view": {
+    "file": "map-view.jpg",
+    "alt": "The M map with objectives and places selected in turn",
+    "caption": "M map: objectives and marked places beside the map.",
+    "width": 1280,
+    "height": 720,
+    "source": "build/harness/rec-ui (live window recording)",
+    "url": "https://github.com/ChristopherVR/Drakan2PC/releases/download/site-media-20261030/map-view.jpg",
+    "sha256": "78dca3a015184633463b0c09480ff1e4df90b1c0fa05ae92136a15956779fe23",
+    "video": "map-view.mp4",
+    "video_url": "https://github.com/ChristopherVR/Drakan2PC/releases/download/site-media-20261030/map-view.mp4",
+    "video_sha256": "0e7a11239bc008cceedd3302d29a758c97925f18e7bcd99ea478e3bedf90b3ec"
   }
 }

@@ -18,6 +18,8 @@ For manual editing on Windows, close the game and edit `drakan.ini` or `drakan_i
 
 The supplied Windows `Play-Original30.cmd` launcher is another way to run the world at its original cadence.
 
+<!-- media:frame-rate -->
+
 ## Resolution, aspect ratio and fullscreen
 
 Choose a window size, internal render scale and aspect ratio. Widescreen widens the 3D view; menus and movies stay 4:3.
@@ -38,6 +40,10 @@ Use F11 or Alt+Enter for borderless fullscreen on Windows. Increase render scale
 | HD movies | Replace selected FMVs with locally upscaled video | Local movie pack and `hd_movies` enabled |
 
 Every feature can be turned off. An option marked unavailable needs hardware or a build component you do not have.
+
+<!-- media:rt-compare -->
+
+<!-- media:dlaa-compare -->
 
 See [HD textures, video & subtitles](extras.md) for local packs, and the [DLSS reference](../reference/dlss.md) for current integration status and historical notes.
 

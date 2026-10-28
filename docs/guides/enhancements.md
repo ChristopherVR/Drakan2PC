@@ -23,7 +23,25 @@ Everything here is optional. Windows has the full set; Linux and browser builds 
 
 <!-- media:hd-compare -->
 
-The HD pack is generated on your PC from your own disc; see [HD textures, video & subtitles](extras.md). Live upscaling, filtering, DLSS and ray tracing are separate switches in [Graphics & PC settings](settings.md).
+The HD pack is generated on your PC from your own disc; see [HD textures, video & subtitles](extras.md).
+
+## Frame rate
+
+Choose **30** (the original), **60** or **Uncapped** under PC Settings → Display. Game speed stays the same at every rate.
+
+<!-- media:frame-rate -->
+
+## Ray tracing and DLSS
+
+On a DirectX Raytracing GPU (Windows), **modern water** adds ray-traced reflections and waves, and **ray-traced shadows** add soft sun and light shadows with ambient occlusion.
+
+<!-- media:rt-compare -->
+
+On NVIDIA RTX cards, **DLSS** upscales the 3D world for a higher frame rate, and **DLAA** uses the same model purely for antialiasing.
+
+<!-- media:dlaa-compare -->
+
+All of these are separate switches in [Graphics & PC settings](settings.md).
 
 ## Mouse and keyboard
 
@@ -45,11 +63,11 @@ Bindings and settings: [Controls & combat](controls.md).
 
 **Tab** opens the modern inventory (Windows), **M** the full-screen map and **I** a quick inventory strip. Each can be switched back to the original screens independently.
 
-![Modern Tab inventory on Windows](https://github.com/ChristopherVR/Drakan2PC/releases/download/site-media-20261028/modern-inventory.jpg)
+<!-- media:tab-inventory -->
 
-![Full-screen map showing Surdana and objectives](https://github.com/ChristopherVR/Drakan2PC/releases/download/site-media-20261028/fullscreen-map.jpg)
+<!-- media:map-view -->
 
-![Inventory strip over gameplay with a bow selected](https://github.com/ChristopherVR/Drakan2PC/releases/download/site-media-20261028/inventory-strip.jpg)
+<!-- media:inventory-strip -->
 
 ![Modern save browser with a Surdana save preview](https://github.com/ChristopherVR/Drakan2PC/releases/download/site-media-20261028/save-browser.jpg)
 

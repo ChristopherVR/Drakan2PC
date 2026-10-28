@@ -28,8 +28,9 @@ def media_urls(item):
 
 
 def compare_figure(item):
-    """Before/after slider. Without JavaScript the first scene shows half original, half HD."""
+    """Before/after slider. Without JavaScript the first scene shows half of each image."""
     size = f'width="{int(item["width"])}" height="{int(item["height"])}"'
+    before, after = item.get("before_label", "Original"), item.get("after_label", "HD")
     scenes = item["scenes"]
     first = scenes[0]
     tabs = "".join(
@@ -40,17 +41,19 @@ def compare_figure(item):
     )
     label = html.escape(first["label"], quote=True)
     return (
-        f'<figure class="compare"><div class="compare-tabs" role="group" aria-label="Scene">{tabs}</div>'
+        f'<figure class="compare" data-before-label="{html.escape(before, quote=True)}" '
+        f'data-after-label="{html.escape(after, quote=True)}">'
+        f'<div class="compare-tabs" role="group" aria-label="Scene">{tabs}</div>'
         f'<div class="compare-stage">'
-        f'<img class="compare-after" src="{html.escape(first["after_url"], quote=True)}" alt="{label} with HD textures" '
-        f'{size} loading="lazy" decoding="async">'
+        f'<img class="compare-after" src="{html.escape(first["after_url"], quote=True)}" '
+        f'alt="{label}: {html.escape(after, quote=True)}" {size} loading="lazy" decoding="async">'
         f'<img class="compare-before" src="{html.escape(first["before_url"], quote=True)}" '
-        f'alt="{label} with the original textures" {size} loading="lazy" decoding="async">'
-        f'<span class="compare-label compare-label-before" aria-hidden="true">Original</span>'
-        f'<span class="compare-label compare-label-after" aria-hidden="true">HD</span>'
+        f'alt="{label}: {html.escape(before, quote=True)}" {size} loading="lazy" decoding="async">'
+        f'<span class="compare-label compare-label-before" aria-hidden="true">{html.escape(before)}</span>'
+        f'<span class="compare-label compare-label-after" aria-hidden="true">{html.escape(after)}</span>'
         f'<span class="compare-handle" aria-hidden="true"></span>'
         f'<input class="compare-range" type="range" min="0" max="100" value="50" '
-        f'aria-label="Original / HD split position"></div>'
+        f'aria-label="{html.escape(before, quote=True)} / {html.escape(after, quote=True)} split position"></div>'
         f"<figcaption>{html.escape(item['caption'])}</figcaption></figure>"
     )
 

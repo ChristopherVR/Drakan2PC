@@ -28,6 +28,9 @@ either.
 - Scripted gameplay without a save: `python harness/play_run.py --name <run> [--level ravenshold] [--recipe <txt>]
   [--shots 0,300] [--env KEY=VALUE]` (New Game on an empty throwaway card, any level, renderer screenshots, output in
   `build/harness/<run>/`; `docs/reference/input.md` 13).
+- Real-time video of a scripted run: `python harness/record_window.py --name <run> --recipe <txt> --seconds N --out <mp4>
+  [--save <card>/mc0] [--env KEY=VALUE] [--ffmpeg <exe>]` (waits for the recipe's `shot rec_start`, then records the game
+  window with FFmpeg gdigrab; used for the site clips, `docs/reference/github-pages.md`).
 - Scripted gameplay from save fixtures: `harness/combat_run.sh <recipe> <name>` (bash), `harness/combat_diagnostic_run.ps1`,
   `harness/combat_encounter_run.ps1` (fresh save copies + audit), `harness/combat_quick_inventory_run.ps1`,
   `harness/combat_parry_run.ps1`, `harness/snd_test_run.sh` (sound diagnostics), `harness/combat_audio_verify.ps1` (bounded audio verification),

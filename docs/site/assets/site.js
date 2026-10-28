@@ -23,8 +23,8 @@ document.querySelectorAll('.compare').forEach(figure => {
     figure.querySelectorAll('.compare-tab').forEach(other => other.setAttribute('aria-pressed', String(other === tab)));
     before.src = tab.dataset.before;
     after.src = tab.dataset.after;
-    before.alt = tab.textContent + ' with the original textures';
-    after.alt = tab.textContent + ' with HD textures';
+    before.alt = tab.textContent + ': ' + figure.dataset.beforeLabel;
+    after.alt = tab.textContent + ': ' + figure.dataset.afterLabel;
   }));
 });
 

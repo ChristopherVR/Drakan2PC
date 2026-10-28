@@ -102,8 +102,10 @@ class PagesTests(unittest.TestCase):
 
     def test_comparison_and_clips(self):
         home = (self.output / "index.html").read_text(encoding="utf-8")
-        self.assertIn('class="compare"', home)
-        self.assertEqual(home.count('class="compare-tab"'), 4)
+        self.assertEqual(home.count('<figure class="compare"'), 2)
+        self.assertEqual(home.count('class="compare-tab"'), 6)
+        self.assertIn('data-before-label="Ray tracing off"', home)
+        self.assertIn('compare-label-before" aria-hidden="true">Original<', home)
         self.assertIn('class="compare-range" type="range"', home)
         self.assertRegex(
             home, r'<video src="https://github\.com/[^"]+\.mp4"[^>]* muted loop playsinline preload="none"'

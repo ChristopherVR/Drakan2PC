@@ -19,13 +19,13 @@ The visual design follows the game's title screen: a dusk-lit gameplay backdrop,
 
 Documentation captures are hosted separately as attachments to the `site-media-20261028` GitHub release. No captures are committed or copied into the Pages artifact. `docs/site/media.json` records each screenshot's URL, dimensions, local source, SHA-256 and caption. The README uses the same public URLs. Keep source captures and conversion outputs under ignored `build/`.
 
-The second batch (HD comparisons, mouse-look and bow clips, hero backdrop) is attached to `site-media-20261029`.
+The second batch (HD comparisons, mouse-look and bow clips, hero backdrop) is attached to `site-media-20261029`. The third (frame-rate, ray-tracing and DLAA comparisons, inventory/strip/map clips) is on `site-media-20261030`.
 
 Guides use ordinary Markdown image links; the builder expands recognized URLs into captioned figures. The homepage and guides can also use `<!-- media:ID -->` markers. `media.json` entries render by kind:
 
 - plain entries: a figure that opens in the image dialog; `animation_url` adds a Play animation button that swaps in a GIF.
 - `video_url`: a muted, looping MP4 with the `url` image as poster. `site.js` plays it while it is on screen and offers a Play/Pause button; with reduced motion it only plays on request. Without JavaScript the native controls stay.
-- `"kind": "compare"`: the before/after slider. Each scene has `before_url` (original textures) and `after_url` (HD). Tabs switch scenes; a transparent range input moves the split, so keyboard and touch work.
+- `"kind": "compare"`: the before/after slider. Each scene has `before_url` and `after_url`; `before_label` / `after_label` name the two sides (default Original / HD). Tabs switch scenes; a transparent range input moves the split, so keyboard and touch work.
 - `"kind": "backdrop"`: the homepage hero image.
 
 Every URL in an entry, including scene URLs, must point at a `site-media-*` release.
@@ -42,6 +42,10 @@ python scripts/harness/play_run.py --name site-hd-off --recipe scripts/harness/r
 `GSR_TEXREPLACE=0 GSR_TEXUP=1` gives the original textures (no replacement and no live upscaling). Other levels use `--level 1c` etc. with `site_hd_level.txt`.
 
 For clips, point `DRAKAN_INI` at a copy of `drakan.ini` with a 1280×720 windowed mode, `show_fps = 0`, `inventory_screen = native` (the bow recipe navigates the original Tab screen) and `dual_wield = 0`. A 4K window drops `shot` requests when they come every sample. `site_mouse_look.txt` needs `world_rate = 30` (one shot per sample = 30 FPS video). `site_bow.txt` needs `world_rate = uncapped` and starts from the bow fixture card (`--save` with a Surdana save next to the bow table). Script events must be in frame order. The mouse/LMB overlay is drawn afterwards from the recipe's own input, and the frames are encoded with FFmpeg (H.264, `yuv420p`, `+faststart`).
+
+Ray tracing and DLAA use the save fixtures from the water/shadow work (`build/harness/aoline-fixture-open-pond`, `-coast-bank`) and `site_still.txt`, with `DRAKAN_INI` copies that differ only in `modern_water` / `ray_reflections` / `ray_shadows` or `dlss = off` / `dlaa`. Only the first shot of the river fixture matches between runs: with ray tracing on, loading takes longer and Rynn slides into the water before the later shots. DLAA barely shows at internal scale 3, so its comparison uses `scale = 1`.
+
+Clips that must show real motion or frame rate (the 30 / uncapped comparison, the inventory, strip and map tours) are recorded live with `scripts/harness/record_window.py` and the `site_rec_*.txt` recipes, which use `clock milliseconds` so both frame rates get the same input over the same time. Recording costs frame rate (uncapped ran at about 85–130 FPS while recording), and the video itself is 60 FPS, so the frame-rate clip enlarges the game's own counter instead of claiming the video shows the difference. The scripted `cursor x y` is in the game's 640×512 GUI space.
 
 Captions are short and say what the capture shows. Full movie packs, subtitle transcripts and playable game files are not distributed with the site. New media requires deliberate review and upload; the site build never uploads or generates it automatically.
 

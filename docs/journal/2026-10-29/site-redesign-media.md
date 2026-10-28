@@ -17,3 +17,11 @@
 - At `world_rate = 30`, one input sample is 1/30 s (mouse-look frames were ~0.067 s apart at every second sample).
 
 Recipes: `scripts/harness/recipes/site_*.txt`. The conversion script stays under ignored `build/site-media/prepare2.py`, like the first batch. Hosting and usage: `docs/reference/github-pages.md`.
+
+## Third batch: frame rate, ray tracing, DLAA, inventory tours
+
+- Live window recording (`scripts/harness/record_window.py`, FFmpeg gdigrab, 60 FPS) instead of per-frame `shot`s, for clips where timing matters. The game keeps running unfocused with `DRAKAN_PAUSE_UNFOCUSED=0`; `DRAKAN_WINDOW_POS` keeps the window on screen.
+- 30 FPS vs uncapped: same `clock milliseconds` recipe, two runs. The counter read 29.9–31 vs 85–130 FPS (while recording, 1280×720).
+- Ray tracing: pond and frozen-river fixtures, first frame only (see the reference for why later frames diverge).
+- DLAA vs off is near-invisible at internal scale 3 (already supersampled); at scale 1 the antialiasing is obvious.
+- Tab inventory tour from the `aui-after` card: cursor glides over the bow, club, potion and dagger (details panel follows), Enter equips the dagger, E to Character and Spells; then the I strip (RIGHT ×3) and the M map (DOWN ×3 highlights objectives and places).

@@ -85,6 +85,8 @@ inventory_strip = 0
 
 Use `1` to turn each view back on.
 
-![Full-screen map showing Surdana and objectives](https://github.com/ChristopherVR/Drakan2PC/releases/download/site-media-20261028/fullscreen-map.jpg)
+<!-- media:tab-inventory -->
 
-![Inventory strip over gameplay with a bow selected](https://github.com/ChristopherVR/Drakan2PC/releases/download/site-media-20261028/inventory-strip.jpg)
+<!-- media:inventory-strip -->
+
+<!-- media:map-view -->

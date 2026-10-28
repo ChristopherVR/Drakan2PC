@@ -89,7 +89,7 @@ kbd { padding: 1px 5px; border: 1px solid #80683e; font: 11px var(--sans); margi
 .media-figure img, .media-figure video { display: block; width: 100%; height: auto; max-height: 560px; object-fit: contain; background: #070504; border: 2px solid #8f6d3d; box-shadow: inset 0 0 0 1px #2a1a0d, 0 10px 28px #0009; }
 .showcase-grid img { aspect-ratio: 16 / 10; object-fit: cover; }
 .media-video { position: relative; }
-.video-toggle { position: absolute; left: 12px; top: 12px; font: 12px var(--sans); padding: 5px 10px; opacity: .85; }
+.video-toggle { display: block; margin: 8px 0 -4px auto; font: 12px var(--sans); padding: 4px 10px; }
 .animation-toggle { display: block; margin: 10px auto 0; font: 13px var(--sans); }
 .media-dialog { width: min(1380px, 96vw); max-height: 94vh; padding: 18px; border: 2px solid var(--bronze); background: #100b07; color: var(--text); }
 .media-dialog::backdrop { background: #000e; }
