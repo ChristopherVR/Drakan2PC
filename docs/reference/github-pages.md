@@ -100,7 +100,7 @@ Do not move `play/`, change database names or instruct players to clear site sto
 
 `.github/workflows/pages.yml` builds and validates the site on relevant pushes and pull requests. The deploy job runs only for pushes or manual dispatches in the public **ChristopherVR/Drakan2PC** repository, preventing a development-repository push or pull request from publishing accidentally. Use GitHub Pages' **GitHub Actions** publishing source in repository settings.
 
-The workflow retains pinned checkout and Pages actions and uploads `build/github-pages`. Drakan2PC is the only repository (the former private Drakan2PC-dev was merged into it on 2026-10-30 with its full history); a documentation change deploys when it reaches `main`. Local edits and previews do not publish anything.
+The workflow retains pinned checkout and Pages actions and uploads `build/github-pages`. Drakan2PC is the only repository. On 2026-10-30 the private Drakan2PC-dev was folded into it as one squashed commit (its history stays private in the archived Drakan2PC-dev, because older commits held material the guard now rejects); a documentation change deploys when it reaches `main`. Local edits and previews do not publish anything.
 
 The build and deploy jobs are separate so a failed renderer or link check blocks publication. Consult the Pages workflow run and deployment URL for evidence of publication.
 
