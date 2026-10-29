@@ -61,10 +61,30 @@ def compare_figure(item):
     )
 
 
+def clip_link(item):
+    """Feature chip that opens its looping clip in the media dialog; without JavaScript it links to the video."""
+    attrs = {
+        "href": item["video_url"],
+        "data-poster": item["url"],
+        "data-alt": item["alt"],
+        "data-caption": item["caption"],
+    }
+    rendered = " ".join(f'{name}="{html.escape(value, quote=True)}"' for name, value in attrs.items())
+    return f'<a class="feature-clip" {rendered}>{html.escape(item["label"])}</a>'
+
+
 def video_figure(item):
     """Short muted clip with its poster; site.js plays it while visible unless reduced motion is requested."""
     poster = html.escape(item["url"], quote=True)
     alt = html.escape(item["alt"], quote=True)
+    if item.get("loop"):
+        # GIF-like loop: plays on its own with no button; site.js pauses it and adds controls for reduced motion.
+        return (
+            f'<figure class="media-figure media-loop"><video src="{html.escape(item["video_url"], quote=True)}" '
+            f'poster="{poster}" width="{int(item["width"])}" height="{int(item["height"])}" aria-label="{alt}" '
+            f'autoplay muted loop playsinline preload="auto"></video>'
+            f"<figcaption>{html.escape(item['caption'])}</figcaption></figure>"
+        )
     return (
         f'<figure class="media-figure media-video"><video src="{html.escape(item["video_url"], quote=True)}" '
         f'poster="{poster}" width="{int(item["width"])}" height="{int(item["height"])}" aria-label="{alt}" '
@@ -77,6 +97,8 @@ def video_figure(item):
 def media_figure(item):
     """Render externally hosted, reviewed captures; never copy game media into Git or Pages artifacts."""
     kind = item.get("kind")
+    if kind == "clip":
+        return clip_link(item)
     if kind == "compare":
         return compare_figure(item)
     if kind == "art":
@@ -122,7 +144,11 @@ def media_figure(item):
 def render_media(content, media):
     for key, item in media.items():
         # "pending": prepared capture whose release upload has not happened yet; render nothing until it is live.
-        figure = "" if item.get("pending") else media_figure(item)
+        if item.get("pending"):
+            # A pending feature chip keeps its label as plain text so the list still reads correctly.
+            figure = f"<span>{html.escape(item['label'])}</span>" if item.get("kind") == "clip" else ""
+        else:
+            figure = media_figure(item)
         # Markdown renders a lone marker as its own paragraph-free block; drop any wrapper paragraph.
         content = content.replace(f"<p><!-- media:{key} --></p>", figure)
         content = content.replace(f"<!-- media:{key} -->", figure)

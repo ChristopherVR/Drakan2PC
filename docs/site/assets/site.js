@@ -54,20 +54,53 @@ document.querySelectorAll('.media-video').forEach(figure => {
   }, {threshold: 0.4}).observe(video);
 });
 
+// Looping feature clips play like GIFs; with reduced motion they wait on their poster with controls.
+document.querySelectorAll('.media-loop video').forEach(video => {
+  if (!reduceMotion) return;
+  video.removeAttribute('autoplay');
+  video.pause();
+  video.controls = true;
+});
+
 const mediaDialog = document.querySelector('.media-dialog');
+const enlarged = mediaDialog.querySelector('img');
+const clip = mediaDialog.querySelector('video');
+function openMedia({image, video, poster, alt, caption}) {
+  enlarged.hidden = !image;
+  clip.hidden = !video;
+  if (image) {
+    enlarged.src = image;
+    enlarged.alt = alt;
+  } else {
+    clip.poster = poster;
+    clip.src = video;
+    clip.setAttribute('aria-label', alt);
+    clip.controls = reduceMotion;
+    if (!reduceMotion) clip.play().catch(() => {});
+  }
+  mediaDialog.querySelector('.media-description').textContent = caption;
+  mediaDialog.showModal();
+}
 document.querySelectorAll('.media-enlarge').forEach(link => {
   link.addEventListener('click', event => {
     event.preventDefault();
-    const picture = link.querySelector('img');
-    const enlarged = mediaDialog.querySelector('img');
-    enlarged.src = link.href;
-    enlarged.alt = picture.alt;
-    mediaDialog.querySelector('.media-description').textContent = link.closest('figure').querySelector('figcaption').textContent;
-    mediaDialog.showModal();
+    openMedia({image: link.href, alt: link.querySelector('img').alt, caption: link.closest('figure').querySelector('figcaption').textContent});
+  });
+});
+document.querySelectorAll('.feature-clip').forEach(link => {
+  link.setAttribute('aria-haspopup', 'dialog');
+  link.addEventListener('click', event => {
+    event.preventDefault();
+    openMedia({video: link.href, poster: link.dataset.poster, alt: link.dataset.alt, caption: link.dataset.caption});
   });
 });
 mediaDialog.querySelector('.media-close').addEventListener('click', () => mediaDialog.close());
-mediaDialog.addEventListener('close', () => mediaDialog.querySelector('img').removeAttribute('src'));
+mediaDialog.addEventListener('close', () => {
+  enlarged.removeAttribute('src');
+  clip.pause();
+  clip.removeAttribute('src');
+  clip.load();
+});
 
 const menu = document.querySelector('.doc-menu');
 menu?.addEventListener('click', () => {

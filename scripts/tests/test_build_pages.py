@@ -103,8 +103,9 @@ class PagesTests(unittest.TestCase):
 
     def test_comparison_and_clips(self):
         home = (self.output / "index.html").read_text(encoding="utf-8")
-        self.assertEqual(home.count('<figure class="compare"'), 2)
-        self.assertEqual(home.count('class="compare-tab"'), 6)
+        self.assertEqual(home.count('<figure class="compare"'), 3)
+        self.assertEqual(home.count('class="compare-tab"'), 9)
+        self.assertNotIn("animation-toggle", home)
         self.assertIn('data-before-label="Ray tracing off"', home)
         self.assertIn('compare-label-before" aria-hidden="true">Original<', home)
         self.assertIn('class="compare-range" type="range"', home)
@@ -150,6 +151,22 @@ class PagesTests(unittest.TestCase):
         self.assertIn('style="aspect-ratio: 1280 / 960"', square)
         wide = pages.compare_figure({"width": 1920, "height": 1080, "caption": "c", "scenes": [scene]})
         self.assertNotIn("aspect-ratio", wide)
+
+    def test_feature_clips_and_loops(self):
+        clip = {"kind": "clip", "label": "F5 & F8", "url": "p.jpg", "video_url": "v.mp4", "alt": "a", "caption": "c"}
+        link = pages.render_media("<li><!-- media:q --></li>", {"q": clip})
+        self.assertEqual(
+            link,
+            '<li><a class="feature-clip" href="v.mp4" data-poster="p.jpg" data-alt="a" data-caption="c">F5 &amp; F8</a></li>',
+        )
+        # A pending chip keeps its label but no URL.
+        self.assertEqual(
+            pages.render_media("<li><!-- media:q --></li>", {"q": {**clip, "pending": True}}),
+            "<li><span>F5 &amp; F8</span></li>",
+        )
+        loop = pages.media_figure({**clip, "kind": None, "loop": True, "width": 1280, "height": 720})
+        self.assertIn("autoplay muted loop playsinline", loop)
+        self.assertNotIn("toggle", loop)
 
 
 if __name__ == "__main__":
