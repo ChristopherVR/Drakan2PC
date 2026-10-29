@@ -3,7 +3,8 @@ Module['preRun'].push(function () {
   if (ENVIRONMENT_IS_PTHREAD) return;
   ENV['DRAKAN_ISO'] = '/disc.iso';
   ENV['DRAKAN_ISO_URL'] = new URL('disc.iso', document.baseURI).href;
-  ENV['DRAKAN_ELF'] = '/SCES_500.06';
+  // The build's boot ELF (drakan_web_region.js, written by CMake); PAL when run without it.
+  ENV['DRAKAN_ELF'] = Module['drakanBootElf'] || '/SCES_500.06';
   ENV['DRAKAN_INI'] = '/persist/drakan.ini';
   ENV['DRAKAN_INPUT_INI'] = '/persist/drakan_input.ini';
   ENV['DRAKAN_MEMCARD_DIR'] = '/persist/mc0';

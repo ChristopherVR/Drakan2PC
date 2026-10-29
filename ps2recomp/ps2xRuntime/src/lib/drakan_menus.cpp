@@ -47,7 +47,7 @@ constexpr uint32_t kSprintf = 0x4ce688u; // sprintf(dst, fmt, ...)
 constexpr uint32_t kAnySave =
     0x37e810u; // (0) = "is there a save game on the card" (1 = yes), (1) = settings file check
 constexpr uint32_t kTitleHandler = 0x43e4c8u;  // title menu (screen 8) event handler: (screen, widget, message)
-constexpr uint32_t kSlotNameCells = 0x5325c8u; // "Slot1" .. "Slot4", 8 bytes each (folder = "BESCES-50006" + cell)
+constexpr uint32_t kSlotNameCells = 0x5325c8u; // "Slot1" .. "Slot4", 8 bytes each (folder = <saveId> + cell)
 constexpr uint32_t kSlotNamePtrs = 0x4fe3b8u;  // char *[4] -> the cells above
 constexpr uint32_t kFmtSlotLoad = 0x54e3a0u;   // "%d - %s" (slot caption on the load / save screens)
 constexpr uint32_t kFmtSlotSave = 0x54f040u;   // "%d - %s" (confirm text of the save screen)
@@ -267,10 +267,10 @@ std::string labelUtf8(const char* text) {
 
 // ---- save pages
 // --------------------------------------------------------------------------------------------------------------------
-// The slot folders are "BESCES-50006" + the string the pointer table at 0x4fe3b8 names. The table points at four 8 byte
-// cells in .data, so rewriting the cells is the whole page switch: every consumer (directory scan, thumbnail / save
-// read, save write, delete, free space check, confirm texts) uses the same table. Verified against the decompile: the
-// table is used by 0x43b6f0 (scan), 0x4442e0 class (save), 0x37e810.
+// The slot folders are <saveId> (drakan_region.h) + the string the pointer table at 0x4fe3b8 names. The table points
+// at four 8 byte cells in .data, so rewriting the cells is the whole page switch: every consumer (directory scan,
+// thumbnail / save read, save write, delete, free space check, confirm texts) uses the same table. Verified against
+// the decompile: the table is used by 0x43b6f0 (scan), 0x4442e0 class (save), 0x37e810.
 bool namesUsable(IGuest& g) {
     if (!g_namesChecked) {
         g_namesChecked = true;

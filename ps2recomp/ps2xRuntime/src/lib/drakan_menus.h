@@ -4,8 +4,8 @@
 //   entry below Credits, wired
 //     into the keyboard / pad focus chain, confirmed with the game's own "Are you sure you want to quit?" box and
 //     closing the game cleanly.
-//   * Load Game / Save Game: save pages. The game has four slots (folders BESCES-50006Slot1..4 on the memory card, the
-//   folder names come from
+//   * Load Game / Save Game: save pages. The game has four slots (folders <saveId>Slot1..4 on the memory card, e.g.
+//   BESCES-50006Slot1 on PAL; the folder names come from
 //     a four entry string table). Page n maps the four slots to Slot(4n-3)..Slot(4n); page 1 is the original set, so
 //     old saves stay valid. Next / Back are drawn every host present, work with the mouse (MenuMouse hotspots), PgUp /
 //     PgDn and L1 / R1.

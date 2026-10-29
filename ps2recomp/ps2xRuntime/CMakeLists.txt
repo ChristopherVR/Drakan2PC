@@ -728,6 +728,10 @@ target_link_libraries(ps2EntryRunner
 )
 
 if(EMSCRIPTEN)
+    # pre.js reads the boot ELF name from here (/SCES_500.06 for PAL, /SCUS_971.28 for USA).
+    set(DRAKAN_WEB_REGION_JS "${CMAKE_CURRENT_BINARY_DIR}/drakan_web_region.js")
+    file(GENERATE OUTPUT "${DRAKAN_WEB_REGION_JS}"
+        CONTENT "Module['drakanBootElf'] = '/${DRAKAN_BOOT_ELF_NAME}';\n")
     target_compile_options(raylib PRIVATE -include "${CMAKE_SOURCE_DIR}/runtime/web/raylib_proxy.h")
     target_sources(ps2_runtime PRIVATE src/lib/drakan_web.cpp)
     set_property(TARGET ps2EntryRunner APPEND PROPERTY LINK_DEPENDS
@@ -741,6 +745,7 @@ if(EMSCRIPTEN)
         # The GS renderer's GPU thread owns #canvas as an OffscreenCanvas (rhi_proxy.cpp).
         "-sOFFSCREENCANVAS_SUPPORT=1" "-sOFFSCREENCANVASES_TO_PTHREAD=#canvas"
         "-sEXPORTED_RUNTIME_METHODS=['FS','ENV']" "--emit-symbol-map"
+        "--pre-js=${DRAKAN_WEB_REGION_JS}"
         "--pre-js=${DRAKAN_ROOT_DIR}/runtime/web/pre.js"
         "--js-library=${DRAKAN_ROOT_DIR}/runtime/web/glfw_proxy.js"
         "--preload-file=${PS2X_GENERATED_DIR}/../${DRAKAN_BOOT_ELF_NAME}@/${DRAKAN_BOOT_ELF_NAME}" -lidbfs.js)

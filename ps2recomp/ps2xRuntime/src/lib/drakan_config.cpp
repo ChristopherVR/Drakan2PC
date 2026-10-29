@@ -33,7 +33,7 @@ const Entry kEntries[] = {
      "path of the game disc image (.iso). Empty = look for 'Drakan*.iso' next to the exe, then in the parent folders "
      "(env DRAKAN_ISO)"},
     {"general", "elf", "",
-     "path of the extracted SCES_500.06 (optional). Empty = read it straight from the disc image (env DRAKAN_ELF)"},
+     "path of the extracted boot ELF, SCES_500.06 or SCUS_971.28 (optional). Empty = read it straight from the disc image (env DRAKAN_ELF)"},
     {"general", "ui_prompts", "keyboard",
      "button prompts in the game's text: keyboard (keys and mouse) or ps2 (PlayStation 2 icons); needs a restart (env "
      "DRAKAN_UI_PROMPTS=0|1)"},
