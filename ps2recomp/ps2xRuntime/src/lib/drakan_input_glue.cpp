@@ -25,6 +25,11 @@
 #include "drakan_pause.h"
 #include "drakan_config.h"
 #include "drakan_window.h"
+#if defined(__EMSCRIPTEN__) && defined(PS2X_HAVE_DRAKAN_INPUT)
+#include "drakan_input_web.h"
+#elif !defined(_WIN32) && defined(PS2X_HAVE_DRAKAN_INPUT)
+#include "drakan_input_glfw.h"
+#endif
 #include "drakan_combat_audit.h"
 #include "drakan_parry_audit.h"
 #include "drakan_quick_inventory.h"
@@ -33,6 +38,7 @@
 #include "drakan_tab_screen.h"
 #include "drakan_tab_preview_policy.h"
 #include "drakan_save_previews.h"
+#include "drakan_region.h"
 #include "drakan_widescreen.h"
 #include "gameui/Addresses.h"
 #include "gameui/Reader.h"
@@ -67,6 +73,8 @@ extern "C" void* GetWindowHandle(void);
 static void* hostHwnd() {
 #if defined(_WIN32)
     return drakan_win::handle() ? drakan_win::handle() : GetWindowHandle();
+#elif defined(PS2X_HAVE_DRAKAN_INPUT)
+    return drakan_win::handle();
 #else
     return nullptr;
 #endif
@@ -238,7 +246,7 @@ class RecompGuest final : public IGuest {
 public:
     RecompGuest(uint8_t* rdram, R5900Context* ctx, PS2Runtime* rt) : m_rdram(rdram), m_ctx(ctx), m_rt(rt) {}
     void requestQuit() {
-#if defined(_WIN32)
+#if defined(PS2X_HAVE_DRAKAN_INPUT)
         drakan_win::requestClose();
 #else
         m_rt->requestStop();
@@ -1062,7 +1070,7 @@ double clockSeconds() {
 }
 } // namespace drakan_menu_screens
 
-#if defined(_WIN32)
+#if defined(PS2X_HAVE_DRAKAN_INPUT)
 void drakanInstallInput(PS2Runtime& rt) {
     installParryAudit(rt);
     const char* on = std::getenv("DRAKAN_INPUT");
@@ -1133,8 +1141,18 @@ void drakanInstallInput(PS2Runtime& rt) {
     } else {
         // raw input comes from the module's own message-only window; the host (raylib / D3D child) window is only
         // used for cursor clipping and hiding
+#if defined(_WIN32)
         init(nullptr, ini.c_str());
         module().setCaptureWindow(hostHwnd());
+#elif defined(__EMSCRIPTEN__)
+        // The page's DOM events (drakan_input_web)
+        drakan_input_web::install();
+        init(drakan_win::handle(), ini.c_str());
+#else
+        // GLFW: callbacks on the game window (drakan_input_glfw)
+        drakan_input_glfw::install();
+        init(drakan_win::handle(), ini.c_str());
+#endif
     }
     if (const char* wp = std::getenv("DRAKAN_WINDOW_POS")) // test aid: put the window somewhere nobody else covers it
     {
@@ -1207,6 +1225,9 @@ void drakanInstallPortableMenuHooks(PS2Runtime& rt) {
     g_t0 = std::chrono::steady_clock::now();
     installPauseScreenHooks(rt);
     installMenuScreenHooks(rt);
+    g_origBowLaunch = rt.lookupFunction(kBowLaunch);
+    if (g_origBowLaunch)
+        rt.replaceFunction(kBowLaunch, &hookBowLaunch); // modern bow aim, as on Windows
 }
 void drakanPortableMenuBoundary(uint8_t* ram, R5900Context* context, PS2Runtime* runtime) {
     if (const auto request = drakan_menu_screens::shared().uiSound.exchange(0))
@@ -1232,6 +1253,8 @@ void drakanTickPortableMenuHooks(uint8_t* ram, R5900Context* context, PS2Runtime
     module().setSuspended(drakan_settings_host::isOpen());
     pauseTick(ram, guest);
     menuScreensTick(ram, context, runtime, guest);
+    const bool gameplay = screen < 0 && guest.read32(0x4fbafcu) == 0;
+    quickSaveTick(ram, context, runtime, guest, screen, gameplay);
 }
 #endif
 #endif // input / portable modern menu glue

@@ -1,6 +1,6 @@
 // Drakan: subtitles for the intro / outro narration (docs/reference/subtitles.md). The game has no text for them; the
 // port ships SRT files (subtitles/intro_<language>.srt, outro_<language>.srt next to the exe) and draws them with the
-// settings overlay's HUD layer.
+// shared HUD layers (settings/Hud.h) on every platform.
 //   * trigger: hle::ResourceService request observer - the first request (offset 0) of the narration soundtrack (SDB
 //   type 0x304, sub 14,
 //     id 99 = intro, id 100 = outro, file LEVEL0RO.SDB) arms the track; the cues' time zero is the SPU2 key-on of the
@@ -25,9 +25,6 @@ struct ResourceId;
 namespace spu2 {
 class AudioOutput;
 }
-namespace dsettings {
-class SettingsOverlay;
-}
 
 namespace drakan_subtitles {
 // language: drakan.ini [general] language, lower case ("english"); rdram: guest memory (the game's subtitle option is
@@ -43,6 +40,6 @@ bool wantsSpuEvents(); // cheap: true only while a narration track is waiting fo
 void onSpuUpload(uint32_t spuAddr, uint32_t bytes);
 void onVoiceKeyOn(uint32_t spuAddr, uint64_t frames);
 void stop();
-// Registers the draw callback on the overlay (render thread).
-void installHudLayer(dsettings::SettingsOverlay& overlay);
+// Registers the subtitle band in the shared HUD layers (dsettings::hudLayers()), before the first present.
+void installHudLayer();
 } // namespace drakan_subtitles

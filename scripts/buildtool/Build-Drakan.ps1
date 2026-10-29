@@ -10,7 +10,7 @@ thing installed system-wide is Microsoft's free C++ Build Tools, downloaded from
 build takes one to two hours; later runs reuse build/game. The playable folder is dist/DrakanPC. Nothing is uploaded.
 #>
 param(
-    # Your PAL SCES-500.06 ISO. Asked for (and remembered in build/iso-path.txt) when omitted.
+    # Your PAL SCES-500.06 or USA SCUS-971.28 ISO. Asked for (and remembered in build/iso-path.txt) when omitted.
     [string]$IsoPath,
     [string]$WorkDir,
     [string]$DistDirectory,
@@ -154,7 +154,7 @@ try {
         try {
             Add-Type -AssemblyName System.Windows.Forms
             $dialog = [Windows.Forms.OpenFileDialog]::new()
-            $dialog.Title = 'Select your Drakan: The Ancients'' Gates ISO (PAL SCES-500.06)'
+            $dialog.Title = 'Select your Drakan: The Ancients'' Gates ISO (PAL SCES-500.06 or USA SCUS-971.28)'
             $dialog.Filter = 'Disc images (*.iso)|*.iso|All files (*.*)|*.*'
             if ($dialog.ShowDialog() -eq [Windows.Forms.DialogResult]::OK) { $IsoPath = $dialog.FileName }
         } catch {
@@ -187,10 +187,25 @@ try {
         IsoPath = $IsoPath; WorkDir = $WorkDir; Python = $python
         Jobs = $jobs; CompilerProcesses = $compilerProcesses; SerialVuSlices = $true; Progress = $true
     }
-    if ($DistDirectory) { $buildArgs.DistDirectory = $DistDirectory }
+    # The installer's shortcuts open dist\DrakanPC, whichever region the ISO is (Build-LocalGame.ps1 alone would put a
+    # USA build into dist\DrakanPC-usa next to a PAL one).
+    if (-not $DistDirectory) { $DistDirectory = Join-Path $RepoRoot 'dist/DrakanPC' }
+    $buildArgs.DistDirectory = $DistDirectory
     if ($NoNvidia) { $buildArgs.NoNvidia = $true }
     elseif ($EnableDlss) { $buildArgs.AcceptNvidiaDlssLicense = $true }
     $prepared = Join-Path $WorkDir 'local-input.json'
+    # PAL and USA discs are both accepted (docs/reference/regions.md). A build folder holds one region: when the ISO is
+    # the other one, start that folder over (it only holds generated files; saves and settings live in the play folder).
+    if (Test-Path -LiteralPath $prepared -PathType Leaf) {
+        $isoRegion = (& $python (Join-Path $PSScriptRoot 'prepare_iso.py') --detect --iso $IsoPath | Out-String).Trim()
+        if ($LASTEXITCODE) { throw 'This ISO is not a supported Drakan: The Ancients'' Gates disc (PAL SCES-500.06 or USA SCUS-971.28).' }
+        $builtRegion = (Get-Content -LiteralPath $prepared -Raw | ConvertFrom-Json).region
+        if (-not $builtRegion) { $builtRegion = 'pal' }
+        if ($isoRegion -ne $builtRegion) {
+            Write-Step "The ISO is the $($isoRegion.ToUpper()) release; the previous build was $($builtRegion.ToUpper()). Building again from scratch."
+            Remove-Item -LiteralPath $WorkDir -Recurse -Force
+        }
+    }
     # Compiler warnings are for developers and bury the progress. Only a not yet configured folder gets this: flipping it
     # on a configured one would recompile everything, including the 10-minute VU1 slices.
     if (-not (Test-Path -LiteralPath (Join-Path $WorkDir 'runtime-build/CMakeCache.txt') -PathType Leaf)) {

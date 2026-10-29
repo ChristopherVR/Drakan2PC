@@ -1,4 +1,7 @@
 #include "drakan_settings_host.h"
+#include "drakan_settings_common.h"
+#include "drakan_subtitles.h"
+#include "drakan_software_frame_clock.h"
 #include "drakan_config.h"
 #include "drakan_tab_screen.h"
 #include "drakan_pause.h"
@@ -47,6 +50,7 @@ bool g_artRead = false;
 PS2Runtime* g_runtime = nullptr; // Window thread only.
 bool g_restart = false;
 bool g_sharp = true;
+dsettings::HudView g_image; // window thread: where drawPortableFrame put the game image
 Shader g_present{};
 bool g_presentAttempted = false;
 
@@ -80,7 +84,8 @@ void readArt() {
     }
 }
 
-struct Host final : dsettings::ISettingsHost {
+struct Host final : CommonSettingsHost {
+    Host() : CommonSettingsHost(g_audio) {}
     dsettings::MonitorInfo monitor() const override {
         dsettings::MonitorInfo result;
         const int monitor = GetCurrentMonitor();
@@ -90,21 +95,16 @@ struct Host final : dsettings::ISettingsHost {
         return result;
     }
     dsettings::HostCaps capabilities() const override {
-        dsettings::HostCaps caps;
-        caps.hdTextures = true;
+        dsettings::HostCaps caps = commonCapabilities();
         caps.internalResolution = false;
-        caps.unavailableSettings = {"video.aspect",
-                                    "video.smooth_menu_highlight",
-                                    "video.hud_scale",
-                                    "video.hud_aspect_correct",
-                                    "video.filter",
-                                    "video.deinterlace",
-                                    "video.show_fps",
-                                    "video.fps_position",
-                                    "general.inventory_screen",
-                                    "subtitles.narration",
-                                    "subtitles.size"};
-        caps.audioDeviceSelect = false;
+        caps.unavailableSettings = {
+            "video.aspect", "video.smooth_menu_highlight", "video.hud_scale",         "video.hud_aspect_correct",
+            "video.filter", "video.deinterlace",           "general.inventory_screen"};
+#if defined(__EMSCRIPTEN__)
+        caps.audioDeviceSelect = false; // the browser picks the output device
+#else
+        caps.audioDeviceSelect = true;
+#endif
 #if defined(__EMSCRIPTEN__)
         // The browser owns its window dimensions; canvas resizing follows it.
         caps.unavailableSettings.insert("video.window_size");
@@ -139,28 +139,11 @@ struct Host final : dsettings::ISettingsHost {
         g_limit.store(std::max(0, n.frameLimit));
         g_sharp = n.sharpPresent;
         gs_cpu::setFlickerFilter(n.flickerFilter);
-        if (n.fieldOfView != p.fieldOfView)
-            drakan_ws::setFieldOfView(n.fieldOfView);
+        applyCommonVideo(n, p);
         SetTargetFPS(std::max(0, n.frameLimit));
         return {};
     }
-    dsettings::ApplyResult applyAudio(const dsettings::AudioSettings& n, const dsettings::AudioSettings&) override {
-        if (auto* audio = g_audio.load()) {
-            audio->setMuted(!n.enabled);
-            audio->setMasterGain(std::max(0, n.volume) / 100.f);
-        }
-        return {};
-    }
-    dsettings::ApplyResult applyGeneral(const dsettings::GeneralSettings& n,
-                                        const dsettings::GeneralSettings&) override {
-        drakan_pause_screen::setEnabled(n.pauseMenu == dsettings::PauseMenu::Modern);
-        drakan_menu_screens::setSaveModern(n.saveMenu == dsettings::SaveMenu::Modern);
-        drakan_menu_screens::setTitleModern(n.titleMenu == dsettings::TitleMenu::Modern);
-        drakan_dual_wield::setEnabled(n.dualWield);
-        return {};
-    }
     void reloadBindings(const std::string& path) override { drakanPortableReloadControls(path); }
-    std::string defaultInputIni() const override { return drakan_input::Config::defaultIniText(); }
     bool gameTexture(int id, dsettings::GameImage& out) const override {
         std::lock_guard lock(g_artMutex);
         readArt();
@@ -455,6 +438,8 @@ void drawPortableUi(PS2Runtime& runtime, int w, int h, unsigned frameTexture) {
         standalone.screen.measure = ui.renderer.measure();
         ui.standalone = gameui::SettingsPages(standalone);
         drakan_tab::shared().layerReady.store(true);
+        drakan_subtitles::installHudLayer();
+        installSharedHudLayers();
         std::fprintf(stderr, "[portable-ui] modern menu renderer ready at %dx%d\n", w, h);
     }
     auto& ui = *g_ui;
@@ -467,6 +452,10 @@ void drawPortableUi(PS2Runtime& runtime, int w, int h, unsigned frameTexture) {
     io.DeltaTime = ui.lastTime == 0 ? 1.f / 60 : std::clamp(float(now - ui.lastTime), 0.001f, 0.1f);
     ui.lastTime = now;
     ui.physical = drakanPortableTakeUiInput();
+    drakan_fpsmeter::setWorldFrames(drakan_presentation::g_frameClock.completedFrames());
+    drakan_fpsmeter::onPresent();
+    if (ui.physical.keyPressed[0x3c]) // F2, as on Windows: cycle the FPS counter for this session
+        std::fprintf(stderr, "[portable-ui] fps counter mode %d\n", drakan_fpsmeter::cycleMode());
     ImGui::NewFrame();
     const bool f1 = ui.physical.keyPressed[0x3b];
     const bool requested = g_request.exchange(false);
@@ -640,6 +629,13 @@ void drawPortableUi(PS2Runtime& runtime, int w, int h, unsigned frameTexture) {
         return true;
     };
     ui.renderer.draw(ImGui::GetBackgroundDrawList(), draw, canvas, icons, now, 1);
+    {
+        dsettings::HudView view = g_image;
+        view.w = float(w);
+        view.h = float(h);
+        view.uiScale = dsettings::hudScaleFor(view.h);
+        dsettings::hudLayers().draw(view, top != 0);
+    }
     if (top && in.pointerValid)
         ui.skin.cursor(ImGui::GetForegroundDrawList(), {in.pointerX, in.pointerY}, std::max(20.f, h / 36.f));
     ImGui::Render();
@@ -677,6 +673,10 @@ void shutdownPortableUi() {
 }
 
 void drawPortableFrame(unsigned texture, unsigned width, unsigned height, float x, float y, float w, float h) {
+    g_image.viewX = x;
+    g_image.viewY = y;
+    g_image.viewW = w;
+    g_image.viewH = h;
     if (!g_presentAttempted) {
         g_presentAttempted = true;
 #if defined(__EMSCRIPTEN__)

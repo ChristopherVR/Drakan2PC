@@ -383,12 +383,14 @@ add_library(ps2_runtime STATIC
     src/lib/drakan_pause.cpp
     src/lib/drakan_widescreen.cpp
     src/lib/drakan_subtitles.cpp
+    src/lib/drakan_fpsmeter.cpp
     src/lib/drakan_menus.cpp
     src/lib/drakan_save_previews.cpp
     src/lib/drakan_log.cpp
     src/lib/drakan_crash.cpp
     src/lib/drakan_object_motion.cpp
     src/lib/drakan_dual_wield.cpp
+    src/lib/drakan_region.cpp
     src/lib/gs/ps2_gif_arbiter.cpp
     src/lib/ps2_audio.cpp
     src/lib/ps2_audio_vag.cpp
@@ -447,7 +449,10 @@ endif()
 if(WIN32)
     target_sources(ps2_runtime PRIVATE src/lib/drakan_config_win.cpp)
 else()
-    target_sources(ps2_runtime PRIVATE src/lib/drakan_config_posix.cpp src/lib/gs/gs_gsr_unavailable.cpp)
+    target_sources(ps2_runtime PRIVATE src/lib/drakan_config_posix.cpp)
+endif()
+if(NOT TARGET drakan::gs)
+    target_sources(ps2_runtime PRIVATE src/lib/gs/gs_gsr_unavailable.cpp)
 endif()
 find_package(Threads REQUIRED)
 target_link_libraries(ps2_runtime PUBLIC Threads::Threads)
@@ -534,6 +539,20 @@ file(GLOB RUNNER_SRC_FILES CONFIGURE_DEPENDS
 set(PS2X_OUTPUT_DIR "" CACHE PATH "Directory for drakan.exe (default: <generated dir>/../bin)")
 set(PS2X_GENERATED_DIR "" CACHE PATH "Directory holding recompiler output (ps2_recomp_*.cpp, register_functions.cpp, headers)")
 set(PS2X_GENERATED_OPT "/O2" CACHE STRING "MSVC optimisation flag for generated code (/O1 or /O2)")
+# Disc region of the recompiled executable (docs/reference/regions.md). PAL adds no definition, so a PAL build compiles
+# exactly as before; USA selects the region profile in drakan_region.h. PUBLIC so every target that can include
+# drakan_region.h agrees on it (one region per WorkDir: prepare_iso.py records it in local-input.json).
+set(DRAKAN_GAME_REGION "pal" CACHE STRING "Disc region of the recompiled executable: pal (SCES_500.06) or usa (SCUS_971.28)")
+set_property(CACHE DRAKAN_GAME_REGION PROPERTY STRINGS pal usa)
+string(TOLOWER "${DRAKAN_GAME_REGION}" DRAKAN_GAME_REGION_LOWER)
+if(DRAKAN_GAME_REGION_LOWER STREQUAL "pal")
+    set(DRAKAN_BOOT_ELF_NAME "SCES_500.06")
+elseif(DRAKAN_GAME_REGION_LOWER STREQUAL "usa")
+    set(DRAKAN_BOOT_ELF_NAME "SCUS_971.28")
+    target_compile_definitions(ps2_runtime PUBLIC DRAKAN_GAME_REGION_USA=1)
+else()
+    message(FATAL_ERROR "DRAKAN_GAME_REGION must be pal or usa, not '${DRAKAN_GAME_REGION}'")
+endif()
 if(PS2X_GENERATED_DIR)
     list(FILTER RUNNER_SRC_FILES EXCLUDE REGEX "register_functions[.]cpp$")
 endif()
@@ -659,27 +678,39 @@ if(TARGET drakan::spu2)
     target_compile_definitions(ps2_runtime PRIVATE PS2X_HAVE_SPU2=1)
 endif()
 
-if(NOT WIN32)
+if(TARGET drakan::gs)
+    # The game window, the GS renderer ("gsr": Direct3D 11 or WebGPU on Windows, WebGPU on Linux), the mouse + keyboard
+    # + gamepad input module and the in-game PC settings overlay (F1 / Options > "PC Settings"), shared by Windows and
+    # Linux. Only the window / input host differs: Win32 (drakan_window.cpp, Raw Input) or GLFW (drakan_window_glfw.cpp,
+    # drakan_input_glfw.cpp; raylib's GLFW).
+    target_sources(ps2_runtime PRIVATE src/lib/gs/gs_gsr_bridge.cpp src/lib/drakan_dlss.cpp
+        src/lib/drakan_scene_camera.cpp src/lib/drakan_settings_host.cpp src/lib/drakan_fmv_hd.cpp)
+    target_link_libraries(ps2_runtime PRIVATE drakan::gs drakan::settings)
+    target_compile_definitions(ps2_runtime PRIVATE PS2X_HAVE_DRAKAN_INPUT=1 PS2X_HAVE_GSR=1
+        PS2X_HAVE_DRAKAN_SETTINGS=1)
+    if(WIN32)
+        target_sources(ps2_runtime PRIVATE src/lib/drakan_window.cpp)
+        if(GSR_WEBGPU_SELECTED)
+            # Both GS renderers are linked: PC Settings offers [video] renderer (WebGPU / Direct3D 11).
+            set_property(SOURCE src/lib/drakan_settings_host.cpp APPEND PROPERTY COMPILE_DEFINITIONS
+                PS2X_GSR_RENDERER_CHOICE=1)
+        endif()
+    elseif(EMSCRIPTEN)
+        # The page's canvas and DOM events (player.js); the overlay is event-fed (drakan_settings_events).
+        target_sources(ps2_runtime PRIVATE src/lib/drakan_window_web.cpp src/lib/drakan_input_web.cpp)
+    else()
+        target_sources(ps2_runtime PRIVATE src/lib/drakan_window_glfw.cpp src/lib/drakan_input_glfw.cpp)
+        target_include_directories(ps2_runtime PRIVATE $<TARGET_PROPERTY:glfw,INTERFACE_INCLUDE_DIRECTORIES>)
+        drakan_settings_glfw_overlay()
+        target_link_libraries(ps2_runtime PRIVATE drakan_settings_glfw)
+    endif()
+else()
+    # No GS renderer (browser): the raylib window with the software GS and the portable camera / UI.
     target_sources(ps2_runtime PRIVATE src/lib/drakan_portable_camera.cpp src/lib/drakan_portable_ui.cpp)
     target_link_libraries(ps2_runtime PRIVATE drakan::settings)
     set_property(SOURCE src/lib/drakan_input_glue.cpp src/lib/drakan_menus.cpp src/lib/drakan_portable_camera.cpp
-        src/lib/drakan_overrides.cpp src/lib/drakan_pause.cpp src/lib/drakan_portable_ui.cpp
+        src/lib/drakan_overrides.cpp src/lib/drakan_pause.cpp src/lib/drakan_portable_ui.cpp src/lib/ps2_pad.cpp
         APPEND PROPERTY COMPILE_DEFINITIONS PS2X_HAVE_PORTABLE_UI=1)
-endif()
-
-if(WIN32)
-    # Mouse + keyboard + XInput input module (native audio is linked above).
-    target_compile_definitions(ps2_runtime PRIVATE PS2X_HAVE_DRAKAN_INPUT=1)
-
-    # D3D11 GS renderer ("gsr"), selected at runtime with PS2X_GS=d3d11
-    target_sources(ps2_runtime PRIVATE src/lib/gs/gs_gsr_bridge.cpp src/lib/drakan_window.cpp src/lib/drakan_fpsmeter.cpp src/lib/drakan_dlss.cpp src/lib/drakan_scene_camera.cpp)
-    target_link_libraries(ps2_runtime PRIVATE drakan::gs)
-    target_compile_definitions(ps2_runtime PRIVATE PS2X_HAVE_GSR=1)
-
-    # In-game PC settings overlay (Dear ImGui menu on top of gsr's present, F1 / Options > "PC Settings")
-    target_sources(ps2_runtime PRIVATE src/lib/drakan_settings_host.cpp src/lib/drakan_fmv_hd.cpp)
-    target_link_libraries(ps2_runtime PRIVATE drakan::settings)
-    target_compile_definitions(ps2_runtime PRIVATE PS2X_HAVE_DRAKAN_SETTINGS=1)
 endif()
 
 if(EMSCRIPTEN)
@@ -707,10 +738,12 @@ if(EMSCRIPTEN)
         "-sINITIAL_MEMORY=1073741824" "-sMAXIMUM_MEMORY=2147483648" "-sALLOW_MEMORY_GROWTH=1"
         "-sALLOW_BLOCKING_ON_MAIN_THREAD=0"
         "-sFORCE_FILESYSTEM=1" "-sEXIT_RUNTIME=1" "-sUSE_GLFW=3" "-sOFFSCREEN_FRAMEBUFFER=1"
+        # The GS renderer's GPU thread owns #canvas as an OffscreenCanvas (rhi_proxy.cpp).
+        "-sOFFSCREENCANVAS_SUPPORT=1" "-sOFFSCREENCANVASES_TO_PTHREAD=#canvas"
         "-sEXPORTED_RUNTIME_METHODS=['FS','ENV']" "--emit-symbol-map"
         "--pre-js=${DRAKAN_ROOT_DIR}/runtime/web/pre.js"
         "--js-library=${DRAKAN_ROOT_DIR}/runtime/web/glfw_proxy.js"
-        "--preload-file=${PS2X_GENERATED_DIR}/../SCES_500.06@/SCES_500.06" -lidbfs.js)
+        "--preload-file=${PS2X_GENERATED_DIR}/../${DRAKAN_BOOT_ELF_NAME}@/${DRAKAN_BOOT_ELF_NAME}" -lidbfs.js)
 endif()
 
 if(PS2X_ENABLE_DEBUG_UI AND NOT PS2X_IS_VITA AND NOT PS2X_IS_ANDROID)

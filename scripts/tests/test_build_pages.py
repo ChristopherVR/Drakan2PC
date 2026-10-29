@@ -26,6 +26,7 @@ class PagesTests(unittest.TestCase):
         expected = {page["url"] for page in manifest} | {
             "index.html",
             "browser.html",
+            "get-started.html",
             "404.html",
             "search-index.json",
             ".nojekyll",
@@ -117,6 +118,38 @@ class PagesTests(unittest.TestCase):
         media = json.loads((ROOT / "docs/site/media.json").read_text(encoding="utf-8"))
         scene = {**media["hd-compare"]["scenes"][0], "after_url": "https://x/a.jpg"}
         self.assertIn("https://x/a.jpg", pages.media_urls({**media["hd-compare"], "scenes": [scene]}))
+
+    def test_diagrams_pending_media_and_compare_shape(self):
+        media = json.loads((ROOT / "docs/site/media.json").read_text(encoding="utf-8"))
+        # Every diagram is a committed SVG that the site publishes and the guides reference.
+        diagrams = {key: item for key, item in media.items() if item.get("kind") == "diagram"}
+        self.assertTrue(diagrams)
+        for key, item in diagrams.items():
+            self.assertTrue((self.output / "assets" / item["file"]).is_file())
+        overview = (self.output / "development/index.html").read_text(encoding="utf-8")
+        self.assertIn('<figure class="media-figure media-diagram"><a class="media-enlarge" href="../assets/', overview)
+        self.assertIn('src="../assets/diagram-architecture.svg"', overview)
+        # Player guides show real captures, not generated diagrams.
+        for page in (self.output / "guides").glob("*.html"):
+            self.assertNotIn("media-diagram", page.read_text(encoding="utf-8"), page.name)
+        building = (self.output / "development/building.html").read_text(encoding="utf-8")
+        self.assertIn('src="../assets/diagram-build-pipeline.svg"', building)
+        # A pending capture renders nothing: no figure, no URL and no leftover marker.
+        pending = {"url": f"{pages.REPOSITORY}/releases/download/site-media-1/x.jpg", "pending": True}
+        for source in ("<p><!-- media:p --></p>", f'<p><img alt="x" src="{pending["url"]}"></p>'):
+            self.assertEqual(pages.render_media(source, {"p": {**pending, "alt": "x", "caption": "x"}}), "")
+        for key, item in media.items():
+            if item.get("pending"):
+                for page in self.output.rglob("*.html"):
+                    text = page.read_text(encoding="utf-8")
+                    for url in pages.media_urls(item):
+                        self.assertNotIn(url, text, f"{key} is pending but rendered in {page.name}")
+        # Non-16:9 comparisons carry their own aspect ratio.
+        scene = {"label": "A", "before_url": "b.jpg", "after_url": "a.jpg"}
+        square = pages.compare_figure({"width": 1280, "height": 960, "caption": "c", "scenes": [scene]})
+        self.assertIn('style="aspect-ratio: 1280 / 960"', square)
+        wide = pages.compare_figure({"width": 1920, "height": 1080, "caption": "c", "scenes": [scene]})
+        self.assertNotIn("aspect-ratio", wide)
 
 
 if __name__ == "__main__":

@@ -30,7 +30,7 @@ Android ports, `proposals/`, `research/`, the fork's own docs and scripts.
 | Linux x64 compiler package | The same source, GCC, CMake and Ninja | Compiler-only CI job; not a Linux game binary |
 | Private Windows game generation/build | Your supported ISO plus this checkout | `Build-LocalGame.ps1` prepares private ELF/VU inputs and builds |
 | Linux runtime libraries / tests | GCC or Clang, CMake, Ninja, ALSA development headers | `linux-runtime-tests` preset and CI job; no game data needed |
-| Linux game | Your supported ISO plus this checkout | ISO bootstrap builds and deploys the native software-rendered player; gameplay/save/restart/load validated |
+| Linux game | Your supported ISO plus this checkout | ISO bootstrap builds and deploys the native player: the shared WebGPU renderer, input module and settings overlay (as on Windows) |
 | Browser game | Your supported ISO plus this checkout | ISO bootstrap builds the local Wasm player; gameplay/audio/save/restart/load validated |
 
 CI does not accept/upload ISOs, extracted ELFs, generated game C++, game
@@ -162,7 +162,11 @@ is not for sharing; only the setup/kit is.
 
 ## Point the tool at your ISO
 
-Only PAL **SCES_500.06**, ELF entry `0x100008`, is verified. The extractor checks
+PAL **SCES_500.06** is verified; USA **SCUS_971.28** is accepted as an experimental baseline
+(`scripts/buildtool/regions.json`, [disc regions](docs/reference/regions.md)): the extractor picks the region
+from `SYSTEM.CNF`, the USA recompiler config is `configs/drakan-usa.toml`, CMake gets
+`DRAKAN_GAME_REGION=usa`, and `Build-LocalGame.ps1` deploys a USA build to `dist/DrakanPC-usa`.
+Both ELFs have entry `0x100008`. The extractor checks
 SYSTEM.CNF, ISO directory bounds, the ELF headers and the exact ELF SHA-256. It
 reads a normal 2048-byte-sector ISO9660 image (not BIN/CUE) and extracts only the
 boot ELF.
@@ -190,6 +194,20 @@ Optional parameters: `-Jobs`, `-Compiler`, `-ToolWorkDir`, `-ConfigTemplate`,
 `-RuntimeSource` (must be `ps2recomp/`, the default), `-GenerateOnly` (stop after game C++),
 `-PrepareOnly` (stop after ELF preparation), `-SourceOnly` (stop before native
 compilation). The game is never launched and nothing is uploaded.
+
+<!-- media:diagram-build-pipeline -->
+
+### Renderer
+
+Every platform renders the GS through the shared WebGPU renderer (Windows: Vulkan, D3D12 fallback; Linux: Vulkan, GL
+fallback; `DRAKAN_GPU_BACKEND=vulkan|dx12|gl` overrides), and the build stages `wgpu_native.dll` beside `drakan.exe`.
+The Windows game also contains the Direct3D 11 renderer for DLSS, neural rendering and hardware (DXR) ray tracing:
+choose it under PC Settings > Display > Renderer (applied after a restart), with `renderer = d3d11` under `[video]` in
+`drakan.ini`, or with `PS2X_GS=d3d11`. `renderer = webgpu` is the default and `renderer = sw` selects the software GS.
+Play folders keep their `drakan.ini`, so one written by an older build still says `renderer = d3d11` until it is
+changed. On WebGPU the DLSS setting turns on a portable temporal AA (every mode at full internal resolution), and modern
+water and ray-traced shadows are traced in WebGPU compute (slower than DXR: shadows and water reflections at the native
+resolution). See [docs/proposals/webgpu-renderer.md](docs/proposals/webgpu-renderer.md).
 
 ### Fast rebuilds after a fix
 
@@ -270,7 +288,8 @@ suite in `ps2recomp/ps2xTest` is built with `DRAKAN_BUILD_PS2X_TESTS` (preset `p
   FFmpeg uses a prebuilt release zip (SHA-256 pinned in `ps2xRuntime/CMakeLists.txt`).
 - CI validates compiler builds and unit/policy tests, not the private generated
   game build or live behaviour.
-- Linux and browser use the software renderer and original game menus. Advanced Windows graphics
+- Linux uses the shared WebGPU renderer and the Windows settings overlay / modern menus; the browser uses the
+  software renderer. DLSS is Windows D3D11 only; ray tracing runs on D3D11 (DXR) or WebGPU compute. Advanced Windows graphics
   and settings overlays are platform-specific; live validation and remaining limits are recorded in
   `docs/reference/portability.md`.
 
@@ -320,15 +339,17 @@ launcher's `127.0.0.1:8715`.
 Browser cards and `drakan.ini` use IndexedDB. In-game saves persist automatically when their files
 close; periodic recovery and shutdown flushes share the same serialized queue. Keep the same browser
 profile and origin when returning to your saves. Clearing site
-data removes them. Browser execution requires native Wasm exceptions, Wasm SIMD, shared memory, workers, WebGL, AudioWorklet
+data removes them. Browser execution requires WebGPU (desktop Chrome or Edge), native Wasm exceptions, Wasm SIMD, shared memory, workers, AudioWorklet
 and a desktop keyboard/controller. A minimal **Play** gesture starts browser audio, then disappears.
 During play the browser shows only the game, with its own title, pause, load and save menus.
 
-Linux and browser use the software GS renderer and the game's original menus. Their basic controls
+Linux uses the shared WebGPU GS renderer (Vulkan, GL fallback) and the same input module, F1 overlay and modern menus
+as Windows; play folders built before this keep `renderer = sw` in their `drakan.ini` until it is removed. The browser
+runs the same renderer (the browser's WebGPU), input module, F1 overlay and modern menus. Its basic controls
 are WASD movement, Shift walk, mouse look (F10; the browser also captures a click in gameplay), left click/Z attack,
 right click/C magic, Space jump, F confirm/crouch, E use, Q quick inventory, R next target, middle click target lock,
 Enter/Escape pause or back, Tab inventory and arrow keys for menus. Controllers retain the original DualShock layout.
-Windows keeps its native input, menus, D3D11 renderer and optional NVIDIA features.
+Windows also offers the Direct3D 11 renderer with the optional NVIDIA features.
 
 For implementation status and validation limits, see `docs/reference/portability.md`.
 

@@ -9,8 +9,12 @@ the built game.
 
 WHAT YOU NEED
 -------------
-* Your own disc image of the PAL release, SCES-500.06, as a plain .iso file.
-  BIN/CUE and other regions are not supported; the builder checks the disc and
+* Your own disc image as a plain .iso file: the PAL release, SCES-500.06, or
+  the USA release, SCUS-971.28. The USA build is experimental: keyboard,
+  mouse look and the game's own menus work, but not the PC settings (F1),
+  widescreen, frame-rate options, the modern Tab/map screens, quicksave,
+  the extra save pages or subtitles. USA and PAL saves are separate. BIN/CUE
+  and other versions are not supported; the builder checks the disc and
   stops if it is a different version.
 * Windows 10 or 11, 64-bit, and an internet connection for the first build.
 * About 10 GB of free disk space, at least 16 GB of memory (24 GB or more
@@ -74,10 +78,10 @@ OPTIONAL EXTRAS
 
 IF SOMETHING GOES WRONG
 -----------------------
-* "Only the verified PAL SCES_500.06 ...", "ELF hash differs ..." or
-  "Not a 2048-byte-sector ISO9660 image": the image is not the supported PAL
-  disc, or it is not a plain ISO. Nothing was written; run "Rebuild Drakan" and
-  pick the right file.
+* "Unsupported disc ...", "ELF hash differs ..." or "Not a 2048-byte-sector
+  ISO9660 image": the image is not a supported PAL or USA disc, or it is not
+  a plain ISO. Nothing was written; run "Rebuild Drakan" and pick the right
+  file.
 * The build stops while compiling: it already retries once with less parallel
   work. Close other programs and run "Rebuild Drakan".
 * "The Build Tools ask for a restart": restart Windows, then "Rebuild Drakan".

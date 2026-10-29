@@ -1,9 +1,11 @@
 #pragma once
 #include <gsr/scene_geometry.h>
-#include "ray_water.h"
+#include "ray_scene.h"
+#include <memory>
+#include <span>
 #include <unordered_map>
 #include <cfenv>
-#if defined(_M_X64) || defined(_M_IX86) || defined(__SSE__)
+#if (defined(_M_X64) || defined(_M_IX86) || defined(__SSE__)) && !defined(__EMSCRIPTEN__)
 #include <xmmintrin.h>
 #endif
 
@@ -42,7 +44,7 @@ class ResidentScene {
     mutable bool projectionDirty = true;
     mutable uint64_t projectedVersion = 0;
     static unsigned mathMode() {
-#if defined(_M_X64) || defined(_M_IX86) || defined(__SSE__)
+#if (defined(_M_X64) || defined(_M_IX86) || defined(__SSE__)) && !defined(__EMSCRIPTEN__)
         return _mm_getcsr() & 0xe040u; // rounding, flush-to-zero, denormals-are-zero
 #else
         return unsigned(std::fegetround());

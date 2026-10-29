@@ -15,8 +15,8 @@ constexpr char kMoviePs[] = "Texture2D<float4> Src : register(t0);\n"
                             "{ return float4(Src.Sample(Smp, uv).rgb, 128.0 / 255.0); }\n";
 } // namespace
 
-void Backend::Impl::drawMovieFrame(uint32_t dbp, uint32_t dbw, uint32_t x, uint32_t y, uint32_t w, uint32_t h,
-                                   const MovieImage& image, uint64_t imageId) {
+void D3D11Backend::Impl::drawMovieFrame(uint32_t dbp, uint32_t dbw, uint32_t x, uint32_t y, uint32_t w, uint32_t h,
+                                        const MovieImage& image, uint64_t imageId) {
     if (dbp % 32u || !w || !h || image.rgba.size() < (size_t)image.width * image.height || image.width > 16384 ||
         image.height > 16384)
         return;

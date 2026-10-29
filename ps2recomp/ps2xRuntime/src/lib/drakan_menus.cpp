@@ -1,6 +1,7 @@
 // Drakan: game menu additions (title "Quit", save pages). See drakan_menus.h and docs/reference/save-slots.md.
 #include "drakan_menus.h"
 #include "drakan_save_previews.h"
+#include "drakan_region.h"
 
 #if defined(PS2X_HAVE_DRAKAN_INPUT) || defined(PS2X_HAVE_PORTABLE_UI)
 #include "ps2_runtime.h"
@@ -526,7 +527,7 @@ bool writeGuestOptions(const dsettings::IniDoc& ini) {
     const fs::path root = paths.mcRoot.empty() ? paths.elfDirectory / "mc0" : paths.mcRoot;
     if (root.empty())
         return false;
-    const fs::path file = root / "BESCES-50006Settings" / "Drakan 2.cfg";
+    const fs::path file = root / (std::string(drakan_region::build().saveId) + "Settings") / "Drakan 2.cfg";
     const auto io = dsettings::FileIO::native();
     std::string old;
     io.read(file.string(), old);

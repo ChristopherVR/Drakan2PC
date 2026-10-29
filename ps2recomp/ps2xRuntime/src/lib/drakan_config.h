@@ -19,6 +19,8 @@ std::string getString(const char* section, const char* key, const char* env, con
 int getInt(const char* section, const char* key, const char* env, int def);
 double getFloat(const char* section, const char* key, const char* env, double def);
 bool getBool(const char* section, const char* key, const char* env, bool def);
+// Case-insensitive ASCII comparison of setting values (0 = equal), like _stricmp.
+int compareNoCase(const char* a, const char* b);
 // True when the value (env or file) is something other than "auto" / empty.
 // Opts the process into per-monitor-v2 DPI awareness (call before creating any window) so Windows does not bitmap-scale
 // us.

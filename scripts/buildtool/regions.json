@@ -1,0 +1,34 @@
+{
+  "_comment": "Disc profiles the builders accept, selected by SYSTEM.CNF BOOT2. Public identity/metadata only. docs/reference/regions.md",
+  "default": "pal",
+  "regions": {
+    "pal": {
+      "label": "PAL (Europe) SCES-500.06",
+      "boot": "SCES_500.06",
+      "serial": "SCES-50006",
+      "vmode": "PAL",
+      "save_id": "BESCES-50006",
+      "elf_size": 4566488,
+      "elf_sha256": "7d790b35733e3e7204df8db84f0ce55a81aa667d9b75c5f121066fc565883b8e",
+      "config": "configs/drakan.toml",
+      "functions_csv": "analysis/functions.csv",
+      "jump_tables_csv": "analysis/jumptables.csv",
+      "vu_chunks": [[4031504, 2048], [4033560, 2048], [4035616, 2048], [4037672, 2048], [4039728, 2048], [4041784, 1944]],
+      "status": "validated"
+    },
+    "usa": {
+      "label": "USA (NTSC-U) SCUS-97128",
+      "boot": "SCUS_971.28",
+      "serial": "SCUS-97128",
+      "vmode": "NTSC",
+      "save_id": "BASCUS-97128",
+      "elf_size": 4563544,
+      "elf_sha256": "252e82d1e05eb56fe0b707f7d7953dcdd4c40b183a5484ec68109e33802d040b",
+      "config": "configs/drakan-usa.toml",
+      "functions_csv": "analysis/regions/usa/functions.csv",
+      "jump_tables_csv": "analysis/regions/usa/jumptables.csv",
+      "vu_chunks": [[4035200, 2048], [4037256, 2048], [4039312, 2048], [4041368, 2048], [4043424, 2048], [4045480, 1944]],
+      "status": "experimental"
+    }
+  }
+}

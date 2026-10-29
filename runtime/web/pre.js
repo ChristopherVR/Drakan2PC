@@ -7,7 +7,8 @@ Module['preRun'].push(function () {
   ENV['DRAKAN_INI'] = '/persist/drakan.ini';
   ENV['DRAKAN_INPUT_INI'] = '/persist/drakan_input.ini';
   ENV['DRAKAN_MEMCARD_DIR'] = '/persist/mc0';
-  ENV['PS2X_GS'] = 'sw';
+  // The shared WebGPU renderer: its GPU thread owns the canvas (an OffscreenCanvas), so there is no WebGL fallback.
+  ENV['PS2X_GS'] = 'gpu';
   // Private renderer comparison, with no additional player UI.
   if (new URL(document.baseURI).searchParams.get('gpu') === '1') ENV['DRAKAN_GPU_RASTER'] = '1';
   const gpuScale = new URL(document.baseURI).searchParams.get('gpuScale');
@@ -38,6 +39,20 @@ Module['preRun'].push(function () {
     ENV['DRAKAN_TEXTURE_URL'] = new URL('textures/', document.baseURI).href;
   }).catch(error => Module['printErr']('HD textures unavailable: ' + error))
     .finally(() => removeRunDependency('texture-pack-index'));
+
+  // Narration subtitles (subtitles/<intro|outro>_<language>.srt beside the build, as on native targets). The game
+  // reads them from the executable directory, which is the virtual filesystem's root. Missing files mean no subtitles.
+  addRunDependency('narration-subtitles');
+  FS.mkdir('/subtitles');
+  Promise.all(['english', 'french', 'german'].flatMap(language => ['intro', 'outro'].map(async part => {
+    const name = part + '_' + language + '.srt';
+    try {
+      const response = await fetch(new URL('subtitles/' + name, document.baseURI));
+      if (response.ok) FS.writeFile('/subtitles/' + name, new Uint8Array(await response.arrayBuffer()));
+    } catch (error) {
+      // Optional asset; the runtime logs a missing track when the narration starts.
+    }
+  }))).finally(() => removeRunDependency('narration-subtitles'));
 
   // File-close persistence, periodic recovery and exit share one queue. Never
   // replace browser storage with an empty filesystem after a failed restore.

@@ -140,7 +140,7 @@ and the hook snippet in `patches/proposed/subtitle_hooks.md`.
   (measured on an audio dump: request at audio time 19.77 s, voice onset 19.97-20.0 s), so the cues were shifted by `DRAKAN_SUB_OFFSET_MS` (default 200; **replaced in section 9 by the voice key-on, default 0**).
 * (superseded by section 9: cue time 0 is now the key-on of the stream voice) Clock: `spu2::AudioOutput::framesRendered()` (48 kHz frames the SPU2 was actually rendered for), so the text freezes with the audio (F1 menu, pause, stall watchdog) and cannot drift.
   Stopped by the movie-done hook and 1.5 s after the last cue.
-* Draw: `SettingsOverlay::setHudLayer` (the overlay now runs an ImGui frame for the HUD layer even when the menu is closed): full-width translucent band at the bottom like the game's own bar, centred
+* Draw: the shared `HudSlot::Subtitles` layer of `settings/Hud.h`, drawn by the D3D11 overlay and the portable raylib UI on every target (an ImGui frame runs for the HUD even when the menu is closed): full-width translucent band at the bottom like the game's own bar, centred
   white text with shadow, 150 ms fades, size = `[subtitles] size` (auto = window height). Respects the game's own "Show Subtitles" (guest word `0x4fb740`) and `[subtitles] narration = 0`.
 * `[NAME CHECK]` resolved from the game text: **Gisad = Jasaad** (Jasaad Duthane, Overlord of the Desert Lords: "Stratos is the center of Jasaad's power"), **Sadhana = Surdana** (city of
   Lady Myschala, `001AR13-A`, `102MS01`), **Malashay = Mala-Shae** (the Dragon Mother, `102MS06-C`, `C109MS26-A`). All marks removed from the shipped text.

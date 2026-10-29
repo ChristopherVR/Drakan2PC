@@ -1,36 +1,11 @@
 #pragma once
 #include "nr_guides.h"
-#include "surface_geometry.h"
-#include <gsr/scene_models.h>
+#include "ray_scene.h"
 #include <memory>
 #include <span>
 #include <string>
 
 namespace gsr::surface {
-struct Triangle {
-    Point p[3];
-    float color[3]{};
-    bool water = false;
-    float lighting[3][3]{};
-    float uv[3][2]{};
-    uint32_t texture = ~0u;
-    bool vertexLit = false;
-    float opacity[3]{1, 1, 1};
-    uint32_t alphaTest = 1, textureFunction = 0;
-    float alphaReference = 0;
-    bool textureAlpha = false, transparent = false;
-    bool shadowGeometry = true; // native topology; reconstructed GS draws are reflection fallback only
-};
-struct Texture {
-    static constexpr unsigned size = 128;
-    uint64_t identity = 0;
-    std::vector<uint32_t> pixels;
-};
-struct RayOptions {
-    bool water = true, shadows = false;
-    const char* diagnosticDump = nullptr;
-    bool requireWaterCoverage = false;
-};
 // DXR 1.1 rays intersect resident pre-cull terrain plus submitted object geometry.
 // Object/alpha-tested coverage remains partial; water visibility comes from
 // the current native water draws rather than unculling distant water into view.

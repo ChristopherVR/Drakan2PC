@@ -2,6 +2,7 @@ param(
     [Parameter(Mandatory=$true)][string]$IsoPath,
     [string]$RepoRoot = (Join-Path $PSScriptRoot '../..'),
     [ValidateSet('native','windows','linux','web')][string]$TargetPlatform = 'native',
+    # Applied when the build folder is configured; pass it again to switch an existing WorkDir.
     [string]$RuntimeSource,
     [string]$ConfigTemplate,
     [string]$WorkDir,
@@ -216,11 +217,19 @@ $prepare =@((Join-Path $PSScriptRoot 'prepare_iso.py'),'--iso',$IsoPath,'--outpu
 if ($ConfigTemplate) { $prepare += @('--config-template',$ConfigTemplate) }
 if ($Incremental) { $prepare += '--refresh-config' }
 Invoke-Checked $Python $prepare
+# The disc region prepare_iso.py detected (SYSTEM.CNF BOOT2): PAL SCES_500.06 or USA SCUS_971.28. WorkDirs prepared
+# before regions existed have no "region" and are PAL. See docs/reference/regions.md.
+$localInput = Get-Content -LiteralPath (Join-Path $WorkDir 'local-input.json') -Raw | ConvertFrom-Json
+$gameRegion = if ($localInput.region) { [string]$localInput.region } else { 'pal' }
+$regionProfile = (Get-Content -LiteralPath (Join-Path $PSScriptRoot 'regions.json') -Raw | ConvertFrom-Json).regions.$gameRegion
+if (-not $regionProfile) { throw "Unknown disc region '$gameRegion' in $WorkDir/local-input.json" }
+$bootElf = Join-Path $WorkDir $regionProfile.boot
+Write-Detail "Disc: $($regionProfile.label)$(if ($regionProfile.status -ne 'validated') { " ($($regionProfile.status): docs/reference/regions.md)" })"
 if ($PrepareOnly) { return }
 # Everything the generated C++ depends on: the recompiler sources, its pinned deps, the config and metadata.
 function Get-RecompileStamp {
     $inputs = @(Get-ChildItem -LiteralPath (Join-Path $RepoRoot 'ps2recomp/ps2xRecomp') -Recurse -File)
-    $inputs += foreach ($path in 'scripts/buildtool/toolchain.lock.json','analysis/functions.csv','analysis/jumptables.csv') {
+    $inputs += foreach ($path in 'scripts/buildtool/toolchain.lock.json',$regionProfile.functions_csv,$regionProfile.jump_tables_csv) {
         Get-Item -LiteralPath (Join-Path $RepoRoot $path)
     }
     $inputs += Get-Item -LiteralPath (Join-Path $WorkDir 'config.toml')
@@ -262,7 +271,7 @@ if ($skipRecompile) {
 if ($GenerateOnly) { return }
 Write-BuildStep 'Preparing the runtime files from the game'
 Invoke-Checked $Python @((Join-Path $RepoRoot 'scripts/prepare_local_runtime.py'),
-    '--elf',(Join-Path $WorkDir 'SCES_500.06'),'--runtime-source',$RuntimeSource)
+    '--elf',$bootElf,'--runtime-source',$RuntimeSource)
 foreach ($required in 'ps2xRuntime/CMakeLists.txt','ps2xRuntime/src/lib/vu/aot/ps2_vu1_image.inc','ps2xRuntime/src/res/drakan.ico') {
     if (-not (Test-Path -LiteralPath (Join-Path $RuntimeSource $required) -PathType Leaf)) {
         throw "The local runtime generator did not prepare $required"
@@ -309,7 +318,7 @@ Write-Detail "NVIDIA options: DLSS=$dlssBuild$(if ($DlssSdkDirectory) { " (SDK $
 # One CMake root: the `game` preset (CMakePresets.json) selects drakan.exe, release logging and no debug UI.
 $preset = if ($webBuild) { 'web-game' } elseif ($windowsHost) { 'game' } else { 'linux-game' }
 $argsList = @('-S',$RepoRoot,'--preset',$preset,'-B',$runtimeBuild,
-    "-DPS2X_GENERATED_DIR=$generatedDir","-DPS2X_OUTPUT_DIR=$gameOutput")
+    "-DPS2X_GENERATED_DIR=$generatedDir","-DPS2X_OUTPUT_DIR=$gameOutput","-DDRAKAN_GAME_REGION=$gameRegion")
 if ($windowsHost) {
     $argsList += @("-DGSR_DLSS=$dlssBuild",
         "-DPS2X_VU1_AOT_SERIAL=$(if ($SerialVuSlices) { 'ON' } else { 'OFF' })")
@@ -366,7 +375,9 @@ $gameExe = Join-Path $gameOutput $gameName
 if (-not (Test-Path -LiteralPath $gameExe -PathType Leaf)) { throw "Build did not produce $gameExe" }
 Write-BuildStep 'Setting up the play folder'
 if (-not $NoDist) {
-    if (-not $DistDirectory) { $DistDirectory = Join-Path $RepoRoot "dist/DrakanPC$platformSuffix" }
+    # A non-PAL build gets its own play folder so it never replaces the PAL one (dist/DrakanPC-usa).
+    $regionSuffix = if ($gameRegion -eq 'pal') { '' } else { "-$gameRegion" }
+    if (-not $DistDirectory) { $DistDirectory = Join-Path $RepoRoot "dist/DrakanPC$regionSuffix$platformSuffix" }
     $DistDirectory = [IO.Path]::GetFullPath($DistDirectory)
     if ($DistDirectory -eq $WorkDir -or $DistDirectory.StartsWith($WorkDir + [IO.Path]::DirectorySeparatorChar)) {
         throw 'DistDirectory must be outside WorkDir.'
@@ -469,8 +480,7 @@ if ($webBuild) {
     return
 }
 $launchArgs = @((Join-Path $PSScriptRoot 'prepare_launch.py'),'--repo-root',$RepoRoot,
-    '--output-directory',$gameOutput,'--iso',$IsoPath,'--elf',(Join-Path $WorkDir 'SCES_500.06'))
-if (-not $windowsHost) { $launchArgs += @('--renderer','sw') }
+    '--output-directory',$gameOutput,'--iso',$IsoPath,'--elf',$bootElf)
 Invoke-Checked $Python $launchArgs
 $quotedExe = $gameExe.Replace("'", "''")
 $quotedOutput = $gameOutput.Replace("'", "''")

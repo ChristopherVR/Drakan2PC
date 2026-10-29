@@ -6,7 +6,7 @@ The installer builds Drakan locally from your own disc image. It supplies the to
 
 | Requirement | What you need |
 | --- | --- |
-| Game disc | Your own **PAL SCES-500.06** release, as a plain `.iso` |
+| Game disc | Your own **PAL SCES-500.06** release, as a plain `.iso`. The **USA SCUS-971.28** release is also accepted, with fewer features: see [USA disc support](#usa-disc-support-experimental) |
 | Operating system | Windows 10 or 11, 64-bit |
 | Memory | At least 16 GB; **24 GB or more recommended** because some compilation steps use about 17 GB |
 | Disk space | About 10 GB free for the basic setup; allow more for optional generated packs |
@@ -40,6 +40,28 @@ Read [PC enhancements](enhancements.md) for the PS2 comparison, then [Controls &
 Use **Rebuild Drakan** in the Start menu. It resumes an interrupted build and preserves saves, INI settings and existing texture packs. Avoid starting a second build against the same work folder while the first is running.
 
 Before changing installations, back up your saves and settings as described in [Saves & updates](saves.md). For failures, see [Troubleshooting](troubleshooting.md).
+
+## USA disc support (experimental)
+
+The builder also accepts the **USA release, SCUS-971.28**. It builds a separate, experimental version; the PAL release
+remains the supported one. The full feature table is in [disc regions](../reference/regions.md).
+
+- **Works (run on Windows, 29 October 2026):** building from the USA ISO; the memory-card screen, title screen and New
+  Game into the first level; keyboard menu navigation, Esc for the pause menu, WASD movement and mouse look (the mouse
+  turns the camera like a right stick); the default keys from `drakan_input.ini`.
+- **Not available on the USA build:** the F1 PC settings overlay and Options > PC Settings, the in-game key binding
+  screen, widescreen and field of view, the frame-rate options and PC frame pacing, direct mouse look, free mouse
+  combat and modern bow aim, the modern Tab inventory and M map screens, quick slots, quicksave and quickload, the 16
+  save pages and the title Quit row, subtitles, the automatic skip of the memory-card warning (press the confirm key),
+  DLSS and the scene enhancements, Linux and browser builds.
+- **Not tested yet:** gamepads, saving and loading, sound quality, later levels and movies, HD textures.
+- **Where it goes:** `Build-LocalGame.ps1` puts a USA build in `dist/DrakanPC-usa`, next to the PAL `dist/DrakanPC`.
+  The installer and `Build-Drakan.cmd` build whichever disc you choose into `dist\DrakanPC`; choosing the other
+  release later rebuilds from scratch.
+- **Wrong disc or build:** an incremental rebuild with the other release's ISO stops with an error (build it into a
+  fresh work folder); a `drakan.exe` started with the other release's disc image shows "wrong disc for this build" and
+  exits. Saves are region-specific: the USA game writes `mc0/BASCUS-97128…`, the PAL game `mc0/BESCES-50006…`, so a
+  save from one release does not appear in the other.
 
 ## Build from source or on Linux
 

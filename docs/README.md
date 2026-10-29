@@ -15,13 +15,14 @@ The canonical Markdown remains in this repository:
 - [Developer overview](guides/development.md) and [technical reference index](guides/reference.md)
 - [Maintain the GitHub Pages site](reference/github-pages.md)
 
-## Reference (24)
+## Reference (25)
 
 - [GitHub Pages documentation site](reference/github-pages.md)
 
 - [Combat input investigation — 17 October 2026](reference/combat-controls.md)
 - [Optional DLSS integration: actual status](reference/dlss.md)
 - [Environment flags of the gs renderer](reference/env-flags.md)
+- [Disc regions: PAL SCES-500.06 and USA SCUS-971.28](reference/regions.md)
 - [Drakan FMV / cutscene pipeline](reference/fmv.md)
 - [Ghidra setup and function list](reference/ghidra.md)
 - [Drakan PS2 (SCES_500.06) - graphics pipeline analysis and PC replacement design](reference/graphics.md)

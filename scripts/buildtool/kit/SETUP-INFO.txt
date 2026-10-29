@@ -3,7 +3,8 @@ DRAKAN: THE ANCIENTS' GATES - PC VERSION
 
 This setup builds a native Windows version of the PlayStation 2 game from YOUR OWN
 copy of the disc. It contains no game data: you need a disc image (.iso) of the
-PAL release (SCES-500.06), and the game is made from it on this PC.
+PAL release (SCES-500.06) or the USA release (SCUS-971.28, experimental: keyboard
+and mouse work, most PC additions do not), and the game is made from it on this PC.
 
 What happens:
 

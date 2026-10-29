@@ -291,5 +291,189 @@
     "video": "map-view.mp4",
     "video_url": "https://github.com/ChristopherVR/Drakan2PC/releases/download/site-media-20261030/map-view.mp4",
     "video_sha256": "0e7a11239bc008cceedd3302d29a758c97925f18e7bcd99ea478e3bedf90b3ec"
+  },
+  "art-installer": {
+    "kind": "art",
+    "file": "art-installer.svg",
+    "alt": "Run the installer"
+  },
+  "art-build": {
+    "kind": "art",
+    "file": "art-build.svg",
+    "alt": "The build runs on your PC"
+  },
+  "art-terminal": {
+    "kind": "art",
+    "file": "art-terminal.svg",
+    "alt": "Run a few commands in a terminal"
+  },
+  "art-folder": {
+    "kind": "art",
+    "file": "art-folder.svg",
+    "alt": "Game, save and settings folders"
+  },
+  "art-browser": {
+    "kind": "art",
+    "file": "art-browser.svg",
+    "alt": "Play in your browser"
+  },
+  "movie-compare": {
+    "kind": "compare",
+    "before_label": "Original",
+    "after_label": "4× upscaled",
+    "width": 1280,
+    "height": 960,
+    "caption": "The same movie frame from the disc (512×512) and from the generated 4× pack (2048×2048), both shown at 4:3.",
+    "scenes": [
+      {
+        "id": "movie-intro",
+        "label": "Dragon attack",
+        "before_url": "https://github.com/ChristopherVR/Drakan2PC/releases/download/site-media-20261031/movie-intro-original.jpg",
+        "after_url": "https://github.com/ChristopherVR/Drakan2PC/releases/download/site-media-20261031/movie-intro-hd.jpg",
+        "before_sha256": "cc104807615b05e6a29927b21cd1589167b79a456ac300faec56c9aff500759b",
+        "after_sha256": "6ee58cf011d97da463f78027c4a92d8df09ea57d4772f05d5bcdaea478941319",
+        "source": "level0ro_6 frame 700: IPU frame decoded from the ISO without filters / the same frame of dist/DrakanPC/movies (build/site-media/movie_frames.py)"
+      },
+      {
+        "id": "movie-intro-dragons",
+        "label": "Dragons in flight",
+        "before_url": "https://github.com/ChristopherVR/Drakan2PC/releases/download/site-media-20261031/movie-intro-dragons-original.jpg",
+        "after_url": "https://github.com/ChristopherVR/Drakan2PC/releases/download/site-media-20261031/movie-intro-dragons-hd.jpg",
+        "before_sha256": "4823e4601ee3bc610aa09eb88daaf6b2321058795520db33adc2d53a80d7d014",
+        "after_sha256": "6ff47751f475934012824096468af4ec1bb2713d0ac948e9dcd93c28b1c648f1",
+        "source": "level0ro_6 frame 2300: IPU frame decoded from the ISO without filters / the same frame of dist/DrakanPC/movies (build/site-media/movie_frames.py)"
+      },
+      {
+        "id": "movie-outro",
+        "label": "Outro",
+        "before_url": "https://github.com/ChristopherVR/Drakan2PC/releases/download/site-media-20261031/movie-outro-original.jpg",
+        "after_url": "https://github.com/ChristopherVR/Drakan2PC/releases/download/site-media-20261031/movie-outro-hd.jpg",
+        "before_sha256": "8506d98ffc44dc1aa16dd486198efa1d59c20bfd6b232dafd4aeb95e7ddef8d2",
+        "after_sha256": "312197a90d5c87d28bccef03180f95517c7f8c06313fe65d5f8ba9f95cdc95a0",
+        "source": "level0ro_7 frame 250: IPU frame decoded from the ISO without filters / the same frame of dist/DrakanPC/movies (build/site-media/movie_frames.py)"
+      }
+    ]
+  },
+  "browser-launcher": {
+    "file": "browser-launcher.jpg",
+    "alt": "The browser player page with its three numbered choices and the Play button",
+    "caption": "Hosted browser player before choosing files: build folder, disc image, optional HD textures, then Play.",
+    "width": 1231,
+    "height": 1326,
+    "source": "build/site-media/web/launcher.png (Playwright, Chrome, dark theme)",
+    "sha256": "de9fcf877c03695a95df8a2e9ede5fd948a99df31117c4327e527fec02716f16",
+    "url": "https://github.com/ChristopherVR/Drakan2PC/releases/download/site-media-20261031/browser-launcher.jpg"
+  },
+  "browser-title": {
+    "file": "browser-title.jpg",
+    "alt": "The Drakan title screen running in Chrome, with Load Game greyed out",
+    "caption": "The browser build at its title screen. A new site or browser profile starts with no saves, so Load Game is greyed out.",
+    "width": 1280,
+    "height": 960,
+    "source": "build/site-media/web/game-03.png (Play-Browser launcher, headless Chrome, fresh profile)",
+    "sha256": "bdb159b40d95d8fae3fc3767d6d74b7447aea0fd13637b49103c3bfde9b20d18",
+    "url": "https://github.com/ChristopherVR/Drakan2PC/releases/download/site-media-20261031/browser-title.jpg"
+  },
+  "browser-wrong-folder": {
+    "file": "browser-wrong-folder.jpg",
+    "alt": "The launcher refusing a folder that is not a browser build",
+    "caption": "Choosing the dist folder instead of DrakanPC-web: the launcher names the three files it needs.",
+    "width": 1231,
+    "height": 790,
+    "source": "build/site-media/web/launcher-wrong-folder.png (an empty folder named dist)",
+    "sha256": "e3bc10d3197809c99770cf3d6e5c03135123a91ce631be3ebe01bec4bd109217",
+    "url": "https://github.com/ChristopherVR/Drakan2PC/releases/download/site-media-20261031/browser-wrong-folder.jpg"
+  },
+  "browser-unsupported": {
+    "file": "browser-unsupported.jpg",
+    "alt": "The launcher with its buttons disabled and a message that the browser cannot open local folders",
+    "caption": "Without the folder-access API the choices are disabled and the launcher points to Chrome, Edge or Play-Browser.cmd.",
+    "width": 1231,
+    "height": 790,
+    "source": "build/site-media/web/launcher-unsupported.png (folder-access API removed to reproduce an unsupported browser)",
+    "sha256": "0a4c2c0abefd84823c3892b7d92c27a6e096807074cba9b398f4bf53fd2f840c",
+    "url": "https://github.com/ChristopherVR/Drakan2PC/releases/download/site-media-20261031/browser-unsupported.jpg"
+  },
+  "quicksave": {
+    "file": "quicksave.jpg",
+    "alt": "Three frames: the Quick saving card, gameplay with Save was successful, and the Quick loading card",
+    "caption": "F5 quicksave, the game’s own confirmation, then F8 quickload (Windows, Surdana).",
+    "width": 2880,
+    "height": 540,
+    "source": "build/site-media/ovf/q_1.5.png, q_3.0.png, q_14.0.png (harness run site-overlay, gdigrab frames)",
+    "sha256": "d83d6690b2b4f7bd1984f28a551bf1e8e8ff4323801f2f1c4e70299626579be8",
+    "url": "https://github.com/ChristopherVR/Drakan2PC/releases/download/site-media-20261031/quicksave.jpg"
+  },
+  "pc-settings-windows": {
+    "file": "pc-settings-windows.jpg",
+    "alt": "F1 PC Settings, Display page, showing render scale, world frame rate, VSync, limiter and FPS counter",
+    "caption": "F1 PC Settings on Windows: internal render scale, world frame rate, VSync and the presentation limiter are on the Display page.",
+    "width": 1280,
+    "height": 720,
+    "source": "build/site-media/ovshots/site-ov/settings.bmp (DRAKAN_OVERLAY_SHOT_DIR)",
+    "sha256": "91055492891dc9cf16074815a438ed01047bc6968fcccb7c4f8ddf2d1b63623c",
+    "url": "https://github.com/ChristopherVR/Drakan2PC/releases/download/site-media-20261031/pc-settings-windows.jpg"
+  },
+  "fps-counter": {
+    "file": "fps-counter.jpg",
+    "alt": "Surdana with the FPS counter at the top left, enlarged in an inset",
+    "caption": "The FPS counter (F2) at the top left, enlarged here: world rate and presented frames with frame time.",
+    "width": 1280,
+    "height": 720,
+    "source": "build/site-media/ovshots/site-ov/fps.bmp (DRAKAN_OVERLAY_SHOT_DIR), inset added",
+    "sha256": "f9868ccbbf93e9a58e35ae7cb6cd6f233e9a4c4b93b6df71b46778c47abf8c4c",
+    "url": "https://github.com/ChristopherVR/Drakan2PC/releases/download/site-media-20261031/fps-counter.jpg"
+  },
+  "diagram-architecture": {
+    "kind": "diagram",
+    "file": "diagram-architecture.svg",
+    "width": 960,
+    "height": 660,
+    "alt": "Diagram: ISO to recompiler to generated C++, linked with ps2xRuntime and the runtime libraries into Windows, Linux and browser players",
+    "caption": "How the PS2 program becomes a native or browser player."
+  },
+  "diagram-build-pipeline": {
+    "kind": "diagram",
+    "file": "diagram-build-pipeline.svg",
+    "width": 960,
+    "height": 600,
+    "alt": "Diagram: the six steps of Build-LocalGame.ps1 with their outputs, and what -Incremental skips",
+    "caption": "Build-LocalGame.ps1 step by step, first build and -Incremental."
+  },
+  "diagram-browser-runtime": {
+    "kind": "diagram",
+    "file": "diagram-browser-runtime.svg",
+    "width": 960,
+    "height": 500,
+    "alt": "Diagram: browser UI thread, game workers, IndexedDB storage, and the two ways disc data arrives: local launcher or hosted service worker",
+    "caption": "Threads, storage and disc access in the browser build."
+  },
+  "diagram-site-media": {
+    "kind": "diagram",
+    "file": "diagram-site-media.svg",
+    "width": 960,
+    "height": 330,
+    "alt": "Diagram: captures go from build/site-media through a pending media.json entry and a release upload to the page; SVG diagrams publish directly",
+    "caption": "How captures and diagrams reach the site."
+  },
+  "load-game": {
+    "file": "load-game.jpg",
+    "alt": "Modern Load Game screen with four Surdana and Shadowmire slots, thumbnails and a large preview of slot 1",
+    "caption": "Load Game on Windows: four slots per page, each with its preview, and a larger preview of the selected save.",
+    "width": 1280,
+    "height": 720,
+    "source": "build/harness/site-load/ms_0021421.png (DRAKAN_MENU_SHOTS, saves from a test card)",
+    "sha256": "0bef3e1ac7401df80b68e3a35839553bdc475fe8ccaeab92df857f1716b10d8e",
+    "url": "https://github.com/ChristopherVR/Drakan2PC/releases/download/site-media-20261031/load-game.jpg"
+  },
+  "title-continue": {
+    "file": "title-continue.jpg",
+    "alt": "Title screen menu with Continue, Load Game, New Game, Options, Credits and Quit",
+    "caption": "With saves on the card the title offers Continue (newest manual save) and Load Game.",
+    "width": 1280,
+    "height": 720,
+    "source": "build/harness/site-load/ms_0017176.png (DRAKAN_MENU_SHOTS)",
+    "sha256": "eac1b185f2102d9c19cbc35220f5c55233fc6ba233a0da868c39c8452a90d9e0",
+    "url": "https://github.com/ChristopherVR/Drakan2PC/releases/download/site-media-20261031/title-continue.jpg"
   }
 }

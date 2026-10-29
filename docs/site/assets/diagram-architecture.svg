@@ -1,0 +1,99 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 660" role="img" aria-labelledby="t d">
+<title id="t">From the PS2 disc to native and browser players</title>
+<desc id="d">The builder reads the boot ELF from your ISO and checks it. The ps2_recomp recompiler translates its MIPS code to C++ using configs/drakan.toml. That private C++ links against ps2xRuntime and the runtime libraries (hle, gs, gpu, spu2, fmv, input, settings, ui, gameui, texture) to build drakan.exe for Windows with Direct3D 11 or WebGPU, a Linux player with the software GS, or a WebAssembly player for the browser.</desc>
+<defs>
+<linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#2a1b10"/><stop offset="1" stop-color="#120c08"/></linearGradient>
+<marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="#e2ba69"/></marker>
+</defs>
+<style>
+.h{font:25px Castellar,'Copperplate Gothic Light',Georgia,serif;fill:#e2ba69}
+.k{font:16px Castellar,'Copperplate Gothic Light',Georgia,serif;fill:#e2ba69}
+.b{font:16px 'Goudy Old Style','Palatino Linotype',Georgia,serif;fill:#efe2c2}
+.s{font:14px 'Goudy Old Style','Palatino Linotype',Georgia,serif;fill:#c9b896}
+.m{font:13px Consolas,'Courier New',monospace;fill:#e9d3a0}
+.box{fill:#1d130b;stroke:#8f6d3d;stroke-width:1.5}
+.in{fill:#140d07;stroke:#6d5230;stroke-width:1.2}
+.hot{fill:#2a1a0e;stroke:#e2ba69;stroke-width:2}
+.priv{fill:#1d130b;stroke:#d8661f;stroke-width:1.5;stroke-dasharray:6 4}
+.ln{stroke:#e2ba69;stroke-width:2;fill:none}
+.tag{font:12px Consolas,'Courier New',monospace;fill:#f0a060}
+</style>
+<rect width="960" height="660" fill="url(#bg)"/>
+<rect x="6" y="6" width="948" height="648" fill="none" stroke="#b48a4a" stroke-width="3"/>
+<rect x="13" y="13" width="934" height="634" fill="none" stroke="#5a4020" stroke-width="1.2"/>
+
+<text x="34" y="50" class="h">From your disc to three players</text>
+<text x="34" y="74" class="s">Dashed orange boxes are private, made on your PC from your ISO and never committed or published.</text>
+
+<!-- translation row -->
+<rect x="30" y="94" width="196" height="104" rx="4" class="priv"/>
+<text x="44" y="120" class="k">Your ISO</text>
+<text x="44" y="144" class="s">Boot ELF extracted and</text>
+<text x="44" y="162" class="s">SHA-256 checked</text>
+<text x="44" y="184" class="m">prepare_iso.py</text>
+<path d="M226 146h22" class="ln" marker-end="url(#a)"/>
+
+<rect x="252" y="94" width="250" height="104" rx="4" class="hot"/>
+<text x="266" y="120" class="k">Recompiler</text>
+<text x="266" y="142" class="m">ps2recomp/ps2xRecomp</text>
+<text x="266" y="164" class="s">MIPS R5900 to C++, guided by</text>
+<text x="266" y="184" class="m">configs/drakan.toml</text>
+<path d="M502 146h22" class="ln" marker-end="url(#a)"/>
+
+<rect x="528" y="94" width="196" height="104" rx="4" class="priv"/>
+<text x="542" y="120" class="k">Game C++</text>
+<text x="542" y="144" class="s">Generated per build</text>
+<text x="542" y="166" class="m">WORKDIR/generated</text>
+<text x="542" y="186" class="s">plus the VU1 image</text>
+
+<rect x="744" y="94" width="186" height="104" rx="4" class="box"/>
+<text x="758" y="120" class="k">One build</text>
+<text x="758" y="144" class="m">Build-LocalGame.ps1</text>
+<text x="758" y="166" class="s">runs all of this, then</text>
+<text x="758" y="186" class="s">compiles and deploys</text>
+
+<path d="M626 198v26" class="ln" marker-end="url(#a)"/>
+
+<!-- runtime -->
+<rect x="30" y="228" width="900" height="250" rx="4" class="box"/>
+<text x="46" y="256" class="k">Runtime the C++ links against</text>
+<rect x="46" y="270" width="868" height="52" rx="3" class="hot"/>
+<text x="60" y="292" class="m">ps2recomp/ps2xRuntime</text>
+<text x="250" y="292" class="b">the PS2 the game expects: CPU state, memory, kernel calls,</text>
+<text x="250" y="312" class="b">DMA, VIF and VU1, the GS front end, plus <tspan class="m">ps2xIOP</tspan></text>
+
+<g>
+<rect x="46" y="334" width="208" height="58" rx="3" class="in"/><text x="58" y="356" class="m">runtime/hle</text><text x="58" y="378" class="s">IOP services, ISO reader</text>
+<rect x="266" y="334" width="208" height="58" rx="3" class="in"/><text x="278" y="356" class="m">runtime/gs</text><text x="278" y="378" class="s">GS on D3D11 or WebGPU</text>
+<rect x="486" y="334" width="208" height="58" rx="3" class="in"/><text x="498" y="356" class="m">runtime/gpu</text><text x="498" y="378" class="s">shared WebGPU device layer</text>
+<rect x="706" y="334" width="208" height="58" rx="3" class="in"/><text x="718" y="356" class="m">runtime/spu2</text><text x="718" y="378" class="s">sound chip, libsd, audio out</text>
+<rect x="46" y="402" width="208" height="58" rx="3" class="in"/><text x="58" y="424" class="m">runtime/fmv</text><text x="58" y="446" class="s">PS2 movie (IPU) decoder</text>
+<rect x="266" y="402" width="208" height="58" rx="3" class="in"/><text x="278" y="424" class="m">runtime/input</text><text x="278" y="446" class="s">mouse, keyboard, controller</text>
+<rect x="486" y="402" width="208" height="58" rx="3" class="in"/><text x="498" y="424" class="m">runtime/settings</text><text x="498" y="446" class="s">F1 overlay, INI files</text>
+<rect x="706" y="402" width="208" height="58" rx="3" class="in"/><text x="718" y="424" class="m">runtime/ui, gameui</text><text x="718" y="446" class="s">prompts, modern menus</text>
+</g>
+
+<path d="M170 478v24" class="ln" marker-end="url(#a)"/><path d="M480 478v24" class="ln" marker-end="url(#a)"/><path d="M790 478v24" class="ln" marker-end="url(#a)"/>
+
+<!-- players -->
+<rect x="30" y="506" width="282" height="124" rx="4" class="hot"/>
+<text x="44" y="532" class="k">Windows x64</text>
+<text x="44" y="554" class="s">MSVC · Direct3D 11 (default) or</text>
+<text x="44" y="574" class="s">WebGPU on Vulkan / D3D12</text>
+<text x="44" y="594" class="s">WASAPI · XInput · DLSS, RT (D3D11)</text>
+<text x="44" y="618" class="m">dist/DrakanPC</text>
+
+<rect x="339" y="506" width="282" height="124" rx="4" class="box"/>
+<text x="353" y="532" class="k">Linux x64</text>
+<text x="353" y="554" class="s">Clang · software GS</text>
+<text x="353" y="574" class="s">raylib / GLFW / OpenGL window</text>
+<text x="353" y="594" class="s">ALSA audio</text>
+<text x="353" y="618" class="m">dist/DrakanPC-linux</text>
+
+<rect x="648" y="506" width="282" height="124" rx="4" class="box"/>
+<text x="662" y="532" class="k">Browser (wasm32)</text>
+<text x="662" y="554" class="s">Emscripten · software GS</text>
+<text x="662" y="574" class="s">WebGL canvas · AudioWorklet</text>
+<text x="662" y="594" class="s">saves in IndexedDB</text>
+<text x="662" y="618" class="m">dist/DrakanPC-web</text>
+</svg>

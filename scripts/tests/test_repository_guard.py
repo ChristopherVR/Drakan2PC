@@ -105,6 +105,17 @@ class SourceGuardTests(unittest.TestCase):
                     contextlib.redirect_stderr(io.StringIO()),
                 ):
                     self.assertEqual(guard.pre_push(), expected)
+            # History another remote already has is still new to the destination remote.
+            git("update-ref", "refs/remotes/other/main", dirty)
+            for remote, expected in [("other", 0), ("public", 1)]:
+                updates = f"refs/heads/main {dirty} refs/heads/main {'0' * 40}\n"
+                with (
+                    patch.object(guard, "ROOT", root),
+                    patch("sys.stdin", io.StringIO(updates)),
+                    contextlib.redirect_stdout(io.StringIO()),
+                    contextlib.redirect_stderr(io.StringIO()),
+                ):
+                    self.assertEqual(guard.pre_push(remote), expected)
 
 
 if __name__ == "__main__":

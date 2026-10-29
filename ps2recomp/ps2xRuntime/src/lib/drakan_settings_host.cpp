@@ -1,6 +1,7 @@
 // Drakan: DrakanSettingsHost - see drakan_settings_host.h and decomp/runtime/settings/README.md.
 #if defined(PS2X_HAVE_DRAKAN_SETTINGS)
 #include "drakan_settings_host.h"
+#include "drakan_settings_common.h"
 #include "drakan_config.h"
 #include "drakan_widescreen.h"
 #include "drakan_dlss.h"
@@ -24,6 +25,9 @@
 #include <settings/Menu.h>
 #include <settings/ModernSettings.h>
 #include <settings/Overlay.h>
+#if DRAKAN_SETTINGS_WEBGPU
+#include <settings/OverlayWebGpu.h>
+#endif
 #include <settings/TxdImage.h>
 #include <gameui/MapScreen.h>
 #include <gameui/PauseScreen.h>
@@ -43,8 +47,14 @@
 #include <memory>
 #include <mutex>
 #include <string>
+#include <cmath>
 #include <vector>
 
+#if defined(__EMSCRIPTEN__)
+#include "drakan_web_events.h"
+#include <emscripten.h>
+#endif
+#if defined(_WIN32)
 #ifndef NOMINMAX
 #define NOMINMAX
 #endif
@@ -52,7 +62,11 @@
 #define WIN32_LEAN_AND_MEAN
 #endif
 #include <windows.h>
-#include <d3d11.h>
+#else
+#include <fstream>
+#include <sys/types.h>
+#include <unistd.h>
+#endif
 
 namespace drakan_settings_host {
 namespace {
@@ -62,7 +76,7 @@ std::atomic<bool> g_openControls{false}; // the next open shows the Controls pag
 std::atomic<int> g_frameLimit{0};
 std::atomic<spu2::AudioOutput*> g_audio{nullptr};
 gsr::Renderer* g_gs = nullptr;
-HWND g_parent = nullptr;
+void* g_parent = nullptr; // the game window (drakan_window)
 WindowOps g_ops;
 std::unique_ptr<dsettings::SettingsOverlay> g_overlay;
 bool g_overlayFailed = false;
@@ -116,7 +130,7 @@ void readArtFromDisc() {
 void maybeShot(const gsr::OverlayContext& oc) {
     static const char* dir = std::getenv("DRAKAN_OVERLAY_SHOT_DIR");
     static int tick = 0;
-    if (!dir || !*dir || (++tick % 6) != 0 || !oc.rtv || !oc.device || !oc.context)
+    if (!dir || !*dir || (++tick % 6) != 0 || !oc.rtv || !g_overlay)
         return;
     { // state.txt: "open=<0|1> <flow description>" (rewritten when it changes) so a test driver need not parse the
       // (lagging) log
@@ -145,70 +159,43 @@ void maybeShot(const gsr::OverlayContext& oc) {
         nm.pop_back();
     if (nm.empty())
         nm = "shot";
-    auto* rtv = static_cast<ID3D11RenderTargetView*>(oc.rtv);
-    auto* dev = static_cast<ID3D11Device*>(oc.device);
-    auto* ctx = static_cast<ID3D11DeviceContext*>(oc.context);
-    ID3D11Resource* res = nullptr;
-    rtv->GetResource(&res);
-    if (!res)
+    uint32_t w = 0, h = 0;
+    std::vector<uint8_t> rgba;
+    if (!g_overlay->renderer().readTarget(oc.rtv, w, h, rgba))
         return;
-    ID3D11Texture2D* tex = nullptr;
-    res->QueryInterface(__uuidof(ID3D11Texture2D), reinterpret_cast<void**>(&tex));
-    res->Release();
-    if (!tex)
-        return;
-    D3D11_TEXTURE2D_DESC d{};
-    tex->GetDesc(&d);
-    D3D11_TEXTURE2D_DESC sd = d;
-    sd.Usage = D3D11_USAGE_STAGING;
-    sd.BindFlags = 0;
-    sd.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
-    sd.MiscFlags = 0;
-    sd.SampleDesc.Count = 1;
-    sd.SampleDesc.Quality = 0;
-    ID3D11Texture2D* st = nullptr;
-    if (SUCCEEDED(dev->CreateTexture2D(&sd, nullptr, &st)) && st) {
-        ctx->CopyResource(st, tex);
-        D3D11_MAPPED_SUBRESOURCE m{};
-        if (SUCCEEDED(ctx->Map(st, 0, D3D11_MAP_READ, 0, &m))) {
-            const bool rgba = d.Format == DXGI_FORMAT_R8G8B8A8_UNORM || d.Format == DXGI_FORMAT_R8G8B8A8_UNORM_SRGB;
-            const std::string path = std::string(dir) + "\\" + nm + ".bmp";
-            if (FILE* f = std::fopen(path.c_str(), "wb")) {
-                const uint32_t w = d.Width, h = d.Height, bytes = w * h * 4;
-                uint8_t hdr[54] = {'B', 'M'};
-                const uint32_t fs = 54 + bytes, off = 54, dib = 40, planes = 1, bpp = 32;
-                std::memcpy(hdr + 2, &fs, 4);
-                std::memcpy(hdr + 10, &off, 4);
-                std::memcpy(hdr + 14, &dib, 4);
-                std::memcpy(hdr + 18, &w, 4);
-                const int32_t nh = -(int32_t)h;
-                std::memcpy(hdr + 22, &nh, 4);
-                std::memcpy(hdr + 26, &planes, 2);
-                std::memcpy(hdr + 28, &bpp, 2);
-                std::fwrite(hdr, 1, 54, f);
-                std::vector<uint8_t> row(w * 4);
-                for (uint32_t y = 0; y < h; ++y) {
-                    const uint8_t* src = static_cast<const uint8_t*>(m.pData) + (size_t)y * m.RowPitch;
-                    for (uint32_t x = 0; x < w; ++x) {
-                        row[x * 4 + 0] = rgba ? src[x * 4 + 2] : src[x * 4 + 0];
-                        row[x * 4 + 1] = src[x * 4 + 1];
-                        row[x * 4 + 2] = rgba ? src[x * 4 + 0] : src[x * 4 + 2];
-                        row[x * 4 + 3] = 255;
-                    }
-                    std::fwrite(row.data(), 1, row.size(), f);
-                }
-                std::fclose(f);
-                std::fprintf(stderr, "[settings] shot %s (%ux%u)\n", path.c_str(), w, h);
+    const std::string path = std::string(dir) + "\\" + nm + ".bmp";
+    if (FILE* f = std::fopen(path.c_str(), "wb")) {
+        const uint32_t bytes = w * h * 4;
+        uint8_t hdr[54] = {'B', 'M'};
+        const uint32_t fs = 54 + bytes, off = 54, dib = 40, planes = 1, bpp = 32;
+        std::memcpy(hdr + 2, &fs, 4);
+        std::memcpy(hdr + 10, &off, 4);
+        std::memcpy(hdr + 14, &dib, 4);
+        std::memcpy(hdr + 18, &w, 4);
+        const int32_t nh = -(int32_t)h;
+        std::memcpy(hdr + 22, &nh, 4);
+        std::memcpy(hdr + 26, &planes, 2);
+        std::memcpy(hdr + 28, &bpp, 2);
+        std::fwrite(hdr, 1, 54, f);
+        std::vector<uint8_t> row(w * 4);
+        for (uint32_t y = 0; y < h; ++y) {
+            const uint8_t* src = rgba.data() + (size_t)y * w * 4;
+            for (uint32_t x = 0; x < w; ++x) {
+                row[x * 4 + 0] = src[x * 4 + 2];
+                row[x * 4 + 1] = src[x * 4 + 1];
+                row[x * 4 + 2] = src[x * 4 + 0];
+                row[x * 4 + 3] = 255;
             }
-            ctx->Unmap(st, 0);
+            std::fwrite(row.data(), 1, row.size(), f);
         }
-        st->Release();
+        std::fclose(f);
+        std::fprintf(stderr, "[settings] shot %s (%ux%u)\n", path.c_str(), w, h);
     }
-    tex->Release();
 }
 
 // Starts a new instance of this exe (same command line); the new process waits for this one to exit (DRAKAN_WAIT_PID).
 void relaunchSelf() {
+#if defined(_WIN32)
     wchar_t exe[MAX_PATH * 2];
     const DWORD n = GetModuleFileNameW(nullptr, exe, (DWORD)(sizeof exe / sizeof exe[0]));
     if (!n)
@@ -223,6 +210,30 @@ void relaunchSelf() {
     } else
         std::fprintf(stderr, "[settings] restart failed (error %lu)\n", GetLastError());
     SetEnvironmentVariableW(L"DRAKAN_WAIT_PID", nullptr);
+#elif defined(__EMSCRIPTEN__)
+    MAIN_THREAD_ASYNC_EM_ASM({ location.reload(); }); // the page starts the game again
+#else
+    // The same executable with the same arguments (/proc/self/cmdline: NUL-separated).
+    std::ifstream cmdline("/proc/self/cmdline", std::ios::binary);
+    std::vector<std::string> args;
+    for (std::string arg; std::getline(cmdline, arg, '\0');)
+        args.push_back(arg);
+    if (args.empty())
+        return;
+    std::vector<char*> argv;
+    for (std::string& a : args)
+        argv.push_back(a.data());
+    argv.push_back(nullptr);
+    setenv("DRAKAN_WAIT_PID", std::to_string(getpid()).c_str(), 1);
+    const pid_t child = fork();
+    if (child == 0) {
+        execv("/proc/self/exe", argv.data());
+        _exit(127);
+    }
+    if (child < 0)
+        std::perror("[settings] restart failed");
+    unsetenv("DRAKAN_WAIT_PID");
+#endif
 }
 
 // ---- the modern Tab screen (runtime/gameui), drawn by the overlay's screen layer on the present thread ----
@@ -305,42 +316,42 @@ gameui::UiInput tabInput(bool take) {
     const auto k = [&](ImGuiKey key, int vk, UiKey u, bool repeat) {
         if (g_capture && key < ImGuiKey_GamepadStart && key != ImGuiKey_Escape)
             return; // capturing: the keyboard binds, it does not navigate
-        const bool down = ImGui::IsKeyDown(key) || (vk && (GetAsyncKeyState(vk) & 0x8000) != 0);
+        const bool down = ImGui::IsKeyDown(key) || (vk && drakan_win::keyDown(vk));
         if (gate.accept(static_cast<int>(key), down, ImGui::IsKeyPressed(key, repeat))) {
             in.keys.push_back(u);
             (key >= ImGuiKey_GamepadStart && key <= ImGuiKey_GamepadRStickDown ? pad : kbm) = true;
         }
     };
-    k(ImGuiKey_UpArrow, VK_UP, UiKey::Up, true);
+    k(ImGuiKey_UpArrow, drakan_win::vk::Up, UiKey::Up, true);
     k(ImGuiKey_W, 'W', UiKey::Up, true);
     k(ImGuiKey_GamepadDpadUp, 0, UiKey::Up, true);
     k(ImGuiKey_GamepadLStickUp, 0, UiKey::Up, true);
-    k(ImGuiKey_DownArrow, VK_DOWN, UiKey::Down, true);
+    k(ImGuiKey_DownArrow, drakan_win::vk::Down, UiKey::Down, true);
     k(ImGuiKey_S, 'S', UiKey::Down, true);
     k(ImGuiKey_GamepadDpadDown, 0, UiKey::Down, true);
     k(ImGuiKey_GamepadLStickDown, 0, UiKey::Down, true);
-    k(ImGuiKey_LeftArrow, VK_LEFT, UiKey::Left, true);
+    k(ImGuiKey_LeftArrow, drakan_win::vk::Left, UiKey::Left, true);
     k(ImGuiKey_A, 'A', UiKey::Left, true);
     k(ImGuiKey_GamepadDpadLeft, 0, UiKey::Left, true);
     k(ImGuiKey_GamepadLStickLeft, 0, UiKey::Left, true);
-    k(ImGuiKey_RightArrow, VK_RIGHT, UiKey::Right, true);
+    k(ImGuiKey_RightArrow, drakan_win::vk::Right, UiKey::Right, true);
     k(ImGuiKey_D, 'D', UiKey::Right, true);
     k(ImGuiKey_GamepadDpadRight, 0, UiKey::Right, true);
     k(ImGuiKey_GamepadLStickRight, 0, UiKey::Right, true);
-    k(ImGuiKey_Enter, VK_RETURN, UiKey::Confirm, false);
-    k(ImGuiKey_KeypadEnter, VK_RETURN, UiKey::Confirm, false);
-    k(ImGuiKey_Space, VK_SPACE, UiKey::Confirm, false);
+    k(ImGuiKey_Enter, drakan_win::vk::Enter, UiKey::Confirm, false);
+    k(ImGuiKey_KeypadEnter, drakan_win::vk::Enter, UiKey::Confirm, false);
+    k(ImGuiKey_Space, drakan_win::vk::Space, UiKey::Confirm, false);
     k(ImGuiKey_GamepadFaceDown, 0, UiKey::Confirm, false);
-    k(ImGuiKey_Escape, VK_ESCAPE, UiKey::Back, false);
-    k(ImGuiKey_Backspace, VK_BACK, UiKey::Back, false);
+    k(ImGuiKey_Escape, drakan_win::vk::Escape, UiKey::Back, false);
+    k(ImGuiKey_Backspace, drakan_win::vk::Backspace, UiKey::Back, false);
     k(ImGuiKey_GamepadFaceRight, 0, UiKey::Back, false);
-    k(ImGuiKey_Tab, VK_TAB, UiKey::Close, false);
+    k(ImGuiKey_Tab, drakan_win::vk::Tab, UiKey::Close, false);
     k(ImGuiKey_I, 'I', UiKey::Close, false);
     k(ImGuiKey_M, 'M', UiKey::Close, false);
     k(ImGuiKey_GamepadStart, 0, UiKey::Back, false);
     k(ImGuiKey_GamepadBack, 0, UiKey::Close, false);
     k(ImGuiKey_X, 'X', UiKey::Secondary, false);
-    k(ImGuiKey_Delete, VK_DELETE, UiKey::Secondary, false);
+    k(ImGuiKey_Delete, drakan_win::vk::Delete, UiKey::Secondary, false);
     k(ImGuiKey_GamepadFaceUp, 0, UiKey::Secondary, false);
     k(ImGuiKey_F, 'F', UiKey::Tertiary, false);
     k(ImGuiKey_GamepadFaceLeft, 0, UiKey::Tertiary, false);
@@ -359,13 +370,12 @@ gameui::UiInput tabInput(bool take) {
     in.pointerY = mp.y;
     in.pointerMoved = io.MouseDelta.x != 0 || io.MouseDelta.y != 0;
     constexpr int kGateLeft = gameui::KeyGate::kKeys - 2, kGateRight = gameui::KeyGate::kKeys - 1;
-    const auto button = [](ImGuiMouseButton b, int vk) {
-        return ImGui::IsMouseDown(b) || (GetAsyncKeyState(vk) & 0x8000) != 0;
-    };
-    in.leftDown = button(ImGuiMouseButton_Left, VK_LBUTTON); // slider drags (a drag starts only on a click)
+    const auto button = [](ImGuiMouseButton b, int vk) { return ImGui::IsMouseDown(b) || drakan_win::keyDown(vk); };
+    in.leftDown =
+        button(ImGuiMouseButton_Left, drakan_win::vk::LeftButton); // slider drags (a drag starts only on a click)
     in.leftClick = gate.accept(kGateLeft, in.leftDown, ImGui::IsMouseClicked(ImGuiMouseButton_Left));
     in.doubleClick = in.leftClick && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left);
-    in.rightClick = gate.accept(kGateRight, button(ImGuiMouseButton_Right, VK_RBUTTON),
+    in.rightClick = gate.accept(kGateRight, button(ImGuiMouseButton_Right, drakan_win::vk::RightButton),
                                 ImGui::IsMouseClicked(ImGuiMouseButton_Right));
     in.wheel = io.MouseWheel;
     if (in.pointerMoved || in.leftClick || in.rightClick || in.wheel != 0)
@@ -882,7 +892,7 @@ void tabDraw(const dsettings::SettingsOverlay::ScreenFrame& f) {
         sh.hostDrawn.fetch_add(1); // the EE watchdog (drakan_tab_screen.inl tabWatchdog)
 
     if (in.pointerValid && ui.device == gameui::InputDevice::KeyboardMouse && f.input && !sh.boxUp.load())
-        dsettings::SettingsOverlay::drawMenuCursor(in.pointerX, in.pointerY, std::clamp(f.h / 1080.0f, 0.62f, 3.0f));
+        dsettings::drawMenuCursor(in.pointerX, in.pointerY, std::clamp(f.h / 1080.0f, 0.62f, 3.0f));
 }
 
 // ---- the modern Esc (pause) menu (gameui PauseScreen; EE side drakan_pause_screen.inl) ----
@@ -1069,7 +1079,7 @@ void pauseDraw(const dsettings::SettingsOverlay::ScreenFrame& f, bool background
     if (visible && ui.last.size() > 0)
         sh.hostDrawn.fetch_add(1); // the EE watchdog (drakan_pause_screen.inl pauseTick)
     if (in.pointerValid && tu.device == gameui::InputDevice::KeyboardMouse && f.input && visible)
-        dsettings::SettingsOverlay::drawMenuCursor(in.pointerX, in.pointerY, std::clamp(f.h / 1080.0f, 0.62f, 3.0f));
+        dsettings::drawMenuCursor(in.pointerX, in.pointerY, std::clamp(f.h / 1080.0f, 0.62f, 3.0f));
 }
 
 // ---- the modern title menu and Save / Load screens (gameui TitleScreen / SaveLoadScreen; EE side
@@ -1116,7 +1126,7 @@ PreviewDecode decodePreview(std::string path) {
 struct PreviewTexture {
     uint64_t key = 0;
     std::string hd;
-    ID3D11ShaderResourceView* srv = nullptr;
+    ImTextureID tex = 0; // the overlay renderer's texture
     bool hdShown = false;
     float w = 0, h = 0;
     ImVec2 uv0{0, 0}, uv1{1, 1};
@@ -1126,27 +1136,13 @@ std::vector<std::pair<int, PreviewTexture>> g_previews;
 std::vector<std::future<PreviewDecode>> g_previewDrops; // decodes of replaced entries, dropped once finished
 uint64_t g_previewSerial = ~0ull;
 
-ID3D11ShaderResourceView* makeTexture(const void* rgba, unsigned w, unsigned h) {
-    auto* dev = static_cast<ID3D11Device*>(g_overlayView.device);
-    if (!dev || !rgba || !w || !h)
-        return nullptr;
-    D3D11_TEXTURE2D_DESC d{};
-    d.Width = w;
-    d.Height = h;
-    d.MipLevels = 1;
-    d.ArraySize = 1;
-    d.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
-    d.SampleDesc.Count = 1;
-    d.Usage = D3D11_USAGE_IMMUTABLE;
-    d.BindFlags = D3D11_BIND_SHADER_RESOURCE;
-    D3D11_SUBRESOURCE_DATA s{rgba, w * 4, 0};
-    ID3D11Texture2D* tex = nullptr;
-    ID3D11ShaderResourceView* srv = nullptr;
-    if (SUCCEEDED(dev->CreateTexture2D(&d, &s, &tex)) && tex) {
-        dev->CreateShaderResourceView(tex, nullptr, &srv);
-        tex->Release();
-    }
-    return srv;
+ImTextureID makeTexture(const void* rgba, unsigned w, unsigned h) {
+    return g_overlay && rgba && w && h ? g_overlay->renderer().createTexture(rgba, w, h) : 0;
+}
+void dropTexture(ImTextureID& tex) {
+    if (tex && g_overlay)
+        g_overlay->renderer().releaseTexture(tex);
+    tex = 0;
 }
 
 bool futureReady(const std::future<PreviewDecode>& f) {
@@ -1175,10 +1171,9 @@ void updatePreviewTextures() {
             t = &g_previews.back().second;
         }
         if (t->key == pic.key && t->hd == pic.hdPath &&
-            (t->srv || t->decode.valid() || (!pic.key && pic.hdPath.empty())))
+            (t->tex || t->decode.valid() || (!pic.key && pic.hdPath.empty())))
             continue;
-        if (t->srv)
-            t->srv->Release();
+        dropTexture(t->tex);
         if (t->decode.valid())
             g_previewDrops.push_back(std::move(t->decode));
         *t = {};
@@ -1187,7 +1182,7 @@ void updatePreviewTextures() {
         if (!pic.hdPath.empty())
             t->decode = std::async(std::launch::async, decodePreview, pic.hdPath);
         if (pic.key && pic.pixels.size() == 128 * 128) { // the native thumbnail meanwhile (or for good)
-            t->srv = makeTexture(pic.pixels.data(), 128, 128);
+            t->tex = makeTexture(pic.pixels.data(), 128, 128);
             // Rows top down, as stored (compared with the native grid's picture of the same save).
             t->uv0 = ImVec2(0, 0);
             t->uv1 = ImVec2(1, 1);
@@ -1196,21 +1191,20 @@ void updatePreviewTextures() {
         }
         if (pic.hdPath.empty())
             std::fprintf(stderr, "[menu-screens] overlay: slot %d picture %s\n", n,
-                         t->srv ? "native thumbnail" : "none");
+                         t->tex ? "native thumbnail" : "none");
     }
     for (auto& [n, t] : g_previews) {
         if (!futureReady(t.decode))
             continue;
         PreviewDecode r = t.decode.get();
-        ID3D11ShaderResourceView* srv = r.img ? makeTexture(r.img.rgba.data(), r.img.width, r.img.height) : nullptr;
+        ImTextureID tex = r.img ? makeTexture(r.img.rgba.data(), r.img.width, r.img.height) : 0;
         std::fprintf(stderr, "[menu-screens] overlay: slot %d picture %s (decoded in %.0f ms on a worker, t=%.3f)\n", n,
-                     srv ? "HD companion" : (t.srv ? "native thumbnail (HD failed)" : "none"), r.ms,
+                     tex ? "HD companion" : (t.tex ? "native thumbnail (HD failed)" : "none"), r.ms,
                      drakan_menu_screens::clockSeconds());
-        if (!srv)
+        if (!tex)
             continue;
-        if (t.srv)
-            t.srv->Release();
-        t.srv = srv;
+        dropTexture(t.tex);
+        t.tex = tex;
         t.hdShown = true;
         t.uv0 = ImVec2(float(r.x0) / r.img.width, float(r.y0) / r.img.height);
         t.uv1 = ImVec2(float(r.x1) / r.img.width, float(r.y1) / r.img.height);
@@ -1223,8 +1217,8 @@ bool previewCrop(const gameui::ImageRef& ref, dsettings::IconCrop& c) {
     if (ref.kind != gameui::ImageKind::SavePreview)
         return false; // TitleArt: the native art shows under the menu (TitleState::backdrop stays None)
     for (const auto& [n, t] : g_previews)
-        if (n == static_cast<int>(ref.index) && t.srv) {
-            c.texture = static_cast<ImTextureID>(reinterpret_cast<uintptr_t>(t.srv));
+        if (n == static_cast<int>(ref.index) && t.tex) {
+            c.texture = t.tex;
             c.uv0 = t.uv0;
             c.uv1 = t.uv1;
             c.w = t.w;
@@ -1340,7 +1334,7 @@ void titleDraw(const dsettings::SettingsOverlay::ScreenFrame& f, bool background
     if (visible && ui.last.size() > 0)
         sh.titleDrawn.fetch_add(1); // the EE watchdog (drakan_menu_screens.inl titleTick)
     if (in.pointerValid && tu.device == gameui::InputDevice::KeyboardMouse && f.input && visible)
-        dsettings::SettingsOverlay::drawMenuCursor(in.pointerX, in.pointerY, std::clamp(f.h / 1080.0f, 0.62f, 3.0f));
+        dsettings::drawMenuCursor(in.pointerX, in.pointerY, std::clamp(f.h / 1080.0f, 0.62f, 3.0f));
 }
 
 struct SlotsUi {
@@ -1432,7 +1426,7 @@ void slotsDraw(const dsettings::SettingsOverlay::ScreenFrame& f) {
     if (visible && ui.last.size() > 0)
         sh.slotsDrawn.fetch_add(1); // the EE watchdog (drakan_menu_screens.inl slotsTick)
     if (in.pointerValid && tu.device == gameui::InputDevice::KeyboardMouse && f.input && visible)
-        dsettings::SettingsOverlay::drawMenuCursor(in.pointerX, in.pointerY, std::clamp(f.h / 1080.0f, 0.62f, 3.0f));
+        dsettings::drawMenuCursor(in.pointerX, in.pointerY, std::clamp(f.h / 1080.0f, 0.62f, 3.0f));
 }
 
 // The overlay has one screen layer. The modern Save / Load screen is drawn over its parent (the pause or the title,
@@ -1492,13 +1486,13 @@ void hostScreenDraw(const dsettings::SettingsOverlay::ScreenFrame& f) {
     }
 }
 
-struct DrakanSettingsHost final : dsettings::ISettingsHost {
+struct DrakanSettingsHost final : CommonSettingsHost {
+    DrakanSettingsHost() : CommonSettingsHost(g_audio) {}
     dsettings::HostCaps capabilities() const override {
-        dsettings::HostCaps c;
+        dsettings::HostCaps c = commonCapabilities();
         c.exclusiveFullscreen = false;
         c.frameLimiter = true;
         c.textureUpscale = c.anisotropic = c.mipBias = true;
-        c.hdTextures = true;
         c.textureDump = true;
         c.textureUpscaleFilters = {"default", "xbrz", "smooth"};
         c.languageSelect = true;
@@ -1512,38 +1506,31 @@ struct DrakanSettingsHost final : dsettings::ISettingsHost {
             c.modernWaterStatus = g_gs->waterRenderingStatus();
         if (g_gs)
             c.rayTracingStatus = g_gs->rayTracingStatus();
+#if defined(PS2X_GSR_RENDERER_CHOICE)
+        c.rendererChoice = true;
+#endif
         c.audioDeviceSelect = true;
-        c.restartKeys = {"video.world_rate", "general.language", "general.ui_prompts"};
         return c;
     }
 
     dsettings::MonitorInfo monitor() const override {
         dsettings::MonitorInfo m;
-        MONITORINFOEXW mi{};
-        mi.cbSize = sizeof mi;
-        if (GetMonitorInfoW(MonitorFromWindow(g_parent, MONITOR_DEFAULTTONEAREST), &mi)) {
-            m.nativeWidth = mi.rcMonitor.right - mi.rcMonitor.left;
-            m.nativeHeight = mi.rcMonitor.bottom - mi.rcMonitor.top;
-            DEVMODEW dm{};
-            dm.dmSize = sizeof dm;
-            if (EnumDisplaySettingsW(mi.szDevice, ENUM_CURRENT_SETTINGS, &dm) && dm.dmDisplayFrequency > 1)
-                m.refreshHz = (int)dm.dmDisplayFrequency;
+        int w = 0, h = 0;
+        if (drakan_win::monitorSize(w, h)) {
+            m.nativeWidth = w;
+            m.nativeHeight = h;
+            const double refresh = drakan_win::refreshSeconds();
+            if (refresh > 0)
+                m.refreshHz = static_cast<int>(std::lround(1.0 / refresh));
         }
         return m;
     }
 
-    std::vector<std::string> audioDevices() const override {
-        std::vector<std::string> v;
-        for (const auto& d : spu2::AudioOutput::enumerateDevices())
-            v.push_back(d.name);
-        return v;
-    }
-
     void windowSize(int& w, int& h) const override {
-        RECT rc{};
-        if (g_parent && GetClientRect(g_parent, &rc)) {
-            w = rc.right - rc.left;
-            h = rc.bottom - rc.top;
+        int cw = 0, ch = 0;
+        if (g_parent && drakan_win::clientSize(cw, ch)) {
+            w = cw;
+            h = ch;
         }
     }
 
@@ -1563,15 +1550,10 @@ struct DrakanSettingsHost final : dsettings::ISettingsHost {
              p.windowMode != WindowMode::Windowed) &&
             g_ops.requestWindowSize)
             g_ops.requestWindowSize(g_ops.ctx, n.windowWidth, n.windowHeight);
-        if (n.showFps != p.showFps)
-            drakan_fpsmeter::setMode(n.showFps);
-        if (n.fpsPosition != p.fpsPosition)
-            drakan_fpsmeter::setCornerText(n.fpsPosition.c_str());
+        applyCommonVideo(n, p);
         if (n.aspect != p.aspect)
             drakan_ws::setAspectText(dsettings::toIni(
                 n.aspect)); // drives the projection hook AND the presenter (4:3 pillarbox on menus / FMV / loading)
-        if (n.fieldOfView != p.fieldOfView)
-            drakan_ws::setFieldOfView(n.fieldOfView);
         if (n.hudAspectCorrect != p.hudAspectCorrect)
             drakan_ws::setHudCorrect(n.hudAspectCorrect);
         if (n.hudScale != p.hudScale)
@@ -1615,37 +1597,6 @@ struct DrakanSettingsHost final : dsettings::ISettingsHost {
         return r;
     }
 
-    dsettings::ApplyResult applyAudio(const dsettings::AudioSettings& n, const dsettings::AudioSettings& p) override {
-        if (spu2::AudioOutput* a = g_audio.load()) {
-            a->setMuted(!n.enabled);
-            a->setMasterGain(std::max(0, n.volume) / 100.0f);
-            if (n.device != p.device)
-                a->setOutputDevice(n.device.empty() ? "default" : n.device);
-        }
-        return {};
-    }
-
-    dsettings::ApplyResult applySubtitles(const dsettings::SubtitleSettings& n,
-                                          const dsettings::SubtitleSettings&) override {
-        drakan_subtitles::setEnabled(n.narration);
-        drakan_subtitles::setSize(n.size);
-        return {};
-    }
-
-    dsettings::ApplyResult applyGeneral(const dsettings::GeneralSettings& n,
-                                        const dsettings::GeneralSettings& p) override {
-        drakan_tab::setEnabled(n.inventoryScreen == dsettings::InventoryScreen::Modern);
-        if (n.pauseMenu != p.pauseMenu) // applies from the next Esc (an open pause falls back to the native page)
-            drakan_pause_screen::setEnabled(n.pauseMenu == dsettings::PauseMenu::Modern);
-        // From the next opening of those screens; an open one falls back to its native page.
-        if (n.saveMenu != p.saveMenu)
-            drakan_menu_screens::setSaveModern(n.saveMenu == dsettings::SaveMenu::Modern);
-        if (n.titleMenu != p.titleMenu)
-            drakan_menu_screens::setTitleModern(n.titleMenu == dsettings::TitleMenu::Modern);
-        drakan_dual_wield::setEnabled(n.dualWield);
-        return {};
-    }
-
     void reloadBindings(const std::string& path) override { drakan_input::reloadConfig(path.c_str()); }
     void regeneratePrompts() override {
         // The key-cap prompts are generated when the game requests the UI resources (next level load / restart).
@@ -1655,14 +1606,12 @@ struct DrakanSettingsHost final : dsettings::ISettingsHost {
     }
     void requestRestart(const std::vector<std::string>&) override {
         relaunchSelf();
-        if (g_parent)
-            PostMessageW(g_parent, WM_CLOSE, 0, 0);
+        drakan_win::requestClose();
     }
     void requestQuit() override {
         std::fprintf(stderr, "[settings] Quit to Desktop\n");
         drakan_win::requestClose();
     }
-    std::string defaultInputIni() const override { return drakan_input::Config::defaultIniText(); }
     bool gameTexture(int id, dsettings::GameImage& out) const override {
         std::lock_guard<std::mutex> l(g_artM);
         readArtFromDisc();
@@ -1688,8 +1637,44 @@ void overlayCallback(const gsr::OverlayContext& oc) {
             return;
         dsettings::OverlayInit oi;
         oi.hwnd = g_parent;
-        oi.device = static_cast<ID3D11Device*>(oc.device);
-        oi.context = static_cast<ID3D11DeviceContext*>(oc.context);
+#if defined(__EMSCRIPTEN__)
+        // The browser has no window events of its own: the overlay reads the page's DOM events.
+        webEventsEnable(WebEventConsumer::Overlay);
+        oi.events.next = [](dsettings::OverlayEvent& out) {
+            WebEvent e;
+            while (webEvents(WebEventConsumer::Overlay).pop(e)) {
+                if (e.type == WebEvent::Motion)
+                    continue; // pointer-lock deltas are for the game
+                out.type = e.type == WebEvent::Key      ? dsettings::OverlayEvent::Key
+                           : e.type == WebEvent::Button ? dsettings::OverlayEvent::Button
+                           : e.type == WebEvent::Cursor ? dsettings::OverlayEvent::Cursor
+                           : e.type == WebEvent::Wheel  ? dsettings::OverlayEvent::Wheel
+                           : e.type == WebEvent::Char   ? dsettings::OverlayEvent::Char
+                                                        : dsettings::OverlayEvent::Focus;
+                out.a = e.a;
+                out.b = e.b;
+                return true;
+            }
+            return false;
+        };
+        oi.events.pointer = [](int& x, int& y, int& w, int& h) {
+            drakanWebCursor(x, y);
+            return drakan_win::clientSize(w, h);
+        };
+        oi.events.gamepadButtons = [] {
+            const WebGamepad pad = drakanWebGamepad();
+            return pad.connected ? pad.buttons : 0u;
+        };
+        oi.events.setCursorHidden = [](bool hidden) { drakanWebSetCursorHidden(hidden); };
+#endif
+        if (oc.api == gsr::OverlayApi::WebGpu) {
+#if DRAKAN_SETTINGS_WEBGPU
+            oi.renderer = dsettings::createWebGpuOverlayRenderer(*static_cast<gsr::rhi::Device*>(oc.device));
+#endif
+        } else {
+            oi.device = static_cast<ID3D11Device*>(oc.device);
+            oi.context = static_cast<ID3D11DeviceContext*>(oc.context);
+        }
         oi.host = &g_host;
         oi.paths.drakanIni = drakan_cfg::iniPath();
         const char* ii = std::getenv("DRAKAN_INPUT_INI");
@@ -1710,7 +1695,8 @@ void overlayCallback(const gsr::OverlayContext& oc) {
             drakan_input::module().setSuspended(open);
             g_open.store(open);
         });
-        drakan_subtitles::installHudLayer(*g_overlay);
+        drakan_subtitles::installHudLayer();
+        installSharedHudLayers();
         // The modern PC Settings pages share the overlay's host and store (the F1 overlay stays as it is).
         g_pcs = std::make_unique<dsettings::ModernSettings>(g_host, g_overlay->store());
         g_pcs->open();
@@ -1757,20 +1743,11 @@ void overlayCallback(const gsr::OverlayContext& oc) {
             g_overlay->setScreenLayer(std::move(tl));
             drakan_tab::shared().layerReady.store(true);
         }
-        { // FPS / frame time counter
-            dsettings::SettingsOverlay::HudLayer sl;
-            sl.active = []() { return drakan_fpsmeter::mode() > 0; };
-            sl.draw = [](float w, float h, float scale) {
-                dsettings::SettingsOverlay::drawStatsPanel(drakan_fpsmeter::lines(), drakan_fpsmeter::corner(), w, h,
-                                                           scale);
-            };
-            g_overlay->setStatsLayer(std::move(sl));
-        }
         // F1 / the gamepad combo are ignored during movies, the start-up logos / intro, in-engine cut scenes and
         // loading screens
         g_overlay->setAllowGate([]() {
             const bool ok = drakan_pause::f1Allowed();
-            std::fprintf(stderr, "[settings] t=%.1f F1 %s (%s)\n", (double)GetTickCount64() / 1000.0,
+            std::fprintf(stderr, "[settings] t=%.1f F1 %s (%s)\n", drakan_menu_screens::clockSeconds(),
                          ok ? "allowed" : "ignored", drakan_pause::flowDescription().c_str());
             return ok;
         });
@@ -1784,12 +1761,10 @@ void overlayCallback(const gsr::OverlayContext& oc) {
             return false;
         });
         { // game menu cursor (mouse over the game's own menus), drawn in the overlay layer
-            dsettings::SettingsOverlay::HudLayer cl;
-            cl.active = []() {
-                return drakan_input::module().menuCursorVisible() || drakan_menus::pager().visible ||
-                       drakan_input::module().bowCrosshairVisible();
-            };
-            cl.draw = [](float w, float h, float scale) {
+            dsettings::HudLayer cl;
+            cl.active = []() { return drakan_input::module().menuCursorVisible() || drakan_menus::pager().visible; };
+            cl.draw = [](const dsettings::HudView& view) {
+                const float w = view.w, h = view.h, scale = view.uiScale;
                 const auto p = drakan_menus::pager();
                 const int screen = drakan_pause::guiScreen();
                 if (p.visible && (screen == 4 || screen == 5)) {
@@ -1807,17 +1782,12 @@ void overlayCallback(const gsr::OverlayContext& oc) {
                     g_overlay->drawNativeMenuText(p.next, px(p.xNext), py, p.lineHeight * sy, hover == 101);
                     g_overlay->drawNativeMenuText(p.page, px(p.xPage), py, p.lineHeight * sy, false);
                 }
-                if (drakan_input::module().bowCrosshairVisible()) { // modern bow aim: the camera's centre ray
-                    const auto& v = g_overlayView;
-                    const float vw = v.viewW > 0 ? v.viewW : w, vh = v.viewH > 0 ? v.viewH : h;
-                    dsettings::SettingsOverlay::drawCrosshair(v.viewX + vw * 0.5f, v.viewY + vh * 0.5f, scale);
-                }
                 float x = 0, y = 0;
                 if (drakan_input::module().menuCursorVisible() && g_overlay &&
                     g_overlay->pointerInBackbuffer(static_cast<uint32_t>(w), static_cast<uint32_t>(h), &x, &y))
-                    dsettings::SettingsOverlay::drawMenuCursor(x, y, scale);
+                    dsettings::drawMenuCursor(x, y, scale);
             };
-            g_overlay->setCursorLayer(std::move(cl));
+            dsettings::hudLayers().set(dsettings::HudSlot::Cursor, std::move(cl));
             drakan_input::module().setOverlayCursorAvailable(true);
         }
         std::fprintf(stderr, "[settings] overlay ready (F1 / Back+LB+RB / Options > PC Settings)\n");
@@ -1836,10 +1806,10 @@ void overlayCallback(const gsr::OverlayContext& oc) {
     if (oc.viewW > 0.0f && oc.viewH > 0.0f &&
         g_parent) { // where the game image sits in the window (letterbox / pillarbox / widescreen): the menu mouse maps
                     // the cursor through it
-        RECT rc{};
-        if (GetClientRect(g_parent, &rc) && rc.right > 0 && rc.bottom > 0 && oc.width && oc.height) {
-            const float sx = static_cast<float>(rc.right) / static_cast<float>(oc.width),
-                        sy = static_cast<float>(rc.bottom) / static_cast<float>(oc.height);
+        int cw = 0, ch = 0;
+        if (drakan_win::clientSize(cw, ch) && cw > 0 && ch > 0 && oc.width && oc.height) {
+            const float sx = static_cast<float>(cw) / static_cast<float>(oc.width),
+                        sy = static_cast<float>(ch) / static_cast<float>(oc.height);
             drakan_input::MenuView v;
             v.x = oc.viewX * sx;
             v.y = oc.viewY * sy;
@@ -1856,7 +1826,12 @@ void overlayCallback(const gsr::OverlayContext& oc) {
         }
     }
     g_overlayView = oc;
-    g_overlay->render(static_cast<ID3D11RenderTargetView*>(oc.rtv), oc.width, oc.height);
+    dsettings::HudView image;
+    image.viewX = oc.viewX;
+    image.viewY = oc.viewY;
+    image.viewW = oc.viewW;
+    image.viewH = oc.viewH;
+    g_overlay->render(oc.rtv, oc.width, oc.height, image);
     maybeShot(oc);
     g_open.store(g_overlay->isOpenAtomic());
 }
@@ -1869,7 +1844,7 @@ void attachRenderer(gsr::Renderer* gs, void* parentHwnd, const WindowOps& ops) {
     gs->setWaterRendering(drakan_cfg::getBool("video", "modern_water", "GSR_MODERN_WATER", false),
                           drakan_cfg::getBool("video", "ray_reflections", "GSR_RAY_REFLECTIONS", true),
                           drakan_cfg::getBool("video", "ray_shadows", "GSR_RAY_SHADOWS", false));
-    g_parent = static_cast<HWND>(parentHwnd);
+    g_parent = parentHwnd;
     g_ops = ops;
     g_frameLimit.store(std::max(0, drakan_cfg::getInt("video", "frame_limit", "DRAKAN_FRAME_LIMIT", 0)));
     gs->setOverlayCallback(&overlayCallback);
@@ -1881,8 +1856,7 @@ void detachRenderer() {
     if (g_gs)
         g_gs->setOverlayCallback(nullptr);
     for (auto& p : g_previews) {
-        if (p.second.srv)
-            p.second.srv->Release();
+        dropTexture(p.second.tex);
         if (p.second.decode.valid())
             p.second.decode.wait(); // a worker decode ends before the renderer goes
     }

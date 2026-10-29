@@ -18,7 +18,8 @@ int cycleMode(); // F2
 void setCorner(int corner);
 int corner();
 void setCornerText(const char* text); // "top-left" | "top-right" | "bottom-left" | "bottom-right"
-void setThreads(void* eeThreadHandle, void* rendererThreadHandle); // Win32 thread handles (may be null); not owned
+void setThreads(void* eeThreadHandle,
+                void* rendererThreadHandle); // native thread handles (HANDLE / pthread_t), may be null
 void setInfo(const std::string& gpuName, unsigned backbufW, unsigned backbufH);
 
 void setWorldFrames(uint64_t completed); // GS worker: completed positive world scenes with draws

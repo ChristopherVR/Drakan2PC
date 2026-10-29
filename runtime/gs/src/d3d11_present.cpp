@@ -3,7 +3,7 @@
 
 namespace gsr {
 
-void Backend::Impl::ensureDisp(uint32_t w, uint32_t h) {
+void D3D11Backend::Impl::ensureDisp(uint32_t w, uint32_t h) {
     if (dispTex && dispW == w && dispH == h)
         return;
     dispW = w;
@@ -16,7 +16,7 @@ void Backend::Impl::ensureDisp(uint32_t w, uint32_t h) {
 }
 
 // returns display size in native pixels
-bool Backend::Impl::renderDisplay(const DisplayState& d, uint32_t& outW, uint32_t& outH, bool recordLatch) {
+bool D3D11Backend::Impl::renderDisplay(const DisplayState& d, uint32_t& outW, uint32_t& outH, bool recordLatch) {
     bool recorded = false;
     // Preserve the completed game image before the first menu latch
     // overwrites it. One GPU copy per transition; CPU readback only on save.
@@ -173,7 +173,7 @@ bool Backend::Impl::renderDisplay(const DisplayState& d, uint32_t& outW, uint32_
     return true;
 }
 
-void Backend::Impl::latchDisplay(const DisplayState& d, uint32_t field) {
+void D3D11Backend::Impl::latchDisplay(const DisplayState& d, uint32_t field) {
     CpuProfile::Scope profile(cpuProfile, CpuProfile::LatchDisplay);
     if (!ok)
         return;
@@ -234,7 +234,7 @@ void Backend::Impl::latchDisplay(const DisplayState& d, uint32_t field) {
     haveLatch = true;
 }
 
-HANDLE Backend::Impl::beginPresentWait() {
+HANDLE D3D11Backend::Impl::beginPresentWait() {
     HANDLE source = swapWait;
     // Duplicate: the swapchain (and its waitable) may be recreated while the caller waits without the lock.
     HANDLE wait = nullptr;
@@ -244,14 +244,14 @@ HANDLE Backend::Impl::beginPresentWait() {
     return wait;
 }
 
-void Backend::Impl::present(const DisplayState& d) {
+void D3D11Backend::Impl::present(const DisplayState& d) {
     if (!ok)
         return;
     latchDisplay(d, latchedField);
     presentLatched();
 }
 
-void Backend::Impl::presentLatched() {
+void D3D11Backend::Impl::presentLatched() {
     CpuProfile::Scope profile(cpuProfile, CpuProfile::PresentLatched);
     if (!ok || !haveLatch || !swapRtv)
         return;
@@ -448,7 +448,7 @@ void Backend::Impl::presentLatched() {
     }
 }
 
-void Backend::Impl::clusterHud() {
+void D3D11Backend::Impl::clusterHud() {
     std::vector<HudBox>& b = hudCur;
     // the game draws its UI only on some frames (every 2nd - 4th presented frame): keep the last clusters across
     // empty frames
@@ -487,7 +487,7 @@ void Backend::Impl::clusterHud() {
     hudCur.clear();
 }
 
-void Backend::Impl::endFrame() {
+void D3D11Backend::Impl::endFrame() {
     nativeSubtitleOpen = false;
     tutorialBandRows.endFrame();
     CpuProfile::Scope profile(cpuProfile, CpuProfile::EndFrame);

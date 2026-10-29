@@ -4,7 +4,7 @@ Start with the symptom below. For a report, include your platform, build revisio
 
 ## The builder rejects my disc
 
-Only the **PAL SCES-500.06** release in plain ISO format is validated. Another region, a modified image or BIN/CUE is not interchangeable with it. The extractor checks the disc and executable identity. Use your own supported disc image; do not bypass the check.
+The **PAL SCES-500.06** release in plain ISO format is validated; the **USA SCUS-971.28** release is accepted as an experimental build with fewer features ([USA disc support](install.md#usa-disc-support-experimental)). If the game says "wrong disc for this build", `drakan.ini` points at the other release's image: build again from that disc or point it back. Other releases, a modified image or BIN/CUE are not interchangeable with them. The extractor checks the disc and executable identity. Use your own supported disc image; do not bypass the check.
 
 ## The build looks stuck
 
@@ -26,6 +26,12 @@ Press **F10** to release or recapture it. After returning from another window, c
 
 Lower the internal render scale and turn off ray-traced effects first. Compare 30, 60 and Uncapped world modes (restart after changing), and check VSync and the frame limiter.
 
+<!-- media:pc-settings-windows -->
+
+Turn on the FPS counter with **F2** to see the world rate and the presented frame rate while you change settings.
+
+<!-- media:fps-counter -->
+
 Linux and browser currently use the software GS path. They do not have the same performance or feature coverage as the Windows D3D11 renderer. See [Platforms & portability](../reference/portability.md).
 
 ## HD movies or narration subtitles are missing
@@ -36,15 +42,21 @@ A normal build does not supply HD movies or narration transcripts. Confirm that 
 
 Use a current desktop Chrome or Edge browser. If the required folder-access API is missing, the launcher disables the picker controls and displays a message. Alternatively, run `Play-Browser.cmd` or `Play-Browser.sh` from your built browser folder. Do not open its `index.html` directly from disk.
 
+<!-- media:browser-unsupported -->
+
 ## The browser build folder is rejected
 
 Choose the browser output folder containing **all three** of `index.html`, `drakan.js` and `drakan.wasm`, not the Windows build folder, the repository root or its parent `dist` folder.
+
+<!-- media:browser-wrong-folder -->
 
 If access was revoked or files were moved, choose the folder and ISO again. This is preferable to clearing site data, which can remove browser saves.
 
 ## Browser saves are missing or storage fails
 
 Return to the same browser profile and site you used to save. Localhost and GitHub Pages storage are separate. Private sessions and cleared site data may lose progress. If the game displays a storage error, retry after resolving browser storage restrictions. Read [Saves & updates](saves.md) before changing storage settings.
+
+<!-- media:browser-title -->
 
 ## Report a reproducible problem
 

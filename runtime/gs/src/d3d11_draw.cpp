@@ -5,7 +5,7 @@
 
 namespace gsr {
 
-void Backend::Impl::logDraw(const GsDrawState& s, const DrawVertex* v, uint32_t count) {
+void D3D11Backend::Impl::logDraw(const GsDrawState& s, const DrawVertex* v, uint32_t count) {
     std::fprintf(stderr,
                  "[draw f%llu] n=%u flags=%03x tex0=%016llx tex1=%016llx clamp=%llx test=%llx alpha=%llx "
                  "frame=%llx zbuf=%llx fogcol=%llx texa=%llx\n",
@@ -31,7 +31,7 @@ void Backend::Impl::logDraw(const GsDrawState& s, const DrawVertex* v, uint32_t 
 }
 
 // texel / pixel density of the first triangle: ~1 for sprites drawn 1:1 (HUD, fonts, menu art)
-bool Backend::Impl::oneToOneSprite(const GsDrawState& s, const DrawVertex* v, uint32_t count) {
+bool D3D11Backend::Impl::oneToOneSprite(const GsDrawState& s, const DrawVertex* v, uint32_t count) {
     if (!(s.flags & DF_SPRITE) || count < 3)
         return false;
     const uint32_t W = 1u << std::min<uint64_t>(bitsOf(s.tex0, 26, 4), 10),
@@ -61,7 +61,7 @@ bool Backend::Impl::oneToOneSprite(const GsDrawState& s, const DrawVertex* v, ui
 
 // GSR_LODSTAT=1: accumulate GS-formula LOD (from Q, K, L) against the screen-derivative LOD of every mip-mapped
 // textured triangle
-void Backend::Impl::accumulateLod(const GsDrawState& s, const DrawVertex* v, uint32_t count) {
+void D3D11Backend::Impl::accumulateLod(const GsDrawState& s, const DrawVertex* v, uint32_t count) {
     const uint32_t mxl = (uint32_t)bitsOf(s.tex1, 2, 3), lcm = (uint32_t)bitsOf(s.tex1, 0, 1),
                    L = (uint32_t)bitsOf(s.tex1, 19, 2);
     if (mxl == 0)
@@ -132,7 +132,7 @@ void Backend::Impl::accumulateLod(const GsDrawState& s, const DrawVertex* v, uin
     }
 }
 
-void Backend::Impl::printLodStat() {
+void D3D11Backend::Impl::printLodStat() {
     if (!lodStat || lodAcc.area <= 0)
         return;
     const double A = lodAcc.area;
@@ -152,7 +152,7 @@ void Backend::Impl::printLodStat() {
                  100 * lodAcc.histD[6] / A, 100 * lodAcc.histD[7] / A);
 }
 
-void Backend::Impl::draw(const GsDrawState& s, const ClutBuf& clut, const DrawVertex* v, uint32_t count) {
+void D3D11Backend::Impl::draw(const GsDrawState& s, const ClutBuf& clut, const DrawVertex* v, uint32_t count) {
     CpuProfile::Scope profile(cpuProfile, CpuProfile::Draw);
     if (!ok || count == 0)
         return;

@@ -4,7 +4,9 @@
 #include <algorithm>
 #include <atomic>
 #include <cstdlib>
+#include <cwchar>
 #include <string>
+#include <vector>
 
 #ifndef NOMINMAX
 #define NOMINMAX
@@ -207,5 +209,128 @@ void setHideCursor(bool hide) {
 void setPosition(int x, int y) {
     if (g_hwnd)
         SetWindowPos(g_hwnd, nullptr, x, y, 0, 0, SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE);
+}
+
+Surface surface() {
+    Surface s;
+    if (g_hwnd) {
+        s.kind = Surface::Kind::Win32;
+        s.window = g_hwnd;
+    }
+    return s;
+}
+
+bool clientSize(int& w, int& h) {
+    RECT rc{};
+    if (!g_hwnd || !GetClientRect(g_hwnd, &rc))
+        return false;
+    w = std::max<LONG>(rc.right - rc.left, 0);
+    h = std::max<LONG>(rc.bottom - rc.top, 0);
+    return true;
+}
+
+bool minimized() {
+    return g_hwnd && IsIconic(g_hwnd);
+}
+
+bool focused() {
+    if (!g_hwnd)
+        return false;
+    const HWND fg = GetForegroundWindow();
+    return fg && (fg == g_hwnd || GetAncestor(fg, GA_ROOT) == g_hwnd);
+}
+
+namespace {
+bool g_fullscreen = false;
+LONG_PTR g_savedStyle = 0;
+RECT g_savedRect{};
+} // namespace
+
+void setFullscreen(bool on) {
+    if (on == g_fullscreen || !g_hwnd)
+        return;
+    if (on) {
+        g_savedStyle = GetWindowLongPtrW(g_hwnd, GWL_STYLE);
+        GetWindowRect(g_hwnd, &g_savedRect);
+        MONITORINFO mi{sizeof(mi)};
+        GetMonitorInfoW(MonitorFromWindow(g_hwnd, MONITOR_DEFAULTTONEAREST), &mi);
+        SetWindowLongPtrW(g_hwnd, GWL_STYLE, (g_savedStyle & ~(LONG_PTR)WS_OVERLAPPEDWINDOW) | WS_POPUP | WS_VISIBLE);
+        SetWindowPos(g_hwnd, HWND_TOP, mi.rcMonitor.left, mi.rcMonitor.top, mi.rcMonitor.right - mi.rcMonitor.left,
+                     mi.rcMonitor.bottom - mi.rcMonitor.top, SWP_FRAMECHANGED | SWP_NOOWNERZORDER | SWP_SHOWWINDOW);
+    } else {
+        SetWindowLongPtrW(g_hwnd, GWL_STYLE, g_savedStyle | WS_VISIBLE);
+        SetWindowPos(g_hwnd, HWND_NOTOPMOST, g_savedRect.left, g_savedRect.top, g_savedRect.right - g_savedRect.left,
+                     g_savedRect.bottom - g_savedRect.top, SWP_FRAMECHANGED | SWP_NOOWNERZORDER | SWP_SHOWWINDOW);
+    }
+    g_fullscreen = on;
+    setHideCursor(on);
+    if (on)
+        while (ShowCursor(FALSE) >= 0) {
+        }
+    else
+        while (ShowCursor(TRUE) < 0) {
+        }
+    SetCursor(on ? nullptr : LoadCursorW(nullptr, MAKEINTRESOURCEW(32512)));
+}
+
+bool fullscreen() {
+    return g_fullscreen;
+}
+
+bool monitorSize(int& w, int& h) {
+    MONITORINFO mi{sizeof(mi)};
+    if (!g_hwnd || !GetMonitorInfoW(MonitorFromWindow(g_hwnd, MONITOR_DEFAULTTONEAREST), &mi))
+        return false;
+    w = std::max<LONG>(mi.rcMonitor.right - mi.rcMonitor.left, 0);
+    h = std::max<LONG>(mi.rcMonitor.bottom - mi.rcMonitor.top, 0);
+    return true;
+}
+
+void setClientSize(int w, int h) {
+    if (!g_hwnd || g_fullscreen || w <= 0 || h <= 0)
+        return;
+    RECT r{0, 0, w, h};
+    const LONG_PTR st = GetWindowLongPtrW(g_hwnd, GWL_STYLE), ex = GetWindowLongPtrW(g_hwnd, GWL_EXSTYLE);
+    AdjustWindowRectEx(&r, (DWORD)st, FALSE, (DWORD)ex);
+    SetWindowPos(g_hwnd, nullptr, 0, 0, r.right - r.left, r.bottom - r.top, SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE);
+}
+
+// The rational rate from the display configuration, not the rounded DEVMODE frequency: "59 Hz" panels run at e.g.
+// 59.9956 Hz.
+double refreshSeconds() {
+    if (!g_hwnd)
+        return 0.0;
+    MONITORINFOEXW monitor{};
+    monitor.cbSize = sizeof monitor;
+    if (!GetMonitorInfoW(MonitorFromWindow(g_hwnd, MONITOR_DEFAULTTONEAREST), &monitor))
+        return 0.0;
+    UINT32 pathCount = 0, modeCount = 0;
+    if (GetDisplayConfigBufferSizes(QDC_ONLY_ACTIVE_PATHS, &pathCount, &modeCount) != ERROR_SUCCESS)
+        return 0.0;
+    std::vector<DISPLAYCONFIG_PATH_INFO> paths(pathCount);
+    std::vector<DISPLAYCONFIG_MODE_INFO> modes(modeCount);
+    if (QueryDisplayConfig(QDC_ONLY_ACTIVE_PATHS, &pathCount, paths.data(), &modeCount, modes.data(), nullptr) !=
+        ERROR_SUCCESS)
+        return 0.0;
+    for (UINT32 i = 0; i < pathCount; ++i) {
+        DISPLAYCONFIG_SOURCE_DEVICE_NAME source{};
+        source.header.type = DISPLAYCONFIG_DEVICE_INFO_GET_SOURCE_NAME;
+        source.header.size = sizeof source;
+        source.header.adapterId = paths[i].sourceInfo.adapterId;
+        source.header.id = paths[i].sourceInfo.id;
+        if (DisplayConfigGetDeviceInfo(&source.header) != ERROR_SUCCESS ||
+            std::wcscmp(source.viewGdiDeviceName, monitor.szDevice) != 0)
+            continue;
+        const DISPLAYCONFIG_RATIONAL rate = paths[i].targetInfo.refreshRate;
+        if (!rate.Numerator || !rate.Denominator)
+            return 0.0;
+        const double seconds = double(rate.Denominator) / double(rate.Numerator);
+        return seconds > 1.0 / 500 && seconds < 1.0 / 20 ? seconds : 0.0;
+    }
+    return 0.0;
+}
+
+bool keyDown(int vk) {
+    return (GetAsyncKeyState(vk) & 0x8000) != 0;
 }
 } // namespace drakan_win

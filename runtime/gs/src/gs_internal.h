@@ -131,8 +131,58 @@ struct SavePreview {
 SavePreview savePreview(uint64_t hash);
 std::shared_ptr<const RuntimeTexture> runtimeTexture(uint64_t hash);
 
+// One GS backend (a graphics API): D3D11Backend (d3d11_*.cpp, Windows) or WgpuBackend (wgpu_*.cpp, every target).
+class BackendApi {
+public:
+    virtual ~BackendApi() = default;
+    virtual bool init() = 0;
+    virtual bool valid() const = 0;
+    virtual std::string adapterName() const = 0;
+    virtual void draw(const GsDrawState& st, const ClutBuf& clut, const DrawVertex* v, uint32_t count) = 0;
+    virtual void flushToMemory(uint32_t firstBlock, uint32_t lastBlock) = 0;
+    virtual bool beginTargetUpload(uint32_t psm, uint32_t bp, uint32_t bw, uint32_t x, uint32_t y, uint32_t w,
+                                   uint32_t h) = 0;
+    virtual void completeTargetUpload(uint32_t psm, uint32_t bp, uint32_t bw, uint32_t x, uint32_t y, uint32_t w,
+                                      uint32_t h, bool apply) = 0;
+    virtual void flushAll() = 0;
+    virtual void drawMovieFrame(uint32_t dbp, uint32_t dbw, uint32_t x, uint32_t y, uint32_t w, uint32_t h,
+                                const MovieImage& image, uint64_t imageId) = 0;
+    virtual void present(const DisplayState& d) = 0;
+    virtual void latchDisplay(const DisplayState& d, uint32_t field) = 0;
+    virtual void presentLatched() = 0;
+    virtual void* beginPresentWait() = 0;
+    virtual void endPresentWait(bool ready) = 0;
+    virtual void setVsync(bool on) = 0;
+    virtual bool vsyncEnabled() const = 0;
+    virtual void applyLive(const LiveSettings& ls) = 0;
+    virtual uint32_t internalScale() const = 0;
+    virtual void getViewport(uint32_t& w, uint32_t& h) const = 0;
+    virtual void setOverlayCallback(std::function<void(const OverlayContext&)> cb) = 0;
+    virtual bool capture(const DisplayState& d, Image& out) = 0;
+    virtual bool captureLastGameplay(Image& out, float& aspect) = 0;
+    virtual bool captureFramebuffer(uint32_t fbp, uint32_t fbw, uint32_t psm, uint32_t w, uint32_t h, Image& out) = 0;
+    virtual void resize(uint32_t w, uint32_t h) = 0;
+    virtual void reset() = 0;
+    virtual void endFrame() = 0;
+    virtual void noteVuUpload(uint32_t vuAddr, uint32_t qwCount, const float* vuRows0to6) = 0;
+    virtual void noteSceneCamera(const SceneGuideCamera& camera) = 0;
+    virtual void noteObjectMotion(const ObjectMotionScope& scope) = 0;
+    virtual void noteSceneGeometry(const SceneGeometry& geometry) = 0;
+    virtual void noteSceneModels(std::shared_ptr<const SceneModels> models) = 0;
+    virtual std::string upscaleStatus() const = 0;
+    virtual double upscaleGpuMs() const = 0;
+    virtual void upscaleCut() = 0;
+    virtual bool upscaleAvailable(std::string& status) const = 0;
+    virtual bool neuralRenderingAvailable(std::string& status) const = 0;
+    virtual std::string neuralRenderingStatus() const = 0;
+    virtual bool waterRenderingAvailable(std::string& status) const = 0;
+    virtual std::string waterRenderingStatus() const = 0;
+    virtual std::string rayTracingStatus() const = 0;
+};
+
 class Backend {
 public:
+    // The implementation follows cfg.api (backend_select.inl): Auto = WebGPU when this build has it, else D3D11.
     Backend(LocalMemory& mem, const Config& cfg, Stats& stats);
     ~Backend();
     bool init();
@@ -161,7 +211,7 @@ public:
     // null when there is none or the next Present already has its slot; waitPresentHandle (no lock) waits and releases
     // it; endPresentWait (lock held) records the result.
     void* beginPresentWait();
-    static bool waitPresentHandle(void* wait, uint32_t timeoutMs);
+    static bool waitPresentHandle(void* wait, uint32_t timeoutMs); // any backend's handle
     void endPresentWait(bool ready);
     void setVsync(bool on);
     bool vsyncEnabled() const;
@@ -192,10 +242,11 @@ public:
     std::string waterRenderingStatus() const;
     std::string rayTracingStatus() const;
 
-    struct Impl;
+    Config::Api api() const { return m_kind; }
 
 private:
-    std::unique_ptr<Impl> m_impl;
+    std::unique_ptr<BackendApi> m_api;
+    Config::Api m_kind = Config::Api::Auto;
 };
 
 } // namespace gsr

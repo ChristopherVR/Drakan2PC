@@ -40,11 +40,14 @@ def compare_figure(item):
         for i, s in enumerate(scenes)
     )
     label = html.escape(first["label"], quote=True)
+    # The stage defaults to 16:9 in site.css; other shapes (4:3 movie frames) set their own ratio.
+    width, height = int(item["width"]), int(item["height"])
+    ratio = "" if width * 9 == height * 16 else f' style="aspect-ratio: {width} / {height}"'
     return (
         f'<figure class="compare" data-before-label="{html.escape(before, quote=True)}" '
         f'data-after-label="{html.escape(after, quote=True)}">'
         f'<div class="compare-tabs" role="group" aria-label="Scene">{tabs}</div>'
-        f'<div class="compare-stage">'
+        f'<div class="compare-stage"{ratio}>'
         f'<img class="compare-after" src="{html.escape(first["after_url"], quote=True)}" '
         f'alt="{label}: {html.escape(after, quote=True)}" {size} loading="lazy" decoding="async">'
         f'<img class="compare-before" src="{html.escape(first["before_url"], quote=True)}" '
@@ -76,6 +79,21 @@ def media_figure(item):
     kind = item.get("kind")
     if kind == "compare":
         return compare_figure(item)
+    if kind == "art":
+        # Original vector banner shipped with the site; @BASE@ is resolved per page by write().
+        return (
+            f'<figure class="media-figure media-art"><img src="@BASE@/assets/{html.escape(item["file"], quote=True)}" '
+            f'alt="{html.escape(item["alt"], quote=True)}" width="960" height="260" loading="lazy" decoding="async"></figure>'
+        )
+    if kind == "diagram":
+        # Original SVG diagram shipped with the site (committed source, no release upload); opens in the image dialog.
+        src = f"@BASE@/assets/{html.escape(item['file'], quote=True)}"
+        alt = html.escape(item["alt"], quote=True)
+        return (
+            f'<figure class="media-figure media-diagram"><a class="media-enlarge" href="{src}" aria-label="Enlarge: {alt}">'
+            f'<img src="{src}" alt="{alt}" width="{int(item["width"])}" height="{int(item["height"])}" '
+            f'loading="lazy" decoding="async"></a><figcaption>{html.escape(item["caption"])}</figcaption></figure>'
+        )
     if kind == "backdrop":
         return (
             f'<img class="backdrop" src="{html.escape(item["url"], quote=True)}" alt="" '
@@ -103,7 +121,8 @@ def media_figure(item):
 
 def render_media(content, media):
     for key, item in media.items():
-        figure = media_figure(item)
+        # "pending": prepared capture whose release upload has not happened yet; render nothing until it is live.
+        figure = "" if item.get("pending") else media_figure(item)
         # Markdown renders a lone marker as its own paragraph-free block; drop any wrapper paragraph.
         content = content.replace(f"<p><!-- media:{key} --></p>", figure)
         content = content.replace(f"<!-- media:{key} -->", figure)
@@ -168,6 +187,8 @@ class PageParser(HTMLParser):
 
 
 def rewrite_link(link: str, source: Path, current: str, published: dict) -> str:
+    if link.startswith("@BASE@/"):
+        return link
     parts = urlsplit(link)
     if parts.scheme or parts.netloc or not parts.path or parts.path.startswith("/"):
         return link
@@ -242,6 +263,8 @@ def build(output: Path, base_path: str = "/Drakan2PC/"):
     pages = json.loads((SITE / "pages.json").read_text(encoding="utf-8"))
     media = json.loads((SITE / "media.json").read_text(encoding="utf-8"))
     for item in media.values():
+        if item.get("kind") in ("art", "diagram") and not (SITE / "assets" / item["file"]).is_file():
+            raise ValueError(f"Missing site art: {item['file']}")
         for url in media_urls(item):
             if not url.startswith(f"{REPOSITORY}/releases/download/site-media-"):
                 raise ValueError(f"Media must use the reviewed GitHub release host: {url}")
@@ -257,7 +280,7 @@ def build(output: Path, base_path: str = "/Drakan2PC/"):
             template.substitute(
                 title=html.escape(title),
                 description=html.escape(description, quote=True),
-                layout=render_media(layout, media),
+                layout=render_media(layout, media).replace("@BASE@", relative_url(".", url) if base is None else base),
                 scripts=scripts,
                 page_class=page_class,
                 base=relative_url(".", url) if base is None else base,
@@ -290,7 +313,7 @@ def build(output: Path, base_path: str = "/Drakan2PC/"):
             )
         layout = f'''<div class="docs-layout">
 <button class="doc-menu" type="button" aria-expanded="false" aria-controls="guide-nav">Browse documentation +</button>
-<nav class="sidebar" id="guide-nav" aria-label="Documentation">{navigation(pages, page["url"])}</nav>
+<nav class="sidebar" id="guide-nav" aria-label="Documentation"><button class="search-open" type="button" hidden>Search docs <kbd>/</kbd></button>{navigation(pages, page["url"])}</nav>
 <main class="doc-main" id="main" tabindex="-1"><p class="doc-section">{html.escape(page["section"])}</p>
 <h1>{html.escape(page["title"])}</h1><p class="doc-description">{html.escape(page["description"])}</p>
 <article class="prose">{"".join(parser.output)}</article>
@@ -311,6 +334,13 @@ def build(output: Path, base_path: str = "/Drakan2PC/"):
         "User guides, PC enhancements and developer documentation for Drakan2PC. Build from your own PS2 disc.",
         (SITE / "home.html").read_text(encoding="utf-8"),
         page_class="home",
+    )
+    write(
+        "get-started.html",
+        "Install",
+        "Step-by-step install flow for Windows, Linux and the browser, built from your own disc.",
+        (SITE / "install-flow.html").read_text(encoding="utf-8"),
+        page_class="flow-page",
     )
     player = (ROOT / "runtime/web/pages/index.html").read_text(encoding="utf-8")
     player_body = re.search(r"<main>(.*?)</main>", player, re.DOTALL).group(1)
@@ -348,7 +378,7 @@ def build(output: Path, base_path: str = "/Drakan2PC/"):
     (output / "search-index.json").write_text(json.dumps(search, ensure_ascii=False), encoding="utf-8", newline="\n")
     (output / ".nojekyll").touch()
     validate_site(output, base_path)
-    print(f"Built {len(pages) + 3} pages; local links and fragments verified: {output}")
+    print(f"Built {len(pages) + 4} pages; local links and fragments verified: {output}")
 
 
 def main():

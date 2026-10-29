@@ -34,7 +34,7 @@ struct Host final : ISettingsHost {
         caps.frameLimiter = caps.anisotropic = caps.mipBias = caps.textureUpscale = true;
         caps.hdTextures = caps.textureDump = caps.languageSelect = caps.promptStyle = true;
         caps.textureUpscaleFilters = {"default", "xbrz"};
-        caps.dlss = caps.dlssNeural = caps.modernWater = caps.exclusiveFullscreen = true;
+        caps.dlss = caps.dlssNeural = caps.modernWater = caps.exclusiveFullscreen = caps.rendererChoice = true;
         caps.restartKeys = {"video.world_rate", "general.language", "general.ui_prompts"};
     }
     HostCaps capabilities() const override { return caps; }

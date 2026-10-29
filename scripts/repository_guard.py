@@ -161,15 +161,17 @@ def reason(name: str, content: bytes | None = None) -> str | None:
     return None
 
 
-def pre_push() -> int:
+def pre_push(remote: str | None = None) -> int:
+    # Only the destination's own refs count as already published: an object another remote holds is new here.
+    published = [f"--remotes={remote}"] if remote else []
     failures = []
     for line in sys.stdin:
         fields = line.split()
         if len(fields) != 4 or set(fields[1]) == {"0"}:
             continue
         ref, revision, _, remote_revision = fields
-        # Audit new objects only; remote history is NOT certified and requires a separate full history audit.
-        known = ["--not", "--remotes"] + ([] if set(remote_revision) == {"0"} else [remote_revision])
+        # Audit objects the destination lacks; its existing history is NOT certified and needs a full history audit.
+        known = ["--not", *published] + ([] if set(remote_revision) == {"0"} else [remote_revision])
         rows = (
             subprocess.check_output(["git", "rev-list", "--objects", revision, *known], cwd=ROOT).decode().splitlines()
         )
@@ -207,11 +209,15 @@ def main() -> int:
     parser.add_argument("--export", type=Path, help="new empty destination for approved tracked files only")
     parser.add_argument("--report", type=Path, help="optional JSON audit report")
     parser.add_argument(
-        "--pre-push", action="store_true", help="audit every object reachable from refs supplied by Git"
+        "--pre-push",
+        nargs="?",
+        const="",
+        metavar="REMOTE",
+        help="audit objects the named remote lacks, for refs supplied by Git (the hook passes the remote name)",
     )
     args = parser.parse_args()
-    if args.pre_push:
-        return pre_push()
+    if args.pre_push is not None:
+        return pre_push(args.pre_push or None)
     approved, blocked = [], []
     for name in tracked():
         path = ROOT / name

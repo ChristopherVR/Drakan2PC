@@ -27,14 +27,8 @@
 #include <utility>
 #include <vector>
 
-#if defined(_WIN32)
-#ifndef NOMINMAX
-#define NOMINMAX
-#endif
-#ifndef WIN32_LEAN_AND_MEAN
-#define WIN32_LEAN_AND_MEAN
-#endif
-#include <windows.h>
+#if defined(PS2X_HAVE_GSR)
+#include "drakan_window.h"
 #endif
 
 namespace drakan_ws {
@@ -338,23 +332,19 @@ void hookCropViewport(uint8_t* rdram, R5900Context* c, PS2Runtime* rt) {
 }
 
 float windowHeight() {
-#if defined(_WIN32)
-    if (g_hwnd) {
-        RECT rc{};
-        if (GetClientRect(static_cast<HWND>(g_hwnd), &rc) && rc.bottom > 0)
-            return static_cast<float>(rc.bottom);
-    }
+#if defined(PS2X_HAVE_GSR)
+    int w = 0, h = 0;
+    if (g_hwnd && drakan_win::clientSize(w, h) && h > 0)
+        return static_cast<float>(h);
 #endif
     return 1080.0f;
 }
 
 float windowAspect() {
-#if defined(_WIN32)
-    if (g_hwnd) {
-        RECT rc{};
-        if (GetClientRect(static_cast<HWND>(g_hwnd), &rc) && rc.bottom > 0 && rc.right > 0)
-            return static_cast<float>(rc.right) / static_cast<float>(rc.bottom);
-    }
+#if defined(PS2X_HAVE_GSR)
+    int w = 0, h = 0;
+    if (g_hwnd && drakan_win::clientSize(w, h) && h > 0 && w > 0)
+        return static_cast<float>(w) / static_cast<float>(h);
 #endif
     return 16.0f / 9.0f;
 }

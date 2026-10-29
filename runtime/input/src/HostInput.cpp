@@ -1,4 +1,8 @@
 #include "input/HostInput.h"
+#include <algorithm>
+#include <cmath>
+#include <memory>
+#include <string>
 
 #ifdef _WIN32
 #ifndef WIN32_LEAN_AND_MEAN
@@ -275,15 +279,7 @@ bool HostInput::handleMessage(void*, unsigned msg, uintptr_t wParam, intptr_t lP
 
 namespace {
 float radial(float x, float y, float dz, float* ox, float* oy) {
-    float m = std::sqrt(x * x + y * y);
-    if (m <= dz) {
-        *ox = *oy = 0;
-        return 0;
-    }
-    float s = std::min(1.0f, (m - dz) / (1.0f - dz)) / m;
-    *ox = x * s;
-    *oy = y * s;
-    return m;
+    return applyRadialDeadzone(x, y, dz, ox, oy);
 }
 } // namespace
 
@@ -452,10 +448,17 @@ void makeWindowTopmost(void* hwndv) {
 
 } // namespace drakan_input
 
-#else // non-Windows stub
+#else // other platforms: the installed HostInputBackend
 
 namespace drakan_input {
+namespace {
+std::unique_ptr<HostInputBackend> (*g_factory)() = nullptr;
+}
+void setHostInputBackendFactory(std::unique_ptr<HostInputBackend> (*factory)()) {
+    g_factory = factory;
+}
 struct HostInput::Impl {
+    std::unique_ptr<HostInputBackend> backend;
     bool cap = false;
 };
 std::string exeDirectory() {
@@ -470,22 +473,51 @@ bool screenshotWindowBmp(void*, const char*) {
 void makeWindowTopmost(void*) {}
 HostInput::HostInput() : p_(std::make_unique<Impl>()) {}
 HostInput::~HostInput() = default;
-bool HostInput::init(void*, InputAccumulator*) {
-    return false;
+bool HostInput::init(void* window, InputAccumulator* acc) {
+    p_->backend = g_factory ? g_factory() : nullptr;
+    if (p_->backend && !p_->backend->init(window, acc))
+        p_->backend.reset();
+    return p_->backend != nullptr;
 }
-void HostInput::shutdown() {}
+void HostInput::shutdown() {
+    if (p_->backend)
+        p_->backend->shutdown();
+    p_->backend.reset();
+}
 bool HostInput::handleMessage(void*, unsigned, uintptr_t, intptr_t, intptr_t*) {
     return false;
 }
-void HostInput::poll(FrameInput&, bool, float) {}
+void HostInput::poll(FrameInput& in, bool gamepadEnabled, float deadzone) {
+    if (p_->backend)
+        p_->backend->poll(in, gamepadEnabled, deadzone);
+}
 void HostInput::setCapture(bool c) {
     p_->cap = c;
+    if (p_->backend)
+        p_->backend->setCapture(c);
 }
 void HostInput::setCaptureWindow(void*) {}
-void HostInput::setMenuCursorHidden(bool) {}
+void HostInput::setMenuCursorHidden(bool hidden) {
+    if (p_->backend)
+        p_->backend->setMenuCursorHidden(hidden);
+}
 bool HostInput::captured() const {
-    return p_->cap;
+    return p_->backend ? p_->backend->captured() : p_->cap;
 }
 } // namespace drakan_input
 
 #endif
+
+namespace drakan_input {
+float applyRadialDeadzone(float x, float y, float dz, float* ox, float* oy) {
+    const float m = std::sqrt(x * x + y * y);
+    if (m <= dz) {
+        *ox = *oy = 0;
+        return 0;
+    }
+    const float s = std::min(1.0f, (m - dz) / (1.0f - dz)) / m;
+    *ox = x * s;
+    *oy = y * s;
+    return m;
+}
+} // namespace drakan_input

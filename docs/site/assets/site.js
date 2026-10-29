@@ -168,8 +168,7 @@ function openSearch() {
   input.focus();
   search();
 }
-document.querySelector('.search-open').hidden = false;
-document.querySelector('.search-open').addEventListener('click', openSearch);
+document.querySelectorAll('.search-open').forEach(button => { button.hidden = false; button.addEventListener('click', openSearch); });
 document.querySelector('.search-close').addEventListener('click', () => dialog.close());
 dialog.addEventListener('click', event => { if (event.target === dialog && event.offsetX < 0) dialog.close(); });
 input.addEventListener('input', search);
@@ -179,3 +178,56 @@ document.addEventListener('keydown', event => {
     openSearch();
   }
 });
+
+// Theme: the inline head script sets data-theme before first paint; this keeps the toggle and the choice in sync.
+const root = document.documentElement;
+const themeToggle = document.querySelector('.theme-toggle');
+function showTheme() {
+  const light = root.dataset.theme === 'light';
+  themeToggle.setAttribute('aria-label', light ? 'Switch to dark theme' : 'Switch to light theme');
+  themeToggle.setAttribute('aria-pressed', String(light));
+  document.querySelector('meta[name="theme-color"]').content = light ? '#efe3c8' : '#100d0b';
+}
+themeToggle.addEventListener('click', () => {
+  root.dataset.theme = root.dataset.theme === 'light' ? 'dark' : 'light';
+  try { localStorage.setItem('drakan-theme', root.dataset.theme); } catch (_) {}
+  showTheme();
+});
+showTheme();
+
+// Install flow: one step at a time for the chosen platform. Without JavaScript every list stays visible.
+const flow = document.querySelector('[data-flow]');
+if (flow) {
+  const lists = [...flow.querySelectorAll('.flow-steps')];
+  const platforms = [...flow.querySelectorAll('.flow-platform')];
+  const progress = flow.querySelector('.flow-progress');
+  const bar = progress.querySelector('.flow-bar span');
+  const nav = flow.querySelector('.flow-nav');
+  const back = nav.querySelector('.flow-back');
+  const next = nav.querySelector('.flow-next');
+  let steps = [];
+  let at = 0;
+  flow.classList.add('is-interactive');
+  lists.forEach(list => { list.hidden = true; });
+  function show() {
+    steps.forEach((step, i) => { step.hidden = i !== at; });
+    progress.querySelector('.flow-count').textContent = `Step ${at + 1} of ${steps.length}: ${steps[at].querySelector('h2').textContent}`;
+    bar.style.width = ((at + 1) / steps.length * 100) + '%';
+    back.disabled = at === 0;
+    next.hidden = at === steps.length - 1;
+  }
+  function choose(name, focus) {
+    platforms.forEach(button => button.setAttribute('aria-pressed', String(button.dataset.platform === name)));
+    lists.forEach(list => { list.hidden = list.dataset.platform !== name; });
+    steps = [...flow.querySelectorAll(`.flow-steps[data-platform="${name}"] .flow-step`)];
+    at = 0;
+    progress.hidden = nav.hidden = false;
+    show();
+    if (focus) steps[0].querySelector('h2').scrollIntoView({block: 'center', behavior: reduceMotion ? 'auto' : 'smooth'});
+  }
+  platforms.forEach(button => button.addEventListener('click', () => choose(button.dataset.platform, true)));
+  back.addEventListener('click', () => { at = Math.max(0, at - 1); show(); });
+  next.addEventListener('click', () => { at = Math.min(steps.length - 1, at + 1); show(); });
+  const guess = /Linux/.test(navigator.userAgent) && !/Android/.test(navigator.userAgent) ? 'linux' : /Windows/.test(navigator.userAgent) ? 'windows' : null;
+  if (guess) choose(guess, false);
+}

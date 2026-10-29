@@ -14,14 +14,11 @@
 #include <string>
 #include <vector>
 
-#if defined(PS2X_HAVE_DRAKAN_SETTINGS)
-#include <settings/Overlay.h>
+#include <settings/Hud.h>
 #include <settings/Subtitles.h>
 #include <spu2/AudioOutput.h>
-#endif
 
 namespace drakan_subtitles {
-#if defined(PS2X_HAVE_DRAKAN_SETTINGS)
 namespace {
 constexpr uint32_t kGameSubtitleOption = 0x4fb740u; // guest word: Options > Audio > "Show Subtitles" (non zero = on)
 constexpr uint16_t kTypeSoundData = 0x0304u;
@@ -144,7 +141,7 @@ void onResourceRequest(const hle::ResourceId& id, uint32_t offset) {
     if (!endsWithI(id.file, "LEVEL0RO.SDB"))
         return;
     const char* name = id.id == kIntroId ? "intro" : "outro";
-    const std::string path = drakan_cfg::exeDir() + "subtitles\\" + name + "_" + g_language + ".srt";
+    const std::string path = drakan_cfg::exeDir() + "subtitles/" + name + "_" + g_language + ".srt";
     std::vector<dsettings::SubCue> cues = dsettings::loadSrtFile(path);
     if (cues.empty()) {
         std::fprintf(stderr, "[subtitles] %s narration requested but '%s' was not found / empty: no subtitles\n", name,
@@ -198,13 +195,13 @@ void stop() {
     g_startedInMovie.store(0);
 }
 
-void installHudLayer(dsettings::SettingsOverlay& overlay) {
-    dsettings::SettingsOverlay::HudLayer layer;
+void installHudLayer() {
+    dsettings::HudLayer layer;
     layer.active = []() {
         checkTimeout();
         return g_enabled.load() && g_track.running();
     };
-    layer.draw = [](float w, float h, float) {
+    layer.draw = [](const dsettings::HudView& view) {
         if (!gameOptionOn())
             return;
         float alpha = 0.0f;
@@ -237,21 +234,8 @@ void installHudLayer(dsettings::SettingsOverlay& overlay) {
             }
         }
         if (!text.empty())
-            dsettings::SettingsOverlay::drawSubtitleBand(text, alpha, w, h, g_size.load());
+            dsettings::drawSubtitleBand(text, alpha, view.w, view.h, g_size.load());
     };
-    overlay.setHudLayer(std::move(layer));
+    dsettings::hudLayers().set(dsettings::HudSlot::Subtitles, std::move(layer));
 }
-#else
-void init(spu2::AudioOutput*, uint8_t*, const std::string&) {}
-void setEnabled(bool) {}
-void setSize(float) {}
-void onResourceRequest(const hle::ResourceId&, uint32_t) {}
-bool wantsSpuEvents() {
-    return false;
-}
-void onSpuUpload(uint32_t, uint32_t) {}
-void onVoiceKeyOn(uint32_t, uint64_t) {}
-void stop() {}
-void installHudLayer(dsettings::SettingsOverlay&) {}
-#endif
 } // namespace drakan_subtitles

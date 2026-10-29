@@ -3,7 +3,7 @@
 
 namespace gsr {
 
-bool Backend::Impl::enterWorld(RT& rt, DepthBuf& db, uint32_t zbp, float zmax, int sx1, int sy1) {
+bool D3D11Backend::Impl::enterWorld(RT& rt, DepthBuf& db, uint32_t zbp, float zmax, int sx1, int sy1) {
     const uint32_t fw = std::min<uint32_t>((uint32_t)sx1 + 1, rt.w), fh = std::min<uint32_t>((uint32_t)sy1 + 1, rt.h);
     if (!db.srv || !db.dsv) {
         upFault = true;
@@ -53,8 +53,8 @@ bool Backend::Impl::enterWorld(RT& rt, DepthBuf& db, uint32_t zbp, float zmax, i
     return true;
 }
 
-bool Backend::Impl::stretchDepth(DepthBuf& depth, uint32_t sourceW, uint32_t sourceH, uint32_t destW, uint32_t destH,
-                                 float jitterX, float jitterY) {
+bool D3D11Backend::Impl::stretchDepth(DepthBuf& depth, uint32_t sourceW, uint32_t sourceH, uint32_t destW,
+                                      uint32_t destH, float jitterX, float jitterY) {
     if (!depth.srv || !depth.dsv || !psStretchDepth || !cbPresent)
         return false;
     if (!depth.copy) {
@@ -101,7 +101,7 @@ bool Backend::Impl::stretchDepth(DepthBuf& depth, uint32_t sourceW, uint32_t sou
     return true;
 }
 
-bool Backend::Impl::restoreWorldDepth(RT& rt, DepthBuf& depth, bool resolved) {
+bool D3D11Backend::Impl::restoreWorldDepth(RT& rt, DepthBuf& depth, bool resolved) {
     if (rt.wgeom.renderW == rt.wgeom.outW && rt.wgeom.renderH == rt.wgeom.outH)
         return true;
     // Spatial color recovery is an unjittered stretch of the raster image;
@@ -122,7 +122,7 @@ bool Backend::Impl::restoreWorldDepth(RT& rt, DepthBuf& depth, bool resolved) {
     return false;
 }
 
-void Backend::Impl::enterTemporalWorld(RT& rt, uint32_t zbp, float zmax, uint64_t xyoffset) {
+void D3D11Backend::Impl::enterTemporalWorld(RT& rt, uint32_t zbp, float zmax, uint64_t xyoffset) {
     dumpTemporalStage("entry-color", rt.tex.Get());
     rt.neuralState = 1;
     rt.temporalEpoch = motionEpoch;
@@ -207,7 +207,8 @@ void Backend::Impl::enterTemporalWorld(RT& rt, uint32_t zbp, float zmax, uint64_
                      rt.wjx, rt.wjy, (int)neuralEnabled);
 }
 
-void Backend::Impl::restoreTemporalAlpha(RT& rt, ID3D11ShaderResourceView* alpha, uint32_t width, uint32_t height) {
+void D3D11Backend::Impl::restoreTemporalAlpha(RT& rt, ID3D11ShaderResourceView* alpha, uint32_t width,
+                                              uint32_t height) {
     ctx->OMSetRenderTargets(0, nullptr, nullptr);
     ctx->OMSetRenderTargets(1, rt.rtv.GetAddressOf(), nullptr);
     ctx->OMSetDepthStencilState(getDepthState(D3D11_COMPARISON_ALWAYS, false), 0);
@@ -230,8 +231,8 @@ void Backend::Impl::restoreTemporalAlpha(RT& rt, ID3D11ShaderResourceView* alpha
     ctx->OMSetRenderTargets(0, nullptr, nullptr);
 }
 
-bool Backend::Impl::prepareObjectMotion(RT& rt, const GsDrawState& s, const DrawVertex* vertices, uint32_t count,
-                                        float sx, float sy) {
+bool D3D11Backend::Impl::prepareObjectMotion(RT& rt, const GsDrawState& s, const DrawVertex* vertices, uint32_t count,
+                                             float sx, float sy) {
     const bool active = motionWorldOpen && (neuralEnabled || upMode) && rt.neuralState == 1;
     if (!active)
         return false;
@@ -318,7 +319,7 @@ bool Backend::Impl::prepareObjectMotion(RT& rt, const GsDrawState& s, const Draw
     return true;
 }
 
-void Backend::Impl::finalizeNeuralWorld(RT& rt) {
+void D3D11Backend::Impl::finalizeNeuralWorld(RT& rt) {
     CpuProfile::Scope profile(cpuProfile, CpuProfile::TemporalResolve);
     if (rt.neuralState != 1)
         return;
@@ -641,7 +642,7 @@ void Backend::Impl::finalizeNeuralWorld(RT& rt) {
     rt.dy1 = std::min(rt.h, guide.frame.height);
 }
 
-void Backend::Impl::finalizeWorld(RT& rt) {
+void D3D11Backend::Impl::finalizeWorld(RT& rt) {
     if (rt.wstate != 1)
         return;
     finalizeNeuralWorld(rt); // neural RGB is reconstructed before SR and native HUD draws
@@ -688,7 +689,7 @@ void Backend::Impl::finalizeWorld(RT& rt) {
     ctx->ClearDepthStencilView(db->dsv.Get(), D3D11_CLEAR_DEPTH, 0.0f, 0);
 }
 
-void Backend::Impl::finalizeAllWorlds() {
+void D3D11Backend::Impl::finalizeAllWorlds() {
     if (!upMode)
         return;
     for (auto& r : rts)
@@ -696,8 +697,8 @@ void Backend::Impl::finalizeAllWorlds() {
 }
 
 // returns true if this draw goes into the render rectangle (world phase), after any phase transition
-bool Backend::Impl::upscalePhase(RT& rt, DepthBuf& db, bool isWorld, bool depthGE, uint32_t zbp, float zmax, int sx1,
-                                 int sy1) {
+bool D3D11Backend::Impl::upscalePhase(RT& rt, DepthBuf& db, bool isWorld, bool depthGE, uint32_t zbp, float zmax,
+                                      int sx1, int sy1) {
     if (rt.wstate == 0) {
         if (!(isWorld && depthGE))
             return false;
@@ -713,7 +714,7 @@ bool Backend::Impl::upscalePhase(RT& rt, DepthBuf& db, bool isWorld, bool depthG
     return false;
 }
 
-void Backend::Impl::recoverReducedWorld(RT& rt) {
+void D3D11Backend::Impl::recoverReducedWorld(RT& rt) {
     if (rt.temporalSR && tp) {
         auto* image = snapshot(rt, nullptr);
         auto* depth = getDepth(rt.neuralDepth, rt.w, rt.h);
@@ -736,7 +737,7 @@ void Backend::Impl::recoverReducedWorld(RT& rt) {
     rt.temporalSR = false;
 }
 
-void Backend::Impl::discardTemporalWorlds() {
+void D3D11Backend::Impl::discardTemporalWorlds() {
     pendingTemporalEnd = false;
     for (auto& target : rts) {
         auto& rt = *target;
@@ -748,7 +749,7 @@ void Backend::Impl::discardTemporalWorlds() {
     temporalOwnerEpoch = 0;
 }
 
-void Backend::Impl::setUpscale(uint32_t mode, uint32_t preset, float sharp) {
+void D3D11Backend::Impl::setUpscale(uint32_t mode, uint32_t preset, float sharp) {
     const bool requestedOff = mode == 0;
     mode = mode <= 4 ? mode : 0;
     preset = (preset >= 10 && preset <= 13) ? preset : 0;
@@ -807,7 +808,7 @@ void Backend::Impl::setUpscale(uint32_t mode, uint32_t preset, float sharp) {
         std::fprintf(stderr, "[gsr] upscaler mode %u preset %u: %s\n", mode, preset, upStatusText.c_str());
 }
 
-void Backend::Impl::noteVuUpload(uint32_t a, uint32_t n, const float* rows) {
+void D3D11Backend::Impl::noteVuUpload(uint32_t a, uint32_t n, const float* rows) {
     if ((!upMode && !cfg.neuralRendering) || !rows)
         return;
     static uint64_t loggedFrame = ~0ull;

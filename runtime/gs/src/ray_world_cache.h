@@ -1,5 +1,5 @@
 #pragma once
-#include "ray_water.h"
+#include "ray_scene.h"
 #include "ray_normals.h"
 #include <array>
 #include <cstring>

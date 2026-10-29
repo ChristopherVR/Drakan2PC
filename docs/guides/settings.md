@@ -49,6 +49,8 @@ See [HD textures, video & subtitles](extras.md) for local packs, and the [DLSS r
 
 ## Gameplay and interface choices
 
+<!-- media:modern-inventory -->
+
 Under Gameplay, select the **Modern** or **Original** inventory, title, pause and save/load screens where supported. The Tab inventory setting applies the next time that screen opens. Dedicated I inventory-strip and M map views are configured independently.
 
 Dual wielding is optional. Modern bow aiming belongs to the mouse settings. See [Controls & combat](controls.md) for both.

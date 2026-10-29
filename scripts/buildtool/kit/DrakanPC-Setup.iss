@@ -76,7 +76,9 @@ begin
   IsoPage := CreateInputFilePage(wpSelectDir,
     'Your game disc',
     'Where is your Drakan: The Ancients'' Gates disc image?',
-    'Select the .iso file of your own PAL copy of the game (SCES-500.06). The game is built from it and reads it ' +
+    'Select the .iso file of your own copy of the game: the PAL release (SCES-500.06) or the USA release ' +
+    '(SCUS-971.28, experimental: keyboard and mouse work, but not the PC settings, widescreen, quicksave or the ' +
+    'modern menus; saves are separate). The game is built from it and reads it ' +
     'while it runs, so keep it where it is afterwards.');
   IsoPage.Add('Disc image (.iso):', 'Disc images (*.iso)|*.iso|All files (*.*)|*.*', '.iso');
   // DrakanPC-Setup.exe /ISO="D:\Games\Drakan.iso" fills it in.

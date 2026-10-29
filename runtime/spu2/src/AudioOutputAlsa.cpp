@@ -5,6 +5,7 @@
 #include <alsa/asoundlib.h>
 #include <algorithm>
 #include <array>
+#include <cctype>
 #include <cerrno>
 #include <chrono>
 #include <cstdio>
@@ -47,6 +48,29 @@ std::vector<OutputDevice> AudioOutput::enumerateDevices() {
     return devices;
 }
 
+namespace {
+// The settings page offers enumerateDevices() names; accept a PCM name, an exact label or a case-insensitive part of
+// one (the WASAPI backend's rule). Unknown names keep the request so ALSA reports why it cannot open it.
+std::string resolveDevice(const std::string& want) {
+    if (want.empty() || want == "default")
+        return "default";
+    const auto lower = [](std::string text) {
+        for (char& ch : text)
+            ch = static_cast<char>(std::tolower(static_cast<unsigned char>(ch)));
+        return text;
+    };
+    const auto devices = AudioOutput::enumerateDevices();
+    for (const auto& device : devices)
+        if (device.id == want || device.name == want)
+            return device.id;
+    const std::string needle = lower(want);
+    for (const auto& device : devices)
+        if (lower(device.name).find(needle) != std::string::npos)
+            return device.id;
+    return want;
+}
+} // namespace
+
 void AudioOutput::threadMain() {
     using Clock = std::chrono::steady_clock;
     std::array<float, 480 * 2> samples{};
@@ -55,6 +79,7 @@ void AudioOutput::threadMain() {
     std::string lastError;
     unsigned generation = devGen_.load();
     std::unique_ptr<snd_pcm_t, decltype(&snd_pcm_close)> device(nullptr, snd_pcm_close);
+    std::string requestedDevice, resolvedDevice;
 
     while (!stop_.load()) {
         if (generation != devGen_.load()) {
@@ -64,7 +89,13 @@ void AudioOutput::threadMain() {
             retry = Clock::now();
         }
         if (!device && opt_.useDevice && Clock::now() >= retry) {
-            std::string want = outputDevice();
+            // Resolve once per request: enumeration probes every PCM, too slow for the one-second retry.
+            const std::string requested = outputDevice();
+            if (requested != requestedDevice || resolvedDevice.empty()) {
+                requestedDevice = requested;
+                resolvedDevice = resolveDevice(requested);
+            }
+            std::string want = resolvedDevice;
             snd_pcm_t* handle = nullptr;
             // Nonblocking writes keep stop()/device changes bounded even when an
             // audio server stops consuming the stream.

@@ -1,0 +1,72 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 600" role="img" aria-labelledby="t d">
+<title id="t">The six steps of Build-LocalGame.ps1</title>
+<desc id="d">Build-LocalGame.ps1 reads and verifies the ELF from the ISO, translates it to C++ with ps2_recomp, prepares the private VU1 image, configures the root CMake project with the game preset, compiles drakan.exe into WORKDIR/bin and refills dist/DrakanPC while keeping saves, settings and packs. With -Incremental the ISO step is skipped, the recompiler only reruns when its inputs change, and only changed C++ files recompile.</desc>
+<defs>
+<linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#2a1b10"/><stop offset="1" stop-color="#120c08"/></linearGradient>
+<marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="#e2ba69"/></marker>
+</defs>
+<style>
+.h{font:25px Castellar,'Copperplate Gothic Light',Georgia,serif;fill:#e2ba69}
+.k{font:15px Castellar,'Copperplate Gothic Light',Georgia,serif;fill:#e2ba69}
+.b{font:16px 'Goudy Old Style','Palatino Linotype',Georgia,serif;fill:#efe2c2}
+.s{font:14px 'Goudy Old Style','Palatino Linotype',Georgia,serif;fill:#c9b896}
+.m{font:12.5px Consolas,'Courier New',monospace;fill:#e9d3a0}
+.n{font:bold 18px Georgia,serif;fill:#2a1606;text-anchor:middle}
+.box{fill:#1d130b;stroke:#8f6d3d;stroke-width:1.5}
+.inc{fill:#140d07;stroke:#6d5230;stroke-width:1.2}
+.ember{fill:#2b130a;stroke:#d8661f;stroke-width:2}
+.ln{stroke:#e2ba69;stroke-width:2;fill:none}
+</style>
+<rect width="960" height="600" fill="url(#bg)"/>
+<rect x="6" y="6" width="948" height="588" fill="none" stroke="#b48a4a" stroke-width="3"/>
+<rect x="13" y="13" width="934" height="574" fill="none" stroke="#5a4020" stroke-width="1.2"/>
+
+<text x="34" y="50" class="h">What Build-LocalGame.ps1 does</text>
+<text x="34" y="74" class="s">Left: a first build. Right: what <tspan class="m">-Incremental</tspan> on the same WorkDir does differently.</text>
+<text x="690" y="104" class="k">With -Incremental</text>
+<path d="M60 128v412" stroke="#6d5230" stroke-width="2"/>
+
+<g>
+<circle cx="60" cy="140" r="15" fill="#e2ba69"/><text x="60" y="146" class="n">1</text>
+<rect x="88" y="116" width="582" height="64" rx="4" class="box"/>
+<text x="102" y="140" class="b">Read the ISO <tspan class="s">· extract the boot ELF, check its SHA-256</tspan></text>
+<text x="102" y="162" class="m">WORKDIR/config.toml, local-input.json</text>
+<rect x="682" y="116" width="248" height="64" rx="4" class="inc"/><text x="696" y="140" class="s">No disc read; only config.toml</text><text x="696" y="160" class="s">is refreshed from the template</text>
+</g>
+<g>
+<circle cx="60" cy="214" r="15" fill="#e2ba69"/><text x="60" y="220" class="n">2</text>
+<rect x="88" y="190" width="582" height="64" rx="4" class="box"/>
+<text x="102" y="214" class="b">Translate to C++ <tspan class="s">· build ps2_recomp, regenerate the game code</tspan></text>
+<text x="102" y="236" class="m">WORKDIR/generated, recompile.stamp</text>
+<rect x="682" y="190" width="248" height="64" rx="4" class="inc"/><text x="696" y="214" class="s">Reruns only if the recompiler,</text><text x="696" y="234" class="s">config or tables changed</text>
+</g>
+<g>
+<circle cx="60" cy="288" r="15" fill="#e2ba69"/><text x="60" y="294" class="n">3</text>
+<rect x="88" y="264" width="582" height="64" rx="4" class="box"/>
+<text x="102" y="288" class="b">Prepare runtime files <tspan class="s">· rebuild the VU1 microcode image from your ELF</tspan></text>
+<text x="102" y="310" class="m">prepare_local_runtime.py → ps2_vu1_image.inc (gitignored)</text>
+<rect x="682" y="264" width="248" height="64" rx="4" class="inc"/><text x="696" y="300" class="s">An existing file is never overwritten</text>
+</g>
+<g>
+<circle cx="60" cy="362" r="15" fill="#e2ba69"/><text x="60" y="368" class="n">4</text>
+<rect x="88" y="338" width="582" height="64" rx="4" class="box"/>
+<text x="102" y="362" class="b">Set up the C++ build <tspan class="s">· the root CMake project</tspan></text>
+<text x="102" y="384" class="m">preset game | linux-game | web-game → WORKDIR/runtime-build</text>
+<rect x="682" y="338" width="248" height="64" rx="4" class="inc"/><text x="696" y="362" class="s">Configures the same tree</text><text x="696" y="382" class="s">again (quick)</text>
+</g>
+<g>
+<circle cx="60" cy="436" r="15" fill="#d8661f"/><text x="60" y="442" class="n">5</text>
+<rect x="88" y="412" width="582" height="64" rx="4" class="ember"/>
+<text x="102" y="436" class="b">Compile the game <tspan class="s">· ps2EntryRunner, about an hour the first time</tspan></text>
+<text x="102" y="458" class="m">WORKDIR/bin/drakan.exe</text>
+<rect x="682" y="412" width="248" height="64" rx="4" class="inc"/><text x="696" y="436" class="s">Only changed files: a runtime</text><text x="696" y="456" class="s">fix takes seconds to minutes</text>
+</g>
+<g>
+<circle cx="60" cy="510" r="15" fill="#e2ba69"/><text x="60" y="516" class="n">6</text>
+<rect x="88" y="486" width="582" height="84" rx="4" class="box"/>
+<text x="102" y="510" class="b">Set up the play folder <tspan class="s">· clean and refill from WORKDIR/bin</tspan></text>
+<text x="102" y="532" class="m">dist/DrakanPC (-linux, -web)</text>
+<text x="102" y="554" class="s">Keeps mc0, mc1, *.ini, textures, movies, subtitles, nr, ngx_data, Play*.cmd</text>
+<rect x="682" y="486" width="248" height="84" rx="4" class="inc"/><text x="696" y="514" class="s">Same; -NoDist leaves dist/</text><text x="696" y="534" class="s">untouched</text>
+</g>
+</svg>

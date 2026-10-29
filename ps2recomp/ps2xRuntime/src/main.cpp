@@ -1,6 +1,7 @@
 #include "lib/drakan_config.h"
 #include "lib/drakan_log.h"
 #include "lib/drakan_crash.h"
+#include "lib/drakan_region.h"
 #include "ps2_runtime.h"
 #include "games_database.h"
 #if defined(PS2X_ENABLE_DEBUG_UI) && !defined(PLATFORM_VITA)
@@ -159,8 +160,9 @@ std::filesystem::path getExecutablePath(int argc, char* argv[]) {
         if (!cfgElf.empty())
             candidates.emplace_back(cfgElf);
         const fs::path dir = fs::path(drakan_cfg::exeDir());
-        for (const char* rel : {"SCES_500.06", "iso/SCES_500.06", "../iso/SCES_500.06", "../../iso/SCES_500.06",
-                                "../../../iso/SCES_500.06"}) {
+        const fs::path boot = drakan_region::build().bootElf; // SCES_500.06 / SCUS_971.28 (the build's region)
+        for (const fs::path rel : {boot, "iso" / boot, ".." / fs::path("iso") / boot, "../.." / fs::path("iso") / boot,
+                                   "../../.." / fs::path("iso") / boot}) {
             candidates.push_back(dir / rel);
             candidates.push_back(fs::current_path() / rel);
         }
@@ -180,7 +182,7 @@ std::filesystem::path getExecutablePath(int argc, char* argv[]) {
         }
     }
     throw std::runtime_error("Unable to determine executable path. Pass the guest ELF as argv[1], or set drakan.ini "
-                             "[general] iso = <path to the disc image> (or elf = <path to SCES_500.06>).");
+                             "[general] iso = <path to the disc image> (or elf = <path to the boot ELF>).");
 #endif
 }
 } // namespace

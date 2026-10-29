@@ -17,22 +17,9 @@ if(DRAKAN_PORTABLE_GPU)
   if(EMSCRIPTEN)
     target_sources(drakan_portable_gpu PRIVATE "${CMAKE_CURRENT_LIST_DIR}/../runtime/gs/src/portable_gpu_web.cpp")
   elseif(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND CMAKE_SYSTEM_PROCESSOR MATCHES "^(x86_64|AMD64|amd64)$")
-    include(FetchContent)
-    FetchContent_Declare(drakan_wgpu
-      URL "https://github.com/gfx-rs/wgpu-native/releases/download/v29.0.1.1/wgpu-linux-x86_64-release.zip"
-      URL_HASH SHA256=95a4d90c071005a98d03eab348beaa6b07e16eb00d1dcdb9f8348f75eb97ec5a)
-    FetchContent_GetProperties(drakan_wgpu)
-    if(NOT drakan_wgpu_POPULATED)
-      FetchContent_Populate(drakan_wgpu)
-    endif()
-    # Ship the pinned shared runtime beside the player, with an origin-relative
-    # search path. No system SDK or driver-independent library installation.
+    include("${CMAKE_CURRENT_LIST_DIR}/WebGpu.cmake")
     target_sources(drakan_portable_gpu PRIVATE "${CMAKE_CURRENT_LIST_DIR}/../runtime/gs/src/portable_gpu_native.cpp")
-    target_include_directories(drakan_portable_gpu PRIVATE "${drakan_wgpu_SOURCE_DIR}/include")
-    add_library(drakan_wgpu_native SHARED IMPORTED GLOBAL)
-    set_target_properties(drakan_wgpu_native PROPERTIES
-      IMPORTED_LOCATION "${drakan_wgpu_SOURCE_DIR}/lib/libwgpu_native.so" IMPORTED_NO_SONAME TRUE)
-    target_link_libraries(drakan_portable_gpu PRIVATE drakan_wgpu_native ${CMAKE_DL_LIBS} m)
+    target_link_libraries(drakan_portable_gpu PRIVATE drakan_webgpu_sdk)
   else()
     message(FATAL_ERROR "Portable GPU currently supports Linux x64 and Emscripten; set DRAKAN_PORTABLE_GPU=OFF elsewhere")
   endif()
@@ -62,15 +49,9 @@ function(drakan_attach_portable_gpu target)
 endfunction()
 
 function(drakan_stage_portable_gpu target)
-  if(TARGET drakan_wgpu_native)
-    set_property(TARGET ${target} APPEND PROPERTY BUILD_RPATH "$ORIGIN")
-    add_custom_command(TARGET ${target} POST_BUILD
-      COMMAND ${CMAKE_COMMAND} -E copy_if_different "$<TARGET_FILE:drakan_wgpu_native>" "$<TARGET_FILE_DIR:${target}>"
-      COMMAND ${CMAKE_COMMAND} -E make_directory "$<TARGET_FILE_DIR:${target}>/licenses/wgpu-native"
-      COMMAND ${CMAKE_COMMAND} -E copy_if_different
-        "${DRAKAN_ROOT_DIR}/third_party/wgpu-native/LICENSE.APACHE"
-        "${DRAKAN_ROOT_DIR}/third_party/wgpu-native/LICENSE.MIT"
-        "$<TARGET_FILE_DIR:${target}>/licenses/wgpu-native"
-      VERBATIM)
+  # The wgpu runtime ships with the player when the WGSL raster or the WebGPU GS renderer uses it.
+  if(TARGET drakan::portable_gpu OR GSR_WEBGPU_SELECTED)
+    include("${CMAKE_CURRENT_FUNCTION_LIST_DIR}/WebGpu.cmake")
+    drakan_stage_webgpu(${target})
   endif()
 endfunction()

@@ -670,7 +670,7 @@ void titleScanSaves(gameui::TitleState& st) {
     fs::file_time_type best{};
     for (int n = 1; n <= drakan_menus::pageCount() * 4; ++n) {
         std::error_code ec;
-        for (fs::directory_iterator it(root / ("BESCES-50006Slot" + std::to_string(n)), ec), end; !ec && it != end;
+        for (fs::directory_iterator it(root / (std::string(drakan_region::build().saveId) + "Slot" + std::to_string(n)), ec), end; !ec && it != end;
              it.increment(ec)) {
             if (it->path().extension() != ".rsg")
                 continue;

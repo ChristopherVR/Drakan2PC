@@ -4,6 +4,8 @@ Everything here is optional. Windows has the full set; Linux and browser builds 
 
 ## At a glance
 
+<!-- media:linux-gameplay -->
+
 | Area | PS2 | PC |
 | --- | --- | --- |
 | Frame rate | 30 FPS | 30, 60 or uncapped |
@@ -33,7 +35,7 @@ Choose **30** (the original), **60** or **Uncapped** under PC Settings → Displ
 
 ## Ray tracing and DLSS
 
-On a DirectX Raytracing GPU (Windows), **modern water** adds ray-traced reflections and waves, and **ray-traced shadows** add soft sun and light shadows with ambient occlusion.
+**Modern water** adds ray-traced reflections and waves, and **ray-traced shadows** add soft sun and light shadows with ambient occlusion. The Direct3D 11 renderer traces them in hardware on a DirectX Raytracing GPU; the default WebGPU renderer traces them in compute shaders on any GPU, at a lower resolution and frame rate. **Renderer** (Display page, applied after a restart) switches between the two on Windows.
 
 <!-- media:rt-compare -->
 

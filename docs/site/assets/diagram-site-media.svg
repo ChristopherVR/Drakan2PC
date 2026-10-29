@@ -1,0 +1,54 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 330" role="img" aria-labelledby="t d">
+<title id="t">How screenshots and diagrams reach the site</title>
+<desc id="d">Game captures are made under build/site-media, never committed, converted and hashed, then added to media.json with "pending": true so the site renders nothing for them. A maintainer uploads them to a site-media release; removing "pending" makes the builder render the figure. Diagrams are original SVG files in docs/site/assets with "kind": "diagram" and are published with the site straight away.</desc>
+<defs>
+<linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#2a1b10"/><stop offset="1" stop-color="#120c08"/></linearGradient>
+<marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="#e2ba69"/></marker>
+</defs>
+<style>
+.h{font:25px Castellar,'Copperplate Gothic Light',Georgia,serif;fill:#e2ba69}
+.k{font:16px Castellar,'Copperplate Gothic Light',Georgia,serif;fill:#e2ba69}
+.s{font:14px 'Goudy Old Style','Palatino Linotype',Georgia,serif;fill:#c9b896}
+.m{font:12.5px Consolas,'Courier New',monospace;fill:#e9d3a0}
+.box{fill:#1d130b;stroke:#8f6d3d;stroke-width:1.5}
+.hot{fill:#2a1a0e;stroke:#e2ba69;stroke-width:2}
+.priv{fill:#1d130b;stroke:#d8661f;stroke-width:1.5;stroke-dasharray:6 4}
+.ln{stroke:#e2ba69;stroke-width:2;fill:none}
+</style>
+<rect width="960" height="330" fill="url(#bg)"/>
+<rect x="6" y="6" width="948" height="318" fill="none" stroke="#b48a4a" stroke-width="3"/>
+<rect x="13" y="13" width="934" height="304" fill="none" stroke="#5a4020" stroke-width="1.2"/>
+
+<text x="34" y="50" class="h">From capture to page</text>
+<text x="34" y="74" class="s">Game images never enter Git or the Pages artifact. A figure appears only once its release URL is live.</text>
+
+<rect x="30" y="94" width="206" height="128" rx="4" class="priv"/>
+<text x="44" y="120" class="k">1 Capture</text>
+<text x="44" y="144" class="s">harness run or recording</text>
+<text x="44" y="166" class="m">build/site-media/</text>
+<text x="44" y="190" class="s">ignored by Git</text>
+<path d="M236 158h12" class="ln" marker-end="url(#a)"/>
+<rect x="252" y="94" width="206" height="128" rx="4" class="box"/>
+<text x="266" y="120" class="k">2 Prepare</text>
+<text x="266" y="144" class="s">JPEG / MP4, SHA-256,</text>
+<text x="266" y="164" class="s">media.json entry with</text>
+<text x="266" y="188" class="m">"pending": true</text>
+<text x="266" y="208" class="s">renders nothing yet</text>
+<path d="M458 158h12" class="ln" marker-end="url(#a)"/>
+<rect x="474" y="94" width="206" height="128" rx="4" class="box"/>
+<text x="488" y="120" class="k">3 Upload</text>
+<text x="488" y="144" class="s">a maintainer attaches it</text>
+<text x="488" y="164" class="s">to the release</text>
+<text x="488" y="188" class="m">site-media-YYYYMMDD</text>
+<path d="M680 158h12" class="ln" marker-end="url(#a)"/>
+<rect x="696" y="94" width="234" height="128" rx="4" class="hot"/>
+<text x="710" y="120" class="k">4 Go live</text>
+<text x="710" y="144" class="s">remove "pending"; the builder</text>
+<text x="710" y="164" class="s">renders the figure, slider</text>
+<text x="710" y="184" class="s">or clip from the release URL</text>
+
+<rect x="30" y="240" width="900" height="64" rx="4" class="box"/>
+<text x="44" y="266" class="k">Diagrams</text>
+<text x="160" y="266" class="s">original SVG in <tspan class="m">docs/site/assets/diagram-*.svg</tspan>, <tspan class="m">"kind": "diagram"</tspan> in media.json:</text>
+<text x="160" y="288" class="s">committed source, copied into the site and shown immediately.</text>
+</svg>

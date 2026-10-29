@@ -134,6 +134,12 @@ void displayPage(gameui::SettingPage& pg, const Settings& st, const SchemaEnv& e
         r.choices[2].enabled = caps.exclusiveFullscreen;
         r.confirm = true;
     }
+    if (caps.rendererChoice)
+        b.choice("video.renderer", "Renderer",
+                 "WebGPU is the shared renderer (Vulkan or Direct3D 12) with portable temporal AA and compute ray "
+                 "tracing. Direct3D 11 adds NVIDIA DLSS, DLSS ray reconstruction and hardware (DXR) ray tracing. "
+                 "Takes effect after a restart.",
+                 {{"webgpu", "WebGPU (default)"}, {"d3d11", "Direct3D 11"}}, true);
     {
         const bool windowed = v.windowMode == WindowMode::Windowed;
         SettingRow& r = b.row(kKeyWindowSize, SettingKind::Choice, windowed ? "Window size" : "Output resolution",

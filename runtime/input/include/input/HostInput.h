@@ -1,4 +1,5 @@
-// Win32 host side: Raw Input (mouse + keyboard), XInput, cursor capture. No game knowledge here.
+// Host side: Windows = Raw Input (mouse + keyboard), XInput, cursor capture. Elsewhere HostInput forwards to a
+// HostInputBackend the window layer installs (GLFW on Linux). No game knowledge here.
 #pragma once
 #include "input/FrameInput.h"
 #include <cstdint>
@@ -6,6 +7,21 @@
 #include <string>
 
 namespace drakan_input {
+
+// The host input of platforms other than Windows (installed by the window layer before InputModule::init).
+class HostInputBackend {
+public:
+    virtual ~HostInputBackend() = default;
+    virtual bool init(void* window, InputAccumulator* acc) = 0;
+    virtual void shutdown() = 0;
+    virtual void poll(FrameInput& in, bool gamepadEnabled, float deadzone) = 0;
+    virtual void setCapture(bool captured) = 0;
+    virtual bool captured() const = 0;
+    virtual void setMenuCursorHidden(bool hidden) = 0;
+};
+void setHostInputBackendFactory(std::unique_ptr<HostInputBackend> (*factory)());
+// Radial stick deadzone shared by the hosts: (x, y) in -1..1 -> rescaled outside `deadzone`; returns the raw length.
+float applyRadialDeadzone(float x, float y, float deadzone, float* outX, float* outY);
 
 class HostInput {
 public:

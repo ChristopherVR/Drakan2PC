@@ -3,7 +3,7 @@ name: Documentation and browser player
 # Publishes only generated documentation and the local-file launcher. No game build or data enters this job.
 on:
   push:
-    branches: [main, public]
+    branches: [main]
     paths:
       - 'docs/**'
       - 'README.md'

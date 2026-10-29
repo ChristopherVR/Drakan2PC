@@ -5,7 +5,7 @@
 namespace dsettings {
 
 bool isRestartKey(const HostCaps& caps, const std::string& key) {
-    return key == "video.world_rate" || caps.restartKeys.count(key) != 0;
+    return key == "video.world_rate" || key == "video.renderer" || caps.restartKeys.count(key) != 0;
 }
 
 ApplyOutcome applySettings(ISettingsHost& host, SettingsStore& store, const HostCaps& caps, Settings& applied,
@@ -34,9 +34,10 @@ ApplyOutcome applySettings(ISettingsHost& host, SettingsStore& store, const Host
         if (k == "general.ui_prompts")
             promptsChanged = true;
     }
-    // World rate is read at startup. Apply other video edits without sending a world-rate change to the live host.
+    // World rate and renderer are read at startup. Apply other video edits without sending them to the live host.
     VideoSettings liveVideo = pending.video;
     liveVideo.worldRate = applied.video.worldRate;
+    liveVideo.renderer = applied.video.renderer;
     if (!(applied.video == liveVideo)) {
         ApplyResult r = host.applyVideo(liveVideo, applied.video);
         if (!r.ok)

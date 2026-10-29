@@ -65,7 +65,7 @@ inline void setArtSource(hle::IsoFs*) {}
 #endif
 // Portable presentation-thread backend; no platform graphics types cross this
 // boundary. The source game frame remains available for the modern UI's crops.
-#if !defined(_WIN32)
+#if defined(PS2X_HAVE_PORTABLE_UI)
 void drawPortableUi(PS2Runtime& runtime, int width, int height, unsigned frameTexture);
 void drawPortableFrame(unsigned texture, unsigned width, unsigned height, float x, float y, float w, float h);
 void shutdownPortableUi();

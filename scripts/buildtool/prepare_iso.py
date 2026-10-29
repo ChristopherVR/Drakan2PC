@@ -1,5 +1,9 @@
 #!/usr/bin/env python3
-"""Extract only the supported boot ELF from a user-owned ISO9660 disc image."""
+"""Extract only the supported boot ELF from a user-owned ISO9660 disc image.
+
+The disc region (PAL SCES_500.06 or USA SCUS_971.28) is chosen from SYSTEM.CNF BOOT2 and the ELF must match the
+profile in regions.json byte for byte (SHA-256).
+"""
 
 import argparse
 import hashlib
@@ -86,7 +90,28 @@ class Iso:
         return self.read(node[1] * SECTOR, node[2])
 
 
-def configure(template, elf, generated, repo):
+def load_regions():
+    return json.loads((HERE / "regions.json").read_text(encoding="utf-8"))
+
+
+def region_profile(region=None):
+    regions = load_regions()
+    region = region or regions["default"]
+    if region not in regions["regions"]:
+        raise ValueError(f"Unknown disc region {region!r}")
+    return region, regions["regions"][region]
+
+
+def region_for_boot(boot_name):
+    """The region whose boot executable SYSTEM.CNF names, or None."""
+    for region, profile in load_regions()["regions"].items():
+        if profile["boot"] == boot_name.strip().upper():
+            return region, profile
+    return None
+
+
+def configure(template, elf, generated, repo, profile=None):
+    profile = profile or region_profile()[1]
     text = template.read_text(encoding="utf-8-sig")
     parsed = tomllib.loads(text)
     general = parsed.get("general", {})
@@ -95,8 +120,8 @@ def configure(template, elf, generated, repo):
     values = {
         "input": elf.as_posix(),
         "output": generated.as_posix(),
-        "functions_csv": (repo / "analysis/functions.csv").as_posix(),
-        "jump_tables_csv": (repo / "analysis/jumptables.csv").as_posix(),
+        "functions_csv": (repo / profile["functions_csv"]).as_posix(),
+        "jump_tables_csv": (repo / profile["jump_tables_csv"]).as_posix(),
         "ghidra_output": "",
     }
     for key in ("functions_csv", "jump_tables_csv"):
@@ -118,14 +143,41 @@ def configure(template, elf, generated, repo):
     return result
 
 
-def refresh_config(target, template, repo):
+def region_template(template, repo, profile):
+    """The default template (configs/drakan.toml, PAL) follows the disc region; an explicit other file is kept."""
+    if template is not None and Path(template).resolve() == (repo / "configs/drakan.toml").resolve():
+        return repo / profile["config"]
+    return template
+
+
+def detect_region(iso):
+    """(region, profile) of the executable SYSTEM.CNF boots; ValueError for any other disc."""
+    cnf = iso.file_bytes("SYSTEM.CNF", 16384).decode("ascii")
+    boot = re.search(r"(?im)^\s*BOOT2\s*=\s*cdrom0:[\\/]+([^;\r\n]+)(?:;\d+)?\s*$", cnf)
+    found = region_for_boot(boot[1]) if boot else None
+    if not found:
+        supported = ", ".join(p["label"] for p in load_regions()["regions"].values())
+        raise ValueError(f"Unsupported disc: SYSTEM.CNF does not boot a verified executable ({supported})")
+    return found
+
+
+def refresh_config(target, template, repo, iso_region=None):
     """Rewrite config.toml from the template, leaving the file untouched when nothing changed."""
-    supported = json.loads((HERE / "toolchain.lock.json").read_text())["supported_game"]
-    if not (target / "local-input.json").is_file() or not (target / supported["boot"]).is_file():
+    manifest = target / "local-input.json"
+    if not manifest.is_file():
+        raise ValueError(f"{target} was not prepared by a full build; run one first")
+    region, profile = region_profile(json.loads(manifest.read_text(encoding="utf-8")).get("region"))
+    if iso_region is not None and iso_region != region:
+        raise ValueError(
+            f"{target} holds a {profile['label']} build but the ISO is {region_profile(iso_region)[1]['label']}; "
+            "build the other region into a fresh WorkDir"
+        )
+    if not (target / profile["boot"]).is_file():
         raise ValueError(f"{target} was not prepared by a full build; run one first")
     if template is None:
         raise ValueError("--refresh-config needs --config-template")
-    config = configure(template, target / supported["boot"], target / "generated", repo)
+    template = region_template(template, repo, profile)
+    config = configure(template, target / profile["boot"], target / "generated", repo, profile)
     path = target / "config.toml"
     if path.is_file() and path.read_text(encoding="utf-8") == config:
         return False
@@ -137,7 +189,7 @@ def refresh_config(target, template, repo):
 def main():
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--iso", type=Path, required=True)
-    ap.add_argument("--output-directory", type=Path, required=True)
+    ap.add_argument("--output-directory", type=Path)
     ap.add_argument("--config-template", type=Path)
     ap.add_argument("--repo-root", type=Path, default=HERE.parents[1])
     ap.add_argument(
@@ -145,21 +197,32 @@ def main():
         action="store_true",
         help="re-render config.toml in an existing output directory (incremental builds); nothing else is touched",
     )
+    ap.add_argument("--detect", action="store_true", help="print the disc region id (pal / usa) and exit")
     args = ap.parse_args()
+    if args.detect:
+        iso = Iso(args.iso.resolve())
+        try:
+            print(detect_region(iso)[0])
+        finally:
+            iso.file.close()
+        return
+    if args.output_directory is None:
+        ap.error("--output-directory is required")
     target = args.output_directory.resolve()
     if args.refresh_config:
-        refresh_config(target, args.config_template, args.repo_root.resolve())
+        iso = Iso(args.iso.resolve())
+        try:
+            iso_region = detect_region(iso)[0]
+        finally:
+            iso.file.close()
+        refresh_config(target, args.config_template, args.repo_root.resolve(), iso_region)
         return
     if target.exists():
         raise ValueError("Output directory already exists; choose a fresh private build directory")
-    supported = json.loads((HERE / "toolchain.lock.json").read_text())["supported_game"]
     iso = Iso(args.iso.resolve())
     try:
-        cnf = iso.file_bytes("SYSTEM.CNF", 16384).decode("ascii")
-        boot = re.search(r"(?im)^\s*BOOT2\s*=\s*cdrom0:[\\/]+([^;\r\n]+)(?:;\d+)?\s*$", cnf)
-        if not boot or boot[1].strip().upper() != supported["boot"]:
-            raise ValueError("Only the verified PAL SCES_500.06 boot executable is supported")
-        data = iso.file_bytes(supported["boot"], 64 * 1024 * 1024)
+        region, profile = detect_region(iso)
+        data = iso.file_bytes(profile["boot"], 64 * 1024 * 1024)
     finally:
         iso.file.close()
     if len(data) < 52 or data[:6] != b"\x7fELF\x01\x01" or struct.unpack_from("<H", data, 18)[0] != 8:
@@ -167,26 +230,29 @@ def main():
     if struct.unpack_from("<I", data, 24)[0] != 0x100008:
         raise ValueError("Unexpected ELF entry point")
     sha = hashlib.sha256(data).hexdigest()
-    if sha != supported["elf_sha256"]:
-        raise ValueError("ELF hash differs from the verified SCES_500.06 revision; no output was written")
+    if sha != profile["elf_sha256"]:
+        raise ValueError(f"ELF hash differs from the verified {profile['boot']} revision; no output was written")
+    template = region_template(args.config_template, args.repo_root.resolve(), profile)
     config = (
-        configure(args.config_template, target / supported["boot"], target / "generated", args.repo_root.resolve())
-        if args.config_template
+        configure(template, target / profile["boot"], target / "generated", args.repo_root.resolve(), profile)
+        if template
         else None
     )
     target.mkdir(parents=True)
-    (target / supported["boot"]).write_bytes(data)
+    (target / profile["boot"]).write_bytes(data)
     if config is not None:
         (target / "config.toml").write_text(config, encoding="utf-8")
     manifest = {
-        "boot": supported["boot"],
+        "region": region,
+        "boot": profile["boot"],
+        "serial": profile["serial"],
         "elf_sha256": sha,
         "elf_size": len(data),
         "private_local_output": True,
         "config_created": config is not None,
     }
     (target / "local-input.json").write_text(json.dumps(manifest, indent=2) + "\n")
-    print(f"Prepared private local input: {target} (no disc assets copied)")
+    print(f"Prepared private local input: {target} ({profile['label']}; no disc assets copied)")
 
 
 if __name__ == "__main__":

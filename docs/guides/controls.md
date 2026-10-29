@@ -39,6 +39,8 @@ In menus, use the mouse or arrows/WASD to select, **Enter / Space** to confirm a
 
 ## Rebind keys and adjust the mouse
 
+<!-- media:pc-settings -->
+
 Open **F1 → Key Bindings** to change actions, and the mouse settings for sensitivity and inversion. Windows bindings are stored in `drakan_input.ini` next to the executable. Close the game before editing the file by hand.
 
 The Windows controller path uses XInput and maps the original DualShock layout onto the controller. Controller and keyboard prompts can be selected in PC Settings.

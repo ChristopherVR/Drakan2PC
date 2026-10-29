@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 260" role="img" aria-labelledby="t"><title id="t">A few commands</title>
+<defs><linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#2a1b10"/><stop offset="1" stop-color="#120c08"/></linearGradient>
+<radialGradient id="glow" cx=".2" cy=".5" r=".6"><stop offset="0" stop-color="#d8661f" stop-opacity=".28"/><stop offset="1" stop-color="#d8661f" stop-opacity="0"/></radialGradient></defs>
+<rect width="960" height="260" fill="url(#bg)"/><rect width="960" height="260" fill="url(#glow)"/>
+<rect x="8" y="8" width="944" height="244" fill="none" stroke="#b48a4a" stroke-width="3"/><rect x="16" y="16" width="928" height="228" fill="none" stroke="#5a4020" stroke-width="1.5"/>
+<g fill="#f3d48e" stroke="#8a6430" stroke-width="2"><circle cx="8" cy="8" r="6"/><circle cx="952" cy="8" r="6"/><circle cx="8" cy="252" r="6"/><circle cx="952" cy="252" r="6"/></g>
+<g transform="translate(60 30)"><rect x="22" y="38" width="156" height="124" rx="8" fill="#3a2616" stroke="#e2ba69" stroke-width="6" stroke-linejoin="round" stroke-linecap="round"/><path d="M50 78L82 100L50 122" fill="none" stroke="#d8661f" stroke-width="6" stroke-linejoin="round" stroke-linecap="round"/><path d="M98 126H140" fill="none" stroke="#e2ba69" stroke-width="6" stroke-linejoin="round" stroke-linecap="round"/></g>
+<path d="M300 66V194" stroke="#6d5230" stroke-width="2"/>
+<text x="338" y="112" font-family="Castellar, 'Copperplate Gothic Light', Georgia, serif" font-size="38" fill="#e2ba69">A few commands</text>
+<text x="338" y="156" font-family="'Goudy Old Style', 'Palatino Linotype', Georgia, serif" font-size="24" fill="#efe2c2">Run them from a terminal in the project folder</text>
+<text x="338" y="190" font-family="'Goudy Old Style', 'Palatino Linotype', Georgia, serif" font-size="20" fill="#b5a58c">Copy each block exactly as shown.</text></svg>

@@ -1,0 +1,77 @@
+<main id="main" class="flow-main" tabindex="-1">
+  <header class="flow-head">
+    <p class="doc-section">Install</p>
+    <h1>Install Drakan on your PC</h1>
+    <p class="flow-lead">The game is built on your own computer from your own disc image. Pick where you want to play and follow the steps. It takes about five minutes to read and one to two hours to build.</p>
+  </header>
+
+  <section class="flow" data-flow aria-label="Install steps">
+    <div class="flow-picker" role="group" aria-label="Where do you want to play?">
+      <button type="button" class="flow-platform" data-platform="windows" aria-pressed="false"><strong>Windows</strong><span>Installer, native player</span></button>
+      <button type="button" class="flow-platform" data-platform="linux" aria-pressed="false"><strong>Linux</strong><span>Ubuntu or Debian, native player</span></button>
+      <button type="button" class="flow-platform" data-platform="browser" aria-pressed="false"><strong>Browser</strong><span>Chrome or Edge, local files</span></button>
+    </div>
+
+    <div class="flow-progress" hidden>
+      <span class="flow-count" aria-live="polite"></span>
+      <span class="flow-bar" aria-hidden="true"><span></span></span>
+    </div>
+
+    <ol class="flow-steps" data-platform="windows" aria-label="Windows install steps">
+      <li class="flow-step"><h2>Check your disc</h2>
+        <p>You need your own <strong>PAL SCES-500.06</strong> disc image (the <strong>USA SCUS-971.28</strong> disc also builds, as an experimental version with keyboard and mouse but without the PC settings, widescreen, quicksave or modern menus; its saves are separate) as a plain <code>.iso</code>. The builder checks it and stops if it does not match. Keep the file in a stable folder, because the game keeps reading it while you play.</p></li>
+      <li class="flow-step"><h2>Check your PC</h2>
+        <p>Windows 10 or 11 (64-bit), at least 16 GB of memory (24 GB recommended), about 10 GB of free disk space, a DirectX 11 GPU and an internet connection for the first tool downloads.</p></li>
+      <li class="flow-step"><h2>Download and run the installer</h2>
+        <!-- media:art-installer -->
+        <p>Download <strong>DrakanPC-Setup.exe</strong> from the <a href="https://github.com/ChristopherVR/Drakan2PC/releases/latest">latest release</a>, run it, then choose an install folder and your ISO. Leave <strong>Build the game now</strong> ticked. Optional components such as NVIDIA DLSS and the browser version are listed on the same screen.</p></li>
+      <li class="flow-step"><h2>Wait for the build</h2>
+        <!-- media:art-build -->
+        <p>Leave the build window open until it says it has finished. Some large steps print nothing for about ten minutes. Windows may ask permission to install Microsoft's C++ Build Tools.</p></li>
+      <li class="flow-step"><h2>Play</h2>
+        <!-- media:pc-settings -->
+        <p>Launch <strong>Drakan - The Ancients' Gates</strong> from the desktop or Start menu. Press <kbd>F1</kbd> for PC Settings, <kbd>F11</kbd> for fullscreen and <kbd>F10</kbd> to release the mouse.</p>
+        <p><a class="button" href="guides/install.html">Read the full Windows guide</a> <a class="button-quiet" href="guides/controls.html">Learn the controls</a></p></li>
+    </ol>
+
+    <ol class="flow-steps" data-platform="linux" aria-label="Linux install steps">
+      <li class="flow-step"><h2>Check your disc</h2>
+        <p>You need your own <strong>PAL SCES-500.06</strong> disc image (the <strong>USA SCUS-971.28</strong> disc also builds, as an experimental version with keyboard and mouse but without the PC settings, widescreen, quicksave or modern menus; its saves are separate) as a plain <code>.iso</code>. Keep it somewhere permanent: the game reads it during play.</p></li>
+      <li class="flow-step"><h2>Check your system</h2>
+        <p>x86-64 Ubuntu or Debian with build tools, enough memory for the larger compilation steps and about 10 GB of free disk space. The Linux guide lists the exact packages.</p></li>
+      <li class="flow-step"><h2>Get the source</h2>
+        <!-- media:art-terminal -->
+        <p>Clone the repository from GitHub and install the packages named in the guide. Everything runs from a terminal in the project folder.</p></li>
+      <li class="flow-step"><h2>Build from your ISO</h2>
+        <!-- media:art-build -->
+        <p>Run the Linux build script with the path to your ISO. The first build takes one to two hours; later rebuilds are much faster and keep your saves.</p></li>
+      <li class="flow-step"><h2>Play</h2>
+        <!-- media:linux-gameplay -->
+        <p>Start the player from <code>dist/DrakanPC-linux</code>. Press <kbd>F1</kbd> for PC Settings.</p>
+        <p><a class="button" href="guides/linux.html">Read the full Linux guide</a> <a class="button-quiet" href="guides/controls.html">Learn the controls</a></p></li>
+    </ol>
+
+    <ol class="flow-steps" data-platform="browser" aria-label="Browser install steps">
+      <li class="flow-step"><h2>Check your browser</h2>
+        <!-- media:art-browser -->
+        <p>Use desktop <strong>Chrome or Edge</strong>. The player reads files you choose from your own computer; nothing is uploaded.</p></li>
+      <li class="flow-step"><h2>Check your disc</h2>
+        <p>You need your own <strong>PAL SCES-500.06</strong> disc image (the <strong>USA SCUS-971.28</strong> disc also builds, as an experimental version with keyboard and mouse but without the PC settings, widescreen, quicksave or modern menus; its saves are separate) as a plain <code>.iso</code>.</p></li>
+      <li class="flow-step"><h2>Create the browser build</h2>
+        <!-- media:art-build -->
+        <p>The browser build is made locally, on Windows with WSL or on Linux, from the same disc. The browser guide walks through it.</p></li>
+      <li class="flow-step"><h2>Open your local files</h2>
+        <!-- media:art-folder -->
+        <p>Open the browser player and choose your build folder and ISO when asked. Keep using the same browser profile: saves live in that profile's storage.</p></li>
+      <li class="flow-step"><h2>Play</h2>
+        <!-- media:browser-gameplay -->
+        <p><a class="button" href="browser.html">Open the browser player</a> <a class="button-quiet" href="guides/browser.html">Read the browser guide</a></p></li>
+    </ol>
+
+    <div class="flow-nav" hidden>
+      <button type="button" class="flow-back">Back</button>
+      <button type="button" class="flow-next">Next</button>
+    </div>
+    <p class="flow-note">Stuck at any point? See <a href="guides/troubleshooting.html">Troubleshooting</a>. No game files are included or downloaded by this site.</p>
+  </section>
+</main>

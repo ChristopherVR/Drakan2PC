@@ -37,10 +37,11 @@ struct VideoSettings {
     bool flickerFilter = false;
     bool sharpPresent = true;
     // ---- new keys (added to drakan.ini by this library; the runtime owner / gs owner consumes them) ----
-    int worldRate = 0;      // world_rate: 0 = uncapped (default), 30 original, 60 capped (restart required)
-    int frameLimit = 0;     // frame_limit: presentation fps cap, 0 = off; does not raise world update rate
-    int anisotropic = 16;   // anisotropic: 1 (off) 2 4 8 16
-    int textureUpscale = 0; // texture_upscale: 0 (auto) 1 (off) 2 4
+    int worldRate = 0;               // world_rate: 0 = uncapped (default), 30 original, 60 capped (restart required)
+    std::string renderer = "webgpu"; // renderer: webgpu (default) | d3d11 (Windows) | sw (restart required)
+    int frameLimit = 0;              // frame_limit: presentation fps cap, 0 = off; does not raise world update rate
+    int anisotropic = 16;            // anisotropic: 1 (off) 2 4 8 16
+    int textureUpscale = 0;          // texture_upscale: 0 (auto) 1 (off) 2 4
     std::string textureUpscaleFilter = "default"; // texture_upscale_filter: names come from HostCaps
     float mipBias = 0.0f;                         // mip_bias: -2..+2
     bool hdTextures = true;                       // hd_textures: use replacement textures from overrides/

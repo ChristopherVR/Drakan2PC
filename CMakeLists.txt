@@ -106,6 +106,7 @@ if(DRAKAN_NEED_RUNTIME_LIBS)
     add_subdirectory(runtime/ui)
     add_subdirectory(runtime/gameui)   # modern Tab screen core (platform free)
     add_subdirectory(runtime/vu1ref)
+    add_subdirectory(runtime/gpu)      # WebGPU device layer (wgpu-native / browser WebGPU)
     add_subdirectory(runtime/gs)       # defines drakan::gs_headers everywhere, drakan::gs on Windows
     if(WIN32 OR CMAKE_SYSTEM_NAME STREQUAL "Linux" OR EMSCRIPTEN)
         add_subdirectory(runtime/spu2)

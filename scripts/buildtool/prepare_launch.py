@@ -36,6 +36,6 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     for option in ("repo-root", "output-directory", "iso", "elf"):
         parser.add_argument(f"--{option}", required=True, type=Path)
-    parser.add_argument("--renderer", choices=("sw", "d3d11"))
+    parser.add_argument("--renderer", choices=("sw", "d3d11", "webgpu"))
     args = parser.parse_args()
     prepare(args.repo_root, args.output_directory, args.iso, args.elf, args.renderer)

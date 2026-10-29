@@ -2,6 +2,8 @@
 
 Drakan2PC statically recompiles the supported PS2 program into C++, then links the locally generated code to a replacement runtime. The repository contains the recompiler, runtime and tools; the player supplies the ISO.
 
+<!-- media:diagram-architecture -->
+
 ## Start with the canonical build
 
 Read [Build from source](../../BUILDING.md) for prerequisites and the single supported game pipeline. Use `scripts/buildtool/Build-LocalGame.ps1`; rebuild with `-Incremental` in the same work directory. Launch and validate from `dist/DrakanPC` on Windows.

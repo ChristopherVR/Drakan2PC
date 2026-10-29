@@ -9,14 +9,20 @@ See [BUILDING.md](../../BUILDING.md#linux-and-browser-iso-builds) for commands.
 | Service | Windows x64 | Linux x64 | Browser / wasm32 |
 | --- | --- | --- | --- |
 | Build | MSVC, `game` preset | Clang, `linux-game` preset | Pinned Emscripten, `web-game` preset |
-| Window / presentation | Win32 and raylib | raylib / GLFW / OpenGL | Canvas, raylib, proxied GLFW / WebGL |
-| GS rendering | D3D11, optional NVIDIA features | Software GS | Software GS |
+| Window / presentation | Win32 window (`drakan_window.cpp`) | GLFW window without a client API (`drakan_window_glfw.cpp`, raylib's GLFW, X11) | The page's canvas (`drakan_window_web.cpp`), owned by the renderer's GPU pthread as an OffscreenCanvas |
+| GS rendering | Shared WebGPU renderer (default; Vulkan, D3D12 fallback; portable temporal AA, compute ray tracing) or D3D11 with the optional NVIDIA features and DXR (PC Settings > Display > Renderer) | Shared WebGPU renderer (wgpu-native: Vulkan, GL fallback); software GS with `renderer = sw` | Shared WebGPU renderer (the browser's WebGPU, through the threaded `rhi` proxy); WebGPU required |
 | Audio | WASAPI | ALSA; PulseAudio plugin fallback when provided by WSLg | Shared PCM ring and AudioWorklet |
-| Controls | Native input module / XInput | Window-thread keyboard, mouse and controller sampling | Keyboard, pointer lock and Gamepad API |
+| Controls | Input module (`runtime/input`): Raw Input / XInput host | The same input module: GLFW host (`drakan_input_glfw.cpp`: keys, raw mouse motion, GLFW gamepads) | The same input module: DOM host (`drakan_input_web.cpp`: keys, pointer lock, Gamepad API) |
 | ISO | Random reads from disk | Random reads from disk | Bounded range requests to the local launcher |
 | Cards | Existing native card paths / launch overrides | `mc0` beside the deployed executable | `/persist/mc0` in IndexedDB |
 | Configuration location | Executable directory | `/proc/self/exe`, with launch-directory fallback | Virtual filesystem; `/persist/drakan.ini` |
-| Modern title / pause / save / PC Settings | Shared gameui models, D3D11 overlay | Same models and art, raylib overlay | Same models and art, physical-resolution fonts |
+| Modern title / pause / save / PC Settings | `SettingsOverlay` (Win32 platform; D3D11 or WebGPU renderer) | The same `SettingsOverlay` (GLFW platform, WebGPU renderer) | The same `SettingsOverlay` (event-fed platform, WebGPU renderer) |
+
+Since phase 4 of [webgpu-renderer.md](../proposals/webgpu-renderer.md) (2026-10-29) native Linux runs the Windows
+code path: the GS bridge, the WebGPU renderer, the input module and the settings overlay, with only the window / input
+host replaced ([webgpu-linux.md](../journal/2026-10-29/webgpu-linux.md)). The notes below about the software GS and the
+raylib UI on Linux describe the previous path. Since phase 5 the browser runs it too
+([webgpu-browser.md](../journal/2026-10-29/webgpu-browser.md)).
 
 Linux has reached gameplay, accepted keyboard movement and pause input, written a native save
 with thumbnail into the deployed card folder, restarted, and loaded that save back into gameplay.
@@ -133,21 +139,23 @@ VU constant-evaluation / expression-depth budgets. Runtime-only tests do not pro
 
 ## Browser execution
 
-The browser UI thread handles DOM, WebGL, browser events, filesystem proxy requests and the audio
-worklet connection. `PROXY_TO_PTHREAD` runs the application in a worker. The guest scheduler,
-resource service, sound pump and audio mixer use pthread workers. Blocking ISO reads and guest
-condition-variable waits therefore do not block the browser UI. There is no unisolated or
-single-thread fallback: shared memory and COOP/COEP isolation are required.
+<!-- media:diagram-browser-runtime -->
 
-Raylib's embedded DOM operations are sent to the browser thread through `raylib_proxy.h`. Its context
-is created through Emscripten's C API before GLFW reuses it, which establishes native context/TLS
-ownership for asynchronous buffer uploads. GLFW and WebGL JS entry points are proxied. The SDK's
-offscreen back buffer is presented once per frame rather than after each browser callback.
+The browser UI thread handles DOM and input events (fed to the input module and the settings overlay through rings),
+filesystem proxy requests and the audio worklet connection. `PROXY_TO_PTHREAD` runs the application in a worker. The
+guest scheduler, resource service, sound pump and audio mixer use pthread workers. Blocking ISO reads and guest
+condition-variable waits therefore do not block the browser UI. There is no unisolated or single-thread fallback:
+shared memory and COOP/COEP isolation are required.
+
+The GS renderer's WebGPU device lives on its own GPU pthread, which owns the canvas as an OffscreenCanvas; the renderer
+records its calls into ordered batches for that thread (the `rhi` proxy, `rhi_proxy.cpp`) and readbacks complete from
+its event loop. Frames are drawn into a back buffer copied to the canvas at present. See
+[webgpu-browser.md](../journal/2026-10-29/webgpu-browser.md).
 
 Use native Wasm exceptions (`-fwasm-exceptions`). Legacy JS exception trampolines cannot transport
 `v128` arguments/results used by the memory bus. `wasm_vector_exception_tests.cpp` checks both valid
-vector calls and an exception across them. Browser requirements include native Wasm exceptions,
-SIMD, shared memory, WebGL, workers and AudioWorklet.
+vector calls and an exception across them. Browser requirements include WebGPU, native Wasm exceptions,
+SIMD, shared memory, workers and AudioWorklet.
 
 The launch server binds only loopback, validates Host/Origin, supplies isolation headers, and serves
 at most 1 MiB per ISO range request. It never uploads or preloads the full ISO. The browser source
@@ -186,6 +194,12 @@ in the camera review journal; unit coverage is not a full camera-mode playthroug
 Linux and browser now share Windows' modern title, pause, save/load and PC Settings
 models, game art and fonts through a portable renderer. Native transactions still
 own loading, saving and game flow. Modern inventory/map overlays remain unfinished.
+Both settings hosts derive from `CommonSettingsHost` (`drakan_settings_common.h`), and both
+presentation backends draw the same HUD layer set (`settings/Hud.h`): the FPS counter (F2 / PC
+Settings), narration subtitles, the modern bow-aim crosshair and the native-menu cursor. Linux and
+browser therefore share Windows' quicksave / quickload (F5 / F8), modern bow aim, subtitles and FPS
+counter; Linux also offers ALSA output-device selection. The browser copies the deployed
+`subtitles/*.srt` into its virtual filesystem before start-up.
 The portable PC Settings host uses the same configuration paths as the runtime,
 including the browser's persistent mount. It applies audio, bindings, direct-camera
 settings, FOV and sharp presentation; unsupported renderer controls are disabled.

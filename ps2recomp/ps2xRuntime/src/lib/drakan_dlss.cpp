@@ -132,25 +132,25 @@ void objectSink(const gsr::ObjectMotionScope& scope, void*) {
 
 uint32_t modeFromText(const std::string& s) {
     const char* c = s.c_str();
-    if (!_stricmp(c, "dlaa"))
+    if (!drakan_cfg::compareNoCase(c, "dlaa"))
         return 1;
-    if (!_stricmp(c, "quality") || !_stricmp(c, "on"))
+    if (!drakan_cfg::compareNoCase(c, "quality") || !drakan_cfg::compareNoCase(c, "on"))
         return 2;
-    if (!_stricmp(c, "balanced"))
+    if (!drakan_cfg::compareNoCase(c, "balanced"))
         return 3;
-    if (!_stricmp(c, "performance") || !_stricmp(c, "perf"))
+    if (!drakan_cfg::compareNoCase(c, "performance") || !drakan_cfg::compareNoCase(c, "perf"))
         return 4;
     return 0;
 }
 uint32_t presetFromText(const std::string& s) {
     const char* c = s.c_str();
-    if (!_stricmp(c, "j"))
+    if (!drakan_cfg::compareNoCase(c, "j"))
         return 10;
-    if (!_stricmp(c, "k"))
+    if (!drakan_cfg::compareNoCase(c, "k"))
         return 11;
-    if (!_stricmp(c, "l"))
+    if (!drakan_cfg::compareNoCase(c, "l"))
         return 12;
-    if (!_stricmp(c, "m"))
+    if (!drakan_cfg::compareNoCase(c, "m"))
         return 13;
     return 0;
 }
@@ -258,7 +258,7 @@ void setNeural(bool on) {
         lease.gs->setNeuralRendering(on);
 }
 bool neuralResolutionIsRender(const std::string& value) {
-    return _stricmp(value.c_str(), "render") == 0;
+    return drakan_cfg::compareNoCase(value.c_str(), "render") == 0;
 }
 void setNeuralResolution(const std::string& value) {
     Lease lease;

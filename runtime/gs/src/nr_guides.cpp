@@ -1,4 +1,5 @@
 #include "nr_guides.h"
+#include "guide_camera.h"
 #include <d3d11_1.h>
 #include <d3dcompiler.h>
 #include <wrl/client.h>
@@ -99,96 +100,28 @@ float2 PSModel(ModelOut i) : SV_Target {
     return flow;
 }
 )HLSL";
-using Matrix = double[16]; // mathematical row-major, ROW-VECTOR
-void identity(double* a) {
-    std::fill(a, a + 16, 0.0);
-    for (int i = 0; i < 4; ++i)
-        a[i * 4 + i] = 1;
-}
 bool finite(const float* a, size_t n) {
     for (size_t i = 0; i < n; ++i)
         if (!std::isfinite(a[i]))
             return false;
     return true;
 }
-void multiply(const double* a, const double* b, double* out) {
-    Matrix r{};
-    for (int i = 0; i < 4; ++i)
-        for (int j = 0; j < 4; ++j)
-            for (int k = 0; k < 4; ++k)
-                r[i * 4 + j] += a[i * 4 + k] * b[k * 4 + j];
-    std::copy(r, r + 16, out);
-}
-bool inverse(const double* m, double* out) {
-    double a[4][8]{};
-    for (int i = 0; i < 4; ++i)
-        for (int j = 0; j < 4; ++j) {
-            a[i][j] = m[i * 4 + j];
-            a[i][j + 4] = i == j ? 1 : 0;
-        }
-    for (int col = 0; col < 4; ++col) {
-        int pivot = col;
-        for (int i = col + 1; i < 4; ++i)
-            if (std::abs(a[i][col]) > std::abs(a[pivot][col]))
-                pivot = i;
-        if (!std::isfinite(a[pivot][col]) || std::abs(a[pivot][col]) < 1e-20)
-            return false;
-        for (int j = 0; j < 8; ++j)
-            std::swap(a[col][j], a[pivot][j]);
-        const double div = a[col][col];
-        for (int j = 0; j < 8; ++j)
-            a[col][j] /= div;
-        for (int i = 0; i < 4; ++i)
-            if (i != col) {
-                const double v = a[i][col];
-                for (int j = 0; j < 8; ++j)
-                    a[i][j] -= v * a[col][j];
-            }
-    }
-    for (int i = 0; i < 4; ++i)
-        for (int j = 0; j < 4; ++j) {
-            out[i * 4 + j] = a[i][j + 4];
-            if (!std::isfinite(out[i * 4 + j]))
-                return false;
-        }
-    // Verify the inverse, catching unstable/corrupt camera input.
-    Matrix product{};
-    multiply(m, out, product);
-    for (int i = 0; i < 16; ++i)
-        if (std::abs(product[i] - (i % 5 == 0 ? 1 : 0)) > 1e-5)
-            return false;
-    return true;
-}
+using guide::identity;
+using guide::inverse;
+using guide::Matrix; // mathematical row-major, ROW-VECTOR
+using guide::multiply;
 bool floats(const double* in, float* out) {
-    for (int i = 0; i < 16; ++i) {
-        if (!std::isfinite(in[i]) || std::abs(in[i]) > std::numeric_limits<float>::max())
-            return false;
-        out[i] = static_cast<float>(in[i]);
-    }
-    return true;
+    return guide::toFloats(in, out);
 }
 bool cameraMatrix(const Frame& f, const Camera& c, double* out) {
-    if (!c.valid || !finite(c.vp, 16) || !finite(c.scale, 3) || !finite(c.offset, 3) || !finite(c.xyOffset, 2))
-        return false;
-    if (std::abs(c.scale[0]) < 1e-12 || std::abs(c.scale[1]) < 1e-12 || std::abs(c.scale[2]) < 1e-12)
-        return false;
-    // c.vp is column-major column-vector. Its raw array already stores the
-    // transpose in row-major row-vector form. NO further transposition here.
-    Matrix vp{}, viewport{};
-    for (int i = 0; i < 16; ++i)
-        vp[i] = c.vp[i];
-    identity(viewport);
-    const double fw = f.frame.width, fh = f.frame.height;
-    const double range = double(f.nearGs) - f.farGs;
-    viewport[0] = 2.0 * c.scale[0] / fw;
-    viewport[5] = -2.0 * c.scale[1] / fh;
-    viewport[10] = 16.0 * c.scale[2] / (double(f.zmax) * range);
-    viewport[12] = 2.0 * (c.offset[0] - c.xyOffset[0] / 16.0) / fw - 1.0;
-    viewport[13] = 1.0 - 2.0 * (c.offset[1] - c.xyOffset[1] / 16.0) / fh;
-    viewport[14] = (16.0 * c.offset[2] / f.zmax - f.farGs) / range;
-    multiply(vp, viewport, out);
-    Matrix check{};
-    return inverse(out, check);
+    guide::View v;
+    std::copy(c.vp, c.vp + 16, v.vp);
+    std::copy(c.scale, c.scale + 3, v.scale);
+    std::copy(c.offset, c.offset + 3, v.offset);
+    v.xyOffset[0] = c.xyOffset[0];
+    v.xyOffset[1] = c.xyOffset[1];
+    v.valid = c.valid;
+    return guide::cameraMatrix({f.frame.width, f.frame.height, f.zmax, f.nearGs, f.farGs}, v, out);
 }
 bool validFrame(const Frame& f) {
     auto size = [](Size s) { return s.width > 0 && s.height > 0 && s.width <= 16384 && s.height <= 16384; };

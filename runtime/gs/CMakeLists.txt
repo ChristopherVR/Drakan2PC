@@ -1,6 +1,8 @@
-# gsr: standalone Direct3D 11 GS renderer (drakan::gs), selected at runtime with PS2X_GS=d3d11.
+# gsr: the GS renderer (drakan::gs). The GS emulation (gsr_core) drives one of two backends, chosen at run time
+# (gsr::Config::api, drakan.ini [video] renderer): the shared WebGPU backend (every platform, the default) or Direct3D 11
+# (Windows only; DLSS and DXR ray tracing). Library variants: gsr (D3D11 only), gsr_webgpu (WebGPU only), gsr_both.
 #   drakan::gs_headers   public headers only (gsr/*.h incl. the object-motion job metadata); every platform
-#   drakan::gs           the renderer (Windows only)
+#   drakan::gs           the renderer: gsr_both on Windows (WebGPU and D3D11), gsr_webgpu on Linux and in the browser
 if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR) # standalone configure
     cmake_minimum_required(VERSION 3.21)
     project(drakan_gs LANGUAGES CXX)
@@ -51,8 +53,86 @@ if(DRAKAN_BUILD_RUNTIME_TESTS)
   add_test(NAME texup COMMAND gsr_test_texup)
 endif()
 
+# The renderer's GPU interface on WebGPU (rhi.h): every target with a WebGPU implementation.
+if(TARGET drakan::gpu)
+  add_library(drakan_gs_rhi STATIC src/rhi.h src/rhi_open.h src/rhi_webgpu.cpp src/rhi_proxy.cpp)
+  add_library(drakan::gs_rhi ALIAS drakan_gs_rhi)
+  target_include_directories(drakan_gs_rhi PUBLIC src)
+  target_link_libraries(drakan_gs_rhi PUBLIC drakan::gpu PRIVATE drakan::options)
+  if(DRAKAN_BUILD_RUNTIME_TESTS AND NOT EMSCRIPTEN)
+    add_executable(gsr_test_rhi tests/test_rhi.cpp)
+    target_link_libraries(gsr_test_rhi PRIVATE drakan_gs_rhi drakan::options)
+    drakan_stage_webgpu(gsr_test_rhi)
+    add_test(NAME rhi COMMAND gsr_test_rhi)
+    set_tests_properties(rhi PROPERTIES SKIP_RETURN_CODE 77 TIMEOUT 120)
+  endif()
+endif()
+
+# The GS emulation shared by both backends.
+add_library(gsr_core STATIC
+  src/gs_core.cpp
+  src/image_io.cpp
+  src/runtime_flags.cpp src/runtime_flags.h
+  src/motion_history.cpp src/motion_history.h
+  src/guide_camera.cpp src/guide_camera.h
+  src/ray_scene.cpp src/ray_scene.h src/ray_bvh.cpp src/ray_bvh.h src/ray_normals.h src/surface_geometry.h src/surface_builder.h src/resident_scene.h
+  src/gs_internal.h src/backend_select.inl
+  include/gsr/gsr.h include/gsr/movie_frames.h)
+target_include_directories(gsr_core PUBLIC src)
+target_link_libraries(gsr_core PUBLIC drakan::gs_headers drakan::texture PRIVATE drakan::options)
+if(WIN32)
+  target_compile_definitions(gsr_core PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN)
+endif()
+
+# The WebGPU backend (docs/proposals/webgpu-renderer.md): every target with a WebGPU implementation.
+if(TARGET drakan::gs_rhi)
+  add_library(gsr_webgpu_backend STATIC
+    src/wgpu_backend.cpp src/wgpu_backend_impl.h src/wgpu_device.cpp src/wgpu_targets.cpp src/wgpu_textures.cpp
+    src/wgpu_draw.cpp src/wgpu_present.cpp src/wgpu_capture.cpp src/wgpu_backdrop.cpp src/wgpu_movie.cpp
+    src/wgpu_temporal.cpp src/wgpu_ray.cpp src/wgpu_ray.h src/ray_trace.wgsl src/gs_shaders_wgsl.h)
+  # ray_trace.wgsl as a byte array (MSVC limits string literals to 16 KB); reconfigured when the shader changes.
+  set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/src/ray_trace.wgsl")
+  file(READ "${CMAKE_CURRENT_SOURCE_DIR}/src/ray_trace.wgsl" GSR_RAY_WGSL HEX)
+  string(REGEX REPLACE "([0-9a-f][0-9a-f])" "0x\\1," GSR_RAY_WGSL "${GSR_RAY_WGSL}")
+  file(CONFIGURE OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/ray_trace_wgsl.cpp"
+    CONTENT "namespace gsr {\nextern const char kRayTraceWgsl[];\nconst char kRayTraceWgsl[] = {${GSR_RAY_WGSL}0};\n}\n")
+  target_sources(gsr_webgpu_backend PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/ray_trace_wgsl.cpp")
+  target_include_directories(gsr_webgpu_backend PRIVATE src)
+  target_link_libraries(gsr_webgpu_backend PUBLIC gsr_core PRIVATE drakan::gs_rhi drakan::texture drakan::options)
+  if(WIN32)
+    target_compile_definitions(gsr_webgpu_backend PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN)
+  endif()
+  add_library(gsr_webgpu STATIC src/backend_select_webgpu.cpp)
+  target_link_libraries(gsr_webgpu PUBLIC gsr_core gsr_webgpu_backend PRIVATE drakan::options)
+  if(DRAKAN_BUILD_RUNTIME_TESTS AND NOT EMSCRIPTEN)
+    # The synthetic GIF scenes and their pixel checks, rendered by the WebGPU backend (gsr_test_synthetic runs them
+    # on Direct3D 11).
+    set(GSR_WEBGPU_OUT_DIR "${CMAKE_CURRENT_BINARY_DIR}/gs-webgpu")
+    add_executable(gsr_test_synthetic_webgpu tests/test_synthetic.cpp)
+    target_link_libraries(gsr_test_synthetic_webgpu PRIVATE gsr_webgpu)
+    target_compile_definitions(gsr_test_synthetic_webgpu PRIVATE "GSR_OUT_DIR=\"${GSR_WEBGPU_OUT_DIR}\"")
+    target_include_directories(gsr_test_synthetic_webgpu PRIVATE src)
+    drakan_stage_webgpu(gsr_test_synthetic_webgpu)
+    add_executable(gsr_test_ray_trace tests/test_ray_trace.cpp)
+    target_link_libraries(gsr_test_ray_trace PRIVATE gsr_webgpu drakan::gs_rhi)
+    target_include_directories(gsr_test_ray_trace PRIVATE src)
+    drakan_stage_webgpu(gsr_test_ray_trace)
+    add_test(NAME ray_trace COMMAND gsr_test_ray_trace)
+    set_tests_properties(ray_trace PROPERTIES SKIP_RETURN_CODE 77 TIMEOUT 120)
+    add_test(NAME synthetic_webgpu COMMAND gsr_test_synthetic_webgpu)
+    set_tests_properties(synthetic_webgpu PROPERTIES SKIP_RETURN_CODE 77 TIMEOUT 300)
+  endif()
+  # The players stage wgpu_native beside the executable.
+  set(GSR_WEBGPU_SELECTED ON CACHE INTERNAL "drakan::gs includes the WebGPU backend")
+  if(NOT WIN32)
+    add_library(drakan::gs ALIAS gsr_webgpu) # Linux and the browser: the only GPU renderer there
+  endif()
+else()
+  set(GSR_WEBGPU_SELECTED OFF CACHE INTERNAL "drakan::gs includes the WebGPU backend")
+endif()
+
 if(NOT WIN32)
-  return()  # GPU renderer remains Direct3D 11 only; texture core above is portable.
+  return()
 endif()
 set(CMAKE_CXX_EXTENSIONS OFF)
 
@@ -60,23 +140,28 @@ set(GSR_PS2RECOMP_GS_INCLUDE "${DRAKAN_PS2RECOMP_DIR}/ps2xRuntime/include"
     CACHE PATH "PS2Recomp ps2xRuntime include dir (used only to cross-check swizzle tables in tests)")
 set(GSR_BUILD_TESTS ${DRAKAN_BUILD_RUNTIME_TESTS})
 
-add_library(gsr STATIC
-  src/gs_core.cpp
+add_library(gsr_d3d11_backend STATIC
   src/d3d11_backend.cpp src/d3d11_backend_impl.h
   src/d3d11_device.cpp src/d3d11_textures.cpp src/d3d11_targets.cpp src/d3d11_world.cpp src/d3d11_backdrop.cpp
   src/d3d11_draw.cpp src/d3d11_present.cpp src/d3d11_capture.cpp src/d3d11_movie.cpp
-  src/image_io.cpp
-  src/runtime_flags.cpp src/runtime_flags.h
   src/temporal.cpp src/temporal.h
-  src/motion_history.cpp src/motion_history.h
   src/nr_guides.cpp src/nr_guides.h src/sr_combined.cpp src/sr_combined.h
-  src/ray_water.cpp src/ray_water.h src/ray_normals.h src/surface_geometry.h
-  src/gs_mem.h src/gs_internal.h src/gs_texdecode.h src/gs_shaders.h
-  include/gsr/gsr.h include/gsr/movie_frames.h)
-add_library(drakan::gs ALIAS gsr)
-target_include_directories(gsr PRIVATE src)
-target_compile_definitions(gsr PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN)
-target_link_libraries(gsr PUBLIC drakan::gs_headers d3d11 dxgi d3dcompiler PRIVATE drakan::texture drakan::options)
+  src/ray_water.cpp src/ray_water.h
+  src/gs_mem.h src/gs_texdecode.h src/gs_shaders.h)
+target_include_directories(gsr_d3d11_backend PRIVATE src)
+target_compile_definitions(gsr_d3d11_backend PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN)
+target_link_libraries(gsr_d3d11_backend PUBLIC gsr_core d3d11 dxgi d3dcompiler PRIVATE drakan::texture drakan::options)
+
+# D3D11 only (its tests), and the Windows game's renderer with both backends.
+add_library(gsr STATIC src/backend_select_d3d11.cpp)
+target_link_libraries(gsr PUBLIC gsr_core gsr_d3d11_backend PRIVATE drakan::options)
+if(TARGET gsr_webgpu_backend)
+  add_library(gsr_both STATIC src/backend_select_both.cpp)
+  target_link_libraries(gsr_both PUBLIC gsr_core gsr_d3d11_backend gsr_webgpu_backend PRIVATE drakan::options)
+  add_library(drakan::gs ALIAS gsr_both)
+else()
+  add_library(drakan::gs ALIAS gsr)
+endif()
 
 # Hardware ray tracing (DXR water reflections, ray-traced shadows). Needs the D3D11/D3D12 interop helper
 # (src/nr_interop.cpp) and the DirectX Shader Compiler (dxc) from the Windows SDK.
@@ -92,17 +177,17 @@ if(GSR_DXR)
         -Fh "${CMAKE_CURRENT_BINARY_DIR}/ray_water_bytecode.h" -Vn g_rayWater
         "${CMAKE_CURRENT_SOURCE_DIR}/src/ray_water.hlsl"
       DEPENDS src/ray_water.hlsl VERBATIM)
-    target_sources(gsr PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/ray_water_bytecode.h")
+    target_sources(gsr_d3d11_backend PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/ray_water_bytecode.h")
     add_custom_command(OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/ray_sky_bytecode.h"
       COMMAND "${GSR_DXC}" -T cs_6_5 -E skyMain -O3 -Ges
         -Fh "${CMAKE_CURRENT_BINARY_DIR}/ray_sky_bytecode.h" -Vn g_raySky
         "${CMAKE_CURRENT_SOURCE_DIR}/src/ray_water.hlsl"
       DEPENDS src/ray_water.hlsl VERBATIM)
-    target_sources(gsr PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/ray_sky_bytecode.h")
-    target_include_directories(gsr PRIVATE "${CMAKE_CURRENT_BINARY_DIR}")
-    target_sources(gsr PRIVATE src/nr_interop.cpp)
-    target_compile_definitions(gsr PRIVATE GSR_HAVE_DXR_WATER=1)
-    target_link_libraries(gsr PRIVATE d3d12)
+    target_sources(gsr_d3d11_backend PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/ray_sky_bytecode.h")
+    target_include_directories(gsr_d3d11_backend PRIVATE "${CMAKE_CURRENT_BINARY_DIR}")
+    target_sources(gsr_d3d11_backend PRIVATE src/nr_interop.cpp)
+    target_compile_definitions(gsr_d3d11_backend PRIVATE GSR_HAVE_DXR_WATER=1)
+    target_link_libraries(gsr_d3d11_backend PRIVATE d3d12)
     message(STATUS "gsr: DXR ray tracing ON (dxc: ${GSR_DXC})")
   else()
     message(STATUS "gsr: DXR ray tracing OFF (dxc not found; install the Windows 10/11 SDK)")
@@ -114,19 +199,19 @@ endif()
 set(GSR_DLSS_SDK_DIR "" CACHE PATH "NVIDIA DLSS SDK checkout (github.com/NVIDIA/DLSS); user-supplied, never vendored")
 option(GSR_DLSS "Build the DLSS module when the SDK is present (off by default; the drakan-dlss build turns it on)" OFF)
 if(GSR_DLSS AND EXISTS "${GSR_DLSS_SDK_DIR}/include/nvsdk_ngx.h" AND EXISTS "${GSR_DLSS_SDK_DIR}/lib/Windows_x86_64/x64/nvsdk_ngx_d.lib")
-  target_sources(gsr PRIVATE src/dlss_ngx.cpp)
-  target_include_directories(gsr PRIVATE "${GSR_DLSS_SDK_DIR}/include")
-  target_compile_definitions(gsr PRIVATE GSR_HAVE_DLSS=1) # nothing outside gsr reads it: PUBLIC rebuilt all of ps2_runtime on every toggle
-  target_link_libraries(gsr PUBLIC
+  target_sources(gsr_d3d11_backend PRIVATE src/dlss_ngx.cpp)
+  target_include_directories(gsr_d3d11_backend PRIVATE "${GSR_DLSS_SDK_DIR}/include")
+  target_compile_definitions(gsr_d3d11_backend PRIVATE GSR_HAVE_DLSS=1) # nothing outside the backend reads it: PUBLIC rebuilt all of ps2_runtime on every toggle
+  target_link_libraries(gsr_d3d11_backend PUBLIC
     optimized "${GSR_DLSS_SDK_DIR}/lib/Windows_x86_64/x64/nvsdk_ngx_d.lib"
     debug "${GSR_DLSS_SDK_DIR}/lib/Windows_x86_64/x64/nvsdk_ngx_d_dbg.lib")
   message(STATUS "gsr: DLSS module ON (${GSR_DLSS_SDK_DIR})")
 else()
-  target_sources(gsr PRIVATE src/dlss_stub.cpp)
+  target_sources(gsr_d3d11_backend PRIVATE src/dlss_stub.cpp)
   message(STATUS "gsr: DLSS module OFF")
 endif()
 if(MSVC)
-  target_compile_options(gsr PRIVATE /MP)
+  target_compile_options(gsr_d3d11_backend PRIVATE /MP)
 endif()
 
 get_filename_component(GSR_OUT_DIR_DEFAULT "${DRAKAN_ROOT_DIR}/build/gs" ABSOLUTE)
@@ -209,7 +294,7 @@ if(GSR_BUILD_TESTS)
   add_executable(gsr_test_stretch_depth tests/test_stretch_depth.cpp)
   target_include_directories(gsr_test_stretch_depth PRIVATE src)
   target_link_libraries(gsr_test_stretch_depth PRIVATE d3d11 d3dcompiler)
-  add_executable(gsr_test_nr_guides tests/test_nr_guides.cpp src/nr_guides.cpp)
+  add_executable(gsr_test_nr_guides tests/test_nr_guides.cpp src/nr_guides.cpp src/guide_camera.cpp)
   target_include_directories(gsr_test_nr_guides PRIVATE src)
   target_link_libraries(gsr_test_nr_guides PRIVATE d3d11 d3dcompiler)
   target_compile_definitions(gsr_test_nr_guides PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN)

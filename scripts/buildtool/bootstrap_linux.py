@@ -45,7 +45,7 @@ def extract(archive, destination):
 
 
 def dependencies(web):
-    commands = ["git", "clang", "cmake", "ninja", "make", "pkg-config"]
+    commands = ["git", "clang", "ld.lld", "cmake", "ninja", "make", "pkg-config"]
     modules = (
         []
         if web
@@ -86,6 +86,7 @@ def dependencies(web):
     packages = [
         "build-essential",
         "clang",
+        "lld",
         "cmake",
         "ninja-build",
         "git",

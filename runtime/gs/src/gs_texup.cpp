@@ -9,6 +9,9 @@
 #include <cstring>
 #include <filesystem>
 #include <unordered_set>
+#if defined(__EMSCRIPTEN__)
+#include <emscripten/fetch.h>
+#endif
 
 namespace gsr::texup {
 
@@ -1534,6 +1537,26 @@ bool readImageBytes(const std::vector<uint8_t>& bytes, std::vector<uint32_t>& px
 
 bool readImageFile(const std::string& path, std::vector<uint32_t>& px, uint32_t& w, uint32_t& h) {
     std::vector<uint8_t> f;
+#if defined(__EMSCRIPTEN__)
+    // The browser's HD pack is an index of empty placeholders (pre.js): the images stream from the launcher
+    // (DRAKAN_TEXTURE_URL) when they are first needed. Blocking is fine: callers are worker threads.
+    const char* dir = std::getenv("DRAKAN_TEXTURE_DIR");
+    const char* base = std::getenv("DRAKAN_TEXTURE_URL");
+    if (dir && base && path.find(dir) != std::string::npos) {
+        const std::string url = std::string(base) + path.substr(path.find_last_of('/') + 1);
+        emscripten_fetch_attr_t attributes;
+        emscripten_fetch_attr_init(&attributes);
+        std::strcpy(attributes.requestMethod, "GET");
+        attributes.attributes = EMSCRIPTEN_FETCH_LOAD_TO_MEMORY | EMSCRIPTEN_FETCH_SYNCHRONOUS;
+        attributes.timeoutMSecs = 10000;
+        emscripten_fetch_t* fetch = emscripten_fetch(&attributes, url.c_str());
+        if (fetch && fetch->status == 200 && fetch->numBytes <= 64u * 1024u * 1024u)
+            f.assign(fetch->data, fetch->data + fetch->numBytes);
+        if (fetch)
+            emscripten_fetch_close(fetch);
+        return !f.empty() && readImageBytes(f, px, w, h);
+    }
+#endif
     if (!readFileBytes(path, f))
         return false;
     return readImageBytes(f, px, w, h);

@@ -2,7 +2,9 @@
 #   drakan_settings_core   ini model, store, binding catalogue, apply    (std only, platform free)
 #   drakan_settings_schema the settings schema + ModernSettings glue     (std + gameui types, platform free)
 #   drakan_settings_ui     SettingsMenu, style, fonts, GameUiRenderer    (ImGui API only, backend agnostic)
-#   drakan_settings_d3d11  Win32 + D3D11 glue (SettingsOverlay)          (Windows only)
+#   drakan_settings_d3d11  SettingsOverlay on Win32 + the D3D11 renderer (Windows only)
+#   drakan_settings_glfw   SettingsOverlay on GLFW (Linux; drakan_settings_glfw_overlay(), once GLFW exists)
+#   drakan_settings_webgpu the overlay's WebGPU renderer on gsr::rhi     (every target with drakan::gs_rhi)
 #   drakan_settings        interface target = all of the above for the runtime (alias drakan::settings)
 # Dear ImGui itself is third_party/imgui (drakan::imgui, drakan::imgui_dx11).
 if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR) # standalone configure
@@ -25,7 +27,7 @@ add_library(drakan_settings_schema STATIC src/Schema.cpp src/ModernSettings.cpp)
 target_include_directories(drakan_settings_schema PUBLIC include)
 target_link_libraries(drakan_settings_schema PUBLIC drakan_settings_core drakan::gameui PRIVATE drakan::options)
 
-add_library(drakan_settings_ui STATIC src/Menu.cpp src/Skin.cpp src/GameUiRenderer.cpp)
+add_library(drakan_settings_ui STATIC src/Menu.cpp src/Skin.cpp src/GameUiRenderer.cpp src/Hud.cpp)
 # third_party/fonts: the vendored Gelasio faces (OFL), compressed into sources.
 target_include_directories(drakan_settings_ui PUBLIC include PRIVATE src "${CMAKE_CURRENT_LIST_DIR}/../../third_party/fonts")
 target_link_libraries(drakan_settings_ui PUBLIC drakan_settings_core drakan_settings_schema drakan::imgui drakan::gameui
@@ -36,11 +38,43 @@ add_library(drakan::settings ALIAS drakan_settings)
 target_link_libraries(drakan_settings INTERFACE drakan_settings_ui)
 
 if(WIN32)
-    add_library(drakan_settings_d3d11 STATIC src/Overlay.cpp)
+    add_library(drakan_settings_d3d11 STATIC src/Overlay.cpp src/OverlayWin32.cpp src/OverlayD3D11.cpp)
     target_include_directories(drakan_settings_d3d11 PUBLIC include)
     target_link_libraries(drakan_settings_d3d11 PUBLIC drakan_settings_ui drakan::imgui_dx11
         d3d11 dxgi dwmapi comctl32 PRIVATE drakan::options)
     target_link_libraries(drakan_settings INTERFACE drakan_settings_d3d11)
+endif()
+
+# SettingsOverlay on a GLFW window. GLFW comes with the game's raylib (target `glfw`, an object library already linked
+# into raylib), so the game build calls this after raylib is available; only its headers are used here.
+function(drakan_settings_glfw_overlay)
+    if(TARGET drakan_settings_glfw)
+        return()
+    endif()
+    set(dir "${CMAKE_CURRENT_FUNCTION_LIST_DIR}")
+    add_library(drakan_settings_glfw STATIC "${dir}/src/Overlay.cpp" "${dir}/src/OverlayGlfw.cpp"
+        "${dir}/../../third_party/imgui/backends/imgui_impl_glfw.cpp")
+    target_include_directories(drakan_settings_glfw PUBLIC "${dir}/include"
+        PRIVATE "${dir}/src" "${dir}/../../third_party/imgui" $<TARGET_PROPERTY:glfw,INTERFACE_INCLUDE_DIRECTORIES>)
+    target_link_libraries(drakan_settings_glfw PUBLIC drakan_settings_ui PRIVATE drakan::options)
+    set_source_files_properties("${dir}/../../third_party/imgui/backends/imgui_impl_glfw.cpp" PROPERTIES
+        COMPILE_OPTIONS "-w")
+endfunction()
+
+# SettingsOverlay fed by the host's event stream (the browser).
+if(EMSCRIPTEN)
+    add_library(drakan_settings_events STATIC src/Overlay.cpp src/OverlayEvents.cpp)
+    target_include_directories(drakan_settings_events PUBLIC include PRIVATE src)
+    target_link_libraries(drakan_settings_events PUBLIC drakan_settings_ui PRIVATE drakan::options)
+    target_link_libraries(drakan_settings INTERFACE drakan_settings_events)
+endif()
+
+if(TARGET drakan::gs_rhi)
+    add_library(drakan_settings_webgpu STATIC src/OverlayWebGpu.cpp)
+    target_include_directories(drakan_settings_webgpu PUBLIC include)
+    target_link_libraries(drakan_settings_webgpu PUBLIC drakan::imgui PRIVATE drakan::gs_rhi drakan::options)
+    target_compile_definitions(drakan_settings_webgpu PUBLIC DRAKAN_SETTINGS_WEBGPU=1)
+    target_link_libraries(drakan_settings INTERFACE drakan_settings_webgpu)
 endif()
 
 if(DRAKAN_BUILD_RUNTIME_TESTS)
@@ -64,6 +98,14 @@ if(DRAKAN_BUILD_RUNTIME_TESTS)
     add_test(NAME settings_test COMMAND settings_test)
     add_test(NAME settings_schema_test COMMAND settings_schema_test)
     add_test(NAME settings_menu_test COMMAND settings_menu_test)
+
+    if(TARGET drakan_settings_webgpu AND NOT EMSCRIPTEN)
+        add_executable(overlay_webgpu_test tests/overlay_webgpu_test.cpp)
+        target_link_libraries(overlay_webgpu_test PRIVATE drakan_settings_webgpu drakan::gs_rhi drakan::options)
+        drakan_stage_webgpu(overlay_webgpu_test)
+        add_test(NAME overlay_webgpu_test COMMAND overlay_webgpu_test)
+        set_tests_properties(overlay_webgpu_test PROPERTIES SKIP_RETURN_CODE 77 TIMEOUT 120)
+    endif()
 
     if(WIN32)
         add_executable(subtitle_render_test tests/subtitle_render_test.cpp)

@@ -17,7 +17,7 @@
 #include <mutex>
 #include <thread>
 #include <vector>
-#if defined(_M_X64) || defined(_M_IX86) || defined(__SSE__)
+#if (defined(_M_X64) || defined(_M_IX86) || defined(__SSE__)) && !defined(__EMSCRIPTEN__)
 #include <xmmintrin.h>
 #endif
 
@@ -207,14 +207,14 @@ public:
 
 private:
     static unsigned currentMathMode() {
-#if defined(_M_X64) || defined(_M_IX86) || defined(__SSE__)
+#if (defined(_M_X64) || defined(_M_IX86) || defined(__SSE__)) && !defined(__EMSCRIPTEN__)
         return _mm_getcsr();
 #else
         return 0;
 #endif
     }
     static void setMathMode(unsigned mode) {
-#if defined(_M_X64) || defined(_M_IX86) || defined(__SSE__)
+#if (defined(_M_X64) || defined(_M_IX86) || defined(__SSE__)) && !defined(__EMSCRIPTEN__)
         if (_mm_getcsr() != mode)
             _mm_setcsr(mode);
 #else

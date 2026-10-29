@@ -1,4 +1,5 @@
 #include "drakan_save_previews.h"
+#include "drakan_region.h"
 #if defined(PS2X_HAVE_GSR)
 #include "ps2_runtime.h"
 #include "Kernel/Stubs/MemoryCard.h"
@@ -10,12 +11,24 @@
 #include <filesystem>
 #include <fstream>
 #include <mutex>
+#if defined(_WIN32)
 #include <windows.h>
 #undef min
 #undef max
+#endif
 
 namespace drakan_save_previews {
 namespace {
+// Atomic replace of `to` by `from` (same directory).
+bool replaceFile(const std::filesystem::path& from, const std::filesystem::path& to) {
+#if defined(_WIN32)
+    return MoveFileExW(from.c_str(), to.c_str(), MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH) != 0;
+#else
+    std::error_code ec;
+    std::filesystem::rename(from, to, ec);
+    return !ec;
+#endif
+}
 std::mutex mutex;
 gsr::Renderer* renderer = nullptr;
 std::atomic<uint64_t> revision{0};
@@ -39,7 +52,8 @@ std::string keyName(uint64_t key) {
 }
 void written(const std::filesystem::path& path) {
     // A successful close after writes, never a read/scan or a canceled dialog.
-    if (path.extension() != ".rsg" || path.parent_path().filename().string().find("BESCES-50006Slot") != 0)
+    const std::string slotPrefix = std::string(drakan_region::build().saveId) + "Slot";
+    if (path.extension() != ".rsg" || path.parent_path().filename().string().find(slotPrefix) != 0)
         return;
     gsr::Image source;
     float aspect = 4.0f / 3.0f;
@@ -86,8 +100,7 @@ void written(const std::filesystem::path& path) {
         }
     const auto output = std::filesystem::path(path.string() + "." + keyName(key) + ".preview.png");
     const auto temporary = std::filesystem::path(output.string() + ".tmp.png");
-    if (gsr::writePng(temporary.string().c_str(), preview) &&
-        MoveFileExW(temporary.c_str(), output.c_str(), MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH)) {
+    if (gsr::writePng(temporary.string().c_str(), preview) && replaceFile(temporary, output)) {
         ++revision;
         std::fprintf(stderr, "[save-preview] saved 1024x1024 companion for %s (source %ux%u)\n",
                      path.filename().string().c_str(), source.width, source.height);
@@ -125,7 +138,7 @@ std::string previewPath(int slot) {
         return {};
     const auto& io = PS2Runtime::getIoPaths();
     const auto root = io.mcRoot.empty() ? io.elfDirectory / "mc0" : io.mcRoot;
-    const auto folder = root / ("BESCES-50006Slot" + std::to_string(slot));
+    const auto folder = root / (std::string(drakan_region::build().saveId) + "Slot" + std::to_string(slot));
     std::error_code ec;
     for (std::filesystem::directory_iterator it(folder, ec), end; !ec && it != end; it.increment(ec)) {
         const auto path = it->path();

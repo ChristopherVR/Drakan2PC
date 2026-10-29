@@ -3,8 +3,10 @@
 #include "ps2_vu1_batch.h"
 #include "drakan_config.h"
 #include "drakan_settings_host.h"
-#if defined(_WIN32)
+#if defined(PS2X_HAVE_GSR)
 #include "drakan_window.h"
+#endif
+#if defined(_WIN32)
 #include "drakan_fpsmeter.h"
 #include "drakan_log.h"
 #endif
@@ -827,11 +829,11 @@ bool PS2Runtime::initialize(const char* title) {
 #if defined(PLATFORM_VITA)
         InitWindow(HOST_WINDOW_WIDTH, HOST_WINDOW_HEIGHT, title); // raylib vita does not support audio
 #else
-#if defined(_WIN32)
-        // Drakan: settings come from drakan.ini (created with defaults on first run); the D3D11 renderer is the
-        // default.
+#if defined(PS2X_HAVE_GSR)
+        // Drakan: settings come from drakan.ini (created with defaults on first run); the GS renderer (D3D11 or WebGPU
+        // on Windows, WebGPU on Linux) is the default.
         drakan_cfg::enableDpiAwareness();
-        std::string rendererPref = drakan_cfg::getString("video", "renderer", "PS2X_GS", "d3d11");
+        std::string rendererPref = drakan_cfg::getString("video", "renderer", "PS2X_GS", "webgpu");
         for (char& c : rendererPref)
             c = (char)std::tolower((unsigned char)c);
         const bool wantD3D11 = !(rendererPref == "sw" || rendererPref == "software" || rendererPref == "cpu");
@@ -851,16 +853,18 @@ bool PS2Runtime::initialize(const char* title) {
             // of the window state.
             SetWindowState(FLAG_WINDOW_ALWAYS_RUN);
         };
-        // The D3D11 backend gets a native Win32 top-level window (drakan_window.cpp) with the flip-model swapchain on
-        // it, so driver overlays (NVIDIA / AMD / Steam / capture) hook an ordinary D3D11 game window. raylib is then
-        // only used for audio output.
+        // The GS renderer gets the native game window (drakan_window.cpp: Win32, drakan_window_glfw.cpp: GLFW without
+        // a client API) with its swapchain / surface on it, so driver overlays (NVIDIA / AMD / Steam / capture) hook an
+        // ordinary game window. raylib is then only used for audio output.
         m_nativeWindow = wantD3D11 && drakan_win::create(title, hostW, hostH);
         if (wantD3D11 && !m_nativeWindow)
             std::cerr << "[gs] native window creation failed, using the raylib window" << std::endl;
         if (!m_nativeWindow)
             initRaylibWindow();
+#if !defined(__EMSCRIPTEN__) // the browser's audio is the page's AudioWorklet
         InitAudioDevice();
         m_audioBackend.setAudioReady(IsAudioDeviceReady());
+#endif
         {
             if (wantD3D11) {
                 if (m_gs.enableD3D11(m_nativeWindow ? drakan_win::handle() : GetWindowHandle())) {
@@ -2530,7 +2534,7 @@ void PS2Runtime::run() {
         if (m_gs.d3d11Active()) {
             // d3d11 backend: the swapchain lives on the native top-level window. We only pump its messages; the present
             // (vsync / frame-latency object / limiter) paces the loop.
-#if defined(_WIN32)
+#if defined(PS2X_HAVE_GSR)
             if (m_nativeWindow)
                 drakan_win::pump();
             else
@@ -2538,7 +2542,7 @@ void PS2Runtime::run() {
                 PollInputEvents();
             m_gs.hostTick(); // Alt+Enter / F11 fullscreen, resize and present of the latched frame happen inside
             if (
-#if defined(_WIN32)
+#if defined(PS2X_HAVE_GSR)
                 (m_nativeWindow && drakan_win::closeRequested()) ||
 #endif
                 (!m_nativeWindow &&
@@ -2590,7 +2594,7 @@ void PS2Runtime::run() {
         const Rectangle srcRect{0.0f, 0.0f, srcWidth, srcHeight};
         const Rectangle dstRect{(screenWidth - dstWidth) * 0.5f, (screenHeight - dstHeight) * 0.5f, dstWidth,
                                 dstHeight};
-#if defined(_WIN32)
+#if !defined(PS2X_HAVE_PORTABLE_UI)
         DrawTexturePro(frameTex, srcRect, dstRect, Vector2{0.0f, 0.0f}, 0.0f, WHITE);
 #else
         drakan_settings_host::drawPortableFrame(frameTex.id, presentWidth, presentHeight, dstRect.x, dstRect.y,
@@ -2600,7 +2604,7 @@ void PS2Runtime::run() {
         if (m_debugUiInitialized && m_debugUiDrawCallback) {
             m_debugUiDrawCallback(*this, m_debugUiUserData);
         }
-#if !defined(_WIN32)
+#if defined(PS2X_HAVE_PORTABLE_UI)
         drakan_settings_host::drawPortableUi(*this, surfaceWidth, surfaceHeight, frameTex.id);
 #endif
         const auto presentUi = profilePresent ? PresentClock::now() : PresentClock::time_point{};
@@ -2693,9 +2697,11 @@ void PS2Runtime::run() {
         else {
             std::cerr << "[run] game thread did not stop within 3 s, exiting anyway" << std::endl;
             gameThread.detach();
-#if defined(_WIN32)
+#if defined(PS2X_HAVE_GSR)
             if (m_nativeWindow)
                 drakan_win::destroy();
+#endif
+#if defined(_WIN32)
             drakan_log::flush();
 #endif
             std::_Exit(0);
@@ -2706,13 +2712,13 @@ void PS2Runtime::run() {
         m_debugUiShutdownCallback(*this, m_debugUiUserData);
         m_debugUiInitialized = false;
     }
-#if !defined(_WIN32)
+#if defined(PS2X_HAVE_PORTABLE_UI)
     drakan_settings_host::shutdownPortableUi();
 #endif
     if (frameTex.id)
         UnloadTexture(frameTex);
     m_gs.shutdownD3D11();
-#if defined(_WIN32)
+#if defined(PS2X_HAVE_GSR)
     if (m_nativeWindow) {
         drakan_win::destroy();
         m_nativeWindow = false;

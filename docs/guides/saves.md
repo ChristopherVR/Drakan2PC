@@ -14,14 +14,20 @@ With the game closed, copy the whole `mc0` folder, any `mc1` folder and your `*.
 
 **F5** quicksaves during controllable gameplay. **F8** quickloads during gameplay or from the title. These actions can be rebound.
 
-- Quicksave uses the reserved `mc0/BESCES-50006Slot33` slot, outside the manual save slots.
+- Quicksave uses the reserved `mc0/BESCES-50006Slot33` slot, outside the manual save slots (PAL only; the experimental USA build saves only through the game's own save slots, as `BASCUS-97128…`, and does not see PAL saves).
 - A new quicksave replaces the previous quicksave without an overwrite prompt.
 - Quickload discards unsaved progress without a confirmation.
 - If no quicksave exists, quickload does not fall back to a manual save.
 - The title's Continue action selects the newest manual save; F8 selects the quicksave.
 - Quickload from a death dialog is not currently supported.
 
+<!-- media:quicksave -->
+
 Use manual saves as well, particularly before experimenting with settings. Where save paging is available, PgUp/PgDn or controller L1/R1 move between pages. See the [save reference](../reference/save-slots.md).
+
+<!-- media:title-continue -->
+
+<!-- media:load-game -->
 
 ## Browser saves
 

@@ -1,7 +1,7 @@
 // Direct3D 11 backend: render target cache (FBP keyed), depth buffers (ZBP keyed), texture cache decoded from GS
 // local memory, uber pixel shader implementing the GS pixel pipeline, display (PMODE/DISPFB) presentation.
 //
-// Private header shared by the d3d11_*.cpp files: the internal types and the Backend::Impl class. Member
+// Private header shared by the d3d11_*.cpp files: the internal types and the D3D11Backend::Impl class. Member
 // functions are defined in d3d11_device / textures / targets / world / draw / present / capture .cpp and
 // d3d11_backend.cpp holds the public Backend API.
 #pragma once
@@ -268,7 +268,61 @@ struct DepthBuf {
 } // namespace d3d11_detail
 using namespace d3d11_detail;
 
-struct Backend::Impl {
+class D3D11Backend final : public BackendApi {
+public:
+    D3D11Backend(LocalMemory& mem, const Config& cfg, Stats& stats);
+    ~D3D11Backend() override;
+    bool init() override;
+    bool valid() const override;
+    std::string adapterName() const override;
+    void draw(const GsDrawState& st, const ClutBuf& clut, const DrawVertex* v, uint32_t count) override;
+    void flushToMemory(uint32_t firstBlock, uint32_t lastBlock) override;
+    bool beginTargetUpload(uint32_t psm, uint32_t bp, uint32_t bw, uint32_t x, uint32_t y, uint32_t w,
+                           uint32_t h) override;
+    void completeTargetUpload(uint32_t psm, uint32_t bp, uint32_t bw, uint32_t x, uint32_t y, uint32_t w, uint32_t h,
+                              bool apply) override;
+    void flushAll() override;
+    void drawMovieFrame(uint32_t dbp, uint32_t dbw, uint32_t x, uint32_t y, uint32_t w, uint32_t h,
+                        const MovieImage& image, uint64_t imageId) override;
+    void present(const DisplayState& d) override;
+    void latchDisplay(const DisplayState& d, uint32_t field) override;
+    void presentLatched() override;
+    void* beginPresentWait() override;
+    void endPresentWait(bool ready) override;
+    void setVsync(bool on) override;
+    bool vsyncEnabled() const override;
+    void applyLive(const LiveSettings& ls) override;
+    uint32_t internalScale() const override;
+    void getViewport(uint32_t& w, uint32_t& h) const override;
+    void setOverlayCallback(std::function<void(const OverlayContext&)> cb) override;
+    bool capture(const DisplayState& d, Image& out) override;
+    bool captureLastGameplay(Image& out, float& aspect) override;
+    bool captureFramebuffer(uint32_t fbp, uint32_t fbw, uint32_t psm, uint32_t w, uint32_t h, Image& out) override;
+    void resize(uint32_t w, uint32_t h) override;
+    void reset() override;
+    void endFrame() override;
+    void noteVuUpload(uint32_t vuAddr, uint32_t qwCount, const float* vuRows0to6) override;
+    void noteSceneCamera(const SceneGuideCamera& camera) override;
+    void noteObjectMotion(const ObjectMotionScope& scope) override;
+    void noteSceneGeometry(const SceneGeometry& geometry) override;
+    void noteSceneModels(std::shared_ptr<const SceneModels> models) override;
+    std::string upscaleStatus() const override;
+    double upscaleGpuMs() const override;
+    void upscaleCut() override;
+    bool upscaleAvailable(std::string& status) const override;
+    bool neuralRenderingAvailable(std::string& status) const override;
+    std::string neuralRenderingStatus() const override;
+    bool waterRenderingAvailable(std::string& status) const override;
+    std::string waterRenderingStatus() const override;
+    std::string rayTracingStatus() const override;
+    static bool waitPresentHandle(void* wait, uint32_t timeoutMs);
+    struct Impl;
+
+private:
+    std::unique_ptr<Impl> m_impl;
+};
+
+struct D3D11Backend::Impl {
     CpuProfile cpuProfile;
     LocalMemory& mem;
     Config cfg;

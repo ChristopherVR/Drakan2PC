@@ -3,7 +3,7 @@
 
 namespace gsr {
 
-void Backend::Impl::allocRT(RT& rt, uint32_t newH) {
+void D3D11Backend::Impl::allocRT(RT& rt, uint32_t newH) {
     const uint32_t W = rt.w * scale, H = newH * scale;
     ComPtr<ID3D11Texture2D> t = makeTex(W, H, D3D11_BIND_RENDER_TARGET | D3D11_BIND_SHADER_RESOURCE);
     ComPtr<ID3D11RenderTargetView> rv;
@@ -32,7 +32,7 @@ void Backend::Impl::allocRT(RT& rt, uint32_t newH) {
     rt.seen = 0; // force a stamp scan for the new rows
 }
 
-RT* Backend::Impl::getRT(uint32_t fbp, uint32_t fbw, uint32_t psm, uint32_t needH) {
+RT* D3D11Backend::Impl::getRT(uint32_t fbp, uint32_t fbw, uint32_t psm, uint32_t needH) {
     fbw = std::max(fbw, 1u);
     const uint32_t cls = (psm == PSM_CT16 || psm == PSM_CT16S) ? 1u : 0u;
     const uint32_t pitchBytes = fbw * 64u * (cls ? 2u : 4u);
@@ -66,7 +66,7 @@ RT* Backend::Impl::getRT(uint32_t fbp, uint32_t fbw, uint32_t psm, uint32_t need
     return rt;
 }
 
-void Backend::Impl::clearInventoryCanvas(RT& rt, bool artwork) {
+void D3D11Backend::Impl::clearInventoryCanvas(RT& rt, bool artwork) {
     const bool displayTarget =
         rt.displaySeenFrame != ~0ull && frame >= rt.displaySeenFrame && frame - rt.displaySeenFrame <= 4;
     auto margins =
@@ -133,14 +133,14 @@ void Backend::Impl::clearInventoryCanvas(RT& rt, bool artwork) {
     }
 }
 
-void Backend::Impl::rowSpan(const RT& rt, uint32_t y0, uint32_t y1, uint32_t& lo, uint32_t& hi) const {
+void D3D11Backend::Impl::rowSpan(const RT& rt, uint32_t y0, uint32_t y1, uint32_t& lo, uint32_t& hi) const {
     const uint32_t ph = rt.pageH();
     const uint32_t r0 = y0 / ph, r1 = (y1 + ph - 1) / ph;
     lo = rt.base() + r0 * rt.fbw * 32u;
     hi = rt.base() + r1 * rt.fbw * 32u - 1u;
 }
 
-uint32_t Backend::Impl::packPixel(uint32_t psm, const uint8_t* p) {
+uint32_t D3D11Backend::Impl::packPixel(uint32_t psm, const uint8_t* p) {
     switch (psm) {
         case PSM_CT16:
         case PSM_CT16S:
@@ -153,7 +153,7 @@ uint32_t Backend::Impl::packPixel(uint32_t psm, const uint8_t* p) {
     }
 }
 
-uint32_t Backend::Impl::unpackPixel(uint32_t psm, uint32_t v) {
+uint32_t D3D11Backend::Impl::unpackPixel(uint32_t psm, uint32_t v) {
     switch (psm) {
         case PSM_CT16:
         case PSM_CT16S:
@@ -166,7 +166,7 @@ uint32_t Backend::Impl::unpackPixel(uint32_t psm, uint32_t v) {
     }
 }
 
-void Backend::Impl::ensureStaging(uint32_t w, uint32_t h) {
+void D3D11Backend::Impl::ensureStaging(uint32_t w, uint32_t h) {
     if (staging && stagingW >= w && stagingH >= h)
         return;
     stagingW = std::max(w, stagingW);
@@ -183,7 +183,7 @@ void Backend::Impl::ensureStaging(uint32_t w, uint32_t h) {
     dev->CreateTexture2D(&d, nullptr, &staging);
 }
 
-void Backend::Impl::readbackRT(RT& rt) {
+void D3D11Backend::Impl::readbackRT(RT& rt) {
     CpuProfile::Scope profile(cpuProfile, CpuProfile::ReadbackRT);
     if (rt.wstate == 1)
         finalizeWorld(rt); // temporal upscaler: the target holds the half-drawn render rectangle
@@ -231,7 +231,7 @@ void Backend::Impl::readbackRT(RT& rt) {
     st.rtReadbacks++;
 }
 
-void Backend::Impl::syncRT(RT& rt) {
+void D3D11Backend::Impl::syncRT(RT& rt) {
     CpuProfile::Scope profile(cpuProfile, CpuProfile::SyncRT);
     if (rt.seen == mem.clock())
         return;
@@ -268,7 +268,7 @@ void Backend::Impl::syncRT(RT& rt) {
     rt.seen = mem.clock();
 }
 
-void Backend::Impl::flushToMemory(uint32_t first, uint32_t last) {
+void D3D11Backend::Impl::flushToMemory(uint32_t first, uint32_t last) {
     for (auto& r : rts) {
         if (!r->dirty)
             continue;
@@ -285,8 +285,8 @@ void Backend::Impl::flushToMemory(uint32_t first, uint32_t last) {
 // An upload aligned to its format's blocks rewrites whole 256-byte blocks, so instead those blocks are copied into the
 // target texture when the upload completes (memory read in the target's format, as the GS would). Blocks the upload
 // does not cover stay GPU-owned, so a later readback still yields the right bytes.
-bool Backend::Impl::beginTargetUpload(uint32_t psm, uint32_t bp, uint32_t bw, uint32_t x, uint32_t y, uint32_t w,
-                                      uint32_t h) {
+bool D3D11Backend::Impl::beginTargetUpload(uint32_t psm, uint32_t bp, uint32_t bw, uint32_t x, uint32_t y, uint32_t w,
+                                           uint32_t h) {
     const PsmGeom g = geomOf(psm);
     if (!w || !h || x % g.blockW || y % g.blockH || w % g.blockW || h % g.blockH)
         return false;
@@ -324,12 +324,12 @@ bool Backend::Impl::beginTargetUpload(uint32_t psm, uint32_t bp, uint32_t bw, ui
     return true;
 }
 
-bool Backend::Impl::uploadCovers(uint32_t block) const {
+bool D3D11Backend::Impl::uploadCovers(uint32_t block) const {
     return (uploadBlocks[block / 64] >> (block % 64)) & 1;
 }
 
 // Pixel rows [y0, y1) of the target whose page rows intersect the upload's block span.
-bool Backend::Impl::uploadRows(const RT& rt, uint32_t& y0, uint32_t& y1) const {
+bool D3D11Backend::Impl::uploadRows(const RT& rt, uint32_t& y0, uint32_t& y1) const {
     const uint32_t ph = rt.pageH(), rowBlocks = rt.fbw * 32u;
     y0 = rt.h;
     y1 = 0;
@@ -343,7 +343,7 @@ bool Backend::Impl::uploadRows(const RT& rt, uint32_t& y0, uint32_t& y1) const {
     return y0 < y1;
 }
 
-bool Backend::Impl::touchesUpload(const RT& rt) const {
+bool D3D11Backend::Impl::touchesUpload(const RT& rt) const {
     const PsmGeom g = geomOf(rt.psm);
     uint32_t y0, y1;
     if (!uploadRows(rt, y0, y1))
@@ -355,8 +355,8 @@ bool Backend::Impl::touchesUpload(const RT& rt) const {
     return false;
 }
 
-void Backend::Impl::completeTargetUpload(uint32_t, uint32_t, uint32_t, uint32_t, uint32_t, uint32_t, uint32_t,
-                                         bool apply) {
+void D3D11Backend::Impl::completeTargetUpload(uint32_t, uint32_t, uint32_t, uint32_t, uint32_t, uint32_t, uint32_t,
+                                              bool apply) {
     if (!uploadActive)
         return;
     for (auto& r : rts) {
@@ -415,7 +415,8 @@ void Backend::Impl::completeTargetUpload(uint32_t, uint32_t, uint32_t, uint32_t,
 // A 32-bit texture whose memory overlaps a dirty 32-bit render target at another base (the HUD atlas aliases the
 // target the orb liquid is rendered into). Reading the target back is a full GPU sync per frame; both store raw GS
 // words, so the target's blocks are copied into the texture on the GPU instead.
-RT* Backend::Impl::aliasedTarget(uint32_t psm, uint32_t mxl, const std::vector<std::pair<uint32_t, uint32_t>>& spans) {
+RT* D3D11Backend::Impl::aliasedTarget(uint32_t psm, uint32_t mxl,
+                                      const std::vector<std::pair<uint32_t, uint32_t>>& spans) {
     if (psm != PSM_CT32 || mxl != 0 || (scale > 1 && !nativeReadbackEnabled))
         return nullptr;
     RT* found = nullptr;
@@ -437,8 +438,8 @@ RT* Backend::Impl::aliasedTarget(uint32_t psm, uint32_t mxl, const std::vector<s
     return found;
 }
 
-void Backend::Impl::copyAliasedBlocks(RT& rt, ID3D11Texture2D* texture, uint32_t tbp, uint32_t tbw, uint32_t w,
-                                      uint32_t h) {
+void D3D11Backend::Impl::copyAliasedBlocks(RT& rt, ID3D11Texture2D* texture, uint32_t tbp, uint32_t tbw, uint32_t w,
+                                           uint32_t h) {
     syncRT(rt); // rows memory leads must be in the target before its blocks are copied
     ID3D11Texture2D* source =
         scale > 1 ? nativeReadback.gather(dev.Get(), ctx.Get(), rt.srv.Get(), rt.w, rt.h, scale, 0) : rt.tex.Get();
@@ -461,7 +462,7 @@ void Backend::Impl::copyAliasedBlocks(RT& rt, ID3D11Texture2D* texture, uint32_t
     st.aliasedTextures++;
 }
 
-DepthBuf* Backend::Impl::getDepth(uint32_t zbp, uint32_t w, uint32_t h) {
+DepthBuf* D3D11Backend::Impl::getDepth(uint32_t zbp, uint32_t w, uint32_t h) {
     for (auto& d : depths)
         if (d->zbp == zbp && d->w == w && d->h == h) {
             d->lastUse = frame;
@@ -500,7 +501,7 @@ DepthBuf* Backend::Impl::getDepth(uint32_t zbp, uint32_t w, uint32_t h) {
     return d;
 }
 
-ID3D11DepthStencilState* Backend::Impl::getDepthState(D3D11_COMPARISON_FUNC func, bool write) {
+ID3D11DepthStencilState* D3D11Backend::Impl::getDepthState(D3D11_COMPARISON_FUNC func, bool write) {
     const uint32_t key = (uint32_t)func | (write ? 0x100u : 0u);
     auto it = depthStates.find(key);
     if (it != depthStates.end())
@@ -515,8 +516,8 @@ ID3D11DepthStencilState* Backend::Impl::getDepthState(D3D11_COMPARISON_FUNC func
     return s.Get();
 }
 
-ID3D11BlendState* Backend::Impl::getBlendState(bool enable, D3D11_BLEND_OP op, D3D11_BLEND src, D3D11_BLEND dst,
-                                               uint8_t mask) {
+ID3D11BlendState* D3D11Backend::Impl::getBlendState(bool enable, D3D11_BLEND_OP op, D3D11_BLEND src, D3D11_BLEND dst,
+                                                    uint8_t mask) {
     const uint32_t key =
         (enable ? 1u : 0u) | ((uint32_t)op << 1) | ((uint32_t)src << 4) | ((uint32_t)dst << 9) | ((uint32_t)mask << 14);
     auto it = blendStates.find(key);
@@ -542,8 +543,8 @@ ID3D11BlendState* Backend::Impl::getBlendState(bool enable, D3D11_BLEND_OP op, D
 // wide shadow map next to older 128 wide targets of other effects). The texture must come from the target that
 // really owns it: exact base address first, then a target that was drawn to in the rows of the texture, then the
 // most recently used one. (The first match in creation order sampled a stale target at an offset.)
-RT* Backend::Impl::findRTForTexture(uint32_t tbp, uint32_t tbw, uint32_t psm, uint32_t w, uint32_t h, float& ox,
-                                    float& oy) {
+RT* D3D11Backend::Impl::findRTForTexture(uint32_t tbp, uint32_t tbw, uint32_t psm, uint32_t w, uint32_t h, float& ox,
+                                         float& oy) {
     uint32_t cls;
     if (psm == PSM_CT32 || psm == PSM_CT24)
         cls = 0;
@@ -594,7 +595,7 @@ RT* Backend::Impl::findRTForTexture(uint32_t tbp, uint32_t tbw, uint32_t psm, ui
     return best;
 }
 
-ID3D11ShaderResourceView* Backend::Impl::snapshot(RT& rt, const D3D11_BOX* box) {
+ID3D11ShaderResourceView* D3D11Backend::Impl::snapshot(RT& rt, const D3D11_BOX* box) {
     CpuProfile::Scope profile(cpuProfile, CpuProfile::Snapshot);
     if (!rt.copy) {
         rt.copy = makeTex(rt.w * scale, rt.h * scale, D3D11_BIND_SHADER_RESOURCE);
@@ -604,7 +605,7 @@ ID3D11ShaderResourceView* Backend::Impl::snapshot(RT& rt, const D3D11_BOX* box) 
     return rt.copySrv.Get();
 }
 
-void Backend::Impl::gridCaptureStart(RT& rt) {
+void D3D11Backend::Impl::gridCaptureStart(RT& rt) {
     GridCapture& g = gridCapture;
     g.rt = &rt;
     D3D11_TEXTURE2D_DESC d{};
@@ -647,7 +648,7 @@ void Backend::Impl::gridCaptureStart(RT& rt) {
     g.centred = inventoryHudFrame.centred;
 }
 
-void Backend::Impl::gridCaptureEnd() {
+void D3D11Backend::Impl::gridCaptureEnd() {
     GridCapture& g = gridCapture;
     if (g.open && g.rt && g.save && g.tex) {
         // Keep what the grid drew, then put back what was there before it.
@@ -672,7 +673,7 @@ void Backend::Impl::gridCaptureEnd() {
     g.rt = nullptr;
 }
 
-void Backend::Impl::flushAll() {
+void D3D11Backend::Impl::flushAll() {
     for (auto& r : rts)
         readbackRT(*r);
 }

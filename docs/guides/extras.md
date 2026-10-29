@@ -39,6 +39,8 @@ hd_movies = 0
 
 Set `hd_movies = 1` to enable it again. Missing HD frames fall back to the original video.
 
+<!-- media:movie-compare -->
+
 ![A dragon illustration in the locally upscaled intro movie](https://github.com/ChristopherVR/Drakan2PC/releases/download/site-media-20261028/hd-movie.jpg)
 
 ## Dialogue versus narration subtitles
@@ -59,6 +61,8 @@ Enable **Narration subtitles** in PC Settings and ensure the game's **Show Subti
 ![Intro narration with the added subtitle overlay](https://github.com/ChristopherVR/Drakan2PC/releases/download/site-media-20261028/narration-subtitles.jpg)
 
 ## DLSS and ray tracing
+
+<!-- media:dlaa-compare -->
 
 The installer offers an optional NVIDIA DLSS download, subject to NVIDIA's licence and compatible RTX hardware. A source build can use a local SDK as described in [Build from source](../../BUILDING.md#optional-local-nvidia-build). DXR water and shadows require compatible hardware and a build with the required shader tools.
 

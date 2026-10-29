@@ -3,14 +3,14 @@
 
 namespace gsr {
 
-bool Backend::Impl::iequals(const char* a, const char* b) {
+bool D3D11Backend::Impl::iequals(const char* a, const char* b) {
     for (; *a && *b; ++a, ++b)
         if (std::tolower((unsigned char)*a) != std::tolower((unsigned char)*b))
             return false;
     return *a == *b;
 }
 
-void Backend::Impl::initTexQuality() {
+void D3D11Backend::Impl::initTexQuality() {
     upFactorCfg = cfg.textureUpscale;
     upAlgoCfg = (texup::Algo)std::min(cfg.textureUpscaleFilter, 2u);
     aniso = cfg.anisotropic;
@@ -60,13 +60,13 @@ void Backend::Impl::initTexQuality() {
     ensurePool();
 }
 
-uint32_t Backend::Impl::normUpFactor(uint32_t f) {
+uint32_t D3D11Backend::Impl::normUpFactor(uint32_t f) {
     if (f != 0 && f != 1 && f != 2 && f != 4 && f != 8)
         f = f > 8 ? 8 : (f >= 3 ? 4 : 1);
     return f;
 }
 
-void Backend::Impl::ensurePool() {
+void D3D11Backend::Impl::ensurePool() {
     const bool anyJob = upFactorCfg != 1 || texDump || (texReplace && !replIndex.empty());
     if (anyJob && !upSync && !pool) {
         const unsigned hc = std::max(2u, std::thread::hardware_concurrency());
@@ -75,7 +75,7 @@ void Backend::Impl::ensurePool() {
 }
 
 // (re)read the replacement index / exclude list / already dumped hashes from texDir
-void Backend::Impl::scanTexDir() {
+void D3D11Backend::Impl::scanTexDir() {
     replIndex.clear();
     aliasIndex.clear();
     excluded.clear();
@@ -119,7 +119,7 @@ void Backend::Impl::scanTexDir() {
 
 // auto: scale 1 -> off, 2-3 -> 4x, 4+ -> 8x (UI sprites: always the largest factor, they are tiny); every factor is
 // capped by the texture budget (one texture with its mips may use at most 1/24 of it) and 4096 px
-uint32_t Backend::Impl::pickFactor(uint32_t W, uint32_t H, bool ui) const {
+uint32_t D3D11Backend::Impl::pickFactor(uint32_t W, uint32_t H, bool ui) const {
     uint32_t n = upFactorCfg;
     if (n == 0)
         n = scale >= 4 ? 8u : (scale >= 2 ? 4u : 1u);
@@ -130,14 +130,14 @@ uint32_t Backend::Impl::pickFactor(uint32_t W, uint32_t H, bool ui) const {
     return n;
 }
 
-void Backend::Impl::submitJob(std::function<void()> job, bool urgent) {
+void D3D11Backend::Impl::submitJob(std::function<void()> job, bool urgent) {
     if (pool)
         pool->submit(std::move(job), urgent);
     else
         job();
 }
 
-void Backend::Impl::pushDone(UpDone&& d) {
+void D3D11Backend::Impl::pushDone(UpDone&& d) {
     {
         std::lock_guard<std::mutex> lk(doneMu);
         done.push_back(std::move(d));
@@ -146,7 +146,7 @@ void Backend::Impl::pushDone(UpDone&& d) {
 }
 
 // create the GPU texture of a finished job (render thread only)
-void Backend::Impl::pumpUp() {
+void D3D11Backend::Impl::pumpUp() {
     CpuProfile::Scope profile(cpuProfile, CpuProfile::PumpUp);
     if (doneCount.load() == 0)
         return;
@@ -208,7 +208,7 @@ void Backend::Impl::pumpUp() {
 }
 
 // does the texture entry have a ready upscaled version? (adopt it)
-void Backend::Impl::adoptUp(TexEntry& e) {
+void D3D11Backend::Impl::adoptUp(TexEntry& e) {
     if (!e.upWanted || e.up)
         return;
     auto it = upCache.find(e.upKey);
@@ -219,8 +219,8 @@ void Backend::Impl::adoptUp(TexEntry& e) {
     e.upWanted = false; // a failed job (null srv) leaves the native texture
 }
 
-void Backend::Impl::resampleBilinear(const std::vector<uint32_t>& img, uint32_t rw, uint32_t rh, uint32_t tw,
-                                     uint32_t th, std::vector<uint32_t>& out) {
+void D3D11Backend::Impl::resampleBilinear(const std::vector<uint32_t>& img, uint32_t rw, uint32_t rh, uint32_t tw,
+                                          uint32_t th, std::vector<uint32_t>& out) {
     out.resize((size_t)tw * th);
     for (uint32_t y = 0; y < th; ++y)
         for (uint32_t x = 0; x < tw; ++x) {
@@ -244,8 +244,8 @@ void Backend::Impl::resampleBilinear(const std::vector<uint32_t>& img, uint32_t 
 
 // alias match: keep the RGB of the pack texture but take the alpha the game actually uses (bilinear upscale; binary
 // alpha (alpha test cut-outs, foliage) is pushed to a ~2 px ramp so the edges stay crisp instead of fat and blurry)
-void Backend::Impl::applyGameAlpha(std::vector<uint32_t>& hi, uint32_t tw, uint32_t th,
-                                   const std::vector<uint32_t>& base, uint32_t W, uint32_t H) {
+void D3D11Backend::Impl::applyGameAlpha(std::vector<uint32_t>& hi, uint32_t tw, uint32_t th,
+                                        const std::vector<uint32_t>& base, uint32_t W, uint32_t H) {
     uint32_t amax = 0;
     bool binary = true;
     for (uint32_t p : base)
@@ -276,7 +276,7 @@ void Backend::Impl::applyGameAlpha(std::vector<uint32_t>& hi, uint32_t tw, uint3
 
 // separable [1 2 1] / 4 binomial blur (a 2x2 box filter convolved with itself, centred), all four channels, clamped
 // edges
-void Backend::Impl::smoothBinomial3(std::vector<uint32_t>& img, uint32_t w, uint32_t h) {
+void D3D11Backend::Impl::smoothBinomial3(std::vector<uint32_t>& img, uint32_t w, uint32_t h) {
     std::vector<uint32_t> tmp(img.size());
     for (int pass = 0; pass < 2; ++pass) {
         const bool horiz = pass == 0;
@@ -299,8 +299,9 @@ void Backend::Impl::smoothBinomial3(std::vector<uint32_t>& img, uint32_t w, uint
 }
 
 // called when a texture was freshly decoded: dump / replace / upscale
-void Backend::Impl::setupUpscale(TexEntry& e, const std::vector<uint32_t>& base, uint32_t W, uint32_t H, uint32_t mxl,
-                                 const GsDrawState& s, bool ui, bool volatileSlot, const uint64_t* decodedHash) {
+void D3D11Backend::Impl::setupUpscale(TexEntry& e, const std::vector<uint32_t>& base, uint32_t W, uint32_t H,
+                                      uint32_t mxl, const GsDrawState& s, bool ui, bool volatileSlot,
+                                      const uint64_t* decodedHash) {
     const bool wantDumpReplace = texDump || (texReplace && !replIndex.empty());
     const uint32_t factor = pickFactor(W, H, ui);
     const uint64_t hash = decodedHash ? *decodedHash : texup::hashContent(base.data(), W, H);
@@ -532,9 +533,9 @@ void Backend::Impl::setupUpscale(TexEntry& e, const std::vector<uint32_t>& base,
 
 // Palette-only animated texture (fixed indices, cycling CLUT): draw this palette step from the HD index map of its
 // index plane. Returns false when the native texture has to be used (no factor / pack image, map not built yet).
-bool Backend::Impl::setupPaletteHd(TexEntry& e, const std::vector<uint8_t>& indices, uint64_t indexHash,
-                                   const std::vector<uint32_t>& base, uint32_t W, uint32_t H, uint32_t mxl,
-                                   const GsDrawState& s, bool ui) {
+bool D3D11Backend::Impl::setupPaletteHd(TexEntry& e, const std::vector<uint8_t>& indices, uint64_t indexHash,
+                                        const std::vector<uint32_t>& base, uint32_t W, uint32_t H, uint32_t mxl,
+                                        const GsDrawState& s, bool ui) {
     const uint64_t hash = texup::hashContent(base.data(), W, H);
     const auto policy = texup::contentPolicy(isTextureHashExcluded(hash), excluded.count(hash) != 0);
     if (!policy.automaticScale || indices.size() != base.size())
@@ -642,12 +643,12 @@ bool Backend::Impl::setupPaletteHd(TexEntry& e, const std::vector<uint8_t>& indi
     return true;
 }
 
-void Backend::Impl::decodeLevel(uint32_t psm, uint32_t tbp, uint32_t tbw, uint32_t w, uint32_t h, uint64_t texa,
-                                const ClutBuf& clut, uint32_t csa, std::vector<uint32_t>& out) {
+void D3D11Backend::Impl::decodeLevel(uint32_t psm, uint32_t tbp, uint32_t tbw, uint32_t w, uint32_t h, uint64_t texa,
+                                     const ClutBuf& clut, uint32_t csa, std::vector<uint32_t>& out) {
     decodeTextureLevel(mem, psm, tbp, tbw, w, h, texa, clut, csa, out);
 }
 
-uint64_t Backend::Impl::hashClut(const ClutBuf& c, uint32_t psm, uint32_t csa) {
+uint64_t D3D11Backend::Impl::hashClut(const ClutBuf& c, uint32_t psm, uint32_t csa) {
     const uint32_t n = (psm == PSM_T8 || psm == PSM_T8H) ? 256u : 16u;
     const uint32_t base = (n == 16) ? csa * 16u : 0u;
     uint64_t h = 1469598103934665603ull;
@@ -660,14 +661,14 @@ uint64_t Backend::Impl::hashClut(const ClutBuf& c, uint32_t psm, uint32_t csa) {
     return h;
 }
 
-uint64_t Backend::Impl::rawHash(const std::vector<std::pair<uint32_t, uint32_t>>& spans) const {
+uint64_t D3D11Backend::Impl::rawHash(const std::vector<std::pair<uint32_t, uint32_t>>& spans) const {
     uint64_t h = spans.size();
     for (const auto& sp : spans)
         h = h * 0x9e3779b97f4a7c15ull ^ mem.hashBlocks(sp.first, sp.second);
     return h;
 }
 
-bool Backend::Impl::resolveTexture(const GsDrawState& s, const ClutBuf& clut, TexBind& out, bool uiHint) {
+bool D3D11Backend::Impl::resolveTexture(const GsDrawState& s, const ClutBuf& clut, TexBind& out, bool uiHint) {
     CpuProfile::Scope profile(cpuProfile, CpuProfile::ResolveTexture);
     const uint64_t t0 = s.tex0;
     const uint32_t tbp = (uint32_t)bitsOf(t0, 0, 14), tbw = (uint32_t)bitsOf(t0, 14, 6),
@@ -1119,7 +1120,7 @@ bool Backend::Impl::resolveTexture(const GsDrawState& s, const ClutBuf& clut, Te
     return true;
 }
 
-void Backend::Impl::flushTexCaches() {
+void D3D11Backend::Impl::flushTexCaches() {
     texCache.clear();
     texBytes = 0;
     upCache.clear();

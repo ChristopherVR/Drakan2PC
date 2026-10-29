@@ -3,8 +3,8 @@
 
 namespace gsr {
 
-void Backend::Impl::validateObjectMotion(RT& rt, const nr::guides::Frame& guide,
-                                         const nr::guides::FrameConstants& constants) {
+void D3D11Backend::Impl::validateObjectMotion(RT& rt, const nr::guides::Frame& guide,
+                                              const nr::guides::FrameConstants& constants) {
     if (!runtimeFlags().motionValidate || !rt.motionTex || !motionMatchedBatches || constants.reset ||
         motionValidationSamples >= 12 || (motionValidationSamples >= 4 && motionGuideSerial % 30))
         return;
@@ -58,7 +58,7 @@ void Backend::Impl::validateObjectMotion(RT& rt, const nr::guides::Frame& guide,
 }
 
 // Opt-in, single-frame pipeline evidence. Never read back during normal play.
-void Backend::Impl::dumpTemporalStage(const char* stage, ID3D11Texture2D* texture) {
+void D3D11Backend::Impl::dumpTemporalStage(const char* stage, ID3D11Texture2D* texture) {
     const char* directory = cstr(runtimeFlags().temporalDumpDir);
     const char* requested = cstr(runtimeFlags().temporalDumpFrame);
     const char* epoch = cstr(runtimeFlags().temporalDumpEpoch);
@@ -115,7 +115,7 @@ void Backend::Impl::dumpTemporalStage(const char* stage, ID3D11Texture2D* textur
     ctx->Unmap(copy.Get(), 0);
 }
 
-bool Backend::Impl::readTexture(ID3D11Texture2D* tex, uint32_t w, uint32_t h, Image& out, bool keepAlpha) {
+bool D3D11Backend::Impl::readTexture(ID3D11Texture2D* tex, uint32_t w, uint32_t h, Image& out, bool keepAlpha) {
     ensureStaging(w, h);
     D3D11_BOX box{0, 0, 0, w, h, 1};
     ctx->CopySubresourceRegion(staging.Get(), 0, 0, 0, 0, tex, 0, &box);
@@ -134,7 +134,7 @@ bool Backend::Impl::readTexture(ID3D11Texture2D* tex, uint32_t w, uint32_t h, Im
     return true;
 }
 
-bool Backend::Impl::capture(const DisplayState& d, Image& out) {
+bool D3D11Backend::Impl::capture(const DisplayState& d, Image& out) {
     if (!ok)
         return false;
     uint32_t w, h;
@@ -142,13 +142,14 @@ bool Backend::Impl::capture(const DisplayState& d, Image& out) {
     return readTexture(dispTex.Get(), dispW, dispH, out);
 }
 
-bool Backend::Impl::captureLastGameplay(Image& out, float& aspect) {
+bool D3D11Backend::Impl::captureLastGameplay(Image& out, float& aspect) {
     aspect = latchedGameWorld ? gameplayAspect : savePreviewAspect;
     return latchedGameWorld ? readTexture(dispTex.Get(), dispW, dispH, out)
                             : savePreviewTex && readTexture(savePreviewTex.Get(), savePreviewW, savePreviewH, out);
 }
 
-bool Backend::Impl::captureFramebuffer(uint32_t fbp, uint32_t fbw, uint32_t psm, uint32_t w, uint32_t h, Image& out) {
+bool D3D11Backend::Impl::captureFramebuffer(uint32_t fbp, uint32_t fbw, uint32_t psm, uint32_t w, uint32_t h,
+                                            Image& out) {
     if (!ok)
         return false;
     RT* rt = getRT(fbp, fbw, psm, h);

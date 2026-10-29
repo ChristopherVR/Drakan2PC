@@ -285,7 +285,13 @@ private:
             std::fprintf(stderr, "[fmv-hd] %s: cannot open %s\n", m.name.c_str(), m.video.c_str());
             return false;
         }
+#if LIBAVFORMAT_VERSION_MAJOR < 59 // FFmpeg 4 (older Linux distributions) takes a non-const AVCodec**
+        AVCodec* found = nullptr;
+        const int si = av_find_best_stream(fmt_, AVMEDIA_TYPE_VIDEO, -1, -1, &found, 0);
+        dec = found;
+#else
         const int si = av_find_best_stream(fmt_, AVMEDIA_TYPE_VIDEO, -1, -1, &dec, 0);
+#endif
         if (si < 0 || !dec) {
             std::fprintf(stderr, "[fmv-hd] %s: no decodable video stream\n", m.name.c_str());
             return false;

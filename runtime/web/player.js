@@ -99,6 +99,9 @@ document.addEventListener('keydown', event => {
     if (inMenu() && ['KeyF', 'Enter', 'NumpadEnter', 'Escape'].includes(event.code)) capturePending = true;
     window.Module?._drakan_web_key_event?.(key, 1);
   }
+  // Text for the settings overlay's fields (the renderer's ImGui).
+  if (event.key.length === 1 && !event.ctrlKey && !event.metaKey)
+    window.Module?._drakan_web_char?.(event.key.codePointAt(0));
 });
 document.addEventListener('keyup', event => {
   const key = keyCodes[event.code];
@@ -119,9 +122,41 @@ document.addEventListener('mouseup', event => {
   if (gameActive()) window.Module?._drakan_web_mouse_button?.(mouseButton(event.button), 0);
 });
 canvas.addEventListener('mousemove', event => {
-  if (gameActive() && document.pointerLockElement === canvas)
-    pointerMotion.move(event.movementX, event.movementY);
+  if (!gameActive()) return;
+  if (document.pointerLockElement === canvas) pointerMotion.move(event.movementX, event.movementY);
+  else {
+    // The cursor in canvas drawing pixels (menus and the settings overlay).
+    const ratio = window.devicePixelRatio || 1;
+    window.Module?._drakan_web_cursor?.(Math.round(event.offsetX * ratio), Math.round(event.offsetY * ratio));
+  }
 });
+let wheelRest = 0;
+canvas.addEventListener('wheel', event => {
+  if (!gameActive()) return;
+  event.preventDefault();
+  // One notch per 100 pixels (or per line), away from the user positive.
+  wheelRest -= event.deltaMode === 1 ? event.deltaY * 100 : event.deltaY;
+  const notches = Math.trunc(wheelRest / 100);
+  if (notches) { wheelRest -= notches * 100; window.Module?._drakan_web_wheel?.(notches); }
+}, {passive:false});
+// The first standard-mapping gamepad, sampled every animation frame (the Gamepad API is main-thread only).
+function pollGamepad() {
+  if (gameActive()) {
+    const pad = Array.from(navigator.getGamepads?.() || []).find(p => p && p.connected && p.mapping === 'standard');
+    if (pad) {
+      let buttons = 0;
+      pad.buttons.forEach((b, i) => { if (i < 16 && (b.pressed || b.value > 0.5)) buttons |= 1 << i; });
+      const a = i => pad.axes[i] || 0;
+      window.Module?._drakan_web_gamepad?.(1, buttons, a(0), a(1), a(2), a(3));
+    } else window.Module?._drakan_web_gamepad?.(0, 0, 0, 0, 0, 0);
+  }
+  requestAnimationFrame(pollGamepad);
+}
+requestAnimationFrame(pollGamepad);
+// The settings overlay's window mode (best effort: browsers grant fullscreen only during a user gesture).
+globalThis.drakanSetFullscreen = on => {
+  if (on !== !!document.fullscreenElement) toggleFullscreen();
+};
 document.addEventListener('pointerlockchange', () => {
   pointerMotion.reset();
   if (gameActive()) window.Module?._drakan_web_pointer_lock?.(document.pointerLockElement === canvas ? 1 : 0);

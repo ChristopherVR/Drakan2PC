@@ -6,9 +6,9 @@ The browser player opens a **browser build you created locally** plus your own I
 
 ## What you need
 
-- A current desktop Chrome or Edge browser with local folder access, WebAssembly threads and SIMD support.
+- A current desktop Chrome or Edge browser with WebGPU, local folder access, WebAssembly threads and SIMD support.
 - Your locally built `DrakanPC-web` folder, containing `index.html`, `drakan.js` and `drakan.wasm`.
-- The same supported PAL ISO used to build the game.
+- The same supported PAL ISO used to build the game. The USA release (SCUS-971.28) has no browser build yet ([USA disc support](install.md#usa-disc-support-experimental)).
 - Optionally, a locally generated HD texture folder.
 
 Mobile browsers and browsers without the required folder-access API cannot use the hosted launcher. The launcher will show a compatibility message.
@@ -31,6 +31,8 @@ Use `-Incremental` when rebuilding an already prepared work directory. Build one
 4. Press **Play** and allow read access if the browser asks again.
 5. Follow the game's initial click prompt to enable audio and mouse interaction.
 
+<!-- media:browser-launcher -->
+
 The website remembers file handles in this browser profile. Access can be revoked by browser settings or after moving files; reselect the folder and ISO if needed.
 
 ## Play through the local launcher
@@ -43,6 +45,8 @@ Browser saves and settings live in IndexedDB. Keep the **same browser profile an
 
 When a storage error appears, use **Retry** and resolve storage access before closing the page. See [Saves & updates](saves.md).
 
+<!-- media:browser-title -->
+
 ## Feature differences
 
-The browser uses the software renderer. Modern menus and PC Settings work; DLSS, ray tracing and the modern Tab inventory are Windows only. See [Platforms & portability](../reference/portability.md).
+The browser uses the software renderer. Modern menus, PC Settings, quicksave / quickload (F5 / F8), narration subtitles, modern bow aim and the FPS counter (F2) work as on Windows; DLSS, ray tracing, widescreen and the modern Tab inventory are Windows only for now. See [Platforms & portability](../reference/portability.md).

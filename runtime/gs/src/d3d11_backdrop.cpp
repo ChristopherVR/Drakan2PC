@@ -13,7 +13,7 @@ constexpr char kWideBackdropPs[] = "Texture2D<float4> Src : register(t0);\n"
                                    "{ return float4(Src.SampleLevel(Smp, uv, 0).rgb, 128.0 / 255.0); }\n";
 } // namespace
 
-const std::vector<Backend::Impl::WideBackdrop>& Backend::Impl::wideBackdropSet(const std::string& name) {
+const std::vector<D3D11Backend::Impl::WideBackdrop>& D3D11Backend::Impl::wideBackdropSet(const std::string& name) {
     auto it = wideBackdrops.find(name);
     if (it != wideBackdrops.end())
         return it->second;
@@ -60,7 +60,7 @@ const std::vector<Backend::Impl::WideBackdrop>& Backend::Impl::wideBackdropSet(c
 // The screen's first frames can draw its art before its own GUI packet (the title's handler tick) reaches the renderer,
 // so `guiScreen` may still name the previous screen (the logo); the screen the host saw when it switched the native
 // menu canvas on is tried next, so the title gets its own image from its first frame instead of one "default" frame.
-bool Backend::Impl::drawWideBackdrop(RT& rt, int guiScreen) {
+bool D3D11Backend::Impl::drawWideBackdrop(RT& rt, int guiScreen) {
     if (!(hudScale > 0 && hudScale < 1))
         return false;
     const float target = (4.0f / 3) / hudScale;

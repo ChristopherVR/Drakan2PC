@@ -8,7 +8,7 @@ Build and play the native Linux version from your own PAL disc image. The Linux 
 
 | Requirement | What you need |
 | --- | --- |
-| Game disc | Your own **PAL SCES-500.06** release as a plain `.iso` |
+| Game disc | Your own **PAL SCES-500.06** release as a plain `.iso`. The USA release (SCUS-971.28) is an experimental Windows-only build for now: see [USA disc support](install.md#usa-disc-support-experimental) |
 | Architecture | **x86-64 Linux**; this bootstrap does not support ARM |
 | Distribution | Ubuntu **22.04 or newer** is the validated environment; automatic dependency installation supports Debian/Ubuntu |
 | Desktop | A working graphical desktop with OpenGL and audio support |

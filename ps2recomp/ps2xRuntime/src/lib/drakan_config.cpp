@@ -11,6 +11,14 @@
 #include <vector>
 
 namespace drakan_cfg {
+int compareNoCase(const char* a, const char* b) {
+    for (;; ++a, ++b) {
+        const int ca = std::tolower(static_cast<unsigned char>(*a)), cb = std::tolower(static_cast<unsigned char>(*b));
+        if (ca != cb || !ca)
+            return ca - cb;
+    }
+}
+
 namespace {
 struct Entry {
     const char *section, *key, *def, *comment;
@@ -55,8 +63,9 @@ const Entry kEntries[] = {
      "1 = using a second one-handed weapon while Rynn holds one puts it in her left hand (instead of a shield); her "
      "strikes then alternate hands. 0 = original, one weapon (env DRAKAN_DUAL_WIELD)"},
 
-    {"video", "renderer", "d3d11",
-     "d3d11 = GPU renderer (default), sw = slow reference software renderer (env PS2X_GS)"},
+    {"video", "renderer", "webgpu",
+     "webgpu = the shared GPU renderer (default; Vulkan / D3D12 / OpenGL), d3d11 = Direct3D 11 (Windows; DLSS and "
+     "DXR ray tracing), sw = slow reference software renderer (env PS2X_GS)"},
     {"video", "scale", "auto",
      "internal resolution multiplier 1..8; auto follows fitted output size, including width for the native 512-square "
      "display (env PS2X_GS_SCALE)"},

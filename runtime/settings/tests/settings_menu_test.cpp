@@ -95,7 +95,34 @@ static void testPresentationApply() {
     CHECK(host.lastVideo.fieldOfView == 100); // live apply, no restart or display-revert prompt
 }
 
+// [video] renderer: read, written back and applied at the next start (a restart key, never a live video apply).
+static void testRendererChoice() {
+    std::string video = "[video]\nrenderer = d3d11\n";
+    FileIO io;
+    io.read = [&](const std::string& path, std::string& out) {
+        out = path == "drakan.ini" ? video : std::string();
+        return true;
+    };
+    io.write = [&](const std::string& path, const std::string& text) {
+        if (path == "drakan.ini")
+            video = text;
+        return true;
+    };
+    SettingsStore store({}, io);
+    Host host;
+    SettingsMenu menu(host, store);
+    menu.open();
+    CHECK(menu.pending().video.renderer == "d3d11");
+    menu.pendingMut().video.renderer = "webgpu";
+    menu.applyPending(true);
+    CHECK(menu.isOpen()); // waits for the restart prompt
+    CHECK(host.videoApplies == 0 && host.restarts == 0);
+    CHECK(video.find("renderer = webgpu\n") != std::string::npos);
+    menu.close();
+}
+
 int main() {
+    testRendererChoice();
     for (int initial : {30, 60, 0}) {
         for (int next : {30, 60, 0}) {
             if (next == initial)

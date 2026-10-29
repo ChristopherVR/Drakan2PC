@@ -1,6 +1,6 @@
 // Narration subtitles (std only): SRT parser + a track that is driven by a media clock. The game itself has no text for
 // the intro / outro narration (docs/reference/subtitles.md); the runtime starts a track when the narration soundtrack
-// is requested and the overlay draws the current cue (SettingsOverlay::setHudLayer).
+// is requested and the overlay draws the current cue (settings/Hud.h, HudSlot::Subtitles).
 #pragma once
 #include <algorithm>
 #include <cstdint>

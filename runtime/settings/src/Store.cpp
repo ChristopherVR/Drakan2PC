@@ -321,6 +321,13 @@ const std::vector<Field>& fields() {
          nullptr},
         {"video", "flicker_filter", false, GETB(video.flickerFilter), SETB(video.flickerFilter), nullptr},
         {"video", "sharp_present", false, GETB(video.sharpPresent), SETB(video.sharpPresent), nullptr},
+        {"video", "renderer", false, [](const Settings& s) { return s.video.renderer; },
+         [](Settings& s, const std::string& v) {
+             const std::string u = lower(trim(v));
+             if (u == "webgpu" || u == "d3d11" || u == "sw")
+                 s.video.renderer = u;
+         },
+         nullptr},
         {"video", "world_rate", false,
          [](const Settings& s) {
              return s.video.worldRate == 0 ? std::string("uncapped")
@@ -693,6 +700,7 @@ std::string settingLabel(const std::string& key) {
         {"video.window_mode", "Window mode"},
         {"video.window_width", "Window size"},
         {"video.window_height", "Window size"},
+        {"video.renderer", "Renderer"},
         {"video.scale", "Internal render scale"},
         {"video.aspect", "Aspect ratio"},
         {"video.vsync", "VSync"},

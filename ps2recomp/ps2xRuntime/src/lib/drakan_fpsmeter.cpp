@@ -9,8 +9,11 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <chrono>
 #include <mutex>
+#include <thread>
 
+#if defined(_WIN32)
 #ifndef NOMINMAX
 #define NOMINMAX
 #endif
@@ -18,6 +21,11 @@
 #define WIN32_LEAN_AND_MEAN
 #endif
 #include <windows.h>
+#elif !defined(__EMSCRIPTEN__)
+#include <pthread.h>
+#include <sys/resource.h>
+#include <time.h>
+#endif
 
 namespace drakan_fpsmeter {
 namespace {
@@ -26,18 +34,57 @@ std::atomic<uint64_t> g_worlds{0};
 std::atomic<int> g_corner{TopLeft};
 std::atomic<void*> g_ee{nullptr}, g_gs{nullptr};
 
-double qpcFreq() {
-    static double f = [] {
-        LARGE_INTEGER x;
-        QueryPerformanceFrequency(&x);
-        return (double)x.QuadPart;
-    }();
-    return f;
+using Clock = std::chrono::steady_clock;
+int64_t nowNs() {
+    return std::chrono::duration_cast<std::chrono::nanoseconds>(Clock::now().time_since_epoch()).count();
 }
-int64_t qpcNow() {
-    LARGE_INTEGER t;
-    QueryPerformanceCounter(&t);
-    return t.QuadPart;
+constexpr double kNsPerSecond = 1e9;
+
+// CPU seconds of a native thread handle (Win32 HANDLE / pthread_t, see setThreads), -1 = unavailable.
+double threadCpu(void* h) {
+    if (!h)
+        return -1;
+#if defined(_WIN32)
+    FILETIME c, e, k, u;
+    if (!GetThreadTimes((HANDLE)h, &c, &e, &k, &u))
+        return -1;
+    const auto secs = [](const FILETIME& t) {
+        return (double)((uint64_t(t.dwHighDateTime) << 32) | t.dwLowDateTime) * 1e-7;
+    };
+    return secs(k) + secs(u);
+#elif !defined(__EMSCRIPTEN__)
+    clockid_t id;
+    timespec ts{};
+    if (pthread_getcpuclockid(reinterpret_cast<pthread_t>(h), &id) != 0 || clock_gettime(id, &ts) != 0)
+        return -1;
+    return (double)ts.tv_sec + (double)ts.tv_nsec * 1e-9;
+#else
+    return -1;
+#endif
+}
+// CPU seconds of the whole process (all threads).
+double procCpu() {
+#if defined(_WIN32)
+    FILETIME c, e, k, u;
+    if (!GetProcessTimes(GetCurrentProcess(), &c, &e, &k, &u))
+        return 0;
+    const auto secs = [](const FILETIME& t) {
+        return (double)((uint64_t(t.dwHighDateTime) << 32) | t.dwLowDateTime) * 1e-7;
+    };
+    return secs(k) + secs(u);
+#elif !defined(__EMSCRIPTEN__)
+    rusage r{};
+    if (getrusage(RUSAGE_SELF, &r) != 0)
+        return 0;
+    return (double)r.ru_utime.tv_sec + (double)r.ru_utime.tv_usec * 1e-6 + (double)r.ru_stime.tv_sec +
+           (double)r.ru_stime.tv_usec * 1e-6;
+#else
+    return -1; // the browser exposes no CPU time
+#endif
+}
+int ncpu() {
+    static int n = (int)std::max(1u, std::thread::hardware_concurrency());
+    return n;
 }
 
 constexpr int kRing = 512;
@@ -59,37 +106,6 @@ struct State {
 };
 State g;
 
-double ftSeconds(const FILETIME& a, const FILETIME& b) {
-    ULARGE_INTEGER x, y;
-    x.LowPart = a.dwLowDateTime;
-    x.HighPart = a.dwHighDateTime;
-    y.LowPart = b.dwLowDateTime;
-    y.HighPart = b.dwHighDateTime;
-    return (double)(x.QuadPart + y.QuadPart) * 1e-7;
-}
-double threadCpu(void* h) {
-    if (!h)
-        return -1;
-    FILETIME c, e, k, u;
-    if (!GetThreadTimes((HANDLE)h, &c, &e, &k, &u))
-        return -1;
-    return ftSeconds(k, u);
-}
-double procCpu() {
-    FILETIME c, e, k, u;
-    if (!GetProcessTimes(GetCurrentProcess(), &c, &e, &k, &u))
-        return 0;
-    return ftSeconds(k, u);
-}
-int ncpu() {
-    static int n = [] {
-        SYSTEM_INFO si;
-        GetSystemInfo(&si);
-        return (int)std::max<DWORD>(1, si.dwNumberOfProcessors);
-    }();
-    return n;
-}
-
 void rebuild(int mode) {
     g.out.clear();
     if (mode <= 0)
@@ -105,17 +121,21 @@ void rebuild(int mode) {
         std::snprintf(b, sizeof b, "Worst %5.2f ms  1%% low %5.1f fps", g.worstMs,
                       g.low1Ms > 0 ? 1000.0 / g.low1Ms : 0.0);
         g.out.emplace_back(b);
-        std::snprintf(b, sizeof b, "CPU %3.0f%%", g.cpuProc);
-        std::string s = b;
+        std::string s;
+        if (g.cpuProc >= 0) {
+            std::snprintf(b, sizeof b, "CPU %3.0f%%", g.cpuProc);
+            s = b;
+        }
         if (g.cpuEe >= 0) {
-            std::snprintf(b, sizeof b, "  EE %3.0f%%", g.cpuEe);
+            std::snprintf(b, sizeof b, s.empty() ? "EE %3.0f%%" : "  EE %3.0f%%", g.cpuEe);
             s += b;
         }
         if (g.cpuGs >= 0) {
             std::snprintf(b, sizeof b, "  GS %3.0f%%", g.cpuGs);
             s += b;
         }
-        g.out.push_back(s);
+        if (!s.empty())
+            g.out.push_back(s);
         if (!g.gpu.empty()) {
             std::snprintf(b, sizeof b, "%s  %ux%u", g.gpu.c_str(), g.bbW, g.bbH);
             g.out.emplace_back(b);
@@ -180,9 +200,9 @@ void onPresent() {
         g.valid = false; // the statistics window restarts when the counter is switched on
         return;
     }
-    const int64_t now = qpcNow();
+    const int64_t now = nowNs();
     std::lock_guard<std::mutex> l(g.m);
-    const double f = qpcFreq();
+    const double f = kNsPerSecond;
     if (!g.valid) {
         g.valid = true;
         g.lastPresent = g.winStart = now;
@@ -228,7 +248,7 @@ void onPresent() {
         const int k = std::max(0, (int)std::ceil(n * 0.99) - 1);
         g.low1Ms = tmp[std::min(k, n - 1)];
         const double ee = threadCpu(g_ee.load()), gs = threadCpu(g_gs.load()), pr = procCpu();
-        g.cpuProc = std::max(0.0, (pr - g.proc0) / el * 100.0 / ncpu());
+        g.cpuProc = pr >= 0 ? std::max(0.0, (pr - g.proc0) / el * 100.0 / ncpu()) : -1;
         g.cpuEe = ee >= 0 && g.ee0 >= 0 ? std::max(0.0, (ee - g.ee0) / el * 100.0) : -1;
         g.cpuGs = gs >= 0 && g.gs0 >= 0 ? std::max(0.0, (gs - g.gs0) / el * 100.0) : -1;
         g.ee0 = ee;

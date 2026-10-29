@@ -36,14 +36,6 @@
 #include <thread>
 #include <vector>
 
-#ifndef NOMINMAX
-#define NOMINMAX
-#endif
-#ifndef WIN32_LEAN_AND_MEAN
-#define WIN32_LEAN_AND_MEAN
-#endif
-#include <windows.h>
-
 namespace {
 constexpr uint32_t kPrivBase = 0x12000000u;
 
@@ -57,47 +49,16 @@ bool frameTraceEnabled() {
     return on;
 }
 
-// Exact refresh period (seconds) of the monitor showing `window`, 0 if unknown. The rational rate from the display
-// configuration, not the rounded DEVMODE frequency: "59 Hz" panels run at e.g. 59.9956 Hz.
-double monitorRefreshSeconds(HWND window) {
-    MONITORINFOEXW monitor{};
-    monitor.cbSize = sizeof monitor;
-    if (!GetMonitorInfoW(MonitorFromWindow(window, MONITOR_DEFAULTTONEAREST), &monitor))
-        return 0.0;
-    UINT32 pathCount = 0, modeCount = 0;
-    if (GetDisplayConfigBufferSizes(QDC_ONLY_ACTIVE_PATHS, &pathCount, &modeCount) != ERROR_SUCCESS)
-        return 0.0;
-    std::vector<DISPLAYCONFIG_PATH_INFO> paths(pathCount);
-    std::vector<DISPLAYCONFIG_MODE_INFO> modes(modeCount);
-    if (QueryDisplayConfig(QDC_ONLY_ACTIVE_PATHS, &pathCount, paths.data(), &modeCount, modes.data(), nullptr) !=
-        ERROR_SUCCESS)
-        return 0.0;
-    for (UINT32 i = 0; i < pathCount; ++i) {
-        DISPLAYCONFIG_SOURCE_DEVICE_NAME source{};
-        source.header.type = DISPLAYCONFIG_DEVICE_INFO_GET_SOURCE_NAME;
-        source.header.size = sizeof source;
-        source.header.adapterId = paths[i].sourceInfo.adapterId;
-        source.header.id = paths[i].sourceInfo.id;
-        if (DisplayConfigGetDeviceInfo(&source.header) != ERROR_SUCCESS ||
-            std::wcscmp(source.viewGdiDeviceName, monitor.szDevice) != 0)
-            continue;
-        const DISPLAYCONFIG_RATIONAL rate = paths[i].targetInfo.refreshRate;
-        if (!rate.Numerator || !rate.Denominator)
-            return 0.0;
-        const double seconds = double(rate.Denominator) / double(rate.Numerator);
-        return seconds > 1.0 / 500 && seconds < 1.0 / 20 ? seconds : 0.0;
-    }
-    return 0.0;
-}
+using drakan_cfg::compareNoCase;
 
 // "4:3", "16:9", "1.777" -> ratio; "native" -> 0 (the display rectangle's own ratio); "stretch" -> -1 (fill the window)
 float parseAspect(const std::string& str, float def) {
     const char* s = str.c_str();
     if (!*s)
         return def;
-    if (!_stricmp(s, "native") || !_stricmp(s, "auto"))
+    if (!compareNoCase(s, "native") || !compareNoCase(s, "auto"))
         return 0.0f;
-    if (!_stricmp(s, "stretch") || !_stricmp(s, "fill"))
+    if (!compareNoCase(s, "stretch") || !compareNoCase(s, "fill"))
         return -1.0f;
     float a = 0, b = 0;
     if (std::sscanf(s, "%f:%f", &a, &b) == 2 && a > 0 && b > 0)
@@ -114,7 +75,7 @@ struct AutoInternalScale {
     uint32_t requested = 1;
 
     void configure(const std::string& value) {
-        enabled = value.empty() || _stricmp(value.c_str(), "auto") == 0;
+        enabled = value.empty() || compareNoCase(value.c_str(), "auto") == 0;
         requested = enabled ? 1u : static_cast<uint32_t>(std::clamp(std::atoi(value.c_str()), 1, 8));
     }
 
@@ -170,7 +131,7 @@ constexpr size_t kStageFlushBytes = 256u << 10;
 } // namespace
 
 struct GsrBridge::Impl {
-    HWND parent = nullptr; // the top-level game window (drakan_window): the swapchain lives directly on it
+    void* parent = nullptr; // the top-level game window (drakan_window): the swapchain lives directly on it
     GSRegisters* priv = nullptr;
     std::unique_ptr<gsr::Renderer> gs;
     uint64_t lastSig = 0;
@@ -215,20 +176,13 @@ struct GsrBridge::Impl {
         if (fs >= 0)
             setFullscreen(fs != 0);
         const int rw = reqW.exchange(0), rh = reqH.exchange(0);
-        if (rw > 0 && rh > 0 && !fullscreen && parent) {
-            RECT r{0, 0, rw, rh};
-            const LONG_PTR st = GetWindowLongPtrW(parent, GWL_STYLE), ex = GetWindowLongPtrW(parent, GWL_EXSTYLE);
-            AdjustWindowRectEx(&r, (DWORD)st, FALSE, (DWORD)ex);
-            SetWindowPos(parent, nullptr, 0, 0, r.right - r.left, r.bottom - r.top,
-                         SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE);
-        }
+        if (rw > 0 && rh > 0 && !fullscreen && parent)
+            drakan_win::setClientSize(rw, rh);
     }
 
     // window state
     bool fullscreen = false;
     bool vsync = true;
-    LONG_PTR savedStyle = 0;
-    RECT savedRect{};
     bool altEnterDown = false, f11Down = false, f2Down = false;
     std::chrono::steady_clock::time_point nextFrame = std::chrono::steady_clock::now();
     double refreshSeconds = 0.0; // monitorRefreshSeconds(parent), re-read every second (window moves, mode changes)
@@ -245,28 +199,8 @@ struct GsrBridge::Impl {
     void setFullscreen(bool on) {
         if (on == fullscreen || !parent)
             return;
-        if (on) {
-            savedStyle = GetWindowLongPtrW(parent, GWL_STYLE);
-            GetWindowRect(parent, &savedRect);
-            MONITORINFO mi{sizeof(mi)};
-            GetMonitorInfoW(MonitorFromWindow(parent, MONITOR_DEFAULTTONEAREST), &mi);
-            SetWindowLongPtrW(parent, GWL_STYLE, (savedStyle & ~(LONG_PTR)WS_OVERLAPPEDWINDOW) | WS_POPUP | WS_VISIBLE);
-            SetWindowPos(parent, HWND_TOP, mi.rcMonitor.left, mi.rcMonitor.top, mi.rcMonitor.right - mi.rcMonitor.left,
-                         mi.rcMonitor.bottom - mi.rcMonitor.top, SWP_FRAMECHANGED | SWP_NOOWNERZORDER | SWP_SHOWWINDOW);
-        } else {
-            SetWindowLongPtrW(parent, GWL_STYLE, savedStyle | WS_VISIBLE);
-            SetWindowPos(parent, HWND_NOTOPMOST, savedRect.left, savedRect.top, savedRect.right - savedRect.left,
-                         savedRect.bottom - savedRect.top, SWP_FRAMECHANGED | SWP_NOOWNERZORDER | SWP_SHOWWINDOW);
-        }
+        drakan_win::setFullscreen(on);
         fullscreen = on;
-        drakan_win::setHideCursor(on);
-        if (on)
-            while (ShowCursor(FALSE) >= 0) {
-            }
-        else
-            while (ShowCursor(TRUE) < 0) {
-            }
-        SetCursor(on ? nullptr : LoadCursorW(nullptr, MAKEINTRESOURCEW(32512)));
         std::fprintf(stderr, "[gsr] %s\n", on ? "borderless fullscreen" : "windowed");
         {
             std::lock_guard<std::recursive_mutex> r(rmtx);
@@ -276,12 +210,10 @@ struct GsrBridge::Impl {
 
     // follow the window's client size: resize the swapchain (no stretched back buffer). Caller holds rmtx.
     void syncSize() {
-        RECT rc{};
-        if (!GetClientRect(parent, &rc))
+        int w = 0, h = 0;
+        if (!drakan_win::clientSize(w, h))
             return;
-        const uint32_t w = (uint32_t)std::max<LONG>(rc.right - rc.left, 0),
-                       h = (uint32_t)std::max<LONG>(rc.bottom - rc.top, 0);
-        syncSizeTo(w, h, IsIconic(parent) != FALSE);
+        syncSizeTo(static_cast<uint32_t>(w), static_cast<uint32_t>(h), drakan_win::minimized());
     }
 
     // Caller holds rmtx. Explicit dimensions also allow device-free CPU checks.
@@ -714,7 +646,7 @@ void GsrBridge::Impl::workerMain() {
 
 void GsrBridge::Impl::waitForHandoff(uint64_t serial, bool nativeCompletion) {
     if (!serial || (!nativeCompletion && !drakan_dlss::neuralRequested()) || stopPresentHandoff.load() ||
-        IsIconic(parent))
+        drakan_win::minimized())
         return;
     drakan_runtime_profile::Scope profile(drakan_runtime_profile::Handoff);
     const auto start = pacingEvery > 0 ? std::chrono::steady_clock::now() : std::chrono::steady_clock::time_point{};
@@ -775,10 +707,10 @@ std::unique_ptr<GsrBridge> GsrBridge::create(void* parentHwnd, GSRegisters* priv
         return nullptr;
     auto b = std::unique_ptr<GsrBridge>(new GsrBridge());
     Impl& s = *b->m_impl;
-    s.parent = static_cast<HWND>(parentHwnd);
+    s.parent = parentHwnd;
     s.priv = priv;
     const auto worldRate = drakan_cfg::getString("video", "world_rate", "DRAKAN_WORLD_RATE", nullptr);
-    s.uncappedRequested = _stricmp(worldRate.c_str(), "uncapped") == 0;
+    s.uncappedRequested = compareNoCase(worldRate.c_str(), "uncapped") == 0;
 
     bool wantFullscreen = drakan_cfg::getBool("video", "fullscreen", "DRAKAN_FULLSCREEN", false);
     {
@@ -786,15 +718,27 @@ std::unique_ptr<GsrBridge> GsrBridge::create(void* parentHwnd, GSRegisters* priv
         // borderless
         const std::string wm = drakan_cfg::getString("video", "window_mode", nullptr, "");
         if (!std::getenv("DRAKAN_FULLSCREEN") && !wm.empty())
-            wantFullscreen = !_stricmp(wm.c_str(), "borderless") || !_stricmp(wm.c_str(), "exclusive");
+            wantFullscreen = !compareNoCase(wm.c_str(), "borderless") || !compareNoCase(wm.c_str(), "exclusive");
     }
-    RECT rc{};
-    GetClientRect(s.parent, &rc);
-    int w = std::max<LONG>(rc.right - rc.left, 16), h = std::max<LONG>(rc.bottom - rc.top, 16);
+    int w = 16, h = 16;
+    drakan_win::clientSize(w, h);
+    w = std::max(w, 16);
+    h = std::max(h, 16);
 
     // ---- settings (drakan.ini [video], environment variables override) ----
     gsr::Config cfg;
-    cfg.hwnd = s.parent;
+    {
+        const drakan_win::Surface surf = drakan_win::surface();
+        cfg.hwnd = surf.window;
+        cfg.windowDisplay = surf.display;
+        cfg.xlibWindow = surf.xlibWindow;
+        cfg.windowKind = surf.kind == drakan_win::Surface::Kind::Xlib      ? gsr::Config::WindowKind::Xlib
+                         : surf.kind == drakan_win::Surface::Kind::Wayland ? gsr::Config::WindowKind::Wayland
+                         : surf.kind == drakan_win::Surface::Kind::Canvas  ? gsr::Config::WindowKind::Canvas
+                                                                           : gsr::Config::WindowKind::Win32;
+        if (surf.canvasSelector)
+            cfg.canvasSelector = surf.canvasSelector;
+    }
     cfg.windowWidth = w;
     cfg.windowHeight = h;
     cfg.vsync = drakan_cfg::getBool("video", "vsync", "DRAKAN_VSYNC", true);
@@ -815,10 +759,10 @@ std::unique_ptr<GsrBridge> GsrBridge::create(void* parentHwnd, GSRegisters* priv
     {
         uint32_t outW = static_cast<uint32_t>(w), outH = static_cast<uint32_t>(h);
         if (wantFullscreen) {
-            MONITORINFO mi{sizeof(mi)};
-            if (GetMonitorInfoW(MonitorFromWindow(s.parent, MONITOR_DEFAULTTONEAREST), &mi)) {
-                outW = static_cast<uint32_t>(std::max<LONG>(mi.rcMonitor.right - mi.rcMonitor.left, 0));
-                outH = static_cast<uint32_t>(std::max<LONG>(mi.rcMonitor.bottom - mi.rcMonitor.top, 0));
+            int mw = 0, mh = 0;
+            if (drakan_win::monitorSize(mw, mh)) {
+                outW = static_cast<uint32_t>(mw);
+                outH = static_cast<uint32_t>(mh);
             }
         }
         const std::string scs = drakan_cfg::getString("video", "scale", "PS2X_GS_SCALE", "auto");
@@ -832,11 +776,11 @@ std::unique_ptr<GsrBridge> GsrBridge::create(void* parentHwnd, GSRegisters* priv
     }
     {
         const std::string f = drakan_cfg::getString("video", "filter", "DRAKAN_FILTER", "game");
-        cfg.textureFilter = !_stricmp(f.c_str(), "point") || !_stricmp(f.c_str(), "nearest")       ? 1
-                            : (!_stricmp(f.c_str(), "bilinear") || !_stricmp(f.c_str(), "linear")) ? 2
-                                                                                                   : 0;
+        cfg.textureFilter = !compareNoCase(f.c_str(), "point") || !compareNoCase(f.c_str(), "nearest")       ? 1
+                            : (!compareNoCase(f.c_str(), "bilinear") || !compareNoCase(f.c_str(), "linear")) ? 2
+                                                                                                             : 0;
         const std::string d = drakan_cfg::getString("video", "deinterlace", "DRAKAN_DEINTERLACE", "weave");
-        cfg.deinterlace = !_stricmp(d.c_str(), "bob") ? 1 : !_stricmp(d.c_str(), "blend") ? 2 : 0;
+        cfg.deinterlace = !compareNoCase(d.c_str(), "bob") ? 1 : !compareNoCase(d.c_str(), "blend") ? 2 : 0;
         cfg.flickerFilter = drakan_cfg::getBool("video", "flicker_filter", "DRAKAN_FLICKER_FILTER", false);
         s.vblankHandoff.configure(cfg.deinterlace == 0 && !cfg.flickerFilter);
         s.presentationFieldMode.update(cfg.deinterlace, cfg.flickerFilter);
@@ -848,13 +792,15 @@ std::unique_ptr<GsrBridge> GsrBridge::create(void* parentHwnd, GSRegisters* priv
         const int an = drakan_cfg::getInt("video", "anisotropic", nullptr, 16);
         cfg.anisotropic = an > 1 ? (uint32_t)std::min(an, 16) : 0u;
         const std::string tu = drakan_cfg::getString("video", "texture_upscale", nullptr, "auto");
-        cfg.textureUpscale = !_stricmp(tu.c_str(), "auto") || tu.empty()
+        cfg.textureUpscale = !compareNoCase(tu.c_str(), "auto") || tu.empty()
                                  ? 0u
                                  : (uint32_t)std::max(1, std::min(8, std::atoi(tu.c_str())));
         const std::string tf = drakan_cfg::getString("video", "texture_upscale_filter", nullptr, "default");
-        cfg.textureUpscaleFilter = !_stricmp(tf.c_str(), "xbrz") ? 1u : !_stricmp(tf.c_str(), "smooth") ? 2u : 0u;
+        cfg.textureUpscaleFilter = !compareNoCase(tf.c_str(), "xbrz")     ? 1u
+                                   : !compareNoCase(tf.c_str(), "smooth") ? 2u
+                                                                          : 0u;
         const std::string mb = drakan_cfg::getString("video", "mip_bias", nullptr, "auto");
-        cfg.mipBiasAuto = mb.empty() || !_stricmp(mb.c_str(), "auto");
+        cfg.mipBiasAuto = mb.empty() || !compareNoCase(mb.c_str(), "auto");
         if (!cfg.mipBiasAuto)
             cfg.mipBias = (float)std::atof(mb.c_str());
         // hd_textures (settings menu) and texture_replace (gs README) are the same switch; hd_textures wins when both
@@ -871,6 +817,10 @@ std::unique_ptr<GsrBridge> GsrBridge::create(void* parentHwnd, GSRegisters* priv
         cfg.textureDir = td;
         cfg.textureBudgetMB =
             (uint32_t)std::max(0, drakan_cfg::getInt("video", "texture_budget_mb", nullptr, 0)); // 0 = auto
+    }
+    { // [video] renderer: d3d11 picks the Direct3D 11 backend (Windows builds have both); anything else is WebGPU
+        const std::string api = drakan_cfg::getString("video", "renderer", "PS2X_GS", "webgpu");
+        cfg.api = compareNoCase(api.c_str(), "d3d11") == 0 ? gsr::Config::Api::D3D11 : gsr::Config::Api::WebGpu;
     }
     drakan_dlss::configure(cfg); // [video] dlss / dlss_preset / dlss_sharpness
     cfg.allowWarp = true;
@@ -918,7 +868,9 @@ std::unique_ptr<GsrBridge> GsrBridge::create(void* parentHwnd, GSRegisters* priv
         s.async = !(a && a[0] == '0');
         if (s.async)
             s.worker = std::thread([&s]() { s.workerMain(); });
+#if defined(_WIN32)
         drakan_fpsmeter::setThreads(nullptr, s.async ? s.worker.native_handle() : nullptr);
+#endif
     }
     if (const char* sp = std::getenv("PS2X_GS_SHOT")) {
         s.shotPath = sp;
@@ -933,12 +885,11 @@ std::unique_ptr<GsrBridge> GsrBridge::create(void* parentHwnd, GSRegisters* priv
     if (const char* st = std::getenv("PS2X_GS_STATS"))
         s.statsEvery = std::strtoull(st, nullptr, 10);
     std::fprintf(stderr,
-                 "[gsr] D3D11 renderer on '%s', window %dx%d, internal scale %u (%ux%u), aspect %.3f%s, vsync %d, "
+                 "[gsr] %s renderer on '%s', window %dx%d, internal scale %u (%ux%u), aspect %.3f%s, vsync %d, "
                  "filter %u, deinterlace %u, flicker_filter %d\n",
-                 s.gs->adapterName().c_str(), w, h, cfg.scale, 512u * cfg.scale, 512u * cfg.scale, cfg.forcedAspect,
-                 cfg.stretchToWindow ? " (stretch)" : "", (int)cfg.vsync, cfg.textureFilter, cfg.deinterlace,
-                 (int)cfg.flickerFilter);
-    drakan_fpsmeter::configure();
+                 cfg.api == gsr::Config::Api::D3D11 ? "D3D11" : "WebGPU", s.gs->adapterName().c_str(), w, h, cfg.scale,
+                 512u * cfg.scale, 512u * cfg.scale, cfg.forcedAspect, cfg.stretchToWindow ? " (stretch)" : "",
+                 (int)cfg.vsync, cfg.textureFilter, cfg.deinterlace, (int)cfg.flickerFilter);
     drakan_fpsmeter::setInfo(s.gs->adapterName(), (uint32_t)w, (uint32_t)h);
     if (wantFullscreen)
         s.setFullscreen(true);
@@ -1378,20 +1329,21 @@ void GsrBridge::hostTick() {
     drakan_pause::hostTick(s.parent); // window focus / overlay -> pause gate for the guest and the SPU2 output
     // Hotkeys (edge detected, only while our window is in the foreground): Alt+Enter and F11 toggle borderless
     // fullscreen.
-    if (GetForegroundWindow() == s.parent) {
-        const bool ae = (GetAsyncKeyState(VK_MENU) & 0x8000) && (GetAsyncKeyState(VK_RETURN) & 0x8000);
-        const bool f11 = (GetAsyncKeyState(VK_F11) & 0x8000) != 0;
+    if (drakan_win::focused()) {
+        namespace vk = drakan_win::vk;
+        const bool ae = drakan_win::keyDown(vk::Alt) && drakan_win::keyDown(vk::Enter);
+        const bool f11 = drakan_win::keyDown(vk::F11);
         if ((ae && !s.altEnterDown) || (f11 && !s.f11Down))
             s.setFullscreen(!s.fullscreen);
         s.altEnterDown = ae;
         s.f11Down = f11;
-        const bool f2 = (GetAsyncKeyState(VK_F2) & 0x8000) != 0 && !(GetAsyncKeyState(VK_CONTROL) & 0x8000);
+        const bool f2 = drakan_win::keyDown(vk::F2) && !drakan_win::keyDown(vk::Control);
         if (f2 && !s.f2Down)
             std::fprintf(stderr, "[gsr] fps counter mode %d\n", drakan_fpsmeter::cycleMode());
         s.f2Down = f2;
     }
     s.applyWindowRequests(); // settings overlay: window mode / size (outside of the present)
-    if (IsIconic(s.parent)) {
+    if (drakan_win::minimized()) {
         // Minimised: nothing is visible, so do not present (a flip-model Present into a minimised window can block, and
         // the host loop must keep pumping messages). The guest is independent of the host loop and keeps its own 60 Hz
         // pace.
@@ -1431,7 +1383,7 @@ void GsrBridge::hostTick() {
         s.gs->waitForPresent(50);
     if (const auto now = std::chrono::steady_clock::now(); now >= s.refreshQueryAt) {
         s.refreshQueryAt = now + std::chrono::seconds(1);
-        const double refresh = monitorRefreshSeconds(s.parent);
+        const double refresh = drakan_win::refreshSeconds();
         if (refresh != s.refreshSeconds)
             std::fprintf(stderr, "[gsr] display refresh %.4f Hz\n", refresh > 0 ? 1.0 / refresh : 0.0);
         s.refreshSeconds = refresh;
@@ -1452,8 +1404,8 @@ void GsrBridge::hostTick() {
         if (now - dbgT0 > std::chrono::milliseconds(250))
             std::fprintf(stderr, "[gsr-pacing] slow host tick: wait %.0f ms, present %.0f ms (iconic=%d fg=%d)\n",
                          std::chrono::duration<double, std::milli>(dbgT1 - dbgT0).count(),
-                         std::chrono::duration<double, std::milli>(now - dbgT1).count(), IsIconic(s.parent) ? 1 : 0,
-                         GetForegroundWindow() == s.parent ? 1 : 0);
+                         std::chrono::duration<double, std::milli>(now - dbgT1).count(),
+                         drakan_win::minimized() ? 1 : 0, drakan_win::focused() ? 1 : 0);
         const double dt = std::chrono::duration<double>(now - s.lastPresent).count();
         s.lastPresent = now;
         s.pacingMax = std::max(s.pacingMax, dt);

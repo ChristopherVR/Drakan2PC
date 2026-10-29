@@ -7,8 +7,11 @@
 #undef private
 #include "gs_gsr_bridge.cpp"
 #include "gs_internal.h"
+#define GSR_BACKEND_FORWARDERS_ONLY
+#include "backend_select.inl"
 
 #include <cassert>
+#include <cctype>
 #include <future>
 
 namespace {
@@ -81,119 +84,163 @@ bool awaitLatch(GsrBridge::Impl& s, uint64_t serial) {
 
 // Every GPU-facing operation is a recording stub; the real parser, settings,
 // field state, FIFO, CV wake, acknowledgement and backpressure code runs above.
-// gsr::Backend is a concrete pimpl class (no virtuals), so a method added to
-// runtime/gs/include/gsr/gsr.h shows up as an unresolved Backend:: symbol at
-// link time. Add a matching stub below when that happens.
+// The recording backend is a gsr::BackendApi: a method added to the backend
+// interface (gs_internal.h) fails to compile here until it gets a stub below.
 namespace gsr {
-struct Backend::Impl {
+class FakeBackend final : public BackendApi {
+public:
+    FakeBackend(Stats& st, uint32_t sc) : stats(st), scale(sc) {}
+    bool init() override;
+    bool valid() const override;
+    std::string adapterName() const override;
+    void draw(const GsDrawState& st, const ClutBuf& clut, const DrawVertex* v, uint32_t count) override;
+    void flushToMemory(uint32_t firstBlock, uint32_t lastBlock) override;
+    bool beginTargetUpload(uint32_t psm, uint32_t bp, uint32_t bw, uint32_t x, uint32_t y, uint32_t w,
+                           uint32_t h) override;
+    void completeTargetUpload(uint32_t psm, uint32_t bp, uint32_t bw, uint32_t x, uint32_t y, uint32_t w, uint32_t h,
+                              bool apply) override;
+    void flushAll() override;
+    void drawMovieFrame(uint32_t dbp, uint32_t dbw, uint32_t x, uint32_t y, uint32_t w, uint32_t h,
+                        const MovieImage& image, uint64_t imageId) override;
+    void present(const DisplayState& d) override;
+    void latchDisplay(const DisplayState& d, uint32_t field) override;
+    void presentLatched() override;
+    void* beginPresentWait() override;
+    void endPresentWait(bool ready) override;
+    void setVsync(bool on) override;
+    bool vsyncEnabled() const override;
+    void applyLive(const LiveSettings& ls) override;
+    uint32_t internalScale() const override;
+    void getViewport(uint32_t& w, uint32_t& h) const override;
+    void setOverlayCallback(std::function<void(const OverlayContext&)> cb) override;
+    bool capture(const DisplayState& d, Image& out) override;
+    bool captureLastGameplay(Image& out, float& aspect) override;
+    bool captureFramebuffer(uint32_t fbp, uint32_t fbw, uint32_t psm, uint32_t w, uint32_t h, Image& out) override;
+    void resize(uint32_t w, uint32_t h) override;
+    void reset() override;
+    void endFrame() override;
+    void noteVuUpload(uint32_t vuAddr, uint32_t qwCount, const float* vuRows0to6) override;
+    void noteSceneCamera(const SceneGuideCamera& camera) override;
+    void noteObjectMotion(const ObjectMotionScope& scope) override;
+    void noteSceneGeometry(const SceneGeometry& geometry) override;
+    void noteSceneModels(std::shared_ptr<const SceneModels> models) override;
+    std::string upscaleStatus() const override;
+    double upscaleGpuMs() const override;
+    void upscaleCut() override;
+    bool upscaleAvailable(std::string& status) const override;
+    bool neuralRenderingAvailable(std::string& status) const override;
+    std::string neuralRenderingStatus() const override;
+    bool waterRenderingAvailable(std::string& status) const override;
+    std::string waterRenderingStatus() const override;
+    std::string rayTracingStatus() const override;
     Stats& stats;
     uint32_t scale;
-    Impl(Stats& st, uint32_t sc) : stats(st), scale(sc) {}
 };
-Backend::Backend(LocalMemory&, const Config& cfg, Stats& st) : m_impl(std::make_unique<Impl>(st, cfg.scale)) {}
+Backend::Backend(LocalMemory&, const Config& cfg, Stats& st) : m_api(std::make_unique<FakeBackend>(st, cfg.scale)) {}
 Backend::~Backend() = default;
-bool Backend::init() {
-    return true;
-}
-bool Backend::valid() const {
-    return true;
-}
-std::string Backend::adapterName() const {
-    return "CPU recording backend";
-}
-void Backend::draw(const GsDrawState&, const ClutBuf&, const DrawVertex*, uint32_t) {
-    ++m_impl->stats.drawCalls;
-    record('D');
-}
-void Backend::flushToMemory(uint32_t, uint32_t) {}
-bool Backend::beginTargetUpload(uint32_t, uint32_t, uint32_t, uint32_t, uint32_t, uint32_t, uint32_t) {
-    return false;
-}
-void Backend::completeTargetUpload(uint32_t, uint32_t, uint32_t, uint32_t, uint32_t, uint32_t, uint32_t, bool) {}
-void Backend::drawMovieFrame(uint32_t, uint32_t, uint32_t, uint32_t, uint32_t, uint32_t, const MovieImage&, uint64_t) {}
-void Backend::flushAll() {}
-void Backend::present(const DisplayState&) {
-    record('P');
-}
-void Backend::latchDisplay(const DisplayState& d, uint32_t field) {
-    std::lock_guard<std::mutex> lock(eventMutex);
-    events.push_back({'L', d, field});
-}
-void Backend::presentLatched() {
-    record('P');
-}
-void* Backend::beginPresentWait() {
-    return nullptr;
-}
 bool Backend::waitPresentHandle(void*, uint32_t) {
     return true;
 }
-void Backend::endPresentWait(bool) {}
-void Backend::setVsync(bool) {}
-bool Backend::vsyncEnabled() const {
+bool FakeBackend::init() {
+    return true;
+}
+bool FakeBackend::valid() const {
+    return true;
+}
+std::string FakeBackend::adapterName() const {
+    return "CPU recording backend";
+}
+void FakeBackend::draw(const GsDrawState&, const ClutBuf&, const DrawVertex*, uint32_t) {
+    ++stats.drawCalls;
+    record('D');
+}
+void FakeBackend::flushToMemory(uint32_t, uint32_t) {}
+bool FakeBackend::beginTargetUpload(uint32_t, uint32_t, uint32_t, uint32_t, uint32_t, uint32_t, uint32_t) {
     return false;
 }
-void Backend::applyLive(const LiveSettings& ls) {
+void FakeBackend::completeTargetUpload(uint32_t, uint32_t, uint32_t, uint32_t, uint32_t, uint32_t, uint32_t, bool) {}
+void FakeBackend::drawMovieFrame(uint32_t, uint32_t, uint32_t, uint32_t, uint32_t, uint32_t, const MovieImage&,
+                                 uint64_t) {}
+void FakeBackend::flushAll() {}
+void FakeBackend::present(const DisplayState&) {
+    record('P');
+}
+void FakeBackend::latchDisplay(const DisplayState& d, uint32_t field) {
+    std::lock_guard<std::mutex> lock(eventMutex);
+    events.push_back({'L', d, field});
+}
+void FakeBackend::presentLatched() {
+    record('P');
+}
+void* FakeBackend::beginPresentWait() {
+    return nullptr;
+}
+void FakeBackend::endPresentWait(bool) {}
+void FakeBackend::setVsync(bool) {}
+bool FakeBackend::vsyncEnabled() const {
+    return false;
+}
+void FakeBackend::applyLive(const LiveSettings& ls) {
     if (ls.mask & LiveSettings::F_SCALE)
-        m_impl->scale = ls.scale;
+        scale = ls.scale;
     record('S');
 }
-uint32_t Backend::internalScale() const {
-    return m_impl->scale;
+uint32_t FakeBackend::internalScale() const {
+    return scale;
 }
-void Backend::getViewport(uint32_t& w, uint32_t& h) const {
+void FakeBackend::getViewport(uint32_t& w, uint32_t& h) const {
     w = viewportW;
     h = viewportH;
 }
-void Backend::setOverlayCallback(std::function<void(const OverlayContext&)>) {}
-bool Backend::capture(const DisplayState&, Image&) {
+void FakeBackend::setOverlayCallback(std::function<void(const OverlayContext&)>) {}
+bool FakeBackend::capture(const DisplayState&, Image&) {
     return false;
 }
-bool Backend::captureFramebuffer(uint32_t, uint32_t, uint32_t, uint32_t, uint32_t, Image&) {
+bool FakeBackend::captureFramebuffer(uint32_t, uint32_t, uint32_t, uint32_t, uint32_t, Image&) {
     return false;
 }
-void Backend::resize(uint32_t, uint32_t) {}
-void Backend::reset() {}
-void Backend::endFrame() {
+void FakeBackend::resize(uint32_t, uint32_t) {}
+void FakeBackend::reset() {}
+void FakeBackend::endFrame() {
     record('E');
 }
-void Backend::noteVuUpload(uint32_t, uint32_t, const float*) {
+void FakeBackend::noteVuUpload(uint32_t, uint32_t, const float*) {
     record('V');
 }
-void Backend::noteSceneCamera(const SceneGuideCamera&) {
+void FakeBackend::noteSceneCamera(const SceneGuideCamera&) {
     record('C');
 }
-void Backend::noteObjectMotion(const ObjectMotionScope&) {
+void FakeBackend::noteObjectMotion(const ObjectMotionScope&) {
     record('O');
 }
-std::string Backend::upscaleStatus() const {
+std::string FakeBackend::upscaleStatus() const {
     return {};
 }
-double Backend::upscaleGpuMs() const {
+double FakeBackend::upscaleGpuMs() const {
     return 0;
 }
-void Backend::upscaleCut() {}
-bool Backend::upscaleAvailable(std::string&) const {
+void FakeBackend::upscaleCut() {}
+bool FakeBackend::upscaleAvailable(std::string&) const {
     return false;
 }
-bool Backend::neuralRenderingAvailable(std::string&) const {
+bool FakeBackend::neuralRenderingAvailable(std::string&) const {
     return false;
 }
-std::string Backend::neuralRenderingStatus() const {
+std::string FakeBackend::neuralRenderingStatus() const {
     return {};
 }
-void Backend::noteSceneGeometry(const SceneGeometry&) {}
-void Backend::noteSceneModels(std::shared_ptr<const SceneModels>) {}
-bool Backend::waterRenderingAvailable(std::string&) const {
+void FakeBackend::noteSceneGeometry(const SceneGeometry&) {}
+void FakeBackend::noteSceneModels(std::shared_ptr<const SceneModels>) {}
+bool FakeBackend::waterRenderingAvailable(std::string&) const {
     return false;
 }
-std::string Backend::waterRenderingStatus() const {
+std::string FakeBackend::waterRenderingStatus() const {
     return {};
 }
-std::string Backend::rayTracingStatus() const {
+std::string FakeBackend::rayTracingStatus() const {
     return {};
 }
-bool Backend::captureLastGameplay(Image&, float&) {
+bool FakeBackend::captureLastGameplay(Image&, float&) {
     return false;
 }
 bool writePng(const char*, const Image&) {
@@ -224,6 +271,31 @@ bool smoothHighlightInitial() {
 namespace drakan_win {
 void setHideCursor(bool) {}
 void setModalTick(void (*)(void*), void*) {}
+Surface surface() {
+    return {};
+}
+bool clientSize(int& w, int& h) {
+    w = 640;
+    h = 480;
+    return true;
+}
+bool minimized() {
+    return false;
+}
+bool focused() {
+    return true;
+}
+void setFullscreen(bool) {}
+bool monitorSize(int&, int&) {
+    return false;
+}
+void setClientSize(int, int) {}
+double refreshSeconds() {
+    return 0.0;
+}
+bool keyDown(int) {
+    return false;
+}
 } // namespace drakan_win
 namespace drakan_pause {
 void hostTick(void*) {}
@@ -256,6 +328,13 @@ namespace ps2perf {
 std::atomic<uint64_t> g_flips{0};
 }
 namespace drakan_cfg {
+int compareNoCase(const char* a, const char* b) {
+    for (;; ++a, ++b) {
+        const int ca = std::tolower(static_cast<unsigned char>(*a)), cb = std::tolower(static_cast<unsigned char>(*b));
+        if (ca != cb || !ca)
+            return ca - cb;
+    }
+}
 const std::string& exeDir() {
     static const std::string dir;
     return dir;

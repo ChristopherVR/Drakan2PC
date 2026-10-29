@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Generate the private, git-ignored Drakan runtime inputs from an owned SCES_500.06 ELF.
+"""Generate the private, git-ignored Drakan runtime inputs from an owned SCES_500.06 or SCUS_971.28 ELF.
 
 Requires Python 3.11+. Writes two files into the in-repo ps2recomp/ tree (both are
 listed in .gitignore and rejected by scripts/repository_guard.py if ever tracked):
@@ -21,21 +21,43 @@ DEFAULT_RUNTIME = Path(__file__).resolve().parents[1] / "ps2recomp"
 ELF_SIZE = 4566488
 ELF_SHA256 = "7d790b35733e3e7204df8db84f0ce55a81aa667d9b75c5f121066fc565883b8e"
 VU_CHUNKS = ((4031504, 2048), (4033560, 2048), (4035616, 2048), (4037672, 2048), (4039728, 2048), (4041784, 1944))
+REGIONS = Path(__file__).resolve().parent / "buildtool" / "regions.json"
 VU_SHA256 = "8a2dceea21b39703cffa7456d8278d2824cd1852359a4488552131ce0aa623ad"
 VU_FNV = 0xAEA998A337773D22
 VU_RELATIVE = Path("ps2xRuntime/src/lib/vu/aot/ps2_vu1_image.inc")
 ICON_RELATIVE = Path("ps2xRuntime/src/res/drakan.ico")
 
 
-def extract_vu(elf: Path) -> bytes:
-    if elf.stat().st_size != ELF_SIZE:
-        raise ValueError("Unsupported ELF size; expected the verified PAL SCES_500.06")
+def known_executables() -> list[tuple[int, str, tuple]]:
+    """(size, SHA-256, VU chunks) of every verified boot ELF: PAL above, other regions from regions.json.
+
+    Both regions store the same VU1 microcode, only at different file offsets (docs/reference/regions.md).
+    """
+    known = [(ELF_SIZE, ELF_SHA256, VU_CHUNKS)]
+    for profile in json.loads(REGIONS.read_text(encoding="utf-8"))["regions"].values():
+        if profile["boot"] != "SCES_500.06":
+            known.append((profile["elf_size"], profile["elf_sha256"], tuple(tuple(c) for c in profile["vu_chunks"])))
+    return known
+
+
+def matching_executable(elf: Path) -> tuple[str, tuple, bytes]:
+    size = elf.stat().st_size
+    candidates = [k for k in known_executables() if k[0] == size]
+    if not candidates:
+        raise ValueError("Unsupported ELF size; expected the verified PAL SCES_500.06 or USA SCUS_971.28")
     data = elf.read_bytes()
-    if data[:6] != b"\x7fELF\x01\x01" or hashlib.sha256(data).hexdigest() != ELF_SHA256:
-        raise ValueError("ELF SHA-256 differs from the verified SCES_500.06; no output written")
-    if any(offset + size > len(data) for offset, size in VU_CHUNKS):
+    digest = hashlib.sha256(data).hexdigest()
+    for _, sha, chunks in candidates:
+        if data[:6] == b"\x7fELF\x01\x01" and digest == sha:
+            return sha, chunks, data
+    raise ValueError("ELF SHA-256 differs from the verified executables; no output written")
+
+
+def extract_vu(elf: Path) -> bytes:
+    _, chunks, data = matching_executable(elf)
+    if any(offset + size > len(data) for offset, size in chunks):
         raise ValueError("VU image range exceeds the ELF")
-    image = b"".join(data[offset : offset + size] for offset, size in VU_CHUNKS)
+    image = b"".join(data[offset : offset + size] for offset, size in chunks)
     if len(image) != 12184 or hashlib.sha256(image).hexdigest() != VU_SHA256:
         raise ValueError("Reconstructed VU image failed size/SHA-256 verification")
     return image
@@ -119,7 +141,7 @@ def prepare_runtime(runtime: Path, elf: Path) -> dict:
         created.append(target.relative_to(runtime).as_posix())
     return {
         "runtime_source": str(runtime),
-        "elf_sha256": ELF_SHA256,
+        "elf_sha256": matching_executable(elf)[0],
         "vu_sha256": VU_SHA256,
         "vu_pairs": len(image) // 8,
         "vu_fnv1a": f"{VU_FNV:016x}",
@@ -133,7 +155,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--runtime-source", type=Path, default=DEFAULT_RUNTIME, help="the in-repo ps2recomp/ directory (default)"
     )
-    parser.add_argument("--elf", type=Path, required=True, help="Owned, extracted SCES_500.06 ELF")
+    parser.add_argument("--elf", type=Path, required=True, help="Owned, extracted SCES_500.06 or SCUS_971.28 ELF")
     args = parser.parse_args(argv)
     try:
         result = prepare_runtime(args.runtime_source, args.elf)

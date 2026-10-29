@@ -44,10 +44,20 @@ struct ClutEvent // a CLUT was loaded into the CLUT buffer
 };
 
 struct Config {
+    // The GS backend: Auto = WebGPU when the build has it (every platform), else Direct3D 11 (Windows builds have
+    // both).
+    enum class Api : uint8_t { Auto, D3D11, WebGpu } api = Api::Auto;
     std::function<void(const TextureEvent&)> onTexture;
     std::function<void(const UploadEvent&)> onUpload;
     std::function<void(const ClutEvent&)> onClut;
-    void* hwnd = nullptr;     // HWND of the output window; nullptr = headless (offscreen only)
+    void* hwnd = nullptr; // HWND of the output window; nullptr = headless (offscreen only)
+    // The output window on other platforms (WebGPU renderer): X11 = windowDisplay Display* + xlibWindow, Wayland =
+    // windowDisplay wl_display* + hwnd wl_surface*, Canvas = canvasSelector (browser; the renderer's GPU thread takes
+    // the canvas over as an OffscreenCanvas).
+    enum class WindowKind : uint8_t { Win32, Xlib, Wayland, Canvas } windowKind = WindowKind::Win32;
+    void* windowDisplay = nullptr;
+    uint64_t xlibWindow = 0;
+    std::string canvasSelector;
     uint32_t windowWidth = 0; // swapchain size (0 = query from hwnd)
     uint32_t windowHeight = 0;
     uint32_t scale = 1; // internal resolution multiplier (1..8)
@@ -142,7 +152,16 @@ struct Image {
 // Overlay hook (runtime/settings menu): handed to the callback at the end of the present path, right before Present().
 // Pointers are ID3D11Device*, ID3D11DeviceContext*, ID3D11RenderTargetView* (the swap chain back buffer); sizes are the
 // back buffer size.
+// The graphics API behind an OverlayContext's handles.
+enum class OverlayApi : uint8_t {
+    D3D11,  // device = ID3D11Device*, context = ID3D11DeviceContext*, rtv = ID3D11RenderTargetView*, gridSrv =
+            // ID3D11ShaderResourceView*
+    WebGpu, // device = gsr::rhi::Device*, context = null, rtv = gsr::rhi::Texture* (the surface image), gridSrv =
+            // gsr::rhi::Texture*
+};
+
 struct OverlayContext {
+    OverlayApi api = OverlayApi::D3D11;
     void* device = nullptr;
     void* context = nullptr;
     void* rtv = nullptr;

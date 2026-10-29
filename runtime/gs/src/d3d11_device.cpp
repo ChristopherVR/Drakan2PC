@@ -3,7 +3,7 @@
 
 namespace gsr {
 
-Backend::Impl::Impl(LocalMemory& m, const Config& c, Stats& s) : mem(m), cfg(c), st(s) {
+D3D11Backend::Impl::Impl(LocalMemory& m, const Config& c, Stats& s) : mem(m), cfg(c), st(s) {
     scale = std::clamp(c.scale, 1u, 8u);
     initTexQuality();
     const RuntimeFlags& f = runtimeFlags();
@@ -25,7 +25,7 @@ Backend::Impl::Impl(LocalMemory& m, const Config& c, Stats& s) : mem(m), cfg(c),
     drawLogLast = f.drawLogLast;
 }
 
-bool Backend::Impl::compile(const char* entry, const char* target, const char* defines, ComPtr<ID3DBlob>& out) {
+bool D3D11Backend::Impl::compile(const char* entry, const char* target, const char* defines, ComPtr<ID3DBlob>& out) {
     D3D_SHADER_MACRO macros[] = {{"HW_BLEND", defines}, {nullptr, nullptr}};
     ComPtr<ID3DBlob> err;
     HRESULT hr = D3DCompile(kHlslMain, std::strlen(kHlslMain), "gs_shaders", macros, nullptr, entry, target,
@@ -38,7 +38,7 @@ bool Backend::Impl::compile(const char* entry, const char* target, const char* d
     return true;
 }
 
-bool Backend::Impl::init() {
+bool D3D11Backend::Impl::init() {
     UINT flags = D3D11_CREATE_DEVICE_BGRA_SUPPORT;
     if (cfg.debugLayer)
         flags |= D3D11_CREATE_DEVICE_DEBUG;
@@ -193,7 +193,7 @@ bool Backend::Impl::init() {
     return true;
 }
 
-void Backend::Impl::createSwapchain() {
+void D3D11Backend::Impl::createSwapchain() {
     HWND hwnd = (HWND)cfg.hwnd;
     RECT rc{};
     GetClientRect(hwnd, &rc);
@@ -238,7 +238,7 @@ void Backend::Impl::createSwapchain() {
     makeSwapRtv();
 }
 
-std::wstring Backend::Impl::neuralDirectory() const {
+std::wstring D3D11Backend::Impl::neuralDirectory() const {
     if (!cfg.neuralRuntimeDir.empty())
         return std::filesystem::u8path(cfg.neuralRuntimeDir).wstring();
     wchar_t executable[32768]{};
@@ -248,18 +248,18 @@ std::wstring Backend::Impl::neuralDirectory() const {
     return (std::filesystem::path(executable).parent_path() / L"nr").wstring();
 }
 
-bool Backend::Impl::neuralAvailable(std::string& status) const {
+bool D3D11Backend::Impl::neuralAvailable(std::string& status) const {
     status = "DLSS 5 bridge is not included in this build";
     return false;
 }
 
-std::string Backend::Impl::neuralStatus() const {
+std::string D3D11Backend::Impl::neuralStatus() const {
     if (!cfg.neuralRendering || !neuralEnabled)
         return neuralStatusText;
     return neuralPresentation.status(neuralStatusText);
 }
 
-void Backend::Impl::setNeural(bool on) {
+void D3D11Backend::Impl::setNeural(bool on) {
     neuralPresentation.reset();
     discardTemporalWorlds();
     for (auto& target : rts) {
@@ -281,7 +281,7 @@ void Backend::Impl::setNeural(bool on) {
     neuralStatusText = on ? "DLSS 5 bridge is not included in this build" : "DLSS 5 neural rendering off";
 }
 
-void Backend::Impl::retireNeural(const std::string& failure) {
+void D3D11Backend::Impl::retireNeural(const std::string& failure) {
     discardTemporalWorlds();
     neuralEnabled = false;
     neuralReset = true;
@@ -307,14 +307,14 @@ void Backend::Impl::retireNeural(const std::string& failure) {
     std::fprintf(stderr, "[dlss-nr] %s\n", neuralStatusText.c_str());
 }
 
-void Backend::Impl::makeSwapRtv() {
+void D3D11Backend::Impl::makeSwapRtv() {
     swapRtv.Reset();
     ComPtr<ID3D11Texture2D> bb;
     if (swap && SUCCEEDED(swap->GetBuffer(0, IID_PPV_ARGS(&bb))))
         dev->CreateRenderTargetView(bb.Get(), nullptr, &swapRtv);
 }
 
-void Backend::Impl::resize(uint32_t w, uint32_t h) {
+void D3D11Backend::Impl::resize(uint32_t w, uint32_t h) {
     if (!w || !h)
         return;
     if (!swap)
@@ -327,7 +327,7 @@ void Backend::Impl::resize(uint32_t w, uint32_t h) {
     makeSwapRtv();
 }
 
-ComPtr<ID3D11Texture2D> Backend::Impl::makeTex(uint32_t w, uint32_t h, UINT bind, DXGI_FORMAT fmt) {
+ComPtr<ID3D11Texture2D> D3D11Backend::Impl::makeTex(uint32_t w, uint32_t h, UINT bind, DXGI_FORMAT fmt) {
     D3D11_TEXTURE2D_DESC d{};
     d.Width = w;
     d.Height = h;
@@ -342,7 +342,7 @@ ComPtr<ID3D11Texture2D> Backend::Impl::makeTex(uint32_t w, uint32_t h, UINT bind
     return t;
 }
 
-void Backend::Impl::changeScale(uint32_t ns) {
+void D3D11Backend::Impl::changeScale(uint32_t ns) {
     if (ns == scale)
         return;
     // GPU render targets -> local memory (so nothing the game drew is lost), then drop every scale dependent
@@ -377,7 +377,7 @@ void Backend::Impl::changeScale(uint32_t ns) {
     st.liveScaleChanges++;
 }
 
-void Backend::Impl::applyLive(const LiveSettings& ls) {
+void D3D11Backend::Impl::applyLive(const LiveSettings& ls) {
     using L = LiveSettings;
     if (ls.mask & L::F_ASPECT) {
         cfg.forcedAspect = ls.forcedAspect;
@@ -500,7 +500,7 @@ void Backend::Impl::applyLive(const LiveSettings& ls) {
     }
 }
 
-void Backend::Impl::reset() {
+void D3D11Backend::Impl::reset() {
     engineWorldOpen = false;
     gridCapture.open = false;
     gridCapture.rt = nullptr;

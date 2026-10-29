@@ -195,6 +195,7 @@ void pad(uint8_t* memory, R5900Context* context, PS2Runtime* runtime) {
     g_controls.beginExternalFrame(controls);
     drakanTickPortableMenuHooks(memory, context, runtime);
     g_controls.beforePadMgrUpdate(guest, actor.dragon);
+    g_controls.updateBowAim(guest);
     int quickSlot = 0;
     for (const auto& binding : g_controls.config().game)
         if (binding.act == drakan_input::Binding::Quick &&

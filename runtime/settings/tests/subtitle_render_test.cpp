@@ -30,7 +30,7 @@ int main(int argc, char** argv) {
                     io.DisplaySize = {width, height};
                     io.DeltaTime = 1.f / 60;
                     ImGui::NewFrame();
-                    dsettings::SettingsOverlay::drawSubtitleBand(text, 1, width, height, size);
+                    dsettings::drawSubtitleBand(text, 1, width, height, size);
                     auto* draw = ImGui::GetForegroundDrawList();
                     if (draw->VtxBuffer.Size < 4)
                         return 1;

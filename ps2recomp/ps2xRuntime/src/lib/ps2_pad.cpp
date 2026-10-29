@@ -6,6 +6,7 @@
 #include "portable_host_keys.h"
 #endif
 #include "drakan_controlled_actor.h"
+#include "drakan_region.h"
 #if !defined(_WIN32) && !defined(__EMSCRIPTEN__)
 #include "host_mouse_capture.h"
 #include <atomic>
@@ -68,7 +69,8 @@ uint32_t hostPadContext() {
     if (!g_hostPadMemory)
         return 0;
     uint32_t screen = 0;
-    std::memcpy(&screen, g_hostPadMemory + 0x4fb60c, 4);
+    // the game's current GUI screen object (PAL 0x4fb60c, drakan_region.cpp for other regions)
+    std::memcpy(&screen, g_hostPadMemory + drakan_region::guestAddress(0x4fb60cu), 4);
     return screen >= 0x100000u && screen < 32u * 1024u * 1024u - 0x100u ? screen : 0;
 }
 } // namespace
@@ -357,7 +359,7 @@ void ps2PollHostPad() {
 #else
     const bool focused = IsWindowFocused();
 #endif
-#if !defined(_WIN32)
+#if defined(PS2X_HAVE_PORTABLE_UI)
     for (const auto& [key, dik] : kPortableHostKeys)
         hostInput.keyDown.set(unsigned(dik), keyActive(key));
     for (int button = 0; button < 5; ++button)
@@ -381,7 +383,7 @@ void ps2PollHostPad() {
 bool PSPadBackend::readState(int port, int slot, uint8_t* data, size_t size) {
     if (!data || size < 32)
         return false;
-#if !defined(_WIN32)
+#if defined(PS2X_HAVE_PORTABLE_UI)
     const bool portable = drakanPortablePadSample(port, slot, data);
 #else
     const bool portable = false;
