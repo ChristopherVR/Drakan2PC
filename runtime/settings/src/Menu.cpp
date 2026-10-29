@@ -734,10 +734,20 @@ void SettingsMenu::drawFooter() {
     ImGui::SameLine();
     if (PlateButton("Quit to Desktop", ImVec2(0, S(46))))
         openQuit_ = true;
-    ImGui::SameLine();
-    ImGui::TextColored(kMuted, "%s", anyDirty ? "Unsaved changes" : "");
-    const float bw = S(170);
-    ImGui::SameLine(ImGui::GetContentRegionMax().x - bw * 3 - ImGui::GetStyle().ItemSpacing.x * 2);
+    const float bw = S(170), spacing = ImGui::GetStyle().ItemSpacing.x;
+    const float buttonsX = ImGui::GetContentRegionMax().x - bw * 3 - spacing * 2;
+    if (anyDirty) {
+        // Only in the gap before Cancel; when it is too narrow the * on the page tabs already says so.
+        ImGui::SameLine();
+        const float room = buttonsX - (ImGui::GetCursorPosX() + spacing);
+        for (const char* note : {"Unsaved changes", "Unsaved"})
+            if (ImGui::CalcTextSize(note).x <= room) {
+                ImGui::AlignTextToFramePadding();
+                ImGui::TextColored(kMuted, "%s", note);
+                break;
+            }
+    }
+    ImGui::SameLine(buttonsX);
     if (PlateButton("Cancel", ImVec2(bw, S(46))))
         close();
     ImGui::SameLine();
@@ -1292,7 +1302,9 @@ void SettingsMenu::drawPopups() {
                     }
             }
             ImGui::Dummy(ImVec2(0, S(6)));
-            if (PlateButton("Bind Esc", ImVec2(S(200), S(46)))) {
+            // Three buttons share the content width; fixed 200 px plates overflowed the 560 px popup.
+            const float bw = (ImGui::GetContentRegionAvail().x - ImGui::GetStyle().ItemSpacing.x * 2.0f) / 3.0f;
+            if (PlateButton("Bind Esc", ImVec2(bw, S(46)))) {
                 BindingLayer& layer = cap_.game ? p_.controls.game : p_.controls.menu;
                 auto others = layer.actionsFor("ESC");
                 others.erase(std::remove(others.begin(), others.end(), cap_.action), others.end());
@@ -1305,13 +1317,13 @@ void SettingsMenu::drawPopups() {
                 }
             }
             ImGui::SameLine();
-            if (PlateButton("Clear", ImVec2(S(200), S(46)))) {
+            if (PlateButton("Clear", ImVec2(bw, S(46)))) {
                 clearSlot(cap_.game ? p_.controls.game : p_.controls.menu, cap_.action, cap_.slot);
                 cap_ = Capture();
                 ImGui::CloseCurrentPopup();
             }
             ImGui::SameLine();
-            if (PlateButton("Cancel", ImVec2(S(200), S(46))) || ImGui::IsKeyPressed(ImGuiKey_Escape, false)) {
+            if (PlateButton("Cancel", ImVec2(bw, S(46))) || ImGui::IsKeyPressed(ImGuiKey_Escape, false)) {
                 cap_ = Capture();
                 ImGui::CloseCurrentPopup();
             }

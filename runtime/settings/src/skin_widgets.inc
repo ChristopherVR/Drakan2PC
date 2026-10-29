@@ -70,8 +70,10 @@ bool PlateWidget(const char* label, ImVec2 size, bool selected, const char* badg
     const ImU32 tc = dis ? IM_COL32(140, 126, 100, 255) : (foc || hov || selected) ? IM_COL32(255, 232, 160, 255) : IM_COL32(226, 190, 100, 255);
     GameTextCentered(dl, ImVec2(sa.x, a.y), ImVec2(sb.x, b.y), fsz, tc, label, le);
     if (badge && *badge) {
-        const float bw = GameTextW(fsz * 0.9f, badge);
-        GameText(dl, fsz * 0.9f, ImVec2(sb.x - bw - cap * 0.1f, a.y + (h - GameTextH(fsz * 0.9f)) * 0.5f), IM_COL32(242, 158, 38, 255), badge);
+        // Just after the centred label (not at the slot edge, where it ran into long labels such as "Controls").
+        const float bw = GameTextW(fsz * 0.9f, badge), lw = GameTextW(fsz, label, le);
+        const float bx = std::min(std::floor(sa.x + (sb.x - sa.x + lw) * 0.5f) + fsz * 0.15f, sb.x - bw);
+        GameText(dl, fsz * 0.9f, ImVec2(bx, a.y + (h - GameTextH(fsz * 0.9f)) * 0.5f), IM_COL32(242, 158, 38, 255), badge);
     }
     if (pressed) Snd(UiSound::Confirm);
     return pressed;
