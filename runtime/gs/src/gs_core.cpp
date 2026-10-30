@@ -1568,6 +1568,9 @@ bool Renderer::valid() const {
 std::string Renderer::adapterName() const {
     return m_impl->backend->adapterName();
 }
+Config::Api Renderer::api() const {
+    return m_impl->backend->api();
+}
 const Stats& Renderer::stats() const {
     return m_impl->stats;
 }

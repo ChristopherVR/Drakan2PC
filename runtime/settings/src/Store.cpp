@@ -719,7 +719,7 @@ std::string settingLabel(const std::string& key) {
         {"video.hd_textures", "HD texture replacement"},
         {"video.texture_dump", "Texture dump"},
         {"video.modern_water", "Modern water"},
-        {"video.ray_reflections", "DXR water reflections"},
+        {"video.ray_reflections", "Ray-traced water reflections"},
         {"video.ray_shadows", "Ray-traced shadows"},
         {"video.dlss", "DLSS"},
         {"video.dlss_preset", "DLSS model"},

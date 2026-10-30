@@ -1499,6 +1499,7 @@ struct DrakanSettingsHost final : CommonSettingsHost {
         c.promptStyle = true;
         c.dlss = drakan_dlss::available();
         c.dlssStatus = drakan_dlss::status();
+        c.dlssNvidia = g_gs && g_gs->api() == gsr::Config::Api::D3D11;
         c.dlssNeural = drakan_dlss::neuralAvailable();
         c.dlssNeuralStatus = drakan_dlss::neuralStatus();
         c.modernWater = g_gs && g_gs->waterRenderingAvailable(c.modernWaterStatus);

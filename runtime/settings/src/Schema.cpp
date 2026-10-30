@@ -336,9 +336,9 @@ void displayPage(gameui::SettingPage& pg, const Settings& st, const SchemaEnv& e
                                               "and Fresnel shading on native water layers."
                                             : caps.modernWaterStatus,
              false, caps.modernWater || v.modernWater);
-    b.toggle("video.ray_reflections", "DXR water reflections",
-             "Hardware ray tracing includes resident terrain and ceilings outside the view. Object and alpha-tested "
-             "material coverage remains partial. Requires modern water.",
+    b.toggle("video.ray_reflections", "Ray-traced water reflections",
+             "Reflections include resident terrain and ceilings outside the view. Object and alpha-tested material "
+             "coverage remains partial. Requires modern water.",
              false, caps.modernWater && v.modernWater)
         .needs = "Needs modern water.";
     if (!caps.rayTracingStatus.empty()) {
@@ -349,7 +349,7 @@ void displayPage(gameui::SettingPage& pg, const Settings& st, const SchemaEnv& e
 
     pg.sections.push_back({"NVIDIA DLSS", {}});
     b.sec = &pg.sections.back();
-    if (caps.dlss || caps.dlssNeural) {
+    if ((caps.dlss && caps.dlssNvidia) || caps.dlssNeural) {
         // Attribution required by the NVIDIA RTX SDKs licence wherever the DLSS SDK is in use.
         SettingRow& r = b.row("video.dlss_credit", SettingKind::Info, "Credits", kNvidiaDlssCredit, false, true);
         r.text = kNvidiaDlssCredit;

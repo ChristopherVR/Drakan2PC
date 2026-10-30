@@ -117,6 +117,12 @@ void WgpuBackend::Impl::enterTemporalWorld(RT& rt, uint32_t zbp, float zmax, uin
     }
     DepthBuf* depth = getDepth(zbp, rt.w, rt.h);
     if (!depth || !depth->tex) {
+        static bool warned = false;
+        if (!warned) {
+            std::fprintf(stderr, "[temporal] world without a depth buffer (zbp %u, %ux%u): no TAA or ray tracing\n",
+                         zbp, rt.w, rt.h);
+            warned = true;
+        }
         rt.neuralState = 2;
         taaReset = true;
         return;
@@ -259,8 +265,16 @@ void WgpuBackend::Impl::traceWorld(RT& rt, bool jittered) {
     const SceneGuideCamera& cam = rt.taaCamera;
     const uint32_t frameW = cam.frameWidth, frameH = cam.frameHeight;
     if (!depth || !depth->tex || !frameW || !frameH || frameW > rt.w || frameH > rt.h ||
-        !(cam.flags & SceneGuideCamera::Valid))
+        !(cam.flags & SceneGuideCamera::Valid)) {
+        static bool warned = false;
+        if (!warned) {
+            std::fprintf(stderr, "[modern-water] bypass: %s (frame %ux%u, target %ux%u)\n",
+                         !depth || !depth->tex ? "no world depth" : "no valid scene camera", frameW, frameH, rt.w,
+                         rt.h);
+            warned = true;
+        }
         return;
+    }
     // World -> clip over the native frame (as nr::guides prepares it), then the camera basis.
     guide::Mapping map;
     map.frameW = frameW;
@@ -327,6 +341,12 @@ void WgpuBackend::Impl::traceWorld(RT& rt, bool jittered) {
     if (wantWater)
         rt.waterOutputEpoch = motionEpoch;
     rt.rayOutputEpoch = motionEpoch;
+    // The pass may have been created by the settings overlay's status query, so say once that it traces.
+    static bool announced = false;
+    if (!announced) {
+        std::fprintf(stderr, "[modern-water] first ray-traced world: %s\n", rayPass->status().c_str());
+        announced = true;
+    }
     if (runtimeFlags().waterLog)
         std::fprintf(stderr, "[modern-water] epoch=%llu %s\n", (unsigned long long)motionEpoch,
                      rayPass->status().c_str());

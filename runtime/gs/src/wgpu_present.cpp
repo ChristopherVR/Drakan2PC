@@ -262,8 +262,11 @@ void WgpuBackend::Impl::presentLatched() {
     CpuProfile::Scope presentProfile(cpuProfile, CpuProfile::PresentCall);
     back.reset();
     gpu->present();
-    lastPresentedWater = latchedWaterWorld;
-    lastPresentedRay = latchedRayWorld;
+    // The status reports the last gameplay image: F1 opens over the pause menu, which must not reset it.
+    if (latchedGameWorld) {
+        lastPresentedWater = latchedWaterWorld;
+        lastPresentedRay = latchedRayWorld;
+    }
 }
 
 void WgpuBackend::Impl::clusterHud() {

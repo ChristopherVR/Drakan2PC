@@ -443,8 +443,11 @@ void D3D11Backend::Impl::presentLatched() {
         presentSlotHeld = false;
         neuralPresentation.present(false, latchedGameWorld, latchedWorldEpoch,
                                    SUCCEEDED(hr) && hr != DXGI_STATUS_OCCLUDED);
-        lastPresentedWater = latchedWaterWorld && SUCCEEDED(hr) && hr != DXGI_STATUS_OCCLUDED;
-        lastPresentedRay = latchedRayWorld && SUCCEEDED(hr) && hr != DXGI_STATUS_OCCLUDED;
+        // The status reports the last gameplay image: F1 opens over the pause menu, which must not reset it.
+        if (latchedGameWorld) {
+            lastPresentedWater = latchedWaterWorld && SUCCEEDED(hr) && hr != DXGI_STATUS_OCCLUDED;
+            lastPresentedRay = latchedRayWorld && SUCCEEDED(hr) && hr != DXGI_STATUS_OCCLUDED;
+        }
     }
 }
 

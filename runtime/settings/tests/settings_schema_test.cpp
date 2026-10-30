@@ -313,6 +313,20 @@ int main() {
         }
         CHECK(scale && aspect && audio);
     }
+    {
+        // The NVIDIA credit belongs to NVIDIA DLSS (Direct3D 11), not to the WebGPU temporal AA behind the same rows.
+        const auto credited = [](bool nvidia) {
+            Host host;
+            host.caps.dlssNeural = false;
+            host.caps.dlssNvidia = nvidia;
+            const auto schema = buildSettingsSchema(Settings{}, env(host));
+            const auto rows = allRows(schema);
+            return std::any_of(rows.begin(), rows.end(),
+                               [](const auto* row) { return row->key == "video.dlss_credit"; });
+        };
+        CHECK(credited(true));
+        CHECK(!credited(false));
+    }
     testCoverage();
     testRoundTrip();
     testModernApply();

@@ -351,6 +351,7 @@ public:
     void reset();
     const Stats& stats() const;
     std::string adapterName() const;
+    Config::Api api() const; // the renderer actually in use (never Auto)
     bool valid() const;
 
     struct Impl;

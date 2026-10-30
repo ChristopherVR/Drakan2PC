@@ -37,7 +37,8 @@ struct HostCaps {
     bool promptStyle = true; // keyboard vs PS2 icons (drakan_ui)
     bool dlss =
         false; // DLSS module present, NVIDIA GPU, nvngx_dlss.dll available (dlss / dlss_preset / dlss_sharpness)
-    std::string dlssStatus; // one line shown under the DLSS rows (mode in use or why it is unavailable)
+    std::string dlssStatus;  // one line shown under the DLSS rows (mode in use or why it is unavailable)
+    bool dlssNvidia = false; // the DLSS rows drive NVIDIA DLSS (Direct3D 11), not the portable temporal AA: credit it
     bool dlssNeural = false;
     std::string dlssNeuralStatus;
     bool modernWater = false;
