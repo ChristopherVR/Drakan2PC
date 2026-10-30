@@ -20,6 +20,7 @@ analysis/iop/*.asm
 analysis/vu/
 analysis/input/*.c
 dist/
+node_modules/
 analysis/sound/*.c
 controls_v2_test.ini
 

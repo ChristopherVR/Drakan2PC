@@ -11,6 +11,7 @@ stay portable to clang / WebAssembly later (see `docs/reference/portability.md`)
 | `ps2recomp/` | Our copy of PS2Recomp (forked from ran-j/PS2Recomp @ eb8688b). Owned code: edit it directly. `ps2xRecomp` = MIPS→C++ recompiler, `ps2xRuntime` = guest runtime the generated code links against. |
 | `CMakeLists.txt`, `CMakePresets.json`, `cmake/` | The single CMake root (options `DRAKAN_BUILD_RECOMPILER` / `_RUNTIME_TESTS` / `_GAME` / `_PS2X_TESTS`), presets and shared flags (`cmake/CompilerOptions.cmake`). See `BUILDING.md`. |
 | `runtime/<lib>/` | Drakan-specific runtime libraries (gs, hle, fmv, spu2, input, settings, ui, vu1ref), each an `add_subdirectory()` component exposing `drakan::<lib>`. Each has `include/`, `src/`, `tests/`. `ps2recomp/ps2xRuntime` links them by target. |
+| `editor/` | TypeScript + Vite + three.js level viewer/editor (npm workspaces: `packages/formats` = pure-TS parsers for ISO9660/SRSC/game formats, `packages/app` = browser UI). Reads the player's ISO in the browser; tests use synthetic fixtures only. See `docs/proposals/level-editor-and-multiplayer.md`. |
 | `third_party/` | Vendored third-party code (`imgui`, target `drakan::imgui`); excluded from formatters. |
 | `configs/drakan.toml` | Recompiler configuration for the game ELF. |
 | `scripts/buildtool/` | Build entry points. `Build-LocalGame.ps1 -IsoPath <iso>` does the whole local build. |

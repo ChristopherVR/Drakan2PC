@@ -23,6 +23,7 @@ SOURCE_ROOTS = {
     "cmake",
     "configs",
     "docs",
+    "editor",
     "licenses",
     "ps2recomp",
     "runtime",
