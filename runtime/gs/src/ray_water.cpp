@@ -212,6 +212,7 @@ struct RayWater::Impl {
         std::shared_ptr<const SceneModelMesh> attributeSource;
         std::vector<Attribute> attributes;
         uint64_t attributeGeneration = 0;
+        uint32_t attributeBase = 0; // nativeTextureBase of attributes
         uint32_t texturedTriangles = 0;
     };
     std::unordered_map<uint64_t, NativeMesh> nativeMeshes;
@@ -234,7 +235,6 @@ struct RayWater::Impl {
     std::vector<Attribute> cpuMaterials;
     std::vector<D3D12_RAYTRACING_INSTANCE_DESC> cpuInstances;
     std::vector<uint32_t> materialFlags;
-    uint32_t materialTextureBase = ~0u;
     uint64_t materialGeneration = 0, checkedFrames = 0;
     uint32_t width = 0, height = 0; // interop extent (renderer thread)
     // Static world the GPU currently holds.
@@ -244,6 +244,13 @@ struct RayWater::Impl {
     Point staticBase{};
     uint32_t staticCounts[3]{}, staticTextured = 0;
     std::vector<Attribute> staticAttributeData;
+    // Per geometry version: welded vertex normals and each triangle's attribute slot (instance group order).
+    std::vector<Point> staticNormals;
+    std::vector<uint32_t> staticSlot;
+    // The triangles staticAttributeData was packed from; a new material version repacks only the triangles that
+    // differ, and only their slot ranges are uploaded.
+    std::shared_ptr<const std::vector<Triangle>> staticPacked;
+    std::vector<std::pair<uint32_t, uint32_t>> staticDirty;
     UploadBuffer staticVertices;
     ComPtr<ID3D12Resource> staticBlas[3];
     ~Impl() {
@@ -681,7 +688,26 @@ void RayWater::Impl::execute(Job& job) {
             s.staticGeometry = s.staticAttributes = ~0ull;
             s.staticTextureCount = ~size_t(0);
             s.staticAttributeData.clear();
+            s.staticNormals.clear();
+            s.staticSlot.clear();
+            s.staticPacked.reset();
         } else if (rebuildStatic) {
+            if (s.staticGeometry != staticGeometryInput || s.staticSlot.size() != staticTriangles.size()) {
+                // The resident terrain grid shares exact corner positions, so welding recovers its smooth shading.
+                s.staticNormals.clear();
+                smoothNormals(
+                    staticTriangles.size(),
+                    [&](size_t i, Point(&p)[3]) { std::copy(staticTriangles[i].p, staticTriangles[i].p + 3, p); },
+                    s.staticNormals);
+                s.staticSlot.assign(staticTriangles.size(), 0);
+                uint32_t slot = 0;
+                for (unsigned g = 0; g < 3; ++g)
+                    for (size_t i = 0; i < staticTriangles.size(); ++i)
+                        if (group(staticTriangles[i]) == g)
+                            s.staticSlot[i] = slot++;
+                s.staticPacked.reset();
+                s.staticAttributes = ~0ull; // group order may have changed
+            }
             s.staticBase = origin;
             staticPositions.reserve(staticTriangles.size() * 3);
             for (unsigned g = 0; g < 3; ++g) {
@@ -694,26 +720,66 @@ void RayWater::Impl::execute(Job& job) {
                     }
             }
             s.staticGeometry = staticGeometryInput;
-            s.staticAttributes = ~0ull; // group order may have changed
         }
         if (!staticTriangles.empty() &&
             (s.staticAttributes != staticAttributeInput || s.staticTextureCount != textureCount)) {
-            s.staticAttributeData.clear();
-            s.staticAttributeData.reserve(staticTriangles.size() * kTriangleAttributes);
-            s.staticTextured = 0;
-            // The resident terrain grid shares exact corner positions, so welding recovers its smooth shading.
-            std::vector<Point> normals;
-            smoothNormals(
-                staticTriangles.size(),
-                [&](size_t i, Point(&p)[3]) { std::copy(staticTriangles[i].p, staticTriangles[i].p + 3, p); }, normals);
-            for (unsigned g = 0; g < 3; ++g)
-                for (size_t i = 0; i < staticTriangles.size(); ++i)
-                    if (group(staticTriangles[i]) == g)
-                        s.staticTextured +=
-                            packAttributes(staticTriangles[i], textureCount, s.staticAttributeData, &normals[i * 3]);
+            // Material projections change a few layers at a time (most frames while the camera moves): repack only
+            // the triangles that differ from the last packed snapshot or whose texture index crosses the texture count.
+            const std::vector<Triangle>* previous =
+                s.staticPacked && s.staticPacked->size() == staticTriangles.size() &&
+                        s.staticAttributeData.size() == staticTriangles.size() * kTriangleAttributes
+                    ? s.staticPacked.get()
+                    : nullptr;
+            if (!previous) {
+                s.staticAttributeData.assign(staticTriangles.size() * kTriangleAttributes, Attribute{});
+                s.staticTextured = 0;
+                s.staticUploaded = false;
+            }
+            const size_t oldTextures = previous ? s.staticTextureCount : 0;
+            std::vector<Attribute> packed;
+            std::vector<uint32_t> dirty;
+            for (size_t i = 0; i < staticTriangles.size(); ++i) {
+                const Triangle& t = staticTriangles[i];
+                if (previous) {
+                    const Triangle& old = (*previous)[i];
+                    if (std::memcmp(&old, &t, sizeof(Triangle)) == 0 &&
+                        (t.texture < oldTextures) == (t.texture < textureCount))
+                        continue;
+                    s.staticTextured -= old.texture < oldTextures ? 1u : 0u;
+                }
+                packed.clear();
+                s.staticTextured += packAttributes(t, textureCount, packed, &s.staticNormals[i * 3]);
+                const uint32_t slot = s.staticSlot[i];
+                std::copy(packed.begin(), packed.end(),
+                          s.staticAttributeData.begin() + size_t(slot) * kTriangleAttributes);
+                if (previous)
+                    dirty.push_back(slot);
+            }
+            if (s.staticUploaded && !dirty.empty()) {
+                // Slot ranges to upload; nearby runs merge so the copy count stays small.
+                std::sort(dirty.begin(), dirty.end());
+                for (const auto slot : dirty)
+                    if (!s.staticDirty.empty() && slot <= s.staticDirty.back().second + 64)
+                        s.staticDirty.back().second = std::max(s.staticDirty.back().second, slot + 1);
+                    else
+                        s.staticDirty.push_back({slot, slot + 1});
+            }
+            s.staticPacked = job.staticTriangles;
             s.staticAttributes = staticAttributeInput;
             s.staticTextureCount = textureCount;
-            s.staticUploaded = false;
+            if (checkCache) {
+                std::vector<Attribute> reference(s.staticAttributeData.size()), one;
+                uint32_t referenceTextured = 0;
+                for (size_t i = 0; i < staticTriangles.size(); ++i) {
+                    one.clear();
+                    referenceTextured += packAttributes(staticTriangles[i], textureCount, one, &s.staticNormals[i * 3]);
+                    std::copy(one.begin(), one.end(),
+                              reference.begin() + size_t(s.staticSlot[i]) * kTriangleAttributes);
+                }
+                if (referenceTextured != s.staticTextured ||
+                    std::memcmp(reference.data(), s.staticAttributeData.data(), reference.size() * sizeof(Attribute)))
+                    throw std::runtime_error("DXR static material repack differs from a full pack");
+            }
         }
         const uint32_t staticTotal = s.staticCounts[0] + s.staticCounts[1] + s.staticCounts[2];
         // Per-frame (dynamic) triangles, camera relative.
@@ -727,16 +793,16 @@ void RayWater::Impl::execute(Job& job) {
         colors.reserve((totalTriangles - staticTriangles.size()) * kTriangleAttributes);
         if (cpuCache) {
             // Material attributes depend on flags, texture-table indices and
-            // immutable mesh data, not on instance transforms or lighting.
+            // immutable mesh data, not on instance transforms or lighting. A new
+            // texture base (frame texture count) only moves the texture indices.
             std::vector<uint32_t> flags;
             if (models) {
                 flags.reserve(models->textures.size());
                 for (const auto& t : models->textures)
                     flags.push_back(t->flags);
             }
-            if (s.materialTextureBase != nativeTextureBase || flags != s.materialFlags) {
+            if (flags != s.materialFlags) {
                 s.materialFlags = std::move(flags);
-                s.materialTextureBase = nativeTextureBase;
                 ++s.materialGeneration;
             }
         }
@@ -789,7 +855,7 @@ void RayWater::Impl::execute(Job& job) {
                     };
                     CornerWelds unshared;
                     auto& welds = model->topology ? s.modelWelds[model->topology] : unshared;
-                    if (welds.corners.size() != model->triangles.size() * 3)
+                    if (welds.corners.size() != model->triangles.size() * 3 || welds.collapsed)
                         weldCorners(model->triangles.size(), corners, welds);
                     std::vector<Point> normals;
                     smoothNormals(model->triangles.size(), corners, welds, normals);
@@ -803,6 +869,10 @@ void RayWater::Impl::execute(Job& job) {
                         cached.texturedTriangles = buildAttributes(cached.attributes);
                         cached.attributeSource = model;
                         cached.attributeGeneration = s.materialGeneration;
+                        cached.attributeBase = nativeTextureBase;
+                    } else if (cached.attributeBase != nativeTextureBase) {
+                        rebaseModelAttributes(*model, *models, nativeTextureBase, cached.attributes);
+                        cached.attributeBase = nativeTextureBase;
                     }
                     if (checkCache) {
                         std::vector<Attribute> reference;
@@ -860,6 +930,10 @@ void RayWater::Impl::execute(Job& job) {
         const bool uploadStatic = !s.staticUploaded && !s.staticAttributeData.empty();
         if (uploadStatic)
             addCopy(0, s.staticAttributeData.size() * sizeof(Attribute));
+        else
+            for (const auto& [first, end] : s.staticDirty)
+                addCopy(uint64_t(first) * kTriangleAttributes * sizeof(Attribute),
+                        uint64_t(end - first) * kTriangleAttributes * sizeof(Attribute));
         addCopy(uint64_t(staticTotal) * kTriangleAttributes * sizeof(Attribute), colors.size() * sizeof(Attribute));
         for (const auto& upload : job.textureUploads)
             addCopy(uint64_t(texelOffset) * sizeof(Attribute) + upload.slot * textureBytes, textureBytes);
@@ -870,7 +944,12 @@ void RayWater::Impl::execute(Job& job) {
             if (uploadStatic) {
                 std::memcpy(bytes, s.staticAttributeData.data(), s.staticAttributeData.size() * sizeof(Attribute));
                 at += s.staticAttributeData.size() * sizeof(Attribute);
-            }
+            } else
+                for (const auto& [first, end] : s.staticDirty) {
+                    const size_t size = size_t(end - first) * kTriangleAttributes * sizeof(Attribute);
+                    std::memcpy(bytes + at, s.staticAttributeData.data() + size_t(first) * kTriangleAttributes, size);
+                    at += size;
+                }
             if (!colors.empty())
                 std::memcpy(bytes + at, colors.data(), colors.size() * sizeof(Attribute));
             at += colors.size() * sizeof(Attribute);
@@ -890,6 +969,7 @@ void RayWater::Impl::execute(Job& job) {
         }
         if (uploadStatic)
             s.staticUploaded = true;
+        s.staticDirty.clear();
         if (!positions.empty())
             s.upload(frame.vertices, positions.data(), positions.size() * sizeof(Point), frame.retired);
         if (!staticPositions.empty()) {

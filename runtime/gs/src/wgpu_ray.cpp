@@ -401,8 +401,13 @@ bool WgpuRay::render(const PassFrame& f, std::span<const Triangle> triangles,
         for (const auto& model : models->meshes) {
             Mesh& mesh = meshes_[model->identity];
             meshList.push_back(&mesh);
-            if (mesh.source == model && mesh.textureBase == nativeTextureBase)
+            if (mesh.source == model) {
+                if (mesh.textureBase != nativeTextureBase) {
+                    surface::rebaseModelAttributes(*model, *models, nativeTextureBase, mesh.attributes);
+                    mesh.textureBase = nativeTextureBase;
+                }
                 continue;
+            }
             const auto corners = [model](size_t i, Point(&p)[3]) {
                 for (unsigned j = 0; j < 3; ++j) {
                     const auto& v = model->triangles[i].position[j];
@@ -412,7 +417,7 @@ bool WgpuRay::render(const PassFrame& f, std::span<const Triangle> triangles,
             const surface::CornerWelds* welds = nullptr;
             if (model->topology) {
                 auto& shared = welds_[model->topology];
-                if (shared.corners.size() != model->triangles.size() * 3)
+                if (shared.corners.size() != model->triangles.size() * 3 || shared.collapsed)
                     surface::weldCorners(model->triangles.size(), corners, shared);
                 welds = &shared;
             }

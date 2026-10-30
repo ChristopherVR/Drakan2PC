@@ -36,8 +36,13 @@ inline Point faceNormal(const Point (&p)[3]) {
 // Corners of a triangle soup that share an exact position: `corners` lists corner indices (triangle * 3 + corner)
 // grouped by position, each group ending before the matching `ends` entry. Welding sorts every corner, so callers
 // keep it per topology: an animated mesh's poses move welded corners together.
+// A real vertex joins a few dozen faces at most. A larger group is a collapsed pose (a model first seen with its
+// vertices on one point): its corners stay unwelded, since smoothNormals is quadratic in the group size, and
+// `collapsed` tells callers to weld again from a later pose instead of keeping these welds for the topology.
 struct CornerWelds {
+    static constexpr uint32_t kMaxGroup = 64;
     std::vector<uint32_t> corners, ends;
+    bool collapsed = false;
 };
 // `corners(i, p)` fills triangle i's three positions.
 template <class Corners>
@@ -58,13 +63,26 @@ void weldCorners(size_t triangles, Corners corners, CornerWelds& out) {
     });
     out.corners.resize(sorted.size());
     out.ends.clear();
-    for (size_t i = 0; i < sorted.size(); ++i) {
-        if (i && (sorted[i].x != sorted[i - 1].x || sorted[i].y != sorted[i - 1].y || sorted[i].z != sorted[i - 1].z))
+    out.collapsed = false;
+    const auto close = [&](size_t first, size_t end) {
+        if (end - first <= CornerWelds::kMaxGroup) {
+            out.ends.push_back(uint32_t(end));
+            return;
+        }
+        out.collapsed = true;
+        for (size_t i = first + 1; i <= end; ++i)
             out.ends.push_back(uint32_t(i));
+    };
+    size_t first = 0;
+    for (size_t i = 0; i < sorted.size(); ++i) {
+        if (i && (sorted[i].x != sorted[i - 1].x || sorted[i].y != sorted[i - 1].y || sorted[i].z != sorted[i - 1].z)) {
+            close(first, i);
+            first = i;
+        }
         out.corners[i] = sorted[i].index;
     }
     if (!sorted.empty())
-        out.ends.push_back(uint32_t(sorted.size()));
+        close(first, sorted.size());
 }
 
 // Per-corner vertex normals, like the GS's per-vertex (Gouraud) lighting: the area-weighted face normals of every

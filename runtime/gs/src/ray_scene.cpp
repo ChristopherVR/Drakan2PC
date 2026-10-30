@@ -100,4 +100,13 @@ uint32_t packModelAttributes(const SceneModelMesh& mesh, const SceneModels& mode
     }
     return texturedCount;
 }
+void rebaseModelAttributes(const SceneModelMesh& mesh, const SceneModels& models, uint32_t nativeTextureBase,
+                           std::vector<Attribute>& attributes) {
+    for (size_t index = 0; index < mesh.triangles.size() && (index + 1) * kTriangleAttributes <= attributes.size();
+         ++index) {
+        const auto material = mesh.triangles[index].material;
+        attributes[index * kTriangleAttributes + 5][1] =
+            material < models.textures.size() ? float(nativeTextureBase + material) : -1.f;
+    }
+}
 } // namespace gsr::surface

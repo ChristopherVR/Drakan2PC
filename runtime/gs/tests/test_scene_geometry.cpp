@@ -1,4 +1,5 @@
 #include "resident_scene.h"
+#include "ray_normals.h"
 #include "drakan_scene_geometry.h"
 #include <cassert>
 #include <fstream>
@@ -6,6 +7,25 @@
 #include <cstring>
 
 int main(int argc, char** argv) {
+    {
+        // A pose with every vertex on one point leaves its corners unwelded and says so; a real pose welds again.
+        using gsr::surface::Point;
+        constexpr size_t kTriangles = 200;
+        bool collapsedPose = true;
+        const auto corners = [&](size_t i, Point(&p)[3]) {
+            for (unsigned j = 0; j < 3; ++j)
+                p[j] = collapsedPose ? Point{} : Point{float(j), float(i % 8), float(j == 2)}; // 25 per point
+        };
+        gsr::surface::CornerWelds welds;
+        gsr::surface::weldCorners(kTriangles, corners, welds);
+        assert(welds.collapsed && welds.corners.size() == kTriangles * 3 && welds.ends.size() == kTriangles * 3);
+        collapsedPose = false;
+        gsr::surface::weldCorners(kTriangles, corners, welds);
+        assert(!welds.collapsed && welds.ends.size() < kTriangles * 3);
+        std::vector<Point> normals;
+        gsr::surface::smoothNormals(kTriangles, corners, welds, normals);
+        assert(normals.size() == kTriangles * 3);
+    }
     std::vector<uint8_t> ram(32u << 20);
     auto put = [&](uint32_t a, const auto& v) { std::memcpy(ram.data() + a, &v, sizeof v); };
     put(0x4dc118, 0x700000u);
@@ -76,6 +96,39 @@ int main(int argc, char** argv) {
     exported.clear();
     resident.append(exported);
     assert(exported[0].texture == 7);
+    {
+        // Projections held elsewhere (ray passes) stay unchanged; later ones reuse released buffers and update only
+        // the changed layers, matching a fresh full projection.
+        const auto first = resident.projectedShared();
+        const auto firstCopy = *first;
+        auto held = first;
+        for (uint32_t step = 0; step < 6; ++step) {
+            auto bigger = updated;
+            bigger.texture = 10 + step;
+            for (auto& p : bigger.p) {
+                p.x *= 1.5f + step;
+                p.z *= 1.5f + step;
+            }
+            resident.observe(bigger, resident.match(ground, false));
+            const auto current = resident.projectedShared();
+            gsr::surface::ResidentScene fresh;
+            fresh.replace(scene);
+            fresh.observe(bigger, fresh.match(ground, false));
+            const auto expected = fresh.projectedShared();
+            assert(current->size() == expected->size());
+            for (size_t i = 0; i < current->size(); ++i) {
+                const auto &a = (*current)[i], &b = (*expected)[i];
+                assert(a.texture == b.texture && std::memcmp(a.uv, b.uv, sizeof(a.uv)) == 0 &&
+                       std::memcmp(a.p, b.p, sizeof(a.p)) == 0 && a.water == b.water);
+            }
+            if (step == 2)
+                held = current; // keep one more buffer alive across further updates
+        }
+        assert(first->size() == firstCopy.size() && first->at(0).texture == 7);
+        for (size_t i = 0; i < first->size(); ++i)
+            assert(std::memcmp(&(*first)[i], &firstCopy[i], sizeof(firstCopy[i])) == 0);
+        assert(held->at(0).texture == 12);
+    }
     put(0x700050, 0x420000u); // transient native lighting flag must not retire geometry/materials
     auto reused = drakan_scene_geometry::capture(ram.data(), uint32_t(ram.size()), scene.identity);
     assert(reused.identity == scene.identity && reused.triangles.empty());

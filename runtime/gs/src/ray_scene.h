@@ -48,4 +48,8 @@ uint32_t packAttributes(const Triangle& tri, size_t textures, std::vector<Attrib
 // normals, three per triangle. Returns the textured triangle count.
 uint32_t packModelAttributes(const SceneModelMesh& mesh, const SceneModels& models, uint32_t nativeTextureBase,
                              const std::vector<Point>& normals, std::vector<Attribute>& out);
+// Moves attributes packed by packModelAttributes to a new nativeTextureBase (the frame's texture count changes often
+// while the camera moves); the result equals a fresh pack with the same models.
+void rebaseModelAttributes(const SceneModelMesh& mesh, const SceneModels& models, uint32_t nativeTextureBase,
+                           std::vector<Attribute>& attributes);
 } // namespace gsr::surface

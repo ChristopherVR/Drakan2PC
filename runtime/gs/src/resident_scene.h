@@ -1,10 +1,12 @@
 #pragma once
 #include <gsr/scene_geometry.h>
 #include "ray_scene.h"
+#include <algorithm>
 #include <memory>
 #include <span>
 #include <unordered_map>
 #include <cfenv>
+#include <cstring>
 #if (defined(_M_X64) || defined(_M_IX86) || defined(__SSE__)) && !defined(__EMSCRIPTEN__)
 #include <xmmintrin.h>
 #endif
@@ -22,6 +24,10 @@ class ResidentScene {
     // Triangle indices per 2048-unit cell (by centroid), in insertion order.
     std::unordered_map<int64_t, std::vector<uint32_t>> cells;
     std::unordered_map<uint32_t, Projection> materials;
+    // Triangle indices per material layer, and the projection version that first includes each layer's latest
+    // material. A new projection repacks only the layers changed since the buffer it reuses was built.
+    std::unordered_map<uint32_t, std::vector<uint32_t>> layerTriangles;
+    std::unordered_map<uint32_t, uint64_t> layerChanged;
     // Match candidates stored contiguously per cell and water flag, in the cell's insertion order, with the terms
     // match() needs. Degenerate triangles (|det| < 1 or normal length < 1) never match and are left out. Rebuilt by
     // prepareMatch() after replace() or when the floating-point mode changes.
@@ -43,6 +49,27 @@ class ResidentScene {
     mutable std::shared_ptr<std::vector<Triangle>> projected;
     mutable bool projectionDirty = true;
     mutable uint64_t projectedVersion = 0;
+    // Projections of this level and math mode, recycled once no holder (a ray pass, its queued jobs) keeps them.
+    struct Spare {
+        std::shared_ptr<std::vector<Triangle>> triangles;
+        uint64_t version = 0;
+    };
+    static constexpr size_t kSpares = 4;
+    mutable std::vector<Spare> spares;
+    // Byte copy of the resident triangle (padding included, so unchanged triangles compare equal byte for byte across
+    // projections) with its layer's material applied.
+    void project(size_t i, Triangle& t) const {
+        std::memcpy(&t, &triangles[i], sizeof(Triangle));
+        const auto found = materials.find(layers[i]);
+        if (found != materials.end()) {
+            const auto& m = found->second;
+            t.texture = m.texture;
+            for (unsigned j = 0; j < 3; ++j) {
+                t.uv[j][0] = m.u[0] * t.p[j].x + m.u[1] * t.p[j].z + m.u[2];
+                t.uv[j][1] = m.v[0] * t.p[j].x + m.v[1] * t.p[j].z + m.v[2];
+            }
+        }
+    }
     static unsigned mathMode() {
 #if (defined(_M_X64) || defined(_M_IX86) || defined(__SSE__)) && !defined(__EMSCRIPTEN__)
         return _mm_getcsr() & 0xe040u; // rounding, flush-to-zero, denormals-are-zero
@@ -103,6 +130,9 @@ public:
         layers.clear();
         cells.clear();
         materials.clear();
+        layerTriangles.clear();
+        layerChanged.clear();
+        spares.clear();
         matchEntries.clear();
         matchCells.clear();
         lastValid = false;
@@ -128,6 +158,7 @@ public:
             const auto index = uint32_t(triangles.size());
             triangles.push_back(tri);
             layers.push_back(source.layer);
+            layerTriangles[source.layer].push_back(index);
             waterCount += tri.water;
             const auto center =
                 Point{(tri.p[0].x + tri.p[1].x + tri.p[2].x) / 3, 0, (tri.p[0].z + tri.p[1].z + tri.p[2].z) / 3};
@@ -201,37 +232,59 @@ public:
             coefficients[2] = draw.uv[0][component] - coefficients[0] * draw.p[0].x - coefficients[1] * draw.p[0].z;
         }
         materials[layers[index]] = m;
+        layerChanged[layers[index]] = projectedVersion + 1;
         projectionDirty = true;
     }
     // Triangles with the observed material projections applied. Valid until the next replace/observe call.
     std::span<const Triangle> projectedTriangles() const { return *projectedShared(); }
-    // The same triangles as an immutable vector that stays valid for its holders: a new projection is built in a
-    // new vector unless nobody else holds the previous one.
+    // The same triangles as an immutable vector that stays valid for its holders. A new projection goes into a vector
+    // no holder keeps any more (updating only the layers that changed since it was built) or into a copy of the
+    // current one: material changes cost their own triangles, not the whole level.
     std::shared_ptr<const std::vector<Triangle>> projectedShared() const {
         const auto mode = mathMode();
-        if (!projected || projectionDirty || projectionMode != mode) {
-            if (!projected || projected.use_count() > 1)
-                projected = std::make_shared<std::vector<Triangle>>();
-            auto& out = *projected;
-            out.clear();
-            out.reserve(triangles.size());
-            for (size_t i = 0; i < triangles.size(); ++i) {
-                auto t = triangles[i];
-                const auto found = materials.find(layers[i]);
-                if (found != materials.end()) {
-                    const auto& m = found->second;
-                    t.texture = m.texture;
-                    for (unsigned j = 0; j < 3; ++j) {
-                        t.uv[j][0] = m.u[0] * t.p[j].x + m.u[1] * t.p[j].z + m.u[2];
-                        t.uv[j][1] = m.v[0] * t.p[j].x + m.v[1] * t.p[j].z + m.v[2];
-                    }
-                }
-                out.push_back(t);
+        if (projected && !projectionDirty && projectionMode == mode)
+            return projected;
+        if (projectionMode != mode)
+            spares.clear(); // projected in another floating-point mode
+        // Reuse a spare nobody else holds (its version says which layers it lacks), else start from a copy of the
+        // current projection; a full projection only for a new level or math mode.
+        Spare* target = nullptr;
+        for (auto& spare : spares)
+            if (spare.triangles != projected && spare.triangles.use_count() == 1 &&
+                spare.triangles->size() == triangles.size() && (!target || spare.version > target->version))
+                target = &spare;
+        if (!target) {
+            Spare fresh{std::make_shared<std::vector<Triangle>>(), 0};
+            if (projected && projectionMode == mode && projected->size() == triangles.size()) {
+                *fresh.triangles = *projected;
+                fresh.version = projectedVersion;
             }
-            projectionDirty = false;
-            projectionMode = mode;
-            ++projectedVersion;
+            if (spares.size() < kSpares) {
+                spares.push_back(std::move(fresh));
+                target = &spares.back();
+            } else { // replace the oldest; its holders keep their copy alive
+                target = &*std::min_element(spares.begin(), spares.end(),
+                                            [](const Spare& x, const Spare& y) { return x.version < y.version; });
+                *target = std::move(fresh);
+            }
         }
+        auto& out = *target->triangles;
+        if (target->version == 0 || out.size() != triangles.size()) {
+            out.resize(triangles.size());
+            for (size_t i = 0; i < triangles.size(); ++i)
+                project(i, out[i]);
+        } else {
+            for (const auto& [layer, version] : layerChanged)
+                if (version > target->version)
+                    if (const auto found = layerTriangles.find(layer); found != layerTriangles.end())
+                        for (auto i : found->second)
+                            project(i, out[i]);
+        }
+        projectionDirty = false;
+        projectionMode = mode;
+        ++projectedVersion;
+        target->version = projectedVersion;
+        projected = target->triangles;
         return projected;
     }
     // Changes whenever projectedTriangles() would return different attributes.
