@@ -19,7 +19,8 @@
     "MovieGuard",
     "InputFlow",
     "DirectMouseLook",
-    "MovementInput"
+    "MovementInput",
+    "DebugMenu"
   ],
   "movie": {
     "fps_index": "0xa8",

@@ -92,6 +92,7 @@ set per build; `video.world_rate` always requires a restart because it is read a
 | `[general] inventory_screen` | native | Gameplay > Inventory screen | next open | **new key**: `native` (original Tab screen) or `modern` (host-drawn screen, `runtime/gameui`) |
 | `[general] pause_menu` | native | Gameplay > Pause menu | next Esc | **new key**: `native` (the game's pause page) or `modern` (host-drawn `gameui::PauseScreen`, `docs/reference/mouse-menus.md` section 14) |
 | `[general] dual_wield` | 0 | Gameplay > Combat > Dual wielding | next weapon used | **new key**: a second one-handed weapon goes to Rynn's left hand (`drakan_dual_wield`, `docs/reference/combat-controls.md` "Dual wielding") |
+| `[general] debug_menu` | 0 | Gameplay > Developer > Developer debug menu | live | **new key**: F3 opens the engine's own debug menu in play (`drakan_debug_menu`, `docs/reference/debug-menu.md`) |
 | `[general] save_menu` | native | Gameplay > Save / load screens | not wired yet | **new key**: `native` (the game's slot screens 4 / 5) or `modern` (host-drawn `gameui::SaveLoadScreen`, `docs/journal/2026-10-25/modern-save-load-title.md`) |
 | `[general] title_menu` | native | Gameplay > Title menu | not wired yet | **new key**: `native` (the game's title menu, screen 8) or `modern` (host-drawn `gameui::TitleScreen`) |
 | `drakan_input.ini [general] capture_mouse, release_on_esc, toggle_key, look_mode` | 1, 0, F10, direct | Mouse and gamepad | live | `drakan_input::reloadConfig(path)` (swapped in between frames) |

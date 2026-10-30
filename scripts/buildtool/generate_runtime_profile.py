@@ -23,6 +23,7 @@ LEGACY_FEATURES = (
     "UiPrompts",
     "Menus",
     "Subtitles",
+    "DebugMenu",
 )
 BASELINE = (0x101710, 0x4C3798, 0x4CE028, 0x518E94, 0x4B91D8, 0x516F80, 0x517000, 0x517050, 0x56DF00, 0x4FB60C)
 REQUIREMENTS = {

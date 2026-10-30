@@ -613,6 +613,14 @@ void gameplayPage(gameui::SettingPage& pg, const Settings& st, const SchemaEnv& 
              "is the same swing done left-handed. Use it again to put it away. Turning this off puts the left-hand "
              "weapon back in inventory when play resumes.");
 
+    pg.sections.push_back({"Developer", {}});
+    b.sec = &pg.sections.back();
+    b.toggle("general.debug_menu", "Developer debug menu",
+             "The game's own debug menu, left in the disc by its developers: cheats (invincible, fly, level up, "
+             "spells, health), teleport, and render and profiling switches. F3 opens and closes it during play; Up / "
+             "Down pick an option, Left / Right change it, Enter runs it, PgUp / PgDn turn the page. Changes made "
+             "there can break a game in progress, so save first.");
+
     pg.sections.push_back({"Subtitles", {}});
     b.sec = &pg.sections.back();
     b.toggle("subtitles.narration", "Narration subtitles",

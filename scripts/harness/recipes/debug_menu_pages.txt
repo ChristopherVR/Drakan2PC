@@ -1,0 +1,36 @@
+clock milliseconds
+1 log on 120
+0 sync play 60
+500 shot before
+800 key tap F3
+1400 dump ram_open
+1500 shot page01
+1800 key tap DOWN
+2100 key tap DOWN
+2500 shot cursor
+2800 key tap PGDN
+3300 shot page02
+3700 key tap PGDN
+4200 shot page03
+4600 key tap PGDN
+5100 shot page04
+5500 key tap PGDN
+6000 shot page05
+6400 key tap PGDN
+6900 shot page06
+7300 key tap PGDN
+7800 shot page07
+8200 key tap PGDN
+8700 shot page08
+9100 key tap PGDN
+9600 shot page09
+10000 key tap PGDN
+10500 shot page10
+10900 key tap PGDN
+11400 shot page11
+11800 key tap PGDN
+12300 shot page12
+12700 key tap F3
+13100 dump ram_closed
+13300 shot closed
+13700 quit

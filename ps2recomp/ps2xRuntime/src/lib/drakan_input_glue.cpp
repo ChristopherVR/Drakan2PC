@@ -20,6 +20,7 @@
 
 #include "input/DrakanInput.h"
 #include "drakan_settings_host.h"
+#include "drakan_debug_menu.h"
 #include "drakan_dual_wield.h"
 #include "drakan_menus.h"
 #include "drakan_pause.h"
@@ -663,6 +664,8 @@ void hookPadMgrUpdate(uint8_t* rdram, R5900Context* c, PS2Runtime* rt) {
     if (!(g_skipBits & 16))
         beginFrame();
     RecompGuest g(rdram, c, rt);
+    if constexpr (drakan_region::supports(drakan_region::Feature::DebugMenu))
+        drakan_debug_menu::beforePadMgr(g, m, drakan_settings_host::isOpen());
     inventoryViewsTick(g, scr, gameplay);
     quickSlotsTick(g, scr, gameplay);
     pauseTick(rdram, g);
@@ -676,6 +679,8 @@ void hookPadMgrUpdate(uint8_t* rdram, R5900Context* c, PS2Runtime* rt) {
     g_origPadMgrUpdate(rdram, c, rt);
     if (!(g_skipBits & 8))
         afterPadMgrUpdate(g);
+    if constexpr (drakan_region::supports(drakan_region::Feature::DebugMenu))
+        drakan_debug_menu::afterPadMgr(g);
     drakan_combat_audit::sample(g, m, ilog, upcoming, scr, g_dragon.load());
     { // inventory / map mouse: log section changes and the adapter's D-pad / click taps (verification aid)
         static int lastSec = -1, lastTaps = 0;
@@ -1172,6 +1177,8 @@ void drakanInstallInput(PS2Runtime& rt) {
     if (!(skip & 1))
         rt.replaceFunction(kPadMgrUpdate, &hookPadMgrUpdate);
     drakanInstallDirectMouse(rt);
+    if constexpr (drakan_region::supports(drakan_region::Feature::DebugMenu))
+        drakan_debug_menu::install(rt);
     g_origBowLaunch = rt.lookupFunction(kBowLaunch);
     if (g_origBowLaunch && !(skip & 64)) // 64: no modern bow aim hook
         rt.replaceFunction(kBowLaunch, &hookBowLaunch);

@@ -21,6 +21,7 @@ The canonical Markdown remains in this repository:
 
 - [Combat input investigation — 17 October 2026](reference/combat-controls.md)
 - [Optional DLSS integration: actual status](reference/dlss.md)
+- [The engine's developer debug menu (F3)](reference/debug-menu.md)
 - [Environment flags of the gs renderer](reference/env-flags.md)
 - [Disc regions: PAL SCES-500.06 and USA SCUS-971.28](reference/regions.md)
 - [Drakan FMV / cutscene pipeline](reference/fmv.md)

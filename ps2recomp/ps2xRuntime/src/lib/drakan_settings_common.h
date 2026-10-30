@@ -2,6 +2,7 @@
 // and the portable raylib host (drakan_portable_ui.cpp). Backends override capabilities() / applyVideo() for their
 // renderer and call applyCommonVideo() for the settings that do not depend on it.
 #pragma once
+#include "drakan_debug_menu.h"
 #include "drakan_dual_wield.h"
 #include "drakan_region.h"
 #include "drakan_fpsmeter.h"
@@ -49,6 +50,10 @@ public:
         require(Feature::Menus,
                 {"general.inventory_screen", "general.pause_menu", "general.save_menu", "general.title_menu"});
         require(Feature::DualWield, {"general.dual_wield"});
+        require(Feature::DebugMenu, {"general.debug_menu"});
+#if !defined(PS2X_HAVE_DRAKAN_INPUT)
+        c.unavailableSettings.insert("general.debug_menu"); // drives the input glue's PadMgr hook
+#endif
         require(Feature::Subtitles, {"subtitles.narration", "subtitles.size"});
         require(Feature::SceneHooks,
                 {"video.dlss", "video.dlss_neural", "video.dlss_neural_resolution", "video.dlss_preset",
@@ -92,6 +97,9 @@ public:
         if (n.titleMenu != p.titleMenu)
             drakan_menu_screens::setTitleModern(n.titleMenu == dsettings::TitleMenu::Modern);
         drakan_dual_wield::setEnabled(n.dualWield);
+#if defined(PS2X_HAVE_DRAKAN_INPUT)
+        drakan_debug_menu::setEnabled(n.debugMenu);
+#endif
         return {};
     }
 

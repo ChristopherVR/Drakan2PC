@@ -1,0 +1,20 @@
+clock milliseconds
+0 sync play 60
+500 key tap F3
+1000 key tap PGUP
+1500 shot cheats
+1800 key tap RIGHT
+2300 shot invincible
+2600 key tap DOWN
+2800 key tap DOWN
+3000 key tap DOWN
+3200 key tap DOWN
+3400 key tap DOWN
+3800 shot levelup_sel
+4000 dump ram_before
+4200 key tap ENTER
+5200 dump ram_after
+5300 shot levelup_done
+5600 key tap ESC
+6200 shot esc_closed
+6600 quit

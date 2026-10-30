@@ -1,6 +1,7 @@
 // Host HUD layers drawn over the game image by every presentation backend (the Windows D3D11 overlay and the portable
-// raylib renderer): FPS counter, narration subtitles, the game-menu cursor and the bow crosshair. The layers are
-// registered once by game-side code; a backend only supplies the output size and where the game image sits.
+// raylib renderer): FPS counter, narration subtitles, the game-menu cursor, the bow crosshair and the engine's debug
+// menu. The layers are registered once by game-side code; a backend only supplies the output size and where the game
+// image sits.
 // ImGui API only: draw functions are valid inside HudLayer::draw (an ImGui frame is current).
 #pragma once
 #include <functional>
@@ -26,8 +27,8 @@ struct HudLayer {
 };
 
 // Draw order, bottom to top. Stats and Subtitles are also drawn while a settings menu is open; Overlay layers
-// (crosshair, cursor) are not.
-enum class HudSlot { Stats, Subtitles, Crosshair, Cursor, Count };
+// (crosshair, debug menu, cursor) are not.
+enum class HudSlot { Stats, Subtitles, Crosshair, DebugMenu, Cursor, Count };
 
 class HudLayers {
 public:
@@ -51,6 +52,13 @@ void drawStatsPanel(const std::vector<std::string>& lines, int corner, float w, 
 void drawMenuCursor(float x, float y, float scale);
 // Aiming crosshair centred on (x, y).
 void drawCrosshair(float x, float y, float scale);
+struct DebugMenuRow {
+    std::string name, value;
+};
+// The engine's debug menu page: a panel at the top right with a title, option names, their values (right column),
+// the `selected` row highlighted and a key help line.
+void drawDebugMenuPanel(const std::string& title, const std::vector<DebugMenuRow>& rows, int selected,
+                        const std::string& help, float w, float h, float uiScale);
 // Subtitle band: full-width translucent bar near the bottom, centred wrapped text.
 void drawSubtitleBand(const std::string& utf8, float alpha, float w, float h, float sizeFactor);
 

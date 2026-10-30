@@ -652,6 +652,20 @@ static void testDualWield() {
     CHECK(reread.loaded().general.dualWield);
 }
 
+static void testDebugMenu() {
+    SettingsStore st;
+    CHECK(!st.defaults().general.debugMenu);
+    st.loadFromText("[general]\ndebug_menu = 1\n", "");
+    CHECK(st.loaded().general.debugMenu);
+    auto edited = st.loaded();
+    edited.general.debugMenu = false;
+    CHECK((changedKeys(st.loaded(), edited) == std::vector<std::string>{"general.debug_menu"}));
+    CHECK_EQ(settingLabel("general.debug_menu"), "Developer debug menu");
+    std::string a, b;
+    st.render(edited, a, b);
+    CHECK(contains(a, "debug_menu = 0"));
+}
+
 static void testSaveAndTitleMenus() {
     SettingsStore st;
     CHECK(st.defaults().general.saveMenu == SaveMenu::Native);
@@ -735,6 +749,7 @@ int main(int argc, char** argv) {
     testInventoryScreen();
     testPauseMenu();
     testDualWield();
+    testDebugMenu();
     testSaveAndTitleMenus();
     testIniDoc();
     testDefaults();

@@ -68,6 +68,8 @@ Gameplay consumers
   digital: Game_OnInputCommand (0x23ce18)  (cmd, actionId, pressed, timeMs)
 ```
 
+The engine's debug menu has its own command callback (0x131ff0), dead in retail; see [debug-menu.md](debug-menu.md).
+
 The pad manager is the single global object `PadMgr` at **0x4e90c0** (`PadMgr_GetInstance` 0x1e48a8). The game context
 pointer lives in the variable at **0x5565d4** (`PTR_DAT_005565d4`); the input device is `*(ctx+0x358)` (== &PadMgr).
 Every access is a C++ virtual call: `vt = *(u32*)(dev+0x434); fn = *(vt+slot); fn(dev + *(s16*)(vt+slot-4), ...)`.

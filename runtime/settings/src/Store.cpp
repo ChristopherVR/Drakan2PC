@@ -219,6 +219,9 @@ const std::vector<Field>& fields() {
         {"general", "dual_wield", false, GETB(general.dualWield), SETB(general.dualWield),
          "1 = a second one-handed weapon goes to Rynn's left hand and strikes with the right hand's attacks (env "
          "DRAKAN_DUAL_WIELD)"},
+        {"general", "debug_menu", false, GETB(general.debugMenu), SETB(general.debugMenu),
+         "1 = F3 opens the game's developer debug menu during play (cheats, teleport, render switches); 0 = off (env "
+         "DRAKAN_DEBUG_MENU)"},
         {"general", "save_menu", false, [](const Settings& s) { return std::string(toIni(s.general.saveMenu)); },
          [](Settings& s, const std::string& v) {
              std::string u = lower(trim(v));
@@ -739,6 +742,7 @@ std::string settingLabel(const std::string& key) {
         {"general.inventory_screen", "Inventory screen"},
         {"general.pause_menu", "Pause menu"},
         {"general.dual_wield", "Dual wielding"},
+        {"general.debug_menu", "Developer debug menu"},
         {"general.save_menu", "Save / load screens"},
         {"general.title_menu", "Title menu"},
     };

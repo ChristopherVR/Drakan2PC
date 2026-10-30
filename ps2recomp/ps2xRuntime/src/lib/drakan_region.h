@@ -28,7 +28,8 @@ enum class Feature : uint8_t {
     MovieGuard,
     InputFlow,
     DirectMouseLook,
-    MovementInput
+    MovementInput,
+    DebugMenu
 };
 
 constexpr uint32_t featureBit(Feature feature) {

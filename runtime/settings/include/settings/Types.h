@@ -86,6 +86,9 @@ struct GeneralSettings {
     // dual_wield: a second one-handed weapon goes to Rynn's left hand (the shield slot); attacks alternate hands
     // Applied live through ISettingsHost::applyGeneral; disabling stows the off-hand on the next game update.
     bool dualWield = false;
+    // debug_menu: F3 opens the engine's own developer debug menu (cheats, teleport, render and profiling switches) in
+    // play. Applied live through ISettingsHost::applyGeneral.
+    bool debugMenu = false;
     // save_menu: the Save Game / Load Game screens. native = the game's slot grid (with the PC pager and previews);
     // modern = the host-drawn slot browser (gameui SaveLoadScreen). Not wired into the game yet.
     SaveMenu saveMenu = SaveMenu::Native;

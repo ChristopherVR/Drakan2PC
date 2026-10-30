@@ -66,6 +66,46 @@ void drawStatsPanel(const std::vector<std::string>& lines, int corner, float w, 
     }
 }
 
+void drawDebugMenuPanel(const std::string& title, const std::vector<DebugMenuRow>& rows, int selected,
+                        const std::string& help, float w, float, float scale) {
+    ImDrawList* dl = ImGui::GetForegroundDrawList();
+    ImFont* font = ImGui::GetFont();
+    const float fs = std::max(13.0f, 17.0f * std::max(0.8f, scale));
+    const float hs = fs * 0.8f; // help line
+    const auto width = [&](const std::string& s, float size) {
+        return font->CalcTextSizeA(size, 100000.0f, 0.0f, s.c_str()).x;
+    };
+    float nameW = 0.0f, valueW = 0.0f;
+    for (const auto& r : rows) {
+        nameW = std::max(nameW, width(r.name, fs));
+        valueW = std::max(valueW, width(r.value, fs));
+    }
+    const float pad = fs * 0.45f, lh = fs * 1.2f, gap = fs * 1.5f;
+    const float pw = std::max({nameW + gap + valueW, width(title, fs), width(help, hs)}) + 2.0f * pad;
+    const float ph = (static_cast<float>(rows.size()) + 1.0f) * lh + hs * 1.4f + 2.0f * pad;
+    const float margin = fs * 0.7f;
+    const float x0 = w - margin - pw, y0 = margin;
+    dl->AddRectFilled(ImVec2(x0, y0), ImVec2(x0 + pw, y0 + ph), IM_COL32(0, 0, 0, 170), fs * 0.25f);
+    const auto text = [&](float x, float y, float size, ImU32 col, const std::string& s) {
+        dl->AddText(font, size, ImVec2(x + 1.0f, y + 1.0f), IM_COL32(0, 0, 0, 220), s.c_str());
+        dl->AddText(font, size, ImVec2(x, y), col, s.c_str());
+    };
+    float y = y0 + pad;
+    text(x0 + pad, y, fs, IM_COL32(240, 204, 110, 255), title);
+    y += lh;
+    for (size_t i = 0; i < rows.size(); ++i) {
+        const bool sel = static_cast<int>(i) == selected;
+        if (sel)
+            dl->AddRectFilled(ImVec2(x0 + pad * 0.5f, y - fs * 0.1f), ImVec2(x0 + pw - pad * 0.5f, y + fs * 1.1f),
+                              IM_COL32(90, 140, 255, 90), fs * 0.15f);
+        const ImU32 col = sel ? IM_COL32(255, 255, 255, 255) : IM_COL32(120, 255, 140, 255);
+        text(x0 + pad, y, fs, col, rows[i].name);
+        text(x0 + pw - pad - width(rows[i].value, fs), y, fs, col, rows[i].value);
+        y += lh;
+    }
+    text(x0 + pad, y + hs * 0.3f, hs, IM_COL32(200, 200, 200, 255), help);
+}
+
 void drawMenuCursor(float x, float y, float scale) {
     ImDrawList* dl = ImGui::GetForegroundDrawList();
     const float s = std::max(0.8f, scale) * 22.0f; // arrow height in pixels
