@@ -1,0 +1,27 @@
+{
+    "name": "drakan-editor",
+    "private": true,
+    "version": "0.0.0",
+    "description": "Inspector and (later) level editor for the player's own Drakan: The Ancients' Gates disc. Contains no game data.",
+    "type": "module",
+    "workspaces": [
+        "packages/*"
+    ],
+    "engines": {
+        "node": ">=20"
+    },
+    "scripts": {
+        "dev": "npm run dev -w @drakan/editor-app",
+        "build": "npm run typecheck && npm run build -w @drakan/editor-app",
+        "typecheck": "npm run typecheck --workspaces",
+        "test": "vitest run",
+        "format": "prettier --write .",
+        "format:check": "prettier --check ."
+    },
+    "devDependencies": {
+        "@types/node": "24.19.0",
+        "prettier": "3.9.9",
+        "typescript": "7.0.2",
+        "vitest": "3.2.4"
+    }
+}

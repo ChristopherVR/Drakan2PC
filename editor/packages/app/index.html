@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="en">
+    <head>
+        <meta charset="utf-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1" />
+        <title>Disc Inspector</title>
+        <link rel="stylesheet" href="/src/style.css" />
+    </head>
+    <body>
+        <header>
+            <h1>Disc Inspector</h1>
+            <label class="button">
+                Open ISO
+                <input id="iso-input" type="file" accept=".iso,.bin,.img" hidden />
+            </label>
+            <span id="status">Choose or drop your own disc image. Nothing is uploaded; files are read locally.</span>
+        </header>
+        <main>
+            <nav id="sidebar">
+                <section>
+                    <h2>Language</h2>
+                    <select id="lang" disabled></select>
+                </section>
+                <section>
+                    <h2>Levels</h2>
+                    <ul id="levels" class="list"></ul>
+                </section>
+                <section>
+                    <h2>Files <small id="files-path"></small></h2>
+                    <ul id="files" class="list"></ul>
+                </section>
+            </nav>
+            <section id="center">
+                <div class="pane" id="entries-pane">
+                    <h2>
+                        Entries <small id="entries-info"></small>
+                        <button id="show-textures" disabled>Show textures</button>
+                    </h2>
+                    <div class="scroll"><table id="entries"></table></div>
+                    <pre id="text-view" hidden></pre>
+                </div>
+                <div class="pane" id="hex-pane">
+                    <h2>
+                        Hex <small id="hex-info"></small>
+                        <span class="spacer"></span>
+                        <label class="check"><input id="hex-inflate" type="checkbox" checked /> inflate zlib</label>
+                        <button id="hex-prev" disabled>Prev</button>
+                        <button id="hex-next" disabled>Next</button>
+                    </h2>
+                    <pre id="hex"></pre>
+                </div>
+            </section>
+            <section id="viewport-pane">
+                <h2>
+                    Textures <small id="vp-info"></small><span class="spacer"></span
+                    ><button id="vp-reset">Reset view</button>
+                </h2>
+                <div id="viewport"></div>
+            </section>
+        </main>
+        <div id="drop" hidden>Drop the ISO to open it</div>
+        <script type="module" src="/src/main.ts"></script>
+    </body>
+</html>
