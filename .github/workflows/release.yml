@@ -70,3 +70,6 @@ jobs:
             gh release create $env:TAG @files --title "Drakan PC $env:TAG" `
               --notes-file scripts/buildtool/kit/RELEASE-NOTES.md --target $env:GITHUB_SHA
           }
+          # releases/latest/download/DrakanPC-Setup.exe (README, install guide) must resolve to a game release, never
+          # to a newer site-media release.
+          gh release edit $env:TAG --latest

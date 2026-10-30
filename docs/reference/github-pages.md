@@ -39,6 +39,10 @@ Guides use ordinary Markdown image links; the builder expands recognized URLs in
 - `"kind": "backdrop"`: the homepage hero image.
 - `"kind": "diagram"`: an original SVG diagram in `docs/site/assets/diagram-*.svg` with `width`, `height`, `alt` and `caption`. Diagrams are committed source, copied into the site and shown at once; they open in the image dialog like captures.
 
+Create every `site-media-*` release with `--prerelease --latest=false`. GitHub's "Latest" release is what
+`releases/latest/download/DrakanPC-Setup.exe` (README, install guide) resolves to; when a media release became Latest
+on 30 October 2026 that link returned 404. The release workflow marks each game release Latest again when it publishes.
+
 Every URL in an entry, including scene URLs, must point at a `site-media-*` release. An entry with `"pending": true` renders nothing (its marker or Markdown image is removed), so a capture can be prepared, reviewed and placed in a guide before its release upload without leaving a broken image. After uploading, delete the `pending` field.
 
 Diagrams are for the Development pages, where there is no game screen to show. Player guides use real captures of the game, launcher or builder; a section without a possible capture stays without an image rather than getting a diagram. Diagrams follow the site look with the dark panel, gilt frame and fonts baked into the SVG, so they read the same on the light theme. Draw them from the code and current references, keep them few, and check the layout with the Georgia fallback as well (Castellar and Goudy Old Style are Windows fonts).
