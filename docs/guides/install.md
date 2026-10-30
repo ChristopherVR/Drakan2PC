@@ -4,26 +4,42 @@ The installer builds Drakan locally from your own disc image. It supplies the to
 
 ## Before you start
 
+You need your own **PAL SCES-500.06** disc as a plain `.iso`. The **USA SCUS-971.28** release is also accepted, with fewer features: see [USA disc support](#usa-disc-support-experimental). Other regions and BIN/CUE images are not supported. The builder validates the disc and stops if it does not match. Keep the ISO in a stable location: the game continues to read it during play.
+
+There are two sets of requirements. **Building** the game is a one-time job that needs far more memory than playing it. **Playing** the finished game needs an ordinary gaming PC.
+
+### Build specs (one time, about one to two hours)
+
 | Requirement | What you need |
 | --- | --- |
-| Game disc | Your own **PAL SCES-500.06** release, as a plain `.iso`. The **USA SCUS-971.28** release is also accepted, with fewer features: see [USA disc support](#usa-disc-support-experimental) |
 | Operating system | Windows 10 or 11, 64-bit |
-| Memory | At least 16 GB; **24 GB or more recommended** because some compilation steps use about 17 GB |
-| Disk space | About 10 GB free for the basic setup; allow more for optional generated packs |
-| Graphics | A DirectX 11-capable GPU; optional effects have additional requirements |
-| Network | Internet access for the initial tool and dependency downloads |
-| Time | Allow **one to two hours** for the first build; your hardware affects the time |
+| Memory | At least 16 GB; **24 GB or more recommended**. A few generated files need about 17 GB each while they compile; with less memory Windows uses its page file and the build is slow |
+| CPU | Any 64-bit CPU. More cores build faster; the installer's **Build speed** page sets how many the build may use |
+| Disk space | About 10 GB free: Microsoft's C++ Build Tools (about 3 GB), the build folder and the play folder |
+| Network | Internet access for Microsoft's C++ Build Tools (first run only) and, if chosen, the NVIDIA DLSS SDK |
+| Time | **One to two hours** for the first build, depending on CPU and memory; rebuilds after an update take minutes |
 
-Other regions and BIN/CUE images are not supported. The builder validates the disc and stops if it does not match. Keep the ISO in a stable location: the game continues to read it during play.
+### Game specs (to play)
+
+| Requirement | What you need |
+| --- | --- |
+| Operating system | Windows 10 or 11, 64-bit |
+| Memory | **8 GB** recommended. The game itself uses about 1 GB at the title screen and about 3 GB in a level with HD textures and ray tracing on |
+| CPU | A 64-bit CPU with **4 or more cores** recommended; the game keeps two to three cores busy |
+| Graphics | A GPU with **Vulkan or Direct3D 12** drivers for the default WebGPU renderer. A Direct3D 11 GPU can use the **Direct3D 11** renderer instead (PC Settings > Display > Renderer). Optional effects: DLSS needs an NVIDIA RTX GPU; hardware ray tracing needs a DirectX Raytracing GPU and the Direct3D 11 renderer; ray tracing on the WebGPU renderer runs on any GPU but costs much more frame rate |
+| Disk space | About 0.5 GB for the play folder, plus about 1.2 GB if you generate HD textures; the ISO must stay where it is |
+
+Measured on an RTX 5080 PC (29–30 October 2026); slower hardware will run the optional effects at a lower frame rate.
 
 ## Install and build
 
 1. Open the [GitHub releases page](https://github.com/ChristopherVR/Drakan2PC/releases/latest) and download **DrakanPC-Setup.exe**. If a release is unavailable, use the [source build instructions](../../BUILDING.md).
 2. Run the installer. Choose an installation folder and your supported ISO.
-3. Choose optional components if wanted. **NVIDIA DLSS** requires compatible hardware and acceptance of NVIDIA's SDK licence. **Browser version** requires WSL with Ubuntu.
-4. Leave **Build the game now** selected. The builder installs Microsoft's C++ Build Tools if they are missing; Windows may ask for permission.
-5. Leave the build window open until it reports completion. Some large files can take about ten minutes without new output.
-6. Launch **Drakan - The Ancients' Gates** from the desktop or Start menu shortcut.
+3. Choose optional components if wanted. **NVIDIA DLSS** requires compatible hardware and acceptance of NVIDIA's SDK licence. **Browser version** requires WSL with Ubuntu. **Keep the PC responsive** compiles at low priority, so other programs stay smooth while the build runs.
+4. On **Build speed**, enter how many CPU cores the build may use, or leave it empty for the automatic choice (half the cores, at most 4). Memory still limits how many compilers run at once. These settings only affect the build, not the game, and **Rebuild Drakan** keeps them.
+5. Leave **Build the game now** selected. The builder installs Microsoft's C++ Build Tools if they are missing; Windows may ask for permission.
+6. Leave the build window open until it reports completion. Some large files can take about ten minutes without new output.
+7. Launch **Drakan - The Ancients' Gates** from the desktop or Start menu shortcut.
 
 The playable Windows folder is `dist/DrakanPC` inside the installation. Launch its `drakan.exe` or the installed shortcut.
 
@@ -37,7 +53,7 @@ Read [PC enhancements](enhancements.md) for the PS2 comparison, then [Controls &
 
 ## Interrupted build or update
 
-Use **Rebuild Drakan** in the Start menu. It resumes an interrupted build and preserves saves, INI settings and existing texture packs. Avoid starting a second build against the same work folder while the first is running.
+Use **Rebuild Drakan** in the Start menu. It resumes an interrupted build and preserves saves, INI settings and existing texture packs. It uses the CPU cores and priority chosen in the installer; to change them, run `Build-Drakan.cmd -Cores 8 -Priority Low` from the installation folder (`-Cores 0` returns to the automatic choice, `-Priority Normal` to normal priority). Avoid starting a second build against the same work folder while the first is running.
 
 Before changing installations, back up your saves and settings as described in [Saves & updates](saves.md). For failures, see [Troubleshooting](troubleshooting.md).
 

@@ -10,6 +10,8 @@ What happens:
 
   1. You choose an install folder and your .iso file, and optionally NVIDIA DLSS
      (downloaded from NVIDIA under its licence) and a browser version (needs WSL).
+     You can also choose how many CPU cores the build may use, and whether it
+     compiles at low priority so the PC stays responsive.
   2. The builder is copied to the install folder.
   3. A build window opens. On the first run it downloads and installs
      Microsoft's free "Visual Studio 2022 Build Tools" (the C++ compiler,
@@ -21,10 +23,14 @@ What happens:
   5. When it says "Done", start the game with the "Drakan - The Ancients' Gates"
      shortcut.
 
-You need: Windows 10 or 11 (64-bit), an internet connection for step 3,
-about 10 GB of free disk space, at least 16 GB of memory (24 GB or more
-recommended), and a DirectX 11 graphics card. Some files take about 10 minutes
-each to compile, so the build window can look stuck for a while; leave it open.
+To BUILD (once): Windows 10 or 11 (64-bit), an internet connection for
+step 3, about 10 GB of free disk space and at least 16 GB of memory (24 GB or
+more recommended). Some files take about 10 minutes each to compile, so the
+build window can look stuck for a while; leave it open.
+
+To PLAY: 8 GB of memory, a 4-core CPU and a graphics card with Vulkan or
+Direct3D 12 drivers (a Direct3D 11 card can use the Direct3D 11 renderer in
+the game's PC settings). DLSS needs an NVIDIA RTX card.
 
 Keep the .iso where it is: the game reads it while it runs.
 

@@ -6,17 +6,30 @@ Build and play the native Linux version from your own PAL disc image. The Linux 
 
 ## Before you start
 
+You need your own **PAL SCES-500.06** release as a plain `.iso`. The USA release (SCUS-971.28) is an experimental Windows-only build for now: see [USA disc support](install.md#usa-disc-support-experimental).
+
+### Build specs (one time)
+
 | Requirement | What you need |
 | --- | --- |
-| Game disc | Your own **PAL SCES-500.06** release as a plain `.iso`. The USA release (SCUS-971.28) is an experimental Windows-only build for now: see [USA disc support](install.md#usa-disc-support-experimental) |
 | Architecture | **x86-64 Linux**; this bootstrap does not support ARM |
 | Distribution | Ubuntu **22.04 or newer** is the validated environment; automatic dependency installation supports Debian/Ubuntu |
-| Desktop | A working graphical desktop with OpenGL and audio support |
+| Memory | 16 GB or more; compiling the generated game code is memory-heavy (use `--jobs 1` with less) |
+| CPU | Any x86-64 CPU; more cores build faster. `--jobs` sets how many build jobs run (see below) |
+| Disk space | About 10 GB free, plus your ISO |
 | Network | Internet access for the source checkout, packages and pinned build tools |
-| Storage and memory | Several GB of free build space, plus your ISO; generated-code compilation needs substantial memory |
 | Permissions | `sudo` access if required system packages are missing |
 
-The Linux player uses the software GS renderer. Advanced Windows graphics options such as DLSS and DXR are not available through this renderer. Performance varies by scene and CPU; see [Platforms & portability](../reference/portability.md).
+### Game specs (to play)
+
+| Requirement | What you need |
+| --- | --- |
+| Desktop | A graphical desktop (X11, or Wayland with XWayland) with audio |
+| Graphics | A GPU with **Vulkan** drivers for the shared WebGPU renderer (an OpenGL fallback exists but is slower) |
+| Memory | 8 GB recommended |
+| CPU | 4 or more cores recommended |
+
+The Linux player uses the same WebGPU renderer as Windows, including the portable temporal AA and compute ray tracing. DLSS and hardware (DXR) ray tracing are Windows Direct3D 11 only. Performance varies by scene, GPU and CPU; see [Platforms & portability](../reference/portability.md).
 
 ## Get the source
 
@@ -43,7 +56,7 @@ The bootstrap checks for the compiler, CMake, Ninja, Python, PowerShell and runt
 
 It validates the disc, prepares the generated game code, compiles the Linux runtime and stages the playable installation at `dist/DrakanPC-linux`. The default work directory is `build/final-game`. Allow substantial time for the first compilation and leave the terminal open until it finishes.
 
-The default is two build jobs. If memory is tight, use one:
+The default is two build jobs. If memory is tight, or to leave the PC free for other work, use one:
 
 ```sh
 bash scripts/buildtool/Build-Drakan.sh "/path/to/Drakan.iso" --jobs 1

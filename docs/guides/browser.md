@@ -6,7 +6,9 @@ The browser player opens a **browser build you created locally** plus your own I
 
 ## What you need
 
-- A current desktop Chrome or Edge browser with WebGPU, local folder access, WebAssembly threads and SIMD support.
+Building the browser version has the same build specs as the [Windows](install.md#build-specs-one-time-about-one-to-two-hours) or [Linux](linux.md#build-specs-one-time) game (16 GB of memory or more), plus WSL with Ubuntu on Windows. To play it:
+
+- A current desktop Chrome or Edge browser with WebGPU, local folder access, WebAssembly threads and SIMD support, on a GPU the browser enables WebGPU for, and 8 GB of memory.
 - Your locally built `DrakanPC-web` folder, containing `index.html`, `drakan.js` and `drakan.wasm`.
 - The same supported PAL ISO used to build the game. The USA release (SCUS-971.28) has no browser build yet ([USA disc support](install.md#usa-disc-support-experimental)).
 - Optionally, a locally generated HD texture folder.
@@ -49,4 +51,4 @@ When a storage error appears, use **Retry** and resolve storage access before cl
 
 ## Feature differences
 
-The browser uses the software renderer. Modern menus, PC Settings, quicksave / quickload (F5 / F8), narration subtitles, modern bow aim and the FPS counter (F2) work as on Windows; DLSS, ray tracing, widescreen and the modern Tab inventory are Windows only for now. See [Platforms & portability](../reference/portability.md).
+The browser uses the shared WebGPU renderer through the browser's own WebGPU. Modern menus, PC Settings, quicksave / quickload (F5 / F8), narration subtitles, modern bow aim and the FPS counter (F2) work as on Windows; DLSS and hardware (DXR) ray tracing are Windows only, and widescreen and the modern Tab inventory are Windows only for now. See [Platforms & portability](../reference/portability.md).

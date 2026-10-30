@@ -96,13 +96,21 @@ other release's disc. Details: [USA disc support](docs/guides/install.md#usa-dis
    from the [latest release](https://github.com/ChristopherVR/Drakan2PC/releases/latest) and run it (or build it
    yourself with `python scripts/buildtool/package_builder_kit.py --installer`).
 2. Choose an install folder and your `.iso`. Optionally tick **NVIDIA DLSS** (accepts NVIDIA's SDK licence) and
-   **browser version** (needs WSL with Ubuntu).
+   **browser version** (needs WSL with Ubuntu), and choose how many CPU cores the build may use.
 3. Leave "Build the game now" ticked. On first run the builder installs Microsoft's free C++ Build Tools. The first
    build takes one to two hours; some files take about 10 minutes each with no output.
 4. Start the game from the **Drakan - The Ancients' Gates** shortcut.
 
-Needs Windows 10/11 64-bit, about 10 GB of free disk space and 16 GB of memory (24 GB or more recommended). The
-game reads the `.iso` while it runs, so leave it where it is. "Rebuild Drakan" in the Start menu continues an
+| | Build specs (once) | Game specs (to play) |
+| --- | --- | --- |
+| OS | Windows 10/11 64-bit | Windows 10/11 64-bit |
+| Memory | 16 GB, 24 GB or more recommended | 8 GB |
+| CPU | Any 64-bit; more cores build faster | 4 cores |
+| GPU | Not used | Vulkan or Direct3D 12 drivers (Direct3D 11 renderer for older cards); NVIDIA RTX for DLSS |
+| Disk | About 10 GB | About 0.5 GB, plus 1.2 GB for HD textures |
+
+Details in [Install on Windows](docs/guides/install.md#before-you-start). The game reads the `.iso` while it runs, so
+leave it where it is. "Rebuild Drakan" in the Start menu continues an
 interrupted build and keeps your saves and settings.
 
 ### Linux

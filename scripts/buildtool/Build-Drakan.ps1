@@ -21,6 +21,11 @@ param(
     [switch]$EnableDlss,
     # Also build the browser version (needs WSL with Ubuntu); play it on the project's browser player page.
     [switch]$Web,
+    # CPU cores the compilers may use (0 = automatic: half the logical cores, at most 4). Memory still limits how many
+    # run at once. Remembered in build/build-options.json for later rebuilds.
+    [ValidateRange(0, 256)][int]$Cores = -1,
+    # 'Low' compiles at below-normal priority so the PC stays responsive; 'Normal' is the default. Remembered too.
+    [ValidateSet('', 'Normal', 'Low')][string]$Priority = '',
     # Only check the prerequisites and the ISO path, then stop (installs nothing).
     [switch]$CheckOnly
 )
@@ -112,10 +117,37 @@ try {
     # Compiler memory: up to ~6 GB per process on the large generated files, ~17 GB for each of the four VU1 AOT slices.
     # The slices always compile one after another (-SerialVuSlices); a second MSBuild project only runs beside them when
     # there is room for a slice plus a full set of generated-code compilers.
+    # The CPU choice (installer page or -Cores / -Priority) is remembered so "Rebuild Drakan" keeps it.
+    $optionsFile = Join-Path $RepoRoot 'build/build-options.json'
+    $saved = if (Test-Path -LiteralPath $optionsFile -PathType Leaf) {
+        try { Get-Content -LiteralPath $optionsFile -Raw | ConvertFrom-Json } catch { $null }
+    }
+    if ($Cores -lt 0) { $Cores = if ($saved -and $null -ne $saved.cores) { [int]$saved.cores } else { 0 } }
+    if (-not $Priority) { $Priority = if ($saved -and $saved.priority) { [string]$saved.priority } else { 'Normal' } }
+    New-Item -ItemType Directory -Force -Path (Split-Path $optionsFile) | Out-Null
+    @{ cores = $Cores; priority = $Priority } | ConvertTo-Json | Set-Content -LiteralPath $optionsFile
+
+    $logicalCores = [Environment]::ProcessorCount
     $memoryGb = [Math]::Floor((Get-CimInstance Win32_ComputerSystem).TotalPhysicalMemory / 1GB)
-    $compilerProcesses = [Math]::Max(1, [Math]::Min([Math]::Min(4, [int]([Environment]::ProcessorCount / 2)), [int][Math]::Floor($memoryGb / 6)))
-    $jobs = if ($memoryGb -ge 17 + 6 * $compilerProcesses + 6) { 2 } else { 1 }
+    $memoryCap = [Math]::Max(1, [int][Math]::Floor($memoryGb / 6))
+    if ($Cores -gt 0) {
+        # Total compiler load is about projects x processes: two projects only when there are cores for both.
+        $budget = [Math]::Min($Cores, $logicalCores)
+        $jobs = if ($budget -ge 4 -and $memoryGb -ge 17 + 6 * [int][Math]::Floor($budget / 2) + 6) { 2 } else { 1 }
+        $compilerProcesses = [Math]::Max(1, [Math]::Min([int][Math]::Floor($budget / $jobs), $memoryCap))
+        Write-Host "CPU:     $budget of $logicalCores logical cores (your choice)"
+    } else {
+        $compilerProcesses = [Math]::Max(1, [Math]::Min([Math]::Min(4, [int]($logicalCores / 2)), $memoryCap))
+        $jobs = if ($memoryGb -ge 17 + 6 * $compilerProcesses + 6) { 2 } else { 1 }
+        Write-Host "CPU:     automatic ($logicalCores logical cores)"
+    }
     Write-Host "Memory:  $memoryGb GB -> $jobs project(s) x $compilerProcesses compiler process(es)"
+    if ($Priority -eq 'Low') {
+        # Compilers started from here inherit the priority class; MSBuild nodes left over from an earlier build would not.
+        (Get-Process -Id $PID).PriorityClass = [Diagnostics.ProcessPriorityClass]::BelowNormal
+        $env:MSBUILDDISABLENODEREUSE = '1'
+        Write-Host 'Priority: low (the PC stays responsive; the build takes longer while other programs are busy)'
+    }
     if ($memoryGb -lt 24) {
         Write-Warning ('Less than 24 GB of memory: a few files need about 17 GB while compiling, so Windows will use its page file ' +
             'and the build will be slow. Keep the page file enabled (the Windows default) and close other programs.')

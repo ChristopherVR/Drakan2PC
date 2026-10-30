@@ -70,6 +70,7 @@ Type: dirifempty; Name: "{app}\ps2recomp"
 var
   IsoPage: TInputFileWizardPage;
   OptionsPage: TInputOptionWizardPage;
+  CpuPage: TInputQueryWizardPage;
 
 procedure InitializeWizard;
 begin
@@ -95,11 +96,24 @@ begin
     False, False);
   OptionsPage.Add('NVIDIA DLSS - I accept the NVIDIA RTX SDKs License');
   OptionsPage.Add('Also build the browser version (needs WSL with Ubuntu)');
+
+  CpuPage := CreateInputQueryPage(OptionsPage.ID,
+    'Build speed',
+    'How much of this PC may the build use?',
+    'This PC has ' + GetEnv('NUMBER_OF_PROCESSORS') + ' logical CPU cores. More cores build faster but leave less ' +
+    'for other programs; memory still limits how many compilers run at once (each needs up to 6 GB). Leave the ' +
+    'field empty to let the builder choose (half the cores, at most 4). These are build settings only: they do not ' +
+    'change how the game runs. "Rebuild Drakan" keeps them.');
+  CpuPage.Add('CPU cores to use (empty = automatic):', False);
+  // DrakanPC-Setup.exe /CORES=8 fills it in.
+  CpuPage.Values[0] := ExpandConstant('{param:CORES|}');
+  OptionsPage.Add('Keep the PC responsive while building (compile at low priority)');
 end;
 
 function NextButtonClick(CurPageID: Integer): Boolean;
 var
   Size: Int64;
+  Cores: Integer;
 begin
   Result := True;
   // A silent install never starts the build (skipifsilent), so it does not need an ISO.
@@ -109,6 +123,14 @@ begin
       Result := False;
     end else if FileSize64(IsoPage.Values[0], Size) and (Size < 100 * 1024 * 1024) then begin
       MsgBox('That file is too small to be the game disc. Choose the full .iso image.', mbError, MB_OK);
+      Result := False;
+    end;
+  end;
+  if (CurPageID = CpuPage.ID) and (Trim(CpuPage.Values[0]) <> '') then begin
+    Cores := StrToIntDef(Trim(CpuPage.Values[0]), 0);
+    if (Cores < 1) or (Cores > StrToIntDef(GetEnv('NUMBER_OF_PROCESSORS'), 256)) then begin
+      MsgBox('Enter a number of cores from 1 to ' + GetEnv('NUMBER_OF_PROCESSORS') + ', or leave the field empty.',
+        mbError, MB_OK);
       Result := False;
     end;
   end;
@@ -126,4 +148,10 @@ begin
     Result := Result + ' -EnableDlss';
   if OptionsPage.Values[1] then
     Result := Result + ' -Web';
+  // Always passed, so a reinstall replaces the choice remembered by an earlier one.
+  Result := Result + ' -Cores ' + IntToStr(StrToIntDef(Trim(CpuPage.Values[0]), 0));
+  if OptionsPage.Values[2] then
+    Result := Result + ' -Priority Low'
+  else
+    Result := Result + ' -Priority Normal';
 end;
