@@ -60,7 +60,7 @@ Software traversal is far slower than DXR hardware. The first port traced everyt
 
 - Slower than DXR, and lower resolution shadows / reflections; the D3D11 renderer remains the choice for the full
   effect on RTX hardware.
-- Not run in the browser yet (needs the browser build; compute and storage limits are checked at start).
+- In the browser the pass runs, but slower than native (see below).
 
 ## Browser and Linux after the change
 
@@ -78,3 +78,17 @@ Software traversal is far slower than DXR hardware. The first port traced everyt
   then runs the taa_tour to gameplay on the WebGPU renderer with the portable temporal AA.
 - Same settings on Windows (no upscaling, TAA or ray tracing), still / turning / settled: WebGPU 207 / 285 / 373 fps,
   Direct3D 11 226 / 289 / 359 fps.
+
+## Browser ray tracing verified (later on 30 October)
+
+- With `modern_water`, `ray_shadows` and `ray_reflections` set in the browser's `/persist/drakan.ini` (IndexedDB), the
+  Chrome player traced every world frame in Surdana: 185,582 opaque and 27,756 native water triangles, 1,211 model
+  instances, shadows from the native lights, about 37 game frames per second (internal scale 2, VSync on). Contact
+  shadows under the trees and tent show.
+- Real key input from Playwright opens F1 in the browser (the earlier attempt dispatched synthetic DOM events).
+- Two status bugs, on every platform: F1 opens over the pause menu, and the paused frames reset the "last presented"
+  ray and water flags, so the status always said no ray-traced image had been displayed; both renderers now keep the
+  last gameplay frame's result while a menu is up. The DLSS rows drive the portable temporal AA on WebGPU, so the NVIDIA
+  DLSS credit showed there; it now needs the Direct3D 11 renderer. The reflections row is no longer labelled "DXR".
+- The pass logs `[modern-water] first ray-traced world` once. It used to log nothing on success, and the settings
+  overlay's status query creates the pass before the renderer does, so its start-up line never appeared either.
