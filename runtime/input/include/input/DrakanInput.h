@@ -1,6 +1,7 @@
 // Drakan mouse + keyboard input module: integration API. See README.md for the exact wiring.
 #pragma once
 #include "input/Config.h"
+#include "input/CameraProfile.h"
 #include "input/FrameInput.h"
 #include "input/GuestInterface.h"
 #include "input/HostInput.h"
@@ -75,6 +76,8 @@ public:
 
     // After-hook for PadMgr_Update (0x1e3970): delivers ACT:/CMD: bindings and (optionally) menu cursor / clicks.
     void afterPadMgrUpdate(IGuest& g);
+    // Shared native walk delivery without menu, inventory or arbitrary command hooks.
+    void afterMovementInput(IGuest& g);
 
     // Tell the module that a cursor-driven menu (or the pause menu) is showing: releases the mouse, switches to the
     // [menu_bindings] layer.
@@ -126,6 +129,10 @@ public:
     // is neutral, no ACT:/CMD: presses, no menu mouse. Held-command releases still reach the guest. The game keeps
     // running (menu, music). Thread-safe. Injected taps still apply.
     void setSuspended(bool s);
+    // Set before init: releases without camera hooks must retain stick emulation on every reload.
+    void setDirectLookAvailable(bool available);
+    void setCameraProfile(const CameraProfile& profile);
+    bool controlledDragon(IGuest& guest) const;
     bool suspended() const { return suspended_.load(); }
     // Host screen mode (the modern Tab screen, runtime/gameui): a host UI drawn over a native screen that keeps
     // running. Like suspension for the guest (neutral pad, no bindings, no menu mouse, injected taps still apply),
@@ -212,6 +219,11 @@ private:
     bool aimPitchOwned_ = false, aimPitchSaved_ = false;
     float savedAimPitch_ = 0;
     void finishFrame();
+    bool directLookAvailable_ = true;
+    CameraProfile camera_;
+    bool cameraProfileSet_ = false;
+    void applyCameraProfile();
+    void updateWalkCommand(IGuest& g);
     void applyPendingConfig(); // takes m_
     void applyPendingLocked();
     std::mutex m_; // guest hooks may run on different EE host threads

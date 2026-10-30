@@ -10,6 +10,42 @@ Note: `docs/reference/iop-and-io.md` quotes libpad entry points 4 bytes off for 
 `scePadInit` 0x4b0948, `PortOpen` 0x4b0ba8, `Read` 0x4b0ef8, `GetState` 0x4b0f78, `SetMainMode` 0x4b1490, `SetActDirect` 0x4b1548.
 Use the `functions.csv` entry addresses for hooks.
 
+## Runtime disc integration (2026-10-30)
+
+The historical analysis below describes PAL addresses. The basic SDK input backend now resolves its hooks and
+flow globals through `configs/regions/*.json`; it polls at the native PadMgr frame boundary, shares the F1/native
+pause handshake with PAL, and suspends pad output while PC settings is open. Cursor menu masks, screen IDs and
+camera-chain offsets are profile data. See [disc support](regions.md#pc-settings-and-input-flow) for validation
+and remaining gaps. Right-stick mouse emulation is enforced at initialization and every configuration reload
+when direct camera hooks are unavailable. The `DRAKAN_INPUT_INI` override is shared with the settings host.
+
+`DirectMouseLook` is now independent of the remaining PAL-only `AdvancedInput` features. Both integrations install
+`drakanInstallDirectMouse`, use the same `InputModule` camera code, and take the camera layout, native pitch
+predicates, turn function/vector and PadMgr fields from the disc profile. Profile addresses remain authoritative
+through initialization and settings reloads. Direct pitch/yaw, persistent pitch, free-combat eligibility and camera
+follow are enabled on USA; modern bow aim remains unavailable. An active physical right stick
+or RSTICK binding owns native look; raw mouse counts are discarded during that ownership. Camera eligibility no
+longer mistakes the native Auto Mount Dragon option for a gameplay-enable flag.
+
+Run `python scripts/harness/settings_check.py --region usa --mode camera --resume 1` for measured raw yaw/pitch,
+idle stability and a live sensitivity Apply/reload. `--mode title` covers F1, Options entry and persistence;
+`--mode gameplay --resume 0|1` covers native pause, input isolation and close ownership. Use `--region pal` for the
+same regression checks. Runs use the existing `play_run` subprocess runner, isolated INIs/card, scripted input,
+RAM dumps and render-thread commands under `DRAKAN_OVERLAY_SHOT_DIR`; they never send desktop input or take focus.
+
+
+`MovementInput` separately enables keyboard strafing and the native walk command on both discs. The runtime
+pins PadMgr, callback and timer addresses from the profile; `afterMovementInput` shares the PAL walk helper
+without enabling unmigrated action/menu hooks. Both paths use native look activity to distinguish Rynn control
+from the opening scripted walk, and the controlled actor's profile class to retain mounted input.
+
+`disc_combat_check.py` runs the same native-save melee and movement recipes on each release. The paired checks
+cover target damage, block release, walk press/release, strafe without rotation and direct yaw. Native Ravenshold
+starts establish real mounted climb/forward movement and mouse yaw/pitch on both discs, plus native attack
+request release. Flight keeps `dragon_mode = stick`; direct dragon writes, breath damage and landing remain
+outside this evidence. Observer offsets and serialized fixture classes also live in the disc profiles.
+See [the combat/flight journal](../journal/2026-10-30/usa-combat-flight.md) and [harness commands](../../scripts/README.md#disc-combat-and-flight-checks).
+
 ## 1. Big picture
 
 The game engine is a PC-lineage engine (DirectInput-style key ids, "L-MOUSE" ids, command codes `0x40xx`). On PS2 a thin
@@ -301,7 +337,7 @@ running port with real `SendInput` (mouse_event / keybd_event) and `PrintWindow`
 | Yaw | unchanged and verified again visually: mouse right turns right (the scene moves left; 300 counts x 0.002 = 0.6 rad of heading, `FUN_0013ee90`). Raw counts -> angle, no acceleration, no smoothing, independent of the frame rate (the Raw Input deltas are accumulated between frames). |
 | Why the pitch snapped back | `Camera_UpdateLook` runs in two modes selected by `InputDev` vslot `+0x3c(2)` = `*(PadMgr + 0x4d4)` (set to 1 in the PadMgr constructor): non-zero ("stick position mode", `uVar7 = 1`) calls `Camera_SoftLimitAxis` and eases `cam+0x84` towards the position given by the stick (0 when centred) every frame; zero = pure rate mode (`pitch += cam+0x9c * dt * 2.2`, `cam+0x9c` follows axis 1), which has no re-centring. The module now clears that word (`addr_stick_mode_flag = 0x4e9594`) **only for the duration of the `Camera_UpdateLook` call** while the mouse looks (direct mode, captured, no pad right stick deflected) and restores it afterwards (pad users keep the stock behaviour). The old `pitch_hold_ms` hack (re-writing the pitch for 1.2 s) is gone. Verified: pitch -0.6283 stayed -0.6283 for 3 s with the mouse idle. |
 | Strafe on A / D | Scheme A maps the left stick X to axis 0 (turn). The stick records at `PadMgr+0x498` (`{s32 axisId, float out, float scale}` per stick: lx, ly, rx, ry) are rewritten before every `PadMgr_Update`: lx -> axis 3 (the strafe axis, what scheme C uses), scale 1.0, on foot only; while the last `Camera_UpdateLook` call was in dragon mode, in menus and with `[keyboard] strafe = 0` the game's own record is put back (the options code reinstalls it, the module re-detects that). No change in Options > Controller is needed. Verified: `D` moves the player along the heading's side vector and the tent in view drifts left (`r4_ctl_s1_strafeD.png`), `A` returns. |
-| Arokh flight | Camera mode (`dragonMode` argument of `Camera_UpdateLook`, limits 1.047) is exposed to the module. In flight the mouse goes through the game's own right-stick path (`[mouse] dragon_mode = stick`, rate based, same `stick_full_counts` / `invert_y` as the stick look mode) instead of the direct heading / pitch write; `direct` is available but unverified. Not reachable in the first level, so this is **not verified visually**. Which of `Controller_Update_A/B/C` (0x271e18 / 0x274c18 / 0x311220) is the dragon one is still unknown; all three call `Player_GatherInput`, and the stick mapping tables (`Options_LoadStickScheme`, air table 0x511f08) feed the same axes, so the stick path works for whichever it is. |
+| Arokh flight | Camera mode (`dragonMode` argument of `Camera_UpdateLook`, limits 1.047) is exposed to the module. In flight the mouse goes through the game's own right-stick path (`[mouse] dragon_mode = stick`, rate based, same `stick_full_counts` / `invert_y` as the stick look mode) instead of the direct heading / pitch write; `direct` is available but unverified. Mounted Ravenshold movement was checked on both releases with the 2026-10-30 disc harness (see Runtime disc integration). Which of `Controller_Update_A/B/C` (0x271e18 / 0x274c18 / 0x311220) is the dragon one is still unknown; all three call `Player_GatherInput`, and the stick mapping tables (`Options_LoadStickScheme`, air table 0x511f08) feed the same axes, so the stick path works for whichever it is. |
 | Capture vs menu | New `InputModule::setMenuContext`: the mouse is released and the brass cursor drawn only while a game menu / message box (screen ids 1 2 3 4 5 8 9 10 13 0x17 0x1b 0x1c), the inventory / map, or the F1 overlay is up. Cut scenes, loading screens and gameplay (the "menu layer" for the pad bindings) keep the mouse captured and hide the cursor, even right after the mouse moved. |
 | Menu clicks | The click-on-empty-area -> Cross fallback of `MenuMouse` is removed: a click that is not over a focusable widget does nothing (it activated the highlighted row on pages without widgets). |
 

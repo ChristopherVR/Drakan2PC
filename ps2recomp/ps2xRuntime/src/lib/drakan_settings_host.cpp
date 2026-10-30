@@ -43,6 +43,8 @@
 #include <cstdlib>
 #include <cstring>
 #include <future>
+#include <filesystem>
+#include <fstream>
 #include <map>
 #include <memory>
 #include <mutex>
@@ -132,12 +134,45 @@ void maybeShot(const gsr::OverlayContext& oc) {
     static int tick = 0;
     if (!dir || !*dir || (++tick % 6) != 0 || !oc.rtv || !g_overlay)
         return;
+    // Harness inbox: processed by the render thread, including while the EE is held.
+    // Commands use the real hotkey and Apply paths, never desktop input injection.
+    const auto commandPath = std::filesystem::path(dir) / "command.txt";
+    if (std::ifstream command{commandPath}; command) {
+        std::string id, op, key, value;
+        command >> id >> op >> key >> value;
+        command.close();
+        std::error_code ec;
+        std::filesystem::remove(commandPath, ec);
+        bool ok = true;
+        if (op == "toggle")
+            g_overlay->hotkey();
+        else if (op == "close")
+            g_overlay->close();
+        else if (op == "apply" && g_overlay->isOpen()) {
+            bool linkSensitivity = false;
+            ok = dsettings::applySettingChange(g_overlay->menu().pendingMut(), linkSensitivity, key, value);
+            if (ok)
+                g_overlay->menu().applyPending(false);
+        } else if (op == "controls")
+            g_overlay->menu().setPage(dsettings::Page::Controls);
+        else if (op == "pad" && !g_overlay->isOpen()) {
+            uint16_t button = 0;
+            ok = drakan_input::padButtonFromName(key, &button);
+            if (ok)
+                drakan_input::module().injectPadTap(button, 4);
+        } else
+            ok = false;
+        std::ofstream(commandPath.parent_path() / "ack.txt") << id << " " << (ok ? "ok" : "error");
+        std::fprintf(stderr, "[settings-harness] %s %s %s\n", id.c_str(), op.c_str(), ok ? "ok" : "error");
+    }
     { // state.txt: "open=<0|1> <flow description>" (rewritten when it changes) so a test driver need not parse the
       // (lagging) log
         static std::string last;
         const std::string st =
             std::string("open=") + (g_overlay && g_overlay->isOpen() ? "1" : "0") + " " +
-            drakan_pause::flowDescription().substr(0, drakan_pause::flowDescription().find(", last sample"));
+            drakan_pause::flowDescription().substr(0, drakan_pause::flowDescription().find(", last sample")) +
+            " samples=" + std::to_string(drakan_pause::inputSamples()) +
+            " hold=" + (drakan_pause::holdRequested() ? "1" : "0");
         if (st != last) {
             last = st;
             if (FILE* sf = std::fopen((std::string(dir) + "\\state.txt").c_str(), "wb")) {
@@ -1495,8 +1530,7 @@ struct DrakanSettingsHost final : CommonSettingsHost {
         c.textureUpscale = c.anisotropic = c.mipBias = true;
         c.textureDump = true;
         c.textureUpscaleFilters = {"default", "xbrz", "smooth"};
-        c.languageSelect = true;
-        c.promptStyle = true;
+        c.languageSelect = drakan_region::build().languageCount > 1;
         c.dlss = drakan_dlss::available();
         c.dlssStatus = drakan_dlss::status();
         c.dlssNvidia = g_gs && g_gs->api() == gsr::Config::Api::D3D11;

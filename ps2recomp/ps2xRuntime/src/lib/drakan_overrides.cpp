@@ -1,6 +1,6 @@
-// Drakan: The Ancients' Gates (PAL SCES-500.06; USA SCUS-971.28 baseline) - game-specific boot shortcuts and RSRCIOP
+// Drakan: The Ancients' Gates - game-specific boot shortcuts and RSRCIOP
 // HLE wiring. Addresses below are PAL; drakan_region::guestAddress() converts them for another region's build, and
-// only the boot baseline is installed there (docs/reference/regions.md).
+// each audited feature is selected by the build's disc profile (docs/reference/regions.md).
 //
 // The game reboots the IOP and then loads its own IOP modules (incl. RSRCIOP, which serves the 0x1201 / 0x1202 /
 // 0x1203 SIF RPC services) out of an encrypted bundle on the disc. We do not emulate any of that: the module load is
@@ -43,7 +43,9 @@
 #include "drakan_controls_menu.h"
 #include "drakan_dual_wield.h"
 #include "drakan_region.h"
-#if defined(DRAKAN_GAME_REGION_USA) && defined(PS2X_HAVE_DRAKAN_INPUT) && defined(_WIN32)
+#include "drakan_movie_policy.h"
+#include "drakan_input_flow.h"
+#if defined(PS2X_HAVE_DRAKAN_INPUT) && defined(_WIN32)
 #include "drakan_window.h"
 #include "input/DrakanInput.h"
 #endif
@@ -64,8 +66,14 @@
 #include <memory>
 #include <mutex>
 #include <thread>
+#include <stdexcept>
 
 #if defined(PS2X_HAVE_DRAKAN_INPUT)
+void drakanInstallDirectMouse(PS2Runtime& rt);
+void drakanInputAfterMovement(uint8_t* ram, R5900Context* context, PS2Runtime* runtime);
+bool drakanInputGameplay(uint8_t* ram, R5900Context* context, PS2Runtime* runtime);
+bool drakanInputAutostartReady(int playRun);
+void drakanInputBeforePadMgr(uint8_t* ram, R5900Context* context, PS2Runtime* runtime);
 void drakanInstallInput(PS2Runtime& rt); // drakan_input_glue.cpp
 #else
 void drakanInstallPortableCamera(PS2Runtime& runtime);
@@ -82,8 +90,6 @@ constexpr uint32_t kLoadIopModules = 0x101710u;      // main(): load LEVELS.RRC 
 constexpr uint32_t kSifLoadModuleBuffer = 0x4c3798u; // wrapper used by LoadIopModules
 constexpr uint32_t kOptionsHandler =
     0x4424e0u; // Options screen event handler (virtual): widget 0x2345 "Adjust Screen" -> "PC Settings"
-constexpr uint32_t kOptionsAdjustScreenWidget = 0x2345u;
-constexpr uint32_t kXdbAdjustScreen = 156u; // INTERFCE.XDB text entry of that widget
 
 PS2Runtime::RecompiledFunction g_origOptionsHandler = nullptr;
 
@@ -93,21 +99,15 @@ PS2Runtime::RecompiledFunction g_origOptionsHandler = nullptr;
 // the same frame as the New Game confirm the pause menu opens over the loading game and the game's own "close all
 // screens" (FUN_00417520) destroys the freshly created intro screen while its job still runs; the later completion then
 // jumps through the recycled object (jalr 0 / garbage). Ignore completions for screens that are no longer in the screen
-// manager table.
+// manager table. The profile supplies its slot count: PAL has 33, USA has 32.
 constexpr uint32_t kMovieDoneThunk = 0x440610u;
 constexpr uint32_t kScreenManager = 0x4fb600u; // screens by id at +0x10 + 4*id (ids 0..0x20)
 PS2Runtime::RecompiledFunction g_origMovieDone = nullptr;
 
 void hookMovieDone(uint8_t* rdram, R5900Context* c, PS2Runtime* rt) {
     const uint32_t listener = getRegU32(c, 4);
-    bool alive = false;
-    if (listener != 0u) {
-        for (uint32_t id = 0; id <= 0x20u && !alive; ++id) {
-            uint32_t entry = 0;
-            std::memcpy(&entry, rdram + kScreenManager + 0x10u + 4u * id, 4);
-            alive = (entry == listener);
-        }
-    }
+    const bool alive = drakan_movie::liveListener({rdram, PS2_RAM_SIZE}, drakan_region::guestAddress(kScreenManager),
+                                                  listener, drakan_region::build().movie);
     if (!alive) {
         static std::atomic<int> n{0};
         if (n.fetch_add(1) < 8)
@@ -117,7 +117,8 @@ void hookMovieDone(uint8_t* rdram, R5900Context* c, PS2Runtime* rt) {
         c->pc = getRegU32(c, 31);
         return;
     }
-    drakan_subtitles::stop(); // the movie (narration) is over
+    if constexpr (drakan_region::supports(drakan_region::Feature::Subtitles))
+        drakan_subtitles::stop(); // the movie (narration) is over
     g_origMovieDone(rdram, c, rt);
 }
 
@@ -131,36 +132,40 @@ void hookMovieDone(uint8_t* rdram, R5900Context* c, PS2Runtime* rt) {
 // PAL rate while a "Full" movie plays: when the player's frame counter (+0x2c) has advanced since the previous tick,
 // the next tick waits until 40 ms after the previous frame (absolute schedule, so vblank-aligned ticks still average
 // 25 frames/s). Only fresh calls reach this hook: f_0x1767a0 is resumable and the frame is often stamped in a resumed
-// part (IPU sync / DMA waits), so the counter is compared across calls, not around one.
+// part (IPU sync / DMA waits), so the counter is compared across calls, not around one. The shared implementation
+// below takes the frame interval and object offsets from the profile; USA material uses 30000/1001 fps.
 constexpr uint32_t kMovieDecodeStep = 0x1767a0u;
-constexpr auto kPalMovieFrame = std::chrono::milliseconds(40);
 PS2Runtime::RecompiledFunction g_origMovieDecodeStep = nullptr;
 
 void hookMovieDecodeStep(uint8_t* rdram, R5900Context* c, PS2Runtime* rt) {
     using Clock = std::chrono::steady_clock;
     static uint32_t lastPlayer = 0, lastCount = 0;
     static Clock::time_point deadline{};
+    const auto& layout = drakan_region::build().movie;
+    const auto movieFrame = drakan_movie::framePeriod(layout);
     const uint32_t player = getRegU32(c, 4) & 0x1ffffffu;
     uint32_t fpsIndex = ~0u, count = 0;
-    if (player != 0u && player + 0xb0u < PS2_RAM_SIZE) {
-        std::memcpy(&fpsIndex, rdram + player + 0xa8u, 4);
-        std::memcpy(&count, rdram + player + 0x2cu, 4); // frames shown so far
+    if (player != 0u && uint64_t(player) + std::max(layout.fpsIndex, layout.frameCount) + 4 <= PS2_RAM_SIZE) {
+        std::memcpy(&fpsIndex, rdram + player + layout.fpsIndex, 4);
+        std::memcpy(&count, rdram + player + layout.frameCount, 4);
     }
     if (fpsIndex == 0u) {
         const auto now = Clock::now();
         if (player != lastPlayer) {
-            std::fprintf(stderr, "[drakan] movie player 0x%x: \"Full\" frame rate, engine tick held to 25 fps\n",
-                         player);
+            std::fprintf(stderr, "[drakan] movie player 0x%x: \"Full\" frame rate, engine tick held to %.3f fps\n",
+                         player, double(layout.fpsNumerator) / layout.fpsDenominator);
             lastPlayer = player;
             lastCount = count;
             deadline = now;
         } else if (count != lastCount) {
             lastCount = count;
             // After a stall (loading, F1 menu) restart from now instead of rushing to catch up.
-            deadline = now - deadline < 3 * kPalMovieFrame ? deadline + kPalMovieFrame : now + kPalMovieFrame;
+            deadline = now - deadline < 3 * movieFrame ? deadline + movieFrame : now + movieFrame;
         }
         if (now < deadline)
             std::this_thread::sleep_until(deadline);
+    } else {
+        lastPlayer = 0;
     }
     g_origMovieDecodeStep(rdram, c, rt);
 }
@@ -170,16 +175,17 @@ void hookMovieDecodeStep(uint8_t* rdram, R5900Context* c, PS2Runtime* rt) {
 // is opened by the render thread.
 void hookOptionsHandler(uint8_t* rdram, R5900Context* c, PS2Runtime* rt) {
     const uint32_t widget = getRegU32(c, 5), msg = getRegU32(c, 6);
-    if (msg == 1u && widget >= 0x1000u && (widget & 0x1FFFFFFFu) + 0x16u < PS2_RAM_SIZE) {
+    const auto& layout = drakan_region::build().settings;
+    if (msg == 1u && widget >= 0x1000u && uint64_t(widget & 0x1FFFFFFFu) + layout.widgetId + 2 <= PS2_RAM_SIZE) {
         uint16_t id = 0;
-        std::memcpy(&id, rdram + (widget & 0x1FFFFFFFu) + 0x14u, 2);
-        if (id == kOptionsAdjustScreenWidget) {
+        std::memcpy(&id, rdram + (widget & 0x1FFFFFFFu) + layout.widgetId, 2);
+        if (id == layout.adjustScreenWidget) {
             drakan_settings_host::requestOpen();
             SET_GPR_S32(c, 2, 0);
             c->pc = getRegU32(c, 31);
             return;
         }
-        if (id == 0x2343u) // native options persist at every input frame
+        if (drakan_region::supports(drakan_region::Feature::Menus) && id == 0x2343u) // PAL autosave
         {
             SET_GPR_S32(c, 2, 0);
             c->pc = getRegU32(c, 31);
@@ -745,7 +751,8 @@ void soundPump(HleHost* h) {
     bool testSubDone = false;
     for (;;) {
         std::this_thread::sleep_for(std::chrono::milliseconds(4));
-        if (drakan_region::kIsPal && testSub && !testSubDone && h->rdramPtr && nowS() >= testSubAt) {
+        if (drakan_region::supports(drakan_region::Feature::Subtitles) && testSub && !testSubDone && h->rdramPtr &&
+            nowS() >= testSubAt) {
             testSubDone = true;
             constexpr uint32_t kScratch = 0x5b5d20u; // the speech controller's own text buffer (0x2800 bytes)
             std::strncpy(reinterpret_cast<char*>(h->rdramPtr + kScratch), testSub, 0x27ffu);
@@ -766,13 +773,16 @@ void soundPump(HleHost* h) {
             // (+0x440 = 0x4db930, read by SetGain 0x1e5470 to pan voices) only in Options_ApplyAll (0x3f9e20) / when
             // the box is toggled. A fresh start without a settings load never calls it, so everything was played mono
             // (pan ignored). Keep the manager flag equal to the option.
-            if (drakan_region::kIsPal && h->rdramPtr) {
+            if (drakan_region::supports(drakan_region::Feature::StereoSync) && h->rdramPtr) {
+                const auto& layout = drakan_region::build().audio;
+                const uint32_t manager = drakan_region::guestAddress(0x4db4f0u);
+                const uint32_t options = drakan_region::guestAddress(0x4fb6d0u);
                 uint32_t vt = 0, opt = 0, cur = 0;
-                std::memcpy(&vt, h->rdramPtr + 0x4db4f0, 4);
-                std::memcpy(&opt, h->rdramPtr + 0x4fb744, 4);
-                std::memcpy(&cur, h->rdramPtr + 0x4db930, 4);
+                std::memcpy(&vt, h->rdramPtr + manager, 4);
+                std::memcpy(&opt, h->rdramPtr + options + layout.optionStereo, 4);
+                std::memcpy(&cur, h->rdramPtr + manager + layout.managerStereo, 4);
                 if (vt != 0 && (opt == 0 || opt == 1) && cur != opt && g_stereoSync) {
-                    std::memcpy(h->rdramPtr + 0x4db930, &opt, 4);
+                    std::memcpy(h->rdramPtr + manager + layout.managerStereo, &opt, 4);
                     std::fprintf(
                         stderr,
                         "[drakan] sound manager stereo flag %u -> %u (follows Options > Audio > Stereo Sound)\n", cur,
@@ -988,16 +998,15 @@ void applyTraceEnv(PS2Runtime& rt) {
     installTraceHooks(rt, addrs, std::make_integer_sequence<int, kMaxTraceFns>{});
 }
 
-#if defined(DRAKAN_GAME_REGION_USA) && defined(PS2X_HAVE_DRAKAN_INPUT) && defined(_WIN32)
-// Non-PAL builds (docs/reference/regions.md "Input"): keyboard, mouse and gamepad through the input module, without
-// the PAL-only glue (drakan_input_glue.cpp reads PAL game objects for the camera, menus and inventory). Only the libpad
-// SDK entry points are replaced, as the glue does; the only game word read is the GUI screen pointer (menu layer of
-// the bindings). Mouse look uses the module's emulated right stick (LookMode::Stick): the direct camera mode needs the
-// PAL camera hooks.
+#if defined(PS2X_HAVE_DRAKAN_INPUT) && defined(_WIN32)
+// Shared SDK input path for profiles without the advanced camera/menu hooks.
+// The audited PadMgr frame boundary owns polling, flow publication and host pause.
 drakan_input::InputModule* g_regionInput = nullptr;
-std::chrono::steady_clock::time_point g_regionInputFrame{}, g_regionInputStart{};
+std::chrono::steady_clock::time_point g_regionInputStart{};
+PS2Runtime::RecompiledFunction g_origRegionPadMgr = nullptr;
 long g_regionAutoPressMs = 0, g_regionAutoPressUntil = 0;
-bool g_regionAutoStart = false;
+bool g_regionAutoStart = false, g_regionSteady = false;
+int g_regionPlayRun = 0;
 
 void hookRegionPadOk(uint8_t*, R5900Context* c, PS2Runtime*) {
     returnS32(c, 1);
@@ -1005,23 +1014,65 @@ void hookRegionPadOk(uint8_t*, R5900Context* c, PS2Runtime*) {
 void hookRegionPadGetState(uint8_t*, R5900Context* c, PS2Runtime*) {
     returnS32(c, 6); // stable
 }
+void hookRegionPadMgr(uint8_t* rdram, R5900Context* c, PS2Runtime* rt) {
+    while (drakan_pause::holdRequested() && !rt->isStopRequested())
+        std::this_thread::sleep_for(std::chrono::milliseconds(2));
+    auto& m = *g_regionInput;
+    const drakan_input_flow::Reader flow({rdram, PS2_RAM_SIZE});
+    const int screen = flow.screen();
+    const bool playing = drakan_region::supports(drakan_region::Feature::DirectMouseLook)
+                             ? drakanInputGameplay(rdram, c, rt)
+                             : flow.gameplay();
+    drakan_pause::tickInput(m, screen, playing, flow.scripted());
+    g_regionPlayRun = playing ? g_regionPlayRun + 1 : 0;
+    if (drakanInputAutostartReady(g_regionPlayRun))
+        g_regionSteady = true;
+    m.setPlayRun(g_regionAutoStart && !g_regionSteady ? 0 : g_regionPlayRun);
+    m.setActiveScreen(screen);
+    m.setMenuActive(!playing);
+    m.setMenuContext(drakan_input_flow::inMask(screen, drakan_region::build().inputFlow.cursorScreens));
+    m.beginFrame();
+    if (m.scripted()) {
+        const auto& ev = m.scriptEvents();
+        const char* dir = std::getenv("DRAKAN_SHOT_DIR");
+        const std::filesystem::path out = dir && *dir ? dir : ".";
+        for (const auto& name : ev.shots) {
+#ifdef PS2X_HAVE_GSR
+            gsr::requestWindowShot((out / (name + ".png")).string());
+#endif
+        }
+        for (const auto& name : ev.dumps) {
+            if (name.rfind("ram", 0) == 0) {
+                if (FILE* f = std::fopen((out / (name + ".ram")).string().c_str(), "wb")) {
+                    std::fwrite(rdram, 1, PS2_RAM_SIZE, f);
+                    std::fclose(f);
+                }
+            }
+            std::fprintf(stderr, "[in] dump %s frame=%d %s\n", name.c_str(), m.frameNo(),
+                         drakan_pause::flowDescription().c_str());
+        }
+        if (ev.quit) {
+            std::fprintf(stderr, "[in] script quit at frame %d\n", m.frameNo());
+            rt->requestStop();
+        }
+    }
+    if constexpr (drakan_region::supports(drakan_region::Feature::DirectMouseLook))
+        drakanInputBeforePadMgr(rdram, c, rt);
+    g_origRegionPadMgr(rdram, c, rt);
+    if constexpr (drakan_region::supports(drakan_region::Feature::MovementInput))
+        drakanInputAfterMovement(rdram, c, rt);
+}
 void hookRegionPadRead(uint8_t* rdram, R5900Context* c, PS2Runtime*) {
     const uint32_t port = getRegU32(c, 4), slot = getRegU32(c, 5), buf = getRegU32(c, 6);
     drakan_input::InputModule& m = *g_regionInput;
     const auto now = std::chrono::steady_clock::now();
-    if (port == 0 && now - g_regionInputFrame >= std::chrono::milliseconds(8)) {
-        g_regionInputFrame = now; // one module frame per game frame (the game reads port 0 once per frame)
-        uint32_t screen = 0;
-        std::memcpy(&screen, rdram + drakan_region::guestAddress(0x4fb60cu), 4);
-        m.setMenuActive(screen >= 0x100000u && screen < PS2_RAM_SIZE); // a GUI screen is up: menu bindings
-        m.beginFrame();
-    }
     uint8_t s[32];
     if (!m.fillPadSample(static_cast<int>(port), static_cast<int>(slot), s)) {
         returnS32(c, 0);
         return;
     }
-    if (port == 0 && g_regionAutoPressMs > 0) { // DRAKAN_AUTOPRESS test aid, as the stock pad stub
+    if (port == 0 && g_regionAutoPressMs > 0 && !(g_regionAutoStart && (g_regionSteady || g_regionPlayRun > 0)) &&
+        !drakan_settings_host::isOpen()) { // DRAKAN_AUTOPRESS test aid, as the stock pad stub
         const long t =
             static_cast<long>(std::chrono::duration_cast<std::chrono::milliseconds>(now - g_regionInputStart).count());
         if (t > 3000 && (g_regionAutoPressUntil <= 0 || t < g_regionAutoPressUntil) && t % g_regionAutoPressMs < 150) {
@@ -1038,10 +1089,20 @@ void installRegionInput(PS2Runtime& runtime) {
     if (const char* on = std::getenv("DRAKAN_INPUT"); on && on[0] == '0')
         return;
     using drakan_region::guestAddress;
-    static drakan_input::InputModule module;
-    const std::string ini = drakan_cfg::exeDir() + "drakan_input.ini";
-    module.init(nullptr, ini); // private raw-input thread, as the PAL glue on Windows
-    module.mutableConfig().lookMode = drakan_input::LookMode::Stick;
+    auto& module = drakan_input::module();
+    const char* inputIni = std::getenv("DRAKAN_INPUT_INI");
+    const std::string ini = inputIni && *inputIni ? inputIni : drakan_cfg::exeDir() + "drakan_input.ini";
+    module.setDirectLookAvailable(drakan_region::supports(drakan_region::Feature::DirectMouseLook));
+    if (const char* script = std::getenv("DRAKAN_INPUT_SCRIPT"); script && *script) {
+        module.initHeadless(drakan_input::Config::loadOrCreate(ini, nullptr));
+        std::string error;
+        if (!module.loadScript(script, &error))
+            throw std::runtime_error("Cannot load input script: " + error);
+        std::fprintf(stderr, "[input] SCRIPTED host input from '%s'\n", script);
+    } else {
+        module.init(nullptr, ini);
+    }
+    drakanInstallDirectMouse(runtime);
     module.setCaptureWindow(drakan_win::handle());
     g_regionInput = &module;
     g_regionInputStart = std::chrono::steady_clock::now();
@@ -1049,15 +1110,18 @@ void installRegionInput(PS2Runtime& runtime) {
         g_regionAutoPressMs = std::atol(e);
     if (const char* e = std::getenv("DRAKAN_AUTOPRESS_UNTIL"))
         g_regionAutoPressUntil = std::atol(e);
-    g_regionAutoStart = std::getenv("DRAKAN_AUTOSTART") != nullptr;
-    // libpad 2.2 entry points of the USA executable (drakan_region.cpp)
+    const char* autoStart = std::getenv("DRAKAN_INPUT_AUTOSTART");
+    g_regionAutoStart = (autoStart && *autoStart == '1') || std::getenv("DRAKAN_AUTOSTART") != nullptr;
+    g_origRegionPadMgr = runtime.lookupFunction(guestAddress(0x1e3970u));
+    runtime.replaceFunction(guestAddress(0x1e3970u), &hookRegionPadMgr);
+    // SDK entry points translated through the audited disc profile.
     for (uint32_t pal : {0x4b0948u /* scePadInit */, 0x4b0ba8u /* scePadPortOpen */, 0x4b1490u /* SetMainMode */,
                          0x4b1548u /* SetActDirect */})
         runtime.replaceFunction(guestAddress(pal), &hookRegionPadOk);
     runtime.replaceFunction(guestAddress(0x4b0f78u), &hookRegionPadGetState);
     runtime.replaceFunction(guestAddress(0x4b0ef8u), &hookRegionPadRead);
-    std::fprintf(stderr, "[input] %s: keyboard / mouse (emulated right stick) / gamepad active (config %s)\n",
-                 drakan_region::build().label, ini.c_str());
+    std::fprintf(stderr, "[input] %s: keyboard / mouse / gamepad active (config %s)\n", drakan_region::build().label,
+                 ini.c_str());
 }
 #endif
 
@@ -1068,14 +1132,11 @@ extern "C"
 #endif
 
 void applyDrakanOverrides(PS2Runtime& runtime) {
+    using drakan_region::Feature;
     using drakan_region::guestAddress;
-    // The PC features (input, menus, widescreen, frame pacing, inventory, scene hooks, subtitles) read PAL addresses
-    // and object layouts; only PAL has them verified. Another region runs the boot baseline: IOP HLE, sound, rand,
-    // libipu tables (docs/reference/regions.md).
-    constexpr bool kPcFeatures = drakan_region::kIsPal;
-    if constexpr (!kPcFeatures)
-        std::fprintf(stderr, "[drakan] %s: baseline overrides only, PC feature hooks are PAL-only for now\n",
-                     drakan_region::build().label);
+    using drakan_region::supports;
+    std::fprintf(stderr, "[drakan] disc profile %s: features=0x%x\n", drakan_region::build().id,
+                 drakan_region::build().features);
     // libipu constant tables of this game (docs/reference/fmv.md: matrix data 0x517000, CLUT 0x517050); the stub's
     // defaults belong to another game
     ps2_stubs::setIpuInitTables(guestAddress(0x517000u), guestAddress(0x517050u), 0u);
@@ -1083,29 +1144,37 @@ void applyDrakanOverrides(PS2Runtime& runtime) {
     runtime.replaceFunction(guestAddress(kLoadIopModules), &hookLoadIopModules);
     runtime.replaceFunction(guestAddress(kSifLoadModuleBuffer), &hookSifLoadModuleBuffer);
     runtime.replaceFunction(guestAddress(kRand), &hookRand);
-    if constexpr (kPcFeatures)
+    if constexpr (supports(Feature::ControlsMenu))
         drakan_controls_menu::install(runtime);
     applyTraceEnv(runtime); // DRAKAN_TRACE_FN lists addresses of the running executable, any region
-#if defined(DRAKAN_GAME_REGION_USA) && defined(PS2X_HAVE_DRAKAN_INPUT) && defined(_WIN32)
-    installRegionInput(runtime);
+#if defined(PS2X_HAVE_DRAKAN_INPUT) && defined(_WIN32)
+    if constexpr (supports(Feature::BasicInput))
+        installRegionInput(runtime);
 #endif
-    if constexpr (kPcFeatures) {
+    if constexpr (supports(Feature::FrameRate))
         drakan_frame_rate::install(runtime);
+    if constexpr (supports(Feature::DualWield))
         drakan_dual_wield::install(runtime);
+    if constexpr (supports(Feature::SoundDebug))
         soundDebugInstall(runtime);
+    if constexpr (supports(Feature::AdvancedInput)) {
 #if defined(PS2X_HAVE_DRAKAN_INPUT)
         drakanInstallInput(runtime);
 #else
         drakanInstallPortableCamera(runtime);
 #endif
+    }
+    if constexpr (supports(Feature::Widescreen)) {
         drakan_ws::configure();
         drakan_fpsmeter::configure();
         drakan_ws::install(runtime, runtime.memory().getRDRAM(), &runtime.memory().gs().vsyncTick);
+    }
+    if constexpr (supports(Feature::InventoryTypography))
         drakan_inventory_typography::install(runtime, &runtime.memory().gs().vsyncTick);
 #ifdef PS2X_HAVE_GSR
+    if constexpr (supports(Feature::SceneHooks))
         drakan_dlss::installSceneHooks(runtime);
 #endif
-    }
 
     const std::string iso = resolveIsoPath();
     const std::string lang = resolveLanguageRoot();
@@ -1165,7 +1234,7 @@ void applyDrakanOverrides(PS2Runtime& runtime) {
                      from && *from ? from : "Level 1A - Surdana");
     }
 #ifdef PS2X_HAVE_UI
-    if constexpr (kPcFeatures) {
+    if constexpr (supports(Feature::UiPrompts)) {
         drakan_ui::Options uiOpt = drakan_ui::Options::fromEnvironment();
 #ifdef PS2X_HAVE_GSR
         // The generated prompt textures (INTERFCE.TXD 97 / 124 / 94) depend on drakan_input.ini: keep them out of the
@@ -1228,11 +1297,12 @@ void applyDrakanOverrides(PS2Runtime& runtime) {
         std::fprintf(stderr, "[drakan] %s\n", drakan_ui::install(host->iop.res, uiOpt).c_str());
     }
 #if defined(PS2X_HAVE_DRAKAN_SETTINGS) || defined(PS2X_HAVE_PORTABLE_UI)
-    if constexpr (kPcFeatures) {
+    if constexpr (supports(Feature::OptionsSettings)) {
         // Options > "Adjust Screen" (INTERFCE.XDB 156) becomes "PC Settings"; the Options handler hook opens the
         // overlay for it.
         auto pcText = std::make_shared<hle::XdbTextOverride>();
-        pcText->setText("INTERFCE.XDB", static_cast<uint16_t>(kXdbAdjustScreen), -1, "PC Settings");
+        pcText->setText("INTERFCE.XDB", static_cast<uint16_t>(drakan_region::build().settings.adjustScreenText), -1,
+                        "PC Settings");
         host->iop.res.addOverride(pcText);
     }
     drakan_settings_host::setArtSource(
@@ -1253,13 +1323,13 @@ void applyDrakanOverrides(PS2Runtime& runtime) {
     hle::setVerbose(g_logBudget.load() > 0);
     std::fprintf(stderr, "[drakan] HLE: %zu files in '%s', language root %s, delivery %s\n", host->fs.entries().size(),
                  iso.c_str(), lang.c_str(), (dl && std::string(dl) == "direct") ? "direct" : "rpc1301");
-    if constexpr (kPcFeatures)
+    if constexpr (supports(Feature::Subtitles))
         host->iop.res.setRequestObserver(&drakan_subtitles::onResourceRequest); // narration subtitles trigger
     g_host = host.release();
     runtime.replaceFunction(guestAddress(kSdRemote), &hookSdRemote);
     startSound(*g_host);
     drakan_settings_host::setAudio(&g_host->audio);
-    if constexpr (kPcFeatures) {
+    if constexpr (supports(Feature::Subtitles)) {
         std::string lg = drakan_cfg::getString("general", "language", "DRAKAN_LANG", "english");
         lg.erase(0, std::min(lg.find_first_not_of("\\/"), lg.size()));
         drakan_subtitles::init(&g_host->audio, runtime.memory().getRDRAM(), lg);
@@ -1274,22 +1344,23 @@ void applyDrakanOverrides(PS2Runtime& runtime) {
             g_host->audio.setHeartbeat(&runtime.memory().gs().vsyncTick, static_cast<unsigned>(ms));
     }
     drakan_pause::setAudio(&g_host->audio);
-    // PAL only: movie pacing assumes the 25 fps PAL movies, the other hooks PAL screen objects.
-    if (kPcFeatures && runtime.hasFunction(kMovieDecodeStep)) {
-        g_origMovieDecodeStep = runtime.lookupFunction(kMovieDecodeStep);
-        runtime.replaceFunction(kMovieDecodeStep, &hookMovieDecodeStep);
+    // Only install verified movie hooks; timing and screen-table bounds belong to the disc profile.
+    if (supports(Feature::MoviePacing) && runtime.hasFunction(guestAddress(kMovieDecodeStep))) {
+        g_origMovieDecodeStep = runtime.lookupFunction(guestAddress(kMovieDecodeStep));
+        runtime.replaceFunction(guestAddress(kMovieDecodeStep), &hookMovieDecodeStep);
     }
-    if (kPcFeatures && runtime.hasFunction(kMovieDoneThunk)) {
-        g_origMovieDone = runtime.lookupFunction(kMovieDoneThunk);
-        runtime.replaceFunction(kMovieDoneThunk, &hookMovieDone);
+    if (supports(Feature::MovieGuard) && runtime.hasFunction(guestAddress(kMovieDoneThunk))) {
+        g_origMovieDone = runtime.lookupFunction(guestAddress(kMovieDoneThunk));
+        runtime.replaceFunction(guestAddress(kMovieDoneThunk), &hookMovieDone);
     }
-    if (kPcFeatures && runtime.hasFunction(kOptionsHandler)) {
-        g_origOptionsHandler = runtime.lookupFunction(kOptionsHandler);
-        runtime.replaceFunction(kOptionsHandler, &hookOptionsHandler);
-        runtime.replaceFunction(0x442cb0u, &hookOptionsClose);
+    if (supports(Feature::OptionsSettings) && runtime.hasFunction(guestAddress(kOptionsHandler))) {
+        g_origOptionsHandler = runtime.lookupFunction(guestAddress(kOptionsHandler));
+        runtime.replaceFunction(guestAddress(kOptionsHandler), &hookOptionsHandler);
+        if constexpr (supports(Feature::Menus)) // native autosave is still a reference-disc feature
+            runtime.replaceFunction(0x442cb0u, &hookOptionsClose);
     }
 
-    if constexpr (kPcFeatures)
+    if constexpr (supports(Feature::Menus))
         drakan_menus::install(runtime); // title Quit, save pages (drakan_menus.cpp)
 
     PS2Runtime::HleRpcHooks hooks{};

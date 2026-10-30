@@ -83,8 +83,8 @@ A short excerpt from the locally generated 4x HD intro pack. The movie pack itse
 **PAL release, SCES-500.06**, as a plain `.iso` image. The builder checks the disc and stops on any other version.
 
 **USA release, SCUS-971.28 (experimental, Windows):** builds into `dist/DrakanPC-usa` and plays with keyboard,
-mouse look and the game's own menus, but without the PC additions (settings overlay, widescreen, frame-rate
-options, modern Tab/map screens, quicksave, save pages, subtitles). Saves are region-specific, and a build refuses the
+direct mouse look, PC settings and the game's own menus. Settings/pause and mouse sensitivity reloads have harness coverage;
+widescreen, frame-rate options, modern Tab/map screens, quicksave, save pages and subtitles remain unavailable. Saves are region-specific, and a build refuses the
 other release's disc. Details: [USA disc support](docs/guides/install.md#usa-disc-support-experimental) and
 [disc regions](docs/reference/regions.md).
 

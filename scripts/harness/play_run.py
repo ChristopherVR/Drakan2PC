@@ -90,8 +90,8 @@ def run_once(exe: Path, env: dict[str, str], out: Path, timeout: float, attempt:
             print(f"attempt {attempt}: timed out after {timeout:.0f} s")
             return False
     text = log.read_bytes().decode("latin-1")
-    if "[in] script quit" not in text:
-        print(f"attempt {attempt}: exit {proc.returncode} without reaching the script's quit")
+    if proc.returncode != 0 or "[in] script quit" not in text:
+        print(f"attempt {attempt}: exit {proc.returncode}; a clean scripted quit is required")
         return False
     print(f"attempt {attempt}: ok (exit {proc.returncode})")
     return True

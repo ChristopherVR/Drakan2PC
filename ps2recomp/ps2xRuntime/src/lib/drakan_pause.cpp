@@ -1,4 +1,7 @@
 #include "drakan_pause.h"
+#include "drakan_pause_policy.h"
+#include "drakan_input_flow.h"
+#include "input/DrakanInput.h"
 #include "drakan_config.h"
 #include "drakan_settings_host.h"
 #include <spu2/AudioOutput.h>
@@ -78,6 +81,7 @@ std::atomic<bool> g_flowOk{false};
 std::atomic<int> g_flowScr{-1};
 std::atomic<bool> g_flowPlay{false}, g_flowScripted{false};
 std::atomic<long long> g_flowAtMs{0};
+std::atomic<uint64_t> g_inputSamples{0};
 
 long long nowMs() {
     return std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now().time_since_epoch())
@@ -86,30 +90,13 @@ long long nowMs() {
 // GUI screens in which the player works with a menu (title, options, pause, load / save, inventory, message boxes ...)
 // or watches the credits.
 bool menuScreen(int id) {
-    switch (id) {
-        case 1:
-        case 2:
-        case 3:
-        case 4:
-        case 5:
-        case 8:
-        case 9:
-        case 10:
-        case 13:
-        case 0x13:
-        case 0x15:
-        case 0x17:
-        case 0x1b:
-        case 0x1c:
-            return true;
-        default:
-            return false;
-    }
+    return drakan_input_flow::inMask(id, drakan_region::build().inputFlow.menuScreens);
 }
 } // namespace
 
 void noteFlow(int guiScreen, bool gameplay, bool scriptedInput) {
-    if (guiScreen == 8)
+    ++g_inputSamples;
+    if (guiScreen == static_cast<int>(drakan_region::build().inputFlow.titleScreen))
         g_titleSeen.store(true);
     const bool ok = g_titleSeen.load() && (menuScreen(guiScreen) || (guiScreen < 0 && gameplay && !scriptedInput));
     g_flowOk.store(ok);
@@ -117,6 +104,27 @@ void noteFlow(int guiScreen, bool gameplay, bool scriptedInput) {
     g_flowPlay.store(gameplay);
     g_flowScripted.store(scriptedInput);
     g_flowAtMs.store(nowMs());
+}
+uint64_t inputSamples() {
+    return g_inputSamples.load();
+}
+void tickInput(drakan_input::InputModule& input, int screen, bool playing, bool scripted) {
+    setGameState(screen, playing && screen < 0);
+    noteFlow(screen, playing && screen < 0, scripted);
+    static InputPolicy policy;
+    static const bool resume = drakan_cfg::getBool("general", "resume_on_close", "DRAKAN_RESUME_ON_CLOSE", false);
+    const bool open = drakan_settings_host::isOpen();
+    const auto action = policy.tick(takePauseRequest(), screen, playing, scripted, open, resume,
+                                    static_cast<int>(drakan_region::build().inputFlow.pauseScreen), nowMs());
+    if (action.tapStart) {
+        input.injectPadTap(drakan_input::Pad::START, 4);
+        std::fprintf(stderr, "[settings] native pause/resume requested (screen %d)\n", screen);
+    }
+    if (action.open) {
+        drakan_settings_host::requestOpen();
+        std::fprintf(stderr, "[settings] opening over screen %d\n", screen);
+    }
+    input.setSuspended(open);
 }
 bool f1Allowed() {
     static const bool off = std::getenv("DRAKAN_F1_ALWAYS") != nullptr; // debugging aid: no gating

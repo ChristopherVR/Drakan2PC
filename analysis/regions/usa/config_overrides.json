@@ -1,0 +1,15 @@
+{
+  "_comment": "Hand-verified SDK entries and absent SDK 2.3 exports; evidence in docs/reference/regions.md.",
+  "manual_addresses": {
+    "0x004b07b8": "0x004aff10",
+    "0x004b9140": "0x004ba4f0",
+    "0x004c4db0": "0x004c5c20",
+    "0x004c7a98": "0x004c8908"
+  },
+  "allowed_missing": [
+    "sceSifAllocSysMemory@0x004C2DF8",
+    "sceSifUnloadModule@0x004C35D8",
+    "sceSifSearchModuleByName@0x004C3668",
+    "sceSifSearchModuleByAddress@0x004C3708"
+  ]
+}

@@ -7,8 +7,8 @@ every `[mmio]` instruction address and every `sub_XXXXXXXX` in `[performance]` i
 * the PAL function is mapped "exact" / "neighbour" (identical normalised body) -> same offset inside
   the region's function;
 * mapped "callsite" / "fuzzy" (body differs, only the entry is known) -> only the entry address;
-* MANUAL below -> hand-checked region address (docs/reference/regions.md lists the evidence);
-* otherwise the entry is dropped and reported (it is absent from the other build's SDK).
+* config_overrides.json beside the maps -> hand-checked region address;
+* otherwise the entry must be listed in allowed_missing, or generation fails.
 
 No ELF is read; the output contains public address metadata only.
 
@@ -22,19 +22,10 @@ from __future__ import annotations
 import argparse
 import bisect
 import csv
+import json
+import os
 import re
 from pathlib import Path
-
-# PAL address -> USA address, checked by hand (neighbouring-function order inside the SDK object and
-# identical bytes at the offset; see docs/reference/regions.md "Hand-mapped SDK entries").
-MANUAL = {
-    "usa": {
-        0x004B07B8: 0x004AFF10,  # sceDmaPause: first of the two 28-byte stubs after sceDmaWatch (libdma 2.2)
-        0x004B9140: 0x004BA4F0,  # sceSdTransToIOP: between sceSdRemoteInit and the sceSdRemote thunk (libsdr 2.2)
-        0x004C4DB0: 0x004C5C20,  # __sjpopnthrow: same offset in the identical 0x1d8-byte gap after 0x4c5aa8
-        0x004C7A98: 0x004C8908,  # __cp_exception_info: +0x18 inside the matched 0x4c88f0 body
-    }
-}
 
 
 def load_map(directory: Path):
@@ -53,14 +44,23 @@ def main() -> None:
     ap.add_argument("--map", type=Path, required=True, help="directory with region_map.py output")
     ap.add_argument("--pal-functions", type=Path, required=True)
     ap.add_argument("--template", type=Path, required=True)
-    ap.add_argument("--region", default="usa")
+    ap.add_argument("--region", help="profile id (defaults to the map directory name)")
     ap.add_argument("--boot", required=True)
-    ap.add_argument("--functions-csv", default="../analysis/regions/usa/functions.csv")
-    ap.add_argument("--jump-tables-csv", default="../analysis/regions/usa/jumptables.csv")
+    ap.add_argument("--functions-csv", help="path in generated config (defaults to the map's functions.csv)")
+    ap.add_argument("--jump-tables-csv", help="path in generated config (defaults to the map's jumptables.csv)")
     ap.add_argument("--out", type=Path, required=True)
     args = ap.parse_args()
+    args.region = args.region or args.map.name
+    args.functions_csv = (
+        args.functions_csv or Path(os.path.relpath(args.map / "functions.csv", args.out.parent)).as_posix()
+    )
+    args.jump_tables_csv = (
+        args.jump_tables_csv or Path(os.path.relpath(args.map / "jumptables.csv", args.out.parent)).as_posix()
+    )
     exact, entry = load_map(args.map)
-    manual = MANUAL.get(args.region, {})
+    overrides_path = args.map / "config_overrides.json"
+    overrides = json.loads(overrides_path.read_text(encoding="utf-8")) if overrides_path.exists() else {}
+    manual = {int(a, 0): int(b, 0) for a, b in overrides.get("manual_addresses", {}).items()}
     pal_funcs = []
     with args.pal_functions.open(newline="") as f:
         for row in csv.DictReader(f):
@@ -111,6 +111,9 @@ def main() -> None:
         return f"{m[0][: m.start(1) - m.start(0)]}{new:08X}{m[0][m.end(1) - m.start(0) :]}"
 
     text = re.sub(r'(?m)^  "sub_([0-9A-F]{8})",[^\n]*\n', perf, text)
+    unexpected = set(dropped) - set(overrides.get("allowed_missing", []))
+    if unexpected:
+        ap.exit(1, "Unverified missing mappings (output not written): " + ", ".join(sorted(unexpected)) + "\n")
     header = (
         f"# PS2Recomp configuration for: {args.boot} ({args.region.upper()})\n"
         f"# Generated from {args.template.as_posix()} by analysis/scripts/region_config.py; do not edit by hand.\n"

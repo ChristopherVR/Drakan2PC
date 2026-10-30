@@ -39,12 +39,12 @@
 #include "drakan_tab_preview_policy.h"
 #include "drakan_save_previews.h"
 #include "drakan_region.h"
+#include "drakan_input_flow.h"
 #include "drakan_widescreen.h"
 #include "gameui/Addresses.h"
 #include "gameui/Reader.h"
 #include "input/NativeInventoryFeedback.h"
 #include "input/QuickSlots.h"
-#include "drakan_controlled_actor.h"
 #include "drakan_present_clock.h"
 #include "drakan_scene_camera.h"
 #include <gsr/gsr.h>
@@ -58,6 +58,7 @@
 #include <cstring>
 #include <ctime>
 #include <exception>
+#include <stdexcept>
 #include <filesystem>
 #include <memory>
 #include <optional>
@@ -172,39 +173,10 @@ bool g_noScreenLayer = false; // DRAKAN_INPUT_SCREEN_LAYER=0: do not switch to t
 // screen object at +0xc, its screen id at +0x18 (1,2,3,0x1b = message / yes-no boxes, 8 title, 0x17 pause menu, 9
 // options ...). -1 = no active screen.
 int activeScreenId(const uint8_t* rdram) {
-    auto rd = [&](uint32_t a) {
-        uint32_t v;
-        std::memcpy(&v, rdram + (a & 0x1FFFFFFFu & (PS2_RAM_SIZE - 1)), 4);
-        return v;
-    };
-    const uint32_t s = rd(0x4fb60cu);
-    if (s < 0x100000u || s >= PS2_RAM_SIZE)
-        return -1;
-    return static_cast<int>(rd(s + 0x18u));
+    return drakan_input_flow::Reader({rdram, PS2_RAM_SIZE}).screen();
 }
-// GUI screens that are interactive menus / message boxes (the mouse cursor is needed there). Others (0x1d / 0x1e
-// movies, loading ...) are not.
 bool isMenuScreen(int id) {
-    switch (id) {
-        case 1:
-        case 2:
-        case 3:
-        case 4:
-        case 5:
-        case 8:
-        case 9:
-        case 10:
-        case 13:
-        case 0x10: // full-screen text page (a click continues)
-        case 0x13: // credits
-        case 0x15: // inventory / map / shop
-        case 0x17:
-        case 0x1b:
-        case 0x1c:
-            return true;
-        default:
-            return false;
-    }
+    return drakan_input_flow::inMask(id, drakan_region::build().inputFlow.cursorScreens);
 }
 std::atomic<bool> g_dragon{false}; // live context actor, refreshed at every PadMgr update
 void ilog(const char* fmt, ...) {
@@ -229,17 +201,8 @@ double nowS() {
     return std::chrono::duration<double>(std::chrono::steady_clock::now() - g_t0).count();
 }
 
-// F1 in gameplay: START is injected once (the game opens its own pause menu), then the settings overlay opens over it;
-// the game keeps running (music) and only its input is swallowed. Closing leaves the pause menu open unless [general]
-// resume_on_close = 1.
-constexpr int kPauseScreenId = 0x17;
-bool g_pauseWait = false; // START injected, waiting for the pause screen
-double g_pauseT0 = 0.0;
-bool g_autoPaused = false; // the pause menu below the overlay was opened by us
-bool g_overlayWasOpen = false;
-int g_resumeOnClose = -1;
-
 std::atomic<int> g_postsPending{0}; // RecompGuest::post() calls that have not returned yet
+constexpr int kPauseScreenId = static_cast<int>(drakan_region::build().inputFlow.pauseScreen);
 
 // Guest access on top of rdram; call() runs a recompiled function to completion on a copy of the current context.
 class RecompGuest final : public IGuest {
@@ -264,7 +227,8 @@ public:
     }
     uint32_t call(const GuestCall& c) override {
         const auto& input = module();
-        if (g_quickInventory.intercept(*this, c, !input.menuActive() && input.frame().focused && !input.suspended(),
+        if (drakan_region::supports(drakan_region::Feature::AdvancedInput) &&
+            g_quickInventory.intercept(*this, c, !input.menuActive() && input.frame().focused && !input.suspended(),
                                        ilog))
             return 1;
         if (c.addr == 0 || !m_rt->hasFunction(c.addr))
@@ -609,6 +573,14 @@ void quickSlotsTick(RecompGuest& g, int scr, bool gameplay) {
         ilog("[in] frame %d %s", m.frameNo(), log.c_str());
 }
 
+bool inputGameplay(RecompGuest& guest, uint8_t* ram, int upcoming) {
+    const drakan_input_flow::Reader flow({ram, PS2_RAM_SIZE});
+    // A mode-1/6 camera also exists during the opening scripted walk. On foot,
+    // native look callbacks prove control; mounted controllers need not call it.
+    return flow.gameplay() &&
+           ((g_lookFrame.load() > 0 && upcoming - g_lookFrame.load() <= 3) || module().controlledDragon(guest));
+}
+
 void hookPadMgrUpdate(uint8_t* rdram, R5900Context* c, PS2Runtime* rt) {
     // Settings overlay open: hold the game at this frame boundary (nothing is mid-frame). The host thread keeps
     // presenting the last image plus the overlay; the frame that was about to start runs normally after the menu
@@ -631,12 +603,11 @@ void hookPadMgrUpdate(uint8_t* rdram, R5900Context* c, PS2Runtime* rt) {
     InputModule& m = module();
     const int upcoming = m.frameNo() + 1;
     RecompGuest actorGuest(rdram, c, rt);
-    const auto actor = drakan_controlled_actor::read(actorGuest);
-    g_dragon = actor.dragon;
+    g_dragon = m.controlledDragon(actorGuest);
     // Normal dragon control does not call Camera_UpdateLook every frame:
     // controllers A/B only call it in camera mode 6 (on-foot C calls it
     // regularly). Do not let a stale on-foot look switch flight to menus.
-    bool gameplay = (upcoming - g_lookFrame.load()) <= 3 || actor.dragonGameplay;
+    bool gameplay = inputGameplay(actorGuest, rdram, upcoming);
     const int scr = activeScreenId(rdram);
     drakan_menus::tick(rdram, c, rt);
     if (scr != g_lastScreen) {
@@ -666,51 +637,12 @@ void hookPadMgrUpdate(uint8_t* rdram, R5900Context* c, PS2Runtime* rt) {
     g_playRun = gameplay ? g_playRun + 1 : 0;
     m.setPlayRun((g_autoStart && !g_steady) ? 0 : g_playRun);
     m.setActiveScreen(scr);
-    drakan_pause::setGameState(scr, gameplay && scr < 0);
-    { // F1 gate: scripted input (cut scene flag, docs/reference/input.md 5) + screen + camera state
-        uint32_t scripted = 0;
-        std::memcpy(&scripted, rdram + 0x4fbafcu, 4);
-        drakan_pause::noteFlow(scr, gameplay && scr < 0, scripted != 0);
-    }
-    if (g_resumeOnClose < 0)
-        g_resumeOnClose = drakan_cfg::getBool("general", "resume_on_close", "DRAKAN_RESUME_ON_CLOSE", false) ? 1 : 0;
-    if (drakan_pause::takePauseRequest()) {
-        if (gameplay && scr < 0) {
-            m.injectPadTap(Pad::START, 4);
-            g_pauseWait = true;
-            g_pauseT0 = nowS();
-            ilog("[in] t=%.2f frame %d: F1 in gameplay: pausing through the game's pause menu (START injected)\n",
-                 nowS(), upcoming);
-        } else
-            drakan_settings_host::requestOpen();
-    } else if (g_pauseWait) {
-        if (scr == kPauseScreenId) {
-            g_pauseWait = false;
-            g_autoPaused = true;
-            drakan_settings_host::requestOpen();
-            ilog("[in] t=%.2f frame %d: pause menu is up, opening the settings over it\n", nowS(), upcoming);
-        } else if (nowS() - g_pauseT0 > 3.0) {
-            g_pauseWait = false;
-            drakan_settings_host::requestOpen(); // the pause menu did not appear: open anyway (the EE is held as
-                                                 // before)
-            ilog("[in] pause menu did not appear within 3 s, opening the settings with the game held\n");
-        }
-    }
-    {
-        const bool ov = drakan_settings_host::isOpen();
-        if (g_overlayWasOpen && !ov) {
-            if (g_autoPaused && g_resumeOnClose == 1 && scr == kPauseScreenId) {
-                m.injectPadTap(Pad::START, 4); // resume: START again, like the player would
-                ilog("[in] settings closed: resuming the game (resume_on_close = 1)\n");
-            }
-            g_autoPaused = false;
-        }
-        g_overlayWasOpen = ov;
-        m.setSuspended(ov);
-    }
+    uint32_t scripted = 0;
+    std::memcpy(&scripted, rdram + drakan_region::guestAddress(0x4fbafcu), 4);
+    drakan_pause::tickInput(m, scr, gameplay, scripted != 0);
     // On foot the camera-look hook proves control; mounted on Arokh (Ravenshold starts in flight) it is not called,
     // so a long uninterrupted gameplay run counts as well.
-    if (g_autoStart && !g_steady && ((g_lookCalls.load() >= 100 && g_playRun >= 80) || g_playRun >= 240)) {
+    if (g_autoStart && !g_steady && drakan_input_flow::autostartReady(g_lookCalls.load(), g_playRun)) {
         g_steady = true;
         ilog("[in] autostart: player under control at frame %d\n", upcoming);
     }
@@ -928,9 +860,10 @@ void hookPadMgrUpdate(uint8_t* rdram, R5900Context* c, PS2Runtime* rt) {
 
 uint32_t cameraObject(RecompGuest& g) {
     const uint32_t ctx = g.read32(module().config().addrCtxPtr);
-    const uint32_t handle = ctx ? g.read32(ctx + 0x4b4) : 0;
-    const uint32_t inner = handle ? g.read32(handle + 0xfc) : 0;
-    return inner ? g.read32(inner + 0x10) : 0;
+    const auto& layout = drakan_region::build().camera;
+    const uint32_t handle = ctx ? g.read32(ctx + layout.contextCamera) : 0;
+    const uint32_t inner = handle ? g.read32(handle + layout.handleInner) : 0;
+    return inner ? g.read32(inner + layout.innerData) : 0;
 }
 
 void hookCameraUpdateLook(uint8_t* rdram, R5900Context* c, PS2Runtime* rt) {
@@ -941,7 +874,8 @@ void hookCameraUpdateLook(uint8_t* rdram, R5900Context* c, PS2Runtime* rt) {
     if (!dragon && module().freeCombatAllowed(g, player, cam)) {
         // Explicit target lock and alternate aiming own their native camera.
         // freeCombatAllowed excludes both before clearing free-look orbit.
-        g.writeF(cam + 0x90, 0); // direct mouse follows Rynn instead of orbiting around a target
+        g.writeF(cam + drakan_region::build().camera.cameraOrbit,
+                 0); // direct mouse follows Rynn instead of orbiting around a target
     }
     beforeCameraUpdateLook(g, dragon, player);
     g_origCameraLook(rdram, c, rt); // sets pc = $ra when done; $ra itself is preserved
@@ -1071,7 +1005,45 @@ double clockSeconds() {
 } // namespace drakan_menu_screens
 
 #if defined(PS2X_HAVE_DRAKAN_INPUT)
+// Both input integrations install the same audited camera hooks.
+void drakanInstallDirectMouse(PS2Runtime& rt) {
+    using namespace drakan_region;
+    if (!supports(Feature::DirectMouseLook))
+        return;
+    module().setCameraProfile(inputCameraProfile());
+    g_origCameraLook = rt.lookupFunction(guestAddress(kCameraUpdateLook));
+    g_origCameraFollow = rt.lookupFunction(guestAddress(kCameraFollowTick));
+    if (!g_origCameraLook || !g_origCameraFollow)
+        throw std::runtime_error("Disc profile camera hook is missing");
+    const int skip = std::getenv("DRAKAN_INPUT_SKIP") ? std::atoi(std::getenv("DRAKAN_INPUT_SKIP")) : 0;
+    if (!(skip & 2))
+        rt.replaceFunction(guestAddress(kCameraUpdateLook), &hookCameraUpdateLook);
+    if (!(skip & 32))
+        rt.replaceFunction(guestAddress(kCameraFollowTick), &hookCameraFollow);
+    ilog("[input] %s: profile-driven direct mouse look active\n", build().id);
+}
+
+bool drakanInputGameplay(uint8_t* ram, R5900Context* context, PS2Runtime* runtime) {
+    RecompGuest guest(ram, context, runtime);
+    return inputGameplay(guest, ram, module().frameNo() + 1);
+}
+
+bool drakanInputAutostartReady(int playRun) {
+    return drakan_input_flow::autostartReady(g_lookCalls.load(), playRun);
+}
+
+void drakanInputBeforePadMgr(uint8_t* ram, R5900Context* context, PS2Runtime* runtime) {
+    RecompGuest guest(ram, context, runtime);
+    module().beforePadMgrUpdate(guest, module().controlledDragon(guest));
+}
+
+void drakanInputAfterMovement(uint8_t* ram, R5900Context* context, PS2Runtime* runtime) {
+    RecompGuest guest(ram, context, runtime);
+    module().afterMovementInput(guest);
+}
+
 void drakanInstallInput(PS2Runtime& rt) {
+    module().setDirectLookAvailable(drakan_region::supports(drakan_region::Feature::DirectMouseLook));
     installParryAudit(rt);
     const char* on = std::getenv("DRAKAN_INPUT");
     if (on && on[0] == '0') {
@@ -1195,16 +1167,11 @@ void drakanInstallInput(PS2Runtime& rt) {
         rt.replaceFunction(0x33eaf8u, &hookInventorySelect);
     }
     g_origPadMgrUpdate = rt.lookupFunction(kPadMgrUpdate);
-    g_origCameraLook = rt.lookupFunction(kCameraUpdateLook);
     const int skip = g_skipBits = std::getenv("DRAKAN_INPUT_SKIP") ? std::atoi(std::getenv("DRAKAN_INPUT_SKIP"))
                                                                    : 0; // debug: 1 = PadMgr hook, 2 = camera hook
     if (!(skip & 1))
         rt.replaceFunction(kPadMgrUpdate, &hookPadMgrUpdate);
-    if (!(skip & 2))
-        rt.replaceFunction(kCameraUpdateLook, &hookCameraUpdateLook);
-    g_origCameraFollow = rt.lookupFunction(kCameraFollowTick);
-    if (g_origCameraFollow && !(skip & 32)) // 32: keep the game's own camera rubber band
-        rt.replaceFunction(kCameraFollowTick, &hookCameraFollow);
+    drakanInstallDirectMouse(rt);
     g_origBowLaunch = rt.lookupFunction(kBowLaunch);
     if (g_origBowLaunch && !(skip & 64)) // 64: no modern bow aim hook
         rt.replaceFunction(kBowLaunch, &hookBowLaunch);
@@ -1237,20 +1204,8 @@ void drakanTickPortableMenuHooks(uint8_t* ram, R5900Context* context, PS2Runtime
     RecompGuest guest(ram, context, runtime);
     drakan_menus::tick(ram, context, runtime);
     const int screen = activeScreenId(ram);
-    drakan_pause::setGameState(screen, screen < 0);
-    drakan_pause::noteFlow(screen, screen < 0, guest.read32(0x4fbafcu) != 0);
-    if (drakan_pause::takePauseRequest()) {
-        if (screen < 0) {
-            module().injectPadTap(Pad::START, 4);
-            g_pauseWait = true;
-        } else
-            drakan_settings_host::requestOpen();
-    }
-    if (g_pauseWait && screen == kPauseScreenId) {
-        g_pauseWait = false;
-        drakan_settings_host::requestOpen();
-    }
-    module().setSuspended(drakan_settings_host::isOpen());
+    const drakan_input_flow::Reader flow({ram, PS2_RAM_SIZE});
+    drakan_pause::tickInput(module(), screen, flow.gameplay(), flow.scripted());
     pauseTick(ram, guest);
     menuScreensTick(ram, context, runtime, guest);
     const bool gameplay = screen < 0 && guest.read32(0x4fbafcu) == 0;

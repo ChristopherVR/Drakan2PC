@@ -294,10 +294,17 @@ int main() {
     {
         Host host;
         host.caps.internalResolution = false;
+        host.caps.directMouseLook = false;
+        host.caps.unavailableBindingActions = {"QUICKSAVE", "QUICKLOAD"};
         host.caps.unavailableSettings = {"video.aspect"};
         auto schema = buildSettingsSchema(Settings{}, env(host));
-        bool scale = false, aspect = false, audio = false;
+        bool scale = false, aspect = false, audio = false, look = false;
         for (const auto* row : allRows(schema)) {
+            if (row->key == "input.general.look_mode") {
+                look = true;
+                CHECK(!row->enabled && row->currentValue == "stick");
+                CHECK(row->current == 1 && row->choices[1].label == "Right stick emulation");
+            }
             if (row->key == "video.scale") {
                 scale = true;
                 CHECK(!row->enabled);
@@ -311,7 +318,15 @@ int main() {
                 CHECK(row->enabled);
             }
         }
-        CHECK(scale && aspect && audio);
+        CHECK(scale && aspect && audio && look);
+        bool pauseBinding = false;
+        for (const auto& layer : schema.bindings)
+            for (const auto& group : layer.groups)
+                for (const auto& action : group.actions) {
+                    CHECK(action.id != "QUICKSAVE" && action.id != "QUICKLOAD");
+                    pauseBinding = pauseBinding || action.id == "START";
+                }
+        CHECK(pauseBinding);
     }
     {
         // The NVIDIA credit belongs to NVIDIA DLSS (Direct3D 11), not to the WebGPU temporal AA behind the same rows.

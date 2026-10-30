@@ -1,5 +1,5 @@
-"""Private SCES_500.06 fixture: relocate Rynn/camera; never edit the source card.
-Usage: python combat_save_fixture.py SOURCE_ELF_DIR NEW_DIR X Y Z [--dragon-near-player] [--dragon-landed] [--dragon-ground-state]
+"""Private native-disc fixture: relocate Rynn/camera; never edit the source card.
+Usage: python combat_save_fixture.py SOURCE_ELF_DIR NEW_DIR X Y Z [--region=pal|usa] [--dragon-near-player] [--dragon-landed] [--dragon-ground-state]
 Positions change for Rynn/cameras and optionally the observed dragon. The explicit
 landed option also clears the dragon's saved airborne bit (not quest progression).
 Ground-state additionally sets native +9c to 1; neither option is quest progress.
@@ -24,13 +24,25 @@ xyz = tuple(map(float, sys.argv[3:6]))
 if len(xyz) != 3:
     raise SystemExit("X Y Z required")
 options = set(sys.argv[6:])
+region_options = [option for option in options if option.startswith("--region=")]
+if len(region_options) > 1:
+    raise SystemExit("Specify one region")
+region = region_options[0].partition("=")[2] if region_options else "pal"
+options.difference_update(region_options)
+registry = json.loads(
+    (pathlib.Path(__file__).resolve().parents[1] / "buildtool/regions.json").read_text(encoding="utf-8")
+)
+if region not in registry["regions"]:
+    raise SystemExit("Unknown disc region")
 if options - {"--dragon-near-player", "--dragon-landed", "--dragon-ground-state"}:
     raise SystemExit("Unknown fixture option")
 if "--dragon-landed" in options and "--dragon-near-player" not in options:
     raise SystemExit("Landed fixture requires --dragon-near-player")
 if "--dragon-ground-state" in options and "--dragon-landed" not in options:
     raise SystemExit("Ground state requires --dragon-landed")
-folder = "BESCES-50006Slot1"
+profile_path = pathlib.Path(__file__).resolve().parents[2] / registry["regions"][region]["runtime_profile"]
+profile = json.loads(profile_path.read_text(encoding="utf-8"))["save_fixture"]
+folder = registry["regions"][region]["save_id"] + "Slot1"
 name = "Level 1A - Surdana.rsg"
 src = source / "mc0" / folder / name
 d = src.read_bytes()
@@ -42,7 +54,7 @@ for n, e in enumerate(entries):
     if e[0] != 0x102:
         continue
     v = zlib.decompress(raw[n])
-    if len(v) > 24 and struct.unpack_from("<I", v, 8)[0] == 0x17081069:
+    if len(v) > 24 and struct.unpack_from("<I", v, 8)[0] == profile["player_class"]:
         players.append((n, v))
 if len(players) != 1:
     raise SystemExit(f"Expected one Rynn, found {len(players)}")
@@ -84,7 +96,7 @@ for n, e in enumerate(entries):
                 struct.pack_into("<I", v, 0x2E2, 1)
     else:
         if n != players[0][0] and not (
-            typ in (0x18001041, 0x10001049) and sum((a - b) ** 2 for a, b in zip(pos, old)) < 1500**2
+            typ in profile["camera_classes"] and sum((a - b) ** 2 for a, b in zip(pos, old)) < 1500**2
         ):
             continue
         new = tuple(a + b for a, b in zip(pos, delta))
@@ -122,14 +134,16 @@ for e in newentries:
 struct.pack_into("<II", body, 6, ix, count)
 target.mkdir(parents=True)
 for card in ("mc0", "mc1"):
-    shutil.copytree(source / card, target / card)
+    if (source / card).is_dir():
+        shutil.copytree(source / card, target / card)
 (target / "mc0" / folder / name).write_bytes(body)
 receipt = {
     "source": str(src),
+    "region": region,
     "source_sha256": hashlib.sha256(d).hexdigest(),
     "fixture_sha256": hashlib.sha256(body).hexdigest(),
     "changes": changed,
     "unmodified_resources": count - len(changed),
 }
-(target / "fixture.json").write_text(json.dumps(receipt, indent=2))
+(target / "fixture.json").write_text(json.dumps(receipt, indent=2) + "\n", encoding="utf-8")
 print(json.dumps(receipt, indent=2))

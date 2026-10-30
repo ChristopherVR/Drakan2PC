@@ -97,9 +97,9 @@ struct Host final : CommonSettingsHost {
     dsettings::HostCaps capabilities() const override {
         dsettings::HostCaps caps = commonCapabilities();
         caps.internalResolution = false;
-        caps.unavailableSettings = {
-            "video.aspect", "video.smooth_menu_highlight", "video.hud_scale",         "video.hud_aspect_correct",
-            "video.filter", "video.deinterlace",           "general.inventory_screen"};
+        caps.unavailableSettings.insert({"video.aspect", "video.smooth_menu_highlight", "video.hud_scale",
+                                         "video.hud_aspect_correct", "video.filter", "video.deinterlace",
+                                         "general.inventory_screen"});
 #if defined(__EMSCRIPTEN__)
         caps.audioDeviceSelect = false; // the browser picks the output device
 #else

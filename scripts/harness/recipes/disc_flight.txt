@@ -1,0 +1,23 @@
+# Native Ravenshold mounted start; no forced actor/state edits.
+0 sync play 100
+0 dump ram_start
+20 dump ram_neutral
+30 key down SPACE
+60 key up SPACE
+70 dump ram_climb
+80 key down W
+110 key up W
+120 dump ram_forward
+130 mouse 8 -4 20
+160 dump ram_turn
+190 dump ram_idle
+200 button down 1
+210 dump ram_primary
+212 shot primary
+220 button up 1
+230 dump ram_primary_up
+240 button down 2
+250 dump ram_secondary
+260 button up 2
+270 dump ram_secondary_up
+280 quit

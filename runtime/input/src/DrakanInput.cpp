@@ -16,6 +16,7 @@ InputModule::~InputModule() {
 bool InputModule::init(void* hwnd, const std::string& configPath) {
     std::string warn;
     cfg_ = Config::loadOrCreate(configPath, &warn);
+    applyCameraProfile();
     if (!warn.empty())
         std::fprintf(stderr, "[drakan_input] %s: %s", configPath.c_str(), warn.c_str());
     host_ = std::make_unique<HostInput>();
@@ -29,6 +30,7 @@ bool InputModule::init(void* hwnd, const std::string& configPath) {
 
 void InputModule::initHeadless(const Config& cfg) {
     cfg_ = cfg;
+    applyCameraProfile();
     host_.reset();
     scriptClientW_ = scriptClientH_ = 0;
 }
@@ -54,6 +56,63 @@ bool InputModule::loadScript(const std::string& path, std::string* err) {
 void InputModule::setCaptureWindow(void* hwnd) {
     if (host_)
         host_->setCaptureWindow(hwnd);
+}
+
+void InputModule::setDirectLookAvailable(bool available) {
+    std::lock_guard<std::mutex> lock(m_);
+    directLookAvailable_ = available;
+    if (!available)
+        cfg_.lookMode = LookMode::Stick;
+}
+
+void InputModule::setCameraProfile(const CameraProfile& profile) {
+    std::lock_guard<std::mutex> lock(m_);
+    camera_ = profile;
+    cameraProfileSet_ = true;
+    applyCameraProfile();
+}
+
+void InputModule::applyCameraProfile() {
+    if (!directLookAvailable_)
+        cfg_.lookMode = LookMode::Stick;
+    if (!cameraProfileSet_)
+        return;
+    cfg_.addrCtxPtr = camera_.context;
+    cfg_.addrTurnFn = camera_.turn;
+    cfg_.addrTurnUpVec = camera_.turnUp;
+    cfg_.addrStickModeFlag = camera_.stickMode;
+    cfg_.addrStickMap = camera_.stickMap;
+    cfg_.turnCallAbi = CallAbi::FprFloat;
+    if (!camera_.advancedInput)
+        cfg_.bowAimModern = false;
+    if (!camera_.movementInput)
+        cfg_.strafeKeys = false;
+    else {
+        cfg_.addrPadMgr = camera_.padManager;
+        cfg_.addrInvokeCallback = camera_.invokeCallback;
+        cfg_.addrTimerMs = camera_.timerMs;
+    }
+}
+
+bool InputModule::controlledDragon(IGuest& g) const {
+    const auto& l = camera_.layout;
+    const auto valid = [](uint32_t address, uint64_t bytes) {
+        const uint32_t p = address & 0x1fffffffu;
+        return p >= 0x100000u && p < 0x2000000u && bytes <= 0x2000000u - p;
+    };
+    const uint32_t ctx = g.read32(camera_.context);
+    if (!valid(ctx, std::max(l.contextActor, l.contextResources) + 4ull))
+        return false;
+    const uint32_t handle = g.read32(ctx + l.contextActor);
+    const uint32_t resources = g.read32(ctx + l.contextResources);
+    if (!valid(handle, l.handleResource + 2ull) || !valid(resources, std::max(l.resourceCount, l.resourceTable) + 4ull))
+        return false;
+    const uint32_t index = g.read16(handle + l.handleResource);
+    if (index == 0xffffu || index > g.read32(resources + l.resourceCount))
+        return false;
+    const uint32_t table = g.read32(resources + l.resourceTable);
+    const uint64_t offset = uint64_t(index) * l.resourceStride + l.resourceClass;
+    return valid(table, offset + 4) && g.read32(table + static_cast<uint32_t>(offset)) == l.dragonClass;
 }
 
 void InputModule::setSuspended(bool s) {
@@ -183,6 +242,7 @@ void InputModule::applyPendingLocked() { // m_ held
     if (!p)
         return;
     cfg_ = std::move(*p);
+    applyCameraProfile();
     walkHeld_ = walkLatched_ = walkActive_ = false;
     tracker_.reset(&pending_); // release commands held through the old bindings
     padReady_ = false;
@@ -461,31 +521,34 @@ bool InputModule::nativeLookControlActive() const {
 }
 
 bool InputModule::freeCombatAllowed(IGuest& g, uint32_t player, uint32_t cam) {
-    if (!freeCombatActive() || !player || !cam || !frame_.focused || !g.read32(0x4fb730) || g.read32(0x4fbafc) ||
-        g.read32(cam + 0x14c) != 6 || (g.read32(cam + 0x48) & (0x800u | 0x1000u | 0x80000u)) ||
-        (g.read32(player + 0x94) & 0xc003u) || (g.read32(player + 0x90) & 0x4000u))
+    if (!freeCombatActive() || !player || !cam || !frame_.focused || g.read32(camera_.scripted) ||
+        g.read32(cam + camera_.layout.cameraMode) != 6 ||
+        (g.read32(cam + camera_.layout.cameraFlags) & (0x800u | 0x1000u | 0x80000u)) ||
+        (g.read32(player + camera_.layout.playerFlags2) & 0xc003u) ||
+        (g.read32(player + camera_.layout.playerFlags) & 0x4000u))
         return false;
-    const uint32_t vt = g.read32(player + 0x57c);
-    return vt && g.read32(vt + 0x17c) == 0x32cda8u; // controlled Rynn, never a dragon/NPC override
+    const uint32_t vt = g.read32(player + camera_.layout.playerVtable);
+    return vt && g.read32(vt + camera_.layout.vtablePitch) ==
+                     camera_.rynnPitch; // controlled Rynn, never a dragon/NPC override
 }
 
 bool InputModule::pitchAllowed(IGuest& g, uint32_t player, uint32_t cam) {
     // 44e4a8 skips pitch for camera bit12, suppresses axis1 for player94 bit2,
     // and routes alternate pitch to +94 when 423790 returns true.
     // 423790 is exactly: camera bit12 ? 0 : ((cameraFlags >> 11) & 1).
-    if ((g.read32(cam + 0x48) & 0x1800u) || (g.read32(player + 0x94) & 4u))
+    if ((g.read32(cam + camera_.layout.cameraFlags) & 0x1800u) || (g.read32(player + camera_.layout.playerFlags2) & 4u))
         return false;
-    const uint32_t vt = g.read32(player + 0x57c);
-    const uint32_t fn = vt ? g.read32(vt + 0x17c) : 0;
+    const uint32_t vt = g.read32(player + camera_.layout.playerVtable);
+    const uint32_t fn = vt ? g.read32(vt + camera_.layout.vtablePitch) : 0;
     // This runs under m_. Only audited native leaf predicates may be called:
     // Rynn 32cda8 reads +94/+ab0/+af0 and returns; dragon 276e40 returns zero.
     // Neither has a call/jump to another function or can enter an input hook.
     // Unknown overrides fail closed; do not extend the old yaw-call pattern to
     // arbitrary vtable targets while adding this new per-camera call.
-    if (fn != 0x32cda8u && fn != 0x276e40u)
+    if (fn != camera_.rynnPitch && fn != camera_.dragonPitch)
         return false;
     GuestCall veto(fn);
-    veto.arg(player + static_cast<uint32_t>(static_cast<int32_t>(g.readS16(vt + 0x178))));
+    veto.arg(player + static_cast<uint32_t>(static_cast<int32_t>(g.readS16(vt + camera_.layout.vtablePitchThis))));
     return g.call(veto) == 0;
 }
 
@@ -497,46 +560,48 @@ bool InputModule::readAimPitchState(IGuest& g, uint32_t player, AimPitchState& s
     s.ctx = g.read32(cfg_.addrCtxPtr);
     if (!s.ctx)
         return false;
-    s.handle = g.read32(s.ctx + 0x4b4);
+    s.handle = g.read32(s.ctx + camera_.layout.contextCamera);
     if (!s.handle)
         return false;
-    s.inner = g.read32(s.handle + 0xfc);
+    s.inner = g.read32(s.handle + camera_.layout.handleInner);
     if (!s.inner)
         return false;
-    s.cam = g.read32(s.inner + 0x10);
+    s.cam = g.read32(s.inner + camera_.layout.innerData);
     if (!s.cam)
         return false;
-    s.heading = g.read32(player + 0x80);
+    s.heading = g.read32(player + camera_.layout.playerTransform);
     // 331d60's response update ORs motion bits6/7 while writing +f0;
     // 32cc00 clears that pair and +f0. Controller C uses bit6 for vertical
     // motion bookkeeping. Neither 44e4a8 nor 32cda8 uses this pair as a pitch
     // permission/ownership gate. Ignore them in this key only, never in RAM.
-    s.flags90 = g.read32(player + 0x90) & ~0xc0u;
+    s.flags90 = g.read32(player + camera_.layout.playerFlags) & ~0xc0u;
     // Controller C runs camera look before its bit8 state handling. 331ec0
     // clears bit8 together with movement/animation state; neither 44e4a8 nor
     // the native 32cda8 pitch veto treats it as a pitch ownership transition.
     // Keep every other flag in the key; do not generalize to unknown states.
-    s.flags94 = g.read32(player + 0x94) & ~0x100u;
-    s.cameraFlags = g.read32(s.cam + 0x48);
-    s.mode = g.read32(s.cam + 0x14c);
-    s.target = g.read16(player + 0x4da);
+    s.flags94 = g.read32(player + camera_.layout.playerFlags2) & ~0x100u;
+    s.cameraFlags = g.read32(s.cam + camera_.layout.cameraFlags);
+    s.mode = g.read32(s.cam + camera_.layout.cameraMode);
+    s.target = g.read16(player + camera_.layout.playerTarget);
     // 460670 recomputes +114 from this target's relative position every tick,
     // optionally smoothing it and clamping via vslot9c. It is not an identity
     // or mode field. Preserve mouse pitch across finite anchor updates only
     // while a real, unchanged target remains eligible below.
-    s.vtable = g.read32(player + 0x57c);
+    s.vtable = g.read32(player + camera_.layout.playerVtable);
     if (!s.vtable)
         return false;
-    s.pitchFn = g.read32(s.vtable + 0x17c);
-    s.pitchThis = player + static_cast<uint32_t>(static_cast<int32_t>(g.readS16(s.vtable + 0x178)));
+    s.pitchFn = g.read32(s.vtable + camera_.layout.vtablePitch);
+    s.pitchThis =
+        player + static_cast<uint32_t>(static_cast<int32_t>(g.readS16(s.vtable + camera_.layout.vtablePitchThis)));
     if (!s.heading || !s.target || !(s.flags90 & 0x4000u) || s.mode != 6 ||
-        (s.cameraFlags & (0x1800u | 0x80000u | 0x20u)) || !g.read32(0x4fb730) || g.read32(0x4fbafc) ||
-        !std::isfinite(g.readF(player + 0x114)) || !pitchAllowed(g, player, s.cam))
+        (s.cameraFlags & (0x1800u | 0x80000u | 0x20u)) || g.read32(camera_.scripted) ||
+        !std::isfinite(g.readF(player + camera_.layout.playerAimAnchor)) || !pitchAllowed(g, player, s.cam))
         return false;
     if (s.target) {
         // Same inclusive native reference bound as Controller C. Observe target
         // identity as well as slot, so slot reuse cannot restore an old pitch.
-        const uint32_t base = g.read32(s.ctx + 0x7c), count = g.read32(s.ctx + 0x84);
+        const uint32_t base = g.read32(s.ctx + camera_.layout.contextTargets),
+                       count = g.read32(s.ctx + camera_.layout.contextTargetCount);
         const uint32_t offset = (s.target - 1) * 8;
         if (count > 10000 || s.target > count + 1 || base < 0x100000u || base > 0x02000000u - 8 - offset)
             return false;
@@ -567,13 +632,13 @@ void InputModule::beforeCameraUpdateLook(IGuest& g, bool dragon, uint32_t player
         cfg_.gamepadEnabled && frame_.gamepad.connected && (frame_.gamepad.lx != 0.0f || frame_.gamepad.ly != 0.0f);
     if (player && !padSteering) {
         const uint32_t ctx = g.read32(cfg_.addrCtxPtr);
-        const uint32_t handle = ctx ? g.read32(ctx + 0x4b4) : 0;
-        const uint32_t inner = handle ? g.read32(handle + 0xfc) : 0;
-        const uint32_t cam = inner ? g.read32(inner + 0x10) : 0;
-        if (cam && !(g.read32(cam + 0x48) & 0x1000u)) {
-            g.writeF(cam + 0x9c, 0);
-            g.writeF(cam + 0xa0, 0);
-            g.writeF(cam + 0xa4, 0);
+        const uint32_t handle = ctx ? g.read32(ctx + camera_.layout.contextCamera) : 0;
+        const uint32_t inner = handle ? g.read32(handle + camera_.layout.handleInner) : 0;
+        const uint32_t cam = inner ? g.read32(inner + camera_.layout.innerData) : 0;
+        if (cam && !(g.read32(cam + camera_.layout.cameraFlags) & 0x1000u)) {
+            g.writeF(cam + camera_.layout.cameraPitchRate, 0);
+            g.writeF(cam + camera_.layout.cameraYawRate, 0);
+            g.writeF(cam + camera_.layout.cameraRollRate, 0);
         }
     }
     if (!cfg_.pitchPersist) {
@@ -587,7 +652,7 @@ void InputModule::beforeCameraUpdateLook(IGuest& g, bool dragon, uint32_t player
         // Do not freeze a newly acquired target's native pitch before the user
         // has actually moved the mouse vertically in that state.
         if (aimPitchOwned_ || pendingDy_ != 0) {
-            savedAimPitch_ = g.readF(state.cam + 0x84);
+            savedAimPitch_ = g.readF(state.cam + camera_.layout.cameraPitch);
             savedAimPitchState_ = state;
             aimPitchSaved_ = std::isfinite(savedAimPitch_);
         }
@@ -612,23 +677,26 @@ float InputModule::pitchViewGain(IGuest& g, uint32_t player, uint32_t cam) const
 }
 
 bool InputModule::plainPitchBranch(IGuest& g, uint32_t player, uint32_t cam) const {
-    return !dragon_ && !(g.read32(player + 0x94) & 4u) && !g.read32(cam + 0x1c4) &&
-           !(g.read32(cam + 0x48) & 0x2000020u) && g.readF(cam + 0x168) == g.readF(cam + 0x170);
+    return !dragon_ && !(g.read32(player + camera_.layout.playerFlags2) & 4u) &&
+           !g.read32(cam + camera_.layout.cameraAlternateView) &&
+           !(g.read32(cam + camera_.layout.cameraFlags) & 0x2000020u) &&
+           g.readF(cam + camera_.layout.cameraSwing) == g.readF(cam + camera_.layout.cameraSwingTarget);
 }
 
 namespace {
 // Rynn's render transform (ctx+0x4b0 handle): position (+0x14) and heading in the ground plane (row 0, +0x20/+0x28),
 // the pivot and orientation the camera target is built from.
-bool cameraPlayerPose(IGuest& g, uint32_t ctx, float pos[3], float& heading, uint32_t& player) {
-    const uint32_t handle = g.read32(ctx + 0x4b0);
-    const uint32_t inner = handle ? g.read32(handle + 0xfc) : 0;
-    player = inner ? g.read32(inner + 0x10) : 0;
-    const uint32_t xform = player ? g.read32(player + 0x80) : 0;
+bool cameraPlayerPose(IGuest& g, const CameraProfile& camera_, uint32_t ctx, float pos[3], float& heading,
+                      uint32_t& player) {
+    const uint32_t handle = g.read32(ctx + camera_.layout.contextActor);
+    const uint32_t inner = handle ? g.read32(handle + camera_.layout.handleInner) : 0;
+    player = inner ? g.read32(inner + camera_.layout.innerData) : 0;
+    const uint32_t xform = player ? g.read32(player + camera_.layout.playerTransform) : 0;
     if (!xform)
         return false;
     for (int i = 0; i < 3; ++i)
-        pos[i] = g.readF(xform + 0x14 + 4 * static_cast<uint32_t>(i));
-    const float rx = g.readF(xform + 0x20), rz = g.readF(xform + 0x28);
+        pos[i] = g.readF(xform + camera_.layout.transformPosition + 4 * static_cast<uint32_t>(i));
+    const float rx = g.readF(xform + camera_.layout.transformRight), rz = g.readF(xform + camera_.layout.transformBack);
     heading = std::atan2(rz, rx);
     return std::isfinite(pos[0]) && std::isfinite(pos[1]) && std::isfinite(pos[2]) && std::isfinite(heading) &&
            rx * rx + rz * rz > 1.0e-6f;
@@ -654,9 +722,9 @@ void InputModule::beforeCameraFollow(IGuest& g, uint32_t cam) {
     std::lock_guard<std::mutex> lock(m_);
     const float rate = cfg_.cameraFollow;
     const uint32_t ctx = g.read32(cfg_.addrCtxPtr);
-    const uint32_t handle = ctx ? g.read32(ctx + 0x4b4) : 0;
-    const uint32_t inner = handle ? g.read32(handle + 0xfc) : 0;
-    const uint32_t obj = cam ? g.read32(cam + 0x148) : 0;
+    const uint32_t handle = ctx ? g.read32(ctx + camera_.layout.contextCamera) : 0;
+    const uint32_t inner = handle ? g.read32(handle + camera_.layout.handleInner) : 0;
+    const uint32_t obj = cam ? g.read32(cam + camera_.layout.cameraTransform) : 0;
     float pos[3], heading = 0;
     uint32_t player = 0;
     // Only the player-controlled camera of the context, outside cut scenes / control locks. Flags 0x80 / 0x20000
@@ -664,17 +732,18 @@ void InputModule::beforeCameraFollow(IGuest& g, uint32_t cam) {
     // with cam+0x210 too, so leave those alone.
     if (!(rate > 0.0f && rate < 1.0e6f) || !cam || !mouseKeyboardOwner_ || !frame_.captured || layerIsMenu_ ||
         menuActive_.load() || hostOwned() || dragon_ || nativeLookControlActive() || !inner ||
-        g.read32(inner + 0x10) != cam || g.read32(cam + 0x14c) != 6 ||
-        (g.read32(cam + 0x48) & (0x20u | 0x80u | 0x100u | 0x20000u)) || g.readF(cam + 0x21c) > 0.0f ||
-        !g.read32(0x4fb730) || g.read32(0x4fbafc) || !obj || !cameraPlayerPose(g, ctx, pos, heading, player) ||
-        !std::isfinite(g.readF(cam + 0x210))) {
+        g.read32(inner + camera_.layout.innerData) != cam || g.read32(cam + camera_.layout.cameraMode) != 6 ||
+        (g.read32(cam + camera_.layout.cameraFlags) & (0x20u | 0x80u | 0x100u | 0x20000u)) ||
+        g.readF(cam + camera_.layout.cameraBlendTimer) > 0.0f || g.read32(camera_.scripted) || !obj ||
+        !cameraPlayerPose(g, camera_, ctx, pos, heading, player) ||
+        !std::isfinite(g.readF(cam + camera_.layout.cameraFollowRate))) {
         // Hold the follow rate and the orbit state through short gaps (single ticks fail some of these checks now
         // and then; each such tick ran at the native rate and the camera hitched). Hand cam+0x210 back to the
         // game, and forget the heading, only once ownership has been gone for a while.
         if (++followBailTicks_ >= kFollowReleaseTicks || !(rate > 0.0f)) {
             // Only while it is still the context's camera: a level change frees the old object.
-            if (followOwned_ && inner && g.read32(inner + 0x10) == followCam_)
-                g.writeF(followCam_ + 0x210, followNative_);
+            if (followOwned_ && inner && g.read32(inner + camera_.layout.innerData) == followCam_)
+                g.writeF(followCam_ + camera_.layout.cameraFollowRate, followNative_);
             followOwned_ = false;
             orbitValid_ = false;
         }
@@ -684,17 +753,18 @@ void InputModule::beforeCameraFollow(IGuest& g, uint32_t cam) {
     // way the native target moves: the native easing then only covers her travel, so neither a turn nor a pitch
     // change swings the camera into place late. The pivot is her anchor point (player +0x51c.., ~240 units up,
     // measured: the camera's angle round it follows the view pitch exactly).
-    const float pitch = g.readF(cam + 0x84);
+    const float pitch = g.readF(cam + camera_.layout.cameraPitch);
     if (orbitValid_ && orbitCam_ == cam && std::isfinite(pitch)) {
-        float anchorY = g.readF(player + 0x520);
+        float anchorY = g.readF(player + camera_.layout.playerAnchorY);
         if (!(anchorY > -2000.0f && anchorY < 2000.0f))
             anchorY = 0;
         const float pivot[3] = {pos[0], pos[1] + anchorY, pos[2]};
         float off[3], right[3], back[3];
         for (int i = 0; i < 3; ++i) {
-            off[i] = g.readF(obj + 0x14 + 4 * static_cast<uint32_t>(i)) - pivot[i];
-            right[i] = g.readF(obj + 0x20 + 12 * static_cast<uint32_t>(i)); // camera axes: columns of +0x20
-            back[i] = g.readF(obj + 0x28 + 12 * static_cast<uint32_t>(i));
+            off[i] = g.readF(obj + camera_.layout.transformPosition + 4 * static_cast<uint32_t>(i)) - pivot[i];
+            right[i] = g.readF(obj + camera_.layout.transformRight +
+                               12 * static_cast<uint32_t>(i)); // camera axes: columns of +0x20
+            back[i] = g.readF(obj + camera_.layout.transformBack + 12 * static_cast<uint32_t>(i));
         }
         // Heading row 0 turns the opposite way to bearings atan2(dz, dx) (measured: heading -68.8 degrees moves the
         // settled camera bearing by +68.8 degrees); a positive turn about +y lowers atan2(dz, dx), so the heading
@@ -723,7 +793,7 @@ void InputModule::beforeCameraFollow(IGuest& g, uint32_t cam) {
             finite = finite && std::isfinite(v);
         if (finite)
             for (int i = 0; i < 3; ++i)
-                g.writeF(obj + 0x14 + 4 * static_cast<uint32_t>(i), pivot[i] + off[i]);
+                g.writeF(obj + camera_.layout.transformPosition + 4 * static_cast<uint32_t>(i), pivot[i] + off[i]);
     }
     orbitValid_ = true;
     orbitCam_ = cam;
@@ -731,12 +801,12 @@ void InputModule::beforeCameraFollow(IGuest& g, uint32_t cam) {
     orbitPitch_ = std::isfinite(pitch) ? pitch : 0.0f;
     followBailTicks_ = 0;
     if (!followOwned_ || followCam_ != cam) {
-        followNative_ = g.readF(cam + 0x210);
+        followNative_ = g.readF(cam + camera_.layout.cameraFollowRate);
         followCam_ = cam;
         followOwned_ = true;
     }
     // The tick eases cam+0x210 towards the strength (and resets it after a collision push); rewrite it every tick.
-    g.writeF(cam + 0x210, rate);
+    g.writeF(cam + camera_.layout.cameraFollowRate, rate);
 }
 
 bool InputModule::afterCameraUpdateLook(IGuest& g, uint32_t player, uint32_t limitsAddr, bool dragon) {
@@ -748,7 +818,7 @@ bool InputModule::afterCameraUpdateLook(IGuest& g, uint32_t player, uint32_t lim
         modeFlagSaved_ = false;
     }
     if (cfg_.lookMode != LookMode::Direct || layerIsMenu_ || menuActive_.load() || !frame_.captured || hostOwned() ||
-        (dragon && cfg_.dragonStick)) {
+        (dragon && cfg_.dragonStick) || nativeLookControlActive()) {
         pendingDx_ = pendingDy_ = 0;
         aimPitchOwned_ = false;
         return false;
@@ -766,13 +836,13 @@ bool InputModule::afterCameraUpdateLook(IGuest& g, uint32_t player, uint32_t lim
     uint32_t ctx = g.read32(cfg_.addrCtxPtr);
     if (!ctx)
         return false;
-    uint32_t camH = g.read32(ctx + 0x4b4);
+    uint32_t camH = g.read32(ctx + camera_.layout.contextCamera);
     if (!camH)
         return false;
-    uint32_t inner = g.read32(camH + 0xfc);
+    uint32_t inner = g.read32(camH + camera_.layout.handleInner);
     if (!inner)
         return false;
-    uint32_t cam = g.read32(inner + 0x10);
+    uint32_t cam = g.read32(inner + camera_.layout.innerData);
     if (!cam)
         return false;
     pendingDx_ = pendingDy_ = 0; // consumed: Camera_UpdateLook can run more than once per frame
@@ -782,20 +852,22 @@ bool InputModule::afterCameraUpdateLook(IGuest& g, uint32_t player, uint32_t lim
     // pitch/yaw to +94/+98 there and deliberately does not rotate the player.
     // Previously pitchAllowed rejected this mode and the yaw vcall rejected
     // the player turn, so BOTH mouse axes stopped working on entering it.
-    const uint32_t cameraFlags = g.read32(cam + 0x48);
+    const uint32_t cameraFlags = g.read32(cam + camera_.layout.cameraFlags);
     if (!freeCombat && !(cameraFlags & 0x1000u) && (cameraFlags & 0x800u)) {
         aimPitchOwned_ = false;
         if (saved)
             return false; // native changed camera channel during this callback pair
         bool applied = false;
-        if (dy && !(g.read32(player + 0x94) & 4u)) {
-            g.writeF(cam + 0x94, g.readF(cam + 0x94) + cfg_.pitchSign * static_cast<float>(dy) * cfg_.sensY *
-                                                           (cfg_.invertY ? -1.0f : 1.0f));
+        if (dy && !(g.read32(player + camera_.layout.playerFlags2) & 4u)) {
+            g.writeF(cam + camera_.layout.cameraAlternatePitch,
+                     g.readF(cam + camera_.layout.cameraAlternatePitch) +
+                         cfg_.pitchSign * static_cast<float>(dy) * cfg_.sensY * (cfg_.invertY ? -1.0f : 1.0f));
             applied = true;
         }
         if (dx) {
-            g.writeF(cam + 0x98, g.readF(cam + 0x98) + cfg_.yawSign * static_cast<float>(dx) * cfg_.sensX *
-                                                           (cfg_.invertX ? -1.0f : 1.0f));
+            g.writeF(cam + camera_.layout.cameraAlternateYaw,
+                     g.readF(cam + camera_.layout.cameraAlternateYaw) +
+                         cfg_.yawSign * static_cast<float>(dx) * cfg_.sensX * (cfg_.invertX ? -1.0f : 1.0f));
             applied = true;
         }
         return applied;
@@ -823,8 +895,9 @@ bool InputModule::afterCameraUpdateLook(IGuest& g, uint32_t player, uint32_t lim
     if ((dy != 0 || preserve) && (freeCombat || preserve || pitchAllowed(g, player, cam))) {
         float dyEff =
             static_cast<float>(dy) * cfg_.sensY * (cfg_.invertY ? -1.0f : 1.0f) / pitchViewGain(g, player, cam);
-        float p = std::clamp((preserve ? savedAimPitch_ : g.readF(cam + 0x84)) + cfg_.pitchSign * dyEff, lo, hi);
-        g.writeF(cam + 0x84, p);
+        float p = std::clamp(
+            (preserve ? savedAimPitch_ : g.readF(cam + camera_.layout.cameraPitch)) + cfg_.pitchSign * dyEff, lo, hi);
+        g.writeF(cam + camera_.layout.cameraPitch, p);
         pitchApplied = true;
         if (preserve) {
             aimPitchOwned_ = true;
@@ -837,21 +910,24 @@ bool InputModule::afterCameraUpdateLook(IGuest& g, uint32_t player, uint32_t lim
     // ---- yaw: rotate the player heading exactly like the stick path does
     if (dx != 0) {
         bool allowed = true;
-        uint32_t heading = g.read32(player + 0x80);
+        uint32_t heading = g.read32(player + camera_.layout.playerTransform);
         if (!heading)
             allowed = false;
         if (allowed && cfg_.checkTurnGate && !freeCombat) {
-            uint32_t vt = g.read32(player + 0x57c);
+            uint32_t vt = g.read32(player + camera_.layout.playerVtable);
             if (!vt) {
                 allowed = false;
             } else {
-                GuestCall c1(g.read32(vt + 0x174));
-                c1.arg(player + static_cast<uint32_t>(static_cast<int32_t>(g.readS16(vt + 0x170)))).arg(cam);
+                GuestCall c1(g.read32(vt + camera_.layout.vtableTurn));
+                c1.arg(player +
+                       static_cast<uint32_t>(static_cast<int32_t>(g.readS16(vt + camera_.layout.vtableTurnThis))))
+                    .arg(cam);
                 if (g.call(c1) == 0)
                     allowed = false;
                 if (allowed) {
-                    GuestCall c2(g.read32(vt + 0x17c));
-                    c2.arg(player + static_cast<uint32_t>(static_cast<int32_t>(g.readS16(vt + 0x178))));
+                    GuestCall c2(g.read32(vt + camera_.layout.vtablePitch));
+                    c2.arg(player +
+                           static_cast<uint32_t>(static_cast<int32_t>(g.readS16(vt + camera_.layout.vtablePitchThis))));
                     if (g.call(c2) != 0)
                         allowed = false;
                 }
@@ -906,11 +982,14 @@ void InputModule::beforePadMgrUpdate(IGuest& g, bool dragon) {
     }
 }
 
-void InputModule::afterPadMgrUpdate(IGuest& g) {
+void InputModule::afterMovementInput(IGuest& g) {
     std::lock_guard<std::mutex> lock(m_);
-    // If ownership changed after beginFrame, discard presses and release held
-    // commands here on the EE thread. Releases must reach the guest even while
-    // the settings overlay owns input.
+    updateWalkCommand(g);
+}
+
+void InputModule::updateWalkCommand(IGuest& g) {
+    if (!camera_.movementInput)
+        return;
     const bool blocked = hostOwned() || !frame_.focused;
     // The native walk command selects the walking pace. Reducing the analog
     // stick alone only slows the running profile (Game_OnInputCommand 0x4010).
@@ -924,6 +1003,15 @@ void InputModule::afterPadMgrUpdate(IGuest& g) {
         g.call(c);
         walkCommandSent_ = walk;
     }
+}
+
+void InputModule::afterPadMgrUpdate(IGuest& g) {
+    std::lock_guard<std::mutex> lock(m_);
+    // If ownership changed after beginFrame, discard presses and release held
+    // commands here on the EE thread. Releases must reach the guest even while
+    // the settings overlay owns input.
+    const bool blocked = hostOwned() || !frame_.focused;
+    updateWalkCommand(g);
     if (blocked) {
         pending_.erase(
             std::remove_if(pending_.begin(), pending_.end(), [](const CommandEvent& e) { return e.pressed; }),

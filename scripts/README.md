@@ -56,3 +56,36 @@ either.
   overlapping `worldUpdates`/vblank counters.
 - `stab_matrix.sh` (the first matrix runner) is archived; `stab_matrix2.sh` supersedes it (per-boot verdicts, slot isolation).
 - Machine-local layout assumed by the harnesses: `iso/SCES_500.06`, saves under `iso/mc0`, dev trees in `build/recomp_*`.
+
+### Disc settings and camera checks
+
+`python scripts/harness/settings_check.py --region usa --mode title` checks title F1, Apply persistence and
+Options > PC Settings. `--mode gameplay --resume 0|1` checks native pause, overlay input isolation and pause
+ownership. `--mode camera --resume 1` measures direct yaw/pitch, idle persistence and sensitivity reload.
+Use `--region pal` for the same regression coverage. Outputs live under `build/harness/<region>-settings-*`.
+The runner isolates both INIs and the memory card, uses `play_run` plus scripted input/RAM dumps, and drives the
+real overlay hotkey/Apply paths through the opt-in `DRAKAN_OVERLAY_SHOT_DIR` inbox. No desktop input is sent.
+
+### Disc combat and flight checks
+
+`disc_combat_check.py` uses the deployed executable, isolated INIs/cards and `play_run`. It refuses a card with
+another release's folder prefix, hashes the source card before/after, and writes RAM samples and `report.json`
+under a new `build/harness/<name>`. A completed script alone is not a combat/flight pass: select `--check` to
+assert the corresponding behavior. `--check observe` only captures evidence.
+
+```sh
+python scripts/harness/disc_combat_check.py --region usa --save <native-USA-mc0> --recipe scripts/harness/recipes/combat_encounter_melee.txt --check melee --name usa-melee
+python scripts/harness/disc_combat_check.py --region usa --save <native-USA-mc0> --recipe scripts/harness/recipes/disc_movement.txt --check movement --name usa-movement
+python scripts/harness/disc_combat_check.py --region usa --level "Level 4A - Ravenshold" --recipe scripts/harness/recipes/disc_flight.txt --check flight --name usa-flight --timeout 300
+```
+
+The melee recipe needs a native save near enemies. `combat_save_fixture.py SOURCE NEW_DIR X Y Z --region=usa`
+copies the source card and relocates Rynn/nearby cameras using profile serialization classes; it never converts
+PAL saves into USA saves. Its older, SHA-pinned forced-dragon fixture options do not establish flight readiness.
+The flight check uses the level's native mounted start, measures movement/yaw/pitch and verifies attack requests
+release; it does not claim breath damage or landing. All release-specific observation offsets are profile data.
+Use `--region pal` for the same checks with a native PAL card. Combat timing and damage need not be identical.
+
+`settings_check.py --region usa --mode gameplay --resume 1 --level "Level 4A - Ravenshold" --name usa-flight-settings --timeout 300`
+extends the existing pause/settings ownership check to mounted flight. `--name` preserves earlier named evidence;
+`--timeout` permits a complete native introduction before control becomes available. Neither harness uses desktop input.

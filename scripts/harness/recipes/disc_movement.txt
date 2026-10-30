@@ -1,0 +1,21 @@
+# Same native fixture and controls for each disc; inspect movement and native walk flag.
+0 sync play 90
+0 dump ram_base
+10 key down W
+30 dump ram_run_active
+40 key up W
+55 dump ram_run_end
+65 key down LSHIFT
+66 key down W
+86 dump ram_walk_active
+96 key up W
+97 key up LSHIFT
+112 dump ram_walk_end
+122 key down D
+142 dump ram_strafe_active
+152 key up D
+167 dump ram_strafe_end
+177 mouse 64 0
+178 dump ram_look
+195 dump ram_idle
+205 quit

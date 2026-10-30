@@ -539,20 +539,13 @@ file(GLOB RUNNER_SRC_FILES CONFIGURE_DEPENDS
 set(PS2X_OUTPUT_DIR "" CACHE PATH "Directory for drakan.exe (default: <generated dir>/../bin)")
 set(PS2X_GENERATED_DIR "" CACHE PATH "Directory holding recompiler output (ps2_recomp_*.cpp, register_functions.cpp, headers)")
 set(PS2X_GENERATED_OPT "/O2" CACHE STRING "MSVC optimisation flag for generated code (/O1 or /O2)")
-# Disc region of the recompiled executable (docs/reference/regions.md). PAL adds no definition, so a PAL build compiles
-# exactly as before; USA selects the region profile in drakan_region.h. PUBLIC so every target that can include
-# drakan_region.h agrees on it (one region per WorkDir: prepare_iso.py records it in local-input.json).
-set(DRAKAN_GAME_REGION "pal" CACHE STRING "Disc region of the recompiled executable: pal (SCES_500.06) or usa (SCUS_971.28)")
-set_property(CACHE DRAKAN_GAME_REGION PROPERTY STRINGS pal usa)
+# One executable per WorkDir; identity, audited addresses and layouts share the builder registry.
+include("${CMAKE_CURRENT_SOURCE_DIR}/../../cmake/DiscProfile.cmake")
+set(DRAKAN_GAME_REGION "pal" CACHE STRING "Disc profile of the recompiled executable (regions.json)")
+set_property(CACHE DRAKAN_GAME_REGION PROPERTY STRINGS ${DRAKAN_DISC_IDS})
 string(TOLOWER "${DRAKAN_GAME_REGION}" DRAKAN_GAME_REGION_LOWER)
-if(DRAKAN_GAME_REGION_LOWER STREQUAL "pal")
-    set(DRAKAN_BOOT_ELF_NAME "SCES_500.06")
-elseif(DRAKAN_GAME_REGION_LOWER STREQUAL "usa")
-    set(DRAKAN_BOOT_ELF_NAME "SCUS_971.28")
-    target_compile_definitions(ps2_runtime PUBLIC DRAKAN_GAME_REGION_USA=1)
-else()
-    message(FATAL_ERROR "DRAKAN_GAME_REGION must be pal or usa, not '${DRAKAN_GAME_REGION}'")
-endif()
+drakan_configure_disc_profile(ps2_runtime "${DRAKAN_GAME_REGION_LOWER}")
+string(JSON DRAKAN_BOOT_ELF_NAME GET "${DRAKAN_DISC_JSON}" regions "${DRAKAN_GAME_REGION_LOWER}" boot)
 if(PS2X_GENERATED_DIR)
     list(FILTER RUNNER_SRC_FILES EXCLUDE REGEX "register_functions[.]cpp$")
 endif()
@@ -585,6 +578,8 @@ else()
         endif()
     endif()
 endif()
+
+target_include_directories(ps2EntryRunner PRIVATE "$<TARGET_PROPERTY:drakan::input,INTERFACE_INCLUDE_DIRECTORIES>")
 
 if(PS2X_OUTPUT_DIR)
     set(PS2X_OUTPUT_DIR_EFFECTIVE "${PS2X_OUTPUT_DIR}")

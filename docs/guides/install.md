@@ -62,12 +62,12 @@ Before changing installations, back up your saves and settings as described in [
 The builder also accepts the **USA release, SCUS-971.28**. It builds a separate, experimental version; the PAL release
 remains the supported one. The full feature table is in [disc regions](../reference/regions.md).
 
-- **Works (run on Windows, 29 October 2026):** building from the USA ISO; the memory-card screen, title screen and New
+- **Works (run on Windows, 30 October 2026):** building from the USA ISO; the memory-card screen, title screen and New
   Game into the first level; keyboard menu navigation, Esc for the pause menu, WASD movement and mouse look (the mouse
-  turns the camera like a right stick); the default keys from `drakan_input.ini`.
-- **Not available on the USA build:** the F1 PC settings overlay and Options > PC Settings, the in-game key binding
-  screen, widescreen and field of view, the frame-rate options and PC frame pacing, direct mouse look, free mouse
-  combat and modern bow aim, the modern Tab inventory and M map screens, quick slots, quicksave and quickload, the 16
+  directly changes the camera angles, with persistent pitch and live sensitivity); the default keys from `drakan_input.ini`.
+- **Harness verified:** F1 PC Settings and Options > PC Settings, with shared native-pause
+  integration and input isolation. Controls requiring unported features are disabled.
+- **Not available on the USA build:** the native in-game key binding screen, widescreen and field of view, the frame-rate options and PC frame pacing, modern bow aim, the modern Tab inventory and M map screens, quick slots, quicksave and quickload, the 16
   save pages and the title Quit row, subtitles, the automatic skip of the memory-card warning (press the confirm key),
   DLSS and the scene enhancements, Linux and browser builds.
 - **Not tested yet:** gamepads, saving and loading, sound quality, later levels and movies, HD textures.

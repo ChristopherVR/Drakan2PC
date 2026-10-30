@@ -2150,7 +2150,7 @@ static void testStableAimPitch() {
                 guest.write32(0x4fbafc, 1);
                 break;
             case 11:
-                guest.write32(0x4fb730, 0);
+                guest.write32(VT + 0x17c, 0x7ffff0); // unknown native predicate: fail closed
                 break;
             case 12:
                 guest.write32(CAM + 0x48, 0x80000);
@@ -2223,7 +2223,7 @@ static void testStableAimPitch() {
         t.beforeCameraUpdateLook(guest, dragon, PLAYER);
         guest.writeF(CAM + 0x84, .05f);
         t.afterCameraUpdateLook(guest, PLAYER, LIM, dragon);
-        NEAR(guest.readF(CAM + 0x84), (exclusion == 1 || exclusion == 4) ? .05f : .09f, 1e-6);
+        NEAR(guest.readF(CAM + 0x84), (exclusion >= 1 && exclusion <= 4) ? .05f : .09f, 1e-6);
         t.beginFrame(FrameInput{});
         t.beforeCameraUpdateLook(guest, dragon, PLAYER);
         guest.writeF(CAM + 0x84, .03f);
@@ -2838,6 +2838,35 @@ static void testCameraFollowAndPitchGain() {
 }
 
 int main() {
+    {
+        InputModule basic;
+        basic.setDirectLookAvailable(false);
+        Config direct;
+        direct.lookMode = LookMode::Direct;
+        basic.initHeadless(direct);
+        CHECK(basic.config().lookMode == LookMode::Stick);
+        basic.reloadConfig(direct);
+        basic.beginFrame(FrameInput{});
+        CHECK(basic.config().lookMode == LookMode::Stick);
+        basic.injectPadTap(Pad::START, 1);
+        basic.beginFrame(FrameInput{});
+        uint8_t sample[32];
+        CHECK(basic.fillPadSample(0, 0, sample));
+        CHECK((sample[2] & 8) == 0);
+        basic.setSuspended(true);
+        basic.beginFrame(keys({"ESC", "ENTER"}));
+        CHECK(basic.fillPadSample(0, 0, sample));
+        CHECK(sample[2] == 0xff && sample[3] == 0xff);
+        basic.setSuspended(false);
+        basic.beginFrame(FrameInput{});
+        CHECK(basic.fillPadSample(0, 0, sample));
+        CHECK(sample[2] == 0xff && sample[3] == 0xff);
+        InputModule advanced;
+        advanced.initHeadless(direct);
+        advanced.reloadConfig(direct);
+        advanced.beginFrame(FrameInput{});
+        CHECK(advanced.config().lookMode == LookMode::Direct);
+    }
     {
         InputModule external;
         external.initHeadless(Config{});

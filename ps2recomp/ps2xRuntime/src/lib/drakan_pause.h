@@ -7,9 +7,13 @@
 //   * holdRequested() is polled by the EE thread (PadMgr_Update hook, drakan_input_glue.cpp).
 #pragma once
 #include <string>
+#include <cstdint>
 
 namespace spu2 {
 class AudioOutput;
+}
+namespace drakan_input {
+class InputModule;
 }
 
 namespace drakan_pause {
@@ -40,11 +44,14 @@ bool takePauseRequest();
 // whether the game scripts the input (cut scene flag 0x4fbafc). F1 is allowed only in the title menu / game menus /
 // gameplay, and never before the title menu was seen (logos, intro).
 void noteFlow(int guiScreen, bool gameplay, bool scriptedInput);
+// Shared EE-frame handshake for native pause, F1 and overlay input isolation.
+void tickInput(drakan_input::InputModule& input, int screen, bool gameplay, bool scripted);
 bool f1Allowed(); // window thread; false when blocked or when the EE has not reported for a while (movie / loading: the
                   // hook does not run)
 bool flowBlockedFresh(); // a recent sample says "movie / cut scene / loading" (used to close an overlay that is already
                          // open)
 std::string flowDescription();
+uint64_t inputSamples(); // Atomic EE-frame counter for harness progress checks.
 // True when only the focus rule asks for the hold (used for diagnostics).
 bool focusPaused();
 // Debug aid (DRAKAN_DEBUG_HOLD="<start_s>,<len_s>"): holds the guest for <len_s> seconds starting <start_s> after

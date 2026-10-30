@@ -25,16 +25,18 @@ struct HostCaps {
     bool exclusiveFullscreen = false;
     bool frameLimiter = true;
     bool internalResolution = true;
-    std::set<std::string> unavailableSettings; // Host-specific capabilities outside the common renderer flags.
-    bool textureUpscale = false;               // gs owner: texture_upscale / texture_upscale_filter
-    bool anisotropic = false;                  // gs owner: anisotropic
-    bool mipBias = false;                      // gs owner: mip_bias
-    bool hdTextures = false;                   // hle override layer: hd_textures
+    std::set<std::string> unavailableSettings;       // Host-specific capabilities outside the common renderer flags.
+    std::set<std::string> unavailableBindingActions; // Keep unsupported actions out of the binding editor.
+    bool textureUpscale = false;                     // gs owner: texture_upscale / texture_upscale_filter
+    bool anisotropic = false;                        // gs owner: anisotropic
+    bool mipBias = false;                            // gs owner: mip_bias
+    bool hdTextures = false;                         // hle override layer: hd_textures
     bool textureDump = false;
     bool languageSelect = false; // language tree switch (always needs a restart)
     bool audioDeviceSelect = true;
     bool gamepad = true;
-    bool promptStyle = true; // keyboard vs PS2 icons (drakan_ui)
+    bool directMouseLook = true; // false: this disc uses right-stick emulation, including after reload
+    bool promptStyle = true;     // keyboard vs PS2 icons (drakan_ui)
     bool dlss =
         false; // DLSS module present, NVIDIA GPU, nvngx_dlss.dll available (dlss / dlss_preset / dlss_sharpness)
     std::string dlssStatus;  // one line shown under the DLSS rows (mode in use or why it is unavailable)

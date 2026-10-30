@@ -3,6 +3,7 @@
 // renderer and call applyCommonVideo() for the settings that do not depend on it.
 #pragma once
 #include "drakan_dual_wield.h"
+#include "drakan_region.h"
 #include "drakan_fpsmeter.h"
 #include "drakan_subtitles.h"
 #include "drakan_tab_screen.h"
@@ -25,6 +26,33 @@ public:
     static dsettings::HostCaps commonCapabilities() {
         dsettings::HostCaps c;
         c.hdTextures = true;
+        using drakan_region::Feature;
+        using drakan_region::supports;
+        c.promptStyle = supports(Feature::UiPrompts);
+        c.directMouseLook = supports(Feature::DirectMouseLook);
+        auto require = [&](Feature feature, std::initializer_list<const char*> keys) {
+            if (!supports(feature))
+                c.unavailableSettings.insert(keys.begin(), keys.end());
+        };
+        require(Feature::DirectMouseLook,
+                {"input.mouse.free_combat", "input.mouse.camera_follow", "input.mouse.pitch_persist"});
+        require(Feature::MovementInput, {"input.keyboard.strafe"});
+        require(Feature::AdvancedInput,
+                {"input.mouse.bow_aim", "input.menu.inventory_mouse", "general.skip_memcard_warning"});
+        if (!supports(Feature::AdvancedInput))
+            c.unavailableBindingActions = {"QUICKSAVE", "QUICKLOAD", "QUICK1",    "QUICK2",   "QUICK3",
+                                           "QUICK4",    "QUICK5",    "QUICK6",    "QUICK7",   "QUICK8",
+                                           "QUICK9",    "ACT:0x114", "ACT:0x115", "ACT:0x0e", "ACT:0x17"};
+        require(Feature::Widescreen, {"video.aspect", "video.hud_scale", "video.fov", "video.hud_aspect_correct",
+                                      "video.smooth_menu_highlight"});
+        require(Feature::FrameRate, {"video.world_rate"});
+        require(Feature::Menus,
+                {"general.inventory_screen", "general.pause_menu", "general.save_menu", "general.title_menu"});
+        require(Feature::DualWield, {"general.dual_wield"});
+        require(Feature::Subtitles, {"subtitles.narration", "subtitles.size"});
+        require(Feature::SceneHooks,
+                {"video.dlss", "video.dlss_neural", "video.dlss_neural_resolution", "video.dlss_preset",
+                 "video.dlss_sharpness", "video.ray_shadows", "video.ray_reflections", "video.modern_water"});
         c.restartKeys = {"video.world_rate", "general.language", "general.ui_prompts"};
         return c;
     }

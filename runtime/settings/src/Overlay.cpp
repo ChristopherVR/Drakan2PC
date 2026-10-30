@@ -79,6 +79,9 @@ void SettingsOverlay::Impl::hotkey(SettingsOverlay& overlay) {
 }
 
 SettingsOverlay::SettingsOverlay() : m_(std::make_unique<Impl>()) {}
+void SettingsOverlay::hotkey() {
+    m_->hotkey(*this);
+}
 
 std::unique_ptr<SettingsOverlay> SettingsOverlay::create(const OverlayInit& init) {
     if (!init.hwnd || !init.host)

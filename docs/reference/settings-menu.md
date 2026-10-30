@@ -1,6 +1,6 @@
 # Game menus and the "PC Settings" entry
 
-Native Options now saves changes automatically at the EE input boundary. The
+On the PAL/reference disc, Native Options saves changes automatically at the EE input boundary. The
 retail Save Settings button is hidden and disabled, the remaining five entries
 are centered, and returning from Options no longer opens a save confirmation.
 The twelve audited native option fields are stored in
@@ -14,8 +14,11 @@ existing Apply/OK workflow.
 Research for `runtime/settings` (the F1 settings overlay): how the game builds its menus, how a menu item triggers an action, and the most
 robust way to put a "PC Settings" entry into the game's own Options menu. Everything here was measured on SCES_500.06 with the Ghidra
 decompile (`build/recomp_ui/alldecomp/*.c`, project `tools/ghidra_proj/Drakan`) and the disc data (`analysis/scripts/ui_layout_dump.py`).
-Status: static analysis only, the hook below is **not yet wired into the runtime** (the settings library works standalone, see
-`runtime/settings/README.md`).
+Runtime status (2026-10-30): the entry is wired on PAL and USA through the `OptionsSettings` disc capability.
+The profile contains the translated handler address, widget ID offset, widget ID and XDB string ID.
+USA retains its retail native Save Settings/close-confirmation path; PAL's `Menus` capability supplies native
+autosave. Shared F1/pause integration is described in [regions.md](regions.md#pc-settings-and-input-flow).
+USA harness checks cover title F1, native Options entry, Apply persistence, gameplay pause, input isolation, both close policies, and preserving a preexisting pause. See [the harness journal](../journal/2026-10-30/usa-direct-mouse.md).
 
 ## 1. Verdict
 

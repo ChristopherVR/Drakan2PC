@@ -74,6 +74,7 @@ public:
     void open();
     void close();
     void toggle();
+    void hotkey(); // Same allow gate and pause interceptor as a physical F1 / controller combo.
     bool isOpen() const;
     // Optional: notified (on the UI thread) whenever the menu opens or closes, in addition to
     // ISettingsHost::onOverlayOpened/Closed.

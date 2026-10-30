@@ -455,10 +455,18 @@ void controlsPage(gameui::SettingPage& pg, const Settings& st, const SchemaEnv& 
     Builder b{st};
     pg.sections.push_back({"Mouse", {}});
     b.sec = &pg.sections.back();
-    b.choice("input.general.look_mode", "Look mode",
-             "Direct writes raw mouse movement into camera pitch and player turn (recommended). Stick emulates the "
-             "right stick.",
-             {{"direct", "Direct (raw mouse)"}, {"stick", "Right stick emulation"}});
+    {
+        auto& row = b.choice(
+            "input.general.look_mode", "Look mode",
+            env.caps.directMouseLook ? "Direct writes raw mouse movement into camera pitch and player turn "
+                                       "(recommended). Stick emulates the right stick."
+                                     : "This disc currently uses right stick emulation for mouse look.",
+            {{"direct", "Direct (raw mouse)"}, {"stick", "Right stick emulation"}}, false, env.caps.directMouseLook);
+        if (!env.caps.directMouseLook) {
+            row.currentValue = "stick";
+            Builder::select(row);
+        }
+    }
     {
         char fm[48];
         std::snprintf(fm, sizeof fm, "%%.4f   (x%.2f)", static_cast<double>(c.sensX / 0.0020f));
@@ -703,6 +711,12 @@ gameui::SettingsSchema buildSettingsSchema(const Settings& s, const SchemaEnv& e
     controlsPage(sc.pages[2], s, env);
     gameplayPage(sc.pages[3], s, env);
     sc.bindings = buildBindingViews(s);
+    for (auto& layer : sc.bindings) {
+        for (auto& group : layer.groups)
+            std::erase_if(group.actions,
+                          [&](const auto& action) { return env.caps.unavailableBindingActions.contains(action.id); });
+        std::erase_if(layer.groups, [](const auto& group) { return group.actions.empty(); });
+    }
     sc.bindingSlots = 3;
     for (auto& page : sc.pages)
         for (auto& section : page.sections)

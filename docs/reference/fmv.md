@@ -70,6 +70,11 @@ flicker: the movie screen clears the frame buffer every tick and expects a frame
 resumable (entries 0x1767f4 ...), so a hook sees only the fresh calls; the frame counter (+0x2c) is compared across
 calls.
 
+The shared pacing/completion hooks now use the selected [disc profile](regions.md). PAL retains 25 fps;
+USA uses 30000/1001 fps and its own decode entry, completion thunk and screen-manager address. The screen table
+has 33 slots on PAL and 32 on USA. Layout and frame-rate values are explicit metadata rather than inferred from
+an NTSC flag; adding a disc does not require another movie-hook implementation.
+
 ## 4. Movies on the disc
 
 | file | id | name | size | frames | duration @25 fps |
