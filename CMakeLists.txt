@@ -113,6 +113,7 @@ if(DRAKAN_NEED_RUNTIME_LIBS)
     endif()
     add_subdirectory(runtime/input)    # portable camera/controls core; Raw Input host remains Windows-only
     add_subdirectory(runtime/settings)
+    add_subdirectory(runtime/net)      # multiplayer protocol, match server/client, transports, drakan_server
 endif()
 
 if(DRAKAN_BUILD_GAME OR DRAKAN_BUILD_PS2X_TESTS)

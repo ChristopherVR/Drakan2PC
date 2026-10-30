@@ -1,0 +1,328 @@
+#include "net/MatchClient.h"
+
+#include <cmath>
+
+namespace drakan::net {
+
+namespace {
+
+float lerp(float a, float b, float t) {
+    return a + (b - a) * t;
+}
+
+float lerpAngle(float a, float b, float t) {
+    constexpr float kPi = 3.14159265358979f;
+    constexpr float kTwoPi = 2.0f * kPi;
+    float d = std::fmod(b - a, kTwoPi);
+    if (d > kPi)
+        d -= kTwoPi;
+    else if (d < -kPi)
+        d += kTwoPi;
+    return a + d * t;
+}
+
+} // namespace
+
+MatchClient::MatchClient(Transport& transport, ClientOptions options)
+    : transport_(transport), options_(std::move(options)) {}
+
+const RemotePlayer* MatchClient::self() const {
+    auto it = roster_.find(self_);
+    return it == roster_.end() ? nullptr : &it->second;
+}
+
+bool MatchClient::connect(const std::string& host, uint16_t port, uint64_t nowMs) {
+    if (state_ != ClientState::Disconnected && state_ != ClientState::Rejected)
+        return false;
+    peer_ = transport_.connect(host, port);
+    if (peer_ == kInvalidPeer)
+        return false;
+    state_ = ClientState::Connecting;
+    connectStartMs_ = now_ = nowMs;
+    self_ = kNoPlayer;
+    roster_.clear();
+    buffers_.clear();
+    haveClock_ = false;
+    sendSequence_ = 0;
+    return true;
+}
+
+void MatchClient::disconnect() {
+    if (peer_ != kInvalidPeer)
+        transport_.disconnect(peer_);
+    peer_ = kInvalidPeer;
+    if (state_ != ClientState::Rejected)
+        state_ = ClientState::Disconnected;
+}
+
+void MatchClient::tick(uint64_t nowMs) {
+    now_ = nowMs;
+    TransportEvent ev;
+    while (transport_.poll(ev))
+        handleMessage(ev);
+    if ((state_ == ClientState::Connecting || state_ == ClientState::Handshaking) &&
+        now_ - connectStartMs_ > options_.connectTimeoutMs) {
+        disconnect();
+        events_.push_back(DisconnectedEvent{false});
+    }
+}
+
+bool MatchClient::sendReliable(const std::vector<uint8_t>& bytes) {
+    return state_ == ClientState::Connected && transport_.send(peer_, Channel::Reliable, bytes);
+}
+
+bool MatchClient::sendState(PlayerState s) {
+    if (state_ != ClientState::Connected)
+        return false;
+    s.player = self_;
+    s.sequence = ++sendSequence_;
+    s.tick = ++sendTick_;
+    return transport_.send(peer_, Channel::Unreliable, encode(s));
+}
+
+bool MatchClient::sendHit(PlayerId victim, uint8_t weapon, uint16_t damage) {
+    Hit h;
+    h.victim = victim;
+    h.weapon = weapon;
+    h.damage = damage;
+    return sendReliable(encode(h));
+}
+
+bool MatchClient::sendChat(const std::string& text) {
+    Chat c;
+    c.text = text.substr(0, kMaxChatLength);
+    return sendReliable(encode(c));
+}
+
+bool MatchClient::sendLoadDone() {
+    return sendReliable(encode(LoadDone{}));
+}
+
+bool MatchClient::pollEvent(ClientEvent& out) {
+    if (events_.empty())
+        return false;
+    out = std::move(events_.front());
+    events_.pop_front();
+    return true;
+}
+
+void MatchClient::applyScore(const Score& s) {
+    teamKills_[0] = s.teamKills[0];
+    teamKills_[1] = s.teamKills[1];
+    auto it = roster_.find(s.player);
+    if (it != roster_.end()) {
+        it->second.kills = s.kills;
+        it->second.deaths = s.deaths;
+    }
+}
+
+void MatchClient::handleMessage(const TransportEvent& ev) {
+    if (ev.peer != peer_)
+        return;
+    if (ev.type == TransportEventType::Connected) {
+        Hello h;
+        h.profileHash = options_.profileHash;
+        h.name = options_.name;
+        transport_.send(peer_, Channel::Reliable, encode(h));
+        state_ = ClientState::Handshaking;
+        return;
+    }
+    if (ev.type == TransportEventType::Disconnected) {
+        const bool wasRejected = state_ == ClientState::Rejected;
+        peer_ = kInvalidPeer;
+        if (!wasRejected)
+            state_ = ClientState::Disconnected;
+        events_.push_back(DisconnectedEvent{wasRejected});
+        return;
+    }
+
+    MsgType type;
+    if (!peekType(ev.data.data(), ev.data.size(), type))
+        return;
+
+    if (state_ == ClientState::Handshaking) {
+        if (type == MsgType::Welcome) {
+            Welcome w;
+            if (!decode(ev.data, w))
+                return;
+            self_ = w.player;
+            phase_ = w.phase;
+            config_ = w.config;
+            tickRateHz_ = w.tickRateHz;
+            state_ = ClientState::Connected;
+        } else if (type == MsgType::Reject) {
+            Reject r;
+            if (!decode(ev.data, r))
+                return;
+            reject_ = r;
+            state_ = ClientState::Rejected;
+            transport_.disconnect(peer_);
+            peer_ = kInvalidPeer;
+        }
+        return;
+    }
+    if (state_ != ClientState::Connected)
+        return;
+
+    switch (type) {
+        case MsgType::MatchConfig: {
+            MatchConfigMsg m;
+            if (decode(ev.data, m)) {
+                config_ = m.config;
+                events_.push_back(m);
+            }
+            break;
+        }
+        case MsgType::PhaseChange: {
+            PhaseChange p;
+            if (decode(ev.data, p)) {
+                phase_ = p.phase;
+                events_.push_back(p);
+            }
+            break;
+        }
+        case MsgType::PlayerJoin: {
+            PlayerJoin j;
+            if (decode(ev.data, j)) {
+                RemotePlayer& r = roster_[j.player];
+                r.id = j.player;
+                r.name = j.name;
+                r.team = j.team;
+                events_.push_back(j);
+            }
+            break;
+        }
+        case MsgType::PlayerLeave: {
+            PlayerLeave l;
+            if (decode(ev.data, l)) {
+                roster_.erase(l.player);
+                buffers_.erase(l.player);
+                events_.push_back(l);
+            }
+            break;
+        }
+        case MsgType::Hit: {
+            Hit h;
+            if (decode(ev.data, h)) {
+                auto it = roster_.find(h.victim);
+                if (it != roster_.end())
+                    it->second.health = h.healthAfter;
+                events_.push_back(h);
+            }
+            break;
+        }
+        case MsgType::Death: {
+            Death d;
+            if (decode(ev.data, d)) {
+                auto it = roster_.find(d.victim);
+                if (it != roster_.end()) {
+                    it->second.alive = false;
+                    it->second.health = 0;
+                }
+                buffers_.erase(d.victim);
+                events_.push_back(d);
+            }
+            break;
+        }
+        case MsgType::Respawn: {
+            Respawn r;
+            if (decode(ev.data, r)) {
+                auto it = roster_.find(r.player);
+                if (it != roster_.end()) {
+                    it->second.alive = true;
+                    it->second.health = r.health;
+                }
+                buffers_.erase(r.player); // the teleport must not be interpolated
+                events_.push_back(r);
+            }
+            break;
+        }
+        case MsgType::Chat: {
+            Chat c;
+            if (decode(ev.data, c))
+                events_.push_back(c);
+            break;
+        }
+        case MsgType::Score: {
+            Score s;
+            if (decode(ev.data, s)) {
+                applyScore(s);
+                events_.push_back(s);
+            }
+            break;
+        }
+        case MsgType::Snapshot: {
+            Snapshot s;
+            if (!decode(ev.data, s))
+                break;
+            const int64_t offset = static_cast<int64_t>(s.serverTimeMs) - static_cast<int64_t>(now_);
+            if (!haveClock_) {
+                clockOffset_ = offset;
+                haveClock_ = true;
+            } else {
+                // Snapshots only arrive late, never early: follow the smallest offset, ease towards bigger ones.
+                clockOffset_ = offset < clockOffset_ ? offset : clockOffset_ + (offset - clockOffset_) / 32;
+            }
+            for (const PlayerState& ps : s.players) {
+                if (ps.player == self_ || !roster_.count(ps.player))
+                    continue;
+                auto& buf = buffers_[ps.player];
+                if (!buf.empty() && s.serverTimeMs <= buf.back().serverTimeMs)
+                    continue; // out of order (unreliable channel)
+                buf.push_back({s.serverTimeMs, ps});
+                while (buf.size() > options_.maxBufferedStates)
+                    buf.pop_front();
+            }
+            break;
+        }
+        default:
+            break;
+    }
+}
+
+uint32_t MatchClient::serverTimeAt(uint64_t localNowMs) const {
+    return static_cast<uint32_t>(static_cast<int64_t>(localNowMs) + clockOffset_);
+}
+
+size_t MatchClient::bufferedStates(PlayerId id) const {
+    auto it = buffers_.find(id);
+    return it == buffers_.end() ? 0 : it->second.size();
+}
+
+bool MatchClient::remoteState(PlayerId id, uint64_t localNowMs, PlayerState& out) const {
+    auto it = buffers_.find(id);
+    if (it == buffers_.end() || it->second.empty() || !haveClock_)
+        return false;
+    const auto& buf = it->second;
+    const int64_t renderTime = static_cast<int64_t>(serverTimeAt(localNowMs)) - options_.interpolationDelayMs;
+    const auto toTime = [](const Sample& s) { return static_cast<int64_t>(s.serverTimeMs); };
+
+    if (renderTime <= toTime(buf.front())) {
+        out = buf.front().state;
+        return true;
+    }
+    if (renderTime >= toTime(buf.back())) {
+        out = buf.back().state; // no extrapolation: hold the newest state
+        return true;
+    }
+    for (size_t i = 1; i < buf.size(); ++i) {
+        if (renderTime > toTime(buf[i]))
+            continue;
+        const Sample& a = buf[i - 1];
+        const Sample& b = buf[i];
+        const float span = static_cast<float>(toTime(b) - toTime(a));
+        const float t = span > 0 ? static_cast<float>(renderTime - toTime(a)) / span : 1.0f;
+        out = t < 0.5f ? a.state : b.state; // discrete fields: animation id, weapon, mounted
+        for (int k = 0; k < 3; ++k) {
+            out.pos[k] = lerp(a.state.pos[k], b.state.pos[k], t);
+            out.vel[k] = lerp(a.state.vel[k], b.state.vel[k], t);
+        }
+        out.yaw = lerpAngle(a.state.yaw, b.state.yaw, t);
+        out.animTime = a.state.animId == b.state.animId ? lerp(a.state.animTime, b.state.animTime, t) : out.animTime;
+        return true;
+    }
+    out = buf.back().state;
+    return true;
+}
+
+} // namespace drakan::net

@@ -36,6 +36,7 @@ The canonical Markdown remains in this repository:
 - [Portability: Linux and browser readiness](reference/portability.md)
 - [Save pages (16 slots), title "Quit", text-bound menu hit areas](reference/save-slots.md)
 - [Sony / middleware libraries present in SCES_500.06](reference/sdk-libs.md)
+- [Netcode: protocol v1, authority model, `runtime/net` and `drakan_server`](reference/netcode.md)
 - [Game menus and the "PC Settings" entry](reference/settings-menu.md)
 - [Sound: the "missing attack / footstep / ambient sounds" bug, how it was found, and how to debug the sound path](reference/sound-debug.md)
 - [Stability audit: crash signatures, instruction-level differential tester, race stress (branch `drakan-stab`)](reference/stability.md)
