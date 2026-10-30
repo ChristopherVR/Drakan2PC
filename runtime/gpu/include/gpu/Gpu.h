@@ -59,6 +59,8 @@ public:
     const std::string& adapterName() const { return adapterName_; }
     Backend backend() const { return backend_; }
     bool softwareAdapter() const { return software_; }
+    // D3D12 shaders go through FXC (DXC not beside the executable): large compute shaders may never compile.
+    bool fxcShaderCompiler() const { return fxc_; }
     bool rayQuery() const { return rayQuery_; }
     bool dualSourceBlending() const { return dualSource_; }
     WGPULimits limits() const { return limits_; }
@@ -98,6 +100,7 @@ private:
     std::string adapterName_;
     Backend backend_ = Backend::Auto;
     bool software_ = false;
+    bool fxc_ = false;
     bool rayQuery_ = false;
     bool dualSource_ = false;
     std::unique_ptr<State> state_;

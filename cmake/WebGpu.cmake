@@ -42,9 +42,25 @@ elseif(CMAKE_SYSTEM_PROCESSOR MATCHES "^(x86_64|AMD64|amd64)$" AND (WIN32 OR CMA
   target_link_libraries(drakan_webgpu_sdk INTERFACE drakan_wgpu_native)
   target_compile_definitions(drakan_webgpu_sdk INTERFACE DRAKAN_WGPU_NATIVE=1)
   set(DRAKAN_WEBGPU_AVAILABLE ON)
+  if(WIN32 AND NOT DRAKAN_DXC_RUNTIME_DIR)
+    # D3D12 compiles WGSL with DXC when dxcompiler.dll and dxil.dll sit beside the executable (gpu/src/Context.cpp);
+    # wgpu's FXC fallback hangs on the ray tracing shader. Newest Windows SDK first.
+    file(GLOB _drakan_dxc_dirs "C:/Program Files (x86)/Windows Kits/10/bin/*/x64")
+    list(SORT _drakan_dxc_dirs COMPARE NATURAL ORDER DESCENDING)
+    foreach(_dir IN LISTS _drakan_dxc_dirs)
+      if(EXISTS "${_dir}/dxcompiler.dll" AND EXISTS "${_dir}/dxil.dll")
+        set(DRAKAN_DXC_RUNTIME_DIR "${_dir}" CACHE PATH "Folder with dxcompiler.dll and dxil.dll, staged beside WebGPU executables")
+        break()
+      endif()
+    endforeach()
+    if(NOT DRAKAN_DXC_RUNTIME_DIR)
+      message(STATUS "WebGPU: no Windows SDK dxcompiler.dll / dxil.dll; D3D12 uses FXC and WebGPU ray tracing is off there")
+    endif()
+  endif()
 endif()
 
-# Ship the pinned native runtime and its licences beside an executable (origin-relative search path on Linux).
+# Ship the pinned native runtime and its licences beside an executable (origin-relative search path on Linux), and on
+# Windows the Windows SDK's DXC.
 function(drakan_stage_webgpu target)
   if(NOT TARGET drakan_wgpu_native)
     return()
@@ -60,4 +76,10 @@ function(drakan_stage_webgpu target)
       "${DRAKAN_ROOT_DIR}/third_party/wgpu-native/LICENSE.MIT"
       "$<TARGET_FILE_DIR:${target}>/licenses/wgpu-native"
     VERBATIM)
+  if(WIN32 AND DRAKAN_DXC_RUNTIME_DIR)
+    add_custom_command(TARGET ${target} POST_BUILD
+      COMMAND ${CMAKE_COMMAND} -E copy_if_different
+        "${DRAKAN_DXC_RUNTIME_DIR}/dxcompiler.dll" "${DRAKAN_DXC_RUNTIME_DIR}/dxil.dll" "$<TARGET_FILE_DIR:${target}>"
+      VERBATIM)
+  endif()
 endfunction()

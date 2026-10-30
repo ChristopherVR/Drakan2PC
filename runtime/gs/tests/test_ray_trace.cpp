@@ -1,6 +1,7 @@
 // The WebGPU ray pass (wgpu_ray.cpp, ray_trace.wgsl) on a small scene: a native water plane in front of a red wall,
 // seen by a camera just above the water. The shader must compile, leave the sky above the horizon untouched and
-// reflect the wall in the water. Exit 77 = no adapter (or no compute support).
+// reflect the wall in the water. Exit 77 = no hardware adapter (WARP takes minutes per ray dispatch) or no compute
+// support.
 #include "guide_camera.h"
 #include "ray_bvh.h"
 #include "wgpu_ray.h"
@@ -80,6 +81,10 @@ int main() {
     auto context = drakan::gpu::Context::create(options, &error);
     if (!context) {
         std::fprintf(stderr, "SKIP: %s\n", error.c_str());
+        return g_failures ? 1 : 77;
+    }
+    if (context->softwareAdapter()) {
+        std::fprintf(stderr, "SKIP: software adapter %s\n", context->adapterName().c_str());
         return g_failures ? 1 : 77;
     }
     auto device = rhi::Device::create(*context);

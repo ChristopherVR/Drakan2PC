@@ -164,7 +164,8 @@ public:
     virtual std::string adapterName() const = 0;
     virtual bool dualSourceBlending() const = 0;
     virtual uint32_t maxTextureSize() const = 0;
-    // Compute programs with this many storage buffers of this size are available (false on GL-class backends).
+    // Compute programs with this many storage buffers of this size are available (false on GL-class backends, and on
+    // D3D12 without DXC: FXC may never finish compiling a large compute shader).
     virtual bool compute(uint32_t storageBuffers, uint64_t bufferBytes) const = 0;
 
     // ---- window surface (devices from open() with a window) ----

@@ -126,7 +126,8 @@ WgpuRay::~WgpuRay() = default;
 
 WgpuRay::WgpuRay(rhi::Device& device) : gpu_(device) {
     if (!gpu_.compute(kStorageBuffers, 64ull << 20)) {
-        status_ = "Ray tracing needs WebGPU compute shaders with large storage buffers (not available on this adapter)";
+        status_ = "Ray tracing needs WebGPU compute shaders with large storage buffers (not available on this adapter, "
+                  "or D3D12 without dxcompiler.dll and dxil.dll beside the game)";
         return;
     }
     rhi::ProgramDesc d;

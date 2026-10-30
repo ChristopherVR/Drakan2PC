@@ -1,6 +1,8 @@
 // Synthetic GIF packet scenes rendered through gsr, saved to decomp/build/gs/ for visual inspection, with a few
 // automatic pixel checks.
 //   gsr_test_synthetic [--warp] [--scale N] [--out DIR]
+// The WebGPU build (GSR_TEST_WEBGPU) skips (exit 77) without a hardware adapter unless --warp is given: WARP on the
+// Windows Server CI runners loses the D3D12 device partway through.
 #include "gsr/gsr.h"
 #include "gsr/scene_guide_camera.h"
 
@@ -1573,6 +1575,15 @@ int main(int argc, char** argv) {
             cfg.logUnsupported = true;
     }
     cfg.vsync = false;
+#if defined(GSR_TEST_WEBGPU)
+    if (!cfg.forceWarp) {
+        cfg.allowWarp = false;
+        if (!Renderer::create(cfg)) {
+            std::printf("SKIP: no hardware WebGPU adapter (--warp runs on the software one)\n");
+            return 77;
+        }
+    }
+#endif
     for (int i = 1; i < argc; ++i)
         if (!std::strcmp(argv[i], "--save-preview-only")) {
             std::filesystem::create_directories(outDir);

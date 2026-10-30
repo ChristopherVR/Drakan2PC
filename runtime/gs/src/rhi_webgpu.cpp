@@ -357,6 +357,8 @@ public:
     bool dualSourceBlending() const override { return context_.dualSourceBlending(); }
     uint32_t maxTextureSize() const override { return context_.limits().maxTextureDimension2D; }
     bool compute(uint32_t storageBuffers, uint64_t bufferBytes) const override {
+        if (context_.fxcShaderCompiler())
+            return false;
         const WGPULimits& l = context_.limits();
         return l.maxStorageBuffersPerShaderStage >= storageBuffers && l.maxStorageBufferBindingSize >= bufferBytes &&
                l.maxStorageTexturesPerShaderStage >= 1 && l.maxComputeInvocationsPerWorkgroup >= 256 &&

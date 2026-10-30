@@ -11,8 +11,19 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <filesystem>
 #include <mutex>
 #include <utility>
+
+#if defined(DRAKAN_WGPU_NATIVE) && defined(_WIN32)
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <windows.h>
+#endif
 
 namespace drakan::gpu {
 
@@ -58,6 +69,29 @@ Backend parseBackend(const std::string& text) {
 }
 
 namespace {
+#if defined(DRAKAN_WGPU_NATIVE) && defined(_WIN32)
+// dxcompiler.dll beside the executable (UTF-8), when dxil.dll, which signs its output, is there too; empty otherwise.
+std::string dxcBesideExecutable() {
+    std::wstring exe(MAX_PATH, L'\0');
+    for (;;) {
+        const DWORD n = GetModuleFileNameW(nullptr, exe.data(), DWORD(exe.size()));
+        if (n == 0)
+            return {};
+        if (n < exe.size()) {
+            exe.resize(n);
+            break;
+        }
+        exe.resize(exe.size() * 2);
+    }
+    const std::filesystem::path dir = std::filesystem::path(exe).parent_path();
+    std::error_code ec;
+    if (!std::filesystem::exists(dir / L"dxcompiler.dll", ec) || !std::filesystem::exists(dir / L"dxil.dll", ec))
+        return {};
+    const auto utf8 = (dir / L"dxcompiler.dll").u8string();
+    return std::string(utf8.begin(), utf8.end());
+}
+#endif
+
 Backend fromBackendType(WGPUBackendType type) {
     switch (type) {
         case WGPUBackendType_Vulkan:
@@ -182,6 +216,16 @@ bool Context::init(const ContextOptions& options, std::string* error) {
         wanted = parseBackend(env);
     WGPUInstanceExtras extras{};
     extras.chain.sType = static_cast<WGPUSType>(WGPUSType_InstanceExtras);
+    std::string dxc;
+#if defined(_WIN32)
+    // FXC, wgpu's default D3D12 compiler, takes minutes or never finishes on the ray tracing shader. The build stages
+    // DXC from the Windows SDK beside the executable.
+    dxc = dxcBesideExecutable();
+    if (!dxc.empty()) {
+        extras.dx12ShaderCompiler = WGPUDx12Compiler_Dxc;
+        extras.dxcPath = {dxc.data(), dxc.size()};
+    }
+#endif
     switch (wanted) {
         case Backend::Vulkan:
             extras.backends = WGPUInstanceBackend_Vulkan;
@@ -250,6 +294,7 @@ bool Context::init(const ContextOptions& options, std::string* error) {
         wgpuSurfaceRelease(probe);
     if (!adapter_)
         return fail(std::string("no usable GPU adapter (backend ") + backendName(wanted) + ")");
+    fxc_ = backend_ == Backend::D3D12 && dxc.empty();
 
     bool ok = false;
     std::string why;

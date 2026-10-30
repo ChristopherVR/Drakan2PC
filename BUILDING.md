@@ -201,6 +201,9 @@ compilation). The game is never launched and nothing is uploaded.
 
 Every platform renders the GS through the shared WebGPU renderer (Windows: Vulkan, D3D12 fallback; Linux: Vulkan, GL
 fallback; `DRAKAN_GPU_BACKEND=vulkan|dx12|gl` overrides), and the build stages `wgpu_native.dll` beside `drakan.exe`.
+On Windows it also stages `dxcompiler.dll` and `dxil.dll` from the newest Windows SDK (or `-DDRAKAN_DXC_RUNTIME_DIR=`):
+D3D12 then compiles WGSL with DXC. Without them wgpu falls back to FXC, which hangs on the ray tracing shader, so
+WebGPU ray tracing reports itself unavailable on D3D12 (Vulkan is unaffected).
 The Windows game also contains the Direct3D 11 renderer for DLSS, neural rendering and hardware (DXR) ray tracing:
 choose it under PC Settings > Display > Renderer (applied after a restart), with `renderer = d3d11` under `[video]` in
 `drakan.ini`, or with `PS2X_GS=d3d11`. `renderer = webgpu` is the default and `renderer = sw` selects the software GS.
