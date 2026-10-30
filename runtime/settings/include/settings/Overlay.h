@@ -90,6 +90,9 @@ public:
     // Pointer position (OS cursor) mapped into a back buffer of w x h pixels; false when the cursor is outside the
     // window.
     bool pointerInBackbuffer(uint32_t w, uint32_t h, float* x, float* y) const;
+    // Extra ImGui windows drawn on top of the settings menu while it is open (developer panels, e.g. the World panel).
+    // Called on the render thread inside the ImGui frame.
+    void setMenuExtra(std::function<void()> draw);
     // Opening through the hotkey / gamepad combo (toggle) asks this first; false = "not now" (the host opens later with
     // open()). Used to put the game into its own pause menu before the overlay opens over it.
     void setOpenInterceptor(std::function<bool()> gate);

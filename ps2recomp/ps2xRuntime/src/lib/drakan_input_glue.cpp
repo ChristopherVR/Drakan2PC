@@ -23,6 +23,9 @@
 #include "drakan_debug_menu.h"
 #include "drakan_dual_wield.h"
 #include "drakan_menus.h"
+#if defined(PS2X_HAVE_GSR)
+#include "drakan_world.h" // compiled with the GS renderer only
+#endif
 #include "drakan_pause.h"
 #include "drakan_config.h"
 #include "drakan_window.h"
@@ -681,6 +684,9 @@ void hookPadMgrUpdate(uint8_t* rdram, R5900Context* c, PS2Runtime* rt) {
         afterPadMgrUpdate(g);
     if constexpr (drakan_region::supports(drakan_region::Feature::DebugMenu))
         drakan_debug_menu::afterPadMgr(g);
+#if defined(PS2X_HAVE_GSR)
+    drakan_world::sample(rdram, drakan_settings_host::isOpen());
+#endif
     drakan_combat_audit::sample(g, m, ilog, upcoming, scr, g_dragon.load());
     { // inventory / map mouse: log section changes and the adapter's D-pad / click taps (verification aid)
         static int lastSec = -1, lastTaps = 0;
@@ -1177,6 +1183,9 @@ void drakanInstallInput(PS2Runtime& rt) {
     if (!(skip & 1))
         rt.replaceFunction(kPadMgrUpdate, &hookPadMgrUpdate);
     drakanInstallDirectMouse(rt);
+#if defined(PS2X_HAVE_GSR)
+    drakan_world::configure();
+#endif
     if constexpr (drakan_region::supports(drakan_region::Feature::DebugMenu))
         drakan_debug_menu::install(rt);
     g_origBowLaunch = rt.lookupFunction(kBowLaunch);

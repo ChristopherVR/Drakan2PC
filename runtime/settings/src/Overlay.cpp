@@ -225,8 +225,11 @@ void SettingsOverlay::render(void* target, uint32_t w, uint32_t h, const HudView
     }
     if (screen)
         m_->screenLayer.draw(sf);
-    if (menuOpen)
+    if (menuOpen) {
         m_->menu->frame();
+        if (m_->menuExtra)
+            m_->menuExtra();
+    }
     if (hud) {
         HudView view = image;
         view.w = static_cast<float>(w);
@@ -248,6 +251,9 @@ bool SettingsOverlay::screenInputActive() const {
 
 void SettingsOverlay::setAllowGate(std::function<bool()> allow) {
     m_->allowGate = std::move(allow);
+}
+void SettingsOverlay::setMenuExtra(std::function<void()> draw) {
+    m_->menuExtra = std::move(draw);
 }
 void SettingsOverlay::setOpenInterceptor(std::function<bool()> gate) {
     m_->openGate = std::move(gate);

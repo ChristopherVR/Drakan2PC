@@ -1,0 +1,32 @@
+# World model (drakan::world): typed read-only views of the guest's actor registry and a per-frame entity snapshot
+# (handle, class, type, position, ...) with a double-buffered exchange and a JSON writer. std only, platform free (no
+# ImGui, no Win32). Guest memory comes through gameui::IGuestMemory (the adapter lives in ps2xRuntime).
+if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR) # standalone configure
+    cmake_minimum_required(VERSION 3.21)
+    project(drakan_world LANGUAGES CXX)
+endif()
+include("${CMAKE_CURRENT_LIST_DIR}/../../cmake/DrakanComponents.cmake")
+drakan_component_begin(world)
+drakan_component_require(gameui)
+
+add_library(drakan_world STATIC
+    src/Reader.cpp
+    src/Json.cpp
+    src/Exchange.cpp)
+add_library(drakan::world ALIAS drakan_world)
+target_include_directories(drakan_world PUBLIC include)
+target_link_libraries(drakan_world PUBLIC drakan::gameui PRIVATE drakan::options)
+
+if(DRAKAN_BUILD_RUNTIME_TESTS)
+    # Synthetic memory images only (built in the test); no game bytes are read or committed.
+    add_executable(world_test tests/world_test.cpp)
+    target_link_libraries(world_test PRIVATE drakan_world drakan::options)
+    add_test(NAME world_test COMMAND world_test)
+
+    # Local RAM dumps (build/, never committed); exits 77 (skipped) when none is present.
+    add_executable(world_ram_test tests/world_ram_test.cpp)
+    target_link_libraries(world_ram_test PRIVATE drakan_world drakan::options)
+    target_compile_definitions(world_ram_test PRIVATE "WORLD_REPO_ROOT=\"${DRAKAN_ROOT_DIR}\"")
+    add_test(NAME world_ram_test COMMAND world_ram_test)
+    set_tests_properties(world_ram_test PROPERTIES SKIP_RETURN_CODE 77)
+endif()

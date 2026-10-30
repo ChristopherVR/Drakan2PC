@@ -11,6 +11,7 @@
 #include "drakan_fpsmeter.h"
 #include "drakan_window.h"
 #include "drakan_menus.h"
+#include "drakan_world.h"
 #include "drakan_fmv_hd.h"
 #include "drakan_save_previews.h"
 #include "drakan_tab_screen.h"
@@ -1732,6 +1733,8 @@ void overlayCallback(const gsr::OverlayContext& oc) {
         });
         drakan_subtitles::installHudLayer();
         installSharedHudLayers();
+        if (drakan_world::enabled())
+            g_overlay->setMenuExtra(&drakan_world::drawPanel);
         // The modern PC Settings pages share the overlay's host and store (the F1 overlay stays as it is).
         g_pcs = std::make_unique<dsettings::ModernSettings>(g_host, g_overlay->store());
         g_pcs->open();

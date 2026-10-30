@@ -69,6 +69,7 @@ struct SettingsOverlay::Impl {
     ImTextureID frameTex = 0;
     uint32_t frameW = 0, frameH = 0;
     std::function<bool()> openGate;
+    std::function<void()> menuExtra; // developer windows over the open menu
     std::function<bool()> allowGate; // false = F1 / the gamepad combo are ignored (cut scenes, movies, loading)
     // the game's art (loaded when the menu first opens with the art available)
     std::string headingTtf, bodyTtf;
