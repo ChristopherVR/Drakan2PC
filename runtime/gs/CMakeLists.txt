@@ -104,6 +104,12 @@ if(TARGET drakan::gs_rhi)
   endif()
   add_library(gsr_webgpu STATIC src/backend_select_webgpu.cpp)
   target_link_libraries(gsr_webgpu PUBLIC gsr_core gsr_webgpu_backend PRIVATE drakan::options)
+  if(NOT WIN32)
+    # gsr_core calls gsr::Backend, which gsr_webgpu defines. Declaring the cycle makes CMake repeat these static
+    # libraries, so single-pass linkers (GNU ld) see gsr_webgpu again after gsr_core. Windows also has the D3D11
+    # variants, so gsr_core cannot name one there (and MSVC rescans libraries anyway).
+    target_link_libraries(gsr_core INTERFACE gsr_webgpu)
+  endif()
   if(DRAKAN_BUILD_RUNTIME_TESTS AND NOT EMSCRIPTEN)
     # The synthetic GIF scenes and their pixel checks, rendered by the WebGPU backend (gsr_test_synthetic runs them
     # on Direct3D 11).

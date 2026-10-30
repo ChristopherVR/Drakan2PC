@@ -93,6 +93,7 @@ def main():
             extra = [
                 root / "runtime/gs/src/gs_texup.cpp",
                 f"-I{root / 'runtime/gs/src'}",
+                "-sFETCH=1",
                 "-pthread",
                 "-sPTHREAD_POOL_SIZE=4",
                 "-sENVIRONMENT=node,worker",
