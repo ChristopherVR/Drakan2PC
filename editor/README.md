@@ -6,7 +6,7 @@ TypeScript + Vite + three.js, npm workspaces. Design: `docs/proposals/level-edit
 | Package            | What                                                                                                                                                                                                                                                                          |
 | ------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `packages/formats` | Pure TypeScript, no DOM. `Iso9660`, `Srsc` (reader and byte-identical writer), `Txd` (to RGBA8), `LevelList` (`LEVELLST.TXT`, `.DB`, 8.3 name mangling). Works on a random-access `ByteSource`, so a browser `File` or `Blob.slice` can back a 4 GB image without loading it. |
-| `packages/app`     | Vite + three.js inspector: open an ISO, list levels, browse each file's SRSC entries (type, id, sub, size, zlib), hex view, decoded textures as quads in an orbit-controlled viewport. Parsing runs in a Web Worker.                                                          |
+| `packages/app`     | Vite + three.js editor and disc browser: open an ISO, edit levels, maps, story and saves; the Files tab lists each file's SRSC entries, hex view, decoded textures as quads in an orbit-controlled viewport. Parsing runs in a Web Worker.                                    |
 
 ## Run
 
@@ -55,6 +55,19 @@ viewport to place it; right mouse + WASD flies; alt+left orbits. Edits autosave 
 (panels), `level.ts` (viewport), `levelui.ts` (wiring), `packages/editor-core/src/{snap,arrange,clipboard,catalog,schema,validate}.ts`
 (pure logic, tested). Notes and limits: `docs/journal/2026-10-31/editor-ux-overhaul.md`. Opening a disc level now loads terrain and textured models (`sceneload.ts`, `scene/layer.ts`); the Display menu holds
 terrain/model/helper-class toggles, lighting, fog and draw distance. Notes: `docs/journal/2026-10-31/editor-render-integration.md`.
+
+## Projects, tasks, help and the Files tab
+
+The start page of the Level tab offers tasks (edit a campaign level, create a multiplayer map, build a new level from an
+existing one, change the story, edit a save, import an Order of the Flame level). A task creates a **mod project** (the
+Project dock tab: name, id, author, version, levels in campaign order with their exits, copies of levels, the level Play
+starts in, one export) and shows a checklist in the corner that ticks off as the editor sees each step done. The Help
+button in the top bar opens short guides; the "?" on each panel opens the one for that panel. The guide text is in
+`packages/editor-core/src/guides.ts`, and `docs/reference/editor-guide.md` is generated from it (a test keeps them equal).
+The old Inspect tab is now **Files**, an advanced disc file browser with a header that says so, a file tree, an entry list
+and a preview (picture, text, hex) with buttons that open the file in the Level or Story editors. Code:
+`packages/app/src/editor/project/*`, `startpage.ts`, `packages/editor-core/src/{project,guides}.ts`. Notes:
+`docs/journal/2026-10-31/editor-workflows.md`.
 
 ## Multiplayer Map mode
 

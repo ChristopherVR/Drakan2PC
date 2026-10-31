@@ -75,6 +75,68 @@ export function createDock(initial: DockTab[]): Dock {
     };
     for (const t of tabs) mount(t);
     show(tabs[0]!.id);
+
+    // Tab order: drag a tab sideways to move it; the order is remembered per dock (by the ids it was created with).
+    const orderKey = `dock-order:${initial.map((t) => t.id).join(',')}`;
+    const saveOrder = (): void => {
+        try {
+            localStorage.setItem(
+                orderKey,
+                JSON.stringify([...bar.children].map((b) => (b as HTMLElement).dataset.tab)),
+            );
+        } catch {
+            /* storage may be unavailable */
+        }
+    };
+    const applyOrder = (): void => {
+        let saved: string[] = [];
+        try {
+            saved = JSON.parse(localStorage.getItem(orderKey) ?? '[]') as string[];
+        } catch {
+            /* ignore */
+        }
+        const rank = (b: Element): number => {
+            const i = saved.indexOf((b as HTMLElement).dataset.tab ?? '');
+            return i < 0 ? saved.length + 1 : i;
+        };
+        const sorted = [...bar.children].sort((a, b) => rank(a) - rank(b));
+        if (sorted.some((b, i) => b !== bar.children[i])) bar.append(...sorted);
+    };
+    applyOrder();
+    let dragged: { btn: HTMLElement; x0: number; moved: boolean } | null = null;
+    bar.addEventListener('pointerdown', (e) => {
+        const btn = (e.target as HTMLElement).closest<HTMLElement>('.dock-tab');
+        if (!btn || e.button !== 0) return;
+        dragged = { btn, x0: e.clientX, moved: false };
+    });
+    window.addEventListener('pointermove', (e) => {
+        const d = dragged;
+        if (!d) return;
+        if (!d.moved && Math.abs(e.clientX - d.x0) < 6) return;
+        if (!d.moved) {
+            d.moved = true;
+            d.btn.classList.add('dragging');
+        }
+        const others = [...bar.children].filter((b) => b !== d.btn) as HTMLElement[];
+        const next = others.find((b) => {
+            const r = b.getBoundingClientRect();
+            return e.clientX < r.left + r.width / 2;
+        });
+        if (next) {
+            if (d.btn.nextElementSibling !== next) bar.insertBefore(d.btn, next);
+        } else if (bar.lastElementChild !== d.btn) bar.append(d.btn);
+    });
+    window.addEventListener('pointerup', () => {
+        const d = dragged;
+        dragged = null;
+        if (!d?.moved) return;
+        d.btn.classList.remove('dragging');
+        saveOrder();
+        // The click that ends a drag must not switch tabs.
+        const stop = (ev: Event): void => ev.stopImmediatePropagation();
+        d.btn.addEventListener('click', stop, { capture: true, once: true });
+        window.setTimeout(() => d.btn.removeEventListener('click', stop, true), 0);
+    });
     // Narrow dock: drop the labels of inactive tabs (icon-only, the tooltip names them); if even that does not fit the
     // strip scrolls sideways (mouse wheel too) and the active tab is kept in view.
     const fit = (): void => {
@@ -99,6 +161,7 @@ export function createDock(initial: DockTab[]): Dock {
             tabs.push(t);
             mount(t);
             t.panel.el.hidden = true;
+            applyOrder();
             fit();
         },
         el: h('div', { class: 'dock' }, bar, content),
@@ -361,7 +424,11 @@ export function createModPanel(ctx: Ctx, host: ModHost): ModPanel {
         report,
     );
     const right = h('div', { class: 'mod-side' }, h('div', { class: 'lbl' }, 'Changed entries'), info, changes);
-    const root = h('div', { class: 'panel mod' }, form, right, play);
+    const statusCard = h('div', { class: 'mod-status', role: 'status' });
+    const root = h('div', { class: 'panel mod' }, statusCard, form, right, play);
+    /** Where the last export went and how many changes it held (to tell when it is out of date). */
+    let lastOut: { where: string; at: Date; changes: number } | null = null;
+    let lastN = 0;
 
     const fail = (e: unknown): void => {
         const msg = e instanceof Error ? e.message : String(e);
@@ -402,11 +469,15 @@ export function createModPanel(ctx: Ctx, host: ModHost): ModPanel {
         if (toFolder) {
             const where = await writePackToModsFolder(pack);
             if (where === null) return;
+            lastOut = { where, at: new Date(), changes: lastN };
+            refresh();
             lines.push(`Written to ${where} and enabled in mods.ini.`);
             host.setStatus(`Mod '${pack.meta.id}' written to ${where}.`);
             ctx.toast(`Written to ${where}`, 'ok');
         } else {
             host.download(`${pack.meta.id}.zip`, zipPack(pack) as BlobPart, 'application/zip');
+            lastOut = { where: `${pack.meta.id}.zip (your downloads)`, at: new Date(), changes: lastN };
+            refresh();
             lines.push(`Downloaded ${pack.meta.id}.zip.`);
             host.setStatus(`Exported ${pack.meta.id}.zip.`);
             ctx.toast(`Exported ${pack.meta.id}.zip`, 'ok');
@@ -492,12 +563,68 @@ export function createModPanel(ctx: Ctx, host: ModHost): ModPanel {
     idF.el.addEventListener('input', () => renderPlay(lastReady));
     let lastReady = false;
 
+    /** One place that answers: what is edited, what the mod holds, where it was written, how to play it. */
+    function paintStatus(n: number, file: string | null): void {
+        const cell = (tone: string, title: string, text: string, sub = ''): HTMLElement =>
+            h(
+                'div',
+                { class: `ms-cell ${tone}` },
+                h('div', { class: 'ms-t' }, title),
+                h('div', { class: 'ms-v' }, text),
+                sub ? h('div', { class: 'ms-s dim' }, sub) : null,
+            );
+        const out = lastOut;
+        const stale = !!out && out.changes !== n;
+        const id = idF.el.value.trim();
+        fill(
+            statusCard,
+            cell(
+                n ? 'warn' : 'ok',
+                '1  Edits',
+                !file
+                    ? 'No level source'
+                    : n
+                      ? `${n} change${n === 1 ? '' : 's'} not in the game yet`
+                      : 'Nothing changed',
+                file ? `in ${file}` : 'Open a level from the disc',
+            ),
+            cell(
+                n ? 'info' : 'dim',
+                '2  Mod contents',
+                n && id ? `${id}: one level override` : n ? 'Give the mod an id below' : 'Empty',
+                n ? 'Only the changed level data is written, never game files' : '',
+            ),
+            cell(
+                !out ? 'dim' : stale ? 'warn' : 'ok',
+                '3  Written to',
+                out ? out.where : 'Not exported yet',
+                out
+                    ? `${out.at.toLocaleTimeString()}${stale ? ' - edits since then are not in it' : ''}`
+                    : 'Export zip or Write to mods folder',
+            ),
+            cell(
+                !out || stale ? 'dim' : 'ok',
+                '4  Play',
+                isDesktop
+                    ? n || out
+                        ? 'Play button runs the game with your edits'
+                        : 'Make an edit first'
+                    : 'Copy the zip into dist/DrakanPC/mods/',
+                isDesktop
+                    ? 'Toolbar Play or F5; right-click > Play from here'
+                    : 'Steps are listed at the bottom of this panel',
+            ),
+        );
+    }
+
     let timer = 0;
     function refresh(): void {
         const src = ctx.src();
         target.textContent = host.targetText();
         const d = src ? diffDocument(src.lvl.list, ctx.doc()) : null;
         const n = d ? changeCount(d) : 0;
+        lastN = n;
+        paintStatus(n, src?.file ?? null);
         const ready = n > 0 && host.target() !== null && !!idF.el.value.trim();
         lastReady = ready;
         zipBtn.disabled = !ready;

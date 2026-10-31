@@ -23,6 +23,7 @@ import { loadStoryCatalog, resetStoryData } from './storydata.ts';
 import { levelExitData, type ExitIndexData } from './logicdata.ts';
 import { isoStoryFs } from './story/storyfs.ts';
 import { loadStoryEdit, scanQuestUsage, scanStringUsage } from './story/storyedit.ts';
+import { classModelRef, loadRefClip, loadRefRig, rigForTracks } from './animdata.ts';
 import { listRefs, loadRefModel, loadRefSound, loadRefTexture, refContainers } from './refdata.ts';
 import type {
     Api,
@@ -48,11 +49,24 @@ function remoteBlob(r: RemoteBlob): BlobLike {
         size: r.size,
         slice: (start = 0, end = r.size) => ({
             async arrayBuffer() {
-                const res = await fetch(r.url, { headers: { Range: `bytes=${start}-${end - 1}` } });
-                if (res.status !== 206 && res.status !== 200) throw new Error(`reading ${r.name}: HTTP ${res.status}`);
-                const buf = await res.arrayBuffer();
-                // A server that ignores Range sends the whole file; cut out what was asked for.
-                return res.status === 200 ? buf.slice(start, end) : buf;
+                // Tauri's asset protocol answers a Range request with at most about 1 MiB (206 + Content-Range), however
+                // much was asked for; a larger read (a terrain layer table is 1.2 MB) has to be assembled from several.
+                const want = Math.max(0, end - start);
+                const out = new Uint8Array(want);
+                let got = 0;
+                while (got < want) {
+                    const res = await fetch(r.url, { headers: { Range: `bytes=${start + got}-${end - 1}` } });
+                    if (res.status !== 206 && res.status !== 200)
+                        throw new Error(`reading ${r.name}: HTTP ${res.status}`);
+                    const buf = new Uint8Array(await res.arrayBuffer());
+                    // A server that ignores Range sends the whole file; cut out what was asked for.
+                    const part = res.status === 200 ? buf.subarray(start + got, end) : buf;
+                    if (part.length === 0) throw new Error(`reading ${r.name}: empty answer at ${start + got}`);
+                    const n = Math.min(part.length, want - got);
+                    out.set(part.subarray(0, n), got);
+                    got += n;
+                }
+                return out.buffer;
             },
         }),
     };
@@ -324,6 +338,18 @@ const api: { [K in keyof Api]: (...a: Parameters<Api[K]>) => Promise<ReturnType<
     },
     async loadRefSound(stem, id) {
         return loadRefSound(need(), language, stem, id);
+    },
+    async loadRefRig(stem, id) {
+        return loadRefRig(need(), language, stem, id);
+    },
+    async loadRefClip(stem, id) {
+        return loadRefClip(need(), language, stem, id);
+    },
+    async classModelRef(dbStem, classId) {
+        return classModelRef(need(), language, dbStem, classId);
+    },
+    async rigForTracks(stem, tracks) {
+        return rigForTracks(need(), language, stem, tracks);
     },
     async decodeTextures(path, indices) {
         const r = await getSrsc(path);

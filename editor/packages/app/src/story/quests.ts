@@ -5,6 +5,7 @@
 import { chapterOfGroup, type QuestKind } from '@drakan/formats';
 import type { Panel } from '../editor/ctx.ts';
 import { fill, h } from '../editor/dom.ts';
+import { openTemplate } from '../editor/logicpanel.ts';
 import { SYSTEM_XDB, type QuestRow, type StorySession } from './session.ts';
 
 const KINDS: [QuestKind, string][] = [
@@ -315,6 +316,19 @@ export function createQuestsPanel(session: StorySession): Panel {
             h(
                 'div',
                 { class: 'btnrow' },
+                h(
+                    'button',
+                    {
+                        class: 'btn',
+                        type: 'button',
+                        title: "Open the Logic panel's Place quest object setup for this quest class: the object plus optional start and complete trigger volumes",
+                        onclick: () => {
+                            if (!openTemplate('quest-object', { classId: r.classId }))
+                                session.host.status('Open a level in the editor first.', true);
+                        },
+                    },
+                    'Place quest object in level...',
+                ),
                 r.isNew
                     ? h(
                           'button',

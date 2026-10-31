@@ -351,7 +351,11 @@ export class VolumeBoxes {
         for (const b of list) {
             const tint = iconTint(b.group);
             const local = new THREE.Matrix4().compose(
-                new THREE.Vector3((b.min[0]! + b.max[0]!) / 2, (b.min[1]! + b.max[1]!) / 2, (b.min[2]! + b.max[2]!) / 2),
+                new THREE.Vector3(
+                    (b.min[0]! + b.max[0]!) / 2,
+                    (b.min[1]! + b.max[1]!) / 2,
+                    (b.min[2]! + b.max[2]!) / 2,
+                ),
                 new THREE.Quaternion(),
                 new THREE.Vector3(
                     Math.max(b.max[0]! - b.min[0]!, 1e-3),
@@ -372,7 +376,12 @@ export class VolumeBoxes {
             );
             const wire = new THREE.LineSegments(
                 this.edges,
-                new THREE.LineBasicMaterial({ color: tint, transparent: true, opacity: b.strong ? 1 : 0.6, depthTest: false }),
+                new THREE.LineBasicMaterial({
+                    color: tint,
+                    transparent: true,
+                    opacity: b.strong ? 1 : 0.6,
+                    depthTest: false,
+                }),
             );
             for (const o of [fill, wire]) {
                 o.matrixAutoUpdate = false;

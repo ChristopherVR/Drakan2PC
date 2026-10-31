@@ -104,6 +104,7 @@ const CLASSES: Record<string, StubClass> = {
         name: 'Level Transition',
         fields: [{ name: 'Send This Message', type: 7, def: 0 }],
     },
+    '0x2000c': { rfl: 0x68, name: 'Kill the Inquisitor', fields: [{ name: 'Type', type: 7, def: 1 }] },
 };
 
 const schemas = new Map<string, ClassSchema>();
@@ -454,6 +455,25 @@ describe('templates', () => {
         const d = level();
         const r = templateById('pressure-plates')!.build(ctxFor(d), { target: 4, count: 3 });
         expect(isError(r) && r.error).toMatch(/no pressure plate class/);
+    });
+
+    it('places a quest object and its start / complete volumes', () => {
+        const d = level();
+        d.insert(obj(40, '0x2000c'));
+        const r = templateById('quest-object')!.build(ctxFor(d), { classId: 4000, start: true, complete: true });
+        if (isError(r)) throw new Error(r.error);
+        const q = r.objects.find((o) => o.class !== 'Trigger Detector')!;
+        expect(Number(q.resource) & 0xffff).toBe(4000);
+        expect(Number(q.resource) >>> 16).toBe(2);
+        const vols = r.objects.filter((o) => o.class === 'Trigger Detector');
+        expect(vols).toHaveLength(2);
+        expect(vols.every((v) => v.links!.join() === String(q.id))).toBe(true);
+        const msgs = vols.map((v) => v.fields!.find((f) => f.name === 'Trigger Message')!.value);
+        expect(msgs).toEqual([1, 18]);
+        const plain = templateById('quest-object')!.build(ctxFor(d), { start: false });
+        if (isError(plain)) throw new Error(plain.error);
+        expect(plain.objects).toHaveLength(1);
+        expect(plain.objects[0]!.resource).toBe('0x2000c');
     });
 
     it('volume message and level exit', () => {

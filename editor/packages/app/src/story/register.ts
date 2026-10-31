@@ -74,7 +74,7 @@ export function initStoryEditors(host: StoryEditorsHost): StoryEditors {
                   },
               }
             : {}),
-        ...(path ? { showPath: (pts) => path.show(pts) } : {}),
+        ...(path ? { showPath: (pts) => path.show(pts), framePath: () => path.frame() } : {}),
     });
     const area = createStoryArea([
         { id: 'strings', title: 'Strings', panel: createStringsPanel(session) },

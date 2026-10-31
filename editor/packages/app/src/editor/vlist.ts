@@ -18,13 +18,17 @@ export interface VListOptions<T> {
     /** Shown instead of rows when there are none. */
     empty?: () => Node;
     label: string;
+    /** Grid mode: cells of this width (rows are `rowHeight` tall); arrow up/down move by a whole row of cells. */
+    cellWidth?: number;
 }
 
 export interface VList<T> {
     el: HTMLElement;
     setItems(items: readonly T[], activeKey?: string): void;
-    /** Move the active row by `delta` rows (clamped). */
+    /** Move the active row by `delta` rows (clamped); in grid mode a row is a line of cells. */
     move(delta: number): void;
+    /** Move the active item by `delta` items (grid mode: left and right). */
+    step(delta: number): void;
     moveTo(index: number): void;
     active(): T | null;
     /** Rebuild the rows in view (item content changed, e.g. a name arrived). */
@@ -44,13 +48,15 @@ export function virtualList<T>(opts: VListOptions<T>): VList<T> {
     let activeIndex = -1;
     let shown = new Set<string>();
     let queued = false;
+    const cols = (): number => (opts.cellWidth ? Math.max(1, Math.floor((el.clientWidth - 4) / opts.cellWidth)) : 1);
 
     const render = (): void => {
         queued = false;
         const vh = el.clientHeight || 300;
-        const first = Math.max(0, Math.floor(el.scrollTop / rh) - OVERSCAN);
-        const last = Math.min(items.length, Math.ceil((el.scrollTop + vh) / rh) + OVERSCAN);
-        spacer.style.height = `${items.length * rh}px`;
+        const nc = cols();
+        const first = Math.max(0, (Math.floor(el.scrollTop / rh) - OVERSCAN) * nc);
+        const last = Math.min(items.length, (Math.ceil((el.scrollTop + vh) / rh) + OVERSCAN) * nc);
+        spacer.style.height = `${Math.ceil(items.length / nc) * rh}px`;
         const rows: HTMLElement[] = [];
         const keys = new Set<string>();
         for (let i = first; i < last; i++) {
@@ -63,7 +69,9 @@ export function virtualList<T>(opts: VListOptions<T>): VList<T> {
                 role: 'option',
                 id: `${id}-${i}`,
                 'aria-selected': String(i === activeIndex),
-                style: `top:${i * rh}px;height:${rh}px`,
+                style: opts.cellWidth
+                    ? `top:${Math.floor(i / nc) * rh}px;height:${rh}px;left:${(i % nc) * opts.cellWidth}px;width:${opts.cellWidth}px;right:auto`
+                    : `top:${i * rh}px;height:${rh}px`,
                 onclick: () => {
                     activeIndex = i;
                     opts.onPick(item);
@@ -88,7 +96,7 @@ export function virtualList<T>(opts: VListOptions<T>): VList<T> {
     };
 
     function scrollIntoView(i: number): void {
-        const top = i * rh;
+        const top = Math.floor(i / cols()) * rh;
         if (top < el.scrollTop) el.scrollTop = top;
         else if (top + rh > el.scrollTop + el.clientHeight) el.scrollTop = top + rh - el.clientHeight;
     }
@@ -118,7 +126,7 @@ export function virtualList<T>(opts: VListOptions<T>): VList<T> {
         el,
         setItems(next, activeKey) {
             items = next;
-            spacer.style.height = `${next.length * rh}px`;
+            spacer.style.height = `${Math.ceil(next.length / cols()) * rh}px`;
             let at = activeKey === undefined ? -1 : next.findIndex((x) => opts.key(x) === activeKey);
             if (at < 0) at = next.length ? 0 : -1;
             el.scrollTop = 0;
@@ -129,7 +137,8 @@ export function virtualList<T>(opts: VListOptions<T>): VList<T> {
             const row = spacer.querySelector<HTMLElement>(`[id="${id}-${at}"]`);
             if (row) el.setAttribute('aria-activedescendant', row.id);
         },
-        move: (d) => setActive((activeIndex < 0 ? 0 : activeIndex) + d, true),
+        move: (d) => setActive((activeIndex < 0 ? 0 : activeIndex) + d * cols(), true),
+        step: (d) => setActive((activeIndex < 0 ? 0 : activeIndex) + d, true),
         moveTo: (i) => setActive(i, true),
         active: () => (activeIndex >= 0 ? (items[activeIndex] ?? null) : null),
         refresh: render,

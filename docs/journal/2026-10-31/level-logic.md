@@ -83,3 +83,12 @@ Run: private folder `build/logic-play` (copy of `build/field-edit-play`, its dra
   target role) and tested in Stratos with a private play folder (`build/plate-play`, pack `logic.plate-puzzle`, recipe
   `build/scratch/content2/plate_walk.txt`). Plate and counter spawn and the plate sinks; the cut scene effect was not separable from
   the level's own opening effect, so the whole chain is unproven. Screenshots: `build/scratch/content2/plate-*.png`.
+
+### Plate chain, second attempt (Vis Toggle target)
+
+Target: Stratos Vis Toggle #11908 (hides / shows Floating Island #11906 at 657408, 146481, 946176; its timer #11907 sends Off at
+level start), plate -> counter -> `On`. Recipes `plate_walk2/3.txt`, shots `build/scratch/content2/plate3-{mod,base}-t*.png`. Walking onto
+the plate and turning the camera showed no distinguishable island in either run (the level's opening flash covers the first seconds
+and the island was not framed), so the chain is still **unproven**. A next attempt needs a fixed camera on the island (a start
+position / camera aid, e.g. DRAKAN_PLAYTEST_POS) and a later screenshot after the opening effect ends.
+Handler analysis for door On/Off, the detector volume test and ordinals 8+ was not continued in this round.

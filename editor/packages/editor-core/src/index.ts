@@ -17,3 +17,5 @@ export * from './arena.ts';
 export * from './arenapack.ts';
 export * from './logic.ts';
 export * from './logic-templates.ts';
+export * from './project.ts';
+export * from './guides.ts';

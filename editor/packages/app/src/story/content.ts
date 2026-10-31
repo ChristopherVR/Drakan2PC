@@ -6,25 +6,35 @@ import {
     ModError,
     buildStoryPackFiles,
     checkEntrySize,
+    dialogLineChanges,
     zipModFiles,
     type ModMeta,
     type StoryEntryChange,
 } from '@drakan/editor-core';
 import {
+    HANDLER_PHASES,
     ODB_CLASS_TYPE,
     SDB_DESCRIPTOR,
     SSD_SEQUENCE,
+    addActor,
     dialogLineSoundEdit,
+    freeClassId,
+    freeSequenceId,
+    handlerPhaseRecord,
     loadLevelStory,
+    newSequence,
     parseDialogLine,
     parseSdbText,
     parseSequence,
     patchClassData,
     writeSdbText,
     writeSequence,
+    type DialogLine,
+    type HandlerPhaseKey,
     type LevelStory,
     type SsdSequence,
     type StoryFsList,
+    type StorySequence,
 } from '@drakan/formats';
 import { downloadFile } from '../platform.ts';
 
@@ -41,6 +51,8 @@ export interface ContentHost {
     placed?(): PlacedStoryObject[];
     /** Show the camera path of a sequence in the level's 3D view (game units). */
     showPath?(points: [number, number, number][] | null): void;
+    /** Point the 3D view at the path last shown. */
+    framePath?(): void;
 }
 
 export interface PlacedStoryObject {
@@ -50,10 +62,23 @@ export interface PlacedStoryObject {
     fields: Map<string, number | number[]>;
 }
 
+/** A dialog line class this session adds: a copy of `templateId`'s record, named `name`, playing `soundRef` first. */
+export interface NewLineEdit {
+    classId: number;
+    templateId: number;
+    name: string;
+    soundRef: number;
+}
+
 interface StemEdits {
     texts: Map<number, string>;
     lineSounds: Map<number, Map<number, number>>;
     seqs: Map<number, SsdSequence>;
+    /** Sequences this session adds (always exported, as new entries). */
+    newSeqs: Map<number, SsdSequence>;
+    newLines: Map<number, NewLineEdit>;
+    /** Handler class -> phase -> replacement line class refs. */
+    phases: Map<number, Map<HandlerPhaseKey, number[]>>;
 }
 
 export class ContentSession {
@@ -109,7 +134,18 @@ export class ContentSession {
 
     private ed(stem = this.stem!): StemEdits {
         let e = this.edits.get(stem);
-        if (!e) this.edits.set(stem, (e = { texts: new Map(), lineSounds: new Map(), seqs: new Map() }));
+        if (!e)
+            this.edits.set(
+                stem,
+                (e = {
+                    texts: new Map(),
+                    lineSounds: new Map(),
+                    seqs: new Map(),
+                    newSeqs: new Map(),
+                    newLines: new Map(),
+                    phases: new Map(),
+                }),
+            );
         return e;
     }
 
@@ -132,12 +168,109 @@ export class ContentSession {
 
     // ---- dialog line sounds ---------------------------------------------------------------------------------------
 
+    /** The level's dialog lines plus the ones this session adds. */
+    lines(): DialogLine[] {
+        const base = this.story?.lines ?? [];
+        const added = this.stem ? [...(this.edits.get(this.stem)?.newLines.values() ?? [])] : [];
+        if (!added.length) return base;
+        const out = [...base];
+        for (const n of added) {
+            const t = base.find((l) => l.classId === n.templateId);
+            if (!t) continue;
+            const dash = n.name.indexOf(' - ');
+            out.push({
+                ...t,
+                classId: n.classId,
+                name: n.name,
+                speaker: dash > 0 ? n.name.slice(0, dash) : n.name,
+                sounds: t.sounds.map((r, i) => (i === 0 ? n.soundRef : r)),
+            });
+        }
+        return out;
+    }
+    lineIsNew(classId: number): boolean {
+        return !!this.stem && this.edits.get(this.stem)?.newLines.has(classId) === true;
+    }
+    /** Add a dialog line class copying `templateId`; returns its class id. */
+    addLine(templateId: number, name: string, soundRef: number): number {
+        const story = this.story;
+        if (!story || !this.stem) throw new Error('Open a level folder first.');
+        if (!story.classRecord.has(templateId) || !story.lines.some((l) => l.classId === templateId))
+            throw new Error('Pick an existing dialog line to copy.');
+        if (!story.fieldLists) throw new Error('This level folder has no ODB field lists to extend.');
+        const clean = name.trim();
+        if (!clean) throw new Error('Give the line a name (for example Farmer - MYLINE01).');
+        const e = this.ed();
+        const used = new Set<number>([...story.classes.keys(), ...e.newLines.keys()]);
+        const classId = freeClassId(used);
+        if (classId === null) throw new Error('No free class id left in this ODB.');
+        e.newLines.set(classId, { classId, templateId, name: clean, soundRef: soundRef >>> 0 });
+        this.emit();
+        return classId;
+    }
+    removeNewLine(classId: number): void {
+        const e = this.stem ? this.edits.get(this.stem) : undefined;
+        if (!e?.newLines.delete(classId)) return;
+        // no handler may keep pointing at a class that will not exist
+        for (const m of e.phases.values())
+            for (const [k, v] of m)
+                m.set(
+                    k,
+                    v.filter((r) => (r & 0xffff) !== classId),
+                );
+        this.emit();
+    }
+
+    // ---- handler phases -------------------------------------------------------------------------------------------
+
+    /** Line refs of a handler phase as edited (or as read). */
+    phaseLines(handlerId: number, phase: HandlerPhaseKey): number[] {
+        const o = this.stem ? this.edits.get(this.stem)?.phases.get(handlerId)?.get(phase) : undefined;
+        if (o) return o;
+        const h = this.story?.handlers.find((x) => x.classId === handlerId);
+        const i = HANDLER_PHASES.findIndex((p) => p.key === phase);
+        return h?.phases[i]?.lines ?? [];
+    }
+    phaseEdited(handlerId: number, phase?: HandlerPhaseKey): boolean {
+        const m = this.stem ? this.edits.get(this.stem)?.phases.get(handlerId) : undefined;
+        return !!m && (phase ? m.has(phase) : m.size > 0);
+    }
+    setPhaseLines(handlerId: number, phase: HandlerPhaseKey, refs: number[]): void {
+        const h = this.story?.handlers.find((x) => x.classId === handlerId);
+        if (!h || !this.stem) return;
+        const i = HANDLER_PHASES.findIndex((p) => p.key === phase);
+        const orig = h.phases[i]?.lines ?? [];
+        const e = this.ed();
+        const m = e.phases.get(handlerId) ?? new Map<HandlerPhaseKey, number[]>();
+        if (refs.length === orig.length && refs.every((r, k) => r === orig[k])) m.delete(phase);
+        else
+            m.set(
+                phase,
+                refs.map((r) => r >>> 0),
+            );
+        if (m.size) e.phases.set(handlerId, m);
+        else e.phases.delete(handlerId);
+        this.emit();
+    }
+    revertPhases(handlerId: number): void {
+        if (this.stem) this.edits.get(this.stem)?.phases.delete(handlerId);
+        this.emit();
+    }
+
     lineSound(classId: number, i: number): number {
+        const nl = this.stem ? this.edits.get(this.stem)?.newLines.get(classId) : undefined;
+        if (nl && i === 0) return nl.soundRef;
         const o = this.stem ? this.edits.get(this.stem)?.lineSounds.get(classId)?.get(i) : undefined;
         if (o !== undefined) return o;
         return this.story?.lines.find((l) => l.classId === classId)?.sounds[i] ?? 0;
     }
     setLineSound(classId: number, i: number, ref: number): void {
+        const nl = this.stem ? this.edits.get(this.stem)?.newLines.get(classId) : undefined;
+        if (nl) {
+            if (i === 0) nl.soundRef = ref >>> 0;
+            this.emit();
+            return;
+        }
         const line = this.story?.lines.find((l) => l.classId === classId);
         if (!line || !this.stem) return;
         const m = this.ed().lineSounds.get(classId) ?? new Map<number, number>();
@@ -150,21 +283,59 @@ export class ContentSession {
 
     // ---- sequences ------------------------------------------------------------------------------------------------
 
+    /** Stored sequences plus the ones this session adds (`raw` of a new one is its first encoding). */
+    sequences(): StorySequence[] {
+        const base = this.story?.sequences ?? [];
+        const added = this.stem ? [...(this.edits.get(this.stem)?.newSeqs.values() ?? [])] : [];
+        if (!added.length) return base;
+        return [...base, ...added.map((s) => ({ id: s.id, folder: s.folder, raw: writeSequence(s), seq: s }))];
+    }
+    sequenceIsNew(id: number): boolean {
+        return !!this.stem && this.edits.get(this.stem)?.newSeqs.has(id) === true;
+    }
+    /** Add an empty sequence in `folder`; returns its id. */
+    addSequence(name: string, folder: number): number {
+        const story = this.story;
+        if (!story || !this.stem) throw new Error('Open a level folder first.');
+        const clean = name.trim();
+        if (!clean) throw new Error('Give the sequence a name.');
+        const e = this.ed();
+        const used = new Set<number>([...story.sequences.map((s) => s.id), ...e.newSeqs.keys()]);
+        const id = freeSequenceId(used);
+        e.newSeqs.set(id, newSequence(id, folder, clean));
+        this.emit();
+        return id;
+    }
+    /** Add an action-less actor (name, object ref) to a sequence. */
+    addSequenceActor(id: number, name: string, ref: number): void {
+        this.editSequence(id, (s) => void addActor(s, name.trim() || 'Actor', ref));
+    }
+
     /** The sequence as edited (or as read). */
     sequence(id: number): SsdSequence | null {
         return (
+            (this.stem && this.edits.get(this.stem)?.newSeqs.get(id)) ||
             (this.stem && this.edits.get(this.stem)?.seqs.get(id)) ||
             this.story?.sequences.find((s) => s.id === id)?.seq ||
             null
         );
     }
     sequenceEdited(id: number): boolean {
-        return !!this.stem && this.edits.get(this.stem)?.seqs.has(id) === true;
+        return !!this.stem && (this.edits.get(this.stem)?.seqs.has(id) === true || this.sequenceIsNew(id));
     }
     /** Change a sequence on a private copy; the edit is dropped again when the bytes equal the original. */
     editSequence(id: number, fn: (s: SsdSequence) => void): void {
+        if (!this.stem) return;
+        const fresh = this.edits.get(this.stem)?.newSeqs.get(id);
+        if (fresh) {
+            const copy = parseSequence(id, fresh.folder, writeSequence(fresh))!;
+            fn(copy);
+            this.ed().newSeqs.set(id, parseSequence(id, fresh.folder, writeSequence(copy))!);
+            this.emit();
+            return;
+        }
         const rec = this.story?.sequences.find((s) => s.id === id);
-        if (!rec?.seq || !this.stem) return;
+        if (!rec?.seq) return;
         const cur = this.sequence(id)!;
         const copy = parseSequence(id, rec.folder, writeSequence(cur))!;
         fn(copy);
@@ -176,6 +347,7 @@ export class ContentSession {
     }
     revertSequence(id: number): void {
         if (this.stem) this.edits.get(this.stem)?.seqs.delete(id);
+        if (this.stem) this.edits.get(this.stem)?.newSeqs.delete(id);
         this.emit();
     }
 
@@ -183,7 +355,8 @@ export class ContentSession {
 
     count(): number {
         let n = 0;
-        for (const e of this.edits.values()) n += e.texts.size + e.lineSounds.size + e.seqs.size;
+        for (const e of this.edits.values())
+            n += e.texts.size + e.lineSounds.size + e.seqs.size + e.newSeqs.size + e.newLines.size + e.phases.size;
         return n;
     }
 
@@ -218,6 +391,41 @@ export class ContentSession {
                     data: patchClassData(rec.raw, merged),
                     isNew: false,
                 });
+            }
+            const added = [...e.newLines.values()].sort((a, b) => a.classId - b.classId);
+            if (added.length) {
+                const templates = added.map((n) => {
+                    const cls = story.classes.get(n.templateId);
+                    const rec = story.classRecord.get(n.templateId);
+                    const line = story.lines.find((l) => l.classId === n.templateId);
+                    if (!cls?.fields || !rec || !line)
+                        throw new ModError(`${stem}.ODB: line class ${n.templateId} is gone`);
+                    return {
+                        template: { line, group: rec.sub, record: rec.raw, defs: cls.fields },
+                        name: n.name,
+                        soundRef: n.soundRef,
+                        classId: n.classId,
+                    };
+                });
+                const r = await dialogLineChanges(
+                    story.files.odb,
+                    new Set(story.classes.keys()),
+                    templates,
+                    story.fieldLists ?? undefined,
+                );
+                out.push(...r.changes);
+            }
+            for (const [hid, phases] of [...e.phases].sort((a, b) => a[0] - b[0])) {
+                const rec = story.classRecord.get(hid);
+                const defs = story.classes.get(hid)?.fields;
+                if (!rec || !defs) continue;
+                let data = rec.raw;
+                for (const [phase, refs] of phases) data = handlerPhaseRecord(data, defs, phase, refs);
+                out.push({ file: story.files.odb, type: ODB_CLASS_TYPE, id: hid, sub: rec.sub, data, isNew: false });
+            }
+            for (const [id, seq] of [...e.newSeqs].sort((a, b) => a[0] - b[0])) {
+                const data = writeSequence(seq);
+                out.push({ file: story.files.ssd, type: SSD_SEQUENCE, id, sub: seq.folder, data, isNew: true });
             }
             for (const [id, seq] of [...e.seqs].sort((a, b) => a[0] - b[0])) {
                 const entry = story.sequenceEntry.get(id);

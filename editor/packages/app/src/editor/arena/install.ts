@@ -2,6 +2,8 @@ import type { LevelUi } from '../../levelui.ts';
 import type { Ctx } from '../ctx.ts';
 import { registerCommand, registerPanel } from '../registry.ts';
 import { addValidationProvider } from '../panels.ts';
+import { setArenaPlayProvider } from '../../playtest.ts';
+import { buildArenaPackFiles, exportBlockers } from '@drakan/editor-core';
 import { createArenaPanel } from './panel.ts';
 import { ArenaStore } from './store.ts';
 import './arena.css';
@@ -61,6 +63,35 @@ export function installMultiplayerMaps(host: ArenaInstallHost): { store: ArenaSt
         icon: 'top',
         enabled: () => store.active,
         run: () => store.setTool('bounds'),
+    });
+    // "Play test arena" (editor/playtest.ts): the open map as a pack, built on demand (no preview picture).
+    setArenaPlayProvider(() => {
+        if (!store.active) return null;
+        const d = store.draft;
+        const v = ctx.view();
+        const blockers = exportBlockers(d, {
+            groundAt: (x, z) => v.groundHeightAt(x, z),
+            hasGround: v.hasGround,
+            modes: store.modes,
+            items: [],
+            reach: false,
+        });
+        if (blockers.length) return { problem: `Fix the map first: ${blockers[0]}` };
+        const target = host.ui.modTarget();
+        if (!target) return { problem: 'The disc profile is unknown; open the ISO first' };
+        const meta = {
+            id: `mp-${d.id}`.slice(0, 64),
+            name: d.name || d.id,
+            version: '1.0.0',
+            description: `Multiplayer map ${d.name} (play test from the Drakan editor).`,
+            target,
+        };
+        return {
+            meta,
+            files: buildArenaPackFiles(d, store.modes, meta, null),
+            map: d.id,
+            mode: d.modes.includes('dm') || !d.modes.includes('tdm') ? ('dm' as const) : ('tdm' as const),
+        };
     });
     addValidationProvider({
         issues: () =>

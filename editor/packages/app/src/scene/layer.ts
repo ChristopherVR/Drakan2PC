@@ -237,6 +237,11 @@ export class ModelLayer {
         return this.entries.get(resource);
     }
 
+    /** Classes with a decoded model. */
+    get entryCount(): number {
+        return this.entries.size;
+    }
+
     /** Model and texture lookup of a loaded class (thumbnails). */
     modelOf(resource: string): { model: Model; lookup: TextureLookup } | null {
         const e = this.entries.get(resource);

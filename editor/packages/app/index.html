@@ -29,57 +29,85 @@
                 <input id="iso-input" type="file" accept=".iso,.bin,.img" hidden />
             </label>
             <nav id="tabs" aria-label="Editor mode">
-                <button id="tab-inspect" class="active">Inspect</button>
-                <button id="tab-level">Level</button>
-                <button id="tab-save">Save</button>
+                <button id="tab-level" class="active" title="Build levels, maps and story">Level</button>
+                <button id="tab-save" title="Edit save files">Save</button>
+                <button id="tab-inspect" class="fl-tab" title="Advanced: browse the raw files on your disc">
+                    Files
+                </button>
             </nav>
             <span class="spacer"></span>
-            <span id="status">Choose or drop your own disc image. Nothing is uploaded; files are read locally.</span>
+            <span id="status"
+                >Open or drop your own disc image to start. Nothing is uploaded; files are read locally.</span
+            >
         </header>
-        <main id="inspect-main">
-            <nav id="sidebar">
-                <section>
-                    <h2>Language</h2>
-                    <select id="lang" disabled></select>
-                </section>
-                <section>
-                    <h2>Levels</h2>
-                    <ul id="levels" class="list"></ul>
-                </section>
-                <section>
-                    <h2>Files <small id="files-path"></small></h2>
-                    <ul id="files" class="list"></ul>
-                </section>
-            </nav>
-            <section id="center">
-                <div class="pane" id="entries-pane">
+        <main id="inspect-main" class="fl-main" hidden>
+            <header class="fl-intro">
+                <div class="fl-intro-text">
+                    <h1>Files <span class="fl-tag">Advanced</span></h1>
+                    <p>
+                        Browse the files on your disc and in your mod; view raw entries and textures. You do not need
+                        this tab to build a mod, and nothing here changes your disc.
+                    </p>
+                </div>
+                <label class="fl-lang"
+                    >Language
+                    <select id="lang" class="ui-select" disabled></select
+                ></label>
+            </header>
+            <div class="fl-cols">
+                <nav id="sidebar" class="fl-col" aria-label="Disc files">
+                    <section>
+                        <h2>Levels</h2>
+                        <ul id="levels" class="list"></ul>
+                    </section>
+                    <section>
+                        <h2>Disc files <small id="files-path"></small></h2>
+                        <ul id="files" class="list"></ul>
+                    </section>
+                </nav>
+                <section id="center" class="fl-col">
                     <h2>
-                        Entries <small id="entries-info"></small>
-                        <button id="show-textures" disabled>Show textures</button>
+                        Entries <small id="entries-info"></small><span class="spacer"></span>
+                        <button id="show-textures" class="ui-btn sm" disabled>Show all textures</button>
                     </h2>
+                    <p id="entries-empty" class="fl-empty">
+                        Pick a file on the left. Files such as levels, textures and string tables hold many entries;
+                        they are listed here, and the preview on the right shows the one you click.
+                    </p>
                     <div class="scroll"><table id="entries"></table></div>
                     <pre id="text-view" hidden></pre>
-                </div>
-                <div class="pane" id="hex-pane">
+                </section>
+                <section id="viewport-pane" class="fl-col">
                     <h2>
-                        Hex <small id="hex-info"></small>
-                        <span class="spacer"></span>
-                        <label class="check"><input id="hex-inflate" type="checkbox" checked /> inflate zlib</label>
-                        <button id="hex-prev" disabled>Prev</button>
-                        <button id="hex-next" disabled>Next</button>
+                        Preview <small id="vp-info"></small><span class="spacer"></span>
+                        <span class="fl-seg" role="tablist" aria-label="Preview type">
+                            <button id="pv-picture" class="ui-btn sm" role="tab">Picture</button>
+                            <button id="pv-text" class="ui-btn sm" role="tab">Text</button>
+                            <button id="pv-hex" class="ui-btn sm" role="tab">Hex</button>
+                        </span>
                     </h2>
-                    <pre id="hex"></pre>
-                </div>
-            </section>
-            <section id="viewport-pane">
-                <h2>
-                    Textures <small id="vp-info"></small><span class="spacer"></span
-                    ><button id="vp-reset">Reset view</button>
-                </h2>
-                <div id="viewport"></div>
-            </section>
+                    <div id="fl-actions" class="fl-actions"></div>
+                    <div class="fl-preview">
+                        <div id="viewport"></div>
+                        <pre id="str-view" hidden></pre>
+                        <div id="hex-wrap" hidden>
+                            <div class="fl-hexbar">
+                                <small id="hex-info"></small><span class="spacer"></span>
+                                <label class="check"
+                                    ><input id="hex-inflate" type="checkbox" checked /> decompress</label
+                                >
+                                <button id="hex-prev" class="ui-btn sm" disabled>Previous page</button>
+                                <button id="hex-next" class="ui-btn sm" disabled>Next page</button>
+                            </div>
+                            <pre id="hex"></pre>
+                        </div>
+                        <p id="pv-empty" class="fl-empty">Click an entry to preview it.</p>
+                    </div>
+                    <button id="vp-reset" class="ui-btn sm fl-reset" hidden>Reset view</button>
+                </section>
+            </div>
         </main>
-        <main id="level-main" class="ed ui-root" hidden>
+        <main id="level-main" class="ed ui-root">
             <div id="ed-toolbar" class="ed-toolbar" role="toolbar" aria-label="Main toolbar"></div>
             <div id="ed-body">
                 <aside id="ed-left" class="ed-dock" aria-label="Place"></aside>
@@ -137,7 +165,7 @@
             </div>
             <footer id="ed-status"></footer>
         </main>
-        <main id="save-main" hidden>
+        <main id="save-main" data-dd-host hidden>
             <aside id="save-side">
                 <div class="toolbar">
                     <button id="sv-open" title="Open one .rsg save file">Open save</button>

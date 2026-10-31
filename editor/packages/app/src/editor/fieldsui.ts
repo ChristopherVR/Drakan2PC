@@ -58,6 +58,14 @@ const state = {
     arrOpen: new Set<string>(),
 };
 
+/** The field filter is shared with the search box at the top of the Details panel. */
+export const fieldQuery = {
+    get: (): string => state.query,
+    set: (q: string): void => {
+        state.query = q;
+    },
+};
+
 const fmtNum = (v: number, float: boolean): string => (float ? String(Number(v.toPrecision(7))) : String(v));
 const hexRef = (v: number): string => `0x${(v >>> 0).toString(16)}`;
 
@@ -861,7 +869,11 @@ export interface FieldsPanel {
 }
 
 /** Rows for the selection, grouped by category, with a search box and a "changed only" filter. */
-export function buildFieldsPanel(ctx: Ctx, objs: readonly LevelObject[]): FieldsPanel {
+export function buildFieldsPanel(
+    ctx: Ctx,
+    objs: readonly LevelObject[],
+    opts: { ownSearch?: boolean } = {},
+): FieldsPanel {
     const rows = buildRows(ctx, objs);
     const provider = ctx.schemas();
     const blocks = h('div', { class: 'fblocks' });
@@ -1004,7 +1016,7 @@ export function buildFieldsPanel(ctx: Ctx, objs: readonly LevelObject[]): Fields
     });
     renderBlocks();
 
-    const toolbar = h('div', { class: 'ftoolbar' }, search, changedBtn);
+    const toolbar = h('div', { class: 'ftoolbar' }, ...(opts.ownSearch === false ? [] : [search]), changedBtn);
     const meta = h('div', { class: 'fmeta' }, summary, resetAll);
     let lastChanged = -1;
     return {

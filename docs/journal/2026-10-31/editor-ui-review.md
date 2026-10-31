@@ -138,3 +138,4 @@ are listed beside the `ui-*` names) and `editor/packages/app/src/editor/ui.ts` (
 * Light theme is functional but less polished than dark; the Save mode stylesheet still holds its old rules in
   `style.css` (tail) until that agent migrates them to the tokens.
 * A Lucide (or similar) icon package was not adopted; icons remain hand-drawn.
+* (Update) Tab strips no longer squash (icon-only and scroll when narrow); Esc now works. The rest of this list is still open.

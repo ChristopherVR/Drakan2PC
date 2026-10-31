@@ -83,3 +83,53 @@ registerPanel({                  // bottom dock tab + "Show <title>" palette com
 * Plain-language field labels and tooltips beyond what the schema already provides.
 * A unified Save / Export / Play status panel (item 10), and opening the Level tab after a disc loads (item 8).
 * Re-verification of the mouse gizmo drag against the current tree (item 12).
+
+## Polish pass (later the same day)
+
+Done and checked with a real mouse in Playwright (build/scratch/editor-polish/after-*.png):
+
+* **Editor icons** replace the textured placeholder boxes of helper classes. `scene/icons.ts` (one instanced billboard mesh,
+  constant screen size with a distance shrink and fade, hover and selection recolour the rim), `scene/instances.ts`
+  (groups Triggers, Sound, Cameras, Lights, Waypoints, Timers, Spawn points, Barriers; classes with unknown names such as bird
+  emitters or "Dragon Barrier" are recognised by their 12-triangle cube model sharing the debug texture of the named ones).
+  Selecting or hovering a trigger or barrier icon draws its translucent wire volume. Show menu: "Draw helpers as icons" plus one
+  check per group with counts. Icons are picked first (15 px), box-selectable, hide with their group.
+* **Tabs** no longer squash: no wrapping, ellipsis, icon-only for inactive tabs when the dock is narrow (tooltip names them),
+  sideways scroll with the wheel as the last resort (`editor/panels.ts`, `components.css`).
+* **Linking**: Details > Links explains "When this triggers, it sends [message] to these objects", has the message dropdown and
+  a primary "+ Add link" (pick mode with a banner: click the target in the viewport or the Outliner, Esc or Cancel ends it);
+  right-click on an object (viewport or Outliner) has "Link to..."; a link handle next to the selection is dragged onto the
+  target (green line when over a valid object). All of it ends in `editor/linking.ts addLinks` -> `ctx.edit`, so the logic
+  graph, link lines and undo stay in sync. The viewport right-click (a click without dragging) now opens the same object menu;
+  `registerContextItem` (registry.ts) is the hook other modules use (the play-test agent already added items).
+* **Esc**: the shortcut table said `Esc` but key events say `Escape`, so Esc never cancelled a pick or cleared the selection.
+  Fixed; Esc inside a popover, dialog or menu is left to it.
+* The Level tab opens after a disc loads (`main.ts`). History labels name objects ("Duplicate Orc #123", "Move Timer #7",
+  "Link Trigger Detector #1 to Timer #2"; `describeObjects` in editor-core).
+
+Still open: see the list in `editor-ui-review.md` section 6 (Details search at top, draggable dock tabs, nested Content Browser
+folders, texture grid, Suggested for array fields, light theme polish, animation preview), a single Save / Export / Play status
+panel, Place panel vs Content Browser dedupe, gizmo move/rotate/scale and marquee and asset-drag runs with a real mouse (only
+the link handle, link pick, context menu, icon click and hover were exercised), logic graph node and link drags, and trigger
+face-handle drags. The viewport toolbar is clipped when the viewport is narrower than about 600 px.
+
+### Second polish pass (real-mouse run, same day)
+
+Verified with Playwright mouse.down/move/up on Surdana (screenshots `build/scratch/editor-polish/v-*.png`, `w-*.png`):
+gizmo move (X arrow, grid 256 snap; history "Move Birch Tree 01 #9351"), rotate (15 degree snap on) and scale (0.05 snap), marquee
+select (16 objects), drag from the Place panel and from a Content Browser tile (history "Add Stomp Player"), logic graph node drag
+and port-to-node link drag, trigger face-handle drag ("Resize trigger volume", opposite face stays), door radius ring drag ("Resize
+radius"), reference picker (Esc closes only the picker, the selection stays). No bugs found in those; only the Esc shortcut bug
+from the first pass.
+
+New: Mod panel status strip (Edits / Mod contents / Written to / Play) reusing the existing export and play code; Details search
+box at the top of the panel (also hides Transform, Links and Info sections that do not match); dock tabs reorder by dragging, order
+saved per dock; Content Browser containers expand into one sub-folder per kind; texture picker is a grid (arrow keys move by cell);
+reference fields put the name above the button so the play button no longer squeezes the label; viewport toolbars wrap and the tool bar
+moves to the bottom edge under 640 px; Show menu helper counts include model-learned groups; Place and Content Browser chips explain
+what each kind means.
+
+Not done: dragging a tab into another dock (only one tabbed dock exists; the Outliner and Details are fixed panels); "Suggested" for
+array fields (needs the class-default array words in `SchemaProvider.refValues`); light theme polish (handed to the styling agent);
+animation preview (the 0x0208 joint block is still undecoded, level-format.md section 11); history labels of logic-graph link
+edits and trigger resizes still lack object names (`logicpanel.ts`, `logicview.ts` belong to the logic agent).

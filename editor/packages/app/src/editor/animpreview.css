@@ -1,0 +1,84 @@
+/* Skinned animation preview (animpreview.ts): orbit viewport, transport bar, clip chooser. Tokens only. */
+.ap-root {
+    display: flex;
+    flex-direction: column;
+    gap: var(--sp-2, 6px);
+    min-width: 0;
+    outline: none;
+}
+.ap-stage {
+    position: relative;
+    border: 1px solid var(--border);
+    border-radius: var(--r-md, 6px);
+    background: radial-gradient(ellipse at 50% 40%, var(--surface-3), var(--surface-1));
+    overflow: hidden;
+}
+.ap-canvas {
+    display: block;
+    width: 100%;
+    cursor: grab;
+    touch-action: none;
+}
+.ap-canvas:active {
+    cursor: grabbing;
+}
+.ap-overlay {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    pointer-events: none;
+    font-size: var(--fs-xs, 11px);
+}
+.ap-bar,
+.ap-bar2,
+.ap-pick {
+    display: flex;
+    align-items: center;
+    gap: var(--sp-2, 6px);
+    min-width: 0;
+}
+.ap-scrub {
+    flex: 1;
+    min-width: 0;
+    accent-color: var(--accent);
+}
+.ap-time {
+    font-size: var(--fs-2xs, 10px);
+    white-space: nowrap;
+}
+.ap-check {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    font-size: var(--fs-xs, 11px);
+    color: var(--fg-muted);
+}
+.ap-status {
+    font-size: var(--fs-2xs, 10.5px);
+    overflow-wrap: anywhere;
+}
+.ap-obj {
+    display: flex;
+    flex-direction: column;
+    gap: var(--sp-2, 6px);
+}
+.ap-pick {
+    flex-direction: column;
+    align-items: stretch;
+}
+.ap-pick .ap-clip,
+.ap-pick .ap-find {
+    width: 100%;
+    min-width: 0;
+}
+.ap-speed {
+    min-width: 64px;
+}
+.rp-stage.k-animation {
+    aspect-ratio: auto;
+    border: 0;
+    background: none;
+    display: block;
+}

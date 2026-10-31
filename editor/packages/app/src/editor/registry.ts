@@ -162,3 +162,48 @@ export function fuzzyScore(text: string, query: string): number {
     }
     return Math.max(1, 120 - gaps * 12 - t.length / 4);
 }
+
+// ---- context menu items -----------------------------------------------------------------------------------------
+
+export interface ContextTarget {
+    /** Selected objects the menu was opened on (empty for empty space in the viewport). */
+    ids: number[];
+    /** Ground point under the pointer in game units (viewport menus only). */
+    ground: [number, number, number] | null;
+}
+
+export interface ContextItem {
+    id: string;
+    label: string;
+    icon?: string;
+    /** `object` entries need objects; `world` entries need a ground point; default: both. */
+    where?: 'object' | 'world' | 'any';
+    /** Return false to leave it out for this target. */
+    when?: (t: ContextTarget) => boolean;
+    /** Reason to show the entry greyed out (menu hint) instead of runnable, e.g. "Available in the desktop app". */
+    unavailable?: (t: ContextTarget) => string | null;
+    run: (t: ContextTarget) => void;
+}
+
+const contextEntries = new Map<string, ContextItem>();
+
+/**
+ * Add an entry to the right-click menus of the viewport and the Outliner (for example "Play test from here", which
+ * needs `where: 'world'` and uses `target.ground`). Returns a function that removes it.
+ */
+export function registerContextItem(item: ContextItem): () => void {
+    contextEntries.set(item.id, item);
+    return () => {
+        if (contextEntries.get(item.id) === item) contextEntries.delete(item.id);
+    };
+}
+
+/** The registered items that apply to `t`. */
+export function contextItems(t: ContextTarget): ContextItem[] {
+    return [...contextEntries.values()].filter((x) => {
+        const w = x.where ?? 'any';
+        if (w === 'object' && !t.ids.length) return false;
+        if (w === 'world' && !t.ground) return false;
+        return !x.when || x.when(t);
+    });
+}

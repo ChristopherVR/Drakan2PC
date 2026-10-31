@@ -140,6 +140,14 @@ export interface Api {
     loadRefTexture(stem: string, id: number): RefTexture | null;
     /** A sound of an SDB container decoded to PCM. */
     loadRefSound(stem: string, id: number): RefSound | null;
+    /** A skinned model with its rig and the clips it lists (animation previews). */
+    loadRefRig(stem: string, id: number): import('./animdata.ts').RefRig | null;
+    /** One animation clip of an ADB container. */
+    loadRefClip(stem: string, id: number): import('@drakan/formats').Ps2Anim | null;
+    /** The model (container stem, id) a class uses; null when it has none. */
+    classModelRef(dbStem: string, classId: number): { stem: string; id: number } | null;
+    /** A skinned model of a MOD container with that many joints (stand-in for a class without a model). */
+    rigForTracks(stem: string, tracks: number): { stem: string; id: number } | null;
 }
 
 export type Method = keyof Api;

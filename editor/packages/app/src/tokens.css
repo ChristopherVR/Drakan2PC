@@ -70,12 +70,13 @@
 
     --r-xs: 2px;
     --r-sm: 3px;
-    --r-md: 5px;
-    --r-lg: 8px;
+    --r-md: 4px;
+    --r-lg: 6px;
 
     --h-appbar: 32px;
     --h-toolbar: 40px;
     --h-tab: 28px;
+    --h-tool: 26px;
     --h-ctl: 24px;
     --h-ctl-sm: 20px;
     --h-row: 22px;
@@ -87,6 +88,10 @@
     --shadow-1: 0 1px 2px rgb(0 0 0 / 0.4);
     --shadow-pop: 0 8px 24px rgb(0 0 0 / 0.55), 0 0 0 1px var(--border-strong);
     --ring: 0 0 0 2px var(--focus);
+
+    /* glyph masks for drawn controls (checkbox tick, search clear) */
+    --mask-check: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='3.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M5 12.5l4.5 4.5L19 7.5'/%3E%3C/svg%3E");
+    --mask-x: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2.6' stroke-linecap='round'%3E%3Cpath d='M6 6l12 12M18 6L6 18'/%3E%3C/svg%3E");
 
     /* legacy aliases */
     --bg: var(--surface-0);

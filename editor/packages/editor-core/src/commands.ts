@@ -6,6 +6,12 @@ export interface Command {
     revert(doc: LevelDocument): void;
 }
 
+/** Name for history labels: `Orc #123` for one object, `3 objects` for several. */
+export function describeObjects(objs: readonly Pick<LevelObject, 'class' | 'id'>[]): string {
+    if (objs.length === 1) return `${objs[0]!.class} #${objs[0]!.id}`;
+    return `${objs.length} objects`;
+}
+
 const cloneT = (t: Transform): Transform => ({ pos: [...t.pos], rot: [...t.rot] });
 
 export class TransformCommand implements Command {
@@ -48,9 +54,11 @@ export class SetScaleCommand implements Command {
 }
 
 export class DeleteCommand implements Command {
-    readonly label = 'Delete';
     private removed: LevelObject[] = [];
-    constructor(private readonly ids: number[]) {}
+    constructor(
+        private readonly ids: number[],
+        readonly label = 'Delete',
+    ) {}
     apply(doc: LevelDocument): void {
         this.removed = [];
         for (const id of this.ids) {
@@ -244,7 +252,8 @@ export class CommandStack {
                 c.transform.pos[2] += offset;
                 return c;
             });
-        const cmd = new AddCommand(copies, 'Duplicate');
+        const sources = ids.map((id) => this.doc.get(id)).filter((o): o is LevelObject => !!o);
+        const cmd = new AddCommand(copies, `Duplicate ${describeObjects(sources)}`);
         this.run(cmd);
         return cmd;
     }

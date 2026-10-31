@@ -30,9 +30,21 @@ import type { Ctx, Panel } from './ctx.ts';
 import { fill, h, icon, raf } from './dom.ts';
 import { buildFieldsPanel } from './fieldsui.ts';
 import { addValidationProvider } from './panels.ts';
-import { registerCommand, registerPanel } from './registry.ts';
+import { registerCommand, registerPanel, runCommand } from './registry.ts';
+
 import { exitEditHost, onExitEditChange } from '../story/exitbridge.ts';
 import { createVolumeLayer, type VolumeMode } from './logicview.ts';
+
+/** Set by the open Logic panel: opens a template form with some parameters preset. */
+let openTemplateHook: ((id: string, preset: ParamValues) => void) | null = null;
+
+/** Open the Logic panel's template form (for example the Quests panel's "Place quest object"). False without a panel. */
+export function openTemplate(id: string, preset: ParamValues = {}): boolean {
+    if (!openTemplateHook) return false;
+    runCommand('panel.logic');
+    openTemplateHook(id, preset);
+    return true;
+}
 
 const NW = 176;
 const NH = 46;
@@ -151,22 +163,22 @@ export function installLogic(ctx: Ctx, loadExits: () => Promise<ExitIndexData>):
     style.textContent = `
 .logic-panel{display:flex;flex-direction:column;height:100%;min-height:0}
 .logic-panel .lg-body{display:flex;flex:1;min-height:0}
-.logic-panel .lg-wrap{flex:1;min-width:0;position:relative;background:var(--bg-0,#14161a);overflow:hidden}
+.logic-panel .lg-wrap{flex:1;min-width:0;position:relative;background:var(--surface-0);overflow:hidden}
 .logic-panel .lg-canvas{display:block;user-select:none;outline:none;cursor:grab}
-.logic-panel .lg-side{width:300px;overflow:auto;border-left:1px solid var(--line,#2a2f37);padding:8px;font-size:12px}
-.logic-panel .lg-form{padding:8px;border-bottom:1px solid var(--line,#2a2f37);display:flex;flex-wrap:wrap;gap:8px;align-items:end}
+.logic-panel .lg-side{width:300px;overflow:auto;border-left:1px solid var(--border);padding:8px;font-size:12px}
+.logic-panel .lg-form{padding:8px;border-bottom:1px solid var(--border);display:flex;flex-wrap:wrap;gap:8px;align-items:end}
 .logic-panel .lg-form label{display:flex;flex-direction:column;gap:2px;font-size:11px}
 .logic-panel .lg-form .lg-note{flex-basis:100%;font-size:11px;opacity:.75}
-.logic-panel .lg-node rect.box{fill:var(--bg-2,#1d2127);stroke-width:1.5}
-.logic-panel .lg-node.sel rect.box{fill:var(--bg-3,#2b323c);stroke-width:3}
-.logic-panel .lg-node text{fill:var(--fg,#e6e9ee);font-size:11px;pointer-events:none}
-.logic-panel .lg-node text.sub{fill:var(--fg-dim,#98a2b3);font-size:10px}
-.logic-panel .lg-port{fill:var(--bg-0,#14161a);stroke:#9aa7b8;stroke-width:1.5;cursor:crosshair}
-.logic-panel .lg-port:hover{fill:#fff}
-.logic-panel .lg-edge{fill:none;stroke:#7b8697;stroke-width:1.5}
-.logic-panel .lg-edge.sel{stroke:#fde047;stroke-width:3}
+.logic-panel .lg-node rect.box{fill:var(--surface-2);stroke-width:1.5}
+.logic-panel .lg-node.sel rect.box{fill:var(--surface-3);stroke-width:3}
+.logic-panel .lg-node text{fill:var(--fg);font-size:11px;pointer-events:none}
+.logic-panel .lg-node text.sub{fill:var(--fg-muted);font-size:10px}
+.logic-panel .lg-port{fill:var(--surface-0);stroke:var(--fg-muted);stroke-width:1.5;cursor:crosshair}
+.logic-panel .lg-port:hover{fill:var(--fg)}
+.logic-panel .lg-edge{fill:none;stroke:var(--fg-faint);stroke-width:1.5}
+.logic-panel .lg-edge.sel{stroke:var(--warn);stroke-width:3}
 .logic-panel .lg-hit{fill:none;stroke:transparent;stroke-width:12;cursor:pointer}
-.logic-panel .lg-elabel{fill:var(--fg-dim,#98a2b3);font-size:10px;pointer-events:none}
+.logic-panel .lg-elabel{fill:var(--fg-muted);font-size:10px;pointer-events:none}
 .logic-panel .lg-side h4{margin:0 0 6px;font-size:12px}
 .logic-panel .lg-side .row{display:flex;gap:6px;align-items:center;margin:4px 0}
 `;
@@ -576,6 +588,7 @@ export function installLogic(ctx: Ctx, loadExits: () => Promise<ExitIndexData>):
     }
 
     // ---- templates --------------------------------------------------------------------------------------------------
+    let presets: ParamValues = {};
     function paramInput(t: LogicTemplate, p: TemplateParam, vals: ParamValues): HTMLElement {
         const e = env()!;
         const doc = ctx.doc();
@@ -587,9 +600,9 @@ export function installLogic(ctx: Ctx, loadExits: () => Promise<ExitIndexData>):
                 step: p.step ?? 1,
                 min: p.min,
                 max: p.max,
-                value: String(p.default ?? 0),
+                value: String(presets[p.id] ?? p.default ?? 0),
             });
-            vals[p.id] = Number(p.default ?? 0);
+            vals[p.id] = Number(presets[p.id] ?? p.default ?? 0);
             i.addEventListener('input', () => (vals[p.id] = Number(i.value)));
             control = i;
         } else if (p.kind === 'bool') {
@@ -659,6 +672,12 @@ export function installLogic(ctx: Ctx, loadExits: () => Promise<ExitIndexData>):
         return h('label', { title: p.hint ?? '' }, p.label, control);
     }
 
+    openTemplateHook = (id, preset) => {
+        presets = preset;
+        tplSel.value = id;
+        tplSel.dispatchEvent(new Event('change'));
+        presets = {};
+    };
     tplSel.addEventListener('change', () => {
         const t = TEMPLATES.find((x) => x.id === tplSel.value);
         tplSel.value = '';

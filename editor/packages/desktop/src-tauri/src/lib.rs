@@ -17,6 +17,8 @@ pub struct Inner {
     /// Lower-cased paths of saves the user picked or that were listed from a folder they picked this session.
     pub granted_saves: HashSet<String>,
     pub child: Option<Child>,
+    /// Extra instances started beside `child` (multiplayer tests).
+    pub extras: Vec<Child>,
 }
 
 pub struct AppState {
@@ -37,6 +39,7 @@ pub fn run() {
                     settings,
                     granted_saves: HashSet::new(),
                     child: None,
+                    extras: Vec::new(),
                 }),
                 settings_file: file,
             });

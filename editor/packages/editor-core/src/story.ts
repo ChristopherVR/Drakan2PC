@@ -7,7 +7,9 @@ import {
     draftEdits,
     editQuestRecord,
     freeClassId,
+    newDialogLineRecord,
     sameDraft,
+    type DialogLine,
     type ClassFieldDef,
     type QuestDraft,
     type XdbStrings,
@@ -140,5 +142,59 @@ export async function questChanges(
             isNew: false,
         });
     }
+    return { changes, newIds };
+}
+
+// ---- new dialog lines and sequences ------------------------------------------------------------------------------------
+
+export interface NewDialogLine {
+    /** Existing line class whose record and field list are copied. */
+    template: { line: DialogLine; group: number; record: Uint8Array; defs: readonly ClassFieldDef[] };
+    /** Class name (`Farmer - MYLINE01`; the sound name part is informational). */
+    name: string;
+    /** `(db << 16) | id` of the sound the line plays. */
+    soundRef: number;
+    classId?: number;
+}
+
+/**
+ * Entries for new dialog line classes in a level ODB (`new/<LEVEL>.ODB/0102_<id>_<group>.bin`, plus the 0x0103 list
+ * override when `fieldLists` is given). Same rules as `questChanges`.
+ */
+export async function dialogLineChanges(
+    file: string,
+    usedIds: ReadonlySet<number>,
+    added: readonly NewDialogLine[],
+    fieldLists?: { id: number; sub: number; stored: Uint8Array },
+): Promise<{ changes: StoryEntryChange[]; newIds: number[] }> {
+    const used = new Set(usedIds);
+    const changes: StoryEntryChange[] = [];
+    const newIds: number[] = [];
+    let lists = fieldLists?.stored;
+    for (const n of added) {
+        const id = n.classId ?? freeClassId(used);
+        if (id === null || id === undefined) throw new ModError('no free class id left in the ODB');
+        if (used.has(id) && !n.classId) throw new ModError(`class id ${id} is taken`);
+        used.add(id);
+        newIds.push(id);
+        changes.push({
+            file,
+            type: ODB_CLASS_TYPE,
+            id,
+            sub: n.template.group,
+            data: newDialogLineRecord(n.template.record, n.template.line, n.name, n.soundRef),
+            isNew: true,
+        });
+        if (lists) lists = await appendFieldList(lists, n.template.defs);
+    }
+    if (lists && added.length && fieldLists)
+        changes.push({
+            file,
+            type: ODB_FIELDS_TYPE,
+            id: fieldLists.id,
+            sub: fieldLists.sub,
+            data: lists,
+            isNew: false,
+        });
     return { changes, newIds };
 }

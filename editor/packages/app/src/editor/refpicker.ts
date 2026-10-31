@@ -1,6 +1,7 @@
 import type { ClassSchema, SchemaProvider } from '@drakan/editor-core';
 import { KIND_FILE, KIND_LABEL, type RecentRef, type RefEntry, type RefKind, type RefService } from '../refs.ts';
 import { fill, h, icon } from './dom.ts';
+import { classModelOf, createAnimPreview } from './animpreview.ts';
 import { openPopover } from './popover.ts';
 import { virtualList, type VList } from './vlist.ts';
 
@@ -277,7 +278,8 @@ export function openRefPicker(
             };
 
             const list: VList<Item> = virtualList<Item>({
-                rowHeight: ROW_H,
+                rowHeight: kind === 'texture' ? 92 : ROW_H,
+                ...(kind === 'texture' ? { cellWidth: 92 } : {}),
                 key: itemKey,
                 label: `${KIND_LABEL[kind]} list`,
                 onPick: choose,
@@ -291,6 +293,19 @@ export function openRefPicker(
                     const ok = canPick(it.stem);
                     const nameText = displayName(kind, it, it.id);
                     const k = itemKey(it);
+                    if (kind === 'texture') {
+                        return h(
+                            'div',
+                            {
+                                class: `rp-cell${isCur ? ' current' : ''}${ok ? '' : ' disabled'}`,
+                                title: `${nameText}
+${it.detail ?? ''}
+${it.note ?? `${it.stem} #${it.id}`}`,
+                            },
+                            thumbBox(refs, kind, it.stem, it.id, 64, () => list.isVisible(k)),
+                            h('span', { class: 'rp-cname' }, nameText),
+                        );
+                    }
                     return h(
                         'div',
                         {
@@ -500,14 +515,23 @@ export function openRefPicker(
                             h('span', { class: 'dim' }, 'Ctrl+Enter'),
                         ),
                     );
-                if (kind === 'animation')
-                    body.push(
-                        h(
-                            'div',
-                            { class: 'note' },
-                            'No pose preview: the PS2 skeleton and joint data of models is not decoded yet.',
-                        ),
-                    );
+                if (kind === 'animation') {
+                    const ap = createAnimPreview(refs, { height: 170, compact: true });
+                    body.splice(0, 1, ap.el);
+                    void (async () => {
+                        // The owning class's model; a class without one borrows a model of the clip's container that fits.
+                        let m = await classModelOf(refs, f.schema);
+                        if (previewKey !== key) return ap.dispose();
+                        await ap.setClip({ stem: it.stem, id: it.id });
+                        if (previewKey !== key) return ap.dispose();
+                        if (!m) {
+                            const clip = await refs.clip(it.stem, it.id);
+                            m = clip ? await refs.modelForTracks(it.stem, clip.tracks.length) : null;
+                        }
+                        if (previewKey !== key) return ap.dispose();
+                        await ap.setModel(m);
+                    })();
+                }
                 if (kind === 'sequence')
                     body.push(
                         h(
@@ -599,6 +623,8 @@ export function openRefPicker(
                 const k = e.key;
                 if (k === 'ArrowDown') list.move(1);
                 else if (k === 'ArrowUp') list.move(-1);
+                else if (k === 'ArrowRight' && kind === 'texture' && !search.value) list.step(1);
+                else if (k === 'ArrowLeft' && kind === 'texture' && !search.value) list.step(-1);
                 else if (k === 'PageDown') list.move(7);
                 else if (k === 'PageUp') list.move(-7);
                 else if (k === 'Home' && e.ctrlKey) list.moveTo(0);

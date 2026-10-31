@@ -71,7 +71,9 @@ function matches(e: KeyboardEvent, keys: string): boolean {
     if ((e.ctrlKey || e.metaKey) !== want.ctrl || e.shiftKey !== want.shift || e.altKey !== want.alt) return false;
     if (key.length === 1 && /[A-Z]/.test(key)) return e.code === `Key${key}`;
     if (key.length === 1 && /[0-9]/.test(key)) return e.code === `Digit${key}`;
-    return e.code === key || e.key === key;
+    // The sheet says "Esc"; the key event says "Escape".
+    const k = key === 'Esc' ? 'Escape' : key;
+    return e.code === k || e.key === k;
 }
 
 /**
@@ -83,6 +85,8 @@ export function initShortcuts(handlers: Record<string, Handler>, active: () => b
         if (!active()) return;
         const t = e.target as HTMLElement | null;
         const typing = !!t && (/^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName) || t.isContentEditable);
+        // Esc belongs to an open picker, popover or dialog (it closes that, not the selection).
+        if (e.key === 'Escape' && (e.defaultPrevented || t?.closest?.('.ed-pop, [role="dialog"], .ui-menu'))) return;
         // Bookmarks: Shift+digit jumps, Ctrl+Shift+digit saves.
         const digit = /^Digit([1-9])$/.exec(e.code);
         if (digit && !typing && e.shiftKey && !e.altKey) {

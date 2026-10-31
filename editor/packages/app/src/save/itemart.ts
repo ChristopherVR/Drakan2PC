@@ -49,6 +49,7 @@ export function createItemArt(call: Call): ItemArt {
                             name: k.displayName || k.name,
                             // The ODB class name is the editor-facing one; the game shows `displayName`.
                             detail: [
+                                ...(k.facts ?? []),
                                 k.displayName && k.displayName !== k.name ? `Class: ${k.name}` : '',
                                 k.price ? `Shop price: ${k.price} gold` : '',
                             ]
@@ -59,7 +60,8 @@ export function createItemArt(call: Call): ItemArt {
                 );
                 notify();
             })
-            .catch(() => {
+            .catch((e) => {
+                console.warn('item catalog failed', e);
                 if (ep === epoch) failed = true; // no disc yet: retried after reset()
             })
             .finally(() => {

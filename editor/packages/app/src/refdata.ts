@@ -14,7 +14,7 @@ import {
     decodeSpuAdpcm,
     decodeTxd,
     odbStemForDependency,
-    parseAnimationHeader,
+    parseClipHeader,
     parseDb,
     parseModel,
     parseModelName,
@@ -59,7 +59,7 @@ export interface RefTexture {
 const EXT: Record<RefKind, string> = { model: 'MOD', sound: 'SDB', texture: 'TXD', animation: 'ADB', sequence: 'SSD' };
 const BACKSLASH = String.fromCharCode(92);
 
-interface Disc {
+export interface Disc {
     iso: Iso9660;
     language: string;
     /** Stem (upper case, no extension) -> extension -> file. Stems are unique across a language tree. */
@@ -71,7 +71,7 @@ interface Disc {
 
 let disc: Disc | null = null;
 
-async function discFor(iso: Iso9660, language: string): Promise<Disc> {
+export async function discFor(iso: Iso9660, language: string): Promise<Disc> {
     if (disc && disc.iso === iso && disc.language === language) return disc;
     const files = new Map<string, Map<string, IsoEntry>>();
     for (const e of await iso.walk(language)) {
@@ -92,7 +92,7 @@ async function discFor(iso: Iso9660, language: string): Promise<Disc> {
     });
 }
 
-function reader(d: Disc, stem: string, ext: string): Promise<SrscReader | null> {
+export function reader(d: Disc, stem: string, ext: string): Promise<SrscReader | null> {
     const key = `${stem}.${ext}`;
     let r = d.readers.get(key);
     if (!r) {
@@ -106,7 +106,7 @@ function reader(d: Disc, stem: string, ext: string): Promise<SrscReader | null> 
 }
 
 /** The `.DB` dependency list of a container stem: index -> container stem (the base of `db` indices inside it). */
-function depsOf(d: Disc, stem: string): Promise<Map<number, string>> {
+export function depsOf(d: Disc, stem: string): Promise<Map<number, string>> {
     let p = d.deps.get(stem);
     if (!p) {
         p = (async () => {
@@ -211,12 +211,17 @@ async function buildList(d: Disc, stem: string, kind: RefKind): Promise<RefEntry
                 if (e.type !== ADB_ANIMATION || seen.has(e.id)) continue;
                 seen.add(e.id);
                 try {
-                    const a = parseAnimationHeader(await r.readRaw(e));
+                    // The header's third word is the track (joint) count, not a frame count; time is in seconds.
+                    const a = parseClipHeader(await r.readRaw(e));
                     const kb = keys.get(e.id);
                     out.push({
                         id: e.id,
                         name: a.name,
-                        detail: [a.frames ? `${a.frames} frames` : '', kb ? `${(kb / 1024).toFixed(1)} KB keys` : '']
+                        detail: [
+                            a.duration > 0 ? `${a.duration.toFixed(2)} s` : '',
+                            a.tracks ? `${a.tracks} joints` : '',
+                            kb ? `${(kb / 1024).toFixed(1)} KB keys` : '',
+                        ]
                             .filter(Boolean)
                             .join(', '),
                     });

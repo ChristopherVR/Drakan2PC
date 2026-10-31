@@ -4,8 +4,10 @@
 
 import type { Api, Method } from './rpc.ts';
 import type { RefEntry, RefKind, RefSound } from './refdata.ts';
+import type { Ps2Anim } from '@drakan/formats';
+import type { RefRig } from './animdata.ts';
 import type { ModelData } from './scene/decode.ts';
-import { TextureCache, classThumbnail } from './scene/index.ts';
+import { TextureCache, classThumbnail, type TextureLookup } from './scene/index.ts';
 import { store } from './editor/dom.ts';
 
 export type { RefEntry, RefKind } from './refdata.ts';
@@ -75,6 +77,14 @@ export interface RefService {
     playing(): string | null;
     /** Called when playback starts or ends; returns the unsubscribe function. */
     onPlayState(fn: () => void): () => void;
+    /** A skinned model with its rig, clip list and a texture lookup (animation previews); null when it cannot be loaded. */
+    rig(stem: string, id: number): Promise<(RefRig & { lookup: TextureLookup }) | null>;
+    /** One animation clip (cached). */
+    clip(stem: string, id: number): Promise<Ps2Anim | null>;
+    /** The model a class uses (ODB stem, class id); null when it has none. */
+    classModel(dbStem: string, classId: number): Promise<{ stem: string; id: number } | null>;
+    /** A skinned model of a MOD container with this joint count (stand-in for a class without a model). */
+    modelForTracks(stem: string, tracks: number): Promise<{ stem: string; id: number } | null>;
     recent(kind: RefKind): RecentRef[];
     pushRecent(kind: RefKind, stem: string, id: number): void;
     /** Forget everything (a different disc was opened). */
@@ -116,6 +126,8 @@ export function createRefs(call: Call): RefService {
     let pending = new Map<string, Promise<string>>();
     let models = new Map<string, Promise<ModelData | null>>();
     let sounds = new Map<string, Promise<RefSound | null>>();
+    let rigs = new Map<string, Promise<(RefRig & { lookup: TextureLookup }) | null>>();
+    let clips = new Map<string, Promise<Ps2Anim | null>>();
     let textureCache = new TextureCache();
     let epoch = 0;
     const jobs: { run: () => Promise<void>; drop: () => void; visible: () => boolean }[] = [];
@@ -329,6 +341,30 @@ export function createRefs(call: Call): RefService {
                 if (i >= 0) listeners.splice(i, 1);
             };
         },
+        rig(stem, id) {
+            const key = keyOf(stem, id);
+            let p = rigs.get(key);
+            if (!p) {
+                p = call('loadRefRig', stem, id)
+                    .then((r) => (r ? { ...r, lookup: textureCache.addShared(r.data.textures) } : null))
+                    .catch(() => null);
+                rigs.set(key, p);
+                if (rigs.size > 12) rigs.delete(rigs.keys().next().value!);
+            }
+            return p;
+        },
+        clip(stem, id) {
+            const key = keyOf(stem, id);
+            let p = clips.get(key);
+            if (!p) {
+                p = call('loadRefClip', stem, id).catch(() => null);
+                clips.set(key, p);
+                if (clips.size > 64) clips.delete(clips.keys().next().value!);
+            }
+            return p;
+        },
+        classModel: (dbStem, classId) => call('classModelRef', dbStem, classId).catch(() => null),
+        modelForTracks: (stem, tracks) => call('rigForTracks', stem, tracks).catch(() => null),
         recent,
         pushRecent(kind, stem, id) {
             const next = [{ stem, id }, ...recent(kind).filter((r) => !(r.stem === stem && r.id === id))].slice(
@@ -346,6 +382,8 @@ export function createRefs(call: Call): RefService {
             pending = new Map();
             models = new Map();
             sounds = new Map();
+            rigs = new Map();
+            clips = new Map();
             textureCache = new TextureCache();
             jobs.length = 0;
         },

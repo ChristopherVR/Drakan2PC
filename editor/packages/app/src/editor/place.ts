@@ -1,5 +1,5 @@
 import { searchCatalog, type AssetClass } from '@drakan/editor-core';
-import { KINDS } from '../level.ts';
+import { KINDS, KIND_HINT } from '../level.ts';
 import { attachAssetDrag, dragState } from './assetdrag.ts';
 import type { Ctx, Panel } from './ctx.ts';
 import { fill, h, icon, raf, store } from './dom.ts';
@@ -111,7 +111,11 @@ export function createPlace(ctx: Ctx): PlacePanel {
             ...[null, ...KINDS.filter((k) => present.has(k.kind))].map((k) => {
                 const b = h(
                     'button',
-                    { class: `chip${(k?.kind ?? null) === kind ? ' active' : ''}`, type: 'button' },
+                    {
+                        class: `chip${(k?.kind ?? null) === kind ? ' active' : ''}`,
+                        type: 'button',
+                        title: k ? `${k.label}: ${KIND_HINT[k.kind]}` : 'All kinds',
+                    },
                     k ? h('i', { class: 'ui-dot', style: `background:${hexColor(k.color)}` }) : null,
                     k ? k.label : 'All',
                 );

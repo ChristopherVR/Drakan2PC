@@ -127,8 +127,12 @@ body.ed-scrub {
     background: var(--border-strong);
     flex: none;
 }
-#level-main select.levelpick {
-    max-width: 200px;
+#level-main .ui-dd.levelpick {
+    width: 200px;
+}
+.ed-toolbar .tool,
+.ed-toolbar .ui-dd.ui-dd {
+    height: var(--h-tool);
 }
 .slider {
     width: 76px;
@@ -204,7 +208,7 @@ body.ed-scrub {
     display: inline-block;
     width: 9px;
     height: 9px;
-    border-radius: 3px;
+    border-radius: var(--r-sm);
     flex: none;
 }
 
@@ -216,12 +220,6 @@ body.ed-scrub {
     overflow: hidden;
     background: var(--surface-0);
     container-type: inline-size;
-}
-/* A narrow viewport stacks the two overlay toolbars instead of letting them collide. */
-@container (max-width: 980px) {
-    .vp-right {
-        top: 44px;
-    }
 }
 #lv-viewport canvas {
     position: absolute;
@@ -252,8 +250,14 @@ body.ed-scrub {
     right: var(--sp-4);
 }
 .vp-bar .tool,
-.vp-bar select.mini {
-    height: 26px;
+.vp-bar .ui-dd.ui-dd {
+    height: var(--h-tool);
+}
+/* A narrow viewport stacks the two overlay toolbars instead of letting them collide (after .vp-bar so it wins). */
+@container (max-width: 980px) {
+    .vp-right {
+        top: 44px;
+    }
 }
 .vp-gizmo {
     position: absolute;
@@ -274,7 +278,7 @@ body.ed-scrub {
 }
 .ng-label {
     fill: #101012;
-    font: 700 9px var(--font);
+    font: 700 var(--fs-2xs) var(--font);
     pointer-events: none;
 }
 .ng-axis.clickable {
@@ -340,7 +344,7 @@ body.ed-scrub {
 .note {
     margin: 4px 0;
     color: var(--dim);
-    font-size: 11px;
+    font-size: var(--fs-xs);
     line-height: 1.4;
 }
 .note.warn {
@@ -351,16 +355,14 @@ body.ed-scrub {
     align-items: center;
     gap: 6px;
     margin: 8px 0 4px;
-    font-size: 11px;
+    font-size: var(--fs-xs);
     font-weight: 600;
     color: var(--dim);
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
 }
 .more {
     padding: 6px 12px;
     color: var(--dim);
-    font-size: 11px;
+    font-size: var(--fs-xs);
 }
 /* ---- outliner ---- */
 .tree {
@@ -369,7 +371,7 @@ body.ed-scrub {
     padding: 2px 0 12px;
 }
 .outliner .count {
-    font-size: 11px;
+    font-size: var(--fs-xs);
 }
 .row .name {
     flex: 1;
@@ -392,7 +394,7 @@ body.ed-scrub {
     display: none;
 }
 .row .n {
-    font-size: 11px;
+    font-size: var(--fs-xs);
     font-weight: 400;
 }
 .row.hidden .name,
@@ -413,7 +415,7 @@ body.ed-scrub {
     border: 0;
     color: var(--dim);
     cursor: pointer;
-    border-radius: 4px;
+    border-radius: var(--r-md);
 }
 .chev .ico {
     transition: transform 0.12s;
@@ -430,7 +432,7 @@ body.ed-scrub {
     justify-content: center;
     background: none;
     border: 0;
-    border-radius: 4px;
+    border-radius: var(--r-md);
     color: var(--dim);
     cursor: pointer;
     opacity: 0;
@@ -460,7 +462,7 @@ body.ed-scrub {
     min-width: 0;
 }
 .insp-title strong {
-    font-size: 14px;
+    font-size: var(--fs-lg);
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -494,14 +496,14 @@ body.ed-scrub {
     width: 100%;
     min-width: 0;
     font-family: var(--ed-mono);
-    font-size: 11.5px;
+    font-size: var(--fs-xs);
 }
 #level-main input.alpha {
     width: 52px;
 }
 .ro {
     font-family: var(--ed-mono);
-    font-size: 11px;
+    font-size: var(--fs-xs);
     color: var(--dim);
     overflow: hidden;
     text-overflow: ellipsis;
@@ -521,7 +523,7 @@ body.ed-scrub {
     height: 15px;
 }
 .ref-label {
-    font-size: 11px;
+    font-size: var(--fs-xs);
     color: var(--dim);
     white-space: nowrap;
     overflow: hidden;
@@ -677,7 +679,7 @@ body.ed-scrub {
     display: flex;
     align-items: center;
     justify-content: center;
-    border-radius: 6px;
+    border-radius: var(--r-lg);
     color: var(--k, var(--dim));
     background: color-mix(in srgb, var(--k, #888) 14%, var(--panel));
     overflow: hidden;
@@ -690,7 +692,7 @@ body.ed-scrub {
     pointer-events: none;
 }
 .tile .label {
-    font-size: 11px;
+    font-size: var(--fs-xs);
     line-height: 1.25;
     height: 2.5em;
     overflow: hidden;
@@ -704,9 +706,9 @@ body.ed-scrub {
     min-width: 16px;
     padding: 0 4px;
     height: 15px;
-    border-radius: 8px;
+    border-radius: var(--r-sm);
     background: color-mix(in srgb, var(--bg) 80%, transparent);
-    font-size: 10px;
+    font-size: var(--fs-2xs);
     line-height: 15px;
     text-align: center;
     color: var(--dim);
@@ -723,7 +725,7 @@ body.ed-scrub {
     padding: 0;
     background: none;
     border: 0;
-    border-radius: 4px;
+    border-radius: var(--r-md);
     color: var(--dim);
     opacity: 0;
     cursor: pointer;
@@ -751,8 +753,8 @@ body.ed-scrub {
     padding: 4px 10px;
     background: var(--accent);
     color: var(--accent-fg);
-    border-radius: 6px;
-    font: 600 12px var(--ed-font);
+    border-radius: var(--r-lg);
+    font: 600 var(--fs-sm) var(--ed-font);
 }
 /* ---- history / validation ---- */
 .hist-list,
@@ -770,7 +772,7 @@ body.ed-scrub {
     padding: 0 8px;
     background: none;
     border: 0;
-    border-radius: 5px;
+    border-radius: var(--r-md);
     color: var(--text);
     text-align: left;
     cursor: pointer;
@@ -782,7 +784,7 @@ body.ed-scrub {
     width: 28px;
     color: var(--dim);
     font-family: var(--ed-mono);
-    font-size: 11px;
+    font-size: var(--fs-xs);
     text-align: right;
 }
 .hrow.current {
@@ -802,7 +804,7 @@ body.ed-scrub {
     padding: 2px 8px;
     background: none;
     border: 0;
-    border-radius: 5px;
+    border-radius: var(--r-md);
     color: var(--text);
     text-align: left;
     cursor: pointer;
@@ -821,7 +823,7 @@ body.ed-scrub {
 }
 .issue .code {
     font-family: var(--ed-mono);
-    font-size: 10.5px;
+    font-size: var(--fs-xs);
 }
 /* ---- mod panel ---- */
 .mod {
@@ -853,7 +855,7 @@ body.ed-scrub {
     flex: 1;
     min-width: 0;
     margin-bottom: 8px;
-    font-size: 11px;
+    font-size: var(--fs-xs);
     color: var(--dim);
 }
 .mf input {
@@ -867,7 +869,7 @@ body.ed-scrub {
     margin: 8px 0 0;
     white-space: pre-wrap;
     font-family: var(--ed-mono);
-    font-size: 11px;
+    font-size: var(--fs-xs);
     color: var(--dim);
     max-height: 90px;
     overflow: auto;
@@ -914,10 +916,10 @@ body.ed-scrub {
 .steps code,
 .cmd {
     font-family: var(--ed-mono);
-    font-size: 11px;
+    font-size: var(--fs-xs);
     background: var(--panel2);
     border: 1px solid var(--line);
-    border-radius: 4px;
+    border-radius: var(--r-md);
     padding: 0 4px;
 }
 .cmd {
@@ -936,7 +938,7 @@ body.ed-scrub {
     padding: 0 12px;
     background: var(--panel);
     border-top: 1px solid var(--line);
-    font-size: 11.5px;
+    font-size: var(--fs-xs);
     color: var(--dim);
     white-space: nowrap;
     overflow: hidden;
@@ -959,11 +961,10 @@ body.ed-scrub {
     padding: 5px 9px;
     background: var(--panel);
     color: var(--text);
-    border: 1px solid var(--line);
-    border-radius: 6px;
+    border-radius: var(--r-lg);
     box-shadow: var(--shadow);
     pointer-events: none;
-    font: 12px var(--ed-font);
+    font: var(--fs-sm) var(--ed-font);
     max-width: 260px;
 }
 .tip[hidden] {
@@ -973,7 +974,7 @@ body.ed-scrub {
     color: var(--dim);
 }
 .tip .small {
-    font-size: 11px;
+    font-size: var(--fs-xs);
 }
 .toast.out {
     opacity: 0;
@@ -997,10 +998,9 @@ body.ed-scrub {
     padding: 20px 24px;
     background: var(--panel);
     color: var(--text);
-    border: 1px solid var(--line);
-    border-radius: 12px;
+    border-radius: var(--r-lg);
     box-shadow: var(--shadow);
-    font: 13px/1.45 var(--ed-font);
+    font: var(--fs-md)/1.45 var(--ed-font);
 }
 .help-card h2 {
     margin: 0 0 14px;
@@ -1021,20 +1021,20 @@ body.ed-scrub {
 }
 .help-cols h3 {
     margin: 0 0 6px;
-    font-size: 11px;
-    text-transform: uppercase;
-    letter-spacing: 0.07em;
+    font-size: var(--fs-xs);
+    font-weight: 600;
     color: var(--dim);
 }
 .help-row {
-    display: flex;
-    gap: 10px;
+    display: grid;
+    grid-template-columns: 120px minmax(0, 1fr);
+    gap: var(--sp-4);
     align-items: baseline;
     min-height: 24px;
+    padding: var(--sp-1) 0;
+    line-height: 1.35;
 }
 .help-row .keys {
-    flex: none;
-    min-width: 108px;
     display: inline-flex;
     gap: 3px;
     flex-wrap: wrap;
@@ -1044,13 +1044,13 @@ body.ed-scrub {
     background: var(--raise);
     border: 1px solid var(--line);
     border-bottom-width: 2px;
-    border-radius: 5px;
-    font: 600 11px var(--ed-mono);
+    border-radius: var(--r-md);
+    font: 600 var(--fs-xs) var(--ed-mono);
 }
 .help-foot {
     margin: 4px 0 0;
     color: var(--dim);
-    font-size: 12px;
+    font-size: var(--fs-sm);
 }
 .dock-content > [hidden] {
     display: none !important;
@@ -1061,16 +1061,16 @@ body.ed-scrub {
     align-items: center;
     gap: 8px;
     padding: 4px 10px;
-    font-size: 12px;
+    font-size: var(--fs-sm);
 }
-.popover .disp-row select,
+.popover .disp-row .ui-dd,
 .popover .disp-row input[type='range'] {
     flex: 1;
     min-width: 0;
 }
 .popover .disp-note {
     padding: 2px 10px 6px;
-    font-size: 11px;
+    font-size: var(--fs-xs);
     color: var(--dim);
 }
 .drag-ghost.live {
@@ -1100,15 +1100,15 @@ body.dragging-asset {
     justify-content: space-between;
     gap: 8px;
     margin-bottom: 4px;
-    font-size: 11px;
+    font-size: var(--fs-xs);
 }
 .badge-changed {
     margin-left: auto;
     padding: 1px 7px;
-    border-radius: 9px;
+    border-radius: var(--r-sm);
     background: color-mix(in srgb, var(--accent) 22%, transparent);
     color: var(--accent);
-    font-size: 10px;
+    font-size: var(--fs-2xs);
     text-transform: none;
     letter-spacing: 0;
 }
@@ -1129,7 +1129,7 @@ body.dragging-asset {
     top: 6px;
     bottom: 6px;
     width: 3px;
-    border-radius: 2px;
+    border-radius: var(--r-xs);
     background: transparent;
 }
 .ifield.overridden::before {
@@ -1145,26 +1145,20 @@ body.dragging-asset {
     touch-action: none;
 }
 #level-main .ifield input.txt,
-#level-main .ifield select.sel {
+#level-main .ifield .ui-dd.sel {
     width: 100%;
     min-width: 0;
-    height: 24px;
-    font-size: 11.5px;
+    height: var(--h-ctl);
 }
-#level-main .ifield select.sel {
+#level-main .ifield .ui-dd.sel {
     flex: 1;
-    padding: 0 4px;
-    background: var(--panel2);
-    color: var(--text);
-    border: 1px solid var(--line);
-    border-radius: var(--r);
 }
 #level-main .ifield input.other {
     width: 64px;
     flex: none;
 }
 .tog {
-    font-size: 11px;
+    font-size: var(--fs-xs);
 }
 .refcell {
     display: flex;
@@ -1196,14 +1190,14 @@ body.dragging-asset {
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
-    font-size: 11.5px;
+    font-size: var(--fs-xs);
 }
 .rthumb {
     flex: none;
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    border-radius: 4px;
+    border-radius: var(--r-md);
     background: var(--raise);
     color: var(--dim);
     overflow: hidden;
@@ -1227,7 +1221,7 @@ body.dragging-asset {
 }
 .arr-row .idx {
     text-align: right;
-    font-size: 10px;
+    font-size: var(--fs-2xs);
 }
 #level-main .arrbtn {
     justify-content: flex-start;
@@ -1241,8 +1235,7 @@ body.dragging-asset {
     flex-direction: column;
     background: var(--panel);
     color: var(--text);
-    border: 1px solid var(--line);
-    border-radius: 10px;
+    border-radius: var(--r-lg);
     box-shadow: var(--shadow);
     overflow: hidden;
 }
@@ -1255,7 +1248,7 @@ body.dragging-asset {
 }
 .pop-title {
     font-weight: 600;
-    font-size: 12px;
+    font-size: var(--fs-sm);
 }
 .pop-list {
     display: flex;
@@ -1298,7 +1291,7 @@ body.dragging-asset {
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
-    font-size: 10.5px;
+    font-size: var(--fs-xs);
 }
 /* ---- resource reference button and picker (refpicker.ts) ---- */
 .rb-wrap {
@@ -1320,7 +1313,7 @@ body.dragging-asset {
     line-height: 1.25;
 }
 .refbtn .rs {
-    font-size: 10px;
+    font-size: var(--fs-2xs);
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -1374,48 +1367,15 @@ body.dragging-asset {
     color: var(--text);
     border: 1px solid var(--line);
     border-radius: var(--r);
-    font-size: 12.5px;
+    font-size: var(--fs-sm);
 }
 .rp-search:focus {
     outline: 2px solid var(--accent);
     outline-offset: -1px;
 }
-.seg {
-    display: inline-flex;
-    background: var(--panel2);
-    border: 1px solid var(--line);
-    border-radius: var(--r);
-    padding: 2px;
-    gap: 2px;
-}
-.seg-btn {
-    display: inline-flex;
-    gap: 5px;
-    align-items: center;
-    padding: 3px 10px;
-    background: none;
-    border: 0;
-    border-radius: 4px;
-    color: var(--dim);
-    cursor: pointer;
-    font-size: 11.5px;
-}
-.seg-btn:hover {
-    color: var(--text);
-}
-.seg-btn.active {
-    background: var(--sel);
-    color: var(--text);
-}
 .rp-scope {
     flex: 1;
     min-width: 0;
-    height: 28px;
-    padding: 0 6px;
-    background: var(--panel2);
-    color: var(--text);
-    border: 1px solid var(--line);
-    border-radius: var(--r);
 }
 .rp-cols {
     display: grid;
@@ -1474,20 +1434,20 @@ body.dragging-asset {
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
-    font-size: 12px;
+    font-size: var(--fs-sm);
     display: flex;
     gap: 6px;
     align-items: center;
 }
 .rp-cur {
-    font-size: 9.5px;
+    font-size: var(--fs-2xs);
     padding: 0 5px;
-    border-radius: 8px;
+    border-radius: var(--r-lg);
     background: var(--accent);
     color: var(--accent-fg);
 }
 .rp-sub {
-    font-size: 10.5px;
+    font-size: var(--fs-xs);
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -1495,7 +1455,7 @@ body.dragging-asset {
 .rp-where {
     flex: none;
     max-width: 38%;
-    font-size: 10px;
+    font-size: var(--fs-2xs);
     text-align: right;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -1508,7 +1468,7 @@ body.dragging-asset {
 .rp-hint {
     display: flex;
     gap: 2px;
-    font-size: 10.5px;
+    font-size: var(--fs-xs);
 }
 .rp-preview {
     display: flex;
@@ -1548,7 +1508,7 @@ body.dragging-asset {
 }
 .rp-ptitle {
     font-weight: 600;
-    font-size: 12.5px;
+    font-size: var(--fs-sm);
     overflow-wrap: anywhere;
 }
 .rp-facts {
@@ -1556,7 +1516,7 @@ body.dragging-asset {
     grid-template-columns: auto 1fr;
     gap: 2px 8px;
     margin: 0;
-    font-size: 11px;
+    font-size: var(--fs-xs);
 }
 .rp-facts dt {
     color: var(--dim);
@@ -1579,12 +1539,12 @@ body.dragging-asset {
     display: inline-flex;
     align-items: center;
     gap: 6px;
-    font-size: 10.5px;
+    font-size: var(--fs-xs);
 }
 .rp-raw {
     width: 110px;
     height: 24px;
-    font-size: 11px;
+    font-size: var(--fs-xs);
 }
 @media (max-width: 560px) {
     .rp-cols {
@@ -1702,7 +1662,7 @@ body.dragging-asset {
 .badge-changed {
     margin-left: auto;
     padding: 0 var(--sp-3);
-    border-radius: 8px;
+    border-radius: var(--r-sm);
     background: var(--accent-soft);
     color: var(--accent-hover);
     font-size: var(--fs-2xs);
@@ -1752,6 +1712,10 @@ body.dragging-asset {
     min-width: 0;
     overflow-x: auto;
     scrollbar-width: none;
+    /* chips that do not fit fade out at the right edge instead of being cut through a word */
+    -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 28px), transparent);
+    mask-image: linear-gradient(to right, #000 calc(100% - 28px), transparent);
+    padding-right: 28px;
 }
 .assets-bar .chip {
     flex: none;
@@ -1915,9 +1879,8 @@ body.dragging-asset {
     flex: none;
 }
 .place-kinds {
-    flex-wrap: nowrap;
-    overflow-x: auto;
-    scrollbar-width: none;
+    flex-wrap: wrap;
+    row-gap: var(--sp-2);
     padding: 0 var(--sp-4) var(--sp-3);
     background: var(--surface-1);
     flex: none;
@@ -2130,4 +2093,220 @@ body.dragging-asset {
     border: 0;
     border-radius: var(--r-md);
     box-shadow: var(--shadow-pop);
+}
+
+/* Linking: pick banner, link handle next to the selection, drag line */
+#lv-viewport {
+    position: relative;
+}
+.pick-banner {
+    position: absolute;
+    left: 50%;
+    bottom: var(--sp-6);
+    transform: translateX(-50%);
+    z-index: 6;
+    display: flex;
+    align-items: center;
+    gap: var(--sp-4);
+    width: max-content;
+    max-width: min(560px, calc(100% - 32px));
+    padding: var(--sp-3) var(--sp-4) var(--sp-3) var(--sp-5);
+    background: var(--surface-2);
+    color: var(--fg);
+    border: 1px solid var(--accent);
+    border-radius: var(--r-md);
+    box-shadow: var(--shadow-pop);
+}
+.pick-banner .ico {
+    color: var(--accent-hover);
+}
+.link-handle {
+    position: absolute;
+    left: 0;
+    top: 0;
+    z-index: 5;
+    width: 24px;
+    height: 24px;
+    padding: 0;
+    display: grid;
+    place-items: center;
+    border-radius: 50%;
+    border: 1px solid var(--accent);
+    background: var(--surface-2);
+    color: var(--accent-hover);
+    cursor: crosshair;
+    box-shadow: var(--shadow-1);
+}
+.link-handle[hidden] {
+    display: none;
+}
+.link-handle:hover,
+.link-handle.dragging {
+    background: var(--accent);
+    color: var(--accent-fg);
+}
+.link-drag-line {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    z-index: 4;
+    pointer-events: none;
+    overflow: visible;
+}
+.link-drag-line line {
+    stroke: var(--warn);
+    stroke-width: 2.5;
+    stroke-dasharray: 7 5;
+    stroke-linecap: round;
+}
+.link-drag-line.ok line {
+    stroke: var(--ok);
+    stroke-dasharray: none;
+}
+.link-explain {
+    line-height: 1.7;
+}
+.link-msg {
+    max-width: 100%;
+    margin: 0 2px;
+    font: inherit;
+    color: var(--fg);
+    background: var(--field);
+    border: 1px solid var(--border-strong);
+    border-radius: var(--r-xs);
+    padding: 1px 4px;
+}
+
+/* Reference fields (model, sound, texture ...): the name sits above the picture button so the button, its play
+   button and the reset arrow keep the whole row width instead of squeezing the label. */
+.ifield:has(.rb-wrap) {
+    grid-template-columns: minmax(0, 1fr) auto;
+    row-gap: 2px;
+    padding-top: 2px;
+}
+.ifield:has(.rb-wrap) > .fname {
+    grid-column: 1 / -1;
+    max-width: none;
+}
+.rb-wrap .refbtn {
+    flex: 1 1 0;
+    min-width: 0;
+}
+.rb-wrap .rb-play {
+    flex: none;
+}
+
+/* Save / Export / Play status strip of the Mod panel */
+.mod-status {
+    grid-column: 1 / -1;
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+    gap: var(--sp-3);
+}
+.ms-cell {
+    padding: var(--sp-3) var(--sp-4);
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-left: 3px solid var(--border-strong);
+    border-radius: var(--r-md);
+    min-width: 0;
+}
+.ms-cell.ok {
+    border-left-color: var(--ok);
+}
+.ms-cell.warn {
+    border-left-color: var(--warn);
+}
+.ms-cell.info {
+    border-left-color: var(--accent);
+}
+.ms-t {
+    font-size: var(--fs-2xs);
+    color: var(--fg-faint);
+    font-weight: 600;
+}
+.ms-v {
+    font-weight: 600;
+    overflow-wrap: anywhere;
+}
+.ms-s {
+    font-size: var(--fs-xs);
+    overflow-wrap: anywhere;
+}
+.mod {
+    flex-wrap: wrap;
+    align-content: flex-start;
+}
+.mod > .mod-status {
+    flex: 1 0 100%;
+}
+
+/* Tabs can be dragged sideways to reorder them */
+.dock-tab {
+    touch-action: none;
+}
+.dock-tab.dragging {
+    opacity: 0.7;
+    cursor: grabbing;
+    box-shadow: var(--shadow-1);
+}
+.insp-search {
+    padding: var(--sp-3) var(--sp-4);
+}
+.insp-search .fsearch {
+    width: 100%;
+}
+
+/* Very narrow viewport: the two toolbars wrap instead of being clipped; the tool bar moves to the bottom edge. */
+@container (max-width: 640px) {
+    .vp-left {
+        right: var(--sp-4);
+        flex-wrap: wrap;
+    }
+    .vp-right {
+        top: auto;
+        right: calc(var(--sp-5) + 84px);
+        bottom: var(--sp-4);
+        left: var(--sp-4);
+        flex-wrap: wrap;
+    }
+}
+
+/* Texture picker: a grid of pictures instead of a list */
+.rp-cell {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 3px;
+    height: 100%;
+    padding: 2px;
+}
+.rp-cell.disabled {
+    opacity: 0.4;
+}
+.rp-cell.current .rp-cname {
+    color: var(--accent-hover);
+}
+.rp-cname {
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: var(--fs-2xs);
+    color: var(--fg-muted);
+}
+
+.cb-caret {
+    display: inline-grid;
+    place-items: center;
+    width: 14px;
+    margin-right: 2px;
+    color: var(--fg-faint);
+    transform: rotate(0deg);
+    flex: none;
+}
+.cb-caret.open {
+    transform: rotate(90deg);
 }

@@ -2,6 +2,7 @@ import type { EntityKind, LevelObject } from '@drakan/editor-core';
 import { KINDS } from '../level.ts';
 import type { Ctx, Panel } from './ctx.ts';
 import { fill, h, icon, raf } from './dom.ts';
+import { buildObjectMenu } from './objectmenu.ts';
 import { emptyState, onContextMenu, searchField, type MenuItem } from './ui.ts';
 
 interface ClassGroup {
@@ -26,7 +27,7 @@ const colorOf = (kind: EntityKind): string =>
  * change; selection highlights are patched in place so moving objects stays cheap.
  */
 export function createOutliner(ctx: Ctx): Panel {
-    const searchBox = searchField('Search by class, id or kind', 'Search objects');
+    const searchBox = searchField('Search objects', 'Search objects by class, id or kind');
     const search = searchBox.input;
     const count = h('span', { class: 'dim count' });
     const tree = h('div', { class: 'tree', role: 'tree' });
@@ -124,41 +125,7 @@ export function createOutliner(ctx: Ctx): Panel {
     };
 
     /** Right-click menu: acts on the clicked ids (selecting them first unless they are already selected). */
-    function rowMenu(ids: number[]): MenuItem[] {
-        const v = ctx.view();
-        if (!ids.every((i) => v.selection.has(i))) v.select(ids);
-        const hidden = ids.every((i) => v.hiddenIds.has(i));
-        const locked = ids.every((i) => v.lockedIds.has(i));
-        const edit = v.policy.structural;
-        return [
-            { heading: ids.length === 1 ? `Object #${ids[0]}` : `${ids.length} objects` },
-            { label: 'Frame in viewport', icon: 'focus', hint: 'F', run: () => ctx.locate(ids) },
-            { label: 'Select same class', icon: 'select', hint: 'Ctrl+Shift+A', run: () => v.selectSameClass() },
-            { sep: true },
-            {
-                label: hidden ? 'Show' : 'Hide',
-                icon: hidden ? 'eye' : 'eye-off',
-                hint: 'H',
-                run: () => v.setHidden(ids, !hidden),
-            },
-            {
-                label: locked ? 'Unlock' : 'Lock',
-                icon: locked ? 'unlock' : 'lock',
-                hint: 'L',
-                run: () => v.setLocked(ids, !locked),
-            },
-            { sep: true },
-            { label: 'Duplicate', icon: 'copy', hint: 'Ctrl+D', disabled: !edit, run: () => v.duplicateSelected() },
-            {
-                label: 'Delete',
-                icon: 'trash',
-                hint: 'Del',
-                danger: true,
-                disabled: !edit,
-                run: () => v.deleteSelected(),
-            },
-        ];
-    }
+    const rowMenu = (ids: number[]): MenuItem[] => buildObjectMenu(ctx, ids);
 
     function objectRow(o: LevelObject, groupKey: string, siblings: number[]): HTMLElement {
         const v = ctx.view();
@@ -176,6 +143,10 @@ export function createOutliner(ctx: Ctx): Panel {
         row.classList.toggle('locked', locked);
         row.classList.toggle('sel', v.selection.has(o.id));
         row.addEventListener('click', (e) => {
+            if (v.picking) {
+                v.completePick(o.id);
+                return;
+            }
             if (e.shiftKey && lastClicked && lastClicked.group === groupKey) {
                 const a = siblings.indexOf(lastClicked.id);
                 const b = siblings.indexOf(o.id);
@@ -277,7 +248,7 @@ export function createOutliner(ctx: Ctx): Panel {
                 tree,
                 total
                     ? emptyState('search', 'No objects match', 'Clear the search to see every object.')
-                    : emptyState('outliner', 'Nothing to list', 'Open a level to see its objects here.'),
+                    : emptyState('outliner', 'No level open', 'Pick a level to list its objects.'),
             );
             return;
         }

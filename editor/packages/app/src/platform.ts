@@ -157,7 +157,9 @@ export function writeModPack(id: string, files: Record<string, Uint8Array>, ini:
     });
 }
 
-export const launchGame = (env: Record<string, string>): Promise<LaunchInfo> => invoke('game_launch', { env });
+/** `extra`: start one more instance beside the running game (multiplayer tests: a second player joining a host). */
+export const launchGame = (env: Record<string, string>, extra = false): Promise<LaunchInfo> =>
+    invoke('game_launch', { env, extra });
 export const gameRunning = (): Promise<boolean> => invoke('game_running');
 
 // ---- native menu --------------------------------------------------------------------------------------------------------

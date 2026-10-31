@@ -131,6 +131,18 @@ export function buildShell(root: HTMLElement, fsa: boolean): void {
                             disabled: true,
                         }),
                         button('Save', { id: 'sv-save', icon: 'save', kind: 'primary', disabled: true }),
+                        h(
+                            'button',
+                            {
+                                id: 'sv-dock-toggle',
+                                class: 'sv-btn icon',
+                                type: 'button',
+                                title: 'Hide the pending-changes and 3D panel',
+                                'aria-pressed': 'true',
+                            },
+                            icon('dock'),
+                            h('span', { id: 'sv-dock-badge', class: 'sv-dock-badge', hidden: true }, '0'),
+                        ),
                     ),
                 ),
                 h(

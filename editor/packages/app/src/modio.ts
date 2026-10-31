@@ -142,9 +142,10 @@ export async function playInGame(
     pack: LevelPack | null,
     opts: PlayOptions,
     level: string | null,
+    extraEnv: Record<string, string> = {},
 ): Promise<string | null> {
     if (!platform.isDesktop) throw new ModError('Play needs the desktop app.');
-    const env = launchEnv(opts, level); // validate before touching the disk
+    const env = { ...launchEnv(opts, level), ...extraEnv }; // validate before touching the disk
     if (!(await ensureGameFolder())) return null;
     if (await platform.gameRunning()) throw new ModError('The game is already running. Close it first.');
     const where = pack ? await writePackDesktop(pack) : null;

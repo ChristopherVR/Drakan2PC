@@ -257,12 +257,28 @@ All records of a model share its SRSC id.
   (index into the 0x0200 list), u16 index[vertex_count]}`, `u16 0` pad when the polygons end at 2 mod 4, then one `f32 u, v`
   per polygon corner in the same order (0..1, v up). So the PS2 polygon is index-only and the UVs follow as a block; sizes close
   exactly (`4 + 36 n` for triangles only). Quads are rare (NPC and FX boxes).
-* **0x0208 character data [disc partial]**: bounds (64 bytes), `u16 lod_count`, names, nodes (36 bytes) as OpenDrakan, but the
-  PS2 joint block differs (an extra u32 vertex count and 6 more bytes follow the nodes), so the skeleton is not decoded. The LOD
-  table (`{u16 1, f32 distance, u32 usage, u32 node, u32 firstVertex, u32 vertexCount, u32 firstPoly, u32 polyCount}`, 30 bytes
-  each, ranges chain and the polygon counts sum to the total) is found by that signature: unique for 132 of 153 skinned models
-  (the rest fall back to "all triangles"). Rynn: LOD 0 = 1628 vertices / 3068 triangles, LOD 1 = 208 / 387 at distance 2300.
-  Polygon indices are relative to the LOD's first vertex.
+* **0x0208 character data [disc]**: skeleton, skin weights, LOD table, clip list and bounding spheres; all 154 skinned models of the
+  PAL disc decode to the last byte (the 155th record belongs to the RESOURES model 4871 whose 0x0204 does not parse). Parser
+  `formats/src/ootfanim.ts` `parseSkeleton(b, 'ps2')` (layout and the PC differences: `docs/journal/2026-10-31/ootf-animation.md`),
+  playback semantics `formats/src/skeleton.ts` (`buildRig`, `skinVertices`), proof `editor/scripts/anim-probe.ts`:
+  `64 bytes bounds, u16 lod_count, pstr[lod_count-1] LOD names, u16 node_count, nodes {char[32] name, i32 joint (-1 = helper
+  node such as chnr_* / eff_*)}, u32 total_vertices, u16 joint_count, joints {f32 t[3], f32 R[3][3], i32 mesh, i32 first_child,
+  i32 next_sibling, per LOD: u16 n + n x {u32 vertex, f32 weight}}, LOD table (u16 1 + 28 bytes each, as below), u16 n + u32
+  animation ids, channels, spheres`. Facts used for playback **[disc]**:
+  * **Matrices are row-vector** (`v' = v * R + t`), stored translation first. A joint's matrix is the **inverse of its
+    model-relative bind transform** (mesh space to joint space). Local bind = `bind(j) * inverse(bind(parent))`; the local bind
+    translation equals the `base` translation of every unkeyed ADB track of that joint (Rynn: joints 2..5 = 0.03, 0.0345,
+    0.042, 0.0137 in both), which pins the convention. Skinning: `v' = sum_k w_k * (v * invBind_j * world_j)`; with every joint at its
+    bind transform this reproduces the mesh exactly (154 of 154 models, error < 1e-3).
+  * **Weights**: per joint and per LOD, vertex numbers relative to the LOD's first vertex, up to 4 joints per vertex (never
+    more), weights per vertex sum to 1 (one vertex of Rynn's 1628 does not). About 2 percent of vertices (4200 over the disc;
+    Rynn 34: hair tips, eye parts) have no weight at all and ride the root joint (joint 0, identity).
+  * Joint 0 is the model root; the tree is first-child / next-sibling; node 0's joint is 0. Rynn: 125 nodes, 65 joints, 32
+    channels, 499 listed clips. Joint names = the node that points at it (`torso`, `Lhand`, `Rweapon`, `sphere1`).
+  * The animation id list is the clip set of the model; ids resolve in the `.ADB` of the same stem (7746 of 7747 listed clips
+    exist and have one track per joint; the one that does not is a listed id with no ADB entry).
+  Open: the LOD table is still found by signature in `model.ts` (`findCharacterLods`), the channel caps and sphere unknown
+  field are decoded but not interpreted.
 * **0x0207 / 0x0211**: 0x0207 bounds (not used; the editor measures the vertices). 0x0211 is the PS2 display-list copy of the mesh
   (GS/VU1 packets with the same UVs); not decoded and not needed.
 * **Unit [inf]**: model space is in terrain cells (bounds of the Birch tree 3.8 x 4.9 x 3.8, a crate 0.3 x 0.2 x 0.2): multiply
@@ -271,8 +287,7 @@ All records of a model share its SRSC id.
 * **Class -> model [disc]**: ODB 0x0102 body after the name field starts `u16 group, u16 model_id, u16 model_db`; `model_db` 0 is
   the MOD of the same database, else an index into that database's `.DB`. 0 id = no model (triggers, timers). Surdana: 444 of
   538 placed classes have a model.
-* **Open**: three FX polygon tables with 50-byte records (quad variant), RESOURCES model 4871; the 0x0208 joint block and the
-  channel/bone data; what the per-vertex trailer and the 0x20000 float are exactly; polygon flag 0x0f06 on some FX quads.
+* **Open**: three FX polygon tables with 50-byte records (quad variant), RESOURCES model 4871; the channel caps; what the per-vertex trailer and the 0x20000 float are exactly; polygon flag 0x0f06 on some FX quads.
 
 ## 12. Class fields: ODB 0x0102 / 0x0103 (names, types, defaults)
 
@@ -327,7 +342,7 @@ tree, so a stem to file map is enough):
 | 4 model | `.MOD` | 0x0200 (and 0x0203/0x0204 geometry) | name in 0x0200 (`Model.name`), texture count | **[disc]** all 178 non-zero class defaults hit a model |
 | 5 sound | `.SDB` | 0x0302 descriptor + 0x0304 SPU-ADPCM | name and subtitle text in 0x0302 (docs/reference/subtitles.md 3.1), rate at +8 after the name | **[disc]** 1355 of 1355; one `sub` per id (no id has two subs in SYSTEM, NPCS, LEVEL1ON), 0x0302 and 0x0304 subs match |
 | 14 (0x0e) texture | `.TXD` | 0x0040 | no name; header gives size and bpp | **[disc]** 199 of 199 |
-| 9 animation | `.ADB` | 0x0501 header, 0x0502 key data (0x0505 on some) | 0x0501 = `string name, f32 ?, u32 0, u32 frames, ...`; `frames` equals the first u32 of 0x0502 (checked on 3 records) | **[disc]** 2121 of 2126 hit 0x0501+0x0502; 5 class defaults (`Darkness` flight/attack) name an id with no entry |
+| 9 animation | `.ADB` | 0x0501 header, 0x0502 key data (0x0505 on some) | 0x0501 = `pstr name, f32 duration (s), u32 flags, u32 track count, ...`, 0x0502 = per-joint key tracks (see Animation clips below) | **[disc]** 2121 of 2126 hit 0x0501+0x0502; 5 class defaults (`Darkness` flight/attack) name an id with no entry |
 | 11 (0x0b) sequence | `.SSD` | 0x0311 (0x0312 = folder names, 0x0310 = file header) | name = `u16 length, string` at the start of the record ("6.04 Guardian Gate", "pillar stomp"); full layout in section 14 | **[disc]** the `Sequence List` of every placed Stomp Player (cut scene player, runtime class 0x10033) is the SRSC id of a 0x0311 record of the level's own SSD: 84 of 84 over the 14 dumped levels |
 | 8 character channel, 12 layer | none | | not resource ids (`SYSTEM/0` etc. do not resolve in any container) | |
 
@@ -340,8 +355,20 @@ Notes:
   `analysis/scripts/sub_adpcm_wav.py`; the editor plays it through Web Audio.
 * A model's texture refs follow the model container's own `.DB` (db 0 = its own TXD); `scene/decode.ts` `loadModelData` uses
   the class ODB's list instead, which is the same for the shipped data where both name the same stems.
-* No skeleton pose is decoded (section 11, 0x0208 joint block), so an animation cannot be previewed on a model; only its name,
-  frame count and key size are shown.
+* **Animation clips (ADB) [disc]**: 0x0501 = `pstr name (no NUL), f32 duration (seconds), u32 flags (bit 0 = does not loop), u32 track
+  count (one per joint of the model, NOT a frame count), u32 channels, f32 0.2, u32 1, f32, u32 0, f32`; 0x0502 = `u32 tracks,
+  tracks x {u32 key offset, u32 key count, u32 flags, f32 xyz base}, u32 key bytes, keys`. Keys are `{f32 t, f32 qx qy qz qw}` (20 bytes) or, on
+  tracks flagged `0x80000000`, with `f32 x y z` appended (32 bytes). `t` is in seconds (key-reduced, so irregular spacing),
+  `0 .. duration`; there is no frame rate. Rotation is an **absolute parent-relative quaternion** (row matrix = transpose of the
+  textbook one; at rest it equals the joint's local bind rotation); translation is the track's `base` unless the track is keyed,
+  and the root joint's keyed translation is the **root motion** (Rynn run: about 1900 game units per 0.77 s loop; the editor plays
+  in place by default and prints the travel). Interpolation between keys: nlerp along the shortest arc (the engine's own choice was not checked). Decoded: 2512 of 2512 ADB clips in all 19 MOD/ADB pairs; every
+  listed clip fits its model's joint count and poses to finite, bounded vertices except 7 of 30984 samples of two huge-travel clips (root
+  motion over several model units, not an error). Code: `formats/src/anim.ts` (`parseClip`, `sampleClip`, `rootMotion`, `clipTime`).
+* **Class to clips**: Rynn's class lists 219 clips in named fields (`Walk`, `Run`, `Base Idle`, ...) and the model lists 499; the Details
+  "Animation" section offers the class fields first and then every clip of the model, idle by default; the animation picker previews
+  the highlighted clip on the owning class's model (a clip whose track count differs from the model's joint count is reported instead of
+  played; a class without a model borrows the first skinned model of the clip's container with a matching joint count).
 
 ## 13. String tables (XDB) and quest classes (System.ODB)
 

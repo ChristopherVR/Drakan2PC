@@ -35,6 +35,23 @@
     --sv-r-lg: var(--r-lg, 10px);
     --sv-ring: 0 0 0 2px var(--sv-accent-hi);
 
+    /* shared control tokens (components.css) follow the Save palette inside this mode */
+    --surface-1: var(--sv-panel);
+    --surface-2: var(--sv-raised);
+    --surface-3: var(--sv-raised);
+    --surface-4: var(--sv-hover);
+    --field: var(--sv-field);
+    --border: var(--sv-line);
+    --border-strong: var(--sv-line-strong);
+    --fg: var(--sv-ink);
+    --fg-muted: var(--sv-muted);
+    --fg-faint: var(--sv-faint);
+    --accent: var(--sv-accent);
+    --accent-hover: var(--sv-accent-hi);
+    --accent-fg: var(--sv-on-accent);
+    --accent-soft: var(--sv-accent-soft);
+    --focus: var(--sv-accent-hi);
+
     color-scheme: dark;
     display: grid;
     grid-template-columns: minmax(0, 1fr);
@@ -113,7 +130,7 @@
     /* ---------------------------------------------------------------- controls */
 
     .sv-btn,
-    button:not(.sv-tab):not(.slot):not(.sv-pill) {
+    button:not(.sv-tab):not(.slot):not(.sv-pill):not(.ui-dd) {
         display: inline-flex;
         align-items: center;
         justify-content: center;
@@ -133,7 +150,7 @@
             border-color var(--t-fast, 90ms);
     }
     .sv-btn:hover:not(:disabled),
-    button:not(.sv-tab):not(.slot):not(.sv-pill):hover:not(:disabled) {
+    button:not(.sv-tab):not(.slot):not(.sv-pill):not(.ui-dd):hover:not(:disabled) {
         background: var(--sv-hover);
         border-color: var(--sv-faint);
     }
@@ -199,8 +216,10 @@
     input:disabled {
         opacity: 0.5;
     }
-    select {
-        padding-right: 28px;
+    button.ui-dd.ui-dd {
+        height: 32px;
+        padding: 0 10px;
+        border-radius: var(--sv-r);
         max-width: 260px;
     }
     input[type='checkbox'] {
@@ -334,8 +353,8 @@
         display: inline-flex;
         align-items: center;
         height: 18px;
-        padding: 0 7px;
-        border-radius: 9px;
+        padding: 0 6px;
+        border-radius: 3px;
         font-size: 11px;
         font-weight: 600;
         background: var(--sv-raised);
@@ -381,8 +400,8 @@
         align-items: center;
         gap: 6px;
         height: 24px;
-        padding: 0 10px;
-        border-radius: 12px;
+        padding: 0 8px;
+        border-radius: 3px;
         font-size: 12px;
         font-weight: 600;
         white-space: nowrap;
@@ -402,10 +421,10 @@
         display: flex;
         align-items: center;
         gap: 14px;
-        min-height: 60px;
+        min-height: 48px;
         padding: 0 18px;
         background: var(--sv-shell);
-        border-bottom: 2px solid var(--sv-accent);
+        border-bottom: 1px solid var(--sv-line);
     }
     .sv-brand {
         display: flex;
@@ -417,11 +436,11 @@
     .sv-brand-mark {
         display: grid;
         place-items: center;
-        width: 34px;
-        height: 34px;
-        border-radius: 8px;
-        background: var(--sv-accent);
-        color: var(--sv-on-accent);
+        width: 28px;
+        height: 28px;
+        border-radius: var(--sv-r);
+        background: var(--sv-raised);
+        color: var(--sv-accent);
     }
     .sv-brand b {
         display: block;
@@ -495,7 +514,7 @@
         background: var(--sv-raised);
         border: 1px solid var(--sv-line-strong);
         border-left: 4px solid var(--sv-ok);
-        box-shadow: 0 10px 30px rgb(0 0 0 / 0.5);
+        box-shadow: 0 6px 18px rgb(0 0 0 / 0.4);
         z-index: 20;
         animation: sv-pop 160ms ease-out;
     }
@@ -795,12 +814,8 @@
     .sv-empty-ico {
         display: grid;
         place-items: center;
-        width: 56px;
-        height: 56px;
-        margin-bottom: 6px;
-        border-radius: 50%;
-        background: var(--sv-raised);
-        color: var(--sv-accent);
+        margin-bottom: 4px;
+        color: var(--sv-faint);
     }
     .sv-empty h3 {
         font-size: 15px;
@@ -869,16 +884,14 @@
         padding: 18px;
         border: 1px solid var(--sv-line);
         border-radius: var(--sv-r-lg);
-        background: linear-gradient(135deg, var(--sv-raised), var(--sv-panel) 55%);
+        background: var(--sv-panel);
     }
     .sv-portrait {
         aspect-ratio: 4 / 3;
         border-radius: var(--sv-r-lg);
         overflow: hidden;
         background: var(--sv-field);
-        box-shadow:
-            0 0 0 1px var(--sv-line-strong),
-            0 8px 20px rgb(0 0 0 / 0.35);
+        box-shadow: 0 0 0 1px var(--sv-line-strong);
     }
     .sv-portrait canvas,
     .sv-portrait .sv-shot {
@@ -1354,7 +1367,7 @@
         padding: 5px;
         border: 1px solid var(--sv-line-strong);
         border-radius: var(--sv-r);
-        background: linear-gradient(180deg, var(--sv-raised), var(--sv-panel));
+        background: var(--sv-raised);
         color: var(--sv-ink);
         font: inherit;
         overflow: hidden;
@@ -1372,7 +1385,6 @@
     }
     .slot.item.sel {
         border-color: var(--sv-accent-hi);
-        box-shadow: 0 0 0 2px var(--sv-accent-soft);
         background: var(--sv-accent-soft);
     }
     .slot.eq::after {
@@ -1393,7 +1405,6 @@
         max-width: 100%;
         max-height: 100%;
         object-fit: contain;
-        filter: drop-shadow(0 3px 4px rgb(0 0 0 / 0.5));
     }
     .slot .art .ph {
         display: grid;
@@ -1927,5 +1938,45 @@
     #save-main.sv * {
         transition: none !important;
         animation: none !important;
+    }
+}
+
+/* ------------------------------------------------------------------ collapsible right dock */
+
+#save-main.sv .sv-work.dock-hidden {
+    grid-template-columns: 290px minmax(0, 1fr);
+}
+#save-main.sv .sv-work.dock-hidden .sv-dock {
+    display: none;
+}
+#save-main.sv #sv-dock-toggle {
+    position: relative;
+}
+#save-main.sv #sv-dock-toggle[aria-pressed='true'] {
+    color: var(--sv-accent);
+}
+#save-main.sv .sv-dock-badge {
+    position: absolute;
+    top: -6px;
+    right: -6px;
+    min-width: 16px;
+    height: 16px;
+    padding: 0 4px;
+    border-radius: 8px;
+    background: var(--sv-accent);
+    color: var(--sv-bg, #111);
+    font-size: 10px;
+    font-weight: 700;
+    line-height: 16px;
+    text-align: center;
+}
+@media (max-width: 1360px) {
+    #save-main.sv .sv-work.dock-hidden {
+        grid-template-columns: 250px minmax(0, 1fr);
+    }
+}
+@media (max-width: 1000px) {
+    #save-main.sv .sv-work.dock-hidden {
+        grid-template-columns: minmax(0, 1fr);
     }
 }

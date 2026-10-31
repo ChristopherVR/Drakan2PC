@@ -4,7 +4,8 @@
  * Nothing here depends on the Level shell, so Save mode can use the `ui-*` names directly.
  *
  *   buttons     .ui-btn (.primary .play .danger .ghost .sm)   .ui-tool (icon button, .active)   .ui-tool.wide
- *   fields      .ui-input  .ui-search  .ui-select  .ui-number (.scrub.axX/.axY/.axZ)  .ui-check  .ui-toggle
+ *   fields      .ui-input  .ui-search  .ui-dd (every <select>, editor/dropdown.ts)  .ui-number (.scrub.axX/Y/Z)
+ *               checkbox / radio / range (drawn globally)  .ui-check (label + box)  .ui-switch  .ui-seg
  *   structure   .ui-tabs > .ui-tab   .ui-panel-head   .ui-section (.ui-section-head)   .ui-splitter
  *               .ui-row (tree / list row, .sel)   .ui-prop (label + control)   .ui-group (labelled card)
  *   feedback    .ui-menu (.ui-menu-item .ui-menu-label .ui-menu-sep)   .ui-toast   .ui-empty   .ui-chip   .ui-badge
@@ -45,7 +46,7 @@
     display: inline-block;
     width: 8px;
     height: 8px;
-    border-radius: 2px;
+    border-radius: var(--r-xs);
     flex: none;
     background: var(--fg-faint);
 }
@@ -55,13 +56,6 @@
 :focus-visible {
     outline: none;
     box-shadow: var(--ring);
-}
-input[type='range']:focus-visible,
-input[type='checkbox']:focus-visible,
-input[type='radio']:focus-visible {
-    box-shadow: none;
-    outline: 2px solid var(--focus);
-    outline-offset: 2px;
 }
 
 /* ---- buttons ---- */
@@ -134,8 +128,8 @@ input[type='radio']:focus-visible {
     align-items: center;
     justify-content: center;
     gap: var(--sp-3);
-    height: 28px;
-    min-width: 28px;
+    height: var(--h-tool);
+    min-width: var(--h-tool);
     padding: 0 var(--sp-3);
     background: transparent;
     color: var(--fg-muted);
@@ -178,14 +172,12 @@ input[type='radio']:focus-visible {
 }
 
 /* ---- fields ---- */
+/* Text, search and number inputs share one well: same height, padding, border and focus as the dropdown trigger. */
 .ui-input,
-.ui-select,
 #level-main input[type='search'],
 #level-main input[type='text'],
-#level-main input.num,
-#level-main select.levelpick,
-#level-main select.mini,
-#level-main .popover select {
+#level-main input[type='number'],
+#level-main input.num {
     height: var(--h-ctl);
     min-width: 0;
     padding: 0 var(--sp-3);
@@ -195,34 +187,54 @@ input[type='radio']:focus-visible {
     border-radius: var(--r-sm);
     font: inherit;
 }
-.ui-input:hover,
-.ui-select:hover,
-#level-main input[type='search']:hover,
-#level-main input[type='text']:hover,
-#level-main select.levelpick:hover,
-#level-main select.mini:hover {
+.ui-input:hover:not(:disabled),
+#level-main input[type='search']:hover:not(:disabled),
+#level-main input[type='text']:hover:not(:disabled),
+#level-main input[type='number']:hover:not(:disabled) {
     border-color: var(--fg-faint);
 }
 .ui-input:focus,
-.ui-select:focus,
-#level-main input:focus,
-#level-main select:focus {
+#level-main input:focus {
     outline: none;
     border-color: var(--accent);
     box-shadow: none;
 }
 .ui-input::placeholder,
-#level-main input::placeholder {
+input::placeholder,
+textarea::placeholder {
     color: var(--fg-faint);
+    opacity: 1;
 }
-.ui-select,
-#level-main select.levelpick,
-#level-main select.mini,
-#level-main .popover select {
-    padding-right: var(--sp-2);
+input:disabled,
+textarea:disabled {
+    opacity: 0.5;
+    cursor: default;
+}
+input[aria-invalid='true'],
+.ui-input.invalid {
+    border-color: var(--bad) !important;
+}
+/* Number inputs never show the browser's spin arrows; values are typed or scrubbed. */
+input[type='number'] {
+    -moz-appearance: textfield;
+    appearance: textfield;
+}
+input[type='number']::-webkit-inner-spin-button,
+input[type='number']::-webkit-outer-spin-button {
+    -webkit-appearance: none;
+    margin: 0;
+}
+input[type='search']::-webkit-search-cancel-button {
+    -webkit-appearance: none;
+    width: 12px;
+    height: 12px;
+    margin-left: var(--sp-2);
+    background: var(--fg-faint);
     cursor: pointer;
+    -webkit-mask: var(--mask-x) center / 10px no-repeat;
+    mask: var(--mask-x) center / 10px no-repeat;
 }
-/* Search field: icon inside, clear on the native cancel button. */
+/* Search field: magnifier inside, same corner radius as every other field. */
 .ui-search {
     position: relative;
     display: flex;
@@ -237,12 +249,354 @@ input[type='radio']:focus-visible {
 }
 .ui-search > input {
     width: 100%;
-    padding-left: 24px !important;
-    border-radius: 12px !important;
+    padding-left: 22px !important;
+}
+
+/* Dropdown (editor/dropdown.ts): every <select> is upgraded to this trigger + listbox. */
+.ui-dd-native {
+    position: absolute !important;
+    width: 1px !important;
+    height: 1px !important;
+    min-width: 0 !important;
+    margin: -1px !important;
+    padding: 0 !important;
+    border: 0 !important;
+    opacity: 0;
+    overflow: hidden;
+    clip-path: inset(50%);
+    pointer-events: none;
+}
+button.ui-dd.ui-dd {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--sp-3);
+    height: var(--h-ctl);
+    min-width: min(calc(var(--dd-w, 0px) + 40px), 240px);
+    flex-shrink: 0;
+    max-width: 100%;
+    padding: 0 var(--sp-3) 0 var(--sp-4);
+    background: var(--field);
+    color: var(--fg);
+    border: 1px solid var(--border-strong);
+    border-radius: var(--r-sm);
+    font: inherit;
+    font-weight: 400;
+    text-align: left;
+    line-height: 1;
+    cursor: pointer;
+    box-shadow: none;
+    transition: border-color var(--t-fast);
+}
+button.ui-dd.ui-dd[hidden] {
+    display: none;
+}
+button.ui-dd.ui-dd:hover:not(:disabled) {
+    background: var(--field);
+    border-color: var(--fg-faint);
+}
+button.ui-dd.ui-dd:focus-visible,
+button.ui-dd.ui-dd.open {
+    border-color: var(--accent);
+    box-shadow: none;
+    outline: none;
+}
+button.ui-dd.ui-dd:disabled {
+    opacity: 0.5;
+    cursor: default;
+}
+button.ui-dd.ui-dd[aria-invalid='true'] {
+    border-color: var(--bad);
+}
+.ui-dd-value {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    line-height: normal;
+}
+.ui-dd-value.placeholder {
+    color: var(--fg-faint);
+}
+.ui-dd > .ico {
+    flex: none;
+    color: var(--fg-muted);
+    transition: transform var(--t-fast);
+}
+.ui-dd.open > .ico {
+    transform: rotate(180deg);
+}
+.ui-dd-pop {
+    position: fixed;
+    z-index: 95;
+    display: flex;
+    flex-direction: column;
+    min-width: 120px;
+    background: var(--surface-2);
+    border-radius: var(--r-sm);
+    box-shadow: var(--shadow-pop);
+    overflow: hidden;
+    font: var(--fs-sm) / var(--lh) var(--font);
+    color: var(--fg);
+}
+.ui-dd-searchrow {
+    position: relative;
+    display: flex;
+    align-items: center;
+    flex: none;
+    padding: var(--sp-2);
+    border-bottom: 1px solid var(--border);
+}
+.ui-dd-searchrow > .ico {
+    position: absolute;
+    left: calc(var(--sp-2) + 7px);
+    color: var(--fg-faint);
+    pointer-events: none;
+}
+input.ui-dd-search {
+    width: 100%;
+    height: var(--h-ctl-sm);
+    padding: 0 var(--sp-3) 0 22px;
+    background: var(--field);
+    color: var(--fg);
+    border: 1px solid var(--border-strong);
+    border-radius: var(--r-sm);
+    font: inherit;
+}
+input.ui-dd-search:focus {
+    outline: none;
+    border-color: var(--accent);
+}
+.ui-dd-list {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    padding: var(--sp-2) 0;
+    outline: none;
+}
+.ui-dd-list:focus-visible {
+    box-shadow: none;
+}
+.ui-dd-opt {
+    display: flex;
+    align-items: center;
+    gap: var(--sp-2);
+    height: var(--h-row);
+    padding: 0 var(--sp-5) 0 var(--sp-2);
+    white-space: nowrap;
+    cursor: default;
+}
+.ui-dd-opt[hidden],
+.ui-dd-group[hidden],
+.ui-dd-empty[hidden] {
+    display: none;
+}
+.ui-dd-opt.active {
+    background: var(--accent);
+    color: var(--accent-fg);
+}
+.ui-dd-opt[aria-selected='true']:not(.active) {
+    color: var(--accent-hover);
+}
+.ui-dd-opt[aria-disabled='true'] {
+    color: var(--fg-faint);
+}
+.ui-dd-check {
+    display: inline-flex;
+    justify-content: center;
+    width: 16px;
+    flex: none;
+}
+.ui-dd-label {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.ui-dd-group {
+    padding: var(--sp-3) var(--sp-4) var(--sp-1) 22px;
+    color: var(--fg-faint);
+    font-size: var(--fs-xs);
+    font-weight: 600;
+}
+.ui-dd-empty {
+    padding: var(--sp-4) var(--sp-5);
+    color: var(--fg-muted);
+}
+
+/* Checkbox and radio: drawn, not native, so they match the fields in both themes. */
+input[type='checkbox'],
+input[type='radio'] {
+    -webkit-appearance: none;
+    appearance: none;
+    position: relative;
+    flex: none;
+    width: 14px;
+    height: 14px;
+    margin: 0;
+    padding: 0;
+    background: var(--field);
+    border: 1px solid var(--border-strong);
+    border-radius: var(--r-xs);
+    vertical-align: -2px;
+    cursor: pointer;
+    transition:
+        background var(--t-fast),
+        border-color var(--t-fast);
+}
+input[type='radio'] {
+    border-radius: 50%;
+}
+input[type='checkbox']:hover:not(:disabled),
+input[type='radio']:hover:not(:disabled) {
+    border-color: var(--fg-faint);
+}
+input[type='checkbox']:checked,
+input[type='checkbox']:indeterminate,
+input[type='radio']:checked {
+    background: var(--accent);
+    border-color: var(--accent);
+}
+input[type='checkbox']:checked::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: var(--accent-fg);
+    -webkit-mask: var(--mask-check) center / 10px no-repeat;
+    mask: var(--mask-check) center / 10px no-repeat;
+}
+input[type='checkbox']:indeterminate::after {
+    content: '';
+    position: absolute;
+    inset: 5px 2px;
+    border-radius: var(--r-xs);
+    background: var(--accent-fg);
+}
+input[type='radio']:checked::after {
+    content: '';
+    position: absolute;
+    inset: 3px;
+    border-radius: 50%;
+    background: var(--accent-fg);
+}
+input[type='checkbox']:disabled,
+input[type='radio']:disabled {
+    opacity: 0.45;
+    cursor: default;
+}
+input[type='checkbox']:focus-visible,
+input[type='radio']:focus-visible {
+    box-shadow: var(--ring);
+    outline: none;
 }
 .ui-check,
-.ui-toggle {
-    accent-color: var(--accent);
+.check {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--sp-3);
+    color: var(--fg);
+    cursor: pointer;
+    white-space: nowrap;
+}
+
+/* Range slider: thin track, square thumb. */
+input[type='range'] {
+    -webkit-appearance: none;
+    appearance: none;
+    height: 16px;
+    margin: 0;
+    padding: 0;
+    background: transparent;
+    cursor: pointer;
+}
+input[type='range']::-webkit-slider-runnable-track {
+    height: 4px;
+    border-radius: var(--r-xs);
+    /* filled part: --fill is kept up to date by installControls() (editor/ui.ts) */
+    background:
+        linear-gradient(var(--accent), var(--accent)) 0 / var(--fill, 0%) 100% no-repeat,
+        var(--surface-4);
+}
+input[type='range']::-moz-range-track {
+    height: 4px;
+    border-radius: var(--r-xs);
+    background: var(--surface-4);
+}
+input[type='range']::-moz-range-progress {
+    height: 4px;
+    border-radius: var(--r-xs);
+    background: var(--accent);
+}
+input[type='range']::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    width: 10px;
+    height: 14px;
+    margin-top: -5px;
+    border-radius: var(--r-xs);
+    background: var(--fg-muted);
+    border: 0;
+}
+input[type='range']::-moz-range-thumb {
+    width: 10px;
+    height: 14px;
+    border-radius: var(--r-xs);
+    background: var(--fg-muted);
+    border: 0;
+}
+input[type='range']:hover:not(:disabled)::-webkit-slider-thumb {
+    background: var(--fg);
+}
+input[type='range']:active::-webkit-slider-thumb {
+    background: var(--accent);
+}
+input[type='range']:focus-visible {
+    box-shadow: none;
+    outline: none;
+}
+input[type='range']:focus-visible::-webkit-slider-thumb {
+    box-shadow: var(--ring);
+}
+input[type='range']:disabled {
+    opacity: 0.45;
+    cursor: default;
+}
+
+/* Segmented control (.ui-seg > .ui-seg-btn; the Level shell's .seg / .seg-btn are the same thing). */
+.ui-seg,
+.seg {
+    display: inline-flex;
+    align-items: stretch;
+    height: var(--h-ctl);
+    padding: 1px;
+    gap: 1px;
+    background: var(--field);
+    border: 1px solid var(--border-strong);
+    border-radius: var(--r-sm);
+}
+.ui-seg-btn,
+.seg-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: var(--sp-2);
+    height: auto;
+    padding: 0 var(--sp-4);
+    background: none;
+    border: 0;
+    border-radius: var(--r-xs);
+    color: var(--fg-muted);
+    font: inherit;
+    white-space: nowrap;
+    cursor: pointer;
+}
+.ui-seg-btn:hover:not(.active),
+.seg-btn:hover:not(.active) {
+    color: var(--fg);
+    background: var(--surface-3);
+}
+.ui-seg-btn.active,
+.seg-btn.active {
+    background: var(--surface-4);
+    color: var(--fg);
 }
 
 /* Number field with a scrub handle (drag the label to change the value). */
@@ -313,7 +667,7 @@ input[type='radio']:focus-visible {
     position: relative;
     width: 28px;
     height: 16px;
-    border-radius: 8px;
+    border-radius: var(--r-lg);
     background: var(--surface-4);
     border: 1px solid var(--border-strong);
     cursor: pointer;
@@ -454,8 +808,8 @@ input[type='radio']:focus-visible {
 .badge-n {
     min-width: 16px;
     height: 15px;
-    padding: 0 5px;
-    border-radius: 8px;
+    padding: 0 4px;
+    border-radius: var(--r-sm);
     background: var(--surface-4);
     color: var(--fg);
     font-size: var(--fs-2xs);
@@ -481,7 +835,7 @@ input[type='radio']:focus-visible {
     padding: 0 var(--sp-4);
     background: var(--surface-2);
     border: 1px solid var(--border-strong);
-    border-radius: 11px;
+    border-radius: var(--r-sm);
     color: var(--fg-muted);
     font: inherit;
     cursor: pointer;
@@ -561,7 +915,7 @@ input[type='radio']:focus-visible {
 .ui-prop,
 .ifield {
     display: grid;
-    grid-template-columns: minmax(70px, 42%) minmax(0, 1fr) auto;
+    grid-template-columns: minmax(70px, 46%) minmax(0, 1fr) auto;
     align-items: center;
     gap: var(--sp-3);
     min-height: 26px;
@@ -763,4 +1117,13 @@ input[type='radio']:focus-visible {
 .mp-tab {
     flex: 0 0 auto;
     white-space: nowrap;
+}
+
+/* Dropdowns that fill a form cell may shrink below their longest option. */
+.ui-dd.mp-text,
+.ui-dd.rp-scope,
+.ifield .ui-dd,
+.ui-prop .ui-dd {
+    min-width: 0 !important;
+    flex-shrink: 1 !important;
 }

@@ -27,7 +27,7 @@ export interface ItemCatalog {
      * Class id and ODB name of every class in Resources.ODB, with the game's own name for it (Resources.XDB string
      * `DisplayName`, in the disc's language) and its shop price when the class has them.
      */
-    classes: { classId: number; name: string; displayName?: string; price?: number }[];
+    classes: { classId: number; name: string; displayName?: string; price?: number; facts?: string[] }[];
 }
 
 interface Context {
@@ -76,6 +76,37 @@ function context(fs: Iso9660, language: string): Promise<Context | null> {
     return (ctx ??= findContext(fs, language));
 }
 
+const FACT_FIELDS: [string, string, (v: number) => string][] = [
+    ['Damage Maximum', 'Damage', (v) => `up to ${v}`],
+    ['Weapon Speed', 'Speed', (v) => String(Number(v.toFixed(2)))],
+    ['Health Boost', 'Restores health', (v) => String(v)],
+    ['Total Durability Points', 'Durability', (v) => String(v)],
+    ['Skill Level', 'Needs skill level', (v) => String(v)],
+    ['Icon Slot Size (1-3)', 'Inventory cells', (v) => String(v)],
+];
+
+/**
+ * The game has no item description text (Resources.XDB holds names only), so the tooltip is built from the class
+ * fields that say what the item does. Floats are stored as raw bits and read back with `classFieldDefault`.
+ */
+function itemFacts(k: Parameters<typeof classFieldDefault>[0], at: (name: string) => number): string[] {
+    const out: string[] = [];
+    for (const [field, label, fmt] of FACT_FIELDS) {
+        const i = at(field);
+        if (i < 0) continue;
+        const v = Number(classFieldDefault(k, i));
+        // 0xffffffff durability means "never breaks"; 0 means the field is unused.
+        if (!Number.isFinite(v) || v === 0) continue;
+        if (field === 'Total Durability Points' && (v < 0 || v > 1e6)) {
+            out.push('Durability: unbreakable');
+            continue;
+        }
+        out.push(`${label}: ${fmt(v)}`);
+    }
+    if (at('Droppable?') >= 0 && Number(classFieldDefault(k, at('Droppable?'))) === 0) out.push('Cannot be dropped');
+    return out;
+}
+
 export function loadItemCatalog(fs: Iso9660, language: string): Promise<ItemCatalog> {
     return (catalog ??= (async () => {
         const c = await context(fs, language);
@@ -98,8 +129,10 @@ export function loadItemCatalog(fs: Iso9660, language: string): Promise<ItemCata
                     // The dword is the string id itself (a level object parameter would hold an offset/length pair).
                     const text = strings && iName >= 0 ? xdbText(strings, k.data![iName]! & 0xffff, slot) : '';
                     const price = iPrice >= 0 ? Number(classFieldDefault(k, iPrice)) : NaN;
+                    const facts = itemFacts(k, (n) => at(n));
                     return {
                         classId: k.id,
+                        ...(facts.length ? { facts } : {}),
                         name: k.name,
                         ...(text ? { displayName: text } : {}),
                         ...(price > 0 ? { price } : {}),

@@ -103,7 +103,7 @@ export function createDialoguePanel(session: ContentSession, meta: () => ModMeta
     };
 
     function visibleLines(): DialogLine[] {
-        const all = session.story?.lines ?? [];
+        const all = session.lines();
         if (!state.q) return all;
         return all.filter((l) => {
             const r = refParts(session.lineSound(l.classId, 0));
@@ -137,7 +137,11 @@ export function createDialoguePanel(session: ContentSession, meta: () => ModMeta
                     h('span', { class: 'story-id' }, String(l.classId)),
                     h('span', { class: 'story-title' }, l.speaker),
                     h('span', { class: 'story-text' }, lineText(l) || soundLabel(session, l.sounds[0] ?? 0)),
-                    edited ? h('span', { class: 'story-tag warn' }, 'edited') : null,
+                    session.lineIsNew(l.classId)
+                        ? h('span', { class: 'story-tag warn' }, 'new')
+                        : edited
+                          ? h('span', { class: 'story-tag warn' }, 'edited')
+                          : null,
                 );
             });
             fill(list, ...(rows.length ? rows : [h('div', { class: 'story-empty' }, 'No dialogue lines match.')]));
@@ -164,8 +168,9 @@ export function createDialoguePanel(session: ContentSession, meta: () => ModMeta
                               h(
                                   'span',
                                   { class: 'story-text' },
-                                  `${x.phases.reduce((n, p) => n + p.lines.length, 0)} lines`,
+                                  `${HANDLER_PHASES.reduce((n, p) => n + session.phaseLines(x.classId, p.key).length, 0)} lines`,
                               ),
+                              session.phaseEdited(x.classId) ? h('span', { class: 'story-tag warn' }, 'edited') : null,
                           ),
                       )
                     : [h('div', { class: 'story-empty' }, 'No conversation handler classes in this level folder.')]),
@@ -211,6 +216,7 @@ export function createDialoguePanel(session: ContentSession, meta: () => ModMeta
                 min: 0,
                 max: 65535,
                 'aria-label': `Sound id ${i + 1}`,
+                ...(session.lineIsNew(l.classId) && i > 0 ? { disabled: true } : {}),
                 onchange: (e: Event) =>
                     session.setLineSound(
                         l.classId,
@@ -247,6 +253,7 @@ export function createDialoguePanel(session: ContentSession, meta: () => ModMeta
                 out.push(h('div', { class: 'story-warn' }, `Sound ${id} is not in ${story.files.sdb}.`));
             }
         });
+        out.push(newLineForm(l));
         out.push(
             h(
                 'div',
@@ -272,35 +279,86 @@ export function createDialoguePanel(session: ContentSession, meta: () => ModMeta
         return out;
     }
 
-    function pageSummary(id: number): string {
-        const pg = splitSubtitlePages(session.text(id));
-        if (pg.length < 2) return '';
-        return `${pg.length} pages: ${pg.map((p, i) => (i < pg.length - 1 ? `${p.delay}s` : 'end')).join(' / ')}  (a backslash and seconds, \\.9, starts the next page)`;
+    /** "New line from this one": copies the class (animation, camera, play mode) under a new name with another sound. */
+    function newLineForm(l: DialogLine): HTMLElement {
+        const name = h('input', {
+            type: 'text',
+            class: 'story-search',
+            value: `${l.speaker} - NEW${String((session.story?.lines.length ?? 0) + 1).padStart(3, '0')}`,
+            'aria-label': 'Name of the new line',
+            title: 'Class name, Speaker - SOUNDNAME',
+        });
+        const snd = h('input', {
+            type: 'number',
+            class: 'dlg-num',
+            min: 1,
+            max: 65535,
+            value: refParts(session.lineSound(l.classId, 0)).id,
+            'aria-label': 'Sound id of the new line',
+            title: 'A sound of this level folder SDB (new recordings cannot be added)',
+        });
+        const add = h(
+            'button',
+            {
+                class: 'btn',
+                type: 'button',
+                title: 'Add a new dialog line class that copies this one (exported as a new class in the level ODB)',
+                onclick: () => {
+                    try {
+                        const id = session.addLine(l.classId, name.value, Number(snd.value) >>> 0);
+                        state.line = id;
+                        renderAll();
+                        session.host.status(`New dialog line class ${id}. Add it to a conversation phase to use it.`);
+                    } catch (e) {
+                        session.host.status(e instanceof Error ? e.message : String(e), true);
+                    }
+                },
+            },
+            'New line from this one',
+        );
+        const rm = session.lineIsNew(l.classId)
+            ? h(
+                  'button',
+                  {
+                      class: 'btn',
+                      type: 'button',
+                      onclick: () => {
+                          session.removeNewLine(l.classId);
+                          state.line = 0;
+                          renderAll();
+                      },
+                  },
+                  'Remove this new line',
+              )
+            : null;
+        return h('div', { class: 'dlg-new' }, name, snd, add, rm);
     }
 
-    function handlerDetail(x: ConversationHandler): HTMLElement[] {
+    /** One editable phase: lines in play order with move / remove, and an add row. */
+    function phaseEditor(x: ConversationHandler, i: number): HTMLElement[] {
         const story = session.story!;
+        const key = HANDLER_PHASES[i]!.key;
+        const refs = session.phaseLines(x.classId, key);
+        const set = (next: number[]): void => session.setPhaseLines(x.classId, key, next);
+        const p = x.phases[i]!;
         const out: HTMLElement[] = [
-            h('div', { class: 'story-title' }, x.name),
             h(
                 'div',
-                { class: 'dim' },
-                `Class ${x.classId} - starts ${x.initiallyActive ? 'active' : 'inactive'} - talks within ${x.distance.toFixed(1)} - ${x.hasQuest ? 'has a quest' : 'no quest'}${x.goldOnComplete ? ` - ${x.goldOnComplete} gold on completion` : ''}`,
+                { class: 'story-group' },
+                `${HANDLER_PHASES[i]!.label}${p.message ? ` - sends message ${p.message}` : ''}`,
+                session.phaseEdited(x.classId, key) ? h('span', { class: 'story-tag warn' }, 'edited') : null,
             ),
         ];
-        x.phases.forEach((p, i) => {
-            if (!p.lines.length && !p.message) return;
+        const all = session.lines();
+        refs.forEach((ref, k) => {
+            const cid = ref & 0xffff;
+            const l = all.find((y) => y.classId === cid);
+            const btn = (label: string, title: string, fn: () => void, disabled = false): HTMLElement =>
+                h('button', { class: 'btn', type: 'button', title, disabled, 'aria-label': title, onclick: fn }, label);
             out.push(
                 h(
                     'div',
-                    { class: 'story-group' },
-                    `${HANDLER_PHASES[i]!.label}${p.message ? ` - sends message ${p.message}` : ''}`,
-                ),
-            );
-            for (const ref of p.lines) {
-                const cid = ref & 0xffff;
-                const l = story.lines.find((y) => y.classId === cid);
-                out.push(
+                    { class: 'dlg-phase-row' },
                     h(
                         'button',
                         {
@@ -320,10 +378,87 @@ export function createDialoguePanel(session: ContentSession, meta: () => ModMeta
                             { class: 'story-text' },
                             l ? lineText(l) || soundLabel(session, l.sounds[0] ?? 0) : 'missing class',
                         ),
+                        session.lineIsNew(cid) ? h('span', { class: 'story-tag warn' }, 'new') : null,
                     ),
-                );
-            }
+                    btn(
+                        'Up',
+                        'Move up',
+                        () => {
+                            const n = [...refs];
+                            [n[k - 1], n[k]] = [n[k]!, n[k - 1]!];
+                            set(n);
+                        },
+                        k === 0,
+                    ),
+                    btn(
+                        'Down',
+                        'Move down',
+                        () => {
+                            const n = [...refs];
+                            [n[k + 1], n[k]] = [n[k]!, n[k + 1]!];
+                            set(n);
+                        },
+                        k === refs.length - 1,
+                    ),
+                    btn('Remove', 'Remove from this phase', () => set(refs.filter((_, j) => j !== k))),
+                ),
+            );
         });
+        if (!refs.length) out.push(h('div', { class: 'dim' }, 'No lines in this phase.'));
+        const pick = h(
+            'select',
+            { class: 'story-sel', 'aria-label': `Line to add to ${HANDLER_PHASES[i]!.label}` },
+            ...all.map((y) => h('option', { value: String(y.classId) }, `${y.classId} ${y.name}`.slice(0, 80))),
+        );
+        out.push(
+            h(
+                'div',
+                { class: 'dlg-new' },
+                pick,
+                h(
+                    'button',
+                    {
+                        class: 'btn',
+                        type: 'button',
+                        disabled: !all.length,
+                        onclick: () => {
+                            const id = Number(pick.value);
+                            if (id) set([...refs, id]);
+                        },
+                    },
+                    'Add line',
+                ),
+            ),
+        );
+        void story;
+        return out;
+    }
+
+    function pageSummary(id: number): string {
+        const pg = splitSubtitlePages(session.text(id));
+        if (pg.length < 2) return '';
+        return `${pg.length} pages: ${pg.map((p, i) => (i < pg.length - 1 ? `${p.delay}s` : 'end')).join(' / ')}  (a backslash and seconds, \\.9, starts the next page)`;
+    }
+
+    function handlerDetail(x: ConversationHandler): HTMLElement[] {
+        const story = session.story!;
+        const out: HTMLElement[] = [
+            h('div', { class: 'story-title' }, x.name),
+            h(
+                'div',
+                { class: 'dim' },
+                `Class ${x.classId} - starts ${x.initiallyActive ? 'active' : 'inactive'} - talks within ${x.distance.toFixed(1)} - ${x.hasQuest ? 'has a quest' : 'no quest'}${x.goldOnComplete ? ` - ${x.goldOnComplete} gold on completion` : ''}`,
+            ),
+        ];
+        for (let i = 0; i < HANDLER_PHASES.length; i++) out.push(...phaseEditor(x, i));
+        if (session.phaseEdited(x.classId))
+            out.push(
+                h(
+                    'button',
+                    { class: 'btn', type: 'button', onclick: () => session.revertPhases(x.classId) },
+                    'Revert phase edits',
+                ),
+            );
         out.push(
             h(
                 'div',
@@ -352,7 +487,8 @@ export function createDialoguePanel(session: ContentSession, meta: () => ModMeta
         const story = session.story;
         if (!story) return fill(detail);
         if (state.mode === 'lines') {
-            const l = story.lines.find((x) => x.classId === state.line) ?? story.lines[0];
+            const all = session.lines();
+            const l = all.find((x) => x.classId === state.line) ?? all[0];
             if (!l) return fill(detail, h('div', { class: 'story-empty' }, 'This level folder has no dialogue lines.'));
             state.line = l.classId;
             return fill(detail, ...lineDetail(l));
@@ -370,7 +506,7 @@ export function createDialoguePanel(session: ContentSession, meta: () => ModMeta
         }
         if (session.stem) stemSel.value = session.stem;
         info.textContent = s
-            ? `${s.lines.length} lines, ${s.handlers.length} handler classes, ${session.count()} edit${session.count() === 1 ? '' : 's'}`
+            ? `${session.lines().length} lines, ${s.handlers.length} handler classes, ${session.count()} edit${session.count() === 1 ? '' : 's'}`
             : '';
         renderList();
         renderDetail();

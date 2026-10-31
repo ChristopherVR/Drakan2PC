@@ -1,5 +1,5 @@
 import { groupCatalog, searchCatalog, type AssetClass, type AssetIcon } from '@drakan/editor-core';
-import { KINDS } from '../level.ts';
+import { KINDS, KIND_HINT } from '../level.ts';
 import type { Ctx, Panel } from './ctx.ts';
 import { attachAssetDrag, dragState } from './assetdrag.ts';
 import { fill, h, hex, icon, raf, store } from './dom.ts';
@@ -62,7 +62,7 @@ export function createAssets(ctx: Ctx): AssetsPanel {
     const collapsed = new Set<string>(store.json<string[]>('assets-collapsed', []));
     const showAll = new Set<string>();
 
-    const searchBox = searchField('Search classes by name, group or id', 'Search classes');
+    const searchBox = searchField('Search classes', 'Search classes by name, group or id');
     const search = searchBox.input;
     const info = h('span', { class: 'dim cb-info' });
     const size = h('input', {
@@ -244,6 +244,14 @@ export function createAssets(ctx: Ctx): AssetsPanel {
         return b;
     }
 
+    /** `db:STEM` or `db:STEM/kind`: a container, or the classes of one kind inside it. */
+    const parseDb = (f: string): { db: string; kind: string | null } | null => {
+        if (!f.startsWith('db:')) return null;
+        const [db, kind] = f.slice(3).split('/');
+        return { db: db!, kind: kind ?? null };
+    };
+    const openDbs = new Set<string>();
+
     function buildTree(all: AssetClass[]): void {
         const dbs = new Map<string, number>();
         for (const c of all) dbs.set(c.db, (dbs.get(c.db) ?? 0) + 1);
@@ -254,8 +262,40 @@ export function createAssets(ctx: Ctx): AssetsPanel {
         ];
         if (dbs.size) {
             rows.push(h('div', { class: 'cb-tree-head' }, 'Containers (ODB)'));
-            for (const [db, n] of [...dbs].sort((a, b) => a[0].localeCompare(b[0])))
-                rows.push(folderRow(`db:${db}`, db, 'folder', n, 0));
+            const cur = parseDb(folder);
+            if (cur) openDbs.add(cur.db);
+            for (const [db, n] of [...dbs].sort((a, b) => a[0].localeCompare(b[0]))) {
+                const row = folderRow(`db:${db}`, db, 'folder', n, 0);
+                const open = openDbs.has(db);
+                const kinds = new Map<string, number>();
+                for (const c of all) if (c.db === db) kinds.set(c.kind, (kinds.get(c.kind) ?? 0) + 1);
+                if (kinds.size > 1) {
+                    // A caret toggles the sub-folders (one per kind of class in the container) without changing the folder.
+                    const caret = h(
+                        'span',
+                        {
+                            class: `cb-caret${open ? ' open' : ''}`,
+                            role: 'button',
+                            'aria-label': open ? 'Collapse' : 'Expand',
+                        },
+                        icon('chevron', 11),
+                    );
+                    caret.addEventListener('click', (e) => {
+                        e.stopPropagation();
+                        if (openDbs.has(db)) openDbs.delete(db);
+                        else openDbs.add(db);
+                        build();
+                    });
+                    row.prepend(caret);
+                }
+                rows.push(row);
+                if (open && kinds.size > 1) {
+                    for (const k of KINDS) {
+                        const kn = kinds.get(k.kind);
+                        if (kn) rows.push(folderRow(`db:${db}/${k.kind}`, k.label, 'folder', kn, 2));
+                    }
+                }
+            }
         }
         fill(tree, ...rows);
     }
@@ -268,7 +308,11 @@ export function createAssets(ctx: Ctx): AssetsPanel {
                 const on = kindsOn.has(k.kind);
                 const c = h(
                     'button',
-                    { class: `chip${on ? ' active' : ''}`, type: 'button', title: `Show only ${k.label} classes` },
+                    {
+                        class: `chip${on ? ' active' : ''}`,
+                        type: 'button',
+                        title: `Show only ${k.label} classes. ${KIND_HINT[k.kind]}`,
+                    },
                     h('i', { class: 'ui-dot', style: `background:#${k.color.toString(16).padStart(6, '0')}` }),
                     k.label,
                 );
@@ -284,14 +328,15 @@ export function createAssets(ctx: Ctx): AssetsPanel {
 
     function build(): void {
         const all = ctx.catalog();
-        if (folder.startsWith('db:') && !all.some((c) => c.db === folder.slice(3))) folder = 'all';
+        const pf = parseDb(folder);
+        if (pf && !all.some((c) => c.db === pf.db)) folder = 'all';
         buildTree(all);
         buildKindChips(all);
         let list = searchCatalog(all, query);
         if (kindsOn.size) list = list.filter((c) => kindsOn.has(c.kind));
         if (folder === 'fav') list = list.filter((c) => favs.has(c.resource));
         else if (folder === 'level') list = list.filter((c) => c.instances > 0);
-        else if (folder.startsWith('db:')) list = list.filter((c) => c.db === folder.slice(3));
+        else if (pf) list = list.filter((c) => c.db === pf.db && (!pf.kind || c.kind === pf.kind));
         const folderName =
             folder === 'all'
                 ? 'All classes'
@@ -299,7 +344,9 @@ export function createAssets(ctx: Ctx): AssetsPanel {
                   ? 'Favourites'
                   : folder === 'level'
                     ? 'In this level'
-                    : folder.slice(3);
+                    : pf
+                      ? `${pf.db}${pf.kind ? ` / ${KINDS.find((k) => k.kind === pf.kind)?.label ?? pf.kind}` : ''}`
+                      : folder;
         fill(crumb, icon('folder-open', 14), h('span', { class: 'dim' }, 'Content'), icon('chevron', 11), folderName);
         info.textContent = all.length ? `${list.length} of ${all.length} classes` : '';
         if (!all.length) {

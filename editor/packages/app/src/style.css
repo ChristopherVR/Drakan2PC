@@ -247,7 +247,7 @@ input[type='range'] {
 #sidebar section:nth-child(3) {
     flex: 1;
 }
-#sidebar select {
+#sidebar .ui-dd {
     margin: var(--sp-3) var(--sp-4);
 }
 .list {
@@ -411,7 +411,7 @@ pre {
     flex: none;
     background: var(--bg);
     border: 1px solid var(--line);
-    border-radius: 3px;
+    border-radius: var(--r-sm);
     overflow: hidden;
 }
 .shot {
@@ -468,9 +468,8 @@ pre {
 }
 .subpane h4 {
     margin: 14px 0 6px;
-    font-size: 12px;
-    text-transform: uppercase;
-    letter-spacing: 0.04em;
+    font-size: var(--fs-sm);
+    font-weight: 600;
     color: var(--dim);
     display: flex;
     gap: 12px;
@@ -490,7 +489,7 @@ pre {
     height: 144px;
     flex: none;
     border: 1px solid var(--line);
-    border-radius: 4px;
+    border-radius: var(--r-md);
     background: var(--panel);
 }
 .shot.big.none {
@@ -504,7 +503,7 @@ pre {
     background: var(--panel);
     border: 1px solid var(--line);
     border-left: 3px solid var(--line);
-    border-radius: 4px;
+    border-radius: var(--r-md);
 }
 .field.changed {
     border-left-color: var(--accent);
@@ -527,7 +526,7 @@ pre {
     background: var(--bg);
     color: var(--text);
     border: 1px solid var(--line);
-    border-radius: 4px;
+    border-radius: var(--r-md);
     padding: 3px 6px;
     font: inherit;
     min-width: 0;
@@ -561,7 +560,7 @@ pre {
     height: 6px;
     margin-top: 6px;
     background: var(--bg);
-    border-radius: 3px;
+    border-radius: var(--r-sm);
     overflow: hidden;
 }
 .bar i {
@@ -570,9 +569,9 @@ pre {
     background: var(--accent);
 }
 .badge {
-    font-size: 11px;
+    font-size: var(--fs-xs);
     padding: 0 6px;
-    border-radius: 8px;
+    border-radius: var(--r-lg);
     border: 1px solid currentColor;
     cursor: help;
 }
@@ -587,7 +586,7 @@ pre {
     color: var(--bad);
 }
 .unlock {
-    font-size: 12px;
+    font-size: var(--fs-sm);
     color: var(--warn);
     display: inline-flex;
     gap: 4px;
@@ -626,7 +625,7 @@ pre {
 .edit .chg {
     flex: 1;
     font-family: ui-monospace, Consolas, monospace;
-    font-size: 12px;
+    font-size: var(--fs-sm);
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -685,7 +684,7 @@ pre {
 }
 .rec button {
     padding: 0 4px;
-    font-size: 11px;
+    font-size: var(--fs-xs);
 }
 #sv-details {
     flex: 1;
@@ -716,7 +715,7 @@ pre {
     margin-top: 6px;
     background: var(--bg);
     border: 1px solid var(--line);
-    border-radius: 4px;
+    border-radius: var(--r-md);
 }
 .grid th,
 .grid td {
@@ -751,7 +750,7 @@ pre {
     background: var(--bg);
     color: var(--text);
     border: 1px solid var(--line);
-    border-radius: 4px;
+    border-radius: var(--r-md);
     padding: 3px 6px;
     font: inherit;
     min-width: 0;
@@ -766,7 +765,7 @@ pre {
 }
 #lv-mod-target,
 #lv-mod-report {
-    font-size: 11px;
+    font-size: var(--fs-xs);
     color: var(--dim);
     white-space: pre-wrap;
     margin: 0;

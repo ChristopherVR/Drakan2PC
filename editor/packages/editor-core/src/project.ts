@@ -1,0 +1,640 @@
+import { mangleComponent } from '@drakan/formats';
+import { MOD_ID_PATTERN, type ModMeta, type ModTarget } from './mod.ts';
+import { exitArrivalProblem, type ExitIndex, type ExitIndexEntry } from './logic.ts';
+
+/**
+ * A mod project: the one thing a modder creates, saves and exports. It names the mod (the fields of `mod.toml`),
+ * lists the levels the mod touches in campaign order and remembers which step of the current task the user is on.
+ * It never holds game data: only titles, ids and the user's own settings. The level edits themselves live in the
+ * editor's autosave (per level) and the story edits in the story session; the project says which of them to pack.
+ */
+export const PROJECT_FORMAT = 1;
+
+export type TaskId = 'campaign' | 'multiplayer' | 'newlevel' | 'story' | 'save';
+
+export interface ProjectLevel {
+    /** Title in the level list (`Level 1A - Surdana`). For a copy it is the new level's own title. */
+    title: string;
+    /** Set for a copy: the disc level it starts from. */
+    copyOf?: string;
+}
+
+export interface ModProject {
+    format: typeof PROJECT_FORMAT;
+    id: string;
+    name: string;
+    author: string;
+    version: string;
+    description: string;
+    /** Levels in campaign order (the order a player is meant to meet them). */
+    levels: ProjectLevel[];
+    /** Level the Play button starts in; null = the open level. */
+    start: string | null;
+    /** The task the user chose, for the checklist. */
+    task: TaskId | null;
+    /** Checklist steps ticked by hand, per task. */
+    ticks: Partial<Record<TaskId, string[]>>;
+    createdAt: number;
+}
+
+export class ProjectError extends Error {}
+
+const norm = (s: string): string => s.toLowerCase().replace(/[^a-z0-9]/g, '');
+
+/** `My Map!` -> `my-map`: a valid mod id (letters, digits . _ -). */
+export function slugId(name: string): string {
+    const s = name
+        .trim()
+        .toLowerCase()
+        .replace(/[^a-z0-9._-]+/g, '-')
+        .replace(/^-+|-+$/g, '')
+        .slice(0, 64);
+    return s || 'my-mod';
+}
+
+export function newProject(name = 'My mod', task: TaskId | null = null, now = Date.now()): ModProject {
+    return {
+        format: PROJECT_FORMAT,
+        id: slugId(name),
+        name,
+        author: '',
+        version: '1.0.0',
+        description: '',
+        levels: [],
+        start: null,
+        task,
+        ticks: {},
+        createdAt: now,
+    };
+}
+
+export const serializeProject = (p: ModProject): string => JSON.stringify(p, null, 2) + '\n';
+
+/** Read a project file. Unknown or missing fields fall back to defaults; a file of another kind throws. */
+export function parseProject(text: string): ModProject {
+    let raw: unknown;
+    try {
+        raw = JSON.parse(text);
+    } catch {
+        throw new ProjectError('This is not a project file (it is not valid JSON).');
+    }
+    if (!raw || typeof raw !== 'object' || (raw as { kind?: unknown }).kind === 'level') {
+        throw new ProjectError('This is not a project file.');
+    }
+    const r = raw as Record<string, unknown>;
+    if (typeof r['format'] !== 'number' || typeof r['id'] !== 'string') {
+        throw new ProjectError('This is not a project file (no format or id).');
+    }
+    if (r['format'] > PROJECT_FORMAT) throw new ProjectError('This project was made by a newer editor.');
+    const str = (k: string, d: string): string => (typeof r[k] === 'string' ? (r[k] as string) : d);
+    const levels: ProjectLevel[] = [];
+    if (Array.isArray(r['levels'])) {
+        for (const l of r['levels'] as unknown[]) {
+            const o = l as { title?: unknown; copyOf?: unknown } | null;
+            if (!o || typeof o.title !== 'string' || !o.title.trim()) continue;
+            levels.push(typeof o.copyOf === 'string' ? { title: o.title, copyOf: o.copyOf } : { title: o.title });
+        }
+    }
+    const tasks: TaskId[] = ['campaign', 'multiplayer', 'newlevel', 'story', 'save'];
+    const task = tasks.find((t) => t === r['task']) ?? null;
+    const ticks: ModProject['ticks'] = {};
+    if (r['ticks'] && typeof r['ticks'] === 'object') {
+        for (const t of tasks) {
+            const v = (r['ticks'] as Record<string, unknown>)[t];
+            if (Array.isArray(v)) ticks[t] = v.filter((x): x is string => typeof x === 'string');
+        }
+    }
+    return {
+        format: PROJECT_FORMAT,
+        id: str('id', 'my-mod'),
+        name: str('name', 'My mod'),
+        author: str('author', ''),
+        version: str('version', '1.0.0'),
+        description: str('description', ''),
+        levels,
+        start: typeof r['start'] === 'string' ? r['start'] : null,
+        task,
+        ticks,
+        createdAt: typeof r['createdAt'] === 'number' ? r['createdAt'] : Date.now(),
+    };
+}
+
+// ---- levels --------------------------------------------------------------------------------------------------------
+
+export const hasLevel = (p: ModProject, title: string): boolean => p.levels.some((l) => norm(l.title) === norm(title));
+
+export function addDiscLevel(p: ModProject, title: string): ModProject {
+    if (hasLevel(p, title)) return p;
+    return { ...p, levels: [...p.levels, { title }] };
+}
+
+export function addLevelCopy(p: ModProject, copyOf: string, title: string): ModProject {
+    const t = title.trim();
+    if (!t || /[\r\n]/.test(t)) throw new ProjectError('A level title must be one non-empty line.');
+    if (hasLevel(p, t)) throw new ProjectError(`The project already has a level called "${t}".`);
+    return { ...p, levels: [...p.levels, { title: t, copyOf }] };
+}
+
+export function removeLevel(p: ModProject, title: string): ModProject {
+    return {
+        ...p,
+        levels: p.levels.filter((l) => l.title !== title),
+        start: p.start === title ? null : p.start,
+    };
+}
+
+export function moveLevel(p: ModProject, title: string, delta: -1 | 1): ModProject {
+    const i = p.levels.findIndex((l) => l.title === title);
+    const j = i + delta;
+    if (i < 0 || j < 0 || j >= p.levels.length) return p;
+    const levels = p.levels.slice();
+    [levels[i], levels[j]] = [levels[j]!, levels[i]!];
+    return { ...p, levels };
+}
+
+/** A default title for a copy of `source`: `Level 1A - Surdana (copy)`, numbered when taken. */
+export function suggestCopyTitle(p: ModProject, source: string, discTitles: readonly string[]): string {
+    const taken = (t: string): boolean => hasLevel(p, t) || discTitles.some((d) => norm(d) === norm(t));
+    let t = `${source} (copy)`;
+    for (let n = 2; taken(t); n++) t = `${source} (copy ${n})`;
+    return t;
+}
+
+// ---- exits and campaign flow ---------------------------------------------------------------------------------------
+
+export interface CampaignExit {
+    id: number;
+    name: string;
+    /** Destination level name, null when it could not be read. */
+    dest: string | null;
+    portal: boolean;
+    /** Plain-language problem with the way the exit arrives, null when it is fine. */
+    problem: string | null;
+    /** The destination is one of the project's levels. */
+    inProject: boolean;
+}
+
+/** The exit index with each copy's exits added under the copy's title (a copy has the exits of its source). */
+export function projectExitIndex(p: ModProject, index: ExitIndex): ExitIndex {
+    const levels = new Map(index.levels);
+    for (const l of p.levels) {
+        if (!l.copyOf || levels.has(l.title)) continue;
+        const src = [...index.levels.entries()].find(([n]) => norm(n) === norm(l.copyOf!));
+        if (src) levels.set(l.title, src[1]);
+    }
+    return { levels };
+}
+
+/** The exits of one project level with their arrival check. */
+export function levelExits(p: ModProject, level: ProjectLevel, index: ExitIndex): CampaignExit[] {
+    const full = projectExitIndex(p, index);
+    const own =
+        full.levels.get(level.title) ?? [...full.levels.entries()].find(([n]) => norm(n) === norm(level.title))?.[1];
+    if (!own) return [];
+    return own.map((e: ExitIndexEntry) => {
+        // "Transition To 'portal' object": the destination text is the word portal, not a level; nothing to check.
+        const intra = e.portal || norm(e.dest ?? '') === 'portal';
+        return {
+            id: e.id,
+            name: e.name,
+            dest: e.dest,
+            portal: e.portal || intra,
+            problem: intra
+                ? null
+                : e.dest
+                  ? exitArrivalProblem(level.title, e.dest, e.portal, full)
+                  : 'the destination of this exit could not be read',
+            inProject:
+                intra ||
+                (!!e.dest &&
+                    p.levels.some((l) => norm(l.title) === norm(e.dest!) || norm(l.copyOf ?? '') === norm(e.dest!))),
+        };
+    });
+}
+
+/** Levels in the order a player reaches them from `start` (or the first level), then the rest in list order. */
+export function routeOrder(p: ModProject, index: ExitIndex): ProjectLevel[] {
+    if (!p.levels.length) return [];
+    const first = p.levels.find((l) => l.title === p.start) ?? p.levels[0]!;
+    const seen = new Set<string>([first.title]);
+    const out = [first];
+    for (let i = 0; i < out.length; i++) {
+        for (const e of levelExits(p, out[i]!, index)) {
+            const next = e.dest ? p.levels.find((l) => norm(l.title) === norm(e.dest!)) : undefined;
+            if (next && !seen.has(next.title)) {
+                seen.add(next.title);
+                out.push(next);
+            }
+        }
+    }
+    for (const l of p.levels) if (!seen.has(l.title)) out.push(l);
+    return out;
+}
+
+// ---- validation ----------------------------------------------------------------------------------------------------
+
+export interface ProjectIssue {
+    severity: 'error' | 'warning' | 'info';
+    code: string;
+    message: string;
+    /** The project level it is about. */
+    level?: string;
+    exitId?: number;
+}
+
+export interface ProjectCheckContext {
+    /** Titles of the levels on the disc. */
+    discLevels: readonly string[];
+    /** Exits of every disc level (null while it is not loaded). */
+    exits: ExitIndex | null;
+}
+
+export function validateProject(p: ModProject, ctx: ProjectCheckContext): ProjectIssue[] {
+    const out: ProjectIssue[] = [];
+    const add = (i: ProjectIssue): void => void out.push(i);
+    if (!MOD_ID_PATTERN.test(p.id)) {
+        add({
+            severity: 'error',
+            code: 'id',
+            message: 'The mod id may only hold letters, digits and . _ - (1 to 64).',
+        });
+    }
+    if (!p.name.trim()) add({ severity: 'warning', code: 'name', message: 'The project has no name.' });
+    if (p.version && !/^\d+(\.\d+)*$/.test(p.version)) {
+        add({ severity: 'error', code: 'version', message: 'The version must be dotted numbers such as 1.0.0.' });
+    }
+    const seen = new Map<string, string>();
+    for (const l of p.levels) {
+        const key = mangleComponent(l.title);
+        const clash = seen.get(key);
+        if (clash) {
+            add({
+                severity: 'error',
+                code: 'title-clash',
+                message: `"${l.title}" and "${clash}" end up with the same file name (${key}); rename one.`,
+                level: l.title,
+            });
+        }
+        seen.set(key, l.title);
+        if (l.copyOf) {
+            if (!ctx.discLevels.some((d) => norm(d) === norm(l.copyOf!))) {
+                add({
+                    severity: 'error',
+                    code: 'copy-source',
+                    message: `"${l.title}" is a copy of "${l.copyOf}", which is not on this disc.`,
+                    level: l.title,
+                });
+            }
+            const onDisc = ctx.discLevels.find((d) => mangleComponent(d) === key);
+            if (onDisc) {
+                add({
+                    severity: 'error',
+                    code: 'copy-title',
+                    message: `"${l.title}" would use the same file name (${key}) as the disc level "${onDisc}"; change its title.`,
+                    level: l.title,
+                });
+            } else if (ctx.discLevels.some((d) => norm(d) === norm(l.title))) {
+                add({
+                    severity: 'error',
+                    code: 'copy-title',
+                    message: `"${l.title}" is already the name of a level on the disc; give the copy its own title.`,
+                    level: l.title,
+                });
+            }
+        } else if (ctx.discLevels.length && !ctx.discLevels.some((d) => norm(d) === norm(l.title))) {
+            add({
+                severity: 'error',
+                code: 'missing-level',
+                message: `"${l.title}" is not a level of the open disc.`,
+                level: l.title,
+            });
+        }
+    }
+    if (p.start && !hasLevel(p, p.start)) {
+        add({
+            severity: 'error',
+            code: 'start',
+            message: `The play test start level "${p.start}" is not in the project.`,
+        });
+    }
+    if (ctx.exits) {
+        for (const l of p.levels) {
+            for (const e of levelExits(p, l, ctx.exits)) {
+                if (e.problem) {
+                    add({
+                        // Exits of untouched disc levels have problems of their own; they never block an export.
+                        severity: 'warning',
+                        code: 'exit',
+                        message: `${l.title}: exit "${e.name || `#${e.id}`}" to ${e.dest ?? '?'}: ${e.problem}.`,
+                        level: l.title,
+                        exitId: e.id,
+                    });
+                }
+            }
+        }
+        // Levels no exit of the project leads to: only the level list (or Play test) starts them.
+        const route = routeOrder(p, ctx.exits);
+        if (p.levels.length > 1) {
+            const reached = new Set<string>();
+            const first = p.levels.find((l) => l.title === p.start) ?? p.levels[0]!;
+            const queue = [first];
+            reached.add(first.title);
+            for (let i = 0; i < queue.length; i++) {
+                for (const e of levelExits(p, queue[i]!, ctx.exits)) {
+                    const next = e.dest ? p.levels.find((l) => norm(l.title) === norm(e.dest!)) : undefined;
+                    if (next && !reached.has(next.title)) {
+                        reached.add(next.title);
+                        queue.push(next);
+                    }
+                }
+            }
+            for (const l of route) {
+                if (!reached.has(l.title)) {
+                    add({
+                        severity: 'info',
+                        code: 'unreachable',
+                        message: `No exit of the project leads to "${l.title}" yet. A player reaches it only from the level list.`,
+                        level: l.title,
+                    });
+                }
+            }
+        }
+    }
+    return out;
+}
+
+/** The manifest fields of a project. */
+export function projectMeta(p: ModProject, target: ModTarget): ModMeta {
+    return {
+        id: p.id,
+        name: p.name.trim() || p.id,
+        ...(p.version ? { version: p.version } : {}),
+        ...(p.author.trim() ? { author: p.author.trim() } : {}),
+        description: p.description.trim() || `Made with the Drakan editor: ${p.name.trim() || p.id}.`,
+        target,
+    };
+}
+
+// ---- tasks and checklists ------------------------------------------------------------------------------------------
+
+/** What the editor knows right now; the checklist reads it to tick steps off. */
+export interface StepFacts {
+    disc: boolean;
+    levelOpen: boolean;
+    levelEdits: boolean;
+    /** Validation errors of the open level / map. */
+    errors: number;
+    projectLevels: number;
+    projectCopies: number;
+    campaignErrors: number;
+    /** The exits of the disc levels have been read (the campaign checks are meaningful). */
+    exitsChecked: boolean;
+    mpActive: boolean;
+    mpNamed: boolean;
+    mpSpawns: number;
+    mpPickups: number;
+    mpErrors: number;
+    storyChanges: number;
+    saveOpen: boolean;
+    saveEdited: boolean;
+    exported: boolean;
+    played: boolean;
+}
+
+export interface WorkflowStep {
+    id: string;
+    title: string;
+    text: string;
+    /** Ticks itself when this is true; steps without it get a checkbox. */
+    auto?: (f: StepFacts) => boolean;
+    /** A command id (see the command palette) that does or shows the step. */
+    action?: { label: string; command: string };
+    /** A guide id that explains the step. */
+    guide?: string;
+}
+
+export interface Workflow {
+    id: TaskId;
+    title: string;
+    summary: string;
+    /** Mode the task opens in. */
+    mode: 'level' | 'save';
+    guide: string;
+    steps: WorkflowStep[];
+}
+
+const exportStep: WorkflowStep = {
+    id: 'export',
+    title: 'Export the mod',
+    text: 'Writes a mod pack. Your game disc and its files are never changed.',
+    auto: (f) => f.exported,
+    action: { label: 'Export', command: 'project.export' },
+    guide: 'package',
+};
+const playStep: WorkflowStep = {
+    id: 'play',
+    title: 'Play it',
+    text: 'The desktop app starts the game with your mod. In the browser, copy the zip into the game folder.',
+    auto: (f) => f.played,
+    action: { label: 'Play', command: 'project.play' },
+    guide: 'package',
+};
+
+export const WORKFLOWS: Record<TaskId, Workflow> = {
+    campaign: {
+        id: 'campaign',
+        title: 'Edit a campaign level',
+        summary: 'Move, add or remove creatures and items in a level of the game, then play it.',
+        mode: 'level',
+        guide: 'objects',
+        steps: [
+            {
+                id: 'open',
+                title: 'Open a level',
+                text: 'Pick a level from the list on the start page, or press Ctrl+P and type its name.',
+                auto: (f) => f.levelOpen,
+                action: { label: 'Choose level', command: 'project.chooseLevel' },
+            },
+            {
+                id: 'edit',
+                title: 'Change something',
+                text: 'Click an object and press W to move it, or drag a class from Place into the world.',
+                auto: (f) => f.levelEdits,
+                guide: 'objects',
+            },
+            {
+                id: 'links',
+                title: 'Check triggers and exits',
+                text: 'Select a trigger to see what it sends. Open the Logic panel to change it.',
+                guide: 'triggers',
+                action: { label: 'Show Logic', command: 'panel.logic' },
+            },
+            {
+                id: 'validate',
+                title: 'Fix the problems listed',
+                text: 'Validation lists anything that would break in game.',
+                auto: (f) => f.levelOpen && f.levelEdits && f.errors === 0,
+                action: { label: 'Show Validation', command: 'panel.show.validation' },
+            },
+            exportStep,
+            playStep,
+        ],
+    },
+    multiplayer: {
+        id: 'multiplayer',
+        title: 'Create a multiplayer map',
+        summary: 'Turn a level into a deathmatch or team arena with spawn points and pickups.',
+        mode: 'level',
+        guide: 'multiplayer',
+        steps: [
+            {
+                id: 'open',
+                title: 'Open the Multiplayer Map tab and pick a level',
+                text: 'The level provides the terrain. Choose one that is open and flat enough to fight in.',
+                auto: (f) => f.mpActive,
+                action: { label: 'Open Multiplayer Map', command: 'panel.multiplayer' },
+            },
+            {
+                id: 'details',
+                title: 'Set the map details',
+                text: 'Name, modes, player count and starting health, on the Map page.',
+                auto: (f) => f.mpActive && f.mpNamed,
+            },
+            {
+                id: 'spawns',
+                title: 'Place spawn points',
+                text: 'At least two. Suggest spawns can do it for you.',
+                auto: (f) => f.mpSpawns >= 2,
+                action: { label: 'Spawn tool', command: 'mp.spawn' },
+            },
+            {
+                id: 'pickups',
+                title: 'Place pickups',
+                text: 'Weapons, armour and health that respawn during a match.',
+                auto: (f) => f.mpPickups >= 1,
+                action: { label: 'Pickup tool', command: 'mp.pickup' },
+            },
+            {
+                id: 'validate',
+                title: 'Validate the map',
+                text: 'Fix every error in the map issues list.',
+                auto: (f) => f.mpActive && f.mpSpawns >= 2 && f.mpErrors === 0,
+                action: { label: 'Show Validation', command: 'panel.show.validation' },
+            },
+            {
+                id: 'test',
+                title: 'Play test it',
+                text: 'Start the game and run the map from the multiplayer menu.',
+                auto: (f) => f.played,
+                action: { label: 'Play', command: 'project.play' },
+            },
+            {
+                id: 'export',
+                title: 'Export the map',
+                text: 'On the Export page: pack zip, mods folder, or the .ini only.',
+                guide: 'multiplayer',
+            },
+        ],
+    },
+    newlevel: {
+        id: 'newlevel',
+        title: 'Build a new level from an existing one',
+        summary: 'Copy a level under a new name, change the copy and keep the original untouched.',
+        mode: 'level',
+        guide: 'campaign',
+        steps: [
+            {
+                id: 'project',
+                title: 'Name your project',
+                text: 'In the Project panel, give the mod a name and an id.',
+                auto: (f) => f.projectLevels > 0 || f.projectCopies > 0,
+                action: { label: 'Open Project', command: 'panel.project' },
+            },
+            {
+                id: 'copy',
+                title: 'Add a copy of a level',
+                text: 'Choose the level to start from and give the copy a title.',
+                auto: (f) => f.projectCopies > 0,
+                action: { label: 'Add a copy', command: 'project.addCopy' },
+            },
+            {
+                id: 'edit',
+                title: 'Open the copy and change it',
+                text: 'Use Open next to the copy in the Project panel.',
+                auto: (f) => f.levelEdits,
+            },
+            {
+                id: 'exits',
+                title: 'Fix the exits',
+                text: 'Exits of a copy still lead where the original did. The Project panel lists each one.',
+                auto: (f) => f.projectCopies > 0 && f.exitsChecked && f.campaignErrors === 0,
+                guide: 'campaign',
+            },
+            exportStep,
+            playStep,
+        ],
+    },
+    story: {
+        id: 'story',
+        title: 'Change the story',
+        summary: 'Edit text, quests, conversations and cut scenes.',
+        mode: 'level',
+        guide: 'story',
+        steps: [
+            {
+                id: 'open',
+                title: 'Open the Story editors',
+                text: 'Strings, Quests, Dialogue, Cinematics and Story pack are tabs inside it.',
+                action: { label: 'Open Story', command: 'panel.story' },
+                guide: 'story',
+            },
+            {
+                id: 'change',
+                title: 'Change a string, quest, line or scene',
+                text: 'Changed entries are marked.',
+                auto: (f) => f.storyChanges > 0,
+            },
+            {
+                id: 'pack',
+                title: 'Export the Story pack',
+                text: 'On the Story pack tab. It is a separate pack from level edits.',
+                action: { label: 'Story pack', command: 'story.pack' },
+            },
+            playStep,
+        ],
+    },
+    save: {
+        id: 'save',
+        title: 'Edit a save',
+        summary: 'Change a character, items or quests in a .rsg save file.',
+        mode: 'save',
+        guide: 'save',
+        steps: [
+            {
+                id: 'open',
+                title: 'Open a save',
+                text: 'Open one .rsg file, or the memory card folder to list every slot.',
+                auto: (f) => f.saveOpen,
+            },
+            {
+                id: 'edit',
+                title: 'Change the character, items or world',
+                text: 'Pending changes are listed on the right and can be undone.',
+                auto: (f) => f.saveEdited,
+            },
+            {
+                id: 'save',
+                title: 'Press SAVE or EXPORT',
+                text: 'SAVE writes the file you opened. EXPORT downloads a copy.',
+            },
+        ],
+    },
+};
+
+/** Whether each step is done: its own test, or a tick the user made. */
+export function stepStates(w: Workflow, f: StepFacts, ticks: readonly string[]): boolean[] {
+    return w.steps.map((s) => (s.auto ? s.auto(f) : false) || ticks.includes(s.id));
+}
+
+/** Index of the first step not done, or -1 when all are. */
+export const nextStep = (states: readonly boolean[]): number => states.findIndex((d) => !d);

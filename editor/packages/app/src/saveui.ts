@@ -375,6 +375,30 @@ export function initSaveUi(host: SaveUiHost): { openFile(f: File): Promise<void>
         else status('This save has no player record with a position.', true);
     };
     btn('sv-frame-all').onclick = () => view?.frameAll();
+    const DOCK_KEY = 'drakan.save.dockHidden';
+    const setDock = (hidden: boolean, remember: boolean): void => {
+        document.querySelector('#save-main .sv-work')?.classList.toggle('dock-hidden', hidden);
+        const t = btn('sv-dock-toggle');
+        t.setAttribute('aria-pressed', String(!hidden));
+        t.title = hidden ? 'Show the pending-changes and 3D panel' : 'Hide the pending-changes and 3D panel';
+        if (remember) {
+            try {
+                localStorage.setItem(DOCK_KEY, hidden ? '1' : '0');
+            } catch {
+                /* storage can be unavailable */
+            }
+        }
+        if (!hidden) requestAnimationFrame(() => window.dispatchEvent(new Event('resize')));
+    };
+    let dockStored = false;
+    try {
+        dockStored = localStorage.getItem(DOCK_KEY) === '1';
+    } catch {
+        /* storage can be unavailable */
+    }
+    setDock(dockStored, false);
+    btn('sv-dock-toggle').onclick = () =>
+        setDock(!document.querySelector('#save-main .sv-work')?.classList.contains('dock-hidden'), true);
 
     async function saveInPlace(): Promise<void> {
         if (!cur || busy) return;
@@ -490,6 +514,8 @@ export function initSaveUi(host: SaveUiHost): { openFile(f: File): Promise<void>
         $('sv-pending').textContent = String(pending.length);
         $('sv-pending').classList.toggle('on', pending.length > 0);
         $('sv-dirty').hidden = !pending.length;
+        $('sv-dock-badge').textContent = String(pending.length);
+        $('sv-dock-badge').hidden = !pending.length;
         $('sv-save-note').textContent = !cur
             ? 'Open a save to edit it.'
             : canWrite
@@ -513,7 +539,8 @@ export function initSaveUi(host: SaveUiHost): { openFile(f: File): Promise<void>
 
     // ---- character ---------------------------------------------------------------------------------------------
 
-    function confidenceBadge(name: string): HTMLElement {
+    /** Only doubtful fields carry a badge; "high" is the normal case and would repeat on every row. */
+    function confidenceBadge(name: string): HTMLElement | null {
         const def = resolveField(name).def;
         const unconfirmed = cur?.doc.probe(name).status === 'unconfirmed';
         if (unconfirmed) {
@@ -523,7 +550,7 @@ export function initSaveUi(host: SaveUiHost): { openFile(f: File): Promise<void>
                 'This save does not match the layout the field was verified on. ' + def.note,
             );
         }
-        return badge(def.confidence, def.confidence, def.note);
+        return def.confidence === 'high' ? null : badge(def.confidence, def.confidence, def.note);
     }
 
     function lockControl(name: string): HTMLElement | null {

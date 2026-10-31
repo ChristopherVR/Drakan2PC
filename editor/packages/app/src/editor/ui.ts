@@ -3,6 +3,40 @@
  * tooltips. Depends only on `dom.ts`. Class names are the `ui-*` ones documented in components.css.
  */
 import { h, icon } from './dom.ts';
+import { installDropdowns } from './dropdown.ts';
+
+// ---- control family ----------------------------------------------------------------------------------------------
+
+/**
+ * One call at start-up: every `<select>` becomes the shared dropdown (dropdown.ts) and every range slider paints its
+ * filled part (`--fill`, read by components.css). Checkboxes, radios and number fields are styled by CSS alone.
+ */
+export function installControls(): void {
+    installDropdowns();
+    const paint = (r: HTMLInputElement): void => {
+        const min = Number(r.min || 0);
+        const max = Number(r.max || 100);
+        const v = Number(r.value);
+        const pct = max > min ? ((v - min) / (max - min)) * 100 : 0;
+        r.style.setProperty('--fill', `${Math.max(0, Math.min(100, pct))}%`);
+    };
+    const isRange = (t: EventTarget | null): t is HTMLInputElement =>
+        t instanceof HTMLInputElement && t.type === 'range';
+    document.addEventListener('input', (e) => isRange(e.target) && paint(e.target), true);
+    document.addEventListener('change', (e) => isRange(e.target) && paint(e.target), true);
+    // values set from script do not fire events: repaint when the pointer or focus reaches a slider, and on insert
+    document.addEventListener('pointerover', (e) => isRange(e.target) && paint(e.target), true);
+    const scan = (n: Node): void => {
+        if (n instanceof HTMLInputElement) {
+            if (n.type === 'range') queueMicrotask(() => paint(n));
+        } else if (n instanceof Element)
+            for (const r of n.querySelectorAll<HTMLInputElement>('input[type="range"]')) queueMicrotask(() => paint(r));
+    };
+    scan(document.body);
+    new MutationObserver((muts) => {
+        for (const m of muts) for (const n of m.addedNodes) scan(n);
+    }).observe(document.body, { childList: true, subtree: true });
+}
 
 // ---- search field ------------------------------------------------------------------------------------------------
 

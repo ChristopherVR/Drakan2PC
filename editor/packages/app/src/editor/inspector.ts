@@ -1,9 +1,19 @@
-import { snapToGround, type LevelObject } from '@drakan/editor-core';
+import {
+    logicOf,
+    outgoingMessages,
+    setMessageField,
+    snapToGround,
+    type EdgeMessage,
+    type LevelObject,
+} from '@drakan/editor-core';
+import { MESSAGE_NAMES } from '@drakan/formats';
 import { KINDS } from '../level.ts';
 import type { Ctx, Panel } from './ctx.ts';
 import { fill, h, icon } from './dom.ts';
-import { buildFieldsPanel, closePopover } from './fieldsui.ts';
+import { buildFieldsPanel, closePopover, fieldQuery } from './fieldsui.ts';
+import { objectLabel, startLinkPick } from './linking.ts';
 import { attachScrub } from './scrub.ts';
+import { objectAnimationBody } from './animpreview.ts';
 
 const R2D = 180 / Math.PI;
 const D2R = Math.PI / 180;
@@ -25,12 +35,32 @@ function common<T>(objs: readonly LevelObject[], get: (o: LevelObject) => T): T 
  */
 export function createInspector(ctx: Ctx): Panel {
     const body = h('div', { class: 'insp-body' });
+    const searchBox = h('input', {
+        type: 'search',
+        class: 'fsearch insp-q',
+        placeholder: 'Search details',
+        'aria-label': 'Search details',
+        value: fieldQuery.get(),
+    });
     const root = h(
         'div',
         { class: 'panel inspector' },
         h('div', { class: 'panel-head' }, h('span', { class: 'panel-title' }, icon('details', 14), 'Details')),
+        h('div', { class: 'panel-tools insp-search' }, searchBox),
         body,
     );
+    searchBox.addEventListener('input', () => {
+        fieldQuery.set(searchBox.value);
+        render(true);
+    });
+    searchBox.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape' && searchBox.value) {
+            e.stopPropagation();
+            searchBox.value = '';
+            fieldQuery.set('');
+            render(true);
+        }
+    });
     let updaters: (() => void)[] = [];
     let sig = '';
     const open = new Set<string>(['Transform', 'Fields', 'Links']);
@@ -216,20 +246,37 @@ export function createInspector(ctx: Ctx): Panel {
     // ---- fields -------------------------------------------------------------------------------------------------
 
     function fieldsSection(objs: LevelObject[]): HTMLElement {
-        const panel = buildFieldsPanel(ctx, objs);
+        const panel = buildFieldsPanel(ctx, objs, { ownSearch: false });
         updaters.push(panel.update);
         return section('Fields', panel.count, ...panel.nodes);
     }
 
+    // ---- animation preview (skinned classes only) ---------------------------------------------------------------
+
+    /** Idle (or any class clip) played on the class model; built only while the section is open, hidden when the class has no skinned model. */
+    function animationSection(o: LevelObject): HTMLElement | null {
+        const provider = ctx.schemas();
+        const schema = provider?.schemaFor(o.resource);
+        // Classes with an animation field (type 9 or an array of it) are the ones that can animate.
+        if (!provider || !schema?.fields.some((f) => (f.type & 0xff) === 9)) return null;
+        const host = h('div', { class: 'ap-host' });
+        if (open.has('Animation')) {
+            host.append(h('div', { class: 'note' }, 'Loading animations...'));
+            void objectAnimationBody(ctx.refs(), provider, o).then((body) => {
+                if (!host.isConnected && !body) return;
+                host.replaceChildren(
+                    body ?? h('div', { class: 'note' }, 'This class has no skinned model to animate.'),
+                );
+            });
+        }
+        return section('Animation', null, host);
+    }
+
     // ---- links --------------------------------------------------------------------------------------------------
 
-    function pickInto(cb: (id: number | null) => void): void {
-        const v = ctx.view();
-        ctx.toast('Click an object in the viewport (Esc cancels).');
-        v.pickObject((id) => {
-            cb(id);
-            render(true);
-        });
+    function messagesOf(o: LevelObject): EdgeMessage[] {
+        const env = ctx.schemas();
+        return env ? outgoingMessages(o, env, logicOf(o, env)) : [];
     }
 
     function linksSection(objs: LevelObject[]): HTMLElement {
@@ -268,13 +315,49 @@ export function createInspector(ctx: Ctx): Panel {
                     : null,
             );
         };
+        const explain = (parts: (Node | string)[]): HTMLElement => h('div', { class: 'note link-explain' }, ...parts);
         if (one) {
             const links = one.links ?? [];
-            if (!links.length) kids.push(h('div', { class: 'note' }, 'This object triggers nothing.'));
+            const msgs = messagesOf(one);
+            const env = ctx.schemas();
+            if (msgs.length && env) {
+                // "When this triggers, it sends [message] to these objects."
+                const line: (Node | string)[] = ['When this triggers, it sends '];
+                msgs.forEach((m, k) => {
+                    const sel = h('select', {
+                        class: 'link-msg',
+                        'aria-label': `${m.label} message`,
+                        title: `${m.label}: the message this object sends along its links`,
+                        disabled: !ids.length,
+                    }) as HTMLSelectElement;
+                    MESSAGE_NAMES.forEach((n, i) => sel.append(h('option', { value: String(i) }, n)));
+                    if (!MESSAGE_NAMES[m.value])
+                        sel.append(h('option', { value: String(m.value) }, `message ${m.value}`));
+                    sel.value = String(m.value);
+                    sel.addEventListener('change', () => {
+                        const name = MESSAGE_NAMES[Number(sel.value)] ?? sel.value;
+                        ctx.edit(`Set ${m.label} of ${objectLabel(one)} to ${name}`, ids, (o) => {
+                            setMessageField(o, env, m.field, Number(sel.value));
+                        });
+                    });
+                    if (k > 0) line.push(k === msgs.length - 1 ? ' and ' : ', ');
+                    line.push(msgs.length > 1 ? `${m.label}: ` : '', sel);
+                });
+                line.push(links.length ? ' to these objects:' : ' to the objects you link below.');
+                kids.push(explain(line));
+            } else {
+                kids.push(
+                    explain([
+                        links.length
+                            ? 'When this object triggers, it sends its message to these objects:'
+                            : 'Links make this object trigger others: when it fires (a trigger is entered, a lever is pulled, a timer runs out), it sends its message to every linked object.',
+                    ]),
+                );
+            }
             for (const to of links) {
                 kids.push(
                     chip(to, () =>
-                        ctx.edit('Remove link', ids, (o) => {
+                        ctx.edit(`Remove link ${objectLabel(one)} to #${to}`, ids, (o) => {
                             o.links = (o.links ?? []).filter((l) => l !== to);
                         }),
                     ),
@@ -287,11 +370,9 @@ export function createInspector(ctx: Ctx): Panel {
             }
         } else {
             kids.push(
-                h(
-                    'div',
-                    { class: 'note' },
-                    'Link every selected object to a target, or select one object to see its links.',
-                ),
+                explain([
+                    'Link every selected object to one target: each of them will send its message to it. Select a single object to see and edit its links.',
+                ]),
             );
         }
         kids.push(
@@ -301,23 +382,14 @@ export function createInspector(ctx: Ctx): Panel {
                 h(
                     'button',
                     {
-                        class: 'btn',
+                        class: 'btn primary',
                         type: 'button',
                         disabled: !ids.length,
-                        onclick: () =>
-                            pickInto((to) => {
-                                if (to !== null)
-                                    ctx.edit(
-                                        'Add link',
-                                        ids.filter((i) => i !== to),
-                                        (o) => {
-                                            o.links = [...new Set([...(o.links ?? []), to])];
-                                        },
-                                    );
-                            }),
+                        title: 'Then click the target in the viewport or the Outliner (Esc cancels)',
+                        onclick: () => startLinkPick(ctx, ids),
                     },
                     icon('plus', 14),
-                    'Add link (pick)',
+                    'Add link',
                 ),
                 h(
                     'button',
@@ -326,12 +398,21 @@ export function createInspector(ctx: Ctx): Panel {
                         type: 'button',
                         disabled: !ids.length || objs.every((o) => !o.links?.length),
                         onclick: () =>
-                            ctx.edit('Clear links', ids, (o) => {
-                                o.links = [];
-                            }),
+                            ctx.edit(
+                                one ? `Clear links of ${objectLabel(one)}` : `Clear links of ${ids.length} objects`,
+                                ids,
+                                (o) => {
+                                    o.links = [];
+                                },
+                            ),
                     },
                     'Clear',
                 ),
+            ),
+            h(
+                'div',
+                { class: 'note dim' },
+                'Also: right-click an object and choose Link to..., or drag the link handle next to the selected object onto its target.',
             ),
         );
         return section('Links', one ? (one.links?.length ?? 0) : null, ...kids);
@@ -381,7 +462,11 @@ export function createInspector(ctx: Ctx): Panel {
         const fieldSig = `${ctx.schemas() ? 'schema' : 'plain'}:${objs.map((o) => o.resource).join(',')}`;
         const linkSig =
             objs.length === 1
-                ? `${(objs[0]!.links ?? []).join(',')}@${[...doc.objects()].filter((o) => o.links?.includes(objs[0]!.id)).length}`
+                ? `${(objs[0]!.links ?? []).join(',')}@${[...doc.objects()].filter((o) => o.links?.includes(objs[0]!.id)).length}@${messagesOf(
+                      objs[0]!,
+                  )
+                      .map((m) => m.value)
+                      .join(',')}`
                 : '';
         const next = `${objs.map((o) => o.id).join(',')}#${fieldSig}#${linkSig}#${ctx.view().lockedIds.size}#${doc.size}`;
         if (!force && next === sig) {
@@ -400,11 +485,7 @@ export function createInspector(ctx: Ctx): Panel {
                     { class: 'empty-state' },
                     icon('select', 28),
                     h('strong', {}, 'Nothing selected'),
-                    h(
-                        'span',
-                        {},
-                        'Click an object in the viewport or the Outliner. Drag on empty space to box select.',
-                    ),
+                    h('span', {}, 'Click an object in the viewport or the Outliner.'),
                     doc.size
                         ? h('span', { class: 'dim' }, `${doc.size} objects in ${doc.level || 'this level'}`)
                         : null,
@@ -428,7 +509,21 @@ export function createInspector(ctx: Ctx): Panel {
                 ),
             ),
         );
-        fill(body, head, transformSection(objs), fieldsSection(objs), linksSection(objs), infoSection(objs));
+        // A search term narrows the whole panel: fields by name, the other sections by what they hold.
+        const q = fieldQuery.get().trim().toLowerCase();
+        const has = (words: string): boolean =>
+            !q || words.includes(q) || q.split(/\s+/).every((w) => words.includes(w));
+        fill(
+            body,
+            head,
+            has('transform position rotation scale pos rot ground snap x y z') ? transformSection(objs) : null,
+            fieldsSection(objs),
+            objs.length === 1 && has('animation clip play idle walk attack pose skeleton')
+                ? animationSection(objs[0]!)
+                : null,
+            has('links link trigger triggers message sends target') ? linksSection(objs) : null,
+            has('info id class resource kind address') ? infoSection(objs) : null,
+        );
         body.scrollTop = keepScroll;
     }
 

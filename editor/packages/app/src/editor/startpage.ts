@@ -1,7 +1,14 @@
+import { WORKFLOWS, type TaskId } from '@drakan/editor-core';
 import { h, icon, store } from './dom.ts';
+import { getCommand, runCommand } from './registry.ts';
+import { projects } from './project/store.ts';
 import './shellux.css';
+import './project/project.css';
 
-/** First thing a modder sees in the Level tab: how to start, what the editor can do, recent levels. */
+/**
+ * First thing a modder sees in the Level tab: what they can make (task cards), the current mod project, recent
+ * levels. A task card starts the task (project, panels, checklist; see `project/install.ts`).
+ */
 export interface StartPageActions {
     /** Ask the host to open a disc image (file picker or desktop dialog). */
     openIso(): void;
@@ -36,28 +43,16 @@ export function rememberLevel(l: LevelRef): void {
     );
 }
 
-const CAPABILITIES: { icon: string; title: string; text: string }[] = [
-    {
-        icon: 'move',
-        title: 'Move things',
-        text: 'Click an object, press W, drag an arrow. Snaps to a grid; End drops it on the ground.',
-    },
-    {
-        icon: 'plus',
-        title: 'Place creatures and items',
-        text: 'Drag any class from the Place panel into the world, or search for it with Ctrl+P.',
-    },
-    {
-        icon: 'sliders',
-        title: 'Change how they behave',
-        text: 'The Details panel shows health, speed, models and sounds with plain names.',
-    },
-    {
-        icon: 'download',
-        title: 'Make a mod',
-        text: 'Export mod writes a pack the PC port loads on top of your own disc. The original is never changed.',
-    },
-];
+const TASK_ICON: Record<TaskId, string> = {
+    campaign: 'layers',
+    multiplayer: 'rocket',
+    newlevel: 'copy',
+    story: 'edit',
+    save: 'save',
+};
+
+/** Tasks in the order they are offered. */
+const TASK_ORDER: TaskId[] = ['campaign', 'multiplayer', 'newlevel', 'story', 'save'];
 
 export function createStartPage(a: StartPageActions): StartPage {
     const el = h('div', { class: 'start' });
@@ -67,17 +62,101 @@ export function createStartPage(a: StartPageActions): StartPage {
         docInput.value = '';
         if (f) a.openDocument(f);
     });
+    let levels: LevelRef[] | null = null;
+    let isoName: string | undefined;
 
-    const caps = h(
-        'div',
-        { class: 'start-caps' },
-        ...CAPABILITIES.map((c) =>
-            h('div', { class: 'start-cap' }, icon(c.icon, 18), h('strong', {}, c.title), h('span', {}, c.text)),
-        ),
-    );
+    const taskCard = (id: TaskId, discOpen: boolean): HTMLElement => {
+        const w = WORKFLOWS[id];
+        const needs = id !== 'save' && !discOpen;
+        return h(
+            'button',
+            {
+                class: 'start-task',
+                type: 'button',
+                'data-task': id,
+                onclick: () => {
+                    if (projects.handlers.start) projects.handlers.start(id);
+                    else runCommand(`task.${id}`);
+                },
+            },
+            icon(TASK_ICON[id], 20),
+            h('strong', {}, w.title),
+            h('span', {}, w.summary),
+            h('em', {}, needs ? 'Asks for your disc image first' : 'Start'),
+        );
+    };
 
-    function refresh(levels: LevelRef[] | null, isoName?: string): void {
+    const ootfCard = (): HTMLElement | null => {
+        if (!getCommand('file.importOotf')) return null;
+        return h(
+            'button',
+            { class: 'start-task', type: 'button', 'data-task': 'ootf', onclick: () => runCommand('file.importOotf') },
+            icon('download', 20),
+            h('strong', {}, 'Import an Order of the Flame level'),
+            h('span', {}, 'Convert a level of the older game that you own and play it here.'),
+            h('em', {}, 'Open the importer'),
+        );
+    };
+
+    const tasks = (discOpen: boolean): HTMLElement =>
+        h('div', { class: 'start-tasks' }, ...TASK_ORDER.map((t) => taskCard(t, discOpen)), ootfCard());
+
+    const levelButton = (l: LevelRef, recent: boolean, onPick: (l: LevelRef) => void): HTMLElement => {
+        const m = /^(Level\s+\S+)\s*[-–]\s*(.*)$/.exec(l.name);
+        return h(
+            'button',
+            { class: `start-level${recent ? ' recent' : ''}`, type: 'button', onclick: () => onPick(l) },
+            h('span', { class: 'n' }, m ? m[1]! : l.name),
+            h('span', { class: 'd' }, m ? m[2]! : ''),
+        );
+    };
+
+    function pickView(task: TaskId, all: LevelRef[]): Node[] {
+        const copy = task === 'newlevel';
+        return [
+            h(
+                'button',
+                {
+                    class: 'ui-btn sm start-back',
+                    type: 'button',
+                    onclick: () => {
+                        projects.pickFor = null;
+                        projects.notify();
+                    },
+                },
+                'Back to tasks',
+            ),
+            h('h2', {}, copy ? 'Which level do you want to copy?' : 'Which level do you want to edit?'),
+            h(
+                'p',
+                { class: 'start-lead' },
+                copy
+                    ? 'The copy becomes a new level with its own title; the original stays as it is. You can rename the copy in the Project panel.'
+                    : 'You can open any other level later with Ctrl+P. Your edits are autosaved in this browser.',
+            ),
+            h(
+                'div',
+                { class: 'start-levels' },
+                ...all.map((l) =>
+                    levelButton(l, false, (x) => projects.handlers.pick?.(task, { name: x.name, dirPath: x.dirPath })),
+                ),
+            ),
+        ];
+    }
+
+    function refresh(lv: LevelRef[] | null, name?: string): void {
+        levels = lv;
+        isoName = name;
+        render();
+    }
+
+    function render(): void {
         const children: (Node | null)[] = [];
+        if (levels && projects.pickFor) {
+            el.replaceChildren(...pickView(projects.pickFor, levels), docInput);
+            return;
+        }
+        const p = projects.get();
         if (!levels) {
             children.push(
                 h('h2', {}, 'Open your game disc to start'),
@@ -101,26 +180,62 @@ export function createStartPage(a: StartPageActions): StartPage {
                         'Open a saved level (.json)',
                     ),
                 ),
+                h('h3', {}, 'Or choose what to make first'),
+                tasks(false),
             );
         } else {
-            const rec = recentLevels().filter((r) => levels.some((l) => l.dirPath === r.dirPath));
+            const rec = recentLevels().filter((r) => levels!.some((l) => l.dirPath === r.dirPath));
             children.push(
-                h('h2', {}, 'Pick a level to edit'),
+                h('h2', {}, 'What do you want to make?'),
                 h(
                     'p',
                     { class: 'start-lead' },
-                    `${isoName ?? 'Disc'} is open. Choose a level; your edits are autosaved in this browser.`,
+                    `${isoName ?? 'Your disc'} is open. Pick a task: the editor opens the right panels and lists the next steps.`,
                 ),
+                tasks(true),
             );
+            if (p) {
+                children.push(
+                    h(
+                        'div',
+                        { class: 'start-project' },
+                        icon('layers', 16),
+                        h('strong', {}, p.name || p.id),
+                        h(
+                            'span',
+                            { class: 'dim' },
+                            `${p.levels.length} level${p.levels.length === 1 ? '' : 's'} in your project`,
+                        ),
+                        h('span', { class: 'spacer' }),
+                        h(
+                            'button',
+                            { class: 'ui-btn sm', type: 'button', onclick: () => runCommand('panel.project') },
+                            'Open the project',
+                        ),
+                    ),
+                );
+            }
             if (rec.length) {
                 children.push(
-                    h('h3', {}, 'Recent'),
-                    h('div', { class: 'start-levels' }, ...rec.map((l) => levelButton(l, true))),
+                    h('h3', {}, 'Recent levels'),
+                    h(
+                        'div',
+                        { class: 'start-levels' },
+                        ...rec.map((l) => levelButton(l, true, (x) => a.openLevel(x.dirPath))),
+                    ),
                 );
             }
             children.push(
-                h('h3', {}, 'All levels'),
-                h('div', { class: 'start-levels' }, ...levels.map((l) => levelButton(l, false))),
+                h(
+                    'details',
+                    { class: 'start-all' },
+                    h('summary', {}, 'Just look around: open any level'),
+                    h(
+                        'div',
+                        { class: 'start-levels' },
+                        ...levels.map((l) => levelButton(l, false, (x) => a.openLevel(x.dirPath))),
+                    ),
+                ),
                 h(
                     'div',
                     { class: 'start-actions' },
@@ -133,10 +248,14 @@ export function createStartPage(a: StartPageActions): StartPage {
             );
         }
         children.push(
-            caps,
             h(
                 'p',
                 { class: 'start-foot' },
+                h(
+                    'button',
+                    { class: 'linkish', type: 'button', onclick: () => runCommand('help.guides') },
+                    'Help guides',
+                ),
                 h('button', { class: 'linkish', type: 'button', onclick: a.openPalette }, 'Search everything'),
                 h('kbd', {}, 'Ctrl+P'),
                 h('button', { class: 'linkish', type: 'button', onclick: a.openHelp }, 'Keyboard shortcuts'),
@@ -147,16 +266,7 @@ export function createStartPage(a: StartPageActions): StartPage {
         el.replaceChildren(...children.filter((c): c is Node => !!c));
     }
 
-    const levelButton = (l: LevelRef, recent: boolean): HTMLElement => {
-        const m = /^(Level\s+\S+)\s*[-–]\s*(.*)$/.exec(l.name);
-        return h(
-            'button',
-            { class: `start-level${recent ? ' recent' : ''}`, type: 'button', onclick: () => a.openLevel(l.dirPath) },
-            h('span', { class: 'n' }, m ? m[1]! : l.name),
-            h('span', { class: 'd' }, m ? m[2]! : ''),
-        );
-    };
-
-    refresh(null);
+    projects.on(render);
+    render();
     return { el, refresh };
 }

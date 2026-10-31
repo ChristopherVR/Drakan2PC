@@ -454,7 +454,12 @@ pub struct LaunchInfo {
 
 /// Start the game from the remembered play folder. Only the documented `DRAKAN_*` debugging variables can be set.
 #[tauri::command]
-pub fn game_launch(state: State<'_, AppState>, env: HashMap<String, String>) -> Res<LaunchInfo> {
+pub fn game_launch(
+    state: State<'_, AppState>,
+    env: HashMap<String, String>,
+    extra: Option<bool>,
+) -> Res<LaunchInfo> {
+    let extra = extra.unwrap_or(false);
     let (dir, mods, default_mods) = {
         let g = state.inner.lock().unwrap();
         let dir = g.settings.game_dir.clone().ok_or("No game folder is set. Choose the play folder first.")?;
@@ -464,12 +469,25 @@ pub fn game_launch(state: State<'_, AppState>, env: HashMap<String, String>) -> 
     let exe = paths::find_game_exe(&dir).ok_or_else(|| format!("{} has no drakan.exe", dir.display()))?;
     {
         let mut g = state.inner.lock().unwrap();
-        if let Some(child) = g.child.as_mut() {
-            if child.try_wait().map_err(err)?.is_none() {
+        let running = match g.child.as_mut() {
+            Some(child) => child.try_wait().map_err(err)?.is_none(),
+            None => false,
+        };
+        if extra {
+            // A second instance (multiplayer test) only makes sense beside a running first one.
+            if !running {
+                return Err("Start the game first; an extra instance joins the running one.".into());
+            }
+            g.extras.retain_mut(|c| matches!(c.try_wait(), Ok(None)));
+            if g.extras.len() >= 3 {
+                return Err("Too many extra instances are running.".into());
+            }
+        } else {
+            if running {
                 return Err("The game is already running.".into());
             }
+            g.child = None;
         }
-        g.child = None;
     }
     let mut cmd = std::process::Command::new(&exe);
     cmd.current_dir(&dir)
@@ -486,7 +504,11 @@ pub fn game_launch(state: State<'_, AppState>, env: HashMap<String, String>) -> 
     }
     let child = cmd.spawn().map_err(|e| format!("could not start {}: {e}", exe.display()))?;
     let pid = child.id();
-    state.inner.lock().unwrap().child = Some(child);
+    if extra {
+        state.inner.lock().unwrap().extras.push(child);
+    } else {
+        state.inner.lock().unwrap().child = Some(child);
+    }
     Ok(LaunchInfo {
         pid,
         exe: exe.to_string_lossy().to_string(),

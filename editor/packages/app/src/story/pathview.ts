@@ -15,6 +15,8 @@ export interface PathLayer {
     show(points: [number, number, number][] | null): void;
     /** Number of points currently drawn. */
     shown(): number;
+    /** Move the viewport camera so the drawn path fills the view (no-op without a path). */
+    frame(): void;
 }
 
 const dot = new THREE.SphereGeometry(1, 10, 8);
@@ -22,6 +24,7 @@ const dot = new THREE.SphereGeometry(1, 10, 8);
 export function createPathLayer(ctx: Pick<Ctx, 'view'>): PathLayer {
     let group: THREE.Group | null = null;
     let n = 0;
+    let box: THREE.Box3 | null = null;
     const clear = (): void => {
         if (!group) return;
         group.parent?.remove(group);
@@ -36,6 +39,7 @@ export function createPathLayer(ctx: Pick<Ctx, 'view'>): PathLayer {
         show(points) {
             clear();
             n = 0;
+            box = null;
             if (!points || !points.length) return;
             let v: LevelView;
             try {
@@ -64,14 +68,31 @@ export function createPathLayer(ctx: Pick<Ctx, 'view'>): PathLayer {
                     }),
                 );
                 m.position.copy(p);
-                m.scale.setScalar(i === 0 || last ? 0.2 : 0.1);
+                // about a quarter cell (start / end) and an eighth (keys): visible from a level-wide view
+                m.scale.setScalar(i === 0 || last ? 0.6 : 0.3);
                 m.renderOrder = 23;
                 g.add(m);
             });
             v.scene.add(g);
             group = g;
             n = pts.length;
+            box = new THREE.Box3().setFromPoints(pts);
         },
         shown: () => n,
+        frame() {
+            if (!box) return;
+            let v: LevelView;
+            try {
+                v = ctx.view();
+            } catch {
+                return;
+            }
+            const c = box.getCenter(new THREE.Vector3());
+            const r = Math.max(box.getSize(new THREE.Vector3()).length() / 2, 6);
+            const dir = v.camera.position.clone().sub(v.orbit.target).normalize();
+            v.orbit.target.copy(c);
+            v.camera.position.copy(c).addScaledVector(dir, r * 2.4);
+            v.orbit.update();
+        },
     };
 }

@@ -1,6 +1,6 @@
 import { FIELD_ENUMS, MESSAGE_NAMES, type LogicRole } from '@drakan/formats';
 import type { AssetClass } from './catalog.ts';
-import { newObjectFromClass } from './catalog.ts';
+import { newObjectFromClass, resourceString } from './catalog.ts';
 import type { Command } from './commands.ts';
 import { cloneObject, type LevelDocument, type LevelObject } from './document.ts';
 import { addLink, logicOf, schemaField, type LogicEnv, type LogicVec3 } from './logic.ts';
@@ -454,6 +454,75 @@ export const TEMPLATES: LogicTemplate[] = [
                 b.notes.push(
                     `Trigger volume #${d.id} sends ${String(v.message ?? 'On')} to ${targets.length} object(s)`,
                 );
+                return b.done();
+            }),
+    },
+    {
+        id: 'quest-object',
+        title: 'Place quest object',
+        summary:
+            'Places a quest object (journal / map entry) and, optionally, trigger volumes that start (On) and complete (Quest Complete) it. Give a class id to place a quest class you added or edited in the Story editor.',
+        params: [
+            {
+                id: 'quest',
+                label: 'Quest class to copy',
+                kind: 'class',
+                rfl: 0x68,
+                hint: 'Any quest class that already has an object in this level (its body is copied).',
+            },
+            {
+                id: 'classId',
+                label: 'Class id to use instead',
+                kind: 'number',
+                default: 0,
+                min: 0,
+                step: 1,
+                hint: 'The id of a quest class from the Quests panel; 0 uses the class above. Same database as the class above.',
+            },
+            { id: 'start', label: 'Volume starts the quest', kind: 'bool', default: true },
+            { id: 'complete', label: 'Second volume completes it', kind: 'bool', default: false },
+            { id: 'w', label: 'Volume width (cells)', kind: 'number', default: 3, min: 0.25, step: 0.25 },
+            { id: 'h', label: 'Volume height (cells)', kind: 'number', default: 2, min: 0.25, step: 0.25 },
+            { id: 'd', label: 'Volume depth (cells)', kind: 'number', default: 3, min: 0.25, step: 0.25 },
+            { id: 'who', label: 'Detects', kind: 'choice', default: '2', options: detectOptions },
+        ],
+        build: (ctx, v) =>
+            guard(() => {
+                const b = new Builder(ctx);
+                const wanted =
+                    typeof v.quest === 'string' ? ctx.catalog.find((c) => c.resource === v.quest) : undefined;
+                const withInstance = ctx.catalog
+                    .filter((c) => c.rflClass === 0x68 && c.instances > 0)
+                    .sort((a, c) => c.instances - a.instances)[0];
+                const src = need(wanted ?? withInstance ?? pickClass(ctx.catalog, 0x68), 'quest class');
+                const q = b.make(src, ctx.at, {});
+                const classId = Math.round(num(v, 'classId', 0));
+                if (classId > 0 && classId !== src.classId) {
+                    q.resource = resourceString(src.dbIndex, classId);
+                    q.class = `Quest class ${classId}`;
+                    b.notes.push(`Quest object #${q.id} uses class ${classId} (body copied from ${src.name})`);
+                } else b.notes.push(`Quest object #${q.id} of class ${src.name}`);
+                const det = need(
+                    pickClass(ctx.catalog, 0x3d, /^trigger detector$/i) ?? pickClass(ctx.catalog, 0x3d),
+                    'trigger detector class',
+                );
+                const size: LogicVec3 = [num(v, 'w', 3), num(v, 'h', 2), num(v, 'd', 3)];
+                const volume = (message: string, dx: number): void => {
+                    const d = b.make(
+                        det,
+                        [ctx.at[0] + dx, ctx.at[1], ctx.at[2]],
+                        {
+                            'Trigger Message': msg(message),
+                            'Detect Only Once?': 1,
+                            'Detect Which?': Number(v.who ?? 2),
+                        },
+                        { scale: size },
+                    );
+                    b.link(d.id, q.id);
+                    b.notes.push(`Volume #${d.id} sends ${message} to quest object #${q.id}`);
+                };
+                if (flag(v, 'start', true)) volume('On', 0);
+                if (flag(v, 'complete', false)) volume('Quest Complete', Math.round(size[0] * 2048 + 2048));
                 return b.done();
             }),
     },

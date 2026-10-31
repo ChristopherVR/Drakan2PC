@@ -114,8 +114,7 @@
     padding: 2px 6px;
     color: var(--fg-muted);
     font-size: var(--fs-xs);
-    text-transform: uppercase;
-    letter-spacing: 0.04em;
+    font-weight: 600;
 }
 .story-title {
     font-size: var(--fs-lg);
@@ -207,7 +206,7 @@
     display: flex;
     gap: 2px;
     padding: 4px 6px 0;
-    border-bottom: 1px solid var(--line, #2a3340);
+    border-bottom: 1px solid var(--border);
     flex: none;
 }
 .story-tab {
@@ -225,5 +224,5 @@
 }
 .story-tab.active {
     opacity: 1;
-    border-bottom-color: var(--accent, #4cc2ff);
+    border-bottom-color: var(--accent);
 }

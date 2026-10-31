@@ -92,6 +92,7 @@ const ICON_PATHS: Record<string, string> = {
     wrench: 'M14.5 6.5a4 4 0 0 0-5 5L3 18l3 3 6.5-6.5a4 4 0 0 0 5-5l-2.5 2.5-2-.5-.5-2z',
     chevron: 'M9 6l6 6-6 6',
     plus: 'M12 5v14M5 12h14',
+    dock: 'M4 5h16v14H4zM15 5v14',
     drag: 'M8 5h.01M8 12h.01M8 19h.01M16 5h.01M16 12h.01M16 19h.01',
 };
 

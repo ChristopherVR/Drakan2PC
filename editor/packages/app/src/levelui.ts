@@ -41,6 +41,8 @@ import { createRefs } from './refs.ts';
 import { createInspector } from './editor/inspector.ts';
 import { initLayout, type Layout } from './editor/layout.ts';
 import { createOutliner } from './editor/outliner.ts';
+import { buildObjectMenu } from './editor/objectmenu.ts';
+import { installLinking } from './editor/linking.ts';
 import { createDock, createHistory, createModPanel, createValidation } from './editor/panels.ts';
 import { helpOverlay, initShortcuts } from './editor/shortcuts.ts';
 import { VIEW_COLORS, applyTheme, currentTheme, onThemeChange, toggleTheme } from './editor/theme.ts';
@@ -48,7 +50,7 @@ import { createToolbar, type ToolbarActions } from './editor/toolbar.ts';
 import { createPlace } from './editor/place.ts';
 import { createOutputLog } from './editor/output.ts';
 import { createNavGizmo } from './editor/navgizmo.ts';
-import { emptyState, installTooltips } from './editor/ui.ts';
+import { contextMenu, emptyState, installTooltips } from './editor/ui.ts';
 import { createPalette } from './editor/palette.ts';
 import { bindPanelHost } from './editor/registry.ts';
 import { installLogic } from './editor/logicpanel.ts';
@@ -83,7 +85,8 @@ export interface LevelUi {
     view: () => LevelView;
     loadFile(f: File): Promise<void>;
     setDisc(d: DiscContext | null): void;
-    openLevel(dirPath: string): Promise<void>;
+    /** Open a disc level; `asTitle` opens it under another title (a project's level copy keeps its own edits). */
+    openLevel(dirPath: string, asTitle?: string): Promise<void>;
     /** Open an already loaded level (the worker result); also used by tests with synthetic data. */
     openLoaded(r: LevelLoadResult, displayName: string): Promise<void>;
     /** The Asset Browser panel (thumbnail provider hook for the model renderer). */
@@ -496,16 +499,12 @@ export function initLevelUi(host: LevelUiHost): LevelUi {
     let helperCache = {} as Record<HelperGroup, number>;
     function helperCounts(): Record<HelperGroup, number> {
         const v = view;
-        const key = `${v?.doc.size ?? 0}:${src?.file ?? ''}`;
+        const key = `${v?.doc.size ?? 0}:${src?.file ?? ''}:${v?.helperRevision ?? 0}`;
         if (key === helperKey) return helperCache;
         helperKey = key;
-        helperCache = Object.fromEntries(HELPER_GROUPS.map((g) => [g.id, 0])) as Record<HelperGroup, number>;
-        const byClass = new Map<string, HelperGroup | null>();
-        for (const o of v?.doc.objects() ?? []) {
-            let g = byClass.get(o.class);
-            if (g === undefined) byClass.set(o.class, (g = helperGroupOf(o.class)));
-            if (g) helperCache[g]++;
-        }
+        helperCache = v
+            ? v.helperCounts()
+            : (Object.fromEntries(HELPER_GROUPS.map((g) => [g.id, 0])) as Record<HelperGroup, number>);
         return helperCache;
     }
 
@@ -517,6 +516,10 @@ export function initLevelUi(host: LevelUiHost): LevelUi {
                 onSelection: () => onSelection(),
                 onChange: () => onChange(),
                 onHover: (id, x, y) => onHover(id, x, y),
+                onContextMenu: (id, x, y, ground) => {
+                    const items = buildObjectMenu(ctx, id === null ? [] : [id], { ground });
+                    if (items.length) contextMenu(x, y, items);
+                },
                 onVisibility: () => {
                     for (const p of panels) p.onVisibility?.();
                     syncToolbar();
@@ -536,6 +539,7 @@ export function initLevelUi(host: LevelUiHost): LevelUi {
             view.setSnap({});
             view.setDocument(new LevelDocument());
             view.setActive(true);
+            installLinking(ctx);
             applyViewTheme();
             window.setInterval(updateStatus, 500);
         }
@@ -847,13 +851,14 @@ export function initLevelUi(host: LevelUiHost): LevelUi {
         modPanel.onLoad?.();
     }
 
-    async function openLevel(dirPath: string): Promise<void> {
+    async function openLevel(dirPath: string, asTitle?: string): Promise<void> {
         const info = disc?.levels.find((l) => l.dirPath === dirPath);
-        host.setStatus(`Loading ${info?.name ?? dirPath}...`);
-        toast(`Loading ${info?.name ?? dirPath}...`);
+        const shown = asTitle ?? info?.name ?? dirPath;
+        host.setStatus(`Loading ${shown}...`);
+        toast(`Loading ${shown}...`);
         const r = await host.call('loadLevel', dirPath);
-        await openLoaded(r, info?.name ?? r.file);
-        if (info) rememberLevel({ name: info.name, dirPath });
+        await openLoaded(r, asTitle ?? info?.name ?? r.file);
+        if (info && !asTitle) rememberLevel({ name: info.name, dirPath });
         const resources = new Set<string>();
         for (const o of getView().doc.objects()) resources.add(o.resource);
         visuals = loader.loadLevel(dirPath, resources).catch(fail);

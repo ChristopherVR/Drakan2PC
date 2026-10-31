@@ -85,3 +85,20 @@
     padding: 2px 0;
     font-size: var(--fs-sm);
 }
+
+.dlg-new {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    align-items: center;
+    margin: 8px 0;
+}
+.dlg-phase-row {
+    display: flex;
+    gap: 4px;
+    align-items: stretch;
+}
+.dlg-phase-row .story-row {
+    flex: 1;
+    min-width: 0;
+}

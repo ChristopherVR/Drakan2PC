@@ -7,7 +7,16 @@ import { resourceParts } from '@drakan/editor-core';
 export type HelperGroup = 'trigger' | 'sound' | 'camera' | 'light' | 'waypoint' | 'timer' | 'spawn' | 'barrier';
 
 /** Atlas order of the editor icons (scene/icons.ts). */
-export const ICON_ORDER: readonly HelperGroup[] = ['trigger', 'sound', 'camera', 'light', 'waypoint', 'timer', 'spawn', 'barrier'];
+export const ICON_ORDER: readonly HelperGroup[] = [
+    'trigger',
+    'sound',
+    'camera',
+    'light',
+    'waypoint',
+    'timer',
+    'spawn',
+    'barrier',
+];
 
 export const HELPER_GROUPS: { id: HelperGroup; label: string }[] = [
     { id: 'trigger', label: 'Triggers' },
@@ -62,12 +71,14 @@ export function partitionObjects<T extends Placed>(
     hasModel: (resource: string) => boolean,
     helperVisible: (g: HelperGroup) => boolean,
     asIcons = false,
+    modelGroup?: (resource: string) => HelperGroup | null,
 ): Partition<T> {
     const out: Partition<T> = { byResource: new Map(), markers: [], hidden: [], icons: [] };
     const groupCache = new Map<string, HelperGroup | null>();
     for (const o of objects) {
         let g = groupCache.get(o.class);
         if (g === undefined) groupCache.set(o.class, (g = helperGroupOf(o.class)));
+        if (!g && modelGroup) g = modelGroup(o.resource);
         if (g && !helperVisible(g)) {
             out.hidden.push(o);
             continue;

@@ -8,6 +8,7 @@ import {
     LevelDocument,
     SetPropCommand,
     TransformCommand,
+    describeObjects,
     editObjects,
     nearestObjectPlaneY,
     snapValue,
@@ -19,7 +20,7 @@ import {
 } from '@drakan/editor-core';
 import { IconLayer, VolumeBoxes, type VolumeBox } from './scene/icons.ts';
 import { ModelLayer } from './scene/layer.ts';
-import { helperGroupOf, partitionObjects } from './scene/instances.ts';
+import { HELPER_GROUPS, helperGroupOf, partitionObjects, type HelperGroup } from './scene/instances.ts';
 import { docInstanceMatrix } from './scene/models.ts';
 import { clientToNdc, nearestScreenPoint, pointsInRect, type ScreenPoint } from './scene/pickmath.ts';
 import { DEFAULT_VIEW_OPTIONS, LIGHTING, type ViewOptions } from './scene/viewopts.ts';
@@ -35,6 +36,16 @@ export const KINDS: { kind: EntityKind; color: number; label: string }[] = [
     { kind: 'camera', color: 0x38bdf8, label: 'Camera' },
     { kind: 'other', color: 0xf472b6, label: 'Other' },
 ];
+/** What each kind means, shown as a tooltip on the Place chips, the Content Browser chips and the Outliner groups. */
+export const KIND_HINT: Record<EntityKind, string> = {
+    player: 'Player characters, their start points and level transitions',
+    creature: 'Enemies, NPCs, dragons, barriers and waypoints: anything the game treats as a creature',
+    weapon: 'Pick-ups: weapons, armour, potions and other items',
+    usable: 'Things the player or a trigger operates: doors, levers, chests, timers and detectors',
+    static: 'Scenery that does not move: trees, rocks, walls, props',
+    camera: 'Cameras for cut scenes',
+    other: 'Everything else: sounds, lights, level settings',
+};
 const DRAG_PX = 4;
 const PICK_PX = 10;
 /** Half the editor icon size on screen plus a little slack. */
@@ -60,6 +71,8 @@ export interface LevelViewEvents {
     onChange(): void;
     /** Hover over an object (or off, `id` null); `x`/`y` are client coordinates. */
     onHover?(id: number | null, x: number, y: number): void;
+    /** Right click without dragging (a plain right button press is the fly camera): object under it and the ground point. */
+    onContextMenu?(id: number | null, x: number, y: number, ground: [number, number, number] | null): void;
     /** Hidden/locked sets or filters changed. */
     onVisibility?(): void;
     /** Camera moved (for the status bar). */
@@ -99,6 +112,7 @@ export class LevelView {
     /** Helper-class objects drawn as editor icons (billboards), and their ids. */
     private iconObjs: LevelObject[] = [];
     private iconIds = new Set<number>();
+    private iconGroups = new Map<number, HelperGroup>();
     readonly icons = new IconLayer();
     private readonly iconVolumes = new VolumeBoxes();
     private ghostKey: string | null = null;
@@ -117,6 +131,9 @@ export class LevelView {
     private boxing = false;
     private flying = false;
     private flyLook = { x: 0, y: 0 };
+    private rightDown: { x: number; y: number; t: number } | null = null;
+    /** Called when pick mode starts or ends (a banner in the editor shell). */
+    onPickChange: (() => void) | null = null;
     private dragBefore: Map<number, LevelObject> | null = null;
     private dragStart: {
         c: THREE.Vector3;
@@ -380,13 +397,18 @@ export class LevelView {
     }
     deleteSelected(): void {
         const ids = this.editable();
-        if (this.policy.structural && ids.length) this.stack.run(new DeleteCommand(ids));
+        if (this.policy.structural && ids.length)
+            this.stack.run(new DeleteCommand(ids, `Delete ${this.describe(ids)}`));
     }
     duplicateSelected(): void {
         const ids = this.editable();
         if (!this.policy.structural || !ids.length) return;
         const cmd = this.stack.duplicate(ids);
         this.select(cmd.ids);
+    }
+    /** `Orc #123` / `3 objects` for history labels. */
+    private describe(ids: readonly number[]): string {
+        return describeObjects(ids.map((i) => this.doc.get(i)).filter((o): o is LevelObject => !!o));
     }
     /** Selected objects that are not locked. */
     editable(): number[] {
@@ -398,7 +420,13 @@ export class LevelView {
         const before = structuredClone(o.transform);
         const after = structuredClone(o.transform);
         after[field][axis] = value;
-        this.stack.run(new TransformCommand(new Map([[id, before]]), new Map([[id, after]])));
+        this.stack.run(
+            new TransformCommand(
+                new Map([[id, before]]),
+                new Map([[id, after]]),
+                `${field === 'pos' ? 'Move' : 'Rotate'} ${this.describe([id])}`,
+            ),
+        );
     }
     setProp(id: number, key: string, value: string | number | boolean | undefined): void {
         this.stack.run(new SetPropCommand(id, key, value));
@@ -715,6 +743,7 @@ export class LevelView {
     private onPointerDown = (e: PointerEvent): void => {
         if (e.button === 2 && this.editorMode) {
             this.flying = true;
+            this.rightDown = { x: e.clientX, y: e.clientY, t: performance.now() };
             this.flyLook = { x: e.clientX, y: e.clientY };
             this.renderer.domElement.setPointerCapture(e.pointerId);
             this.renderer.domElement.style.cursor = 'none';
@@ -785,6 +814,13 @@ export class LevelView {
             if (this.renderer.domElement.hasPointerCapture(e.pointerId)) {
                 this.renderer.domElement.releasePointerCapture(e.pointerId);
             }
+            const rd = this.rightDown;
+            this.rightDown = null;
+            if (rd && performance.now() - rd.t < 400 && Math.hypot(e.clientX - rd.x, e.clientY - rd.y) < DRAG_PX) {
+                const id = this.pickAt(e, true);
+                if (id !== null && !this.selection.has(id)) this.select([id]);
+                this.ev.onContextMenu?.(id, e.clientX, e.clientY, this.groundAt(e));
+            }
             return;
         }
         const wasBoxing = this.boxing;
@@ -799,10 +835,7 @@ export class LevelView {
         if (this.gizmo.axis) return;
         const id = this.pickAt(e);
         if (this.refPicker) {
-            const cb = this.refPicker;
-            this.refPicker = null;
-            this.renderer.domElement.style.cursor = '';
-            cb(id);
+            this.completePick(id);
             return;
         }
         if (id === null) {
@@ -814,12 +847,29 @@ export class LevelView {
     pickObject(cb: (id: number | null) => void): void {
         this.refPicker = cb;
         this.renderer.domElement.style.cursor = 'crosshair';
+        this.onPickChange?.();
+    }
+    /** Finish pick mode with `id` (the viewport click, or a click on an Outliner row). */
+    completePick(id: number | null): void {
+        const cb = this.refPicker;
+        if (!cb) return;
+        this.refPicker = null;
+        this.renderer.domElement.style.cursor = '';
+        this.onPickChange?.();
+        cb(id);
     }
     cancelPick(): boolean {
         if (!this.refPicker) return false;
         this.refPicker = null;
         this.renderer.domElement.style.cursor = '';
+        this.onPickChange?.();
         return true;
+    }
+    /** Client-pixel position of an object (null when behind the camera or unknown). */
+    objectScreenPos(id: number): { x: number; y: number } | null {
+        const o = this.doc.get(id);
+        if (!o) return null;
+        return this.screenPoints([o], true)[0] ?? null;
     }
     get picking(): boolean {
         return this.refPicker !== null;
@@ -989,11 +1039,22 @@ export class LevelView {
                 scaledIds.map((id) => [id, [...this.doc.get(id)!.scale!] as [number, number, number]]),
             );
             for (const id of scaledIds) this.doc.get(id)!.scale = [...before.get(id)!.scale!];
-            const cmd = editObjects(this.doc, scaledIds, 'Scale', (o) => (o.scale = [...finals.get(o.id)!]));
+            const cmd = editObjects(
+                this.doc,
+                scaledIds,
+                `Scale ${this.describe(scaledIds)}`,
+                (o) => (o.scale = [...finals.get(o.id)!]),
+            );
             if (cmd) this.stack.run(cmd);
         }
         if (moved) {
-            this.stack.run(new TransformCommand(bt, at, this.mode === 'rotate' ? 'Rotate' : 'Move'));
+            this.stack.run(
+                new TransformCommand(
+                    bt,
+                    at,
+                    `${this.mode === 'rotate' ? 'Rotate' : 'Move'} ${this.describe([...bt.keys()])}`,
+                ),
+            );
         }
         this.updateGizmo();
     }
@@ -1196,6 +1257,59 @@ export class LevelView {
     }
     private modelIds = new Set<number>();
 
+    /**
+     * Helper classes with a name the rules do not know (bird song emitters, wind and fog switchers, ...) still use the
+     * placeholder cube of their kind: a model of at most 12 triangles with the one debug texture of the named sound or
+     * trigger classes. Learned from the classes the name rules do catch, once their models are loaded.
+     */
+    private helperByModel = new Map<string, HelperGroup | null>();
+    private helperModelCount = -1;
+    private debugTextures = new Map<number, HelperGroup>();
+    private modelHelper(resource: string): HelperGroup | null {
+        if (this.helperModelCount !== this.models.entryCount) {
+            this.helperModelCount = this.models.entryCount;
+            this.helperByModel.clear();
+            this.debugTextures.clear();
+            const seen = new Set<string>();
+            for (const o of this.doc.objects()) {
+                if (seen.has(o.resource)) continue;
+                seen.add(o.resource);
+                const g = helperGroupOf(o.class);
+                const t = g === 'sound' || g === 'trigger' ? this.cubeTexture(o.resource) : null;
+                if (g && t !== null) this.debugTextures.set(t, g);
+            }
+        }
+        let g = this.helperByModel.get(resource);
+        if (g === undefined) {
+            const t = this.cubeTexture(resource);
+            g = t === null ? null : (this.debugTextures.get(t) ?? null);
+            this.helperByModel.set(resource, g);
+        }
+        return g;
+    }
+    /** Objects per helper group, by class name and by learned placeholder model (the Show menu counts). */
+    helperCounts(): Record<HelperGroup, number> {
+        const out = Object.fromEntries(HELPER_GROUPS.map((g) => [g.id, 0])) as Record<HelperGroup, number>;
+        const byRes = new Map<string, HelperGroup | null>();
+        for (const o of this.doc.objects()) {
+            const key = `${o.class} ${o.resource}`;
+            let g = byRes.get(key);
+            if (g === undefined) byRes.set(key, (g = helperGroupOf(o.class) ?? this.modelHelper(o.resource)));
+            if (g) out[g]++;
+        }
+        return out;
+    }
+    /** Changes when more models have loaded (a learned group may appear). */
+    get helperRevision(): number {
+        return this.models.entryCount;
+    }
+    private cubeTexture(resource: string): number | null {
+        const e = this.models.entry(resource);
+        if (!e || e.model.lod0.triCount > 12 || e.model.textures.length !== 1) return null;
+        const t = e.model.textures[0]!;
+        return t.id | (t.db << 16);
+    }
+
     private rebuild(): void {
         for (const { mesh } of this.meshes.values()) {
             this.scene.remove(mesh);
@@ -1211,9 +1325,11 @@ export class LevelView {
             (r) => opt.models && this.models.has(r),
             (g) => opt.helpers[g],
             opt.editorIcons && this.editorMode,
+            (r) => this.modelHelper(r),
         );
         this.iconObjs = part.icons.map((i) => i.o);
         this.iconIds = new Set(this.iconObjs.map((o) => o.id));
+        this.iconGroups = new Map(part.icons.map((i) => [i.o.id, i.group]));
         this.icons.set(
             part.icons.map(({ o, group }) => ({
                 id: o.id,
@@ -1327,7 +1443,7 @@ export class LevelView {
             if (!this.iconIds.has(id)) continue;
             const o = this.doc.get(id);
             if (!o) continue;
-            const g = helperGroupOf(o.class);
+            const g = this.iconGroups.get(id);
             if (g !== 'trigger' && g !== 'barrier') continue;
             const e = this.models.entry(o.resource);
             if (!e) continue;

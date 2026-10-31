@@ -54,6 +54,43 @@ export function createCinematicsPanel(session: ContentSession, meta: () => ModMe
         'aria-label': 'Search sequences',
     });
     const info = h('div', { class: 'story-info' });
+    const newName = h('input', {
+        type: 'text',
+        class: 'story-search',
+        placeholder: 'New sequence name',
+        maxlength: 80,
+        'aria-label': 'New sequence name',
+    });
+    const newFolder = h('select', { class: 'story-sel', 'aria-label': 'Folder of the new sequence' });
+    const newBar = h(
+        'div',
+        { class: 'cin-add' },
+        newName,
+        newFolder,
+        h(
+            'button',
+            {
+                class: 'btn',
+                type: 'button',
+                title: 'Add an empty sequence (exported as a new entry of the level SSD); then add actors and actions',
+                onclick: () => {
+                    try {
+                        const id = session.addSequence(newName.value, Number(newFolder.value));
+                        newName.value = '';
+                        state.sel = id;
+                        state.t = 0;
+                        renderAll();
+                        session.host.status(
+                            `New sequence ${id}. Reference it from a cut scene player's Sequence List.`,
+                        );
+                    } catch (e) {
+                        session.host.status(e instanceof Error ? e.message : String(e), true);
+                    }
+                },
+            },
+            'New sequence',
+        ),
+    );
     const list = h('div', { class: 'story-list', role: 'listbox', 'aria-label': 'Sequences' });
     const detail = h('div', { class: 'story-detail' });
 
@@ -87,6 +124,7 @@ export function createCinematicsPanel(session: ContentSession, meta: () => ModMe
         'div',
         { class: 'panel story cin' },
         h('div', { class: 'story-bar' }, loadBtn, stemSel, search, exportBtn, info),
+        newBar,
         h('div', { class: 'story-body' }, list, detail),
     );
     stemSel.addEventListener('change', () => {
@@ -117,7 +155,7 @@ export function createCinematicsPanel(session: ContentSession, meta: () => ModMe
         const rows: HTMLElement[] = [];
         const folders = new Map(story.folders.map((f) => [f.id, f.name]));
         let lastFolder = -1;
-        const seqs = [...story.sequences].sort(
+        const seqs = [...session.sequences()].sort(
             (a, b) => a.folder - b.folder || (a.seq?.name ?? '').localeCompare(b.seq?.name ?? ''),
         );
         for (const r of seqs) {
@@ -151,7 +189,11 @@ export function createCinematicsPanel(session: ContentSession, meta: () => ModMe
                         { class: 'story-text' },
                         seq ? `${seq.actors.length} actors, ${sequenceDuration(seq).toFixed(1)} s` : 'not decoded',
                     ),
-                    session.sequenceEdited(r.id) ? h('span', { class: 'story-tag warn' }, 'edited') : null,
+                    session.sequenceIsNew(r.id)
+                        ? h('span', { class: 'story-tag warn' }, 'new')
+                        : session.sequenceEdited(r.id)
+                          ? h('span', { class: 'story-tag warn' }, 'edited')
+                          : null,
                 ),
             );
         }
@@ -410,7 +452,8 @@ export function createCinematicsPanel(session: ContentSession, meta: () => ModMe
         redraw = null;
         subtitleEl = null;
         if (!story) return fill(detail);
-        const rec = story.sequences.find((s) => s.id === state.sel) ?? story.sequences[0];
+        const all = session.sequences();
+        const rec = all.find((s) => s.id === state.sel) ?? all[0];
         if (!rec) return fill(detail, h('div', { class: 'story-empty' }, 'This level folder has no sequences.'));
         state.sel = rec.id;
         const seq = session.sequence(rec.id);
@@ -460,6 +503,50 @@ export function createCinematicsPanel(session: ContentSession, meta: () => ModMe
             redraw?.();
         });
         const edited = session.sequenceEdited(rec.id);
+        const actorName = h('input', {
+            type: 'text',
+            class: 'story-search',
+            placeholder: 'Actor name (Camera, Rynn, ...)',
+            'aria-label': 'New actor name',
+        });
+        const actorRef = h('input', {
+            type: 'number',
+            class: 'dlg-num',
+            min: 0,
+            value: 0,
+            'aria-label': 'Actor object id',
+            title: 'Level object id of the prop or character (908 / 910 for Rynn / the camera, inferred)',
+        });
+        const addActorRow = h(
+            'div',
+            { class: 'cin-add' },
+            actorName,
+            actorRef,
+            h(
+                'button',
+                {
+                    class: 'btn',
+                    type: 'button',
+                    onclick: () => session.addSequenceActor(seq.id, actorName.value, Number(actorRef.value) || 0),
+                },
+                'Add actor',
+            ),
+            session.sequenceIsNew(rec.id)
+                ? h(
+                      'button',
+                      {
+                          class: 'btn',
+                          type: 'button',
+                          onclick: () => {
+                              session.revertSequence(rec.id);
+                              state.sel = 0;
+                              renderAll();
+                          },
+                      },
+                      'Remove new sequence',
+                  )
+                : null,
+        );
         const nameIn = h('input', {
             type: 'text',
             class: 'story-search',
@@ -533,7 +620,20 @@ export function createCinematicsPanel(session: ContentSession, meta: () => ModMe
                 ),
                 scrub,
                 clock,
+                session.host.framePath
+                    ? h(
+                          'button',
+                          {
+                              class: 'btn',
+                              type: 'button',
+                              title: 'Point the level view at this sequence camera path (pink line, green start, red end)',
+                              onclick: () => session.host.framePath?.(),
+                          },
+                          'Show camera path in 3D',
+                      )
+                    : null,
             ),
+            addActorRow,
             subtitleEl,
             h('div', { class: 'cin-viz' }, tl, pathCv),
             h(
@@ -550,8 +650,14 @@ export function createCinematicsPanel(session: ContentSession, meta: () => ModMe
         if (stemSel.options.length !== session.stems.length)
             fill(stemSel, ...session.stems.map((t) => h('option', { value: t }, t)));
         if (session.stem) stemSel.value = session.stem;
+        {
+            const keep = newFolder.value;
+            fill(newFolder, ...(session.story?.folders ?? []).map((f) => h('option', { value: String(f.id) }, f.name)));
+            if (keep && [...newFolder.options].some((o) => o.value === keep)) newFolder.value = keep;
+            else newFolder.selectedIndex = 0;
+        }
         info.textContent = session.story
-            ? `${session.story.sequences.length} sequences, ${session.count()} edit${session.count() === 1 ? '' : 's'}`
+            ? `${session.sequences().length} sequences, ${session.count()} edit${session.count() === 1 ? '' : 's'}`
             : '';
         renderList();
         renderDetail();
