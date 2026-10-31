@@ -257,6 +257,58 @@ int main() {
         CHECK(!decode(encode(pj), pjo));
     }
 
+    // v5: password, server name, Ready, discovery messages.
+    {
+        Hello h;
+        h.name = "Rynn";
+        h.password = "secret";
+        Hello o;
+        CHECK(decode(encode(h), o) && o.password == "secret");
+        h.password = std::string(kMaxPasswordLength + 1, 'x');
+        CHECK(!decode(encode(h), o)); // over the per-field maximum
+
+        MatchConfigData c;
+        c.serverName = "Rynn's keep";
+        MatchConfigMsg m, mo;
+        m.config = c;
+        CHECK(decode(encode(m), mo) && mo.config.serverName == "Rynn's keep");
+
+        Ready r;
+        r.player = 3;
+        r.ready = true;
+        Ready ro;
+        CHECK(decode(encode(r), ro) && ro.player == 3 && ro.ready);
+        std::vector<uint8_t> bad = encode(r);
+        bad.back() = 2;
+        CHECK(!decode(bad, ro));
+
+        Query q;
+        q.token = 0x12345678u;
+        Query qo;
+        CHECK(decode(encode(q), qo) && qo.token == q.token && qo.protocolVersion == kProtocolVersion);
+        CHECK(encode(q).size() == 1 + 2 + 4);
+
+        ServerInfo i;
+        i.token = 9;
+        i.serverId = 0xA1B2C3D4u;
+        i.name = "LAN party";
+        i.level = "Level 1B - Kragmor";
+        i.mode = MatchMode::TeamDeathmatch;
+        i.phase = MatchPhase::Playing;
+        i.players = 3;
+        i.maxPlayers = 8;
+        i.passwordProtected = true;
+        ServerInfo io;
+        CHECK(decode(encode(i), io) && io.token == 9 && io.serverId == 0xA1B2C3D4u && io.name == "LAN party" &&
+              io.level == i.level && io.mode == MatchMode::TeamDeathmatch && io.phase == MatchPhase::Playing &&
+              io.players == 3 && io.maxPlayers == 8 && io.passwordProtected);
+        i.players = 9; // more players than slots is not a status
+        CHECK(!decode(encode(i), io));
+        MsgType t;
+        const std::vector<uint8_t> qb = encode(q);
+        CHECK(peekType(qb.data(), qb.size(), t) && t == MsgType::Query);
+    }
+
     // Reader never reads out of bounds.
     {
         const uint8_t one[] = {1};

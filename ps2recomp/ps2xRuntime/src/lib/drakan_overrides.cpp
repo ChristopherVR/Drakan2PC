@@ -30,6 +30,7 @@
 #ifdef PS2X_HAVE_GSR
 #include <gsr/gsr.h>
 #include "drakan_dlss.h"
+#include "drakan_netplay.h"
 #endif
 #include "spu2/AudioOutput.h"
 #include "drakan_pause.h"
@@ -1269,6 +1270,21 @@ void applyDrakanOverrides(PS2Runtime& runtime) {
         }
         drakan_settings_host::setModManager(g_mods.get(), modsDir); // the Mods page of the PC settings
     }
+#ifdef PS2X_HAVE_GSR
+    {
+        // Multiplayer: a match launched from the title menu loads its level through New Game with the level name
+        // redirected at the file layer (docs/reference/netcode.md "Multiplayer menu"); the map list also offers the
+        // custom levels the mod packs registered.
+        hle::FileService* files = &host->iop.file;
+        drakan_netplay::setLevelRedirectFn(
+            [files](const std::string& from, const std::string& to) { files->setLevelRedirect(from, to); });
+        std::vector<std::string> extra;
+        if (g_mods)
+            for (const hle::mods::ExtraLevel& l : g_mods->extraLevels())
+                extra.push_back(l.name);
+        drakan_netplay::setExtraLevels(std::move(extra));
+    }
+#endif
 #ifdef PS2X_HAVE_UI
     if constexpr (supports(Feature::UiPrompts)) {
         drakan_ui::Options uiOpt = drakan_ui::Options::fromEnvironment();

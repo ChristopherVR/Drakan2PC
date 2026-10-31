@@ -92,11 +92,12 @@ void scenario(uint32_t latencyMs, double lossPercent) {
     CHECK(count<Score>(evB) == 2);
     CHECK(a.roster().at(a.playerId()).kills == 1 && b.roster().at(b.playerId()).deaths == 1);
     CHECK(!b.self()->alive);
-    // The dead player's pose is dropped from everyone's buffers.
-    CHECK(a.bufferedStates(b.playerId()) == 0);
+    // The dead player keeps publishing (its death animation); the Respawn drops the old pose from every buffer.
+    CHECK(a.bufferedStates(b.playerId()) > 0);
 
     // Respawn after the delay, full health.
     rig.run(600);
+    CHECK(a.bufferedStates(b.playerId()) == 0);
     evB = collect(b);
     CHECK(count<Respawn>(evB) == 1 && first<Respawn>(evB)->health == 100);
     CHECK(b.self()->alive && b.self()->health == 100);

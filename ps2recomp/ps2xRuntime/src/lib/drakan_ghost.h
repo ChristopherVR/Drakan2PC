@@ -68,6 +68,10 @@ void setPose(int id, const world::PlayerPose& pose);
 // and HP are not touched. setPose applies PlayerPose.weaponRight / weaponLeft the same way (0 clears the hand).
 void setWeapons(int id, uint32_t rightRecordId, uint32_t leftRecordId);
 void forEach(const std::function<void(const Info&)>& fn);
+// Files an actor whose position the host wrote in the collision cells again (the engine's mover does this itself; a
+// host write does not). Used for ghosts every tick they move (a blade sweep only finds actors in the cell lists) and by
+// drakan_pvp after it teleports the player. EE thread (nested calls).
+void refileActor(drakan_input::IGuest& guest, uint32_t actor);
 
 // EE thread, PadMgr_Update boundary: F9 / F10, queued requests, liveness.
 void beforePadMgr(drakan_input::IGuest& guest, drakan_input::InputModule& input);

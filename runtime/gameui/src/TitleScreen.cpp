@@ -51,6 +51,8 @@ std::string rowDescription(TitleRow r, bool enabled, const TitleState& st) {
             return "Display, graphics, controls and more.";
         case TitleRow::Quit:
             return "Close the game.";
+        case TitleRow::Multiplayer:
+            return "Host or join a match over the network.";
         case TitleRow::QuitToDesktop:
         case TitleRow::Cancel:
             break;
@@ -76,6 +78,8 @@ const char* titleRowLabel(TitleRow r) {
             return "PC Settings";
         case TitleRow::Quit:
             return "Quit";
+        case TitleRow::Multiplayer:
+            return "Multiplayer";
         case TitleRow::QuitToDesktop:
             return "Quit to Desktop";
         case TitleRow::Cancel:
@@ -146,7 +150,8 @@ Rect cardRow(int i) {
 } // namespace design::title
 
 TitleScreen::TitleScreen(TitleConfig cfg)
-    : cfg_(std::move(cfg)), options_(optionsConfig(cfg_)), pcPages_(SettingsPagesConfig{cfg_.screen}) {}
+    : cfg_(std::move(cfg)), options_(optionsConfig(cfg_)), pcPages_(SettingsPagesConfig{cfg_.screen}),
+      mpScreen_(mp::MpConfig{cfg_.screen}) {}
 
 void TitleScreen::open() {
     open_ = true;
@@ -156,6 +161,7 @@ void TitleScreen::open() {
     loading_ = false;
     options_.close();
     pcPages_.close();
+    mpScreen_.close();
 }
 
 void TitleScreen::close() {
@@ -163,6 +169,7 @@ void TitleScreen::close() {
     suspendLeft_ = 0;
     options_.close();
     pcPages_.close();
+    mpScreen_.close();
     targets_.clear();
     hints_.clear();
 }
@@ -185,7 +192,10 @@ std::vector<TitleRow> TitleScreen::rowsOf(TitlePage page, const TitleState& st) 
     std::vector<TitleRow> r;
     if (cfg_.showContinue && st.continueSlot > 0)
         r.push_back(TitleRow::Continue);
-    r.insert(r.end(), {TitleRow::LoadGame, TitleRow::NewGame, TitleRow::Options, TitleRow::Credits});
+    r.insert(r.end(), {TitleRow::LoadGame, TitleRow::NewGame});
+    if (cfg_.showMultiplayer)
+        r.push_back(TitleRow::Multiplayer);
+    r.insert(r.end(), {TitleRow::Options, TitleRow::Credits});
     if (cfg_.showPcSettings && !cfg_.unifiedOptions) // one Options screen: PC Settings is inside it
         r.push_back(TitleRow::PcSettings);
     if (st.canQuit)
@@ -306,6 +316,12 @@ void TitleScreen::activate(TitleRow r, const TitleState& st, TitleFrameOutput& o
             } else
                 emit(TitleActionKind::OpenPcSettings);
             break;
+        case TitleRow::Multiplayer:
+            mainFocus_ = focus_;
+            page_ = TitlePage::Multiplayer;
+            mpScreen_.open(st.multiplayer);
+            out.sound = UiSound::Confirm;
+            break;
         case TitleRow::Quit:
             mainFocus_ = focus_;
             page_ = TitlePage::QuitConfirm;
@@ -363,7 +379,8 @@ void TitleScreen::applyInput(const TitleState& st, const UiInput& in, TitleFrame
     if (in.wheel != 0)
         keys.push_back(in.wheel > 0 ? UiKey::Up : UiKey::Down);
     for (UiKey k : keys) {
-        if (suspendLeft_ > 0 || page_ == TitlePage::Options || page_ == TitlePage::PcSettings)
+        if (suspendLeft_ > 0 || page_ == TitlePage::Options || page_ == TitlePage::PcSettings ||
+            page_ == TitlePage::Multiplayer)
             break;
         const TitlePage before = page_;
         int dy = 0;
@@ -443,6 +460,25 @@ TitleFrameOutput TitleScreen::frame(const TitleState& st, const UiInput& in, con
         draw(st, out.draw);
         return out;
     }
+    if (page_ == TitlePage::Multiplayer) {
+        mp::MpFrameOutput mo = mpScreen_.frame(st.multiplayer, in, vp);
+        out.sound = mo.sound;
+        out.mpActions = std::move(mo.actions);
+        if (!mo.wantsClose) {
+            out.draw = std::move(mo.draw);
+            return out;
+        }
+        // Back on the Multiplayer page: the main menu again with Multiplayer focused, drawn this frame.
+        mpScreen_.close();
+        page_ = TitlePage::Main;
+        focus_ = mainFocus_;
+        out.sound = UiSound::Back;
+        buildTargets(st);
+        ensureFocus(st);
+        buildHints(st);
+        draw(st, out.draw);
+        return out;
+    }
     if (page_ == TitlePage::Options) {
         static const Snapshot kNoSnapshot;
         PauseFrameOutput o = options_.frame(kNoSnapshot, optionsState(), in, vp);
@@ -482,6 +518,12 @@ TitleFrameOutput TitleScreen::frame(const TitleState& st, const UiInput& in, con
         static const Snapshot kNoSnapshot;
         PauseFrameOutput o = options_.frame(kNoSnapshot, optionsState(), {}, vp);
         out.draw = std::move(o.draw);
+        return out;
+    }
+    if (page_ == TitlePage::Multiplayer) { // opened this frame: show the page at once (no input yet)
+        UiInput none;
+        none.device = in.device;
+        out.draw = mpScreen_.frame(st.multiplayer, none, vp).draw;
         return out;
     }
     if (page_ == TitlePage::PcSettings) { // opened this frame: show the pages at once (no input yet)

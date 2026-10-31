@@ -27,6 +27,7 @@
 #include "drakan_ghost.h"
 #include "drakan_coop.h"
 #include "drakan_netplay.h"
+#include "drakan_pvp.h"
 #include "drakan_world.h"
 #endif
 #include "drakan_pause.h"
@@ -503,6 +504,18 @@ void hookPadRead(uint8_t* rdram, R5900Context* c, PS2Runtime* rt) {
             ilog("[quick-inventory] frame=%d native pad overlay %04x -> %04x\n", input.frameNo(), last, bits);
         last = bits;
     }
+#if defined(PS2X_HAVE_GSR)
+    // A multiplayer match launched from the title menu skips the New Game intro cut scene with START taps until the
+    // match level is loaded (drakan_netplay::launchTaps, docs/reference/netcode.md "Multiplayer menu").
+    if (port == 0 && drakan_netplay::launchTaps()) {
+        const long t = static_cast<long>(
+            std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - g_t0).count());
+        if ((t % 500) < 150) {
+            s[2] &= static_cast<uint8_t>(~(0x08u)); // START
+            s[3] &= static_cast<uint8_t>(~(0x40u)); // CROSS
+        }
+    }
+#endif
     // With DRAKAN_INPUT_AUTOSTART the taps only serve menus and cut scenes: in free gameplay Start would open the pause
     // menu (and Cross jump), which keeps resetting the "under control" count in levels that run below ~60 FPS.
     if (port == 0 && g_autoPressMs > 0 && !(g_autoStart && (g_steady || g_playRun > 0))) {
@@ -676,6 +689,7 @@ void hookPadMgrUpdate(uint8_t* rdram, R5900Context* c, PS2Runtime* rt) {
     drakan_ghost::beforePadMgr(g, m);
     drakan_netplay::beforePadMgr(rdram);
     drakan_coop::beforePadMgr(rdram);
+    drakan_pvp::beforePadMgr(g, rdram);
 #endif
     inventoryViewsTick(g, scr, gameplay);
     quickSlotsTick(g, scr, gameplay);
@@ -1206,6 +1220,7 @@ void drakanInstallInput(PS2Runtime& rt) {
     drakan_ghost::install(rt);
     drakan_netplay::install(rt);
     drakan_coop::install(rt);
+    drakan_pvp::install(rt);
 #endif
     if constexpr (drakan_region::supports(drakan_region::Feature::DebugMenu))
         drakan_debug_menu::install(rt);

@@ -682,7 +682,7 @@ if(TARGET drakan::gs)
     target_sources(ps2_runtime PRIVATE src/lib/gs/gs_gsr_bridge.cpp src/lib/drakan_dlss.cpp
         src/lib/drakan_scene_camera.cpp src/lib/drakan_settings_host.cpp src/lib/drakan_fmv_hd.cpp
         src/lib/drakan_debug_menu.cpp src/lib/drakan_world.cpp src/lib/drakan_ghost.cpp src/lib/drakan_netplay.cpp
-        src/lib/drakan_coop.cpp)
+        src/lib/drakan_coop.cpp src/lib/drakan_pvp.cpp)
     target_link_libraries(ps2_runtime PRIVATE drakan::gs drakan::settings)
     target_compile_definitions(ps2_runtime PRIVATE PS2X_HAVE_DRAKAN_INPUT=1 PS2X_HAVE_GSR=1
         PS2X_HAVE_DRAKAN_SETTINGS=1)

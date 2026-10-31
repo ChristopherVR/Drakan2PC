@@ -11,6 +11,7 @@
 #include "drakan_fpsmeter.h"
 #include "drakan_window.h"
 #include "drakan_menus.h"
+#include "drakan_netplay.h"
 #include "drakan_world.h"
 #include "drakan_fmv_hd.h"
 #include "drakan_save_previews.h"
@@ -31,6 +32,7 @@
 #endif
 #include <settings/TxdImage.h>
 #include <gameui/MapScreen.h>
+#include <gameui/Multiplayer.h>
 #include <gameui/PauseScreen.h>
 #include <gameui/Screen.h>
 #include <gameui/StripScreen.h>
@@ -331,6 +333,7 @@ PageMap tabPageMap(const gsr::OverlayContext& oc, float w, float h, unsigned fra
 // buttons) are not navigation then but the key to bind, reported in g_capturedKey as its drakan_input.ini name; Esc
 // and the pad stay navigation (Esc / B cancel). Set by the screen's draw before it reads the input.
 bool g_capture = false;
+bool g_textEdit = false; // a multiplayer text field is being edited: typed characters in, letter keys out of navigation
 std::string g_capturedKey;
 
 gameui::UiInput tabInput(bool take) {
@@ -357,9 +360,24 @@ gameui::UiInput tabInput(bool take) {
     // `vk`: the key's physical state comes from the OS (ImGui's is cleared when the screen takes the input, and the
     // key-down message of the opening press can arrive after that: raw input, which the game reads, runs on its own
     // thread). Pad buttons: ImGui's state is the backend's XInput poll.
+    if (g_textEdit) { // typed characters and Backspace for the multiplayer text fields
+        for (int i = 0; i < io.InputQueueCharacters.Size; ++i) {
+            const ImWchar ch = io.InputQueueCharacters[i];
+            if (ch >= 0x20 && ch < 0x7f)
+                in.text.push_back(static_cast<char>(ch));
+        }
+        if (ImGui::IsKeyPressed(ImGuiKey_Backspace, true))
+            ++in.backspaces;
+        if (!in.text.empty() || in.backspaces)
+            kbm = true;
+    }
     const auto k = [&](ImGuiKey key, int vk, UiKey u, bool repeat) {
         if (g_capture && key < ImGuiKey_GamepadStart && key != ImGuiKey_Escape)
             return; // capturing: the keyboard binds, it does not navigate
+        if (g_textEdit && key < ImGuiKey_GamepadStart &&
+            ((key >= ImGuiKey_A && key <= ImGuiKey_Z) || key == ImGuiKey_Space || key == ImGuiKey_Backspace ||
+             key == ImGuiKey_Delete))
+            return; // typing: letters, Space and Backspace belong to the text field
         const bool down = ImGui::IsKeyDown(key) || (vk && drakan_win::keyDown(vk));
         if (gate.accept(static_cast<int>(key), down, ImGui::IsKeyPressed(key, repeat))) {
             in.keys.push_back(u);
@@ -978,6 +996,7 @@ gameui::UiInput hostScreenInput(bool take, bool capture, float w, float h) {
     g_capture = capture;
     gameui::UiInput in = drakan_input::module().scripted() ? tabScriptInput(take, w, h) : tabInput(take);
     g_capture = false;
+    g_textEdit = false;
     return in;
 }
 
@@ -1283,6 +1302,258 @@ void drawHostList(const dsettings::SettingsOverlay::ScreenFrame& f, const gameui
     g_tabUi.renderer.draw(ImGui::GetBackgroundDrawList(), list, canvas, icons, now, fade);
 }
 
+// ---- multiplayer menu glue: gameui::mp::MpState <- drakan_netplay::state(), MpAction -> the netplay API ----
+
+struct MpProfile {
+    std::string name;
+    int colour = 0, model = 0;
+    bool loaded = false;
+};
+MpProfile g_mpProfile;
+std::string mpProfilePath() {
+    return drakan_cfg::exeDir() + "multiplayer.ini";
+}
+void loadMpProfile() {
+    if (g_mpProfile.loaded)
+        return;
+    g_mpProfile.loaded = true;
+    g_mpProfile.name = "Rynn";
+    if (const char* n = std::getenv("DRAKAN_NET_NAME"); n && *n)
+        g_mpProfile.name = n;
+    std::ifstream in(mpProfilePath());
+    std::string line;
+    while (std::getline(in, line)) {
+        const size_t eq = line.find('=');
+        if (eq == std::string::npos)
+            continue;
+        std::string k = line.substr(0, eq), v = line.substr(eq + 1);
+        while (!v.empty() && (v.back() == '\r' || v.back() == ' '))
+            v.pop_back();
+        while (!k.empty() && k.back() == ' ')
+            k.pop_back();
+        if (k == "name" && !v.empty() && !std::getenv("DRAKAN_NET_NAME"))
+            g_mpProfile.name = v.substr(0, 24);
+        else if (k == "colour")
+            g_mpProfile.colour = std::atoi(v.c_str());
+        else if (k == "model")
+            g_mpProfile.model = std::atoi(v.c_str());
+    }
+}
+void saveMpProfile(const gameui::mp::SetupForm& s) {
+    g_mpProfile.name = s.name;
+    g_mpProfile.colour = s.colour;
+    g_mpProfile.model = s.model;
+    std::ofstream out(mpProfilePath(), std::ios::trunc);
+    out << "; Player Setup of the Multiplayer menu\nname = " << s.name << "\ncolour = " << s.colour
+        << "\nmodel = " << s.model << "\n";
+}
+
+gameui::mp::MpState mpState(bool wantLan) {
+    using namespace gameui::mp;
+    loadMpProfile();
+    MpState s;
+    const drakan_netplay::State ns = drakan_netplay::state();
+    s.available = ns.available;
+    s.unavailableWhy = ns.unavailableWhy.empty() ? std::string() : "Multiplayer is unavailable: " + ns.unavailableWhy;
+    s.conn = ns.conn == drakan_netplay::Conn::Connected    ? Conn::Connected
+             : ns.conn == drakan_netplay::Conn::Connecting ? (ns.inSession ? Conn::Connecting : Conn::Offline)
+             : ns.conn == drakan_netplay::Conn::Rejected   ? Conn::Rejected
+                                                           : Conn::Offline;
+    s.hosting = ns.hosting;
+    s.phase = static_cast<MatchPhaseView>(static_cast<int>(ns.phase));
+    s.serverName = ns.serverName;
+    s.level = ns.level;
+    s.mode = ns.mode == 1 ? GameMode::TeamDeathmatch : GameMode::Deathmatch;
+    s.maxPlayers = ns.maxPlayers;
+    s.fragLimit = ns.fragLimit;
+    s.timeLimitMin = ns.timeLimitSec / 60;
+    s.selfReady = ns.selfReady;
+    s.message = ns.launching ? std::string("Starting the match ...") : ns.message;
+    for (const auto& p : ns.roster) {
+        RosterRow r;
+        r.id = p.id;
+        r.name = p.name;
+        r.team = p.team;
+        r.ready = p.ready;
+        r.self = p.self;
+        r.host = p.host;
+        r.kills = p.kills;
+        r.deaths = p.deaths;
+        r.pingMs = p.pingMs;
+        r.timeSec = p.timeSec;
+        s.roster.push_back(std::move(r));
+    }
+    if (wantLan) {
+        for (const auto& l : drakan_netplay::lanServers()) {
+            LanServer o;
+            o.host = l.host;
+            o.port = l.port;
+            o.name = l.name;
+            o.level = l.level;
+            o.mode = l.mode == 1 ? GameMode::TeamDeathmatch : GameMode::Deathmatch;
+            o.players = l.players;
+            o.maxPlayers = l.maxPlayers;
+            o.passwordProtected = l.passwordProtected;
+            o.inProgress = l.inProgress;
+            o.pingMs = l.pingMs;
+            s.lan.push_back(std::move(o));
+        }
+        s.lanScanning = drakan_netplay::lanScanning();
+    }
+    s.levels = vanillaLevels();
+    for (const std::string& n : drakan_netplay::extraLevels()) {
+        LevelEntry e;
+        e.name = n;
+        e.title = n.rfind("Level ", 0) == 0 ? n.substr(6) : n;
+        e.custom = true;
+        s.levels.push_back(std::move(e));
+    }
+    s.defaultName = g_mpProfile.name;
+    s.defaultColour = g_mpProfile.colour;
+    s.defaultModel = g_mpProfile.model;
+    s.now = ns.now;
+    return s;
+}
+
+void mpApply(const gameui::mp::MpAction& a, gameui::mp::MultiplayerScreen& screen) {
+    using gameui::mp::MpActionKind;
+    std::fprintf(stderr, "[menu-screens] multiplayer action %s\n", gameui::mp::mpActionName(a.kind));
+    switch (a.kind) {
+        case MpActionKind::HostMatch: {
+            saveMpProfile(a.setup);
+            drakan_netplay::HostConfig hc;
+            hc.serverName = a.host.serverName;
+            hc.level = a.level;
+            hc.mode = a.host.mode == gameui::mp::GameMode::TeamDeathmatch ? 1 : 0;
+            hc.maxPlayers = a.host.maxPlayers;
+            hc.fragLimit = a.host.fragLimit;
+            hc.timeLimitSec = a.host.timeLimitMin * 60;
+            hc.password = a.host.password;
+            drakan_netplay::hostMatch(hc, a.setup.name);
+            break;
+        }
+        case MpActionKind::JoinMatch:
+            saveMpProfile(a.setup);
+            drakan_netplay::joinMatch(a.address, a.password, a.setup.name);
+            break;
+        case MpActionKind::Leave:
+            drakan_netplay::leave();
+            break;
+        case MpActionKind::StartMatch:
+            drakan_netplay::startMatch();
+            break;
+        case MpActionKind::SetReady:
+            drakan_netplay::setReady(a.flag);
+            break;
+        case MpActionKind::RefreshLan:
+            drakan_netplay::refreshLan();
+            break;
+        case MpActionKind::SaveProfile:
+            saveMpProfile(a.setup);
+            break;
+        case MpActionKind::Close:
+            break;
+    }
+    (void)screen;
+}
+
+// ---- in-game multiplayer HUD: scoreboard held on F4 (the Tab key is the inventory), chat on F6, kill-feed hooks ----
+
+struct MpHud {
+    bool chatOpen = false;
+    std::string chatInput;
+    bool f6Was = false;
+    gameui::DrawList last;
+};
+MpHud g_mpHud;
+
+// An active match in the Playing phase: the HUD draws (and the screen layer wakes up for it).
+bool mpHudActive() {
+    if (!drakan_netplay::enabled())
+        return false;
+    const drakan_netplay::State s = drakan_netplay::state();
+    return s.inSession && s.conn == drakan_netplay::Conn::Connected &&
+           (s.phase == drakan_netplay::Phase::Playing || s.phase == drakan_netplay::Phase::Results);
+}
+
+void mpHudDraw(const dsettings::SettingsOverlay::ScreenFrame& f) {
+    MpHud& h = g_mpHud;
+    TabUi& tu = g_tabUi;
+    tu.renderer.setFonts(*f.fonts);
+    tu.renderer.setSkin(f.skin);
+    ImGuiIO& io = ImGui::GetIO();
+    const bool f6 = ImGui::IsKeyDown(ImGuiKey_F6) || drakan_win::keyDown(0x75 /* VK_F6 */);
+    if (f6 && !h.f6Was && !h.chatOpen) {
+        h.chatOpen = true;
+        h.chatInput.clear();
+        drakan_input::module().setSuspended(true); // typed letters must not drive Rynn
+    }
+    h.f6Was = f6;
+    if (h.chatOpen) {
+        for (int i = 0; i < io.InputQueueCharacters.Size; ++i) {
+            const ImWchar c = io.InputQueueCharacters[i];
+            if (c >= 0x20 && c < 0x7f && h.chatInput.size() < 120)
+                h.chatInput.push_back(static_cast<char>(c));
+        }
+        if (ImGui::IsKeyPressed(ImGuiKey_Backspace, true) && !h.chatInput.empty())
+            h.chatInput.pop_back();
+        const bool enter =
+            ImGui::IsKeyPressed(ImGuiKey_Enter, false) || ImGui::IsKeyPressed(ImGuiKey_KeypadEnter, false);
+        const bool esc = ImGui::IsKeyPressed(ImGuiKey_Escape, false);
+        if (enter || esc) {
+            if (enter && !h.chatInput.empty())
+                drakan_netplay::sendChat(h.chatInput);
+            h.chatOpen = false;
+            h.chatInput.clear();
+            drakan_input::module().setSuspended(false);
+        }
+    }
+    const drakan_netplay::State ns = drakan_netplay::state();
+    gameui::mp::HudState hs;
+    // DRAKAN_NET_SCOREBOARD=<seconds> (test aid, scripted input cannot press F4): show it from that many seconds after
+    // the match started playing.
+    static const double forceAfter = [] {
+        const char* e = std::getenv("DRAKAN_NET_SCOREBOARD");
+        return e && *e ? std::atof(e) : -1.0;
+    }();
+    static double playingSince = -1;
+    if (playingSince < 0)
+        playingSince = ImGui::GetTime();
+    hs.scoreboard = ImGui::IsKeyDown(ImGuiKey_F4) || drakan_win::keyDown(0x73 /* VK_F4 */) ||
+                    (forceAfter >= 0 && ImGui::GetTime() - playingSince >= forceAfter);
+    hs.chatOpen = h.chatOpen;
+    // OotF has no results screen: a banner while the server shows the results phase, then the lobby again.
+    if (ns.phase == drakan_netplay::Phase::Results)
+        hs.banner = "Game limit reached! Back to the lobby ...";
+    hs.chatInput = h.chatInput;
+    hs.serverName = ns.serverName;
+    hs.level = ns.level;
+    hs.mode = ns.mode == 1 ? gameui::mp::GameMode::TeamDeathmatch : gameui::mp::GameMode::Deathmatch;
+    hs.fragLimit = ns.fragLimit;
+    hs.teamKills[0] = ns.teamKills[0];
+    hs.teamKills[1] = ns.teamKills[1];
+    hs.now = ns.now;
+    for (const auto& p : ns.roster) {
+        gameui::mp::RosterRow r;
+        r.id = p.id;
+        r.name = p.name;
+        r.team = p.team;
+        r.self = p.self;
+        r.kills = p.kills;
+        r.deaths = p.deaths;
+        r.pingMs = p.pingMs;
+        r.timeSec = p.timeSec;
+        hs.roster.push_back(std::move(r));
+    }
+    for (const auto& c : drakan_netplay::chatLog())
+        hs.chat.push_back({c.who, c.text, c.at});
+    gameui::ScreenConfig sc;
+    sc.measure = tu.renderer.measure();
+    h.last = gameui::mp::drawHud(hs, {0, 0, f.w, f.h}, sc);
+    drawHostList(f, h.last, ImGui::GetTime(), 1.0f,
+                 [](const gameui::ImageRef&, dsettings::IconCrop&) { return false; });
+}
+
 struct TitleUi {
     gameui::TitleScreen screen;
     gameui::DrawList last;
@@ -1320,6 +1591,7 @@ void titleDraw(const dsettings::SettingsOverlay::ScreenFrame& f, bool background
         gameui::TitleConfig cfg;
         cfg.screen.measure = tu.renderer.measure();
         cfg.pcSettingsPages = cfg.unifiedOptions = g_pcs != nullptr;
+        cfg.showMultiplayer = drakan_netplay::wanted();
         ui.screen = gameui::TitleScreen(cfg);
         ui.screen.open();
         tu.gate.reset();
@@ -1349,11 +1621,14 @@ void titleDraw(const dsettings::SettingsOverlay::ScreenFrame& f, bool background
         if (take && !tu.took)
             tu.gate.reset();
         tu.took = take;
+        g_textEdit = ui.screen.wantsText();
         in = hostScreenInput(take, capture, f.w, f.h);
     }
     tu.renderer.setGamepadPrompts(tu.device == gameui::InputDevice::Gamepad);
     if (visible && ui.screen.isOpen()) {
         gameui::TitleState st = sh.titleState();
+        st.multiplayer = mpState(ui.screen.page() == gameui::TitlePage::Multiplayer &&
+                                 ui.screen.multiplayer().page() == gameui::mp::MpPage::Join);
         st.pcSettings = pcSettingsSchema(ui.screen.pcSettingsOpen(), now);
         st.now = now;
         st.capturedKey = take && capture ? g_capturedKey : std::string();
@@ -1365,6 +1640,16 @@ void titleDraw(const dsettings::SettingsOverlay::ScreenFrame& f, bool background
         }
         for (const gameui::PauseAction& a : out.optionActions)
             sh.titleOptionActions.push(a);
+        for (const gameui::mp::MpAction& a : out.mpActions)
+            mpApply(a, ui.screen.multiplayer());
+        { // A match started: begin a New Game with the match level standing in for the first one (the intro is skipped
+            // by START taps, drakan_input_glue.cpp).
+            std::string matchLevel;
+            if (drakan_netplay::takeLaunchRequest(matchLevel)) {
+                std::fprintf(stderr, "[menu-screens] multiplayer launch: New Game with '%s'\n", matchLevel.c_str());
+                sh.titleActions.push({0, gameui::TitleActionKind::NewGame, 0});
+            }
+        }
         // Title rows other than Quit to Desktop are pressed natively (focus + Cross: the row's own click).
         bool titleNative = nativeSound(out.optionActions);
         for (const gameui::TitleAction& a : out.actions)
@@ -1525,6 +1810,10 @@ void hostScreenDraw(const dsettings::SettingsOverlay::ScreenFrame& f) {
         titleDraw(f);
     } else if (pauseShown()) {
         pauseDraw(f);
+    } else if (drakan_tab::shared().active.load() || g_tabUi.fade > 0.0f) {
+        tabDraw(f);
+    } else if (mpHudActive()) {
+        mpHudDraw(f);
     } else {
         tabDraw(f);
     }
@@ -1832,7 +2121,7 @@ void overlayCallback(const gsr::OverlayContext& oc) {
             dsettings::SettingsOverlay::ScreenLayer tl;
             tl.active = []() {
                 return drakan_tab::shared().active.load() || g_tabUi.fade > 0.0f || pauseShown() || titleShown() ||
-                       slotsShown() || drakan_menu_screens::shared().quickOperation.load() != 0;
+                       slotsShown() || drakan_menu_screens::shared().quickOperation.load() != 0 || mpHudActive();
             };
             tl.wantsInput = []() {
                 const auto& ms = drakan_menu_screens::shared();

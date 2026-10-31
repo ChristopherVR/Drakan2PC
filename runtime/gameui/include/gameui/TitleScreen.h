@@ -16,6 +16,7 @@
 #include "gameui/Draw.h"
 #include "gameui/Input.h"
 #include "gameui/Layout.h"
+#include "gameui/Multiplayer.h"
 #include "gameui/PauseScreen.h"
 #include "gameui/SaveSlots.h"
 #include "gameui/Screen.h"
@@ -24,13 +25,14 @@
 namespace gameui {
 
 enum class TitleRow : uint8_t {
-    Continue,   // load the newest save (not a native row: the host's shortcut through the Load screen)
-    LoadGame,   // 0x2302 -> screen 4
-    NewGame,    // 0x2304 -> screen 0xe (the first level, then the intro movie)
-    Options,    // 0x2305 -> screen 9: the host Options pages
-    Credits,    // 0x2306 -> screen 0x13
-    PcSettings, // the modern PC Settings pages (TitleConfig::pcSettingsPages + a schema), else the F1 overlay
-    Quit,       // the host Quit card (natively 0x2303 and its Yes / No box)
+    Continue,    // load the newest save (not a native row: the host's shortcut through the Load screen)
+    LoadGame,    // 0x2302 -> screen 4
+    NewGame,     // 0x2304 -> screen 0xe (the first level, then the intro movie)
+    Options,     // 0x2305 -> screen 9: the host Options pages
+    Credits,     // 0x2306 -> screen 0x13
+    PcSettings,  // the modern PC Settings pages (TitleConfig::pcSettingsPages + a schema), else the F1 overlay
+    Quit,        // the host Quit card (natively 0x2303 and its Yes / No box)
+    Multiplayer, // the multiplayer menu (gameui/Multiplayer.h), inside the title menu (appended: ids are stable)
     // Quit card
     QuitToDesktop,
     Cancel,
@@ -83,14 +85,17 @@ struct TitleState {
     const SettingsSchema* pcSettings = nullptr;
     double now = 0;
     std::string capturedKey;
+    // Multiplayer menu: the network layer snapshot (the glue fills it from drakan_netplay each frame).
+    mp::MpState multiplayer;
 };
 
-enum class TitlePage : uint8_t { Main, QuitConfirm, Options, PcSettings };
+enum class TitlePage : uint8_t { Main, QuitConfirm, Options, PcSettings, Multiplayer };
 
 struct TitleConfig {
     ScreenConfig screen;
     bool showContinue = true;     // a Continue row when TitleState::continueSlot is set
     bool showPcSettings = true;   // a PC Settings row on the main page
+    bool showMultiplayer = false; // a Multiplayer row (after New Game); the host glue turns it on
     uint32_t suspendFrames = 240; // input ignored after an action that leaves the menu, until reactivate()
     int32_t sliderStep = 5;       // Options pages (PauseConfig)
     uint32_t optionHoldFrames = 120;
@@ -108,6 +113,7 @@ struct TitleFrameOutput {
     std::vector<TitleAction> actions;       // to push into the TitleActionQueue
     std::vector<PauseAction> optionActions; // Options pages: to push into a PauseActionQueue (README mapping)
     std::vector<SettingsAction> settings;   // pcSettingsPages: edits to apply (dsettings::ModernSettings::apply)
+    std::vector<mp::MpAction> mpActions;    // Multiplayer page: what to do with the network layer
 };
 
 class TitleScreen {
@@ -119,6 +125,10 @@ public:
     bool isOpen() const { return open_; }
     // A native child (Load, Credits, the F1 overlay) closed and the title is the active screen again.
     void reactivate();
+    // A multiplayer text field is being edited: the glue passes typed characters (UiInput::text) and stops mapping
+    // letters to navigation keys.
+    bool wantsText() const { return page_ == TitlePage::Multiplayer && mpScreen_.editing(); }
+    mp::MultiplayerScreen& multiplayer() { return mpScreen_; }
     bool suspended() const { return suspendLeft_ > 0 || options_.suspended(); }
 
     TitleFrameOutput frame(const TitleState& st, const UiInput& in, const Viewport& vp);
@@ -151,6 +161,7 @@ private:
     TitleConfig cfg_;
     PauseScreen options_;
     SettingsPages pcPages_;
+    mp::MultiplayerScreen mpScreen_;
     bool open_ = false;
     TitlePage page_ = TitlePage::Main;
     TargetId focus_, hover_, mainFocus_;

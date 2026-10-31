@@ -53,15 +53,19 @@ struct Ghost {
     uint32_t wantRec[2] = {};
     uint32_t haveRec[2] = {};
     uint32_t weapon[2] = {}; // item actor handle, 0 none
+    float sectorPos[3] = {}; // position of the last sector update (collision cells), see updateSector
+    bool sectorValid = false;
 };
 
 std::atomic<bool> g_enabled{false};
+bool g_debugKeys = false; // DRAKAN_GHOST=1 / mirror: F9, F10 and the F1 controls
 std::mutex g_m;
 std::vector<Ghost> g_ghosts;
 int g_nextId = 1;
 std::atomic<bool> g_busy{false};
 bool g_log = false, g_hold = true;
-bool g_trace = false; // DRAKAN_GHOST_TRACE=1: one CSV line per PadMgr boundary (smoothness measurements)
+bool g_sectorUpdate = true; // DRAKAN_GHOST_SECTOR=0 disables the sector update (test aid)
+bool g_trace = false;       // DRAKAN_GHOST_TRACE=1: one CSV line per PadMgr boundary (smoothness measurements)
 uint32_t g_forwardMask =
     0; // bit n = event 1<<n forwarded to Rynn's real handler (event 2 always goes to the free-cam handler)
 bool g_mirror = false;      // DRAKAN_GHOST_MIRROR=1: the ghost replays the local player 1 s late
@@ -372,6 +376,51 @@ int writeAnim(drakan_input::IGuest& guest, const Ghost& g) {
     return written;
 }
 
+// The engine files every actor in 2048-unit cells of the level object; a blade sweep, projectiles and the AI find
+// actors only through them. The engine's own movers set actor+0x104 bit 28 ("needs sector update") and call the update
+// (vtable +0x84 of *(*(ctx+0x31c)+0x24b4), this = world + (s16)vt[+0x80], arg the actor; 0x1494c8): a host write of
+// the position bypasses both, so a ghost that moved stayed in its spawn cell and nothing could hit it. Done only when
+// the ghost moved since the last update.
+void refileHandle(drakan_input::IGuest& guest, uint32_t ctx, uint32_t h) {
+    const uint32_t world = guest.read32(ctx + 0x31c);
+    const uint32_t vt = ramPtr(world) ? guest.read32(world + 0x24b4) : 0;
+    const uint32_t fn = ramPtr(vt) ? guest.read32(vt + 0x84) : 0;
+    if (!ramPtr(fn))
+        return;
+    const auto adjusted = [&](uint32_t off) {
+        const uint32_t a = guest.read32(vt + off) & 0xffffu;
+        return world + static_cast<uint32_t>(static_cast<int32_t>(static_cast<int16_t>(a)));
+    };
+    // The engine's mover: the actor leaves its cell list (update, vtable +0x84, only while it is listed: flag 0x104
+    // bit 28), the bounding sphere is marked stale (0x104 bit 11) and the actor is filed again (refile 0x1496a0,
+    // vtable +0x8c: new cell index at +0x7c and the list node a blade sweep walks).
+    uint32_t f104 = guest.read32(h + 0x104);
+    if (f104 & 0x10000000u)
+        guest.call(drakan_input::GuestCall(fn).arg(adjusted(0x80)).arg(h));
+    guest.write32(h + 0x104, guest.read32(h + 0x104) & ~0x800u);
+    if (const uint32_t refile = guest.read32(vt + 0x8c); ramPtr(refile))
+        guest.call(drakan_input::GuestCall(refile).arg(adjusted(0x88)).arg(h));
+}
+
+void updateSector(drakan_input::IGuest& guest, uint32_t ctx, Ghost& g) {
+    const uint32_t h = g.info.handle;
+    float p[3];
+    for (int k = 0; k < 3; ++k)
+        p[k] = guest.readF(h + 0x14 + 4u * static_cast<uint32_t>(k));
+    const float dx = p[0] - g.sectorPos[0], dy = p[1] - g.sectorPos[1], dz = p[2] - g.sectorPos[2];
+    if (g.sectorValid && dx * dx + dy * dy + dz * dz < 1.0f)
+        return;
+    refileHandle(guest, ctx, h);
+    std::memcpy(g.sectorPos, p, sizeof p);
+    g.sectorValid = true;
+    if (g_log) {
+        static unsigned n = 0;
+        if (n++ % 60 == 0)
+            std::fprintf(stderr, "[ghost] id %d sector update: cell %d flags+4 %x +0x104 %x\n", g.info.id,
+                         static_cast<int32_t>(guest.read32(h + 0x7c)), guest.read32(h + 4), guest.read32(h + 0x104));
+    }
+}
+
 // Caller holds g_m. Position, rotation and the clips of every channel (lower on the mask, upper on the rest).
 void applyPose(Ghost& g, const world::PlayerPose& p) {
     const float pos[3] = {p.position.x, p.position.y, p.position.z};
@@ -443,7 +492,12 @@ void install(PS2Runtime& rt) {
     const char* v = std::getenv("DRAKAN_GHOST");
     const char* mir = std::getenv("DRAKAN_GHOST_MIRROR");
     g_mirror = mir && *mir && mir[0] != '0';
-    if (!g_mirror && (!v || !*v || v[0] == '0'))
+    // The multiplayer menu needs ghosts without DRAKAN_GHOST: they install unless DRAKAN_MULTIPLAYER=0. The F9 / F10 /
+    // F1 debug controls stay opt-in with DRAKAN_GHOST=1 (or mirror mode).
+    g_debugKeys = g_mirror || (v && *v && v[0] != '0');
+    const char* mpEnv = std::getenv("DRAKAN_MULTIPLAYER");
+    const bool mpOn = !(mpEnv && mpEnv[0] == '0');
+    if (!g_debugKeys && !mpOn)
         return;
     if (!guestAddress(kFactory) || !guestAddress(kDestroy) || !guestAddress(kRynnHandler) ||
         !guestAddress(kContextPtr) || !guestAddress(kHandleVtable)) {
@@ -469,6 +523,8 @@ void install(PS2Runtime& rt) {
     g_log = l && l[0] && l[0] != '0';
     if (const char* h = std::getenv("DRAKAN_GHOST_HOLD"))
         g_hold = h[0] != '0';
+    if (const char* s = std::getenv("DRAKAN_GHOST_SECTOR"))
+        g_sectorUpdate = s[0] != '0';
     drakan_lifecycle::subscribe(drakan_lifecycle::Kind::BeforeLevelLoad, destroyAll);
     drakan_lifecycle::subscribe(drakan_lifecycle::Kind::BeforeSaveWrite, destroyAll);
     drakan_lifecycle::subscribe(drakan_lifecycle::Kind::AfterLevelLoad, onLoaded);
@@ -488,8 +544,8 @@ void install(PS2Runtime& rt) {
                      g_delayTicks, static_cast<double>(g_offX));
     }
     g_enabled.store(true);
-    std::fprintf(stderr, "[ghost] enabled (F9 spawn, F10 destroy; slots %x %x %x; forward mask %x)\n", g_t1, g_t2,
-                 g_handlerSlot, g_forwardMask);
+    std::fprintf(stderr, "[ghost] enabled (%s; slots %x %x %x; forward mask %x)\n",
+                 g_debugKeys ? "F9 spawn, F10 destroy" : "for multiplayer", g_t1, g_t2, g_handlerSlot, g_forwardMask);
 }
 
 int spawn(const Transform* t) {
@@ -572,6 +628,12 @@ void setWeapons(int id, uint32_t rightRecordId, uint32_t leftRecordId) {
         }
 }
 
+void refileActor(drakan_input::IGuest& guest, uint32_t actor) {
+    const uint32_t ctx = guest.read32(guestAddress(kContextPtr));
+    if (ramPtr(ctx) && ramPtr(actor))
+        refileHandle(guest, ctx, actor);
+}
+
 void forEach(const std::function<void(const Info&)>& fn) {
     std::vector<Info> copy;
     {
@@ -652,9 +714,9 @@ void beforePadMgr(drakan_input::IGuest& guest, drakan_input::InputModule& input)
     if (!g_enabled.load())
         return;
     const drakan_input::FrameInput& f = input.guestMuted() ? input.hostFrame() : input.frame();
-    if (f.keyPressed[kDikF9])
+    if (g_debugKeys && f.keyPressed[kDikF9])
         spawn();
-    if (f.keyPressed[kDikF10])
+    if (g_debugKeys && f.keyPressed[kDikF10])
         if (const int id = newestId())
             destroy(id);
     const uint32_t ctx = guest.read32(guestAddress(kContextPtr));
@@ -790,6 +852,8 @@ void beforePadMgr(drakan_input::IGuest& guest, drakan_input::InputModule& input)
             for (int k = 0; k < 9; ++k)
                 guest.writeF(g.info.handle + 0x20 + 4u * static_cast<uint32_t>(k), g.target.rot[k]);
             g.hasTransform = false;
+            if (!g_busy.load() && g_sectorUpdate)
+                updateSector(guest, ctx, g);
         }
 
     if (g_log) {
@@ -860,7 +924,7 @@ void beforePadMgr(drakan_input::IGuest& guest, drakan_input::InputModule& input)
 }
 
 void drawControls() {
-    if (!g_enabled.load())
+    if (!g_enabled.load() || !g_debugKeys)
         return;
     ImGui::Separator();
     ImGui::TextUnformatted("Ghost (F9 spawn, F10 destroy)");

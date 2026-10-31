@@ -116,7 +116,7 @@ void MatchServer::tick(uint64_t nowMs) {
             const uint32_t limit = options_.config.timeLimitSec;
             if (limit > 0 && now_ - phaseStartMs_ >= uint64_t(limit) * 1000) {
                 log("time limit reached");
-                setPhase(MatchPhase::Results);
+                endMatchWith(EndReason::TimeLimit);
             }
             if (phase_ == MatchPhase::Playing && now_ - lastSnapshotMs_ >= options_.snapshotIntervalMs) {
                 lastSnapshotMs_ = now_;
@@ -184,6 +184,9 @@ void MatchServer::handleMessage(PeerId peer, Peer& state, const std::vector<uint
         case MsgType::Chat:
             onChat(p, data);
             break;
+        case MsgType::Ready:
+            onReady(p, data);
+            break;
         default:
             break; // server-to-client types from a client are ignored
     }
@@ -221,6 +224,10 @@ void MatchServer::onHello(PeerId peer, Peer& state, const std::vector<uint8_t>& 
     }
     if (options_.profileHash != 0 && h.profileHash != options_.profileHash) {
         reject(peer, state, RejectReason::ProfileMismatch, "disc profile mismatch");
+        return;
+    }
+    if (!options_.password.empty() && h.password != options_.password) {
+        reject(peer, state, RejectReason::BadPassword, "wrong password");
         return;
     }
     if (!validName(h.name)) {
@@ -265,6 +272,12 @@ void MatchServer::onHello(PeerId peer, Peer& state, const std::vector<uint8_t>& 
         j.team = kv.second.team;
         j.name = kv.second.name;
         sendTo(peer, encode(j), Channel::Reliable);
+        if (kv.second.ready) {
+            Ready rd;
+            rd.player = kv.first;
+            rd.ready = true;
+            sendTo(peer, encode(rd), Channel::Reliable);
+        }
         if (kv.second.kills || kv.second.deaths) {
             Score s;
             s.player = kv.first;
@@ -318,6 +331,15 @@ void MatchServer::setPhase(MatchPhase p) {
     pc.serverTimeMs = serverTimeMs();
     broadcast(encode(pc), Channel::Reliable);
     log(std::string("phase -> ") + phaseName(p));
+    if (p == MatchPhase::Lobby)
+        for (auto& kv : players_)
+            if (kv.second.ready) {
+                kv.second.ready = false;
+                Ready r;
+                r.player = kv.first;
+                r.ready = false;
+                broadcast(encode(r), Channel::Reliable);
+            }
 }
 
 void MatchServer::resetMatch() {
@@ -340,6 +362,7 @@ bool MatchServer::startMatch(uint64_t nowMs) {
     if (phase_ != MatchPhase::Lobby || players_.empty())
         return false;
     resetMatch();
+    outcome_ = MatchOutcome{};
     MatchConfigMsg c;
     c.config = options_.config;
     broadcast(encode(c), Channel::Reliable);
@@ -367,7 +390,49 @@ void MatchServer::beginPlaying() {
 void MatchServer::endMatch(uint64_t nowMs) {
     now_ = nowMs;
     if (phase_ == MatchPhase::Playing)
-        setPhase(MatchPhase::Results);
+        endMatchWith(EndReason::Ended);
+}
+
+void MatchServer::endMatchWith(EndReason reason) {
+    outcome_ = decideOutcome(scoreboard(), options_.config.mode, teamKills_, reason);
+    setPhase(MatchPhase::Results);
+    if (outcome_.tie)
+        log("match over: tie");
+    else if (outcome_.winner != kNoPlayer)
+        log("match over: player " + std::to_string(outcome_.winner) + " wins");
+    else
+        log("match over: team " + std::to_string(outcome_.winningTeam) + " wins");
+}
+
+std::vector<ScoreRow> MatchServer::scoreboard() const {
+    std::vector<ScoreRow> rows;
+    for (const auto& kv : players_) {
+        ScoreRow r;
+        r.player = kv.first;
+        r.name = kv.second.name;
+        r.team = kv.second.team;
+        r.kills = kv.second.kills;
+        r.deaths = kv.second.deaths;
+        r.health = kv.second.health;
+        r.alive = kv.second.alive;
+        rows.push_back(std::move(r));
+    }
+    sortScoreboard(rows);
+    return rows;
+}
+
+uint16_t MatchServer::hitLimit(const ServerPlayer& attacker, uint8_t weapon) const {
+    uint16_t limit = options_.maxDamagePerHit;
+    if (!attacker.hasState)
+        return limit;
+    const uint32_t record = weapon == kHitMeleeRight ? attacker.state.weaponRight : attacker.state.weaponLeft;
+    if (record == 0) {
+        if (weapon != kHitProjectile && options_.unarmedMaxDamage > 0)
+            limit = std::min(limit, options_.unarmedMaxDamage);
+        return limit;
+    }
+    const auto it = options_.weaponMaxDamage.find(record);
+    return it == options_.weaponMaxDamage.end() ? limit : std::min(limit, it->second);
 }
 
 void MatchServer::spawnPlayer(ServerPlayer& p) {
@@ -375,6 +440,7 @@ void MatchServer::spawnPlayer(ServerPlayer& p) {
     p.alive = true;
     p.respawnAtMs = 0;
     p.acceptAnyState = true;
+    p.hasState = false; // the corpse's last pose must not be replicated as the new life's first one
     p.protectedUntilMs = now_ + options_.respawnProtectionMs;
     Respawn r;
     r.player = p.id;
@@ -394,7 +460,7 @@ void MatchServer::scoreFor(const ServerPlayer& p) {
 }
 
 void MatchServer::onPlayerState(ServerPlayer& p, const std::vector<uint8_t>& data) {
-    if (!p.alive || phase_ != MatchPhase::Playing)
+    if (phase_ != MatchPhase::Playing) // a dead player keeps publishing: its death animation is shown to the others
         return;
     PlayerState s;
     if (!decode(data, s))
@@ -433,29 +499,49 @@ void MatchServer::onHit(ServerPlayer& attacker, const std::vector<uint8_t>& data
         return;
     }
     auto vit = players_.find(h.victim);
-    bool ok = phase_ == MatchPhase::Playing && attacker.alive && vit != players_.end() &&
-              vit->second.id != attacker.id && vit->second.alive && h.damage >= 1 &&
-              h.damage <= options_.maxDamagePerHit;
-    if (ok) {
+    const char* why = nullptr; // first failed check, for the log
+    if (phase_ != MatchPhase::Playing)
+        why = "match not playing";
+    else if (!attacker.alive)
+        why = "attacker dead";
+    else if (vit == players_.end() || vit->second.id == attacker.id)
+        why = "no such victim";
+    else if (!vit->second.alive)
+        why = "victim dead";
+    else if (h.damage < 1 || h.weapon > kHitProjectile)
+        why = "bad damage or weapon";
+    else if (h.damage > hitLimit(attacker, h.weapon))
+        why = "damage above the weapon's limit";
+    if (!why) {
         ServerPlayer& v = vit->second;
-        ok = now_ >= v.protectedUntilMs;
-        if (ok && options_.config.mode == MatchMode::TeamDeathmatch && v.team == attacker.team)
-            ok = false;
-        if (ok && attacker.hasHit && now_ - attacker.lastHitAtMs < options_.minHitIntervalMs)
-            ok = false;
-        if (ok && options_.maxHitRange > 0.0f) {
+        const float range = h.weapon == kHitProjectile ? options_.maxHitRangeRanged : options_.maxHitRange;
+        float dist = 0.0f;
+        if (now_ < v.protectedUntilMs)
+            why = "victim protected after its respawn";
+        else if (options_.config.mode == MatchMode::TeamDeathmatch && v.team == attacker.team)
+            why = "friendly fire";
+        else if (attacker.hasHit && now_ - attacker.lastHitAtMs < options_.minHitIntervalMs)
+            why = "attacker too fast";
+        else if (range > 0.0f) {
             if (!attacker.hasState || !v.hasState) {
-                ok = false;
+                why = "no position yet";
             } else {
                 const float dx = attacker.state.pos[0] - v.state.pos[0];
                 const float dy = attacker.state.pos[1] - v.state.pos[1];
                 const float dz = attacker.state.pos[2] - v.state.pos[2];
-                ok = std::sqrt(dx * dx + dy * dy + dz * dz) <= options_.maxHitRange;
+                dist = std::sqrt(dx * dx + dy * dy + dz * dz);
+                if (dist > range)
+                    why = "out of range";
             }
         }
+        if (why && std::string(why) == "out of range")
+            log("hit rejected: " + std::string(why) + " (" + std::to_string(static_cast<int>(dist)) + " > " +
+                std::to_string(static_cast<int>(range)) + ")");
     }
-    if (!ok) {
+    if (why) {
         ++stats_.hitsRejected;
+        if (std::string(why) != "out of range" && stats_.hitsRejected <= 50)
+            log(std::string("hit rejected: ") + why);
         return;
     }
 
@@ -463,13 +549,15 @@ void MatchServer::onHit(ServerPlayer& attacker, const std::vector<uint8_t>& data
     ++stats_.hitsAccepted;
     attacker.lastHitAtMs = now_;
     attacker.hasHit = true;
-    v.health = std::max<int32_t>(0, v.health - h.damage);
+    const uint16_t applied = static_cast<uint16_t>(
+        std::clamp<long>(std::lround(static_cast<double>(h.damage) * options_.damageScale), 1L, 65535L));
+    v.health = std::max<int32_t>(0, v.health - applied);
 
     Hit out;
     out.attacker = attacker.id;
     out.victim = v.id;
     out.weapon = h.weapon;
-    out.damage = h.damage;
+    out.damage = applied;
     out.healthAfter = static_cast<uint16_t>(v.health);
     broadcast(encode(out), Channel::Reliable);
 
@@ -508,7 +596,7 @@ void MatchServer::checkMatchEnd() {
     }
     if (reached) {
         log("frag limit reached");
-        setPhase(MatchPhase::Results);
+        endMatchWith(EndReason::FragLimit);
     }
 }
 
@@ -527,11 +615,51 @@ void MatchServer::onChat(ServerPlayer& p, const std::vector<uint8_t>& data) {
     broadcast(encode(c), Channel::Reliable);
 }
 
+void MatchServer::onReady(ServerPlayer& p, const std::vector<uint8_t>& data) {
+    Ready r;
+    if (!decode(data, r) || phase_ != MatchPhase::Lobby)
+        return;
+    p.ready = r.ready;
+    r.player = p.id;
+    broadcast(encode(r), Channel::Reliable);
+}
+
+bool MatchServer::allReady() const {
+    if (players_.empty())
+        return false;
+    for (const auto& kv : players_)
+        if (!kv.second.ready)
+            return false;
+    return true;
+}
+
+ServerInfo MatchServer::info() const {
+    ServerInfo i;
+    i.serverId = options_.serverId;
+    i.name = options_.config.serverName;
+    i.level = options_.config.level;
+    i.mode = options_.config.mode;
+    i.phase = phase_;
+    i.players = static_cast<uint8_t>(std::min<size_t>(players_.size(), options_.config.maxPlayers));
+    i.maxPlayers = options_.config.maxPlayers;
+    i.passwordProtected = !options_.password.empty();
+    return i;
+}
+
+std::vector<uint8_t> MatchServer::answerQuery(const std::vector<uint8_t>& request) const {
+    Query q;
+    if (!decode(request, q) || q.protocolVersion != kProtocolVersion)
+        return {};
+    ServerInfo i = info();
+    i.token = q.token;
+    return encode(i);
+}
+
 void MatchServer::sendSnapshot() {
     Snapshot s;
     s.serverTimeMs = serverTimeMs();
     for (const auto& kv : players_)
-        if (kv.second.alive && kv.second.hasState)
+        if (kv.second.hasState)
             s.players.push_back(kv.second.state);
     if (s.players.empty())
         return;

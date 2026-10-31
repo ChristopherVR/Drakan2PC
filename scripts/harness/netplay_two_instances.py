@@ -5,6 +5,8 @@
     python scripts/harness/netplay_two_instances.py --mode server        # both connect to drakan_server
     python scripts/harness/netplay_two_instances.py --no-level-change    # stop after the ghost screenshots
     python scripts/harness/netplay_two_instances.py --reject             # profile mismatch must be rejected (about 40 s)
+    python scripts/harness/netplay_two_instances.py --pvp --card <mc0 of a save with Rynn's dagger> --port 47910
+                                                                          # PvP: A hits B's ghost until B dies and respawns
     python scripts/harness/netplay_two_instances.py --exe build/final-game/bin/drakan.exe --port 47800
 
 What it does:
@@ -21,6 +23,12 @@ What it does:
   5. --reject starts a drakan_server with another disc profile hash and one game: it must log REJECTED;
   5. reads the `[netplay ...]` / `[lifecycle ...]` lines of both logs: connection, ghost spawn / removal, RTT, snapshot
      rate; exit status 0 when every check passed.
+--pvp (docs/reference/netcode.md "PvP", docs/journal/2026-10-31/pvp.md): private folders build/pvp-{a,b}; A equips the
+dagger through the inventory (the save in --card must hold it; the cell is the one of build/harness/gw-net) and swings
+every 0.9 s at B's ghost, which DRAKAN_PVP_TEST_PLACE holds in front of / behind A (and DRAKAN_PVP_TEST_ANCHOR holds A in
+place, so the two real positions stay inside the server's melee range); damage is x8 (DRAKAN_PVP_DAMAGE_SCALE) so a kill
+takes four hits. B takes a screenshot every 0.7 s. Checks: A's claims, the server's Hit / Death / Score / Respawn, B's HP
+drop, frozen death and respawn, kills / deaths in the score, hits on a dead / protected victim rejected.
 Output: build/harness/<name>/{a,b}/ (stdout_1.log, recipe.txt, *.png) and summary.json.
 """
 
@@ -60,6 +68,69 @@ RECIPE_B = """clock milliseconds
 {contact_shots}23500 shot b_a_stopped
 {after_shots}{quit_at} quit
 """
+
+
+def pvp_recipes() -> tuple[str, str]:
+    """A: equip the dagger (inventory cell hover + ENTER, as in the weapon runs), then swing every 0.9 s. B: screenshots."""
+    a = "clock milliseconds\n0 sync play 60\n"
+    a += (
+        "12000 key down TAB\n12120 key up TAB\n0 sync screen 21 20\n800 cursor 215 218\n900 cursor 216 219\n"
+        "2600 key down ENTER\n2900 key up ENTER\n4200 shot a_equipped\n5000 key down TAB\n5200 key up TAB\n"
+        "0 sync play 60\n1500 shot a_pre\n"
+    )
+    t = 1500
+    for i in range(55):
+        t += 900
+        a += f"{t} button down 1\n{t + 60} button up 1\n"
+        if i % 4 == 2:
+            a += f"{t + 300} shot a_p{i:02d}\n"
+    a += f"{t + 3000} shot a_end\n{t + 5000} quit\n"
+    b = "clock milliseconds\n0 sync play 60\n"
+    t, i = 14000, 0
+    while t < 48000:
+        b += f"{t} shot b_s{i:02d}\n"
+        t += 700
+        i += 1
+    b += "90000 quit\n"
+    return a, b
+
+
+def pvp_checks(text: dict[str, str], checks: dict[str, bool], frag_limit: int = 0) -> None:
+    a, b = text["a"], text["b"]
+    claims = len(re.findall(r"\[netplay [\d.]+\] claim: hit on player 2", a))
+    hits = re.findall(r"\[netplay [\d.]+\] hit: player 1 hit player 2 for (\d+) \(weapon (\d)\), health now (\d+)", a)
+    deaths = re.findall(r"\[netplay [\d.]+\] death: player 2 killed by player 1", a)
+    resp = re.findall(r"\[netplay [\d.]+\] respawn: player 2 at spawn (\d+) with health 100", a)
+    kills = [int(m) for m in re.findall(r"score: player 1 kills (\d+) deaths 0", a)]
+    deaths_score = [int(m) for m in re.findall(r"score: player 2 kills 0 deaths (\d+)", a)]
+    print(f"A: {claims} claims, {len(hits)} accepted hits, {len(deaths)} deaths, respawns {resp}")
+    print(f"scores seen by A: player 1 kills {kills}, player 2 deaths {deaths_score}")
+    checks["a: hits on the ghost became claims"] = claims >= 4
+    checks["server accepted hits (damage x8 of the dagger's 4)"] = bool(hits) and all(
+        h[0] == "32" and h[1] == "0" for h in hits
+    )
+    checks["server: Death after the health ran out"] = bool(deaths) and any(h[2] == "0" for h in hits)
+    checks["score: kills 1 / deaths 1 broadcast"] = 1 in kills and 1 in deaths_score
+    checks["server: Respawn 3 s after the death"] = len(resp) >= 2  # the match start and the respawn
+    checks["server: hits on a dead / protected victim rejected"] = (
+        "hit rejected: victim dead" in a and "hit rejected: victim protected" in a
+    )
+    checks["b: engine hit reaction + health set"] = len(re.findall(r"\[pvp\] hit by player 1: 32 damage", b)) >= 3
+    checks["b: death shown (frozen with the death clip)"] = "[pvp] killed by player 1" in b
+    checks["b: respawned at a spawn point"] = re.search(r"\[pvp\] respawned at spawn \d+", b) is not None
+    if frag_limit:
+        for k in "ab":
+            for line in text[k].splitlines():
+                if "match over" in line:
+                    print(f"{k.upper()} {line.strip()}")
+            checks[f"{k}: match over at {frag_limit} kills, player 1 wins, results listed"] = (
+                re.search(
+                    rf"match over \(frag limit\): player 1 wins, results \(kills/deaths\): .*'Alpha' {frag_limit}/0",
+                    text[k],
+                )
+                is not None
+            )
+    checks["b: no game over prompt / level reload"] = "afterSaveRestore" not in b.split("[pvp] killed by player 1")[-1]
 
 
 def log(msg: str) -> None:
@@ -239,7 +310,25 @@ def main() -> int:
     ap.add_argument("--card", type=Path, help="mc0 folder copied into both private memory cards (e.g. a save)")
     ap.add_argument("--recipe-a", type=Path, help="input recipe file replacing A's built-in one")
     ap.add_argument("--recipe-b", type=Path, help="input recipe file replacing B's built-in one")
+    ap.add_argument("--prefix", default="netplay", help="private play folders are build/<prefix>-a and -b")
+    ap.add_argument("--pvp", action="store_true", help="PvP verification (needs --card, see above)")
+    ap.add_argument("--frag-limit", type=int, default=0, help="--pvp: the match ends at this many kills (results)")
+    ap.add_argument("--env", action="append", default=[], metavar="K=V", help="extra environment for both instances")
+    ap.add_argument("--env-a", action="append", default=[], metavar="K=V", help="extra environment for A only")
+    ap.add_argument("--env-b", action="append", default=[], metavar="K=V", help="extra environment for B only")
     a = ap.parse_args()
+    if a.pvp:
+        if not a.card or not a.card.is_dir():
+            raise SystemExit("--pvp needs --card <mc0 folder of a save with Rynn's dagger in the usual inventory cell>")
+        if a.prefix == "netplay":
+            a.prefix = "pvp"
+        if a.name == "netplay":
+            a.name = "pvp"
+        a.no_level_change = True
+        a.env_a += ["DRAKAN_PVP_TEST_PLACE=140", "DRAKAN_PVP_TEST_ANCHOR=1"]
+        a.env += ["DRAKAN_PVP_DAMAGE_SCALE=8"]
+        if a.frag_limit:
+            a.env_a += [f"DRAKAN_NET_FRAG_LIMIT={a.frag_limit}"]
 
     if not a.exe.is_file():
         raise SystemExit(f"{a.exe} not found (build ps2EntryRunner first)")
@@ -248,8 +337,8 @@ def main() -> int:
         shutil.rmtree(out)
     (out / "a").mkdir(parents=True)
     (out / "b").mkdir(parents=True)
-    exe_a = prepare_folder(a.src, a.exe, ROOT / "build" / "netplay-a")
-    exe_b = prepare_folder(a.src, a.exe, ROOT / "build" / "netplay-b")
+    exe_a = prepare_folder(a.src, a.exe, ROOT / "build" / f"{a.prefix}-a")
+    exe_b = prepare_folder(a.src, a.exe, ROOT / "build" / f"{a.prefix}-b")
     if a.reject:
         return run_reject(a, out, exe_b)
 
@@ -263,6 +352,8 @@ def main() -> int:
         "a": RECIPE_A.format(level_change=level_change, quit_at=quit_a),
         "b": RECIPE_B.format(contact_shots=contact, after_shots=after, quit_at=quit_a - 2000),
     }
+    if a.pvp:
+        recipes["a"], recipes["b"] = pvp_recipes()
     for k, custom in (("a", a.recipe_a), ("b", a.recipe_b)):
         if custom:
             recipes[k] = custom.read_text(encoding="utf-8")
@@ -283,6 +374,10 @@ def main() -> int:
     if not a.reload and not a.no_level_change:
         env_a["DRAKAN_LIFECYCLE_EXIT"] = KRAGMOR + "@1500"  # real exit: 0x13b7c0 after 1500 frames in Surdana
     env_b = {"DRAKAN_NET_CONNECT": f"127.0.0.1:{a.port}", "DRAKAN_NET_NAME": "Bravo"}
+    for kv in a.env + a.env_a:
+        env_a[kv.split("=", 1)[0]] = kv.split("=", 1)[1]
+    for kv in a.env + a.env_b:
+        env_b[kv.split("=", 1)[0]] = kv.split("=", 1)[1]
 
     procs: dict[str, subprocess.Popen] = {}
     logs = {k: out / k / "stdout_1.log" for k in "ab"}
@@ -327,7 +422,10 @@ def main() -> int:
             checks["a: level change to Kragmor"] = "level 'Level 1B - Kragmor' loaded" in text["a"]
             checks["b: ghost removed when A left the level"] = removed
             checks["b: no ghost of A afterwards"] = spawns == 1
-    trace_report(out, text["a"], text["b"], checks)
+    if a.pvp:
+        pvp_checks(text, checks, a.frag_limit)
+    else:
+        trace_report(out, text["a"], text["b"], checks)
     stats = {
         k: re.findall(r"stats: rtt ([\-\d.]+) ms, snapshots ([\d.]+)/s, states sent ([\d.]+)/s", text[k]) for k in "ab"
     }

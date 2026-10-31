@@ -31,6 +31,41 @@ const RemotePlayer* MatchClient::self() const {
     return it == roster_.end() ? nullptr : &it->second;
 }
 
+std::vector<ScoreRow> MatchClient::scoreboard() const {
+    std::vector<ScoreRow> rows;
+    for (const auto& kv : roster_) {
+        ScoreRow r;
+        r.player = kv.first;
+        r.name = kv.second.name;
+        r.team = kv.second.team;
+        r.kills = kv.second.kills;
+        r.deaths = kv.second.deaths;
+        r.health = kv.second.health;
+        r.alive = kv.second.alive;
+        rows.push_back(std::move(r));
+    }
+    sortScoreboard(rows);
+    return rows;
+}
+
+MatchOutcome MatchClient::outcome() const {
+    EndReason reason = EndReason::Ended;
+    const std::vector<ScoreRow> rows = scoreboard();
+    if (config_.fragLimit > 0) {
+        bool hit = false;
+        if (config_.mode == MatchMode::TeamDeathmatch)
+            hit = teamKills_[0] >= config_.fragLimit || teamKills_[1] >= config_.fragLimit;
+        else
+            for (const ScoreRow& r : rows)
+                hit = hit || r.kills >= config_.fragLimit;
+        if (hit)
+            reason = EndReason::FragLimit;
+    }
+    if (reason == EndReason::Ended && config_.timeLimitSec > 0)
+        reason = EndReason::TimeLimit;
+    return decideOutcome(rows, config_.mode, teamKills_, reason);
+}
+
 bool MatchClient::connect(const std::string& host, uint16_t port, uint64_t nowMs) {
     if (state_ != ClientState::Disconnected && state_ != ClientState::Rejected)
         return false;
@@ -90,6 +125,12 @@ bool MatchClient::sendHit(PlayerId victim, uint8_t weapon, uint16_t damage) {
     return sendReliable(encode(h));
 }
 
+bool MatchClient::sendReady(bool ready) {
+    Ready r;
+    r.ready = ready;
+    return sendReliable(encode(r));
+}
+
 bool MatchClient::sendChat(const std::string& text) {
     Chat c;
     c.text = text.substr(0, kMaxChatLength);
@@ -125,6 +166,7 @@ void MatchClient::handleMessage(const TransportEvent& ev) {
         Hello h;
         h.profileHash = options_.profileHash;
         h.name = options_.name;
+        h.password = options_.password;
         transport_.send(peer_, Channel::Reliable, encode(h));
         state_ = ClientState::Handshaking;
         return;
@@ -194,6 +236,16 @@ void MatchClient::handleMessage(const TransportEvent& ev) {
             }
             break;
         }
+        case MsgType::Ready: {
+            Ready r;
+            if (decode(ev.data, r)) {
+                auto it = roster_.find(r.player);
+                if (it != roster_.end())
+                    it->second.ready = r.ready;
+                events_.push_back(r);
+            }
+            break;
+        }
         case MsgType::PlayerLeave: {
             PlayerLeave l;
             if (decode(ev.data, l)) {
@@ -221,7 +273,7 @@ void MatchClient::handleMessage(const TransportEvent& ev) {
                     it->second.alive = false;
                     it->second.health = 0;
                 }
-                buffers_.erase(d.victim);
+                // The buffer stays: a dead player keeps publishing its death animation (until the Respawn).
                 events_.push_back(d);
             }
             break;

@@ -94,6 +94,7 @@ void MatchConfigData::write(ByteWriter& w) const {
     w.u8(maxPlayers);
     w.u16(respawnDelayMs);
     w.u16(startHealth);
+    w.str(serverName);
 }
 bool MatchConfigData::read(ByteReader& r) {
     readEnum(r, mode, 1);
@@ -103,6 +104,7 @@ bool MatchConfigData::read(ByteReader& r) {
     maxPlayers = r.u8();
     respawnDelayMs = r.u16();
     startHealth = r.u16();
+    serverName = r.str(kMaxServerNameLength);
     if (maxPlayers < 1 || maxPlayers > kMaxPlayers || startHealth == 0)
         r.fail();
     return r.ok();
@@ -112,11 +114,13 @@ void Hello::write(ByteWriter& w) const {
     w.u16(protocolVersion);
     w.u64(profileHash);
     w.str(name);
+    w.str(password);
 }
 bool Hello::read(ByteReader& r) {
     protocolVersion = r.u16();
     profileHash = r.u64();
     name = r.str(kMaxNameLength);
+    password = r.str(kMaxPasswordLength);
     return r.ok();
 }
 
@@ -144,7 +148,7 @@ void Reject::write(ByteWriter& w) const {
     w.str(message);
 }
 bool Reject::read(ByteReader& r) {
-    readEnum(r, reason, 3);
+    readEnum(r, reason, 4);
     serverVersion = r.u16();
     message = r.str(kMaxRejectMessageLength);
     return r.ok();
@@ -314,10 +318,62 @@ bool PlayerLeave::read(ByteReader& r) {
 bool peekType(const uint8_t* data, size_t size, MsgType& out) {
     if (size == 0)
         return false;
-    if (data[0] < static_cast<uint8_t>(MsgType::Hello) || data[0] > static_cast<uint8_t>(MsgType::LoadDone))
+    if (data[0] < static_cast<uint8_t>(MsgType::Hello) || data[0] > static_cast<uint8_t>(MsgType::ServerInfo))
         return false;
     out = static_cast<MsgType>(data[0]);
     return true;
+}
+
+void Ready::write(ByteWriter& w) const {
+    w.u8(player);
+    w.u8(ready ? 1 : 0);
+}
+bool Ready::read(ByteReader& r) {
+    player = r.u8();
+    const uint8_t v = r.u8();
+    ready = v == 1;
+    if (v > 1)
+        r.fail();
+    return r.ok();
+}
+
+void Query::write(ByteWriter& w) const {
+    w.u16(protocolVersion);
+    w.u32(token);
+}
+bool Query::read(ByteReader& r) {
+    protocolVersion = r.u16();
+    token = r.u32();
+    return r.ok();
+}
+
+void ServerInfo::write(ByteWriter& w) const {
+    w.u16(protocolVersion);
+    w.u32(token);
+    w.u32(serverId);
+    w.str(name);
+    w.str(level);
+    w.u8(static_cast<uint8_t>(mode));
+    w.u8(static_cast<uint8_t>(phase));
+    w.u8(players);
+    w.u8(maxPlayers);
+    w.u8(passwordProtected ? 1 : 0);
+}
+bool ServerInfo::read(ByteReader& r) {
+    protocolVersion = r.u16();
+    token = r.u32();
+    serverId = r.u32();
+    name = r.str(kMaxServerNameLength);
+    level = r.str(kMaxLevelLength);
+    readEnum(r, mode, 1);
+    readEnum(r, phase, 3);
+    players = r.u8();
+    maxPlayers = r.u8();
+    const uint8_t pw = r.u8();
+    passwordProtected = pw == 1;
+    if (pw > 1 || maxPlayers < 1 || maxPlayers > kMaxPlayers || players > maxPlayers)
+        r.fail();
+    return r.ok();
 }
 
 } // namespace drakan::net

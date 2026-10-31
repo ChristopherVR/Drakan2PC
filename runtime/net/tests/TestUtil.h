@@ -35,10 +35,11 @@ struct Rig {
         server = std::make_unique<MatchServer>(*serverTransport, std::move(opt));
     }
 
-    MatchClient& addClient(const std::string& name, uint64_t hash = 0) {
+    MatchClient& addClient(const std::string& name, uint64_t hash = 0, const std::string& password = "") {
         ClientOptions co;
         co.name = name;
         co.profileHash = hash;
+        co.password = password;
         clientTransports.push_back(net.createTransport());
         clients.push_back(std::make_unique<MatchClient>(*clientTransports.back(), co));
         CHECK(clients.back()->connect("127.0.0.1", kPort, now));

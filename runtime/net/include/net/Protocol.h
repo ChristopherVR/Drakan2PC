@@ -9,13 +9,18 @@
 
 namespace drakan::net {
 
-constexpr uint16_t kProtocolVersion = 4; // v4: weaponRight/weaponLeft record ids replace the weapon byte; v3: v3:
+constexpr uint16_t kProtocolVersion = 5; // v5: Hello.password, Ready, MatchConfig.serverName, LAN Query / ServerInfo;
+                                         // v4: weaponRight/weaponLeft record ids replace the weapon byte; v3: v3:
                                          // levelHash in PlayerState (v2: upper-body clip + channel mask)
 constexpr size_t kMaxPlayers = 16;
 constexpr size_t kMaxNameLength = 24;
 constexpr size_t kMaxChatLength = 128;
 constexpr size_t kMaxLevelLength = 64;
 constexpr size_t kMaxRejectMessageLength = 96;
+constexpr size_t kMaxPasswordLength = 24;
+constexpr size_t kMaxServerNameLength = 32;
+constexpr uint16_t kDefaultPort = 47800; // LAN discovery probes kDefaultPort .. kDefaultPort + kDiscoveryPortCount - 1
+constexpr uint16_t kDiscoveryPortCount = 10;
 
 using PlayerId = uint8_t; // 1..kMaxPlayers on the wire; 0 = none / server
 constexpr PlayerId kNoPlayer = 0;
@@ -23,7 +28,13 @@ constexpr uint8_t kNoTeam = 255;
 
 enum class MatchMode : uint8_t { Deathmatch = 0, TeamDeathmatch = 1 };
 enum class MatchPhase : uint8_t { Lobby = 0, Loading = 1, Playing = 2, Results = 3 };
-enum class RejectReason : uint8_t { VersionMismatch = 0, ProfileMismatch = 1, ServerFull = 2, BadName = 3 };
+enum class RejectReason : uint8_t {
+    VersionMismatch = 0,
+    ProfileMismatch = 1,
+    ServerFull = 2,
+    BadName = 3,
+    BadPassword = 4
+};
 
 enum class MsgType : uint8_t {
     Hello = 1,
@@ -41,6 +52,9 @@ enum class MsgType : uint8_t {
     PlayerJoin = 13,
     PlayerLeave = 14,
     LoadDone = 15,
+    Ready = 16,      // v5
+    Query = 17,      // v5, LAN discovery request (UDP datagram type Query, outside a connection)
+    ServerInfo = 18, // v5, the answer
 };
 
 class ByteWriter {
@@ -88,6 +102,7 @@ struct MatchConfigData {
     uint8_t maxPlayers = 8;      // 1..kMaxPlayers
     uint16_t respawnDelayMs = 3000;
     uint16_t startHealth = 100;
+    std::string serverName; // v5, shown in lobbies and server lists (<= kMaxServerNameLength)
     void write(ByteWriter& w) const;
     bool read(ByteReader& r);
 };
@@ -97,6 +112,7 @@ struct Hello {
     uint16_t protocolVersion = kProtocolVersion;
     uint64_t profileHash = 0; // disc profile hash; 0 = unknown
     std::string name;
+    std::string password; // v5, empty when the server has none
     void write(ByteWriter& w) const;
     bool read(ByteReader& r);
 };
@@ -241,6 +257,42 @@ struct LoadDone {
     static constexpr MsgType kType = MsgType::LoadDone;
     void write(ByteWriter&) const {}
     bool read(ByteReader&) { return true; }
+};
+
+// Client to server: lobby ready toggle. Server to clients: the player (filled in by the server) and its state.
+struct Ready {
+    static constexpr MsgType kType = MsgType::Ready;
+    PlayerId player = kNoPlayer;
+    bool ready = false;
+    void write(ByteWriter& w) const;
+    bool read(ByteReader& r);
+};
+
+// LAN / direct discovery (the GameSpy "\status\" spirit): one small request, one status answer. Carried as UDP
+// datagram types Query / QueryReply of UdpTransport, outside any connection.
+struct Query {
+    static constexpr MsgType kType = MsgType::Query;
+    uint16_t protocolVersion = kProtocolVersion;
+    uint32_t token = 0; // echoed in the answer so the browser can measure the ping
+    void write(ByteWriter& w) const;
+    bool read(ByteReader& r);
+};
+
+struct ServerInfo {
+    static constexpr MsgType kType = MsgType::ServerInfo;
+    uint16_t protocolVersion = kProtocolVersion;
+    uint32_t token = 0;
+    uint32_t serverId = 0; // random per server run, 0 = unknown: lets a browser merge the answers one server gives on
+                           // several addresses (loopback, LAN adapters) into one entry
+    std::string name;
+    std::string level;
+    MatchMode mode = MatchMode::Deathmatch;
+    MatchPhase phase = MatchPhase::Lobby;
+    uint8_t players = 0;
+    uint8_t maxPlayers = 8;
+    bool passwordProtected = false;
+    void write(ByteWriter& w) const;
+    bool read(ByteReader& r);
 };
 
 // Wire message = 1 type byte + body.

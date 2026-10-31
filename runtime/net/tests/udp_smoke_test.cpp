@@ -1,6 +1,7 @@
 // UDP localhost smoke test: connect, reliable ordered delivery (including a burst larger than the send window),
 // unreliable delivery, MatchServer/MatchClient handshake, disconnect. Skips (exit 77) when sockets are unavailable.
 #include "TestUtil.h"
+#include "net/ServerBrowser.h"
 #include "net/UdpTransport.h"
 
 #include <chrono>
@@ -132,6 +133,45 @@ int main() {
             ms.tick(wallMs() - t0);
             return ms.players().empty();
         }));
+    }
+
+    // v5 discovery: a ServerBrowser queries a listening server (unicast and the loopback sweep) and gets its status.
+    {
+        UdpTransport st;
+        CHECK(st.listen(kDefaultPort + 3)); // inside the probed port range
+        ServerOptions o;
+        o.config.level = "Level 2 - Shadowmire";
+        o.config.serverName = "Browse me";
+        o.config.maxPlayers = 6;
+        o.password = "x";
+        o.serverId = 0x5EED;
+        MatchServer ms(st, o);
+        st.setQueryResponder([&](const std::vector<uint8_t>& req) { return ms.answerQuery(req); });
+        ServerBrowser browser;
+        CHECK(browser.available());
+        const uint64_t t0 = wallMs();
+        browser.queryLan();
+        CHECK(browser.queryHost("127.0.0.1", st.localPort()));
+        CHECK(waitFor([&] {
+            ms.tick(wallMs() - t0);
+            return !browser.poll().empty();
+        }));
+        // The broadcast also reaches the server over its LAN adapter addresses and other servers may listen in the
+        // probed range: answers carrying our serverId merge into exactly one entry (whichever address answered first
+        // or fastest), with the right port and status.
+        const ServerEntry* mine = nullptr;
+        int ours = 0;
+        for (const ServerEntry& e : browser.poll())
+            if (e.info.serverId == 0x5EED) {
+                mine = &e;
+                ++ours;
+            }
+        CHECK(mine && ours == 1);
+        CHECK(mine->port == st.localPort() && mine->ageMs < 3000);
+        CHECK(mine->info.name == "Browse me" && mine->info.level == "Level 2 - Shadowmire" &&
+              mine->info.maxPlayers == 6 && mine->info.passwordProtected && mine->info.players == 0);
+        browser.clear();
+        CHECK(browser.poll().empty());
     }
 
     std::puts("net_udp_smoke_test ok");

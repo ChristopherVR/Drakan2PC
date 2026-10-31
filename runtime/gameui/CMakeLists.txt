@@ -24,6 +24,7 @@ add_library(drakan_gameui STATIC
     src/SettingsPages.cpp
     src/SaveSlots.cpp
     src/SaveLoadScreen.cpp
+    src/Multiplayer.cpp
     src/TitleScreen.cpp
     src/UnifiedOptions.cpp)
 add_library(drakan::gameui ALIAS drakan_gameui)
@@ -53,6 +54,11 @@ if(DRAKAN_BUILD_RUNTIME_TESTS)
     add_executable(gameui_pause_test tests/gameui_pause_test.cpp)
     target_link_libraries(gameui_pause_test PRIVATE drakan_gameui drakan::options)
     add_test(NAME gameui_pause_test COMMAND gameui_pause_test)
+
+    # MultiplayerScreen (host / join / setup / lobby) and the in-game scoreboard + chat HUD.
+    add_executable(gameui_multiplayer_test tests/gameui_multiplayer_test.cpp)
+    target_link_libraries(gameui_multiplayer_test PRIVATE drakan_gameui drakan::options)
+    add_test(NAME gameui_multiplayer_test COMMAND gameui_multiplayer_test)
 
     # SettingsPages: the modern PC Settings pages (navigation, cards, capture, the PauseScreen hook).
     add_executable(gameui_settings_test tests/gameui_settings_test.cpp)

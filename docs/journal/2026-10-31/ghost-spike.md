@@ -179,3 +179,7 @@ the same value as `PlayerPose.weaponRight/Left` and `setWeapons`. Record ids are
 record index is not: it is level dependent). Cost 7 bytes more per state; if size matters send them only on change (they change on equip,
 a rare event) in the reliable channel, like the roster. `weaponWireId` in `world/Pose.h` then becomes the identity and the `> 0xff`
 test in `setPose` can go. Until then a placeholder byte (<= 0xff) is ignored by `setPose`.
+
+## Update: hits on ghosts
+
+The ghost is now hittable (collision cells refiled every tick it moves, `refileActor`) and the dagger's blade hits it; see `pvp.md` section 1 ("the blade stays dead" was the missing cell-list entry, not a missing holder).

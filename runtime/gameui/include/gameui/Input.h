@@ -4,6 +4,7 @@
 #include <bitset>
 #include <cstddef>
 #include <cstdint>
+#include <string>
 #include <vector>
 
 namespace gameui {
@@ -37,6 +38,11 @@ struct UiInput {
     bool rightClick = false;
     bool leftDown = false; // left button held this frame (drags: the pause menu's sliders); false = released
     float wheel = 0;       // notches, + = up
+    // Text entry (multiplayer menu fields): characters typed this frame (printable ASCII) and Backspace presses. Only
+    // filled while the screen asked for text (MpFrameOutput::wantsText), when the glue also stops mapping letters to
+    // navigation keys.
+    std::string text;
+    int backspaces = 0;
 
     bool has(UiKey k) const {
         for (UiKey x : keys)

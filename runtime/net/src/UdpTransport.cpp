@@ -1,5 +1,8 @@
 #include "net/UdpTransport.h"
 
+#include "net/ServerBrowser.h"
+
+#include <algorithm>
 #include <chrono>
 #include <cstring>
 #include <deque>
@@ -69,7 +72,16 @@ void socketsShutdown() {}
 
 constexpr uint8_t kMagic0 = 'D';
 constexpr uint8_t kMagic1 = 'K';
-enum PacketType : uint8_t { kConnect = 1, kConnectAck = 2, kDisconnect = 3, kUnreliable = 4, kReliable = 5, kAck = 6 };
+enum PacketType : uint8_t {
+    kConnect = 1,
+    kConnectAck = 2,
+    kDisconnect = 3,
+    kUnreliable = 4,
+    kReliable = 5,
+    kAck = 6,
+    kQuery = 7,
+    kQueryReply = 8
+};
 
 constexpr int64_t kConnectRetryMs = 250;
 constexpr int64_t kConnectTimeoutMs = 5000;
@@ -123,6 +135,7 @@ struct UdpTransport::Impl {
     std::unordered_map<PeerId, Peer> peers;
     std::unordered_map<uint64_t, PeerId> byAddr;
     std::deque<TransportEvent> events;
+    QueryResponder queryResponder;
 
     Impl() { started = socketsStartup(); }
     ~Impl() {
@@ -242,6 +255,17 @@ struct UdpTransport::Impl {
         const uint8_t type = d[2];
         const uint8_t* body = d + kHeaderSize;
         const size_t bodyLen = n - kHeaderSize;
+        if (type == kQuery) {
+            if (listening && queryResponder) {
+                const std::vector<uint8_t> answer = queryResponder(std::vector<uint8_t>(body, body + bodyLen));
+                if (!answer.empty()) {
+                    auto pkt = header(kQueryReply);
+                    pkt.insert(pkt.end(), answer.begin(), answer.end());
+                    rawSend(from, pkt);
+                }
+            }
+            return;
+        }
         auto known = byAddr.find(key(from));
         Peer* p = known == byAddr.end() ? nullptr : &peers.at(known->second);
 
@@ -439,8 +463,149 @@ bool UdpTransport::poll(TransportEvent& out) {
     return true;
 }
 
+void UdpTransport::setQueryResponder(QueryResponder responder) {
+    impl_->queryResponder = std::move(responder);
+}
+
 uint16_t UdpTransport::localPort() const {
     return impl_->port;
+}
+
+// ------------------------------------------------------------------------------------------------ ServerBrowser
+
+struct ServerBrowser::Impl {
+    bool started = false;
+    SocketHandle sock = kBadSocket;
+    std::vector<ServerEntry> servers;
+    std::unordered_map<uint32_t, int64_t> sentAt; // token -> send time
+    uint32_t nextToken = 1;
+
+    Impl() {
+        started = socketsStartup();
+        if (!started)
+            return;
+        sock = ::socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
+        if (sock == kBadSocket)
+            return;
+        int on = 1;
+        ::setsockopt(sock, SOL_SOCKET, SO_BROADCAST, reinterpret_cast<const char*>(&on), sizeof(on));
+        sockaddr_in a{};
+        a.sin_family = AF_INET;
+        a.sin_addr.s_addr = htonl(INADDR_ANY);
+        a.sin_port = 0;
+        if (::bind(sock, reinterpret_cast<sockaddr*>(&a), sizeof(a)) != 0 || !setNonBlocking(sock)) {
+            closeSocket(sock);
+            sock = kBadSocket;
+        }
+    }
+    ~Impl() {
+        if (sock != kBadSocket)
+            closeSocket(sock);
+        if (started)
+            socketsShutdown();
+    }
+
+    void sendQuery(uint32_t ip, uint16_t port) {
+        if (sock == kBadSocket)
+            return;
+        Query q;
+        q.token = nextToken++;
+        sentAt[q.token] = nowMs();
+        auto pkt = std::vector<uint8_t>{kMagic0, kMagic1, kQuery};
+        const auto body = encode(q);
+        pkt.insert(pkt.end(), body.begin(), body.end());
+        sockaddr_in to{};
+        to.sin_family = AF_INET;
+        to.sin_addr.s_addr = ip;
+        to.sin_port = htons(port);
+        ::sendto(sock, reinterpret_cast<const char*>(pkt.data()), static_cast<int>(pkt.size()), 0,
+                 reinterpret_cast<const sockaddr*>(&to), sizeof(to));
+    }
+};
+
+ServerBrowser::ServerBrowser() : impl_(new Impl) {}
+ServerBrowser::~ServerBrowser() = default;
+
+bool ServerBrowser::available() const {
+    return impl_->sock != kBadSocket;
+}
+
+void ServerBrowser::queryLan() {
+    for (uint16_t i = 0; i < kDiscoveryPortCount; ++i) {
+        const uint16_t port = static_cast<uint16_t>(kDefaultPort + i);
+        impl_->sendQuery(htonl(INADDR_BROADCAST), port);
+        impl_->sendQuery(htonl(INADDR_LOOPBACK), port); // a server on this PC does not see its own broadcast
+    }
+}
+
+bool ServerBrowser::queryHost(const std::string& host, uint16_t port) {
+    addrinfo hints{};
+    hints.ai_family = AF_INET;
+    hints.ai_socktype = SOCK_DGRAM;
+    addrinfo* res = nullptr;
+    if (getaddrinfo(host.c_str(), nullptr, &hints, &res) != 0 || !res)
+        return false;
+    sockaddr_in addr{};
+    std::memcpy(&addr, res->ai_addr, sizeof(addr));
+    freeaddrinfo(res);
+    impl_->sendQuery(addr.sin_addr.s_addr, port);
+    return true;
+}
+
+void ServerBrowser::clear() {
+    impl_->servers.clear();
+    impl_->sentAt.clear();
+}
+
+const std::vector<ServerEntry>& ServerBrowser::poll() {
+    if (impl_->sock == kBadSocket)
+        return impl_->servers;
+    uint8_t buf[2048];
+    for (int i = 0; i < 256; ++i) {
+        sockaddr_in from{};
+        socklen_t len = sizeof(from);
+        const int n = static_cast<int>(::recvfrom(impl_->sock, reinterpret_cast<char*>(buf), sizeof(buf), 0,
+                                                  reinterpret_cast<sockaddr*>(&from), &len));
+        if (n < 0) {
+            if (wouldBlock())
+                break;
+            continue;
+        }
+        if (n < static_cast<int>(kHeaderSize) || buf[0] != kMagic0 || buf[1] != kMagic1 || buf[2] != kQueryReply)
+            continue;
+        ServerInfo info;
+        if (!decode(buf + kHeaderSize, static_cast<size_t>(n) - kHeaderSize, info))
+            continue;
+        char ip[INET_ADDRSTRLEN] = {};
+        inet_ntop(AF_INET, &from.sin_addr, ip, sizeof(ip));
+        ServerEntry e;
+        e.host = ip;
+        e.port = ntohs(from.sin_port);
+        e.info = info;
+        e.lastSeenMs = nowMs();
+        auto st = impl_->sentAt.find(info.token);
+        e.pingMs =
+            st == impl_->sentAt.end() ? 0 : static_cast<uint32_t>(std::max<int64_t>(0, e.lastSeenMs - st->second));
+        // One entry per server: the same host:port, or the same serverId (answers over several local addresses; the
+        // fastest address wins).
+        bool found = false;
+        for (ServerEntry& old : impl_->servers) {
+            const bool same = old.host == e.host && old.port == e.port;
+            const bool twin = !same && e.info.serverId != 0 && old.info.serverId == e.info.serverId;
+            if (same || (twin && e.pingMs < old.pingMs)) {
+                old = e;
+                found = true;
+            } else if (twin) {
+                old.lastSeenMs = e.lastSeenMs; // keep it alive through the slower address
+                found = true;
+            }
+        }
+        if (!found)
+            impl_->servers.push_back(e);
+    }
+    for (ServerEntry& e : impl_->servers)
+        e.ageMs = static_cast<uint32_t>(std::max<int64_t>(0, nowMs() - static_cast<int64_t>(e.lastSeenMs)));
+    return impl_->servers;
 }
 
 } // namespace drakan::net

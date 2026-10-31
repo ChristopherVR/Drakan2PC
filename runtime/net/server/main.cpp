@@ -23,7 +23,9 @@ void onSignal(int) {
 
 void usage() {
     std::puts("usage: drakan_server [options]\n"
-              "  --port N          UDP port (default 27960)\n"
+              "  --port N          UDP port (default 47800; LAN discovery probes 47800..47809)\n"
+              "  --name TEXT       server name shown in server lists\n"
+              "  --password TEXT   require this password to join\n"
               "  --max-players N   1..16 (default 8)\n"
               "  --mode dm|tdm     deathmatch or team deathmatch (default dm)\n"
               "  --level NAME      level name clients should load (default \"\")\n"
@@ -32,6 +34,9 @@ void usage() {
               "  --auto-start N    start the match once N players joined (default 2, 0 = never)\n"
               "  --tick-rate HZ    server ticks per second (default 30)\n"
               "  --profile-hash H  require this disc profile hash (hex, default accept any)\n"
+              "  --damage-scale F  multiplier on accepted hit damage (default 3)\n"
+              "  --respawn-ms N    respawn delay after a death, 500..60000 (default 3000)\n"
+              "  --max-hit-range F melee reach check between the two players, game units (default 900)\n"
               "  --help");
 }
 
@@ -47,7 +52,8 @@ int main(int argc, char** argv) {
     using namespace drakan::net;
     ServerOptions opt;
     opt.autoStartPlayers = 2;
-    unsigned long long port = 27960;
+    applyDrakanPvpTuning(opt);
+    unsigned long long port = kDefaultPort;
     unsigned long long tickRate = 30;
 
     for (int i = 1; i < argc; ++i) {
@@ -78,6 +84,12 @@ int main(int argc, char** argv) {
                 opt.config.mode = MatchMode::TeamDeathmatch;
             else
                 return std::fprintf(stderr, "bad --mode (dm|tdm)\n"), 2;
+        } else if (a == "--name") {
+            opt.config.serverName = std::string(value()).substr(0, kMaxServerNameLength);
+        } else if (a == "--password") {
+            opt.password = value();
+            if (opt.password.size() > kMaxPasswordLength)
+                return std::fprintf(stderr, "--password too long\n"), 2;
         } else if (a == "--level") {
             opt.config.level = value();
             if (opt.config.level.size() > kMaxLevelLength)
@@ -101,6 +113,16 @@ int main(int argc, char** argv) {
             if (!parseUint(value(), ~0ULL, v, 16))
                 return std::fprintf(stderr, "bad --profile-hash\n"), 2;
             opt.profileHash = v;
+        } else if (a == "--damage-scale") {
+            opt.damageScale = static_cast<float>(std::atof(value()));
+            if (!(opt.damageScale >= 0.1f && opt.damageScale <= 100.0f))
+                return std::fprintf(stderr, "bad --damage-scale (0.1..100)\n"), 2;
+        } else if (a == "--respawn-ms") {
+            if (!parseUint(value(), 60000, v) || v < 500)
+                return std::fprintf(stderr, "bad --respawn-ms (500..60000)\n"), 2;
+            opt.config.respawnDelayMs = static_cast<uint16_t>(v);
+        } else if (a == "--max-hit-range") {
+            opt.maxHitRange = static_cast<float>(std::atof(value()));
         } else {
             std::fprintf(stderr, "unknown option %s\n", a.c_str());
             usage();
@@ -122,6 +144,7 @@ int main(int argc, char** argv) {
     };
 
     MatchServer server(transport, opt);
+    transport.setQueryResponder([&server](const std::vector<uint8_t>& req) { return server.answerQuery(req); });
     server.onLog = [&](const std::string& line) {
         std::printf("[%8.3f] %s\n", static_cast<double>(elapsedMs()) / 1000.0, line.c_str());
         std::fflush(stdout);

@@ -2,6 +2,7 @@
 // Client side of a match: connect handshake, roster, snapshot buffer with interpolation of remote players, and an
 // event queue for the game to drain. Driven by tick(nowMs) with an explicit clock (deterministic in tests).
 #include "net/Protocol.h"
+#include "net/Scoreboard.h"
 #include "net/Transport.h"
 
 #include <cstdint>
@@ -9,12 +10,14 @@
 #include <map>
 #include <string>
 #include <variant>
+#include <vector>
 
 namespace drakan::net {
 
 struct ClientOptions {
     std::string name = "Player";
     uint64_t profileHash = 0;
+    std::string password;                // v5: sent in Hello
     uint32_t interpolationDelayMs = 100; // remote players are shown this far behind the server clock
     uint32_t connectTimeoutMs = 5000;    // handshake (transport connect + Welcome) must finish within this
     size_t maxBufferedStates = 32;       // per remote player
@@ -29,6 +32,7 @@ struct RemotePlayer {
     uint16_t kills = 0;
     uint16_t deaths = 0;
     bool alive = false;
+    bool ready = false; // v5 lobby ready flag
     int32_t health = 0;
 };
 
@@ -37,7 +41,7 @@ struct DisconnectedEvent {
 };
 
 using ClientEvent = std::variant<Hit, Death, Respawn, Chat, Score, PhaseChange, PlayerJoin, PlayerLeave, MatchConfigMsg,
-                                 DisconnectedEvent>;
+                                 Ready, DisconnectedEvent>;
 
 class MatchClient {
 public:
@@ -60,12 +64,17 @@ public:
     const std::map<PlayerId, RemotePlayer>& roster() const { return roster_; }
     const RemotePlayer* self() const;
     uint16_t teamKills(uint8_t team) const { return team < 2 ? teamKills_[team] : 0; }
+    // Scoreboard from the roster (sorted, see sortScoreboard) and the outcome the current scores give. The outcome is
+    // final once phase() == Results; its reason is inferred from the config (frag limit reached, else time limit).
+    std::vector<ScoreRow> scoreboard() const;
+    MatchOutcome outcome() const;
 
     // Outgoing. All are no-ops (false) until connected.
     bool sendState(PlayerState state);                              // fills player + sequence
     bool sendHit(PlayerId victim, uint8_t weapon, uint16_t damage); // a claim; the server decides
     bool sendChat(const std::string& text);
     bool sendLoadDone();
+    bool sendReady(bool ready); // lobby only (the server ignores it elsewhere)
 
     bool pollEvent(ClientEvent& out);
 
