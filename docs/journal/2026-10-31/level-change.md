@@ -127,13 +127,25 @@ produces. Remaining differences of the walked path that were not reproduced: the
   Names the cache does not have yet are learned: when a change through an exit finishes, `(old level, string id)` -> the level that
   loaded.
 
-## 6. Open: Surdana's exit 80011 hangs
+## 6. Surdana's exit 80011 hangs: solved (third session)
 
-The exit with destination id `0x80011` (one of the four triggers stacked at `413696 188421 618496`, property 1 = 1 "portal") hangs
-inside `0x362d38` before the `.rlt` is written, reproducibly (`build/harness/lcS-surdana-3`: `transition entry` is the last
-`[levelchange]` line, no load, the run ends at `PS2X_MAX_SECONDS`). Its sibling `0x80008` (same position) loads Ravenshold fine.
-Not analysed further: the destination text could not be read (not cached), so the cause (a destination whose level file is not on
-the disc, or a conditional exit) is unknown.
+**Cause.** The destination text of string id `0x80011` is the literal `portal`. A level-local id is `0x80000 + the id of a string of the
+level's own XDB` (`LEVEL1ON.XDB` for Surdana: 5 Shadowmire, 8 Ravenshold, 12 Surdana, 13 Kragmor ... 17 `portal`; read from the disc
+with the editor's `formats` package). Exit 3 (4 triggers stacked at `413696 188421 618496`: Ravenshold, `portal`, Shiverbane, Valley)
+is the *arrival marker* of a portal pair (property 1 = 1), not a way to a level. Walk of the hang (`PS2X_TRACE_PCS`, the trace ring
+and the decompile): `0x362d38` reads the text through `0x1b9fb0` (this returns, the string loads fine), then hands it to the path helper
+`0x101220(this, text)`, which takes the base name after the last `/` (`0x101198`) and copies up to the first `.` (`strchr(base, '.')`
+at `0x4cf4d0`) into a 256-byte stack buffer. Every real destination is `Levels\X\X.lvl`, so a `.` exists; `portal` has none,
+`strchr` returns NULL and the copy length is `NULL - base` (about 4 GB): the main thread never comes back (no more control
+transfers in the trace ring). The string-manager spin of the first diagnosis was a red herring: with the trace on, the string read
+returned. The game would do the same on the PS2; the player never touches that trigger.
+
+**Guard.** `ExitInfo::portal` (destination text `portal`): `fire()` refuses it with a log line (`an arrival marker and not a level`),
+the F1 panel shows `(portal marker)` and disables Go, a refused step ends a `DRAKAN_LEVELCHANGE` chain, the sweep reports SKIP.
+
+**Names (the "?" destinations).** `kKnownDests` is replaced by two tables read from the disc's XDBs (levels share a group):
+`kLevelGroups` (level -> XDB stem) and `kDestTexts` (group, `0x80000 + id` -> level name, or `portal`). All exits of every level
+reachable from Surdana now show a name (screenshot, section 10). Names learned at run time (`g_learned`) still take priority.
 
 ## 7. Sweep: every exit of Surdana (`level_change_run.py --sweep surdana`)
 
@@ -158,3 +170,63 @@ build outage (rows 0 to 2 from the first part, 3 to 10 from the second).
 Not done: the exits of the other levels beyond the one return exit (`--sweep city --indices 0-4` etc. is wired but was not run), the
 F1 > World panel in a screenshot (renderer screenshots do not contain the overlay and an OS-level grab of the window did not work in
 this multi-monitor setup; the list itself is checked through the arrival report in the log), a scripted real walk-in.
+
+## 8. Real walk-in (not achieved; what was learned)
+
+`scripts/harness/level_change_walk.py` (new) places Rynn with `DRAKAN_PLAYTEST_POS` on / near an exit of Surdana and drives W / S.
+Recipe times are **absolute from the last `sync`** (in `clock milliseconds`): input samples run far slower than world ticks, so
+frame-count recipes with relative offsets do nothing sensible (this cost several runs). Results:
+* The placement works (`[playtest] placed after 1-2 tries`) at the City exit (a round chamber, radius about 2550 around
+  `157696 428032`, door at +x `160530`; ground `192890`, the trigger sits 340 above it) and at the Lair exit (ground there is
+  `160300`, the trigger is at `149800`: **10 000 units below the surface**, so the Lair exit cannot be walked into from the surface).
+* In the City chamber Rynn walks to about 1000 units from the centre and is stopped (central objects, class 3050 at
+  `157753 195586`). Standing exactly on the trigger position (the placement) and moving around within 800 units of it for 20 s
+  produced **no** touch event: no save screen. The instance state of every Surdana exit (new `ExitInfo::state`, logged with the
+  exit list) is `8`, so bit 2 (set by message `0x1002`, which makes `0x361440` ignore `0x1001`) is not the cause. Unresolved: the
+  trigger's volume (class default, not read) or the touch needs the engine's collision pass against the trigger body (the arrival
+  after a fired change also stands exactly on the trigger and does not bounce back).
+* So the walked front half (touch `0x1001` -> `0x361440` -> queue -> `0x361288` -> `0x361e18` -> save screen -> loading screen) is still
+  not reproduced on screen, and the two skipped steps (audio volume save in `0x361288`, held-object release in `0x361e18`) stay
+  unreproduced; no arrival showed an effect from their absence. Idea for next time: read the trigger class's size / radius from
+  the exit class record, or deliver message `0x20` (`0x365138` -> `0x361440(obj, *(ctx+0x4e0))`) with a real event struct from the host.
+
+## 9. Sweep tables (third session; `level_change_run.py --sweep <level> --indices ...`)
+
+One fresh run per exit (private folders `build/harness/lcsA-*` / `lcsB-*`). PASS = the destination loads, Rynn stands inside the
+level at frame 200 (sane-range check only) and the run ends cleanly. Exits are listed nearest-first.
+
+| from | exit | leads to | result |
+| --- | --- | --- | --- |
+| Surdana | 0-10 | section 7 (exit 3 is the `portal` marker: now SKIP with a log line, no hang) | all PASS except the marker; re-run on the new build: 2 PASS (Ravenshold; its nearest exit is a `portal` marker, so no way back was fired), 3 SKIP |
+| City of the Damned | 0 (only exit) | Surdana | PASS, back at `157696 192890 428032` |
+| Inquisitor's Lair | 0 (only exit) | Surdana | PASS (`441344 150248 508928`) |
+| Kragmor | 0 (only exit) | Surdana | PASS (`729088 152998 772096`) |
+| Catacombs | 0 (only exit) | Surdana | PASS (`508928 151450 791552`) |
+| Shadowmire | 0 (only exit) | Surdana | PASS (`521216 150046 447488`) |
+| Ravenshold | 0 | `portal` marker | SKIP, refused |
+| Ravenshold | 1 | Surdana | PASS (`413696 182722 618496`) |
+| Ravenshold | 2 | Northern Tundra | PASS (`821211 145188 970763`) |
+| Ravenshold | 3 | Andrellian Isles | PASS, arrival `747088 250106 1411860` (y 250 000 looks high for the Isles; sane-range check only, no screenshot) |
+| Shiverbane | 0 | Surdana | PASS (`413696 182722 618496`) |
+| Shiverbane | 1 | `portal` marker | SKIP |
+| Shiverbane | 2 | Northern Tundra | PASS (`680960 141499 1760256`) |
+| Shiverbane | 3 | stayed in Shiverbane (loads only the first step) | PASS as a run, destination not identified |
+| Valley of the Fallen | 0 | Surdana | PASS; frame-200 position `413696 188421 618496` is the trigger height (not settled) |
+| Valley of the Fallen | 1 | `portal` marker | SKIP |
+| Valley of the Fallen | 2 | Surdana | PASS |
+| Valley of the Fallen | 3 | Stratos | PASS (`652330 147514 961436`) |
+| Andrellian Isles | 0 | Crystal Mine | PASS (`619584 199414 1019517`) |
+| Andrellian Isles | 1 | Ravenshold | PASS (`1298643 151684 670048`) |
+| Andrellian Isles | 2-4 | n/a | the Isles list 2 exits |
+
+No arrival failed (no hang, no position outside the level, no crash). Open smells: the Isles arrival at `y 250 100` and the Valley
+-> Surdana frame-200 height. Crystal Mine, Northern Tundra and Stratos exits were not swept (reached as destinations only).
+
+## 10. F1 World panel with the Level exits list
+
+Renderer screenshots (`shot`) do not contain the ImGui overlay; the overlay's own capture inbox does: `DRAKAN_OVERLAY_SHOT_DIR`
+(drakan_settings_host.cpp `maybeShot`: `command.txt` "<id> toggle" = F1, then `shot.txt` = a name; the presented frame with the
+overlay is written as `<name>.bmp`). `scripts/harness/level_change_panel_shot.py` drives it (waits for Surdana, toggles F1, shoots).
+Result `build/harness/lcp-panel/overlay/level_exits.png` (not committed): the World window lists all 11 Surdana exits with resolved
+names, the `portal` marker shows `(portal marker)` with a greyed Go. The frame is the game paused behind the settings menu (F1 opens
+that menu, which holds the game).

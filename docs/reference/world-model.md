@@ -308,12 +308,17 @@ levels share one world; the City exit and its arrival marker are at the same pos
 not be called nested: on a cache miss it starts a load and spins (`while ((flags & 3) == 2)`), freezing the guest. The host reads
 the string manager's cache instead (`*(ctx+0x344)`, `this = sm + s16(vt+0x90)`, 128 buckets at `this+0x20`, bucket `(id*0x59)&0x7f`,
 chain at entry `+0x14`, `entry+0` id, `entry+8 & 3 == 3` text pointer at `entry+0x1c`). The marker search of a level load reads that
-level's exit texts up to the match, so most are cached; an uncached one shows `?` until the exit is used once (the level it led to
-is remembered per (level, id)).
+level's exit texts up to the match, so most are cached. Because the cache is incomplete, the names come from tables read from the
+disc's XDBs (id = `0x80000 +` the string id in the level's own XDB, e.g. `LEVEL1ON.XDB`; `drakan_levelchange.cpp`
+`kLevelGroups` / `kDestTexts`); a name learned by using an exit still wins. **A destination text `portal` is an arrival marker,
+not a level**: the game's own transition cuts the text at the first `.` without a NULL check (`0x101220`), copies about 4 GB and never
+returns, so `fire()` refuses such exits (`ExitInfo::portal`).
 
 **Verified in game** (journal sections 3 and 5, harness `level_change_run.py`): Surdana -> City of the Damned, Inquisitor's Lair, Kragmor,
 Catacombs, Shadowmire (Rynn on the arrival marker, 70 to 180 fps), round trips and chains; the sweep table is in the journal (section 7).
-The walk-in path (touch event, queue, save screen, loading screen) was not scripted: the main-loop half is the same code as the fired path.
+Sweeps of every level reachable from Surdana (City, Lair, Kragmor, Catacombs, Shadowmire, Ravenshold, Shiverbane, Valley, Isles): no
+arrival failure (journal sections 8 to 10). The walk-in path (touch event, queue, save screen, loading screen) is still not reproduced:
+Rynn can be placed and walked at the City exit but the trigger never fired (journal section 8).
 
 ## 11. Dragon (Arokh): spawn, mount, dismount, dragon sections (2026-10-31)
 
@@ -336,6 +341,8 @@ would take over `ctx+0x4b0` and link to the *first* Rynn-class actor (the local 
 init inserts the body and returns before both, which is the recipe `drakan_ghost::spawnDragon` uses. What this gives is a
 **visual dragon** (own skeleton, clips driven by the partner's pose); a second *flyable* dragon needs a second controlled actor
 and is not possible with the single `ctx+0x4b0` design (the partner flies on their own machine).
+
+**Verified in co-op (2026-10-31, [coop-dragons](../journal/2026-10-31/coop-dragons.md)):** a second Arokh body spawned with the mode-7 recipe leaves the local rider / dragon link (`data+0x4d8` at both ends) intact; record and clip ids carry the level's SYSTEM database index (0x2 in Surdana, 0x4 in Ravenshold); a mounted partner is shown as a dragon ghost replaying Arokh's pose and clips plus the partner's body on the saddle (about (-8, 330, 0) in the dragon frame, Rynn clip `Ride`).
 
 ## 12. Living foliage: the render hook (2026-10-31, experimental)
 

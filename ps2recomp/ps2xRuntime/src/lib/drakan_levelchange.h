@@ -28,6 +28,13 @@ struct ExitInfo {
     uint32_t prop[8] = {};
     std::string destName; // text of the destination, e.g. "Level 1B - Kragmor" (empty when unreadable)
     bool direct = false;  // property 6 != 0: the trigger sets the transition state itself (no save screen)
+    // The destination text is "portal": the exit is the arrival marker of a portal pair, not a way to another level.
+    // The game's own transition hangs on it (it cuts the text at the first '.', which "portal" does not have), so
+    // fire() refuses it.
+    bool portal = false;
+    // The trigger instance's state word (bit 1: set by message 0x10a3, bit 2: set by 0x1002; with bit 2 set the touch
+    // event 0x1001 is ignored) and the handle's flag word (bits 2/3 set while a transition from it is pending).
+    uint32_t state = 0, handleFlags = 0;
 };
 
 // Installed from applyDrakanOverrides after drakan_lifecycle::install (chains PadMgr_Update).

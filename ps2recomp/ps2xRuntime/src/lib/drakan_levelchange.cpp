@@ -20,6 +20,11 @@
 #include <memory>
 #include <map>
 #include <mutex>
+#if defined(_WIN32)
+#define strncasecmp _strnicmp
+#else
+#include <strings.h>
+#endif
 
 void ps2xNoPreemptEnter() noexcept;
 void ps2xNoPreemptLeave() noexcept;
@@ -90,22 +95,75 @@ struct Probe {
     uint32_t after = 600;
 } g_probe;
 
-// Destination names. Property 0 is a level-local string id (0x8000n); resolving it through the string manager blocks on
-// guest semaphores (a nested call froze the guest), so the names seen in game are kept in a table instead. Observed by
-// firing every Surdana exit (journal 2026-10-31/level-change.md); other levels fall back to "?" and the exit list shows
-// the raw id.
-struct KnownDest {
-    const char* from;
+// Destination names. Property 0 is a level-local string id: 0x80000 + the id of a string of the level's own XDB (the
+// dependency named like LEVEL1ON.XDB), whose text is the destination ("Levels\Level 1B - Kragmor\Level 1B -
+// Kragmor.lvl"). Resolving it through the string manager from the host blocks on guest semaphores (a nested call froze
+// the guest), and the manager's cache only holds what the game has read, so the texts are kept in tables read from the
+// disc's XDBs (level names only; journal 2026-10-31/level-change.md section 6). Levels that share an XDB share a group.
+// The text "portal" is not a level: such an exit is the arrival marker of a portal pair and the game's own transition
+// hangs on it.
+struct LevelGroup {
+    const char* level;
+    const char* group;
+};
+struct DestText {
+    const char* group;
     uint32_t id;
     const char* to;
 };
-constexpr KnownDest kKnownDests[] = {
-    {"Level 1A - Surdana", 0x80005, "Level 2 - Shadowmire"},
-    {"Level 1A - Surdana", 0x80006, "Level 3A - Andrellian Isles"},
-    {"Level 1A - Surdana", 0x8000d, "Level 1B - Kragmor"},
-    {"Level 1A - Surdana", 0x8000e, "Level 1C - Catacombs"},
-    {"Level 1A - Surdana", 0x8000f, "Level 1D - City of the Damned"},
-    {"Level 1A - Surdana", 0x80010, "Level 1E - Inquisitor's Lair"},
+constexpr LevelGroup kLevelGroups[] = {
+    {"Level 0 - Intro", "LEVEL0RO"},
+    {"Level 1A - Surdana", "LEVEL1ON"},
+    {"Level 1B - Kragmor", "LEVEL1ON"},
+    {"Level 1C - Catacombs", "LEVEL1ON"},
+    {"Level 1D - City of the Damned", "LEVEL1ON"},
+    {"Level 1E - Inquisitor's Lair", "LEVEL1ON"},
+    {"Level 2 - Shadowmire", "LEVEL2RE"},
+    {"Level 3A - Andrellian Isles", "LEVEL3ON"},
+    {"Level 3B - Crystal Mine", "LEVEL3ON"},
+    {"Level 4A - Ravenshold", "LEVEL4ON"},
+    {"Level 4B - Northern Tundra", "LEVEL4ON"},
+    {"Level 5 - Shiverbane", "LEVEL5NE"},
+    {"Level 6 - Valley of the Fallen", "LEVEL6EN"},
+    {"Level 8 - Stratos", "LEVEL8OS"},
+};
+constexpr DestText kDestTexts[] = {
+    {"LEVEL0RO", 0x80001, "Level 1A - Surdana"},
+    {"LEVEL1ON", 0x80001, "Level 2 - Shadowmire"},
+    {"LEVEL1ON", 0x80005, "Level 2 - Shadowmire"},
+    {"LEVEL1ON", 0x80006, "Level 3A - Andrellian Isles"},
+    {"LEVEL1ON", 0x80007, "Level 6 - Valley of the Fallen"},
+    {"LEVEL1ON", 0x80008, "Level 4A - Ravenshold"},
+    {"LEVEL1ON", 0x80009, "Level 5 - Shiverbane"},
+    {"LEVEL1ON", 0x8000a, "Level 8 - Stratos"},
+    {"LEVEL1ON", 0x8000c, "Level 1A - Surdana"},
+    {"LEVEL1ON", 0x8000d, "Level 1B - Kragmor"},
+    {"LEVEL1ON", 0x8000e, "Level 1C - Catacombs"},
+    {"LEVEL1ON", 0x8000f, "Level 1D - City of the Damned"},
+    {"LEVEL1ON", 0x80010, "Level 1E - Inquisitor's Lair"},
+    {"LEVEL1ON", 0x80011, "portal"},
+    {"LEVEL2RE", 0x80004, "Level 1A - Surdana"},
+    {"LEVEL3ON", 0x80004, "Level 1 - Aachen (A)"},
+    {"LEVEL3ON", 0x80005, "Level 4A - Ravenshold"},
+    {"LEVEL3ON", 0x80006, "Level 3B - Crystal Mine"},
+    {"LEVEL3ON", 0x80009, "Level 3A - Andrellian Isles"},
+    {"LEVEL4ON", 0x80009, "portal"},
+    {"LEVEL4ON", 0x8000a, "Level 4 Portal"},
+    {"LEVEL4ON", 0x8000b, "Level 1A - Surdana"},
+    {"LEVEL4ON", 0x8000c, "Level 3A - Andrellian Isles"},
+    {"LEVEL4ON", 0x8000d, "Level 4B - Northern Tundra"},
+    {"LEVEL4ON", 0x8000e, "Level 5 - Shiverbane"},
+    {"LEVEL4ON", 0x80010, "Level 4A - Ravenshold"},
+    {"LEVEL5NE", 0x80005, "Level 1A - Surdana"},
+    {"LEVEL5NE", 0x80006, "portal"},
+    {"LEVEL5NE", 0x80007, "Level 4B - Northern Tundra"},
+    {"LEVEL6EN", 0x80001, "ruined village"},
+    {"LEVEL6EN", 0x80002, "mines"},
+    {"LEVEL6EN", 0x80004, "Level 1A - Surdana"},
+    {"LEVEL6EN", 0x80005, "portal"},
+    {"LEVEL6EN", 0x80006, "Level 8 - Stratos"},
+    {"LEVEL8OS", 0x80004, "Level 6 - Transition to Desert"},
+    {"LEVEL8OS", 0x80005, "Out"},
 };
 // Destinations learned in this run: (level, string id) -> level the exit led to (set when a level change through an
 // exit completes), so exits whose text the string manager has not cached yet get a name after they were used once.
@@ -117,9 +175,11 @@ std::string knownName(const std::string& level, uint32_t id) {
         if (const auto it = g_learned.find({level, id}); it != g_learned.end())
             return it->second;
     }
-    for (const KnownDest& k : kKnownDests)
-        if (id == k.id && level == k.from)
-            return k.to;
+    for (const LevelGroup& g : kLevelGroups)
+        if (level == g.level)
+            for (const DestText& d : kDestTexts)
+                if (id == d.id && std::strcmp(d.group, g.group) == 0)
+                    return d.to;
     return {};
 }
 
@@ -131,6 +191,10 @@ std::string levelNameOf(std::string t) {
     if (t.size() > 4 && t.compare(t.size() - 4, 4, ".lvl") == 0)
         t.resize(t.size() - 4);
     return t;
+}
+
+bool isPortalName(const std::string& name) {
+    return name.size() == 6 && strncasecmp(name.c_str(), "portal", 6) == 0;
 }
 
 uint32_t callGuest(uint8_t* rdram, R5900Context* c, PS2Runtime* rt, uint32_t fn, uint32_t a0, uint32_t a1 = 0,
@@ -233,6 +297,13 @@ void scan(uint8_t* rdram, R5900Context* c, PS2Runtime* rt) {
             if (e.destName.empty())
                 e.destName = levelNameOf(readString(rdram, e.prop[0]));
             e.direct = e.prop[6] != 0 && e.prop[6] != 0xdeadbeefu;
+            e.portal = isPortalName(e.destName);
+            {
+                const uint32_t inner = r.u32(h + 0xfc);
+                const uint32_t inst = Ram::ok(inner, 0x14) ? r.u32(inner + 0x10) : 0;
+                e.state = Ram::ok(inst, 4) ? r.u16(inst) : 0xffffu;
+                e.handleFlags = r.u32(h + 4);
+            }
             out.push_back(e);
         }
         if (player && Ram::ok(player, 0x20)) { // nearest first
@@ -304,6 +375,17 @@ bool fire(uint8_t* rdram, PS2Runtime* rt, uint32_t handle) {
     const uint32_t eng = r.u32(addr(kContextPtr));
     if (!Ram::ok(eng, 0x4b8) || drakan_lifecycle::transitionActive())
         return false;
+    {
+        std::lock_guard<std::mutex> l(g_m);
+        for (const ExitInfo& e : g_exits)
+            if (e.handle == handle && e.portal) {
+                std::fprintf(stderr,
+                             "[levelchange] exit %x leads to '%s', an arrival marker and not a level (the game's "
+                             "transition hangs on it): not fired\n",
+                             handle, e.destName.c_str());
+                return false;
+            }
+    }
     const uint32_t inner = r.u32(handle + 0xfc);
     const uint32_t inst = Ram::ok(inner, 0x14) ? r.u32(inner + 0x10) : 0;
     if (!Ram::ok(inst, 0x30)) { // the class instance data: what the trigger's own handlers work on
@@ -404,9 +486,12 @@ void hookTick(uint8_t* rdram, R5900Context* c, PS2Runtime* rt) {
                     }
                     scan(rdram, c, rt);
                     for (const ExitInfo& e : exits())
-                        std::fprintf(stderr, "[levelchange]   exit %x pos %.0f %.0f %.0f dest %x '%s' p1 %x p2 %x\n",
-                                     e.handle, static_cast<double>(e.pos[0]), static_cast<double>(e.pos[1]),
-                                     static_cast<double>(e.pos[2]), e.dest, e.destName.c_str(), e.prop[1], e.prop[2]);
+                        std::fprintf(
+                            stderr,
+                            "[levelchange]   exit %x pos %.0f %.0f %.0f dest %x '%s' p1 %x p2 %x state %x hflags %x\n",
+                            e.handle, static_cast<double>(e.pos[0]), static_cast<double>(e.pos[1]),
+                            static_cast<double>(e.pos[2]), e.dest, e.destName.c_str(), e.prop[1], e.prop[2], e.state,
+                            e.handleFlags);
                 }
             }
             const bool inGame = !g_currentLevel.empty() && g_currentLevel.find("Intro") == std::string::npos;
@@ -492,8 +577,11 @@ void hookTick(uint8_t* rdram, R5900Context* c, PS2Runtime* rt) {
                 if (!h)
                     std::fprintf(stderr, "[levelchange] no exit in this level leads to '%s'\n", want.c_str());
             }
-            if (h)
-                fire(rdram, rt, h);
+            if (h && !fire(rdram, rt, h) && g_probe.next > 0) {
+                g_probe.armed =
+                    false; // a refused exit ends the scripted chain (the steps after it assume it was taken)
+                g_probe.next = g_probe.steps.size();
+            }
         }
     }
     g_origTick(rdram, c, rt);
@@ -603,10 +691,13 @@ void drawControls() {
         ImGui::PushID(static_cast<int>(i));
         ImGui::Text("%08x  %.0f %.0f %.0f  -> %s%s", e.handle, static_cast<double>(e.pos[0]),
                     static_cast<double>(e.pos[1]), static_cast<double>(e.pos[2]),
-                    e.destName.empty() ? "?" : e.destName.c_str(), e.direct ? " (direct)" : "");
+                    e.destName.empty() ? "?" : e.destName.c_str(),
+                    e.portal ? " (portal marker)" : (e.direct ? " (direct)" : ""));
         ImGui::SameLine();
+        ImGui::BeginDisabled(e.portal);
         if (ImGui::SmallButton("Go"))
             requestExit(e.handle);
+        ImGui::EndDisabled();
         ImGui::PopID();
     }
 #endif

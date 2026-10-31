@@ -74,6 +74,8 @@ def run_case(a: argparse.Namespace, name: str, steps: str, expect: list[str]) ->
         "--env", "DRAKAN_LIFECYCLE_LOG=1",
         "--env", "DRAKAN_WORLD=2",
     ]  # fmt: skip
+    for extra in a.env:
+        cmd += ["--env", extra]
     rc = subprocess.run(cmd, cwd=ROOT).returncode
     log = ROOT / "build" / "harness" / out_name / "stdout_1.log"
     text = log.read_text(encoding="latin-1") if log.is_file() else ""
@@ -117,10 +119,12 @@ def sweep_case(a: argparse.Namespace, level: str, index: int) -> dict:
     cmd = [
         sys.executable, str(ROOT / "scripts" / "harness" / "play_run.py"),
         "--name", out_name, "--exe", str(exe), "--recipe", str(recipe),
-        "--timeout", str(wait + 60), "--attempts", "1",
+        "--timeout", str(wait + 60), "--attempts", "2",
         "--env", f"DRAKAN_LEVELCHANGE={','.join(steps)}@{a.frames}",
         "--env", "DRAKAN_LIFECYCLE_LOG=1", "--env", "DRAKAN_WORLD=2",
     ]  # fmt: skip
+    for extra in a.env:
+        cmd += ["--env", extra]
     rc = subprocess.run(cmd, cwd=ROOT, stdout=subprocess.DEVNULL).returncode
     log = ROOT / "build" / "harness" / out_name / "stdout_1.log"
     text = log.read_text(encoding="latin-1") if log.is_file() else ""
@@ -128,9 +132,14 @@ def sweep_case(a: argparse.Namespace, level: str, index: int) -> dict:
     row = {"level": level, "index": index, "dest": "", "loads": loads, "ok": False, "note": "", "dir": out_name}
     m = re.findall(rf"\[levelchange\] exit {index}: handle \w+ pos (\S+ \S+ \S+) dest (\w+) '(.*?)'", text)
     if m:
-        row["dest"] = m[0][2]
+        row["dest"] = m[0][2] if level == "surdana" else m[-1][2]
     if "no such exit" in text:
         row["note"] = "no such exit"
+        return row
+    refused = "an arrival marker and not a level" in text
+    if refused and len(loads) <= len(prefix):
+        row["note"] = "portal marker (destination text 'portal'), not fired"
+        row["skip"] = True
         return row
     sane = True
     for lvl, x, y, z in re.findall(r"arrival report '(.*?)' frame 200 player \w+ pos (-?\d+) (-?\d+) (-?\d+)", text)[
@@ -139,7 +148,11 @@ def sweep_case(a: argparse.Namespace, level: str, index: int) -> dict:
         sane &= abs(int(x)) < 2_000_000 and abs(int(z)) < 2_000_000 and abs(int(y)) < 1_000_000
     quit_ok = rc == 0 and "[in] script quit" in text
     expected = len(steps)
+    if refused:  # the way back (nearest exit of the destination) is a portal marker: arrival checked, no way back
+        expected -= 1
     row["ok"] = quit_ok and len(loads) >= expected and sane
+    if refused and row["ok"]:
+        row["note"] = "arrived; the destination's nearest exit is a portal marker (way back not fired)"
     if not quit_ok:
         row["note"] = "no clean quit (hang or crash)"
     elif len(loads) < expected:
@@ -158,19 +171,30 @@ def main() -> int:
     ap.add_argument("--prefix", default="lc", help="private folders build/<prefix>-play, build/harness/<prefix>-<case>")
     ap.add_argument("--sweep", help="fire every exit of this level, one run each, and print a table (see above)")
     ap.add_argument("--indices", help="exit indices for --sweep, e.g. 0-10 or 0,2,5")
+    ap.add_argument("--env", action="append", default=[], help="extra KEY=VALUE for the game (repeatable)")
     ap.add_argument("--frames", type=int, default=600, help="frames in a level before the next step fires")
     a = ap.parse_args()
     if not a.exe.is_file():
         raise SystemExit(f"{a.exe} not found (build ps2EntryRunner first)")
     results = {}
     if a.sweep:
-        indices = parse_indices(a.indices) if a.indices else list(range(11 if a.sweep == "surdana" else 5))
-        rows = [sweep_case(a, a.sweep, i) for i in indices]
+        rows = []
+        if a.indices:
+            indices = parse_indices(a.indices)
+        elif a.sweep == "surdana":
+            indices = list(range(11))
+        else:  # exit 0 first: its own log lists the exits of the level (frame 3 of the third level load)
+            rows.append(sweep_case(a, a.sweep, 0))
+            log = ROOT / "build" / "harness" / rows[0]["dir"] / "stdout_1.log"
+            blocks = (log.read_text(encoding="latin-1") if log.is_file() else "").split("player block:")
+            count = len(re.findall(r"\[levelchange\]   exit ", blocks[3])) if len(blocks) > 3 else 1
+            indices = list(range(1, count))
+        rows += [sweep_case(a, a.sweep, i) for i in indices]
         print(f"{'exit':>4}  {'leads to':<34} {'result':<6} loads / note")
         for r in rows:
-            res = "SKIP" if r["note"] == "no such exit" else ("PASS" if r["ok"] else "FAIL")
+            res = "SKIP" if r["note"] == "no such exit" or r.get("skip") else ("PASS" if r["ok"] else "FAIL")
             print(f"{r['index']:>4}  {r['dest'] or '?':<34} {res:<6} {' > '.join(r['loads'])} {r['note']} [{r['dir']}]")
-        return 0 if all(r["ok"] or r["note"] == "no such exit" for r in rows) else 1
+        return 0 if all(r["ok"] or r["note"] == "no such exit" or r.get("skip") for r in rows) else 1
     if a.steps:
         results["custom"] = run_case(a, "custom", a.steps, [])
     else:
