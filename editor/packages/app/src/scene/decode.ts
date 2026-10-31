@@ -47,7 +47,7 @@ async function open(fs: Iso9660, path: string): Promise<SrscReader | null> {
     return SrscReader.open(sliceSource(fs.source, f.extent * 2048, f.size));
 }
 
-async function readTextures(
+export async function readTextures(
     txd: SrscReader | null,
     ids: Iterable<number>,
     db: number,

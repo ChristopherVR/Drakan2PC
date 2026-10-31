@@ -268,3 +268,31 @@ layout were found against the PAL disc.
   string/array payloads (`setObjectParams`). Verified in game: Initial Health (field 46, int) added to two Purple Orc
   Center objects in Surdana through an exported mod pack: the world dump shows hp/hpMax 500 on exactly those two and 35 on
   the other ten (journal `2026-10-31/level-field-editor.md`).
+
+### 12b. What a model / sound / texture / animation / sequence reference points at
+
+Resolved against the PAL disc (every ODB class default of those types; probe results, 6520 classes). A reference is
+`(db << 16) | id`; `db` 0 = the owning ODB's own container stem, otherwise the stem named by that ODB's `.DB` list. The
+container file is `<stem>.<ext>` in the same directory, `id` is the SRSC id inside it (all stems are unique across a language
+tree, so a stem to file map is enough):
+
+| Field type | Container | Entry (SRSC type) | Name / facts | Evidence |
+| --- | --- | --- | --- | --- |
+| 4 model | `.MOD` | 0x0200 (and 0x0203/0x0204 geometry) | name in 0x0200 (`Model.name`), texture count | **[disc]** all 178 non-zero class defaults hit a model |
+| 5 sound | `.SDB` | 0x0302 descriptor + 0x0304 SPU-ADPCM | name and subtitle text in 0x0302 (docs/reference/subtitles.md 3.1), rate at +8 after the name | **[disc]** 1355 of 1355; one `sub` per id (no id has two subs in SYSTEM, NPCS, LEVEL1ON), 0x0302 and 0x0304 subs match |
+| 14 (0x0e) texture | `.TXD` | 0x0040 | no name; header gives size and bpp | **[disc]** 199 of 199 |
+| 9 animation | `.ADB` | 0x0501 header, 0x0502 key data (0x0505 on some) | 0x0501 = `string name, f32 ?, u32 0, u32 frames, ...`; `frames` equals the first u32 of 0x0502 (checked on 3 records) | **[disc]** 2121 of 2126 hit 0x0501+0x0502; 5 class defaults (`Darkness` flight/attack) name an id with no entry |
+| 11 (0x0b) sequence | `.SSD` | 0x0311 (0x0310/0x0312 are the file header and "STOMP" tags) | name = `u16 length, string` at the start of the record ("6.04 Guardian Gate", "pillar stomp") | **[?]** inferred: no class default or level parameter holds a non-zero sequence value on the disc, so no reference could be checked against an id |
+| 8 character channel, 12 layer | none | | not resource ids (`SYSTEM/0` etc. do not resolve in any container) | |
+
+Notes:
+
+* Array types (`0x1004` models, `0x1005` sounds 4759x, `0x1009` animations 5488x, `0x100b` sequences) hold one such word per element.
+* **SPU ADPCM (0x0304)** is the stock PS2 VAG block format: 16 bytes = `shift | predictor << 4`, flag (1 end, 4 loop start), 14 bytes
+  of 28 signed nibbles (low first); predictor filters (0,0), (60,0), (115,-52), (98,-55), (122,-60); mono, rate from the
+  descriptor (22050 speech, 44100 effects). `formats/src/resources.ts` `decodeSpuAdpcm` is a port of
+  `analysis/scripts/sub_adpcm_wav.py`; the editor plays it through Web Audio.
+* A model's texture refs follow the model container's own `.DB` (db 0 = its own TXD); `scene/decode.ts` `loadModelData` uses
+  the class ODB's list instead, which is the same for the shipped data where both name the same stems.
+* No skeleton pose is decoded (section 11, 0x0208 joint block), so an animation cannot be previewed on a model; only its name,
+  frame count and key size are shown.

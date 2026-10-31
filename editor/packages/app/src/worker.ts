@@ -19,6 +19,7 @@ import {
 import { srscRoundTrips } from '@drakan/editor-core';
 import { loadModelData, loadTerrainData } from './scene/decode.ts';
 import { loadItemCatalog, loadItemModels, resetItemData } from './itemdata.ts';
+import { listRefs, loadRefModel, loadRefSound, loadRefTexture, refContainers } from './refdata.ts';
 import type {
     Api,
     EntryBytes,
@@ -241,6 +242,21 @@ const api: { [K in keyof Api]: (...a: Parameters<Api[K]>) => Promise<ReturnType<
     },
     async loadItemModels(classIds) {
         return loadItemModels(need(), language, classIds);
+    },
+    async refContainers(kind, stems) {
+        return refContainers(need(), language, kind, stems);
+    },
+    async listRefs(stem, kind) {
+        return listRefs(need(), language, stem, kind);
+    },
+    async loadRefModel(stem, id) {
+        return loadRefModel(need(), language, stem, id);
+    },
+    async loadRefTexture(stem, id) {
+        return loadRefTexture(need(), language, stem, id);
+    },
+    async loadRefSound(stem, id) {
+        return loadRefSound(need(), language, stem, id);
     },
     async decodeTextures(path, indices) {
         const r = await getSrsc(path);

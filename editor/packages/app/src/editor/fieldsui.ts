@@ -22,6 +22,11 @@ import { decodeElement, encodeElement, refParts } from '@drakan/formats';
 import type { Ctx } from './ctx.ts';
 import { fill, h, icon } from './dom.ts';
 import { attachScrub } from './scrub.ts';
+import { closePopover, openPopover } from './popover.ts';
+import { openRefPicker, refButton, type RefField } from './refpicker.ts';
+import { refKindOf } from '../refs.ts';
+
+export { closePopover };
 
 /**
  * Inspector "Fields": every field of the selected objects' classes (not only the overrides), grouped, typed and editable.
@@ -91,45 +96,6 @@ function buildRows(ctx: Ctx, objs: readonly LevelObject[]): Row[] {
         }
     }
     return [...rows.values()];
-}
-
-// ---------------------------------------------------------------- popover
-
-let popover: { el: HTMLElement; close: () => void } | null = null;
-
-export function closePopover(): void {
-    popover?.close();
-}
-
-function openPopover(anchor: HTMLElement, build: (close: () => void) => HTMLElement): void {
-    closePopover();
-    const el = h('div', { class: 'ed-pop', role: 'dialog' });
-    const onDown = (e: PointerEvent): void => {
-        if (!el.contains(e.target as Node) && !anchor.contains(e.target as Node)) close();
-    };
-    const onKey = (e: KeyboardEvent): void => {
-        if (e.key === 'Escape') {
-            e.stopPropagation();
-            close();
-        }
-    };
-    const close = (): void => {
-        el.remove();
-        document.removeEventListener('pointerdown', onDown, true);
-        document.removeEventListener('keydown', onKey, true);
-        if (popover?.el === el) popover = null;
-    };
-    el.append(build(close));
-    (anchor.closest('#level-main') ?? document.body).append(el);
-    const r = anchor.getBoundingClientRect();
-    const w = el.offsetWidth;
-    const hgt = el.offsetHeight;
-    el.style.left = `${Math.max(8, Math.min(window.innerWidth - w - 8, r.right - w))}px`;
-    const below = r.bottom + 4;
-    el.style.top = `${below + hgt > window.innerHeight - 8 ? Math.max(8, r.top - hgt - 4) : below}px`;
-    document.addEventListener('pointerdown', onDown, true);
-    document.addEventListener('keydown', onKey, true);
-    popover = { el, close };
 }
 
 const catalogIndex = new WeakMap<AssetClass[], Map<string, AssetClass>>();
@@ -359,6 +325,11 @@ function buildRow(ctx: Ctx, row: Row, objCount: number): Built {
         (row.owners.length < objCount ? `\nOn ${row.owners.length} of ${objCount} selected` : '');
     if (row.owners.length < objCount) nameEl.append(h('span', { class: 'dim' }, ` (${row.owners.length}/${objCount})`));
 
+    const resetField = (): void =>
+        ctx.edit(`Reset ${row.name}`, editIds(), (o) => {
+            const ow = row.owners.find((x) => x.id === o.id);
+            if (ow) resetObjectField(o, ow.field);
+        });
     const reset = h(
         'button',
         {
@@ -366,11 +337,7 @@ function buildRow(ctx: Ctx, row: Row, objCount: number): Built {
             type: 'button',
             'aria-label': `Reset ${row.name}`,
             title: 'Reset to the class default (removes the override)',
-            onclick: () =>
-                ctx.edit(`Reset ${row.name}`, editIds(), (o) => {
-                    const ow = row.owners.find((x) => x.id === o.id);
-                    if (ow) resetObjectField(o, ow.field);
-                }),
+            onclick: resetField,
         },
         icon('undo', 13),
     );
@@ -601,7 +568,8 @@ function buildRow(ctx: Ctx, row: Row, objCount: number): Built {
             classButton(first, row.type, curNum, (v) => commit((ow) => refFor(ow, v, first))),
         );
     } else if (w === 'ref') {
-        control = h('span', { class: 'inputrow' }, resourceControl());
+        const kind = refKindOf(row.type);
+        control = h('span', { class: 'inputrow' }, kind && provider ? resourceButton(kind) : resourceControl());
     } else if (w === 'array') {
         control = arrayControl();
     } else {
@@ -619,6 +587,37 @@ function buildRow(ctx: Ctx, row: Row, objCount: number): Built {
         if (v === 0) return 0;
         const stem = db === 0 ? from.schema.db : from.schema.deps.get(db);
         return stem ? provider.refValueFor(ow.schema, stem, id) : null;
+    }
+
+    /** Entry button for a model, sound, texture, animation or sequence field: name and picture, picker on click. */
+    function resourceButton(kind: NonNullable<ReturnType<typeof refKindOf>>): HTMLElement {
+        const refs = ctx.refs();
+        const f: RefField = {
+            kind,
+            name: row.name,
+            type: row.type,
+            schema: first.schema,
+            provider: provider ?? null,
+            get: curNum,
+            pick: (t) =>
+                t
+                    ? commit((ow) => (ow.schema && provider ? provider.refValueFor(ow.schema, t.stem, t.id) : null))
+                    : commit(0),
+            setRaw: (v) => commit((ow) => refFor(ow, v, first)),
+            reset: resetField,
+            defaultText: defText(),
+        };
+        const el = refButton(refs, f, (anchor) =>
+            openRefPicker(
+                refs,
+                anchor,
+                f,
+                provider?.refValues(row.name, row.type) ?? [],
+                (stem) => !!first.schema && !!provider && provider.refValueFor(first.schema, stem, 0) !== null,
+            ),
+        );
+        updates.push(() => (el as HTMLElement & { update?: () => void }).update?.());
+        return el;
     }
 
     function resourceControl(): HTMLElement {
@@ -669,6 +668,7 @@ function buildRow(ctx: Ctx, row: Row, objCount: number): Built {
     function arrayControl(): HTMLElement {
         const elType = row.type & 0xff;
         const isClass = elType === 3;
+        const elKind = provider ? refKindOf(elType) : null;
         const isFloatEl = elType === 2;
         const summary = h('button', { class: 'btn sm arrbtn', type: 'button', 'aria-expanded': 'false' });
         const extra = h('div', { class: 'arr' });
@@ -678,6 +678,23 @@ function buildRow(ctx: Ctx, row: Row, objCount: number): Built {
             return Array.isArray(v) ? v : null;
         };
         const editable = (): boolean => words() !== null;
+        const canPickStem = (stem: string): boolean =>
+            !!first.schema && !!provider && provider.refValueFor(first.schema, stem, 0) !== null;
+        const elementField = (
+            kind: NonNullable<ReturnType<typeof refKindOf>>,
+            get: () => number,
+            set: (v: number) => void,
+        ): RefField => ({
+            kind,
+            name: row.name,
+            type: elType,
+            schema: first.schema,
+            provider: provider ?? null,
+            get,
+            pick: (t) =>
+                set(t && first.schema && provider ? (provider.refValueFor(first.schema, t.stem, t.id) ?? 0) : 0),
+            setRaw: set,
+        });
         const setWords = (next: number[]): void => commit(next);
         const paintExtra = (): void => {
             const ws = words();
@@ -721,6 +738,18 @@ function buildRow(ctx: Ctx, row: Row, objCount: number): Built {
                             if (cw) setWords(cw.map((x, j) => (j === i ? v : x)));
                         },
                     );
+                } else if (elKind) {
+                    const refs = ctx.refs();
+                    const f = elementField(
+                        elKind,
+                        () => words()?.[i] ?? 0,
+                        (v) => {
+                            const cw = words();
+                            if (cw) setWords(cw.map((x, j) => (j === i ? v : x)));
+                        },
+                    );
+                    const b = refButton(refs, f, (anchor) => openRefPicker(refs, anchor, f, [], canPickStem));
+                    ctl = b;
                 } else {
                     const input = h('input', { type: 'number', class: 'num', 'aria-label': `${row.name} ${i + 1}` });
                     const el = decodeElement(row.type, word);
@@ -745,6 +774,15 @@ function buildRow(ctx: Ctx, row: Row, objCount: number): Built {
                     type: 'button',
                     onclick: (e: Event) => {
                         const cw = words() ?? [];
+                        if (elKind) {
+                            const refs = ctx.refs();
+                            const nf = elementField(
+                                elKind,
+                                () => 0,
+                                (v) => setWords([...cw, v]),
+                            );
+                            return openRefPicker(refs, e.currentTarget as HTMLElement, nf, [], canPickStem);
+                        }
                         if (!isClass) return setWords([...cw, 0]);
                         classPicker(ctx, e.currentTarget as HTMLElement, {
                             title: `${row.name}: add a class`,
@@ -764,7 +802,7 @@ function buildRow(ctx: Ctx, row: Row, objCount: number): Built {
                     },
                 },
                 icon('plus', 12),
-                isClass ? 'Add class...' : 'Add item',
+                isClass ? 'Add class...' : elKind ? 'Add entry...' : 'Add item',
             );
             fill(extra, ...rowsEl, h('div', { class: 'btnrow' }, add));
         };

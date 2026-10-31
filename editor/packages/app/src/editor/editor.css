@@ -1776,3 +1776,298 @@ body.dragging-asset {
     white-space: nowrap;
     font-size: 10.5px;
 }
+
+/* ---- resource reference button and picker (refpicker.ts) ---- */
+.rb-wrap {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    flex: 1;
+    min-width: 0;
+}
+.refbtn.two {
+    height: 38px;
+    padding: 3px 8px 3px 4px;
+}
+.refbtn .rb-text {
+    display: flex;
+    flex-direction: column;
+    flex: 1;
+    min-width: 0;
+    line-height: 1.25;
+}
+.refbtn .rs {
+    font-size: 10px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.refbtn .rl.bad,
+.rp-name .bad {
+    color: var(--bad);
+}
+.rthumb.k-texture img {
+    image-rendering: pixelated;
+}
+.rthumb.k-texture {
+    background-image: repeating-conic-gradient(var(--raise) 0% 25%, var(--hover) 0% 50%);
+    background-size: 8px 8px;
+}
+.rp-play.on {
+    color: var(--accent);
+    border-color: var(--accent);
+}
+.rp-play.mini {
+    flex: none;
+}
+.ed-pop.ed-pop-ref {
+    width: min(640px, calc(100vw - 16px));
+    max-height: min(600px, calc(100vh - 16px));
+}
+.rp {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding: 10px;
+    min-height: 0;
+}
+.rp-head {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 8px;
+}
+.rp-bar {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+}
+.rp-search {
+    flex: 1;
+    min-width: 0;
+    height: 30px;
+    padding: 0 10px;
+    background: var(--panel2);
+    color: var(--text);
+    border: 1px solid var(--line);
+    border-radius: var(--r);
+    font-size: 12.5px;
+}
+.rp-search:focus {
+    outline: 2px solid var(--accent);
+    outline-offset: -1px;
+}
+.seg {
+    display: inline-flex;
+    background: var(--panel2);
+    border: 1px solid var(--line);
+    border-radius: var(--r);
+    padding: 2px;
+    gap: 2px;
+}
+.seg-btn {
+    display: inline-flex;
+    gap: 5px;
+    align-items: center;
+    padding: 3px 10px;
+    background: none;
+    border: 0;
+    border-radius: 4px;
+    color: var(--dim);
+    cursor: pointer;
+    font-size: 11.5px;
+}
+.seg-btn:hover {
+    color: var(--text);
+}
+.seg-btn.active {
+    background: var(--sel);
+    color: var(--text);
+}
+.rp-scope {
+    flex: 1;
+    min-width: 0;
+    height: 28px;
+    padding: 0 6px;
+    background: var(--panel2);
+    color: var(--text);
+    border: 1px solid var(--line);
+    border-radius: var(--r);
+}
+.rp-cols {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 216px;
+    gap: 10px;
+    min-height: 0;
+}
+.rp-listcol {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    min-width: 0;
+}
+.vlist {
+    position: relative;
+    height: 368px;
+    overflow-y: auto;
+    border: 1px solid var(--line);
+    border-radius: var(--r);
+    background: var(--panel2);
+}
+.vlist:focus {
+    outline: none;
+}
+.vl-spacer {
+    position: relative;
+}
+.vl-row {
+    position: absolute;
+    left: 0;
+    right: 0;
+    padding: 0 6px;
+    cursor: pointer;
+    border-radius: var(--r);
+}
+.vl-row.active {
+    background: var(--sel);
+}
+.rp-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    height: 100%;
+}
+.rp-row.disabled {
+    opacity: 0.4;
+}
+.rp-main {
+    display: flex;
+    flex-direction: column;
+    flex: 1;
+    min-width: 0;
+    line-height: 1.25;
+}
+.rp-name {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: 12px;
+    display: flex;
+    gap: 6px;
+    align-items: center;
+}
+.rp-cur {
+    font-size: 9.5px;
+    padding: 0 5px;
+    border-radius: 8px;
+    background: var(--accent);
+    color: var(--accent-fg);
+}
+.rp-sub {
+    font-size: 10.5px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.rp-where {
+    flex: none;
+    max-width: 38%;
+    font-size: 10px;
+    text-align: right;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.rp-empty {
+    padding: 14px;
+    text-align: center;
+}
+.rp-hint {
+    display: flex;
+    gap: 2px;
+    font-size: 10.5px;
+}
+.rp-preview {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    min-width: 0;
+    overflow: hidden;
+}
+.rp-stage {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 100%;
+    aspect-ratio: 1;
+    border: 1px solid var(--line);
+    border-radius: var(--r);
+    background: var(--panel2);
+    color: var(--dim);
+    overflow: hidden;
+}
+.rp-stage img {
+    max-width: 100%;
+    max-height: 100%;
+    object-fit: contain;
+}
+.rp-stage.k-texture {
+    background-image: repeating-conic-gradient(var(--raise) 0% 25%, var(--hover) 0% 50%);
+    background-size: 12px 12px;
+}
+.rp-stage.k-texture img {
+    image-rendering: pixelated;
+}
+.rp-wave {
+    width: 100%;
+    height: 80px;
+    color: var(--accent);
+}
+.rp-ptitle {
+    font-weight: 600;
+    font-size: 12.5px;
+    overflow-wrap: anywhere;
+}
+.rp-facts {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    gap: 2px 8px;
+    margin: 0;
+    font-size: 11px;
+}
+.rp-facts dt {
+    color: var(--dim);
+}
+.rp-facts dd {
+    margin: 0;
+    overflow-wrap: anywhere;
+}
+.rp-actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+.rp-footer {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+.rp-rawl {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 10.5px;
+}
+.rp-raw {
+    width: 110px;
+    height: 24px;
+    font-size: 11px;
+}
+@media (max-width: 560px) {
+    .rp-cols {
+        grid-template-columns: minmax(0, 1fr);
+    }
+    .rp-preview {
+        display: none;
+    }
+}

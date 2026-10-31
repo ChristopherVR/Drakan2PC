@@ -37,6 +37,7 @@ import { createAssets, type AssetsPanel } from './editor/assets.ts';
 import { autosaveKey, clearAutosave, loadAutosave, saveAutosave } from './editor/autosave.ts';
 import type { Ctx } from './editor/ctx.ts';
 import { fill, h, icon, store } from './editor/dom.ts';
+import { createRefs } from './refs.ts';
 import { createInspector } from './editor/inspector.ts';
 import { initLayout, type Layout } from './editor/layout.ts';
 import { createOutliner } from './editor/outliner.ts';
@@ -150,8 +151,10 @@ export function initLevelUi(host: LevelUiHost): LevelUi {
 
     // ---- context for the panels -------------------------------------------------------------------------------------
 
+    const refs = createRefs((method, ...args) => host.call(method, ...args));
     const ctx: Ctx = {
         view: () => getView(),
+        refs: () => refs,
         doc: () => getView().doc,
         catalog: () => catalog,
         schemas: () => schemas,
@@ -706,6 +709,7 @@ export function initLevelUi(host: LevelUiHost): LevelUi {
     }
 
     function setDisc(d: DiscContext | null): void {
+        if (d !== disc) refs.reset();
         disc = d;
         syncToolbar();
         modPanel.onLoad?.();
