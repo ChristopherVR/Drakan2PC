@@ -55,6 +55,7 @@ struct ArenaDef {
     std::string level; // base level (a disc level title or a mod pack level)
     std::string description;
     std::string source; // "built-in", a file path or "mod <id>"
+    std::string game;   // "Drakan 1" (Order of the Flame) / "Drakan 2" (the disc): the menu tag; empty = untagged
     bool deathmatch = true;
     bool teamDeathmatch = true;
     uint8_t maxPlayers = 8;
@@ -81,7 +82,9 @@ public:
     // Parses `text`; every valid arena is added (an existing id is replaced, so later sources win). Problems are
     // appended to `errors` as "<source>:<line>: message"; an invalid arena is dropped as a whole. Returns the number
     // of arenas added or replaced.
-    size_t add(const std::string& text, const std::string& source, std::vector<std::string>* errors = nullptr);
+    // `defaultGame`: the `game` of arenas that do not say (a pack of a converted campaign passes "Drakan 1").
+    size_t add(const std::string& text, const std::string& source, std::vector<std::string>* errors = nullptr,
+               const std::string& defaultGame = std::string());
     const std::vector<ArenaDef>& arenas() const { return arenas_; }
     // By id or by display name, case-insensitive; null when unknown.
     const ArenaDef* find(const std::string& idOrName) const;

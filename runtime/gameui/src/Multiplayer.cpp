@@ -164,8 +164,21 @@ namespace gameui::mp {
 
 MultiplayerScreen::MultiplayerScreen(MpConfig cfg) : cfg_(std::move(cfg)) {}
 
-void MultiplayerScreen::open(const MpState& st) {
+// Which game modes the screen's scope offers: the Multiplayer menu has no Co-op, the campaign's Co-op flow only has it.
+static bool scopeAllows(MpScope sc, GameMode m) {
+    return sc == MpScope::Any || (sc == MpScope::Coop) == (m == GameMode::Coop);
+}
+
+void MultiplayerScreen::open(const MpState& st, MpScope scope) {
     open_ = true;
+    scope_ = scope;
+    if (scope == MpScope::Coop) {
+        host_.coop = true;
+        host_.mode = GameMode::Coop;
+    } else if (scope == MpScope::Versus && host_.coop) {
+        host_.coop = false;
+        host_.mode = host_.teams >= 2 ? GameMode::TeamDeathmatch : GameMode::Deathmatch;
+    }
     page_ = MpPage::Menu;
     lobbyActive_ = false;
     lobbyFocused_ = false;
@@ -186,7 +199,7 @@ void MultiplayerScreen::open(const MpState& st) {
 }
 
 void MultiplayerScreen::openLobby(const MpState& st) {
-    open(st);
+    open(st, st.mode == GameMode::Coop ? MpScope::Coop : MpScope::Versus);
     setPage(MpPage::Lobby, st);
 }
 
@@ -302,7 +315,7 @@ std::vector<uint32_t> MultiplayerScreen::previewRequests(const MpState& st) cons
 }
 
 bool MultiplayerScreen::selectMode(GameMode m, const MpState& st) {
-    if (!modeAvailable(m))
+    if (!modeAvailable(m) || !scopeAllows(scope_, m))
         return false;
     host_.coop = m == GameMode::Coop;
     if (m == GameMode::Deathmatch)
@@ -403,7 +416,8 @@ void MultiplayerScreen::buildRows(const MpState& st) {
             add(RowId::HostLevel, RowKind::Choice, arenas ? "Map" : "Starting Level",
                 lvl + (!levels.empty() && levels[static_cast<size_t>(host_.level)].custom ? "  (custom)" : ""));
             add(RowId::HostType, RowKind::Choice, "Game Type",
-                host_.coop ? std::string("Co-op") : std::string(team ? "Team Deathmatch" : "Deathmatch"));
+                host_.coop ? std::string("Co-op") : std::string(team ? "Team Deathmatch" : "Deathmatch"),
+                scope_ == MpScope::Any);
             add(RowId::HostMax, RowKind::Number, "Maximum Number of Players", std::to_string(host_.maxPlayers));
             // Co-op has no kills, time or teams: the rows stay (the form keeps its shape) but are greyed.
             const bool coop = host_.coop;
@@ -745,6 +759,8 @@ void MultiplayerScreen::adjust(int i, int dir, const MpState& st, MpFrameOutput&
             host_.level = wrapIdx(host_.level + dir, static_cast<int>(groupLevels(st).size()));
             break;
         case RowId::HostType:
+            if (scope_ != MpScope::Any) // the scope fixes the type (Multiplayer: versus; campaign: Co-op)
+                break;
             host_.coop = !host_.coop;
             host_.level = 0; // the map list changes (arenas vs campaign levels)
             levelScroll_ = 0;
@@ -1449,7 +1465,7 @@ void MultiplayerScreen::draw(const MpState& st, DrawList& d, const std::vector<H
             for (int m = 0; m < static_cast<int>(GameMode::Count); ++m) {
                 const GameMode gm = static_cast<GameMode>(m);
                 const Rect c = hostCard(m);
-                const bool sel = gm == hostMode(), ok = modeAvailable(gm);
+                const bool sel = gm == hostMode(), ok = modeAvailable(gm) && scopeAllows(scope_, gm);
                 const bool hov = ptrValid_ && p.map(c).contains(ptrX_, ptrY_);
                 d.panel(p.map(c), PanelStyle::Card,
                         !ok ? withAlpha(th.panel, 120) : (sel || hov ? th.panelRaised : th.panel));
@@ -1520,8 +1536,10 @@ void MultiplayerScreen::draw(const MpState& st, DrawList& d, const std::vector<H
                 if (sel)
                     d.outline(p.map(ir), lfoc ? th.select : th.gilt, 2.0f, 4);
                 const bool supp = e.supports(hostMode());
-                p.text(d, {ir.x + 16, ir.y, ir.w - 140, ir.h}, e.title, FontRole::Body,
+                p.text(d, {ir.x + 16, ir.y, ir.w - (e.game.empty() ? 140 : 270), ir.h}, e.title, FontRole::Body,
                        !supp ? th.textDisabled : (sel ? th.heading : th.text), TextAlign::Left, 24);
+                if (!e.game.empty()) // which game the map comes from
+                    p.label(d, {ir.right() - 250, ir.y, 110, ir.h}, e.game, th.brass, TextAlign::Right, 14);
                 if (e.custom)
                     p.label(d, {ir.right() - 120, ir.y, 108, ir.h}, "CUSTOM", th.ember, TextAlign::Right, 14);
                 else if (e.maxPlayers > 0)
@@ -1572,8 +1590,12 @@ void MultiplayerScreen::draw(const MpState& st, DrawList& d, const std::vector<H
                 statLine(pv.x, pv.y + 540, pv.w, "MODES", modeList(me), th.text);
                 statLine(pv.x, pv.y + 574, pv.w, "SPAWNS", me.spawns > 0 ? std::to_string(me.spawns) : std::string("-"),
                          th.text);
+                if (!me.game.empty() && !me.custom)
+                    statLine(pv.x, pv.y + 608, pv.w, "GAME", me.game, th.brass);
                 if (me.custom)
-                    statLine(pv.x, pv.y + 608, pv.w, "FROM", me.author.empty() ? std::string("mod pack") : me.author,
+                    statLine(pv.x, pv.y + 608, pv.w, "FROM",
+                             (me.author.empty() ? std::string("mod pack") : me.author) +
+                                 (me.game.empty() ? std::string() : "  (" + me.game + ")"),
                              th.ember);
                 if (!me.supports(hostMode()))
                     p.text(d, {pv.x, pv.y + 646, pv.w, 34},

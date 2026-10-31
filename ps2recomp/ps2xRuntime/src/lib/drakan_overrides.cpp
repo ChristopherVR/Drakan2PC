@@ -1326,8 +1326,16 @@ void applyDrakanOverrides(PS2Runtime& runtime) {
                 drakan_modes::addModes(std::string(std::istreambuf_iterator<char>(own), {}), "mp_maps.ini");
         }
         if (g_mods) {
+            // Maps of a converted Order of the Flame pack are tagged Drakan 1 unless the file says otherwise.
+            std::vector<std::string> ootfSources;
+            for (const hle::mods::ModStatus& st : g_mods->status())
+                if (st.state == hle::mods::ModState::Loaded && st.manifest.campaign == "ootf")
+                    ootfSources.push_back("mod " + st.manifest.id + ":");
             for (const auto& [source, text] : g_mods->mapFiles()) {
-                drakan_arena::addMaps(text, source);
+                bool ootf = false;
+                for (const std::string& p : ootfSources)
+                    ootf = ootf || source.rfind(p, 0) == 0;
+                drakan_arena::addMaps(text, source, ootf ? "Drakan 1" : "");
                 drakan_modes::addModes(text, source);
             }
             // Map pictures of the packs: previews/mods/<safe map name>.png next to the exe (written when missing or

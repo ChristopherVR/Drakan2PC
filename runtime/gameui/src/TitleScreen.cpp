@@ -55,6 +55,8 @@ std::string rowDescription(TitleRow r, bool enabled, const TitleState& st) {
             return "Host or join a match over the network.";
         case TitleRow::QuitToDesktop:
         case TitleRow::Cancel:
+        case TitleRow::NewGameSolo:
+        case TitleRow::NewGameCoop:
             break;
     }
     return {};
@@ -84,6 +86,10 @@ const char* titleRowLabel(TitleRow r) {
             return "Quit to Desktop";
         case TitleRow::Cancel:
             return "Cancel";
+        case TitleRow::NewGameSolo:
+            return "Solo";
+        case TitleRow::NewGameCoop:
+            return "Co-op";
     }
     return "";
 }
@@ -182,6 +188,10 @@ void TitleScreen::reactivate() {
         options_.reactivate();
 }
 
+static bool isCard(TitlePage p) {
+    return p == TitlePage::QuitConfirm || p == TitlePage::NewGameChoice;
+}
+
 std::vector<TitleRow> TitleScreen::rows(const TitleState& st) const {
     return rowsOf(page_, st);
 }
@@ -189,6 +199,8 @@ std::vector<TitleRow> TitleScreen::rows(const TitleState& st) const {
 std::vector<TitleRow> TitleScreen::rowsOf(TitlePage page, const TitleState& st) const {
     if (page == TitlePage::QuitConfirm)
         return {TitleRow::QuitToDesktop, TitleRow::Cancel};
+    if (page == TitlePage::NewGameChoice)
+        return {TitleRow::NewGameSolo, TitleRow::NewGameCoop};
     std::vector<TitleRow> r;
     if (cfg_.showContinue && st.continueSlot > 0)
         r.push_back(TitleRow::Continue);
@@ -232,9 +244,9 @@ void TitleScreen::buildTargets(const TitleState& st) {
     for (int i = 0; i < n; ++i) {
         const TitleRow r = rs[static_cast<size_t>(i)];
         const bool en = rowEnabled(r, st);
-        const Rect rd = page_ == TitlePage::QuitConfirm ? design::title::cardRow(i) : rowRect(i, n);
+        const Rect rd = isCard(page_) ? design::title::cardRow(i) : rowRect(i, n);
         targets_.push_back(
-            {{page_ == TitlePage::QuitConfirm ? TargetKind::CardButton : TargetKind::TitleRow, static_cast<int>(r)},
+            {{isCard(page_) ? TargetKind::CardButton : TargetKind::TitleRow, static_cast<int>(r)},
              lf_.map(rd),
              en,
              en});
@@ -263,7 +275,7 @@ void TitleScreen::ensureFocus(const TitleState& st) {
 
 void TitleScreen::buildHints(const TitleState& st) {
     hints_.clear();
-    const bool card = page_ == TitlePage::QuitConfirm;
+    const bool card = isCard(page_);
     const HitTarget* t = findTarget(focus_);
     hints_.push_back({Prompt::Confirm, "Select", t && t->enabled});
     if (card)
@@ -294,7 +306,23 @@ void TitleScreen::activate(TitleRow r, const TitleState& st, TitleFrameOutput& o
             emit(TitleActionKind::LoadGame);
             break;
         case TitleRow::NewGame:
+            if (cfg_.showCoop) { // Solo or Co-op first
+                mainFocus_ = focus_;
+                page_ = TitlePage::NewGameChoice;
+                focus_ = {TargetKind::CardButton, static_cast<int>(TitleRow::NewGameSolo)};
+                out.sound = UiSound::Confirm;
+            } else
+                emit(TitleActionKind::NewGame);
+            break;
+        case TitleRow::NewGameSolo:
+            page_ = TitlePage::Main;
+            focus_ = mainFocus_;
             emit(TitleActionKind::NewGame);
+            break;
+        case TitleRow::NewGameCoop: // the party is hosted or joined on the campaign (the Multiplayer pages, Co-op scope)
+            page_ = TitlePage::Multiplayer;
+            mpScreen_.open(st.multiplayer, mp::MpScope::Coop);
+            out.sound = UiSound::Confirm;
             break;
         case TitleRow::Options:
             mainFocus_ = focus_;
@@ -319,7 +347,7 @@ void TitleScreen::activate(TitleRow r, const TitleState& st, TitleFrameOutput& o
         case TitleRow::Multiplayer:
             mainFocus_ = focus_;
             page_ = TitlePage::Multiplayer;
-            mpScreen_.open(st.multiplayer);
+            mpScreen_.open(st.multiplayer, mp::MpScope::Versus);
             out.sound = UiSound::Confirm;
             break;
         case TitleRow::Quit:
@@ -338,7 +366,7 @@ void TitleScreen::activate(TitleRow r, const TitleState& st, TitleFrameOutput& o
 }
 
 void TitleScreen::back(TitleFrameOutput& out) {
-    if (page_ == TitlePage::QuitConfirm) {
+    if (isCard(page_)) {
         page_ = TitlePage::Main;
         focus_ = mainFocus_;
         out.sound = UiSound::Back;
@@ -566,7 +594,7 @@ void TitleScreen::draw(const TitleState& st, DrawList& d) const {
                                                   : "Continuing at " + st.continueLocation + ".");
         return;
     }
-    const bool card = page_ == TitlePage::QuitConfirm;
+    const bool card = isCard(page_);
     const std::vector<TitleRow> main = rowsOf(TitlePage::Main, st); // the main column, under the Quit card too
     const int n = static_cast<int>(main.size());
     const Rect panel = design::title::menuPanel(n);
@@ -596,7 +624,11 @@ void TitleScreen::draw(const TitleState& st, DrawList& d) const {
         p.text(d, {kMargin, kFooterY, 700, kHintH}, st.footer, FontRole::Small, th.textMuted);
 
     if (card) {
-        p.confirmCard(d, design::title::cardPanel(), "Quit the game?", "Drakan closes and returns to the desktop.");
+        if (page_ == TitlePage::NewGameChoice)
+            p.confirmCard(d, design::title::cardPanel(), "New Game", "Play the campaign alone or with friends.");
+        else
+            p.confirmCard(d, design::title::cardPanel(), "Quit the game?",
+                          "Drakan closes and returns to the desktop.");
         const std::vector<TitleRow> cr = rows(st);
         for (size_t i = 0; i < cr.size(); ++i) {
             const TargetId id{TargetKind::CardButton, static_cast<int>(cr[i])};

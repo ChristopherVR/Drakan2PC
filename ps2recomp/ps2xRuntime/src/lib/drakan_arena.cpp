@@ -1240,6 +1240,7 @@ std::vector<MapEntry> maps() {
         m.level = a.level;
         m.description = a.description;
         m.source = a.source;
+        m.game = a.game;
         m.deathmatch = a.deathmatch;
         m.teamDeathmatch = a.teamDeathmatch;
         m.maxPlayers = a.maxPlayers;
@@ -1260,13 +1261,13 @@ const ArenaDef* findMap(const std::string& idOrName) {
     return g_catalog.find(idOrName);
 }
 
-size_t addMaps(const std::string& text, const std::string& source) {
+size_t addMaps(const std::string& text, const std::string& source, const std::string& defaultGame) {
     loadDefaults();
     std::vector<std::string> errors;
     size_t n;
     {
         std::lock_guard<std::mutex> l(g_catM);
-        n = g_catalog.add(text, source, &errors);
+        n = g_catalog.add(text, source, &errors, defaultGame);
     }
     for (const std::string& e : errors)
         arenaLog("maps: %s", e.c_str());

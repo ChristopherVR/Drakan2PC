@@ -74,7 +74,10 @@ my_mod/
 * Order of work in `installFiles`: whole files, then entry patches on the resulting files (so a pack can ship a file and a
   later pack patch it), then `LEVELLST.TXT`.
 
-* **`maps/*.ini`** (directly in `maps/`): multiplayer map and game mode definitions, see netcode.md "Multiplayer maps".
+* **`maps/*.ini`** (directly in `maps/`): multiplayer map and game mode definitions, see netcode.md "Multiplayer maps". The map list
+  is shared by both games: the Multiplayer menu lists the disc's (Drakan 2) maps and every pack's maps together, each with a game tag
+  (`game =` key; maps of a pack with `campaign = "ootf"` default to Drakan 1). The editor's Order of the Flame import writes one
+  `maps/<level>.ini` per `Multiplayer/*` level (`ootfArenaFromPc`: spawns from the Rynn launch pads, snapped to the terrain).
   **`previews/<safe map name>.png`** (<= 8 MiB): the map's picture for the multiplayer menu; the name is the map's display
   name with every character outside letters, digits, `-` and `_` turned into `_`. At startup the game copies it to
   `previews/mods/` next to the exe (`ModManager::previewFiles()`); `previews/<name>.png` there wins over a pack's.

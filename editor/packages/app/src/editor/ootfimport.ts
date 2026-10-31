@@ -2,7 +2,7 @@
 // convert (packages/formats convert.ts) and save the result as a mod pack for the PS2 port. Everything runs in the page;
 // the OotF files are read from the folder the player picks and nothing is uploaded.
 
-import { buildOotfPack, zipOotfPack, type ModMeta } from '@drakan/editor-core';
+import { buildOotfPack, ootfArenaFromPc, zipOotfPack, type ModMeta } from '@drakan/editor-core';
 import {
     LVL_TYPE_LAYERS,
     SrscReader,
@@ -344,7 +344,9 @@ function openDialog(host: OotfHost): void {
                     h('td', { title: dropped.map(([n, c]) => `${n} x${c}`).join('\n') }, `${dropped.length} classes`),
                 ),
             );
-            inputs.push({ title: `${prefix.value}${r.title}`.slice(0, 60), parts });
+            const lvlTitle = `${prefix.value}${r.title}`.slice(0, 60);
+            // Multiplayer levels also get a map definition (spawns from the launch pads) for the Multiplayer menu.
+            inputs.push({ title: lvlTitle, parts, arena: ootfArenaFromPc(pc, lvlTitle) ?? undefined });
         }
         const meta: Omit<ModMeta, 'levels'> = {
             id: 'ootf-levels',

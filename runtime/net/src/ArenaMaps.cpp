@@ -89,7 +89,8 @@ int ArenaDef::pickSpawn(const std::vector<std::pair<float, float>>& others, int 
     return best;
 }
 
-size_t ArenaCatalog::add(const std::string& text, const std::string& source, std::vector<std::string>* errors) {
+size_t ArenaCatalog::add(const std::string& text, const std::string& source, std::vector<std::string>* errors,
+                         const std::string& defaultGame) {
     size_t added = 0;
     ArenaDef cur;
     bool open = false, bad = false, skipMode = false;
@@ -120,6 +121,8 @@ size_t ArenaCatalog::add(const std::string& text, const std::string& source, std
             return;
         }
         cur.source = source;
+        if (cur.game.empty())
+            cur.game = defaultGame;
         for (ArenaDef& a : arenas_)
             if (a.id == cur.id) {
                 a = cur;
@@ -177,6 +180,11 @@ size_t ArenaCatalog::add(const std::string& text, const std::string& source, std
             cur.name = val;
         } else if (key == "level") {
             cur.level = val;
+        } else if (key == "game") { // which game the map belongs to (menu tag)
+            const std::string g = lower(val);
+            cur.game = g == "d1" || g == "ootf" || g == "drakan 1" || g == "drakan1"   ? "Drakan 1"
+                       : g == "d2" || g == "drakan 2" || g == "drakan2" || g == "drakan" ? "Drakan 2"
+                                                                                           : val.substr(0, 16);
         } else if (key == "description") {
             cur.description = val;
         } else if (key == "modes") {

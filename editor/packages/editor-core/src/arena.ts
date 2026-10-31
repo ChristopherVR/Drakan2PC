@@ -41,6 +41,8 @@ export interface ArenaDraft {
     /** The campaign (or mod pack) level whose terrain the map uses (LEVELLST title). */
     level: string;
     description: string;
+    /** Which game the map belongs to (`Drakan 1` / `Drakan 2`); the Multiplayer menu shows it as a tag. Empty = untagged. */
+    game?: string;
     /** `dm`, `tdm` and custom mode ids. */
     modes: string[];
     players: number;
@@ -119,6 +121,7 @@ const vec = (p: readonly number[]): string => `${ri(p[0]!)} ${ri(p[1]!)} ${ri(p[
 export function serializeArena(d: ArenaDraft): string {
     const l: string[] = [`[arena ${d.id}]`, `name = ${oneLine(d.name)}`, `level = ${oneLine(d.level)}`];
     if (d.description) l.push(`description = ${oneLine(d.description)}`);
+    if (d.game) l.push(`game = ${oneLine(d.game)}`);
     l.push(`modes = ${d.modes.join(', ')}`, `players = ${d.players}`, `health = ${d.health}`);
     if (d.bounds) l.push(`bounds = ${d.bounds.map(ri).join(' ')}`);
     if (d.loadout.length) l.push(`loadout = ${d.loadout.map(hexId).join(' ')}`);
@@ -197,6 +200,9 @@ export function parseArenaIni(
                 break;
             case 'description':
                 d.description = val;
+                break;
+            case 'game':
+                d.game = val;
                 break;
             case 'modes':
                 d.modes = val

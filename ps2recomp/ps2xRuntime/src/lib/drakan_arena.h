@@ -32,6 +32,7 @@ struct MapEntry {
     std::string level; // base level title ("Level 1A - Surdana")
     std::string description;
     std::string source; // "built-in", a file, "mod <id>"
+    std::string game;   // "Drakan 1" / "Drakan 2" (menu tag), empty = untagged
     bool deathmatch = true, teamDeathmatch = true;
     int maxPlayers = 8;
     int spawns = 0, pickups = 0;
@@ -46,7 +47,7 @@ std::vector<MapEntry> maps();
 const drakan::net::ArenaDef* findMap(const std::string& idOrName); // pointer stays valid until the next add
 // Mod packs: parse `text` (the mp_maps.ini format) as the maps of `source` ("mod <id>"). Problems are logged and the
 // offending arena dropped. Returns the number of maps added.
-size_t addMaps(const std::string& text, const std::string& source);
+size_t addMaps(const std::string& text, const std::string& source, const std::string& defaultGame = std::string());
 // Which base levels exist (disc levels plus mod pack levels): maps whose level is not installed are listed with
 // installed = false. Called once by drakan_overrides.
 void setInstalledLevels(std::vector<std::string> levels);

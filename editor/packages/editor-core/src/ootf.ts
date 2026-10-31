@@ -6,10 +6,14 @@ import {
     ps2BlobFor,
     ps2LevelTag,
     LVL_TYPE_LAYERS,
+    pcLevelName,
+    terrainHeightAt,
     type BlobBuilder,
+    type PcLevel,
     type Ps2LevelParts,
     type SrscReader,
 } from '@drakan/formats';
+import { newDraft, serializeMapFile, slugify, type ArenaDraft, type Vec3 } from './arena.ts';
 import { buildManifestToml, ModError, MOD_MAX_ENTRY, zipModFiles, type ModMeta } from './mod.ts';
 
 /**
@@ -23,6 +27,8 @@ export interface OotfLevelInput {
     parts: Ps2LevelParts;
     /** Splat files of this level by extension; override the pack-wide `splats` per key. */
     splats?: Readonly<Record<string, Uint8Array>>;
+    /** A multiplayer map on this level (`ootfArenaFromPc`): shipped as `maps/<mangled>.ini`, tagged Drakan 1. */
+    arena?: ArenaDraft;
 }
 
 export interface OotfPack {
@@ -73,6 +79,11 @@ export async function buildOotfPack(
         const bytes = await buildPs2Lvl(template, input.parts, blob);
         files[`files/ENGLISH/LEVELS/${mangled}/${mangled}.LVL`] = bytes;
         levels.push({ title, mangled, bytes: bytes.length });
+        if (input.arena) {
+            const arena = { ...input.arena, level: title, game: input.arena.game || 'Drakan 1' };
+            if (!arena.id) arena.id = slugify(arena.name || title) || mangled.toLowerCase();
+            files[`maps/${mangled}.ini`] = strToU8(serializeMapFile(arena, []));
+        }
         const stem = mangled.slice(0, 6) + 'TS';
         for (const [ext, data] of Object.entries({ ...options.splats, ...input.splats })) {
             files[`files/ENGLISH/LEVELS/${mangled}/${stem}.${ext.toUpperCase()}`] = data;
@@ -91,6 +102,35 @@ export async function buildOotfPack(
     const full: ModMeta = { ...meta, levels: levels.map((l) => l.title) };
     files['mod.toml'] = strToU8(buildManifestToml(full));
     return { meta: full, files, levels, warnings };
+}
+
+/**
+ * The multiplayer map of a PC `Multiplayer/*` level: the Rynn launch pads (OotF's player starts) become the spawn points,
+ * snapped over the terrain like the converted Rynn start (the engine lets her fall otherwise). Dragon launch pads are
+ * the fallback for air maps. Null when the level is not a multiplayer one or has fewer than two starts. The menu lists
+ * it next to the Drakan 2 maps with the `Drakan 1` tag (netcode.md "Multiplayer maps").
+ */
+export function ootfArenaFromPc(pc: PcLevel, title: string): ArenaDraft | null {
+    if (!/^multiplayer[\\/]/i.test(pc.path)) return null;
+    const pads = (match: RegExp): Vec3[] =>
+        pc.list.objects
+            .filter((o) => match.test(pc.classes.get(o.dbIndex)?.get(o.classId)?.name ?? ''))
+            .map((o): Vec3 => {
+                const g = terrainHeightAt(pc.terrain, o.pos[0], o.pos[2]);
+                return [o.pos[0], Number.isFinite(g) ? g + 400 : o.pos[1], o.pos[2]];
+            });
+    let starts = pads(/rynn launch pad/i);
+    if (starts.length < 2) starts = pads(/launch pad/i);
+    if (starts.length < 2) return null;
+    const name = pcLevelName(pc.header) || title;
+    const d = newDraft(title);
+    d.id = slugify(name);
+    d.name = name;
+    d.game = 'Drakan 1';
+    d.description = 'A multiplayer map of Drakan: Order of the Flame.';
+    d.players = Math.min(12, starts.length);
+    for (const pos of starts) d.spawns.push({ uid: d.nextUid++, pos, yaw: 0, team: 0 });
+    return d;
 }
 
 export const zipOotfPack = (pack: OotfPack): Uint8Array => zipModFiles(pack.files);

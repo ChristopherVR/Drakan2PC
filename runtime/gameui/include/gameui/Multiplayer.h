@@ -26,6 +26,10 @@ inline constexpr int kMinPlayers = 2;
 // Menu is the OotF "Multiplayer" screen: player name / colour / skins / connection speed plus Host Game and Join Game.
 enum class MpPage : uint8_t { Menu, Host, Join, Lobby };
 
+// What the screen is for. Versus is the Multiplayer menu (deathmatch on arena maps; no Co-op), Coop is the campaign's
+// New Game -> Co-op flow (campaign levels only; the Game Type is fixed). Any keeps both (tests, legacy callers).
+enum class MpScope : uint8_t { Any, Versus, Coop };
+
 // Game modes. Deathmatch, Team Deathmatch and Co-op exist in the netcode (wire modes 0, 1 and 2); the rest are shown
 // greyed as "coming".
 enum class GameMode : uint8_t { Deathmatch, TeamDeathmatch, DragonsDuel, DragonMaster, Coop, Count };
@@ -44,6 +48,7 @@ struct LevelEntry {
     int spawns = 0;         // spawn points, 0 = unknown
     uint32_t previewId = 0; // nonzero: the glue can draw a real picture for ImageKind::LevelPreview(previewId)
     bool arena = false;     // a multiplayer map (not a campaign level)
+    std::string game;       // which game the map belongs to ("Drakan 1" / "Drakan 2"), empty = not shown
     bool supports(GameMode m) const { return modes == 0 || (modes & (1u << static_cast<unsigned>(m))) != 0; }
 };
 // The disc's levels (the playable ones; cut scene levels are not matches), in campaign order.
@@ -246,7 +251,8 @@ class MultiplayerScreen {
 public:
     explicit MultiplayerScreen(MpConfig cfg = {});
 
-    void open(const MpState& st);
+    void open(const MpState& st, MpScope scope = MpScope::Any);
+    MpScope scope() const { return scope_; }
     // open() on the lobby page of the session that is already up (the title comes back after a match).
     void openLobby(const MpState& st);
     void close();
@@ -283,6 +289,7 @@ private:
     MpConfig cfg_;
     bool open_ = false;
     MpPage page_ = MpPage::Menu;
+    MpScope scope_ = MpScope::Any;
     HostForm host_;
     SetupForm setup_;
     std::string newAddress_ = "127.0.0.1:47800", joinPassword_;

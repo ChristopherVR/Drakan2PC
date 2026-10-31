@@ -36,6 +36,9 @@ enum class TitleRow : uint8_t {
     // Quit card
     QuitToDesktop,
     Cancel,
+    // New Game card (TitleConfig::showCoop): the campaign alone or with friends
+    NewGameSolo,
+    NewGameCoop,
 };
 const char* titleRowLabel(TitleRow r);
 
@@ -89,13 +92,14 @@ struct TitleState {
     mp::MpState multiplayer;
 };
 
-enum class TitlePage : uint8_t { Main, QuitConfirm, Options, PcSettings, Multiplayer };
+enum class TitlePage : uint8_t { Main, QuitConfirm, Options, PcSettings, Multiplayer, NewGameChoice };
 
 struct TitleConfig {
     ScreenConfig screen;
     bool showContinue = true;     // a Continue row when TitleState::continueSlot is set
     bool showPcSettings = true;   // a PC Settings row on the main page
     bool showMultiplayer = false; // a Multiplayer row (after New Game); the host glue turns it on
+    bool showCoop = false;        // New Game asks Solo / Co-op first (Co-op is played on the campaign, not in Multiplayer)
     uint32_t suspendFrames = 240; // input ignored after an action that leaves the menu, until reactivate()
     int32_t sliderStep = 5;       // Options pages (PauseConfig)
     uint32_t optionHoldFrames = 120;

@@ -842,6 +842,71 @@ int main() {
                 CHECK(!(c.rect.x < 464 && c.rect.y < 90)); // the panel is 24..464 wide, one row (24..80) tall
     }
 
+    // Scopes: the Multiplayer menu (Versus) has no Co-op; the campaign's Co-op flow (Coop) has nothing else. Map tags.
+    {
+        Rig v;
+        v.s.open(v.st, MpScope::Versus);
+        v.st.arenas = {[] {
+            LevelEntry e;
+            e.name = e.title = "Air Duel";
+            e.arena = true;
+            e.game = "Drakan 1";
+            return e;
+        }()};
+        v.s.setPage(MpPage::Host, v.st);
+        CHECK(!v.s.host().coop && v.s.hostMap(v.st).game == "Drakan 1");
+        CHECK(!v.s.selectMode(GameMode::Coop, v.st) && !v.s.host().coop);
+        CHECK(v.s.selectMode(GameMode::TeamDeathmatch, v.st));
+        CHECK(!v.s.rows()[static_cast<size_t>(v.rowOf(RowId::HostType))].enabled); // fixed: no way to Co-op from here
+        v.press(UiKey::Right);
+        CHECK(!v.s.host().coop && v.last.draw.size() > 10);
+        Rig c;
+        c.s.open(c.st, MpScope::Coop);
+        c.s.setPage(MpPage::Host, c.st);
+        CHECK(c.s.host().coop && c.s.hostMode() == GameMode::Coop && c.s.hostMap(c.st).name == "Level 1A - Surdana");
+        CHECK(!c.s.selectMode(GameMode::Deathmatch, c.st) && c.s.host().coop);
+        const Row& type = c.s.rows()[static_cast<size_t>(c.rowOf(RowId::HostType))];
+        CHECK(type.value == "Co-op" && !type.enabled);
+        c.focusRow(RowId::HostStart);
+        c.press(UiKey::Confirm);
+        CHECK(!c.actions.empty() && c.actions.back().kind == MpActionKind::HostMatch &&
+              c.actions.back().host.mode == GameMode::Coop);
+    }
+
+    // New Game asks Solo / Co-op when TitleConfig::showCoop is on; Co-op opens the pages in the Co-op scope.
+    {
+        TitleConfig cfg;
+        cfg.showMultiplayer = cfg.showCoop = true;
+        TitleScreen t(cfg);
+        TitleState st;
+        t.open();
+        t.frame(st, UiInput{}, kVp);
+        while (t.focus().index != static_cast<int>(TitleRow::NewGame))
+            t.frame(st, key(UiKey::Down), kVp);
+        TitleFrameOutput o = t.frame(st, key(UiKey::Confirm), kVp);
+        CHECK(t.page() == TitlePage::NewGameChoice && o.actions.empty() && o.draw.size() > 10);
+        o = t.frame(st, key(UiKey::Back), kVp);
+        CHECK(t.page() == TitlePage::Main && t.focus().index == static_cast<int>(TitleRow::NewGame));
+        t.frame(st, key(UiKey::Confirm), kVp);
+        o = t.frame(st, key(UiKey::Down), kVp); // Solo -> Co-op
+        o = t.frame(st, key(UiKey::Confirm), kVp);
+        CHECK(t.page() == TitlePage::Multiplayer && t.multiplayer().scope() == MpScope::Coop && t.multiplayer().host().coop);
+        o = t.frame(st, key(UiKey::Back), kVp);
+        CHECK(t.page() == TitlePage::Main);
+        // Solo starts the ordinary New Game.
+        t.frame(st, key(UiKey::Confirm), kVp);
+        o = t.frame(st, key(UiKey::Confirm), kVp);
+        CHECK(!o.actions.empty() && o.actions.front().kind == TitleActionKind::NewGame);
+        // The Multiplayer row opens the versus scope.
+        TitleScreen m(cfg);
+        m.open();
+        m.frame(st, UiInput{}, kVp);
+        while (m.focus().index != static_cast<int>(TitleRow::Multiplayer))
+            m.frame(st, key(UiKey::Down), kVp);
+        m.frame(st, key(UiKey::Confirm), kVp);
+        CHECK(m.page() == TitlePage::Multiplayer && m.multiplayer().scope() == MpScope::Versus);
+    }
+
     // The title menu: the Multiplayer row sits after New Game, opens the page, Back returns with it focused.
     {
         TitleConfig cfg;

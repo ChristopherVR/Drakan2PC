@@ -1462,6 +1462,7 @@ std::vector<gameui::mp::LevelEntry> mpArenas() {
             e.arena = true;
             e.custom = a.source != "built-in";
             e.author = e.custom ? a.source : std::string();
+            e.game = !a.game.empty() ? a.game : (a.source.rfind("mod ", 0) == 0 ? std::string() : std::string("Drakan 2"));
             e.maxPlayers = a.maxPlayers;
             e.spawns = a.spawns;
             e.modes = (a.deathmatch ? 1u << static_cast<unsigned>(GameMode::Deathmatch) : 0u) |
@@ -1888,6 +1889,7 @@ void titleDraw(const dsettings::SettingsOverlay::ScreenFrame& f, bool background
         cfg.screen.measure = tu.renderer.measure();
         cfg.pcSettingsPages = cfg.unifiedOptions = g_pcs != nullptr;
         cfg.showMultiplayer = drakan_netplay::wanted();
+        cfg.showCoop = cfg.showMultiplayer; // New Game asks Solo / Co-op (Co-op is not in the Multiplayer menu)
         ui.screen = gameui::TitleScreen(cfg);
         ui.screen.open();
         { // Back from a match with the session still up: the lobby page again (the next match starts from there).
