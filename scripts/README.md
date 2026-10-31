@@ -89,3 +89,22 @@ Use `--region pal` for the same checks with a native PAL card. Combat timing and
 `settings_check.py --region usa --mode gameplay --resume 1 --level "Level 4A - Ravenshold" --name usa-flight-settings --timeout 300`
 extends the existing pause/settings ownership check to mounted flight. `--name` preserves earlier named evidence;
 `--timeout` permits a complete native introduction before control becomes available. Neither harness uses desktop input.
+
+## savetool
+
+`savetool/savetool.py` inspects and edits native `.rsg` saves (SRSC containers, stdlib only). Run it on a copy;
+it never modifies an input unless `--in-place` is given, and it keeps the previous file as `NAME.bak` (or `NAME.bak.1`, ...).
+
+```sh
+python scripts/savetool/savetool.py info  <save.rsg>                       # entries table
+python scripts/savetool/savetool.py get   <save.rsg> hp                   # also gold, pos, skill.N, skill.N.max
+python scripts/savetool/savetool.py set   <save.rsg> gold 9999 -o <out.rsg>
+python scripts/savetool/savetool.py set   <save.rsg> pos 1,2,3 --in-place
+python scripts/savetool/savetool.py dump  <save.rsg> <dir>                # inflated entries + manifest.json
+python scripts/savetool/savetool.py pack  <dir> -o <out.rsg>              # byte-identical when unedited
+python scripts/savetool/savetool.py fields                                # field table with confidence notes
+```
+
+`hp` and `gold` are pinned to the record entry ids where they were observed (`--force` overrides, with the risk
+stated in `savetool fields`). Field evidence and open questions: `docs/journal/2026-10-31/save-editor.md`.
+Tests: `scripts/tests/test_savetool.py` (synthetic saves only).

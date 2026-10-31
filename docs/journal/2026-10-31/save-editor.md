@@ -127,3 +127,13 @@ Rename or re-render the companion if that matters.
 4. Layouts for inventory, quest flags, map markers and the `0x104` records.
 5. The USA `save_id` folder name and whether the USA save layout matches PAL (`configs/regions/usa.json` has its own `save_fixture`).
 6. Whether the game's 16 slot pages (`save_pages`) share one format (they do, per save-slots.md [L]).
+
+## Corrections from building savetool (same day)
+
+`scripts/savetool/savetool.py` follows these, measured over the local harness saves:
+
+- Rynn's record entry id is not stable: 53 in 1050 saves, 56 in 403. Position is matched by class (0x17081069) only.
+- HP at +0x708 holds only in id-56 records; id-53 saves have other data there, so `get/set hp` require `--force`
+  for them. HP is still unconfirmed as authoritative (vs re-derived on load).
+- The skill count is not at +0x3d0: it sits 4 bytes before the first row, which is located via the "Melee" name.
+- Gold (record class 0x19001255, id 63) read 376 in 305 of 403 saves, so the field location holds but the value varies.
