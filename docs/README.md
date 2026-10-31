@@ -27,6 +27,7 @@ The canonical Markdown remains in this repository:
 - [Drakan FMV / cutscene pipeline](reference/fmv.md)
 - [Ghidra setup and function list](reference/ghidra.md)
 - [World model: the actor registry and the entity snapshot](reference/world-model.md)
+- [Level data: object placement in LVL 0x0020 / ODB 0x0102 and the lvl-objects JSON](reference/level-format.md)
 - [Drakan PS2 (SCES_500.06) - graphics pipeline analysis and PC replacement design](reference/graphics.md)
 - [GS / GIF capture format (`DRKGSCAP` v1)](reference/gs-capture.md)
 - [HD texture pipeline: review on real data, gaps, fixes, workflow](reference/hd-textures.md)
