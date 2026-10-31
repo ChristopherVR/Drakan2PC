@@ -15,6 +15,7 @@ enum class HpKind : uint8_t {
     None,       // not known for this entity
     Durability, // weapon / usable: current / max durability or quantity (dec() fields of the instance data)
     PlayerHp,   // the player: stats block HP / max
+    Creature,   // NPC / creature (types 6, 7): plain ints at instance +0x24c / +0x250
 };
 
 struct EntitySnapshot {

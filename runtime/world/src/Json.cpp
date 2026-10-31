@@ -79,7 +79,10 @@ std::string toJson(const Snapshot& s) {
              num(e.position.y) + ", " + num(e.position.z) + "], \"yaw\": " + num(e.yaw);
         if (e.hasHp())
             o += ", \"hp\": " + std::to_string(e.hp) + ", \"hpMax\": " + std::to_string(e.hpMax) + ", \"hpKind\": \"" +
-                 (e.hpKind == HpKind::PlayerHp ? "player" : "durability") + "\"";
+                 (e.hpKind == HpKind::PlayerHp   ? "player"
+                  : e.hpKind == HpKind::Creature ? "creature"
+                                                 : "durability") +
+                 "\"";
         o += "}";
     }
     o += first ? "]\n}\n" : "\n  ]\n}\n";

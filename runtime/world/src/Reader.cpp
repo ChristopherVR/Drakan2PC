@@ -93,6 +93,20 @@ bool readEntity(const IGuestMemory& m, const Globals& g, uint32_t ctx, uint32_t 
             }
         }
     }
+    if (out.type == type::kCreatureA || out.type == type::kCreatureB) {
+        const uint32_t inner = m.read32(h + handle::kInner);
+        const uint32_t inst = isRamPointer(inner) ? m.read32(inner + handle::kInnerData) : 0;
+        if (isRamPointer(inst) && isRamPointer(inst + handle::kCreatureSize) &&
+            m.read32(inst + handle::kCreatureSelf) == h) {
+            const auto cur = static_cast<int32_t>(m.read32(inst + handle::kCreatureHp));
+            const auto mx = static_cast<int32_t>(m.read32(inst + handle::kCreatureHpMax));
+            if (mx > 0 && mx <= 100000 && cur <= mx && cur >= -100000) {
+                out.hpKind = HpKind::Creature;
+                out.hp = cur;
+                out.hpMax = mx;
+            }
+        }
+    }
     return true;
 }
 

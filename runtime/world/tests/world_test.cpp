@@ -196,6 +196,39 @@ void testIndestructibleAndBadHp() {
     }
 }
 
+void testCreatureHp() {
+    Image im = makeWorld();
+    const uint32_t npc = handleAddr(8); // slot 8, make it a type 7 creature with plain ints
+    const uint32_t inst = kInst + 0x1000;
+    im.w32(npc + 0xc, 7);
+    im.w32(npc + 0xfc, inst + 0x300);
+    im.w32(inst + 0x300 + 0x10, inst);
+    im.w32(inst + 0x23c, npc);
+    im.w32(inst + 0x24c, 29);
+    im.w32(inst + 0x250, 40);
+    const auto check = [&](bool expectHp, int cur, int mx) {
+        const auto mem = im.mem();
+        ReaderState st;
+        Snapshot sn;
+        readSnapshot(mem, Globals{}, st, sn);
+        const EntitySnapshot* e = sn.find(npc);
+        CHECK(e != nullptr);
+        if (!e)
+            return;
+        CHECK(e->hasHp() == expectHp);
+        if (expectHp)
+            CHECK(e->hpKind == HpKind::Creature && e->hp == cur && e->hpMax == mx);
+    };
+    check(true, 29, 40);
+    im.w32(inst + 0x24c, static_cast<uint32_t>(-3)); // dead / overkill stays plausible
+    check(true, -3, 40);
+    im.w32(inst + 0x24c, 90); // current above max: not reported
+    check(false, 0, 0);
+    im.w32(inst + 0x24c, 29);
+    im.w32(inst + 0x23c, 0x1234); // back pointer does not match: not a creature instance
+    check(false, 0, 0);
+}
+
 void testFailures() {
     Image im;
     ReaderState st;
@@ -281,6 +314,7 @@ void testJson() {
 int main() {
     testEnumeration();
     testIndestructibleAndBadHp();
+    testCreatureHp();
     testFailures();
     testReuseAndSequence();
     testRegionGlobals();

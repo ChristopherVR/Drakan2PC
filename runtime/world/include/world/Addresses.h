@@ -64,6 +64,11 @@ inline constexpr uint32_t kInner = 0xfc;    // inner object; *(inner+0x10) = ins
 inline constexpr uint32_t kInnerData = 0x10;
 inline constexpr uint32_t kInstCurrent = 0x14; // dec(): durability / quantity of items (types 10, 11)
 inline constexpr uint32_t kInstMax = 0x18;     // dec()
+// Creature / NPC instance data (types 6 and 7): plain signed ints, no obfuscation.
+inline constexpr uint32_t kCreatureSelf = 0x23c; // == handle address (back pointer, used as validity check)
+inline constexpr uint32_t kCreatureHp = 0x24c;
+inline constexpr uint32_t kCreatureHpMax = 0x250;
+inline constexpr uint32_t kCreatureSize = 0x254; // bytes that must lie in RAM
 } // namespace handle
 
 // Player stats block S (dec() fields).
@@ -77,7 +82,9 @@ inline constexpr uint32_t kManaMax = 0x20;
 // Object types as observed (h+0xc). Names are descriptive guesses, see the reference doc.
 namespace type {
 inline constexpr uint32_t kPlayer = 3;
-inline constexpr uint32_t kCamera = 4; // also the many class 0x10070 / 0x1003d ... world actors
+inline constexpr uint32_t kCreatureA = 6; // creatures with HP (class 0x1001e, 300 HP in Surdana)
+inline constexpr uint32_t kCreatureB = 7; // creatures / NPCs with HP (the bulk of them)
+inline constexpr uint32_t kCamera = 4;    // also the many class 0x10070 / 0x1003d ... world actors
 inline constexpr uint32_t kWeapon = 10;
 inline constexpr uint32_t kUsable = 11;
 } // namespace type

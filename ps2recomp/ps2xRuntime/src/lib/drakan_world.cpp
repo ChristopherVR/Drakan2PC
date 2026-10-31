@@ -69,8 +69,9 @@ const char* typeLabel(uint32_t t) {
     switch (t) {
         case world::type::kPlayer:
             return "player";
-        case world::type::kCamera:
-            return "actor";
+        case world::type::kCreatureA:
+        case world::type::kCreatureB:
+            return "creature";
         case world::type::kWeapon:
             return "weapon";
         case world::type::kUsable:
@@ -151,6 +152,23 @@ void sample(const uint8_t* rdram, bool overlayOpen) {
         return;
     const RdramMemory mem(rdram);
     world::readSnapshot(mem, g_globals, g_state, g_exchange.back());
+    {
+        // Log status transitions (level load, save / load rebuild the registry) so harness runs can check recovery.
+        static world::ReadStatus last = world::ReadStatus::Ok;
+        static bool first = true;
+        static size_t lastCount = 0;
+        static std::string lastLevel;
+        const world::Snapshot& cur = g_exchange.back();
+        if (first || cur.status != last || cur.levelName != lastLevel ||
+            (cur.status == world::ReadStatus::Ok && lastCount == 0)) {
+            std::fprintf(stderr, "[world] sample status %s, %zu entities, level '%s'\n",
+                         world::readStatusName(cur.status), cur.entities.size(), cur.levelName.c_str());
+            first = false;
+        }
+        last = cur.status;
+        lastLevel = cur.levelName;
+        lastCount = cur.entities.size();
+    }
     if (g_dumpAtFrame && g_exchange.back().status == world::ReadStatus::Ok && g_exchange.back().player() &&
         ++g_frames == g_dumpAtFrame)
         dumpJson(g_exchange.back()); // Nth sample with a live player (harness runs)
@@ -161,8 +179,12 @@ void drawPanel() {
     if (!g_enabled.load(std::memory_order_relaxed))
         return;
     const std::shared_ptr<const world::Snapshot> snap = g_exchange.acquire();
-    ImGui::SetNextWindowPos(ImVec2(12, 12), ImGuiCond_FirstUseEver);
-    ImGui::SetNextWindowSize(ImVec2(760, 520), ImGuiCond_FirstUseEver);
+    // Size from the display and font, not fixed pixels: the overlay font scales with the output (4K = about 24 px).
+    const ImVec2 display = ImGui::GetIO().DisplaySize;
+    const float em = ImGui::GetFontSize();
+    ImGui::SetNextWindowPos(ImVec2(12, em * 4.0f), ImGuiCond_FirstUseEver);
+    ImGui::SetNextWindowSize(ImVec2(std::min(display.x * 0.6f, em * 60.0f), std::min(display.y * 0.8f, em * 36.0f)),
+                             ImGuiCond_FirstUseEver);
     if (!ImGui::Begin("World", nullptr, ImGuiWindowFlags_NoSavedSettings)) {
         ImGui::End();
         return;
@@ -308,7 +330,7 @@ void drawPanel() {
         ImGui::Text("pos %.1f %.1f %.1f", static_cast<double>(e->position.x), static_cast<double>(e->position.y),
                     static_cast<double>(e->position.z));
         if (e->hasHp())
-            ImGui::Text("%s %d / %d", e->hpKind == world::HpKind::PlayerHp ? "HP" : "durability", e->hp, e->hpMax);
+            ImGui::Text("%s %d / %d", e->hpKind == world::HpKind::Durability ? "durability" : "HP", e->hp, e->hpMax);
     } else {
         ImGui::TextDisabled("Select a row for details (read only).");
     }

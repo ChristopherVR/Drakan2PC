@@ -96,10 +96,9 @@ renderable). Do not rely on them yet. `+0x440`, `+0x494`, `+0x4a0`, `+0x4ac` hol
 | --- | --- | --- |
 | Player | stats block `S = 0x4fbac8`: `dec(S+0xc)` / `dec(S+0x10)` (mana `+0x1c`/`+0x20`), key `*(0x4fe86c)`, `dec(x) = rotr32(x ^ key, 8)` | [RAM] (100/100, 84/100 in other fixtures) |
 | Weapons, usables (types 10, 11) | `*(*(h+0xfc)+0x10)`: `dec(+0x14)` current, `dec(+0x18)` max; -1/-1 = indestructible; this is durability / quantity, not HP | [RAM] for all 118 |
-| NPCs / creatures (type 4 ...) | **not found.** A scan of the first 0x300 bytes of the instance data and 0x100 of the inner object for `dec()` pairs (cur <= max) found no consistent offset across NPCs | [?] open |
+| NPCs / creatures (types 6 and 7) | instance data `q = *(*(h+0xfc)+0x10)`: **plain signed ints** (no key), current `q+0x24c`, max `q+0x250`; validity: `*(q+0x23c) == h` (back pointer). See section 7 | [RAM] (40 to 36 to 29 to 26 over three sword hits on one NPC; 137 creatures per Surdana dump) |
 
-The snapshot reports HP only where it is known (`HpKind::PlayerHp`, `HpKind::Durability`); a creature HP search needs a
-fight fixture (two dumps before / after a hit, diff the instance data).
+The snapshot reports HP only where it is known (`HpKind::PlayerHp`, `HpKind::Durability`, `HpKind::Creature`).
 
 ## 3. The library
 
@@ -130,7 +129,7 @@ without them logs "disabled" and the panel stays off (the USA profile has not be
 
 ## 5. Not yet known / next
 
-* NPC / creature HP and AI state; the meaning of `+0x04`, `+0x9c` and the five secondary lists.
+* NPC / creature AI state (HP is known, section 7); the meaning of `+0x04`, `+0x9c` and the five secondary lists.
 * Whether positions of attached objects are parent-relative; the yaw convention.
 * Stability across save / load and level change in game: the registry is rebuilt on level load (counts differ per level);
   the reader degrades to `NoContext` / `NoRegistry` or fewer entities while the pointers are being rebuilt. Verified
@@ -175,3 +174,36 @@ clip as u16, the weapon as the low byte of the resource id, yaw only.
 
 Tests: `world_pose_test` (synthetic memory, interpolation, buffer, bridge), `world_pose_ram_test` (local dumps, exit 77
 when absent; `--json out.json <dumps...>` writes poses for playback), `net_pose_bridge_test`.
+
+## 7. Creature HP, panel verification and the USA disc (2026-10-31)
+
+Notes: [journal](../journal/2026-10-31/world-panel-verification.md).
+
+**Creature HP [RAM].** The type column of the registry splits the creatures differently than section 1 guessed: the
+objects that carry HP are **types 6 and 7** (in Surdana: 127 of type 7, resource ids `0x5112b`/`0x5112c` 10 to 40 HP,
+`0x513bf` 40, `0x5140b` 150 ..., and 10 of type 6, class `0x1001e`, 300 HP), not type 4 (type 4 is the camera and
+world / effect actors). HP is **not obfuscated**: with `q = *(*(h+0xfc)+0x10)` (the creature's instance data, the same
+object the combat code calls the NPC data), `int32 q+0x24c` = current, `int32 q+0x250` = max, `*(q+0x23c) == h`. The
+combat harness (`combat_ram_report.py`) already used these offsets plus a vtable at `q+0x268` (PAL address range,
+dropped here to stay region neutral). Checked on `build/harness/pal-combat-melee1`: one NPC went 40 (target), 36, 29
+and 26 (end) over the three sword hits; `world_ram_test` reads 137 creatures in that dump. Dead creatures: current
+can go to 0 or below (accepted down to -100000); a destroyed handle leaves the registry. The panel shows them as
+`6/7 creature` with `cur/max` and the HP filter includes them.
+
+**Panel [RAM, live].** Opened in game on Surdana (PAL, 3840x2160 overlay): the window is now sized from the font
+(`em * 60` wide, at most 60% / 80% of the output); with fixed 760x520 pixels it was 20% of a 4K frame and clipped. Filters
+(class, type, has HP 4602 to 108 shown), the player highlight, the distance column, the details line and Dump JSON
+(status line shows the written path) work. The type label `actor` for type 4 was misleading and is gone.
+
+**Save / load [RAM, live].** F5 then F8 (quicksave, quickload) with `DRAKAN_WORLD=1` and `=2`: no crash; the reader
+logs `[world] sample status ...` whenever the status or level name changes. With `=1` the registry read `Ok`, 4609
+entities, 'Surdana' after the load; with `=2` it went `NoRegistry` (title) to `Ok` 'Intro' to the level.
+
+**USA disc.** The panel stays off for USA. Region profile `configs/regions/usa.json` already maps `0x5565d4` (ctx
+pointer), `0x4fe86c` (HP key) and `0x4fbac8` (stats block) and the PAL to USA data map lists the handle vtable
+(`0x51b8b0` to `0x51ac30`, 2 refs, 0 conflicts), so the four globals have **candidate** equivalents, but nothing else
+is verified: no USA ELF, ISO or RAM dump exists in this tree (only the `analysis/regions/usa/*.csv` maps), and the USA
+object layouts differ (offsets 4 lower inside matched code, [regions.md](regions.md)), so every offset in sections 1 to 2
+(ctx `+0x7c`, handle `+0xfc`, resource record, stats `+0xc`, creature `+0x24c`) is unconfirmed there. To enable: run a
+USA build with `DRAKAN_WORLD=1` after adding the four addresses and compare the panel against a dump (level name at
+`ctx+0x298`, player class `0x10009`), then fix the offsets that differ in typed per-region fields.

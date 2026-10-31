@@ -56,11 +56,17 @@ void check(const std::string& name, const std::vector<uint8_t>& ram) {
     }
     const world::EntitySnapshot* c = s.find(s.cameraHandle);
     CHECK(c != nullptr && c->classId == world::kClassCamera);
+    size_t creatures = 0;
     for (const world::EntitySnapshot& e : s.entities) {
+        if (e.hpKind == world::HpKind::Creature) {
+            ++creatures;
+            CHECK(e.hp <= e.hpMax && e.hpMax > 0);
+        }
         CHECK(e.ref >= 1 && e.ref <= s.registryHighWater + 1);
         if (e.type == world::type::kWeapon || e.type == world::type::kUsable)
             CHECK(e.hasHp());
     }
+    std::printf("  creatures with HP: %zu\n", creatures);
 }
 
 } // namespace
@@ -72,7 +78,7 @@ int main(int argc, char** argv) {
     if (paths.empty()) {
         const std::string root = std::string(WORLD_REPO_ROOT) + "/build/";
         paths = {root + "combined-build06-private/t/build06-final-native32/ram_cat_baseline.ram",
-                 root + "harness/magic5/ram_k0.ram"};
+                 root + "harness/magic5/ram_k0.ram", root + "harness/pal-combat-melee1/ram_hit3.ram"};
     }
     int used = 0;
     for (const std::string& p : paths) {
