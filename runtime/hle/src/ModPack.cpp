@@ -1009,6 +1009,30 @@ bool patchSrsc(const std::vector<u8>& in, const std::vector<SrscPatch>& patches,
                 logf("mods: patch for %04x/%u/%d matches no entry, skipped", p.type, p.id, (s16)p.sub);
         }
     }
+    // ODB container header record 0x0100 (id 0, sub 0): u16 class count (0x0102 records), u16 group count (0x0101
+    // records), then the library path. The guest sizes its per-ODB class and group tables from these two counts and
+    // fills them from the index; records beyond the declared counts overflow the tables (2 extra records fit in the
+    // allocator's slack, 3 or more corrupt the heap: the level never finishes loading). Keep the counts in step with
+    // the index when records were added or removed, unless the pack set them itself (then they differ from the
+    // original counts and stay as written).
+    if (patchesTouchCounts(origCounts, ents)) {
+        for (SrscEntry& e : ents) {
+            if (e.type != 0x100 || e.id != 0 || e.sub != 0 || e.size < 4 || (u64)e.off + e.size > out.size())
+                continue;
+            std::vector<u8> hdr(out.begin() + e.off, out.begin() + e.off + e.size);
+            const u32 c = rd16(&hdr[0]), g = rd16(&hdr[2]);
+            if (c != origCounts.classes || g != origCounts.groups)
+                break; // not the counts we expect (not an ODB, or the pack wrote its own)
+            const u16 nc = (u16)std::min<size_t>(countType(ents, 0x102), 0xFFFF);
+            const u16 ng = (u16)std::min<size_t>(countType(ents, 0x101), 0xFFFF);
+            memcpy(&hdr[0], &nc, 2);
+            memcpy(&hdr[2], &ng, 2);
+            e.off = append(hdr);
+            e.size = (u32)hdr.size();
+            logf("mods: ODB header counts updated: %u -> %u classes, %u -> %u groups", c, nc, g, ng);
+            break;
+        }
+    }
     while (out.size() % 8)
         out.push_back(0);
     const u32 newIdx = (u32)out.size();
