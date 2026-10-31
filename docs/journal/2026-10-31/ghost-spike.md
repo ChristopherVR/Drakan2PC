@@ -54,3 +54,21 @@ Runs `build/harness/ghostB` (scripts: `build/ghost/ghost2.txt`, registry scanner
   handle into `ctx+0x4b0` itself for `0x219948`, then restores `ctx+0x4b0 = player` and swaps the handler (`0x283ae0(actor, 0x2a3378)`). Restoring `4b0/4b4` after the spawn is therefore the engine's own convention.
   Safe by observation: stats block words, `player-data+0x4d8` (dragon link = 1) and player/camera handles identical before/after spawn and destroy. Not checked: HUD message state.
 * S0 is satisfied from the decompile (the arguments above), not from a trace of the console command.
+
+## S2 integration: animation drive and mirror mode
+
+- `drakan_ghost::setAnim(id, channel, clip, time)` (channel -1 = all) and `setPose(id, const world::PlayerPose&)`.
+  Each tick at the PadMgr boundary the host writes clip id and time into the ghost skeleton's channels
+  (`sk = *(h+0x50)`, `+0xe8`, stride 0x80, clip `+0x50`, time `+0x58`); channels in `lowerMask` get the lower clip,
+  the rest the upper clip.
+- Writing clip id and time every tick is enough: no clip-start call is needed. The skeleton is still evaluated and drawn
+  although the ghost's handler swallows the tick event; readback shows the engine advancing time slightly past the
+  written value.
+- `DRAKAN_GHOST_MIRROR=1` (implies `DRAKAN_GHOST`): records the local pose with `world::readPlayerPose` into a
+  `PoseBuffer` (1.0 s delay, 512 samples) and drives an auto-spawned ghost with the pose from 1 s ago, offset +300 x
+  (`DRAKAN_GHOST_OFFSET=x,z` overrides; not yet exercised in a run). It respawns after level loads and saves.
+- Verified in game (run `ganim1`): the ghost runs in stride along the player's path, passes the player and decelerates.
+  It was destroyed and respawned once across the intro → Surdana level change and animated normally afterwards.
+- Not verified: attack and jump clips on the ghost (it was off screen at +300 x during those frames), and the
+  dedicated lifecycle checks (destroy before exit / New Game / menu save / F5, no second `0x10009` in the save,
+  respawn after load).

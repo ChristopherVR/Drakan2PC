@@ -2,14 +2,17 @@
 #include "drakan_ghost.h"
 #include "drakan_lifecycle.h"
 #include "drakan_region.h"
+#include "gameui/GuestMemory.h"
 #include "imgui.h"
 #include "input/DrakanInput.h"
 #include "input/GuestInterface.h"
 #include "ps2_runtime.h"
 #include "ps2_runtime_macros.h"
+#include "world/Pose.h"
 
 #include <algorithm>
 #include <atomic>
+#include <chrono>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -29,7 +32,8 @@ constexpr uint32_t kContextPtr = 0x5565d4u, kFactory = 0x181ad8u, kDestroy = 0x1
 constexpr uint32_t kHandleVtable = 0x51b8b0u, kRynnClass = 0x10009u;
 constexpr uint32_t kDikF9 = 0x43u, kDikF10 = 0x44u;
 constexpr float kOffsetX = 300.0f;
-constexpr uint32_t kFrame = 0x60; // stack bytes the spawn trampoline borrows below the dispatcher thread's sp
+float g_offX = kOffsetX, g_offZ = 0.0f; // DRAKAN_GHOST_OFFSET=x,z (mirror mode test aid)
+constexpr uint32_t kFrame = 0x60;       // stack bytes the spawn trampoline borrows below the dispatcher thread's sp
 
 struct Ghost {
     Info info;
@@ -37,8 +41,10 @@ struct Ghost {
     bool hasTransform = false; // target is set (a spawn at a given transform, or a pending setTransform)
     bool hold = false;         // after the spawn, rewrite `target` into the actor every tick
     Transform target;
-    int animChannel = -1, animClip = -1;
-    float animTime = 0;
+    // Clip state written into the skeleton every tick (channels 0..31; bit set in animSet = channel is driven).
+    uint32_t animSet = 0;
+    uint32_t animClip[world::skel::kMaxChannels] = {};
+    float animTime[world::skel::kMaxChannels] = {};
 };
 
 std::atomic<bool> g_enabled{false};
@@ -49,6 +55,12 @@ std::atomic<bool> g_busy{false};
 bool g_log = false, g_hold = true;
 uint32_t g_forwardMask =
     0; // bit n = event 1<<n forwarded to Rynn's real handler (event 2 always goes to the free-cam handler)
+bool g_mirror = false;            // DRAKAN_GHOST_MIRROR=1: the ghost replays the local player 1 s late
+bool g_autoPending = false;       // mirror mode: (re)spawn the ghost once the player is ready
+unsigned g_autoDelay = 0;         // ticks to wait before the auto spawn
+world::PoseBuffer g_buf;          // EE thread only
+world::PoseReadState g_readState; // EE thread only
+unsigned g_tick = 0;
 uint32_t g_t1 = 0, g_t2 = 0, g_t3 = 0, g_handlerSlot = 0;
 PS2Runtime::RecompiledFunction g_rynn = nullptr;
 
@@ -211,6 +223,59 @@ uint32_t freeSlot(PS2Runtime& rt, PS2Runtime::RecompiledFunction fn) {
     return 0;
 }
 
+// world::IGuestMemory over the input glue's IGuest (EE thread).
+class GuestMem final : public gameui::IGuestMemory {
+public:
+    explicit GuestMem(drakan_input::IGuest& g) : g_(g) {}
+    uint8_t read8(uint32_t a) const override { return g_.read8(a); }
+    uint32_t read32(uint32_t a) const override { return g_.read32(a); }
+
+private:
+    drakan_input::IGuest& g_;
+};
+
+double nowSeconds() {
+    using namespace std::chrono;
+    return duration<double>(steady_clock::now().time_since_epoch()).count();
+}
+
+// Writes the driven clips into the ghost skeleton's channels (sk = *(handle+0x50), channels at sk+0xe8, stride 0x80,
+// clip +0x50, time +0x58). Returns the number of channels written.
+int writeAnim(drakan_input::IGuest& guest, const Ghost& g) {
+    if (!g.animSet)
+        return 0;
+    const uint32_t sk = guest.read32(g.info.handle + world::skel::kHandleSkeleton);
+    if (!ramPtr(sk))
+        return 0;
+    const uint32_t ch = guest.read32(sk + world::skel::kChannels);
+    const uint32_t n = guest.read32(sk + world::skel::kChannelCount);
+    if (!ramPtr(ch) || n == 0 || n > world::skel::kMaxChannels)
+        return 0;
+    int written = 0;
+    for (uint32_t i = 0; i < n; ++i)
+        if (g.animSet >> i & 1u) {
+            const uint32_t a = ch + i * world::skel::kChannelStride;
+            guest.write32(a + world::skel::kChannelClip, g.animClip[i]);
+            guest.writeF(a + world::skel::kChannelTime, g.animTime[i]);
+            ++written;
+        }
+    return written;
+}
+
+// Caller holds g_m. Position, rotation and the clips of every channel (lower on the mask, upper on the rest).
+void applyPose(Ghost& g, const world::PlayerPose& p) {
+    const float pos[3] = {p.position.x, p.position.y, p.position.z};
+    std::memcpy(g.target.pos, pos, sizeof pos);
+    std::memcpy(g.target.rot, p.rotation, sizeof g.target.rot);
+    g.hasTransform = true;
+    for (uint32_t c = 0; c < world::skel::kMaxChannels; ++c) {
+        const world::ChannelPose& cp = (p.lowerMask >> c & 1u) ? p.lower : p.upper;
+        g.animSet |= 1u << c;
+        g.animClip[c] = cp.clip;
+        g.animTime[c] = cp.time;
+    }
+}
+
 // Level load and save write (drakan_lifecycle, EE thread at the hooked call): ghosts must not survive either (the level
 // loader does not flush the kill list; the serialisers iterate every class 0x10009 actor).
 void destroyAll(const drakan_lifecycle::Event& e) {
@@ -219,6 +284,11 @@ void destroyAll(const drakan_lifecycle::Event& e) {
         if (g.info.handle && drakan_lifecycle::destroyActor(e, g.info.handle, true))
             std::fprintf(stderr, "[ghost] destroyed id %d before %s\n", g.info.id, drakan_lifecycle::kindName(e.kind));
     g_ghosts.clear();
+    g_buf.clear(); // EE thread
+    if (g_mirror) {
+        g_autoPending = true;
+        g_autoDelay = 120;
+    }
 }
 
 int newestId() {
@@ -238,7 +308,9 @@ bool enabled() {
 
 void install(PS2Runtime& rt) {
     const char* v = std::getenv("DRAKAN_GHOST");
-    if (!v || !*v || v[0] == '0')
+    const char* mir = std::getenv("DRAKAN_GHOST_MIRROR");
+    g_mirror = mir && *mir && mir[0] != '0';
+    if (!g_mirror && (!v || !*v || v[0] == '0'))
         return;
     if (!guestAddress(kFactory) || !guestAddress(kDestroy) || !guestAddress(kRynnHandler) ||
         !guestAddress(kContextPtr) || !guestAddress(kHandleVtable)) {
@@ -262,6 +334,18 @@ void install(PS2Runtime& rt) {
         g_hold = h[0] != '0';
     drakan_lifecycle::subscribe(drakan_lifecycle::Kind::BeforeLevelLoad, destroyAll);
     drakan_lifecycle::subscribe(drakan_lifecycle::Kind::BeforeSaveWrite, destroyAll);
+    if (const char* o = std::getenv("DRAKAN_GHOST_OFFSET"))
+        std::sscanf(o, "%f,%f", &g_offX, &g_offZ);
+    if (g_mirror) {
+        world::PoseBufferConfig cfg;
+        cfg.delaySec = 1.0;
+        cfg.maxSamples = 512;
+        g_buf = world::PoseBuffer(cfg);
+        g_autoPending = true;
+        g_autoDelay = 240;
+        std::fprintf(stderr, "[ghost] mirror mode: the ghost replays the player's pose from 1.0 s ago (+%g units x)\n",
+                     static_cast<double>(kOffsetX));
+    }
     g_enabled.store(true);
     std::fprintf(stderr, "[ghost] enabled (F9 spawn, F10 destroy; slots %x %x %x; forward mask %x)\n", g_t1, g_t2,
                  g_handlerSlot, g_forwardMask);
@@ -302,10 +386,21 @@ void setAnim(int id, int channel, int clip, float time) {
     std::lock_guard<std::mutex> l(g_m);
     for (Ghost& g : g_ghosts)
         if (g.info.id == id) {
-            g.animChannel = channel;
-            g.animClip = clip;
-            g.animTime = time;
+            const int lo = channel < 0 ? 0 : channel;
+            const int hi = channel < 0 ? static_cast<int>(world::skel::kMaxChannels) : channel + 1;
+            for (int c = lo; c < hi && c < static_cast<int>(world::skel::kMaxChannels); ++c) {
+                g.animSet |= 1u << c;
+                g.animClip[c] = static_cast<uint32_t>(clip);
+                g.animTime[c] = time;
+            }
         }
+}
+
+void setPose(int id, const world::PlayerPose& p) {
+    std::lock_guard<std::mutex> l(g_m);
+    for (Ghost& g : g_ghosts)
+        if (g.info.id == id)
+            applyPose(g, p);
 }
 
 void forEach(const std::function<void(const Info&)>& fn) {
@@ -360,6 +455,55 @@ void beforePadMgr(drakan_input::IGuest& guest, drakan_input::InputModule& input)
         ++i;
     }
 
+    ++g_tick;
+    if (g_mirror) {
+        // Record the local player and replay the pose from 1.0 s ago beside it (EE thread).
+        world::PlayerPose cur, past;
+        GuestMem mem(guest);
+        world::Globals gl;
+        gl.contextPtr = guestAddress(kContextPtr);
+        gl.hpKey = guestAddress(gl.hpKey);
+        gl.playerStats = guestAddress(gl.playerStats);
+        gl.handleVtable = guestAddress(kHandleVtable);
+        const double now = nowSeconds();
+        const bool ok = world::readPlayerPose(mem, gl, g_readState, now, g_tick, cur) == world::PoseStatus::Ok;
+        if (ok && !cur.mounted)
+            g_buf.push(cur);
+        if (g_buf.sample(now, past) && past.lower.clip) {
+            past.position.x += g_offX;
+            past.position.z += g_offZ;
+            for (Ghost& g : g_ghosts)
+                if (g.info.handle && !g.destroyRequested)
+                    applyPose(g, past);
+        }
+        if (g_autoPending && g_ghosts.empty() && !drakan_lifecycle::transitionActive() && ok && !cur.mounted) {
+            if (g_autoDelay)
+                --g_autoDelay;
+            else {
+                g_autoPending = false;
+                g_ghosts.push_back(Ghost{});
+                g_ghosts.back().info.id = g_nextId++;
+                std::fprintf(stderr, "[ghost] mirror: auto spawn id %d\n", g_ghosts.back().info.id);
+            }
+        }
+    }
+
+    // Anim readback (log only): what the engine left in channel 0 since our last write.
+    if (g_log && g_tick % 30 == 0)
+        for (const Ghost& g : g_ghosts)
+            if (g.info.handle && g.animSet) {
+                const uint32_t sk = guest.read32(g.info.handle + world::skel::kHandleSkeleton);
+                const uint32_t ch = ramPtr(sk) ? guest.read32(sk + world::skel::kChannels) : 0;
+                if (ramPtr(ch))
+                    std::fprintf(stderr, "[ghost] id %d ch0 clip %x time %g (we wrote %x %g)\n", g.info.id,
+                                 guest.read32(ch + world::skel::kChannelClip),
+                                 static_cast<double>(guest.readF(ch + world::skel::kChannelTime)), g.animClip[0],
+                                 static_cast<double>(g.animTime[0]));
+            }
+
+    for (Ghost& g : g_ghosts)
+        if (g.info.handle && g.animSet)
+            writeAnim(guest, g);
     // Transforms (the spawn's own transform is applied by the factory, so only live ghosts here).
     for (Ghost& g : g_ghosts)
         if ((g.hasTransform || g.hold) && g.info.handle) {

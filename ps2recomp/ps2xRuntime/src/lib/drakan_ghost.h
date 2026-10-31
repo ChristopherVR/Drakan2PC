@@ -4,10 +4,19 @@
 // Opt in with DRAKAN_GHOST=1: F9 (or the F1 World panel button) spawns one at the next PadMgr_Update boundary, F10
 // destroys the newest. DRAKAN_GHOST_FWD=<hex mask> picks which behaviour events the host handler still forwards to
 // Rynn's real handler (bit n = event 1<<n; default all but event 4), DRAKAN_GHOST_LOG=1 logs every handler event.
-// Compiled only with the GS renderer (PS2X_HAVE_GSR), like drakan_world.
+// DRAKAN_GHOST_MIRROR=1 (implies DRAKAN_GHOST): no network; the local player's pose is recorded each tick and the ghost
+// (auto spawned a few seconds after Rynn is under control, respawned after a level load or save) replays it 1.0 s
+// later, +300 units in x. API contract (stable, thread safe, queue-and-apply at the next PadMgr boundary): spawn -> id,
+// destroy(id), setTransform, setAnim, setPose, forEach. Calls with an unknown id are ignored. Ghosts are destroyed
+// automatically before a level load and a save write (drakan_lifecycle) and forgotten; the owner must re-spawn
+// afterwards. Compiled only with the GS renderer (PS2X_HAVE_GSR), like drakan_world.
 #pragma once
 #include <cstdint>
 #include <functional>
+
+namespace world {
+struct PlayerPose;
+}
 
 class PS2Runtime;
 namespace drakan_input {
@@ -38,8 +47,13 @@ int spawn(const Transform* t = nullptr);
 void destroy(int id); // queue 0x1413c0; the engine frees it at its next flush
 // Applied on the EE thread at the next PadMgr boundary (position and rotation only; no sector update yet).
 void setTransform(int id, const float pos[3], const float rot[9]);
-// Stub: S2 (pose model) owns the clip state; the call is recorded and not applied yet.
+// Clip state: write clip resource id `clip` and time `time` (seconds) into skeleton channel `channel` (< 32; -1 = every
+// channel) of the ghost. Applied by the host every tick at the PadMgr boundary (it is held until changed), before the
+// engine evaluates the skeleton.
 void setAnim(int id, int channel, int clip, float time);
+// Position, rotation and animation in one call (what the net layer calls per remote sample): pose.position / rotation
+// as setTransform, pose.lower on channels set in pose.lowerMask, pose.upper on the others (setAnim per channel).
+void setPose(int id, const world::PlayerPose& pose);
 void forEach(const std::function<void(const Info&)>& fn);
 
 // EE thread, PadMgr_Update boundary: F9 / F10, queued requests, liveness.
