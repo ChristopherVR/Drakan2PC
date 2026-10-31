@@ -24,3 +24,20 @@ Order of the Flame level played the whole Drakan 2 intro and then switched. Noth
 ## Verification
 
 See the end of this file (appended after the in-game runs).
+
+Runs (private play folder, 960x540, evidence in `build/d1menu/`, `build/ootf-run/d1c/`):
+
+* `ootf_level_run.py --campaign` (Intro level as a one-level campaign, `DRAKAN_GAME=d1`): log `[game] playing d1`, the first
+  `beforeLevelLoad` is the converted level opened through `Level 0 - Intro` (redirect), no Drakan 2 intro level or movie; HUD up,
+  PASS (`build/ootf-run/d1c/run/s_start.png`, copy `build/ootf-run/d1-boot-direct.png`).
+* Title menu with the pack installed (`build/d1menu/d1menu_ootf/t_game_card.png`, `t_main_ootf.png`): the card opens first, Order of
+  the Flame selected, the label shows under the menu, Load Game greyed (empty D1 card).
+* Switching with a Drakan 2 card that holds a save (`build/d1menu/d1menu_switch/s2_d2_main.png`, `s3_ootf_main.png`,
+  `s4_d2_again.png`): Drakan shows Continue / Load Game enabled, Order of the Flame none (`title: newest save slot 0`), back to
+  Drakan restores them. The native Load row's enable state is refreshed by calling the title's own `43f398(screen)` after the switch.
+* Without a campaign pack the card never shows and `[game] playing d2` is logged (pack-free runs are unchanged).
+
+Open: co-op hosting for Order of the Flame should open `drakan_game::firstLevel()` (exposed, not wired: the co-op menu belongs to the
+multiplayer session); a campaign in `ask` mode shows the card also when returning from a match to the title. The title art still
+says "The Ancients' Gates" (the native art; a separate OotF art would be a pack file). Unit test: `testTitleGameChoice`
+(`gameui_saveload_test.cpp`, not run here: no free runtime-tests build; covered by the in-game runs above).
