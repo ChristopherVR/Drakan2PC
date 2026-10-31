@@ -46,6 +46,7 @@
 #include "drakan_dual_wield.h"
 #include "drakan_debug_menu.h"
 #include "drakan_lifecycle.h"
+#include "drakan_levelchange.h"
 #include "drakan_region.h"
 #include "drakan_movie_policy.h"
 #include "drakan_input_flow.h"
@@ -1169,7 +1170,8 @@ void applyDrakanOverrides(PS2Runtime& runtime) {
         drakan_frame_rate::install(runtime);
     if constexpr (supports(Feature::DualWield))
         drakan_dual_wield::install(runtime);
-    drakan_lifecycle::install(runtime); // engine lifecycle events (PAL addresses; no-op elsewhere)
+    drakan_lifecycle::install(runtime);   // engine lifecycle events (PAL addresses; no-op elsewhere)
+    drakan_levelchange::install(runtime); // host-triggered level change through the exit triggers (PAL)
     if constexpr (supports(Feature::SoundDebug))
         soundDebugInstall(runtime);
     if constexpr (supports(Feature::AdvancedInput)) {

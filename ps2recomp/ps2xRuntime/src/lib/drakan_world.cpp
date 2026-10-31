@@ -2,6 +2,7 @@
 #include "drakan_world.h"
 #include "drakan_config.h"
 #include "drakan_ghost.h"
+#include "drakan_levelchange.h"
 #include "drakan_region.h"
 #include "imgui.h"
 #include "ps2_runtime.h"
@@ -256,6 +257,7 @@ void drawPanel() {
     if (!g_ui.status.empty())
         ImGui::TextDisabled("%s", g_ui.status.c_str());
     drakan_ghost::drawControls();
+    drakan_levelchange::drawControls();
 
     // ---- rows ----
     const world::Vec3 origin = player ? player->position : world::Vec3{};

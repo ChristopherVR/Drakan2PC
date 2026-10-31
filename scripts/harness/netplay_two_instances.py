@@ -49,7 +49,10 @@ ROOT = Path(__file__).resolve().parents[2]
 JUNCTIONS = ("textures", "movies", "nr", "ngx_data")
 SKIP = {"mc0", "mc1", "saves", "logs", "drakan.exe", "drakan_native_options.ini"} | set(JUNCTIONS)
 SURDANA = "Level 1A - Surdana"
-KRAGMOR = "Level 1B - Kragmor"
+# The level change target: A takes the Surdana exit to the City of the Damned (drakan_levelchange, see
+# docs/journal/2026-10-31/level-change.md), B must follow it.
+TARGET = "Level 1D - City of the Damned"
+TARGET_EXIT = "city"
 
 # Times are milliseconds after each instance's own "sync play" (Rynn under control).
 RECIPE_A = """clock milliseconds
@@ -400,7 +403,7 @@ def main() -> int:
     else:
         env_a = {"DRAKAN_NET_HOST": str(a.port), "DRAKAN_NET_NAME": "Alpha"}
     if not a.reload and not a.no_level_change:
-        env_a["DRAKAN_LIFECYCLE_EXIT"] = KRAGMOR + "@1500"  # real exit: 0x13b7c0 after 1500 frames in Surdana
+        env_a["DRAKAN_LEVELCHANGE"] = TARGET_EXIT + "@1200"  # the exit trigger fired after 1200 frames in Surdana
     env_b = {"DRAKAN_NET_CONNECT": f"127.0.0.1:{a.port}", "DRAKAN_NET_NAME": "Bravo"}
     for kv in a.env + a.env_a:
         env_a[kv.split("=", 1)[0]] = kv.split("=", 1)[1]
@@ -441,15 +444,19 @@ def main() -> int:
         checks[f"{k}: ghost of the other spawned"] = spawned >= 1
     if not a.no_level_change:
         spawns = len(re.findall(r"ghost of player \d+ '.*' spawned", text["b"]))
-        removed = re.search(r"ghost of player \d+ removed \(player in another level\)", text["b"]) is not None
+        removed = re.search(r"ghost of player \d+ removed", text["b"]) is not None
         if a.reload:
             checks["a: reload seen (save restore)"] = "afterSaveRestore" in text["a"]
             checks["b: ghost removed while A loads"] = removed
             checks["b: ghost back after A's load"] = spawns >= 2
         else:
-            checks["a: level change to Kragmor"] = "level 'Level 1B - Kragmor' loaded" in text["a"]
+            checks["a: level change to the target"] = f"level '{TARGET}' loaded" in text["a"]
+            checks["b: followed the host"] = f"level '{TARGET}' loaded" in text["b"]
             checks["b: ghost removed when A left the level"] = removed
-            checks["b: no ghost of A afterwards"] = spawns == 1
+            checks["b: ghost of A back in the new level"] = spawns >= 2
+            checks["a: ghost of B back in the new level"] = (
+                len(re.findall(r"ghost of player \d+ '.*' spawned", text["a"])) >= 2
+            )
     if a.pvp and a.weapon == "bow":
         ranged_checks(text, checks)
     elif a.pvp:

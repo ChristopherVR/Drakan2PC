@@ -245,3 +245,57 @@ every run and save).
 
 Item handles in the save are the saving session's heap pointers and are remapped on load. Creating a new item by
 cloning a record did not survive load; equipping by cell flag leaves the held-weapon actors (`+0xeb4` / `+0xe90`) alone.
+
+## 10. Level change: the exit trigger and the main loop (2026-10-31)
+
+Notes: [journal](../journal/2026-10-31/level-change.md). Read from the Ghidra decompile and checked in game (PAL).
+
+**The exit trigger** is class `0x10037` ("Level Transition", also named "Portal Transition ..." and "Transition from 1(A) to 1 (D)"
+in the level data); 5 to 11 per level (Surdana: 11). Its message handler is `0x365138(handle, message)`, its instance data
+`inst = *(*(h+0xfc)+0x10)` (`inst+0x28` = the handle, `inst+0` = u16 flags: bit 2 armed, bit 3 / bit 4 see below). Properties come
+through the property block `*(h+0x54)` (vtable `*(block+8)`, accessor at vtable `+0x1c`, `this = block + s16(vtable+0x18)`, args
+`(index, -1)` return a pointer to a u32):
+
+| Property | Meaning | Confidence |
+| --- | --- | --- |
+| 0 | "Transition To...": destination, a level-local string id (`0x8000n`, n 5 to 17 in Surdana). Text through the string manager `*(ctx+0x344)`, accessor `vtable+0x94(this, id, buf, 0, 0x100)`; it blocks on guest semaphores (not callable nested) | [RAM] ids, [dec] use |
+| 1 | portal flag: arrival object is named `portal` (else the arrival is looked up by the old level's name) | [dec] |
+| 2 | read in the same function as 1 (`*p == 1`), meaning unknown | [dec] |
+| 3 | text / prompt id shown before leaving, `-1`/0 none | [dec] |
+| 5 | bit 3 of the instance flags | [dec] |
+| 6 | **direct** transition: `!= 0` skips the confirm / save screen and the trigger sets the pending state itself | [dec]; 0 on every Surdana exit [RAM] |
+
+**Chain.** Event `0x1001` (4097, the player touches the trigger) reaches `0x361440(inst, msg)` (msg `+4` -> u16 event id).
+With property 6 set it writes `DAT_004fb6fc = 0` and the pending handle `DAT_004fbba4 = handle`; otherwise it sets handle `+4 |= 8`
+and queues the handle in the engine's list (`ctx+0x520` vslot `0xdc`). The queue later delivers message 4 to `0x365138` ->
+`0x361288` -> `0x361e18` (dequeue, clear flags, `0x361f60`: if `DAT_004fdec8` (the level-change save slot name, empty at first)
+is empty it opens the level-change **save screen** (screen 5, mode 1) and returns 0; `Yes` (`0x238b` to `0x365370`) re-enters
+`0x361e18`), which sets `DAT_004fbba4 = handle` and opens the loading screen (id `0x1a`, `0x2c4458`). Everything up to here is
+UI-thread work with modal screens.
+
+**The transition itself runs on the main thread inside the per-frame game-state function `0x2cbf88`** (a state-table entry; no
+static caller): `if (DAT_004fbba4 != 0)` it calls `0x362d38` when property 6 is 0, else `0x364c90`, and both do the whole job
+inline, blocking the main thread: read property 0 (destination text), write the **level-change save** `<slot>/<level>.rlt` (`0x169c28`),
+free the level lists, `Level_Load 0x1c94c8` (flags 0), then place the player: `0x362a60` finds the **arrival marker** (a class
+`0x10037` object of the *new* level whose own destination text equals the old level's name, or `portal` for property 1), the player
+and camera keep their offset from the old trigger (`Maintain Player Position`), the new level's `.rsg` is saved and `0x2cb7e8(2)`
+re-enters gameplay. `0x364c90` (direct) skips the arrival and just loads `DAT_004fd53c(path)` (the table slot that holds `0x13b7c0`,
+which is `0x136628(); Level_Load(path, 0)`, no caller).
+
+**Why calling `0x13b7c0` hangs:** it is only the middle of that sequence. The world keeps running on the main thread while the load
+tears it down (null vtable calls); the real flow owns the main thread for the whole call.
+
+**Host side** (`drakan_levelchange.{h,cpp}`): scans the registry for class `0x10037`, and "fires" an exit at the frame boundary
+(`PadMgr_Update` hook) by writing what the trigger writes: `DAT_004fb6fc = 0`, `DAT_004fbba4 = handle`, after moving the player and
+camera onto the trigger (the transition keeps the player's offset from the trigger; fired from 100 000 units away the arrival is
+outside the level). The main loop then runs the game's own transition. No guest call is needed (a posted `0x361e18` /
+`0x361440` froze or did nothing: the queue and the screens need the UI thread). Listener `setExitListener` reports exits the
+player walks into too (read at the `.rlt` save, where the pending handle is still set); `followExit(pos)` fires the exit at the same
+world position in another copy of the level (used by multiplayer, [netcode](netcode.md)). F1 > World lists the exits with "Go"
+buttons; env `DRAKAN_LEVELCHANGE=<step>[,<step>...][@frames]` (step = exit index in nearest-first order, or a destination name) is
+the harness aid (`scripts/harness/level_change_run.py`).
+
+**Verified in game** (journal): Surdana -> City of the Damned, -> Inquisitor's Lair (player on the ground, 300 fps), Lair -> Surdana
+(round trip), a three-step chain (`level_change_run.py`). **Not working:** the arrival of Kragmor (Rynn leaves the level), Shadowmire (falls, dies; its exit
+points elsewhere, so no marker) and the Catacombs (the main thread spins in a long loop after the load, 0 fps). Whether a real walk
+into those exits behaves the same was not tested (the player cannot be scripted onto the trigger yet).

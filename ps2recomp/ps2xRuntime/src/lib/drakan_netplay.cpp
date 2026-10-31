@@ -1,6 +1,7 @@
 // Drakan: networked ghosts (drakan_netplay.h).
 #include "drakan_netplay.h"
 #include "drakan_ghost.h"
+#include "drakan_levelchange.h"
 #include "drakan_lifecycle.h"
 #include "drakan_pvp.h"
 #include "drakan_region.h"
@@ -473,6 +474,19 @@ void runSession(const Cmd& c, drakan::net::ServerBrowser& browser, uint64_t& las
                 netLog("player %u left", l->player);
             } else if (const auto* ch = std::get_if<Chat>(&ev)) {
                 const auto it = client.roster().find(ch->player);
+                // The host's level change travels as a hidden chat line "@@LC x y z" (the exit trigger's world
+                // position; the server strips control characters, so the marker is printable). A client fires the same
+                // exit in its own copy of the level (drakan_levelchange).
+                if (ch->text.rfind("@@LC ", 0) == 0) {
+                    float x = 0, y = 0, z = 0;
+                    if (ch->player == 1 && client.playerId() != 1 && // the host is player 1
+                        std::sscanf(ch->text.c_str() + 5, "%f %f %f", &x, &y, &z) == 3) {
+                        netLog("host changed level through the exit at %.0f %.0f %.0f: following",
+                               static_cast<double>(x), static_cast<double>(y), static_cast<double>(z));
+                        drakan_levelchange::followExit(x, y, z);
+                    }
+                    continue;
+                }
                 addChat(ch->player, it != client.roster().end() ? it->second.name : std::string("?"), ch->text);
             } else if (const auto* hit = std::get_if<Hit>(&ev)) {
                 netLog("hit: player %u hit player %u for %u (weapon %u), health now %u", hit->attacker, hit->victim,
@@ -1135,6 +1149,16 @@ void install(PS2Runtime& rt) {
     const auto& prof = drakan_region::build();
     g_profileHash = fnv64(std::string(prof.serial ? prof.serial : "") + "|" + (prof.saveId ? prof.saveId : ""));
 
+    // The host's level change reaches the clients as a hidden chat line (the server strips control characters, so a
+    // printable marker) (see the chat handler).
+    drakan_levelchange::setExitListener([](const float* pos) {
+        const State s = state();
+        if (!s.inSession || !s.hosting || s.phase != Phase::Playing)
+            return;
+        char line[96];
+        std::snprintf(line, sizeof line, "@@LC %.3f %.3f %.3f", pos[0], pos[1], pos[2]);
+        sendChat(line);
+    });
     using drakan_lifecycle::Kind;
     drakan_lifecycle::subscribe(Kind::BeforeLevelLoad, [](const drakan_lifecycle::Event&) {
         g_levelHash.store(0); // still loading: peers hide their ghost of us

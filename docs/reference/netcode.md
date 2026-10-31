@@ -124,6 +124,16 @@ level during a match, so every `PlayerState` carries `levelHash` (v3, FNV-1a of 
 ghosts only show between players in the same level. `MatchConfig.level` records the host's level at start
 (informational).
 
+**The host's level changes pull the clients along** (2026-10-31, [level-change](../journal/2026-10-31/level-change.md)).
+`levelHash` alone only hides ghosts; it cannot name the level. When the host's game takes an exit (walked into or fired,
+`drakan_levelchange::setExitListener`, read at the level-change save), the host sends a hidden chat line `@@LC x y z` with the
+exit trigger's world position (the server strips control characters, so the marker is printable). A client that sees it
+from player 1 (the host) calls `drakan_levelchange::followExit`, which fires the exit at that position in its own copy of the
+level (both load the same level data, so positions match to the float) once the level has run 120 frames; the game then does its
+own transition and the ghosts reappear through the `levelHash` gate. Clients' own exits are not sent (co-op "exit = ready-up" is
+another design). The line is dropped in the chat handler and never shown. Limit: a client that is not in the host's previous
+level finds no exit at that position and stays (logged `no such exit here`).
+
 Run both instances with `python scripts/harness/netplay_two_instances.py` (`--mode server` for a `drakan_server`, see its
 `--help`). By hand: two play folders, two `DRAKAN_MEMCARD_DIR`s, instance A `DRAKAN_NET_HOST=47800`, instance B
 `DRAKAN_NET_CONNECT=127.0.0.1:47800`, both `DRAKAN_GHOST=1`. The game logs `[netplay ...]` lines to stderr: connect and
