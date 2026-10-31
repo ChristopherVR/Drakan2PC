@@ -1,4 +1,4 @@
-# Netcode: protocol v7, authority model, `runtime/net`
+# Netcode: protocol v8, authority model, `runtime/net`
 
 Status 2026-10-31 (later): protocol v6 adds the **co-op game mode** and a real `LevelChange` message (see "Co-op mode
 (protocol v6)"); co-op rides the same session as deathmatch and the hidden `@@LC` chat line is gone. Earlier the same day: the protocol, match state machine, transports and the headless `drakan_server` exist and are tested;
@@ -11,7 +11,7 @@ the game side has ghosts, a Multiplayer title menu with host / join / lobby (see
 
 | Path | What |
 | --- | --- |
-| `runtime/net/include/net/Transport.h` | Abstract transport: `listen`, `connect`, `send` on `Channel::Reliable` (ordered, exactly once) or `Channel::Unreliable`, `poll` events (`Connected`, `Disconnected`, `Message`), opaque `PeerId`s. Messages <= `kMaxPacketPayload` (1100 bytes). |
+| `runtime/net/include/net/Transport.h` | Abstract transport: `listen`, `connect`, `send` on `Channel::Reliable` (ordered, exactly once) or `Channel::Unreliable`, `poll` events (`Connected`, `Disconnected`, `Message`), opaque `PeerId`s. Messages <= `kMaxPacketPayload` (1280 bytes since v8). |
 | `net/Protocol.h` | Messages, `ByteWriter` / bounds-checked `ByteReader`, `encode<T>` / `decode<T>`. Explicit little-endian; `f32` is IEEE bits; non-finite floats fail the reader. |
 | `net/MatchServer.h` | Authoritative match: roster, phases, damage, score, respawn. `tick(nowMs)` with an explicit clock (deterministic in tests). |
 | `net/MatchClient.h` | Handshake, roster, per-player snapshot buffer with interpolation, event queue (`std::variant`). |
@@ -31,6 +31,14 @@ Datagram = `'D' 'K'` + type byte. Types: Connect, ConnectAck, Disconnect (empty)
 QueryReply (8) (v5, no connection: an encoded `Query` / `ServerInfo` message, see "LAN discovery"). Reliable channel:
 per-peer sequence, receiver accepts only the next sequence, sender resends unacked packets every 150 ms (window 128,
 excess queued). Connect retried every 250 ms for 5 s; a peer silent for 10 s is dropped.
+
+## Protocol v8
+
+v8 (2026-10-31, after v7): `PlayerState.pitch`, `roll` (two `i16`, radians x 10000) and `clipHi` (`u16`), trailing; PlayerState is
+78 bytes. A mounted sender's pose is Arokh's: rotation is `Ry(yaw) * Rx(pitch) * Rz(roll)` (yaw then is the Euler angle),
+and `clipHi` is the high half of the clip ids when it is not 0x2 (SYSTEM's database index differs per level: Ravenshold's
+clips are 0x4xxxx; 0 = 0x2). `kMaxPacketPayload` grew from 1100 to 1280 (16 PlayerStates in one Snapshot), and the server's
+coordinate sanity limit from 1e6 to 4e6 (Ravenshold lies at x = 1.3e6). See `docs/journal/2026-10-31/coop-dragons.md`.
 
 ## Protocol v7
 
@@ -63,7 +71,7 @@ Application message = 1 type byte (`MsgType`) + body; every decode requires the 
 | 3 Reject | S>C | `u8 reason` (0 version, 1 profile, 2 full, 3 name, 4 password), `u16 serverVersion`, `str message` |
 | 4 MatchConfig | S>C | `u8 mode` (0 DM, 1 TDM), `str level` (<=64), `u16 fragLimit`, `u16 timeLimitSec`, `u8 maxPlayers` (1..16), `u16 respawnDelayMs`, `u16 startHealth`, `str serverName` (<=32; v5) |
 | 5 PhaseChange | S>C | `u8 phase` (0 lobby, 1 loading, 2 playing, 3 results), `u32 serverTimeMs` |
-| 6 PlayerState | C>S, unreliable | `u8 player`, `u32 sequence`, `u32 tick`, `f32 pos[3]`, `f32 yaw`, `f32 vel[3]`, `u16 animId`, `f32 animTime` (lower body), `u16 upperAnimId`, `f32 upperAnimTime`, `u32 lowerMask` (bit i: skeleton channel i plays the lower clip; see `world-model.md` section 6), `u32 weaponRight`, `u32 weaponLeft` (resource record ids of the held items, 0 = empty hand; v4), `u8 mounted` (0/1), `u32 levelHash` (FNV-1a of the sender's level name, 0 = loading; v3), `u16 character` (stand-in character id, 0 = Rynn; v7); 68 bytes |
+| 6 PlayerState | C>S, unreliable | `u8 player`, `u32 sequence`, `u32 tick`, `f32 pos[3]`, `f32 yaw`, `f32 vel[3]`, `u16 animId`, `f32 animTime` (lower body), `u16 upperAnimId`, `f32 upperAnimTime`, `u32 lowerMask` (bit i: skeleton channel i plays the lower clip; see `world-model.md` section 6), `u32 weaponRight`, `u32 weaponLeft` (resource record ids of the held items, 0 = empty hand; v4), `u8 mounted` (0/1), `u32 levelHash` (FNV-1a of the sender's level name, 0 = loading; v3), `u16 character` (stand-in character id, 0 = Rynn; v7), `i16 pitch`, `i16 roll`, `u16 clipHi` (mounted sender's orientation and clip prefix; v8); 78 bytes |
 | 7 Snapshot | S>C, unreliable | `u32 serverTimeMs`, `u8 count` (<=16), count x PlayerState body (live players with a known state) |
 | 8 Hit | C>S claim, S>C accepted | `u8 attacker`, `u8 victim`, `u8 weapon` (which item: 0 right-hand melee, 1 left-hand melee, 2 projectile; the server checks it against the attacker's held `weaponRight` / `weaponLeft`), `u16 damage` (claim: as the engine computed it; broadcast: after `damageScale`), `u16 healthAfter` (client sends attacker 0) |
 | 9 Death | S>C | `u8 victim`, `u8 killer`, `u8 weapon` |
@@ -318,6 +326,14 @@ Test aids: `DRAKAN_PVP_SELFTEST=hit:<n>,kill:<n>,respawn:<n>` feeds the victim s
 | Bows `0x1004f` | properties `0x1a` .. `0x1f` are floats (`0x1a` 0.4 .. 2.0, `0x1e` 40.0), `0x16 / 0x17` arrow count 200; **the damage is the arrow's** ("Wooden Arrows" show Damage 5 in the inventory of every bow, not a bow property) | 20 bow records, ids and names only. A projectile claim is 5 (the starting arrows) and capped at 40. |
 | Spells (scroll items `0x100b2`, projectile class `0x10008`) | the dumps carry no damage field for them | A spell projectile claims 10 (`kSpellDamage`, a design value: the real numbers were not decoded), capped at 40 like arrows. Casting was never verified in game here (earlier journals could not cast reliably). |
 
+**2026-10-31 (unverified in game).** `scanProjectiles` now asks the projectile actor for its own property `0x1a` through the
+property accessor (nested guest call, a table lookup) and claims that value when it is 1..40, falling back to the starting arrow's 5 /
+the flat 10; every projectile logs `[pvp] projectile X class C damage property P -> claim damage D`, which is what a bow / spell
+run has to read to settle whether other arrows and spells carry their numbers there. A blade whose holder the lookup misses
+(two-handed weapons) claims as the right hand instead of being dropped. The server cap needs no change: `weaponMaxDamage` already
+holds every table weapon at 4 x its damage (two-handed `0x31f30` 19 -> 76, `0x33e0f` 25 -> 100, hammers `0x32256` 28 -> 112) and
+bows / projectiles at 40.
+
 Ranged hits (`drakan_pvp.cpp` `scanProjectiles`): the engine's projectile code was not traced; instead, each PadMgr
 boundary the actor registry is scanned for projectile actors (arrow: type 9, class `0x1005f`, found in the `bow5` /
 `audio77` RAM dumps; spell: class `0x10008`) that first appear within 900 units of the local player (the shot; other
@@ -326,7 +342,7 @@ every ghost (radius 150, from 60 below to 460 above the ghost's origin). A cross
 projectile. Run: `python scripts/harness/netplay_two_instances.py --pvp --weapon bow --card build/harness/gw-net/a/card/mc0`
 (see the results in `docs/journal/2026-10-31/pvp.md`).
 
-Not done: PvP while mounted, USA disc (PAL addresses; the module reports "no address translation" and stays off), team
+Not done: PvP while mounted, USA disc (PAL addresses; the module reports "no address translation" and stays off, what it needs: `docs/reference/regions.md`), team
 deathmatch in game (unit tests only), lag compensation, arrow / spell damage per ammunition type and per spell (the claim
 is the starting arrow's 5 / a flat 10), real spell casting verified in game, other players' ping (the protocol has no
 ping field, the scoreboard shows "-" for them).
@@ -506,8 +522,8 @@ from every other living player** (their last published position, or the spawn po
 the previous life while another exists. `Respawn.spawnIndex` is that index into the map's `spawn` list (v6 wire format
 unchanged; without a map it is the old counter). The client (`drakan_pvp` -> `drakan_arena::placeAtSpawn`) moves the player
 there (y + 20, refiled in the collision cells like a ghost) at the match start and after every death; with no map the
-walked-track crumbs of PvP are still used. A far teleport can fail the first time (the engine puts the player back where she was while the floor at the target is not resident yet): the placement is watched and repeated every 40 boundaries up to 6 times (`[arena] placement of spawn N took after K tries`; measured 1..5 tries across 46k units). A player outside the map's `bounds` for 4 s, or fallen 6000 units below the lowest spawn point (maps on a cliff top), is put back at a spawn point. The `yaw`
-column of a spawn is stored but not applied (the player's heading is the camera's).
+walked-track crumbs of PvP are still used. A far teleport can fail the first time (the engine puts the player back where she was while the floor at the target is not resident yet): the placement is watched and repeated every 40 boundaries up to 6 times (`[arena] placement of spawn N took after K tries`; measured 1..5 tries across 46k units). A player outside the map's `bounds` for 4 s, or fallen 6000 units below the lowest spawn point (maps on a cliff top), is put back at a spawn point. Placement also sets the heading: the spawn's `yaw` (degrees, 0 = +Z, 90 = +X)
+or, when it is 0, toward the middle of the arena (bounds centre): the player's rotation rows (`+0x20`) are written with the position (`[nettrace-local]` shows the yaw change and the player runs along it).
 
 ### Pickups (host authoritative)
 
@@ -522,6 +538,16 @@ for its `respawnSec` and broadcasts `PickupState{index, taken, player}`. Every o
 the time is up the server broadcasts `taken = 0` and every client spawns a fresh copy at the home position. A new Playing
 phase broadcasts `index = kAllPickups` (everything available), and a late joiner is sent the taken ones. The two messages
 (23 and 24) are a separate block at the end of the v6 enum; peers that do not know them drop them.
+
+**Which `res=` resources spawn (2026-10-31).** The factory returns the new actor's handle in `$v0`; the arena binds the pickup to
+that handle (`is back (actor X, by handle)`). For some resources the factory returns an object the registry never takes (its
+own registry ref word `+0x12` stays 0), so the item never appears; that was the "sometimes never appears on B" of the first runs
+(on both instances alike). Measured: weapons (`0x3372b` club, `0x31f30` great sword, `0x3372a` iron club, `0x33734`, adopted
+weapons on respawn), the power-up class `0x100ab` (`0x31b33`, `0x31b34`) spawn; potions `0x33752`..`0x33754` (class `0x1000a` /
+`0x10059`), bows (`0x31bc9`) and the dagger `0x33cbc` and club `0x3217b` do not, in any level tried. The arena now notices (45 boundaries,
+`cannot be spawned in this level (never registered), disabled`) instead of retrying 8 times, and `configs/mp_maps.ini` uses
+only spawnable resources. An **adopted** pickup of a non-spawnable class (a level's own potion) works until it is taken once and
+then never comes back; use `res=` of a spawnable one next to it instead (items near a `res=` pickup are removed by the world filter).
 
 ### Map definitions
 
@@ -641,11 +667,11 @@ from `arena_candidates.py`.
 
 ### Starting loadout, health, limits found
 
-* A New Game that opens a level other than the first has **no weapon**: the dagger is an object of Surdana's list, not part of the game state. `loadout` spawns the listed resources at the player's feet once the campaign sweep is over and presses the game's Use (L1) through the input glue (`takeUseTap`) while one lies within reach (Use with nothing near calls Arokh, so it is never pressed blindly); the items land in the inventory, equipping stays the player's. Start health is `health` (server points, scaled to Rynn's maximum by `drakan_pvp`).
+* **Starting loadout and auto-equip (2026-10-31, verified on City, Inquisitor, Surdana).** Decoded from the Ghidra decompile: the inventory controller is the player *data object* (`handle +0xfc -> +0x10`) `+0x584` with 24 cells of 16 bytes at `+0x30` {equipped, hot, item handle, icon}; `0x320f70(playerData, itemHandle)` hides the item model and files it in a free cell (what putting a weapon away does; on a level item that is still in the world it hangs the guest, on an item the arena just created it works); `0x341058(ctl, cell, slot, flags)` posts the equip message `0x1045` `{type, flags, cell, slot}` whose handler calls `0x31e460(player, cell, slot, flags)`, and that **refuses silently** when the usability check `0x341858` fails (a weapon's property `0x13` against the melee / bow skill record `0x3d5a30(stats, 1|2)+4`; a new game starts at skill 1). Nested or posted direct calls of those two did nothing visible; the route that works is the game's own Quick Inventory: the arena marks the chosen cell as the only hot slot, sets the list dirty (`ctl+0x238`) and `takeQuickSlot()` makes the input glue act as QUICK1 (`armTick`). Rules: the loadout items (the factory's returned handle is the new actor, stowed once it is registered) then the first usable melee weapon (a bow when there is none) is equipped; when no weapon passes the usability check every player gets the melee skill the first weapon asks for (`[arena] weapon N needs skill 4, has 1: raised`: a City new game carries a skill-4 axe in cell 0, so City needs no `loadout` at all). The loadout resource must be instantiable in the level (see Pickups); Inquisitor uses `0x3372b`, City and Surdana rely on the new game's weapon. The Use-tap route (`takeUseTap`) remains only for the walk test aid.
 * Ghosts of players 46k units away show and move normally (3 ranges tested, 10k / 21k / 36k / 46k); the limit is the floor residency of a *teleport*, handled by the retry above.
 * A pickup is taken with Use, walking over it does nothing.
 
-Not done: spawn yaw, team spawn sets, a menu row (the menu agent reads `drakan_arena::maps()`), loadout auto-equip, arena maps for levels where Rynn starts mounted, the USA disc (PAL addresses).
+Not done: team spawn sets, arena maps for levels where Rynn starts mounted, the USA disc (see `docs/reference/regions.md` "Multiplayer arenas on USA").
 
 ## Tests
 

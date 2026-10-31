@@ -37,7 +37,7 @@ def log(msg: str) -> None:
     print(f"[arena-harness] {msg}", flush=True)
 
 
-def recipe(role: str, fight_s: int) -> str:
+def recipe(role: str, fight_s: int, delay: int = 0) -> str:
     """Times are ms after each instance's `sync play`. Nobody opens the inventory: the arena gives and equips the
     starting loadout itself (drakan_arena armTick)."""
     a = role == "a"
@@ -47,8 +47,12 @@ def recipe(role: str, fight_s: int) -> str:
         lines += [
             "12000 shot a_loadout",
             "22000 shot a_armed",
+            "22500 key down F5",
+            "22600 key up F5",
+            "22800 key down F8",
+            "22900 key up F8",
         ]  # the arena equips the loadout itself (no inventory taps)
-        t = 24000
+        t = 24000 + delay
         timed = []
         for i in range(fight_s * 1000 // 900):
             t += 900
@@ -60,9 +64,9 @@ def recipe(role: str, fight_s: int) -> str:
     else:
         t = 4000
         i = 0
-        lines += ["12000 shot b_loadout", "22000 shot b_armed"]
-        t = 24000
-        while t < fight_s * 1000 + 36000:
+        lines += [f"{12000 + delay} shot b_loadout", f"{22000 + delay} shot b_armed"]
+        t = 24000 + delay
+        while t < fight_s * 1000 + 36000 + delay:
             lines.append(f"{t} shot b_s{i:02d}")
             t += 5000
             i += 1
@@ -82,9 +86,18 @@ def main() -> int:
     ap.add_argument("--pickup-sec", type=int, default=15, help="respawn time of the pickups (test aid)")
     ap.add_argument("--fight", type=int, default=70, help="seconds A swings")
     ap.add_argument(
-        "--goto-ticks", type=int, default=5000, help="boundaries after the level pass when A walks onto the pickup"
+        "--goto-ticks",
+        type=int,
+        default=700,
+        help="boundaries after the level pass when A takes the pickup (engine add)",
     )
     ap.add_argument("--timeout", type=int, default=220)
+    ap.add_argument(
+        "--delay",
+        type=int,
+        default=0,
+        help="ms added before everything after the spawn (heavy maps run slowly with two instances)",
+    )
     ap.add_argument("--exe", type=Path, default=ROOT / "build" / "final-game" / "bin" / "drakan.exe")
     ap.add_argument("--src", type=Path, default=ROOT / "dist" / "DrakanPC")
     ap.add_argument("--env", action="append", default=[], metavar="K=V", help="extra environment for both")
@@ -100,7 +113,7 @@ def main() -> int:
     exes = {k: prepare_folder(a.src, a.exe, ROOT / "build" / f"{a.prefix}-{k}") for k in "ab"}
     for k in "ab":  # the dumps of an earlier run must not pass for this one
         shutil.rmtree(exes[k].parent / "dev" / "world", ignore_errors=True)
-        (out / k / "recipe.txt").write_text(recipe(k, a.fight), encoding="utf-8", newline="\n")
+        (out / k / "recipe.txt").write_text(recipe(k, a.fight, a.delay), encoding="utf-8", newline="\n")
 
     common = {
         "DRAKAN_START_LEVEL": m["level"],
@@ -126,7 +139,7 @@ def main() -> int:
             "DRAKAN_NET_NAME": "Alpha",
             "DRAKAN_NET_FRAG_LIMIT": str(a.frag_limit),
             "DRAKAN_PVP_TEST_PLACE": "140",
-            "DRAKAN_ARENA_TEST_GOTO": f"{a.pickup}@{a.goto_ticks}",
+            "DRAKAN_ARENA_TEST_TAKE": f"{a.pickup}@{a.goto_ticks}",
         },
         "b": {**common, "DRAKAN_NET_CONNECT": f"127.0.0.1:{a.port}", "DRAKAN_NET_NAME": "Bravo"},
     }
@@ -169,7 +182,17 @@ def main() -> int:
     spawn_a = re.findall(r"\[arena\] player placed at spawn (\d+): (\d+) \d+ (\d+)", text["a"])
     spawn_b = re.findall(r"\[arena\] player placed at spawn (\d+): (\d+) \d+ (\d+)", text["b"])
     checks["A and B were given different spawn points"] = bool(spawn_a and spawn_b) and spawn_a[0][0] != spawn_b[0][0]
-    pick = a.pickup
+    checks["A: quick save / load are ignored in the arena (nothing saved)"] = (
+        "quick save ignored: multiplayer arena" in text["a"] and "quick load ignored: multiplayer arena" in text["a"]
+    )
+    checks["A is armed (right hand holds a weapon)"] = (
+        re.search(r"\[arena\] armed: right hand holds actor", text["a"]) is not None
+    )
+    checks["B is armed (right hand holds a weapon)"] = (
+        re.search(r"\[arena\] armed: right hand holds actor", text["b"]) is not None
+    )
+    taken = re.search(r"test: taking pickup (\d+)", text["a"])
+    pick = int(taken.group(1)) if taken else a.pickup  # the aid takes the pickup nearest to A
     checks["A took the pickup (claim sent)"] = f"pickup {pick} (" in text["a"] and "taken here: claim" in text["a"]
     checks["the server accepted it"] = (
         re.search(rf"server: pickup {pick} \(.*\) taken by player 1", text["a"]) is not None

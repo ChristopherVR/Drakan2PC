@@ -608,6 +608,10 @@ void quickSlotsTick(RecompGuest& g, int scr, bool gameplay) {
             (b.src == Binding::Mouse && (f.mousePressed & b.code)))
             slot = int(b.value);
     }
+#if defined(PS2X_HAVE_GSR)
+    if (!slot && drakan_arena::takeQuickSlot())
+        slot = 1;
+#endif
     const bool allowed = gameplay && scr < 0 && !m.suspended() && f.focused && !g_dragon.load() && !invHostView() &&
                          g_invViewRequest == drakan_views::View::None;
     std::string log;

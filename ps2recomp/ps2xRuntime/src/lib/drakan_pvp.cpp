@@ -195,7 +195,11 @@ void hookBladeHit(uint8_t* rdram, R5900Context* c, PS2Runtime* rt) {
     }
     const bool isNew = rd32(rdram, blade + kBladeHitCount) > hitsBefore;
     const int player = drakan_netplay::playerOfGhost(gid);
-    const uint8_t hand = handOfBlade(rdram, blade);
+    // A blade neither holder owns (a two-handed weapon is carried by one holder, but the lookup can miss it mid-swing):
+    // the right hand's record limits the claim on the server.
+    uint8_t hand = handOfBlade(rdram, blade);
+    if (hand >= 2)
+        hand = 0;
     if (g_probe || isNew)
         std::fprintf(stderr, "[pvp] blade %x hit ghost %d (player %d) hand %u damage %d %s\n", blade, gid, player,
                      static_cast<unsigned>(hand), damage, isNew ? "NEW -> claim" : "(same swing)");
@@ -242,7 +246,24 @@ bool segmentHitsGhost(const float a[3], const float b[3], const float g[3]) {
     return false;
 }
 
-void scanProjectiles(const uint8_t* rdram, uint32_t player) {
+// Item property `index` of actor `h` (the property block's accessor: vtable +0x1c, this adjust at +0x18), 0 when
+// absent. The accessor only indexes a table: safe to call nested.
+uint32_t actorProperty(drakan_input::IGuest& guest, const uint8_t* rdram, uint32_t h, uint32_t index) {
+    const uint32_t block = rd32(rdram, h + 0x54), vt = ramPtr(block) ? rd32(rdram, block + 8) : 0;
+    if (!ramPtr(vt))
+        return 0;
+    const uint32_t fn = rd32(rdram, vt + 0x1c);
+    if (!ramPtr(fn))
+        return 0;
+    const auto off = static_cast<int16_t>(rd32(rdram, vt + 0x18) & 0xffffu);
+    const uint32_t pp = guest.call(drakan_input::GuestCall(fn)
+                                       .arg(block + static_cast<uint32_t>(static_cast<int32_t>(off)))
+                                       .arg(index)
+                                       .arg(0xffffffffu));
+    return ramPtr(pp) ? rd32(rdram, pp) : 0;
+}
+
+void scanProjectiles(drakan_input::IGuest& guest, const uint8_t* rdram, uint32_t player) {
     const uint32_t ctx = rd32(rdram, guestAddress(kContextPtr));
     if (!ramPtr(ctx))
         return;
@@ -292,6 +313,13 @@ void scanProjectiles(const uint8_t* rdram, uint32_t player) {
             std::memcpy(pr.last, p, sizeof p);
             pr.born = g_projTick;
             pr.damage = cls == kArrowClass ? drakan::net::kArrowDamage : kSpellDamage;
+            // The projectile's own "Damage" (item property 0x1a, like a blade's): other arrow types and the spells
+            // carry their value there; the table / flat numbers stay the fallback for records without a plausible one.
+            const uint32_t own = actorProperty(guest, rdram, h, 0x1a);
+            if (own >= 1 && own <= drakan::net::kMaxProjectileDamage)
+                pr.damage = static_cast<uint16_t>(own);
+            std::fprintf(stderr, "[pvp] projectile %x class %x damage property %u -> claim damage %u\n", h, cls, own,
+                         static_cast<unsigned>(pr.damage));
             pr.claimed = std::sqrt(dx * dx + dy * dy + dz * dz) > kProjSpawnRadius; // not ours: never claim
             if (g_probe)
                 std::fprintf(stderr, "[pvp] projectile %x class %x at %.0f %.0f %.0f (%s)\n", h, cls,
@@ -654,7 +682,7 @@ void beforePadMgr(drakan_input::IGuest& guest, uint8_t* rdram) {
         case Life::Alive:
             recordCrumb(rdram, player);
             if (g_local.load() && !g_enemies.empty())
-                scanProjectiles(rdram, player);
+                scanProjectiles(guest, rdram, player);
             break;
         case Life::Dying: {
             ++g_lifeTicks;

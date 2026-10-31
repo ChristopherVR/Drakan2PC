@@ -668,8 +668,8 @@ void MatchServer::onPlayerState(ServerPlayer& p, const std::vector<uint8_t>& dat
     if (!decode(data, s))
         return;
     if (p.hasState && !sequenceNewer(s.sequence, p.state.sequence))
-        return; // stale or duplicate
-    constexpr float kMaxCoord = 1.0e6f;
+        return;                         // stale or duplicate
+    constexpr float kMaxCoord = 4.0e6f; // Ravenshold lies at x = 1.3e6
     for (float v : s.pos)
         if (std::fabs(v) > kMaxCoord) {
             ++stats_.statesRejected;
@@ -917,7 +917,7 @@ void MatchServer::onLevelChange(ServerPlayer& p, const std::vector<uint8_t>& dat
     }
     // Who may lead: the co-op authority; without one (deathmatch) the lowest player id (the host of a listen server).
     const PlayerId leader = options_.config.mode == MatchMode::Coop ? coopAuthority_ : players_.begin()->first;
-    constexpr float kMaxCoord = 1.0e6f;
+    constexpr float kMaxCoord = 4.0e6f; // Ravenshold lies at x = 1.3e6
     for (float v : lc.exit)
         if (std::fabs(v) > kMaxCoord) {
             ++stats_.coopRejected;
@@ -991,7 +991,8 @@ int MatchServer::chooseSpawn(const ServerPlayer& p) const {
         if (o.id == p.id || !o.alive)
             continue;
         // A player's published position is the old life's / the level start's for a few seconds after a spawn (the game
-        // moves her to the spawn point at the next frame boundary after the level is ready): trust the spawn point first.
+        // moves her to the spawn point at the next frame boundary after the level is ready): trust the spawn point
+        // first.
         const bool fresh = o.hasSpawnPos && now_ - o.spawnedAtMs < kSpawnTrustMs;
         if (!fresh && o.hasState && o.stateAtMs != 0)
             others.emplace_back(o.state.pos[0], o.state.pos[2]);
@@ -1028,7 +1029,12 @@ void MatchServer::onPickupClaim(ServerPlayer& p, const std::vector<uint8_t>& dat
     if (options_.pickupClaimRange > 0 && p.hasState) {
         const float dx = p.state.pos[0] - def.pos[0], dz = p.state.pos[2] - def.pos[2];
         if (dx * dx + dz * dz > options_.pickupClaimRange * options_.pickupClaimRange) {
-            log("pickup " + std::to_string(c.index) + " claim refused: player " + std::to_string(p.id) + " is too far");
+            log("pickup " + std::to_string(c.index) + " claim refused: player " + std::to_string(p.id) +
+                " is too far (distance " + std::to_string(static_cast<int>(std::sqrt(dx * dx + dz * dz))) +
+                ", player at " + std::to_string(static_cast<int>(p.state.pos[0])) + " " +
+                std::to_string(static_cast<int>(p.state.pos[2])) + ", pickup at " +
+                std::to_string(static_cast<int>(def.pos[0])) + " " + std::to_string(static_cast<int>(def.pos[2])) +
+                ")");
             return;
         }
     }

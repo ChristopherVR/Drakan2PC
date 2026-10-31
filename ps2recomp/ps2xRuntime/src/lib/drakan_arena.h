@@ -78,6 +78,8 @@ void beforePadMgr(drakan_input::IGuest& guest, uint8_t* rdram);
 // Test aid (DRAKAN_ARENA_TEST_GOTO): true when the input glue should press Use (L1) once; the player stands on a
 // pickup.
 bool takeUseTap();
+// EE thread: true when the input glue should act as if QUICK1 was pressed (the auto-equip of the starting weapon).
+bool takeQuickSlot();
 
 // Journal / quest entries must stay empty while this is true (the tab and pause screens clear them).
 bool journalHidden();

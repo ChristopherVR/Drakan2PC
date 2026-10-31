@@ -44,7 +44,7 @@ constexpr uint32_t kContextPtr = 0x5565d4u, kFactory = 0x181ad8u, kKillActor = 0
 // free cell (what putting a weapon away does); kEquipPost(ctl, cell, slot, flags) posts the engine message 0x1045 the
 // Use button sends (slot 0 right hand / melee, 1 bow hand; the handler draws the weapon). The right hand's item is
 // player+0xa48.
-constexpr uint32_t kStow = 0x320f70u, kEquipPost = 0x341058u;
+constexpr uint32_t kStow = 0x320f70u, kEquipPost = 0x341058u, kEquipDirect = 0x31e460u;
 constexpr uint32_t kCtlOffset = 0x584u, kCtlCells = 0x30u, kCellCount = 24u, kHandSlots = 0xa48u;
 constexpr uint32_t kClassMelee = 0x1000eu, kClassBow = 0x1004fu;
 // The tail of the speech controller's idle text buffer: pvp uses 0x5b8480 (4 bytes), coop 0x5b84c0.. (0x34 bytes); the
@@ -204,7 +204,9 @@ struct Pick {
     bool queued = false;      // a spawn of it waits in g_spawnQueue
     unsigned spawnTick = 0;   // tick the spawn was posted
     int spawnTries = 0;
-    uint32_t spawnHandle = 0; // the handle the factory returned for the spawn in flight (0 = none / refused)
+    float home[3] = {0, 0, 0}; // where the live item rests (a spawned one settles away from its map position)
+    unsigned boundTick = 0;    // boundary it became present
+    uint32_t spawnHandle = 0;  // the handle the factory returned for the spawn in flight (0 = none / refused)
 };
 std::vector<Pick> g_picks;
 
@@ -503,6 +505,8 @@ void bindPickups(drakan_input::IGuest&, const uint8_t* rdram) {
         p.def.pos[1] = best->position.y;
         p.def.pos[2] = best->position.z;
         p.state = PState::Present;
+        p.boundTick = g_ticks;
+        std::memcpy(p.home, p.def.pos, sizeof p.home);
         arenaLog("pickup %zu (%s): bound to actor %x (resource index %u, class %x) at %.0f %.0f %.0f", i,
                  p.def.label.c_str(), best->handle, best->resourceIndex, best->classId,
                  static_cast<double>(best->position.x), static_cast<double>(best->position.y),
@@ -510,10 +514,17 @@ void bindPickups(drakan_input::IGuest&, const uint8_t* rdram) {
     }
 }
 
-bool nearAnyPickup(const world::Vec3& pos) {
-    for (const Pick& p : g_picks)
-        if (p.state != PState::Unbound && dist2xz(pos, p.def.pos) < kHomeRadius)
+// A loose item is the map's own when it is bound to a pickup, or lies at an adopted one; items next to a spawned pickup
+// (`res=`) are the level's own copies and go: the map spawns its own (and can respawn it).
+bool nearAnyPickup(const world::Vec3& pos, uint32_t handle) {
+    for (const Pick& p : g_picks) {
+        if (p.state == PState::Unbound && !p.def.resId)
+            continue;
+        if (p.handle == handle || p.spawnHandle == handle)
             return true;
+        if (!p.def.resId && dist2xz(pos, p.def.pos) < kHomeRadius)
+            return true;
+    }
     return false;
 }
 
@@ -541,7 +552,7 @@ unsigned removeCampaign(drakan_input::IGuest& guest, uint8_t* rdram, bool sweepI
         bool item = false;
         if (sweepItems && isItemEntity(e) && !storyObj) {
             const float d = dist2xz(e.position, g_startPos);
-            item = !(g_haveStart && d < kKeepRadius) && !nearAnyPickup(e.position);
+            item = !(g_haveStart && d < kKeepRadius) && !nearAnyPickup(e.position, e.handle);
         }
         if (!creature && !storyObj && !item)
             continue;
@@ -561,10 +572,43 @@ unsigned removeCampaign(drakan_input::IGuest& guest, uint8_t* rdram, bool sweepI
 // at best, inside a slope at worst. Players appear 250 units higher and drop onto whatever is below.
 constexpr float kSpawnLift = 250.0f;
 
+// Facing of the placement in degrees (0 = +Z, 90 = +X), NaN = keep the heading. The actor's rotation is three rows of
+// three floats at +0x20: rows 0 and 2 hold the horizontal axes, row 2 is where she looks (drakan_pvp's test placement
+// puts a ghost in front along it).
+float g_placeYaw = std::nanf("");
+
+void writeYaw(drakan_input::IGuest& guest, uint32_t player, float yawDeg) {
+    const float rad = yawDeg * 3.14159265f / 180.0f, fx = std::sin(rad), fz = std::cos(rad);
+    const float m[9] = {fz, 0, -fx, 0, 1, 0, fx, 0, fz};
+    for (uint32_t i = 0; i < 9; ++i)
+        guest.writeF(player + 0x20 + 4u * i, m[i]);
+}
+
 void teleportOnce(drakan_input::IGuest& guest, uint32_t player, const float pos[3]) {
     for (int k = 0; k < 3; ++k)
         guest.writeF(player + 0x14 + 4u * static_cast<uint32_t>(k), pos[k] + (k == 1 ? kSpawnLift : 0.0f));
+    if (!std::isnan(g_placeYaw))
+        writeYaw(guest, player, g_placeYaw);
     drakan_ghost::refileActor(guest, player);
+}
+
+// The way a spawn point faces: its own `yaw` when the map gives one, else toward the middle of the arena.
+float spawnYawDeg(const ArenaDef& def, const drakan::net::ArenaSpawn& s) {
+    if (s.yawDeg != 0.0f)
+        return s.yawDeg;
+    float cx = 0, cz = 0;
+    if (def.hasBounds) {
+        cx = (def.bounds[0] + def.bounds[2]) * 0.5f;
+        cz = (def.bounds[1] + def.bounds[3]) * 0.5f;
+    } else {
+        for (const auto& o : def.spawns) {
+            cx += o.pos[0];
+            cz += o.pos[2];
+        }
+        cx /= static_cast<float>(std::max<size_t>(def.spawns.size(), 1));
+        cz /= static_cast<float>(std::max<size_t>(def.spawns.size(), 1));
+    }
+    return std::atan2(cx - s.pos[0], cz - s.pos[2]) * 180.0f / 3.14159265f;
 }
 
 // The engine puts a player back where she came from when no floor is resident at the target (the terrain streams around
@@ -573,7 +617,10 @@ void teleportOnce(drakan_input::IGuest& guest, uint32_t player, const float pos[
 struct GotoStep {
     int pickup;
     unsigned at;
+    bool take = false; // DRAKAN_ARENA_TEST_TAKE: the item vanishes (a take without walking)
     bool done = false;
+    std::chrono::steady_clock::time_point killTime;
+    unsigned killAt = 0; // take aid: boundary the item vanishes (0 = the player is not on her way yet)
 };
 std::vector<GotoStep> g_goto; // test aid DRAKAN_ARENA_TEST_GOTO, see gotoTick
 unsigned g_sweepFrom = 0;     // test aid: boundary the walk through the pickup starts (0 = none)
@@ -588,7 +635,9 @@ struct Placement {
 constexpr float kPlaceTolerance = 3500.0f;
 constexpr unsigned kPlaceTries = 6, kPlaceRetryTicks = 40;
 
-void teleport(drakan_input::IGuest& guest, uint32_t player, const float pos[3], int index = -1) {
+void teleport(drakan_input::IGuest& guest, uint32_t player, const float pos[3], int index = -1,
+              float yawDeg = std::nanf("")) {
+    g_placeYaw = yawDeg;
     teleportOnce(guest, player, pos);
     g_place.active = true;
     std::memcpy(g_place.target, pos, sizeof g_place.target);
@@ -720,8 +769,10 @@ void pickupTick(drakan_input::IGuest& guest, uint8_t* rdram) {
                     float pos[3];
                     for (int k = 0; k < 3; ++k)
                         pos[k] = rdf(rdram, p.handle + 0x14 + 4u * static_cast<uint32_t>(k));
-                    const float dx = pos[0] - p.def.pos[0], dz = pos[2] - p.def.pos[2];
-                    here = std::sqrt(dx * dx + dz * dz) < kHomeRadius && std::fabs(pos[1] - p.def.pos[1]) < 800.0f;
+                    if (g_ticks < p.boundTick + 150) // still settling (a spawned item falls to the ground): follow it
+                        std::memcpy(p.home, pos, sizeof pos);
+                    const float dx = pos[0] - p.home[0], dz = pos[2] - p.home[2];
+                    here = std::sqrt(dx * dx + dz * dz) < kHomeRadius && std::fabs(pos[1] - p.home[1]) < 800.0f;
                 }
                 if (here)
                     break;
@@ -768,9 +819,21 @@ void pickupTick(drakan_input::IGuest& guest, uint8_t* rdram) {
                     p.handle = found->handle;
                     p.ref = found->ref;
                     p.state = PState::Present;
+                    p.boundTick = g_ticks;
+                    p.home[0] = found->position.x;
+                    p.home[1] = found->position.y;
+                    p.home[2] = found->position.z;
                     arenaLog("pickup %zu (%s) is back (actor %x, %s)", i, p.def.label.c_str(), found->handle,
                              p.spawnHandle == found->handle ? "by handle" : "by scan");
                     arenaShot("pickup" + std::to_string(i) + "_back");
+                } else if (p.spawnHandle && g_ticks > p.spawnTick + 45 && ramPtr(p.spawnHandle) &&
+                           (rd32(rdram, p.spawnHandle + 0x10) >> 16) == 0) {
+                    // The factory made an object the registry never took: the resource's model is not part of this
+                    // level, a retry cannot help.
+                    arenaLog(
+                        "pickup %zu (%s): resource %x cannot be spawned in this level (never registered), disabled", i,
+                        p.def.label.c_str(), p.def.resId);
+                    p.state = PState::Unbound;
                 } else if (g_ticks > p.spawnTick + 180) {
                     for (const auto& e : g_snap.entities)
                         if (e.resourceIndex == p.resIndex)
@@ -865,6 +928,7 @@ uint32_t itemClassOf(const uint8_t* rdram, uint32_t handle) {
 // Auto-equip: once the loadout is in, a player whose right hand is empty equips the first melee weapon of the inventory
 // (the loadout's first, else any; a bow when there is nothing else). Retried every two seconds: the engine refuses it
 // while she is mid-animation or on a mount.
+std::atomic<bool> g_quickRequest{false};
 struct ArmState {
     bool done = false;
     unsigned next = 0;
@@ -897,13 +961,46 @@ void armTick(drakan_input::IGuest& guest, uint8_t* rdram, uint32_t actor) {
             if (h <= 0x53u || !ramPtr(h))
                 continue;
             const uint32_t cls = itemClassOf(rdram, h);
-            if (cls == (pass == 0 ? kClassMelee : kClassBow)) {
+            // The engine refuses to equip an item its usability check (0x341858: broken / unusable) fails.
+            if (cls == (pass == 0 ? kClassMelee : kClassBow) &&
+                guest.call(drakan_input::GuestCall(guestAddress(0x341858u)).arg(h)) != 0) {
                 cell = static_cast<int>(i);
                 slot = pass;
                 break;
             }
         }
     if (cell < 0) {
+        // No weapon the player may use: a new game outside the first level starts with a weapon that needs more melee
+        // skill than she has (property 0x13 vs the skill record, 0x341858). Everybody in the arena gets the skill the
+        // first melee weapon asks for (skill 1 = melee, 2 = bow; the record's +4 is the plain level).
+        for (uint32_t i = 0; i < kCellCount && g_arm.tries < 3; ++i) {
+            const uint32_t h = rd32(rdram, ctl + kCtlCells + i * 16u + 8u);
+            if (h <= 0x53u || !ramPtr(h))
+                continue;
+            const uint32_t cls = itemClassOf(rdram, h);
+            if (cls != kClassMelee && cls != kClassBow)
+                continue;
+            const uint32_t block = rd32(rdram, h + 0x54), vt = ramPtr(block) ? rd32(rdram, block + 8) : 0;
+            if (!ramPtr(vt))
+                continue;
+            const uint32_t fn = rd32(rdram, vt + 0x1c);
+            const int16_t off = static_cast<int16_t>(rd32(rdram, vt + 0x18) & 0xffffu);
+            const uint32_t pp = guest.call(drakan_input::GuestCall(fn)
+                                               .arg(block + static_cast<uint32_t>(static_cast<int32_t>(off)))
+                                               .arg(0x13u)
+                                               .arg(0xffffffffu));
+            const uint32_t need = ramPtr(pp) ? rd32(rdram, pp) : 0;
+            const uint32_t skill = guest.call(drakan_input::GuestCall(guestAddress(0x3d5a30u))
+                                                  .arg(guestAddress(0x4fbac8u))
+                                                  .arg(cls == kClassBow ? 2u : 1u));
+            if (!ramPtr(skill) || need > 50)
+                continue;
+            const uint32_t have = rd32(rdram, skill + 4);
+            arenaLog("  weapon %x needs skill %u, has %u%s", h, need, have, have < need ? ": raised" : "");
+            if (have < need)
+                guest.write32(skill + 4, need);
+            break;
+        }
         arenaLog("armed: no weapon in the inventory (try %d)", g_arm.tries + 1);
         if (++g_arm.tries >= 10)
             g_arm.done = true;
@@ -914,10 +1011,34 @@ void armTick(drakan_input::IGuest& guest, uint8_t* rdram, uint32_t actor) {
         g_arm.done = true;
         return;
     }
-    arenaLog("armed: equipping cell %d (actor %x) into slot %u (try %d)", cell,
-             rd32(rdram, ctl + kCtlCells + static_cast<uint32_t>(cell) * 16u + 8u), slot, g_arm.tries);
-    guest.post(
-        drakan_input::GuestCall(guestAddress(kEquipPost)).arg(ctl).arg(static_cast<uint32_t>(cell)).arg(slot).arg(0));
+    if (g_arm.tries == 1 || g_arm.tries == 4) {
+        for (uint32_t i = 0; i < kCellCount; ++i) {
+            const uint32_t h = rd32(rdram, ctl + kCtlCells + i * 16u + 8u);
+            if (h)
+                arenaLog("  cell %u: equipped %u hot %u handle %x class %x", i, rd32(rdram, ctl + kCtlCells + i * 16u),
+                         rd32(rdram, ctl + kCtlCells + i * 16u + 4u), h, itemClassOf(rdram, h));
+        }
+        arenaLog("  hands: %x %x %x %x, state %x flags %x, ctl select %d", rd32(rdram, player + kHandSlots),
+                 rd32(rdram, player + kHandSlots + 0x10), rd32(rdram, player + kHandSlots + 0x20),
+                 rd32(rdram, player + kHandSlots + 0x30), rd32(rdram, player + 0x1040), rd32(rdram, player + 0x94),
+                 static_cast<int>(rd32(rdram, ctl + 0x20)));
+    }
+    arenaLog("armed: equipping cell %d (actor %x) into slot %u (try %d, %s)", cell,
+             rd32(rdram, ctl + kCtlCells + static_cast<uint32_t>(cell) * 16u + 8u), slot, g_arm.tries, "quick slot");
+    if (g_arm.tries == 1) { // why would the engine refuse? (31e460's checks, read-only helpers)
+        const uint32_t item = rd32(rdram, ctl + kCtlCells + static_cast<uint32_t>(cell) * 16u + 8u);
+        const uint32_t r858 = guest.call(drakan_input::GuestCall(guestAddress(0x341858u)).arg(item));
+        const uint32_t r4a8 = guest.call(drakan_input::GuestCall(guestAddress(0x3414a8u)).arg(ctl).arg(item));
+        const uint32_t r510 = guest.call(drakan_input::GuestCall(guestAddress(0x341510u)).arg(ctl).arg(item));
+        arenaLog("  equip checks: stats+0x70 %u, player+0x1040 %u, can %u, 3414a8 %u, 341510 %u",
+                 rd32(rdram, guestAddress(0x4fbac8u) + 0x70), rd32(rdram, player + 0x1040), r858, r4a8, r510);
+    }
+    // Equipping needs the engine's own use path (a posted message / a direct call did nothing visible): mark the cell
+    // as the only quick slot and let the input glue press QUICK1 (the native bar confirms and equips).
+    for (uint32_t i = 0; i < kCellCount; ++i)
+        guest.write32(ctl + kCtlCells + i * 16u + 4u, i == static_cast<uint32_t>(cell) ? 1u : 0u);
+    guest.write32(ctl + 0x238u, 1u); // list dirty: rebuilt at the next open
+    g_quickRequest.store(true);
 }
 
 void boundsTick(drakan_input::IGuest& guest, uint8_t* rdram, uint32_t player) {
@@ -954,7 +1075,8 @@ void boundsTick(drakan_input::IGuest& guest, uint8_t* rdram, uint32_t player) {
         return;
     arenaLog("%s (%.0f %.0f %.0f): back to spawn %d", fell ? "fell out of the map" : "outside the map for too long",
              static_cast<double>(x), static_cast<double>(y), static_cast<double>(z), s);
-    teleport(guest, player, def.spawns[static_cast<size_t>(s)].pos, s);
+    teleport(guest, player, def.spawns[static_cast<size_t>(s)].pos, s,
+             spawnYawDeg(def, def.spawns[static_cast<size_t>(s)]));
 }
 
 // Test aid DRAKAN_ARENA_TOUR=<boundaries per stop>: visits every spawn point in turn (screenshots come from the input
@@ -1029,6 +1151,50 @@ void gotoTick(drakan_input::IGuest& guest, const uint8_t* rdram, uint32_t player
     for (GotoStep& s : g_goto) {
         if (s.done || g_ticks < g_passTick + s.at || static_cast<size_t>(s.pickup) >= g_picks.size())
             continue;
+        if (s.take) {
+            // The aid takes the present pickup nearest to the player (the server only accepts a claim from within 4000
+            // units of the map's position), walking her next to it when none is close: she is put 800 units from it,
+            // never on it (the engine would pick it up itself), and the item vanishes once the placement and the
+            // server's view of her position have settled.
+            if (!s.killAt) {
+                int best = -1;
+                float bestD = 1e30f;
+                for (size_t k = 0; k < g_picks.size(); ++k) {
+                    if (g_picks[k].state != PState::Present)
+                        continue;
+                    const float d = std::hypot(rdf(rdram, player + 0x14) - g_picks[k].def.pos[0],
+                                               rdf(rdram, player + 0x1c) - g_picks[k].def.pos[2]);
+                    if (d < bestD) {
+                        bestD = d;
+                        best = static_cast<int>(k);
+                    }
+                }
+                if (best < 0)
+                    continue;
+                s.pickup = best;
+                const Pick& p = g_picks[static_cast<size_t>(best)];
+                if (bestD > 3000.0f) {
+                    float pos[3] = {p.def.pos[0] + 800.0f, p.def.pos[1] - kSpawnLift + 60.0f, p.def.pos[2]};
+                    teleport(guest, player, pos, -2);
+                }
+                s.killAt = 1;
+                s.killTime = std::chrono::steady_clock::now() + std::chrono::seconds(4);
+                arenaLog("test: taking pickup %d (%s), the player is %.0f units away", best, p.def.label.c_str(),
+                         static_cast<double>(bestD));
+                continue;
+            }
+            const Pick& p = g_picks[static_cast<size_t>(s.pickup)];
+            if (g_place.active || std::chrono::steady_clock::now() < s.killTime)
+                continue; // real time: the server must have seen the position (state packets)
+            if (p.state != PState::Present)
+                continue; // taken by something else meanwhile: the claim path runs by itself
+            s.done = true;
+            arenaShot("pickup" + std::to_string(s.pickup) + "_before");
+            arenaLog("test: pickup %d (%s, actor %x) vanishes the way it does when the engine picks it up", s.pickup,
+                     p.def.label.c_str(), p.handle);
+            killActor(guest, const_cast<uint8_t*>(rdram), p.handle);
+            continue;
+        }
         s.done = true;
         g_gotoWatch = s.pickup;
         g_gotoWatchUntil = g_ticks + 400;
@@ -1171,6 +1337,10 @@ bool takePickupClaim(uint16_t& index) {
     return true;
 }
 
+bool takeQuickSlot() {
+    return g_quickRequest.exchange(false);
+}
+
 bool takeUseTap() {
     if (g_useTaps <= 0 || g_ticks < g_useTapAt)
         return false;
@@ -1199,7 +1369,7 @@ bool placeAtSpawn(drakan_input::IGuest& guest, uint8_t* rdram, int index) {
     const auto& s = def.spawns[static_cast<size_t>(index)];
     if (!g_haveStart)
         captureStart(rdram, player);
-    teleport(guest, player, s.pos, index);
+    teleport(guest, player, s.pos, index, spawnYawDeg(def, s));
     g_outsideTicks = 0;
     arenaLog("player placed at spawn %d: %.0f %.0f %.0f", index, static_cast<double>(s.pos[0]),
              static_cast<double>(s.pos[1]), static_cast<double>(s.pos[2]));
@@ -1235,12 +1405,15 @@ void install(PS2Runtime& rt) {
     g_shots = std::getenv("DRAKAN_ARENA_SHOTS") != nullptr;
     if (const char* t = std::getenv("DRAKAN_ARENA_TOUR"))
         g_tourEvery = std::max(0, std::atoi(t));
-    if (const char* t = std::getenv("DRAKAN_ARENA_TEST_GOTO")) {
+    for (const char* var : {"DRAKAN_ARENA_TEST_GOTO", "DRAKAN_ARENA_TEST_TAKE"}) {
+        const char* t = std::getenv(var);
+        if (!t)
+            continue;
         for (const char* p = t; *p;) {
             int idx = 0;
             unsigned at = 0;
             if (std::sscanf(p, "%d@%u", &idx, &at) == 2 && idx >= 0)
-                g_goto.push_back({idx, at});
+                g_goto.push_back({idx, at, std::strstr(var, "TAKE") != nullptr});
             while (*p && *p != ',')
                 ++p;
             if (*p == ',')
@@ -1291,6 +1464,15 @@ void beforePadMgr(drakan_input::IGuest& guest, uint8_t* rdram) {
     if (!g_active.load())
         return;
     const uint32_t player = controlledActor(rdram);
+    {
+        static bool lastReady = true;
+        const bool ready = drakan_ghost::ready();
+        if (ready != lastReady) {
+            lastReady = ready;
+            arenaLog("ghost layer %s (arena ticks %s)", ready ? "ready again" : "not ready",
+                     ready ? "resume" : "pause");
+        }
+    }
     if (!ramPtr(player) || !drakan_ghost::ready())
         return;
     ++g_ticks;

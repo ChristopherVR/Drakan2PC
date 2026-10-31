@@ -285,6 +285,7 @@ every struct offset the feature reads against the -4/-2 shifts above):
 
 | Inventory / Tab screen / typography / map mouse (`gameui/Addresses.h`) | ~80, player object offsets shifted | 3–4 days |
 | Dual wield, object motion, parry/combat audits | ~40 | 1–2 days |
+| Multiplayer arenas / PvP (`drakan_arena`, `drakan_pvp`, `drakan_ghost`; logs "disabled: no address translation") | ~20 addresses, all `exact` or `neighbour` in `analysis/regions/usa/*_map.csv` (below), plus the typed player layout | 3–4 days, not started: no USA disc to run it |
 | Subtitles (SetSubtitle, speech buffer; English USA speech timings differ) | ~5 + new subtitle timings | 1 day |
 | Browser/Linux USA build and play validation (boot filename already profile-driven) | — | still to validate |
 
@@ -300,3 +301,24 @@ addresses in functions without a USA match. Player-object offsets shift by 4 fro
 `analysis/regions/usa/function_map.csv` maps 99.8 % of the PAL functions, so code addresses are mostly mechanical;
 the struct-offset audit is the real work. Data addresses come from `data_map.csv` (3,198 PAL addresses with an
 unconflicted USA pair) or, for addresses no matched body references, from reading the code.
+
+### Multiplayer arenas on USA: what is needed (2026-10-31)
+
+`drakan_arena::install` stops with "disabled: no address translation for this disc profile" because none of its addresses are
+in the audited `addresses` table of `configs/regions/usa.json` (the CSV maps are candidates, not an audited table), and the
+arena would not work with them alone: it reads **PAL object layouts**. To enable it on USA:
+
+1. Add to `configs/regions/usa.json` (PAL -> USA, from `function_map.csv` / `data_map.csv`): engine context `0x5565d4` ->
+   `0x555a54`, stats block `0x4fbac8` -> `0x4fc948`, hp key `0x4fe86c` -> `0x4ff6ec`, handle vtable `0x51b8b0` -> `0x51ac30`, level
+   word `0x4fbaf0` -> `0x4fc970`; functions kill actor `0x1413c0` -> `0x141360`, item factory `0x181ad8` -> `0x181a78`,
+   stow `0x320f70` -> `0x320ea8`, equip message `0x341058` -> `0x340f48`, usability check `0x341858` -> `0x341748`,
+   skill record `0x3d5a30` -> `0x3d5850` (neighbour match, verify), blade hit `0x498020` -> `0x4977f8`, damage method `0x314ab0` ->
+   `0x3149e8`. Ghost and netplay need their own lists (`drakan_ghost.cpp` constants).
+2. Port the layouts: the player data object's inventory controller (`+0x584`), equipment slots (`+0xa48`), state words (`+0x94`,
+   `+0x1040`) and the holders (`+0xeb4`, `+0xe90`) are PAL offsets; the USA object is 4 bytes shorter in places (see
+   "Structure layouts": `+0xab0` -> `+0xaac`), so each must be audited and moved into a typed `Profile` layout like
+   `CameraLayout`. The inventory cell stride (16) and the world snapshot layout (`runtime/world`) must be re-checked too.
+3. Re-run `scripts/harness/arena_two_instances.py` against a USA play folder; the PAL harness numbers are the reference.
+The disc itself has the same levels, so `configs/mp_maps.ini` positions carry over unchanged. Not done here: no USA disc was
+available to verify any of it, and an unverified mapping would silently misread RAM.
+
