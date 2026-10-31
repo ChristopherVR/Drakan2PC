@@ -72,3 +72,26 @@ Runs `build/harness/ghostB` (scripts: `build/ghost/ghost2.txt`, registry scanner
 - Not verified: attack and jump clips on the ghost (it was off screen at +300 x during those frames), and the
   dedicated lifecycle checks (destroy before exit / New Game / menu save / F5, no second `0x10009` in the save,
   respawn after load).
+
+### Follow-up runs (offset 120, lifecycle checks)
+
+Play folder `build/ghost-anim-play`, runs `ganim2`, `glcA`, `glcB`, `glcC` under `build/harness/` (recipes `mirror.txt`,
+`lcA/B/C.txt` in the play folder; registry scan `build/ghost/regscan.py` over `ram_*.ram` dumps).
+
+- **Jump (`ganim2`, `DRAKAN_GHOST_OFFSET=120,0`):** the ghost is visible behind/beside the player and shows the jump pose
+  (arms out, off the ground) about 1 s after the player's jump. **Attack:** the player is unarmed; the ghost overlaps the player
+  in the attack frames and no weapon clip was distinguishable from the screenshots, so an attack clip on the ghost is
+  *not* confirmed (needs an armed save).
+- **Save while a ghost exists (F9 ghost, no mirror):** F5 (`glcA`, Slot33) and menu Save Game (`glcB`, Slot1) both log
+  `[ghost] destroyed id 1 before beforeSaveWrite`; the registry scan one frame later shows a single `0x10009` actor. After
+  F8 the loaded world (`glcA ram_loaded`) has exactly one `0x10009` (the player, `+0x4d8` = 1), so the written save contains no
+  ghost. Player HP block unchanged.
+- **Respawn after save/load (mirror, `glcC`):** the ghost is destroyed before the save, auto respawned (id 3) after
+  `afterSaveWrite`, then F8: `ram_loaded_early` / `late` hold the player plus one new ghost (id 4, new handle, ref 4611);
+  no stale second ghost, no crash.
+- **Level change (New Game, intro -> Surdana):** the mirror ghost spawned in the intro (id 1) is gone at the next
+  `beforeLevelLoad` (no "destroyed" line: `destroyActor` found it already dead, the engine tears the pools down before
+  `Level_Load`) and the ghost list is cleared and respawned (id 2). The restore load (fromSave=1) behaves the same: ghost 3 is
+  not reported destroyed by our listener, yet it is absent afterwards. So the listener is a safety net; observed teardown is
+  done by the engine before `Level_Load`.
+- Not verified: a level change through an exit trigger, an armed attack clip on the ghost.
