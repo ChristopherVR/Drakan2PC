@@ -211,7 +211,7 @@ static void testLoad() {
     CHECK(s.video.vsync && s.video.aspect == Aspect::Ratio4x3 && s.video.scaleAuto);
     CHECK(s.audio.device == "Speakers (Realtek #2)");
     CHECK(s.controls.captureMouse && s.controls.sensX == 0.0020f);
-    CHECK_EQ(s.controls.game.lines.size(), 9u); // seven explicit bindings plus migrated F5/F8
+    CHECK_EQ(s.controls.game.lines.size(), 10u); // seven explicit bindings plus migrated F5/F8/F3
     CHECK_EQ(s.controls.menu.lines.size(), 2u);
     CHECK((s.controls.menu.sourcesFor("CIRCLE") == std::vector<std::string>{"ESC"}));
     CHECK(s.controls.game.lines[1].docLine >= 0);
@@ -397,6 +397,21 @@ static void testSaveMinimalDiff() {
 }
 
 static void testBindings() {
+    {
+        SettingsStore debug;
+        debug.loadFromText("", "[bindings]\nW = LSTICK_UP\n");
+        Settings s = debug.loaded();
+        CHECK((s.controls.game.sourcesFor("DEBUG_MENU") == std::vector<std::string>{"F3"}));
+        s.controls.game.clearAction("DEBUG_MENU");
+        s.controls.game.bind("DEBUG_MENU", "F12");
+        std::string a, b;
+        debug.render(s, a, b);
+        CHECK(contains(b, "F12 = DEBUG_MENU"));
+        CHECK(contains(b, "F3 = NONE"));
+        SettingsStore reload;
+        reload.loadFromText(a, b);
+        CHECK((reload.loaded().controls.game.sourcesFor("DEBUG_MENU") == std::vector<std::string>{"F12"}));
+    }
     {
         SettingsStore quick;
         quick.loadFromText("", "[bindings]\nW = LSTICK_UP\n");

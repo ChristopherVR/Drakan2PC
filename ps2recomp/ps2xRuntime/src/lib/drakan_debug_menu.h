@@ -1,10 +1,11 @@
 // Drakan: the engine's developer debug menu (docs/reference/debug-menu.md).
-// The PAL ELF still holds the menu: the object at 0x4e8d48 with 125 options on 11 pages, their handlers and the value
-// formatter, and Engine_Tick still updates it while it is open. The retail build compiled out what opened it, what
-// routed keys to it and what drew it. The runtime supplies those: F3 opens and closes it (drakan.ini [general]
-// debug_menu = 1, Settings > Gameplay > Developer); while it is open the pad manager's command callback is the menu's
-// own key callback (as on the PC development build), so the bound keys and the controller drive the native handler,
-// and the settings overlay's HUD draws the current page.
+// Both discs still hold the menu: the object (PAL 0x4e8d48) with 125 options on 11 pages, their handlers and the
+// value formatter, and Engine_Tick still updates it while it is open. The retail build compiled out what opened it,
+// what routed keys to it and what drew it. The runtime supplies those: the DEBUG_MENU binding (F3 by default) opens and
+// closes it (drakan.ini [general] debug_menu = 1, Settings > Gameplay > Developer). While it is open the pad manager's
+// command callback is the menu's own key callback (as on the PC development build), the game's input is muted
+// (InputModule::setGuestMuted: WASD and the mouse do not move Rynn) and the keyboard / controller reach the native
+// handler as pad taps; the settings overlay's HUD draws the current page.
 #pragma once
 #include <cstdint>
 #include <string>
@@ -23,9 +24,9 @@ void setEnabled(bool on); // thread safe; off closes an open menu at the next fr
 bool enabled();
 bool isOpen(); // thread safe
 
-void install(PS2Runtime& runtime); // the hook on the menu's key callback (Cross = Enter, Start = close)
-// EE thread, PadMgr_Update boundary after the input frame began: F3 / PgUp / PgDn, opening, closing and the callback
-// swap. The pad manager dispatches this frame's keys to the menu.
+void install(PS2Runtime& runtime); // the hook on the menu's key callback (Cross = Enter, Start = close), the HUD
+// EE thread, PadMgr_Update boundary after the input frame began: the toggle binding, opening, closing, the callback
+// swap and the menu keys (taps the pad manager dispatches to the menu).
 void beforePadMgr(drakan_input::IGuest& guest, drakan_input::InputModule& input, bool settingsOpen);
 // EE thread, after PadMgr_Update: copies the current page (names and formatted values) for the HUD.
 void afterPadMgr(drakan_input::IGuest& guest);

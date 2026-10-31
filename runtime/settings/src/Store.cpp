@@ -552,7 +552,8 @@ BindingLayer parseLayer(const IniDoc& doc, const std::string& section) {
     }
     if (section == "bindings") {
         // Match the input module's implicit shortcuts so an older ini shows its effective F5/F8 bindings.
-        for (const auto& [key, action] : {std::pair{"F5", "QUICKSAVE"}, std::pair{"F8", "QUICKLOAD"}})
+        for (const auto& [key, action] :
+             {std::pair{"F5", "QUICKSAVE"}, std::pair{"F8", "QUICKLOAD"}, std::pair{"F3", "DEBUG_MENU"}})
             if (!doc.has(section, key) && l.sourcesFor(action).empty())
                 l.bind(action, key);
     }
@@ -562,7 +563,8 @@ BindingLayer parseLayer(const IniDoc& doc, const std::string& section) {
 void writeLayer(const BindingLayer& before, const BindingLayer& requested, IniDoc& doc, const std::string& section) {
     BindingLayer after = requested;
     if (section == "bindings")
-        for (const auto& [key, action] : {std::pair{"F5", "QUICKSAVE"}, std::pair{"F8", "QUICKLOAD"}})
+        for (const auto& [key, action] :
+             {std::pair{"F5", "QUICKSAVE"}, std::pair{"F8", "QUICKLOAD"}, std::pair{"F3", "DEBUG_MENU"}})
             if (!before.sourcesFor(action).empty() && requested.sourcesFor(action).empty() &&
                 requested.actionsFor(key).empty())
                 after.bind("NONE", key);
@@ -570,7 +572,8 @@ void writeLayer(const BindingLayer& before, const BindingLayer& requested, IniDo
         for (const auto& line : before.lines)
             if (after.actionsFor(line.source).empty() &&
                 (std::find(line.actions.begin(), line.actions.end(), "QUICKSAVE") != line.actions.end() ||
-                 std::find(line.actions.begin(), line.actions.end(), "QUICKLOAD") != line.actions.end()))
+                 std::find(line.actions.begin(), line.actions.end(), "QUICKLOAD") != line.actions.end() ||
+                 std::find(line.actions.begin(), line.actions.end(), "DEBUG_MENU") != line.actions.end()))
                 after.bind("NONE", line.source); // preserve a deliberate unbind across input-config migration
     if (before == after)
         return;

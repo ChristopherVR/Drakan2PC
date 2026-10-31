@@ -123,6 +123,7 @@ class RegionProfileTests(unittest.TestCase):
             0x4FBAFC,
             0x5565D4,
             *runtime_profile.REQUIREMENTS["DirectMouseLook"],
+            *runtime_profile.REQUIREMENTS["DebugMenu"],
         ):
             incomplete = copy.deepcopy(profile)
             del incomplete["addresses"][f"0x{address:08x}"]
@@ -203,6 +204,14 @@ class RegionProfileTests(unittest.TestCase):
             mutation(invalid)
             with self.assertRaises(ValueError):
                 runtime_profile.validate("usa", identity, invalid)
+
+    def test_debug_menu_requires_an_input_integration(self):
+        identity, profile = runtime_profile.load_profile(ROOT / "scripts/buildtool/regions.json", ROOT, "usa")
+        invalid = copy.deepcopy(profile)
+        for feature in ("BasicInput", "DirectMouseLook", "MovementInput"):
+            invalid["features"].remove(feature)
+        with self.assertRaisesRegex(ValueError, "DebugMenu requires an input integration"):
+            runtime_profile.validate("usa", identity, invalid)
 
     def test_new_disc_generates_without_region_specific_code(self):
         registry = copy.deepcopy(REGIONS)

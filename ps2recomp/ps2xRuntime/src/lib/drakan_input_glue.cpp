@@ -1048,6 +1048,16 @@ void drakanInputBeforePadMgr(uint8_t* ram, R5900Context* context, PS2Runtime* ru
     module().beforePadMgrUpdate(guest, module().controlledDragon(guest));
 }
 
+// The debug menu around the basic-input PadMgr hook (drakan_overrides.cpp, discs without AdvancedInput).
+void drakanDebugMenuBeforePadMgr(uint8_t* ram, R5900Context* context, PS2Runtime* runtime) {
+    RecompGuest guest(ram, context, runtime);
+    drakan_debug_menu::beforePadMgr(guest, module(), drakan_settings_host::isOpen());
+}
+void drakanDebugMenuAfterPadMgr(uint8_t* ram, R5900Context* context, PS2Runtime* runtime) {
+    RecompGuest guest(ram, context, runtime);
+    drakan_debug_menu::afterPadMgr(guest);
+}
+
 void drakanInputAfterMovement(uint8_t* ram, R5900Context* context, PS2Runtime* runtime) {
     RecompGuest guest(ram, context, runtime);
     module().afterMovementInput(guest);

@@ -12,10 +12,11 @@ enum class CallAbi { FprFloat, GprBits }; // how the float angle is passed to FU
 struct Binding {
     enum Src { Key, Mouse, WheelUp, WheelDown } src = Key;
     int code = 0; // Key: DIK scancode; Mouse: MouseBtn bit
-    enum Act { PadBtn, LStick, RStick, Walk, Action, Command, View, Quick, Save } act = PadBtn;
+    enum Act { PadBtn, LStick, RStick, Walk, Action, Command, View, Quick, Save, DebugMenu } act = PadBtn;
     uint32_t value = 0; // PadBtn: Pad mask; L/RStick: 0 up,1 down,2 left,3 right; Action: action id; Command: command
                         // id; View: kViewMap / kViewStrip; Quick: quick-slot number 1..kQuickSlotMax;
-                        // Save: kQuickSave / kQuickLoad
+                        // Save: kQuickSave / kQuickLoad; DebugMenu: 0 (open / close the engine's debug menu,
+                        // handled by the integration)
 };
 // VIEW_MAP / VIEW_STRIP: open (gameplay) or close an Order-of-the-Flame style view of the inventory screen. Handled by
 // the integration (drakan_inventory_views.inl), not by the pad synthesis.
@@ -114,9 +115,9 @@ struct Config {
     // Problems are appended to *warnings (one per line) and never abort the parse.
     static void parse(const std::string& text, Config& cfg, std::string* warnings);
     // Adds the default Enter / keypad Enter = CROSS bindings to files that predate them, M = VIEW_MAP when the file
-    // does not mention M, turns the old default I = ACT:0x17 into I = VIEW_STRIP and the old slot actions
-    // ACT:0x02..ACT:0x06 (commands 0x403b..0x403f, no native handler) into QUICK1..QUICK5 (called at the end of
-    // parse()).
+    // does not mention M, F5 / F8 = QUICKSAVE / QUICKLOAD and F3 = DEBUG_MENU when neither key nor action is set, turns
+    // the old default I = ACT:0x17 into I = VIEW_STRIP and the old slot actions ACT:0x02..ACT:0x06 (commands
+    // 0x403b..0x403f, no native handler) into QUICK1..QUICK5 (called at the end of parse()).
     static void migrate(Config& cfg);
     // Loads path; if it does not exist, writes the default file there and returns defaults.
     static Config loadOrCreate(const std::string& path, std::string* warnings);

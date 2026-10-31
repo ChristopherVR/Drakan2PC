@@ -85,6 +85,8 @@ const std::vector<ActionDef>& gameActions() {
         {"START", "Game Menu (pause)", "Start", "Interface"},
         {"QUICKSAVE", "Quick save", "Replace the dedicated quicksave (F5 by default)", "Interface"},
         {"QUICKLOAD", "Quick load", "Load the quicksave; unsaved progress is lost (F8 by default)", "Interface"},
+        {"DEBUG_MENU", "Debug menu",
+         "Open / close the game's developer debug menu (F3 by default; needs Gameplay > Developer)", "Interface"},
         {"ACT:0x114", "Previous weapon", "Mouse wheel up by default", "Weapons and items"},
         {"ACT:0x115", "Next weapon", "Mouse wheel down by default", "Weapons and items"},
         {"QUICK1", "Quick slot 1", "Use / equip the 1st quick-slot item (Quick Inventory order)", "Weapons and items"},
@@ -281,6 +283,7 @@ TAB = SELECT
 ESC = START
 F5 = QUICKSAVE
 F8 = QUICKLOAD
+F3 = DEBUG_MENU
 1 = QUICK1
 2 = QUICK2
 3 = QUICK3

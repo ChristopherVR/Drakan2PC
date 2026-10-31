@@ -9,7 +9,8 @@
     "InputFlow",
     "OptionsSettings",
     "DirectMouseLook",
-    "MovementInput"
+    "MovementInput",
+    "DebugMenu"
   ],
   "movie": {
     "fps_index": "0xa8",
@@ -22,9 +23,12 @@
   "addresses": {
     "0x00101710": "0x001016b0",
     "0x00131fa8": "0x00131f48",
+    "0x00131ff0": "0x00131f90",
     "0x0013ee90": "0x0013ee30",
     "0x001767a0": "0x00176740",
+    "0x001d49f0": "0x001d4990",
     "0x001e3970": "0x001e38b8",
+    "0x0023ce18": "0x0023cd60",
     "0x00276e40": "0x00276d78",
     "0x0032cda8": "0x0032cc98",
     "0x0041f848": "0x0041f588",
@@ -43,6 +47,7 @@
     "0x004ce028": "0x004cee98",
     "0x004db4f0": "0x004dc368",
     "0x004e8c48": "0x004e9ac8",
+    "0x004e8d48": "0x004e9bc8",
     "0x004e90c0": "0x004e9f40",
     "0x004e9558": "0x004ea3d8",
     "0x004e9594": "0x004ea414",

@@ -131,6 +131,14 @@ void InputModule::setHostScreen(bool on) {
         releaseOwnedInputLocked();
 }
 
+void InputModule::setGuestMuted(bool on) {
+    std::lock_guard<std::mutex> lock(m_);
+    const bool was = hostOwned();
+    muted_.store(on);
+    if (!was && hostOwned())
+        releaseOwnedInputLocked();
+}
+
 void InputModule::queueHostScreenEvents(const FrameInput& f) {
     std::lock_guard<std::mutex> lk(hostEvM_);
     if (hostEv_.size() > 512)
@@ -300,7 +308,9 @@ void InputModule::beginFrame() {
         // Discard delayed edges before changing input ownership. A held combat
         // button must not become a menu confirm, or replay when F1 closes.
         const bool titleShortcut = activeScreen_ == 8 && hostScreen_.load() && !suspended_.load();
-        if (!titleShortcut && (menuActive_.load() != layerIsMenu_ || hostOwned() || inputWasSuspended_))
+        const bool mutedOnly = muted_.load() && !suspended_.load() && !hostScreen_.load();
+        if (!titleShortcut &&
+            (menuActive_.load() != layerIsMenu_ || (hostOwned() && !mutedOnly) || (inputWasSuspended_ && !mutedOnly)))
             acc_.releaseAll();
         acc_.consume(f, mouseCutoffUs(InputAccumulator::nowUs()));
         if (host_)
@@ -353,6 +363,7 @@ void InputModule::beginFrame(const FrameInput& injected) {
     if (scripted_ && hostScreen_.load())
         queueHostScreenEvents(injected);
     const bool suspended = hostOwned();
+    hostFrame_ = muted_.load() && !suspended_.load() && !hostScreen_.load() && frame_.focused ? frame_ : FrameInput{};
     if (!frame_.focused || suspended) {
         frame_.keyDown.reset();
         frame_.keyPressed.reset();

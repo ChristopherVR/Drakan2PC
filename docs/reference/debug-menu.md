@@ -1,7 +1,7 @@
 # The engine's developer debug menu
 
-Status: working on PAL (SCES-500.06), verified in play on 31 October 2026 (harness runs below). USA is not audited.
-Addresses are PAL EE virtual addresses.
+Status: working on PAL (SCES-500.06) and USA (SCUS-971.28), verified in play on 31 October 2026 (harness runs
+below). Addresses are PAL EE virtual addresses unless marked; the USA ones come from the disc profile.
 
 ## What the disc still contains
 
@@ -61,20 +61,41 @@ The PC development build presumably swapped PadMgr's command callback (`PadMgr+0
 11. Invincible, Fly, Drop, MrClean, All Experience, Level Up, Unlock Spells, Full Health/Mana, Increase Gold, Speed,
     Pause, Fly PAUSE MODE, Half Speed, Suicide, Quit, Crosshair, Print Lines
 
+## USA disc
+
+The same code is in SCUS-971.28 at shifted addresses. Every function below matches PAL over its whole length once
+`jal` targets and `lui`/`addiu` address immediates are masked (constructor `0x1ccd08`, handler `0x1d4e28`, update
+`0x1d48e8`); the struct offsets the handler and update use are identical. Profile feature `DebugMenu` requires these
+translations (`configs/regions/usa.json`), cross-checked against `analysis/regions/usa/function_map.csv` /
+`data_map.csv` by `scripts/tests/test_regions.py`:
+
+| PAL | USA | What |
+| --- | --- | --- |
+| `0x4e8d48` | `0x4e9bc8` | menu object |
+| `0x1d49f0` | `0x1d4990` | value text |
+| `0x131ff0` | `0x131f90` | key callback |
+| `0x23ce18` | `0x23cd60` | Game_OnInputCommand |
+| `0x4e90c0` | `0x4e9f40` | PadMgr (already audited) |
+
 ## The port's integration
 
 `drakan.ini [general] debug_menu = 1` (Settings > Gameplay > Developer > Developer debug menu, applied live; env
-`DRAKAN_DEBUG_MENU`) enables it. Region feature `DebugMenu` (PAL profile only; greyed out elsewhere and in the browser
-build). Code: `ps2recomp/ps2xRuntime/src/lib/drakan_debug_menu.cpp`, called from the PadMgr_Update hook in
-`drakan_input_glue.cpp`.
+`DRAKAN_DEBUG_MENU`) enables it. Region feature `DebugMenu` (PAL and USA; greyed out in the browser build, which has no
+PadMgr hook). Code: `ps2recomp/ps2xRuntime/src/lib/drakan_debug_menu.cpp`, called around PadMgr_Update by the PAL
+input glue (`drakan_input_glue.cpp`, `hookPadMgrUpdate`) and the USA basic-input hook (`drakan_overrides.cpp`,
+`hookRegionPadMgr`).
 
-- **F3** (in play, settings overlay closed) opens and closes it: `menu+0 = 1` and the callback slot `PadMgr+0x410 =
-  0x131ff0`; closing restores the saved callback. While open the slot is re-asserted every frame.
-- Input reaches the native handler through the normal bindings: Up / Down arrows (D-pad) pick an option, Left / Right
-  arrows (D-pad) change the value, Enter (Cross) runs it, Q / E (R1 / L1) +-10, F / R (R2 / L2) +-100. A hook on
-  `0x131ff0` turns Cross into DIK Enter and Start (Esc) into "close". PgUp / PgDn inject Square / Circle taps (page);
-  the mouse buttons (Square / Circle bindings) also turn pages. Sticks (WASD, mouse look) still move Rynn, as on the
-  original, since the axes do not go through the callback.
+- The **`DEBUG_MENU` binding** (`drakan_input.ini [bindings]`, default `F3 = DEBUG_MENU`, rebindable in Settings >
+  Controls > Interface > Debug menu; older files gain F3 unless F3 or the action is already configured) opens and
+  closes it: `menu+0 = 1` and the callback slot `PadMgr+0x410 = 0x131ff0`; closing restores the saved callback. While
+  open the slot is re-asserted every frame.
+- While open the **game input is muted** (`InputModule::setGuestMuted`): a neutral pad, no mouse look, no bindings, so
+  WASD and the mouse do not move Rynn. Unlike suspension, the frame's key and controller edges stay readable
+  (`hostFrame()`), and the menu turns them into pad taps (injected taps pass the mute):
+  Up / Down -> D-pad (option), Left / Right -> D-pad (value +-1; Shift -> L1 / R1 +-10, Ctrl -> L2 / R2 +-100),
+  Enter / Space -> Cross, PgUp / PgDn -> Square / Circle (page); held arrows and page keys repeat after 350 ms every
+  70 ms. Controller buttons pass through as they are. Esc or Start closes. A hook on `0x131ff0` turns Cross into DIK
+  Enter (run). After closing, one `releaseAll` drops the keys that were down, so nothing leaks into play.
 - After PadMgr_Update the current page is copied (names, and values from the native formatter `0x1d49f0`) and drawn by
   the overlay HUD (`HudSlot::DebugMenu`, `dsettings::drawDebugMenuPanel`) at the top right.
 
@@ -85,6 +106,13 @@ Verification (`scripts/harness/play_run.py`, New Game into Surdana):
 - `--recipe scripts/harness/recipes/debug_menu_cheats.txt` with a run INI holding `[general] debug_menu = 1`
   (`--env DRAKAN_INI=...`): page 11, Right on Invincible -> `ON` and the game's "The Gods Favor You"; Enter on Level Up
   -> "You're a bit older and a bit wiser" and the level-up effect; Esc closes.
+- `--recipe scripts/harness/recipes/debug_menu_mute.txt` with a run `drakan_input.ini` whose `[bindings]` add
+  `F12 = DEBUG_MENU` (`--env DRAKAN_INPUT_INI=...`): F3 does nothing, F12 opens; with W held and the mouse moving for
+  2 s the centre of the image changes by a mean of 1.3 (PAL) / 1.4 (USA) grey levels (idle animation), after Esc the
+  same W hold changes it by 15.4 / 14.8 (Rynn walks).
+- All three recipes pass on the USA disc too (`--exe dist/DrakanPC-usa/drakan.exe`); the log shows the saved callback
+  `0x23cd60`, the USA Game_OnInputCommand.
 
 Caveats: options such as Quit, Suicide, Load Buffer and the cache tests do what the developers made them do; save before
-experimenting. A gamepad can navigate an open menu, but only F3 opens it.
+experimenting. A controller can navigate an open menu, but only the `DEBUG_MENU` binding (a key or mouse button)
+opens it.

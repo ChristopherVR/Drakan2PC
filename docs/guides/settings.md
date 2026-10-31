@@ -55,7 +55,7 @@ Under Gameplay, select the **Modern** or **Original** inventory, title, pause an
 
 Dual wielding is optional. Modern bow aiming belongs to the mouse settings. See [Controls & combat](controls.md) for both.
 
-Gameplay > Developer > **Developer debug menu** (PAL disc) unlocks the game's own debug menu, left on the disc by its developers: press **F3** during play for cheats (invincible, fly, level up, spells, health, gold), teleport and render switches. Up/Down pick an option, Left/Right change it, Enter runs it, PgUp/PgDn turn the page, F3 or Esc closes it. Save first: some options can break a game in progress.
+Gameplay > Developer > **Developer debug menu** unlocks the game's own debug menu, left on the disc by its developers: press **F3** during play for cheats (invincible, fly, level up, spells, health, gold), teleport and render switches. Up/Down pick an option, Left/Right change it (hold Shift for 10, Ctrl for 100), Enter runs it, PgUp/PgDn turn the page, F3 or Esc closes it. Rynn stands still while it is open. The key can be changed under Controls (Interface > Debug menu). Save first: some options can break a game in progress.
 
 ## Sound, language and subtitles
 

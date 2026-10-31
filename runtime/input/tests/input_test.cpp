@@ -110,8 +110,8 @@ static void testConfig() {
     Config::parse(
         "[bindings]\nX = CROSS | ACT:0x12\nBOGUS = CROSS\nQ = NOPE\n[mouse]\nsensitivity_x = 0.5\ninvert_y = 1\n", d,
         &w);
-    // X has two actions; migration adds Enter, keypad Enter, map, quicksave and quickload.
-    CHECK(d.game.size() == 7);
+    // X has two actions; migration adds Enter, keypad Enter, map, quicksave, quickload and the debug menu.
+    CHECK(d.game.size() == 8);
     {
         int enters = 0;
         for (const auto& bd : d.game)

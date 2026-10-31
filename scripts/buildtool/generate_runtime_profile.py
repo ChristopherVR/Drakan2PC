@@ -23,7 +23,6 @@ LEGACY_FEATURES = (
     "UiPrompts",
     "Menus",
     "Subtitles",
-    "DebugMenu",
 )
 BASELINE = (0x101710, 0x4C3798, 0x4CE028, 0x518E94, 0x4B91D8, 0x516F80, 0x517000, 0x517050, 0x56DF00, 0x4FB60C)
 REQUIREMENTS = {
@@ -35,6 +34,8 @@ REQUIREMENTS = {
     "OptionsSettings": (0x4424E0,),
     "MovementInput": (0x4E90C0, 0x131FA8, 0x4AF7F8),
     "DirectMouseLook": (0x44E4A8, 0x41F848, 0x13EE90, 0x4E8C48, 0x4E9594, 0x4E9558, 0x32CDA8, 0x276E40),
+    # menu object, value formatter, key callback, PadMgr, Game_OnInputCommand (docs/reference/debug-menu.md)
+    "DebugMenu": (0x4E8D48, 0x1D49F0, 0x131FF0, 0x4E90C0, 0x23CE18),
 }
 FEATURES = (*LEGACY_FEATURES, *REQUIREMENTS)
 MOVIE_FIELDS = ("fps_index", "frame_count", "screen_entries", "screen_count", "fps_numerator", "fps_denominator")
@@ -164,6 +165,8 @@ def validate(region, identity, runtime):
         raise ValueError("DirectMouseLook requires an input integration")
     if "MovementInput" in features and "DirectMouseLook" not in features:
         raise ValueError("MovementInput requires DirectMouseLook")
+    if "DebugMenu" in features and not set(features) & {"BasicInput", "AdvancedInput"}:
+        raise ValueError("DebugMenu requires an input integration")
     if type(runtime.get("language_count")) is not int or not 1 <= runtime["language_count"] <= 5:
         raise ValueError("Invalid language count")
     for feature, name, fields in (

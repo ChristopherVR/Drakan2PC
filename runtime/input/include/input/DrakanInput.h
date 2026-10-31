@@ -140,8 +140,15 @@ public:
     // own input (the overlay's window messages); the native capture / steering hooks keep working. Thread-safe.
     void setHostScreen(bool on);
     bool hostScreen() const { return hostScreen_.load(); }
-    // Either of the above: the guest gets neutral input.
-    bool hostOwned() const { return suspended_.load() || hostScreen_.load(); }
+    // Guest muted (the debug menu, drakan_debug_menu): like suspension for the guest (neutral pad, no mouse look, no
+    // bindings; injected taps still apply), but this frame's key, mouse button and gamepad edges stay readable through
+    // hostFrame() for the host UI that drives the guest with taps. Thread-safe.
+    void setGuestMuted(bool on);
+    bool guestMuted() const { return muted_.load(); }
+    // EE thread: the host input of the current frame while the guest is muted (empty otherwise, or unfocused).
+    const FrameInput& hostFrame() const { return hostFrame_; }
+    // Any of the above: the guest gets neutral input.
+    bool hostOwned() const { return suspended_.load() || hostScreen_.load() || muted_.load(); }
     // Scripted runs (DRAKAN_INPUT_SCRIPT) have no window messages: while hostScreen() is on, the script's key, mouse
     // and pad edges are queued here for the host screen to drain (DIK codes, client pixels, DualShock bits).
     struct HostScreenEvent {
@@ -249,6 +256,8 @@ private:
     uint32_t strafeOrigScale_ = 0;
     std::atomic<bool> suspended_{false};
     std::atomic<bool> hostScreen_{false};
+    std::atomic<bool> muted_{false};
+    FrameInput hostFrame_;
     void releaseOwnedInputLocked();
     std::mutex hostEvM_;
     std::vector<HostScreenEvent> hostEv_;

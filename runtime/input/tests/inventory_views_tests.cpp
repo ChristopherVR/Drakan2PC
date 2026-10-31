@@ -8,6 +8,7 @@
 #include <cstdlib>
 #include <map>
 #include <string>
+#include <vector>
 using namespace drakan_input;
 static unsigned checks;
 static void check(bool b, const char* name) {
@@ -138,6 +139,21 @@ int main() {
               "Order of the Flame shortcuts can be configured");
         check(bindingsOf(custom, 0x3f) == 0 && bindingsOf(custom, 0x42) == 1,
               "quick save migration preserves NONE and custom keys");
+    }
+    {
+        const auto debugKeys = [](const Config& c) {
+            std::vector<int> keys;
+            for (const auto& b : c.game)
+                if (b.act == Binding::DebugMenu)
+                    keys.push_back(b.code);
+            return keys;
+        };
+        check(debugKeys(Config::defaults()) == std::vector<int>{0x3d}, "default debug menu key F3");
+        check(debugKeys(parsed("[bindings]\nW = LSTICK_UP\n")) == std::vector<int>{0x3d},
+              "older configuration gains F3 = DEBUG_MENU");
+        check(debugKeys(parsed("[bindings]\nF12 = DEBUG_MENU\n")) == std::vector<int>{0x58},
+              "a rebound debug menu key replaces F3");
+        check(debugKeys(parsed("[bindings]\nF3 = NONE\n")).empty(), "F3 = NONE stays unbound");
     }
     constexpr int kM = 0x32, kI = 0x17;
     {

@@ -1,0 +1,21 @@
+clock milliseconds
+0 sync play 60
+500 key tap F3
+1300 shot f3_ignored
+1600 key tap F12
+2300 shot open_a
+2400 dump ram_open_a
+2600 key down W
+2600 mouse 40 0 30
+4600 shot open_b
+4700 dump ram_open_b
+4800 key up W
+5000 key tap DOWN
+5400 key tap ESC
+6000 shot closed_a
+6100 dump ram_closed_a
+6300 key down W
+8300 key up W
+8400 dump ram_closed_b
+8500 shot closed_b
+8900 quit

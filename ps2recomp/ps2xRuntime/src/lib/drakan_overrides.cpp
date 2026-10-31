@@ -42,6 +42,7 @@
 #include "drakan_frame_rate.h"
 #include "drakan_controls_menu.h"
 #include "drakan_dual_wield.h"
+#include "drakan_debug_menu.h"
 #include "drakan_region.h"
 #include "drakan_movie_policy.h"
 #include "drakan_input_flow.h"
@@ -74,6 +75,8 @@ void drakanInputAfterMovement(uint8_t* ram, R5900Context* context, PS2Runtime* r
 bool drakanInputGameplay(uint8_t* ram, R5900Context* context, PS2Runtime* runtime);
 bool drakanInputAutostartReady(int playRun);
 void drakanInputBeforePadMgr(uint8_t* ram, R5900Context* context, PS2Runtime* runtime);
+void drakanDebugMenuBeforePadMgr(uint8_t* ram, R5900Context* context, PS2Runtime* runtime);
+void drakanDebugMenuAfterPadMgr(uint8_t* ram, R5900Context* context, PS2Runtime* runtime);
 void drakanInstallInput(PS2Runtime& rt); // drakan_input_glue.cpp
 #else
 void drakanInstallPortableCamera(PS2Runtime& runtime);
@@ -1056,11 +1059,15 @@ void hookRegionPadMgr(uint8_t* rdram, R5900Context* c, PS2Runtime* rt) {
             rt->requestStop();
         }
     }
+    if constexpr (drakan_region::supports(drakan_region::Feature::DebugMenu))
+        drakanDebugMenuBeforePadMgr(rdram, c, rt);
     if constexpr (drakan_region::supports(drakan_region::Feature::DirectMouseLook))
         drakanInputBeforePadMgr(rdram, c, rt);
     g_origRegionPadMgr(rdram, c, rt);
     if constexpr (drakan_region::supports(drakan_region::Feature::MovementInput))
         drakanInputAfterMovement(rdram, c, rt);
+    if constexpr (drakan_region::supports(drakan_region::Feature::DebugMenu))
+        drakanDebugMenuAfterPadMgr(rdram, c, rt);
 }
 void hookRegionPadRead(uint8_t* rdram, R5900Context* c, PS2Runtime*) {
     const uint32_t port = getRegU32(c, 4), slot = getRegU32(c, 5), buf = getRegU32(c, 6);
@@ -1103,6 +1110,8 @@ void installRegionInput(PS2Runtime& runtime) {
         module.init(nullptr, ini);
     }
     drakanInstallDirectMouse(runtime);
+    if constexpr (drakan_region::supports(drakan_region::Feature::DebugMenu))
+        drakan_debug_menu::install(runtime);
     module.setCaptureWindow(drakan_win::handle());
     g_regionInput = &module;
     g_regionInputStart = std::chrono::steady_clock::now();

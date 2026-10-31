@@ -161,6 +161,10 @@ bool parseAction(const std::string& a, Binding& b) {
         b.value = u == "QUICKSAVE" ? kQuickSave : kQuickLoad;
         return true;
     }
+    if (u == "DEBUG_MENU") {
+        b.act = Binding::DebugMenu;
+        return true;
+    }
     if (u == "VIEW_MAP" || u == "VIEW_STRIP") {
         b.act = Binding::View;
         b.value = u == "VIEW_MAP" ? kViewMap : kViewStrip;
@@ -215,6 +219,8 @@ const char* Config::defaultIniText() {
 ;             VIEW_MAP / VIEW_STRIP      [bindings] only: open the full-screen map / the inventory strip (the same key,
 ;                                        Esc, right click or Tab closes it)
 ;             QUICKSAVE / QUICKLOAD      [bindings] only: replace / load the dedicated quicksave (F5 / F8)
+;             DEBUG_MENU                 [bindings] only: open / close the game's developer debug menu (F3; needs
+;                                        drakan.ini [general] debug_menu = 1)
 ;             QUICK1 .. QUICK9           [bindings] only: use / equip the Nth quick-slot item (marked with Cross / F in
 ;                                        the inventory), in the order of the game's Quick Inventory bar (R1 / Q)
 ; The comments follow the game's Standard controller scheme (Options > Controller): Triangle = Jump, Cross = Crouch,
@@ -320,6 +326,7 @@ ESC = START                ; Game Menu (pause)
 I = VIEW_STRIP             ; inventory strip along the bottom (Tab = the full inventory screen)
 F5 = QUICKSAVE
 F8 = QUICKLOAD
+F3 = DEBUG_MENU            ; developer debug menu (Settings > Gameplay > Developer)
 M = VIEW_MAP               ; full-screen map
 WHEELUP = ACT:0x114        ; 0x4034 previous weapon
 WHEELDOWN = ACT:0x115      ; 0x4035 next weapon
@@ -731,6 +738,11 @@ void Config::migrate(Config& c) {
         if (!has(c.game, dik) && !none(dik) && !bound)
             c.game.push_back({Binding::Key, dik, Binding::Save, action});
     }
+    constexpr int kDikF3 = 0x3d;
+    const bool debugBound =
+        std::any_of(c.game.begin(), c.game.end(), [](const Binding& b) { return b.act == Binding::DebugMenu; });
+    if (!has(c.game, kDikF3) && !none(kDikF3) && !debugBound)
+        c.game.push_back({Binding::Key, kDikF3, Binding::DebugMenu, 0});
     constexpr int kDikM = 0x32;
     if (!has(c.game, kDikM) && !none(kDikM) && !bindsView(kViewMap)) {
         Binding b;
