@@ -70,20 +70,32 @@ RECIPE_B = """clock milliseconds
 """
 
 
-def pvp_recipes() -> tuple[str, str]:
-    """A: equip the dagger (inventory cell hover + ENTER, as in the weapon runs), then swing every 0.9 s. B: screenshots."""
+def pvp_recipes(weapon: str = "dagger") -> tuple[str, str]:
+    """A: equip the weapon (inventory cell hover + ENTER, as in the weapon runs), then swing every 0.9 s (dagger) or draw
+    and release the bow (hold the attack button 1.3 s) every 3 s. B: screenshots."""
+    cell = (
+        "800 cursor 215 218\n900 cursor 216 219\n" if weapon == "dagger" else "800 cursor 215 170\n900 cursor 216 171\n"
+    )
     a = "clock milliseconds\n0 sync play 60\n"
     a += (
-        "12000 key down TAB\n12120 key up TAB\n0 sync screen 21 20\n800 cursor 215 218\n900 cursor 216 219\n"
-        "2600 key down ENTER\n2900 key up ENTER\n4200 shot a_equipped\n5000 key down TAB\n5200 key up TAB\n"
+        "12000 key down TAB\n12120 key up TAB\n0 sync screen 21 20\n"
+        + cell
+        + "2600 key down ENTER\n2900 key up ENTER\n4200 shot a_equipped\n5000 key down TAB\n5200 key up TAB\n"
         "0 sync play 60\n1500 shot a_pre\n"
     )
     t = 1500
-    for i in range(55):
-        t += 900
-        a += f"{t} button down 1\n{t + 60} button up 1\n"
-        if i % 4 == 2:
-            a += f"{t + 300} shot a_p{i:02d}\n"
+    if weapon == "bow":
+        for i in range(16):
+            t += 3000
+            a += f"{t} button down 1\n{t + 1300} button up 1\n"
+            if i % 2 == 1:
+                a += f"{t + 1700} shot a_p{i:02d}\n"
+    else:
+        for i in range(55):
+            t += 900
+            a += f"{t} button down 1\n{t + 60} button up 1\n"
+            if i % 4 == 2:
+                a += f"{t + 300} shot a_p{i:02d}\n"
     a += f"{t + 3000} shot a_end\n{t + 5000} quit\n"
     b = "clock milliseconds\n0 sync play 60\n"
     t, i = 14000, 0
@@ -131,6 +143,19 @@ def pvp_checks(text: dict[str, str], checks: dict[str, bool], frag_limit: int = 
                 is not None
             )
     checks["b: no game over prompt / level reload"] = "afterSaveRestore" not in b.split("[pvp] killed by player 1")[-1]
+
+
+def ranged_checks(text: dict[str, str], checks: dict[str, bool]) -> None:
+    """Arrows: A's projectile scan sees them, the crossing with B's ghost becomes a weapon 2 claim, the server accepts."""
+    a, b = text["a"], text["b"]
+    arrows = re.findall(r"\[pvp\] arrow [0-9a-f]+ hit ghost \d+ \(player 2\) damage (\d+) -> claim", a)
+    claims = re.findall(r"claim: hit on player 2, weapon 2, damage (\d+)", a)
+    hits = re.findall(r"hit: player 1 hit player 2 for (\d+) \(weapon 2\), health now (\d+)", a)
+    print(f"A: {len(arrows)} arrow crossings, {len(claims)} weapon 2 claims, {len(hits)} accepted hits {hits}")
+    checks["a: an arrow crossed B's ghost (projectile scan)"] = len(arrows) >= 1
+    checks["a: sent weapon 2 claims with the arrow damage"] = bool(claims) and all(c == "5" for c in claims)
+    checks["server: accepted the projectile hits (damage x8)"] = bool(hits) and all(h[0] == "40" for h in hits)
+    checks["b: hit reaction from an arrow"] = re.search(r"\[pvp\] hit by player 1: 40 damage", b) is not None
 
 
 def log(msg: str) -> None:
@@ -312,6 +337,9 @@ def main() -> int:
     ap.add_argument("--recipe-b", type=Path, help="input recipe file replacing B's built-in one")
     ap.add_argument("--prefix", default="netplay", help="private play folders are build/<prefix>-a and -b")
     ap.add_argument("--pvp", action="store_true", help="PvP verification (needs --card, see above)")
+    ap.add_argument(
+        "--weapon", choices=("dagger", "bow"), default="dagger", help="--pvp: bow = A shoots arrows at B's ghost"
+    )
     ap.add_argument("--frag-limit", type=int, default=0, help="--pvp: the match ends at this many kills (results)")
     ap.add_argument("--env", action="append", default=[], metavar="K=V", help="extra environment for both instances")
     ap.add_argument("--env-a", action="append", default=[], metavar="K=V", help="extra environment for A only")
@@ -325,7 +353,7 @@ def main() -> int:
         if a.name == "netplay":
             a.name = "pvp"
         a.no_level_change = True
-        a.env_a += ["DRAKAN_PVP_TEST_PLACE=140", "DRAKAN_PVP_TEST_ANCHOR=1"]
+        a.env_a += [f"DRAKAN_PVP_TEST_PLACE={700 if a.weapon == 'bow' else 140}", "DRAKAN_PVP_TEST_ANCHOR=1"]
         a.env += ["DRAKAN_PVP_DAMAGE_SCALE=8"]
         if a.frag_limit:
             a.env_a += [f"DRAKAN_NET_FRAG_LIMIT={a.frag_limit}"]
@@ -353,7 +381,7 @@ def main() -> int:
         "b": RECIPE_B.format(contact_shots=contact, after_shots=after, quit_at=quit_a - 2000),
     }
     if a.pvp:
-        recipes["a"], recipes["b"] = pvp_recipes()
+        recipes["a"], recipes["b"] = pvp_recipes(a.weapon)
     for k, custom in (("a", a.recipe_a), ("b", a.recipe_b)):
         if custom:
             recipes[k] = custom.read_text(encoding="utf-8")
@@ -422,7 +450,9 @@ def main() -> int:
             checks["a: level change to Kragmor"] = "level 'Level 1B - Kragmor' loaded" in text["a"]
             checks["b: ghost removed when A left the level"] = removed
             checks["b: no ghost of A afterwards"] = spawns == 1
-    if a.pvp:
+    if a.pvp and a.weapon == "bow":
+        ranged_checks(text, checks)
+    elif a.pvp:
         pvp_checks(text, checks, a.frag_limit)
     else:
         trace_report(out, text["a"], text["b"], checks)

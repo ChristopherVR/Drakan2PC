@@ -423,6 +423,8 @@ std::vector<ScoreRow> MatchServer::scoreboard() const {
 
 uint16_t MatchServer::hitLimit(const ServerPlayer& attacker, uint8_t weapon) const {
     uint16_t limit = options_.maxDamagePerHit;
+    if (weapon == kHitProjectile && options_.maxProjectileDamage > 0)
+        limit = std::min(limit, options_.maxProjectileDamage);
     if (!attacker.hasState)
         return limit;
     const uint32_t record = weapon == kHitMeleeRight ? attacker.state.weaponRight : attacker.state.weaponLeft;

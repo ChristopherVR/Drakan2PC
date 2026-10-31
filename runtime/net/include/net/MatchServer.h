@@ -6,6 +6,7 @@
 #include "net/Protocol.h"
 #include "net/Scoreboard.h"
 #include "net/Transport.h"
+#include "net/WeaponTable.h"
 
 #include <cstdint>
 #include <functional>
@@ -41,6 +42,7 @@ struct ServerOptions {
     // such check). Projectile claims use the left-hand (bow) entry.
     std::map<uint32_t, uint16_t> weaponMaxDamage;
     uint16_t unarmedMaxDamage = 0;
+    uint16_t maxProjectileDamage = 0; // cap on every projectile claim (arrows, bolts, spells); 0 = only maxDamagePerHit
     // The accepted claim's damage is multiplied by this before it is applied and broadcast (the game's weapons do
     // 4..20 against a 100 point health bar, a deathmatch tuning knob). The limits above apply to the claimed damage.
     float damageScale = 1.0f;
@@ -156,10 +158,16 @@ private:
     MatchOutcome outcome_;
 };
 
-// Upper bounds for one melee hit of the weapons whose damage is known (item property 0x1a, "Damage" in the inventory
-// screen, times the blade's multiplier, 1.0 .. 2.0 observed, with headroom): record id -> max claimed damage.
+// Upper bounds for one hit of the weapons whose damage is known (WeaponTable.h: item property 0x1a, "Damage" in the
+// inventory screen, times the blade's multiplier, 1.0 .. 2.0 observed, with headroom): record id -> max claimed damage.
+// Melee records get kMeleeLimitFactor x their damage; bows get kMaxProjectileDamage.
 inline std::map<uint32_t, uint16_t> drakanWeaponDamageLimits() {
-    return {{0x33cbcu, uint16_t{16}}}; // Rynn's Dagger: damage 4
+    std::map<uint32_t, uint16_t> m;
+    for (const MeleeWeapon& w : kMeleeWeapons)
+        m[w.record] = static_cast<uint16_t>(w.damage * kMeleeLimitFactor);
+    for (const BowWeapon& b : kBows)
+        m[b.record] = kMaxProjectileDamage;
+    return m;
 }
 
 // Hit.weapon values (v1..v5 left the byte unspecified): which of the attacker's items dealt the hit.
@@ -178,6 +186,7 @@ inline void applyDrakanPvpTuning(ServerOptions& o) {
     o.respawnProtectionMs = 2000;
     o.weaponMaxDamage = drakanWeaponDamageLimits();
     o.unarmedMaxDamage = 8;
+    o.maxProjectileDamage = kMaxProjectileDamage;
     o.damageScale = 3.0f;
     o.config.respawnDelayMs = 3000;
 }

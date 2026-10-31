@@ -180,6 +180,8 @@ bool popCmd(Cmd& out) {
 }
 
 void addChat(int player, const std::string& who, const std::string& text) {
+    if (player != 0)
+        netLog("chat: <%s> %s", who.c_str(), text.c_str());
     std::lock_guard<std::mutex> l(g_stM);
     g_chat.push_back({player, who, text, nowSec()});
     if (g_chat.size() > 64)
@@ -351,6 +353,12 @@ void runSession(const Cmd& c, drakan::net::ServerBrowser& browser, uint64_t& las
         so.config.serverName = c.host.serverName.substr(0, kMaxServerNameLength);
         so.config.fragLimit = static_cast<uint16_t>(std::clamp(c.host.fragLimit, 0, 65535));
         so.config.timeLimitSec = static_cast<uint16_t>(std::clamp(c.host.timeLimitSec, 0, 65535));
+        // Test aids for the menu host (the menu offers 5 .. 200 kills and 5 .. 60 minutes): a short match for the
+        // harness.
+        if (const char* fl = std::getenv("DRAKAN_MP_FRAG_LIMIT"); fl && *fl)
+            so.config.fragLimit = static_cast<uint16_t>(std::clamp(std::atoi(fl), 0, 65535));
+        if (const char* tl = std::getenv("DRAKAN_MP_TIME_LIMIT_SEC"); tl && *tl)
+            so.config.timeLimitSec = static_cast<uint16_t>(std::clamp(std::atoi(tl), 0, 65535));
         so.config.maxPlayers = static_cast<uint8_t>(std::clamp(c.host.maxPlayers, 1, static_cast<int>(kMaxPlayers)));
         so.password = c.host.password.substr(0, kMaxPasswordLength);
         so.serverId = std::random_device{}() | 1u;
@@ -484,6 +492,21 @@ void runSession(const Cmd& c, drakan::net::ServerBrowser& browser, uint64_t& las
                     k.killerName = nameOf(dth->killer);
                     k.victimName = nameOf(dth->victim);
                     k.weapon = dth->weapon;
+                    {
+                        // The killer's held item as of its newest state: the hand that struck, the bow for a
+                        // projectile.
+                        drakan::net::PlayerState ks;
+                        uint32_t ksMs = 0;
+                        uint32_t record = 0;
+                        if (client.newestSample(dth->killer, ks, ksMs))
+                            record = dth->weapon == drakan::net::kHitMeleeRight ? ks.weaponRight : ks.weaponLeft;
+                        else if (dth->killer == client.playerId()) {
+                            std::lock_guard<std::mutex> ll(g_s.m);
+                            record = dth->weapon == drakan::net::kHitMeleeRight ? g_s.local.weaponRight
+                                                                                : g_s.local.weaponLeft;
+                        }
+                        k.weaponName = drakan::net::weaponDisplayName(dth->weapon, record);
+                    }
                     k.at = nowSec();
                     g_board.killFeed.push_back(std::move(k));
                     if (g_board.killFeed.size() > 8)
@@ -541,6 +564,10 @@ void runSession(const Cmd& c, drakan::net::ServerBrowser& browser, uint64_t& las
                        client.config().level.c_str());
                 lastPhase = client.phase();
                 loadDoneSent = false;
+                // A new match loads its level from the title: the hash of the level of the match before (the title
+                // was reached by "Quit to Title", which reports no load) must not count as "our level is up".
+                if (client.phase() == MatchPhase::Loading)
+                    g_levelHash.store(0);
             }
             if (!legacy && (client.phase() == MatchPhase::Loading || client.phase() == MatchPhase::Playing))
                 requestLaunch(client.config().level);
@@ -617,6 +644,7 @@ void runSession(const Cmd& c, drakan::net::ServerBrowser& browser, uint64_t& las
         }
 
         // State for the UI.
+        std::vector<Player> boardRoster; // the roster of this pass, for the scoreboard's ping / time columns
         {
             State s = base;
             s.conn = client.rejected() ? Conn::Rejected
@@ -669,6 +697,7 @@ void runSession(const Cmd& c, drakan::net::ServerBrowser& browser, uint64_t& las
                 if (!g_launchError.empty())
                     s.message = g_launchError;
             }
+            boardRoster = s.roster;
             publish(s);
         }
 
@@ -698,6 +727,11 @@ void runSession(const Cmd& c, drakan::net::ServerBrowser& browser, uint64_t& las
                              r.deaths = n.deaths;
                              r.health = n.health;
                              r.alive = n.alive;
+                             for (const Player& pl : boardRoster)
+                                 if (pl.id == r.id) {
+                                     r.pingMs = pl.pingMs;
+                                     r.timeSec = pl.timeSec;
+                                 }
                              r.self = n.player == client.playerId();
                              rows.push_back(std::move(r));
                          }
@@ -724,6 +758,10 @@ void runSession(const Cmd& c, drakan::net::ServerBrowser& browser, uint64_t& las
                     b.tie = o.tie;
                     b.winnerId = o.winner;
                     b.winnerTeam = o.winningTeam < 2 ? o.winningTeam : -1;
+                    if (o.winner != kNoPlayer)
+                        for (const ScoreRow& r : b.rows)
+                            if (r.id == o.winner)
+                                b.winnerName = r.name;
                     b.reason = o.reason == EndReason::FragLimit   ? "frag limit"
                                : o.reason == EndReason::TimeLimit ? "time limit"
                                                                   : "match ended";

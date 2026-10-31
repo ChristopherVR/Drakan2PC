@@ -452,6 +452,35 @@ int main() {
         CHECK(drawHud(hs, kVp, {}).size() > 3);
     }
 
+    // HUD: kill feed lines fade out, the death overlay shows while dead, results keep the standings up, the limits
+    // chip.
+    {
+        HudState hs;
+        hs.now = 100;
+        CHECK(drawHud(hs, kVp, {}).size() == 0);
+        hs.kills = {{"A", "B", "Rynn's Dagger", 98, true, false}};
+        const size_t withKill = drawHud(hs, kVp, {}).size();
+        CHECK(withKill >= 2); // backdrop, outline (own kill) and text
+        hs.kills[0].at = 80;  // older than the feed's life
+        CHECK(drawHud(hs, kVp, {}).size() == 0);
+        hs.alive = false;
+        hs.respawnInSec = 2.2;
+        hs.deathText = "Killed by A (Rynn's Dagger)";
+        const size_t dead = drawHud(hs, kVp, {}).size();
+        CHECK(dead >= 4);
+        hs.alive = true;
+        hs.status = "3:42 left   First to 3";
+        CHECK(drawHud(hs, kVp, {}).size() > 0);
+        hs.status.clear();
+        hs.roster = {{1, "A", -1, false, true, false, 3, 0}, {2, "B", -1, false, false, false, 0, 3}};
+        hs.results = true;
+        hs.banner = "Match over - A wins (frag limit)";
+        const size_t results = drawHud(hs, kVp, {}).size();
+        CHECK(results > 15); // standings plus banner without F4 held
+        hs.alive = false;    // no death overlay under the results
+        CHECK(drawHud(hs, kVp, {}).size() == results);
+    }
+
     // The title menu: the Multiplayer row sits after New Game, opens the page, Back returns with it focused.
     {
         TitleConfig cfg;

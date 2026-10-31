@@ -3,7 +3,8 @@
 Status 2026-10-31: the protocol, match state machine, transports and the headless `drakan_server` exist and are tested;
 the game side has ghosts, a Multiplayer title menu with host / join / lobby (see "Multiplayer menu") and LAN discovery (see
 "Playing over the network (spike)"; plan in
-`docs/proposals/level-editor-and-multiplayer.md`) and PvP combat (see "PvP"). Rationale for the model: `docs/journal/2026-10-31/multiplayer.md`.
+`docs/proposals/level-editor-and-multiplayer.md`) PvP combat (see "PvP") and the whole menu -> deathmatch -> results -> next match flow with an in-game HUD (see
+"Match flow and HUD"). Rationale for the model: `docs/journal/2026-10-31/multiplayer.md`.
 
 ## Layout
 
@@ -160,7 +161,7 @@ holder), damage = `*(contact+0)`, which is `item property 0x1a x blade+0x194` (t
 **Server resolution.** `MatchServer` validates as in "Authority model". Tuning (`applyDrakanPvpTuning`, used by the listen
 server and `drakan_server`): melee reach 900 (the dagger hit ghosts 90..260 units away; the rest is two snapshot intervals
 of running at ~2500 u/s), projectiles 20000, one hit per attacker per 100 ms, 2 s respawn protection, dagger limit 16
-(damage 4 x blade multiplier), empty hand 8, `damageScale` 3 (the dagger does 4 against a 100 point bar; env
+(damage 4 x blade multiplier; every melee weapon of `net/WeaponTable.h` gets 4 x its own damage, see "Weapons and damage"), empty hand 8, projectiles at most `kMaxProjectileDamage` (40), `damageScale` 3 (the dagger does 4 against a 100 point bar; env
 `DRAKAN_PVP_DAMAGE_SCALE`, `drakan_server --damage-scale`), respawn after 3 s (`DRAKAN_PVP_RESPAWN_MS`, `--respawn-ms`;
 it must stay below the death clip, ~4.7 s, see below). Scoreboard and results: `MatchServer::scoreboard()` /
 `MatchClient::scoreboard()` (sorted by kills, then fewest deaths), `MatchOutcome` (`decideOutcome`: deathmatch winner by
@@ -190,10 +191,72 @@ Test aids: `DRAKAN_PVP_SELFTEST=hit:<n>,kill:<n>,respawn:<n>` feeds the victim s
 `DRAKAN_PVP_TEST_ANCHOR=1` holds the player (solid ghosts pushed her away, out of the server's melee range);
 `DRAKAN_NET_FRAG_LIMIT` / `DRAKAN_NET_TIME_LIMIT` for the `DRAKAN_NET_HOST` shortcut; `DRAKAN_PVP_PROBE=1` logs every hit.
 
-Not done: arrows and bolts (the projectile claim path exists in the server, `kHitProjectile`, but no game hook sends it),
-other weapons' limits (only the dagger is in the table: other records fall back to `maxDamagePerHit`), PvP while mounted,
-USA disc (PAL addresses; the module reports "no address translation" and stays off), team deathmatch and the time limit in
-game (unit tests only), a death screen / kill feed UI, lag compensation.
+### Weapons and damage
+
+`runtime/net/include/net/WeaponTable.h` lists every weapon the player can hold, by resource record id (what
+`PlayerState.weaponRight / weaponLeft` carry). It comes from the live weapon records of 2875 local RAM dumps
+(`python analysis/scripts/weapon_table.py build`: registry handles of type 10 / 11, record `rec+0xc` property block, see
+`docs/reference/world-model.md`), so it holds the game's own numbers, not guesses:
+
+| Class | Record fields used | Table |
+| --- | --- | --- |
+| Melee `0x1000e` (swords, axes, clubs, hammers, the dagger) | property `0x1a` = the "Damage" line of the inventory (dagger 4, Wood Club 8, Iron Axe 9, Mithril Short Sword 11 ... 28 for the strongest hammer), `0x1e` = stance (0 one handed, 1 two handed, 2 hammer / axe), `0` = name string id | 40 records, damage 1..30. The server accepts 4 x the item damage for a claim in that hand (the blade multiplier is 1.0 .. 2.0 observed). Names resident in the dumps (Rusty / Iron / Steel Short Sword, Rusty / Iron Axe, Wood Club, Iron Club, Rusty / Iron / Steel Scimitar, Rynn's Dagger) show in the kill feed; the rest read "sword" / "two-handed sword" / "hammer". |
+| Bows `0x1004f` | properties `0x1a` .. `0x1f` are floats (`0x1a` 0.4 .. 2.0, `0x1e` 40.0), `0x16 / 0x17` arrow count 200; **the damage is the arrow's** ("Wooden Arrows" show Damage 5 in the inventory of every bow, not a bow property) | 20 bow records, ids and names only. A projectile claim is 5 (the starting arrows) and capped at 40. |
+| Spells (scroll items `0x100b2`, projectile class `0x10008`) | the dumps carry no damage field for them | A spell projectile claims 10 (`kSpellDamage`, a design value: the real numbers were not decoded), capped at 40 like arrows. Casting was never verified in game here (earlier journals could not cast reliably). |
+
+Ranged hits (`drakan_pvp.cpp` `scanProjectiles`): the engine's projectile code was not traced; instead, each PadMgr
+boundary the actor registry is scanned for projectile actors (arrow: type 9, class `0x1005f`, found in the `bow5` /
+`audio77` RAM dumps; spell: class `0x10008`) that first appear within 900 units of the local player (the shot; other
+arrows are never claimed), and the path each one flew since the last boundary is tested against the vertical capsule of
+every ghost (radius 150, from 60 below to 460 above the ghost's origin). A crossing is one claim with `weapon = 2` per
+projectile. Run: `python scripts/harness/netplay_two_instances.py --pvp --weapon bow --card build/harness/gw-net/a/card/mc0`
+(see the results in `docs/journal/2026-10-31/pvp.md`).
+
+Not done: PvP while mounted, USA disc (PAL addresses; the module reports "no address translation" and stays off), team
+deathmatch in game (unit tests only), lag compensation, arrow / spell damage per ammunition type and per spell (the claim
+is the starting arrow's 5 / a flat 10), real spell casting verified in game, other players' ping (the protocol has no
+ping field, the scoreboard shows "-" for them).
+
+## Match flow and HUD (2026-10-31)
+
+Status: verified in two game instances, menu -> deathmatch -> results -> next match
+(`python scripts/harness/netplay_menu_two_instances.py --pvp`, private play folders `build/mp-full-{a,b}`, output
+`build/harness/mp_full/{a,b}`). Journal with the evidence and what failed on the way: `docs/journal/2026-10-31/pvp.md`
+section 6.
+
+**Data.** The HUD (`mpHudDraw` in `drakan_settings_host.cpp`, drawn by `gameui::mp::drawHud`) reads
+`drakan_netplay::scoreboard()`: rows (id, name, team, kills, deaths, health, alive, **ping**, **time**) most kills first,
+limits, `timeLeftSec`, own health / `selfAlive` / `respawnInSec`, the results (`over`, `tie`, `winnerId`, `winnerName`,
+`winnerTeam`, `reason`) and the kill feed (killer, victim, `weaponName`). `pingMs` is measured for the own player only,
+others show "-" (no ping field on the wire); `timeSec` counts from when this client saw the player join.
+
+| Element | Behaviour |
+| --- | --- |
+| Limits chip (top centre) | "8:40 left   First to 3": the time limit counts down on the client from the server time of the Playing phase, the kill limit is shown while playing. |
+| Kill feed (top right) | "A killed B with Rynn's Dagger" / "... with Short Wood Bow" / "B died", the last 5 kills for 7 s, fading; lines with the local player are outlined. The weapon is the killer's held item in the struck hand (`net::weaponDisplayName`). |
+| Death overlay | While the local player is dead: dimmed red screen, "You were killed", "Killed by A (Rynn's Dagger)", "Respawning in N" (the server's `respawnDelayMs`, 3 s). Gone at the Respawn event. |
+| Scoreboard | **F4** held (Tab is the inventory): server name, mode, level, limits, time left, the table, team totals in team games. |
+| Results | When the server enters the Results phase (frag limit, time limit or `endMatch`): banner "Match over - HostRynn wins (frag limit)" ("Draw", "Team Fire wins"), the final standings stay up without F4 held; the server shows them 15 s, then returns to the Lobby phase. |
+| Back to the lobby | In the level the banner then reads "Match finished - Esc > Quit to Title returns to the lobby for the next match". Quit to Title (pause menu, Quit, Quit to Title) opens the title menu, which now **resumes on the Multiplayer lobby page** while the session is up (`TitleScreen::resumeMultiplayer`); the host presses Start Match again, every client launches a New Game with the match level as before (scores restart at 0; the level hash of the old match is cleared at Loading so the server waits for the real load). |
+| Chat (F6) | F6 opens the line ("Say: "), typed characters go to it (the screen layer takes the window messages while it is open, `g_mpChatOpen`; the game's own input is suspended), Enter sends, Esc cancels; messages show bottom left for 8 s ("name: text", system lines without a name). The F4 / F6 key state of the OS only counts while the window has the focus (`drakan_win::focused()`), so a second instance on the same PC does not react to the other's keys. |
+
+**Time limit in game.** The server enforces it (`MatchServer::tick`: `now - phaseStart >= timeLimitSec` ends the match with
+reason `TimeLimit`); the menu offers 5 .. 60 minutes. For tests `DRAKAN_MP_TIME_LIMIT_SEC` / `DRAKAN_MP_FRAG_LIMIT` override
+the host's limits (`--time-limit-sec N --frag-limit 0` in the harness).
+
+**Typing verification.** The game's input script has DirectInput-style key names only: no F4 / F6 and no characters. The
+harness therefore sends real keyboard input with `SendInput` (`scripts/harness/winkeys.py`: the window is focused with
+the AttachThreadInput trick, F-keys as virtual keys with scan codes, text as `KEYEVENTF_UNICODE` events = one `WM_CHAR`
+each) from a thread that waits for the games' log lines. Messages typed on B arrive in A's log (`chat: <JoinRynn> ...`)
+and the other way round. The keyboard is shared with whoever uses the PC: the harness checks that each message arrived
+and retries. `DRAKAN_NET_CHAT_DEBUG=1` logs `[chat] input= chars= enter=` per typed character.
+Text fields of the title pages use the same char queue (`UiInput::text`).
+
+**Launch taps.** The New Game intro movie (screen `0x1d`) needs START / Cross taps, then the cut scene level behind it
+needs a START tap once it has been playing for 6 s (about 10 s from the press to the playable level). Taps during the
+loading screens around the movie opened the pause menu instead, a second tap closed it again and the intro never ended
+(a 120 s load timeout in several two-instance runs); without any tap the cut scene never ends either. See
+`drakan_input_glue.cpp` `hookPadRead`.
 
 ## Multiplayer menu (2026-10-31)
 
@@ -210,7 +273,7 @@ game's own font and skin art (Paint / `GameUiRenderer`); no OotF art is used.
 | Host Game | Server Name, Password (blank = open), Level Group (All Levels / Disc levels / Custom levels), Starting Level (14 disc levels, then the levels `ModManager::extraLevels()` reports, marked "(custom)"), Maximum Number of Players 2..12, Kills Limit (No Limit, 5 .. 200), Time Limit (No Limit, 5 .. 45 minutes, 60), Number of Teams (No Teams, 2; 3 and 4 shown "(coming)" and not startable: the server has two teams), Friendly Fire? and Register With Master Servers? (greyed placeholders), Begin Game, Back. There is no mode row: OotF takes the mode from the level type; here teams >= 2 means team deathmatch, otherwise deathmatch (Dragon's Duel / Master of the Dragon are not implemented). |
 | Join Game | the server table Server Name / Current Level / Players / Ping sorted by ping (blue = LAN, white "+" = Add Server entry, green = selected, "[password]" marker), Refresh, Add Server (address entry; OK keeps it for this session), Server Info (IP, level, players, mode, password card), Password, Connect; a list row also joins. No Stop / Remove / master server / version-colour rows yet. |
 | Lobby | server / mode / map / limits, the roster (ready flags, team names Fire / Water, `[host]`), Ready, Start Match (host), Leave; a Loading card while the match starts. Team select (four teams) is not shown: the server assigns teams. |
-| In game | **F4** held = scoreboard with OotF's columns Player / Kills / Deaths / Ping / Time (own ping measured, others "-"; team totals in team games), **F6** = chat (Enter sends, Esc cancels; game input is suspended while typing), a fading chat log bottom left, and a banner (no results screen, as in OotF) while the server shows the results phase before the lobby returns. OotF binds the scoreboard to Tab; here Tab is the inventory, hence F4. |
+| In game | see "Match flow and HUD": **F4** held = scoreboard (Player / Kills / Deaths / Ping / Time), kill feed, death overlay with the respawn countdown, limits chip with the time left, **F6** = chat, results banner with the final standings, then the lobby page again after Quit to Title. OotF binds the scoreboard to Tab; here Tab is the inventory, hence F4. |
 
 Navigation: keyboard (arrows / WASD, Enter, Esc), mouse (hover, click, wheel, right click = back) and pad (D-pad, Cross,
 Circle). Text fields (server name, password, address, player name) take typed characters; with a pad, Up / Down change the
@@ -269,6 +332,10 @@ answer, UDP discovery on loopback). In game: `python scripts/harness/netplay_men
 of every page) and `python scripts/harness/netplay_menu_two_instances.py [--level-index N]` (A hosts through the menu, B finds
 A in the LAN list and joins, both launch the level and spawn each other's ghost; private play folders `build/mp-ui-{a,b}`).
 Details and limits: `docs/journal/2026-10-31/multiplayer-menu.md`.
+The whole flow (host with a 3 kill limit, join from the LAN list, fight with chat / F4 / kill feed, results, back to the
+lobby, next match): `python scripts/harness/netplay_menu_two_instances.py --pvp` (about 6 minutes; `--time-limit-sec 50
+--frag-limit 0` ends the match by time instead). Ranged: `python scripts/harness/netplay_two_instances.py --pvp --weapon
+bow --card build/harness/gw-net/a/card/mc0 --port 47920`.
 
 ## Tests
 

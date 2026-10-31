@@ -1,6 +1,7 @@
 #include "gameui/Multiplayer.h"
 
 #include <algorithm>
+#include <cmath>
 #include <cctype>
 #include <cstdio>
 
@@ -164,6 +165,11 @@ void MultiplayerScreen::open(const MpState& st) {
     }
     host_.level = 0;
     buildRows(st);
+}
+
+void MultiplayerScreen::openLobby(const MpState& st) {
+    open(st);
+    setPage(MpPage::Lobby, st);
 }
 
 void MultiplayerScreen::close() {
@@ -906,12 +912,13 @@ std::vector<RosterRow> sortedRoster(std::vector<RosterRow> r) {
     return r;
 }
 
-DrawList drawHud(const HudState& hs, const Viewport& vp, const ScreenConfig& cfg, float chatLifeSec, int maxLines) {
+DrawList drawHud(const HudState& hs, const Viewport& vp, const ScreenConfig& cfg, float chatLifeSec, int maxLines,
+                 float killLifeSec) {
     DrawList d;
     const LayoutFrame lf = computeFrame(vp);
     const detail::Paint p(lf, cfg);
     const Theme& th = cfg.theme;
-    if (hs.scoreboard) {
+    if (hs.scoreboard || hs.results) {
         const std::vector<RosterRow> rows = sortedRoster(hs.roster);
         const float w = 980, rowH = 44;
         const float h = 150 + static_cast<float>(std::max<size_t>(rows.size(), 1)) * rowH + 40;
@@ -960,8 +967,53 @@ DrawList drawHud(const HudState& hs, const Viewport& vp, const ScreenConfig& cfg
                    FontRole::Body, th.brass, TextAlign::Center);
     }
     if (!hs.banner.empty()) { // OotF: no results screen, a banner before the next level
-        d.panel(p.map({560, 60, 800, 64}), PanelStyle::Main, withAlpha(th.panelRaised, 235));
-        p.text(d, {580, 60, 760, 64}, hs.banner, FontRole::Heading, th.heading, TextAlign::Center);
+        d.panel(p.map({460, 20, 1000, 80}), PanelStyle::Main, withAlpha(th.panelRaised, 235));
+        p.text(d, {480, 24, 960, 44}, hs.banner, FontRole::Heading, th.heading, TextAlign::Center);
+        if (!hs.resultsText.empty())
+            p.text(d, {480, 66, 960, 28}, hs.resultsText, FontRole::Small, th.textMuted, TextAlign::Center);
+    }
+    if (!hs.status.empty() && !hs.results) { // limits chip, top centre
+        d.panel(p.map({760, 16, 400, 44}), PanelStyle::Inset, withAlpha(th.inset, 200));
+        p.text(d, {770, 16, 380, 44}, hs.status, FontRole::Body, th.text, TextAlign::Center);
+    }
+    { // Kill feed: top right, newest at the bottom, fading.
+        std::vector<const HudKill*> ks;
+        for (const HudKill& k : hs.kills)
+            if (hs.now - k.at < killLifeSec)
+                ks.push_back(&k);
+        if (ks.size() > 5)
+            ks.erase(ks.begin(), ks.end() - 5);
+        float ky = 20;
+        for (const HudKill* k : ks) {
+            const double age = hs.now - k->at;
+            const uint8_t a =
+                age < killLifeSec - 1.5 ? 255 : static_cast<uint8_t>(255 * std::max(0.0, (killLifeSec - age) / 1.5));
+            const std::string line = k->killer.empty() ? k->victim + " died"
+                                                       : k->killer + " killed " + k->victim +
+                                                             (k->weapon.empty() ? std::string() : " with " + k->weapon);
+            const bool mine = k->selfKiller || k->selfVictim;
+            d.rect(p.map({1180, ky, 700, 34}), withAlpha(rgba(0, 0, 0), static_cast<uint8_t>(a / 2)));
+            if (mine)
+                d.outline(p.map({1180, ky, 700, 34}), withAlpha(k->selfKiller ? th.select : th.brass, a), 1.5f);
+            p.text(d, {1190, ky, 680, 34}, line, FontRole::Small,
+                   withAlpha(k->selfKiller   ? th.heading
+                             : k->selfVictim ? th.brass
+                                             : th.text,
+                             a),
+                   TextAlign::Right);
+            ky += 38;
+        }
+    }
+    if (!hs.alive && !hs.results) { // death overlay with the respawn countdown
+        d.rect({lf.view.x, lf.view.y, lf.view.w, lf.view.h}, withAlpha(rgba(60, 0, 0), 90));
+        d.panel(p.map({610, 420, 700, 150}), PanelStyle::Main, withAlpha(th.panelRaised, 235));
+        p.text(d, {630, 430, 660, 50}, "You were killed", FontRole::Heading, th.heading, TextAlign::Center);
+        if (!hs.deathText.empty())
+            p.text(d, {630, 478, 660, 30}, hs.deathText, FontRole::Small, th.textMuted, TextAlign::Center);
+        char cd[48];
+        std::snprintf(cd, sizeof cd, "Respawning in %d", std::max(1, static_cast<int>(std::ceil(hs.respawnInSec))));
+        p.text(d, {630, 512, 660, 44}, hs.respawnInSec > 0 ? std::string(cd) : std::string("Respawning ..."),
+               FontRole::Body, th.brass, TextAlign::Center);
     }
     // Chat log: bottom left, fading.
     std::vector<const HudChatLine*> lines;
@@ -977,8 +1029,9 @@ DrawList drawHud(const HudState& hs, const Viewport& vp, const ScreenConfig& cfg
                               ? 255
                               : static_cast<uint8_t>(255 * std::max(0.0, (chatLifeSec - age) / 1.5));
         d.rect(p.map({60, y, 760, 30}), withAlpha(rgba(0, 0, 0), static_cast<uint8_t>(a / 3)));
-        p.text(d, {72, y, 160, 30}, c->who + ":", FontRole::Small, withAlpha(th.brass, a));
-        p.text(d, {232, y, 580, 30}, c->text, FontRole::Small, withAlpha(th.text, a));
+        // One run: "name: text", or just the text for a system line (joined / left).
+        p.text(d, {72, y, 730, 30}, c->who.empty() ? c->text : c->who + ": " + c->text, FontRole::Small,
+               withAlpha(c->who.empty() ? th.textMuted : th.text, a));
         y += 34;
     }
     if (hs.chatOpen) {

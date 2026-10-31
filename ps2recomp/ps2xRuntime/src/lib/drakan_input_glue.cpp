@@ -507,9 +507,23 @@ void hookPadRead(uint8_t* rdram, R5900Context* c, PS2Runtime* rt) {
 #if defined(PS2X_HAVE_GSR)
     // A multiplayer match launched from the title menu skips the New Game intro cut scene with START taps until the
     // match level is loaded (drakan_netplay::launchTaps, docs/reference/netcode.md "Multiplayer menu").
-    if (port == 0 && drakan_netplay::launchTaps()) {
-        const long t = static_cast<long>(
-            std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - g_t0).count());
+    // The taps: during the intro movie screen (0x1d), then, once the cut scene level behind it has been playing for 6
+    // s, START to skip it. A START tap earlier (during the loading screens around the movie) opened the pause menu
+    // instead, the next tap closed it again, and the intro never ended: a 120 s load timeout in the two-instance run
+    // when the taps ran all the time. Without any tap the cut scene never ends by itself (also 120 s).
+    static bool movieWas = false;
+    static std::chrono::steady_clock::time_point movieEnded;
+    const bool launching = port == 0 && drakan_netplay::launchTaps();
+    const auto nowTp = std::chrono::steady_clock::now();
+    if (!launching)
+        movieWas = false;
+    else if (g_lastScreen == 0x1d) {
+        movieWas = true;
+        movieEnded = nowTp;
+    }
+    if (launching &&
+        (g_lastScreen == 0x1d || (movieWas && g_lastScreen == -1 && nowTp - movieEnded > std::chrono::seconds(6)))) {
+        const long t = static_cast<long>(std::chrono::duration_cast<std::chrono::milliseconds>(nowTp - g_t0).count());
         if ((t % 500) < 150) {
             s[2] &= static_cast<uint8_t>(~(0x08u)); // START
             s[3] &= static_cast<uint8_t>(~(0x40u)); // CROSS

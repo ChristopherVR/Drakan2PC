@@ -466,6 +466,37 @@ int main() {
         CHECK(p.rig.server->player(ib)->health == 76);
     }
 
+    // Weapon table (WeaponTable.h): melee limits from the item damage, bows cap projectiles, names for the kill feed.
+    {
+        ServerOptions o = baseOptions();
+        applyDrakanPvpTuning(o);
+        CHECK(o.weaponMaxDamage.at(0x33cbc) == 16);  // dagger 4
+        CHECK(o.weaponMaxDamage.at(0x32256) == 112); // the strongest hammer / axe in the dumps, 28
+        CHECK(o.weaponMaxDamage.at(0x31bc9) == kMaxProjectileDamage);
+        CHECK(findMelee(0x33cbc) != nullptr && findMelee(0x33cbc)->damage == 4);
+        CHECK(findBow(0x31bc9) != nullptr && findBow(0x33cbc) == nullptr);
+        CHECK(std::string(weaponDisplayName(kHitMeleeRight, 0x33cbc)) == "Rynn's Dagger");
+        CHECK(std::string(weaponDisplayName(kHitMeleeRight, 0)) == "bare hands");
+        CHECK(std::string(weaponDisplayName(kHitProjectile, 0x31bc9)) == "Short Wood Bow");
+        CHECK(std::string(weaponDisplayName(kHitProjectile, 0x12345)) == "Bow");
+        o.config.fragLimit = 0;
+        o.respawnProtectionMs = 0;
+        o.minHitIntervalMs = 0;
+        o.damageScale = 1.0f;
+        PlayingRig p(o);
+        const PlayerId ib = p.b.playerId();
+        PlayerState sa = at(0);
+        sa.weaponLeft = 0x31bc9; // Short Wood Bow in the bow hand
+        p.a.sendState(sa);
+        p.rig.run(50);
+        p.a.sendHit(ib, kHitProjectile, kMaxProjectileDamage + 1); // above the projectile cap
+        p.rig.run(50);
+        CHECK(p.rig.server->player(ib)->health == 100);
+        p.a.sendHit(ib, kHitProjectile, kArrowDamage);
+        p.rig.run(50);
+        CHECK(p.rig.server->player(ib)->health == 100 - kArrowDamage);
+    }
+
     // PvP round trip: Hit -> Death -> Score -> Respawn, scoreboard and outcome on both sides, frag-limit result.
     {
         ServerOptions o = baseOptions();

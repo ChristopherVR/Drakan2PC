@@ -201,6 +201,8 @@ public:
     explicit MultiplayerScreen(MpConfig cfg = {});
 
     void open(const MpState& st);
+    // open() on the lobby page of the session that is already up (the title comes back after a match).
+    void openLobby(const MpState& st);
     void close();
     bool isOpen() const { return open_; }
 
@@ -268,6 +270,11 @@ struct HudChatLine {
     std::string who, text;
     double at = 0; // seconds
 };
+struct HudKill {
+    std::string killer, victim, weapon; // killer empty = environment / unknown
+    double at = 0;                      // seconds, same clock as HudState::now
+    bool selfKiller = false, selfVictim = false;
+};
 struct HudState {
     bool scoreboard = false; // draw the scoreboard
     std::vector<RosterRow> roster;
@@ -278,14 +285,21 @@ struct HudState {
     int timeLeftSec = -1; // -1 = no limit
     int teamKills[2] = {0, 0};
     std::vector<HudChatLine> chat;
-    std::string chatInput; // while typing
+    std::vector<HudKill> kills; // kill feed, newest last; lines older than killLifeSec fade out (top right)
+    bool alive = true;          // the local player; false = the death overlay with the respawn countdown
+    double respawnInSec = 0;    // while dead
+    std::string deathText;      // "Killed by <name> (<weapon>)"
+    bool results = false;       // the match is over: the standings stay up under the banner
+    std::string resultsText;    // second banner line ("Next match: back to the lobby ...")
+    std::string status;         // top centre chip: "3:42 left   First to 3" (empty = none)
+    std::string chatInput;      // while typing
     bool chatOpen = false;
     double now = 0;
 };
 // Draws the scoreboard (Player / Kills / Deaths / Ping / Time, sorted by kills, then fewer deaths) and the fading chat
 // log (lines younger than `chatLifeSec`, the last `maxLines`), in the game's panel style, over the world.
 DrawList drawHud(const HudState& hs, const Viewport& vp, const ScreenConfig& cfg, float chatLifeSec = 8.0f,
-                 int maxLines = 6);
+                 int maxLines = 6, float killLifeSec = 7.0f);
 std::vector<RosterRow> sortedRoster(std::vector<RosterRow> r);
 
 } // namespace gameui::mp

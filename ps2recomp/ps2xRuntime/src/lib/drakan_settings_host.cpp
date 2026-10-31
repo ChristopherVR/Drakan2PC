@@ -1466,14 +1466,25 @@ struct MpHud {
     gameui::DrawList last;
 };
 MpHud g_mpHud;
+// The chat line is open: the screen layer takes the window messages (WM_CHAR is only fed to ImGui then).
+std::atomic<bool> g_mpChatOpen{false};
 
 // An active match in the Playing phase: the HUD draws (and the screen layer wakes up for it).
 bool mpHudActive() {
+    static bool played = false; // this process was in a match; the lobby phase that follows is shown in the level
     if (!drakan_netplay::enabled())
         return false;
     const drakan_netplay::State s = drakan_netplay::state();
-    return s.inSession && s.conn == drakan_netplay::Conn::Connected &&
-           (s.phase == drakan_netplay::Phase::Playing || s.phase == drakan_netplay::Phase::Results);
+    if (!s.inSession || s.conn != drakan_netplay::Conn::Connected) {
+        played = false;
+        return false;
+    }
+    if (s.phase == drakan_netplay::Phase::Playing)
+        played = true;
+    else if (s.phase == drakan_netplay::Phase::Loading)
+        played = false;
+    return s.phase == drakan_netplay::Phase::Playing || s.phase == drakan_netplay::Phase::Results ||
+           (s.phase == drakan_netplay::Phase::Lobby && played);
 }
 
 void mpHudDraw(const dsettings::SettingsOverlay::ScreenFrame& f) {
@@ -1482,14 +1493,21 @@ void mpHudDraw(const dsettings::SettingsOverlay::ScreenFrame& f) {
     tu.renderer.setFonts(*f.fonts);
     tu.renderer.setSkin(f.skin);
     ImGuiIO& io = ImGui::GetIO();
-    const bool f6 = ImGui::IsKeyDown(ImGuiKey_F6) || drakan_win::keyDown(0x75 /* VK_F6 */);
+    // The global key state only counts while this window has the focus (two instances on one PC share the keyboard).
+    const bool f6 = ImGui::IsKeyDown(ImGuiKey_F6) || (drakan_win::focused() && drakan_win::keyDown(0x75 /* VK_F6 */));
     if (f6 && !h.f6Was && !h.chatOpen) {
         h.chatOpen = true;
+        g_mpChatOpen.store(true);
         h.chatInput.clear();
         drakan_input::module().setSuspended(true); // typed letters must not drive Rynn
     }
     h.f6Was = f6;
     if (h.chatOpen) {
+        static int dbgFrames = 0;
+        if (std::getenv("DRAKAN_NET_CHAT_DEBUG") && (io.InputQueueCharacters.Size > 0 || (++dbgFrames % 90) == 0))
+            std::fprintf(stderr, "[chat] input=%d chars=%d enter=%d focused=%d\n", f.input ? 1 : 0,
+                         io.InputQueueCharacters.Size, ImGui::IsKeyPressed(ImGuiKey_Enter, false) ? 1 : 0,
+                         drakan_win::focused() ? 1 : 0);
         for (int i = 0; i < io.InputQueueCharacters.Size; ++i) {
             const ImWchar c = io.InputQueueCharacters[i];
             if (c >= 0x20 && c < 0x7f && h.chatInput.size() < 120)
@@ -1504,11 +1522,13 @@ void mpHudDraw(const dsettings::SettingsOverlay::ScreenFrame& f) {
             if (enter && !h.chatInput.empty())
                 drakan_netplay::sendChat(h.chatInput);
             h.chatOpen = false;
+            g_mpChatOpen.store(false);
             h.chatInput.clear();
             drakan_input::module().setSuspended(false);
         }
     }
     const drakan_netplay::State ns = drakan_netplay::state();
+    const drakan_netplay::Scoreboard sb = drakan_netplay::scoreboard(); // rows, kill feed, limits, results
     gameui::mp::HudState hs;
     // DRAKAN_NET_SCOREBOARD=<seconds> (test aid, scripted input cannot press F4): show it from that many seconds after
     // the match started playing.
@@ -1519,31 +1539,73 @@ void mpHudDraw(const dsettings::SettingsOverlay::ScreenFrame& f) {
     static double playingSince = -1;
     if (playingSince < 0)
         playingSince = ImGui::GetTime();
-    hs.scoreboard = ImGui::IsKeyDown(ImGuiKey_F4) || drakan_win::keyDown(0x73 /* VK_F4 */) ||
+    hs.scoreboard = ImGui::IsKeyDown(ImGuiKey_F4) || (drakan_win::focused() && drakan_win::keyDown(0x73 /* VK_F4 */)) ||
                     (forceAfter >= 0 && ImGui::GetTime() - playingSince >= forceAfter);
     hs.chatOpen = h.chatOpen;
-    // OotF has no results screen: a banner while the server shows the results phase, then the lobby again.
-    if (ns.phase == drakan_netplay::Phase::Results)
-        hs.banner = "Game limit reached! Back to the lobby ...";
     hs.chatInput = h.chatInput;
     hs.serverName = ns.serverName;
     hs.level = ns.level;
-    hs.mode = ns.mode == 1 ? gameui::mp::GameMode::TeamDeathmatch : gameui::mp::GameMode::Deathmatch;
-    hs.fragLimit = ns.fragLimit;
-    hs.teamKills[0] = ns.teamKills[0];
-    hs.teamKills[1] = ns.teamKills[1];
-    hs.now = ns.now;
-    for (const auto& p : ns.roster) {
-        gameui::mp::RosterRow r;
-        r.id = p.id;
-        r.name = p.name;
-        r.team = p.team;
-        r.self = p.self;
-        r.kills = p.kills;
-        r.deaths = p.deaths;
-        r.pingMs = p.pingMs;
-        r.timeSec = p.timeSec;
-        hs.roster.push_back(std::move(r));
+    hs.mode = sb.mode == 1 ? gameui::mp::GameMode::TeamDeathmatch : gameui::mp::GameMode::Deathmatch;
+    hs.fragLimit = sb.fragLimit;
+    hs.timeLeftSec = sb.timeLeftSec;
+    hs.teamKills[0] = sb.teamKills[0];
+    hs.teamKills[1] = sb.teamKills[1];
+    hs.now = sb.now;
+    // The standings come from the scoreboard (kills / deaths as the server scored them, most kills first).
+    for (const auto& r : sb.rows) {
+        gameui::mp::RosterRow row;
+        row.id = r.id;
+        row.name = r.name;
+        row.team = r.team;
+        row.self = r.self;
+        row.kills = r.kills;
+        row.deaths = r.deaths;
+        row.pingMs = r.pingMs;
+        row.timeSec = r.timeSec;
+        hs.roster.push_back(std::move(row));
+    }
+    // OotF has no results screen: a banner with the winner while the server shows the results phase, the final
+    // standings stay up under it, then the lobby returns.
+    if (sb.phase == drakan_netplay::Phase::Results) {
+        hs.results = true;
+        std::string who;
+        if (sb.tie)
+            who = "Draw";
+        else if (sb.mode == 1)
+            who = std::string(sb.winnerTeam == 0 ? "Team Fire" : "Team Water") + " wins";
+        else
+            who = (sb.winnerName.empty() ? std::string("?") : sb.winnerName) + " wins";
+        hs.banner = std::string("Match over - ") + who + " (" + sb.reason + ")";
+        hs.resultsText = "Back to the lobby shortly: then Esc > Quit to Title";
+    } else if (sb.phase == drakan_netplay::Phase::Lobby) {
+        hs.banner = "Match finished";
+        hs.resultsText = "Esc > Quit to Title returns to the lobby for the next match";
+    } else {
+        std::string st;
+        if (sb.timeLeftSec >= 0) {
+            char t[24];
+            std::snprintf(t, sizeof t, "%d:%02d left", sb.timeLeftSec / 60, sb.timeLeftSec % 60);
+            st = t;
+        }
+        if (sb.fragLimit > 0)
+            st += std::string(st.empty() ? "" : "   ") + "First to " + std::to_string(sb.fragLimit);
+        hs.status = st;
+    }
+    hs.alive = sb.selfAlive || sb.respawnInSec <= 0.0; // the overlay only runs while the countdown does
+    hs.respawnInSec = sb.respawnInSec;
+    for (const auto& k : sb.killFeed) {
+        gameui::mp::HudKill hk;
+        hk.killer = k.killer == 0 ? std::string() : k.killerName;
+        hk.victim = k.victimName;
+        hk.weapon = k.weaponName;
+        hk.at = k.at;
+        for (const auto& r : sb.rows) {
+            hk.selfKiller = hk.selfKiller || (r.self && r.id == k.killer);
+            hk.selfVictim = hk.selfVictim || (r.self && r.id == k.victim);
+        }
+        if (hk.selfVictim)
+            hs.deathText = k.killer == 0 ? std::string() : "Killed by " + k.killerName + " (" + k.weaponName + ")";
+        hs.kills.push_back(std::move(hk));
     }
     for (const auto& c : drakan_netplay::chatLog())
         hs.chat.push_back({c.who, c.text, c.at});
@@ -1594,6 +1656,13 @@ void titleDraw(const dsettings::SettingsOverlay::ScreenFrame& f, bool background
         cfg.showMultiplayer = drakan_netplay::wanted();
         ui.screen = gameui::TitleScreen(cfg);
         ui.screen.open();
+        { // Back from a match with the session still up: the lobby page again (the next match starts from there).
+            const drakan_netplay::State ns = drakan_netplay::state();
+            if (ns.inSession && ns.conn == drakan_netplay::Conn::Connected) {
+                ui.screen.resumeMultiplayer(mpState(false));
+                std::fprintf(stderr, "[menu-screens] title: resumed the multiplayer lobby\n");
+            }
+        }
         tu.gate.reset();
         ui.fade = std::max(ui.fade, 0.5f);
         std::fprintf(stderr, "[menu-screens] overlay: title session %u opened\n", ui.session);
@@ -2127,6 +2196,8 @@ void overlayCallback(const gsr::OverlayContext& oc) {
                 const auto& ms = drakan_menu_screens::shared();
                 if (ms.quickOperation.load())
                     return false;
+                if (g_mpChatOpen.load())
+                    return true;
                 if (ms.slotsActive.load())
                     return !ms.slotsChild.load() && !ms.slotsLeaving.load();
                 if (ms.titleActive.load())

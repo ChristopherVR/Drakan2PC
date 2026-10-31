@@ -138,12 +138,15 @@ struct ScoreRow {
     int kills = 0, deaths = 0;
     int health = 0;
     bool alive = false, self = false;
+    int pingMs = -1; // own player: measured round trip, others unknown (-1)
+    int timeSec = 0; // seconds since this client saw the player join
 };
 struct KillFeedEntry {
     int killer = 0, victim = 0; // player ids (killer 0 = none)
     std::string killerName, victimName;
-    int weapon = 0;
-    double at = 0; // drakan_netplay's own clock (seconds), compare with Scoreboard::now
+    int weapon = 0;         // net::Hit.weapon: 0 right hand, 1 left hand, 2 projectile
+    std::string weaponName; // "Rynn's Dagger", "Wood Club", "Short Wood Bow" ... (net/WeaponTable.h)
+    double at = 0;          // drakan_netplay's own clock (seconds), compare with Scoreboard::now
 };
 struct Scoreboard {
     bool inMatch = false; // connected and the phase is Playing or Results
@@ -158,6 +161,7 @@ struct Scoreboard {
     // Once phase == Results (the match is over):
     bool over = false, tie = false;
     int winnerId = 0, winnerTeam = -1;   // deathmatch / team deathmatch winner (0 / -1 when tied)
+    std::string winnerName;              // the deathmatch winner's name ("" when tied or team game)
     std::string reason;                  // "frag limit", "time limit" or "match ended"
     std::vector<KillFeedEntry> killFeed; // newest last, the last 8 kills
     double now = 0;

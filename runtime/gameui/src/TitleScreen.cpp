@@ -420,6 +420,12 @@ void TitleScreen::applyInput(const TitleState& st, const UiInput& in, TitleFrame
     }
 }
 
+void TitleScreen::resumeMultiplayer(const mp::MpState& st) {
+    mainFocus_ = focus_;
+    page_ = TitlePage::Multiplayer;
+    mpScreen_.openLobby(st);
+}
+
 TitleFrameOutput TitleScreen::frame(const TitleState& st, const UiInput& in, const Viewport& vp) {
     TitleFrameOutput out;
     if (!open_)

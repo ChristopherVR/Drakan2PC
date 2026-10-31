@@ -129,6 +129,8 @@ public:
     // letters to navigation keys.
     bool wantsText() const { return page_ == TitlePage::Multiplayer && mpScreen_.editing(); }
     mp::MultiplayerScreen& multiplayer() { return mpScreen_; }
+    // Open on the Multiplayer lobby page of the running session (a match ended and the title came back).
+    void resumeMultiplayer(const mp::MpState& st);
     bool suspended() const { return suspendLeft_ > 0 || options_.suspended(); }
 
     TitleFrameOutput frame(const TitleState& st, const UiInput& in, const Viewport& vp);
