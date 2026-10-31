@@ -112,6 +112,7 @@ These `getenv` calls are not part of `gsr::RuntimeFlags`; each is read where it 
 | `DRAKAN_UI_PROMPTS` | `ui/Prompts.cpp` | atoi != 0 | Force keyboard/mouse prompt glyphs on (`1`) or off (`0`). |
 | `DRAKAN_INPUT_INI` | `ui/Prompts.cpp` | non-empty string | Path of `drakan_input.ini` used to look up binding names (default: next to the exe, then the working directory). |
 | `DRAKAN_OVERRIDES` | `ui/Prompts.cpp` | non-empty string | Resource override folder (default: `overrides` next to the exe, then the working directory). |
+| `DRAKAN_MODS` | `drakan_overrides.cpp` | non-empty string | Mod pack folder (default: `mods` next to the exe); see [modding.md](modding.md). |
 
 The test programs read a few more (`DRAKAN_ISO`, `FMV_VDB`, `FMV_DUMP`, `FMV_VERBOSE`, `DRAKAN_DEMO_TXD`, `TEMP`); see the
 skip reasons in the CMake test registrations. `GSR_UPSCALE` is read again by `ps2recomp/ps2xRuntime/src/lib/drakan_dlss.cpp`.

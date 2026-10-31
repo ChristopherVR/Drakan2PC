@@ -77,3 +77,4 @@ analysis/sdk_strings.csv
 /build-log.txt
 scripts/buildtool/ps2_recomp.exe
 analysis/iop/iso_listing.txt
+.playwright-mcp/

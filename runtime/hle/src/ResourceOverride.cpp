@@ -30,6 +30,34 @@ bool DirectoryOverride::Key::operator<(const Key& o) const {
     return sub < o.sub;
 }
 
+bool parseEntryName(const std::string& n, u16& type, u16& id, u16& sub) {
+    size_t a = n.find('_'), b = a == std::string::npos ? a : n.find('_', a + 1);
+    if (b == std::string::npos || a == 0 || b == a + 1 || b + 1 >= n.size())
+        return false;
+    try {
+        size_t used = 0;
+        std::string t = n.substr(0, a), i = n.substr(a + 1, b - a - 1), s = n.substr(b + 1);
+        unsigned long tv = std::stoul(t, &used, 16);
+        if (used != t.size() || tv > 0xFFFF)
+            return false;
+        unsigned long iv = std::stoul(i, &used, 10);
+        if (used != i.size() || iv > 0xFFFF)
+            return false;
+        unsigned long sv = 0xFFFF;
+        if (s != "x" && s != "X") {
+            sv = std::stoul(s, &used, 10);
+            if (used != s.size() || sv > 0xFFFF)
+                return false;
+        }
+        type = (u16)tv;
+        id = (u16)iv;
+        sub = (u16)sv;
+        return true;
+    } catch (...) {
+        return false;
+    }
+}
+
 size_t DirectoryOverride::load(const std::string& root) {
     files_.clear();
     std::error_code ec;
@@ -46,20 +74,13 @@ size_t DirectoryOverride::load(const std::string& root) {
             if (upperStr(f.path().extension().string()) != ".BIN")
                 continue;
             n = n.substr(0, n.size() - 4);
-            size_t a = n.find('_'), b = a == std::string::npos ? a : n.find('_', a + 1);
-            if (b == std::string::npos)
-                continue;
-            try {
-                Key k;
-                k.file = file;
-                k.type = (u16)std::stoul(n.substr(0, a), nullptr, 16);
-                k.id = (u16)std::stoul(n.substr(a + 1, b - a - 1), nullptr, 10);
-                std::string s = n.substr(b + 1);
-                k.sub = (s == "x" || s == "X") ? 0xFFFF : (u16)std::stoul(s, nullptr, 10);
-                files_[k] = f.path().string();
-            } catch (...) {
+            Key k;
+            k.file = file;
+            if (!parseEntryName(n, k.type, k.id, k.sub)) {
                 logf("override: ignoring file name %s", f.path().string().c_str());
+                continue;
             }
+            files_[k] = f.path().string();
         }
     }
     return files_.size();
@@ -162,6 +183,39 @@ static std::string unescape(const std::string& s) {
     return o;
 }
 
+size_t XdbTextOverride::loadIni(const std::string& file, const std::string& content) {
+    size_t n = 0;
+    size_t pos = 0;
+    while (pos <= content.size()) {
+        size_t e = content.find('\n', pos);
+        std::string line = content.substr(pos, e == std::string::npos ? std::string::npos : e - pos);
+        pos = e == std::string::npos ? content.size() + 1 : e + 1;
+        if (!line.empty() && line.back() == '\r')
+            line.pop_back();
+        std::string t = trimStr(line);
+        if (t.empty() || t[0] == ';' || t[0] == '#')
+            continue;
+        size_t eq = line.find('=');
+        if (eq == std::string::npos)
+            continue;
+        std::string key = trimStr(line.substr(0, eq));
+        std::string val = line.substr(eq + 1);
+        if (!val.empty() && val[0] == ' ')
+            val.erase(0, 1); // one separating blank
+        size_t dot = key.find('.');
+        try {
+            u16 id = (u16)std::stoul(dot == std::string::npos ? key : key.substr(0, dot));
+            int lang = dot == std::string::npos ? -1 : xdb::langFromName(key.substr(dot + 1));
+            if (lang == -2)
+                continue;
+            setText(file, id, lang, unescape(val));
+            ++n;
+        } catch (...) {
+        }
+    }
+    return n;
+}
+
 size_t XdbTextOverride::loadDirectory(const std::string& root) {
     size_t n = 0;
     std::error_code ec;
@@ -170,35 +224,11 @@ size_t XdbTextOverride::loadDirectory(const std::string& root) {
     for (auto& d : fs::directory_iterator(root, ec)) {
         if (!d.is_directory(ec))
             continue;
-        std::string file = upperStr(d.path().filename().string());
         std::ifstream in(d.path() / "text.ini", std::ios::binary);
         if (!in)
             continue;
-        std::string line;
-        while (std::getline(in, line)) {
-            if (!line.empty() && line.back() == '\r')
-                line.pop_back();
-            std::string t = trimStr(line);
-            if (t.empty() || t[0] == ';' || t[0] == '#')
-                continue;
-            size_t eq = line.find('=');
-            if (eq == std::string::npos)
-                continue;
-            std::string key = trimStr(line.substr(0, eq));
-            std::string val = line.substr(eq + 1);
-            if (!val.empty() && val[0] == ' ')
-                val.erase(0, 1); // one separating blank
-            size_t dot = key.find('.');
-            try {
-                u16 id = (u16)std::stoul(dot == std::string::npos ? key : key.substr(0, dot));
-                int lang = dot == std::string::npos ? -1 : xdb::langFromName(key.substr(dot + 1));
-                if (lang == -2)
-                    continue;
-                setText(file, id, lang, unescape(val));
-                ++n;
-            } catch (...) {
-            }
-        }
+        std::string content((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+        n += loadIni(upperStr(d.path().filename().string()), content);
     }
     return n;
 }

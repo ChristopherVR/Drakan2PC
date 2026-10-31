@@ -41,6 +41,7 @@ The canonical Markdown remains in this repository:
 - [Sony / middleware libraries present in SCES_500.06](reference/sdk-libs.md)
 - [Netcode: protocol v2, authority model, `runtime/net` and `drakan_server`](reference/netcode.md)
 - [Game menus and the "PC Settings" entry](reference/settings-menu.md)
+- [Mod packs: format, mods/ folder, mods.ini, limits](reference/modding.md)
 - [Sound: the "missing attack / footstep / ambient sounds" bug, how it was found, and how to debug the sound path](reference/sound-debug.md)
 - [Stability audit: crash signatures, instruction-level differential tester, race stress (branch `drakan-stab`)](reference/stability.md)
 - [Subtitles: what the game has, how it works, what to add](reference/subtitles.md)

@@ -39,6 +39,10 @@ public:
     virtual bool apply(const ResourceId& id, std::vector<u8>& data) = 0;
 };
 
+// Parses "<type hex>_<id dec>_<sub dec|x>" (no extension). sub "x" = 0xFFFF (any). Shared by DirectoryOverride and the
+// mod packs (ModPack.h).
+bool parseEntryName(const std::string& stem, u16& type, u16& id, u16& sub);
+
 // ---- whole-entry replacement from a folder
 // -------------------------------------------------------------------------------------
 // <root>/<FILE>/<type>_<id>_<sub>.bin ; FILE = file name (INTERFCE.TXD, case-insensitive), type = hex (0040, 0400),
@@ -83,6 +87,8 @@ public:
     // <root>/<FILE>/text.ini: "<id>[.<lang>] = text" (lang en/de/fr/it/es or *, default *), ';' / '#' at line start =
     // comment, escapes \\ \n \r \t (write the game's glyph escape \033 as \\033). Returns the number of lines accepted.
     size_t loadDirectory(const std::string& root);
+    // Same line syntax from memory, for one <FILE> (upper-cased). Returns the number of lines accepted.
+    size_t loadIni(const std::string& file, const std::string& content);
     void setText(const std::string& file, u16 id, int lang, std::string text); // programmatic patch (lang -1 = all)
     bool wants(const ResourceId& id) override;
     bool apply(const ResourceId& id, std::vector<u8>& data) override;

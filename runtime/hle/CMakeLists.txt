@@ -11,6 +11,7 @@ add_library(drakan_hle STATIC
     src/FileService.cpp
     src/ResourceService.cpp
     src/ResourceOverride.cpp
+    src/ModPack.cpp
     src/SoundService.cpp)
 add_library(drakan::hle ALIAS drakan_hle)
 if(EMSCRIPTEN)
@@ -29,10 +30,13 @@ if(DRAKAN_BUILD_RUNTIME_TESTS)
     add_executable(hle_test tests/hle_test.cpp)
     target_link_libraries(hle_test PRIVATE drakan_hle drakan::options)
     target_compile_definitions(hle_test PRIVATE HLE_TEST_EXPECTED="${CMAKE_CURRENT_SOURCE_DIR}/tests/expected.txt")
+    add_executable(mod_test tests/mod_test.cpp)
+    target_link_libraries(mod_test PRIVATE drakan_hle drakan::options)
     add_executable(override_test tests/override_test.cpp)
     target_link_libraries(override_test PRIVATE drakan_hle drakan::options)
     # hle_test needs a disc image (DRAKAN_ISO env var or argv[1]); it exits 77 (skipped) without one.
     add_test(NAME hle_test COMMAND hle_test)
     set_tests_properties(hle_test PROPERTIES SKIP_RETURN_CODE 77)
     add_test(NAME override_test COMMAND override_test)
+    add_test(NAME mod_test COMMAND mod_test)
 endif()

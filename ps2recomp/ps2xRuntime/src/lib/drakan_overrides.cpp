@@ -22,6 +22,7 @@
 #include "Kernel/Stubs/IPU.h"
 
 #include "hle/RsrcIop.h"
+#include "hle/ModPack.h"
 #ifdef PS2X_HAVE_UI
 #include "ui/Prompts.h"
 #include "ui/FontAtlas.h"
@@ -602,7 +603,8 @@ struct HleHost {
     }
 };
 
-HleHost* g_host = nullptr; // intentionally leaked: its threads outlive static destruction
+HleHost* g_host = nullptr;                     // intentionally leaked: its threads outlive static destruction
+std::unique_ptr<hle::mods::ModManager> g_mods; // mod packs (docs/reference/modding.md); kept for the process lifetime
 
 bool isRsrcSid(uint32_t sid) {
     return hle::RsrcIop::isRsrcSid(sid);
@@ -1244,6 +1246,26 @@ void applyDrakanOverrides(PS2Runtime& runtime) {
         host->iop.file.setLevelRedirect(from && *from ? from : "Level 1A - Surdana", startLevel);
         std::fprintf(stderr, "[drakan] start level: '%s' replaces '%s'\n", startLevel,
                      from && *from ? from : "Level 1A - Surdana");
+    }
+    {
+        // Mod packs (docs/reference/modding.md): mods/ next to the exe (DRAKAN_MODS overrides). Registered before the
+        // UI overrides and the DRAKAN_OVERRIDES dev folder, so those still see and may modify what a pack provides.
+        const auto& prof = drakan_region::build();
+        const char* modsEnv = std::getenv("DRAKAN_MODS");
+        const std::string modsDir = modsEnv && *modsEnv ? std::string(modsEnv) : drakan_cfg::exeDir() + "mods";
+        std::error_code modsEc;
+        if (std::filesystem::is_directory(modsDir, modsEc)) {
+            const hle::mods::DiscProfile discProfile{prof.id, hle::mods::profileHash(prof.serial, prof.saveId)};
+            std::fprintf(stderr, "[mods] disc profile %s hash %s, folder %s\n", prof.id,
+                         hle::mods::hex64(discProfile.hash).c_str(), modsDir.c_str());
+            g_mods = std::make_unique<hle::mods::ModManager>(discProfile);
+            const size_t n = g_mods->load(modsDir);
+            g_mods->install(host->iop.res);
+            for (const std::string& line : g_mods->report())
+                std::fprintf(stderr, "[mods] %s\n", line.c_str());
+            std::fprintf(stderr, "[mods] %zu pack(s) active, %zu entries, %zu text lines\n", n, g_mods->entryCount(),
+                         g_mods->textCount());
+        }
     }
 #ifdef PS2X_HAVE_UI
     if constexpr (supports(Feature::UiPrompts)) {
