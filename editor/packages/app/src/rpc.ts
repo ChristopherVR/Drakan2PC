@@ -4,6 +4,8 @@ export interface LevelInfo {
     name: string;
     /** Mangled directory on disc, e.g. `LEVELS\LEVEL1NA`. */
     dirPath: string;
+    /** False when LEVELLST names a directory this disc does not have. */
+    present: boolean;
 }
 
 export interface OpenResult {

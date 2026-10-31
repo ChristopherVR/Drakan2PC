@@ -106,10 +106,12 @@ function renderLevels(levels: LevelInfo[]): void {
         ...levels.map((l) => {
             const li = document.createElement('li');
             li.textContent = l.name;
-            li.title = l.dirPath;
+            li.title = l.present ? l.dirPath : `${l.dirPath} (listed in LEVELLST.TXT but not on this disc)`;
+            li.classList.toggle('missing', !l.present);
             li.onclick = () => {
                 select(levelsEl, li);
-                showDir(l.dirPath).catch(reportError);
+                if (l.present) showDir(l.dirPath).catch(reportError);
+                else setStatus(`${l.name}: ${l.dirPath} is listed in LEVELLST.TXT but is not on this disc.`);
             };
             return li;
         }),
@@ -213,7 +215,12 @@ async function selectEntry(e: EntryInfo): Promise<void> {
     currentEntry = e;
     hexOffset = 0;
     await renderHex();
-    if (e.type === 0x40) await showTexturesFor([e.index]);
+    if (e.type !== 0x40) return;
+    // Keep the file's whole texture set on screen and frame the selected one; lay the set out first if needed.
+    if (!viewport?.focus(e.index)) {
+        await showTexturesFor(null);
+        viewport?.focus(e.index);
+    }
 }
 
 async function renderHex(): Promise<void> {

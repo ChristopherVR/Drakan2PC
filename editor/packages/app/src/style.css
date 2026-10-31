@@ -145,6 +145,10 @@ main {
 .list li:hover {
     background: var(--panel);
 }
+.list li.missing {
+    color: var(--dim);
+    font-style: italic;
+}
 .list li.sel,
 tr.sel td {
     background: var(--sel);

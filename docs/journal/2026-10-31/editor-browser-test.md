@@ -75,3 +75,15 @@ probes.
 - Browser timing for the real 3.45 GB image is still unmeasured (see blocker above).
 - Only the default Playwright browser was used; no other engines were tried.
 - `npm audit` reports 5 advisories (2 critical, 1 high) from the install. Not reviewed in this pass.
+
+## Follow-up (same day)
+
+- Selecting a texture row or quad now keeps the file's whole texture set on screen, outlines the selected texture and
+  frames it (`TextureViewport.focus`); the set is laid out first when it is not already shown.
+- Levels whose `LEVELLST.TXT` directory is not on the disc are shown dimmed/italic with a tooltip, and clicking one
+  explains that instead of reporting "not a directory" (`LevelInfo.present`).
+- `npm audit`: vite 8.3.1 → 8.3.5 and fflate 0.8.2 → 0.8.3 fix the high/moderate advisories. tinypool (critical) and
+  `@vitest/mocker` (moderate) are dev-only test-runner dependencies of vitest 3.x; their fix needs vitest ≥ 4.1.12,
+  which npm 11.3.0 and npm 10.9.2 both fail to install ("Cannot read properties of null (reading 'edgesOut')"), also
+  from a clean `node_modules`. vitest stays on 3.2.7 until a newer npm resolves it. Nothing from vitest ships in the
+  built app.

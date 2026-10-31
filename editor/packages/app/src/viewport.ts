@@ -24,6 +24,10 @@ export class TextureViewport {
     private hovered: THREE.Mesh | null = null;
     private raf = 0;
     private downAt: { x: number; y: number } | null = null;
+    private readonly outline = new THREE.LineSegments(
+        new THREE.EdgesGeometry(new THREE.PlaneGeometry(1, 1)),
+        new THREE.LineBasicMaterial({ color: 0xffb020 }),
+    );
 
     onHover: (info: QuadInfo | null) => void = () => {};
     onPick: (info: QuadInfo) => void = () => {};
@@ -32,6 +36,8 @@ export class TextureViewport {
         this.renderer = new THREE.WebGLRenderer({ antialias: true });
         host.appendChild(this.renderer.domElement);
         this.scene.add(this.group);
+        this.outline.visible = false;
+        this.scene.add(this.outline);
         this.controls = new OrbitControls(this.camera, this.renderer.domElement);
         this.controls.enableDamping = true;
         this.controls.screenSpacePanning = true;
@@ -100,6 +106,7 @@ export class TextureViewport {
             this.group.remove(o);
         }
         this.hovered = null;
+        this.outline.visible = false;
     }
 
     /** Lay textures out in rows of roughly square overall shape. */
@@ -143,10 +150,27 @@ export class TextureViewport {
         return ok.length;
     }
 
+    /** Outline the quad for SRSC entry `index` and frame it; false when that texture is not on screen. */
+    focus(index: number): boolean {
+        const mesh = (this.group.children as THREE.Mesh[]).find((m) => (m.userData as QuadInfo).index === index);
+        if (!mesh) return false;
+        const p = (mesh.geometry as THREE.PlaneGeometry).parameters;
+        this.outline.position.set(mesh.position.x, mesh.position.y, 0.5);
+        this.outline.scale.set(p.width + 4, p.height + 4, 1);
+        this.outline.visible = true;
+        this.frame(new THREE.Box3().setFromObject(mesh).expandByScalar(Math.max(p.width, p.height) * 0.5));
+        return true;
+    }
+
     reset(): void {
-        const box = this.extent.isEmpty()
-            ? new THREE.Box3(new THREE.Vector3(-64, -64, 0), new THREE.Vector3(64, 64, 0))
-            : this.extent;
+        this.frame(
+            this.extent.isEmpty()
+                ? new THREE.Box3(new THREE.Vector3(-64, -64, 0), new THREE.Vector3(64, 64, 0))
+                : this.extent,
+        );
+    }
+
+    private frame(box: THREE.Box3): void {
         const c = box.getCenter(new THREE.Vector3());
         const s = box.getSize(new THREE.Vector3());
         const fov = THREE.MathUtils.degToRad(this.camera.fov);

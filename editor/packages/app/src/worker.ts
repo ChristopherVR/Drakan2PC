@@ -41,7 +41,13 @@ async function loadLevels(): Promise<LevelInfo[]> {
     const f = await fs.find(`${language}\\LEVELLST.TXT`);
     if (!f) return [];
     const list = parseLevelList(decoder.decode(await fs.read(f)));
-    return list.map((l) => ({ name: l.name, dirPath: `${language}\\${l.dirPath}` }));
+    return Promise.all(
+        list.map(async (l) => {
+            const dirPath = `${language}\\${l.dirPath}`;
+            const dir = await fs.find(dirPath);
+            return { name: l.name, dirPath, present: !!dir?.isDir };
+        }),
+    );
 }
 
 async function getSrsc(path: string): Promise<SrscReader> {
