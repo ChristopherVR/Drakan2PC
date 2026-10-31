@@ -17,6 +17,10 @@ import {
     type SnapSettings,
     type Transform,
 } from '@drakan/editor-core';
+import { ModelLayer } from './scene/layer.ts';
+import { partitionObjects } from './scene/instances.ts';
+import { clientToNdc, nearestScreenPoint, pointsInRect, type ScreenPoint } from './scene/pickmath.ts';
+import { DEFAULT_VIEW_OPTIONS, LIGHTING, type ViewOptions } from './scene/viewopts.ts';
 
 /** Game units to scene units. World coordinates run to about 7.4e5; y is up. */
 const S = 0.001;
@@ -79,6 +83,17 @@ export class LevelView {
     private meshes = new Map<EntityKind, { mesh: THREE.InstancedMesh; ids: number[] }>();
     private selMesh: THREE.InstancedMesh | null = null;
     private hoverMesh: THREE.Mesh;
+    /** Terrain and model instances (real visuals); filled by the level loader. */
+    readonly models = new ModelLayer();
+    viewOptions: ViewOptions = { ...DEFAULT_VIEW_OPTIONS, helpers: { ...DEFAULT_VIEW_OPTIONS.helpers } };
+    private readonly hemi = new THREE.HemisphereLight(0xffffff, 0x445066, 1.6);
+    private readonly sun = new THREE.DirectionalLight(0xffffff, 1.2);
+    private bgColor = 0x14161a;
+    /** Objects that are drawn right now (marker or model), and the subset drawn as markers. */
+    private drawn: LevelObject[] = [];
+    private markerObjs: LevelObject[] = [];
+    private ghostKey: string | null = null;
+    private ghostChild: THREE.Object3D | null = null;
     private ghostMesh: THREE.InstancedMesh | null = null;
     private ghost: LevelObject[] = [];
     private placeGhost: THREE.Group;
@@ -151,10 +166,8 @@ export class LevelView {
         this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
         host.appendChild(this.renderer.domElement);
         this.scene.background = new THREE.Color(0x14161a);
-        this.scene.add(new THREE.HemisphereLight(0xffffff, 0x445066, 1.6));
-        const dl = new THREE.DirectionalLight(0xffffff, 1.2);
-        dl.position.set(1, 2, 1);
-        this.scene.add(dl);
+        this.scene.add(this.hemi, this.sun, this.models.root);
+        this.setViewOptions(this.viewOptions);
 
         // Marker: a pyramid whose tip points along local +x (yaw 0 faces +x, positive yaw turns toward -z, matching
         // three's rotation.y). The convention is unverified against the game; see the journal note.
@@ -258,6 +271,7 @@ export class LevelView {
             ? { LEFT: none, MIDDLE: THREE.MOUSE.PAN, RIGHT: none }
             : { LEFT: THREE.MOUSE.ROTATE, MIDDLE: THREE.MOUSE.DOLLY, RIGHT: THREE.MOUSE.PAN };
         this.orbit.zoomToCursor = on;
+        this.setViewOptions(this.viewOptions);
     }
 
     /** Ground sources from the terrain renderer; until it lands placement falls back to object height. */
@@ -266,7 +280,48 @@ export class LevelView {
     }
 
     setBackground(color: number): void {
+        this.bgColor = color;
         (this.scene.background as THREE.Color).set(color);
+        if (this.scene.fog) this.scene.fog.color.set(color);
+    }
+
+    /** Apply display options: lighting, fog and draw distance, terrain and model visibility, helper classes. */
+    setViewOptions(o: ViewOptions): void {
+        const prev = this.viewOptions;
+        this.viewOptions = o;
+        const l = LIGHTING[o.lighting];
+        this.hemi.color.set(l.sky);
+        this.hemi.groundColor.set(l.ground);
+        this.hemi.intensity = l.hemi;
+        this.sun.intensity = l.sun;
+        this.sun.position.set(...l.sunDir);
+        // The Save tab shares this class and has world-sized scenes: near/far and fog only apply in the editor.
+        this.camera.near = this.editorMode ? 0.1 : 0.5;
+        this.camera.far = this.editorMode ? o.drawDistance : 20000;
+        this.camera.updateProjectionMatrix();
+        this.scene.fog =
+            o.fog && this.editorMode ? new THREE.Fog(this.bgColor, o.drawDistance * 0.35, o.drawDistance) : null;
+        this.models.terrainRoot.visible = o.terrain;
+        if (o.wireframe !== prev.wireframe || o.terrain !== prev.terrain) this.models.setTerrainWireframe(o.wireframe);
+        this.dirtyInstances = true;
+    }
+
+    /** Called after terrain or models finished loading: redraw instances and re-apply terrain options. */
+    modelsChanged(): void {
+        this.models.setTerrainWireframe(this.viewOptions.wireframe);
+        this.models.terrainRoot.visible = this.viewOptions.terrain;
+        this.dirtyInstances = true;
+    }
+
+    /** Draw calls and triangles of the last frame, and instance counts (status bar). */
+    stats(): { calls: number; triangles: number; models: number; markers: number } {
+        const r = this.renderer.info.render;
+        return {
+            calls: r.calls,
+            triangles: r.triangles,
+            models: this.models.instanceCount,
+            markers: this.markerObjs.length,
+        };
     }
 
     // ---- document ---------------------------------------------------------------------------------------------
@@ -430,15 +485,34 @@ export class LevelView {
     }
 
     private ndc(e: { clientX: number; clientY: number }): THREE.Vector2 {
-        const r = this.renderer.domElement.getBoundingClientRect();
-        return new THREE.Vector2(((e.clientX - r.left) / r.width) * 2 - 1, -((e.clientY - r.top) / r.height) * 2 + 1);
+        const [x, y] = clientToNdc(this.renderer.domElement.getBoundingClientRect(), e.clientX, e.clientY);
+        return new THREE.Vector2(x, y);
     }
 
-    /** Object under the pointer: marker raycast, then the nearest marker within a few pixels. */
+    /** Client-pixel positions of objects (those that project in front of the camera). */
+    private screenPoints(list: readonly LevelObject[], includeLocked: boolean): ScreenPoint[] {
+        const r = this.renderer.domElement.getBoundingClientRect();
+        const out: ScreenPoint[] = [];
+        for (const o of list) {
+            if (!includeLocked && this.lockedIds.has(o.id)) continue;
+            tmpV.set(o.transform.pos[0] * S, o.transform.pos[1] * S, o.transform.pos[2] * S).project(this.camera);
+            if (tmpV.z > 1 || tmpV.z < -1) continue;
+            out.push({
+                id: o.id,
+                x: ((tmpV.x + 1) / 2) * r.width + r.left,
+                y: ((1 - tmpV.y) / 2) * r.height + r.top,
+            });
+        }
+        return out;
+    }
+
+    /** Object under the pointer: model instances and markers by ray (nearest wins), then the nearest marker within a few pixels. */
     pickAt(e: { clientX: number; clientY: number }, includeLocked = false): number | null {
         const ndc = this.ndc(e);
         this.raycaster.setFromCamera(ndc, this.camera);
         let best: { d: number; id: number } | null = null;
+        const m = this.models.pick(this.raycaster.ray, (id) => !includeLocked && this.lockedIds.has(id));
+        if (m) best = { d: m.distance, id: m.id };
         for (const { mesh, ids } of this.meshes.values()) {
             const hit = this.raycaster.intersectObject(mesh, false)[0];
             if (hit && hit.instanceId !== undefined) {
@@ -448,46 +522,13 @@ export class LevelView {
             }
         }
         if (best) return best.id;
-        // Screen-space fallback: markers are small when zoomed out.
-        const r = this.renderer.domElement.getBoundingClientRect();
-        let bd = PICK_PX * PICK_PX;
-        let bid: number | null = null;
-        for (const { ids } of this.meshes.values()) {
-            for (const id of ids) {
-                if (!includeLocked && this.lockedIds.has(id)) continue;
-                const o = this.doc.get(id);
-                if (!o) continue;
-                tmpV.set(o.transform.pos[0] * S, o.transform.pos[1] * S, o.transform.pos[2] * S).project(this.camera);
-                if (tmpV.z > 1 || tmpV.z < -1) continue;
-                const dx = ((tmpV.x + 1) / 2) * r.width + r.left - e.clientX;
-                const dy = ((1 - tmpV.y) / 2) * r.height + r.top - e.clientY;
-                const d = dx * dx + dy * dy;
-                if (d < bd) {
-                    bd = d;
-                    bid = id;
-                }
-            }
-        }
-        return bid;
+        // Screen-space fallback for markers only: they are small when zoomed out. Models are picked by their surface.
+        return nearestScreenPoint(this.screenPoints(this.markerObjs, includeLocked), e.clientX, e.clientY, PICK_PX);
     }
 
-    /** Objects whose position projects inside the client-space rectangle. */
+    /** Drawn objects whose position projects inside the client-space rectangle. */
     private boxSelect(x0: number, y0: number, x1: number, y1: number, additive: boolean): void {
-        const r = this.renderer.domElement.getBoundingClientRect();
-        const [lx, hx] = [Math.min(x0, x1), Math.max(x0, x1)];
-        const [ly, hy] = [Math.min(y0, y1), Math.max(y0, y1)];
-        const ids: number[] = [];
-        for (const { ids: list } of this.meshes.values()) {
-            for (const id of list) {
-                if (this.lockedIds.has(id)) continue;
-                const o = this.doc.get(id)!;
-                tmpV.set(o.transform.pos[0] * S, o.transform.pos[1] * S, o.transform.pos[2] * S).project(this.camera);
-                if (tmpV.z > 1 || tmpV.z < -1) continue;
-                const px = ((tmpV.x + 1) / 2) * r.width + r.left;
-                const py = ((1 - tmpV.y) / 2) * r.height + r.top;
-                if (px >= lx && px <= hx && py >= ly && py <= hy) ids.push(id);
-            }
-        }
+        const ids = pointsInRect(this.screenPoints(this.drawn, false), x0, y0, x1, y1);
         if (additive) {
             const merged = new Set([...this.selection, ...ids]);
             this.select([...merged]);
@@ -511,7 +552,7 @@ export class LevelView {
             const t = (y - origin.y) / dir.y;
             return t > 0 ? origin.clone().addScaledVector(dir, t) : null;
         };
-        if (this.ground.height) {
+        if (this.ground.height && !this.ground.meshes?.length) {
             // Height function but no mesh: march the ray against the height field.
             for (let t = 0.5; t < 6000; t += Math.max(0.5, t * 0.01)) {
                 const p = origin.clone().addScaledVector(dir, t);
@@ -569,31 +610,76 @@ export class LevelView {
         if (!this.dragKey) return;
         e.preventDefault();
         if (e.dataTransfer) e.dataTransfer.dropEffect = 'copy';
+        this.dragHover(e);
+    };
+
+    /** The pointer (a native drag or the Asset Browser's pointer drag) is over the viewport with `dragKey` set. */
+    dragHover(e: { clientX: number; clientY: number }): void {
+        if (!this.dragKey) return;
         const p = this.groundAt(e);
+        this.updateDragModel();
         if (!p) {
             this.placeGhost.visible = false;
             return;
         }
-        const [x, y, z] = this.snap.grid
-            ? [snapValue(p[0], this.snap.gridSize), p[1], snapValue(p[2], this.snap.gridSize)]
-            : p;
+        const [x, y, z] = this.placementPoint(p);
         this.placeGhost.position.set(x * S, y * S, z * S);
         this.placeGhost.visible = true;
-    };
+    }
+
+    placeGhostHide(): void {
+        this.placeGhost.visible = false;
+    }
+
+    /** Grid-snapped x/z of a ground hit, with y re-read from the terrain at the snapped spot (within 2000 units of the hit). */
+    private placementPoint(p: [number, number, number]): [number, number, number] {
+        if (!this.snap.grid) return p;
+        const x = snapValue(p[0], this.snap.gridSize);
+        const z = snapValue(p[2], this.snap.gridSize);
+        const h = this.groundHeightAt(x, z);
+        return [x, h !== null && Number.isFinite(h) && Math.abs(h - p[1]) < 2000 ? h : p[1], z];
+    }
+
+    /** True when client coordinates fall inside the viewport canvas. */
+    isOverViewport(x: number, y: number): boolean {
+        const r = this.renderer.domElement.getBoundingClientRect();
+        return x >= r.left && x <= r.right && y >= r.top && y <= r.bottom;
+    }
+
+    /** Hide the placement ghost and forget the dragged class (drag ended or left the viewport). */
+    dragCancel(): void {
+        this.placeGhost.visible = false;
+        this.dragKey = null;
+        this.updateDragModel();
+    }
+
+    /** Place the dragged class where the pointer meets the ground. */
+    dragDrop(e: { clientX: number; clientY: number }): void {
+        const key = this.dragKey;
+        this.dragCancel();
+        if (!key) return;
+        const p = this.groundAt(e);
+        if (!p) return;
+        this.ev.onDropAsset?.(key, this.placementPoint(p));
+    }
+
+    /** Show the dragged class's real model in the placement ghost once it is loaded (marker pyramid until then). */
+    private updateDragModel(): void {
+        const key = this.dragKey;
+        const m = key ? this.models.ghost(key) : null;
+        if (m === this.ghostChild) return;
+        if (this.ghostChild) this.placeGhost.remove(this.ghostChild);
+        this.ghostChild = m;
+        if (m) this.placeGhost.add(m);
+        // The pyramid is the first child; hide it while a model stands in.
+        this.placeGhost.children[0]!.visible = !m;
+    }
 
     private onDrop = (e: DragEvent): void => {
-        const key = this.dragKey;
-        this.placeGhost.visible = false;
-        if (!key) return;
+        if (!this.dragKey) return;
         e.preventDefault();
         e.stopPropagation();
-        const p = this.groundAt(e);
-        this.dragKey = null;
-        if (!p) return;
-        const pos: [number, number, number] = this.snap.grid
-            ? [snapValue(p[0], this.snap.gridSize), p[1], snapValue(p[2], this.snap.gridSize)]
-            : p;
-        this.ev.onDropAsset?.(key, pos);
+        this.dragDrop(e);
     };
 
     // ---- pointer ----------------------------------------------------------------------------------------------
@@ -657,11 +743,14 @@ export class LevelView {
         if (id !== this.hoverId) {
             this.hoverId = id;
             const o = id === null ? undefined : this.doc.get(id);
-            if (o) {
+            this.hoverMesh.visible = false;
+            this.models.setHover([]);
+            if (o && this.isModelDrawn(o)) this.models.setHover([o]);
+            else if (o) {
                 this.objMatrix(o, 0.55, tmpM);
                 tmpM.decompose(this.hoverMesh.position, this.hoverMesh.quaternion, this.hoverMesh.scale);
                 this.hoverMesh.visible = true;
-            } else this.hoverMesh.visible = false;
+            }
         }
         this.ev.onHover?.(id, x, y);
     }
@@ -903,8 +992,9 @@ export class LevelView {
     }
 
     frameIds(ids: readonly number[] | null): void {
-        const box = new THREE.Box3();
+        const box = ids ? new THREE.Box3() : (this.models.terrainBounds() ?? new THREE.Box3());
         for (const o of this.doc.objects()) {
+            if (!ids && !box.isEmpty()) break;
             if (ids ? !ids.includes(o.id) : !this.passes(o)) continue;
             box.expandByPoint(tmpV.set(o.transform.pos[0] * S, o.transform.pos[1] * S, o.transform.pos[2] * S));
         }
@@ -1046,7 +1136,22 @@ export class LevelView {
         d.multiplyScalar(speed);
         this.camera.position.add(d);
         this.orbit.target.add(d);
+        this.clampAboveGround();
         this.ev.onCamera?.();
+    }
+
+    /** Keep the fly camera a little above the terrain so it does not sink below the surface. */
+    private clampAboveGround(): void {
+        if (!this.viewOptions.keepAboveGround) return;
+        const p = this.camera.position;
+        const h = this.groundHeightAt(p.x / S, p.z / S);
+        if (h === null || !Number.isFinite(h)) return;
+        const min = h * S + 0.35;
+        if (p.y < min) {
+            const dy = min - p.y;
+            p.y += dy;
+            this.orbit.target.y += dy;
+        }
     }
 
     // ---- instancing -------------------------------------------------------------------------------------------
@@ -1064,17 +1169,43 @@ export class LevelView {
         out.compose(tmpV, tmpQ, tmpS);
     }
 
+    /** True when the object is drawn with its model (not a marker). */
+    private isModelDrawn(o: LevelObject): boolean {
+        return this.viewOptions.models && this.models.has(o.resource) && this.modelIds.has(o.id);
+    }
+    private modelIds = new Set<number>();
+
     private rebuild(): void {
         for (const { mesh } of this.meshes.values()) {
             this.scene.remove(mesh);
             mesh.dispose();
         }
         this.meshes.clear();
+        const visible: LevelObject[] = [];
+        for (const o of this.doc.objects()) if (this.passes(o)) visible.push(o);
+        this.visibleCount = visible.length;
+        const opt = this.viewOptions;
+        const part = partitionObjects(
+            visible,
+            (r) => opt.models && this.models.has(r),
+            (g) => opt.helpers[g],
+        );
+        this.models.sync(part.byResource);
+        this.modelIds.clear();
+        const modelObjs: LevelObject[] = [];
+        for (const list of part.byResource.values()) {
+            for (const o of list) {
+                this.modelIds.add(o.id);
+                modelObjs.push(o);
+            }
+        }
+        // Markers: objects without a model, or every object when the markers option asks for it.
+        const markerList =
+            opt.markers === 'off' ? [] : opt.markers === 'all' ? [...part.markers, ...modelObjs] : part.markers;
+        this.markerObjs = markerList;
+        this.drawn = [...part.markers, ...modelObjs];
         const groups = new Map<EntityKind, LevelObject[]>();
-        this.visibleCount = 0;
-        for (const o of this.doc.objects()) {
-            if (!this.passes(o)) continue;
-            this.visibleCount++;
+        for (const o of markerList) {
             let g = groups.get(o.kind);
             if (!g) groups.set(o.kind, (g = []));
             g.push(o);
@@ -1118,6 +1249,7 @@ export class LevelView {
         }
         this.dirtySel = true;
         this.hoverMesh.visible = false;
+        this.models.setHover([]);
         this.hoverId = null;
     }
 
@@ -1127,7 +1259,10 @@ export class LevelView {
             this.selMesh.dispose();
             this.selMesh = null;
         }
-        const objs = [...this.selection].map((id) => this.doc.get(id)).filter((o): o is LevelObject => !!o);
+        const all = [...this.selection].map((id) => this.doc.get(id)).filter((o): o is LevelObject => !!o);
+        this.models.setSelection(all.filter((o) => this.isModelDrawn(o)));
+        // Markers (and, when the markers option is on, models too) get the white wireframe.
+        const objs = all.filter((o) => !this.isModelDrawn(o) || this.viewOptions.markers === 'all');
         if (!objs.length) return;
         const m = new THREE.InstancedMesh(
             this.geo,

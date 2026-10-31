@@ -9,7 +9,8 @@ export type IssueCode =
     | 'bad-transform'
     | 'unresolved-class'
     | 'bad-id'
-    | 'dangling-ref';
+    | 'dangling-ref'
+    | 'default-body';
 
 export interface ValidationIssue {
     severity: IssueSeverity;
@@ -29,6 +30,11 @@ export interface ValidateOptions {
      * that reading of the type word is unverified and would be noisy if wrong.
      */
     checkRefs?: boolean;
+    /**
+     * The document edits a disc level: a new object whose class has no instance in the level (no template) is built
+     * from generic defaults, which are unverified in game, so it is flagged.
+     */
+    sourceLevel?: boolean;
 }
 
 /**
@@ -91,6 +97,14 @@ export function validateDocument(doc: LevelDocument, opts: ValidateOptions = {})
                 code: 'unresolved-class',
                 ids: [o.id],
                 message: `${label(o)}: class name not found in the ODBs`,
+            });
+        }
+        if (opts.sourceLevel && o.origin === undefined && o.template === undefined) {
+            out.push({
+                severity: 'warning',
+                code: 'default-body',
+                ids: [o.id],
+                message: `${label(o)}: its class has no instance in this level, so it uses generic defaults (unverified in game)`,
             });
         }
         for (const to of o.links ?? []) {

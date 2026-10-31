@@ -28,7 +28,10 @@ import {
 import type { DiscProfile } from '@drakan/formats';
 import { KINDS, LevelView, type ToolMode } from './level.ts';
 import { changeCount } from './modio.ts';
-import type { Api, LevelInfo, LevelLoadResult } from './rpc.ts';
+import type { Api, LevelInfo, LevelLoadResult, Method } from './rpc.ts';
+import { createSceneLoader } from './sceneload.ts';
+import { HELPER_GROUPS, helperGroupOf, type HelperGroup } from './scene/instances.ts';
+import { parseViewOptions, type ViewOptions } from './scene/viewopts.ts';
 import { createAssets, type AssetsPanel } from './editor/assets.ts';
 import { autosaveKey, clearAutosave, loadAutosave, saveAutosave } from './editor/autosave.ts';
 import type { Ctx } from './editor/ctx.ts';
@@ -49,7 +52,7 @@ const $ = <T extends HTMLElement>(id: string): T => {
 };
 
 export interface LevelUiHost {
-    call<M extends 'loadLevel'>(method: M, ...args: Parameters<Api[M]>): Promise<ReturnType<Api[M]>>;
+    call<M extends Method>(method: M, ...args: Parameters<Api[M]>): Promise<ReturnType<Api[M]>>;
     setStatus(msg: string, error?: boolean): void;
 }
 
@@ -77,6 +80,8 @@ export interface LevelUi {
     /** The Asset Browser panel (thumbnail provider hook for the model renderer). */
     assets: () => AssetsPanel;
     ctx: () => Ctx;
+    /** Resolves when terrain and models of the last `openLevel` finished loading (tests, harnesses). */
+    visualsReady: () => Promise<void>;
 }
 
 const AUTOSAVE_DELAY = 1500;
@@ -105,6 +110,8 @@ export function initLevelUi(host: LevelUiHost): LevelUi {
     let lastAutosave = 0;
     const hiddenKinds = new Set<EntityKind>();
     let gridSnapOn = true;
+    let viewOpts: ViewOptions = parseViewOptions(store.json('view-options', null));
+    let visuals: Promise<void> = Promise.resolve();
 
     // ---- shell ----------------------------------------------------------------------------------------------------
 
@@ -123,11 +130,11 @@ export function initLevelUi(host: LevelUiHost): LevelUi {
     const sbFps = h('span', { class: 'sb-item mono dim', id: 'sb-fps' });
     fill($('ed-status'), statusMsg, h('span', { class: 'spacer' }), sbSel, sbSnap, sbCam, sbSave, sbFps);
 
-    function toast(msg: string, kind: 'info' | 'error' | 'ok' = 'info'): void {
+    function toast(msg: string, kind: 'info' | 'error' | 'ok' | 'warn' = 'info'): void {
         const t = h('div', { class: `toast ${kind}`, role: 'status' }, msg);
         toasts.append(t);
-        window.setTimeout(() => t.classList.add('out'), kind === 'error' ? 6000 : 2800);
-        window.setTimeout(() => t.remove(), kind === 'error' ? 6400 : 3200);
+        window.setTimeout(() => t.classList.add('out'), kind === 'error' || kind === 'warn' ? 6000 : 2800);
+        window.setTimeout(() => t.remove(), kind === 'error' || kind === 'warn' ? 6400 : 3200);
         statusMsg.textContent = msg;
         statusMsg.classList.toggle('error', kind === 'error');
     }
@@ -158,7 +165,13 @@ export function initLevelUi(host: LevelUiHost): LevelUi {
             const cmd = new AddCommand([o], `Add ${cls.name}`);
             v.run(cmd);
             v.select(cmd.ids);
-            toast(`Added ${cls.name} #${cmd.ids[0]}`, 'ok');
+            void loader.ensureModels([cls.resource]);
+            if (src && !o.template) {
+                toast(
+                    `${cls.name} has no instance in this level, so #${cmd.ids[0]} gets generic class defaults (not verified in game). Prefer a class the level already uses.`,
+                    'warn',
+                );
+            } else toast(`Added ${cls.name} #${cmd.ids[0]}`, 'ok');
         },
         edit(label, ids, fn) {
             const v = getView();
@@ -215,6 +228,19 @@ export function initLevelUi(host: LevelUiHost): LevelUi {
     $('ed-right').append(inspector.el);
     $('ed-bottom').append(dock.el);
     const panels = [outliner, inspector, assets, history, validation, modPanel];
+
+    // ---- real visuals: terrain, models, thumbnails ------------------------------------------------------------------
+    const loader = createSceneLoader(host.call, () => getView(), {
+        status: (m) => host.setStatus(m),
+        toast: (m, k) => toast(m, k),
+        thumbnail: (res, url) => assets.applyThumbnail(res, url),
+        modelsChanged: () => {
+            syncToolbar();
+            updateStatus();
+        },
+    });
+    assets.setThumbnailProvider((cls) => loader.thumbnail(cls.resource));
+    assets.setThumbnailLoader((cls) => loader.wantThumbnail(cls));
 
     // ---- toolbar --------------------------------------------------------------------------------------------------
 
@@ -309,6 +335,12 @@ export function initLevelUi(host: LevelUiHost): LevelUi {
             getView().setFilters({ hidden: new Set(hiddenKinds) });
             syncToolbar();
         },
+        setViewOptions: (patch, live) => {
+            viewOpts = { ...viewOpts, ...patch };
+            store.set('view-options', JSON.stringify(viewOpts));
+            getView().setViewOptions(viewOpts);
+            if (!live) syncToolbar();
+        },
         toggleGhosts: (on) => {
             ghosts = on;
             updateOverlay();
@@ -347,6 +379,8 @@ export function initLevelUi(host: LevelUiHost): LevelUi {
             hiddenKinds,
             bookmarks: v?.bookmarks ?? [],
             ghosts: worldDoc && src ? ghosts : null,
+            viewOptions: viewOpts,
+            helperCounts: helperCounts(),
             hasLevels: !!disc?.levels.length,
             levels: disc?.levels ?? [],
             canUndo: v?.stack.canUndo ?? false,
@@ -358,6 +392,24 @@ export function initLevelUi(host: LevelUiHost): LevelUi {
         };
     }
     const syncToolbar = (): void => toolbar.sync(toolbarState());
+
+    /** Objects per helper class group (Display menu). Cheap: one pass over class names, cached per document size. */
+    let helperKey = '';
+    let helperCache = {} as Record<HelperGroup, number>;
+    function helperCounts(): Record<HelperGroup, number> {
+        const v = view;
+        const key = `${v?.doc.size ?? 0}:${src?.file ?? ''}`;
+        if (key === helperKey) return helperCache;
+        helperKey = key;
+        helperCache = Object.fromEntries(HELPER_GROUPS.map((g) => [g.id, 0])) as Record<HelperGroup, number>;
+        const byClass = new Map<string, HelperGroup | null>();
+        for (const o of v?.doc.objects() ?? []) {
+            let g = byClass.get(o.class);
+            if (g === undefined) byClass.set(o.class, (g = helperGroupOf(o.class)));
+            if (g) helperCache[g]++;
+        }
+        return helperCache;
+    }
 
     // ---- viewport -------------------------------------------------------------------------------------------------
 
@@ -379,6 +431,7 @@ export function initLevelUi(host: LevelUiHost): LevelUi {
                 },
             });
             view.setEditorControls(true);
+            view.setViewOptions(viewOpts);
             view.setSnap({});
             view.setDocument(new LevelDocument());
             view.setActive(true);
@@ -443,7 +496,8 @@ export function initLevelUi(host: LevelUiHost): LevelUi {
         const c = v.cameraGamePos().map((n) => Math.round(n / 100) / 10);
         sbCam.textContent = `cam ${c.join(', ')}k`;
         sbSnap.textContent = `${v.snap.grid ? `grid ${v.snap.gridSize}` : 'grid off'} | ${v.snap.angle ? `${v.snap.angleStep}°` : 'angle off'} | fly x${v.flySpeed.toFixed(2)}`;
-        sbFps.textContent = `${v.fps} fps`;
+        const st = v.stats();
+        sbFps.textContent = `${v.fps} fps | ${st.calls} draws | ${Math.round(st.triangles / 1000)}k tris`;
         const d = $('ed-dirty');
         const isDirty = dirty();
         d.className = `dirty${isDirty ? ' on' : ''}`;
@@ -654,9 +708,14 @@ export function initLevelUi(host: LevelUiHost): LevelUi {
         toast(`Loading ${info?.name ?? dirPath}...`);
         const r = await host.call('loadLevel', dirPath);
         await openLoaded(r, info?.name ?? r.file);
+        const resources = new Set<string>();
+        for (const o of getView().doc.objects()) resources.add(o.resource);
+        visuals = loader.loadLevel(dirPath, resources).catch(fail);
     }
 
     async function openLoaded(r: LevelLoadResult, displayName: string): Promise<void> {
+        loader.clear();
+        getView().setGround({});
         const { doc, unresolved } = documentFromLvl(r.lvl, r.odbs, displayName);
         src = r;
         levelName = r.file.replace(/\.lvl$/i, '');
@@ -840,5 +899,14 @@ export function initLevelUi(host: LevelUiHost): LevelUi {
     void CompositeCommand;
     void diffDocument;
     void changeCount;
-    return { view: getView, loadFile, setDisc, openLevel, openLoaded, assets: () => assets, ctx: () => ctx };
+    return {
+        view: getView,
+        loadFile,
+        setDisc,
+        openLevel,
+        openLoaded,
+        assets: () => assets,
+        ctx: () => ctx,
+        visualsReady: () => visuals,
+    };
 }

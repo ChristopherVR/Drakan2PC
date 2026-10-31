@@ -10,6 +10,7 @@ export type TextureLookup = (ref: number) => THREE.Texture | null;
  */
 export class TextureCache {
     private readonly byKey = new Map<string, THREE.DataTexture>();
+    private readonly shared = new Map<string, THREE.DataTexture>();
 
     /** Add decoded textures under a namespace (e.g. 'terrain' or a model container); returns a lookup for that set. */
     add(namespace: string, textures: readonly SceneTexture[]): TextureLookup {
@@ -30,12 +31,47 @@ export class TextureCache {
         return (ref) => this.byKey.get(`${namespace}:${ref}`) ?? null;
     }
 
+    /**
+     * Like `add`, but textures with identical pixels (the same TXD reached from many classes) share one GPU texture.
+     * `ref` values stay per call, so each class gets its own lookup.
+     */
+    addShared(textures: readonly SceneTexture[]): TextureLookup {
+        const map = new Map<number, THREE.DataTexture>();
+        for (const t of textures) {
+            const sig = `${t.width}x${t.height}:${pixelHash(t.rgba)}`;
+            let tex = this.shared.get(sig);
+            if (!tex) {
+                const data = new Uint8Array(t.rgba.buffer as ArrayBuffer, t.rgba.byteOffset, t.rgba.byteLength);
+                tex = new THREE.DataTexture(data, t.width, t.height, THREE.RGBAFormat);
+                tex.colorSpace = THREE.SRGBColorSpace;
+                tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+                tex.magFilter = THREE.LinearFilter;
+                tex.minFilter = THREE.LinearMipmapLinearFilter;
+                tex.generateMipmaps = true;
+                tex.flipY = false;
+                tex.needsUpdate = true;
+                this.shared.set(sig, tex);
+            }
+            map.set(t.ref, tex);
+        }
+        return (ref) => map.get(ref) ?? null;
+    }
+
     get size(): number {
-        return this.byKey.size;
+        return this.byKey.size + this.shared.size;
     }
 
     dispose(): void {
         for (const t of this.byKey.values()) t.dispose();
         this.byKey.clear();
+        for (const t of this.shared.values()) t.dispose();
+        this.shared.clear();
     }
+}
+
+/** FNV-1a over every 7th byte plus the length: cheap, and collisions only cost a wrong texture on identical-size images. */
+export function pixelHash(b: Uint8Array): number {
+    let h = 0x811c9dc5 ^ b.length;
+    for (let i = 0; i < b.length; i += 7) h = Math.imul(h ^ b[i]!, 0x01000193);
+    return h >>> 0;
 }

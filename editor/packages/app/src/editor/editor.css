@@ -1134,6 +1134,13 @@ body.ed-scrub {
 .star:hover {
     background: var(--hover);
 }
+.drag-ghost img {
+    display: block;
+    width: 72px;
+    height: 72px;
+    margin: 0 auto 4px;
+    object-fit: contain;
+}
 .drag-ghost {
     position: fixed;
     left: -999px;
@@ -1400,6 +1407,9 @@ body.ed-scrub {
 .toast.error {
     border-left-color: var(--bad);
 }
+.toast.warn {
+    border-left-color: var(--warn);
+}
 .toast.out {
     opacity: 0;
     transform: translateY(6px);
@@ -1483,4 +1493,42 @@ body.ed-scrub {
 
 .dock-content > [hidden] {
     display: none !important;
+}
+
+/* ---- display menu ---- */
+.popover .disp-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 4px 10px;
+    font-size: 12px;
+}
+.popover .disp-row select,
+.popover .disp-row input[type='range'] {
+    flex: 1;
+    min-width: 0;
+}
+.popover .disp-note {
+    padding: 2px 10px 6px;
+    font-size: 11px;
+    color: var(--dim);
+}
+
+.tile {
+    touch-action: none;
+    user-select: none;
+}
+.drag-ghost.live {
+    left: 0;
+    top: 0;
+    z-index: 90;
+    pointer-events: none;
+    opacity: 0.92;
+    background: color-mix(in srgb, var(--accent) 85%, transparent);
+}
+.drag-ghost.live.over {
+    opacity: 0.5;
+}
+body.dragging-asset {
+    cursor: grabbing;
 }

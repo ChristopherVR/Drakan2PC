@@ -132,3 +132,20 @@ export function buildInstancedModels(
     }
     return group;
 }
+
+/** An object as the editor document stores it: game-unit position, radian rotation (yaw already minus 90 degrees). */
+export interface DocPlacement {
+    transform: { pos: readonly number[]; rot: readonly number[] };
+    scale?: readonly number[];
+}
+
+/** Instance matrix for a document object (model space -> scene), YXZ order like `instanceMatrix`. */
+export function docInstanceMatrix(o: DocPlacement, out = new THREE.Matrix4()): THREE.Matrix4 {
+    const { pos, rot } = o.transform;
+    eul.set(rot[0]!, rot[1]!, rot[2]!, 'YXZ');
+    quat.setFromEuler(eul);
+    vp.set(pos[0]! * SCENE_SCALE, pos[1]! * SCENE_SCALE, pos[2]! * SCENE_SCALE);
+    const sc = o.scale ?? [1, 1, 1];
+    vs.set(sc[0]! * MODEL_SCALE, sc[1]! * MODEL_SCALE, sc[2]! * MODEL_SCALE);
+    return out.compose(vp, quat, vs);
+}

@@ -53,5 +53,5 @@ Validation, Mod) and a status bar. Open an ISO, pick a level in the toolbar, edi
 F frame, Del, Ctrl+D/C/V/Z/Y, H/L hide/lock, Shift+1..9 camera bookmarks. Drag a class from the Asset Browser into the
 viewport to place it; right mouse + WASD flies; alt+left orbits. Edits autosave to IndexedDB. Code: `packages/app/src/editor/*`
 (panels), `level.ts` (viewport), `levelui.ts` (wiring), `packages/editor-core/src/{snap,arrange,clipboard,catalog,schema,validate}.ts`
-(pure logic, tested). Notes and limits: `docs/journal/2026-10-31/editor-ux-overhaul.md`. Hooks for the renderer:
-`LevelView.setGround({ meshes, height })`, `levelUi.assets().setThumbnailProvider(fn)`.
+(pure logic, tested). Notes and limits: `docs/journal/2026-10-31/editor-ux-overhaul.md`. Opening a disc level now loads terrain and textured models (`sceneload.ts`, `scene/layer.ts`); the Display menu holds
+terrain/model/helper-class toggles, lighting, fog and draw distance. Notes: `docs/journal/2026-10-31/editor-render-integration.md`.

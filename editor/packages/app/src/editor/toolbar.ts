@@ -1,5 +1,7 @@
 import { ANGLE_STEPS, GRID_SIZES, type AlignMode, type Axis } from '@drakan/editor-core';
 import { KINDS, type CameraBookmark, type ToolMode } from '../level.ts';
+import { HELPER_GROUPS, type HelperGroup } from '../scene/instances.ts';
+import { LIGHTING, type LightingPreset, type ViewOptions } from '../scene/viewopts.ts';
 import { fill, h, icon, iconButton } from './dom.ts';
 
 /** What the toolbar can trigger and read; implemented by `levelui.ts`. */
@@ -38,6 +40,8 @@ export interface ToolbarActions {
     setLinks(m: 'selection' | 'all' | 'off'): void;
     toggleKind(kind: string, shown: boolean): void;
     toggleGhosts(on: boolean): void;
+    /** Display options (lighting, terrain, models, helpers, fog). `live` = a slider is moving: do not rebuild menus. */
+    setViewOptions(patch: Partial<ViewOptions>, live?: boolean): void;
     setFlySpeed(v: number): void;
     saveBookmark(): void;
     gotoBookmark(i: number): void;
@@ -59,6 +63,9 @@ export interface ToolbarState {
     hiddenKinds: Set<string>;
     bookmarks: CameraBookmark[];
     ghosts: boolean | null;
+    viewOptions: ViewOptions;
+    /** Objects per helper class group in the open level. */
+    helperCounts: Record<HelperGroup, number>;
     hasLevels: boolean;
     levels: { name: string; dirPath: string; present: boolean }[];
     canUndo: boolean;
@@ -375,6 +382,81 @@ export function createToolbar(root: HTMLElement, a: ToolbarActions, getState: ()
         'Viewport display, link lines, panels',
     );
 
+    // ---- display menu (terrain, models, helper classes, lighting, fog)
+    const display = menuButton(
+        'Display',
+        'layers',
+        (box) => {
+            const s = getState();
+            const o = s.viewOptions;
+            const check = (label: string, on: boolean, fn: (v: boolean) => void, note = ''): HTMLElement => {
+                const cb = h('input', { type: 'checkbox', checked: on });
+                cb.addEventListener('change', () => fn(cb.checked));
+                return h(
+                    'label',
+                    { class: 'mi check' },
+                    cb,
+                    label,
+                    note ? h('span', { class: 'dim' }, ` ${note}`) : null,
+                );
+            };
+            const markerRadio = (label: string, v: ViewOptions['markers']): HTMLElement => {
+                const r = h('input', { type: 'radio', name: 'ed-markers', checked: o.markers === v });
+                r.addEventListener('change', () => a.setViewOptions({ markers: v }));
+                return h('label', { class: 'mi check' }, r, label);
+            };
+            const light = h(
+                'select',
+                { 'aria-label': 'Lighting preset' },
+                ...(Object.keys(LIGHTING) as LightingPreset[]).map((k) =>
+                    h('option', { value: k, selected: k === o.lighting }, LIGHTING[k].label),
+                ),
+            );
+            light.addEventListener('change', () => a.setViewOptions({ lighting: light.value as LightingPreset }));
+            const dist = h('input', {
+                type: 'range',
+                min: 20,
+                max: 6000,
+                step: 50,
+                value: o.drawDistance,
+                'aria-label': 'Draw distance',
+                class: 'slider',
+            });
+            dist.addEventListener('input', () => a.setViewOptions({ drawDistance: Number(dist.value) }, true));
+            box.append(
+                h('div', { class: 'mh' }, 'Scene'),
+                check('Terrain', o.terrain, (v) => a.setViewOptions({ terrain: v })),
+                check('Terrain wireframe', o.wireframe, (v) => a.setViewOptions({ wireframe: v })),
+                check('Textured models', o.models, (v) => a.setViewOptions({ models: v })),
+                h('div', { class: 'mh' }, 'Markers (pyramids)'),
+                markerRadio('Only where a model is missing', 'fallback'),
+                markerRadio('On every object', 'all'),
+                markerRadio('Off', 'off'),
+                h('div', { class: 'mh' }, 'Helper classes (editor-only boxes in the data)'),
+            );
+            for (const g of HELPER_GROUPS) {
+                box.append(
+                    check(
+                        g.label,
+                        o.helpers[g.id],
+                        (v) => a.setViewOptions({ helpers: { ...o.helpers, [g.id]: v } }),
+                        s.helperCounts[g.id] ? `(${s.helperCounts[g.id]})` : '',
+                    ),
+                );
+            }
+            box.append(
+                h('div', { class: 'mh' }, 'Lighting and distance'),
+                h('div', { class: 'disp-row' }, h('span', {}, 'Lighting'), light),
+                check('Fog', o.fog, (v) => a.setViewOptions({ fog: v })),
+                h('div', { class: 'disp-row' }, h('span', {}, 'Draw distance'), dist),
+                check('Keep the fly camera above the ground', o.keepAboveGround, (v) =>
+                    a.setViewOptions({ keepAboveGround: v }),
+                ),
+            );
+        },
+        'Terrain, models, helper classes, lighting, fog and draw distance',
+    );
+
     // ---- camera
     const speed = h('input', {
         type: 'range',
@@ -493,6 +575,7 @@ export function createToolbar(root: HTMLElement, a: ToolbarActions, getState: ()
         arrange.wrap,
         sep(),
         view.wrap,
+        display.wrap,
         camGroup,
         h('span', { class: 'spacer' }),
         rightGroup,
@@ -535,6 +618,7 @@ export function createToolbar(root: HTMLElement, a: ToolbarActions, getState: ()
             arrange.refresh();
             selectMenu.refresh();
             view.refresh();
+            display.refresh();
         },
     };
 }

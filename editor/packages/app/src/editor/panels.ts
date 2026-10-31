@@ -132,6 +132,7 @@ export function createValidation(ctx: Ctx, onCount: (errors: number, warnings: n
         const doc: LevelDocument = ctx.doc();
         const src = ctx.src();
         issues = validateDocument(doc, {
+            sourceLevel: src !== null,
             rawIds: src
                 ? [
                       ...src.lvl.list.objects.map((o) => o.id),

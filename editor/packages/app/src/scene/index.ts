@@ -24,12 +24,25 @@ export {
     buildInstancedModels,
     buildModel,
     clearModelCache,
+    docInstanceMatrix,
     instanceMatrix,
     modelGeometry,
     modelMaterials,
+    type DocPlacement,
     type ModelInstance,
 } from './models.ts';
 export { TextureCache, type TextureLookup } from './textures.ts';
 export { classThumbnail, clearThumbnails } from './thumbnail.ts';
 export { groundHeightAt, raycastScene, type SceneHit } from './pick.ts';
 export type { ModelData, SceneTexture, TerrainData } from './decode.ts';
+export { ModelLayer, type LayerObject } from './layer.ts';
+export { HELPER_GROUPS, classesToLoad, helperGroupOf, partitionObjects, type HelperGroup } from './instances.ts';
+export {
+    clientToNdc,
+    nearestHit,
+    nearestScreenPoint,
+    ndcToClient,
+    pointsInRect,
+    type ScreenPoint,
+} from './pickmath.ts';
+export { DEFAULT_VIEW_OPTIONS, LIGHTING, parseViewOptions, type ViewOptions } from './viewopts.ts';

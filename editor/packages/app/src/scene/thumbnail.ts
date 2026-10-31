@@ -10,7 +10,13 @@ const cache = new Map<string, string>();
  * Small PNG data URL of a model for the asset browser, rendered with a shared offscreen renderer from a fixed
  * three-quarter view; cached per `key` (class id or model key). Returns '' if WebGL is unavailable.
  */
-export function classThumbnail(key: string, model: Model, lookup: TextureLookup, size = 96): string {
+export function classThumbnail(
+    key: string,
+    model: Model,
+    lookup: TextureLookup,
+    size = 96,
+    geometryKey = `thumb:${key}`,
+): string {
     const ck = `${key}@${size}`;
     const hit = cache.get(ck);
     if (hit !== undefined) return hit;
@@ -23,7 +29,7 @@ export function classThumbnail(key: string, model: Model, lookup: TextureLookup,
         const sun = new THREE.DirectionalLight(0xffffff, 1.4);
         sun.position.set(1, 2, 1.5);
         scene.add(sun);
-        const mesh = buildModel(model, lookup, `thumb:${key}`);
+        const mesh = buildModel(model, lookup, geometryKey);
         scene.add(mesh);
         const sphere = new THREE.Box3().setFromObject(mesh).getBoundingSphere(new THREE.Sphere());
         const cam = new THREE.PerspectiveCamera(35, 1, 0.01, 1000);

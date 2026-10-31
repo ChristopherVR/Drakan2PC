@@ -9,7 +9,7 @@ export interface Ctx {
     catalog(): AssetClass[];
     /** The disc level the document was loaded from (null for a world dump or a saved document). */
     src(): LevelLoadResult | null;
-    toast(msg: string, kind?: 'info' | 'error' | 'ok'): void;
+    toast(msg: string, kind?: 'info' | 'error' | 'ok' | 'warn'): void;
     /** Select objects and frame them. */
     locate(ids: number[]): void;
     /** Add a new instance of a catalog class at `pos` (game units; the viewport centre ground point when omitted). */

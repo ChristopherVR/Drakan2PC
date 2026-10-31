@@ -11,6 +11,13 @@ export interface AssetsPanel extends Panel {
     setThumbnailProvider(p: ThumbnailProvider | null): void;
     /** Re-render tiles (after thumbnails became available). */
     refreshTiles(): void;
+    /**
+     * Lazy thumbnails: called once per tile when it scrolls into view and the provider has nothing yet. The loader
+     * produces the image in the background and then calls `applyThumbnail`.
+     */
+    setThumbnailLoader(fn: ((cls: AssetClass) => void) | null): void;
+    /** Put a finished thumbnail (PNG data URL) into every tile and the detail view of a class, without a rebuild. */
+    applyThumbnail(resource: string, url: string): void;
 }
 
 const PER_GROUP = 160;
@@ -27,6 +34,25 @@ export function createAssets(ctx: Ctx): AssetsPanel {
     const favs = new Set<string>(store.json<string[]>('favourites', []));
     const saveFavs = (): void => store.set('favourites', JSON.stringify([...favs]));
     let provider: ThumbnailProvider | null = null;
+    let loader: ((cls: AssetClass) => void) | null = null;
+    /** Pre-decoded images for the drag preview (setDragImage needs a loaded image). */
+    const dragImages = new Map<string, HTMLImageElement>();
+    let suppressClick = false;
+    const classOf = new Map<string, AssetClass>();
+    const lazy =
+        typeof IntersectionObserver === 'undefined'
+            ? null
+            : new IntersectionObserver(
+                  (entries) => {
+                      for (const en of entries) {
+                          if (!en.isIntersecting) continue;
+                          lazy?.unobserve(en.target);
+                          const cls = classOf.get((en.target as HTMLElement).dataset.res ?? '');
+                          if (cls) loader?.(cls);
+                      }
+                  },
+                  { rootMargin: '120px' },
+              );
     let filter: 'all' | 'fav' | 'level' = 'all';
     let query = '';
     let selected: string | null = null;
@@ -89,12 +115,29 @@ export function createAssets(ctx: Ctx): AssetsPanel {
         store.set('tile-size', size.value);
     });
 
+    function thumbImg(resource: string, url: string): HTMLImageElement {
+        const img = h('img', { src: url, alt: '', draggable: false });
+        if (!dragImages.has(resource)) {
+            const pre = new Image();
+            pre.src = url;
+            dragImages.set(resource, pre);
+        }
+        return img;
+    }
+
     function thumb(cls: AssetClass): HTMLElement {
-        const box = h('div', { class: 'thumb', style: `--k:${kindColor(cls)}` });
+        const box = h('div', { class: 'thumb', style: `--k:${kindColor(cls)}`, 'data-res': cls.resource });
+        classOf.set(cls.resource, cls);
         const t = provider?.(cls) ?? null;
         if (t instanceof HTMLElement) box.append(t);
-        else if (typeof t === 'string') box.append(h('img', { src: t, alt: '', draggable: false }));
-        else box.append(icon(cls.icon satisfies AssetIcon, 28));
+        else if (typeof t === 'string' && t) box.append(thumbImg(cls.resource, t));
+        else {
+            box.append(icon(cls.icon satisfies AssetIcon, 28));
+            if (loader) {
+                if (lazy) lazy.observe(box);
+                else loader(cls);
+            }
+        }
         return box;
     }
 
@@ -117,7 +160,6 @@ export function createAssets(ctx: Ctx): AssetsPanel {
             'div',
             {
                 class: `tile${selected === cls.resource ? ' sel' : ''}`,
-                draggable: true,
                 'data-res': cls.resource,
                 title: `${cls.name}\n${cls.db} class ${cls.classId} (${cls.resource})`,
             },
@@ -126,21 +168,55 @@ export function createAssets(ctx: Ctx): AssetsPanel {
             cls.instances ? h('span', { class: 'badge' }, String(cls.instances)) : null,
             star,
         );
-        t.addEventListener('dragstart', (e) => {
-            ctx.view().dragKey = cls.resource;
-            if (e.dataTransfer) {
-                e.dataTransfer.effectAllowed = 'copy';
-                e.dataTransfer.setData('text/plain', cls.name);
-                const ghost = h('div', { class: 'drag-ghost' }, cls.name);
-                document.body.append(ghost);
-                e.dataTransfer.setDragImage(ghost, 10, 10);
-                setTimeout(() => ghost.remove(), 0);
-            }
-        });
-        t.addEventListener('dragend', () => {
-            ctx.view().dragKey = null;
+        // Pointer-based drag: works with a real mouse, touch and pen, and shows the model thumbnail as the ghost.
+        // (The native HTML5 drag is not used: browsers differ and automation cannot start it.)
+        t.addEventListener('pointerdown', (e) => {
+            if (e.button !== 0 || (e.target as HTMLElement).closest('.star')) return;
+            const sx = e.clientX;
+            const sy = e.clientY;
+            const view = ctx.view();
+            let ghost: HTMLElement | null = null;
+            const pre = dragImages.get(cls.resource);
+            const move = (m: PointerEvent): void => {
+                if (!ghost) {
+                    if (Math.hypot(m.clientX - sx, m.clientY - sy) < 5) return;
+                    view.dragKey = cls.resource;
+                    loader?.(cls);
+                    const img = dragImages.get(cls.resource) ?? pre;
+                    ghost = h('div', { class: 'drag-ghost live' }, img?.complete ? img.cloneNode() : null, cls.name);
+                    document.body.append(ghost);
+                    document.body.classList.add('dragging-asset');
+                }
+                ghost.style.left = `${m.clientX + 12}px`;
+                ghost.style.top = `${m.clientY + 12}px`;
+                if (view.isOverViewport(m.clientX, m.clientY)) {
+                    view.dragHover(m);
+                    ghost.classList.add('over');
+                } else {
+                    view.placeGhostHide();
+                    ghost.classList.remove('over');
+                }
+            };
+            const end = (u: PointerEvent, cancelled: boolean): void => {
+                window.removeEventListener('pointermove', move);
+                window.removeEventListener('pointerup', up);
+                window.removeEventListener('pointercancel', cancel);
+                document.body.classList.remove('dragging-asset');
+                if (!ghost) return;
+                ghost.remove();
+                if (!cancelled && view.isOverViewport(u.clientX, u.clientY)) view.dragDrop(u);
+                else view.dragCancel();
+                suppressClick = true;
+                setTimeout(() => (suppressClick = false), 0);
+            };
+            const up = (u: PointerEvent): void => end(u, false);
+            const cancel = (u: PointerEvent): void => end(u, true);
+            window.addEventListener('pointermove', move);
+            window.addEventListener('pointerup', up);
+            window.addEventListener('pointercancel', cancel);
         });
         t.addEventListener('click', () => {
+            if (suppressClick) return;
             selected = cls.resource;
             body.querySelectorAll('.tile.sel').forEach((x) => x.classList.remove('sel'));
             t.classList.add('sel');
@@ -275,8 +351,19 @@ export function createAssets(ctx: Ctx): AssetsPanel {
             rebuildSoon();
         },
         refreshTiles: rebuildSoon,
+        setThumbnailLoader(fn) {
+            loader = fn;
+            rebuildSoon();
+        },
+        applyThumbnail(resource, url) {
+            for (const box of root.querySelectorAll<HTMLElement>('.thumb')) {
+                if (box.dataset.res !== resource) continue;
+                box.replaceChildren(thumbImg(resource, url));
+            }
+        },
         onLoad() {
             showAll.clear();
+            dragImages.clear();
             selected = null;
             build();
             fill(
