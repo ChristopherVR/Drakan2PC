@@ -89,7 +89,7 @@ const FACT_FIELDS: [string, string, (v: number) => string][] = [
  * The game has no item description text (Resources.XDB holds names only), so the tooltip is built from the class
  * fields that say what the item does. Floats are stored as raw bits and read back with `classFieldDefault`.
  */
-function itemFacts(k: Parameters<typeof classFieldDefault>[0], at: (name: string) => number): string[] {
+export function itemFacts(k: Parameters<typeof classFieldDefault>[0], at: (name: string) => number): string[] {
     const out: string[] = [];
     for (const [field, label, fmt] of FACT_FIELDS) {
         const i = at(field);

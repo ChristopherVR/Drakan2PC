@@ -200,7 +200,7 @@ export function renderInventory(ctx: PanelCtx): HTMLElement {
                 'button',
                 {
                     disabled: true,
-                    title: 'Not supported: the game rebuilds the inventory cells from its own item registry when a save loads, so a cloned item record is dropped.',
+                    title: 'Not supported: a cloned item record loads as a world object but never enters the inventory, and the game rebuilds the cells itself (docs/journal/2026-10-31/editor-save-mode.md).',
                 },
                 '+ Add item (not supported yet)',
             ),

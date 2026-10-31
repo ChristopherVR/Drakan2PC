@@ -209,6 +209,59 @@ export function renderJournal(ctx: PanelCtx): HTMLElement {
 const stateRank = (e: QuestEntry): number =>
     e.state === 'active' ? 0 : e.state === 'done' ? 1 : e.state === 'discovered' ? 2 : 3;
 
+/** Map extent of each chapter's quest classes, for the little location picture beside a quest. */
+const extentCache = new WeakMap<object, Map<number, { x0: number; x1: number; y0: number; y1: number }>>();
+
+function chapterExtent(data: StoryData, chapter: number): { x0: number; x1: number; y0: number; y1: number } | null {
+    let m = extentCache.get(data);
+    if (!m) {
+        m = new Map();
+        for (const k of data.classes.values()) {
+            if (!k.mapX && !k.mapY) continue;
+            const r = m.get(k.chapter) ?? { x0: Infinity, x1: -Infinity, y0: Infinity, y1: -Infinity };
+            r.x0 = Math.min(r.x0, k.mapX);
+            r.x1 = Math.max(r.x1, k.mapX);
+            r.y0 = Math.min(r.y0, k.mapY);
+            r.y1 = Math.max(r.y1, k.mapY);
+            m.set(k.chapter, r);
+        }
+        extentCache.set(data, m);
+    }
+    return m.get(chapter) ?? null;
+}
+
+/**
+ * The game has no quest pictures (the journal is text); what the data does have is the quest's map position, so each
+ * quest gets a small map showing where its marker sits among the chapter's markers.
+ */
+function questPin(ctx: PanelCtx, e: QuestEntry): HTMLElement | null {
+    const k = e.cls;
+    const data = ctx.story?.();
+    if (!k || !data || (!k.mapX && !k.mapY)) return null;
+    const r = chapterExtent(data, k.chapter);
+    if (!r) return null;
+    const w = 44;
+    const hgt = 32;
+    const fx = r.x1 > r.x0 ? (k.mapX - r.x0) / (r.x1 - r.x0) : 0.5;
+    const fy = r.y1 > r.y0 ? (k.mapY - r.y0) / (r.y1 - r.y0) : 0.5;
+    const ns = 'http://www.w3.org/2000/svg';
+    const svg = document.createElementNS(ns, 'svg');
+    svg.setAttribute('viewBox', `0 0 ${w} ${hgt}`);
+    svg.setAttribute('width', String(w));
+    svg.setAttribute('height', String(hgt));
+    svg.setAttribute('class', `qpin ${e.state}`);
+    const frame = document.createElementNS(ns, 'rect');
+    for (const [a, v] of Object.entries({ x: 0.5, y: 0.5, width: w - 1, height: hgt - 1, rx: 3, class: 'qpin-frame' }))
+        frame.setAttribute(a, String(v));
+    const dot = document.createElementNS(ns, 'circle');
+    for (const [a, v] of Object.entries({ cx: 5 + fx * (w - 10), cy: 5 + fy * (hgt - 10), r: 3.2, class: 'qpin-dot' }))
+        dot.setAttribute(a, String(v));
+    svg.append(frame, dot);
+    const wrap = h('div', { class: 'qpin-wrap', title: `Map marker at ${k.mapX}, ${k.mapY} within ${k.chapterName}` });
+    wrap.append(svg);
+    return wrap;
+}
+
 function questRow(ctx: PanelCtx, e: QuestEntry): HTMLElement {
     const pending = e.row >= 0 && ctx.doc.pendingEdits().some((p) => p.name === `quest.${e.row}.done`);
     const tick =
@@ -235,6 +288,7 @@ function questRow(ctx: PanelCtx, e: QuestEntry): HTMLElement {
         'div',
         { class: `qrow ${e.state}${pending ? ' chg' : ''}`, title: tip },
         tick,
+        questPin(ctx, e),
         h(
             'div',
             { class: 'qtext' },

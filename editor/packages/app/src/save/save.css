@@ -1980,3 +1980,23 @@
         grid-template-columns: minmax(0, 1fr);
     }
 }
+
+/* ------------------------------------------------------------------ quest map pins */
+
+#save-main.sv .qpin-wrap {
+    display: flex;
+    align-items: center;
+}
+#save-main.sv .qpin-frame {
+    fill: var(--sv-bg, #111);
+    stroke: var(--sv-line, #444);
+}
+#save-main.sv .qpin-dot {
+    fill: var(--sv-muted, #999);
+}
+#save-main.sv .qpin.active .qpin-dot {
+    fill: var(--sv-accent, #e8a33d);
+}
+#save-main.sv .qpin.done .qpin-dot {
+    fill: #62c370;
+}
