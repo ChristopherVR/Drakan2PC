@@ -13,12 +13,16 @@ import type { LevelUi } from '../../levelui.ts';
 import type { LevelUiHost } from '../../levelui.ts';
 import type { StoryEditors } from '../../story/register.ts';
 import { canWriteFolder, playInGame, writePackToModsFolder, type LevelPack } from '../../modio.ts';
+import * as platform from '../../platform.ts';
+import { setCopyPlayProvider } from '../../playtest.ts';
 import { downloadFile, isDesktop } from '../../platform.ts';
 import type { ArenaStore } from '../arena/store.ts';
 import { addValidationProvider } from '../panels.ts';
 import { registerCommand, registerPanel, runCommand } from '../registry.ts';
 import { createChecklist } from './checklist.ts';
-import { resetExportCache } from './export.ts';
+import { buildProjectPack, resetExportCache, zipProjectPack } from './export.ts';
+import { openExportDialog } from './exportdialog.ts';
+import { createProjectFiles, type ProjectFiles } from './folder.ts';
 import { createHelp, type Help } from './help.ts';
 import { createProjectPanel } from './panel.ts';
 import { projects } from './store.ts';
@@ -36,6 +40,10 @@ export interface ProjectInstallHost {
 
 export interface ProjectInstall {
     help: Help;
+    /** Project folder / file operations (the native menu and the Project tab use them). */
+    files: ProjectFiles;
+    /** Open the one Export dialog. */
+    openExport(): void;
     /** A disc was opened or its language changed. */
     onDisc(): void;
     startTask(task: TaskId): void;
@@ -99,19 +107,81 @@ export function installProject(host: ProjectInstallHost): ProjectInstall {
         // The level's autosave banner talks about the disc level; a copy has its own autosave under its own title.
     }
 
+    /** Disc level titles that exist on the open disc. */
+    const isDiscLevel = (t: string): boolean => !!discDir(t);
+
+    const files = createProjectFiles({
+        flush: () => ui.flushAutosave(),
+        toast: (m, k) => ctx.toast(m, k),
+        setStatus: host.setStatus,
+        download: (name, data, type) => downloadFile(name, data, type),
+        reloadOpenLevel: (titles) => {
+            const open = openDoc();
+            const p = projects.get();
+            if (!open || !p || ![...titles].some((t) => norm(t) === norm(open.title))) return;
+            const l = p.levels.find((x) => norm(x.title) === norm(open.title));
+            if (l) void openProjectLevel(l).catch((e: unknown) => ctx.toast(String(e), 'error'));
+        },
+    });
+
+    // Play test of a level copy: the pack adds the whole level (the disc has no LVL under that title).
+    setCopyPlayProvider(async (title, doc, meta) => {
+        const p = projects.get();
+        const l = p?.levels.find((x) => x.copyOf && norm(x.title) === norm(title));
+        if (!p || !l) return null;
+        const only = { ...p, id: meta.id, name: meta.name ?? meta.id, levels: [l] };
+        const pack = await buildProjectPack(exportDeps, only, new Map([[l.title, doc]]));
+        return { meta: { ...pack.meta, description: meta.description, target: meta.target }, files: pack.files };
+    });
+
     const panel = createProjectPanel({
         ctx,
         levels: () => ui.levels(),
         loadExits: () => host.call('exitIndex'),
         exportDeps,
         openLevel: openProjectLevel,
-        download: (name, data, type) => downloadFile(name, data, type),
-        writeToMods: (pack) => writePackToModsFolder(pack as unknown as LevelPack),
-        canWrite: canWriteFolder,
+        files,
+        openExport: () => openExport(),
+        recentProjects: async () => (isDesktop ? (await platform.getSettings()).recentProjects : []),
         play: (pack, level, opts) => playInGame(pack as unknown as LevelPack | null, opts, level),
         setStatus: host.setStatus,
         openGuide: (id) => help.open(id),
     });
+    /** The one Export: a dialog that builds the mod pack from the project and puts it where the user chooses. */
+    function openExport(): void {
+        openExportDialog({
+            ensureProject: () => {
+                const open = openDoc();
+                let p = projects.ensure(DEFAULT_NAME.campaign);
+                if (open && ui.view().stack.canUndo && !p.levels.some((l) => norm(l.title) === norm(open.title))) {
+                    if (isDiscLevel(open.title)) {
+                        p = addDiscLevel(p, open.title);
+                        projects.set(p);
+                    }
+                }
+                return p;
+            },
+            build: (p) => buildProjectPack(exportDeps, p),
+            blockers: () =>
+                panel
+                    .issues()
+                    .filter((i) => i.severity === 'error')
+                    .map((i) => i.message),
+            zip: zipProjectPack,
+            writeToProjectFolder: (rel, bytes) => files.writeFile(rel, bytes),
+            saveZip: (name, bytes) => downloadFile(name, bytes as BlobPart, 'application/zip'),
+            installAvailable: () => canWriteFolder(),
+            install: (pack) => writePackToModsFolder(pack as unknown as LevelPack),
+            folderDir: () => projects.folder?.dir ?? null,
+            saveProject: () => (projects.folder ? files.save(true) : Promise.resolve()),
+            toast: (m, k) => ctx.toast(m, k),
+            setStatus: host.setStatus,
+            installDefault: () => isDesktop,
+        });
+    }
+    projects.handlers.export = openExport;
+    projects.handlers.save = () => void files.save().catch((e: unknown) => ctx.toast(String(e), 'error'));
+
     registerPanel({
         id: 'project',
         title: 'Project',
@@ -282,18 +352,37 @@ export function installProject(host: ProjectInstallHost): ProjectInstall {
         run: () => host.showTab('inspect'),
     });
     registerCommand({
-        id: 'project.export',
-        title: 'Export the project pack',
+        id: 'project.save',
+        title: 'Save the project',
         category: 'File',
-        icon: 'download',
-        keywords: 'mod zip publish build',
-        run: () => {
-            runCommand('panel.project');
-            void panel
-                .exportPack(false)
-                .catch((e: unknown) => ctx.toast(e instanceof Error ? e.message : String(e), 'error'));
-        },
+        icon: 'save',
+        keywords: 'project file folder level edits',
+        hint: isDesktop
+            ? 'Save the project and its level edits into the project folder'
+            : 'Download the project and its level edits as one file',
+        run: () => projects.handlers.save?.(),
     });
+    if (isDesktop) {
+        registerCommand({
+            id: 'project.new',
+            title: 'New project folder...',
+            category: 'File',
+            icon: 'plus',
+            keywords: 'create project',
+            run: () => {
+                runCommand('panel.project');
+                void files.close().catch((e: unknown) => ctx.toast(String(e), 'error'));
+            },
+        });
+        registerCommand({
+            id: 'project.open',
+            title: 'Open a project folder...',
+            category: 'File',
+            icon: 'open',
+            keywords: 'load project',
+            run: () => void files.openFolder().catch((e: unknown) => ctx.toast(String(e), 'error')),
+        });
+    }
     registerCommand({
         id: 'project.play',
         title: 'Play the project',
@@ -368,6 +457,8 @@ export function installProject(host: ProjectInstallHost): ProjectInstall {
 
     return {
         help,
+        files,
+        openExport,
         startTask,
         onDisc() {
             resetExportCache();

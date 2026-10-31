@@ -44,7 +44,7 @@
     flex: 1;
     min-height: 0;
     display: grid;
-    grid-template-columns: var(--ed-left, 270px) 4px minmax(0, 1fr) 4px var(--ed-right, 320px);
+    grid-template-columns: minmax(0, 1fr) 4px var(--ed-right, 320px);
 }
 #ed-mid {
     display: grid;
@@ -1707,18 +1707,75 @@ body.dragging-asset {
     flex: 0 1 260px;
     min-width: 150px;
 }
-.assets-bar .chips {
-    flex: 1 1 0;
-    min-width: 0;
-    overflow-x: auto;
-    scrollbar-width: none;
-    /* chips that do not fit fade out at the right edge instead of being cut through a word */
-    -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 28px), transparent);
-    mask-image: linear-gradient(to right, #000 calc(100% - 28px), transparent);
-    padding-right: 28px;
-}
-.assets-bar .chip {
+.assets-kinds {
     flex: none;
+    padding: var(--sp-2) var(--sp-4) var(--sp-3);
+    border-bottom: 1px solid var(--border);
+}
+.assets-kinds .chips {
+    flex-wrap: wrap;
+    row-gap: var(--sp-2);
+}
+.assets-kinds .chip {
+    flex: none;
+}
+.assets-bar .seg {
+    flex: none;
+}
+.assets-bar .seg-btn {
+    padding: 0 var(--sp-3);
+}
+.assets-bar {
+    flex-wrap: wrap;
+    row-gap: var(--sp-2);
+}
+/* compact list view (rows instead of thumbnail tiles) */
+.assets-body.as-list .grid {
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+}
+.assets-body.as-list .tile {
+    flex-direction: row;
+    align-items: center;
+    gap: var(--sp-4);
+    height: 34px;
+    padding: 2px var(--sp-4);
+    background: transparent;
+}
+.assets-body.as-list .tile:hover {
+    background: var(--surface-3);
+}
+.assets-body.as-list .tile.sel {
+    background: var(--select);
+}
+.assets-body.as-list .tile .thumb {
+    width: 28px;
+    height: 28px;
+    aspect-ratio: auto;
+    flex: none;
+}
+.assets-body.as-list .tile .thumb .ico {
+    width: 16px;
+    height: 16px;
+}
+.assets-body.as-list .tile .label {
+    flex: 1;
+    min-width: 0;
+    height: auto;
+    text-align: left;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+}
+.assets-body.as-list .tile .badge {
+    position: static;
+    flex: none;
+    order: 3;
+}
+.assets-body.as-list .tile .star {
+    position: static;
+    flex: none;
+    order: 4;
 }
 .cb-info {
     flex: none;
@@ -1863,68 +1920,6 @@ body.dragging-asset {
     border-radius: var(--r-md);
     box-shadow: var(--shadow-pop);
     font: 600 var(--fs-sm) var(--font);
-}
-
-/* Place panel */
-.place .seg-row {
-    padding-top: 0;
-}
-.place .seg {
-    width: 100%;
-}
-.place .seg-btn {
-    flex: 1;
-}
-.place-kinds .chip {
-    flex: none;
-}
-.place-kinds {
-    flex-wrap: wrap;
-    row-gap: var(--sp-2);
-    padding: 0 var(--sp-4) var(--sp-3);
-    background: var(--surface-1);
-    flex: none;
-}
-.place-list {
-    flex: 1;
-    overflow: auto;
-    padding-bottom: var(--sp-5);
-    border-top: 1px solid var(--border);
-}
-.place-group .sec-head {
-    border-top: 0;
-    background: var(--surface-1);
-    color: var(--fg-muted);
-    font-size: var(--fs-xs);
-    margin-top: var(--sp-2);
-}
-.place-group .sec-head .n {
-    margin-left: auto;
-    font-weight: 400;
-    color: var(--fg-faint);
-}
-.place-row {
-    height: 36px;
-    padding-left: var(--sp-5);
-    cursor: grab;
-    touch-action: none;
-}
-.place-row:focus-visible {
-    box-shadow: inset 0 0 0 1px var(--focus);
-}
-.place-row .name {
-    flex: 1;
-    min-width: 0;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-}
-.place-row .n {
-    color: var(--fg-faint);
-    font-size: var(--fs-xs);
-}
-.place-group .more {
-    margin: var(--sp-2) var(--sp-5);
 }
 
 /* Output Log */

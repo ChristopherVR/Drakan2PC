@@ -15,10 +15,23 @@ fn item(app: &AppHandle, id: &str, text: &str, accel: Option<&str>) -> tauri::Re
 }
 
 pub fn build(app: &AppHandle) -> tauri::Result<Menu<Wry>> {
-    let recents = app
+    let (recents, recent_projects) = app
         .try_state::<AppState>()
-        .map(|s| s.inner.lock().unwrap().settings.recent_isos.clone())
+        .map(|s| {
+            let g = s.inner.lock().unwrap();
+            (g.settings.recent_isos.clone(), g.settings.recent_projects.clone())
+        })
         .unwrap_or_default();
+
+    let mut recent_proj = SubmenuBuilder::new(app, "Open Recent P&roject");
+    if recent_projects.is_empty() {
+        recent_proj =
+            recent_proj.item(&MenuItemBuilder::with_id("recent-project-none", "(none yet)").enabled(false).build(app)?);
+    }
+    for (i, p) in recent_projects.iter().enumerate() {
+        recent_proj = recent_proj.item(&item(app, &format!("recent-project:{i}"), p, None)?);
+    }
+    let recent_proj = recent_proj.build()?;
 
     let mut recent = SubmenuBuilder::new(app, "Open &Recent");
     if recents.is_empty() {
@@ -29,18 +42,22 @@ pub fn build(app: &AppHandle) -> tauri::Result<Menu<Wry>> {
     }
     let recent = recent
         .separator()
-        .item(&item(app, "recent-clear", "Clear recent list", None)?)
+        .item(&item(app, "recent-clear", "Clear recent lists", None)?)
         .build()?;
 
     let file = SubmenuBuilder::new(app, "&File")
+        .item(&item(app, "project-new", "&New Project...", Some("CmdOrCtrl+Shift+N"))?)
+        .item(&item(app, "project-open", "Open &Project...", Some("CmdOrCtrl+Shift+O"))?)
+        .item(&recent_proj)
+        .separator()
         .item(&item(app, "open-iso", "Open &ISO...", Some("CmdOrCtrl+O"))?)
         .item(&recent)
         .separator()
         .item(&item(app, "open-save", "Open &Save File...", None)?)
         .item(&item(app, "open-save-folder", "Open Memory &Card Folder...", None)?)
         .separator()
-        .item(&item(app, "save-document", "Save Level Document\tCtrl+S", None)?)
-        .item(&item(app, "export-mod", "&Export Mod...\tCtrl+E", None)?)
+        .item(&item(app, "save-document", "&Save\tCtrl+S", None)?)
+        .item(&item(app, "export-mod", "&Export...\tCtrl+E", None)?)
         .separator()
         .item(&item(app, "play", "&Play in Game", Some("F5"))?)
         .item(&item(app, "game-folder", "Game (Play) Folder...", None)?)
@@ -63,7 +80,7 @@ pub fn build(app: &AppHandle) -> tauri::Result<Menu<Wry>> {
         .build()?;
 
     let mut view = SubmenuBuilder::new(app, "&View")
-        .item(&item(app, "tab-inspect", "&Inspect", None)?)
+        .item(&item(app, "tab-inspect", "&Files", None)?)
         .item(&item(app, "tab-level", "&Level Editor", None)?)
         .item(&item(app, "tab-save", "&Save Editor", None)?)
         .separator()
@@ -115,6 +132,7 @@ pub fn on_event(app: &AppHandle, id: &str) {
             if let Some(state) = app.try_state::<AppState>() {
                 let mut g = state.inner.lock().unwrap();
                 g.settings.recent_isos.clear();
+                g.settings.recent_projects.clear();
                 let _ = g.settings.save(&state.settings_file);
             }
             refresh(app);

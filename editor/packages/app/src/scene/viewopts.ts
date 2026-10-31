@@ -7,6 +7,8 @@ export type LightingPreset = 'day' | 'overcast' | 'dusk' | 'flat';
 
 export interface ViewOptions {
     models: boolean;
+    /** Play skinned animations on placed characters (idle by default). */
+    animate: boolean;
     markers: MarkerMode;
     terrain: boolean;
     wireframe: boolean;
@@ -23,6 +25,7 @@ export interface ViewOptions {
 
 export const DEFAULT_VIEW_OPTIONS: ViewOptions = {
     models: true,
+    animate: true,
     markers: 'fallback',
     terrain: true,
     wireframe: false,
@@ -59,7 +62,7 @@ export const LIGHTING: Record<LightingPreset, LightingSpec> = {
     flat: { label: 'Flat (unlit look)', sky: 0xffffff, ground: 0xffffff, hemi: 3.0, sun: 0, sunDir: [0, 1, 0] },
 };
 
-const BOOLS = ['models', 'terrain', 'wireframe', 'fog', 'keepAboveGround', 'editorIcons'] as const;
+const BOOLS = ['models', 'animate', 'terrain', 'wireframe', 'fog', 'keepAboveGround', 'editorIcons'] as const;
 
 /** Merge a stored (possibly partial or stale) value over the defaults; unknown keys and bad types are dropped. */
 export function parseViewOptions(raw: unknown): ViewOptions {

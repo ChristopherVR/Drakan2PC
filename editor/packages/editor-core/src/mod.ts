@@ -28,6 +28,8 @@ export interface ModMeta {
     dependencies?: string[];
     /** Custom level titles (`LEVELLST.TXT` names); their `files/ENGLISH/LEVELS/...` LVL ships in the pack. */
     levels?: string[];
+    /** For a level copy: `Copy title = Disc level` lines, so the game names the copy's exits like the source's. */
+    levelCopies?: string[];
 }
 
 export interface ChangedEntry {
@@ -68,6 +70,7 @@ export function buildManifestToml(m: ModMeta): string {
     if (m.description) l.push(`description = ${tomlStr(m.description.replace(/\s*[\r\n]+\s*/g, ' '))}`);
     if (m.dependencies?.length) l.push(`dependencies = [${m.dependencies.map(tomlStr).join(', ')}]`);
     if (m.levels?.length) l.push(`levels = [${m.levels.map(tomlStr).join(', ')}]`);
+    if (m.levelCopies?.length) l.push(`level_copies = [${m.levelCopies.map(tomlStr).join(', ')}]`);
     l.push('', '[target]');
     if (m.target.profile !== undefined) {
         const p = m.target.profile;

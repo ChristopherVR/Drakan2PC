@@ -11,7 +11,7 @@ import { KINDS } from '../level.ts';
 import type { Ctx, Panel } from './ctx.ts';
 import { fill, h, icon } from './dom.ts';
 import { buildFieldsPanel, closePopover, fieldQuery } from './fieldsui.ts';
-import { objectLabel, startLinkPick } from './linking.ts';
+import { nameOf, objectLabel, startLinkPick } from './linking.ts';
 import { attachScrub } from './scrub.ts';
 import { objectAnimationBody } from './animpreview.ts';
 
@@ -63,7 +63,7 @@ export function createInspector(ctx: Ctx): Panel {
     });
     let updaters: (() => void)[] = [];
     let sig = '';
-    const open = new Set<string>(['Transform', 'Fields', 'Links']);
+    const open = new Set<string>(['Transform', 'Fields', 'Links', 'Viewport animation']);
 
     const selected = (): LevelObject[] => {
         const v = ctx.view();
@@ -128,6 +128,9 @@ export function createInspector(ctx: Ctx): Panel {
 
     // ---- transform ----------------------------------------------------------------------------------------------
 
+    const whoLabel = (ids: readonly number[]): string =>
+        ids.length === 1 ? nameOf(ctx, ids[0]!) : `${ids.length} objects`;
+
     function transformSection(objs: LevelObject[]): HTMLElement {
         const ids = editableIds(objs);
         const axes = ['X', 'Y', 'Z'];
@@ -137,7 +140,7 @@ export function createInspector(ctx: Ctx): Panel {
                 numField(
                     a,
                     () => common(objs, (o) => o.transform.pos[i]!),
-                    (v) => ctx.edit('Set position', ids, (o) => (o.transform.pos[i] = v)),
+                    (v) => ctx.edit(`Set position of ${whoLabel(ids)}`, ids, (o) => (o.transform.pos[i] = v)),
                     { step: 10, digits: 1, cls: `ax${a}`, title: `Position ${a} (game units)` },
                 ),
             ),
@@ -152,7 +155,12 @@ export function createInspector(ctx: Ctx): Panel {
                         const c = common(objs, (o) => Math.round(o.transform.rot[i]! * R2D * 100) / 100);
                         return c;
                     },
-                    (v) => ctx.edit(`Set ${a.toLowerCase()}`, ids, (o) => (o.transform.rot[i] = v * D2R)),
+                    (v) =>
+                        ctx.edit(
+                            `Set ${a.toLowerCase()} of ${whoLabel(ids)}`,
+                            ids,
+                            (o) => (o.transform.rot[i] = v * D2R),
+                        ),
                     { step: 1, digits: 1, cls: `ax${'XYZ'[i]}`, title: `${a} (degrees)` },
                 ),
             ),
@@ -173,7 +181,7 @@ export function createInspector(ctx: Ctx): Panel {
                         () => common(withScale, (o) => o.scale![i]!),
                         (v) =>
                             ctx.edit(
-                                'Set scale',
+                                `Set scale of ${whoLabel(ids)}`,
                                 withScale.map((o) => o.id).filter((id) => ids.includes(id)),
                                 (o) => {
                                     if (o.scale) o.scale[i] = v;
@@ -249,6 +257,51 @@ export function createInspector(ctx: Ctx): Panel {
         const panel = buildFieldsPanel(ctx, objs, { ownSearch: false });
         updaters.push(panel.update);
         return section('Fields', panel.count, ...panel.nodes);
+    }
+
+    // ---- viewport animation: the clip the selected instance plays in the 3D view ------------------------------------
+
+    function viewportAnimSection(o: LevelObject): HTMLElement | null {
+        const v = ctx.view();
+        const anim = v.models.anim;
+        if (!anim.canAnimate(o.resource)) return null;
+        const host = h('div', { class: 'ap-host' });
+        if (open.has('Viewport animation')) {
+            host.append(h('div', { class: 'note' }, 'Loading animations...'));
+            void anim.want(o.resource).then((r) => {
+                if (!host.isConnected && !r) return;
+                if (!r) {
+                    host.replaceChildren(h('div', { class: 'note' }, 'This class has no skinned model to animate.'));
+                    return;
+                }
+                const key = (c: { stem: string; id: number }): string => `${c.stem}:${c.id}`;
+                const sel = h('select', { class: 'sel ap-clip', 'aria-label': 'Viewport animation clip' });
+                const idle = r.idle ? r.clips.find((c) => key(c) === key(r.idle!)) : null;
+                sel.append(h('option', { value: '' }, `Default${idle ? ` (${idle.name || 'idle'})` : ' (rest pose)'}`));
+                for (const c of r.clips) {
+                    sel.append(
+                        h('option', { value: key(c) }, c.label ? `${c.label} - ${c.name}` : c.name || `#${c.id}`),
+                    );
+                }
+                const cur = anim.clipOf(o.id);
+                sel.value = cur ? key(cur) : '';
+                sel.addEventListener('change', () => {
+                    const c = r.clips.find((x) => key(x) === sel.value);
+                    anim.setClip(o.id, c ? { stem: c.stem, id: c.id } : null);
+                });
+                host.replaceChildren(
+                    h('div', { class: 'ap-pick' }, sel),
+                    h(
+                        'div',
+                        { class: 'note' },
+                        v.viewOptions.animate
+                            ? 'Plays on the selected instance while it is on screen (Display > Play animations).'
+                            : 'Animations are off (Display > Play animations).',
+                    ),
+                );
+            });
+        }
+        return section('Viewport animation', null, host);
     }
 
     // ---- animation preview (skinned classes only) ---------------------------------------------------------------
@@ -357,7 +410,7 @@ export function createInspector(ctx: Ctx): Panel {
             for (const to of links) {
                 kids.push(
                     chip(to, () =>
-                        ctx.edit(`Remove link ${objectLabel(one)} to #${to}`, ids, (o) => {
+                        ctx.edit(`Remove link ${objectLabel(one)} to ${nameOf(ctx, to)}`, ids, (o) => {
                             o.links = (o.links ?? []).filter((l) => l !== to);
                         }),
                     ),
@@ -518,6 +571,9 @@ export function createInspector(ctx: Ctx): Panel {
             head,
             has('transform position rotation scale pos rot ground snap x y z') ? transformSection(objs) : null,
             fieldsSection(objs),
+            objs.length === 1 && has('animation clip play idle walk attack pose skeleton viewport')
+                ? viewportAnimSection(objs[0]!)
+                : null,
             objs.length === 1 && has('animation clip play idle walk attack pose skeleton')
                 ? animationSection(objs[0]!)
                 : null,

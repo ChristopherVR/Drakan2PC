@@ -49,7 +49,7 @@ export interface ToolbarActions {
     gotoBookmark(i: number): void;
     removeBookmark(i: number): void;
     resetLayout(): void;
-    togglePanel(k: 'left' | 'right' | 'bottom'): void;
+    togglePanel(k: 'right' | 'bottom'): void;
 }
 
 export interface ToolbarState {
@@ -381,7 +381,6 @@ export function createToolbar(
                 );
             box.append(h('div', { class: 'mh' }, 'Panels'));
             for (const [k, l] of [
-                ['left', 'Place panel'],
                 ['right', 'Outliner and Details'],
                 ['bottom', 'Content Browser and logs'],
             ] as const) {
@@ -452,6 +451,12 @@ export function createToolbar(
                 check('Terrain', o.terrain, (v) => a.setViewOptions({ terrain: v })),
                 check('Terrain wireframe', o.wireframe, (v) => a.setViewOptions({ wireframe: v })),
                 check('Textured models', o.models, (v) => a.setViewOptions({ models: v })),
+                check(
+                    'Play animations',
+                    o.animate,
+                    (v) => a.setViewOptions({ animate: v }),
+                    '(idle, nearest on screen)',
+                ),
                 h('div', { class: 'mh' }, 'Markers (pyramids)'),
                 markerRadio('Only where a model is missing', 'fallback'),
                 markerRadio('On every object', 'all'),
@@ -567,11 +572,11 @@ export function createToolbar(
                     class: 'btn primary sm',
                     type: 'button',
                     id: 'ed-export',
-                    title: 'Export a mod pack (Ctrl+E)',
+                    title: 'Export the mod pack (Ctrl+E)',
                     onclick: a.exportMod,
                 },
                 icon('download', 14),
-                'Export mod',
+                'Export',
             ),
         ),
         reg(

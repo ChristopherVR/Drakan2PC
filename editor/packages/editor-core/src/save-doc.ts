@@ -30,6 +30,7 @@ import {
 } from '@drakan/formats';
 import type { Command } from './commands.ts';
 import { LevelDocument, type LevelObject } from './document.ts';
+import { itemResource, itemTemplates, replaceItem, type ItemTemplate } from './save-items.ts';
 
 export interface PendingEdit {
     name: string;
@@ -39,6 +40,8 @@ export interface PendingEdit {
     confidence: 'high' | 'medium' | 'low';
     /** The field needed an explicit unlock (savetool `--force`). */
     unconfirmed: boolean;
+    /** Display text for edits that are not a field value (item replacement). */
+    text?: { before: string; after: string };
 }
 
 function readQuests(save: SaveFile): QuestRow[] {
@@ -93,6 +96,9 @@ export class SaveDocument extends LevelDocument {
     readonly hasStats: boolean;
     /** Quest / map marker rows as opened: row N's raw state word and the row's other words. */
     readonly quests: QuestRow[];
+    /** Pending item replacements: inventory cell -> entry id of the template record whose body it gets. */
+    readonly itemReplacements = new Map<number, number>();
+    private templatesCache: ItemTemplate[] | null = null;
     private issuesCache: Issue[] | null = null;
     private readonly probes = new Map<string, FieldProbe>();
 
@@ -144,6 +150,21 @@ export class SaveDocument extends LevelDocument {
 
     static open(bytes: Uint8Array): SaveDocument {
         return new SaveDocument(bytes, parseSave(bytes));
+    }
+
+    /** One template record per item class that the save contains (what "Replace with..." can offer). */
+    itemTemplates(): ItemTemplate[] {
+        return (this.templatesCache ??= itemTemplates(this.save));
+    }
+
+    /** The item class of an inventory cell now: the pending replacement, else the stored one. */
+    itemResourceOf(cell: number): number | undefined {
+        const t = this.itemReplacements.get(cell);
+        if (t !== undefined) {
+            const rec = this.save.entries.find((e) => e.type === 0x102 && e.id === t);
+            return rec ? (itemResource(rec) ?? undefined) : undefined;
+        }
+        return this.inventory.find((c) => c.cell === cell && c.marker === undefined)?.resource;
     }
 
     /** Validation report for the file as opened (cached). */
@@ -209,6 +230,19 @@ export class SaveDocument extends LevelDocument {
 
     pendingEdits(): PendingEdit[] {
         const out: PendingEdit[] = [];
+        for (const [cell, tpl] of this.itemReplacements) {
+            const before = this.inventory.find((c) => c.cell === cell)?.resource ?? 0;
+            const after = this.itemResourceOf(cell) ?? 0;
+            out.push({
+                name: `item.${cell}`,
+                label: `cell ${cell} item`,
+                before,
+                after,
+                confidence: 'medium',
+                unconfirmed: false,
+                text: { before: `0x${before.toString(16)}`, after: `0x${after.toString(16)} (record ${tpl})` },
+            });
+        }
         const names = [...this.fieldValues.keys()];
         if (this.playerObject !== null) names.push('pos');
         for (const name of names) {
@@ -229,18 +263,23 @@ export class SaveDocument extends LevelDocument {
     }
 
     describe(name: string, v: FieldValue): string {
+        if (name.startsWith('item.')) return `0x${Number(v).toString(16)}`;
         return formatFieldValue(resolveField(name).def, v);
     }
 
     /** Apply the pending edits to the loaded file. Throws a `SaveFieldError` when the field table rejects one. */
     build(): { bytes: Uint8Array; save: SaveFile } {
-        const edits: FieldEdit[] = this.pendingEdits().map((e) => ({
-            name: e.name,
-            value: e.after,
-            force: e.unconfirmed,
-        }));
-        if (edits.length === 0) return { bytes: this.bytes.slice(), save: this.save };
-        const save = applyFieldEdits(this.save, edits);
+        const edits: FieldEdit[] = this.pendingEdits()
+            .filter((e) => !e.name.startsWith('item.'))
+            .map((e) => ({
+                name: e.name,
+                value: e.after,
+                force: e.unconfirmed,
+            }));
+        let base = this.save;
+        for (const [cell, tpl] of this.itemReplacements) base = replaceItem(base, cell, tpl);
+        if (edits.length === 0 && base === this.save) return { bytes: this.bytes.slice(), save: this.save };
+        const save = edits.length ? applyFieldEdits(base, edits) : base;
         return { bytes: assembleSave(save).bytes, save };
     }
 }
@@ -262,6 +301,30 @@ export class SetFieldCommand implements Command {
     apply(doc: LevelDocument): void {
         if (doc instanceof SaveDocument) this.old = doc.fieldValues.get(this.name);
         this.put(doc, this.value);
+    }
+    revert(doc: LevelDocument): void {
+        this.put(doc, this.old);
+    }
+}
+
+/** Replace the item in an inventory cell by another class (undefined clears the replacement). */
+export class ReplaceItemCommand implements Command {
+    readonly label: string;
+    private old: number | undefined;
+    constructor(
+        private readonly cell: number,
+        private readonly template: number | undefined,
+    ) {
+        this.label = `Replace item in cell ${cell}`;
+    }
+    private put(doc: LevelDocument, v: number | undefined): void {
+        if (!(doc instanceof SaveDocument)) throw new Error('ReplaceItemCommand needs a SaveDocument');
+        if (v === undefined) doc.itemReplacements.delete(this.cell);
+        else doc.itemReplacements.set(this.cell, v);
+    }
+    apply(doc: LevelDocument): void {
+        if (doc instanceof SaveDocument) this.old = doc.itemReplacements.get(this.cell);
+        this.put(doc, this.template);
     }
     revert(doc: LevelDocument): void {
         this.put(doc, this.old);

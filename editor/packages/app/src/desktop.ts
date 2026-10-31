@@ -2,7 +2,8 @@
 // in a plain browser (`initDesktop` returns inert functions), so the browser build is unaffected.
 
 import * as platform from './platform.ts';
-import { registerCommand } from './editor/registry.ts';
+import { registerCommand, runCommand } from './editor/registry.ts';
+import type { ProjectFiles } from './editor/project/folder.ts';
 
 type Tab = 'inspect' | 'level' | 'save';
 
@@ -10,6 +11,8 @@ export interface DesktopHooks {
     openIso(src: platform.IsoSource): Promise<void>;
     showTab(tab: Tab): void;
     setStatus(msg: string, error?: boolean): void;
+    /** Project folder operations (File > New / Open Project). */
+    projectFiles(): ProjectFiles;
 }
 
 export interface Desktop {
@@ -128,6 +131,14 @@ export function initDesktop(hooks: DesktopHooks): Desktop {
             openRecent(Number(id.slice(7))).catch(fail);
             return;
         }
+        if (id.startsWith('recent-project:')) {
+            void platform
+                .getSettings()
+                .then((s) => s.recentProjects[Number(id.slice(15))])
+                .then((dir) => (dir ? hooks.projectFiles().openRecent(dir) : undefined))
+                .catch(fail);
+            return;
+        }
         if (id.startsWith('edit-')) {
             editAction(id.slice(5));
             return;
@@ -148,6 +159,13 @@ export function initDesktop(hooks: DesktopHooks): Desktop {
             case 'open-save-folder':
                 hooks.showTab('save');
                 click('sv-folder');
+                break;
+            case 'project-new':
+                hooks.showTab('level');
+                runCommand('project.new');
+                break;
+            case 'project-open':
+                hooks.projectFiles().openFolder().catch(fail);
                 break;
             case 'save-document':
                 hooks.showTab('level');
@@ -191,6 +209,12 @@ export function initDesktop(hooks: DesktopHooks): Desktop {
         hint: 'Only needed when mods live outside the game folder (the game gets DRAKAN_MODS).',
         run: () => chooseFolder('mods'),
     });
+
+    // The project folder the last session ended with (its level edits restore when the levels open).
+    void hooks
+        .projectFiles()
+        .reopenLast()
+        .catch(() => undefined);
 
     // Re-open the last disc: only the directory is read, so this is quick even for a multi-GB image.
     platform

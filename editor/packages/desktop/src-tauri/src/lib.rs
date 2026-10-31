@@ -16,6 +16,8 @@ pub struct Inner {
     pub settings: store::Settings,
     /// Lower-cased paths of saves the user picked or that were listed from a folder they picked this session.
     pub granted_saves: HashSet<String>,
+    /// Lower-cased project folders the user created or opened (dialog or recent list) this session.
+    pub granted_projects: HashSet<String>,
     pub child: Option<Child>,
     /// Extra instances started beside `child` (multiplayer tests).
     pub extras: Vec<Child>,
@@ -38,6 +40,7 @@ pub fn run() {
                 inner: Mutex::new(Inner {
                     settings,
                     granted_saves: HashSet::new(),
+                    granted_projects: HashSet::new(),
                     child: None,
                     extras: Vec::new(),
                 }),
@@ -63,6 +66,11 @@ pub fn run() {
             commands::mods_write_pack,
             commands::game_launch,
             commands::game_running,
+            commands::project_new,
+            commands::project_open,
+            commands::project_open_path,
+            commands::project_write,
+            commands::project_file_write,
         ])
         .run(tauri::generate_context!())
         .expect("error while running the Drakan editor");

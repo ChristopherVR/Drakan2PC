@@ -4,9 +4,13 @@
 
 import {
     ModError,
+    buildCutscene,
     buildStoryPackFiles,
     checkEntrySize,
     dialogLineChanges,
+    planDialogueLine,
+    type CutsceneSpec,
+    type DialogueDraft,
     zipModFiles,
     type ModMeta,
     type StoryEntryChange,
@@ -25,6 +29,7 @@ import {
     newSequence,
     parseDialogLine,
     parseSdbText,
+    refParts,
     parseSequence,
     patchClassData,
     writeSdbText,
@@ -208,6 +213,71 @@ export class ContentSession {
         this.emit();
         return classId;
     }
+    /**
+     * New dialogue in one step: a line class named after `speaker` that plays `soundRef`, the subtitle `text` on that sound,
+     * and the line inserted into the phase of a conversation handler. Nothing changes when any part is refused.
+     */
+    composeLine(d: DialogueDraft & { templateId?: number }, opts: { classOnly?: boolean } = {}): number {
+        const story = this.story;
+        if (!story || !this.stem) throw new Error('Open a level folder first.');
+        const handler = story.handlers.find((x) => x.classId === d.handlerId);
+        if (!handler && !opts.classOnly) throw new Error('Pick the conversation the line belongs to.');
+        const tpl =
+            d.templateId ??
+            this.phaseLines(d.handlerId, d.phase)
+                .map((r) => r & 0xffff)
+                .find((id) => story.lines.some((l) => l.classId === id)) ??
+            (handler?.phases ?? [])
+                .flatMap((p) => p.lines.map((r) => r & 0xffff))
+                .find((id) => story.lines.some((l) => l.classId === id)) ??
+            story.lines[0]?.classId;
+        if (tpl === undefined)
+            throw new Error('This level folder has no dialog line to copy the camera and animation from.');
+        const sound = refParts(d.soundRef);
+        const snd = sound.db === 0 ? story.sounds.get(sound.id) : undefined;
+        const plan = planDialogueLine(
+            { ...d, soundName: d.soundName || snd?.name || '' },
+            this.phaseLines(d.handlerId, d.phase),
+            0,
+        );
+        if (d.text.trim() && sound.db !== 0)
+            throw new Error(
+                'The subtitle is stored on a sound of this level; pick a sound of this level to give it text.',
+            );
+        const before = this.snapshot();
+        try {
+            const id = this.addLine(tpl, plan.name, plan.soundRef);
+            const full = planDialogueLine(
+                { ...d, soundName: d.soundName || snd?.name || '' },
+                this.phaseLines(d.handlerId, d.phase),
+                id,
+            );
+            if (!opts.classOnly) this.setPhaseLines(d.handlerId, d.phase, full.phaseLines);
+            if (snd && d.text !== this.text(sound.id) && d.text.trim()) this.setText(sound.id, d.text);
+            return id;
+        } catch (e) {
+            this.restore(before);
+            throw e;
+        }
+    }
+    private snapshot(): StemEdits | null {
+        const e = this.stem ? this.edits.get(this.stem) : undefined;
+        if (!e) return null;
+        return {
+            texts: new Map(e.texts),
+            lineSounds: new Map([...e.lineSounds].map(([k, v]) => [k, new Map(v)])),
+            seqs: new Map(e.seqs),
+            newSeqs: new Map(e.newSeqs),
+            newLines: new Map(e.newLines),
+            phases: new Map([...e.phases].map(([k, v]) => [k, new Map(v)])),
+        };
+    }
+    private restore(s: StemEdits | null): void {
+        if (!this.stem) return;
+        if (s) this.edits.set(this.stem, s);
+        else this.edits.delete(this.stem);
+        this.emit();
+    }
     removeNewLine(classId: number): void {
         const e = this.stem ? this.edits.get(this.stem) : undefined;
         if (!e?.newLines.delete(classId)) return;
@@ -305,6 +375,25 @@ export class ContentSession {
         e.newSeqs.set(id, newSequence(id, folder, clean));
         this.emit();
         return id;
+    }
+    /** Add a cut scene described by `spec` (camera points and steps) as a new sequence; returns its id. */
+    addCutscene(spec: Omit<CutsceneSpec, 'id'>): number {
+        const story = this.story;
+        if (!story || !this.stem) throw new Error('Open a level folder first.');
+        const e = this.ed();
+        const used = new Set<number>([...story.sequences.map((s) => s.id), ...e.newSeqs.keys()]);
+        const id = freeSequenceId(used);
+        e.newSeqs.set(id, buildCutscene({ ...spec, id }));
+        this.emit();
+        return id;
+    }
+    /** Level object id most often used by the `Camera` actors of this level's sequences (0 when it has none). */
+    cameraRef(): number {
+        const n = new Map<number, number>();
+        for (const r of this.sequences())
+            for (const a of r.seq?.actors ?? [])
+                if (/^camera$/i.test(a.name.trim())) n.set(a.ref, (n.get(a.ref) ?? 0) + 1);
+        return [...n].sort((a, b) => b[1] - a[1])[0]?.[0] ?? 0;
     }
     /** Add an action-less actor (name, object ref) to a sequence. */
     addSequenceActor(id: number, name: string, ref: number): void {

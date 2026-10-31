@@ -37,6 +37,8 @@ export class SkinnedModel {
         readonly model: Model,
         readonly rig: Rig,
         lookup: TextureLookup,
+        /** Materials shared by several instances of one class (default: built here). */
+        shared?: THREE.Material[],
     ) {
         const { firstTri, triCount } = model.lod0;
         const order: number[] = [];
@@ -79,7 +81,7 @@ export class SkinnedModel {
         g.setAttribute('normal', new THREE.BufferAttribute(nrm, 3).setUsage(THREE.DynamicDrawUsage));
         g.setAttribute('uv', new THREE.BufferAttribute(uv, 2));
         this.geometry = g;
-        this.materials = modelMaterials(model, lookup);
+        this.materials = shared ?? modelMaterials(model, lookup);
         this.mesh = new THREE.Mesh(g, this.materials.length ? this.materials : undefined);
         this.mesh.scale.setScalar(MODEL_SCALE);
         this.mesh.frustumCulled = false;
@@ -134,6 +136,11 @@ export class SkinnedModel {
         b.min.multiplyScalar(MODEL_SCALE);
         b.max.multiplyScalar(MODEL_SCALE);
         return b;
+    }
+
+    /** The deformed geometry (overlays share it). */
+    get geo(): THREE.BufferGeometry {
+        return this.geometry;
     }
 
     dispose(): void {

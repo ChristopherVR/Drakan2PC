@@ -57,6 +57,7 @@ pub fn settings_forget(app: AppHandle, state: State<'_, AppState>) -> Res<Settin
     let out = {
         let mut g = state.inner.lock().unwrap();
         g.settings.recent_isos.clear();
+        g.settings.recent_projects.clear();
         g.settings.save(&state.settings_file).map_err(err)?;
         g.settings.clone()
     };
@@ -440,6 +441,162 @@ pub fn mods_write_pack(state: State<'_, AppState>, id: String, files: Vec<PackFi
     }
     std::fs::write(mods.join("mods.ini"), ini).map_err(err)?;
     Ok(pack.to_string_lossy().to_string())
+}
+
+// ---- projects ----------------------------------------------------------------------------------------------------------
+
+/// The file that makes a folder a project.
+const PROJECT_FILE: &str = "project.drakan.json";
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProjectInfo {
+    pub dir: String,
+    pub name: String,
+    /// Contents of the project file; null for a project that was just created.
+    pub text: Option<String>,
+}
+
+fn project_info(dir: &Path, text: Option<String>) -> ProjectInfo {
+    ProjectInfo {
+        dir: dir.to_string_lossy().to_string(),
+        name: dir.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default(),
+        text,
+    }
+}
+
+fn grant_project(app: &AppHandle, state: &AppState, dir: &Path) -> Res<()> {
+    {
+        let mut g = state.inner.lock().unwrap();
+        g.granted_projects.insert(dir.to_string_lossy().to_lowercase());
+        g.settings.push_project(dir);
+        g.settings.save(&state.settings_file).map_err(err)?;
+    }
+    crate::menu::refresh(app);
+    Ok(())
+}
+
+fn granted_project(state: &AppState, dir: &str) -> Res<PathBuf> {
+    let key = dir.to_lowercase();
+    let g = state.inner.lock().unwrap();
+    if g.granted_projects.contains(&key) {
+        Ok(PathBuf::from(dir))
+    } else {
+        Err("That project folder was not opened in this session; open it from File > Open Project.".into())
+    }
+}
+
+fn read_project(dir: &Path) -> Res<String> {
+    let f = dir.join(PROJECT_FILE);
+    std::fs::read_to_string(&f).map_err(|e| {
+        if e.kind() == std::io::ErrorKind::NotFound {
+            format!("{} has no {PROJECT_FILE}; it is not a project folder.", dir.display())
+        } else {
+            format!("{}: {e}", f.display())
+        }
+    })
+}
+
+/// Ask where to put a new project and create its folder (`<chosen>/<name>`). The caller then writes the project file.
+#[tauri::command]
+pub async fn project_new(app: AppHandle, state: State<'_, AppState>, name: String) -> Res<Option<ProjectInfo>> {
+    let folder = paths::folder_name(&name);
+    let start = state
+        .inner
+        .lock()
+        .unwrap()
+        .settings
+        .recent_projects
+        .first()
+        .and_then(|p| Path::new(p).parent().map(|p| p.to_path_buf()));
+    let mut d = app.dialog().file().set_title("Choose where to create the project folder");
+    if let Some(s) = start.filter(|s| s.is_dir()) {
+        d = d.set_directory(s);
+    }
+    let Some(p) = d.blocking_pick_folder() else {
+        return Ok(None);
+    };
+    let dir = p.into_path().map_err(err)?.join(folder);
+    if dir.join(PROJECT_FILE).exists() {
+        return Err(format!("{} already holds a project. Open it instead, or pick another folder.", dir.display()));
+    }
+    std::fs::create_dir_all(&dir).map_err(|e| format!("{}: {e}", dir.display()))?;
+    grant_project(&app, &state, &dir)?;
+    Ok(Some(project_info(&dir, None)))
+}
+
+/// Choose a project folder and read its project file.
+#[tauri::command]
+pub async fn project_open(app: AppHandle, state: State<'_, AppState>) -> Res<Option<ProjectInfo>> {
+    let start = state.inner.lock().unwrap().settings.recent_projects.first().cloned();
+    let mut d = app.dialog().file().set_title("Open a project folder (the one with project.drakan.json)");
+    if let Some(s) = start.map(PathBuf::from).and_then(|s| s.parent().map(|p| p.to_path_buf())).filter(|s| s.is_dir()) {
+        d = d.set_directory(s);
+    }
+    let Some(p) = d.blocking_pick_folder() else {
+        return Ok(None);
+    };
+    let dir = p.into_path().map_err(err)?;
+    let text = read_project(&dir)?;
+    grant_project(&app, &state, &dir)?;
+    Ok(Some(project_info(&dir, Some(text))))
+}
+
+/// Re-open a project from the recent list.
+#[tauri::command]
+pub async fn project_open_path(app: AppHandle, state: State<'_, AppState>, path: String) -> Res<ProjectInfo> {
+    let known = state
+        .inner
+        .lock()
+        .unwrap()
+        .settings
+        .recent_projects
+        .iter()
+        .any(|p| p.eq_ignore_ascii_case(&path));
+    if !known {
+        return Err("That project is not in the recent list.".into());
+    }
+    let dir = PathBuf::from(&path);
+    let text = read_project(&dir)?;
+    grant_project(&app, &state, &dir)?;
+    Ok(project_info(&dir, Some(text)))
+}
+
+/// Save the project file in place (the request body is its text). The previous version is kept as `.bak`, and the new one
+/// goes to a temp file that then replaces it, so a crash never leaves half a file.
+#[tauri::command]
+pub fn project_write(state: State<'_, AppState>, request: Request<'_>) -> Res<f64> {
+    let dir = granted_project(&state, &header_text(&request, "x-dir")?)?;
+    let bytes = raw_body(&request)?;
+    let file = dir.join(PROJECT_FILE);
+    if file.exists() {
+        let _ = std::fs::copy(&file, dir.join(format!("{PROJECT_FILE}.bak")));
+    }
+    let tmp = dir.join(format!("{PROJECT_FILE}.tmp-editor"));
+    std::fs::write(&tmp, bytes).map_err(err)?;
+    std::fs::rename(&tmp, &file).map_err(|e| {
+        let _ = std::fs::remove_file(&tmp);
+        err(e)
+    })?;
+    let meta = std::fs::metadata(&file).map_err(err)?;
+    Ok(modified_ms(&meta))
+}
+
+/// Write one file inside the project folder (`x-rel` is a validated relative path such as `mod/my-mod.zip`).
+/// Returns the full path written.
+#[tauri::command]
+pub fn project_file_write(state: State<'_, AppState>, request: Request<'_>) -> Res<String> {
+    let dir = granted_project(&state, &header_text(&request, "x-dir")?)?;
+    let rel = header_text(&request, "x-rel")?;
+    let target = paths::join_pack_path(&dir, &rel).ok_or_else(|| format!("bad project path '{rel}'"))?;
+    if rel.eq_ignore_ascii_case(PROJECT_FILE) {
+        return Err("The project file is written by Save.".into());
+    }
+    if let Some(parent) = target.parent() {
+        std::fs::create_dir_all(parent).map_err(err)?;
+    }
+    std::fs::write(&target, raw_body(&request)?).map_err(|e| format!("{}: {e}", target.display()))?;
+    Ok(target.to_string_lossy().to_string())
 }
 
 // ---- the game ----------------------------------------------------------------------------------------------------------

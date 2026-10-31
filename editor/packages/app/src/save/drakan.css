@@ -1,0 +1,1112 @@
+/*
+ * Save mode skin: the look of the game's own inventory and journal screens (SCES-500.06).
+ *
+ * What the game's menus look like (see build/harness/final-inv/*.png): weathered grey stone slabs with a worn,
+ * cracked surface, framed by pewter rims studded with small diamond rivets; round pewter medallions for the tabs;
+ * recessed stone cells for the item grid, with a plain cream frame on the selected cell; warm cream-gold lettering
+ * in a classic spaced serif for titles and labels, and bright cream text for item facts.
+ *
+ * This file only restyles. It loads after save.css, every rule is scoped under `#save-main.sv`, and it defines its own
+ * `--dk-*` token set on top of the `--sv-*` tokens that save.css and the shared dropdown already read, so the level
+ * editor is not touched. Dark app theme = dark iron and stone; light app theme = parchment and ink.
+ *
+ * Fonts are bundled (fonts/, SIL Open Font License 1.1: Cinzel for display, Crimson Pro for text). Textures are
+ * drawn here with gradients and inline SVG; no game artwork is used or committed.
+ */
+
+@font-face {
+    font-family: 'Cinzel';
+    font-style: normal;
+    font-weight: 600;
+    font-display: swap;
+    src: url('@fontsource/cinzel/files/cinzel-latin-600-normal.woff2') format('woff2');
+}
+@font-face {
+    font-family: 'Cinzel';
+    font-style: normal;
+    font-weight: 700;
+    font-display: swap;
+    src: url('@fontsource/cinzel/files/cinzel-latin-700-normal.woff2') format('woff2');
+}
+@font-face {
+    font-family: 'Crimson Pro';
+    font-style: normal;
+    font-weight: 400;
+    font-display: swap;
+    src: url('@fontsource/crimson-pro/files/crimson-pro-latin-400-normal.woff2') format('woff2');
+}
+@font-face {
+    font-family: 'Crimson Pro';
+    font-style: normal;
+    font-weight: 600;
+    font-display: swap;
+    src: url('@fontsource/crimson-pro/files/crimson-pro-latin-600-normal.woff2') format('woff2');
+}
+@font-face {
+    font-family: 'Crimson Pro';
+    font-style: italic;
+    font-weight: 400;
+    font-display: swap;
+    src: url('@fontsource/crimson-pro/files/crimson-pro-latin-400-italic.woff2') format('woff2');
+}
+
+/* ------------------------------------------------------------------ tokens */
+
+#save-main.sv {
+    /* stone and iron */
+    --sv-bg: #181614;
+    --sv-shell: #0f0e0c;
+    --sv-panel: #24211d;
+    --sv-raised: #302c27;
+    --sv-hover: #3c3730;
+    --sv-field: #100f0d;
+    --sv-line: #433d34;
+    --sv-line-strong: #6b6354;
+    --sv-ink: #f1e6c8;
+    --sv-muted: #c4b794;
+    --sv-faint: #9a8f75;
+    --sv-accent: #d9a44a;
+    --sv-accent-hi: #f0c874;
+    --sv-accent-soft: rgb(217 164 74 / 0.16);
+    --sv-on-accent: #1d1408;
+    --sv-num: #f0d48a;
+    --sv-ok: #8fc27a;
+    --sv-warn: #e6b24e;
+    --sv-bad: #ef7f70;
+    --sv-mana: #6fa3c8;
+    --sv-font: 'Crimson Pro', 'Iowan Old Style', 'Palatino Linotype', Georgia, serif;
+    --sv-r: 3px;
+    --sv-r-lg: 4px;
+
+    --dk-display: 'Cinzel', 'Trajan Pro', 'Palatino Linotype', Georgia, serif;
+    --dk-pewter-hi: #a79d88;
+    --dk-pewter: #6b6354;
+    --dk-pewter-lo: #2c2822;
+    --dk-bronze-hi: #f0c874;
+    --dk-bronze: #b9822f;
+    --dk-bronze-lo: #6e4a17;
+    --dk-bevel-hi: rgb(255 238 196 / 0.11);
+    --dk-bevel-lo: rgb(0 0 0 / 0.55);
+    --dk-cut: rgb(0 0 0 / 0.5);
+    --dk-glow: rgb(240 190 100 / 0.22);
+    --dk-stone-grain: 0.5;
+    --dk-grain-blend: soft-light;
+    --dk-rivet: var(--dk-pewter-hi);
+    --dk-ring: 0 0 0 2px var(--sv-bg), 0 0 0 4px var(--sv-accent-hi);
+    --sv-ring: var(--dk-ring);
+    font-size: 15.5px;
+    line-height: 1.4;
+}
+
+:root[data-theme='light'] #save-main.sv {
+    /* parchment and ink; stone frames stay a warm grey so the game's slabs still read */
+    --sv-bg: #d8c9a4;
+    --sv-shell: #c3b088;
+    --sv-panel: #eadfc0;
+    --sv-raised: #e0d2aa;
+    --sv-hover: #d6c598;
+    --sv-field: #f6eed6;
+    --sv-line: #b8a679;
+    --sv-line-strong: #8f7e57;
+    --sv-ink: #2a1f10;
+    --sv-muted: #54452a;
+    --sv-faint: #75653f;
+    --sv-accent: #8a4e10;
+    --sv-accent-hi: #a25f14;
+    --sv-accent-soft: rgb(138 78 16 / 0.14);
+    --sv-on-accent: #fff6e0;
+    --sv-num: #6b3a08;
+    --sv-ok: #2f6b24;
+    --sv-warn: #8a5a08;
+    --sv-bad: #a3281c;
+    --sv-mana: #2a5f86;
+    --dk-pewter-hi: #8f8670;
+    --dk-pewter: #6e6550;
+    --dk-pewter-lo: #4a4332;
+    --dk-bronze-hi: #b97a22;
+    --dk-bronze: #8a4e10;
+    --dk-bronze-lo: #5a3208;
+    --dk-bevel-hi: rgb(255 250 230 / 0.7);
+    --dk-bevel-lo: rgb(70 45 10 / 0.35);
+    --dk-cut: rgb(60 40 10 / 0.22);
+    --dk-glow: rgb(160 90 20 / 0.18);
+    --dk-grain-blend: multiply;
+    --dk-stone-grain: 0.22;
+    --dk-rivet: #7d7360;
+    --dk-ring: 0 0 0 2px var(--sv-panel), 0 0 0 4px var(--sv-accent);
+}
+
+/* ------------------------------------------------------------------ surfaces
+
+   The grain is an feTurbulence noise tile drawn as an SVG data URI, laid over a flat slab colour. Stone slabs
+   (side list, dock, app bar) get a faint vertical-crack streak as well. */
+
+#save-main.sv {
+    --dk-grain: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='220' height='220'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='.8' numOctaves='3' seed='4'/><feColorMatrix values='0 0 0 0 .5  0 0 0 0 .5  0 0 0 0 .5  0 0 0 1.1 -.1'/></filter><rect width='220' height='220' filter='url(%23n)' opacity='.55'/></svg>");
+    --dk-cracks: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='260' height='180' fill='none' stroke='black' stroke-opacity='.28' stroke-width='1'><path d='M20 0 L26 34 L18 61 L31 96 M26 34 L47 48 M150 0 L142 40 L160 77 L151 120 L158 180 M142 40 L120 52 M232 20 L220 70 L238 110 M70 180 L78 150 L66 128'/></svg>");
+    background-color: var(--sv-bg);
+    background-image: var(--dk-grain);
+    background-blend-mode: var(--dk-grain-blend);
+    color: var(--sv-ink);
+    font-family: var(--sv-font);
+    font-variant-numeric: lining-nums;
+    text-rendering: optimizeLegibility;
+}
+
+:root[data-theme='light'] #save-main.sv {
+    --dk-grain: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='240' height='240'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='.045 .09' numOctaves='4' seed='9'/><feColorMatrix values='0 0 0 0 .45  0 0 0 0 .32  0 0 0 0 .12  0 0 0 .9 -.15'/></filter><rect width='240' height='240' filter='url(%23n)' opacity='.32'/></svg>");
+    --dk-cracks: none;
+    --sv-faint: #5e4f2f;
+}
+:root[data-theme='light'] #save-main.sv .slot .dbar i {
+    background: linear-gradient(to bottom, rgb(255 255 255 / 0.35), transparent 60%), #d4a85a;
+}
+:root[data-theme='light'] #save-main.sv .sv-appbar,
+:root[data-theme='light'] #save-main.sv .sv-foot {
+    background-color: #cdbb90;
+}
+:root[data-theme='light'] #save-main.sv .sv-appbar {
+    background-image: linear-gradient(to bottom, var(--dk-bevel-hi), transparent 3px);
+}
+
+/* shared helper: little diamond rivets at the four corners of a framed panel, as on the game's slabs */
+#save-main.sv .sv-card,
+#save-main.sv .sv-box,
+#save-main.sv .sv-backups,
+#save-main.sv .sv-tray,
+#save-main.sv #sv-details,
+#save-main.sv .sv-3d {
+    --dk-rv: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='9' height='9'><path d='M4.5 0 L9 4.5 L4.5 9 L0 4.5 Z' fill='%23a79d88'/><path d='M4.5 2 L7 4.5 L4.5 7 L2 4.5 Z' fill='%23332e27'/></svg>");
+}
+:root[data-theme='light'] #save-main.sv .sv-card,
+:root[data-theme='light'] #save-main.sv .sv-box,
+:root[data-theme='light'] #save-main.sv #sv-details,
+:root[data-theme='light'] #save-main.sv .sv-backups {
+    --dk-rv: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='9' height='9'><path d='M4.5 0 L9 4.5 L4.5 9 L0 4.5 Z' fill='%238a4e10'/><path d='M4.5 2 L7 4.5 L4.5 7 L2 4.5 Z' fill='%23f2e6c4'/></svg>");
+}
+
+/* ------------------------------------------------------------------ type */
+
+#save-main.sv h2,
+#save-main.sv h3,
+#save-main.sv h4,
+#save-main.sv .sv-brand b,
+#save-main.sv .invhead b,
+#save-main.sv .sv-dhead b,
+#save-main.sv .sv-vital-head b,
+#save-main.sv .sv-tab,
+#save-main.sv .sv-btn,
+#save-main.sv button:not(.slot):not(.sv-pill):not(.ui-dd):not(.sv-tab) {
+    font-family: var(--dk-display);
+}
+#save-main.sv h2,
+#save-main.sv h3 {
+    letter-spacing: 0.07em;
+    font-weight: 700;
+}
+#save-main.sv .sv-title h2 {
+    font-size: 24px;
+    letter-spacing: 0.05em;
+    font-weight: 700;
+    color: var(--sv-num);
+    text-shadow: 0 1px 0 var(--dk-cut);
+}
+#save-main.sv .sv-dock-head h2 {
+    white-space: nowrap;
+    font-size: 12.5px;
+    letter-spacing: 0.05em;
+}
+#save-main.sv .sv-side-head h2,
+#save-main.sv .sv-card-head h3,
+#save-main.sv .invhead b {
+    font-size: 14px;
+    text-transform: uppercase;
+    color: var(--sv-num);
+    text-shadow: 0 1px 0 var(--dk-cut);
+}
+#save-main.sv .sv-card-head p,
+#save-main.sv .sv-title p,
+#save-main.sv .sv-lede,
+#save-main.sv .sv-hint {
+    font-style: italic;
+    font-size: 14.5px;
+}
+#save-main.sv small {
+    font-size: 13px;
+}
+#save-main.sv .sv-brand small,
+#save-main.sv .sv-folder small {
+    font-family: var(--dk-display);
+    font-size: 10.5px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+}
+#save-main.sv .sv-brand b {
+    font-size: 15px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--sv-num);
+}
+#save-main.sv .sv-folder-name,
+#save-main.sv .sv-hex,
+#save-main.sv .sv-bak {
+    font-family: var(--sv-mono);
+}
+#save-main.sv .sv-folder-name {
+    color: var(--sv-ink);
+}
+
+/* numbers sit in the same lettering as the game's medallion numerals */
+#save-main.sv .sv-num,
+#save-main.sv input[type='number'] {
+    font-family: var(--dk-display);
+    font-weight: 700;
+    font-size: 15px;
+    letter-spacing: 0.04em;
+    color: var(--sv-num);
+}
+
+/* ------------------------------------------------------------------ frame: app bar, side, dock */
+
+#save-main.sv .sv-appbar {
+    min-height: 56px;
+    background-color: var(--sv-shell);
+    background-image: linear-gradient(to bottom, var(--dk-bevel-hi), transparent 3px), var(--dk-grain);
+    background-blend-mode: normal, var(--dk-grain-blend);
+    border-bottom: 1px solid var(--dk-pewter-lo);
+    box-shadow:
+        0 1px 0 var(--dk-pewter),
+        0 2px 0 var(--dk-bevel-lo),
+        0 6px 14px -6px var(--dk-cut);
+    position: relative;
+    z-index: 2;
+}
+#save-main.sv .sv-brand {
+    border-right-color: var(--dk-pewter);
+}
+#save-main.sv .sv-brand-mark {
+    width: 34px;
+    height: 34px;
+    border-radius: 50%;
+    color: var(--sv-num);
+    background: radial-gradient(circle at 35% 30%, var(--sv-hover), var(--sv-field) 75%);
+    border: 2px solid var(--dk-pewter-hi);
+    box-shadow:
+        inset 0 0 0 1px var(--dk-pewter-lo),
+        inset 0 2px 4px var(--dk-cut),
+        0 1px 2px var(--dk-cut);
+}
+
+#save-main.sv .sv-side,
+#save-main.sv .sv-dock {
+    background-color: var(--sv-panel);
+    background-image: var(--dk-cracks), var(--dk-grain);
+    background-blend-mode: normal, var(--dk-grain-blend);
+}
+#save-main.sv .sv-side {
+    border-right: 3px double var(--dk-pewter);
+    box-shadow: inset -8px 0 14px -10px var(--dk-cut);
+}
+#save-main.sv .sv-dock {
+    border-left: 3px double var(--dk-pewter);
+    box-shadow: inset 8px 0 14px -10px var(--dk-cut);
+}
+#save-main.sv .sv-side-head h2 small,
+#save-main.sv .sv-count {
+    font-family: var(--dk-display);
+    font-size: 11px;
+    border-radius: 2px;
+    background: var(--sv-field);
+    color: var(--sv-ink);
+    box-shadow: inset 0 0 0 1px var(--dk-pewter);
+}
+#save-main.sv .sv-count.on {
+    background: var(--sv-accent);
+    color: var(--sv-on-accent);
+    box-shadow: inset 0 0 0 1px var(--dk-bronze-lo);
+}
+
+#save-main.sv .sv-foot {
+    background-color: var(--sv-shell);
+    background-image: var(--dk-grain);
+    background-blend-mode: var(--dk-grain-blend);
+    border-top: 1px solid var(--dk-pewter);
+    box-shadow: inset 0 1px 0 var(--dk-bevel-lo);
+    font-size: 13.5px;
+}
+#save-main.sv .sv-dot {
+    background: var(--sv-ok);
+    border-radius: 1px;
+    transform: rotate(45deg);
+    box-shadow: 0 0 6px var(--sv-ok);
+}
+#save-main.sv .sv-toast {
+    background: var(--sv-panel);
+    border: 2px solid var(--dk-pewter);
+    border-left: 6px solid var(--sv-ok);
+    box-shadow:
+        inset 0 0 0 1px var(--dk-bevel-hi),
+        0 8px 22px rgb(0 0 0 / 0.5);
+}
+#save-main.sv .sv-toast.bad {
+    border-left-color: var(--sv-bad);
+}
+
+/* ------------------------------------------------------------------ buttons: pewter-rimmed plaques, bronze for the main action */
+
+#save-main.sv .sv-btn,
+#save-main.sv button:not(.sv-tab):not(.slot):not(.sv-pill):not(.ui-dd) {
+    height: 34px;
+    border: 1px solid var(--dk-pewter-lo);
+    border-radius: 3px;
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    background: linear-gradient(to bottom, var(--sv-hover), var(--sv-raised) 55%, var(--sv-panel));
+    color: var(--sv-ink);
+    box-shadow:
+        inset 0 0 0 1px var(--dk-pewter),
+        inset 0 2px 0 1px var(--dk-bevel-hi),
+        0 2px 0 var(--dk-bevel-lo);
+}
+#save-main.sv .sv-btn:hover:not(:disabled),
+#save-main.sv button:not(.sv-tab):not(.slot):not(.sv-pill):not(.ui-dd):hover:not(:disabled) {
+    background: linear-gradient(to bottom, var(--sv-hover), var(--sv-hover));
+    border-color: var(--dk-pewter-lo);
+    box-shadow:
+        inset 0 0 0 1px var(--sv-accent),
+        inset 0 2px 0 1px var(--dk-bevel-hi),
+        0 0 10px var(--dk-glow),
+        0 2px 0 var(--dk-bevel-lo);
+}
+#save-main.sv .sv-btn:active:not(:disabled),
+#save-main.sv button:not(.sv-tab):not(.slot):not(.sv-pill):not(.ui-dd):active:not(:disabled) {
+    transform: translateY(1px);
+    box-shadow:
+        inset 0 0 0 1px var(--dk-pewter),
+        inset 0 3px 5px var(--dk-cut);
+}
+#save-main.sv .sv-btn.primary,
+#save-main.sv button.primary {
+    background: linear-gradient(to bottom, var(--dk-bronze-hi), var(--dk-bronze) 60%, var(--dk-bronze-lo));
+    color: var(--sv-on-accent);
+    border-color: var(--dk-bronze-lo);
+    text-shadow: 0 1px 0 rgb(255 240 200 / 0.35);
+    box-shadow:
+        inset 0 0 0 1px rgb(255 232 170 / 0.55),
+        inset 0 2px 0 1px rgb(255 245 210 / 0.4),
+        0 2px 0 var(--dk-bevel-lo);
+}
+:root[data-theme='light'] #save-main.sv .sv-btn.primary,
+:root[data-theme='light'] #save-main.sv button.primary {
+    background: linear-gradient(to bottom, #a25f14, #8a4e10 60%, #623408);
+    color: #fff6e0;
+    text-shadow: 0 1px 0 rgb(0 0 0 / 0.35);
+}
+#save-main.sv .sv-btn.primary:hover:not(:disabled),
+#save-main.sv button.primary:hover:not(:disabled) {
+    background: linear-gradient(to bottom, #f6d386, var(--dk-bronze-hi) 60%, var(--dk-bronze));
+    border-color: var(--dk-bronze-lo);
+    box-shadow:
+        inset 0 0 0 1px rgb(255 240 190 / 0.7),
+        0 0 12px var(--dk-glow),
+        0 2px 0 var(--dk-bevel-lo);
+}
+:root[data-theme='light'] #save-main.sv .sv-btn.primary:hover:not(:disabled) {
+    background: linear-gradient(to bottom, #b66d1a, #9a5812 60%, #6f3b09);
+}
+#save-main.sv .sv-btn.ghost {
+    background: transparent;
+    border-color: transparent;
+    box-shadow: none;
+    color: var(--sv-muted);
+}
+#save-main.sv .sv-btn.ghost:hover:not(:disabled) {
+    background: var(--sv-raised);
+    border-color: var(--dk-pewter);
+    color: var(--sv-ink);
+}
+#save-main.sv .sv-btn.sm {
+    height: 28px;
+    font-size: 11px;
+}
+
+/* inputs: recessed, hand-cut wells */
+#save-main.sv input[type='number'],
+#save-main.sv input[type='search'],
+#save-main.sv input[type='text'],
+#save-main.sv select,
+#save-main.sv button.ui-dd.ui-dd,
+#save-main.sv .sv-search {
+    background: var(--sv-field);
+    border: 1px solid var(--dk-pewter-lo);
+    border-radius: 2px;
+    color: var(--sv-ink);
+    box-shadow:
+        inset 0 2px 4px var(--dk-cut),
+        0 1px 0 var(--dk-bevel-hi);
+}
+#save-main.sv input[type='search'],
+#save-main.sv input[type='text'],
+#save-main.sv .sv-search input {
+    font-family: var(--sv-font);
+    font-size: 15px;
+}
+#save-main.sv input[type='number']:hover:not(:disabled),
+#save-main.sv input[type='search']:hover,
+#save-main.sv select:hover:not(:disabled),
+#save-main.sv button.ui-dd.ui-dd:hover:not(:disabled) {
+    border-color: var(--dk-pewter-hi);
+}
+#save-main.sv input:focus-visible,
+#save-main.sv select:focus-visible,
+#save-main.sv button.ui-dd.ui-dd:focus-visible,
+#save-main.sv button.ui-dd.ui-dd.open {
+    border-color: var(--sv-accent-hi);
+    box-shadow:
+        inset 0 2px 4px var(--dk-cut),
+        0 0 0 2px var(--dk-glow),
+        0 0 0 1px var(--sv-accent-hi);
+}
+#save-main.sv .sv-search:focus-within {
+    border-color: var(--sv-accent-hi);
+    box-shadow:
+        inset 0 2px 4px var(--dk-cut),
+        0 0 0 2px var(--dk-glow);
+}
+#save-main.sv button.ui-dd.ui-dd {
+    height: 34px;
+    font-family: var(--sv-font);
+    font-size: 15px;
+    text-transform: none;
+    letter-spacing: 0;
+    font-weight: 600;
+    justify-content: space-between;
+}
+#save-main.sv .sv-field.changed .sv-num,
+#save-main.sv .sv-field.changed input[type='number'] {
+    border-color: var(--sv-accent);
+    box-shadow:
+        inset 0 2px 4px var(--dk-cut),
+        0 0 0 1px var(--sv-accent),
+        0 0 10px var(--dk-glow);
+}
+
+/* the shared dropdown popup, restyled inside the save scope */
+#save-main.sv .ui-dd-pop {
+    background-color: var(--sv-panel);
+    background-image: var(--dk-grain);
+    background-blend-mode: var(--dk-grain-blend);
+    border: 2px solid var(--dk-pewter);
+    border-radius: 3px;
+    box-shadow:
+        inset 0 0 0 1px var(--dk-bevel-hi),
+        0 10px 24px rgb(0 0 0 / 0.55);
+    color: var(--sv-ink);
+    font: 15px/1.35 var(--sv-font);
+}
+#save-main.sv .ui-dd-opt {
+    color: var(--sv-ink);
+}
+#save-main.sv .ui-dd-opt.active {
+    background: linear-gradient(to bottom, var(--dk-bronze-hi), var(--dk-bronze));
+    color: var(--sv-on-accent);
+}
+:root[data-theme='light'] #save-main.sv .ui-dd-opt.active {
+    background: linear-gradient(to bottom, #a25f14, #8a4e10);
+    color: #fff6e0;
+}
+#save-main.sv .ui-dd-opt[aria-selected='true']:not(.active) {
+    background: var(--sv-accent-soft);
+    box-shadow: inset 3px 0 0 var(--sv-accent);
+}
+#save-main.sv input.ui-dd-search {
+    background: var(--sv-field);
+    color: var(--sv-ink);
+    font-family: var(--sv-font);
+}
+
+#save-main.sv .sv-search input[type='search'],
+#save-main.sv .sv-search input[type='text'] {
+    border: 0;
+    background: transparent;
+    box-shadow: none;
+}
+
+/* sliders: a bronze bar in a stone groove, bronze stud for the thumb */
+#save-main.sv .sv-range::-webkit-slider-runnable-track {
+    height: 10px;
+    border-radius: 2px;
+    background:
+        linear-gradient(to bottom, rgb(255 240 190 / 0.35), transparent 50%) 0 0 / var(--p) 100% no-repeat,
+        linear-gradient(to right, var(--dk-bronze) var(--p), var(--sv-field) var(--p));
+    box-shadow:
+        inset 0 0 0 1px var(--dk-pewter-lo),
+        inset 0 2px 3px var(--dk-cut),
+        0 1px 0 var(--dk-bevel-hi);
+}
+#save-main.sv .sv-range::-webkit-slider-thumb {
+    width: 16px;
+    height: 16px;
+    margin-top: -4px;
+    border-radius: 2px;
+    transform: rotate(45deg) scale(0.92);
+    border: 2px solid var(--dk-pewter-lo);
+    background: radial-gradient(circle at 35% 30%, var(--dk-pewter-hi), var(--dk-pewter));
+    box-shadow: 0 1px 2px var(--dk-cut);
+}
+#save-main.sv .sv-range::-moz-range-thumb {
+    width: 12px;
+    height: 12px;
+    border-radius: 2px;
+    border: 2px solid var(--dk-pewter-lo);
+    background: var(--dk-pewter-hi);
+}
+#save-main.sv .sv-range::-moz-range-progress {
+    background: var(--dk-bronze);
+}
+#save-main.sv input[type='checkbox'] {
+    accent-color: var(--dk-bronze);
+}
+
+/* meters: health is the game's red, mana its steel-blue, set in a pewter-rimmed trough */
+#save-main.sv .sv-meter {
+    border-radius: 2px;
+    background: var(--sv-field);
+    box-shadow:
+        inset 0 0 0 1px var(--dk-pewter),
+        inset 0 2px 4px var(--dk-cut);
+}
+#save-main.sv .sv-meter > i {
+    border-radius: 1px;
+    background: linear-gradient(to bottom, rgb(255 240 190 / 0.35), transparent 55%), var(--dk-bronze);
+}
+#save-main.sv .sv-vital.mana .sv-meter > i {
+    background: linear-gradient(to bottom, rgb(255 255 255 / 0.3), transparent 55%), #4d86b0;
+}
+#save-main.sv .sv-vital .sv-meter > i:not(.x) {
+    min-width: 0;
+}
+
+/* tags, chips, badges: small engraved plates, no pills */
+#save-main.sv .sv-tag,
+#save-main.sv .sv-badge,
+#save-main.sv .sv-chip,
+#save-main.sv .sv-bak {
+    border-radius: 2px;
+    font-weight: 600;
+}
+#save-main.sv .sv-tag {
+    background: var(--sv-field);
+    color: var(--sv-muted);
+    box-shadow: inset 0 0 0 1px var(--dk-pewter-lo);
+}
+#save-main.sv .sv-badge {
+    font-family: var(--dk-display);
+    font-size: 10px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+}
+#save-main.sv .sv-chip.warn {
+    font-family: var(--dk-display);
+    font-size: 11px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    background: var(--sv-accent-soft);
+    color: var(--sv-accent-hi);
+    border: 1px solid var(--sv-accent);
+}
+:root[data-theme='light'] #save-main.sv .sv-chip.warn {
+    color: var(--sv-accent);
+}
+
+/* ------------------------------------------------------------------ save list: slabs with a thumbnail in a pewter frame */
+
+#save-main.sv .sv-slot {
+    border-radius: 3px;
+    border: 1px solid var(--dk-pewter-lo);
+    background-color: var(--sv-raised);
+    background-image: var(--dk-grain);
+    background-blend-mode: var(--dk-grain-blend);
+    box-shadow:
+        inset 0 0 0 1px var(--dk-pewter),
+        inset 0 1px 0 1px var(--dk-bevel-hi),
+        0 2px 0 var(--dk-bevel-lo);
+}
+#save-main.sv .sv-slot:hover {
+    background-color: var(--sv-hover);
+}
+#save-main.sv .sv-slot.sel {
+    background-color: var(--sv-hover);
+    border-color: var(--dk-bronze-lo);
+    box-shadow:
+        inset 0 0 0 2px var(--sv-accent),
+        0 0 14px var(--dk-glow),
+        0 2px 0 var(--dk-bevel-lo);
+}
+#save-main.sv .sv-slot.sel::before {
+    display: none;
+}
+#save-main.sv .sv-slot-thumb {
+    border-radius: 1px;
+    box-shadow:
+        0 0 0 1px var(--dk-pewter-lo),
+        0 0 0 3px var(--dk-pewter),
+        0 0 0 4px var(--dk-pewter-lo);
+    margin: 4px 4px 4px 4px;
+}
+#save-main.sv .sv-slot-meta b {
+    font-family: var(--dk-display);
+    font-size: 14px;
+    letter-spacing: 0.05em;
+    color: var(--sv-num);
+}
+
+/* ------------------------------------------------------------------ header and tabs */
+
+#save-main.sv .sv-head {
+    background-image: linear-gradient(to bottom, var(--dk-glow), transparent 70%);
+}
+#save-main.sv .sv-tabs {
+    position: relative;
+    gap: 8px;
+    padding-bottom: 14px;
+    border-bottom: 0;
+}
+/* the rule under the tabs: pewter line with a centred diamond, like the studs between the game's slabs */
+#save-main.sv .sv-tabs::after {
+    content: '';
+    position: absolute;
+    left: 22px;
+    right: 22px;
+    bottom: 0;
+    height: 9px;
+    background:
+        url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='9' height='9'><path d='M4.5 0 L9 4.5 L4.5 9 L0 4.5 Z' fill='%23d9a44a'/><path d='M4.5 2.4 L6.6 4.5 L4.5 6.6 L2.4 4.5 Z' fill='%23241d10'/></svg>")
+            center / 9px 9px no-repeat,
+        linear-gradient(to right, transparent, var(--dk-pewter) 12%, var(--dk-pewter) 88%, transparent) center / 100%
+            1px no-repeat;
+    pointer-events: none;
+}
+#save-main.sv .sv-tab {
+    height: 38px;
+    padding: 0 16px;
+    border: 1px solid var(--dk-pewter-lo);
+    border-radius: 3px 3px 12px 12px;
+    background: linear-gradient(to bottom, var(--sv-hover), var(--sv-raised) 60%, var(--sv-panel));
+    color: var(--sv-muted);
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    box-shadow:
+        inset 0 0 0 1px var(--dk-pewter),
+        inset 0 2px 0 1px var(--dk-bevel-hi),
+        0 2px 0 var(--dk-bevel-lo);
+}
+#save-main.sv .sv-tab:hover {
+    color: var(--sv-ink);
+    background: linear-gradient(to bottom, var(--sv-hover), var(--sv-hover));
+    box-shadow:
+        inset 0 0 0 1px var(--dk-pewter-hi),
+        inset 0 2px 0 1px var(--dk-bevel-hi),
+        0 2px 0 var(--dk-bevel-lo);
+}
+/* the active tab is lit from behind like the game's selected medallion */
+#save-main.sv .sv-tab.active {
+    color: var(--sv-num);
+    background:
+        radial-gradient(ellipse at 50% 120%, var(--dk-glow), transparent 70%),
+        linear-gradient(to bottom, var(--sv-field), var(--sv-raised));
+    border-color: var(--dk-bronze-lo);
+    box-shadow:
+        inset 0 0 0 2px var(--sv-accent),
+        inset 0 -6px 10px -4px var(--dk-glow),
+        0 0 14px var(--dk-glow),
+        0 2px 0 var(--dk-bevel-lo);
+}
+:root[data-theme='light'] #save-main.sv .sv-tab.active {
+    color: var(--sv-ink);
+    background:
+        radial-gradient(ellipse at 50% 120%, var(--dk-glow), transparent 70%),
+        linear-gradient(to bottom, #f6eed6, #e8d9ad);
+}
+#save-main.sv .sv-tab:focus-visible {
+    box-shadow: var(--dk-ring);
+}
+
+/* ------------------------------------------------------------------ cards: stone slab, pewter rim, diamond studs */
+
+#save-main.sv .sv-card,
+#save-main.sv .sv-box,
+#save-main.sv #sv-details,
+#save-main.sv .sv-backups {
+    position: relative;
+    background-color: var(--sv-panel);
+    background-image: var(--dk-rv), var(--dk-rv), var(--dk-rv), var(--dk-rv), var(--dk-cracks), var(--dk-grain);
+    background-position:
+        5px 5px,
+        calc(100% - 5px) 5px,
+        5px calc(100% - 5px),
+        calc(100% - 5px) calc(100% - 5px),
+        0 0,
+        0 0;
+    background-repeat: no-repeat, no-repeat, no-repeat, no-repeat, repeat, repeat;
+    background-blend-mode: normal, normal, normal, normal, normal, var(--dk-grain-blend);
+    border: 2px solid var(--dk-pewter);
+    border-radius: 6px;
+    box-shadow:
+        inset 0 0 0 1px var(--dk-pewter-lo),
+        inset 0 0 22px var(--dk-cut),
+        0 0 0 1px var(--dk-pewter-lo),
+        0 4px 10px -4px var(--dk-cut);
+}
+#save-main.sv #sv-details {
+    padding: 14px 20px;
+    border-top: 2px solid var(--dk-pewter);
+    min-height: 140px;
+}
+#save-main.sv .sv-card-head {
+    padding: 14px 24px 12px;
+    border-bottom: 0;
+    position: relative;
+}
+#save-main.sv .sv-card-head::after {
+    content: '';
+    position: absolute;
+    left: 20px;
+    right: 20px;
+    bottom: 0;
+    height: 3px;
+    border-top: 1px solid var(--dk-cut);
+    border-bottom: 1px solid var(--dk-bevel-hi);
+}
+#save-main.sv .sv-card-body {
+    padding: 16px 24px;
+}
+
+/* the hero: portrait in a bronze-rimmed frame */
+#save-main.sv .sv-portrait {
+    border-radius: 3px;
+    border: 3px solid var(--dk-pewter-hi);
+    box-shadow:
+        0 0 0 1px var(--dk-pewter-lo),
+        0 0 0 4px var(--dk-pewter),
+        0 0 0 5px var(--dk-pewter-lo),
+        0 6px 14px var(--dk-cut);
+}
+#save-main.sv .sv-hero-id h3 {
+    font-size: 24px;
+    color: var(--sv-num);
+    text-transform: none;
+}
+#save-main.sv .sv-vital-head b {
+    font-family: var(--dk-display);
+    color: var(--sv-num);
+    font-size: 26px;
+}
+#save-main.sv .sv-field-head label,
+#save-main.sv .sv-skill-name,
+#save-main.sv .sv-vital-head span {
+    font-family: var(--dk-display);
+    font-size: 12.5px;
+    font-weight: 600;
+    letter-spacing: 0.07em;
+    color: var(--sv-muted);
+}
+#save-main.sv .sv-was {
+    font-style: italic;
+}
+#save-main.sv .sv-kv td:first-child {
+    font-family: var(--dk-display);
+    font-size: 12px;
+    letter-spacing: 0.06em;
+}
+
+/* ------------------------------------------------------------------ inventory: the game's grid of recessed stone cells */
+
+#save-main.sv .invgrid {
+    gap: 0;
+    padding: 6px;
+    background-color: var(--sv-field);
+    background-image: var(--dk-grain);
+    background-blend-mode: var(--dk-grain-blend);
+    border: 3px solid var(--dk-pewter);
+    border-radius: 3px;
+    box-shadow:
+        inset 0 0 0 1px var(--dk-pewter-lo),
+        inset 0 4px 14px var(--dk-cut),
+        0 0 0 1px var(--dk-pewter-lo);
+}
+#save-main.sv .slot {
+    border: 1px solid var(--dk-pewter-lo);
+    border-radius: 0;
+    background-color: var(--sv-raised);
+    background-image: var(--dk-cracks), var(--dk-grain);
+    background-blend-mode: normal, var(--dk-grain-blend);
+    box-shadow:
+        inset 1px 1px 0 var(--dk-bevel-hi),
+        inset -1px -1px 0 var(--dk-bevel-lo);
+}
+#save-main.sv .slot.empty {
+    border: 1px solid var(--dk-pewter-lo);
+    background-color: var(--sv-panel);
+    box-shadow:
+        inset 2px 2px 5px var(--dk-cut),
+        inset -1px -1px 0 var(--dk-bevel-hi);
+}
+#save-main.sv .slot.item:hover {
+    background-color: var(--sv-hover);
+    border-color: var(--dk-pewter-lo);
+    box-shadow:
+        inset 0 0 0 1px var(--sv-accent),
+        0 0 12px var(--dk-glow);
+    z-index: 1;
+}
+/* selected cell: the game's plain cream frame */
+#save-main.sv .slot.item.sel {
+    background-color: var(--sv-hover);
+    border: 1px solid var(--sv-bg);
+    box-shadow:
+        inset 0 0 0 2px #f4ead0,
+        inset 0 0 0 3px rgb(0 0 0 / 0.55),
+        0 0 14px var(--dk-glow);
+    z-index: 2;
+}
+:root[data-theme='light'] #save-main.sv .slot.item.sel {
+    box-shadow:
+        inset 0 0 0 2px #fff9e6,
+        inset 0 0 0 4px var(--sv-accent),
+        0 0 10px var(--dk-glow);
+}
+#save-main.sv .slot.eq::after {
+    height: 4px;
+    background: linear-gradient(to right, var(--dk-bronze-lo), var(--dk-bronze-hi), var(--dk-bronze-lo));
+}
+#save-main.sv .slot .art .ph {
+    border-radius: 50%;
+    font-family: var(--dk-display);
+    border: 3px solid var(--dk-pewter-hi);
+    box-shadow:
+        inset 0 0 0 1px var(--dk-pewter-lo),
+        0 2px 4px var(--dk-cut);
+    --dk-h: calc(18 + var(--hue) * 0.2);
+    color: hsl(var(--dk-h) 50% 88%);
+    background: radial-gradient(circle at 35% 30%, hsl(var(--dk-h) 24% 36%), hsl(var(--dk-h) 26% 17%));
+    font-size: 13px;
+}
+#save-main.sv .slot .nm {
+    font-size: 13.5px;
+    font-weight: 600;
+    color: var(--sv-ink);
+}
+#save-main.sv .slot .dbar {
+    border-radius: 1px;
+    box-shadow:
+        inset 0 0 0 1px var(--dk-pewter),
+        inset 0 1px 3px var(--dk-cut);
+}
+#save-main.sv .slot .dbar i {
+    background: linear-gradient(to bottom, rgb(255 240 190 / 0.3), transparent 60%), var(--dk-bronze);
+}
+#save-main.sv .slot .dbar em {
+    font-family: var(--dk-display);
+    font-size: 9.5px;
+    font-weight: 700;
+    color: var(--sv-ink);
+    text-shadow: 0 0 2px #000;
+}
+:root[data-theme='light'] #save-main.sv .slot .dbar em {
+    text-shadow: 0 0 2px #f6eed6;
+}
+/* equipped / quick-slot marks: small bronze and pewter studs, not coloured badges */
+#save-main.sv .mk {
+    border-radius: 50%;
+    min-width: 17px;
+    height: 17px;
+    font-family: var(--dk-display);
+    font-weight: 700;
+    font-size: 9.5px;
+    border: 1px solid var(--dk-pewter-lo);
+    box-shadow:
+        inset 0 1px 0 rgb(255 255 255 / 0.35),
+        0 1px 2px var(--dk-cut);
+}
+#save-main.sv .mk.e {
+    background: radial-gradient(circle at 35% 30%, var(--dk-bronze-hi), var(--dk-bronze));
+    color: #1d1408;
+}
+#save-main.sv .mk.q {
+    background: radial-gradient(circle at 35% 30%, #cfc6b0, #8a826f);
+    color: #1b1812;
+}
+#save-main.sv .invhead b {
+    font-size: 15px;
+}
+/* the item facts panel reads like the game's Skill Needed / Damage block */
+#save-main.sv .inspector b {
+    font-family: var(--dk-display);
+    letter-spacing: 0.05em;
+}
+
+/* ------------------------------------------------------------------ world lists, records, tray, 3D */
+
+#save-main.sv .sv-rec,
+#save-main.sv .tile,
+#save-main.sv .issue,
+#save-main.sv .sv-groups details {
+    border-radius: 2px;
+}
+#save-main.sv .sv-rec,
+#save-main.sv .sv-groups > details {
+    background-color: var(--sv-raised);
+    background-image: var(--dk-grain);
+    background-blend-mode: var(--dk-grain-blend);
+    border: 1px solid var(--dk-pewter-lo);
+    box-shadow:
+        inset 0 0 0 1px var(--dk-pewter),
+        inset 0 1px 0 1px var(--dk-bevel-hi),
+        0 2px 0 var(--dk-bevel-lo);
+}
+#save-main.sv .sv-rec:hover {
+    background-color: var(--sv-hover);
+}
+#save-main.sv .sv-rec.sel {
+    background-color: var(--sv-hover);
+    box-shadow:
+        inset 0 0 0 2px var(--sv-accent),
+        0 0 12px var(--dk-glow),
+        0 2px 0 var(--dk-bevel-lo);
+}
+#save-main.sv .gthumb {
+    border-radius: 1px;
+    box-shadow:
+        0 0 0 1px var(--dk-pewter-lo),
+        0 0 0 3px var(--dk-pewter);
+}
+#save-main.sv .sv-dhead b {
+    color: var(--sv-num);
+    letter-spacing: 0.05em;
+}
+#save-main.sv .sv-pill {
+    border-radius: 2px;
+    font-family: var(--dk-display);
+    font-size: 11px;
+    letter-spacing: 0.07em;
+    text-transform: uppercase;
+}
+#save-main.sv .sv-pill.on {
+    box-shadow: inset 0 0 0 1px var(--sv-accent);
+}
+#save-main.sv .tile {
+    background-color: var(--sv-raised);
+    border: 1px solid var(--dk-pewter-lo);
+    box-shadow:
+        inset 0 0 0 1px var(--dk-pewter),
+        0 2px 0 var(--dk-bevel-lo);
+}
+#save-main.sv .issue {
+    border-width: 1px;
+}
+
+/* pending changes: a parchment slip on a stone dock */
+#save-main.sv .sv-edit {
+    border-radius: 2px;
+    background-color: var(--sv-field);
+    border: 1px solid var(--dk-pewter-lo);
+    border-left: 4px solid var(--sv-accent);
+    box-shadow:
+        inset 0 0 0 1px var(--dk-pewter),
+        inset 0 2px 5px var(--dk-cut);
+}
+#save-main.sv .sv-edit-main b {
+    font-family: var(--dk-display);
+    letter-spacing: 0.04em;
+    font-size: 13.5px;
+}
+#save-main.sv .sv-edit-chg em {
+    font-family: var(--dk-display);
+    font-style: normal;
+    color: var(--sv-num);
+}
+#save-main.sv .sv-dock-head .sv-btn,
+#save-main.sv .sv-dock-head button {
+    padding: 0 10px;
+    letter-spacing: 0.04em;
+    font-size: 11px;
+}
+#save-main.sv .sv-dock-head {
+    flex-wrap: wrap;
+    row-gap: 6px;
+    border-bottom: 1px solid var(--dk-bevel-lo);
+    box-shadow: 0 1px 0 var(--dk-bevel-hi);
+}
+#save-main.sv .sv-tray-foot {
+    border-top: 1px solid var(--dk-bevel-lo);
+    box-shadow: 0 -1px 0 var(--dk-bevel-hi);
+}
+#save-main.sv .sv-tray-foot p {
+    font-style: italic;
+    font-size: 14px;
+}
+/* the SAVE CHANGES button in the dock is the one main action: bronze, full width */
+#save-main.sv .sv-tray-foot .sv-btn.block {
+    height: 42px;
+    font-size: 13px;
+}
+#save-main.sv .sv-3d {
+    border-top: 3px double var(--dk-pewter);
+}
+#save-main.sv .sv-view {
+    box-shadow: inset 0 0 18px #000;
+}
+
+#save-main.sv .sv-empty-ico {
+    color: var(--sv-accent);
+}
+#save-main.sv .sv-empty b,
+#save-main.sv .sv-empty h3,
+#save-main.sv .sv-empty strong {
+    font-family: var(--dk-display);
+    letter-spacing: 0.06em;
+    color: var(--sv-num);
+}
+#save-main.sv details > summary {
+    font-family: var(--dk-display);
+    letter-spacing: 0.06em;
+}
+
+/* scrollbars: slim stone tracks, not the OS default */
+#save-main.sv * {
+    scrollbar-width: thin;
+    scrollbar-color: var(--dk-pewter) transparent;
+}
+
+/* ------------------------------------------------------------------ narrow windows */
+
+@media (max-width: 1360px) {
+    #save-main.sv {
+        font-size: 15px;
+    }
+    #save-main.sv .sv-title h2 {
+        font-size: 21px;
+    }
+}
+@media (max-width: 1000px) {
+    #save-main.sv .sv-tab {
+        padding: 0 11px;
+        letter-spacing: 0.06em;
+    }
+    #save-main.sv .sv-card-body,
+    #save-main.sv .sv-card-head {
+        padding-left: 18px;
+        padding-right: 18px;
+    }
+}
+@media (prefers-reduced-motion: reduce) {
+    #save-main.sv .sv-btn:active:not(:disabled),
+    #save-main.sv button:active:not(:disabled) {
+        transform: none;
+    }
+}

@@ -8,6 +8,12 @@ import { h, icon } from './dom.ts';
  * `addLinks`, which goes through `ctx.edit`, so the logic graph, link lines, undo and the mod export stay in sync.
  */
 
+/** `Orc #12` for an object of the open document, `#12` when it is gone (undo labels name what they change). */
+export const nameOf = (ctx: Ctx, id: number): string => {
+    const o = ctx.doc().get(id);
+    return o ? objectLabel(o) : `#${id}`;
+};
+
 export const objectLabel = (o: Pick<LevelObject, 'class' | 'id'>): string => `${o.class} #${o.id}`;
 
 /** Link every source to `to` as one undo step; returns how many links were new. */

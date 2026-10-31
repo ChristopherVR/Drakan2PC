@@ -139,7 +139,7 @@ async function writePackDesktop(pack: Pick<LevelPack, 'meta' | 'files'>): Promis
  * play folder with the options' environment. Returns a one-line summary, or null when cancelled.
  */
 export async function playInGame(
-    pack: LevelPack | null,
+    pack: Pick<LevelPack, 'meta' | 'files'> | null,
     opts: PlayOptions,
     level: string | null,
     extraEnv: Record<string, string> = {},

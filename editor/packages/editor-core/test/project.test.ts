@@ -9,6 +9,8 @@ import {
     newProject,
     nextStep,
     parseProject,
+    parseProjectFile,
+    serializeProjectFile,
     removeLevel,
     routeOrder,
     serializeProject,
@@ -43,6 +45,17 @@ describe('project file', () => {
         p = addDiscLevel(p, 'Level A - One');
         p = addLevelCopy(p, 'Level A - One', 'Level 9X - Copy');
         expect(parseProject(serializeProject(p))).toEqual(p);
+    });
+    it('keeps level edits in the project file', () => {
+        const p = addDiscLevel(newProject('Edits', null, 1), 'Level A - One');
+        const doc = { level: 'Level A - One', objects: [] } as never;
+        const text = serializeProjectFile(p, { 'Level A - One': { savedAt: 5, doc, bookmarks: [] } });
+        const back = parseProjectFile(text);
+        expect(back.project).toEqual(p);
+        expect(back.edits['Level A - One']?.savedAt).toBe(5);
+        expect(parseProject(text)).toEqual(p);
+        expect(parseProjectFile(serializeProject(p)).edits).toEqual({});
+        expect(parseProjectFile('{"format":1,"id":"x","edits":{"a":5,"b":{"doc":{}}}}').edits).toHaveProperty('b');
     });
     it('rejects other files', () => {
         expect(() => parseProject('nope')).toThrow(/not a project/);

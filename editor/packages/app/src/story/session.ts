@@ -49,6 +49,12 @@ export interface QuestRow {
     edited: boolean;
 }
 
+export interface ChangeSource {
+    changes(): Promise<StoryEntryChange[]>;
+    subscribe(fn: () => void): () => void;
+    count(): number;
+}
+
 export const SYSTEM_XDB = 'SYSTEM.XDB';
 
 export class StorySession {
@@ -286,7 +292,21 @@ export class StorySession {
 
     // ---- export -----------------------------------------------------------------------------------------------
 
+    private sources: ChangeSource[] = [];
+    /** Another editor's edits (dialogue, cut scenes) that this session's pack carries too. */
+    addChangeSource(src: ChangeSource): void {
+        this.sources.push(src);
+        src.subscribe(() => this.emit());
+    }
+
     async changes(): Promise<StoryEntryChange[]> {
+        const out: StoryEntryChange[] = [];
+        for (const src of this.sources) out.push(...(await src.changes()));
+        out.push(...(await this.ownChanges()));
+        return out;
+    }
+
+    private async ownChanges(): Promise<StoryEntryChange[]> {
         const d = this.data;
         if (!d) return [];
         const out: StoryEntryChange[] = [];
@@ -327,7 +347,7 @@ export class StorySession {
             name: name || undefined,
             author: author || undefined,
             version: '1.0.0',
-            description: 'Story content (strings, quests) made with the Drakan editor.',
+            description: 'Story content (strings, quests, dialogue, cut scenes) made with the Drakan editor.',
             target,
         };
     }
@@ -358,7 +378,7 @@ export class StorySession {
 
     /** Number of changed entries (cheap summary for badges). */
     editCount(): number {
-        let n = this.drafts.size + this.newQuests.length;
+        let n = this.drafts.size + this.newQuests.length + this.sources.reduce((a, x) => a + x.count(), 0);
         for (const [file, m] of this.edited) for (const id of m.keys()) if (this.isChanged(file, id)) n++;
         return n;
     }

@@ -17,7 +17,11 @@ export interface ChecklistHost {
 export function createChecklist(host: ChecklistHost): { el: HTMLElement; refresh(): void } {
     const el = h('aside', { class: 'pj-card', id: 'task-card', 'aria-label': 'Next steps', hidden: true });
     document.body.append(el);
-    let collapsed = store.get('task-card-collapsed') === '1';
+    /** Below this the card would sit on top of the panels, so it starts as a small pill and opens only on request. */
+    const isSmall = (): boolean => window.innerWidth < 1100 || window.innerHeight < 760;
+    let pref = store.get('task-card-collapsed') === '1';
+    let openedHere = false;
+    let collapsed = pref;
     let dismissedFor: string | null = null;
     let last = '';
 
@@ -30,6 +34,8 @@ export function createChecklist(host: ChecklistHost): { el: HTMLElement; refresh
             last = '';
             return;
         }
+        collapsed = isSmall() ? !openedHere : pref;
+        el.classList.toggle('small', isSmall());
         const facts = host.facts();
         const ticks = p.ticks[w.id] ?? [];
         const done = stepStates(w, facts, ticks);
@@ -50,8 +56,11 @@ export function createChecklist(host: ChecklistHost): { el: HTMLElement; refresh
                     'aria-expanded': String(!collapsed),
                     title: collapsed ? 'Show the steps' : 'Hide the steps',
                     onclick: () => {
-                        collapsed = !collapsed;
-                        store.set('task-card-collapsed', collapsed ? '1' : '0');
+                        if (isSmall()) openedHere = collapsed;
+                        else {
+                            pref = !pref;
+                            store.set('task-card-collapsed', pref ? '1' : '0');
+                        }
                         last = '';
                         refresh();
                     },
@@ -158,6 +167,10 @@ export function createChecklist(host: ChecklistHost): { el: HTMLElement; refresh
         el.classList.toggle('collapsed', collapsed);
     }
 
+    window.addEventListener('resize', () => {
+        last = '';
+        refresh();
+    });
     projects.on(() => {
         // A newly chosen task shows the card again.
         dismissedFor =

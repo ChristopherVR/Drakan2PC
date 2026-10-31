@@ -2000,3 +2000,47 @@
 #save-main.sv .qpin.done .qpin-dot {
     fill: #62c370;
 }
+
+@layer save {
+    .sv-backups {
+        border: 1px solid var(--sv-line);
+        border-radius: 8px;
+        padding: 10px 12px;
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+        background: var(--sv-field);
+    }
+    .sv-backups[hidden] {
+        display: none;
+    }
+    .sv-backups h3 {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        font-size: 12px;
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+        color: var(--sv-muted);
+    }
+    .sv-bak-row {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 6px;
+        font-size: 12px;
+    }
+    .sv-bak {
+        font-family: ui-monospace, monospace;
+        padding: 1px 7px;
+        border-radius: 999px;
+        border: 1px solid var(--sv-line);
+    }
+    .sv-bak.new {
+        border-color: var(--sv-num);
+        color: var(--sv-num);
+    }
+    .sv-bak-next {
+        font-weight: 600;
+    }
+}

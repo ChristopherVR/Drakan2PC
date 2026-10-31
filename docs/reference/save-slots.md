@@ -127,3 +127,13 @@ native grid does). The grid draw `43bfb0` only makes its thumbnail requests then
 real context. There is no play time in the save data (no entry field, nothing known in the `.rsg`): the cards show
 the location and the card's time stamp only. The card's stamp (the list's date and time) can differ from the file's
 modification time on the host by the time zone (the title's "newest save" orders by the latter).
+
+## Editor notes (2026-11-01)
+
+- Item record state: u16 at +0x56 is 2 for carried items and 0 for ground items; the self handle sits at +0x86 and again at +0x166.
+  Cloning a ground item record (new id, fresh handle, count raised) did not produce a visible or pickable item (see
+  journal/2026-11-01/save-editor-round3.md); add-item stays unsupported.
+- Backups written by the editor: `NAME.bak` first, then `.bak.1`, `.bak.2`; existing backups are never overwritten.
+- Rynn's record carries the carried-item list: 16-byte entries `{slot = entry id - 1, 1, -1, -1}` starting near +0x14de (Surdana sample), in
+  inventory order; the game rebuilds the cells from it. A carried item record can be replaced in place by another class's record (keep the
+  serial, handle copies, +0x52..0x5e, +0x96 and position). A brand-new carried record is not accepted yet (crash after load).

@@ -5,12 +5,9 @@ import {
     addLevelCopy,
     levelExits,
     moveLevel,
-    newProject,
-    parseProject,
     projectExitIndex,
     removeLevel,
     routeOrder,
-    serializeProject,
     slugId,
     suggestCopyTitle,
     validateProject,
@@ -26,7 +23,8 @@ import { h, icon } from '../dom.ts';
 import { createPlayControls } from '../playopts.ts';
 import { isDesktop } from '../../platform.ts';
 import type { PlayOptions } from '../../launch.ts';
-import { buildProjectPack, levelEditCounts, zipProjectPack, type ProjectExportDeps } from './export.ts';
+import { buildProjectPack, levelEditCounts, type ProjectExportDeps } from './export.ts';
+import type { ProjectFiles } from './folder.ts';
 import { projects } from './store.ts';
 
 export interface ProjectPanelHost {
@@ -36,9 +34,12 @@ export interface ProjectPanelHost {
     exportDeps: ProjectExportDeps;
     /** Open a project level in the editor (a copy opens its source under the copy's title). */
     openLevel(l: ProjectLevel): Promise<void>;
-    download(name: string, data: BlobPart, type: string): Promise<unknown> | void;
-    writeToMods(pack: { meta: { id: string }; files: Record<string, Uint8Array> }): Promise<string | null>;
-    canWrite(): boolean;
+    /** Project file operations (the folder on disk on desktop, download/upload in a browser). */
+    files: ProjectFiles;
+    /** Open the Export dialog. */
+    openExport(): void;
+    /** Recent project folders (desktop; empty in a browser). */
+    recentProjects(): Promise<string[]>;
     /** Desktop: write the pack and start the game; returns a summary or null when cancelled. */
     play(
         pack: { meta: { id: string }; files: Record<string, Uint8Array> } | null,
@@ -55,7 +56,6 @@ export interface ProjectPanel extends Panel {
     onIssues(fn: () => void): void;
     /** Focus the "add a copy" form. */
     addCopy(): void;
-    exportPack(toFolder: boolean): Promise<void>;
     play(): Promise<void>;
     refreshSoon(): void;
     resetExits(): void;
@@ -119,14 +119,7 @@ export function createProjectPanel(host: ProjectPanelHost): ProjectPanel {
             const f = file.files?.[0];
             file.value = '';
             if (!f) return;
-            void f
-                .text()
-                .then((t) => {
-                    const np = parseProject(t);
-                    projects.set(np);
-                    host.ctx.toast(`Opened project "${np.name}"`, 'ok');
-                })
-                .catch(fail);
+            void f.text().then((t) => host.files.openText(t), fail);
         });
         return h(
             'div',
@@ -161,24 +154,25 @@ export function createProjectPanel(host: ProjectPanelHost): ProjectPanel {
                         class: 'ui-btn sm',
                         type: 'button',
                         id: 'pj-save',
-                        title: 'Save the project settings as a .json file',
-                        onclick: () =>
-                            void Promise.resolve(
-                                host.download(
-                                    `${p.id || 'project'}.drakan-project.json`,
-                                    serializeProject(p),
-                                    'application/json',
-                                ),
-                            ).then(() => host.ctx.toast('Project file saved', 'ok'), fail),
+                        title: isDesktop
+                            ? 'Save the project and its level edits into the project folder'
+                            : 'Download the project (settings, level list and level edits) as one file',
+                        onclick: () => void host.files.save().catch(fail),
                     },
                     icon('save', 13),
-                    'Save project',
+                    isDesktop ? 'Save' : 'Save project',
                 ),
                 h(
                     'button',
-                    { class: 'ui-btn sm', type: 'button', id: 'pj-open', onclick: () => file.click() },
+                    {
+                        class: 'ui-btn sm',
+                        type: 'button',
+                        id: 'pj-open',
+                        title: isDesktop ? 'Open a project folder' : 'Open a project file',
+                        onclick: () => (isDesktop ? void host.files.openFolder().catch(fail) : file.click()),
+                    },
                     icon('open', 13),
-                    'Open project',
+                    isDesktop ? 'Open...' : 'Open project',
                 ),
                 h(
                     'button',
@@ -186,27 +180,35 @@ export function createProjectPanel(host: ProjectPanelHost): ProjectPanel {
                         class: 'ui-btn sm',
                         type: 'button',
                         id: 'pj-new',
-                        title: 'Start an empty project (the current one is replaced)',
+                        title: 'Close this project and start another',
                         onclick: () => {
                             if (
+                                !projects.folder &&
                                 p.levels.length &&
-                                !window.confirm('Replace the project with an empty one? Save it first to keep it.')
+                                !window.confirm('Close this project? Save it first to keep it.')
                             )
                                 return;
-                            projects.set(newProject('My mod', p.task));
+                            void host.files.close().catch(fail);
                         },
                     },
                     icon('plus', 13),
-                    'New',
+                    'New...',
                 ),
                 file,
             ),
-            h(
-                'p',
-                { class: 'pj-note' },
-                'The project file holds these settings and the level list. Level edits stay in this browser (autosave) until you export.',
-            ),
+            h('p', { class: 'pj-note', id: 'pj-where' }, whereText()),
         );
+    }
+
+    function whereText(): string {
+        const f = projects.folder;
+        if (!isDesktop)
+            return 'The project file holds these settings, the level list and your level edits. Save it to keep them; Open restores them.';
+        if (!f) return 'Not saved to a folder.';
+        const when = f.savedAt ? ` Saved in place at ${new Date(f.savedAt).toLocaleTimeString()}.` : '';
+        return f.error
+            ? `Folder ${f.dir}. Saving failed: ${f.error}`
+            : `Folder ${f.dir}.${when} Level edits and the exported mod live there.`;
     }
 
     // ---- levels -----------------------------------------------------------------------------------------------------
@@ -502,7 +504,7 @@ export function createProjectPanel(host: ProjectPanelHost): ProjectPanel {
                       { class: 'pj-ok' },
                       p.levels.length ? 'No problems found in the project.' : 'Nothing to check yet.',
                   ),
-            h('div', { class: 'pj-title' }, 'Output pack'),
+            h('div', { class: 'pj-title' }, 'Export'),
             h(
                 'div',
                 { class: 'pj-btns' },
@@ -513,24 +515,11 @@ export function createProjectPanel(host: ProjectPanelHost): ProjectPanel {
                         type: 'button',
                         id: 'pj-export',
                         disabled: errs.length > 0,
-                        title: errs.length ? 'Fix the errors above first' : 'Download the mod pack as a zip',
-                        onclick: () => void exportPack(false).catch(fail),
+                        title: errs.length ? 'Fix the errors above first' : 'Build the mod pack (Ctrl+E)',
+                        onclick: () => host.openExport(),
                     },
                     icon('download', 13),
-                    'Export zip',
-                ),
-                h(
-                    'button',
-                    {
-                        class: 'ui-btn sm',
-                        type: 'button',
-                        id: 'pj-export-dir',
-                        disabled: errs.length > 0 || !host.canWrite(),
-                        title: "Write into the game's mods folder and turn it on in mods.ini",
-                        onclick: () => void exportPack(true).catch(fail),
-                    },
-                    icon('open', 13),
-                    'Write to mods folder',
+                    'Export...',
                 ),
             ),
             isDesktop
@@ -548,31 +537,10 @@ export function createProjectPanel(host: ProjectPanelHost): ProjectPanel {
             h(
                 'p',
                 { class: 'pj-note' },
-                'The pack holds every project level that has changes, every copy, and the story edits made in the Story tab. Multiplayer maps export from their own tab.',
+                'Export builds one mod pack from the project: every level with changes, every copy and the story edits made in the Story tab. Multiplayer maps export from their own tab.',
             ),
             report,
         );
-    }
-
-    async function exportPack(toFolder: boolean): Promise<void> {
-        const p = projects.get();
-        if (!p) throw new ModError('Create a project first.');
-        const pack = await buildProjectPack(host.exportDeps, p);
-        const text = [...pack.lines, ...pack.warnings.map((w) => `Warning: ${w}`)];
-        if (toFolder) {
-            const where = await host.writeToMods({ meta: pack.meta, files: pack.files });
-            if (where === null) return;
-            text.push(`Written to ${where} and enabled in mods.ini.`);
-            host.ctx.toast(`Written to ${where}`, 'ok');
-        } else {
-            await host.download(`${pack.meta.id}.zip`, zipProjectPack(pack) as BlobPart, 'application/zip');
-            text.push(`Downloaded ${pack.meta.id}.zip (${Object.keys(pack.files).length} files).`);
-            host.ctx.toast(`Exported ${pack.meta.id}.zip`, 'ok');
-        }
-        projects.session.exported = true;
-        projects.notify();
-        report.hidden = false;
-        report.textContent = text.join('\n');
     }
 
     async function play(): Promise<void> {
@@ -596,26 +564,72 @@ export function createProjectPanel(host: ProjectPanelHost): ProjectPanel {
 
     // ---- render + data ----------------------------------------------------------------------------------------------
 
+    let recents: string[] = [];
     function noProject(): HTMLElement {
+        const nameIn = h('input', { type: 'text', id: 'pj-new-name', spellcheck: 'false', placeholder: 'My mod' });
+        nameIn.value = 'My mod';
+        const create = (): void => void host.files.create(nameIn.value).then(() => undefined, fail);
+        nameIn.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') create();
+        });
         return h(
             'div',
             { class: 'pj-start' },
-            h('p', {}, 'A mod project holds the name, the levels and the settings of what you are making.'),
+            h(
+                'p',
+                {},
+                isDesktop
+                    ? 'A project is a folder on your disk: the project file, your level edits and the exported mod.'
+                    : 'A mod project holds the name, the levels and the settings of what you are making.',
+            ),
             h(
                 'div',
                 { class: 'pj-btns' },
+                h('label', { class: 'pj-f' }, h('span', {}, 'Project name'), nameIn),
                 h(
                     'button',
-                    { class: 'ui-btn primary sm', type: 'button', id: 'pj-create', onclick: () => projects.ensure() },
+                    { class: 'ui-btn primary sm', type: 'button', id: 'pj-create', onclick: create },
                     icon('plus', 13),
-                    'Create a project',
+                    isDesktop ? 'Create project folder...' : 'Create a project',
                 ),
+                isDesktop
+                    ? h(
+                          'button',
+                          {
+                              class: 'ui-btn sm',
+                              type: 'button',
+                              id: 'pj-open-start',
+                              onclick: () => void host.files.openFolder().then(() => undefined, fail),
+                          },
+                          icon('open', 13),
+                          'Open project...',
+                      )
+                    : null,
                 h(
                     'button',
                     { class: 'ui-btn sm', type: 'button', onclick: () => host.openGuide('campaign') },
                     'How projects work',
                 ),
             ),
+            recents.length
+                ? h(
+                      'div',
+                      { class: 'pj-recent' },
+                      h('div', { class: 'pj-title' }, 'Recent projects'),
+                      ...recents.map((r) =>
+                          h(
+                              'button',
+                              {
+                                  class: 'pj-link',
+                                  type: 'button',
+                                  title: r,
+                                  onclick: () => void host.files.openRecent(r).then(() => undefined, fail),
+                              },
+                              r,
+                          ),
+                      ),
+                  )
+                : null,
         );
     }
 
@@ -623,6 +637,12 @@ export function createProjectPanel(host: ProjectPanelHost): ProjectPanel {
         const p = projects.get();
         fillSelects();
         if (!p) {
+            void host.recentProjects().then((r) => {
+                if (r.join() !== recents.join()) {
+                    recents = r;
+                    if (!projects.get()) render();
+                }
+            });
             root.replaceChildren(noProject());
             return;
         }
@@ -680,6 +700,15 @@ export function createProjectPanel(host: ProjectPanelHost): ProjectPanel {
         timer = window.setTimeout(() => void recompute(), 300);
     };
     projects.on(refreshSoon);
+    projects.onFolder(() => {
+        const el = root.querySelector('#pj-where');
+        if (el) el.textContent = whereText();
+        else refreshSoon();
+    });
+    void host.recentProjects().then((r) => {
+        recents = r;
+        if (!projects.get()) render();
+    });
     void projectExitIndex;
     render();
 
@@ -690,7 +719,6 @@ export function createProjectPanel(host: ProjectPanelHost): ProjectPanel {
         addCopy: () => {
             copySel.focus();
         },
-        exportPack,
         play,
         refreshSoon,
         exitsLoaded: () => exits !== null,

@@ -1,5 +1,7 @@
 import { SetFieldCommand } from '@drakan/editor-core';
 import {
+    QUEST_SEEN_JOURNAL,
+    QUEST_SEEN_MAP,
     describeQuestRows,
     listQuests,
     notStartedQuests,
@@ -8,7 +10,7 @@ import {
     type QuestRow,
     type SaveFile,
 } from '@drakan/formats';
-import { badge, emptyState, h, hex, statTile } from './dom.ts';
+import { badge, button, emptyState, h, hex, statTile } from './dom.ts';
 import type { PanelCtx } from './panels.ts';
 import type { StoryData } from './storyart.ts';
 
@@ -278,6 +280,21 @@ function questRow(ctx: PanelCtx, e: QuestEntry): HTMLElement {
                       ),
               })
             : h('span', { class: 'qtick none' });
+    const isJournalRow = e.cls ? e.cls.kind !== 'map' : false;
+    const seenBit = isJournalRow ? QUEST_SEEN_JOURNAL : QUEST_SEEN_MAP;
+    const seenToggle =
+        e.row >= 0 && e.cls && e.raw && e.raw.enabled !== 0
+            ? button(e.unseen ? 'Mark seen' : 'Mark new', {
+                  kind: 'ghost sm',
+                  title: e.unseen
+                      ? 'Set the seen bit: the game treats this entry as already opened'
+                      : `Clear the seen bit: the game treats this entry as new until the ${isJournalRow ? 'journal' : 'map'} page draws it`,
+                  onclick: () => {
+                      const cur = Number(ctx.doc.value(`quest.${e.row}`));
+                      ctx.run(new SetFieldCommand(`quest.${e.row}`, e.unseen ? cur | seenBit : cur & ~seenBit));
+                  },
+              })
+            : null;
     const tip = [
         e.cls
             ? `Class 0x${hex(e.classId, 4)}: ${e.cls.name}`
@@ -298,10 +315,11 @@ function questRow(ctx: PanelCtx, e: QuestEntry): HTMLElement {
         e.cls?.optional ? badge('Optional', 'low', 'Listed under Optional Quests in the game.') : null,
         e.unseen ? badge('New', 'medium', 'Not opened in the in-game journal / map yet.') : null,
         badge(STATE_LABEL[e.state], STATE_CLASS[e.state]),
+        seenToggle,
     );
 }
 
-/** The raw rows, read only (the seen word is not edited). */
+/** The raw rows, read only (edit the seen bits with Mark seen / Mark new in the journal list). */
 function rawTable(ctx: PanelCtx): HTMLElement {
     const body = h(
         'tbody',

@@ -6,7 +6,7 @@ import { h } from './dom.ts';
 export const dragState = { suppressClick: false };
 
 /**
- * Pointer-based drag of a catalog class into the viewport (Content Browser tiles and Place panel rows share it). Works
+ * Pointer-based drag of a catalog class into the viewport (Content Browser tiles and list rows share it). Works
  * with a mouse, touch and pen, shows the model thumbnail as the ghost and a ground marker in the viewport. The native
  * HTML5 drag is not used: browsers differ and automation cannot start it.
  *

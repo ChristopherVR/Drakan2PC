@@ -9,6 +9,8 @@ const MAX_RECENT: usize = 8;
 #[serde(rename_all = "camelCase", default)]
 pub struct Settings {
     pub recent_isos: Vec<String>,
+    /// Project folders (each holds `project.drakan.json`), newest first.
+    pub recent_projects: Vec<String>,
     pub game_dir: Option<String>,
     pub mods_dir: Option<String>,
     pub save_dir: Option<String>,
@@ -40,6 +42,14 @@ impl Settings {
         self.iso_dir = path.parent().map(|p| p.to_string_lossy().to_string());
     }
 
+    /// Put a project folder first in the recent list (case-insensitive de-dup).
+    pub fn push_project(&mut self, dir: &Path) {
+        let s = dir.to_string_lossy().to_string();
+        self.recent_projects.retain(|p| !p.eq_ignore_ascii_case(&s));
+        self.recent_projects.insert(0, s);
+        self.recent_projects.truncate(MAX_RECENT);
+    }
+
     pub fn mods_folder(&self) -> Option<PathBuf> {
         self.mods_dir
             .as_ref()
@@ -65,6 +75,15 @@ mod tests {
             s.recent_isos.iter().filter(|p| p.to_lowercase().ends_with("5.iso")).count(),
             1
         );
+    }
+
+    #[test]
+    fn recent_projects_dedup() {
+        let mut s = Settings::default();
+        s.push_project(Path::new("C:/p/a"));
+        s.push_project(Path::new("C:/p/b"));
+        s.push_project(Path::new("c:/P/A"));
+        assert_eq!(s.recent_projects, vec!["c:/P/A".to_string(), "C:/p/b".to_string()]);
     }
 
     #[test]

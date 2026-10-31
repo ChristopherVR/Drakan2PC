@@ -20,6 +20,11 @@
         "allow-mods-read-ini",
         "allow-mods-write-pack",
         "allow-game-launch",
-        "allow-game-running"
+        "allow-game-running",
+        "allow-project-new",
+        "allow-project-open",
+        "allow-project-open-path",
+        "allow-project-write",
+        "allow-project-file-write"
     ]
 }

@@ -1,5 +1,4 @@
 import {
-    ModError,
     applyDocumentToLvl,
     checkEntrySize,
     diffDocument,
@@ -10,11 +9,12 @@ import {
     type ValidationIssue,
 } from '@drakan/editor-core';
 import { writeObjectList } from '@drakan/formats';
-import { buildLevelPack, canWriteFolder, changeCount, playInGame, writePackToModsFolder, zipPack } from '../modio.ts';
+import { buildLevelPack, changeCount, playInGame } from '../modio.ts';
 import { isDesktop } from '../platform.ts';
 import { createPlayControls } from './playopts.ts';
 import type { Ctx, Panel } from './ctx.ts';
 import { fill, h, icon, raf } from './dom.ts';
+import { projects } from './project/store.ts';
 
 // ---- bottom dock with tabs -------------------------------------------------------------------------------------
 
@@ -334,21 +334,21 @@ export function createValidation(ctx: Ctx, onCount: (errors: number, warnings: n
 
 // ---- mod panel -------------------------------------------------------------------------------------------------
 
+/**
+ * The Mod tab: what the open level changes and how to play it. Exporting is the one Export dialog (Ctrl+E, the toolbar
+ * and File menu); this panel only opens it.
+ */
 export interface ModPanel extends Panel {
-    exportMod(toFolder: boolean): Promise<void>;
     /** Desktop app: write the pack into the game's mods folder and start the game. */
     play(): Promise<void>;
-    /** Fill the id/name fields when a level opens. */
-    suggest(id: string, name: string): void;
-    values(): { id: string; name: string; version: string; author: string };
-    restore(v: Partial<{ id: string; name: string; version: string; author: string }>): void;
 }
 
 export interface ModHost {
     target(): ModMeta['target'] | null;
     targetText(): string;
-    download(name: string, data: BlobPart, type: string): void;
     setStatus(msg: string, error?: boolean): void;
+    /** Open the Export dialog. */
+    exportMod(): void;
 }
 
 function describeDiff(ctx: Ctx, d: DocumentDiff): { label: string; ids: number[]; tone: string }[] {
@@ -376,58 +376,43 @@ function describeDiff(ctx: Ctx, d: DocumentDiff): { label: string; ids: number[]
 }
 
 export function createModPanel(ctx: Ctx, host: ModHost): ModPanel {
-    const input = (
-        id: string,
-        label: string,
-        value = '',
-        placeholder = '',
-    ): { wrap: HTMLElement; el: HTMLInputElement } => {
-        const el = h('input', { type: 'text', id, value, placeholder, spellcheck: 'false' });
-        return { wrap: h('label', { class: 'mf' }, h('span', {}, label), el), el };
-    };
-    const idF = input('mod-id', 'Id', '', 'letters, digits . _ -');
-    const nameF = input('mod-name', 'Name');
-    const verF = input('mod-version', 'Version', '1.0.0');
-    const authF = input('mod-author', 'Author');
-    for (const f of [idF, nameF]) f.el.addEventListener('input', () => (f.el.dataset.touched = '1'));
     const info = h('div', { class: 'mod-summary' });
     const changes = h('div', { class: 'mod-changes' });
     const report = h('pre', { class: 'mod-report' });
     const play = h('div', { class: 'play' });
     const target = h('div', { class: 'dim small' });
-    const zipBtn = h(
-        'button',
-        { class: 'btn primary', type: 'button', id: 'mod-export', onclick: () => void doExport(false).catch(fail) },
-        icon('download', 14),
-        'Export zip',
-    );
-    const dirBtn = h(
+    const exportBtn = h(
         'button',
         {
-            class: 'btn',
+            class: 'btn primary',
             type: 'button',
-            id: 'mod-export-dir',
-            title: "Write into the game's mods folder and enable it in mods.ini",
-            onclick: () => void doExport(true).catch(fail),
+            id: 'mod-export',
+            title: 'Export the mod pack (Ctrl+E)',
+            onclick: () => host.exportMod(),
         },
-        icon('open', 14),
-        'Write to mods folder',
+        icon('download', 14),
+        'Export...',
     );
 
     const form = h(
         'div',
         { class: 'mod-form' },
-        h('div', { class: 'row2' }, idF.wrap, nameF.wrap),
-        h('div', { class: 'row2' }, verF.wrap, authF.wrap),
+        h('div', { class: 'lbl' }, 'Mod pack'),
+        h(
+            'p',
+            { class: 'dim small' },
+            'The pack is built from the project: every project level with changes, its copies and the story edits. Name, version and author are set in the Project tab.',
+        ),
         target,
-        h('div', { class: 'btnrow' }, zipBtn, dirBtn),
+        h('div', { class: 'btnrow' }, exportBtn),
         report,
     );
     const right = h('div', { class: 'mod-side' }, h('div', { class: 'lbl' }, 'Changed entries'), info, changes);
     const statusCard = h('div', { class: 'mod-status', role: 'status' });
     const root = h('div', { class: 'panel mod' }, statusCard, form, right, play);
-    /** Where the last export went and how many changes it held (to tell when it is out of date). */
+    /** The last export of this session and how many changes the open level had then (to tell when it is out of date). */
     let lastOut: { where: string; at: Date; changes: number } | null = null;
+    let seenExport: unknown = null;
     let lastN = 0;
 
     const fail = (e: unknown): void => {
@@ -436,53 +421,18 @@ export function createModPanel(ctx: Ctx, host: ModHost): ModPanel {
         host.setStatus(msg, true);
         ctx.toast(msg, 'error');
     };
-    const values = (): { id: string; name: string; version: string; author: string } => ({
-        id: idF.el.value.trim(),
-        name: nameF.el.value.trim(),
-        version: verF.el.value.trim(),
-        author: authF.el.value.trim(),
-    });
-
     function meta(): ModMeta {
         const t = host.target();
-        if (!t) throw new ModError('The disc profile is unknown; open the ISO in the Inspector first.');
-        const v = values();
+        if (!t) throw new Error('The disc profile is unknown; open your disc image first.');
+        const p = projects.get();
         return {
-            id: v.id,
-            name: v.name || undefined,
-            version: v.version || undefined,
-            author: v.author || undefined,
+            id: p?.id || 'editor.level-edit',
+            name: p?.name || undefined,
+            version: p?.version || undefined,
+            author: p?.author || undefined,
             description: `Level edits to ${ctx.src()?.file ?? 'a level'} made with the Drakan editor.`,
             target: t,
         };
-    }
-
-    async function doExport(toFolder: boolean): Promise<void> {
-        const src = ctx.src();
-        if (!src) throw new ModError('Open a level from the disc first.');
-        const pack = buildLevelPack(src, ctx.doc(), meta());
-        const e = pack.entry;
-        const lines = [
-            `overrides/${e.file}/${e.type.toString(16).padStart(4, '0')}_${e.id}_${e.sub}.bin: ${e.bytes} bytes (was ${e.originalBytes})`,
-            ...pack.warnings,
-        ];
-        if (toFolder) {
-            const where = await writePackToModsFolder(pack);
-            if (where === null) return;
-            lastOut = { where, at: new Date(), changes: lastN };
-            refresh();
-            lines.push(`Written to ${where} and enabled in mods.ini.`);
-            host.setStatus(`Mod '${pack.meta.id}' written to ${where}.`);
-            ctx.toast(`Written to ${where}`, 'ok');
-        } else {
-            host.download(`${pack.meta.id}.zip`, zipPack(pack) as BlobPart, 'application/zip');
-            lastOut = { where: `${pack.meta.id}.zip (your downloads)`, at: new Date(), changes: lastN };
-            refresh();
-            lines.push(`Downloaded ${pack.meta.id}.zip.`);
-            host.setStatus(`Exported ${pack.meta.id}.zip.`);
-            ctx.toast(`Exported ${pack.meta.id}.zip`, 'ok');
-        }
-        report.textContent = lines.join('\n');
     }
 
     async function doPlay(): Promise<void> {
@@ -507,8 +457,7 @@ export function createModPanel(ctx: Ctx, host: ModHost): ModPanel {
             fill(play, desktopPlay.el);
             return;
         }
-        const v = values();
-        const id = v.id || '<mod id>';
+        const id = projects.get()?.id || '<mod id>';
         const cmd = `Copy-Item "${id}.zip" "dist\\DrakanPC\\mods\\"\n(Get-Content dist\\DrakanPC\\mods\\mods.ini) -replace '^${id.replace(/[.]/g, '\\.')}\\s*=.*','${id} = on' | Set-Content dist\\DrakanPC\\mods\\mods.ini`;
         fill(
             play,
@@ -560,7 +509,7 @@ export function createModPanel(ctx: Ctx, host: ModHost): ModPanel {
             ),
         );
     }
-    idF.el.addEventListener('input', () => renderPlay(lastReady));
+    projects.on(() => renderPlay(lastReady));
     let lastReady = false;
 
     /** One place that answers: what is edited, what the mod holds, where it was written, how to play it. */
@@ -575,7 +524,7 @@ export function createModPanel(ctx: Ctx, host: ModHost): ModPanel {
             );
         const out = lastOut;
         const stale = !!out && out.changes !== n;
-        const id = idF.el.value.trim();
+        const id = projects.get()?.id ?? '';
         fill(
             statusCard,
             cell(
@@ -591,7 +540,7 @@ export function createModPanel(ctx: Ctx, host: ModHost): ModPanel {
             cell(
                 n ? 'info' : 'dim',
                 '2  Mod contents',
-                n && id ? `${id}: one level override` : n ? 'Give the mod an id below' : 'Empty',
+                n && id ? `${id}: one level override` : n ? 'Create a project first' : 'Empty',
                 n ? 'Only the changed level data is written, never game files' : '',
             ),
             cell(
@@ -600,7 +549,7 @@ export function createModPanel(ctx: Ctx, host: ModHost): ModPanel {
                 out ? out.where : 'Not exported yet',
                 out
                     ? `${out.at.toLocaleTimeString()}${stale ? ' - edits since then are not in it' : ''}`
-                    : 'Export zip or Write to mods folder',
+                    : 'Press Export',
             ),
             cell(
                 !out || stale ? 'dim' : 'ok',
@@ -621,14 +570,17 @@ export function createModPanel(ctx: Ctx, host: ModHost): ModPanel {
     function refresh(): void {
         const src = ctx.src();
         target.textContent = host.targetText();
+        const le = projects.session.lastExport;
+        if (le && le !== seenExport) {
+            seenExport = le;
+            lastOut = { where: le.where, at: new Date(le.at), changes: lastN };
+        }
         const d = src ? diffDocument(src.lvl.list, ctx.doc()) : null;
         const n = d ? changeCount(d) : 0;
         lastN = n;
         paintStatus(n, src?.file ?? null);
-        const ready = n > 0 && host.target() !== null && !!idF.el.value.trim();
+        const ready = n > 0 && host.target() !== null;
         lastReady = ready;
-        zipBtn.disabled = !ready;
-        dirBtn.disabled = !ready || !canWriteFolder();
         fill(changes);
         if (!src || !d) {
             fill(
@@ -685,20 +637,7 @@ export function createModPanel(ctx: Ctx, host: ModHost): ModPanel {
     };
     return {
         el: root,
-        exportMod: doExport,
         play: doPlay,
-        suggest(id, name) {
-            if (!idF.el.dataset.touched) idF.el.value = id;
-            if (!nameF.el.dataset.touched) nameF.el.value = name;
-            refresh();
-        },
-        values,
-        restore(v) {
-            if (v.id) idF.el.value = v.id;
-            if (v.name) nameF.el.value = v.name;
-            if (v.version) verF.el.value = v.version;
-            if (v.author) authF.el.value = v.author;
-        },
         onChange: later,
         onLoad: refresh,
     };

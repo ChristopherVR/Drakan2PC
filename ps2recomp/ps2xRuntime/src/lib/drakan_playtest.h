@@ -1,6 +1,6 @@
 // Drakan: editor play test (docs/reference/modding.md "Play test"). The level editor's "Play from here" starts the game on
 // the open level with DRAKAN_START_LEVEL and asks for the player to stand somewhere else:
-//   DRAKAN_PLAYTEST_POS="x y z [yaw]"   game units; yaw in radians (0 faces +x, positive turns toward -z), optional.
+//   DRAKAN_PLAYTEST_POS="x y z [yaw]"   game units; yaw in radians (0 faces -z, -pi/2 faces +x; measured 2026-11-01), optional.
 // Once the level is up and the player is under control the player is moved there at a frame boundary (the same write the
 // arena's spawn placement uses: player+0x14.., then the engine's own re-filing into its collision cell). The engine puts a
 // player back when no floor is resident at a far target, so the placement is checked and repeated a few times.

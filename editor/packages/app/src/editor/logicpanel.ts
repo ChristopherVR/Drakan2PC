@@ -28,12 +28,15 @@ import { MESSAGE_NAMES, exitDestinationText, type LogicRole } from '@drakan/form
 import type { ExitIndexData } from '../logicdata.ts';
 import type { Ctx, Panel } from './ctx.ts';
 import { fill, h, icon, raf } from './dom.ts';
+import { contextMenu } from './ui.ts';
 import { buildFieldsPanel } from './fieldsui.ts';
 import { addValidationProvider } from './panels.ts';
 import { registerCommand, registerPanel, runCommand } from './registry.ts';
 
 import { exitEditHost, onExitEditChange } from '../story/exitbridge.ts';
 import { createVolumeLayer, type VolumeMode } from './logicview.ts';
+import { nameOf } from './linking.ts';
+import { projects } from './project/store.ts';
 
 /** Set by the open Logic panel: opens a template form with some parameters preset. */
 let openTemplateHook: ((id: string, preset: ParamValues) => void) | null = null;
@@ -128,9 +131,31 @@ export function installLogic(ctx: Ctx, loadExits: () => Promise<ExitIndexData>):
     const tplSel = h(
         'select',
         { class: 'sel', 'aria-label': 'Template' },
-        h('option', { value: '' }, 'Add setup...'),
+        h('option', { value: '' }, 'Add setup'),
         ...TEMPLATES.map((t) => h('option', { value: t.id }, t.title)),
     );
+    // The select is only the data model (templates can also be opened by id from elsewhere); the toolbar shows a menu button.
+    const tplBtn = h(
+        'button',
+        { class: 'btn', type: 'button', 'aria-haspopup': 'menu', title: 'Create a ready-made trigger setup' },
+        icon('plus', 13),
+        'Add setup',
+        icon('chevron-down', 11),
+    );
+    tplBtn.addEventListener('click', () => {
+        const r = tplBtn.getBoundingClientRect();
+        contextMenu(
+            r.left,
+            r.bottom + 2,
+            TEMPLATES.map((t) => ({
+                label: t.title,
+                run: () => {
+                    tplSel.value = t.id;
+                    tplSel.dispatchEvent(new Event('change'));
+                },
+            })),
+        );
+    });
     const info = h('span', { class: 'dim' });
     const canvas = svg('svg', { class: 'lg-canvas', width: '100%', height: '100%', tabindex: 0 });
     const world = svg('g');
@@ -146,7 +171,7 @@ export function installLogic(ctx: Ctx, loadExits: () => Promise<ExitIndexData>):
             scopeSel,
             depthSel,
             volSel,
-            tplSel,
+            tplBtn,
             h(
                 'button',
                 { class: 'btn', type: 'button', title: 'Re-run the automatic layout', onclick: () => relayout(true) },
@@ -395,7 +420,7 @@ export function installLogic(ctx: Ctx, loadExits: () => Promise<ExitIndexData>):
                 ctx.toast('Those objects are already linked.', 'info');
                 return;
             }
-            ctx.edit(`Link #${from} to #${to}`, [from], (o) => void addLink(o, to));
+            ctx.edit(`Link ${nameOf(ctx, from)} to ${nameOf(ctx, to)}`, [from], (o) => void addLink(o, to));
             selEdge = `${from}>${to}`;
         };
         window.addEventListener('pointermove', move);
@@ -440,7 +465,7 @@ export function installLogic(ctx: Ctx, loadExits: () => Promise<ExitIndexData>):
     canvas.addEventListener('keydown', (ev) => {
         if ((ev.key === 'Delete' || ev.key === 'Backspace') && selEdge) {
             const [a, b] = selEdge.split('>').map(Number) as [number, number];
-            ctx.edit(`Unlink #${a} from #${b}`, [a], (o) => void removeLink(o, b));
+            ctx.edit(`Unlink ${nameOf(ctx, a)} from ${nameOf(ctx, b)}`, [a], (o) => void removeLink(o, b));
             selEdge = null;
         }
     });
@@ -460,7 +485,7 @@ export function installLogic(ctx: Ctx, loadExits: () => Promise<ExitIndexData>):
                     sel.value = String(m.value);
                     sel.addEventListener('change', () =>
                         ctx.edit(
-                            `${m.field}: ${MESSAGE_NAMES[Number(sel.value)]}`,
+                            `Set ${m.field} of ${nameOf(ctx, edge.from)} to ${MESSAGE_NAMES[Number(sel.value)]}`,
                             [edge.from],
                             (o) => void setMessageField(o, e, m.field, Number(sel.value)),
                         ),
@@ -502,7 +527,7 @@ export function installLogic(ctx: Ctx, loadExits: () => Promise<ExitIndexData>):
                                 type: 'button',
                                 onclick: () => {
                                     ctx.edit(
-                                        `Unlink #${edge.from} from #${edge.to}`,
+                                        `Unlink ${nameOf(ctx, edge.from)} from ${nameOf(ctx, edge.to)}`,
                                         [edge.from],
                                         (o) => void removeLink(o, edge.to),
                                     );
@@ -566,6 +591,9 @@ export function installLogic(ctx: Ctx, loadExits: () => Promise<ExitIndexData>):
         }
         const sel = h('select', { class: 'sel', 'aria-label': 'Destination level' });
         const names = exitData.levels.map((l) => l.name);
+        // The project's level copies are destinations too (the game opens the copy's own LVL by the path in the text).
+        for (const l of projects.get()?.levels ?? [])
+            if (l.copyOf && !names.some((n) => norm(n) === norm(l.title))) names.push(l.title);
         const now = destinationLevelName(text);
         if (!names.some((n) => norm(n) === norm(now))) names.unshift(now);
         names.forEach((n) => sel.append(h('option', { value: n }, n)));

@@ -215,9 +215,14 @@ else: 00 00 00 00, then (w+1)*(h+1) x { i8 nx, ny, nz, 0x7f }  // entry v+1 = ve
   (layers that coexist share one; twin floor/ceiling layers have equal seq). Inside a group the two ranges are slot
   allocations that overlap between layers that are never visible together (LEVEL5NE seq 1: ranges 0..43, 44..55, 0..11); the
   allocation rule is **not derived**. A solo range `0..4w-1` / `0..4h-1` is self-consistent **[inf]**.
+  Groups hold 1..20 layers (LEVEL1NA seq 1: twelve layers shelf-packed at x 0..11, 12..15, 16..31 / z 0..15, 0..3, ... in a 64
+  pool). `planTerrainSlots` (terrainblob.ts) does the same for converted levels; in-game accepted (Volcano: 941 layers).
+* **Limit [game]**: no layer or chunk of the 13 PAL levels has more than **8 distinct textures**; a converted layer with 42
+  hung the guest in an allocator loop (docs/journal/2026-11-01/ootf-terrain-fidelity.md). `limitLayerTextures` caps it at 8.
 * **Chunks [disc]**: the layer is cut into `ceil(w/12) x ceil(h/12)` chunks of `ceil(n/pieces)` cells (last one shorter);
   vertex counts are cells+1. Matches 291 of 297 layers; the other six (13x24, 25x32, 14x12, ...) split z finer, rule open.
-* **Texture list [disc]**: the distinct cell refs of the chunk, holes (`0xffffffff`) and invisible (`0xfffffffe`) left out.
+* **Texture list [disc]**: the distinct cell refs of the chunk **and of the cells that touch its vertices from the previous chunks
+  (window `x0-1..x1`, `z0-1..z1`; 16 of 19 LEVEL0RO layers)**, holes (`0xffffffff`) and invisible (`0xfffffffe`) left out.
   The **order is a per-texture priority** that is global per level (no conflicting pair in 2 levels) but is not in the layer
   data, so it is not derivable; the base ground texture tends to come last. A few chunks also list a texture no cell uses
   (the unstored right-triangle ref of a PC-style per-triangle cell, or `0x110237`-like specials) **[inf]**.
@@ -574,6 +579,9 @@ slots (elevator Activate/Deactivate, timer Reset), i.e. a message nobody sends. 
   `0x393258` and the journal / marker handler `0x40e3b8`, where `0x116e` sets the done flag). That `0x116e` is the id behind
   ordinal 18 (Quest Complete) is **inferred** from where it is handled, not proven; the engine ids of the other ordinals above 7 were
   not mapped. Cut scene sequence message actions (SSD type 7) carry engine ids directly (4097 = `0x1001` On, 4259 = `0x10a3`).
+* Status 2026-11-01 (`docs/journal/2026-11-01/story-edits-in-game.md`): still only ordinal 1 (start) and 18 (complete) of quests, 4 (Play
+  Sequence) and 3 (Unlock, from the key lock data) have in-game or disc evidence; the conversation and plate -> door proofs were attempted
+  and **not** achieved, so the 8+ mapping stays unmapped and the editor table is unchanged.
 * Door On/Off: no door handler was isolated, so "On opens / Off closes" stays inference from the link data (3/2 land on doors).
 * Detector volume: not decompiled; the box (model collision with the LVL scale) remains the editor's model.
 

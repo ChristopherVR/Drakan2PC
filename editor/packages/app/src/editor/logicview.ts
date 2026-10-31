@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { resizeBoxFace, setVolumeRadius, volumesOf, type LogicEnv, type Volume } from '@drakan/editor-core';
 import type { LevelView } from '../level.ts';
 import type { Ctx } from './ctx.ts';
+import { nameOf } from './linking.ts';
 
 /**
  * Trigger volumes in the viewport: wire boxes for volume classes (their scale in cells), circles for the radius fields
@@ -137,10 +138,14 @@ class Overlay {
         const env = this.env();
         if (!env) return;
         const { h } = d;
-        this.ctx.edit(h.kind === 'face' ? 'Resize trigger volume' : 'Resize radius', [h.id], (o) => {
-            if (h.kind === 'face') resizeBoxFace(o, h.axis, h.sign, h.sign * d.local);
-            else if (h.volume.kind === 'sphere') setVolumeRadius(o, env, h.volume, d.local);
-        });
+        this.ctx.edit(
+            `${h.kind === 'face' ? 'Resize trigger volume' : 'Resize radius'} of ${nameOf(this.ctx, h.id)}`,
+            [h.id],
+            (o) => {
+                if (h.kind === 'face') resizeBoxFace(o, h.axis, h.sign, h.sign * d.local);
+                else if (h.volume.kind === 'sphere') setVolumeRadius(o, env, h.volume, d.local);
+            },
+        );
         this.refresh();
     };
 

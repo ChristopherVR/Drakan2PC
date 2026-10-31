@@ -13,7 +13,7 @@ export interface HintHost {
 
 const TIPS: (() => (Node | string)[])[] = [
     () => ['Click an object to select it. Drag on empty space to box select.'],
-    () => ['Drag a class from the Place panel into the world to add it.'],
+    () => ['Drag a class from the Content Browser into the world to add it.'],
     () => ['Press ', h('kbd', {}, 'Ctrl+P'), ' to find any object, class, level or command.'],
     () => ['Right-drag and use ', h('kbd', {}, 'WASD'), ' to fly. ', h('kbd', {}, 'F'), ' focuses the selection.'],
     () => ['Press ', h('kbd', {}, '?'), ' for every shortcut. ', h('kbd', {}, 'Ctrl+Z'), ' undoes.'],

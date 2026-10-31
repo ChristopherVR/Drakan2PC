@@ -16,6 +16,11 @@ fn main() {
         "mods_write_pack",
         "game_launch",
         "game_running",
+        "project_new",
+        "project_open",
+        "project_open_path",
+        "project_write",
+        "project_file_write",
     ];
     tauri_build::try_build(
         tauri_build::Attributes::new()

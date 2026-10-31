@@ -7,9 +7,10 @@ file and run `UPDATE_GUIDE=1 npx vitest run packages/editor-core/test/guides.tes
 Contents: [What the editor does](#start), [Place and edit objects](#objects), [Link triggers and exits](#triggers), [Build a campaign from levels](#campaign), [Make a multiplayer map](#multiplayer), [Edit quests, dialogue and cut scenes](#story), [Package and play a mod](#package), [Edit a save](#save), [Browse the raw files](#files).
 
 A mod project (Project panel, bottom dock) is a small JSON file: name, id, author, version, description, the levels
-it uses in campaign order, the level Play starts in, and the checklist ticks. It holds no game data. The browser keeps
-the working project in local storage; "Save project" writes it as a file (a native Save dialog in the desktop app) and
-"Open project" reads one back.
+it uses in campaign order, the level Play starts in, the checklist ticks and your level edits (the editor's own
+object changes, never game data). In the desktop app the project is a folder (`project.drakan.json` plus `mod/` with
+the exported pack) that saves in place; in a browser the working project is kept in local storage and "Save project"
+downloads the same file, which "Open project" reads back.
 
 <a id="start"></a>
 
@@ -22,12 +23,12 @@ Path: Open your disc > Pick a task > Edit > Export a mod > Play
 1. Open your own Drakan disc image (.iso). Nothing is uploaded; the editor reads it in place and never changes it.
 2. On the start page pick a task: edit a campaign level, create a multiplayer map, build a new level from an existing one, change the story, or edit a save.
 3. Work in the Level tab (levels, maps, story) or the Save tab (save files). A checklist at the bottom right lists the next steps and ticks them off.
-4. Everything you change is kept in a mod project. Export writes a mod pack that the PC port loads on top of your disc.
+4. Everything you change is kept in a mod project. Export (Ctrl+E) builds one mod pack from the project, which the PC port loads on top of your disc.
 5. Play it: the desktop app starts the game for you; in the browser copy the zip into the game folder.
 
 * Level tab: place and edit objects, triggers, multiplayer maps, story. Save tab: edit .rsg save files. Files tab: advanced, to look at the raw files on the disc.
 * Ctrl+P finds any command, object, class or level. Press ? for the keyboard shortcuts.
-* Your edits are autosaved in this browser. A project file (Project panel, "Save project") keeps the project settings; level edits stay in the autosave of this browser unless you save each level as a .level.json.
+* In the desktop app a project is a folder on disk (File > New Project / Open Project, or the Project tab): the project file with your level edits, and the exported mod. It saves in place by itself and with Ctrl+S, and File > Open Recent Project reopens it. In a browser the project file is a download (Save project) that you open again with Open project; it includes the level edits.
 
 <a id="objects"></a>
 
@@ -40,11 +41,12 @@ Path: Open a level > Select > Move or place > Change fields > Validate
 1. Open a level from the start page or with Ctrl+P and the level name.
 2. Click an object in the viewport or in the Outliner (right side). Drag on empty space to box-select.
 3. Press W and drag an arrow to move it. E rotates, R scales (where the object allows it). End drops the selection on the ground.
-4. To add something, drag a class from the Place panel (left) into the world, or press Ctrl+P and type @ and the class name.
+4. To add something, drag a class from the Content Browser (bottom) into the world, or press Ctrl+P and type @ and the class name.
 5. Change health, speed, models and sounds in the Details panel (right). Changed fields are marked and can be reset.
 6. Ctrl+D duplicates, Delete removes, Ctrl+Z undoes. History (bottom) lists every step and jumps back to one.
 
 * Right-drag and WASD fly the camera. F focuses the selection.
+* Creatures and people play their idle animation in the viewport (Display > Play animations turns it off). Only the nearest on-screen characters move, so far ones stay still. To see another clip on the selected one, pick it under Viewport animation in the Details panel.
 * Prefer a class the level already uses. A class with no instance in the level gets generic defaults that are not verified in game.
 * Locked objects (L) cannot be moved by accident; hidden ones (H) are still in the level.
 
@@ -109,19 +111,26 @@ Path: Pick a level > Map details > Spawns > Pickups > Validate > Export
 
 ## Edit quests, dialogue and cut scenes
 
-Change what characters say, what quests ask for, and how cut scenes play.
+Change what characters say, what quests ask for, and how cut scenes play, or write new ones.
 
-Path: Open Story > Pick a page > Change entries > Story pack > Play
+Path: Open Story > Pick a page > Change or create entries > Story pack > Play
 
-1. Open Story from the bottom dock (Ctrl+Shift+Y). Its pages are Strings, Quests, Dialogue, Cinematics and Story pack.
+1. Open Story from the bottom dock (Ctrl+Shift+Y). Its pages are Strings, Quests, Dialogue, Cinematics, New dialogue, New cut scene, Quest marker and Story pack.
 2. Strings: every piece of game text. Search, edit, and see where it is used. Changed rows are marked.
 3. Quests: edit a quest's title and text.
 4. Dialogue: edit conversations and subtitles line by line, and play the voice line next to it.
 5. Cinematics: edit the sequence of a cut scene, its camera path and sounds. The Logic panel decides when it plays.
-6. Story pack: review every change and export it as a mod pack.
+6. New dialogue: pick a conversation and phase, type the speaker and subtitle, choose a sound of the level (Play previews it), and add the line. The preview shows the phase order after the insert.
+7. New cut scene: add camera points (from the viewport camera or the selected object) and ordered sound, animation and message steps, then create it. Tick the option to place a trigger volume and cut scene player in the level as well.
+8. Quest marker: write a new quest (journal text, map dot) or pick one, then place it in the level with volumes that start and complete it. Pick a placed conversation handler as quest giver to wire it to the quest.
+9. Story pack: review every change, including the new lines, scenes and quests, and export them as one mod pack.
 
 * Story edits are a separate pack from level edits. Enable both in the game's Mods page.
 * Text in other languages is edited separately; pick the language in the Files tab header.
+* A new line plays a sound that is already on the disc; new recordings cannot be added. Its subtitle is stored on the sound, so every line that plays that sound shows it.
+* Camera orientation of a new cut scene (yaw and pitch) is written from an inferred convention and the stock game did not show camera key edits; positions and the step order are the reliable part.
+* A placed conversation handler keeps its own line lists. In New dialogue pick "Add to" the placed object to put the line there; that edit is saved with the level, not with the Story pack.
+* Placement and wiring in the level are undo steps named after the objects they create ("Place quest ...: Quest #12").
 
 <a id="package"></a>
 
@@ -132,14 +141,14 @@ Turn your edits into a pack and run it in the game.
 Path: Fix Validation > Export > Enable > Play
 
 1. Open the Validation tab and fix the errors. Warnings are advice.
-2. Fill in the mod id, name, version and author (Project panel or Mod tab).
-3. Export zip downloads a pack. Write to mods folder (desktop, or a browser that can write folders) puts it into the game's mods folder and turns it on in mods.ini.
-4. For a zip: copy it into the game's mods folder, start the game once so mods.ini lists it, then set its line to "on" (the Mods page in the game settings does the same).
+2. Press Export (Ctrl+E, the top bar, or File > Export). One dialog builds the pack from the project: it shows what is in it and lets you set the mod name, id, version and author.
+3. The pack is written to the project folder's mod folder (desktop), to a place you choose, or downloaded (browser). Tick the box to also install it into the game's mods folder and turn it on in mods.ini.
+4. For a zip you copied yourself: put it in the game's mods folder, start the game once so mods.ini lists it, then set its line to "on" (the Mods page in the game settings does the same).
 5. Start the game. The log shows "mods: loaded" and your mod id.
 6. In the desktop app the Play button (F5) does all of this for you, and "Play from here" in the right-click menu starts at that spot.
 
 * Your disc and its files are never modified. Remove the pack to get the original game back.
-* A pack only works with the disc profile it was made for (shown in the Mod tab).
+* A pack only works with the disc profile it was made for (shown in the Mod tab, which also lists the open level's changes).
 
 <a id="save"></a>
 

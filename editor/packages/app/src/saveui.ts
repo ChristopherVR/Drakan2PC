@@ -1,4 +1,11 @@
-import { SetFieldCommand, SaveDocument, TransformCommand, type PendingEdit, type Transform } from '@drakan/editor-core';
+import {
+    ReplaceItemCommand,
+    SetFieldCommand,
+    SaveDocument,
+    TransformCommand,
+    type PendingEdit,
+    type Transform,
+} from '@drakan/editor-core';
 import {
     FIELDS,
     KNOWN_CLASSES,
@@ -20,9 +27,11 @@ import {
     type RecordInfo,
     type SaveDiff,
     type SaveFile,
+    nextBackupName,
 } from '@drakan/formats';
 import { LevelView } from './level.ts';
 import './save/save.css';
+import './save/drakan.css';
 import { badge, button, card, emptyState, fmtDate, h, hex, hexDump, icon, shotCanvas, statTile } from './save/dom.ts';
 import { TABS, buildShell, type SubTab } from './save/shell.ts';
 import { drawMap, groupColor, mapBounds, pickMap, type MapBounds, type MapPoint } from './save/map.ts';
@@ -39,6 +48,8 @@ import {
     refFromFile,
     refsFromFileList,
     saveWithBackup,
+    listBackups,
+    backupChain,
     statRef,
     type SaveRef,
 } from './saveio.ts';
@@ -166,7 +177,10 @@ export function initSaveUi(host: SaveUiHost): { openFile(f: File): Promise<void>
             hexLimit = 512;
             diff = null;
             getView().setDocument(doc);
+            if (lastBackup?.file !== ref.name) lastBackup = null;
+            backupsSeen = [];
             renderAll();
+            void refreshBackups();
             markActiveInList();
             status(
                 `${ref.name}: ${doc.save.entries.length} records, ${doc.size} positioned, level "${doc.level || 'unknown'}".`,
@@ -400,17 +414,102 @@ export function initSaveUi(host: SaveUiHost): { openFile(f: File): Promise<void>
     btn('sv-dock-toggle').onclick = () =>
         setDock(!document.querySelector('#save-main .sv-work')?.classList.contains('dock-hidden'), true);
 
+    // ---- backups: what exists beside the open file, what the next save will write ------------------------------
+    let backupsSeen: string[] = [];
+    let lastBackup: { file: string; backup: string } | null = null;
+    let backupsListed = false;
+
+    async function refreshBackups(): Promise<void> {
+        const ref = cur?.ref;
+        let list: string[] | null = null;
+        try {
+            list = ref ? await listBackups(ref) : null;
+        } catch {
+            list = null;
+        }
+        if (cur?.ref !== ref && cur) return;
+        if (list) backupsSeen = list;
+        backupsListed = list !== null;
+        renderBackups();
+    }
+
+    function renderBackups(): void {
+        const listed = backupsListed;
+        const box = $('sv-backups');
+        if (!cur || !canWriteRef(cur.ref)) {
+            box.replaceChildren();
+            box.hidden = true;
+            return;
+        }
+        box.hidden = false;
+        const name = cur.ref.name;
+        const known = backupChain(new Set([...backupsSeen, ...(lastBackup ? [lastBackup.backup] : [])]), name);
+        const next = nextBackupName(known, name);
+        const chips = known.map((b, i) =>
+            h(
+                'span',
+                { class: `sv-bak${b === lastBackup?.backup ? ' new' : ''}`, title: i === 0 ? 'The oldest backup' : '' },
+                b.slice(name.length),
+            ),
+        );
+        box.replaceChildren(
+            h('h3', null, icon('save', 12), 'Backups'),
+            h(
+                'p',
+                null,
+                `Before each save the file on disk is copied to ${name}.bak. A later save never overwrites a backup: it ` +
+                    'writes .bak.1, then .bak.2 and so on. The highest number is the newest backup.',
+            ),
+            known.length
+                ? h(
+                      'div',
+                      { class: 'sv-bak-row' },
+                      h('span', { class: 'sv-dim' }, 'Oldest'),
+                      ...chips,
+                      h('span', { class: 'sv-dim' }, 'newest'),
+                  )
+                : h(
+                      'p',
+                      { class: 'sv-dim' },
+                      listed ? 'No backups beside this file yet.' : 'No backup written in this session yet.',
+                  ),
+            h('p', { class: 'sv-bak-next' }, `The next save writes ${next}.`),
+            lastBackup && lastBackup.file === name
+                ? h('p', { class: 'sv-bak-last' }, `Last save: the previous file is now ${lastBackup.backup}.`)
+                : '',
+        );
+    }
+
     async function saveInPlace(): Promise<void> {
         if (!cur || busy) return;
         busy = true;
         try {
             const { bytes } = cur.doc.build();
+            if (!canWriteRef(cur.ref)) {
+                // No File System Access here: hand the edited file over as a download.
+                const name = cur.ref.name;
+                const where = await download(name, bytes);
+                if (isDesktop && !where) return;
+                status(
+                    `Downloaded ${where ?? name}. This browser cannot write in place: copy it over your save and keep the original as a backup.`,
+                    false,
+                    true,
+                );
+                return;
+            }
             const backup = await saveWithBackup(cur.ref, bytes);
             const ref = cur.ref;
             const file = await statRef(ref);
             cur = null; // reopen from what is now on disk
             await openRef({ ...ref, size: file.size, modified: file.modified, read: async () => bytes });
-            status(`Saved ${ref.name}; the previous file is kept as ${backup}.`, false, true);
+            lastBackup = { file: ref.name, backup };
+            backupsSeen = [...backupsSeen, backup];
+            void refreshBackups();
+            status(
+                `Saved ${ref.name}; the previous file is kept as ${backup} (backups are never overwritten).`,
+                false,
+                true,
+            );
         } catch (e) {
             if (e instanceof DOMException && e.name === 'AbortError') status('Save cancelled; nothing was written.');
             else err(e);
@@ -504,12 +603,12 @@ export function initSaveUi(host: SaveUiHost): { openFile(f: File): Promise<void>
         btn('sv-revert').disabled = !pending.length;
         btn('sv-revert-all').disabled = !pending.length;
         for (const id of ['sv-save', 'sv-save2']) {
-            btn(id).disabled = !cur || !canWrite || pending.length === 0;
+            btn(id).disabled = !cur || pending.length === 0;
             btn(id).title = !cur
                 ? 'Open a save first'
                 : !canWrite
-                  ? 'This save was opened without write access (the browser has no File System Access API, or the file was dropped). Use Export.'
-                  : 'Writes the file in place; the previous contents are kept as a .bak next to it';
+                  ? 'This save was opened without write access (no File System Access API in this browser, or the file was dropped). Save downloads the edited file instead.'
+                  : 'Writes the file in place; the previous contents are kept as a .bak next to it (never overwritten: .bak, .bak.1, ...)';
         }
         $('sv-pending').textContent = String(pending.length);
         $('sv-pending').classList.toggle('on', pending.length > 0);
@@ -519,12 +618,13 @@ export function initSaveUi(host: SaveUiHost): { openFile(f: File): Promise<void>
         $('sv-save-note').textContent = !cur
             ? 'Open a save to edit it.'
             : canWrite
-              ? `Save writes ${cur.ref.name} in place and keeps the old file as ${cur.ref.name}.bak.`
-              : 'Export downloads the edited .rsg. Copy it over your save and keep a backup of the original.';
+              ? `Save writes ${cur.ref.name} in place and keeps the old file as a backup beside it.`
+              : 'Save downloads the edited .rsg (this browser cannot write in place). Copy it over your save and keep the original as a backup.';
         $('sv-title').textContent = cur ? cur.doc.level || cur.ref.name : 'No save open';
         $('sv-subtitle').textContent = cur
             ? `${cur.ref.name} · ${(cur.ref.size / 1024).toFixed(1)} KB · ${cur.doc.save.entries.length} records`
             : 'Pick a save on the left.';
+        renderBackups();
         renderCharacter();
         renderEdits(pending);
         renderExtra();
@@ -932,7 +1032,8 @@ export function initSaveUi(host: SaveUiHost): { openFile(f: File): Promise<void>
             const t = structuredClone(doc.get(id)!.transform);
             t.pos = [...(e.before as [number, number, number])];
             view.run(new TransformCommand(before, new Map([[id, t]])));
-        } else view.run(new SetFieldCommand(e.name, undefined));
+        } else if (e.name.startsWith('item.')) view.run(new ReplaceItemCommand(Number(e.name.slice(5)), undefined));
+        else view.run(new SetFieldCommand(e.name, undefined));
     }
 
     function renderEdits(pending: PendingEdit[]): void {
@@ -966,9 +1067,9 @@ export function initSaveUi(host: SaveUiHost): { openFile(f: File): Promise<void>
                         h(
                             'span',
                             { class: 'sv-edit-chg' },
-                            h('s', null, doc.describe(e.name, e.before)),
+                            h('s', null, e.text?.before ?? doc.describe(e.name, e.before)),
                             icon('chevron', 12),
-                            h('em', null, doc.describe(e.name, e.after)),
+                            h('em', null, e.text?.after ?? doc.describe(e.name, e.after)),
                         ),
                     ),
                     badge(e.unconfirmed ? 'unconfirmed' : e.confidence, e.unconfirmed ? 'bad' : e.confidence),

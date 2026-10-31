@@ -1,3 +1,4 @@
+import { createAnimSource } from './editor/animsource.ts';
 import {
     AddCommand,
     CompositeCommand,
@@ -43,11 +44,11 @@ import { initLayout, type Layout } from './editor/layout.ts';
 import { createOutliner } from './editor/outliner.ts';
 import { buildObjectMenu } from './editor/objectmenu.ts';
 import { installLinking } from './editor/linking.ts';
+import { projects } from './editor/project/store.ts';
 import { createDock, createHistory, createModPanel, createValidation } from './editor/panels.ts';
 import { helpOverlay, initShortcuts } from './editor/shortcuts.ts';
 import { VIEW_COLORS, applyTheme, currentTheme, onThemeChange, toggleTheme } from './editor/theme.ts';
 import { createToolbar, type ToolbarActions } from './editor/toolbar.ts';
-import { createPlace } from './editor/place.ts';
 import { createOutputLog } from './editor/output.ts';
 import { createNavGizmo } from './editor/navgizmo.ts';
 import { contextMenu, emptyState, installTooltips } from './editor/ui.ts';
@@ -100,6 +101,8 @@ export interface LevelUi {
     levels(): LevelInfo[];
     /** The mod target of the open disc, or null when it is unknown. */
     modTarget(): ModMeta['target'] | null;
+    /** Write the open level's edits to the autosave now (the project folder is saved from it). */
+    flushAutosave(): Promise<void>;
 }
 
 const AUTOSAVE_DELAY = 1500;
@@ -270,7 +273,6 @@ export function initLevelUi(host: LevelUiHost): LevelUi {
     // ---- panels --------------------------------------------------------------------------------------------------
 
     const outliner = createOutliner(ctx);
-    const place = createPlace(ctx);
     const inspector = createInspector(ctx);
     const assets = createAssets(ctx);
     const history = createHistory(ctx);
@@ -286,8 +288,8 @@ export function initLevelUi(host: LevelUiHost): LevelUi {
                 ? `Target: ${p.serial}, profile ${p.profile ?? 'unknown'}, hash ${p.hash ?? 'unknown'}`
                 : 'Target: open a disc image to derive the disc profile and hash.';
         },
-        download,
         setStatus: host.setStatus,
+        exportMod: () => projects.handlers.export?.(),
     });
     const dock = createDock([
         { id: 'assets', title: 'Content Browser', icon: 'folder-open', panel: assets },
@@ -297,11 +299,10 @@ export function initLevelUi(host: LevelUiHost): LevelUi {
         { id: 'mod', title: 'Mod', icon: 'download', panel: modPanel },
     ]);
     dockRef = dock;
-    $('ed-left').append(place.el);
     $('ed-outliner').append(outliner.el);
     $('ed-details').append(inspector.el);
     $('ed-bottom').append(dock.el);
-    const panels = [outliner, inspector, assets, place, history, validation, modPanel];
+    const panels = [outliner, inspector, assets, history, validation, modPanel];
     installLogic(ctx, () => host.call('exitIndex'));
     bindPanelHost({
         add: (spec) => {
@@ -320,7 +321,6 @@ export function initLevelUi(host: LevelUiHost): LevelUi {
         toast: (m, k) => toast(m, k),
         thumbnail: (res, url) => {
             assets.applyThumbnail(res, url);
-            place.applyThumbnail(res, url);
         },
         modelsChanged: () => {
             syncToolbar();
@@ -407,9 +407,7 @@ export function initLevelUi(host: LevelUiHost): LevelUi {
             modPanel.el.querySelector('.play')?.scrollIntoView({ block: 'nearest' });
         },
         exportMod: () => {
-            layout?.openBottom();
-            dock.show('mod');
-            void modPanel.exportMod(false).catch(fail);
+            projects.handlers.export?.();
         },
         help: () => help.toggle(),
         theme: () => {
@@ -535,6 +533,7 @@ export function initLevelUi(host: LevelUiHost): LevelUi {
                 },
             });
             view.setEditorControls(true);
+            view.models.anim.setSource(createAnimSource(refs, () => schemas));
             view.setViewOptions(viewOpts);
             view.setSnap({});
             view.setDocument(new LevelDocument());
@@ -694,6 +693,14 @@ export function initLevelUi(host: LevelUiHost): LevelUi {
 
     function saveDocument(): void {
         const v = getView();
+        // A project folder is saved in place (project file + this level's edits); no dialog.
+        if (projects.folder && projects.handlers.save) {
+            projects.handlers.save();
+            savedTop = v.stack.top;
+            restoredDirty = false;
+            updateStatus();
+            return;
+        }
         if (!v.doc.size) return;
         const json: LevelDocumentJson & { bookmarks?: unknown } = v.doc.toJSON();
         const name = `${levelName}.level.json`;
@@ -790,7 +797,7 @@ export function initLevelUi(host: LevelUiHost): LevelUi {
         selCount: () => view?.selection.size ?? 0,
         canUndo: () => view?.stack.canUndo ?? false,
         canRedo: () => view?.stack.canRedo ?? false,
-        canExport: () => src !== null && (view?.doc.size ?? 0) > 0,
+        canExport: () => (src !== null && (view?.doc.size ?? 0) > 0) || projects.get() !== null,
         catalog: () => catalog,
         clearSelection: () => getView().select([]),
         openPalette: (q) => palette.open(q),
@@ -880,7 +887,11 @@ export function initLevelUi(host: LevelUiHost): LevelUi {
         v.setDocument(used);
         savedTop = v.stack.top;
         restoredDirty = false;
-        if (rec) {
+        const auto = !!rec && projects.autoRestore.delete(displayName);
+        if (rec && auto) {
+            restore(rec);
+            restoreMsg = ' Edits from the project were restored.';
+        } else if (rec) {
             const age = new Date(rec.savedAt).toLocaleString();
             const banner = h(
                 'div',
@@ -920,7 +931,6 @@ export function initLevelUi(host: LevelUiHost): LevelUi {
             restoreMsg = ' Autosaved edits are available to restore.';
         }
         used = doc;
-        modPanel.suggest(`editor.${levelName.toLowerCase()}-edit`, `${displayName} edit`);
         restoreSettings(displayName);
         for (const p of panels) p.onLoad?.();
         updateOverlay();
@@ -945,7 +955,6 @@ export function initLevelUi(host: LevelUiHost): LevelUi {
         }
         v.setDocument(doc);
         v.bookmarks = rec.bookmarks ?? [];
-        modPanel.restore(rec.mod ?? {});
         restoredDirty = true;
         for (const p of panels) p.onLoad?.();
         updateOverlay();
@@ -973,6 +982,7 @@ export function initLevelUi(host: LevelUiHost): LevelUi {
         store.set(`bookmarks:${v.doc.level || levelName}`, JSON.stringify(v.bookmarks));
         if (v.stack.depth === 0 && !restoredDirty) {
             await clearAutosave(key);
+            projects.edited();
             return;
         }
         const ok = await saveAutosave({
@@ -981,11 +991,11 @@ export function initLevelUi(host: LevelUiHost): LevelUi {
             savedAt: Date.now(),
             doc: v.doc.toJSON(),
             bookmarks: v.bookmarks,
-            mod: modPanel.values(),
         });
         if (ok) {
             lastAutosave = Date.now();
             updateStatus();
+            projects.edited();
         }
     }
 
@@ -1060,6 +1070,10 @@ export function initLevelUi(host: LevelUiHost): LevelUi {
         assets: () => assets,
         ctx: () => ctx,
         visualsReady: () => visuals,
+        flushAutosave: async () => {
+            window.clearTimeout(autosaveTimer);
+            await doAutosave();
+        },
         levels: () => disc?.levels ?? [],
         modTarget: () => target(),
         /** Class name and model render for a resource string (used by Save mode's inventory); null without a level. */

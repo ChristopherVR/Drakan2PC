@@ -554,10 +554,16 @@ export const templateById = (id: string): LogicTemplate | undefined => TEMPLATES
 /** One undo step: insert the new objects (with their prepared ids) and add the links to existing objects. */
 export class ApplyTemplateCommand implements Command {
     private before = new Map<number, number[]>();
+    readonly label: string;
+    /** `what` names the setup ("Place quest object"); the history entry adds the objects it creates ("... (Quest #12)"). */
     constructor(
         private readonly build: TemplateBuild,
-        readonly label: string,
-    ) {}
+        what: string,
+    ) {
+        const made = build.objects.slice(0, 3).map((o) => `${o.class} #${o.id}`);
+        const more = build.objects.length > 3 ? ` and ${build.objects.length - 3} more` : '';
+        this.label = made.length ? `${what}: ${made.join(', ')}${more}` : what;
+    }
     get ids(): number[] {
         return this.build.objects.map((o) => o.id);
     }

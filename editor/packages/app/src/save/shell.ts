@@ -230,6 +230,7 @@ export function buildShell(root: HTMLElement, fsa: boolean): void {
                         { class: 'sv-tray-foot' },
                         button('Save changes', { id: 'sv-save2', icon: 'save', kind: 'primary block', disabled: true }),
                         h('p', { id: 'sv-save-note' }),
+                        h('div', { id: 'sv-backups', class: 'sv-backups' }),
                     ),
                 ),
                 h(
@@ -262,7 +263,7 @@ export function buildShell(root: HTMLElement, fsa: boolean): void {
                 { class: 'sv-foot-note' },
                 fsa
                     ? 'Save writes the file in place and keeps a .bak copy beside it.'
-                    : 'This browser cannot write files in place; use Export to download the edited .rsg.',
+                    : 'This browser cannot write files in place: Save downloads the edited .rsg instead.',
             ),
         ),
         h('div', { id: 'sv-toast', class: 'sv-toast', role: 'status', hidden: true }),

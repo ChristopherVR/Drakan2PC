@@ -239,7 +239,7 @@ export function createQuestsPanel(session: StorySession): Panel {
                 h(
                     'div',
                     { class: 'dim small' },
-                    'A new quest needs something to start it: place the quest class in a level (Place panel, System objects) and link a trigger to it with message 1; message 18 completes it.',
+                    'A new quest needs something to start it: place the quest class in a level (Content Browser, System objects) and link a trigger to it with message 1; message 18 completes it.',
                 ),
             );
             return wrap;

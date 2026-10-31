@@ -10,6 +10,7 @@ import { createQuestsPanel } from './quests.ts';
 import { createStoryPackPanel } from './packpanel.ts';
 import { createStringsPanel } from './strings.ts';
 import { createContentPanels, type ContentEditors } from './contentregister.ts';
+import { createNewCutscenePanel, createNewDialoguePanel, createQuestPlacePanel } from './compose.ts';
 import { createStoryArea, type StoryArea } from './storyarea.ts';
 import { createPathLayer } from './pathview.ts';
 import { placedStoryObjects } from './placed.ts';
@@ -40,6 +41,9 @@ const AREA_TABS = [
     ['quests', 'Quests'],
     ['dialogue', 'Dialogue'],
     ['cinematics', 'Cinematics'],
+    ['new-dialogue', 'New dialogue'],
+    ['new-cutscene', 'New cut scene'],
+    ['quest-marker', 'Quest marker'],
     ['pack', 'Story pack'],
 ] as const;
 
@@ -81,6 +85,13 @@ export function initStoryEditors(host: StoryEditorsHost): StoryEditors {
         { id: 'quests', title: 'Quests', panel: createQuestsPanel(session) },
         { id: 'dialogue', title: 'Dialogue', panel: content.dialogue },
         { id: 'cinematics', title: 'Cinematics', panel: content.cinematics },
+        { id: 'new-dialogue', title: 'New dialogue', panel: createNewDialoguePanel(content.session, host.ctx) },
+        {
+            id: 'new-cutscene',
+            title: 'New cut scene',
+            panel: createNewCutscenePanel(content.session, host.ctx),
+        },
+        { id: 'quest-marker', title: 'Quest marker', panel: createQuestPlacePanel(session, host.ctx) },
         { id: 'pack', title: 'Story pack', panel: createStoryPackPanel(session) },
     ]);
     registerPanel({
@@ -91,7 +102,8 @@ export function initStoryEditors(host: StoryEditorsHost): StoryEditors {
         command: {
             title: 'Show Story editors',
             keys: 'Ctrl+Shift+Y',
-            keywords: 'strings quests dialogue subtitles cut scene cinematics conversation journal story',
+            keywords:
+                'strings quests dialogue subtitles cut scene cinematics conversation journal story new create quest marker',
             hint: 'Edit strings, quests, dialogue and cut scenes and export them as a mod',
         },
     });
@@ -115,6 +127,12 @@ export function initStoryEditors(host: StoryEditorsHost): StoryEditors {
         text: (file, id) => session.str(file, id)?.text[0],
         set: (file, id, text) => session.setExitDestination(file, id, text),
         changed: (file, id) => session.isChanged(file, id),
+    });
+    // Dialogue lines and cut scenes made in the content session ship in the same pack as strings and quests.
+    session.addChangeSource({
+        changes: () => content.session.changes(),
+        subscribe: (fn) => content.session.subscribe(fn),
+        count: () => content.session.count(),
     });
     session.subscribe(notifyExitEdit);
     return {

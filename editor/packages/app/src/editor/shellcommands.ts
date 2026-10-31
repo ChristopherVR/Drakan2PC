@@ -50,11 +50,11 @@ export function registerShellCommands(s: ShellHost): void {
         enabled: lvl,
         hint: 'Download the level as a .level.json file you can reopen later',
     });
-    cmd('file.export', 'Export mod', 'File', () => a.exportMod(), {
+    cmd('file.export', 'Export mod...', 'File', () => a.exportMod(), {
         keys: 'Ctrl+E',
         icon: 'download',
         enabled: s.canExport,
-        hint: 'Write a mod pack with your changes for the PC port',
+        hint: 'Build the mod pack from the project and save it (zip, project folder, or the game)',
         keywords: 'publish build pack zip',
     });
     cmd('file.play', 'How to play your mod', 'File', () => a.play(), {
@@ -166,7 +166,6 @@ export function registerShellCommands(s: ShellHost): void {
     cmd('view.links.all', 'Show all links', 'View', () => a.setLinks('all'));
     cmd('view.links.off', 'Hide links', 'View', () => a.setLinks('off'));
     cmd('view.theme', 'Switch dark and light theme', 'View', () => a.theme(), { keys: 'Ctrl+Shift+L' });
-    cmd('view.left', 'Toggle the Place panel', 'View', () => a.togglePanel('left'));
     cmd('view.right', 'Toggle the Outliner and Details', 'View', () => a.togglePanel('right'));
     cmd('view.bottom', 'Toggle the bottom panel', 'View', () => a.togglePanel('bottom'));
     cmd('view.reset', 'Reset the panel layout', 'View', () => a.resetLayout());

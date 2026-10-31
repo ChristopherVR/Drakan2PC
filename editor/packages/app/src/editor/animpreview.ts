@@ -370,10 +370,13 @@ export async function classModelOf(refs: RefService, schema: ClassSchema | null)
 
 /** Idle first: a class field called "Base Idle" / "Idle", then any clip named idle, else the first. */
 export function pickIdle<T extends { label?: string; name?: string }>(clips: readonly T[]): T | null {
-    const text = (c: T): string => `${c.label ?? ''} ${c.name ?? ''}`.toLowerCase();
+    // Clip names use underscores (idle_base, death_idle_forward): treat them as word breaks, skip death and cower idles.
+    const text = (c: T): string => `${c.label ?? ''} ${c.name ?? ''}`.toLowerCase().replace(/_/g, ' ');
+    const calm = (c: T): boolean => !/death|dead|die|cower|sleep|hit|dodge/.test((c.name ?? '').toLowerCase());
     return (
-        clips.find((c) => /base idle/.test(text(c))) ??
-        clips.find((c) => /\bidle\b/.test(text(c))) ??
+        clips.find((c) => /base idle/.test(text(c)) && calm(c)) ??
+        clips.find((c) => /idle/.test(text(c)) && calm(c)) ??
+        clips.find((c) => /idle/.test(text(c)) && calm(c)) ??
         clips.find((c) => /idle/.test(text(c))) ??
         clips[0] ??
         null

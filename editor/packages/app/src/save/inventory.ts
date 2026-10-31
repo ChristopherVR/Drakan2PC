@@ -1,4 +1,4 @@
-import { SetFieldCommand } from '@drakan/editor-core';
+import { ReplaceItemCommand, SetFieldCommand } from '@drakan/editor-core';
 import { INV_CELL_COUNT, type InventoryCell } from '@drakan/formats';
 import { badge, emptyState, h } from './dom.ts';
 import type { PanelCtx } from './panels.ts';
@@ -101,20 +101,22 @@ export function renderInventory(ctx: PanelCtx): HTMLElement {
             continue;
         }
         const sp = span.get(k)!;
-        const info = infoOf(c.resource);
-        const name = itemName(c.resource, info);
+        const resource = doc.itemResourceOf(k) ?? c.resource;
+        const replaced = doc.itemReplacements.has(k);
+        const info = infoOf(resource);
+        const name = itemName(resource, info);
         const equipped = val(k, 'equipped') === 1;
         const hot = val(k, 'hot') === 1;
         const art = h('div', { class: 'art' });
         if (info?.thumb) art.append(h('img', { src: info.thumb, alt: name }));
         else {
             const img = h('img', { alt: name, hidden: true });
-            if (c.resource !== undefined) thumbs.push({ el: img, resource: c.resource });
+            if (resource !== undefined) thumbs.push({ el: img, resource });
             art.append(
                 img,
                 h(
                     'span',
-                    { class: 'ph', style: `--hue:${hueOf(c.resource ?? 0)}` },
+                    { class: 'ph', style: `--hue:${hueOf(resource ?? 0)}` },
                     name
                         .replace(/^Item /, '')
                         .slice(0, 2)
@@ -126,7 +128,7 @@ export function renderInventory(ctx: PanelCtx): HTMLElement {
             h(
                 'button',
                 {
-                    class: `slot item${state.selected === k ? ' sel' : ''}${equipped ? ' eq' : ''}`,
+                    class: `slot item${state.selected === k ? ' sel' : ''}${equipped ? ' eq' : ''}${replaced ? ' chg' : ''}`,
                     style: `grid-column:${col} / span ${sp.cols};grid-row:${row} / span ${sp.rows}`,
                     title: [`Cell ${k}: ${name}`, info?.detail].filter(Boolean).join('\n'),
                     'data-cell': k,
@@ -143,7 +145,7 @@ export function renderInventory(ctx: PanelCtx): HTMLElement {
                     hot ? h('b', { class: 'mk q', title: 'In the Quick Inventory' }, 'Q') : null,
                 ),
                 h('span', { class: 'nm' }, name),
-                c.durability !== undefined
+                c.durability !== undefined && !replaced
                     ? h(
                           'span',
                           { class: 'dbar' },
@@ -177,7 +179,15 @@ export function renderInventory(ctx: PanelCtx): HTMLElement {
     const sel = state.selected !== null ? byCell.get(state.selected) : undefined;
     const inspector =
         sel && sel.marker === undefined
-            ? inspect(ctx, sel, itemName(sel.resource, infoOf(sel.resource)))
+            ? inspect(
+                  ctx,
+                  sel,
+                  itemName(
+                      doc.itemResourceOf(sel.cell) ?? sel.resource,
+                      infoOf(doc.itemResourceOf(sel.cell) ?? sel.resource),
+                  ),
+                  infoOf,
+              )
             : h('div', { class: 'inspector sv-dim' }, 'Select an item to edit its durability, quantity and flags.');
 
     const real = cells.filter((c) => c.marker === undefined);
@@ -200,7 +210,7 @@ export function renderInventory(ctx: PanelCtx): HTMLElement {
                 'button',
                 {
                     disabled: true,
-                    title: 'Not supported: a cloned item record loads as a world object but never enters the inventory, and the game rebuilds the cells itself (docs/journal/2026-10-31/editor-save-mode.md).',
+                    title: 'Not supported yet: use Replace with… on an existing item for now (a new item record crashes the game after load, docs/journal/2026-11-01/save-editor-round3.md).',
                 },
                 '+ Add item (not supported yet)',
             ),
@@ -211,9 +221,8 @@ export function renderInventory(ctx: PanelCtx): HTMLElement {
             'div',
             { class: 'note-box' },
             h('b', null, 'Adding and removing items: not supported. '),
-            'Tested in game: a cloned item record (new object id, object count raised, fresh handle, free cell) and moved or ' +
-                'cleared cell handles were both ignored on load; the game rebuilds the cells itself, and only flags and ' +
-                'counts of existing items are read back. Durability, arrows, quantity, the equipped flag and the ' +
+            'The game restores the carried items from a list in Rynn’s record and does not accept a brand-new item record yet ' +
+                '(it crashes after load); use Replace with… to turn an existing item into another class of the same size. Durability, arrows, quantity, the equipped flag and the ' +
                 'quick-slot flag of existing items are proven in game. ',
             h('b', null, 'Equipping by flag may not fill the Equipped panel: '),
             'the weapon actors held in Rynn’s hands are separate from the cell flag. Names and art come from the shared Resources ' +
@@ -222,7 +231,12 @@ export function renderInventory(ctx: PanelCtx): HTMLElement {
     );
 }
 
-function inspect(ctx: PanelCtx, c: InventoryCell, name: string): HTMLElement {
+function inspect(
+    ctx: PanelCtx,
+    c: InventoryCell,
+    name: string,
+    infoOf: (resource: number | undefined) => ClassInfo | null,
+): HTMLElement {
     const { doc } = ctx;
     const number = (key: 'durability' | 'max', label: string): HTMLElement => {
         const field = `inv.${c.cell}.${key}`;
@@ -262,6 +276,8 @@ function inspect(ctx: PanelCtx, c: InventoryCell, name: string): HTMLElement {
         return h('label', { class: 'sv-check', title: hint }, cb, ` ${label}`);
     };
     const indestructible = doc.value(`inv.${c.cell}.durability`) === INDESTRUCTIBLE;
+    const replacing = doc.itemReplacements.has(c.cell);
+    const replace = replaceControl(ctx, c, infoOf);
     return h(
         'div',
         { class: 'inspector sv-box' },
@@ -275,8 +291,15 @@ function inspect(ctx: PanelCtx, c: InventoryCell, name: string): HTMLElement {
                 { class: 'sv-dim' },
                 `resource ${c.resource === undefined ? '?' : resourceKey(c.resource)} · handle 0x${(c.handle ?? 0).toString(16)}`,
             ),
-            c.durability === undefined
-                ? h('small', { class: 'sv-dim' }, 'The item record was not found, so its count cannot be edited.')
+            replace,
+            c.durability === undefined || replacing
+                ? h(
+                      'small',
+                      { class: 'sv-dim' },
+                      replacing
+                          ? 'Counts of the new item are its own defaults; undo the replacement to edit the old item.'
+                          : 'The item record was not found, so its count cannot be edited.',
+                  )
                 : h(
                       'div',
                       { class: 'frow' },
@@ -295,6 +318,59 @@ function inspect(ctx: PanelCtx, c: InventoryCell, name: string): HTMLElement {
                 { class: 'frow' },
                 badge('proven in game', 'high', 'Edits of these fields were loaded and shown in game.'),
             ),
+        ),
+    );
+}
+
+/** "Replace with..." : the item classes this save has a record for, in the app's dropdown (type to filter). */
+function replaceControl(
+    ctx: PanelCtx,
+    c: InventoryCell,
+    infoOf: (resource: number | undefined) => ClassInfo | null,
+): HTMLElement {
+    const { doc } = ctx;
+    const templates = doc.itemTemplates();
+    const current = doc.itemResourceOf(c.cell);
+    const pending = doc.itemReplacements.has(c.cell);
+    const select = h(
+        'select',
+        { 'data-field': `item.${c.cell}`, 'data-placeholder': 'Replace with…', 'aria-label': 'Replace with' },
+        h('option', { value: '' }, 'Replace with…'),
+        ...templates.map((t) =>
+            h(
+                'option',
+                { value: String(t.entry), selected: pending && t.resource === current },
+                `${itemName(t.resource, infoOf(t.resource))} (${resourceKey(t.resource)})`,
+            ),
+        ),
+    ) as HTMLSelectElement;
+    if (!pending) select.value = '';
+    select.onchange = () => {
+        if (!select.value) return;
+        ctx.run(new ReplaceItemCommand(c.cell, Number(select.value)));
+    };
+    return h(
+        'div',
+        { class: 'frow' },
+        h('label', { class: 'f' }, h('small', null, 'Replace with…'), select),
+        pending
+            ? h(
+                  'button',
+                  { class: 'sv-btn ghost sm', onclick: () => ctx.run(new ReplaceItemCommand(c.cell, undefined)) },
+                  'Undo replacement',
+              )
+            : null,
+        badge(
+            'proven in game once',
+            'medium',
+            'Loaded in game: a potion became a second dagger in the same cell. Pick items of the same size.',
+        ),
+        h(
+            'small',
+            { class: 'sv-dim' },
+            templates.length
+                ? 'Classes come from item records in this save (pickups, shop stock, chests).'
+                : 'This save has no other item records to copy from.',
         ),
     );
 }

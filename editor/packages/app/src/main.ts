@@ -578,4 +578,5 @@ const desktop = initDesktop({
     openIso: (src) => openIso(src),
     showTab,
     setStatus,
+    projectFiles: () => projectUi.files,
 });

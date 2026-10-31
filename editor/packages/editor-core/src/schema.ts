@@ -236,6 +236,7 @@ export class SchemaProvider {
     private readonly cache = new Map<string, ClassSchema | null>();
     private readonly stemToDb = new Map<string, number>();
     private enumCache: Map<string, number[]> | null = null;
+    private readonly arrCache = new Map<string, { value: number; count: number; examples: string[] }[]>();
     private readonly refCache = new Map<string, { stem: string; id: number; count: number; examples: string[] }[]>();
 
     constructor(
@@ -366,6 +367,35 @@ export class SchemaProvider {
             this.enumCache = new Map([...m].map(([k, v]) => [k, [...v].sort((a, b) => a - b)]));
         }
         return this.enumCache.get(`${name}\u0000${type}`) ?? [];
+    }
+
+    /**
+     * Elements the class defaults put into an array field (name and type), most used first: the "known values" of a list
+     * whose meaning is not decoded (sound ids, item ids, message ordinals, ...).
+     */
+    arrayValues(name: string, type: number): { value: number; count: number; examples: string[] }[] {
+        const key = `${name} ${type}`;
+        let hit = this.arrCache.get(key);
+        if (hit) return hit;
+        const acc = new Map<number, { value: number; count: number; examples: string[] }>();
+        for (const classes of this.odbs.values()) {
+            for (const c of classes.values()) {
+                c.fields?.forEach((f, i) => {
+                    if (f.name !== name || f.type !== type) return;
+                    const d = classFieldDefault(c, i);
+                    if (!Array.isArray(d)) return;
+                    for (const v of d) {
+                        let e = acc.get(v);
+                        if (!e) acc.set(v, (e = { value: v, count: 0, examples: [] }));
+                        e.count++;
+                        if (e.examples.length < 3 && !e.examples.includes(c.name)) e.examples.push(c.name);
+                    }
+                });
+            }
+        }
+        hit = [...acc.values()].sort((a, b) => b.count - a.count || a.value - b.value);
+        this.arrCache.set(key, hit);
+        return hit;
     }
 
     /** Enum fields that only ever hold 0 and 1 (in every class default and in `extra`) are shown as checkboxes. */

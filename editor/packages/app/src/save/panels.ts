@@ -1,4 +1,4 @@
-import { SetFieldCommand, type SaveDocument } from '@drakan/editor-core';
+import { SetFieldCommand, type Command, type SaveDocument } from '@drakan/editor-core';
 import {
     FIELDS,
     PROGRESS_KINDS,
@@ -22,7 +22,7 @@ import type { StoryData } from './storyart.ts';
 /** What the extra panels need from the Save tab. */
 export interface PanelCtx {
     doc: SaveDocument;
-    run(cmd: SetFieldCommand): void;
+    run(cmd: Command): void;
     /** Move the player marker (an undoable transform edit). */
     setPlayerPos(v: [number, number, number]): void;
     err(e: unknown): void;

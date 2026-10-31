@@ -20,6 +20,7 @@ import {
 } from '@drakan/editor-core';
 import { IconLayer, VolumeBoxes, type VolumeBox } from './scene/icons.ts';
 import { ModelLayer } from './scene/layer.ts';
+import { animRange } from './scene/animplan.ts';
 import { HELPER_GROUPS, helperGroupOf, partitionObjects, type HelperGroup } from './scene/instances.ts';
 import { docInstanceMatrix } from './scene/models.ts';
 import { clientToNdc, nearestScreenPoint, pointsInRect, type ScreenPoint } from './scene/pickmath.ts';
@@ -328,6 +329,8 @@ export class LevelView {
         this.scene.fog =
             o.fog && this.editorMode ? new THREE.Fog(this.bgColor, o.drawDistance * 0.35, o.drawDistance) : null;
         this.models.terrainRoot.visible = o.terrain;
+        this.models.anim.setEnabled(o.animate && o.models);
+        this.models.anim.range = animRange(o.drawDistance);
         if (o.wireframe !== prev.wireframe || o.terrain !== prev.terrain) this.models.setTerrainWireframe(o.wireframe);
         this.dirtyInstances = true;
     }
@@ -1292,7 +1295,7 @@ export class LevelView {
         const out = Object.fromEntries(HELPER_GROUPS.map((g) => [g.id, 0])) as Record<HelperGroup, number>;
         const byRes = new Map<string, HelperGroup | null>();
         for (const o of this.doc.objects()) {
-            const key = `${o.class} ${o.resource}`;
+            const key = `${o.class}\u0000${o.resource}`;
             let g = byRes.get(key);
             if (g === undefined) byRes.set(key, (g = helperGroupOf(o.class) ?? this.modelHelper(o.resource)));
             if (g) out[g]++;
@@ -1348,6 +1351,7 @@ export class LevelView {
                 modelObjs.push(o);
             }
         }
+        this.models.anim.setObjects(modelObjs);
         // Markers: objects without a model, or every object when the markers option asks for it.
         const markerList =
             opt.markers === 'off' ? [] : opt.markers === 'all' ? [...part.markers, ...modelObjs] : part.markers;
@@ -1593,6 +1597,7 @@ export class LevelView {
         }
         this.updateGrid();
         this.orbit.update();
+        this.models.anim.update(dt, this.camera);
         this.renderer.render(this.scene, this.camera);
         this.frames++;
         if (now - this.fpsT >= 1000) {

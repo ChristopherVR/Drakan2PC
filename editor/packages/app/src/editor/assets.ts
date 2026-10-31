@@ -74,6 +74,29 @@ export function createAssets(ctx: Ctx): AssetsPanel {
         class: 'slider',
     });
     const kindChips = h('div', { class: 'chips' });
+    /** Tiles (large thumbnails) or a compact list: the list is the old Place panel's row view. */
+    let view: 'tiles' | 'list' = store.get('cb-view') === 'list' ? 'list' : 'tiles';
+    const viewBtns = (['tiles', 'list'] as const).map((v) => {
+        const b = h(
+            'button',
+            {
+                class: `seg-btn${v === view ? ' active' : ''}`,
+                type: 'button',
+                'data-view': v,
+                title: v === 'tiles' ? 'Thumbnail tiles' : 'Compact list',
+                'aria-label': v === 'tiles' ? 'Thumbnail tiles' : 'Compact list',
+            },
+            icon(v === 'tiles' ? 'grid' : 'list', 13),
+        );
+        b.addEventListener('click', () => {
+            view = v;
+            store.set('cb-view', v);
+            for (const x of viewBtns) x.classList.toggle('active', x.dataset.view === v);
+            body.classList.toggle('as-list', v === 'list');
+            build();
+        });
+        return b;
+    });
     const tree = h('nav', { class: 'cb-tree', 'aria-label': 'Class folders' });
     const crumb = h('div', { class: 'cb-crumb' });
     const body = h('div', { class: 'assets-body' });
@@ -89,14 +112,16 @@ export function createAssets(ctx: Ctx): AssetsPanel {
             'div',
             { class: 'assets-bar' },
             searchBox.el,
-            kindChips,
             h('span', { class: 'spacer' }),
             info,
+            h('div', { class: 'seg' }, ...viewBtns),
             h('label', { class: 'size' }, icon('grid', 13), size),
         ),
+        h('div', { class: 'assets-kinds' }, kindChips),
         h('div', { class: 'assets-main' }, tree, h('div', { class: 'cb-content' }, crumb, body), detail),
     );
     body.style.setProperty('--tile', `${size.value}px`);
+    body.classList.toggle('as-list', view === 'list');
     size.addEventListener('input', () => {
         body.style.setProperty('--tile', `${size.value}px`);
         store.set('tile-size', size.value);

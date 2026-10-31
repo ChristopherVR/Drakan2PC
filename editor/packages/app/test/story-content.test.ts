@@ -7,6 +7,7 @@ import {
     ODB_FIELDS_TYPE,
     SSD_SEQUENCE,
     joinClassRecord,
+    parseSdbText,
     parseClassBody,
     parseSequence,
     splitClassRecord,
@@ -15,6 +16,7 @@ import {
     type OdbClass,
 } from '@drakan/formats';
 import { ContentSession, type ContentHost } from '../src/story/content.ts';
+import { StorySession } from '../src/story/session.ts';
 
 const host: ContentHost = { fs: () => null, language: () => 'ENGLISH', target: () => null, status: () => {} };
 
@@ -150,5 +152,123 @@ describe('story session: new content', () => {
         s.setPhaseLines(445, 'beginning', [449]);
         expect(s.phaseEdited(445)).toBe(false);
         expect(HANDLER_PHASES).toHaveLength(5);
+    });
+});
+
+/** A silent descriptor of the known layout: `u16 len + name`, 36 header bytes, 12 tail bytes. */
+function silentDescriptor(name: string): Uint8Array {
+    const n = name.length + 2; // NUL and padding so that 2 + n is a multiple of 4
+    const out = new Uint8Array(2 + n + 36 + 12);
+    const dv = new DataView(out.buffer);
+    dv.setUint16(0, n, true);
+    for (let i = 0; i < name.length; i++) out[2 + i] = name.charCodeAt(i);
+    dv.setUint32(2 + n + 32, 2, true);
+    return out;
+}
+
+describe('story session: composed dialogue and cut scenes', () => {
+    it('adds a line with text and sound to a conversation phase in one step', async () => {
+        const { s, story } = await session();
+        story.sounds.set(33, {
+            id: 33,
+            sub: 1,
+            name: 'MYSND01',
+            text: '',
+            rate: 0,
+            seconds: 2,
+            descriptor: silentDescriptor('MYSND01'),
+        });
+        story.soundEntry.set(33, { type: 0x302, id: 33, sub: 1, size: 100 } as never);
+        const id = s.composeLine({
+            speaker: 'Farmer',
+            text: 'Welcome, traveller.',
+            soundRef: 33,
+            soundName: '',
+            handlerId: 445,
+            phase: 'beginning',
+            position: 0,
+        });
+        expect(s.lines().find((l) => l.classId === id)).toMatchObject({ name: 'Farmer - MYSND01', speaker: 'Farmer' });
+        expect(s.lineSound(id, 0)).toBe(33);
+        expect(s.phaseLines(445, 'beginning')).toEqual([id, 449]);
+        expect(s.text(33)).toBe('Welcome, traveller.');
+        const ch = await s.changes();
+        const sdb = ch.find((c) => c.file === 'LEVELX.SDB')!;
+        expect(parseSdbText(sdb.data)!.text).toBe('Welcome, traveller.');
+        expect(ch.filter((c) => c.file === 'LEVELX.ODB').map((c) => [c.id, c.isNew])).toEqual(
+            expect.arrayContaining([
+                [id, true],
+                [445, false],
+            ]),
+        );
+    });
+
+    it('can create the line class alone, for a placed handler that keeps its own list', async () => {
+        const { s } = await session();
+        const id = s.composeLine(
+            { speaker: 'Farmer', text: '', soundRef: 33, soundName: 'SND', handlerId: 0, phase: 'beginning' },
+            { classOnly: true },
+        );
+        expect(s.lines().some((l) => l.classId === id && l.name === 'Farmer - SND')).toBe(true);
+        expect(s.phaseEdited(445)).toBe(false);
+        expect(s.phaseLines(445, 'beginning')).toEqual([449]);
+    });
+
+    it('leaves nothing behind when a part of the line is refused', async () => {
+        const { s } = await session();
+        const draft = {
+            speaker: 'Farmer',
+            text: '',
+            soundRef: 33,
+            soundName: 'X',
+            handlerId: 445,
+            phase: 'beginning' as const,
+        };
+        expect(() => s.composeLine({ ...draft, soundRef: 0 })).toThrow(/sound/);
+        expect(() => s.composeLine({ ...draft, speaker: '' })).toThrow(/speaker/);
+        expect(() => s.composeLine({ ...draft, handlerId: 1 })).toThrow(/conversation/);
+        expect(() => s.composeLine({ ...draft, text: 'hi', soundRef: (3 << 16) | 4 })).toThrow(/subtitle/);
+        expect(s.count()).toBe(0);
+        expect(s.lines()).toHaveLength(1);
+    });
+
+    it('adds a cut scene from camera points and steps and finds the level camera object', async () => {
+        const { s } = await session();
+        const first = s.addSequence('Existing', 5);
+        s.addSequenceActor(first, 'Camera', 2191);
+        expect(s.cameraRef()).toBe(2191);
+        const id = s.addCutscene({
+            folder: 5,
+            name: 'Gate ambush',
+            cameraRef: s.cameraRef(),
+            camera: [{ time: 0, pos: [10, 20, 30], yaw: 0, pitch: 0 }],
+            steps: [{ kind: 'sound', time: 1, soundRef: 33 }],
+        });
+        expect(id).toBeGreaterThan(first);
+        const ch = await s.changes();
+        const e = ch.find((c) => c.id === id)!;
+        expect(e).toMatchObject({ file: 'LEVELX.SSD', type: SSD_SEQUENCE, sub: 5, isNew: true });
+        const seq = parseSequence(id, 5, e.data)!;
+        expect(seq.name).toBe('Gate ambush');
+        expect(seq.actors[0]).toMatchObject({ name: 'Camera', ref: 2191, actionCount: 4 });
+        expect(() => s.addCutscene({ folder: 5, name: '', cameraRef: 1, camera: [], steps: [] })).toThrow(/Name/);
+    });
+
+    it('carries dialogue and cut scene entries in the Story pack session', async () => {
+        const { s } = await session();
+        s.addSequence('Scene', 5);
+        const pack = new StorySession({ call: (async () => null) as never, target: () => null, status: () => {} });
+        pack.addChangeSource({
+            changes: () => s.changes(),
+            subscribe: (fn) => s.subscribe(fn),
+            count: () => s.count(),
+        });
+        const ch = await pack.changes();
+        expect(ch.map((c) => c.file)).toEqual(['LEVELX.SSD']);
+        expect(pack.editCount()).toBe(1);
+        let told = 0;
+        pack.subscribe(() => told++);
+        s.addSequence('Another', 5);
+        expect(told).toBe(1);
     });
 });

@@ -35,10 +35,10 @@ describe('play test document edits', () => {
         c.get(3)!.transform.pos[0] = 99;
         expect(d.get(3)!.transform.pos[0]).toBe(5);
     });
-    it('yaw 0 faces +x and positive yaw turns toward -z', () => {
-        expect(yawFromDirection(1, 0)).toBeCloseTo(0);
-        expect(yawFromDirection(0, -1)).toBeCloseTo(Math.PI / 2);
-        expect(yawFromDirection(0, 1)).toBeCloseTo(-Math.PI / 2);
+    it('yaw 0 faces -z, -pi/2 faces +x (measured in game)', () => {
+        expect(yawFromDirection(0, -1)).toBeCloseTo(0);
+        expect(yawFromDirection(1, 0)).toBeCloseTo(-Math.PI / 2);
+        expect(yawFromDirection(-1, 0)).toBeCloseTo(Math.PI / 2);
     });
     it('refuses an object that is not a cut scene player', () => {
         const env: LogicEnv = { rflOf: () => null, schemaFor: () => undefined };

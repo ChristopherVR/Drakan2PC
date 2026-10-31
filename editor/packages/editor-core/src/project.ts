@@ -1,4 +1,5 @@
 import { mangleComponent } from '@drakan/formats';
+import type { LevelDocumentJson } from './document.ts';
 import { MOD_ID_PATTERN, type ModMeta, type ModTarget } from './mod.ts';
 import { exitArrivalProblem, type ExitIndex, type ExitIndexEntry } from './logic.ts';
 
@@ -117,6 +118,45 @@ export function parseProject(text: string): ModProject {
         ticks,
         createdAt: typeof r['createdAt'] === 'number' ? r['createdAt'] : Date.now(),
     };
+}
+
+// ---- project file with level edits ---------------------------------------------------------------------------------
+
+/** Edits of one level as the editor keeps them (the autosave record, without its storage key). */
+export interface ProjectLevelEdit {
+    savedAt: number;
+    doc: LevelDocumentJson;
+    bookmarks: unknown[];
+}
+
+/** Level title -> the edits made to it. Only levels with edits appear. */
+export type ProjectEdits = Record<string, ProjectLevelEdit>;
+
+/** File name of a project inside its folder (desktop) and the suggested name of a downloaded one (browser). */
+export const PROJECT_FILE = 'project.drakan.json';
+
+/** The project plus its level edits as one file: the project fields, and `edits` beside them. */
+export function serializeProjectFile(p: ModProject, edits: ProjectEdits): string {
+    return JSON.stringify({ ...p, edits }, null, 1) + '\n';
+}
+
+/** Read a project file written by `serializeProjectFile` (or the older settings-only one: no edits). */
+export function parseProjectFile(text: string): { project: ModProject; edits: ProjectEdits } {
+    const project = parseProject(text);
+    const raw = (JSON.parse(text) as { edits?: unknown }).edits;
+    const edits: ProjectEdits = {};
+    if (raw && typeof raw === 'object') {
+        for (const [title, v] of Object.entries(raw as Record<string, unknown>)) {
+            const o = v as Partial<ProjectLevelEdit> | null;
+            if (!o || typeof o !== 'object' || !o.doc || typeof o.doc !== 'object') continue;
+            edits[title] = {
+                savedAt: typeof o.savedAt === 'number' ? o.savedAt : Date.now(),
+                doc: o.doc,
+                bookmarks: Array.isArray(o.bookmarks) ? o.bookmarks : [],
+            };
+        }
+    }
+    return { project, edits };
 }
 
 // ---- levels --------------------------------------------------------------------------------------------------------
@@ -428,7 +468,7 @@ const exportStep: WorkflowStep = {
     title: 'Export the mod',
     text: 'Writes a mod pack. Your game disc and its files are never changed.',
     auto: (f) => f.exported,
-    action: { label: 'Export', command: 'project.export' },
+    action: { label: 'Export', command: 'file.export' },
     guide: 'package',
 };
 const playStep: WorkflowStep = {

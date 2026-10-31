@@ -615,3 +615,113 @@
 .start-back {
     margin-bottom: var(--sp-3);
 }
+
+/* ---- checklist card on small windows: a pill that never covers the panels until asked ---- */
+.pj-card.small {
+    right: 8px;
+    bottom: calc(var(--h-status) + 8px);
+    width: min(300px, calc(100vw - 16px));
+    max-height: min(46vh, 360px);
+}
+.pj-card.small.collapsed {
+    width: auto;
+    max-width: 200px;
+    border-radius: 999px;
+    box-shadow: var(--shadow-1, 0 2px 8px rgb(0 0 0 / 0.3));
+}
+.pj-card.small.collapsed .pj-card-head {
+    padding: 2px var(--sp-3);
+    gap: var(--sp-2);
+}
+.pj-card.small.collapsed .pj-bar,
+.pj-card.small.collapsed .pj-q-inline,
+.pj-card.small.collapsed .pj-card-x {
+    display: none;
+}
+
+/* ---- the Export dialog ---- */
+dialog.pj-dlg {
+    width: min(560px, calc(100vw - 32px));
+    max-height: calc(100vh - 32px);
+    padding: 0;
+    color: var(--fg);
+    background: var(--surface-2);
+    border: 1px solid var(--border-strong);
+    border-radius: var(--r-lg);
+    font: var(--fs-md) var(--font);
+}
+dialog.pj-dlg::backdrop {
+    background: rgb(0 0 0 / 0.55);
+}
+.pj-dlg-head {
+    padding: var(--sp-4) var(--sp-5);
+    font-size: var(--fs-lg);
+    font-weight: 600;
+    border-bottom: 1px solid var(--border);
+}
+.pj-dlg-body {
+    display: grid;
+    gap: var(--sp-3);
+    padding: var(--sp-4) var(--sp-5);
+    max-height: calc(100vh - 160px);
+    overflow: auto;
+}
+.pj-dlg-foot {
+    display: flex;
+    gap: var(--sp-2);
+    justify-content: flex-end;
+    padding: var(--sp-3) var(--sp-5);
+    border-top: 1px solid var(--border);
+}
+.ex-summary {
+    padding: var(--sp-3);
+    background: var(--surface-1);
+    border: 1px solid var(--border);
+    border-radius: var(--r-md);
+}
+.ex-summary ul {
+    margin: var(--sp-2) 0 0;
+    padding-left: 1.2em;
+}
+.ex-summary li.warn,
+.ex-summary .bad,
+.pj-dlg .bad {
+    color: var(--warn, #d9a441);
+}
+.ex-dest {
+    display: flex;
+    gap: var(--sp-3);
+    align-items: baseline;
+    flex-wrap: wrap;
+}
+.ex-dest code {
+    overflow-wrap: anywhere;
+}
+.ex-lbl {
+    color: var(--fg-muted);
+}
+.ex-check {
+    display: flex;
+    gap: var(--sp-2);
+    align-items: center;
+}
+.ex-result {
+    margin: 0;
+    padding: var(--sp-3);
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    background: var(--surface-1);
+    border: 1px solid var(--border);
+    border-radius: var(--r-md);
+    font: var(--fs-xs) var(--ed-mono, monospace);
+}
+.pj-recent {
+    display: grid;
+    gap: var(--sp-1);
+    margin-top: var(--sp-3);
+}
+.pj-recent .pj-link {
+    justify-self: start;
+    text-align: left;
+    overflow-wrap: anywhere;
+}

@@ -10,6 +10,7 @@ import {
     MODEL_SCALE,
     type DocPlacement,
 } from './models.ts';
+import { AnimationLayer } from './animlayer.ts';
 import { nearestHit } from './pickmath.ts';
 import type { TerrainScene } from './terrain.ts';
 import type { TextureCache, TextureLookup } from './textures.ts';
@@ -42,6 +43,7 @@ export interface LayerHit {
 }
 
 const tmpM = new THREE.Matrix4();
+const ZERO = new THREE.Matrix4().makeScale(0, 0, 0);
 
 /** Selection boxes are capped: a huge box select would otherwise create thousands of line objects. */
 const MAX_BOXES = 300;
@@ -58,6 +60,7 @@ class Outline {
     private readonly boxMat: THREE.LineBasicMaterial;
     private readonly boxGeo = new THREE.EdgesGeometry(new THREE.BoxGeometry(1, 1, 1));
     private readonly tint: THREE.Color;
+    private animatedBoxes: LayerObject[] = [];
 
     constructor(
         color: number,
@@ -88,8 +91,15 @@ class Outline {
 
     set(objects: readonly LayerObject[]): void {
         const by = new Map<string, LayerObject[]>();
+        this.animatedBoxes = [];
         for (const o of objects) {
             if (!this.layer.has(o.resource)) continue;
+            // Animated instances get their tint from the animation layer (the batch only knows the bind pose).
+            const animated = this.layer.anim.isAnimated(o.id);
+            if (animated) {
+                this.animatedBoxes.push(o);
+                continue;
+            }
             let l = by.get(o.resource);
             if (!l) by.set(o.resource, (l = []));
             l.push(o);
@@ -147,6 +157,28 @@ class Outline {
             });
             b.mesh.instanceMatrix.needsUpdate = true;
         }
+        for (const o of this.animatedBoxes) {
+            const e = this.layer.entry(o.resource);
+            if (!e || nBox >= MAX_BOXES) continue;
+            const { min, max } = e.model.bounds;
+            const local = new THREE.Matrix4().compose(
+                new THREE.Vector3((min[0] + max[0]) / 2, (min[1] + max[1]) / 2, (min[2] + max[2]) / 2),
+                new THREE.Quaternion(),
+                new THREE.Vector3(
+                    Math.max(max[0] - min[0], 1e-3),
+                    Math.max(max[1] - min[1], 1e-3),
+                    Math.max(max[2] - min[2], 1e-3),
+                ),
+            );
+            docInstanceMatrix(o, tmpM);
+            const box = new THREE.LineSegments(this.boxGeo, this.boxMat);
+            box.matrixAutoUpdate = false;
+            box.matrix.multiplyMatrices(tmpM, local);
+            box.frustumCulled = false;
+            box.renderOrder = 20;
+            this.boxes.add(box);
+            nBox++;
+        }
     }
 
     /** Drop everything cached per class (a new level reuses resource strings for other classes). */
@@ -182,6 +214,14 @@ export class ModelLayer {
     private readonly sel: Outline;
     private readonly hov: Outline;
     private raycaster = new THREE.Raycaster();
+    /** Animated characters: nearest on-screen skinned instances replace their bind-pose batch entries. */
+    readonly anim: AnimationLayer;
+    /** Instances of the batches that are hidden because the animation layer draws them. */
+    private readonly hiddenInst = new Set<number>();
+    private readonly placed = new Map<number, LayerObject>();
+    private readonly slot = new Map<number, { b: Batch; i: number }>();
+    private selObjs: readonly LayerObject[] = [];
+    private hovObjs: readonly LayerObject[] = [];
     /** Draw calls the last `sync` produced (one per class with instances). */
     batchCount = 0;
 
@@ -190,7 +230,25 @@ export class ModelLayer {
         this.terrainRoot.name = 'terrain-root';
         this.sel = new Outline(0xffc83d, this);
         this.hov = new Outline(0x8fd3ff, this);
-        this.root.add(this.terrainRoot, this.group, this.sel.group, this.hov.group);
+        this.anim = new AnimationLayer(
+            (id, hidden) => this.hideInstance(id, hidden),
+            () => {
+                this.sel.set(this.selObjs);
+                this.hov.set(this.hovObjs);
+            },
+        );
+        this.root.add(this.terrainRoot, this.group, this.anim.group, this.sel.group, this.hov.group);
+    }
+
+    private hideInstance(id: number, hidden: boolean): void {
+        if (hidden) this.hiddenInst.add(id);
+        else this.hiddenInst.delete(id);
+        const at = this.slot.get(id);
+        const o = this.placed.get(id);
+        if (!at || !o) return;
+        if (hidden) at.b.mesh.setMatrixAt(at.i, ZERO);
+        else at.b.mesh.setMatrixAt(at.i, docInstanceMatrix(o, tmpM));
+        at.b.mesh.instanceMatrix.needsUpdate = true;
     }
 
     // ---- terrain ------------------------------------------------------------------------------------------------
@@ -295,6 +353,8 @@ export class ModelLayer {
             }
         }
         let n = 0;
+        this.placed.clear();
+        this.slot.clear();
         for (const [res, list] of byResource) {
             const e = this.entries.get(res);
             if (!e || !list.length) continue;
@@ -315,7 +375,11 @@ export class ModelLayer {
             b.ids = list.map((o) => o.id);
             b.mesh.count = list.length;
             b.mesh.visible = true;
-            list.forEach((o, i) => b!.mesh.setMatrixAt(i, docInstanceMatrix(o, tmpM)));
+            list.forEach((o, i) => {
+                this.placed.set(o.id, o);
+                this.slot.set(o.id, { b: b!, i });
+                b!.mesh.setMatrixAt(i, this.hiddenInst.has(o.id) ? ZERO : docInstanceMatrix(o, tmpM));
+            });
             b.mesh.instanceMatrix.needsUpdate = true;
             b.mesh.computeBoundingSphere();
             n++;
@@ -350,16 +414,20 @@ export class ModelLayer {
                 break;
             }
         }
+        hits.push(this.anim.pick(ray, skip));
         return nearestHit(hits);
     }
 
     // ---- outlines and ghost ---------------------------------------------------------------------------------------
 
     setSelection(objects: readonly LayerObject[]): void {
+        this.selObjs = objects;
         this.sel.set(objects);
+        this.anim.setSelected(objects.map((o) => o.id));
     }
 
     setHover(objects: readonly LayerObject[]): void {
+        this.hovObjs = objects;
         this.hov.set(objects);
     }
 
@@ -386,6 +454,12 @@ export class ModelLayer {
     /** Forget everything level specific (terrain, models, instances): resources mean other classes in another level. */
     reset(): void {
         this.setTerrain(null);
+        this.anim.reset();
+        this.hiddenInst.clear();
+        this.placed.clear();
+        this.slot.clear();
+        this.selObjs = [];
+        this.hovObjs = [];
         for (const b of this.batches.values()) {
             this.group.remove(b.mesh);
             b.mesh.dispose();
@@ -404,6 +478,7 @@ export class ModelLayer {
 
     dispose(): void {
         this.reset();
+        this.anim.dispose();
         this.sel.dispose();
         this.hov.dispose();
         this.group.clear();

@@ -26,16 +26,19 @@ import {
     type ModMeta,
 } from '@drakan/editor-core';
 import { launchEnv, parsePlayOptions, type PlayOptions } from './launch.ts';
-import { buildLevelPack, changeCount, playInGame, writePackToModsFolder } from './modio.ts';
+import { buildLevelPack, changeCount, playInGame, writePackToModsFolder, type LevelPack } from './modio.ts';
 import * as platform from './platform.ts';
 import type { LevelLoadResult } from './rpc.ts';
 
 export const PLAYTEST_PACK_ID = 'editor.playtest';
 export const DESKTOP_ONLY = 'Available in the desktop app';
 
-/** Yaw (radians, rotation about y) for a horizontal view direction: yaw 0 faces +x, positive yaw turns toward -z. */
+/**
+ * Yaw (radians, rotation about y) for a horizontal view direction. Measured in game (2026-11-01, Surdana farmer): yaw 0 faces
+ * -z, yaw -pi/2 faces +x, yaw +pi/2 faces -x (an NPC at +x of the player showed on the right at yaw 0 and straight ahead at -pi/2).
+ */
 export function yawFromDirection(dx: number, dz: number): number {
-    return Math.atan2(-dz, dx);
+    return Math.atan2(-dx, -dz);
 }
 
 /** Independent copy of a document (objects are cloned by `fromJSON`). */
@@ -187,6 +190,20 @@ async function disableWhenDone(): Promise<void> {
     }
 }
 
+/**
+ * A level copy of the open project has no disc LVL of its own: the play test needs a pack that adds the whole level. The
+ * project installer registers how (`buildProjectPack` for that one level); null = `title` is not a project copy.
+ */
+type CopyPlayProvider = (
+    title: string,
+    doc: LevelDocument,
+    meta: ModMeta,
+) => Promise<Pick<LevelPack, 'meta' | 'files'> | null>;
+let copyProvider: CopyPlayProvider | null = null;
+export function setCopyPlayProvider(p: CopyPlayProvider | null): void {
+    copyProvider = p;
+}
+
 export async function playTestDoc(
     host: PlayTestHost,
     doc: LevelDocument,
@@ -205,8 +222,9 @@ export async function playTestDoc(
         target,
     };
     // The pack carries the author's edits (and the cut scene switch); without any edit the game starts unmodified.
+    const copy = copyProvider && doc.level ? await copyProvider(doc.level, doc, meta) : null;
     const edited = changeCount(diffDocument(src.lvl.list, doc)) > 0;
-    const pack = edited ? buildLevelPack(src, doc, meta) : null;
+    const pack = copy ?? (edited ? buildLevelPack(src, doc, meta) : null);
     const opts: PlayOptions = { ...savedOptions(), mode: 'single', startLevel: true };
     const msg = await playInGame(pack, opts, doc.level || null, extraEnv);
     if (msg === null) return;

@@ -1,11 +1,11 @@
 import { clamp, store } from './dom.ts';
 
 /**
- * Resizable dock layout: left panel, right panel and bottom dock separated from the viewport by splitters. Sizes and
+ * Resizable dock layout: right panel and bottom dock separated from the viewport by splitters. Sizes and
  * collapsed state persist (localStorage, optional). Double-click a splitter to collapse or restore its panel.
  */
 interface Dock {
-    key: 'left' | 'right' | 'bottom';
+    key: 'right' | 'bottom';
     panel: HTMLElement;
     splitter: HTMLElement;
     min: number;
@@ -32,16 +32,6 @@ export function initLayout(root: HTMLElement, onResize: () => void): Layout {
         return el;
     };
     const docks: Dock[] = [
-        {
-            key: 'left',
-            panel: q('#ed-left'),
-            splitter: q('#ed-split-left'),
-            min: 180,
-            max: 520,
-            def: 270,
-            axis: 'x',
-            invert: false,
-        },
         {
             key: 'right',
             panel: q('#ed-right'),

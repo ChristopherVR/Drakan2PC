@@ -12,6 +12,7 @@ export const isDesktop: boolean = typeof window !== 'undefined' && '__TAURI_INTE
 
 export interface DesktopSettings {
     recentIsos: string[];
+    recentProjects: string[];
     gameDir: string | null;
     modsDir: string | null;
     saveDir: string | null;
@@ -143,6 +144,28 @@ export async function downloadFile(
     setTimeout(() => URL.revokeObjectURL(a.href), 10_000);
     return null;
 }
+
+// ---- project folders ----------------------------------------------------------------------------------------------------
+
+export interface ProjectFolderInfo {
+    dir: string;
+    name: string;
+    /** The project file's text; null for a folder that was just created. */
+    text: string | null;
+}
+
+/** Native "where should the project folder go" dialog, then create `<chosen>/<name>`. Null when cancelled. */
+export const projectNew = (name: string): Promise<ProjectFolderInfo | null> => invoke('project_new', { name });
+/** Native folder dialog, then read its project file. Null when cancelled. */
+export const projectOpen = (): Promise<ProjectFolderInfo | null> => invoke('project_open');
+/** Re-open a project from the recent list. */
+export const projectOpenPath = (path: string): Promise<ProjectFolderInfo> => invoke('project_open_path', { path });
+/** Save the project file in place (the shell keeps the previous version as `.bak`). */
+export const projectWrite = (dir: string, text: string): Promise<number> =>
+    invokeRaw('project_write', new TextEncoder().encode(text), { 'x-dir': b64Text(dir) });
+/** Write one file under the project folder (`mod/<id>.zip`); returns the full path. */
+export const projectFileWrite = (dir: string, rel: string, bytes: Uint8Array): Promise<string> =>
+    invokeRaw('project_file_write', bytes, { 'x-dir': b64Text(dir), 'x-rel': b64Text(rel) });
 
 // ---- mods and the game --------------------------------------------------------------------------------------------------
 

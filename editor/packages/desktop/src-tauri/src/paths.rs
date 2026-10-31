@@ -12,6 +12,21 @@ pub fn valid_mod_id(id: &str) -> bool {
             .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-'))
 }
 
+/// A folder name for a new project: the name with characters Windows forbids replaced, never empty or dotted.
+pub fn folder_name(name: &str) -> String {
+    let s: String = name
+        .trim()
+        .chars()
+        .map(|c| if c.is_control() || "\\/:*?\"<>|".contains(c) { '-' } else { c })
+        .collect();
+    let s: String = s.trim_matches(|c| c == '.' || c == ' ' || c == '-').chars().take(64).collect();
+    if s.is_empty() {
+        "My mod".to_string()
+    } else {
+        s
+    }
+}
+
 /// A path inside a pack: relative, `/` separated, no `.` / `..`, no drive or stream syntax.
 pub fn valid_pack_path(p: &str) -> bool {
     if p.is_empty() || p.len() > 240 || p.starts_with('/') {
@@ -126,6 +141,14 @@ mod tests {
         let base = Path::new("mods").join("id");
         assert_eq!(join_pack_path(&base, "a/b.bin").unwrap(), base.join("a").join("b.bin"));
         assert!(join_pack_path(&base, "../b.bin").is_none());
+    }
+
+    #[test]
+    fn project_folder_names() {
+        assert_eq!(folder_name("My Map: v2?"), "My Map- v2");
+        assert_eq!(folder_name(".."), "My mod");
+        assert_eq!(folder_name("  "), "My mod");
+        assert_eq!(folder_name("a/b"), "a-b");
     }
 
     #[test]

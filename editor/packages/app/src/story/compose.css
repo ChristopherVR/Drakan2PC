@@ -1,0 +1,134 @@
+/* Story authoring pages (New dialogue, New cut scene, Quest marker). Design tokens only. */
+.cmp .story-body {
+    grid-template-columns: minmax(240px, 2fr) 3fr;
+}
+.cmp-form {
+    gap: var(--sp-2);
+}
+.cmp-field {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    flex: 0 0 auto;
+    min-width: 0;
+}
+.cmp-row > .cmp-field,
+.cmp-row > .story-chk {
+    flex: 1 1 150px;
+}
+.cmp-label,
+.cmp-lead {
+    color: var(--fg-muted);
+    font-size: var(--fs-xs);
+}
+.cmp-lead {
+    font-weight: 600;
+    margin-top: var(--sp-2);
+}
+.cmp-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--sp-2);
+    align-items: flex-end;
+}
+.cmp-num {
+    background: var(--field);
+    color: var(--fg);
+    border: 1px solid var(--border-strong);
+    border-radius: var(--r-xs);
+    padding: 3px 6px;
+    font: inherit;
+    font-size: var(--fs-sm);
+    min-width: 0;
+    width: 100%;
+    box-sizing: border-box;
+}
+.cmp-grid {
+    display: grid;
+    gap: var(--sp-1);
+    align-items: center;
+}
+.cmp-point,
+.cmp-head {
+    grid-template-columns: 2.5em repeat(6, minmax(52px, 1fr)) auto;
+}
+.cmp-step {
+    grid-template-columns: 2.5em minmax(110px, 1fr) minmax(56px, 80px) minmax(160px, 3fr) auto;
+}
+.cmp-head {
+    color: var(--fg-muted);
+    font-size: var(--fs-xs);
+}
+.cmp-detail {
+    display: flex;
+    gap: var(--sp-1);
+    min-width: 0;
+}
+.cmp-detail > * {
+    flex: 1;
+    min-width: 0;
+}
+.cmp-sounds {
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+}
+.cmp-sounds .story-row {
+    padding: 0;
+    align-items: center;
+}
+.cmp-pick {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    align-items: baseline;
+    gap: var(--sp-2);
+    background: transparent;
+    border: 0;
+    color: inherit;
+    font: inherit;
+    text-align: left;
+    padding: 3px 6px;
+    cursor: pointer;
+}
+.cmp-name {
+    font-size: var(--fs-sm);
+    font-weight: 500;
+}
+.cmp-preview {
+    border: 1px solid var(--border);
+    border-radius: var(--r-xs);
+    background: var(--surface-2);
+    padding: var(--sp-2);
+    display: flex;
+    flex-direction: column;
+    gap: var(--sp-1);
+    font-size: var(--fs-sm);
+}
+.cmp-seq {
+    margin: 0;
+    padding-left: 22px;
+    color: var(--fg-muted);
+}
+.cmp-seq .new {
+    color: var(--fg);
+    font-weight: 600;
+}
+.cmp-sub {
+    display: flex;
+    flex-direction: column;
+    gap: var(--sp-2);
+    padding: var(--sp-2);
+    border-left: 2px solid var(--border);
+}
+.cmp-note {
+    color: var(--fg-muted);
+    font-size: var(--fs-xs);
+    margin-top: var(--sp-2);
+}
+.cmp .btnrow {
+    display: flex;
+    gap: var(--sp-2);
+    align-items: center;
+    flex-wrap: wrap;
+}

@@ -12,7 +12,8 @@ export interface AutosaveRecord {
     savedAt: number;
     doc: LevelDocumentJson;
     bookmarks: CameraBookmark[];
-    mod: { id: string; name: string; version: string; author: string };
+    /** Older records carried the mod fields of the removed Mod form; ignored. */
+    mod?: { id: string; name: string; version: string; author: string };
 }
 
 const DB = 'drakan-editor';

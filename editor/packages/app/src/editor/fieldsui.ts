@@ -8,6 +8,8 @@ import {
     sameFieldValue,
     searchCatalog,
     setObjectField,
+    suggestValues,
+    type Suggestion,
     typeCode,
     typeName,
     widgetFor,
@@ -716,6 +718,48 @@ function buildRow(ctx: Ctx, row: Row, objCount: number): Built {
             setRaw: set,
         });
         const setWords = (next: number[]): void => commit(next);
+        let known: Suggestion[] | null = null;
+        const suggestions = (): Suggestion[] =>
+            (known ??= suggestValues({
+                name: row.name,
+                type: row.type,
+                doc: ctx.doc(),
+                catalog: ctx.catalog(),
+                provider: provider ?? null,
+                owner: first.schema,
+            }));
+        /**
+         * An element with known values: a type-to-filter dropdown of them plus "Other value..." which reveals the raw
+         * number box (also shown when the stored value is not one of the known ones).
+         */
+        const suggestControl = (
+            list: Suggestion[],
+            value: number,
+            input: HTMLInputElement,
+            set: (n: number) => void,
+        ): HTMLElement => {
+            const sel = h('select', { class: 'sel', 'aria-label': `${row.name} value`, 'data-search': 'on' });
+            const groups = new Map<string, HTMLElement>();
+            for (const g of new Set(list.map((x) => x.group))) {
+                const og = h('optgroup', { label: g });
+                groups.set(g, og);
+                sel.append(og);
+            }
+            for (const x of list) groups.get(x.group)!.append(h('option', { value: String(x.value) }, x.label));
+            const isKnown = list.some((x) => x.value === value);
+            if (!isKnown) sel.prepend(h('option', { value: String(value) }, String(value)));
+            sel.append(h('option', { value: 'other' }, 'Other value...'));
+            sel.value = String(value);
+            input.hidden = true;
+            input.value = String(value);
+            sel.addEventListener('change', () => {
+                if (sel.value === 'other') {
+                    input.hidden = false;
+                    input.focus();
+                } else set(Number(sel.value));
+            });
+            return h('span', { class: 'inputrow sugg' }, sel, input);
+        };
         const paintExtra = (): void => {
             const ws = words();
             const open = state.arrOpen.has(row.key);
@@ -775,15 +819,16 @@ function buildRow(ctx: Ctx, row: Row, objCount: number): Built {
                     const el = decodeElement(row.type, word);
                     input.value = fmtNum(el, isFloatEl);
                     input.step = isFloatEl ? '0.1' : '1';
-                    input.addEventListener('change', () => {
-                        const n = Number(input.value);
+                    const setAt = (n: number): void => {
                         const cw = words();
                         if (!cw || !Number.isFinite(n)) return;
                         setWords(
                             cw.map((x, j) => (j === i ? encodeElement(row.type, isFloatEl ? n : Math.trunc(n)) : x)),
                         );
-                    });
-                    ctl = input;
+                    };
+                    input.addEventListener('change', () => setAt(Number(input.value)));
+                    const known = isFloatEl ? [] : suggestions();
+                    ctl = known.length ? suggestControl(known, el, input, setAt) : input;
                 }
                 return h('div', { class: 'arr-row' }, h('span', { class: 'dim idx' }, String(i + 1)), ctl, rm);
             });

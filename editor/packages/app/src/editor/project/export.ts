@@ -82,7 +82,12 @@ function sourceDir(deps: ProjectExportDeps, title: string): string | null {
 }
 
 /** Build one pack from every level the project lists, plus story edits. Throws ModError with a plain reason. */
-export async function buildProjectPack(deps: ProjectExportDeps, p: ModProject): Promise<ProjectPack> {
+export async function buildProjectPack(
+    deps: ProjectExportDeps,
+    p: ModProject,
+    /** Documents to use instead of the open one or the autosave, by level title (the play test's edited copies). */
+    docs?: ReadonlyMap<string, LevelDocument>,
+): Promise<ProjectPack> {
     const target = deps.target();
     if (!target) throw new ModError('The disc profile is unknown; open your disc image first.');
     const warnings: string[] = [];
@@ -90,13 +95,14 @@ export async function buildProjectPack(deps: ProjectExportDeps, p: ModProject): 
     const entries: ChangedEntry[] = [];
     const extra: Record<string, Uint8Array> = {};
     const copies: string[] = [];
+    const copyOf: string[] = [];
 
     for (const l of p.levels) {
         const srcTitle = l.copyOf ?? l.title;
         const dir = sourceDir(deps, srcTitle);
         if (!dir) throw new ModError(`"${srcTitle}" is not on the open disc.`);
         const src = await loadSrc(deps, dir);
-        const doc = await editedDoc(deps, l.title);
+        const doc = docs?.get(l.title) ?? (await editedDoc(deps, l.title));
         let payload: Uint8Array | null = null;
         let report: ReturnType<typeof applyDocumentToLvl>['report'] | null = null;
         if (doc) {
@@ -145,6 +151,10 @@ export async function buildProjectPack(deps: ProjectExportDeps, p: ModProject): 
         for (const ext of ['DB', 'TXD', 'ODB', 'ADB', 'MOD', 'SDB']) {
             const data = await deps.call('readStoryFile', `LEVELS\\${srcStem}\\${from}.${ext}`);
             if (data) {
+                // The LVL's dependency table still names `<source level>_splats` (opened when the copy is entered
+                // through an exit); a play test that starts the copy through the New Game redirect asks for
+                // `<copy>_splats`. Both names ship: a missing splat file crashes the level load.
+                extra[`files/ENGLISH/LEVELS/${mangled}/${from}.${ext}`] = data;
                 extra[`files/ENGLISH/LEVELS/${mangled}/${to}.${ext}`] = data;
                 splats++;
             }
@@ -152,12 +162,13 @@ export async function buildProjectPack(deps: ProjectExportDeps, p: ModProject): 
         if (!splats)
             warnings.push(`${l.title}: no splat files found next to ${srcStem}; the game may fail to load it.`);
         copies.push(l.title);
+        copyOf.push(`${l.title} = ${srcTitle}`);
         lines.push(
             `${l.title}: new level (copy of ${srcTitle})${payload ? `, ${changeCount(report!.diff)} change(s)` : ''}`,
         );
     }
 
-    const meta = { ...projectMeta(p, target), ...(copies.length ? { levels: copies } : {}) };
+    const meta = { ...projectMeta(p, target), ...(copies.length ? { levels: copies, levelCopies: copyOf } : {}) };
     const files = buildModFiles(meta, entries);
     Object.assign(files, extra);
 

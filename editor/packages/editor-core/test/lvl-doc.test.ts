@@ -283,6 +283,15 @@ describe('mod pack layout', () => {
         expect(t).toContain('description = "a b"');
         expect(t).toContain('\n[target]\nprofile = "pal"\nhash = "b9f60ba118125a54"\n');
     });
+    it('writes the level copies of a project', () => {
+        const t = buildManifestToml({
+            ...meta,
+            levels: ['City Copy'],
+            levelCopies: ['City Copy = Level 1D - City of the Damned'],
+        });
+        expect(t).toContain('levels = ["City Copy"]\n');
+        expect(t).toContain('level_copies = ["City Copy = Level 1D - City of the Damned"]\n');
+    });
     it('validates ids and targets', () => {
         expect(() => validateModMeta({ ...meta, id: 'bad id' })).toThrow();
         expect(() => validateModMeta({ ...meta, id: '' })).toThrow();

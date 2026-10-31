@@ -171,29 +171,70 @@ async function writeAll(handle: FsFileHandle, data: Uint8Array): Promise<void> {
     await w.close();
 }
 
+/** Backup files of `name` in `names`, oldest first: `NAME.bak`, `NAME.bak.1`, `NAME.bak.2`, ... */
+export function backupChain(names: Iterable<string>, name: string): string[] {
+    const out: { n: number; name: string }[] = [];
+    for (const e of names) {
+        if (e === `${name}.bak`) out.push({ n: 0, name: e });
+        else if (e.startsWith(`${name}.bak.`)) {
+            const k = e.slice(name.length + 5);
+            if (/^\d+$/.test(k)) out.push({ n: Number(k), name: e });
+        }
+    }
+    return out.sort((a, b) => a.n - b.n).map((x) => x.name);
+}
+
+/** Backups next to the file when the folder is known (browser folder handle); null when it cannot be listed. */
+export async function listBackups(ref: SaveRef): Promise<string[] | null> {
+    if (!ref.dir) return null;
+    const names: string[] = [];
+    for await (const e of ref.dir.values()) names.push(e.name);
+    return backupChain(names, ref.name);
+}
+
+/**
+ * A single picked file gives a file handle but no folder. Ask once for the folder that holds it (the picker opens
+ * beside the file) and check the file really is in there, so the `.bak` can be written without more dialogs.
+ * Returns the folder, or null when the user cancelled or picked the wrong one.
+ */
+export async function attachFolder(ref: SaveRef): Promise<FsDirHandle | null> {
+    if (ref.dir || !ref.handle || platform.isDesktop) return ref.dir ?? null;
+    const pick = fsa().showDirectoryPicker;
+    if (!pick) return null;
+    try {
+        const dir = await pick.call(window, { mode: 'readwrite', id: 'drakan-save-folder', startIn: ref.handle });
+        const same = await dir.getFileHandle(ref.handle.name).then(
+            async (h) => (await (h as unknown as FileWithSame).isSameEntry?.(ref.handle)) ?? true,
+            () => false,
+        );
+        if (!same) throw new Error(`That folder does not contain ${ref.handle.name}; pick the folder the save is in.`);
+        ref.dir = dir;
+        return dir;
+    } catch (e) {
+        if (e instanceof DOMException && e.name === 'AbortError') return null;
+        throw e;
+    }
+}
+interface FileWithSame {
+    isSameEntry?(other: unknown): Promise<boolean>;
+}
+
 /**
  * Write `bytes` over the file, keeping the previous contents as a backup next to it first (`NAME.bak`, then
- * `.bak.1`, ...). With a folder handle the backup is automatic; with only a file handle the browser asks where to
- * put it (the dialog opens beside the file). Returns the backup name. Nothing is written if the backup fails.
+ * `.bak.1`, ...; an existing backup is never replaced). In the browser the backup goes into the folder: if only a
+ * file was picked, the folder is asked for once. Returns the backup name. Nothing is written if the backup fails.
  */
 export async function saveWithBackup(ref: SaveRef, bytes: Uint8Array): Promise<string> {
     if (ref.path) return (await platform.writeSave(ref.path, bytes)).backup;
     const handle = ref.handle;
     if (!handle) throw new Error('This save was opened read-only; use EXPORT.');
     const current = new Uint8Array(await (await handle.getFile()).arrayBuffer());
-    let backup: string;
-    if (ref.dir) {
-        const names: string[] = [];
-        for await (const e of ref.dir.values()) names.push(e.name);
-        backup = nextBackupName(names, handle.name);
-        await writeAll(await ref.dir.getFileHandle(backup, { create: true }), current);
-    } else {
-        const pick = fsa().showSaveFilePicker;
-        if (!pick) throw new Error('Cannot write a backup in this browser; use EXPORT.');
-        const bak = await pick.call(window, { suggestedName: `${handle.name}.bak`, startIn: handle });
-        backup = bak.name;
-        await writeAll(bak, current);
-    }
+    const dir = ref.dir ?? (await attachFolder(ref));
+    if (!dir) throw new DOMException('Backup folder not chosen', 'AbortError');
+    const names: string[] = [];
+    for await (const e of dir.values()) names.push(e.name);
+    const backup = nextBackupName(names, handle.name);
+    await writeAll(await dir.getFileHandle(backup, { create: true }), current);
     await writeAll(handle, bytes);
     return backup;
 }
