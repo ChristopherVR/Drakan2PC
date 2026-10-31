@@ -1,5 +1,7 @@
 // Message contract between the UI thread and the parsing worker.
 
+import type { DiscProfile, Lvl, OdbIndex } from '@drakan/formats';
+
 export interface LevelInfo {
     name: string;
     /** Mangled directory on disc, e.g. `LEVELS\LEVEL1NA`. */
@@ -13,6 +15,8 @@ export interface OpenResult {
     languages: string[];
     language: string;
     levels: LevelInfo[];
+    /** From SYSTEM.CNF; null when the disc has none. */
+    profile: DiscProfile | null;
 }
 
 export interface FileInfo {
@@ -64,6 +68,20 @@ export interface RoundTripResult {
     roundTrips: boolean;
 }
 
+export interface LevelLoadResult {
+    /** Language-relative path of the LVL, e.g. `ENGLISH\LEVELS\LEVEL1NA\LEVEL1NA.LVL`. */
+    path: string;
+    /** File name used in `overrides/<FILE>/`, e.g. `LEVEL1NA.LVL`. */
+    file: string;
+    /** SRSC entry holding the object list (0x0020) with its stored size. */
+    objects: { type: number; id: number; sub: number; size: number };
+    lvl: Lvl;
+    /** Class tables of the ODBs the level depends on, keyed by stem. */
+    odbs: OdbIndex;
+    /** Dependencies whose ODB could not be found on the disc. */
+    missingOdbs: string[];
+}
+
 export interface Api {
     open(file: File): OpenResult;
     setLanguage(language: string): LevelInfo[];
@@ -71,6 +89,7 @@ export interface Api {
     openFile(path: string): FileOpenResult;
     readEntry(path: string, index: number, offset: number, length: number, inflate: boolean): EntryBytes;
     exportRoundTrip(path: string, max: number): RoundTripResult;
+    loadLevel(dirPath: string): LevelLoadResult;
     decodeTextures(path: string, indices: number[] | null): TextureResult[];
 }
 

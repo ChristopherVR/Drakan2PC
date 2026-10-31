@@ -28,6 +28,25 @@ export class TransformCommand implements Command {
     }
 }
 
+export class SetScaleCommand implements Command {
+    readonly label = 'Scale';
+    private old: [number, number, number] | undefined;
+    constructor(
+        private readonly id: number,
+        private readonly value: [number, number, number],
+    ) {}
+    apply(doc: LevelDocument): void {
+        const o = doc.get(this.id);
+        if (!o?.scale) return;
+        this.old = [...o.scale];
+        o.scale = [...this.value];
+    }
+    revert(doc: LevelDocument): void {
+        const o = doc.get(this.id);
+        if (o?.scale && this.old) o.scale = [...this.old];
+    }
+}
+
 export class DeleteCommand implements Command {
     readonly label = 'Delete';
     private removed: LevelObject[] = [];

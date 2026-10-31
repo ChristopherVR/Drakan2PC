@@ -113,6 +113,12 @@ resource type, so the runtime does not raise the limit. Policy, enforced when th
 * The 64 slot limit of `FileService` concerns simultaneously open game files, not entries, and is not affected until
   whole-file replacements exist.
 
+### Known gap: level LVL files
+
+`LEVELxx.LVL` is read by the guest with plain file reads, not RSRCIOP entry requests, so `overrides/LEVEL*.LVL/...` entries
+load (the pack validates and is reported) but are never applied. Other containers read through RSRCIOP (`INTERFCE.TXD`,
+`.XDB`) work. Details and the proposed runtime change: [level-edit-e2e](../journal/2026-10-31/level-edit-e2e.md).
+
 ## Writing a pack by hand
 
 1. Extract the entry with `analysis/scripts/iop_srsc.py` (or the editor) from your own disc.

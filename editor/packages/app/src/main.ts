@@ -1,3 +1,4 @@
+import type { DiscProfile } from '@drakan/formats';
 import type { Api, EntryInfo, FileInfo, FileOpenResult, LevelInfo, Method, Request, Response } from './rpc.ts';
 import { TextureViewport } from './viewport.ts';
 import { initLevelUi } from './levelui.ts';
@@ -55,6 +56,8 @@ let currentEntry: EntryInfo | null = null;
 let hexOffset = 0;
 let hexTotal = 0;
 let viewport: TextureViewport | null = null;
+let isoName = '';
+let discProfile: DiscProfile | null = null;
 
 function setStatus(msg: string, error = false): void {
     status.textContent = msg;
@@ -88,6 +91,9 @@ async function openIso(file: File): Promise<void> {
         langSel.replaceChildren(...r.languages.map((l) => new Option(l, l, false, l === r.language)));
         langSel.disabled = r.languages.length < 2;
         renderLevels(r.levels);
+        isoName = file.name;
+        discProfile = r.profile;
+        levelUi.setDisc({ isoName, levels: r.levels, profile: discProfile });
         filesEl.replaceChildren();
         filesPath.textContent = '';
         clearEntries();
@@ -295,7 +301,12 @@ $<HTMLInputElement>('iso-input').onchange = (e) => {
     if (f) void openIso(f);
 };
 langSel.onchange = () => {
-    call('setLanguage', langSel.value).then(renderLevels).catch(reportError);
+    call('setLanguage', langSel.value)
+        .then((levels) => {
+            renderLevels(levels);
+            levelUi.setDisc({ isoName, levels, profile: discProfile });
+        })
+        .catch(reportError);
 };
 
 const drop = $('drop');
@@ -331,7 +342,6 @@ window.addEventListener('drop', (e) => {
 
 const levelUi = initLevelUi({
     call: (method, ...args) => call(method, ...args),
-    currentFile: () => currentFile,
     setStatus,
 });
 

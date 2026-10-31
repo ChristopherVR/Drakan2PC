@@ -47,6 +47,8 @@ export class LevelView {
     private readonly raycaster = new THREE.Raycaster();
     private meshes = new Map<EntityKind, { mesh: THREE.InstancedMesh; ids: number[] }>();
     private selMesh: THREE.InstancedMesh | null = null;
+    private ghostMesh: THREE.InstancedMesh | null = null;
+    private ghost: LevelObject[] = [];
     private readonly geo: THREE.BufferGeometry;
     private raf = 0;
     private keys = new Set<string>();
@@ -155,6 +157,12 @@ export class LevelView {
         this.ev.onSelection([]);
         this.frameAll();
         this.ev.onChange();
+    }
+
+    /** Reference objects drawn as cyan outlines (a world dump compared with the document); not editable. */
+    setGhost(objs: LevelObject[]): void {
+        this.ghost = objs;
+        this.dirtyInstances = true;
     }
 
     run(cmd: Parameters<CommandStack['run']>[0]): void {
@@ -477,6 +485,26 @@ export class LevelView {
             mesh.computeBoundingSphere();
             this.scene.add(mesh);
             this.meshes.set(kind, { mesh, ids: list.map((o) => o.id) });
+        }
+        if (this.ghostMesh) {
+            this.scene.remove(this.ghostMesh);
+            this.ghostMesh.dispose();
+            this.ghostMesh = null;
+        }
+        if (this.ghost.length) {
+            const gm = new THREE.InstancedMesh(
+                this.geo,
+                new THREE.MeshBasicMaterial({ color: 0x22d3ee, wireframe: true }),
+                this.ghost.length,
+            );
+            gm.frustumCulled = false;
+            this.ghost.forEach((o, i) => {
+                this.objMatrix(o, 0.3, tmpM);
+                gm.setMatrixAt(i, tmpM);
+            });
+            gm.instanceMatrix.needsUpdate = true;
+            this.scene.add(gm);
+            this.ghostMesh = gm;
         }
         this.dirtySel = true;
     }

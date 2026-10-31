@@ -1,7 +1,13 @@
+import type { DiscProfile } from '@drakan/formats';
 import {
     Iso9660,
     SrscReader,
+    LVL_TYPE_OBJECTS,
     TXD_ENTRY_TYPE,
+    buildOdbIndex,
+    odbStemForDependency,
+    parseSystemCnf,
+    readLvl,
     blobSource,
     decodeTxd,
     parseDb,
@@ -17,6 +23,7 @@ import type {
     FileInfo,
     FileOpenResult,
     LevelInfo,
+    LevelLoadResult,
     OpenResult,
     Request,
     Response,
@@ -75,7 +82,10 @@ const api: { [K in keyof Api]: (...a: Parameters<Api[K]>) => Promise<ReturnType<
             if (e.isDir && (await iso.find(`${e.name}\\LEVELLST.TXT`))) languages.push(e.name);
         }
         language = languages.includes('ENGLISH') ? 'ENGLISH' : (languages[0] ?? '');
-        const out: OpenResult = { volumeId: iso.volumeId, languages, language, levels: await loadLevels() };
+        let profile: DiscProfile | null = null;
+        const cnf = await iso.find('SYSTEM.CNF');
+        if (cnf && !cnf.isDir && cnf.size < 4096) profile = parseSystemCnf(decoder.decode(await iso.read(cnf)));
+        const out: OpenResult = { volumeId: iso.volumeId, languages, language, levels: await loadLevels(), profile };
         return out;
     },
     async setLanguage(l) {
@@ -153,6 +163,38 @@ const api: { [K in keyof Api]: (...a: Parameters<Api[K]>) => Promise<ReturnType<
         for (const { e } of idx)
             entries.push({ type: e.type, id: e.id, sub: e.sub, data: (await r.readRaw(e)).slice() });
         return { file: path.slice(path.lastIndexOf('\\') + 1), entries, roundTrips };
+    },
+    async loadLevel(dirPath): Promise<LevelLoadResult> {
+        const fs = need();
+        const lvlFile = (await fs.list(dirPath)).find((e) => !e.isDir && /\.LVL$/i.test(e.name));
+        if (!lvlFile) throw new Error(`no .LVL file in ${dirPath}`);
+        const reader = await SrscReader.open(sliceSource(fs.source, lvlFile.extent * 2048, lvlFile.size));
+        const lvl = await readLvl(reader);
+        const e = reader.entries.find((x) => x.type === LVL_TYPE_OBJECTS)!;
+        const odbReaders = new Map<string, SrscReader>();
+        const missingOdbs: string[] = [];
+        for (const d of lvl.header.dependencies) {
+            const stem = odbStemForDependency(d.path.text);
+            if (odbReaders.has(stem)) continue;
+            const f = await fs.find(`${resolveDependencyStem(dirPath, d.path.text)}.ODB`);
+            if (!f || f.isDir) {
+                missingOdbs.push(d.path.text);
+                continue;
+            }
+            try {
+                odbReaders.set(stem, await SrscReader.open(sliceSource(fs.source, f.extent * 2048, f.size)));
+            } catch {
+                missingOdbs.push(d.path.text);
+            }
+        }
+        return {
+            path: lvlFile.path,
+            file: lvlFile.name,
+            objects: { type: e.type, id: e.id, sub: e.sub, size: e.size },
+            lvl,
+            odbs: await buildOdbIndex(odbReaders),
+            missingOdbs,
+        };
     },
     async decodeTextures(path, indices) {
         const r = await getSrsc(path);

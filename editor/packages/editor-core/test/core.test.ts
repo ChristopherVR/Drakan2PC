@@ -102,15 +102,12 @@ describe('mod export', () => {
         const r = await SrscReader.fromBytes(file);
         expect(await srscRoundTrips(r, [0, 1])).toBe(true);
     });
-    it('writes manifest and override entries', async () => {
-        const zip = buildModZip({
-            name: 'T',
-            entries: [{ file: 'LEVEL.RRC', entry: { type: 4, id: 5, sub: 6 }, data: Uint8Array.of(7, 7) }],
-        });
+    it('writes mod.toml and override entries in the runtime layout', () => {
+        const zip = buildModZip({ id: 'test.t', target: { profile: 'pal' } }, [
+            { file: 'LEVEL.RRC', entry: { type: 4, id: 5, sub: 6 }, data: Uint8Array.of(7, 7) },
+        ]);
         const f = unzipSync(zip);
-        expect([...f['overrides/LEVEL.RRC/4_5_6.bin']!]).toEqual([7, 7]);
-        const m = JSON.parse(strFromU8(f['manifest.json']!));
-        expect(m.provisional).toBe(true);
-        expect(m.overrides[0].path).toBe('overrides/LEVEL.RRC/4_5_6.bin');
+        expect([...f['overrides/LEVEL.RRC/0004_5_6.bin']!]).toEqual([7, 7]);
+        expect(strFromU8(f['mod.toml']!)).toContain('id = "test.t"');
     });
 });

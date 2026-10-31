@@ -16,6 +16,10 @@ export interface LevelObject {
     model: string;
     transform: Transform;
     props: Record<string, string | number | boolean>;
+    /** LVL object id this object was loaded as (or duplicated from); absent for world-dump objects. */
+    origin?: number;
+    /** Scale triple; only present for LVL objects that have flag 0x100 (scale cannot be added to others). */
+    scale?: [number, number, number];
 }
 
 export const DOCUMENT_FORMAT = 'drakan-level-document';
@@ -33,6 +37,7 @@ export function cloneObject(o: LevelObject): LevelObject {
         ...o,
         transform: { pos: [...o.transform.pos], rot: [...o.transform.rot] },
         props: { ...o.props },
+        ...(o.scale ? { scale: [...o.scale] as [number, number, number] } : {}),
     };
 }
 
