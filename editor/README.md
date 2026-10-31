@@ -93,7 +93,12 @@ panel, preview capture) and `packages/editor-core/src/{arena,gamemodes,arenapack
   level (New Game loads it), optional auto-skip of title/intro, and optional multiplayer test variables
   (`DRAKAN_NET_HOST` / `_MODE` / `_CONNECT`, `DRAKAN_GHOST`; see `docs/reference/netcode.md`). Only a fixed list of
   `DRAKAN_*` variables can be passed (`src-tauri/src/paths.rs`).
-- Native File / Edit / View / Help menus and window size/position persistence.
+- **Play test**: right-click in the viewport or the Outliner, the drop-down beside Play, F5. "Play from here / from camera /
+  from this object" starts the level with the player at that point and heading (`DRAKAN_PLAYTEST_POS`, handled by the game's
+  `drakan_playtest.cpp`; picks without floor are refused), "Play this cut scene" starts the chosen Stomp Player through a
+  temporary trigger, "Play test arena" hosts the open multiplayer map and can start a second instance that joins it. They use a
+  temporary pack `editor.playtest` that is switched off in `mods.ini` when the game exits. Notes: `docs/journal/2026-10-31/desktop-e2e-playtest.md`.
+- Native File / Edit / View / Help menus and window size/position persistence (saved when the window is closed normally).
 
 The webview gets no blanket fs, shell or http access: `src-tauri/build.rs` lists the 15 app commands and
 `capabilities/default.json` grants each by name. Saves are only readable or writable after the user picked them in the

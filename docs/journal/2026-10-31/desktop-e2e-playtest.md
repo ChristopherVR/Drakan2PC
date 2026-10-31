@@ -20,27 +20,53 @@ screenshots and game logs are in `build/scratch/desktop2/` (git-ignored).
   `remoteBlob` (`worker.ts`) took the short body as the whole answer. Fixed: it now loops until the requested length is
   assembled. Level 1A now shows "Terrain: 483 layers, 374 meshes". (Any read over 1 MiB was affected, not just terrain.)
 
-## Play test (new)
-Right-click in the viewport or an Outliner row, the ▾ button beside Play, command palette, F5 (desktop only).
+## Play test (new, second round)
+Right-click in the viewport or an Outliner row, the drop-down beside Play, palette commands, F5 (desktop only).
 - **Play from here / from camera / from this object**: writes the author's edits (if any) as the temporary pack
   `editor.playtest`, starts the level with `DRAKAN_START_LEVEL` and `DRAKAN_PLAYTEST_POS="x y z yaw"`. Moving the Rynn
-  object in the level does NOT move the start (tested: the dump shows the same start), so the runtime moves the player:
-  `ps2recomp/ps2xRuntime/src/lib/drakan_playtest.{h,cpp}` (called from `drakan_input_glue.cpp` after the arena hook): 240
-  boundaries after the player appears, writes `player+0x14` / rotation, files the actor again (`drakan_ghost::refileActor`),
-  repeats until it stuck, then holds the position for 240 boundaries so the terrain under the player streams in (without
-  the hold she fell through before it was resident). Logs `[playtest] ...`.
-  Proof: click on terrain -> `[playtest] armed: target 489472 172199 253320`; from the object #?: target 564434 180313 534429,
-  `placed after 1 try`, `+120..+480 boundaries` player at 564796 174071 536449 (stable), dump frame 900 shows
-  564786 174197 536302. A target that is not walkable (the editor's ground pick at 489472 253320 on the first try) is
-  undone by the engine: the player ends up at the start again; pick ground inside the level's playable area.
-- **Play this cut scene**: copy of the document with the Stomp Player's `Initial State` set to On, same pack. The menu
-  entry and pack are verified; **the cut scene itself was not seen starting** (Stomp #7809: the screenshots at frames 11500
-  and 12500 show ordinary play). Still open.
-- **Play test arena (host / host + second player)**: the entries exist and are greyed ("Open a multiplayer map first")
-  until the multiplayer map editor calls `setArenaPlayProvider` (`playtest.ts`); not wired to its pack yet, not run. The shell
-  command `game_launch` gained `extra` (second instance beside the running one) for this; not exercised from the UI.
+  object in the level does NOT move the start, so the runtime moves the player: `ps2recomp/ps2xRuntime/src/lib/drakan_playtest.{h,cpp}`
+  (called from `drakan_input_glue.cpp` after the arena hook): 240 boundaries after the player appears it writes
+  `player+0x14` and the rotation matrix, files the actor again (`drakan_ghost::refileActor`), repeats until it stuck, then holds
+  the position and heading for 240 boundaries (without the hold she fell through terrain that was not resident yet and the
+  engine put her back at the start), and logs `[playtest] ...` (position and yaw every 120 boundaries afterwards).
+  Proof (game log + the game's own `GSR_WINSHOT` screenshot, `playhere-yaw-final.jpg`, `game-playhere-yaw.log`): a viewport
+  click gave `target 460903 179256 610505 yaw set 1.571`, `placed after 1 try (0 units)`, and for the next 1800 boundaries
+  the player stays at `460903 179440 610505` with `yaw 1.571` read back from the rotation matrix (`atan2(m[0][2], m[0][0])`),
+  Rynn stands in a narrow passage far from the start. The camera heading is the game's own; only the actor's yaw is proven.
+- **Bad picks are refused in the editor** (`standableProblem`): no terrain under the point, or no level object within 6000
+  units of it ("That spot is far from everything in the level ..."). The game undoes a teleport onto ground it has no floor
+  for (a first pick at 489472 253320 ended with the player at the start again). Verified: the camera-centre pick over the
+  void is refused with that message. Object picks (Play from this object) are not checked.
+- **Play this cut scene**: copy of the document plus the "cutscene-trigger" template (10 x 8 x 10 cell volume, message Play
+  Sequence, Detect Both, once) around the Rynn object, linked to the chosen Stomp Player, and the player is put there
+  (`DRAKAN_PLAYTEST_POS`). Findings: setting `Initial State` to On starts nothing; a Timer (Run Instantly, Play Sequence)
+  linked to the Stomp Player is never instantiated by the game (the dump shows 111 timers of the editor's 175, none ours);
+  a small 6 x 4 x 6 volume with the player teleported into it did not fire; the 10 x 8 x 10 volume did: in the control run
+  (no trigger) Rynn stands alive at the same spot for 1800+ boundaries, with the trigger she is pulled into the scene's pose
+  and ends dead on the ground by frame 6100 (`cutscene-proof-contact-sheet.jpg`, frames 5200 to 6700, the orc ambush of
+  Surdana's #7809 presumably kills the 24 HP the new game starts with, not seen; in one run the game was back at the title by frame 11500).
+  Not proven: a frame of the sequence itself (the camera cut is not in the captures).
+- **Play test arena (host / host + second player)**: `editor/arena/install.ts` registers `setArenaPlayProvider` (pack
+  built from the open map without a preview picture, mode dm/tdm, refused with the first validation error). Run from the app
+  on an authored map "Test Meadow" (Surdana, 8 suggested spawns, `mp-test-meadow` pack): the pack was written and enabled, the
+  host started with `DRAKAN_MP_MAP=test-meadow`, 15 s later the app started a second instance with `DRAKAN_NET_CONNECT`
+  (`game_launch(extra = true)`): log `arena world mode on: Test Meadow`, `player 2 'Tester 2' joined`, `phase -> 2 (match level
+  'test-meadow')`, `player placed at spawn 1: 224186 159616 339675` (`game-arena-second-instance.log`; both instances share one
+  `drakan.log`, so only the last writer survives). The 15 s wait is a fixed delay.
 - In the browser build the entries are shown disabled with "Available in the desktop app".
-- After the game exits the editor sets `editor.playtest = off` in `mods.ini` (checked), so a plain Play is unaffected.
+- After the game exits the editor sets `editor.playtest = off` in `mods.ini` (checked).
+
+## Desktop shell checks (second round)
+- **Native dialog automated**: `invoke('iso_pick')` opens the Windows "Open your Drakan disc image" dialog; UI Automation set the
+  file name and invoked Open, the command returned the `IsoInfo` (3453943808 bytes).
+- **Window state**: `CloseMainWindow()` (a graceful close) writes `%APPDATA%/dev.drakan.editor/.window-state.json`; moved to
+  120,70 and sized 1333x811, the next launch opened at 120,70 with width 1333 and height 781 (30 px shorter: the menu bar is
+  counted differently when the size is restored). Killing the process by PID writes nothing, which is why the first round saw no file.
+- **Hazards found**: other agents' desktop apps share `%APPDATA%/dev.drakan.editor/settings.json` and the WebView2 profile.
+  A second app with `--remote-debugging-port` fails to start while another uses the default profile (HRESULT 0x8007139F): set
+  `WEBVIEW2_USER_DATA_FOLDER`. One agent's save of its settings replaced the private `gameDir` and one of my Play clicks wrote
+  `mods/editor.playtest` and ran `dist/DrakanPC/drakan.exe` (cleaned: the `mods` folder and my world dump were removed from
+  `dist/DrakanPC`). Check `settings_get().gameDir` before every Play (`chk.mjs`).
 
 ## API added
 `registry.ts`: `ContextItem.unavailable(t)` (reason string greys the entry, shown as its hint; `objectmenu.ts` maps it).
@@ -49,6 +75,5 @@ allow-list gained `DRAKAN_PLAYTEST_POS`. `playtest.ts` (pure: `yawFromDirection`
 `playFromHere`, `playCutScene`, `playArena`, `setArenaPlayProvider`), `editor/playtestui.ts` (`installPlayTest`).
 
 ## Not done
-Native dialogs, window-state persistence (the app was always stopped by PID, which skips the plugin's save), the save
-editor items (in-place save and `.bak` in the desktop app and Chrome, tray, collapsible dock, quest pictures, item
-tooltips, journal seen bits) and the add-item investigation were not started.
+The save editor items (a separate agent has them) and the add-item investigation. A frame of the cut scene sequence itself.
+The arena play test was run with both instances in one folder (shared log); a pickup-less map only.

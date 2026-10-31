@@ -177,6 +177,7 @@ variable exists it wins over the `drakan.ini` value of `[section] key`. `DRAKAN_
 | `DRAKAN_SKIP_MEMCARD_WARNING` | Skip the no-memory-card warning screen. |
 | `DRAKAN_MEMCARD_DIR` | Memory card 1 folder (card 2 = sibling `mc1`) instead of `<elf dir>/mc0`; an empty folder boots without saves (`docs/reference/input.md` 13). |
 | `DRAKAN_START_LEVEL`, `DRAKAN_START_LEVEL_FROM` | New Game loads this level (long name, e.g. `Level 4A - Ravenshold`) in place of `Level 1A - Surdana` (or of `_FROM`): HLE file-open redirect (`runtime/hle` `FileService::setLevelRedirect`). |
+| `DRAKAN_PLAYTEST_POS` | `"x y z [yaw]"` (game units, yaw radians): once the player is under control she is moved there and held for a few seconds while the terrain streams in (`drakan_playtest.cpp`, set by the editor's "Play from here"). |
 | `DRAKAN_TEST_LEVEL_SAVE` | `1`: every save screen opens in level-change mode (save screen mode 1, request `{1, "", no callback}` through the ctor `0x4442e0`), so a harness reaches it from the pause menu's Save Game (`play_run.py --level-save`). The slot click prepares the folder but writes no `.rsg` (the level exit's callback does that). |
 | `DRAKAN_LOG_DIR` | Folder for `drakan.log` / `drakan.1.log` instead of the exe folder (test runs). |
 | `DRAKAN_PARRY_AUDIT`, `DRAKAN_COMBAT_AUDIT`, `DRAKAN_COMBAT_CALL_TRACE` | Combat audit log lines used by the harnesses (`scripts/harness/`). |

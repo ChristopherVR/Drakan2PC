@@ -6,8 +6,8 @@
 //                      clicked ground point facing the camera direction (DRAKAN_PLAYTEST_POS="x y z yaw", read by
 //                      ps2xRuntime/src/lib/drakan_playtest.cpp). Moving the Rynn object in the level does not work: the
 //                      game ignores it at New Game.
-//   - Play cut scene   adds a trigger volume (message Play Sequence) at the player start, linked to the chosen cut scene
-//                      player (Stomp Player): it plays as the level starts (level-format.md section 14).
+//   - Play cut scene   adds a big trigger volume (message Play Sequence) at the player start, linked to the chosen cut scene
+//                      player (Stomp Player), and puts the player there.
 //   - Play test arena  host a multiplayer map from its exported pack (the arena panel provides the pack through
 //                      `setArenaPlayProvider`); optionally a second instance joins it.
 // The temporary pack is switched off in mods.ini again when the game exits, so a later plain Play is not affected.
@@ -94,10 +94,10 @@ export function findPlayerStart(doc: LevelDocument): LevelObject | undefined {
 }
 
 /**
- * A copy of `doc` where cut scene player `id` plays as soon as the level starts: a trigger volume with the message
- * "Play Sequence" at the player start, linked to the cut scene player (the "cutscene-trigger" logic template; proven in
- * game on Surdana's #7809, level-format.md section 14). Setting the player's `Initial State` to On did not start it.
- * Returns the copy, or an error sentence.
+ * A copy of `doc` where cut scene player `id` plays when the level starts: a big trigger volume (message "Play Sequence",
+ * Detect Which "Both", once) around the player start, linked to the cut scene player: the "cutscene-trigger" logic
+ * template with a 10 x 8 x 10 cell volume, the setup proven in game on Surdana's #7809 (level-format.md section 14). A Timer
+ * (Start Mode Run Instantly) was tried first and never came to life in the game. Returns the copy, or an error sentence.
  */
 export function withCutScene(
     doc: LevelDocument,
@@ -114,7 +114,7 @@ export function withCutScene(
     if (!tpl) return { error: 'The cut scene trigger template is missing.' };
     const built = tpl.build(
         { doc: copy, env, catalog, at: [...start.transform.pos] as [number, number, number], selection: [] },
-        { cutscene: id, once: true, w: 6, h: 4, d: 6 },
+        { cutscene: id, once: true, w: 10, h: 8, d: 10 },
     );
     if ('error' in built) return { error: built.error };
     new ApplyTemplateCommand(built, 'Play cut scene').apply(copy);
@@ -233,12 +233,15 @@ export async function playCutScene(host: PlayTestHost, id: number): Promise<void
     if (!doc || !env) throw new Error('Open a level first.');
     const r = withCutScene(doc, env, host.catalog(), id);
     if ('error' in r) throw new Error(r.error);
-    // The player does not necessarily start inside the trigger (New Game starts her elsewhere than the Rynn object), so
-    // she is put into the volume the same way "Play from here" does it.
-    const at = findPlayerStart(r.doc)!.transform.pos;
-    await playTestDoc(host, r.doc, 'Play cut scene', {
-        DRAKAN_PLAYTEST_POS: `${Math.round(at[0])} ${Math.round(at[1] + 256)} ${Math.round(at[2])}`,
-    });
+    // Level objects only come to life near the player, and New Game starts her far from the Rynn object in Surdana (the
+    // swamp), so she is put at the player start where the timer is created; there it runs at once.
+    const at = findPlayerStart(r.doc)?.transform.pos;
+    await playTestDoc(
+        host,
+        r.doc,
+        'Play cut scene',
+        at ? { DRAKAN_PLAYTEST_POS: `${Math.round(at[0])} ${Math.round(at[1] + 256)} ${Math.round(at[2])}` } : {},
+    );
 }
 
 /** Host the open multiplayer map; with `joiner` a second instance joins it (needs the second-instance shell command). */

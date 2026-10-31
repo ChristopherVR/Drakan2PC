@@ -26,6 +26,7 @@
 #if defined(PS2X_HAVE_GSR) // compiled with the GS renderer only
 #include "drakan_ghost.h"
 #include "drakan_arena.h"
+#include "drakan_playtest.h"
 #include "drakan_coop.h"
 #include "drakan_netplay.h"
 #include "drakan_pvp.h"
@@ -715,6 +716,7 @@ void hookPadMgrUpdate(uint8_t* rdram, R5900Context* c, PS2Runtime* rt) {
     drakan_coop::beforePadMgr(g, rdram);
     drakan_pvp::beforePadMgr(g, rdram);
     drakan_arena::beforePadMgr(g, rdram);
+    drakan_playtest::beforePadMgr(g, rdram);
     if (drakan_arena::takeUseTap())
         m.injectPadTap(Pad::L1, 2);
 #endif
