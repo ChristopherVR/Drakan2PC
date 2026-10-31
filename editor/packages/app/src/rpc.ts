@@ -56,12 +56,21 @@ export interface TextureResult {
     error?: string;
 }
 
+export interface RoundTripResult {
+    file: string;
+    /** Entries rewritten with their own bytes (raw, as stored). */
+    entries: { type: number; id: number; sub: number; data: Uint8Array }[];
+    /** Writer self-test: unchanged rewrite equals the source byte for byte. */
+    roundTrips: boolean;
+}
+
 export interface Api {
     open(file: File): OpenResult;
     setLanguage(language: string): LevelInfo[];
     listDir(path: string): FileInfo[];
     openFile(path: string): FileOpenResult;
     readEntry(path: string, index: number, offset: number, length: number, inflate: boolean): EntryBytes;
+    exportRoundTrip(path: string, max: number): RoundTripResult;
     decodeTextures(path: string, indices: number[] | null): TextureResult[];
 }
 

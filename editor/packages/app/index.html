@@ -14,6 +14,10 @@
                 Open ISO
                 <input id="iso-input" type="file" accept=".iso,.bin,.img" hidden />
             </label>
+            <nav id="tabs">
+                <button id="tab-inspect" class="active">Inspector</button>
+                <button id="tab-level">Level</button>
+            </nav>
             <span id="status">Choose or drop your own disc image. Nothing is uploaded; files are read locally.</span>
         </header>
         <main>
@@ -57,6 +61,45 @@
                     ><button id="vp-reset">Reset view</button>
                 </h2>
                 <div id="viewport"></div>
+            </section>
+        </main>
+        <main id="level-main" hidden>
+            <aside id="level-side">
+                <div class="toolbar">
+                    <label class="button">Open dump<input id="lv-dump" type="file" accept=".json" hidden /></label>
+                    <label class="button">Load doc<input id="lv-load" type="file" accept=".json" hidden /></label>
+                    <button id="lv-save" disabled>Save doc</button>
+                    <button
+                        id="lv-export"
+                        disabled
+                        title="Writes a provisional mod zip from the SRSC file open in the inspector"
+                    >
+                        Export mod
+                    </button>
+                </div>
+                <div class="toolbar">
+                    <button id="lv-undo" disabled>Undo</button>
+                    <button id="lv-redo" disabled>Redo</button>
+                    <button id="lv-dup" disabled>Duplicate</button>
+                    <button id="lv-del" disabled>Delete</button>
+                    <button id="lv-move" class="active">Move</button>
+                    <button id="lv-rot">Rotate</button>
+                    <button id="lv-frame">Frame</button>
+                </div>
+                <section class="filters">
+                    <input id="lv-search" type="search" placeholder="Search id, class, resource, model, handle" />
+                    <input id="lv-class" type="search" placeholder="Class contains (hex, e.g. 100d3)" />
+                    <div id="lv-kinds"></div>
+                </section>
+                <section id="lv-props" class="props">Select an object.</section>
+            </aside>
+            <section id="lv-viewport">
+                <div id="lv-hud"></div>
+                <div id="lv-empty">
+                    Open or drop a world dump (.json) from your own game, or a saved level document.<br />
+                    Keys: 1 move, 2 rotate, F frame, Ctrl+D duplicate, Del delete, Ctrl+Z/Y undo/redo, WASD/QE fly,
+                    shift-click multi-select.
+                </div>
             </section>
         </main>
         <div id="drop" hidden>Drop the ISO to open it</div>

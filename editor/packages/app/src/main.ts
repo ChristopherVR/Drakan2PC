@@ -1,5 +1,6 @@
 import type { Api, EntryInfo, FileInfo, FileOpenResult, LevelInfo, Method, Request, Response } from './rpc.ts';
 import { TextureViewport } from './viewport.ts';
+import { initLevelUi } from './levelui.ts';
 
 const $ = <T extends HTMLElement>(id: string): T => {
     const el = document.getElementById(id);
@@ -315,5 +316,28 @@ window.addEventListener('drop', (e) => {
     dragDepth = 0;
     drop.hidden = true;
     const f = e.dataTransfer?.files[0];
-    if (f) void openIso(f);
+    if (!f) return;
+    if (/\.json$/i.test(f.name)) {
+        showTab('level');
+        levelUi.loadFile(f).catch(reportError);
+    } else void openIso(f);
 });
+
+// ---- tabs + level mode ----------------------------------------------------------------------------------------
+
+const levelUi = initLevelUi({
+    call: (method, ...args) => call(method, ...args),
+    currentFile: () => currentFile,
+    setStatus,
+});
+
+function showTab(tab: 'inspect' | 'level'): void {
+    document.querySelector('main')!.hidden = tab !== 'inspect';
+    $('level-main').hidden = tab !== 'level';
+    $('tab-inspect').classList.toggle('active', tab === 'inspect');
+    $('tab-level').classList.toggle('active', tab === 'level');
+    if (tab === 'level') levelUi.view();
+}
+$('tab-inspect').onclick = () => showTab('inspect');
+$('tab-level').onclick = () => showTab('level');
+(window as unknown as { drakanEditor: unknown }).drakanEditor = { levelUi, showTab };

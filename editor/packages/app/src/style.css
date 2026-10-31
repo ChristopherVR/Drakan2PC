@@ -237,3 +237,130 @@ pre {
         overflow: auto;
     }
 }
+#tabs {
+    display: flex;
+    gap: 4px;
+}
+#tabs button.active,
+.toolbar button.active {
+    background: var(--sel);
+    border-color: var(--accent);
+}
+#level-main {
+    flex: 1;
+    min-height: 0;
+    display: grid;
+    grid-template-columns: 340px 1fr;
+}
+#level-main[hidden],
+main[hidden] {
+    display: none;
+}
+#level-side {
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    border-right: 1px solid var(--line);
+    background: var(--panel);
+    overflow: auto;
+}
+.toolbar {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+    padding: 6px 8px;
+    border-bottom: 1px solid var(--line);
+}
+.filters {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    padding: 8px;
+    border-bottom: 1px solid var(--line);
+}
+.filters input[type='search'],
+.props input[type='text'],
+.props input[type='number'] {
+    background: var(--bg);
+    color: var(--text);
+    border: 1px solid var(--line);
+    border-radius: 4px;
+    padding: 3px 6px;
+    font: inherit;
+    min-width: 0;
+}
+#lv-kinds {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px 10px;
+}
+#lv-kinds label {
+    display: inline-flex;
+    gap: 4px;
+    align-items: center;
+}
+#lv-kinds i {
+    width: 10px;
+    height: 10px;
+    border-radius: 2px;
+    display: inline-block;
+}
+.props {
+    padding: 8px;
+    font-size: 12px;
+}
+.props table {
+    width: 100%;
+    border-collapse: collapse;
+}
+.props td {
+    padding: 2px 4px;
+}
+.props td:first-child {
+    color: var(--dim);
+    width: 70px;
+}
+.props input {
+    width: 100%;
+}
+#lv-viewport {
+    position: relative;
+    min-height: 0;
+    min-width: 0;
+}
+#lv-viewport canvas {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    display: block;
+}
+#lv-hud {
+    position: absolute;
+    left: 8px;
+    top: 8px;
+    z-index: 2;
+    padding: 2px 8px;
+    background: color-mix(in srgb, var(--panel) 80%, transparent);
+    border-radius: 4px;
+    font:
+        12px ui-monospace,
+        Consolas,
+        monospace;
+    pointer-events: none;
+}
+#lv-empty {
+    position: absolute;
+    inset: auto 0 12px 0;
+    z-index: 2;
+    text-align: center;
+    color: var(--dim);
+    pointer-events: none;
+}
+@media (max-width: 1000px) {
+    #level-main {
+        grid-template-columns: 1fr;
+        grid-template-rows: auto minmax(360px, 1fr);
+        overflow: auto;
+    }
+}

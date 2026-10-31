@@ -9,6 +9,7 @@ import {
     resolveDependencyStem,
     sliceSource,
 } from '@drakan/formats';
+import { srscRoundTrips } from '@drakan/editor-core';
 import type {
     Api,
     EntryBytes,
@@ -19,6 +20,7 @@ import type {
     OpenResult,
     Request,
     Response,
+    RoundTripResult,
     TextureResult,
 } from './rpc.ts';
 
@@ -136,6 +138,21 @@ const api: { [K in keyof Api]: (...a: Parameters<Api[K]>) => Promise<ReturnType<
             total: e.size,
             inflated: false,
         };
+    },
+    async exportRoundTrip(path, max): Promise<RoundTripResult> {
+        const r = await getSrsc(path);
+        const idx = r.entries
+            .map((e, i) => ({ e, i }))
+            .filter(({ e }) => e.size > 0 && e.size < 1 << 20)
+            .slice(0, max);
+        const roundTrips = await srscRoundTrips(
+            r,
+            idx.map((x) => x.i),
+        );
+        const entries = [];
+        for (const { e } of idx)
+            entries.push({ type: e.type, id: e.id, sub: e.sub, data: (await r.readRaw(e)).slice() });
+        return { file: path.slice(path.lastIndexOf('\\') + 1), entries, roundTrips };
     },
     async decodeTextures(path, indices) {
         const r = await getSrsc(path);
