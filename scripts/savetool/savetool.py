@@ -340,13 +340,22 @@ FIELDS["quest"] = Field(
     "u32",
     "low",
     "Row N of the quest / map marker table (quest.N, last word of the 0x20-byte row). Row layout "
-    "{x, y, float, icon, enabled, region, quest id, state} matches RAM 0x4fbb70; the meaning of state is unverified.",
+    "{x, y, float, done, enabled, region, quest class, seen} matches RAM 0x4fbb70. The word is two 'seen' bits the "
+    "journal page (bit 2) and the map page (bit 4) set when they draw the row; it does not say whether a quest is done.",
+)
+FIELDS["quest.done"] = Field(
+    QuestLocator(),
+    0x0C,
+    "u32",
+    "medium",
+    "Done flag of quest row N (quest.N.done, 0 or 1, word +0x0c of the row, set by the quest message 0x116e). The "
+    "journal draws another icon for a done row.",
 )
 
 _SKILL_FIELD = re.compile(r"skill\.(\d+)(\.max)?")
 _PROGRESS_FIELD = re.compile(r"progress\.(\d+)")
 _INV_FIELD = re.compile(r"inv\.(\d+)\.(equipped|hot|durability|max)")
-_QUEST_FIELD = re.compile(r"quest\.(\d+)")
+_QUEST_FIELD = re.compile(r"quest\.(\d+)(\.done)?")
 
 
 def resolve_field(name: str) -> tuple[str, int | None]:
@@ -362,11 +371,11 @@ def resolve_field(name: str) -> tuple[str, int | None]:
         return f"inv.{match.group(2)}", int(match.group(1))
     match = _QUEST_FIELD.fullmatch(name)
     if match:
-        return "quest", int(match.group(1))
+        return ("quest.done" if match.group(2) else "quest"), int(match.group(1))
     if name in FIELDS and isinstance(FIELDS[name].locator, (RecordLocator, StatsLocator)):
         return name, None
     raise SaveToolError(
-        f"unknown field {name!r}; run `savetool fields` (skill.N, skill.N.max, progress.KEY, stat.NAME, inv.CELL.equipped|hot|durability|max, quest.ROW)"
+        f"unknown field {name!r}; run `savetool fields` (skill.N, skill.N.max, progress.KEY, stat.NAME, inv.CELL.equipped|hot|durability|max, quest.ROW, quest.ROW.done)"
     )
 
 
@@ -833,6 +842,7 @@ def fields_table() -> int:
         "inv.durability": "inv.N.durability",
         "inv.max": "inv.N.max",
         "quest": "quest.N",
+        "quest.done": "quest.N.done",
     }
     for name, field in FIELDS.items():
         if isinstance(field.locator, RecordLocator):

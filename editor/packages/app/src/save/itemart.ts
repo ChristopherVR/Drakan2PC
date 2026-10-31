@@ -24,7 +24,7 @@ export interface ItemArt {
  * and rendered with the same thumbnail renderer the Level tab uses. Cached for the session.
  */
 export function createItemArt(call: Call): ItemArt {
-    let names: Map<number, string> | null = null;
+    let names: Map<number, { name: string; detail: string }> | null = null;
     let loading: Promise<void> | null = null;
     let failed = false;
     let cache = new TextureCache();
@@ -42,7 +42,21 @@ export function createItemArt(call: Call): ItemArt {
         loading = call('loadItemCatalog')
             .then((c) => {
                 if (ep !== epoch) return;
-                names = new Map(c.classes.map((k) => [k.classId, k.name]));
+                names = new Map(
+                    c.classes.map((k) => [
+                        k.classId,
+                        {
+                            name: k.displayName || k.name,
+                            // The ODB class name is the editor-facing one; the game shows `displayName`.
+                            detail: [
+                                k.displayName && k.displayName !== k.name ? `Class: ${k.name}` : '',
+                                k.price ? `Shop price: ${k.price} gold` : '',
+                            ]
+                                .filter(Boolean)
+                                .join('\n'),
+                        },
+                    ]),
+                );
                 notify();
             })
             .catch(() => {
@@ -85,14 +99,16 @@ export function createItemArt(call: Call): ItemArt {
             if (n >>> 16 !== RESOURCES_DB) return null;
             ensureCatalog();
             const classId = n & 0xffff;
-            const name = names?.get(classId);
-            if (!name) return null;
+            const item = names?.get(classId);
+            if (!item) return null;
             want(classId);
-            return { name, thumb: thumbs.get(classId) ?? null };
+            return { name: item.name, detail: item.detail, thumb: thumbs.get(classId) ?? null };
         },
         classes: () =>
             names
-                ? [...names].map(([classId, name]) => ({ classId, name })).sort((a, b) => a.name.localeCompare(b.name))
+                ? [...names]
+                      .map(([classId, v]) => ({ classId, name: v.name }))
+                      .sort((a, b) => a.name.localeCompare(b.name))
                 : [],
         reset() {
             epoch++;

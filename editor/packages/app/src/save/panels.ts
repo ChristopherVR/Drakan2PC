@@ -16,6 +16,8 @@ import {
 import type { SaveRef } from '../saveio.ts';
 import { badge, h, hex, statTile } from './dom.ts';
 import { renderInventory, type ClassInfo } from './inventory.ts';
+import { renderJournal } from './journal.ts';
+import type { StoryData } from './storyart.ts';
 
 /** What the extra panels need from the Save tab. */
 export interface PanelCtx {
@@ -34,6 +36,8 @@ export interface PanelCtx {
     rerender(): void;
     /** Game name and model render of an item class (resource like `0x31bc9`), when a level with it is open. */
     classInfo?(resource: string): ClassInfo | null;
+    /** Quest classes and journal text of the open disc (null until loaded or without a disc). */
+    story?(): StoryData | null;
 }
 
 const fmt = (name: string, v: FieldValue | null | undefined): string =>
@@ -52,7 +56,7 @@ const storyState: StoryState = { q: '', nonZero: true, kind: '', allowEdit: fals
 export function renderStory(ctx: PanelCtx): HTMLElement {
     const { doc } = ctx;
     const rows = doc.progress;
-    const quests = renderQuests(ctx);
+    const quests = renderJournal(ctx);
     if (!rows.length) {
         return h(
             'div',
@@ -206,59 +210,6 @@ export function renderStory(ctx: PanelCtx): HTMLElement {
             count,
         ),
         table,
-    );
-}
-
-/** Quest / map marker rows, read only: the state word is not understood, so nothing here is editable. */
-function renderQuests(ctx: PanelCtx): HTMLElement {
-    const q = ctx.doc.quests;
-    if (!q.length) {
-        return h('p', { class: 'dim' }, 'No quest / map marker table was recognised in this save.');
-    }
-    const body = h(
-        'tbody',
-        null,
-        ...q.map((r) => {
-            const name = `quest.${r.index}`;
-            const cur = Number(ctx.doc.value(name));
-            return h(
-                'tr',
-                { class: cur !== r.state ? 'chg' : '' },
-                h('td', null, String(r.index)),
-                h('td', null, `0x${hex(r.questId, 4)}`),
-                h('td', null, `0x${hex(r.region, 2)}`),
-                h('td', null, `${r.x}, ${r.y}`),
-                h('td', null, String(r.icon)),
-                h('td', null, r.enabled ? 'yes' : 'no'),
-                h('td', null, h('input', { type: 'number', value: String(cur), disabled: true, 'data-field': name })),
-            );
-        }),
-    );
-    return h(
-        'div',
-        { class: 'questbox' },
-        h('h4', null, 'Quests and map markers'),
-        h(
-            'p',
-            { class: 'dim' },
-            'Read only. Rows are {x, y, icon, enabled, region, quest id, state} as stored in the save and in game memory. The ' +
-                'meaning of the state value (4, 2, 0...) is not understood and was never changed in game, so editing is disabled. ',
-            badge(FIELDS.quest!.confidence, FIELDS.quest!.confidence, FIELDS.quest!.note),
-        ),
-        h(
-            'table',
-            { class: 'grid' },
-            h(
-                'thead',
-                null,
-                h(
-                    'tr',
-                    null,
-                    ...['row', 'quest id', 'region', 'x, y', 'icon', 'enabled', 'state'].map((x) => h('th', null, x)),
-                ),
-            ),
-            body,
-        ),
     );
 }
 

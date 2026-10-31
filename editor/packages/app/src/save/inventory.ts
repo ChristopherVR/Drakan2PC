@@ -17,6 +17,8 @@ const KNOWN_ITEMS: Record<number, string> = {
 
 export interface ClassInfo {
     name: string;
+    /** Extra tooltip lines (class name, shop price), newline separated. */
+    detail?: string;
     /** PNG data URL of the model render, or null while it is still being drawn / when there is no model. */
     thumb: string | null;
 }
@@ -127,7 +129,7 @@ export function renderInventory(ctx: PanelCtx): HTMLElement {
                 {
                     class: `slot item${state.selected === k ? ' sel' : ''}${equipped ? ' eq' : ''}`,
                     style: `grid-column:${col} / span ${sp.cols};grid-row:${row} / span ${sp.rows}`,
-                    title: `Cell ${k}: ${name}`,
+                    title: [`Cell ${k}: ${name}`, info?.detail].filter(Boolean).join('\n'),
                     'data-cell': k,
                     onclick: () => {
                         state.selected = k;

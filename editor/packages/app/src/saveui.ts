@@ -6,6 +6,7 @@ import {
     TYPE_NAMES,
     TYPE_RECORD,
     classHex,
+    diffQuests,
     diffSaves,
     formatFieldValue,
     locateField,
@@ -15,6 +16,7 @@ import {
     resolveField,
     summarizeSave,
     type FieldValue,
+    type QuestDiffRow,
     type RecordInfo,
     type SaveDiff,
     type SaveFile,
@@ -24,6 +26,8 @@ import './save/save.css';
 import { badge, fmtDate, h, hex, hexDump, shotCanvas, statTile } from './save/dom.ts';
 import { drawMap, groupColor, mapBounds, pickMap, type MapBounds, type MapPoint } from './save/map.ts';
 import type { ClassInfo } from './save/inventory.ts';
+import type { StoryData } from './save/storyart.ts';
+import { listQuestsSafe, questCompare } from './save/journal.ts';
 import { renderItems, renderRepair, renderStory, renderTransfer, type PanelCtx } from './save/panels.ts';
 import {
     download,
@@ -48,6 +52,10 @@ export interface SaveUiHost {
     classInfo?(resource: string): ClassInfo | null;
     /** Subscribe to "item names or pictures arrived" so the Items tab can redraw. */
     onItemArt?(fn: () => void): void;
+    /** Quest classes and journal text of the open disc. */
+    story?(): StoryData | null;
+    /** Subscribe to "the story catalog loaded or was reset" so the Story tab can redraw. */
+    onStory?(fn: () => void): void;
 }
 
 type SubTab = 'character' | 'world' | 'items' | 'story' | 'transfer' | 'compare' | 'repair';
@@ -66,7 +74,7 @@ export function initSaveUi(host: SaveUiHost): { openFile(f: File): Promise<void>
     let cur: Open | null = null;
     let discovered: SaveRef[] = [];
     let subtab: SubTab = 'character';
-    let diff: { a: string; b: string; result: SaveDiff } | null = null;
+    let diff: { a: string; b: string; result: SaveDiff; quests: QuestDiffRow[] } | null = null;
     let selectedEntry: number | null = null;
     let hexLimit = 512;
     let busy = false;
@@ -78,6 +86,10 @@ export function initSaveUi(host: SaveUiHost): { openFile(f: File): Promise<void>
             artFrame = 0;
             if (cur && subtab === 'items') renderExtra();
         });
+    });
+
+    host.onStory?.(() => {
+        if (cur && (subtab === 'story' || subtab === 'compare')) renderExtra();
     });
 
     const err = (e: unknown): void => host.setStatus(e instanceof Error ? e.message : String(e), true);
@@ -346,6 +358,7 @@ export function initSaveUi(host: SaveUiHost): { openFile(f: File): Promise<void>
             changed: () => refresh(),
             rerender: () => renderExtra(),
             classInfo: host.classInfo,
+            story: host.story,
         };
     }
 
@@ -1011,6 +1024,7 @@ export function initSaveUi(host: SaveUiHost): { openFile(f: File): Promise<void>
             a: `${cur.ref.name}${cur.doc.pendingEdits().length ? ' (with pending edits)' : ''}`,
             b: label,
             result: diffSaves(a, b),
+            quests: diffQuests(listQuestsSafe(a), listQuestsSafe(b)),
         };
         renderCompare();
         showSub('compare');
@@ -1027,6 +1041,7 @@ export function initSaveUi(host: SaveUiHost): { openFile(f: File): Promise<void>
                 a: `${cur.ref.name} (with pending edits)`,
                 b: `${cur.ref.name} (as opened)`,
                 result: diffSaves(built, cur.original),
+                quests: diffQuests(listQuestsSafe(built), listQuestsSafe(cur.original)),
             };
             renderCompare();
             showSub('compare');
@@ -1144,6 +1159,7 @@ export function initSaveUi(host: SaveUiHost): { openFile(f: File): Promise<void>
             h('div', { class: 'cmphead' }, h('b', null, 'A'), ` ${diff.a}  `, h('b', null, 'B'), ` ${diff.b}`),
             h('h4', null, 'Fields'),
             ft,
+            questCompare(diff.quests, host.story?.() ?? null),
             h(
                 'h4',
                 null,

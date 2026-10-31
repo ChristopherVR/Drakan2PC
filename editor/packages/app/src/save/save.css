@@ -386,3 +386,64 @@
 .questbox {
     margin-bottom: 14px;
 }
+
+/* Story tab: journal view */
+.journal .chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+}
+.journal .chip {
+    border-radius: 999px;
+    padding: 3px 12px;
+}
+.journal .chip.on {
+    background: var(--accent, #3b82f6);
+    color: #fff;
+    border-color: transparent;
+}
+.journal .chapter {
+    margin: 18px 0;
+}
+.journal .chapter h4 {
+    margin: 0 0 8px;
+    padding-bottom: 4px;
+    border-bottom: 1px solid var(--border, #8884);
+}
+.journal .qrow {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 10px;
+    border-radius: 8px;
+    border: 1px solid transparent;
+}
+.journal .qrow:hover {
+    background: var(--hover, #8881);
+}
+.journal .qrow.chg {
+    border-color: var(--accent, #3b82f6);
+}
+.journal .qrow.done .qtitle {
+    text-decoration: line-through;
+    opacity: 0.65;
+}
+.journal .qrow.notStarted .qtitle,
+.journal .qrow.discovered .qtitle {
+    opacity: 0.8;
+}
+.journal .qtext {
+    flex: 1;
+    min-width: 0;
+}
+.journal .qsub {
+    font-size: 0.85em;
+}
+.journal .qtick {
+    width: 18px;
+    height: 18px;
+    flex: none;
+}
+.journal .qtick.none {
+    display: inline-block;
+}

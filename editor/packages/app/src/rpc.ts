@@ -3,6 +3,7 @@
 import type { DiscProfile, Lvl, OdbIndex } from '@drakan/formats';
 import type { ModelData, TerrainData } from './scene/decode.ts';
 import type { ItemCatalog } from './itemdata.ts';
+import type { StoryCatalog } from './storydata.ts';
 import type { RefEntry, RefKind, RefSound, RefTexture } from './refdata.ts';
 
 export interface LevelInfo {
@@ -104,6 +105,7 @@ export interface Api {
     loadItemCatalog(): ItemCatalog;
     /** Models and textures of Resources classes by class id. */
     loadItemModels(classIds: number[]): ModelData[];
+    loadStoryCatalog(): StoryCatalog;
     /** Which container stems have a file for a reference kind (model .MOD, sound .SDB, texture .TXD, animation .ADB, sequence .SSD). */
     refContainers(kind: RefKind, stems: string[]): boolean[];
     /** Names and facts of every entry of a container; null when the disc has no such container. */

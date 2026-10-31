@@ -479,6 +479,13 @@ class LiveFieldsTest(unittest.TestCase):
         with self.assertRaises(st.SaveToolError):
             st.get_field(save, "quest.2")
 
+    def test_quest_done_flag(self):
+        save = st.parse(live_save())
+        self.assertEqual(st.get_field(save, "quest.1.done"), 0)
+        st.set_field(save, "quest.1.done", "1")
+        self.assertEqual(st.get_field(save, "quest.1.done"), 1)
+        self.assertEqual(st.get_field(save, "quest.1"), 2)
+
 
 if __name__ == "__main__":
     unittest.main()

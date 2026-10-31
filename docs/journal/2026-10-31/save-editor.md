@@ -241,3 +241,50 @@ unexplained), skill-point spending rules, and the 0x302 / 0x311 blocks.
 savetool and `formats/src/save.ts`: `stat.hp|maxhp|gold|mana|maxmana|xp|level|skillpoints`, `inv.N.equipped|hot|
 durability|max`, `quest.N`, plus `savetool inventory SAVE`. Tests: `scripts/tests/test_savetool.py`,
 `editor/packages/formats/test/save.test.ts` (synthetic).
+
+## Quests and journal (2026-10-31)
+
+Where the text lives and how a save row maps to it. Proven on the PAL disc and on real saves; the done flag also in game.
+
+**Text.** `Common\System\SYSTEM.XDB` (SRSC, type 0x400) holds every quest sentence and place name; the language folders
+carry identical XDB bytes, the folder only selects the slot (0 English, 1 German, 2 French, 3 Italian, 4 Spanish, 5 to 7
+empty; some strings have empty non-English slots). Slot layout: eight `u16 length + bytes` (length = round up 4 of
+chars + 2, minus 2), cp1252, NUL padded. Type 0x330 names the groups. The same format serves `RESOURES.XDB` (item
+names), `MAGIC.XDB`, `INTERFCE.XDB` and the per-level XDBs. In the level XDBs (e.g. `LEVEL1ON.XDB`) ids 5 to 17 are the
+destination level paths that the exit triggers' level-local string ids (`0x8000n`, n = 5..17) point at (the high word
+`8` is the RAM database index of that XDB, the low word the string id); ids 0x12.. are tutorial hints.
+
+**Classes.** Every field of ODB type `0x0a` ("string") in a *class default* holds the string id itself (not the
+offset/length pair level object parameters use): `DisplayName` of an item (Resources.XDB: bow 11 "Short Wood Bow",
+club 50, elixir 160 "Health Elixir"), `Journal Entry` and `Map Text` of a quest class. Quest classes live in
+`System.ODB` (90 of them, groups `0xbef..0xbf5` = "1 - Surdana" .. "8 - Stratos", `0xc42` "1B - Kragmor"). Fields:
+`Type` (0 map marker, 1 journal, 2 both; read by `0x3937c8`), `SubQuest?` (1 = listed under Optional Quests,
+`0x393868`), `Journal Entry`, `Map Text`, `New Quest Sound`, `Indicator Color`, `Map X/Y Coordinate`.
+
+**Save rows** (type 0x401 id 893, count at +0x80, 0x20 bytes from +0x84; RAM `0x4fbb70`). Row creation at `0x393040`:
+`{+0 map x, +4 map y, +8 timer, +0xc done, +0x10 enabled, +0x14 region, +0x18 class id, +0x1c seen bits}`.
+- `+0x18` = class id in System.ODB; the high half is the in-memory database index (0 in Surdana saves, 2 in saves made
+  after a level change) and is ignored (mask 0xffff).
+- `+0x1c` is **not** a quest state: bit 2 is set for journal rows and bit 4 for map rows when the Journal (`0x43a958`)
+  or Map (`0x43ab30`) page is drawn: "seen" flags behind the in-game "new" marker.
+- `+0xc` is the **done flag**: set by quest message `0x116e` (handler `0x393258`); the Journal draws a ticked box when it
+  is 1 (`0x438810..0x43898c` picks UI property 0xb/0xc from it).
+- `+0x10` enabled is 1 on every row seen so far; the Journal lists rows with enabled, region equal to the current
+  region, Type 1 or 2; `SubQuest?` splits Primary and Optional. `region` is an index into the save's own region-name
+  table (0 in a fresh Surdana save, also 0 for Ravenshold rows in a 4A save), so it is not a chapter number: the editor
+  groups by the class's ODB group instead.
+
+**Proof in game** (private cards under `build/qs/`, `play_run.py` with `DRAKAN_INVENTORY_SCREEN=native`, Select, PgDn x4):
+a mid-game Surdana save shows "Find Lady Myschala..." ticked and the others unticked; the same save with
+`quest.1.done = 0` shows it unticked; with `quest.3.done = 1` the optional "Kill ALL of the spiders..." entry is ticked.
+Primary / Optional headings and the sentences match the decoded text. Decoded across the saves under `build/` (fresh,
+mid-game with Myschala done, a Shadowmire save, two level-change saves in 3A and 4A): every row resolves to a class, no
+quest class lacks its text.
+
+**Editor.** `formats/src/xdb.ts`, `quests.ts` (`parseQuestClasses`, `describeQuestRows`, `notStartedQuests`,
+`diffQuests`), worker `loadStoryCatalog` (`app/src/storydata.ts`), UI `save/journal.ts`: Story tab is a journal grouped
+by chapter with Active / Done / Place / Not started badges, Optional and New marks, search and filters, a done tick
+(field `quest.N.done`, undoable, savetool `quest.N.done` too) and the raw rows folded away; Compare lists quest
+differences by name; Items tooltips use the game's own item names (`DisplayName`) and shop price. Not done: adding a
+quest the save has no row for (rows are created when the game meets the quest object; the objects that trigger them
+were not mapped), and un-discovering one.

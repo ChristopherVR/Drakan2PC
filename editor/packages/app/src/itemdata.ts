@@ -6,12 +6,16 @@
 import type { Iso9660, LvlHeader } from '@drakan/formats';
 import {
     SrscReader,
+    classFieldDefault,
+    languageSlot,
     odbStemForDependency,
     parseLevelHeader,
     parseLevelList,
     parseOdbClasses,
+    parseXdbStrings,
     resolveDependencyStem,
     sliceSource,
+    xdbText,
 } from '@drakan/formats';
 import { loadModelData, type ModelData } from './scene/decode.ts';
 
@@ -19,8 +23,11 @@ import { loadModelData, type ModelData } from './scene/decode.ts';
 export const RESOURCES_DB_INDEX = 3;
 
 export interface ItemCatalog {
-    /** Class id and ODB name of every class in Resources.ODB. */
-    classes: { classId: number; name: string }[];
+    /**
+     * Class id and ODB name of every class in Resources.ODB, with the game's own name for it (Resources.XDB string
+     * `DisplayName`, in the disc's language) and its shop price when the class has them.
+     */
+    classes: { classId: number; name: string; displayName?: string; price?: number }[];
 }
 
 interface Context {
@@ -76,8 +83,28 @@ export function loadItemCatalog(fs: Iso9660, language: string): Promise<ItemCata
         const f = (await fs.find(`${c.stem}.ODB`))!;
         const odb = await SrscReader.open(sliceSource(fs.source, f.extent * 2048, f.size));
         const classes = await parseOdbClasses(odb);
+        const xf = await fs.find(`${c.stem}.XDB`);
+        const strings = xf
+            ? await parseXdbStrings(await SrscReader.open(sliceSource(fs.source, xf.extent * 2048, xf.size)))
+            : null;
+        const slot = languageSlot(language);
         return {
-            classes: [...classes.values()].filter((k) => k.name).map((k) => ({ classId: k.id, name: k.name })),
+            classes: [...classes.values()]
+                .filter((k) => k.name)
+                .map((k) => {
+                    const at = (n: string): number => k.fields?.findIndex((f) => f.name === n) ?? -1;
+                    const iName = at('DisplayName');
+                    const iPrice = at('Cost to Buy (in Gold)');
+                    // The dword is the string id itself (a level object parameter would hold an offset/length pair).
+                    const text = strings && iName >= 0 ? xdbText(strings, k.data![iName]! & 0xffff, slot) : '';
+                    const price = iPrice >= 0 ? Number(classFieldDefault(k, iPrice)) : NaN;
+                    return {
+                        classId: k.id,
+                        name: k.name,
+                        ...(text ? { displayName: text } : {}),
+                        ...(price > 0 ? { price } : {}),
+                    };
+                }),
         };
     })());
 }
