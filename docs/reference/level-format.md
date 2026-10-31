@@ -217,8 +217,13 @@ else: 00 00 00 00, then (w+1)*(h+1) x { i8 nx, ny, nz, 0x7f }  // entry v+1 = ve
   allocation rule is **not derived**. A solo range `0..4w-1` / `0..4h-1` is self-consistent **[inf]**.
   Groups hold 1..20 layers (LEVEL1NA seq 1: twelve layers shelf-packed at x 0..11, 12..15, 16..31 / z 0..15, 0..3, ... in a 64
   pool). `planTerrainSlots` (terrainblob.ts) does the same for converted levels; in-game accepted (Volcano: 941 layers).
-* **Limit [game]**: no layer or chunk of the 13 PAL levels has more than **8 distinct textures**; a converted layer with 42
-  hung the guest in an allocator loop (docs/journal/2026-11-01/ootf-terrain-fidelity.md). `limitLayerTextures` caps it at 8.
+* **Limit [game]**: at most **10 textures per chunk**. The chunk record is 0x4c bytes: `+0x00 x0, +0x08 x1, +0x04 z0, +0x0c z1,
+  +0x10 ntex, +0x14..0x3b ref[10], +0x3c vw, +0x40 vh, +0x44 n, +0x48 weights ptr`; `FUN_00165840` (stream reader) copies `ntex`
+  refs without a bounds check, so an 11th ref overwrites the weight-array descriptor and the heap allocator (`FUN_004acd80`)
+  later loops forever. The runtime builder (`FUN_00165f68`) checks `ntex < 10`. The PAL discs never exceed 8. There is no
+  per-layer limit: chunk rectangles are free-form in the file, so `buildPs2TerrainBlob` splits a chunk whose texture list
+  (with the neighbour window) exceeds 10 into halves (a 2x2-cell chunk lists at most 9). Ruined Village (42 textures in a
+  layer, 37 in a chunk) loads and draws with all of them (docs/journal/2026-11-01/ootf-texture-limit.md).
 * **Chunks [disc]**: the layer is cut into `ceil(w/12) x ceil(h/12)` chunks of `ceil(n/pieces)` cells (last one shorter);
   vertex counts are cells+1. Matches 291 of 297 layers; the other six (13x24, 25x32, 14x12, ...) split z finer, rule open.
 * **Texture list [disc]**: the distinct cell refs of the chunk **and of the cells that touch its vertices from the previous chunks
@@ -327,6 +332,10 @@ layout were found against the PAL disc.
     u32 field_count; u32 dword_count; u32 data[dword_count]       // ends the record exactly
 ```
 
+* **ODB header record `0x0100`** (id 0, sub 0, 32 bytes): `u16 class_count` (number of `0x0102` records), `u16 group_count` (number
+  of `0x0101` records), then constants and the library path (`..\..\Drakan 2.rfl`). Equal to the index counts in all 21 PAL ODBs.
+  The guest sizes its class and group tables from them, so records added without raising the counts overflow (3+ corrupt the heap).
+  `patchSrsc` keeps them in step. The container index itself is sorted by `id` (stable) by the guest at open.
 * `data[i]` is the class default of field i (same encoding as the LVL parameters, section 2): int signed, float f32,
   strings and arrays `u16 offset, u16 length` into `data`. A class's full field list is therefore `list[i] = (type, name)`
   with default `data[i]`; the LVL `field_index` is the index into that list. **[disc]**
