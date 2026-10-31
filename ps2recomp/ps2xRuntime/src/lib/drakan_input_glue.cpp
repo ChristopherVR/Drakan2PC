@@ -24,6 +24,9 @@
 #include "drakan_dual_wield.h"
 #include "drakan_menus.h"
 #if defined(PS2X_HAVE_GSR)
+#if defined(PS2X_HAVE_GSR)
+#include "drakan_ghost.h" // compiled with the GS renderer only
+#endif
 #include "drakan_world.h" // compiled with the GS renderer only
 #endif
 #include "drakan_pause.h"
@@ -669,6 +672,9 @@ void hookPadMgrUpdate(uint8_t* rdram, R5900Context* c, PS2Runtime* rt) {
     RecompGuest g(rdram, c, rt);
     if constexpr (drakan_region::supports(drakan_region::Feature::DebugMenu))
         drakan_debug_menu::beforePadMgr(g, m, drakan_settings_host::isOpen());
+#if defined(PS2X_HAVE_GSR)
+    drakan_ghost::beforePadMgr(g, m);
+#endif
     inventoryViewsTick(g, scr, gameplay);
     quickSlotsTick(g, scr, gameplay);
     pauseTick(rdram, g);
@@ -1195,6 +1201,9 @@ void drakanInstallInput(PS2Runtime& rt) {
     drakanInstallDirectMouse(rt);
 #if defined(PS2X_HAVE_GSR)
     drakan_world::configure();
+#if defined(PS2X_HAVE_GSR)
+    drakan_ghost::install(rt);
+#endif
 #endif
     if constexpr (drakan_region::supports(drakan_region::Feature::DebugMenu))
         drakan_debug_menu::install(rt);

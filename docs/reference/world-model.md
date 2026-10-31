@@ -207,3 +207,24 @@ object layouts differ (offsets 4 lower inside matched code, [regions.md](regions
 (ctx `+0x7c`, handle `+0xfc`, resource record, stats `+0xc`, creature `+0x24c`) is unconfirmed there. To enable: run a
 USA build with `DRAKAN_WORLD=1` after adding the four addresses and compare the panel against a dump (level name at
 `ctx+0x298`, player class `0x10009`), then fix the offsets that differ in typed per-region fields.
+
+## 8. Lifecycle events (drakan_lifecycle)
+
+`ps2xRuntime/src/lib/drakan_lifecycle.{h,cpp}` turns the engine's load / save / mount transitions into listener events for
+host features that own guest actors (ghost players, editor hot reload, multiplayer). PAL only. Evidence, ordering and the
+policy for destroying actors: [ghost-spike-s3](../journal/2026-10-31/ghost-spike-s3.md). Check it in game with
+`python scripts/harness/lifecycle_run.py`.
+
+| Event | Guest function (PAL) | Verified in game |
+| --- | --- | --- |
+| `beforeLevelLoad` / `afterLevelLoad` (level stem, `fromSave`) | `Level_Load` `0x1c94c8(path, flags)`; flags 0 = fresh, 1 / 3 = inside a save restore | New Game (intro, Surdana), restores |
+| `beforeSaveWrite` / `afterSaveWrite` | `0x169c28`, the serialiser behind menu save, quick save and the level-change save | menu save, F5 |
+| `beforeSaveRestore` / `afterSaveRestore` | `0x16adb8`, the loader behind F8, Load Game, Continue; calls `Level_Load` itself | F8 |
+| `mountChanged` (Rynn <-> Arokh) | class of the resource record of `ctx+0x4b0`, polled at `PadMgr_Update` and after loads | Rynn -> Arokh (intro to 4A); Arokh -> Rynn not staged |
+
+Listeners run on the EE thread at a call boundary. The save write and restore yield to other guest threads, so the "after"
+events come from a `$ra` trampoline and `transitionActive()` tells host spawners to wait. Destroying an actor: `0x1413c0`
+only flags it and queues it in the kill list (`ctx+0x440`, count `+0x448`); the list is flushed at the end of every engine
+frame (`0x142e50`) and by the first statement of the save writer, **not** by `Level_Load` or the restore. A ghost must
+therefore be destroyed with a synchronous flush before a level load or restore, and plain `0x1413c0` is enough before a
+save write (`drakan_lifecycle::destroyActor`).

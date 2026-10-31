@@ -390,6 +390,7 @@ add_library(ps2_runtime STATIC
     src/lib/drakan_crash.cpp
     src/lib/drakan_object_motion.cpp
     src/lib/drakan_dual_wield.cpp
+    src/lib/drakan_lifecycle.cpp
     src/lib/drakan_region.cpp
     src/lib/gs/ps2_gif_arbiter.cpp
     src/lib/ps2_audio.cpp
@@ -680,7 +681,7 @@ if(TARGET drakan::gs)
     # drakan_input_glfw.cpp; raylib's GLFW).
     target_sources(ps2_runtime PRIVATE src/lib/gs/gs_gsr_bridge.cpp src/lib/drakan_dlss.cpp
         src/lib/drakan_scene_camera.cpp src/lib/drakan_settings_host.cpp src/lib/drakan_fmv_hd.cpp
-        src/lib/drakan_debug_menu.cpp src/lib/drakan_world.cpp)
+        src/lib/drakan_debug_menu.cpp src/lib/drakan_world.cpp src/lib/drakan_ghost.cpp)
     target_link_libraries(ps2_runtime PRIVATE drakan::gs drakan::settings)
     target_compile_definitions(ps2_runtime PRIVATE PS2X_HAVE_DRAKAN_INPUT=1 PS2X_HAVE_GSR=1
         PS2X_HAVE_DRAKAN_SETTINGS=1)

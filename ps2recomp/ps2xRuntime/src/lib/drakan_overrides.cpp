@@ -43,6 +43,7 @@
 #include "drakan_controls_menu.h"
 #include "drakan_dual_wield.h"
 #include "drakan_debug_menu.h"
+#include "drakan_lifecycle.h"
 #include "drakan_region.h"
 #include "drakan_movie_policy.h"
 #include "drakan_input_flow.h"
@@ -853,9 +854,10 @@ void traceHook(uint8_t* rdram, R5900Context* ctx, PS2Runtime* rt) {
     const bool log = g_traceBudget.fetch_sub(1) > 0;
     if (log) {
         char line[400];
-        int len = std::snprintf(line, sizeof(line), "[fn %x t%d] ra=%x a0=%x a1=%x a2=%x a3=%x", g_traceAddr[N],
-                                rt->eeScheduler().currentThreadId(), getRegU32(ctx, 31), getRegU32(ctx, 4),
-                                getRegU32(ctx, 5), getRegU32(ctx, 6), getRegU32(ctx, 7));
+        int len =
+            std::snprintf(line, sizeof(line), "[fn %x t%d] ra=%x a0=%x a1=%x a2=%x a3=%x a4=%x a5=%x", g_traceAddr[N],
+                          rt->eeScheduler().currentThreadId(), getRegU32(ctx, 31), getRegU32(ctx, 4), getRegU32(ctx, 5),
+                          getRegU32(ctx, 6), getRegU32(ctx, 7), getRegU32(ctx, 8), getRegU32(ctx, 9));
         for (int r = 4; r < 8; ++r) {
             const uint32_t v = getRegU32(ctx, r) & 0x1FFFFFFFu;
             if (v >= 0x100000u && v + 16 <= PS2_RAM_SIZE && len < 330) {
@@ -1164,6 +1166,7 @@ void applyDrakanOverrides(PS2Runtime& runtime) {
         drakan_frame_rate::install(runtime);
     if constexpr (supports(Feature::DualWield))
         drakan_dual_wield::install(runtime);
+    drakan_lifecycle::install(runtime); // engine lifecycle events (PAL addresses; no-op elsewhere)
     if constexpr (supports(Feature::SoundDebug))
         soundDebugInstall(runtime);
     if constexpr (supports(Feature::AdvancedInput)) {

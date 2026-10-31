@@ -1,6 +1,7 @@
 // Drakan: read-only world introspection adapter and F1 "World" panel (drakan_world.h).
 #include "drakan_world.h"
 #include "drakan_config.h"
+#include "drakan_ghost.h"
 #include "drakan_region.h"
 #include "imgui.h"
 #include "ps2_runtime.h"
@@ -249,6 +250,7 @@ void drawPanel() {
         dumpJson(s);
     if (!g_ui.status.empty())
         ImGui::TextDisabled("%s", g_ui.status.c_str());
+    drakan_ghost::drawControls();
 
     // ---- rows ----
     const world::Vec3 origin = player ? player->position : world::Vec3{};
