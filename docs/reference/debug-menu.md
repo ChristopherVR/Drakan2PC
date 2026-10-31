@@ -89,6 +89,10 @@ input glue (`drakan_input_glue.cpp`, `hookPadMgrUpdate`) and the USA basic-input
   Controls > Interface > Debug menu; older files gain F3 unless F3 or the action is already configured) opens and
   closes it: `menu+0 = 1` and the callback slot `PadMgr+0x410 = 0x131ff0`; closing restores the saved callback. While
   open the slot is re-asserted every frame.
+- On a **controller**, holding the `[gamepad] debug_menu_combo` buttons together for 0.5 s (`kDebugMenuHoldMs`, once
+  per hold) opens and closes it. Default `L3+R3` (both stick clicks, no game function); Settings > Controls > Gamepad >
+  Debug menu shortcut offers L3 + R3, Select + R3 or Off, and the INI takes any `+`-joined button names. The combo
+  buttons are not handed to the open menu, so holding them never runs an option.
 - While open the **game input is muted** (`InputModule::setGuestMuted`): a neutral pad, no mouse look, no bindings, so
   WASD and the mouse do not move Rynn. Unlike suspension, the frame's key and controller edges stay readable
   (`hostFrame()`), and the menu turns them into pad taps (injected taps pass the mute):
@@ -110,9 +114,11 @@ Verification (`scripts/harness/play_run.py`, New Game into Surdana):
   `F12 = DEBUG_MENU` (`--env DRAKAN_INPUT_INI=...`): F3 does nothing, F12 opens; with W held and the mouse moving for
   2 s the centre of the image changes by a mean of 1.3 (PAL) / 1.4 (USA) grey levels (idle animation), after Esc the
   same W hold changes it by 15.4 / 14.8 (Rynn walks).
-- All three recipes pass on the USA disc too (`--exe dist/DrakanPC-usa/drakan.exe`); the log shows the saved callback
+- `--recipe scripts/harness/recipes/debug_menu_pad.txt`: a 0.2 s L3 + R3 press does not open the menu, a 0.8 s hold
+  does; D-pad Down twice moves the cursor, Circle turns the page, another hold closes it (one open and one close in
+  the log).
+- All four recipes pass on the USA disc too (`--exe dist/DrakanPC-usa/drakan.exe`); the log shows the saved callback
   `0x23cd60`, the USA Game_OnInputCommand.
 
 Caveats: options such as Quit, Suicide, Load Buffer and the cache tests do what the developers made them do; save before
-experimenting. A controller can navigate an open menu, but only the `DEBUG_MENU` binding (a key or mouse button)
-opens it.
+experimenting.

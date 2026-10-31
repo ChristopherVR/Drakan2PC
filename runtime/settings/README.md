@@ -99,6 +99,7 @@ set per build; `video.world_rate` always requires a restart because it is read a
 | `[mouse] sensitivity_x/y, invert_y` | 0.0020, 0 | | live | |
 | `[keyboard] walk_scale, curve_compensation` | 0.5, 1 | | live | |
 | `[gamepad] enabled, deadzone` | 1, 0.15 | | live | |
+| `[gamepad] debug_menu_combo` | L3+R3 | Gamepad > Debug menu shortcut | live | **new key**: buttons held 0.5 s to open / close the debug menu (`L3+R3`, `SELECT+R3`, any `+`-joined names, `NONE`) |
 | `[bindings]`, `[menu_bindings]` | see input README | key editor | live | rewritten line by line, see below |
 
 Environment variables (`DRAKAN_VSYNC`, `PS2X_GS_SCALE`, `DRAKAN_VOLUME` ...) still **override** the files, also over what the menu writes; the menu cannot see them. If the owner wants to warn about it,

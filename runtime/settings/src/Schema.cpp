@@ -556,6 +556,15 @@ void controlsPage(gameui::SettingPage& pg, const Settings& st, const SchemaEnv& 
     b.slider("input.gamepad.deadzone", "Stick dead zone", "Ignore small stick movements.", c.gamepadDeadzone, 0.0f,
              0.5f, "%.2f", 0.01f, env.caps.gamepad && c.gamepadEnabled)
         .needs = "Needs Use gamepad.";
+    SettingRow& combo =
+        b.choice("input.gamepad.debug_menu_combo", "Debug menu shortcut",
+                 "Buttons to hold together for half a second to open or close the developer debug menu (Gameplay > "
+                 "Developer must be on). The stick clicks have no use in the game.",
+                 {{"L3+R3", "L3 + R3 (both stick clicks)"}, {"SELECT+R3", "Select + R3"}, {"NONE", "Off"}}, false,
+                 env.caps.gamepad && c.gamepadEnabled && !env.caps.unavailableSettings.contains("general.debug_menu"));
+    combo.needs = "Needs Use gamepad and the developer debug menu.";
+    if (combo.current < 0)
+        combo.currentLabel = c.debugMenuCombo; // a custom combination from drakan_input.ini
 }
 
 void gameplayPage(gameui::SettingPage& pg, const Settings& st, const SchemaEnv& env) {

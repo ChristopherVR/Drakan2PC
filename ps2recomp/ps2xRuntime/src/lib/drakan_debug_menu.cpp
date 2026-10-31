@@ -78,12 +78,14 @@ std::atomic<bool> g_closeRequest{false};
 // EE thread
 uint32_t g_savedCallback = 0;
 uint16_t g_padPrev = 0;
+std::chrono::steady_clock::time_point g_comboSince{};
+bool g_comboHeld = false, g_comboFired = false;
 std::array<std::chrono::steady_clock::time_point, kKeys.size()> g_heldSince{}, g_lastRepeat{};
 PS2Runtime::RecompiledFunction g_origKey = nullptr;
 
 std::mutex g_pageM;
 Page g_page;
-std::string g_toggleName = "F3";
+std::string g_toggleName = "F3", g_comboName = "L3+R3";
 
 std::string guestString(drakan_input::IGuest& g, uint32_t addr, size_t max = 96) {
     std::string s;
@@ -112,7 +114,7 @@ void setOpen(drakan_input::IGuest& g, drakan_input::InputModule& input, bool ope
         g_savedCallback = cb == key ? game : cb;
         g.write32(slot, key);
         g.write32(menu(), 1u);
-        g_padPrev = input.hostFrame().gamepad.buttons;
+        g_padPrev = input.frame().gamepad.buttons; // held buttons (the combo) are not menu presses
     } else {
         if (g.read32(slot) == key)
             g.write32(slot, g_savedCallback ? g_savedCallback : game);
@@ -127,8 +129,23 @@ void setOpen(drakan_input::IGuest& g, drakan_input::InputModule& input, bool ope
     std::fprintf(stderr, "[debug-menu] %s (callback 0x%x)\n", open ? "open" : "closed", g_savedCallback);
 }
 
+// The DEBUG_MENU binding (a key or mouse button, on its press) or the controller combination ([gamepad]
+// debug_menu_combo, once per hold of kDebugMenuHoldMs).
 bool togglePressed(const drakan_input::InputModule& input) {
-    drakan_input::FrameInput edge = input.guestMuted() ? input.hostFrame() : input.frame();
+    const drakan_input::FrameInput& f = input.guestMuted() ? input.hostFrame() : input.frame();
+    const uint16_t combo = input.config().debugMenuCombo;
+    const bool held = combo && (f.gamepad.buttons & combo) == combo;
+    const auto now = std::chrono::steady_clock::now();
+    if (held && !g_comboHeld)
+        g_comboSince = now;
+    if (!held)
+        g_comboFired = false;
+    g_comboHeld = held;
+    if (held && !g_comboFired && now - g_comboSince >= std::chrono::milliseconds(drakan_input::kDebugMenuHoldMs)) {
+        g_comboFired = true;
+        return true;
+    }
+    drakan_input::FrameInput edge = f;
     edge.keyDown = edge.keyPressed;
     edge.mouseDown = edge.mousePressed;
     for (const auto& b : input.config().game)
@@ -145,8 +162,10 @@ void updateToggleName(const drakan_input::InputModule& input) {
                 name = n;
             break;
         }
+    const uint16_t combo = input.config().debugMenuCombo;
     std::lock_guard<std::mutex> l(g_pageM);
     g_toggleName = name;
+    g_comboName = combo ? drakan_input::padComboToText(combo) : std::string();
 }
 
 // Keyboard and controller of this frame -> pad taps for the native handler; true = close the menu.
@@ -295,6 +314,8 @@ void installHudLayer() {
             std::lock_guard<std::mutex> l(g_pageM);
             p = g_page;
             toggle = g_toggleName;
+            if (!g_comboName.empty())
+                toggle += (toggle.empty() ? "hold " : " / hold ") + g_comboName;
         }
         if (p.rows.empty())
             return;
@@ -306,7 +327,7 @@ void installHudLayer() {
         std::snprintf(title, sizeof title, "Debug menu  %d / %d", p.page, p.pages);
         const std::string help = "Up/Down option   Left/Right value (Shift x10, Ctrl x100)   Enter run   PgUp/PgDn page"
                                  "   " +
-                                 (toggle.empty() ? std::string() : toggle + " / ") + "Esc close";
+                                 (toggle.empty() ? std::string() : toggle + " / ") + "Esc / Start close";
         dsettings::drawDebugMenuPanel(title, rows, p.cursor, help, view.w, view.h, view.uiScale);
     };
     dsettings::hudLayers().set(dsettings::HudSlot::DebugMenu, std::move(layer));

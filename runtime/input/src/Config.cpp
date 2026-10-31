@@ -180,6 +180,40 @@ bool parseAction(const std::string& a, Binding& b) {
 
 } // namespace
 
+bool padComboFromText(const std::string& text, uint16_t* mask) {
+    const std::string u = upper(trim(text));
+    if (u.empty() || u == "NONE" || u == "OFF") {
+        *mask = 0;
+        return true;
+    }
+    uint16_t m = 0;
+    std::stringstream parts(u);
+    std::string part;
+    while (std::getline(parts, part, '+')) {
+        part = trim(part);
+        const auto it =
+            std::find_if(std::begin(kPads), std::end(kPads), [&](const PadName& p) { return part == p.name; });
+        if (it == std::end(kPads))
+            return false;
+        m = static_cast<uint16_t>(m | it->mask);
+    }
+    if (!m)
+        return false;
+    *mask = m;
+    return true;
+}
+
+std::string padComboToText(uint16_t mask) {
+    std::string s;
+    for (const auto& p : kPads)
+        if (mask & p.mask) {
+            if (!s.empty())
+                s += '+';
+            s += p.name;
+        }
+    return s.empty() ? std::string("NONE") : s;
+}
+
 bool keyFromName(const std::string& name, int* dik) {
     std::string u = upper(name);
     for (auto& k : kKeys)
@@ -261,6 +295,7 @@ curve_compensation = 1     ; undo the game's squared stick response so WASD is f
 [gamepad]
 enabled = 1                ; XInput pad is merged with keyboard/mouse
 deadzone = 0.15
+debug_menu_combo = L3+R3   ; hold 0.5 s to open / close the debug menu (Gameplay > Developer); NONE = off
 
 [menu]
 mouse = 1                  ; the mouse drives the game's own menus: hover = highlight, left click = confirm, wheel = up/down (or slider left/right), right click = back
@@ -537,7 +572,10 @@ void Config::parse(const std::string& text, Config& c, std::string* warn) {
                 B(c.gamepadEnabled);
             else if (K == "DEADZONE")
                 F(c.gamepadDeadzone);
-            else
+            else if (K == "DEBUG_MENU_COMBO") {
+                if (!padComboFromText(v, &c.debugMenuCombo))
+                    w("bad button combination '" + v + "'");
+            } else
                 w("unknown key " + k);
         } else if (section == "MENU") {
             if (K == "CURSOR")

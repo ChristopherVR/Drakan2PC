@@ -504,6 +504,7 @@ const std::vector<Field>& fields() {
          nullptr},
         {"gamepad", "enabled", true, GETB(controls.gamepadEnabled), SETB(controls.gamepadEnabled), nullptr},
         {"gamepad", "deadzone", true, GETF(controls.gamepadDeadzone, "%.2f"), SETF(controls.gamepadDeadzone), nullptr},
+        {"gamepad", "debug_menu_combo", true, GETS(controls.debugMenuCombo), SETS(controls.debugMenuCombo), nullptr},
     };
     return f;
 }
@@ -698,6 +699,8 @@ std::string settingLabel(const std::string& key) {
         return "Camera follow";
     if (key == "input.mouse.bow_aim")
         return "Modern bow aiming";
+    if (key == "input.gamepad.debug_menu_combo")
+        return "Debug menu shortcut";
     static const struct {
         const char* k;
         const char* v;

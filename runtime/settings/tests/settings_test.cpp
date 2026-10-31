@@ -411,6 +411,10 @@ static void testBindings() {
         SettingsStore reload;
         reload.loadFromText(a, b);
         CHECK((reload.loaded().controls.game.sourcesFor("DEBUG_MENU") == std::vector<std::string>{"F12"}));
+        CHECK_EQ(debug.defaults().controls.debugMenuCombo, "L3+R3");
+        debug.loadFromText("", "[gamepad]\ndebug_menu_combo = SELECT+R3\n");
+        CHECK_EQ(debug.loaded().controls.debugMenuCombo, "SELECT+R3");
+        CHECK_EQ(settingLabel("input.gamepad.debug_menu_combo"), "Debug menu shortcut");
     }
     {
         SettingsStore quick;

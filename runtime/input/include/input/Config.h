@@ -25,6 +25,11 @@ constexpr uint32_t kViewMap = 1, kViewStrip = 2;
 // integration through the native Quick Inventory bar, not by the pad synthesis.
 constexpr uint32_t kQuickSlotMax = 9;
 constexpr uint32_t kQuickSave = 1, kQuickLoad = 2;
+constexpr int kDebugMenuHoldMs = 500;
+// "L3+R3" -> the DualShock mask (button names as in the bindings, joined by '+'); NONE / OFF / "" -> 0. False when a
+// name is unknown (*mask is left unchanged).
+bool padComboFromText(const std::string& text, uint16_t* mask);
+std::string padComboToText(uint16_t mask); // "L3+R3"; "NONE" for 0
 
 struct Config {
     bool freeCombat =
@@ -67,6 +72,9 @@ struct Config {
     // [gamepad]
     bool gamepadEnabled = true;
     float gamepadDeadzone = 0.15f;
+    // [gamepad] debug_menu_combo: controller buttons held together for kDebugMenuHoldMs open / close the debug menu
+    // (DualShock mask; 0 = none). Default L3 + R3: both stick clicks, which have no game function.
+    uint16_t debugMenuCombo = 0x200 | 0x400;
     // [menu]
     bool menuCursor = false; // push host cursor into InputDev_SetCursorPos (UNVERIFIED, off by default)
     bool menuClicks = false; // synthesize 0x100/0x101 GUI events + action bits (UNVERIFIED, off by default)

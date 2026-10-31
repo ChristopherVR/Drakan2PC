@@ -1,0 +1,23 @@
+clock milliseconds
+0 sync play 60
+500 pad down L3
+500 pad down R3
+700 pad up L3
+700 pad up R3
+1500 shot pad_short_ignored
+1800 pad down L3
+1800 pad down R3
+2600 pad up L3
+2600 pad up R3
+3100 shot pad_open
+3400 pad tap DPAD_DOWN
+3700 pad tap DPAD_DOWN
+3950 shot pad_cursor
+4100 pad tap CIRCLE
+4600 shot pad_page2_cursor
+4900 pad down L3
+4900 pad down R3
+5700 pad up L3
+5700 pad up R3
+6300 shot pad_closed
+6700 quit

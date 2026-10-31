@@ -54,8 +54,10 @@ public:
 #if !defined(PS2X_HAVE_DRAKAN_INPUT)
         c.unavailableSettings.insert("general.debug_menu"); // drives the input glue's PadMgr hook
 #endif
-        if (c.unavailableSettings.contains("general.debug_menu"))
+        if (c.unavailableSettings.contains("general.debug_menu")) {
             c.unavailableBindingActions.insert("DEBUG_MENU");
+            c.unavailableSettings.insert("input.gamepad.debug_menu_combo");
+        }
         require(Feature::Subtitles, {"subtitles.narration", "subtitles.size"});
         require(Feature::SceneHooks,
                 {"video.dlss", "video.dlss_neural", "video.dlss_neural_resolution", "video.dlss_preset",

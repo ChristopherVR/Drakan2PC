@@ -154,6 +154,16 @@ int main() {
         check(debugKeys(parsed("[bindings]\nF12 = DEBUG_MENU\n")) == std::vector<int>{0x58},
               "a rebound debug menu key replaces F3");
         check(debugKeys(parsed("[bindings]\nF3 = NONE\n")).empty(), "F3 = NONE stays unbound");
+        check(Config::defaults().debugMenuCombo == (Pad::L3 | Pad::R3), "default controller combination L3 + R3");
+        check(parsed("[gamepad]\ndebug_menu_combo = select + r3\n").debugMenuCombo == (Pad::SELECT | Pad::R3),
+              "combination names are case and space tolerant");
+        check(parsed("[gamepad]\ndebug_menu_combo = NONE\n").debugMenuCombo == 0, "NONE switches the combination off");
+        Config bogus = Config::defaults();
+        std::string warn;
+        Config::parse("[gamepad]\ndebug_menu_combo = L3+BOGUS\n", bogus, &warn);
+        check(bogus.debugMenuCombo == (Pad::L3 | Pad::R3) && warn.find("bad button combination") != std::string::npos,
+              "an unknown button warns and keeps the default");
+        check(padComboToText(Pad::L3 | Pad::R3) == "L3+R3" && padComboToText(0) == "NONE", "combination text");
     }
     constexpr int kM = 0x32, kI = 0x17;
     {

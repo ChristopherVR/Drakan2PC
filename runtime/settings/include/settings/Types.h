@@ -137,11 +137,12 @@ struct ControlSettings {
     bool inventoryMouse =
         true;                 // [menu] inventory_mouse (inventory / map: pointer steps the selection, wheel = sections)
     bool pitchPersist = true; // [mouse] pitch_persist (camera pitch stays where the mouse left it)
-    bool curveCompensation = true; // [keyboard] curve_compensation
-    bool gamepadEnabled = true;    // [gamepad] enabled
-    float gamepadDeadzone = 0.15f; // [gamepad] deadzone
-    BindingLayer game;             // [bindings]
-    BindingLayer menu;             // [menu_bindings]
+    bool curveCompensation = true;        // [keyboard] curve_compensation
+    bool gamepadEnabled = true;           // [gamepad] enabled
+    float gamepadDeadzone = 0.15f;        // [gamepad] deadzone
+    std::string debugMenuCombo = "L3+R3"; // [gamepad] debug_menu_combo (held 0.5 s: debug menu; NONE = off)
+    BindingLayer game;                    // [bindings]
+    BindingLayer menu;                    // [menu_bindings]
     bool operator==(const ControlSettings&) const = default;
 };
 

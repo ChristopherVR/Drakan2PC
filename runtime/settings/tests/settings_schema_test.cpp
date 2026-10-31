@@ -128,6 +128,7 @@ void testCoverage() {
     CHECK(keys.count(kKeyWindowSize) && keys.count(kKeyWindowCustom) && keys.count(kKeyLinkSensitivity));
     CHECK(keys.count("general.dual_wield"));
     CHECK(keys.count("general.debug_menu"));
+    CHECK(keys.count("input.gamepad.debug_menu_combo"));
     // Scopes: the overlay's own size and free size field are overlay only; the link switch is modern only.
     CHECK(sc.find("general.settings_ui_scale")->scope == gameui::SettingScope::OverlayOnly);
     CHECK(sc.find(kKeyWindowCustom)->scope == gameui::SettingScope::OverlayOnly);
