@@ -66,3 +66,23 @@ converted, 0 skipped). Run with `play_run.py` as in `ootf-animation.md` (screens
 engine accepts the clips (50-joint skeleton, fingers/eyelids held at bind) and the trolls attack and roar with natural, unmangled poses,
 the same silhouettes as the disc's own clips. Not done: pixel-diff of the two runs, clips under new ids (override only), a creature whose
 model is not on the disc.
+
+## Wired into the converter (2026-11-01, later)
+
+Code: `ootfpipeline.ts` (`retarget` option, `OotfPs2Context.mods` / `adbs`), `ootfclass.ts` (`modelOdbFiles`, `keepOwnModel`,
+`templateSkinned(cls, file)`), `ootfassets.ts` (`creatureSource`). Converter flag `--retarget 0` turns it off; `ootf-convert.ts` loads
+every non-RESOURES `*.MOD` / `*.ADB` of `--ps2` (the harness now extracts `NPCS.MOD` / `NPCS.ADB`).
+
+* Skinned clones may go into any ODB whose `.DB` lists the host (NPCS.ODB lists Resources as dependency 2): the template must be skinned
+  in its own container, the model ref uses the host's `db` in that ODB (`hostDbForStem`). Only skinned classes use this; static
+  clones still stay in RESOURES.ODB. Converted clips get ids past every ADB's max and ship to RESOURES.ADB and to the ADB of each
+  ODB that received a clone (class animation fields carry plain ids, resolved in the class's ODB ADB, not db-qualified).
+* A PC creature class with a same-named PS2 class whose model is skinned: PS2 rig covers >= 50 % of the PC joints -> stays name-mapped,
+  the PC clips are retargeted (`retargetCreature`) and replace the same-named PS2 clips (`overrides/<STEM>.ADB/0501+0502_<id>_<sub>`).
+  Otherwise the class goes through `keepOwnModel` and is cloned with the converted PC model (convert path). Wartok Canyons: Spider
+  (37/37, 10 clips), Troll x3 (30/30, 17+1+2), Blade Dragon (36/36, 15) retarget; Scavenger (PS2 5055) converts.
+* In game (`build/ootf-run/rt1..rt6`, build/final-game exe, `DRAKAN_DBG_NOOBJ/PULL` are converter-side env): the level with 323 new
+  classes (21 in NPCS.ODB) and the retargeted ADB overrides loads and plays; a converted skinned humanoid clone draws and poses.
+  NOT verified: a converted/retargeted clip visibly playing (the pulled Troll AnimWay Point and Scavenger objects never showed up
+  near Rynn, so no screenshot sequence of one exists yet).
+* The pre-existing test "maps same-name classes ..." fails (class id 901 vs < 900) after the id-range change by another session; not touched.
