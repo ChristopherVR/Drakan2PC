@@ -20,7 +20,7 @@ lives in `LEVEL1ON/` (ODB, MOD, TXD, SSD); other levels follow `LEVEL<n><XX>` th
 | --- | --- | --- |
 | LVL 0x0000 | `string level_name; u32 max_w, max_h; u32 n; n x {u16 db_index, u16 0, string path}`: the dependency table. `db_index` selects an ODB by path (`..\..\Common\NPC\NPCs` -> `NPCS.ODB`; use the disc 8.3 mangler `iop_mangle`). Surdana: 2 System, 3 Resources, 4 FX, 5 NPCs, 6 Magic, 8 level common, 9 Proc Textures, 10 Mountain World Common, 11 World Common, 13 Sound, 14 Music, 18 Interface, 20 Debug | [disc] |
 | LVL 0x0020 | The placed objects (section 2). Surdana: 4675 | [RAM][disc] |
-| ODB 0x0102 | **Class record** (not an instance): SRSC `id` = `class_id`, `sub` = group id (0x0101 = group name, e.g. "Level Properties"). Body: name, group, model ref, default field data (not decoded) | [D], names [disc] |
+| ODB 0x0102 | **Class record** (not an instance): SRSC `id` = `class_id`, `sub` = group id (0x0101 = group name, e.g. "Level Properties"). Body: name, group, model ref, default field data and field definitions (decoded, section 12) | [D], names [disc] |
 | ODB 0x0103 | Shared `field_def` pool (`u32 type, name`); type table in section 4 | [D][disc] |
 | LVL 0x0001 / 0x0002 | Layer (terrain tile) definitions and layer groups; PS2 terrain data is inline and packed (not zlib). Not decoded here | `ootf-reuse-study.md` |
 
@@ -62,7 +62,7 @@ strings (`0x0a`) and arrays (second byte 0x10) hold `u16 offset (dwords into dat
 NUL-padded to a dword; int (1) is signed, float (2) an f32, colour (0x0f) ARGB, the rest (enum 7, class 3, sound 5, layer 0x0c,
 sequence 0x0b ...) are ids as stored. The script emits `{field, name, type, type_name, value}` per parameter. **[disc]** the
 stream stays in sync and names such as "Trigger Message", "Initial State", "Number (max 340)" come out; the value semantics
-per class are not verified. Class **default** values (ODB 0x0102 data) are not decoded, so the JSON lists overrides only.
+per class are not verified. Class defaults and the full field list are decoded in section 12; this JSON lists overrides only.
 
 ## 3. Coordinates and rotation
 
@@ -119,7 +119,7 @@ the resource record built from the ODBs, the transform from this list. **[run]**
 
 ## 8. Open
 
-* Class default values (ODB 0x0102 data area) and the Euler composition order.
+* The Euler composition order (class defaults: section 12).
 * Meaning of `unk`, the zero word before the sentinel, flag bits other than 0x01/0x10/0x100, `initial_event_count`.
 * Layer terrain (LVL 0x0001) is opaque; needed to snap an editor's y to the ground.
 
@@ -227,3 +227,44 @@ All records of a model share its SRSC id.
   538 placed classes have a model.
 * **Open**: three FX polygon tables with 50-byte records (quad variant), RESOURCES model 4871; the 0x0208 joint block and the
   channel/bone data; what the per-vertex trailer and the 0x20000 float are exactly; polygon flag 0x0f06 on some FX quads.
+
+## 12. Class fields: ODB 0x0102 / 0x0103 (names, types, defaults)
+
+Tool: `analysis/scripts/odb_fields.py` (`--iso <disc>` audits every ODB and level; `--odb X.ODB --class Name` dumps one class).
+Parsers: `editor/packages/formats/src/{odb,fields}.ts` (`parseOdbClasses`, `setObjectParams`; tests `odbfields.test.ts`).
+Credit: field types, the "one dword per field, strings and arrays as offset/length" data area and the ARGB colour order are
+from OpenDrakan (`doc/riot_database_format.txt`, "Class format", commit 6c0d499); the PS2 record offsets and the 0x0103 list
+layout were found against the PAL disc.
+
+```
+0x0103 (zlib, one per ODB; replaces the field_def list that PC keeps inside each class record):
+    per 0x0102 record, in record order, no separators:  u32 count; count x { u32 type; string name }
+0x0102 body after the name string:
+    u16 group; u16 model_id; u16 model_db
+    model_id != 0:  74 more bytes, [+80] u16 rfl_class, u16 1, u16 icon;  u32 field_count at +86
+    model_id == 0:  10 zero bytes, [+16] u16 rfl_class, u16 1, u16 icon;  u32 field_count at +22
+    u32 field_count; u32 dword_count; u32 data[dword_count]       // ends the record exactly
+```
+
+* `data[i]` is the class default of field i (same encoding as the LVL parameters, section 2): int signed, float f32,
+  strings and arrays `u16 offset, u16 length` into `data`. A class's full field list is therefore `list[i] = (type, name)`
+  with default `data[i]`; the LVL `field_index` is the index into that list. **[disc]**
+* **Evidence:** all 21 ODBs on the PAL disc decode (6520 classes, 130069 field definitions); every 0x0103 blob is consumed
+  exactly, `field_count` equals the list length and the record ends exactly after `data` for **6520/6520** classes. Every
+  override in every level (38415 objects, 29970 parameters in 13 levels plus the intro) names a class that resolves and has
+  the same field index, type word and name as the class definition: **29970/29970**. The editor parsers agree (6520 of
+  6520 classes with fields) and the 14 level LVLs re-pack byte-identically.
+* **References.** Class (type 3, also with filter bits: 0x2003, 0x4003; arrays 0x1003, 0x3003, 0x5003), model, sound,
+  animation, sequence, texture: `value = (db << 16) | id`. `db` 0 = the ODB that owns the class; otherwise an index into
+  that ODB's `.DB` dependency list (not the LVL table): 100% of 137 non-zero class references in Surdana resolve through the
+  owner's `.DB`, only 36 through the level table. 0x2003 holds a class id, **not** a placed object id (only 5 of 273 non-zero
+  values are also object ids). `0xffffffff` = none for channels. Filter bits 0x2000 / 0x4000 are kept as stored; their meaning
+  (which classes the editor offers) is **[?]**.
+* **Enums.** Type 7 carries no item names in the data (34686 of 130069 fields). Most are yes/no (values 0/1). The editor
+  offers the values the shipped class defaults actually use. Type 6 (bool) never occurs. Other seen types: 0x105, 0x10,
+  0x1010 (movie ids, sound slots) are plain ids/arrays.
+* **Field groups** do not exist in the data; the editor groups fields by a name/type heuristic only.
+* **Writing parameters.** A parameter list is rebuilt as one dword per parameter in ascending field index followed by the
+  string/array payloads (`setObjectParams`). Verified in game: Initial Health (field 46, int) added to two Purple Orc
+  Center objects in Surdana through an exported mod pack: the world dump shows hp/hpMax 500 on exactly those two and 35 on
+  the other ten (journal `2026-10-31/level-field-editor.md`).

@@ -458,14 +458,6 @@ describe('validation', () => {
         doc.bounds = undefined;
         expect(validateDocument(doc)).toEqual([]);
     });
-    it('object-reference fields are checked only when asked', () => {
-        const { doc } = load();
-        const f: DocField = { slot: 0, fieldIndex: 1, type: 0x2003, name: 'Target', value: 31337 };
-        new CommandStack(doc).run(editObjects(doc, [9], 'x', (o) => (o.fields = [f]))!);
-        doc.bounds = undefined;
-        expect(validateDocument(doc)).toEqual([]);
-        expect(validateDocument(doc, { checkRefs: true }).map((i) => i.code)).toEqual(['dangling-ref']);
-    });
 });
 
 describe('catalog and schema helpers', () => {
@@ -500,10 +492,12 @@ describe('catalog and schema helpers', () => {
         expect(widgetFor(0x0f)).toBe('colour');
         expect(widgetFor(0x0a)).toBe('string');
         expect(widgetFor(0x1001)).toBe('array');
-        expect(widgetFor(0x2003)).toBe('object');
+        expect(widgetFor(0x2003)).toBe('class');
+        expect(widgetFor(4)).toBe('ref');
         expect(widgetFor(0x3003)).toBe('array');
         expect(widgetFor(3)).toBe('class');
-        expect(widgetFor(5)).toBe('id');
+        expect(widgetFor(5)).toBe('ref');
+        expect(widgetFor(0x0d)).toBe('id');
         expect(argbToParts(0xff112233)).toEqual({ hex: '#112233', alpha: 255 });
         expect(partsToArgb('#112233', 255)).toBe(0xff112233);
         expect(partsToArgb('#ffffff', 0)).toBe(0x00ffffff);

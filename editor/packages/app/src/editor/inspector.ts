@@ -1,19 +1,9 @@
-import {
-    argbToParts,
-    groupFields,
-    isEditableType,
-    observedValues,
-    partsToArgb,
-    snapToGround,
-    typeName,
-    widgetFor,
-    type DocField,
-    type FieldGroup,
-    type LevelObject,
-} from '@drakan/editor-core';
+import { snapToGround, type LevelObject } from '@drakan/editor-core';
 import { KINDS } from '../level.ts';
 import type { Ctx, Panel } from './ctx.ts';
 import { fill, h, icon } from './dom.ts';
+import { buildFieldsPanel, closePopover } from './fieldsui.ts';
+import { attachScrub } from './scrub.ts';
 
 const R2D = 180 / Math.PI;
 const D2R = Math.PI / 180;
@@ -83,27 +73,7 @@ export function createInspector(ctx: Ctx): Panel {
             if (input.value.trim() !== '' && Number.isFinite(n)) commit(n);
             else set();
         });
-        let start: { x: number; v: number } | null = null;
-        lab.addEventListener('pointerdown', (e) => {
-            lab.setPointerCapture(e.pointerId);
-            start = { x: e.clientX, v: Number(input.value) || 0 };
-            document.body.classList.add('ed-scrub');
-        });
-        lab.addEventListener('pointermove', (e) => {
-            if (!start) return;
-            const k = (e.shiftKey ? 10 : e.altKey ? 0.1 : 1) * opts.step;
-            input.value = fmt(start.v + (e.clientX - start.x) * k, opts.digits);
-        });
-        const end = (e: PointerEvent): void => {
-            if (!start) return;
-            const moved = Math.abs(e.clientX - start.x) > 2;
-            start = null;
-            lab.releasePointerCapture(e.pointerId);
-            document.body.classList.remove('ed-scrub');
-            if (moved) input.dispatchEvent(new Event('change'));
-        };
-        lab.addEventListener('pointerup', end);
-        lab.addEventListener('pointercancel', end);
+        attachScrub(lab, input, { step: opts.step, digits: opts.digits });
         return h('label', { class: 'nf' }, lab, input);
     }
 
@@ -245,201 +215,10 @@ export function createInspector(ctx: Ctx): Panel {
 
     // ---- fields -------------------------------------------------------------------------------------------------
 
-    function fieldRow(g: FieldGroup, objs: LevelObject[]): HTMLElement {
-        const ids = g.owners.map((x) => x.id).filter((id) => !ctx.view().lockedIds.has(id));
-        const w = widgetFor(g.type);
-        const editable = isEditableType(g.type);
-        const first = (): DocField =>
-            ctx
-                .doc()
-                .get(g.owners[0]!.id)
-                ?.fields?.find((f) => f.name === g.name && f.type === g.type) ?? g.owners[0]!.field;
-        const valueOf = (id: number): DocField['value'] | undefined =>
-            ctx
-                .doc()
-                .get(id)
-                ?.fields?.find((f) => f.name === g.name && f.type === g.type)?.value;
-        const mixedNow = (): boolean => {
-            const vals = g.owners.map((x) => valueOf(x.id));
-            return vals.some((v) => JSON.stringify(v) !== JSON.stringify(vals[0]));
-        };
-        const setAll = (value: number): void =>
-            ctx.edit(`Set ${g.name}`, ids, (o) => {
-                const f = o.fields?.find((x) => x.name === g.name && x.type === g.type);
-                if (f) f.value = value;
-            });
-        const cur = (): number | null => {
-            if (mixedNow()) return null;
-            const v = first().value;
-            return typeof v === 'number' ? v : null;
-        };
-
-        let control: HTMLElement;
-        const isFloat = (g.type & 0xff) === 2;
-        if (!editable || w === 'string' || w === 'array') {
-            const f = first();
-            const txt = mixedNow()
-                ? 'mixed'
-                : Array.isArray(f.value)
-                  ? `[${f.value.length}] ${f.value.slice(0, 6).join(', ')}${f.value.length > 6 ? ', ...' : ''}`
-                  : String(f.value);
-            control = h('span', { class: 'ro', title: 'Strings and arrays are shown but not editable yet' }, txt);
-        } else if (w === 'bool') {
-            const cb = h('input', { type: 'checkbox', class: 'cb' });
-            const set = (): void => {
-                const v = cur();
-                cb.indeterminate = v === null;
-                cb.checked = v !== null && v !== 0;
-            };
-            set();
-            updaters.push(set);
-            cb.addEventListener('change', () => setAll(cb.checked ? 1 : 0));
-            control = cb;
-        } else if (w === 'colour') {
-            const colour = h('input', { type: 'color', class: 'colour' });
-            const alpha = h('input', { type: 'number', min: 0, max: 255, class: 'num alpha', title: 'Alpha' });
-            const set = (): void => {
-                const v = cur();
-                if (v === null) return;
-                const p = argbToParts(v);
-                colour.value = p.hex;
-                alpha.value = String(p.alpha);
-            };
-            set();
-            updaters.push(() => {
-                if (document.activeElement !== alpha) set();
-            });
-            const push = (): void => setAll(partsToArgb(colour.value, Number(alpha.value)));
-            colour.addEventListener('change', push);
-            alpha.addEventListener('change', push);
-            control = h('span', { class: 'colourrow' }, colour, alpha);
-        } else {
-            const input = h('input', { type: 'number', step: isFloat ? 0.1 : 1, class: 'num' });
-            const set = (): void => {
-                const v = cur();
-                input.value = v === null ? '' : isFloat ? fmt(v, 4) : String(v);
-                input.placeholder = v === null ? 'mixed' : '';
-            };
-            set();
-            updaters.push(() => {
-                if (document.activeElement !== input) set();
-            });
-            input.addEventListener('change', () => {
-                const n = Number(input.value);
-                if (input.value.trim() !== '' && Number.isFinite(n)) setAll(isFloat ? n : Math.trunc(n));
-                else set();
-            });
-            const extras: Node[] = [input];
-            if (w === 'enum' || w === 'id' || w === 'class') {
-                const obs = observedValues(ctx.doc(), g.name, g.type);
-                if (obs.length > 1) {
-                    const listId = `dl-${g.name.replace(/\W/g, '')}-${g.type}`;
-                    const dl = h('datalist', { id: listId });
-                    for (const v of obs) dl.append(h('option', { value: String(v) }));
-                    input.setAttribute('list', listId);
-                    extras.push(dl);
-                }
-            }
-            if (w === 'object') {
-                const label = h('span', { class: 'ref-label' });
-                const upd = (): void => {
-                    const v = cur();
-                    const t = v === null ? undefined : ctx.doc().get(v);
-                    label.textContent =
-                        v === null ? '' : t ? `${t.class} #${t.id}` : v === 0 ? 'none' : 'missing object';
-                    label.classList.toggle('bad', v !== null && v !== 0 && !t);
-                };
-                upd();
-                updaters.push(upd);
-                extras.push(
-                    h(
-                        'button',
-                        {
-                            class: 'tool sm',
-                            type: 'button',
-                            title: 'Pick an object in the viewport',
-                            onclick: () => pickInto((id) => id !== null && setAll(id)),
-                        },
-                        icon('focus', 14),
-                    ),
-                    h(
-                        'button',
-                        {
-                            class: 'tool sm',
-                            type: 'button',
-                            title: 'Select the referenced object',
-                            onclick: () => {
-                                const v = cur();
-                                if (v && ctx.doc().has(v)) ctx.locate([v]);
-                            },
-                        },
-                        icon('select', 14),
-                    ),
-                    label,
-                );
-            }
-            if (w === 'class') {
-                const label = h('span', { class: 'ref-label' });
-                const upd = (): void => {
-                    const v = cur();
-                    label.textContent = v === null ? '' : (ctx.catalog().find((c) => c.classId === v)?.name ?? '');
-                };
-                upd();
-                updaters.push(upd);
-                extras.push(label);
-            }
-            control = h('span', { class: 'inputrow' }, ...extras);
-        }
-
-        const canReset = objs.every((o) => (o.fields ?? []).every((f) => isEditableType(f.type)));
-        const reset = h(
-            'button',
-            {
-                class: 'tool sm reset',
-                type: 'button',
-                title: canReset
-                    ? 'Reset to the class default (removes the override)'
-                    : 'Reset needs an object without string or array parameters',
-                'aria-label': `Reset ${g.name}`,
-                disabled: !canReset || ids.length === 0,
-                onclick: () =>
-                    ctx.edit(`Reset ${g.name}`, ids, (o) => {
-                        o.fields = o.fields?.filter((f) => !(f.name === g.name && f.type === g.type));
-                    }),
-            },
-            icon('undo', 13),
-        );
-        return h(
-            'div',
-            { class: 'field' },
-            h(
-                'span',
-                {
-                    class: 'fname',
-                    title: `${g.name}\n${typeName(g.type)}${g.complete ? '' : `\nOn ${g.owners.length} of ${objs.length} selected`}`,
-                },
-                g.name,
-                g.complete ? null : h('span', { class: 'dim' }, ` (${g.owners.length}/${objs.length})`),
-            ),
-            control,
-            reset,
-        );
-    }
-
     function fieldsSection(objs: LevelObject[]): HTMLElement {
-        const groups = groupFields(objs);
-        const kids: Node[] = [];
-        if (!groups.length)
-            kids.push(h('div', { class: 'note' }, 'No per-instance fields: this object uses every class default.'));
-        for (const g of groups) kids.push(fieldRow(g, objs));
-        kids.push(
-            h(
-                'div',
-                { class: 'note' },
-                'Only fields that differ from the class default are listed; the class field list and defaults are not decoded yet.',
-            ),
-        );
-        return section('Fields', groups.length, ...kids);
+        const panel = buildFieldsPanel(ctx, objs);
+        updaters.push(panel.update);
+        return section('Fields', panel.count, ...panel.nodes);
     }
 
     // ---- links --------------------------------------------------------------------------------------------------
@@ -598,7 +377,8 @@ export function createInspector(ctx: Ctx): Panel {
     function render(force = false): void {
         const objs = selected();
         const doc = ctx.doc();
-        const fieldSig = objs.map((o) => (o.fields ?? []).map((f) => `${f.name}:${f.type}`).join(',')).join('|');
+        // Field values refresh in place (no rebuild), so the signature only carries what changes the layout.
+        const fieldSig = `${ctx.schemas() ? 'schema' : 'plain'}:${objs.map((o) => o.resource).join(',')}`;
         const linkSig =
             objs.length === 1
                 ? `${(objs[0]!.links ?? []).join(',')}@${[...doc.objects()].filter((o) => o.links?.includes(objs[0]!.id)).length}`
@@ -609,6 +389,8 @@ export function createInspector(ctx: Ctx): Panel {
             return;
         }
         sig = next;
+        const keepScroll = body.scrollTop;
+        closePopover();
         updaters = [];
         if (!objs.length) {
             fill(
@@ -647,6 +429,7 @@ export function createInspector(ctx: Ctx): Panel {
             ),
         );
         fill(body, head, transformSection(objs), fieldsSection(objs), linksSection(objs), infoSection(objs));
+        body.scrollTop = keepScroll;
     }
 
     return {

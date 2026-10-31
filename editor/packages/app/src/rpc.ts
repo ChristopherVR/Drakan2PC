@@ -80,6 +80,8 @@ export interface LevelLoadResult {
     lvl: Lvl;
     /** Class tables of the ODBs the level depends on, keyed by stem. */
     odbs: OdbIndex;
+    /** Per ODB stem: its `.DB` dependency list (index -> container stem), which class reference fields are relative to. */
+    odbDeps: Record<string, Record<number, string>>;
     /** Dependencies whose ODB could not be found on the disc. */
     missingOdbs: string[];
 }

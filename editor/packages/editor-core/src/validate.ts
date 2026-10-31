@@ -26,11 +26,6 @@ export interface ValidateOptions {
     /** Warn about objects outside this extent (default: `doc.bounds`). */
     bounds?: { minX: number; maxX: number; minZ: number; maxZ: number } | null;
     /**
-     * Also flag object-reference fields (class types 0x2003..0x5003) whose value is not a placed object. Off by default:
-     * that reading of the type word is unverified and would be noisy if wrong.
-     */
-    checkRefs?: boolean;
-    /**
      * The document edits a disc level: a new object whose class has no instance in the level (no template) is built
      * from generic defaults, which are unverified in game, so it is flagged.
      */
@@ -39,8 +34,7 @@ export interface ValidateOptions {
 
 /**
  * Check a document for problems that would make the exported level wrong or surprising: links to missing objects,
- * duplicate ids, objects outside the level extent (when known), non-finite transforms, unresolved classes and object
- * reference fields that point at nothing.
+ * duplicate ids, objects outside the level extent (when known), non-finite transforms and unresolved classes.
  */
 export function validateDocument(doc: LevelDocument, opts: ValidateOptions = {}): ValidationIssue[] {
     const out: ValidationIssue[] = [];
@@ -121,22 +115,6 @@ export function validateDocument(doc: LevelDocument, opts: ValidateOptions = {})
                     code: 'dangling-link',
                     ids: [o.id],
                     message: `${label(o)} links to missing object ${to}`,
-                });
-            }
-        }
-        for (const f of opts.checkRefs ? (o.fields ?? []) : []) {
-            if (
-                ((f.type >> 8) & 0xef) >= 0x20 &&
-                (f.type & 0xff) === 3 &&
-                typeof f.value === 'number' &&
-                f.value !== 0 &&
-                !doc.has(f.value)
-            ) {
-                out.push({
-                    severity: 'warning',
-                    code: 'dangling-ref',
-                    ids: [o.id],
-                    message: `${label(o)}: "${f.name}" refers to missing object ${f.value}`,
                 });
             }
         }

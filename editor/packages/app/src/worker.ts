@@ -48,6 +48,18 @@ function need(): Iso9660 {
     return iso;
 }
 
+/** The .DB dependency list beside an ODB (stem path without extension): dependency index -> container stem. */
+async function readOdbDeps(fs: Iso9660, stemPath: string): Promise<Record<number, string>> {
+    const out: Record<number, string> = {};
+    const dbf = await fs.find(`${stemPath}.DB`);
+    if (!dbf || dbf.isDir) return out;
+    const dir = stemPath.slice(0, stemPath.lastIndexOf('\\'));
+    for (const dep of parseDb(decoder.decode(await fs.read(dbf))).dependencies) {
+        out[dep.index] = odbStemForDependency(resolveDependencyStem(dir, dep.path));
+    }
+    return out;
+}
+
 async function loadLevels(): Promise<LevelInfo[]> {
     const fs = need();
     const f = await fs.find(`${language}\\LEVELLST.TXT`);
@@ -187,6 +199,7 @@ const api: { [K in keyof Api]: (...a: Parameters<Api[K]>) => Promise<ReturnType<
         const e = reader.entries.find((x) => x.type === LVL_TYPE_OBJECTS)!;
         const odbReaders = new Map<string, SrscReader>();
         const missingOdbs: string[] = [];
+        const odbDeps: Record<string, Record<number, string>> = {};
         for (const d of lvl.header.dependencies) {
             const stem = odbStemForDependency(d.path.text);
             if (odbReaders.has(stem)) continue;
@@ -199,7 +212,9 @@ const api: { [K in keyof Api]: (...a: Parameters<Api[K]>) => Promise<ReturnType<
                 odbReaders.set(stem, await SrscReader.open(sliceSource(fs.source, f.extent * 2048, f.size)));
             } catch {
                 missingOdbs.push(d.path.text);
+                continue;
             }
+            odbDeps[stem] = await readOdbDeps(fs, resolveDependencyStem(dirPath, d.path.text));
         }
         return {
             path: lvlFile.path,
@@ -207,6 +222,7 @@ const api: { [K in keyof Api]: (...a: Parameters<Api[K]>) => Promise<ReturnType<
             objects: { type: e.type, id: e.id, sub: e.sub, size: e.size },
             lvl,
             odbs: await buildOdbIndex(odbReaders),
+            odbDeps,
             missingOdbs,
         };
     },

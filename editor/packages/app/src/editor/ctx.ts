@@ -1,4 +1,4 @@
-import type { AssetClass, LevelDocument } from '@drakan/editor-core';
+import type { AssetClass, LevelDocument, SchemaProvider } from '@drakan/editor-core';
 import type { LevelView } from '../level.ts';
 import type { LevelLoadResult } from '../rpc.ts';
 
@@ -7,6 +7,10 @@ export interface Ctx {
     view(): LevelView;
     doc(): LevelDocument;
     catalog(): AssetClass[];
+    /** Class field schemas of the open disc level (null for a world dump or a saved document without a disc). */
+    schemas(): SchemaProvider | null;
+    /** Model-render thumbnail (PNG data URL) of a catalog class, or null while it is being made. Asks for it when missing. */
+    classThumb(cls: AssetClass): string | null;
     /** The disc level the document was loaded from (null for a world dump or a saved document). */
     src(): LevelLoadResult | null;
     toast(msg: string, kind?: 'info' | 'error' | 'ok' | 'warn'): void;

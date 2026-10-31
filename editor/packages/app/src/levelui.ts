@@ -2,6 +2,7 @@ import {
     AddCommand,
     CompositeCommand,
     LevelDocument,
+    SchemaProvider,
     alignPositions,
     buildCatalog,
     copyObjects,
@@ -102,6 +103,7 @@ export function initLevelUi(host: LevelUiHost): LevelUi {
     /** The level the document was loaded from (LVL source); null for a world dump or a saved document. */
     let src: LevelLoadResult | null = null;
     let catalog: AssetClass[] = [];
+    let schemas: SchemaProvider | null = null;
     let worldDoc: LevelDocument | null = null;
     let comparison: WorldComparison | null = null;
     let ghosts = true;
@@ -152,6 +154,11 @@ export function initLevelUi(host: LevelUiHost): LevelUi {
         view: () => getView(),
         doc: () => getView().doc,
         catalog: () => catalog,
+        schemas: () => schemas,
+        classThumb(cls) {
+            loader.wantThumbnail(cls);
+            return loader.thumbnail(cls.resource);
+        },
         src: () => src,
         toast,
         locate(ids) {
@@ -722,6 +729,7 @@ export function initLevelUi(host: LevelUiHost): LevelUi {
         src = r;
         levelName = r.file.replace(/\.lvl$/i, '');
         catalog = buildCatalog(r.lvl.header, r.odbs, doc.objects());
+        schemas = new SchemaProvider(r.lvl.header, r.odbs, r.odbDeps);
         const v = getView();
         let used = doc;
         let restoreMsg = '';

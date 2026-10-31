@@ -1,11 +1,11 @@
 import {
     addObject,
     deleteObject,
-    isScalarParam,
+    objectParamSpecs,
     paramValue,
-    removeParam,
     setObjectLinks,
-    setParamScalar,
+    setObjectParams,
+    type ParamSpec,
     duplicateObject,
     findObject,
     FLAG_SCALED,
@@ -21,6 +21,7 @@ import {
     type Vec3,
 } from '@drakan/formats';
 import { kindOfClassName, resourceParts } from './catalog.ts';
+import { sameFieldValue } from './schema.ts';
 import { LevelDocument, type DocField, type LevelObject } from './document.ts';
 import type { EntityKind } from './world.ts';
 
@@ -129,29 +130,25 @@ export interface DocumentDiff {
 const sameLinks = (a: readonly number[], b: readonly number[]): boolean =>
     a.length === b.length && a.every((v, i) => v === b[i]);
 
-/** Parameters of `o` (in the base object) that the document changed: edited values and removed fields. */
-function fieldChanges(b: LvlObject, o: LevelObject): { edits: { slot: number; value: number }[]; removed: number[] } {
-    const edits: { slot: number; value: number }[] = [];
-    const removed: number[] = [];
-    if (!o.fields) return { edits, removed };
-    const byIndex = new Map(o.fields.map((f) => [f.fieldIndex, f]));
-    b.params.forEach((p, slot) => {
-        const f = byIndex.get(p.fieldIndex);
-        if (!f) {
-            removed.push(slot);
-            return;
-        }
-        if (!isScalarParam(p.type) || typeof f.value !== 'number') return;
-        const cur = paramValue(b, slot);
-        if (
-            typeof cur === 'number' &&
-            Math.fround(f.value) !== Math.fround(cur) &&
-            !(Number.isNaN(f.value) && Number.isNaN(cur))
-        ) {
-            edits.push({ slot, value: f.value });
-        }
+/** The parameters a document object wants written: its overrides, by class field index. */
+function desiredParams(o: LevelObject): ParamSpec[] {
+    return (o.fields ?? []).map((f) => ({ fieldIndex: f.fieldIndex, type: f.type, name: f.name, value: f.value }));
+}
+
+/**
+ * True when the document object's overrides differ from the parameters of `b` (compared per class field index, so the
+ * order or the data-area layout of the stored parameters does not matter). Objects without `fields` are not touched.
+ */
+function paramsChanged(b: LvlObject, o: LevelObject): boolean {
+    if (!o.fields) return false;
+    const want = desiredParams(o);
+    const have = objectParamSpecs(b);
+    if (want.length !== have.length) return true;
+    const byIndex = new Map(have.map((p) => [p.fieldIndex, p]));
+    return want.some((w) => {
+        const h = byIndex.get(w.fieldIndex);
+        return !h || h.type !== w.type || !sameFieldValue(w.type, w.value, h.value);
     });
-    return { edits, removed };
 }
 
 function rotChanged(base: readonly number[], doc: readonly number[]): boolean {
@@ -176,8 +173,7 @@ export function diffDocument(base: LvlObjectList, doc: LevelDocument): DocumentD
         const bs = b.scale;
         if (o.scale && bs && o.scale.some((v, i) => Math.fround(v) !== bs[i]!)) d.scaled.push(o.id);
         if (o.links && !sameLinks(o.links, b.links)) d.linked.push(o.id);
-        const fc = fieldChanges(b, o);
-        if (fc.edits.length || fc.removed.length) d.params.push(o.id);
+        if (paramsChanged(b, o)) d.params.push(o.id);
     }
     for (const b of base.objects) if (!seen.has(b.id)) d.deleted.push(b.id);
     d.added.sort((a, b) => a.id - b.id);
@@ -255,16 +251,11 @@ export function applyDocumentToLvl(
     // Links and parameters of the new objects (links to other new objects are remapped to the exported ids).
     for (const { obj, doc: o } of added) {
         if (o.links) obj.links = [...new Set(o.links.map((l) => idMap.get(l) ?? l))];
-        if (o.fields) {
-            const fc = fieldChanges(obj, o);
-            for (const e of fc.edits) setParamScalar(list, obj.id, e.slot, e.value);
-            for (const slot of fc.removed.sort((x, y) => y - x)) {
-                try {
-                    removeParam(list, obj.id, slot);
-                } catch (e) {
-                    report.warnings.push(`object ${o.id}: ${(e as Error).message}`);
-                    break;
-                }
+        if (o.fields && paramsChanged(obj, o)) {
+            try {
+                setObjectParams(list, obj.id, desiredParams(o));
+            } catch (e) {
+                report.warnings.push(`object ${o.id}: ${(e as Error).message}`);
             }
         }
     }
@@ -293,15 +284,10 @@ export function applyDocumentToLvl(
         const o = doc.get(id)!;
         const t = findObject(list, id);
         if (!t) continue;
-        const fc = fieldChanges(t, o);
-        for (const e of fc.edits) setParamScalar(list, id, e.slot, e.value);
-        for (const slot of fc.removed.sort((x, y) => y - x)) {
-            try {
-                removeParam(list, id, slot);
-            } catch (e) {
-                report.warnings.push(`object ${id}: ${(e as Error).message}`);
-                break;
-            }
+        try {
+            setObjectParams(list, id, desiredParams(o));
+        } catch (e) {
+            report.warnings.push(`object ${id}: ${(e as Error).message}`);
         }
     }
     return { list, report };
