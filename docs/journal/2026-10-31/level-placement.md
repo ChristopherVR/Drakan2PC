@@ -23,3 +23,28 @@ Surdana (`DRAKAN_WORLD=2`: 4602 live entities with class, `resId`, position, yaw
 8. Corrections: `lvl-odb-dump.md` said placement was unlocated and the float triples at 0x102 body +0x10 were "too small":
    they are class-default transform data, not placements. `actor-spawn.md` "placement comes from the stream": it is LVL
    0x0020. Scratch files lived in `build/lvl-re` (not committed).
+
+## TypeScript reader/writer
+
+`editor/packages/formats/src/lvl.ts` (+ `odb.ts`, re-exported through `lvl.ts`; one export line in `index.ts`). Tests with
+synthetic fixtures: `editor/packages/formats/test/lvl.test.ts`.
+
+* Model keeps every byte: prefix words, all 32 flag bits, event count, the zero word before the sentinel and the sentinel,
+  the raw data dwords, field_def types and raw (NUL padded) names. Header: raw strings, the u16 after each dependency
+  index, and any trailing bytes. `writeObjectList` / `writeLevelHeader` re-serialise byte for byte; `writeLvl` returns the
+  archive unchanged when the list is unchanged, otherwise replaces only the 0x0020 entry via `writeSrsc`.
+* Edits: `moveObject`, `rotateObject` (integer degrees, i16), `scaleObject` (only when flag 0x100 is set; enabling scale
+  or radius on an object is not supported), `deleteObject`, `duplicateObject` (new id = max + 1, appended so ids stay
+  ascending; link list copied, so the copy fires the same targets and nothing links to it).
+* Not safe yet: `deleteObject` throws if other objects link to the target; pass `'unlink'` to drop the id from their link
+  lists or `'ignore'` to leave dangling links (game behaviour unverified; `danglingLinks` lists them). Object ids that
+  might sit inside parameter data are not scanned (parameter semantics undecoded). The 65535 object cap (u16 count) is
+  enforced. Euler composition order and unknown flag bits are preserved but not interpreted. Editing class defaults
+  (ODB data) is out of scope.
+* Class names: `resolveClass(header, odbIndex, classId, dbIndex)` = dependency path -> last component -> RSRCIOP mangler
+  -> ODB stem -> 0x0102 record (name, group, runtime class), same rules as `lvl_objects.py`.
+* Real-data gate (scratch script outside the repo, run on the PAL ISO via `Iso9660`/`SrscReader`): all 15 LVLs under
+  ENGLISH (the 14 `LEVEL*` files plus `OUT`; 7 to 6071 objects) give byte-identical 0x0020 and 0x0000 payloads, a
+  byte-identical whole LVL through `writeLvl`, and object count, id, class, db index, position, rotation and resolved
+  ODB name/db all equal to `lvl_objects.py` output. No duplicate or unordered ids, no dangling links in any level. A move
+  edit re-packs and re-reads correctly in every level.
