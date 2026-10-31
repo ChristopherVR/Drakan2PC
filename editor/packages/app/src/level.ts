@@ -63,6 +63,11 @@ export class LevelView {
     stack = new CommandStack(this.doc);
     selection = new Set<number>();
     hiddenKinds = new Set<EntityKind>();
+    /** Restrictions for hosts that edit a fixed set of objects (the save editor): no add/remove, optional move-only. */
+    policy: { structural: boolean; translateOnly: boolean; movable?: (id: number) => boolean } = {
+        structural: true,
+        translateOnly: false,
+    };
     classFilter = '';
     search = '';
     /** Count of objects that pass the filters (for the status line). */
@@ -171,10 +176,10 @@ export class LevelView {
         this.stack.redo();
     }
     deleteSelected(): void {
-        if (this.selection.size) this.stack.run(new DeleteCommand([...this.selection]));
+        if (this.policy.structural && this.selection.size) this.stack.run(new DeleteCommand([...this.selection]));
     }
     duplicateSelected(): void {
-        if (!this.selection.size) return;
+        if (!this.policy.structural || !this.selection.size) return;
         const cmd = this.stack.duplicate([...this.selection]);
         this.select(cmd.ids);
     }
@@ -276,7 +281,8 @@ export class LevelView {
 
     private updateGizmo(): void {
         const c = this.centroid();
-        if (!c) {
+        const movable = this.policy.movable;
+        if (!c || (movable && [...this.selection].some((id) => !movable(id)))) {
             this.gizmo.detach();
             return;
         }
@@ -286,6 +292,7 @@ export class LevelView {
     }
 
     setMode(m: 'translate' | 'rotate'): void {
+        if (m === 'rotate' && this.policy.translateOnly) return;
         this.gizmo.setMode(m);
         if (m === 'rotate') this.gizmo.showX = this.gizmo.showZ = false;
         else this.gizmo.showX = this.gizmo.showZ = true;

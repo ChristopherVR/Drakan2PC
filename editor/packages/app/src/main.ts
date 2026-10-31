@@ -1,6 +1,7 @@
 import type { Api, EntryInfo, FileInfo, FileOpenResult, LevelInfo, Method, Request, Response } from './rpc.ts';
 import { TextureViewport } from './viewport.ts';
 import { initLevelUi } from './levelui.ts';
+import { initSaveUi } from './saveui.ts';
 
 const $ = <T extends HTMLElement>(id: string): T => {
     const el = document.getElementById(id);
@@ -317,7 +318,10 @@ window.addEventListener('drop', (e) => {
     drop.hidden = true;
     const f = e.dataTransfer?.files[0];
     if (!f) return;
-    if (/\.json$/i.test(f.name)) {
+    if (/\.rsg$/i.test(f.name)) {
+        showTab('save');
+        saveUi.openFile(f).catch(reportError);
+    } else if (/\.json$/i.test(f.name)) {
         showTab('level');
         levelUi.loadFile(f).catch(reportError);
     } else void openIso(f);
@@ -331,13 +335,17 @@ const levelUi = initLevelUi({
     setStatus,
 });
 
-function showTab(tab: 'inspect' | 'level'): void {
+const saveUi = initSaveUi({ setStatus });
+
+type Tab = 'inspect' | 'level' | 'save';
+function showTab(tab: Tab): void {
     document.querySelector('main')!.hidden = tab !== 'inspect';
     $('level-main').hidden = tab !== 'level';
-    $('tab-inspect').classList.toggle('active', tab === 'inspect');
-    $('tab-level').classList.toggle('active', tab === 'level');
+    $('save-main').hidden = tab !== 'save';
+    for (const t of ['inspect', 'level', 'save'] as const) $(`tab-${t}`).classList.toggle('active', t === tab);
     if (tab === 'level') levelUi.view();
 }
 $('tab-inspect').onclick = () => showTab('inspect');
 $('tab-level').onclick = () => showTab('level');
-(window as unknown as { drakanEditor: unknown }).drakanEditor = { levelUi, showTab };
+$('tab-save').onclick = () => showTab('save');
+(window as unknown as { drakanEditor: unknown }).drakanEditor = { levelUi, saveUi, showTab };

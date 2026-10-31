@@ -37,3 +37,10 @@ bytes, extracted files or screenshots of game content. `scripts/repository_guard
   `decodeTxd` returns top-down by default.
 - Pixel planes may be stored as `u32 compressedLength + zlib stream` (the level 0 tile set, and the 16/32 bpp textures in
   `DRAKAN2.RRC`), not only for 8 bpp. `txd_decode.py` rejects those as a size mismatch.
+
+## Save mode
+
+The Save tab edits native `.rsg` saves (hp, gold, position, skills), lists memcard slots with their screenshots, and
+compares two saves. Edits stay pending until SAVE (File System Access API, keeps a `.bak`) or EXPORT (download). Core
+logic: `packages/formats/src/save.ts`, `packages/editor-core/src/save-doc.ts`. See
+`docs/journal/2026-10-31/editor-save-mode.md`.

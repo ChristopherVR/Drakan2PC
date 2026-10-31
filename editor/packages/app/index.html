@@ -17,6 +17,7 @@
             <nav id="tabs">
                 <button id="tab-inspect" class="active">Inspector</button>
                 <button id="tab-level">Level</button>
+                <button id="tab-save">Save</button>
             </nav>
             <span id="status">Choose or drop your own disc image. Nothing is uploaded; files are read locally.</span>
         </header>
@@ -100,6 +101,60 @@
                     Keys: 1 move, 2 rotate, F frame, Ctrl+D duplicate, Del delete, Ctrl+Z/Y undo/redo, WASD/QE fly,
                     shift-click multi-select.
                 </div>
+            </section>
+        </main>
+        <main id="save-main" hidden>
+            <aside id="save-side">
+                <div class="toolbar">
+                    <button id="sv-open" title="Open one .rsg save file">Open save</button>
+                    <button id="sv-folder" title="Pick the memory card folder (mc0) to list every slot">
+                        Open folder
+                    </button>
+                    <input id="sv-file" type="file" accept=".rsg" hidden />
+                    <input id="sv-dir" type="file" webkitdirectory hidden />
+                </div>
+                <h2>Saves <small id="sv-count"></small></h2>
+                <ul id="sv-list" class="savelist">
+                    <li class="empty">
+                        Open a folder to list its memory card slots with their screenshots, or open a single .rsg.
+                    </li>
+                </ul>
+            </aside>
+            <section id="save-center">
+                <div class="toolbar" id="sv-bar">
+                    <button id="sv-undo" disabled>Undo</button>
+                    <button id="sv-redo" disabled>Redo</button>
+                    <span class="spacer"></span>
+                    <small id="sv-pending"></small>
+                    <button id="sv-save" class="primary" disabled>SAVE</button>
+                    <button id="sv-export" disabled title="Download the edited .rsg">EXPORT</button>
+                </div>
+                <nav class="subtabs">
+                    <button id="sv-sub-character" class="active">Character</button>
+                    <button id="sv-sub-world">World</button>
+                    <button id="sv-sub-compare">Compare</button>
+                </nav>
+                <div id="sv-character" class="subpane"></div>
+                <div id="sv-world" class="subpane" hidden>
+                    <div class="filters">
+                        <input id="sv-q" type="search" placeholder="Search class (hex), type, id, entry number" />
+                        <label class="check"><input id="sv-posonly" type="checkbox" /> positioned only</label>
+                        <small id="sv-wcount" class="dim"></small>
+                    </div>
+                    <div id="sv-groups"></div>
+                    <div id="sv-details"></div>
+                </div>
+                <div id="sv-compare" class="subpane" hidden></div>
+            </section>
+            <section id="save-right">
+                <h2>
+                    3D <small>records with a position</small><span class="spacer"></span>
+                    <button id="sv-frame-player">Show player</button>
+                    <button id="sv-frame-all">Frame all</button>
+                </h2>
+                <div id="sv-viewport"></div>
+                <h2>Pending edits</h2>
+                <div id="sv-edits-list"></div>
             </section>
         </main>
         <div id="drop" hidden>Drop the ISO to open it</div>
