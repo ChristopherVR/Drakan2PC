@@ -123,3 +123,31 @@ auto id = drakan_lifecycle::subscribe(drakan_lifecycle::Kind::BeforeLevelLoad, [
 fromSave ok result mount flushes`) and every non-empty kill-list flush; `DRAKAN_LIFECYCLE=0` disables the hooks.
 Subscriptions may be made before or after `install()`. Listeners run on the EE thread, must not block, and must not call
 guest functions that wait on a semaphore another guest thread may hold.
+
+## 5. Untested cases, second attempt (dismount, cross-level restore, real exit) - result: still not verified
+
+Nothing new is verified; what was tried and learned, so the next attempt does not repeat it:
+
+* **Test aid `DRAKAN_LIFECYCLE_EXIT=<level>[@ticks]`** (drakan_lifecycle.cpp, experimental, harness phases `exit_restore` / `exit_kill`,
+  opt-in only): posts the level-change entry `0x13b7c0(path)` (the function the exit screen reaches, `Level_Load` flags 0) once a
+  non-intro level has been running `ticks` frames. Events do fire (`beforeLevelLoad level='Level 4A - Ravenshold' fromSave=0`
+  with a populated registry, no flush counter movement before it), but the load never completes: **a level load cannot be
+  injected into a running, non-modal level.** Tail call from `PadMgr_Update`: the guest freezes. `postGuestCall` at priority 1
+  (default): the load thread starves everything it polls and spins in `0x18eb50..0x18eb60` / `0x1093c8` forever. At priority 7 (main
+  thread's): the main thread keeps ticking the half-torn-down world and dies with a null indirect call (`0x348764`, `guest-branch:missing-target`).
+  With the pause menu open the load starts but the world is stopped (`World 0.0 fps`) and it never ends either. The real exit goes
+  trigger event 9099 (`0x365370` -> `0x361e18` -> `0x361f60`) -> modal screen (`0x2c4458`) -> `0x13b7c0`; a harness
+  must drive that modal flow (find a class-of-exit-trigger actor via `DRAKAN_WORLD=2`, send it message 9099, or walk into it), not call
+  `0x13b7c0` directly. So `destroyActor` in a populated `beforeLevelLoad` is still **unproven**; the restore case
+  (section 2) remains the only populated-registry evidence.
+* **Arokh -> Rynn**: a Rynn save restored while in 4A would show it, but that needs the cross-level restore below. The native dismount
+  (landing is level-scripted, `world-rate-audit.md`) and the forced-landing dragon fixture (`combat_save_fixture.py --dragon-ground-state`,
+  mounts through `0x323258 -> 0x44d3b0`) both need the original inspected save: `iso/mc0/.../Level 1A - Surdana.rsg` now hashes
+  `9436ffed...`, not the `b1fec620...` the script requires, so the fixture refuses.
+* **Cross-level restore**: a save under `DRAKAN_START_LEVEL` keeps the replaced level's name, so it cannot be staged by redirect; seeding
+  a renamed save (`Level 4A - Ravenshold.rsg` in `Slot33`) into a card makes the title bounce between screens 8 and 4 (autopress
+  never reaches New Game), so the run never reaches gameplay. A working stage needs either a real exit (above) or a recipe that
+  loads the seeded card from the title's Load Game screen and then F8s.
+* Practical notes: `ps2EntryRunner` rebuilds are slow (30 min) when other sessions touch `runtime/hle` or the generated code, and
+  other sessions' half-edited files break the shared tree for minutes; a stale `play_run.py` retry loop keeps relaunching a hung game
+  (3 attempts x 300 s) and holds `drakan.exe` open.

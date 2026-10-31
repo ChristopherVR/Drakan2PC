@@ -220,7 +220,7 @@ policy for destroying actors: [ghost-spike-s3](../journal/2026-10-31/ghost-spike
 | `beforeLevelLoad` / `afterLevelLoad` (level stem, `fromSave`) | `Level_Load` `0x1c94c8(path, flags)`; flags 0 = fresh, 1 / 3 = inside a save restore | New Game (intro, Surdana), restores |
 | `beforeSaveWrite` / `afterSaveWrite` | `0x169c28`, the serialiser behind menu save, quick save and the level-change save | menu save, F5 |
 | `beforeSaveRestore` / `afterSaveRestore` | `0x16adb8`, the loader behind F8, Load Game, Continue; calls `Level_Load` itself | F8 |
-| `mountChanged` (Rynn <-> Arokh) | class of the resource record of `ctx+0x4b0`, polled at `PadMgr_Update` and after loads | Rynn -> Arokh (intro to 4A); Arokh -> Rynn not staged |
+| `mountChanged` (Rynn <-> Arokh) | class of the resource record of `ctx+0x4b0`, polled at `PadMgr_Update` and after loads | Rynn -> Arokh (intro to 4A); Arokh -> Rynn, cross-level restore and a real exit still unverified (a level load cannot be injected into a running level, see journal section 5) |
 
 Listeners run on the EE thread at a call boundary. The save write and restore yield to other guest threads, so the "after"
 events come from a `$ra` trampoline and `transitionActive()` tells host spawners to wait. Destroying an actor: `0x1413c0`

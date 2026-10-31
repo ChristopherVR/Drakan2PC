@@ -35,6 +35,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 PLAY = ROOT / "scripts" / "harness" / "play_run.py"
 EXE: list[str] = []  # --exe passthrough
+LAST_RC = [0]  # exit status of the last play_run.py (0 = clean scripted quit)
 
 SAVE_F5 = """clock milliseconds
 0 sync play 60
@@ -68,6 +69,19 @@ SAVE_LOAD_SAVE_LOAD = """clock milliseconds
 36000 quit
 """
 
+# F5 in Surdana, then the test aid DRAKAN_LIFECYCLE_EXIT changes the level to 4A (the exit's load path, populated
+# registry), then F8 restores the Surdana quick save from inside 4A (cross-level restore, Arokh -> Rynn).
+EXIT_RESTORE = """clock milliseconds
+0 sync play 60
+500 key down F5
+1300 key up F5
+38000 shot ravenshold
+40000 key down F8
+40700 key up F8
+60000 shot restored
+61000 quit
+"""
+
 BOOT = "clock milliseconds\n0 sync play 60\n3000 quit\n"
 
 LINE = re.compile(
@@ -87,7 +101,7 @@ def run(prefix: str, phase: str, recipe: str, extra: list[str]) -> tuple[Path, l
     cmd += [*EXE, *extra]
     print(f"== {phase}: {' '.join(cmd[2:])}", flush=True)
     proc = subprocess.Popen(cmd, cwd=ROOT)
-    proc.wait()
+    LAST_RC[0] = proc.wait()
     log = out / "stdout_1.log"
     text = log.read_text(encoding="latin-1") if log.is_file() else ""
     events = [
@@ -135,8 +149,67 @@ def pairs(events: list[dict], before: str, after: str) -> list[tuple[dict, dict]
     )
 
 
+EXIT_LEVEL = "Level 4A - Ravenshold"
+EXIT_TICKS = 600
+
+
+def check_exit(ev: list[dict], results: list[tuple[str, bool]]) -> None:
+    """The level change out of a running level: events, pairing, no flush inside, Rynn -> Arokh."""
+    loads = [(b, a) for b, a in pairs(ev, "beforeLevelLoad", "afterLevelLoad") if "Ravenshold" in b["level"]]
+    check(
+        "exit: 4A load fires before/after (fresh, ok)",
+        bool(loads) and not loads[0][0]["fromSave"] and loads[0][1]["ok"],
+        results,
+    )
+    check(
+        "exit: no kill-list flush inside the level load", all(b["flushes"] == a["flushes"] for b, a in loads), results
+    )
+    check("exit: afterLevelLoad names Ravenshold", any("Ravenshold" in a["level"] for _, a in loads), results)
+    k = kinds(ev)
+    check(
+        "exit: mountChanged Rynn -> Arokh after the exit load",
+        any(e["kind"] == "mountChanged" and (e["prev"], e["cur"]) == (1, 2) for e in ev),
+        results,
+    )
+    check(
+        "exit: every level load has its after event", k.count("beforeLevelLoad") == k.count("afterLevelLoad"), results
+    )
+
+
+def check_cross_restore(ev: list[dict], results: list[tuple[str, bool]]) -> None:
+    """F8 in 4A restores the Surdana save: restore events in order around a Surdana load, then Arokh -> Rynn."""
+    exit_at = next(
+        (i for i, e in enumerate(ev) if e["kind"] == "afterLevelLoad" and "Ravenshold" in e["level"]), len(ev)
+    )
+    tail = ev[exit_at:]
+    kt = kinds(tail)
+    order = ["beforeSaveRestore", "beforeLevelLoad", "afterLevelLoad", "afterSaveRestore"]
+    check(
+        "xrestore: order beforeSaveRestore, beforeLevelLoad, afterLevelLoad, afterSaveRestore",
+        [x for x in kt if x in order][:4] == order,
+        results,
+    )
+    after = [e for e in tail if e["kind"] == "afterLevelLoad"]
+    check(
+        "xrestore: afterLevelLoad reports Surdana (the saved level) and fromSave",
+        bool(after) and "Surdana" in after[0]["level"] and after[0]["fromSave"] and after[0]["ok"],
+        results,
+    )
+    check(
+        "xrestore: afterSaveRestore names the Surdana save",
+        any(e["kind"] == "afterSaveRestore" and "Surdana" in e["level"] for e in tail),
+        results,
+    )
+    check(
+        "xrestore: mountChanged Arokh -> Rynn (2 -> 1) after the restore",
+        any(e["kind"] == "mountChanged" and (e["prev"], e["cur"]) == (2, 1) for e in tail),
+        results,
+    )
+    check("xrestore: the run ended with a clean scripted quit (no crash)", LAST_RC[0] == 0, results)
+
+
 def main() -> int:
-    phases = ["boot", "save_surdana", "save_4a", "menu_save", "restore"]
+    phases = ["boot", "save_surdana", "save_4a", "menu_save", "restore", "exit_restore", "exit_kill"]
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--phase", choices=phases)
     ap.add_argument("--prefix", default="lifecycle")
@@ -147,7 +220,8 @@ def main() -> int:
         EXE[:] = ["--exe", a.exe]
 
     def want(p: str) -> bool:
-        return a.phase in (None, p)
+        # exit_* phases are experimental opt-ins (see the journal: the synthetic level change freezes or crashes the guest)
+        return a.phase == p or (a.phase is None and not p.startswith("exit_"))
 
     results: list[tuple[str, bool]] = []
     kill = ["--env", f"DRAKAN_LIFECYCLE_KILL={a.kill}"] if a.kill else []
@@ -219,6 +293,19 @@ def main() -> int:
             k.count("beforeSaveWrite") >= 2 and k.count("afterSaveWrite") >= 2,
             results,
         )
+
+    exit_env = ["--env", f"DRAKAN_LIFECYCLE_EXIT={EXIT_LEVEL}@{EXIT_TICKS}"]
+
+    if want("exit_restore"):
+        _, ev = run(a.prefix, "exit_restore", EXIT_RESTORE, [*exit_env, *kill])
+        check_exit(ev, results)
+        check_cross_restore(ev, results)
+
+    if want("exit_kill"):
+        # destroy one live handle (any class, synchronous flush) in the exit's beforeLevelLoad, registry populated
+        _, ev = run(a.prefix, "exit_kill", EXIT_RESTORE, [*exit_env, "--env", "DRAKAN_LIFECYCLE_KILL=*:level"])
+        check_exit(ev, results)
+        check_cross_restore(ev, results)
 
     failed = [label for label, ok in results if not ok]
     print(f"\n{len(results) - len(failed)}/{len(results)} checks passed")

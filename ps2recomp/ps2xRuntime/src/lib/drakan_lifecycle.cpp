@@ -6,6 +6,7 @@
 #include "drakan_region.h"
 #include "ps2_runtime.h"
 #include "ps2_runtime_macros.h"
+#include "runtime/ee_scheduler.h"
 
 #include <algorithm>
 #include <array>
@@ -261,9 +262,47 @@ void hook(uint8_t* rdram, R5900Context* c, PS2Runtime* rt) {
 // PadMgr_Update, the frame boundary every other host hook uses: the controlled actor is polled here. (The engine's
 // setter 0x142c60 has no caller: the mount / dismount code stores ctx+0x4b0 inline, in 0x44d3b0 and 0x456de0.)
 PS2Runtime::RecompiledFunction g_origTick = nullptr;
+
+// --- DRAKAN_LIFECYCLE_EXIT: test aid for a level change out of a running level (populated registry) -----------------
+// "<level>[@<ticks>]": that many frames after the first level other than the intro has loaded, the level-change entry
+// 0x13b7c0(path) that the exit-trigger screen calls (flags 0, `Level_Load` behind it) is posted as a guest call on a
+// dispatcher thread at the main thread's priority (a tail call from PadMgr_Update froze the guest, and so did the
+// default priority 1: the loader polls and the threads it waits on never ran). Once. EXPERIMENTAL: at priority 7 the
+// world keeps running on the main thread while the load tears it down (null vtable call in the main thread); a real
+// exit goes through a modal screen. Kept for the journal's notes, not part of the default harness.
+constexpr uint32_t kLevelChange = 0x13b7c0u;
+constexpr int kExitPriority = 7; // the game's main thread: a higher priority starves the threads its loader polls
+constexpr uint32_t kScratchPath = 0x5b7d20u; // tail of the speech controller's text buffer (idle in a test run)
+struct ExitTest {
+    std::string level;
+    uint32_t after = 900, ticks = 0;
+    bool armed = false, ready = false;
+} g_exit;
+
+void exitTestOnLoad(const Event& e) {
+    if (g_exit.armed && !g_exit.ready && e.level.find("Intro") == std::string::npos && e.level != g_exit.level) {
+        g_exit.ready = true;
+        g_exit.ticks = 0;
+    }
+}
+
+bool exitTestDue(uint8_t* rdram, R5900Context* c, PS2Runtime* rt) {
+    if (!g_exit.armed || !g_exit.ready || g_active.load() > 0 || ++g_exit.ticks < g_exit.after ||
+        !rt->hasFunction(addr(kLevelChange)))
+        return false;
+    g_exit.armed = false;
+    const std::string path = "cdrom0:/English/Levels/" + g_exit.level + "/" + g_exit.level + ".lvl";
+    std::memcpy(rdram + kScratchPath, path.c_str(), path.size() + 1);
+    rt->eeScheduler().postGuestCall(addr(kLevelChange), kScratchPath, 0, 0, 0, nullptr, kExitPriority);
+    std::fprintf(stderr, "[lifecycle-test] level change to '%s' via %x\n", g_exit.level.c_str(), addr(kLevelChange));
+    return true;
+}
+
 void hookTick(uint8_t* rdram, R5900Context* c, PS2Runtime* rt) {
-    if (c->pc == addr(kPadMgrUpdate))
+    if (c->pc == addr(kPadMgrUpdate)) {
         pollMount(rdram, c, rt);
+        exitTestDue(rdram, c, rt);
+    }
     g_origTick(rdram, c, rt);
 }
 
@@ -520,6 +559,15 @@ void install(PS2Runtime& runtime) {
                                            : Kind::AfterSaveWrite;
         subscribe(g_kill.before, killTestBefore);
         subscribe(g_kill.after, killTestAfter);
+    }
+    if (const char* x = std::getenv("DRAKAN_LIFECYCLE_EXIT"); x && *x) {
+        g_exit.level = x;
+        if (const size_t at = g_exit.level.find('@'); at != std::string::npos) {
+            g_exit.after = static_cast<uint32_t>(std::strtoul(g_exit.level.c_str() + at + 1, nullptr, 10));
+            g_exit.level.resize(at);
+        }
+        g_exit.armed = !g_exit.level.empty();
+        subscribe(Kind::AfterLevelLoad, exitTestOnLoad);
     }
     g_installed = level || save || restore || mount;
     std::fprintf(stderr, "[lifecycle] hooks: level=%d saveWrite=%d saveRestore=%d mount=%d%s\n", level, save, restore,
