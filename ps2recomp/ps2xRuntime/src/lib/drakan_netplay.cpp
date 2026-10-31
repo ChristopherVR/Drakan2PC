@@ -1,4 +1,5 @@
 // Drakan: networked ghosts (drakan_netplay.h).
+#include "drakan_game.h"
 #include "drakan_netplay.h"
 #include "drakan_arena.h"
 #include "drakan_coop_character.h"
@@ -1508,7 +1509,9 @@ void install(PS2Runtime& rt) {
     }
     drakan_lifecycle::setLevelNameMapper([](const std::string& name) {
         std::lock_guard<std::mutex> lk(g_launchM);
-        return g_redirectActive.load() && name == g_redirectFrom && !g_matchLevel.empty() ? g_matchLevel : name;
+        return g_redirectActive.load() && name == g_redirectFrom && !g_matchLevel.empty()
+                   ? g_matchLevel
+                   : drakan_game::mapLevelName(name); // d1: the opening cut scene level is the campaign's start
     });
     using drakan_lifecycle::Kind;
     drakan_lifecycle::subscribe(Kind::BeforeLevelLoad, [](const drakan_lifecycle::Event&) {

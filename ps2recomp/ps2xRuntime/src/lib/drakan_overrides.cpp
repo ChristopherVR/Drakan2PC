@@ -35,6 +35,7 @@
 #include "drakan_modes.h"
 #endif
 #include "drakan_netplay.h"
+#include "drakan_game.h"
 #endif
 #include "spu2/AudioOutput.h"
 #include "drakan_pause.h"
@@ -1285,9 +1286,9 @@ void applyDrakanOverrides(PS2Runtime& runtime) {
         // Multiplayer: a match launched from the title menu loads its level through New Game with the level name
         // redirected at the file layer (docs/reference/netcode.md "Multiplayer menu"); the map list also offers the
         // custom levels the mod packs registered.
-        hle::FileService* files = &host->iop.file;
-        drakan_netplay::setLevelRedirectFn(
-            [files](const std::string& from, const std::string& to) { files->setLevelRedirect(from, to); });
+        drakan_netplay::setLevelRedirectFn([](const std::string& from, const std::string& to) {
+            drakan_game::redirect(from, to); // clearing restores the chosen game's campaign redirect
+        });
         std::vector<std::string> extra;
         if (g_mods) {
             for (const hle::mods::ExtraLevel& l : g_mods->extraLevels())
@@ -1311,6 +1312,40 @@ void applyDrakanOverrides(PS2Runtime& runtime) {
                                               "Level 2 - Shadowmire",
                                               "Level 3A - Andrellian Isles",
                                               "Level 3B - Crystal Mine",
+    {
+        // Campaign packs (manifest `campaign = "ootf"`): Drakan: Order of the Flame in the title menu; the choice
+        // redirects the opening cut scene level to the campaign's first level (drakan_game.h).
+        std::vector<drakan_game::Campaign> campaigns;
+        if (g_mods) {
+            for (const hle::mods::ModStatus& st : g_mods->status()) {
+                if (st.state != hle::mods::ModState::Loaded || st.manifest.campaign.empty())
+                    continue;
+                std::string start = st.manifest.campaignStart;
+                std::vector<std::string> mine;
+                for (const hle::mods::ExtraLevel& l : g_mods->extraLevels())
+                    if (l.modId == st.manifest.id)
+                        mine.push_back(l.name);
+                if (start.empty() && !mine.empty())
+                    start = mine.front();
+                if (std::find(mine.begin(), mine.end(), start) == mine.end()) {
+                    std::fprintf(stderr, "[game] pack '%s': campaign start level '%s' is not one of its levels\n",
+                                 st.manifest.id.c_str(), start.c_str());
+                    continue;
+                }
+                if (st.manifest.campaign != "ootf") {
+                    std::fprintf(stderr, "[game] pack '%s': unknown campaign '%s' (known: ootf)\n",
+                                 st.manifest.id.c_str(), st.manifest.campaign.c_str());
+                    continue;
+                }
+                campaigns.push_back({st.manifest.campaign, st.manifest.campaignName, st.manifest.id, start});
+                break; // one Order of the Flame campaign at a time (the first pack in load order)
+            }
+        }
+        hle::FileService* gameFiles = &host->iop.file;
+        drakan_game::configure(std::move(campaigns), [gameFiles](const std::string& from, const std::string& to) {
+            gameFiles->setLevelRedirect(from, to);
+        });
+    }
                                               "Level 4A - Ravenshold",
                                               "Level 4B - Northern Tundra",
                                               "Level 5 - Shiverbane",

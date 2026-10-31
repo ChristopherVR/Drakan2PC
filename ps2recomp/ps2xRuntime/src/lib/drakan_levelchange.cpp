@@ -1,5 +1,6 @@
 // Level change from the host (drakan_levelchange.h). See docs/journal/2026-10-31/level-change.md for the mechanism.
 #include "drakan_levelchange.h"
+#include "drakan_game.h"
 #include "drakan_lifecycle.h"
 #include "drakan_region.h"
 #include "ps2_runtime.h"
@@ -494,7 +495,7 @@ void hookTick(uint8_t* rdram, R5900Context* c, PS2Runtime* rt) {
                             e.handleFlags);
                 }
             }
-            const bool inGame = !g_currentLevel.empty() && g_currentLevel.find("Intro") == std::string::npos;
+            const bool inGame = !g_currentLevel.empty() && !drakan_game::isDiscCutsceneLevel(g_currentLevel);
             const bool wanted = inGame && (g_scanWanted.load() || g_probe.armed);
             if (wanted && ++g_scanTicks >= kRescanTicks) {
                 g_scanTicks = 0;
@@ -508,7 +509,7 @@ void hookTick(uint8_t* rdram, R5900Context* c, PS2Runtime* rt) {
                     h = g_exits[static_cast<size_t>(idx)].handle;
             }
             if (!h && g_probe.armed && g_framesInLevel >= g_probe.after && g_probe.next < g_probe.steps.size() &&
-                g_currentLevel.find("Intro") == std::string::npos) {
+                !drakan_game::isDiscCutsceneLevel(g_currentLevel)) {
                 scan(rdram, c, rt);
                 std::vector<ExitInfo> list = exits();
                 for (size_t i = 0; i < list.size(); ++i)

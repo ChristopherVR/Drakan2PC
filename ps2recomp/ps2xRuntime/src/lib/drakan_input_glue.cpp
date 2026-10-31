@@ -21,6 +21,7 @@
 #include "input/DrakanInput.h"
 #include "drakan_settings_host.h"
 #include "drakan_debug_menu.h"
+#include "drakan_game.h"
 #include "drakan_dual_wield.h"
 #include "drakan_menus.h"
 #if defined(PS2X_HAVE_GSR) // compiled with the GS renderer only

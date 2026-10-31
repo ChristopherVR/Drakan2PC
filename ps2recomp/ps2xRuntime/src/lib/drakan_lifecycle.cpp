@@ -2,6 +2,7 @@
 // controlled-actor setter. "After" events must survive a guest thread switch inside the hooked call (the loader waits
 // on semaphores), so the return address is redirected to a host trampoline that fires them whenever the call finally
 // returns. The hook itself fires "before" only on a real entry (c->pc == the function), never on a resume.
+#include "drakan_game.h"
 #include "drakan_lifecycle.h"
 #include "drakan_region.h"
 #include "ps2_runtime.h"
@@ -303,7 +304,7 @@ struct ExitTest {
 } g_exit;
 
 void exitTestOnLoad(const Event& e) {
-    if (g_exit.armed && !g_exit.ready && e.level.find("Intro") == std::string::npos && e.level != g_exit.level) {
+    if (g_exit.armed && !g_exit.ready && !drakan_game::isDiscCutsceneLevel(e.level) && e.level != g_exit.level) {
         g_exit.ready = true;
         g_exit.ticks = 0;
     }

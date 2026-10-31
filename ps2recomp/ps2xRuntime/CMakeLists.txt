@@ -394,6 +394,7 @@ add_library(ps2_runtime STATIC
     src/lib/drakan_levelchange.cpp
     src/lib/drakan_foliage.cpp
     src/lib/drakan_region.cpp
+    src/lib/drakan_game.cpp
     src/lib/gs/ps2_gif_arbiter.cpp
     src/lib/ps2_audio.cpp
     src/lib/ps2_audio_vag.cpp

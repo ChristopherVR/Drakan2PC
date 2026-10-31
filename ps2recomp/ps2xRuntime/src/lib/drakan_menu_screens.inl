@@ -866,6 +866,17 @@ void titleExecute(RecompGuest& g, uint32_t active, int id) {
             if (!titleOverlayStep(g_title.overlayPhase, wait, false))
                 titleFinish(gameui::Outcome::Confirmed, true);
             return;
+        case K::SelectGame: { // the game card (drakan_game.h): the card folder and the New Game redirect follow at once
+            const auto game = a.value == 1 ? drakan_game::Game::Ootf : drakan_game::Game::Drakan;
+            if (!drakan_game::select(game))
+                return refuse("that game is not installed");
+            menuLog("game: %s", drakan_game::name(game).c_str());
+            g_title.scanned = false; // the other game's saves: Continue / Load Game
+            // Load Game's native enable state came from the old card: the title's own refresh (message 4) from 37e810.
+            if (id == static_cast<int>(titleui::kScreenTitle))
+                g.call(GuestCall(titleui::kFnEnableLoad).arg(g_title.screen));
+            return titleFinish(gameui::Outcome::Confirmed, true);
+        }
         case K::QuitToDesktop:
             menuLog("quit to desktop: closing the window");
             g.requestQuit();
@@ -941,6 +952,10 @@ void titleTick(const uint8_t* ram, RecompGuest& g) {
             st.continueTime = g_title.saves.continueTime;
         }
         st.canQuit = drakan_menus::titleQuit();
+        st.offerGames = drakan_game::offerChoice();
+        st.game = static_cast<int>(drakan_game::current());
+        st.gameNames[0] = drakan_game::name(drakan_game::Game::Drakan);
+        st.gameNames[1] = drakan_game::name(drakan_game::Game::Ootf);
         st.dateOrder = menuDateOrder(g, st.clock24);
         gameui::readPauseOptions(RdramMemory(ram), st.options);
         if (++g_title.frames <= 1)

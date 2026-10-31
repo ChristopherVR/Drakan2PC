@@ -228,3 +228,91 @@ current maximum did not spawn). Authoring the class record fields (damage, grip,
 5. The log shows `mods: loaded '<id>' ...` plus any skip or conflict messages.
 
 Authoring tools (editor export, `scripts/` helpers) should write exactly this layout.
+
+## Campaign packs (Drakan: Order of the Flame)
+
+A pack whose `levels` are a whole converted Order of the Flame campaign says so in the manifest (top-level keys, above the
+tables; the editor's OotF export and `editor/scripts/ootf-convert.ts --campaign 1` write them):
+
+```toml
+levels = ["OotF 00 - Intro", "OotF 01 - Ruined Village", ...]   # play order
+campaign = "ootf"                                    # the only campaign kind so far
+campaign_name = "Drakan: Order of the Flame"         # optional: the title menu's label (default that text)
+campaign_start = "OotF 00 - Intro"                   # optional: the level New Game opens (default the first of `levels`)
+```
+
+Only a pack that is **enabled and loaded** with `campaign` set counts (the first one in load order if several; the start
+level must be one of the pack's registered levels, else `[game] pack ...: campaign start level ... is not one of its
+levels` and no campaign). Without such a pack the game behaves as before: no game choice, Drakan 2 only. A pack with plain
+`levels` (single maps, level copies) is unchanged and never offered as a game.
+
+What the runtime does with it (`drakan_game.cpp`):
+
+* **Title menu**: when a campaign is installed, a card "Choose your game" (Drakan / Order of the Flame) opens with the title
+  and again after Back on the main page; Esc on the card keeps the current game. The main menu (New Game, Load Game,
+  Continue, Multiplayer, Options ...) then runs for the chosen game. The label under the menu names it.
+* **New Game** in Order of the Flame redirects the disc's opening cut scene level (`Level 0 - Intro`, which New Game opens
+  first, then Level 1A) to the campaign start level at the file layer, so the Drakan 2 movie / cut scene never plays and the
+  campaign's own intro level comes first. (Before this a pack only registered levels, New Game still ran the Drakan 2 flow
+  and `DRAKAN_START_LEVEL` replaced only Level 1A after the intro.) The level chain after that is the pack's own exits
+  (journal 2026-10-31/ootf-campaign.md).
+* **Saves**: Order of the Flame uses its own memory card folder `<card>_ootf` (next to `mc0`; `mc0_ootf`, or
+  `<DRAKAN_MEMCARD_DIR>_ootf`), created on first use and seeded with a copy of the options (`<saveId>Settings`) of the
+  Drakan card, so the two games' saves never mix. Continue / Load Game / Save Game / quick save and the save previews all
+  follow the selected game because they use the one configured card root.
+* **Multiplayer and co-op are shared**: one Multiplayer menu for both games, maps of either game selectable (arena maps come
+  from the disc's levels and from every pack's `maps/*.ini`). A multiplayer launch sets its own redirect; when it ends the
+  campaign redirect of the chosen game is restored.
+* **Settings** `drakan.ini [general] game = ask | d2 | d1` (env `DRAKAN_GAME`): `ask` (default) offers the card when a
+  campaign is installed, `d2` / `d1` fix the game without a card (headless runs, harness): `d1` without an installed campaign
+  logs it and starts Drakan 2.
+  `scripts/harness/ootf_level_run.py --campaign ...` converts the level as a campaign pack and runs with `DRAKAN_GAME=d1`.
+
+## HD textures for converted OotF mods
+
+`python -I analysis/scripts/hd_pack.py modextract --zip <mod.zip> --work build/hdpack-mod` then `... upscale --work build/hdpack-mod`
+indexes the mod pack's textures by decoded-RGBA hash and writes the upscaled replacements into `dist/DrakanPC/textures` (never
+committed). Default settings (`texture_upscale = auto`, `texture_dir = textures`) already apply them. See
+`docs/journal/2026-11-01/ootf-texture-quality.md`.
+
+## Menus and HUD (UI skins)
+
+The modern menus (title, pause, Options pages) and the multiplayer HUD read a small INI file, so a pack can rename and
+reorder entries, restyle the theme and change a few layout numbers without code. Engine neutral: the file only names
+stable ids (`new_game`, `pause.root`), so another front end (for example Unreal UMG) can read the same data. Code:
+`runtime/gameui/include/gameui/UiSkin.h`; editor: the **Menus** dock tab (Level mode), `editor-core/src/uiskin.ts`.
+
+Where it comes from, later keys win: `ui.ini` next to `drakan.exe`, `DRAKAN_UI_SKIN=<file>` (testing), then
+`ui/*.ini` of every enabled pack in load order (`ModManager::uiFiles()`). The game logs `[ui] skin <source>: N setting(s)`
+and one line per rejected key. A pack ships only the lines it changes. `configs/ui/default.ini` lists every key with its
+compiled-in default (generated and checked by `gameui_skin_test`; `DRAKAN_WRITE_DEFAULT_SKIN=1` rewrites it); loading it
+changes nothing.
+
+```ini
+[theme]            ; name = #RRGGBB or #RRGGBBAA; accent sets ember and a matching glow (explicit keys still win)
+accent = #20C0A0
+size_body = 26     ; size_title / size_heading / size_body / size_small / size_numeric, design units (1920x1080)
+[hud]
+accent = #FF3366   ; respawn countdown, chat names, results highlight, Co-op banner
+[layout]           ; title_column_w, title_row_h, title_row_step, title_centre_y,
+title_row_h = 64   ; pause_menu_x, pause_menu_w, pause_panel_y, pause_row_h, pause_row_step
+[rows]             ; page = ids in order; ids left out are hidden
+title.main = new_game, continue, load_game, options, quit
+pause.root = resume, options, save, load, quit
+[strings]          ; 
+ for a line break
+title.row.new_game = Begin Anew
+title.desc.new_game = A fresh start.
+pause.row.resume = Return to Game
+```
+
+Pages: `title.main`, `pause.root`, `pause.options`, `pause.audio`, `pause.controller`. Row ids are the snake_case of the
+row (`pauseRowId` / `titleRowId`); every colour, string key and default is in `configs/ui/default.ini`. Rules: a
+listed id the game has no use for right now (Continue without a save, Multiplayer when disabled) is skipped; a list with
+no known id falls back to the default order; entries cannot be added, only reordered, hidden and renamed (the actions are
+engine code). Hiding Quit / Back is allowed; the editor warns. The Back hint on the pause menu ("Resume") and the page
+titles are not skinnable yet. Screens read the skin when built, so it applies from the next launch.
+
+The Menus tab edits all of this with a 2D mock preview (layout and colours; fonts and art are the game's), stores the
+work in the browser, exports `ui/menus.ini` as a zip or into the mods folder, and the project export includes it when it
+changes anything.

@@ -1960,7 +1960,8 @@ void titleDraw(const dsettings::SettingsOverlay::ScreenFrame& f, bool background
         // Title rows other than Quit to Desktop are pressed natively (focus + Cross: the row's own click).
         bool titleNative = nativeSound(out.optionActions);
         for (const gameui::TitleAction& a : out.actions)
-            titleNative = titleNative || a.kind != gameui::TitleActionKind::QuitToDesktop;
+            titleNative = titleNative || (a.kind != gameui::TitleActionKind::QuitToDesktop &&
+                                          a.kind != gameui::TitleActionKind::SelectGame);
         hostUiSound(out.sound, titleNative);
         if (g_pcs && !out.settings.empty())
             g_pcs->applyAll(out.settings, ui.screen.pcSettings());

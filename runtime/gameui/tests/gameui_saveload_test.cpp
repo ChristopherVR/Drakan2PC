@@ -555,6 +555,42 @@ void testTitleRows() {
     CHECK(t3.rows(none).size() == 4);
 }
 
+// Game choice (drakan_game): the card opens first when a campaign pack is installed, and again after Back on the main page.
+void testTitleGameChoice() {
+    TitleState st = titleState();
+    TitleScreen plain; // no campaign: no card, nothing changes
+    plain.open();
+    plain.frame(st, {}, kVp);
+    CHECK(plain.page() == TitlePage::Main);
+    st.offerGames = true;
+    st.game = 0;
+    TitleScreen scr;
+    scr.open();
+    TitleFrameOutput o = scr.frame(st, {}, kVp);
+    CHECK(scr.page() == TitlePage::GameChoice && hasText(o.draw, "Choose your game"));
+    CHECK(hasText(o.draw, "Drakan: Order of the Flame"));
+    CHECK(scr.focus() == (TargetId{TargetKind::CardButton, static_cast<int>(TitleRow::GameDrakan)}));
+    o = scr.frame(st, keys({UiKey::Down, UiKey::Confirm}), kVp);
+    CHECK(scr.page() == TitlePage::Main && o.actions.size() == 1);
+    CHECK(o.actions[0].kind == TitleActionKind::SelectGame && o.actions[0].value == 1);
+    CHECK(!scr.suspended()); // choosing a game does not leave the menu
+    st.game = 1;
+    o = scr.frame(st, {}, kVp);
+    CHECK(scr.page() == TitlePage::Main && hasText(o.draw, "Drakan: Order of the Flame"));
+    // Back on the main page reopens the card with the current game focused; Back on the card keeps the game.
+    o = scr.frame(st, keys({UiKey::Back}), kVp);
+    CHECK(scr.page() == TitlePage::GameChoice);
+    CHECK(scr.focus() == (TargetId{TargetKind::CardButton, static_cast<int>(TitleRow::GameOotf)}) ||
+          scr.focus().kind == TargetKind::CardButton);
+    o = scr.frame(st, keys({UiKey::Back}), kVp);
+    CHECK(scr.page() == TitlePage::Main && o.actions.empty());
+    // A new visit asks again.
+    scr.open();
+    scr.frame(st, {}, kVp);
+    CHECK(scr.page() == TitlePage::GameChoice);
+    CHECK(scr.focus() == (TargetId{TargetKind::CardButton, static_cast<int>(TitleRow::GameOotf)}));
+}
+
 void testTitleActions() {
     TitleState st = titleState();
     auto first = [&](std::initializer_list<UiKey> k) {
@@ -864,6 +900,7 @@ int main() {
     testQueue();
     testTitleRows();
     testTitleActions();
+    testTitleGameChoice();
     testTitleOptions();
     testTitleLayout();
     testTitlePcSettings();

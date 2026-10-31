@@ -11,6 +11,8 @@ Steps (details: docs/journal/2026-10-31/ootf-ingame.md):
   3. runs scripts/harness/play_run.py (New Game on an empty private card; the level replaces Level 1A - Surdana, so the
      intro cut scene plays first, about 20 s) with a recipe that stands, walks forward twice and takes screenshots.
      The window is small and DLSS/HD movies are off to keep the run fast.
+     --campaign: the pack is a campaign (mod.toml campaign = "ootf") and the run uses DRAKAN_GAME=d1, so New Game opens
+     the level at once, with no Drakan 2 intro (docs/reference/modding.md "Campaign packs").
 Output: build/ootf-run/<name>/run/ (stdout_1.log, shots s_start / s_walk1 / s_walk2). Exit 0 when the guest reached
 gameplay in the converted level and did not jump to a null target.
 """
@@ -86,6 +88,12 @@ def main() -> int:
     ap.add_argument("--timeout", type=int, default=150)
     ap.add_argument("--recipe", type=Path, help="own input script (must end in quit)")
     ap.add_argument("--no-convert", action="store_true", help="reuse the pack from the last run of this name")
+    ap.add_argument(
+        "--campaign",
+        action="store_true",
+        help="pack the levels as a campaign (mod.toml campaign = \"ootf\") and boot with DRAKAN_GAME=d1: New Game opens "
+        "the first level directly (no Drakan 2 intro); without it the level replaces Level 1A after the D2 intro",
+    )
     ap.add_argument("--env", action="append", default=[])
     ap.add_argument("--convert-arg", action="append", default=[], help="extra converter argument, e.g. --only (repeat per token)")
     a = ap.parse_args()
@@ -109,6 +117,8 @@ def main() -> int:
             "node", "--experimental-transform-types", "--no-warnings", "editor/scripts/ootf-convert.ts",
             "--ootf", str(a.ootf), "--ps2", str(data), "--template", a.template, "--out", str(zip_path), *a.convert_arg, a.level,
         ]  # fmt: skip
+        if a.campaign:
+            cmd[cmd.index(a.level) : cmd.index(a.level)] = ["--campaign", "1"]
         out = subprocess.run(cmd, cwd=ROOT, capture_output=True, text=True, check=True)
         print(out.stdout.strip())
         (mods / "mods.ini").write_text("[mods]\nootf-levels = on\n", encoding="utf-8")
@@ -123,7 +133,8 @@ def main() -> int:
         sys.executable, str(ROOT / "scripts" / "harness" / "play_run.py"),
         "--name", "run", "--out-root", str(work), "--recipe", str(recipe),
         "--timeout", str(a.timeout), "--attempts", "1",
-        "--env", f"DRAKAN_MODS={mods}", "--env", f"DRAKAN_START_LEVEL={title}",
+        "--env", f"DRAKAN_MODS={mods}",
+        *(["--env", "DRAKAN_GAME=d1"] if a.campaign else ["--env", f"DRAKAN_START_LEVEL={title}"]),
         "--env", "PS2X_GS_SCALE=1", "--env", "DRAKAN_FULLSCREEN=0", "--env", "DRAKAN_DLSS=off",
         "--env", "DRAKAN_HD_MOVIES=0", "--env", "GSR_TEXUP=off", "--env", "DRAKAN_WINDOW_WIDTH=960",
         "--env", "DRAKAN_WINDOW_HEIGHT=540", "--env", "DRAKAN_VSYNC=0", "--env", "DRAKAN_WORLD=2", "--env", "DRAKAN_LIFECYCLE_LOG=1",

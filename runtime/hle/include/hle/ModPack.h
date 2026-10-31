@@ -40,6 +40,11 @@ struct Manifest {
     std::vector<std::string> profileHashes;                       // target.hash (hex), optional
     std::vector<std::string> loadAfter, loadBefore, dependencies; // dependencies: "id" or "id>=1.2.0"
     std::vector<std::string> levels; // top-level `levels = ["Level 9X - Name"]`: new levels for LEVELLST.TXT
+    std::vector<std::string> levelCopies; // top-level `level_copies = ["Copy = Source level"]`: which disc level a copy is
+    // top-level `campaign = "ootf"`: the pack's `levels` are a whole game's campaign (Drakan: Order of the Flame); the
+    // title menu then offers it. `campaign_name` = menu label (default by id), `campaign_start` = the level New Game
+    // opens (default the first of `levels`).
+    std::string campaign, campaignName, campaignStart;
 };
 // Parses mod.toml (json=false) or mod.json (json=true). Returns false with `err` on a syntax or schema error.
 bool parseManifest(const std::string& text, bool json, Manifest& out, std::string& err);

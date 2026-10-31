@@ -2,7 +2,7 @@
 //
 //   node --experimental-transform-types --no-warnings editor/scripts/ootf-convert.ts \
 //        --ootf <OotF install dir> --ps2 <dir with the extracted PS2 LEVEL*.LVL and *.ODB> \
-//        --template LEVEL1NA --out build/ootf-pack.zip [--id ootf-levels] [--prefix "OotF - "] [--splats <dir with LEVEL1TS.DB and .TXD, default --ps2>] [--list] <pc level paths...>
+//        --template LEVEL1NA --out build/ootf-pack.zip [--id ootf-levels] [--prefix "OotF - "] [--splats <dir with LEVEL1TS.DB and .TXD, default --ps2>] [--campaign 1] [--list] <pc level paths...>
 //
 // Level paths are relative to the install dir, e.g. "Multiplayer/Ground/Relic/Relic.lvl". Without paths every level.
 import { existsSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs';
@@ -133,7 +133,13 @@ if (res.classPlan) {
     console.log(`classes: ${res.classPlan.mapped.size} mapped, ${res.classPlan.synthesized.length} synthesized, ${res.classPlan.unsupported.size} unsupported`);
 }
 const pack = await buildOotfPack(
-    { id: opt['id'] ?? 'ootf-levels', name: 'Order of the Flame levels', target: { profile: 'pal' } },
+    {
+        id: opt['id'] ?? 'ootf-levels',
+        name: 'Order of the Flame levels',
+        target: { profile: 'pal' },
+        // --campaign: the levels are the campaign in play order (the title menu offers "Drakan: Order of the Flame")
+        ...(opt['campaign'] !== undefined ? { campaign: 'ootf' as const, campaignName: 'Drakan: Order of the Flame' } : {}),
+    },
     template,
     res.levels.map((l) => ({ title: l.title, parts: l.parts, splats: l.splats })),
     ps2BlobFor,

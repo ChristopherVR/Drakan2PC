@@ -30,6 +30,14 @@ export interface ModMeta {
     levels?: string[];
     /** For a level copy: `Copy title = Disc level` lines, so the game names the copy's exits like the source's. */
     levelCopies?: string[];
+    /**
+     * `campaign = "ootf"`: the pack's `levels` are a whole Order of the Flame campaign in play order. The game's title
+     * menu then offers it as "Drakan: Order of the Flame" (its own saves, New Game opens the first level or
+     * `campaignStart`). `campaignName` is the menu label.
+     */
+    campaign?: 'ootf';
+    campaignName?: string;
+    campaignStart?: string;
 }
 
 export interface ChangedEntry {
@@ -58,6 +66,9 @@ export function validateModMeta(m: ModMeta): void {
     }
     if (m.version !== undefined && !/^\d+(\.\d+)*$/.test(m.version))
         throw new ModError('version must be dotted numbers');
+    if (m.campaign !== undefined && m.campaign !== 'ootf') throw new ModError('campaign must be "ootf"');
+    if (m.campaignStart !== undefined && !m.levels?.includes(m.campaignStart))
+        throw new ModError('campaignStart must be one of the pack levels');
 }
 
 /** `mod.toml` text. Top-level keys first (the reader wants `dependencies` above the tables), then `[target]`. */
@@ -71,6 +82,9 @@ export function buildManifestToml(m: ModMeta): string {
     if (m.dependencies?.length) l.push(`dependencies = [${m.dependencies.map(tomlStr).join(', ')}]`);
     if (m.levels?.length) l.push(`levels = [${m.levels.map(tomlStr).join(', ')}]`);
     if (m.levelCopies?.length) l.push(`level_copies = [${m.levelCopies.map(tomlStr).join(', ')}]`);
+    if (m.campaign) l.push(`campaign = ${tomlStr(m.campaign)}`);
+    if (m.campaign && m.campaignName) l.push(`campaign_name = ${tomlStr(m.campaignName)}`);
+    if (m.campaign && m.campaignStart) l.push(`campaign_start = ${tomlStr(m.campaignStart)}`);
     l.push('', '[target]');
     if (m.target.profile !== undefined) {
         const p = m.target.profile;

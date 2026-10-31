@@ -39,6 +39,9 @@ enum class TitleRow : uint8_t {
     // New Game card (TitleConfig::showCoop): the campaign alone or with friends
     NewGameSolo,
     NewGameCoop,
+    // Game card (TitleState::offerGames): which game the menu runs for
+    GameDrakan,
+    GameOotf,
 };
 const char* titleRowLabel(TitleRow r);
 
@@ -53,6 +56,7 @@ enum class TitleActionKind : uint8_t {
 const char* titleActionName(TitleActionKind k);
 
 struct TitleAction {
+    SelectGame,     // value = 0 Drakan (Ancients' Gates), 1 Drakan: Order of the Flame; applied at once (no native press)
     uint32_t id = 0; // assigned by TitleActionQueue::push
     TitleActionKind kind = TitleActionKind::LoadGame;
     int32_t value = 0;
@@ -92,8 +96,13 @@ struct TitleState {
     mp::MpState multiplayer;
 };
 
-enum class TitlePage : uint8_t { Main, QuitConfirm, Options, PcSettings, Multiplayer, NewGameChoice };
+enum class TitlePage : uint8_t { Main, QuitConfirm, Options, PcSettings, Multiplayer, NewGameChoice, GameChoice };
 
+    // Game choice (drakan_game): the card opens with the title when a campaign pack is installed and drakan.ini
+    // [general] game is "ask"; Back on the main page reopens it.
+    bool offerGames = false;
+    int game = 0;                     // the game the menu is running for (0 Drakan, 1 Order of the Flame)
+    std::string gameNames[2] = {"Drakan", "Drakan: Order of the Flame"};
 struct TitleConfig {
     ScreenConfig screen;
     bool showContinue = true;     // a Continue row when TitleState::continueSlot is set
@@ -177,6 +186,8 @@ private:
     std::vector<Hint> hints_;
     LayoutFrame lf_;
 
+    bool gameAsked_ = false; // the game card was shown since open()
+    bool offerGames_ = false; // TitleState::offerGames of the last frame
     std::vector<TitleRow> rowsOf(TitlePage page, const TitleState& st) const;
     const HitTarget* findTarget(const TargetId& id) const;
     Rect rowRect(int i, int n) const; // design units, main column
