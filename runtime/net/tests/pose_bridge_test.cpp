@@ -23,6 +23,7 @@ int main() {
     world::setYaw(p, 0.75f);
     p.lower = p.upper = {0x2047b, 0.4f};
     p.weaponRight = 0x33cbc;
+    p.weaponLeft = 0x4d1;
     p.mounted = true;
 
     drakan::net::PlayerState s;
@@ -38,7 +39,8 @@ int main() {
     CHECK(std::fabs(q.yaw - 0.75f) < 1e-4f);
     CHECK(q.lower.clip == 0x2047b && q.upper.clip == 0x2047b && q.mounted);
     CHECK(q.position.x == 675499.5f && q.velocity.z == 3.0f && q.tick == 99);
-    CHECK(back.weapon == 0xbc);
+    CHECK(back.weaponRight == 0x33cbc && back.weaponLeft == 0x4d1);
+    CHECK(q.weaponRight == 0x33cbc && q.weaponLeft == 0x4d1);
 
     // An attack: the upper body plays its own clip on the channels outside lowerMask.
     p.upper = {0x20512, 0.1f};

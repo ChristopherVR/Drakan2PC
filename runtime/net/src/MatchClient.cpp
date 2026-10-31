@@ -332,7 +332,7 @@ bool MatchClient::remoteState(PlayerId id, uint64_t localNowMs, PlayerState& out
         const Sample& b = buf[i];
         const float span = static_cast<float>(toTime(b) - toTime(a));
         const float t = span > 0 ? static_cast<float>(renderTime - toTime(a)) / span : 1.0f;
-        out = t < 0.5f ? a.state : b.state; // discrete fields: animation id, weapon, mounted
+        out = t < 0.5f ? a.state : b.state; // discrete fields: animation id, weapons, mounted
         for (int k = 0; k < 3; ++k) {
             out.pos[k] = lerp(a.state.pos[k], b.state.pos[k], t);
             out.vel[k] = lerp(a.state.vel[k], b.state.vel[k], t);

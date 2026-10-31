@@ -26,7 +26,8 @@ PlayerState sampleState() {
     s.upperAnimId = 1027;
     s.upperAnimTime = 0.25f;
     s.lowerMask = 0x19;
-    s.weapon = 4;
+    s.weaponRight = 0x33cbc;
+    s.weaponLeft = 0x4d1;
     s.mounted = true;
     s.levelHash = 0xCAFEF00Du;
     return s;
@@ -98,8 +99,8 @@ int main() {
         PlayerState so;
         CHECK(decode(encode(s), so));
         CHECK(so.player == 3 && so.sequence == s.sequence && so.tick == s.tick && so.pos[2] == s.pos[2] &&
-              so.yaw == s.yaw && so.vel[2] == -8 && so.animId == 513 && so.animTime == 0.75f && so.weapon == 4 &&
-              so.mounted);
+              so.yaw == s.yaw && so.vel[2] == -8 && so.animId == 513 && so.animTime == 0.75f &&
+              so.weaponRight == 0x33cbc && so.weaponLeft == 0x4d1 && so.mounted);
         CHECK(so.upperAnimId == 1027 && so.upperAnimTime == 0.25f && so.lowerMask == 0x19 &&
               so.levelHash == 0xCAFEF00Du);
         CHECK(encode(s).size() == 1 + kPlayerStateWireSize);

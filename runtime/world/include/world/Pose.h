@@ -116,17 +116,14 @@ private:
 // --- net bridge ---------------------------------------------------------------------------------------------------
 // Duck-typed so `world` does not depend on `net`: a world -> net include would drag the protocol into the guest-reading
 // layer and `net` should stay game-free. Works with any struct with net::PlayerState's fields {tick, pos[3], yaw,
-// vel[3], animId, animTime, upperAnimId, upperAnimTime, lowerMask, weapon, mounted}. Lossy by design: clips travel
-// as u16 (the 0x2xxxx high part of Rynn's clip ids is constant), the weapon as the low byte of the right-hand
-// resource id, and yaw only (Rynn's actor is a pure Y rotation). Arokh clips (0x40663) are not representable.
+// vel[3], animId, animTime, upperAnimId, upperAnimTime, lowerMask, weaponRight, weaponLeft, mounted}. Lossy by design:
+// clips travel as u16 (the 0x2xxxx high part of Rynn's clip ids is constant), the weapons as resource record ids (u32,
+// disc constants), and yaw only (Rynn's actor is a pure Y rotation). Arokh clips (0x40663) are not representable.
 inline uint16_t clipWireId(uint32_t clip) {
     return static_cast<uint16_t>(clip & 0xffffu);
 }
 inline uint32_t clipFromWireId(uint16_t id) {
     return id ? 0x20000u | id : 0u;
-}
-inline uint8_t weaponWireId(uint32_t resourceId) {
-    return static_cast<uint8_t>(resourceId & 0xffu);
 }
 
 template <class PlayerStateT>
@@ -144,12 +141,12 @@ void toPlayerState(const PlayerPose& p, PlayerStateT& s) {
     s.upperAnimId = clipWireId(p.upper.clip);
     s.upperAnimTime = p.upper.time;
     s.lowerMask = p.lowerMask;
-    s.weapon = weaponWireId(p.weaponRight);
+    s.weaponRight = p.weaponRight;
+    s.weaponLeft = p.weaponLeft;
     s.mounted = p.mounted;
 }
 
-// A pose a ghost can play from a received state; `timeSec` is the receiver's clock for the sample. weaponRight carries
-// the wire byte, not a resource id.
+// A pose a ghost can play from a received state; `timeSec` is the receiver's clock for the sample.
 template <class PlayerStateT>
 PlayerPose fromPlayerState(const PlayerStateT& s, double timeSec) {
     PlayerPose p;
@@ -161,7 +158,8 @@ PlayerPose fromPlayerState(const PlayerStateT& s, double timeSec) {
     p.lower = {clipFromWireId(s.animId), s.animTime};
     p.upper = {clipFromWireId(s.upperAnimId), s.upperAnimTime};
     p.lowerMask = s.lowerMask;
-    p.weaponRight = s.weapon;
+    p.weaponRight = s.weaponRight;
+    p.weaponLeft = s.weaponLeft;
     p.mounted = s.mounted;
     return p;
 }

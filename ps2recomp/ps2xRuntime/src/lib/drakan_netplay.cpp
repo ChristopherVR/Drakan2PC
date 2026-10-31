@@ -504,6 +504,8 @@ void beforePadMgr(const uint8_t* rdram) {
     {
         std::lock_guard<std::mutex> l(g_s.m);
         if (posed) {
+            if (pose.weaponRight != g_s.local.weaponRight || pose.weaponLeft != g_s.local.weaponLeft)
+                netLog("local weapons: right %x left %x", pose.weaponRight, pose.weaponLeft);
             world::toPlayerState(pose, g_s.local);
             g_s.local.levelHash = myLevel;
             g_s.haveLocal = true;

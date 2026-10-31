@@ -82,11 +82,16 @@ def prepare_folder(src: Path, exe: Path, dst: Path) -> Path:
     return dst / "drakan.exe"
 
 
-def game_env(out: Path, folder: Path, recipe: Path, timeout: int, extra: dict[str, str]) -> dict[str, str]:
+def game_env(
+    out: Path, folder: Path, recipe: Path, timeout: int, extra: dict[str, str], card_src: Path | None = None
+) -> dict[str, str]:
     card = out / "card" / "mc0"
     if card.parent.exists():
         shutil.rmtree(card.parent)
-    card.mkdir(parents=True)
+    if card_src:
+        shutil.copytree(card_src, card)
+    else:
+        card.mkdir(parents=True)
     options = out / "drakan_native_options.ini"
     if (folder / "drakan_native_options.ini").is_file():
         shutil.copyfile(folder / "drakan_native_options.ini", options)
@@ -231,6 +236,9 @@ def main() -> int:
     ap.add_argument("--reload", action="store_true", help="level change = A quick-saves and quick-loads (F5 / F8)")
     ap.add_argument("--reject", action="store_true", help="only B, against a drakan_server of another disc profile")
     ap.add_argument("--timeout", type=int, default=150, help="seconds per instance")
+    ap.add_argument("--card", type=Path, help="mc0 folder copied into both private memory cards (e.g. a save)")
+    ap.add_argument("--recipe-a", type=Path, help="input recipe file replacing A's built-in one")
+    ap.add_argument("--recipe-b", type=Path, help="input recipe file replacing B's built-in one")
     a = ap.parse_args()
 
     if not a.exe.is_file():
@@ -255,6 +263,9 @@ def main() -> int:
         "a": RECIPE_A.format(level_change=level_change, quit_at=quit_a),
         "b": RECIPE_B.format(contact_shots=contact, after_shots=after, quit_at=quit_a - 2000),
     }
+    for k, custom in (("a", a.recipe_a), ("b", a.recipe_b)):
+        if custom:
+            recipes[k] = custom.read_text(encoding="utf-8")
     for k, text in recipes.items():
         (out / k / "recipe.txt").write_text(text, encoding="utf-8", newline="\n")
 
@@ -278,7 +289,7 @@ def main() -> int:
     t0 = time.monotonic()
     try:
         for key, exe, extra, folder in (("a", exe_a, env_a, exe_a.parent), ("b", exe_b, env_b, exe_b.parent)):
-            env = game_env(out / key, folder, out / key / "recipe.txt", a.timeout, extra)
+            env = game_env(out / key, folder, out / key / "recipe.txt", a.timeout, extra, a.card)
             f = logs[key].open("wb")
             procs[key] = subprocess.Popen([str(exe)], cwd=folder, env=env, stdout=f, stderr=subprocess.STDOUT)
             log(f"started {key.upper()} (pid {procs[key].pid})")

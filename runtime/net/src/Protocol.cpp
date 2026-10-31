@@ -174,7 +174,8 @@ void PlayerState::write(ByteWriter& w) const {
     w.u16(upperAnimId);
     w.f32(upperAnimTime);
     w.u32(lowerMask);
-    w.u8(weapon);
+    w.u32(weaponRight);
+    w.u32(weaponLeft);
     w.u8(mounted ? 1 : 0);
     w.u32(levelHash);
 }
@@ -192,7 +193,8 @@ bool PlayerState::read(ByteReader& r) {
     upperAnimId = r.u16();
     upperAnimTime = r.f32();
     lowerMask = r.u32();
-    weapon = r.u8();
+    weaponRight = r.u32();
+    weaponLeft = r.u32();
     const uint8_t flags = r.u8();
     if (flags > 1)
         r.fail();

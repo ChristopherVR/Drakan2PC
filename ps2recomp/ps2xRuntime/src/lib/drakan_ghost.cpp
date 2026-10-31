@@ -275,6 +275,8 @@ void weaponStage2(uint8_t* rdram, R5900Context* c, PS2Runtime*) {
                 std::memcpy(rdram + ((data + kWeaponOwner) & 0x1ffffffu), &ref, 2);
             }
             attach = ramPtr(data);
+        } else if (!ramPtr(item) && it != g_ghosts.end() && it->info.handle == g_wf.model) {
+            it->haveRec[g_wf.hand] = g_wf.rec; // the factory refused this record: do not retry it every tick
         } else if (ramPtr(item)) {
             // The ghost vanished meanwhile: do not leave an orphan item behind.
             std::fprintf(stderr, "[ghost] weapon %x spawned for a vanished ghost: left to the level teardown\n", item);
@@ -547,11 +549,9 @@ void setPose(int id, const world::PlayerPose& p) {
     for (Ghost& g : g_ghosts)
         if (g.info.id == id) {
             applyPose(g, p);
-            // weaponRight / weaponLeft are record ids; the net layer's one-byte placeholder (<= 0xff) is ignored.
-            if (p.weaponRight > 0xffu || p.weaponLeft > 0xffu) {
-                g.wantRec[0] = p.weaponRight > 0xffu ? p.weaponRight : 0;
-                g.wantRec[1] = p.weaponLeft > 0xffu ? p.weaponLeft : 0;
-            }
+            // weaponRight / weaponLeft are record ids (0 = empty hand); a change swaps the item at the PadMgr boundary.
+            g.wantRec[0] = g_forceRec[0] ? g_forceRec[0] : p.weaponRight;
+            g.wantRec[1] = g_forceRec[1] ? g_forceRec[1] : p.weaponLeft;
         }
 }
 

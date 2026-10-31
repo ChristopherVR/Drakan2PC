@@ -9,7 +9,8 @@
 
 namespace drakan::net {
 
-constexpr uint16_t kProtocolVersion = 3; // v3: levelHash in PlayerState (v2: upper-body clip + channel mask)
+constexpr uint16_t kProtocolVersion = 4; // v4: weaponRight/weaponLeft record ids replace the weapon byte; v3: v3:
+                                         // levelHash in PlayerState (v2: upper-body clip + channel mask)
 constexpr size_t kMaxPlayers = 16;
 constexpr size_t kMaxNameLength = 24;
 constexpr size_t kMaxChatLength = 128;
@@ -150,8 +151,9 @@ struct PlayerState {
     uint16_t upperAnimId = 0; // upper body (attacks, block, aim); equals animId when one clip plays
     float upperAnimTime = 0;
     uint32_t lowerMask = 0xffffffffu; // bit i: skeleton channel i plays the lower clip, else the upper one
-    uint8_t weapon = 0;
-    bool mounted = false; // riding the dragon
+    uint32_t weaponRight = 0;         // resource record id of the right-hand (melee) item, 0 = empty hand (v4)
+    uint32_t weaponLeft = 0;          // same for the left hand (bow)
+    bool mounted = false;             // riding the dragon
     // FNV-1a of the sender's loaded level name; 0 while it is loading or unknown. A receiver shows a ghost only when
     // this equals its own level's hash (clients run their own world, the server never sees level data).
     uint32_t levelHash = 0;
@@ -159,7 +161,7 @@ struct PlayerState {
     bool read(ByteReader& r);
 };
 
-constexpr size_t kPlayerStateWireSize = 1 + 4 + 4 + 12 + 4 + 12 + 2 + 4 + 2 + 4 + 4 + 1 + 1 + 4;
+constexpr size_t kPlayerStateWireSize = 1 + 4 + 4 + 12 + 4 + 12 + 2 + 4 + 2 + 4 + 4 + 4 + 4 + 1 + 4;
 
 // Server to clients, unreliable, every snapshot interval: all live players with a known state.
 struct Snapshot {

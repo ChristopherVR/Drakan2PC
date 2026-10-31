@@ -65,7 +65,7 @@ void setPose(int id, const world::PlayerPose& pose);
 // hand is the bow's). Applied at the PadMgr boundary: an item actor of that record is created with the engine factory,
 // owned by the ghost and attached to its hand bone (properties 0x45 / 0x46); a changed id drops the old item first.
 // The items are destroyed with the ghost and before level loads / save writes. The local player's inventory, equipment
-// and HP are not touched. setPose applies PlayerPose.weaponRight / weaponLeft the same way when they are above 0xff.
+// and HP are not touched. setPose applies PlayerPose.weaponRight / weaponLeft the same way (0 clears the hand).
 void setWeapons(int id, uint32_t rightRecordId, uint32_t leftRecordId);
 void forEach(const std::function<void(const Info&)>& fn);
 

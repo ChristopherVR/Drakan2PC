@@ -131,4 +131,25 @@ guest with `[guest-branch:missing-target] JALR target=0x0` in the Surdana -> Kra
 (`DRAKAN_LIFECYCLE_EXIT=Level 1B - Kragmor@1500`, B must drop the ghost and not respawn it) and passes the B side of those checks
 (B removes the ghost within 0.5 s when A's `levelHash` goes to 0 and never respawns it), but A does not finish loading, so
 "a clean exit" and "A reached Kragmor" fail until that test aid works. `--reload` (F5 / F8 in Surdana) passes completely.
-The wire weapon byte is unchanged (protocol bump for a 32-bit weapon id is up to the ghost agent's change).
+The wire weapon byte was unchanged at this point; see "Ghost weapons over the wire (protocol v4)" below.
+
+## Ghost weapons over the wire (protocol v4)
+
+`net::PlayerState` now carries `u32 weaponRight, weaponLeft` (resource record ids, 0 = empty hand) instead of the `u8 weapon`;
+`kProtocolVersion` = 4, `kPlayerStateWireSize` = 66 (+7). `MatchClient` interpolation takes them from the earlier sample like
+the other discrete fields. `world::toPlayerState` / `fromPlayerState` copy both ids (the `weaponWireId` byte helper is gone).
+`world::readPlayerPose` already produced the record id and not the resource index: `holderResource` reads the holder's registry
+ref, `readEntity` takes the item's factory index (`u16 *(item+0x10)`, `handle::kResIndex`) and looks up the id (`+0`) in the
+resource table (`ctx+0x320` db, `resdb::kRecId`), so no conversion was needed (`pose_test` checks `0x33cbc`). In
+`drakan_ghost` `setPose` now always applies `weaponRight/Left` (0 clears the hand); a change drops the old item (detach + kill list)
+and spawns the new one. Two ghost fixes found on the way: a record the factory refuses (the arrow `0x3379d` Rynn holds in the right
+hand while the bow is drawn gives `item 0`) was retried every tick; it is now marked as tried and the ghost simply shows no item
+for it. `drakan_netplay` logs `local weapons: right .. left ..` when the local pair changes.
+
+Verified with `netplay_two_instances.py --no-level-change --card <mc0 of a save> --recipe-a/--recipe-b` (new options; run
+`build/harness/gw-net`, card of `gw4`, A's recipe in the inventory screen: hover cell + ENTER, dagger at cursor 215,218 and bow at
+215,157 in this UI): A's log shows `right 33cbc left 0` (dagger), then `left 31bc9` (bow, the dagger is un-held by the game), arrows
+`3379d`, both 0 and the dagger again; B's log spawns / drops the matching items (`weapon record 33cbc -> item ...`, `weapon ...
+dropped`, `31bc9 -> ... bone 19`) and B's screenshots show A's ghost holding the dagger (thrust poses) and the bow in the left
+hand, and none when A is empty-handed. Not verified: blade hits, weapons of a ghost across a level change (items are destroyed
+with the ghost, which the existing level-change path covers).

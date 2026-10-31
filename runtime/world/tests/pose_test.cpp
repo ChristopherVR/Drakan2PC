@@ -256,7 +256,7 @@ struct MockState {
     uint16_t upperAnimId = 0;
     float upperAnimTime = 0;
     uint32_t lowerMask = 0;
-    uint8_t weapon = 0;
+    uint32_t weaponRight = 0, weaponLeft = 0;
     bool mounted = false;
 };
 
@@ -269,7 +269,7 @@ void testBridge() {
     MockState s;
     toPlayerState(p, s);
     CHECK(s.tick == 99 && s.pos[0] == 123.5f && s.vel[2] == 3.0f);
-    CHECK(s.animId == 0x047b && s.weapon == 0xbc && s.mounted);
+    CHECK(s.animId == 0x047b && s.weaponRight == 0x33cbc && s.mounted);
     NEAR(s.animTime, 0.4, 1e-6);
     const PlayerPose q = fromPlayerState(s, 5.0);
     NEAR(q.yaw, 0.75, 1e-4);

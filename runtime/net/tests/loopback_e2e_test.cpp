@@ -54,7 +54,8 @@ void scenario(uint32_t latencyMs, double lossPercent) {
         s.pos[0] = static_cast<float>(rig.now - t0);
         s.vel[0] = 1000.0f;
         s.animId = 7;
-        s.weapon = 2;
+        s.weaponRight = 0x33cbc;
+        s.weaponLeft = 0x1234;
         a.sendState(s);
         PlayerState s2;
         s2.pos[2] = 50;
@@ -65,7 +66,7 @@ void scenario(uint32_t latencyMs, double lossPercent) {
     CHECK(a.bufferedStates(a.playerId()) == 0); // own state is not buffered
     PlayerState seen;
     CHECK(b.remoteState(a.playerId(), rig.now, seen));
-    CHECK(seen.animId == 7 && seen.weapon == 2);
+    CHECK(seen.animId == 7 && seen.weaponRight == 0x33cbc && seen.weaponLeft == 0x1234);
     // Expected: A's position at (now - interpolation delay - latency), within a snapshot interval or so.
     const float expected = static_cast<float>(rig.now - t0) - 100.0f - static_cast<float>(latencyMs);
     CHECK(std::fabs(seen.pos[0] - expected) < 120.0f);
