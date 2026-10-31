@@ -270,10 +270,68 @@ static void filesTests(const fs::path& root, const DiscProfile& pal) {
         CHECK(!patchSrsc(base, noSub, out, err));
     }
 
+    // ODB header record 0x0100: the u16 class and group counts follow the added 0x0102 / 0x0101 records (the guest sizes
+    // its class table from them; 3 records past the declared count corrupted the heap), but a pack's own counts stay
+    {
+        auto hdr = [](u16 c, u16 g) {
+            std::vector<u8> h(8, 0);
+            memcpy(&h[0], &c, 2);
+            memcpy(&h[2], &g, 2);
+            return h;
+        };
+        auto countsOf = [](const std::vector<u8>& b, u16& c, u16& g) {
+            u32 idx, n;
+            memcpy(&idx, &b[6], 4);
+            memcpy(&n, &b[10], 4);
+            for (u32 i = 0; i < n; ++i) {
+                u16 t;
+                u32 off;
+                memcpy(&t, &b[idx + i * 14], 2);
+                if (t != 0x100)
+                    continue;
+                memcpy(&off, &b[idx + i * 14 + 6], 4);
+                memcpy(&c, &b[off], 2);
+                memcpy(&g, &b[off + 2], 2);
+            }
+        };
+        std::vector<u8> odb = makeSrsc({{{0x100, 0, 0, 0, 0}, hdr(2, 1)},
+                                        {{0x101, 1, 0, 0, 0}, fill(8, 1)},
+                                        {{0x102, 5, 1, 0, 0}, fill(24, 2)},
+                                        {{0x102, 9, 1, 0, 0}, fill(24, 3)}});
+        std::vector<SrscPatch> add(3);
+        for (u16 k = 0; k < 3; ++k)
+            add[k] = {0x102, (u16)(20 + k), 1, fill(24, 4), true};
+        std::vector<u8> out;
+        u16 c = 0, g = 0;
+        CHECK(patchSrsc(odb, add, out, err));
+        countsOf(out, c, g);
+        CHECK(c == 5 && g == 1);
+        // a patch that only replaces a record leaves the counts alone
+        std::vector<SrscPatch> rep(1);
+        rep[0] = {0x102, 5, 1, fill(8, 6), false};
+        CHECK(patchSrsc(odb, rep, out, err));
+        countsOf(out, c, g);
+        CHECK(c == 2 && g == 1);
+        // a pack that wrote its own header counts keeps them
+        std::vector<SrscPatch> own = add;
+        own.push_back({0x100, 0, 0, hdr(40, 7), false});
+        CHECK(patchSrsc(odb, own, out, err));
+        countsOf(out, c, g);
+        CHECK(c == 40 && g == 7);
+        // a container without the header record (or with other counts there) is not touched
+        std::vector<u8> plain = makeSrsc({{{0x102, 5, 1, 0, 0}, fill(24, 2)}});
+        CHECK(patchSrsc(plain, {add[0]}, out, err));
+        u32 plainCount;
+        memcpy(&plainCount, &out[10], 4);
+        CHECK(plainCount == 2);
+    }
+
     // pack with files/, LVL override, new/ entry, levels
     {
         const fs::path mods = root / "mods_files";
-        writeText(mods / "pk/mod.toml", toml("pk", "1.0", "levels = [\"Level 9X - Clone Test\", \"Bad/Name\"]\n"));
+        writeText(mods / "pk/mod.toml", toml("pk", "1.0",
+                                           "levels = [\"Level 9X - Clone Test\", \"Bad/Name\"]\n"
+                                           "level_copies = [\"Level 9X - Clone Test = Level 1A - Surdana\"]\n"));
         writeFile(mods / "pk/files/ENGLISH/LEVELS/LEVEL9ST/LEVEL9ST.LVL",
                   makeSrsc({{{0x20, 1, 0, 0, 0}, fill(10, 0x55)}}));
         writeFile(mods / "pk/files/ENGLISH/COMMON/WEAP/WEAP.TXD", makeSrsc({{{0x40, 7, 0, 0, 0}, fill(70, 0x66)}}));

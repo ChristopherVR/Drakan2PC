@@ -915,6 +915,21 @@ bool NewEntryKey::operator<(const NewEntryKey& o) const {
     return std::tie(file, type, id, sub) < std::tie(o.file, o.type, o.id, o.sub);
 }
 
+namespace {
+struct OdbCounts {
+    size_t classes = 0, groups = 0;
+};
+size_t countType(const std::vector<SrscEntry>& ents, u16 type) {
+    size_t n = 0;
+    for (const SrscEntry& e : ents)
+        n += e.type == type;
+    return n;
+}
+bool patchesTouchCounts(const OdbCounts& before, const std::vector<SrscEntry>& after) {
+    return before.classes != countType(after, 0x102) || before.groups != countType(after, 0x101);
+}
+} // namespace
+
 bool patchSrsc(const std::vector<u8>& in, const std::vector<SrscPatch>& patches, std::vector<u8>& out,
                std::string& err) {
     if (in.size() < 16 || memcmp(in.data(), "SRSC", 4) != 0) {
@@ -940,6 +955,9 @@ bool patchSrsc(const std::vector<u8>& in, const std::vector<SrscPatch>& patches,
             return false;
         }
     }
+    OdbCounts origCounts;
+    origCounts.classes = countType(ents, 0x102);
+    origCounts.groups = countType(ents, 0x101);
     out.assign(in.begin(), in.begin() + idx);
     auto append = [&](const std::vector<u8>& d) {
         while (out.size() % 8)
