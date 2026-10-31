@@ -113,3 +113,49 @@ so the "attack" is the bow aim/draw clip, still an upper-body clip on a separate
   while its legs idle; it holds **no weapon** (no bow geometry) and no projectile; the player's bow is attached.
 - Not verified: the melee (dagger) swing clip; the equip sequence picked the bow. Attacks 2 and 3 in the recipe were taps
   with the bow (no draw), producing only 20896/20897 lower-channel clips.
+
+## Ghost smoothness
+
+Trace: `DRAKAN_GHOST_TRACE=1` prints one `[gtrace]` line per PadMgr boundary (tick, wall time, engine dt, ghost position and
+channel-0 clip time as the engine left them, what we write, player position). Analysis script (scratch):
+`build/ghost-weapons-play/smooth.py`. Runs `build/harness/gsm1` (before), `gsm3` (after); machine heavily loaded (World 18 fps in
+the screenshots), so absolute numbers are bad, the comparison to the player's own cadence is what counts.
+
+Measurements (before, `gsm1`):
+* The PadMgr boundary runs once per world tick (about 60 Hz unloaded). **The engine dt (`ctx+0x24`) is the host frame time, capped at
+  0.1 s, but the player's movement per tick is not proportional to it**: a 0.1 s tick moves the player ~48 units, and the next tick
+  moves ~240 (catch-up world steps). So the player's own position and clip time advance in bursts.
+* The old mirror replay was indexed by wall-clock time (1.0 s delay). Wall-clock stamps of bursty data re-time the bursts into
+  stalls and jumps: ghost step per tick had 22 stalls (<25 % of median) and 23 jumps (>2.5x median) in 221 moving ticks;
+  the ghost's clip-time steps were 0.0033 for several ticks, then 0.067.
+* Writes happen before the engine's tick at the PadMgr boundary and held every tick: no doubling with the engine's own root motion
+  or velocity (readback equals the last write one tick later). Clip time readback differs from the write by only ~0.003 s.
+
+Fix: the mirror replay is indexed by world tick (`g_hist`, one sample per boundary, ghost shows the sample from
+`DRAKAN_GHOST_DELAY_TICKS`=60 boundaries ago), so the ghost steps exactly like the player did, on the same cadence.
+After (`gsm3`): ghost step cv 0.84 vs the player's 0.88 (before 1.08 vs 1.16), clip-time step cv 0.80, stalls 7 / jumps 14 of 93
+(the source itself is bursty under this load). The remaining judder in these runs is the player's own, from the world running at
+18 fps. Not measured: renderer interpolation between world ticks (none found; present rate equals world rate in the overlay), a
+10-20 frame contact sheet or video (`record_window.py` not run), unloaded machine. For network play the same rule applies
+to the net layer: feed `setPose` once per received sample and interpolate on the sender's world ticks (or the game time derived from
+them), not the receiver's wall clock.
+
+## Spawn gating
+
+`spawn()` returns 0 and logs `[ghost] spawn refused: <reason>` (counted by `spawnFailures()`; `ready()` tells beforehand) while the level
+stem starts with `Level 0` (cut scene levels, the intro hangs the guest), a load / save is in progress, or fewer than 90 boundaries have
+passed since `AfterLevelLoad` / a save restore. A queued spawn refused at the boundary (not Rynn, not ready) is dropped and
+counted. Not exercised in a run (the harness auto-start skips the intro before the first spawn).
+
+## Ghost weapons: status and wire proposal
+
+Not implemented in this pass. Findings for the next attempt: the weapon item is a type-10 actor of class `0x1000e`; its resource
+*record index* is `u16 *(item+0x10)` (factory arg a5), the record id (`PlayerPose.weaponRight`, e.g. `0x33cbc`) is
+`record[index].id`. Attach with `0x13b878(ghostModel, item, bone, 0, 0)` (bone = Rynn model property `0x45` right / `0x46` left)
+and set the weapon data owner (`+0x60`) to the ghost as `drakan_dual_wield.cpp` does; spawn the item with the factory like the
+ghost, after resolving id -> index by scanning the record table (`ctx+0x320`: `+8` table, `+0x10` count, stride `0x24`).
+
+Wire proposal for `net::PlayerState`: replace the weapon byte by `u16 weaponRight, weaponLeft` holding an index into a fixed table
+of the 118 weapon record ids shipped in `world`/a header (both ends have the same disc), 0xffff = none; or send the 32-bit record
+id (e.g. `0x33cbc`) if the table is not wanted (4 extra bytes per weapon, no table to keep in sync). Prefer the record id: it is
+stable across levels, while the record index is level-load dependent.

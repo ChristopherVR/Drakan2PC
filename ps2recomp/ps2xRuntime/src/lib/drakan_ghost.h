@@ -44,6 +44,13 @@ bool enabled();
 // Thread safe. Queue a spawn (at `t`, or +300 units beside the controlled actor when null); returns the ghost id
 // (> 0), or 0 when disabled. The actor exists a few frames later (forEach shows handle != 0).
 int spawn(const Transform* t = nullptr);
+// spawn() returns 0 and logs "[ghost] spawn refused: <reason>" (also counted in spawnFailures()) while ready() is
+// false: cut scene levels ("Level 0*": the intro hangs the guest), a load / save in progress, or the first 90 PadMgr
+// boundaries after a load or restore. A spawn that passed this but is refused at the boundary (the controlled actor is
+// not Rynn, the world became not ready) also bumps spawnFailures() and the ghost disappears from forEach; callers back
+// off.
+bool ready();
+unsigned spawnFailures();
 void destroy(int id); // queue 0x1413c0; the engine frees it at its next flush
 // Applied on the EE thread at the next PadMgr boundary (position and rotation only; no sector update yet).
 void setTransform(int id, const float pos[3], const float rot[9]);

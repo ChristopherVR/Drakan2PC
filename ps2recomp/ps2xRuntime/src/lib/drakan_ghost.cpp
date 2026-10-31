@@ -16,6 +16,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <deque>
 #include <mutex>
 #include <vector>
 
@@ -53,14 +54,28 @@ std::vector<Ghost> g_ghosts;
 int g_nextId = 1;
 std::atomic<bool> g_busy{false};
 bool g_log = false, g_hold = true;
+bool g_trace = false; // DRAKAN_GHOST_TRACE=1: one CSV line per PadMgr boundary (smoothness measurements)
 uint32_t g_forwardMask =
     0; // bit n = event 1<<n forwarded to Rynn's real handler (event 2 always goes to the free-cam handler)
-bool g_mirror = false;            // DRAKAN_GHOST_MIRROR=1: the ghost replays the local player 1 s late
-bool g_autoPending = false;       // mirror mode: (re)spawn the ghost once the player is ready
-unsigned g_autoDelay = 0;         // ticks to wait before the auto spawn
-world::PoseBuffer g_buf;          // EE thread only
-world::PoseReadState g_readState; // EE thread only
+bool g_mirror = false;      // DRAKAN_GHOST_MIRROR=1: the ghost replays the local player 1 s late
+bool g_autoPending = false; // mirror mode: (re)spawn the ghost once the player is ready
+unsigned g_autoDelay = 0;   // ticks to wait before the auto spawn
+// Mirror replay is indexed by PadMgr boundary (world tick), not by time: the engine's dt follows the host's frame time
+// (capped at 0.1 s) while the player's movement and clips advance in world steps, so a time-indexed replay of a
+// bursty source (a long frame is followed by several world steps) re-times those bursts into stalls and jumps. The
+// ghost shows the sample recorded g_delayTicks boundaries ago, i.e. exactly the cadence the player's own screen had.
+std::deque<world::PlayerPose> g_hist; // EE thread only
+unsigned g_delayTicks = 60;           // DRAKAN_GHOST_DELAY_TICKS
+world::PoseReadState g_readState;     // EE thread only
 unsigned g_tick = 0;
+// Readiness: a ghost spawned in a cut scene level ("Level 0 - Intro": no world / no controllable Rynn; the init takes a
+// null JALR) or in the first moments after a load hangs the guest. Refused until the level is a playable one and
+// kReadyTicks boundaries have passed since the last load / restore.
+std::atomic<bool> g_cutsceneLevel{false};
+std::atomic<unsigned> g_sinceLoad{0};
+std::atomic<unsigned> g_spawnFailures{0};
+constexpr unsigned kReadyTicks = 90;
+double g_gameTime = 0; // seconds of game time (sum of the engine's per-tick dt, ctx+0x24), EE thread only
 uint32_t g_t1 = 0, g_t2 = 0, g_t3 = 0, g_handlerSlot = 0;
 PS2Runtime::RecompiledFunction g_rynn = nullptr;
 
@@ -284,11 +299,29 @@ void destroyAll(const drakan_lifecycle::Event& e) {
         if (g.info.handle && drakan_lifecycle::destroyActor(e, g.info.handle, true))
             std::fprintf(stderr, "[ghost] destroyed id %d before %s\n", g.info.id, drakan_lifecycle::kindName(e.kind));
     g_ghosts.clear();
-    g_buf.clear(); // EE thread
+    g_hist.clear(); // EE thread
     if (g_mirror) {
         g_autoPending = true;
         g_autoDelay = 120;
     }
+}
+
+void onLoaded(const drakan_lifecycle::Event& e) {
+    g_cutsceneLevel.store(e.level.rfind("Level 0", 0) == 0);
+    g_sinceLoad.store(0);
+}
+void onLoadStart(const drakan_lifecycle::Event&) {
+    g_sinceLoad.store(0);
+}
+
+const char* notReadyReason() {
+    if (g_cutsceneLevel.load())
+        return "cut scene level";
+    if (drakan_lifecycle::transitionActive())
+        return "level load / save in progress";
+    if (g_sinceLoad.load() < kReadyTicks)
+        return "world not ready after a load";
+    return nullptr;
 }
 
 int newestId() {
@@ -328,23 +361,26 @@ void install(PS2Runtime& rt) {
     }
     if (const char* m = std::getenv("DRAKAN_GHOST_FWD"))
         g_forwardMask = static_cast<uint32_t>(std::strtoul(m, nullptr, 16));
+    g_trace = std::getenv("DRAKAN_GHOST_TRACE") != nullptr;
     const char* l = std::getenv("DRAKAN_GHOST_LOG");
     g_log = l && l[0] && l[0] != '0';
     if (const char* h = std::getenv("DRAKAN_GHOST_HOLD"))
         g_hold = h[0] != '0';
     drakan_lifecycle::subscribe(drakan_lifecycle::Kind::BeforeLevelLoad, destroyAll);
     drakan_lifecycle::subscribe(drakan_lifecycle::Kind::BeforeSaveWrite, destroyAll);
+    drakan_lifecycle::subscribe(drakan_lifecycle::Kind::AfterLevelLoad, onLoaded);
+    drakan_lifecycle::subscribe(drakan_lifecycle::Kind::BeforeSaveRestore, onLoadStart);
+    drakan_lifecycle::subscribe(drakan_lifecycle::Kind::AfterSaveRestore, onLoadStart);
     if (const char* o = std::getenv("DRAKAN_GHOST_OFFSET"))
         std::sscanf(o, "%f,%f", &g_offX, &g_offZ);
     if (g_mirror) {
-        world::PoseBufferConfig cfg;
-        cfg.delaySec = 1.0;
-        cfg.maxSamples = 512;
-        g_buf = world::PoseBuffer(cfg);
+        if (const char* d = std::getenv("DRAKAN_GHOST_DELAY_TICKS"))
+            g_delayTicks = static_cast<unsigned>(std::strtoul(d, nullptr, 10));
         g_autoPending = true;
         g_autoDelay = 240;
-        std::fprintf(stderr, "[ghost] mirror mode: the ghost replays the player's pose from 1.0 s ago (+%g units x)\n",
-                     static_cast<double>(kOffsetX));
+        std::fprintf(stderr,
+                     "[ghost] mirror mode: the ghost replays the player's pose from %u world ticks ago (+%g units x)\n",
+                     g_delayTicks, static_cast<double>(g_offX));
     }
     g_enabled.store(true);
     std::fprintf(stderr, "[ghost] enabled (F9 spawn, F10 destroy; slots %x %x %x; forward mask %x)\n", g_t1, g_t2,
@@ -354,6 +390,11 @@ void install(PS2Runtime& rt) {
 int spawn(const Transform* t) {
     if (!g_enabled.load())
         return 0;
+    if (const char* why = notReadyReason()) {
+        g_spawnFailures.fetch_add(1);
+        std::fprintf(stderr, "[ghost] spawn refused: %s\n", why);
+        return 0;
+    }
     std::lock_guard<std::mutex> l(g_m);
     Ghost g;
     g.info.id = g_nextId++;
@@ -401,6 +442,14 @@ void setPose(int id, const world::PlayerPose& p) {
     for (Ghost& g : g_ghosts)
         if (g.info.id == id)
             applyPose(g, p);
+}
+
+unsigned spawnFailures() {
+    return g_spawnFailures.load();
+}
+
+bool ready() {
+    return g_enabled.load() && !notReadyReason();
 }
 
 void forEach(const std::function<void(const Info&)>& fn) {
@@ -456,6 +505,14 @@ void beforePadMgr(drakan_input::IGuest& guest, drakan_input::InputModule& input)
     }
 
     ++g_tick;
+    if (g_sinceLoad.load() < kReadyTicks)
+        g_sinceLoad.fetch_add(1);
+    // The world steps by the engine's own dt (ctx+0x24); the wall clock between PadMgr boundaries jitters (host load,
+    // present pacing) and must not time the recording, or the replay stutters.
+    float engineDt = guest.readF(ctx + 0x24);
+    if (!(engineDt > 0.0f && engineDt < 0.25f))
+        engineDt = 1.0f / 60.0f;
+    g_gameTime += static_cast<double>(engineDt);
     if (g_mirror) {
         // Record the local player and replay the pose from 1.0 s ago beside it (EE thread).
         world::PlayerPose cur, past;
@@ -465,22 +522,24 @@ void beforePadMgr(drakan_input::IGuest& guest, drakan_input::InputModule& input)
         gl.hpKey = guestAddress(gl.hpKey);
         gl.playerStats = guestAddress(gl.playerStats);
         gl.handleVtable = guestAddress(kHandleVtable);
-        const double now = nowSeconds();
+        const double now = g_gameTime;
         const bool ok = world::readPlayerPose(mem, gl, g_readState, now, g_tick, cur) == world::PoseStatus::Ok;
         if (ok && !cur.mounted)
-            g_buf.push(cur);
+            g_hist.push_back(cur);
+        while (g_hist.size() > g_delayTicks + 1)
+            g_hist.pop_front();
         if (g_log && ok && g_tick % 15 == 0)
             std::fprintf(stderr, "[ghost] player lower %x@%g upper %x@%g lowerMask %x\n", cur.lower.clip,
                          static_cast<double>(cur.lower.time), cur.upper.clip, static_cast<double>(cur.upper.time),
                          cur.lowerMask);
-        if (g_buf.sample(now, past) && past.lower.clip) {
+        if (g_hist.size() > g_delayTicks && (past = g_hist.front()).lower.clip) {
             past.position.x += g_offX;
             past.position.z += g_offZ;
             for (Ghost& g : g_ghosts)
                 if (g.info.handle && !g.destroyRequested)
                     applyPose(g, past);
         }
-        if (g_autoPending && g_ghosts.empty() && !drakan_lifecycle::transitionActive() && ok && !cur.mounted) {
+        if (g_autoPending && g_ghosts.empty() && !notReadyReason() && ok && !cur.mounted) {
             if (g_autoDelay)
                 --g_autoDelay;
             else {
@@ -513,6 +572,22 @@ void beforePadMgr(drakan_input::IGuest& guest, drakan_input::InputModule& input)
                                  static_cast<double>(g.animTime[0]));
             }
 
+    if (g_trace)
+        for (const Ghost& g : g_ghosts)
+            if (g.info.handle && g.animSet) {
+                const uint32_t sk = guest.read32(g.info.handle + world::skel::kHandleSkeleton);
+                const uint32_t ch = ramPtr(sk) ? guest.read32(sk + world::skel::kChannels) : 0;
+                const uint32_t pl = guest.read32(ctx + 0x4b0);
+                std::fprintf(
+                    stderr,
+                    "[gtrace] %u %.4f dt %.4f gpos %.3f %.3f ghostch0t %.4f wrote %.4f clip %x ppos %.3f %.3f\n",
+                    g_tick, nowSeconds(), static_cast<double>(engineDt),
+                    static_cast<double>(guest.readF(g.info.handle + 0x14)),
+                    static_cast<double>(guest.readF(g.info.handle + 0x1c)),
+                    ramPtr(ch) ? static_cast<double>(guest.readF(ch + world::skel::kChannelTime)) : -1.0,
+                    static_cast<double>(g.animTime[0]), g.animClip[0], static_cast<double>(guest.readF(pl + 0x14)),
+                    static_cast<double>(guest.readF(pl + 0x1c)));
+            }
     for (Ghost& g : g_ghosts)
         if (g.info.handle && g.animSet)
             writeAnim(guest, g);
@@ -549,6 +624,12 @@ void beforePadMgr(drakan_input::IGuest& guest, drakan_input::InputModule& input)
         }
     if (!want)
         return;
+    if (const char* why = notReadyReason()) { // queued before the world was ready (or a load started since)
+        g_spawnFailures.fetch_add(1);
+        std::fprintf(stderr, "[ghost] spawn of id %d refused: %s\n", want->info.id, why);
+        g_ghosts.erase(g_ghosts.begin() + (want - g_ghosts.data()));
+        return;
+    }
     const uint32_t player = guest.read32(ctx + 0x4b0);
     const uint32_t res = ramPtr(player) ? guest.read16(player + 0x10) : 0xffffu;
     const uint32_t db = guest.read32(ctx + 0x320);
@@ -556,6 +637,7 @@ void beforePadMgr(drakan_input::IGuest& guest, drakan_input::InputModule& input)
     if (!ramPtr(player) || !ramPtr(records) || res == 0xffffu ||
         guest.read32(records + res * 0x24u + 8) != kRynnClass) {
         std::fprintf(stderr, "[ghost] spawn refused: the controlled actor is not Rynn (class 0x10009)\n");
+        g_spawnFailures.fetch_add(1);
         g_ghosts.erase(g_ghosts.begin() + (want - g_ghosts.data()));
         return;
     }
