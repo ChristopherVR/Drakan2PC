@@ -108,6 +108,11 @@ void dumpJson(const world::Snapshot& s) {
     std::fprintf(stderr, "[world] %s (%zu entities)\n", g_ui.status.c_str(), s.entities.size());
 }
 
+// Weapons and usables report -1/-1 durability when they cannot break (world-model.md section 2).
+bool indestructible(const world::EntitySnapshot& e) {
+    return e.hpKind == world::HpKind::Durability && e.hp == -1 && e.hpMax == -1;
+}
+
 bool matchesClass(uint32_t classId, const char* filter) {
     if (!*filter)
         return true;
@@ -318,7 +323,9 @@ void drawPanel() {
                 ImGui::TableSetColumnIndex(6);
                 ImGui::Text("%.0f", static_cast<double>(world::distance(e.position, origin)));
                 ImGui::TableSetColumnIndex(7);
-                if (e.hasHp())
+                if (indestructible(e))
+                    ImGui::TextDisabled("indestructible");
+                else if (e.hasHp())
                     ImGui::Text("%d/%d", e.hp, e.hpMax);
             }
         }
@@ -331,7 +338,9 @@ void drawPanel() {
                     static_cast<double>(e->yaw * 57.29578f), static_cast<double>(world::distance(e->position, origin)));
         ImGui::Text("pos %.1f %.1f %.1f", static_cast<double>(e->position.x), static_cast<double>(e->position.y),
                     static_cast<double>(e->position.z));
-        if (e->hasHp())
+        if (indestructible(*e))
+            ImGui::Text("durability: indestructible");
+        else if (e->hasHp())
             ImGui::Text("%s %d / %d", e->hpKind == world::HpKind::Durability ? "durability" : "HP", e->hp, e->hpMax);
     } else {
         ImGui::TextDisabled("Select a row for details (read only).");

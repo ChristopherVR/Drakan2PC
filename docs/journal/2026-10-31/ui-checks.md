@@ -26,3 +26,4 @@ Notes
 
 Reviewer note: in `world_hp2.png` a weapon row (type 10) shows `-1/-1` under the has-HP filter. That value means
 "no durability" and should be hidden or filtered out (`drakan_world.cpp` / `HpKind::Durability`). Not fixed yet.
+Fixed afterwards: the panel now shows "indestructible" for -1/-1 durability instead of the raw values.
