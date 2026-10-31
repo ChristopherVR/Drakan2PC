@@ -18,6 +18,7 @@ import {
 } from '@drakan/formats';
 import { srscRoundTrips } from '@drakan/editor-core';
 import { loadModelData, loadTerrainData } from './scene/decode.ts';
+import { loadItemCatalog, loadItemModels, resetItemData } from './itemdata.ts';
 import type {
     Api,
     EntryBytes,
@@ -93,6 +94,7 @@ const api: { [K in keyof Api]: (...a: Parameters<Api[K]>) => Promise<ReturnType<
             if (e.isDir && (await iso.find(`${e.name}\\LEVELLST.TXT`))) languages.push(e.name);
         }
         language = languages.includes('ENGLISH') ? 'ENGLISH' : (languages[0] ?? '');
+        resetItemData();
         let profile: DiscProfile | null = null;
         const cnf = await iso.find('SYSTEM.CNF');
         if (cnf && !cnf.isDir && cnf.size < 4096) profile = parseSystemCnf(decoder.decode(await iso.read(cnf)));
@@ -101,6 +103,7 @@ const api: { [K in keyof Api]: (...a: Parameters<Api[K]>) => Promise<ReturnType<
     },
     async setLanguage(l) {
         language = l;
+        resetItemData();
         return loadLevels();
     },
     async listDir(path) {
@@ -216,6 +219,12 @@ const api: { [K in keyof Api]: (...a: Parameters<Api[K]>) => Promise<ReturnType<
         const fs = need();
         const { header } = await openLevel(fs, dirPath);
         return loadModelData(fs, dirPath, header, classes);
+    },
+    async loadItemCatalog() {
+        return loadItemCatalog(need(), language);
+    },
+    async loadItemModels(classIds) {
+        return loadItemModels(need(), language, classIds);
     },
     async decodeTextures(path, indices) {
         const r = await getSrsc(path);

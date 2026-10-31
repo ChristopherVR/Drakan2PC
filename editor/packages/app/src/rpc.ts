@@ -2,6 +2,7 @@
 
 import type { DiscProfile, Lvl, OdbIndex } from '@drakan/formats';
 import type { ModelData, TerrainData } from './scene/decode.ts';
+import type { ItemCatalog } from './itemdata.ts';
 
 export interface LevelInfo {
     name: string;
@@ -96,6 +97,10 @@ export interface Api {
     loadTerrain(dirPath: string): TerrainData;
     /** Models (LOD 0) and textures for object classes `(classId, dbIndex)` of the level in `dirPath`. */
     loadModels(dirPath: string, classes: { classId: number; dbIndex: number }[]): ModelData[];
+    /** Class names of the shared Resources ODB, where every inventory item is defined (no level needed). */
+    loadItemCatalog(): ItemCatalog;
+    /** Models and textures of Resources classes by class id. */
+    loadItemModels(classIds: number[]): ModelData[];
 }
 
 export type Method = keyof Api;

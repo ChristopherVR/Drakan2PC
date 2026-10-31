@@ -46,6 +46,8 @@ export interface SaveUiHost {
     setStatus(msg: string, error?: boolean): void;
     /** Game name and model render of an item class (`0x31bc9`), when a level with that class is open in Level mode. */
     classInfo?(resource: string): ClassInfo | null;
+    /** Subscribe to "item names or pictures arrived" so the Items tab can redraw. */
+    onItemArt?(fn: () => void): void;
 }
 
 type SubTab = 'character' | 'world' | 'items' | 'story' | 'transfer' | 'compare' | 'repair';
@@ -68,6 +70,15 @@ export function initSaveUi(host: SaveUiHost): { openFile(f: File): Promise<void>
     let selectedEntry: number | null = null;
     let hexLimit = 512;
     let busy = false;
+
+    let artFrame = 0;
+    host.onItemArt?.(() => {
+        if (artFrame || !cur || subtab !== 'items') return;
+        artFrame = requestAnimationFrame(() => {
+            artFrame = 0;
+            if (cur && subtab === 'items') renderExtra();
+        });
+    });
 
     const err = (e: unknown): void => host.setStatus(e instanceof Error ? e.message : String(e), true);
 

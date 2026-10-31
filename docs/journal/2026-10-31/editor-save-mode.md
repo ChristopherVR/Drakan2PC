@@ -74,3 +74,33 @@ edited entries differed in their compressed bytes.
   item counts of the same item in the same cell.
 - Verified: vitest (176 pass), prettier, tsc, build; Playwright on a copy of a harness save; UI edit of max HP 100 ->
   333 exported, `savetool get stat.maxhp` = 333, and only entry 893 differed.
+
+## Item art without a level; add/remove investigation (same day, fourth pass)
+
+- **Item names and pictures need no level.** Every inventory item is a class of the shared `Common\Resources` ODB
+  (`RESOURES.ODB`, 1344 classes on the PAL disc; db index 3 in every level except Level 0, and the index every save
+  uses). Bow `0x1bc9` "Wood Bow: Short", club `0x217b` "Wood Club", elixir `0x3752` "Health Potion (Red)", dagger `0x3cbc`
+  "Rynn's Dagger": the save resource id `0x3xxxx` is `3 << 16 | classId`. New: `app/src/itemdata.ts` (worker side:
+  finds any level header that lists Resources, reads class names, decodes models through the existing
+  `loadModelData`), worker API `loadItemCatalog` / `loadItemModels` (`rpc.ts`), `app/src/save/itemart.ts` (UI side:
+  catalog, per-class model request, thumbnails through `classThumbnail`, cached per session, reset when a disc is opened),
+  wired in `main.ts` and `saveui.ts` (`onItemArt` redraws the Items tab). The Level tab's `classInfo` is the fallback.
+  Real disc (Node): catalog 1344 classes in 33 ms; the four items' models decode (142 to 184 triangles, 1 to 3 textures)
+  in 13 ms. Browser: synthetic disc + save, names read from the ODB without a level. The real ISO could not be
+  uploaded (Playwright only reads under `decomp/`), so thumbnails were not seen in the browser on real models; the
+  render path is the Level tab's thumbnail code.
+- **Add / remove: investigated, not possible yet; the UI stays disabled.** How the load works (decompile
+  `FUN_0016bf48` region, `FUN_0016e7c8`): entry `0x21` starts with the total object count (4478 in the sample); entry
+  `0x24` starts with the static (level) object count (3704); the difference (774) is the number of dynamic objects, and
+  the loader reads `0x102` ids `1..774` into freshly created objects (`id - 1` is the slot). The rest of `0x21` is the
+  named-object table (pairs) and four object-index lists. Items 301/361/419/618 are dynamic objects.
+  Game runs on a private card (`build/savere/`, never committed), RAM compared with the unedited save:
+  1. Clone the elixir record as id 775 with a fresh self handle (both copies), raise the `0x21` count to 4479, put the
+     handle in free cell 3: cell 3 is empty after load (also true of the earlier attempt without the count).
+  2. Move the elixir handle from cell 2 to cell 5 and clear the club's cell 1 (record left in place): RAM cells are
+     exactly the original layout (0, 1, 2, 16 and the markers 8, 9). So the controller cells are **not** restored from
+     the saved handles; the game rebuilds the cell layout from the item objects (flags and counts are read back by
+     cell index, which is why those edits work). The cell position of an item is not a plain field of its record (no
+     offset correlates with the cell across 85 saves for the same class).
+  Open question: where an item's cell is decided (the inventory-add routine run when the item object is created). Until
+  that is found, add and remove stay off; a cloned record without a cell cannot be proven.

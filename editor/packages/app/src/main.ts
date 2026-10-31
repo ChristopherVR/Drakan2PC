@@ -3,6 +3,7 @@ import type { Api, EntryInfo, FileInfo, FileOpenResult, LevelInfo, Method, Reque
 import { TextureViewport } from './viewport.ts';
 import { initLevelUi } from './levelui.ts';
 import { initSaveUi } from './saveui.ts';
+import { createItemArt } from './save/itemart.ts';
 
 const $ = <T extends HTMLElement>(id: string): T => {
     const el = document.getElementById(id);
@@ -94,6 +95,7 @@ async function openIso(file: File): Promise<void> {
         isoName = file.name;
         discProfile = r.profile;
         levelUi.setDisc({ isoName, levels: r.levels, profile: discProfile });
+        itemArt.reset();
         filesEl.replaceChildren();
         filesPath.textContent = '';
         clearEntries();
@@ -345,7 +347,13 @@ const levelUi = initLevelUi({
     setStatus,
 });
 
-const saveUi = initSaveUi({ setStatus, classInfo: (r) => levelUi.classInfo(r) });
+// Item names and pictures for the Save tab work without a level: they come from the shared Resources database.
+const itemArt = createItemArt((method, ...args) => call(method, ...args));
+const saveUi = initSaveUi({
+    setStatus,
+    classInfo: (r) => itemArt.info(r) ?? levelUi.classInfo(r),
+    onItemArt: (fn) => itemArt.onChange(fn),
+});
 
 type Tab = 'inspect' | 'level' | 'save';
 function showTab(tab: Tab): void {

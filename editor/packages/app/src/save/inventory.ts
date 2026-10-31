@@ -195,7 +195,7 @@ export function renderInventory(ctx: PanelCtx): HTMLElement {
                 'button',
                 {
                     disabled: true,
-                    title: 'Not supported yet: an item record cloned into a free cell is dropped when the game loads the save.',
+                    title: 'Not supported: the game rebuilds the inventory cells from its own item registry when a save loads, so a cloned item record is dropped.',
                 },
                 '+ Add item (not supported yet)',
             ),
@@ -205,13 +205,14 @@ export function renderInventory(ctx: PanelCtx): HTMLElement {
         h(
             'div',
             { class: 'note-box' },
-            h('b', null, 'Adding and removing items: not supported yet. '),
-            'The game builds items from the object registry, not from the inventory cells alone, so a cloned item is dropped on ' +
-                'load. Removal has not been proven safe either. Durability, arrows, quantity, the equipped flag and the ' +
+            h('b', null, 'Adding and removing items: not supported. '),
+            'Tested in game: a cloned item record (new object id, object count raised, fresh handle, free cell) and moved or ' +
+                'cleared cell handles were both ignored on load; the game rebuilds the cells itself, and only flags and ' +
+                'counts of existing items are read back. Durability, arrows, quantity, the equipped flag and the ' +
                 'quick-slot flag of existing items are proven in game. ',
             h('b', null, 'Equipping by flag may not fill the Equipped panel: '),
-            'the weapon actors held in Rynn’s hands are separate from the cell flag. Names and art come from the level open in ' +
-                'Level mode (with your ISO loaded); otherwise a short name and a placeholder are shown.',
+            'the weapon actors held in Rynn’s hands are separate from the cell flag. Names and art come from the shared Resources ' +
+                'database on your ISO (no level needed); without the ISO a short name and a placeholder are shown.',
         ),
     );
 }
