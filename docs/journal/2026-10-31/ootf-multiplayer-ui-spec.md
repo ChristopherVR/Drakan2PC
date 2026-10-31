@@ -287,3 +287,21 @@ Web [S] (fetched and read):
 
 [S-snip] (search snippet or 403): FilePlanet v4.4.4 and v4.4.5 notes (fileplanet.com/archive/p-15163, p-12125), MobyGames press
 text, Blues News 7834, Vogons p=1341290, retail listings. Local: `ootf-reuse-study.md` section 3 [D].
+
+## 11. Observation attempt, 2026-10-31 (status: no multiplayer screenshots yet)
+
+Install used: retail disc files (InstallShield `data1.cab` inside `DRAKAN.mdx`) + 4.45 patch + AiO 2.170 + Level Editor
+package, in `build/ootf/install` (untracked). `Drakan.exe` starts and shows the real "Riot Engine Options" dialog, then opens
+a 1024x768 windowed "Drakan: Order of the Flame" window that stays **black** on Windows 11 (D3D6/DirectDraw under DWM; the
+process runs, no crash). A fullscreen retry also stayed black. Nothing could be driven past the first frame, so **no
+[observed] multiplayer wireframes exist**; every layout above is still [data]/[P].
+Needed: the AiO readme's own recommendation, dgVoodoo2 (`MS/DDraw.dll` + `MS/D3DImm.dll` next to `Drakan.exe`; third-party
+download, not fetched without approval). The level editor works and is documented in `ootf-editor-ux.md` (which also lists
+the registry keys written).
+
+Max players conflict, with versions:
+- Retail disc `ReadMe.txt` section 4.3 (first-release text; the 4.45 patch and AiO readmes do not change it): "ranges from
+  1 to 20 and No Limit".
+- `Dragon.rrc` option table (data study): 2 to 12. The dialog itself was not seen, so what the screen shows is
+  **unconfirmed**; the table is the actual list the control is filled from, so treat 2 to 12 as authoritative and the
+  README figure as stale documentation. The command-line `+maxplayers` is a separate path.
