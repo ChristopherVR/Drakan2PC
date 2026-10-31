@@ -1,6 +1,8 @@
 #include "input/FrameInput.h"
 #include <algorithm>
 #include <chrono>
+#include <cstdio>
+#include <cstdlib>
 #include <limits>
 
 namespace drakan_input {
@@ -40,6 +42,9 @@ void InputAccumulator::onMouseMove(int dx, int dy) {
     onMouseMove(dx, dy, nowUs());
 }
 void InputAccumulator::onMouseMove(int dx, int dy, int64_t tUs) {
+    static const bool audit = std::getenv("DRAKAN_MOUSE_AUDIT") != nullptr;
+    if (audit)
+        std::fprintf(stderr, "[mouse-raw] t=%lld dx=%d dy=%d\n", static_cast<long long>(tUs), dx, dy);
     std::lock_guard<std::mutex> l(m_);
     motion_.push_back({tUs, dx, dy});
 }

@@ -1,4 +1,5 @@
 #include "runtime/ps2_vu1_async.h"
+#include "input/ThreadBoost.h"
 #include "runtime/ps2_memory.h"
 #include "runtime/ps2_render_queue.h"
 #include "../ps2_vu1_batch.h"
@@ -66,6 +67,7 @@ struct Worker {
     }
 
     void run() {
+        drakan_input::boostThread(drakan_input::ThreadRole::Frame);
         t_worker = true;
         for (;;) {
             Job job;

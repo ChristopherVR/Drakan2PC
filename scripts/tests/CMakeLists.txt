@@ -190,8 +190,10 @@ endif()
 if(WIN32)
   add_executable(native_display_commit_test native_display_commit_test.cpp
     "${DRAKAN_ROOT}/runtime/gs/src/gs_core.cpp"
-    "${DRAKAN_ROOT}/runtime/gs/src/runtime_flags.cpp")
+    "${DRAKAN_ROOT}/runtime/gs/src/runtime_flags.cpp"
+    "${DRAKAN_ROOT}/runtime/input/src/ThreadBoost.cpp")
   target_include_directories(native_display_commit_test PRIVATE
+    "${DRAKAN_ROOT}/runtime/input/include"
     "${PS2X_RUNTIME_SOURCE}/ps2xRuntime/include"
     "${PS2X_RUNTIME_SOURCE}/ps2xRuntime/src/lib/gs"
     "${DRAKAN_ROOT}/runtime/gs/include" "${DRAKAN_ROOT}/runtime/gs/src")

@@ -3,6 +3,7 @@
 #include <chrono>
 #include <cmath>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <limits>
 
@@ -312,7 +313,13 @@ void InputModule::beginFrame() {
         if (!titleShortcut &&
             (menuActive_.load() != layerIsMenu_ || (hostOwned() && !mutedOnly) || (inputWasSuspended_ && !mutedOnly)))
             acc_.releaseAll();
-        acc_.consume(f, mouseCutoffUs(InputAccumulator::nowUs()));
+        const int64_t beginUs = InputAccumulator::nowUs();
+        const int64_t cutoffUs = mouseCutoffUs(beginUs);
+        acc_.consume(f, cutoffUs);
+        static const bool audit = std::getenv("DRAKAN_MOUSE_AUDIT") != nullptr;
+        if (audit && (f.dx || f.dy))
+            std::fprintf(stderr, "[mouse-aud] t=%lld dx=%d dy=%d lag=%lld\n", static_cast<long long>(beginUs), f.dx, f.dy,
+                         static_cast<long long>(beginUs - cutoffUs));
         if (host_)
             host_->poll(f, cfg_.gamepadEnabled, cfg_.gamepadDeadzone);
     }

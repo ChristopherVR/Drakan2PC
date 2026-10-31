@@ -54,9 +54,15 @@ inline float f32(const uint8_t* ram, uint32_t a) {
     return v;
 }
 
+// The clock is read once per 32 drawn plants / trees (well under a millisecond apart), so a frame shares a few time
+// stamps and the wind direction cache in world/Foliage.h hits.
 double nowSeconds() {
     static const auto t0 = std::chrono::steady_clock::now();
-    return std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count();
+    thread_local double cached = 0;
+    thread_local uint32_t n = 0;
+    if ((n++ & 31u) == 0)
+        cached = std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count();
+    return cached;
 }
 
 // 0 tree, 1 plant, -1 not vegetation.

@@ -12,6 +12,7 @@ add_library(drakan_input STATIC
     src/PadSynth.cpp
     src/Script.cpp
     src/HostInput.cpp
+    src/ThreadBoost.cpp
     src/MenuMouse.cpp
     src/DrakanInput.cpp
     src/BowAim.cpp

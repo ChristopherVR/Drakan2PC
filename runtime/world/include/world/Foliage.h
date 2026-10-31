@@ -35,9 +35,16 @@ inline float seedPhase(uint32_t seed) {
 }
 
 // Wind direction (unit vector in the x / z plane) at time t seconds: slowly veers around one heading.
+// Cached per thread for the last time asked: one frame draws hundreds of objects at (almost) the same t.
 inline Lean windDirection(double t) {
-    const double a = 0.6 + 0.45 * std::sin(t * 0.031) + 0.25 * std::sin(t * 0.0113 + 1.7);
-    return {static_cast<float>(std::cos(a)), static_cast<float>(std::sin(a))};
+    thread_local double lastT = -1e300;
+    thread_local Lean last;
+    if (t != lastT) {
+        const double a = 0.6 + 0.45 * std::sin(t * 0.031) + 0.25 * std::sin(t * 0.0113 + 1.7);
+        last = {static_cast<float>(std::cos(a)), static_cast<float>(std::sin(a))};
+        lastT = t;
+    }
+    return last;
 }
 
 // Gust strength 0 (lull) .. 1 (gust) at a world position. Long fronts travel with the wind (about 48000 units apart,

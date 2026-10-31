@@ -1,4 +1,5 @@
 #include "input/HostInput.h"
+#include "input/ThreadBoost.h"
 #include <algorithm>
 #include <cmath>
 #include <memory>
@@ -184,6 +185,7 @@ struct HostInput::Impl {
     }
 
     void ownThread() {
+        boostThread(ThreadRole::Input);
         WNDCLASSW wc = {};
         wc.lpfnWndProc = &Impl::ownProc;
         wc.hInstance = GetModuleHandleW(nullptr);

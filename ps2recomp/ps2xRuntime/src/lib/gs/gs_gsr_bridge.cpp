@@ -1,5 +1,6 @@
 // Drakan: GsrBridge - see include/runtime/gs/gs_gsr_bridge.h
 #include "ps2_perf.h"
+#include "input/ThreadBoost.h"
 #include "runtime/gs/gs_gsr_bridge.h"
 #include "runtime/ps2_memory.h"
 #include "../drakan_config.h"
@@ -565,6 +566,7 @@ void GsrBridge::Impl::execute(uint32_t type, const uint8_t* p, uint32_t size) {
 }
 
 void GsrBridge::Impl::workerMain() {
+    drakan_input::boostThread(drakan_input::ThreadRole::Frame);
     std::vector<uint8_t> work;
     for (;;) {
         {

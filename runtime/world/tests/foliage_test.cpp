@@ -1,5 +1,6 @@
 // Wind model of the living-foliage option (world/Foliage.h): pure functions, no game bytes.
 #include <cmath>
+#include <chrono>
 #include <cstdio>
 
 #include "world/Foliage.h"
@@ -124,9 +125,24 @@ void testShearKeepsLength() {
     CHECK(add[0] == 0.3f * len && add[2] == 0.2f * len && add[1] < 0);
 }
 
+// Cost of the per-object model: a busy forest frame draws a few thousand trees and plants.
+void benchmark() {
+    const int n = 200000;
+    float sink = 0;
+    const auto a = std::chrono::steady_clock::now();
+    for (int i = 0; i < n; ++i) {
+        const double t = 100.0 + (i / 32) * 0.0005; // time stamps shared by 32 objects, like the hook
+        const Lean l = windLean(i & 1, 100000.f + 13.f * (i % 997), 200000.f + 7.f * (i % 991), static_cast<uint32_t>(i), t, 1.0f);
+        sink += l.x + l.z;
+    }
+    const double us = std::chrono::duration<double, std::micro>(std::chrono::steady_clock::now() - a).count();
+    std::printf("windLean: %.0f ns per object (%.3f ms for 2000 objects) %g\n", us * 1000.0 / n, us / n * 2.0, sink);
+}
+
 } // namespace
 
 int main() {
+    benchmark();
     testDeterministicAndBounded();
     testStrengthScalesAndClamps();
     testGustsTravelWithTheWind();
