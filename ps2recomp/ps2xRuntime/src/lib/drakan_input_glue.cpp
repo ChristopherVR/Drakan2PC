@@ -25,6 +25,7 @@
 #include "drakan_menus.h"
 #if defined(PS2X_HAVE_GSR) // compiled with the GS renderer only
 #include "drakan_ghost.h"
+#include "drakan_coop.h"
 #include "drakan_netplay.h"
 #include "drakan_world.h"
 #endif
@@ -674,6 +675,7 @@ void hookPadMgrUpdate(uint8_t* rdram, R5900Context* c, PS2Runtime* rt) {
 #if defined(PS2X_HAVE_GSR)
     drakan_ghost::beforePadMgr(g, m);
     drakan_netplay::beforePadMgr(rdram);
+    drakan_coop::beforePadMgr(rdram);
 #endif
     inventoryViewsTick(g, scr, gameplay);
     quickSlotsTick(g, scr, gameplay);
@@ -1203,6 +1205,7 @@ void drakanInstallInput(PS2Runtime& rt) {
     drakan_world::configure();
     drakan_ghost::install(rt);
     drakan_netplay::install(rt);
+    drakan_coop::install(rt);
 #endif
     if constexpr (drakan_region::supports(drakan_region::Feature::DebugMenu))
         drakan_debug_menu::install(rt);
