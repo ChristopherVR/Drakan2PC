@@ -80,7 +80,11 @@ export function folderSource(files: FileList | File[]): PcFileSource {
  * Top-down overview of a PC level: floor layers shaded by height, objects as dots (green = a PS2 class of the same name
  * exists, orange = left out by the converter). Cheap enough to redraw for the biggest OotF levels (512 x 512 cells).
  */
-export function drawOverview(canvas: HTMLCanvasElement, pc: PcLevel, ps2: ClassTables | null): { mapped: number; total: number } {
+export function drawOverview(
+    canvas: HTMLCanvasElement,
+    pc: PcLevel,
+    ps2: ClassTables | null,
+): { mapped: number; total: number } {
     const size = canvas.width;
     const g = canvas.getContext('2d')!;
     g.fillStyle = '#14161a';
@@ -185,12 +189,20 @@ function openDialog(host: OotfHost): void {
     );
     const picker = h('input', { type: 'file', webkitdirectory: true, multiple: true, hidden: true });
     const folderLabel = h('span', { class: 'od-dim' }, 'No folder chosen');
-    const pickBtn = h('button', { class: 'btn', type: 'button', onclick: () => picker.click() }, 'Choose install folder...');
+    const pickBtn = h(
+        'button',
+        { class: 'btn', type: 'button', onclick: () => picker.click() },
+        'Choose install folder...',
+    );
     const tplSel = h('select', {}, ...ps2.map((l) => h('option', { value: l.dirPath }, l.name)));
     const prefix = h('input', { type: 'text', value: 'OotF - ', spellcheck: 'false' });
     const list = h('div', { class: 'od-list' });
     const out = h('div', {});
-    const overview = h('canvas', { width: 480, height: 480, style: 'width:100%;max-width:480px;border-radius:6px;display:none' });
+    const overview = h('canvas', {
+        width: 480,
+        height: 480,
+        style: 'width:100%;max-width:480px;border-radius:6px;display:none',
+    });
     const overviewNote = h('div', { class: 'od-dim' });
     let tplClasses: ClassTables | null = null;
     tplSel.addEventListener('change', () => (tplClasses = null));
@@ -204,19 +216,30 @@ function openDialog(host: OotfHost): void {
             const pc = await loadPcLevel(src!, path);
             const r = drawOverview(overview, pc, tplClasses);
             overview.style.display = 'block';
-            overviewNote.textContent = `${pcLevelName(pc.header)}: ${pc.list.objects.length} objects, ${pc.terrain.length} layers` +
-                (tplClasses ? `, ${r.mapped} have a same-named class in the template (green), the rest are left out (orange)` : '');
+            overviewNote.textContent =
+                `${pcLevelName(pc.header)}: ${pc.list.objects.length} objects, ${pc.terrain.length} layers` +
+                (tplClasses
+                    ? `, ${r.mapped} have a same-named class in the template (green), the rest are left out (orange)`
+                    : '');
         } catch (e) {
             overviewNote.textContent = e instanceof Error ? e.message : String(e);
         }
     }
-    const warn = !ps2.length ? h('div', { class: 'od-bad' }, 'Open your Drakan disc image first: its levels are the conversion templates.') : null;
+    const warn = !ps2.length
+        ? h('div', { class: 'od-bad' }, 'Open your Drakan disc image first: its levels are the conversion templates.')
+        : null;
 
     body.append(
         intro,
         ...(warn ? [warn] : []),
         h('div', { class: 'od-row' }, pickBtn, folderLabel, picker),
-        h('div', { class: 'od-row' }, h('span', {}, 'Template level'), tplSel, h('span', { class: 'od-dim' }, 'its dependencies and extra data are reused')),
+        h(
+            'div',
+            { class: 'od-row' },
+            h('span', {}, 'Template level'),
+            tplSel,
+            h('span', { class: 'od-dim' }, 'its dependencies and extra data are reused'),
+        ),
         h('div', { class: 'od-row' }, h('span', {}, 'Title prefix'), prefix),
         list,
         overview,
@@ -256,7 +279,26 @@ function openDialog(host: OotfHost): void {
                 ? `${rows.length} level${rows.length === 1 ? '' : 's'} found`
                 : 'No Order of the Flame levels found in that folder';
             list.replaceChildren(
-                ...rows.map((r) => h('label', {}, r.box, h('span', { title: 'Click to preview', style: 'cursor:pointer', onclick: (ev: Event) => { ev.preventDefault(); void preview(r.path); } }, r.title), h('span', { class: 'od-dim' }, r.path))),
+                ...rows.map((r) =>
+                    h(
+                        'label',
+                        {},
+                        r.box,
+                        h(
+                            'span',
+                            {
+                                title: 'Click to preview',
+                                style: 'cursor:pointer',
+                                onclick: (ev: Event) => {
+                                    ev.preventDefault();
+                                    void preview(r.path);
+                                },
+                            },
+                            r.title,
+                        ),
+                        h('span', { class: 'od-dim' }, r.path),
+                    ),
+                ),
             );
             refreshGo();
         })();
@@ -318,7 +360,10 @@ function openDialog(host: OotfHost): void {
                 class: 'btn primary',
                 type: 'button',
                 onclick: () => {
-                    const a = h('a', { href: URL.createObjectURL(new Blob([zip as BlobPart])), download: 'ootf-levels.zip' });
+                    const a = h('a', {
+                        href: URL.createObjectURL(new Blob([zip as BlobPart])),
+                        download: 'ootf-levels.zip',
+                    });
                     a.click();
                     setTimeout(() => URL.revokeObjectURL(a.href), 10_000);
                 },
@@ -343,12 +388,23 @@ function openDialog(host: OotfHost): void {
             h(
                 'table',
                 {},
-                h('tr', {}, h('th', {}, 'Level'), h('th', {}, 'Objects kept'), h('th', {}, 'Layers'), h('th', {}, 'Left out')),
+                h(
+                    'tr',
+                    {},
+                    h('th', {}, 'Level'),
+                    h('th', {}, 'Objects kept'),
+                    h('th', {}, 'Layers'),
+                    h('th', {}, 'Left out'),
+                ),
                 ...lines,
             ),
             ...pack.warnings.slice(0, 6).map((w) => h('div', { class: 'od-dim' }, w)),
             h('div', { class: 'od-row' }, save, folder),
-            h('div', { class: 'od-dim' }, 'Put the zip in the game\'s mods folder; the levels appear at the end of the level list.'),
+            h(
+                'div',
+                { class: 'od-dim' },
+                "Put the zip in the game's mods folder; the levels appear at the end of the level list.",
+            ),
         );
         refreshGo();
     }

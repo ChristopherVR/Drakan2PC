@@ -2,10 +2,10 @@
 //
 //   node --experimental-transform-types --no-warnings editor/scripts/ootf-convert.ts \
 //        --ootf <OotF install dir> --ps2 <dir with the extracted PS2 LEVEL*.LVL and *.ODB> \
-//        --template LEVEL1NA --out build/ootf-pack.zip [--id ootf-levels] [--prefix "OotF - "] [--list] <pc level paths...>
+//        --template LEVEL1NA --out build/ootf-pack.zip [--id ootf-levels] [--prefix "OotF - "] [--splats <dir with LEVEL1TS.DB and .TXD, default --ps2>] [--list] <pc level paths...>
 //
 // Level paths are relative to the install dir, e.g. "Multiplayer/Ground/Relic/Relic.lvl". Without paths every level.
-import { readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs';
+import { existsSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs';
 import { join, relative, sep } from 'node:path';
 import { buildOotfPack, zipOotfPack } from '@drakan/editor-core';
 import {
@@ -74,6 +74,16 @@ const fallback = dominantTexture(parsePs2Terrain(await template.readRaw(layersEn
 
 const blob = ps2BlobFor;
 
+// The template's splat files (LEVEL1TS.DB / .TXD): needed beside every converted LVL (the game crashes without them).
+const splatDir = opt['splats'] ?? ps2;
+const splatStem = opt['splat-stem'] ?? `${tplName.slice(0, 6)}TS`;
+const splats: Record<string, Uint8Array> = {};
+for (const ext of ['DB', 'TXD']) {
+    const f = join(splatDir, `${splatStem}.${ext}`);
+    if (existsSync(f)) splats[ext] = new Uint8Array(readFileSync(f));
+}
+if (!Object.keys(splats).length) console.warn(`warning: no ${splatStem}.DB/.TXD in ${splatDir} (--splats <dir>); the pack will crash the game`);
+
 const prefix = opt['prefix'] ?? 'OotF - ';
 const inputs = [];
 for (const p of levels) {
@@ -90,6 +100,7 @@ const pack = await buildOotfPack(
     template,
     inputs,
     blob,
+    { splats },
 );
 for (const w of pack.warnings) console.warn('warning:', w);
 writeFileSync(need('out'), zipOotfPack(pack));

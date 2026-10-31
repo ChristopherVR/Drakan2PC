@@ -362,7 +362,9 @@ body header). Quest fields (indices differ per class list, find them by name): `
 record in index order: `u32 count`, then per field `u32 type, u16 len, name` with `len >= chars`, `len % 4 == 2`, NUL padded
 (all 3000+ names on the disc follow this). A class added with `new/` is last in the index, so its list is appended to the
 0x0103 entry (an override of that entry); the new class showed up in the journal with that append (a run without the
-append was not tried).
+append was not tried). **[proven in game]** a new quest object (class 4000) in Surdana, started by a `volume-message` template with
+message 1 and completed by one with message 18 (both linked to the object), shows in the native journal under Optional Quests with
+a ticked box, so 1 starts and 18 completes. A `0102` override alone for an existing quest class (map X/Y) did not move the map dot.
 
 **Where a quest is placed and triggered (levels).** A quest class is placed as an ordinary object whose db index is System.ODB's
 and whose class id is the quest class (e.g. LEVEL1NA: 21 quest objects). Other objects list it in their link table:
@@ -460,8 +462,10 @@ messages address objects, the units of `length`. A rewrite keeps all of that opa
 ### Mod support
 
 Sequence, descriptor and class edits ship as entry overrides (`overrides/<LEVEL>.SSD/0311_<id>_<sub>.bin`,
-`overrides/<LEVEL>.SDB/0302_<id>_<sub>.bin`, `overrides/<LEVEL>.ODB/0102_<id>_<sub>.bin`); see [modding.md](modding.md). That the
-game reads these through the per-request layer (0x1202) was **not** confirmed in game for SDB / SSD in this pass.
+`overrides/<LEVEL>.SDB/0302_<id>_<sub>.bin`, `overrides/<LEVEL>.ODB/0102_<id>_<sub>.bin`); see [modding.md](modding.md). In game
+(2026-10-31, `story-closeout-a.md`): an `0311` override of Surdana's sequence 484 (replaced by an empty sequence) removes the cut
+scene, so SSD overrides are read; an SDB subtitle override loads but was not seen on screen (cut scene sound actions show no
+subtitle bar in the stock game either; conversations drive it). A camera keyframe edit changed nothing visible.
 
 ## 15. Level logic: links, messages, triggers
 
