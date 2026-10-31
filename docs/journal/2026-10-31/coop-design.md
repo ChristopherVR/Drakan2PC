@@ -291,3 +291,84 @@ Rynn-beside-the-Yellow-Orcs saves from the dagger card with `combat_save_fixture
 | 2 (hit claims) | done (damage-message hook instead of `0x498020`) |
 | 3 (events) | doors (proximity wrapper) and pickups (registry loss) done; levers, chests, triggers, exits, catch-up snapshot not |
 | 4 (targeting, policies) | targeting done (position trick); dragon, death / revive, saves, `MatchMode::Coop` not |
+| (section 8) | death / respawn, taken loose items (`0x10c1`) and the late-join catch-up done; chests not replicated |
+
+## 8. Phase 3: death and respawn, pickups, late join (2026-10-31, later)
+
+Code: `drakan_coop.cpp` only (plus the harness `scripts/harness/coop_two_instances.py`, new scenarios `death`, `chest`,
+`walkover`, `latejoin`, option `--b-delay`). New wire messages on the co-op socket (all reliable): 7 `PlayerDied` (client ->
+host), 8 `Respawn` (host -> client), 9 `ObjState` (u32 key, i32 state; host -> client, used for open doors), 10 `SyncReq`
+(client -> host). Tags as in section 7.
+
+### 8.1 Partner death and respawn **[game]**
+
+* The client no longer clamps incoming damage. A damage that is at least the player's HP becomes a co-op death, not the
+  engine's (the engine's own death raises "load the last saved game", see `pvp.md`): HP is set to 1, the player's behaviour
+  handler is swapped for one that swallows everything but the destroy, and Rynn's death clip `0x20577` is written into
+  every skeleton channel each boundary (the same technique as `drakan_pvp`, re-implemented locally because that module is
+  PvP-only). The host sees the clip through the replicated pose of the ghost. The client sends `PlayerDied`.
+* Host: `g_partnerDead` makes its creatures skip the ghost as a target, stops `Hurt` events, rejects claims ("claimant is
+  down"). After 5 s (the clip runs about 4.7 s) the host sends `Respawn`; the client restores the handler, moves to 200
+  units beside the host's ghost (refiled), and sets HP to its maximum. 90 ticks later it logs whether the engine kept it
+  there ("stayed" / "put back by the engine": the floor must be resident, so a respawn at a far-away host may be undone;
+  in the harness both stand within a few thousand units and it stayed).
+* Evidence: `build/harness/coop3-death1` passed 13 of 13 checks (client died after "took 60 damage ... hp 84" with
+  `DRAKAN_COOP_TEST_HURT_SCALE=6`, host "the partner died ... respawn in 5000 ms", "respawn is granted", client "respawned beside
+  the host (HP -> 100)", "90 ticks after the respawn the player is 520 units from the host spot (stayed)", and the client
+  fought on afterwards: further claims and a kill). The death clip on the host's screen was **not** captured in a screenshot
+  (shots are not timed to it); the pose replication is the PvP mechanism.
+* Not done: the host's own death (engine death, reloads the save: unchanged), both players down, a checkpoint respawn
+  (a respawn where she fell is the fallback only when no host ghost exists).
+
+### 8.2 Pickups **[game]**
+
+* A loose item (potion, elixir) is taken with **E** in front of it (not by walking over it) and is **not** destroyed: the
+  item sends **itself** the message `0x10c1` (`sender == target`) through `0x171150`, and its handle goes into the inventory.
+  The registry-loss detection of section 7 therefore never fired for these. The message hook now treats `0x10c1` on a watched
+  pickup as "taken" and sends `ObjGone`; the other side removes its world copy through the kill list, which never sends
+  `0x10c1`, so the item reaches only the player who took it. A position check (moved more than 3000 units: inventory copies
+  are parked near the world origin) is the fallback, and inventory copies near the origin are no longer keyed as pickups.
+* Evidence: `build/harness/coop3-walk5` (`--scenario walkover`): B stands on the potion next to the first chest and presses E;
+  B logs `taken by the local player (msg 10c1) -> peer`, A logs `taken by the partner: removed` and shows **no** `0x10c1` of its
+  own. Note A applied it about 4 s later in that run (its frame rate was low while unfocused); not investigated.
+* Treasure (gold sacks, class `0x1006d`) still goes through the registry-loss path only; a real walk-over of one was not staged.
+
+### 8.3 Late join **[game]**
+
+* The client sends `SyncReq` once it has keyed the level; the host answers with every `ObjGone` it knows (taken pickups, either
+  side) and an `ObjState{key, 1}` per open door (`data+0x10 == 1`). Dead creatures need nothing (the HP stream already makes a
+  proxy die at keying). The client opens a reported door by running the door's tick with the local player's body standing on
+  the door (the section 7 position trick with `alt = the door itself`); the set is cleared on a level change.
+* Evidence: `build/harness/coop3-late1` (`--scenario latejoin`, B starts 30 s after A): host "catch-up sent: 1 taken pickups,
+  2 open doors", client "taken by the partner: removed", two "was open on the host: opening it" and the door fields
+  `data+10 0 -> 1` on B. 8 of 8 checks.
+* Not covered: chests (below), creatures spawned after keying, a door that closed again on the host (the door state is only
+  read at the catch-up), a client joining while the host changes level.
+
+### 8.4 Chests, levers and triggers: not replicated (research only)
+
+Class `0x100c5` (22 in Surdana, type 8, resources `b0819` and `b071d`) is the chest model. Findings with the probe
+(`DRAKAN_COOP_PROBE=1` swaps a chest's behaviour handler for a logging one, `chestHandler`):
+
+* A chest gets **only the per-tick event** (no message, no other behaviour event) when the player stands in front of it and
+  presses E or punches; `0x171150` never sees a message for it. Its `handle+0x9c` goes `0x1b0000 -> 0x12` (awake, as soon as the
+  player is within about 200 units, like a door) and back to 0 about 1.5 s later; `handle+4` flag bits change with it.
+  Nothing in the first `0x100` bytes of the handle or `0x200` of the data object distinguished "opened" from "awake".
+* No visual change of the chest was seen in 6 runs (`coop3-chest2` .. `chest8`); Rynn played her use animation but the chest
+  stayed shut. The test aid placed her 110 to 220 units from the chest facing along her walking direction (heading taken from
+  her movement; `row2` of her matrix agrees); whether the chest needs a key, a different angle or the use button held was not
+  settled. So no "opened" signal exists to replicate, and chest loot appears only on the side that opened it.
+* Next step if someone picks this up: decompile the class `0x100c5` handler (event 4 branch) for the opened state and the use
+  test; the probe handler and `DRAKAN_COOP_TEST_TO=<class hex>,<dist>@<file>` (stand `dist` units before the nearest live object
+  of a class; negative = the other side) are there for it. Levers / switches: no such class exists in Surdana's list.
+
+### 8.5 Item 4 (move onto `drakan::net`): not done
+
+Nothing under `runtime/net` was touched and the protocol version is unchanged: items 1 to 3 did not need it, and the co-op
+messages above are on the private socket. The new messages (7 to 10) are the natural first set for a `CoopEvent` message when
+it happens.
+
+### 8.6 Test aids added
+
+`DRAKAN_COOP_TEST_HURT_SCALE=<f>` (client: damage taken from host enemies x f), `DRAKAN_COOP_TEST_TO=<class hex>,<dist>@<file>`.
+Harness: `--scenario death|chest|walkover|latejoin`, `--b-delay <s>`.

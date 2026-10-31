@@ -96,12 +96,19 @@ private:
 //   5 object gone     (Reliable, both ways):         u32 key             (a pickup was taken: the other side removes
 //   it) 6 object message  (Reliable, both ways):         u32 key, u16 type, i32 w[4]   (a door / lever message to
 //   replay)
-constexpr uint8_t kMsgCreatures = 1, kMsgDied = 2, kMsgClaim = 3, kMsgHurt = 4, kMsgObjGone = 5, kMsgObjMsg = 6;
+//   7 player died     (Reliable, client -> host):    (empty) the client's player is down: its ghost stops being a
+//   target 8 player respawn  (Reliable, host -> client):    (empty) get up at the host 9 object state    (Reliable,
+//   both ways):         u32 key, i32 state   (a chest / lever changed state)
+//  10 sync request    (Reliable, client -> host):    (empty) the client keyed the level: send the catch-up state
+constexpr uint8_t kMsgCreatures = 1, kMsgDied = 2, kMsgClaim = 3, kMsgHurt = 4, kMsgObjGone = 5, kMsgObjMsg = 6,
+                  kMsgPlayerDied = 7, kMsgRespawn = 8, kMsgObjState = 9, kMsgSyncReq = 10, kMsgLast = 10;
+constexpr uint64_t kRespawnDelayMs = 5000;     // the death clip runs about 4.7 s
 constexpr size_t kHeaderBytes = 1 + 4 + 4 + 2; // creature datagram header (type, level, seq, count)
 constexpr size_t kEventHeader = 1 + 4;         // type, level
 constexpr size_t kEntryBytes = 4 + 12 + 4 + 4;
 constexpr size_t kEntriesPerPacket = (drakan::net::kMaxPacketPayload - kHeaderBytes) / kEntryBytes;
 constexpr uint64_t kSendIntervalMs = 100; // 10 Hz
+constexpr uint16_t kMsgTaken = 0x10c1;    // an item's message to itself when it is picked up
 constexpr uint16_t kMsgDamage = 0x10db;   // the engine's damage message (type word at +0, damage at +0x10)
 
 struct Entry {
@@ -135,7 +142,7 @@ uint16_t g_port = 0;
 std::string g_connectHost;
 world::Globals g_globals;
 uint32_t g_swallow = 0x4;
-uint32_t g_handlerSlot = 0, g_aiSlot = 0;
+uint32_t g_handlerSlot = 0, g_aiSlot = 0, g_chestSlot = 0;
 PS2Runtime* g_rt = nullptr;
 PS2Runtime::RecompiledFunction g_origSend = nullptr;
 bool g_probe = false, g_killDestroy = false;
@@ -147,6 +154,9 @@ std::atomic<bool> g_noClaim{false};      // set while the client posts a message
 std::set<uint32_t> g_forced;             // test aid: creatures that always pick the ghost
 bool g_forceAll = false;                 // ... or every creature in range
 bool g_forceGhost = false;               // test aid: host creatures always pick the partner's ghost when one exists
+float g_hurtScale = 1.0f;                // test aid (client): multiplies the damage taken from host enemies
+uint32_t g_deadSlot = 0;                 // function slot of deadHandler (the client's player while it is down)
+std::atomic<uint32_t> g_savedHandler{0}; // the player's behaviour handler while the death is shown
 
 std::atomic<uint32_t> g_levelHash{0};
 std::atomic<uint64_t> g_loadEpoch{0};
@@ -232,7 +242,7 @@ void netThread() {
                         std::isfinite(r.e.yaw))
                         g_s.inbox[r.e.key] = r;
                 }
-            } else if (ev.data.size() >= kEventHeader && ev.data[0] >= kMsgDied && ev.data[0] <= kMsgObjMsg) {
+            } else if (ev.data.size() >= kEventHeader && ev.data[0] >= kMsgDied && ev.data[0] <= kMsgLast) {
                 std::lock_guard<std::mutex> l(g_s.m);
                 g_s.evIn.push_back(std::move(ev.data));
                 ++g_s.eventsIn;
@@ -298,12 +308,16 @@ struct Keyed {
 struct Obj {
     uint32_t key = 0, resId = 0, classId = 0, type = 0, ref = 0;
     bool pickup = false, gone = false, swapped = false;
+    float pos0[3] = {}; // where it lay when it was keyed (a loose item that is taken is moved to the inventory)
 };
 
 std::unordered_map<uint32_t, Keyed> g_keyed; // handle -> key
 std::unordered_map<uint32_t, uint32_t> g_keyToHandle;
 std::unordered_map<uint32_t, Obj> g_obj;
 std::unordered_map<uint32_t, uint32_t> g_objKeyToHandle;
+std::set<uint32_t> g_goneKeys;                       // pickups taken this level (either side): the late-join catch-up
+std::set<uint32_t> g_forceOpen;                      // client: doors (handles) the host reported open at the catch-up
+bool g_syncPending = false, g_syncSent = false;      // host: a client asked for the catch-up; client: it asked
 std::unordered_map<uint32_t, uint32_t> g_dynCounter; // (class, resource) -> pickups keyed after the level load
 bool g_keyedThisLevel = false;
 uint32_t g_ticksSinceLoad = 0, g_tickTotal = 0;
@@ -313,6 +327,9 @@ uint64_t g_lastHostSend = 0, g_lastRefresh = 0;
 uint32_t g_seq = 0;
 double g_lastTick = 0, g_lastStats = 0;
 
+float g_moveDir[2] = {};
+bool g_haveMoveDir = false;
+const uint8_t* g_rdramForLog = nullptr; // set each boundary (probe logging only)
 std::mutex g_origM;
 std::unordered_map<uint32_t, uint32_t> g_orig; // actor -> original behaviour handler
 
@@ -436,6 +453,134 @@ bool isGhostHandle(uint32_t h) {
     return f;
 }
 
+// ---------------------------------------------------------------------------------------- the client's player life
+// The engine's own death (HP 0) hides the body and raises the single-player game over ("load the last saved game"),
+// which is wrong for a session (pvp.md found the same). So a co-op death keeps HP at 1: the player's behaviour handler
+// is swapped for one that swallows everything but the destroy, and Rynn's death clip is written into her skeleton every
+// tick. The host sees it through the replicated pose of the ghost. The host answers with a respawn after a delay and
+// the player gets up beside the host (or where she fell when the host is too far for the floor to be resident).
+constexpr uint32_t kStatsBlock = 0x4fbac8u, kDeathClip = 0x20577u;
+constexpr float kDeathClipHold = 4.0f;
+
+struct Life {
+    bool dead = false, respawnReq = false, checking = false;
+    uint32_t actor = 0, checkTicks = 0;
+    float clipTime = 0, target[3] = {};
+    int pendingHp = -1; // HP to write once no posted engine call is in flight
+    uint64_t diedMs = 0;
+} g_life;
+bool g_partnerDead = false; // host: the client's player is down (its ghost is not a target)
+uint64_t g_partnerDeadMs = 0;
+
+uint32_t rotr8(uint32_t x) {
+    return (x >> 8) | (x << 24);
+}
+uint32_t rotl8(uint32_t x) {
+    return (x << 8) | (x >> 24);
+}
+int32_t playerHp(const uint8_t* rdram) {
+    return static_cast<int32_t>(
+        rotr8(rd32(rdram, drakan_region::guestAddress(kStatsBlock) + 0xc) ^ rd32(rdram, g_globals.hpKey)));
+}
+int32_t playerHpMax(const uint8_t* rdram) {
+    return static_cast<int32_t>(
+        rotr8(rd32(rdram, drakan_region::guestAddress(kStatsBlock) + 0x10) ^ rd32(rdram, g_globals.hpKey)));
+}
+void setPlayerHp(uint8_t* rdram, int32_t hp) {
+    wr32(rdram, drakan_region::guestAddress(kStatsBlock) + 0xc,
+         rotl8(static_cast<uint32_t>(hp)) ^ rd32(rdram, g_globals.hpKey));
+}
+
+void deadHandler(uint8_t* rdram, R5900Context* c, PS2Runtime* rt) {
+    if (getRegU32(c, 5) == 2u && g_savedHandler.load()) { // destroy: the real handler releases her sub-objects
+        c->pc = g_savedHandler.load();
+        rt->lookupFunction(c->pc)(rdram, c, rt);
+        return;
+    }
+    SET_GPR_U32(c, 2, 0u);
+    c->pc = getRegU32(c, 31);
+}
+
+void startDeath(uint8_t* rdram) {
+    const uint32_t actor = controlled(rdram);
+    const uint32_t inner = ramPtr(actor) ? rd32(rdram, actor + 0xfc) : 0;
+    if (!ramPtr(inner) || !g_deadSlot)
+        return;
+    g_life = Life();
+    g_life.dead = true;
+    g_life.actor = actor;
+    g_life.diedMs = nowMs();
+    g_savedHandler.store(rd32(rdram, inner + 0x14));
+    wr32(rdram, inner + 0x14, g_deadSlot);
+    setPlayerHp(rdram, 1);
+    pushReliable(kMsgPlayerDied, nullptr, 0);
+    coopLog("client: the local player died (host enemies): frozen with the death clip, waiting for the host's respawn");
+}
+
+void endDeath(uint8_t* rdram) {
+    const uint32_t actor = controlled(rdram);
+    const uint32_t inner = ramPtr(actor) && actor == g_life.actor ? rd32(rdram, actor + 0xfc) : 0;
+    if (ramPtr(inner) && g_savedHandler.load())
+        wr32(rdram, inner + 0x14, g_savedHandler.load());
+    g_savedHandler.store(0);
+}
+
+// Client, every boundary: keeps the death clip going, gets the player up on the host's respawn, writes the HP that
+// had to wait for the engine's posted damage.
+void tickLife(drakan_input::IGuest& guest, uint8_t* rdram) {
+    const uint32_t me = controlled(rdram);
+    if (g_life.dead && me == g_life.actor) {
+        float dt = guest.readF(engineCtx(rdram) + 0x24);
+        if (!(dt > 0.0f && dt < 0.25f))
+            dt = 1.0f / 60.0f;
+        g_life.clipTime += dt;
+        const uint32_t sk = rd32(rdram, me + 0x50);
+        const uint32_t ch = ramPtr(sk) ? rd32(rdram, sk + 0xe8) : 0;
+        const uint32_t n = ramPtr(sk) ? rd32(rdram, sk + 0xf0) : 0;
+        if (ramPtr(ch) && n && n <= 32)
+            for (uint32_t i = 0; i < n; ++i) {
+                guest.write32(ch + i * 0x80u + 0x50u, kDeathClip);
+                guest.writeF(ch + i * 0x80u + 0x58u, std::min(g_life.clipTime, kDeathClipHold));
+            }
+        if (g_life.respawnReq && ramPtr(me)) {
+            endDeath(rdram);
+            const auto gs = ghostHandles();
+            if (!gs.empty()) {
+                const uint32_t g = gs.front();
+                g_life.target[0] = rdF(rdram, g + 0x14) + 200.0f;
+                g_life.target[1] = rdF(rdram, g + 0x18) + 20.0f;
+                g_life.target[2] = rdF(rdram, g + 0x1c);
+                for (int i = 0; i < 3; ++i)
+                    guest.writeF(me + 0x14 + 4u * i, g_life.target[i]);
+                drakan_ghost::refileActor(guest, me);
+                g_life.checking = true;
+                g_life.checkTicks = 0;
+            }
+            g_life.pendingHp = std::max(1, playerHpMax(rdram));
+            g_life.dead = false;
+            g_life.respawnReq = false;
+            coopLog("client: respawned %s (HP -> %d)",
+                    gs.empty() ? "where she fell (no host ghost)" : "beside the host", g_life.pendingHp);
+        }
+    } else if (g_life.dead && me != g_life.actor) {
+        g_life.dead = false; // the controlled actor changed (a level load, the inventory): the death is over
+        g_savedHandler.store(0);
+    }
+    if (g_life.checking && ++g_life.checkTicks == 90) {
+        g_life.checking = false;
+        if (ramPtr(me)) {
+            const float d =
+                std::hypot(rdF(rdram, me + 0x14) - g_life.target[0], rdF(rdram, me + 0x1c) - g_life.target[2]);
+            coopLog("client: 90 ticks after the respawn the player is %.0f units from the host spot (%s)", d,
+                    d < 600 ? "stayed" : "put back by the engine");
+        }
+    }
+    if (g_life.pendingHp >= 0 && !g_life.dead && !guest.postBusy()) {
+        setPlayerHp(rdram, g_life.pendingHp);
+        g_life.pendingHp = -1;
+    }
+}
+
 // The proxy's behaviour handler: handler(actor, event). Swallowed events return 0; everything else (init, destroy,
 // messages) goes to the creature's own handler so its objects are still built and torn down properly.
 void proxyHandler(uint8_t* rdram, R5900Context* c, PS2Runtime* rt) {
@@ -505,7 +650,7 @@ void aiHandler(uint8_t* rdram, R5900Context* c, PS2Runtime* rt) {
             float best = 1e30f;
             uint32_t bestG = 0;
             for (uint32_t g : ghostHandles()) {
-                if (!ramPtr(rd32(rdram, g + 0xfc)) || g == saved)
+                if (!ramPtr(rd32(rdram, g + 0xfc)) || g == saved || g_partnerDead)
                     continue;
                 const float dg = d2(g);
                 if (dg < best) {
@@ -533,6 +678,13 @@ void aiHandler(uint8_t* rdram, R5900Context* c, PS2Runtime* rt) {
                 ++g_st.aiGhostTicks;
         }
     }
+    // A door the host reported open (late join catch-up): its tick sees "the player" standing at the door.
+    if (event == 4 && !g_forceOpen.empty() && g_forceOpen.count(actor)) {
+        ctxAddr = engineCtx(rdram);
+        saved = ramPtr(ctxAddr) ? rd32(rdram, ctxAddr + 0x4b0) : 0;
+        if (ramPtr(saved))
+            alt = actor;
+    }
     // The tick runs with the local player's body standing where the partner's ghost is (position and rotation, 0x30
     // bytes at +0x14) and put back afterwards. Swapping the controlled actor itself crashed the guest: the ghost's data
     // object is never initialised (its handler swallows the init event), and the AI's attack code reads it.
@@ -552,6 +704,40 @@ void aiHandler(uint8_t* rdram, R5900Context* c, PS2Runtime* rt) {
         for (int i = 0; i < 12; ++i)
             wr32(rdram, saved + 0x14 + 4 * i, backup[i]);
     }
+}
+
+// A chest's own handler with a log of every event but the per-tick one (probe: what does opening a chest send?).
+void chestHandler(uint8_t* rdram, R5900Context* c, PS2Runtime* rt) {
+    const uint32_t actor = getRegU32(c, 4), event = getRegU32(c, 5);
+    uint32_t orig = 0;
+    {
+        std::lock_guard<std::mutex> l(g_origM);
+        auto it = g_orig.find(actor);
+        if (it != g_orig.end()) {
+            orig = it->second;
+            if (event == 2)
+                g_orig.erase(it);
+        }
+    }
+    auto fn = orig ? rt->lookupFunction(orig) : nullptr;
+    if (!fn) {
+        SET_GPR_U32(c, 2, 0u);
+        c->pc = getRegU32(c, 31);
+        return;
+    }
+    static uint32_t budget = 200;
+    if (g_probe && event != 4 && budget) {
+        --budget;
+        const uint32_t a2 = getRegU32(c, 6), a3 = getRegU32(c, 7);
+        uint32_t w[6] = {};
+        if (ramPtr(a2))
+            for (int i = 0; i < 6; ++i)
+                w[i] = rd32(rdram, a2 + 4 * i);
+        coopLog("chest %08x handler event %x a2 %08x a3 %08x [%08x %08x %08x %08x %08x %08x]", actor, event, a2, a3,
+                w[0], w[1], w[2], w[3], w[4], w[5]);
+    }
+    c->pc = orig;
+    fn(rdram, c, rt);
 }
 
 bool swapHandlerTo(uint8_t* rdram, uint32_t actor, uint32_t slot) {
@@ -598,6 +784,12 @@ void forgetLevel() {
     g_st = Stats();
     g_claims.clear();
     g_pendingHurt = 0;
+    g_life = Life();
+    g_savedHandler.store(0);
+    g_partnerDead = false;
+    g_goneKeys.clear();
+    g_forceOpen.clear();
+    g_syncPending = g_syncSent = false;
     g_aiLast.clear();
     g_forced.clear();
     g_dynCounter.clear();
@@ -634,13 +826,18 @@ void refreshParked(const world::Snapshot& s) {
         if (c > 3)
             g_parked.insert(k);
 }
+constexpr uint32_t kChestClass = 0x100c5u;
 bool isPickupEntity(const world::EntitySnapshot& e) {
     // Treasure (gold sacks, goblets) and the other loose items (type 11: elixirs, potions, ...); a taken one leaves the
     // registry.
-    return e.classId == 0x1006du || (e.type == 11 && !g_parked.count(posKey(e)));
+    if (e.classId == 0x1006du)
+        return true;
+    // Loose items; the inventory's own copies are parked near the origin of the world (the levels lie at 1e5..1e6).
+    const bool nearOrigin = std::fabs(e.position.x) < 20000.0f && std::fabs(e.position.z) < 20000.0f;
+    return e.type == 11 && !g_parked.count(posKey(e)) && !nearOrigin;
 }
 bool isWatchedEntity(const world::EntitySnapshot& e) {
-    return e.classId == 0x10013u /* doors */ || isPickupEntity(e);
+    return e.classId == 0x10013u /* doors */ || e.classId == kChestClass || isPickupEntity(e);
 }
 
 // Registry order is slot (allocation) order, i.e. level list order, in both instances: the k-th creature of a resource
@@ -665,6 +862,7 @@ void keyCreatures(const world::Snapshot& s) {
             o.type = e.type;
             o.ref = e.ref;
             o.pickup = isPickupEntity(e);
+            std::memcpy(o.pos0, &e.position, 12);
             o.key = mixKey(e.resourceId * 2654435761u ^ e.classId, objCounter[e.resourceId ^ e.classId]++);
             g_obj[e.handle] = o;
             g_objKeyToHandle[o.key] = e.handle;
@@ -676,6 +874,21 @@ void keyCreatures(const world::Snapshot& s) {
             g_obj.size(), s.levelName.c_str());
     for (const auto& [ct, n] : hist)
         coopLog("  watched class %x type %u: %u", ct.first, ct.second, n);
+    if (g_probe) {
+        // The chests and pickups nearest to the local player (where to walk in a test).
+        const uint32_t me = controlled(g_rdramForLog);
+        std::vector<std::pair<float, const world::EntitySnapshot*>> near;
+        for (const auto& e : s.entities)
+            if (ramPtr(me) && (e.classId == kChestClass || isPickupEntity(e)))
+                near.push_back({std::hypot(e.position.x - rdF(g_rdramForLog, me + 0x14),
+                                           e.position.z - rdF(g_rdramForLog, me + 0x1c)),
+                                &e});
+        std::sort(near.begin(), near.end(), [](const auto& a, const auto& b) { return a.first < b.first; });
+        for (size_t i = 0; i < near.size() && i < 10; ++i)
+            coopLog("  near: class %x type %u res %x at %.0f %.0f %.0f, %.0f from the local player",
+                    near[i].second->classId, near[i].second->type, near[i].second->resourceId,
+                    near[i].second->position.x, near[i].second->position.y, near[i].second->position.z, near[i].first);
+    }
 }
 
 bool refreshSnapshot(const uint8_t* rdram) {
@@ -770,7 +983,7 @@ void hookSend(uint8_t* rdram, R5900Context* c, PS2Runtime* rt) {
                 c->pc = getRegU32(c, 31);
                 return;
             }
-            if (!isLocalAttacker(rdram, sender) && dmg > 0 && isGhostHandle(target)) {
+            if (!g_partnerDead && !isLocalAttacker(rdram, sender) && dmg > 0 && isGhostHandle(target)) {
                 // A host creature (or anything else) hurt the partner's ghost: the client takes the damage.
                 const int32_t d = dmg;
                 pushReliable(kMsgHurt, &d, 4);
@@ -796,13 +1009,25 @@ void hookSend(uint8_t* rdram, R5900Context* c, PS2Runtime* rt) {
         }
     } else if (type) {
         auto it = g_obj.find(target);
-        if (g_probe && sender != 0) {
+        if (g_probe && (sender != 0 || g_obj.count(target))) {
             static std::set<std::pair<uint16_t, uint32_t>> seen;
             const uint32_t cls = g_obj.count(target) ? g_obj[target].classId : 0;
-            if (seen.insert({type, cls ? cls : target}).second && seen.size() < 400)
+            if (seen.insert({type, cls && cls != kChestClass ? cls : target}).second && seen.size() < 400)
                 coopLog("msg %04x sender %08x target %08x watched-class %x w8 %x wc %x w10 %x w14 %x", type, sender,
                         target, cls, rd32(rdram, msg + 8), rd32(rdram, msg + 0xc), rd32(rdram, msg + 0x10),
                         rd32(rdram, msg + 0x14));
+        }
+        if (type == kMsgTaken && sender == target && it != g_obj.end() && it->second.pickup && !it->second.gone &&
+            !g_aiSwapActive.load()) {
+            // The item sent itself the "taken" message (0x10c1): the local player picked it up (E, or walking over
+            // treasure). It goes into her inventory; the partner's world copy is removed, without the item.
+            Obj& o = it->second;
+            o.gone = true;
+            g_goneKeys.insert(o.key);
+            pushReliable(kMsgObjGone, &o.key, 4);
+            ++g_st.goneSent;
+            coopLog("%s: pickup %08x (class %x key %08x) taken by the local player (msg 10c1) -> peer",
+                    g_host ? "host" : "client", target, o.classId, o.key);
         }
         if (it != g_obj.end() && g_replayTypes.count(type)) {
             if (!suppressed(it->second.key, type)) {
@@ -832,6 +1057,11 @@ void hookSend(uint8_t* rdram, R5900Context* c, PS2Runtime* rt) {
 
 // Host: report deaths, apply the client's claims.
 void hostEvents(drakan_input::IGuest& guest, uint8_t* rdram) {
+    if (g_partnerDead && nowMs() - g_partnerDeadMs >= kRespawnDelayMs) {
+        g_partnerDead = false;
+        pushReliable(kMsgRespawn, nullptr, 0);
+        coopLog("host: the partner's respawn is granted (ghost is a target again)");
+    }
     // Claims: one per boundary, because the damage message is posted (it plays sounds behind the heap semaphore; a
     // nested call hung the guest in PvP, see pvp.md).
     if (!g_claims.empty() && !guest.postBusy()) {
@@ -848,6 +1078,8 @@ void hostEvents(drakan_input::IGuest& guest, uint8_t* rdram) {
             why = "creature already dead";
         else if (cl.damage <= 0 || cl.damage > 400)
             why = "damage out of range";
+        else if (g_partnerDead)
+            why = "claimant is down";
         else {
             // The claimant must be near: its ghost within 3000 units of the creature (when a ghost exists).
             const auto gs = ghostHandles();
@@ -954,7 +1186,29 @@ void drainEvents(drakan_input::IGuest& guest, uint8_t* rdram, uint32_t level) {
         } else if (type == kMsgHurt && !g_host && n >= 4) {
             int32_t dmg;
             std::memcpy(&dmg, p, 4);
-            g_pendingHurt += std::clamp(dmg, 0, 1000);
+            if (!g_life.dead)
+                g_pendingHurt += std::clamp(static_cast<int32_t>(dmg * g_hurtScale), 0, 1000);
+        } else if (type == kMsgPlayerDied && g_host) {
+            g_partnerDead = true;
+            g_partnerDeadMs = nowMs();
+            coopLog("host: the partner died: creatures stop targeting its ghost, respawn in %llu ms",
+                    static_cast<unsigned long long>(kRespawnDelayMs));
+        } else if (type == kMsgSyncReq && g_host) {
+            g_syncPending = true;
+            coopLog("host: the client asked for the catch-up state");
+        } else if (type == kMsgObjState && !g_host && n >= 8) {
+            uint32_t key;
+            int32_t state;
+            std::memcpy(&key, p, 4);
+            std::memcpy(&state, p + 4, 4);
+            auto oi = g_objKeyToHandle.find(key);
+            if (oi != g_objKeyToHandle.end() && state == 1 && g_obj[oi->second].classId == 0x10013u) {
+                g_forceOpen.insert(oi->second);
+                coopLog("client: door %08x (key %08x) was open on the host: opening it", oi->second, key);
+            }
+        } else if (type == kMsgRespawn && !g_host) {
+            if (g_life.dead)
+                g_life.respawnReq = true;
         } else if (type == kMsgObjGone && n >= 4) {
             uint32_t key;
             std::memcpy(&key, p, 4);
@@ -966,6 +1220,7 @@ void drainEvents(drakan_input::IGuest& guest, uint8_t* rdram, uint32_t level) {
             if (o.gone)
                 continue;
             o.gone = true; // do not echo the removal back
+            g_goneKeys.insert(key);
             if (world::isLiveHandle(RdramMemory(rdram), g_globals, oi->second, o.ref - 1)) {
                 destroyActor(guest, rdram, oi->second);
                 coopLog("%s: pickup %08x (class %x key %08x) taken by the partner: removed", g_host ? "host" : "client",
@@ -981,21 +1236,21 @@ void drainEvents(drakan_input::IGuest& guest, uint8_t* rdram, uint32_t level) {
 
 // Client: pending damage from host enemies, then the replays of object messages.
 void clientEvents(drakan_input::IGuest& guest, uint8_t* rdram) {
-    if (g_pendingHurt > 0 && !guest.postBusy()) {
+    if (g_pendingHurt > 0 && !g_life.dead && !guest.postBusy()) {
         constexpr uint32_t kDamageMethod = 0x314ab0u, kScratch = 0x5b8480u;
         const uint32_t me = controlled(rdram);
         const uint32_t inner = ramPtr(me) ? rd32(rdram, me + 0xfc) : 0;
         const uint32_t data = ramPtr(inner) ? rd32(rdram, inner + 0x10) : 0;
         if (ramPtr(data)) {
-            // Never lethal here: the engine's own death reloads the last save (PvP found the same; death policy is
-            // phase 4). The HP block is Rynn's own, read through the world module's decoder.
-            const uint32_t S = drakan_region::guestAddress(0x4fbac8u);
-            const uint32_t key = rd32(rdram, g_globals.hpKey);
-            const uint32_t raw = rd32(rdram, S + 0xc) ^ key;
-            const int32_t hp = static_cast<int32_t>((raw >> 8) | (raw << 24));
+            // The engine's own death reloads the last save, so a damage that would kill is a co-op death instead
+            // (startDeath); anything smaller goes through the engine's damage method (flinch, sound, HUD).
+            const int32_t hp = playerHp(rdram);
             const int d = std::clamp(g_pendingHurt, 0, std::max(0, hp - 1));
+            const bool lethal = g_pendingHurt >= hp;
             g_pendingHurt = 0;
-            if (d > 0) {
+            if (lethal) {
+                startDeath(rdram);
+            } else if (d > 0) {
                 guest.write32(drakan_region::guestAddress(kScratch), static_cast<uint32_t>(d));
                 guest.post(drakan_input::GuestCall(drakan_region::guestAddress(kDamageMethod))
                                .arg(data)
@@ -1031,6 +1286,7 @@ void scanNewObjects() {
         o.type = e.type;
         o.ref = e.ref;
         o.pickup = true;
+        std::memcpy(o.pos0, &e.position, 12);
         const uint32_t cls = e.resourceId * 2654435761u ^ e.classId;
         o.key = mixKey(cls, 0x10000u + g_dynCounter[cls]++);
         g_obj[e.handle] = o;
@@ -1052,20 +1308,22 @@ std::unordered_map<uint32_t, DoorProbe> g_doorProbe;
 void probeDoors(const uint8_t* rdram) {
     static uint32_t budget = 300;
     const uint32_t me = controlled(rdram);
-    uint32_t nearest = 0;
-    float best = 1e30f;
+    uint32_t nearest = 0, nearestChest = 0;
+    float best = 1e30f, bestChest = 1e30f;
     for (auto& [h, o] : g_obj)
-        if (o.classId == 0x10013u && ramPtr(me)) {
+        if ((o.classId == 0x10013u || o.classId == kChestClass) && ramPtr(me)) {
             const float d =
                 std::hypot(rdF(rdram, h + 0x14) - rdF(rdram, me + 0x14), rdF(rdram, h + 0x1c) - rdF(rdram, me + 0x1c));
-            if (d < best) {
-                best = d;
-                nearest = h;
+            float& b = o.classId == kChestClass ? bestChest : best;
+            uint32_t& n = o.classId == kChestClass ? nearestChest : nearest;
+            if (d < b) {
+                b = d;
+                n = h;
             }
         }
     for (auto& [h, o] : g_obj) {
-        if (o.classId != 0x10013u || h != nearest)
-            continue; // only the door nearest to the player is watched (the rest is noise)
+        if ((o.classId != 0x10013u && o.classId != kChestClass) || (h != nearest && h != nearestChest))
+            continue; // only the door and the chest nearest to the player are watched (the rest is noise)
         const uint32_t inner = rd32(rdram, h + 0xfc);
         const uint32_t q = ramPtr(inner) ? rd32(rdram, inner + 0x10) : 0;
         auto it = g_doorProbe.find(h);
@@ -1088,8 +1346,9 @@ void probeDoors(const uint8_t* rdram) {
                     d.h[i] = v;
                     continue; // a word that keeps changing (counters, the player's position)
                 }
-                coopLog("door %08x key %08x (local player %.0f away): handle+%x %08x -> %08x", h, o.key, best, i * 4,
-                        d.h[i], v);
+                coopLog("%s %08x key %08x (local player %.0f away): handle+%x %08x -> %08x",
+                        o.classId == kChestClass ? "chest" : "door", h, o.key,
+                        o.classId == kChestClass ? bestChest : best, i * 4, d.h[i], v);
                 d.h[i] = v;
                 --budget;
             }
@@ -1101,8 +1360,9 @@ void probeDoors(const uint8_t* rdram) {
                     d.q[i] = v;
                     continue;
                 }
-                coopLog("door %08x key %08x (local player %.0f away): data+%x %08x -> %08x", h, o.key, best, i * 4,
-                        d.q[i], v);
+                coopLog("%s %08x key %08x (local player %.0f away): data+%x %08x -> %08x",
+                        o.classId == kChestClass ? "chest" : "door", h, o.key,
+                        o.classId == kChestClass ? bestChest : best, i * 4, d.q[i], v);
                 d.q[i] = v;
                 --budget;
             }
@@ -1114,11 +1374,14 @@ void probeDoors(const uint8_t* rdram) {
 // gets the same retargeting wrapper as the creatures: with the partner's ghost near the door and the local player far
 // away, the door sees "the player" at the ghost, so a door one player opens opens for the other as well.
 void wrapDoors(uint8_t* rdram) {
-    if (!g_retarget || !g_aiSlot)
-        return;
-    for (auto& [h, o] : g_obj)
-        if (o.classId == 0x10013u && !o.swapped && !o.gone)
-            o.swapped = swapHandlerTo(rdram, h, g_aiSlot);
+    if (g_retarget && g_aiSlot)
+        for (auto& [h, o] : g_obj)
+            if (o.classId == 0x10013u && !o.swapped && !o.gone)
+                o.swapped = swapHandlerTo(rdram, h, g_aiSlot);
+    if (g_probe && g_chestSlot)
+        for (auto& [h, o] : g_obj)
+            if (o.classId == kChestClass && !o.swapped && !o.gone)
+                o.swapped = swapHandlerTo(rdram, h, g_chestSlot);
 }
 
 // Pickups that left the registry: tell the other side (it removes its copy); both directions.
@@ -1127,13 +1390,26 @@ void watchObjects(const uint8_t* rdram) {
     for (auto& [h, o] : g_obj) {
         if (!o.pickup || o.gone)
             continue;
-        if (world::isLiveHandle(mem, g_globals, h, o.ref - 1))
-            continue;
+        const char* how = "left the registry";
+        if (world::isLiveHandle(mem, g_globals, h, o.ref - 1)) {
+            // A loose item that was picked up is not destroyed: it goes into the inventory (moved far away).
+            const float p[3] = {rdF(rdram, h + 0x14), rdF(rdram, h + 0x18), rdF(rdram, h + 0x1c)};
+            if (!std::isfinite(p[0]))
+                continue;
+            if (o.pos0[0] == 0.0f && o.pos0[1] == 0.0f && o.pos0[2] == 0.0f) { // spawned at the origin, not placed yet
+                if (p[0] != 0.0f || p[2] != 0.0f)
+                    std::memcpy(o.pos0, p, 12);
+                continue;
+            }
+            if (std::hypot(p[0] - o.pos0[0], p[2] - o.pos0[2]) < 3000.0f)
+                continue;
+            how = "was taken into an inventory";
+        }
         o.gone = true;
+        g_goneKeys.insert(o.key);
         pushReliable(kMsgObjGone, &o.key, 4);
         ++g_st.goneSent;
-        coopLog("%s: pickup %08x (class %x key %08x) left the registry -> peer", g_host ? "host" : "client", h,
-                o.classId, o.key);
+        coopLog("%s: pickup %08x (class %x key %08x) %s -> peer", g_host ? "host" : "client", h, o.classId, o.key, how);
     }
 }
 
@@ -1149,6 +1425,26 @@ void hostTick(drakan_input::IGuest& guest, uint8_t* rdram, uint32_t levelHash) {
         keyCreatures(g_snap);
     scanNewObjects();
     watchObjects(rdram);
+    if (g_syncPending) {
+        g_syncPending = false;
+        uint32_t doors = 0;
+        for (uint32_t key : g_goneKeys)
+            pushReliable(kMsgObjGone, &key, 4);
+        for (auto& [h, o] : g_obj) {
+            const uint32_t inner = rd32(rdram, h + 0xfc);
+            const uint32_t q = ramPtr(inner) ? rd32(rdram, inner + 0x10) : 0;
+            if (o.classId == 0x10013u && ramPtr(q) && rd32(rdram, q + 0x10) == 1 &&
+                world::isLiveHandle(RdramMemory(rdram), g_globals, h, o.ref - 1)) {
+                struct {
+                    uint32_t key;
+                    int32_t state;
+                } st{o.key, 1};
+                pushReliable(kMsgObjState, &st, sizeof st);
+                ++doors;
+            }
+        }
+        coopLog("host: catch-up sent: %zu taken pickups, %u open doors", g_goneKeys.size(), doors);
+    }
     if (g_probe)
         probeDoors(rdram);
     wrapDoors(rdram);
@@ -1237,6 +1533,11 @@ void clientTick(drakan_input::IGuest& guest, uint8_t* rdram, uint32_t levelHash,
         if (!refreshSnapshot(rdram))
             return;
         keyCreatures(g_snap);
+    }
+    if (!g_syncSent) {
+        g_syncSent = true;
+        pushReliable(kMsgSyncReq, nullptr, 0);
+        coopLog("client: keyed the level, asked the host for the catch-up state");
     }
     clientEvents(guest, rdram);
     const uint64_t nowM = nowMs();
@@ -1371,6 +1672,13 @@ struct TestSummon {
     int count = 0;
     std::string file;
 } g_summon;
+struct TestTo { // DRAKAN_COOP_TEST_TO=<class hex>,<dist>@<file>: stand <dist> in front of the nearest live object of a
+                // class
+    bool want = false, done = false;
+    uint32_t cls = 0;
+    float dist = 0;
+    std::string file;
+} g_to;
 std::string g_takeFile;
 bool g_takeDone = false;
 bool g_god = false; // test aid: the local player's HP is kept at its maximum (host: the orcs cannot end the run)
@@ -1391,6 +1699,25 @@ void testAids(drakan_input::IGuest& guest, uint8_t* rdram) {
     }
     static uint32_t fileTick = 0;
     ++fileTick;
+    // The local player's heading from how she actually moved (her matrix axes were not reliable for this): the last
+    // horizontal step bigger than 3 and smaller than 400 units.
+    {
+        static float prev[2] = {};
+        static bool havePrev = false;
+        const uint32_t me = controlled(rdram);
+        if (ramPtr(me)) {
+            const float x = rdF(rdram, me + 0x14), z = rdF(rdram, me + 0x1c);
+            const float dx = x - prev[0], dz = z - prev[1], d = std::hypot(dx, dz);
+            if (havePrev && d > 3.0f && d < 400.0f) {
+                g_moveDir[0] = dx / d;
+                g_moveDir[1] = dz / d;
+                g_haveMoveDir = true;
+            }
+            prev[0] = x;
+            prev[1] = z;
+            havePrev = true;
+        }
+    }
     bool go = false;
     if (g_goto.want && !g_goto.done && fileTick % 20 == 0)
         if (std::FILE* f = std::fopen(g_goto.file.c_str(), "rb")) {
@@ -1405,6 +1732,49 @@ void testAids(drakan_input::IGuest& guest, uint8_t* rdram) {
             drakan_ghost::refileActor(guest, me);
             g_goto.done = true;
             coopLog("test: teleported the local player to %.0f %.0f %.0f", g_goto.p[0], g_goto.p[1], g_goto.p[2]);
+        }
+    }
+    if (g_to.want && !g_to.done && g_keyedThisLevel && fileTick % 20 == 5) {
+        if (std::FILE* f = std::fopen(g_to.file.c_str(), "rb")) {
+            std::fclose(f);
+            const uint32_t me = controlled(rdram);
+            const RdramMemory mem(rdram);
+            uint32_t bestH = 0;
+            float best = 1e30f;
+            for (auto& [h, o] : g_obj)
+                if (ramPtr(me) && o.classId == g_to.cls && !o.gone &&
+                    world::isLiveHandle(mem, g_globals, h, o.ref - 1)) {
+                    const float d = std::hypot(rdF(rdram, h + 0x14) - rdF(rdram, me + 0x14),
+                                               rdF(rdram, h + 0x1c) - rdF(rdram, me + 0x1c));
+                    if (d < best) {
+                        best = d;
+                        bestH = h;
+                    }
+                }
+            if (bestH) {
+                // The player's forward axis is row 2 of her matrix (+0x38 / +0x40): she ends up facing the object.
+                float fx = rdF(rdram, me + 0x38), fz = rdF(rdram, me + 0x40);
+                float fl = std::max(1e-3f, std::hypot(fx, fz));
+                fx /= fl;
+                fz /= fl;
+                if (g_haveMoveDir) { // she ends up standing dist before the object, still heading the way she walked
+                    fx = -g_moveDir[0];
+                    fz = -g_moveDir[1];
+                }
+                guest.writeF(me + 0x14, rdF(rdram, bestH + 0x14) + g_to.dist * fx);
+                guest.writeF(me + 0x18, rdF(rdram, bestH + 0x18) + 60.0f);
+                guest.writeF(me + 0x1c, rdF(rdram, bestH + 0x1c) + g_to.dist * fz);
+                drakan_ghost::refileActor(guest, me);
+                coopLog("test: stood %.0f units in front of %08x (class %x, was %.0f away)", g_to.dist, bestH, g_to.cls,
+                        best);
+                coopLog("test: chest at %.0f %.0f, me at %.0f %.0f, moveDir %d %.2f %.2f, row0 %.2f %.2f %.2f row2 "
+                        "%.2f %.2f %.2f",
+                        rdF(rdram, bestH + 0x14), rdF(rdram, bestH + 0x1c), rdF(rdram, me + 0x14),
+                        rdF(rdram, me + 0x1c), g_haveMoveDir, g_moveDir[0], g_moveDir[1], rdF(rdram, me + 0x20),
+                        rdF(rdram, me + 0x24), rdF(rdram, me + 0x28), rdF(rdram, me + 0x38), rdF(rdram, me + 0x3c),
+                        rdF(rdram, me + 0x40));
+                g_to.done = true;
+            }
         }
     }
     if (g_host && g_summon.want && !g_summon.done && fileTick % 20 == 1) {
@@ -1585,20 +1955,40 @@ void install(PS2Runtime& rt) {
             g_summon.file = file;
         }
     }
+    if (const char* s = std::getenv("DRAKAN_COOP_TEST_TO")) {
+        unsigned cls = 0;
+        float dist = 0;
+        char file[512] = {};
+        if (std::sscanf(s, "%x,%f@%511[^\n]", &cls, &dist, file) == 3) {
+            g_to.want = true;
+            g_to.cls = cls;
+            g_to.dist = dist;
+            g_to.file = file;
+        }
+    }
+    if (const char* s = std::getenv("DRAKAN_COOP_TEST_HURT_SCALE"))
+        g_hurtScale = std::strtof(s, nullptr);
     if (const char* s = std::getenv("DRAKAN_COOP_TEST_CLAIM"))
         g_claimEveryMs = static_cast<uint32_t>(std::strtoul(s, nullptr, 10));
     g_rt = &rt;
-    for (uint32_t a = 0x100100u; a < 0x100600u && (!g_handlerSlot || !g_aiSlot); a += 4) {
+    for (uint32_t a = 0x100100u; a < 0x100600u && (!g_handlerSlot || !g_aiSlot || !g_deadSlot || !g_chestSlot);
+         a += 4) {
         if (rt.hasFunction(a))
             continue;
         if (!g_handlerSlot) {
             if (rt.registerFunction(a, &proxyHandler))
                 g_handlerSlot = a;
-        } else if (rt.registerFunction(a, &aiHandler)) {
-            g_aiSlot = a;
+        } else if (!g_aiSlot) {
+            if (rt.registerFunction(a, &aiHandler))
+                g_aiSlot = a;
+        } else if (!g_deadSlot) {
+            if (rt.registerFunction(a, &deadHandler))
+                g_deadSlot = a;
+        } else if (rt.registerFunction(a, &chestHandler)) {
+            g_chestSlot = a;
         }
     }
-    if (!g_handlerSlot || !g_aiSlot) {
+    if (!g_handlerSlot || !g_aiSlot || !g_deadSlot || !g_chestSlot) {
         coopLog("disabled: no free function slot");
         return;
     }
@@ -1633,6 +2023,7 @@ void install(PS2Runtime& rt) {
 void beforePadMgr(drakan_input::IGuest& guest, uint8_t* rdram) {
     if (!g_enabled.load(std::memory_order_relaxed) || !rdram)
         return;
+    g_rdramForLog = rdram;
     static uint64_t epoch = ~0ull;
     if (epoch != g_loadEpoch.load()) {
         epoch = g_loadEpoch.load();
@@ -1648,6 +2039,8 @@ void beforePadMgr(drakan_input::IGuest& guest, uint8_t* rdram) {
     if (++g_ticksSinceLoad < kSettleTicks)
         return;
     ++g_tickTotal;
+    if (!g_host)
+        tickLife(guest, rdram);
     if (g_keyedThisLevel) // events name objects by key: they wait (in the inbox) until this side has keyed the level
         drainEvents(guest, rdram, level);
     if (g_host)

@@ -82,13 +82,35 @@ NL = chr(10)
 
 def recipes(scenario: str) -> tuple[str, str, int]:
     head = "clock milliseconds\n0 sync play 60\n"
-    if scenario == "fight":
+    if scenario in ("fight", "death"):
         # B swings from the start (the orcs are forced onto its ghost); A joins 14 s later, so both hit the same orc.
         a = head + EQUIP + "14000 key down W\n14200 key up W\n" + swings(14500, 40, "a_f", shot_every=5)
         a += "3000 shot a_end\n3500 quit\n"
         b = head + EQUIP + "1000 key down W\n2200 key up W\n" + swings(1500, 50, "b_f", shot_every=2)
         b += "3000 shot b_end\n3500 quit\n"
         return a, b, 120
+    if scenario in ("chest", "walkover"):
+        # B stands in front of the nearest chest / elixir (test aid DRAKAN_COOP_TEST_TO) and uses it (E) / walks over it.
+        # A stays where it is and watches.
+        a = head + f"1500 shot pre{NL}" + "".join(f"{4000 + i * 3000} shot a_c{i:02d}{NL}" for i in range(9))
+        a += f"34000 quit{NL}"
+        # a short walk first: the test aid takes her heading from how she moved
+        b = head + f"500 key down W{NL}1200 key up W{NL}1500 shot pre{NL}3500 shot b_before{NL}"
+        for i in range(6):  # E picks up a loose item (and would open a chest) in front of her
+            t = 5000 + i * 2500
+            b += f"{t} key down E{NL}{t + 150} key up E{NL}{t + 1500} shot b_use{i}{NL}"
+        for i in range(5):  # and a few punches: a chest may open when it is hit
+            t = 21000 + i * 900
+            b += f"{t} button down 1{NL}{t + 80} button up 1{NL}"
+        b += f"27500 shot b_end{NL}29000 quit{NL}"
+        return a, b, 100
+    if scenario == "latejoin":
+        # A opens the town door and takes a pickup (test aid), long before B starts (--b-delay); B must get both at the
+        # catch-up.
+        a = head + f"14000 key down W{NL}17500 key up W{NL}19000 shot a_at_door{NL}"
+        a += "".join(f"{25000 + i * 5000} shot a_late{i:02d}{NL}" for i in range(16)) + f"108000 quit{NL}"
+        b = head + "".join(f"{14000 + i * 3000} shot b_l{i:02d}{NL}" for i in range(10)) + f"45000 quit{NL}"
+        return a, b, 150
     if scenario == "door":
         # The card start is in a corridor that ends at Town Door 16658 (about 7600 units ahead). A runs to it and presses
         # E (use) a few times; B stays and watches the door.
@@ -116,7 +138,9 @@ def recipes(scenario: str) -> tuple[str, str, int]:
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--name", default="coop2")
-    ap.add_argument("--scenario", choices=("fight", "door", "pickup"), default="fight")
+    ap.add_argument(
+        "--scenario", choices=("fight", "death", "chest", "walkover", "door", "pickup", "latejoin"), default="fight"
+    )
     ap.add_argument("--exe", type=Path, default=ROOT / "build" / "final-game" / "bin" / "drakan.exe")
     ap.add_argument("--src", type=Path, default=ROOT / "dist" / "DrakanPC")
     ap.add_argument("--card", type=Path, default=DEFAULT_CARD)
@@ -126,10 +150,11 @@ def main() -> int:
     ap.add_argument("--env", action="append", default=[], metavar="K=V", help="extra environment, both instances")
     ap.add_argument("--env-a", action="append", default=[], metavar="K=V")
     ap.add_argument("--env-b", action="append", default=[], metavar="K=V")
+    ap.add_argument("--b-delay", type=float, default=0.0, help="seconds B starts after A (latejoin: 30)")
     ap.add_argument("--summon", action="store_true", help="host test aid: move two orcs to the players")
     a = ap.parse_args()
     cards = {"a": a.card, "b": a.card}
-    if a.scenario == "fight" and a.card == DEFAULT_CARD:
+    if a.scenario in ("fight", "death", "chest", "walkover") and a.card == DEFAULT_CARD:
         cards = {"a": make_fixture(a.card, "a", ORC_SPOT_A), "b": make_fixture(a.card, "b", ORC_SPOT_B)}
     out = ROOT / "build" / "harness" / a.name
     if out.exists():
@@ -161,18 +186,27 @@ def main() -> int:
         },
     }
     go = {k: out / k / "go.txt" for k in "ab"}
-    spots = {"fight": ("", ""), "door": ("", ""), "pickup": ("", "")}[a.scenario]
+    spots = ("", "")
     if spots[0]:
         env["a"]["DRAKAN_COOP_TEST_GOTO"] = f"{spots[0]}@{go['a']}"
         env["b"]["DRAKAN_COOP_TEST_GOTO"] = f"{spots[1]}@{go['b']}"
     env["a"]["DRAKAN_COOP_TEST_GOD"] = "1"
     if a.summon:
         env["a"]["DRAKAN_COOP_TEST_SUMMON"] = f"{ORC_RES},2@{go['a']}"
-    if a.scenario == "fight":
+    if a.scenario in ("fight", "death"):
         env["a"]["DRAKAN_COOP_TEST_FORCE_GHOST"] = "all"
+    if a.scenario == "death":  # B takes 6x damage from the host's orcs so it dies within the run
+        env["b"]["DRAKAN_COOP_TEST_HURT_SCALE"] = "6"
+    if a.scenario in ("chest", "walkover"):
+        env["a"]["DRAKAN_COOP_RETARGET"] = "0"  # the orcs near the start stay out of it
+        env["b"]["DRAKAN_COOP_TEST_TO"] = f"{'100c5,-110' if a.scenario == 'chest' else '10059,0'}@{go['b']}"
     if a.scenario == "pickup":
         env["a"]["DRAKAN_COOP_TEST_TAKE"] = str(go["a"])
-    if a.scenario == "door":  # no setup to wait for
+    if a.scenario == "latejoin":
+        env["a"]["DRAKAN_COOP_TEST_TAKE"] = str(go["a"])
+        env["a"]["DRAKAN_COOP_RETARGET"] = "1"
+        a.b_delay = a.b_delay or 30.0
+    if a.scenario in ("door", "latejoin"):  # no setup to wait for
         for k in "ab":
             go[k].write_text("go", encoding="utf-8")
     for kv in a.env + a.env_a:
@@ -188,7 +222,7 @@ def main() -> int:
                 [str(exes[k])], cwd=exes[k].parent, env=e, stdout=logs[k].open("wb"), stderr=subprocess.STDOUT
             )
             print(f"started {k.upper()} (pid {procs[k].pid})", flush=True)
-            time.sleep(4)
+            time.sleep(a.b_delay if k == "a" else 4)
         while any(p.poll() is None for p in procs.values()):
             if a.scenario == "pickup" and not go["a"].exists() and logs["b"].is_file():
                 if b"client: keyed" in logs["b"].read_bytes():  # B has the level keyed: events can be applied
@@ -217,7 +251,7 @@ def main() -> int:
     )
     matched = re.findall(r"client stats: \d+ packets, keyed \d+, matched (\d+)", text["b"])
     checks["b: matched host creatures"] = bool(matched) and max(int(m) for m in matched) > 0
-    if a.scenario == "fight":
+    if a.scenario in ("fight", "death"):
         checks["b: claims sent for hits on proxies"] = "client: claim on creature" in text["b"]
         checks["a: claims applied to the real creature"] = "host: claim applied" in text["a"]
         checks["a: a creature died, reported"] = "host: creature" in text["a"] and "died (" in text["a"]
@@ -225,11 +259,35 @@ def main() -> int:
         checks["a: enemy retargeted to the ghost"] = "now targets the partner's ghost" in text["a"]
         checks["a: ghost hit by an enemy"] = re.search(r"host: ghost [0-9a-f]+ hit by", text["a"]) is not None
         checks["b: took damage from a host enemy"] = "took " in text["b"] and "from a host enemy" in text["b"]
+        if a.scenario == "death":
+            checks["b: the local player died"] = "client: the local player died" in text["b"]
+            checks["a: the partner's death reached the host"] = "host: the partner died" in text["a"]
+            checks["a: respawn granted after the delay"] = "respawn is granted" in text["a"]
+            checks["b: respawned beside the host"] = "client: respawned beside the host" in text["b"]
     elif a.scenario == "door":
         # The door opens by itself when a player is near: B's door must open while B stands still at the start.
         opened = "data+10 00000000 -> 00000001"
         checks["a: door opened (state fields logged)"] = opened in text["a"]
         checks["b: door opened for the partner while b stood still"] = opened in text["b"]
+    elif a.scenario == "latejoin":
+        checks["a: catch-up sent with a taken pickup"] = (
+            re.search(r"catch-up sent: [1-9]\d* taken pickups", text["a"]) is not None
+        )
+        checks["a: catch-up sent with an open door"] = (
+            re.search(r"taken pickups, [1-9]\d* open doors", text["a"]) is not None
+        )
+        checks["b: asked for the catch-up"] = "asked the host for the catch-up" in text["b"]
+        checks["b: the taken pickup removed"] = "taken by the partner: removed" in text["b"]
+        checks["b: the open door opened"] = "was open on the host: opening it" in text["b"]
+        checks["b: door fields show it opened"] = "data+10 00000000 -> 00000001" in text["b"]
+    elif a.scenario == "walkover":
+        # B walks onto a loose potion: B's copy goes into its inventory, A's world copy must disappear, and A must not
+        # get the item (no pickup message on A).
+        checks["b: the pickup was taken, reported"] = "pickup" in text["b"] and "-> peer" in text["b"]
+        checks["a: the partner's pickup removed"] = "taken by the partner: removed" in text["a"]
+        checks["a: no pickup message for the item (the partner has it)"] = "msg 10c1" not in text["a"]
+    elif a.scenario == "chest":
+        checks["b: stood at the chest"] = "test: stood" in text["b"]
     else:
         checks["a: pickup left the registry, reported"] = "left the registry -> peer" in text["a"]
         checks["b: the partner's pickup removed"] = "taken by the partner: removed" in text["b"]
