@@ -79,3 +79,11 @@ output does not. The earlier "Intro fails to start" was the class-count overflow
   class, e.g. a changed Timer default in game) will tell.
 * `dist/DrakanPC` was not refilled by the last incremental build (a running game held `avcodec-61.dll`); the runs used
   `build/final-game/bin/drakan.exe` with `DRAKAN_MODS`.
+
+## Field-list pairing caveat, closed by construction (later 2026-11-01)
+
+`ootfclass.ts freeIds` now hands out ids **above** the ODB maximum (max+1 ...; `OOTF_IDS_BELOW_MAX=1` restores the old
+below-max allocation for comparison). Appended records then sort last, so file order, index order and id order agree and the
+appended `0x0103` lists pair with their records whichever way the guest pairs them. Not tested directly (no in-game probe of a
+list field of a below-max clone was built); both allocations load and behave the same in the runs below (Alwarren fails
+identically with either), so there is no evidence of misalignment damage, and the new default cannot be affected by it.
