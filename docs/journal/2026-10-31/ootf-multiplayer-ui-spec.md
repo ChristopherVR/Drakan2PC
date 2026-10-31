@@ -1,344 +1,289 @@
-# Order of the Flame multiplayer UI: what is known (2026-10-31)
+# Order of the Flame multiplayer UI: what is known (2026-10-31, updated with the retail data)
 
-Purpose: give the port a screen flow and option set to aim at. The honest finding is that **no source describes
-the OotF multiplayer menus screen by screen**. The flow below is therefore a mix of (a) what sources say exists,
-(b) what the OpenDrakan notes say about the server, and (c) a proposed layout for our port, clearly marked as ours.
-No OotF screenshots, images or manual pages were copied or reproduced. All wireframes here are our own placeholders.
+Purpose: give the port a screen flow and option set to aim at. The first version of this note (web sources only) could not
+find any menu description. This revision adds the **data files of the user's own OotF install** (string tables, option value
+tables, the retail README, level data); details and method are in `ootf-data-study.md`. No OotF screenshots, images or
+manual pages were copied. The ASCII wireframes are our own drawings.
 
-Tags used:
-- **[S]** sourced, page fetched and read directly (URL in section 4).
-- **[S-snip]** sourced from a web search snippet or a page that returned 403 on fetch. Treat as second-hand.
-- **[D]** from the OpenDrakan notes in `docs/journal/2026-10-31/ootf-reuse-study.md` (section 3), network capture, not web.
-- **[U]** uncertain or not found. Nothing was guessed silently.
-- **[P]** our proposal for the port (not OotF).
+**Important limit:** the PC menus are laid out in code, not in data. `Dragon.rrc` has no layout or coordinate records, so no
+pixel rects exist to extract. Wireframes below are built from the real **control inventory, labels, order and option lists**;
+relative placement is only stated where the README says it (marked [data-text]); everything else is [P].
 
-Conflicts between sources are called out where they matter.
+Tags:
+- **[data]** read from OotF data files (`Dragon.rrc` strings and tables, `.odb`, `.lvl`, `.lfl`) in this session.
+- **[data-text]** stated in the retail `ReadMe.txt` or the 4.4.5 `Readme_Patch.txt` shipped in the packages.
+- **[S]** web page fetched and read (URL in section 9). **[S-snip]** search snippet or 403 page, second-hand.
+- **[D]** from the OpenDrakan notes in `ootf-reuse-study.md` section 3 (network capture).
+- **[U]** unknown or not stored in data. **[P]** our proposal for the port (not OotF).
 
 ## 0. Summary of findings
 
-- Modes: three network modes are documented [S, PC Watch]: Deathmatch, Dragon's Duel, Dragon Master.
-- Players: "up to 8" is the most repeated figure [S]. Two listings say 12 and 1-16 [S, conflicting, see 3.1].
-- Connections: LAN, internet (including the mplayer.com service), and two-player modem-to-modem [S].
-- Options: time limit (optional), team division (optional), team play / friendly fire / team colour / team names
-  (v4.4.5 patch notes) [S-snip], plus server query keys (frag/score limit, time limit, friendly fire, teams, password,
-  dedicated flag, network speed, gametype) [D].
-- Screens: none of the in-game menu layouts, labels or positions are documented in anything I could read. [U]
-- Customisation (name, model, skin, colour): not documented, except that a team colour setting exists [S-snip]. [U]
-- Custom maps, custom weapons, custom models for multiplayer: not documented. The level editor and editing tools
-  exist, but no multiplayer map folder or naming rule was found. [U]
-- HUD (scoreboard key, chat key, kill feed): not documented. [U]
-- Online play is effectively gone: the official master-server path is dead and fan groups ran servers for years [S].
-  LAN is the practical route today [S, Wine report].
+- Modes: three network modes, each a different **level group**: Air Only Match (dragons), Ground Match (Rynn only), Master of the
+  Dragon (Rynn plus one claimable dragon). A fourth label "Air and Ground" exists but no list ships. [data] [S PC Watch]
+- Players: the host screen offers **2 to 12** [data]. README says "1 to 20 and No Limit" and advises 8 or fewer on the internet
+  [data-text]. Earlier sources: 8 (capture, PC Watch). The port should default to 8 and allow the data's 2-12.
+- Options (host): max players, kills limit, time limit, number of teams (none, 2, 3, 4), friendly fire, master-server
+  registration; plus server name, password, level group, starting level. [data]
+- Player setup: name, colour (hue/saturation box and brightness box), human skin (4 stock skins), dragon skin (7 stock skins,
+  Air Only only), connection speed (5 presets). [data] [data-text]
+- Teams: default names Fire, Water, Earth, Air; names and RGB colours are server config; team select after level load;
+  4.4.5 adds team scores, team colour by the name, friendly fire and per-map overrides. [data-text]
+- Scoreboard columns Player, Kills, Deaths, Ping, Time; chat key; no results screen (banner then next level). [data]
+- Custom maps: any folder under `Multiplayer/` with a `.lvl`; level groups are `.lfl` text files. [data] [data-text]
+- Online play is effectively gone; LAN is the practical route. [S]
 
-## 1. Proposed screen flow (ours, with the known facts placed in it)
-
-Known-to-exist elements are marked. Everything about layout is [U] unless the wireframe says [P].
+## 1. Screen flow (OotF, from data) and our mapping
 
 ```
-Main menu [U layout]
-  -> Multiplayer [U label; a Multiplayer entry is implied by the game's multiplayer support]
-       -> Connection type  [S: LAN / Internet / Modem]
-            LAN ----------> Host game [U] | Join game [S-snip: "join-game screen" exists, v4.4.4 notes]
-            Internet -----> Server list via master server [S-snip v4.4.4; S PC Watch: mplayer.com]
-            Modem --------> 2 players, modem-to-modem [S press release, via MobyGames snippet]
-       -> Player setup [U]           (name, model/skin, team colour?)
-       -> Game setup (host only) [U] (mode, map, players, limits, teams, dragons, password)
-       -> Lobby / briefing [U]       (player list, ready state?)
-       -> In-game                    (scoreboard, chat, kill messages [U])
-       -> Results [U]
+Main menu (7 gems: Multiplayer / Load / New / Save / Options / Credits / Exit) [data]
+  -> Multiplayer gem: Player setup screen (name, colour, skins, speed) with Host Game / Join Game / mplayer.com [data]
+       -> Host Game: Server name, password, level group, starting level, game options, Begin Game [data]
+       -> Join Game: server table, Add Server, Remove, Server Info, Refresh, Stop, Connect [data]
+            -> Add Server dialog (address, query port) [data]
+            -> Server Info (IP, level, players with kills/ping, rule table) [data]
+  -> level loads -> (team games) Team select -> play [data-text]
+  -> in play: scoreboard key, chat key, change-teams key [data]
+  -> kill limit or time limit: banner, next level of the group loads [data]
 ```
 
-Error text known to occur [S, Wine report]: when DirectPlay (dplay) is missing, creating a session shows
-"check your connection settings". This is a message in the network path, not a screen. The fix on modern Windows
-is the DirectPlay component, which Wine users installed via winetricks.
+Our port: **LAN + direct IP + (later) relay** instead of master servers and mplayer.com [P]. Keep the same screen order so the
+original README stays valid as documentation.
 
 ## 2. Screens
 
-Each screen gives: controls, layout, options, and sources. The wireframes are [P] (our proposal) unless marked otherwise.
-No OotF layout is known to us, so no wireframe represents OotF.
+### 2.1 Main menu entry [data for inventory, U for positions]
 
-### 2.1 Main menu -> Multiplayer entry [U]
-
-- Controls: a "Multiplayer" entry on the main menu. Label not confirmed. [U]
-- Sources: the game is listed with "Single-player, multiplayer" modes [S, Wikipedia infobox].
+- A ring with seven gem buttons plus a hint line; the multiplayer gem is the README's entry point. The gem to action
+  mapping and gem positions are code-defined [U]. Hint texts (one per action) and a resume hint exist.
 
 ```
-+------------------------------------------+
-|              DRAKAN (logo)               |
-|                                          |
-|   [ Single Player ]                      |
-|   [ Multiplayer   ]   <- label [U]       |
-|   [ Options       ]   [U]                |
-|   [ Quit          ]   [U]                |
-+------------------------------------------+
+        (  ring  )
+   [gem top]           hint line: one text per gem
+ [gem L] [gem mid] [gem R]       <- positions [P]; 7 gems: top, left, middle, right, lower-left, lower-right, bottom [data]
+   [gem LL]       [gem LR]
+        [gem bottom]
 ```
 
-### 2.2 Connection type [S for the three choices, U for the layout]
+### 2.2 Player setup (the "Multiplayer" screen) [data]
 
-- Controls: three choices: LAN, Internet, Modem. [S: press release snippet, PC Watch]
-- Modem is two players only. [S-snip]
-- Labels as shown in the game: [U]
+Control order in the string table: Player Name, Host Game, Join Game, mplayer.com, Player Color, Human Skin, Dragon Skin,
+Connection Speed. Hints exist for host, join, mplayer.com, the colour box, the brightness box and the dragon look.
 
-```
-+----------------------------------------+
-|  MULTIPLAYER                           |
-|  Connection:                           |
-|   ( ) LAN                              |
-|   ( ) Internet                         |
-|   ( ) Modem (2 players)                |
-|                                        |
-|  [ Back ]                    [ Next ]  |
-+----------------------------------------+
-```
-
-### 2.3 Host or join [S-snip for join, U for the rest]
-
-- A "join game" screen exists and a patch fixed a long delay on it [S-snip, v4.4.4 notes].
-- The join screen looks up the Drakan master server address by DNS (fixed in 4.4.4 so the system no longer hangs) [S-snip].
-- Host vs join split: [U]. The LAN server creation path is documented: creating a session needs DirectPlay [S, Wine].
-
-```
-+----------------------------------------+
-|  LAN                                   |
-|  [ Host game ]     [U]                 |
-|  [ Join game ]     [S-snip exists]     |
-|                                        |
-|  [ Back ]                              |
-+----------------------------------------+
-```
-
-### 2.4 Server list [U]
-
-- A server list (browse) exists by implication of the join screen [S-snip].
-- Columns, sort order, refresh button and ping display: [U].
-- The discovery protocol is a UDP broadcast `\status\` with backslash key/value replies [D]. The reply keys are listed in
-  section 3. The list is therefore built from those keys (hostname, map, players, max players, gametype).
+| Control | Detail |
+| --- | --- |
+| Player Name | text field, any characters, shown above the character in play [data-text] |
+| Player Color | two boxes: hue/saturation, brightness; the Rynn portrait to the right updates at once; colour also shown beside the name in the stats box [data-text] |
+| Human Skin | rotating portrait cycling through armour/clothing styles in the chosen colour; stock skin model array has 4 entries [data] |
+| Dragon Skin | slider under a rotating dragon portrait; 7 stock dragon skins; no effect in Master of the Dragon [data] [data-text] |
+| Connection Speed | list: Modem 28.8k, Modem 33.6k, Modem 56k, ISDN 112k, LAN/T1 1M [data] |
+| Host Game / Join Game | buttons [data] |
+| mplayer.com | button; free internet play community [data] |
 
 ```
 +--------------------------------------------------------------+
-|  SERVERS                              [ Refresh ] [U]        |
-|  Name            Map        Players    Ping   Mode     Lock  |
-|  ----------------------------------------------------------   |
-|  <hostname>      <map>      n / 8      ...    <mode>   pw?   |
-|  <hostname>      ...                                         |
-|                                                              |
-|  [ Back ]                              [ Join ]              |
+| Player Name: [____________]                                  |
+| Player Color: [hue/sat box] [brightness box]     [Rynn view] |
+| Human Skin:   [rotating portrait]                            |
+| Dragon Skin:  [rotating dragon]  <--slider-->                |
+| Connection Speed: [ LAN/T1 - 1M v ]                          |
+| [ Host Game ]  [ Join Game ]  [ mplayer.com ]                |
 +--------------------------------------------------------------+
+Arrangement [P]; the controls, labels and order are [data].
 ```
 
-Column names above are [P]. Server-query fields are [D]: `hostname`, `mapname`, `numplayers`, `maxplayers`, `gametype`,
-`gamemode`, `password`, `Dedicated Server?`.
+### 2.3 Host Game [data]
 
-### 2.5 Player setup [U]
+Top to bottom (README 4.3 and the string order): Server Name, Password (blank = open), Level Group, Starting Level, Game Options
+box, Begin Game. The default server name pattern is "<player>'s Server". Level Group list: "All Levels" first, then every `.lfl`
+in `Multiplayer/`.
 
-- Name: not documented. [U]
-- Model or skin: not documented. [U]
-- Team colour: a setting exists in v4.4.5 notes ("team color", "the names of the teams") [S-snip].
-- Character choice: the reviewer says the dragon is the better pick than Rynn in multiplayer because Arokh moves faster [S, gamesfirst]. Whether Rynn and Arokh are both selectable at the setup screen is [U].
+| Option | Values (from the tables in `Dragon.rrc`) |
+| --- | --- |
+| Maximum Number of Players | 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12 |
+| Kills Limit | No Limit, 5, 10, 15, 20, 25, 30, 40, 50, 60, 70, 80, 90, 100, 150, 200 |
+| Time Limit | No Limit, 5, 10, 15, 20, 30, 45 minutes, 1 hour |
+| Number of Teams | No Teams, 2, 3, 4 |
+| Friendly Fire? | No, Yes (only matters in team games) |
+| Register With Master Servers? | No, Yes |
 
-```
-+----------------------------------------+
-|  PLAYER SETUP                          |
-|  Name:     [__________] [U: max len]   |
-|  Character: < Rynn | Arokh > [U]       |
-|  Team:     < none | A | B > [S-snip]   |
-|  Colour:   [swatch row] [U]            |
-|                                        |
-|  [ Back ]                 [ Continue ] |
-+----------------------------------------+
-```
-
-Japanese naming: the PC Watch article calls the player character "Lin" (リン) [S]. This is the Japanese release name for
-Rynn, not a second character. Our port should use the English name.
-
-### 2.6 Game setup (host) [partly S-snip / D; layout U]
-
-Options. Each row says where the option is known from.
-
-| Option | Known values / range | Source |
-|---|---|---|
-| Game mode | Deathmatch, Dragon's Duel, Dragon Master | [S, PC Watch] |
-| Gametype (ground vs air) | "ground only" seen in a German build (`gametype` = "Nur Boden") | [D] |
-| Max players | Up to 8 for every mode; `maxplayers` = 8 in capture | [S PC Watch, press release S-snip; D] |
-| Map | Several battlefields; list not known | [S PC Watch: "several"; count U] |
-| Time limit | Optional; value range U | [S PC Watch: "optional time limits"] |
-| Frag / score limit | Field `score limit` seen; range and UI U | [D] |
-| Teams | Optional team division; "Num Teams" field | [S PC Watch; D] |
-| Friendly fire | On/off, per the capture; team-play patch notes | [D; S-snip v4.4.5] |
-| Dragons | Dragon Duel and Dragon Master are dragon modes. An on/off toggle is not documented. | [S PC Watch; toggle U] |
-| Weapons | Lists for single and multiplayer modes (Prima guide). Per-weapon toggles U. | [S, Prima listing] |
-| Respawn | Not found | [U] |
-| Password | Field `password` exists | [D] |
-| Server name | Field `hostname` | [D] |
-| Network speed | Preset field `Network Speed` | [D] |
-| Dedicated server | Field `Dedicated Server?` | [D] |
-
-Conflicts to resolve in the port (not in OotF):
-- Max players: "8" [S, PC Watch, press release] vs "12" [S, lan-gaming listing] vs "1-16" [S-snip, a retail listing]. Eight is
-  the only number that is in a developer-era text and in the capture. Use 8.
+Rules: both limits "No Limit" means the starting level runs until the host quits [data-text]. Errors: enter a player name,
+enter a server name, select a starting level, session creation failed, no levels in the folder, unreadable level list file
+(falls back to all levels).
 
 ```
-+----------------------------------------------+
-|  GAME SETUP (host)                           |
-|  Server name:  [______________]   [D field]  |
-|  Password:     [______] (optional) [D]       |
-|  Mode:         < Deathmatch | Dragon's Duel | Dragon Master > [S] |
-|  Map:          < Battlefield ... > [U list]  |
-|  Max players:  < 2 .. 8 >        [S: 8]      |
-|  Time limit:   < off | 5 | 10 | 15 min > [U]|
-|  Score limit:  < ... > [U range]             |
-|  Teams:        [ ] on   Friendly fire [ ] [D]|
-|  Dragons:      [ ] (mode-dependent) [U]      |
-|                                              |
-|  [ Back ]                       [ Start ]    |
-+----------------------------------------------+
++--------------------------------------------------------------+
+| Server Name: [______________]    Password: [__________]      |
+| Level Group: [ All Levels v ]    Starting Level: [ list    ] |
+| Game Options                                                 |
+|   Maximum Number of Players  [ 8  v ]                        |
+|   Kills Limit                [ 25 v ]                        |
+|   Time Limit                 [ 15 min v ]                    |
+|   Number of Teams            [ No Teams v ]                  |
+|   Friendly Fire?             [ No v ]                        |
+|   Register With Master Servers? [ No v ]                     |
+| [ Begin Game ]                                               |
++--------------------------------------------------------------+
+Arrangement [P]; fields, order and value lists [data].
 ```
 
-Bracketed ranges in the wireframe are [P] unless a source is given.
+### 2.4 Join Game, Add Server, Server Info [data]
 
-### 2.7 Lobby / briefing [U]
-
-- Not documented. Whether a lobby exists separate from setup: [U].
-- A "ready" state, countdown, or chat in the lobby: [U].
-
-```
-+----------------------------------------+
-|  LOBBY  <server name> [D]              |
-|  Players                 Team  Ready   |
-|  ------------------------------------  |
-|  1  <host>                    yes [U]  |
-|  2  <client>                  no  [U]  |
-|  Chat: [______________] [U]            |
-|                                        |
-|  [ Leave ]              [ Start ] host |
-+----------------------------------------+
-```
-
-### 2.8 In-game HUD: scoreboard, chat, kill messages [U]
-
-- Scoreboard key: [U].
-- Chat key: [U]. The protocol carries chat as a wrapped packet [D].
-- Kill messages: [U].
-- Dragon HUD in dragon modes: the modes exist [S PC Watch]; HUD details [U].
+- Table columns: Server Name, Current Level, Players, Ping; sorted by ping, lowest first [data-text].
+- Row colour: red incompatible version, white internet or custom ("+" prefix on custom), blue LAN, green selected. Password
+  servers are marked beside the name [data-text].
+- Buttons: Add Server, Remove (custom entries), Server Info, Refresh, Stop (while scanning), Connect (lower right, [data-text]).
+  Double-clicking a name also joins.
+- Status strings: contacting master server, master server contacted, contacting server, a wait message, "Available Servers: %d",
+  "Valid Servers: %d".
+- Add Server: Server Address, Query Port (default offered), OK, Cancel. Errors: already in list, enter a server.domain or IP.
+- Server Info: IP Address, Current Level, players (name, kills, ping), table Server Rule / Rule Value (sorted by name), Connect,
+  Cancel. Standard rules: Admin_Name, Admin_Email, Admin_Web, URL_Levels, URL_MOD; also Number of Teams and Network Speed
+  (4.4.2) [data-text].
 
 ```
-+----------------------------------------------------------+
-|  [score / time]                         [weapon]          |
-|                                                           |
-|  kill feed (top right) [U]                                |
-|                                                           |
-|  chat (bottom left, when open) [U]                        |
-+----------------------------------------------------------+
++----------------------------------------------------------------+
+| Available Servers: n   Valid Servers: m    status text         |
+| Server Name          | Current Level    | Players | Ping       |
+| ----------------------------------------------------------------|
+| host (blue = LAN)    | Relic (ground)   | 3/8     | 12         |
+| +custom (white)      | ...                                     |
+| [Add Server][Remove][Server Info][Refresh][Stop]    [ Connect ]|
++----------------------------------------------------------------+
+Row/column set and colours [data]; arrangement [P] except Connect lower right [data-text].
 ```
 
-### 2.9 Results [U]
+Discovery protocol [D]: UDP `\status\` key/value (see section 8); the browser's data fields match these keys.
 
-- A score or results screen after a round is likely (frag limit, time limit exist [D, S]); its layout is not documented. [U]
+### 2.5 Team select [data-text]
+
+Shown to every joining player of a team game after the level has loaded and before play; click once on a team in the list. The
+scoreboard is shown with it so team sizes are visible (4.4.2). The "Change Teams" command (bindable) reopens it. Default team
+names Fire, Water, Earth, Air; the server edits `TeamName1..4` and `TeamColor1..4` (RGB 0-255) in its config. In air levels the
+dragon skin is not set automatically in the retail build (recommended: red, green serpent, tan lizard, grey); 4.4.2 fixed it
+to give a whole team the same dragon skin. All non-dragon team members share a skin colour.
 
 ```
-+----------------------------------------+
-|  ROUND OVER [U]                        |
-|  Rank  Player          Frags  Deaths  |
-|  ...                                   |
-|  [ Next round ] [U]     [ Leave ]      |
-+----------------------------------------+
++--------------------------+
+| Choose a team            |
+|  [ Fire  ]  n players    |
+|  [ Water ]  n players    |
+|  [ Earth ]  n players    |   rows = Number of Teams (2..4) [data]; layout [P]
+|  [ Air   ]  n players    |
++--------------------------+
 ```
 
-## 3. Server query reply keys [D]
+### 2.6 Scoreboard (key "Map/Scoreboard", TAB by default) [data]
 
-From the OpenDrakan capture notes (not fetched by me; see the journal note, section 3). These are the strongest
-evidence for what the browser and host screens read and write:
-`gamename drakan`, `gamever 375/445`, `hostname`, `hostport 27045`, `mapname`, `gametype` (value seen "Nur Boden"),
-`numplayers`, `maxplayers 8`, `gamemode openplaying`, `Dedicated Server?`, `score limit`, `time limit`,
-`Network Speed` (preset), `Num Teams`, friendly fire, `password`.
+Columns: **Player, Kills, Deaths, Ping, Time**. Colour swatch beside the name. In team games team scores are separate from
+player scores and a leaver's contribution stays (4.4.5). The dedicated-server STATUS list adds Kills/Hour and Time Online.
+In single player the same key opens the quest map (not part of multiplayer).
 
-Note: the capture is from a specific build. Values are [D], not verified on the UI.
+```
++--------------------------------------------------+
+| Player            Kills  Deaths  Ping   Time     |
+| [c] name             12      5     34   08:12    |
+| ...                                              |
+| (team games: team totals, team colour [c])       |
++--------------------------------------------------+
+Columns [data]; arrangement [P].
+```
 
-### 3.1 Player count conflict
+### 2.7 Chat and messages [data]
 
-- "Up to 8": PC Watch [S], MobyGames press text [S-snip], multiple retailers [S-snip], capture `maxplayers 8` [D].
-- "12": lan-gaming listing, LAN and online fields [S]. Unverified; the listing is a compatibility database.
-- "1-16": one retail listing [S-snip].
+- Key "Network Chat". Backslash toggles global and private text; team messages are yellow (4.4.5). Flood protection: message
+  "cannot chat for 15 seconds". Commands SAY / TEAMSAY may be bound; server commands LEVEL, KICK, STATUS, TEAMS, GIB, ...
+- Event messages (short): "%s has joined the game", "%s has left the game", "%s joined %s" (team join), kicked messages,
+  server terminated, session full, wrong password, level files mismatch, connection lost, level changed by server.
+- Four sound events: time limit, kill limit, chat (public, private), player died, new dragon owner.
 
-## 4. Custom maps, weapons, and models
+```
+chat line (bottom of screen, text entry on key)      "name: message"  (team = yellow)
+event line (centre top)                              "<player> has joined the game"
+```
 
-- Custom maps for multiplayer: no folder, file naming rule, or install step was found. [U]
-- Level editor: a Vogons post says a user spent hours in the Level Editor fixing visibility data on stock levels after
-  hacking the game to double draw distance [S-snip, vogons p=1341290 snippet; the page returned 403].
-- Level sharing via codes: a fan mod ("Level Editor+") adds "Load from Clipboard" and "Playtest Level" to the editor.
-  The mod is for building levels, not content expansion; playing others' levels does not need it. [S, itch.io post]
-- Editing tools: the official tools allow custom 3D models and textures [S-snip, Blues News; page 403].
-- AiO unofficial patch (UCyborg) bundles the editing tools and earlier fixes [S, gamepressure].
-  Its text says the aim is "making the multiplayer component fully functional on modern operating systems and over modern internet" [S].
-- Custom weapons or models in multiplayer: not documented. [U]
+Placement [P].
 
-## 5. Patches and the multiplayer state
+### 2.8 Results [data]
 
-- Demo lacks multiplayer. A repack was needed to test it [S, Wine report].
-- v4.4.4: join-game screen delay (caused by DNS settings) fixed; the game no longer hangs on the master server lookup [S-snip].
-- v4.4.5: team play, friendly fire, team colour, team names, Team Arena settings [S-snip]. Exact variable names [U].
-- AiO v2.170 requires the official 445 patch first [S, gamepressure].
-- Multiplayer "pretty much defunct" with a few fan-run servers [S, oldgames.sk review].
+No results screen exists. At the limit the game shows a banner (kill limit or time limit reached; the next level loads in a few
+seconds) and loads the next map of the level group. Scores can be logged to a file by the server (4.4.5). For the port a simple
+end-of-round summary is a design addition [P].
 
-## 6. Mode descriptions (from PC Watch, translated) [S]
+```
++------------------------------------------+
+| Game KILL limit reached! Next level...   |   banner only [data]
++------------------------------------------+
+```
 
-- Deathmatch: play as Lin (Rynn) and defeat rivals.
-- Dragon's Duel: ride Arokh and fight rivals.
-- Dragon Master: one dragon is on the map. Only the player who finds it can ride it. Riders have a large advantage.
-- All modes: up to 8 players, optional time limit, optional teams.
-- Connections: LAN, internet, and mplayer.com for strangers.
-- Several battlefields.
+## 3. Mode rules in data (short; full table in `ootf-data-study.md` section 3)
 
-Translated text is a paraphrase; the Japanese quote is in the PC Watch article.
+| Mode | Level Type | Spawns and special objects |
+| --- | --- | --- |
+| Air Only | 0 | dragon launch pads, dragon health and invulnerability pickups; 2 of 4 maps also have Rynn pads and a Dragon |
+| Ground | 1 | 12-18 Rynn launch pads, weapon pads, no dragon |
+| Master of the Dragon | 3 | Rynn pads, one Dragon, Fire Dragon Soul Crystal, red launch pad, DragonStrike pickups, dragon energy recharge x0.25 |
 
-## 7. Open questions (to test, not to guess)
+- Score: kills; end at kills limit (team total in team games) or time limit; deaths shown. [data] [data-text]
+- Respawn: items carry a per-class interval (10-150 s); dragon launch pad respawn 3 s; arena levels (4.4.5) have loser 5 s /
+  winner 2 s. [data]
+- Team colour: names and RGB set by server config; per-map overrides via 4.4.5 level properties. Default RGB values are not
+  in the data. [data-text]
 
-1. Real screen names and button labels: needs the manual (not found online) or a playthrough video with the menus on screen.
-2. Whether "Dragon Master" uses a per-map single dragon or the same rule across maps.
-3. Exact values and steps for time limit, score limit, and respawn.
-4. Map list and whether any map is dragon-only.
-5. Custom map folder rules, if the port wants them.
-6. Scoreboard, chat, and kill feed keys.
-7. Whether dragons can be toggled off in the game setup, or only chosen by mode.
+## 4. Level and map list (strings 36876-36885) [data]
 
-Suggested checks: the original PDF manual (not found on archive.org or replacementdocs via search), the GameSpot review
-by Greg Kasavin (2 Aug 1999 per Wikipedia citation; page not retrieved), the IGN review (3 Sep 1999; not retrieved),
-and any YouTube playthrough showing the multiplayer menus. Only the wording of the sources should be reused; no
-screenshots.
+Air: Alwarren of Death, Arena of Death, Grotto of Death, Nemesis. Ground: Hill of Fire, Relic, Sanctuary. Master of the Dragon:
+Island of Death, Rise to Power, Volcano of Death. Each name is shown with a type suffix in the list ("(air)", "(ground)",
+"(MD)").
 
-## 8. Port implications (our design, not OotF)
+## 5. Custom maps, weapons, models [data]
 
-- Use the screen flow in section 1 as the skeleton. Label every screen with our own names and art.
-- Build the option set from section 2.6 and the server keys in section 3. Limit to 8 players. Start with
-  Deathmatch and Team Deathmatch, then a dragon mode.
-- Keep the server browser on the same key/value list as the query, so the list and the setup share one `MatchSettings`.
-- Do not use OotF images, screenshots, or layouts. Build new art for each screen.
+See `ootf-data-study.md` section 4: folder per map under `Multiplayer/`, `.lfl` level groups, identical files required on
+server and client, data-only classes for weapons and pickups, skins as model arrays.
 
-## 9. Sources
+## 6. Patches and the multiplayer state
 
-Fetched and read directly [S]:
-1. PC Watch, March 15 2000 (Japanese), mode and network description. https://pc.watch.impress.co.jp/docs/article/20000315/game.htm
-2. WineHQ bug 53643, "creating server doesn't work". https://list.winehq.org/hyperkitty/list/wine-bugs@list.winehq.org/thread/NKSNKC44YCIYO2LHYDM2NU4AABZ3YHJV/
-3. LAN Gaming compatibility listing (LAN 12, Online 12). https://lan-gaming.codeberg.page/games/drakan-order-of-the-flame/
-4. GamePressure, Drakan AiO Unofficial Patch v2.170. https://www.gamepressure.com/download/drakan-order-of-the-flame-drakan-aio-unofficial-patch-v2170-fina/zdf22c
-5. oldgames.sk review (fan review, "multiplayer mode is pretty much defunct"). https://www.oldgames.sk/en/game/drakan/download/4424
-6. GamesFirst 1999 article (dragon-on-dragon, MPlayer). https://gamesfirst.com/articles/1999/drakan-order-of-the-flame/
-7. The Video Game Library, Prima official strategy guide listing (weapon lists, multiplayer strategies). https://www.thevideogamelibrary.org/book/drakan-order-of-the-flame-prima-official-strategy-guide
-8. itch.io post, Level Editor+ mod (level codes, Load from Clipboard, Playtest Level). https://itch.io/post/14506380
-9. Wikipedia, Drakan: Order of the Flame (modes; review citations). https://en.wikipedia.org/wiki/Drakan:_Order_of_the_Flame
+- Retail used DirectPlay; 4.4.2 replaced it with Winsock (firewall friendly, modem friendlier, default client port 27910);
+  4.4.5 added team scoring and per-map team overrides, joystick axis binding and a "nightmare" difficulty. [data-text]
+- AiO patch: NAT fix, QTracker master list, dedicated-server launcher; "Arokh.ini" is that patch's config (not content). [S] [data]
+- Multiplayer is largely defunct online; LAN works. [S]
 
-Search snippet or 403 on fetch [S-snip]:
-10. FilePlanet, Drakan v4.4.4 notes (join-game screen, master server). https://www.fileplanet.com/archive/p-15163/Drakan-v444
-11. FilePlanet, Drakan v4.4.5 notes (team play, friendly fire, team colour/names, Team Arena). https://www.fileplanet.com/archive/p-12125/Drakan-v445
-12. MobyGames, press-release text (8 players LAN/internet, 2 modem). https://www.mobygames.com/game/337/-/adblurbs/ (also https://mobygames.com/game/337; 403 on fetch)
-13. Blues News, new Drakan editing tools (custom 3D models and textures). https://www.bluesnews.com/s/7834/new-drakan-editing-tools
-14. Vogons forum, level editor visibility work. https://www.vogons.org/viewtopic.php?p=1341290
-15. Retail listing (1-16 players, "Number of Players"). https://www.ebay.com/p/7087 (listing copy, weak)
-16. German retail ad (50 weapons incl. magic and dragon attacks; "up to 8 players"). Via search snippet of https://www.ebay.de/p/7087 (listing copy, weak)
+## 7. Open questions
 
-From the project journal [D]:
-17. `docs/journal/2026-10-31/ootf-reuse-study.md`, section 3 (OpenDrakan network capture notes, server query keys). Local file, not web.
+1. Real pixel layout of every screen (needs a playthrough capture; not in data).
+2. Gem order on the main menu; where "mplayer.com" sits.
+3. Default team RGB values (config), and the meaning of the four colour fields of "Level Properties".
+4. Whether the list-file "Air and Ground" group is built-in (string exists, no list ships).
 
-Not retrieved (403 or redirected away): GameSpot review by Kasavin, IGN review by Lopez, PCGames.de retro special,
-gry-online.pl review pages, mobygames.com direct, fileplanet v4.4.5 direct, bluesnews direct, Vogons p=234497 direct.
-The Wikipedia redirect for the-spoiler.com points to a walkthrough of Drakan: The Ancients' Gates, not OotF multiplayer; not used.
+## 8. Server query reply keys [D]
+
+`gamename drakan`, `gamever 375/445`, `hostname`, `hostport 27045`, `mapname`, `gametype` (e.g. "Nur Boden" = ground only),
+`numplayers`, `maxplayers 8`, `gamemode openplaying`, `Dedicated Server?`, `score limit`, `time limit`, `Network Speed`,
+`Num Teams`, friendly fire, `password`. README ports: game 27045, query 27046. These match the data's Server Info rules.
+
+## 9. Port implications (our design, not OotF)
+
+- Use sections 1-2 as the skeleton and label every screen with our own names and art; do not use OotF images or layouts.
+- Build `MatchSettings` from the host options (max players default 8, kills limit, time limit, teams 0/2/3/4, friendly fire,
+  password, level group) and let the browser rows show Name, Level, Players, Ping and a lock.
+- Ship Deathmatch (Ground), Team Deathmatch, then Air Only; Master of the Dragon needs soul-crystal ownership transfer and
+  dragon respawn rules.
+- Honour the original hint that dragon skin is cosmetic in MD and that human and dragon health are separate there.
+
+## 10. Sources
+
+Retail data (this session): `Dragon.rrc` strings and tables, `ReadMe.txt` (disc), `Readme_Patch.txt` (4.4.5), `Multiplayer/*.lfl`,
+`Common/Multiplayer`, `Common/Skins`, `Common/Interface` databases, the 23 level files.
+
+Web [S] (fetched and read):
+1. PC Watch, 2000-03-15: https://pc.watch.impress.co.jp/docs/article/20000315/game.htm
+2. WineHQ bug 53643: https://list.winehq.org/hyperkitty/list/wine-bugs@list.winehq.org/thread/NKSNKC44YCIYO2LHYDM2NU4AABZ3YHJV/
+3. LAN Gaming listing: https://lan-gaming.codeberg.page/games/drakan-order-of-the-flame/
+4. GamePressure AiO v2.170: https://www.gamepressure.com/download/drakan-order-of-the-flame-drakan-aio-unofficial-patch-v2170-fina/zdf22c
+5. oldgames.sk review: https://www.oldgames.sk/en/game/drakan/download/4424
+6. GamesFirst 1999: https://gamesfirst.com/articles/1999/drakan-order-of-the-flame/
+7. The Video Game Library (Prima guide): https://www.thevideogamelibrary.org/book/drakan-order-of-the-flame-prima-official-strategy-guide
+8. itch.io Level Editor+ post: https://itch.io/post/14506380
+9. Wikipedia: https://en.wikipedia.org/wiki/Drakan:_Order_of_the_Flame
+
+[S-snip] (search snippet or 403): FilePlanet v4.4.4 and v4.4.5 notes (fileplanet.com/archive/p-15163, p-12125), MobyGames press
+text, Blues News 7834, Vogons p=1341290, retail listings. Local: `ootf-reuse-study.md` section 3 [D].

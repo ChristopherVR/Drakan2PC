@@ -122,3 +122,34 @@ the resource record built from the ODBs, the transform from this list. **[run]**
 * Class default values (ODB 0x0102 data area) and the Euler composition order.
 * Meaning of `unk`, the zero word before the sentinel, flag bits other than 0x01/0x10/0x100, `initial_event_count`.
 * Layer terrain (LVL 0x0001) is opaque; needed to snap an editor's y to the ground.
+
+## 9. [OotF] Cross-check against the PC Order of the Flame files
+
+Tag **[OotF]** = read from the user's own OotF PC install (retail data, 23 `.lvl` files, 16312 placed objects, 4445 terrain
+layers), session 2026-10-31; details in `docs/journal/2026-10-31/ootf-data-study.md`. No PC bytes are reproduced here.
+
+* **Container [OotF]**: PC `SRSC` header is 12 bytes (`u16 version 0x0100`, `u32 index offset`, `u16 count`); the 14-byte index
+  entries are identical to PS2. PC ODB version record is 0x102 (PS2 0x109); library record names `Dragon.rfl` (PS2 `Drakan 2.rfl`).
+* **LVL 0x0000 and the 0x0001 definitions [OotF]**: identical to the PS2 layout (the PS2 parsers read PC files unchanged).
+  PC `level_name` may start with a localised-string reference `<0xNNNN>` (id into `Dragon.rrc`) followed by fallback text.
+* **Terrain data (LVL 0x0001) [OotF]**: PC stores, after the definitions, `u32 1` and one `{u32 compressed_size, zlib}` block per
+  layer. The inflated size is exactly `(w+1)*(h+1)*4 + w*h*26` (vertices, then faces; `w`,`h` are cells) for **4445/4445**
+  layers, with no trailing bytes in any file. PS2 keeps variable-length packed data inline after each definition, beginning
+  with `{u16 sequence 1..n, u16 0x000c, u32 0x40 or 0x80}`; the second u16 is the constant 0x0c (not a face count, as an
+  earlier note assumed). PS2 packing is still undecoded.
+* **LVL 0x0020 object list [OotF]**: PC bodies are inline (no id/class table): `u32 id, u16 class, u16 db, u32 lighting_layer,
+  f32 x y z, u32 flags, u16 event_count, u16 link_count, u16 links[], u16 rot[3], f32 scale[3] (flags & 0x100), u32
+  data_dwords, u32 param_count, u32 data[], u16 indices[], {u32 type, string name} x param_count`. All 23 files consume
+  exactly, and `field_value` decoding (section 2) works unchanged (0 range errors). PC lacks every PS2 addition: no second
+  prefix word, no 0x10 radius flag (flags seen: 0, 1, 0x100, 0x101), u16 link ids (PS2 u32), unsigned rotations 0-359, no
+  `0 / 0xffffffff` pair. `initial_event_count` is 1 on every PC object with no event data after it. Ids are not always ascending.
+* **ODB class record [OotF]**: PC `0x0102`: name, `u16 group`, model ref (`u16 id`, `u16 db`), `u16 rfl_class_id`, `u16 icon`,
+  `u32 field_count`, `u32 dword_count`, `u32 data[]`, `field_count` x `{u32 type, name}` (no 0x0103 pool on PC). PS2 classes
+  without a model: same up to the model ref, then 10 zero bytes, `u16 rfl_class_id`, `u16 1`, `u16 icon`, `u32 field_count`,
+  `u32 dword_count`, `u32 data[]`, no field definitions (they are in the 0x0103 pool); 33 of 54 sample classes fit this
+  exactly. **The low 16 bits of the runtime class id (section 5) equal the PC `rfl_class_id`** (Level Properties 54,
+  User Interface Properties 98, Dragon 28 on both).
+* **Models (MOD) [OotF]**: same record types 0x0200-0x0207 on both (PC adds 0x0209 LOD links). PS2 vertices are 16 bytes
+  (PC 12-byte vect3f) and PS2 polygons carry only `u16` vertex indices (PC: index plus UV floats per vertex).
+* **Dependencies [OotF]**: a level's `.db`/`.DB` text file serves its own ODB; the LVL 0x0000 table (different indices) serves
+  object class references. Same on both platforms.
