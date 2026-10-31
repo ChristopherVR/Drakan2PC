@@ -81,3 +81,33 @@ Other API: `MpState::{arenas, chat, countdownSec}`, `LanServer::mods`, `RosterRo
   (`RosterRow::characterName`). The list comes from `MpState::characters` (to be filled from
   `drakan_coop_character::roster()`); until then `placeholderCharacters()` (Rynn, Wartok, Tarn, Sera, all labelled
   placeholder). `MpState::selfCharacter` is the session's own choice. The glue logs the action and does nothing else.
+
+## Wiring to real data (second pass, same day)
+
+Done (verified in game at 1920x1080, `scripts/harness/netplay_menu_two_instances.py --screens | --arena-index N | --coop | --kick`):
+
+* **Arena through the menu**: the Host map list is `drakan_arena::maps()` (built-in, `mp_maps.ini`, mod packs; maps whose
+  base level is not on the disc are hidden). Both instances load the arena (`--arena-index 1`: Skeleton Square). Recipes
+  use `host_keys()`; the Map row is a list: Left / Right step it, Select enters it so Up / Down step through the maps
+  (Select / Back leaves), elsewhere Up / Down move between rows.
+* **Co-op**: the joiner's Character row lists `drakan_coop_character::roster()`; picking calls `setSelected` and the
+  session sends it (new `SetCharacter` message, relayed to everybody in `Status`), so roster rows show "as Male Villager"
+  in the lobby. A joiner whose character is still Rynn announces the first allowed one by itself.
+* **Netcode (no version bump, same "older peers drop unknown types" rule as the arena messages)**: `Status` (S>C, 2 Hz:
+  countdown kind + remaining ms, every player's ping and lobby character), `StatusEcho` (C>S, ping), `Kick` (C>S, honoured
+  from the host of a listen server only, the target gets `Reject{Kicked}`), `SetCharacter`, `ServerInfo.mods` (trailing
+  optional field), `ServerOptions::startCountdownMs` (menu hosts: Start Match counts down 3 s, `DRAKAN_MP_START_COUNTDOWN_MS`
+  overrides). Next-match countdown = the Results timer (`DRAKAN_MP_RESULTS_SEC`). Tests: `net_lobby_test`, protocol test.
+* **Menu / HUD data**: lobby "Match starts in N" card, Results "Next match in N", real ping for every player, Join list
+  mods column (names of the loaded packs), host-only "Kick player" row (after Start Match), a rejected / kicked client
+  sends `Leave` (the session thread used to linger and refuse the next join), FPS counter drops to the bottom corner while
+  a multiplayer page / scoreboard / party panel is up, co-op edge arrows avoid the party panel.
+* **Map pictures**: `previews/<name>.png`, `previews/mods/<name>.png` (packs' `previews/`; already copied by the mod layer)
+  and `previews/captured/<name>.png`; a deathmatch on a map without a picture captures the window 9 s into the match with the
+  HUD hidden (`DRAKAN_MP_CAPTURE=0` disables). It is a spawn-view screenshot, not a terrain render.
+
+Still open: no top-down terrain render (the terrain streams around the player, no whole-level height field in memory);
+character preview is still the drawn figure; Results screen has no buttons (Back to lobby needs the native pause
+Quit-to-Title sequence driven from outside the pause screen); co-op party health / down / respawn / level complete are not
+on the wire: `drakan_netplay::setCoopParty()` is the hook for `drakan_coop` to publish them (the panel hides the bar until it
+does), partner markers need the camera projection (`markerValid` stays false); the Join page shows no kick reason text.

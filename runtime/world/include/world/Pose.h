@@ -53,7 +53,10 @@ struct PlayerPose {
     uint32_t tick = 0;  // caller's frame counter (informational)
     Vec3 position;
     float rotation[9] = {1, 0, 0, 0, 1, 0, 0, 0, 1};
-    float yaw = 0;     // atan2(m[0][2], m[0][0]), same convention as EntitySnapshot
+    float yaw = 0; // atan2(m[0][2], m[0][0]), same convention as EntitySnapshot
+    float pitch =
+        0; // mounted only: rotation = Ry(yaw) * Rx(pitch) * Rz(roll) (yaw is then the Euler angle, see setEuler)
+    float roll = 0;
     Vec3 velocity;     // world units / second, finite difference to the previous read (0 on the first)
     ChannelPose lower; // channel of node 0: locomotion (root, legs)
     ChannelPose upper; // channel of node 2: spine / arms (attacks, bow); equals lower when both play one clip
@@ -76,6 +79,11 @@ const char* poseStatusName(PoseStatus s);
 
 // Sets rotation (rows (c,0,s),(0,1,0),(-s,0,c), how the game stores Rynn's) and yaw.
 void setYaw(PlayerPose& p, float yaw);
+
+// Rotation Ry(yaw) * Rx(pitch) * Rz(roll) (a flying dragon pitches and banks); sets rotation, yaw, pitch and roll.
+void setEuler(PlayerPose& p, float yaw, float pitch, float roll);
+// The inverse for the current rotation: fills yaw, pitch and roll (gimbal lock at pitch = +-90 degrees is not handled).
+void eulerFromRotation(PlayerPose& p);
 
 // Reads the controlled actor (ctx+0x4b0). EE thread, plain reads, no guest calls. `nowSec` must be monotonic.
 PoseStatus readPlayerPose(const IGuestMemory& m, const Globals& g, PoseReadState& st, double nowSec, uint32_t tick,
@@ -118,7 +126,8 @@ private:
 // layer and `net` should stay game-free. Works with any struct with net::PlayerState's fields {tick, pos[3], yaw,
 // vel[3], animId, animTime, upperAnimId, upperAnimTime, lowerMask, weaponRight, weaponLeft, mounted}. Lossy by design:
 // clips travel as u16 (the 0x2xxxx high part of Rynn's clip ids is constant), the weapons as resource record ids (u32,
-// disc constants), and yaw only (Rynn's actor is a pure Y rotation). Arokh clips (0x40663) are not representable.
+// disc constants), and yaw only (Rynn's actor is a pure Y rotation). Arokh's clips (0x4xxxx) travel with their high
+// half in clipHi (v8) and a mounted sender's yaw / pitch / roll are sent in full.
 inline uint16_t clipWireId(uint32_t clip) {
     return static_cast<uint16_t>(clip & 0xffffu);
 }
@@ -144,6 +153,15 @@ void toPlayerState(const PlayerPose& p, PlayerStateT& s) {
     s.weaponRight = p.weaponRight;
     s.weaponLeft = p.weaponLeft;
     s.mounted = p.mounted;
+    if (p.mounted) { // v8: a dragon's full orientation (yaw above is then the Euler angle)
+        s.yaw = p.yaw;
+        s.pitch = p.pitch;
+        s.roll = p.roll;
+    } else {
+        s.pitch = s.roll = 0;
+    }
+    const uint32_t hi = p.lower.clip >> 16;
+    s.clipHi = hi == 2 || hi == 0 ? 0 : static_cast<uint16_t>(hi); // 0 = the usual 0x2xxxx
 }
 
 // A pose a ghost can play from a received state; `timeSec` is the receiver's clock for the sample.
@@ -155,12 +173,15 @@ PlayerPose fromPlayerState(const PlayerStateT& s, double timeSec) {
     p.position = {s.pos[0], s.pos[1], s.pos[2]};
     p.velocity = {s.vel[0], s.vel[1], s.vel[2]};
     setYaw(p, s.yaw);
-    p.lower = {clipFromWireId(s.animId), s.animTime};
-    p.upper = {clipFromWireId(s.upperAnimId), s.upperAnimTime};
+    const uint32_t hi = s.clipHi ? static_cast<uint32_t>(s.clipHi) << 16 : 0x20000u;
+    p.lower = {s.animId ? hi | s.animId : 0u, s.animTime};
+    p.upper = {s.upperAnimId ? hi | s.upperAnimId : 0u, s.upperAnimTime};
     p.lowerMask = s.lowerMask;
     p.weaponRight = s.weaponRight;
     p.weaponLeft = s.weaponLeft;
     p.mounted = s.mounted;
+    if (p.mounted)
+        setEuler(p, s.yaw, s.pitch, s.roll);
     return p;
 }
 

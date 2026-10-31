@@ -70,5 +70,8 @@ struct Mapped {
 Mapped mapClip(uint16_t id, uint32_t rynnClip, float time);
 // Activity of a Rynn clip (Other when unknown).
 Act activityOf(uint32_t rynnClip);
+// A representative Rynn clip of an activity (0 = none) and its duration in seconds (test aid: DRAKAN_GHOST_ACTS).
+uint32_t sampleClip(Act a, float* durationSec = nullptr);
+bool actByName(const std::string& name, Act& out);
 
 } // namespace drakan_coop_character

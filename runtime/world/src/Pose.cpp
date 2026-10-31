@@ -27,6 +27,24 @@ void setYaw(PlayerPose& p, float yaw) {
     p.yaw = std::atan2(p.rotation[2], p.rotation[0]);
 }
 
+void setEuler(PlayerPose& p, float yaw, float pitch, float roll) {
+    const float ca = std::cos(yaw), sa = std::sin(yaw), cb = std::cos(pitch), sb = std::sin(pitch);
+    const float cc = std::cos(roll), sc = std::sin(roll);
+    const float rot[9] = {ca * cc + sa * sb * sc,  -ca * sc + sa * sb * cc, sa * cb, cb * sc, cb * cc, -sb,
+                          -sa * cc + ca * sb * sc, sa * sc + ca * sb * cc,  ca * cb};
+    std::copy(rot, rot + 9, p.rotation);
+    p.yaw = yaw;
+    p.pitch = pitch;
+    p.roll = roll;
+}
+
+void eulerFromRotation(PlayerPose& p) {
+    const float* m = p.rotation;
+    p.pitch = std::asin(std::clamp(-m[5], -1.0f, 1.0f));
+    p.yaw = std::atan2(m[2], m[8]);
+    p.roll = std::atan2(m[3], m[4]);
+}
+
 namespace {
 
 float readF(const IGuestMemory& m, uint32_t a) {
@@ -141,6 +159,8 @@ PoseStatus readPlayerPose(const IGuestMemory& m, const Globals& g, PoseReadState
     out.position = e.position;
     std::copy(e.rotation, e.rotation + 9, out.rotation);
     out.yaw = e.yaw;
+    if (out.mounted)
+        eulerFromRotation(out);
 
     if (st.havePrev && st.prevHandle == h && nowSec > st.prevTime) {
         const auto inv = static_cast<float>(1.0 / (nowSec - st.prevTime));

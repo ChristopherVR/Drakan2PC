@@ -9,7 +9,8 @@
 
 namespace drakan::net {
 
-constexpr uint16_t kProtocolVersion = 7; // v7: PlayerState.character (co-op stand-in character, 0 = Rynn);
+constexpr uint16_t kProtocolVersion = 8; // v8: PlayerState.pitch / roll / clipHi (a mounted partner's dragon);
+                                         // v7: PlayerState.character (co-op stand-in character, 0 = Rynn);
                                          // v6: co-op mode (CoopAuthority / CoopCreatures / CoopEvent) and LevelChange;
                                          // v5: Hello.password, Ready, MatchConfig.serverName, LAN Query / ServerInfo;
                                          // v4: weaponRight/weaponLeft record ids replace the weapon byte; v3: v3:
@@ -21,7 +22,7 @@ constexpr size_t kMaxLevelLength = 64;
 constexpr size_t kMaxRejectMessageLength = 96;
 constexpr size_t kMaxPasswordLength = 24;
 constexpr size_t kMaxServerNameLength = 32;
-constexpr size_t kMaxModsLength = 96; // ServerInfo.mods: comma separated mod pack names
+constexpr size_t kMaxModsLength = 96;    // ServerInfo.mods: comma separated mod pack names
 constexpr uint16_t kDefaultPort = 47800; // LAN discovery probes kDefaultPort .. kDefaultPort + kDiscoveryPortCount - 1
 constexpr uint16_t kDiscoveryPortCount = 10;
 
@@ -193,11 +194,18 @@ struct PlayerState {
     // v7: the character the player is shown as (drakan_coop_character id = NPC class id; 0 = Rynn). Receivers spawn the
     // ghost as that character; the server relays it unchanged.
     uint16_t character = 0;
+    // v8: the full orientation of a mounted sender (its pose is Arokh's, which pitches and banks): the rotation is
+    // Ry(yaw) * Rx(pitch) * Rz(roll), radians, quantised to 1e-4 on the wire (0 / 0 on foot, where `yaw` alone is the
+    // rotation). `clipHi` is the high half of the sender's clip ids when it is not the usual 0x2 (Arokh's clips are
+    // 0x4xxxx in the levels that were seen; the wire carries the low 16 bits in animId / upperAnimId); 0 = 0x2.
+    float pitch = 0;
+    float roll = 0;
+    uint16_t clipHi = 0;
     void write(ByteWriter& w) const;
     bool read(ByteReader& r);
 };
 
-constexpr size_t kPlayerStateWireSize = 1 + 4 + 4 + 12 + 4 + 12 + 2 + 4 + 2 + 4 + 4 + 4 + 4 + 1 + 4 + 2;
+constexpr size_t kPlayerStateWireSize = 1 + 4 + 4 + 12 + 4 + 12 + 2 + 4 + 2 + 4 + 4 + 4 + 4 + 1 + 4 + 2 + 2 + 2 + 2;
 
 // Server to clients, unreliable, every snapshot interval: all live players with a known state.
 struct Snapshot {
@@ -337,7 +345,7 @@ struct CoopCreature {
     int32_t hp = 0;
 };
 constexpr size_t kCoopCreatureWireSize = 4 + 12 + 4 + 4;
-constexpr size_t kMaxCoopCreatures = 45; // 11 header bytes + 45 x 24 stays under kMaxPacketPayload (1100)
+constexpr size_t kMaxCoopCreatures = 45; // 11 header bytes + 45 x 24 stays under kMaxPacketPayload
 
 // Authority to the others, unreliable, 10 Hz: a slice of the creature list.
 struct CoopCreatures {

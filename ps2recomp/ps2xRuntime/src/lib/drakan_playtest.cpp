@@ -80,10 +80,9 @@ void beforePadMgr(drakan_input::IGuest& guest, uint8_t* /*rdram*/) {
         const char* e = std::getenv("DRAKAN_PLAYTEST_POS");
         g.enabled = e && *e && parsePose(e, g.pos, g.yaw, g.hasYaw);
         if (e && *e)
-            std::fprintf(stderr, "[playtest] %s: target %.0f %.0f %.0f yaw %s %.3f\n",
-                         g.enabled ? "armed" : "bad value", static_cast<double>(g.pos[0]),
-                         static_cast<double>(g.pos[1]), static_cast<double>(g.pos[2]), g.hasYaw ? "set" : "unchanged",
-                         static_cast<double>(g.yaw));
+            std::fprintf(stderr, "[playtest] %s: target %.0f %.0f %.0f yaw %s %.3f\n", g.enabled ? "armed" : "bad value",
+                         static_cast<double>(g.pos[0]), static_cast<double>(g.pos[1]), static_cast<double>(g.pos[2]),
+                         g.hasYaw ? "set" : "unchanged", static_cast<double>(g.yaw));
     }
     if (!g.enabled || !drakan_ghost::ready())
         return;

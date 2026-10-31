@@ -30,6 +30,9 @@
 #include <utility>
 #include <vector>
 
+void ps2xNoPreemptEnter() noexcept;
+void ps2xNoPreemptLeave() noexcept;
+
 namespace drakan_coop {
 namespace {
 
@@ -110,8 +113,9 @@ constexpr uint64_t kRespawnDelayMs = 5000;     // the death clip runs about 4.7 
 constexpr size_t kHeaderBytes = 1 + 4 + 4 + 2; // creature datagram header (type, level, seq, count)
 constexpr size_t kEventHeader = 1 + 4 + 1;     // type, level, player (the sender; for Hurt / Respawn the target)
 constexpr size_t kEntryBytes = 4 + 12 + 4 + 4;
-constexpr size_t kEntriesPerPacket = (drakan::net::kMaxPacketPayload - kHeaderBytes) / kEntryBytes;
-constexpr uint64_t kSendIntervalMs = 100;    // 10 Hz
+constexpr size_t kEntriesPerPacket = std::min<size_t>((drakan::net::kMaxPacketPayload - kHeaderBytes) / kEntryBytes,
+                                                      drakan::net::kMaxCoopCreatures); // the message's own limit
+constexpr uint64_t kSendIntervalMs = 100;                                              // 10 Hz
 constexpr uint16_t kChestSpewType = 0xfff1u; // ObjMsg pseudo type: w[0] RNG state, w[1] gold carry (host -> client)
 constexpr int32_t kNoBudget = INT32_MIN;     // the chest has no entry in the gold generator's table
 constexpr int32_t kStateDoorClosed = 0, kStateDoorOpen = 1, kStateChestOpen = 2; // ObjState values
@@ -401,6 +405,7 @@ struct ChestSync {
     int healTries = 0;
     uint64_t appliedMs = 0;
     uint32_t seed = 0, carry = 0;
+    uint32_t seq = 0; // host: order of the spews (the generator hands the gold of all chests to the first caller)
     int32_t budget = kNoBudget; // the chest's gold budget in the generator's table (random per world)
     uint64_t waitSince = 0;
 };
@@ -411,6 +416,7 @@ std::unordered_map<uint32_t, Obj> g_obj;
 std::unordered_map<uint32_t, uint32_t> g_objKeyToHandle;
 std::set<uint32_t> g_goneKeys;    // pickups taken this level (either side): the late-join catch-up
 std::set<uint32_t> g_pendingGone; // taken pickups the partner reported before the loot they name exists here
+uint32_t g_spewSeq = 0;           // host: spews numbered in the order they began
 std::unordered_map<uint32_t, ChestSync> g_chest;      // object key -> chest state
 std::unordered_map<uint32_t, uint32_t> g_chestByComp; // chest component pointer -> object key
 PS2Runtime::RecompiledFunction g_origSpew = nullptr;
@@ -1401,6 +1407,7 @@ void drainEvents(drakan_input::IGuest& guest, uint8_t* rdram, uint32_t level) {
                 cs.seed = static_cast<uint32_t>(w[0]);
                 cs.carry = static_cast<uint32_t>(w[1]);
                 cs.budget = w[2];
+                cs.seq = static_cast<uint32_t>(w[3]);
                 coopLog("client: the host's chest spew for key %08x arrived (rng %08x)", key, cs.seed);
             }
         } else if (type == kMsgObjMsg && n >= 4 + 4 + 16) {
@@ -1446,7 +1453,21 @@ void clientEvents(drakan_input::IGuest& guest, uint8_t* rdram) {
 
 // Pickups that appeared after the level was keyed (loot dropped by a death): keyed by (class, resource, ordinal of
 // appearance). Both worlds run the same death, so the drops show up in the same order; it is a heuristic, logged.
+void keyChestChildren(const uint8_t* rdram, uint32_t chest, uint32_t chestKey);
 void scanNewObjects() {
+    // Loot of a chest whose spew has begun is keyed by (chest, child index) first (a spew the scheduler preempted
+    // resumes without passing the hook, and its children are visible here before any other path keyed them).
+    if (g_rdramForLog) {
+        std::vector<std::pair<uint32_t, uint32_t>> chests;
+        for (const auto& [h, o] : g_obj)
+            if (o.classId == kChestClass) {
+                const auto cs = g_chest.find(o.key);
+                if (cs != g_chest.end() && (cs->second.firstCall || cs->second.applied))
+                    chests.emplace_back(h, o.key);
+            }
+        for (const auto& [h, key] : chests)
+            keyChestChildren(g_rdramForLog, h, key);
+    }
     refreshParked(g_snap);
     for (const auto& e : g_snap.entities) {
         if (g_probe && e.type == 11 && !isPickupEntity(e) && !g_obj.count(e.handle)) {
@@ -1632,23 +1653,74 @@ void logGoldTable(const uint8_t* rdram, const char* who, uint32_t key) {
     coopLog("%s", buf);
 }
 
-void sendSpew(uint32_t key, uint32_t seed, uint32_t carry, int32_t budget) {
+// Keys the loot a chest's spew just made (the chest's children, actor+0x90 refs / +0x98 count) at the spew itself:
+// (chest key, index in the child list). Both worlds run the same spew with the same RNG, so the list is the same, and
+// an item that one player takes the instant it appears already has its key (scanNewObjects only sees what is still
+// lying about at its next refresh and keys by order of appearance, which the early taker never gave it).
+void addChild(uint32_t handle, uint32_t chestKey, uint32_t ordinal, uint32_t ref, uint32_t resId, uint32_t classId,
+              uint32_t type, const char* how) {
+    Obj o;
+    o.resId = resId;
+    o.classId = classId;
+    o.type = type;
+    o.ref = ref;
+    o.pickup = true;
+    o.rebaseUntilMs = nowMs() + 10000;
+    o.key = mixKey(chestKey, 0x20000u + ordinal);
+    g_obj[handle] = o;
+    g_objKeyToHandle[o.key] = handle;
+    coopLog("%s: chest key %08x child %u -> pickup %08x class %x res %x key %08x (keyed %s)",
+            g_host ? "host" : "client", chestKey, ordinal, handle, classId, resId, o.key, how);
+}
+
+void keyChestChildren(const uint8_t* rdram, uint32_t chest, uint32_t chestKey) {
+    const uint32_t refs = rd32(rdram, chest + 0x90);
+    const int32_t n = static_cast<int32_t>(rd32(rdram, chest + 0x98));
+    const uint32_t ctx = engineCtx(rdram);
+    if (!ramPtr(refs) || n <= 0 || n > 64 || !ramPtr(ctx))
+        return;
+    for (int32_t i = 0; i < n; ++i) {
+        const uint32_t child = registryObject(rdram, rd16(rdram, refs + 2u * i));
+        if (!ramPtr(child) || rd32(rdram, child + 0xc) != 11 || g_obj.count(child))
+            continue;
+        world::EntitySnapshot e;
+        if (!world::readEntity(RdramMemory(rdram), g_globals, ctx, child, e))
+            continue;
+        addChild(child, chestKey, static_cast<uint32_t>(i), e.ref, e.resourceId, e.classId, e.type, "from the list");
+    }
+}
+
+void sendSpew(uint32_t key, uint32_t seed, uint32_t carry, int32_t budget, uint32_t seq) {
     struct {
         uint32_t key;
         uint16_t type, pad;
         int32_t w[4];
-    } p{key, kChestSpewType, 0, {int32_t(seed), int32_t(carry), budget, 0}};
+    } p{key, kChestSpewType, 0, {int32_t(seed), int32_t(carry), budget, int32_t(seq)}};
     pushReliable(kMsgObjMsg, &p, sizeof p);
 }
 
 // The engine's spew (0x227ec8, called by the chest's tick once its 1.5 s delay is over; returns 0 = not yet, the tick
 // asks again next frame). Host: remember the RNG state before it and tell the client. Client: wait for the host's state
 // and run the spew with it, so the loot is the host's loot.
+// The original spew without scheduler preemption: a preempted spew resumes later outside this hook, and its children
+// (made while it runs) could be taken by a player before anything keyed them. DRAKAN_COOP_SPEW_PREEMPT=1 allows
+// preemption.
+void runSpew(uint8_t* rdram, R5900Context* c, PS2Runtime* rt) {
+    static const bool allow = std::getenv("DRAKAN_COOP_SPEW_PREEMPT") != nullptr;
+    if (allow) {
+        g_origSpew(rdram, c, rt);
+        return;
+    }
+    ps2xNoPreemptEnter();
+    g_origSpew(rdram, c, rt);
+    ps2xNoPreemptLeave();
+}
+
 void hookSpew(uint8_t* rdram, R5900Context* c, PS2Runtime* rt) {
     const uint32_t comp = getRegU32(c, 4);
     auto ci = g_chestByComp.find(comp);
     if (!g_enabled.load(std::memory_order_relaxed) || g_levelHash.load() == 0 || ci == g_chestByComp.end()) {
-        g_origSpew(rdram, c, rt);
+        runSpew(rdram, c, rt);
         return;
     }
     const uint32_t key = ci->second;
@@ -1669,19 +1741,28 @@ void hookSpew(uint8_t* rdram, R5900Context* c, PS2Runtime* rt) {
             cs.seed = rd32(rdram, seedAt);
             cs.carry = rd32(rdram, carryAt);
             cs.budget = cell ? static_cast<int32_t>(rd32(rdram, cell)) : kNoBudget;
-            sendSpew(key, cs.seed, cs.carry, cs.budget);
+            cs.seq = ++g_spewSeq;
+            sendSpew(key, cs.seed, cs.carry, cs.budget, cs.seq);
             if (g_probe)
                 logGoldTable(rdram, "host", key);
             coopLog("host: chest key %08x spews its loot (rng %08x, gold carry %d, gold budget %d) -> client", key,
                     cs.seed, int32_t(cs.carry), cs.budget);
         }
-        g_origSpew(rdram, c, rt);
+        runSpew(rdram, c, rt);
+        keyChestChildren(rdram, rd32(rdram, comp + 8), key);
+        if (g_probe) {
+            static uint32_t shown = 0;
+            if (shown++ < 40)
+                coopLog("host: chest key %08x spew call: %s, result %u, %d children listed", key,
+                        c->pc == ra ? "returned" : "preempted", getRegU32(c, 2),
+                        static_cast<int32_t>(rd32(rdram, rd32(rdram, comp + 8) + 0x98)));
+        }
         if (c->pc == ra && getRegU32(c, 2) != 0)
             cs.spewDone = true;
         return;
     }
     if (cs.spewDone || !seedAt) {
-        g_origSpew(rdram, c, rt);
+        runSpew(rdram, c, rt);
         return;
     }
     if (!cs.spewKnown && !cs.applied) {
@@ -1696,6 +1777,21 @@ void hookSpew(uint8_t* rdram, R5900Context* c, PS2Runtime* rt) {
         coopLog("client: chest key %08x: no spew from the host after %llu ms, spewing with the local RNG", key,
                 static_cast<unsigned long long>(kSpewWaitMs));
         cs.applied = true;
+    }
+    if (!cs.applied && cs.seq) {
+        // The host's gold generator hands the loot of every chest in its table to whichever chest spews first: spew in
+        // the host's order, or the same children would be listed under another chest here.
+        bool earlier = false;
+        for (const auto& [k2, c2] : g_chest)
+            if (k2 != key && c2.spewKnown && !c2.applied && c2.seq && c2.seq < cs.seq)
+                earlier = true;
+        if (earlier && !cs.waitSince)
+            cs.waitSince = nowMs();
+        if (earlier && nowMs() - cs.waitSince < kSpewWaitMs) {
+            SET_GPR_U32(c, 2, 0u);
+            c->pc = getRegU32(c, 31);
+            return;
+        }
     }
     const bool apply = !cs.applied;
     if (apply) {
@@ -1718,7 +1814,8 @@ void hookSpew(uint8_t* rdram, R5900Context* c, PS2Runtime* rt) {
         coopLog("client: chest key %08x spews the host's loot (rng %08x, gold carry %d, gold budget %d)", key, cs.seed,
                 int32_t(cs.carry), cs.budget);
     }
-    g_origSpew(rdram, c, rt);
+    runSpew(rdram, c, rt);
+    keyChestChildren(rdram, rd32(rdram, comp + 8), key);
     // The RNG state is left as the spew made it: a preempted spew carries on later with it (putting the local state
     // back now would hand the rest of the loot to the wrong random stream), and the stream stays random either way.
     if (g_probe) {
@@ -1776,6 +1873,15 @@ void healChest(drakan_input::IGuest& guest, const uint8_t* rdram, uint32_t chest
 void pollChests(drakan_input::IGuest& guest, uint8_t* rdram) {
     const uint64_t now = nowMs();
     const RdramMemory mem(rdram);
+    std::vector<std::pair<uint32_t, uint32_t>> spewed; // (chest handle, key) of chests whose spew has begun
+    struct KeyLater {                                  // keys the children after the loop: it inserts into g_obj
+        std::vector<std::pair<uint32_t, uint32_t>>& v;
+        const uint8_t* ram;
+        ~KeyLater() {
+            for (const auto& [chest, key] : v)
+                keyChestChildren(ram, chest, key);
+        }
+    } keyLater{spewed, rdram};
     for (auto& [h, o] : g_obj) {
         if (o.classId != kChestClass || !world::isLiveHandle(mem, g_globals, h, o.ref - 1))
             continue;
@@ -1784,6 +1890,10 @@ void pollChests(drakan_input::IGuest& guest, uint8_t* rdram) {
             continue;
         g_chestByComp[comp] = o.key;
         ChestSync& cs = g_chest[o.key];
+        // A spew that the cooperative scheduler preempted resumes without passing the hook: its children are keyed
+        // here.
+        if (cs.firstCall || cs.applied)
+            spewed.emplace_back(h, o.key);
         healChest(guest, rdram, h, comp, cs, o.key);
         const int32_t st = static_cast<int32_t>(rd32(rdram, comp + 0x10));
         if (!cs.inited) {
@@ -1959,7 +2069,7 @@ void hostTick(drakan_input::IGuest& guest, uint8_t* rdram, uint32_t levelHash) {
             } st{key, kStateChestOpen};
             pushReliable(kMsgObjState, &st, sizeof st);
             if (cs.firstCall)
-                sendSpew(key, cs.seed, cs.carry, cs.budget);
+                sendSpew(key, cs.seed, cs.carry, cs.budget, cs.seq);
             ++chests;
         }
         coopLog("host: catch-up sent (%u request%s): %zu taken pickups, %u open doors, %u open chests, %u deaths",
@@ -2607,12 +2717,32 @@ void syncLink(uint8_t* rdram) {
     }
 }
 
+// Feeds the co-op party panel (drakan_netplay::setCoopParty): the host knows which guests are down and when the
+// respawn comes; the wire carries no partner health (hpKnown stays false). "Level complete" = a level change (exit)
+// is under way in the match.
+void publishParty() {
+    std::vector<drakan_netplay::CoopPartnerInfo> v;
+    const uint64_t now = nowMs();
+    if (g_host)
+        for (const auto& [pid, slot] : g_players) {
+            drakan_netplay::CoopPartnerInfo i;
+            i.player = pid;
+            i.down = slot.dead;
+            if (slot.dead)
+                i.respawnInSec =
+                    now - slot.deadMs >= kRespawnDelayMs ? 0.0 : (kRespawnDelayMs - (now - slot.deadMs)) / 1000.0;
+            v.push_back(i);
+        }
+    drakan_netplay::setCoopParty(v, drakan_lifecycle::transitionActive());
+}
+
 void beforePadMgr(drakan_input::IGuest& guest, uint8_t* rdram) {
     if (!g_installed.load(std::memory_order_relaxed) || !rdram)
         return;
     syncLink(rdram);
     if (!g_enabled.load(std::memory_order_relaxed))
         return;
+    publishParty();
     g_rdramForLog = rdram;
     static uint64_t epoch = ~0ull;
     if (epoch != g_loadEpoch.load()) {

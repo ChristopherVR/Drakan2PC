@@ -434,8 +434,10 @@ def main() -> int:
             checks[f"{ot}: the partner's open replayed"] = "was opened by the partner: opening it" in text[ot]
         checks["a: the host's chest spewed, reported"] = re.search(r"host: chest key \w+ spews", host) is not None
         checks["b: the client spewed the host's loot"] = "spews the host's loot" in client
-        keys_a = set(re.findall(r"host: new pickup .* -> key (\w+)", host))
-        keys_b = set(re.findall(r"client: new pickup .* -> key (\w+)", client))
+        # loot is keyed at the spew ("child N -> pickup ... key K (keyed at the spew)"), or by order of appearance
+        pat = r"(?:new pickup .* -> key|chest key \w+ child \d+ -> pickup .* key) (\w+)"
+        keys_a = set(re.findall(pat, host))
+        keys_b = set(re.findall(pat, client))
         print(f"loot keys: host {sorted(keys_a)} client {sorted(keys_b)}")
         checks["loot: both sides spawned the same pickups"] = keys_a == keys_b
     else:

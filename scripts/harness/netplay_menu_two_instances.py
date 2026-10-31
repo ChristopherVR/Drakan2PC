@@ -47,6 +47,28 @@ LEVELS = [
     "Level 3A - Andrellian Isles",
     "Level 3B - Crystal Mine",
 ]
+# The Host page's map list for a deathmatch (configs/mp_maps.ini, in file order): (map name, base level).
+ARENAS = [
+    ("Surdana Meadow", "Level 1A - Surdana"),
+    ("City of the Damned: Skeleton Square", "Level 1D - City of the Damned"),
+    ("Inquisitor's Lair: The Depths", "Level 1E - Inquisitor's Lair"),
+]
+
+
+def host_keys(arena_index: int = 0, coop: bool = False, level_index: int = 0) -> list[list[str]]:
+    """Key groups from the title menu to Begin Game (the last group ends on the Begin Game row). Row model of the Host
+    page: Server Name, Password, Level Group, Map, Game Type, Max Players, Kills, Time, Teams, [greyed rows], Begin Game.
+    The Map row is a list: Left / Right step it, Select enters it so that Up / Down step through the maps (Select or
+    Back leaves it); outside the list Up / Down move between rows. Co-op lists the campaign levels (the Game Type
+    switch resets the list, so the level is picked after it) and greys Kills / Time / Teams out (focus skips them)."""
+    groups = [["DOWN", "ENTER"], ["DOWN"] * 5 + ["ENTER"], ["DOWN"] * 3]  # Multiplayer, Host Game, the Map row
+    if coop:
+        groups += [["DOWN", "RIGHT", "UP"] + ["RIGHT"] * level_index, ["DOWN"] * 3]  # Game Type: Co-op; Map; Begin Game
+    else:
+        if arena_index:
+            groups.append(["ENTER"] + ["DOWN"] * arena_index + ["ENTER"])  # into the list, step, out again
+        groups.append(["DOWN"] * 6)  # Game Type, Max Players, Kills, Time, Teams, Begin Game
+    return groups
 
 
 def taps(start: int, keys: list[str], gap: int = 250) -> tuple[list[str], int]:
@@ -60,8 +82,9 @@ def taps(start: int, keys: list[str], gap: int = 250) -> tuple[list[str], int]:
 
 
 def screens_recipe() -> str:
-    """One shot per page. Multiplayer page rows: Player Name, Color, Human Skin, Dragon Skin, Speed, Host, Join,
-    mplayer.com (greyed), Back."""
+    """One shot per page and state. Multiplayer page rows: Player Name, Color, Human Skin, Dragon Skin, Speed, Host,
+    Join, mplayer.com (greyed), Back. The flow: Menu, Host (arena list, the list entered with Select, teams, Co-op),
+    Join (list, Add Server), Host again through Begin Game to the lobby, Start Match (the countdown card)."""
     lines = ["clock milliseconds", "0 sync screen 8 3", "1500 shot title_main"]
     t = 2000
     for keys, shot in (
@@ -69,37 +92,58 @@ def screens_recipe() -> str:
         (["ENTER"], "mp_menu"),
         (["DOWN", "RIGHT", "RIGHT"], "mp_menu_colour"),  # Player Color
         (["DOWN"] * 4 + ["ENTER"], "mp_host"),  # Host Game
-        (["DOWN"] * 3 + ["RIGHT"] * 3, "mp_host_kragmor"),  # Starting Level
-        (["DOWN"] * 4 + ["RIGHT"] * 3, "mp_host_teams_coming"),  # Number of Teams: 3 shown as coming
+        (["DOWN"] * 3, "mp_host_map_row"),  # the Map row
+        (["ENTER"], "mp_host_list_mode"),  # Select enters the list: Up / Down step through the maps
+        (["DOWN"], "mp_host_map2"),
+        (["DOWN", "ENTER"], None),  # third map, back out of the list
+        (["DOWN"] * 5 + ["RIGHT"], "mp_host_teams"),  # Number of Teams: 2 = Team Deathmatch
+        (["UP"] * 4 + ["RIGHT"], "mp_host_coop"),  # Game Type: Co-op (campaign levels)
+        (["RIGHT"], None),  # Game Type back to Team Deathmatch (teams stay 2): the lobby is a team lobby
         (["ESC"], None),
         (["DOWN"] * 6 + ["ENTER"], "mp_join_lan"),  # Join Game
         (["DOWN", "DOWN", "ENTER"], "mp_join_add_server"),  # Refresh -> Add Server (entry open)
+        (["ESC", "ESC"], None),
+        (["DOWN"] * 5 + ["ENTER"], None),  # Host Game again
+        (["DOWN"] * 3 + ["DOWN"] * 6 + ["ENTER"], "mp_lobby"),  # Begin Game: the lobby, alone
+        (["DOWN", "ENTER"], "mp_lobby_countdown"),  # Start Match: the countdown card
     ):
         ls, t = taps(t, keys)
         lines += ls
         if shot:
             lines.append(f"{t + 400} shot {shot}")
             t += 900
-    lines.append(f"{t + 500} quit")
+    lines.append(f"{t + 1500} shot mp_lobby_countdown_2")
+    lines.append(f"{t + 2500} quit")
     return "\n".join(lines) + "\n"
 
 
-def recipe_a_text(level_index: int, walk: str, quit_at: int) -> str:
-    """A: Multiplayer > Host Game > Starting Level (RIGHT x level index) > Begin Game; waits in the lobby for B."""
+def recipe_a_text(
+    level_index: int, walk: str, quit_at: int, coop: bool = False, arena_index: int = 0, kick: bool = False
+) -> str:
+    """A: Multiplayer > Host Game > (deathmatch: the map list, arena `arena_index`; co-op: Game Type Co-op and campaign
+    level `level_index`) > Begin Game; waits in the lobby for B, then Start Match (a 3 s countdown) or, with `kick`,
+    Kick player (the lobby rows are Ready, Start Match, Kick player, Leave)."""
     lines = ["clock milliseconds", "0 sync screen 8 3"]
     t = 1500
-    for keys in (["DOWN", "ENTER"], ["DOWN"] * 5 + ["ENTER"], ["DOWN"] * 3 + ["RIGHT"] * level_index, ["DOWN"] * 5):
+    for keys in host_keys(arena_index, coop, level_index):
         ls, t = taps(t, keys, 200)
         lines += ls
         t += 500
     lines += [f"{t} shot a_host_form", f"{t + 300} key tap ENTER", f"{t + 2500} shot a_lobby_alone"]
-    lines += ["22000 shot a_lobby_with_b", "22500 key tap DOWN", "23000 key tap ENTER", "0 sync play 60", walk]
+    lines += ["22000 shot a_lobby_with_b"]
+    if kick:
+        lines += ["22500 key tap DOWN", "22800 key tap DOWN", "23100 shot a_lobby_kick_row", "23400 key tap ENTER"]
+        lines += ["26000 shot a_lobby_after_kick", "28000 quit"]
+        return "\n".join(lines) + "\n"
+    lines += ["22500 key tap DOWN", "23000 key tap ENTER", "23500 shot a_lobby_countdown", "0 sync play 60", walk]
     lines.append(f"{quit_at} quit")
     return "\n".join(lines) + "\n"
 
 
-def recipe_b_text(shots: str, quit_at: int) -> str:
-    """B: Multiplayer > Join Game; the table's last row (UP from Refresh) is the server; waits in the lobby."""
+def recipe_b_text(shots: str, quit_at: int, coop: bool = False, kick: bool = False) -> str:
+    """B: Multiplayer > Join Game; the table's last row (UP from Refresh) is the server; waits in the lobby. Co-op: B
+    picks a character in the lobby (UP from Ready to the Character row, RIGHT cycles it). `kick`: B stays in the lobby
+    until A removes it and shows the Join page with the reason."""
     lines = ["clock milliseconds", "0 sync screen 8 3"]
     t = 3000
     for keys in (["DOWN", "ENTER"], ["DOWN"] * 6 + ["ENTER"]):
@@ -107,11 +151,17 @@ def recipe_b_text(shots: str, quit_at: int) -> str:
         lines += ls
         t += 600
     lines += [f"{t + 2000} shot b_join_list", f"{t + 2300} key tap UP", f"{t + 2700} shot b_join_selected"]
-    lines += [f"{t + 3000} key tap ENTER", f"{t + 5200} shot b_lobby", "0 sync play 60", shots, f"{quit_at} quit"]
+    lines += [f"{t + 3000} key tap ENTER", f"{t + 5200} shot b_lobby"]
+    if coop:
+        lines += [f"{t + 5600} key tap UP", f"{t + 6000} key tap RIGHT", f"{t + 6500} shot b_lobby_character"]
+    if kick:
+        lines += [f"{t + 24000} shot b_after_kick", f"{t + 26000} quit"]
+        return "\n".join(lines) + "\n"
+    lines += ["0 sync play 60", shots, f"{quit_at} quit"]
     return "\n".join(lines) + "\n"
 
 
-def pvp_recipe(role: str) -> str:
+def pvp_recipe(role: str, arena_index: int = 0) -> str:
     """The whole flow for one instance. Times are ms after the preceding `sync`.
 
     A hosts (Multiplayer > Host Game > Begin Game, Start Match in the lobby), B joins from the LAN list. In the level both
@@ -122,7 +172,7 @@ def pvp_recipe(role: str) -> str:
     lines = ["clock milliseconds", "0 sync screen 8 3"]
     if a:
         t = 1500
-        for keys in (["DOWN", "ENTER"], ["DOWN"] * 5 + ["ENTER"], ["DOWN"] * 3, ["DOWN"] * 5):
+        for keys in host_keys(arena_index):
             ls, t = taps(t, keys, 200)
             lines += ls
             t += 500
@@ -294,6 +344,9 @@ def pvp_flow_checks(ta: str, tb: str, n: int, notes: list[str], by_time: bool = 
     return c
 
 
+WINDOW = [1280, 720]  # game window client size (--size)
+
+
 def log(msg: str) -> None:
     print(f"[mp-menu-harness] {msg}", flush=True)
 
@@ -324,8 +377,8 @@ def game_env(out: Path, folder: Path, recipe: Path, timeout: int, name: str) -> 
             "DRAKAN_NET_TRACE": "1",
             "DRAKAN_LIFECYCLE_LOG": "1",
             "DRAKAN_FULLSCREEN": "0",
-            "DRAKAN_WINDOW_WIDTH": "1280",
-            "DRAKAN_WINDOW_HEIGHT": "720",
+            "DRAKAN_WINDOW_WIDTH": str(WINDOW[0]),
+            "DRAKAN_WINDOW_HEIGHT": str(WINDOW[1]),
         }
     )
     return env
@@ -357,13 +410,37 @@ def main() -> int:
         default=0,
         help="--pvp: the host's time limit in seconds (test aid env override); with --frag-limit 0 the match ends by time",
     )
+    ap.add_argument("--coop", action="store_true", help="host a Co-op match from the menu (Game Type: Co-op)")
+    ap.add_argument(
+        "--prefix", default=None, help="private play folders build/<prefix>-a and -b (default mp-ui / mp-full)"
+    )
     ap.add_argument(
         "--level-index", type=int, default=0, help="map row position (0 = Surdana; others use the file redirect)"
     )
+    ap.add_argument(
+        "--map",
+        default=None,
+        help="--pvp: host this multiplayer map (configs/mp_maps.ini id or name; DRAKAN_MP_MAP test aid: the menu's own map "
+        "row decides without it) and check the arena world mode (docs/reference/netcode.md 'Multiplayer maps')",
+    )
+    ap.add_argument(
+        "--arena-index",
+        type=int,
+        default=0,
+        help="deathmatch: the position of the map in the Host page's map list (the menu's own list row picks it, "
+        "ARENAS above); the checks expect the arena's base level",
+    )
+    ap.add_argument(
+        "--kick", action="store_true", help="A removes B from the lobby with Kick player (see recipe_a_text)"
+    )
+    ap.add_argument("--size", default="1280x720", help="window client size WxH, e.g. 1920x1080 or 3840x2160")
     a = ap.parse_args()
-    name = a.name or ("mp_menu_screens" if a.screens else "mp_full" if a.pvp else "mp_menu_two")
+    WINDOW[:] = [int(v) for v in a.size.lower().split("x")]
+    name = a.name or (
+        "mp_menu_screens" if a.screens else "mp_full" if a.pvp else "mp_menu_coop" if a.coop else "mp_menu_two"
+    )
     run = ROOT / "build" / "harness" / name
-    pre = "mp-full" if a.pvp else "mp-ui"
+    pre = a.prefix or ("mp-full" if a.pvp else "mp-ui")
     folders = {"a": ROOT / "build" / f"{pre}-a", "b": ROOT / "build" / f"{pre}-b"}
     exes = {k: prepare_folder(SRC, a.exe, v) for k, v in folders.items()}
     for k in ("a", "b"):
@@ -384,11 +461,11 @@ def main() -> int:
         shots = sorted(x.name for x in (run / "a").glob("*.png"))
         log(f"screenshots: {', '.join(shots)}")
         summary["shots"] = shots
-        ok = len(shots) >= 8
+        ok = len(shots) >= 14
     elif a.pvp:
         timeout = max(a.timeout, 330)
         for k in ("a", "b"):
-            (run / k / "recipe.txt").write_text(pvp_recipe(k), encoding="utf-8", newline="\n")
+            (run / k / "recipe.txt").write_text(pvp_recipe(k, a.arena_index), encoding="utf-8", newline="\n")
         aids = {
             "DRAKAN_PVP_DAMAGE_SCALE": "8",
             "DRAKAN_PVP_TEST_PLACE": "140",
@@ -403,6 +480,12 @@ def main() -> int:
             env_a["DRAKAN_MP_TIME_LIMIT_SEC"] = str(a.time_limit_sec)
         env_b = game_env(run / "b", folders["b"], run / "b" / "recipe.txt", timeout, "JoinRynn")
         env_b.update(aids)
+        if a.map:
+            for e in (env_a, env_b):
+                e["DRAKAN_ARENA_DUMP"] = "1"  # arena_before / arena_after world dumps in <folder>/dev/world
+                e.pop("DRAKAN_PVP_TEST_ANCHOR", None)  # the players stand on their spawn points
+                e["DRAKAN_PVP_MAX_HIT_RANGE"] = "1000000"  # ... far apart: the server's reach check is off for the run
+            env_a["DRAKAN_MP_MAP"] = a.map
         pa = start(exes["a"], env_a, run / "a")
         time.sleep(6)
         pb = start(exes["b"], env_b, run / "b")
@@ -431,10 +514,12 @@ def main() -> int:
         ok = all(checks.values())
     else:
         walk = "500 key down W\n3000 key up W"
-        level = LEVELS[a.level_index]
+        level = LEVELS[a.level_index] if a.coop else ARENAS[a.arena_index][1]
         shots_a = "\n6000 shot a_in_level\n9000 shot a_sees_b\n12500 shot a_scoreboard"
-        recipe_a = recipe_a_text(a.level_index, walk + shots_a, 16000)
-        recipe_b = recipe_b_text("1000 shot b_in_level\n5000 shot b_sees_a", 17000)
+        recipe_a = recipe_a_text(
+            a.level_index, walk + shots_a, 30000 if a.coop else 16000, a.coop, a.arena_index, a.kick
+        )
+        recipe_b = recipe_b_text("1000 shot b_in_level\n5000 shot b_sees_a", 31000 if a.coop else 17000, a.coop, a.kick)
         (run / "a" / "recipe.txt").write_text(recipe_a, encoding="utf-8", newline="\n")
         (run / "b" / "recipe.txt").write_text(recipe_b, encoding="utf-8", newline="\n")
         # B starts later so that A's server is up and listed.
@@ -464,6 +549,32 @@ def main() -> int:
             "A spawned B's ghost": bool(re.search(r"ghost of player \d+ 'JoinRynn' spawned", ta)),
             "B spawned A's ghost": bool(re.search(r"ghost of player \d+ 'HostRynn' spawned", tb)),
         }
+        if a.coop:  # a Coop match: the creature stream rides the session (protocol v6)
+            checks["A runs co-op as the host"] = "co-op on: host" in ta
+            checks["B runs co-op as a client"] = "co-op on: client" in tb
+            checks["B's creatures follow the host's"] = any(
+                int(m) > 0 for m in re.findall(r"client stats: \d+ packets, keyed \d+, matched (\d+)", tb)
+            )
+            checks["the server is in co-op mode"] = "co-op authority: player 1" in ta
+        if not a.coop:  # the menu's map list picked an arena: the server hosts it and both load its base level
+            checks[f"A hosted the arena '{ARENAS[a.arena_index][0]}' from the map list"] = (
+                re.search(rf"host: listening on UDP \d+ .*level '{re.escape(ARENAS[a.arena_index][0])}'", ta)
+                is not None
+            )
+            if not a.kick:
+                checks["the arena world mode is on in both"] = (
+                    "arena world mode on" in ta and "arena world mode on" in tb
+                )
+        else:  # B picked a character in the lobby: the screen announced it, the session carries it
+            checks["B chose a co-op character in the lobby"] = bool(re.search(r"co-op character [1-9]\d* chosen", tb))
+        if a.kick:
+            checks = {k: v for k, v in checks.items() if not k.startswith(("A launched", "B launched", "A loaded"))}
+            checks = {k: v for k, v in checks.items() if not k.startswith(("B loaded", "A spawned", "B spawned"))}
+            checks["A kicked B (KickPlayer action)"] = "kick player" in ta
+            checks["B was rejected as kicked"] = "Kicked by the host" in tb and "REJECTED" in tb
+            checks["B returned to the Join page and left the session"] = "multiplayer action Leave" in tb
+        else:
+            checks["the lobby showed a start countdown (server Status)"] = "start countdown" in ta
         for k, v in checks.items():
             log(f"{'ok  ' if v else 'FAIL'} {k}")
         summary["checks"] = checks

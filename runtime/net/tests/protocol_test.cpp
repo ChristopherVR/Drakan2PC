@@ -31,6 +31,9 @@ PlayerState sampleState() {
     s.mounted = true;
     s.levelHash = 0xCAFEF00Du;
     s.character = 0x0ee7;
+    s.pitch = -0.4f;
+    s.roll = 0.25f;
+    s.clipHi = 4;
     return s;
 }
 
@@ -105,7 +108,10 @@ int main() {
         CHECK(so.upperAnimId == 1027 && so.upperAnimTime == 0.25f && so.lowerMask == 0x19 &&
               so.levelHash == 0xCAFEF00Du);
         CHECK(encode(s).size() == 1 + kPlayerStateWireSize);
-        CHECK(so.character == s.character && so.character == 0x0ee7); // v7: the stand-in character travels with the state
+        CHECK(so.character == s.character &&
+              so.character == 0x0ee7); // v7: the stand-in character travels with the state
+        CHECK(std::fabs(so.pitch + 0.4f) < 1e-4f && std::fabs(so.roll - 0.25f) < 1e-4f &&
+              so.clipHi == 4); // v8: a mounted sender's orientation and clip prefix
 
         Snapshot snap;
         snap.serverTimeMs = 4242;
@@ -214,7 +220,8 @@ int main() {
 
         // Bad mounted flag.
         bytes = encode(sampleState());
-        bytes[bytes.size() - 1 - sizeof(uint32_t) - sizeof(uint16_t)] = 2; // the flag precedes levelHash and character
+        bytes[bytes.size() - 1 - sizeof(uint32_t) - 4 * sizeof(uint16_t)] =
+            2; // the flag precedes levelHash, character, pitch, roll, clipHi
         CHECK(!decode(bytes, o));
 
         // Oversized strings.
@@ -313,7 +320,7 @@ int main() {
 
     // v6: co-op messages round trip, strict lengths and ranges.
     {
-        static_assert(kProtocolVersion == 7);
+        static_assert(kProtocolVersion == 8);
         CoopAuthority a;
         a.player = 2;
         CoopAuthority ao;

@@ -19,7 +19,7 @@ namespace drakan::net {
 
 using PeerId = uint32_t;
 constexpr PeerId kInvalidPeer = 0;
-constexpr size_t kMaxPacketPayload = 1100;
+constexpr size_t kMaxPacketPayload = 1280; // 16 PlayerStates (74 bytes each, v8) must fit one Snapshot
 
 enum class Channel : uint8_t { Unreliable = 0, Reliable = 1 };
 enum class TransportEventType : uint8_t { Connected, Disconnected, Message };

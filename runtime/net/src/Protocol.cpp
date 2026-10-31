@@ -184,6 +184,9 @@ void PlayerState::write(ByteWriter& w) const {
     w.u8(mounted ? 1 : 0);
     w.u32(levelHash);
     w.u16(character);
+    w.u16(static_cast<uint16_t>(static_cast<int16_t>(std::lround(pitch * 10000.0f))));
+    w.u16(static_cast<uint16_t>(static_cast<int16_t>(std::lround(roll * 10000.0f))));
+    w.u16(clipHi);
 }
 bool PlayerState::read(ByteReader& r) {
     player = r.u8();
@@ -207,6 +210,9 @@ bool PlayerState::read(ByteReader& r) {
     mounted = flags == 1;
     levelHash = r.u32();
     character = r.u16();
+    pitch = static_cast<float>(static_cast<int16_t>(r.u16())) / 10000.0f;
+    roll = static_cast<float>(static_cast<int16_t>(r.u16())) / 10000.0f;
+    clipHi = r.u16();
     return r.ok();
 }
 

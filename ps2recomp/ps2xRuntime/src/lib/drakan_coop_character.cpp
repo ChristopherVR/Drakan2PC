@@ -150,6 +150,28 @@ Act activityOf(uint32_t rynnClip) {
     return r ? r->act : Act::Other;
 }
 
+uint32_t sampleClip(Act a, float* durationSec) {
+    for (const RynnClip& r : kRynnClips)
+        if (r.act == a) {
+            if (durationSec)
+                *durationSec = static_cast<float>(r.durMs) / 1000.0f;
+            return r.id;
+        }
+    return 0;
+}
+
+bool actByName(const std::string& name, Act& out) {
+    static const char* const names[] = {"idle",  "walk", "run",   "runback", "strafel", "strafer", "turnl",
+                                        "turnr", "jump", "inair", "land",    "crouch",  "attack",  "hit",
+                                        "block", "draw", "death", "spell",   "roll",    "other"};
+    for (size_t i = 0; i < sizeof names / sizeof *names; ++i)
+        if (name == names[i]) {
+            out = static_cast<Act>(i);
+            return true;
+        }
+    return false;
+}
+
 Mapped mapClip(uint16_t id, uint32_t rynnClip, float time) {
     Mapped m;
     const RynnClip* r = findRynn(rynnClip);

@@ -14,11 +14,13 @@
 #include <algorithm>
 #include <atomic>
 #include <chrono>
+#include <cmath>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <deque>
 #include <mutex>
+#include <string>
 #include <vector>
 
 void ps2xNoPreemptEnter() noexcept;
@@ -31,7 +33,7 @@ using drakan_region::guestAddress;
 
 constexpr uint32_t kContextPtr = 0x5565d4u, kFactory = 0x181ad8u, kDestroy = 0x1413c0u, kRynnHandler = 0x30ea30u,
                    kFreeCamHandler = 0x2a3378u;
-constexpr uint32_t kHandleVtable = 0x51b8b0u, kRynnClass = 0x10009u;
+constexpr uint32_t kHandleVtable = 0x51b8b0u, kRynnClass = 0x10009u, kDragonClass = 0x1001cu, kRynnRecord = 0x20a50u;
 constexpr uint32_t kDikF9 = 0x43u, kDikF10 = 0x44u;
 constexpr uint32_t kBoneAttach = 0x13b878u, kBoneDetach = 0x13b8c8u; // (model, item, bone, 0, 0) / (model, bone)
 constexpr uint32_t kPropHand[2] = {0x45u, 0x46u};
@@ -110,6 +112,8 @@ struct Flight {
         false; // a stand-in character: the NPC class's own init runs (no camera mode trick, no extra world insert)
     bool dragon =
         false; // an Arokh body: its init inserts itself and, with camera mode 7, returns before the rider link
+    uint32_t linkA = 0, linkB = 0,
+             partner = 0; // the controlled actor's rider / dragon link (data+0x4d8) before the spawn
 } g_flight;
 constexpr uint32_t kDragonRecord = 0x20a60u;
 
@@ -120,6 +124,8 @@ std::vector<std::pair<uint32_t, uint32_t>> g_origHandler;
 bool g_npcInsert = false;        // DRAKAN_GHOST_NPC_INSERT=1: also insert the stand-in into the level object (test aid)
 uint16_t g_defaultCharacter = 0; // DRAKAN_GHOST_CHAR=<hex class id>: character of F9 / mirror ghosts (test aid)
 bool g_defaultDragon = false;    // DRAKAN_GHOST_DRAGON=1: F9 / mirror ghosts are dragons (test aid)
+std::vector<drakan_coop_character::Act>
+    g_actCycle; // DRAKAN_GHOST_ACTS=attack,hit,death: mirror stand-ins play these in turn
 uint32_t g_dragonClipHi =
     0x40000u; // high half of the dragon's clip ids (the wire carries 16 bits); DRAKAN_DRAGON_CLIP_HI
 
@@ -137,6 +143,19 @@ void wr32(uint8_t* ram, uint32_t a, uint32_t v) {
 }
 bool ramPtr(uint32_t p) {
     return p >= 0x100000u && p < 0x2000000u;
+}
+
+// The rider <-> dragon link (data+0x4d8 of the instance data of both ends, coop-characters.md section 3): the
+// controlled actor's value, and the value at the other end (the registry slot of that ref).
+uint32_t linkOf(const uint8_t* ram, uint32_t actor) {
+    const uint32_t inner = ramPtr(actor) ? rd32(ram, actor + 0xfc) : 0;
+    const uint32_t data = ramPtr(inner) ? rd32(ram, inner + 0x10) : 0;
+    return ramPtr(data) ? rd32(ram, data + 0x4d8) : 0;
+}
+uint32_t linkedActor(const uint8_t* ram, uint32_t ctx, uint32_t ref) {
+    const uint32_t table = rd32(ram, ctx + 0x7c);
+    ref &= 0xffffu;
+    return ref && ramPtr(table) && ref <= rd32(ram, ctx + 0x84) + 1 ? rd32(ram, table + (ref - 1u) * 8u) : 0;
 }
 
 // Spawn trampoline, stage 1 (a postGuestCall target on a guest dispatcher thread): put the transform on the stack, set
@@ -157,6 +176,9 @@ void spawnStage1(uint8_t* rdram, R5900Context* c, PS2Runtime*) {
     const uint32_t ctx = rd32(rdram, guestAddress(kContextPtr));
     g_flight.player = rd32(rdram, ctx + 0x4b0);
     g_flight.camera = rd32(rdram, ctx + 0x4b4);
+    g_flight.linkA = linkOf(rdram, g_flight.player);
+    g_flight.partner = linkedActor(rdram, ctx, g_flight.linkA);
+    g_flight.linkB = linkOf(rdram, g_flight.partner);
     SET_GPR_U32(c, 29, sp);
     SET_GPR_U32(c, 4, ctx);
     SET_GPR_U32(c, 5, 0u);
@@ -181,6 +203,14 @@ void spawnStage2(uint8_t* rdram, R5900Context* c, PS2Runtime*) {
                      g_flight.player, p, g_flight.camera, cam, rd32(rdram, g_flight.camModeAddr));
         wr32(rdram, ctx + 0x4b0, g_flight.player);
         wr32(rdram, ctx + 0x4b4, g_flight.camera);
+        // The local player's own dragon link (rider <-> Arokh, data+0x4d8 at both ends) must survive the spawn.
+        const uint32_t a = linkOf(rdram, g_flight.player), pa = linkedActor(rdram, ctx, a), b = linkOf(rdram, pa);
+        std::fprintf(
+            stderr,
+            "[ghost] link check (%s ghost): controlled %x +4d8 %x -> %x, partner %x -> %x, its +4d8 %x -> %x: %s\n",
+            g_flight.dragon ? "dragon" : "body", g_flight.player, g_flight.linkA, a, g_flight.partner, pa,
+            g_flight.linkB, b,
+            a == g_flight.linkA && pa == g_flight.partner && b == g_flight.linkB ? "intact" : "CHANGED");
     }
     std::lock_guard<std::mutex> l(g_m);
     auto it =
@@ -503,8 +533,12 @@ void applyPose(Ghost& g, const world::PlayerPose& p) {
     g.hasTransform = true;
     if (g.dragon) {
         world::PlayerPose q = p;
-        q.lower.clip = q.lower.clip ? (q.lower.clip & 0xffffu) | g_dragonClipHi : 0;
-        q.upper.clip = q.upper.clip ? (q.upper.clip & 0xffffu) | g_dragonClipHi : 0;
+        // The net layer sends Arokh's own clip ids (PlayerState.clipHi, v8); a pose that still carries Rynn's 0x2
+        // prefix (the mirror test aid) gets the guessed one.
+        if (q.lower.clip && (q.lower.clip >> 16) == 2u)
+            q.lower.clip = (q.lower.clip & 0xffffu) | g_dragonClipHi;
+        if (q.upper.clip && (q.upper.clip >> 16) == 2u)
+            q.upper.clip = (q.upper.clip & 0xffffu) | g_dragonClipHi;
         for (uint32_t c = 0; c < world::skel::kMaxChannels; ++c) {
             const world::ChannelPose& cp = (q.lowerMask >> c & 1u) ? q.lower : q.upper;
             g.animSet |= 1u << c;
@@ -629,6 +663,19 @@ void install(PS2Runtime& rt) {
         g_defaultCharacter = static_cast<uint16_t>(std::strtoul(c, nullptr, 16));
     g_npcInsert = std::getenv("DRAKAN_GHOST_NPC_INSERT") != nullptr;
     g_defaultDragon = std::getenv("DRAKAN_GHOST_DRAGON") != nullptr;
+    if (const char* acts = std::getenv("DRAKAN_GHOST_ACTS")) {
+        std::string list = acts;
+        size_t pos = 0;
+        while (pos <= list.size()) {
+            const size_t e = list.find(',', pos);
+            drakan_coop_character::Act a;
+            if (drakan_coop_character::actByName(list.substr(pos, e == std::string::npos ? e : e - pos), a))
+                g_actCycle.push_back(a);
+            if (e == std::string::npos)
+                break;
+            pos = e + 1;
+        }
+    }
     if (const char* h = std::getenv("DRAKAN_DRAGON_CLIP_HI"))
         g_dragonClipHi = static_cast<uint32_t>(std::strtoul(h, nullptr, 16));
     if (const char* w = std::getenv("DRAKAN_GHOST_WEAPONS"))
@@ -772,8 +819,8 @@ uint32_t recordIndex(drakan_input::IGuest& guest, uint32_t ctx, uint32_t rec) {
 // wrong item first (detach + the engine's kill list), then spawns the wanted one. True when a guest call was posted.
 bool startWeaponChange(drakan_input::IGuest& guest, uint32_t ctx) { // g_m held by the caller
     for (Ghost& g : g_ghosts) {
-        if (!g.info.handle || g.destroyRequested || g.character || g.dragon)
-            continue; // a stand-in character has no Rynn hand bones (weapons: not done)
+        if (!g.info.handle || g.destroyRequested || g.dragon)
+            continue; // (a stand-in character's hand bone is looked up through the same properties: see coop-stand-ins)
         for (int hand = 0; hand < 2; ++hand) {
             if (g.wantRec[hand] == g.haveRec[hand])
                 continue;
@@ -912,6 +959,18 @@ void beforePadMgr(drakan_input::IGuest& guest, drakan_input::InputModule& input)
         if (g_hist.size() > g_delayTicks && (past = g_hist.front()).lower.clip) {
             past.position.x += g_offX;
             past.position.z += g_offZ;
+            if (!g_actCycle.empty()) { // test aid: show each activity's clip on the stand-in for 3 s
+                const size_t i = static_cast<size_t>(g_gameTime / 3.0) % g_actCycle.size();
+                float dur = 1.0f;
+                const uint32_t clip = drakan_coop_character::sampleClip(g_actCycle[i], &dur);
+                if (clip) {
+                    const float t = static_cast<float>(std::fmod(g_gameTime, 3.0));
+                    past.lower = past.upper = {clip, std::fmod(t, std::max(dur, 0.1f))};
+                    if (g_actCycle[i] == drakan_coop_character::Act::Death)
+                        past.lower.time = past.upper.time = std::min(t, dur * 0.999f);
+                    past.lowerMask = ~0u;
+                }
+            }
             for (Ghost& g : g_ghosts)
                 if (g.info.handle && !g.destroyRequested) {
                     if (g.dragon) { // the mirrored pose is Rynn's: only the position follows (test aid)
@@ -1023,15 +1082,30 @@ void beforePadMgr(drakan_input::IGuest& guest, drakan_input::InputModule& input)
         return;
     }
     const uint32_t player = guest.read32(ctx + 0x4b0);
-    const uint32_t res = ramPtr(player) ? guest.read16(player + 0x10) : 0xffffu;
+    uint32_t res = ramPtr(player) ? guest.read16(player + 0x10) : 0xffffu;
     const uint32_t db = guest.read32(ctx + 0x320);
     const uint32_t records = ramPtr(db) ? guest.read32(db + 8) : 0;
-    if (!ramPtr(player) || !ramPtr(records) || res == 0xffffu ||
-        guest.read32(records + res * 0x24u + 8) != kRynnClass) {
+    const uint32_t playerClass =
+        ramPtr(player) && ramPtr(records) && res != 0xffffu ? guest.read32(records + res * 0x24u + 8) : 0;
+    // Rynn is the controlled actor on foot; a rider on Arokh controls the dragon (class 0x1001c): the bodies of a
+    // partner are still wanted then (a Rynn ghost needs Rynn's record index, not the dragon's).
+    if (playerClass != kRynnClass && playerClass != kDragonClass) {
         std::fprintf(stderr, "[ghost] spawn refused: the controlled actor is not Rynn (class 0x10009)\n");
         g_spawnFailures.fetch_add(1);
         g_ghosts.erase(g_ghosts.begin() + (want - g_ghosts.data()));
         return;
+    }
+    // SYSTEM's database index (the high half of every record / clip id) differs per level (0x2 in Surdana, 0x4 in
+    // Ravenshold): Rynn's and Arokh's records are named by the prefix of the controlled actor's own record.
+    const uint32_t sysHi = guest.read32(records + res * 0x24u) & 0xffff0000u;
+    if (playerClass == kDragonClass) {
+        res = recordIndex(guest, ctx, sysHi | (kRynnRecord & 0xffffu));
+        if (res == 0xffffu) {
+            std::fprintf(stderr, "[ghost] spawn refused: Rynn's record is not in this level's database\n");
+            g_spawnFailures.fetch_add(1);
+            g_ghosts.erase(g_ghosts.begin() + (want - g_ghosts.data()));
+            return;
+        }
     }
     Transform t = want->target;
     if (!want->hasTransform) {
@@ -1048,8 +1122,10 @@ void beforePadMgr(drakan_input::IGuest& guest, drakan_input::InputModule& input)
     g_flight.resIndex = res;
     g_flight.npc = false;
     g_flight.dragon = false;
+    const uint32_t sysHiNow = sysHi;
     if (want->character || want->dragon) {
-        const uint32_t rec = want->dragon ? kDragonRecord : drakan_coop_character::entry(want->character).recordId;
+        const uint32_t rec = want->dragon ? (sysHiNow | (kDragonRecord & 0xffffu))
+                                          : drakan_coop_character::entry(want->character).recordId;
         const uint32_t idx = recordIndex(guest, ctx, rec);
         if (idx == 0xffffu) {
             std::fprintf(stderr, "[ghost] spawn of id %d: record %x of character %x is not in this level's database\n",

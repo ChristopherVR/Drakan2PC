@@ -258,6 +258,8 @@ struct MockState {
     uint32_t lowerMask = 0;
     uint32_t weaponRight = 0, weaponLeft = 0;
     bool mounted = false;
+    float pitch = 0, roll = 0;
+    uint16_t clipHi = 0;
 };
 
 void testBridge() {

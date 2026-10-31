@@ -17,6 +17,7 @@
 #include <algorithm>
 #include <atomic>
 #include <chrono>
+#include <cmath>
 #include <cstdarg>
 #include <cstdio>
 #include <cstdlib>
@@ -1122,6 +1123,8 @@ struct RemoteView {
     double playTick = 0;
     double tickRate = 60.0; // sender world ticks per second, smoothed
     int ghostId = 0;
+    int dragonId = 0; // the partner's Arokh while the partner is mounted (a second, visual-only dragon body)
+    double dragonRetryAt = 0;
     uint16_t character = 0; // the stand-in character the ghost was spawned as (PlayerState.character)
     bool wasVisible = false;
     double unwantedSince = -1;
@@ -1144,6 +1147,7 @@ void publishLoading() {
 void forgetGhosts() {
     for (auto& kv : g_views) {
         kv.second.ghostId = 0;
+        kv.second.dragonId = 0;
         kv.second.wasVisible = false;
         kv.second.buffer.clear();
         kv.second.haveSample = false;
@@ -1162,6 +1166,10 @@ bool ghostExists(int id) {
 }
 
 void hide(drakan::net::PlayerId id, RemoteView& v, const char* why) {
+    if (v.dragonId) {
+        drakan_ghost::destroy(v.dragonId);
+        v.dragonId = 0;
+    }
     if (v.ghostId) {
         drakan_ghost::destroy(v.ghostId);
         netLog("ghost of player %u removed (%s)", id, why);
@@ -1676,9 +1684,98 @@ void serviceFollow(double t, uint32_t myLevel) {
     }
 }
 
+// Where a partner who rides Arokh sits, in the dragon's own frame (world = R * local + position; measured from the
+// local player's own mount, DRAKAN_DRAGON_PROBE=1 logs it): DRAKAN_DRAGON_RIDER_OFFSET=x,y,z overrides.
+float g_riderOffset[3] = {0.0f, 330.0f, -40.0f};
+float g_riderYaw = 0.0f; // DRAKAN_DRAGON_RIDER_YAW=<radians>: the rider's heading relative to the dragon
+bool g_dragonProbe = false;
+float g_dragonTestOffset[3] = {0, 0,
+                               0}; // DRAKAN_DRAGON_TEST_OFFSET=x,y,z: draws a mounted partner this far off (test aid)
+constexpr uint32_t kRiderRideClip = 0x5afu; // Rynn's "Ride" clip, low half (mapped to the stand-in's idle)
+
+void loadDragonEnv() {
+    static bool done = false;
+    if (done)
+        return;
+    done = true;
+    g_dragonProbe = std::getenv("DRAKAN_DRAGON_PROBE") != nullptr;
+    if (const char* e = std::getenv("DRAKAN_DRAGON_RIDER_OFFSET"))
+        std::sscanf(e, "%f,%f,%f", &g_riderOffset[0], &g_riderOffset[1], &g_riderOffset[2]);
+    if (const char* e = std::getenv("DRAKAN_DRAGON_TEST_OFFSET"))
+        std::sscanf(e, "%f,%f,%f", &g_dragonTestOffset[0], &g_dragonTestOffset[1], &g_dragonTestOffset[2]);
+    if (const char* e = std::getenv("DRAKAN_DRAGON_RIDER_YAW"))
+        g_riderYaw = static_cast<float>(std::atof(e));
+}
+
+// The pose of the rider body of a mounted partner: the dragon's transform plus the saddle offset, the dragon's
+// orientation (turned by g_riderYaw) and the "Ride" clip.
+world::PlayerPose riderPose(const world::PlayerPose& dragon) {
+    world::PlayerPose b = dragon;
+    b.mounted = false;
+    const float* r = dragon.rotation;
+    const float* o = g_riderOffset;
+    b.position.x = dragon.position.x + r[0] * o[0] + r[1] * o[1] + r[2] * o[2];
+    b.position.y = dragon.position.y + r[3] * o[0] + r[4] * o[1] + r[5] * o[2];
+    b.position.z = dragon.position.z + r[6] * o[0] + r[7] * o[1] + r[8] * o[2];
+    if (g_riderYaw != 0.0f) { // R * Ry(a): a turn about the dragon's own up axis
+        const float c = std::cos(g_riderYaw), sn = std::sin(g_riderYaw);
+        for (int row = 0; row < 3; ++row) {
+            const float x = r[row * 3], z = r[row * 3 + 2];
+            b.rotation[row * 3] = x * c - z * sn;
+            b.rotation[row * 3 + 2] = x * sn + z * c;
+        }
+    }
+    b.lower = b.upper = {(dragon.lower.clip & 0xffff0000u) | kRiderRideClip, 0.0f};
+    b.lowerMask = ~0u;
+    b.weaponRight = b.weaponLeft = 0;
+    b.attacking = false;
+    return b;
+}
+
+// DRAKAN_DRAGON_PROBE: the local player's rider seen from the dragon (the controlled actor is the dragon, its
+// data+0x4d8 holds the rider's registry ref): offset in the dragon's frame and the heading difference, one line a
+// second.
+void probeRider(const uint8_t* rdram, const world::PlayerPose& dragon, double t) {
+    static double last = -10;
+    if (!g_dragonProbe || t - last < 1.0)
+        return;
+    last = t;
+    const RdramMemory m(rdram);
+    const auto f = [&](uint32_t a) {
+        const uint32_t v = m.read32(a);
+        float x;
+        std::memcpy(&x, &v, 4);
+        return x;
+    };
+    const uint32_t inner = m.read32(dragon.handle + 0xfc);
+    const uint32_t data = m.read32(inner + 0x10);
+    const uint32_t ref = m.read32(data + 0x4d8) & 0xffffu;
+    const uint32_t ctx = m.read32(g_globals.contextPtr);
+    const uint32_t table = m.read32(ctx + 0x7c);
+    const uint32_t rider = ref && ref <= m.read32(ctx + 0x84) + 1 ? m.read32(table + (ref - 1) * 8u) : 0;
+    if (!rider) {
+        netLog("dragon probe: no rider (ref %x)", ref);
+        return;
+    }
+    const float d[3] = {f(rider + 0x14) - f(dragon.handle + 0x14), f(rider + 0x18) - f(dragon.handle + 0x18),
+                        f(rider + 0x1c) - f(dragon.handle + 0x1c)};
+    const float* r = dragon.rotation;
+    float local[3];
+    for (int c = 0; c < 3; ++c)
+        local[c] = r[c] * d[0] + r[3 + c] * d[1] + r[6 + c] * d[2];
+    const float ryaw = std::atan2(f(rider + 0x28), f(rider + 0x20));
+    const uint32_t sk = m.read32(rider + 0x50), ch = m.read32(sk + 0xe8);
+    netLog("dragon probe: rider %x offset in the dragon frame %.1f %.1f %.1f, rider yaw %.3f (dragon yaw %.3f pitch "
+           "%.3f roll %.3f), "
+           "rider clip %x@%.3f, dragon clip %x@%.3f",
+           rider, local[0], local[1], local[2], ryaw, dragon.yaw, dragon.pitch, dragon.roll, m.read32(ch + 0x50),
+           f(ch + 0x58), dragon.lower.clip, dragon.lower.time);
+}
+
 void beforePadMgr(const uint8_t* rdram) {
     if (!g_enabled.load(std::memory_order_relaxed) || !rdram)
         return;
+    loadDragonEnv();
     const double t = nowSec();
     const uint32_t myLevel = g_levelHash.load();
     serviceFollow(t, myLevel);
@@ -1690,6 +1787,8 @@ void beforePadMgr(const uint8_t* rdram) {
     if (!transition)
         status = world::readPlayerPose(RdramMemory(rdram), g_globals, g_poseState, t, ++g_tick, pose);
     const bool posed = status == world::PoseStatus::Ok && myLevel != 0 && !transition;
+    if (posed && pose.mounted)
+        probeRider(rdram, pose, t);
     if (g_trace && posed)
         std::fprintf(stderr, "[nettrace-local %.4f] %.2f %.2f %.2f yaw %.3f lower %x@%.3f\n", t, pose.position.x,
                      pose.position.y, pose.position.z, pose.yaw, pose.lower.clip, pose.lower.time);
@@ -1729,7 +1828,7 @@ void beforePadMgr(const uint8_t* rdram) {
         RemoteView& v = g_views[kv.first];
         const RemoteIn& r = kv.second;
         const bool sameLevel = r.state.levelHash != 0 && r.state.levelHash == myLevel;
-        const bool want = posed && playing && sameLevel && !r.state.mounted;
+        const bool want = posed && playing && sameLevel;
         if (g_trace && t - v.lastWantLog >= 2.0) { // one line per remote every 2 s: why a ghost is (not) wanted
             v.lastWantLog = t;
             std::fprintf(
@@ -1747,8 +1846,7 @@ void beforePadMgr(const uint8_t* rdram) {
                      immediate    ? "local level change"
                      : !posed     ? "local pose unavailable"
                      : !sameLevel ? "player in another level"
-                     : !playing   ? "match not playing"
-                                  : "player mounted");
+                                  : "match not playing");
             continue;
         }
         v.unwantedSince = -1;
@@ -1777,6 +1875,11 @@ void beforePadMgr(const uint8_t* rdram) {
         world::PlayerPose p;
         if (!v.buffer.sampleAt(v.playTick / kTickHz, p))
             continue;
+        if (p.mounted) {
+            p.position.x += g_dragonTestOffset[0];
+            p.position.y += g_dragonTestOffset[1];
+            p.position.z += g_dragonTestOffset[2];
+        }
         v.wasVisible = true;
         if (v.ghostId && !ghostExists(v.ghostId)) {
             // drakan_ghost drops a ghost whose spawn failed (e.g. a position outside the loaded level): back off, or
@@ -1792,10 +1895,12 @@ void beforePadMgr(const uint8_t* rdram) {
             v.ghostId = 0;
             v.retryAt = t + 0.3;
         }
+        // A mounted partner is two bodies: the dragon (the pose we receive is Arokh's) and the rider on it.
+        const world::PlayerPose bodyPose = p.mounted ? riderPose(p) : p;
         if (!v.ghostId && t >= g_spawnNotBefore && t >= v.retryAt && drakan_ghost::ready()) {
             drakan_ghost::Transform tr;
-            std::memcpy(tr.pos, &p.position, sizeof tr.pos);
-            std::memcpy(tr.rot, p.rotation, sizeof tr.rot);
+            std::memcpy(tr.pos, &bodyPose.position, sizeof tr.pos);
+            std::memcpy(tr.rot, bodyPose.rotation, sizeof tr.rot);
             v.character = r.state.character;
             v.ghostId = drakan_ghost::spawn(&tr, v.character);
             if (!v.ghostId) { // refused (engine not ready, transition): try again shortly
@@ -1805,11 +1910,36 @@ void beforePadMgr(const uint8_t* rdram) {
             netLog("ghost of player %u '%s' spawned (id %d) at %.0f %.0f %.0f", kv.first, r.name.c_str(), v.ghostId,
                    p.position.x, p.position.y, p.position.z);
         } else if (v.ghostId) {
-            drakan_ghost::setPose(v.ghostId, p);
+            drakan_ghost::setPose(v.ghostId, bodyPose);
             if (g_trace)
                 std::fprintf(stderr, "[nettrace %.4f] p%u %.2f %.2f %.2f yaw %.3f lower %x@%.3f upper %x@%.3f\n", t,
                              kv.first, p.position.x, p.position.y, p.position.z, p.yaw, p.lower.clip, p.lower.time,
                              p.upper.clip, p.upper.time);
+        }
+        // The partner's own Arokh: a visual dragon body replaying the received dragon pose and clips.
+        if (v.dragonId && !ghostExists(v.dragonId)) {
+            netLog("dragon of player %u vanished; retry in 2 s", kv.first);
+            v.dragonId = 0;
+            v.dragonRetryAt = t + 2.0;
+        }
+        if (p.mounted && v.ghostId) {
+            if (!v.dragonId && t >= g_spawnNotBefore && t >= v.dragonRetryAt && drakan_ghost::ready()) {
+                drakan_ghost::Transform tr;
+                std::memcpy(tr.pos, &p.position, sizeof tr.pos);
+                std::memcpy(tr.rot, p.rotation, sizeof tr.rot);
+                v.dragonId = drakan_ghost::spawnDragon(&tr);
+                if (!v.dragonId)
+                    v.dragonRetryAt = t + 0.5;
+                else
+                    netLog("dragon of player %u spawned (id %d) at %.0f %.0f %.0f, clips %x", kv.first, v.dragonId,
+                           p.position.x, p.position.y, p.position.z, p.lower.clip);
+            } else if (v.dragonId) {
+                drakan_ghost::setPose(v.dragonId, p);
+            }
+        } else if (v.dragonId) { // dismounted (or the body is gone): Arokh stays behind in the partner's world only
+            drakan_ghost::destroy(v.dragonId);
+            netLog("dragon of player %u removed (dismounted)", kv.first);
+            v.dragonId = 0;
         }
         ++shown;
     }
