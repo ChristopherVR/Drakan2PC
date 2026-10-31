@@ -165,3 +165,224 @@
 .issue.ok {
     border-left-color: var(--ok, #3fb950);
 }
+
+/* Character: vitals */
+.vitals {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: 10px;
+    margin: 10px 0;
+}
+.vital {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    padding: 10px 12px;
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+}
+.vital .vhead {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+}
+.vital .vhead small {
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    font-size: 10px;
+    color: var(--dim);
+}
+.vital .vhead b {
+    font-size: 24px;
+    font-variant-numeric: tabular-nums;
+}
+.vbar {
+    height: 12px;
+    border-radius: 6px;
+    background: var(--bg);
+    border: 1px solid var(--line);
+    overflow: hidden;
+}
+.vbar i {
+    display: block;
+    height: 100%;
+    border-radius: 6px;
+    background: linear-gradient(90deg, #b3261e, #e5534b);
+}
+.vital.mana .vbar i {
+    background: linear-gradient(90deg, #2f6fdd, #5aa0ff);
+}
+.fgrid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+    gap: 8px;
+}
+.adv {
+    margin: 14px 0 4px;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    padding: 6px 12px;
+}
+.adv > summary {
+    cursor: pointer;
+    color: var(--dim);
+}
+.adv[open] > summary {
+    margin-bottom: 6px;
+}
+
+/* Inventory grid (8 x 3, like the Tab screen) */
+.invwrap {
+    margin-bottom: 10px;
+}
+.invhead {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin: 6px 0;
+}
+.invhead .spacer {
+    flex: 1;
+}
+.invgrid {
+    display: grid;
+    grid-template-columns: repeat(8, minmax(64px, 1fr));
+    grid-auto-rows: 92px;
+    gap: 6px;
+    padding: 10px;
+    background: var(--bg);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+}
+.slot {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    justify-content: flex-end;
+    min-width: 0;
+    padding: 4px;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    background: var(--panel);
+    color: var(--text);
+    overflow: hidden;
+    text-align: left;
+}
+.slot.empty {
+    border-style: dashed;
+    opacity: 0.45;
+    background: transparent;
+}
+.slot.item {
+    cursor: pointer;
+}
+.slot.item:hover {
+    border-color: var(--accent, #5aa0ff);
+}
+.slot.item.sel {
+    border-color: var(--accent, #5aa0ff);
+    box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent, #5aa0ff) 40%, transparent);
+}
+.slot.eq {
+    background: color-mix(in srgb, var(--panel) 85%, #3fb950);
+}
+.slot .art {
+    position: absolute;
+    inset: 4px 4px 30px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+.slot .art img {
+    max-width: 100%;
+    max-height: 100%;
+    object-fit: contain;
+}
+.slot .art .ph {
+    display: grid;
+    place-items: center;
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    font-weight: 700;
+    font-size: 14px;
+    color: hsl(var(--hue) 70% 78%);
+    background: hsl(var(--hue) 35% 22%);
+}
+.slot .marks {
+    position: absolute;
+    top: 4px;
+    right: 4px;
+    display: flex;
+    gap: 3px;
+}
+.mk {
+    min-width: 16px;
+    height: 16px;
+    padding: 0 3px;
+    display: grid;
+    place-items: center;
+    border-radius: 4px;
+    font-size: 10px;
+    color: #fff;
+}
+.mk.e {
+    background: #2e9d49;
+}
+.mk.q {
+    background: #2f6fdd;
+}
+.slot .nm {
+    position: relative;
+    font-size: 11px;
+    line-height: 1.1;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.slot .dbar {
+    position: relative;
+    height: 12px;
+    margin-top: 3px;
+    border-radius: 3px;
+    background: var(--bg);
+    border: 1px solid var(--line);
+    overflow: hidden;
+}
+.slot .dbar i {
+    position: absolute;
+    inset: 0 auto 0 0;
+    background: color-mix(in srgb, #3fb950 70%, transparent);
+}
+.slot .dbar em {
+    position: absolute;
+    inset: 0;
+    display: grid;
+    place-items: center;
+    font-style: normal;
+    font-size: 9px;
+    font-variant-numeric: tabular-nums;
+}
+.inspector {
+    margin: 10px 0;
+}
+.inspector.dim {
+    padding: 10px 0;
+}
+.inspector .f {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+.inspector .frow {
+    display: flex;
+    gap: 14px;
+    align-items: flex-end;
+    flex-wrap: wrap;
+    margin-top: 6px;
+}
+.questbox {
+    margin-bottom: 14px;
+}

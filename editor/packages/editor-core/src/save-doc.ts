@@ -5,6 +5,7 @@ import {
     assembleSave,
     checkFieldValue,
     describeRecords,
+    listInventory,
     formatFieldValue,
     levelNameOf,
     listProgress,
@@ -17,12 +18,15 @@ import {
     type FieldEdit,
     type FieldProbe,
     type FieldValue,
+    type InventoryCell,
     type Issue,
     type ItemPanel,
     type ProgressRow,
+    type QuestRow,
     type RecordInfo,
     type SaveFile,
     type SkillRow,
+    listQuests,
 } from '@drakan/formats';
 import type { Command } from './commands.ts';
 import { LevelDocument, type LevelObject } from './document.ts';
@@ -36,6 +40,25 @@ export interface PendingEdit {
     /** The field needed an explicit unlock (savetool `--force`). */
     unconfirmed: boolean;
 }
+
+function readQuests(save: SaveFile): QuestRow[] {
+    try {
+        return listQuests(save);
+    } catch {
+        return [];
+    }
+}
+
+function pendingLabel(name: string, fallback: string): string {
+    const inv = /^inv\.(\d+)\.(\w+)$/.exec(name);
+    if (inv) return `cell ${inv[1]} ${inv[2] === 'hot' ? 'quick slot' : inv[2] === 'max' ? 'max count' : inv[2]}`;
+    if (name.startsWith('skill.')) return name.replace('skill.', 'skill ');
+    if (name.startsWith('progress.')) return name.replace('progress.', 'state key ');
+    if (name.startsWith('quest.')) return name.replace('quest.', 'quest row ');
+    return fallback;
+}
+
+export type { QuestRow };
 
 const feq = (a: FieldValue | undefined, b: FieldValue | undefined): boolean => {
     if (a === undefined || b === undefined) return a === b;
@@ -64,6 +87,12 @@ export class SaveDocument extends LevelDocument {
     readonly progress: ProgressRow[];
     /** The item text kept in Rynn's record (what the Equipment page last showed), or null. */
     readonly itemPanel: ItemPanel | null;
+    /** Occupied inventory cells as opened (empty when the cell table is not recognised). */
+    readonly inventory: InventoryCell[];
+    /** Whether the raw stats block (the authoritative copy of HP, gold, XP...) was found. */
+    readonly hasStats: boolean;
+    /** Quest / map marker rows as opened: row N's raw state word and the row's other words. */
+    readonly quests: QuestRow[];
     private issuesCache: Issue[] | null = null;
     private readonly probes = new Map<string, FieldProbe>();
 
@@ -102,6 +131,15 @@ export class SaveDocument extends LevelDocument {
         this.skills = skills;
         this.progress = listProgress(save);
         this.itemPanel = readItemPanel(save);
+        let inv: InventoryCell[] = [];
+        try {
+            inv = listInventory(save);
+        } catch {
+            inv = [];
+        }
+        this.inventory = inv;
+        this.hasStats = this.probe('stat.hp').status !== 'missing';
+        this.quests = readQuests(save);
     }
 
     static open(bytes: Uint8Array): SaveDocument {
@@ -180,11 +218,7 @@ export class SaveDocument extends LevelDocument {
             const { def } = resolveField(name);
             out.push({
                 name,
-                label: name.startsWith('skill.')
-                    ? name.replace('skill.', 'skill ')
-                    : name.startsWith('progress.')
-                      ? name.replace('progress.', 'state key ')
-                      : def.label,
+                label: pendingLabel(name, def.label),
                 before,
                 after,
                 confidence: def.confidence,

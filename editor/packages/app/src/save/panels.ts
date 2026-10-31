@@ -15,6 +15,7 @@ import {
 } from '@drakan/formats';
 import type { SaveRef } from '../saveio.ts';
 import { badge, h, hex, statTile } from './dom.ts';
+import { renderInventory, type ClassInfo } from './inventory.ts';
 
 /** What the extra panels need from the Save tab. */
 export interface PanelCtx {
@@ -29,6 +30,10 @@ export interface PanelCtx {
     listed(): SaveRef[];
     /** Redraw everything that depends on the document. */
     changed(): void;
+    /** Redraw only the current tab. */
+    rerender(): void;
+    /** Game name and model render of an item class (resource like `0x31bc9`), when a level with it is open. */
+    classInfo?(resource: string): ClassInfo | null;
 }
 
 const fmt = (name: string, v: FieldValue | null | undefined): string =>
@@ -47,12 +52,18 @@ const storyState: StoryState = { q: '', nonZero: true, kind: '', allowEdit: fals
 export function renderStory(ctx: PanelCtx): HTMLElement {
     const { doc } = ctx;
     const rows = doc.progress;
+    const quests = renderQuests(ctx);
     if (!rows.length) {
         return h(
             'div',
-            { class: 'welcome' },
-            h('h3', null, 'No state table'),
-            h('p', null, 'This save has no recognisable state table at the end of its text payload.'),
+            { class: 'story' },
+            quests,
+            h(
+                'div',
+                { class: 'welcome' },
+                h('h3', null, 'No state table'),
+                h('p', null, 'This save has no recognisable state table at the end of its text payload.'),
+            ),
         );
     }
     const entryOfKey = new Map<number, number>();
@@ -167,6 +178,8 @@ export function renderStory(ctx: PanelCtx): HTMLElement {
     return h(
         'div',
         { class: 'story' },
+        quests,
+        h('h4', null, 'State table'),
         h(
             'div',
             { class: 'tiles' },
@@ -193,6 +206,59 @@ export function renderStory(ctx: PanelCtx): HTMLElement {
             count,
         ),
         table,
+    );
+}
+
+/** Quest / map marker rows, read only: the state word is not understood, so nothing here is editable. */
+function renderQuests(ctx: PanelCtx): HTMLElement {
+    const q = ctx.doc.quests;
+    if (!q.length) {
+        return h('p', { class: 'dim' }, 'No quest / map marker table was recognised in this save.');
+    }
+    const body = h(
+        'tbody',
+        null,
+        ...q.map((r) => {
+            const name = `quest.${r.index}`;
+            const cur = Number(ctx.doc.value(name));
+            return h(
+                'tr',
+                { class: cur !== r.state ? 'chg' : '' },
+                h('td', null, String(r.index)),
+                h('td', null, `0x${hex(r.questId, 4)}`),
+                h('td', null, `0x${hex(r.region, 2)}`),
+                h('td', null, `${r.x}, ${r.y}`),
+                h('td', null, String(r.icon)),
+                h('td', null, r.enabled ? 'yes' : 'no'),
+                h('td', null, h('input', { type: 'number', value: String(cur), disabled: true, 'data-field': name })),
+            );
+        }),
+    );
+    return h(
+        'div',
+        { class: 'questbox' },
+        h('h4', null, 'Quests and map markers'),
+        h(
+            'p',
+            { class: 'dim' },
+            'Read only. Rows are {x, y, icon, enabled, region, quest id, state} as stored in the save and in game memory. The ' +
+                'meaning of the state value (4, 2, 0...) is not understood and was never changed in game, so editing is disabled. ',
+            badge(FIELDS.quest!.confidence, FIELDS.quest!.confidence, FIELDS.quest!.note),
+        ),
+        h(
+            'table',
+            { class: 'grid' },
+            h(
+                'thead',
+                null,
+                h(
+                    'tr',
+                    null,
+                    ...['row', 'quest id', 'region', 'x, y', 'icon', 'enabled', 'state'].map((x) => h('th', null, x)),
+                ),
+            ),
+            body,
+        ),
     );
 }
 
@@ -255,19 +321,21 @@ export function renderItems(ctx: PanelCtx): HTMLElement {
     return h(
         'div',
         { class: 'items' },
-        h('h4', null, 'Equipment'),
-        item,
+        renderInventory(ctx),
         h(
-            'div',
-            { class: 'note-box' },
-            h('b', null, 'Inventory grid: not editable yet. '),
-            'The 24-cell inventory and the weapon holders are saved as references to live game objects (registry handles), ' +
-                'and the items they point at are not stored as separate records: two saves with different inventories hold the ' +
-                'same set of object records. Until that mapping is decoded there is nothing safe to add, remove or stack. ' +
-                'The item above is the text the Equipment page last displayed, kept inside Rynn’s record.',
+            'details',
+            { class: 'adv' },
+            h('summary', null, 'Advanced / raw'),
+            h('h4', null, 'Last inspected item (UI text buffer)'),
+            h(
+                'p',
+                { class: 'dim' },
+                'The text the Equipment page last displayed, kept inside Rynn’s record. It is not the inventory; read only.',
+            ),
+            item,
+            h('h4', null, 'Dragon'),
+            arokh,
         ),
-        h('h4', null, 'Dragon'),
-        arokh,
     );
 }
 
@@ -323,8 +391,9 @@ export function renderTransfer(ctx: PanelCtx, rerender: () => void): HTMLElement
     const intro = h(
         'p',
         { class: 'dim' },
-        'Copy values from another save into the open one: gold, health, skill levels, and positions when both saves are from ' +
-            'the same level. The result is pending until SAVE. Items cannot be moved yet because their slots are not decoded.',
+        'Copy values from another save into the open one: health, gold, mana, XP, level, skill points, skill levels, item ' +
+            'counts (same item in the same cell), and positions when both saves are from the same level. The result is ' +
+            'pending until SAVE. Items themselves cannot be moved: adding items is not supported yet.',
     );
     if (!transfer.source) return h('div', { class: 'transfer' }, bar, intro);
     const src = transfer.source;

@@ -23,6 +23,7 @@ import { LevelView } from './level.ts';
 import './save/save.css';
 import { badge, fmtDate, h, hex, hexDump, shotCanvas, statTile } from './save/dom.ts';
 import { drawMap, groupColor, mapBounds, pickMap, type MapBounds, type MapPoint } from './save/map.ts';
+import type { ClassInfo } from './save/inventory.ts';
 import { renderItems, renderRepair, renderStory, renderTransfer, type PanelCtx } from './save/panels.ts';
 import {
     download,
@@ -43,6 +44,8 @@ const $ = <T extends HTMLElement>(id: string): T => {
 
 export interface SaveUiHost {
     setStatus(msg: string, error?: boolean): void;
+    /** Game name and model render of an item class (`0x31bc9`), when a level with that class is open in Level mode. */
+    classInfo?(resource: string): ClassInfo | null;
 }
 
 type SubTab = 'character' | 'world' | 'items' | 'story' | 'transfer' | 'compare' | 'repair';
@@ -330,6 +333,8 @@ export function initSaveUi(host: SaveUiHost): { openFile(f: File): Promise<void>
             },
             listed: () => discovered,
             changed: () => refresh(),
+            rerender: () => renderExtra(),
+            classInfo: host.classInfo,
         };
     }
 
@@ -577,36 +582,101 @@ export function initSaveUi(host: SaveUiHost): { openFile(f: File): Promise<void>
                   ),
               )
             : [h('small', { class: 'dim' }, 'No recognisable skill table in this save.')];
-        const hp = doc.value('hp');
-        const gold = doc.value('gold');
-        const hpMax = Math.max(100, Number(hp ?? 0));
+        const num = (n: string): number | null => {
+            const v = doc.value(n);
+            return typeof v === 'number' ? v : null;
+        };
+        const hp = num('stat.hp');
+        const maxhp = num('stat.maxhp');
+        const mana = num('stat.mana');
+        const maxmana = num('stat.maxmana');
         const skillTotal = skills ? skills.reduce((n, r) => n + Number(doc.value(`skill.${r.id}`) ?? r.level), 0) : 0;
         const skillCap = skills ? skills.reduce((n, r) => n + Number(doc.value(`skill.${r.id}.max`) ?? r.max), 0) : 0;
-        pane.replaceChildren(
-            card,
+        const vital = (label: string, cur: number | null, max: number | null, kind: string): HTMLElement =>
             h(
                 'div',
-                { class: 'tiles' },
-                statTile('Health', typeof hp === 'number' ? String(hp) : 'n/a', {
-                    bar: typeof hp === 'number' ? [hp, hpMax] : undefined,
-                    note: 'max not in the save; bar assumes 100',
-                }),
-                statTile('Gold', typeof gold === 'number' ? gold.toLocaleString() : 'n/a'),
-                statTile('Skill levels', skills ? `${skillTotal} / ${skillCap}` : 'n/a', {
-                    bar: skills ? [skillTotal, skillCap] : undefined,
-                }),
-                statTile('Item shown', doc.itemPanel ? doc.itemPanel.name || 'item' : 'none', {
-                    note: doc.itemPanel?.durability
-                        ? `${doc.itemPanel.durability.current} / ${doc.itemPanel.durability.max}`
-                        : 'see the Items tab',
-                }),
+                { class: `vital ${kind}` },
+                h(
+                    'div',
+                    { class: 'vhead' },
+                    h('small', null, label),
+                    h('b', null, cur === null ? 'n/a' : cur.toLocaleString()),
+                ),
+                h(
+                    'div',
+                    { class: 'vbar', title: cur === null || max === null ? '' : `${cur} of ${max}` },
+                    h('i', {
+                        style: `width:${cur === null || max === null ? 0 : Math.max(0, Math.min(100, (cur / Math.max(max, 1)) * 100))}%`,
+                    }),
+                ),
+                h('small', { class: 'dim' }, max === null ? '' : `of ${max.toLocaleString()}`),
+            );
+        const stats = doc.hasStats
+            ? [
+                  h('div', { class: 'vitals' }, vital('Health', hp, maxhp, 'hp'), vital('Mana', mana, maxmana, 'mana')),
+                  h(
+                      'div',
+                      { class: 'tiles' },
+                      statTile('Gold', (num('stat.gold') ?? 0).toLocaleString()),
+                      statTile('Level', String(num('stat.level') ?? '-')),
+                      statTile('Experience', (num('stat.xp') ?? 0).toLocaleString()),
+                      statTile('Skill points', String(num('stat.skillpoints') ?? '-'), { note: 'unspent' }),
+                      statTile('Skill levels', skills ? `${skillTotal} / ${skillCap}` : 'n/a', {
+                          bar: skills ? [skillTotal, skillCap] : undefined,
+                      }),
+                  ),
+                  h('h4', null, 'Edit'),
+                  h(
+                      'div',
+                      { class: 'fgrid' },
+                      numberField('stat.hp', 'Health', { barMax: maxhp ?? undefined }),
+                      numberField('stat.maxhp', 'Max health'),
+                      numberField('stat.gold', 'Gold'),
+                      numberField('stat.xp', 'Experience'),
+                      numberField('stat.level', 'Level'),
+                      numberField('stat.skillpoints', 'Skill points'),
+                  ),
+                  h(
+                      'small',
+                      { class: 'dim' },
+                      'Mana is shown read only: it was read in 58 saves but never changed in game. Level and XP are stored ' +
+                          'separately; the game does not recompute one from the other, so keep them sensible.',
+                  ),
+              ]
+            : [
+                  h(
+                      'div',
+                      { class: 'note-box' },
+                      h('b', null, 'No stats block found. '),
+                      'This save has no recognisable copy of the game stats, so health, gold, XP and level cannot be shown or ' +
+                          'edited reliably. The unconfirmed candidates are under Advanced / raw below.',
+                  ),
+              ];
+        const legacy = h(
+            'details',
+            { class: 'adv' },
+            h('summary', null, 'Advanced / raw'),
+            h(
+                'p',
+                { class: 'dim' },
+                'Older candidates read from other records. The game applies the stats block above, not these, so editing them ' +
+                    'probably has no visible effect.',
             ),
-            h('h4', null, 'Character'),
-            numberField('hp', 'Health', { barMax: hpMax }),
-            numberField('gold', 'Gold'),
+            h(
+                'div',
+                { class: 'fgrid' },
+                numberField('hp', 'Health (Rynn record)'),
+                numberField('gold', 'Gold (gold record)'),
+            ),
+        );
+        pane.replaceChildren(
+            card,
+            ...stats,
+            h('h4', null, 'Position'),
             positionField(),
             h('h4', null, 'Skills'),
             ...skillBlock,
+            legacy,
         );
     }
 
@@ -1004,6 +1074,7 @@ export function initSaveUi(host: SaveUiHost): { openFile(f: File): Promise<void>
         const fmt = (n: string, v: FieldValue | null): string =>
             v === null ? '-' : formatFieldValue(resolveField(n).def, v);
         for (const f of d.fields) {
+            if (f.a === null && f.b === null) continue;
             fb.append(
                 h(
                     'tr',

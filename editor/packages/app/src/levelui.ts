@@ -82,6 +82,8 @@ export interface LevelUi {
     ctx: () => Ctx;
     /** Resolves when terrain and models of the last `openLevel` finished loading (tests, harnesses). */
     visualsReady: () => Promise<void>;
+    /** Class name and model render for a resource string (Save mode inventory); null when no such class is loaded. */
+    classInfo(resource: string): { name: string; thumb: string | null } | null;
 }
 
 const AUTOSAVE_DELAY = 1500;
@@ -908,5 +910,12 @@ export function initLevelUi(host: LevelUiHost): LevelUi {
         assets: () => assets,
         ctx: () => ctx,
         visualsReady: () => visuals,
+        /** Class name and model render for a resource string (used by Save mode's inventory); null without a level. */
+        classInfo(resource: string): { name: string; thumb: string | null } | null {
+            const cls = catalog.find((c) => c.resource === resource);
+            if (!cls) return null;
+            loader.wantThumbnail(cls);
+            return { name: cls.name, thumb: loader.thumbnail(cls.resource) };
+        },
     };
 }

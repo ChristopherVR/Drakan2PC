@@ -345,7 +345,7 @@ const levelUi = initLevelUi({
     setStatus,
 });
 
-const saveUi = initSaveUi({ setStatus });
+const saveUi = initSaveUi({ setStatus, classInfo: (r) => levelUi.classInfo(r) });
 
 type Tab = 'inspect' | 'level' | 'save';
 function showTab(tab: Tab): void {

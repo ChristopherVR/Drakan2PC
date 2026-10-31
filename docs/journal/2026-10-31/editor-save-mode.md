@@ -57,3 +57,20 @@ edited entries differed in their compressed bytes.
   Transfer (gold, health, skill levels, positions between two saves, pending until SAVE); Repair (validation with
   undoable fixes). `classThumbnail()` had not landed; pictures are map-based for now.
 - Tests: vitest `save-state.test.ts` (16), pytest additions (6). Playwright smoke on copies under `build/` (deleted).
+
+## Save mode rework: authoritative stats, inventory grid, quests (same day, later)
+
+- Character tab now reads the stats block (`stat.*`): real HP and mana bars (value / max), gold, level, XP and skill
+  points tiles, editable HP, max HP, gold, XP, level, skill points. Mana stays read only (never changed in game).
+  The old Rynn-record `hp` and gold-record `gold` sit under "Advanced / raw"; saves with no stats block show a note.
+- Items tab: 8 x 3 inventory grid like the Tab screen (multi-cell items span rows from the continuation markers).
+  Each cell shows name, art, durability bar and E / Q marks; an inspector edits durability / arrows / quantity, max,
+  equipped and quick-slot flags. Add item is disabled ("not supported yet"), removal is not offered. Names: ODB class
+  name when Level mode has a level open (`levelUi.classInfo`), else a table of the four proven items, else the id.
+  Art: the in-game icons are 3D renders of the item model (the cell `icon` word is not a texture id), so the model
+  thumbnail from `classThumbnail` is used when a level is loaded, else a coloured placeholder.
+- Story tab: read-only quest rows (`listQuests` in `formats/save.ts`), above the state table.
+- Compare lists stats and per-cell fields; Transfer copies the stats block (legacy hp/gold only when no block) and
+  item counts of the same item in the same cell.
+- Verified: vitest (176 pass), prettier, tsc, build; Playwright on a copy of a harness save; UI edit of max HP 100 ->
+  333 exported, `savetool get stat.maxhp` = 333, and only entry 893 differed.
