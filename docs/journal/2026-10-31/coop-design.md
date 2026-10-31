@@ -1,5 +1,8 @@
 # Co-op design and a first prototype (host-authoritative enemies) - 2026-10-31
 
+Sections 1 to 6 are the design and the phase 0 prototype. **Section 7 is phase 2** (kills, client hits, enemies that target
+the partner, doors and pickups), verified in two game instances.
+
 Goal: two players progress through the same level together. Desk research from the repo docs, then one cheap prototype:
 the host replicates its creatures (position, yaw, HP) and the client's copies stop thinking and follow. Sources:
 `multiplayer.md` (no lockstep: the game is not deterministic), `actor-spawn.md`, `ghost-spike*.md`, `netplay-spike.md`,
@@ -184,3 +187,107 @@ destroyed). Use mark mode first when changing identity keys.
 - Swallowing every per-tick event may also stop timers that the creature's own scripts use (burning, stun); phase 1 should
   swallow only the AI part once located.
 - Latency is not simulated on loopback; the 100 ms send interval plus smoothing gives about 150 ms visual delay.
+
+## 7. Phase 2: two players fight through a level (2026-10-31, later the same day)
+
+Code: `ps2recomp/ps2xRuntime/src/lib/drakan_coop.{h,cpp}` (rewritten around the prototype), one changed call in
+`drakan_input_glue.cpp` (`beforePadMgr` takes the guest interface now). Harness: `python scripts/harness/coop_two_instances.py
+[--scenario fight|door|pickup]`, private folders `build/coop2-{a,b}`, output `build/harness/<name>/` (logs and screenshots).
+Both instances run `drakan_netplay` (the partner's ghost; `DRAKAN_PVP=0`) **and** `drakan_coop` on a second UDP port. Tags:
+**[game]** seen in the two-instance harness, **[dec]** Ghidra decompile read, **[inf]** inference.
+
+### 7.1 What was found
+
+* **One message carries all damage.** Every hit goes through the engine's message send `0x171150` (vtable `+0x14` of the object
+  at `ctx+0x33c`): `(this, sender, target, msg*, 0x34, 1)`; a damage message has type `0x10db` at `+0` and the damage at `+0x10`
+  [dec]. Hooking that one function (`replaceFunction`) sees player hits on creatures, creature hits on the ghost (the ghost is
+  filed in the collision cells, so creature sweeps find it) and anything else, with no need for the blade hit hook. **The sender is
+  the attacker's weapon actor**, not the attacker: the local player's are the actors behind the hand holders (`data+0xeb4` /
+  `+0xe90`, actor ref at `+0x1c`); a creature's is its own weapon actor [game: `damage msg: sender 00a7beb0 ... dmg 4` for
+  Rynn's dagger, `sender 00da94a0 ... dmg 10` for an orc's].
+* **Creature death is in the damage path**, not in the tick. A proxy whose HP is simply set to 0 stays alive. A real damage
+  message makes the creature's own handler run its death (collapse animation, blood, loot) [game, B's screenshots: the proxy
+  collapses and a dropped weapon appears]. Corpses stay in the registry (the host's too), so the client does not remove them
+  (`DRAKAN_COOP_DESTROY=1` does, after 5 s).
+* **Proxies must be refiled.** A host write of `actor+0x14` does not move the actor in the collision cells (same as the
+  ghosts, `pvp.md`): the local blade found nothing until every proxy that moved is filed again (`drakan_ghost::refileActor`,
+  at most 24 per tick) [game: no claims before, claims after].
+* **How creature AI picks its target.** Every perception read goes through `ctx+0x4b0` (135 readers, `actor-spawn.md`). Swapping
+  `ctx+0x4b0` to the ghost for one creature tick **crashes the guest** (`guest-branch:missing-target`, JALR to 0 at `0x33f6c8`, in
+  the command code the AI shares with the player's input; the ghost's data object is never initialised because its handler
+  swallows the init event) [game]. What works is moving the *local player's body* (`+0x14`, 0x30 bytes of position and rotation)
+  onto the ghost for the length of that creature's tick and putting it back: perception, chase and attack range all see "the
+  player" at the ghost, the attack sweep hits the ghost's collision filing, and the damage message arrives at the ghost [game].
+  Side effect: the same sweep also reaches the host's real body (it stands there for the tick), so a damage message to the
+  controlled actor during such a tick is swallowed (`hurtSwallowed`) and only the ghost's copy counts.
+* **Per-creature target fields were not looked for**: the position trick makes them unnecessary. Rule: the nearest of {local
+  player, ghosts} wins with 20 percent hysteresis (a ghost is picked when it is under 0.8 times the player's distance), and only
+  ghosts within 6000 units count (forcing a far ghost on all 127 creatures hung the guest in an earlier run).
+* **Doors.** Class `0x10013` (Town Door, Desert Gate Door, GF Wood Door; 41 in Surdana, `type 8`) **opens by itself** when the
+  controlled actor comes near: no message is sent for it (probe: nothing on walking up or on the use key). `handle+0x9c` goes 1
+  (closed) -> 2 (awake, within about 7500 units) -> 0x1e / 0x18 (opening, within about 3900 units); `data+0x10` 0 -> 1 and
+  `data+0x8` -1 -> 1 (opened), `data+0x1c` is the swing angle and the handle matrix (+0x20) follows it;
+  `data+0xec/0xf4/0x108/0x10c` track the player's position (noise). The door's tick reads `ctx+0x4b0` like the AI does, so it gets
+  the same wrapper (position trick): with the partner's ghost at the door and the local player far away, the door opens.
+  **Verified: A walked to the door, B stood still about 7500 units away and B's door went through `handle+9c 1 -> 0x18` and
+  `data+10 0 -> 1` [game, `--scenario door`].** Message replay (`DRAKAN_COOP_MSGS=<hex types>`, reliable `ObjMsg`) is implemented
+  for levers / triggers but unused: no class needing it was found yet.
+* **Pickups** (class `0x1006d` treasure, 47 in Surdana, and the loose type 11 items: elixirs `0x1000a`, potions `0x10059`,
+  `0x10075`, `0x10021`, `0x1002d`, `0x10090`; the inventory objects are type 11 too but all sit at one parked position and
+  are excluded): a taken pickup leaves the registry. Either side reports it (`ObjGone`) and the other removes its copy
+  through the kill list (`0x1413c0`, flushed by the engine's frame tail). Verified with a stand-in for walking over the
+  treasure (test aid `DRAKAN_COOP_TEST_TAKE` destroys the first live treasure on A through the kill list): B logs
+  `pickup ... taken by the partner: removed` [game, `--scenario pickup`]. A real walk-over was not staged. Loot spawned by a
+  death exists on both sides (each runs the same death); those drops get keys by order of appearance per (class, resource)
+  (`new pickup` lines), a heuristic that holds only if both worlds drop in the same order. Not verified.
+* **Chests, levers, triggers, STOMP, exits**: not done. Chests (class `0x100c5`, 22) probably open like doors (proximity) or by
+  the use key; no lever or switch class appeared in Surdana's class list; triggers (`0x1003d`, `0x1003e`, 346 timers and
+  detectors) read the controlled actor as well and would follow the position trick if wrapped.
+
+### 7.2 What works (checks of `--scenario fight`)
+
+| Step | Evidence |
+| --- | --- |
+| B's dagger hits a proxy -> claim | `client: claim on creature ... damage 4` (damage message hook, local weapon actor) |
+| Host validates and applies | `host: claim applied to creature 00aa7b80 ...: damage 4, hp was 40` (posted `0x10db` from the ghost as sender, x8 test scale: 40 -> 12 -> dead) |
+| Kill replicates | `host: creature ... died (hp <= 0) -> client`, then `client: creature ... died on the host: own handler restored, lethal hit follows`; the proxy collapses and drops loot on B |
+| Enemies pick the ghost | `host: creature ... now targets the partner's ghost (ghost 789, player 991 units)`, 500 to 6500 ghost ticks per 5 s |
+| Client takes damage from host enemies | `host: ghost ... hit by 00da94a0 for 10 -> client`, `client: took 10 damage from a host enemy (hp 84)`, down to hp 4 (never lethal: clamped to 1) |
+| Both attack the same creature | A (host, real hits) and B (claims) wore down the same orc; the host's death event reached B (screenshots `build/harness/coop2-fight1/b/b_f2x.png`) |
+| Clean exits | both instances quit through their recipes; no crash |
+
+Runs: `coop2-fight1` and `coop2-fight2` passed 9 of 9 checks; `coop2-fight` (same code) passed 7 of 9 (no claims: B's lock-on
+picked A's ghost as its target). The fight is not scripted, so expect that variance. Test aids (env, harness only):
+`DRAKAN_COOP_TEST_GOD` (host HP never drops), `_FORCE_GHOST=all` (host creatures in range always pick the ghost; makes the fight
+reproducible because both players start together), `_SUMMON=<res>,<n>@<file>` (move creatures to the players; off by default,
+the creatures moved this way did not engage), `_GOTO=x,y,z@<file>` (teleport the player: **does not work across the map**, the
+engine puts the player back when no floor is resident), `_TAKE=<file>`, `_CLAIM=<ms>`. The fight harness builds two
+Rynn-beside-the-Yellow-Orcs saves from the dagger card with `combat_save_fixture.py` (A 970 units from the nearest orc, B 570).
+
+### 7.3 Known problems and not done
+
+* **Item 5 (move onto `drakan::net` MatchServer/MatchClient) was not done.** The reliable channel of `UdpTransport` already
+  carries every event on `drakan_coop`'s own socket and the ghosts come from `drakan_netplay` on another; moving the creature
+  stream into a `CoopSnapshot` message plus a co-op `MatchMode` means a `kProtocolVersion` bump (it is 5) while another agent
+  edits the net and PvP code. Nothing under `runtime/net` was touched, no net tests changed. Cost: two sessions must be started
+  (two ports; the multiplayer menu only hosts the netplay one).
+* **Events sent before the peer has keyed the level are lost** (the inbox is cleared on a load, and events are only applied
+  once the level is keyed). Fine when both load together; a late joiner needs the catch-up snapshot of section 2.6 (dead
+  creatures are covered by the HP stream: `hp <= 0` makes a proxy die; open doors and taken pickups are not).
+* The client never dies from host enemies (damage is clamped to HP - 1: the engine's own death reloads the last save, and a
+  co-op death policy is phase 4). The host player dies normally.
+* Hits claimed by the client use the damage the local engine computed (cap 400, claimant's ghost within 3000 units); arrows and
+  spells were not tried. One claim is applied per boundary (posted, never nested, see `pvp.md`).
+* A locked door that the partner could not open locally: whether the position trick would open it was not tested (the Town
+  Door used has no lock).
+* The position trick runs creature ticks with the player body moved: if a creature tick ever yields to another guest thread,
+  that thread would see the body at the ghost for a moment (not seen in these runs).
+
+### 7.4 Phase table update
+
+| Phase | Status |
+| --- | --- |
+| 1 (animation, deaths) | deaths and loot replay done (7.1); proxies animate on their own; events wait for the level to be keyed |
+| 2 (hit claims) | done (damage-message hook instead of `0x498020`) |
+| 3 (events) | doors (proximity wrapper) and pickups (registry loss) done; levers, chests, triggers, exits, catch-up snapshot not |
+| 4 (targeting, policies) | targeting done (position trick); dragon, death / revive, saves, `MatchMode::Coop` not |

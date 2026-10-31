@@ -1,14 +1,19 @@
-"""Co-op prototype: two instances on Surdana, A hosts the enemies, B follows them (drakan_coop,
-docs/journal/2026-10-31/coop-design.md).
+"""Co-op: two instances play one level together (drakan_coop + drakan_netplay ghosts,
+docs/journal/2026-10-31/coop-design.md section 7).
 
-    python scripts/harness/coop_two_instances.py                  # about 70 s
-    python scripts/harness/coop_two_instances.py --mode mark      # B only measures, nothing is written to its guest
-    python scripts/harness/coop_two_instances.py --exe build/coop-exe/drakan.exe
+    python scripts/harness/coop_two_instances.py                       # fight: both attack the orcs near the campfire
+    python scripts/harness/coop_two_instances.py --scenario door       # A opens a town door, B watches
+    python scripts/harness/coop_two_instances.py --scenario pickup     # A takes a gold sack, B's copy must go
+    python scripts/harness/coop_two_instances.py --mode mark           # B only measures, nothing is written to its guest
+    python scripts/harness/coop_two_instances.py --card <mc0 of a save with Rynn's dagger>
 
-Private play folders build/coop-a and build/coop-b (copied exe and DLLs, junctions for the assets) with their own memory
-cards, like netplay_two_instances.py, whose helpers are reused. Both New Game into Surdana; A walks, B stands still and
-takes screenshots. Output: build/harness/<name>/{a,b}/ (stdout_1.log, recipe.txt, *.png) and the `[coop` lines.
-Exit status 0 when both instances exit cleanly and B logged creature matches.
+Private play folders build/coop2-a and build/coop2-b (copied exe and DLLs, junctions for the assets, own memory cards
+copied from --card, default build/harness/gw-net/a/card/mc0 which holds the dagger); helpers come from
+netplay_two_instances.py. Both instances run drakan_netplay (A hosts, ghosts of each other, PvP off) and drakan_coop
+(creature proxies, claims, kills, targeting, object events) on their own UDP ports. A and B teleport next to the Yellow
+Orcs of Surdana (test aid DRAKAN_COOP_TEST_GOTO) and swing the dagger every 0.9 s; claim damage is scaled
+(DRAKAN_COOP_DAMAGE_SCALE) so a kill takes seconds. Output: build/harness/<name>/{a,b}/ (stdout_1.log, recipe.txt,
+*.png) and the `[coop` lines; the exit status is 0 when every check of the scenario passed.
 """
 
 from __future__ import annotations
@@ -24,60 +29,174 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from netplay_two_instances import ROOT, game_env, prepare_folder
 
-RECIPE_A = """clock milliseconds
-0 sync play 60
-12000 key down W
-20000 key up W
-21000 key down D
-23000 key up D
-24000 key down W
-32000 key up W
-{quit_at} quit
-"""
-RECIPE_B = """clock milliseconds
-0 sync play 60
-8000 shot b_00
-18000 shot b_01
-28000 shot b_02
-36000 shot b_03
-{quit_at} quit
-"""
+ORC_SPOT_A = "676100,159748,523349"  # 970 units from the nearest Yellow Orc, behind B
+ORC_SPOT_B = "675700,159748,523349"  # 570 units from it
+ORC_RES = "51206"  # Yellow Orc : Center
+DOOR_A = "475700,160700,487600"  # in front of Town Door 16660 (about 2100 units south of it)
+SACK = "447359,174700,380000"  # near the SackoGold in the chest room (id 16497)
+
+EQUIP = (
+    "12000 key down TAB\n12120 key up TAB\n0 sync screen 21 20\n800 cursor 215 218\n900 cursor 216 219\n"
+    "2600 key down ENTER\n2900 key up ENTER\n4200 shot equipped\n5000 key down TAB\n5200 key up TAB\n"
+    "0 sync play 60\n1500 shot pre\n"
+)
+
+
+DEFAULT_CARD = ROOT / "build" / "harness" / "gw-net" / "a" / "card" / "mc0"
+
+
+def make_fixture(card: Path, name: str, spot: str) -> Path:
+    """The dagger save with Rynn moved beside the Yellow Orcs (combat_save_fixture.py, the source is not touched)."""
+    dst = ROOT / "build" / f"coop2-fixture-{name}"
+    if dst.exists():
+        shutil.rmtree(dst)
+    subprocess.run(
+        [
+            sys.executable,
+            "-I",
+            str(ROOT / "scripts" / "harness" / "combat_save_fixture.py"),
+            str(card.parent),
+            str(dst),
+            *spot.split(","),
+        ],
+        check=True,
+        stdout=subprocess.DEVNULL,
+    )
+    return dst / "mc0"
+
+
+def swings(start: int, count: int, tag: str, every: int = 900, shot_every: int = 3) -> str:
+    out, t = "", start
+    for i in range(count):
+        t += every
+        if i % 8 == 0:  # lock on (F) so the swings face the nearest enemy
+            out += f"{t - 400} key down F\n{t - 300} key up F\n"
+        out += f"{t} button down 1\n{t + 60} button up 1\n"
+        if i % shot_every == 1:
+            out += f"{t + 350} shot {tag}{i:02d}\n"
+    return out
+
+
+NL = chr(10)
+
+
+def recipes(scenario: str) -> tuple[str, str, int]:
+    head = "clock milliseconds\n0 sync play 60\n"
+    if scenario == "fight":
+        # B swings from the start (the orcs are forced onto its ghost); A joins 14 s later, so both hit the same orc.
+        a = head + EQUIP + "14000 key down W\n14200 key up W\n" + swings(14500, 40, "a_f", shot_every=5)
+        a += "3000 shot a_end\n3500 quit\n"
+        b = head + EQUIP + "1000 key down W\n2200 key up W\n" + swings(1500, 50, "b_f", shot_every=2)
+        b += "3000 shot b_end\n3500 quit\n"
+        return a, b, 120
+    if scenario == "door":
+        # The card start is in a corridor that ends at Town Door 16658 (about 7600 units ahead). A runs to it and presses
+        # E (use) a few times; B stays and watches the door.
+        a = (
+            head
+            + "14000 shot a_before"
+            + NL
+            + "15000 key down W"
+            + NL
+            + "18500 key up W"
+            + NL
+            + "19500 shot a_at_door"
+            + NL
+        )
+        for i in range(4):
+            a += f"{20500 + i * 2500} key down E{NL}{20650 + i * 2500} key up E{NL}{21700 + i * 2500} shot a_use{i}{NL}"
+        a += f"32000 shot a_end{NL}34000 quit{NL}"
+        b = head + "".join(f"{14000 + i * 1500} shot b_d{i:02d}{NL}" for i in range(20)) + f"50000 quit{NL}"
+        return a, b, 100
+    a = head + f"16000 shot a_before{NL}18000 key down W{NL}20000 key up W{NL}22000 shot a_end{NL}40000 quit{NL}"
+    b = head + "".join(f"{14000 + i * 1500} shot b_p{i:02d}{NL}" for i in range(20)) + f"50000 quit{NL}"
+    return a, b, 100
 
 
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--name", default="coop")
+    ap.add_argument("--name", default="coop2")
+    ap.add_argument("--scenario", choices=("fight", "door", "pickup"), default="fight")
     ap.add_argument("--exe", type=Path, default=ROOT / "build" / "final-game" / "bin" / "drakan.exe")
     ap.add_argument("--src", type=Path, default=ROOT / "dist" / "DrakanPC")
+    ap.add_argument("--card", type=Path, default=DEFAULT_CARD)
     ap.add_argument("--mode", choices=("follow", "mark"), default="follow")
-    ap.add_argument("--port", type=int, default=47810)
-    ap.add_argument("--timeout", type=int, default=100)
+    ap.add_argument("--port", type=int, default=47830, help="drakan_netplay port; drakan_coop uses port + 1")
+    ap.add_argument("--timeout", type=int, default=110)
+    ap.add_argument("--env", action="append", default=[], metavar="K=V", help="extra environment, both instances")
+    ap.add_argument("--env-a", action="append", default=[], metavar="K=V")
+    ap.add_argument("--env-b", action="append", default=[], metavar="K=V")
+    ap.add_argument("--summon", action="store_true", help="host test aid: move two orcs to the players")
     a = ap.parse_args()
+    cards = {"a": a.card, "b": a.card}
+    if a.scenario == "fight" and a.card == DEFAULT_CARD:
+        cards = {"a": make_fixture(a.card, "a", ORC_SPOT_A), "b": make_fixture(a.card, "b", ORC_SPOT_B)}
     out = ROOT / "build" / "harness" / a.name
     if out.exists():
         shutil.rmtree(out)
     (out / "a").mkdir(parents=True)
     (out / "b").mkdir(parents=True)
-    exes = {k: prepare_folder(a.src, a.exe, ROOT / "build" / f"coop-{k}") for k in "ab"}
-    quit_at = 44000
-    (out / "a" / "recipe.txt").write_text(RECIPE_A.format(quit_at=quit_at), encoding="utf-8", newline="\n")
-    (out / "b" / "recipe.txt").write_text(RECIPE_B.format(quit_at=quit_at - 2000), encoding="utf-8", newline="\n")
-    extra = {
-        "a": {"DRAKAN_COOP_HOST": str(a.port)},
-        "b": {"DRAKAN_COOP_CONNECT": f"127.0.0.1:{a.port}", "DRAKAN_COOP_MODE": a.mode},
+    exes = {k: prepare_folder(a.src, a.exe, ROOT / "build" / f"coop2-{k}") for k in "ab"}
+    ra, rb, timeout = recipes(a.scenario)
+    (out / "a" / "recipe.txt").write_text(ra, encoding="utf-8", newline="\n")
+    (out / "b" / "recipe.txt").write_text(rb, encoding="utf-8", newline="\n")
+    common = {
+        "DRAKAN_PVP": "0",
+        "DRAKAN_COOP_DAMAGE_SCALE": "8",
+        "DRAKAN_COOP_PROBE": "1",
     }
+    env = {
+        "a": {
+            **common,
+            "DRAKAN_NET_HOST": str(a.port),
+            "DRAKAN_NET_NAME": "Alpha",
+            "DRAKAN_COOP_HOST": str(a.port + 1),
+        },
+        "b": {
+            **common,
+            "DRAKAN_NET_CONNECT": f"127.0.0.1:{a.port}",
+            "DRAKAN_NET_NAME": "Bravo",
+            "DRAKAN_COOP_CONNECT": f"127.0.0.1:{a.port + 1}",
+            "DRAKAN_COOP_MODE": a.mode,
+        },
+    }
+    go = {k: out / k / "go.txt" for k in "ab"}
+    spots = {"fight": ("", ""), "door": ("", ""), "pickup": ("", "")}[a.scenario]
+    if spots[0]:
+        env["a"]["DRAKAN_COOP_TEST_GOTO"] = f"{spots[0]}@{go['a']}"
+        env["b"]["DRAKAN_COOP_TEST_GOTO"] = f"{spots[1]}@{go['b']}"
+    env["a"]["DRAKAN_COOP_TEST_GOD"] = "1"
+    if a.summon:
+        env["a"]["DRAKAN_COOP_TEST_SUMMON"] = f"{ORC_RES},2@{go['a']}"
+    if a.scenario == "fight":
+        env["a"]["DRAKAN_COOP_TEST_FORCE_GHOST"] = "all"
+    if a.scenario == "pickup":
+        env["a"]["DRAKAN_COOP_TEST_TAKE"] = str(go["a"])
+    if a.scenario == "door":  # no setup to wait for
+        for k in "ab":
+            go[k].write_text("go", encoding="utf-8")
+    for kv in a.env + a.env_a:
+        env["a"][kv.split("=", 1)[0]] = kv.split("=", 1)[1]
+    for kv in a.env + a.env_b:
+        env["b"][kv.split("=", 1)[0]] = kv.split("=", 1)[1]
     procs, logs = {}, {k: out / k / "stdout_1.log" for k in "ab"}
     t0 = time.monotonic()
     try:
         for k in "ab":
-            env = game_env(out / k, exes[k].parent, out / k / "recipe.txt", a.timeout, extra[k])
+            e = game_env(out / k, exes[k].parent, out / k / "recipe.txt", max(a.timeout, timeout), env[k], cards[k])
             procs[k] = subprocess.Popen(
-                [str(exes[k])], cwd=exes[k].parent, env=env, stdout=logs[k].open("wb"), stderr=subprocess.STDOUT
+                [str(exes[k])], cwd=exes[k].parent, env=e, stdout=logs[k].open("wb"), stderr=subprocess.STDOUT
             )
             print(f"started {k.upper()} (pid {procs[k].pid})", flush=True)
             time.sleep(4)
         while any(p.poll() is None for p in procs.values()):
-            if time.monotonic() - t0 > a.timeout + 40:
+            if a.scenario == "pickup" and not go["a"].exists() and logs["b"].is_file():
+                if b"client: keyed" in logs["b"].read_bytes():  # B has the level keyed: events can be applied
+                    go["a"].write_text("go", encoding="utf-8")
+            for k in "ab":  # the teleport waits for the equip sequence (the inventory swaps the controlled actor)
+                if not go[k].exists() and logs[k].is_file() and b"screenshot pre -> ok" in logs[k].read_bytes():
+                    go[k].write_text("go", encoding="utf-8")
+            if time.monotonic() - t0 > max(a.timeout, timeout) + 40:
                 print("timeout: killing", flush=True)
                 for p in procs.values():
                     p.kill()
@@ -92,12 +211,32 @@ def main() -> int:
         for line in text[k].splitlines():
             if "[coop" in line:
                 print(f"{k.upper()} {line.strip()}")
-    ok = all(procs[k].returncode == 0 and "[in] script quit" in text[k] for k in "ab")
+    checks: dict[str, bool] = {}
+    checks["both instances exited cleanly"] = all(
+        procs[k].returncode == 0 and "[in] script quit" in text[k] for k in "ab"
+    )
     matched = re.findall(r"client stats: \d+ packets, keyed \d+, matched (\d+)", text["b"])
-    good = bool(matched) and max(int(m) for m in matched) > 0
-    print(("PASS " if ok else "FAIL ") + "both instances exited cleanly")
-    print(("PASS " if good else "FAIL ") + "b: matched host creatures")
-    return 0 if ok and good else 1
+    checks["b: matched host creatures"] = bool(matched) and max(int(m) for m in matched) > 0
+    if a.scenario == "fight":
+        checks["b: claims sent for hits on proxies"] = "client: claim on creature" in text["b"]
+        checks["a: claims applied to the real creature"] = "host: claim applied" in text["a"]
+        checks["a: a creature died, reported"] = "host: creature" in text["a"] and "died (" in text["a"]
+        checks["b: the death reached the client"] = "died on the host" in text["b"]
+        checks["a: enemy retargeted to the ghost"] = "now targets the partner's ghost" in text["a"]
+        checks["a: ghost hit by an enemy"] = re.search(r"host: ghost [0-9a-f]+ hit by", text["a"]) is not None
+        checks["b: took damage from a host enemy"] = "took " in text["b"] and "from a host enemy" in text["b"]
+    elif a.scenario == "door":
+        # The door opens by itself when a player is near: B's door must open while B stands still at the start.
+        opened = "data+10 00000000 -> 00000001"
+        checks["a: door opened (state fields logged)"] = opened in text["a"]
+        checks["b: door opened for the partner while b stood still"] = opened in text["b"]
+    else:
+        checks["a: pickup left the registry, reported"] = "left the registry -> peer" in text["a"]
+        checks["b: the partner's pickup removed"] = "taken by the partner: removed" in text["b"]
+    for name, ok in checks.items():
+        print(("PASS " if ok else "FAIL ") + name)
+    print(out)
+    return 0 if all(checks.values()) else 1
 
 
 if __name__ == "__main__":

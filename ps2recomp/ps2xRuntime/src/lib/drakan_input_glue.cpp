@@ -688,7 +688,7 @@ void hookPadMgrUpdate(uint8_t* rdram, R5900Context* c, PS2Runtime* rt) {
 #if defined(PS2X_HAVE_GSR)
     drakan_ghost::beforePadMgr(g, m);
     drakan_netplay::beforePadMgr(rdram);
-    drakan_coop::beforePadMgr(rdram);
+    drakan_coop::beforePadMgr(g, rdram);
     drakan_pvp::beforePadMgr(g, rdram);
 #endif
     inventoryViewsTick(g, scr, gameplay);
