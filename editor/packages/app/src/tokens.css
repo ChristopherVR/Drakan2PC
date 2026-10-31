@@ -1,0 +1,139 @@
+/*
+ * Design tokens for every mode (Inspect, Level, Save). One dark "workbench" theme by default (light is opt-in through
+ * data-theme="light" on <html>; see editor/theme.ts). Token names are stable: other stylesheets may rely on them.
+ *
+ *   surfaces  --surface-0 (window gaps, viewport) < --surface-1 (panel body) < --surface-2 (tab strips, toolbars)
+ *             < --surface-3 (raised controls) < --surface-4 (hover); --field is the recessed input well
+ *   text      --fg, --fg-muted, --fg-faint
+ *   lines     --border (seams), --border-strong (control edges)
+ *   accent    --accent, --accent-hover, --accent-soft (tints), --select (selected row), --focus (focus ring)
+ *   status    --ok, --warn, --bad, --play (+ -soft tints)
+ *   type      --font, --mono, --fs-2xs .. --fs-lg, --lh
+ *   space     --sp-1 .. --sp-6; radii --r-xs .. --r-lg; heights --h-*
+ *   motion    --t-fast, --t-med;  elevation --shadow-1, --shadow-pop;  focus --ring
+ *
+ * Legacy names (--bg --panel --panel2 --raise --hover --line --text --dim --sel --shadow --r) stay as aliases.
+ */
+:root {
+    color-scheme: dark;
+
+    --surface-0: #121214;
+    --surface-1: #1b1b1e;
+    --surface-2: #232327;
+    --surface-3: #2d2d32;
+    --surface-4: #3a3a41;
+    --field: #0f0f11;
+
+    --fg: #e6e6ea;
+    --fg-muted: #a3a3ad;
+    --fg-faint: #6f6f7a;
+
+    --border: #2f2f35;
+    --border-strong: #45454d;
+
+    --accent: #3d8bfd;
+    --accent-hover: #5c9fff;
+    --accent-fg: #ffffff;
+    --accent-soft: rgb(61 139 253 / 0.16);
+    --select: #1d3a63;
+    --focus: #6aa9ff;
+
+    --ok: #4cc38a;
+    --warn: #e8b04a;
+    --bad: #f06a62;
+    --play: #3fb950;
+    --ok-soft: rgb(76 195 138 / 0.16);
+    --warn-soft: rgb(232 176 74 / 0.16);
+    --bad-soft: rgb(240 106 98 / 0.16);
+
+    --axis-x: #f06a62;
+    --axis-y: #4cc38a;
+    --axis-z: #5c9fff;
+
+    --font: 'Segoe UI Variable Text', 'Segoe UI', Inter, system-ui, -apple-system, sans-serif;
+    --mono: 'Cascadia Mono', ui-monospace, Consolas, 'SF Mono', monospace;
+    --fs-2xs: 10px;
+    --fs-xs: 11px;
+    --fs-sm: 12px;
+    --fs-md: 13px;
+    --fs-lg: 15px;
+    --lh: 1.4;
+
+    --sp-1: 2px;
+    --sp-2: 4px;
+    --sp-3: 6px;
+    --sp-4: 8px;
+    --sp-5: 12px;
+    --sp-6: 16px;
+
+    --r-xs: 2px;
+    --r-sm: 3px;
+    --r-md: 5px;
+    --r-lg: 8px;
+
+    --h-appbar: 32px;
+    --h-toolbar: 40px;
+    --h-tab: 28px;
+    --h-ctl: 24px;
+    --h-ctl-sm: 20px;
+    --h-row: 22px;
+    --h-status: 24px;
+
+    --t-fast: 90ms;
+    --t-med: 160ms;
+
+    --shadow-1: 0 1px 2px rgb(0 0 0 / 0.4);
+    --shadow-pop: 0 8px 24px rgb(0 0 0 / 0.55), 0 0 0 1px var(--border-strong);
+    --ring: 0 0 0 2px var(--focus);
+
+    /* legacy aliases */
+    --bg: var(--surface-0);
+    --panel: var(--surface-1);
+    --panel2: var(--field);
+    --raise: var(--surface-3);
+    --hover: var(--surface-4);
+    --line: var(--border);
+    --text: var(--fg);
+    --dim: var(--fg-muted);
+    --sel: var(--select);
+    --shadow: var(--shadow-pop);
+    --r: var(--r-sm);
+    --ed-font: var(--font);
+    --ed-mono: var(--mono);
+}
+
+:root[data-theme='light'] {
+    color-scheme: light;
+
+    --surface-0: #d9dbe0;
+    --surface-1: #f4f5f7;
+    --surface-2: #e8eaee;
+    --surface-3: #ffffff;
+    --surface-4: #dde0e6;
+    --field: #ffffff;
+
+    --fg: #1d2026;
+    --fg-muted: #565e6c;
+    --fg-faint: #8b93a1;
+
+    --border: #cdd1d9;
+    --border-strong: #aab0bb;
+
+    --accent: #1b62c9;
+    --accent-hover: #2f78e0;
+    --accent-soft: rgb(27 98 201 / 0.12);
+    --select: #cfe0fa;
+    --focus: #1b62c9;
+
+    --ok: #1c8a4a;
+    --warn: #a8700a;
+    --bad: #c4392f;
+    --play: #1c8a4a;
+
+    --axis-x: #c4392f;
+    --axis-y: #1c8a4a;
+    --axis-z: #1b62c9;
+
+    --shadow-1: 0 1px 2px rgb(20 30 50 / 0.18);
+    --shadow-pop: 0 8px 24px rgb(20 30 50 / 0.2), 0 0 0 1px var(--border-strong);
+}

@@ -2,6 +2,7 @@ import type { EntityKind, LevelObject } from '@drakan/editor-core';
 import { KINDS } from '../level.ts';
 import type { Ctx, Panel } from './ctx.ts';
 import { fill, h, icon, raf } from './dom.ts';
+import { emptyState, onContextMenu, searchField, type MenuItem } from './ui.ts';
 
 interface ClassGroup {
     key: string;
@@ -25,11 +26,8 @@ const colorOf = (kind: EntityKind): string =>
  * change; selection highlights are patched in place so moving objects stays cheap.
  */
 export function createOutliner(ctx: Ctx): Panel {
-    const search = h('input', {
-        type: 'search',
-        placeholder: 'Search by class, id or kind',
-        'aria-label': 'Search objects',
-    });
+    const searchBox = searchField('Search by class, id or kind', 'Search objects');
+    const search = searchBox.input;
     const count = h('span', { class: 'dim count' });
     const tree = h('div', { class: 'tree', role: 'tree' });
     const root = h(
@@ -38,16 +36,16 @@ export function createOutliner(ctx: Ctx): Panel {
         h(
             'div',
             { class: 'panel-head' },
-            h('span', { class: 'panel-title' }, icon('layers', 14), 'Outliner'),
+            h('span', { class: 'panel-title' }, icon('outliner', 14), 'Outliner'),
             count,
             h('span', { class: 'spacer' }),
             h(
                 'button',
                 { class: 'tool sm', title: 'Collapse all', onclick: () => (expanded.clear(), build()) },
-                icon('chevron', 14),
+                icon('chevron-down', 14),
             ),
         ),
-        h('div', { class: 'panel-tools' }, search),
+        h('div', { class: 'panel-tools' }, searchBox.el),
         tree,
     );
 
@@ -125,6 +123,43 @@ export function createOutliner(ctx: Ctx): Panel {
         return b;
     };
 
+    /** Right-click menu: acts on the clicked ids (selecting them first unless they are already selected). */
+    function rowMenu(ids: number[]): MenuItem[] {
+        const v = ctx.view();
+        if (!ids.every((i) => v.selection.has(i))) v.select(ids);
+        const hidden = ids.every((i) => v.hiddenIds.has(i));
+        const locked = ids.every((i) => v.lockedIds.has(i));
+        const edit = v.policy.structural;
+        return [
+            { heading: ids.length === 1 ? `Object #${ids[0]}` : `${ids.length} objects` },
+            { label: 'Frame in viewport', icon: 'focus', hint: 'F', run: () => ctx.locate(ids) },
+            { label: 'Select same class', icon: 'select', hint: 'Ctrl+Shift+A', run: () => v.selectSameClass() },
+            { sep: true },
+            {
+                label: hidden ? 'Show' : 'Hide',
+                icon: hidden ? 'eye' : 'eye-off',
+                hint: 'H',
+                run: () => v.setHidden(ids, !hidden),
+            },
+            {
+                label: locked ? 'Unlock' : 'Lock',
+                icon: locked ? 'unlock' : 'lock',
+                hint: 'L',
+                run: () => v.setLocked(ids, !locked),
+            },
+            { sep: true },
+            { label: 'Duplicate', icon: 'copy', hint: 'Ctrl+D', disabled: !edit, run: () => v.duplicateSelected() },
+            {
+                label: 'Delete',
+                icon: 'trash',
+                hint: 'Del',
+                danger: true,
+                disabled: !edit,
+                run: () => v.deleteSelected(),
+            },
+        ];
+    }
+
     function objectRow(o: LevelObject, groupKey: string, siblings: number[]): HTMLElement {
         const v = ctx.view();
         const hidden = v.hiddenIds.has(o.id);
@@ -155,6 +190,7 @@ export function createOutliner(ctx: Ctx): Panel {
             v.select([o.id], e.ctrlKey || e.metaKey);
         });
         row.addEventListener('dblclick', () => ctx.locate([o.id]));
+        onContextMenu(row, () => rowMenu([o.id]));
         rows.set(o.id, row);
         return row;
     }
@@ -187,7 +223,7 @@ export function createOutliner(ctx: Ctx): Panel {
                 },
                 icon('chevron', 12),
             ),
-            color ? h('i', { class: 'dot', style: `background:${color}` }) : null,
+            color ? h('i', { class: 'ui-dot', style: `background:${color}` }) : null,
             h('span', { class: 'name' }, label),
             h('span', { class: 'dim n' }, String(count)),
         );
@@ -210,6 +246,7 @@ export function createOutliner(ctx: Ctx): Panel {
             v.select(ids(), e.ctrlKey || e.metaKey);
         });
         row.addEventListener('dblclick', () => ctx.locate(ids()));
+        onContextMenu(row, () => rowMenu(ids()));
         function toggle(): void {
             if (expanded.has(key)) expanded.delete(key);
             else expanded.add(key);
@@ -236,7 +273,9 @@ export function createOutliner(ctx: Ctx): Panel {
         if (!groups.length) {
             fill(
                 tree,
-                h('div', { class: 'empty-note' }, total ? 'No objects match.' : 'Open a level to see its objects.'),
+                total
+                    ? emptyState('search', 'No objects match', 'Clear the search to see every object.')
+                    : emptyState('outliner', 'Nothing to list', 'Open a level to see its objects here.'),
             );
             return;
         }

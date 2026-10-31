@@ -14,7 +14,7 @@ import {
     type SaveFile,
 } from '@drakan/formats';
 import type { SaveRef } from '../saveio.ts';
-import { badge, h, hex, statTile } from './dom.ts';
+import { badge, button, card, emptyState, h, hex, statTile } from './dom.ts';
 import { renderInventory, type ClassInfo } from './inventory.ts';
 import { renderJournal } from './journal.ts';
 import type { StoryData } from './storyart.ts';
@@ -62,11 +62,10 @@ export function renderStory(ctx: PanelCtx): HTMLElement {
             'div',
             { class: 'story' },
             quests,
-            h(
-                'div',
-                { class: 'welcome' },
-                h('h3', null, 'No state table'),
-                h('p', null, 'This save has no recognisable state table at the end of its text payload.'),
+            emptyState(
+                'file',
+                'No state table',
+                'This save has no recognisable state table at the end of its text payload.',
             ),
         );
     }
@@ -74,7 +73,7 @@ export function renderStory(ctx: PanelCtx): HTMLElement {
     for (const r of doc.records) if (r.type === 0x102 && !entryOfKey.has(r.id)) entryOfKey.set(r.id, r.index);
     const nonZero = rows.filter((r) => doc.progressValue(r.key) !== 0).length;
     const body = h('tbody');
-    const count = h('small', { class: 'dim' });
+    const count = h('small', { class: 'sv-dim' });
     const fill = (): void => {
         const q = storyState.q.trim().toLowerCase();
         const shown = rows.filter((r) => {
@@ -114,9 +113,9 @@ export function renderStory(ctx: PanelCtx): HTMLElement {
                 return h(
                     'tr',
                     { class: changed ? 'chg' : '' },
-                    h('td', null, String(r.key), h('small', { class: 'dim' }, ` 0x${hex(r.key, 3)}`)),
+                    h('td', null, String(r.key), h('small', { class: 'sv-dim' }, ` 0x${hex(r.key, 3)}`)),
                     h('td', null, String(r.kind)),
-                    h('td', null, input, changed ? h('small', { class: 'dim' }, ` was ${r.value}`) : null),
+                    h('td', null, input, changed ? h('small', { class: 'sv-dim' }, ` was ${r.value}`) : null),
                     h(
                         'td',
                         null,
@@ -129,7 +128,7 @@ export function renderStory(ctx: PanelCtx): HTMLElement {
                                   },
                                   `#${link}${recordLabel(rec) ? ` ${recordLabel(rec)}` : ''}`,
                               )
-                            : h('small', { class: 'dim' }, '-'),
+                            : h('small', { class: 'sv-dim' }, '-'),
                     ),
                 );
             }),
@@ -174,7 +173,7 @@ export function renderStory(ctx: PanelCtx): HTMLElement {
     });
     const table = h(
         'table',
-        { class: 'grid' },
+        { class: 'sv-grid' },
         h('thead', null, h('tr', null, ...['key', 'kind', 'value', 'record'].map((x) => h('th', null, x)))),
         body,
     );
@@ -193,7 +192,7 @@ export function renderStory(ctx: PanelCtx): HTMLElement {
         ),
         h(
             'p',
-            { class: 'dim' },
+            { class: 'sv-dim' },
             'Each row is {kind, key, value}. Keys are numbers, not names, and none are decoded yet, so there are no readable ' +
                 'labels. The table is shorter after play than in a fresh save, which points at per-actor state (killed or ' +
                 'collected things), but that is a hypothesis. Editing is low confidence and off by default.',
@@ -202,11 +201,11 @@ export function renderStory(ctx: PanelCtx): HTMLElement {
         ),
         h(
             'div',
-            { class: 'filters' },
+            { class: 'sv-filters' },
             search,
             kinds,
-            h('label', { class: 'check' }, nz, ' with a value only'),
-            h('label', { class: 'check warn' }, allow, ' allow editing'),
+            h('label', { class: 'sv-check' }, nz, ' with a value only'),
+            h('label', { class: 'sv-check warn' }, allow, ' allow editing'),
             count,
         ),
         table,
@@ -221,11 +220,11 @@ export function renderItems(ctx: PanelCtx): HTMLElement {
     const item = p
         ? h(
               'div',
-              { class: 'card itemcard' },
+              { class: 'sv-box itemcard' },
               h(
                   'div',
-                  { class: 'meta' },
-                  h('small', { class: 'dim' }, 'Last inspected item'),
+                  { class: 'sv-meta' },
+                  h('small', { class: 'sv-dim' }, 'Last inspected item'),
                   h('h3', null, p.name || 'Unnamed item'),
                   p.hand ? badge(`${p.hand} hand`, 'high', 'The item text says it is held in this hand.') : null,
                   ...p.lines.map((l) => h('div', { class: 'line' }, l)),
@@ -244,25 +243,20 @@ export function renderItems(ctx: PanelCtx): HTMLElement {
                       : null,
               ),
           )
-        : h(
-              'div',
-              { class: 'welcome' },
-              h('h3', null, 'No item text'),
-              h('p', null, 'Rynn’s record holds no inspected-item text in this save.'),
-          );
+        : emptyState('file', 'No item text', 'Rynn’s record holds no inspected-item text in this save.');
     const arokhPos = doc.value('arokh.pos');
     const arokhIndex = doc.records.find((r) => r.resource === 0xa60)?.index;
     const arokh = h(
         'div',
-        { class: 'card' },
+        { class: 'sv-box' },
         h(
             'div',
-            { class: 'meta' },
-            h('small', { class: 'dim' }, 'Dragon'),
+            { class: 'sv-meta' },
+            h('small', { class: 'sv-dim' }, 'Dragon'),
             h('h3', null, 'Arokh'),
             Array.isArray(arokhPos)
                 ? h('div', { class: 'line' }, `Position ${fmt('arokh.pos', arokhPos)}`)
-                : h('small', { class: 'dim' }, 'No dragon record in this save (not every level has Arokh).'),
+                : h('small', { class: 'sv-dim' }, 'No dragon record in this save (not every level has Arokh).'),
             Array.isArray(arokhPos) && arokhIndex !== undefined
                 ? h('button', { onclick: () => ctx.showRecord(arokhIndex, true) }, 'Show Arokh in 3D')
                 : null,
@@ -280,7 +274,7 @@ export function renderItems(ctx: PanelCtx): HTMLElement {
             h('h4', null, 'Last inspected item (UI text buffer)'),
             h(
                 'p',
-                { class: 'dim' },
+                { class: 'sv-dim' },
                 'The text the Equipment page last displayed, kept inside Rynn’s record. It is not the inventory; read only.',
             ),
             item,
@@ -320,6 +314,8 @@ export function renderTransfer(ctx: PanelCtx, rerender: () => void): HTMLElement
     const pick = h(
         'select',
         {
+            class: 'sv-select',
+            'aria-label': 'Take values from a listed save',
             onchange: () => {
                 const r = listed[Number(pick.value)];
                 pick.value = '';
@@ -334,19 +330,31 @@ export function renderTransfer(ctx: PanelCtx, rerender: () => void): HTMLElement
     );
     const bar = h(
         'div',
-        { class: 'toolbar' },
-        h('button', { onclick: () => file.click() }, 'Take values from a file...'),
+        { class: 'sv-toolbar' },
+        button('Take values from a file', { icon: 'file', onclick: () => file.click() }),
         pick,
         file,
     );
     const intro = h(
         'p',
-        { class: 'dim' },
+        { class: 'sv-lede' },
         'Copy values from another save into the open one: health, gold, mana, XP, level, skill points, skill levels, item ' +
             'counts (same item in the same cell), and positions when both saves are from the same level. The result is ' +
-            'pending until SAVE. Items themselves cannot be moved: adding items is not supported yet.',
+            'pending until you save. Items themselves cannot be moved: adding items is not supported yet.',
     );
-    if (!transfer.source) return h('div', { class: 'transfer' }, bar, intro);
+    if (!transfer.source) {
+        return h(
+            'div',
+            { class: 'transfer' },
+            bar,
+            emptyState(
+                'swap',
+                'Choose a source save',
+                'Pick a listed save or a file above. You then tick the values to copy into this save.',
+            ),
+            intro,
+        );
+    }
     const src = transfer.source;
     const sameLevel = (() => {
         try {
@@ -387,25 +395,22 @@ export function renderTransfer(ctx: PanelCtx, rerender: () => void): HTMLElement
         );
     });
     const ticked = plan.filter((r) => transfer.ticked.has(r.name) && !(r.blocked ?? firstBlocked(ctx, r.edits)));
-    const apply = h(
-        'button',
-        {
-            class: 'primary',
-            disabled: ticked.length === 0,
-            onclick: () => {
-                try {
-                    for (const r of ticked) applyEdits(ctx, r.edits);
-                    transfer.ticked = new Set();
-                    ctx.status(`Copied ${ticked.length} value(s) from ${src.label}; pending until SAVE.`);
-                    ctx.changed();
-                } catch (e) {
-                    ctx.err(e);
-                    ctx.changed();
-                }
-            },
+    const apply = button(`Copy ${ticked.length} selected`, {
+        icon: 'swap',
+        kind: 'primary',
+        disabled: ticked.length === 0,
+        onclick: () => {
+            try {
+                for (const r of ticked) applyEdits(ctx, r.edits);
+                transfer.ticked = new Set();
+                ctx.status(`Copied ${ticked.length} value(s) from ${src.label}; pending until you save.`);
+                ctx.changed();
+            } catch (e) {
+                ctx.err(e);
+                ctx.changed();
+            }
         },
-        `Copy ${ticked.length} selected`,
-    );
+    });
     return h(
         'div',
         { class: 'transfer' },
@@ -413,24 +418,26 @@ export function renderTransfer(ctx: PanelCtx, rerender: () => void): HTMLElement
         intro,
         h(
             'div',
-            { class: 'cmphead' },
-            h('b', null, 'From'),
-            ` ${src.label}  `,
-            h('b', null, 'Into'),
-            ` ${doc.level || 'the open save'}`,
-            sameLevel ? '' : '  (different levels)',
+            { class: 'sv-cmphead' },
+            h('span', { class: 'sv-ab b' }, 'From'),
+            h('span', null, src.label),
+            h('span', { class: 'sv-ab a' }, 'Into'),
+            h('span', null, `${doc.level || 'the open save'}${sameLevel ? '' : ' (different levels)'}`),
         ),
-        h(
-            'table',
-            { class: 'grid' },
+        card(
+            'Values',
+            { tools: apply },
             h(
-                'thead',
-                null,
-                h('tr', null, ...['', 'value', 'open save', 'source', 'note'].map((x) => h('th', null, x))),
+                'table',
+                { class: 'sv-grid' },
+                h(
+                    'thead',
+                    null,
+                    h('tr', null, ...['', 'value', 'open save', 'source', 'note'].map((x) => h('th', null, x))),
+                ),
+                h('tbody', null, ...rows),
             ),
-            h('tbody', null, ...rows),
         ),
-        apply,
     );
 }
 
@@ -489,7 +496,7 @@ export function renderRepair(ctx: PanelCtx): HTMLElement {
                                 onclick: () => {
                                     try {
                                         applyEdits(ctx, i.fix!.edits);
-                                        ctx.status(`${i.fix!.label}: pending until SAVE.`);
+                                        ctx.status(`${i.fix!.label}: pending until you save.`);
                                     } catch (e) {
                                         ctx.err(e);
                                     }
@@ -519,11 +526,11 @@ export function renderRepair(ctx: PanelCtx): HTMLElement {
             statTile('Warnings', String(warns)),
             statTile('Records', String(doc.save.entries.length), { note: 'all zlib streams inflate' }),
         ),
-        pendingNote ? h('small', { class: 'dim' }, pendingNote) : null,
+        pendingNote ? h('small', { class: 'sv-dim' }, pendingNote) : null,
         ...list,
         h(
             'p',
-            { class: 'dim' },
+            { class: 'sv-dim' },
             'The container carries no checksum, so structure is checked here (keys, skill bounds, positions, the state table). ' +
                 'Fixes are ordinary pending edits and can be undone. Whether the game itself accepts a save is only known from loading it.',
         ),

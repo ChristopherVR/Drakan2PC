@@ -58,7 +58,7 @@ export function initLayout(root: HTMLElement, onResize: () => void): Layout {
             splitter: q('#ed-split-bottom'),
             min: 120,
             max: 640,
-            def: 250,
+            def: 280,
             axis: 'y',
             invert: true,
         },
@@ -136,6 +136,56 @@ export function initLayout(root: HTMLElement, onResize: () => void): Layout {
         });
     }
 
+    // Outliner / Details split inside the right dock (height of the Outliner in px).
+    const osplit = root.querySelector<HTMLElement>('#ed-split-outliner');
+    const oDef = 300;
+    const oState: { size: number } = store.json('outliner-h', { size: oDef });
+    const applyO = (): void => {
+        // The CSS caps the height at (dock - 160px); this only keeps the stored value sane while the tab is hidden.
+        oState.size = clamp(oState.size, 110, 2000);
+        root.style.setProperty('--ed-outliner', `${oState.size}px`);
+    };
+    applyO();
+    if (osplit) {
+        let start = 0;
+        let startSize = 0;
+        osplit.addEventListener('pointerdown', (e) => {
+            e.preventDefault();
+            osplit.setPointerCapture(e.pointerId);
+            start = e.clientY;
+            startSize = oState.size;
+            osplit.classList.add('dragging');
+            document.body.classList.add('ed-resizing-y');
+        });
+        osplit.addEventListener('pointermove', (e) => {
+            if (!osplit.hasPointerCapture(e.pointerId)) return;
+            oState.size = startSize + (e.clientY - start);
+            applyO();
+        });
+        const end = (e: PointerEvent): void => {
+            if (osplit.hasPointerCapture(e.pointerId)) osplit.releasePointerCapture(e.pointerId);
+            osplit.classList.remove('dragging');
+            document.body.classList.remove('ed-resizing-y');
+            store.set('outliner-h', JSON.stringify(oState));
+        };
+        osplit.addEventListener('pointerup', end);
+        osplit.addEventListener('pointercancel', end);
+        osplit.addEventListener('dblclick', () => {
+            oState.size = oDef;
+            applyO();
+            store.set('outliner-h', JSON.stringify(oState));
+        });
+        osplit.addEventListener('keydown', (e) => {
+            const dir = e.key === 'ArrowUp' ? -1 : e.key === 'ArrowDown' ? 1 : 0;
+            if (!dir) return;
+            e.preventDefault();
+            oState.size += dir * (e.shiftKey ? 60 : 20);
+            applyO();
+            store.set('outliner-h', JSON.stringify(oState));
+        });
+        window.addEventListener('resize', applyO);
+    }
+
     const find = (k: Dock['key']): Dock => docks.find((d) => d.key === k)!;
     const layout: Layout = {
         toggle(key, open) {
@@ -149,6 +199,9 @@ export function initLayout(root: HTMLElement, onResize: () => void): Layout {
         reset() {
             for (const d of docks) state[d.key] = { size: d.def, open: true };
             for (const d of docks) apply(d);
+            oState.size = oDef;
+            applyO();
+            store.set('outliner-h', JSON.stringify(oState));
             save();
             onResize();
         },

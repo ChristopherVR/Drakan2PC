@@ -3,25 +3,40 @@
     <head>
         <meta charset="utf-8" />
         <meta name="viewport" content="width=device-width, initial-scale=1" />
-        <title>Disc Inspector</title>
+        <title>Drakan Editor</title>
         <link rel="icon" href="data:," />
+        <script>
+            try {
+                document.documentElement.dataset.theme =
+                    localStorage.getItem('drakan-editor:theme') === 'light' ? 'light' : 'dark';
+            } catch (e) {
+                document.documentElement.dataset.theme = 'dark';
+            }
+        </script>
         <link rel="stylesheet" href="/src/style.css" />
     </head>
     <body>
-        <header>
-            <h1>Disc Inspector</h1>
-            <label class="button">
+        <header id="appbar">
+            <div class="brand">
+                <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
+                    <path d="M12 2l8.5 5v10L12 22l-8.5-5V7z" fill="none" stroke="currentColor" stroke-width="1.8" />
+                    <path d="M12 7l4.2 2.5v5L12 17l-4.2-2.5v-5z" fill="currentColor" />
+                </svg>
+                <h1>Drakan Editor</h1>
+            </div>
+            <label class="ui-btn sm" id="open-iso" title="Open your own disc image. Nothing is uploaded.">
                 Open ISO
                 <input id="iso-input" type="file" accept=".iso,.bin,.img" hidden />
             </label>
-            <nav id="tabs">
-                <button id="tab-inspect" class="active">Inspector</button>
+            <nav id="tabs" aria-label="Editor mode">
+                <button id="tab-inspect" class="active">Inspect</button>
                 <button id="tab-level">Level</button>
                 <button id="tab-save">Save</button>
             </nav>
+            <span class="spacer"></span>
             <span id="status">Choose or drop your own disc image. Nothing is uploaded; files are read locally.</span>
         </header>
-        <main>
+        <main id="inspect-main">
             <nav id="sidebar">
                 <section>
                     <h2>Language</h2>
@@ -64,10 +79,10 @@
                 <div id="viewport"></div>
             </section>
         </main>
-        <main id="level-main" class="ed" hidden>
-            <div id="ed-toolbar" class="ed-toolbar" role="toolbar" aria-label="Editor toolbar"></div>
+        <main id="level-main" class="ed ui-root" hidden>
+            <div id="ed-toolbar" class="ed-toolbar" role="toolbar" aria-label="Main toolbar"></div>
             <div id="ed-body">
-                <aside id="ed-left" class="ed-dock" aria-label="Outliner"></aside>
+                <aside id="ed-left" class="ed-dock" aria-label="Place"></aside>
                 <div
                     id="ed-split-left"
                     class="splitter v"
@@ -78,13 +93,16 @@
                 ></div>
                 <div id="ed-mid">
                     <section id="lv-viewport" aria-label="3D viewport">
+                        <div id="vp-bar-left" class="vp-bar vp-left" role="toolbar" aria-label="Viewport display"></div>
+                        <div
+                            id="vp-bar-right"
+                            class="vp-bar vp-right"
+                            role="toolbar"
+                            aria-label="Transform tools"
+                        ></div>
+                        <div id="vp-gizmo" class="vp-gizmo" aria-label="View orientation"></div>
                         <div id="lv-hud"></div>
-                        <div id="lv-empty">
-                            <strong>No level open</strong>
-                            Pick a level in the toolbar after opening your ISO, or drop a saved document or world dump
-                            (.json) here.<br />
-                            Press F1 for the keyboard shortcuts.
-                        </div>
+                        <div id="lv-empty"></div>
                     </section>
                     <div
                         id="ed-split-bottom"
@@ -94,7 +112,7 @@
                         tabindex="0"
                         title="Drag to resize, double-click to collapse"
                     ></div>
-                    <section id="ed-bottom" class="ed-dock" aria-label="Asset browser and panels"></section>
+                    <section id="ed-bottom" class="ed-dock" aria-label="Content Browser and logs"></section>
                 </div>
                 <div
                     id="ed-split-right"
@@ -104,7 +122,18 @@
                     tabindex="0"
                     title="Drag to resize, double-click to collapse"
                 ></div>
-                <aside id="ed-right" class="ed-dock" aria-label="Inspector"></aside>
+                <aside id="ed-right" class="ed-dock" aria-label="Outliner and Details">
+                    <div id="ed-outliner" class="ed-sub"></div>
+                    <div
+                        id="ed-split-outliner"
+                        class="splitter h"
+                        role="separator"
+                        aria-orientation="horizontal"
+                        tabindex="0"
+                        title="Drag to resize the Outliner"
+                    ></div>
+                    <div id="ed-details" class="ed-sub"></div>
+                </aside>
             </div>
             <footer id="ed-status"></footer>
         </main>

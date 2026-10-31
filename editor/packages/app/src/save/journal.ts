@@ -8,7 +8,7 @@ import {
     type QuestRow,
     type SaveFile,
 } from '@drakan/formats';
-import { badge, h, hex, statTile } from './dom.ts';
+import { badge, emptyState, h, hex, statTile } from './dom.ts';
 import type { PanelCtx } from './panels.ts';
 import type { StoryData } from './storyart.ts';
 
@@ -61,22 +61,22 @@ function matches(e: QuestEntry, q: string): boolean {
 /** The journal-style Story view: quests by chapter with state badges, search and the done tick (an undoable edit). */
 export function renderJournal(ctx: PanelCtx): HTMLElement {
     const rows = ctx.doc.quests;
-    if (!rows.length) return h('p', { class: 'dim' }, 'No quest table was recognised in this save.');
+    if (!rows.length) {
+        return emptyState(
+            'scroll',
+            'No quest table in this save',
+            'The journal is read from a quest table that this save does not contain.',
+        );
+    }
     const data = ctx.story?.() ?? null;
     if (!data) {
         return h(
             'div',
             { class: 'journal' },
-            h(
-                'div',
-                { class: 'welcome' },
-                h('h3', null, 'Quest names need the game disc'),
-                h(
-                    'p',
-                    null,
-                    'The journal text lives in the disc’s System database. Open the ISO in the Inspect tab (or any ' +
-                        'tab that opens the disc) and this view fills in with titles, chapters and states.',
-                ),
+            emptyState(
+                'scroll',
+                'Quest names need the game disc',
+                'The journal text lives in the disc’s System database. Open the ISO with Open ISO in the top bar and this view fills in with titles, chapters and states. The raw rows are below.',
             ),
             rawTable(ctx),
         );
@@ -123,7 +123,7 @@ export function renderJournal(ctx: PanelCtx): HTMLElement {
                         chapterTitle(list[0]!),
                         h(
                             'small',
-                            { class: 'dim' },
+                            { class: 'sv-dim' },
                             quests.length ? ` ${doneHere} of ${quests.length} done` : ` ${list.length} places`,
                         ),
                     ),
@@ -133,7 +133,7 @@ export function renderJournal(ctx: PanelCtx): HTMLElement {
                 );
             });
         body.replaceChildren(
-            ...(sections.length ? sections : [h('p', { class: 'dim' }, 'Nothing matches the filter.')]),
+            ...(sections.length ? sections : [h('p', { class: 'sv-dim' }, 'Nothing matches the filter.')]),
         );
     };
 
@@ -153,10 +153,10 @@ export function renderJournal(ctx: PanelCtx): HTMLElement {
             h(
                 'button',
                 {
-                    class: `chip${journalState.filter === key ? ' on' : ''}`,
+                    class: `sv-pill${journalState.filter === key ? ' on' : ''}`,
                     onclick: (e: Event) => {
                         journalState.filter = key;
-                        chips.querySelectorAll('.chip').forEach((c) => c.classList.remove('on'));
+                        chips.querySelectorAll('.sv-pill').forEach((c) => c.classList.remove('on'));
                         (e.currentTarget as HTMLElement).classList.add('on');
                         fill();
                     },
@@ -186,11 +186,17 @@ export function renderJournal(ctx: PanelCtx): HTMLElement {
             statTile('Places found', String(places.length)),
             statTile('New', String(fresh), { note: 'not opened in game yet' }),
         ),
-        h('div', { class: 'filters' }, search, chips, h('label', { class: 'check' }, showTodo, ' list not started')),
+        h(
+            'div',
+            { class: 'sv-filters' },
+            search,
+            chips,
+            h('label', { class: 'sv-check' }, showTodo, ' list not started'),
+        ),
         body,
         h(
             'p',
-            { class: 'dim' },
+            { class: 'sv-dim' },
             'Ticking an entry sets its done flag, which the in-game journal draws as a ticked box (checked in game on ' +
                 'edited saves). Quests the save has no row for cannot be added: the row is created when the game ' +
                 'meets the quest, and marking them started is not supported. ',
@@ -233,7 +239,7 @@ function questRow(ctx: PanelCtx, e: QuestEntry): HTMLElement {
             'div',
             { class: 'qtext' },
             h('div', { class: 'qtitle' }, e.title || `Quest 0x${hex(e.classId, 4)}`),
-            e.place ? h('div', { class: 'qsub dim' }, `Place: ${e.place}`) : null,
+            e.place ? h('div', { class: 'qsub sv-dim' }, `Place: ${e.place}`) : null,
         ),
         e.cls?.optional ? badge('Optional', 'low', 'Listed under Optional Quests in the game.') : null,
         e.unseen ? badge('New', 'medium', 'Not opened in the in-game journal / map yet.') : null,
@@ -262,7 +268,7 @@ function rawTable(ctx: PanelCtx): HTMLElement {
     );
     return h(
         'table',
-        { class: 'grid' },
+        { class: 'sv-grid' },
         h(
             'thead',
             null,
@@ -308,7 +314,7 @@ export function questCompare(diff: QuestDiffRow[], data: StoryData | null): HTML
         changed.length
             ? h(
                   'table',
-                  { class: 'grid' },
+                  { class: 'sv-grid' },
                   h('thead', null, h('tr', null, ...['quest', 'change', 'A', 'B'].map((x) => h('th', null, x)))),
                   h(
                       'tbody',
@@ -316,7 +322,7 @@ export function questCompare(diff: QuestDiffRow[], data: StoryData | null): HTML
                       ...changed.map((d) =>
                           h(
                               'tr',
-                              { class: 'chg' },
+                              { class: 'sv-chg' },
                               h('td', null, title(d)),
                               h(
                                   'td',
@@ -329,6 +335,6 @@ export function questCompare(diff: QuestDiffRow[], data: StoryData | null): HTML
                       ),
                   ),
               )
-            : h('p', { class: 'dim' }, 'The quest tables match.'),
+            : h('p', { class: 'sv-dim' }, 'The quest tables match.'),
     );
 }

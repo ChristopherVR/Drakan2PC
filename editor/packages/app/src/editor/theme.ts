@@ -2,14 +2,14 @@ import { store } from './dom.ts';
 
 export type Theme = 'dark' | 'light';
 
-/** Saved choice, else the OS preference. */
+/** Saved choice, else dark (the editor is a dark workbench by default, whatever the OS prefers). */
 export function currentTheme(): Theme {
     const saved = store.get('theme');
     if (saved === 'dark' || saved === 'light') return saved;
-    return window.matchMedia?.('(prefers-color-scheme: light)').matches ? 'light' : 'dark';
+    return 'dark';
 }
 
-/** Apply a theme to the whole page (`data-theme` on the root; editor.css defines the tokens). */
+/** Apply a theme to the whole page (`data-theme` on the root; tokens.css defines the tokens). */
 export function applyTheme(t: Theme): void {
     document.documentElement.dataset.theme = t;
     document.documentElement.style.colorScheme = t;
@@ -28,6 +28,6 @@ export function toggleTheme(): Theme {
 
 /** Viewport colours per theme (scene background and grid). */
 export const VIEW_COLORS: Record<Theme, { bg: number; major: number; minor: number }> = {
-    dark: { bg: 0x14161a, major: 0x3a4150, minor: 0x24282f },
-    light: { bg: 0xdfe3ea, major: 0x9aa4b5, minor: 0xc2c9d4 },
+    dark: { bg: 0x121214, major: 0x3a3a44, minor: 0x25252b },
+    light: { bg: 0xd9dbe0, major: 0x9aa0ad, minor: 0xc3c7cf },
 };

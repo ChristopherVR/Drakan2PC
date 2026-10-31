@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import type { TextureResult } from './rpc.ts';
+import { onThemeChange } from './editor/theme.ts';
 
 export interface QuadInfo {
     index: number;
@@ -43,7 +44,7 @@ export class TextureViewport {
         this.controls.screenSpacePanning = true;
         this.controls.mouseButtons = { LEFT: THREE.MOUSE.PAN, MIDDLE: THREE.MOUSE.DOLLY, RIGHT: THREE.MOUSE.ROTATE };
         this.applyTheme();
-        window.matchMedia('(prefers-color-scheme: light)').addEventListener('change', () => this.applyTheme());
+        onThemeChange(() => this.applyTheme());
         new ResizeObserver(() => this.resize()).observe(host);
         this.renderer.domElement.addEventListener('pointermove', (e) => this.pointer(e, false));
         this.renderer.domElement.addEventListener('pointerdown', (e) => {
@@ -67,8 +68,8 @@ export class TextureViewport {
     }
 
     private applyTheme(): void {
-        const light = window.matchMedia('(prefers-color-scheme: light)').matches;
-        this.scene.background = new THREE.Color(light ? 0xe4e6eb : 0x0e1013);
+        const light = document.documentElement.dataset.theme === 'light';
+        this.scene.background = new THREE.Color(light ? 0xd9dbe0 : 0x121214);
     }
 
     private resize(): void {

@@ -26,6 +26,8 @@ export interface DockTab {
 export interface Dock {
     el: HTMLElement;
     show(id: string): void;
+    /** Id of the visible tab. */
+    active(): string;
     setBadge(id: string, text: string, kind?: 'warn' | 'bad' | ''): void;
 }
 
@@ -34,7 +36,9 @@ export function createDock(tabs: DockTab[]): Dock {
     const content = h('div', { class: 'dock-content' });
     const buttons = new Map<string, HTMLButtonElement>();
     const badges = new Map<string, HTMLElement>();
+    let current = tabs[0]!.id;
     const show = (id: string): void => {
+        current = id;
         for (const t of tabs) {
             const on = t.id === id;
             buttons.get(t.id)!.classList.toggle('active', on);
@@ -60,6 +64,7 @@ export function createDock(tabs: DockTab[]): Dock {
     return {
         el: h('div', { class: 'dock' }, bar, content),
         show,
+        active: () => current,
         setBadge(id, text, kind = '') {
             const b = badges.get(id);
             if (!b) return;

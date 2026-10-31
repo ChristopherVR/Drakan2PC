@@ -1,7 +1,9 @@
 import { groupCatalog, searchCatalog, type AssetClass, type AssetIcon } from '@drakan/editor-core';
 import { KINDS } from '../level.ts';
 import type { Ctx, Panel } from './ctx.ts';
+import { attachAssetDrag, dragState } from './assetdrag.ts';
 import { fill, h, hex, icon, raf, store } from './dom.ts';
+import { emptyState, onContextMenu, searchField } from './ui.ts';
 
 /** Supplies a thumbnail for a class (the model renderer plugs in here); null means "use the icon". */
 export type ThumbnailProvider = (cls: AssetClass) => HTMLCanvasElement | HTMLImageElement | string | null;
@@ -37,7 +39,6 @@ export function createAssets(ctx: Ctx): AssetsPanel {
     let loader: ((cls: AssetClass) => void) | null = null;
     /** Pre-decoded images for the drag preview (setDragImage needs a loaded image). */
     const dragImages = new Map<string, HTMLImageElement>();
-    let suppressClick = false;
     const classOf = new Map<string, AssetClass>();
     const lazy =
         typeof IntersectionObserver === 'undefined'
@@ -53,18 +54,17 @@ export function createAssets(ctx: Ctx): AssetsPanel {
                   },
                   { rootMargin: '120px' },
               );
-    let filter: 'all' | 'fav' | 'level' = 'all';
+    /** The selected folder: 'all', 'fav', 'level' or `db:<ODB stem>`. */
+    let folder = store.get('cb-folder') ?? 'all';
+    const kindsOn = new Set<string>();
     let query = '';
     let selected: string | null = null;
     const collapsed = new Set<string>(store.json<string[]>('assets-collapsed', []));
     const showAll = new Set<string>();
 
-    const search = h('input', {
-        type: 'search',
-        placeholder: 'Search classes by name, group or id',
-        'aria-label': 'Search classes',
-    });
-    const info = h('span', { class: 'dim' });
+    const searchBox = searchField('Search classes by name, group or id', 'Search classes');
+    const search = searchBox.input;
+    const info = h('span', { class: 'dim cb-info' });
     const size = h('input', {
         type: 'range',
         min: 64,
@@ -73,22 +73,9 @@ export function createAssets(ctx: Ctx): AssetsPanel {
         'aria-label': 'Tile size',
         class: 'slider',
     });
-    const chips = (['all', 'fav', 'level'] as const).map((f) =>
-        h(
-            'button',
-            {
-                class: `chip${f === filter ? ' active' : ''}`,
-                type: 'button',
-                'data-f': f,
-                onclick: () => {
-                    filter = f;
-                    for (const c of chips) c.classList.toggle('active', c.dataset.f === f);
-                    build();
-                },
-            },
-            f === 'all' ? 'All' : f === 'fav' ? 'Favourites' : 'In this level',
-        ),
-    );
+    const kindChips = h('div', { class: 'chips' });
+    const tree = h('nav', { class: 'cb-tree', 'aria-label': 'Class folders' });
+    const crumb = h('div', { class: 'cb-crumb' });
     const body = h('div', { class: 'assets-body' });
     const detail = h(
         'div',
@@ -101,13 +88,13 @@ export function createAssets(ctx: Ctx): AssetsPanel {
         h(
             'div',
             { class: 'assets-bar' },
-            search,
-            h('div', { class: 'chips' }, ...chips),
-            info,
+            searchBox.el,
+            kindChips,
             h('span', { class: 'spacer' }),
-            h('label', { class: 'size' }, 'Size', size),
+            info,
+            h('label', { class: 'size' }, icon('grid', 13), size),
         ),
-        h('div', { class: 'assets-main' }, body, detail),
+        h('div', { class: 'assets-main' }, tree, h('div', { class: 'cb-content' }, crumb, body), detail),
     );
     body.style.setProperty('--tile', `${size.value}px`);
     size.addEventListener('input', () => {
@@ -168,61 +155,41 @@ export function createAssets(ctx: Ctx): AssetsPanel {
             cls.instances ? h('span', { class: 'badge' }, String(cls.instances)) : null,
             star,
         );
-        // Pointer-based drag: works with a real mouse, touch and pen, and shows the model thumbnail as the ghost.
-        // (The native HTML5 drag is not used: browsers differ and automation cannot start it.)
-        t.addEventListener('pointerdown', (e) => {
-            if (e.button !== 0 || (e.target as HTMLElement).closest('.star')) return;
-            const sx = e.clientX;
-            const sy = e.clientY;
-            const view = ctx.view();
-            let ghost: HTMLElement | null = null;
-            const pre = dragImages.get(cls.resource);
-            const move = (m: PointerEvent): void => {
-                if (!ghost) {
-                    if (Math.hypot(m.clientX - sx, m.clientY - sy) < 5) return;
-                    view.dragKey = cls.resource;
-                    loader?.(cls);
-                    const img = dragImages.get(cls.resource) ?? pre;
-                    ghost = h('div', { class: 'drag-ghost live' }, img?.complete ? img.cloneNode() : null, cls.name);
-                    document.body.append(ghost);
-                    document.body.classList.add('dragging-asset');
-                }
-                ghost.style.left = `${m.clientX + 12}px`;
-                ghost.style.top = `${m.clientY + 12}px`;
-                if (view.isOverViewport(m.clientX, m.clientY)) {
-                    view.dragHover(m);
-                    ghost.classList.add('over');
-                } else {
-                    view.placeGhostHide();
-                    ghost.classList.remove('over');
-                }
-            };
-            const end = (u: PointerEvent, cancelled: boolean): void => {
-                window.removeEventListener('pointermove', move);
-                window.removeEventListener('pointerup', up);
-                window.removeEventListener('pointercancel', cancel);
-                document.body.classList.remove('dragging-asset');
-                if (!ghost) return;
-                ghost.remove();
-                if (!cancelled && view.isOverViewport(u.clientX, u.clientY)) view.dragDrop(u);
-                else view.dragCancel();
-                suppressClick = true;
-                setTimeout(() => (suppressClick = false), 0);
-            };
-            const up = (u: PointerEvent): void => end(u, false);
-            const cancel = (u: PointerEvent): void => end(u, true);
-            window.addEventListener('pointermove', move);
-            window.addEventListener('pointerup', up);
-            window.addEventListener('pointercancel', cancel);
-        });
+        attachAssetDrag(
+            t,
+            cls,
+            ctx,
+            (res) => dragImages.get(res),
+            (c) => loader?.(c),
+        );
         t.addEventListener('click', () => {
-            if (suppressClick) return;
+            if (dragState.suppressClick) return;
             selected = cls.resource;
             body.querySelectorAll('.tile.sel').forEach((x) => x.classList.remove('sel'));
             t.classList.add('sel');
             showDetail(cls);
         });
         t.addEventListener('dblclick', () => ctx.placeClass(cls));
+        onContextMenu(t, () => [
+            { heading: cls.name },
+            { label: 'Place at view centre', icon: 'plus', run: () => ctx.placeClass(cls) },
+            {
+                label: favs.has(cls.resource) ? 'Remove from favourites' : 'Add to favourites',
+                icon: 'star',
+                run: () => {
+                    if (favs.has(cls.resource)) favs.delete(cls.resource);
+                    else favs.add(cls.resource);
+                    saveFavs();
+                    build();
+                },
+            },
+            { sep: true },
+            {
+                label: 'Copy resource id',
+                icon: 'copy',
+                run: () => void navigator.clipboard?.writeText(cls.resource).catch(() => undefined),
+            },
+        ]);
         return t;
     }
 
@@ -259,32 +226,107 @@ export function createAssets(ctx: Ctx): AssetsPanel {
         );
     }
 
+    function folderRow(key: string, label: string, ico: string, n: number, depth = 0): HTMLElement {
+        const b = h(
+            'button',
+            { class: `ui-row cb-folder${folder === key ? ' sel' : ''}`, type: 'button', 'data-folder': key },
+            h('span', { class: 'cb-indent', style: `width:${depth * 12}px` }),
+            icon(folder === key ? 'folder-open' : ico, 14),
+            h('span', { class: 'name' }, label),
+            h('span', { class: 'dim n' }, String(n)),
+        );
+        b.addEventListener('click', () => {
+            folder = key;
+            store.set('cb-folder', key);
+            showAll.clear();
+            build();
+        });
+        return b;
+    }
+
+    function buildTree(all: AssetClass[]): void {
+        const dbs = new Map<string, number>();
+        for (const c of all) dbs.set(c.db, (dbs.get(c.db) ?? 0) + 1);
+        const rows: HTMLElement[] = [
+            folderRow('all', 'All classes', 'box', all.length),
+            folderRow('level', 'In this level', 'layers', all.filter((c) => c.instances > 0).length),
+            folderRow('fav', 'Favourites', 'star', all.filter((c) => favs.has(c.resource)).length),
+        ];
+        if (dbs.size) {
+            rows.push(h('div', { class: 'cb-tree-head' }, 'Containers (ODB)'));
+            for (const [db, n] of [...dbs].sort((a, b) => a[0].localeCompare(b[0])))
+                rows.push(folderRow(`db:${db}`, db, 'folder', n, 0));
+        }
+        fill(tree, ...rows);
+    }
+
+    function buildKindChips(all: AssetClass[]): void {
+        const present = new Set(all.map((c) => c.kind));
+        fill(
+            kindChips,
+            ...KINDS.filter((k) => present.has(k.kind)).map((k) => {
+                const on = kindsOn.has(k.kind);
+                const c = h(
+                    'button',
+                    { class: `chip${on ? ' active' : ''}`, type: 'button', title: `Show only ${k.label} classes` },
+                    h('i', { class: 'ui-dot', style: `background:#${k.color.toString(16).padStart(6, '0')}` }),
+                    k.label,
+                );
+                c.addEventListener('click', () => {
+                    if (kindsOn.has(k.kind)) kindsOn.delete(k.kind);
+                    else kindsOn.add(k.kind);
+                    build();
+                });
+                return c;
+            }),
+        );
+    }
+
     function build(): void {
         const all = ctx.catalog();
+        if (folder.startsWith('db:') && !all.some((c) => c.db === folder.slice(3))) folder = 'all';
+        buildTree(all);
+        buildKindChips(all);
         let list = searchCatalog(all, query);
-        if (filter === 'fav') list = list.filter((c) => favs.has(c.resource));
-        if (filter === 'level') list = list.filter((c) => c.instances > 0);
+        if (kindsOn.size) list = list.filter((c) => kindsOn.has(c.kind));
+        if (folder === 'fav') list = list.filter((c) => favs.has(c.resource));
+        else if (folder === 'level') list = list.filter((c) => c.instances > 0);
+        else if (folder.startsWith('db:')) list = list.filter((c) => c.db === folder.slice(3));
+        const folderName =
+            folder === 'all'
+                ? 'All classes'
+                : folder === 'fav'
+                  ? 'Favourites'
+                  : folder === 'level'
+                    ? 'In this level'
+                    : folder.slice(3);
+        fill(crumb, icon('folder-open', 14), h('span', { class: 'dim' }, 'Content'), icon('chevron', 11), folderName);
         info.textContent = all.length ? `${list.length} of ${all.length} classes` : '';
         if (!all.length) {
-            fill(body, h('div', { class: 'empty-note' }, 'Open a level from the disc to browse its classes.'));
+            fill(
+                body,
+                emptyState('box', 'No classes yet', 'Open a level from the disc to browse the classes it can use.'),
+            );
             return;
         }
         if (!list.length) {
             fill(
                 body,
-                h(
-                    'div',
-                    { class: 'empty-note' },
-                    filter === 'fav' ? 'No favourites yet: click the star on a tile.' : 'No classes match.',
+                emptyState(
+                    folder === 'fav' ? 'star' : 'search',
+                    folder === 'fav' ? 'No favourites yet' : 'No classes match',
+                    folder === 'fav'
+                        ? 'Click the star on a tile to keep a class here.'
+                        : 'Clear the search or the kind filters to see more.',
                 ),
             );
             return;
         }
-        // The "Favourites" and "In this level" groups only make sense on the All tab.
+        // The "Favourites" and "In this level" groups only make sense when browsing everything.
         let groups = groupCatalog(list, favs);
-        if (filter !== 'all' || query)
+        if (folder !== 'all' || query)
             groups = groups.filter((g) => g.title !== 'Favourites' && g.title !== 'In this level');
-        if (filter === 'all' && !query)
+        if (folder === 'all' && !query)
             groups = groups.filter((g) => g.title !== 'In this level' || g.items.length < all.length);
         const nodes: HTMLElement[] = [];
         for (const g of groups) {

@@ -88,6 +88,26 @@ const PATHS: Record<string, string> = {
     effect: '<path d="M12 3l1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8zM19 16l.8 2.2L22 19l-2.2.8L19 22l-.8-2.2L16 19l2.2-.8z"/>',
     trigger: '<path d="M13 3L5 14h6l-1 7 8-11h-6z"/>',
     sound: '<path d="M4 9v6h4l5 4V5L8 9zM16 9a4 4 0 0 1 0 6M18.5 6.5a8 8 0 0 1 0 11"/>',
+    folder: '<path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>',
+    'folder-open':
+        '<path d="M3 18V6a2 2 0 0 1 2-2h4l2 2h7a2 2 0 0 1 2 2v2M3 18l2.5-7.5a2 2 0 0 1 1.9-1.4H21l-2.4 7.9a2 2 0 0 1-1.9 1.5H5a2 2 0 0 1-2-1.5"/>',
+    'chevron-down': '<path d="M6 9l6 6 6-6"/>',
+    outliner: '<path d="M4 6h3M4 12h3M4 18h3M10 6h10M10 12h10M10 18h10"/>',
+    details:
+        '<path d="M4 6h10M18 6h2M4 12h4M12 12h8M4 18h12M20 18h0"/><circle cx="16" cy="6" r="2"/><circle cx="10" cy="12" r="2"/><circle cx="18" cy="18" r="2"/>',
+    place: '<path d="M12 3l8 4.5v9L12 21l-8-4.5v-9z"/><path d="M12 8v8M8 12h8"/>',
+    terminal: '<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M7 10l3 2-3 2M13 15h4"/>',
+    filter: '<path d="M4 5h16l-6 8v6l-4-2v-4z"/>',
+    sliders: '<path d="M4 7h9M17 7h3M4 17h3M11 17h9"/><circle cx="15" cy="7" r="2"/><circle cx="9" cy="17" r="2"/>',
+    info: '<circle cx="12" cy="12" r="9"/><path d="M12 11v5M12 8h.01"/>',
+    more: '<path d="M5 12h.01M12 12h.01M19 12h.01"/>',
+    rocket: '<path d="M14 4c3 0 6 1 6 1s1 3 1 6c-3 3-6 5-8 6l-4-4c1-2 3-5 5-9zM9 15l-4 1 1-4M9 15l-1 4 4-1"/><circle cx="15" cy="9" r="1.2"/>',
+    gauge: '<path d="M4 17a8 8 0 1 1 16 0M12 17l4-6"/>',
+    perspective: '<path d="M4 18l4-12h8l4 12zM8 6l-2 12M16 6l2 12"/>',
+    cube: '<path d="M12 3l8 4.5v9L12 21l-8-4.5v-9zM12 12l8-4.5M12 12L4 7.5M12 12v9"/>',
+    clear: '<circle cx="12" cy="12" r="9"/><path d="M9 9l6 6M15 9l-6 6"/>',
+    'check-circle': '<circle cx="12" cy="12" r="9"/><path d="M8 12.5l3 3 5-6"/>',
+    'alert-circle': '<circle cx="12" cy="12" r="9"/><path d="M12 8v5M12 16h.01"/>',
     generic: '<rect x="5" y="5" width="14" height="14" rx="3"/>',
 };
 

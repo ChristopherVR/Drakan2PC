@@ -1,6 +1,6 @@
 import { SetFieldCommand } from '@drakan/editor-core';
 import { INV_CELL_COUNT, type InventoryCell } from '@drakan/formats';
-import { badge, h } from './dom.ts';
+import { badge, emptyState, h } from './dom.ts';
 import type { PanelCtx } from './panels.ts';
 
 /** The Tab screen's grid is 8 cells wide and 3 high; a multi-cell item (the bow) spans down from its first cell. */
@@ -58,11 +58,10 @@ export function renderInventory(ctx: PanelCtx): HTMLElement {
     const { doc } = ctx;
     const cells = doc.inventory;
     if (!cells.length) {
-        return h(
-            'div',
-            { class: 'note-box' },
-            h('b', null, 'No inventory found. '),
-            'The 24-cell controller image was not recognised in Rynn’s record, so there is nothing to show.',
+        return emptyState(
+            'bag',
+            'No inventory found in this save',
+            'The 24-cell controller image was not recognised in Rynn’s record, so there is nothing to show. Try another slot, or open Repair to see what this save contains.',
         );
     }
     const span = spans(cells);
@@ -179,7 +178,7 @@ export function renderInventory(ctx: PanelCtx): HTMLElement {
     const inspector =
         sel && sel.marker === undefined
             ? inspect(ctx, sel, itemName(sel.resource, infoOf(sel.resource)))
-            : h('div', { class: 'inspector dim' }, 'Select an item to edit its durability, quantity and flags.');
+            : h('div', { class: 'inspector sv-dim' }, 'Select an item to edit its durability, quantity and flags.');
 
     const real = cells.filter((c) => c.marker === undefined);
     const equippedCount = real.filter((c) => val(c.cell, 'equipped') === 1).length;
@@ -191,7 +190,11 @@ export function renderInventory(ctx: PanelCtx): HTMLElement {
             'div',
             { class: 'invhead' },
             h('b', null, 'Inventory'),
-            h('small', { class: 'dim' }, `${real.length} items, ${equippedCount} equipped, ${hotCount} in quick slots`),
+            h(
+                'small',
+                { class: 'sv-dim' },
+                `${real.length} items, ${equippedCount} equipped, ${hotCount} in quick slots`,
+            ),
             h('span', { class: 'spacer' }),
             h(
                 'button',
@@ -244,7 +247,7 @@ function inspect(ctx: PanelCtx, c: InventoryCell, name: string): HTMLElement {
         });
         const orig = doc.originalValue(field);
         const was =
-            orig !== undefined && orig !== doc.value(field) ? h('small', { class: 'dim' }, ` was ${orig}`) : null;
+            orig !== undefined && orig !== doc.value(field) ? h('small', { class: 'sv-dim' }, ` was ${orig}`) : null;
         return h('label', { class: 'f' }, h('small', null, label), input, was);
     };
     const flag = (key: 'equipped' | 'hot', label: string, hint: string): HTMLElement => {
@@ -256,24 +259,24 @@ function inspect(ctx: PanelCtx, c: InventoryCell, name: string): HTMLElement {
             'data-field': field,
             onchange: () => ctx.run(new SetFieldCommand(field, cb.checked ? 1 : 0)),
         });
-        return h('label', { class: 'check', title: hint }, cb, ` ${label}`);
+        return h('label', { class: 'sv-check', title: hint }, cb, ` ${label}`);
     };
     const indestructible = doc.value(`inv.${c.cell}.durability`) === INDESTRUCTIBLE;
     return h(
         'div',
-        { class: 'inspector card' },
+        { class: 'inspector sv-box' },
         h(
             'div',
-            { class: 'meta' },
-            h('small', { class: 'dim' }, `Cell ${c.cell}`),
+            { class: 'sv-meta' },
+            h('small', { class: 'sv-dim' }, `Cell ${c.cell}`),
             h('h3', null, name),
             h(
                 'small',
-                { class: 'dim' },
+                { class: 'sv-dim' },
                 `resource ${c.resource === undefined ? '?' : resourceKey(c.resource)} · handle 0x${(c.handle ?? 0).toString(16)}`,
             ),
             c.durability === undefined
-                ? h('small', { class: 'dim' }, 'The item record was not found, so its count cannot be edited.')
+                ? h('small', { class: 'sv-dim' }, 'The item record was not found, so its count cannot be edited.')
                 : h(
                       'div',
                       { class: 'frow' },

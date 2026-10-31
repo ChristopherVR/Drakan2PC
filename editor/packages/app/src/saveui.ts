@@ -23,7 +23,8 @@ import {
 } from '@drakan/formats';
 import { LevelView } from './level.ts';
 import './save/save.css';
-import { badge, fmtDate, h, hex, hexDump, shotCanvas, statTile } from './save/dom.ts';
+import { badge, button, card, emptyState, fmtDate, h, hex, hexDump, icon, shotCanvas, statTile } from './save/dom.ts';
+import { TABS, buildShell, type SubTab } from './save/shell.ts';
 import { drawMap, groupColor, mapBounds, pickMap, type MapBounds, type MapPoint } from './save/map.ts';
 import type { ClassInfo } from './save/inventory.ts';
 import type { StoryData } from './save/storyart.ts';
@@ -58,8 +59,6 @@ export interface SaveUiHost {
     onStory?(fn: () => void): void;
 }
 
-type SubTab = 'character' | 'world' | 'items' | 'story' | 'transfer' | 'compare' | 'repair';
-
 interface Open {
     ref: SaveRef;
     doc: SaveDocument;
@@ -70,6 +69,7 @@ interface Open {
 /** The Save tab: open, character panel, world list, 3D view, pending edits, SAVE/EXPORT, compare. */
 export function initSaveUi(host: SaveUiHost): { openFile(f: File): Promise<void> } {
     const fsa = hasFsa();
+    buildShell($('save-main'), fsa);
     let view: LevelView | null = null;
     let cur: Open | null = null;
     let discovered: SaveRef[] = [];
@@ -92,13 +92,30 @@ export function initSaveUi(host: SaveUiHost): { openFile(f: File): Promise<void>
         if (cur && (subtab === 'story' || subtab === 'compare')) renderExtra();
     });
 
-    const err = (e: unknown): void => host.setStatus(e instanceof Error ? e.message : String(e), true);
+    let toastTimer = 0;
+    /** Status line (header and footer). `toast` also pops a short message over the workspace. */
+    function status(msg: string, error?: boolean, toast = false): void {
+        host.setStatus(msg, error);
+        const foot = $('sv-foot-msg');
+        foot.textContent = msg;
+        foot.classList.toggle('bad', !!error);
+        $('save-main').classList.toggle('sv-error', !!error);
+        if (!toast && !error) return;
+        const t = $('sv-toast');
+        t.textContent = msg;
+        t.className = `sv-toast${error ? ' bad' : ' ok'}`;
+        t.hidden = false;
+        window.clearTimeout(toastTimer);
+        toastTimer = window.setTimeout(() => (t.hidden = true), error ? 7000 : 4000);
+    }
+
+    const err = (e: unknown): void => status(e instanceof Error ? e.message : String(e), true);
 
     // ---- 3D ----------------------------------------------------------------------------------------------------
 
     function getView(): LevelView {
         if (view) return view;
-        view = new LevelView($('sv-viewport'), {
+        view = new LevelView($('sv-view'), {
             onSelection: (ids) => onViewSelection(ids),
             onChange: () => refresh(),
         });
@@ -126,7 +143,7 @@ export function initSaveUi(host: SaveUiHost): { openFile(f: File): Promise<void>
         const v = getView();
         v.select([id]);
         v.frameSelection();
-        host.setStatus(
+        status(
             id === cur.doc.playerObject
                 ? 'Player marker selected: drag the gizmo to move it; the saved position changes when you SAVE.'
                 : 'Record selected in 3D (read only; only the player marker can be moved).',
@@ -137,7 +154,7 @@ export function initSaveUi(host: SaveUiHost): { openFile(f: File): Promise<void>
 
     async function openRef(ref: SaveRef): Promise<void> {
         if (cur && cur.doc.pendingEdits().length && !confirm('Discard the pending edits of the open save?')) return;
-        host.setStatus(`Opening ${ref.name}...`);
+        status(`Opening ${ref.name}...`);
         try {
             const bytes = await ref.read();
             const doc = SaveDocument.open(bytes);
@@ -148,7 +165,7 @@ export function initSaveUi(host: SaveUiHost): { openFile(f: File): Promise<void>
             getView().setDocument(doc);
             renderAll();
             markActiveInList();
-            host.setStatus(
+            status(
                 `${ref.name}: ${doc.save.entries.length} records, ${doc.size} positioned, level "${doc.level || 'unknown'}".`,
             );
         } catch (e) {
@@ -158,6 +175,7 @@ export function initSaveUi(host: SaveUiHost): { openFile(f: File): Promise<void>
 
     async function openFile(f: File): Promise<void> {
         discovered = discovered.filter((r) => r.folder !== '' || r.name !== f.name);
+        if (!discovered.length) $('sv-folder-name').textContent = f.name;
         await openRef(refFromFile(f));
     }
 
@@ -195,47 +213,103 @@ export function initSaveUi(host: SaveUiHost): { openFile(f: File): Promise<void>
     // ---- save list ---------------------------------------------------------------------------------------------
 
     const listEl = $('sv-list');
+    const listQ = $<HTMLInputElement>('sv-list-q');
+    listQ.oninput = () => filterList();
+    let listRows: { ref: SaveRef; li: HTMLElement; hay: string }[] = [];
+
+    function filterList(): void {
+        const q = listQ.value.trim().toLowerCase();
+        let shown = 0;
+        for (const r of listRows) {
+            const hit = !q || r.hay.includes(q);
+            r.li.hidden = !hit;
+            if (hit) shown++;
+        }
+        listEl.querySelector('.sv-list-none')?.remove();
+        if (listRows.length && !shown) {
+            listEl.append(
+                h(
+                    'li',
+                    { class: 'sv-list-none' },
+                    emptyState(
+                        'search',
+                        'No match',
+                        `No save matches "${listQ.value}". Clear the search to see all ${listRows.length}.`,
+                    ),
+                ),
+            );
+        }
+    }
+
     async function setDiscovered(root: string, refs: SaveRef[]): Promise<void> {
         discovered = refs;
-        $('sv-count').textContent = refs.length ? `${refs.length} in ${root}` : '';
+        $('sv-count').textContent = refs.length ? String(refs.length) : '';
+        $('sv-folder-name').textContent = root || 'Opened file';
+        $('sv-folder-name').title = root;
         renderCompareChoices();
+        listRows = [];
         if (!refs.length) {
             listEl.replaceChildren(
-                h('li', { class: 'empty' }, `No .rsg files found under "${root}". Pick the memcard folder (mc0).`),
+                h(
+                    'li',
+                    { class: 'sv-list-empty' },
+                    emptyState(
+                        'folder',
+                        'No saves found',
+                        `No .rsg files under "${root}". Pick the memory card folder (mc0), the one that holds the BESCES-... slot folders.`,
+                    ),
+                ),
             );
             return;
         }
         const rows = refs.map((ref) => {
             const meta = h(
                 'div',
-                { class: 'meta' },
+                { class: 'sv-slot-meta' },
                 h('b', null, ref.name.replace(/\.rsg$/i, '')),
-                h('small', null, '...'),
+                h('small', null, 'Reading...'),
             );
-            const thumb = h('div', { class: 'thumb' });
+            const thumb = h('div', { class: 'sv-slot-thumb' }, icon('file', 18));
             const li = h(
                 'li',
                 {
+                    class: 'sv-slot',
                     onclick: () => void openRef(ref),
                     title: `${ref.folder}/${ref.name}`,
+                    tabindex: 0,
+                    onkeydown: (e: Event) => {
+                        const k = (e as KeyboardEvent).key;
+                        if (k === 'Enter' || k === ' ') {
+                            e.preventDefault();
+                            void openRef(ref);
+                        }
+                    },
                 },
                 thumb,
                 meta,
             );
             li.dataset.key = `${ref.folder}/${ref.name}`;
-            return { ref, li, thumb, meta };
+            const row = { ref, li, thumb, meta, hay: `${ref.folder} ${ref.name}`.toLowerCase() };
+            listRows.push(row);
+            return row;
         });
         listEl.replaceChildren(...rows.map((r) => r.li));
-        host.setStatus(`Found ${refs.length} saves in "${root}". Reading previews...`);
+        status(`Found ${refs.length} saves in "${root}". Reading previews...`);
         for (const r of rows) {
             try {
                 const sum = summarizeSave(await r.ref.read());
-                if (sum.screenshot) r.thumb.append(shotCanvas(sum.screenshot, 'shot'));
-                const slot = r.ref.folder.replace(/^BESCES-\d+/i, '') || 'file';
+                if (sum.screenshot) r.thumb.replaceChildren(shotCanvas(sum.screenshot, 'sv-shot'));
+                const slot = r.ref.folder.replace(/^BESCES-\d+/i, '').replace(/^Slot/i, 'Slot ') || 'File';
+                r.hay += ` ${sum.levelName} ${slot}`.toLowerCase();
                 r.meta.replaceChildren(
                     h('b', null, sum.levelName || r.ref.name.replace(/\.rsg$/i, '')),
-                    h('small', null, `${slot} · ${fmtDate(r.ref.modified)}`),
-                    h('small', null, `${sum.entryCount} records`),
+                    h('small', null, `${slot} \u00b7 ${fmtDate(r.ref.modified)}`),
+                    h(
+                        'div',
+                        { class: 'sv-slot-tags' },
+                        h('span', { class: 'sv-tag' }, `${(r.ref.size / 1024).toFixed(0)} KB`),
+                        h('span', { class: 'sv-tag' }, `${sum.entryCount} records`),
+                    ),
                 );
             } catch (e) {
                 r.meta.replaceChildren(
@@ -244,13 +318,17 @@ export function initSaveUi(host: SaveUiHost): { openFile(f: File): Promise<void>
                 );
             }
         }
-        host.setStatus(`Found ${refs.length} saves in "${root}". Click one to open it.`);
+        status(`Found ${refs.length} saves in "${root}". Select one to open it.`);
+        filterList();
         markActiveInList();
     }
 
     function markActiveInList(): void {
         const key = cur ? `${cur.ref.folder}/${cur.ref.name}` : '';
-        for (const li of listEl.querySelectorAll<HTMLElement>('li')) li.classList.toggle('sel', li.dataset.key === key);
+        for (const li of listEl.querySelectorAll<HTMLElement>('li.sv-slot')) {
+            li.classList.toggle('sel', li.dataset.key === key);
+            li.setAttribute('aria-current', li.dataset.key === key ? 'true' : 'false');
+        }
     }
 
     // ---- toolbar -----------------------------------------------------------------------------------------------
@@ -263,17 +341,32 @@ export function initSaveUi(host: SaveUiHost): { openFile(f: File): Promise<void>
         try {
             const { bytes } = cur.doc.build();
             download(cur.ref.name, bytes);
-            host.setStatus(
+            status(
                 `Exported ${cur.ref.name} (${bytes.length} bytes). Copy it over your save, keeping a backup.`,
+                false,
+                true,
             );
         } catch (e) {
             err(e);
         }
     };
     btn('sv-save').onclick = () => void saveInPlace();
+    btn('sv-save2').onclick = () => void saveInPlace();
+    btn('sv-reload').onclick = () => {
+        if (cur) void openRef(cur.ref);
+    };
+    const revertAll = (): void => {
+        if (!cur || !view) return;
+        const n = cur.doc.pendingEdits().length;
+        if (!n || !confirm(`Throw away ${n} pending change${n === 1 ? '' : 's'}?`)) return;
+        while (view.stack.canUndo) view.undo();
+        status('Reverted every pending change.', false, true);
+    };
+    btn('sv-revert').onclick = revertAll;
+    btn('sv-revert-all').onclick = revertAll;
     btn('sv-frame-player').onclick = () => {
         if (cur?.doc.playerObject != null) showIn3d(cur.doc.entryOfObject.get(cur.doc.playerObject)!);
-        else host.setStatus('This save has no player record with a position.', true);
+        else status('This save has no player record with a position.', true);
     };
     btn('sv-frame-all').onclick = () => view?.frameAll();
 
@@ -287,10 +380,9 @@ export function initSaveUi(host: SaveUiHost): { openFile(f: File): Promise<void>
             const file = await ref.handle!.getFile();
             cur = null; // reopen from what is now on disk
             await openRef({ ...ref, size: file.size, modified: file.lastModified, read: async () => bytes });
-            host.setStatus(`Saved ${ref.name}; the previous file is kept as ${backup}.`);
+            status(`Saved ${ref.name}; the previous file is kept as ${backup}.`, false, true);
         } catch (e) {
-            if (e instanceof DOMException && e.name === 'AbortError')
-                host.setStatus('Save cancelled; nothing was written.');
+            if (e instanceof DOMException && e.name === 'AbortError') status('Save cancelled; nothing was written.');
             else err(e);
         } finally {
             busy = false;
@@ -303,35 +395,13 @@ export function initSaveUi(host: SaveUiHost): { openFile(f: File): Promise<void>
 
     // ---- sub tabs ----------------------------------------------------------------------------------------------
 
-    // The tabs after World are created here so index.html stays as the shell agents left it.
-    const nav = $('sv-sub-compare').parentElement!;
-    const centre = $('sv-compare').parentElement!;
-    const extraTabs: [SubTab, string][] = [
-        ['items', 'Items'],
-        ['story', 'Story'],
-        ['transfer', 'Transfer'],
-        ['repair', 'Repair'],
-    ];
-    for (const [k, label] of extraTabs) {
-        const b = h('button', { id: `sv-sub-${k}` }, label);
-        if (k === 'repair') nav.append(b);
-        else nav.insertBefore(b, $('sv-sub-compare'));
-        centre.append(h('div', { id: `sv-${k}`, class: 'subpane', hidden: true }));
-    }
-    const panes: Record<SubTab, HTMLElement> = {
-        character: $('sv-character'),
-        world: $('sv-world'),
-        items: $('sv-items'),
-        story: $('sv-story'),
-        transfer: $('sv-transfer'),
-        compare: $('sv-compare'),
-        repair: $('sv-repair'),
-    };
+    const panes = Object.fromEntries(TABS.map(([k]) => [k, $(`sv-${k}`)])) as Record<SubTab, HTMLElement>;
     function showSub(t: SubTab): void {
         subtab = t;
         for (const k of Object.keys(panes) as SubTab[]) {
             panes[k].hidden = k !== t;
             $(`sv-sub-${k}`).classList.toggle('active', k === t);
+            $(`sv-sub-${k}`).setAttribute('aria-selected', String(k === t));
         }
         renderExtra();
         if (cur && t === 'world') renderWorldList();
@@ -348,7 +418,7 @@ export function initSaveUi(host: SaveUiHost): { openFile(f: File): Promise<void>
                 for (let i = 0; i < 3; i++) getView().setTransformField(doc.playerObject, 'pos', i, v[i]!);
             },
             err,
-            status: (m, e) => host.setStatus(m, e),
+            status: (m, e) => status(m, e),
             showRecord: (entry, in3d) => {
                 showSub('world');
                 showDetails(entry, in3d);
@@ -375,15 +445,16 @@ export function initSaveUi(host: SaveUiHost): { openFile(f: File): Promise<void>
                       ? (c: PanelCtx) => renderTransfer(c, renderExtra)
                       : null;
         if (!render) return;
-        panes[subtab].replaceChildren(
-            cur
-                ? render(panelCtx())
-                : h(
-                      'div',
-                      { class: 'welcome' },
-                      h('h3', null, 'Open a save'),
-                      h('p', null, 'Open a save to use this tab.'),
-                  ),
+        panes[subtab].replaceChildren(cur ? render(panelCtx()) : noSave());
+    }
+
+    function noSave(): HTMLElement {
+        return emptyState(
+            'folder',
+            'Open a save to start',
+            'Pick a slot from the list on the left, or use Open folder to list every slot on the memory card. Nothing is uploaded; files are read in your browser.',
+            button('Open folder', { icon: 'folder', kind: 'primary', onclick: () => $('sv-folder').click() }),
+            button('Open save', { icon: 'file', onclick: () => $('sv-open').click() }),
         );
     }
 
@@ -392,19 +463,40 @@ export function initSaveUi(host: SaveUiHost): { openFile(f: File): Promise<void>
     function refresh(): void {
         const pending = cur?.doc.pendingEdits() ?? [];
         const v = view;
+        const scroll = panes[subtab].scrollTop;
         btn('sv-undo').disabled = !v?.stack.canUndo;
         btn('sv-redo').disabled = !v?.stack.canRedo;
-        btn('sv-undo').title = v?.stack.undoLabel ? `Undo: ${v.stack.undoLabel}` : '';
-        btn('sv-redo').title = v?.stack.redoLabel ? `Redo: ${v.stack.redoLabel}` : '';
+        btn('sv-undo').title = v?.stack.undoLabel ? `Undo: ${v.stack.undoLabel}` : 'Undo';
+        btn('sv-redo').title = v?.stack.redoLabel ? `Redo: ${v.stack.redoLabel}` : 'Redo';
+        const canWrite = !!cur?.ref.handle;
         btn('sv-export').disabled = !cur;
-        btn('sv-save').disabled = !cur || !cur.ref.handle || pending.length === 0;
-        btn('sv-save').title = !cur?.ref.handle
-            ? 'This save was opened without write access (your browser has no File System Access API, or the file was dropped). Use EXPORT.'
-            : 'Writes the file in place; the previous contents are kept as a .bak next to it';
-        $('sv-pending').textContent = cur ? (pending.length ? `${pending.length} pending` : 'no pending edits') : '';
+        btn('sv-reload').disabled = !cur;
+        btn('sv-revert').disabled = !pending.length;
+        btn('sv-revert-all').disabled = !pending.length;
+        for (const id of ['sv-save', 'sv-save2']) {
+            btn(id).disabled = !cur || !canWrite || pending.length === 0;
+            btn(id).title = !cur
+                ? 'Open a save first'
+                : !canWrite
+                  ? 'This save was opened without write access (the browser has no File System Access API, or the file was dropped). Use Export.'
+                  : 'Writes the file in place; the previous contents are kept as a .bak next to it';
+        }
+        $('sv-pending').textContent = String(pending.length);
+        $('sv-pending').classList.toggle('on', pending.length > 0);
+        $('sv-dirty').hidden = !pending.length;
+        $('sv-save-note').textContent = !cur
+            ? 'Open a save to edit it.'
+            : canWrite
+              ? `Save writes ${cur.ref.name} in place and keeps the old file as ${cur.ref.name}.bak.`
+              : 'Export downloads the edited .rsg. Copy it over your save and keep a backup of the original.';
+        $('sv-title').textContent = cur ? cur.doc.level || cur.ref.name : 'No save open';
+        $('sv-subtitle').textContent = cur
+            ? `${cur.ref.name} · ${(cur.ref.size / 1024).toFixed(1)} KB · ${cur.doc.save.entries.length} records`
+            : 'Pick a save on the left.';
         renderCharacter();
         renderEdits(pending);
         renderExtra();
+        panes[subtab].scrollTop = scroll;
     }
 
     function renderAll(): void {
@@ -431,7 +523,7 @@ export function initSaveUi(host: SaveUiHost): { openFile(f: File): Promise<void>
     function lockControl(name: string): HTMLElement | null {
         const doc = cur!.doc;
         const p = doc.probe(name);
-        if (p.status === 'missing') return h('small', { class: 'dim', title: p.reason }, 'not present in this save');
+        if (p.status === 'missing') return h('small', { class: 'sv-dim', title: p.reason }, 'not present in this save');
         if (p.status === 'ok') return null;
         const cb = h('input', {
             type: 'checkbox',
@@ -441,7 +533,7 @@ export function initSaveUi(host: SaveUiHost): { openFile(f: File): Promise<void>
                 else if (!doc.fieldValues.has(name)) doc.unlocked.delete(name);
                 else {
                     cb.checked = true;
-                    host.setStatus('Undo the pending edit of this field before locking it again.', true);
+                    status('Undo the pending edit of this field before locking it again.', true);
                 }
                 renderCharacter();
             },
@@ -449,70 +541,127 @@ export function initSaveUi(host: SaveUiHost): { openFile(f: File): Promise<void>
         return h('label', { class: 'unlock', title: p.reason }, cb, ' unlock editing (unconfirmed layout)');
     }
 
-    function numberField(name: string, label: string, opts: { barMax?: number; step?: number } = {}): HTMLElement {
+    /** Commit a typed or dragged value of a numeric field through the document (one undoable command). */
+    function commitNumber(name: string, raw: string, input: HTMLInputElement): void {
+        const doc = cur!.doc;
+        try {
+            const v = parseFieldValue(resolveField(name).def, raw);
+            const problem = doc.checkEdit(name, v);
+            if (problem) throw new SaveFieldError(problem);
+            getView().run(new SetFieldCommand(name, v));
+        } catch (e) {
+            err(e);
+            input.value = String(doc.value(name) ?? '');
+        }
+    }
+
+    /**
+     * One editable stat: label with confidence badge, an optional slider (value over `max`), the number box and a
+     * "was N" note while it differs from the file. `compact` drops the label row (used inside the skills table).
+     */
+    function statField(
+        name: string,
+        label: string,
+        opts: { max?: number; step?: number; slider?: boolean; hint?: string; compact?: boolean } = {},
+    ): HTMLElement {
         const doc = cur!.doc;
         const p = doc.probe(name);
         const value = doc.value(name);
         const missing = p.status === 'missing' || value === undefined;
         const input = h('input', {
+            class: 'sv-num',
             type: 'number',
             step: opts.step ?? 1,
             min: 0,
             value: missing ? '' : String(value),
             disabled: !doc.editable(name),
             'data-field': name,
-            onchange: () => {
-                try {
-                    const v = parseFieldValue(resolveField(name).def, input.value);
-                    const problem = doc.checkEdit(name, v);
-                    if (problem) throw new SaveFieldError(problem);
-                    getView().run(new SetFieldCommand(name, v));
-                } catch (e) {
-                    err(e);
-                    input.value = String(doc.value(name) ?? '');
-                }
-            },
+            'aria-label': label,
+            onchange: () => commitNumber(name, input.value, input),
         });
         const orig = doc.originalValue(name);
         const changed = !missing && orig !== undefined && value !== orig;
-        const max = opts.barMax;
-        const bar =
-            max !== undefined && !missing
-                ? h(
-                      'div',
-                      { class: 'bar', title: `${value} of ${max}` },
-                      h('i', { style: `width:${Math.min(100, (Number(value) / Math.max(max, 1)) * 100)}%` }),
-                  )
-                : null;
+        const max = opts.max;
+        let meter: HTMLElement | null = null;
+        if (max !== undefined && !missing) {
+            const pct = (n: number): string => `${Math.max(0, Math.min(100, (n / Math.max(max, 1)) * 100))}%`;
+            if (opts.slider) {
+                const range = h('input', {
+                    class: 'sv-range',
+                    type: 'range',
+                    min: 0,
+                    max,
+                    step: opts.step ?? 1,
+                    value: String(value),
+                    disabled: !doc.editable(name),
+                    'aria-label': `${label} slider`,
+                    style: `--p:${pct(Number(value))}`,
+                    oninput: () => {
+                        input.value = range.value;
+                        range.style.setProperty('--p', pct(Number(range.value)));
+                    },
+                    onchange: () => commitNumber(name, range.value, input),
+                });
+                meter = range;
+            } else {
+                meter = h(
+                    'div',
+                    { class: 'sv-meter', title: `${value} of ${max}` },
+                    h('i', { style: `width:${pct(Number(value))}` }),
+                );
+            }
+        }
         return h(
             'div',
-            { class: `field${changed ? ' changed' : ''}` },
-            h('div', { class: 'fhead' }, h('b', null, label), confidenceBadge(name), lockControl(name)),
-            h('div', { class: 'frow' }, input, changed ? h('small', { class: 'dim' }, `was ${orig}`) : null),
-            bar,
+            { class: `sv-field${changed ? ' changed' : ''}${opts.compact ? ' compact' : ''}` },
+            opts.compact
+                ? null
+                : h(
+                      'div',
+                      { class: 'sv-field-head' },
+                      h('label', { title: opts.hint }, label),
+                      confidenceBadge(name),
+                      lockControl(name),
+                  ),
+            h(
+                'div',
+                { class: 'sv-field-body' },
+                meter,
+                input,
+                changed ? h('small', { class: 'sv-was', title: 'Value in the file as opened' }, `was ${orig}`) : null,
+            ),
+            opts.hint && !opts.compact ? h('small', { class: 'sv-hint' }, opts.hint) : null,
         );
     }
 
     function positionField(): HTMLElement {
         const doc = cur!.doc;
         const p = doc.probe('pos');
-        const head = h('div', { class: 'fhead' }, h('b', null, 'Position'), confidenceBadge('pos'), lockControl('pos'));
+        const head = h(
+            'div',
+            { class: 'sv-field-head' },
+            h('label', null, 'Rynn’s position'),
+            confidenceBadge('pos'),
+            lockControl('pos'),
+        );
         if (p.status === 'missing' || doc.playerObject === null) {
             return h(
                 'div',
-                { class: 'field' },
+                { class: 'sv-field' },
                 head,
-                h('small', { class: 'dim' }, p.status === 'missing' ? p.reason : 'no player marker'),
+                h('small', { class: 'sv-hint' }, p.status === 'missing' ? p.reason : 'This save has no player marker.'),
             );
         }
         const v = doc.value('pos') as number[];
         const o = doc.originalValue('pos') as number[];
         const inputs = ['x', 'y', 'z'].map((axis, i) => {
             const input = h('input', {
+                class: 'sv-num',
                 type: 'number',
                 step: 10,
                 value: String(Number(v[i]!.toPrecision(9))),
                 'data-field': `pos.${axis}`,
+                'aria-label': `Position ${axis}`,
                 onchange: () => {
                     const n = Number(input.value);
                     if (!Number.isFinite(n) || input.value.trim() === '') {
@@ -523,43 +672,57 @@ export function initSaveUi(host: SaveUiHost): { openFile(f: File): Promise<void>
                     getView().setTransformField(doc.playerObject!, 'pos', i, n);
                 },
             });
-            return h('label', { class: 'axis' }, axis, input);
+            return h('label', { class: `sv-axis ${axis}` }, h('span', null, axis.toUpperCase()), input);
         });
         const changed = v.some((x, i) => Math.fround(x) !== Math.fround(o[i]!));
         return h(
             'div',
-            { class: `field${changed ? ' changed' : ''}` },
+            { class: `sv-field${changed ? ' changed' : ''}` },
             head,
-            h('div', { class: 'frow' }, ...inputs),
-            h('small', { class: 'dim' }, 'Game units. Drag the green player marker in the 3D view to move it.'),
-            changed
-                ? h('small', { class: 'dim' }, `was ${formatFieldValue(FIELDS.pos!, o as [number, number, number])}`)
-                : null,
+            h('div', { class: 'sv-axes' }, ...inputs),
+            h(
+                'small',
+                { class: 'sv-hint' },
+                'Game units. Drag the green player marker in the 3D view to move her.',
+                changed
+                    ? h(
+                          'span',
+                          { class: 'sv-was' },
+                          ` was ${formatFieldValue(FIELDS.pos!, o as [number, number, number])}`,
+                      )
+                    : null,
+            ),
+            button('Show in 3D', {
+                icon: 'cube',
+                kind: 'sm',
+                onclick: () => $('sv-frame-player').click(),
+                title: 'Select the player marker and frame it',
+            }),
+        );
+    }
+
+    /** A bar for a value that is shown but not edited here (mana), or the hero health bar. */
+    function vitalBar(label: string, now: number | null, max: number | null, kind: string, note?: string): HTMLElement {
+        const pct = now === null || max === null ? 0 : Math.max(0, Math.min(100, (now / Math.max(max, 1)) * 100));
+        return h(
+            'div',
+            { class: `sv-vital ${kind}`, title: now === null || max === null ? '' : `${now} of ${max}` },
+            h(
+                'div',
+                { class: 'sv-vital-head' },
+                h('span', null, label),
+                h('b', null, now === null ? 'n/a' : now.toLocaleString()),
+                h('small', null, max === null ? '' : `/ ${max.toLocaleString()}`),
+            ),
+            h('div', { class: 'sv-meter lg' }, h('i', { style: `width:${pct}%` })),
+            note ? h('small', { class: 'sv-hint' }, note) : null,
         );
     }
 
     function renderCharacter(): void {
         const pane = panes.character;
         if (!cur) {
-            pane.replaceChildren(
-                h(
-                    'div',
-                    { class: 'welcome' },
-                    h('h3', null, 'Open a save'),
-                    h(
-                        'p',
-                        null,
-                        'Open a single .rsg, or a memcard folder (mc0) to list every slot with its screenshot. Nothing is uploaded; files are read locally. Edits stay pending until SAVE or EXPORT.',
-                    ),
-                    h(
-                        'p',
-                        { class: 'dim' },
-                        fsa
-                            ? 'SAVE writes the file in place and keeps a .bak next to it.'
-                            : 'This browser cannot write files in place: use EXPORT to download the edited .rsg.',
-                    ),
-                ),
-            );
+            pane.replaceChildren(noSave());
             return;
         }
         const { doc, ref } = cur;
@@ -570,42 +733,6 @@ export function initSaveUi(host: SaveUiHost): { openFile(f: File): Promise<void>
                 return null;
             }
         })();
-        const card = h(
-            'div',
-            { class: 'card' },
-            sum?.screenshot
-                ? shotCanvas(sum.screenshot, 'shot big')
-                : h('div', { class: 'shot big none' }, 'no screenshot'),
-            h(
-                'div',
-                { class: 'meta' },
-                h('h3', null, doc.level || ref.name),
-                h('small', null, ref.name),
-                h(
-                    'small',
-                    null,
-                    `${ref.folder ? `${ref.folder} · ` : ''}${(ref.size / 1024).toFixed(1)} KB · ${fmtDate(ref.modified)}`,
-                ),
-                h('small', null, `${doc.save.entries.length} records, ${doc.size} positioned`),
-                sum?.levelPath ? h('small', { class: 'dim' }, sum.levelPath) : null,
-            ),
-        );
-        const skills = doc.skills;
-        const skillBlock = skills
-            ? skills.map((s) =>
-                  h(
-                      'div',
-                      { class: 'skill' },
-                      h('b', null, s.name),
-                      h(
-                          'div',
-                          { class: 'srow' },
-                          numberField(`skill.${s.id}`, 'level', { barMax: doc.value(`skill.${s.id}.max`) as number }),
-                          numberField(`skill.${s.id}.max`, 'max'),
-                      ),
-                  ),
-              )
-            : [h('small', { class: 'dim' }, 'No recognisable skill table in this save.')];
         const num = (n: string): number | null => {
             const v = doc.value(n);
             return typeof v === 'number' ? v : null;
@@ -614,93 +741,150 @@ export function initSaveUi(host: SaveUiHost): { openFile(f: File): Promise<void>
         const maxhp = num('stat.maxhp');
         const mana = num('stat.mana');
         const maxmana = num('stat.maxmana');
+        const skills = doc.skills;
         const skillTotal = skills ? skills.reduce((n, r) => n + Number(doc.value(`skill.${r.id}`) ?? r.level), 0) : 0;
         const skillCap = skills ? skills.reduce((n, r) => n + Number(doc.value(`skill.${r.id}.max`) ?? r.max), 0) : 0;
-        const vital = (label: string, cur: number | null, max: number | null, kind: string): HTMLElement =>
+
+        // ---- hero: portrait (the save's own screenshot), identity, vitals
+        const heal = button('Heal to full', {
+            icon: 'plus',
+            kind: 'sm',
+            disabled: !doc.editable('stat.hp') || maxhp === null || hp === maxhp,
+            title: 'Set health to max health',
+            onclick: () => maxhp !== null && getView().run(new SetFieldCommand('stat.hp', maxhp)),
+        });
+        const hero = h(
+            'section',
+            { class: 'sv-hero' },
             h(
                 'div',
-                { class: `vital ${kind}` },
-                h(
-                    'div',
-                    { class: 'vhead' },
-                    h('small', null, label),
-                    h('b', null, cur === null ? 'n/a' : cur.toLocaleString()),
-                ),
-                h(
-                    'div',
-                    { class: 'vbar', title: cur === null || max === null ? '' : `${cur} of ${max}` },
-                    h('i', {
-                        style: `width:${cur === null || max === null ? 0 : Math.max(0, Math.min(100, (cur / Math.max(max, 1)) * 100))}%`,
-                    }),
-                ),
-                h('small', { class: 'dim' }, max === null ? '' : `of ${max.toLocaleString()}`),
-            );
-        const stats = doc.hasStats
-            ? [
-                  h('div', { class: 'vitals' }, vital('Health', hp, maxhp, 'hp'), vital('Mana', mana, maxmana, 'mana')),
-                  h(
-                      'div',
-                      { class: 'tiles' },
-                      statTile('Gold', (num('stat.gold') ?? 0).toLocaleString()),
-                      statTile('Level', String(num('stat.level') ?? '-')),
-                      statTile('Experience', (num('stat.xp') ?? 0).toLocaleString()),
-                      statTile('Skill points', String(num('stat.skillpoints') ?? '-'), { note: 'unspent' }),
-                      statTile('Skill levels', skills ? `${skillTotal} / ${skillCap}` : 'n/a', {
-                          bar: skills ? [skillTotal, skillCap] : undefined,
-                      }),
-                  ),
-                  h('h4', null, 'Edit'),
-                  h(
-                      'div',
-                      { class: 'fgrid' },
-                      numberField('stat.hp', 'Health', { barMax: maxhp ?? undefined }),
-                      numberField('stat.maxhp', 'Max health'),
-                      numberField('stat.gold', 'Gold'),
-                      numberField('stat.xp', 'Experience'),
-                      numberField('stat.level', 'Level'),
-                      numberField('stat.skillpoints', 'Skill points'),
-                  ),
-                  h(
-                      'small',
-                      { class: 'dim' },
-                      'Mana is shown read only: it was read in 58 saves but never changed in game. Level and XP are stored ' +
-                          'separately; the game does not recompute one from the other, so keep them sensible.',
-                  ),
-              ]
-            : [
-                  h(
-                      'div',
-                      { class: 'note-box' },
-                      h('b', null, 'No stats block found. '),
-                      'This save has no recognisable copy of the game stats, so health, gold, XP and level cannot be shown or ' +
-                          'edited reliably. The unconfirmed candidates are under Advanced / raw below.',
-                  ),
-              ];
-        const legacy = h(
-            'details',
-            { class: 'adv' },
-            h('summary', null, 'Advanced / raw'),
-            h(
-                'p',
-                { class: 'dim' },
-                'Older candidates read from other records. The game applies the stats block above, not these, so editing them ' +
-                    'probably has no visible effect.',
+                { class: 'sv-portrait' },
+                sum?.screenshot
+                    ? shotCanvas(sum.screenshot, 'sv-shot')
+                    : h('div', { class: 'sv-shot none' }, 'No screenshot'),
             ),
             h(
                 'div',
-                { class: 'fgrid' },
-                numberField('hp', 'Health (Rynn record)'),
-                numberField('gold', 'Gold (gold record)'),
+                { class: 'sv-hero-main' },
+                h(
+                    'div',
+                    { class: 'sv-hero-id' },
+                    h('h3', null, doc.level || ref.name),
+                    h(
+                        'div',
+                        { class: 'sv-tags' },
+                        ref.folder ? h('span', { class: 'sv-tag' }, ref.folder.replace(/^BESCES-\d+/i, '')) : null,
+                        h('span', { class: 'sv-tag' }, `${(ref.size / 1024).toFixed(1)} KB`),
+                        h('span', { class: 'sv-tag' }, fmtDate(ref.modified)),
+                        h('span', { class: 'sv-tag' }, `${doc.save.entries.length} records`),
+                    ),
+                    sum?.levelPath ? h('small', { class: 'sv-faint' }, sum.levelPath) : null,
+                ),
+                doc.hasStats
+                    ? h(
+                          'div',
+                          { class: 'sv-vitals' },
+                          h(
+                              'div',
+                              { class: 'sv-vital-wrap' },
+                              statField('stat.hp', 'Health', { max: maxhp ?? undefined, slider: true }),
+                              heal,
+                          ),
+                          vitalBar('Mana', mana, maxmana, 'mana', 'Shown only: never changed in the saves checked.'),
+                      )
+                    : null,
             ),
         );
+
+        if (!doc.hasStats) {
+            pane.replaceChildren(
+                hero,
+                h(
+                    'div',
+                    { class: 'sv-note warn' },
+                    icon('warn', 16),
+                    h(
+                        'div',
+                        null,
+                        h('b', null, 'No stats block found'),
+                        h(
+                            'p',
+                            null,
+                            'This save has no recognisable copy of the game stats, so health, gold, XP and level cannot be shown or edited reliably. The unconfirmed candidates are under Advanced below.',
+                        ),
+                    ),
+                ),
+                advancedCard(),
+            );
+            return;
+        }
+
+        const stats = card(
+            'Stats',
+            {
+                hint: 'Level and XP are stored separately; the game does not recompute one from the other, so keep them sensible.',
+            },
+            h(
+                'div',
+                { class: 'sv-fgrid' },
+                statField('stat.gold', 'Gold'),
+                statField('stat.xp', 'Experience'),
+                statField('stat.level', 'Level'),
+                statField('stat.skillpoints', 'Skill points', { hint: 'Unspent points.' }),
+                statField('stat.maxhp', 'Max health'),
+            ),
+        );
+
+        const skillRows = skills
+            ? skills.map((s) => {
+                  const max = Number(doc.value(`skill.${s.id}.max`));
+                  return h(
+                      'div',
+                      { class: 'sv-skill' },
+                      h('span', { class: 'sv-skill-name' }, s.name),
+                      statField(`skill.${s.id}`, `${s.name} level`, { max, slider: true, compact: true }),
+                      h('span', { class: 'sv-skill-of' }, 'of'),
+                      statField(`skill.${s.id}.max`, `${s.name} max`, { compact: true }),
+                  );
+              })
+            : [h('p', { class: 'sv-dim' }, 'No recognisable skill table in this save.')];
+        const skillCard = card(
+            'Skills',
+            {
+                hint: skills ? `${skillTotal} of ${skillCap} levels earned` : undefined,
+            },
+            ...skillRows,
+        );
+
+        const place = card('Position', { hint: 'Where Rynn stands when the save loads.' }, positionField());
         pane.replaceChildren(
-            card,
-            ...stats,
-            h('h4', null, 'Position'),
-            positionField(),
-            h('h4', null, 'Skills'),
-            ...skillBlock,
-            legacy,
+            hero,
+            h(
+                'div',
+                { class: 'sv-cols' },
+                h('div', { class: 'sv-col' }, stats, place),
+                h('div', { class: 'sv-col' }, skillCard),
+            ),
+            advancedCard(),
+        );
+    }
+
+    function advancedCard(): HTMLElement {
+        return h(
+            'details',
+            { class: 'sv-adv' },
+            h('summary', null, icon('chevron', 14), 'Advanced: older raw candidates'),
+            h(
+                'p',
+                { class: 'sv-hint' },
+                'Candidates read from other records. The game applies the stats block above, not these, so editing them probably has no visible effect.',
+            ),
+            h(
+                'div',
+                { class: 'sv-fgrid' },
+                statField('hp', 'Health (Rynn record)'),
+                statField('gold', 'Gold (gold record)'),
+            ),
         );
     }
 
@@ -721,12 +905,18 @@ export function initSaveUi(host: SaveUiHost): { openFile(f: File): Promise<void>
     function renderEdits(pending: PendingEdit[]): void {
         const box = $('sv-edits-list');
         if (!cur) {
-            box.replaceChildren(h('small', { class: 'dim' }, 'No save open.'));
+            box.replaceChildren(
+                emptyState('save', 'Nothing open', 'Changes you make are listed here until you save them.'),
+            );
             return;
         }
         if (!pending.length) {
             box.replaceChildren(
-                h('small', { class: 'dim' }, 'No pending edits. Changes are listed here until you SAVE or EXPORT.'),
+                emptyState(
+                    'check',
+                    'No changes yet',
+                    'Edit a stat, an item or a quest and it is listed here. Nothing touches the file until you save.',
+                ),
             );
             return;
         }
@@ -735,11 +925,26 @@ export function initSaveUi(host: SaveUiHost): { openFile(f: File): Promise<void>
             ...pending.map((e) =>
                 h(
                     'div',
-                    { class: 'edit' },
-                    h('b', null, e.label),
+                    { class: 'sv-edit' },
+                    h(
+                        'div',
+                        { class: 'sv-edit-main' },
+                        h('b', null, e.label),
+                        h(
+                            'span',
+                            { class: 'sv-edit-chg' },
+                            h('s', null, doc.describe(e.name, e.before)),
+                            icon('chevron', 12),
+                            h('em', null, doc.describe(e.name, e.after)),
+                        ),
+                    ),
                     badge(e.unconfirmed ? 'unconfirmed' : e.confidence, e.unconfirmed ? 'bad' : e.confidence),
-                    h('span', { class: 'chg' }, `${doc.describe(e.name, e.before)} → ${doc.describe(e.name, e.after)}`),
-                    h('button', { onclick: () => revert(e), title: 'Revert this edit (undoable)' }, 'Revert'),
+                    button('', {
+                        icon: 'revert',
+                        kind: 'icon sm',
+                        title: `Revert ${e.label} (undoable)`,
+                        onclick: () => revert(e),
+                    }),
                 ),
             ),
         );
@@ -764,13 +969,24 @@ export function initSaveUi(host: SaveUiHost): { openFile(f: File): Promise<void>
 
     function renderWorld(): void {
         renderWorldList();
-        $('sv-details').replaceChildren(h('small', { class: 'dim' }, cur ? 'Select a record.' : 'No save open.'));
+        $('sv-details').replaceChildren(
+            cur
+                ? emptyState(
+                      'map',
+                      'Select a record',
+                      'Click a row in the list or a dot on the map to see its fields and hex.',
+                  )
+                : noSave(),
+        );
     }
 
     // A top-down map above the lists: every positioned record as a dot, the filtered ones emphasised.
-    const mapCanvas = h('canvas', { id: 'sv-map', class: 'worldmap', width: 720, height: 300 });
-    const mapNote = h('small', { class: 'dim' });
-    $('sv-world').insertBefore(h('div', { class: 'mapbox' }, mapCanvas, mapNote), $('sv-world').firstChild);
+    const mapCanvas = h('canvas', { id: 'sv-map', class: 'sv-worldmap', width: 720, height: 300 });
+    const mapNote = h('small', { class: 'sv-hint' });
+    $('sv-worldside').insertBefore(
+        card('Map', { hint: 'Top-down, x across and z down.' }, mapCanvas, mapNote),
+        $('sv-worldside').firstChild,
+    );
     let mapPoints: MapPoint[] = [];
     let mapB: MapBounds = mapBounds([]);
     mapCanvas.onclick = (e) => {
@@ -802,7 +1018,7 @@ export function initSaveUi(host: SaveUiHost): { openFile(f: File): Promise<void>
             arokh: arokh ? pointOf(arokh.index) : null,
             dot: 3,
         });
-        mapNote.textContent = `${mapPoints.length} positioned records, top-down (x across, z down). Green ring: Rynn. Gold ring: Arokh. Click a dot to inspect it.`;
+        mapNote.textContent = `${mapPoints.length} positioned records. Green ring: Rynn. Gold ring: Arokh. Click a dot to inspect it.`;
     }
 
     function renderWorldList(): void {
@@ -883,11 +1099,11 @@ export function initSaveUi(host: SaveUiHost): { openFile(f: File): Promise<void>
     function recordRow(r: RecordInfo): HTMLElement {
         const row = h(
             'div',
-            { class: `rec${r.index === selectedEntry ? ' sel' : ''}`, onclick: () => showDetails(r.index, false) },
+            { class: `sv-rec${r.index === selectedEntry ? ' sel' : ''}`, onclick: () => showDetails(r.index, false) },
             h('span', null, `#${r.index}`),
             h('span', { title: recordLabel(r) }, recordLabel(r) || `id ${r.id}${r.sub ? `/${r.sub}` : ''}`),
             h('span', null, `${r.size} B`),
-            h('span', { class: 'dim' }, r.pos ? r.pos.map((x) => Math.round(x)).join(', ') : ''),
+            h('span', { class: 'sv-dim' }, r.pos ? r.pos.map((x) => Math.round(x)).join(', ') : ''),
             r.pos
                 ? h(
                       'button',
@@ -910,7 +1126,7 @@ export function initSaveUi(host: SaveUiHost): { openFile(f: File): Promise<void>
         if (!cur) return;
         selectedEntry = index;
         drawWorldMap(lastMap.rows, lastMap.filtered);
-        for (const el of $('sv-groups').querySelectorAll<HTMLElement>('.rec'))
+        for (const el of $('sv-groups').querySelectorAll<HTMLElement>('.sv-rec'))
             el.classList.toggle('sel', el.dataset.index === String(index));
         const doc = cur.doc;
         const e = doc.save.entries[index]!;
@@ -957,13 +1173,13 @@ export function initSaveUi(host: SaveUiHost): { openFile(f: File): Promise<void>
         } else if (e.type === 0x401 && e.id === 893 && doc.skills) {
             known.push(['skill table', doc.skills.map((s) => `${s.name} ${s.level}/${s.max}`).join(', ')]);
         }
-        const table = h('table', { class: 'kv' });
+        const table = h('table', { class: 'sv-kv' });
         for (const [k, v] of [...rows, ...known]) {
             const tr = table.insertRow();
             tr.insertCell().textContent = k;
             tr.insertCell().textContent = v;
         }
-        const pre = h('pre', { class: 'hexview' }, hexDump(e.data, 0, hexLimit));
+        const pre = h('pre', { class: 'sv-hex' }, hexDump(e.data, 0, hexLimit));
         const more =
             e.data.length > hexLimit
                 ? h(
@@ -980,11 +1196,11 @@ export function initSaveUi(host: SaveUiHost): { openFile(f: File): Promise<void>
         $('sv-details').replaceChildren(
             h(
                 'div',
-                { class: 'dhead' },
+                { class: 'sv-dhead' },
                 h('b', null, recordLabel(rec) || groupTitle(rec)),
                 rec.pos
                     ? h('button', { onclick: () => showDetails(index, true) }, 'Show in 3D')
-                    : h('small', { class: 'dim' }, 'no position'),
+                    : h('small', { class: 'sv-dim' }, 'no position'),
             ),
             table,
             pre,
@@ -999,7 +1215,11 @@ export function initSaveUi(host: SaveUiHost): { openFile(f: File): Promise<void>
 
     // ---- compare -----------------------------------------------------------------------------------------------
 
-    const cmpSelect = h('select', { id: 'sv-cmp-select' });
+    const cmpSelect = h('select', {
+        id: 'sv-cmp-select',
+        class: 'sv-select',
+        'aria-label': 'Compare with a listed save',
+    });
     function renderCompareChoices(): void {
         cmpSelect.replaceChildren(
             new Option(discovered.length ? 'Compare with a listed save...' : 'No folder opened', ''),
@@ -1017,7 +1237,7 @@ export function initSaveUi(host: SaveUiHost): { openFile(f: File): Promise<void>
     };
 
     async function runCompare(label: string, read: () => Promise<Uint8Array>): Promise<void> {
-        if (!cur) return host.setStatus('Open a save first.', true);
+        if (!cur) return status('Open a save first.', true);
         const b = parseSave(await read());
         const a = cur.doc.pendingEdits().length ? cur.doc.build().save : cur.original;
         diff = {
@@ -1028,13 +1248,13 @@ export function initSaveUi(host: SaveUiHost): { openFile(f: File): Promise<void>
         };
         renderCompare();
         showSub('compare');
-        host.setStatus(
+        status(
             `Compared with ${label}: ${diff.result.counts.changed} changed, ${diff.result.counts.unchanged} unchanged entries.`,
         );
     }
 
     function compareWithOriginal(): void {
-        if (!cur) return host.setStatus('Open a save first.', true);
+        if (!cur) return status('Open a save first.', true);
         try {
             const built = cur.doc.build().save;
             diff = {
@@ -1065,35 +1285,34 @@ export function initSaveUi(host: SaveUiHost): { openFile(f: File): Promise<void>
         });
         const toolbar = h(
             'div',
-            { class: 'toolbar' },
-            h('button', { onclick: () => fileIn.click(), disabled: !cur }, 'Compare with file...'),
+            { class: 'sv-toolbar' },
+            button('Compare with file', { icon: 'file', disabled: !cur, onclick: () => fileIn.click() }),
             cmpSelect,
-            h(
-                'button',
-                { onclick: compareWithOriginal, disabled: !cur, title: 'Review what SAVE would change' },
-                'Pending vs as opened',
-            ),
+            button('Pending vs as opened', {
+                icon: 'compare',
+                disabled: !cur,
+                title: 'Review what Save would change',
+                onclick: compareWithOriginal,
+            }),
             fileIn,
         );
         if (!diff) {
             pane.replaceChildren(
                 toolbar,
-                h(
-                    'div',
-                    { class: 'welcome' },
-                    h(
-                        'p',
-                        null,
-                        'Compare the open save (including pending edits) with another .rsg: the field table first, then every record as changed or unchanged.',
-                    ),
-                ),
+                cur
+                    ? emptyState(
+                          'compare',
+                          'Nothing compared yet',
+                          'Compare the open save, pending changes included, with another .rsg. You get the field table first, then every record as changed or unchanged.',
+                      )
+                    : noSave(),
             );
             return;
         }
         const d = diff.result;
         const ft = h(
             'table',
-            { class: 'grid' },
+            { class: 'sv-grid' },
             h('thead', null, h('tr', null, ...['field', 'confidence', 'A', 'B'].map((x) => h('th', null, x)))),
         );
         const fb = h('tbody');
@@ -1116,7 +1335,7 @@ export function initSaveUi(host: SaveUiHost): { openFile(f: File): Promise<void>
         const changedOnly = h('input', { type: 'checkbox', checked: true, onchange: () => fillEntries() });
         const et = h(
             'table',
-            { class: 'grid' },
+            { class: 'sv-grid' },
             h(
                 'thead',
                 null,
@@ -1156,20 +1375,28 @@ export function initSaveUi(host: SaveUiHost): { openFile(f: File): Promise<void>
         fillEntries();
         pane.replaceChildren(
             toolbar,
-            h('div', { class: 'cmphead' }, h('b', null, 'A'), ` ${diff.a}  `, h('b', null, 'B'), ` ${diff.b}`),
-            h('h4', null, 'Fields'),
-            ft,
-            questCompare(diff.quests, host.story?.() ?? null),
             h(
-                'h4',
-                null,
-                `Records: ${d.counts.changed} changed, ${d.counts.unchanged} unchanged` +
-                    (d.counts.onlyA || d.counts.onlyB
-                        ? `, ${d.counts.onlyA} only in A, ${d.counts.onlyB} only in B`
-                        : ''),
-                h('label', { class: 'check' }, changedOnly, ' changed only'),
+                'div',
+                { class: 'sv-cmphead' },
+                h('span', { class: 'sv-ab a' }, 'A'),
+                h('span', null, diff.a),
+                h('span', { class: 'sv-ab b' }, 'B'),
+                h('span', null, diff.b),
             ),
-            et,
+            card('Fields', {}, ft),
+            questCompare(diff.quests, host.story?.() ?? null),
+            card(
+                'Records',
+                {
+                    hint:
+                        `${d.counts.changed} changed, ${d.counts.unchanged} unchanged` +
+                        (d.counts.onlyA || d.counts.onlyB
+                            ? `, ${d.counts.onlyA} only in A, ${d.counts.onlyB} only in B`
+                            : ''),
+                    tools: h('label', { class: 'sv-check' }, changedOnly, ' Changed only'),
+                },
+                et,
+            ),
         );
     }
 

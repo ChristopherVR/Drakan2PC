@@ -28,7 +28,7 @@ export function createInspector(ctx: Ctx): Panel {
     const root = h(
         'div',
         { class: 'panel inspector' },
-        h('div', { class: 'panel-head' }, h('span', { class: 'panel-title' }, icon('box', 14), 'Inspector')),
+        h('div', { class: 'panel-head' }, h('span', { class: 'panel-title' }, icon('details', 14), 'Details')),
         body,
     );
     let updaters: (() => void)[] = [];

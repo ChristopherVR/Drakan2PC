@@ -45,6 +45,10 @@ import { createDock, createHistory, createModPanel, createValidation } from './e
 import { helpOverlay, initShortcuts } from './editor/shortcuts.ts';
 import { VIEW_COLORS, applyTheme, currentTheme, onThemeChange, toggleTheme } from './editor/theme.ts';
 import { createToolbar, type ToolbarActions } from './editor/toolbar.ts';
+import { createPlace } from './editor/place.ts';
+import { createOutputLog } from './editor/output.ts';
+import { createNavGizmo } from './editor/navgizmo.ts';
+import { emptyState, installTooltips } from './editor/ui.ts';
 import './editor/editor.css';
 
 const $ = <T extends HTMLElement>(id: string): T => {
@@ -98,6 +102,13 @@ const AUTOSAVE_DELAY = 1500;
 export function initLevelUi(host: LevelUiHost): LevelUi {
     const root = $('level-main');
     const empty = $('lv-empty');
+    empty.append(
+        emptyState(
+            'cube',
+            'No level open',
+            'Open your disc image, then pick a level from the toolbar. You can also drop a saved document or world dump (.json) here. Press F1 for the keyboard shortcuts.',
+        ),
+    );
     let view: LevelView | null = null;
     let levelName = 'level';
     let disc: DiscContext | null = null;
@@ -121,6 +132,7 @@ export function initLevelUi(host: LevelUiHost): LevelUi {
     // ---- shell ----------------------------------------------------------------------------------------------------
 
     applyTheme(currentTheme());
+    installTooltips();
     const tip = h('div', { class: 'tip', hidden: true });
     const toasts = h('div', { class: 'toasts', 'aria-live': 'polite' });
     document.body.append(tip, toasts);
@@ -133,7 +145,39 @@ export function initLevelUi(host: LevelUiHost): LevelUi {
     const sbSnap = h('span', { class: 'sb-item', id: 'sb-snap' });
     const sbSave = h('span', { class: 'sb-item', id: 'sb-save' });
     const sbFps = h('span', { class: 'sb-item mono dim', id: 'sb-fps' });
-    fill($('ed-status'), statusMsg, h('span', { class: 'spacer' }), sbSel, sbSnap, sbCam, sbSave, sbFps);
+    const sbDrawer = (id: string, ico: string, label: string, onclick: () => void): HTMLButtonElement =>
+        h('button', { class: 'sb-btn', type: 'button', id, onclick }, icon(ico, 13), label);
+    const sbLogBadge = h('span', { class: 'ui-badge', hidden: true });
+    const sbBrowser = sbDrawer('sb-browser', 'folder-open', 'Content Browser', () => toggleBottom('assets'));
+    const sbOutput = sbDrawer('sb-output', 'terminal', 'Output Log', () => toggleBottom('output'));
+    sbOutput.append(sbLogBadge);
+    fill(
+        $('ed-status'),
+        sbBrowser,
+        sbOutput,
+        h('span', { class: 'sb-sep' }),
+        statusMsg,
+        h('span', { class: 'spacer' }),
+        sbSel,
+        sbSnap,
+        sbCam,
+        sbSave,
+        sbFps,
+    );
+    const output = createOutputLog((warn, error) => {
+        sbLogBadge.hidden = !(warn + error);
+        sbLogBadge.textContent = String(warn + error);
+        sbLogBadge.className = `ui-badge ${error ? 'bad' : 'warn'}`;
+        dockRef?.setBadge('output', warn + error ? String(warn + error) : '', error ? 'bad' : 'warn');
+    });
+    /** Drawer behaviour for the status bar buttons: a second click on the active tab folds the bottom dock. */
+    function toggleBottom(tab: string): void {
+        if (layout?.isOpen('bottom') && dockRef?.active() === tab) layout.toggle('bottom', false);
+        else {
+            layout?.openBottom();
+            dockRef?.show(tab);
+        }
+    }
 
     function toast(msg: string, kind: 'info' | 'error' | 'ok' | 'warn' = 'info'): void {
         const t = h('div', { class: `toast ${kind}`, role: 'status' }, msg);
@@ -142,6 +186,7 @@ export function initLevelUi(host: LevelUiHost): LevelUi {
         window.setTimeout(() => t.remove(), kind === 'error' || kind === 'warn' ? 6400 : 3200);
         statusMsg.textContent = msg;
         statusMsg.classList.toggle('error', kind === 'error');
+        output.log(msg, kind === 'info' ? 'info' : kind);
     }
     const fail = (e: unknown): void => {
         const msg = e instanceof Error ? e.message : String(e);
@@ -211,6 +256,7 @@ export function initLevelUi(host: LevelUiHost): LevelUi {
     // ---- panels --------------------------------------------------------------------------------------------------
 
     const outliner = createOutliner(ctx);
+    const place = createPlace(ctx);
     const inspector = createInspector(ctx);
     const assets = createAssets(ctx);
     const history = createHistory(ctx);
@@ -230,22 +276,27 @@ export function initLevelUi(host: LevelUiHost): LevelUi {
         setStatus: host.setStatus,
     });
     const dock = createDock([
-        { id: 'assets', title: 'Asset Browser', icon: 'box', panel: assets },
-        { id: 'history', title: 'History', icon: 'history', panel: history },
+        { id: 'assets', title: 'Content Browser', icon: 'folder-open', panel: assets },
+        { id: 'output', title: 'Output Log', icon: 'terminal', panel: output },
         { id: 'validation', title: 'Validation', icon: 'warn', panel: validation },
+        { id: 'history', title: 'History', icon: 'history', panel: history },
         { id: 'mod', title: 'Mod', icon: 'download', panel: modPanel },
     ]);
     dockRef = dock;
-    $('ed-left').append(outliner.el);
-    $('ed-right').append(inspector.el);
+    $('ed-left').append(place.el);
+    $('ed-outliner').append(outliner.el);
+    $('ed-details').append(inspector.el);
     $('ed-bottom').append(dock.el);
-    const panels = [outliner, inspector, assets, history, validation, modPanel];
+    const panels = [outliner, inspector, assets, place, history, validation, modPanel];
 
     // ---- real visuals: terrain, models, thumbnails ------------------------------------------------------------------
     const loader = createSceneLoader(host.call, () => getView(), {
         status: (m) => host.setStatus(m),
         toast: (m, k) => toast(m, k),
-        thumbnail: (res, url) => assets.applyThumbnail(res, url),
+        thumbnail: (res, url) => {
+            assets.applyThumbnail(res, url);
+            place.applyThumbnail(res, url);
+        },
         modelsChanged: () => {
             syncToolbar();
             updateStatus();
@@ -321,6 +372,11 @@ export function initLevelUi(host: LevelUiHost): LevelUi {
             v.setLocked(ids, !ids.every((i) => v.lockedIds.has(i)));
         },
         save: () => saveDocument(),
+        play: () => {
+            layout?.openBottom();
+            dock.show('mod');
+            modPanel.el.querySelector('.play')?.scrollIntoView({ block: 'nearest' });
+        },
         exportMod: () => {
             layout?.openBottom();
             dock.show('mod');
@@ -374,7 +430,11 @@ export function initLevelUi(host: LevelUiHost): LevelUi {
         resetLayout: () => layout?.reset(),
         togglePanel: (k) => layout?.toggle(k),
     };
-    const toolbar = createToolbar($('ed-toolbar'), actions, () => toolbarState());
+    const toolbar = createToolbar($('ed-toolbar'), actions, () => toolbarState(), {
+        left: $('vp-bar-left'),
+        right: $('vp-bar-right'),
+    });
+    const navGizmo = createNavGizmo($('vp-gizmo'), () => getView().topView());
 
     function toolbarState(): Parameters<typeof toolbar.sync>[0] {
         const v = view;
@@ -436,7 +496,10 @@ export function initLevelUi(host: LevelUiHost): LevelUi {
                     syncToolbar();
                     updateStatus();
                 },
-                onCamera: () => updateStatus(),
+                onCamera: () => {
+                    updateStatus();
+                    if (view) navGizmo.update(view.camera.quaternion);
+                },
                 onDropAsset: (key, pos) => {
                     const cls = catalog.find((c) => c.resource === key);
                     if (cls) ctx.placeClass(cls, pos);

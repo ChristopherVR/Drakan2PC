@@ -32,6 +32,8 @@ export interface ToolbarActions {
     lock(): void;
     save(): void;
     exportMod(): void;
+    /** Show the Mod panel's steps for launching the mod in the game. */
+    play(): void;
     help(): void;
     theme(): void;
     openLevel(dirPath: string): void;
@@ -126,14 +128,25 @@ function menuButton(
 const group = (...kids: Node[]): HTMLElement => h('div', { class: 'tgroup' }, ...kids);
 const sep = (): HTMLElement => h('span', { class: 'tsep', role: 'separator' });
 
-export function createToolbar(root: HTMLElement, a: ToolbarActions, getState: () => ToolbarState): Toolbar {
+/** Where the viewport's overlay toolbars live (top-left: display menus and camera; top-right: transform tools). */
+export interface ViewportBars {
+    left: HTMLElement;
+    right: HTMLElement;
+}
+
+export function createToolbar(
+    root: HTMLElement,
+    a: ToolbarActions,
+    getState: () => ToolbarState,
+    bars: ViewportBars,
+): Toolbar {
     const q: Record<string, HTMLButtonElement> = {};
     const reg = (id: string, b: HTMLButtonElement): HTMLButtonElement => ((q[id] = b), b);
 
     // ---- file
     const levelSelect = h('select', {
         id: 'ed-level',
-        class: 'levelpick',
+        class: 'levelpick ui-select',
         title: 'Open a level from the disc',
         'aria-label': 'Open level',
     });
@@ -323,7 +336,7 @@ export function createToolbar(root: HTMLElement, a: ToolbarActions, getState: ()
 
     // ---- view menu
     const view = menuButton(
-        'View',
+        'Show',
         'eye',
         (box) => {
             const s = getState();
@@ -357,9 +370,9 @@ export function createToolbar(root: HTMLElement, a: ToolbarActions, getState: ()
                 );
             box.append(h('div', { class: 'mh' }, 'Panels'));
             for (const [k, l] of [
-                ['left', 'Outliner'],
-                ['right', 'Inspector'],
-                ['bottom', 'Asset browser / panels'],
+                ['left', 'Place panel'],
+                ['right', 'Outliner and Details'],
+                ['bottom', 'Content Browser and logs'],
             ] as const) {
                 box.append(
                     h(
@@ -379,7 +392,7 @@ export function createToolbar(root: HTMLElement, a: ToolbarActions, getState: ()
                 ),
             );
         },
-        'Viewport display, link lines, panels',
+        'Show: grid, link lines, object kinds and panels',
     );
 
     // ---- display menu (terrain, models, helper classes, lighting, fog)
@@ -464,10 +477,15 @@ export function createToolbar(root: HTMLElement, a: ToolbarActions, getState: ()
         max: 20,
         value: 0,
         class: 'slider fly',
-        title: 'Fly speed (also the mouse wheel while flying)',
-        'aria-label': 'Fly speed',
+        'aria-label': 'Camera speed',
         id: 'ed-fly',
     });
+    const speedBox = h(
+        'label',
+        { class: 'camspeed', title: 'Camera speed (also the mouse wheel while flying)' },
+        icon('gauge', 14),
+        speed,
+    );
     speed.addEventListener('input', () => a.setFlySpeed(2 ** (Number(speed.value) / 5)));
     const bookmarks = menuButton(
         'Views',
@@ -533,7 +551,6 @@ export function createToolbar(root: HTMLElement, a: ToolbarActions, getState: ()
         iconButton('focus', 'Frame selection', a.frame, { hint: 'F', id: 'ed-frame' }),
         iconButton('top', 'Top view', a.topView, { hint: 'T', id: 'ed-top' }),
         bookmarks.wrap,
-        speed,
     );
 
     // ---- right side
@@ -557,6 +574,21 @@ export function createToolbar(root: HTMLElement, a: ToolbarActions, getState: ()
                 'Export mod',
             ),
         ),
+        reg(
+            'play',
+            h(
+                'button',
+                {
+                    class: 'ui-btn play sm',
+                    type: 'button',
+                    id: 'ed-play',
+                    title: 'Play the mod in the game: shows the steps to launch it',
+                    onclick: a.play,
+                },
+                icon('play', 13),
+                'Play',
+            ),
+        ),
         iconButton('sun', 'Toggle dark / light theme', a.theme, { hint: 'Ctrl+Shift+L', id: 'ed-theme' }),
         iconButton('help', 'Keyboard shortcuts', a.help, { hint: 'F1', id: 'ed-help' }),
     );
@@ -564,22 +596,15 @@ export function createToolbar(root: HTMLElement, a: ToolbarActions, getState: ()
     root.append(
         fileGroup,
         sep(),
-        toolGroup,
-        spaceBtn,
-        sep(),
-        snapGroup,
-        sep(),
         editGroup,
         sep(),
         selectMenu.wrap,
         arrange.wrap,
-        sep(),
-        view.wrap,
-        display.wrap,
-        camGroup,
         h('span', { class: 'spacer' }),
         rightGroup,
     );
+    bars.left.append(view.wrap, display.wrap, sep(), camGroup);
+    bars.right.append(toolGroup, spaceBtn, sep(), snapGroup, sep(), speedBox);
 
     let lastLevelsKey = '';
     return {
@@ -604,6 +629,7 @@ export function createToolbar(root: HTMLElement, a: ToolbarActions, getState: ()
             q.dup!.disabled = q.del!.disabled = s.selCount === 0 || !s.structural;
             q.save!.disabled = !s.hasDoc;
             q.export!.disabled = !s.hasSource;
+            q.play!.disabled = !s.hasSource;
             const key = s.levels.map((l) => l.dirPath).join('|');
             if (key !== lastLevelsKey) {
                 lastLevelsKey = key;
