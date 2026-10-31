@@ -171,3 +171,73 @@ Negative results (what the save does **not** show):
 Duplicate (type, id, sub) keys (except the two 0x401/891 level-name entries every save carries), level path missing or
 not `.lvl`, undecodable thumbnail, skill level above max (fix: set level to max), skill max above 99, Rynn record count
 and finite position, gold above 10,000,000 (second layout), hp above 100,000, state table empty or with repeated keys.
+
+## Live-memory pass: stats, inventory, quests located and proven in game (2026-10-31, third pass)
+
+Method: start from RAM. The Tab screen reads the stats block `S = 0x4fbac8` and the inventory controller cells
+(`ctl = player+0x584`, cells at `ctl+0x30`, 16 bytes each); both layouts are in `tab-rework-data-model.md`. Compare
+them with a RAM dump of the same session (`build/harness/magic5/ram_k0.ram` + its save), then edit the save and load
+it through `scripts/harness/play_run.py` on a private card (`build/save-re-play/`, never dist's saves) with RAM dumps
+and a Tab screenshot. **[game]** = confirmed that way.
+
+### 1. Stats block: HP, max HP, gold, mana, XP, level, skill points [game]
+
+The `0x401` id 893 payload is a serialisation of the game state. After the quest table and region names it holds a
+**raw copy of `S`**, with the same obfuscation as RAM (`enc(v) = rotl32(v, 8) ^ 0x739acd45`; the key is the same in
+every save and every session, `enc(0)` = the key). Anchor: the u32 pair `6, 3` at `S+4`, `S+8` (3 = skill count), then
+the block. It sits 160 to 188 bytes before the first skill row depending on the layout (unique match in 58 distinct
+saves); the row count of the skill table follows it.
+
+| S offset | Field | Evidence |
+| --- | --- | --- |
+| `+0xc` / `+0x10` | HP / max HP | [game] max HP 100 -> 333 and HP 84 -> 200 show in RAM after load |
+| `+0x18` | gold | [game] 9999 shown on the Tab screen |
+| `+0x1c` / `+0x20` | mana / max mana | seen in 58 saves, not edited |
+| `+0x24` | XP | [game] 777 in RAM |
+| `+0x28` | character level | [game] 5 on the Tab screen ("Level 5") |
+| `+0x2c` | unspent skill points | [game] 7 in RAM |
+
+The stats block, not the earlier candidates (Rynn record `+0x708` HP, gold record `0x19001255 +0x448`), is what the
+load applies: the edited save showed the edited values, and the magic5 save's block reads 646 gold, matching RAM before
+the shop purchase. The old `hp` / `gold` fields stay in the table as low-value legacy fields.
+
+### 2. Inventory grid, flags and item counts [game]
+
+- Rynn's `0x102` record holds the **inventory controller as a raw image** with a 2-byte phase. The cell table is
+  found by structure: `-1` at `base-0x14` and `base-4`, selection (-1..0x1c) at `base-0x10`, pane (0..2) at `base-0xc`,
+  then 24 cells of `{u32 equipped, u32 hot, u32 handle, u32 icon}`. Unique in every Rynn record seen. Cell 0 offsets:
+  `0x87a` (6734 / 6738 byte records), `0x976` (6998 / 7230), `0x9d2` (7082), `0x9ca` (7090), `0xa3a` (7202), `0xa56`
+  (7454). The selected item's text buffers (`ctl+0x244`) sit in the same image, which is why the earlier pass saw
+  "Wood Club" in the record.
+- `handle` is a heap pointer from the saving session (e.g. `0xa59e30`), not a registry id. The item is the `0x102`
+  record that stores that pointer **twice, 0xe0 bytes apart** (the first copy at +0x86, +0x140 ... depending on the
+  record). The next u32 is a flag word (0x40 / 0x44); then `+8` **current** and `+12` **max** durability / arrows /
+  quantity, both `enc()`-obfuscated (0xffffffff = indestructible; the dagger). Record u32 `+0` plus `0x20000` is the RAM
+  resource id: bow `0x31bc9`, club `0x3217b`, Health Elixir `0x33752`, Rynn's dagger `0x33cbc`.
+- Multi-cell items: the extra cells hold the continuation marker `dx*10 + dy` instead of a pointer (bow at cell 0 puts
+  `1` in cell 8), as in RAM.
+- Cell `equipped` and `hot` flags are plain u32 0/1 and match RAM exactly.
+- [game] Edit test on the magic5 save: bow arrows 181 -> 77, club durability 144 -> 33, elixir `hot` 0 -> 1, dagger
+  `equipped` 0 -> 1, max HP 333. After loading: RAM cells held 77, 33, hot = 1, equipped = 1 and the Tab screen showed
+  "77 / 200", a short durability bar, the elixir in Quick Inventory and the "E" marker on the dagger.
+- **Not working:** cloning an item record into a free cell (new entry id, new pointer in both places, cell filled) is
+  dropped on load (the cell is empty in RAM). Something else keys item creation (an owner list or the object
+  registration the record alone does not give). So `savetool` edits existing items only; "give an item" is open.
+- The equipped flag alone does not fill the Equipped panel (the held-weapon actors `player+0xeb4` / `+0xe90` are
+  separate), so equipping by flag is partial.
+
+### 3. Quest / map marker table (read, not proven by an edit)
+
+`0x401` id 893 payload `+0x80` is a u32 count and `+0x84` the rows, 0x20 bytes each, the same as RAM `DAT_004fbb70`:
+`{x, y, float, icon, enabled, region, quest id, state}` (`6e 64 ... 1 0 0x10c7 4` for the first Surdana row). The
+regions' names follow (`Surdana` at `+0x84 + count*0x20`). The last word (state 4, 2, 0 in the sample) is exposed as
+`quest.N` with low confidence; the meaning of the states and the Journal text link were not tested.
+
+### Still open
+
+Equipped-actor state, item creation, quest completion flags (the `quest.N` states and the 0x20-byte state table are
+unexplained), skill-point spending rules, and the 0x302 / 0x311 blocks.
+
+savetool and `formats/src/save.ts`: `stat.hp|maxhp|gold|mana|maxmana|xp|level|skillpoints`, `inv.N.equipped|hot|
+durability|max`, `quest.N`, plus `savetool inventory SAVE`. Tests: `scripts/tests/test_savetool.py`,
+`editor/packages/formats/test/save.test.ts` (synthetic).

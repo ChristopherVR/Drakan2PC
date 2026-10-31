@@ -389,5 +389,96 @@ class SaveToolTest(unittest.TestCase):
         self.assertIn("arokh.pos", run(["fields"])[1])
 
 
+def live_text(stats=None):
+    """Skill table plus a quest table (count at 0x80, two 0x20-byte rows) and the raw stats block at S = 0x100."""
+    data = bytearray(skill_table())
+    values = {"hp": 84, "maxhp": 100, "gold": 646, "mana": 100, "maxmana": 100, "xp": 250, "level": 1, "skillpoints": 0}
+    values.update(stats or {})
+    struct.pack_into("<I", data, 0x80, 2)
+    struct.pack_into("<8I", data, 0x84, 110, 100, 0, 0, 1, 0, 0x10C7, 4)
+    struct.pack_into("<8I", data, 0xA4, 0, 0, 0, 0, 1, 0, 0x1047, 2)
+    struct.pack_into("<III", data, 0x100, 0x00BB6050, 6, 3)
+    for name, off in st.STAT_OFFSETS.items():
+        struct.pack_into("<I", data, 0x100 + off, st.enc(values[name]))
+    return bytes(data)
+
+
+HANDLES = (0xA59E30, 0x9EDD30)
+CELL_BASE = 0x302  # 2-byte phase like the real layouts
+
+
+def inventory_rynn(equipped=0, hot=0):
+    patches = {CELL_BASE - 4: b"\xff" * 4, CELL_BASE - 0x14: b"\xff" * 4}
+    patches[CELL_BASE - 0x10] = struct.pack("<II", 1, 0)
+    patches[CELL_BASE] = struct.pack("<IIII", equipped, hot, HANDLES[0], 0)
+    patches[CELL_BASE + 16] = struct.pack("<IIII", 0, 0, HANDLES[1], 0)
+    patches[CELL_BASE + 16 * 8] = struct.pack("<IIII", 0, 0, 1, 0)  # continuation marker under cell 0
+    return record(RYNN, 0x800, patches)
+
+
+def item_entry(handle, resource, cur, mx, extra=0):
+    base = 0x40 + extra
+    patches = {base: struct.pack("<I", handle), base + 8: struct.pack("<II", st.enc(cur), st.enc(mx))}
+    patches[base + st.ITEM_PTR_GAP] = struct.pack("<I", handle)
+    data = bytearray(record(0x19001041, 0x300, patches))
+    struct.pack_into("<I", data, 0, resource - 0x20000)
+    return bytes(data)
+
+
+def live_save():
+    return make_srsc(
+        [
+            (0x401, 893, 0, live_text()),
+            (TYPE_REC, 56, 0, inventory_rynn(equipped=1)),
+            (TYPE_REC, 301, 0, item_entry(HANDLES[0], 0x31BC9, 181, 200)),
+            (TYPE_REC, 361, 0, item_entry(HANDLES[1], 0x3217B, 144, 150, extra=0x46)),
+        ]
+    )
+
+
+class LiveFieldsTest(unittest.TestCase):
+    def test_stats_roundtrip_and_obfuscation(self):
+        self.assertEqual(st.dec(st.enc(0xDEADBEEF)), 0xDEADBEEF)
+        self.assertEqual(st.enc(0), st.STATS_KEY)
+        save = st.parse(live_save())
+        self.assertEqual(st.get_field(save, "stat.maxhp"), 100)
+        self.assertEqual(st.get_field(save, "stat.gold"), 646)
+        before, after = st.set_field(save, "stat.maxhp", "333")
+        self.assertEqual((before, after), (100, 333))
+        again = st.parse(st.assemble(save)[0])
+        self.assertEqual(st.get_field(again, "stat.maxhp"), 333)
+        self.assertEqual(st.get_field(again, "stat.hp"), 84)
+        entry, base = st.stats_base(again)
+        self.assertEqual(struct.unpack_from("<I", entry.data, base + 0x10)[0], st.enc(333))
+
+    def test_inventory_listing_and_edits(self):
+        save = st.parse(live_save())
+        rows = st.inventory(save)
+        self.assertEqual([r["cell"] for r in rows], [0, 1, 8])
+        self.assertEqual((rows[0]["resource"], rows[0]["durability"], rows[0]["max"]), (0x31BC9, 181, 200))
+        self.assertEqual(rows[0]["equipped"], 1)
+        self.assertEqual(rows[1]["durability"], 144)  # a record with a different pointer offset
+        self.assertEqual(rows[2], {"cell": 8, "marker": 1})
+        st.set_field(save, "inv.0.durability", "77")
+        st.set_field(save, "inv.1.hot", "1")
+        st.set_field(save, "inv.0.equipped", "0")
+        again = st.parse(st.assemble(save)[0])
+        self.assertEqual(st.get_field(again, "inv.0.durability"), 77)
+        self.assertEqual(st.get_field(again, "inv.0.max"), 200)
+        self.assertEqual(st.get_field(again, "inv.1.hot"), 1)
+        self.assertEqual(st.get_field(again, "inv.0.equipped"), 0)
+        with self.assertRaises(st.SaveToolError):
+            st.set_field(again, "inv.0.hot", "2")
+        with self.assertRaises(st.SaveToolError):
+            st.get_field(again, "inv.5.durability")  # empty cell
+
+    def test_quest_rows(self):
+        save = st.parse(live_save())
+        self.assertEqual(st.get_field(save, "quest.0"), 4)
+        self.assertEqual(st.get_field(save, "quest.1"), 2)
+        with self.assertRaises(st.SaveToolError):
+            st.get_field(save, "quest.2")
+
+
 if __name__ == "__main__":
     unittest.main()

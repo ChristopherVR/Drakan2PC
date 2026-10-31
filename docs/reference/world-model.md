@@ -228,3 +228,20 @@ only flags it and queues it in the kill list (`ctx+0x440`, count `+0x448`); the 
 frame (`0x142e50`) and by the first statement of the save writer, **not** by `Level_Load` or the restore. A ghost must
 therefore be destroyed with a synchronous flush before a level load or restore, and plain `0x1413c0` is enough before a
 save write (`drakan_lifecycle::destroyActor`).
+
+## 9. Player progression and inventory in the save file (2026-10-31)
+
+Notes: [save-editor journal](../journal/2026-10-31/save-editor.md), third pass. The save is a snapshot of the RAM
+structures above; the same obfuscation applies (`enc(v) = rotl32(v, 8) ^ 0x739acd45`, key `*(0x4fe86c)`, constant in
+every run and save).
+
+| RAM | In the save | Confidence |
+| --- | --- | --- |
+| Stats block `S = 0x4fbac8` (HP `+0xc`, max `+0x10`, gold `+0x18`, mana `+0x1c` / `+0x20`, XP `+0x24`, level `+0x28`, skill points `+0x2c`) | raw copy in `0x401` id 893, found by the u32 pair `6, 3` at `S+4` / `S+8`; loaded back into RAM unchanged | [game] edited values appear in RAM and on the Tab screen |
+| Inventory controller `player+0x584`, cells `ctl+0x30` (16 bytes: equipped, hot, handle, icon), multi-cell markers `dx*10+dy` | raw image in Rynn's `0x102` record at a layout-dependent offset (2-byte phase) | [game] flags and counts round-trip |
+| Item actor instance data `+0x14` / `+0x18` (current / max durability, arrows, quantity, `enc()`) | item `0x102` record, right after its twice-stored self pointer (`+8` / `+12`) | [game] arrows 77, durability 33 loaded |
+| Item resource id (`0x31bc9` bow, `0x3217b` club, `0x33752` elixir, `0x33cbc` dagger) | record u32 `+0` minus `0x20000` | [RAM] vs save |
+| Quest / map marker rows `DAT_004fbb70` (0x20 bytes) | `0x401` id 893 `+0x84`, count at `+0x80` | layout matches; edits not tried |
+
+Item handles in the save are the saving session's heap pointers and are remapped on load. Creating a new item by
+cloning a record did not survive load; equipping by cell flag leaves the held-weapon actors (`+0xeb4` / `+0xe90`) alone.

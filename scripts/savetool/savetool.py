@@ -14,6 +14,7 @@ Commands:
   fields                                   list the editable fields with confidence notes
   progress SAVE                            the state table (kind, key, value) at the end of the text payload
   item   SAVE                              the item text kept in Rynn's record (last inspected item)
+  inventory SAVE                           occupied inventory cells with item resource, durability, flags
   validate SAVE                            integrity and plausibility report (exit 1 on errors)
 
 Writes never replace a file silently: an existing output (or the input for --in-place) is first kept as
@@ -56,6 +57,21 @@ CLASS_OFFSET = 8
 AROKH_RESOURCE = 0xA60  # u32 at +0 of Arokh's record (Rynn's is 0xa50)
 PROGRESS_ROW_SIZE = 12
 PROGRESS_KINDS = (20, 50, 68, 75, 100)
+STATS_KEY = 0x739ACD45  # key of the RAM stats block (*(0x4fe86c)); the same key is baked into every save
+CELL_COUNT = 24
+CELL_SIZE = 16
+ITEM_PTR_GAP = 0xE0  # an item record stores its own handle pointer twice, this far apart
+QUEST_ROW_SIZE = 0x20
+STAT_OFFSETS = {  # offsets from the stats block start S; every value is stored as enc(v)
+    "hp": 0xC,
+    "maxhp": 0x10,
+    "gold": 0x18,
+    "mana": 0x1C,
+    "maxmana": 0x20,
+    "xp": 0x24,
+    "level": 0x28,
+    "skillpoints": 0x2C,
+}
 
 
 class SaveToolError(Exception):
@@ -167,14 +183,38 @@ class ProgressLocator:
 
 
 @dataclass(frozen=True)
+class StatsLocator:
+    """The player stats block (RAM 0x4fbac8) dumped raw inside type 0x401 id 893; values are enc()-obfuscated."""
+
+
+@dataclass(frozen=True)
+class CellLocator:
+    """Cell N (0..23) of the inventory grid in Rynn's record: {u32 equipped, u32 hot, u32 handle, u32 icon}."""
+
+
+@dataclass(frozen=True)
+class ItemLocator:
+    """The item record whose own handle pointer sits in cell N; cur/max follow the pointer (enc()-obfuscated)."""
+
+
+@dataclass(frozen=True)
+class QuestLocator:
+    """Row N of the quest / map marker table in type 0x401 id 893 (0x20-byte rows after a u32 count at +0x80)."""
+
+
+Locator = RecordLocator | SkillTableLocator | ProgressLocator | StatsLocator | CellLocator | ItemLocator | QuestLocator
+
+
+@dataclass(frozen=True)
 class Field:
-    locator: RecordLocator | SkillTableLocator | ProgressLocator
+    locator: Locator
     offset: int  # byte offset inside the record (or skill row)
     kind: str  # "u32" or "vec3" (three float32)
     confidence: str  # "high", "medium" or "low"
     note: str
     minimum: int | None = None
     bound: tuple[str, str] | None = None  # (sibling field, "<=" or ">="), checked within the same skill row
+    encoded: bool = False  # u32 stored as rotl32(v, 8) ^ STATS_KEY
 
 
 # One table for every editable field. Confidence is the evidence level from save-editor.md, re-checked
@@ -247,8 +287,66 @@ FIELDS: dict[str, Field] = {
     ),
 }
 
+_STATS_NOTE = (
+    "Stats block S (RAM 0x4fbac8) written raw into type 0x401 id 893; found as the u32 pair (6, 3) = S+4, S+8 "
+    "before the skill table. Value at S+0x%x, stored as rotl32(v, 8) ^ 0x739acd45. Proven in game: an edited save "
+    "loaded, RAM and the Tab screen show the edit."
+)
+for _name, _off in STAT_OFFSETS.items():
+    FIELDS[f"stat.{_name}"] = Field(
+        StatsLocator(),
+        _off,
+        "u32",
+        "medium" if _name in ("mana", "maxmana") else "high",
+        _STATS_NOTE % _off,
+        minimum=0,
+        encoded=True,
+    )
+FIELDS["inv.equipped"] = Field(
+    CellLocator(),
+    0,
+    "u32",
+    "medium",
+    "Equipped flag of inventory cell N (inv.N.equipped, 0 or 1) in Rynn's record. The cell table is found by "
+    "structure (save-editor.md). Read from 60 saves; edits are checked for load only.",
+)
+FIELDS["inv.hot"] = Field(
+    CellLocator(),
+    4,
+    "u32",
+    "medium",
+    "Quick-slot flag of cell N (inv.N.hot, 0 or 1).",
+)
+FIELDS["inv.durability"] = Field(
+    ItemLocator(),
+    8,
+    "u32",
+    "high",
+    "Durability (melee), arrows (bow) or quantity (potion) of the item in cell N (inv.N.durability); stored "
+    "obfuscated in the item record right after its self pointer. 0xffffffff = indestructible.",
+    encoded=True,
+)
+FIELDS["inv.max"] = Field(
+    ItemLocator(),
+    12,
+    "u32",
+    "high",
+    "Max durability / arrows / quantity of the item in cell N (inv.N.max).",
+    encoded=True,
+)
+FIELDS["quest"] = Field(
+    QuestLocator(),
+    0x1C,
+    "u32",
+    "low",
+    "Row N of the quest / map marker table (quest.N, last word of the 0x20-byte row). Row layout "
+    "{x, y, float, icon, enabled, region, quest id, state} matches RAM 0x4fbb70; the meaning of state is unverified.",
+)
+
 _SKILL_FIELD = re.compile(r"skill\.(\d+)(\.max)?")
 _PROGRESS_FIELD = re.compile(r"progress\.(\d+)")
+_INV_FIELD = re.compile(r"inv\.(\d+)\.(equipped|hot|durability|max)")
+_QUEST_FIELD = re.compile(r"quest\.(\d+)")
 
 
 def resolve_field(name: str) -> tuple[str, int | None]:
@@ -259,10 +357,16 @@ def resolve_field(name: str) -> tuple[str, int | None]:
     match = _PROGRESS_FIELD.fullmatch(name)
     if match:
         return "progress", int(match.group(1))
-    if name in FIELDS and isinstance(FIELDS[name].locator, RecordLocator):
+    match = _INV_FIELD.fullmatch(name)
+    if match:
+        return f"inv.{match.group(2)}", int(match.group(1))
+    match = _QUEST_FIELD.fullmatch(name)
+    if match:
+        return "quest", int(match.group(1))
+    if name in FIELDS and isinstance(FIELDS[name].locator, (RecordLocator, StatsLocator)):
         return name, None
     raise SaveToolError(
-        f"unknown field {name!r}; run `savetool fields` (skills are skill.N or skill.N.max, progress rows progress.KEY)"
+        f"unknown field {name!r}; run `savetool fields` (skill.N, skill.N.max, progress.KEY, stat.NAME, inv.CELL.equipped|hot|durability|max, quest.ROW)"
     )
 
 
@@ -328,8 +432,130 @@ def progress_table(save: Save) -> tuple[Entry, int, list[tuple[int, int, int]]]:
     return entry, start, rows
 
 
+def enc(value: int) -> int:
+    return (((value << 8) | (value >> 24)) & 0xFFFFFFFF) ^ STATS_KEY
+
+
+def dec(word: int) -> int:
+    word ^= STATS_KEY
+    return ((word >> 8) | (word << 24)) & 0xFFFFFFFF
+
+
+def stats_base(save: Save) -> tuple[Entry, int]:
+    """Entry and offset S of the raw stats block: the u32 pair (6, 3) at S+4, S+8 with a plausible block after it."""
+    entry, first, _ = _skill_table(save)
+    data = entry.data
+    for a in range(4, first - 0x30, 4):
+        if _u32(data, a) != 6 or _u32(data, a + 4) != 3 or _u32(data, a + 0x10) != 0:
+            continue
+        hp, mx, gold, _m, _mm, _xp, level, _pts = (dec(_u32(data, a - 4 + o)) for o in STAT_OFFSETS.values())
+        if 1 <= mx <= 100_000 and hp <= mx + 100_000 and 1 <= level <= 200 and gold < 100_000_000:
+            return entry, a - 4
+    raise SaveToolError("stats block not found in the text payload")
+
+
+def _rynn_record(save: Save) -> Entry:
+    found = [
+        e
+        for e in save.entries
+        if e.type == TYPE_RECORD and len(e.data) > 12 and _u32(e.data, CLASS_OFFSET) == RYNN_CLASS
+    ]
+    if len(found) != 1:
+        raise SaveToolError(f"expected one Rynn record, found {len(found)}")
+    return found[0]
+
+
+def _heap_handle(word: int) -> bool:
+    return 0x600000 < word < 0x2000000 and word % 16 == 0
+
+
+def cell_table(save: Save) -> tuple[Entry, int]:
+    """Rynn's record and the offset of inventory cell 0. The controller is dumped raw at a layout-dependent offset
+    with a 2-byte phase; it is found by structure: -1 at base-0x14 and base-4, selection (-1..0x1c) at base-0x10,
+    pane (0..2) at base-0xc, then 24 cells of {equipped 0/1, hot 0/1, handle 0 / <=0x53 / heap pointer, icon}."""
+    rec = _rynn_record(save)
+    data = rec.data
+    for base in range(0x40, len(data) - CELL_COUNT * CELL_SIZE - 8, 2):
+        if struct.unpack_from("<i", data, base - 4)[0] != -1 or struct.unpack_from("<i", data, base - 0x14)[0] != -1:
+            continue
+        if not -1 <= struct.unpack_from("<i", data, base - 0x10)[0] <= 0x1C or _u32(data, base - 0xC) > 2:
+            continue
+        cells = [struct.unpack_from("<IIII", data, base + CELL_SIZE * k) for k in range(CELL_COUNT)]
+        if all(c[0] <= 1 and c[1] <= 1 and (c[2] <= 0x53 or _heap_handle(c[2])) for c in cells):
+            return rec, base
+    raise SaveToolError("inventory cell table not recognised in Rynn's record")
+
+
+def item_record(save: Save, handle: int) -> tuple[Entry, int]:
+    """The 0x102 record that stores `handle` twice, 0xe0 bytes apart; returns it and the offset of the first copy."""
+    pk = struct.pack("<I", handle)
+    for e in save.entries:
+        if e.type != TYPE_RECORD or len(e.data) < ITEM_PTR_GAP + 16 or _u32(e.data, CLASS_OFFSET) == RYNN_CLASS:
+            continue
+        i = e.data.find(pk)
+        while i >= 0:
+            if e.data[i + ITEM_PTR_GAP : i + ITEM_PTR_GAP + 4] == pk:
+                return e, i
+            i = e.data.find(pk, i + 1)
+    raise SaveToolError(f"no item record holds handle 0x{handle:x}")
+
+
+def inventory(save: Save) -> list[dict]:
+    """Occupied cells: cell, equipped, hot, handle and, from the item record, resource id (record u32 +0 plus
+    0x20000), entry id, durability and max; or {cell, marker} for the extra cells of a multi-cell item."""
+    rec, base = cell_table(save)
+    out: list[dict] = []
+    for k in range(CELL_COUNT):
+        eq, hot, handle, _icon = struct.unpack_from("<IIII", rec.data, base + CELL_SIZE * k)
+        if handle == 0:
+            continue
+        if handle <= 0x53:
+            out.append({"cell": k, "marker": handle})
+            continue
+        row: dict = {"cell": k, "equipped": eq, "hot": hot, "handle": handle}
+        try:
+            item, i = item_record(save, handle)
+            row.update(
+                resource=_u32(item.data, 0) + 0x20000,
+                entry=item.id,
+                durability=dec(_u32(item.data, i + 8)),
+                max=dec(_u32(item.data, i + 12)),
+            )
+        except SaveToolError:
+            pass
+        out.append(row)
+    return out
+
+
+def quest_rows(save: Save) -> tuple[Entry, int, int]:
+    """Entry, offset of the first row and row count of the quest / map marker table."""
+    entry, _, _ = _skill_table(save)
+    count = _u32(entry.data, 0x80)
+    if not 0 <= count <= 64 or 0x84 + count * QUEST_ROW_SIZE > len(entry.data):
+        raise SaveToolError("quest table count does not fit the payload")
+    return entry, 0x84, count
+
+
 def locate(save: Save, field: Field, row_id: int | None, force: bool) -> tuple[Entry, int]:
     """Return (entry, base offset) for a field: the record start, or the start of the matching skill row."""
+    if isinstance(field.locator, StatsLocator):
+        return stats_base(save)
+    if isinstance(field.locator, QuestLocator):
+        entry, first, count = quest_rows(save)
+        if row_id is None or not 0 <= row_id < count:
+            raise SaveToolError(f"quest row must be 0..{count - 1}")
+        return entry, first + row_id * QUEST_ROW_SIZE
+    if isinstance(field.locator, (CellLocator, ItemLocator)):
+        if row_id is None or not 0 <= row_id < CELL_COUNT:
+            raise SaveToolError("inventory fields need a cell 0..23, e.g. inv.0.durability")
+        rec, base = cell_table(save)
+        cell = base + CELL_SIZE * row_id
+        handle = _u32(rec.data, cell + 8)
+        if handle <= 0x53:
+            raise SaveToolError(f"cell {row_id} holds no item")
+        if isinstance(field.locator, CellLocator):
+            return rec, cell
+        return item_record(save, handle)
     if isinstance(field.locator, RecordLocator):
         return _find_record(save, field.locator, force), 0
     if isinstance(field.locator, ProgressLocator):
@@ -395,7 +621,8 @@ def get_field(save: Save, name: str, force: bool = False) -> int | tuple[float, 
     entry, base = locate(save, field, row_id, force)
     width = 4 if field.kind == "u32" else 12
     _check_span(entry, base + field.offset, width, name)
-    return decode(field.kind, entry.data, base + field.offset)
+    raw = decode(field.kind, entry.data, base + field.offset)
+    return dec(raw) if field.encoded else raw
 
 
 def set_field(save: Save, name: str, text: str, force: bool = False) -> tuple[object, object]:
@@ -416,9 +643,13 @@ def set_field(save: Save, name: str, text: str, force: bool = False) -> tuple[ob
         if (op == "<=" and value > limit) or (op == ">=" and value < limit):
             raise SaveToolError(f"{name}={value} must be {op} {sibling_name} ({limit})")
     before = decode(field.kind, entry.data, off)
+    if field.encoded:
+        before = dec(before)
+    if isinstance(field.locator, CellLocator) and value > 1:
+        raise SaveToolError(f"{name} must be 0 or 1")
     payload = bytearray(entry.data)
     if field.kind == "u32":
-        struct.pack_into("<I", payload, off, value)
+        struct.pack_into("<I", payload, off, enc(value) if field.encoded else value)
     else:
         struct.pack_into("<3f", payload, off, *value)
     set_payload(entry, bytes(payload))
@@ -593,7 +824,16 @@ def set_command(save_path: str, name: str, text: str, out: str | None, in_place:
 
 
 def fields_table() -> int:
-    labels = {"skill": "skill.N", "skill.max": "skill.N.max", "progress": "progress.KEY"}
+    labels = {
+        "skill": "skill.N",
+        "skill.max": "skill.N.max",
+        "progress": "progress.KEY",
+        "inv.equipped": "inv.N.equipped",
+        "inv.hot": "inv.N.hot",
+        "inv.durability": "inv.N.durability",
+        "inv.max": "inv.N.max",
+        "quest": "quest.N",
+    }
     for name, field in FIELDS.items():
         if isinstance(field.locator, RecordLocator):
             if field.locator.class_id is not None:
@@ -604,6 +844,14 @@ def fields_table() -> int:
                 where += f" id {field.locator.entry_id}"
         elif isinstance(field.locator, ProgressLocator):
             where = "state table row"
+        elif isinstance(field.locator, StatsLocator):
+            where = "stats block in type 0x401 id 893"
+        elif isinstance(field.locator, CellLocator):
+            where = "inventory cell in Rynn's record"
+        elif isinstance(field.locator, ItemLocator):
+            where = "item record of a cell"
+        elif isinstance(field.locator, QuestLocator):
+            where = "quest table row"
         else:
             where = "skill table row"
         print(f"{labels.get(name, name)}  [{field.confidence}]  {field.kind} at +0x{field.offset:x}  ({where})")
@@ -767,6 +1015,12 @@ def item_command(save_path: str) -> int:
     return 0
 
 
+def inventory_command(save_path: str) -> int:
+    for row in inventory(parse(_read(save_path))):
+        print(json.dumps(row))
+    return 0
+
+
 def validate_command(save_path: str) -> int:
     issues = validate_save(parse(_read(save_path)))
     for severity, code, message in issues:
@@ -801,6 +1055,7 @@ def build_parser() -> argparse.ArgumentParser:
     commands.add_parser("fields", help="list editable fields with confidence notes")
     commands.add_parser("progress", help="print the state table").add_argument("save")
     commands.add_parser("item", help="print the item text kept in Rynn's record").add_argument("save")
+    commands.add_parser("inventory", help="list the inventory cells and their items").add_argument("save")
     commands.add_parser("validate", help="integrity and plausibility report").add_argument("save")
     return parser
 
@@ -822,6 +1077,8 @@ def main(argv: list[str] | None = None) -> int:
             return progress_command(args.save)
         if args.command == "item":
             return item_command(args.save)
+        if args.command == "inventory":
+            return inventory_command(args.save)
         if args.command == "validate":
             return validate_command(args.save)
         return fields_table()
