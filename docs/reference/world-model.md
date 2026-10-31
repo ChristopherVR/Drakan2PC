@@ -285,17 +285,32 @@ which is `0x136628(); Level_Load(path, 0)`, no caller).
 **Why calling `0x13b7c0` hangs:** it is only the middle of that sequence. The world keeps running on the main thread while the load
 tears it down (null vtable calls); the real flow owns the main thread for the whole call.
 
-**Host side** (`drakan_levelchange.{h,cpp}`): scans the registry for class `0x10037`, and "fires" an exit at the frame boundary
-(`PadMgr_Update` hook) by writing what the trigger writes: `DAT_004fb6fc = 0`, `DAT_004fbba4 = handle`, after moving the player and
-camera onto the trigger (the transition keeps the player's offset from the trigger; fired from 100 000 units away the arrival is
-outside the level). The main loop then runs the game's own transition. No guest call is needed (a posted `0x361e18` /
-`0x361440` froze or did nothing: the queue and the screens need the UI thread). Listener `setExitListener` reports exits the
-player walks into too (read at the `.rlt` save, where the pending handle is still set); `followExit(pos)` fires the exit at the same
-world position in another copy of the level (used by multiplayer, [netcode](netcode.md)). F1 > World lists the exits with "Go"
-buttons; env `DRAKAN_LEVELCHANGE=<step>[,<step>...][@frames]` (step = exit index in nearest-first order, or a destination name) is
-the harness aid (`scripts/harness/level_change_run.py`).
+**Host side** (`drakan_levelchange.{h,cpp}`): scans the registry for class `0x10037` and "fires" an exit at the frame boundary
+(`PadMgr_Update` hook) by writing what the trigger writes: `DAT_004fb6fc = 0`, `DAT_004fbba4 = handle`. The transition function
+`0x362d38` is wrapped (`transitionEntry`): as its very first act it puts the player (and the camera, at its recorded offset from
+the player) onto the trigger. This matters: the transition keeps the player's offset from the trigger (`0x3620f0`) and re-creates
+the player at the destination's arrival marker plus that offset (`0x362310`), and **the position at `player+0x14` is rebuilt from
+the physics copies every frame**, so a write at the frame boundary is gone when the main loop gets to the transition (the player was
+somewhere random, the arrival got a garbage offset: Rynn left the level, died, or the main thread spun in the Catacombs). Written
+inside the transition, the arrival is exact for every destination tried. No guest call is made (a posted `0x361e18` / `0x361440`
+froze or did nothing: the queue and the screens need the UI thread). Listener `setExitListener` reports exits the player walks into
+too (read at the `.rlt` save, where the pending handle is still set); `followExit(pos)` fires the exit at the same world position in
+another copy of the level (used by multiplayer, [netcode](netcode.md)). F1 > World lists the exits with "Go" buttons; env
+`DRAKAN_LEVELCHANGE=<step>[,<step>...][@frames]` (step = exit index in nearest-first order, or a destination name) is the harness
+aid (`scripts/harness/level_change_run.py`, `--sweep <level>` for a table of every exit).
 
-**Verified in game** (journal): Surdana -> City of the Damned, -> Inquisitor's Lair (player on the ground, 300 fps), Lair -> Surdana
-(round trip), a three-step chain (`level_change_run.py`). **Not working:** the arrival of Kragmor (Rynn leaves the level), Shadowmire (falls, dies; its exit
-points elsewhere, so no marker) and the Catacombs (the main thread spins in a long loop after the load, 0 fps). Whether a real walk
-into those exits behaves the same was not tested (the player cannot be scripted onto the trigger yet).
+**Property 2** (`*p == 1`): relative placement. 1 for the exits to Kragmor, Catacombs, Shadowmire and the Lair: the player's offset
+from the old trigger is applied at the arrival marker; 0 for the City and the Isles: the player keeps its absolute coordinates (the
+levels share one world; the City exit and its arrival marker are at the same position).
+
+**Destination names.** Property 0 is a string id; its text is a level name ("Level 1B - Kragmor") or a file path
+(`Levels\Level 1A - Surdana\Level 1A - Surdana.lvl`, Kragmor's exit back), both reduced to the name. The accessor (`0x1b9fb0`) must
+not be called nested: on a cache miss it starts a load and spins (`while ((flags & 3) == 2)`), freezing the guest. The host reads
+the string manager's cache instead (`*(ctx+0x344)`, `this = sm + s16(vt+0x90)`, 128 buckets at `this+0x20`, bucket `(id*0x59)&0x7f`,
+chain at entry `+0x14`, `entry+0` id, `entry+8 & 3 == 3` text pointer at `entry+0x1c`). The marker search of a level load reads that
+level's exit texts up to the match, so most are cached; an uncached one shows `?` until the exit is used once (the level it led to
+is remembered per (level, id)).
+
+**Verified in game** (journal sections 3 and 5, harness `level_change_run.py`): Surdana -> City of the Damned, Inquisitor's Lair, Kragmor,
+Catacombs, Shadowmire (Rynn on the arrival marker, 70 to 180 fps), round trips and chains; the sweep table is in the journal (section 7).
+The walk-in path (touch event, queue, save screen, loading screen) was not scripted: the main-loop half is the same code as the fired path.

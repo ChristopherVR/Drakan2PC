@@ -2,11 +2,11 @@
 // 2026-10-31/level-change.md).
 //
 // The game changes level through exit triggers (class 0x10037, "Level Transition"); this module lists them and fires
-// one by sending the trigger the same event it receives when the player touches it (event 0x1001 to its message
-// handler's worker 0x361440), from a guest call posted at a frame boundary. Everything after that (save screen, loading
-// screen, the unload / load on the main thread, the arrival at the destination's "portal" object) is the game's own
-// code. The older shortcut of calling the level-change entry 0x13b7c0 directly hangs, because the world keeps running
-// on the main thread while the load tears it down.
+// one by writing the state the trigger writes (pending handle DAT_004fbba4) at a frame boundary. The game's own
+// transition function (0x362d38, wrapped here so the player is put onto the trigger as its first act) then runs on the
+// main thread: level-change save, unload / load, respawn of the player at the destination's arrival marker. No guest
+// call is made. The older shortcut of calling the level-change entry 0x13b7c0 directly hangs, because the world keeps
+// running on the main thread while the load tears it down.
 //
 // PAL (SCES-500.06) only. Test aids: DRAKAN_LEVELCHANGE=<spec> (see install()).
 #pragma once

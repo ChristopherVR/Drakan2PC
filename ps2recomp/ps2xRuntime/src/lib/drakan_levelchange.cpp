@@ -18,6 +18,7 @@
 #include <cstring>
 #include <functional>
 #include <memory>
+#include <map>
 #include <mutex>
 
 void ps2xNoPreemptEnter() noexcept;
@@ -28,6 +29,7 @@ namespace {
 
 // SCES-500.06 (identity addresses only; install() refuses other profiles).
 constexpr uint32_t kPadMgrUpdate = 0x1e3970u;
+constexpr uint32_t kTransition = 0x362d38u; // the level transition on the main thread
 constexpr uint32_t kContextPtr = 0x5565d4u;
 constexpr uint32_t kExitClass = 0x10037u;    // "Level Transition"
 constexpr uint32_t kPendingExit = 0x4fbba4u; // handle of the trigger the main loop is about to process (0 = none)
@@ -73,7 +75,7 @@ PS2Runtime::RecompiledFunction g_origTick = nullptr;
 uint32_t g_scanTicks = 0, g_playerRef = 0;
 std::mutex g_wm;
 std::function<void(const float*)> g_exitListener; // guarded by g_wm
-std::atomic<bool> g_following{false};
+std::atomic<bool> g_following{false}, g_firedByHost{false};
 bool g_haveFollow = false; // guarded by g_wm
 float g_followPos[3] = {};
 uint32_t g_followTicks = 0;
@@ -105,11 +107,30 @@ constexpr KnownDest kKnownDests[] = {
     {"Level 1A - Surdana", 0x8000f, "Level 1D - City of the Damned"},
     {"Level 1A - Surdana", 0x80010, "Level 1E - Inquisitor's Lair"},
 };
+// Destinations learned in this run: (level, string id) -> level the exit led to (set when a level change through an
+// exit completes), so exits whose text the string manager has not cached yet get a name after they were used once.
+std::map<std::pair<std::string, uint32_t>, std::string> g_learned; // guarded by g_m
+std::pair<std::string, uint32_t> g_fireKey;                        // exit being taken (level, string id), EE thread
 std::string knownName(const std::string& level, uint32_t id) {
+    {
+        std::lock_guard<std::mutex> l(g_m);
+        if (const auto it = g_learned.find({level, id}); it != g_learned.end())
+            return it->second;
+    }
     for (const KnownDest& k : kKnownDests)
         if (id == k.id && level == k.from)
             return k.to;
     return {};
+}
+
+// The level-local text of a destination is sometimes the level's name ("Level 1B - Kragmor") and sometimes its file
+// path ("Levels\\Level 1A - Surdana\\Level 1A - Surdana.lvl"): reduce both to the name.
+std::string levelNameOf(std::string t) {
+    if (const size_t slash = t.find_last_of("\\/"); slash != std::string::npos)
+        t.erase(0, slash + 1);
+    if (t.size() > 4 && t.compare(t.size() - 4, 4, ".lvl") == 0)
+        t.resize(t.size() - 4);
+    return t;
 }
 
 uint32_t callGuest(uint8_t* rdram, R5900Context* c, PS2Runtime* rt, uint32_t fn, uint32_t a0, uint32_t a1 = 0,
@@ -137,6 +158,32 @@ uint32_t propertyPtr(uint8_t* rdram, R5900Context* c, PS2Runtime* rt, uint32_t h
         return 0;
     const int16_t adj = static_cast<int16_t>(r.u16(vt + 0x18));
     return callGuest(rdram, c, rt, fn, block + static_cast<uint32_t>(adj), index, 0xffffffffu);
+}
+
+// Destination text of a string id, read from the string manager's cache without calling it (a nested call of the
+// accessor 0x1b9fb0 froze the guest: on a miss it loads the string and waits on semaphores). The manager (*(ctx+0x344),
+// this = sm + s16(vt+0x90)) keeps entries in 128 hash buckets at this+0x20 (bucket (id * 0x59) & 0x7f, chain through
+// entry+0x14, entry+0 = id, entry+8 & 3 = state, 3 = text pointer at entry+0x1c, 1 = placeholder). Empty when the
+// string is not cached (the game has not read it yet).
+std::string readString(uint8_t* rdram, uint32_t id) {
+    const Ram r{rdram};
+    const uint32_t eng = r.u32(addr(kContextPtr));
+    const uint32_t sm = Ram::ok(eng, 0x350) ? r.u32(eng + 0x344) : 0;
+    const uint32_t vt = Ram::ok(sm, 4) ? r.u32(sm) : 0;
+    if (!Ram::ok(vt, 0x98))
+        return {};
+    const uint32_t self = sm + static_cast<uint32_t>(static_cast<int32_t>(static_cast<int16_t>(r.u16(vt + 0x90))));
+    uint32_t e = r.u32(self + 0x20 + ((id * 0x59u) & 0x7fu) * 4u);
+    for (int guard = 0; guard < 64 && Ram::ok(e, 0x20) && r.u32(e) != id; ++guard)
+        e = r.u32(e + 0x14);
+    if (!Ram::ok(e, 0x20) || r.u32(e) != id || (r.u32(e + 8) & 3u) != 3u)
+        return {};
+    const uint32_t t = r.u32(e + 0x1c);
+    if (!Ram::ok(t, 2))
+        return {};
+    const char* text = reinterpret_cast<const char*>(rdram + (t & 0x1fffffffu));
+    const size_t room = std::min<size_t>(0x100, PS2_RAM_SIZE - (t & 0x1fffffffu));
+    return std::string(text, strnlen(text, room));
 }
 
 uint32_t classOf(const Ram& r, uint32_t engine, uint32_t handle) {
@@ -183,6 +230,8 @@ void scan(uint8_t* rdram, R5900Context* c, PS2Runtime* rt) {
             }
             e.dest = e.prop[0];
             e.destName = knownName(g_currentLevel, e.prop[0]);
+            if (e.destName.empty())
+                e.destName = levelNameOf(readString(rdram, e.prop[0]));
             e.direct = e.prop[6] != 0 && e.prop[6] != 0xdeadbeefu;
             out.push_back(e);
         }
@@ -201,6 +250,55 @@ void scan(uint8_t* rdram, R5900Context* c, PS2Runtime* rt) {
     g_exits = std::move(out);
 }
 
+void setPos(const Ram& r, uint32_t o, const float* p) {
+    for (uint32_t k = 0; k < 3; ++k) {
+        uint32_t bits;
+        std::memcpy(&bits, &p[k], 4);
+        r.w32(o + 0x14 + 4 * k, bits);
+    }
+}
+
+// Camera offset from the player at the time an exit was fired (the transition keeps it, see transitionEntry()).
+float g_camOff[3] = {};
+PS2Runtime::RecompiledFunction g_origTransition = nullptr;
+
+// Wrapper of the transition function 0x362d38 (runs on the main thread when the main loop sees the pending trigger).
+// The transition keeps the player's offset from the trigger ("Maintain Player Position") and places the respawned
+// player at the destination's arrival marker plus that offset, so for a fired exit the player has to stand on the
+// trigger. The position at +0x14 is overwritten from the physics copies every frame (a write at the frame boundary is
+// gone when the main loop gets here, and the player ends up wherever the engine threw it), so it is written here, at
+// the entry, where the function reads it a few calls later.
+void transitionEntry(uint8_t* rdram, R5900Context* c, PS2Runtime* rt) {
+    const Ram r{rdram};
+    const uint32_t eng = r.u32(addr(kContextPtr));
+    const uint32_t h = r.u32(addr(kPendingExit));
+    if (g_firedByHost.exchange(false) && Ram::ok(eng, 0x4b8) && Ram::ok(h, 0x20) &&
+        !std::getenv("DRAKAN_LEVELCHANGE_NOMOVE")) {
+        const uint32_t pl = r.u32(eng + 0x4b0), cam = r.u32(eng + 0x4b4);
+        float t[3], cp[3];
+        for (uint32_t k = 0; k < 3; ++k) {
+            t[k] = f32(r, h + 0x14 + 4 * k);
+            cp[k] = t[k] + g_camOff[k];
+        }
+        std::fprintf(
+            stderr, "[levelchange] transition entry: player was at %.0f %.0f %.0f, put on the trigger %.0f %.0f %.0f\n",
+            static_cast<double>(f32(r, pl + 0x14)), static_cast<double>(f32(r, pl + 0x18)),
+            static_cast<double>(f32(r, pl + 0x1c)), static_cast<double>(t[0]), static_cast<double>(t[1]),
+            static_cast<double>(t[2]));
+        if (Ram::ok(pl, 0x60))
+            setPos(r, pl, t);
+        if (Ram::ok(cam, 0x20))
+            setPos(r, cam, cp);
+    }
+    if (Ram::ok(h, 0x20) && r.u32(h) == addr(0x51b8b0u)) {
+        std::lock_guard<std::mutex> l(g_m);
+        for (const ExitInfo& e : g_exits)
+            if (e.handle == h)
+                g_fireKey = {g_currentLevel, e.dest};
+    }
+    g_origTransition(rdram, c, rt);
+}
+
 bool fire(uint8_t* rdram, PS2Runtime* rt, uint32_t handle) {
     const Ram r{rdram};
     const uint32_t eng = r.u32(addr(kContextPtr));
@@ -212,25 +310,21 @@ bool fire(uint8_t* rdram, PS2Runtime* rt, uint32_t handle) {
         std::fprintf(stderr, "[levelchange] handle %x has no instance data\n", handle);
         return false;
     }
-    std::fprintf(stderr, "[levelchange] firing exit %x\n", handle);
-    if (!std::getenv("DRAKAN_LEVELCHANGE_NOMOVE")) {
-        // The transition keeps the player's offset from the trigger ("Maintain Player Position"): arriving 100 000
-        // units from the destination's arrival marker puts Rynn outside the level. Stand on the trigger first
-        // (player and camera move together).
-        const uint32_t pl = r.u32(eng + 0x4b0), cam = r.u32(eng + 0x4b4);
-        float d[3];
-        for (uint32_t k = 0; k < 3; ++k)
-            d[k] = f32(r, handle + 0x14 + 4 * k) - f32(r, pl + 0x14 + 4 * k);
-        for (const uint32_t o : {pl, cam}) {
-            if (!Ram::ok(o, 0x20))
-                continue;
-            for (uint32_t k = 0; k < 3; ++k) {
-                const float v = f32(r, o + 0x14 + 4 * k) + d[k];
-                uint32_t bits;
-                std::memcpy(&bits, &v, 4);
-                r.w32(o + 0x14 + 4 * k, bits);
-            }
+    {
+        std::string m;
+        char tmp[32];
+        for (uint32_t k = 0; k < 13; ++k) {
+            std::snprintf(tmp, sizeof tmp, " %.3f", static_cast<double>(f32(r, handle + 0x14 + 4 * k)));
+            m += tmp;
         }
+        std::fprintf(stderr, "[levelchange] firing exit %x block:%s\n", handle, m.c_str());
+    }
+    {
+        const uint32_t pl = r.u32(eng + 0x4b0), cam = r.u32(eng + 0x4b4);
+        for (uint32_t k = 0; k < 3; ++k)
+            g_camOff[k] =
+                Ram::ok(cam, 0x20) && Ram::ok(pl, 0x20) ? f32(r, cam + 0x14 + 4 * k) - f32(r, pl + 0x14 + 4 * k) : 0.f;
+        g_firedByHost = true;
     }
     // The trigger's own state change (0x361440, branch of an exit with property 6 set, which the other branch reaches
     // after its save screen): the main loop's per-frame function sees the pending handle and runs the whole transition
@@ -256,6 +350,12 @@ void onLevelEvent(const drakan_lifecycle::Event& e) {
                     std::lock_guard<std::mutex> l(g_wm);
                     cb = g_exitListener;
                 }
+                {
+                    const uint32_t engp = r.u32(addr(kContextPtr)), pl = r.u32(engp + 0x4b0);
+                    std::fprintf(stderr, "[levelchange] at the save the player %08x is at %.0f %.0f %.0f body %08x\n",
+                                 pl, static_cast<double>(f32(r, pl + 0x14)), static_cast<double>(f32(r, pl + 0x18)),
+                                 static_cast<double>(f32(r, pl + 0x1c)), r.u32(pl + 0x50));
+                }
                 std::fprintf(stderr, "[levelchange] exit taken in '%s' at %.0f %.0f %.0f\n", e.level.c_str(),
                              static_cast<double>(pos[0]), static_cast<double>(pos[1]), static_cast<double>(pos[2]));
                 if (cb)
@@ -269,6 +369,11 @@ void onLevelEvent(const drakan_lifecycle::Event& e) {
         g_exits.clear();
     } else if (e.kind == drakan_lifecycle::Kind::AfterLevelLoad) {
         g_loading = false;
+        if (!g_fireKey.first.empty() && g_fireKey.first != e.level) {
+            std::lock_guard<std::mutex> l(g_m);
+            g_learned[g_fireKey] = e.level;
+        }
+        g_fireKey = {};
         g_currentLevel = e.level;
         g_following = false;
     }
@@ -281,6 +386,29 @@ void hookTick(uint8_t* rdram, R5900Context* c, PS2Runtime* rt) {
         const bool live = Ram::ok(eng, 0x4b8) && r.u32(eng + 0x4b0) != 0;
         if (live) {
             ++g_framesInLevel;
+            if (g_probe.steps.size() && (g_framesInLevel <= 3 || g_framesInLevel == 60 || g_framesInLevel == 200)) {
+                const uint32_t pl = r.u32(eng + 0x4b0);
+                std::fprintf(stderr, "[levelchange] arrival report '%s' frame %llu player %08x pos %.0f %.0f %.0f\n",
+                             g_currentLevel.c_str(), static_cast<unsigned long long>(g_framesInLevel), pl,
+                             static_cast<double>(f32(r, pl + 0x14)), static_cast<double>(f32(r, pl + 0x18)),
+                             static_cast<double>(f32(r, pl + 0x1c)));
+                if (g_framesInLevel == 3) {
+                    {
+                        std::string m;
+                        char tmp[32];
+                        for (uint32_t k = 0; k < 13; ++k) {
+                            std::snprintf(tmp, sizeof tmp, " %.3f", static_cast<double>(f32(r, pl + 0x14 + 4 * k)));
+                            m += tmp;
+                        }
+                        std::fprintf(stderr, "[levelchange]   player block:%s\n", m.c_str());
+                    }
+                    scan(rdram, c, rt);
+                    for (const ExitInfo& e : exits())
+                        std::fprintf(stderr, "[levelchange]   exit %x pos %.0f %.0f %.0f dest %x '%s' p1 %x p2 %x\n",
+                                     e.handle, static_cast<double>(e.pos[0]), static_cast<double>(e.pos[1]),
+                                     static_cast<double>(e.pos[2]), e.dest, e.destName.c_str(), e.prop[1], e.prop[2]);
+                }
+            }
             const bool inGame = !g_currentLevel.empty() && g_currentLevel.find("Intro") == std::string::npos;
             const bool wanted = inGame && (g_scanWanted.load() || g_probe.armed);
             if (wanted && ++g_scanTicks >= kRescanTicks) {
@@ -381,6 +509,10 @@ void install(PS2Runtime& rt) {
         return;
     g_origTick = rt.lookupFunction(addr(kPadMgrUpdate));
     rt.replaceFunction(addr(kPadMgrUpdate), &hookTick);
+    if (rt.hasFunction(addr(kTransition))) {
+        g_origTransition = rt.lookupFunction(addr(kTransition));
+        rt.replaceFunction(addr(kTransition), &transitionEntry);
+    }
     drakan_lifecycle::subscribe(drakan_lifecycle::Kind::BeforeSaveWrite, onLevelEvent);
     drakan_lifecycle::subscribe(drakan_lifecycle::Kind::BeforeLevelLoad, onLevelEvent);
     drakan_lifecycle::subscribe(drakan_lifecycle::Kind::AfterLevelLoad, onLevelEvent);

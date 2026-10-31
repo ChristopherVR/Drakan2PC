@@ -69,6 +69,9 @@ roundtrip (Surdana -> Lair -> Surdana) and chain (Surdana -> City -> Surdana -> 
 
 ## 4. Multiplayer follow
 
+**Update: the hidden chat line described here is replaced by the `LevelChange` message of protocol v6** (see
+[coop-net.md](coop-net.md) and netcode.md "LevelChange"); the follow logic (`followExit`) is unchanged.
+
 Host side: `drakan_levelchange::setExitListener` fires at the `.rlt` save (pending handle still set) with the exit's world position;
 `drakan_netplay` sends the hidden chat line `@@LC x y z` (a first try with a `0x01` marker was stripped by the server). Clients (player id
 other than 1, line from player 1) drop the line from the chat log and call `followExit(x, y, z)`: after 120 frames in a level the
@@ -78,3 +81,80 @@ Run: `python scripts/harness/netplay_two_instances.py --name lc-net4 --prefix lc
 at 36.7 s, B `host changed level through the exit at 157696 193235 428032: following` at 31.5 s and the same level loaded at 32.6 s;
 B's ghost of A is gone while it leaves and **comes back in the City** on both sides (`ghost of player .. spawned` twice each),
 ghost motion checks pass. The check "ghost removed" now accepts any removal reason (B leaves before A's hash changes).
+
+## 5. Why Kragmor, the Catacombs and Shadowmire failed, and the fix (second session)
+
+**One cause for all three: the player's position is not where the host wrote it.** The position at `player+0x14` is rebuilt from
+the physics copies every frame (docs/reference/input.md section 13 lists a dozen copies). The first version moved the player
+onto the trigger at the `PadMgr_Update` boundary and set the pending state in the same tick; by the time the main loop reached
+`0x362d38` the engine had thrown the player somewhere else (probes: `build/harness/lcC-custom`, `at the save the player is at
+209975 187011 -17856`, different every run). `0x3620f0` stores the player's offset from the trigger, and `0x362310` puts the
+respawned player at *arrival marker + offset*, so a garbage offset gave garbage positions (frame 1 to 3 in the arrival log:
+-4 000 000, then wherever the physics settled; Rynn "left the level", "died", or the main thread spun with a NaN-sized world:
+the Catacombs "0 fps"). The City / Lair arrivals only worked because those offsets happened to be small. Pinning the player for
+90 ticks with a refile and a physics-body rewrite did not hold either (the position drifted away every frame).
+
+**Fix:** `drakan_levelchange.cpp` now wraps the transition function `0x362d38` (`transitionEntry`): the pending state is still
+written at the frame boundary, but the player (and the camera, keeping its offset from the player) are put onto the trigger as
+the very first thing inside the transition, where the function reads them a few calls later. No guest call, no refile. Result
+(arrival report at frames 1, 2, 3, 60, 200 in the log, `[levelchange] arrival report`): Rynn stands exactly on the destination's
+arrival marker, stable: Kragmor `335872 172078 235520`, Catacombs `97280 150818 381952`, Shadowmire `195584 210676 459776` (all
+three equal the destination's own exit position). Screenshots: `build/harness/lcC-custom/s1.png` (Kragmor, 173 fps),
+`lcD-custom/s1.png` (Catacombs), `lcA-custom/s1.png` (Shadowmire, standing in the swamp water, 177 fps). The old note that
+Shadowmire has no marker was wrong (the `lc3` run predates the move).
+
+**Real walk-in ground truth.** Not established as an on-screen walk: Surdana's exits are 300 000 to 500 000 units from the start and
+the player cannot be placed there (see above), so a scripted walk would need minutes of pad input. What the walk-in does
+differently is only the front half (touch event -> queue -> `0x361e18` -> save screen -> loading screen); the main-loop half that
+fails or works is the same code, and with the player on the trigger our path now produces the arrivals the game's own transition
+produces. Remaining differences of the walked path that were not reproduced: the volume save / restore in `0x361288`
+(`DAT_004fdebc/dec0/dec4`, three audio channel volumes set to 1.0 and restored in `0x362d38`) and the held-object release at
+`player+0x10b4` in `0x361e18`; neither showed any effect in the arrivals.
+
+**Other facts found.**
+* `0x362d38` takes two branches after reading the destination: `uStack_f8` = the destination's own `.rlt` exists (visited before):
+  restore it (`0x19c` of the loader object) instead of a fresh `Level_Load`.
+* Property 2 (`*p == 1`, 1 for Kragmor, Catacombs, Shadowmire, Lair, 0 for the City and the Isles) = "relative placement": the
+  player's offset from the old trigger is applied at the arrival marker. With 0 the player keeps the absolute coordinates (the levels
+  share one world, so the City exit and its arrival marker are at the same world position).
+* The destination text of an exit is a level name ("Level 1B - Kragmor") or, in some levels, the file path
+  (`Levels\Level 1A - Surdana\Level 1A - Surdana.lvl`, Kragmor's exit back); both are normalised before the marker comparison.
+* Strings are read through the string manager's cache (`*(ctx+0x344)`, `this = sm + s16(vt+0x90)`: 128 hash buckets at `this+0x20`,
+  bucket `(id * 0x59) & 0x7f`, chain at entry `+0x14`, `entry+0` = id, `entry+8 & 3` = 3 -> text pointer at `entry+0x1c`).
+  A cache miss makes the accessor (`0x1b9fb0` -> `0x12b640`) start a load and **spin** (`do {} while ((flags & 3) == 2)`), which is what
+  froze every nested call (NoPreempt: the loader thread never runs). So the host only *reads the cache*, never calls it.
+  The marker search of a level load reads the exit texts of that level up to the match, so the exits that matter are mostly cached.
+  Names the cache does not have yet are learned: when a change through an exit finishes, `(old level, string id)` -> the level that
+  loaded.
+
+## 6. Open: Surdana's exit 80011 hangs
+
+The exit with destination id `0x80011` (one of the four triggers stacked at `413696 188421 618496`, property 1 = 1 "portal") hangs
+inside `0x362d38` before the `.rlt` is written, reproducibly (`build/harness/lcS-surdana-3`: `transition entry` is the last
+`[levelchange]` line, no load, the run ends at `PS2X_MAX_SECONDS`). Its sibling `0x80008` (same position) loads Ravenshold fine.
+Not analysed further: the destination text could not be read (not cached), so the cause (a destination whose level file is not on
+the disc, or a conditional exit) is unknown.
+
+## 7. Sweep: every exit of Surdana (`level_change_run.py --sweep surdana`)
+
+Each row is one fresh run: fire exit `i` (nearest-first order from the start position), then the nearest exit of the destination
+(= the arrival marker, i.e. the way back). Output folders `build/harness/lcS-surdana-<i>`; the sweep was split in two by an unrelated
+build outage (rows 0 to 2 from the first part, 3 to 10 from the second).
+
+| exit | leads to (loaded) | result |
+| --- | --- | --- |
+| 0 | Shadowmire | PASS, back in Surdana on the Shadowmire exit |
+| 1 | Inquisitor's Lair | PASS, back in Surdana |
+| 2 | Level 4A Ravenshold | arrival on the `portal` marker (`1017856 135308 778240`) verified; the way back was cut off by the outage, not verified |
+| 3 | (hang) | FAIL: hang inside the transition, see section 6 |
+| 4 | Level 5 Shiverbane | PASS, back in Surdana |
+| 5 | Level 6 Valley of the Fallen | PASS, back in Surdana |
+| 6 | City of the Damned | PASS, back in Surdana |
+| 7 | Andrellian Isles | PASS (the Isles' nearest exit leads on to Level 3B Crystal Mine, loaded fine) |
+| 8 | Catacombs | PASS, back in Surdana |
+| 9 | Level 6 Valley of the Fallen (second exit) | PASS, back in Surdana |
+| 10 | Kragmor | PASS, back in Surdana |
+
+Not done: the exits of the other levels beyond the one return exit (`--sweep city --indices 0-4` etc. is wired but was not run), the
+F1 > World panel in a screenshot (renderer screenshots do not contain the overlay and an OS-level grab of the window did not work in
+this multi-monitor setup; the list itself is checked through the arrival report in the log), a scripted real walk-in.
