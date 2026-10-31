@@ -469,6 +469,10 @@ void beforePadMgr(drakan_input::IGuest& guest, drakan_input::InputModule& input)
         const bool ok = world::readPlayerPose(mem, gl, g_readState, now, g_tick, cur) == world::PoseStatus::Ok;
         if (ok && !cur.mounted)
             g_buf.push(cur);
+        if (g_log && ok && g_tick % 15 == 0)
+            std::fprintf(stderr, "[ghost] player lower %x@%g upper %x@%g lowerMask %x\n", cur.lower.clip,
+                         static_cast<double>(cur.lower.time), cur.upper.clip, static_cast<double>(cur.upper.time),
+                         cur.lowerMask);
         if (g_buf.sample(now, past) && past.lower.clip) {
             past.position.x += g_offX;
             past.position.z += g_offZ;
@@ -494,6 +498,14 @@ void beforePadMgr(drakan_input::IGuest& guest, drakan_input::InputModule& input)
             if (g.info.handle && g.animSet) {
                 const uint32_t sk = guest.read32(g.info.handle + world::skel::kHandleSkeleton);
                 const uint32_t ch = ramPtr(sk) ? guest.read32(sk + world::skel::kChannels) : 0;
+                if (ramPtr(ch)) {
+                    const uint32_t n = guest.read32(sk + world::skel::kChannelCount);
+                    std::fprintf(stderr, "[ghost] id %d channels", g.info.id);
+                    for (uint32_t i = 0; i < n && i < world::skel::kMaxChannels; ++i)
+                        std::fprintf(stderr, " %x",
+                                     guest.read32(ch + i * world::skel::kChannelStride + world::skel::kChannelClip));
+                    std::fputc('\n', stderr);
+                }
                 if (ramPtr(ch))
                     std::fprintf(stderr, "[ghost] id %d ch0 clip %x time %g (we wrote %x %g)\n", g.info.id,
                                  guest.read32(ch + world::skel::kChannelClip),

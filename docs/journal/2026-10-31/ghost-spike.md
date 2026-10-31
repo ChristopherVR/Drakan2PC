@@ -95,3 +95,21 @@ Play folder `build/ghost-anim-play`, runs `ganim2`, `glcA`, `glcB`, `glcC` under
   not reported destroyed by our listener, yet it is absent afterwards. So the listener is a safety net; observed teardown is
   done by the engine before `Level_Load`.
 - Not verified: a level change through an exit trigger, an armed attack clip on the ghost.
+
+## Ghost attack clip
+
+Play folder `build/ghost-attack-play`, runs `gatk1` / `gatk2` under `build/harness/` (recipe and private card copy of the
+Level 1 save in `build/ghost-attack/`; `play_run.py --save`, `DRAKAN_GHOST_MIRROR=1 DRAKAN_GHOST_OFFSET=150,0 DRAKAN_GHOST_LOG=1`).
+The save has Rynn armed only after the Tab equip (TAB, ENTER, E, TAB); that recipe equipped the **bow** (not the dagger),
+so the "attack" is the bow aim/draw clip, still an upper-body clip on a separate channel.
+
+- `drakan_ghost.cpp`: added two log lines under `DRAKAN_GHOST_LOG`: `[ghost] player lower/upper/lowerMask` (every 15 ticks)
+  and `[ghost] id N channels <clip ch0> <clip ch1>` (the ghost's real channel clips, every 30 ticks). No behaviour change.
+- **Log evidence (`gatk2`):** the player skeleton has two channels. During the draw the player pose reads
+  `lower 20895 upper 20894 lowerMask 22c19` (bit 0 set, bit 1 clear), otherwise lower == upper and mask `ffffffff`.
+  About 1 s later the ghost's channels read `20895 20894`, i.e. channel 0 lower, channel 1 the upper clip, held for the draw
+  duration (~1.8 s), then `20897 20897` / `20895 20895` after release. Upper clip is not overwritten by the engine.
+- **Screenshots (`a0_g1300.png`):** with the actors 150 units apart both are visible; the ghost shows an arm-raised draw pose
+  while its legs idle; it holds **no weapon** (no bow geometry) and no projectile; the player's bow is attached.
+- Not verified: the melee (dagger) swing clip; the equip sequence picked the bow. Attacks 2 and 3 in the recipe were taps
+  with the bow (no draw), producing only 20896/20897 lower-channel clips.
