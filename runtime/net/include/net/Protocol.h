@@ -141,7 +141,7 @@ struct PlayerState {
     static constexpr MsgType kType = MsgType::PlayerState;
     PlayerId player = kNoPlayer; // server overwrites with the sender's id
     uint32_t sequence = 0;       // increases per state sent; wraps
-    uint32_t tick = 0;           // sender's local tick, informational
+    uint32_t tick = 0;           // sender's world tick (PadMgr boundary); receivers replay on it. 0 = client numbers it
     float pos[3] = {0, 0, 0};
     float yaw = 0; // radians
     float vel[3] = {0, 0, 0};

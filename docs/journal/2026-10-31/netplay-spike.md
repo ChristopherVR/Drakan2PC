@@ -90,3 +90,45 @@ Animation (`setPose` + clips from `PlayerState`), a real level-exit test, the mo
 spawn position that is valid in the level for the ghost's sector, `DRAKAN_NET_*` in the PC Settings overlay, other disc
 profiles (lifecycle is PAL only). The binaries for these runs were built with
 `cmake --build build/final-game/runtime-build --config Release --target ps2EntryRunner` (dist/DrakanPC untouched).
+
+## 6. Follow-up: animated ghosts, game-tick replay, the speed limit (same day)
+
+Changes: remote ghosts are driven with `drakan_ghost::setPose` (lower / upper clips and `lowerMask` from protocol v2+); the
+receive path replays on the **sender's world-tick clock** as `ghost-spike.md` "Ghost smoothness" asks:
+
+* The EE thread stamps every published `PlayerState.tick` with its own PadMgr-boundary counter (`MatchClient::sendState` now keeps
+  a non-zero caller tick). The receiver pushes each new raw snapshot sample (`MatchClient::newestSample`) into a
+  `world::PoseBuffer` stamped `tick / 60`.
+* Playback position `playTick` advances by one per **receiver** PadMgr boundary, steered by `+= 1 + clamp(0.05 * (newestTick -
+  playTick - delay), -0.5, 3)` to stay `delay = max(3, 0.1 s x sender tick rate)` ticks behind the newest sample (tick rate
+  estimated from tick / server-time deltas). No wall clock in the replay; a burst on the sender is replayed as a burst on the
+  receiver's cadence.
+* Spawns also check `drakan_ghost::ready()`; a refused spawn (id 0) retries after 0.5 s; the `Level 0` guard is kept.
+
+**Root cause of the judder found on the way, a network one**: `MatchServer`'s default `maxSpeed` was 2000 units/s but Rynn runs
+about 2500 u/s in game units, so the server dropped real movement and the remote state only advanced when the "elapsed time"
+heal let a step through: the ghost stood still for 1-2 s and then jumped (earlier runs also showed the odd RTT spikes: the echoed
+sequence was an old one). Default is now 30000 u/s. This alone is why the first replay changes showed 150 moving ticks vs 545
+at the source.
+
+**[game]** `scripts/harness/netplay_two_instances.py --reload` (A walks W, strafes D, W; B screenshots 18 frames 110 ms apart; per
+tick positions from `DRAKAN_NET_TRACE=1`: `[nettrace]` = ghost on B, `[nettrace-local]` = A's own pose; outputs
+`build/harness/<name>/ghost_deltas.csv` and `b_contact_sheet.png`). Run `netplay` (after the fix):
+
+| per PadMgr tick, steps of 0.5..1000 units | moving ticks | mean step | cv | stalls (<25 % of median) | jumps (>2.5x median) |
+| --- | --- | --- | --- | --- | --- |
+| ghost on B | 549 | 30.2 | 0.55 | 92 | 4 |
+| A's own pose (source) | 671 | 25.9 | 0.80 | 204 | 12 |
+
+The ghost is smoother than its source (the replay interpolates between the 20 Hz samples; the source itself moves in bursts under
+two-instance load). The steady-state steps are flat (13.3 units per tick for dozens of ticks in the trace), ramps are gradual. The
+clips in the trace follow A's (`2047b` idle, `20606` / `205ea` walk and strafe). The contact sheet (cropped to the area of the
+ghost, 300x180 per frame) shows the ghost small in the distance walking right to left; a higher zoom was not made.
+
+Real level change: **not achieved**. `DRAKAN_LIFECYCLE_EXIT` (the edge-case agent's test aid, level exit through `0x13b7c0`) hangs the
+guest with `[guest-branch:missing-target] JALR target=0x0` in the Surdana -> Kragmor load, **also in a single instance without
+`DRAKAN_GHOST` / netplay** (`build/harness/exit_noghost`), so it is not the net layer; the harness default mode wires it
+(`DRAKAN_LIFECYCLE_EXIT=Level 1B - Kragmor@1500`, B must drop the ghost and not respawn it) and passes the B side of those checks
+(B removes the ghost within 0.5 s when A's `levelHash` goes to 0 and never respawns it), but A does not finish loading, so
+"a clean exit" and "A reached Kragmor" fail until that test aid works. `--reload` (F5 / F8 in Surdana) passes completely.
+The wire weapon byte is unchanged (protocol bump for a 32-bit weapon id is up to the ghost agent's change).

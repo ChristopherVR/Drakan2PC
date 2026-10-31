@@ -27,6 +27,7 @@ Output: build/harness/<name>/{a,b}/ (stdout_1.log, recipe.txt, *.png) and summar
 from __future__ import annotations
 
 import argparse
+import itertools
 import json
 import os
 import re
@@ -40,6 +41,7 @@ ROOT = Path(__file__).resolve().parents[2]
 JUNCTIONS = ("textures", "movies", "nr", "ngx_data")
 SKIP = {"mc0", "mc1", "saves", "logs", "drakan.exe", "drakan_native_options.ini"} | set(JUNCTIONS)
 SURDANA = "Level 1A - Surdana"
+KRAGMOR = "Level 1B - Kragmor"
 
 # Times are milliseconds after each instance's own "sync play" (Rynn under control).
 RECIPE_A = """clock milliseconds
@@ -55,9 +57,7 @@ RECIPE_A = """clock milliseconds
 RECIPE_B = """clock milliseconds
 0 sync play 60
 9000 shot b_before_move
-16000 shot b_a_walking
-19000 shot b_a_strafing
-22500 shot b_a_stopped
+{contact_shots}23500 shot b_a_stopped
 {after_shots}{quit_at} quit
 """
 
@@ -106,6 +106,7 @@ def game_env(out: Path, folder: Path, recipe: Path, timeout: int, extra: dict[st
             "DRAKAN_MEMCARD_DIR": str(card),
             "DRAKAN_NATIVE_OPTIONS_INI": str(options),
             "DRAKAN_GHOST": "1",
+            "DRAKAN_NET_TRACE": "1",
             "DRAKAN_LIFECYCLE_LOG": "1",
             "DRAKAN_FULLSCREEN": "0",
             "DRAKAN_WINDOW_WIDTH": "960",
@@ -150,6 +151,72 @@ def run_reject(a: argparse.Namespace, out: Path, exe_b: Path) -> int:
     return 0 if rejected and proc.returncode == 0 else 1
 
 
+def trace_report(out: Path, log_a: str, log_b: str, checks: dict[str, bool]) -> None:
+    """Per-frame ghost positions on B (DRAKAN_NET_TRACE) -> ghost_deltas.csv, a contact sheet of B's screenshots."""
+    rows = []
+    for m in re.finditer(
+        r"\[nettrace ([\d.]+)\] p(\d+) (\S+) (\S+) (\S+) yaw (\S+) lower (\w+)@(\S+) upper (\w+)@(\S+)", log_b
+    ):
+        rows.append(
+            (float(m[1]), float(m[3]), float(m[4]), float(m[5]), float(m[6]), m[7], float(m[8]), m[9], float(m[10]))
+        )
+    lines = ["t,dt_ms,dx,dy,dz,dist,yaw,lower,lower_t,upper,upper_t"]
+    moving = []
+    for prev, cur in itertools.pairwise(rows):
+        dt = cur[0] - prev[0]
+        if dt <= 0 or dt > 0.5:
+            continue
+        dist = ((cur[1] - prev[1]) ** 2 + (cur[2] - prev[2]) ** 2 + (cur[3] - prev[3]) ** 2) ** 0.5
+        lines.append(
+            f"{cur[0]:.4f},{dt * 1000:.2f},{cur[1] - prev[1]:.2f},{cur[2] - prev[2]:.2f},{cur[3] - prev[3]:.2f},"
+            f"{dist:.2f},{cur[4]:.3f},{cur[5]},{cur[6]:.3f},{cur[7]},{cur[8]:.3f}"
+        )
+        if 0.5 < dist < 1000:  # larger steps are respawns / teleports, not walking
+            moving.append((dt, dist))
+    (out / "ghost_deltas.csv").write_text("\n".join(lines) + "\n", encoding="utf-8")
+    local = []
+    for m in re.finditer(r"\[nettrace-local ([\d.]+)\] (\S+) (\S+) (\S+) ", log_a):
+        local.append((float(m[2]), float(m[3]), float(m[4])))
+
+    def steps(points):
+        out_steps = []
+        for p, c in itertools.pairwise(points):
+            d = sum((c[k] - p[k]) ** 2 for k in range(3)) ** 0.5
+            if 0.5 < d < 1000:
+                out_steps.append(d)
+        return out_steps
+
+    def stat(v):
+        if len(v) < 10:
+            return None
+        mean = sum(v) / len(v)
+        med = sorted(v)[len(v) // 2]
+        sd = (sum((x - mean) ** 2 for x in v) / len(v)) ** 0.5
+        return len(v), mean, sd / mean, sum(1 for x in v if x < 0.25 * med), sum(1 for x in v if x > 2.5 * med)
+
+    g = stat(steps([r[1:4] for r in rows]))
+    a = stat(steps(local))
+    for name, st in (("ghost on B (per tick)", g), ("A's own pose (source)", a)):
+        if st:
+            print(f"{name}: {st[0]} moving ticks, step mean {st[1]:.1f}, cv {st[2]:.2f}, stalls {st[3]}, jumps {st[4]}")
+        else:
+            print(f"{name}: too few moving ticks")
+    checks["b: ghost moved (traced ticks)"] = g is not None
+    if g and a:
+        checks["b: ghost step cv <= 1.25 x the source's"] = g[2] <= 1.25 * a[2]
+    shots = sorted((out / "b").glob("b_c??.png"))
+    if shots:
+        from PIL import Image
+
+        imgs = [Image.open(p).convert("RGB").crop((280, 160, 680, 400)).resize((300, 180)) for p in shots]
+        cols = 6
+        sheet = Image.new("RGB", (cols * 300, ((len(imgs) + cols - 1) // cols) * 180))
+        for i, im in enumerate(imgs):
+            sheet.paste(im, ((i % cols) * 300, (i // cols) * 180))
+        sheet.save(out / "b_contact_sheet.png")
+        print(f"contact sheet: {out / 'b_contact_sheet.png'} ({len(imgs)} frames)")
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--name", default="netplay")
@@ -161,6 +228,7 @@ def main() -> int:
     )
     ap.add_argument("--port", type=int, default=47800)
     ap.add_argument("--no-level-change", action="store_true")
+    ap.add_argument("--reload", action="store_true", help="level change = A quick-saves and quick-loads (F5 / F8)")
     ap.add_argument("--reject", action="store_true", help="only B, against a drakan_server of another disc profile")
     ap.add_argument("--timeout", type=int, default=150, help="seconds per instance")
     a = ap.parse_args()
@@ -177,16 +245,15 @@ def main() -> int:
     if a.reject:
         return run_reject(a, out, exe_b)
 
-    level_change = (
-        "" if a.no_level_change else "24000 key down F5\n24800 key up F5\n33000 key down F8\n33700 key up F8\n"
-    )
+    level_change = ""
+    if a.reload and not a.no_level_change:
+        level_change = "24000 key down F5\n24800 key up F5\n33000 key down F8\n33700 key up F8\n"
     quit_a = 56000
+    contact = "".join(f"{15600 + i * 110} shot b_c{i:02d}\n" for i in range(18))
+    after = "" if a.no_level_change else "38000 shot b_a_gone\n46000 shot b_a_gone2\n"
     recipes = {
         "a": RECIPE_A.format(level_change=level_change, quit_at=quit_a),
-        "b": RECIPE_B.format(
-            after_shots="" if a.no_level_change else "35500 shot b_a_loading\n46000 shot b_a_back\n",
-            quit_at=quit_a - 2000,
-        ),
+        "b": RECIPE_B.format(contact_shots=contact, after_shots=after, quit_at=quit_a - 2000),
     }
     for k, text in recipes.items():
         (out / k / "recipe.txt").write_text(text, encoding="utf-8", newline="\n")
@@ -202,6 +269,8 @@ def main() -> int:
         env_a = {"DRAKAN_NET_CONNECT": f"127.0.0.1:{a.port}", "DRAKAN_NET_NAME": "Alpha"}
     else:
         env_a = {"DRAKAN_NET_HOST": str(a.port), "DRAKAN_NET_NAME": "Alpha"}
+    if not a.reload and not a.no_level_change:
+        env_a["DRAKAN_LIFECYCLE_EXIT"] = KRAGMOR + "@1500"  # real exit: 0x13b7c0 after 1500 frames in Surdana
     env_b = {"DRAKAN_NET_CONNECT": f"127.0.0.1:{a.port}", "DRAKAN_NET_NAME": "Bravo"}
 
     procs: dict[str, subprocess.Popen] = {}
@@ -237,11 +306,17 @@ def main() -> int:
         spawned = len(re.findall(r"ghost of player \d+ '.*' spawned", text[k]))
         checks[f"{k}: ghost of the other spawned"] = spawned >= 1
     if not a.no_level_change:
-        checks["a: reload seen (save restore)"] = "beforeSaveRestore" in text["a"] and "afterSaveRestore" in text["a"]
-        checks["b: ghost removed while A loads"] = (
-            re.search(r"ghost of player \d+ removed \(player in another level\)", text["b"]) is not None
-        )
-        checks["b: ghost back after A's load"] = len(re.findall(r"ghost of player \d+ '.*' spawned", text["b"])) >= 2
+        spawns = len(re.findall(r"ghost of player \d+ '.*' spawned", text["b"]))
+        removed = re.search(r"ghost of player \d+ removed \(player in another level\)", text["b"]) is not None
+        if a.reload:
+            checks["a: reload seen (save restore)"] = "afterSaveRestore" in text["a"]
+            checks["b: ghost removed while A loads"] = removed
+            checks["b: ghost back after A's load"] = spawns >= 2
+        else:
+            checks["a: level change to Kragmor"] = "level 'Level 1B - Kragmor' loaded" in text["a"]
+            checks["b: ghost removed when A left the level"] = removed
+            checks["b: no ghost of A afterwards"] = spawns == 1
+    trace_report(out, text["a"], text["b"], checks)
     stats = {
         k: re.findall(r"stats: rtt ([\-\d.]+) ms, snapshots ([\d.]+)/s, states sent ([\d.]+)/s", text[k]) for k in "ab"
     }

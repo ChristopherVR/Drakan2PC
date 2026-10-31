@@ -31,7 +31,8 @@ struct ServerOptions {
     uint16_t maxDamagePerHit = 200;
     uint32_t minHitIntervalMs = 50; // per attacker
     float maxHitRange = 500.0f;     // attacker to victim, from their last accepted states; <= 0 disables
-    float maxSpeed = 2000.0f;       // units per second between accepted states; <= 0 disables
+    float maxSpeed = 30000.0f; // units/s between accepted states; <= 0 disables. Rynn runs ~2500 u/s (game units), so
+                               // 2000 dropped real movement
 };
 
 struct ServerPlayer {

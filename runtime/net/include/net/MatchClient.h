@@ -74,6 +74,9 @@ public:
     uint32_t serverTimeAt(uint64_t localNowMs) const;
     bool remoteState(PlayerId id, uint64_t localNowMs, PlayerState& out) const;
     size_t bufferedStates(PlayerId id) const;
+    // The newest buffered raw snapshot sample of a remote player and the server time it carries (for a game-side pose
+    // buffer that interpolates on its own clock). False when nothing is buffered.
+    bool newestSample(PlayerId id, PlayerState& out, uint32_t& serverTimeMs) const;
 
     // Diagnostics. rttMs() is the smoothed round trip of our own PlayerState: send time to the arrival of the snapshot
     // that echoes its sequence (so it includes up to one server snapshot interval); < 0 until measured.

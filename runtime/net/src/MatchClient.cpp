@@ -76,7 +76,8 @@ bool MatchClient::sendState(PlayerState s) {
         return false;
     s.player = self_;
     s.sequence = ++sendSequence_;
-    s.tick = ++sendTick_;
+    if (s.tick == 0)
+        s.tick = ++sendTick_; // a caller-supplied tick (the game's world tick) is kept
     sent_[s.sequence & 63] = {s.sequence, now_};
     return transport_.send(peer_, Channel::Unreliable, encode(s));
 }
@@ -297,6 +298,15 @@ uint32_t MatchClient::serverTimeAt(uint64_t localNowMs) const {
 size_t MatchClient::bufferedStates(PlayerId id) const {
     auto it = buffers_.find(id);
     return it == buffers_.end() ? 0 : it->second.size();
+}
+
+bool MatchClient::newestSample(PlayerId id, PlayerState& out, uint32_t& serverTimeMs) const {
+    auto it = buffers_.find(id);
+    if (it == buffers_.end() || it->second.empty())
+        return false;
+    out = it->second.back().state;
+    serverTimeMs = it->second.back().serverTimeMs;
+    return true;
 }
 
 bool MatchClient::remoteState(PlayerId id, uint64_t localNowMs, PlayerState& out) const {

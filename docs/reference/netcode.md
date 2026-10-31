@@ -70,7 +70,7 @@ simulates the game and needs no level data.
   accepted positions are within `maxHitRange`. Accepted hits are broadcast with the resulting health; at 0 health the
   server broadcasts Death and two Scores, then Respawn after `respawnDelayMs`.
 - Movement checks: stale sequence numbers are dropped, non-finite or huge coordinates and speeds above `maxSpeed`
-  (units/s between accepted states) are discarded. The first state after (re)spawn is exempt. A dropped teleport
+  (units/s between accepted states, default 30000; Rynn runs ~2500) are discarded. The first state after (re)spawn is exempt. A dropped teleport
   heals itself as the elapsed time grows.
 - Remote players: the client buffers snapshot states per player and renders `interpolationDelayMs` (100) behind the
   estimated server clock, interpolating position, velocity, yaw (shortest arc) and animation time; discrete fields come
@@ -94,10 +94,10 @@ Environment (all opt-in; also set `DRAKAN_GHOST=1`, the ghosts are `drakan_ghost
 
 How it works: sockets, the embedded server and the `MatchClient` live on one network thread that never touches guest
 memory. At each `PadMgr_Update` the EE thread reads the controlled actor with `world::readPlayerPose`, converts it with
-`toPlayerState` and drops it into a mutex-protected slot; the network thread sends it at 20 Hz. Received remote states
-(already interpolated 100 ms behind by `MatchClient`) go the other way into a `world::PoseBuffer` per player; the ghost
-is spawned (`drakan_ghost::spawn`) when the remote player is Playing, mounted-off, and in the same level, and driven with
-`setTransform` every frame. It is removed when the player leaves, changes level (their `levelHash` goes to 0 while
+`toPlayerState` and drops it into a mutex-protected slot; the network thread sends it at 20 Hz. Raw received snapshot samples
+go the other way into a `world::PoseBuffer` per player, replayed on the sender's world-tick clock (`PlayerState.tick` is the
+sender's PadMgr counter; playback advances once per receiver tick); the ghost is spawned (`drakan_ghost::spawn`) when the remote player is Playing, mounted-off, and in the same level, and driven with
+`drakan_ghost::setPose` (position, yaw and clips) every frame. It is removed when the player leaves, changes level (their `levelHash` goes to 0 while
 loading, then to the new level's hash) or when this instance loads a level or writes a save (`drakan_lifecycle`).
 
 Mismatch rules: the disc profile (hash of the serial and save id) is sent in `Hello`; a server started with that hash (the
@@ -121,7 +121,7 @@ level / mounted / not-playing change hides the ghost after 0.5 s (a menu opening
 frame), our own load or save hides at once. `python scripts/harness/netplay_two_instances.py --reject` checks the
 profile rejection against a `drakan_server --profile-hash 1`.
 
-Not done: the ghost animates by position and yaw only (clips arrive when `drakan_ghost::setPose` lands), no damage or
+Not done: no damage or
 hits, mounted (dragon) players are hidden, no sector update for the ghost.
 
 ## Tests

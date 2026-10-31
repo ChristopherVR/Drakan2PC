@@ -79,8 +79,10 @@ constexpr uint64_t kStaleLocalMs = 1000; // the EE thread stopped publishing (lo
 struct RemoteIn {
     drakan::net::PlayerState state;
     std::string name;
-    uint64_t serial = 0; // bumped whenever the interpolated state changed
-    double recvSec = 0;
+    uint64_t serial = 0;         // bumped whenever the interpolated state changed
+    uint32_t sampleServerMs = 0; // server time carried by `state`
+    uint32_t serverNowMs = 0;    // our estimate of the server clock when this entry was last refreshed ...
+    uint64_t wallMs = 0;         // ... at this local time
 };
 
 struct Shared {
@@ -97,6 +99,7 @@ struct Shared {
 Shared g_s;
 std::atomic<bool> g_enabled{false};
 std::atomic<bool> g_stop{false};
+bool g_trace = false;                 // DRAKAN_NET_TRACE=1: one line per ghost per EE tick (harness: per-frame deltas)
 std::atomic<uint32_t> g_levelHash{0}; // written by the lifecycle listeners (EE thread)
 std::atomic<uint32_t> g_ghostsVisible{0};
 std::thread g_thread;
@@ -171,8 +174,6 @@ void netThread() {
     bool wasConnected = false;
     bool tried = false;
     bool rejectLogged = false;
-    std::map<PlayerId, uint64_t> serials;
-    std::map<PlayerId, PlayerState> lastPub;
 
     while (!g_stop.load()) {
         const uint64_t now = nowMs();
@@ -249,8 +250,6 @@ void netThread() {
             g_s.playing = connected && client.phase() == MatchPhase::Playing;
             for (auto it = g_s.remotes.begin(); it != g_s.remotes.end();) {
                 if (!connected || !client.roster().count(it->first)) {
-                    serials.erase(it->first);
-                    lastPub.erase(it->first);
                     it = g_s.remotes.erase(it);
                 } else
                     ++it;
@@ -260,17 +259,15 @@ void netThread() {
                     if (kv.first == client.playerId())
                         continue;
                     PlayerState ps;
-                    if (!client.remoteState(kv.first, now, ps))
+                    uint32_t sampleMs;
+                    if (!client.newestSample(kv.first, ps, sampleMs))
                         continue;
                     RemoteIn& r = g_s.remotes[kv.first];
                     r.name = kv.second.name;
-                    PlayerState& prev = lastPub[kv.first];
-                    if (r.serial == 0 || std::memcmp(&prev, &ps, sizeof ps) != 0) {
-                        prev = ps;
-                        r.state = ps;
-                        r.serial = ++serials[kv.first];
-                        r.recvSec = nowSec();
-                    }
+                    r.state = ps;
+                    r.sampleServerMs = sampleMs;
+                    r.serverNowMs = client.serverTimeAt(now);
+                    r.wallMs = now;
                 }
         }
 
@@ -311,16 +308,21 @@ uint32_t g_tick = 0;
 double g_spawnNotBefore = 0; // EE thread
 constexpr double kSettleSec = 1.5;
 constexpr double kDebounceSec = 0.5;
+constexpr double kTickHz = 60.0;  // PoseBuffer time unit: sender ticks / kTickHz
+constexpr double kDelaySec = 0.1; // replay this far behind the newest sample (two snapshot intervals)
 
 world::PoseBufferConfig bufferConfig() {
     world::PoseBufferConfig c;
-    c.delaySec = 0.03; // MatchClient already renders 100 ms behind; this only smooths jitter
+    c.delaySec = 0; // unused: the replay position is chosen by tick (sampleAt)
     return c;
 }
 
 struct RemoteView {
     world::PoseBuffer buffer{bufferConfig()};
-    uint64_t serial = 0;
+    bool haveSample = false, havePlay = false;
+    uint32_t newestTick = 0, prevSampleMs = 0;
+    double playTick = 0;
+    double tickRate = 60.0; // sender world ticks per second, smoothed
     int ghostId = 0;
     bool wasVisible = false;
     double unwantedSince = -1;
@@ -344,6 +346,8 @@ void forgetGhosts() {
         kv.second.ghostId = 0;
         kv.second.wasVisible = false;
         kv.second.buffer.clear();
+        kv.second.haveSample = false;
+        kv.second.havePlay = false;
     }
     g_ghostsVisible.store(0);
 }
@@ -364,6 +368,8 @@ void hide(drakan::net::PlayerId id, RemoteView& v, const char* why) {
         v.ghostId = 0;
     }
     v.buffer.clear();
+    v.haveSample = false;
+    v.havePlay = false;
     v.wasVisible = false;
     v.failures = 0;
     v.retryAt = 0;
@@ -429,6 +435,8 @@ void install(PS2Runtime& rt) {
     }
     if (const char* n = std::getenv("DRAKAN_NET_NAME"); n && *n)
         g_name = std::string(n).substr(0, drakan::net::kMaxNameLength);
+    const char* tr = std::getenv("DRAKAN_NET_TRACE");
+    g_trace = tr && tr[0] && tr[0] != '0';
     const auto& prof = drakan_region::build();
     g_profileHash = fnv64(std::string(prof.serial ? prof.serial : "") + "|" + (prof.saveId ? prof.saveId : ""));
 
@@ -490,6 +498,9 @@ void beforePadMgr(const uint8_t* rdram) {
     if (!transition)
         status = world::readPlayerPose(RdramMemory(rdram), g_globals, g_poseState, t, ++g_tick, pose);
     const bool posed = status == world::PoseStatus::Ok && myLevel != 0 && !transition;
+    if (g_trace && posed)
+        std::fprintf(stderr, "[nettrace-local %.4f] %.2f %.2f %.2f yaw %.3f lower %x@%.3f\n", t, pose.position.x,
+                     pose.position.y, pose.position.z, pose.yaw, pose.lower.clip, pose.lower.time);
     {
         std::lock_guard<std::mutex> l(g_s.m);
         if (posed) {
@@ -540,12 +551,30 @@ void beforePadMgr(const uint8_t* rdram) {
             continue;
         }
         v.unwantedSince = -1;
-        if (r.serial != v.serial) {
-            v.serial = r.serial;
-            v.buffer.push(world::fromPlayerState(r.state, r.recvSec));
+        // Replay on the sender's world-tick clock (ghost-spike.md "Ghost smoothness"): the game advances in bursts, so
+        // wall-clock replay turns them into stalls and jumps. Samples are stamped tick / 60; the playback position
+        // advances once per OUR PadMgr boundary and is steered to stay `delay` ticks behind the newest sample.
+        if (!v.haveSample || r.state.tick > v.newestTick) {
+            if (v.haveSample && r.sampleServerMs > v.prevSampleMs) {
+                const double inst = (r.state.tick - v.newestTick) * 1000.0 / (r.sampleServerMs - v.prevSampleMs);
+                if (inst > 5.0 && inst < 500.0)
+                    v.tickRate = v.tickRate * 0.8 + inst * 0.2;
+            }
+            v.haveSample = true;
+            v.newestTick = r.state.tick;
+            v.prevSampleMs = r.sampleServerMs;
+            v.buffer.push(world::fromPlayerState(r.state, r.state.tick / kTickHz));
+        }
+        const double delayTicks = std::max(3.0, kDelaySec * v.tickRate);
+        if (!v.havePlay) {
+            v.playTick = v.newestTick - delayTicks;
+            v.havePlay = true;
+        } else {
+            const double lag = v.newestTick - v.playTick - delayTicks;
+            v.playTick += 1.0 + std::clamp(lag * 0.05, -0.5, 3.0);
         }
         world::PlayerPose p;
-        if (!v.buffer.sample(t, p))
+        if (!v.buffer.sampleAt(v.playTick / kTickHz, p))
             continue;
         v.wasVisible = true;
         if (v.ghostId && !ghostExists(v.ghostId)) {
@@ -556,16 +585,23 @@ void beforePadMgr(const uint8_t* rdram) {
             netLog("ghost of player %u vanished (failure %d); retry in %.0f s", kv.first, v.failures, v.retryAt - t);
             v.ghostId = 0;
         }
-        if (!v.ghostId && t >= g_spawnNotBefore && t >= v.retryAt) {
+        if (!v.ghostId && t >= g_spawnNotBefore && t >= v.retryAt && drakan_ghost::ready()) {
             drakan_ghost::Transform tr;
             std::memcpy(tr.pos, &p.position, sizeof tr.pos);
             std::memcpy(tr.rot, p.rotation, sizeof tr.rot);
             v.ghostId = drakan_ghost::spawn(&tr);
+            if (!v.ghostId) { // refused (engine not ready, transition): try again shortly
+                v.retryAt = t + 0.5;
+                continue;
+            }
             netLog("ghost of player %u '%s' spawned (id %d) at %.0f %.0f %.0f", kv.first, r.name.c_str(), v.ghostId,
                    p.position.x, p.position.y, p.position.z);
         } else if (v.ghostId) {
-            const float pos[3] = {p.position.x, p.position.y, p.position.z};
-            drakan_ghost::setTransform(v.ghostId, pos, p.rotation);
+            drakan_ghost::setPose(v.ghostId, p);
+            if (g_trace)
+                std::fprintf(stderr, "[nettrace %.4f] p%u %.2f %.2f %.2f yaw %.3f lower %x@%.3f upper %x@%.3f\n", t,
+                             kv.first, p.position.x, p.position.y, p.position.z, p.yaw, p.lower.clip, p.lower.time,
+                             p.upper.clip, p.upper.time);
         }
         ++shown;
     }
