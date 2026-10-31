@@ -113,7 +113,7 @@ void MatchServer::tick(uint64_t nowMs) {
                 if (!p.alive && p.respawnAtMs != 0 && now_ >= p.respawnAtMs)
                     spawnPlayer(p);
             }
-            const uint32_t limit = options_.config.timeLimitSec;
+            const uint32_t limit = options_.config.mode == MatchMode::Coop ? 0 : options_.config.timeLimitSec;
             if (limit > 0 && now_ - phaseStartMs_ >= uint64_t(limit) * 1000) {
                 log("time limit reached");
                 endMatchWith(EndReason::TimeLimit);
@@ -186,6 +186,15 @@ void MatchServer::handleMessage(PeerId peer, Peer& state, const std::vector<uint
             break;
         case MsgType::Ready:
             onReady(p, data);
+            break;
+        case MsgType::CoopCreatures:
+            onCoopCreatures(p, data);
+            break;
+        case MsgType::CoopEvent:
+            onCoopEvent(p, data);
+            break;
+        case MsgType::LevelChange:
+            onLevelChange(p, data);
             break;
         default:
             break; // server-to-client types from a client are ignored
@@ -298,6 +307,16 @@ void MatchServer::onHello(PeerId peer, Peer& state, const std::vector<uint8_t>& 
     log("player " + std::to_string(id) + " '" + p.name + "' joined (" + std::to_string(players_.size()) + "/" +
         std::to_string(options_.config.maxPlayers) + ")");
 
+    if (options_.config.mode == MatchMode::Coop) {
+        if (coopAuthority_ == kNoPlayer)
+            assignCoopAuthority();
+        else {
+            CoopAuthority a;
+            a.player = coopAuthority_;
+            sendTo(peer, encode(a), Channel::Reliable);
+        }
+    }
+
     if (phase_ == MatchPhase::Playing)
         spawnPlayer(players_[id]);
 }
@@ -316,6 +335,15 @@ void MatchServer::removePlayer(PeerId peer) {
     PlayerLeave l;
     l.player = id;
     broadcast(encode(l), Channel::Reliable);
+    if (id == coopAuthority_) {
+        coopAuthority_ = kNoPlayer;
+        coopOrphaned_ = !players_.empty();
+        broadcast(encode(CoopAuthority{}), Channel::Reliable);
+        if (coopOrphaned_)
+            log("co-op authority left: the creature world has no owner");
+    }
+    if (players_.empty())
+        coopOrphaned_ = false;
     if (players_.empty() && phase_ != MatchPhase::Lobby) {
         log("last player left, back to lobby");
         setPhase(MatchPhase::Lobby);
@@ -377,6 +405,13 @@ bool MatchServer::setConfig(const MatchConfigData& config) {
     MatchConfigMsg c;
     c.config = config;
     broadcast(encode(c), Channel::Reliable);
+    if (config.mode != MatchMode::Coop && coopAuthority_ != kNoPlayer) {
+        coopAuthority_ = kNoPlayer;
+        broadcast(encode(CoopAuthority{}), Channel::Reliable);
+    }
+    coopOrphaned_ = false;
+    if (config.mode == MatchMode::Coop && coopAuthority_ == kNoPlayer)
+        assignCoopAuthority();
     return true;
 }
 
@@ -502,7 +537,9 @@ void MatchServer::onHit(ServerPlayer& attacker, const std::vector<uint8_t>& data
     }
     auto vit = players_.find(h.victim);
     const char* why = nullptr; // first failed check, for the log
-    if (phase_ != MatchPhase::Playing)
+    if (options_.config.mode == MatchMode::Coop)
+        why = "co-op: players cannot hurt each other";
+    else if (phase_ != MatchPhase::Playing)
         why = "match not playing";
     else if (!attacker.alive)
         why = "attacker dead";
@@ -586,7 +623,7 @@ void MatchServer::onHit(ServerPlayer& attacker, const std::vector<uint8_t>& data
 
 void MatchServer::checkMatchEnd() {
     const uint16_t limit = options_.config.fragLimit;
-    if (limit == 0 || phase_ != MatchPhase::Playing)
+    if (limit == 0 || phase_ != MatchPhase::Playing || options_.config.mode == MatchMode::Coop)
         return;
     bool reached = false;
     if (options_.config.mode == MatchMode::TeamDeathmatch) {
@@ -624,6 +661,106 @@ void MatchServer::onReady(ServerPlayer& p, const std::vector<uint8_t>& data) {
     p.ready = r.ready;
     r.player = p.id;
     broadcast(encode(r), Channel::Reliable);
+}
+
+void MatchServer::sendExcept(PlayerId except, const std::vector<uint8_t>& bytes, Channel ch) {
+    for (const auto& kv : peers_)
+        if (kv.second.player != kNoPlayer && kv.second.player != except)
+            transport_.send(kv.first, ch, bytes);
+}
+
+void MatchServer::assignCoopAuthority() {
+    if (options_.config.mode != MatchMode::Coop || coopAuthority_ != kNoPlayer || coopOrphaned_ || players_.empty())
+        return;
+    coopAuthority_ = players_.begin()->first; // the lowest id: the first to join
+    CoopAuthority a;
+    a.player = coopAuthority_;
+    broadcast(encode(a), Channel::Reliable);
+    log("co-op authority: player " + std::to_string(coopAuthority_));
+}
+
+// v6 relay rules (Coop mode, phase Playing): creature streams and authority events only from the authority; claims,
+// death notices and catch-up requests only from the others and only to the authority; object events from anyone to
+// everyone else. The server stamps the sender and never looks at the payload beyond range checks.
+void MatchServer::onCoopCreatures(ServerPlayer& p, const std::vector<uint8_t>& data) {
+    CoopCreatures c;
+    if (options_.config.mode != MatchMode::Coop || phase_ != MatchPhase::Playing || p.id != coopAuthority_ ||
+        !decode(data, c)) {
+        ++stats_.coopRejected;
+        return;
+    }
+    ++stats_.coopRelayed;
+    sendExcept(p.id, data, Channel::Unreliable);
+}
+
+void MatchServer::onCoopEvent(ServerPlayer& p, const std::vector<uint8_t>& data) {
+    CoopEvent e;
+    if (options_.config.mode != MatchMode::Coop || phase_ != MatchPhase::Playing || !decode(data, e)) {
+        ++stats_.coopRejected;
+        return;
+    }
+    const bool fromAuthority = p.id == coopAuthority_;
+    if ((coopFromAuthorityOnly(e.kind) && !fromAuthority) || (coopToAuthorityOnly(e.kind) && fromAuthority) ||
+        (e.kind == CoopKind::Claim && (e.value < 0 || e.value > 10000)) ||
+        (e.kind == CoopKind::Hurt && (e.value < 0 || e.value > 10000))) {
+        ++stats_.coopRejected;
+        return;
+    }
+    if (coopToAuthorityOnly(e.kind)) {
+        e.player = p.id;
+        const auto auth = players_.find(coopAuthority_);
+        if (auth == players_.end()) {
+            ++stats_.coopRejected;
+            return;
+        }
+        ++stats_.coopRelayed;
+        sendTo(auth->second.peer, encode(e), Channel::Reliable);
+        return;
+    }
+    if (e.kind == CoopKind::Hurt || e.kind == CoopKind::Respawn) {
+        // Authority-origin and targeted: player = target (0 = everyone else); a target that is not here drops it.
+        const PlayerId target = e.player;
+        if (target != kNoPlayer) {
+            const auto t = players_.find(target);
+            if (t == players_.end() || target == p.id) {
+                ++stats_.coopRejected;
+                return;
+            }
+            ++stats_.coopRelayed;
+            sendTo(t->second.peer, encode(e), Channel::Reliable);
+            return;
+        }
+        ++stats_.coopRelayed;
+        sendExcept(p.id, encode(e), Channel::Reliable);
+        return;
+    }
+    e.player = p.id; // CreatureDied, ObjGone, ObjMsg, ObjState: the sender, to everyone else
+    ++stats_.coopRelayed;
+    sendExcept(p.id, encode(e), Channel::Reliable);
+}
+
+void MatchServer::onLevelChange(ServerPlayer& p, const std::vector<uint8_t>& data) {
+    LevelChange lc;
+    if (phase_ != MatchPhase::Playing || !decode(data, lc)) {
+        ++stats_.coopRejected;
+        return;
+    }
+    // Who may lead: the co-op authority; without one (deathmatch) the lowest player id (the host of a listen server).
+    const PlayerId leader = options_.config.mode == MatchMode::Coop ? coopAuthority_ : players_.begin()->first;
+    constexpr float kMaxCoord = 1.0e6f;
+    for (float v : lc.exit)
+        if (std::fabs(v) > kMaxCoord) {
+            ++stats_.coopRejected;
+            return;
+        }
+    if (p.id != leader) {
+        ++stats_.coopRejected;
+        return;
+    }
+    lc.player = p.id;
+    ++stats_.coopRelayed;
+    log("player " + std::to_string(p.id) + " changed level (dest hash " + std::to_string(lc.destHash) + ")");
+    sendExcept(p.id, encode(lc), Channel::Reliable);
 }
 
 bool MatchServer::allReady() const {

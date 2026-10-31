@@ -45,6 +45,10 @@ if(DRAKAN_BUILD_RUNTIME_TESTS)
     target_link_libraries(net_match_test PRIVATE drakan_net drakan::options)
     add_test(NAME net_match_test COMMAND net_match_test)
 
+    add_executable(net_coop_test tests/coop_test.cpp)
+    target_link_libraries(net_coop_test PRIVATE drakan_net drakan::options)
+    add_test(NAME net_coop_test COMMAND net_coop_test)
+
     add_executable(net_loopback_e2e_test tests/loopback_e2e_test.cpp)
     target_link_libraries(net_loopback_e2e_test PRIVATE drakan_net drakan::options)
     add_test(NAME net_loopback_e2e_test COMMAND net_loopback_e2e_test)

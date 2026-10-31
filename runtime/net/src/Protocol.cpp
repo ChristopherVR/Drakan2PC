@@ -1,5 +1,6 @@
 #include "net/Protocol.h"
 
+#include <algorithm>
 #include <bit>
 #include <cmath>
 
@@ -97,7 +98,7 @@ void MatchConfigData::write(ByteWriter& w) const {
     w.str(serverName);
 }
 bool MatchConfigData::read(ByteReader& r) {
-    readEnum(r, mode, 1);
+    readEnum(r, mode, 2);
     level = r.str(kMaxLevelLength);
     fragLimit = r.u16();
     timeLimitSec = r.u16();
@@ -318,7 +319,7 @@ bool PlayerLeave::read(ByteReader& r) {
 bool peekType(const uint8_t* data, size_t size, MsgType& out) {
     if (size == 0)
         return false;
-    if (data[0] < static_cast<uint8_t>(MsgType::Hello) || data[0] > static_cast<uint8_t>(MsgType::ServerInfo))
+    if (data[0] < static_cast<uint8_t>(MsgType::Hello) || data[0] > static_cast<uint8_t>(MsgType::LevelChange))
         return false;
     out = static_cast<MsgType>(data[0]);
     return true;
@@ -365,7 +366,7 @@ bool ServerInfo::read(ByteReader& r) {
     serverId = r.u32();
     name = r.str(kMaxServerNameLength);
     level = r.str(kMaxLevelLength);
-    readEnum(r, mode, 1);
+    readEnum(r, mode, 2);
     readEnum(r, phase, 3);
     players = r.u8();
     maxPlayers = r.u8();
@@ -373,6 +374,136 @@ bool ServerInfo::read(ByteReader& r) {
     passwordProtected = pw == 1;
     if (pw > 1 || maxPlayers < 1 || maxPlayers > kMaxPlayers || players > maxPlayers)
         r.fail();
+    return r.ok();
+}
+
+void CoopAuthority::write(ByteWriter& w) const {
+    w.u8(player);
+}
+bool CoopAuthority::read(ByteReader& r) {
+    player = r.u8();
+    if (player > kMaxPlayers)
+        r.fail();
+    return r.ok();
+}
+
+void CoopCreatures::write(ByteWriter& w) const {
+    w.u32(levelHash);
+    w.u32(sequence);
+    const size_t n = std::min(creatures.size(), kMaxCoopCreatures);
+    w.u16(static_cast<uint16_t>(n));
+    for (size_t i = 0; i < n; ++i) {
+        const CoopCreature& c = creatures[i];
+        w.u32(c.key);
+        for (float v : c.pos)
+            w.f32(v);
+        w.f32(c.yaw);
+        w.u32(static_cast<uint32_t>(c.hp));
+    }
+}
+bool CoopCreatures::read(ByteReader& r) {
+    levelHash = r.u32();
+    sequence = r.u32();
+    const size_t n = r.u16();
+    if (n > kMaxCoopCreatures) {
+        r.fail();
+        return false;
+    }
+    creatures.clear();
+    creatures.reserve(n);
+    for (size_t i = 0; i < n && r.ok(); ++i) {
+        CoopCreature c;
+        c.key = r.u32();
+        for (float& v : c.pos)
+            v = r.f32();
+        c.yaw = r.f32();
+        c.hp = static_cast<int32_t>(r.u32());
+        creatures.push_back(c);
+    }
+    return r.ok();
+}
+
+void CoopEvent::write(ByteWriter& out) const {
+    out.u8(static_cast<uint8_t>(kind));
+    out.u32(levelHash);
+    out.u8(player);
+    switch (kind) {
+        case CoopKind::CreatureDied:
+        case CoopKind::ObjGone:
+            out.u32(key);
+            break;
+        case CoopKind::Claim:
+        case CoopKind::ObjState:
+            out.u32(key);
+            out.u32(static_cast<uint32_t>(value));
+            break;
+        case CoopKind::Hurt:
+            out.u32(static_cast<uint32_t>(value));
+            break;
+        case CoopKind::ObjMsg:
+            out.u32(key);
+            out.u16(msgType);
+            for (int32_t v : w)
+                out.u32(static_cast<uint32_t>(v));
+            break;
+        case CoopKind::PlayerDied:
+        case CoopKind::Respawn:
+        case CoopKind::SyncReq:
+            break;
+    }
+}
+bool CoopEvent::read(ByteReader& r) {
+    const uint8_t k = r.u8();
+    if (!coopKindValid(k)) {
+        r.fail();
+        return false;
+    }
+    *this = CoopEvent{};
+    kind = static_cast<CoopKind>(k);
+    levelHash = r.u32();
+    player = r.u8();
+    if (player > kMaxPlayers)
+        r.fail();
+    switch (kind) {
+        case CoopKind::CreatureDied:
+        case CoopKind::ObjGone:
+            key = r.u32();
+            break;
+        case CoopKind::Claim:
+        case CoopKind::ObjState:
+            key = r.u32();
+            value = static_cast<int32_t>(r.u32());
+            break;
+        case CoopKind::Hurt:
+            value = static_cast<int32_t>(r.u32());
+            break;
+        case CoopKind::ObjMsg:
+            key = r.u32();
+            msgType = r.u16();
+            for (int32_t& v : w)
+                v = static_cast<int32_t>(r.u32());
+            break;
+        case CoopKind::PlayerDied:
+        case CoopKind::Respawn:
+        case CoopKind::SyncReq:
+            break;
+    }
+    return r.ok();
+}
+
+void LevelChange::write(ByteWriter& w) const {
+    w.u8(player);
+    w.u32(destHash);
+    for (float v : exit)
+        w.f32(v);
+}
+bool LevelChange::read(ByteReader& r) {
+    player = r.u8();
+    if (player > kMaxPlayers)
+        r.fail();
+    destHash = r.u32();
+    for (float& v : exit)
+        v = r.f32();
     return r.ok();
 }
 

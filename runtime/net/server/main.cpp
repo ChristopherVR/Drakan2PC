@@ -27,7 +27,7 @@ void usage() {
               "  --name TEXT       server name shown in server lists\n"
               "  --password TEXT   require this password to join\n"
               "  --max-players N   1..16 (default 8)\n"
-              "  --mode dm|tdm     deathmatch or team deathmatch (default dm)\n"
+              "  --mode dm|tdm|coop deathmatch, team deathmatch or co-op (default dm)\n"
               "  --level NAME      level name clients should load (default \"\")\n"
               "  --frag-limit N    kills to win, 0 = none (default 20)\n"
               "  --time-limit SEC  match length, 0 = none (default 600)\n"
@@ -82,8 +82,10 @@ int main(int argc, char** argv) {
                 opt.config.mode = MatchMode::Deathmatch;
             else if (m == "tdm")
                 opt.config.mode = MatchMode::TeamDeathmatch;
+            else if (m == "coop")
+                opt.config.mode = MatchMode::Coop;
             else
-                return std::fprintf(stderr, "bad --mode (dm|tdm)\n"), 2;
+                return std::fprintf(stderr, "bad --mode (dm|tdm|coop)\n"), 2;
         } else if (a == "--name") {
             opt.config.serverName = std::string(value()).substr(0, kMaxServerNameLength);
         } else if (a == "--password") {
@@ -150,7 +152,10 @@ int main(int argc, char** argv) {
         std::fflush(stdout);
     };
     std::printf("drakan_server: protocol v%u, UDP port %u, %s, max %u players, tick %llu Hz\n", kProtocolVersion,
-                transport.localPort(), opt.config.mode == MatchMode::Deathmatch ? "deathmatch" : "team deathmatch",
+                transport.localPort(),
+                opt.config.mode == MatchMode::Deathmatch ? "deathmatch"
+                : opt.config.mode == MatchMode::Coop     ? "co-op"
+                                                         : "team deathmatch",
                 opt.config.maxPlayers, tickRate);
     std::fflush(stdout);
 

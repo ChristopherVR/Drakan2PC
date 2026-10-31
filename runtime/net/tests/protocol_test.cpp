@@ -309,6 +309,124 @@ int main() {
         CHECK(peekType(qb.data(), qb.size(), t) && t == MsgType::Query);
     }
 
+    // v6: co-op messages round trip, strict lengths and ranges.
+    {
+        static_assert(kProtocolVersion == 6);
+        CoopAuthority a;
+        a.player = 2;
+        CoopAuthority ao;
+        CHECK(decode(encode(a), ao) && ao.player == 2);
+        expectTruncationsFail(a);
+        a.player = kMaxPlayers + 1;
+        CHECK(!decode(encode(a), ao));
+
+        CoopCreatures cs;
+        cs.levelHash = 0xABCD1234u;
+        cs.sequence = 77;
+        for (uint32_t i = 0; i < 3; ++i) {
+            CoopCreature c;
+            c.key = 0x1000 + i;
+            c.pos[0] = 10.5f * static_cast<float>(i);
+            c.pos[1] = -3;
+            c.pos[2] = 4096.25f;
+            c.yaw = 1.5f;
+            c.hp = static_cast<int32_t>(50 - 30 * static_cast<int>(i)); // goes negative
+            cs.creatures.push_back(c);
+        }
+        CoopCreatures co;
+        CHECK(decode(encode(cs), co) && co.levelHash == 0xABCD1234u && co.sequence == 77 && co.creatures.size() == 3);
+        CHECK(co.creatures[2].key == 0x1002 && co.creatures[2].hp == -10 && co.creatures[1].pos[0] == 10.5f);
+        CHECK(encode(cs).size() == 1 + 4 + 4 + 2 + 3 * kCoopCreatureWireSize);
+        expectTruncationsFail(cs);
+        CoopCreatures full;
+        full.creatures.assign(kMaxCoopCreatures, CoopCreature{});
+        CHECK(encode(full).size() <= kMaxPacketPayload && decode(encode(full), co) && co.creatures.size() == 45);
+        std::vector<uint8_t> big = encode(full);
+        big[9] = static_cast<uint8_t>(kMaxCoopCreatures + 1); // count > max (header: type, level, seq, count lo)
+        big.resize(big.size() + kCoopCreatureWireSize, 0);
+        CHECK(!decode(big, co));
+        CoopCreatures nan = cs;
+        nan.creatures[1].pos[2] = std::numeric_limits<float>::quiet_NaN();
+        CHECK(!decode(encode(nan), co));
+
+        // Every kind round trips with exactly its fields and rejects truncation / trailing bytes.
+        for (uint8_t k = kCoopKindMin; k <= kCoopKindMax; ++k) {
+            CoopEvent e;
+            e.kind = static_cast<CoopKind>(k);
+            e.levelHash = 0x55AA55AAu;
+            e.player = 3;
+            e.key = 0xDEADBEEFu;
+            e.value = -1234;
+            e.msgType = 0x10c1;
+            e.w[0] = 1;
+            e.w[1] = -2;
+            e.w[2] = 3;
+            e.w[3] = 0x7fffffff;
+            CoopEvent eo;
+            const auto bytes = encode(e);
+            CHECK(decode(bytes, eo) && eo.kind == e.kind && eo.levelHash == e.levelHash && eo.player == 3);
+            const bool hasKey = e.kind == CoopKind::CreatureDied || e.kind == CoopKind::Claim ||
+                                e.kind == CoopKind::ObjGone || e.kind == CoopKind::ObjMsg ||
+                                e.kind == CoopKind::ObjState;
+            const bool hasValue = e.kind == CoopKind::Claim || e.kind == CoopKind::Hurt || e.kind == CoopKind::ObjState;
+            const bool isMsg = e.kind == CoopKind::ObjMsg;
+            CHECK(eo.key == (hasKey ? e.key : 0u) && eo.value == (hasValue ? e.value : 0));
+            CHECK(eo.msgType == (isMsg ? e.msgType : 0) && eo.w[1] == (isMsg ? -2 : 0) &&
+                  eo.w[3] == (isMsg ? 0x7fffffff : 0));
+            CHECK(bytes.size() == 1 + 1 + 4 + 1 + (hasKey ? 4u : 0u) + (hasValue ? 4u : 0u) + (isMsg ? 2u + 16u : 0u));
+            expectTruncationsFail(e);
+        }
+        CoopEvent bad;
+        auto bb = encode(bad);
+        bb[1] = 1; // kind 1 does not exist
+        CoopEvent bo;
+        CHECK(!decode(bb, bo));
+        bb[1] = 11;
+        CHECK(!decode(bb, bo));
+        bb[1] = 2;
+        bb[6] = kMaxPlayers + 1; // player out of range
+        CHECK(!decode(bb, bo));
+        CHECK(coopFromAuthorityOnly(CoopKind::Hurt) && !coopFromAuthorityOnly(CoopKind::ObjGone));
+        CHECK(coopToAuthorityOnly(CoopKind::SyncReq) && !coopToAuthorityOnly(CoopKind::Respawn));
+
+        LevelChange lc;
+        lc.player = 1;
+        lc.destHash = 0x0BADF00Du;
+        lc.exit[0] = 157696.0f;
+        lc.exit[1] = 193235.5f;
+        lc.exit[2] = -428032.0f;
+        LevelChange lo;
+        CHECK(decode(encode(lc), lo) && lo.player == 1 && lo.destHash == 0x0BADF00Du && lo.exit[0] == 157696.0f &&
+              lo.exit[1] == 193235.5f && lo.exit[2] == -428032.0f);
+        expectTruncationsFail(lc);
+        lc.exit[1] = std::numeric_limits<float>::infinity();
+        CHECK(!decode(encode(lc), lo));
+
+        MsgType t;
+        const auto lb = encode(LevelChange{});
+        CHECK(peekType(lb.data(), lb.size(), t) && t == MsgType::LevelChange);
+        const uint8_t beyond[] = {23};
+        CHECK(!peekType(beyond, 1, t));
+
+        // The co-op mode travels in MatchConfig and ServerInfo.
+        MatchConfigData cfg;
+        cfg.mode = MatchMode::Coop;
+        cfg.level = "Level 1A - Surdana";
+        ByteWriter w;
+        cfg.write(w);
+        MatchConfigData cfgo;
+        ByteReader r(w.bytes().data(), w.bytes().size());
+        CHECK(cfgo.read(r) && cfgo.mode == MatchMode::Coop);
+        std::vector<uint8_t> raw = w.bytes();
+        raw[0] = 3; // no such mode
+        ByteReader r2(raw.data(), raw.size());
+        CHECK(!cfgo.read(r2));
+        ServerInfo si;
+        si.mode = MatchMode::Coop;
+        ServerInfo sio;
+        CHECK(decode(encode(si), sio) && sio.mode == MatchMode::Coop);
+    }
+
     // Reader never reads out of bounds.
     {
         const uint8_t one[] = {1};

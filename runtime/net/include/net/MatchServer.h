@@ -76,6 +76,8 @@ struct ServerStats {
     uint32_t hitsRejected = 0;
     uint32_t statesRejected = 0;
     uint32_t joinsRejected = 0;
+    uint32_t coopRelayed = 0;  // v6: co-op messages forwarded
+    uint32_t coopRejected = 0; // v6: co-op messages dropped by the routing rules
 };
 
 class MatchServer {
@@ -107,6 +109,9 @@ public:
     std::vector<ScoreRow> scoreboard() const;
     const MatchOutcome& outcome() const { return outcome_; }
     uint32_t serverTimeMs() const { return static_cast<uint32_t>(now_); }
+    // v6: the player that owns the creature world in a Coop match (first to join; 0 = none, and it does not pass on
+    // when that player leaves).
+    PlayerId coopAuthority() const { return coopAuthority_; }
 
     // Optional log sink (joins, leaves, phase changes, rejections).
     std::function<void(const std::string&)> onLog;
@@ -126,6 +131,11 @@ private:
     void onHit(ServerPlayer& attacker, const std::vector<uint8_t>& data);
     void onChat(ServerPlayer& p, const std::vector<uint8_t>& data);
     void onReady(ServerPlayer& p, const std::vector<uint8_t>& data);
+    void onCoopCreatures(ServerPlayer& p, const std::vector<uint8_t>& data);
+    void onCoopEvent(ServerPlayer& p, const std::vector<uint8_t>& data);
+    void onLevelChange(ServerPlayer& p, const std::vector<uint8_t>& data);
+    void assignCoopAuthority();
+    void sendExcept(PlayerId except, const std::vector<uint8_t>& bytes, Channel ch);
     void reject(PeerId peer, Peer& state, RejectReason why, const std::string& text);
     void removePlayer(PeerId peer);
     void setPhase(MatchPhase p);
@@ -152,6 +162,8 @@ private:
     uint64_t lastSnapshotMs_ = 0;
     uint8_t spawnCounter_ = 0;
     uint16_t teamKills_[2] = {0, 0};
+    PlayerId coopAuthority_ = kNoPlayer;
+    bool coopOrphaned_ = false; // the authority left while others stayed: nobody takes over until the match is empty
     std::unordered_map<PeerId, Peer> peers_;
     std::map<PlayerId, ServerPlayer> players_;
     ServerStats stats_;

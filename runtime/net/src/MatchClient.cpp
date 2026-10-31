@@ -141,6 +141,24 @@ bool MatchClient::sendLoadDone() {
     return sendReliable(encode(LoadDone{}));
 }
 
+bool MatchClient::sendCoopCreatures(const CoopCreatures& c) {
+    if (state_ != ClientState::Connected)
+        return false;
+    return transport_.send(peer_, Channel::Unreliable, encode(c));
+}
+
+bool MatchClient::sendCoopEvent(const CoopEvent& e) {
+    return sendReliable(encode(e));
+}
+
+bool MatchClient::sendLevelChange(uint32_t destHash, const float exit[3]) {
+    LevelChange lc;
+    lc.destHash = destHash;
+    for (int i = 0; i < 3; ++i)
+        lc.exit[i] = exit[i];
+    return sendReliable(encode(lc));
+}
+
 bool MatchClient::pollEvent(ClientEvent& out) {
     if (events_.empty())
         return false;
@@ -190,6 +208,7 @@ void MatchClient::handleMessage(const TransportEvent& ev) {
             if (!decode(ev.data, w))
                 return;
             self_ = w.player;
+            coopAuthority_ = kNoPlayer;
             phase_ = w.phase;
             config_ = w.config;
             tickRateHz_ = w.tickRateHz;
@@ -289,6 +308,32 @@ void MatchClient::handleMessage(const TransportEvent& ev) {
                 buffers_.erase(r.player); // the teleport must not be interpolated
                 events_.push_back(r);
             }
+            break;
+        }
+        case MsgType::CoopAuthority: {
+            CoopAuthority a;
+            if (decode(ev.data, a)) {
+                coopAuthority_ = a.player;
+                events_.push_back(a);
+            }
+            break;
+        }
+        case MsgType::CoopCreatures: {
+            CoopCreatures c;
+            if (decode(ev.data, c))
+                events_.push_back(std::move(c));
+            break;
+        }
+        case MsgType::CoopEvent: {
+            CoopEvent e;
+            if (decode(ev.data, e))
+                events_.push_back(e);
+            break;
+        }
+        case MsgType::LevelChange: {
+            LevelChange lc;
+            if (decode(ev.data, lc))
+                events_.push_back(lc);
             break;
         }
         case MsgType::Chat: {

@@ -41,7 +41,7 @@ struct DisconnectedEvent {
 };
 
 using ClientEvent = std::variant<Hit, Death, Respawn, Chat, Score, PhaseChange, PlayerJoin, PlayerLeave, MatchConfigMsg,
-                                 Ready, DisconnectedEvent>;
+                                 Ready, DisconnectedEvent, CoopAuthority, CoopCreatures, CoopEvent, LevelChange>;
 
 class MatchClient {
 public:
@@ -58,6 +58,9 @@ public:
     bool rejected() const { return state_ == ClientState::Rejected; }
     const Reject& rejectInfo() const { return reject_; }
     PlayerId playerId() const { return self_; }
+    // v6: the player that owns the creature world of a Coop match (0 = unknown / none), and whether that is us.
+    PlayerId coopAuthority() const { return coopAuthority_; }
+    bool isCoopAuthority() const { return coopAuthority_ != kNoPlayer && coopAuthority_ == self_; }
     MatchPhase phase() const { return phase_; }
     const MatchConfigData& config() const { return config_; }
     uint8_t tickRateHz() const { return tickRateHz_; }
@@ -75,6 +78,11 @@ public:
     bool sendChat(const std::string& text);
     bool sendLoadDone();
     bool sendReady(bool ready); // lobby only (the server ignores it elsewhere)
+    // v6 co-op (the server drops what the routing rules forbid, see MatchServer): the authority streams creatures and
+    // sends the authority-origin events, the others send claims / death notices / catch-up requests.
+    bool sendCoopCreatures(const CoopCreatures& c); // unreliable
+    bool sendCoopEvent(const CoopEvent& e);
+    bool sendLevelChange(uint32_t destHash, const float exit[3]);
 
     bool pollEvent(ClientEvent& out);
 
@@ -110,6 +118,7 @@ private:
     uint64_t now_ = 0;
     Reject reject_;
     PlayerId self_ = kNoPlayer;
+    PlayerId coopAuthority_ = kNoPlayer;
     MatchPhase phase_ = MatchPhase::Lobby;
     MatchConfigData config_;
     uint8_t tickRateHz_ = 30;

@@ -9,7 +9,8 @@
 
 namespace drakan::net {
 
-constexpr uint16_t kProtocolVersion = 5; // v5: Hello.password, Ready, MatchConfig.serverName, LAN Query / ServerInfo;
+constexpr uint16_t kProtocolVersion = 6; // v6: co-op mode (CoopAuthority / CoopCreatures / CoopEvent) and LevelChange;
+                                         // v5: Hello.password, Ready, MatchConfig.serverName, LAN Query / ServerInfo;
                                          // v4: weaponRight/weaponLeft record ids replace the weapon byte; v3: v3:
                                          // levelHash in PlayerState (v2: upper-body clip + channel mask)
 constexpr size_t kMaxPlayers = 16;
@@ -26,7 +27,7 @@ using PlayerId = uint8_t; // 1..kMaxPlayers on the wire; 0 = none / server
 constexpr PlayerId kNoPlayer = 0;
 constexpr uint8_t kNoTeam = 255;
 
-enum class MatchMode : uint8_t { Deathmatch = 0, TeamDeathmatch = 1 };
+enum class MatchMode : uint8_t { Deathmatch = 0, TeamDeathmatch = 1, Coop = 2 }; // Coop: v6
 enum class MatchPhase : uint8_t { Lobby = 0, Loading = 1, Playing = 2, Results = 3 };
 enum class RejectReason : uint8_t {
     VersionMismatch = 0,
@@ -52,9 +53,13 @@ enum class MsgType : uint8_t {
     PlayerJoin = 13,
     PlayerLeave = 14,
     LoadDone = 15,
-    Ready = 16,      // v5
-    Query = 17,      // v5, LAN discovery request (UDP datagram type Query, outside a connection)
-    ServerInfo = 18, // v5, the answer
+    Ready = 16,         // v5
+    Query = 17,         // v5, LAN discovery request (UDP datagram type Query, outside a connection)
+    ServerInfo = 18,    // v5, the answer
+    CoopAuthority = 19, // v6, S>C: which player owns the creature world
+    CoopCreatures = 20, // v6, creature stream (host -> clients, unreliable)
+    CoopEvent = 21,     // v6, co-op events (kills, claims, objects, death / respawn, catch-up)
+    LevelChange = 22,   // v6, the host went through a level exit: clients follow
 };
 
 class ByteWriter {
@@ -291,6 +296,90 @@ struct ServerInfo {
     uint8_t players = 0;
     uint8_t maxPlayers = 8;
     bool passwordProtected = false;
+    void write(ByteWriter& w) const;
+    bool read(ByteReader& r);
+};
+
+// ---- v6: co-op (docs/reference/netcode.md "Co-op mode") -------------------------------------------------------------
+// The server relays; it never sees creatures. The co-op authority (the first player to join a Coop match) owns the
+// creature world: only it may send CoopCreatures and the authority-origin events. Every message carries the sender's
+// level hash (FNV-1a of the level name) so a receiver on another level ignores it.
+
+// Server to clients, reliable: the player that owns the creature world (0 = none: nobody joined yet, or it left).
+struct CoopAuthority {
+    static constexpr MsgType kType = MsgType::CoopAuthority;
+    PlayerId player = kNoPlayer;
+    void write(ByteWriter& w) const;
+    bool read(ByteReader& r);
+};
+
+struct CoopCreature {
+    uint32_t key = 0; // (resource id, registry ordinal) key both sides compute from their identical level data
+    float pos[3] = {0, 0, 0};
+    float yaw = 0;
+    int32_t hp = 0;
+};
+constexpr size_t kCoopCreatureWireSize = 4 + 12 + 4 + 4;
+constexpr size_t kMaxCoopCreatures = 45; // 11 header bytes + 45 x 24 stays under kMaxPacketPayload (1100)
+
+// Authority to the others, unreliable, 10 Hz: a slice of the creature list.
+struct CoopCreatures {
+    static constexpr MsgType kType = MsgType::CoopCreatures;
+    uint32_t levelHash = 0;
+    uint32_t sequence = 0;
+    std::vector<CoopCreature> creatures; // at most kMaxCoopCreatures
+    void write(ByteWriter& w) const;
+    bool read(ByteReader& r);
+};
+
+// Event kinds (the numbers are the ones the first co-op prototype used on its private socket).
+enum class CoopKind : uint8_t {
+    CreatureDied = 2, // authority -> all:       key
+    Claim = 3,        // client -> authority:    key, value = damage (a hit on a creature proxy)
+    Hurt = 4,         // authority -> player:    value = damage (a creature hit that player's ghost)
+    ObjGone = 5,      // anyone -> all others:   key (a pickup was taken)
+    ObjMsg = 6,       // anyone -> all others:   key, msgType, w[4] (a door / lever message to replay)
+    PlayerDied = 7,   // client -> authority:    (empty) the sender's player is down
+    Respawn = 8,      // authority -> player:    (empty) get up at the authority
+    ObjState = 9,     // anyone -> all others:   key, value (a chest / lever changed state)
+    SyncReq = 10,     // client -> authority:    (empty) the sender keyed the level: send the catch-up state
+};
+constexpr uint8_t kCoopKindMin = 2, kCoopKindMax = 10;
+inline bool coopKindValid(uint8_t k) {
+    return k >= kCoopKindMin && k <= kCoopKindMax;
+}
+// Routing classes the server enforces.
+inline bool coopFromAuthorityOnly(CoopKind k) {
+    return k == CoopKind::CreatureDied || k == CoopKind::Hurt || k == CoopKind::Respawn;
+}
+inline bool coopToAuthorityOnly(CoopKind k) {
+    return k == CoopKind::Claim || k == CoopKind::PlayerDied || k == CoopKind::SyncReq;
+}
+// Fields used per kind: key (CreatureDied, Claim, ObjGone, ObjMsg, ObjState), value (Claim, Hurt, ObjState), msgType
+// and w (ObjMsg). The rest are zero on the wire.
+struct CoopEvent {
+    static constexpr MsgType kType = MsgType::CoopEvent;
+    CoopKind kind = CoopKind::CreatureDied;
+    uint32_t levelHash = 0;
+    // Sent by the authority for Hurt / Respawn: the target (0 = every other player). Filled in by the server for
+    // everything else: the sender.
+    PlayerId player = kNoPlayer;
+    uint32_t key = 0;
+    int32_t value = 0;
+    uint16_t msgType = 0;
+    int32_t w[4] = {0, 0, 0, 0};
+    void write(ByteWriter& out) const;
+    bool read(ByteReader& r);
+};
+
+// Authority (any player when the mode has no authority: the lowest id) to the others, reliable: it went through a level
+// exit. `exit` is the trigger's world position (the same level data on every machine), destHash the FNV-1a of the
+// destination level name (0 = unknown).
+struct LevelChange {
+    static constexpr MsgType kType = MsgType::LevelChange;
+    PlayerId player = kNoPlayer; // the sender, filled in by the server
+    uint32_t destHash = 0;
+    float exit[3] = {0, 0, 0};
     void write(ByteWriter& w) const;
     bool read(ByteReader& r);
 };
