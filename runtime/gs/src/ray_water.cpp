@@ -9,6 +9,8 @@
 #include "ray_normals.h"
 #include <optional>
 #include <atomic>
+#include <chrono>
+#include <cstdarg>
 #include <condition_variable>
 #include <deque>
 #include <mutex>
@@ -35,6 +37,18 @@ void check(HRESULT h, const char* message) {
         std::snprintf(b, sizeof(b), "%s (0x%08lx)", message, (unsigned long)h);
         throw std::runtime_error(b);
     }
+}
+void logLine(const char* format, ...) {
+    char b[1024];
+    va_list args;
+    va_start(args, format);
+    std::vsnprintf(b, sizeof(b), format, args);
+    va_end(args);
+    std::fprintf(stderr, "[ray-water] %s\n", b);
+}
+using Clock = std::chrono::steady_clock;
+double msSince(Clock::time_point t) {
+    return std::chrono::duration<double, std::milli>(Clock::now() - t).count();
 }
 D3D12_RESOURCE_BARRIER transition(ID3D12Resource* r, D3D12_RESOURCE_STATES a, D3D12_RESOURCE_STATES b) {
     D3D12_RESOURCE_BARRIER v{};
@@ -72,6 +86,7 @@ struct RayWater::Impl {
     static constexpr float kRebaseDistance = 16384.f; // static BLAS coordinates stay this close to the camera
     static constexpr uint32_t kTriangleBudget = 500000;
     static constexpr uint32_t kTextureBudget = 768;
+    static constexpr UINT64 kTracedPasses = 3; // the first passes of each interop are logged step by step
     struct Frame {
         ComPtr<ID3D12CommandAllocator> allocator;
         ComPtr<ID3D12DescriptorHeap> heap;
@@ -106,8 +121,35 @@ struct RayWater::Impl {
     CpuProfile threadProfile; // pass thread
     mutable std::mutex statusMutex;
     std::string status = "DXR water uninitialized";
+    std::string adapterText = "unknown adapter"; // for log lines
     bool initialized = false;
     std::atomic<bool> faulted{false};
+    // The watchdog gave up on a stuck pass: nothing is queued or waited for any more (implies faulted).
+    std::atomic<bool> abandoned{false};
+    // Pass thread progress, read by the watchdog.
+    enum Stage : int { kIdle, kPacking, kWaitingSlot, kUploading, kRecording, kSubmitted };
+    static const char* stageName(int stage) {
+        static const char* const names[] = {
+            "idle",      "packing geometry on the CPU", "waiting for a D3D12 frame slot",
+            "uploading", "recording D3D12 commands",    "submitted to the D3D12 queue"};
+        return stage >= 0 && stage <= kSubmitted ? names[stage] : "?";
+    }
+    std::atomic<int> passStage{kIdle};
+    std::atomic<UINT64> passJob{0};      // consumer value of the job the pass thread runs or last ran
+    std::atomic<UINT64> passSignaled{0}; // highest consumer value handed to the D3D12 queue
+    std::atomic<Clock::rep> passStageSince{0}, passSignaledAt{0};
+    void setStage(int stage) {
+        passStage = stage;
+        passStageSince = Clock::now().time_since_epoch().count();
+    }
+    // Watchdog thread. Guarded by watchMutex (taken before queueMutex, never after it).
+    std::mutex watchMutex;
+    std::condition_variable watchWake;
+    std::thread watchdog;
+    bool watchStopping = false;
+    std::shared_ptr<NrInterop> watchInterop;
+    std::deque<std::pair<UINT64, Clock::time_point>> watchPending; // reserved consumer values not yet completed
+    UINT64 watchProduced = 0, watchConsumed = 0;                   // highest values handed out
     // Job queue. The front job is the one running; it stays queued until it has been submitted.
     std::mutex queueMutex;
     std::condition_variable wake, idle;
@@ -126,12 +168,16 @@ struct RayWater::Impl {
         status = std::move(text);
     }
     void fault(const char* what) {
-        faulted = true;
+        if (!faulted.exchange(true)) {
+            const HRESULT removed = device ? device->GetDeviceRemovedReason() : S_OK;
+            logLine("pass failed, modern water/ray shadows fall back to native rendering: %s (D3D12 device %s 0x%08lx)",
+                    what, removed == S_OK ? "ok" : "removed", (unsigned long)removed);
+        }
         setStatus(what);
     }
     void finish() {
         std::unique_lock lock(queueMutex);
-        idle.wait(lock, [&] { return jobs.empty(); });
+        idle.wait(lock, [&] { return jobs.empty() || abandoned; });
     }
     void stop() {
         {
@@ -142,11 +188,14 @@ struct RayWater::Impl {
         if (worker.joinable())
             worker.join();
     }
-    void enqueue(std::unique_ptr<Job> job, std::vector<Triangle>& recycled) {
+    // False when the watchdog has abandoned the pass: the job is dropped and nothing will signal its fence values.
+    bool enqueue(std::unique_ptr<Job> job, std::vector<Triangle>& recycled) {
         if (!worker.joinable())
             worker = std::thread([this] { loop(); });
         std::unique_lock lock(queueMutex);
-        idle.wait(lock, [&] { return jobs.size() < kQueuedJobs; });
+        idle.wait(lock, [&] { return jobs.size() < kQueuedJobs || abandoned; });
+        if (abandoned)
+            return false;
         recycled.clear();
         if (!spareTriangles.empty()) {
             recycled.swap(spareTriangles.back());
@@ -155,6 +204,7 @@ struct RayWater::Impl {
         jobs.push_back(std::move(job));
         lock.unlock();
         wake.notify_one();
+        return true;
     }
     void loop() {
         std::unique_lock lock(queueMutex);
@@ -174,6 +224,9 @@ struct RayWater::Impl {
         }
     }
     void run(Job& job) {
+        const auto started = Clock::now();
+        passJob = job.consumed;
+        setStage(kPacking);
         if (!faulted) {
             try {
                 execute(job);
@@ -184,10 +237,121 @@ struct RayWater::Impl {
         // The renderer's D3D11 context waits for this value on the GPU; it must be signaled even after a failure.
         if (!job.consumedSignaled && interop && queue)
             try {
-                interop->signal12(queue.Get(), job.consumed);
+                signalConsumed(job);
             } catch (...) {
             }
+        setStage(kIdle);
+        const double ms = msSince(started);
+        const bool slow = ms > 250 && (lastSlowLog == Clock::time_point{} || msSince(lastSlowLog) > 5000);
+        if (job.consumed <= kTracedPasses || runtimeFlags().waterLog || slow) {
+            if (slow)
+                lastSlowLog = Clock::now();
+            logLine("pass %llu %s in %.1f ms on the pass thread%s: %s", (unsigned long long)job.consumed,
+                    faulted ? "failed" : "submitted", ms, slow ? " (slow)" : "", currentStatus().c_str());
+        }
     }
+    // Hands the consumer value to the D3D12 queue (after the pass's GPU work, or alone after a failure).
+    void signalConsumed(Job& job) {
+        const auto& drop = runtimeFlags().rayTestDropSignal;
+        if (abandoned) {
+            // The watchdog has released the fences; a late lower signal would only lower them again.
+        } else if (drop && *drop == job.consumed)
+            logLine("test hook GSR_RAY_TEST_DROP_SIGNAL: pass %llu does not signal D3D11",
+                    (unsigned long long)job.consumed);
+        else
+            interop->signal12(queue.Get(), job.consumed);
+        job.consumedSignaled = true;
+        passSignaledAt = Clock::now().time_since_epoch().count();
+        passSignaled = job.consumed;
+    }
+    std::string currentStatus() const {
+        std::lock_guard lock(statusMutex);
+        return status;
+    }
+    // Keeps a lost signal from freezing the game: each D3D11 frame waits on the GPU for its pass's consumer value, and
+    // D3D12 for the producer value, with no timeout. A pass that stays incomplete too long is reported, then abandoned:
+    // both fences are raised from the CPU and modern water stays off for the session.
+    void startWatchdog() {
+        if (!watchdog.joinable())
+            watchdog = std::thread([this] { watch(); });
+    }
+    void stopWatchdog() {
+        {
+            std::lock_guard lock(watchMutex);
+            watchStopping = true;
+        }
+        watchWake.notify_all();
+        if (watchdog.joinable())
+            watchdog.join();
+    }
+    void watchQueued(UINT64 produced, UINT64 consumed) {
+        std::lock_guard lock(watchMutex);
+        watchPending.emplace_back(consumed, Clock::now());
+        watchProduced = std::max(watchProduced, produced);
+        watchConsumed = std::max(watchConsumed, consumed);
+    }
+    void watch() {
+        const double gpuLimit = runtimeFlags().rayWatchdogMs, cpuLimit = gpuLimit * 7;
+        Clock::time_point lastReport{};
+        std::unique_lock lock(watchMutex);
+        while (!watchStopping) {
+            watchWake.wait_for(lock, std::chrono::milliseconds(100));
+            if (watchStopping || !watchInterop)
+                continue;
+            try {
+                if (abandoned) {
+                    // Signals queued before the release may still lower the fences; keep them raised.
+                    watchInterop->release12(watchProduced, watchConsumed);
+                    continue;
+                }
+                const UINT64 completed = watchInterop->consumedCompleted();
+                while (!watchPending.empty() && watchPending.front().first <= completed)
+                    watchPending.pop_front();
+                if (watchPending.empty()) {
+                    lastReport = {};
+                    continue;
+                }
+                const auto [value, reserved] = watchPending.front();
+                const bool onGpu = passSignaled >= value;
+                const double age =
+                    onGpu ? msSince(Clock::time_point(Clock::duration(passSignaledAt.load()))) : msSince(reserved);
+                const double limit = onGpu ? gpuLimit : cpuLimit;
+                const bool stuck = limit > 0 && age > limit;
+                if (!stuck && (age < 1000 || (lastReport != Clock::time_point{} && msSince(lastReport) < 2000)))
+                    continue;
+                lastReport = Clock::now();
+                char where[256];
+                if (onGpu)
+                    std::snprintf(where, sizeof(where), "its signal is queued on D3D12 but the GPU has not reached it");
+                else
+                    std::snprintf(where, sizeof(where), "pass thread on pass %llu: %s for %.0f ms",
+                                  (unsigned long long)passJob.load(), stageName(passStage),
+                                  msSince(Clock::time_point(Clock::duration(passStageSince.load()))));
+                const HRESULT removed = device ? device->GetDeviceRemovedReason() : S_OK;
+                logLine("watchdog: pass %llu not finished after %.0f ms (%s); consumer fence %llu of %llu, producer "
+                        "fence %llu of %llu, D3D12 device 0x%08lx, %s",
+                        (unsigned long long)value, age, where, (unsigned long long)completed,
+                        (unsigned long long)watchConsumed, (unsigned long long)watchInterop->producedCompleted(),
+                        (unsigned long long)watchProduced, (unsigned long)removed, adapterText.c_str());
+                if (!stuck)
+                    continue;
+                logLine("watchdog: pass %llu is stuck; releasing the shared fences and turning modern water/ray "
+                        "shadows off for this session (please report this log)",
+                        (unsigned long long)value);
+                setStatus("DXR pass stuck; modern water disabled by the watchdog");
+                faulted = true;
+                abandoned = true;
+                watchInterop->release12(watchProduced, watchConsumed);
+                {
+                    std::lock_guard queueLock(queueMutex);
+                }
+                idle.notify_all();
+            } catch (const std::exception& e) {
+                logLine("watchdog: %s", e.what());
+            }
+        }
+    }
+    Clock::time_point lastSlowLog{}; // pass thread
     void execute(Job& job);
     // ---- pass thread
     RayWorldCache worldCache;
@@ -205,7 +369,8 @@ struct RayWater::Impl {
     ComPtr<ID3D12PipelineState> pipeline, skyPipeline;
     ComPtr<ID3D12Resource> materials, scratch, blas[3], tlas, sky;
     uint64_t skyLevel = UINT64_MAX;
-    std::unique_ptr<NrInterop> interop; // replaced by the renderer thread only while the pass thread is idle
+    // Replaced by the renderer thread only while the pass thread is idle; the watchdog holds its own reference.
+    std::shared_ptr<NrInterop> interop;
     struct NativeMesh {
         ComPtr<ID3D12Resource> blas;
         bool built = false;
@@ -259,6 +424,7 @@ struct RayWater::Impl {
             drain();
         } catch (...) {
         }
+        stopWatchdog(); // last: it can release fences that the steps above wait for
         if (event)
             CloseHandle(event);
     }
@@ -402,6 +568,18 @@ RayWater::RayWater(ID3D11Device* d11, ID3D11DeviceContext*) : impl(std::make_uni
         ComPtr<IDXGIAdapter> adapter;
         check(d11->QueryInterface(IID_PPV_ARGS(&dxgi)), "DXR adapter query");
         check(dxgi->GetAdapter(&adapter), "DXR adapter");
+        DXGI_ADAPTER_DESC ad{};
+        if (SUCCEEDED(adapter->GetDesc(&ad))) {
+            char b[256];
+            LARGE_INTEGER umd{};
+            if (SUCCEEDED(adapter->CheckInterfaceSupport(__uuidof(IDXGIDevice), &umd)))
+                std::snprintf(b, sizeof(b), "'%ls' driver %u.%u.%u.%u", ad.Description, unsigned(umd.QuadPart >> 48),
+                              unsigned(umd.QuadPart >> 32 & 0xffff), unsigned(umd.QuadPart >> 16 & 0xffff),
+                              unsigned(umd.QuadPart & 0xffff));
+            else
+                std::snprintf(b, sizeof(b), "'%ls'", ad.Description);
+            s.adapterText = b;
+        }
         check(D3D12CreateDevice(adapter.Get(), D3D_FEATURE_LEVEL_12_0, IID_PPV_ARGS(&s.device)), "DXR device creation");
         D3D12_FEATURE_DATA_D3D12_OPTIONS5 options{};
         check(s.device->CheckFeatureSupport(D3D12_FEATURE_D3D12_OPTIONS5, &options, sizeof(options)),
@@ -462,6 +640,8 @@ RayWater::RayWater(ID3D11Device* d11, ID3D11DeviceContext*) : impl(std::make_uni
     } catch (const std::exception& e) {
         s.status = e.what();
     }
+    logLine("%s on %s (watchdog %u ms%s)", s.status.c_str(), s.adapterText.c_str(), runtimeFlags().rayWatchdogMs,
+            s.debug ? ", D3D12 debug layer" : "");
 }
 RayWater::~RayWater() = default;
 bool RayWater::ready() const {
@@ -590,9 +770,18 @@ bool RayWater::submit(ID3D11Texture2D* color, ID3D11Texture2D* depth, ID3D11Text
         if (!s.interop || d.Width != s.width || d.Height != s.height) {
             s.finish();
             s.drain(); // in-flight frames still use the old shared textures
-            s.interop = std::make_unique<NrInterop>(s.device.Get(), d.Width, d.Height, s.d11.Get());
+            auto interop = std::make_shared<NrInterop>(s.device.Get(), d.Width, d.Height, s.d11.Get());
+            {
+                // Every value of the old fences has completed (drained above); the new ones start from zero.
+                std::lock_guard lock(s.watchMutex);
+                s.watchInterop = interop;
+                s.watchPending.clear();
+                s.watchProduced = s.watchConsumed = 0;
+            }
+            s.interop = std::move(interop);
             s.width = d.Width;
             s.height = d.Height;
+            s.startWatchdog();
         }
         auto job = std::make_unique<Impl::Job>();
         // Texel uploads only for texture slots whose content changed since the previous pass.
@@ -635,12 +824,27 @@ bool RayWater::submit(ID3D11Texture2D* color, ID3D11Texture2D* depth, ID3D11Text
         // D3D11 side, in this frame's order: the inputs are copied before the D3D12 queue reads them, and later
         // D3D11 work waits on the GPU for the pass result before the output is copied back.
         job->produced = s.interop->produce11({color, nullptr, nullptr, depth});
-        stage.reset();
-        stage.emplace(s.cpuProfile, CpuProfile::RayConsume);
-        job->consumed = s.interop->consume11(output);
+        job->consumed = s.interop->reserve11(output);
         job->triangles.swap(triangles);
         stage.reset();
-        s.enqueue(std::move(job), triangles);
+        const UINT64 consumed = job->consumed;
+        const bool traced = consumed <= Impl::kTracedPasses || runtimeFlags().waterLog;
+        if (traced)
+            logLine("pass %llu queued: %ux%u, %zu frame + %zu resident triangles (%zu total), %zu model instances, "
+                    "%zu material textures (%zu changed), water=%d reflections=%d shadows=%d",
+                    (unsigned long long)consumed, d.Width, d.Height, job->triangles.size(), staticTriangles.size(),
+                    totalTriangles, job->models ? job->models->instances.size() : size_t(0), allTextures.size(),
+                    job->textureUploads.size(), int(options.water), int(reflections), int(options.shadows));
+        s.watchQueued(job->produced, consumed);
+        // The pass thread owns the job (and so the signal) before D3D11 waits on it: a driver that waits on the
+        // CPU for a shared fence would otherwise block the only thread that can let the signal happen.
+        if (!s.enqueue(std::move(job), triangles))
+            return false; // abandoned by the watchdog: nothing will signal this value, so D3D11 must not wait for it
+        stage.emplace(s.cpuProfile, CpuProfile::RayConsume);
+        s.interop->consume11(output, consumed);
+        stage.reset();
+        if (traced)
+            logLine("pass %llu: D3D11 waits for it on the GPU", (unsigned long long)consumed);
         return true;
     } catch (const std::exception& e) {
         s.fault(e.what());
@@ -901,9 +1105,11 @@ void RayWater::Impl::execute(Job& job) {
         // render() bypassed passes without water or shadows before queuing them.
         stage.reset();
         stage.emplace(s.threadProfile, CpuProfile::RayWait);
+        s.setStage(kWaitingSlot);
         auto& frame = s.acquire();
         stage.reset();
         stage.emplace(s.threadProfile, CpuProfile::RayUpload);
+        s.setStage(kUploading);
         // Materials live in GPU memory. Layout: [static world][frame triangles][native models] attributes, then
         // texture texels at a fixed offset. Only changed ranges are copied from this frame's upload buffer.
         constexpr uint32_t texelOffset = Impl::kTriangleBudget * kTriangleAttributes;
@@ -1085,6 +1291,7 @@ void RayWater::Impl::execute(Job& job) {
         s.upload(frame.constants, &params, sizeof(params), frame.retired);
         stage.reset();
         stage.emplace(s.threadProfile, CpuProfile::RayBuild);
+        s.setStage(kRecording);
         s.interop->wait12(s.queue.Get(), job.produced); // the D3D11 input copies precede this pass on the GPU
         check(frame.allocator->Reset(), "DXR allocator reset");
         check(s.list->Reset(frame.allocator.Get(), nullptr), "DXR list reset");
@@ -1302,10 +1509,10 @@ void RayWater::Impl::execute(Job& job) {
         check(s.list->Close(), "DXR list close");
         ID3D12CommandList* lists[] = {s.list.Get()};
         s.queue->ExecuteCommandLists(1, lists);
+        s.setStage(kSubmitted);
         s.submitted(frame);
         // The D3D11 context waits for this value on the GPU before it copies the output; the CPU continues.
-        s.interop->signal12(s.queue.Get(), job.consumed);
-        job.consumedSignaled = true;
+        s.signalConsumed(job);
         if (s.debug) {
             bool errors = false;
             const UINT64 messages = s.debug->GetNumStoredMessagesAllowedByRetrievalFilter();

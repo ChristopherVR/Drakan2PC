@@ -23,7 +23,9 @@ Parse rules: **presence** = variable exists (even empty); **not-0** = exists and
 | `GSR_WATER_COVERAGE_DEBUG` | atoi (uint) | 0 | Water coverage debug mode passed to the shader. |
 | `GSR_WATER_TIME` | strtof | unset | Fix the water clock (finite, abs < 1e6). |
 | `GSR_RAY_SCENE_DUMP` | string | unset | Ray scene dump path (world epoch 200 only). |
-| `GSR_WATER_LOG` | presence | off | Log water passes. |
+| `GSR_WATER_LOG` | presence | off | Log water passes (every `[ray-water]` pass line, not only the first three and slow ones). |
+| `GSR_RAY_WATCHDOG_MS` | atoi | 3000 | Ray pass watchdog: a pass stuck this long on the GPU (7x as long on the CPU) is abandoned, the shared D3D11/D3D12 fences are released from the CPU and modern water/ray shadows turn off for the session. `0` = log stalls, never abandon. |
+| `GSR_RAY_TEST_DROP_SIGNAL` | strtoull | unset | Test hook: the ray pass with this consumer fence value never signals D3D11, simulating a lost cross-API signal (the watchdog must recover). |
 
 ## Temporal upscaler / DLSS
 

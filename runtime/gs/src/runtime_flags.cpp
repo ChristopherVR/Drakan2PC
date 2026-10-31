@@ -61,6 +61,10 @@ RuntimeFlags parse() {
         f.waterTime = std::strtof(e, nullptr);
     f.raySceneDump = optString("GSR_RAY_SCENE_DUMP");
     f.waterLog = present("GSR_WATER_LOG");
+    if (const char* e = env("GSR_RAY_WATCHDOG_MS"))
+        f.rayWatchdogMs = uint32_t(std::atoi(e));
+    if (const char* e = env("GSR_RAY_TEST_DROP_SIGNAL"))
+        f.rayTestDropSignal = std::strtoull(e, nullptr, 10);
 
     // temporal upscaler / DLSS
     if (const char* e = env("GSR_UPSCALE"))

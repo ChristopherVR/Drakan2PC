@@ -39,6 +39,10 @@ struct RuntimeFlags {
     std::optional<float> waterTime;          // GSR_WATER_TIME: strtof; fixes the water clock (site rejects non-finite)
     std::optional<std::string> raySceneDump; // GSR_RAY_SCENE_DUMP: string; ray scene dump path (world epoch 200 only)
     bool waterLog = false;                   // GSR_WATER_LOG: presence
+    uint32_t rayWatchdogMs = 3000; // GSR_RAY_WATCHDOG_MS: atoi; a pass stuck this long on the GPU (7x on the CPU) is
+                                   // abandoned and the shared fences released; 0 = report stalls but never abandon
+    std::optional<uint64_t> rayTestDropSignal; // GSR_RAY_TEST_DROP_SIGNAL: strtoull; test hook: the pass with this
+                                               // consumer fence value never signals D3D11 (a lost cross-API signal)
 
     // ---- temporal upscaler / DLSS (d3d11_backend, temporal, dlss_ngx) --------------------------------------------
     std::optional<uint32_t> upscaleMode;   // GSR_UPSCALE: dlaa=1 quality=2 balanced=3 performance=4, anything else 0

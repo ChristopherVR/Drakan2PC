@@ -15,6 +15,12 @@
 #include <cstdlib>
 using Microsoft::WRL::ComPtr;
 int main(int argc, char** argv) {
+    // Runtime flags are read once, on first use: set the lost-signal hooks before anything reads them.
+    const bool lostSignal = argc > 1 && std::strcmp(argv[1], "--lost-signal") == 0;
+    if (lostSignal) {
+        _putenv_s("GSR_RAY_TEST_DROP_SIGNAL", "2");
+        _putenv_s("GSR_RAY_WATCHDOG_MS", "300");
+    }
     // Compare warm blocks with cold packing across boundary and invalidation changes.
     {
         using namespace gsr::surface;
@@ -240,6 +246,23 @@ int main(int argc, char** argv) {
                 assert((result[i * 4 + j] & 0x7c00) != 0x7c00);
         std::cout << "BENCHMARK median_ms=" << (samples[49] + samples[50]) * .5 << " p95_ms=" << samples[94]
                   << " samples=" << samples.size() << "\n";
+        return 0;
+    }
+    if (lostSignal) {
+        // Pass 2 never signals D3D11 (a lost cross-API signal). The readback after it waits for that value on the
+        // GPU and would block forever; the watchdog must release the shared fences and turn the pass off.
+        assert(water.render(color.Get(), depth.Get(), output.Get(), c, triangles, 1, true));
+        read();
+        const auto start = std::chrono::steady_clock::now();
+        assert(water.render(color.Get(), depth.Get(), output.Get(), c, triangles, 1, true));
+        read();
+        const double ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start).count();
+        std::cout << "Lost consumer signal released after " << ms << " ms: " << water.status() << '\n';
+        assert(ms < 10000 && !water.ready() && water.status().find("watchdog") != std::string::npos);
+        // Later frames bypass the pass and still complete.
+        assert(!water.render(color.Get(), depth.Get(), output.Get(), c, triangles, 1, true));
+        read();
+        std::cout << "Watchdog recovered from a lost consumer signal\n";
         return 0;
     }
     assert(water.render(color.Get(), depth.Get(), output.Get(), c, triangles, 1, false));

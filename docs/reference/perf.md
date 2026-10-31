@@ -356,10 +356,17 @@ of its time (~3.2 ms busy per frame).
 ## Effects path off the GS worker (2026-10-23)
 
 - The DXR pass runs on its own thread (`RayWater::submit`, `Impl::loop`/`execute`). The GS worker only validates, detects
-  changed material textures and issues the D3D11 side in frame order (`NrInterop::produce11`, then `consume11`: a GPU
-  wait on the consumer fence plus the output copy). The pass thread packs, uploads, records, submits and `signal12`s the
-  consumer fence, also after a failure. Jobs own their inputs (moved frame triangles, `ResidentScene::projectedShared`,
-  `shared_ptr` models, copied changed texels); at most two are queued. `render()` is the synchronous form for tests.
+  changed material textures and issues the D3D11 side in frame order (`NrInterop::produce11`, `reserve11`, queue the
+  job, then `consume11`: a GPU wait on the consumer fence plus the output copy). The job is queued before the D3D11 wait
+  because a driver may wait for a shared fence on the CPU. The pass thread packs, uploads, records, submits and
+  `signal12`s the consumer fence, also after a failure. Jobs own their inputs (moved frame triangles,
+  `ResidentScene::projectedShared`, `shared_ptr` models, copied changed texels); at most two are queued. `render()` is
+  the synchronous form for tests.
+- A watchdog thread checks the consumer fence every 100 ms. A pass incomplete for over 1 s is logged (`[ray-water]
+  watchdog:` with the pass-thread stage and both fence values). Once the pass has been stuck past the limit
+  (`GSR_RAY_WATCHDOG_MS`, default 3 s after its signal was queued on D3D12, 7x that before), the watchdog raises both
+  shared fences from the CPU (`NrInterop::release12`), which releases every D3D11/D3D12 wait, and turns the pass off for
+  the session. `gsr_test_ray_water --lost-signal` (ctest `ray_water_lost_signal`) drops a signal to exercise this.
 - Every per-frame dynamic vertex buffer is a NO_OVERWRITE ring (draw VB, object-motion VB `motionVbOffset`, model-motion
   VB `modelOffset`). A WRITE_DISCARD map of a buffer the GPU still uses blocks the worker for milliseconds once the GPU
   runs behind; when a CPU stage suddenly grows, look for such a map first (host sampler: ntdll samples with that caller).

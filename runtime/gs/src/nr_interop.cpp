@@ -69,7 +69,11 @@ NrInterop::NrInterop(ID3D12Device* device, UINT width, UINT height, ID3D11Device
     };
     fence(produced12, produced11);
     fence(consumed12, consumed11);
-    std::puts("NR interop: same-LUID D3D11Device5/Context4, four shared textures and two shared fences created");
+    DXGI_ADAPTER_DESC adapterDesc{};
+    adapter->GetDesc(&adapterDesc);
+    std::printf("NR interop: same-LUID D3D11Device5/Context4, four shared %ux%u textures and two shared fences created "
+                "on '%ls' (%s D3D11 device)\n",
+                width, height, adapterDesc.Description, rendererDevice ? "renderer" : "private");
 }
 void NrInterop::produce(ID3D12CommandQueue* queue, const std::array<ID3D11Texture2D*, 4>& inputs) {
     wait12(queue, produce11(inputs));
@@ -101,13 +105,21 @@ void NrInterop::wait12(ID3D12CommandQueue* queue, UINT64 value) {
 void NrInterop::signal12(ID3D12CommandQueue* queue, UINT64 value) {
     check(queue->Signal(consumed12.Get(), value));
 }
-UINT64 NrInterop::consume11(ID3D11Texture2D* output) {
+UINT64 NrInterop::reserve11(ID3D11Texture2D* output) {
     validateOutput(output);
+    return ++consumed;
+}
+void NrInterop::consume11(ID3D11Texture2D* output, UINT64 value) {
     // The value may not be signaled yet: the GPU holds later D3D11 work until the D3D12 queue signals it. No Flush
     // here; the next fence signal or present submits it.
-    check(context->Wait(consumed11.Get(), ++consumed));
+    check(context->Wait(consumed11.Get(), value));
     context->CopyResource(output, textures11[1].Get());
-    return consumed;
+}
+void NrInterop::release12(UINT64 producedValue, UINT64 consumedValue) {
+    if (produced12->GetCompletedValue() < producedValue)
+        check(produced12->Signal(producedValue));
+    if (consumed12->GetCompletedValue() < consumedValue)
+        check(consumed12->Signal(consumedValue));
 }
 void NrInterop::consume(ID3D12CommandQueue* queue, ID3D11Texture2D* output) {
     validateOutput(output);
