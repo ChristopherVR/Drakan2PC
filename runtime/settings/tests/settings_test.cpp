@@ -764,6 +764,25 @@ int main(int argc, char** argv) {
               !next.loaded().video.rayShadows);
         CHECK(std::find(keys.begin(), keys.end(), "video.ray_shadows") != keys.end());
     }
+    {
+        // Living foliage: off by default, round-trips through the ini, strength is read as a float.
+        SettingsStore st;
+        st.loadFromText("", "");
+        CHECK(!st.loaded().video.foliageWind && st.loaded().video.foliageWindStrength == 1.0f);
+        st.loadFromText("[video]\nfoliage_wind=1\nfoliage_wind_strength=1.5\n", "");
+        CHECK(st.loaded().video.foliageWind && st.loaded().video.foliageWindStrength == 1.5f);
+        auto n = st.loaded();
+        n.video.foliageWind = false;
+        n.video.foliageWindStrength = 0.5f;
+        auto keys = changedKeys(st.loaded(), n);
+        CHECK(std::find(keys.begin(), keys.end(), "video.foliage_wind") != keys.end());
+        CHECK(std::find(keys.begin(), keys.end(), "video.foliage_wind_strength") != keys.end());
+        std::string a, b;
+        st.render(n, a, b);
+        SettingsStore next;
+        next.loadFromText(a, b);
+        CHECK(!next.loaded().video.foliageWind && next.loaded().video.foliageWindStrength == 0.5f);
+    }
     testCombatAndFovSettings();
     testInventoryScreen();
     testPauseMenu();

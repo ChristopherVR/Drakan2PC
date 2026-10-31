@@ -348,6 +348,19 @@ void displayPage(gameui::SettingPage& pg, const Settings& st, const SchemaEnv& e
         r.text = caps.rayTracingStatus;
     }
 
+    pg.sections.push_back({"Vegetation", {}});
+    b.sec = &pg.sections.back();
+    b.toggle("video.foliage_wind", "Living foliage (experimental)",
+             caps.foliageWind ? "Grass, flowers, ferns and trees sway in a wind that rolls across the level in gusts, "
+                                "and grass bends away from you (or Arokh) as you pass. Only changes how they are "
+                                "drawn; nothing is saved."
+                              : "Needs the PAL executable layout; not available for this disc.",
+             false, caps.foliageWind || v.foliageWind);
+    b.slider("video.foliage_wind_strength", "Wind strength",
+             "How far foliage leans and how hard the gusts blow (1 = default).", v.foliageWindStrength, 0.25f, 2.0f,
+             "%.2f", 0.05f, caps.foliageWind && v.foliageWind)
+        .needs = "Needs living foliage.";
+
     pg.sections.push_back({"NVIDIA DLSS", {}});
     b.sec = &pg.sections.back();
     if ((caps.dlss && caps.dlssNvidia) || caps.dlssNeural) {

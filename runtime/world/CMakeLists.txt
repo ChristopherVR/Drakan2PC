@@ -19,6 +19,11 @@ target_include_directories(drakan_world PUBLIC include)
 target_link_libraries(drakan_world PUBLIC drakan::gameui PRIVATE drakan::options)
 
 if(DRAKAN_BUILD_RUNTIME_TESTS)
+    # Wind model of the living-foliage option (header only): determinism, bounds, travelling gusts, push.
+    add_executable(world_foliage_test tests/foliage_test.cpp)
+    target_link_libraries(world_foliage_test PRIVATE drakan_world drakan::options)
+    add_test(NAME world_foliage_test COMMAND world_foliage_test)
+
     # Pose model: synthetic memory + interpolation (the bridge to the real net::PlayerState is tested in runtime/net).
     add_executable(world_pose_test tests/pose_test.cpp)
     target_link_libraries(world_pose_test PRIVATE drakan_world drakan::options)

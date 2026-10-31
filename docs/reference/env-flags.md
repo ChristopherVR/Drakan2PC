@@ -155,6 +155,7 @@ variable exists it wins over the `drakan.ini` value of `[section] key`. `DRAKAN_
 | `DRAKAN_DLSS_NEURAL` / `DRAKAN_DLSS_NEURAL_DIR` | `[video] dlss_neural` / `dlss_neural_runtime` | off / empty |
 | `DRAKAN_DLSS_NEURAL_RESOLUTION` | `[video] dlss_neural_resolution` (`output` \| `render`; see `dlss.md` "Neural rendering resolution") | `output` |
 | `GSR_MODERN_WATER` / `GSR_RAY_REFLECTIONS` / `GSR_RAY_SHADOWS` | `[video] modern_water` / `ray_reflections` / `ray_shadows` | see the water table above |
+| `DRAKAN_FOLIAGE_WIND` / `DRAKAN_FOLIAGE_STRENGTH` / `DRAKAN_FOLIAGE_LOG` | `[video] foliage_wind` / `foliage_wind_strength` (living foliage, `world-model.md` section 12); the log flag prints how many trees / plants were drawn every 5 s | off / 1.0 / off |
 | `DRAKAN_HD_MOVIES` | `[video] hd_movies` (HD movie pack in `movies/`, `docs/reference/fmv.md` section 9) | on |
 | `DRAKAN_INVENTORY_SCREEN` | `[general] inventory_screen` (`native` \| `modern`: the host-drawn Tab screen, `mouse-menus.md` section 13) | `native` |
 | `DRAKAN_STRIP_SCREEN` / `DRAKAN_MAP_SCREEN` | `[general] strip_screen` / `map_screen` (`modern` \| `native`: the I strip and the M map as host-drawn screens, gameui `StripScreen` / `MapScreen`, or the older native-drawn views; `mouse-menus.md` section 12; read once at start) | `modern` |

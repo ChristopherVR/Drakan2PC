@@ -37,6 +37,7 @@ Use F11 or Alt+Enter for borderless fullscreen on Windows. Increase render scale
 | HD texture replacement | Use locally generated replacement images | A texture pack and the HD textures setting |
 | DLSS Super Resolution / DLAA | Reconstruction or anti-aliasing | Compatible NVIDIA RTX GPU and a DLSS-enabled Windows build |
 | Ray-traced water and shadows | Optional rendering effects | Compatible DirectX Raytracing hardware and a build with DXR support |
+| Living foliage (experimental) | Grass, flowers, ferns and trees sway in the wind; grass bends away from you | PAL disc; `foliage_wind` in the Display page's Vegetation section, strength 0.25 to 2 |
 | HD movies | Replace selected FMVs with locally upscaled video | Local movie pack and `hd_movies` enabled |
 
 Every feature can be turned off. An option marked unavailable needs hardware or a build component you do not have.

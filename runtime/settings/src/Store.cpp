@@ -432,6 +432,11 @@ const std::vector<Field>& fields() {
          "hardware DXR reflections including resident offscreen geometry; requires modern_water"},
         {"video", "ray_shadows", false, GETB(video.rayShadows), SETB(video.rayShadows),
          "hardware ray-traced soft shadows from native lights and ambient occlusion, including alpha-tested foliage"},
+        {"video", "foliage_wind", false, GETB(video.foliageWind), SETB(video.foliageWind),
+         "experimental: grass, flowers and trees sway in a travelling wind with gusts and grass bends away from the "
+         "player (render only, nothing is saved)"},
+        {"video", "foliage_wind_strength", false, GETF(video.foliageWindStrength, "%.2f"),
+         SETF(video.foliageWindStrength), "how far foliage leans and how hard gusts blow, 0.25 .. 2 (1 = default)"},
         {"video", "dlss_neural", false, GETB(video.dlssNeural), SETB(video.dlssNeural),
          "DLSS 5 neural rendering: 0 off, 1 on; independent of Super Resolution; requires a supported NVIDIA GPU and "
          "matching signed runtime bundle"},
@@ -730,6 +735,8 @@ std::string settingLabel(const std::string& key) {
         {"video.modern_water", "Modern water"},
         {"video.ray_reflections", "Ray-traced water reflections"},
         {"video.ray_shadows", "Ray-traced shadows"},
+        {"video.foliage_wind", "Living foliage"},
+        {"video.foliage_wind_strength", "Foliage wind strength"},
         {"video.dlss", "DLSS"},
         {"video.dlss_preset", "DLSS model"},
         {"video.dlss_sharpness", "DLSS sharpness"},

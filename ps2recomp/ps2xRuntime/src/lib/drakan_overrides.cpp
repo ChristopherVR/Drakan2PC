@@ -50,6 +50,7 @@
 #include "drakan_region.h"
 #include "drakan_movie_policy.h"
 #include "drakan_input_flow.h"
+#include "drakan_foliage.h"
 #if defined(PS2X_HAVE_DRAKAN_INPUT) && defined(_WIN32)
 #include "drakan_window.h"
 #include "input/DrakanInput.h"
@@ -1178,6 +1179,7 @@ void applyDrakanOverrides(PS2Runtime& runtime) {
 #if defined(PS2X_HAVE_DRAKAN_INPUT)
         drakanInstallInput(runtime);
 #else
+    drakan_foliage::install(runtime);     // living foliage: wind sway for grass and trees, off by default (PAL)
         drakanInstallPortableCamera(runtime);
 #endif
     }

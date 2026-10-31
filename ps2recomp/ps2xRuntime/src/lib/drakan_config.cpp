@@ -122,6 +122,11 @@ const Entry kEntries[] = {
      "default (xBRZ for pixel art / UI, smooth for photographic) | xbrz | smooth (env GSR_TEXUP_FILTER)"},
     {"video", "mip_bias", "auto",
      "texture LOD bias, negative = sharper; auto = -log2(internal scale) (env GSR_MIPBIAS)"},
+    {"video", "foliage_wind", "0",
+     "experimental: 1 = grass, flowers, ferns and trees sway in a travelling wind with gusts and grass bends away from "
+     "the player; render only, nothing is saved (PAL only; env DRAKAN_FOLIAGE_WIND)"},
+    {"video", "foliage_wind_strength", "1.0",
+     "how far foliage leans and how hard the gusts blow, 0.25 .. 2 (env DRAKAN_FOLIAGE_STRENGTH)"},
     {"video", "hd_textures", "1",
      "1 = use replacement textures from texture_dir (also accepted: texture_replace) (env GSR_TEXREPLACE)"},
     {"video", "texture_dump", "0",
