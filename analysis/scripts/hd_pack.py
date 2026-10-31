@@ -4,6 +4,8 @@ r"""HD texture pack generator for the Drakan PC port (static recompilation). Rea
                                                                      renderer's content hash, write work/src/<hash>.png + work/index.json
   python -I hd_pack.py compare  --dump DIR [--work DIR]              match rate of the offline hashes against a texture_dump of a real game run
   python -I hd_pack.py hybrid   --dump DIR [--work DIR]              add dump textures whose hash is not in the TXD index (runtime generated / edited ones)
+  python -I hd_pack.py modextract --zip MOD.zip [--work DIR]         same for a converted mod pack (OotF levels): every SRSC member of the zip (TXD / ODB ...),
+                                                                     decoded RGBA hashed; then run 'upscale --work DIR --out <dist textures or local/...>'
   python -I hd_pack.py upscale  [--out DIR] [--limit N] [--exe ...]  Real-ESRGAN (GPU) every source texture -> <out>/<hash>.png (resumable)
   python -I hd_pack.py all      [...]                                extract + upscale
 
@@ -238,6 +240,53 @@ def cmd_extract(a):
                 e["ui"] = e["ui"] and False
         print("%-48s %4d textures   (%d unique so far, %.0f s)" % (name, n, len(index), time.time() - t0), flush=True)
     json.dump(index, open(os.path.join(a.work, "index.json"), "w"))
+    print("textures %d undecodable %d unique %d" % (total, bad, len(index)))
+
+
+def cmd_modextract(a):
+    """Index the textures of a converted mod pack (zip) the way cmd_extract does for the disc. Work dir defaults to build/hdpack-mod."""
+    import zipfile
+
+    src = os.path.join(a.work, "src")
+    os.makedirs(src, exist_ok=True)
+    ipath = os.path.join(a.work, "index.json")
+    index = json.load(open(ipath)) if os.path.exists(ipath) else {}
+    total = bad = 0
+    z = zipfile.ZipFile(a.zip)
+    for name in z.namelist():
+        if name.endswith("/"):
+            continue
+        d = z.read(name)
+        if d[:4] != b"SRSC":
+            continue
+        try:
+            _, _, _, _, ents = iop_srsc.parse(d)
+        except Exception:
+            continue
+        n = 0
+        for t, tid, sub, o, sz in ents:
+            if t != 0x40:
+                continue
+            total += 1
+            try:
+                w, h, rgba, info = decode_runtime(d[o : o + sz])
+            except Exception:
+                bad += 1
+                continue
+            hx = hash_content(pack_u32(rgba), w, h)
+            n += 1
+            e = index.get(hx)
+            if e is None:
+                e = index[hx] = dict(
+                    w=w, h=h, bpp=info["bpp"], kind=info["kind"], src=[], ui=False, rgb=rgb_hash(rgba, w, h),
+                    aconst=bool((rgba[..., 3] == rgba[0, 0, 3]).all()), a0=int(rgba[0, 0, 3]), amax=int(rgba[..., 3].max()),
+                    apartial=float(((rgba[..., 3] > 0) & (rgba[..., 3] < 0x80)).mean()),
+                )  # fmt: skip
+                save_png(os.path.join(src, hx + ".png"), to_png_rgba(rgba), 1)
+            e["src"].append("%s#%d" % (name, tid))
+        if n:
+            print("%-60s %4d textures (%d unique)" % (name, n, len(index)), flush=True)
+    json.dump(index, open(ipath, "w"))
     print("textures %d undecodable %d unique %d" % (total, bad, len(index)))
 
 
@@ -492,6 +541,13 @@ def cmd_upscale(a):
     # alias file (rgb hash -> hash) for all textures the pack contains
     lines = []
     seen = set()
+    ap = os.path.join(a.out, "alias.txt")
+    if os.path.exists(ap):  # keep entries of earlier runs (disc pack + mod packs share one folder)
+        for ln in open(ap):
+            f = ln.split()
+            if len(f) == 2 and not ln.startswith("#") and f[0] not in seen:
+                seen.add(f[0])
+                lines.append(ln.strip())
     for h, e in sorted(index.items()):
         if e["rgb"] != h and e["rgb"] not in seen and os.path.exists(os.path.join(a.out, h + ".png")):
             seen.add(e["rgb"])
@@ -504,9 +560,10 @@ def cmd_upscale(a):
 
 def main():
     p = argparse.ArgumentParser()
-    p.add_argument("cmd", choices=["extract", "compare", "hybrid", "upscale", "all"])
+    p.add_argument("cmd", choices=["extract", "modextract", "compare", "hybrid", "upscale", "all"])
     p.add_argument("--iso", default=os.environ.get("DRAKAN_ISO", DEFAULT_ISO))
     p.add_argument("--work", default=os.path.join(ROOT, "build", "hdpack"))
+    p.add_argument("--zip", help="modextract: converted mod pack (e.g. build/ootf-run/<name>/mods/ootf-levels.zip)")
     p.add_argument("--dump")
     p.add_argument("--out", default=os.path.join(ROOT, "dist", "DrakanPC", "textures"))
     p.add_argument("--exe", default=os.path.join(ROOT, "tools", "hdpack", "realesrgan", "realesrgan-ncnn-vulkan.exe"))
@@ -515,11 +572,16 @@ def main():
     p.add_argument("--scale", type=int, default=4)
     p.add_argument("--gpu", type=int, default=None)
     a = p.parse_args()
+    a.work, a.out = os.path.abspath(a.work), os.path.abspath(a.out)  # esrgan runs with cwd = its own folder
     if a.cmd in ("extract", "all") and not a.iso:
         p.error("pass --iso <disc image> or set DRAKAN_ISO")
     os.makedirs(a.work, exist_ok=True)
     if a.cmd in ("extract", "all"):
         cmd_extract(a)
+    if a.cmd == "modextract":
+        if not a.zip:
+            p.error("modextract needs --zip")
+        cmd_modextract(a)
     if a.cmd == "compare":
         cmd_compare(a)
     if a.cmd == "hybrid":

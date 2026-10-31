@@ -45,3 +45,17 @@ fidelity (no banding from the 256-colour palettes). A user's "extremely blurry" 
 `texture_upscale = off` or scale 1; with the default settings the runtime upscaler smooths it. A real sharpening would need
 new content (Real-ESRGAN of the converted textures through the HD pack: `analysis/scripts/hd_pack.py` hashes decoded RGBA, so
 a pack of the converted TXD could be generated the same way); not done.
+
+## HD pack for converted mods (added later the same day)
+
+`hd_pack.py modextract --zip <mod.zip> --work build/hdpack-mod` walks every SRSC member of a converted mod pack (level splat TXD,
+PROCTEES.TXD, RESOURES.TXD ...), decodes type 0x40 textures like gsr and hashes them (same `hash_content`); then
+`hd_pack.py upscale --work build/hdpack-mod` (default `--out dist/DrakanPC/textures`, skips hashes already present) runs Real-ESRGAN.
+Ruined Village: 1207 textures, 1113 unique, 498 not yet in the disc pack, upscaled in 49 s. `upscale` now merges the existing
+`alias.txt` instead of overwriting it, and makes `--work/--out` absolute (esrgan runs in its own cwd). Pack stays uncommitted.
+
+Default settings: `dist/DrakanPC/drakan.ini` has `texture_upscale = auto`, `texture_dir = textures`, so mod textures are upscaled
+live and replaced by hash with no change needed. Harness runs (1280x720, `PS2X_GS_SCALE=3`, `build/ootf-run/hd-before` with
+`GSR_TEXUP=off`, `hd-after` with `auto`) both PASS on Ruined Village; the two runs ended in different game states
+(the after run had the NPC cut scene in view), so the shots are not pixel-comparable. Laplacian variance dropped (168 -> 110-133)
+because the upscaled ground is smoother, not sharper per texel: the content still has no detail beyond 64-128 px sources.
