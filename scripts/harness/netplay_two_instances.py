@@ -344,6 +344,7 @@ def main() -> int:
         "--weapon", choices=("dagger", "bow"), default="dagger", help="--pvp: bow = A shoots arrows at B's ghost"
     )
     ap.add_argument("--frag-limit", type=int, default=0, help="--pvp: the match ends at this many kills (results)")
+    ap.add_argument("--no-anchor", action="store_true", help="--pvp: do not hold A in place (DRAKAN_PVP_TEST_ANCHOR)")
     ap.add_argument("--env", action="append", default=[], metavar="K=V", help="extra environment for both instances")
     ap.add_argument("--env-a", action="append", default=[], metavar="K=V", help="extra environment for A only")
     ap.add_argument("--env-b", action="append", default=[], metavar="K=V", help="extra environment for B only")
@@ -356,7 +357,9 @@ def main() -> int:
         if a.name == "netplay":
             a.name = "pvp"
         a.no_level_change = True
-        a.env_a += [f"DRAKAN_PVP_TEST_PLACE={700 if a.weapon == 'bow' else 140}", "DRAKAN_PVP_TEST_ANCHOR=1"]
+        a.env_a += [f"DRAKAN_PVP_TEST_PLACE={700 if a.weapon == 'bow' else 140}"]
+        if not a.no_anchor:  # multiplayer maps: the players stand on their spawn points, nothing holds them
+            a.env_a += ["DRAKAN_PVP_TEST_ANCHOR=1"]
         a.env += ["DRAKAN_PVP_DAMAGE_SCALE=8"]
         if a.frag_limit:
             a.env_a += [f"DRAKAN_NET_FRAG_LIMIT={a.frag_limit}"]

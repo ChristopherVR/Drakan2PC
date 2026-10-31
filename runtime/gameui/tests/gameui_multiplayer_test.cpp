@@ -127,13 +127,39 @@ int main() {
         r.focusRow(RowId::MenuHost);
         r.press(UiKey::Confirm);
         CHECK(r.s.page() == MpPage::Host);
-        const RowId order[] = {RowId::HostName,     RowId::HostPassword, RowId::HostGroup, RowId::HostLevel,
-                               RowId::HostMax,      RowId::HostFrag,     RowId::HostTime,  RowId::HostTeams,
-                               RowId::HostFriendly, RowId::HostRegister, RowId::HostStart, RowId::HostBack};
-        CHECK(r.s.rows().size() == 12);
-        for (size_t i = 0; i < 12; ++i)
+        const RowId order[] = {RowId::HostName,  RowId::HostPassword, RowId::HostGroup,    RowId::HostLevel,
+                               RowId::HostType,  RowId::HostMax,      RowId::HostFrag,     RowId::HostTime,
+                               RowId::HostTeams, RowId::HostFriendly, RowId::HostRegister, RowId::HostStart,
+                               RowId::HostBack};
+        CHECK(r.s.rows().size() == 13);
+        for (size_t i = 0; i < 13; ++i)
             CHECK(r.s.rows()[i].id == order[i]);
-        CHECK(!r.s.rows()[8].enabled && !r.s.rows()[9].enabled); // friendly fire / master servers: placeholders
+        CHECK(!r.s.rows()[9].enabled && !r.s.rows()[10].enabled); // friendly fire / master servers: placeholders
+        // Game Type: Deathmatch <-> Co-op. Co-op greys the limits and the teams and hosts with the Coop mode.
+        r.focusRow(RowId::HostType);
+        CHECK(r.focused().value == "Deathmatch" && !r.s.host().coop);
+        r.press(UiKey::Right);
+        r.focusRow(RowId::HostType);
+        CHECK(r.focused().value == "Co-op" && r.s.host().coop && r.s.host().mode == GameMode::Coop);
+        for (RowId id : {RowId::HostFrag, RowId::HostTime, RowId::HostTeams})
+            CHECK(!r.s.rows()[static_cast<size_t>(r.rowOf(id))].enabled);
+        CHECK(r.s.rows()[static_cast<size_t>(r.rowOf(RowId::HostStart))].enabled);
+        // Begin Game in co-op hosts with the Coop mode.
+        {
+            Rig c;
+            c.focusRow(RowId::MenuHost);
+            c.press(UiKey::Confirm);
+            c.focusRow(RowId::HostType);
+            c.press(UiKey::Right);
+            c.focusRow(RowId::HostStart);
+            c.press(UiKey::Confirm);
+            CHECK(!c.actions.empty() && c.actions.back().kind == MpActionKind::HostMatch &&
+                  c.actions.back().host.mode == GameMode::Coop);
+        }
+        r.focusRow(RowId::HostType);
+        r.press(UiKey::Right);
+        CHECK(!r.s.host().coop && r.s.host().mode == GameMode::Deathmatch);
+        CHECK(r.s.rows()[static_cast<size_t>(r.rowOf(RowId::HostFrag))].enabled);
         // Teams: No Teams, 2, then 3 and 4 shown but not startable.
         r.focusRow(RowId::HostTeams);
         CHECK(r.focused().value == "No Teams");
@@ -479,6 +505,341 @@ int main() {
         CHECK(results > 15); // standings plus banner without F4 held
         hs.alive = false;    // no death overlay under the results
         CHECK(drawHud(hs, kVp, {}).size() == results);
+    }
+
+    // Multiplayer maps (arenas): the Host list uses st.arenas for matches, the campaign levels for Co-op and as the
+    // fallback; the preview model follows the selection; a map that lacks the chosen mode cannot start.
+    {
+        Rig r;
+        const auto arena = [](const char* name, unsigned modes, unsigned id, bool custom = false) {
+            LevelEntry e;
+            e.name = name;
+            e.title = name;
+            e.arena = true;
+            e.modes = modes;
+            e.maxPlayers = 6;
+            e.spawns = 8;
+            e.previewId = id;
+            e.custom = custom;
+            return e;
+        };
+        r.st.arenas = {arena("Meadow", 0, 11), arena("Duel Pit", 1u << static_cast<unsigned>(GameMode::Deathmatch), 12),
+                       arena("Mod Hall", 0, 0, true)};
+        r.s.setPage(MpPage::Host, r.st);
+        CHECK(r.s.hostMap(r.st).name == "Meadow" && r.s.hostMode() == GameMode::Deathmatch);
+        r.focusRow(RowId::HostGroup);
+        CHECK(r.focused().value == "All Maps");
+        r.press(UiKey::Right);
+        CHECK(r.focused().value == "Arenas");
+        r.press(UiKey::Left);
+        r.focusRow(RowId::HostLevel);
+        r.press(UiKey::Right);
+        CHECK(r.s.hostMap(r.st).name == "Duel Pit");
+        // The preview request list names the pictures of the visible maps.
+        const std::vector<uint32_t> ids = r.s.previewRequests(r.st);
+        CHECK(ids.size() == 2 && ids[0] == 11 && ids[1] == 12);
+        // Team Deathmatch is not offered on "Duel Pit": Begin Game is greyed until another map is picked.
+        CHECK(r.s.selectMode(GameMode::TeamDeathmatch, r.st));
+        CHECK(r.s.host().teams == 2 && r.s.hostMode() == GameMode::TeamDeathmatch);
+        r.s.host().level = 1;
+        r.press(UiKey::Down); // rebuild
+        CHECK(!r.s.rows()[static_cast<size_t>(r.rowOf(RowId::HostStart))].enabled);
+        r.s.host().level = 0;
+        r.press(UiKey::Down);
+        CHECK(r.s.rows()[static_cast<size_t>(r.rowOf(RowId::HostStart))].enabled);
+        // Unavailable modes ignore the card click.
+        CHECK(!r.s.selectMode(GameMode::DragonsDuel, r.st) && r.s.hostMode() == GameMode::TeamDeathmatch);
+        // Co-op plays campaign levels: the list switches to them.
+        CHECK(r.s.selectMode(GameMode::Coop, r.st));
+        CHECK(r.s.hostMap(r.st).name == "Level 1A - Surdana");
+        CHECK(r.s.selectMode(GameMode::Deathmatch, r.st) && r.s.host().teams == 0 &&
+              r.s.hostMap(r.st).name == "Meadow");
+        // Clicking a mode card with the mouse (Team Deathmatch is the second card).
+        UiInput click;
+        click.pointerValid = true;
+        click.pointerMoved = true;
+        click.leftClick = true;
+        click.pointerX = 520;
+        click.pointerY = 200;
+        r.send(click);
+        CHECK(r.s.hostMode() == GameMode::TeamDeathmatch);
+        // Clicking the second map of the list selects it (list rows are 58 design units apart from y = 476).
+        UiInput pick;
+        pick.pointerValid = true;
+        pick.pointerMoved = true;
+        pick.leftClick = true;
+        pick.pointerX = 300;
+        pick.pointerY = 476 + 58 + 20;
+        r.send(pick);
+        CHECK(r.s.host().level == 1);
+        // Without arenas the campaign levels are the fallback and the Level Group names stay the old ones.
+        Rig f;
+        f.s.setPage(MpPage::Host, f.st);
+        CHECK(f.s.hostMap(f.st).name == "Level 1A - Surdana");
+        f.focusRow(RowId::HostGroup);
+        f.press(UiKey::Right);
+        CHECK(f.focused().value == "Disc levels");
+    }
+
+    // Lobby: ready states in the roster, chat sends a SendChat action, the countdown draws, team rows go in columns.
+    {
+        Rig r;
+        r.st.conn = Conn::Connected;
+        r.st.hosting = true;
+        r.st.mode = GameMode::TeamDeathmatch;
+        r.st.roster = {{1, "Me", 0, true, true, true, 0, 0},
+                       {2, "Other", 1, false, false, false, 0, 0},
+                       {3, "Third", 0, false, false, false, 0, 0}};
+        r.s.setPage(MpPage::Lobby, r.st);
+        r.press(UiKey::Down); // frame: lobby is up
+        const Row& a = r.s.rows()[static_cast<size_t>(r.rowOf(RowId::LobbyPlayer))];
+        float xFire = a.rect.x, xWater = 0;
+        for (const Row& row : r.s.rows())
+            if (row.id == RowId::LobbyPlayer && row.index == 1)
+                xWater = row.rect.x;
+        CHECK(xWater > xFire + 100); // the second team is its own column
+        r.focusRow(RowId::LobbyChat);
+        r.actions.clear();
+        r.press(UiKey::Confirm);
+        CHECK(r.s.editing() && r.last.wantsText);
+        UiInput typed;
+        typed.text = "hello";
+        r.send(typed);
+        CHECK(r.s.chatInput() == "hello");
+        r.press(UiKey::Confirm);
+        CHECK(!r.s.editing() && r.actions.size() == 1 && r.actions[0].kind == MpActionKind::SendChat &&
+              r.actions[0].text == "hello" && r.s.chatInput().empty());
+        const size_t base = r.last.draw.size();
+        r.st.countdownSec = 2.4;
+        r.press(UiKey::Down);
+        CHECK(r.last.draw.size() > base); // the countdown card
+    }
+
+    // Join: the selection drives the details model; the table shows mode and mods.
+    {
+        Rig r;
+        r.st.lan = {lan("A"), lan("B")};
+        r.st.lan[1].pingMs = 40;
+        r.st.lan[1].mods = "Pack";
+        r.s.setPage(MpPage::Join, r.st);
+        r.focusRow(RowId::JoinServer);
+        CHECK(r.s.selectedServer() == 0);
+        r.press(UiKey::Down);
+        CHECK(r.s.selectedServer() == 1);
+    }
+
+    // HUD: team scoreboard, results with a winner, the respawn countdown and chat all draw.
+    {
+        HudState hs;
+        hs.mode = GameMode::TeamDeathmatch;
+        hs.teamKills[0] = 5;
+        hs.teamKills[1] = 3;
+        hs.roster = {{1, "A", 0, false, true, false, 5, 1}, {2, "B", 1, false, false, false, 3, 2}};
+        hs.scoreboard = true;
+        const size_t board = drawHud(hs, kVp, {}).size();
+        CHECK(board > 30);
+        hs.scoreboard = false;
+        hs.results = true;
+        hs.resultsText = "Back to the lobby";
+        CHECK(drawHud(hs, kVp, {}).size() > board); // winner banner and the footer line
+        hs.nextMatchSec = 4;
+        CHECK(drawHud(hs, kVp, {}).size() > board);
+        // A 4K viewport lays out the same commands.
+        const Viewport k4{0, 0, 3840, 2160};
+        CHECK(drawHud(hs, k4, {}).size() == drawHud(hs, kVp, {}).size());
+    }
+
+    // Co-op lobby: the host is Rynn (locked), a joiner cycles the other characters and sends SetCharacter.
+    {
+        Rig h;
+        h.st.conn = Conn::Connected;
+        h.st.hosting = true;
+        h.st.mode = GameMode::Coop;
+        h.st.roster = {{1, "Host", -1, false, true, true, 0, 0}};
+        h.s.setPage(MpPage::Lobby, h.st);
+        h.press(UiKey::Down);
+        CHECK(h.rowOf(RowId::LobbyCharacter) >= 0);
+        const Row& hr = h.s.rows()[static_cast<size_t>(h.rowOf(RowId::LobbyCharacter))];
+        CHECK(!hr.enabled && hr.value.find("Rynn") == 0); // locked to the host
+        CHECK(h.s.character(h.st).classId == 0);
+
+        Rig j;
+        j.st.conn = Conn::Connected;
+        j.st.hosting = false;
+        j.st.mode = GameMode::Coop;
+        j.st.roster = {{1, "Host", -1, false, false, true, 0, 0}, {2, "Me", -1, false, true, false, 0, 0}};
+        j.s.setPage(MpPage::Lobby, j.st);
+        j.press(UiKey::Down);
+        CHECK(j.s.character(j.st).name != "Rynn"); // joiners never get Rynn
+        j.focusRow(RowId::LobbyCharacter);
+        j.actions.clear();
+        const int before = j.s.character(j.st).classId;
+        j.press(UiKey::Right);
+        CHECK(j.actions.size() == 1 && j.actions[0].kind == MpActionKind::SetCharacter &&
+              j.actions[0].character != before && j.actions[0].character != 0);
+        // The session's own choice wins over the local one; a supplied list replaces the placeholder.
+        j.st.characters = {{0, "Rynn", "m0", "", true}, {7, "Zed", "m7", "x", false}, {9, "Kai", "m9", "y", false}};
+        j.st.selfCharacter = 9;
+        j.press(UiKey::Down);
+        CHECK(j.s.character(j.st).name == "Kai");
+        // Non-co-op lobbies have no selector.
+        Rig d;
+        d.st.conn = Conn::Connected;
+        d.s.setPage(MpPage::Lobby, d.st);
+        CHECK(d.rowOf(RowId::LobbyCharacter) < 0);
+    }
+
+    // Co-op HUD: partner panel and markers (on screen and edge arrows), co-op scoreboard and the level-complete view.
+    {
+        HudState hs;
+        hs.mode = GameMode::Coop;
+        hs.now = 50;
+        const size_t base = drawHud(hs, kVp, {}).size();
+        for (int i = 0; i < 7; ++i) {
+            HudPartner q;
+            q.id = i + 2;
+            q.name = "Partner " + std::to_string(i);
+            q.character = "Wartok";
+            q.hpFrac = 0.2f * static_cast<float>(i % 5);
+            q.down = i == 3;
+            q.respawnInSec = 4.5;
+            q.markerValid = true;
+            q.onScreen = i % 2 == 0;
+            q.markerX = 0.2f + 0.1f * static_cast<float>(i);
+            q.markerY = 0.5f;
+            q.dirDeg = 40.0f * static_cast<float>(i);
+            q.distance = 12.0f * static_cast<float>(i);
+            hs.partners.push_back(q);
+        }
+        const size_t withParty = drawHud(hs, kVp, {}).size();
+        CHECK(withParty > base + 7 * 6);
+        hs.roster = {{1, "Me", -1, false, true, false, 14, 1, -1, 20, 600}, {2, "B", -1, false, false, false, 9, 0}};
+        hs.scoreboard = true;
+        const size_t board = drawHud(hs, kVp, {}).size();
+        CHECK(board > 30);
+        hs.scoreboard = false;
+        hs.results = true;
+        hs.levelComplete = true;
+        const size_t done = drawHud(hs, kVp, {}).size();
+        CHECK(done > 20);
+        hs.levelComplete = false;
+        CHECK(drawHud(hs, kVp, {}).size() == done); // defeated: same structure, other text
+        // Partners are not drawn in the deathmatch HUD.
+        hs.results = false;
+        hs.mode = GameMode::Deathmatch;
+        hs.roster.clear();
+        CHECK(drawHud(hs, kVp, {}).size() == base);
+    }
+
+    // Host controls and lobby data: kick (host only), Rejected leaves the session, the map list steps with Up / Down
+    // once Select enters it, a joiner announces the character she is shown with, the party panel without health.
+    {
+        Rig h;
+        h.st.conn = Conn::Connected;
+        h.st.hosting = true;
+        h.st.mode = GameMode::Deathmatch;
+        h.st.roster = {{1, "Me", -1, false, true, true, 0, 0},
+                       {2, "Alpha", -1, false, false, false, 0, 0},
+                       {3, "Beta", -1, false, false, false, 0, 0}};
+        h.s.setPage(MpPage::Lobby, h.st);
+        h.press(UiKey::Down);
+        CHECK(h.rowOf(RowId::LobbyKick) >= 0 && h.s.rows()[static_cast<size_t>(h.rowOf(RowId::LobbyKick))].enabled);
+        h.focusRow(RowId::LobbyKick);
+        CHECK(h.focused().value == "Alpha");
+        h.press(UiKey::Right);
+        CHECK(h.focused().value == "Beta");
+        h.actions.clear();
+        h.press(UiKey::Confirm);
+        CHECK(h.actions.size() == 1 && h.actions[0].kind == MpActionKind::KickPlayer && h.actions[0].player == 3);
+        // Guests have no kick row; alone, the host's row is greyed.
+        Rig g;
+        g.st.conn = Conn::Connected;
+        g.st.hosting = false;
+        g.st.roster = {{1, "Host", -1, false, false, true, 0, 0}, {2, "Me", -1, false, true, false, 0, 0}};
+        g.s.setPage(MpPage::Lobby, g.st);
+        CHECK(g.rowOf(RowId::LobbyKick) < 0);
+        Rig a;
+        a.st.conn = Conn::Connected;
+        a.st.hosting = true;
+        a.st.roster = {{1, "Me", -1, false, true, true, 0, 0}};
+        a.s.setPage(MpPage::Lobby, a.st);
+        a.press(UiKey::Down);
+        CHECK(!a.s.rows()[static_cast<size_t>(a.rowOf(RowId::LobbyKick))].enabled);
+        // A kicked / rejected session: the screen leaves it and returns to Join with the reason.
+        Rig k;
+        k.st.conn = Conn::Connected;
+        k.st.roster = {{1, "Host", -1, false, false, true, 0, 0}, {2, "Me", -1, false, true, false, 0, 0}};
+        k.s.setPage(MpPage::Lobby, k.st);
+        k.press(UiKey::Down);
+        k.st.conn = Conn::Rejected;
+        k.st.message = "Kicked by the host";
+        k.actions.clear();
+        k.press(UiKey::Down);
+        CHECK(k.s.page() == MpPage::Join);
+        CHECK(!k.actions.empty() && k.actions[0].kind == MpActionKind::Leave);
+
+        // The map list: Select enters it, Up / Down step through the maps, Back leaves it.
+        Rig m;
+        for (int i = 0; i < 5; ++i) {
+            LevelEntry e;
+            e.name = e.title = "Map " + std::to_string(i);
+            e.arena = true;
+            m.st.arenas.push_back(e);
+        }
+        m.s.setPage(MpPage::Host, m.st);
+        m.focusRow(RowId::HostLevel);
+        CHECK(!m.s.mapListActive());
+        m.press(UiKey::Down); // outside the list mode Down moves on to the next row
+        CHECK(m.focused().id != RowId::HostLevel);
+        m.focusRow(RowId::HostLevel);
+        m.press(UiKey::Confirm);
+        CHECK(m.s.mapListActive());
+        m.press(UiKey::Down);
+        m.press(UiKey::Down);
+        CHECK(m.s.hostMap(m.st).name == "Map 2" && m.focused().id == RowId::HostLevel);
+        m.press(UiKey::Up);
+        CHECK(m.s.hostMap(m.st).name == "Map 1");
+        for (int i = 0; i < 9; ++i)
+            m.press(UiKey::Down);
+        CHECK(m.s.hostMap(m.st).name == "Map 4"); // stops at the end
+        m.press(UiKey::Back);
+        CHECK(!m.s.mapListActive() && m.s.page() == MpPage::Host);
+
+        // A joiner whose session character is Rynn (the host's) announces the first one she may play.
+        Rig j;
+        j.st.conn = Conn::Connected;
+        j.st.hosting = false;
+        j.st.mode = GameMode::Coop;
+        j.st.selfCharacter = 0;
+        j.st.roster = {{1, "Host", -1, false, false, true, 0, 0}, {2, "Me", -1, false, true, false, 0, 0}};
+        j.s.setPage(MpPage::Lobby, j.st);
+        j.actions.clear();
+        j.press(UiKey::Down);
+        CHECK(!j.actions.empty() && j.actions[0].kind == MpActionKind::SetCharacter && j.actions[0].character != 0);
+        const size_t announced = j.actions.size();
+        j.press(UiKey::Down); // only once
+        CHECK(j.actions.size() == announced);
+
+        // Co-op HUD: a partner without a known health draws less (no bar, no percentage) and its edge arrow keeps off
+        // the party panel.
+        HudState hs;
+        hs.mode = GameMode::Coop;
+        hs.now = 10;
+        HudPartner q;
+        q.id = 2;
+        q.name = "Pal";
+        q.markerValid = true;
+        q.onScreen = false;
+        q.dirDeg = 225; // up and to the left: the corner the party panel sits in
+        q.distance = 40;
+        hs.partners = {q};
+        const size_t known = drawHud(hs, kVp, {}).size();
+        hs.partners[0].hpKnown = false;
+        CHECK(drawHud(hs, kVp, {}).size() < known);
+        const DrawList arrows = drawHud(hs, kVp, {});
+        for (const DrawCmd& c : arrows.commands())
+            if (c.kind == DrawKind::Line) // no arrow stroke inside the party panel
+                CHECK(!(c.rect.x < 464 && c.rect.y < 90)); // the panel is 24..464 wide, one row (24..80) tall
     }
 
     // The title menu: the Multiplayer row sits after New Game, opens the page, Back returns with it focused.

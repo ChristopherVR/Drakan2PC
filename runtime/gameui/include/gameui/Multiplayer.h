@@ -26,7 +26,8 @@ inline constexpr int kMinPlayers = 2;
 // Menu is the OotF "Multiplayer" screen: player name / colour / skins / connection speed plus Host Game and Join Game.
 enum class MpPage : uint8_t { Menu, Host, Join, Lobby };
 
-// Game modes. The first two exist in the netcode (wire modes 0 and 1); the rest are shown greyed as "coming".
+// Game modes. Deathmatch, Team Deathmatch and Co-op exist in the netcode (wire modes 0, 1 and 2); the rest are shown
+// greyed as "coming".
 enum class GameMode : uint8_t { Deathmatch, TeamDeathmatch, DragonsDuel, DragonMaster, Coop, Count };
 const char* modeName(GameMode m);
 bool modeAvailable(GameMode m);
@@ -35,6 +36,15 @@ struct LevelEntry {
     std::string name;  // long level name the engine loads ("Level 1B - Kragmor"), or a custom map's name
     std::string title; // list label
     bool custom = false;
+    // Multiplayer maps (arenas; the glue fills these from the arena definitions, campaign levels leave them empty).
+    std::string description;
+    std::string author;     // custom maps: the mod pack
+    unsigned modes = 0;     // bit (1 << GameMode) per supported mode, 0 = every mode
+    int maxPlayers = 0;     // 0 = unspecified
+    int spawns = 0;         // spawn points, 0 = unknown
+    uint32_t previewId = 0; // nonzero: the glue can draw a real picture for ImageKind::LevelPreview(previewId)
+    bool arena = false;     // a multiplayer map (not a campaign level)
+    bool supports(GameMode m) const { return modes == 0 || (modes & (1u << static_cast<unsigned>(m))) != 0; }
 };
 // The disc's levels (the playable ones; cut scene levels are not matches), in campaign order.
 std::vector<LevelEntry> vanillaLevels();
@@ -49,12 +59,25 @@ struct HostForm {
     int maxPlayers = 8;       // 2..12
     int fragLimit = 20;       // kills limit, 0 = No Limit
     int timeLimitMin = 10;    // 0 = No Limit
+    bool coop = false;        // Game Type: Co-op (the mode is Coop; limits and teams do not apply)
     int teams = 0; // 0 = No Teams, 2, 3, 4 (3 and 4 are shown but cannot start yet: the server has two teams)
     bool friendlyFire = false;   // placeholder: the server never allows it in team games yet
     bool registerMaster = false; // placeholder: the master servers are gone
 };
 
+// A co-op character (the host plays Rynn, joiners pick another). The runtime side supplies the list
+// (drakan_coop_character::roster(): class id, name, model); until it does the screen offers `placeholderCharacters()`.
+struct CharacterEntry {
+    int classId = 0;
+    std::string name;
+    std::string model;       // model name shown under the name
+    std::string description; // one line
+    bool hostOnly = false;   // Rynn: locked to the host
+};
+std::vector<CharacterEntry> placeholderCharacters();
+
 struct SetupForm {
+    int character = -1; // co-op character class id (-1 = the default: Rynn for the host, the first free one otherwise)
     std::string name = "Rynn";
     int colour = 0;     // Player Color
     int model = 0;      // Human Skin
@@ -76,6 +99,7 @@ struct LanServer {
     bool passwordProtected = false;
     bool inProgress = false;
     int pingMs = 0;
+    std::string mods; // comma separated mod pack names the server runs ("" = none)
 };
 
 struct RosterRow {
@@ -86,12 +110,19 @@ struct RosterRow {
     bool self = false;
     bool host = false;
     int kills = 0, deaths = 0;
-    int pingMs = -1; // -1 = unknown
-    int timeSec = 0; // time in the match
+    int colour = -1;           // Player Color index (colourRgba), -1 = derived from the id
+    int pingMs = -1;           // -1 = unknown
+    int timeSec = 0;           // time in the match
+    std::string characterName; // co-op: the chosen character ("Rynn"), empty = not shown
 };
 
 enum class Conn : uint8_t { Offline, Connecting, Connected, Rejected };
 enum class MatchPhaseView : uint8_t { Lobby, Loading, Playing, Results };
+
+struct HudChatLine {
+    std::string who, text;
+    double at = 0; // seconds
+};
 
 // Snapshot of the network layer, built by the glue each frame.
 struct MpState {
@@ -109,20 +140,28 @@ struct MpState {
     std::vector<LanServer> lan;
     bool lanScanning = false;
     std::vector<LevelEntry> levels;          // the level catalogue (vanilla + mods); empty = vanillaLevels()
+    std::vector<CharacterEntry> characters;  // co-op character list (empty = placeholderCharacters())
+    int selfCharacter = -1;                  // the local player's chosen class id as the session has it (-1 unknown)
+    std::vector<LevelEntry> arenas;          // the multiplayer maps (arenas + mod pack maps); empty = use `levels`
+    std::vector<HudChatLine> chat;           // lobby chat log (oldest first)
+    double countdownSec = -1;                // the match starts in this many seconds (< 0 = no countdown)
     std::string defaultName;                 // initial Player Setup name
     int defaultColour = 0, defaultModel = 0; // and its colour / model (the saved profile)
     double now = 0;
 };
 
 enum class MpActionKind : uint8_t {
-    HostMatch,   // host (the form), then the lobby
-    JoinMatch,   // address + password
-    Leave,       // drop the session
-    StartMatch,  // the host starts from the lobby
-    SetReady,    // flag
-    RefreshLan,  // send a discovery sweep
-    SaveProfile, // Player Setup left: persist name / model / colour
-    Close,       // Multiplayer -> Back: return to the title menu
+    HostMatch,    // host (the form), then the lobby
+    JoinMatch,    // address + password
+    Leave,        // drop the session
+    StartMatch,   // the host starts from the lobby
+    SetReady,     // flag
+    RefreshLan,   // send a discovery sweep
+    SaveProfile,  // Player Setup left: persist name / model / colour
+    Close,        // Multiplayer -> Back: return to the title menu
+    SendChat,     // a lobby chat line (MpAction::text)
+    SetCharacter, // co-op: the local player's character (MpAction::character, a class id)
+    KickPlayer,   // the host removes a player (MpAction::player, a roster id)
 };
 const char* mpActionName(MpActionKind k);
 
@@ -133,6 +172,9 @@ struct MpAction {
     std::string address, password; // JoinMatch
     SetupForm setup;               // HostMatch, JoinMatch, SaveProfile
     bool flag = false;             // SetReady
+    std::string text;              // SendChat
+    int character = -1;            // SetCharacter
+    int player = 0;                // KickPlayer
 };
 
 enum class RowKind : uint8_t { Action, Choice, Number, Toggle, Text, Info, List };
@@ -150,6 +192,7 @@ enum class RowId : uint8_t {
     HostPassword,
     HostGroup,
     HostLevel,
+    HostType,
     HostMax,
     HostFrag,
     HostTime,
@@ -169,9 +212,12 @@ enum class RowId : uint8_t {
     JoinBack,
     LobbyInfo,
     LobbyPlayer,
+    LobbyCharacter, // co-op: the character selector (host: Rynn, locked)
+    LobbyChat,      // the chat line (Text row; Confirm sends it)
     LobbyReady,
     LobbyStart,
     LobbyLeave,
+    LobbyKick, // host: Left / Right choose a player, Select removes them
 };
 
 struct Row {
@@ -218,6 +264,18 @@ public:
     int focus() const { return focus_; }
     bool editing() const { return editing_; }
     const std::vector<std::string>& customServers() const { return custom_; }
+    // Preview model: the map the Host page shows (empty name = none), the selected Join server's level, and the
+    // lobby's. The glue reads `previewRequests()` to know which pictures to load (LevelEntry::previewId).
+    LevelEntry hostMap(const MpState& st) const; // empty name = no map
+    std::vector<uint32_t> previewRequests(const MpState& st) const;
+    int selectedServer() const { return selectedServer_; }
+    bool mapListActive() const { return mapListMode_; } // Host: Up / Down step through the map list (Select toggles)
+    GameMode hostMode() const; // the mode the Host form currently describes
+    // Host page: pick a game mode card (mode cards are clickable; unavailable modes are ignored, returns false).
+    bool selectMode(GameMode m, const MpState& st);
+    const std::string& chatInput() const { return chatInput_; }
+    // Co-op character select: the character the local player has (host: Rynn).
+    CharacterEntry character(const MpState& st) const { return selectedCharacter(st); }
     bool showingInfo() const { return showInfo_; }
     void setPage(MpPage p, const MpState& st);
 
@@ -232,17 +290,24 @@ private:
     bool addingServer_ = false, showInfo_ = false;
     int selectedServer_ = 0;
     struct JoinEntry {
-        std::string name, level, address;
+        std::string name, level, address, mods;
         int players = 0, maxPlayers = 0, pingMs = 0;
         bool custom = false, locked = false, known = false;
         GameMode mode = GameMode::Deathmatch;
     };
     std::vector<JoinEntry> entries_; // LAN answers sorted by ping, then the custom entries
     int focus_ = 0, hover_ = -1;
+    bool ptrValid_ = false;
+    float ptrX_ = 0, ptrY_ = 0; // last pointer position (pixels), for the mode cards' hover
     bool editing_ = false;
     std::vector<Row> rows_;
     LayoutFrame lf_;
     int listScroll_ = 0;
+    int levelScroll_ = 0; // Host page: first visible map of the list
+    bool mapListMode_ = false; // Host page: the map list holds Up / Down (entered with Select on the Map row)
+    int autoChar_ = -1;        // co-op joiner: the class id the screen already announced on its own (see frame)
+    int kickIdx_ = 0;          // Lobby: the player the Kick row would remove (index among the other players)
+    std::string chatInput_;
     bool lobbyFocused_ = false;
     bool lobbyActive_ = false; // the session was seen up while on the lobby page (a later Offline = dropped)
     bool profileSeeded_ = false;
@@ -260,21 +325,39 @@ private:
     void typeChars(const UiInput& in, MpFrameOutput& out);
     void padEdit(UiKey k);
     bool stepList(int dir, const MpState& st);
+    void layoutRows(const MpState& st);
+    std::vector<CharacterEntry> allowedCharacters(const MpState& st) const;
+    CharacterEntry selectedCharacter(const MpState& st) const;
+    int rowOf(RowId id) const;
     std::string* textTarget(RowId id);
     void draw(const MpState& st, DrawList& d, const std::vector<Hint>& hints) const;
     MpAction baseAction(MpActionKind k, const MpState& st) const;
 };
 
 // In-game hooks (the PvP agent / netplay feed these): the scoreboard held on a key and the chat log.
-struct HudChatLine {
-    std::string who, text;
-    double at = 0; // seconds
-};
 struct HudKill {
     std::string killer, victim, weapon; // killer empty = environment / unknown
     double at = 0;                      // seconds, same clock as HudState::now
     bool selfKiller = false, selfVictim = false;
 };
+// Co-op: one other player of the party (up to 7 besides the local player).
+struct HudPartner {
+    int id = 0;
+    std::string name;
+    std::string character;   // co-op character name ("" = not shown)
+    int colour = -1;         // Player Color index, -1 = derived from the id
+    float hpFrac = 1;        // 0..1 health
+    bool hpKnown = true;     // false: the session cannot say (no health bar / percentage is drawn)
+    bool down = false;       // downed / dead, waiting for the respawn
+    double respawnInSec = 0; // while down (0 = unknown)
+    // Marker: where the partner is on the screen. `onScreen` positions are 0..1 of the 16:9 design canvas; otherwise
+    // `dirDeg` is the direction to the partner on the screen plane (0 = right, 90 = down) and the marker sits on the
+    // screen edge.
+    bool markerValid = false, onScreen = false;
+    float markerX = 0.5f, markerY = 0.5f, dirDeg = 0;
+    float distance = 0; // metres, 0 = unknown
+};
+
 struct HudState {
     bool scoreboard = false; // draw the scoreboard
     std::vector<RosterRow> roster;
@@ -285,19 +368,25 @@ struct HudState {
     int timeLeftSec = -1; // -1 = no limit
     int teamKills[2] = {0, 0};
     std::vector<HudChatLine> chat;
-    std::vector<HudKill> kills; // kill feed, newest last; lines older than killLifeSec fade out (top right)
-    bool alive = true;          // the local player; false = the death overlay with the respawn countdown
-    double respawnInSec = 0;    // while dead
-    std::string deathText;      // "Killed by <name> (<weapon>)"
-    bool results = false;       // the match is over: the standings stay up under the banner
-    std::string resultsText;    // second banner line ("Next match: back to the lobby ...")
-    std::string status;         // top centre chip: "3:42 left   First to 3" (empty = none)
-    std::string chatInput;      // while typing
+    std::vector<HudKill> kills;       // kill feed, newest last; lines older than killLifeSec fade out (top right)
+    bool alive = true;                // the local player; false = the death overlay with the respawn countdown
+    double respawnInSec = 0;          // while dead
+    std::string deathText;            // "Killed by <name> (<weapon>)"
+    std::vector<HudPartner> partners; // Co-op: the party's other players (drawn when mode == Coop)
+    float selfHpFrac = 1;             // Co-op: the local player's health bar
+    bool levelComplete = false;       // Co-op results: the level was completed (false = the party was defeated)
+    bool results = false;             // the match is over: the standings stay up under the banner
+    std::string resultsText;          // second banner line ("Next match: back to the lobby ...")
+    double nextMatchSec = -1;         // results: the next match / lobby follows in this many seconds (< 0 = unknown)
+    std::string status;               // top centre chip: "3:42 left   First to 3" (empty = none)
+    std::string chatInput;            // while typing
     bool chatOpen = false;
     double now = 0;
 };
-// Draws the scoreboard (Player / Kills / Deaths / Ping / Time, sorted by kills, then fewer deaths) and the fading chat
-// log (lines younger than `chatLifeSec`, the last `maxLines`), in the game's panel style, over the world.
+// Draws the full-screen scoreboard (Player / Kills / Deaths / Ping / Time, sorted by kills, then fewer deaths; team
+// columns in team games; the local player highlighted), the results screen (winner, standings, what happens next), the
+// kill feed, the respawn overlay and the fading chat log (lines younger than `chatLifeSec`, the last `maxLines`), in
+// the game's panel style, over the world.
 DrawList drawHud(const HudState& hs, const Viewport& vp, const ScreenConfig& cfg, float chatLifeSec = 8.0f,
                  int maxLines = 6, float killLifeSec = 7.0f);
 std::vector<RosterRow> sortedRoster(std::vector<RosterRow> r);
@@ -305,7 +394,7 @@ std::vector<RosterRow> sortedRoster(std::vector<RosterRow> r);
 } // namespace gameui::mp
 
 namespace gameui::design::mp {
-Rect panel();     // the page panel
+Rect panel();     // the page panel (legacy single column; the pages lay out in Multiplayer.cpp)
 float rowH();     // action / value row height
 float rowStep();  // row pitch
 Rect firstRow();  // top row rect (x, y, w, h) inside the panel

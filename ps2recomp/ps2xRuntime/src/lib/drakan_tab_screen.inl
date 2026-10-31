@@ -729,6 +729,8 @@ void tabFrame(uint8_t* ram, R5900Context* c, PS2Runtime* rt, uint32_t screen) {
     RdramMemory mem(ram);
     gameui::Snapshot& back = sh.model.back();
     const gameui::ReadStatus st = gameui::readSnapshot(mem, g_tab.reader, back);
+    if (arenaWorldMode())
+        back.quests.clear(); // multiplayer arena: no story, the Journal and the map markers stay empty
     if (++g_tab.frames <= 2 || st != gameui::ReadStatus::Ok)
         tabLog("snapshot %s: %zu items, section %d, selection %d", gameui::readStatusName(st), back.items.size(),
                back.native.section, back.native.selection);

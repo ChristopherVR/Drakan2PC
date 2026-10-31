@@ -131,6 +131,18 @@ bool MatchClient::sendReady(bool ready) {
     return sendReliable(encode(r));
 }
 
+bool MatchClient::sendCharacter(uint16_t character) {
+    SetCharacter c;
+    c.character = character;
+    return sendReliable(encode(c));
+}
+
+bool MatchClient::sendKick(PlayerId player) {
+    Kick k;
+    k.player = player;
+    return sendReliable(encode(k));
+}
+
 bool MatchClient::sendChat(const std::string& text) {
     Chat c;
     c.text = text.substr(0, kMaxChatLength);
@@ -157,6 +169,12 @@ bool MatchClient::sendLevelChange(uint32_t destHash, const float exit[3]) {
     for (int i = 0; i < 3; ++i)
         lc.exit[i] = exit[i];
     return sendReliable(encode(lc));
+}
+
+bool MatchClient::sendPickupClaim(uint16_t index) {
+    PickupClaim c;
+    c.index = index;
+    return sendReliable(encode(c));
 }
 
 bool MatchClient::pollEvent(ClientEvent& out) {
@@ -228,6 +246,35 @@ void MatchClient::handleMessage(const TransportEvent& ev) {
         return;
 
     switch (type) {
+        case MsgType::Status: {
+            Status st;
+            if (!decode(ev.data, st))
+                break;
+            countdownKind_ = st.countdown;
+            countdownMs_ = st.countdownMs;
+            countdownAtMs_ = now_;
+            for (const PlayerPing& pp : st.pings) {
+                auto it = roster_.find(pp.player);
+                if (it != roster_.end()) {
+                    it->second.pingMs = pp.pingMs;
+                    it->second.character = pp.character;
+                }
+            }
+            StatusEcho echo;
+            echo.token = st.token;
+            transport_.send(peer_, Channel::Unreliable, encode(echo));
+            break;
+        }
+        case MsgType::Reject: { // the host removed us
+            Reject r;
+            if (decode(ev.data, r)) {
+                reject_ = r;
+                state_ = ClientState::Rejected;
+                transport_.disconnect(peer_);
+                peer_ = kInvalidPeer;
+            }
+            break;
+        }
         case MsgType::MatchConfig: {
             MatchConfigMsg m;
             if (decode(ev.data, m)) {
@@ -336,6 +383,12 @@ void MatchClient::handleMessage(const TransportEvent& ev) {
                 events_.push_back(lc);
             break;
         }
+        case MsgType::PickupState: {
+            PickupState ps;
+            if (decode(ev.data, ps))
+                events_.push_back(ps);
+            break;
+        }
         case MsgType::Chat: {
             Chat c;
             if (decode(ev.data, c))
@@ -386,6 +439,15 @@ void MatchClient::handleMessage(const TransportEvent& ev) {
         default:
             break;
     }
+}
+
+CountdownKind MatchClient::countdown(uint64_t nowMs, uint32_t& remainingMs) const {
+    remainingMs = 0;
+    if (countdownKind_ == CountdownKind::None || nowMs < countdownAtMs_ || nowMs - countdownAtMs_ > 2000)
+        return CountdownKind::None;
+    const uint64_t el = nowMs - countdownAtMs_;
+    remainingMs = el >= countdownMs_ ? 0 : static_cast<uint32_t>(countdownMs_ - el);
+    return countdownKind_;
 }
 
 uint32_t MatchClient::serverTimeAt(uint64_t localNowMs) const {

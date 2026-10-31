@@ -60,6 +60,10 @@ void quickSaveTick(uint8_t* ram, R5900Context* c, PS2Runtime* rt, RecompGuest& g
             if (sourceLevel(b, edge, true))
                 request = static_cast<int>(b.value);
         }
+        if (request && arenaWorldMode()) {
+            menuLog("quick %s ignored: multiplayer arena (nothing is saved or loaded)", request == 1 ? "save" : "load");
+            return;
+        }
         if (!request)
             return;
         if (title && request != 2)

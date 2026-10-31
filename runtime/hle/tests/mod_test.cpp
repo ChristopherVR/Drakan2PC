@@ -280,6 +280,12 @@ static void filesTests(const fs::path& root, const DiscProfile& pal) {
         writeFile(mods / "pk/files/ENGLISH/COMMON/BAD/BAD.TXD", fill(40, 0)); // not SRSC: rejected
         writeFile(mods / "pk/overrides/LEVEL1NA.LVL/0020_2_x.bin", fill(30, 0x77));
         writeFile(mods / "pk/new/WEAP.TXD/0040_900_0.bin", fill(24, 0x88));
+        writeText(mods / "pk/maps/clone_arena.ini",
+                  "[arena clone]\nname = Clone Arena\nlevel = Level 9X - Clone Test\n");
+        writeFile(mods / "pk/previews/Clone_Arena.png", fill(20, 0x42));
+        writeText(mods / "pk/previews/deeper/x.png", "no");
+        writeText(mods / "pk/maps/notes.txt", "not a map file");
+        writeText(mods / "pk/maps/deeper/ignored.ini", "[arena no]\n");
         writeFile(mods / "late/overrides/LEVEL1NA.LVL/0020_2_0.bin", fill(12, 0x99));
         writeText(mods / "late/mod.toml", toml("late"));
         ModManager mm(pal);
@@ -302,6 +308,11 @@ static void filesTests(const fs::path& root, const DiscProfile& pal) {
         CHECK(f.findKey("FRENCH\\LEVELS\\LEVEL1NA\\LEVEL1NA.LVL", n) && n.size == frLvl.size() && !n.mem);
         // new level file reachable by long name and listed
         CHECK(f.lookup("\\Levels\\Level 9X - Clone Test\\Level 9X - Clone Test.lvl", n) && n.size > 0);
+        // multiplayer maps: only maps/*.ini directly in the folder of a loaded pack
+        CHECK(mm.mapFiles().size() == 1 && mm.mapFiles()[0].first.find("mod pk") == 0 &&
+              mm.mapFiles()[0].second.find("[arena clone]") == 0);
+        CHECK(mm.previewFiles().size() == 1 && mm.previewFiles()[0].first == "Clone_Arena" &&
+              mm.previewFiles()[0].second.size() == 20);
         CHECK(mm.extraLevels().size() == 1 && mm.extraLevels()[0].name == "Level 9X - Clone Test" &&
               mm.extraLevels()[0].listIndex == 1 && mm.extraLevels()[0].modId == "pk");
         CHECK(f.lookup("LEVELLST.TXT", n));
@@ -350,6 +361,60 @@ static void filesTests(const fs::path& root, const DiscProfile& pal) {
         mm.installFiles(f3);
         std::vector<u8> b;
         CHECK(entryBytes(f3, "\\Common\\WEAP\\WEAP.TXD", 0x40, 7, 0, b) && b.size() == 11);
+    }
+
+    // content files (story editing): entries of ODB / XDB / SDB / SSD are replaced per request (0x1202 override layer)
+    // and added with new/ (container rebuilt); both together, a wildcard sub, and a pack that only adds
+    {
+        const fs::path d2 = root / "disc_story";
+        writeFile(d2 / "ENGLISH/COMMON/SYSTEM/SYSTEM.ODB",
+                  makeSrsc({{{0x102, 4167, 3055, 0, 0}, fill(86, 0x10)}, {{0x103, 0, 0, 0, 0}, fill(40, 0x11)}}));
+        writeFile(d2 / "ENGLISH/COMMON/SYSTEM/SYSTEM.XDB",
+                  makeSrsc({{{0x400, 22, 8, 0, 0}, fill(64, 0x20)}, {{0x400, 23, 8, 0, 0}, fill(64, 0x21)}}));
+        writeFile(d2 / "ENGLISH/COMMON/SYSTEM/SYSTEM.SDB",
+                  makeSrsc({{{0x302, 5, 7, 0, 0}, fill(48, 0x30)}, {{0x304, 5, 7, 0, 0}, fill(200, 0x31)}}));
+        writeFile(d2 / "ENGLISH/LEVELS/LEVEL1ON/LEVEL1ON.SSD", makeSrsc({{{0x311, 9, 0, 0, 0}, fill(120, 0x40)}}));
+        const fs::path mods = root / "mods_story";
+        writeText(mods / "story/mod.toml", toml("story"));
+        writeFile(mods / "story/overrides/SYSTEM.ODB/0102_4167_3055.bin", fill(90, 0xA1));
+        writeFile(mods / "story/overrides/SYSTEM.XDB/0400_22_x.bin", fill(80, 0xA2));
+        writeFile(mods / "story/overrides/SYSTEM.SDB/0302_5_7.bin", fill(52, 0xA3));
+        writeFile(mods / "story/overrides/LEVEL1ON.SSD/0311_9_0.bin", fill(100, 0xA4));
+        writeFile(mods / "story/new/SYSTEM.XDB/0400_114_8.bin", fill(40, 0xB1));
+        writeFile(mods / "story/new/SYSTEM.ODB/0102_4200_3055.bin", fill(88, 0xB2));
+        writeFile(mods / "story/new/SYSTEM.ODB/0103_0_0.bin", fill(60, 0xB3)); // replaces the existing 0x103 (same key)
+        writeFile(mods / "story/new/LEVEL1ON.SSD/0311_10_0.bin", fill(30, 0xB4));
+        writeText(mods / "adds/mod.toml", toml("adds"));
+        writeFile(mods / "adds/new/SYSTEM.XDB/0400_115_8.bin", fill(44, 0xB5));
+        IsoFs f4;
+        std::string err4;
+        CHECK(f4.openFolder(d2.string(), &err4));
+        f4.setLanguageRoot("\\English");
+        ModManager mm(pal);
+        CHECK(mm.load(mods.string(), {{"story", true}, {"adds", true}}) == 2);
+        CHECK(mm.status()[0].added == 4 && mm.status()[0].entries == 4 && mm.status()[1].added == 1);
+        // per-request overrides: sizes may differ from the original (86 -> 90, 64 -> 80, 48 -> 52, 120 -> 100)
+        CHECK(applyTo(mm.entries(), rid("SYSTEM.ODB", 0x102, 4167, 3055), 86) == fill(90, 0xA1));
+        CHECK(applyTo(mm.entries(), rid("SYSTEM.XDB", 0x400, 22, 8), 64) == fill(80, 0xA2));
+        CHECK(applyTo(mm.entries(), rid("SYSTEM.XDB", 0x400, 22, 3), 64) == fill(80, 0xA2)); // x sub
+        CHECK(applyTo(mm.entries(), rid("SYSTEM.XDB", 0x400, 23, 8), 64) == fill(64, 0xEE)); // untouched string
+        CHECK(applyTo(mm.entries(), rid("SYSTEM.SDB", 0x302, 5, 7), 48) == fill(52, 0xA3));
+        CHECK(applyTo(mm.entries(), rid("SYSTEM.SDB", 0x304, 5, 7), 200) == fill(200, 0xEE)); // audio data untouched
+        CHECK(applyTo(mm.entries(), rid("LEVEL1ON.SSD", 0x311, 9, 0), 120) == fill(100, 0xA4));
+        g_log.clear();
+        const size_t served4 = mm.installFiles(f4);
+        CHECK(served4 == 3); // SYSTEM.XDB, SYSTEM.ODB, LEVEL1ON.SSD rebuilt; SYSTEM.SDB untouched
+        std::vector<u8> b;
+        const std::string xdbPath = "\\Common\\System\\SYSTEM.XDB", odbPath = "\\Common\\System\\SYSTEM.ODB";
+        CHECK(entryBytes(f4, xdbPath, 0x400, 114, 8, b) && b == fill(40, 0xB1));
+        CHECK(entryBytes(f4, xdbPath, 0x400, 115, 8, b) && b == fill(44, 0xB5));
+        CHECK(entryBytes(f4, xdbPath, 0x400, 23, 8, b) && b == fill(64, 0x21));
+        CHECK(entryBytes(f4, odbPath, 0x102, 4200, 3055, b) && b == fill(88, 0xB2));
+        CHECK(entryBytes(f4, odbPath, 0x103, 0, 0, b) && b == fill(60, 0xB3));
+        CHECK(entryBytes(f4, odbPath, 0x102, 4167, 3055, b) && b == fill(86, 0x10));
+        IsoFs::Node sn;
+        CHECK(f4.lookup("\\Levels\\LEVEL1ON\\LEVEL1ON.SSD", sn) && sn.mem);
+        CHECK(f4.lookup("\\Common\\System\\SYSTEM.SDB", sn) && !sn.mem);
     }
 }
 

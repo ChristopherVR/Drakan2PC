@@ -9,11 +9,30 @@ endif()
 include("${CMAKE_CURRENT_LIST_DIR}/../../cmake/DrakanComponents.cmake")
 drakan_component_begin(net)
 
+# The multiplayer maps (configs/mp_maps.ini) are compiled in as the defaults; the player's own mp_maps.ini and mod packs
+# add to them at run time. MSVC limits one string literal to ~16 KB, so the text goes in as 8 KB raw-string pieces.
+set(DRAKAN_MP_MAPS_INI "${CMAKE_CURRENT_LIST_DIR}/../../configs/mp_maps.ini")
+set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${DRAKAN_MP_MAPS_INI}")
+file(READ "${DRAKAN_MP_MAPS_INI}" _mp_maps_text)
+string(LENGTH "${_mp_maps_text}" _mp_maps_len)
+set(DRAKAN_MP_MAPS_CHUNKS "")
+set(_mp_pos 0)
+while(_mp_pos LESS _mp_maps_len)
+    string(SUBSTRING "${_mp_maps_text}" ${_mp_pos} 8000 _mp_piece)
+    string(APPEND DRAKAN_MP_MAPS_CHUNKS "
+    + std::string(R\"MPMAPS(${_mp_piece})MPMAPS\")")
+    math(EXPR _mp_pos "${_mp_pos} + 8000")
+endwhile()
+configure_file("${CMAKE_CURRENT_LIST_DIR}/src/ArenaMapsBuiltin.cpp.in" "${CMAKE_CURRENT_BINARY_DIR}/ArenaMapsBuiltin.cpp" @ONLY)
+
 add_library(drakan_net STATIC
     src/Protocol.cpp
     src/LoopbackTransport.cpp
     src/MatchServer.cpp
-    src/MatchClient.cpp)
+    src/MatchClient.cpp
+    src/ArenaMaps.cpp
+    src/GameModes.cpp
+    "${CMAKE_CURRENT_BINARY_DIR}/ArenaMapsBuiltin.cpp")
 add_library(drakan::net ALIAS drakan_net)
 target_include_directories(drakan_net PUBLIC include)
 target_link_libraries(drakan_net PRIVATE drakan::options)
@@ -45,9 +64,21 @@ if(DRAKAN_BUILD_RUNTIME_TESTS)
     target_link_libraries(net_match_test PRIVATE drakan_net drakan::options)
     add_test(NAME net_match_test COMMAND net_match_test)
 
+    add_executable(net_lobby_test tests/lobby_test.cpp)
+    target_link_libraries(net_lobby_test PRIVATE drakan_net drakan::options)
+    add_test(NAME net_lobby_test COMMAND net_lobby_test)
+
     add_executable(net_coop_test tests/coop_test.cpp)
     target_link_libraries(net_coop_test PRIVATE drakan_net drakan::options)
     add_test(NAME net_coop_test COMMAND net_coop_test)
+
+    add_executable(net_arena_test tests/arena_test.cpp)
+    target_link_libraries(net_arena_test PRIVATE drakan_net drakan::options)
+    add_test(NAME net_arena_test COMMAND net_arena_test)
+
+    add_executable(net_modes_test tests/modes_test.cpp)
+    target_link_libraries(net_modes_test PRIVATE drakan_net drakan::options)
+    add_test(NAME net_modes_test COMMAND net_modes_test)
 
     add_executable(net_loopback_e2e_test tests/loopback_e2e_test.cpp)
     target_link_libraries(net_loopback_e2e_test PRIVATE drakan_net drakan::options)

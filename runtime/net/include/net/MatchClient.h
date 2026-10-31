@@ -34,6 +34,8 @@ struct RemotePlayer {
     bool alive = false;
     bool ready = false; // v5 lobby ready flag
     int32_t health = 0;
+    uint16_t character = 0;         // co-op character the player picked in the lobby (Status), 0 = Rynn
+    uint16_t pingMs = kPingUnknown; // the server's measure of this player's round trip (Status), kPingUnknown = none
 };
 
 struct DisconnectedEvent {
@@ -41,7 +43,7 @@ struct DisconnectedEvent {
 };
 
 using ClientEvent = std::variant<Hit, Death, Respawn, Chat, Score, PhaseChange, PlayerJoin, PlayerLeave, MatchConfigMsg,
-                                 Ready, DisconnectedEvent, CoopAuthority, CoopCreatures, CoopEvent, LevelChange>;
+                                 Ready, DisconnectedEvent, CoopAuthority, CoopCreatures, CoopEvent, LevelChange, PickupState>;
 
 class MatchClient {
 public:
@@ -78,11 +80,15 @@ public:
     bool sendChat(const std::string& text);
     bool sendLoadDone();
     bool sendReady(bool ready); // lobby only (the server ignores it elsewhere)
+    bool sendCharacter(uint16_t character); // co-op lobby: the character this player picks
+    bool sendKick(PlayerId player); // the host removes a player (the server checks, ServerOptions::hostKick)
     // v6 co-op (the server drops what the routing rules forbid, see MatchServer): the authority streams creatures and
     // sends the authority-origin events, the others send claims / death notices / catch-up requests.
     bool sendCoopCreatures(const CoopCreatures& c); // unreliable
     bool sendCoopEvent(const CoopEvent& e);
     bool sendLevelChange(uint32_t destHash, const float exit[3]);
+    // PvP arena: the local player took pickup `index` of the map's list (the server answers with a PickupState).
+    bool sendPickupClaim(uint16_t index);
 
     bool pollEvent(ClientEvent& out);
 
@@ -97,6 +103,9 @@ public:
 
     // Diagnostics. rttMs() is the smoothed round trip of our own PlayerState: send time to the arrival of the snapshot
     // that echoes its sequence (so it includes up to one server snapshot interval); < 0 until measured.
+    // The running countdown the server last reported (Status, ~2 Hz) and what is left of it at local time `nowMs`
+    // (CountdownKind::None / 0 when nothing counts down or the report is older than 2 s).
+    CountdownKind countdown(uint64_t nowMs, uint32_t& remainingMs) const;
     uint64_t snapshotCount() const { return snapshotCount_; }
     double rttMs() const { return rttMs_; }
 
@@ -132,6 +141,9 @@ private:
     SentMark sent_[64];
     uint64_t snapshotCount_ = 0;
     double rttMs_ = -1.0;
+    CountdownKind countdownKind_ = CountdownKind::None;
+    uint32_t countdownMs_ = 0;
+    uint64_t countdownAtMs_ = 0;
     bool haveClock_ = false;
     int64_t clockOffset_ = 0; // serverTime - localTime
     std::map<PlayerId, RemotePlayer> roster_;

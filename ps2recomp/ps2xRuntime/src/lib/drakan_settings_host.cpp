@@ -12,6 +12,8 @@
 #include "drakan_window.h"
 #include "drakan_menus.h"
 #include "drakan_netplay.h"
+#include "drakan_arena.h"
+#include "drakan_coop_character.h"
 #include "drakan_world.h"
 #include "drakan_fmv_hd.h"
 #include "drakan_save_previews.h"
@@ -33,6 +35,7 @@
 #include <settings/TxdImage.h>
 #include <gameui/MapScreen.h>
 #include <gameui/Multiplayer.h>
+#include <net/ArenaMaps.h>
 #include <gameui/PauseScreen.h>
 #include <gameui/Screen.h>
 #include <gameui/StripScreen.h>
@@ -1213,7 +1216,9 @@ bool futureReady(const std::future<PreviewDecode>& f) {
 }
 
 // Present thread, before this frame's draw lists (an SRV replaced here is not referenced by a pending draw).
+void updateMapPreviews();
 void updatePreviewTextures() {
+    updateMapPreviews();
     std::erase_if(g_previewDrops, [](const std::future<PreviewDecode>& f) { return !f.valid() || futureReady(f); });
     auto& sh = drakan_menu_screens::shared();
     std::vector<std::pair<int, drakan_menu_screens::SlotPicture>> pics;
@@ -1276,7 +1281,92 @@ void updatePreviewTextures() {
     }
 }
 
+// ---- multiplayer map pictures ----
+// A map's picture is optional: `previews/<map name>.png` next to the exe (the player's own capture or a mod pack's
+// image; nothing from the disc is stored in the repository). The menu draws a generated sketch when there is none.
+std::mutex g_mapPreviewM;
+std::map<uint32_t, std::string> g_mapPreviewPaths; // previewId -> file
+std::map<uint32_t, PreviewTexture> g_mapPreviews;
+
+std::string mapSafeName(const std::string& mapName) {
+    std::string safe;
+    for (char c : mapName)
+        safe += (std::isalnum(static_cast<unsigned char>(c)) || c == '-' || c == '_') ? c : '_';
+    return safe;
+}
+
+// previews/<name>.png (the player's own picture) wins, then previews/mods/<name>.png (drakan_overrides copies the
+// previews/<name>.png of every loaded mod pack there), then previews/captured/<name>.png (the game's own capture of the
+// map in a match, mpPreviewCapture).
+uint32_t mapPreviewId(const std::string& mapName) {
+    struct Known {
+        uint32_t id = 0;
+        std::chrono::steady_clock::time_point checked;
+    };
+    static std::map<std::string, Known> cache; // name -> id (0 = no file, looked at again every 3 s)
+    std::lock_guard<std::mutex> l(g_mapPreviewM);
+    const auto now = std::chrono::steady_clock::now();
+    auto it = cache.find(mapName);
+    if (it != cache.end() && (it->second.id != 0 || now - it->second.checked < std::chrono::seconds(3)))
+        return it->second.id;
+    const std::string safe = mapSafeName(mapName);
+    std::error_code ec;
+    uint32_t id = 0;
+    for (const char* dir : {"previews/", "previews/mods/", "previews/captured/"}) {
+        const std::string path = drakan_cfg::exeDir() + dir + safe + ".png";
+        if (!std::filesystem::exists(path, ec))
+            continue;
+        id = 2166136261u;
+        for (unsigned char c : path)
+            id = (id ^ c) * 16777619u;
+        id |= 1u;
+        g_mapPreviewPaths[id] = path;
+        break;
+    }
+    cache[mapName] = {id, now};
+    return id;
+}
+
+void updateMapPreviews() {
+    std::vector<std::pair<uint32_t, std::string>> want;
+    {
+        std::lock_guard<std::mutex> l(g_mapPreviewM);
+        for (const auto& [id, path] : g_mapPreviewPaths)
+            if (!g_mapPreviews.count(id))
+                want.emplace_back(id, path);
+    }
+    for (auto& [id, path] : want) {
+        PreviewTexture& t = g_mapPreviews[id];
+        t.hd = path;
+        t.decode = std::async(std::launch::async, decodePreview, path);
+    }
+    for (auto& [id, t] : g_mapPreviews) {
+        if (!futureReady(t.decode))
+            continue;
+        PreviewDecode r = t.decode.get();
+        ImTextureID tex = r.img ? makeTexture(r.img.rgba.data(), r.img.width, r.img.height) : 0;
+        if (!tex)
+            continue;
+        t.tex = tex;
+        t.uv0 = ImVec2(0, 0);
+        t.uv1 = ImVec2(1, 1);
+        t.w = float(r.img.width);
+        t.h = float(r.img.height);
+    }
+}
+
 bool previewCrop(const gameui::ImageRef& ref, dsettings::IconCrop& c) {
+    if (ref.kind == gameui::ImageKind::LevelPreview) {
+        const auto it = g_mapPreviews.find(ref.index);
+        if (it == g_mapPreviews.end() || !it->second.tex)
+            return false;
+        c.texture = it->second.tex;
+        c.uv0 = it->second.uv0;
+        c.uv1 = it->second.uv1;
+        c.w = it->second.w;
+        c.h = it->second.h;
+        return true;
+    }
     if (ref.kind != gameui::ImageKind::SavePreview)
         return false; // TitleArt: the native art shows under the menu (TitleState::backdrop stays None)
     for (const auto& [n, t] : g_previews)
@@ -1348,6 +1438,43 @@ void saveMpProfile(const gameui::mp::SetupForm& s) {
         << "\nmodel = " << s.model << "\n";
 }
 
+// The multiplayer maps (arenas): the catalogue of configs/mp_maps.ini compiled into drakan::net plus the player's own
+// mp_maps.ini next to the exe. DRAKAN_MP_ARENAS=0 hides them (the Host page then lists the campaign levels).
+std::vector<gameui::mp::LevelEntry> mpArenas() {
+    using gameui::mp::GameMode;
+    static std::vector<gameui::mp::LevelEntry> cache;
+    static size_t cachedFrom = ~size_t(0);
+    // The list of drakan_arena (built-in maps, the player's mp_maps.ini, the maps of the mod packs): maps whose base
+    // level is not on this disc are left out (they cannot start). Rebuilt when the catalogue changes size.
+    const char* off = std::getenv("DRAKAN_MP_ARENAS");
+    const std::vector<drakan_arena::MapEntry> maps =
+        off && off[0] == '0' ? std::vector<drakan_arena::MapEntry>() : drakan_arena::maps();
+    if (cachedFrom != maps.size()) {
+        cachedFrom = maps.size();
+        cache.clear();
+        for (const drakan_arena::MapEntry& a : maps) {
+            if (!a.installed)
+                continue;
+            gameui::mp::LevelEntry e;
+            e.name = a.name;
+            e.title = a.name;
+            e.description = a.description;
+            e.arena = true;
+            e.custom = a.source != "built-in";
+            e.author = e.custom ? a.source : std::string();
+            e.maxPlayers = a.maxPlayers;
+            e.spawns = a.spawns;
+            e.modes = (a.deathmatch ? 1u << static_cast<unsigned>(GameMode::Deathmatch) : 0u) |
+                      (a.teamDeathmatch ? 1u << static_cast<unsigned>(GameMode::TeamDeathmatch) : 0u);
+            cache.push_back(std::move(e));
+        }
+    }
+    std::vector<gameui::mp::LevelEntry> out = cache;
+    for (gameui::mp::LevelEntry& e : out)
+        e.previewId = mapPreviewId(e.name);
+    return out;
+}
+
 gameui::mp::MpState mpState(bool wantLan) {
     using namespace gameui::mp;
     loadMpProfile();
@@ -1363,7 +1490,7 @@ gameui::mp::MpState mpState(bool wantLan) {
     s.phase = static_cast<MatchPhaseView>(static_cast<int>(ns.phase));
     s.serverName = ns.serverName;
     s.level = ns.level;
-    s.mode = ns.mode == 1 ? GameMode::TeamDeathmatch : GameMode::Deathmatch;
+    s.mode = ns.mode == 2 ? GameMode::Coop : ns.mode == 1 ? GameMode::TeamDeathmatch : GameMode::Deathmatch;
     s.maxPlayers = ns.maxPlayers;
     s.fragLimit = ns.fragLimit;
     s.timeLimitMin = ns.timeLimitSec / 60;
@@ -1381,8 +1508,22 @@ gameui::mp::MpState mpState(bool wantLan) {
         r.deaths = p.deaths;
         r.pingMs = p.pingMs;
         r.timeSec = p.timeSec;
+        if (ns.mode == 2)
+            r.characterName = drakan_coop_character::entry(static_cast<uint16_t>(p.character)).name;
         s.roster.push_back(std::move(r));
     }
+    s.countdownSec = ns.countdownKind == 1 ? ns.countdownSec : -1.0;
+    for (const drakan_coop_character::Entry& e : drakan_coop_character::roster()) {
+        CharacterEntry c;
+        c.classId = e.id;
+        c.name = e.name;
+        c.hostOnly = e.id == 0;
+        c.model = e.id == 0 ? "SYSTEM.MOD #" + std::to_string(e.modelId) : "NPCS.MOD #" + std::to_string(e.modelId);
+        c.description = e.id == 0 ? "The dragon rider. Always the host's character."
+                                  : "A partner stand-in: plays its own walk, run and fight animations.";
+        s.characters.push_back(std::move(c));
+    }
+    s.selfCharacter = drakan_coop_character::selected();
     if (wantLan) {
         for (const auto& l : drakan_netplay::lanServers()) {
             LanServer o;
@@ -1390,12 +1531,13 @@ gameui::mp::MpState mpState(bool wantLan) {
             o.port = l.port;
             o.name = l.name;
             o.level = l.level;
-            o.mode = l.mode == 1 ? GameMode::TeamDeathmatch : GameMode::Deathmatch;
+            o.mode = l.mode == 2 ? GameMode::Coop : l.mode == 1 ? GameMode::TeamDeathmatch : GameMode::Deathmatch;
             o.players = l.players;
             o.maxPlayers = l.maxPlayers;
             o.passwordProtected = l.passwordProtected;
             o.inProgress = l.inProgress;
             o.pingMs = l.pingMs;
+            o.mods = l.mods;
             s.lan.push_back(std::move(o));
         }
         s.lanScanning = drakan_netplay::lanScanning();
@@ -1407,6 +1549,16 @@ gameui::mp::MpState mpState(bool wantLan) {
         e.title = n.rfind("Level ", 0) == 0 ? n.substr(6) : n;
         e.custom = true;
         s.levels.push_back(std::move(e));
+    }
+    for (LevelEntry& e : s.levels)
+        e.previewId = mapPreviewId(e.name);
+    s.arenas = mpArenas();
+    for (const auto& c : drakan_netplay::chatLog()) {
+        HudChatLine l;
+        l.who = c.player == 0 ? std::string() : c.who;
+        l.text = c.text;
+        l.at = c.at;
+        s.chat.push_back(std::move(l));
     }
     s.defaultName = g_mpProfile.name;
     s.defaultColour = g_mpProfile.colour;
@@ -1424,7 +1576,9 @@ void mpApply(const gameui::mp::MpAction& a, gameui::mp::MultiplayerScreen& scree
             drakan_netplay::HostConfig hc;
             hc.serverName = a.host.serverName;
             hc.level = a.level;
-            hc.mode = a.host.mode == gameui::mp::GameMode::TeamDeathmatch ? 1 : 0;
+            hc.mode = a.host.mode == gameui::mp::GameMode::Coop             ? 2
+                      : a.host.mode == gameui::mp::GameMode::TeamDeathmatch ? 1
+                                                                            : 0;
             hc.maxPlayers = a.host.maxPlayers;
             hc.fragLimit = a.host.fragLimit;
             hc.timeLimitSec = a.host.timeLimitMin * 60;
@@ -1450,6 +1604,17 @@ void mpApply(const gameui::mp::MpAction& a, gameui::mp::MultiplayerScreen& scree
             break;
         case MpActionKind::SaveProfile:
             saveMpProfile(a.setup);
+            break;
+        case MpActionKind::SendChat:
+            drakan_netplay::sendChat(a.text);
+            break;
+        case MpActionKind::SetCharacter:
+            std::fprintf(stderr, "[menu-screens] co-op character %d chosen\n", a.character);
+            drakan_netplay::pickCharacter(static_cast<uint16_t>(a.character));
+            break;
+        case MpActionKind::KickPlayer:
+            std::fprintf(stderr, "[menu-screens] kick player %d\n", a.player);
+            drakan_netplay::kickPlayer(a.player);
             break;
         case MpActionKind::Close:
             break;
@@ -1485,6 +1650,41 @@ bool mpHudActive() {
         played = false;
     return s.phase == drakan_netplay::Phase::Playing || s.phase == drakan_netplay::Phase::Results ||
            (s.phase == drakan_netplay::Phase::Lobby && played);
+}
+
+// DRAKAN_MP_CAPTURE=0 turns the capture off. One capture per map and run; skipped while a preview file exists.
+bool mpPreviewCapture(const drakan_netplay::State& ns, const gameui::mp::HudState& hs) {
+    static int hiding = 0;            // frames still drawn without the HUD
+    static std::string requestedFor;  // the map a capture was asked for
+    static double playingSince = -1, lastPhaseAt = 0;
+    static const bool off = [] {
+        const char* e = std::getenv("DRAKAN_MP_CAPTURE");
+        return e && e[0] == '0';
+    }();
+    const double now = ImGui::GetTime();
+    if (hiding > 0) {
+        --hiding;
+        return true;
+    }
+    if (off || ns.phase != drakan_netplay::Phase::Playing || ns.mode == 2 || ns.level.empty() ||
+        !drakan_arena::active() || hs.scoreboard || hs.chatOpen || !hs.alive) {
+        playingSince = -1;
+        return false;
+    }
+    if (now - lastPhaseAt > 1.0 || playingSince < 0)
+        playingSince = now;
+    lastPhaseAt = now;
+    if (now - playingSince < 9.0 || requestedFor == ns.level || mapPreviewId(ns.level) != 0)
+        return false;
+    requestedFor = ns.level;
+    const std::filesystem::path dir = std::filesystem::path(drakan_cfg::exeDir()) / "previews" / "captured";
+    std::error_code ec;
+    std::filesystem::create_directories(dir, ec);
+    const std::string file = (dir / (mapSafeName(ns.level) + ".png")).string();
+    std::fprintf(stderr, "[menu-screens] map picture: capturing %s\n", file.c_str());
+    gsr::requestWindowShot(file);
+    hiding = 4;
+    return true;
 }
 
 void mpHudDraw(const dsettings::SettingsOverlay::ScreenFrame& f) {
@@ -1545,9 +1745,12 @@ void mpHudDraw(const dsettings::SettingsOverlay::ScreenFrame& f) {
     hs.chatInput = h.chatInput;
     hs.serverName = ns.serverName;
     hs.level = ns.level;
-    hs.mode = sb.mode == 1 ? gameui::mp::GameMode::TeamDeathmatch : gameui::mp::GameMode::Deathmatch;
+    hs.mode = sb.mode == 2   ? gameui::mp::GameMode::Coop
+              : sb.mode == 1 ? gameui::mp::GameMode::TeamDeathmatch
+                             : gameui::mp::GameMode::Deathmatch;
     hs.fragLimit = sb.fragLimit;
     hs.timeLeftSec = sb.timeLeftSec;
+    hs.nextMatchSec = sb.nextMatchSec;
     hs.teamKills[0] = sb.teamKills[0];
     hs.teamKills[1] = sb.teamKills[1];
     hs.now = sb.now;
@@ -1591,6 +1794,29 @@ void mpHudDraw(const dsettings::SettingsOverlay::ScreenFrame& f) {
             st += std::string(st.empty() ? "" : "   ") + "First to " + std::to_string(sb.fragLimit);
         hs.status = st;
     }
+    if (hs.mode == gameui::mp::GameMode::Coop) { // the party panel: the other players of the session
+        bool complete = false;
+        const std::vector<drakan_netplay::CoopPartnerInfo> party = drakan_netplay::coopParty(complete);
+        hs.levelComplete = complete;
+        for (const auto& pl : ns.roster) {
+            if (pl.self)
+                continue;
+            gameui::mp::HudPartner q;
+            q.id = pl.id;
+            q.name = pl.name;
+            q.character = drakan_coop_character::entry(static_cast<uint16_t>(pl.character)).name;
+            q.hpKnown = false; // the wire does not carry health; drakan_coop publishes what it knows (setCoopParty)
+            for (const auto& info : party)
+                if (info.player == pl.id) {
+                    q.hpKnown = info.hpKnown;
+                    q.hpFrac = info.hpFrac;
+                    q.down = info.down;
+                    q.respawnInSec = info.respawnInSec;
+                }
+            hs.partners.push_back(std::move(q));
+        }
+        hs.banner.clear();
+    }
     hs.alive = sb.selfAlive || sb.respawnInSec <= 0.0; // the overlay only runs while the countdown does
     hs.respawnInSec = sb.respawnInSec;
     for (const auto& k : sb.killFeed) {
@@ -1611,6 +1837,14 @@ void mpHudDraw(const dsettings::SettingsOverlay::ScreenFrame& f) {
         hs.chat.push_back({c.who, c.text, c.at});
     gameui::ScreenConfig sc;
     sc.measure = tu.renderer.measure();
+    if (hs.scoreboard || hs.results || !hs.partners.empty())
+        drakan_fpsmeter::setAvoidTop(true);
+    // The first picture of an arena: a window capture a few seconds into a match on a map without one, taken with the
+    // HUD hidden for those frames (previews/captured/<map>.png next to the exe, the player's own file).
+    if (mpPreviewCapture(ns, hs)) {
+        h.last = {};
+        return;
+    }
     h.last = gameui::mp::drawHud(hs, {0, 0, f.w, f.h}, sc);
     drawHostList(f, h.last, ImGui::GetTime(), 1.0f,
                  [](const gameui::ImageRef&, dsettings::IconCrop&) { return false; });
@@ -1702,6 +1936,8 @@ void titleDraw(const dsettings::SettingsOverlay::ScreenFrame& f, bool background
         st.now = now;
         st.capturedKey = take && capture ? g_capturedKey : std::string();
         gameui::TitleFrameOutput out = ui.screen.frame(st, in, vp);
+        if (ui.screen.page() == gameui::TitlePage::Multiplayer)
+            drakan_fpsmeter::setAvoidTop(true); // the multiplayer pages use the top of the window for their titles
         for (const gameui::TitleAction& a : out.actions) {
             std::fprintf(stderr, "[menu-screens] overlay t=%.3f: title action %s(%d)\n",
                          drakan_menu_screens::clockSeconds(), gameui::titleActionName(a.kind), a.value);
@@ -2349,6 +2585,12 @@ void detachRenderer() {
             p.second.decode.wait(); // a worker decode ends before the renderer goes
     }
     g_previews.clear();
+    for (auto& p : g_mapPreviews) {
+        if (p.second.decode.valid())
+            p.second.decode.wait();
+        dropTexture(p.second.tex);
+    }
+    g_mapPreviews.clear();
     g_previewDrops.clear(); // waits for the dropped decodes
     g_pcs.reset();          // it refers to the overlay's store
     g_overlay.reset();

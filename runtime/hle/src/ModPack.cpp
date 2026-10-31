@@ -1294,6 +1294,8 @@ size_t ModManager::load(const std::string& modsDir, const std::vector<std::pair<
     newEntries_.clear();
     levelDefs_.clear();
     extraLevels_.clear();
+    mapFiles_.clear();
+    previewFiles_.clear();
     texts_ = std::make_shared<XdbTextOverride>();
     textCount_ = 0;
     for (auto& c : cands) {
@@ -1328,6 +1330,23 @@ size_t ModManager::load(const std::string& modsDir, const std::vector<std::pair<
         }
         for (auto& it : c.archive->list()) {
             const std::string lowPath = lower(it.path);
+            const std::string mapsRoot = lower(c.prefix) + "maps/";
+            if (lowPath.rfind(mapsRoot, 0) == 0 && lowPath.size() > mapsRoot.size() + 4 &&
+                lowPath.compare(lowPath.size() - 4, 4, ".ini") == 0 && lowPath.find('/', mapsRoot.size()) == std::string::npos) {
+                std::vector<u8> text;
+                if (it.size <= (1u << 20) && c.archive->read(it.path, text))
+                    mapFiles_.emplace_back("mod " + mid + ": " + it.path, std::string(text.begin(), text.end()));
+                continue;
+            }
+            const std::string prevRoot = lower(c.prefix) + "previews/";
+            if (lowPath.rfind(prevRoot, 0) == 0 && lowPath.size() > prevRoot.size() + 4 &&
+                lowPath.compare(lowPath.size() - 4, 4, ".png") == 0 && lowPath.find('/', prevRoot.size()) == std::string::npos) {
+                std::vector<u8> png;
+                if (it.size <= (8u << 20) && c.archive->read(it.path, png))
+                    previewFiles_.emplace_back(it.path.substr(prevRoot.size(), it.path.size() - prevRoot.size() - 4),
+                                               std::move(png));
+                continue;
+            }
             if (lowPath.rfind(filesRoot, 0) == 0 || lowPath.rfind(newRoot, 0) == 0) {
                 const bool isFile = lowPath.rfind(filesRoot, 0) == 0;
                 const std::string rest = it.path.substr((isFile ? filesRoot : newRoot).size());

@@ -775,8 +775,8 @@ void pauseTick(uint8_t* ram, RecompGuest& g) {
     module().setHostScreen(!child || menuSlotsHosted()); // the modern Save / Load screen over it takes the input
     {                                                    // enable states (432518) and the status strip's snapshot
         gameui::PauseState st;
-        st.canSave = pauseRowEnabled(g, g_pause.screen, 0x2311);
-        st.canLoad = pauseRowEnabled(g, g_pause.screen, 0x2312);
+        st.canSave = pauseRowEnabled(g, g_pause.screen, 0x2311) && !arenaWorldMode(); // multiplayer arena: no saving
+        st.canLoad = pauseRowEnabled(g, g_pause.screen, 0x2312) && !arenaWorldMode();
         st.canOptions = pauseRowEnabled(g, g_pause.screen, 0x2313);
         st.canQuit = pauseRowEnabled(g, g_pause.screen, 0x2315);
         st.canQuitToTitle = st.canQuit;
@@ -791,6 +791,8 @@ void pauseTick(uint8_t* ram, RecompGuest& g) {
     RdramMemory mem(ram);
     gameui::Snapshot& back = sh.model.back();
     const gameui::ReadStatus rs = gameui::readSnapshot(mem, g_pause.reader, back);
+    if (arenaWorldMode())
+        back.quests.clear();
     if (g_pause.frames <= 1)
         pauseLog("snapshot %s: %zu quests, hp %d / %d", gameui::readStatusName(rs), back.quests.size(), back.stats.hp,
                  back.stats.hpMax);

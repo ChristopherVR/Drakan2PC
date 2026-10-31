@@ -88,13 +88,23 @@ void MatchServer::tick(uint64_t nowMs) {
 
     switch (phase_) {
         case MatchPhase::Lobby:
+            if (startPending_) {
+                if (players_.empty())
+                    startPending_ = false;
+                else if (now_ - startPendingAtMs_ >= options_.startCountdownMs) {
+                    startPending_ = false;
+                    beginLoading();
+                }
+            }
+            if (phase_ != MatchPhase::Lobby)
+                break;
             if (options_.autoStartPlayers > 0 && players_.size() >= options_.autoStartPlayers) {
                 if (!countdownActive_) {
                     countdownActive_ = true;
                     lobbyCountdownStartMs_ = now_;
                     log("lobby countdown started");
                 } else if (now_ - lobbyCountdownStartMs_ >= options_.lobbyCountdownMs) {
-                    startMatch(now_);
+                    beginLoading();
                 }
             } else {
                 countdownActive_ = false;
@@ -112,6 +122,15 @@ void MatchServer::tick(uint64_t nowMs) {
                 ServerPlayer& p = kv.second;
                 if (!p.alive && p.respawnAtMs != 0 && now_ >= p.respawnAtMs)
                     spawnPlayer(p);
+            }
+            for (size_t i = 0; i < pickupBackAtMs_.size(); ++i) { // arena pickups coming back
+                if (pickupBackAtMs_[i] != 0 && now_ >= pickupBackAtMs_[i]) {
+                    pickupBackAtMs_[i] = 0;
+                    pickupTakenBy_[i] = kNoPlayer;
+                    PickupState ps;
+                    ps.index = static_cast<uint16_t>(i);
+                    broadcast(encode(ps), Channel::Reliable);
+                }
             }
             const uint32_t limit = options_.config.mode == MatchMode::Coop ? 0 : options_.config.timeLimitSec;
             if (limit > 0 && now_ - phaseStartMs_ >= uint64_t(limit) * 1000) {
@@ -131,6 +150,10 @@ void MatchServer::tick(uint64_t nowMs) {
                 setPhase(MatchPhase::Lobby);
             }
             break;
+    }
+    if (!players_.empty() && now_ - lastStatusMs_ >= kStatusIntervalMs) {
+        lastStatusMs_ = now_;
+        sendStatus();
     }
 }
 
@@ -195,6 +218,18 @@ void MatchServer::handleMessage(PeerId peer, Peer& state, const std::vector<uint
             break;
         case MsgType::LevelChange:
             onLevelChange(p, data);
+            break;
+        case MsgType::PickupClaim:
+            onPickupClaim(p, data);
+            break;
+        case MsgType::StatusEcho:
+            onStatusEcho(p, data);
+            break;
+        case MsgType::Kick:
+            onKick(p, data);
+            break;
+        case MsgType::Character:
+            onSetCharacter(p, data);
             break;
         default:
             break; // server-to-client types from a client are ignored
@@ -264,6 +299,7 @@ void MatchServer::onHello(PeerId peer, Peer& state, const std::vector<uint8_t>& 
     p.peer = peer;
     p.name = h.name;
     p.team = options_.config.mode == MatchMode::TeamDeathmatch ? pickTeam() : kNoTeam;
+    p.joinSeq = ++joinCounter_;
     state.player = id;
 
     Welcome w;
@@ -317,8 +353,18 @@ void MatchServer::onHello(PeerId peer, Peer& state, const std::vector<uint8_t>& 
         }
     }
 
-    if (phase_ == MatchPhase::Playing)
+    if (phase_ == MatchPhase::Playing) {
+        for (size_t i = 0; i < pickupBackAtMs_.size(); ++i) { // the newcomer learns which arena pickups are gone
+            if (pickupBackAtMs_[i] == 0)
+                continue;
+            PickupState ps;
+            ps.index = static_cast<uint16_t>(i);
+            ps.taken = true;
+            ps.player = pickupTakenBy_[i];
+            sendTo(peer, encode(ps), Channel::Reliable);
+        }
         spawnPlayer(players_[id]);
+    }
 }
 
 void MatchServer::removePlayer(PeerId peer) {
@@ -336,14 +382,16 @@ void MatchServer::removePlayer(PeerId peer) {
     l.player = id;
     broadcast(encode(l), Channel::Reliable);
     if (id == coopAuthority_) {
+        // Host migration: the longest-connected remaining player owns the creature world from now on. The announcement
+        // follows PlayerLeave on the same reliable channel, so every client sees the old owner go before the new one is
+        // named.
         coopAuthority_ = kNoPlayer;
-        coopOrphaned_ = !players_.empty();
-        broadcast(encode(CoopAuthority{}), Channel::Reliable);
-        if (coopOrphaned_)
-            log("co-op authority left: the creature world has no owner");
+        if (!players_.empty()) {
+            assignCoopAuthority();
+            ++stats_.coopMigrations;
+        } else
+            broadcast(encode(CoopAuthority{}), Channel::Reliable);
     }
-    if (players_.empty())
-        coopOrphaned_ = false;
     if (players_.empty() && phase_ != MatchPhase::Lobby) {
         log("last player left, back to lobby");
         setPhase(MatchPhase::Lobby);
@@ -354,6 +402,7 @@ void MatchServer::setPhase(MatchPhase p) {
     phase_ = p;
     phaseStartMs_ = now_;
     countdownActive_ = false;
+    startPending_ = false;
     PhaseChange pc;
     pc.phase = p;
     pc.serverTimeMs = serverTimeMs();
@@ -389,13 +438,115 @@ bool MatchServer::startMatch(uint64_t nowMs) {
     now_ = nowMs;
     if (phase_ != MatchPhase::Lobby || players_.empty())
         return false;
+    if (options_.startCountdownMs > 0) {
+        if (!startPending_) {
+            startPending_ = true;
+            startPendingAtMs_ = now_;
+            log("start countdown " + std::to_string(options_.startCountdownMs) + " ms");
+            lastStatusMs_ = 0; // tell the clients now
+        }
+        return true;
+    }
+    beginLoading();
+    return true;
+}
+
+CountdownKind MatchServer::countdown(uint32_t& remainingMs) const {
+    remainingMs = 0;
+    const auto left = [&](uint64_t startedAt, uint32_t total) {
+        const uint64_t el = now_ >= startedAt ? now_ - startedAt : 0;
+        return static_cast<uint32_t>(el >= total ? 0 : total - el);
+    };
+    if (phase_ == MatchPhase::Lobby && startPending_) {
+        remainingMs = left(startPendingAtMs_, options_.startCountdownMs);
+        return CountdownKind::MatchStart;
+    }
+    if (phase_ == MatchPhase::Lobby && countdownActive_) {
+        remainingMs = left(lobbyCountdownStartMs_, options_.lobbyCountdownMs);
+        return CountdownKind::MatchStart;
+    }
+    if (phase_ == MatchPhase::Results) {
+        remainingMs = left(phaseStartMs_, options_.resultsDurationMs);
+        return CountdownKind::NextMatch;
+    }
+    return CountdownKind::None;
+}
+
+PlayerId MatchServer::hostPlayer() const {
+    const ServerPlayer* best = nullptr;
+    for (const auto& kv : players_)
+        if (!best || kv.second.joinSeq < best->joinSeq)
+            best = &kv.second;
+    return best ? best->id : kNoPlayer;
+}
+
+void MatchServer::sendStatus() {
+    Status st;
+    st.token = serverTimeMs();
+    uint32_t ms = 0;
+    st.countdown = countdown(ms);
+    st.countdownMs = ms;
+    for (const auto& kv : players_)
+        if (st.pings.size() < kMaxStatusPlayers)
+            st.pings.push_back({kv.first, kv.second.pingMs, kv.second.character});
+    broadcast(encode(st), Channel::Unreliable);
+}
+
+void MatchServer::onStatusEcho(ServerPlayer& p, const std::vector<uint8_t>& data) {
+    StatusEcho e;
+    if (!decode(data, e))
+        return;
+    const uint32_t rtt = serverTimeMs() - e.token; // wraps like the clock
+    if (rtt > 20000)
+        return; // a stale echo
+    p.pingMs = p.pingMs == kPingUnknown
+                   ? static_cast<uint16_t>(rtt)
+                   : static_cast<uint16_t>(p.pingMs + (static_cast<int>(rtt) - static_cast<int>(p.pingMs)) / 3);
+}
+
+bool MatchServer::kick(PlayerId target) {
+    auto it = players_.find(target);
+    if (it == players_.end())
+        return false;
+    const PeerId peer = it->second.peer;
+    auto pit = peers_.find(peer);
+    if (pit == peers_.end())
+        return false;
+    log("player " + std::to_string(target) + " '" + it->second.name + "' kicked by the host");
+    Reject r;
+    r.reason = RejectReason::Kicked;
+    r.message = "Kicked by the host";
+    sendTo(peer, encode(r), Channel::Reliable);
+    removePlayer(peer);
+    pit->second.closeAtMs = now_ + options_.rejectLingerMs; // the Reject has time to arrive, then the peer goes
+    return true;
+}
+
+void MatchServer::onSetCharacter(ServerPlayer& p, const std::vector<uint8_t>& data) {
+    SetCharacter c;
+    if (!decode(data, c) || phase_ != MatchPhase::Lobby)
+        return;
+    p.character = c.character;
+    lastStatusMs_ = 0; // everybody sees it at the next tick
+}
+
+void MatchServer::onKick(ServerPlayer& p, const std::vector<uint8_t>& data) {
+    Kick k;
+    if (!decode(data, k) || !options_.hostKick || p.id != hostPlayer() || k.player == p.id)
+        return;
+    kick(k.player);
+}
+
+void MatchServer::beginLoading() {
+    startPending_ = false;
+    if (phase_ != MatchPhase::Lobby || players_.empty())
+        return;
     resetMatch();
     outcome_ = MatchOutcome{};
     MatchConfigMsg c;
     c.config = options_.config;
     broadcast(encode(c), Channel::Reliable);
     setPhase(MatchPhase::Loading);
-    return true;
 }
 
 bool MatchServer::setConfig(const MatchConfigData& config) {
@@ -409,7 +560,6 @@ bool MatchServer::setConfig(const MatchConfigData& config) {
         coopAuthority_ = kNoPlayer;
         broadcast(encode(CoopAuthority{}), Channel::Reliable);
     }
-    coopOrphaned_ = false;
     if (config.mode == MatchMode::Coop && coopAuthority_ == kNoPlayer)
         assignCoopAuthority();
     return true;
@@ -418,6 +568,11 @@ bool MatchServer::setConfig(const MatchConfigData& config) {
 void MatchServer::beginPlaying() {
     setPhase(MatchPhase::Playing);
     lastSnapshotMs_ = now_;
+    resetPickups();
+    for (auto& kv : players_) {
+        kv.second.lastSpawn = -1;
+        kv.second.hasSpawnPos = false;
+    }
     for (auto& kv : players_)
         spawnPlayer(kv.second);
 }
@@ -481,7 +636,17 @@ void MatchServer::spawnPlayer(ServerPlayer& p) {
     p.protectedUntilMs = now_ + options_.respawnProtectionMs;
     Respawn r;
     r.player = p.id;
-    r.spawnIndex = spawnCounter_++;
+    const int arenaSpawn = chooseSpawn(p);
+    if (arenaSpawn >= 0) {
+        r.spawnIndex = static_cast<uint8_t>(arenaSpawn);
+        p.lastSpawn = arenaSpawn;
+        p.spawnPos[0] = options_.arena.spawns[static_cast<size_t>(arenaSpawn)].pos[0];
+        p.spawnPos[1] = options_.arena.spawns[static_cast<size_t>(arenaSpawn)].pos[2];
+        p.hasSpawnPos = true;
+        p.spawnedAtMs = now_;
+    } else {
+        r.spawnIndex = spawnCounter_++;
+    }
     r.health = static_cast<uint16_t>(p.health);
     broadcast(encode(r), Channel::Reliable);
 }
@@ -670,9 +835,14 @@ void MatchServer::sendExcept(PlayerId except, const std::vector<uint8_t>& bytes,
 }
 
 void MatchServer::assignCoopAuthority() {
-    if (options_.config.mode != MatchMode::Coop || coopAuthority_ != kNoPlayer || coopOrphaned_ || players_.empty())
+    if (options_.config.mode != MatchMode::Coop || coopAuthority_ != kNoPlayer || players_.empty())
         return;
-    coopAuthority_ = players_.begin()->first; // the lowest id: the first to join
+    // The longest-connected player (lowest join sequence; ids are recycled, so the lowest id is not necessarily the
+    // oldest). For the first appointment that is the first joiner, after a migration the next one in line.
+    coopAuthority_ = players_.begin()->first;
+    for (const auto& kv : players_)
+        if (kv.second.joinSeq < players_[coopAuthority_].joinSeq)
+            coopAuthority_ = kv.first;
     CoopAuthority a;
     a.player = coopAuthority_;
     broadcast(encode(a), Channel::Reliable);
@@ -782,6 +952,7 @@ ServerInfo MatchServer::info() const {
     i.players = static_cast<uint8_t>(std::min<size_t>(players_.size(), options_.config.maxPlayers));
     i.maxPlayers = options_.config.maxPlayers;
     i.passwordProtected = !options_.password.empty();
+    i.mods = options_.mods.substr(0, kMaxModsLength);
     return i;
 }
 
@@ -803,6 +974,73 @@ void MatchServer::sendSnapshot() {
     if (s.players.empty())
         return;
     broadcast(encode(s), Channel::Unreliable);
+}
+
+// ---- PvP arena: spawn choice and pickups (docs/reference/netcode.md "Multiplayer maps") ----
+
+namespace {
+constexpr uint64_t kSpawnTrustMs = 8000; // arena: how long a fresh spawn point stands in for the player's position
+}
+
+int MatchServer::chooseSpawn(const ServerPlayer& p) const {
+    if (!options_.hasArena || options_.arena.spawns.empty())
+        return -1;
+    std::vector<std::pair<float, float>> others;
+    for (const auto& kv : players_) {
+        const ServerPlayer& o = kv.second;
+        if (o.id == p.id || !o.alive)
+            continue;
+        // A player's published position is the old life's / the level start's for a few seconds after a spawn (the game
+        // moves her to the spawn point at the next frame boundary after the level is ready): trust the spawn point first.
+        const bool fresh = o.hasSpawnPos && now_ - o.spawnedAtMs < kSpawnTrustMs;
+        if (!fresh && o.hasState && o.stateAtMs != 0)
+            others.emplace_back(o.state.pos[0], o.state.pos[2]);
+        else if (o.hasSpawnPos)
+            others.emplace_back(o.spawnPos[0], o.spawnPos[1]);
+    }
+    return options_.arena.pickSpawn(others, p.lastSpawn);
+}
+
+void MatchServer::resetPickups() {
+    const size_t n = options_.hasArena ? options_.arena.pickups.size() : 0;
+    pickupBackAtMs_.assign(n, 0);
+    pickupTakenBy_.assign(n, kNoPlayer);
+    if (n == 0)
+        return;
+    PickupState all;
+    all.index = kAllPickups;
+    broadcast(encode(all), Channel::Reliable);
+}
+
+void MatchServer::onPickupClaim(ServerPlayer& p, const std::vector<uint8_t>& data) {
+    PickupClaim c;
+    if (!decode(data, c) || phase_ != MatchPhase::Playing || c.index >= pickupBackAtMs_.size())
+        return;
+    if (!p.alive) {
+        log("pickup " + std::to_string(c.index) + " claim refused: player " + std::to_string(p.id) + " is dead");
+        return;
+    }
+    const ArenaPickup& def = options_.arena.pickups[c.index];
+    if (pickupBackAtMs_[c.index] != 0) {
+        log("pickup " + std::to_string(c.index) + " claim refused: already taken");
+        return; // the claimer took it in its own world already: nothing to undo, both copies are gone
+    }
+    if (options_.pickupClaimRange > 0 && p.hasState) {
+        const float dx = p.state.pos[0] - def.pos[0], dz = p.state.pos[2] - def.pos[2];
+        if (dx * dx + dz * dz > options_.pickupClaimRange * options_.pickupClaimRange) {
+            log("pickup " + std::to_string(c.index) + " claim refused: player " + std::to_string(p.id) + " is too far");
+            return;
+        }
+    }
+    pickupBackAtMs_[c.index] = now_ + uint64_t(def.respawnSec) * 1000u;
+    pickupTakenBy_[c.index] = p.id;
+    PickupState ps;
+    ps.index = c.index;
+    ps.taken = true;
+    ps.player = p.id;
+    broadcast(encode(ps), Channel::Reliable);
+    log("pickup " + std::to_string(c.index) + " (" + def.label + ") taken by player " + std::to_string(p.id) +
+        ", back in " + std::to_string(def.respawnSec) + " s");
 }
 
 } // namespace drakan::net

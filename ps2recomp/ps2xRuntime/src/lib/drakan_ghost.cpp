@@ -1,5 +1,6 @@
 // Drakan: ghost players (drakan_ghost.h). PAL addresses are canonical, translated through the disc profile.
 #include "drakan_ghost.h"
+#include "drakan_coop_character.h"
 #include "drakan_lifecycle.h"
 #include "drakan_region.h"
 #include "gameui/GuestMemory.h"
@@ -55,6 +56,14 @@ struct Ghost {
     uint32_t weapon[2] = {}; // item actor handle, 0 none
     float sectorPos[3] = {}; // position of the last sector update (collision cells), see updateSector
     bool sectorValid = false;
+    // Stand-in character (drakan_coop_character): 0 = Rynn's own body. Otherwise the actor is an NPC-class body and the
+    // pose is kept in Rynn's terms (raw*), mapped to the character's own clips when written (writeAnim).
+    uint16_t character = 0;
+    bool dragon = false; // an Arokh-class body (the second dragon of a mounted partner): Rynn's clips are not mapped,
+                         // the dragon's own are replayed as received (clip prefix g_dragonClipHi)
+    bool rawSet = false;
+    bool standInLogged = false;
+    world::ChannelPose rawLower, rawUpper;
 };
 
 std::atomic<bool> g_enabled{false};
@@ -96,7 +105,23 @@ struct Flight {
     int ghostId = 0;
     float xform[12] = {};
     uint32_t actor = 0, player = 0, camera = 0, resIndex = 0, camModeAddr = 0, savedSp = 0, savedRa = 0, oldMode = 0;
+    bool noPreempt = false;
+    bool npc =
+        false; // a stand-in character: the NPC class's own init runs (no camera mode trick, no extra world insert)
+    bool dragon =
+        false; // an Arokh body: its init inserts itself and, with camera mode 7, returns before the rider link
 } g_flight;
+constexpr uint32_t kDragonRecord = 0x20a60u;
+
+// Actor -> the handler the class factory installed (stand-in characters only): event 2 (destroy) goes to it, so the NPC
+// class tears down what its own init built. Separate lock: the handler runs while destroyAll holds g_m.
+std::mutex g_om;
+std::vector<std::pair<uint32_t, uint32_t>> g_origHandler;
+bool g_npcInsert = false;        // DRAKAN_GHOST_NPC_INSERT=1: also insert the stand-in into the level object (test aid)
+uint16_t g_defaultCharacter = 0; // DRAKAN_GHOST_CHAR=<hex class id>: character of F9 / mirror ghosts (test aid)
+bool g_defaultDragon = false;    // DRAKAN_GHOST_DRAGON=1: F9 / mirror ghosts are dragons (test aid)
+uint32_t g_dragonClipHi =
+    0x40000u; // high half of the dragon's clip ids (the wire carries 16 bits); DRAKAN_DRAGON_CLIP_HI
 
 uint32_t rd32(const uint8_t* ram, uint32_t a) {
     a &= 0x1ffffffu;
@@ -117,7 +142,10 @@ bool ramPtr(uint32_t p) {
 // Spawn trampoline, stage 1 (a postGuestCall target on a guest dispatcher thread): put the transform on the stack, set
 // the camera mode word to 7 (Rynn's init takes its early-out for a second body), call 0x181ad8 returning to stage 2.
 void spawnStage1(uint8_t* rdram, R5900Context* c, PS2Runtime*) {
-    ps2xNoPreemptEnter(); // the camera mode word must stay 7 until Rynn's init has read it: no thread switch
+    // The dragon init may block (model / resource waits), which must stay possible: no no-preempt section for it.
+    g_flight.noPreempt = !g_flight.dragon;
+    if (g_flight.noPreempt)
+        ps2xNoPreemptEnter(); // the camera mode word must stay 7 until Rynn's init has read it: no thread switch
     g_flight.savedSp = getRegU32(c, 29);
     g_flight.savedRa = getRegU32(c, 31);
     const uint32_t sp = g_flight.savedSp - kFrame, xf = sp + 0x10;
@@ -159,8 +187,16 @@ void spawnStage2(uint8_t* rdram, R5900Context* c, PS2Runtime*) {
         std::find_if(g_ghosts.begin(), g_ghosts.end(), [](const Ghost& g) { return g.info.id == g_flight.ghostId; });
     if (ramPtr(actor)) {
         const uint32_t inner = rd32(rdram, actor + 0xfc);
-        if (ramPtr(inner))
+        if (ramPtr(inner)) {
+            if (g_flight.npc) {
+                std::lock_guard<std::mutex> lo(g_om);
+                g_origHandler.erase(std::remove_if(g_origHandler.begin(), g_origHandler.end(),
+                                                   [&](const auto& e) { return e.first == actor; }),
+                                    g_origHandler.end());
+                g_origHandler.emplace_back(actor, rd32(rdram, inner + 0x14));
+            }
             wr32(rdram, inner + 0x14, g_handlerSlot);
+        }
         if (it != g_ghosts.end()) {
             uint16_t ref = 0, res = 0;
             std::memcpy(&ref, rdram + ((actor + 0x12) & 0x1ffffffu), 2);
@@ -188,7 +224,7 @@ void spawnStage2(uint8_t* rdram, R5900Context* c, PS2Runtime*) {
     // inserted by its own handler): do it here the way event 1 does, through the level object's vtable +0x74 (this
     // adjusted by the +0x70 offset).
     const uint32_t world = rd32(rdram, rd32(rdram, guestAddress(kContextPtr)) + 0x31c);
-    const uint32_t vt = ramPtr(world) ? rd32(rdram, world + 0x24b4) : 0;
+    const uint32_t vt = ramPtr(world) && (!g_flight.npc || g_npcInsert) ? rd32(rdram, world + 0x24b4) : 0;
     const uint32_t fn = ramPtr(vt) ? rd32(rdram, vt + 0x74) : 0;
     if (ramPtr(actor) && fn) {
         uint16_t adj = 0;
@@ -204,7 +240,8 @@ void spawnStage2(uint8_t* rdram, R5900Context* c, PS2Runtime*) {
     SET_GPR_U32(c, 29, g_flight.savedSp);
     SET_GPR_U32(c, 31, g_flight.savedRa);
     c->pc = g_flight.savedRa;
-    ps2xNoPreemptLeave();
+    if (g_flight.noPreempt)
+        ps2xNoPreemptLeave();
     g_busy.store(false);
 }
 
@@ -215,7 +252,8 @@ void spawnStage3(uint8_t*, R5900Context* c, PS2Runtime*) {
     SET_GPR_U32(c, 29, g_flight.savedSp);
     SET_GPR_U32(c, 31, g_flight.savedRa);
     c->pc = g_flight.savedRa;
-    ps2xNoPreemptLeave();
+    if (g_flight.noPreempt)
+        ps2xNoPreemptLeave();
     g_busy.store(false);
 }
 
@@ -317,6 +355,21 @@ void ghostHandler(uint8_t* rdram, R5900Context* c, PS2Runtime* rt) {
         std::fprintf(stderr, "[ghost] handler actor=%x event=%x %s\n", getRegU32(c, 4), event,
                      forward ? "forward" : "swallow");
     if (event == 2) { // destroy: the free-cam body's handler removes the actor from the world and frees what it set up
+        uint32_t orig = 0;
+        {
+            std::lock_guard<std::mutex> lo(g_om);
+            for (size_t i = 0; i < g_origHandler.size(); ++i)
+                if (g_origHandler[i].first == getRegU32(c, 4)) {
+                    orig = g_origHandler[i].second;
+                    g_origHandler.erase(g_origHandler.begin() + static_cast<long>(i));
+                    break;
+                }
+        }
+        if (orig) { // a stand-in character: its own class handler tears it down
+            c->pc = orig;
+            rt->lookupFunction(orig)(rdram, c, rt);
+            return;
+        }
         c->pc = guestAddress(kFreeCamHandler);
         rt->lookupFunction(c->pc)(rdram, c, rt);
         return;
@@ -356,6 +409,27 @@ double nowSeconds() {
 // Writes the driven clips into the ghost skeleton's channels (sk = *(handle+0x50), channels at sk+0xe8, stride 0x80,
 // clip +0x50, time +0x58). Returns the number of channels written.
 int writeAnim(drakan_input::IGuest& guest, const Ghost& g) {
+    if (g.character && g.rawSet) { // stand-in character: its own clips; channel 0 (locomotion) lower, the others upper
+        const uint32_t sk = guest.read32(g.info.handle + world::skel::kHandleSkeleton);
+        const uint32_t ch = ramPtr(sk) ? guest.read32(sk + world::skel::kChannels) : 0;
+        const uint32_t n = ramPtr(sk) ? guest.read32(sk + world::skel::kChannelCount) : 0;
+        if (!ramPtr(ch) || n == 0 || n > world::skel::kMaxChannels)
+            return 0;
+        const bool split = g.rawLower.clip != g.rawUpper.clip;
+        const auto lo = drakan_coop_character::mapClip(g.character, g.rawLower.clip, g.rawLower.time);
+        const auto up = split ? drakan_coop_character::mapClip(g.character, g.rawUpper.clip, g.rawUpper.time) : lo;
+        int written = 0;
+        for (uint32_t i = 0; i < n; ++i) {
+            const auto& m = (i == 0 || !split) ? lo : up;
+            if (!m.clip)
+                continue;
+            const uint32_t a = ch + i * world::skel::kChannelStride;
+            guest.write32(a + world::skel::kChannelClip, m.clip);
+            guest.writeF(a + world::skel::kChannelTime, m.time);
+            ++written;
+        }
+        return written;
+    }
     if (!g.animSet)
         return 0;
     const uint32_t sk = guest.read32(g.info.handle + world::skel::kHandleSkeleton);
@@ -427,6 +501,25 @@ void applyPose(Ghost& g, const world::PlayerPose& p) {
     std::memcpy(g.target.pos, pos, sizeof pos);
     std::memcpy(g.target.rot, p.rotation, sizeof g.target.rot);
     g.hasTransform = true;
+    if (g.dragon) {
+        world::PlayerPose q = p;
+        q.lower.clip = q.lower.clip ? (q.lower.clip & 0xffffu) | g_dragonClipHi : 0;
+        q.upper.clip = q.upper.clip ? (q.upper.clip & 0xffffu) | g_dragonClipHi : 0;
+        for (uint32_t c = 0; c < world::skel::kMaxChannels; ++c) {
+            const world::ChannelPose& cp = (q.lowerMask >> c & 1u) ? q.lower : q.upper;
+            g.animSet |= 1u << c;
+            g.animClip[c] = cp.clip;
+            g.animTime[c] = cp.time;
+        }
+        return;
+    }
+    if (g.character) {
+        g.rawLower = p.lower;
+        g.rawUpper = p.upper;
+        g.rawSet = true;
+        g.animSet = 1; // writeAnim runs (the mapped clips are computed there)
+        return;
+    }
     for (uint32_t c = 0; c < world::skel::kMaxChannels; ++c) {
         const world::ChannelPose& cp = (p.lowerMask >> c & 1u) ? p.lower : p.upper;
         g.animSet |= 1u << c;
@@ -532,6 +625,12 @@ void install(PS2Runtime& rt) {
     drakan_lifecycle::subscribe(drakan_lifecycle::Kind::AfterSaveRestore, onLoadStart);
     if (const char* o = std::getenv("DRAKAN_GHOST_OFFSET"))
         std::sscanf(o, "%f,%f", &g_offX, &g_offZ);
+    if (const char* c = std::getenv("DRAKAN_GHOST_CHAR"))
+        g_defaultCharacter = static_cast<uint16_t>(std::strtoul(c, nullptr, 16));
+    g_npcInsert = std::getenv("DRAKAN_GHOST_NPC_INSERT") != nullptr;
+    g_defaultDragon = std::getenv("DRAKAN_GHOST_DRAGON") != nullptr;
+    if (const char* h = std::getenv("DRAKAN_DRAGON_CLIP_HI"))
+        g_dragonClipHi = static_cast<uint32_t>(std::strtoul(h, nullptr, 16));
     if (const char* w = std::getenv("DRAKAN_GHOST_WEAPONS"))
         std::sscanf(w, "%x,%x", &g_forceRec[0], &g_forceRec[1]);
     if (g_mirror) {
@@ -548,7 +647,7 @@ void install(PS2Runtime& rt) {
                  g_debugKeys ? "F9 spawn, F10 destroy" : "for multiplayer", g_t1, g_t2, g_handlerSlot, g_forwardMask);
 }
 
-int spawn(const Transform* t) {
+int spawnBody(const Transform* t, uint16_t character, bool dragon) {
     if (!g_enabled.load())
         return 0;
     if (const char* why = notReadyReason()) {
@@ -561,12 +660,22 @@ int spawn(const Transform* t) {
     g.info.id = g_nextId++;
     g.wantRec[0] = g_forceRec[0];
     g.wantRec[1] = g_forceRec[1];
+    g.character = !dragon && drakan_coop_character::known(character) ? character : 0;
+    g.dragon = dragon;
     if (t) {
         g.hasTransform = true;
         g.target = *t;
     }
     g_ghosts.push_back(g);
     return g.info.id;
+}
+
+int spawn(const Transform* t, uint16_t character) {
+    return spawnBody(t, character, false);
+}
+
+int spawnDragon(const Transform* t) {
+    return spawnBody(t, 0, true);
 }
 
 void destroy(int id) {
@@ -663,8 +772,8 @@ uint32_t recordIndex(drakan_input::IGuest& guest, uint32_t ctx, uint32_t rec) {
 // wrong item first (detach + the engine's kill list), then spawns the wanted one. True when a guest call was posted.
 bool startWeaponChange(drakan_input::IGuest& guest, uint32_t ctx) { // g_m held by the caller
     for (Ghost& g : g_ghosts) {
-        if (!g.info.handle || g.destroyRequested)
-            continue;
+        if (!g.info.handle || g.destroyRequested || g.character || g.dragon)
+            continue; // a stand-in character has no Rynn hand bones (weapons: not done)
         for (int hand = 0; hand < 2; ++hand) {
             if (g.wantRec[hand] == g.haveRec[hand])
                 continue;
@@ -715,7 +824,7 @@ void beforePadMgr(drakan_input::IGuest& guest, drakan_input::InputModule& input)
         return;
     const drakan_input::FrameInput& f = input.guestMuted() ? input.hostFrame() : input.frame();
     if (g_debugKeys && f.keyPressed[kDikF9])
-        spawn();
+        spawnBody(nullptr, g_defaultCharacter, g_defaultDragon);
     if (g_debugKeys && f.keyPressed[kDikF10])
         if (const int id = newestId())
             destroy(id);
@@ -727,10 +836,28 @@ void beforePadMgr(drakan_input::IGuest& guest, drakan_input::InputModule& input)
     // Liveness: a level change rebuilds the pools; a stale ghost is forgotten, never destroyed through a dead pointer.
     const uint32_t table = guest.read32(ctx + 0x7c);
     for (size_t i = 0; i < g_ghosts.size();) {
-        const Ghost& g = g_ghosts[i];
+        Ghost& g = g_ghosts[i];
         const uint32_t h = g.info.handle;
+        const bool standIn = g.character || g.dragon;
+        if (h && ramPtr(h) && standIn) {
+            // A stand-in body is created by another class's init: report what it looks like once (and pick up a ref
+            // that was not set yet at the end of the spawn).
+            if (!g.info.ref)
+                g.info.ref = guest.read16(h + 0x12);
+            if (!g.standInLogged) {
+                g.standInLogged = true;
+                const uint32_t slot = g.info.ref && ramPtr(table) ? guest.read32(table + (g.info.ref - 1u) * 8u) : 0;
+                std::fprintf(stderr,
+                             "[ghost] id %d stand-in %x: vtable %x flags+4 %x type %x res %x ref %x table[ref] %x\n",
+                             g.info.id, h, guest.read32(h), guest.read32(h + 4), guest.read32(h + 0xc),
+                             guest.read16(h + 0x10), g.info.ref, slot);
+            }
+        }
+        // Stand-ins: the vtable and a live (not dying) flag word are the test (a level change destroys them through
+        // drakan_lifecycle first); Rynn-class ghosts also need their registry slot.
         const bool live = !h || (ramPtr(h) && guest.read32(h) == guestAddress(kHandleVtable) && ramPtr(table) &&
-                                 g.info.ref && guest.read32(table + (g.info.ref - 1u) * 8u) == h);
+                                 (standIn ? !(guest.read32(h + 4) & 0x80000000u)
+                                          : g.info.ref && guest.read32(table + (g.info.ref - 1u) * 8u) == h));
         if (!live) {
             std::fprintf(stderr, "[ghost] id %d (%x) is gone (destroyed or level change)\n", g.info.id, h);
             g_ghosts.erase(g_ghosts.begin() + static_cast<long>(i));
@@ -787,6 +914,12 @@ void beforePadMgr(drakan_input::IGuest& guest, drakan_input::InputModule& input)
             past.position.z += g_offZ;
             for (Ghost& g : g_ghosts)
                 if (g.info.handle && !g.destroyRequested) {
+                    if (g.dragon) { // the mirrored pose is Rynn's: only the position follows (test aid)
+                        std::memcpy(g.target.pos, &past.position, sizeof g.target.pos);
+                        std::memcpy(g.target.rot, past.rotation, sizeof g.target.rot);
+                        g.hasTransform = true;
+                        continue;
+                    }
                     applyPose(g, past);
                     g.wantRec[0] = g_forceRec[0] ? g_forceRec[0] : past.weaponRight;
                     g.wantRec[1] = g_forceRec[1] ? g_forceRec[1] : past.weaponLeft;
@@ -799,6 +932,8 @@ void beforePadMgr(drakan_input::IGuest& guest, drakan_input::InputModule& input)
                 g_autoPending = false;
                 g_ghosts.push_back(Ghost{});
                 g_ghosts.back().info.id = g_nextId++;
+                g_ghosts.back().character = g_defaultCharacter;
+                g_ghosts.back().dragon = g_defaultDragon;
                 std::fprintf(stderr, "[ghost] mirror: auto spawn id %d\n", g_ghosts.back().info.id);
             }
         }
@@ -911,11 +1046,27 @@ void beforePadMgr(drakan_input::IGuest& guest, drakan_input::InputModule& input)
     std::memcpy(g_flight.xform + 3, t.rot, sizeof t.rot);
     g_flight.ghostId = want->info.id;
     g_flight.resIndex = res;
+    g_flight.npc = false;
+    g_flight.dragon = false;
+    if (want->character || want->dragon) {
+        const uint32_t rec = want->dragon ? kDragonRecord : drakan_coop_character::entry(want->character).recordId;
+        const uint32_t idx = recordIndex(guest, ctx, rec);
+        if (idx == 0xffffu) {
+            std::fprintf(stderr, "[ghost] spawn of id %d: record %x of character %x is not in this level's database\n",
+                         want->info.id, rec, want->character);
+            g_spawnFailures.fetch_add(1);
+            g_ghosts.erase(g_ghosts.begin() + (want - g_ghosts.data()));
+            return;
+        }
+        g_flight.resIndex = idx;
+        g_flight.npc = true;
+        g_flight.dragon = want->dragon;
+    }
     // Camera mode word: *(*(ctx+0x4b4)+0xfc)+0x10 = camera instance data, +0x14c
     const uint32_t cam = guest.read32(ctx + 0x4b4);
     const uint32_t inner = ramPtr(cam) ? guest.read32(cam + 0xfc) : 0;
     const uint32_t data = ramPtr(inner) ? guest.read32(inner + 0x10) : 0;
-    g_flight.camModeAddr = ramPtr(data) ? data + 0x14c : 0;
+    g_flight.camModeAddr = ramPtr(data) && (!g_flight.npc || g_flight.dragon) ? data + 0x14c : 0;
     g_busy.store(true);
     std::fprintf(stderr, "[ghost] spawning id %d: res %u at %.0f %.0f %.0f (camera mode word %x)\n", want->info.id, res,
                  static_cast<double>(t.pos[0]), static_cast<double>(t.pos[1]), static_cast<double>(t.pos[2]),

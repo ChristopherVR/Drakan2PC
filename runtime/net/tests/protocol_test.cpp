@@ -30,6 +30,7 @@ PlayerState sampleState() {
     s.weaponLeft = 0x4d1;
     s.mounted = true;
     s.levelHash = 0xCAFEF00Du;
+    s.character = 0x0ee7;
     return s;
 }
 
@@ -104,6 +105,7 @@ int main() {
         CHECK(so.upperAnimId == 1027 && so.upperAnimTime == 0.25f && so.lowerMask == 0x19 &&
               so.levelHash == 0xCAFEF00Du);
         CHECK(encode(s).size() == 1 + kPlayerStateWireSize);
+        CHECK(so.character == s.character && so.character == 0x0ee7); // v7: the stand-in character travels with the state
 
         Snapshot snap;
         snap.serverTimeMs = 4242;
@@ -212,7 +214,7 @@ int main() {
 
         // Bad mounted flag.
         bytes = encode(sampleState());
-        bytes[bytes.size() - 1 - sizeof(uint32_t)] = 2; // the flag precedes levelHash
+        bytes[bytes.size() - 1 - sizeof(uint32_t) - sizeof(uint16_t)] = 2; // the flag precedes levelHash and character
         CHECK(!decode(bytes, o));
 
         // Oversized strings.
@@ -311,7 +313,7 @@ int main() {
 
     // v6: co-op messages round trip, strict lengths and ranges.
     {
-        static_assert(kProtocolVersion == 6);
+        static_assert(kProtocolVersion == 7);
         CoopAuthority a;
         a.player = 2;
         CoopAuthority ao;
@@ -405,7 +407,7 @@ int main() {
         MsgType t;
         const auto lb = encode(LevelChange{});
         CHECK(peekType(lb.data(), lb.size(), t) && t == MsgType::LevelChange);
-        const uint8_t beyond[] = {23};
+        const uint8_t beyond[] = {29}; // one past Character (28)
         CHECK(!peekType(beyond, 1, t));
 
         // The co-op mode travels in MatchConfig and ServerInfo.

@@ -1,5 +1,7 @@
 // Drakan: networked ghosts (drakan_netplay.h).
 #include "drakan_netplay.h"
+#include "drakan_arena.h"
+#include "drakan_coop_character.h"
 #include "drakan_ghost.h"
 #include "drakan_levelchange.h"
 #include "drakan_lifecycle.h"
@@ -126,10 +128,11 @@ void netLog(const char* fmt, ...) {
 // ------------------------------------------------------------------------------------------------ session control
 
 struct Cmd {
-    enum Kind { Host, Join, Leave, Start, Ready, Chat } kind = Leave;
+    enum Kind { Host, Join, Leave, Start, Ready, Chat, Kick } kind = Leave;
     HostConfig host;
     std::string addr, password, name, text;
     bool flag = false;
+    int value = 0; // Kick: the player id
 };
 std::mutex g_cmdM;
 std::deque<Cmd> g_cmds;
@@ -138,6 +141,15 @@ State g_state;
 std::vector<ChatLine> g_chat;
 std::atomic<bool> g_inSession{false};
 std::string g_unavailableWhy = "not installed";
+std::mutex g_modsM;
+std::string g_mods; // setLoadedMods
+std::string loadedMods() {
+    std::lock_guard<std::mutex> l(g_modsM);
+    return g_mods;
+}
+std::mutex g_partyM;
+std::vector<CoopPartnerInfo> g_party;
+bool g_partyComplete = false;
 std::mutex g_lanM;
 std::vector<LanServer> g_lan;
 std::atomic<uint64_t> g_lanRefreshAt{0}; // nowMs() + 1 when a sweep was asked for
@@ -149,9 +161,49 @@ bool g_launchPending = false;
 bool g_launchDone = false; // this match already started its New Game
 std::atomic<bool> g_launchTaps{false};
 std::atomic<bool> g_redirectActive{false};
+bool g_launchDirect = false; // g_launchM: the pending / running launch loads the map in place of "Level 0 - Intro"
+std::string g_redirectFrom;  // g_launchM: the level name the file redirect replaces (what the lifecycle hooks report)
+constexpr const char* kIntroLevel = "Level 0 - Intro"; // New Game opens this (the movie) before the first level
 std::function<void(const std::string&, const std::string&)> g_redirectFn;
 std::vector<std::string> g_extraLevels;
 constexpr const char* kFirstLevel = "Level 1A - Surdana"; // the level New Game opens after the intro
+
+// ---- co-op transport state (drakan_coop talks to the peer through this session's MatchClient) ----
+std::mutex g_coopM; // everything below
+std::deque<drakan::net::CoopCreatures> g_coopInCreatures;
+std::deque<drakan::net::CoopEvent> g_coopInEvents;
+std::deque<drakan::net::CoopCreatures> g_coopOutCreatures;
+std::deque<drakan::net::CoopEvent> g_coopOutEvents;
+CoopLink g_coopLink;
+std::atomic<bool> g_coopMode{false};
+uint64_t g_sessionSerial = 0;
+constexpr size_t kCoopQueueMax = 8192;
+struct LevelChangeOut {
+    uint32_t destHash = 0;
+    float pos[3] = {};
+};
+std::mutex g_lcM;
+std::deque<LevelChangeOut> g_lcOut; // EE thread (exit listener) -> network thread
+
+// The follower's check of a LevelChange (netcode.md "Level follow check"): after the leader's message the follower
+// fires the same exit; when the next level has finished loading its hash must equal the message's destHash.
+struct FollowCheck {
+    bool active = false;
+    uint32_t destHash = 0, srcHash = 0;
+    float exit[3] = {0, 0, 0};
+    uint64_t loadsAtStart = 0; // g_levelLoads when the wait for a load began
+    double startedAt = 0;
+    double retryAt = 0; // > 0: a mismatch was reported, the exit list is searched at this time
+    int attempt = 0;
+};
+std::mutex g_followM;
+FollowCheck g_followIn;                // network thread -> EE thread
+bool g_followNew = false;              // guarded by g_followM
+std::atomic<uint64_t> g_levelLoads{0}; // playable level loads finished (written by the lifecycle listener)
+FollowCheck g_follow;                  // EE thread
+uint32_t g_testDestHash = 0; // test aid DRAKAN_NET_TEST_LC_DEST=<level name>: the destination the follower expects
+constexpr double kFollowTimeoutSec = 45.0; // no level load after the message: the exit did not fire, fire it again
+constexpr int kFollowMaxAttempts = 3;
 
 // ---- combat (PvP) state shared between the network thread, the EE thread and the UI ----
 struct ClaimOut {
@@ -189,36 +241,56 @@ void addChat(int player, const std::string& who, const std::string& text) {
         g_chat.erase(g_chat.begin());
 }
 
-void setRedirect(const std::string& level) {
+// `direct`: a deathmatch map is loaded in place of the intro level itself (Multiplayer maps: no movie, no cut scene, no
+// intro taps, straight into the arena). Co-op keeps the old route: New Game, intro, the first level of the campaign.
+// Called with g_launchM held (or from the network thread's cleanup).
+void setRedirect(const std::string& level, bool direct = false) {
     if (!g_redirectFn)
         return;
-    if (level.empty() || level == kFirstLevel) {
+    if (level.empty() || (!direct && level == kFirstLevel)) {
         g_redirectFn("", "");
         g_redirectActive.store(false);
+        g_redirectFrom.clear();
     } else {
-        g_redirectFn(kFirstLevel, level);
+        g_redirectFrom = direct ? kIntroLevel : kFirstLevel;
+        g_redirectFn(g_redirectFrom, level);
         g_redirectActive.store(true);
     }
 }
 
 // The server entered Loading (or the match was already running when we joined): ask the title to start a New Game with
 // the match level standing in for the first level.
-bool levelInstalled(const std::string& level) {
-    static const char* const kDisc[] = {"Level 1A - Surdana",
-                                        "Level 1B - Kragmor",
-                                        "Level 1C - Catacombs",
-                                        "Level 1D - City of the Damned",
-                                        "Level 1E - Inquisitor's Lair",
-                                        "Level 2 - Shadowmire",
-                                        "Level 3A - Andrellian Isles",
-                                        "Level 3B - Crystal Mine",
-                                        "Level 4A - Ravenshold",
-                                        "Level 4B - Northern Tundra",
-                                        "Level 5 - Shiverbane",
-                                        "Level 6 - Valley of the Fallen",
-                                        "Level 6 - Transition to Desert",
-                                        "Level 8 - Stratos"};
-    for (const char* n : kDisc)
+constexpr const char* kDiscLevels[] = {"Level 1A - Surdana",
+                                       "Level 1B - Kragmor",
+                                       "Level 1C - Catacombs",
+                                       "Level 1D - City of the Damned",
+                                       "Level 1E - Inquisitor's Lair",
+                                       "Level 2 - Shadowmire",
+                                       "Level 3A - Andrellian Isles",
+                                       "Level 3B - Crystal Mine",
+                                       "Level 4A - Ravenshold",
+                                       "Level 4B - Northern Tundra",
+                                       "Level 5 - Shiverbane",
+                                       "Level 6 - Valley of the Fallen",
+                                       "Level 6 - Transition to Desert",
+                                       "Level 8 - Stratos"};
+
+// The name of the level whose FNV-1a hash this is (disc levels and the mod layer's levels), "" when unknown.
+std::string levelNameForHash(uint32_t hash) {
+    for (const char* n : kDiscLevels)
+        if (fnv32(n) == hash)
+            return n;
+    for (const std::string& n : g_extraLevels)
+        if (fnv32(n) == hash)
+            return n;
+    return {};
+}
+
+bool levelInstalled(const std::string& levelOrMap) {
+    std::string level = levelOrMap;
+    if (const drakan::net::ArenaDef* arena = drakan_arena::findMap(levelOrMap))
+        level = arena->level; // a multiplayer map: its base level has to be here
+    for (const char* n : kDiscLevels)
         if (level == n)
             return true;
     for (const std::string& n : g_extraLevels)
@@ -229,15 +301,18 @@ bool levelInstalled(const std::string& level) {
 
 std::string g_launchError; // guarded by g_launchM
 
-void requestLaunch(const std::string& level) {
+void requestLaunch(const std::string& levelOrMap, bool direct) {
     std::lock_guard<std::mutex> l(g_launchM);
     if (g_launchDone)
         return;
     g_launchDone = true;
+    std::string level = levelOrMap;
+    if (const drakan::net::ArenaDef* arena = drakan_arena::findMap(levelOrMap))
+        level = arena->level;
     // OotF requires identical level files on the client and the server. A map this client does not have (a mod pack
     // level that is not installed) cannot be played: say so instead of loading something else.
-    if (!levelInstalled(level)) {
-        g_launchError = "Level files mismatch: '" + level + "' is not installed here (mod pack missing?)";
+    if (!levelInstalled(levelOrMap)) {
+        g_launchError = "Level files mismatch: '" + levelOrMap + "' is not installed here (mod pack missing?)";
         netLog("launch refused: %s", g_launchError.c_str());
         return;
     }
@@ -245,7 +320,8 @@ void requestLaunch(const std::string& level) {
     g_launchPending = true;
     g_launchLevel = level;
     g_matchLevel = level;
-    netLog("launch: New Game with level '%s'", level.c_str());
+    g_launchDirect = direct;
+    netLog("launch: New Game with level '%s'%s", level.c_str(), direct ? " (straight into the map, no intro)" : "");
 }
 
 void serviceLan(drakan::net::ServerBrowser& browser, uint64_t now, uint64_t& lastSweep) {
@@ -278,6 +354,7 @@ void serviceLan(drakan::net::ServerBrowser& browser, uint64_t now, uint64_t& las
         s.passwordProtected = e.info.passwordProtected;
         s.inProgress = e.info.phase != MatchPhase::Lobby;
         s.pingMs = static_cast<int>(e.pingMs);
+        s.mods = e.info.mods;
         out.push_back(std::move(s));
     }
     std::lock_guard<std::mutex> l(g_lanM);
@@ -317,6 +394,15 @@ void runSession(const Cmd& c, drakan::net::ServerBrowser& browser, uint64_t& las
         g_launchPending = false;
     }
 
+    {
+        std::lock_guard<std::mutex> lk(g_coopM);
+        ++g_sessionSerial;
+        g_coopLink = CoopLink();
+        g_coopInCreatures.clear();
+        g_coopInEvents.clear();
+        g_coopOutCreatures.clear();
+        g_coopOutEvents.clear();
+    }
     std::unique_ptr<UdpTransport> serverT;
     std::unique_ptr<MatchServer> server;
     if (hosting) {
@@ -349,8 +435,24 @@ void runSession(const Cmd& c, drakan::net::ServerBrowser& browser, uint64_t& las
             level = g_levelName;
         }
         ServerOptions so;
-        so.config.mode = c.host.mode == 1 ? MatchMode::TeamDeathmatch : MatchMode::Deathmatch;
+        so.config.mode = c.host.mode == 2   ? MatchMode::Coop
+                         : c.host.mode == 1 ? MatchMode::TeamDeathmatch
+                                            : MatchMode::Deathmatch;
+        if (const char* ml = std::getenv("DRAKAN_MP_MAP"); ml && *ml) // test aid: pick the map without the menu
+            level = ml;
         so.config.level = (level.empty() ? std::string("any") : level).substr(0, kMaxLevelLength);
+        if (const drakan::net::ArenaDef* arena = drakan_arena::findMap(level);
+            arena && so.config.mode != MatchMode::Coop &&
+            (so.config.mode == MatchMode::TeamDeathmatch ? arena->teamDeathmatch : arena->deathmatch)) {
+            // A multiplayer map: the server also owns its spawn choice and its pickups (MatchServer arena options).
+            so.hasArena = true;
+            so.arena = *arena;
+            so.config.level = arena->name.substr(0, kMaxLevelLength);
+            so.config.startHealth = arena->startHealth;
+            if (const char* ps = std::getenv("DRAKAN_ARENA_PICKUP_SEC"); ps && *ps) // test aid: quick respawns
+                for (drakan::net::ArenaPickup& p : so.arena.pickups)
+                    p.respawnSec = static_cast<uint32_t>(std::clamp(std::atoi(ps), 1, 3600));
+        }
         so.config.serverName = c.host.serverName.substr(0, kMaxServerNameLength);
         so.config.fragLimit = static_cast<uint16_t>(std::clamp(c.host.fragLimit, 0, 65535));
         so.config.timeLimitSec = static_cast<uint16_t>(std::clamp(c.host.timeLimitSec, 0, 65535));
@@ -361,16 +463,29 @@ void runSession(const Cmd& c, drakan::net::ServerBrowser& browser, uint64_t& las
         if (const char* tl = std::getenv("DRAKAN_MP_TIME_LIMIT_SEC"); tl && *tl)
             so.config.timeLimitSec = static_cast<uint16_t>(std::clamp(std::atoi(tl), 0, 65535));
         so.config.maxPlayers = static_cast<uint8_t>(std::clamp(c.host.maxPlayers, 1, static_cast<int>(kMaxPlayers)));
+        if (so.hasArena)
+            so.config.maxPlayers = std::min<uint8_t>(so.config.maxPlayers, so.arena.maxPlayers);
         so.password = c.host.password.substr(0, kMaxPasswordLength);
         so.serverId = std::random_device{}() | 1u;
         so.profileHash = g_profileHash;
         so.autoStartPlayers = c.host.autoStart ? 1 : 0;
         applyDrakanPvpTuning(so); // melee reach, weapon limits, damage x3, respawn after 3 s (MatchServer.h)
+        if (const char* hr = std::getenv("DRAKAN_PVP_MAX_HIT_RANGE");
+            hr && *hr)                                          // test aid: the harness's ghosts are held
+            so.maxHitRange = static_cast<float>(std::atof(hr)); // next to each player, far from the real spawns
         if (const char* ds = std::getenv("DRAKAN_PVP_DAMAGE_SCALE"); ds && *ds)
             so.damageScale = std::clamp(static_cast<float>(std::atof(ds)), 0.1f, 100.0f);
         if (const char* rd = std::getenv("DRAKAN_PVP_RESPAWN_MS"); rd && *rd)
             so.config.respawnDelayMs = static_cast<uint16_t>(std::clamp(std::atoi(rd), 500, 60000));
         so.lobbyCountdownMs = 200;
+        so.hostKick = true;
+        so.mods = loadedMods();
+        // The menu Start Match counts down 3 s (Status shows it); the shortcuts start at once.
+        so.startCountdownMs = c.host.autoStart ? 0 : 3000;
+        if (const char* sc = std::getenv("DRAKAN_MP_START_COUNTDOWN_MS"); sc && *sc)
+            so.startCountdownMs = static_cast<uint32_t>(std::clamp(std::atoi(sc), 0, 60000));
+        if (const char* rs = std::getenv("DRAKAN_MP_RESULTS_SEC"); rs && *rs)
+            so.resultsDurationMs = static_cast<uint32_t>(std::clamp(std::atoi(rs), 1, 600)) * 1000u;
         so.loadTimeoutMs = c.host.autoStart ? 3000 : 120000; // a New Game from the title takes a while to load
         server = std::make_unique<MatchServer>(*serverT, so);
         server->onLog = [](const std::string& s) { netLog("server: %s", s.c_str()); };
@@ -397,6 +512,8 @@ void runSession(const Cmd& c, drakan::net::ServerBrowser& browser, uint64_t& las
     uint64_t statSnapshots = 0, statSent = 0;
     MatchPhase lastPhase = MatchPhase::Lobby;
     bool loadDoneSent = false;
+    bool charSent = false;
+    uint16_t lastChar = 0;
     bool wasConnected = false;
     bool tried = false;
     bool rejectLogged = false;
@@ -420,6 +537,10 @@ void runSession(const Cmd& c, drakan::net::ServerBrowser& browser, uint64_t& las
                 case Cmd::Ready:
                     client.sendReady(cmd.flag);
                     break;
+                case Cmd::Kick:
+                    if (!client.sendKick(static_cast<PlayerId>(cmd.value)))
+                        netLog("kick refused (not connected)");
+                    break;
                 case Cmd::Chat:
                     client.sendChat(cmd.text);
                     break;
@@ -433,6 +554,7 @@ void runSession(const Cmd& c, drakan::net::ServerBrowser& browser, uint64_t& las
         if (server)
             server->tick(now);
         client.tick(now);
+        g_coopMode.store(client.connected() && client.config().mode == MatchMode::Coop);
 
         if (!client.connected() && !client.rejected() && !failed &&
             (!tried || (client.state() == ClientState::Disconnected && now - lastConnectTry > 2000))) {
@@ -474,20 +596,37 @@ void runSession(const Cmd& c, drakan::net::ServerBrowser& browser, uint64_t& las
                 netLog("player %u left", l->player);
             } else if (const auto* ch = std::get_if<Chat>(&ev)) {
                 const auto it = client.roster().find(ch->player);
-                // The host's level change travels as a hidden chat line "@@LC x y z" (the exit trigger's world
-                // position; the server strips control characters, so the marker is printable). A client fires the same
-                // exit in its own copy of the level (drakan_levelchange).
-                if (ch->text.rfind("@@LC ", 0) == 0) {
-                    float x = 0, y = 0, z = 0;
-                    if (ch->player == 1 && client.playerId() != 1 && // the host is player 1
-                        std::sscanf(ch->text.c_str() + 5, "%f %f %f", &x, &y, &z) == 3) {
-                        netLog("host changed level through the exit at %.0f %.0f %.0f: following",
-                               static_cast<double>(x), static_cast<double>(y), static_cast<double>(z));
-                        drakan_levelchange::followExit(x, y, z);
-                    }
-                    continue;
-                }
                 addChat(ch->player, it != client.roster().end() ? it->second.name : std::string("?"), ch->text);
+            } else if (const auto* ca = std::get_if<CoopAuthority>(&ev)) {
+                netLog("co-op authority: player %u%s", ca->player, ca->player == client.playerId() ? " (us)" : "");
+            } else if (auto* cc = std::get_if<CoopCreatures>(&ev)) {
+                std::lock_guard<std::mutex> lk(g_coopM);
+                g_coopInCreatures.push_back(std::move(*cc));
+                if (g_coopInCreatures.size() > 64)
+                    g_coopInCreatures.pop_front();
+            } else if (const auto* ce = std::get_if<CoopEvent>(&ev)) {
+                std::lock_guard<std::mutex> lk(g_coopM);
+                if (g_coopInEvents.size() < kCoopQueueMax)
+                    g_coopInEvents.push_back(*ce);
+            } else if (const auto* pu = std::get_if<PickupState>(&ev)) {
+                drakan_arena::onPickupState(pu->index, pu->taken, pu->player);
+            } else if (const auto* lc = std::get_if<LevelChange>(&ev)) {
+                // The leader went through a level exit: fire the same exit in our copy of the level (the world position
+                // of the trigger is the same on every machine, drakan_levelchange).
+                netLog("player %u changed level through the exit at %.0f %.0f %.0f (destination hash %08x): following",
+                       lc->player, static_cast<double>(lc->exit[0]), static_cast<double>(lc->exit[1]),
+                       static_cast<double>(lc->exit[2]), lc->destHash);
+                drakan_levelchange::followExit(lc->exit[0], lc->exit[1], lc->exit[2]);
+                {
+                    std::lock_guard<std::mutex> fl(g_followM);
+                    g_followIn = FollowCheck();
+                    g_followIn.active = true;
+                    g_followIn.destHash = g_testDestHash ? g_testDestHash : lc->destHash;
+                    g_followIn.srcHash = g_levelHash.load();
+                    g_followIn.loadsAtStart = g_levelLoads.load();
+                    std::memcpy(g_followIn.exit, lc->exit, sizeof g_followIn.exit);
+                    g_followNew = true;
+                }
             } else if (const auto* hit = std::get_if<Hit>(&ev)) {
                 netLog("hit: player %u hit player %u for %u (weapon %u), health now %u", hit->attacker, hit->victim,
                        hit->damage, hit->weapon, hit->healthAfter);
@@ -582,9 +721,14 @@ void runSession(const Cmd& c, drakan::net::ServerBrowser& browser, uint64_t& las
                 // was reached by "Quit to Title", which reports no load) must not count as "our level is up".
                 if (client.phase() == MatchPhase::Loading)
                     g_levelHash.store(0);
+                if (client.phase() ==
+                    MatchPhase::Lobby) { // the match is over: a New Game from the title is an ordinary one
+                    std::lock_guard<std::mutex> l(g_launchM);
+                    setRedirect("");
+                }
             }
             if (!legacy && (client.phase() == MatchPhase::Loading || client.phase() == MatchPhase::Playing))
-                requestLaunch(client.config().level);
+                requestLaunch(client.config().level, client.config().mode != MatchMode::Coop);
             // LoadDone only once our own level is up (a New Game from the title needs the intro and the load first).
             if (client.phase() == MatchPhase::Loading && !loadDoneSent && g_levelHash.load() != 0)
                 loadDoneSent = client.sendLoadDone();
@@ -593,6 +737,18 @@ void runSession(const Cmd& c, drakan::net::ServerBrowser& browser, uint64_t& las
                 if (client.phase() == MatchPhase::Lobby)
                     g_launchDone = false; // the next match launches again
             }
+        }
+
+        // The arena world mode (drakan_arena) follows the session: on for a deathmatch match that is loading, playing
+        // or showing its results; a menu launched match strips the campaign from any level, the DRAKAN_NET_* shortcuts
+        // only for a multiplayer map.
+        {
+            const bool dm = connected && client.config().mode != MatchMode::Coop &&
+                            (client.phase() == MatchPhase::Loading || client.phase() == MatchPhase::Playing ||
+                             client.phase() == MatchPhase::Results);
+            const drakan::net::ArenaDef* def = dm ? drakan_arena::findMap(client.config().level) : nullptr;
+            drakan_arena::setSession(dm && (!legacy || def), def);
+            drakan_arena::setLocalPlayer(connected ? client.playerId() : 0);
         }
 
         // Outgoing hit claims from the EE thread (the server validates them).
@@ -608,8 +764,81 @@ void runSession(const Cmd& c, drakan::net::ServerBrowser& browser, uint64_t& las
                        sent ? "" : " (not sent)");
             }
             drakan_pvp::setLocalPlayer(client.playerId());
+            uint16_t pickup = 0;
+            while (drakan_arena::takePickupClaim(pickup)) {
+                const bool sent = client.sendPickupClaim(pickup);
+                netLog("claim: pickup %u%s", pickup, sent ? "" : " (not sent)");
+            }
         } else {
             drakan_pvp::setLocalPlayer(0);
+        }
+
+        // Co-op: the link for drakan_coop, then the outgoing creature stream / events and the host's level changes.
+        {
+            const bool coopMatch = connected && client.config().mode == MatchMode::Coop;
+            const bool active = coopMatch && client.phase() == MatchPhase::Playing;
+            g_coopMode.store(coopMatch);
+            CoopLink link;
+            link.active = active;
+            link.host = active && client.isCoopAuthority();
+            link.self = client.playerId();
+            link.authority = client.coopAuthority();
+            link.players = static_cast<int>(client.roster().size());
+            for (const auto& kv : client.roster())
+                if (kv.first != client.playerId()) {
+                    link.partner = kv.first;
+                    break;
+                }
+            std::deque<CoopCreatures> oc;
+            std::deque<CoopEvent> oe;
+            {
+                std::lock_guard<std::mutex> lk(g_coopM);
+                link.session = g_sessionSerial;
+                g_coopLink = link;
+                if (active) {
+                    oc.swap(g_coopOutCreatures);
+                    oe.swap(g_coopOutEvents);
+                } else {
+                    g_coopOutCreatures.clear();
+                    g_coopOutEvents.clear();
+                    g_coopInCreatures.clear();
+                    g_coopInEvents.clear();
+                }
+            }
+            for (const CoopCreatures& c : oc)
+                client.sendCoopCreatures(c);
+            for (const CoopEvent& e : oe)
+                client.sendCoopEvent(e);
+            // A level change goes out from the one the server lets lead: the co-op authority, else the lowest id.
+            std::deque<LevelChangeOut> lcs;
+            {
+                std::lock_guard<std::mutex> lk(g_lcM);
+                lcs.swap(g_lcOut);
+            }
+            if (connected && client.phase() == MatchPhase::Playing) {
+                const bool leader =
+                    client.config().mode == MatchMode::Coop
+                        ? client.isCoopAuthority()
+                        : (!client.roster().empty() && client.roster().begin()->first == client.playerId());
+                if (leader)
+                    for (const LevelChangeOut& l : lcs) {
+                        netLog("level change: telling the others (exit %.0f %.0f %.0f, destination hash %08x)",
+                               static_cast<double>(l.pos[0]), static_cast<double>(l.pos[1]),
+                               static_cast<double>(l.pos[2]), l.destHash);
+                        client.sendLevelChange(l.destHash, l.pos);
+                    }
+            }
+        }
+
+        // The co-op character picked in the lobby goes to the server (it relays it to everybody with Status).
+        if (!connected)
+            charSent = false;
+        else if (client.phase() == MatchPhase::Lobby) {
+            const uint16_t ch = drakan_coop_character::selected();
+            if (!charSent || ch != lastChar) {
+                charSent = client.sendCharacter(ch);
+                lastChar = ch;
+            }
         }
 
         // Outgoing: the pose the EE thread last published, at 20 Hz.
@@ -682,6 +911,11 @@ void runSession(const Cmd& c, drakan::net::ServerBrowser& browser, uint64_t& las
                 s.fragLimit = cf.fragLimit;
                 s.timeLimitSec = cf.timeLimitSec;
                 s.selfId = client.playerId();
+                {
+                    uint32_t ms = 0;
+                    s.countdownKind = static_cast<int>(client.countdown(now, ms));
+                    s.countdownSec = s.countdownKind ? ms / 1000.0 : -1.0;
+                }
                 s.teamKills[0] = client.teamKills(0);
                 s.teamKills[1] = client.teamKills(1);
                 for (const auto& kv : client.roster()) {
@@ -697,8 +931,11 @@ void runSession(const Cmd& c, drakan::net::ServerBrowser& browser, uint64_t& las
                     if (!seenAt.count(p.id))
                         seenAt[p.id] = now;
                     p.timeSec = static_cast<int>((now - seenAt[p.id]) / 1000);
-                    if (p.self && client.rttMs() >= 0)
+                    if (kv.second.pingMs != kPingUnknown)
+                        p.pingMs = kv.second.pingMs; // the server measure (Status), for every player
+                    else if (p.self && client.rttMs() >= 0)
                         p.pingMs = static_cast<int>(client.rttMs());
+                    p.character = kv.second.character;
                     if (p.self)
                         s.selfReady = p.ready;
                     s.roster.push_back(std::move(p));
@@ -767,6 +1004,9 @@ void runSession(const Cmd& c, drakan::net::ServerBrowser& browser, uint64_t& las
                 if (!b.selfAlive && g_deadSince >= 0)
                     b.respawnInSec = std::max(0.0, cf.respawnDelayMs / 1000.0 - (b.now - g_deadSince));
                 if (client.phase() == MatchPhase::Results) {
+                    uint32_t ms = 0;
+                    if (client.countdown(now, ms) == CountdownKind::NextMatch)
+                        b.nextMatchSec = ms / 1000.0;
                     const MatchOutcome o = client.outcome();
                     b.over = true;
                     b.tie = o.tie;
@@ -809,6 +1049,16 @@ void runSession(const Cmd& c, drakan::net::ServerBrowser& browser, uint64_t& las
         std::lock_guard<std::mutex> l(g_s.m);
         g_s.playing = false;
         g_s.remotes.clear();
+    }
+    g_coopMode.store(false);
+    {
+        std::lock_guard<std::mutex> lk(g_coopM);
+        ++g_sessionSerial;
+        g_coopLink = CoopLink();
+        g_coopInCreatures.clear();
+        g_coopInEvents.clear();
+        g_coopOutCreatures.clear();
+        g_coopOutEvents.clear();
     }
     setRedirect("");
     g_launchTaps.store(false);
@@ -872,6 +1122,7 @@ struct RemoteView {
     double playTick = 0;
     double tickRate = 60.0; // sender world ticks per second, smoothed
     int ghostId = 0;
+    uint16_t character = 0; // the stand-in character the ghost was spawned as (PlayerState.character)
     bool wasVisible = false;
     double unwantedSince = -1;
     double lastWantLog = -10; // DRAKAN_NET_TRACE diagnostics
@@ -1010,6 +1261,35 @@ void setReady(bool ready) {
     pushCmd(std::move(c));
 }
 
+void kickPlayer(int playerId) {
+    if (!g_inSession.load() || playerId <= 0)
+        return;
+    Cmd c;
+    c.kind = Cmd::Kick;
+    c.value = playerId;
+    pushCmd(std::move(c));
+}
+
+void pickCharacter(uint16_t id) {
+    drakan_coop_character::setSelected(id);
+}
+
+void setLoadedMods(const std::string& names) {
+    std::lock_guard<std::mutex> l(g_modsM);
+    g_mods = names;
+}
+
+void setCoopParty(const std::vector<CoopPartnerInfo>& partners, bool levelComplete) {
+    std::lock_guard<std::mutex> l(g_partyM);
+    g_party = partners;
+    g_partyComplete = levelComplete;
+}
+std::vector<CoopPartnerInfo> coopParty(bool& levelComplete) {
+    std::lock_guard<std::mutex> l(g_partyM);
+    levelComplete = g_partyComplete;
+    return g_party;
+}
+
 void sendChat(const std::string& text) {
     if (text.empty())
         return;
@@ -1049,6 +1329,43 @@ std::vector<LanServer> lanServers() {
     return g_lan;
 }
 
+CoopLink coopLink() {
+    std::lock_guard<std::mutex> l(g_coopM);
+    return g_coopLink;
+}
+bool coopMatch() {
+    return g_coopMode.load();
+}
+void coopSend(const drakan::net::CoopCreatures& c) {
+    std::lock_guard<std::mutex> l(g_coopM);
+    if (!g_coopLink.active)
+        return;
+    g_coopOutCreatures.push_back(c);
+    if (g_coopOutCreatures.size() > 64)
+        g_coopOutCreatures.pop_front();
+}
+void coopSend(const drakan::net::CoopEvent& e) {
+    std::lock_guard<std::mutex> l(g_coopM);
+    if (g_coopLink.active && g_coopOutEvents.size() < kCoopQueueMax)
+        g_coopOutEvents.push_back(e);
+}
+bool coopPoll(drakan::net::CoopCreatures& out) {
+    std::lock_guard<std::mutex> l(g_coopM);
+    if (g_coopInCreatures.empty())
+        return false;
+    out = std::move(g_coopInCreatures.front());
+    g_coopInCreatures.pop_front();
+    return true;
+}
+bool coopPoll(drakan::net::CoopEvent& out) {
+    std::lock_guard<std::mutex> l(g_coopM);
+    if (g_coopInEvents.empty())
+        return false;
+    out = g_coopInEvents.front();
+    g_coopInEvents.pop_front();
+    return true;
+}
+
 void sendHitClaim(uint8_t victimPlayer, uint8_t weapon, uint16_t damage) {
     std::lock_guard<std::mutex> l(g_combatM);
     if (g_claims.size() < 64)
@@ -1084,8 +1401,8 @@ bool takeLaunchRequest(std::string& level) {
         return false;
     g_launchPending = false;
     level = g_launchLevel;
-    g_launchTaps.store(true);
-    setRedirect(level);
+    g_launchTaps.store(!g_launchDirect); // a direct map launch has no intro to skip
+    setRedirect(level, g_launchDirect);
     return true;
 }
 
@@ -1109,6 +1426,9 @@ void install(PS2Runtime& rt) {
     (void)rt;
     if (!wanted())
         return;
+    if (const char* d = std::getenv("DRAKAN_NET_TEST_LC_DEST");
+        d && *d) // test aid: expect another level after a follow
+        g_testDestHash = fnv32(d);
     const char* host = std::getenv("DRAKAN_NET_HOST");
     const char* conn = std::getenv("DRAKAN_NET_CONNECT");
     const bool wantHost = host && *host;
@@ -1149,15 +1469,38 @@ void install(PS2Runtime& rt) {
     const auto& prof = drakan_region::build();
     g_profileHash = fnv64(std::string(prof.serial ? prof.serial : "") + "|" + (prof.saveId ? prof.saveId : ""));
 
-    // The host's level change reaches the clients as a hidden chat line (the server strips control characters, so a
-    // printable marker) (see the chat handler).
+    // The leader's level change reaches the others as a LevelChange message (protocol v6): the exit's world position
+    // and the hash of the destination name when the exit list knows it. The network thread sends it when this player
+    // leads.
     drakan_levelchange::setExitListener([](const float* pos) {
-        const State s = state();
-        if (!s.inSession || !s.hosting || s.phase != Phase::Playing)
+        if (!g_inSession.load())
             return;
-        char line[96];
-        std::snprintf(line, sizeof line, "@@LC %.3f %.3f %.3f", pos[0], pos[1], pos[2]);
-        sendChat(line);
+        LevelChangeOut o;
+        std::memcpy(o.pos, pos, sizeof o.pos);
+        for (const auto& e : drakan_levelchange::exits()) {
+            const float dx = e.pos[0] - pos[0], dy = e.pos[1] - pos[1], dz = e.pos[2] - pos[2];
+            if (dx * dx + dy * dy + dz * dz < 1.0f && !e.destName.empty()) {
+                o.destHash = fnv32(e.destName);
+                break;
+            }
+        }
+        std::lock_guard<std::mutex> lk(g_lcM);
+        if (g_lcOut.size() < 8)
+            g_lcOut.push_back(o);
+    });
+    // The lifecycle hooks report the level name the guest asked for; behind a file redirect (a menu launch, the
+    // DRAKAN_START_LEVEL test aid) another level loads under that name. Every listener (ghosts, co-op, the arena) gets
+    // the real one.
+    if (const char* to = std::getenv("DRAKAN_START_LEVEL"); to && *to) {
+        const char* from = std::getenv("DRAKAN_START_LEVEL_FROM");
+        std::lock_guard<std::mutex> lk(g_launchM);
+        g_redirectFrom = from && *from ? from : kFirstLevel;
+        g_matchLevel = to;
+        g_redirectActive.store(true);
+    }
+    drakan_lifecycle::setLevelNameMapper([](const std::string& name) {
+        std::lock_guard<std::mutex> lk(g_launchM);
+        return g_redirectActive.load() && name == g_redirectFrom && !g_matchLevel.empty() ? g_matchLevel : name;
     });
     using drakan_lifecycle::Kind;
     drakan_lifecycle::subscribe(Kind::BeforeLevelLoad, [](const drakan_lifecycle::Event&) {
@@ -1184,7 +1527,7 @@ void install(PS2Runtime& rt) {
             // A menu launch loads its level under the first level's name (file redirect, the engine and the lifecycle
             // hooks still report "Level 1A - Surdana"): the match level is the real name.
             std::lock_guard<std::mutex> lk(g_launchM);
-            if (g_redirectActive.load() && name == kFirstLevel && !g_matchLevel.empty())
+            if (g_redirectActive.load() && name == g_redirectFrom && !g_matchLevel.empty())
                 name = g_matchLevel;
         }
         {
@@ -1196,6 +1539,8 @@ void install(PS2Runtime& rt) {
         // ghosts. Spawns also wait kSettleSec after a load (the engine is still creating its own actors).
         const bool playable = name.rfind("Level 0", 0) != 0;
         g_levelHash.store(playable ? fnv32(name) : 0);
+        if (playable)
+            ++g_levelLoads;
         g_spawnNotBefore = nowSec() + kSettleSec;
         if (playable)
             g_launchTaps.store(false); // the intro was skipped, the match level is up
@@ -1226,6 +1571,8 @@ void install(PS2Runtime& rt) {
         if (const char* tl = std::getenv("DRAKAN_NET_TIME_LIMIT"); tl && *tl)
             hc.timeLimitSec = std::clamp(std::atoi(tl), 0, 65535);
         hc.autoStart = true;
+        if (const char* m = std::getenv("DRAKAN_NET_MODE"); m && *m) // test aid: co-op host
+            hc.mode = std::string(m) == "coop" ? 2 : std::string(m) == "tdm" ? 1 : 0;
         hc.serverName = g_name + "'s game";
         std::fprintf(stderr, "[netplay] DRAKAN_NET_HOST: host on UDP %u, name '%s'\n", hc.port, g_name.c_str());
         hostMatch(hc, g_name);
@@ -1249,11 +1596,92 @@ void install(PS2Runtime& rt) {
 #endif
 }
 
+// EE thread, every boundary: the follower's check that a level change it followed ended in the leader's level. A
+// matching hash ends the check. A mismatch is reported (log and a chat line), then the exit list of the level it landed
+// in is searched for an exit to the destination and taken; no such exit means the destination cannot be reached from
+// here (there is no direct level load: the engine's entry hangs when called from outside its own transition) and the
+// check gives up. A follower whose exit never fired (no load within kFollowTimeoutSec) fires it again. Until the hashes
+// are equal the ghosts stay hidden by themselves: updateGhosts() only shows a player whose level hash equals ours.
+void serviceFollow(double t, uint32_t myLevel) {
+    {
+        std::lock_guard<std::mutex> l(g_followM);
+        if (g_followNew) {
+            g_follow = g_followIn;
+            g_follow.startedAt = t;
+            g_followNew = false;
+        }
+    }
+    FollowCheck& f = g_follow;
+    if (!f.active)
+        return;
+    if (f.retryAt > 0) { // a mismatch was reported: look for the way on once the exit list of this level is there
+        drakan_levelchange::requestScan();
+        if (t < f.retryAt || myLevel == 0)
+            return;
+        f.retryAt = 0;
+        for (const auto& e : drakan_levelchange::exits())
+            if (!e.destName.empty() && fnv32(e.destName) == f.destHash) {
+                netLog("level follow: retry %d, taking the exit to '%s' (%.0f %.0f %.0f)", f.attempt,
+                       e.destName.c_str(), static_cast<double>(e.pos[0]), static_cast<double>(e.pos[1]),
+                       static_cast<double>(e.pos[2]));
+                f.loadsAtStart = g_levelLoads.load();
+                f.startedAt = t;
+                drakan_levelchange::requestExit(e.handle);
+                return;
+            }
+        const std::string want = levelNameForHash(f.destHash);
+        netLog("level follow: giving up, no exit of this level leads to '%s' (hash %08x)",
+               want.empty() ? "an unknown level" : want.c_str(), f.destHash);
+        addChat(0, "", "Could not follow the leader to " + (want.empty() ? std::string("the next level") : want));
+        f.active = false;
+        return;
+    }
+    if (g_levelLoads.load() > f.loadsAtStart) {
+        if (myLevel == 0)
+            return; // a cut scene or still loading
+        if (f.destHash == 0 || myLevel == f.destHash) {
+            netLog("level follow: arrived in the leader's level (hash %08x)%s", myLevel,
+                   f.destHash == 0 ? " (the message carried no destination to compare)" : "");
+            f.active = false;
+            return;
+        }
+        std::string have;
+        {
+            std::lock_guard<std::mutex> l(g_levelM);
+            have = g_levelName;
+        }
+        const std::string want = levelNameForHash(f.destHash);
+        netLog("level follow: MISMATCH, loaded '%s' (hash %08x) but the leader went to '%s' (hash %08x)", have.c_str(),
+               myLevel, want.empty() ? "?" : want.c_str(), f.destHash);
+        addChat(0, "", "Level mismatch: you are in " + have + ", the leader is in " + (want.empty() ? "?" : want));
+        if (++f.attempt > kFollowMaxAttempts) {
+            netLog("level follow: giving up after %d attempts", kFollowMaxAttempts);
+            f.active = false;
+            return;
+        }
+        f.retryAt = t + 4.0; // the exit list is scanned about once a second after a load
+        return;
+    }
+    if (t - f.startedAt > kFollowTimeoutSec) {
+        if (++f.attempt > kFollowMaxAttempts) {
+            netLog("level follow: giving up, the exit never fired (%d attempts)", kFollowMaxAttempts);
+            addChat(0, "", "Could not follow the leader through the level exit");
+            f.active = false;
+            return;
+        }
+        netLog("level follow: no level load %.0f s after the message, firing the exit again (attempt %d)",
+               t - f.startedAt, f.attempt);
+        f.startedAt = t;
+        drakan_levelchange::followExit(f.exit[0], f.exit[1], f.exit[2]);
+    }
+}
+
 void beforePadMgr(const uint8_t* rdram) {
     if (!g_enabled.load(std::memory_order_relaxed) || !rdram)
         return;
     const double t = nowSec();
     const uint32_t myLevel = g_levelHash.load();
+    serviceFollow(t, myLevel);
     const bool transition = drakan_lifecycle::transitionActive();
 
     // Local pose -> published slot.
@@ -1271,6 +1699,7 @@ void beforePadMgr(const uint8_t* rdram) {
             if (pose.weaponRight != g_s.local.weaponRight || pose.weaponLeft != g_s.local.weaponLeft)
                 netLog("local weapons: right %x left %x", pose.weaponRight, pose.weaponLeft);
             world::toPlayerState(pose, g_s.local);
+            g_s.local.character = drakan_coop_character::selected();
             g_s.local.levelHash = myLevel;
             g_s.haveLocal = true;
             g_s.localAtMs = nowMs();
@@ -1357,11 +1786,18 @@ void beforePadMgr(const uint8_t* rdram) {
             netLog("ghost of player %u vanished (failure %d); retry in %.0f s", kv.first, v.failures, v.retryAt - t);
             v.ghostId = 0;
         }
+        if (v.ghostId && v.character != r.state.character) { // the partner picked another character: respawn it
+            netLog("player %u is now character %x (was %x): ghost respawned", kv.first, r.state.character, v.character);
+            drakan_ghost::destroy(v.ghostId);
+            v.ghostId = 0;
+            v.retryAt = t + 0.3;
+        }
         if (!v.ghostId && t >= g_spawnNotBefore && t >= v.retryAt && drakan_ghost::ready()) {
             drakan_ghost::Transform tr;
             std::memcpy(tr.pos, &p.position, sizeof tr.pos);
             std::memcpy(tr.rot, p.rotation, sizeof tr.rot);
-            v.ghostId = drakan_ghost::spawn(&tr);
+            v.character = r.state.character;
+            v.ghostId = drakan_ghost::spawn(&tr, v.character);
             if (!v.ghostId) { // refused (engine not ready, transition): try again shortly
                 v.retryAt = t + 0.5;
                 continue;

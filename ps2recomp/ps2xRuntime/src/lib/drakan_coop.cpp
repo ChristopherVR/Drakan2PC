@@ -4,7 +4,9 @@
 #include "drakan_lifecycle.h"
 #include "drakan_region.h"
 #include "input/GuestInterface.h"
-#include "net/UdpTransport.h"
+#include "drakan_netplay.h"
+#include "net/Protocol.h"
+#include "net/Transport.h"
 #include "ps2_runtime.h"
 #include "ps2_runtime_macros.h"
 #include "world/Reader.h"
@@ -25,6 +27,7 @@
 #include <set>
 #include <thread>
 #include <unordered_map>
+#include <utility>
 #include <vector>
 
 namespace drakan_coop {
@@ -88,28 +91,32 @@ private:
 };
 
 // ----------------------------------------------------------------------------------------------------- wire format
-// Every datagram starts with u8 type, u32 levelHash (little endian, memcpy'd: every supported target is little endian).
-//   1 creature states (Unreliable, host -> client): u32 seq, u16 count, count x {u32 key, f32 pos[3], f32 yaw, i32 hp}
-//   2 creature died   (Reliable, host -> client):    u32 key
-//   3 hit claim       (Reliable, client -> host):    u32 key, i32 damage
-//   4 player hurt     (Reliable, host -> client):    i32 damage          (a host creature hit the client's ghost)
-//   5 object gone     (Reliable, both ways):         u32 key             (a pickup was taken: the other side removes
-//   it) 6 object message  (Reliable, both ways):         u32 key, u16 type, i32 w[4]   (a door / lever message to
-//   replay)
-//   7 player died     (Reliable, client -> host):    (empty) the client's player is down: its ghost stops being a
-//   target 8 player respawn  (Reliable, host -> client):    (empty) get up at the host 9 object state    (Reliable,
-//   both ways):         u32 key, i32 state   (a chest / lever changed state)
-//  10 sync request    (Reliable, client -> host):    (empty) the client keyed the level: send the catch-up state
+// The co-op logic keeps its own compact datagram form internally (type, level hash, payload; little endian, memcpy'd:
+// every supported target is little endian). The transport (netThread below) converts it to / from the protocol v6
+// messages of drakan::net (CoopCreatures / CoopEvent, net/Protocol.h) which the server relays:
+//   1 creature states (host -> client):  u32 seq, u16 count, count x {u32 key, f32 pos[3], f32 yaw, i32 hp}
+//   2 creature died   (host -> client):  u32 key
+//   3 hit claim       (client -> host):  u32 key, i32 damage
+//   4 player hurt     (host -> client):  i32 damage          (a host creature hit the client's ghost)
+//   5 object gone     (both ways):       u32 key             (a pickup was taken: the other side removes it)
+//   6 object message  (both ways):       u32 key, u16 type, u16 pad, i32 w[4]   (a door / lever message to replay)
+//   7 player died     (client -> host):  (empty) the client's player is down: its ghost stops being a target
+//   8 player respawn  (host -> client):  (empty) get up at the host
+//   9 object state    (both ways):       u32 key, i32 state   (a chest / lever changed state)
+//  10 sync request    (client -> host):   (empty) the client keyed the level: send the catch-up state
 constexpr uint8_t kMsgCreatures = 1, kMsgDied = 2, kMsgClaim = 3, kMsgHurt = 4, kMsgObjGone = 5, kMsgObjMsg = 6,
                   kMsgPlayerDied = 7, kMsgRespawn = 8, kMsgObjState = 9, kMsgSyncReq = 10, kMsgLast = 10;
 constexpr uint64_t kRespawnDelayMs = 5000;     // the death clip runs about 4.7 s
 constexpr size_t kHeaderBytes = 1 + 4 + 4 + 2; // creature datagram header (type, level, seq, count)
-constexpr size_t kEventHeader = 1 + 4;         // type, level
+constexpr size_t kEventHeader = 1 + 4 + 1;     // type, level, player (the sender; for Hurt / Respawn the target)
 constexpr size_t kEntryBytes = 4 + 12 + 4 + 4;
 constexpr size_t kEntriesPerPacket = (drakan::net::kMaxPacketPayload - kHeaderBytes) / kEntryBytes;
-constexpr uint64_t kSendIntervalMs = 100; // 10 Hz
-constexpr uint16_t kMsgTaken = 0x10c1;    // an item's message to itself when it is picked up
-constexpr uint16_t kMsgDamage = 0x10db;   // the engine's damage message (type word at +0, damage at +0x10)
+constexpr uint64_t kSendIntervalMs = 100;    // 10 Hz
+constexpr uint16_t kChestSpewType = 0xfff1u; // ObjMsg pseudo type: w[0] RNG state, w[1] gold carry (host -> client)
+constexpr int32_t kNoBudget = INT32_MIN;     // the chest has no entry in the gold generator's table
+constexpr int32_t kStateDoorClosed = 0, kStateDoorOpen = 1, kStateChestOpen = 2; // ObjState values
+constexpr uint16_t kMsgTaken = 0x10c1;  // an item's message to itself when it is picked up
+constexpr uint16_t kMsgDamage = 0x10db; // the engine's damage message (type word at +0, damage at +0x10)
 
 struct Entry {
     uint32_t key = 0;
@@ -134,15 +141,14 @@ struct Shared {
 };
 
 Shared g_s;
-std::atomic<bool> g_enabled{false};
+std::atomic<bool> g_enabled{false}; // a Coop match is playing and this module follows it (see syncLink)
+std::atomic<bool> g_installed{false};
 std::atomic<bool> g_stop{false};
 std::thread g_thread;
 bool g_host = false, g_follow = true;
-uint16_t g_port = 0;
-std::string g_connectHost;
 world::Globals g_globals;
 uint32_t g_swallow = 0x4;
-uint32_t g_handlerSlot = 0, g_aiSlot = 0, g_chestSlot = 0;
+uint32_t g_handlerSlot = 0, g_aiSlot = 0;
 PS2Runtime* g_rt = nullptr;
 PS2Runtime::RecompiledFunction g_origSend = nullptr;
 bool g_probe = false, g_killDestroy = false;
@@ -161,92 +167,160 @@ std::atomic<uint32_t> g_savedHandler{0}; // the player's behaviour handler while
 std::atomic<uint32_t> g_levelHash{0};
 std::atomic<uint64_t> g_loadEpoch{0};
 
-void pushReliable(uint8_t type, const void* payload, size_t n) {
+// `player`: Hurt / Respawn name their target (0 = every other player); everything else leaves it 0 (the server stamps
+// the sender on the way).
+void pushReliableTo(uint8_t player, uint8_t type, const void* payload, size_t n) {
     const uint32_t level = g_levelHash.load();
     if (!level)
         return;
     std::vector<uint8_t> d(kEventHeader + n);
     d[0] = type;
     std::memcpy(&d[1], &level, 4);
+    d[5] = player;
     if (n)
         std::memcpy(&d[kEventHeader], payload, n);
     std::lock_guard<std::mutex> l(g_s.m);
     g_s.relOut.push_back(std::move(d));
 }
+void pushReliable(uint8_t type, const void* payload, size_t n) {
+    pushReliableTo(0, type, payload, n);
+}
 
-void netThread() {
-    using namespace drakan::net;
-    UdpTransport t;
-    if (!t.available()) {
-        coopLog("sockets unavailable; co-op off");
-        return;
+// ---- legacy datagram <-> protocol v6 messages ----
+
+bool eventFromLegacy(const std::vector<uint8_t>& d, drakan::net::CoopEvent& e) {
+    using drakan::net::CoopKind;
+    if (d.size() < kEventHeader || !drakan::net::coopKindValid(d[0]))
+        return false;
+    const size_t n = d.size() - kEventHeader;
+    const uint8_t* p = d.data() + kEventHeader;
+    e = drakan::net::CoopEvent{};
+    e.kind = static_cast<CoopKind>(d[0]);
+    std::memcpy(&e.levelHash, &d[1], 4);
+    e.player = d[5];
+    switch (e.kind) {
+        case CoopKind::CreatureDied:
+        case CoopKind::ObjGone:
+            if (n < 4)
+                return false;
+            std::memcpy(&e.key, p, 4);
+            break;
+        case CoopKind::Claim:
+        case CoopKind::ObjState:
+            if (n < 8)
+                return false;
+            std::memcpy(&e.key, p, 4);
+            std::memcpy(&e.value, p + 4, 4);
+            break;
+        case CoopKind::Hurt:
+            if (n < 4)
+                return false;
+            std::memcpy(&e.value, p, 4);
+            break;
+        case CoopKind::ObjMsg:
+            if (n < 24)
+                return false;
+            std::memcpy(&e.key, p, 4);
+            std::memcpy(&e.msgType, p + 4, 2);
+            std::memcpy(e.w, p + 8, 16);
+            break;
+        default:
+            break;
     }
-    std::vector<PeerId> peers;
-    if (g_host) {
-        if (!t.listen(g_port)) {
-            coopLog("cannot listen on UDP %u; co-op off", g_port);
-            return;
+    return true;
+}
+
+std::vector<uint8_t> eventToLegacy(const drakan::net::CoopEvent& e) {
+    using drakan::net::CoopKind;
+    std::vector<uint8_t> d(kEventHeader);
+    d[0] = static_cast<uint8_t>(e.kind);
+    std::memcpy(&d[1], &e.levelHash, 4);
+    d[5] = static_cast<uint8_t>(e.player);
+    auto put = [&d](const void* v, size_t n) {
+        const auto* b = static_cast<const uint8_t*>(v);
+        d.insert(d.end(), b, b + n);
+    };
+    switch (e.kind) {
+        case CoopKind::CreatureDied:
+        case CoopKind::ObjGone:
+            put(&e.key, 4);
+            break;
+        case CoopKind::Claim:
+        case CoopKind::ObjState:
+            put(&e.key, 4);
+            put(&e.value, 4);
+            break;
+        case CoopKind::Hurt:
+            put(&e.value, 4);
+            break;
+        case CoopKind::ObjMsg: {
+            const uint16_t pad = 0;
+            put(&e.key, 4);
+            put(&e.msgType, 2);
+            put(&pad, 2);
+            put(e.w, 16);
+            break;
         }
-        coopLog("host: listening on UDP %u", t.localPort());
+        default:
+            break;
     }
-    PeerId server = kInvalidPeer;
-    bool connected = false;
-    uint64_t lastTry = 0;
-    bool tried = false;
+    return d;
+}
+
+bool creaturesFromLegacy(const std::vector<uint8_t>& d, drakan::net::CoopCreatures& c) {
+    if (d.size() < kHeaderBytes || d[0] != kMsgCreatures)
+        return false;
+    uint16_t count;
+    std::memcpy(&c.levelHash, &d[1], 4);
+    std::memcpy(&c.sequence, &d[5], 4);
+    std::memcpy(&count, &d[9], 2);
+    if (count > drakan::net::kMaxCoopCreatures || d.size() != kHeaderBytes + size_t(count) * kEntryBytes)
+        return false;
+    c.creatures.clear();
+    for (uint16_t i = 0; i < count; ++i) {
+        const uint8_t* p = &d[kHeaderBytes + size_t(i) * kEntryBytes];
+        drakan::net::CoopCreature e;
+        std::memcpy(&e.key, p, 4);
+        std::memcpy(e.pos, p + 4, 12);
+        std::memcpy(&e.yaw, p + 16, 4);
+        std::memcpy(&e.hp, p + 20, 4);
+        c.creatures.push_back(e);
+    }
+    return true;
+}
+
+// Moves what the co-op logic queued (EE thread / the message hook) to the session's MatchClient and what the server
+// relayed into the logic's inboxes. No socket here: drakan_netplay's network thread owns the connection.
+void netThread() {
     while (!g_stop.load()) {
         const uint64_t now = nowMs();
-        if (!g_host && server == kInvalidPeer && (!tried || now - lastTry > 2000)) {
-            tried = true;
-            lastTry = now;
-            coopLog("connecting to %s:%u", g_connectHost.c_str(), g_port);
-            server = t.connect(g_connectHost, g_port);
-        }
-        TransportEvent ev;
-        while (t.poll(ev)) {
-            if (ev.type == TransportEventType::Connected) {
-                coopLog("peer %u connected", ev.peer);
-                if (g_host)
-                    peers.push_back(ev.peer);
-                else
-                    connected = true;
-            } else if (ev.type == TransportEventType::Disconnected) {
-                coopLog("peer %u disconnected", ev.peer);
-                peers.erase(std::remove(peers.begin(), peers.end(), ev.peer), peers.end());
-                if (!g_host) {
-                    server = kInvalidPeer;
-                    tried = false;
-                    connected = false;
-                }
-            } else if (!g_host && ev.data.size() >= kHeaderBytes && ev.data[0] == kMsgCreatures) {
-                uint32_t level;
-                uint16_t count;
-                std::memcpy(&level, &ev.data[1], 4);
-                std::memcpy(&count, &ev.data[9], 2);
-                if (ev.data.size() != kHeaderBytes + size_t(count) * kEntryBytes)
-                    continue;
-                std::lock_guard<std::mutex> l(g_s.m);
-                if (level != g_s.inLevel) {
-                    g_s.inbox.clear(); // the host changed level: forget the old level's creatures
-                    g_s.inLevel = level;
-                }
-                ++g_s.packets;
-                for (uint16_t i = 0; i < count; ++i) {
-                    const uint8_t* p = &ev.data[kHeaderBytes + size_t(i) * kEntryBytes];
-                    Remote r;
-                    std::memcpy(&r.e.key, p, 4);
-                    std::memcpy(r.e.pos, p + 4, 12);
-                    std::memcpy(&r.e.yaw, p + 16, 4);
-                    std::memcpy(&r.e.hp, p + 20, 4);
-                    r.atMs = now;
-                    if (std::isfinite(r.e.pos[0]) && std::isfinite(r.e.pos[1]) && std::isfinite(r.e.pos[2]) &&
-                        std::isfinite(r.e.yaw))
-                        g_s.inbox[r.e.key] = r;
-                }
-            } else if (ev.data.size() >= kEventHeader && ev.data[0] >= kMsgDied && ev.data[0] <= kMsgLast) {
-                std::lock_guard<std::mutex> l(g_s.m);
-                g_s.evIn.push_back(std::move(ev.data));
-                ++g_s.eventsIn;
+        drakan::net::CoopCreatures cc;
+        while (drakan_netplay::coopPoll(cc)) {
+            if (g_host || !g_enabled.load())
+                continue; // the owner of the creature world never takes a stream
+            std::lock_guard<std::mutex> l(g_s.m);
+            if (cc.levelHash != g_s.inLevel) {
+                g_s.inbox.clear(); // the host changed level: forget the old level's creatures
+                g_s.inLevel = cc.levelHash;
             }
+            ++g_s.packets;
+            for (const drakan::net::CoopCreature& e : cc.creatures) {
+                Remote r;
+                r.e.key = e.key;
+                std::memcpy(r.e.pos, e.pos, sizeof r.e.pos);
+                r.e.yaw = e.yaw;
+                r.e.hp = e.hp;
+                r.atMs = now;
+                g_s.inbox[r.e.key] = r;
+            }
+        }
+        drakan::net::CoopEvent ce;
+        while (drakan_netplay::coopPoll(ce)) {
+            if (!g_enabled.load())
+                continue;
+            std::lock_guard<std::mutex> l(g_s.m);
+            g_s.evIn.push_back(eventToLegacy(ce));
+            ++g_s.eventsIn;
         }
         std::vector<std::vector<uint8_t>> out, rel;
         {
@@ -254,25 +328,23 @@ void netThread() {
             out.swap(g_s.outbox);
             rel.swap(g_s.relOut);
         }
-        if (g_host) {
-            for (const auto& d : out)
-                for (PeerId p : peers)
-                    if (t.send(p, Channel::Unreliable, d)) {
-                        std::lock_guard<std::mutex> l(g_s.m);
-                        ++g_s.datagramsOut;
-                    }
-            for (const auto& d : rel)
-                for (PeerId p : peers)
-                    if (t.send(p, Channel::Reliable, d)) {
-                        std::lock_guard<std::mutex> l(g_s.m);
-                        ++g_s.eventsOut;
-                    }
-        } else if (connected && server != kInvalidPeer) {
-            for (const auto& d : rel)
-                if (t.send(server, Channel::Reliable, d)) {
+        if (g_enabled.load()) {
+            for (const auto& d : out) {
+                drakan::net::CoopCreatures c;
+                if (g_host && creaturesFromLegacy(d, c)) {
+                    drakan_netplay::coopSend(c);
+                    std::lock_guard<std::mutex> l(g_s.m);
+                    ++g_s.datagramsOut;
+                }
+            }
+            for (const auto& d : rel) {
+                drakan::net::CoopEvent e;
+                if (eventFromLegacy(d, e)) {
+                    drakan_netplay::coopSend(e); // Hurt / Respawn: player 0 = the other players
                     std::lock_guard<std::mutex> l(g_s.m);
                     ++g_s.eventsOut;
                 }
+            }
         }
         std::this_thread::sleep_for(std::chrono::milliseconds(2));
     }
@@ -308,15 +380,42 @@ struct Keyed {
 struct Obj {
     uint32_t key = 0, resId = 0, classId = 0, type = 0, ref = 0;
     bool pickup = false, gone = false, swapped = false;
-    float pos0[3] = {}; // where it lay when it was keyed (a loose item that is taken is moved to the inventory)
+    float pos0[3] = {};         // where it lay when it was keyed (a loose item that is taken is moved to the inventory)
+    uint64_t rebaseUntilMs = 0; // pickups near an opening chest: the item flies about, so pos0 follows it until then
+    int doorState = -1;         // doors: last seen data+0x10 == 1 (open) as 0 / 1, -1 unknown
+};
+
+// A chest (class 0x100c5): the engine's chest component (vtable 0x523150, coop-design.md section 9) opens when the
+// controlled actor is near and on its open side, and spews its loot 1.5 s later with the engine's RNG. Both sides
+// report the opening; the host's spew is replayed on the client with the host's RNG state, so the same loot appears.
+struct ChestSync {
+    bool inited = false;      // first poll done (the state it started in is known)
+    bool opened = false;      // it opened during play (a chest placed open is not): the late-join catch-up lists these
+    bool openSeen = false;    // the local component is (or was made) open: reported or applied
+    bool pendingOpen = false; // the partner opened it: open the local one at the next boundary
+    bool spewKnown = false;   // client: the host's RNG state for the spew is here
+    bool spewDone = false;    // this side's spew finished
+    bool firstCall = false;   // host: the spew's first call happened (its RNG state was sent)
+    bool applied = false;     // client: the host's RNG state was put in for the first call
+    bool healed = false;      // client: the loot was checked after the spew (nothing left parked)
+    int healTries = 0;
+    uint64_t appliedMs = 0;
+    uint32_t seed = 0, carry = 0;
+    int32_t budget = kNoBudget; // the chest's gold budget in the generator's table (random per world)
+    uint64_t waitSince = 0;
 };
 
 std::unordered_map<uint32_t, Keyed> g_keyed; // handle -> key
 std::unordered_map<uint32_t, uint32_t> g_keyToHandle;
 std::unordered_map<uint32_t, Obj> g_obj;
 std::unordered_map<uint32_t, uint32_t> g_objKeyToHandle;
-std::set<uint32_t> g_goneKeys;                       // pickups taken this level (either side): the late-join catch-up
+std::set<uint32_t> g_goneKeys;    // pickups taken this level (either side): the late-join catch-up
+std::set<uint32_t> g_pendingGone; // taken pickups the partner reported before the loot they name exists here
+std::unordered_map<uint32_t, ChestSync> g_chest;      // object key -> chest state
+std::unordered_map<uint32_t, uint32_t> g_chestByComp; // chest component pointer -> object key
+PS2Runtime::RecompiledFunction g_origSpew = nullptr;
 std::set<uint32_t> g_forceOpen;                      // client: doors (handles) the host reported open at the catch-up
+uint32_t g_syncRequests = 0;                         // host: catch-up requests folded into the next catch-up
 bool g_syncPending = false, g_syncSent = false;      // host: a client asked for the catch-up; client: it asked
 std::unordered_map<uint32_t, uint32_t> g_dynCounter; // (class, resource) -> pickups keyed after the level load
 bool g_keyedThisLevel = false;
@@ -336,6 +435,7 @@ std::unordered_map<uint32_t, uint32_t> g_orig; // actor -> original behaviour ha
 struct Claim {
     uint32_t key;
     int32_t damage;
+    int player; // the claimant (stamped by the server)
 };
 std::deque<Claim> g_claims; // host: validated-on-apply claims from the client
 int32_t g_pendingHurt = 0;  // client: damage taken from host enemies, applied at the next boundary
@@ -469,8 +569,40 @@ struct Life {
     int pendingHp = -1; // HP to write once no posted engine call is in flight
     uint64_t diedMs = 0;
 } g_life;
-bool g_partnerDead = false; // host: the client's player is down (its ghost is not a target)
-uint64_t g_partnerDeadMs = 0;
+// Host: one slot per remote player (keyed by player id, created when it first reports). A player who is down keeps its
+// ghost but is no target for creatures, its claims are refused and it gets a Respawn after kRespawnDelayMs.
+struct PlayerSlot {
+    bool dead = false;
+    uint64_t deadMs = 0;
+};
+std::map<int, PlayerSlot> g_players;
+bool playerDown(int player) {
+    const auto it = g_players.find(player);
+    return it != g_players.end() && it->second.dead;
+}
+// The remote player behind a ghost actor (0 = not a ghost) and a player's ghost actor (0 = none shown right now).
+int playerOfHandle(uint32_t h) {
+    int p = 0;
+    drakan_ghost::forEach([&](const drakan_ghost::Info& i) {
+        if (i.handle && i.handle == h)
+            p = drakan_netplay::playerOfGhost(i.id);
+    });
+    return p;
+}
+uint32_t handleOfPlayer(int player) {
+    const int id = player > 0 ? drakan_netplay::ghostOfPlayer(player) : 0;
+    uint32_t h = 0;
+    if (id)
+        drakan_ghost::forEach([&](const drakan_ghost::Info& i) {
+            if (i.id == id)
+                h = i.handle;
+        });
+    return h;
+}
+bool handleDown(uint32_t h) {
+    const int p = playerOfHandle(h);
+    return p && playerDown(p);
+}
 
 uint32_t rotr8(uint32_t x) {
     return (x >> 8) | (x << 24);
@@ -544,9 +676,14 @@ void tickLife(drakan_input::IGuest& guest, uint8_t* rdram) {
             }
         if (g_life.respawnReq && ramPtr(me)) {
             endDeath(rdram);
-            const auto gs = ghostHandles();
-            if (!gs.empty()) {
-                const uint32_t g = gs.front();
+            // Beside the creature world's owner (its ghost), else beside any other player that is shown.
+            uint32_t g = handleOfPlayer(drakan_netplay::coopLink().authority);
+            if (!g) {
+                const auto gs = ghostHandles();
+                if (!gs.empty())
+                    g = gs.front();
+            }
+            if (g) {
                 g_life.target[0] = rdF(rdram, g + 0x14) + 200.0f;
                 g_life.target[1] = rdF(rdram, g + 0x18) + 20.0f;
                 g_life.target[2] = rdF(rdram, g + 0x1c);
@@ -559,8 +696,8 @@ void tickLife(drakan_input::IGuest& guest, uint8_t* rdram) {
             g_life.pendingHp = std::max(1, playerHpMax(rdram));
             g_life.dead = false;
             g_life.respawnReq = false;
-            coopLog("client: respawned %s (HP -> %d)",
-                    gs.empty() ? "where she fell (no host ghost)" : "beside the host", g_life.pendingHp);
+            coopLog("client: respawned %s (HP -> %d)", g ? "beside the host" : "where she fell (no host ghost)",
+                    g_life.pendingHp);
         }
     } else if (g_life.dead && me != g_life.actor) {
         g_life.dead = false; // the controlled actor changed (a level load, the inventory): the death is over
@@ -647,32 +784,50 @@ void aiHandler(uint8_t* rdram, R5900Context* c, PS2Runtime* rt) {
                 return s;
             };
             const float dp = d2(saved);
-            float best = 1e30f;
+            // Candidates: the local player (0) and the ghost of every remote player who is not down and is within
+            // aggro range (a far ghost would send the AI after a target it cannot reach). The nearest wins; the
+            // creature's current target is kept unless the nearest is clearly nearer (20 percent hysteresis on the
+            // distance, so two equidistant players do not flip every tick).
+            constexpr float kRange2 = 6000.0f * 6000.0f;
+            const uint32_t last = g_aiLast.count(actor) ? g_aiLast[actor] : 0;
+            float best = 1e30f, dLast = dp;
             uint32_t bestG = 0;
+            bool lastSeen = false; // the creature's current ghost target is still a candidate
             for (uint32_t g : ghostHandles()) {
-                if (!ramPtr(rd32(rdram, g + 0xfc)) || g == saved || g_partnerDead)
+                if (!ramPtr(rd32(rdram, g + 0xfc)) || g == saved || handleDown(g))
                     continue;
                 const float dg = d2(g);
+                if (dg >= kRange2)
+                    continue;
+                if (g == last) {
+                    dLast = dg;
+                    lastSeen = true;
+                }
                 if (dg < best) {
                     best = dg;
                     bestG = g;
                 }
             }
-            const uint32_t last = g_aiLast.count(actor) ? g_aiLast[actor] : 0;
-            // 20 percent hysteresis on the distance so two equidistant players do not flip every tick.
-            // Only a partner within aggro range counts (a far ghost would send the AI after a target it cannot reach).
-            constexpr float kRange2 = 6000.0f * 6000.0f;
-            const bool pickGhost = bestG && best < kRange2 &&
-                                   ((g_forceGhost && (g_forceAll || g_forced.count(actor))) ||
-                                    (last == bestG ? best < dp * 1.44f : best < dp * 0.64f));
-            alt = pickGhost ? bestG : 0;
+            const bool lastIsGhost = last && lastSeen;
+            const uint32_t cur = lastIsGhost ? last : 0;
+            const float dCur = lastIsGhost ? dLast : dp;
+            // The nearest candidate overall (the local player when no ghost is nearer).
+            const uint32_t nearestId = bestG && best < dp ? bestG : 0;
+            const float nearestD = nearestId ? best : dp;
+            uint32_t pick = cur;
+            if (g_forceGhost && (g_forceAll || g_forced.count(actor)) && bestG)
+                pick = bestG;
+            else if (nearestId != cur && nearestD < dCur * 0.64f)
+                pick = nearestId;
+            alt = pick;
             if (alt != last) {
                 g_aiLast[actor] = alt;
                 ++g_st.aiSwaps;
                 if (g_aiLogged++ < 24)
-                    coopLog("host: creature %08x now targets %s (ghost %.0f, player %.0f units)", actor,
-                            alt ? "the partner's ghost" : "the local player", bestG ? std::sqrt(best) : -1.0,
-                            std::sqrt(dp));
+                    coopLog(
+                        "host: creature %08x now targets %s (player %d; nearest ghost %.0f, local player %.0f units)",
+                        actor, alt ? "a remote player's ghost" : "the local player", alt ? playerOfHandle(alt) : 0,
+                        bestG ? std::sqrt(best) : -1.0, std::sqrt(dp));
             }
             if (alt)
                 ++g_st.aiGhostTicks;
@@ -704,40 +859,6 @@ void aiHandler(uint8_t* rdram, R5900Context* c, PS2Runtime* rt) {
         for (int i = 0; i < 12; ++i)
             wr32(rdram, saved + 0x14 + 4 * i, backup[i]);
     }
-}
-
-// A chest's own handler with a log of every event but the per-tick one (probe: what does opening a chest send?).
-void chestHandler(uint8_t* rdram, R5900Context* c, PS2Runtime* rt) {
-    const uint32_t actor = getRegU32(c, 4), event = getRegU32(c, 5);
-    uint32_t orig = 0;
-    {
-        std::lock_guard<std::mutex> l(g_origM);
-        auto it = g_orig.find(actor);
-        if (it != g_orig.end()) {
-            orig = it->second;
-            if (event == 2)
-                g_orig.erase(it);
-        }
-    }
-    auto fn = orig ? rt->lookupFunction(orig) : nullptr;
-    if (!fn) {
-        SET_GPR_U32(c, 2, 0u);
-        c->pc = getRegU32(c, 31);
-        return;
-    }
-    static uint32_t budget = 200;
-    if (g_probe && event != 4 && budget) {
-        --budget;
-        const uint32_t a2 = getRegU32(c, 6), a3 = getRegU32(c, 7);
-        uint32_t w[6] = {};
-        if (ramPtr(a2))
-            for (int i = 0; i < 6; ++i)
-                w[i] = rd32(rdram, a2 + 4 * i);
-        coopLog("chest %08x handler event %x a2 %08x a3 %08x [%08x %08x %08x %08x %08x %08x]", actor, event, a2, a3,
-                w[0], w[1], w[2], w[3], w[4], w[5]);
-    }
-    c->pc = orig;
-    fn(rdram, c, rt);
 }
 
 bool swapHandlerTo(uint8_t* rdram, uint32_t actor, uint32_t slot) {
@@ -786,10 +907,14 @@ void forgetLevel() {
     g_pendingHurt = 0;
     g_life = Life();
     g_savedHandler.store(0);
-    g_partnerDead = false;
+    g_players.clear();
     g_goneKeys.clear();
+    g_pendingGone.clear();
+    g_chest.clear();
+    g_chestByComp.clear();
     g_forceOpen.clear();
     g_syncPending = g_syncSent = false;
+    g_syncRequests = 0;
     g_aiLast.clear();
     g_forced.clear();
     g_dynCounter.clear();
@@ -830,11 +955,14 @@ constexpr uint32_t kChestClass = 0x100c5u;
 bool isPickupEntity(const world::EntitySnapshot& e) {
     // Treasure (gold sacks, goblets) and the other loose items (type 11: elixirs, potions, ...); a taken one leaves the
     // registry.
+    // The inventory's own copies (what taking an item leaves behind) are parked near the origin of the world (the
+    // levels lie at 1e5..1e6), a taken sack's copy too.
+    const bool nearOrigin = std::fabs(e.position.x) < 20000.0f && std::fabs(e.position.z) < 20000.0f;
+    if (nearOrigin)
+        return false;
     if (e.classId == 0x1006du)
         return true;
-    // Loose items; the inventory's own copies are parked near the origin of the world (the levels lie at 1e5..1e6).
-    const bool nearOrigin = std::fabs(e.position.x) < 20000.0f && std::fabs(e.position.z) < 20000.0f;
-    return e.type == 11 && !g_parked.count(posKey(e)) && !nearOrigin;
+    return e.type == 11 && !g_parked.count(posKey(e));
 }
 bool isWatchedEntity(const world::EntitySnapshot& e) {
     return e.classId == 0x10013u /* doors */ || e.classId == kChestClass || isPickupEntity(e);
@@ -847,6 +975,9 @@ void keyCreatures(const world::Snapshot& s) {
     std::unordered_map<uint32_t, uint32_t> counter, objCounter;
     std::map<std::pair<uint32_t, uint32_t>, uint32_t> hist;
     for (const auto& e : s.entities) {
+        if (isGhostHandle(e.handle))
+            continue; // a partner's stand-in character (drakan_coop_character) is an NPC-class actor: not a placed
+                      // creature
         if (e.hpKind == world::HpKind::Creature && e.hpMax > 0) {
             Keyed k;
             k.resId = e.resourceId;
@@ -983,12 +1114,17 @@ void hookSend(uint8_t* rdram, R5900Context* c, PS2Runtime* rt) {
                 c->pc = getRegU32(c, 31);
                 return;
             }
-            if (!g_partnerDead && !isLocalAttacker(rdram, sender) && dmg > 0 && isGhostHandle(target)) {
-                // A host creature (or anything else) hurt the partner's ghost: the client takes the damage.
-                const int32_t d = dmg;
-                pushReliable(kMsgHurt, &d, 4);
-                ++g_st.hurtSent;
-                coopLog("host: ghost %08x hit by %08x for %d -> client", target, sender, d);
+            if (!isLocalAttacker(rdram, sender) && dmg > 0) {
+                // A host creature (or anything else) hurt a remote player's ghost: that player takes the damage (a
+                // player who is down takes none; a ghost struck by another ghost's weapon is not a creature hit).
+                const int victim = playerOfHandle(target);
+                if (victim && !playerDown(victim) && !playerOfHandle(sender)) {
+                    const int32_t d = dmg;
+                    pushReliableTo(static_cast<uint8_t>(victim), kMsgHurt, &d, 4);
+                    ++g_st.hurtSent;
+                    coopLog("host: ghost %08x (player %d) hit by %08x for %d -> that player", target, victim, sender,
+                            d);
+                }
             }
         } else {
             auto it = g_keyed.find(target);
@@ -1057,10 +1193,19 @@ void hookSend(uint8_t* rdram, R5900Context* c, PS2Runtime* rt) {
 
 // Host: report deaths, apply the client's claims.
 void hostEvents(drakan_input::IGuest& guest, uint8_t* rdram) {
-    if (g_partnerDead && nowMs() - g_partnerDeadMs >= kRespawnDelayMs) {
-        g_partnerDead = false;
-        pushReliable(kMsgRespawn, nullptr, 0);
-        coopLog("host: the partner's respawn is granted (ghost is a target again)");
+    // Respawns, per player. When the host's own player is down too (HP 0: the engine's game over reloads the last save)
+    // nobody is left to respawn beside, so the others get up at once, where they fell; the usual delay otherwise.
+    {
+        const bool hostDown = !g_players.empty() && playerHp(rdram) <= 0;
+        for (auto& [pid, slot] : g_players) {
+            if (!slot.dead || (!hostDown && nowMs() - slot.deadMs < kRespawnDelayMs))
+                continue;
+            slot.dead = false;
+            pushReliableTo(static_cast<uint8_t>(pid), kMsgRespawn, nullptr, 0);
+            coopLog("host: player %d's respawn is granted (%s); its ghost is a target again", pid,
+                    hostDown ? "every player is down: the host world reloads, no host to respawn beside"
+                             : "beside the host");
+        }
     }
     // Claims: one per boundary, because the damage message is posted (it plays sounds behind the heap semaphore; a
     // nested call hung the guest in PvP, see pvp.md).
@@ -1078,23 +1223,18 @@ void hostEvents(drakan_input::IGuest& guest, uint8_t* rdram) {
             why = "creature already dead";
         else if (cl.damage <= 0 || cl.damage > 400)
             why = "damage out of range";
-        else if (g_partnerDead)
+        else if (playerDown(cl.player))
             why = "claimant is down";
         else {
-            // The claimant must be near: its ghost within 3000 units of the creature (when a ghost exists).
-            const auto gs = ghostHandles();
-            if (!gs.empty()) {
-                float best = 1e30f;
-                for (uint32_t g : gs)
-                    best = std::min(best, std::hypot(rdF(rdram, g + 0x14) - rdF(rdram, h + 0x14),
-                                                     rdF(rdram, g + 0x1c) - rdF(rdram, h + 0x1c)));
-                if (best > 3000.0f)
-                    why = "claimant too far";
-            }
+            // The claimant must be near: its own ghost within 3000 units of the creature (when that ghost exists).
+            const uint32_t g = handleOfPlayer(cl.player);
+            if (g && std::hypot(rdF(rdram, g + 0x14) - rdF(rdram, h + 0x14),
+                                rdF(rdram, g + 0x1c) - rdF(rdram, h + 0x1c)) > 3000.0f)
+                why = "claimant too far";
         }
         if (why) {
             ++g_st.claimsRejected;
-            coopLog("host: claim rejected: %s (key %08x damage %d)", why, cl.key, cl.damage);
+            coopLog("host: claim from player %d rejected: %s (key %08x damage %d)", cl.player, why, cl.key, cl.damage);
         } else {
             uint8_t msg[0x34] = {};
             const uint16_t t = kMsgDamage;
@@ -1106,13 +1246,13 @@ void hostEvents(drakan_input::IGuest& guest, uint8_t* rdram) {
             std::memcpy(msg + 0x10, &w10, 4);
             std::memcpy(msg + 0x14, &w14, 4);
             std::memcpy(msg + 0x30, &w30, 4);
-            const auto gs = ghostHandles();
-            const uint32_t sender = !gs.empty() ? gs.front() : controlled(rdram);
+            const uint32_t claimant = handleOfPlayer(cl.player);
+            const uint32_t sender = claimant ? claimant : controlled(rdram);
             const int32_t before = creatureHp(rdram, h);
             if (sendEngineMessage(guest, rdram, sender, h, msg)) {
                 ++g_st.claimsApplied;
-                coopLog("host: claim applied to creature %08x key %08x: damage %d, hp was %d", h, cl.key, cl.damage,
-                        before);
+                coopLog("host: claim from player %d applied to creature %08x key %08x: damage %d, hp was %d", cl.player,
+                        h, cl.key, cl.damage, before);
             } else {
                 g_claims.push_front(cl); // the guest is busy: try again at the next boundary
             }
@@ -1145,6 +1285,12 @@ void hostEvents(drakan_input::IGuest& guest, uint8_t* rdram) {
             coopLog("replayed object message %04x on %08x (key %08x)", type, oi->second, key);
         }
     }
+}
+
+bool isSpewMessage(const uint8_t* p) { // an ObjMsg payload (key, u16 type, ...) of the chest spew pseudo type
+    uint16_t t;
+    std::memcpy(&t, p + 4, 2);
+    return t == kChestSpewType;
 }
 
 void drainEvents(drakan_input::IGuest& guest, uint8_t* rdram, uint32_t level) {
@@ -1182,6 +1328,7 @@ void drainEvents(drakan_input::IGuest& guest, uint8_t* rdram, uint32_t level) {
             Claim cl;
             std::memcpy(&cl.key, p, 4);
             std::memcpy(&cl.damage, p + 4, 4);
+            cl.player = d[5];
             g_claims.push_back(cl);
         } else if (type == kMsgHurt && !g_host && n >= 4) {
             int32_t dmg;
@@ -1189,22 +1336,35 @@ void drainEvents(drakan_input::IGuest& guest, uint8_t* rdram, uint32_t level) {
             if (!g_life.dead)
                 g_pendingHurt += std::clamp(static_cast<int32_t>(dmg * g_hurtScale), 0, 1000);
         } else if (type == kMsgPlayerDied && g_host) {
-            g_partnerDead = true;
-            g_partnerDeadMs = nowMs();
-            coopLog("host: the partner died: creatures stop targeting its ghost, respawn in %llu ms",
+            PlayerSlot& slot = g_players[d[5]];
+            slot.dead = true;
+            slot.deadMs = nowMs();
+            coopLog("host: player %d died: creatures stop targeting its ghost, respawn in %llu ms", int(d[5]),
                     static_cast<unsigned long long>(kRespawnDelayMs));
         } else if (type == kMsgSyncReq && g_host) {
             g_syncPending = true;
-            coopLog("host: the client asked for the catch-up state");
-        } else if (type == kMsgObjState && !g_host && n >= 8) {
+            ++g_syncRequests;
+            coopLog("host: player %d asked for the catch-up state", int(d[5]));
+        } else if (type == kMsgObjState && n >= 8) {
             uint32_t key;
             int32_t state;
             std::memcpy(&key, p, 4);
             std::memcpy(&state, p + 4, 4);
             auto oi = g_objKeyToHandle.find(key);
-            if (oi != g_objKeyToHandle.end() && state == 1 && g_obj[oi->second].classId == 0x10013u) {
-                g_forceOpen.insert(oi->second);
-                coopLog("client: door %08x (key %08x) was open on the host: opening it", oi->second, key);
+            if (oi == g_objKeyToHandle.end())
+                continue;
+            const uint32_t cls = g_obj[oi->second].classId;
+            if (cls == 0x10013u && !g_host) {
+                if (state == kStateDoorOpen) {
+                    g_forceOpen.insert(oi->second);
+                    coopLog("client: door %08x (key %08x) was open on the host: opening it", oi->second, key);
+                } else if (state == kStateDoorClosed && g_forceOpen.erase(oi->second)) {
+                    coopLog("client: door %08x (key %08x) closed again on the host", oi->second, key);
+                }
+            } else if (cls == kChestClass && state == kStateChestOpen) {
+                ChestSync& cs = g_chest[key];
+                if (!cs.openSeen)
+                    cs.pendingOpen = true;
             }
         } else if (type == kMsgRespawn && !g_host) {
             if (g_life.dead)
@@ -1214,8 +1374,11 @@ void drainEvents(drakan_input::IGuest& guest, uint8_t* rdram, uint32_t level) {
             std::memcpy(&key, p, 4);
             ++g_st.goneRecv;
             auto oi = g_objKeyToHandle.find(key);
-            if (oi == g_objKeyToHandle.end())
+            if (oi == g_objKeyToHandle.end()) {
+                g_pendingGone.insert(key); // loot that is not here yet (a spew still to come): removed when it appears
+                g_goneKeys.insert(key);
                 continue;
+            }
             Obj& o = g_obj[oi->second];
             if (o.gone)
                 continue;
@@ -1225,6 +1388,20 @@ void drainEvents(drakan_input::IGuest& guest, uint8_t* rdram, uint32_t level) {
                 destroyActor(guest, rdram, oi->second);
                 coopLog("%s: pickup %08x (class %x key %08x) taken by the partner: removed", g_host ? "host" : "client",
                         oi->second, o.classId, key);
+            }
+        } else if (type == kMsgObjMsg && n >= 4 + 4 + 16 && isSpewMessage(p)) {
+            // The host's chest spew (RNG state and gold carry): the client's chest replays it with these.
+            if (!g_host) {
+                uint32_t key;
+                int32_t w[4];
+                std::memcpy(&key, p, 4);
+                std::memcpy(w, p + 8, 16);
+                ChestSync& cs = g_chest[key];
+                cs.spewKnown = true;
+                cs.seed = static_cast<uint32_t>(w[0]);
+                cs.carry = static_cast<uint32_t>(w[1]);
+                cs.budget = w[2];
+                coopLog("client: the host's chest spew for key %08x arrived (rng %08x)", key, cs.seed);
             }
         } else if (type == kMsgObjMsg && n >= 4 + 4 + 16) {
             ++g_st.msgRecv;
@@ -1272,6 +1449,13 @@ void clientEvents(drakan_input::IGuest& guest, uint8_t* rdram) {
 void scanNewObjects() {
     refreshParked(g_snap);
     for (const auto& e : g_snap.entities) {
+        if (g_probe && e.type == 11 && !isPickupEntity(e) && !g_obj.count(e.handle)) {
+            static std::set<uint32_t> shown; // an item that is not (yet) placed in the world: where does it sit?
+            if (shown.insert(e.handle).second && shown.size() < 60 && g_keyedThisLevel)
+                coopLog("%s: item %08x class %x res %x is not a world pickup (at %.0f %.0f %.0f)",
+                        g_host ? "host" : "client", e.handle, e.classId, e.resourceId, e.position.x, e.position.y,
+                        e.position.z);
+        }
         if (!isPickupEntity(e) || g_keyed.count(e.handle))
             continue;
         auto old = g_obj.find(e.handle);
@@ -1286,6 +1470,7 @@ void scanNewObjects() {
         o.type = e.type;
         o.ref = e.ref;
         o.pickup = true;
+        o.rebaseUntilMs = nowMs() + 10000;
         std::memcpy(o.pos0, &e.position, 12);
         const uint32_t cls = e.resourceId * 2654435761u ^ e.classId;
         o.key = mixKey(cls, 0x10000u + g_dynCounter[cls]++);
@@ -1293,6 +1478,14 @@ void scanNewObjects() {
         g_objKeyToHandle[o.key] = e.handle;
         coopLog("%s: new pickup %08x class %x type %u res %x at %.0f %.0f %.0f -> key %08x", g_host ? "host" : "client",
                 e.handle, e.classId, e.type, e.resourceId, e.position.x, e.position.y, e.position.z, o.key);
+        if (g_probe && g_rdramForLog) { // what the loot is: the first words of its instance data (the gold amount)
+            const uint32_t in = rd32(g_rdramForLog, e.handle + 0xfc);
+            const uint32_t q = ramPtr(in) ? rd32(g_rdramForLog, in + 0x10) : 0;
+            if (ramPtr(q))
+                coopLog("  loot key %08x data: %08x %08x %08x %08x %08x %08x", o.key, rd32(g_rdramForLog, q + 0x10),
+                        rd32(g_rdramForLog, q + 0x14), rd32(g_rdramForLog, q + 0x18), rd32(g_rdramForLog, q + 0x1c),
+                        rd32(g_rdramForLog, q + 0x20), rd32(g_rdramForLog, q + 0x24));
+        }
     }
 }
 
@@ -1378,10 +1571,306 @@ void wrapDoors(uint8_t* rdram) {
         for (auto& [h, o] : g_obj)
             if (o.classId == 0x10013u && !o.swapped && !o.gone)
                 o.swapped = swapHandlerTo(rdram, h, g_aiSlot);
-    if (g_probe && g_chestSlot)
-        for (auto& [h, o] : g_obj)
-            if (o.classId == kChestClass && !o.swapped && !o.gone)
-                o.swapped = swapHandlerTo(rdram, h, g_chestSlot);
+}
+
+// ------------------------------------------------------------------------------------------------------- chests
+constexpr uint32_t kChestOpenFn = 0x227d80u, kChestSpewFn = 0x227ec8u, kChestVtbl = 0x523150u;
+constexpr uint32_t kRngPtr = 0x518e94u;  // pointer to the block whose +0x58 is the engine's LCG state (0x4ce028)
+constexpr uint32_t kGoldGen = 0x4fbee0u; // the gold generator: +0x24 is the carried remainder of the gold budget
+constexpr uint64_t kSpewWaitMs = 10000;  // client: how long a spew waits for the host's RNG state
+
+// The chest component of a chest actor (actor+0xfc), or 0.
+uint32_t chestComp(const uint8_t* rdram, uint32_t actor) {
+    const uint32_t comp = rd32(rdram, actor + 0xfc);
+    if (!ramPtr(comp) || rd32(rdram, comp + 0xc) != drakan_region::guestAddress(kChestVtbl) ||
+        rd32(rdram, comp + 8) != actor)
+        return 0;
+    return comp;
+}
+
+// The chest's gold budget cell in the generator's table (12-byte entries {actor, budget, ?}), or 0.
+uint32_t goldBudgetCell(const uint8_t* rdram, uint32_t actor) {
+    const uint32_t gen = drakan_region::guestAddress(kGoldGen);
+    const uint32_t tab = rd32(rdram, gen + 0x18);
+    const int32_t n = static_cast<int32_t>(rd32(rdram, gen + 0x20));
+    if (!ramPtr(tab) || n <= 0 || n > 4096)
+        return 0;
+    for (int32_t i = 0; i < n; ++i)
+        if (rd32(rdram, tab + i * 12u) == actor)
+            return tab + i * 12u + 4;
+    return 0;
+}
+
+uint32_t rngStateAddr(const uint8_t* rdram) {
+    const uint32_t blk = rd32(rdram, drakan_region::guestAddress(kRngPtr));
+    return ramPtr(blk) ? blk + 0x58 : 0;
+}
+
+// Items near a chest that opens fly out of it: their start position is not where "taken" is measured from.
+void rebaseLoot(const uint8_t* rdram, uint32_t chest, uint64_t now) {
+    for (auto& [h, o] : g_obj)
+        if (o.pickup && !o.gone &&
+            std::hypot(rdF(rdram, h + 0x14) - rdF(rdram, chest + 0x14),
+                       rdF(rdram, h + 0x1c) - rdF(rdram, chest + 0x1c)) < 3000.0f)
+            o.rebaseUntilMs = now + 10000;
+}
+
+// Probe: the gold generator's denomination table (12-byte entries {?, flag, amount}) as one log line.
+void logGoldTable(const uint8_t* rdram, const char* who, uint32_t key) {
+    const uint32_t gen = drakan_region::guestAddress(kGoldGen);
+    const uint32_t tab = rd32(rdram, gen);
+    const int32_t n = static_cast<int32_t>(rd32(rdram, gen + 8));
+    if (!ramPtr(tab) || n <= 0 || n > 64)
+        return;
+    char buf[300];
+    int len = std::snprintf(buf, sizeof buf, "%s: gold table at chest %08x (%d entries, carry %d):", who, key, n,
+                            static_cast<int32_t>(rd32(rdram, gen + 0x24)));
+    for (int32_t i = 0; i < n && len < 260; ++i)
+        len +=
+            std::snprintf(buf + len, sizeof buf - len, " %d/%d", static_cast<int32_t>(rd32(rdram, tab + i * 12u + 4)),
+                          static_cast<int32_t>(rd32(rdram, tab + i * 12u + 8)));
+    coopLog("%s", buf);
+}
+
+void sendSpew(uint32_t key, uint32_t seed, uint32_t carry, int32_t budget) {
+    struct {
+        uint32_t key;
+        uint16_t type, pad;
+        int32_t w[4];
+    } p{key, kChestSpewType, 0, {int32_t(seed), int32_t(carry), budget, 0}};
+    pushReliable(kMsgObjMsg, &p, sizeof p);
+}
+
+// The engine's spew (0x227ec8, called by the chest's tick once its 1.5 s delay is over; returns 0 = not yet, the tick
+// asks again next frame). Host: remember the RNG state before it and tell the client. Client: wait for the host's state
+// and run the spew with it, so the loot is the host's loot.
+void hookSpew(uint8_t* rdram, R5900Context* c, PS2Runtime* rt) {
+    const uint32_t comp = getRegU32(c, 4);
+    auto ci = g_chestByComp.find(comp);
+    if (!g_enabled.load(std::memory_order_relaxed) || g_levelHash.load() == 0 || ci == g_chestByComp.end()) {
+        g_origSpew(rdram, c, rt);
+        return;
+    }
+    const uint32_t key = ci->second;
+    ChestSync& cs = g_chest[key];
+    // The cooperative scheduler can preempt the spew mid-way (the heap semaphore, a checkpoint): the callee then
+    // unwinds with the guest pc left inside it and resumes later, not through this hook. Only a call that returned to
+    // its caller (pc == the return address) has a result.
+    const uint32_t ra = getRegU32(c, 31);
+    const uint32_t seedAt = rngStateAddr(rdram);
+    const uint32_t carryAt = drakan_region::guestAddress(kGoldGen) + 0x24;
+    // The generator runs on the first call (it takes the chest's gold budget out of the table and draws the gold with
+    // the RNG); a call that returns 0 (a child is still moving) is asked again next frame and generates nothing more.
+    // So the state that matters is the state at the first call.
+    if (g_host) {
+        if (!cs.firstCall && seedAt) {
+            cs.firstCall = true;
+            const uint32_t cell = goldBudgetCell(rdram, rd32(rdram, comp + 8));
+            cs.seed = rd32(rdram, seedAt);
+            cs.carry = rd32(rdram, carryAt);
+            cs.budget = cell ? static_cast<int32_t>(rd32(rdram, cell)) : kNoBudget;
+            sendSpew(key, cs.seed, cs.carry, cs.budget);
+            if (g_probe)
+                logGoldTable(rdram, "host", key);
+            coopLog("host: chest key %08x spews its loot (rng %08x, gold carry %d, gold budget %d) -> client", key,
+                    cs.seed, int32_t(cs.carry), cs.budget);
+        }
+        g_origSpew(rdram, c, rt);
+        if (c->pc == ra && getRegU32(c, 2) != 0)
+            cs.spewDone = true;
+        return;
+    }
+    if (cs.spewDone || !seedAt) {
+        g_origSpew(rdram, c, rt);
+        return;
+    }
+    if (!cs.spewKnown && !cs.applied) {
+        const uint64_t now = nowMs();
+        if (!cs.waitSince)
+            cs.waitSince = now;
+        if (now - cs.waitSince < kSpewWaitMs) {
+            SET_GPR_U32(c, 2, 0u); // not yet: the chest's tick calls again next frame
+            c->pc = getRegU32(c, 31);
+            return;
+        }
+        coopLog("client: chest key %08x: no spew from the host after %llu ms, spewing with the local RNG", key,
+                static_cast<unsigned long long>(kSpewWaitMs));
+        cs.applied = true;
+    }
+    const bool apply = !cs.applied;
+    if (apply) {
+        cs.applied = true;
+        cs.appliedMs = nowMs();
+        wr32(rdram, seedAt, cs.seed);
+        wr32(rdram, carryAt, cs.carry);
+        // The gold each chest holds was dealt out with the engine's RNG: the host's number wins (none: no gold).
+        const int32_t want = cs.budget == kNoBudget ? 0 : cs.budget;
+        if (const uint32_t cell = goldBudgetCell(rdram, rd32(rdram, comp + 8))) {
+            if (static_cast<int32_t>(rd32(rdram, cell)) != want)
+                coopLog("client: chest key %08x: gold budget %d here, %d on the host: using the host's", key,
+                        static_cast<int32_t>(rd32(rdram, cell)), want);
+            wr32(rdram, cell, static_cast<uint32_t>(want));
+        } else if (want) {
+            coopLog("client: chest key %08x: no gold budget entry here (the host had %d)", key, want);
+        }
+        if (g_probe)
+            logGoldTable(rdram, "client", key);
+        coopLog("client: chest key %08x spews the host's loot (rng %08x, gold carry %d, gold budget %d)", key, cs.seed,
+                int32_t(cs.carry), cs.budget);
+    }
+    g_origSpew(rdram, c, rt);
+    // The RNG state is left as the spew made it: a preempted spew carries on later with it (putting the local state
+    // back now would hand the rest of the loot to the wrong random stream), and the stream stays random either way.
+    if (g_probe) {
+        static uint32_t shown = 0;
+        if (shown++ < 40)
+            coopLog("client: chest key %08x spew call (first %d): %s, result %u", key, apply,
+                    c->pc == ra ? "returned" : "preempted", getRegU32(c, 2));
+    }
+    if (c->pc == ra && getRegU32(c, 2) != 0)
+        cs.spewDone = true;
+}
+
+// Client: loot of a chest that was made at the spew but never flew out (the new treasure sits parked near the world
+// origin) is thrown out by asking the spew again: the gold generator has nothing left to do, the launch loop takes
+// every child of the chest.
+int parkedLoot(const uint8_t* rdram, uint32_t chest) {
+    const uint32_t refs = rd32(rdram, chest + 0x90);
+    const int32_t n = static_cast<int32_t>(rd32(rdram, chest + 0x98));
+    if (!ramPtr(refs) || n <= 0 || n > 64)
+        return 0;
+    int parked = 0;
+    for (int32_t i = 0; i < n; ++i) {
+        const uint32_t child = registryObject(rdram, rd16(rdram, refs + 2u * i));
+        if (!ramPtr(child) || rd32(rdram, child + 0xc) != 11)
+            continue;
+        if (std::fabs(rdF(rdram, child + 0x14)) < 20000.0f && std::fabs(rdF(rdram, child + 0x1c)) < 20000.0f)
+            ++parked;
+    }
+    return parked;
+}
+
+void healChest(drakan_input::IGuest& guest, const uint8_t* rdram, uint32_t chest, uint32_t comp, ChestSync& cs,
+               uint32_t key) {
+    if (g_host || !cs.applied || cs.healed || nowMs() - cs.appliedMs < 2500)
+        return;
+    const int parked = parkedLoot(rdram, chest);
+    if (!parked) {
+        cs.healed = true;
+        return;
+    }
+    if (cs.healTries >= 3) {
+        cs.healed = true;
+        coopLog("client: chest key %08x: %d loot items are still parked after %d tries", key, parked, cs.healTries);
+        return;
+    }
+    if (guest.postBusy())
+        return;
+    ++cs.healTries;
+    cs.appliedMs = nowMs();
+    guest.post(drakan_input::GuestCall(drakan_region::guestAddress(kChestSpewFn)).arg(comp));
+    coopLog("client: chest key %08x: %d loot items never flew out, spewing again (try %d)", key, parked, cs.healTries);
+}
+
+// Both sides, every refresh: report a chest that opened here, open one the partner opened.
+void pollChests(drakan_input::IGuest& guest, uint8_t* rdram) {
+    const uint64_t now = nowMs();
+    const RdramMemory mem(rdram);
+    for (auto& [h, o] : g_obj) {
+        if (o.classId != kChestClass || !world::isLiveHandle(mem, g_globals, h, o.ref - 1))
+            continue;
+        const uint32_t comp = chestComp(rdram, h);
+        if (!comp)
+            continue;
+        g_chestByComp[comp] = o.key;
+        ChestSync& cs = g_chest[o.key];
+        healChest(guest, rdram, h, comp, cs, o.key);
+        const int32_t st = static_cast<int32_t>(rd32(rdram, comp + 0x10));
+        if (!cs.inited) {
+            cs.inited = true;
+            if (st == kStateChestOpen)
+                cs.openSeen = true; // placed open: nothing to replicate
+            if (g_probe) {
+                const uint32_t cell = goldBudgetCell(rdram, h);
+                coopLog("chest %08x key %08x: state %d, lid ref %u, side vector %.2f %.2f %.2f, delay %.2f, gold %d", h,
+                        o.key, st, rd32(rdram, comp + 0x18) & 0xffffu, rdF(rdram, comp + 0x1c), rdF(rdram, comp + 0x20),
+                        rdF(rdram, comp + 0x24), rdF(rdram, comp + 0x14),
+                        cell ? static_cast<int32_t>(rd32(rdram, cell)) : -1);
+            }
+        }
+        if (st == kStateChestOpen && !cs.openSeen) {
+            cs.openSeen = true;
+            cs.opened = true;
+            const struct {
+                uint32_t key;
+                int32_t state;
+            } p{o.key, kStateChestOpen};
+            pushReliable(kMsgObjState, &p, sizeof p);
+            rebaseLoot(rdram, h, now);
+            coopLog("%s: chest %08x (key %08x) opened by the local player -> peer", g_host ? "host" : "client", h,
+                    o.key);
+        } else if (cs.pendingOpen) {
+            if (st == kStateChestOpen) {
+                cs.pendingOpen = false;
+                cs.openSeen = true;
+            } else if (!guest.postBusy()) {
+                // The engine's own open routine: state 2, awake, and the message that swings the lid.
+                cs.pendingOpen = false;
+                cs.openSeen = true;
+                cs.opened = true;
+                guest.post(drakan_input::GuestCall(drakan_region::guestAddress(kChestOpenFn)).arg(comp));
+                rebaseLoot(rdram, h, now);
+                coopLog("%s: chest %08x (key %08x) was opened by the partner: opening it", g_host ? "host" : "client",
+                        h, o.key);
+            }
+        }
+    }
+}
+
+// Doors: report one that closed again (the partner stops forcing its copy open).
+void pollDoors(const uint8_t* rdram) {
+    const RdramMemory mem(rdram);
+    for (auto& [h, o] : g_obj) {
+        if (o.classId != 0x10013u || !world::isLiveHandle(mem, g_globals, h, o.ref - 1))
+            continue;
+        const uint32_t inner = rd32(rdram, h + 0xfc);
+        const uint32_t q = ramPtr(inner) ? rd32(rdram, inner + 0x10) : 0;
+        if (!ramPtr(q))
+            continue;
+        const int now = rd32(rdram, q + 0x10) == static_cast<uint32_t>(kStateDoorOpen) ? 1 : 0;
+        if (o.doorState >= 0 && now != o.doorState) {
+            coopLog("%s: door %08x (key %08x) %s", g_host ? "host" : "client", h, o.key,
+                    now ? "opened" : "closed again");
+            if (!now) {
+                const struct {
+                    uint32_t key;
+                    int32_t state;
+                } p{o.key, kStateDoorClosed};
+                pushReliable(kMsgObjState, &p, sizeof p);
+            }
+        }
+        o.doorState = now;
+    }
+}
+
+// Taken pickups that were reported before the loot they name existed here (late join, a spew that has not happened
+// yet).
+void applyPendingGone(drakan_input::IGuest& guest, uint8_t* rdram) {
+    for (auto it = g_pendingGone.begin(); it != g_pendingGone.end();) {
+        auto oi = g_objKeyToHandle.find(*it);
+        if (oi == g_objKeyToHandle.end()) {
+            ++it;
+            continue;
+        }
+        Obj& o = g_obj[oi->second];
+        if (!o.gone && world::isLiveHandle(RdramMemory(rdram), g_globals, oi->second, o.ref - 1)) {
+            o.gone = true;
+            destroyActor(guest, rdram, oi->second);
+            coopLog("%s: pickup %08x (class %x key %08x) was taken by the partner earlier: removed",
+                    g_host ? "host" : "client", oi->second, o.classId, o.key);
+        }
+        it = g_pendingGone.erase(it);
+    }
 }
 
 // Pickups that left the registry: tell the other side (it removes its copy); both directions.
@@ -1399,6 +1888,10 @@ void watchObjects(const uint8_t* rdram) {
             if (o.pos0[0] == 0.0f && o.pos0[1] == 0.0f && o.pos0[2] == 0.0f) { // spawned at the origin, not placed yet
                 if (p[0] != 0.0f || p[2] != 0.0f)
                     std::memcpy(o.pos0, p, 12);
+                continue;
+            }
+            if (o.rebaseUntilMs > nowMs()) { // loot flying out of a chest that just opened: not "taken"
+                std::memcpy(o.pos0, p, 12);
                 continue;
             }
             if (std::hypot(p[0] - o.pos0[0], p[2] - o.pos0[2]) < 3000.0f)
@@ -1424,12 +1917,25 @@ void hostTick(drakan_input::IGuest& guest, uint8_t* rdram, uint32_t levelHash) {
     if (!g_keyedThisLevel)
         keyCreatures(g_snap);
     scanNewObjects();
+    applyPendingGone(guest, rdram);
     watchObjects(rdram);
+    pollChests(guest, rdram);
+    pollDoors(rdram);
     if (g_syncPending) {
         g_syncPending = false;
+        const uint32_t askers = std::exchange(g_syncRequests, 0u);
         uint32_t doors = 0;
         for (uint32_t key : g_goneKeys)
             pushReliable(kMsgObjGone, &key, 4);
+        // Creatures that died before the late joiner keyed the level (a corpse that left the registry is not in the
+        // stream any more): their deaths again. The relay is broadcast, so the players already here ignore the repeat
+        // (a proxy that is dying, or a key they never had).
+        uint32_t deaths = 0;
+        for (auto& [h, k] : g_keyed)
+            if (k.deadSent) {
+                pushReliable(kMsgDied, &k.key, 4);
+                ++deaths;
+            }
         for (auto& [h, o] : g_obj) {
             const uint32_t inner = rd32(rdram, h + 0xfc);
             const uint32_t q = ramPtr(inner) ? rd32(rdram, inner + 0x10) : 0;
@@ -1443,7 +1949,21 @@ void hostTick(drakan_input::IGuest& guest, uint8_t* rdram, uint32_t levelHash) {
                 ++doors;
             }
         }
-        coopLog("host: catch-up sent: %zu taken pickups, %u open doors", g_goneKeys.size(), doors);
+        uint32_t chests = 0;
+        for (auto& [key, cs] : g_chest) {
+            if (!cs.opened)
+                continue;
+            const struct {
+                uint32_t key;
+                int32_t state;
+            } st{key, kStateChestOpen};
+            pushReliable(kMsgObjState, &st, sizeof st);
+            if (cs.firstCall)
+                sendSpew(key, cs.seed, cs.carry, cs.budget);
+            ++chests;
+        }
+        coopLog("host: catch-up sent (%u request%s): %zu taken pickups, %u open doors, %u open chests, %u deaths",
+                askers, askers == 1 ? "" : "s", g_goneKeys.size(), doors, chests, deaths);
     }
     if (g_probe)
         probeDoors(rdram);
@@ -1545,7 +2065,10 @@ void clientTick(drakan_input::IGuest& guest, uint8_t* rdram, uint32_t levelHash,
         g_lastRefresh = nowM;
         if (refreshSnapshot(rdram))
             scanNewObjects();
+        applyPendingGone(guest, rdram);
         watchObjects(rdram);
+        pollChests(guest, rdram);
+        pollDoors(rdram);
         if (g_probe)
             probeDoors(rdram);
         wrapDoors(rdram);
@@ -1678,6 +2201,9 @@ struct TestTo { // DRAKAN_COOP_TEST_TO=<class hex>,<dist>@<file>: stand <dist> i
     uint32_t cls = 0;
     float dist = 0;
     std::string file;
+    uint32_t flipMs = 0; // DRAKAN_COOP_TEST_TO_FLIP: stand on the other side of the object every <flipMs> (3 times)
+    int flips = 0;
+    uint64_t lastMs = 0;
 } g_to;
 std::string g_takeFile;
 bool g_takeDone = false;
@@ -1734,6 +2260,11 @@ void testAids(drakan_input::IGuest& guest, uint8_t* rdram) {
             coopLog("test: teleported the local player to %.0f %.0f %.0f", g_goto.p[0], g_goto.p[1], g_goto.p[2]);
         }
     }
+    if (g_to.done && g_to.flipMs && g_to.flips < 3 && nowMs() - g_to.lastMs > g_to.flipMs) {
+        g_to.done = false;
+        g_to.dist = -g_to.dist;
+        ++g_to.flips;
+    }
     if (g_to.want && !g_to.done && g_keyedThisLevel && fileTick % 20 == 5) {
         if (std::FILE* f = std::fopen(g_to.file.c_str(), "rb")) {
             std::fclose(f);
@@ -1761,6 +2292,15 @@ void testAids(drakan_input::IGuest& guest, uint8_t* rdram) {
                     fx = -g_moveDir[0];
                     fz = -g_moveDir[1];
                 }
+                if (const uint32_t comp = g_to.cls == kChestClass ? chestComp(rdram, bestH) : 0) {
+                    // A chest opens for a player on its open side (the component's vector, +0x1c): stand along it.
+                    const float vx = rdF(rdram, comp + 0x1c), vz = rdF(rdram, comp + 0x24);
+                    const float vl = std::hypot(vx, vz);
+                    if (vl > 1e-3f) {
+                        fx = vx / vl;
+                        fz = vz / vl;
+                    }
+                }
                 guest.writeF(me + 0x14, rdF(rdram, bestH + 0x14) + g_to.dist * fx);
                 guest.writeF(me + 0x18, rdF(rdram, bestH + 0x18) + 60.0f);
                 guest.writeF(me + 0x1c, rdF(rdram, bestH + 0x1c) + g_to.dist * fz);
@@ -1774,6 +2314,7 @@ void testAids(drakan_input::IGuest& guest, uint8_t* rdram) {
                         rdF(rdram, me + 0x24), rdF(rdram, me + 0x28), rdF(rdram, me + 0x38), rdF(rdram, me + 0x3c),
                         rdF(rdram, me + 0x40));
                 g_to.done = true;
+                g_to.lastMs = nowMs();
             }
         }
     }
@@ -1867,15 +2408,11 @@ bool enabled() {
 }
 
 void install(PS2Runtime& rt) {
-    const char* host = std::getenv("DRAKAN_COOP_HOST");
-    const char* conn = std::getenv("DRAKAN_COOP_CONNECT");
-    const bool wantHost = host && *host, wantConn = conn && *conn;
-    if (!wantHost && !wantConn)
+    // Co-op rides on the multiplayer session (drakan_netplay): the hooks go in with the multiplayer module and stay
+    // idle until the session is a Coop match that is playing (syncLink). DRAKAN_COOP=0 leaves them out.
+    const char* off = std::getenv("DRAKAN_COOP");
+    if (!drakan_netplay::wanted() || (off && off[0] == '0'))
         return;
-    if (wantHost && wantConn) {
-        coopLog("set only one of DRAKAN_COOP_HOST / DRAKAN_COOP_CONNECT");
-        return;
-    }
     if (!drakan_lifecycle::installed()) {
         coopLog("disabled: lifecycle hooks are not installed (unsupported disc profile)");
         return;
@@ -1890,23 +2427,6 @@ void install(PS2Runtime& rt) {
         return;
     }
     g_globals = g;
-    if (wantHost) {
-        g_host = true;
-        g_port = static_cast<uint16_t>(std::strtol(host, nullptr, 10));
-    } else {
-        const std::string c = conn;
-        const size_t colon = c.rfind(':');
-        if (colon == std::string::npos || colon == 0) {
-            coopLog("bad DRAKAN_COOP_CONNECT '%s' (want host:port)", conn);
-            return;
-        }
-        g_connectHost = c.substr(0, colon);
-        g_port = static_cast<uint16_t>(std::strtol(c.c_str() + colon + 1, nullptr, 10));
-    }
-    if (!g_port) {
-        coopLog("bad port");
-        return;
-    }
     if (const char* m = std::getenv("DRAKAN_COOP_MODE"))
         g_follow = std::string(m) != "mark";
     if (const char* s = std::getenv("DRAKAN_COOP_SWALLOW"))
@@ -1966,13 +2486,14 @@ void install(PS2Runtime& rt) {
             g_to.file = file;
         }
     }
+    if (const char* s = std::getenv("DRAKAN_COOP_TEST_TO_FLIP"))
+        g_to.flipMs = static_cast<uint32_t>(std::strtoul(s, nullptr, 10));
     if (const char* s = std::getenv("DRAKAN_COOP_TEST_HURT_SCALE"))
         g_hurtScale = std::strtof(s, nullptr);
     if (const char* s = std::getenv("DRAKAN_COOP_TEST_CLAIM"))
         g_claimEveryMs = static_cast<uint32_t>(std::strtoul(s, nullptr, 10));
     g_rt = &rt;
-    for (uint32_t a = 0x100100u; a < 0x100600u && (!g_handlerSlot || !g_aiSlot || !g_deadSlot || !g_chestSlot);
-         a += 4) {
+    for (uint32_t a = 0x100100u; a < 0x100600u && (!g_handlerSlot || !g_aiSlot || !g_deadSlot); a += 4) {
         if (rt.hasFunction(a))
             continue;
         if (!g_handlerSlot) {
@@ -1981,14 +2502,11 @@ void install(PS2Runtime& rt) {
         } else if (!g_aiSlot) {
             if (rt.registerFunction(a, &aiHandler))
                 g_aiSlot = a;
-        } else if (!g_deadSlot) {
-            if (rt.registerFunction(a, &deadHandler))
-                g_deadSlot = a;
-        } else if (rt.registerFunction(a, &chestHandler)) {
-            g_chestSlot = a;
+        } else if (rt.registerFunction(a, &deadHandler)) {
+            g_deadSlot = a;
         }
     }
-    if (!g_handlerSlot || !g_aiSlot || !g_deadSlot || !g_chestSlot) {
+    if (!g_handlerSlot || !g_aiSlot || !g_deadSlot) {
         coopLog("disabled: no free function slot");
         return;
     }
@@ -1998,6 +2516,12 @@ void install(PS2Runtime& rt) {
     }
     if (!g_origSend)
         coopLog("warning: message hook not installed (combat and object sync off)");
+    if (const uint32_t spewAddr = drakan_region::guestAddress(kChestSpewFn)) {
+        if ((g_origSpew = rt.lookupFunction(spewAddr)))
+            rt.replaceFunction(spewAddr, &hookSpew);
+    }
+    if (!g_origSpew)
+        coopLog("warning: chest spew hook not installed (chest loot is not shared)");
     using drakan_lifecycle::Kind;
     auto before = [](const drakan_lifecycle::Event&) {
         g_levelHash.store(0);
@@ -2012,16 +2536,82 @@ void install(PS2Runtime& rt) {
         g_levelHash.store(playable ? fnv32(e.level) : 0);
         coopLog("level '%s' loaded (%s)", e.level.c_str(), playable ? "playable" : "cut scene, no co-op");
     });
-    g_enabled.store(true);
+    g_installed.store(true);
     g_thread = std::thread(netThread);
     std::atexit(stopThread);
-    coopLog("enabled: %s %s:%u, %s, swallow mask %x, retarget %d, replay types %zu", g_host ? "host on" : "client of",
-            g_host ? "0.0.0.0" : g_connectHost.c_str(), g_port, g_follow ? "follow" : "mark", g_swallow, g_retarget,
-            g_replayTypes.size());
+    coopLog("installed (idle until a Coop match plays): %s, swallow mask %x, retarget %d, replay types %zu",
+            g_follow ? "follow" : "mark", g_swallow, g_retarget, g_replayTypes.size());
+}
+
+// EE thread: this player became the owner of the creature world while the match runs (the old owner left or timed
+// out, see MatchServer host migration). The level is already loaded and keyed as a guest: the proxies become the
+// real creatures. Their own behaviour handlers come back (hostTick then wraps them with the AI handler like any
+// owner's creatures), HP stays what the last stream wrote, and the first hostTick afterwards streams them. Creatures
+// that were already dying keep their own handler and are announced once more by hostTick's death detection.
+void handoverToAuthority(uint8_t* rdram) {
+    uint32_t restored = 0, dying = 0;
+    if (g_keyedThisLevel)
+        for (auto& [h, k] : g_keyed) {
+            if (k.dying) {
+                ++dying; // its own handler is back already; k.swapped stays set so hostTick leaves it alone
+                continue;
+            }
+            if (k.swapped && restoreHandler(rdram, h))
+                ++restored;
+            k.swapped = false; // hostTick installs the AI wrapper
+            k.matched = false;
+            k.deadSent = false;
+            k.absentCount = 0;
+            k.lastClaimMs = 0;
+        }
+    if (g_life.dead) { // the local player was down waiting for the old owner's respawn: get up now
+        endDeath(rdram);
+        setPlayerHp(rdram, playerHpMax(rdram));
+        g_life = Life();
+    }
+    g_pendingHurt = 0;
+    g_claims.clear(); // claims queued for an owner that is gone
+    g_syncPending = g_syncSent = false;
+    g_lastHostSend = 0;
+    {
+        std::lock_guard<std::mutex> l(g_s.m);
+        g_s.inbox.clear(); // the old owner's last snapshots are not a stream to follow any more
+        g_s.inLevel = 0;
+    }
+    g_host = true;
+    coopLog("handover: this player owns the creature world now (%u creatures made real, %u already dying, level %s)",
+            restored, dying, g_keyedThisLevel ? "keyed" : "not keyed yet");
+}
+
+// EE thread: follow the session. A Coop match that is playing switches the module on (as the owner of the creature
+// world or as a guest); anything else switches it off and drops the state of that match.
+void syncLink(uint8_t* rdram) {
+    static uint64_t session = ~0ull;
+    const drakan_netplay::CoopLink l = drakan_netplay::coopLink();
+    const bool want = l.active;
+    const bool on = g_enabled.load(std::memory_order_relaxed);
+    if (want && (!on || session != l.session)) {
+        g_host = l.host;
+        session = l.session;
+        g_enabled.store(true);
+        ++g_loadEpoch; // key the level afresh for this match
+        coopLog("co-op on: %s (player %d, creature world owned by player %d, %d players)", g_host ? "host" : "client",
+                l.self, l.authority, l.players);
+    } else if (want && on && l.host && !g_host && rdram) {
+        handoverToAuthority(rdram); // the server named this player the new owner
+    } else if (!want && on) {
+        g_enabled.store(false);
+        forgetLevel();
+        session = ~0ull;
+        coopLog("co-op off");
+    }
 }
 
 void beforePadMgr(drakan_input::IGuest& guest, uint8_t* rdram) {
-    if (!g_enabled.load(std::memory_order_relaxed) || !rdram)
+    if (!g_installed.load(std::memory_order_relaxed) || !rdram)
+        return;
+    syncLink(rdram);
+    if (!g_enabled.load(std::memory_order_relaxed))
         return;
     g_rdramForLog = rdram;
     static uint64_t epoch = ~0ull;

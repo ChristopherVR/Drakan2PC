@@ -30,6 +30,10 @@
 #ifdef PS2X_HAVE_GSR
 #include <gsr/gsr.h>
 #include "drakan_dlss.h"
+#ifdef PS2X_HAVE_GSR
+#include "drakan_arena.h"
+#include "drakan_modes.h"
+#endif
 #include "drakan_netplay.h"
 #endif
 #include "spu2/AudioOutput.h"
@@ -46,11 +50,11 @@
 #include "drakan_dual_wield.h"
 #include "drakan_debug_menu.h"
 #include "drakan_lifecycle.h"
+#include "drakan_foliage.h"
 #include "drakan_levelchange.h"
 #include "drakan_region.h"
 #include "drakan_movie_policy.h"
 #include "drakan_input_flow.h"
-#include "drakan_foliage.h"
 #if defined(PS2X_HAVE_DRAKAN_INPUT) && defined(_WIN32)
 #include "drakan_window.h"
 #include "input/DrakanInput.h"
@@ -65,6 +69,8 @@
 #include <condition_variable>
 #include <cstdarg>
 #include <cstdio>
+#include <fstream>
+#include <iterator>
 #include <cstdlib>
 #include <cstring>
 #include <deque>
@@ -1173,13 +1179,13 @@ void applyDrakanOverrides(PS2Runtime& runtime) {
         drakan_dual_wield::install(runtime);
     drakan_lifecycle::install(runtime);   // engine lifecycle events (PAL addresses; no-op elsewhere)
     drakan_levelchange::install(runtime); // host-triggered level change through the exit triggers (PAL)
+    drakan_foliage::install(runtime);     // living foliage: wind sway for grass and trees, off by default (PAL)
     if constexpr (supports(Feature::SoundDebug))
         soundDebugInstall(runtime);
     if constexpr (supports(Feature::AdvancedInput)) {
 #if defined(PS2X_HAVE_DRAKAN_INPUT)
         drakanInstallInput(runtime);
 #else
-    drakan_foliage::install(runtime);     // living foliage: wind sway for grass and trees, off by default (PAL)
         drakanInstallPortableCamera(runtime);
 #endif
     }
@@ -1283,9 +1289,66 @@ void applyDrakanOverrides(PS2Runtime& runtime) {
         drakan_netplay::setLevelRedirectFn(
             [files](const std::string& from, const std::string& to) { files->setLevelRedirect(from, to); });
         std::vector<std::string> extra;
-        if (g_mods)
+        if (g_mods) {
             for (const hle::mods::ExtraLevel& l : g_mods->extraLevels())
                 extra.push_back(l.name);
+            std::string names; // the loaded packs, for the server list (ServerInfo.mods)
+            for (const hle::mods::ModStatus& st : g_mods->status())
+                if (st.state == hle::mods::ModState::Loaded) {
+                    if (!names.empty())
+                        names += ",";
+                    names += st.hasManifest && !st.manifest.name.empty() ? st.manifest.name : st.key;
+                }
+            drakan_netplay::setLoadedMods(names);
+        }
+        // Multiplayer maps: the pack's `maps/*.ini` join the built-in list (drakan_arena), a map is installed when its
+        // base level is a disc level or a level of a loaded pack.
+        std::vector<std::string> installed = {"Level 1A - Surdana",
+                                              "Level 1B - Kragmor",
+                                              "Level 1C - Catacombs",
+                                              "Level 1D - City of the Damned",
+                                              "Level 1E - Inquisitor's Lair",
+                                              "Level 2 - Shadowmire",
+                                              "Level 3A - Andrellian Isles",
+                                              "Level 3B - Crystal Mine",
+                                              "Level 4A - Ravenshold",
+                                              "Level 4B - Northern Tundra",
+                                              "Level 5 - Shiverbane",
+                                              "Level 6 - Valley of the Fallen",
+                                              "Level 6 - Transition to Desert",
+                                              "Level 8 - Stratos"};
+        installed.insert(installed.end(), extra.begin(), extra.end());
+        drakan_arena::setInstalledLevels(std::move(installed));
+        drakan_modes::addModes(drakan::net::builtinArenaText(), "built-in");
+        {
+            std::ifstream own(drakan_cfg::exeDir() + "mp_maps.ini");
+            if (own)
+                drakan_modes::addModes(std::string(std::istreambuf_iterator<char>(own), {}), "mp_maps.ini");
+        }
+        if (g_mods) {
+            for (const auto& [source, text] : g_mods->mapFiles()) {
+                drakan_arena::addMaps(text, source);
+                drakan_modes::addModes(text, source);
+            }
+            // Map pictures of the packs: previews/mods/<safe map name>.png next to the exe (written when missing or
+            // different; the menu looks at previews/<name>.png first)
+            std::error_code ec;
+            const std::filesystem::path pdir = std::filesystem::path(drakan_cfg::exeDir()) / "previews" / "mods";
+            for (const auto& [name, png] : g_mods->previewFiles()) {
+                std::string safe;
+                for (char c : name)
+                    safe += (std::isalnum(static_cast<unsigned char>(c)) || c == '-' || c == '_') ? c : '_';
+                const std::filesystem::path f = pdir / (safe + ".png");
+                std::vector<char> have;
+                if (std::ifstream in(f, std::ios::binary); in)
+                    have.assign(std::istreambuf_iterator<char>(in), {});
+                if (have.size() == png.size() && std::equal(have.begin(), have.end(), png.begin()))
+                    continue;
+                std::filesystem::create_directories(pdir, ec);
+                std::ofstream(f, std::ios::binary).write(reinterpret_cast<const char*>(png.data()),
+                                                         static_cast<std::streamsize>(png.size()));
+            }
+        }
         drakan_netplay::setExtraLevels(std::move(extra));
     }
 #endif

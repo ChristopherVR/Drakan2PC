@@ -1,5 +1,6 @@
 // drakan_server: headless dedicated match server. Runs MatchServer over UdpTransport at a fixed tick.
 // No game, no ISO: it only tracks match state (see docs/reference/netcode.md).
+#include "net/ArenaMaps.h"
 #include "net/MatchServer.h"
 #include "net/UdpTransport.h"
 
@@ -10,8 +11,11 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <fstream>
+#include <sstream>
 #include <string>
 #include <thread>
+#include <vector>
 
 namespace {
 
@@ -28,7 +32,9 @@ void usage() {
               "  --password TEXT   require this password to join\n"
               "  --max-players N   1..16 (default 8)\n"
               "  --mode dm|tdm|coop deathmatch, team deathmatch or co-op (default dm)\n"
-              "  --level NAME      level name clients should load (default \"\")\n"
+              "  --level NAME      level name clients should load (default \"\"); a multiplayer map name or id\n"
+              "                    (built in or from --maps) also gives the arena spawn points and pickups\n"
+              "  --maps FILE       extra multiplayer map definitions (the mp_maps.ini format)\n"
               "  --frag-limit N    kills to win, 0 = none (default 20)\n"
               "  --time-limit SEC  match length, 0 = none (default 600)\n"
               "  --auto-start N    start the match once N players joined (default 2, 0 = never)\n"
@@ -56,6 +62,7 @@ int main(int argc, char** argv) {
     unsigned long long port = kDefaultPort;
     unsigned long long tickRate = 30;
 
+    std::vector<std::string> mapFiles;
     for (int i = 1; i < argc; ++i) {
         const std::string a = argv[i];
         const auto value = [&]() -> const char* {
@@ -123,6 +130,8 @@ int main(int argc, char** argv) {
             if (!parseUint(value(), 60000, v) || v < 500)
                 return std::fprintf(stderr, "bad --respawn-ms (500..60000)\n"), 2;
             opt.config.respawnDelayMs = static_cast<uint16_t>(v);
+        } else if (a == "--maps") {
+            mapFiles.emplace_back(value());
         } else if (a == "--max-hit-range") {
             opt.maxHitRange = static_cast<float>(std::atof(value()));
         } else {
@@ -132,6 +141,39 @@ int main(int argc, char** argv) {
         }
     }
     opt.tickRateHz = static_cast<uint8_t>(tickRate);
+
+    { // multiplayer maps: the built-in list, then the --maps files (a later definition of an id wins)
+        ArenaCatalog maps;
+        std::vector<std::string> errors;
+        maps.add(builtinArenaText(), "built-in", &errors);
+        for (const std::string& f : mapFiles) {
+            std::ifstream in(f, std::ios::binary);
+            if (!in) {
+                std::fprintf(stderr, "cannot read --maps %s\n", f.c_str());
+                return 2;
+            }
+            std::stringstream ss;
+            ss << in.rdbuf();
+            maps.add(ss.str(), f, &errors);
+        }
+        for (const std::string& e : errors)
+            std::fprintf(stderr, "maps: %s\n", e.c_str());
+        if (const ArenaDef* arena = maps.find(opt.config.level)) {
+            if (opt.config.mode == MatchMode::Coop ||
+                (opt.config.mode == MatchMode::TeamDeathmatch && !arena->teamDeathmatch) ||
+                (opt.config.mode == MatchMode::Deathmatch && !arena->deathmatch)) {
+                std::fprintf(stderr, "map '%s' does not support this mode\n", arena->name.c_str());
+                return 2;
+            }
+            opt.hasArena = true;
+            opt.arena = *arena;
+            opt.config.level = arena->name;
+            opt.config.startHealth = arena->startHealth;
+            opt.config.maxPlayers = std::min<uint8_t>(opt.config.maxPlayers, arena->maxPlayers);
+            std::printf("drakan_server: multiplayer map '%s' (%s): %zu spawn points, %zu pickups\n",
+                        arena->name.c_str(), arena->level.c_str(), arena->spawns.size(), arena->pickups.size());
+        }
+    }
 
     UdpTransport transport;
     if (!transport.available() || !transport.listen(static_cast<uint16_t>(port))) {

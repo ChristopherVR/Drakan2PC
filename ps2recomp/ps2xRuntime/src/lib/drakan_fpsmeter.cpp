@@ -32,6 +32,7 @@ namespace {
 std::atomic<int> g_mode{0};
 std::atomic<uint64_t> g_worlds{0};
 std::atomic<int> g_corner{TopLeft};
+std::atomic<int64_t> g_avoidTopUntilMs{0}; // steady clock ms: a full screen page asked for the counter to stay low
 std::atomic<void*> g_ee{nullptr}, g_gs{nullptr};
 
 using Clock = std::chrono::steady_clock;
@@ -164,8 +165,17 @@ int cycleMode() {
 void setCorner(int c) {
     g_corner.store(std::clamp(c, 0, 3));
 }
+int64_t steadyMs() {
+    return std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now().time_since_epoch())
+        .count();
+}
+void setAvoidTop(bool avoid) {
+    g_avoidTopUntilMs.store(avoid ? steadyMs() + 400 : 0); // the page calls this every frame it is up
+}
 int corner() {
-    return g_corner.load();
+    const int c = g_corner.load();
+    // A full screen page (the multiplayer menu, the scoreboard) owns the top: the counter sits at the bottom then.
+    return steadyMs() < g_avoidTopUntilMs.load() && c < BottomLeft ? c + 2 : c;
 }
 void setCornerText(const char* t) {
     std::string s = t ? t : "";

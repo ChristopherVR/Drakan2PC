@@ -149,7 +149,7 @@ void Reject::write(ByteWriter& w) const {
     w.str(message);
 }
 bool Reject::read(ByteReader& r) {
-    readEnum(r, reason, 4);
+    readEnum(r, reason, 5);
     serverVersion = r.u16();
     message = r.str(kMaxRejectMessageLength);
     return r.ok();
@@ -183,6 +183,7 @@ void PlayerState::write(ByteWriter& w) const {
     w.u32(weaponLeft);
     w.u8(mounted ? 1 : 0);
     w.u32(levelHash);
+    w.u16(character);
 }
 bool PlayerState::read(ByteReader& r) {
     player = r.u8();
@@ -205,6 +206,7 @@ bool PlayerState::read(ByteReader& r) {
         r.fail();
     mounted = flags == 1;
     levelHash = r.u32();
+    character = r.u16();
     return r.ok();
 }
 
@@ -319,7 +321,7 @@ bool PlayerLeave::read(ByteReader& r) {
 bool peekType(const uint8_t* data, size_t size, MsgType& out) {
     if (size == 0)
         return false;
-    if (data[0] < static_cast<uint8_t>(MsgType::Hello) || data[0] > static_cast<uint8_t>(MsgType::LevelChange))
+    if (data[0] < static_cast<uint8_t>(MsgType::Hello) || data[0] > static_cast<uint8_t>(MsgType::Character))
         return false;
     out = static_cast<MsgType>(data[0]);
     return true;
@@ -359,6 +361,7 @@ void ServerInfo::write(ByteWriter& w) const {
     w.u8(players);
     w.u8(maxPlayers);
     w.u8(passwordProtected ? 1 : 0);
+    w.str(mods);
 }
 bool ServerInfo::read(ByteReader& r) {
     protocolVersion = r.u16();
@@ -372,6 +375,7 @@ bool ServerInfo::read(ByteReader& r) {
     maxPlayers = r.u8();
     const uint8_t pw = r.u8();
     passwordProtected = pw == 1;
+    mods = r.atEnd() ? std::string() : r.str(kMaxModsLength); // older servers stop after the password flag
     if (pw > 1 || maxPlayers < 1 || maxPlayers > kMaxPlayers || players > maxPlayers)
         r.fail();
     return r.ok();
@@ -504,6 +508,83 @@ bool LevelChange::read(ByteReader& r) {
     destHash = r.u32();
     for (float& v : exit)
         v = r.f32();
+    return r.ok();
+}
+
+// ---- PvP arena pickups ----
+void PickupClaim::write(ByteWriter& w) const {
+    w.u16(index);
+}
+bool PickupClaim::read(ByteReader& r) {
+    index = r.u16();
+    return r.ok() && index != kAllPickups;
+}
+void PickupState::write(ByteWriter& w) const {
+    w.u16(index);
+    w.u8(taken ? 1 : 0);
+    w.u8(player);
+}
+bool PickupState::read(ByteReader& r) {
+    index = r.u16();
+    const uint8_t t = r.u8();
+    taken = t != 0;
+    player = r.u8();
+    if (t > 1 || player > kMaxPlayers || (index == kAllPickups && taken))
+        r.fail();
+    return r.ok();
+}
+
+void Status::write(ByteWriter& w) const {
+    w.u32(token);
+    w.u8(static_cast<uint8_t>(countdown));
+    w.u32(countdownMs);
+    w.u8(static_cast<uint8_t>(std::min(pings.size(), kMaxStatusPlayers)));
+    for (size_t i = 0; i < pings.size() && i < kMaxStatusPlayers; ++i) {
+        w.u8(pings[i].player);
+        w.u16(pings[i].pingMs);
+        w.u16(pings[i].character);
+    }
+}
+bool Status::read(ByteReader& r) {
+    token = r.u32();
+    readEnum(r, countdown, 2);
+    countdownMs = r.u32();
+    const uint8_t n = r.u8();
+    if (n > kMaxStatusPlayers)
+        r.fail();
+    pings.clear();
+    for (uint8_t i = 0; i < n && r.ok(); ++i) {
+        PlayerPing p;
+        p.player = r.u8();
+        p.pingMs = r.u16();
+        p.character = r.u16();
+        if (p.player == kNoPlayer || p.player > kMaxPlayers)
+            r.fail();
+        pings.push_back(p);
+    }
+    return r.ok();
+}
+void StatusEcho::write(ByteWriter& w) const {
+    w.u32(token);
+}
+bool StatusEcho::read(ByteReader& r) {
+    token = r.u32();
+    return r.ok();
+}
+void SetCharacter::write(ByteWriter& w) const {
+    w.u16(character);
+}
+bool SetCharacter::read(ByteReader& r) {
+    character = r.u16();
+    return r.ok();
+}
+void Kick::write(ByteWriter& w) const {
+    w.u8(player);
+}
+bool Kick::read(ByteReader& r) {
+    player = r.u8();
+    if (player == kNoPlayer || player > kMaxPlayers)
+        r.fail();
     return r.ok();
 }
 

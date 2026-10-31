@@ -14,6 +14,7 @@
 #include "gameui/SettingsPages.h"
 #include "gameui/Dialog.h"
 #include "gameui/MapScreen.h"
+#include "gameui/Multiplayer.h"
 #include "gameui/PauseScreen.h"
 #include "gameui/SaveLoadScreen.h"
 #include "gameui/StripScreen.h"
@@ -367,6 +368,167 @@ int main(int argc, char** argv) {
         TitleScreen scr;
         scr.open();
         write(dir, "title_nosave_16x9", vp, "world", {}, scr.frame(fresh, {}, vp).draw);
+    }
+    {
+        // Multiplayer front end (synthetic arenas, servers and players; the maps' pictures are the generated sketches).
+        using namespace gameui::mp;
+        MpState mps;
+        mps.defaultName = "Rynn";
+        for (int i = 0; i < 6; ++i) {
+            LevelEntry e;
+            e.name = "Arena " + std::to_string(i);
+            e.title = std::string("Arena ") + char('A' + i);
+            e.arena = true;
+            e.maxPlayers = 8 + i % 3;
+            e.spawns = 8 + i;
+            e.modes = i == 3 ? 1u : 0u;
+            e.description = "A synthetic arena used for the offline layout check.";
+            e.custom = i == 5;
+            e.author = "demo pack";
+            mps.arenas.push_back(e);
+        }
+        for (int i = 0; i < 5; ++i) {
+            LanServer l;
+            l.host = "192.168.1." + std::to_string(10 + i);
+            l.port = 47800;
+            l.name = "Server " + std::to_string(i + 1);
+            l.level = mps.arenas[static_cast<size_t>(i)].name;
+            l.mode = i % 2 ? GameMode::TeamDeathmatch : GameMode::Deathmatch;
+            l.players = i + 1;
+            l.maxPlayers = 8;
+            l.passwordProtected = i == 2;
+            l.pingMs = 12 + i * 9;
+            l.mods = i == 4 ? "demo pack" : "";
+            mps.lan.push_back(l);
+        }
+        const auto mpPage = [&](const char* name, MpPage pg, const MpState& state, std::vector<UiKey> keys = {},
+                                Viewport v = {0, 0, 1920, 1080}) {
+            MultiplayerScreen m;
+            m.open(state);
+            m.setPage(pg, state);
+            UiInput none;
+            m.frame(state, none, v);
+            UiInput in;
+            in.keys = keys;
+            write(dir, name, v, "title", {}, m.frame(state, in, v).draw);
+        };
+        mpPage("mp_menu_16x9", MpPage::Menu, mps);
+        mpPage("mp_host_16x9", MpPage::Host, mps);
+        mpPage("mp_host_team_16x9", MpPage::Host, mps,
+               {UiKey::Down, UiKey::Down, UiKey::Down, UiKey::Down, UiKey::Down, UiKey::Down, UiKey::Down, UiKey::Down,
+                UiKey::Right, UiKey::Down, UiKey::Down, UiKey::Right});
+        mpPage("mp_join_16x9", MpPage::Join, mps, {UiKey::Down, UiKey::Down});
+        mpPage("mp_host_21x9", MpPage::Host, mps, {}, {0, 0, 2560, 1080});
+        mpPage("mp_join_4k", MpPage::Join, mps, {UiKey::Down}, {0, 0, 3840, 2160});
+        MpState lob = mps;
+        lob.conn = Conn::Connected;
+        lob.hosting = true;
+        lob.serverName = "Rynn's server";
+        lob.level = "Arena 1";
+        lob.maxPlayers = 8;
+        lob.fragLimit = 20;
+        lob.timeLimitMin = 10;
+        lob.roster = {{1, "Rynn", 0, true, true, true, 0, 0, 0, 12, 0},
+                      {2, "Arokh", 1, false, false, false, 0, 0, 1, 31, 0},
+                      {3, "Wartok", 0, true, false, false, 0, 0, 3, 48, 0}};
+        lob.chat = {{"Arokh", "ready when you are", 0}, {"", "Wartok joined the game", 0}};
+        mpPage("mp_lobby_16x9", MpPage::Lobby, lob);
+        lob.mode = GameMode::TeamDeathmatch;
+        lob.countdownSec = 3;
+        mpPage("mp_lobby_team_16x9", MpPage::Lobby, lob);
+        {
+            MpState co = lob;
+            co.mode = GameMode::Coop;
+            co.hosting = false;
+            co.countdownSec = -1;
+            co.roster[0].characterName = "Rynn";
+            co.roster[1].characterName = "Wartok";
+            co.roster[2].characterName = "Sera";
+            co.selfCharacter = 1;
+            mpPage("mp_lobby_coop_16x9", MpPage::Lobby, co);
+            HudState ch;
+            ch.mode = GameMode::Coop;
+            ch.now = 100;
+            ch.serverName = "Co-op party";
+            ch.level = "Level 1A - Surdana";
+            for (int i = 0; i < 4; ++i) {
+                HudPartner q;
+                q.id = i + 2;
+                q.name = i == 0 ? "Arokh" : "Partner " + std::to_string(i + 1);
+                q.character = i % 2 ? "Sera" : "Wartok";
+                q.hpFrac = 0.9f - 0.25f * static_cast<float>(i);
+                q.down = i == 2;
+                q.respawnInSec = 6;
+                q.markerValid = true;
+                q.onScreen = i < 2;
+                q.markerX = 0.35f + 0.25f * static_cast<float>(i);
+                q.markerY = 0.45f;
+                q.dirDeg = i == 2 ? 200.0f : 20.0f;
+                q.distance = 14.0f + 9.0f * static_cast<float>(i);
+                ch.partners.push_back(q);
+            }
+            write(dir, "mp_coop_hud_16x9", vp, "world", {}, drawHud(ch, vp, ScreenConfig{}));
+            for (int i = 0; i < 4; ++i) {
+                RosterRow r;
+                r.id = i + 1;
+                r.name = i == 0 ? "Rynn" : "Partner " + std::to_string(i);
+                r.self = i == 0;
+                r.kills = 31 - i * 6;
+                r.deaths = i;
+                r.pingMs = 10 + i * 8;
+                r.timeSec = 900 + i;
+                r.characterName = i == 0 ? "Rynn" : "Wartok";
+                ch.roster.push_back(r);
+            }
+            ch.scoreboard = true;
+            write(dir, "mp_coop_scoreboard_16x9", vp, "world", {}, drawHud(ch, vp, ScreenConfig{}));
+            ch.scoreboard = false;
+            ch.results = true;
+            ch.levelComplete = true;
+            ch.timeLeftSec = 912;
+            ch.resultsText = "Next level in 8 seconds";
+            write(dir, "mp_coop_results_16x9", vp, "world", {}, drawHud(ch, vp, ScreenConfig{}));
+        }
+        // HUD
+        HudState hs;
+        hs.serverName = "Rynn's server";
+        hs.level = "Arena B";
+        hs.fragLimit = 20;
+        hs.timeLeftSec = 222;
+        hs.now = 100;
+        for (int i = 0; i < 8; ++i) {
+            RosterRow r;
+            r.id = i + 1;
+            r.name = i == 0 ? "Rynn" : "Player " + std::to_string(i + 1);
+            r.self = i == 0;
+            r.team = i % 2;
+            r.kills = 14 - i * 2;
+            r.deaths = i + 3;
+            r.pingMs = 20 + i * 7;
+            r.timeSec = 540 + i * 11;
+            hs.roster.push_back(r);
+        }
+        hs.kills = {{"Rynn", "Player 2", "Sword", 98, true, false}, {"Player 3", "Rynn", "Bow", 99, false, true}};
+        hs.chat = {{"Player 2", "nice one", 97}, {"Rynn", "thanks", 98.5}};
+        hs.status = "3:42 left   First to 20";
+        write(dir, "mp_hud_16x9", vp, "world", {}, drawHud(hs, vp, ScreenConfig{}));
+        hs.scoreboard = true;
+        write(dir, "mp_scoreboard_ffa_16x9", vp, "world", {}, drawHud(hs, vp, ScreenConfig{}));
+        hs.mode = GameMode::TeamDeathmatch;
+        hs.teamKills[0] = 38;
+        hs.teamKills[1] = 31;
+        write(dir, "mp_scoreboard_team_16x9", vp, "world", {}, drawHud(hs, vp, ScreenConfig{}));
+        hs.scoreboard = false;
+        hs.results = true;
+        hs.resultsText = "Back to the lobby in 10 seconds";
+        write(dir, "mp_results_16x9", vp, "world", {}, drawHud(hs, vp, ScreenConfig{}));
+        hs.results = false;
+        hs.alive = false;
+        hs.respawnInSec = 2.2;
+        hs.deathText = "Killed by Player 3 (Bow)";
+        hs.chatOpen = true;
+        hs.chatInput = "gg";
+        write(dir, "mp_death_16x9", vp, "world", {}, drawHud(hs, vp, ScreenConfig{}));
     }
     return 0;
 }

@@ -315,6 +315,28 @@ is remembered per (level, id)).
 Catacombs, Shadowmire (Rynn on the arrival marker, 70 to 180 fps), round trips and chains; the sweep table is in the journal (section 7).
 The walk-in path (touch event, queue, save screen, loading screen) was not scripted: the main-loop half is the same code as the fired path.
 
+## 11. Dragon (Arokh): spawn, mount, dismount, dragon sections (2026-10-31)
+
+Notes: [coop-characters journal](../journal/2026-10-31/coop-characters.md). Read from the Ghidra decompile, placements from
+the level data (`lvl_objects.py`), ids from the ODB; nothing here was changed in the guest.
+
+| Fact | Detail | Confidence |
+| --- | --- | --- |
+| Class | `0x1001c` ("Dragon", SYSTEM.ODB class 2656, resource `0x20a60`, model 3889), handler `0x270ba0`, 7 skeleton channels, clips `0x4xxxx` seen (`0x40663` Hover) | [RAM] [disc] |
+| Placement | Arokh is **not summoned**: every level places one Dragon instance (Surdana: y 200000, parked far from the start) except Inquisitor's Lair, Shadowmire and Crystal Mine. Surdana, Kragmor, Catacombs, City of the Damned, Andrellian Isles, Ravenshold, Northern Tundra, Shiverbane, Valley of the Fallen, Stratos have it | [disc] |
+| Init (event 1, `0x270d20`) | sets up the controller sub-objects (`+0x57c`, `+0x580`), `0x44b490` / `0x44b7e8`, inserts itself through the level object (vtable `+0x74`), then **if the camera mode word (`camera data +0x14c`) is 7 it returns** (the same early-out as Rynn's init). Otherwise: finds the first class `0x10009` actor (`0x452190`), writes **`ctx+0x4b0` = the dragon** and links the pair with `0x27dfa0`, then HUD message 0x10 | [dec] |
+| Rynn's side | Rynn's init (non-mode-7) does the mirror image: `0x452190(0x1001c)` then `0x27dfa0(dragon data, Rynn, -1, 1)` | [dec] |
+| Link `0x27dfa0(dragonData, rider, mode, flag)` | sets rider data `+0x94 |= 1`, both `+0x4d8` refs (dragon data `+0x4d8` = rider's registry ref, rider data `+0x4d8` = dragon's ref, `0x168388`). `mode == -1` reads the rider record's property `0x91` (the level's start state): 1 = mounted flight (`0x44d3b0`, `0x27e9c8`, camera `0x450970`, ground snap `0x27caf8` and a sector refile), 0 = dismounted standing dragon (`0x27e760(.., 0)`, rider attached), 2 = a third state (`0x27e760(.., 2)`) | [dec], modes' meaning [inf] |
+| Mounted state | while mounted the controlled actor `ctx+0x4b0` **is the dragon** and Rynn is its passenger (not posed); `drakan_lifecycle` reports `mountChanged`; the local pose reader reports `mounted` (class `0x1001c`) and Arokh's own channels | [RAM] |
+| Mount / dismount | driven by the dragon's controller (`0x271ac0` per tick) and the mount / dismount clips (`Mount` 1606, `Dismount` 1605 in the Dragon class fields); the controlled-actor switch is written by `0x270d20` / `0x27dfa0`, nothing else in the engine sets `ctx+0x4b0` | [dec] |
+| Dragon sections | levels where the player starts or ends mounted: Ravenshold (starts on Arokh, [RAM]); the rest are ground levels with a parked Arokh that Rynn reaches and mounts (not enumerated). The engine allows exactly one mounted pair: `0x452190` returns the first match and the single `ctx+0x4b0` / `ctx+0x4b4` pair is the only controller | [dec] |
+
+**Co-op consequence.** A second dragon created with the factory (record `0x20a60`) runs this init: without the mode-7 trick it
+would take over `ctx+0x4b0` and link to the *first* Rynn-class actor (the local player, or a ghost). With camera mode 7 the
+init inserts the body and returns before both, which is the recipe `drakan_ghost::spawnDragon` uses. What this gives is a
+**visual dragon** (own skeleton, clips driven by the partner's pose); a second *flyable* dragon needs a second controlled actor
+and is not possible with the single `ctx+0x4b0` design (the partner flies on their own machine).
+
 ## 12. Living foliage: the render hook (2026-10-31, experimental)
 
 Notes: [journal](../journal/2026-10-31/living-foliage.md). Option `[video] foliage_wind` / `foliage_wind_strength`

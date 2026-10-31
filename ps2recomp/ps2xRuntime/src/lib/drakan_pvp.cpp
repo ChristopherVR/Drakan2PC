@@ -1,6 +1,7 @@
 // Drakan: PvP combat glue (drakan_pvp.h). PAL addresses are canonical, translated through the disc profile.
 // Evidence and the design: docs/journal/2026-10-31/pvp.md, docs/reference/netcode.md "PvP".
 #include "drakan_pvp.h"
+#include "drakan_arena.h"
 #include "drakan_ghost.h"
 #include "drakan_lifecycle.h"
 #include "drakan_netplay.h"
@@ -177,7 +178,8 @@ void hookBladeHit(uint8_t* rdram, R5900Context* c, PS2Runtime* rt) {
     const uint32_t blade = getRegU32(c, 4), contact = getRegU32(c, 5);
     const uint32_t victim = ramPtr(contact) ? rd32(rdram, contact + 0x20) : 0;
     int gid = 0;
-    if (!ramPtr(victim) || !isGhost(victim, &gid)) {
+    // Co-op: the partner's ghost is not a target (drakan_coop owns the hits of that mode).
+    if (drakan_netplay::coopMatch() || !ramPtr(victim) || !isGhost(victim, &gid)) {
         g_origBladeHit(rdram, c, rt);
         return;
     }
@@ -430,7 +432,9 @@ void reviveLocal(drakan_input::IGuest& guest, uint8_t* rdram) {
     endDeath(rdram);
     const uint32_t player = controlledActor(rdram);
     float spawn[3];
-    if (ramPtr(player) && pickSpawn(g_resp.spawn, spawn)) {
+    if (drakan_arena::placeAtSpawn(guest, rdram, g_resp.spawn)) {
+        // the arena's spawn point (the server's choice, farthest from the other players): placed and refiled
+    } else if (ramPtr(player) && pickSpawn(g_resp.spawn, spawn)) {
         for (int k = 0; k < 3; ++k) {
             const float v = k == 1 ? spawn[k] + 20.0f : spawn[k];
             guest.writeF(player + 0x14 + 4u * static_cast<uint32_t>(k), v);
@@ -498,7 +502,8 @@ void handleEvent(drakan_input::IGuest& guest, uint8_t* rdram, const Event& e) {
             g_resp.health = e.health;
             if (life == Life::Dying) {
                 reviveLocal(guest, rdram);
-            } else if (life == Life::Alive) { // a match start / mid-match join: just the health
+            } else if (life == Life::Alive) { // a match start / mid-match join: the health, and the arena's spawn point
+                drakan_arena::placeAtSpawn(guest, rdram, e.b);
                 g_pendingHp = std::max(1, engineUnits(rdram, e.health));
             }
             break;
@@ -623,7 +628,7 @@ void install(PS2Runtime& rt) {
 }
 
 void beforePadMgr(drakan_input::IGuest& guest, uint8_t* rdram) {
-    if (!g_enabled.load())
+    if (!g_enabled.load() || drakan_netplay::coopMatch())
         return;
     const uint32_t player = controlledActor(rdram);
     if (!ramPtr(player) || !ramPtr(dataOf(rdram, player)))
@@ -677,18 +682,26 @@ void beforePadMgr(drakan_input::IGuest& guest, uint8_t* rdram) {
 }
 
 void onServerHit(uint8_t attacker, uint8_t victim, uint8_t weapon, uint16_t damage, uint16_t healthAfter) {
+    if (drakan_netplay::coopMatch())
+        return; // co-op has no PvP rounds: no deaths, spawns or phases for this module
     std::lock_guard<std::mutex> l(g_m);
     g_events.push_back({Event::Hit, attacker, victim, weapon, damage, healthAfter});
 }
 void onServerDeath(uint8_t victim, uint8_t killer, uint8_t weapon) {
+    if (drakan_netplay::coopMatch())
+        return; // co-op has no PvP rounds: no deaths, spawns or phases for this module
     std::lock_guard<std::mutex> l(g_m);
     g_events.push_back({Event::Death, victim, killer, weapon, 0, 0});
 }
 void onServerRespawn(uint8_t player, uint8_t spawnIndex, uint16_t health) {
+    if (drakan_netplay::coopMatch())
+        return; // co-op has no PvP rounds: no deaths, spawns or phases for this module
     std::lock_guard<std::mutex> l(g_m);
     g_events.push_back({Event::Respawn, player, spawnIndex, 0, 0, health});
 }
 void onServerPhase(uint8_t phase) {
+    if (drakan_netplay::coopMatch())
+        return; // co-op has no PvP rounds: no deaths, spawns or phases for this module
     std::lock_guard<std::mutex> l(g_m);
     g_events.push_back({Event::Phase, phase, 0, 0, 0, 0});
 }

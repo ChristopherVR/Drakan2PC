@@ -1,5 +1,6 @@
 // Drakan: co-op (docs/journal/2026-10-31/coop-design.md, phase 2). Two players fight through a level together.
-// The host streams its creatures (position, yaw, HP, 10 Hz) over its own UDP socket; on the client the matching
+// The host streams its creatures (position, yaw, HP, 10 Hz) through the multiplayer session (drakan::net protocol v6:
+// CoopCreatures / CoopEvent relayed by the MatchServer, see drakan_netplay's coop* API); on the client the matching
 // creatures stop thinking (behaviour event 4 is swallowed by a host handler, the ghost technique) and follow: kinematic
 // proxies. On top of that, reliable events on the same socket (keyed by creature / object keys, see the .cpp wire
 // table):
@@ -14,11 +15,11 @@
 //     through Rynn's own damage method (never lethal yet);
 //   * world events: doors open for the partner by the same proximity trick, pickups taken on one side are removed on
 //     the other (objects keyed by class, resource id and registry order).
-// Uses the ghosts of drakan_netplay as the partner's body (run both: DRAKAN_NET_* and DRAKAN_COOP_*; PvP off).
+// Uses the ghosts of drakan_netplay as the partner's body (drakan_pvp stands down while a Coop match plays).
 //
-// Opt in by environment:
-//   DRAKAN_COOP_HOST=<port>          host: listen on UDP <port>, send creature states to every connected client
-//   DRAKAN_COOP_CONNECT=<host:port>  client: connect, apply the host's creature states
+// Active while the session is a Coop match in the Playing phase (host / join it from the Multiplayer menu, or with
+// DRAKAN_NET_HOST=<port> DRAKAN_NET_MODE=coop and DRAKAN_NET_CONNECT=<host:port>); the player that owns the creature
+// world is the match's co-op authority (the first to join). DRAKAN_COOP=0 leaves the hooks out. Environment:
 //   DRAKAN_COOP_MODE=follow|mark     client behaviour (default follow). mark = measure only: nothing is written to the
 //                                    guest, the log reports how far the local creatures are from the host's
 //   DRAKAN_COOP_SWALLOW=<hex>        behaviour events (value mask) a proxy no longer handles (default 4 = per-tick)

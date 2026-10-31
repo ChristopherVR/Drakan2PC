@@ -3,6 +3,7 @@
 // explicit clock so tests are deterministic. Owns no sockets: it talks through a Transport it is handed (a
 // listen server hands it the loopback or UDP transport; the dedicated server hands it UdpTransport).
 // See docs/reference/netcode.md for the authority model.
+#include "net/ArenaMaps.h"
 #include "net/Protocol.h"
 #include "net/Scoreboard.h"
 #include "net/Transport.h"
@@ -30,6 +31,9 @@ struct ServerOptions {
     uint32_t resultsDurationMs = 15000;
     uint8_t autoStartPlayers = 0;     // 0 = never start on its own (host calls startMatch())
     uint32_t lobbyCountdownMs = 5000; // countdown once autoStartPlayers have joined
+    uint32_t startCountdownMs = 0;    // startMatch(): 0 = Loading at once, else a countdown (Status shows it) first
+    bool hostKick = false;            // honour Kick from the host (the longest connected player); a listen server sets it
+    std::string mods;                 // comma separated mod pack names, reported in ServerInfo (<= kMaxModsLength)
     // Sanity limits for client claims (all in world units / ms).
     uint32_t respawnProtectionMs = 2000;
     uint16_t maxDamagePerHit = 200;
@@ -48,6 +52,13 @@ struct ServerOptions {
     float damageScale = 1.0f;
     float maxSpeed = 30000.0f; // units/s between accepted states; <= 0 disables. Rynn runs ~2500 u/s (game units), so
                                // 2000 dropped real movement
+    // PvP arena (ArenaMaps.h, docs/reference/netcode.md "Multiplayer maps"): with spawns, every (re)spawn takes the
+    // spawn point farthest from the other living players (Respawn.spawnIndex = its index); with pickups the server owns
+    // their taken / available state and respawn timers (PickupClaim / PickupState). Off (hasArena == false) = the old
+    // behaviour, spawnIndex only counts up and the clients choose a spot themselves.
+    bool hasArena = false;
+    ArenaDef arena;
+    float pickupClaimRange = 4000.0f; // a claim from farther than this from the pickup (last known position) is refused
 };
 
 struct ServerPlayer {
@@ -69,6 +80,14 @@ struct ServerPlayer {
     uint64_t protectedUntilMs = 0;
     uint64_t lastHitAtMs = 0;
     bool hasHit = false;
+    int lastSpawn = -1; // arena: index of the spawn point of the previous life
+    float spawnPos[2] = {
+        0, 0}; // arena: x / z of the spawn point it was given (stands in for its position until it publishes)
+    bool hasSpawnPos = false;
+    uint64_t spawnedAtMs = 0;   // arena: when it last (re)spawned
+    uint32_t joinSeq = 0; // join order (ids are recycled, so the lowest id is not the oldest player)
+    uint16_t character = 0;         // co-op character picked in the lobby (SetCharacter), 0 = Rynn
+    uint16_t pingMs = kPingUnknown; // round trip measured with Status / StatusEcho (smoothed)
 };
 
 struct ServerStats {
@@ -76,8 +95,9 @@ struct ServerStats {
     uint32_t hitsRejected = 0;
     uint32_t statesRejected = 0;
     uint32_t joinsRejected = 0;
-    uint32_t coopRelayed = 0;  // v6: co-op messages forwarded
-    uint32_t coopRejected = 0; // v6: co-op messages dropped by the routing rules
+    uint32_t coopRelayed = 0;    // v6: co-op messages forwarded
+    uint32_t coopRejected = 0;   // v6: co-op messages dropped by the routing rules
+    uint32_t coopMigrations = 0; // v6: times the co-op authority left and another player took over
 };
 
 class MatchServer {
@@ -87,8 +107,15 @@ public:
     // Process transport events and timers. Call regularly with a monotonic millisecond clock.
     void tick(uint64_t nowMs);
 
-    // Lobby -> Loading. False if not in the lobby or nobody is connected.
+    // Lobby -> Loading. False if not in the lobby or nobody is connected. With options.startCountdownMs > 0 this starts
+    // the countdown (CountdownKind::MatchStart in Status) and Loading follows when it is up; true while one runs.
     bool startMatch(uint64_t nowMs);
+    // The countdown a client would be shown right now (kind None / 0 when nothing counts down).
+    CountdownKind countdown(uint32_t& remainingMs) const;
+    // The host (longest connected player, kNoPlayer when empty).
+    PlayerId hostPlayer() const;
+    // Remove a player as the host would (Kick message). False when unknown.
+    bool kick(PlayerId target);
     // Change the configuration while in the lobby (broadcast to clients). False otherwise or if invalid.
     bool setConfig(const MatchConfigData& config);
     // End the current match early (Playing -> Results).
@@ -109,8 +136,8 @@ public:
     std::vector<ScoreRow> scoreboard() const;
     const MatchOutcome& outcome() const { return outcome_; }
     uint32_t serverTimeMs() const { return static_cast<uint32_t>(now_); }
-    // v6: the player that owns the creature world in a Coop match (first to join; 0 = none, and it does not pass on
-    // when that player leaves).
+    // v6: the player that owns the creature world in a Coop match (first to join; 0 = none). When it leaves or
+    // times out the longest-connected remaining player takes over (CoopAuthority broadcast, stats().coopMigrations).
     PlayerId coopAuthority() const { return coopAuthority_; }
 
     // Optional log sink (joins, leaves, phase changes, rejections).
@@ -134,6 +161,14 @@ private:
     void onCoopCreatures(ServerPlayer& p, const std::vector<uint8_t>& data);
     void onCoopEvent(ServerPlayer& p, const std::vector<uint8_t>& data);
     void onLevelChange(ServerPlayer& p, const std::vector<uint8_t>& data);
+    void onPickupClaim(ServerPlayer& p, const std::vector<uint8_t>& data);
+    void onStatusEcho(ServerPlayer& p, const std::vector<uint8_t>& data);
+    void onKick(ServerPlayer& p, const std::vector<uint8_t>& data);
+    void onSetCharacter(ServerPlayer& p, const std::vector<uint8_t>& data);
+    void sendStatus();
+    void beginLoading();
+    void resetPickups();
+    int chooseSpawn(const ServerPlayer& p) const;
     void assignCoopAuthority();
     void sendExcept(PlayerId except, const std::vector<uint8_t>& bytes, Channel ch);
     void reject(PeerId peer, Peer& state, RejectReason why, const std::string& text);
@@ -159,11 +194,16 @@ private:
     uint64_t phaseStartMs_ = 0;
     uint64_t lobbyCountdownStartMs_ = 0;
     bool countdownActive_ = false;
+    bool startPending_ = false; // startMatch() countdown running
+    uint64_t startPendingAtMs_ = 0;
+    uint64_t lastStatusMs_ = 0;
     uint64_t lastSnapshotMs_ = 0;
     uint8_t spawnCounter_ = 0;
     uint16_t teamKills_[2] = {0, 0};
+    std::vector<uint64_t> pickupBackAtMs_; // arena pickups: 0 = available, else the time it returns
+    std::vector<PlayerId> pickupTakenBy_;
     PlayerId coopAuthority_ = kNoPlayer;
-    bool coopOrphaned_ = false; // the authority left while others stayed: nobody takes over until the match is empty
+    uint32_t joinCounter_ = 0;
     std::unordered_map<PeerId, Peer> peers_;
     std::map<PlayerId, ServerPlayer> players_;
     ServerStats stats_;

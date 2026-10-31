@@ -1,6 +1,7 @@
-# Netcode: protocol v5, authority model, `runtime/net`
+# Netcode: protocol v7, authority model, `runtime/net`
 
-Status 2026-10-31: the protocol, match state machine, transports and the headless `drakan_server` exist and are tested;
+Status 2026-10-31 (later): protocol v6 adds the **co-op game mode** and a real `LevelChange` message (see "Co-op mode
+(protocol v6)"); co-op rides the same session as deathmatch and the hidden `@@LC` chat line is gone. Earlier the same day: the protocol, match state machine, transports and the headless `drakan_server` exist and are tested;
 the game side has ghosts, a Multiplayer title menu with host / join / lobby (see "Multiplayer menu") and LAN discovery (see
 "Playing over the network (spike)"; plan in
 `docs/proposals/level-editor-and-multiplayer.md`) PvP combat (see "PvP") and the whole menu -> deathmatch -> results -> next match flow with an in-game HUD (see
@@ -17,8 +18,8 @@ the game side has ghosts, a Multiplayer title menu with host / join / lobby (see
 | `net/LoopbackTransport.h` | In-process; `LoopbackNetwork` has a virtual clock, optional one-way latency and unreliable loss. |
 | `net/ServerBrowser.h` | LAN / direct discovery client: `queryLan()` (broadcast + loopback, ports 47800..47809), `queryHost()`, `poll()` returns merged `ServerEntry`s (v5). |
 | `net/UdpTransport.h` | IPv4 UDP, non-blocking; answers `Query` datagrams through `setQueryResponder` (v5). Winsock on Windows, BSD sockets elsewhere (kept out of headers). Not built for Emscripten. |
-| `runtime/net/server/` | `drakan_server --port --max-players --mode dm\|tdm --level` (also `--frag-limit --time-limit --auto-start --tick-rate --profile-hash`). No game, no ISO. |
-| `runtime/net/tests/` | `net_protocol_test`, `net_match_test`, `net_loopback_e2e_test`, `net_udp_smoke_test` (exit 77 = skipped when sockets are unavailable). |
+| `runtime/net/server/` | `drakan_server --port --max-players --mode dm\|tdm\|coop --level` (also `--frag-limit --time-limit --auto-start --tick-rate --profile-hash`). No game, no ISO. |
+| `runtime/net/tests/` | `net_protocol_test`, `net_match_test`, `net_coop_test` (v6: relay rules, co-op session, level change, version mismatch), `net_loopback_e2e_test`, `net_udp_smoke_test` (exit 77 = skipped when sockets are unavailable). |
 
 A browser build needs a WebSocket / WebRTC `Transport` in `src/`; nothing above `Transport` may rely on more than the
 two channel guarantees. Unwritten.
@@ -30,6 +31,21 @@ Datagram = `'D' 'K'` + type byte. Types: Connect, ConnectAck, Disconnect (empty)
 QueryReply (8) (v5, no connection: an encoded `Query` / `ServerInfo` message, see "LAN discovery"). Reliable channel:
 per-peer sequence, receiver accepts only the next sequence, sender resends unacked packets every 150 ms (window 128,
 excess queued). Connect retried every 250 ms for 5 s; a peer silent for 10 s is dropped.
+
+## Protocol v7
+
+v7 (2026-10-31, after v6): `PlayerState.character`, a trailing `u16` (the co-op stand-in character: the NPC class id from 
+`drakan_coop_character::roster()`, 0 = Rynn). PlayerState is 68 bytes on the wire. The server relays it unchanged (it is 
+part of the state the client sends and the snapshot echoes); a receiver spawns the ghost of that player as the character 
+and respawns it when the value changes. A v6 peer is rejected with `VersionMismatch` (`serverVersion` 7). 
+See [coop-characters](../journal/2026-10-31/coop-characters.md).
+
+## Protocol v6
+
+v6 (2026-10-31, after v5): `MatchMode::Coop = 2` (MatchConfig / ServerInfo `mode` accept 0..2) and four messages,
+`CoopAuthority`, `CoopCreatures`, `CoopEvent` and `LevelChange`, documented in "Co-op mode (protocol v6)" below. A v5
+peer's Hello is rejected with `VersionMismatch` (`serverVersion` 6), its discovery `Query` is not answered. Everything else
+is the v5 wire format.
 
 ## Protocol v5
 
@@ -47,7 +63,7 @@ Application message = 1 type byte (`MsgType`) + body; every decode requires the 
 | 3 Reject | S>C | `u8 reason` (0 version, 1 profile, 2 full, 3 name, 4 password), `u16 serverVersion`, `str message` |
 | 4 MatchConfig | S>C | `u8 mode` (0 DM, 1 TDM), `str level` (<=64), `u16 fragLimit`, `u16 timeLimitSec`, `u8 maxPlayers` (1..16), `u16 respawnDelayMs`, `u16 startHealth`, `str serverName` (<=32; v5) |
 | 5 PhaseChange | S>C | `u8 phase` (0 lobby, 1 loading, 2 playing, 3 results), `u32 serverTimeMs` |
-| 6 PlayerState | C>S, unreliable | `u8 player`, `u32 sequence`, `u32 tick`, `f32 pos[3]`, `f32 yaw`, `f32 vel[3]`, `u16 animId`, `f32 animTime` (lower body), `u16 upperAnimId`, `f32 upperAnimTime`, `u32 lowerMask` (bit i: skeleton channel i plays the lower clip; see `world-model.md` section 6), `u32 weaponRight`, `u32 weaponLeft` (resource record ids of the held items, 0 = empty hand; v4), `u8 mounted` (0/1), `u32 levelHash` (FNV-1a of the sender's level name, 0 = loading; v3); 66 bytes |
+| 6 PlayerState | C>S, unreliable | `u8 player`, `u32 sequence`, `u32 tick`, `f32 pos[3]`, `f32 yaw`, `f32 vel[3]`, `u16 animId`, `f32 animTime` (lower body), `u16 upperAnimId`, `f32 upperAnimTime`, `u32 lowerMask` (bit i: skeleton channel i plays the lower clip; see `world-model.md` section 6), `u32 weaponRight`, `u32 weaponLeft` (resource record ids of the held items, 0 = empty hand; v4), `u8 mounted` (0/1), `u32 levelHash` (FNV-1a of the sender's level name, 0 = loading; v3), `u16 character` (stand-in character id, 0 = Rynn; v7); 68 bytes |
 | 7 Snapshot | S>C, unreliable | `u32 serverTimeMs`, `u8 count` (<=16), count x PlayerState body (live players with a known state) |
 | 8 Hit | C>S claim, S>C accepted | `u8 attacker`, `u8 victim`, `u8 weapon` (which item: 0 right-hand melee, 1 left-hand melee, 2 projectile; the server checks it against the attacker's held `weaponRight` / `weaponLeft`), `u16 damage` (claim: as the engine computed it; broadcast: after `damageScale`), `u16 healthAfter` (client sends attacker 0) |
 | 9 Death | S>C | `u8 victim`, `u8 killer`, `u8 weapon` |
@@ -60,10 +76,98 @@ Application message = 1 type byte (`MsgType`) + body; every decode requires the 
 | 16 Ready | both | `u8 player` (server fills), `u8 ready` (0/1); lobby only (v5) |
 | 17 Query | C>S datagram | `u16 protocolVersion`, `u32 token`; UDP datagram type 7, no connection (v5) |
 | 18 ServerInfo | S>C datagram | `u16 protocolVersion`, `u32 token`, `u32 serverId`, `str name`, `str level`, `u8 mode`, `u8 phase`, `u8 players`, `u8 maxPlayers`, `u8 passwordFlag`; UDP datagram type 8 (v5) |
+| 19 CoopAuthority | S>C | `u8 player` (0 = none; v6) |
+| 20 CoopCreatures | both, unreliable | `u32 levelHash`, `u32 sequence`, `u16 count` (<= 45), count x {`u32 key`, `f32 pos[3]`, `f32 yaw`, `i32 hp`} (v6) |
+| 21 CoopEvent | both | `u8 kind` (2..10), `u32 levelHash`, `u8 player`, then per kind: CreatureDied / ObjGone `u32 key`; Claim / ObjState `u32 key`, `i32 value`; Hurt `i32 value`; ObjMsg `u32 key`, `u16 msgType`, `i32 w[4]`; PlayerDied / Respawn / SyncReq nothing (v6) |
+| 22 LevelChange | both | `u8 player` (server fills), `u32 destHash` (FNV-1a of the destination level name, 0 = unknown), `f32 exit[3]` (the exit trigger's world position) (v6) |
 
 Handshake: transport connect, Hello, then Welcome (or Reject, after which the server closes). Welcome is followed by
 PlayerJoin for each existing player and the newcomer (the newcomer learns its own team from its own PlayerJoin). The
 `profileHash` is the disc profile hash; the server compares it when it was started with `--profile-hash`.
+
+## Co-op mode (protocol v6)
+
+`MatchMode::Coop`: the match is played together instead of against each other. The server relays, it never sees creatures
+(the same rule as the rest of the layer: clients run their own world). Server behaviour in Coop (`MatchServer`):
+
+* **No PvP, no limits.** A `Hit` claim is rejected (`co-op: players cannot hurt each other`), frag and time limit never end
+  the match, there are no teams (`kNoTeam`), no scores.
+* **Authority.** The first player to join a Coop match owns the creature world (`MatchServer::coopAuthority()`,
+  `MatchClient::coopAuthority()` / `isCoopAuthority()`); the server tells everyone with `CoopAuthority` (to a newcomer on its
+  join, to all when it is assigned or changes; switching a lobby to Coop appoints the longest-connected player, switching away
+  clears it). On a dedicated server the first client to join is the host of the world; on a listen server it is the host's own
+  client.
+* **Authority migration** (no protocol change). When the authority leaves, times out or is kicked, `removePlayer` appoints the
+  remaining player that has been connected longest (`ServerPlayer::joinSeq`; ids are recycled, so "lowest id" would hand the world
+  to a recent joiner) and broadcasts `CoopAuthority` right after `PlayerLeave` on the same reliable channel, so every client
+  sees the old owner go before the new one is named; `ServerStats::coopMigrations` counts them. The server is the single
+  serialisation point, so there is no window with two owners: the authority-only checks switch in the same call, a `CoopCreatures` /
+  CreatureDied / Hurt from the old owner that arrives later is refused (its peer is gone), and a late joiner is simply told the
+  current owner. Reliable events already relayed are delivered exactly once as before (the channel is per peer and the relay is
+  per message); what is lost is what only the old owner held: claims (`Claim`, `PlayerDied`, `SyncReq`) that were relayed to it but
+  not yet processed, and its newest creature slice. The new owner continues from the HP of the last slice it received. Nobody
+  takes over when the match is empty; the next joiner is the owner. The game side (`drakan_coop.cpp handoverToAuthority`)
+  turns the proxies of the new owner into the real creatures and starts the stream; the other guests keep their proxies (keyed by
+  resource + ordinal, identical on every instance) and follow the new stream.
+* **Listen-server host leaving.** The host's `MatchServer` runs inside its process, so when that player quits the session ends
+  for everyone (the clients' connections time out); the authority migrates only when the owner is a guest of a dedicated server
+  or the host is not the owner. Moving the server itself needs the clients to reconnect to a new address and the whole match state
+  (phase, roster, scores, pickups, the co-op owner's world) to be rebuilt, and in a co-op match the dying host owned the creature
+  world; it is out of scope. Use `drakan_server` for sessions that must survive a leaving player.
+* **Relay rules** (phase Playing only, otherwise dropped and counted in `ServerStats::coopRejected`; the server stamps
+  `CoopEvent.player` / `LevelChange.player` with the sender):
+
+| Message | Allowed sender | Goes to |
+| --- | --- | --- |
+| `CoopCreatures` | authority only | every other player, unreliable, forwarded byte for byte |
+| `CoopEvent` CreatureDied | authority only | every other player |
+| `CoopEvent` Hurt, Respawn | authority only | the player named in `player`, or every other player when 0; an unknown target or the sender itself drops it |
+| `CoopEvent` Claim, PlayerDied, SyncReq | not the authority | the authority only (nobody there: dropped); Claim `value` must be 0..10000 |
+| `CoopEvent` ObjGone, ObjMsg, ObjState | anyone | every other player |
+| `LevelChange` | the authority (Coop) / the lowest player id (other modes: the host of a listen server) | every other player; exit coordinates beyond 1e6 are refused |
+
+* **Event kinds** are the ones the first prototype used on its private socket (the numbers match, see
+  `docs/journal/2026-10-31/coop-design.md` sections 7 and 8): Claim = a hit of a guest on a creature proxy (the authority
+  validates it and applies the damage to the real creature), CreatureDied = the authority reports a death, Hurt = a creature hit the
+  guest's ghost, PlayerDied / Respawn = the guest's player is down / may get up at the authority, ObjGone = a pickup was taken
+  (either side), ObjMsg = a door / lever message to replay, ObjState = a door or chest changed state (late-join catch-up),
+  SyncReq = the guest keyed the level, send the catch-up. Every event and creature slice carries the sender's `levelHash`; a
+  receiver on another level ignores them.
+* **Game side.** `drakan_coop` keeps its game logic and internal datagram form; its transport (`netThread`, the conversion
+  functions `eventFromLegacy` / `eventToLegacy` / `creaturesFromLegacy`) now exchanges `net::CoopCreatures` / `net::CoopEvent`
+  with `drakan_netplay` (`coopLink()`, `coopSend()`, `coopPoll()`), whose network thread sends them through the session's
+  `MatchClient`. The private UDP socket and the `DRAKAN_COOP_HOST` / `DRAKAN_COOP_CONNECT` variables are gone. The module
+  installs its hooks with the multiplayer module (`DRAKAN_COOP=0` leaves them out) and switches on when the session is a Coop
+  match in the Playing phase (`CoopLink.active`), as the host when `CoopLink.host`. `drakan_pvp` stands down while
+  `drakan_netplay::coopMatch()` is true (no blade claims, no server deaths / respawns / phases applied). The co-op logic is
+  N-player since 2026-10-31 (coop-design.md section 10): one ghost per remote player (`drakan_netplay`'s ghosts, player id <->
+  ghost via `playerOfGhost` / `ghostOfPlayer`), a per-player slot on the host (alive / down, respawn timer), creature and door
+  targeting among the host's body and every live ghost, `Hurt` and `Respawn` addressed to the player concerned, claims
+  validated against the claimant's own ghost. The co-op logic's internal datagram carries the player id after the level hash
+  (the sender for events the server stamps, the target for Hurt / Respawn).
+* **Starting a co-op game.** Multiplayer > Host Game > Game Type: Co-op (kills limit, time limit and teams are greyed), Begin
+  Game; others Join Game like a deathmatch (the server list shows the mode). Dev shortcut: `DRAKAN_NET_HOST=<port>
+  DRAKAN_NET_MODE=coop` and `DRAKAN_NET_CONNECT=<host:port>` (the match starts at once, a late joiner enters Playing directly).
+  `drakan_server --mode coop`.
+
+### LevelChange
+
+The host's level change used to travel as a hidden chat line `@@LC x y z`. It is now `LevelChange{player, destHash, exit[3]}`:
+`drakan_netplay` installs the `drakan_levelchange::setExitListener` callback (EE thread, fired at the level-change save with the
+exit's world position), looks up the destination name in `drakan_levelchange::exits()` for `destHash` (0 when the exit list does
+not know it) and queues it; the network thread sends it when this player leads (co-op authority, otherwise the lowest id). The
+server relays it to everyone else; a receiver calls `drakan_levelchange::followExit(exit)` exactly as for the old chat line (the
+same exit is fired in its own copy of the level after 120 frames in a level). A guest's level change is not sent (the server would
+refuse it). **Follow check** (`drakan_netplay::serviceFollow`, EE thread): on receipt the follower records `destHash`, its own level
+hash and the number of level loads so far. After the next playable level load it compares the loaded level's hash with `destHash`:
+equal (or `destHash` 0) ends the check ("level follow: arrived"); different is reported (net log `level follow: MISMATCH`, a local
+chat line "Level mismatch: ...") and the follower searches `drakan_levelchange::exits()` of the level it landed in for an exit whose
+destination name hashes to `destHash` and takes it (up to 3 attempts); with no such exit it gives up (log + chat line). A follower
+whose exit never fires (no level load 45 s after the message) fires it again, 3 times at most. There is **no direct load of an
+arbitrary level** as a last resort: the engine's level-change entry hangs when called from outside its own transition, so a
+destination that is not reachable through the exit lists is reported, not forced. The ghosts stay hidden until the levels match by
+themselves (a remote player is shown only while its published level hash equals ours). Test aid `DRAKAN_NET_TEST_LC_DEST=<level
+name>` makes a follower expect that level instead (exercises the mismatch path).
 
 ## Authority model
 
@@ -126,12 +230,12 @@ ghosts only show between players in the same level. `MatchConfig.level` records 
 
 **The host's level changes pull the clients along** (2026-10-31, [level-change](../journal/2026-10-31/level-change.md)).
 `levelHash` alone only hides ghosts; it cannot name the level. When the host's game takes an exit (walked into or fired,
-`drakan_levelchange::setExitListener`, read at the level-change save), the host sends a hidden chat line `@@LC x y z` with the
-exit trigger's world position (the server strips control characters, so the marker is printable). A client that sees it
-from player 1 (the host) calls `drakan_levelchange::followExit`, which fires the exit at that position in its own copy of the
+`drakan_levelchange::setExitListener`, read at the level-change save), `drakan_netplay` sends a `LevelChange` message (v6, see
+"LevelChange"; before v6 it was a hidden chat line `@@LC x y z`) with the exit trigger's world position. A client that receives it
+calls `drakan_levelchange::followExit`, which fires the exit at that position in its own copy of the
 level (both load the same level data, so positions match to the float) once the level has run 120 frames; the game then does its
 own transition and the ghosts reappear through the `levelHash` gate. Clients' own exits are not sent (co-op "exit = ready-up" is
-another design). The line is dropped in the chat handler and never shown. Limit: a client that is not in the host's previous
+another design). Limit: a client that is not in the host's previous
 level finds no exit at that position and stays (logged `no such exit here`).
 
 Run both instances with `python scripts/harness/netplay_two_instances.py` (`--mode server` for a `drakan_server`, see its
@@ -280,7 +384,7 @@ game's own font and skin art (Paint / `GameUiRenderer`); no OotF art is used.
 | Page | Contents |
 | --- | --- |
 | Multiplayer (OotF's player setup screen) | Player Name, Player Color (swatch), Human Skin (Rynn only for now), Dragon Skin (7 names, no effect yet), Connection Speed (Modem 28.8k .. LAN/T1 1M), Host Game, Join Game, mplayer.com (greyed: the service is gone), Back (saves the profile) |
-| Host Game | Server Name, Password (blank = open), Level Group (All Levels / Disc levels / Custom levels), Starting Level (14 disc levels, then the levels `ModManager::extraLevels()` reports, marked "(custom)"), Maximum Number of Players 2..12, Kills Limit (No Limit, 5 .. 200), Time Limit (No Limit, 5 .. 45 minutes, 60), Number of Teams (No Teams, 2; 3 and 4 shown "(coming)" and not startable: the server has two teams), Friendly Fire? and Register With Master Servers? (greyed placeholders), Begin Game, Back. There is no mode row: OotF takes the mode from the level type; here teams >= 2 means team deathmatch, otherwise deathmatch (Dragon's Duel / Master of the Dragon are not implemented). |
+| Host Game | Server Name, Password (blank = open), Level Group (All Levels / Disc levels / Custom levels), Starting Level (14 disc levels, then the levels `ModManager::extraLevels()` reports, marked "(custom)"), Game Type (Deathmatch or Co-op, v6: co-op greys the limits and teams and hosts a `MatchMode::Coop` match), Maximum Number of Players 2..12, Kills Limit (No Limit, 5 .. 200), Time Limit (No Limit, 5 .. 45 minutes, 60), Number of Teams (No Teams, 2; 3 and 4 shown "(coming)" and not startable: the server has two teams), Friendly Fire? and Register With Master Servers? (greyed placeholders), Begin Game, Back. OotF takes the mode from the level type; here Game Type = Co-op means co-op, else teams >= 2 means team deathmatch, otherwise deathmatch (Dragon's Duel / Master of the Dragon are not implemented). |
 | Join Game | the server table Server Name / Current Level / Players / Ping sorted by ping (blue = LAN, white "+" = Add Server entry, green = selected, "[password]" marker), Refresh, Add Server (address entry; OK keeps it for this session), Server Info (IP, level, players, mode, password card), Password, Connect; a list row also joins. No Stop / Remove / master server / version-colour rows yet. |
 | Lobby | server / mode / map / limits, the roster (ready flags, team names Fire / Water, `[host]`), Ready, Start Match (host), Leave; a Loading card while the match starts. Team select (four teams) is not shown: the server assigns teams. |
 | In game | see "Match flow and HUD": **F4** held = scoreboard (Player / Kills / Deaths / Ping / Time), kill feed, death overlay with the respawn countdown, limits chip with the time left, **F6** = chat, results banner with the final standings, then the lobby page again after Quit to Title. OotF binds the scoreboard to Tab; here Tab is the inventory, hence F4. |
@@ -347,7 +451,211 @@ lobby, next match): `python scripts/harness/netplay_menu_two_instances.py --pvp`
 --frag-limit 0` ends the match by time instead). Ranged: `python scripts/harness/netplay_two_instances.py --pvp --weapon
 bow --card build/harness/gw-net/a/card/mc0 --port 47920`.
 
+## Multiplayer maps (arena world mode, 2026-10-31)
+
+Drakan: Order of the Flame had dedicated multiplayer maps: no story, no AI creatures, player spawn points, weapon and item
+pickups that come back, no saving. Until now a PvP match here was a New Game on a campaign level with everything still in
+it. Deathmatch and team deathmatch now run in the **arena world mode**; co-op keeps the campaign world (`MatchMode::Coop`
+never activates it). Code: `ps2xRuntime/src/lib/drakan_arena.{h,cpp}` (game side), `runtime/net/include/net/ArenaMaps.h`
+(map format, std only), `MatchServer` arena options, protocol messages `PickupClaim` / `PickupState`. Evidence and what
+failed on the way: `docs/journal/2026-10-31/mp-arenas.md`.
+
+### Straight into the map
+
+A menu launched deathmatch no longer goes through the intro: `drakan_netplay` redirects **`Level 0 - Intro`** (the level
+New Game opens: movie player, cut scene, the transition to Surdana) to the map's base level in the file layer
+(`hle::FileService::setLevelRedirect`, the `DRAKAN_START_LEVEL` mechanism with `DRAKAN_START_LEVEL_FROM=Level 0 - Intro`), so
+the New Game from the title loads the arena level itself: no movie, no cut scene, **no Start / Cross taps** (`launchTaps()`
+stays false for these launches; the load took about 5 s on the dev PC instead of ~10 s plus the intro). The lifecycle hooks
+still report `Level 0 - Intro`; `drakan_netplay` substitutes the real level name for the hash exactly as it did for
+Surdana. Co-op keeps the old route (redirect of `Level 1A - Surdana`, intro, taps). The redirect is cleared when the match
+goes back to the Lobby phase, so a New Game from the title in between is an ordinary one.
+
+### What counts as singleplayer only (removed)
+
+`drakan_arena::beforePadMgr`, once per load (12 boundaries after the player is ready, `drakan_ghost::ready()`), then every
+20 boundaries for 7 s and every 120 boundaries after that (stragglers: a spawner that runs later), destroys through the
+engine's own entry `0x1413c0` (queued kill, flushed in the frame tail, what co-op and the ghosts already use):
+
+| What | How it is recognised | Why |
+| --- | --- | --- |
+| Creatures and NPCs | every handle with creature hit points (`world::HpKind::Creature`: types 6 / 7, `*(q+0x23c) == handle`): Surdana 137 of them (guards, orcs, scavengers, spiders, skeleton dragons, wartock shamans, villagers, ballistae, catapults) | no AI in an arena; they would also chase only the local Rynn |
+| Cut scene player | class `0x10033` ("Stomp Player", 18 in Surdana) | a cut scene takes the controlled actor and the camera |
+| Conversation handlers | class `0x100b4` (52 in Surdana) | dialogue |
+| Movie player | class `0x10016` (the intro level) | |
+| Level exits | class `0x10037` ("Level Transition", "Portal", 5..11 per level) | no level change, no level change save |
+| Quest items | class `0x10021` (runes, amulets, journals, keys, black powder) | story objects |
+| Treasure | class `0x1006d` (gold sacks, goblets, chalices) | no economy |
+| Chests | class `0x100c5` | loot that is not replicated |
+| Loose weapons and items | types 10 / 11 (swords, bows, potions, power ups, scrolls) not parked near the world origin, **during the first 420 boundaries only**, except the ones within 2500 units of where the player stood when the level came up (her own gear: the dagger lies at her start) and the ones at a map pickup | the arena's pickups are the map's list |
+
+Kept on purpose: Arokh (class `0x1001c`, type 3: Rynn's init links to him; a level where Rynn starts mounted, Kragmor, still
+hides the other player's ghost), timers and trigger detectors (`0x1003e`, `0x1003d`: message logic and doors; with the story
+objects gone they only message nothing; a creature a trigger would spawn is caught by the creature sweep), doors, scenery,
+sounds, lights, Air Currents, Dragon Barriers.
+
+Also in arena mode: **saving is vetoed** (`drakan_lifecycle::setSaveWriteVeto`: the save writer `0x169c28` returns 1 at once, so
+no menu save, quick save or level change save can write; quick save / load keys log "ignored", the pause menu's Save / Load rows
+show disabled), the **journal and the map markers stay empty** (the tab and pause screens clear `snapshot.quests`), and an exit
+cannot be taken because there is none. The player's own `mc0` is never touched by a match.
+
+### Spawn points and respawn
+
+The server owns the choice (`ServerOptions::arena`, `MatchServer::chooseSpawn`): a (re)spawn takes the spawn point **farthest
+from every other living player** (their last published position, or the spawn point they were just given), never the one of
+the previous life while another exists. `Respawn.spawnIndex` is that index into the map's `spawn` list (v6 wire format
+unchanged; without a map it is the old counter). The client (`drakan_pvp` -> `drakan_arena::placeAtSpawn`) moves the player
+there (y + 20, refiled in the collision cells like a ghost) at the match start and after every death; with no map the
+walked-track crumbs of PvP are still used. A far teleport can fail the first time (the engine puts the player back where she was while the floor at the target is not resident yet): the placement is watched and repeated every 40 boundaries up to 6 times (`[arena] placement of spawn N took after K tries`; measured 1..5 tries across 46k units). A player outside the map's `bounds` for 4 s, or fallen 6000 units below the lowest spawn point (maps on a cliff top), is put back at a spawn point. The `yaw`
+column of a spawn is stored but not applied (the player's heading is the camera's).
+
+### Pickups (host authoritative)
+
+The map's pickup list is the same on every machine, a pickup is its index. Two kinds, both turned into `drakan_arena::Pick`s once
+the level is up: **adopted** (no `res=`: the level's own loose item nearest to the position, within 600 units, becomes the
+pickup; its position is its home) and **spawned** (`res=0x...`: the resource is created through the engine's factory `0x181ad8`
+posted to a guest dispatcher thread, like the ghost's weapons, and found again in the registry at the spot). Per pickup the
+client watches its actor: gone from its home (the engine moved it into an inventory) without the server having said so is a
+**claim** (`PickupClaim{index}`, reliable); the server (`MatchServer::onPickupClaim`) refuses a claim when not Playing, the
+player is dead or farther than `pickupClaimRange` (4000) from it, or it is already taken; otherwise it marks the pickup taken
+for its `respawnSec` and broadcasts `PickupState{index, taken, player}`. Every other client **destroys its own copy**; when
+the time is up the server broadcasts `taken = 0` and every client spawns a fresh copy at the home position. A new Playing
+phase broadcasts `index = kAllPickups` (everything available), and a late joiner is sent the taken ones. The two messages
+(23 and 24) are a separate block at the end of the v6 enum; peers that do not know them drop them.
+
+### Map definitions
+
+`configs/mp_maps.ini` (committed, compiled into the game by `runtime/net/CMakeLists.txt` as the default list, no game data
+beyond numbers and names), the player's own **`mp_maps.ini` next to the exe** (or the file named by `DRAKAN_MP_MAPS`) and the
+**`maps/*.ini`** of mod packs (`ModManager::mapFiles()`; a pack can also ship a custom level with `levels = [...]` and
+`files/...` and a map on top of it) use one format, an arena id defined again replaces the earlier one:
+
+```ini
+[arena surdana-meadow]                  ; "arena " + a short unique id
+name = Surdana Meadow                   ; display name, also MatchConfig.level on the wire (<= 64 chars)
+level = Level 1A - Surdana               ; base level (LEVELLST title: disc level or mod pack level)
+description = ...
+modes = dm, tdm                          ; supported modes
+players = 8                              ; 2..16
+health = 100                             ; start health bar in server points
+bounds = 398000 543000 432000 576000     ; playable rectangle x0 z0 x1 z1
+loadout = 0x3372b                        ; resource ids every player gets at the start (optional)
+spawn = 412221 173800 556494 [yawDeg]    ; at least 2, at most 32
+pickup = 412921 173800 556494 30 res=0x3372b name=Steel Club   ; x y z respawnSec [res=] [name=], at most 64
+```
+
+`net::ArenaCatalog::add(text, source, &errors)` parses it (errors name `source:line`, an invalid arena is dropped as a whole);
+`find(idOrName)`. The menu reads the list through **`drakan_arena::maps()`**: `MapEntry{id, name, level, description, source,
+deathmatch, teamDeathmatch, maxPlayers, spawns, pickups, hasBounds, bounds[4], installed}` (`installed` = the base level exists on
+this disc or in a loaded pack). Hosting a map: put `MapEntry::name` (or the id) into `HostConfig.level`; `drakan_netplay` resolves
+it (`drakan_arena::findMap`), gives the server the arena (`ServerOptions::hasArena` / `arena`, start health, player cap),
+and the clients resolve `MatchConfig.level` themselves; a client that does not have the map or its base level refuses the launch
+with "Level files mismatch". `drakan_server --level "<map name or id>" [--maps file.ini]` does the same headless.
+
+Authoring: `analysis/scripts/arena_candidates.py` proposes spawn / pickup lines from the decoded level (`lvl_objects.py`:
+ground decor and loose items inside a circle); `python scripts/harness/arena_tour.py --map <id>` loads the map in one instance
+(`DRAKAN_ARENA_FORCE`), visits every spawn point (`DRAKAN_ARENA_TOUR=<boundaries per stop>`, logs where the player stands
+afterwards, screenshots) and dumps the world.
+
+Test aids: `DRAKAN_ARENA_FORCE=<map>` (arena mode without a session), `DRAKAN_ARENA_TOUR=<n>`, `DRAKAN_ARENA_LOG=0`,
+`DRAKAN_MP_MAP=<map>` (the host uses this map whatever the menu chose), `DRAKAN_MP_MAPS=<file>` (extra map file).
+
+### Authoring keys (spawn team, marker, keep/remove)
+
+Added to the arena format for the level editor's multiplayer map mode (`ArenaMaps.h`, tests `net_modes_test`). All are
+parsed and exposed on `ArenaDef`; the status column says what the game does with them.
+
+| Key | Meaning | Game today |
+| --- | --- | --- |
+| `spawn = x y z [yaw] [team=1..4]` | team spawn (0 / omitted = any team) | position used; yaw and team stored only |
+| `marker = base\|flag\|zone x y z [radius=R] [team=N] [name=Label]` | objective positions (radius default 600 base / zone, 150 flag; at most 32) | authored only |
+| `keep = x y z`, `remove = x y z` | override the arena world filter for the object at that world position | authored only (`drakan_arena` does not read them) |
+| `modes = dm, tdm, <id>` | an id other than dm / tdm names a `[mode <id>]` (`ArenaDef::customModes`) | stored only |
+
+### Custom game modes ([mode] descriptor)
+
+`[mode <id>]` sections live in the same INI text as the arenas (built-in `configs/mp_maps.ini`, the player's `mp_maps.ini`,
+mod packs' `maps/*.ini`); `ArenaCatalog` skips them, `ModeCatalog` (`net/GameModes.h`, `GameModes.cpp`) parses them
+(later sources replace an id, an invalid mode is dropped with a `source:line` error). The game fills
+`drakan_modes::customModes()` (`drakan_modes.h`) from the same three sources, so a menu can list them.
+
+| Key | Default | Range / values |
+| --- | --- | --- |
+| `name`, `description` | required name | name <= 40 characters |
+| `base` | `dm` | `dm` or `tdm`: the engine rule set it builds on |
+| `teams` | 0 (2 with tdm) | 0, or 2..4 (needs `base = tdm`) |
+| `score_kill` / `score_death` / `score_objective` | 1 / 0 / 0 | -1000..1000 |
+| `frag_limit` | 20 | 0 none .. 1000 |
+| `time_limit` | 600 | seconds, 0 none .. 7200 |
+| `respawn_delay` | 3 | seconds 0..60 |
+| `friendly_fire` | off | on / off |
+| `start_health` | 0 (the map's) | 0..1000 |
+| `loadout` / `weapons` | empty | resource ids (<= 16); loadout is added to the map's, weapons empty = all |
+| `objective` (repeatable, <= 8) | | `capture` or `hold`, `[points=N] [seconds=N] [radius=N]`; hold needs `seconds` |
+
+`capture` = carry a `flag` marker to the team's `base` marker; `hold` = stay inside a `zone` marker for `seconds`.
+Example: `instagib-lite` in `configs/mp_maps.ini`.
+
+| Field | Honoured by the runtime today? |
+| --- | --- |
+| `base`, `frag_limit`, `time_limit`, `respawn_delay`, `start_health` | yes, through `applyModeToConfig(mode, MatchConfigData)` into the match config (the server already has these options); nothing calls it from a menu yet |
+| arena `players`, `health`, `spawn` positions, `pickup`, `loadout` | yes (the arena mode) |
+| `score_*`, `teams` beyond tdm's two, `friendly_fire`, `weapons`, mode `loadout`, `objective`, markers, spawn `team` / yaw, `keep` / `remove` | authored only: parsed, listed, not executed |
+| the menu | lists maps from `drakan_arena::maps()`; custom modes are available from `drakan_modes::customModes()` but no menu row shows them yet |
+
+Map pictures from mod packs: `previews/<safe map name>.png` in a pack (<= 8 MiB) is copied to `previews/mods/` next to the
+exe at startup; the menu looks at `previews/<name>.png` first, then `previews/mods/<name>.png`.
+
+### Authoring in the level editor (Multiplayer Map)
+
+The level editor's **Multiplayer Map** dock tab (`editor/packages/app/src/editor/arena/`, pure logic in
+`editor-core/src/{arena,gamemodes,arenapack}.ts`) writes exactly this format, so a map no longer has to be typed or taken
+from `arena_candidates.py`.
+
+* **Start**: pick any campaign level (its terrain loads) or import an `mp_maps.ini` / pack `maps/*.ini` and edit one of its
+  arenas; the draft is kept in the browser. Map tab: name, id, description, supported modes (dm, tdm and your custom modes),
+  max players, start health, loadout (item picker with the Resources thumbnails), bounds (typed, drawn on the terrain, or
+  moved with the two corner handles; the rectangle is drawn draped over the terrain).
+* **Place tab**: spawn point, pickup, flag, base and zone tools (click the terrain; positions snap to the editor grid and sit on
+  the ground), a move / rotate gizmo (yaw uses the angle snap), per item fields (position, team, facing, item, respawn
+  seconds, radius), "Suggest spawns" (spread out points on flat ground inside the bounds, up to the player count) and
+  "Alternate teams". Every edit is one History row (Ctrl+Z).
+* **World tab**: the preview of the class filter above. Red dots in the viewport are what `drakan_arena` removes (creatures,
+  cut scene players, conversation handlers, movie players, exits, quest items, treasure, chests, loose items away from the
+  player start and from adopted pickups), counted per class; each object can be kept (`keep = x y z`) or marked for
+  removal (`remove = x y z`). The editor guesses creatures and loose items from class names, the game decides by hit points
+  and entity type, so the counts can differ slightly. `keep` / `remove` are authored only (see the table above).
+* **Modes tab**: create, copy and edit `[mode]` descriptors (score values, limits, respawn delay, friendly fire, loadout,
+  allowed weapons, capture / hold objectives); a table next to the form says what the game runs today. Modes are
+  stored in this browser and written, together with the arena, into every pack that uses them.
+* **Export tab**: pack id / name / version / author, a top-down preview capture (orthographic render of the terrain over the
+  bounds with spawns and pickups drawn on it, saved as `previews/<safe map name>.png`), then download a zip, write
+  into the game's `mods/` folder (browser folder picker, or straight to the remembered game folder in the desktop app) or
+  download the map INI alone. The pack holds `mod.toml`, `maps/<id>.ini` and the preview; no level file is needed
+  because the filter runs in the game.
+* **Validation** (the Validation tab and a strip in the panel, errors block the export): id / name / level / player count,
+  at least 2 spawns, spawns fewer than players (warning), spawns and pickups outside the bounds, over no terrain or floating
+  above the ground, spawns closer than 400 units, a team without a spawn point, adopted pickups with no level item
+  within 600 units, pickups that cannot be reached on foot from the spawns (coarse flood fill over the terrain, steps over 450
+  units block; jumping is not modelled), objectives without the markers they need, unknown mode ids.
+
+### Starting loadout, health, limits found
+
+* A New Game that opens a level other than the first has **no weapon**: the dagger is an object of Surdana's list, not part of the game state. `loadout` spawns the listed resources at the player's feet once the campaign sweep is over and presses the game's Use (L1) through the input glue (`takeUseTap`) while one lies within reach (Use with nothing near calls Arokh, so it is never pressed blindly); the items land in the inventory, equipping stays the player's. Start health is `health` (server points, scaled to Rynn's maximum by `drakan_pvp`).
+* Ghosts of players 46k units away show and move normally (3 ranges tested, 10k / 21k / 36k / 46k); the limit is the floor residency of a *teleport*, handled by the retry above.
+* A pickup is taken with Use, walking over it does nothing.
+
+Not done: spawn yaw, team spawn sets, a menu row (the menu agent reads `drakan_arena::maps()`), loadout auto-equip, arena maps for levels where Rynn starts mounted, the USA disc (PAL addresses).
+
 ## Tests
 
-`ctest --preset runtime-tests -R net_`. Everything is deterministic except the UDP smoke test, which uses localhost
+`ctest --preset runtime-tests -R net_`. `net_coop_test` covers the v6 relay rules (authority, routing classes, targets, range
+checks, no PvP / limits in Coop), the authority's lifecycle (late joiner, leaving, empty match, mode switch in the lobby), host migration (the oldest remaining player
+takes over, also over 40 ms / 15 percent loss with the old owner leaving, its disconnect possibly lost so the timeout covers it: the announcement arrives once, events and claims
+continue exactly once and in order, a late joiner after the migration, a chain of three migrations with a recycled player id),
+LevelChange (Coop and deathmatch leaders, guests refused, bad coordinates), a v5 peer rejected with `VersionMismatch`, and a
+co-op session over 40 ms latency with 15 percent unreliable loss (reliable events exactly once and in order, creature slices
+arriving in part); the encode / decode round trips of the new messages are in `net_protocol_test`. In game:
+`scripts/harness/coop_two_instances.py` (all scenarios) and `netplay_two_instances.py` (level follow), see the 2026-10-31
+journal `coop-net.md`. Everything is deterministic except the UDP smoke test, which uses localhost
 sockets with wall-clock time.

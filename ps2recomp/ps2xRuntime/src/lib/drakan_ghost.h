@@ -43,7 +43,14 @@ bool enabled();
 
 // Thread safe. Queue a spawn (at `t`, or +300 units beside the controlled actor when null); returns the ghost id
 // (> 0), or 0 when disabled. The actor exists a few frames later (forEach shows handle != 0).
-int spawn(const Transform* t = nullptr);
+// `character` (drakan_coop_character id, 0 = Rynn's own body) makes the actor an NPC-class stand-in: it is created from
+// that class's resource record, keeps its own class init, and plays the character's own clips (setPose maps Rynn's
+// clips).
+int spawn(const Transform* t = nullptr, uint16_t character = 0);
+// A second Arokh body (the dragon of a mounted partner; Dragon record 0x20a60): created with the mode-7 recipe so its
+// init inserts it in the level but does not link to Rynn or take over the controlled actor. setPose replays the
+// dragon's own clips (the pose of a mounted sender is Arokh's). Same readiness rules as spawn().
+int spawnDragon(const Transform* t = nullptr);
 // spawn() returns 0 and logs "[ghost] spawn refused: <reason>" (also counted in spawnFailures()) while ready() is
 // false: cut scene levels ("Level 0*": the intro hangs the guest), a load / save in progress, or the first 90 PadMgr
 // boundaries after a load or restore. A spawn that passed this but is refused at the boundary (the controlled actor is

@@ -9,7 +9,8 @@
 
 namespace drakan::net {
 
-constexpr uint16_t kProtocolVersion = 6; // v6: co-op mode (CoopAuthority / CoopCreatures / CoopEvent) and LevelChange;
+constexpr uint16_t kProtocolVersion = 7; // v7: PlayerState.character (co-op stand-in character, 0 = Rynn);
+                                         // v6: co-op mode (CoopAuthority / CoopCreatures / CoopEvent) and LevelChange;
                                          // v5: Hello.password, Ready, MatchConfig.serverName, LAN Query / ServerInfo;
                                          // v4: weaponRight/weaponLeft record ids replace the weapon byte; v3: v3:
                                          // levelHash in PlayerState (v2: upper-body clip + channel mask)
@@ -20,6 +21,7 @@ constexpr size_t kMaxLevelLength = 64;
 constexpr size_t kMaxRejectMessageLength = 96;
 constexpr size_t kMaxPasswordLength = 24;
 constexpr size_t kMaxServerNameLength = 32;
+constexpr size_t kMaxModsLength = 96; // ServerInfo.mods: comma separated mod pack names
 constexpr uint16_t kDefaultPort = 47800; // LAN discovery probes kDefaultPort .. kDefaultPort + kDiscoveryPortCount - 1
 constexpr uint16_t kDiscoveryPortCount = 10;
 
@@ -34,7 +36,8 @@ enum class RejectReason : uint8_t {
     ProfileMismatch = 1,
     ServerFull = 2,
     BadName = 3,
-    BadPassword = 4
+    BadPassword = 4,
+    Kicked = 5 // sent to a joined player the host removed (the client reads it as a rejection with this reason)
 };
 
 enum class MsgType : uint8_t {
@@ -60,6 +63,15 @@ enum class MsgType : uint8_t {
     CoopCreatures = 20, // v6, creature stream (host -> clients, unreliable)
     CoopEvent = 21,     // v6, co-op events (kills, claims, objects, death / respawn, catch-up)
     LevelChange = 22,   // v6, the host went through a level exit: clients follow
+    // PvP arena addendum (separate from the co-op block above, same wire version: older v6 peers drop unknown types).
+    PickupClaim = 23, // C>S, the sender took arena pickup `index`
+    PickupState = 24, // S>C, a pickup was taken / is back (index kAllPickups = reset everything)
+    // Lobby / menu addendum (same wire version, older peers drop unknown types): the start and next-match countdowns,
+    // the players' ping, and the host's kick.
+    Status = 25,     // S>C, ~2 Hz, unreliable: countdown + every player's ping + a token to echo
+    StatusEcho = 26, // C>S, unreliable: the Status token (the server measures the round trip)
+    Kick = 27,       // C>S, reliable: the host removes a player
+    Character = 28,  // C>S, reliable: the co-op character the sender picked in the lobby (PlayerState.character later)
 };
 
 class ByteWriter {
@@ -178,11 +190,14 @@ struct PlayerState {
     // FNV-1a of the sender's loaded level name; 0 while it is loading or unknown. A receiver shows a ghost only when
     // this equals its own level's hash (clients run their own world, the server never sees level data).
     uint32_t levelHash = 0;
+    // v7: the character the player is shown as (drakan_coop_character id = NPC class id; 0 = Rynn). Receivers spawn the
+    // ghost as that character; the server relays it unchanged.
+    uint16_t character = 0;
     void write(ByteWriter& w) const;
     bool read(ByteReader& r);
 };
 
-constexpr size_t kPlayerStateWireSize = 1 + 4 + 4 + 12 + 4 + 12 + 2 + 4 + 2 + 4 + 4 + 4 + 4 + 1 + 4;
+constexpr size_t kPlayerStateWireSize = 1 + 4 + 4 + 12 + 4 + 12 + 2 + 4 + 2 + 4 + 4 + 4 + 4 + 1 + 4 + 2;
 
 // Server to clients, unreliable, every snapshot interval: all live players with a known state.
 struct Snapshot {
@@ -296,6 +311,8 @@ struct ServerInfo {
     uint8_t players = 0;
     uint8_t maxPlayers = 8;
     bool passwordProtected = false;
+    // Trailing optional field (older servers omit it): comma separated names of the mod packs the server runs.
+    std::string mods;
     void write(ByteWriter& w) const;
     bool read(ByteReader& r);
 };
@@ -380,6 +397,75 @@ struct LevelChange {
     PlayerId player = kNoPlayer; // the sender, filled in by the server
     uint32_t destHash = 0;
     float exit[3] = {0, 0, 0};
+    void write(ByteWriter& w) const;
+    bool read(ByteReader& r);
+};
+
+// ---- PvP arena pickups (docs/reference/netcode.md "Multiplayer maps") ----
+// The map's pickup list is the same on every machine (ArenaMaps.h); a pickup is named by its index in that list.
+// Server: validates the claim (Playing, player alive and near it when its position is known, not already taken),
+// marks the pickup taken for its respawn time and tells everybody; when the time is up it sends "available" again.
+constexpr uint16_t kAllPickups = 0xffff;
+struct PickupClaim {
+    static constexpr MsgType kType = MsgType::PickupClaim;
+    uint16_t index = 0;
+    void write(ByteWriter& w) const;
+    bool read(ByteReader& r);
+};
+struct PickupState {
+    static constexpr MsgType kType = MsgType::PickupState;
+    uint16_t index = 0;          // kAllPickups with taken == 0: every pickup is available (a new round)
+    bool taken = false;          // true: gone for its respawn time, false: available again
+    PlayerId player = kNoPlayer; // who took it (taken only; 0 when the server cannot say)
+    void write(ByteWriter& w) const;
+    bool read(ByteReader& r);
+};
+
+// ---- lobby / menu addendum: countdowns, pings, kick ----
+enum class CountdownKind : uint8_t {
+    None = 0,
+    MatchStart = 1, // the host pressed Start Match (or the auto start is running): the Loading phase follows
+    NextMatch = 2,  // Results: the lobby (the next match) follows
+};
+constexpr size_t kMaxStatusPlayers = kMaxPlayers;
+constexpr uint16_t kPingUnknown = 0xffff;
+struct PlayerPing {
+    PlayerId player = kNoPlayer;
+    uint16_t pingMs = kPingUnknown; // the server's measured round trip to the player (kPingUnknown until measured)
+    uint16_t character = 0;         // the co-op character the player picked (drakan_coop_character id, 0 = Rynn)
+};
+// Server to clients, unreliable, every kStatusIntervalMs: the running countdown (remaining milliseconds on the server's
+// clock at send time) and each player's ping. The client answers with a StatusEcho carrying `token`.
+constexpr uint32_t kStatusIntervalMs = 500;
+struct Status {
+    static constexpr MsgType kType = MsgType::Status;
+    uint32_t token = 0;
+    CountdownKind countdown = CountdownKind::None;
+    uint32_t countdownMs = 0;
+    std::vector<PlayerPing> pings; // at most kMaxStatusPlayers
+    void write(ByteWriter& w) const;
+    bool read(ByteReader& r);
+};
+struct StatusEcho {
+    static constexpr MsgType kType = MsgType::StatusEcho;
+    uint32_t token = 0;
+    void write(ByteWriter& w) const;
+    bool read(ByteReader& r);
+};
+// Client to server: remove `player`. Honoured only from the host (the longest connected player) of a listen server
+// (ServerOptions::hostKick); the kicked player gets a Reject with RejectReason::Kicked.
+struct Kick {
+    static constexpr MsgType kType = MsgType::Kick;
+    PlayerId player = kNoPlayer;
+    void write(ByteWriter& w) const;
+    bool read(ByteReader& r);
+};
+
+// Client to server: the character picked in the lobby (the server relays it to everybody in Status.pings, so the lobby
+// can show "as <character>" before any PlayerState flows).
+struct SetCharacter {
+    static constexpr MsgType kType = MsgType::Character;
+    uint16_t character = 0;
     void write(ByteWriter& w) const;
     bool read(ByteReader& r);
 };

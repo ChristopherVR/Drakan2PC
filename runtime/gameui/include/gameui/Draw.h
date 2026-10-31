@@ -52,6 +52,8 @@ enum class ImageKind : uint8_t {
     SavePreview,   // index = save slot number (1-based, BESCES-50006Slot<n>): the HD companion picture
                    // (drakan_save_previews) or the save's native 128 x 128 thumbnail; nothing for an empty slot
     TitleArt,      // index unused: the title menu's background art (title screen widget 0x2301)
+    LevelPreview,  // index = LevelEntry::previewId: a multiplayer map's picture, generated at run time from the
+                   // player's own disc / mod pack (never stored in the repository); nothing when unknown
 };
 // Pictures of the game's inventory icon atlas (INTERFCE.TXD 94, the native section tabs and the gold bag).
 enum class UiIconId : uint8_t { Chest, Stars, Face, Map, Book, Trade, GoldBag, Count };

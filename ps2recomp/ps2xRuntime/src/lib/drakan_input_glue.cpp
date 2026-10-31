@@ -25,6 +25,7 @@
 #include "drakan_menus.h"
 #if defined(PS2X_HAVE_GSR) // compiled with the GS renderer only
 #include "drakan_ghost.h"
+#include "drakan_arena.h"
 #include "drakan_coop.h"
 #include "drakan_netplay.h"
 #include "drakan_pvp.h"
@@ -338,6 +339,15 @@ struct TabGridPlace {
     drakan_views::Rect target;
 };
 TabGridPlace g_tabGrid;
+
+// The multiplayer arena world mode (drakan_arena): no saving or loading, an empty journal.
+inline bool arenaWorldMode() {
+#if defined(PS2X_HAVE_GSR)
+    return drakan_arena::active();
+#else
+    return false;
+#endif
+}
 
 #include "drakan_map_mouse_hooks.inl"
 #include "drakan_inventory_content_hooks.inl"
@@ -704,6 +714,9 @@ void hookPadMgrUpdate(uint8_t* rdram, R5900Context* c, PS2Runtime* rt) {
     drakan_netplay::beforePadMgr(rdram);
     drakan_coop::beforePadMgr(g, rdram);
     drakan_pvp::beforePadMgr(g, rdram);
+    drakan_arena::beforePadMgr(g, rdram);
+    if (drakan_arena::takeUseTap())
+        m.injectPadTap(Pad::L1, 2);
 #endif
     inventoryViewsTick(g, scr, gameplay);
     quickSlotsTick(g, scr, gameplay);
@@ -1235,6 +1248,7 @@ void drakanInstallInput(PS2Runtime& rt) {
     drakan_netplay::install(rt);
     drakan_coop::install(rt);
     drakan_pvp::install(rt);
+    drakan_arena::install(rt);
 #endif
     if constexpr (drakan_region::supports(drakan_region::Feature::DebugMenu))
         drakan_debug_menu::install(rt);

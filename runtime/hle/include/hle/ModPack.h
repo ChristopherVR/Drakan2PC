@@ -152,6 +152,12 @@ public:
     // For the Multiplayer map list: `name` is what the game's level list holds, `path` the file the game opens.
     const std::vector<ExtraLevel>& extraLevels() const { return extraLevels_; }
     size_t fileCount() const { return files_.size(); }
+    // Multiplayer map definitions (docs/reference/netcode.md "Multiplayer maps"): the text of every `maps/*.ini` of every
+    // loaded pack, in load order. `first` is "mod <id>", `second` the file content (the game parses it).
+    const std::vector<std::pair<std::string, std::string>>& mapFiles() const { return mapFiles_; }
+    // Map pictures: every `previews/<name>.png` (<= 8 MiB) of every loaded pack, `first` = <name> without extension
+    // (the safe form of the map's display name), `second` = the PNG bytes.
+    const std::vector<std::pair<std::string, std::vector<u8>>>& previewFiles() const { return previewFiles_; }
 
     // Register in this order (entries first, then texts) before the first resource request. Null when empty.
     std::shared_ptr<IResourceOverride> entries() const;
@@ -176,6 +182,8 @@ private:
     std::map<std::string, PackSource> files_; // manglePath(files/<path>) -> source
     std::map<NewEntryKey, PackSource> newEntries_;
     std::vector<ExtraLevel> levelDefs_, extraLevels_;
+    std::vector<std::pair<std::string, std::string>> mapFiles_;
+    std::vector<std::pair<std::string, std::vector<u8>>> previewFiles_;
     std::shared_ptr<XdbTextOverride> texts_;
     size_t textCount_ = 0;
 };

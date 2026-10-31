@@ -191,6 +191,9 @@ struct SlotState {
 };
 std::array<SlotState, kSlotCount> g_slots;
 std::atomic<int> g_active{0}; // calls between their before and after event
+std::mutex g_vetoM;
+std::function<bool()> g_saveVeto;
+std::function<std::string(const std::string&)> g_levelMapper; // g_vetoM
 
 Event makeEvent(int slot, uint8_t* rdram, R5900Context* c, Pending& p, bool after) {
     const Ram r{rdram};
@@ -200,6 +203,13 @@ Event makeEvent(int slot, uint8_t* rdram, R5900Context* c, Pending& p, bool afte
         if (slot == kSlotLevel) {
             p.path = r.str(getRegU32(c, 4));
             p.level = stem(p.path);
+            std::function<std::string(const std::string&)> mapper;
+            {
+                std::lock_guard<std::mutex> l(g_vetoM);
+                mapper = g_levelMapper;
+            }
+            if (mapper)
+                p.level = mapper(p.level);
             p.fromSave = getRegU32(c, 5) != 0;
         } else {
             p.path = r.str(getRegU32(c, slot == kSlotSave ? 6 : 5));
@@ -243,6 +253,19 @@ void trampoline(uint8_t* rdram, R5900Context* c, PS2Runtime* rt) {
 template <int N>
 void hook(uint8_t* rdram, R5900Context* c, PS2Runtime* rt) {
     SlotState& s = g_slots[N];
+    if (N == kSlotSave && c->pc == s.entry) {
+        std::function<bool()> veto;
+        {
+            std::lock_guard<std::mutex> l(g_vetoM);
+            veto = g_saveVeto;
+        }
+        if (veto && veto()) {
+            std::fprintf(stderr, "[lifecycle] save write vetoed (multiplayer arena)\n");
+            SET_GPR_U32(c, 2, 1u);
+            c->pc = getRegU32(c, 31);
+            return;
+        }
+    }
     if (c->pc != s.entry) { // the guest thread is resuming inside the function after a switch: nothing to announce
         s.orig(rdram, c, rt);
         return;
@@ -448,6 +471,16 @@ void unsubscribe(ListenerId id) {
 
 bool installed() {
     return g_installed;
+}
+
+void setLevelNameMapper(std::function<std::string(const std::string&)> mapper) {
+    std::lock_guard<std::mutex> l(g_vetoM);
+    g_levelMapper = std::move(mapper);
+}
+
+void setSaveWriteVeto(std::function<bool()> veto) {
+    std::lock_guard<std::mutex> l(g_vetoM);
+    g_saveVeto = std::move(veto);
 }
 
 bool transitionActive() {

@@ -364,6 +364,9 @@ Class `0x100c5` (22 in Surdana, type 8, resources `b0819` and `b071d`) is the ch
 
 ### 8.5 Item 4 (move onto `drakan::net`): not done
 
+**Update (later the same day): done, see [coop-net.md](coop-net.md)** (protocol v6, the private socket is gone). The text below is
+what was true when this section was written.
+
 Nothing under `runtime/net` was touched and the protocol version is unchanged: items 1 to 3 did not need it, and the co-op
 messages above are on the private socket. The new messages (7 to 10) are the natural first set for a `CoopEvent` message when
 it happens.
@@ -372,3 +375,148 @@ it happens.
 
 `DRAKAN_COOP_TEST_HURT_SCALE=<f>` (client: damage taken from host enemies x f), `DRAKAN_COOP_TEST_TO=<class hex>,<dist>@<file>`.
 Harness: `--scenario death|chest|walkover|latejoin`, `--b-delay <s>`.
+
+## 9. Chests, gold and doors (2026-10-31, later)
+
+Code: `drakan_coop.cpp` (chest functions between `wrapDoors` and `watchObjects`; `hookSpew`, `pollChests`, `pollDoors`,
+`applyPendingGone`), harness `scenarios chest | chesthost | chestlate | gold`, option `--spot`. Class layout and the engine
+side of it are in [world-model.md](../../reference/world-model.md) section 11. Tags: **[game]** two-instance harness,
+**[dec]** Ghidra decompile.
+
+### 9.1 What a chest is (section 8.4 was wrong in two ways)
+
+* The "chest handler" probe of section 8.4 swapped `inner+0x14`; a chest has **no behaviour handler**. Class `0x100c5` is not
+  in the class table, its `+0xfc` object is a C++ component (vtable `0x523150`) and `inner+0x14` is its spew timer, so the probe
+  overwrote the 1.5 s delay with a function slot. That is why "nothing was seen": the probe broke what it measured. The swap
+  is removed.
+* A chest opens **by proximity, not by a key or a hit**: the controlled actor within the model radius + 800 units and on the
+  chest's open side (a vector stored in the component) [dec]; messages `0x1001` / `0x1007` open it too. The earlier test aid
+  stood the player on the other side, facing away, and 110 units from the chest is far inside the radius, so the side was what
+  mattered. The test aid now stands along the component's side vector (opened within 50 ms [game]).
+* Opening = component `state` (`+0x10`) 1 -> 2, the lid mover (a class `0x10023` object found at init, ref at `+0x18`) gets a
+  message, the actor is awake. 1.5 s later (*Spew Delay*) the **spew** runs: the gold generator makes treasure from the chest's
+  gold budget, then every child of type 10 or 11 (the linked potion / sack placed in the level plus the new gold) is thrown out
+  of the spawn point. Four chests of Surdana are placed already open (state 2 at load): nothing to replicate.
+* Visually the "open" is the lid mover and the thrown loot; a lid swing was not captured in a screenshot (the loot was, and
+  the client's chest opened through the engine's own open routine).
+
+### 9.2 Replication **[game]**
+
+| Step | How |
+| --- | --- |
+| Open here -> peer | `pollChests` (every refresh, both sides) sees `state` 1 -> 2 on a chest that was not placed open and sends `ObjState{key, 2}`; `rebaseLoot` lets the pickups near it fly without being counted as taken |
+| Peer opened it | `drainEvents` sets `pendingOpen`; `pollChests` posts the engine's open routine (`0x227d80(component)`) at the next boundary, so the lid message, sound and flags are the real ones, and logs "was opened by the partner" |
+| One loot, the host's | the spew's gold generator draws from the engine LCG (`0x4ce028`, state at `*(0x518e94)+0x58`) and from the generator's tables. **Host:** `hookSpew` (replaces `0x227ec8`) captures the RNG state, the gold carry (`0x4fbee0+0x24`) and the chest's gold budget at the spew's **first call** (the generator only runs then) and sends them as an `ObjMsg` with the pseudo type `0xfff1`. **Client:** the same hook makes the chest's tick wait (returns 0 = "not yet") until that message is here, then writes the RNG state, carry and budget and calls the original: same code, same inputs, same loot. If nothing arrives in 10 s it spews with its own RNG (duplicated, different loot, logged) |
+| Who may take it | the loot is ordinary pickups: keyed by order of appearance (`new pickup` lines, per (class, resource)), taken through the existing replication (`0x10c1`, registry loss, `0x10c6/0x10cb` for treasure) |
+| Preemption | the cooperative scheduler can unwind a guest call mid-way (`PS2_JAL`: pc left inside the callee, resumed later through the table entry of the resume address, not through a replaced entry point). The hook therefore only trusts a result when `ctx->pc` is back at the return address, and does not restore the local RNG state after the call (an earlier version did and handed the rest of the loot to the wrong stream: chest 1 of two opened together produced its gold at the world origin on the client) |
+| Late join | the host's catch-up lists chests that opened during play with their stored spew state; the client opens them and spews with that state; taken-pickup keys that name loot that does not exist yet are kept in `g_pendingGone` and applied when the loot appears |
+
+### 9.3 Gold sacks (class `0x1006d`) **[game]**
+
+Treasure is taken by **walking over it** (the player sends `0x10c6` then `0x10cb` to the sack; the sack leaves the registry; no
+`0x10c1`), and the registry-loss detection reports it: `coop4-chest7` (gold room, B stood by the chest, the linked sack flew out
+and B picked it up): B "pickup ... left the registry -> peer", A "taken by the partner: removed". The inventory copy that a
+taken sack leaves behind sits near the origin (about -1000, 700, -1500) and was wrongly keyed as a new pickup; pickups near the
+origin are now excluded for `0x1006d` too.
+
+### 9.4 Doors that close again
+
+`pollDoors` reads `data+0x10` of every door each refresh on both sides, logs a transition ("opened", "closed again") and sends
+`ObjState{key, 0}` when a door closes; the receiving client drops the door from the forced-open set (`g_forceOpen`), so a door
+the catch-up opened is no longer held open. The catch-up itself reads the live state, so a door that is closed again is not
+reported open.
+
+### 9.5 Verification and what is not done
+
+Harness folders (`build/harness/`, private play folders `build/coop4-{a,b}`), all with `--folder coop4`:
+
+| Run | Result |
+| --- | --- |
+| `coop4-chest15` (`chest`, `--spot 614272,150088,508500`: two gold chests opened together by B) | 8 of 8: open both ways, host spew sent, client spewed with it, **the nine loot pickups have the same keys on both sides** (`loot keys` line) |
+| `coop4-chesthost-b`, `coop4-chestlate-b` (one chest, host opens; late join 40 s later with the chest already open) | 8 of 8 each; the catch-up reported "1 open chests" and the client spewed with the stored state |
+| `coop4-gold` | 4 of 4: B walked over the sack, A's copy removed |
+| `coop4-door`, `coop4-pickup`, `coop4-latejoin` | unchanged, all pass |
+
+Not done or not solid:
+* Two chests spewing in the same frame sometimes leave one chest's new gold **parked near the world origin** (seen on the host
+  in `coop4-chesthost` and on the client before the RNG-restore fix; the cooperative scheduler can unwind the spew). A client-side
+  heal (`healChest`: ask the spew again after 2.5 s while loot is still parked) exists but was **not exercised** (no run hit it
+  after it was added). The host has no heal.
+* Loot keys are order of appearance per (class, resource): two chests spewing the same resource in one scan can swap keys
+  (taking one removes the equal-resource twin on the other side). Not seen to matter.
+* The lid swing was not captured in a screenshot; the lid message is the engine's own (`+0x18` ref non-zero for all chests).
+* Doors: closing is logged and reported, but no door was seen to close in a harness run, so the "closed again" path is untested.
+* Test aids: `DRAKAN_COOP_TEST_TO` stands along a chest's side vector; `DRAKAN_COOP_TEST_TO_FLIP=<ms>` alternates sides.
+
+## 10. N players and the level follow check (2026-10-31, later)
+
+Built and run in game (2026-10-31, evening; exe copied to `build/coopv-exe/`, private folders `build/coopv-{a,b,c}`, harness
+folders `build/harness/coopv-*`). The shared tree built clean (`ps2EntryRunner`; `ctest -R "net_|gameui"` 16 of 16). No source
+changes were needed in `drakan_coop.cpp` / `drakan_netplay.cpp`.
+
+| Scenario | Players | Result | Harness folder |
+| --- | --- | --- | --- |
+| door, pickup, gold | 2 | pass | `coopv-door`, `coopv-pickup`, `coopv-gold` |
+| latejoin | 2 / 3 | pass (both catch-ups, B and C get the door and the taken pickup) | `coopv-latejoin`, `coopv-latejoin3f` |
+| migrate (with `drakan_server`) | 2 | pass, 9 of 9 (handover, new owner streams, orcs made real) | `coopv-migrate` |
+| fight | 2 | pass after the spot change below | `coopv-fight2d` |
+| death | 2 | pass after the spot change below | `coopv-death2d` |
+| fight, death | 3 | pass (claims from players 2 and 3 applied, orcs go for more than one ghost) | `coopv-fight3c`, `coopv-death3c` |
+| chest (`--spot 614272,150088,508500`) | 2 | 7 of 8: only the "same pickups" key comparison fails (see below) | `coopv-chest2f` |
+| chesthost | 2 | same 7 of 8, mirrored | `coopv-chesthost` |
+
+* **fight / death failures were the lock-on, not the co-op logic.** B's lock-on (F) took A's ghost (400 units away) instead of
+  the orcs (570): the dagger hits went to the ghost, so B sent no claims. `ORC_SPOT_A` is now 1600 units from B, and the B / C
+  swing counts were raised (50 -> 85, 40 -> 70 for A) because with three instances the level keying finished after most of the
+  early swings. With that all five fight / death runs pass. The first runs also ran while other sessions loaded the machine
+  (3 games, MSBuild): load stretches level loads, so the recipe timing is the fragile part. Use a private `--port` too.
+* **chest loot key mismatch.** The player who stands at the chest (the harness puts them there) walks over the thrown gold and
+  collects it before the scan keys it, so that side logs fewer `new pickup` lines (client 4 to 5 of the host's 8 to 9; with
+  `chesthost` the host logs 3). The opener's inventory copies appear near (-1100, 600, -1500) as in section 9.3. Real gap:
+  loot taken the moment it appears is never keyed, so the partner's copy of it is not removed (one of the chest's pickups was
+  removed on the host, the rest stayed). Not fixed. `healChest` is not what is missing: on the client the chest's child list
+  at `+0x90` was empty (`n 0`) or already launched (`n 4`, not parked), so it never fires.
+* A harness run that loses its instances suddenly may have been hit by another session's `taskkill /IM drakan.exe`
+  (`coopv-chest2e` ended that way): rerun it.
+
+### 10.1 N-player co-op **[game]**
+
+* **Wire (internal datagram):** the co-op logic's own event form got a player byte after the level hash (`kEventHeader` 6).
+  `eventFromLegacy` / `eventToLegacy` carry `CoopEvent.player` (the sender the server stamps; for `Hurt` / `Respawn` the target).
+  `pushReliable` is unchanged; `pushReliableTo(player, ...)` is the addressed variant.
+* **One ghost per remote player:** `playerOfHandle(handle)` / `handleOfPlayer(player)` map ghost actors and player ids through
+  `drakan_netplay::playerOfGhost` / `ghostOfPlayer`.
+* **Per-player slots (host):** `g_players[id] = {dead, deadMs}` replaces the single `g_partnerDead`. `PlayerDied` marks the
+  sender down; its ghost is no creature target, its claims are refused, hits on its ghost send no `Hurt`; after
+  `kRespawnDelayMs` it gets a `Respawn` addressed to it alone.
+* **Targeting:** `aiHandler` (creatures and doors) chooses among the local body and the ghost of every remote player who is not
+  down and within 6000 units: the nearest wins, the creature's current target is kept unless another is more than 20 percent
+  nearer (the old hysteresis, generalised); the tick still runs with the local body moved onto the chosen ghost. The log line
+  names the player id.
+* **Hurt:** a damage message whose target is a ghost goes to that ghost's player only (`Hurt` addressed), unless the sender is
+  itself a ghost.
+* **Claims:** carry the claimant's player id; validated against the claimant's own ghost (3000 units) and alive state, the
+  damage message's sender is that ghost.
+* **Late joiners:** each `SyncReq` sets the catch-up flag and counts; the catch-up (taken pickups, open doors, open chests with
+  spew state, and now the deaths of creatures already reported dead) is broadcast: it is idempotent for the players already
+  there, and the server has no addressed object events. The client respawns beside the authority's ghost, not "the first ghost".
+* **All players down:** a downed guest respawns beside the host after 5 s. If the host's own HP is 0 as well (the engine's game
+  over then reloads the last save, as in single player; co-op does not change that) nobody is left to respawn beside: every
+  downed guest is respawned at once where it fell and rejoins the host's reloaded world as ghosts reappear. There is no
+  shared "wipe" checkpoint; reload is the engine's own.
+* **Seam for host migration:** the other agent's `handoverToAuthority(rdram)` (called from `syncLink` when the server names this
+  player owner) is the single place that rebuilds role-dependent state; `g_players` is empty on a guest and starts fresh.
+
+### 10.2 `LevelChange.destHash` check **[game]**
+
+`drakan_netplay::serviceFollow` (see netcode.md "LevelChange"): arrival compare, mismatch report (log + chat line), retry through
+the landed level's exit list, re-fire when no load happens within 45 s, give up after 3 attempts. Ghosts are hidden until the
+hashes match by the existing level-hash gate. Not done: a direct load of an arbitrary destination (the engine's entry hangs
+outside its own transition). Test aid `DRAKAN_NET_TEST_LC_DEST=<level name>`.
+
+### 10.3 Harness
+
+`coop_two_instances.py --players 3` starts C (plays B's recipe, `--c-delay` seconds after B; 20 for `latejoin`) with private
+folders `build/<folder>-{a,b,c}`; extra checks per player id for fight / death / latejoin. The 2-player checks were updated for
+the changed log lines (`applied to creature`, `now targets a remote player's ghost`, `(player N) hit by`, `host: player 2 died`,
+`catch-up sent (N requests)`).

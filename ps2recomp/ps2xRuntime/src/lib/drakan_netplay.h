@@ -24,6 +24,11 @@
 
 class PS2Runtime;
 
+namespace drakan::net {
+struct CoopCreatures;
+struct CoopEvent;
+} // namespace drakan::net
+
 namespace drakan_netplay {
 
 void install(PS2Runtime& runtime); // subscribes the lifecycle hooks, starts the (idle) network thread; env shortcuts
@@ -37,7 +42,7 @@ void beforePadMgr(const uint8_t* rdram);
 struct HostConfig {
     std::string serverName = "Drakan server";
     std::string level;      // engine level name ("Level 1B - Kragmor"); the match is played there
-    int mode = 0;           // 0 deathmatch, 1 team deathmatch (net::MatchMode)
+    int mode = 0;           // 0 deathmatch, 1 team deathmatch, 2 co-op (net::MatchMode)
     int maxPlayers = 8;     // 1..16 on the wire; the menu offers 2..8
     int fragLimit = 20;     // 0 = none
     int timeLimitSec = 600; // 0 = none
@@ -57,6 +62,7 @@ struct Player {
     int kills = 0, deaths = 0;
     int pingMs = -1; // own player: the measured round trip; others unknown (-1)
     int timeSec = 0; // seconds since this client saw the player join
+    int character = 0; // co-op character the player picked in the lobby (drakan_coop_character id, 0 = Rynn)
 };
 
 struct ChatLine {
@@ -81,6 +87,10 @@ struct State {
     int teamKills[2] = {0, 0};
     std::string launchError; // the match level is not installed here (OotF: "level files mismatch")
     bool launching = false;  // the level load for a started match is in progress / waiting for the title
+    // The server's running countdown (Status): 0 none, 1 the match starts, 2 the next match / the lobby follows the
+    // results. `countdownSec` is what is left (< 0 = none).
+    int countdownKind = 0;
+    double countdownSec = -1;
     double now = 0;
 };
 
@@ -91,6 +101,7 @@ struct LanServer {
     int mode = 0, players = 0, maxPlayers = 8;
     bool passwordProtected = false, inProgress = false;
     int pingMs = 0;
+    std::string mods; // comma separated mod pack names the server runs
 };
 
 // Open a listen server on cfg.port and join it as the host (the match waits in the lobby until startMatch(), or starts
@@ -100,8 +111,13 @@ bool hostMatch(const HostConfig& cfg, const std::string& playerName);
 bool joinMatch(const std::string& address, const std::string& password, const std::string& playerName);
 void leave();      // drop the session (the server shuts down with its host)
 State state();     // snapshot
-bool startMatch(); // host only, in the lobby
+bool startMatch(); // host only, in the lobby (the server counts down first: State::countdownKind 1)
 void setReady(bool ready);
+void kickPlayer(int playerId); // host only: remove a player from the lobby / match (the server checks the sender)
+// Co-op lobby: tell the session which character the local player picked (also drakan_coop_character::setSelected).
+void pickCharacter(uint16_t id);
+// The mod packs this process runs (names, comma separated); a hosted server reports them in its query answer.
+void setLoadedMods(const std::string& names);
 void sendChat(const std::string& text);
 std::vector<ChatLine> chatLog(); // newest last, at most 64
 // LAN discovery: refreshLan() sends a Query sweep (broadcast to ports 47800..47809 plus loopback); lanServers() returns
@@ -164,8 +180,42 @@ struct Scoreboard {
     std::string winnerName;              // the deathmatch winner's name ("" when tied or team game)
     std::string reason;                  // "frag limit", "time limit" or "match ended"
     std::vector<KillFeedEntry> killFeed; // newest last, the last 8 kills
+    double nextMatchSec = -1; // Results: the server countdown to the next match / the lobby (< 0 = unknown)
     double now = 0;
 };
 Scoreboard scoreboard(); // snapshot for the scoreboard overlay / the results screen
+
+// ---- co-op transport (drakan_coop; protocol v6, docs/reference/netcode.md "Co-op mode") ----
+// The co-op game logic talks to the peer through the session's MatchClient: it queues messages here and the network
+// thread sends / receives them. Thread safe. Nothing is queued unless a Coop match is Playing.
+struct CoopLink {
+    bool active = false;  // connected to a Coop match in the Playing phase
+    bool host = false;    // we own the creature world (net::MatchClient::isCoopAuthority)
+    int self = 0;         // our player id
+    int authority = 0;    // the creature world's owner (0 = none)
+    int partner = 0;      // the lowest other player id (the co-op logic is built for one partner), 0 = none
+    int players = 0;      // roster size
+    uint64_t session = 0; // changes with every connect: state tied to the old session is stale
+};
+CoopLink coopLink();
+bool coopMatch();                                   // the session's mode is Coop (PvP stays out of it)
+void coopSend(const drakan::net::CoopCreatures& c); // authority only; unreliable
+void coopSend(const drakan::net::CoopEvent& e);
+// Oldest first; false when nothing is waiting.
+bool coopPoll(drakan::net::CoopCreatures& out);
+bool coopPoll(drakan::net::CoopEvent& out);
+
+// ---- co-op party HUD data (published by drakan_coop, shown by the in-game HUD) ----
+// The wire does not carry health: drakan_coop knows what it can (the partner downed state from CoopKind::PlayerDied /
+// Respawn, the level completion) and publishes it here every EE tick; the HUD draws what is known.
+struct CoopPartnerInfo {
+    int player = 0;
+    bool hpKnown = false;
+    float hpFrac = 1;
+    bool down = false;
+    double respawnInSec = 0; // while down, 0 = unknown
+};
+void setCoopParty(const std::vector<CoopPartnerInfo>& partners, bool levelComplete);
+std::vector<CoopPartnerInfo> coopParty(bool& levelComplete);
 
 } // namespace drakan_netplay

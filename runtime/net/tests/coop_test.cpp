@@ -206,23 +206,29 @@ void authorityLifecycle() {
     collect(b);
     collect(c);
 
-    // The authority leaves: nobody takes over; the guests' creature streams stay refused, level changes too.
+    // The authority leaves: the longest-connected remaining player (b) takes over and everyone is told (also the late
+    // joiner).
     a.disconnect();
     rig.run(300);
-    CHECK(rig.server->coopAuthority() == kNoPlayer && b.coopAuthority() == kNoPlayer && !b.isCoopAuthority());
+    CHECK(rig.server->coopAuthority() == b.playerId() && b.isCoopAuthority() && c.coopAuthority() == b.playerId());
+    CHECK(rig.server->stats().coopMigrations == 1);
     CHECK(count<PlayerLeave>(collect(b)) == 1);
+    // A guest cannot stream or lead; the new owner can.
     const uint32_t before = rig.server->stats().coopRejected;
     CoopCreatures cs;
-    b.sendCoopCreatures(cs);
-    b.sendCoopEvent(event(CoopKind::Claim, 3, 3)); // nobody to send it to
+    c.sendCoopCreatures(cs);
     const float exit[3] = {1, 2, 3};
+    c.sendLevelChange(7, exit);
+    rig.run(100);
+    CHECK(rig.server->stats().coopRejected == before + 2);
+    collect(c);
+    CHECK(b.sendCoopCreatures(cs));
     b.sendLevelChange(7, exit);
     rig.run(100);
-    CHECK(rig.server->stats().coopRejected == before + 3);
-    CHECK(coopEvents(collect(c)).empty() && count<LevelChange>(collect(c)) == 0);
+    CHECK(count<CoopCreatures>(collect(c)) == 1);
     MatchClient& d = rig.addClient("Newer", 0xC00);
     rig.run(200);
-    CHECK(d.connected() && d.coopAuthority() == kNoPlayer);
+    CHECK(d.connected() && d.coopAuthority() == b.playerId());
 
     // Everyone gone: the next first joiner owns the world again.
     b.disconnect();
@@ -312,7 +318,8 @@ void versionMismatch() {
     while (raw->poll(ev))
         if (ev.type == TransportEventType::Message) {
             Reject r;
-            rejected = decode(ev.data, r) && r.reason == RejectReason::VersionMismatch && r.serverVersion == 6;
+            rejected =
+                decode(ev.data, r) && r.reason == RejectReason::VersionMismatch && r.serverVersion == kProtocolVersion;
         }
     CHECK(rejected && rig.server->players().empty());
     // The discovery query of an old client is not answered either.
@@ -373,6 +380,104 @@ void sessionWithLoss() {
     CHECK(got > creaturesSent / 2 && got < creaturesSent + 1);
 }
 
+// Host migration over a lossy, laggy link: the authority leaves mid-session, the oldest remaining player takes over,
+// the reliable events keep arriving exactly once and in order, claims go to the new owner, a late joiner is told.
+void migrationWithLoss() {
+    Rig rig(coopOptions());
+    LoopbackNetwork::Conditions cond;
+    cond.latencyMs = 40;
+    cond.lossPercent = 15.0;
+    cond.seed = 23;
+    rig.net.setConditions(cond);
+    MatchClient& a = rig.addClient("Owner", 0xC00);
+    rig.run(400);
+    MatchClient& b = rig.addClient("Second", 0xC00);
+    rig.run(400);
+    MatchClient& c = rig.addClient("Third", 0xC00);
+    rig.run(600);
+    CHECK(a.isCoopAuthority() && b.coopAuthority() == a.playerId() && c.coopAuthority() == a.playerId());
+    startPlaying(rig);
+    rig.run(300);
+    collect(a);
+    collect(b);
+    collect(c);
+
+    // Before: the owner's deaths reach both guests exactly once, a guest's claim reaches the owner.
+    for (uint32_t i = 0; i < 5; ++i) {
+        a.sendCoopEvent(event(CoopKind::CreatureDied, 100 + i));
+        b.sendCoopEvent(event(CoopKind::Claim, 200 + i, 3));
+        rig.run(150);
+    }
+    rig.run(1500);
+    auto evB = coopEvents(collect(b)), evC = coopEvents(collect(c)), evA = coopEvents(collect(a));
+    CHECK(evB.size() == 5 && evC.size() == 5 && evA.size() == 5);
+    for (size_t i = 0; i < 5; ++i)
+        CHECK(evB[i].key == 100 + i && evC[i].key == 100 + i && evA[i].key == 200 + i);
+
+    // The owner drops: the next oldest (b) is announced to c exactly once and b learns it owns the world.
+    a.disconnect();
+    rig.run(2500); // the disconnect itself may be lost: the server's timeout covers it
+    CHECK(rig.server->players().size() == 2);
+    CHECK(rig.server->coopAuthority() == b.playerId() && rig.server->stats().coopMigrations == 1);
+    CHECK(b.isCoopAuthority() && c.coopAuthority() == b.playerId() && !c.isCoopAuthority());
+    const auto cEv = collect(c);
+    size_t announcements = 0;
+    for (const auto& e : cEv)
+        if (const auto* an = std::get_if<CoopAuthority>(&e))
+            if (an->player == b.playerId())
+                ++announcements;
+    CHECK(announcements == 1);
+    collect(b);
+
+    // After: the new owner streams and sends deaths, the other guest's claims go to it, each exactly once, in order.
+    uint32_t streamed = 0;
+    for (uint32_t i = 0; i < 40; ++i) {
+        CoopCreatures cs;
+        cs.levelHash = 5;
+        cs.sequence = i;
+        CoopCreature cr;
+        cr.key = 1;
+        cs.creatures.push_back(cr);
+        b.sendCoopCreatures(cs);
+        ++streamed;
+        if (i % 10 == 0) {
+            b.sendCoopEvent(event(CoopKind::CreatureDied, 300 + i));
+            c.sendCoopEvent(event(CoopKind::Claim, 400 + i, 2));
+        }
+        rig.run(100);
+    }
+    rig.run(1500);
+    const auto cAfter = collect(c), bAfter = collect(b);
+    const auto died = coopEvents(cAfter);
+    const auto claims = coopEvents(bAfter);
+    CHECK(died.size() == 4 && claims.size() == 4);
+    for (size_t i = 0; i < 4; ++i) {
+        CHECK(died[i].key == 300 + 10 * i && died[i].player == b.playerId());
+        CHECK(claims[i].key == 400 + 10 * i && claims[i].player == c.playerId());
+    }
+    const size_t got = count<CoopCreatures>(cAfter);
+    CHECK(got > streamed / 2 && got <= streamed);
+
+    // A late joiner after the migration is told who owns the world and can claim to it.
+    MatchClient& d = rig.addClient("Late", 0xC00);
+    rig.run(1000);
+    CHECK(d.connected() && d.coopAuthority() == b.playerId() && !d.isCoopAuthority());
+    collect(b);
+    d.sendCoopEvent(event(CoopKind::SyncReq));
+    rig.run(1000);
+    const auto sync = coopEvents(collect(b));
+    CHECK(sync.size() == 1 && sync[0].kind == CoopKind::SyncReq && sync[0].player == d.playerId());
+
+    // Chain: the second owner leaves too, c (next oldest) follows, then the last one is alone and owns it.
+    b.disconnect();
+    rig.run(8000);
+    CHECK(rig.server->coopAuthority() == c.playerId() && c.isCoopAuthority() && d.coopAuthority() == c.playerId());
+    c.disconnect();
+    rig.run(8000);
+    CHECK(rig.server->coopAuthority() == d.playerId() && d.isCoopAuthority());
+    CHECK(rig.server->stats().coopMigrations == 3);
+}
+
 } // namespace
 
 int main() {
@@ -383,6 +488,7 @@ int main() {
     levelChange();
     versionMismatch();
     sessionWithLoss();
+    migrationWithLoss();
     std::puts("net_coop_test ok");
     return 0;
 }
