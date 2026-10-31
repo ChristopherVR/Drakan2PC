@@ -35,6 +35,7 @@ ROOT_FILES = {
     "CMakePresets.json",
     ".gitignore",
     ".gitattributes",
+    ".gitmodules",
     ".clang-format",
     ".clang-format-ignore",
     ".clang-tidy",
@@ -113,8 +114,16 @@ TOKEN_PATTERNS = [
 
 
 def tracked() -> list[str]:
-    raw = subprocess.check_output(["git", "ls-files", "-z"], cwd=ROOT)
-    return [p.decode("utf-8") for p in raw.split(b"\0") if p]
+    # Submodules (gitlinks, mode 160000) are separate repositories with their own audit.
+    raw = subprocess.check_output(["git", "ls-files", "-s", "-z"], cwd=ROOT)
+    out = []
+    for rec in raw.split(b"\0"):
+        if not rec:
+            continue
+        meta, _, name = rec.partition(b"\t")
+        if meta.split()[0] != b"160000":
+            out.append(name.decode("utf-8"))
+    return out
 
 
 def reason(name: str, content: bytes | None = None) -> str | None:

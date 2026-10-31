@@ -1,0 +1,3 @@
+[submodule "editor/packages/formats"]
+	path = editor/packages/formats
+	url = https://github.com/ChristopherVR/drakan-formats.git
