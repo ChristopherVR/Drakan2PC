@@ -21,6 +21,8 @@ export interface OotfLevelInput {
     /** Title shown in the level list; the folder and file name are its 8.3 mangling. */
     title: string;
     parts: Ps2LevelParts;
+    /** Splat files of this level by extension; override the pack-wide `splats` per key. */
+    splats?: Readonly<Record<string, Uint8Array>>;
 }
 
 export interface OotfPack {
@@ -38,6 +40,8 @@ export interface OotfPackOptions {
      * load), so they are shipped next to each LVL under the level's own `<first 6 chars>TS` name.
      */
     splats?: Readonly<Record<string, Uint8Array>>;
+    /** Further pack files (shared asset container, new ODB / SSD / SDB entries, patched `.DB` files), shipped as they are. */
+    extraFiles?: Readonly<Record<string, Uint8Array>>;
 }
 
 export async function buildOotfPack(
@@ -70,11 +74,15 @@ export async function buildOotfPack(
         files[`files/ENGLISH/LEVELS/${mangled}/${mangled}.LVL`] = bytes;
         levels.push({ title, mangled, bytes: bytes.length });
         const stem = mangled.slice(0, 6) + 'TS';
-        for (const [ext, data] of Object.entries(options.splats ?? {})) {
+        for (const [ext, data] of Object.entries({ ...options.splats, ...input.splats })) {
             files[`files/ENGLISH/LEVELS/${mangled}/${stem}.${ext.toUpperCase()}`] = data;
         }
         if (!options.splats) warnings.push(`${title}: no splat files given; the game crashes after loading without them`);
         for (const e of input.parts.report.warnings.slice(0, 3)) warnings.push(`${title}: ${e}`);
+    }
+    for (const [path, data] of Object.entries(options.extraFiles ?? {})) {
+        if (path in files) warnings.push(`${path} is produced twice; the extra file wins`);
+        files[path] = data;
     }
     // Entries past the whole-entry limit only warn for new files (modding.md): level data is streamed in chunks.
     for (const l of levels) {

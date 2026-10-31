@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import argparse
 import configparser
+import json
 import re
 import subprocess
 import sys
@@ -54,14 +55,21 @@ def extract(iso: Path, data: Path, template: str) -> None:
     f, files = iso_files(str(iso))
     data.mkdir(parents=True, exist_ok=True)
     stem = template[:6] + "TS"
+    dirs: dict[str, str] = {}
     for p in sorted(files):
         parts = p.strip("/").split("/")
         if parts[0].upper() != "ENGLISH":
             continue
         n = parts[-1].upper()
         in_template = len(parts) > 2 and parts[-2].upper() == template
-        if n.endswith((".ODB", ".LVL")) or (in_template and n.startswith(stem)):
+        if n.endswith((".ODB", ".LVL", ".SSD")) or n in ("PROCTEES.TXD", "RESOURES.MOD", "RESOURES.TXD") or (in_template and n.startswith(stem)):
             (data / n).write_bytes(read(f, files[p]))
+        if n.endswith(".ODB"):  # the ODB's .DB (dependency list) and its disc directory, for the converter's model refs
+            db = p[: -len(".ODB")] + ".DB" if p.upper().endswith(".ODB") else None
+            if db in files:
+                (data / (n[:-4] + ".DB")).write_bytes(read(f, files[db]))
+                dirs[n[:-4]] = "/".join(parts[:-1])
+    (data / "paths.json").write_text(json.dumps(dirs), encoding="utf-8")
 
 
 def main() -> int:
@@ -79,19 +87,26 @@ def main() -> int:
     ap.add_argument("--recipe", type=Path, help="own input script (must end in quit)")
     ap.add_argument("--no-convert", action="store_true", help="reuse the pack from the last run of this name")
     ap.add_argument("--env", action="append", default=[])
+    ap.add_argument("--convert-arg", action="append", default=[], help="extra converter argument, e.g. --only (repeat per token)")
     a = ap.parse_args()
 
     work = ROOT / "build" / "ootf-run" / a.name
     mods = work / "mods"
     data = ROOT / "build" / "odbx" / "data"
-    if not (data / f"{a.template}.LVL").is_file() or not (data / f"{a.template[:6]}TS.TXD").is_file():
+    if (
+        not (data / f"{a.template}.LVL").is_file()
+        or not (data / f"{a.template[:6]}TS.TXD").is_file()
+        or not (data / "paths.json").is_file()
+        or not (data / "RESOURES.MOD").is_file()
+        or not (data / "PROCTEES.TXD").is_file()
+    ):
         extract(iso_path(a.iso), data, a.template)
     zip_path = mods / "ootf-levels.zip"
     if not a.no_convert:
         mods.mkdir(parents=True, exist_ok=True)
         cmd = [
             "node", "--experimental-transform-types", "--no-warnings", "editor/scripts/ootf-convert.ts",
-            "--ootf", str(a.ootf), "--ps2", str(data), "--template", a.template, "--out", str(zip_path), a.level,
+            "--ootf", str(a.ootf), "--ps2", str(data), "--template", a.template, "--out", str(zip_path), *a.convert_arg, a.level,
         ]  # fmt: skip
         out = subprocess.run(cmd, cwd=ROOT, capture_output=True, text=True, check=True)
         print(out.stdout.strip())

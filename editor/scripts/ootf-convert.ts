@@ -8,21 +8,7 @@
 import { existsSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs';
 import { join, relative, sep } from 'node:path';
 import { buildOotfPack, zipOotfPack } from '@drakan/editor-core';
-import {
-    SrscReader,
-    buildOdbIndex,
-    convertPcLevel,
-    dominantTexture,
-    findPcLevels,
-    loadPcLevel,
-    parsePs2Terrain,
-    ps2BlobFor,
-    pcLevelName,
-    ps2ClassTables,
-    readLvl,
-    LVL_TYPE_LAYERS,
-    type PcFileSource,
-} from '@drakan/formats';
+import { SrscReader, convertOotfLevels, findPcLevels, ps2BlobFor, pcLevelName, type PcFileSource } from '@drakan/formats';
 
 const args = process.argv.slice(2);
 const opt: Record<string, string> = {};
@@ -61,18 +47,27 @@ if (list) {
 
 const ps2 = need('ps2');
 const tplName = need('template').toUpperCase();
-const tplBytes = new Uint8Array(readFileSync(join(ps2, `${tplName}.LVL`)));
-const template = await SrscReader.fromBytes(tplBytes);
-const tpl = await readLvl(template);
+const template = await SrscReader.fromBytes(new Uint8Array(readFileSync(join(ps2, `${tplName}.LVL`))));
 const odbs = new Map<string, SrscReader>();
 for (const f of readdirSync(ps2).filter((x) => /\.ODB$/i.test(x))) {
     odbs.set(f.slice(0, -4).toUpperCase(), await SrscReader.fromBytes(new Uint8Array(readFileSync(join(ps2, f)))));
 }
-const classes = ps2ClassTables(tpl.header, await buildOdbIndex(odbs));
-const layersEntry = template.entries.find((e) => e.type === LVL_TYPE_LAYERS)!;
-const fallback = dominantTexture(parsePs2Terrain(await template.readRaw(layersEntry)));
-
-const blob = ps2BlobFor;
+const optReader = async (name: string): Promise<SrscReader | undefined> =>
+    existsSync(join(ps2, name)) ? SrscReader.fromBytes(new Uint8Array(readFileSync(join(ps2, name)))) : undefined;
+const ssds = new Map<string, SrscReader>();
+for (const f of readdirSync(ps2).filter((x) => /\.SSD$/i.test(x))) {
+    ssds.set(f.slice(0, -4).toUpperCase(), await SrscReader.fromBytes(new Uint8Array(readFileSync(join(ps2, f)))));
+}
+// ODB stem -> disc directory (written by scripts/harness/ootf_level_run.py) so the pipeline can patch an ODB's .DB.
+const dbFiles = new Map<string, { dir: string; text: string }>();
+const pathsFile = join(ps2, 'paths.json');
+if (existsSync(pathsFile)) {
+    const dirs = JSON.parse(readFileSync(pathsFile, 'utf8')) as Record<string, string>;
+    for (const [stem, dir] of Object.entries(dirs)) {
+        const f = join(ps2, `${stem}.DB`);
+        if (existsSync(f)) dbFiles.set(stem, { dir, text: readFileSync(f, 'latin1') });
+    }
+}
 
 // The template's splat files (LEVEL1TS.DB / .TXD): needed beside every converted LVL (the game crashes without them).
 const splatDir = opt['splats'] ?? ps2;
@@ -85,23 +80,53 @@ for (const ext of ['DB', 'TXD']) {
 if (!Object.keys(splats).length) console.warn(`warning: no ${splatStem}.DB/.TXD in ${splatDir} (--splats <dir>); the pack will crash the game`);
 
 const prefix = opt['prefix'] ?? 'OotF - ';
-const inputs = [];
-for (const p of levels) {
-    const pc = await loadPcLevel(src, p);
-    const parts = convertPcLevel(pc, { template: { header: tpl.header, classes }, textureFallback: fallback });
-    const R = parts.report;
+const only = opt['only'] ? new Set(opt['only'].split(',')) : null; // stage switches: --only textures,models,...
+const res = await convertOotfLevels(
+    src,
+    levels,
+    { template, odbs, ssds, dbFiles, hostMod: await optReader('RESOURES.MOD'), hostTxd: await optReader('RESOURES.TXD'), splatTxd: splats['TXD'], procTxd: existsSync(join(ps2, 'PROCTEES.TXD')) ? new Uint8Array(readFileSync(join(ps2, 'PROCTEES.TXD'))) : undefined },
+    {
+        name: (pc) => `${prefix}${pcLevelName(pc.header)}`,
+        log: (m) => console.warn(m),
+        textures: !only || only.has('textures'),
+        terrainInCommon: opt['tex-common'] === '1',
+        terrainDiscTextures: opt['tex-disc'] === '1',
+        terrain: {
+            firstId: opt['tex-first'] ? Number(opt['tex-first']) : undefined,
+            maxSize: opt['tex-max'] ? Number(opt['tex-max']) : undefined,
+            maxTextures: opt['tex-cap'] ? Number(opt['tex-cap']) : undefined,
+        },
+        models: !only || only.has('models'),
+        classes: !only || only.has('classes'),
+        singletons: !only || only.has('singletons'),
+        maxNewClasses: opt['max-classes'] ? Number(opt['max-classes']) : undefined,
+        texts: !only || only.has('texts'),
+        music: !only || only.has('music'),
+        sounds: !only || only.has('sounds'),
+        sequences: !only || only.has('sequences'),
+    },
+);
+for (const l of res.levels) {
+    const R = l.parts.report;
     console.log(
-        `${p}: ${R.objectsOut}/${R.objectsIn} objects, ${R.unmappedClasses.size} classes unmapped, ${R.layers} layers, ${R.cellsFallback} cells on fallback texture`,
+        `${l.pcPath}: ${R.objectsOut}/${R.objectsIn} objects, ${R.unmappedClasses.size} classes unmapped, ${R.layers} layers, ${R.cellsMapped} cells textured, ${R.cellsFallback} on fallback`,
     );
-    inputs.push({ title: `${prefix}${pcLevelName(pc.header)}`.slice(0, 60), parts });
+}
+for (const s of res.stages) if (!s.ok) console.warn(`STAGE FAILED ${s.stage}: ${s.error}`);
+if (res.assets) {
+    const a = res.assets;
+    console.log(`assets: ${a.models.converted} models, ${a.textures.converted} textures (${a.textures.bytes} bytes), ${a.skipped.size} skipped`);
+}
+if (res.classPlan) {
+    console.log(`classes: ${res.classPlan.mapped.size} mapped, ${res.classPlan.synthesized.length} synthesized, ${res.classPlan.unsupported.size} unsupported`);
 }
 const pack = await buildOotfPack(
     { id: opt['id'] ?? 'ootf-levels', name: 'Order of the Flame levels', target: { profile: 'pal' } },
     template,
-    inputs,
-    blob,
-    { splats },
+    res.levels.map((l) => ({ title: l.title, parts: l.parts, splats: l.splats })),
+    ps2BlobFor,
+    { splats, extraFiles: res.files },
 );
-for (const w of pack.warnings) console.warn('warning:', w);
+for (const w of [...res.warnings, ...pack.warnings]) console.warn('warning:', w);
 writeFileSync(need('out'), zipOotfPack(pack));
-console.log(`wrote ${opt['out']} (${pack.levels.length} levels)`);
+console.log(`wrote ${opt['out']} (${pack.levels.length} levels, ${Object.keys(pack.files).length} files)`);
