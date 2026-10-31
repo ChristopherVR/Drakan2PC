@@ -5,7 +5,7 @@ below). Addresses are PAL EE virtual addresses unless marked; the USA ones come 
 
 ## What the disc still contains
 
-Surreal's engine has an in-game debug menu: 125 options on 11 pages (cheats, teleport, render and profiling switches).
+Surreal's engine has an in-game debug menu: 118 options on 11 pages (cheats, teleport, render and profiling switches; the name table has 126 IDs, the rest are on no page).
 The retail ELF keeps nearly all of it:
 
 | Part | Address | Retail state |

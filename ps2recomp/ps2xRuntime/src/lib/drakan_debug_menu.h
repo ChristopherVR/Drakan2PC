@@ -1,5 +1,5 @@
 // Drakan: the engine's developer debug menu (docs/reference/debug-menu.md).
-// Both discs still hold the menu: the object (PAL 0x4e8d48) with 125 options on 11 pages, their handlers and the
+// Both discs still hold the menu: the object (PAL 0x4e8d48) with 118 options on 11 pages, their handlers and the
 // value formatter, and Engine_Tick still updates it while it is open. The retail build compiled out what opened it,
 // what routed keys to it and what drew it. The runtime supplies those: the DEBUG_MENU binding (F3 by default) opens and
 // closes it (drakan.ini [general] debug_menu = 1, Settings > Gameplay > Developer). While it is open the pad manager's
