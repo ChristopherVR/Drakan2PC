@@ -85,4 +85,24 @@ every non-RESOURES `*.MOD` / `*.ADB` of `--ps2` (the harness now extracts `NPCS.
   classes (21 in NPCS.ODB) and the retargeted ADB overrides loads and plays; a converted skinned humanoid clone draws and poses.
   NOT verified: a converted/retargeted clip visibly playing (the pulled Troll AnimWay Point and Scavenger objects never showed up
   near Rynn, so no screenshot sequence of one exists yet).
-* The pre-existing test "maps same-name classes ..." fails (class id 901 vs < 900) after the id-range change by another session; not touched.
+* The test "maps same-name classes ..." now asserts the intended range: synthesized ids sit above the ODB maximum (fffdffc in the formats repo).
+
+## Follow-up run (2026-11-01, evening): pulled creatures still not visible
+
+Wartok Canyons has real creature classes (`Troll Leather` x39, `Troll Chain` x7, `Troll Plate` x3, `Spider` x50, `Scavenger` x13,
+`Blade Dragon` x9; the `*AnimWay Point` classes are way points, and `^Troll ` also matches the static `Troll Axe` prop, which is the
+floating axe in earlier screenshots). New converter test aids: `DRAKAN_DBG_LIST=1` prints the class histogram of the level,
+`DRAKAN_DBG_PULL` now logs each pulled object (`pull <class> obj <id> from <pos>`). `rtrun.sh` honours `RECIPE=` (e.g.
+`rt_turn.txt`, which holds D for 2 s to turn Rynn 90 degrees).
+
+Runs `t1`/`t0` (`^Troll `) and `s1` (`^Spider$`, `--retarget 1`, turn recipe) load and run cleanly, but no creature body is visible in
+any frame: the pulled objects land at the player start's height 1200 units away (behind ridges, or not spawned without their
+level triggers), and no clip comparison can be made from frames that contain no creature. So a visible converted/retargeted
+clip is still NOT shown in the converted level. Next try: pull to a flat spot a few hundred units in front of the start camera, or
+place the object at the start itself with `DRAKAN_DBG_NOOBJ` off for the AI/spawn objects. The only in-game proof remains the
+PS2-level run above (trolls attacking with retargeted clips). Not tested: ids not on the PS2 model (new ids) used by classes, and the
+`0x0103` field alignment for ids below the ODB maximum (`OOTF_IDS_BELOW_MAX=1`); the default places every synthesized id above the
+maximum, where file, index and id order agree, so the question only matters for that opt-in mode.
+
+Formats suite: `tsc` clean, vitest 266/267; the one failure (`ootfseq` "AI resume zeroed") is a pending uncommitted edit of
+`src/ootfseq.ts` by another session (`keepAiResume` now defaults to true; the test still expects 0).
