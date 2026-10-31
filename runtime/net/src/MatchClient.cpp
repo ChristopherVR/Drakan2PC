@@ -319,6 +319,9 @@ bool MatchClient::remoteState(PlayerId id, uint64_t localNowMs, PlayerState& out
         }
         out.yaw = lerpAngle(a.state.yaw, b.state.yaw, t);
         out.animTime = a.state.animId == b.state.animId ? lerp(a.state.animTime, b.state.animTime, t) : out.animTime;
+        out.upperAnimTime = a.state.upperAnimId == b.state.upperAnimId
+                                ? lerp(a.state.upperAnimTime, b.state.upperAnimTime, t)
+                                : out.upperAnimTime;
         return true;
     }
     out = buf.back().state;

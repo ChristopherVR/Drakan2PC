@@ -39,6 +39,14 @@ int main() {
     CHECK(q.lower.clip == 0x2047b && q.upper.clip == 0x2047b && q.mounted);
     CHECK(q.position.x == 675499.5f && q.velocity.z == 3.0f && q.tick == 99);
     CHECK(back.weapon == 0xbc);
+
+    // An attack: the upper body plays its own clip on the channels outside lowerMask.
+    p.upper = {0x20512, 0.1f};
+    p.lowerMask = (1u << 0) | (1u << 3) | (1u << 4);
+    world::toPlayerState(p, s);
+    const world::PlayerPose a = world::fromPlayerState(s, 6.0);
+    CHECK(a.lower.clip == 0x2047b && a.upper.clip == 0x20512 && std::fabs(a.upper.time - 0.1f) < 1e-6f);
+    CHECK(a.lowerMask == p.lowerMask);
     std::puts(g_failed ? "net_pose_bridge_test: FAILED" : "net_pose_bridge_test: ok");
     return g_failed ? 1 : 0;
 }

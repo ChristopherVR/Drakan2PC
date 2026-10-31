@@ -253,6 +253,9 @@ struct MockState {
     float vel[3] = {0, 0, 0};
     uint16_t animId = 0;
     float animTime = 0;
+    uint16_t upperAnimId = 0;
+    float upperAnimTime = 0;
+    uint32_t lowerMask = 0;
     uint8_t weapon = 0;
     bool mounted = false;
 };

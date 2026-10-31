@@ -9,7 +9,7 @@
 
 namespace drakan::net {
 
-constexpr uint16_t kProtocolVersion = 1;
+constexpr uint16_t kProtocolVersion = 2; // v2: upper-body clip + channel mask in PlayerState
 constexpr size_t kMaxPlayers = 16;
 constexpr size_t kMaxNameLength = 24;
 constexpr size_t kMaxChatLength = 128;
@@ -145,15 +145,18 @@ struct PlayerState {
     float pos[3] = {0, 0, 0};
     float yaw = 0; // radians
     float vel[3] = {0, 0, 0};
-    uint16_t animId = 0;
+    uint16_t animId = 0; // lower body / locomotion clip
     float animTime = 0;
+    uint16_t upperAnimId = 0; // upper body (attacks, block, aim); equals animId when one clip plays
+    float upperAnimTime = 0;
+    uint32_t lowerMask = 0xffffffffu; // bit i: skeleton channel i plays the lower clip, else the upper one
     uint8_t weapon = 0;
     bool mounted = false; // riding the dragon
     void write(ByteWriter& w) const;
     bool read(ByteReader& r);
 };
 
-constexpr size_t kPlayerStateWireSize = 1 + 4 + 4 + 12 + 4 + 12 + 2 + 4 + 1 + 1;
+constexpr size_t kPlayerStateWireSize = 1 + 4 + 4 + 12 + 4 + 12 + 2 + 4 + 2 + 4 + 4 + 1 + 1;
 
 // Server to clients, unreliable, every snapshot interval: all live players with a known state.
 struct Snapshot {

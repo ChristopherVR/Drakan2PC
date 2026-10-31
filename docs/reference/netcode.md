@@ -1,4 +1,4 @@
-# Netcode: protocol v1, authority model, `runtime/net`
+# Netcode: protocol v2, authority model, `runtime/net`
 
 Status 2026-10-31: scaffold. The protocol, match state machine, transports and the headless `drakan_server` exist and
 are tested; nothing is wired into the game yet (that needs the native world view, see
@@ -27,7 +27,7 @@ Datagram = `'D' 'K'` + type byte. Types: Connect, ConnectAck, Disconnect (empty)
 per-peer sequence, receiver accepts only the next sequence, sender resends unacked packets every 150 ms (window 128,
 excess queued). Connect retried every 250 ms for 5 s; a peer silent for 10 s is dropped.
 
-## Protocol v1
+## Protocol v2
 
 Application message = 1 type byte (`MsgType`) + body; every decode requires the exact length. Integers little-endian.
 `str` = `u16` length + bytes (per-field maximum enforced). Reliable unless marked.
@@ -39,7 +39,7 @@ Application message = 1 type byte (`MsgType`) + body; every decode requires the 
 | 3 Reject | S>C | `u8 reason` (0 version, 1 profile, 2 full, 3 name), `u16 serverVersion`, `str message` |
 | 4 MatchConfig | S>C | `u8 mode` (0 DM, 1 TDM), `str level` (<=64), `u16 fragLimit`, `u16 timeLimitSec`, `u8 maxPlayers` (1..16), `u16 respawnDelayMs`, `u16 startHealth` |
 | 5 PhaseChange | S>C | `u8 phase` (0 lobby, 1 loading, 2 playing, 3 results), `u32 serverTimeMs` |
-| 6 PlayerState | C>S, unreliable | `u8 player`, `u32 sequence`, `u32 tick`, `f32 pos[3]`, `f32 yaw`, `f32 vel[3]`, `u16 animId`, `f32 animTime`, `u8 weapon`, `u8 mounted` (0/1); 45 bytes |
+| 6 PlayerState | C>S, unreliable | `u8 player`, `u32 sequence`, `u32 tick`, `f32 pos[3]`, `f32 yaw`, `f32 vel[3]`, `u16 animId`, `f32 animTime` (lower body), `u16 upperAnimId`, `f32 upperAnimTime`, `u32 lowerMask` (bit i: skeleton channel i plays the lower clip; see `world-model.md` section 6), `u8 weapon`, `u8 mounted` (0/1); 55 bytes (v2) |
 | 7 Snapshot | S>C, unreliable | `u32 serverTimeMs`, `u8 count` (<=16), count x PlayerState body (live players with a known state) |
 | 8 Hit | C>S claim, S>C accepted | `u8 attacker`, `u8 victim`, `u8 weapon`, `u16 damage`, `u16 healthAfter` (client sends attacker 0) |
 | 9 Death | S>C | `u8 victim`, `u8 killer`, `u8 weapon` |
