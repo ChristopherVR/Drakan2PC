@@ -9,6 +9,8 @@ export interface QuadInfo {
 
 const MAX_QUADS = 400;
 const GAP = 8;
+/** Pointer travel (CSS px) above which a press is a camera drag rather than a pick. */
+const DRAG_PX = 4;
 
 /** three.js viewport showing decoded textures as textured quads on a grid, with orbit controls. */
 export class TextureViewport {
@@ -21,6 +23,7 @@ export class TextureViewport {
     private extent = new THREE.Box3();
     private hovered: THREE.Mesh | null = null;
     private raf = 0;
+    private downAt: { x: number; y: number } | null = null;
 
     onHover: (info: QuadInfo | null) => void = () => {};
     onPick: (info: QuadInfo) => void = () => {};
@@ -37,7 +40,16 @@ export class TextureViewport {
         window.matchMedia('(prefers-color-scheme: light)').addEventListener('change', () => this.applyTheme());
         new ResizeObserver(() => this.resize()).observe(host);
         this.renderer.domElement.addEventListener('pointermove', (e) => this.pointer(e, false));
-        this.renderer.domElement.addEventListener('click', (e) => this.pointer(e, true));
+        this.renderer.domElement.addEventListener('pointerdown', (e) => {
+            this.downAt = { x: e.clientX, y: e.clientY };
+        });
+        this.renderer.domElement.addEventListener('click', (e) => {
+            const d = this.downAt;
+            this.downAt = null;
+            // A left-button pan ends with a click on the same element; only a press-and-release in place picks.
+            if (d && Math.hypot(e.clientX - d.x, e.clientY - d.y) > DRAG_PX) return;
+            this.pointer(e, true);
+        });
         this.resize();
         this.reset();
         const tick = (): void => {

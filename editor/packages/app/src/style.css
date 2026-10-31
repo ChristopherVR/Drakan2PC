@@ -219,6 +219,10 @@ pre {
     border: 3px dashed var(--accent);
     pointer-events: none;
 }
+/* `display` above would otherwise override the `hidden` attribute and leave the drop overlay on top of the page. */
+#drop[hidden] {
+    display: none;
+}
 .error {
     color: #e5645a;
 }

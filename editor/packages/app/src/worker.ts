@@ -88,8 +88,8 @@ const api: { [K in keyof Api]: (...a: Parameters<Api[K]>) => Promise<ReturnType<
         const head = await fs.read(path, 0, 4);
         if (new TextDecoder('latin1').decode(head) === 'SRSC') {
             const r = await getSrsc(path);
-            const entries: EntryInfo[] = [];
-            for (const e of r.entries) entries.push({ ...e, zlib: await r.isCompressed(e) });
+            const flags = await r.zlibFlags();
+            const entries: EntryInfo[] = r.entries.map((e, i) => ({ ...e, zlib: flags[i]! }));
             return { kind: 'srsc', entries, warnings: r.warnings, size: r.source.size };
         }
         const e = await fs.find(path);
