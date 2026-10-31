@@ -106,6 +106,10 @@ export interface Api {
     /** Models and textures of Resources classes by class id. */
     loadItemModels(classIds: number[]): ModelData[];
     loadStoryCatalog(): StoryCatalog;
+    /** The raw `.LVL` container of the level in `dirPath` (template for converted Order of the Flame levels). */
+    readLevelFile(dirPath: string): Uint8Array;
+    /** Where the exits of every level on the disc lead (loads every level's object list; seconds). */
+    exitIndex(): import('./logicdata.ts').ExitIndexData;
     /** Which container stems have a file for a reference kind (model .MOD, sound .SDB, texture .TXD, animation .ADB, sequence .SSD). */
     refContainers(kind: RefKind, stems: string[]): boolean[];
     /** Names and facts of every entry of a container; null when the disc has no such container. */

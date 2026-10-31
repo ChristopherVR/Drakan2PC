@@ -26,6 +26,8 @@ export interface ModMeta {
     description?: string;
     target: ModTarget;
     dependencies?: string[];
+    /** Custom level titles (`LEVELLST.TXT` names); their `files/ENGLISH/LEVELS/...` LVL ships in the pack. */
+    levels?: string[];
 }
 
 export interface ChangedEntry {
@@ -65,6 +67,7 @@ export function buildManifestToml(m: ModMeta): string {
     if (m.author) l.push(`author = ${tomlStr(m.author)}`);
     if (m.description) l.push(`description = ${tomlStr(m.description.replace(/\s*[\r\n]+\s*/g, ' '))}`);
     if (m.dependencies?.length) l.push(`dependencies = [${m.dependencies.map(tomlStr).join(', ')}]`);
+    if (m.levels?.length) l.push(`levels = [${m.levels.map(tomlStr).join(', ')}]`);
     l.push('', '[target]');
     if (m.target.profile !== undefined) {
         const p = m.target.profile;

@@ -213,6 +213,12 @@ const api: { [K in keyof Api]: (...a: Parameters<Api[K]>) => Promise<ReturnType<
                 continue;
             }
             try {
+    async readLevelFile(dirPath): Promise<Uint8Array> {
+        const fs = need();
+        const lvlFile = (await fs.list(dirPath)).find((e) => !e.isDir && /\.LVL$/i.test(e.name));
+        if (!lvlFile) throw new Error(`no .LVL file in ${dirPath}`);
+        return fs.source.read(lvlFile.extent * 2048, lvlFile.size);
+    },
                 odbReaders.set(stem, await SrscReader.open(sliceSource(fs.source, f.extent * 2048, f.size)));
             } catch {
                 missingOdbs.push(d.path.text);

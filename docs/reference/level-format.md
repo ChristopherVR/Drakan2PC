@@ -194,6 +194,52 @@ cell   = u16 flags, u32 texture, 8 x u16 uv      // row-major, top-left first, l
   block's size). That resync matched all 483 Surdana layers and ends exactly at the zlib section; a real walk is open.
 * **Units**: PC `Vertex` is `{u8 type, u8 1, u16 height}`, face `{u16 flags, u32 left, u32 right, 8 x u16 uv}`.
 
+### 10.1 Inline blob layout
+
+Generator: `editor/packages/formats/src/terrainblob.ts` (`buildPs2TerrainBlob`). Checked against LEVEL0RO (19 layers),
+LEVEL5NE (278) and LEVEL1NA (287), all PAL; the walker below consumes every blob to its last byte except about 3% of
+layers whose slice my resync cut wrongly.
+
+```
+u16 seq, u16 level_tag, u32 pool, u32 x_lo, x_hi, z_lo, z_hi, u32 chunk_count            // 28 bytes   [disc]
+chunk_count x {                                                                          // x outer, z inner
+  u32 x0, x1, z0, z1 ; u32 ntex ; ntex x u32 ref ; u32 vw, vh, n(=ntex)
+  n x (vw*vh) bytes                                                                      // one array per texture
+}
+flat layer (definition flags & 0x04):  00 00 00 00  00 7f 00 7f
+else: 00 00 00 00, then (w+1)*(h+1) x { i8 nx, ny, nz, 0x7f }  // entry v+1 = vertex v, row-major
+```
+
+* **Header [disc]**: `level_tag` is constant per level (0x0c LEVEL0RO, 0x16 LEVEL5NE; meaning [?]). `x_hi = 4w-1`, `z_hi = 4h-1`
+  for every solo layer; `pool` = 64/128/256, the smallest that holds the largest `hi+1` of the group. `seq` is a group id
+  (layers that coexist share one; twin floor/ceiling layers have equal seq). Inside a group the two ranges are slot
+  allocations that overlap between layers that are never visible together (LEVEL5NE seq 1: ranges 0..43, 44..55, 0..11); the
+  allocation rule is **not derived**. A solo range `0..4w-1` / `0..4h-1` is self-consistent **[inf]**.
+* **Chunks [disc]**: the layer is cut into `ceil(w/12) x ceil(h/12)` chunks of `ceil(n/pieces)` cells (last one shorter);
+  vertex counts are cells+1. Matches 291 of 297 layers; the other six (13x24, 25x32, 14x12, ...) split z finer, rule open.
+* **Texture list [disc]**: the distinct cell refs of the chunk, holes (`0xffffffff`) and invisible (`0xfffffffe`) left out.
+  The **order is a per-texture priority** that is global per level (no conflicting pair in 2 levels) but is not in the layer
+  data, so it is not derivable; the base ground texture tends to come last. A few chunks also list a texture no cell uses
+  (the unstored right-triangle ref of a PC-style per-triangle cell, or `0x110237`-like specials) **[inf]**.
+* **Per-texture arrays [disc]**: byte per chunk vertex `(gx,gz)` = `count | near`, `count` = how many of the four cells around
+  the vertex use the texture (cells of neighbouring chunks included), `near` = 0x10 when `gx<x1 && gz<z1` and some cell of
+  the texture lies in the 3x3 cells `(gx-1..gx+1, gz-1..gz+1)`. This looks like a per-vertex blend weight for splatting
+  the texture over its neighbours **[inf]**. Exact for flat layers and for interior vertices (about 96% of all array
+  bytes). Layer-border vertices differ: flat layers count nothing outside, isolated layers count outside cells as matching
+  every texture (corner = 4), layers with neighbours depend on the neighbour's data (not a simple function of the layer).
+* **Normals [disc]**: all-zero first entry, then per vertex. Central-difference normals from the heights (cell 2048, y up,
+  `-dx, 1, -dz` scaled to 127) land within 3 units for about half of the entries and exactly for 15%; about 6% of entries
+  are horizontal (`ny = 0`, cliff/seam vertices) and the baked values are not reproducible from the layer alone. Flat
+  layers (definition flag 0x04; 278 of 278 checked) store only the up vector.
+* **Regeneration score** (generator given the real seq/level_tag/texture order): whole blob byte-exact 6 of 584 layers
+  (the flat solo ones); chunk layout correct 575 of 584; array bytes correct 86-96% per level when the texture set matches
+  (that is 268 of 584 layers; 30 have every array byte right). Not derivable: slot ranges and pool of grouped layers, texture order, border counts next to
+  other layers, baked normals, per-triangle texture extras.
+* **Does the engine need it? [inf]** Probably yes for drawing: the arrays and chunk cut are the draw lists (per chunk, per
+  texture), not collision; heights, flags and UVs all live in the zlib block. Untested in-game. Safe defaults for a new
+  layer: unique `seq`, solo ranges, texture order by the new texture's own priority, `outside` = none for flat layers and
+  any otherwise, up-pointing or central-difference normals; set the flat flag (0x04) to skip normals entirely.
+
 ## 11. Models (MOD) on PS2
 
 Decoder: `editor/packages/formats/src/model.ts` (`parseModel`, tests `model.test.ts`); 3700 of 3704 models in every MOD on the
@@ -282,7 +328,7 @@ tree, so a stem to file map is enough):
 | 5 sound | `.SDB` | 0x0302 descriptor + 0x0304 SPU-ADPCM | name and subtitle text in 0x0302 (docs/reference/subtitles.md 3.1), rate at +8 after the name | **[disc]** 1355 of 1355; one `sub` per id (no id has two subs in SYSTEM, NPCS, LEVEL1ON), 0x0302 and 0x0304 subs match |
 | 14 (0x0e) texture | `.TXD` | 0x0040 | no name; header gives size and bpp | **[disc]** 199 of 199 |
 | 9 animation | `.ADB` | 0x0501 header, 0x0502 key data (0x0505 on some) | 0x0501 = `string name, f32 ?, u32 0, u32 frames, ...`; `frames` equals the first u32 of 0x0502 (checked on 3 records) | **[disc]** 2121 of 2126 hit 0x0501+0x0502; 5 class defaults (`Darkness` flight/attack) name an id with no entry |
-| 11 (0x0b) sequence | `.SSD` | 0x0311 (0x0310/0x0312 are the file header and "STOMP" tags) | name = `u16 length, string` at the start of the record ("6.04 Guardian Gate", "pillar stomp") | **[?]** inferred: no class default or level parameter holds a non-zero sequence value on the disc, so no reference could be checked against an id |
+| 11 (0x0b) sequence | `.SSD` | 0x0311 (0x0312 = folder names, 0x0310 = file header) | name = `u16 length, string` at the start of the record ("6.04 Guardian Gate", "pillar stomp"); full layout in section 14 | **[disc]** the `Sequence List` of every placed Stomp Player (cut scene player, runtime class 0x10033) is the SRSC id of a 0x0311 record of the level's own SSD: 84 of 84 over the 14 dumped levels |
 | 8 character channel, 12 layer | none | | not resource ids (`SYSTEM/0` etc. do not resolve in any container) | |
 
 Notes:
@@ -296,3 +342,227 @@ Notes:
   the class ODB's list instead, which is the same for the shipped data where both name the same stems.
 * No skeleton pose is decoded (section 11, 0x0208 joint block), so an animation cannot be previewed on a model; only its name,
   frame count and key size are shown.
+
+## 13. String tables (XDB) and quest classes (System.ODB)
+
+Proven on the PAL disc (all 113 System strings and all 190 System.ODB class records re-encode byte for byte; in game:
+an edited journal sentence and a new quest show in the native journal, `docs/journal/2026-10-31/story-editing.md`).
+
+**XDB 0x0400 string entry.** SRSC `id` is the string id, `sub` a group number (named by 0x0330 entries). Body: eight
+slots in language order (English, German, French, Italian, Spanish, three unused), each `u16 n` + `n` bytes, with
+`n >= chars` and `(2 + n) % 4 == 0`; Windows-1252, NUL padded. The runtime serves a replacement entry verbatim, so an edited
+string is the re-encoded entry. An empty non-English slot shows the English text. Characters outside Windows-1252 cannot be
+stored.
+
+**Class record 0x0102 / list 0x0103.** Record = `u16 n` + name area (same size rule as the XDB slots: `(2 + n) % 4 == 0`,
+no NUL needed, proven on all 190 System records) + body. The body ends in the class data area (a u32 per field, count in the
+body header). Quest fields (indices differ per class list, find them by name): `Type` 0 map marker / 1 journal / 2 both,
+`SubQuest?`, `Journal Entry` and `Map Text` (string ids into System.XDB, 0 = none), `New Quest Sound`, `Indicator Color`,
+`Map X Coordinate`, `Map Y Coordinate` (0..~370 seen; plain ints). 0x0103 is one zlib stream of lists, one per 0x0102
+record in index order: `u32 count`, then per field `u32 type, u16 len, name` with `len >= chars`, `len % 4 == 2`, NUL padded
+(all 3000+ names on the disc follow this). A class added with `new/` is last in the index, so its list is appended to the
+0x0103 entry (an override of that entry); the new class showed up in the journal with that append (a run without the
+append was not tried).
+
+**Where a quest is placed and triggered (levels).** A quest class is placed as an ordinary object whose db index is System.ODB's
+and whose class id is the quest class (e.g. LEVEL1NA: 21 quest objects). Other objects list it in their link table:
+class 128 timers and `Trigger Detector` (field `Trigger Message`, 1 or 18), and quest givers (LEVEL1ON class 445, fields
+`Beginning / Incomplete / Complete / Done Dialog Exchange` id arrays, `Message to send after ... dialog`, `Gold to give when
+complete`). *Inferred, not decoded in the engine:* message 1 starts a quest and 18 completes it (18 accompanies the completion
+dialogs; the done flag itself is set by quest message 0x116e, so 18 is probably that message's id in the link protocol).
+
+## 14. Cut scenes, conversations and sequences (2026-10-31)
+
+Proven = checked on the whole PAL disc (all English `.SSD` / `.SDB`, the 14 level dumps of `build/lvl-objects`); inferred = read off
+the data only. Tools: `editor/packages/formats/src/story/*`, panels `app/src/story/dialogue.ts` and `cinematics.ts`. Journal:
+`docs/journal/2026-10-31/story-editing.md`.
+
+### Who plays what
+
+* **Stomp Player** = runtime class `0x10033` ("Stomp Player", 18 in Surdana; in Levels 3, 6 and 8 the players carry the scene's
+  name). Class fields (LEVEL1ON ODB class 129): `Sequence List` (array, type `0x100b`), `List Play Order` (enum), `Initial State`
+  (enum), `Message To Play Next` (enum, default 4). A placed player overrides `Sequence List` (`[1354]`, `[421, 1022]`) and
+  `Initial State`. **[proven]** each list element is the SRSC id of a `0x0311` record in `<level>.SSD` (84 of 84 over the 14
+  dumped levels). **[inferred]** `Initial State` 1 starts the scene at level load, 0 waits for a message; message 4 (`Play
+  Sequence` in `logic.ts`) starts it.
+* **Conversation Handler** = runtime class `0x100b4` (6 classes in LEVEL1ON, 52 placed in Surdana). Fields: five arrays of dialog
+  line classes, one per phase: `Beginning Dialog Exchange`, `Incomplete Dialog Eschange`, `Complete Dialogs Eschange`, `Completed
+  w/o beginning Dialogs Eschange`, `Done Dialogs Exchange` (type `0x3003`; each has an `Interrupt ...` sibling of type `0x2003`),
+  five `Message to send after ... dialog` enums, item arrays (`Items to get from / give to Rynn when beginning / complete`,
+  `0x1003`), `Complete if Rynn has Items to get ?`, `Gold to give when complete`, `Initially active?`, `Distance From Rynn` (f32),
+  `Is there a quest?`, `Done Dialog Random or Sequential`. **[proven]** placed instances hold the phase arrays as class ids of the
+  level ODB: 538 of the 585 class references of placed handlers are dialog lines (runtime class `0x100ba`). **[inferred]** which
+  phase plays when (quest state), message 1 = start and 18 = complete.
+* **Dialog line** = runtime class `0x100ba`, a class of the level ODB named `Speaker - SOUNDNAME` (`Farmer - C103FA01`) or
+  generically (`Greeting`, `Item Sold to Player Dialogs`; 232 in LEVEL1ON). Fields: `Animation` (array `0x1009`), `Delay` (f32),
+  `Maintain special head animation during anim?`, `Sound` (array `0x1005`), `Sound Play Mode`, `Debug Text`, `Debug delay (s)`,
+  `Camera Position`, `Camera Transition`, camera distances and `Time to Transition Camera`. **[proven]** `Sound[0]` is
+  `(db << 16) | id`, db 0 = the level's own SDB: it resolves to a descriptor named like the class suffix (`C103FA01`) for 229 of
+  232 lines, and that descriptor's subtitle is the line's text. `Animation` is the ADB id of the talking animation (3009 for NPCs,
+  1526 Rynn). **[inferred]** `Sound Play Mode` 1 = several clips in a row (`C103FA03-A`), 0 = one; the camera enums (1 Rynn, 5
+  speaker) and what `Delay` does.
+
+Editing: a conversation line is only class data plus sound descriptors, so a mod changes the subtitle (`<LEVEL>.SDB` 0x0302
+override), the played sound, the animation and camera fields (patch of the 0x0102 class record in `<LEVEL>.ODB`) and the phase
+arrays of a handler class or placed handler (class record, or the `.LVL` object parameters).
+
+### Sound descriptor write-back (SDB 0x0302)
+
+Layout in [subtitles.md](subtitles.md) 3.1. **[proven]** (3398 of 3398 descriptors of the English tree rewrite byte for byte
+with `writeSdbText`): at +32 after the name there is either `u16 len + text` (flag `0x2000` set; an empty text is `len 2` plus
+two NULs, which is also what `u32 2` of a silent descriptor looks like) and then always 12 tail bytes. The text area is padded so
+the descriptor ends 4-aligned; a NUL terminator is optional when the text fills the area exactly. Timed pages: `\<seconds>`
+between pages, the number is the delay before the next page.
+
+### Sequence record (SSD 0x0311)
+
+SRSC id = sequence id, `sub` = id of the `0x0312` folder record that lists it (`u16 length + name`, `sub` = parent folder).
+
+```
+u16 nameLen, name                     "1.01 Jade, Desert Lord Spy"    [proven]
+u32 length   (60 = empty default)     [proven present; duration in frames or ticks is inferred]
+u32 0
+u32 slots    (highest actor slot + 1) [proven on all records]
+u32 actorCount                        [proven]
+actorCount x actor:
+    u16 nameLen, name                 "Camera", "Rynn", "Jade", "Running man"
+    u32 slot (1-based, ascending), u32 ref, u32 mode (0 on most, 1 and 7 seen), u32 actionCount
+    actionCount x action
+```
+
+`ref` is the level object id for props and NPCs (for example 7726) and 908 / 910 for Rynn / the camera (class ids, inferred).
+Names are not always NUL terminated (`Rynn` is `len 4`), so a rewrite keeps the stored length. **[proven]** All 202 sequences /
+1264 actors of the 14 English files parse and rewrite byte for byte; every actor's `actionCount` actions consume exactly its
+bytes (10041 actions, times ascending inside each actor).
+
+Action = `u16 type, f32 time (seconds)` + payload:
+
+| type | name | size | payload | status |
+| --- | --- | --- | --- | --- |
+| 0 | transform keyframe | 54 | quaternion xyzw (4 f32), position (3 f32, game units), 8 bytes (zero or `0x10`), scale (3 f32 ~1.0) | **proven** layout (4516 keyframes: unit quaternion in 4485, position inside the level); interpolation inferred |
+| 1 | animation | 30 | u32 mode (0, 4, 7), u32 ADB id, u32 0, f32 offset, f32 speed (mostly 1.0, 0.85 for crafting loops), u32 flags (0x10 0x15 0x3f 0x55) | sizes proven; field names inferred |
+| 3 | sound | 14 | u32 `(db << 16) or id` of a sound, u32 params (low 16 bits 10000 on most) | **proven**: db 0 ids resolve to the level SDB and the subtitle matches the scene (`101JA04-A` ...); db 3 / 4 are SYSTEM / RESOURCES of the `.DB` list; params inferred |
+| 4 | unnamed | 14 | u32 a, u32 b | size proven, meaning unknown (b equals the `flags` of a nearby animation) |
+| 5 | marker | 10 | u32 0 | size proven (always 0, 814 times; first action of most actors) |
+| 6 | unnamed | 10 | u32 0 / 1 | size proven |
+| 7 | message | 14 | u32 message number, u32 param | size proven; 4097 (256x), 4259, 4263, 4098, 4162, 4257 ... Inferred: `0x1000 + n` is the object message enum of `logic.ts` (4097 = On), 4257 = Play Sequence (OotF list) |
+| 8 | unnamed | 34 | u32, u32, 4 x f32, u32 1 | size proven (9 on the disc, camera actors) |
+| 9 | camera setup | 14 | f32 1.0, u32 (40, 50, 55) | size proven, first real action of camera actors; "field of view" is **inferred** |
+| 10 | hold | 6 | nothing | size proven; always followed by a type 0 or 9 at the same time |
+
+The camera is the actor named `Camera` (type 9 and 5, then keyframes, sounds and messages). The same list carries Rynn, NPCs, props,
+particle effects (`Jade FireBall`), fades (`DL T Fader`) and light flashes, each with its own transforms, animations and
+messages (message targets are not decoded; `param` is not a level object id, inferred).
+
+Not decoded: what types 4, 6 and 8 mean, the interpolation between keyframes, what `mode` and `ref` select for props, how
+messages address objects, the units of `length`. A rewrite keeps all of that opaque.
+
+### Mod support
+
+Sequence, descriptor and class edits ship as entry overrides (`overrides/<LEVEL>.SSD/0311_<id>_<sub>.bin`,
+`overrides/<LEVEL>.SDB/0302_<id>_<sub>.bin`, `overrides/<LEVEL>.ODB/0102_<id>_<sub>.bin`); see [modding.md](modding.md). That the
+game reads these through the per-request layer (0x1202) was **not** confirmed in game for SDB / SSD in this pass.
+
+## 15. Level logic: links, messages, triggers
+
+Code: `formats/src/logic.ts` (vocabulary), `editor-core/src/{logic,logic-templates}.ts` (graph, layout, volumes, validation,
+templates), `app/src/editor/{logicpanel,logicview}.ts` (panel and viewport). Statistics: `analysis/scripts/logic_graph.py` over
+the 14 PAL LVLs (10453 links, 0 dangling). Tags: **[elf]** read from the engine's property tables (string pool of the PAL
+executable, `analysis/strings_vaddr.csv`), **[disc]** statistics over the level data, **[dec]** decompile, **[inf]** inference.
+Journal with the evidence: `docs/journal/2026-10-31/level-logic.md`.
+
+### 15.1 The model
+
+Every object has a **link list** (section 2: ids of other objects). An object sends the message stored in one of its *message
+fields* to **every** object in its link list when its own condition happens; it does not choose a target per message. So the
+wiring of a level is a directed graph (object -> linked objects) and the message of an edge is a property of the *source*:
+change the source's field and every edge out of it changes. Targets decide by class what a message does.
+
+Message fields are enum fields (type 7) whose name says "message" (`Trigger Message`, `Message To Send`, `Msg Sent When
+Opened`, ...; not the yes/no questions such as `Can be Triggered by Message ?`). Their values index one global list **[elf]**
+that sits in the string pool after the generator's "Activate Message" property:
+
+| Values | Names |
+| --- | --- |
+| 0-8 | Off, On, Lock, Unlock, Play Sequence, Blow Up, Triggered, Move to WayPoint, I'm Dead |
+| 9-17 | Gib, Attack Linked AI, Follow, Make Vulnerable, Make Invincible, Stop Speaking, Stop Following, Play Next Dialog, Alert AI |
+| 18-26 | Quest Complete, Positive, Negative, Neutral, Enrage, Load, Shoot, Random, Cyclic |
+| 27-32 | Simultaneous, Start Conversation, Attack(Stomp), Quest Initiate, Item PickedUp, `<none>` |
+
+The ordinals are checked against the links on the disc **[disc]**: value 4 (Play Sequence) from detectors and timers lands on cut
+scene players, 23 (Load) also on cut scene players, 28 and 18 on conversation handlers, 7 on creatures, 3 and 2 on doors, 8 is
+the creature default and the counters' decrement default. Values such as 14, 15 and 22 are class defaults for "never used"
+slots (elevator Activate/Deactivate, timer Reset), i.e. a message nobody sends. The engine message ids (`0x1001` touch, `0x116e`
+quest) are a different, larger numbering used inside the handlers; the enum ordinal is what the level data stores. How an
+ordinal turns into an engine id was not traced.
+
+Other enum names found in the same tables **[elf]**: Trigger Detector Task (Transfer Link, Enable/Disable Saving, Message
+Screen, No-Fly Zone, Play Sequence, Wait For Data, Trigger Only (default), Cave Entrance, Message, Teleport Dragon, Steal
+Inventory), Detect Which? (Rynn On Ground, Rynn On Mount, Both (default), Rynn or Mount or NPC, Pushable, Only Linked NPCs, Mount
+Only), Detect Method (Outside To Inside, Inside To Outside), Initial State (Enabled, Disabled); Timer Start Mode (Run Instantly, Run
+When Triggered By Any Message, Run When Triggered By Trigger On Message); cut scene List Play Order (In Order Once, In Order Loop,
+One Scene Per Trigger And Looped, Randomly, All at Once) and Initial State (Triggered, On); Vis Toggler Trigger Mode (Toggle
+Visibility, Depends on Message). The full table is `FIELD_ENUMS` in `logic.ts`.
+
+### 15.2 Classes (runtime class = rfl id + 0x10000)
+
+| Class | Name in data | Sends (to its links) | Listens / accepts | Notes |
+| --- | --- | --- | --- | --- |
+| `0x1003d` | Trigger Detector | `Trigger Message` (default 5) when the player (Detect Which) enters | Initial State Enabled/Disabled; re-enabled by a message when "Can be Triggered by Message?" | a **box volume**: the model is a unit cube (bounds -0.5..0.5, one model unit = 2048 units), the LVL scale triple (flag 0x100) is the size in cells, rotation applies; 1177 placed, 899 with scale and flag 0x101 **[disc]** |
+| `0x1003e` | Timer | `Trigger Message` (default 1) after `Time Until Trigger` s | Start Mode 0 instantly, 1 on any message, 2 on `Trigger On Message`; `Disable/Re-Enable`, `Reset` messages | the most common link source: 1278 placed |
+| `0x10007` | Countdown to Zero | `Message To Send` (default 1) at zero | `Decrement` (default 8 = I'm Dead), `Increment`, `Reset`; `Initial Counter Value` | "kill every enemy" gate: creatures link to it, it links to the gate (202 creature -> counter links) **[disc]** |
+| `0x100e0` | Message Relay | `Outgoing Message` | `Incoming Message` | translates one message into another |
+| `0x1000d` | Lever / Button / Elevator Switch | `Message to send when on` (1) / `when off` (0) | `Activate/Deactivate Switch Message` | targets: doors, mechanisms, elevator handlers, timers |
+| `0x10013` | Door / gate | `Msg Sent When Opened / Closed` | Off, On, Lock (2), Unlock (3) **[disc]** | `Locked`, `Auto-Open?` (opens by itself near the player), distances in level units |
+| `0x10033` | Stomp Player = **cut scene player** | none | `Message To Play Next` (4) and 23 (Load) start it | `Sequence List` (SSD sequence ids), `List Play Order`, `Initial State` Triggered or On (On starts at level load) |
+| `0x10016` | Movie Player | `Message To Send When Done`, `... 1 second left` | | `Movie to Play`, Skippable; only the intro level has one |
+| `0x100b4` | Conversation Handler | five `Message to send after <state> dialog` | Start Conversation (28), Quest Complete (18), Quest Initiate (30) | quest giver: dialog arrays, items, gold, `Initially active?` |
+| `0x10037` | Level Transition / Portal | `Send This Message` | player touch | section 15.4 |
+| `0x100e1` | Elevator Handler | `Send Elevator Up/Down Outgoing Message` and the switch light messages | `Go Up/Down Incoming Message`, `Player on Elevator`, Activate / Deactivate | drives lift mechanisms (`0x10023`) |
+| `0x1001d` | Pressure plate | `Message To Send At Bottom / Top` | | sinks under the player; only some levels' ODBs have the class |
+| `0x100df` / `0x10022` | Combo lock / Lock Plate | `Message to Send on Success/Failure` / `Trigger To Send` | Message List / key item code | |
+| `0x10079` | Vis Toggler | none | `Show Message`, `Hide Message` | shows/hides all linked props (905 links to scenery) |
+| `0x10031` and other creatures (`0x10029`, `0x10028`, `0x1001e`, `0x1009d`, `0x100ad`, ...) | NPCs | `Message To Send` (default 8, I'm Dead) when dead | 7 Move to WayPoint, 5 Blow Up | the field exists twice in some classes (index 2 and 29) |
+| `0x10070` | Waypoint | `Message to send` | | links join the waypoints of one patrol: 1317 waypoint -> waypoint links, not wiring |
+| `0x10068` / `0x100dc` | Journal entry / quest marker (`Level Number`, `Handler ID`) | | Quest Initiate / Complete | timers link to journal entries (122) |
+| `0x100c5` | Chest | | | links to the gold it spews |
+| `0x10006` | Looping / Triggered Sound, music | `Message To Send when Sound Ends` | On / Off | targets of detectors (285) and ambient transitions (255) |
+
+### 15.3 Trigger volumes and radii
+
+A detector's volume is its model box (15.2); `LogicClass.volume` marks the class and `volumesOf` returns the box (half extents =
+scale x 1024, Euler XYZ rotation of the document). Resizing a face keeps the opposite face fixed (position and scale both
+change, `resizeBoxFace`). The LVL "radius word" (flag 0x10, section 2) is not a detector size (only one detector has one,
+20480.0); it stays unexplained. Distance fields in level units (cells of 2048 units, **[inf]** from the class defaults and the
+"(lu)" in their names): door `Auto-Open Distance (lu)`, conversation `Distance From Rynn`; the editor draws them as circles and
+edits the field. In the editor the drawn box coincides with the rendered trigger model.
+
+### 15.4 Level exits
+
+An exit's destination is the class default of field 0 (`Transition To...`, a string field): its dword has length 0 and the
+offset half holds an **XDB string id** of the level's own XDB (`LEVEL1ON.XDB` for level 1: 5 = Shadowmire path, 12 = Surdana, 17 =
+`portal`). The text is a level name or `Levels\<name>\<name>.lvl`. So there is one exit class per destination ("Level Transition
+from 1 to 2"); an LVL object can override the string. Field 1 "Transition To 'portal' object" selects the arrival marker
+(`portal`), otherwise the arrival is the exit of the destination level whose destination text is this level's name
+([world-model.md](world-model.md) section 10: no marker = the player falls). The editor checks exactly that across all levels
+(`exitArrivalProblem`, worker call `exitIndex`).
+
+### 15.5 Authoring templates
+
+`TEMPLATES` in `logic-templates.ts`, one undo step each (`ApplyTemplateCommand`): trigger volume plays cut scene, lever opens door
+(open/close or unlock/lock), kill all enemies opens gate (counter), pressure plates puzzle (needs a plate class in the level's
+ODBs), trigger volume sends message, level exit. New objects copy the body of an existing instance of the class (so a detector
+keeps flag 0x100 and can be sized) and override only the fields the template sets; a class with no instance in the level gets a
+generic default body (flagged by Validation, unverified).
+
+### 15.6 Checks
+
+`validateLogic`: trigger/timer/switch/plate without a link (detectors whose Task is not Trigger Only are exempt), a cut scene player
+nothing can start (reachability from objects that act on their own: enabled detectors, instant timers, switches, creatures, cut
+scenes set to On), a message the target does not react to (cut scenes: 4, 23 and their own `Message To Play Next`; doors: 0-3),
+an exit without a readable destination, an exit whose destination level has no arrival marker. On Surdana: 14 triggers without
+target, 1 unreachable cut scene (#15177), 1 ignored message (timer #18128 sends Blow Up to a cut scene).
+
+**Verified in game**: a template-made trigger volume at the player start, linked to Surdana's cut scene #7809, plays that cut
+scene at the start of the game (baseline: Rynn stands at the start with the quest text; with the pack the orc ambush sequence
+runs and Rynn ends about 50000 units away, at the cut scene's location). Journal: `2026-10-31/level-logic.md`.
