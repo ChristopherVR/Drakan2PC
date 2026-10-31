@@ -279,8 +279,23 @@ All records of a model share its SRSC id.
     exist and have one track per joint; the one that does not is a listed id with no ADB entry).
   Open: the LOD table is still found by signature in `model.ts` (`findCharacterLods`), the channel caps and sphere unknown
   field are decoded but not interpreted.
-* **0x0207 / 0x0211**: 0x0207 bounds (not used; the editor measures the vertices). 0x0211 is the PS2 display-list copy of the mesh
-  (GS/VU1 packets with the same UVs); not decoded and not needed.
+* **0x0207**: bounds (not used; the editor measures the vertices).
+* **0x0211 (strip display list) [disc]**: decoded; the engine needs it for skinned models and the Birch tree class (a static prop
+  draws from 0x0203/0x0204 alone). Layout, little endian, unaligned:
+  `u32 1, u32 V, u32 0`, V vertex groups as `count[0], cum[0], count[1], cum[1] .. count[V-1]` (`cum` = start of the next group,
+  padded to a multiple of 4; the 0x0203 vertex count is the padded total, pad vertices are zero), `u32 batchCount, u32 texture of
+  batch 0`, then per batch `u32 W, W x {u8 group, u8 slot}` (groups to copy into the vertex window), `u32 triangles` (sum of
+  strip length - 2, degenerates included), `u32 cap, cap x u8` (strip stream: 1-based window slot per element, 0 ends a strip),
+  `u32 cap, cap x (f32 u, f32 v)` (one UV per stream element, (0,0) on terminators), `u32 texture of the next batch` (0 after the
+  last). `cap` = elements incl. terminators rounded up to 64 (disc caps 64..1408). A group is a contiguous run of 0x0203
+  vertices; stream value s is window slot s-1; the window held at most 225 slots on the disc, so models with more vertices are
+  split into groups with copied vertices. UVs equal the 0x0204 corner UVs up to a whole-number shift (83 % identical). Checked:
+  the strips reproduce the 0x0204 triangle set exactly on every model without a tail section (about 1500 models in LEVEL1ON,
+  WORLDCON, RESOURES, SYSTEM). Strip orientation is per strip, 62 % opposite to the 0x0204 winding, 38 % equal (the engine does not
+  seem to care). Skinned models: every vertex exists once, groups are joint clusters, one batch loads several groups packed from
+  slot 0. Not understood: a tail section after the last batch (second LOD on the two-LOD Rynn/armour models, 24 large models in
+  all), the leading word 2 on them, 0x0214. Encoder: `editor/packages/formats/src/ootfdisplaylist.ts`; notes
+  [ootf-displaylist-decoded](../journal/2026-11-01/ootf-displaylist-decoded.md).
 * **Unit [inf]**: model space is in terrain cells (bounds of the Birch tree 3.8 x 4.9 x 3.8, a crate 0.3 x 0.2 x 0.2): multiply
   by 2048 for world units. No comparison with a live actor dump was made; the numbers are plausible against each other
   (tree about 12 x Rynn's height).
@@ -449,7 +464,7 @@ SRSC id = sequence id, `sub` = id of the `0x0312` folder record that lists it (`
 
 ```
 u16 nameLen, name                     "1.01 Jade, Desert Lord Spy"    [proven]
-u32 length   (60 = empty default)     [proven present; duration in frames or ticks is inferred]
+u32 header word (20, 21, 60, 62, 124 or 126) [proven present on all 202; NOT the duration: 126 on 92, 60 on 56, 21 on 31]
 u32 0
 u32 slots    (highest actor slot + 1) [proven on all records]
 u32 actorCount                        [proven]
@@ -459,7 +474,7 @@ actorCount x actor:
     actionCount x action
 ```
 
-`ref` is the level object id for props and NPCs (for example 7726) and 908 / 910 for Rynn / the camera (class ids, inferred).
+`ref` is the level object id for props and NPCs (for example 7726). **[proven, census 2026-11-01]** `Rynn` and `Camera` actors carry the level's own object ids of the Rynn start and Camera objects, different in every level (Surdana 908 / 910, others 3 / 4, 359 / 360, 1 / 2, 2189 / 2191, 973 / 7896, 3585 / 10); a new sequence must copy the `Camera` ref from the level's other sequences (`ContentSession.cameraRef`).
 Names are not always NUL terminated (`Rynn` is `len 4`), so a rewrite keeps the stored length. **[proven]** All 202 sequences /
 1264 actors of the 14 English files parse and rewrite byte for byte; every actor's `actionCount` actions consume exactly its
 bytes (10041 actions, times ascending inside each actor).
@@ -470,9 +485,9 @@ Action = `u16 type, f32 time (seconds)` + payload:
 | --- | --- | --- | --- | --- |
 | 0 | transform keyframe | 54 | quaternion xyzw (4 f32), position (3 f32, game units), 8 bytes (zero or `0x10`), scale (3 f32 ~1.0) | **proven** layout (4516 keyframes: unit quaternion in 4485, position inside the level); interpolation inferred |
 | 1 | animation | 30 | u32 mode (0, 4, 7), u32 ADB id, u32 0, f32 offset, f32 speed (mostly 1.0, 0.85 for crafting loops), u32 flags (0x10 0x15 0x3f 0x55) | sizes proven; field names inferred |
-| 3 | sound | 14 | u32 `(db << 16) or id` of a sound, u32 params (low 16 bits 10000 on most) | **proven**: db 0 ids resolve to the level SDB and the subtitle matches the scene (`101JA04-A` ...); db 3 / 4 are SYSTEM / RESOURCES of the `.DB` list; params inferred |
+| 3 | sound | 14 | u32 `(db << 16) or id` of a sound, u32 params (`0x82710` on 809 of the sound actions, `0x382710` 524, `0x182710` 62; low 16 bits 10000) | **proven**: db 0 ids resolve to the level SDB and the subtitle matches the scene (`101JA04-A` ...); db 3 / 4 are SYSTEM / RESOURCES of the `.DB` list; params inferred |
 | 4 | unnamed | 14 | u32 a, u32 b | size proven, meaning unknown (b equals the `flags` of a nearby animation) |
-| 5 | marker | 10 | u32 0 | size proven (always 0, 814 times; first action of most actors) |
+| 5 | marker | 10 | u32 0 or 1 | **proven** (census of all 202 sequences, 2026-11-01): value 0 opens an actor (540 times, first action), value 1 closes it (419 times, the last action of 66 of 97 camera actors and 264 other actors) |
 | 6 | unnamed | 10 | u32 0 / 1 | size proven |
 | 7 | message | 14 | u32 message number, u32 param | size proven; 4097 (256x), 4259, 4263, 4098, 4162, 4257 ... Inferred: `0x1000 + n` is the object message enum of `logic.ts` (4097 = On), 4257 = Play Sequence (OotF list) |
 | 8 | unnamed | 34 | u32, u32, 4 x f32, u32 1 | size proven (9 on the disc, camera actors) |
@@ -485,6 +500,28 @@ messages (message targets are not decoded; `param` is not a level object id, inf
 
 Not decoded: what types 4, 6 and 8 mean, the interpolation between keyframes, what `mode` and `ref` select for props, how
 messages address objects, the units of `length`. A rewrite keeps all of that opaque.
+
+### New story content from the editor (2026-11-01)
+
+Panels `app/src/story/compose.ts` (Story > New dialogue, New cut scene, Quest marker), logic `editor-core/src/story-create.ts`
+(`buildCutscene`, `planDialogueLine`, `wireQuestGiver`), tests `editor-core/test/story-create.test.ts`, `app/test/story-content.test.ts`.
+
+* **New cut scene** is written as `new/<LEVEL>.SSD/0311_<id>_<folder>.bin`: a `Camera` actor (marker 0 at t=0, one type 0 key per
+  point, sound cues, marker 1 at the end) and one actor per acted-on object (marker 0, animations and messages in time order,
+  marker 1). Header word 60, `slots` = highest slot + 1, name length padded so `2 + len` is a multiple of 4 (disc rule). The
+  shape follows the census above; **[proven in game]** only that an `0311` override of an empty sequence with the same header is read
+  (2026-10-31). A new sequence entry, a camera path from the editor and a trigger playing it were **not seen in game**. Key
+  orientation is `q = qyaw(Y) * qpitch(X)` with identity looking along +Z: inferred.
+* **New dialogue line** = new class in `<LEVEL>.ODB` (copy of an existing line, name `Speaker - SOUND`, `Sound[0]` replaced) with the
+  0x0103 field list extended, the subtitle on the sound's `0302` descriptor (shared by every user of that sound), and the line id
+  appended to a phase array. A class edit only reaches handlers without their own array: placed handler objects (Surdana's farmer
+  #7806 holds `[876, 875, 883, 878]`) keep an override in the `.LVL`, so the panel can add the id to a placed object instead.
+  **[game]** a pack with such a class (`new/LEVEL1ON.ODB/0102_2_172.bin` plus the list) and the edited `.LVL` loads: the ODB is rebuilt
+  (110948 -> 111146 bytes) and the level runs. That the line is spoken was **not seen** (no conversation could be started).
+  `freeClassId` falls back to id 2 when the ODB's highest id is below 4000; ids inside the file's range are used because ids above it did not spawn.
+* **Quest marker** uses the `quest-object` template (proven path, section 13) with the new class id; a quest giver is wired by
+  setting `Is there a quest?`, `Message to send after Beginning dialog` = 31 (Quest Initiate) and `... Complete dialog` = 18 and linking
+  the handler to the quest object (**inferred**, not run).
 
 ### Mod support
 
