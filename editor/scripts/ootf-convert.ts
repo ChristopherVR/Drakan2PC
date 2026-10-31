@@ -84,7 +84,7 @@ const only = opt['only'] ? new Set(opt['only'].split(',')) : null; // stage swit
 const res = await convertOotfLevels(
     src,
     levels,
-    { template, odbs, ssds, dbFiles, hostMod: await optReader('RESOURES.MOD'), hostTxd: await optReader('RESOURES.TXD'), hostSdb: await optReader('RESOURES.SDB'), xdbFiles: readdirSync(ps2).some((f) => /\.XDB$/i.test(f)) ? new Set(readdirSync(ps2).filter((f) => /\.XDB$/i.test(f)).map((f) => f.toUpperCase())) : undefined, splatTxd: splats['TXD'], procTxd: existsSync(join(ps2, 'PROCTEES.TXD')) ? new Uint8Array(readFileSync(join(ps2, 'PROCTEES.TXD'))) : undefined },
+    { template, odbs, ssds, dbFiles, hostMod: await optReader('RESOURES.MOD'), hostTxd: await optReader('RESOURES.TXD'), hostAdb: await optReader('RESOURES.ADB'), hostSdb: await optReader('RESOURES.SDB'), xdbFiles: readdirSync(ps2).some((f) => /\.XDB$/i.test(f)) ? new Set(readdirSync(ps2).filter((f) => /\.XDB$/i.test(f)).map((f) => f.toUpperCase())) : undefined, splatTxd: splats['TXD'], procTxd: existsSync(join(ps2, 'PROCTEES.TXD')) ? new Uint8Array(readFileSync(join(ps2, 'PROCTEES.TXD'))) : undefined },
     {
         name: (pc) => `${prefix}${pcLevelName(pc.header)}`,
         log: (m) => console.warn(m),
@@ -100,6 +100,8 @@ const res = await convertOotfLevels(
         classes: !only || only.has('classes'),
         singletons: !only || only.has('singletons'),
         maxNewClasses: opt['max-classes'] ? Number(opt['max-classes']) : undefined,
+        skinned: opt['skinned'] !== '0',
+        preferCreatures: opt['creatures-first'] === '1',
         texts: !only || only.has('texts'),
         music: !only || only.has('music'),
         musicStartOn: opt['music-start-on'] === '1',
@@ -116,6 +118,7 @@ for (const l of res.levels) {
 for (const s of res.stages) if (!s.ok) console.warn(`STAGE FAILED ${s.stage}: ${s.error}`);
 if (res.assets) {
     const a = res.assets;
+    for (const c of a.creatures) console.log(`creature ${c.key}: ${c.joints} joints, ${c.groups} groups, ${c.anims} clips (${c.animsSkipped} skipped)`);
     console.log(`assets: ${a.models.converted} models, ${a.textures.converted} textures (${a.textures.bytes} bytes), ${a.skipped.size} skipped`);
 }
 if (res.classPlan) {

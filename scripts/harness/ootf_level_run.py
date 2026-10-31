@@ -62,7 +62,7 @@ def extract(iso: Path, data: Path, template: str) -> None:
             continue
         n = parts[-1].upper()
         in_template = len(parts) > 2 and parts[-2].upper() == template
-        if n.endswith((".ODB", ".LVL", ".SSD", ".XDB")) or n in ("PROCTEES.TXD", "RESOURES.MOD", "RESOURES.TXD", "RESOURES.SDB") or (in_template and n.startswith(stem)):
+        if n.endswith((".ODB", ".LVL", ".SSD", ".XDB")) or n in ("PROCTEES.TXD", "RESOURES.MOD", "RESOURES.TXD", "RESOURES.SDB", "RESOURES.ADB") or (in_template and n.startswith(stem)):
             (data / n).write_bytes(read(f, files[p]))
         if n.endswith(".ODB"):  # the ODB's .DB (dependency list) and its disc directory, for the converter's model refs
             db = p[: -len(".ODB")] + ".DB" if p.upper().endswith(".ODB") else None
