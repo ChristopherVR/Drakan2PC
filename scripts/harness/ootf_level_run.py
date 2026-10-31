@@ -62,7 +62,7 @@ def extract(iso: Path, data: Path, template: str) -> None:
             continue
         n = parts[-1].upper()
         in_template = len(parts) > 2 and parts[-2].upper() == template
-        if n.endswith((".ODB", ".LVL", ".SSD")) or n in ("PROCTEES.TXD", "RESOURES.MOD", "RESOURES.TXD") or (in_template and n.startswith(stem)):
+        if n.endswith((".ODB", ".LVL", ".SSD", ".XDB")) or n in ("PROCTEES.TXD", "RESOURES.MOD", "RESOURES.TXD", "RESOURES.SDB") or (in_template and n.startswith(stem)):
             (data / n).write_bytes(read(f, files[p]))
         if n.endswith(".ODB"):  # the ODB's .DB (dependency list) and its disc directory, for the converter's model refs
             db = p[: -len(".ODB")] + ".DB" if p.upper().endswith(".ODB") else None
@@ -99,6 +99,7 @@ def main() -> int:
         or not (data / "paths.json").is_file()
         or not (data / "RESOURES.MOD").is_file()
         or not (data / "PROCTEES.TXD").is_file()
+        or not (data / "RESOURES.SDB").is_file()
     ):
         extract(iso_path(a.iso), data, a.template)
     zip_path = mods / "ootf-levels.zip"
