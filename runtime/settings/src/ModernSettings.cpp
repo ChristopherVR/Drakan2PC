@@ -39,6 +39,7 @@ const gameui::SettingsSchema& ModernSettings::schema() {
         env.monitor = monitor_;
         env.audioDevices = devices_;
         env.linkSensitivity = link_;
+        env.mods = host_.mods();
         schema_ = buildSettingsSchema(applied_, env);
         schema_.revision = ++revision_;
         dirty_ = false;
@@ -59,6 +60,24 @@ gameui::SettingsFeedback ModernSettings::apply(const gameui::SettingsAction& a) 
         host_.requestRestart(reasons);
         return fb;
     }
+    if (a.kind == K::Change && isModsKey(a.key)) {
+        // The Mods page: the list is saved to mods/mods.ini at once and applies after a restart (ModsModel.h).
+        if (a.key == kKeyModsRestart) {
+            host_.requestRestart({"Mod list changed"});
+            return fb;
+        }
+        ModsModel* mods = host_.mods();
+        std::string err;
+        if (!mods || !mods->apply(a.key, a.value, &err)) {
+            fb.ok = false;
+            fb.error = err.empty() ? "Mods are not available" : err;
+        } else if (mods->restartRequired() && a.key != kKeyModsFolder) {
+            fb.message = "Saved. Restart the game to apply the mod list.";
+        }
+        return fb;
+    }
+    if (a.kind == K::ResetPage && a.page == "mods")
+        return fb; // the mod list has no defaults: it is the player's choice
     Settings pending = applied_;
     auto layerOf = [&](Settings& s) -> BindingLayer& { return a.layer == "menu" ? s.controls.menu : s.controls.game; };
     switch (a.kind) {

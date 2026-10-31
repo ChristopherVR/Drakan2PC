@@ -10,6 +10,8 @@
 
 namespace dsettings {
 
+class ModsModel; // ModsModel.h
+
 struct DisplayMode {
     int width = 0, height = 0, refreshHz = 0;
 };
@@ -125,6 +127,10 @@ public:
     // "Quit to Desktop": close the game cleanly (the host saves / fades the audio / releases the window and exits the
     // process).
     virtual void requestQuit() {}
+
+    // The mod list behind the Mods page (ModsModel.h); null = no Mods page. Owned by the host, which fills it from its
+    // mod manager and may set an "open folder" action.
+    virtual ModsModel* mods() { return nullptr; }
 
     // Default content of drakan_input.ini ([bindings]/[menu_bindings] reset). Return
     // drakan_input::Config::defaultIniText() here.

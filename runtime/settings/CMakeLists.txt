@@ -18,12 +18,12 @@ if(WIN32)
     drakan_component_require(hle spu2)
 endif()
 
-add_library(drakan_settings_core STATIC src/IniDoc.cpp src/Store.cpp src/Bindings.cpp src/Apply.cpp)
+add_library(drakan_settings_core STATIC src/IniDoc.cpp src/Store.cpp src/Bindings.cpp src/Apply.cpp src/ModsModel.cpp)
 target_include_directories(drakan_settings_core PUBLIC include)
 target_link_libraries(drakan_settings_core PRIVATE drakan::options)
 
 # The schema both settings UIs draw (the F1 overlay and gameui::SettingsPages) and the modern pages' apply glue.
-add_library(drakan_settings_schema STATIC src/Schema.cpp src/ModernSettings.cpp)
+add_library(drakan_settings_schema STATIC src/Schema.cpp src/ModernSettings.cpp src/ModsPage.cpp)
 target_include_directories(drakan_settings_schema PUBLIC include)
 target_link_libraries(drakan_settings_schema PUBLIC drakan_settings_core drakan::gameui PRIVATE drakan::options)
 
@@ -94,6 +94,10 @@ if(DRAKAN_BUILD_RUNTIME_TESTS)
     add_executable(settings_pages_preview tests/settings_pages_preview.cpp)
     target_link_libraries(settings_pages_preview PRIVATE drakan_settings_schema drakan::options)
     target_include_directories(settings_pages_preview PRIVATE "${CMAKE_CURRENT_LIST_DIR}/../gameui/tests")
+
+    add_executable(mods_model_test tests/mods_model_test.cpp)
+    target_link_libraries(mods_model_test PRIVATE drakan_settings_schema drakan::options)
+    add_test(NAME mods_model_test COMMAND mods_model_test)
 
     add_test(NAME settings_test COMMAND settings_test)
     add_test(NAME settings_schema_test COMMAND settings_schema_test)

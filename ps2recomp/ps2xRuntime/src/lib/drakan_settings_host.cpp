@@ -36,6 +36,8 @@
 #include <gameui/StripScreen.h>
 #include <imgui.h>
 #include <hle/IsoFs.h>
+#include <hle/ModPack.h>
+#include <settings/ModsModel.h>
 
 #include <algorithm>
 #include <atomic>
@@ -127,6 +129,8 @@ void readArtFromDisc() {
     std::fprintf(stderr, "[settings] game art: %zu UI textures read from INTERFCE.TXD\n", g_art.size());
 }
 
+dsettings::ModsModel& harnessMods(); // the Mods page model (defined below)
+
 // Test aid: DRAKAN_OVERLAY_SHOT_DIR=<dir>. When <dir>\\shot.txt exists (its first line = a file name without extension)
 // the presented frame, with the overlay, is written to <dir>\\<name>.bmp and shot.txt is deleted. Works without the
 // window being visible / focused.
@@ -156,6 +160,10 @@ void maybeShot(const gsr::OverlayContext& oc) {
                 g_overlay->menu().applyPending(false);
         } else if (op == "controls")
             g_overlay->menu().setPage(dsettings::Page::Controls);
+        else if (op == "mods")
+            g_overlay->menu().setPage(dsettings::Page::Mods);
+        else if (op == "mod" && g_overlay->isOpen()) // "mod <row key> <value>": a Mods page row
+            ok = harnessMods().apply(key, value);
         else if (op == "pad" && !g_overlay->isOpen()) {
             uint16_t button = 0;
             ok = drakan_input::padButtonFromName(key, &button);
@@ -1522,7 +1530,89 @@ void hostScreenDraw(const dsettings::SettingsOverlay::ScreenFrame& f) {
     }
 }
 
+// ---- the Mods page: a snapshot of the mod manager taken at start-up, edited through dsettings::ModsModel ----
+dsettings::ModsModel g_modsModel;
+dsettings::ModsModel& harnessMods() {
+    return g_modsModel;
+}
+
+// Shows `dir` in the platform's file browser (created first). False when this platform cannot.
+bool openFolderInBrowser(const std::string& dir) {
+    std::error_code ec;
+    std::filesystem::create_directories(dir, ec);
+#if defined(_WIN32)
+    const std::filesystem::path abs = std::filesystem::absolute(dir, ec);
+    std::wstring cmd = L"explorer.exe \"" + abs.wstring() + L"\"";
+    STARTUPINFOW si{sizeof si};
+    PROCESS_INFORMATION pi{};
+    if (!CreateProcessW(nullptr, cmd.data(), nullptr, nullptr, FALSE, 0, nullptr, nullptr, &si, &pi))
+        return false;
+    CloseHandle(pi.hThread);
+    CloseHandle(pi.hProcess);
+    return true;
+#elif defined(__EMSCRIPTEN__)
+    return false;
+#else
+    const pid_t pid = fork();
+    if (pid == 0) {
+        execlp("xdg-open", "xdg-open", dir.c_str(), static_cast<char*>(nullptr));
+        _exit(127);
+    }
+    return pid > 0;
+#endif
+}
+
+std::string joinProfiles(const hle::mods::Manifest& m) {
+    std::string t;
+    for (const std::string& p : m.profiles)
+        t += (t.empty() ? "" : ", ") + (p == "*" ? std::string("any disc") : p);
+    if (t.empty() && !m.profileHashes.empty())
+        t = "one disc release";
+    return t;
+}
+
+void snapshotMods(const hle::mods::ModManager* mm, const std::string& dir) {
+    std::vector<dsettings::ModInfo> mods;
+    std::vector<dsettings::ModConflict> conflicts;
+    if (mm) {
+        std::map<std::string, std::string> keyOfId;
+        for (const hle::mods::ModStatus& st : mm->status()) {
+            dsettings::ModInfo m;
+            m.key = st.key;
+            m.hasManifest = st.hasManifest;
+            m.found = !st.source.empty();
+            m.enabled = m.bootEnabled = st.enabled;
+            m.boot = st.state == hle::mods::ModState::Loaded     ? dsettings::ModBoot::Active
+                     : st.state == hle::mods::ModState::Disabled ? dsettings::ModBoot::Disabled
+                                                                 : dsettings::ModBoot::Skipped;
+            m.message = st.message;
+            m.name = st.key;
+            if (st.hasManifest) {
+                const hle::mods::Manifest& mf = st.manifest;
+                if (!mf.name.empty())
+                    m.name = mf.name;
+                m.id = mf.id;
+                m.version = mf.version;
+                m.author = mf.author;
+                m.description = mf.description;
+                m.target = joinProfiles(mf);
+                keyOfId[mf.id] = st.key;
+            }
+            mods.push_back(std::move(m));
+        }
+        auto keyFor = [&](const std::string& id) {
+            auto it = keyOfId.find(id);
+            return it == keyOfId.end() ? id : it->second;
+        };
+        for (const hle::mods::Conflict& c : mm->conflicts())
+            conflicts.push_back({c.what, keyFor(c.winner), keyFor(c.loser)});
+    }
+    g_modsModel.setSnapshot(dir, std::move(mods), std::move(conflicts));
+    g_modsModel.setOpenFolder(&openFolderInBrowser);
+}
+
 struct DrakanSettingsHost final : CommonSettingsHost {
+    dsettings::ModsModel* mods() override { return &g_modsModel; }
     DrakanSettingsHost() : CommonSettingsHost(g_audio) {}
     dsettings::HostCaps capabilities() const override {
         dsettings::HostCaps c = commonCapabilities();
@@ -1908,6 +1998,9 @@ void detachRenderer() {
 
 void setAudio(spu2::AudioOutput* audio) {
     g_audio.store(audio);
+}
+void setModManager(const hle::mods::ModManager* mods, const std::string& modsDir) {
+    snapshotMods(mods, modsDir);
 }
 void setArtSource(hle::IsoFs* fs) {
     std::lock_guard<std::mutex> l(g_artM);

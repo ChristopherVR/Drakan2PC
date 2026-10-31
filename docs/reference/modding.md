@@ -27,8 +27,52 @@ exact sub id wins over `x` within one pack). The file content replaces the entry
 (`lang` = `en de fr it es` or `*`, default all; `;` and `#` start comments; escapes `\\ \n \r \t`; write the game's
 glyph escape `\033` as `\\033`). Same syntax as the dev override folder.
 
-Reserved for later format versions (ignored today, never an error): `files/<PATH>` whole-file replacements and
-`new/` entries that add resources to a file.
+## Whole files, new entries, custom levels (format 1)
+
+```
+my_mod/
+  mod.toml                          levels = ["Level 9X - My Map"]     (top-level key, see below)
+  files/ENGLISH/LEVELS/LEVEL9AP/LEVEL9AP.LVL    whole file, served as if it were on the disc
+  files/ENGLISH/LEVELS/LEVEL9AP/LEVEL9TS.TXD
+  overrides/LEVEL1NA.LVL/0020_0_0.bin           entry override of a .LVL (now applied, see below)
+  new/RESOURES.ODB/0102_16630_11521.bin         a new SRSC entry added to an existing container
+```
+
+* **`files/<disc path>`**: the path after `files/` is mangled like every game path (`Level 9X - My Map` and `LEVEL9AP` are
+  the same folder), so long names, `ENGLISH/...` and `/` or `\` separators all work. A path without a language folder lands
+  in the running language tree. An existing disc file is **replaced**, an unknown path is **added**; a later pack
+  replacing an earlier pack's file is reported as a conflict (`mods: conflict: file ...`) and wins. The bytes live in
+  memory (`IsoFs::addMemoryFile`), so the guest sees a normal file: open size, read, seek and its SRSC index parse like on
+  disc. Languages are separate trees: pack files for `FRENCH` are ignored in an English run.
+* **Checks**: files with an SRSC extension (`.LVL .MOD .TXD .ODB .ADB .SDB .XDB .VDB .SSD .RRC`) must have a valid SRSC
+  header and index, else `mods: ...: is not a valid SRSC container ..., file rejected`. Replacing an existing container:
+  an entry that is larger than the 0x40800 whole-entry request limit where the original entry was not is rejected
+  (`... past the 264192 byte whole-entry limit of the resource loader (original N bytes); file rejected`, the disc file
+  stays). New files with such entries log a warning only (level data of that size is streamed in chunks). Pack files over
+  256 MiB (`ModLimits::maxWholeFile`) or empty are rejected at load. The guest's 64 file slots count simultaneously open
+  files, not files on the disc.
+* **`overrides/<FILE>/...` for `.LVL` files** (the editor's export) are now applied. The guest reads `LEVELxx.LVL` with plain
+  0x1201 file reads, so the file service rebuilds the container when a pack overrides one of its entries
+  (`ModManager::installFiles`, `patchSrsc`): entries that fit are patched in place with the index size updated, larger ones
+  are appended and the index is rewritten at the end. Overrides of containers read through 0x1202 (`TXD`, `XDB`, ...) are
+  still applied per request.
+* **`new/<FILE>/<type hex>_<id>_<sub>.bin`** adds an entry (sub must be exact, no `x`). `FILE` is a file name without
+  directory (`RESOURES.ODB`); it is added to the file of that name in the running language tree, which is rebuilt like above.
+  The entry is then an ordinary member of the container for 0x1202 requests. An existing `(type,id,sub)` is replaced.
+* **Custom levels**: list the level names in the manifest, `levels = ["Level 9X - My Map"]` (top-level key, also
+  `"levels": [...]` in mod.json). The name is the `LEVELLST.TXT` title: the game opens
+  `\Levels\<Name>\<Name>.lvl`, so ship the files with `files/ENGLISH/LEVELS/<mangled name>/<mangled name>.LVL`
+  (the mangler keeps 6 characters and the last 2 of an over-long name, `Level 9X - My Map` -> `LEVEL9AP`). The level also
+  loads `<Name>_splats.{db,odb,txd,adb,mod,sdb}` -> `LEVEL<first 6>TS`-style names, i.e. `LEVEL9TS.DB` and
+  `LEVEL9TS.TXD` for any name that mangles to `LEVEL9..` (the clone test copied Level 1A's `LEVEL1TS.*` under that name;
+  missing optional files log `not found` and the game continues). The LVL's dependency table (type 0x0000) decides which
+  ODBs the level pulls in, so a clone of an existing level works with no extra files. A level is only registered when
+  its LVL exists on the merged disc. `LEVELLST.TXT` is rebuilt (original lines plus one CRLF line per level, no duplicates)
+  and served to the game; a list the game reads once at start therefore contains the new level.
+* **`ModManager::extraLevels()`** (valid after `installFiles`) returns `std::vector<ExtraLevel>{name, modId, path,
+  listIndex}` for menus (std-only API). `ModManager::status()` entries gained `files`, `added`, `levels` counters.
+* Order of work in `installFiles`: whole files, then entry patches on the resulting files (so a pack can ship a file and a
+  later pack patch it), then `LEVELLST.TXT`.
 
 ## Manifest (`mod.toml` or `mod.json`)
 
@@ -82,6 +126,22 @@ experimental = off
 * Packs found on disk but not listed are appended as `<name> = off` so the player opts in by editing the file.
 * A listed pack that is missing from the folder is reported and skipped.
 
+### The Mods page (in game)
+
+PC Settings (F1) and the modern Options screen have a **Mods** page that lists every pack found at start-up: name,
+version, author, target disc, a status line (`Active`, `Disabled`, `Skipped: <reason>` for a wrong disc, a missing
+dependency, a newer format or a broken pack, `Enabled, loads after restart`), the overlaps it has with other packs
+(`Overrides 'B' on 3 entries (...)`, `Overridden by ...`) and the description in the row help. Per pack: **Enabled**
+(toggle) and **Load position** (1..N, Left / Right moves it up or down); plus **Open mods folder** and, once the list
+differs from what the game loaded, **Restart game now**. Every change rewrites `mods/mods.ini` at once (comments and the
+`[mods]` header are kept) and **applies after a restart**.
+
+Why not live: the pack overrides are registered on the resource service once, before the first resource request, and
+the guest caches what it loaded (textures uploaded to the GS, XDB tables, level data), with no way to drop an override
+or invalidate those caches while the game runs, not even at the title screen. A live reload would need an override
+table that can be swapped plus a guest-side flush; it was not attempted. Code: `runtime/settings`
+(`ModsModel`, `ModsPage`), host glue in `drakan_settings_host.cpp` (`setModManager`).
+
 ### Merge rules
 
 1. Every enabled pack is validated in this order: pack opens and has a manifest, format is supported, profile and hash
@@ -110,14 +170,18 @@ resource type, so the runtime does not raise the limit. Policy, enforced when th
   whole entry rely on the guest sizing its buffer from the original size, which has to be checked per resource type
   before a pack grows it.
 * Empty replacement files and files larger than 64 MiB are rejected at load; other files of the pack still load.
-* The 64 slot limit of `FileService` concerns simultaneously open game files, not entries, and is not affected until
-  whole-file replacements exist.
+* The 64 slot limit of `FileService` concerns simultaneously open game files, not entries or files on the disc; whole-file
+  replacements are not affected (see the whole-files section above for their own checks).
 
-### Known gap: level LVL files
+### What a pack can add (custom weapons and models)
 
-`LEVELxx.LVL` is read by the guest with plain file reads, not RSRCIOP entry requests, so `overrides/LEVEL*.LVL/...` entries
-load (the pack validates and is reported) but are never applied. Other containers read through RSRCIOP (`INTERFCE.TXD`,
-`.XDB`) work. Details and the proposed runtime change: [level-edit-e2e](../journal/2026-10-31/level-edit-e2e.md).
+Evidence and open questions: [mods-custom-content](../journal/2026-10-31/mods-custom-content.md). In short: a new
+weapon class (`new/RESOURES.ODB/0102_<free id>_<group>.bin`, a copy of an existing class record), a new model id (`new/
+RESOURES.MOD` copies of the five model entries `0200 0203 0204 0211 0207`, with the `0200` header's texture ids at
++32/+36/+40 pointed at new `new/RESOURES.TXD/0040_<id>_0.bin` textures) and instances placed through an `.LVL` object-list
+override all resolve in the engine. Use ids inside the existing id range of the target file (an id above the file's
+current maximum did not spawn). Authoring the class record fields (damage, grip, animation) is not possible yet: the
+0x0102 body is only decoded for the model reference.
 
 ## Writing a pack by hand
 

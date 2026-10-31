@@ -258,6 +258,24 @@ bool IsoFs::lookup(const std::string& gamePath, Node& out) const {
     return false;
 }
 
+std::string IsoFs::addMemoryFile(const std::string& gamePath, std::vector<u8> data) {
+    const std::string key = resolveKey(gamePath);
+    std::lock_guard<std::mutex> lk(mu_);
+    for (size_t p = key.find('\\'); p != std::string::npos; p = key.find('\\', p + 1)) {
+        Node d;
+        d.dir = true;
+        d.key = key.substr(0, p);
+        map_.emplace(d.key, d);
+    }
+    Node n;
+    n.dir = false;
+    n.key = key;
+    n.size = data.size();
+    n.mem = std::make_shared<const std::vector<u8>>(std::move(data));
+    map_[key] = std::move(n);
+    return key;
+}
+
 size_t IsoFs::read(const Node& n, u64 off, void* dst, size_t len) const {
     if (n.dir || off >= n.size)
         return 0;
@@ -265,6 +283,10 @@ size_t IsoFs::read(const Node& n, u64 off, void* dst, size_t len) const {
         len = (size_t)(n.size - off);
     if (!len)
         return 0;
+    if (n.mem) {
+        memcpy(dst, n.mem->data() + off, len);
+        return len;
+    }
     if (source_)
         return readRaw((u64)n.lba * 2048 + off, dst, len) ? len : 0;
     FILE* f = fopen(n.host.c_str(), "rb");

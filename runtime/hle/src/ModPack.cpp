@@ -1,4 +1,6 @@
 #include "hle/ModPack.h"
+#include "hle/IsoFs.h"
+#include "hle/Srsc.h"
 #include <algorithm>
 #include <cstring>
 #include <filesystem>
@@ -429,6 +431,7 @@ bool parseManifest(const std::string& textIn, bool json, Manifest& m, std::strin
     m.loadAfter = many("load.after");
     m.loadBefore = many("load.before");
     m.dependencies = many("dependencies");
+    m.levels = many("levels");
     for (auto& d : many("load.dependencies")) // tolerated: written after a [load] header by mistake
         m.dependencies.push_back(d);
     if (!validId(m.id)) {
@@ -907,6 +910,108 @@ public:
     }
 };
 
+// ---- SRSC patching ------------------------------------------------------------------------------------------------
+bool NewEntryKey::operator<(const NewEntryKey& o) const {
+    return std::tie(file, type, id, sub) < std::tie(o.file, o.type, o.id, o.sub);
+}
+
+bool patchSrsc(const std::vector<u8>& in, const std::vector<SrscPatch>& patches, std::vector<u8>& out,
+               std::string& err) {
+    if (in.size() < 16 || memcmp(in.data(), "SRSC", 4) != 0) {
+        err = "not an SRSC container";
+        return false;
+    }
+    const u32 idx = rd32(&in[6]), cnt = rd32(&in[10]);
+    if (idx < 16 || idx > in.size() || (u64)cnt * 14 > in.size() - idx) {
+        err = "SRSC index out of range";
+        return false;
+    }
+    std::vector<SrscEntry> ents(cnt);
+    for (u32 i = 0; i < cnt; ++i) {
+        const u8* q = &in[(size_t)idx + (size_t)i * 14];
+        SrscEntry& e = ents[i];
+        e.type = (u16)rd16(q);
+        e.id = (u16)rd16(q + 2);
+        e.sub = (u16)rd16(q + 4);
+        e.off = rd32(q + 6);
+        e.size = rd32(q + 10);
+        if ((u64)e.off + e.size > idx) {
+            err = "SRSC entry outside the data region";
+            return false;
+        }
+    }
+    out.assign(in.begin(), in.begin() + idx);
+    auto append = [&](const std::vector<u8>& d) {
+        while (out.size() % 8)
+            out.push_back(0);
+        const u32 o = (u32)out.size();
+        out.insert(out.end(), d.begin(), d.end());
+        return o;
+    };
+    auto shared = [&](size_t self) {
+        const SrscEntry& a = ents[self];
+        for (size_t j = 0; j < ents.size(); ++j) {
+            if (j == self || ents[j].size == 0 || a.size == 0)
+                continue;
+            if (ents[j].off < (u64)a.off + a.size && a.off < (u64)ents[j].off + ents[j].size)
+                return true;
+        }
+        return false;
+    };
+    for (const SrscPatch& p : patches) {
+        if (p.data.size() > 0xFFFFFFF0u) {
+            err = "entry too large";
+            return false;
+        }
+        bool hit = false;
+        for (size_t i = 0; i < ents.size(); ++i) {
+            SrscEntry& e = ents[i];
+            const bool subOk = (p.sub == 0xFFFF && !p.add) || e.sub == p.sub;
+            if (e.type != p.type || e.id != p.id || !subOk)
+                continue;
+            hit = true;
+            if (p.data.size() <= e.size && !shared(i)) {
+                if (!p.data.empty())
+                    memcpy(&out[e.off], p.data.data(), p.data.size());
+                e.size = (u32)p.data.size();
+            } else {
+                e.off = append(p.data);
+                e.size = (u32)p.data.size();
+            }
+        }
+        if (!hit) {
+            if (p.add) {
+                if (p.sub == 0xFFFF) {
+                    err = "a new entry needs an exact sub id";
+                    return false;
+                }
+                SrscEntry e{p.type, p.id, p.sub, append(p.data), (u32)p.data.size()};
+                ents.push_back(e);
+            } else
+                logf("mods: patch for %04x/%u/%d matches no entry, skipped", p.type, p.id, (s16)p.sub);
+        }
+    }
+    while (out.size() % 8)
+        out.push_back(0);
+    const u32 newIdx = (u32)out.size();
+    out.resize(out.size() + ents.size() * 14);
+    for (size_t i = 0; i < ents.size(); ++i) {
+        u8* q = &out[newIdx + i * 14];
+        memcpy(q, &ents[i].type, 2);
+        memcpy(q + 2, &ents[i].id, 2);
+        memcpy(q + 4, &ents[i].sub, 2);
+        memcpy(q + 6, &ents[i].off, 4);
+        memcpy(q + 10, &ents[i].size, 4);
+    }
+    // header: keep version and pad, update index offset and count
+    memcpy(out.data(), in.data(), 6);
+    memcpy(out.data() + 6, &newIdx, 4);
+    const u32 n = (u32)ents.size();
+    memcpy(out.data() + 10, &n, 4);
+    memcpy(out.data() + 14, in.data() + 14, 2);
+    return true;
+}
+
 // ---- manager ------------------------------------------------------------------------------------------------------
 ModManager::ModManager(DiscProfile profile, ModLimits limits)
     : profile_(std::move(profile)), limits_(limits), merged_(std::make_shared<ModOverride>()),
@@ -1021,6 +1126,19 @@ size_t ModManager::load(const std::string& modsDir) {
         }
     }
     return load(modsDir, order);
+}
+
+static bool validLevelName(const std::string& n, std::string& why) {
+    if (n.empty() || n.size() > 80) {
+        why = "name must be 1..80 characters";
+        return false;
+    }
+    for (unsigned char c : n)
+        if (c < 0x20 || c >= 0x7f || strchr("\\/:*?\"<>|;", c)) {
+            why = "name has a character that cannot be part of a disc path";
+            return false;
+        }
+    return true;
 }
 
 size_t ModManager::load(const std::string& modsDir, const std::vector<std::pair<std::string, bool>>& order) {
@@ -1172,6 +1290,10 @@ size_t ModManager::load(const std::string& modsDir, const std::vector<std::pair<
     size_t loaded = 0, modIndex = 0;
     std::map<std::string, std::string> textOwner; // "FILE|id.lang" -> mod id
     merged_->map.clear();
+    files_.clear();
+    newEntries_.clear();
+    levelDefs_.clear();
+    extraLevels_.clear();
     texts_ = std::make_shared<XdbTextOverride>();
     textCount_ = 0;
     for (auto& c : cands) {
@@ -1181,9 +1303,77 @@ size_t ModManager::load(const std::string& modsDir, const std::vector<std::pair<
         }
         const std::string mid = c.st.manifest.id;
         const std::string root = lower(c.prefix) + "overrides/";
-        size_t nEntries = 0, nTexts = 0, nRejected = 0;
+        const std::string filesRoot = lower(c.prefix) + "files/", newRoot = lower(c.prefix) + "new/";
+        size_t nEntries = 0, nTexts = 0, nRejected = 0, nFiles = 0, nNew = 0, nLevels = 0;
         ++modIndex;
+        for (const std::string& ln : c.st.manifest.levels) {
+            std::string why;
+            if (!validLevelName(ln, why)) {
+                ++nRejected;
+                logf("mods: %s: ignoring level '%s': %s", mid.c_str(), ln.c_str(), why.c_str());
+                continue;
+            }
+            bool dup = false;
+            for (auto& d : levelDefs_)
+                if (lower(d.name) == lower(ln)) {
+                    dup = true;
+                    logf("mods: conflict: level '%s' is registered by '%s' and '%s'; '%s' keeps it", ln.c_str(),
+                         d.modId.c_str(), mid.c_str(), d.modId.c_str());
+                    conflicts_.push_back({"level " + ln, d.modId, mid});
+                }
+            if (!dup) {
+                levelDefs_.push_back({ln, mid, "\\Levels\\" + ln + "\\" + ln + ".lvl", -1});
+                ++nLevels;
+            }
+        }
         for (auto& it : c.archive->list()) {
+            const std::string lowPath = lower(it.path);
+            if (lowPath.rfind(filesRoot, 0) == 0 || lowPath.rfind(newRoot, 0) == 0) {
+                const bool isFile = lowPath.rfind(filesRoot, 0) == 0;
+                const std::string rest = it.path.substr((isFile ? filesRoot : newRoot).size());
+                if (rest.empty() || rest.back() == '/')
+                    continue;
+                const u64 cap = isFile ? limits_.maxWholeFile : limits_.maxFileBytes;
+                if (it.size == 0 || it.size > cap) {
+                    ++nRejected;
+                    logf("mods: %s: rejecting %s: %llu bytes (allowed 1..%llu)", mid.c_str(), it.path.c_str(),
+                         (unsigned long long)it.size, (unsigned long long)cap);
+                    continue;
+                }
+                if (isFile) {
+                    const std::string key = manglePath(rest);
+                    auto old = files_.find(key);
+                    if (old != files_.end() && old->second.modId != mid) {
+                        conflicts_.push_back({"file " + key, mid, old->second.modId});
+                        logf("mods: conflict: file %s from '%s' and '%s'; '%s' wins", key.c_str(),
+                             old->second.modId.c_str(), mid.c_str(), mid.c_str());
+                    }
+                    files_[key] = PackSource{c.archive, it.path, modIndex, mid, it.size};
+                    ++nFiles;
+                } else {
+                    const size_t sl = rest.find('/');
+                    const std::string nm = sl == std::string::npos ? std::string() : rest.substr(sl + 1);
+                    NewEntryKey k;
+                    if (sl == std::string::npos || nm.find('/') != std::string::npos || nm.size() < 5 ||
+                        lower(nm.substr(nm.size() - 4)) != ".bin" ||
+                        !parseEntryName(nm.substr(0, nm.size() - 4), k.type, k.id, k.sub) || k.sub == 0xFFFF) {
+                        ++nRejected;
+                        logf("mods: %s: ignoring %s (want new/<FILE>/<type hex>_<id>_<sub>.bin with an exact sub)",
+                             mid.c_str(), it.path.c_str());
+                        continue;
+                    }
+                    k.file = upper(rest.substr(0, sl));
+                    auto old = newEntries_.find(k);
+                    if (old != newEntries_.end() && old->second.modId != mid) {
+                        conflicts_.push_back({"new " + k.file, mid, old->second.modId});
+                        logf("mods: conflict: new entry %s %04x/%u/%u from '%s' and '%s'; '%s' wins", k.file.c_str(),
+                             k.type, k.id, k.sub, old->second.modId.c_str(), mid.c_str(), mid.c_str());
+                    }
+                    newEntries_[k] = PackSource{c.archive, it.path, modIndex, mid, it.size};
+                    ++nNew;
+                }
+                continue;
+            }
             if (lower(it.path).rfind(root, 0) != 0)
                 continue;
             std::string rest = it.path.substr(root.size()); // <FILE>/<name>
@@ -1254,7 +1444,13 @@ size_t ModManager::load(const std::string& modsDir, const std::vector<std::pair<
         c.st.entries = nEntries;
         c.st.texts = nTexts;
         c.st.rejected = nRejected;
+        c.st.files = nFiles;
+        c.st.added = nNew;
+        c.st.levels = nLevels;
         c.st.message = std::to_string(nEntries) + " entries, " + std::to_string(nTexts) + " text lines" +
+                       (nFiles ? ", " + std::to_string(nFiles) + " files" : std::string()) +
+                       (nNew ? ", " + std::to_string(nNew) + " new entries" : std::string()) +
+                       (nLevels ? ", " + std::to_string(nLevels) + " levels" : std::string()) +
                        (nRejected ? ", " + std::to_string(nRejected) + " rejected" : std::string());
         logf("mods: loaded '%s' %s (%s): %s", mid.c_str(), c.st.manifest.version.c_str(), c.st.key.c_str(),
              c.st.message.c_str());
@@ -1263,6 +1459,237 @@ size_t ModManager::load(const std::string& modsDir, const std::vector<std::pair<
         status_.push_back(std::move(c.st));
     }
     return loaded;
+}
+
+// ---- files, patched containers, levels -----------------------------------------------------------------------------
+static bool isSrscFile(const std::string& name) {
+    static const char* const kExt[] = {".LVL", ".MOD", ".TXD", ".ODB", ".ADB", ".SDB", ".XDB", ".VDB", ".SSD", ".RRC"};
+    const std::string up = upper(name);
+    for (const char* e : kExt)
+        if (up.size() > strlen(e) && up.compare(up.size() - strlen(e), strlen(e), e) == 0)
+            return true;
+    return false;
+}
+// Containers the guest reads with plain 0x1201 file reads: entry overrides never reach the 0x1202 override layer, so
+// they are applied by rebuilding the file. (Everything else is patched per request.)
+static bool isPlainReadContainer(const std::string& name) {
+    const std::string up = upper(name);
+    return up.size() > 4 && up.compare(up.size() - 4, 4, ".LVL") == 0;
+}
+static bool srscIndexOf(const std::vector<u8>& b, std::vector<SrscEntry>& out) {
+    if (b.size() < 16 || memcmp(b.data(), "SRSC", 4) != 0)
+        return false;
+    const u32 idx = rd32(&b[6]), cnt = rd32(&b[10]);
+    if (idx < 16 || idx > b.size() || (u64)cnt * 14 > b.size() - idx)
+        return false;
+    out.resize(cnt);
+    for (u32 i = 0; i < cnt; ++i) {
+        const u8* q = &b[(size_t)idx + (size_t)i * 14];
+        out[i] = SrscEntry{(u16)rd16(q), (u16)rd16(q + 2), (u16)rd16(q + 4), rd32(q + 6), rd32(q + 10)};
+        if ((u64)out[i].off + out[i].size > idx)
+            return false;
+    }
+    return true;
+}
+static std::string baseOf(const std::string& key) {
+    const size_t sl = key.find_last_of('\\');
+    return sl == std::string::npos ? key : key.substr(sl + 1);
+}
+
+size_t ModManager::installFiles(IsoFs& fsys) {
+    size_t served = 0;
+    // 1. whole files: replacement or new
+    for (auto& [pk, src] : files_) {
+        std::vector<u8> b;
+        if (!src.archive->read(src.path, b) || b.empty()) {
+            logf("mods: %s: cannot read %s, file skipped", src.modId.c_str(), src.path.c_str());
+            continue;
+        }
+        const std::string key = fsys.resolveKey(pk);
+        const std::string name = baseOf(key);
+        IsoFs::Node orig;
+        const bool hasOrig = fsys.findKey(key, orig) && !orig.dir;
+        bool ok = true;
+        if (isSrscFile(name)) {
+            std::vector<SrscEntry> ne;
+            if (!srscIndexOf(b, ne)) {
+                logf("mods: %s: %s is not a valid SRSC container (header or index), file rejected", src.modId.c_str(),
+                     src.path.c_str());
+                ok = false;
+            } else {
+                std::vector<SrscEntry> oe;
+                if (hasOrig) {
+                    // header + index of the original, without reading the whole file
+                    u8 h[16];
+                    if (fsys.read(orig, 0, h, 16) == 16 && memcmp(h, "SRSC", 4) == 0) {
+                        const u32 idx = rd32(h + 6), cnt = rd32(h + 10);
+                        std::vector<u8> ix((size_t)cnt * 14);
+                        if (idx <= orig.size && ix.size() <= orig.size - idx &&
+                            fsys.read(orig, idx, ix.data(), ix.size()) == ix.size())
+                            for (u32 i = 0; i < cnt; ++i) {
+                                const u8* q = &ix[(size_t)i * 14];
+                                oe.push_back(SrscEntry{(u16)rd16(q), (u16)rd16(q + 2), (u16)rd16(q + 4), rd32(q + 6),
+                                                       rd32(q + 10)});
+                            }
+                    }
+                }
+                for (const SrscEntry& e : ne) {
+                    if (e.size <= limits_.maxWholeEntry)
+                        continue;
+                    const SrscEntry* o = nullptr;
+                    for (const SrscEntry& x : oe)
+                        if (x.type == e.type && x.id == e.id && x.sub == e.sub)
+                            o = &x;
+                    if (hasOrig && !(o && o->size > limits_.maxWholeEntry)) {
+                        logf("mods: %s: %s entry %04x/%u/%u is %u bytes, past the %u byte whole-entry limit of the "
+                             "resource loader (original %s); file rejected",
+                             src.modId.c_str(), src.path.c_str(), e.type, e.id, e.sub, e.size, limits_.maxWholeEntry,
+                             o ? (std::to_string(o->size) + " bytes").c_str() : "has no such entry");
+                        ok = false;
+                        break;
+                    }
+                    if (!hasOrig)
+                        logf("mods: %s: %s entry %04x/%u/%u is %u bytes (past 0x%x; fine only if the engine streams "
+                             "that type in chunks)",
+                             src.modId.c_str(), src.path.c_str(), e.type, e.id, e.sub, e.size, limits_.maxWholeEntry);
+                }
+            }
+        }
+        if (!ok)
+            continue;
+        const u64 n = b.size();
+        fsys.addMemoryFile(key, std::move(b));
+        ++served;
+        logf("mods: %s: %s %s (%llu bytes)", src.modId.c_str(), hasOrig ? "replaced" : "added", key.c_str(),
+             (unsigned long long)n);
+    }
+
+    // 2. entry patches of containers read with plain file reads (.LVL overrides) and `new/` entries
+    struct Item {
+        size_t modIndex;
+        int wild; // 0 = x sub (applied first), 1 = exact
+        SrscPatch patch;
+    };
+    std::map<std::string, std::vector<Item>> byFile;
+    for (auto& [k, src] : merged_->map) {
+        if (!isPlainReadContainer(k.file))
+            continue;
+        SrscPatch p;
+        p.type = k.type;
+        p.id = k.id;
+        p.sub = k.sub;
+        if (!src.archive->read(src.path, p.data) || p.data.empty()) {
+            logf("mods: %s: cannot read %s", src.modId.c_str(), src.path.c_str());
+            continue;
+        }
+        byFile[k.file].push_back({src.modIndex, k.sub == 0xFFFF ? 0 : 1, std::move(p)});
+    }
+    for (auto& [k, src] : newEntries_) {
+        SrscPatch p;
+        p.type = k.type;
+        p.id = k.id;
+        p.sub = k.sub;
+        p.add = true;
+        if (!src.archive->read(src.path, p.data) || p.data.empty()) {
+            logf("mods: %s: cannot read %s", src.modId.c_str(), src.path.c_str());
+            continue;
+        }
+        byFile[k.file].push_back({src.modIndex, 1, std::move(p)});
+    }
+    for (auto& [file, items] : byFile) {
+        std::stable_sort(items.begin(), items.end(), [](const Item& a, const Item& b) {
+            return std::tie(a.modIndex, a.wild) < std::tie(b.modIndex, b.wild);
+        });
+        std::vector<SrscPatch> patches;
+        for (Item& it : items)
+            patches.push_back(std::move(it.patch));
+        std::vector<std::string> targets;
+        static const char* const kLangs[] = {"ENGLISH", "FRENCH", "GERMAN", "ITALIAN", "SPANISH"};
+        const std::string lang = fsys.languageRoot();
+        for (auto& [key, n] : fsys.entries()) {
+            if (n.dir || !(key == file || (key.size() > file.size() && key[key.size() - file.size() - 1] == '\\' &&
+                                           key.compare(key.size() - file.size(), file.size(), file) == 0)))
+                continue;
+            // only the running language tree (the other trees have their own entry sizes and are never read)
+            const std::string first = key.substr(0, key.find('\\'));
+            bool otherLang = false;
+            for (const char* l : kLangs)
+                otherLang = otherLang || (first == l && first != lang);
+            if (!otherLang)
+                targets.push_back(key);
+        }
+        if (targets.empty())
+            logf("mods: no file named %s on the disc, %zu entry patch(es) dropped", file.c_str(), patches.size());
+        for (const std::string& key : targets) {
+            IsoFs::Node n;
+            if (!fsys.findKey(key, n))
+                continue;
+            std::vector<u8> out, err_;
+            std::string err;
+            if (!patchSrsc(fsys.readAll(n), patches, out, err)) {
+                logf("mods: cannot patch %s: %s", key.c_str(), err.c_str());
+                continue;
+            }
+            const size_t osz = out.size();
+            fsys.addMemoryFile(key, std::move(out));
+            ++served;
+            logf("mods: %s rebuilt with %zu entry patch(es) (%llu -> %zu bytes)", key.c_str(), patches.size(),
+                 (unsigned long long)n.size, osz);
+        }
+    }
+
+    // 3. LEVELLST.TXT
+    if (!levelDefs_.empty()) {
+        IsoFs::Node ln;
+        const std::string lkey = fsys.resolveKey("LEVELLST.TXT");
+        if (!fsys.findKey(lkey, ln) || ln.dir) {
+            logf("mods: no LEVELLST.TXT on the disc (%s), %zu level(s) not registered", lkey.c_str(),
+                 levelDefs_.size());
+        } else {
+            std::vector<u8> raw = fsys.readAll(ln);
+            std::string text(raw.begin(), raw.end());
+            std::vector<std::string> lines;
+            for (size_t p = 0; p < text.size();) {
+                size_t e = text.find('\n', p);
+                std::string l = trim(text.substr(p, e == std::string::npos ? std::string::npos : e - p));
+                p = e == std::string::npos ? text.size() : e + 1;
+                if (!l.empty())
+                    lines.push_back(l);
+            }
+            bool changed = false;
+            for (ExtraLevel d : levelDefs_) {
+                IsoFs::Node lvl;
+                if (!fsys.lookup(d.path, lvl) || lvl.dir) {
+                    logf(
+                        "mods: %s: level '%s' not registered: no file %s on the disc (ship it as files/<ENGLISH/LEVELS/"
+                        "...>)",
+                        d.modId.c_str(), d.name.c_str(), fsys.resolveKey(d.path).c_str());
+                    continue;
+                }
+                bool present = false;
+                for (auto& l : lines)
+                    if (lower(l) == lower(d.path))
+                        present = true;
+                if (present) {
+                    logf("mods: %s: level '%s' is already in LEVELLST.TXT", d.modId.c_str(), d.name.c_str());
+                    continue;
+                }
+                d.listIndex = (int)lines.size();
+                lines.push_back(d.path);
+                extraLevels_.push_back(d);
+                changed = true;
+                logf("mods: %s: level '%s' registered at list index %d", d.modId.c_str(), d.name.c_str(), d.listIndex);
+            }
+            if (changed) {
+                std::string out;
+                for (auto& l : lines)
+                    out += l + "\r\n";
+                fsys.addMemoryFile(lkey, std::vector<u8>(out.begin(), out.end()));
+                ++served;
+            }
+        }
+    }
+    return served;
 }
 
 std::vector<std::string> ModManager::report() const {

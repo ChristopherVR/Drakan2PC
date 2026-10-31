@@ -9,6 +9,7 @@
 
 #include "gameui/SettingsSchema.h"
 #include "settings/Host.h"
+#include "settings/ModsModel.h"
 #include "settings/Types.h"
 
 namespace dsettings {
@@ -22,7 +23,8 @@ struct SchemaEnv {
     HostCaps caps;
     MonitorInfo monitor;
     std::vector<std::string> audioDevices;
-    bool linkSensitivity = true; // vertical mouse sensitivity follows the horizontal one (UI state, not stored)
+    bool linkSensitivity = true;     // vertical mouse sensitivity follows the horizontal one (UI state, not stored)
+    const ModsModel* mods = nullptr; // non-null: the schema gets a "mods" page (ModsPage.h)
 };
 
 // Pseudo keys (rows that are not one field of the ini files).

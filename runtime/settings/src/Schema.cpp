@@ -6,6 +6,7 @@
 #include <map>
 
 #include "settings/Bindings.h"
+#include "settings/ModsPage.h"
 #include "settings/Store.h"
 
 namespace dsettings {
@@ -727,6 +728,8 @@ gameui::SettingsSchema buildSettingsSchema(const Settings& s, const SchemaEnv& e
     audioPage(sc.pages[1], s, env);
     controlsPage(sc.pages[2], s, env);
     gameplayPage(sc.pages[3], s, env);
+    if (env.mods)
+        sc.pages.push_back(buildModsPage(*env.mods));
     sc.bindings = buildBindingViews(s);
     for (auto& layer : sc.bindings) {
         for (auto& group : layer.groups)

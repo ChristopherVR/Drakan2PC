@@ -3,6 +3,10 @@
 // load order from mods.ini, validates every pack against the running disc profile and merges the packs into two
 // resource overrides (later mods win per entry; conflicts are logged). Format: docs/reference/modding.md.
 //
+// Beyond entry overrides a pack may also ship whole files (`files/<disc path>`, served by the HLE file service as if on
+// the disc), new SRSC entries (`new/<FILE>/<type>_<id>_<sub>.bin`) and register new levels (manifest `levels`, merged
+// into LEVELLST.TXT, see ModManager::extraLevels()).
+//
 // Std-only public header: no platform APIs.
 #pragma once
 #include "Interfaces.h"
@@ -12,6 +16,9 @@
 #include <string>
 #include <vector>
 
+namespace hle {
+class IsoFs;
+}
 namespace hle::mods {
 
 // The disc profile a pack is pinned to. `id` is the build's profile id ("pal", "usa"); `hash` identifies the release
@@ -32,6 +39,7 @@ struct Manifest {
     std::vector<std::string> profiles;                            // target.profile ("pal", "usa", "*")
     std::vector<std::string> profileHashes;                       // target.hash (hex), optional
     std::vector<std::string> loadAfter, loadBefore, dependencies; // dependencies: "id" or "id>=1.2.0"
+    std::vector<std::string> levels; // top-level `levels = ["Level 9X - Name"]`: new levels for LEVELLST.TXT
 };
 // Parses mod.toml (json=false) or mod.json (json=true). Returns false with `err` on a syntax or schema error.
 bool parseManifest(const std::string& text, bool json, Manifest& out, std::string& err);
@@ -55,6 +63,26 @@ std::shared_ptr<ModArchive> openArchive(const std::string& path, std::string& er
 // Raw deflate (RFC 1951). Exposed for tests.
 bool inflateRaw(const u8* in, size_t inSize, std::vector<u8>& out, size_t expectedSize);
 
+// One edit of an SRSC container (header 'SRSC', index of {type,id,sub,off,size}).
+struct SrscPatch {
+    u16 type = 0, id = 0, sub = 0; // sub 0xFFFF on a replacement = every entry with (type,id)
+    std::vector<u8> data;
+    bool add = false; // true: add the entry (an existing exact (type,id,sub) is replaced); false: replace only
+};
+// Rebuilds `in` with the patches applied. A replacement that fits and whose bytes no other index entry shares is
+// written in place (index size updated); everything else is appended to the data region and the index is rewritten at
+// the end. Replacements that match no entry are skipped with a log line. False with `err` when `in` is not a valid
+// container.
+bool patchSrsc(const std::vector<u8>& in, const std::vector<SrscPatch>& patches, std::vector<u8>& out,
+               std::string& err);
+
+// A level a pack registered. `name` is the LEVELLST.TXT title ("Level 9X - Name"), `path` the game path line
+// ("\Levels\Level 9X - Name\Level 9X - Name.lvl"), `listIndex` its 0-based position in the merged list.
+struct ExtraLevel {
+    std::string name, modId, path;
+    int listIndex = -1;
+};
+
 enum class ModState { Loaded, Disabled, Skipped };
 struct ModStatus {
     std::string key;    // folder or zip stem, the name used in mods.ini
@@ -65,6 +93,7 @@ struct ModStatus {
     ModState state = ModState::Disabled;
     std::string message; // why disabled / skipped, or a summary when loaded
     size_t entries = 0, texts = 0, rejected = 0;
+    size_t files = 0, added = 0, levels = 0; // whole files, new SRSC entries, registered levels (files/new/levels)
 };
 struct Conflict {
     std::string what;          // "INTERFCE.TXD 0040/97/0" or "INTERFCE.XDB text 156.en"
@@ -76,6 +105,23 @@ struct ModLimits {
     // an entry across the limit is rejected; entries that were already larger are streamed in chunks and stay allowed.
     u32 maxWholeEntry = 0x40800;
     u64 maxFileBytes = 64u << 20; // sanity cap per replacement file
+    // Whole-file replacements and new files (`files/`) are held in memory; the 0x1201 file service sizes files with
+    // u32, and 64 file slots limit simultaneously open files, not the number of files.
+    u64 maxWholeFile = 256u << 20;
+};
+
+// A file or entry provided by a pack.
+struct PackSource {
+    std::shared_ptr<ModArchive> archive;
+    std::string path; // path inside the pack
+    size_t modIndex = 0;
+    std::string modId;
+    u64 size = 0;
+};
+struct NewEntryKey {
+    std::string file; // upper-case file name only
+    u16 type, id, sub;
+    bool operator<(const NewEntryKey& o) const;
 };
 
 class ModOverride; // merged entry replacements
@@ -96,6 +142,17 @@ public:
     size_t textCount() const { return textCount_; }
     // One line per pack and conflict, ready for a log or a UI list.
     std::vector<std::string> report() const;
+    // Serves what the packs put on the disc: `files/<path>` whole files (replacement or new, later pack wins), entry
+    // overrides of containers the guest reads with plain file reads (.LVL, the Known gap of earlier versions), `new/`
+    // entries, and the merged LEVELLST.TXT. Call once after the IsoFs is open and its language root is set, before
+    // the game reads files. Returns the number of files served from memory. Problems are logged as `mods: ...`
+    // (e.g. a replacement past a guest limit is rejected with the reason).
+    size_t installFiles(IsoFs& fs);
+    // Levels registered by packs (valid after installFiles; only those whose LVL exists on the merged disc).
+    // For the Multiplayer map list: `name` is what the game's level list holds, `path` the file the game opens.
+    const std::vector<ExtraLevel>& extraLevels() const { return extraLevels_; }
+    size_t fileCount() const { return files_.size(); }
+
     // Register in this order (entries first, then texts) before the first resource request. Null when empty.
     std::shared_ptr<IResourceOverride> entries() const;
     std::shared_ptr<XdbTextOverride> texts() const { return textCount_ ? texts_ : nullptr; }
@@ -116,6 +173,9 @@ private:
     std::vector<ModStatus> status_;
     std::vector<Conflict> conflicts_;
     std::shared_ptr<ModOverride> merged_;
+    std::map<std::string, PackSource> files_; // manglePath(files/<path>) -> source
+    std::map<NewEntryKey, PackSource> newEntries_;
+    std::vector<ExtraLevel> levelDefs_, extraLevels_;
     std::shared_ptr<XdbTextOverride> texts_;
     size_t textCount_ = 0;
 };

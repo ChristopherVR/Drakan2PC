@@ -18,7 +18,7 @@ struct ImGuiIO;
 
 namespace dsettings {
 
-enum class Page { Display, Audio, Controls, General };
+enum class Page { Display, Audio, Controls, General, Mods };
 
 // The drakan_input.ini source name of a keyboard key (an ImGuiKey value: "A", "LCONTROL", "F5" ...); null for keys
 // the bindings cannot name. The overlay's capture uses it, the modern PC Settings pages' glue too.
@@ -150,6 +150,7 @@ private:
     void drawAudio();
     void drawControls();
     void drawGeneral();
+    void drawMods();
     void drawBindingTable(bool gameLayer);
     void drawMouseGamepad();
     void drawControllerView();

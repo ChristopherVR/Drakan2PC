@@ -31,6 +31,8 @@ public:
         u64 size = 0;
         std::string host; // folder backend: host path
         std::string key;  // canonical upper-case path, '\' separators, no leading '\'
+        // Overlay file (mod pack replacement or generated content): bytes held in memory, `lba` and `host` unused.
+        std::shared_ptr<const std::vector<u8>> mem;
     };
 
     IsoFs() = default;
@@ -52,6 +54,11 @@ public:
     // resolveKey + lookup (falls back to the path without the language prefix).
     bool lookup(const std::string& gamePath, Node& out) const;
     bool findKey(const std::string& key, Node& out) const;
+
+    // Adds or replaces a file served from memory (mod packs: whole-file replacements, new files, rebuilt containers).
+    // `gamePath` goes through resolveKey (mangling, language root); missing parent directories are created. Call before
+    // the game starts reading; not safe against concurrent readers. Returns the canonical key.
+    std::string addMemoryFile(const std::string& gamePath, std::vector<u8> data);
 
     // Read file bytes. Returns bytes read (clamped to file size).
     size_t read(const Node& n, u64 offset, void* dst, size_t len) const;

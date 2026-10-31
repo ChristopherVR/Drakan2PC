@@ -512,6 +512,8 @@ bool SettingsMenu::pageDirty(Page pg) const {
             return !(p_.controls == a_.controls);
         case Page::General:
             return !(p_.general == a_.general);
+        case Page::Mods:
+            return false; // the mod list is saved at once (ModsModel)
     }
     return false;
 }
@@ -524,6 +526,8 @@ void SettingsMenu::resetBindings(bool gameLayer) {
 
 void SettingsMenu::resetPage() {
     static const char* const ids[] = {"display", "audio", "controls", "gameplay"};
+    if (page_ == Page::Mods)
+        return; // nothing to reset: the list is the user's
     resetPageDefaults(p_, store_.defaults(), ids[static_cast<int>(page_)]);
 }
 
@@ -684,9 +688,14 @@ void SettingsMenu::drawSidebar(float h) {
         Page p;
         const char* name;
     };
-    const Item items[] = {
-        {Page::Display, "Display"}, {Page::Audio, "Audio"}, {Page::Controls, "Controls"}, {Page::General, "Gameplay"}};
+    const Item items[] = {{Page::Display, "Display"},
+                          {Page::Audio, "Audio"},
+                          {Page::Controls, "Controls"},
+                          {Page::General, "Gameplay"},
+                          {Page::Mods, "Mods"}};
     for (const Item& it : items) {
+        if (it.p == Page::Mods && !host_.mods())
+            continue;
         const bool sel = page_ == it.p;
         const bool dirty = pageDirty(it.p);
         if (skinned()) {
@@ -771,6 +780,7 @@ SchemaEnv SettingsMenu::schemaEnv() const {
     env.monitor = mon_;
     env.audioDevices = audioDevices_;
     env.linkSensitivity = linkSens_;
+    env.mods = host_.mods();
     return env;
 }
 
@@ -814,7 +824,21 @@ void SettingsMenu::drawSchemaPage(const char* pageId, bool controllerView) {
 void SettingsMenu::drawSchemaRow(const gameui::SettingRow& r, bool controllerView) {
     using gameui::SettingKind;
     const float cw = -FLT_MIN;
-    auto set = [&](const std::string& key, const std::string& value) { applySettingChange(p_, linkSens_, key, value); };
+    auto set = [&](const std::string& key, const std::string& value) {
+        if (isModsKey(key)) { // the Mods page: saved to mods/mods.ini at once, applies after a restart
+            if (key == kKeyModsRestart) {
+                host_.requestRestart({"Mod list changed"});
+            } else if (ModsModel* mods = host_.mods()) {
+                std::string err;
+                if (!mods->apply(key, value, &err)) {
+                    errorText_ = err;
+                    openError_ = true;
+                }
+            }
+            return;
+        }
+        applySettingChange(p_, linkSens_, key, value);
+    };
     auto num = [](float v) {
         char b[48];
         std::snprintf(b, sizeof b, "%.9g", static_cast<double>(v));
@@ -1222,6 +1246,10 @@ void SettingsMenu::drawControls() {
     forceTab_ = -1;
 }
 
+void SettingsMenu::drawMods() {
+    drawSchemaPage("mods");
+}
+
 void SettingsMenu::drawGeneral() {
     drawSchemaPage("gameplay");
     ImGui::Dummy(ImVec2(0, S(14)));
@@ -1592,6 +1620,9 @@ bool SettingsMenu::frame() {
             case Page::General:
                 drawGeneral();
                 break;
+            case Page::Mods:
+                drawMods();
+                break;
         }
         ImGui::EndChild();
         ImGui::Dummy(ImVec2(0, S(2)));
@@ -1607,7 +1638,7 @@ bool SettingsMenu::frame() {
 
     // keyboard shortcuts for page switching / closing
     if (!cap_.active && !popupOpen && open_) {
-        const int n = 4;
+        const int n = host_.mods() ? 5 : 4;
         int pi = static_cast<int>(page_);
         if (ImGui::IsKeyPressed(ImGuiKey_PageDown) || ImGui::IsKeyPressed(ImGuiKey_GamepadR2)) {
             page_ = static_cast<Page>((pi + 1) % n);

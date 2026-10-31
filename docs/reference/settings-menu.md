@@ -226,3 +226,18 @@ defaults of the options on that page (100 / 80 / on / on, A / on / off); the nat
 F1 overlay is unchanged (traditional menus, and F1 everywhere). The modern Options > Gameplay page carries the
 `save_menu` / `title_menu` choices too (as the overlay's Gameplay page). Live notes:
 `docs/journal/2026-10-25/modern-save-title-settings-integration.md`.
+
+## Mods page (2026-10-31)
+
+The schema (`buildSettingsSchema`) gets a fifth page `mods` when `SchemaEnv::mods` is set (`ISettingsHost::mods()`, a
+`dsettings::ModsModel`), so the F1 overlay (sidebar entry "Mods", Pg Up / Pg Dn include it) and the modern Options
+screen (a tab) show the same rows with the same navigation as the other pages: toggle rows, "<  1 of 3  >" choice rows
+for the load position, info rows for status / author / target disc / conflicts, plus the actions "Open mods folder" and
+"Restart game now" (choice rows with a single entry, so no new row kind was needed). Row keys `mods.enable.<pack>`,
+`mods.order.<pack>`, `mods.folder`, `mods.restart` are routed to `ModsModel::apply` (never through `Settings`): the list is
+saved to `mods/mods.ini` at once, without the Apply button, and applies after a restart (see
+[modding.md](modding.md#the-mods-page-in-game); there is no live reload). Model and ini write: `runtime/settings/src/ModsModel.cpp`
+(std only, tests `mods_model_test`), page: `ModsPage.cpp`. The host fills the model from `hle::mods::ModManager` once at
+start-up (`drakan_settings_host::setModManager`, called from `drakan_overrides.cpp`); "Open mods folder" is an
+`std::function` set by the host (explorer on Windows, `xdg-open` on Linux, disabled in the browser). Harness ops:
+`mods` (select the page), `mod <row key> <value>` in `command.txt`. Notes: `docs/journal/2026-10-31/mods-menu.md`.

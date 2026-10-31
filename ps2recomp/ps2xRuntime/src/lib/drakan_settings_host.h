@@ -8,12 +8,16 @@
 #pragma once
 #include <cstdint>
 #include <memory>
+#include <string>
 
 namespace gsr {
 class Renderer;
 }
 namespace hle {
 class IsoFs;
+}
+namespace hle::mods {
+class ModManager;
 }
 namespace spu2 {
 class AudioOutput;
@@ -49,6 +53,9 @@ int frameLimit(); // fps cap for the host loop, 0 = off
 // ...) from it at run time to draw in the game's style (nothing is stored). Called once after the file system is open
 // (drakan_overrides.cpp).
 void setArtSource(hle::IsoFs* fs);
+// The mod manager that loaded the packs at start-up (null when the mods folder does not exist) and the mods folder:
+// the Mods page of the PC settings lists them and edits mods/mods.ini (drakan_overrides.cpp, once).
+void setModManager(const hle::mods::ModManager* mods, const std::string& modsDir);
 #else
 inline void attachRenderer(gsr::Renderer*, void*, const WindowOps&) {}
 inline void detachRenderer() {}
@@ -62,6 +69,7 @@ inline int frameLimit() {
     return 0;
 }
 inline void setArtSource(hle::IsoFs*) {}
+inline void setModManager(const hle::mods::ModManager*, const std::string&) {}
 #endif
 // Portable presentation-thread backend; no platform graphics types cross this
 // boundary. The source game frame remains available for the modern UI's crops.

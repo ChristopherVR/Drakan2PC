@@ -1261,11 +1261,13 @@ void applyDrakanOverrides(PS2Runtime& runtime) {
             g_mods = std::make_unique<hle::mods::ModManager>(discProfile);
             const size_t n = g_mods->load(modsDir);
             g_mods->install(host->iop.res);
+            g_mods->installFiles(host->fs); // files/, LVL entry overrides, new/ entries, LEVELLST.TXT
             for (const std::string& line : g_mods->report())
                 std::fprintf(stderr, "[mods] %s\n", line.c_str());
             std::fprintf(stderr, "[mods] %zu pack(s) active, %zu entries, %zu text lines\n", n, g_mods->entryCount(),
                          g_mods->textCount());
         }
+        drakan_settings_host::setModManager(g_mods.get(), modsDir); // the Mods page of the PC settings
     }
 #ifdef PS2X_HAVE_UI
     if constexpr (supports(Feature::UiPrompts)) {

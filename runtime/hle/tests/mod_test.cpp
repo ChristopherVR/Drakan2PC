@@ -1,6 +1,8 @@
 // mod_test: synthetic mod packs (folder and zip): manifest parsing, merge order, conflicts, profile mismatch,
 // dependencies, oversize rejection, text.ini, mods.ini handling, zip stored/deflate, zip-slip. No game data needed.
+#include "hle/IsoFs.h"
 #include "hle/ModPack.h"
+#include "hle/Srsc.h"
 #include <cstdio>
 #include <cstring>
 #include <filesystem>
@@ -170,6 +172,185 @@ static std::vector<u8> applyTo(const std::shared_ptr<IResourceOverride>& o, cons
 static std::string toml(const std::string& id, const std::string& ver = "1.0", const std::string& top = "",
                         const std::string& target = "profile = \"pal\"\n") {
     return top + "id = \"" + id + "\"\nname = \"Pack " + id + "\"\nversion = \"" + ver + "\"\n[target]\n" + target;
+}
+
+// ---- whole files, patched containers, new entries, levels (against a folder-backed IsoFs)
+static std::vector<u8> makeSrsc(const std::vector<std::pair<SrscEntry, std::vector<u8>>>& es) {
+    std::vector<u8> v(16, 0);
+    memcpy(v.data(), "SRSC", 4);
+    v[4] = 1;
+    v[5] = 1;
+    std::vector<SrscEntry> idx;
+    for (auto& [e, d] : es) {
+        SrscEntry x = e;
+        x.off = (u32)v.size();
+        x.size = (u32)d.size();
+        v.insert(v.end(), d.begin(), d.end());
+        while (v.size() % 8)
+            v.push_back(0);
+        idx.push_back(x);
+    }
+    u32 io = (u32)v.size(), n = (u32)idx.size();
+    memcpy(&v[6], &io, 4);
+    memcpy(&v[10], &n, 4);
+    for (auto& x : idx) {
+        u8 b[14];
+        memcpy(b, &x.type, 2);
+        memcpy(b + 2, &x.id, 2);
+        memcpy(b + 4, &x.sub, 2);
+        memcpy(b + 6, &x.off, 4);
+        memcpy(b + 10, &x.size, 4);
+        v.insert(v.end(), b, b + 14);
+    }
+    return v;
+}
+static bool entryBytes(IsoFs& f, const std::string& path, u16 t, u16 i, u16 s, std::vector<u8>& out) {
+    IsoFs::Node n;
+    if (!f.lookup(path, n))
+        return false;
+    std::vector<u8> all = f.readAll(n);
+    if (all.size() < 16)
+        return false;
+    u32 idx, cnt;
+    memcpy(&idx, &all[6], 4);
+    memcpy(&cnt, &all[10], 4);
+    for (u32 k = 0; k < cnt; ++k) {
+        SrscEntry e;
+        memcpy(&e.type, &all[idx + k * 14], 2);
+        memcpy(&e.id, &all[idx + k * 14 + 2], 2);
+        memcpy(&e.sub, &all[idx + k * 14 + 4], 2);
+        memcpy(&e.off, &all[idx + k * 14 + 6], 4);
+        memcpy(&e.size, &all[idx + k * 14 + 10], 4);
+        if (e.type == t && e.id == i && e.sub == s) {
+            out.assign(all.begin() + e.off, all.begin() + e.off + e.size);
+            return true;
+        }
+    }
+    return false;
+}
+
+static void filesTests(const fs::path& root, const DiscProfile& pal) {
+    const fs::path disc = root / "disc";
+    writeFile(disc / "ENGLISH/LEVELS/LEVEL1NA/LEVEL1NA.LVL", makeSrsc({{{0x20, 1, 0, 0, 0}, fill(100, 0x11)},
+                                                                       {{0x20, 2, 0, 0, 0}, fill(40, 0x22)},
+                                                                       {{0x30, 3, 0, 0, 0}, fill(8, 0x33)}}));
+    const std::vector<u8> frLvl = makeSrsc({{{0x20, 2, 0, 0, 0}, fill(40, 0x22)}});
+    writeFile(disc / "FRENCH/LEVELS/LEVEL1NA/LEVEL1NA.LVL", frLvl);
+    writeFile(disc / "ENGLISH/COMMON/WEAP/WEAP.TXD", makeSrsc({{{0x40, 7, 0, 0, 0}, fill(64, 0x44)}}));
+    writeText(disc / "ENGLISH/LEVELLST.TXT", "\\Levels\\Level 1A - Surdana\\Level 1A - Surdana.lvl\r\n");
+    IsoFs f;
+    std::string err;
+    CHECK(f.openFolder(disc.string(), &err));
+    f.setLanguageRoot("\\English");
+    IsoFs::Node n;
+    CHECK(f.lookup("\\Levels\\Level 1A - Surdana\\Level 1A - Surdana.lvl", n));
+
+    // memory overlay
+    f.addMemoryFile("\\Common\\Weapons\\Extra.txt", {'h', 'i'});
+    CHECK(f.lookup("ENGLISH\\COMMON\\WEAPONS\\EXTRA.TXT", n) && n.size == 2 && f.readAll(n).size() == 2);
+
+    // patchSrsc: in place (shorter), appended (longer), new, wildcard, unmatched, bad input
+    {
+        std::vector<u8> base =
+            makeSrsc({{{1, 1, 0, 0, 0}, fill(32, 1)}, {{1, 1, 5, 0, 0}, fill(32, 2)}, {{1, 2, 0, 0, 0}, fill(16, 3)}});
+        std::vector<SrscPatch> ps(4);
+        ps[0] = {1, 1, 0xFFFF, fill(8, 9), false};
+        ps[1] = {1, 2, 0, fill(64, 8), false};
+        ps[2] = {9, 9, 1, fill(5, 7), true};
+        ps[3] = {5, 5, 5, fill(5, 7), false}; // no such entry: skipped
+        std::vector<u8> out;
+        CHECK(patchSrsc(base, ps, out, err));
+        u32 cnt;
+        memcpy(&cnt, &out[10], 4);
+        CHECK(cnt == 4 && memcmp(out.data(), "SRSC", 4) == 0 && out.size() > base.size());
+        std::vector<u8> bad(base.begin(), base.begin() + 12);
+        CHECK(!patchSrsc(bad, ps, out, err) && !err.empty());
+        std::vector<SrscPatch> noSub(1);
+        noSub[0] = {9, 9, 0xFFFF, fill(1, 1), true};
+        CHECK(!patchSrsc(base, noSub, out, err));
+    }
+
+    // pack with files/, LVL override, new/ entry, levels
+    {
+        const fs::path mods = root / "mods_files";
+        writeText(mods / "pk/mod.toml", toml("pk", "1.0", "levels = [\"Level 9X - Clone Test\", \"Bad/Name\"]\n"));
+        writeFile(mods / "pk/files/ENGLISH/LEVELS/LEVEL9ST/LEVEL9ST.LVL",
+                  makeSrsc({{{0x20, 1, 0, 0, 0}, fill(10, 0x55)}}));
+        writeFile(mods / "pk/files/ENGLISH/COMMON/WEAP/WEAP.TXD", makeSrsc({{{0x40, 7, 0, 0, 0}, fill(70, 0x66)}}));
+        writeFile(mods / "pk/files/ENGLISH/COMMON/BAD/BAD.TXD", fill(40, 0)); // not SRSC: rejected
+        writeFile(mods / "pk/overrides/LEVEL1NA.LVL/0020_2_x.bin", fill(30, 0x77));
+        writeFile(mods / "pk/new/WEAP.TXD/0040_900_0.bin", fill(24, 0x88));
+        writeFile(mods / "late/overrides/LEVEL1NA.LVL/0020_2_0.bin", fill(12, 0x99));
+        writeText(mods / "late/mod.toml", toml("late"));
+        ModManager mm(pal);
+        g_log.clear();
+        CHECK(mm.load(mods.string(), {{"pk", true}, {"late", true}}) == 2);
+        CHECK(mm.status()[0].files == 3 && mm.status()[0].added == 1 && mm.status()[0].levels == 1 &&
+              mm.status()[0].rejected == 1);
+        CHECK(logHas("ignoring level 'Bad/Name'"));
+        const size_t served = mm.installFiles(f);
+        CHECK(served >= 4);
+        CHECK(logHas("is not a valid SRSC container"));
+        std::vector<u8> b;
+        CHECK(entryBytes(f, "\\Common\\WEAP\\WEAP.TXD", 0x40, 7, 0, b) && b.size() == 70 && b[0] == 0x66);
+        CHECK(entryBytes(f, "\\Common\\WEAP\\WEAP.TXD", 0x40, 900, 0, b) && b.size() == 24 && b[0] == 0x88);
+        // LVL: the later pack's exact override wins over the earlier x
+        CHECK(entryBytes(f, "\\Levels\\Level 1A - Surdana\\Level 1A - Surdana.lvl", 0x20, 2, 0, b) && b.size() == 12 &&
+              b[0] == 0x99);
+        CHECK(entryBytes(f, "\\Levels\\Level 1A - Surdana\\Level 1A - Surdana.lvl", 0x20, 1, 0, b) && b.size() == 100);
+        // other language trees are not patched
+        CHECK(f.findKey("FRENCH\\LEVELS\\LEVEL1NA\\LEVEL1NA.LVL", n) && n.size == frLvl.size() && !n.mem);
+        // new level file reachable by long name and listed
+        CHECK(f.lookup("\\Levels\\Level 9X - Clone Test\\Level 9X - Clone Test.lvl", n) && n.size > 0);
+        CHECK(mm.extraLevels().size() == 1 && mm.extraLevels()[0].name == "Level 9X - Clone Test" &&
+              mm.extraLevels()[0].listIndex == 1 && mm.extraLevels()[0].modId == "pk");
+        CHECK(f.lookup("LEVELLST.TXT", n));
+        std::vector<u8> lst = f.readAll(n);
+        std::string txt(lst.begin(), lst.end());
+        CHECK(txt == "\\Levels\\Level 1A - Surdana\\Level 1A - Surdana.lvl\r\n"
+                     "\\Levels\\Level 9X - Clone Test\\Level 9X - Clone Test.lvl\r\n");
+    }
+
+    // guest limits: a replacement whose entry crosses the whole-entry limit where the original did not is rejected
+    {
+        const fs::path mods = root / "mods_files2";
+        writeText(mods / "big/mod.toml", toml("big"));
+        writeFile(mods / "big/files/ENGLISH/COMMON/WEAP/WEAP.TXD", makeSrsc({{{0x40, 7, 0, 0, 0}, fill(0x41000, 1)}}));
+        IsoFs f2;
+        CHECK(f2.openFolder(disc.string(), &err));
+        f2.setLanguageRoot("\\English");
+        ModManager mm(pal);
+        mm.load(mods.string(), {{"big", true}});
+        g_log.clear();
+        mm.installFiles(f2);
+        CHECK(logHas("past the 264192 byte whole-entry limit") && logHas("file rejected"));
+        IsoFs::Node n2;
+        CHECK(f2.lookup("\\Common\\WEAP\\WEAP.TXD", n2) && n2.size < 0x1000);
+        // a pack file over the whole-file cap is rejected at load
+        ModLimits lim;
+        lim.maxWholeFile = 100;
+        ModManager small(pal, lim);
+        small.load(mods.string(), {{"big", true}});
+        CHECK(small.status()[0].rejected == 1 && small.status()[0].files == 0);
+    }
+
+    // a later pack replaces an earlier pack's file: conflict reported, later wins
+    {
+        const fs::path mods = root / "mods_files3";
+        writeText(mods / "a/mod.toml", toml("a"));
+        writeText(mods / "b/mod.toml", toml("b"));
+        writeFile(mods / "a/files/ENGLISH/COMMON/WEAP/WEAP.TXD", makeSrsc({{{0x40, 7, 0, 0, 0}, fill(10, 1)}}));
+        writeFile(mods / "b/files/ENGLISH/COMMON/WEAP/WEAP.TXD", makeSrsc({{{0x40, 7, 0, 0, 0}, fill(11, 2)}}));
+        IsoFs f3;
+        CHECK(f3.openFolder(disc.string(), &err));
+        f3.setLanguageRoot("\\English");
+        ModManager mm(pal);
+        mm.load(mods.string(), {{"a", true}, {"b", true}});
+        CHECK(mm.conflicts().size() == 1 && mm.conflicts()[0].winner == "b");
+        mm.installFiles(f3);
+        std::vector<u8> b;
+        CHECK(entryBytes(f3, "\\Common\\WEAP\\WEAP.TXD", 0x40, 7, 0, b) && b.size() == 11);
+    }
 }
 
 int main() {
@@ -449,6 +630,8 @@ int main() {
         CHECK(mm.load(mods.string(), {{"broken", true}, {"fine", true}}) == 1);
         CHECK(mm.status()[0].state == ModState::Skipped && mm.status()[0].message.find("invalid pack") == 0);
     }
+
+    filesTests(root, pal);
 
     setLogSink(nullptr);
     fs::remove_all(root);
