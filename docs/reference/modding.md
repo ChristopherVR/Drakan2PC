@@ -198,7 +198,12 @@ language). Both paths are covered by `mod_test` ("content files"). Keys the edit
 Rules found while testing: a new class id has to lie **inside** the file's existing id range (use a free id below the largest
 one; the editor picks one), strings are looked up by id (new ids work when `new/` adds the `0400` entry), and the `0103`
 field-list entry must be replaced with the extra list appended when a class is added, otherwise the new class has no field
-definitions. `text.ini` still only patches strings that exist; adding a string always goes through `new/`.
+definitions. The ODB header record `0x0100` holds the class and group counts the guest sizes its tables from; the runtime
+raises them when `new/` adds `0x0102` / `0x0101` records (log `mods: ODB header counts updated`), a pack that writes its own
+`0100` override keeps it. Without that, 1-2 added classes happened to work and 3 or more corrupted the heap (the level never
+loaded); with it 40 appended classes load ([journal](../journal/2026-11-01/ootf-odb-class-count.md)). Builds older than
+commit 048b136 also dropped `overrides/<ODB>/0103` (check `rebuilt with N entry patch(es)`: new records + 1).
+`text.ini` still only patches strings that exist; adding a string always goes through `new/`.
 The editor's Strings and Quests panels write exactly these files (editor-core `story.ts`, `buildStoryPackFiles`).
 
 ### What a pack can add (custom weapons and models)
