@@ -32,6 +32,9 @@ constexpr uint32_t kContextPtr = 0x5565d4u, kFactory = 0x181ad8u, kDestroy = 0x1
                    kFreeCamHandler = 0x2a3378u;
 constexpr uint32_t kHandleVtable = 0x51b8b0u, kRynnClass = 0x10009u;
 constexpr uint32_t kDikF9 = 0x43u, kDikF10 = 0x44u;
+constexpr uint32_t kBoneAttach = 0x13b878u, kBoneDetach = 0x13b8c8u; // (model, item, bone, 0, 0) / (model, bone)
+constexpr uint32_t kPropHand[2] = {0x45u, 0x46u};
+constexpr uint32_t kWeaponOwner = 0x60u;
 constexpr float kOffsetX = 300.0f;
 float g_offX = kOffsetX, g_offZ = 0.0f; // DRAKAN_GHOST_OFFSET=x,z (mirror mode test aid)
 constexpr uint32_t kFrame = 0x60;       // stack bytes the spawn trampoline borrows below the dispatcher thread's sp
@@ -46,6 +49,10 @@ struct Ghost {
     uint32_t animSet = 0;
     uint32_t animClip[world::skel::kMaxChannels] = {};
     float animTime[world::skel::kMaxChannels] = {};
+    // Weapons (hand 0 = right / bone property 0x45, 1 = left / 0x46): wanted record id, record id of the live item.
+    uint32_t wantRec[2] = {};
+    uint32_t haveRec[2] = {};
+    uint32_t weapon[2] = {}; // item actor handle, 0 none
 };
 
 std::atomic<bool> g_enabled{false};
@@ -65,8 +72,9 @@ unsigned g_autoDelay = 0;   // ticks to wait before the auto spawn
 // bursty source (a long frame is followed by several world steps) re-times those bursts into stalls and jumps. The
 // ghost shows the sample recorded g_delayTicks boundaries ago, i.e. exactly the cadence the player's own screen had.
 std::deque<world::PlayerPose> g_hist; // EE thread only
-unsigned g_delayTicks = 60;           // DRAKAN_GHOST_DELAY_TICKS
-world::PoseReadState g_readState;     // EE thread only
+uint32_t g_forceRec[2] = {};      // DRAKAN_GHOST_WEAPONS=<right>,<left> (hex record ids) overrides the mirrored weapons
+unsigned g_delayTicks = 60;       // DRAKAN_GHOST_DELAY_TICKS
+world::PoseReadState g_readState; // EE thread only
 unsigned g_tick = 0;
 // Readiness: a ghost spawned in a cut scene level ("Level 0 - Intro": no world / no controllable Rynn; the init takes a
 // null JALR) or in the first moments after a load hangs the guest. Refused until the level is a playable one and
@@ -76,7 +84,7 @@ std::atomic<unsigned> g_sinceLoad{0};
 std::atomic<unsigned> g_spawnFailures{0};
 constexpr unsigned kReadyTicks = 90;
 double g_gameTime = 0; // seconds of game time (sum of the engine's per-tick dt, ctx+0x24), EE thread only
-uint32_t g_t1 = 0, g_t2 = 0, g_t3 = 0, g_handlerSlot = 0;
+uint32_t g_t1 = 0, g_t2 = 0, g_t3 = 0, g_handlerSlot = 0, g_w1 = 0, g_w2 = 0, g_w3 = 0;
 PS2Runtime::RecompiledFunction g_rynn = nullptr;
 
 // In-flight spawn (one at a time; written on the EE thread before the post, read by the trampolines on the dispatcher)
@@ -207,6 +215,91 @@ void spawnStage3(uint8_t*, R5900Context* c, PS2Runtime*) {
     g_busy.store(false);
 }
 
+// Weapon spawn (one item at a time, serialised with the ghost spawn by g_busy): the factory creates the item actor of
+// record index `idx` exactly as for the ghost (no camera trick: only the class 0x10009 init needs it), then the host
+// sets the item's owner (+0x60 of its data: a registry reference to the ghost, which its blade sweep excludes) and
+// attaches it to the ghost's hand bone with 0x13b878(model, item, bone, 0, 0), the call the equip path uses. Nothing
+// touches the local player's inventory, slots, hand holders or HP block.
+struct WFlight {
+    int ghostId = 0, hand = 0;
+    float xform[12] = {};
+    uint32_t idx = 0, rec = 0, model = 0, bone = 0, actor = 0, savedSp = 0, savedRa = 0;
+} g_wf;
+
+void weaponStage1(uint8_t* rdram, R5900Context* c, PS2Runtime*) {
+    g_wf.savedSp = getRegU32(c, 29);
+    g_wf.savedRa = getRegU32(c, 31);
+    const uint32_t sp = g_wf.savedSp - kFrame, xf = sp + 0x10;
+    std::memcpy(rdram + (xf & 0x1ffffffu), g_wf.xform, sizeof g_wf.xform);
+    SET_GPR_U32(c, 29, sp);
+    SET_GPR_U32(c, 4, rd32(rdram, guestAddress(kContextPtr)));
+    SET_GPR_U32(c, 5, 0u);
+    SET_GPR_U32(c, 6, xf);
+    SET_GPR_U32(c, 7, 0u);
+    SET_GPR_U32(c, 8, 0u);
+    SET_GPR_U32(c, 9, g_wf.idx);
+    SET_GPR_U32(c, 31, g_w2);
+    c->pc = guestAddress(kFactory);
+}
+
+void weaponFinish(R5900Context* c, uint32_t result) {
+    SET_GPR_U32(c, 2, result);
+    SET_GPR_U32(c, 29, g_wf.savedSp);
+    SET_GPR_U32(c, 31, g_wf.savedRa);
+    c->pc = g_wf.savedRa;
+    g_busy.store(false);
+}
+
+void weaponStage2(uint8_t* rdram, R5900Context* c, PS2Runtime*) {
+    const uint32_t item = getRegU32(c, 2);
+    const uint32_t ctx = rd32(rdram, guestAddress(kContextPtr));
+    bool attach = false;
+    {
+        std::lock_guard<std::mutex> l(g_m);
+        auto it =
+            std::find_if(g_ghosts.begin(), g_ghosts.end(), [](const Ghost& g) { return g.info.id == g_wf.ghostId; });
+        if (ramPtr(item) && it != g_ghosts.end() && it->info.handle == g_wf.model) {
+            it->weapon[g_wf.hand] = item;
+            it->haveRec[g_wf.hand] = g_wf.rec;
+            // Owner: take a reference on the ghost's registry entry (the part of 0x168388 that cannot allocate).
+            const uint32_t data = rd32(rdram, rd32(rdram, item + 0xfc) + 0x10);
+            uint16_t ref = 0;
+            std::memcpy(&ref, rdram + ((g_wf.model + 0x12) & 0x1ffffffu), 2);
+            const uint32_t table = rd32(rdram, ctx + 0x7c);
+            if (ramPtr(data) && ref && ramPtr(table)) {
+                const uint32_t e = table + (ref - 1u) * 8u + 4u;
+                uint16_t n = 0;
+                std::memcpy(&n, rdram + (e & 0x1ffffffu), 2);
+                ++n;
+                std::memcpy(rdram + (e & 0x1ffffffu), &n, 2);
+                std::memcpy(rdram + ((data + kWeaponOwner) & 0x1ffffffu), &ref, 2);
+            }
+            attach = ramPtr(data);
+        } else if (ramPtr(item)) {
+            // The ghost vanished meanwhile: do not leave an orphan item behind.
+            std::fprintf(stderr, "[ghost] weapon %x spawned for a vanished ghost: left to the level teardown\n", item);
+        }
+    }
+    std::fprintf(stderr, "[ghost] weapon record %x -> item %x (ghost %d hand %d bone %u)\n", g_wf.rec, item,
+                 g_wf.ghostId, g_wf.hand, g_wf.bone);
+    if (attach) {
+        g_wf.actor = item;
+        SET_GPR_U32(c, 4, g_wf.model);
+        SET_GPR_U32(c, 5, item);
+        SET_GPR_U32(c, 6, g_wf.bone);
+        SET_GPR_U32(c, 7, 0u);
+        SET_GPR_U32(c, 8, 0u);
+        SET_GPR_U32(c, 31, g_w3);
+        c->pc = guestAddress(kBoneAttach);
+        return;
+    }
+    weaponFinish(c, item);
+}
+
+void weaponStage3(uint8_t*, R5900Context* c, PS2Runtime*) {
+    weaponFinish(c, g_wf.actor);
+}
+
 // The ghost's behaviour handler: handler(actor, event). Forwarded events go to Rynn's real handler, the rest return 0.
 void ghostHandler(uint8_t* rdram, R5900Context* c, PS2Runtime* rt) {
     const uint32_t event = getRegU32(c, 5);
@@ -296,6 +389,11 @@ void applyPose(Ghost& g, const world::PlayerPose& p) {
 void destroyAll(const drakan_lifecycle::Event& e) {
     std::lock_guard<std::mutex> l(g_m);
     for (const Ghost& g : g_ghosts)
+        for (uint32_t w : g.weapon)
+            if (w && drakan_lifecycle::destroyActor(e, w, true))
+                std::fprintf(stderr, "[ghost] destroyed weapon %x of id %d before %s\n", w, g.info.id,
+                             drakan_lifecycle::kindName(e.kind));
+    for (const Ghost& g : g_ghosts)
         if (g.info.handle && drakan_lifecycle::destroyActor(e, g.info.handle, true))
             std::fprintf(stderr, "[ghost] destroyed id %d before %s\n", g.info.id, drakan_lifecycle::kindName(e.kind));
     g_ghosts.clear();
@@ -355,7 +453,10 @@ void install(PS2Runtime& rt) {
     g_t2 = freeSlot(rt, &spawnStage2);
     g_t3 = freeSlot(rt, &spawnStage3);
     g_handlerSlot = freeSlot(rt, &ghostHandler);
-    if (!g_rynn || !g_t1 || !g_t2 || !g_t3 || !g_handlerSlot) {
+    g_w1 = freeSlot(rt, &weaponStage1);
+    g_w2 = freeSlot(rt, &weaponStage2);
+    g_w3 = freeSlot(rt, &weaponStage3);
+    if (!g_rynn || !g_t1 || !g_t2 || !g_t3 || !g_handlerSlot || !g_w1 || !g_w2 || !g_w3) {
         std::fprintf(stderr, "[ghost] disabled: Rynn's handler or a free function slot is missing\n");
         return;
     }
@@ -373,6 +474,8 @@ void install(PS2Runtime& rt) {
     drakan_lifecycle::subscribe(drakan_lifecycle::Kind::AfterSaveRestore, onLoadStart);
     if (const char* o = std::getenv("DRAKAN_GHOST_OFFSET"))
         std::sscanf(o, "%f,%f", &g_offX, &g_offZ);
+    if (const char* w = std::getenv("DRAKAN_GHOST_WEAPONS"))
+        std::sscanf(w, "%x,%x", &g_forceRec[0], &g_forceRec[1]);
     if (g_mirror) {
         if (const char* d = std::getenv("DRAKAN_GHOST_DELAY_TICKS"))
             g_delayTicks = static_cast<unsigned>(std::strtoul(d, nullptr, 10));
@@ -398,6 +501,8 @@ int spawn(const Transform* t) {
     std::lock_guard<std::mutex> l(g_m);
     Ghost g;
     g.info.id = g_nextId++;
+    g.wantRec[0] = g_forceRec[0];
+    g.wantRec[1] = g_forceRec[1];
     if (t) {
         g.hasTransform = true;
         g.target = *t;
@@ -440,8 +545,14 @@ void setAnim(int id, int channel, int clip, float time) {
 void setPose(int id, const world::PlayerPose& p) {
     std::lock_guard<std::mutex> l(g_m);
     for (Ghost& g : g_ghosts)
-        if (g.info.id == id)
+        if (g.info.id == id) {
             applyPose(g, p);
+            // weaponRight / weaponLeft are record ids; the net layer's one-byte placeholder (<= 0xff) is ignored.
+            if (p.weaponRight > 0xffu || p.weaponLeft > 0xffu) {
+                g.wantRec[0] = p.weaponRight > 0xffu ? p.weaponRight : 0;
+                g.wantRec[1] = p.weaponLeft > 0xffu ? p.weaponLeft : 0;
+            }
+        }
 }
 
 unsigned spawnFailures() {
@@ -450,6 +561,15 @@ unsigned spawnFailures() {
 
 bool ready() {
     return g_enabled.load() && !notReadyReason();
+}
+
+void setWeapons(int id, uint32_t rightRecordId, uint32_t leftRecordId) {
+    std::lock_guard<std::mutex> l(g_m);
+    for (Ghost& g : g_ghosts)
+        if (g.info.id == id) {
+            g.wantRec[0] = rightRecordId;
+            g.wantRec[1] = leftRecordId;
+        }
 }
 
 void forEach(const std::function<void(const Info&)>& fn) {
@@ -461,6 +581,71 @@ void forEach(const std::function<void(const Info&)>& fn) {
     }
     for (const Info& i : copy)
         fn(i);
+}
+
+// Record id -> index into the resource record table (ctx+0x320: +8 records, +0x10 inclusive count, 0x24 bytes each,
+// id at +0). 0xffff when absent.
+uint32_t recordIndex(drakan_input::IGuest& guest, uint32_t ctx, uint32_t rec) {
+    const uint32_t db = guest.read32(ctx + 0x320);
+    const uint32_t records = ramPtr(db) ? guest.read32(db + 8) : 0;
+    if (!ramPtr(records))
+        return 0xffffu;
+    const uint32_t count = std::min<uint32_t>(guest.read32(db + 0x10), 0x2000u);
+    for (uint32_t i = 0; i <= count; ++i)
+        if (guest.read32(records + i * 0x24u) == rec)
+            return i;
+    return 0xffffu;
+}
+
+// EE thread, g_m held, no spawn in flight. Brings one hand of one live ghost in line with its wanted weapon: drops a
+// wrong item first (detach + the engine's kill list), then spawns the wanted one. True when a guest call was posted.
+bool startWeaponChange(drakan_input::IGuest& guest, uint32_t ctx) { // g_m held by the caller
+    for (Ghost& g : g_ghosts) {
+        if (!g.info.handle || g.destroyRequested)
+            continue;
+        for (int hand = 0; hand < 2; ++hand) {
+            if (g.wantRec[hand] == g.haveRec[hand])
+                continue;
+            const uint32_t bone = [&] {
+                const uint32_t pb = guest.read32(g.info.handle + 0x54);
+                const uint32_t props = ramPtr(pb) ? guest.read32(pb + 4) : 0;
+                return ramPtr(props) ? guest.read32(props + kPropHand[hand] * 4u) : 0xffffffffu;
+            }();
+            if (g.weapon[hand]) {
+                if (bone < 0x100u)
+                    guest.post(drakan_input::GuestCall(guestAddress(kBoneDetach)).arg(g.info.handle).arg(bone));
+                guest.post(drakan_input::GuestCall(guestAddress(kDestroy)).arg(ctx).arg(g.weapon[hand]));
+                std::fprintf(stderr, "[ghost] id %d hand %d: weapon %x dropped\n", g.info.id, hand, g.weapon[hand]);
+                g.weapon[hand] = 0;
+                g.haveRec[hand] = 0;
+                if (g.wantRec[hand] == 0)
+                    return true;
+            }
+            if (g.wantRec[hand] == 0)
+                continue;
+            const uint32_t idx = recordIndex(guest, ctx, g.wantRec[hand]);
+            if (idx == 0xffffu || bone >= 0x100u) {
+                std::fprintf(stderr, "[ghost] id %d hand %d: weapon record %x unusable (index %x, bone %x)\n",
+                             g.info.id, hand, g.wantRec[hand], idx, bone);
+                g.haveRec[hand] = g.wantRec[hand]; // do not retry every tick
+                continue;
+            }
+            g_wf.ghostId = g.info.id;
+            g_wf.hand = hand;
+            g_wf.idx = idx;
+            g_wf.rec = g.wantRec[hand];
+            g_wf.model = g.info.handle;
+            g_wf.bone = bone;
+            for (int k = 0; k < 3; ++k)
+                g_wf.xform[k] = guest.readF(g.info.handle + 0x14 + 4u * static_cast<uint32_t>(k));
+            for (int k = 0; k < 9; ++k)
+                g_wf.xform[3 + k] = guest.readF(g.info.handle + 0x20 + 4u * static_cast<uint32_t>(k));
+            g_busy.store(true);
+            guest.post(drakan_input::GuestCall(g_w1));
+            return true;
+        }
+    }
+    return false;
 }
 
 void beforePadMgr(drakan_input::IGuest& guest, drakan_input::InputModule& input) {
@@ -496,6 +681,9 @@ void beforePadMgr(drakan_input::IGuest& guest, drakan_input::InputModule& input)
     for (size_t i = 0; i < g_ghosts.size();) {
         const Ghost& g = g_ghosts[i];
         if (g.destroyRequested && g.info.handle) {
+            for (uint32_t w : g.weapon)
+                if (w)
+                    guest.post(drakan_input::GuestCall(guestAddress(kDestroy)).arg(ctx).arg(w));
             guest.post(drakan_input::GuestCall(guestAddress(kDestroy)).arg(ctx).arg(g.info.handle));
             std::fprintf(stderr, "[ghost] destroy id %d handle %x queued\n", g.info.id, g.info.handle);
             g_ghosts.erase(g_ghosts.begin() + static_cast<long>(i));
@@ -536,8 +724,11 @@ void beforePadMgr(drakan_input::IGuest& guest, drakan_input::InputModule& input)
             past.position.x += g_offX;
             past.position.z += g_offZ;
             for (Ghost& g : g_ghosts)
-                if (g.info.handle && !g.destroyRequested)
+                if (g.info.handle && !g.destroyRequested) {
                     applyPose(g, past);
+                    g.wantRec[0] = g_forceRec[0] ? g_forceRec[0] : past.weaponRight;
+                    g.wantRec[1] = g_forceRec[1] ? g_forceRec[1] : past.weaponLeft;
+                }
         }
         if (g_autoPending && g_ghosts.empty() && !notReadyReason() && ok && !cur.mounted) {
             if (g_autoDelay)
@@ -615,6 +806,8 @@ void beforePadMgr(drakan_input::IGuest& guest, drakan_input::InputModule& input)
 
     // One spawn at a time.
     if (g_busy.load())
+        return;
+    if (startWeaponChange(guest, ctx))
         return;
     Ghost* want = nullptr;
     for (Ghost& g : g_ghosts)

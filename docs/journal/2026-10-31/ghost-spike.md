@@ -147,15 +147,35 @@ stem starts with `Level 0` (cut scene levels, the intro hangs the guest), a load
 passed since `AfterLevelLoad` / a save restore. A queued spawn refused at the boundary (not Rynn, not ready) is dropped and
 counted. Not exercised in a run (the harness auto-start skips the intro before the first spawn).
 
-## Ghost weapons: status and wire proposal
+## Ghost weapons
 
-Not implemented in this pass. Findings for the next attempt: the weapon item is a type-10 actor of class `0x1000e`; its resource
-*record index* is `u16 *(item+0x10)` (factory arg a5), the record id (`PlayerPose.weaponRight`, e.g. `0x33cbc`) is
-`record[index].id`. Attach with `0x13b878(ghostModel, item, bone, 0, 0)` (bone = Rynn model property `0x45` right / `0x46` left)
-and set the weapon data owner (`+0x60`) to the ghost as `drakan_dual_wield.cpp` does; spawn the item with the factory like the
-ghost, after resolving id -> index by scanning the record table (`ctx+0x320`: `+8` table, `+0x10` count, stride `0x24`).
+Code: `drakan_ghost.cpp` (`setWeapons(id, rightRecordId, leftRecordId)`, `setPose` applies `PlayerPose.weaponRight/Left` when above
+0xff; `DRAKAN_GHOST_WEAPONS=<right>,<left>` hex record ids forces weapons for tests; mirror mode copies the local player's holders
+with the replay delay). Per hand, at the PadMgr boundary, one change at a time (shares `g_busy` with the ghost spawn):
+1. record id -> index by scanning the record table (`ctx+0x320`, `+8` records, `+0x10` inclusive count, 0x24 bytes, id at +0);
+2. `0x181ad8(ctx, 0, xform of the ghost, 0, 0, index)` on a dispatcher trampoline (the item actor; no camera-mode trick, native
+   handler kept so the engine's own destroy works);
+3. owner: registry ref count of the ghost entry incremented and written to the item data `+0x60`;
+4. `0x13b878(ghost, item, bone, 0, 0)` with the bone from the ghost model property `0x45` (right, 37) / `0x46` (left, 19).
+A changed wanted id detaches (`0x13b8c8`) and kills the old item (`0x1413c0`). Weapons are destroyed with the ghost (F10 path) and
+before level load / save write (`destroyAll`, flushed). The local player's inventory, slots, holders and HP block are never written.
 
-Wire proposal for `net::PlayerState`: replace the weapon byte by `u16 weaponRight, weaponLeft` holding an index into a fixed table
-of the 118 weapon record ids shipped in `world`/a header (both ends have the same disc), 0xffff = none; or send the 32-bit record
-id (e.g. `0x33cbc`) if the table is not wanted (4 extra bytes per weapon, no table to keep in sync). Prefer the record id: it is
-stable across levels, while the record index is level-load dependent.
+Verified in game: runs `gw1`..`gw6` under `build/harness/` (play folder `build/ghost-weapons-play`).
+* `gw3` (forced record `0x33cbc`): the item is created (`item bfe700`, bone 37) and renders in the ghost's right hand, following the
+  arm (crop of `m_atk2.png`).
+* **Dagger swing, `gw4`** (card of `dualwield-check3`, Tab recipe equipping Rynn's Dagger in cell 16, mirror, offset -170,60):
+  contact sheet shows the ghost with the dagger in hand and the extended thrust/swing poses 1 s after each of the player's three
+  attacks (`d_a0`, `d_b0`, `d_b3`).
+* `gw6` (F9 ghost with weapon, F5 save, F8 load): `destroyed weapon ... before beforeSaveWrite`, then the ghost; the registry
+  scan after load shows only the player's Rynn; the stats/HP block words equal before and after.
+Not verified: the left (bow) hand and weapon swaps on a live ghost, F10 destroy with a weapon (the harness key tap never reached it),
+a weapon item still drawn at its spawn position (none seen), blade hits (the blade stays dead: no holder drives it), the player's
+inventory grid compared slot by slot (only HP block / registry checked), a 15 frame contact sheet of the walk (shots are 300-500 ms apart).
+
+## Net representation of the weapon
+
+Replace `net::PlayerState::weapon` (u8) by `u32 weaponRight, weaponLeft` carrying the resource record id (e.g. `0x33cbc`, 0 = none),
+the same value as `PlayerPose.weaponRight/Left` and `setWeapons`. Record ids are disc constants, stable across levels and processes (the
+record index is not: it is level dependent). Cost 7 bytes more per state; if size matters send them only on change (they change on equip,
+a rare event) in the reliable channel, like the roster. `weaponWireId` in `world/Pose.h` then becomes the identity and the `> 0xff`
+test in `setPose` can go. Until then a placeholder byte (<= 0xff) is ignored by `setPose`.

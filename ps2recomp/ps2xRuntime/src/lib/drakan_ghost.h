@@ -61,6 +61,12 @@ void setAnim(int id, int channel, int clip, float time);
 // Position, rotation and animation in one call (what the net layer calls per remote sample): pose.position / rotation
 // as setTransform, pose.lower on channels set in pose.lowerMask, pose.upper on the others (setAnim per channel).
 void setPose(int id, const world::PlayerPose& pose);
+// Weapons the ghost holds, by resource record id (PlayerPose.weaponRight / weaponLeft, e.g. 0x33cbc; 0 = none; the left
+// hand is the bow's). Applied at the PadMgr boundary: an item actor of that record is created with the engine factory,
+// owned by the ghost and attached to its hand bone (properties 0x45 / 0x46); a changed id drops the old item first.
+// The items are destroyed with the ghost and before level loads / save writes. The local player's inventory, equipment
+// and HP are not touched. setPose applies PlayerPose.weaponRight / weaponLeft the same way when they are above 0xff.
+void setWeapons(int id, uint32_t rightRecordId, uint32_t leftRecordId);
 void forEach(const std::function<void(const Info&)>& fn);
 
 // EE thread, PadMgr_Update boundary: F9 / F10, queued requests, liveness.
