@@ -77,6 +77,7 @@ bool MatchClient::sendState(PlayerState s) {
     s.player = self_;
     s.sequence = ++sendSequence_;
     s.tick = ++sendTick_;
+    sent_[s.sequence & 63] = {s.sequence, now_};
     return transport_.send(peer_, Channel::Unreliable, encode(s));
 }
 
@@ -263,8 +264,17 @@ void MatchClient::handleMessage(const TransportEvent& ev) {
                 // Snapshots only arrive late, never early: follow the smallest offset, ease towards bigger ones.
                 clockOffset_ = offset < clockOffset_ ? offset : clockOffset_ + (offset - clockOffset_) / 32;
             }
+            ++snapshotCount_;
             for (const PlayerState& ps : s.players) {
-                if (ps.player == self_ || !roster_.count(ps.player))
+                if (ps.player == self_) {
+                    const SentMark& m = sent_[ps.sequence & 63];
+                    if (m.sequence == ps.sequence && now_ >= m.atMs) {
+                        const double rtt = static_cast<double>(now_ - m.atMs);
+                        rttMs_ = rttMs_ < 0 ? rtt : rttMs_ + (rtt - rttMs_) * 0.1;
+                    }
+                    continue;
+                }
+                if (!roster_.count(ps.player))
                     continue;
                 auto& buf = buffers_[ps.player];
                 if (!buf.empty() && s.serverTimeMs <= buf.back().serverTimeMs)

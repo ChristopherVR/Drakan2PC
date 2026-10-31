@@ -176,6 +176,7 @@ void PlayerState::write(ByteWriter& w) const {
     w.u32(lowerMask);
     w.u8(weapon);
     w.u8(mounted ? 1 : 0);
+    w.u32(levelHash);
 }
 bool PlayerState::read(ByteReader& r) {
     player = r.u8();
@@ -196,6 +197,7 @@ bool PlayerState::read(ByteReader& r) {
     if (flags > 1)
         r.fail();
     mounted = flags == 1;
+    levelHash = r.u32();
     return r.ok();
 }
 

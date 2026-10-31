@@ -28,6 +28,7 @@ PlayerState sampleState() {
     s.lowerMask = 0x19;
     s.weapon = 4;
     s.mounted = true;
+    s.levelHash = 0xCAFEF00Du;
     return s;
 }
 
@@ -99,7 +100,8 @@ int main() {
         CHECK(so.player == 3 && so.sequence == s.sequence && so.tick == s.tick && so.pos[2] == s.pos[2] &&
               so.yaw == s.yaw && so.vel[2] == -8 && so.animId == 513 && so.animTime == 0.75f && so.weapon == 4 &&
               so.mounted);
-        CHECK(so.upperAnimId == 1027 && so.upperAnimTime == 0.25f && so.lowerMask == 0x19);
+        CHECK(so.upperAnimId == 1027 && so.upperAnimTime == 0.25f && so.lowerMask == 0x19 &&
+              so.levelHash == 0xCAFEF00Du);
         CHECK(encode(s).size() == 1 + kPlayerStateWireSize);
 
         Snapshot snap;
@@ -209,7 +211,7 @@ int main() {
 
         // Bad mounted flag.
         bytes = encode(sampleState());
-        bytes.back() = 2;
+        bytes[bytes.size() - 1 - sizeof(uint32_t)] = 2; // the flag precedes levelHash
         CHECK(!decode(bytes, o));
 
         // Oversized strings.

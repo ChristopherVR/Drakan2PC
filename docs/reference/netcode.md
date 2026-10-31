@@ -1,7 +1,7 @@
-# Netcode: protocol v2, authority model, `runtime/net`
+# Netcode: protocol v3, authority model, `runtime/net`
 
-Status 2026-10-31: scaffold. The protocol, match state machine, transports and the headless `drakan_server` exist and
-are tested; nothing is wired into the game yet (that needs the native world view, see
+Status 2026-10-31: the protocol, match state machine, transports and the headless `drakan_server` exist and are tested;
+the game side is a first spike (ghosts only, see "Playing over the network (spike)"; plan in
 `docs/proposals/level-editor-and-multiplayer.md`). Rationale for the model: `docs/journal/2026-10-31/multiplayer.md`.
 
 ## Layout
@@ -27,7 +27,7 @@ Datagram = `'D' 'K'` + type byte. Types: Connect, ConnectAck, Disconnect (empty)
 per-peer sequence, receiver accepts only the next sequence, sender resends unacked packets every 150 ms (window 128,
 excess queued). Connect retried every 250 ms for 5 s; a peer silent for 10 s is dropped.
 
-## Protocol v2
+## Protocol v3
 
 Application message = 1 type byte (`MsgType`) + body; every decode requires the exact length. Integers little-endian.
 `str` = `u16` length + bytes (per-field maximum enforced). Reliable unless marked.
@@ -39,7 +39,7 @@ Application message = 1 type byte (`MsgType`) + body; every decode requires the 
 | 3 Reject | S>C | `u8 reason` (0 version, 1 profile, 2 full, 3 name), `u16 serverVersion`, `str message` |
 | 4 MatchConfig | S>C | `u8 mode` (0 DM, 1 TDM), `str level` (<=64), `u16 fragLimit`, `u16 timeLimitSec`, `u8 maxPlayers` (1..16), `u16 respawnDelayMs`, `u16 startHealth` |
 | 5 PhaseChange | S>C | `u8 phase` (0 lobby, 1 loading, 2 playing, 3 results), `u32 serverTimeMs` |
-| 6 PlayerState | C>S, unreliable | `u8 player`, `u32 sequence`, `u32 tick`, `f32 pos[3]`, `f32 yaw`, `f32 vel[3]`, `u16 animId`, `f32 animTime` (lower body), `u16 upperAnimId`, `f32 upperAnimTime`, `u32 lowerMask` (bit i: skeleton channel i plays the lower clip; see `world-model.md` section 6), `u8 weapon`, `u8 mounted` (0/1); 55 bytes (v2) |
+| 6 PlayerState | C>S, unreliable | `u8 player`, `u32 sequence`, `u32 tick`, `f32 pos[3]`, `f32 yaw`, `f32 vel[3]`, `u16 animId`, `f32 animTime` (lower body), `u16 upperAnimId`, `f32 upperAnimTime`, `u32 lowerMask` (bit i: skeleton channel i plays the lower clip; see `world-model.md` section 6), `u8 weapon`, `u8 mounted` (0/1), `u32 levelHash` (FNV-1a of the sender's level name, 0 = loading; v3); 59 bytes |
 | 7 Snapshot | S>C, unreliable | `u32 serverTimeMs`, `u8 count` (<=16), count x PlayerState body (live players with a known state) |
 | 8 Hit | C>S claim, S>C accepted | `u8 attacker`, `u8 victim`, `u8 weapon`, `u16 damage`, `u16 healthAfter` (client sends attacker 0) |
 | 9 Death | S>C | `u8 victim`, `u8 killer`, `u8 weapon` |
@@ -77,6 +77,52 @@ simulates the game and needs no level data.
   from the nearer sample; no extrapolation. A Death or Respawn clears that player's buffer.
 - Known limits: the hit range check trusts both clients' positions; there is no lag compensation, no encryption or
   authentication, no NAT traversal, and the sanity limits are untuned guesses until real game units are known.
+
+## Playing over the network (spike)
+
+Status 2026-10-31: two game instances on one PC see each other's Rynn as a ghost. Code:
+`ps2recomp/ps2xRuntime/src/lib/drakan_netplay.{h,cpp}` (GS-renderer builds, PAL disc profile; it needs `drakan_ghost` and
+`drakan_lifecycle`). Results and limits: `docs/journal/2026-10-31/netplay-spike.md`.
+
+Environment (all opt-in; also set `DRAKAN_GHOST=1`, the ghosts are `drakan_ghost` actors):
+
+| Variable | Meaning |
+| --- | --- |
+| `DRAKAN_NET_HOST=<port>` | Listen server: a `MatchServer` runs in the game process (UDP `<port>`, auto-start with one player, no frag / time limit) and the game joins it over `127.0.0.1`. |
+| `DRAKAN_NET_CONNECT=<host:port>` | Client of a listen server or of `drakan_server --port <p> --auto-start 1 --time-limit 0 --frag-limit 0`. |
+| `DRAKAN_NET_NAME=<name>` | Player name (default `Rynn`, 24 characters). |
+
+How it works: sockets, the embedded server and the `MatchClient` live on one network thread that never touches guest
+memory. At each `PadMgr_Update` the EE thread reads the controlled actor with `world::readPlayerPose`, converts it with
+`toPlayerState` and drops it into a mutex-protected slot; the network thread sends it at 20 Hz. Received remote states
+(already interpolated 100 ms behind by `MatchClient`) go the other way into a `world::PoseBuffer` per player; the ghost
+is spawned (`drakan_ghost::spawn`) when the remote player is Playing, mounted-off, and in the same level, and driven with
+`setTransform` every frame. It is removed when the player leaves, changes level (their `levelHash` goes to 0 while
+loading, then to the new level's hash) or when this instance loads a level or writes a save (`drakan_lifecycle`).
+
+Mismatch rules: the disc profile (hash of the serial and save id) is sent in `Hello`; a server started with that hash (the
+listen server always is) rejects other discs with `ProfileMismatch`, and a different protocol version with
+`VersionMismatch` (logged as `REJECTED by the server`). The level is deliberately **not** a join check: players change
+level during a match, so every `PlayerState` carries `levelHash` (v3, FNV-1a of the level name from `afterLevelLoad`) and
+ghosts only show between players in the same level. `MatchConfig.level` records the host's level at start
+(informational).
+
+Run both instances with `python scripts/harness/netplay_two_instances.py` (`--mode server` for a `drakan_server`, see its
+`--help`). By hand: two play folders, two `DRAKAN_MEMCARD_DIR`s, instance A `DRAKAN_NET_HOST=47800`, instance B
+`DRAKAN_NET_CONNECT=127.0.0.1:47800`, both `DRAKAN_GHOST=1`. The game logs `[netplay ...]` lines to stderr: connect and
+reject, ghost spawn / removal, and every 5 s `stats: rtt .. ms, snapshots ../s, states sent ../s`. The RTT is measured
+from our own PlayerState's send time to the snapshot that echoes its sequence (`MatchClient::rttMs()`), so it includes up
+to one 50 ms snapshot interval.
+
+Safety rules in `drakan_netplay`: the opening cut scene (`Level 0 - Intro`) counts as "no level" (a ghost spawned there
+made the guest jump to a null target and hang the intro); ghosts are only spawned 1.5 s after a level load; a ghost
+that `drakan_ghost` drops by itself is retried with a back-off (2 s, 4 s .. 10 s) instead of every frame; a remote
+level / mounted / not-playing change hides the ghost after 0.5 s (a menu opening makes the pose read fail for a
+frame), our own load or save hides at once. `python scripts/harness/netplay_two_instances.py --reject` checks the
+profile rejection against a `drakan_server --profile-hash 1`.
+
+Not done: the ghost animates by position and yaw only (clips arrive when `drakan_ghost::setPose` lands), no damage or
+hits, mounted (dragon) players are hidden, no sector update for the ghost.
 
 ## Tests
 

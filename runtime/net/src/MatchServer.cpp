@@ -407,7 +407,9 @@ void MatchServer::onPlayerState(ServerPlayer& p, const std::vector<uint8_t>& dat
             ++stats_.statesRejected;
             return;
         }
-    if (p.hasState && !p.acceptAnyState && options_.maxSpeed > 0.0f) {
+    // A level change (levelHash differs) moves the player to another coordinate space: not a speed violation.
+    const bool levelChanged = p.hasState && s.levelHash != p.state.levelHash;
+    if (p.hasState && !p.acceptAnyState && !levelChanged && options_.maxSpeed > 0.0f) {
         const float dx = s.pos[0] - p.state.pos[0];
         const float dy = s.pos[1] - p.state.pos[1];
         const float dz = s.pos[2] - p.state.pos[2];

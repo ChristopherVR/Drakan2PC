@@ -329,6 +329,17 @@ int main() {
         p.a.sendState(at(30));
         p.rig.run(50);
         CHECK(p.rig.server->player(ia)->state.pos[0] == 30);
+        // A level change (new levelHash) may jump anywhere; the same jump in the same level is still dropped.
+        PlayerState lv = at(9000);
+        lv.levelHash = 77;
+        p.a.sendState(lv);
+        p.rig.run(50);
+        CHECK(p.rig.server->player(ia)->state.pos[0] == 9000 && p.rig.server->player(ia)->state.levelHash == 77);
+        lv = at(50000);
+        lv.levelHash = 77;
+        p.a.sendState(lv);
+        p.rig.run(50);
+        CHECK(p.rig.server->player(ia)->state.pos[0] != 50000);
         const uint32_t seq = p.rig.server->player(ia)->state.sequence;
         CHECK(seq > 0);
         p.rig.run(3000, 50);

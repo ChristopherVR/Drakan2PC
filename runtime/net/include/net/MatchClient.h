@@ -75,6 +75,11 @@ public:
     bool remoteState(PlayerId id, uint64_t localNowMs, PlayerState& out) const;
     size_t bufferedStates(PlayerId id) const;
 
+    // Diagnostics. rttMs() is the smoothed round trip of our own PlayerState: send time to the arrival of the snapshot
+    // that echoes its sequence (so it includes up to one server snapshot interval); < 0 until measured.
+    uint64_t snapshotCount() const { return snapshotCount_; }
+    double rttMs() const { return rttMs_; }
+
 private:
     struct Sample {
         uint32_t serverTimeMs = 0;
@@ -99,6 +104,13 @@ private:
     uint16_t teamKills_[2] = {0, 0};
     uint32_t sendSequence_ = 0;
     uint32_t sendTick_ = 0;
+    struct SentMark {
+        uint32_t sequence = 0;
+        uint64_t atMs = 0;
+    };
+    SentMark sent_[64];
+    uint64_t snapshotCount_ = 0;
+    double rttMs_ = -1.0;
     bool haveClock_ = false;
     int64_t clockOffset_ = 0; // serverTime - localTime
     std::map<PlayerId, RemotePlayer> roster_;

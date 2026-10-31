@@ -1,5 +1,5 @@
 #pragma once
-// Protocol v1: versioned binary messages, explicit little-endian serialisation, bounds-checked reader.
+// Protocol v3: versioned binary messages, explicit little-endian serialisation, bounds-checked reader.
 // See docs/reference/netcode.md. Std-only.
 #include <cstddef>
 #include <cstdint>
@@ -9,7 +9,7 @@
 
 namespace drakan::net {
 
-constexpr uint16_t kProtocolVersion = 2; // v2: upper-body clip + channel mask in PlayerState
+constexpr uint16_t kProtocolVersion = 3; // v3: levelHash in PlayerState (v2: upper-body clip + channel mask)
 constexpr size_t kMaxPlayers = 16;
 constexpr size_t kMaxNameLength = 24;
 constexpr size_t kMaxChatLength = 128;
@@ -152,11 +152,14 @@ struct PlayerState {
     uint32_t lowerMask = 0xffffffffu; // bit i: skeleton channel i plays the lower clip, else the upper one
     uint8_t weapon = 0;
     bool mounted = false; // riding the dragon
+    // FNV-1a of the sender's loaded level name; 0 while it is loading or unknown. A receiver shows a ghost only when
+    // this equals its own level's hash (clients run their own world, the server never sees level data).
+    uint32_t levelHash = 0;
     void write(ByteWriter& w) const;
     bool read(ByteReader& r);
 };
 
-constexpr size_t kPlayerStateWireSize = 1 + 4 + 4 + 12 + 4 + 12 + 2 + 4 + 2 + 4 + 4 + 1 + 1;
+constexpr size_t kPlayerStateWireSize = 1 + 4 + 4 + 12 + 4 + 12 + 2 + 4 + 2 + 4 + 4 + 1 + 1 + 4;
 
 // Server to clients, unreliable, every snapshot interval: all live players with a known state.
 struct Snapshot {
