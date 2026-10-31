@@ -16,6 +16,7 @@
 #include <atomic>
 #include <chrono>
 #include <cstdio>
+#include <cstdlib>
 #include <mutex>
 
 namespace drakan_debug_menu {
@@ -295,7 +296,24 @@ void afterPadMgr(drakan_input::IGuest& g) {
         r.value = guestString(g, g.call(drakan_input::GuestCall(format).arg(m).arg(id)));
         p.rows.push_back(std::move(r));
     }
+    // DRAKAN_DEBUG_MENU_LOG=1: one line per page / cursor move and per shown value that changed (test harness).
+    static const bool log = [] {
+        const char* e = std::getenv("DRAKAN_DEBUG_MENU_LOG");
+        return e && *e == '1';
+    }();
     std::lock_guard<std::mutex> l(g_pageM);
+    if (log) {
+        if (p.page != g_page.page || p.cursor != g_page.cursor)
+            std::fprintf(stderr, "[debug-menu] at page %d row %d: %s\n", p.page, p.cursor,
+                         p.cursor >= 0 && p.cursor < static_cast<int>(p.rows.size())
+                             ? p.rows[static_cast<size_t>(p.cursor)].name.c_str()
+                             : "?");
+        if (p.page == g_page.page && p.rows.size() == g_page.rows.size())
+            for (size_t i = 0; i < p.rows.size(); ++i)
+                if (p.rows[i].value != g_page.rows[i].value)
+                    std::fprintf(stderr, "[debug-menu] value page %d row %zu %s: %s -> %s\n", p.page, i,
+                                 p.rows[i].name.c_str(), g_page.rows[i].value.c_str(), p.rows[i].value.c_str());
+    }
     g_page = std::move(p);
 }
 

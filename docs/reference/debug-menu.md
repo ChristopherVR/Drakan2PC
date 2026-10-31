@@ -14,7 +14,7 @@ The retail ELF keeps nearly all of it:
 | Option names | `0x51d738`..`0x51e188` | Table of `char*` indexed by option ID at `menu+0xc0` (`"Engine Debug Messages"`, `"Teleport"`, `"Single Step (L2)"` ...) |
 | Option values | `menu+0xcc` | `u32[126]`; `SetOptionValue(menu, id, v)` `0x1d4238` applies side effects (renderer flags etc.) |
 | `GetOptionValue(menu, id)` | `0x1d5de8` | Live: read by Engine_Tick, the renderer and others |
-| Run option (Enter) | `0x1d4580` | Live: switch over the IDs (jump table `0x51e450`). Teleport builds `"TELE %d %d %d"` and calls the console command function `0x240480`; other entries call `"drop"`, `"mrclean"`, `"lvlup"`, `"shaman"`, `"heal"` ... |
+| Run option (Enter) | `0x1d4580` | Live: switch over the IDs (jump table `0x51e450`). Teleport builds `"TELE %d %d %d"` (the fly camera, see below) and calls the console command function `0x240480`; other entries call `"drop"`, `"mrclean"`, `"lvlup"`, `"shaman"`, `"heal"` ... |
 | Value +n / -n | `0x1d5190` / `0x1d5488` | Live |
 | Value text | `0x1d49f0` (menu, id) -> `char*` | Live (`ON`/`OFF`, `0.00 MB`, `Do It`, `WHITE` ...) |
 | Per-frame update | `0x1d4948` | Called by Engine_Tick `0x135c40` while `IsOpen` (`0x1d5d80`, `menu+0`) |
@@ -43,23 +43,67 @@ The PC development build presumably swapped PadMgr's command callback (`PadMgr+0
 `0x23ce18`) to `0x131ff0` while the menu was open: the callback has exactly that signature, and
 `InputDev_InvokeCallback` (`0x131fa8`) reloads the slot after every call.
 
-## Pages (as read from RAM)
+## Every option, tested (31 October 2026, PAL)
 
-1. Messages Colors, Font Size, Engine Debug Messages, Enable Engine Stats, Display Messages, poly counts, render timings
-2. Do Rendering Performance Test, Profile Info / Data Loading / Filters, Object List / Links, Log Stats, Turbo Mode,
-   Disable HUD / Sky, Take Screen Shot
-3. Output Memory Usage, data cache tests, texture / model / animation / splat cache sizes
-4. Draw Occluders, Enable Object Update, Temporary Flag (fDebugFlag), animation system switches, Skin Normals
-5. Enable Fog, Fog Value, Render Objects / Instance Objects / Layers / Water, Distance Cull
-6. Anti-Aliasing, Disable VU / Core Renderer, Sync DMA, texturing, filter, mips, wireframe, strips, render groups,
-   landscape spans, hardware clipping, splat switches
-7. Display lights / bounding volumes / vertex normals, shadows, lens flares, screen warp, hardware lighting
-8. Disable Sound, Display Playing Sounds, Display Mode, NAX trace, Show Memory Map, View Buffer Address, Load Buffer,
-   Output SPU Buffers
-9. Teleport, X, Y, Z
-10. Show Damage, Show AI State Changes / States / Animspeed / Sight Direction, Single Step (L2)
-11. Invincible, Fly, Drop, MrClean, All Experience, Level Up, Unlock Spells, Full Health/Mana, Increase Gold, Speed,
-    Pause, Fly PAUSE MODE, Half Speed, Suicide, Quit, Crosshair, Print Lines
+How the menu acts on an option: Enter runs its case in `0x1d4580` (jump table `0x51e450`, by ID); without a case it
+toggles the value (`!v`). Right / Left run `0x1d5190` / `0x1d5488` (their own switch; X / Y / Z go to `menu+0x100..`).
+Every value change goes through `SetOptionValue` (`0x1d4238`, jump table `0x51e1a0` by ID - 1), whose cases push the
+value into engine state. Only IDs 3, 4, 10, 15, 64 (and the hidden 61) are read back (`GetOptionValue` callers
+`0x135ea4`, `0x147be8`, `0x150194`, `0x15f800`, `0x1911ac`, `0x1d6950`, `0x1ebdb0`). So an option with neither a case
+nor a reader only changes the shown value: the code that consumed it on the development build is not in the retail
+ELF. The cheats are console commands (`0x240480` / `0x23f650`): `drop`, `TELE x y z`, `mrclean`, `hendrix`, `lvlup`,
+`shaman`, `heal`, `atm`, `halfspeed`, `crosshair`, `bye`, `showdmg`, `switch`, `aistate`, `aianim`, `aisight`.
+
+Method: `scripts/harness/debug_menu_sweep.py` (one New Game run per page; per option two shots, Enter, shot, Enter,
+shot; the value log `DRAKAN_DEBUG_MENU_LOG=1`; RAM stats on page 11; picture change outside the panel against the idle
+noise) and `scripts/harness/debug_menu_checks.py` (walk distances, Teleport, RAM diffs of the global data against
+control pairs). Every option was reached and toggled without a crash or hang, and every toggle changed its shown value
+(except the `Do It` actions and the numeric rows, whose text does not change on Enter).
+
+Legend: **works** = the effect was measured; **runs** = the code runs (value, flag or command), but nothing visible or
+measurable in this scene; **dead** = no case and no reader in retail, only the shown value changes.
+
+| Page | Option | Result |
+| --- | --- | --- |
+| 1 | Messages Colors, Font Size, Engine Debug Messages | runs: Messages Colors and Font Size hand the value to the renderer's debug text (`+0x38`, `0x1d7030`), Engine Debug Messages only cycles its value; the debug text itself is compiled out |
+| 1 | Enable Engine Stats | runs: sets bit 0 of `0x4df37c`, read by the frame code (`0x1d6950`); no stats text in retail |
+| 1 | Static Model / Actor Poly Count, Polygon throughput, Rendering VU Time, Texture Upload Time | runs: cases write renderer counters or link to ID 55; no on-screen output |
+| 1 | Display Messages, Splat Poly Count, Splat Count, Core / VB / Misc / Idle Time, Object Run / Detect Time, Distance Culled Objects | dead |
+| 2 | Profile Info, Profile Data Loading, Filter Profile Info, Filter Profile Threshhold | runs: toggle the menu's profiler flags (`menu+0xd8..`); no output |
+| 2 | Turbo Mode | runs: switches Render Water, Engine Debug Messages, Engine Stats and the animation switches with it (seen in the log), read at `0x150194`; walking speed unchanged. Turning it off turns Engine Stats and Debug Messages on |
+| 2 | **Take Screen Shot** | **works**: writes `host:ScreenShotNN.tga` (512 x 512, the native frame without the PC HUD) through `sceOpen` / `sceWrite`; the runtime maps `host:` to the boot ELF's folder |
+| 2 | Do Rendering Performance Test, Object List, Object Links, Log Stats, Disable HUD, Disable Sky | dead (HUD and sky stay) |
+| 3 | all (memory / cache tests and sizes) | dead (the `Do It` rows have no case) |
+| 4 | **Enable Object Update** | **works**: off freezes the world (Rynn 0 units in 1.5 s of W; 3368 before, 3399 after) |
+| 4 | Draw Occluders, Temporary Flag, Disable Animation System / Interpolation, Skin Normals | dead (Rynn walks animated) |
+| 5 | Fog Value | runs: its case calls `0x142f70` with values derived from it; no visible change in Surdana |
+| 5 | Enable Fog, Render Objects / Instance Objects / Layers / Water, Enable Distance Cull | dead in practice (Render Objects is read on one side path only; Rynn and the landscape stay) |
+| 6 | **Enable Texturing** | **works**: models and HUD sprites draw untextured (the landscape keeps its textures). Rynn shows a noisy pattern, the same on WebGPU and Direct3D 11; it looks like whatever is in GS memory once no texture is bound (not checked against hardware). World fps drops (59 to 18) |
+| 6 | Render Wireframe, Show Strips, Show Render Groups | runs: their cases turn Enable Texturing off and set their flag; the picture equals texturing off (no wireframe is drawn) |
+| 6 | Texture Filter | runs: cycles None / Bilinear / Trilinear; no visible change |
+| 6 | Anti-Aliasing, Disable VU / Core Renderer, Sync DMA, Enable Mipping, Only upload used mips, Color by Mip, Force Texture uploads, Use Landscape Spans, Render objects by model, Hardware Clipping, Splat Base Only / Disable Noise | dead |
+| 7 | Enable Shadows | runs: cycles the shadow mode global (`0x4df434`, what `GetOptionValue(46)` returns); no visible change here |
+| 7 | Display Lights / Num Lights / Bounding Sphere / Box / Leaf / Cloth Spheres / Vertex Normals, LensFlares, Screen Warp, Hardware Lighting, Approximate Point Lights | dead |
+| 8 | Disable Sound | runs: clears the enable flag (`+0x14`) of the object at `*0x4e0b1c`, which gates some sound-manager updates (`0x1b7440` from Engine_Tick and others); the mixed output (`DRAKAN_AUDIO_DUMP`) kept its ambience and Rynn's swing sounds |
+| 8 | Display Playing Sounds, Display Mode, Trace NAX Register, NAX Trace Target Voice, Show Memory Map, View Buffer Address, Load Buffer, Output SPU Buffers | dead |
+| 9 | X, Y, Z | **work**: Right / Shift / Ctrl change them by 1 / 10 / 100 (`menu+0x100..0x108`) |
+| 9 | **Teleport** | **works**: `TELE x y z` puts the camera in fly mode (like Fly) and moves it to `2048 * (X, Y, Z)`; with (224, 90, 168) it stood exactly at (458752, 184320, 344064). Rynn stays where she is |
+| 10 | Show Damage, Show Current AI States / Animspeed / Sight Direction | runs: set their flags (`0x5130c0`, `0x4fb714`, `0x4fb718`, `0x4fb71c` 0 to 1); the debug drawing is not in retail |
+| 10 | Show AI State Changes | runs (the `switch` command); no flag of its own found |
+| 10 | Single Step (L2) | dead: its case only acts while `ctx+0x4c4` bit 0 (a development mode) is set |
+| 11 | **Invincible** | **works**: "The Gods Favor You" / "The Gods Decide You Are No Longer Worthy" |
+| 11 | **Fly** | **works**: the camera leaves Rynn (mode 7); Space (Triangle) and Q (R1) move it about 25000 units in 1.25 s, W and the mouse do not. The player controller returns early in mode 7, so the left stick has no use there; whether the right stick turned the camera on the PS2 is not established |
+| 11 | **All Experience** | **works**: "You feel enlightened", XP 0 to 219623, level 1 to 12, skill points 0 to 11 |
+| 11 | **Level Up** | **works**: "You're a bit older and a bit wiser" and the level-up effect (level 1 to 2 from a new game) |
+| 11 | **Unlock Spells** | **works**: "Spells Unlocked At Level 1", again "... Level 2" |
+| 11 | **Full Health/Mana** | **works**: "Full Health And Mana" |
+| 11 | **Increase Gold** | **works**: "You've won the lottery!", gold +10000 |
+| 11 | **Pause** | **works**: the world stops (Rynn 0 units while W is held) and resumes |
+| 11 | **Fly PAUSE MODE** | **works** (the pause half): the world stops; the camera stays behind Rynn |
+| 11 | **Suicide** | **works**: HP to -1 and the game's death screen |
+| 11 | Drop, MrClean, Crosshair, Half Speed | runs (console commands); nothing measurable at the start of Surdana (no item to drop, no enemies, no bow; walking speed unchanged with Half Speed) |
+| 11 | Quit | runs but inert: it clears `0x4da718`, which nothing in the PS2 build reads |
+| 11 | Speed, Print Lines | dead |
 
 ## USA disc
 
@@ -120,5 +164,6 @@ Verification (`scripts/harness/play_run.py`, New Game into Surdana):
 - All four recipes pass on the USA disc too (`--exe dist/DrakanPC-usa/drakan.exe`); the log shows the saved callback
   `0x23cd60`, the USA Game_OnInputCommand.
 
-Caveats: options such as Quit, Suicide, Load Buffer and the cache tests do what the developers made them do; save before
-experimenting.
+Caveats: Suicide kills Rynn, Teleport and Fly leave the camera in fly mode (Fly again brings it back), Turbo Mode
+changes other options with it, and Enable Object Update / Pause freeze the world until switched back; save before
+experimenting. Take Screen Shot writes into the folder the boot ELF is read from.
