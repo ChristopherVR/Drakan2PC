@@ -411,7 +411,8 @@ static void filesTests(const fs::path& root, const DiscProfile& pal) {
         CHECK(entryBytes(f4, xdbPath, 0x400, 23, 8, b) && b == fill(64, 0x21));
         CHECK(entryBytes(f4, odbPath, 0x102, 4200, 3055, b) && b == fill(88, 0xB2));
         CHECK(entryBytes(f4, odbPath, 0x103, 0, 0, b) && b == fill(60, 0xB3));
-        CHECK(entryBytes(f4, odbPath, 0x102, 4167, 3055, b) && b == fill(86, 0x10));
+        // ODB is plain-read by the game: an `overrides/` entry of it is patched into the rebuilt file as well
+        CHECK(entryBytes(f4, odbPath, 0x102, 4167, 3055, b) && b == fill(90, 0xA1));
         IsoFs::Node sn;
         CHECK(f4.lookup("\\Levels\\LEVEL1ON\\LEVEL1ON.SSD", sn) && sn.mem);
         CHECK(f4.lookup("\\Common\\System\\SYSTEM.SDB", sn) && !sn.mem);

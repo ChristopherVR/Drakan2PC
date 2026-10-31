@@ -180,8 +180,9 @@ resource type, so the runtime does not raise the limit. Policy, enforced when th
 
 ### Content files: ODB, XDB, SDB, SSD entries (story editing)
 
-Every content container is read by the guest through the 0x1202 resource requests, so `overrides/<FILE>/<type>_<id>_<sub>.bin`
-replaces **any single entry** of an `.ODB .XDB .SDB .SSD .ADB .MOD .TXD` file, not only whole files and `.LVL` entries. The
+The guest reads `.XDB .SDB .SSD .ADB .MOD .TXD` entries through the 0x1202 resource requests, so `overrides/<FILE>/<type>_<id>_<sub>.bin`
+replaces **any single entry** of those files per request. `.ODB` (like `.LVL`) is **not** requested entry by entry (verified in game
+2026-10-31), so an ODB override is patched into the rebuilt container at load (`mods: ... SYSTEM.ODB rebuilt with N entry patch(es)`). Both ways replace single entries, not only whole files and `.LVL` entries. The
 replacement may be smaller or larger than the original (below the 0x40800 limit, see below); a request with an offset is
 served from the replacement. `new/<FILE>/...` adds entries to those files too (the container is rebuilt for the running
 language). Both paths are covered by `mod_test` ("content files"). Keys the editor uses:

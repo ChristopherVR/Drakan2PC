@@ -1493,7 +1493,9 @@ static bool isSrscFile(const std::string& name) {
 // they are applied by rebuilding the file. (Everything else is patched per request.)
 static bool isPlainReadContainer(const std::string& name) {
     const std::string up = upper(name);
-    return up.size() > 4 && up.compare(up.size() - 4, 4, ".LVL") == 0;
+    // .LVL and .ODB are read by the guest with plain file reads (no 0x1202 entry requests are ever made for them: checked
+    // with DRAKAN_HLE_LOG on SYSTEM.ODB), so a per-request override never reaches them; their entry patches rebuild the file.
+    return up.size() > 4 && (up.compare(up.size() - 4, 4, ".LVL") == 0 || up.compare(up.size() - 4, 4, ".ODB") == 0);
 }
 static bool srscIndexOf(const std::vector<u8>& b, std::vector<SrscEntry>& out) {
     if (b.size() < 16 || memcmp(b.data(), "SRSC", 4) != 0)
