@@ -1,4 +1,4 @@
-import type { DiscProfile, LvlHeader } from '@drakan/formats';
+import type { BlobLike, DiscProfile, LvlHeader } from '@drakan/formats';
 import {
     Iso9660,
     SrscReader,
@@ -20,6 +20,9 @@ import { srscRoundTrips } from '@drakan/editor-core';
 import { loadModelData, loadTerrainData } from './scene/decode.ts';
 import { loadItemCatalog, loadItemModels, resetItemData } from './itemdata.ts';
 import { loadStoryCatalog, resetStoryData } from './storydata.ts';
+import { levelExitData, type ExitIndexData } from './logicdata.ts';
+import { isoStoryFs } from './story/storyfs.ts';
+import { loadStoryEdit, scanQuestUsage, scanStringUsage } from './story/storyedit.ts';
 import { listRefs, loadRefModel, loadRefSound, loadRefTexture, refContainers } from './refdata.ts';
 import type {
     Api,
@@ -32,11 +35,28 @@ import type {
     OpenResult,
     Request,
     Response,
+    RemoteBlob,
     RoundTripResult,
     TextureResult,
 } from './rpc.ts';
 
 // Everything here runs off the UI thread. The ISO is read through Blob.slice, so a multi-GB image is never loaded whole.
+
+/** Blob-like view of a URL that supports range requests (the desktop shell serves the disc this way). */
+function remoteBlob(r: RemoteBlob): BlobLike {
+    return {
+        size: r.size,
+        slice: (start = 0, end = r.size) => ({
+            async arrayBuffer() {
+                const res = await fetch(r.url, { headers: { Range: `bytes=${start}-${end - 1}` } });
+                if (res.status !== 206 && res.status !== 200) throw new Error(`reading ${r.name}: HTTP ${res.status}`);
+                const buf = await res.arrayBuffer();
+                // A server that ignores Range sends the whole file; cut out what was asked for.
+                return res.status === 200 ? buf.slice(start, end) : buf;
+            },
+        }),
+    };
+}
 
 let iso: Iso9660 | null = null;
 let language = '';
@@ -101,7 +121,7 @@ async function openLevel(fs: Iso9660, dirPath: string): Promise<{ reader: SrscRe
 
 const api: { [K in keyof Api]: (...a: Parameters<Api[K]>) => Promise<ReturnType<Api[K]>> } = {
     async open(file) {
-        iso = await Iso9660.open(blobSource(file));
+        iso = await Iso9660.open(blobSource('url' in file ? remoteBlob(file) : file));
         srscCache.clear();
         const languages: string[] = [];
         for (const e of await iso.list('')) {
@@ -194,6 +214,12 @@ const api: { [K in keyof Api]: (...a: Parameters<Api[K]>) => Promise<ReturnType<
             entries.push({ type: e.type, id: e.id, sub: e.sub, data: (await r.readRaw(e)).slice() });
         return { file: path.slice(path.lastIndexOf('\\') + 1), entries, roundTrips };
     },
+    async readLevelFile(dirPath): Promise<Uint8Array> {
+        const fs = need();
+        const lvlFile = (await fs.list(dirPath)).find((e) => !e.isDir && /\.LVL$/i.test(e.name));
+        if (!lvlFile) throw new Error(`no .LVL file in ${dirPath}`);
+        return fs.source.read(lvlFile.extent * 2048, lvlFile.size);
+    },
     async loadLevel(dirPath): Promise<LevelLoadResult> {
         const fs = need();
         const lvlFile = (await fs.list(dirPath)).find((e) => !e.isDir && /\.LVL$/i.test(e.name));
@@ -213,12 +239,6 @@ const api: { [K in keyof Api]: (...a: Parameters<Api[K]>) => Promise<ReturnType<
                 continue;
             }
             try {
-    async readLevelFile(dirPath): Promise<Uint8Array> {
-        const fs = need();
-        const lvlFile = (await fs.list(dirPath)).find((e) => !e.isDir && /\.LVL$/i.test(e.name));
-        if (!lvlFile) throw new Error(`no .LVL file in ${dirPath}`);
-        return fs.source.read(lvlFile.extent * 2048, lvlFile.size);
-    },
                 odbReaders.set(stem, await SrscReader.open(sliceSource(fs.source, f.extent * 2048, f.size)));
             } catch {
                 missingOdbs.push(d.path.text);
@@ -236,6 +256,16 @@ const api: { [K in keyof Api]: (...a: Parameters<Api[K]>) => Promise<ReturnType<
             missingOdbs,
         };
     },
+    async exitIndex() {
+        const fs = need();
+        const levels = (await loadLevels()).filter((l) => l.present);
+        const out: ExitIndexData = { levels: [] };
+        for (const l of levels) {
+            const r = await api.loadLevel(l.dirPath);
+            out.levels.push(await levelExitData(fs, l.dirPath, l.name, r));
+        }
+        return out;
+    },
     async loadTerrain(dirPath) {
         const fs = need();
         const { reader, header } = await openLevel(fs, dirPath);
@@ -248,6 +278,31 @@ const api: { [K in keyof Api]: (...a: Parameters<Api[K]>) => Promise<ReturnType<
     },
     async loadItemCatalog() {
         return loadItemCatalog(need(), language);
+    },
+    async loadStoryEdit() {
+        return loadStoryEdit(need(), language);
+    },
+    async scanQuestUsage() {
+        const data = await loadStoryEdit(need(), language);
+        const ids = new Set(data.quests.map((q) => q.cls.classId));
+        const dirs = (await loadLevels()).filter((l) => l.present).map((l) => l.dirPath);
+        return scanQuestUsage(ids, dirs, async (dir) => {
+            const r = await api.loadLevel(dir);
+            return { header: r.lvl.header, list: r.lvl.list, odbs: r.odbs };
+        });
+    },
+    async readStoryFile(path) {
+        return isoStoryFs(need(), language).read(path);
+    },
+    async listStoryStems() {
+        return isoStoryFs(need(), language).stems();
+    },
+    async scanStringUsage() {
+        const dirs = (await loadLevels()).filter((l) => l.present).map((l) => l.dirPath);
+        return scanStringUsage(dirs, async (dir) => {
+            const r = await api.loadLevel(dir);
+            return { header: r.lvl.header, list: r.lvl.list, odbs: r.odbs };
+        });
     },
     async loadStoryCatalog() {
         return loadStoryCatalog(need(), language);

@@ -49,6 +49,14 @@ import { createPlace } from './editor/place.ts';
 import { createOutputLog } from './editor/output.ts';
 import { createNavGizmo } from './editor/navgizmo.ts';
 import { emptyState, installTooltips } from './editor/ui.ts';
+import { createPalette } from './editor/palette.ts';
+import { bindPanelHost } from './editor/registry.ts';
+import { installLogic } from './editor/logicpanel.ts';
+import { registerShellCommands } from './editor/shellcommands.ts';
+import { registerOotfImport } from './editor/ootfimport.ts';
+import { createStartPage, rememberLevel } from './editor/startpage.ts';
+import { createViewportHint } from './editor/hint.ts';
+import { downloadFile, isDesktop } from './platform.ts';
 import './editor/editor.css';
 
 const $ = <T extends HTMLElement>(id: string): T => {
@@ -62,13 +70,8 @@ export interface LevelUiHost {
     setStatus(msg: string, error?: boolean): void;
 }
 
-function download(name: string, data: BlobPart, type: string): void {
-    const a = document.createElement('a');
-    a.href = URL.createObjectURL(new Blob([data], { type }));
-    a.download = name;
-    a.click();
-    setTimeout(() => URL.revokeObjectURL(a.href), 10_000);
-}
+/** Browser download, or the desktop app's native save dialog (see platform.ts). */
+const download = downloadFile;
 
 export interface DiscContext {
     isoName: string;
@@ -90,6 +93,10 @@ export interface LevelUi {
     visualsReady: () => Promise<void>;
     /** Class name and model render for a resource string (Save mode inventory); null when no such class is loaded. */
     classInfo(resource: string): { name: string; thumb: string | null } | null;
+    /** The disc's levels (empty without a disc). */
+    levels(): LevelInfo[];
+    /** The mod target of the open disc, or null when it is unknown. */
+    modTarget(): ModMeta['target'] | null;
 }
 
 const AUTOSAVE_DELAY = 1500;
@@ -102,13 +109,17 @@ const AUTOSAVE_DELAY = 1500;
 export function initLevelUi(host: LevelUiHost): LevelUi {
     const root = $('level-main');
     const empty = $('lv-empty');
-    empty.append(
-        emptyState(
-            'cube',
-            'No level open',
-            'Open your disc image, then pick a level from the toolbar. You can also drop a saved document or world dump (.json) here. Press F1 for the keyboard shortcuts.',
-        ),
-    );
+    const palette = createPalette();
+    const requestOpenIso = (): void => document.getElementById('iso-input')?.click();
+    const startPage = createStartPage({
+        openIso: requestOpenIso,
+        openDocument: (f) => void loadFile(f).catch(fail),
+        openLevel: (p) => void openLevel(p).catch(fail),
+        openPalette: () => palette.open(),
+        openHelp: () => help.toggle(true),
+    });
+    empty.classList.add('has-start');
+    empty.append(startPage.el);
     let view: LevelView | null = null;
     let levelName = 'level';
     let disc: DiscContext | null = null;
@@ -288,6 +299,17 @@ export function initLevelUi(host: LevelUiHost): LevelUi {
     $('ed-details').append(inspector.el);
     $('ed-bottom').append(dock.el);
     const panels = [outliner, inspector, assets, place, history, validation, modPanel];
+    installLogic(ctx, () => host.call('exitIndex'));
+    bindPanelHost({
+        add: (spec) => {
+            dock.addTab({ id: spec.id, title: spec.title, icon: spec.icon, panel: spec.panel });
+            panels.push(spec.panel);
+        },
+        show: (id) => {
+            layout?.openBottom();
+            dock.show(id);
+        },
+    });
 
     // ---- real visuals: terrain, models, thumbnails ------------------------------------------------------------------
     const loader = createSceneLoader(host.call, () => getView(), {
@@ -375,6 +397,10 @@ export function initLevelUi(host: LevelUiHost): LevelUi {
         play: () => {
             layout?.openBottom();
             dock.show('mod');
+            if (isDesktop) {
+                void modPanel.play().catch(fail);
+                return;
+            }
             modPanel.el.querySelector('.play')?.scrollIntoView({ block: 'nearest' });
         },
         exportMod: () => {
@@ -666,11 +692,21 @@ export function initLevelUi(host: LevelUiHost): LevelUi {
         const v = getView();
         if (!v.doc.size) return;
         const json: LevelDocumentJson & { bookmarks?: unknown } = v.doc.toJSON();
-        download(`${levelName}.level.json`, JSON.stringify(json, null, 1), 'application/json');
-        savedTop = v.stack.top;
-        restoredDirty = false;
-        updateStatus();
-        toast(`Saved ${levelName}.level.json`, 'ok');
+        const name = `${levelName}.level.json`;
+        const top = v.stack.top;
+        const done = (): void => {
+            savedTop = top;
+            restoredDirty = false;
+            updateStatus();
+            toast(`Saved ${name}`, 'ok');
+        };
+        if (isDesktop) {
+            // A cancelled save dialog leaves the document marked as unsaved.
+            void download(name, JSON.stringify(json, null, 1), 'application/json').then((p) => p && done(), fail);
+        } else {
+            void download(name, JSON.stringify(json, null, 1), 'application/json');
+            done();
+        }
     }
 
     // ---- shortcuts --------------------------------------------------------------------------------------------------
@@ -678,6 +714,8 @@ export function initLevelUi(host: LevelUiHost): LevelUi {
     const v0 = (): LevelView => getView();
     initShortcuts(
         {
+            palette: () => palette.open(),
+            commands: () => palette.open('>'),
             select: () => actions.tool('select'),
             move: () => actions.tool('translate'),
             rotate: () => actions.tool('rotate'),
@@ -728,6 +766,36 @@ export function initLevelUi(host: LevelUiHost): LevelUi {
         },
         () => !root.hidden && !(view?.isFlying ?? false),
     );
+    registerOotfImport({
+        call: (method, ...args) => host.call(method, ...args),
+        levels: () => (disc?.levels ?? []).filter((l) => l.present),
+        toast,
+        profile: () => disc?.profile?.profile ?? null,
+    });
+    registerShellCommands({
+        actions,
+        ctx,
+        view: getView,
+        levels: () => disc?.levels ?? [],
+        openIso: requestOpenIso,
+        openPanel: (tab) => {
+            layout?.openBottom();
+            dock.show(tab);
+        },
+        hasLevel: () => (view?.doc.size ?? 0) > 0,
+        selCount: () => view?.selection.size ?? 0,
+        canUndo: () => view?.stack.canUndo ?? false,
+        canRedo: () => view?.stack.canRedo ?? false,
+        canExport: () => src !== null && (view?.doc.size ?? 0) > 0,
+        catalog: () => catalog,
+        clearSelection: () => getView().select([]),
+        openPalette: (q) => palette.open(q),
+    });
+    createViewportHint($('lv-viewport'), {
+        shown: () => (view?.doc.size ?? 0) > 0 && (view?.selection.size ?? 0) === 0,
+        openPalette: () => palette.open(),
+    });
+
     // Browser clipboard events: copy / cut / paste of objects (text/plain JSON, works across tabs and levels).
     const editorActive = (e: Event): boolean => {
         const t = e.target as HTMLElement | null;
@@ -774,6 +842,7 @@ export function initLevelUi(host: LevelUiHost): LevelUi {
     function setDisc(d: DiscContext | null): void {
         if (d !== disc) refs.reset();
         disc = d;
+        startPage.refresh(d && d.levels.length ? d.levels : null, d?.isoName);
         syncToolbar();
         modPanel.onLoad?.();
     }
@@ -784,6 +853,7 @@ export function initLevelUi(host: LevelUiHost): LevelUi {
         toast(`Loading ${info?.name ?? dirPath}...`);
         const r = await host.call('loadLevel', dirPath);
         await openLoaded(r, info?.name ?? r.file);
+        if (info) rememberLevel({ name: info.name, dirPath });
         const resources = new Set<string>();
         for (const o of getView().doc.objects()) resources.add(o.resource);
         visuals = loader.loadLevel(dirPath, resources).catch(fail);
@@ -985,6 +1055,8 @@ export function initLevelUi(host: LevelUiHost): LevelUi {
         assets: () => assets,
         ctx: () => ctx,
         visualsReady: () => visuals,
+        levels: () => disc?.levels ?? [],
+        modTarget: () => target(),
         /** Class name and model render for a resource string (used by Save mode's inventory); null without a level. */
         classInfo(resource: string): { name: string; thumb: string | null } | null {
             const cls = catalog.find((c) => c.resource === resource);

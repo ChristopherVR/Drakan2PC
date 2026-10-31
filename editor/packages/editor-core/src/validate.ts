@@ -10,7 +10,12 @@ export type IssueCode =
     | 'unresolved-class'
     | 'bad-id'
     | 'dangling-ref'
-    | 'default-body';
+    | 'default-body'
+    | 'trigger-no-target'
+    | 'unreachable-cutscene'
+    | 'exit-no-destination'
+    | 'exit-no-arrival'
+    | 'message-ignored';
 
 export interface ValidationIssue {
     severity: IssueSeverity;

@@ -244,6 +244,8 @@ export function createOutliner(ctx: Ctx): Panel {
         row.classList.toggle('hidden', allHidden);
         row.addEventListener('click', (e) => {
             v.select(ids(), e.ctrlKey || e.metaKey);
+            // A plain click on a group name also opens it (the chevron alone is easy to miss).
+            if (!e.ctrlKey && !e.metaKey && !e.shiftKey && !expanded.has(key)) toggle();
         });
         row.addEventListener('dblclick', () => ctx.locate(ids()));
         onContextMenu(row, () => rowMenu(ids()));

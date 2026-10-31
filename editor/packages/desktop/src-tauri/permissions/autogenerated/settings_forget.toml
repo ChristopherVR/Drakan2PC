@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-settings-forget"
+description = "Enables the settings_forget command without any pre-configured scope."
+commands.allow = ["settings_forget"]
+
+[[permission]]
+identifier = "deny-settings-forget"
+description = "Denies the settings_forget command without any pre-configured scope."
+commands.deny = ["settings_forget"]

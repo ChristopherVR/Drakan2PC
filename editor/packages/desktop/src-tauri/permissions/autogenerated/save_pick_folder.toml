@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-save-pick-folder"
+description = "Enables the save_pick_folder command without any pre-configured scope."
+commands.allow = ["save_pick_folder"]
+
+[[permission]]
+identifier = "deny-save-pick-folder"
+description = "Denies the save_pick_folder command without any pre-configured scope."
+commands.deny = ["save_pick_folder"]

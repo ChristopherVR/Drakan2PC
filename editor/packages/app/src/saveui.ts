@@ -31,6 +31,7 @@ import type { StoryData } from './save/storyart.ts';
 import { listQuestsSafe, questCompare } from './save/journal.ts';
 import { renderItems, renderRepair, renderStory, renderTransfer, type PanelCtx } from './save/panels.ts';
 import {
+    canWriteRef,
     download,
     hasFsa,
     pickSaveFile,
@@ -38,8 +39,10 @@ import {
     refFromFile,
     refsFromFileList,
     saveWithBackup,
+    statRef,
     type SaveRef,
 } from './saveio.ts';
+import { isDesktop } from './platform.ts';
 
 const $ = <T extends HTMLElement>(id: string): T => {
     const el = document.getElementById(id);
@@ -340,12 +343,15 @@ export function initSaveUi(host: SaveUiHost): { openFile(f: File): Promise<void>
         if (!cur) return;
         try {
             const { bytes } = cur.doc.build();
-            download(cur.ref.name, bytes);
-            status(
-                `Exported ${cur.ref.name} (${bytes.length} bytes). Copy it over your save, keeping a backup.`,
-                false,
-                true,
-            );
+            const name = cur.ref.name;
+            void download(name, bytes).then((where) => {
+                if (isDesktop && !where) return; // save dialog cancelled
+                status(
+                    `Exported ${where ?? name} (${bytes.length} bytes). Copy it over your save, keeping a backup.`,
+                    false,
+                    true,
+                );
+            }, err);
         } catch (e) {
             err(e);
         }
@@ -377,9 +383,9 @@ export function initSaveUi(host: SaveUiHost): { openFile(f: File): Promise<void>
             const { bytes } = cur.doc.build();
             const backup = await saveWithBackup(cur.ref, bytes);
             const ref = cur.ref;
-            const file = await ref.handle!.getFile();
+            const file = await statRef(ref);
             cur = null; // reopen from what is now on disk
-            await openRef({ ...ref, size: file.size, modified: file.lastModified, read: async () => bytes });
+            await openRef({ ...ref, size: file.size, modified: file.modified, read: async () => bytes });
             status(`Saved ${ref.name}; the previous file is kept as ${backup}.`, false, true);
         } catch (e) {
             if (e instanceof DOMException && e.name === 'AbortError') status('Save cancelled; nothing was written.');
@@ -468,7 +474,7 @@ export function initSaveUi(host: SaveUiHost): { openFile(f: File): Promise<void>
         btn('sv-redo').disabled = !v?.stack.canRedo;
         btn('sv-undo').title = v?.stack.undoLabel ? `Undo: ${v.stack.undoLabel}` : 'Undo';
         btn('sv-redo').title = v?.stack.redoLabel ? `Redo: ${v.stack.redoLabel}` : 'Redo';
-        const canWrite = !!cur?.ref.handle;
+        const canWrite = canWriteRef(cur?.ref);
         btn('sv-export').disabled = !cur;
         btn('sv-reload').disabled = !cur;
         btn('sv-revert').disabled = !pending.length;

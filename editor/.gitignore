@@ -1,3 +1,6 @@
 node_modules/
 dist/
 *.tsbuildinfo
+packages/desktop/src-tauri/target/
+packages/desktop/src-tauri/gen/
+packages/desktop/src-tauri/icons/

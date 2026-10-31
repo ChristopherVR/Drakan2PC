@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-save-stat"
+description = "Enables the save_stat command without any pre-configured scope."
+commands.allow = ["save_stat"]
+
+[[permission]]
+identifier = "deny-save-stat"
+description = "Denies the save_stat command without any pre-configured scope."
+commands.deny = ["save_stat"]

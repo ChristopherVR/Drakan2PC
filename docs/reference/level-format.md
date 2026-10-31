@@ -492,9 +492,22 @@ that sits in the string pool after the generator's "Activate Message" property:
 The ordinals are checked against the links on the disc **[disc]**: value 4 (Play Sequence) from detectors and timers lands on cut
 scene players, 23 (Load) also on cut scene players, 28 and 18 on conversation handlers, 7 on creatures, 3 and 2 on doors, 8 is
 the creature default and the counters' decrement default. Values such as 14, 15 and 22 are class defaults for "never used"
-slots (elevator Activate/Deactivate, timer Reset), i.e. a message nobody sends. The engine message ids (`0x1001` touch, `0x116e`
-quest) are a different, larger numbering used inside the handlers; the enum ordinal is what the level data stores. How an
-ordinal turns into an engine id was not traced.
+slots (elevator Activate/Deactivate, timer Reset), i.e. a message nobody sends. The engine message ids are read as `u16` at `*(msg+4)` by every class handler **[dec]** (PAL ELF, 2026-10-31 pass). Findings:
+
+* Ordinals 0 to 7 (Off .. Move to WayPoint) map to engine ids `0x1000 + n` **[dec + inf]**: handlers compare against exactly `0x1001`,
+  `0x1002`, `0x1003`, `0x1004`, `0x1005`, `0x1006`, `0x1007` in 40 to 70 places each (level transition `0x361440` takes `0x1001` =
+  On = "player touches"; journal / quest marker `0x40e3b8` takes `0x1001` and `0x1002` and `0x1007`), and the in-game cut scene
+  proof (Trigger Message 4 starts a cut scene player) fits `0x1004`. The link to the ordinal is not a table: there is no table of
+  ids in the ELF (searched for `u16` / `u32` runs in `0x1000..0x1300`), and no `addiu 0x1000`-style conversion either, so the
+  conversion is not located; the equality for 0 to 7 is **inferred** from the handler sets.
+* Ordinals 8 and up are **not** `0x1000 + n`: the code never compares against `0x1008` to `0x101f` (zero hits). The ids used by the
+  quest family live in a separate block `0x1161 .. 0x1183` (registered in the list at `0x2cd790`: `0x1161 0x1164 0x1166 .. 0x116c
+  0x116e 0x1170 .. 0x1175 0x1181 .. 0x1183`; messages `0x116d / 0x116e / 0x116f` are handled by the quest class record handler
+  `0x393258` and the journal / marker handler `0x40e3b8`, where `0x116e` sets the done flag). That `0x116e` is the id behind
+  ordinal 18 (Quest Complete) is **inferred** from where it is handled, not proven; the engine ids of the other ordinals above 7 were
+  not mapped. Cut scene sequence message actions (SSD type 7) carry engine ids directly (4097 = `0x1001` On, 4259 = `0x10a3`).
+* Door On/Off: no door handler was isolated, so "On opens / Off closes" stays inference from the link data (3/2 land on doors).
+* Detector volume: not decompiled; the box (model collision with the LVL scale) remains the editor's model.
 
 Other enum names found in the same tables **[elf]**: Trigger Detector Task (Transfer Link, Enable/Disable Saving, Message
 Screen, No-Fly Zone, Play Sequence, Wait For Data, Trigger Only (default), Cave Entrance, Message, Teleport Dragon, Steal
@@ -554,6 +567,15 @@ from 1 to 2"); an LVL object can override the string. Field 1 "Transition To 'po
 ODBs), trigger volume sends message, level exit. New objects copy the body of an existing instance of the class (so a detector
 keeps flag 0x100 and can be sized) and override only the fields the template sets; a class with no instance in the level gets a
 generic default body (flagged by Validation, unverified).
+
+Pressure plates: only LEVEL8OS (Stratos) has the class (`Necro Pressure Plate`, rfl 0x1d, two placed plates). Its fields are `Sink
+Distance (wu)` (100), `Sink / Rise Speed`, `When Triggered` (Rise, Enable, Both), `Send Message When` (Reached Top, Reached
+Bottom, Both, Never; **default 0 = top**, the placed plates use 1), `Message To Send At Top / Bottom`, `Triggered by Rynn Only?`.
+The template therefore sets `Send Message When` = 1, `Sink Distance (wu)` = 50 and lets the counter send Play Sequence to a cut
+scene, On to a timer, Unlock otherwise. In game (Stratos, `build/scratch/content2/make_pack_plate.mjs`): the template-made plate and
+counter instantiate (world dump shows the 0x1001d actor and 0x10007 counter at the chosen positions), render, and the plate sinks
+under Rynn; that the counter then starts the cut scene was **not** proven (the level's opening flash plays in the baseline too, so the
+screenshots do not discriminate).
 
 ### 15.6 Checks
 

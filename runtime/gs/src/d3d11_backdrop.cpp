@@ -3,6 +3,7 @@
 #include "d3d11_backend_impl.h"
 
 #include <cstdio>
+#include <cstdlib>
 
 namespace gsr {
 
@@ -61,12 +62,24 @@ const std::vector<D3D11Backend::Impl::WideBackdrop>& D3D11Backend::Impl::wideBac
 // so `guiScreen` may still name the previous screen (the logo); the screen the host saw when it switched the native
 // menu canvas on is tried next, so the title gets its own image from its first frame instead of one "default" frame.
 bool D3D11Backend::Impl::drawWideBackdrop(RT& rt, int guiScreen) {
-    if (!(hudScale > 0 && hudScale < 1))
+    if (!(hudScale > 0 && hudScale < 1)) {
+        if (static const bool log = std::getenv("GSR_BACKDROP_LOG") != nullptr; log) {
+            static int lastGui = -2;
+            if (guiScreen != lastGui) {
+                lastGui = guiScreen;
+                std::fprintf(stderr, "[backdrop] frame %llu: none (hudScale %.2f) gui=%d menu=%d\n",
+                             (unsigned long long)frame, (double)hudScale, guiScreen, nativeMenuScreen);
+            }
+        }
         return false;
+    }
     const float target = (4.0f / 3) / hudScale;
     auto screenName = [](int id) { return id >= 0 ? "screen" + std::to_string(id) : std::string(); };
-    const std::string names[3] = {
-        screenName(guiScreen), nativeMenuScreen != guiScreen ? screenName(nativeMenuScreen) : std::string(), "default"};
+    // Loading (screen 14) after the title: the art on screen is the title's, so its wide image comes first.
+    const std::string names[4] = {guiScreen == 14 && titleBackdropRecent() ? std::string("screen8") : std::string(),
+                                  screenName(guiScreen),
+                                  nativeMenuScreen != guiScreen ? screenName(nativeMenuScreen) : std::string(),
+                                  "default"};
     for (const std::string& name : names) {
         if (name.empty())
             continue;
@@ -111,6 +124,16 @@ bool D3D11Backend::Impl::drawWideBackdrop(RT& rt, int guiScreen) {
         ctx->OMSetRenderTargets(0, nullptr, nullptr);
         ID3D11ShaderResourceView* none = nullptr;
         ctx->PSSetShaderResources(0, 1, &none);
+        if (static const bool log = std::getenv("GSR_BACKDROP_LOG") != nullptr; log) {
+            static std::string last;
+            const std::string now = name + " gui=" + std::to_string(guiScreen) + " menu=" + std::to_string(nativeMenuScreen);
+            if (now != last) {
+                last = now;
+                std::fprintf(stderr, "[backdrop] frame %llu: %s\n", (unsigned long long)frame, now.c_str());
+            }
+        }
+        if (name == "screen8" && guiScreen == 8)
+            titleBackdropAt = std::chrono::steady_clock::now();
         if (name != "default") {
             wideReplaceFrame = frame;
             wideReplaceRT = &rt;

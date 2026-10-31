@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-iso-pick"
+description = "Enables the iso_pick command without any pre-configured scope."
+commands.allow = ["iso_pick"]
+
+[[permission]]
+identifier = "deny-iso-pick"
+description = "Denies the iso_pick command without any pre-configured scope."
+commands.deny = ["iso_pick"]

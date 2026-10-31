@@ -12,6 +12,8 @@ export interface ViewOptions {
     wireframe: boolean;
     /** Which helper classes are drawn. */
     helpers: Record<HelperGroup, boolean>;
+    /** Draw helper classes as billboard icons (off: their placeholder models). */
+    editorIcons: boolean;
     lighting: LightingPreset;
     fog: boolean;
     /** Camera far plane in scene units (1 unit = 1000 game units). */
@@ -24,7 +26,8 @@ export const DEFAULT_VIEW_OPTIONS: ViewOptions = {
     markers: 'fallback',
     terrain: true,
     wireframe: false,
-    helpers: { trigger: true, sound: true, camera: true, light: true },
+    helpers: { trigger: true, sound: true, camera: true, light: true, waypoint: true, timer: true, spawn: true, barrier: true },
+    editorIcons: true,
     lighting: 'day',
     fog: false,
     drawDistance: 3000,
@@ -47,7 +50,7 @@ export const LIGHTING: Record<LightingPreset, LightingSpec> = {
     flat: { label: 'Flat (unlit look)', sky: 0xffffff, ground: 0xffffff, hemi: 3.0, sun: 0, sunDir: [0, 1, 0] },
 };
 
-const BOOLS = ['models', 'terrain', 'wireframe', 'fog', 'keepAboveGround'] as const;
+const BOOLS = ['models', 'terrain', 'wireframe', 'fog', 'keepAboveGround', 'editorIcons'] as const;
 
 /** Merge a stored (possibly partial or stale) value over the defaults; unknown keys and bad types are dropped. */
 export function parseViewOptions(raw: unknown): ViewOptions {

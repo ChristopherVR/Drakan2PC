@@ -356,8 +356,19 @@ export function createToolbar(
                 radio('Selected objects', 'selection'),
                 radio('All links', 'all'),
                 radio('Off', 'off'),
-                h('div', { class: 'mh' }, 'Show kinds'),
+                h('div', { class: 'mh' }, 'Editor icons'),
+                check('Draw helpers as icons', s.viewOptions.editorIcons, (v) => a.setViewOptions({ editorIcons: v })),
             );
+            for (const g of HELPER_GROUPS) {
+                const o = s.viewOptions;
+                const n = s.helperCounts[g.id];
+                const row = check(g.label, o.helpers[g.id], (v) =>
+                    a.setViewOptions({ helpers: { ...o.helpers, [g.id]: v } }),
+                );
+                row.append(h('span', { class: 'dim' }, n ? ` (${n})` : ''));
+                box.append(row);
+            }
+            box.append(h('div', { class: 'mh' }, 'Show kinds'));
             for (const k of KINDS) {
                 const row = check(k.label, !s.hiddenKinds.has(k.kind), (v) => a.toggleKind(k.kind, v));
                 row.prepend(h('i', { class: 'dot', style: `background:#${k.color.toString(16).padStart(6, '0')}` }));
@@ -445,18 +456,7 @@ export function createToolbar(
                 markerRadio('Only where a model is missing', 'fallback'),
                 markerRadio('On every object', 'all'),
                 markerRadio('Off', 'off'),
-                h('div', { class: 'mh' }, 'Helper classes (editor-only boxes in the data)'),
             );
-            for (const g of HELPER_GROUPS) {
-                box.append(
-                    check(
-                        g.label,
-                        o.helpers[g.id],
-                        (v) => a.setViewOptions({ helpers: { ...o.helpers, [g.id]: v } }),
-                        s.helperCounts[g.id] ? `(${s.helperCounts[g.id]})` : '',
-                    ),
-                );
-            }
             box.append(
                 h('div', { class: 'mh' }, 'Lighting and distance'),
                 h('div', { class: 'disp-row' }, h('span', {}, 'Lighting'), light),

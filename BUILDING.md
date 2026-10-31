@@ -296,6 +296,14 @@ suite in `ps2recomp/ps2xTest` is built with `DRAKAN_BUILD_PS2X_TESTS` (preset `p
   and settings overlays are platform-specific; live validation and remaining limits are recorded in
   `docs/reference/portability.md`.
 
+## Editor desktop app (Tauri)
+
+The level/save editor (`editor/`) also builds as a desktop app: `cd editor && npm ci && npm run desktop:dev`
+(window with hot reload) or `npm run desktop:build` (release exe and NSIS installer under
+`editor/packages/desktop/src-tauri/target/release/bundle/`, ignored by git). Needs a Rust toolchain (`rustup`, user
+install) plus the MSVC build tools; WebView2 ships with Windows 11. The browser editor is unaffected. Details:
+`editor/README.md`, "Desktop app (Tauri)".
+
 ## Linux and browser ISO builds
 
 The Linux bootstrap accepts the same verified PAL ISO as Windows. It installs missing public

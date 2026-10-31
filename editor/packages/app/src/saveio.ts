@@ -1,4 +1,5 @@
 import { nextBackupName, slotNumber } from '@drakan/formats';
+import * as platform from './platform.ts';
 
 /** Minimal File System Access API shapes (lib.dom lacks the pickers and has no async iteration for handles). */
 export interface FsWritable {
@@ -27,6 +28,7 @@ const fsa = (): FsaWindow => window as unknown as FsaWindow;
 
 /** True when the browser can pick files with write access. `?nofsa` in the URL forces the plain `<input>` fallback. */
 export function hasFsa(): boolean {
+    if (platform.isDesktop) return true; // the desktop shell reads and writes saves by path
     if (/[?&]nofsa\b/.test(location.search)) return false;
     return typeof fsa().showOpenFilePicker === 'function' && typeof fsa().showDirectoryPicker === 'function';
 }
@@ -45,6 +47,29 @@ export interface SaveRef {
     handle?: FsFileHandle;
     /** The containing folder, when known; the `.bak` is written next to the file there. */
     dir?: FsDirHandle;
+    /** Desktop app: absolute path; reads and writes go through the shell, which keeps the `.bak`. */
+    path?: string;
+}
+
+/** Whether Save (in place) works for this ref. */
+export const canWriteRef = (ref: SaveRef | undefined | null): boolean => !!ref && (!!ref.handle || !!ref.path);
+
+function refFromNative(f: platform.SaveFileInfo): SaveRef {
+    return {
+        name: f.name,
+        folder: f.folder,
+        size: f.size,
+        modified: f.modified,
+        path: f.path,
+        read: () => platform.readSave(f.path),
+    };
+}
+
+/** Current size and modification time of what is on disk behind a ref. */
+export async function statRef(ref: SaveRef): Promise<{ size: number; modified: number }> {
+    if (ref.path) return platform.statSave(ref.path);
+    const file = await ref.handle!.getFile();
+    return { size: file.size, modified: file.lastModified };
 }
 
 const isRsg = (name: string): boolean => /\.rsg$/i.test(name);
@@ -61,6 +86,10 @@ export function refFromFile(file: File, extra: Partial<SaveRef> = {}): SaveRef {
 }
 
 export async function pickSaveFile(): Promise<SaveRef | null> {
+    if (platform.isDesktop) {
+        const f = await platform.pickSaveFile();
+        return f ? refFromNative(f) : null;
+    }
     const pick = fsa().showOpenFilePicker;
     if (!pick) return null;
     try {
@@ -102,6 +131,10 @@ function sortRefs(refs: SaveRef[]): SaveRef[] {
 
 /** Find memcard slot folders (`BESCES-50006SlotNN`) under a picked folder: the card root, `mc0`, or one slot. */
 export async function pickSaveFolder(): Promise<{ root: string; refs: SaveRef[] } | null> {
+    if (platform.isDesktop) {
+        const r = await platform.pickSaveFolder();
+        return r ? { root: r.root, refs: sortRefs(r.files.map(refFromNative)) } : null;
+    }
     const pick = fsa().showDirectoryPicker;
     if (!pick) return null;
     try {
@@ -128,12 +161,8 @@ export function refsFromFileList(files: FileList | File[]): { root: string; refs
     return { root, refs: sortRefs(refs) };
 }
 
-export function download(name: string, data: Uint8Array, type = 'application/octet-stream'): void {
-    const a = document.createElement('a');
-    a.href = URL.createObjectURL(new Blob([data as BlobPart], { type }));
-    a.download = name;
-    a.click();
-    setTimeout(() => URL.revokeObjectURL(a.href), 10_000);
+export function download(name: string, data: Uint8Array, type = 'application/octet-stream'): Promise<string | null> {
+    return platform.downloadFile(name, data as BlobPart, type);
 }
 
 async function writeAll(handle: FsFileHandle, data: Uint8Array): Promise<void> {
@@ -148,6 +177,7 @@ async function writeAll(handle: FsFileHandle, data: Uint8Array): Promise<void> {
  * put it (the dialog opens beside the file). Returns the backup name. Nothing is written if the backup fails.
  */
 export async function saveWithBackup(ref: SaveRef, bytes: Uint8Array): Promise<string> {
+    if (ref.path) return (await platform.writeSave(ref.path, bytes)).backup;
     const handle = ref.handle;
     if (!handle) throw new Error('This save was opened read-only; use EXPORT.');
     const current = new Uint8Array(await (await handle.getFile()).arrayBuffer());

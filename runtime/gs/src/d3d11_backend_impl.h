@@ -414,6 +414,13 @@ struct D3D11Backend::Impl {
     // frame/target where it was drawn. `default_*` images only fill margins.
     uint64_t wideReplaceFrame = ~0ull;
     const RT* wideReplaceRT = nullptr;
+    // The loading screen redraws the grabbed title page as backdrop tiles, which the menu map stretches from 4:3 to the
+    // output. From the last title frame until another screen starts, the wide title image (screen8) replaces those tiles.
+    std::chrono::steady_clock::time_point titleBackdropAt{};
+    bool titleBackdropRecent() const {
+        return titleBackdropAt.time_since_epoch().count() != 0 &&
+               std::chrono::steady_clock::now() - titleBackdropAt < std::chrono::minutes(2);
+    }
     // HD movie frames drawn over the native movie (d3d11_movie.cpp, docs/reference/fmv.md section 9).
     ComPtr<ID3D11Texture2D> movieTex;
     ComPtr<ID3D11ShaderResourceView> movieSrv;

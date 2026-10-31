@@ -17,8 +17,10 @@ import {
     type SnapSettings,
     type Transform,
 } from '@drakan/editor-core';
+import { IconLayer, VolumeBoxes, type VolumeBox } from './scene/icons.ts';
 import { ModelLayer } from './scene/layer.ts';
-import { partitionObjects } from './scene/instances.ts';
+import { helperGroupOf, partitionObjects } from './scene/instances.ts';
+import { docInstanceMatrix } from './scene/models.ts';
 import { clientToNdc, nearestScreenPoint, pointsInRect, type ScreenPoint } from './scene/pickmath.ts';
 import { DEFAULT_VIEW_OPTIONS, LIGHTING, type ViewOptions } from './scene/viewopts.ts';
 
@@ -35,6 +37,8 @@ export const KINDS: { kind: EntityKind; color: number; label: string }[] = [
 ];
 const DRAG_PX = 4;
 const PICK_PX = 10;
+/** Half the editor icon size on screen plus a little slack. */
+const ICON_PICK_PX = 15;
 
 const tmpM = new THREE.Matrix4();
 const tmpQ = new THREE.Quaternion();
@@ -92,6 +96,11 @@ export class LevelView {
     /** Objects that are drawn right now (marker or model), and the subset drawn as markers. */
     private drawn: LevelObject[] = [];
     private markerObjs: LevelObject[] = [];
+    /** Helper-class objects drawn as editor icons (billboards), and their ids. */
+    private iconObjs: LevelObject[] = [];
+    private iconIds = new Set<number>();
+    readonly icons = new IconLayer();
+    private readonly iconVolumes = new VolumeBoxes();
     private ghostKey: string | null = null;
     private ghostChild: THREE.Object3D | null = null;
     private ghostMesh: THREE.InstancedMesh | null = null;
@@ -166,7 +175,7 @@ export class LevelView {
         this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
         host.appendChild(this.renderer.domElement);
         this.scene.background = new THREE.Color(0x14161a);
-        this.scene.add(this.hemi, this.sun, this.models.root);
+        this.scene.add(this.hemi, this.sun, this.models.root, this.icons.group, this.iconVolumes.group);
         this.setViewOptions(this.viewOptions);
 
         // Marker: a pyramid whose tip points along local +x (yaw 0 faces +x, positive yaw turns toward -z, matching
@@ -511,6 +520,14 @@ export class LevelView {
         const ndc = this.ndc(e);
         this.raycaster.setFromCamera(ndc, this.camera);
         let best: { d: number; id: number } | null = null;
+        // Editor icons are drawn on top of everything, so they win over the surface behind them.
+        const ic = nearestScreenPoint(
+            this.screenPoints(this.iconObjs, includeLocked),
+            e.clientX,
+            e.clientY,
+            ICON_PICK_PX,
+        );
+        if (ic !== null) return ic;
         const m = this.models.pick(this.raycaster.ray, (id) => !includeLocked && this.lockedIds.has(id));
         if (m) best = { d: m.distance, id: m.id };
         for (const { mesh, ids } of this.meshes.values()) {
@@ -745,7 +762,11 @@ export class LevelView {
             const o = id === null ? undefined : this.doc.get(id);
             this.hoverMesh.visible = false;
             this.models.setHover([]);
-            if (o && this.isModelDrawn(o)) this.models.setHover([o]);
+            this.icons.setHover(o && this.iconIds.has(o.id) ? o.id : null);
+            this.updateIconVolumes();
+            if (o && this.iconIds.has(o.id)) {
+                /* the icon itself lights up */
+            } else if (o && this.isModelDrawn(o)) this.models.setHover([o]);
             else if (o) {
                 this.objMatrix(o, 0.55, tmpM);
                 tmpM.decompose(this.hoverMesh.position, this.hoverMesh.quaternion, this.hoverMesh.scale);
@@ -1189,7 +1210,19 @@ export class LevelView {
             visible,
             (r) => opt.models && this.models.has(r),
             (g) => opt.helpers[g],
+            opt.editorIcons && this.editorMode,
         );
+        this.iconObjs = part.icons.map((i) => i.o);
+        this.iconIds = new Set(this.iconObjs.map((o) => o.id));
+        this.icons.set(
+            part.icons.map(({ o, group }) => ({
+                id: o.id,
+                pos: [o.transform.pos[0]! * S, o.transform.pos[1]! * S, o.transform.pos[2]! * S] as const,
+                group,
+            })),
+        );
+        this.icons.setHover(null);
+        this.icons.setFade(30, Math.min(opt.drawDistance * 0.4, 1500));
         this.models.sync(part.byResource);
         this.modelIds.clear();
         const modelObjs: LevelObject[] = [];
@@ -1203,7 +1236,7 @@ export class LevelView {
         const markerList =
             opt.markers === 'off' ? [] : opt.markers === 'all' ? [...part.markers, ...modelObjs] : part.markers;
         this.markerObjs = markerList;
-        this.drawn = [...part.markers, ...modelObjs];
+        this.drawn = [...part.markers, ...modelObjs, ...this.iconObjs];
         const groups = new Map<EntityKind, LevelObject[]>();
         for (const o of markerList) {
             let g = groups.get(o.kind);
@@ -1261,8 +1294,12 @@ export class LevelView {
         }
         const all = [...this.selection].map((id) => this.doc.get(id)).filter((o): o is LevelObject => !!o);
         this.models.setSelection(all.filter((o) => this.isModelDrawn(o)));
+        this.icons.setSelection(this.selection);
+        this.updateIconVolumes();
         // Markers (and, when the markers option is on, models too) get the white wireframe.
-        const objs = all.filter((o) => !this.isModelDrawn(o) || this.viewOptions.markers === 'all');
+        const objs = all.filter(
+            (o) => !this.iconIds.has(o.id) && (!this.isModelDrawn(o) || this.viewOptions.markers === 'all'),
+        );
         if (!objs.length) return;
         const m = new THREE.InstancedMesh(
             this.geo,
@@ -1278,6 +1315,31 @@ export class LevelView {
         m.instanceMatrix.needsUpdate = true;
         this.scene.add(m);
         this.selMesh = m;
+    }
+
+    /** Wire volume of the selected (or hovered) trigger and barrier icons: the box their placeholder model would fill. */
+    private updateIconVolumes(): void {
+        const list: VolumeBox[] = [];
+        const ids = new Set(this.selection);
+        const strong = new Set(this.selection);
+        if (this.hoverId !== null) ids.add(this.hoverId);
+        for (const id of ids) {
+            if (!this.iconIds.has(id)) continue;
+            const o = this.doc.get(id);
+            if (!o) continue;
+            const g = helperGroupOf(o.class);
+            if (g !== 'trigger' && g !== 'barrier') continue;
+            const e = this.models.entry(o.resource);
+            if (!e) continue;
+            list.push({
+                matrix: docInstanceMatrix(o, new THREE.Matrix4()),
+                min: e.model.bounds.min,
+                max: e.model.bounds.max,
+                group: g,
+                strong: strong.has(id),
+            });
+        }
+        this.iconVolumes.set(list);
     }
 
     /** Link lines: orange out of the selection (what it triggers), cyan into it. Dashed look comes from the arrow tick. */

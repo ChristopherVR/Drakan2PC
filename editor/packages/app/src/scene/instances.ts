@@ -4,13 +4,20 @@
 import { resourceParts } from '@drakan/editor-core';
 
 /** Editor-only helper classes: real models in the data (boxes, speakers, cameras) that a player never sees. */
-export type HelperGroup = 'trigger' | 'sound' | 'camera' | 'light';
+export type HelperGroup = 'trigger' | 'sound' | 'camera' | 'light' | 'waypoint' | 'timer' | 'spawn' | 'barrier';
+
+/** Atlas order of the editor icons (scene/icons.ts). */
+export const ICON_ORDER: readonly HelperGroup[] = ['trigger', 'sound', 'camera', 'light', 'waypoint', 'timer', 'spawn', 'barrier'];
 
 export const HELPER_GROUPS: { id: HelperGroup; label: string }[] = [
     { id: 'trigger', label: 'Triggers' },
     { id: 'sound', label: 'Sound' },
     { id: 'camera', label: 'Cameras' },
     { id: 'light', label: 'Lights' },
+    { id: 'waypoint', label: 'Waypoints' },
+    { id: 'timer', label: 'Timers' },
+    { id: 'spawn', label: 'Spawn points' },
+    { id: 'barrier', label: 'Barriers' },
 ];
 
 // Name rules checked on the disc classes of Surdana: "Trigger Detector", "Looping Sound", "Static (Vertex) Light" and
@@ -18,7 +25,11 @@ export const HELPER_GROUPS: { id: HelperGroup; label: string }[] = [
 // "Triggered Sound" is a sound.
 const HELPER_RULES: [RegExp, HelperGroup][] = [
     [/sound|music|ambient|looping|triggered loop/i, 'sound'],
+    [/timer/i, 'timer'],
     [/trigger|detector/i, 'trigger'],
+    [/way ?point|\bwp\b/i, 'waypoint'],
+    [/spawn/i, 'spawn'],
+    [/barrier/i, 'barrier'],
     [/^camera/i, 'camera'],
     [/^(static|dynamic) \(vertex\) light|light ?rays?/i, 'light'],
 ];
@@ -42,20 +53,27 @@ export interface Partition<T> {
     markers: T[];
     /** Objects not drawn at all: helper classes switched off. */
     hidden: T[];
+    /** Helper-class objects drawn as editor icons (billboards) instead of their model or a marker. */
+    icons: { o: T; group: HelperGroup }[];
 }
 
 export function partitionObjects<T extends Placed>(
     objects: Iterable<T>,
     hasModel: (resource: string) => boolean,
     helperVisible: (g: HelperGroup) => boolean,
+    asIcons = false,
 ): Partition<T> {
-    const out: Partition<T> = { byResource: new Map(), markers: [], hidden: [] };
+    const out: Partition<T> = { byResource: new Map(), markers: [], hidden: [], icons: [] };
     const groupCache = new Map<string, HelperGroup | null>();
     for (const o of objects) {
         let g = groupCache.get(o.class);
         if (g === undefined) groupCache.set(o.class, (g = helperGroupOf(o.class)));
         if (g && !helperVisible(g)) {
             out.hidden.push(o);
+            continue;
+        }
+        if (g && asIcons) {
+            out.icons.push({ o, group: g });
             continue;
         }
         if (hasModel(o.resource)) {

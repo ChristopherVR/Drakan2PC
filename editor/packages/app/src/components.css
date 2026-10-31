@@ -350,6 +350,14 @@ input[type='radio']:focus-visible {
     padding: 0 var(--sp-2);
     background: var(--surface-0);
     flex: none;
+    min-width: 0;
+    overflow-x: auto;
+    overflow-y: hidden;
+    scrollbar-width: none;
+}
+.ui-tabs::-webkit-scrollbar,
+.dock-tabs::-webkit-scrollbar {
+    display: none;
 }
 .ui-tab,
 .dock-tab {
@@ -366,6 +374,22 @@ input[type='radio']:focus-visible {
     border-radius: var(--r-md) var(--r-md) 0 0;
     font: inherit;
     cursor: pointer;
+    flex: 0 0 auto;
+    min-width: 34px;
+    justify-content: center;
+    white-space: nowrap;
+}
+.dock-tab-label {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 22ch;
+}
+.dock-tabs.compact .dock-tab:not(.active) {
+    padding: 0 var(--sp-4);
+}
+.dock-tabs.compact .dock-tab:not(.active) .dock-tab-label {
+    display: none;
 }
 .ui-tab:hover,
 .dock-tab:hover {
@@ -726,4 +750,17 @@ input[type='radio']:focus-visible {
 }
 .ui-tooltip .ui-kbd {
     margin-left: var(--sp-3);
+}
+
+/* Tab strips of the other panels (Story, Multiplayer Map): never wrap or squash a label, scroll sideways instead. */
+.story-tabs,
+.mp-tabs {
+    min-width: 0;
+    overflow-x: auto;
+    scrollbar-width: none;
+}
+.story-tab,
+.mp-tab {
+    flex: 0 0 auto;
+    white-space: nowrap;
 }

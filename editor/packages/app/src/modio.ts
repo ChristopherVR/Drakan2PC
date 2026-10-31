@@ -12,6 +12,8 @@ import {
 } from '@drakan/editor-core';
 import { writeObjectList } from '@drakan/formats';
 import type { LevelLoadResult } from './rpc.ts';
+import { launchEnv, type PlayOptions } from './launch.ts';
+import * as platform from './platform.ts';
 
 /** Minimal File System Access shapes for writing a pack into a chosen folder. */
 interface Writable {
@@ -30,7 +32,8 @@ interface DirHandle {
 const picker = (): ((o?: unknown) => Promise<DirHandle>) | undefined =>
     (window as unknown as { showDirectoryPicker?: (o?: unknown) => Promise<DirHandle> }).showDirectoryPicker;
 
-export const canWriteFolder = (): boolean => typeof picker() === 'function' && !/[?&]nofsa\b/.test(location.search);
+export const canWriteFolder = (): boolean =>
+    platform.isDesktop || (typeof picker() === 'function' && !/[?&]nofsa\b/.test(location.search));
 
 /** Number of changed objects in a diff (every category counted once per object per category). */
 export const changeCount = (d: DocumentDiff): number =>
@@ -86,7 +89,8 @@ async function writeFile(dir: DirHandle, name: string, data: Uint8Array | string
  * Write the pack as a folder `<mods>/<id>/` and enable it in `<mods>/mods.ini`. The user picks the play folder or its
  * `mods` folder; `mods` is created when missing. Returns a short description of where it went.
  */
-export async function writePackToModsFolder(pack: LevelPack): Promise<string | null> {
+export async function writePackToModsFolder(pack: Pick<LevelPack, 'meta' | 'files'>): Promise<string | null> {
+    if (platform.isDesktop) return writePackDesktop(pack);
     const pick = picker();
     if (!pick) throw new ModError('This browser cannot write into a folder; use the zip export.');
     let root: DirHandle;
@@ -112,4 +116,42 @@ export async function writePackToModsFolder(pack: LevelPack): Promise<string | n
     }
     await writeFile(mods, 'mods.ini', updateModsIni(ini, pack.meta.id, true));
     return `${root.name}/mods/${pack.meta.id}`;
+}
+
+// ---- desktop app: the shell writes into the remembered game folder -------------------------------------------------------
+
+/** The remembered play folder, asking for it the first time. Null when the user cancels. */
+async function ensureGameFolder(): Promise<string | null> {
+    const s = await platform.getSettings();
+    if (s.gameDir) return s.gameDir;
+    return (await platform.pickFolder('game'))?.path ?? null;
+}
+
+/** Write the pack into `<game>/mods/<id>/` and enable it in `mods.ini` (the same edit as the browser path). */
+async function writePackDesktop(pack: Pick<LevelPack, 'meta' | 'files'>): Promise<string | null> {
+    if (!(await ensureGameFolder())) return null;
+    const ini = updateModsIni(await platform.readModsIni(), pack.meta.id, true);
+    return platform.writeModPack(pack.meta.id, pack.files, ini);
+}
+
+/**
+ * Desktop "Play": write the pack (when there are edits) into the mods folder, enabled, then start the game from the
+ * play folder with the options' environment. Returns a one-line summary, or null when cancelled.
+ */
+export async function playInGame(
+    pack: LevelPack | null,
+    opts: PlayOptions,
+    level: string | null,
+): Promise<string | null> {
+    if (!platform.isDesktop) throw new ModError('Play needs the desktop app.');
+    const env = launchEnv(opts, level); // validate before touching the disk
+    if (!(await ensureGameFolder())) return null;
+    if (await platform.gameRunning()) throw new ModError('The game is already running. Close it first.');
+    const where = pack ? await writePackDesktop(pack) : null;
+    await platform.launchGame(env);
+    const parts = [where ? `mod '${pack!.meta.id}' written and enabled` : 'no edits, started without a mod'];
+    if (env.DRAKAN_START_LEVEL) parts.push(`New Game starts ${env.DRAKAN_START_LEVEL}`);
+    if (env.DRAKAN_NET_HOST) parts.push(`hosting on UDP ${env.DRAKAN_NET_HOST}`);
+    if (env.DRAKAN_NET_CONNECT) parts.push(`joining ${env.DRAKAN_NET_CONNECT}`);
+    return `Game started: ${parts.join('; ')}.`;
 }

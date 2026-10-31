@@ -12,6 +12,8 @@
     },
     "scripts": {
         "dev": "npm run dev -w @drakan/editor-app",
+        "desktop:dev": "npm run dev -w @drakan/desktop",
+        "desktop:build": "npm run build -w @drakan/desktop",
         "build": "npm run typecheck && npm run build -w @drakan/editor-app",
         "typecheck": "npm run typecheck --workspaces",
         "test": "vitest run",

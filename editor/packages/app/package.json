@@ -10,8 +10,9 @@
         "typecheck": "tsc -p tsconfig.json"
     },
     "dependencies": {
-        "@drakan/formats": "*",
         "@drakan/editor-core": "*",
+        "@drakan/formats": "*",
+        "@tauri-apps/api": "2.12.4",
         "three": "0.186.1"
     },
     "devDependencies": {

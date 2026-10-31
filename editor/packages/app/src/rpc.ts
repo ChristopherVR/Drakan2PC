@@ -4,6 +4,7 @@ import type { DiscProfile, Lvl, OdbIndex } from '@drakan/formats';
 import type { ModelData, TerrainData } from './scene/decode.ts';
 import type { ItemCatalog } from './itemdata.ts';
 import type { StoryCatalog } from './storydata.ts';
+import type { QuestUsageLevel, StoryEditData } from './story/storyedit.ts';
 import type { RefEntry, RefKind, RefSound, RefTexture } from './refdata.ts';
 
 export interface LevelInfo {
@@ -88,14 +89,27 @@ export interface LevelLoadResult {
     missingOdbs: string[];
 }
 
+/** A disc the worker reads by range-fetching a URL instead of a `File` (desktop app: the shell's asset protocol). */
+export interface RemoteBlob {
+    name: string;
+    size: number;
+    url: string;
+    /** Where it lives on disk, for display only. */
+    path?: string;
+}
+
 export interface Api {
-    open(file: File): OpenResult;
+    open(source: File | RemoteBlob): OpenResult;
     setLanguage(language: string): LevelInfo[];
     listDir(path: string): FileInfo[];
     openFile(path: string): FileOpenResult;
     readEntry(path: string, index: number, offset: number, length: number, inflate: boolean): EntryBytes;
     exportRoundTrip(path: string, max: number): RoundTripResult;
     loadLevel(dirPath: string): LevelLoadResult;
+    /** The raw `.LVL` container of the level in `dirPath` (template for converted Order of the Flame levels). */
+    readLevelFile(dirPath: string): Uint8Array;
+    /** Where the exits of every level on the disc lead (loads every level's object list; seconds). */
+    exitIndex(): import('./logicdata.ts').ExitIndexData;
     decodeTextures(path: string, indices: number[] | null): TextureResult[];
     /** Terrain layers and their textures for the level in `dirPath` (scene/decode.ts). */
     loadTerrain(dirPath: string): TerrainData;
@@ -106,10 +120,16 @@ export interface Api {
     /** Models and textures of Resources classes by class id. */
     loadItemModels(classIds: number[]): ModelData[];
     loadStoryCatalog(): StoryCatalog;
-    /** The raw `.LVL` container of the level in `dirPath` (template for converted Order of the Flame levels). */
-    readLevelFile(dirPath: string): Uint8Array;
-    /** Where the exits of every level on the disc lead (loads every level's object list; seconds). */
-    exitIndex(): import('./logicdata.ts').ExitIndexData;
+    /** Every XDB string table and the System.ODB quest classes, for the Strings and Quests editors. */
+    loadStoryEdit(): StoryEditData;
+    /** Where each quest class is placed and triggered, per level (loads every level's object list; seconds). */
+    scanQuestUsage(): QuestUsageLevel[];
+    /** A file of the language tree for the dialogue / cinematics editors (path like `LEVELS\LEVEL1ON\LEVEL1ON.SSD`); null when absent. */
+    readStoryFile(path: string): Uint8Array | null;
+    /** Level folders that have an `.SSD` or `.SDB` of their own. */
+    listStoryStems(): string[];
+    /** Placed objects whose string parameters hold string ids (loads every level's object list; seconds). */
+    scanStringUsage(): import('./story/storyedit.ts').StringUsageLevel[];
     /** Which container stems have a file for a reference kind (model .MOD, sound .SDB, texture .TXD, animation .ADB, sequence .SSD). */
     refContainers(kind: RefKind, stems: string[]): boolean[];
     /** Names and facts of every entry of a container; null when the disc has no such container. */

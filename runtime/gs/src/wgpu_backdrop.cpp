@@ -47,8 +47,11 @@ bool WgpuBackend::Impl::drawWideBackdrop(RT& rt, int guiScreen) {
         return false;
     const float target = (4.0f / 3) / hudScale;
     auto screenName = [](int id) { return id >= 0 ? "screen" + std::to_string(id) : std::string(); };
-    const std::string names[3] = {
-        screenName(guiScreen), nativeMenuScreen != guiScreen ? screenName(nativeMenuScreen) : std::string(), "default"};
+    // Loading (screen 14) after the title: the art on screen is the title's, so its wide image comes first.
+    const std::string names[4] = {guiScreen == 14 && titleBackdropRecent() ? std::string("screen8") : std::string(),
+                                  screenName(guiScreen),
+                                  nativeMenuScreen != guiScreen ? screenName(nativeMenuScreen) : std::string(),
+                                  "default"};
     for (const std::string& name : names) {
         if (name.empty())
             continue;
@@ -65,6 +68,8 @@ bool WgpuBackend::Impl::drawWideBackdrop(RT& rt, int guiScreen) {
         const float rect[4] = {place.left * W, 0, (place.left + place.width) * W, H};
         const float alpha[4] = {0, 0, 0, 128.0f / 255.0f};
         drawRect(*rt.tex, rect, set[pick].tex.get(), alpha, {0, 0, (uint32_t)W, (uint32_t)H});
+        if (name == "screen8" && guiScreen == 8)
+            titleBackdropAt = std::chrono::steady_clock::now();
         if (name != "default") {
             wideReplaceFrame = frame;
             wideReplaceRT = &rt;

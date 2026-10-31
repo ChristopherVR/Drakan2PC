@@ -55,3 +55,48 @@ viewport to place it; right mouse + WASD flies; alt+left orbits. Edits autosave 
 (panels), `level.ts` (viewport), `levelui.ts` (wiring), `packages/editor-core/src/{snap,arrange,clipboard,catalog,schema,validate}.ts`
 (pure logic, tested). Notes and limits: `docs/journal/2026-10-31/editor-ux-overhaul.md`. Opening a disc level now loads terrain and textured models (`sceneload.ts`, `scene/layer.ts`); the Display menu holds
 terrain/model/helper-class toggles, lighting, fog and draw distance. Notes: `docs/journal/2026-10-31/editor-render-integration.md`.
+
+## Multiplayer Map mode
+
+The Multiplayer Map tab of the bottom dock turns a campaign level into a PvP arena: map details, spawn points, pickups, flag /
+base / zone markers, bounds, a preview of what the arena removes from the campaign, custom game modes and export as a mod
+pack (`maps/<id>.ini`, `previews/<name>.png`). Format and what the game runs today: `docs/reference/netcode.md`
+("Authoring in the level editor", "Custom game modes"). Code: `packages/app/src/editor/arena/` (store, viewport overlay,
+panel, preview capture) and `packages/editor-core/src/{arena,gamemodes,arenapack}.ts` (tested).
+
+## Desktop app (Tauri)
+
+`packages/desktop` wraps the same Vite app in a Tauri v2 window; the browser build is unchanged and stays the default
+(`npm run dev` / `npm run build`). The desktop shell adds what a browser cannot do safely:
+
+- **Open ISO** uses a native dialog and remembers the disc (File > Open Recent; the last disc reopens at start-up). The
+  worker reads the image with range requests through Tauri's asset protocol, scoped to that one file, so a multi-GB ISO
+  is never loaded whole.
+- **Saves**: Open Save / Open Memory Card Folder list the `.rsg` files; Save writes in place and keeps `NAME.bak`
+  (`.bak.1`, ...) beside it. Export (mod zip, `.level.json`, edited `.rsg`) opens a native "save as" dialog.
+- **Mods and Play**: Write to mods folder and Play use the remembered game folder (the play folder with `drakan.exe`,
+  e.g. `dist/DrakanPC`; chosen on first use or via File > Game (Play) Folder). Play (toolbar, F5 or the Mod panel) writes
+  the pack into `mods/<id>/`, enables it in `mods.ini`, then starts `drakan.exe` with `DRAKAN_START_LEVEL` set to the open
+  level (New Game loads it), optional auto-skip of title/intro, and optional multiplayer test variables
+  (`DRAKAN_NET_HOST` / `_MODE` / `_CONNECT`, `DRAKAN_GHOST`; see `docs/reference/netcode.md`). Only a fixed list of
+  `DRAKAN_*` variables can be passed (`src-tauri/src/paths.rs`).
+- Native File / Edit / View / Help menus and window size/position persistence.
+
+The webview gets no blanket fs, shell or http access: `src-tauri/build.rs` lists the 15 app commands and
+`capabilities/default.json` grants each by name. Saves are only readable or writable after the user picked them in the
+session; mod packs are written only under the game's `mods/` with validated ids and relative paths.
+Platform code is `packages/app/src/platform.ts` (the one place that tells browser from desktop), `desktop.ts` (menu and
+start-up glue), `launch.ts` (Play environment, tested) and `editor/playopts.ts` (Play controls).
+
+```sh
+cd editor
+npm ci
+npm run desktop:dev     # Vite dev server + desktop window (hot reload)
+npm run desktop:build   # release build and NSIS installer under packages/desktop/src-tauri/target/release/bundle
+cd packages/desktop && npx tauri build --debug --no-bundle   # quick debug exe
+cd packages/desktop/src-tauri && cargo test                  # Rust unit tests
+```
+
+Needs Rust (rustup user install, MSVC build tools from Visual Studio) and WebView2 (part of Windows 11). Settings live in
+`%APPDATA%/dev.drakan.editor/settings.json`. Icons are generated from `app-icon.svg` at build time (`scripts/prepare.mjs`;
+no binaries are tracked). Dropped files in the desktop window arrive as browser `File`s (no remembered path).

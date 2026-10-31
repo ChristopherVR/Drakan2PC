@@ -1,0 +1,87 @@
+/* Dialogue and cinematics editors; builds on the .story layout of story.css and the design tokens only. */
+.dlg-sound,
+.cin-act,
+.cin-tools,
+.cin-head,
+.cin-add {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--sp-2);
+}
+.dlg-num {
+    width: 76px;
+    background: var(--field);
+    color: var(--fg);
+    border: 1px solid var(--border-strong);
+    border-radius: var(--r-xs);
+    padding: 2px 4px;
+    font-size: var(--fs-sm);
+}
+.dlg-num.cin-time {
+    width: 68px;
+}
+.dlg-pages {
+    margin-bottom: var(--sp-2);
+}
+.cin-head > input {
+    flex: 1;
+    min-width: 160px;
+}
+.cin-scrub {
+    flex: 1;
+    min-width: 120px;
+}
+.cin-clock {
+    min-width: 96px;
+    font-family: var(--mono);
+}
+.cin-sub {
+    min-height: 2.6em;
+    padding: var(--sp-2);
+    background: var(--field);
+    border-radius: var(--r-xs);
+    color: var(--fg);
+    font-size: var(--fs-md);
+    text-align: center;
+}
+.cin-viz {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--sp-3);
+    align-items: flex-start;
+}
+.cin-tl,
+.cin-path {
+    background: var(--field);
+    border: 1px solid var(--border);
+    border-radius: var(--r-xs);
+    max-width: 100%;
+}
+.cin-tl {
+    flex: 1;
+    min-width: 280px;
+    cursor: pointer;
+}
+.cin-actor {
+    border: 1px solid var(--border);
+    border-radius: var(--r-xs);
+    padding: var(--sp-1) var(--sp-2);
+}
+.cin-actor > summary {
+    display: flex;
+    gap: var(--sp-2);
+    align-items: baseline;
+    cursor: pointer;
+}
+.cin-kind {
+    min-width: 70px;
+    padding: 0 var(--sp-2);
+    border-left: 3px solid var(--border-strong);
+    font-size: var(--fs-xs);
+    color: var(--fg-muted);
+}
+.cin-act {
+    padding: 2px 0;
+    font-size: var(--fs-sm);
+}

@@ -18,7 +18,7 @@ import {
     type LevelObject,
     type SchemaField,
 } from '@drakan/editor-core';
-import { decodeElement, encodeElement, refParts } from '@drakan/formats';
+import { decodeElement, encodeElement, enumNames, refParts } from '@drakan/formats';
 import type { Ctx } from './ctx.ts';
 import { fill, h, icon } from './dom.ts';
 import { attachScrub } from './scrub.ts';
@@ -486,7 +486,13 @@ function buildRow(ctx: Ctx, row: Row, objCount: number): Built {
             numberInput(curNum, (n) => commit(n), { integer: !isFloat, scrubBy: nameEl }),
         );
     } else if (w === 'enum') {
+        const names = enumNames(first.schema ? provider?.rflOf(first.schema.resource) : null, row.name, row.type);
         const opts = (): number[] => {
+            if (names) {
+                const all = new Set<number>(names.map((_, i) => i));
+                for (const x of vals()) all.add(Number(x.value));
+                return [...all].sort((a, b) => a - b);
+            }
             const set = new Set<number>(provider?.enumValues(row.name, row.type) ?? []);
             for (const x of vals()) set.add(Number(x.value));
             if (typeof first.field.default === 'number') set.add(first.field.default);
@@ -501,7 +507,13 @@ function buildRow(ctx: Ctx, row: Row, objCount: number): Built {
             const def = typeof first.field.default === 'number' ? first.field.default : null;
             sel.replaceChildren(
                 ...(v === null ? [h('option', { value: 'mixed', disabled: true }, 'mixed')] : []),
-                ...list.map((x) => h('option', { value: String(x) }, `${x}${x === def ? ' (default)' : ''}`)),
+                ...list.map((x) =>
+                    h(
+                        'option',
+                        { value: String(x) },
+                        `${names?.[x] ? `${x}  ${names[x]}` : x}${x === def ? ' (default)' : ''}`,
+                    ),
+                ),
                 h('option', { value: 'other' }, 'Other value...'),
             );
             sel.value = v === null ? 'mixed' : String(v);

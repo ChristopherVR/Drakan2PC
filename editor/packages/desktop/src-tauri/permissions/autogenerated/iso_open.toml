@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-iso-open"
+description = "Enables the iso_open command without any pre-configured scope."
+commands.allow = ["iso_open"]
+
+[[permission]]
+identifier = "deny-iso-open"
+description = "Denies the iso_open command without any pre-configured scope."
+commands.deny = ["iso_open"]

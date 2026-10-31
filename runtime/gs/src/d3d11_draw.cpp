@@ -536,6 +536,17 @@ void D3D11Backend::Impl::draw(const GsDrawState& s, const ClutBuf& clut, const D
         if (wideReplaceFrame == frame && wideReplaceRT == rt)
             return; // a wide image drew the whole picture
     }
+    // Any other screen (the intro movie, the world) ends the title: a later loading screen shows no title art.
+    if (sceneCamera.guiScreen >= 0 && sceneCamera.guiScreen != 8 && sceneCamera.guiScreen != 14)
+        titleBackdropAt = {};
+    // Loading after the title: the engine redraws the grabbed title page as large tiles (stretched 4:3 art); draw the
+    // wide title image instead and skip them. The bar and text are smaller draws and stay.
+    if (!engineWorldOpen && nativeMenu && sceneCamera.guiScreen == 14 && haveTex && titleBackdropRecent() &&
+        (writeMask & 7) && rt->w >= 480 && maxx - minx >= 120.0f && maxy - miny >= 120.0f) {
+        clearInventoryCanvas(*rt, true);
+        if (wideReplaceFrame == frame && wideReplaceRT == rt)
+            return;
+    }
     const bool date = (s.test >> 14) & 1;
     const bool pabe = s.flags & DF_PABE;
     bool useHw = !partial && !date;

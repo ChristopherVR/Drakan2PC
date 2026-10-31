@@ -74,6 +74,11 @@ my_mod/
 * Order of work in `installFiles`: whole files, then entry patches on the resulting files (so a pack can ship a file and a
   later pack patch it), then `LEVELLST.TXT`.
 
+* **`maps/*.ini`** (directly in `maps/`): multiplayer map and game mode definitions, see netcode.md "Multiplayer maps".
+  **`previews/<safe map name>.png`** (<= 8 MiB): the map's picture for the multiplayer menu; the name is the map's display
+  name with every character outside letters, digits, `-` and `_` turned into `_`. At startup the game copies it to
+  `previews/mods/` next to the exe (`ModManager::previewFiles()`); `previews/<name>.png` there wins over a pack's.
+
 ## Manifest (`mod.toml` or `mod.json`)
 
 ```toml
@@ -172,6 +177,28 @@ resource type, so the runtime does not raise the limit. Policy, enforced when th
 * Empty replacement files and files larger than 64 MiB are rejected at load; other files of the pack still load.
 * The 64 slot limit of `FileService` concerns simultaneously open game files, not entries or files on the disc; whole-file
   replacements are not affected (see the whole-files section above for their own checks).
+
+### Content files: ODB, XDB, SDB, SSD entries (story editing)
+
+Every content container is read by the guest through the 0x1202 resource requests, so `overrides/<FILE>/<type>_<id>_<sub>.bin`
+replaces **any single entry** of an `.ODB .XDB .SDB .SSD .ADB .MOD .TXD` file, not only whole files and `.LVL` entries. The
+replacement may be smaller or larger than the original (below the 0x40800 limit, see below); a request with an offset is
+served from the replacement. `new/<FILE>/...` adds entries to those files too (the container is rebuilt for the running
+language). Both paths are covered by `mod_test` ("content files"). Keys the editor uses:
+
+| What | File | Entry | Ship as |
+| --- | --- | --- | --- |
+| a string (all five language slots) | `SYSTEM.XDB`, `RESOURES.XDB`, `LEVEL1ON.XDB`, ... | `0400/<string id>/<sub>` (eight `u16 length + text` slots, see level-format.md) | `overrides/` to change, `new/` for a fresh id |
+| a quest class (journal text ids, map position, optional flag) | `SYSTEM.ODB` | `0102/<class id>/<group id>` | `overrides/` to change, `new/` for a new class |
+| the field lists a new class needs | `SYSTEM.ODB` | `0103/<id>/<sub>` (zlib; one list per class record, in record order) | `overrides/` of the whole entry with the new class's list appended |
+| a sound's name and subtitle text | `<LEVEL>.SDB`, `SYSTEM.SDB`, `NPCS.SDB` | `0302/<id>/<sub>` | `overrides/` (the `0304` ADPCM data is a separate entry) |
+| a sequence | `<LEVEL>.SSD` | `0311/<id>/<sub>` | `overrides/` or `new/` |
+
+Rules found while testing: a new class id has to lie **inside** the file's existing id range (use a free id below the largest
+one; the editor picks one), strings are looked up by id (new ids work when `new/` adds the `0400` entry), and the `0103`
+field-list entry must be replaced with the extra list appended when a class is added, otherwise the new class has no field
+definitions. `text.ini` still only patches strings that exist; adding a string always goes through `new/`.
+The editor's Strings and Quests panels write exactly these files (editor-core `story.ts`, `buildStoryPackFiles`).
 
 ### What a pack can add (custom weapons and models)
 

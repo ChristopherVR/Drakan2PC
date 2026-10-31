@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-mods-write-pack"
+description = "Enables the mods_write_pack command without any pre-configured scope."
+commands.allow = ["mods_write_pack"]
+
+[[permission]]
+identifier = "deny-mods-write-pack"
+description = "Denies the mods_write_pack command without any pre-configured scope."
+commands.deny = ["mods_write_pack"]

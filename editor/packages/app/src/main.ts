@@ -2,9 +2,13 @@ import type { DiscProfile } from '@drakan/formats';
 import type { Api, EntryInfo, FileInfo, FileOpenResult, LevelInfo, Method, Request, Response } from './rpc.ts';
 import { TextureViewport } from './viewport.ts';
 import { initLevelUi } from './levelui.ts';
+import { installMultiplayerMaps } from './editor/arena/install.ts';
 import { initSaveUi } from './saveui.ts';
 import { createItemArt } from './save/itemart.ts';
 import { createStoryArt } from './save/storyart.ts';
+import { initStoryEditors } from './story/register.ts';
+import { isDesktop, type IsoSource } from './platform.ts';
+import { initDesktop } from './desktop.ts';
 
 const $ = <T extends HTMLElement>(id: string): T => {
     const el = document.getElementById(id);
@@ -86,7 +90,7 @@ function reportError(e: unknown): void {
 
 // ---- opening a disc -------------------------------------------------------------------------------------------
 
-async function openIso(file: File): Promise<void> {
+async function openIso(file: IsoSource): Promise<void> {
     setStatus(`Opening ${file.name} (${fmtSize(file.size)})...`);
     try {
         const r = await call('open', file);
@@ -96,6 +100,7 @@ async function openIso(file: File): Promise<void> {
         isoName = file.name;
         discProfile = r.profile;
         levelUi.setDisc({ isoName, levels: r.levels, profile: discProfile });
+        storyEditors.setDisc(discProfile, r.language);
         itemArt.reset();
         storyArt.reset();
         filesEl.replaceChildren();
@@ -300,6 +305,18 @@ $('vp-reset').onclick = () => viewport?.reset();
 
 // ---- input: picker + drag/drop --------------------------------------------------------------------------------
 
+// Desktop app: the Open ISO button and every programmatic click on the input use the native dialog, which remembers the
+// disc and lets the worker range-read it by path.
+$<HTMLInputElement>('iso-input').addEventListener(
+    'click',
+    (e) => {
+        if (!isDesktop) return;
+        e.preventDefault();
+        e.stopPropagation();
+        desktop.openIsoDialog();
+    },
+    true,
+);
 $<HTMLInputElement>('iso-input').onchange = (e) => {
     const f = (e.target as HTMLInputElement).files?.[0];
     if (f) void openIso(f);
@@ -309,6 +326,7 @@ langSel.onchange = () => {
         .then((levels) => {
             renderLevels(levels);
             levelUi.setDisc({ isoName, levels, profile: discProfile });
+            storyEditors.setDisc(discProfile, langSel.value);
             itemArt.reset();
             storyArt.reset();
         })
@@ -351,6 +369,27 @@ const levelUi = initLevelUi({
     setStatus,
 });
 
+installMultiplayerMaps({
+    ui: levelUi,
+    download: (name, data, type) => {
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(new Blob([data], { type }));
+        a.download = name;
+        a.click();
+        setTimeout(() => URL.revokeObjectURL(a.href), 10_000);
+    },
+    setStatus,
+});
+
+// Strings / Quests / Story pack dock panels of the Level tab (content editing; see story/register.ts).
+const storyEditors = initStoryEditors({
+    call: (method, ...args) => call(method, ...args),
+    setStatus,
+    ctx: () => levelUi.ctx(),
+    play: (stem, id) => levelUi.ctx().refs().play(stem, id),
+    stop: () => levelUi.ctx().refs().stop(),
+});
+
 // Item names and pictures for the Save tab work without a level: they come from the shared Resources database.
 const itemArt = createItemArt((method, ...args) => call(method, ...args));
 const storyArt = createStoryArt((method, ...args) => call(method, ...args));
@@ -374,3 +413,9 @@ $('tab-inspect').onclick = () => showTab('inspect');
 $('tab-level').onclick = () => showTab('level');
 $('tab-save').onclick = () => showTab('save');
 (window as unknown as { drakanEditor: unknown }).drakanEditor = { levelUi, saveUi, showTab };
+
+const desktop = initDesktop({
+    openIso: (src) => openIso(src),
+    showTab,
+    setStatus,
+});

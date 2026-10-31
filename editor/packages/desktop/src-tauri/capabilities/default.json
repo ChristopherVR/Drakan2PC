@@ -1,0 +1,25 @@
+{
+    "$schema": "../gen/schemas/desktop-schema.json",
+    "identifier": "default",
+    "description": "The editor window: app commands by name, event listening. No fs, shell or http access.",
+    "windows": ["main"],
+    "permissions": [
+        "core:event:allow-listen",
+        "core:event:allow-unlisten",
+        "allow-settings-get",
+        "allow-settings-forget",
+        "allow-iso-pick",
+        "allow-iso-open",
+        "allow-folder-pick",
+        "allow-save-pick-file",
+        "allow-save-pick-folder",
+        "allow-save-read",
+        "allow-save-stat",
+        "allow-save-write",
+        "allow-file-save-as",
+        "allow-mods-read-ini",
+        "allow-mods-write-pack",
+        "allow-game-launch",
+        "allow-game-running"
+    ]
+}

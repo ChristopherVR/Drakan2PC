@@ -283,6 +283,16 @@ export class SchemaProvider {
         return out ?? undefined;
     }
 
+    /** RFL class id (low 16 bits of the runtime class) of a class resource, or null when unknown. */
+    rflOf(resource: string): number | null {
+        return this.classOf(resource)?.cls.rflClass ?? null;
+    }
+
+    /** The stored dword of a class default (strings keep their offset/length word), or undefined. */
+    rawDefault(resource: string, index: number): number | undefined {
+        return this.classOf(resource)?.cls.data?.[index];
+    }
+
     /** Resolve a `(db << 16) | id` value of a field owned by `owner`. */
     resolveRef(owner: ClassSchema, type: number, value: number): RefTarget {
         const { id, db } = refParts(value);

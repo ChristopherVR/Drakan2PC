@@ -230,3 +230,14 @@ Searched (web, PCSX2 patches repo search for `SCES-50006`, general searches for 
   (`hud::TutorialBandRows`) takes the band map too; checking only that each draw was centred split the death hint's
   second line ("key to" ... "go to the main" ... "menu.") into left, centre and right anchors.
 * Not done: sector / portal visibility hook (section 8; no pop-in seen), true wide internal buffer.
+
+## Loading screen after the title (2026-10-31)
+
+Pressing New Game (or Load Game) from the title switches to GUI screen 14, whose art is the title page re-drawn from a
+screen grab as large 128 px tiles. The menu map stretched those tiles over the output, so the wide title image was
+replaced for the length of the loading screen by the stretched 4:3 original. Now, from the last title frame until another
+screen starts, the screen 14 backdrop is the wide `screen8` image (`titleBackdropAt`, `drawWideBackdrop`) and the grab
+tiles (bounding box at least 120 x 120 native pixels) are skipped; the bar and text are smaller draws and stay. The loading
+screen after the intro movie (screen 29 in between) has no title art and is unchanged. Both renderers (D3D11, WebGPU).
+`GSR_BACKDROP_LOG=1` prints which backdrop image is chosen when it changes (D3D11). Checked in game on D3D11 with
+`DRAKAN_WS_LOG=2` and dense screen grabs; the WebGPU change mirrors it and is not checked live.

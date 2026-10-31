@@ -10,7 +10,9 @@ import {
     type ValidationIssue,
 } from '@drakan/editor-core';
 import { writeObjectList } from '@drakan/formats';
-import { buildLevelPack, canWriteFolder, changeCount, writePackToModsFolder, zipPack } from '../modio.ts';
+import { buildLevelPack, canWriteFolder, changeCount, playInGame, writePackToModsFolder, zipPack } from '../modio.ts';
+import { isDesktop } from '../platform.ts';
+import { createPlayControls } from './playopts.ts';
 import type { Ctx, Panel } from './ctx.ts';
 import { fill, h, icon, raf } from './dom.ts';
 
@@ -29,9 +31,12 @@ export interface Dock {
     /** Id of the visible tab. */
     active(): string;
     setBadge(id: string, text: string, kind?: 'warn' | 'bad' | ''): void;
+    /** Add a tab after creation (`registerPanel`). */
+    addTab(tab: DockTab): void;
 }
 
-export function createDock(tabs: DockTab[]): Dock {
+export function createDock(initial: DockTab[]): Dock {
+    const tabs = [...initial];
     const bar = h('div', { class: 'dock-tabs', role: 'tablist' });
     const content = h('div', { class: 'dock-content' });
     const buttons = new Map<string, HTMLButtonElement>();
@@ -46,22 +51,56 @@ export function createDock(tabs: DockTab[]): Dock {
             t.panel.el.hidden = !on;
         }
     };
-    for (const t of tabs) {
+    const mount = (t: DockTab): void => {
         const badge = h('span', { class: 'badge-n', hidden: true });
         const b = h(
             'button',
-            { class: 'dock-tab', type: 'button', role: 'tab', 'data-tab': t.id, onclick: () => show(t.id) },
+            {
+                class: 'dock-tab',
+                type: 'button',
+                role: 'tab',
+                'data-tab': t.id,
+                title: t.title,
+                'aria-label': t.title,
+                onclick: () => show(t.id),
+            },
             icon(t.icon, 14),
-            t.title,
+            h('span', { class: 'dock-tab-label' }, t.title),
             badge,
         );
         buttons.set(t.id, b);
         badges.set(t.id, badge);
         bar.append(b);
         content.append(t.panel.el);
-    }
+    };
+    for (const t of tabs) mount(t);
     show(tabs[0]!.id);
+    // Narrow dock: drop the labels of inactive tabs (icon-only, the tooltip names them); if even that does not fit the
+    // strip scrolls sideways (mouse wheel too) and the active tab is kept in view.
+    const fit = (): void => {
+        bar.classList.remove('compact');
+        if (bar.clientWidth > 0 && bar.scrollWidth > bar.clientWidth + 1) bar.classList.add('compact');
+        buttons.get(current)?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+    };
+    bar.addEventListener(
+        'wheel',
+        (e) => {
+            if (bar.scrollWidth > bar.clientWidth && Math.abs(e.deltaY) > Math.abs(e.deltaX)) {
+                bar.scrollLeft += e.deltaY;
+                e.preventDefault();
+            }
+        },
+        { passive: false },
+    );
+    if (typeof ResizeObserver !== 'undefined') new ResizeObserver(fit).observe(bar);
     return {
+        addTab(t) {
+            if (buttons.has(t.id)) return;
+            tabs.push(t);
+            mount(t);
+            t.panel.el.hidden = true;
+            fit();
+        },
         el: h('div', { class: 'dock' }, bar, content),
         show,
         active: () => current,
@@ -116,6 +155,25 @@ export interface ValidationPanel extends Panel {
     issues(): ValidationIssue[];
 }
 
+/** Extra checks shown in the Validation tab next to the document checks (the multiplayer map mode adds its own). */
+export interface ExtraIssue {
+    severity: 'error' | 'warning';
+    code: string;
+    message: string;
+    run?: () => void;
+}
+export interface ValidationProvider {
+    issues(): ExtraIssue[];
+    /** Called with a refresh function the provider invokes when its issues changed. */
+    onChange?(refresh: () => void): void;
+}
+const validationProviders: ValidationProvider[] = [];
+let refreshValidation: (() => void) | null = null;
+export function addValidationProvider(p: ValidationProvider): void {
+    validationProviders.push(p);
+    p.onChange?.(() => refreshValidation?.());
+}
+
 export function createValidation(ctx: Ctx, onCount: (errors: number, warnings: number) => void): ValidationPanel {
     const list = h('div', { class: 'val-list' });
     const summary = h('span', { class: 'dim' });
@@ -145,16 +203,18 @@ export function createValidation(ctx: Ctx, onCount: (errors: number, warnings: n
                   ]
                 : undefined,
         });
-        const errors = issues.filter((i) => i.severity === 'error').length;
-        const warnings = issues.length - errors;
+        const extra = validationProviders.flatMap((p) => p.issues());
+        const errors =
+            issues.filter((i) => i.severity === 'error').length + extra.filter((i) => i.severity === 'error').length;
+        const warnings = issues.length + extra.length - errors;
         onCount(errors, warnings);
         summary.textContent =
             doc.size === 0
                 ? 'No level open.'
-                : issues.length
+                : issues.length + extra.length
                   ? `${errors} error(s), ${warnings} warning(s)`
                   : 'No problems found.';
-        if (!issues.length) {
+        if (!issues.length && !extra.length) {
             fill(
                 list,
                 h(
@@ -170,6 +230,20 @@ export function createValidation(ctx: Ctx, onCount: (errors: number, warnings: n
         }
         fill(
             list,
+            ...extra.map((i) =>
+                h(
+                    'button',
+                    {
+                        class: `issue ${i.severity}`,
+                        type: 'button',
+                        title: 'Select and frame',
+                        onclick: () => i.run?.(),
+                    },
+                    icon('warn', 14),
+                    h('span', { class: 'msg' }, i.message),
+                    h('span', { class: 'dim code' }, i.code),
+                ),
+            ),
             ...issues.slice(0, 500).map((i) =>
                 h(
                     'button',
@@ -191,6 +265,7 @@ export function createValidation(ctx: Ctx, onCount: (errors: number, warnings: n
         window.clearTimeout(timer);
         timer = window.setTimeout(run, 400);
     };
+    refreshValidation = later;
     return { el: root, issues: () => issues, onChange: later, onLoad: run };
 }
 
@@ -198,6 +273,8 @@ export function createValidation(ctx: Ctx, onCount: (errors: number, warnings: n
 
 export interface ModPanel extends Panel {
     exportMod(toFolder: boolean): Promise<void>;
+    /** Desktop app: write the pack into the game's mods folder and start the game. */
+    play(): Promise<void>;
     /** Fill the id/name fields when a level opens. */
     suggest(id: string, name: string): void;
     values(): { id: string; name: string; version: string; author: string };
@@ -337,7 +414,28 @@ export function createModPanel(ctx: Ctx, host: ModHost): ModPanel {
         report.textContent = lines.join('\n');
     }
 
+    async function doPlay(): Promise<void> {
+        const src = ctx.src();
+        const d = src ? diffDocument(src.lvl.list, ctx.doc()) : null;
+        const edited = !!d && changeCount(d) > 0;
+        const pack = edited ? buildLevelPack(src!, ctx.doc(), meta()) : null;
+        host.setStatus('Starting the game...');
+        const msg = await playInGame(pack, desktopPlay.read(), src ? ctx.doc().level || null : null);
+        if (msg === null) return;
+        report.textContent = [...(pack?.warnings ?? []), msg].join('\n');
+        host.setStatus(msg);
+        ctx.toast('Game started', 'ok');
+    }
+    const desktopPlay = createPlayControls(
+        () => void doPlay().catch(fail),
+        () => true,
+    );
+
     function renderPlay(ready: boolean): void {
+        if (isDesktop) {
+            fill(play, desktopPlay.el);
+            return;
+        }
         const v = values();
         const id = v.id || '<mod id>';
         const cmd = `Copy-Item "${id}.zip" "dist\\DrakanPC\\mods\\"\n(Get-Content dist\\DrakanPC\\mods\\mods.ini) -replace '^${id.replace(/[.]/g, '\\.')}\\s*=.*','${id} = on' | Set-Content dist\\DrakanPC\\mods\\mods.ini`;
@@ -461,6 +559,7 @@ export function createModPanel(ctx: Ctx, host: ModHost): ModPanel {
     return {
         el: root,
         exportMod: doExport,
+        play: doPlay,
         suggest(id, name) {
             if (!idF.el.dataset.touched) idF.el.value = id;
             if (!nameF.el.dataset.touched) nameF.el.value = name;

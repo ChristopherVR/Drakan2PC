@@ -1,0 +1,51 @@
+{
+    "$schema": "https://schema.tauri.app/config/2",
+    "productName": "Drakan Editor",
+    "version": "0.1.0",
+    "identifier": "dev.drakan.editor",
+    "build": {
+        "beforeDevCommand": "node scripts/prepare.mjs && npm run dev -w @drakan/editor-app -- --port 5173 --strictPort",
+        "devUrl": "http://localhost:5173",
+        "beforeBuildCommand": "node scripts/prepare.mjs && npm run build -w @drakan/editor-app",
+        "frontendDist": "../../app/dist"
+    },
+    "app": {
+        "withGlobalTauri": false,
+        "windows": [
+            {
+                "label": "main",
+                "title": "Drakan Editor",
+                "width": 1440,
+                "height": 900,
+                "minWidth": 1000,
+                "minHeight": 640,
+                "center": true,
+                "dragDropEnabled": false
+            }
+        ],
+        "security": {
+            "csp": {
+                "default-src": "'self'",
+                "script-src": "'self' 'wasm-unsafe-eval'",
+                "style-src": "'self' 'unsafe-inline'",
+                "img-src": "'self' blob: data:",
+                "media-src": "'self' blob: data:",
+                "font-src": "'self' data:",
+                "worker-src": "'self' blob:",
+                "connect-src": "'self' ipc: http://ipc.localhost http://asset.localhost https://asset.localhost asset: blob: data:"
+            },
+            "devCsp": null,
+            "assetProtocol": {
+                "enable": true,
+                "scope": []
+            }
+        }
+    },
+    "bundle": {
+        "active": true,
+        "targets": ["nsis"],
+        "icon": ["icons/32x32.png", "icons/128x128.png", "icons/128x128@2x.png", "icons/icon.icns", "icons/icon.ico"],
+        "shortDescription": "Level and save editor for Drakan: The Ancients' Gates",
+        "windows": { "nsis": { "installMode": "currentUser" } }
+    }
+}

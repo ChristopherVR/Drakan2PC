@@ -11,6 +11,14 @@ export interface Shortcut {
 }
 
 export const SHORTCUTS: Shortcut[] = [
+    {
+        id: 'palette',
+        keys: 'Ctrl+P',
+        label: 'Search everything (commands, levels, classes, objects)',
+        group: 'Help',
+        inInput: true,
+    },
+    { id: 'commands', keys: 'Ctrl+Shift+P', label: 'Command palette (commands only)', group: 'Help', inInput: true },
     { id: 'select', keys: 'Q', label: 'Select tool', group: 'Tools' },
     { id: 'move', keys: 'W', label: 'Move tool', group: 'Tools' },
     { id: 'rotate', keys: 'E', label: 'Rotate tool', group: 'Tools' },
@@ -44,7 +52,7 @@ export const SHORTCUTS: Shortcut[] = [
     { id: 'box', keys: 'Drag on empty space', label: 'Box select (Shift/Ctrl adds)', group: 'Selection' },
     { id: 'save', keys: 'Ctrl+S', label: 'Save document', group: 'File' },
     { id: 'export', keys: 'Ctrl+E', label: 'Export mod', group: 'File' },
-    { id: 'help', keys: 'F1', label: 'Show this help (also ?)', group: 'Help' },
+    { id: 'help', keys: 'F1', label: 'Show this help (also ?)', group: 'Help', inInput: true },
     { id: 'theme', keys: 'Ctrl+Shift+L', label: 'Toggle dark / light theme', group: 'Help' },
 ];
 
