@@ -64,62 +64,49 @@
                 <div id="viewport"></div>
             </section>
         </main>
-        <main id="level-main" hidden>
-            <aside id="level-side">
-                <div class="toolbar">
-                    <label class="button">Open dump<input id="lv-dump" type="file" accept=".json" hidden /></label>
-                    <label class="button">Load doc<input id="lv-load" type="file" accept=".json" hidden /></label>
-                    <button id="lv-save" disabled>Save doc</button>
+        <main id="level-main" class="ed" hidden>
+            <div id="ed-toolbar" class="ed-toolbar" role="toolbar" aria-label="Editor toolbar"></div>
+            <div id="ed-body">
+                <aside id="ed-left" class="ed-dock" aria-label="Outliner"></aside>
+                <div
+                    id="ed-split-left"
+                    class="splitter v"
+                    role="separator"
+                    aria-orientation="vertical"
+                    tabindex="0"
+                    title="Drag to resize, double-click to collapse"
+                ></div>
+                <div id="ed-mid">
+                    <section id="lv-viewport" aria-label="3D viewport">
+                        <div id="lv-hud"></div>
+                        <div id="lv-empty">
+                            <strong>No level open</strong>
+                            Pick a level in the toolbar after opening your ISO, or drop a saved document or world dump
+                            (.json) here.<br />
+                            Press F1 for the keyboard shortcuts.
+                        </div>
+                    </section>
+                    <div
+                        id="ed-split-bottom"
+                        class="splitter h"
+                        role="separator"
+                        aria-orientation="horizontal"
+                        tabindex="0"
+                        title="Drag to resize, double-click to collapse"
+                    ></div>
+                    <section id="ed-bottom" class="ed-dock" aria-label="Asset browser and panels"></section>
                 </div>
-                <div class="toolbar">
-                    <button id="lv-undo" disabled>Undo</button>
-                    <button id="lv-redo" disabled>Redo</button>
-                    <button id="lv-dup" disabled>Duplicate</button>
-                    <button id="lv-del" disabled>Delete</button>
-                    <button id="lv-move" class="active">Move</button>
-                    <button id="lv-rot">Rotate</button>
-                    <button id="lv-frame">Frame</button>
-                </div>
-                <section class="filters" id="lv-open">
-                    <h2>Open level <small id="lv-open-info">open an ISO in the Inspector first</small></h2>
-                    <ul id="lv-levels" class="list"></ul>
-                    <label id="lv-ghost-row" hidden
-                        ><input id="lv-ghost" type="checkbox" checked /> Show world-dump entities not in the level
-                        list</label
-                    >
-                </section>
-                <section class="filters">
-                    <input id="lv-search" type="search" placeholder="Search id, class, resource, model, handle" />
-                    <input id="lv-class" type="search" placeholder="Class contains (hex, e.g. 100d3)" />
-                    <div id="lv-kinds"></div>
-                </section>
-                <section id="lv-props" class="props">Select an object.</section>
-                <section id="lv-mod" class="filters">
-                    <h2>Export mod <small id="lv-mod-info"></small></h2>
-                    <input id="lv-mod-id" type="text" placeholder="id (letters, digits . _ -)" />
-                    <input id="lv-mod-name" type="text" placeholder="name" />
-                    <div class="row2">
-                        <input id="lv-mod-version" type="text" value="1.0.0" placeholder="version" />
-                        <input id="lv-mod-author" type="text" placeholder="author" />
-                    </div>
-                    <div id="lv-mod-target"></div>
-                    <div class="toolbar">
-                        <button id="lv-export" disabled>Export zip</button>
-                        <button id="lv-export-dir" disabled title="Write into a mods folder and enable in mods.ini">
-                            Write to mods folder
-                        </button>
-                    </div>
-                    <pre id="lv-mod-report"></pre>
-                </section>
-            </aside>
-            <section id="lv-viewport">
-                <div id="lv-hud"></div>
-                <div id="lv-empty">
-                    Open or drop a world dump (.json) from your own game, or a saved level document.<br />
-                    Keys: 1 move, 2 rotate, F frame, Ctrl+D duplicate, Del delete, Ctrl+Z/Y undo/redo, WASD/QE fly,
-                    shift-click multi-select.
-                </div>
-            </section>
+                <div
+                    id="ed-split-right"
+                    class="splitter v"
+                    role="separator"
+                    aria-orientation="vertical"
+                    tabindex="0"
+                    title="Drag to resize, double-click to collapse"
+                ></div>
+                <aside id="ed-right" class="ed-dock" aria-label="Inspector"></aside>
+            </div>
+            <footer id="ed-status"></footer>
         </main>
         <main id="save-main" hidden>
             <aside id="save-side">

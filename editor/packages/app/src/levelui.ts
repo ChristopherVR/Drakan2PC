@@ -1,20 +1,46 @@
 import {
+    AddCommand,
+    CompositeCommand,
     LevelDocument,
-    ModError,
-    SetScaleCommand,
-    compareWithWorld,
+    alignPositions,
+    buildCatalog,
+    copyObjects,
     diffDocument,
+    distributePositions,
     documentFromLvl,
+    editObjects,
+    moveCommand,
+    newObjectFromClass,
+    parseClipboard,
     parseWorldDump,
+    pasteObjects,
+    snapToGround,
+    type AlignMode,
+    type AssetClass,
+    type Axis,
     type EntityKind,
     type LevelObject,
     type ModMeta,
     type WorldComparison,
+    compareWithWorld,
+    type LevelDocumentJson,
 } from '@drakan/editor-core';
 import type { DiscProfile } from '@drakan/formats';
-import { KINDS, LevelView } from './level.ts';
-import { buildLevelPack, canWriteFolder, writePackToModsFolder, zipPack } from './modio.ts';
+import { KINDS, LevelView, type ToolMode } from './level.ts';
+import { changeCount } from './modio.ts';
 import type { Api, LevelInfo, LevelLoadResult } from './rpc.ts';
+import { createAssets, type AssetsPanel } from './editor/assets.ts';
+import { autosaveKey, clearAutosave, loadAutosave, saveAutosave } from './editor/autosave.ts';
+import type { Ctx } from './editor/ctx.ts';
+import { fill, h, icon, store } from './editor/dom.ts';
+import { createInspector } from './editor/inspector.ts';
+import { initLayout, type Layout } from './editor/layout.ts';
+import { createOutliner } from './editor/outliner.ts';
+import { createDock, createHistory, createModPanel, createValidation } from './editor/panels.ts';
+import { helpOverlay, initShortcuts } from './editor/shortcuts.ts';
+import { VIEW_COLORS, applyTheme, currentTheme, onThemeChange, toggleTheme } from './editor/theme.ts';
+import { createToolbar, type ToolbarActions } from './editor/toolbar.ts';
+import './editor/editor.css';
 
 const $ = <T extends HTMLElement>(id: string): T => {
     const el = document.getElementById(id);
@@ -35,7 +61,6 @@ function download(name: string, data: BlobPart, type: string): void {
     setTimeout(() => URL.revokeObjectURL(a.href), 10_000);
 }
 
-/** Wires the Level tab: toolbar, filters, property panel, file loading. Returns the loader for drag-and-drop. */
 export interface DiscContext {
     isoName: string;
     levels: LevelInfo[];
@@ -47,162 +72,569 @@ export interface LevelUi {
     loadFile(f: File): Promise<void>;
     setDisc(d: DiscContext | null): void;
     openLevel(dirPath: string): Promise<void>;
+    /** Open an already loaded level (the worker result); also used by tests with synthetic data. */
+    openLoaded(r: LevelLoadResult, displayName: string): Promise<void>;
+    /** The Asset Browser panel (thumbnail provider hook for the model renderer). */
+    assets: () => AssetsPanel;
+    ctx: () => Ctx;
 }
 
+const AUTOSAVE_DELAY = 1500;
+
+/**
+ * The Level tab: a docked editor (toolbar, Outliner, viewport, Inspector, Asset Browser / History / Validation / Mod
+ * panels, status bar). This file wires the panels (`./editor/*`) to the view (`level.ts`) and the document
+ * (`@drakan/editor-core`).
+ */
 export function initLevelUi(host: LevelUiHost): LevelUi {
-    const props = $('lv-props');
-    const hud = $('lv-hud');
+    const root = $('level-main');
     const empty = $('lv-empty');
-    const btn = (id: string): HTMLButtonElement => $<HTMLButtonElement>(id);
     let view: LevelView | null = null;
     let levelName = 'level';
     let disc: DiscContext | null = null;
     /** The level the document was loaded from (LVL source); null for a world dump or a saved document. */
     let src: LevelLoadResult | null = null;
+    let catalog: AssetClass[] = [];
     let worldDoc: LevelDocument | null = null;
     let comparison: WorldComparison | null = null;
+    let ghosts = true;
+    let clipboard: ReturnType<typeof copyObjects> = null;
+    let savedTop: unknown = undefined;
+    let restoredDirty = false;
+    let autosaveTimer = 0;
+    let lastAutosave = 0;
+    const hiddenKinds = new Set<EntityKind>();
+    let gridSnapOn = true;
+
+    // ---- shell ----------------------------------------------------------------------------------------------------
+
+    applyTheme(currentTheme());
+    const tip = h('div', { class: 'tip', hidden: true });
+    const toasts = h('div', { class: 'toasts', 'aria-live': 'polite' });
+    document.body.append(tip, toasts);
+    const help = helpOverlay();
+    document.body.append(help.el);
+
+    const statusMsg = h('span', { class: 'sb-msg' }, 'Ready');
+    const sbSel = h('span', { class: 'sb-item', id: 'sb-sel' });
+    const sbCam = h('span', { class: 'sb-item mono', id: 'sb-cam' });
+    const sbSnap = h('span', { class: 'sb-item', id: 'sb-snap' });
+    const sbSave = h('span', { class: 'sb-item', id: 'sb-save' });
+    const sbFps = h('span', { class: 'sb-item mono dim', id: 'sb-fps' });
+    fill($('ed-status'), statusMsg, h('span', { class: 'spacer' }), sbSel, sbSnap, sbCam, sbSave, sbFps);
+
+    function toast(msg: string, kind: 'info' | 'error' | 'ok' = 'info'): void {
+        const t = h('div', { class: `toast ${kind}`, role: 'status' }, msg);
+        toasts.append(t);
+        window.setTimeout(() => t.classList.add('out'), kind === 'error' ? 6000 : 2800);
+        window.setTimeout(() => t.remove(), kind === 'error' ? 6400 : 3200);
+        statusMsg.textContent = msg;
+        statusMsg.classList.toggle('error', kind === 'error');
+    }
+    const fail = (e: unknown): void => {
+        const msg = e instanceof Error ? e.message : String(e);
+        host.setStatus(msg, true);
+        toast(msg, 'error');
+    };
+
+    // ---- context for the panels -------------------------------------------------------------------------------------
+
+    const ctx: Ctx = {
+        view: () => getView(),
+        doc: () => getView().doc,
+        catalog: () => catalog,
+        src: () => src,
+        toast,
+        locate(ids) {
+            const v = getView();
+            v.select(ids.filter((i) => v.doc.has(i)));
+            v.frameSelection();
+        },
+        placeClass(cls, pos) {
+            const v = getView();
+            if (!v.policy.structural) return;
+            const at = pos ?? snapPos(v.groundAtCentre() ?? v.cameraGamePos());
+            const o = newObjectFromClass(v.doc, cls, at, 0);
+            const cmd = new AddCommand([o], `Add ${cls.name}`);
+            v.run(cmd);
+            v.select(cmd.ids);
+            toast(`Added ${cls.name} #${cmd.ids[0]}`, 'ok');
+        },
+        edit(label, ids, fn) {
+            const v = getView();
+            const cmd = editObjects(
+                v.doc,
+                ids.filter((i) => !v.lockedIds.has(i)),
+                label,
+                fn,
+            );
+            if (cmd) v.run(cmd);
+        },
+    };
+
+    const snapPos = (p: [number, number, number]): [number, number, number] => {
+        const v = getView();
+        return v.snap.grid
+            ? [
+                  Math.round(p[0] / v.snap.gridSize) * v.snap.gridSize,
+                  p[1],
+                  Math.round(p[2] / v.snap.gridSize) * v.snap.gridSize,
+              ]
+            : p;
+    };
+
+    // ---- panels --------------------------------------------------------------------------------------------------
+
+    const outliner = createOutliner(ctx);
+    const inspector = createInspector(ctx);
+    const assets = createAssets(ctx);
+    const history = createHistory(ctx);
+    let dockRef: ReturnType<typeof createDock> | null = null;
+    const validation = createValidation(ctx, (e, w) =>
+        dockRef?.setBadge('validation', e + w ? String(e + w) : '', e ? 'bad' : w ? 'warn' : ''),
+    );
+    const modPanel = createModPanel(ctx, {
+        target: () => target(),
+        targetText: () => {
+            const p = disc?.profile;
+            return p
+                ? `Target: ${p.serial}, profile ${p.profile ?? 'unknown'}, hash ${p.hash ?? 'unknown'}`
+                : 'Target: open a disc image to derive the disc profile and hash.';
+        },
+        download,
+        setStatus: host.setStatus,
+    });
+    const dock = createDock([
+        { id: 'assets', title: 'Asset Browser', icon: 'box', panel: assets },
+        { id: 'history', title: 'History', icon: 'history', panel: history },
+        { id: 'validation', title: 'Validation', icon: 'warn', panel: validation },
+        { id: 'mod', title: 'Mod', icon: 'download', panel: modPanel },
+    ]);
+    dockRef = dock;
+    $('ed-left').append(outliner.el);
+    $('ed-right').append(inspector.el);
+    $('ed-bottom').append(dock.el);
+    const panels = [outliner, inspector, assets, history, validation, modPanel];
+
+    // ---- toolbar --------------------------------------------------------------------------------------------------
+
+    let layout: Layout | null = null;
+    const actions: ToolbarActions = {
+        tool: (m: ToolMode) => {
+            const v = getView();
+            if (m === 'scale' && v.selection.size && ![...v.selection].some((id) => v.doc.get(id)?.scale)) {
+                toast('None of the selected objects has a scale (flag 0x100); scale cannot be added.');
+            }
+            v.setMode(m);
+            syncToolbar();
+        },
+        toggleSpace: () => {
+            const v = getView();
+            v.setSpace(v.space === 'world' ? 'local' : 'world');
+            syncToolbar();
+        },
+        toggleGridSnap: () => {
+            const v = getView();
+            gridSnapOn = !v.snap.grid;
+            v.setSnap({ grid: gridSnapOn });
+            toast(`Grid snap ${gridSnapOn ? `on (${v.snap.gridSize})` : 'off'}`);
+            syncToolbar();
+        },
+        toggleAngleSnap: () => {
+            const v = getView();
+            v.setSnap({ angle: !v.snap.angle });
+            toast(`Angle snap ${v.snap.angle ? `on (${v.snap.angleStep}°)` : 'off'}`);
+            syncToolbar();
+        },
+        setGridSize: (n) => {
+            getView().setSnap({ gridSize: n });
+            syncToolbar();
+        },
+        setAngleStep: (n) => {
+            getView().setSnap({ angleStep: n });
+            syncToolbar();
+        },
+        undo: () => getView().undo(),
+        redo: () => getView().redo(),
+        duplicate: () => getView().duplicateSelected(),
+        remove: () => getView().deleteSelected(),
+        copy: () => copySelection(),
+        paste: () => void pasteFromClipboard(null),
+        frame: () => getView().frameSelection(),
+        frameAll: () => getView().frameAll(),
+        topView: () => getView().topView(),
+        toSnapGround: () => snapSelectionToGround(),
+        align: (axis, mode) => alignSelection(axis, mode),
+        distribute: (axis) => distributeSelection(axis),
+        selectAll: () => getView().selectVisible(),
+        invert: () => getView().invertSelection(),
+        sameClass: () => getView().selectSameClass(),
+        hide: () => {
+            const v = getView();
+            v.setHidden([...v.selection], true);
+        },
+        showAll: () => {
+            const v = getView();
+            v.setHidden([...v.hiddenIds], false);
+        },
+        lock: () => {
+            const v = getView();
+            const ids = [...v.selection];
+            v.setLocked(ids, !ids.every((i) => v.lockedIds.has(i)));
+        },
+        save: () => saveDocument(),
+        exportMod: () => {
+            layout?.openBottom();
+            dock.show('mod');
+            void modPanel.exportMod(false).catch(fail);
+        },
+        help: () => help.toggle(),
+        theme: () => {
+            toggleTheme();
+        },
+        openLevel: (p) => void openLevel(p).catch(fail),
+        openDumpFile: (f) => void loadFile(f).catch(fail),
+        toggleGridVisible: () => {
+            const v = getView();
+            v.gridVisible = !v.gridVisible;
+            syncToolbar();
+        },
+        setLinks: (m) => {
+            getView().setShowLinks(m);
+            syncToolbar();
+        },
+        toggleKind: (k, shown) => {
+            if (shown) hiddenKinds.delete(k as EntityKind);
+            else hiddenKinds.add(k as EntityKind);
+            getView().setFilters({ hidden: new Set(hiddenKinds) });
+            syncToolbar();
+        },
+        toggleGhosts: (on) => {
+            ghosts = on;
+            updateOverlay();
+            syncToolbar();
+        },
+        setFlySpeed: (s) => {
+            getView().flySpeed = s;
+        },
+        saveBookmark: () => {
+            const b = getView().saveBookmark();
+            toast(`Saved view "${b.name}" (Shift+${getView().bookmarks.length})`, 'ok');
+            scheduleAutosave();
+        },
+        gotoBookmark: (i) => getView().gotoBookmark(i),
+        removeBookmark: (i) => {
+            getView().bookmarks.splice(i, 1);
+            scheduleAutosave();
+        },
+        resetLayout: () => layout?.reset(),
+        togglePanel: (k) => layout?.toggle(k),
+    };
+    const toolbar = createToolbar($('ed-toolbar'), actions, () => toolbarState());
+
+    function toolbarState(): Parameters<typeof toolbar.sync>[0] {
+        const v = view;
+        return {
+            mode: v?.mode ?? 'translate',
+            space: v?.space ?? 'world',
+            gridSnap: v?.snap.grid ?? true,
+            angleSnap: v?.snap.angle ?? true,
+            gridSize: v?.snap.gridSize ?? 256,
+            angleStep: v?.snap.angleStep ?? 15,
+            links: v?.showLinks ?? 'selection',
+            gridVisible: v?.gridVisible ?? true,
+            flySpeed: v?.flySpeed ?? 1,
+            hiddenKinds,
+            bookmarks: v?.bookmarks ?? [],
+            ghosts: worldDoc && src ? ghosts : null,
+            hasLevels: !!disc?.levels.length,
+            levels: disc?.levels ?? [],
+            canUndo: v?.stack.canUndo ?? false,
+            canRedo: v?.stack.canRedo ?? false,
+            selCount: v?.selection.size ?? 0,
+            hasDoc: (v?.doc.size ?? 0) > 0,
+            hasSource: src !== null && (v?.doc.size ?? 0) > 0,
+            structural: v?.policy.structural ?? true,
+        };
+    }
+    const syncToolbar = (): void => toolbar.sync(toolbarState());
+
+    // ---- viewport -------------------------------------------------------------------------------------------------
 
     const getView = (): LevelView => {
         if (!view) {
-            view = new LevelView($('lv-viewport'), { onSelection: () => renderProps(), onChange: () => refresh() });
+            view = new LevelView($('lv-viewport'), {
+                onSelection: () => onSelection(),
+                onChange: () => onChange(),
+                onHover: (id, x, y) => onHover(id, x, y),
+                onVisibility: () => {
+                    for (const p of panels) p.onVisibility?.();
+                    syncToolbar();
+                    updateStatus();
+                },
+                onCamera: () => updateStatus(),
+                onDropAsset: (key, pos) => {
+                    const cls = catalog.find((c) => c.resource === key);
+                    if (cls) ctx.placeClass(cls, pos);
+                },
+            });
+            view.setEditorControls(true);
+            view.setSnap({});
             view.setDocument(new LevelDocument());
             view.setActive(true);
-            hudTimer = window.setInterval(updateHud, 500);
+            applyViewTheme();
+            window.setInterval(updateStatus, 500);
         }
         return view;
     };
-    let hudTimer = 0;
-    void hudTimer;
 
-    function updateHud(): void {
-        if (!view) return;
-        hud.textContent = `${view.visibleCount}/${view.doc.size} shown, ${view.selection.size} selected, ${view.fps} fps`;
+    function applyViewTheme(): void {
+        const c = VIEW_COLORS[currentTheme()];
+        view?.setBackground(c.bg);
+        view?.setGridColors(c.major, c.minor);
+    }
+    onThemeChange(() => {
+        applyViewTheme();
+        const b = document.getElementById('ed-theme');
+        if (b) b.replaceChildren(icon(currentTheme() === 'dark' ? 'sun' : 'moon'));
+    });
+
+    function onSelection(): void {
+        for (const p of panels) p.onSelection?.();
+        syncToolbar();
+        updateStatus();
     }
 
-    function refresh(): void {
+    function dirty(): boolean {
+        return restoredDirty || (view?.stack.top ?? undefined) !== savedTop;
+    }
+
+    function onChange(): void {
         const v = getView();
-        btn('lv-undo').disabled = !v.stack.canUndo;
-        btn('lv-redo').disabled = !v.stack.canRedo;
-        btn('lv-undo').title = v.stack.undoLabel ?? '';
-        btn('lv-redo').title = v.stack.redoLabel ?? '';
-        btn('lv-save').disabled = v.doc.size === 0;
-        refreshExport();
         empty.hidden = v.doc.size > 0;
-        renderProps();
-        updateHud();
+        for (const p of panels) p.onChange?.();
+        syncToolbar();
+        updateStatus();
+        scheduleAutosave();
     }
 
-    // ---- kind filters ----
-    const hidden = new Set<EntityKind>();
-    const kindsEl = $('lv-kinds');
-    for (const k of KINDS) {
-        const l = document.createElement('label');
-        const cb = document.createElement('input');
-        cb.type = 'checkbox';
-        cb.checked = true;
-        cb.onchange = () => {
-            if (cb.checked) hidden.delete(k.kind);
-            else hidden.add(k.kind);
-            getView().setFilters({ hidden: new Set(hidden) });
-            updateHud();
-        };
-        const sw = document.createElement('i');
-        sw.style.background = `#${k.color.toString(16).padStart(6, '0')}`;
-        l.append(cb, sw, k.label);
-        kindsEl.append(l);
-    }
-    $<HTMLInputElement>('lv-search').oninput = (e) =>
-        getView().setFilters({ search: (e.target as HTMLInputElement).value });
-    $<HTMLInputElement>('lv-class').oninput = (e) =>
-        getView().setFilters({ cls: (e.target as HTMLInputElement).value.replace(/^0x/i, '') });
-
-    // ---- toolbar ----
-    btn('lv-undo').onclick = () => getView().undo();
-    btn('lv-redo').onclick = () => getView().redo();
-    btn('lv-dup').onclick = () => getView().duplicateSelected();
-    btn('lv-del').onclick = () => getView().deleteSelected();
-    btn('lv-frame').onclick = () => getView().frameSelection();
-    const setMode = (m: 'translate' | 'rotate'): void => {
-        getView().setMode(m);
-        btn('lv-move').classList.toggle('active', m === 'translate');
-        btn('lv-rot').classList.toggle('active', m === 'rotate');
-    };
-    btn('lv-move').onclick = () => setMode('translate');
-    btn('lv-rot').onclick = () => setMode('rotate');
-    btn('lv-save').onclick = () => {
-        download(`${levelName}.level.json`, JSON.stringify(getView().doc, null, 1), 'application/json');
-    };
-    // ---- open from disc ----
-    const levelsEl = $('lv-levels');
-    const fail = (e: unknown): void => host.setStatus(e instanceof Error ? e.message : String(e), true);
-
-    function setDisc(d: DiscContext | null): void {
-        disc = d;
-        $('lv-open-info').textContent = d ? d.isoName : 'open an ISO in the Inspector first';
-        levelsEl.replaceChildren(
-            ...(d?.levels ?? []).map((l) => {
-                const li = document.createElement('li');
-                li.textContent = l.name;
-                li.classList.toggle('missing', !l.present);
-                li.title = l.present ? l.dirPath : `${l.dirPath} is listed in LEVELLST.TXT but not on this disc`;
-                li.onclick = () => {
-                    if (!l.present) return;
-                    levelsEl.querySelectorAll('li.sel').forEach((x) => x.classList.remove('sel'));
-                    li.classList.add('sel');
-                    openLevel(l.dirPath).catch(fail);
-                };
-                return li;
-            }),
-        );
-        renderTarget();
-        refreshExport();
-    }
-
-    async function openLevel(dirPath: string): Promise<void> {
-        const info = disc?.levels.find((l) => l.dirPath === dirPath);
-        host.setStatus(`Loading ${info?.name ?? dirPath}...`);
-        const r = await host.call('loadLevel', dirPath);
-        const { doc, unresolved } = documentFromLvl(r.lvl, r.odbs, info?.name ?? r.file);
-        src = r;
-        levelName = r.file.replace(/\.lvl$/i, '');
-        const v = getView();
-        v.setDocument(doc);
-        const idEl = $<HTMLInputElement>('lv-mod-id');
-        if (!idEl.dataset.touched) idEl.value = `editor.${levelName.toLowerCase()}-edit`;
-        const nameEl = $<HTMLInputElement>('lv-mod-name');
-        if (!nameEl.dataset.touched) nameEl.value = `${info?.name ?? levelName} edit`;
-        updateOverlay();
-        host.setStatus(
-            `${info?.name ?? r.file}: ${doc.size} objects from ${r.file}` +
-                (unresolved ? `, ${unresolved} with unresolved class names` : '') +
-                (r.missingOdbs.length ? `; missing ODBs: ${r.missingOdbs.join(', ')}` : '') +
-                '.',
-        );
-    }
-
-    /** Pair the disc level with a loaded world dump and draw the unmatched dump entities as outlines. */
-    function updateOverlay(): void {
-        const v = getView();
-        const row = $('lv-ghost-row');
-        if (!src || !worldDoc) {
-            comparison = null;
-            row.hidden = true;
-            v.setGhost([]);
+    function onHover(id: number | null, x: number, y: number): void {
+        const o = id === null ? undefined : getView().doc.get(id);
+        if (!o) {
+            tip.hidden = true;
             return;
         }
-        comparison = compareWithWorld(v.doc, worldDoc);
-        row.hidden = false;
-        const matched = new Set(comparison.pairs.values());
-        const show = $<HTMLInputElement>('lv-ghost').checked;
-        v.setGhost(show ? [...worldDoc.objects()].filter((o) => !matched.has(o.id)) : []);
+        fill(
+            tip,
+            h('strong', {}, o.class || 'Object'),
+            h('span', { class: 'dim' }, ` #${o.id}`),
+            h('div', { class: 'dim small' }, `${o.kind}${getView().lockedIds.has(o.id) ? ', locked' : ''}`),
+        );
+        tip.hidden = false;
+        const r = $('lv-viewport').getBoundingClientRect();
+        tip.style.left = `${Math.min(x + 14, r.right - 170)}px`;
+        tip.style.top = `${Math.min(y + 16, r.bottom - 54)}px`;
     }
-    $<HTMLInputElement>('lv-ghost').onchange = () => updateOverlay();
 
-    // ---- export ----
-    const textOf = (id: string): string => $<HTMLInputElement>(id).value.trim();
-    for (const id of ['lv-mod-id', 'lv-mod-name']) {
-        $<HTMLInputElement>(id).oninput = (e) => ((e.target as HTMLInputElement).dataset.touched = '1');
+    function updateStatus(): void {
+        if (!view) return;
+        const v = view;
+        sbSel.textContent = `${v.selection.size} selected, ${v.visibleCount}/${v.doc.size} shown`;
+        const c = v.cameraGamePos().map((n) => Math.round(n / 100) / 10);
+        sbCam.textContent = `cam ${c.join(', ')}k`;
+        sbSnap.textContent = `${v.snap.grid ? `grid ${v.snap.gridSize}` : 'grid off'} | ${v.snap.angle ? `${v.snap.angleStep}°` : 'angle off'} | fly x${v.flySpeed.toFixed(2)}`;
+        sbFps.textContent = `${v.fps} fps`;
+        const d = $('ed-dirty');
+        const isDirty = dirty();
+        d.className = `dirty${isDirty ? ' on' : ''}`;
+        d.textContent = !v.doc.size ? '' : isDirty ? 'Unsaved changes' : 'Saved';
+        d.title = isDirty
+            ? 'The document has changes that were not saved to a file (autosave keeps a copy in this browser)'
+            : 'No unsaved changes';
+        sbSave.textContent = lastAutosave ? `autosaved ${new Date(lastAutosave).toLocaleTimeString()}` : '';
+        const hud = document.getElementById('lv-hud');
+        if (hud) hud.textContent = '';
     }
+
+    // ---- editing actions ------------------------------------------------------------------------------------------
+
+    function copySelection(): boolean {
+        const v = getView();
+        clipboard = copyObjects(v.doc, [...v.selection]);
+        if (!clipboard) return false;
+        const text = JSON.stringify(clipboard);
+        navigator.clipboard?.writeText(text).catch(() => undefined);
+        toast(`Copied ${clipboard.objects.length} object(s)`);
+        return true;
+    }
+
+    async function pasteFromClipboard(text: string | null): Promise<void> {
+        const v = getView();
+        if (!v.policy.structural) return;
+        let clip = text ? parseClipboard(text) : null;
+        if (!clip && text === null) {
+            try {
+                clip = parseClipboard((await navigator.clipboard?.readText()) ?? '');
+            } catch {
+                clip = null;
+            }
+        }
+        clip ??= clipboard;
+        if (!clip) {
+            toast('Nothing to paste: copy objects first.');
+            return;
+        }
+        const at = v.pointerGround();
+        const r = pasteObjects(clip, v.doc, catalog, at ? snapPos(at) : null);
+        if (!r.objects.length) {
+            toast(
+                `Cannot paste: ${[...new Set(r.skipped)].slice(0, 3).join(', ')} not available in this level.`,
+                'error',
+            );
+            return;
+        }
+        const cmd = new AddCommand(r.objects, `Paste ${r.objects.length} object(s)`);
+        v.run(cmd);
+        v.select(cmd.ids);
+        toast(
+            r.skipped.length
+                ? `Pasted ${r.objects.length}; skipped ${r.skipped.length} (class not in this level)`
+                : `Pasted ${r.objects.length} object(s)`,
+            r.skipped.length ? 'info' : 'ok',
+        );
+    }
+
+    function snapSelectionToGround(): void {
+        const v = getView();
+        const m = snapToGround(v.doc, v.editable(), (x, z) => v.groundHeightAt(x, z));
+        if (!m.size) {
+            toast(
+                v.hasGround
+                    ? 'Nothing to move: the selection is already on the ground.'
+                    : 'No terrain is loaded yet, so there is no ground to snap to.',
+            );
+            return;
+        }
+        const cmd = moveCommand(v.doc, new Map([...m].map(([id, t]) => [id, t.pos])), 'Snap to ground');
+        if (cmd) v.run(cmd);
+    }
+
+    function alignSelection(axis: Axis, mode: AlignMode): void {
+        const v = getView();
+        const cmd = moveCommand(v.doc, alignPositions(v.doc, v.editable(), axis, mode), `Align ${'XYZ'[axis]} ${mode}`);
+        if (cmd) v.run(cmd);
+        else toast('Nothing to align.');
+    }
+
+    function distributeSelection(axis: Axis): void {
+        const v = getView();
+        const cmd = moveCommand(v.doc, distributePositions(v.doc, v.editable(), axis), `Distribute ${'XYZ'[axis]}`);
+        if (cmd) v.run(cmd);
+        else toast('Nothing to distribute (needs 3 or more objects).');
+    }
+
+    function saveDocument(): void {
+        const v = getView();
+        if (!v.doc.size) return;
+        const json: LevelDocumentJson & { bookmarks?: unknown } = v.doc.toJSON();
+        download(`${levelName}.level.json`, JSON.stringify(json, null, 1), 'application/json');
+        savedTop = v.stack.top;
+        restoredDirty = false;
+        updateStatus();
+        toast(`Saved ${levelName}.level.json`, 'ok');
+    }
+
+    // ---- shortcuts --------------------------------------------------------------------------------------------------
+
+    const v0 = (): LevelView => getView();
+    initShortcuts(
+        {
+            select: () => actions.tool('select'),
+            move: () => actions.tool('translate'),
+            rotate: () => actions.tool('rotate'),
+            scale: () => actions.tool('scale'),
+            space: () => actions.toggleSpace(),
+            snap: () => actions.toggleGridSnap(),
+            angleSnap: () => actions.toggleAngleSnap(),
+            ground: () => snapSelectionToGround(),
+            frame: () => v0().frameSelection(),
+            frameAll: () => v0().frameAll(),
+            topView: () => v0().topView(),
+            bookmark: (_e, i) => {
+                const v = v0();
+                const b = { ...v.saveBookmark(`View ${(i ?? 0) + 1}`) };
+                // Slot i: replace instead of append.
+                v.bookmarks.pop();
+                v.bookmarks[i ?? 0] = b;
+                toast(`Saved view ${(i ?? 0) + 1}`, 'ok');
+                scheduleAutosave();
+            },
+            gotoBookmark: (_e, i) => {
+                if (!v0().gotoBookmark(i ?? 0))
+                    toast(`No saved view ${(i ?? 0) + 1} (Ctrl+Shift+${(i ?? 0) + 1} saves one)`);
+            },
+            delete: () => v0().deleteSelected(),
+            duplicate: () => v0().duplicateSelected(),
+            undo: () => v0().undo(),
+            redo: () => v0().redo(),
+            selectAll: () => v0().selectVisible(),
+            invert: () => v0().invertSelection(),
+            sameClass: () => v0().selectSameClass(),
+            hide: () => actions.hide(),
+            showAll: () => actions.showAll(),
+            lock: () => actions.lock(),
+            deselect: () => {
+                const v = v0();
+                if (v.cancelPick()) {
+                    toast('Pick cancelled');
+                    return;
+                }
+                if (!document.getElementById('ed-bottom')?.contains(document.activeElement)) toolbar.closeMenus();
+                v.select([]);
+            },
+            save: () => saveDocument(),
+            export: () => actions.exportMod(),
+            help: () => help.toggle(),
+            theme: () => actions.theme(),
+        },
+        () => !root.hidden && !(view?.isFlying ?? false),
+    );
+    // Browser clipboard events: copy / cut / paste of objects (text/plain JSON, works across tabs and levels).
+    const editorActive = (e: Event): boolean => {
+        const t = e.target as HTMLElement | null;
+        return !root.hidden && !(t && /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName));
+    };
+    document.addEventListener('copy', (e) => {
+        if (!editorActive(e) || !view?.selection.size) return;
+        if (copySelection()) {
+            e.clipboardData?.setData('text/plain', JSON.stringify(clipboard));
+            e.preventDefault();
+        }
+    });
+    document.addEventListener('cut', (e) => {
+        if (!editorActive(e) || !view?.selection.size) return;
+        if (copySelection()) {
+            e.clipboardData?.setData('text/plain', JSON.stringify(clipboard));
+            e.preventDefault();
+            view.deleteSelected();
+        }
+    });
+    document.addEventListener('paste', (e) => {
+        if (!editorActive(e)) return;
+        e.preventDefault();
+        void pasteFromClipboard(e.clipboardData?.getData('text/plain') ?? '').catch(fail);
+    });
+    window.addEventListener('keydown', (e) => {
+        if (root.hidden) return;
+        // Ctrl+Shift+N style helpers are not needed; just keep the page from trapping Backspace navigation.
+        if (e.key === 'Backspace' && !(e.target as HTMLElement | null)?.closest?.('input,textarea')) e.preventDefault();
+    });
+
+    // ---- layout ---------------------------------------------------------------------------------------------------
+
+    layout = initLayout(root, () => window.dispatchEvent(new Event('resize')));
+
+    // ---- disc / level -------------------------------------------------------------------------------------------
 
     function target(): ModMeta['target'] | null {
         const p = disc?.profile;
@@ -210,129 +642,155 @@ export function initLevelUi(host: LevelUiHost): LevelUi {
         return { ...(p.profile ? { profile: p.profile } : {}), ...(p.hash ? { hash: p.hash } : {}) };
     }
 
-    function renderTarget(): void {
-        const p = disc?.profile;
-        $('lv-mod-target').textContent = p
-            ? `Target: ${p.serial}, profile ${p.profile ?? 'unknown'}, hash ${p.hash ?? 'unknown'}`
-            : 'Target: open a disc image to derive the disc profile and hash.';
+    function setDisc(d: DiscContext | null): void {
+        disc = d;
+        syncToolbar();
+        modPanel.onLoad?.();
     }
 
-    function meta(): ModMeta {
-        const t = target();
-        if (!t) throw new ModError('The disc profile is unknown; open the ISO in the Inspector first.');
-        return {
-            id: textOf('lv-mod-id'),
-            name: textOf('lv-mod-name') || undefined,
-            version: textOf('lv-mod-version') || undefined,
-            author: textOf('lv-mod-author') || undefined,
-            description: `Level edits to ${src?.file ?? 'a level'} made with the Drakan editor.`,
-            target: t,
-        };
+    async function openLevel(dirPath: string): Promise<void> {
+        const info = disc?.levels.find((l) => l.dirPath === dirPath);
+        host.setStatus(`Loading ${info?.name ?? dirPath}...`);
+        toast(`Loading ${info?.name ?? dirPath}...`);
+        const r = await host.call('loadLevel', dirPath);
+        await openLoaded(r, info?.name ?? r.file);
     }
 
-    function refreshExport(): void {
-        const d = src && view ? diffDocument(src.lvl.list, view.doc) : null;
-        const n = d ? d.moved.length + d.rotated.length + d.scaled.length + d.added.length + d.deleted.length : 0;
-        const ready = n > 0 && target() !== null;
-        btn('lv-export').disabled = !ready;
-        btn('lv-export-dir').disabled = !ready || !canWriteFolder();
-        $('lv-mod-info').textContent = d
-            ? `${d.moved.length} moved, ${d.rotated.length} rotated, ${d.scaled.length} scaled, ${d.added.length} added, ${d.deleted.length} deleted`
-            : 'open a level from the disc to export edits';
-    }
-
-    async function exportMod(toFolder: boolean): Promise<void> {
-        if (!src || !view) throw new ModError('Open a level from the disc first.');
-        const pack = buildLevelPack(src, view.doc, meta());
-        const e = pack.entry;
-        const lines = [
-            `overrides/${e.file}/${e.type.toString(16).padStart(4, '0')}_${e.id}_${e.sub}.bin: ${e.bytes} bytes (was ${e.originalBytes})`,
-            ...pack.warnings,
-        ];
-        if (toFolder) {
-            const where = await writePackToModsFolder(pack);
-            if (where === null) return;
-            lines.push(`Written to ${where} and enabled in mods.ini.`);
-            host.setStatus(`Mod '${pack.meta.id}' written to ${where}.`);
-        } else {
-            download(`${pack.meta.id}.zip`, zipPack(pack) as BlobPart, 'application/zip');
-            lines.push(`Downloaded ${pack.meta.id}.zip. Put it in the game's mods/ folder and set it on in mods.ini.`);
-            host.setStatus(`Exported ${pack.meta.id}.zip.`);
+    async function openLoaded(r: LevelLoadResult, displayName: string): Promise<void> {
+        const { doc, unresolved } = documentFromLvl(r.lvl, r.odbs, displayName);
+        src = r;
+        levelName = r.file.replace(/\.lvl$/i, '');
+        catalog = buildCatalog(r.lvl.header, r.odbs, doc.objects());
+        const v = getView();
+        let used = doc;
+        let restoreMsg = '';
+        // Autosaved edits for this level?
+        const rec = await loadAutosave(autosaveKey(displayName));
+        v.setDocument(used);
+        savedTop = v.stack.top;
+        restoredDirty = false;
+        if (rec) {
+            const age = new Date(rec.savedAt).toLocaleString();
+            const banner = h(
+                'div',
+                { class: 'restore' },
+                h('span', {}, `Autosaved edits from ${age} found for this level.`),
+                h(
+                    'button',
+                    {
+                        class: 'btn primary sm',
+                        type: 'button',
+                        onclick: () => {
+                            restore(rec);
+                            banner.remove();
+                        },
+                    },
+                    'Restore',
+                ),
+                h(
+                    'button',
+                    {
+                        class: 'btn sm',
+                        type: 'button',
+                        onclick: () => {
+                            void clearAutosave(autosaveKey(displayName));
+                            banner.remove();
+                        },
+                    },
+                    'Discard',
+                ),
+                h(
+                    'button',
+                    { class: 'tool sm', type: 'button', 'aria-label': 'Dismiss', onclick: () => banner.remove() },
+                    icon('x', 12),
+                ),
+            );
+            $('lv-viewport').append(banner);
+            restoreMsg = ' Autosaved edits are available to restore.';
         }
-        $('lv-mod-report').textContent = lines.join('\n');
+        used = doc;
+        modPanel.suggest(`editor.${levelName.toLowerCase()}-edit`, `${displayName} edit`);
+        restoreSettings(displayName);
+        for (const p of panels) p.onLoad?.();
+        updateOverlay();
+        empty.hidden = true;
+        syncToolbar();
+        updateStatus();
+        host.setStatus(
+            `${displayName}: ${used.size} objects from ${r.file}, ${catalog.length} classes` +
+                (unresolved ? `, ${unresolved} with unresolved class names` : '') +
+                (r.missingOdbs.length ? `; missing ODBs: ${r.missingOdbs.join(', ')}` : '') +
+                `.${restoreMsg}`,
+        );
+        statusMsg.textContent = `${displayName}: ${used.size} objects, ${catalog.length} classes.${restoreMsg}`;
     }
-    btn('lv-export').onclick = () => void exportMod(false).catch(fail);
-    btn('lv-export-dir').onclick = () => void exportMod(true).catch(fail);
 
-    // ---- property panel ----
-    function renderProps(): void {
-        if (!view) return;
-        const ids = [...view.selection];
-        btn('lv-dup').disabled = btn('lv-del').disabled = ids.length === 0;
-        if (ids.length === 0) {
-            props.textContent = 'Select an object.';
+    function restore(rec: NonNullable<Awaited<ReturnType<typeof loadAutosave>>>): void {
+        const v = getView();
+        const doc = LevelDocument.fromJSON(rec.doc);
+        if (src) {
+            const b = src.lvl.header;
+            if (!doc.bounds && b.maxWidth > 0) doc.bounds = v.doc.bounds;
+        }
+        v.setDocument(doc);
+        v.bookmarks = rec.bookmarks ?? [];
+        modPanel.restore(rec.mod ?? {});
+        restoredDirty = true;
+        for (const p of panels) p.onLoad?.();
+        updateOverlay();
+        syncToolbar();
+        updateStatus();
+        toast('Restored autosaved edits', 'ok');
+    }
+
+    function restoreSettings(level: string): void {
+        const v = getView();
+        v.bookmarks = store.json(`bookmarks:${level}`, [] as typeof v.bookmarks);
+    }
+
+    // ---- autosave ---------------------------------------------------------------------------------------------------
+
+    function scheduleAutosave(): void {
+        window.clearTimeout(autosaveTimer);
+        autosaveTimer = window.setTimeout(() => void doAutosave(), AUTOSAVE_DELAY);
+    }
+
+    async function doAutosave(): Promise<void> {
+        const v = view;
+        if (!v || !v.doc.size) return;
+        const key = autosaveKey(v.doc.level || levelName);
+        store.set(`bookmarks:${v.doc.level || levelName}`, JSON.stringify(v.bookmarks));
+        if (v.stack.depth === 0 && !restoredDirty) {
+            await clearAutosave(key);
             return;
         }
-        if (ids.length > 1) {
-            props.textContent = `${ids.length} objects selected. Use the gizmo, Duplicate or Delete.`;
-            return;
+        const ok = await saveAutosave({
+            key,
+            level: v.doc.level,
+            savedAt: Date.now(),
+            doc: v.doc.toJSON(),
+            bookmarks: v.bookmarks,
+            mod: modPanel.values(),
+        });
+        if (ok) {
+            lastAutosave = Date.now();
+            updateStatus();
         }
-        const o = view.doc.get(ids[0]!);
-        if (!o) return;
-        const t = document.createElement('table');
-        const row = (label: string, ...cells: (HTMLElement | string)[]): void => {
-            const tr = t.insertRow();
-            tr.insertCell().textContent = label;
-            const c = tr.insertCell();
-            c.append(...cells);
-        };
-        row('id', String(o.id));
-        row('kind', `${o.kind} (type ${o.type})`);
-        row('class', o.class);
-        row('resource', o.resource);
-        row('model', o.model);
-        const numIn = (field: 'pos' | 'rot', axis: number, scale: number): HTMLInputElement => {
-            const i = document.createElement('input');
-            i.type = 'number';
-            i.step = field === 'pos' ? '10' : '1';
-            i.value = (o.transform[field][axis]! * scale).toFixed(field === 'pos' ? 1 : 2);
-            i.onchange = () => view?.setTransformField(o.id, field, axis, Number(i.value) / scale);
-            return i;
-        };
-        for (const [a, n] of ['x', 'y', 'z'].entries()) row(`pos ${n}`, numIn('pos', a, 1));
-        row('yaw (deg)', numIn('rot', 1, 180 / Math.PI));
-        if (o.origin !== undefined) {
-            row('rot x (deg)', numIn('rot', 0, 180 / Math.PI));
-            row('rot z (deg)', numIn('rot', 2, 180 / Math.PI));
-        }
-        if (o.scale) {
-            for (const [a, n] of ['x', 'y', 'z'].entries()) {
-                const i = document.createElement('input');
-                i.type = 'number';
-                i.step = '0.1';
-                i.value = String(o.scale[a]);
-                i.onchange = () => {
-                    const next = [...o.scale!] as [number, number, number];
-                    next[a] = Number(i.value);
-                    if (Number.isFinite(next[a])) view?.run(new SetScaleCommand(o.id, next));
-                };
-                row(`scale ${n}`, i);
-            }
-        }
-        for (const [k, v] of Object.entries(o.props)) row(k, propInput(o, k, v));
-        props.replaceChildren(t);
     }
 
-    function propInput(o: LevelObject, k: string, v: string | number | boolean): HTMLInputElement {
-        const i = document.createElement('input');
-        i.type = 'text';
-        i.value = String(v);
-        i.onchange = () => {
-            const n = Number(i.value);
-            const val = typeof v === 'number' && i.value.trim() !== '' && Number.isFinite(n) ? n : i.value;
-            view?.setProp(o.id, k, val);
-        };
-        return i;
+    // ---- world dump overlay ---------------------------------------------------------------------------------------
+
+    /** Pair the disc level with a loaded world dump and draw the unmatched dump entities as outlines. */
+    function updateOverlay(): void {
+        const v = getView();
+        if (!src || !worldDoc) {
+            comparison = null;
+            v.setGhost([]);
+            return;
+        }
+        comparison = compareWithWorld(v.doc, worldDoc);
+        const matched = new Set(comparison.pairs.values());
+        v.setGhost(ghosts ? [...worldDoc.objects()].filter((o) => !matched.has(o.id)) : []);
     }
 
     async function loadFile(f: File): Promise<void> {
@@ -342,9 +800,14 @@ export function initLevelUi(host: LevelUiHost): LevelUi {
         if (j.format === 'drakan-level-document') {
             const doc = LevelDocument.fromJSON(text);
             src = null;
+            catalog = [];
             levelName = doc.level || f.name.replace(/\.json$/i, '');
             v.setDocument(doc);
+            savedTop = v.stack.top;
+            restoredDirty = false;
+            for (const p of panels) p.onLoad?.();
             updateOverlay();
+            syncToolbar();
             host.setStatus(
                 `${f.name}: ${doc.size} objects in "${doc.level}" (saved document, no LVL source: export disabled).`,
             );
@@ -361,19 +824,21 @@ export function initLevelUi(host: LevelUiHost): LevelUi {
         } else {
             levelName = world.level || f.name.replace(/\.json$/i, '');
             v.setDocument(world);
+            savedTop = v.stack.top;
+            for (const p of panels) p.onLoad?.();
             host.setStatus(`${f.name}: ${world.size} objects in "${world.level}".`);
         }
+        syncToolbar();
     }
-    const onFile = (e: Event): void => {
-        const i = e.target as HTMLInputElement;
-        const f = i.files?.[0];
-        i.value = '';
-        if (f)
-            loadFile(f).catch((err: unknown) => host.setStatus(err instanceof Error ? err.message : String(err), true));
-    };
-    $<HTMLInputElement>('lv-dump').onchange = onFile;
-    $<HTMLInputElement>('lv-load').onchange = onFile;
 
-    renderTarget();
-    return { view: getView, loadFile, setDisc, openLevel };
+    // ---- boot -----------------------------------------------------------------------------------------------------
+
+    // The theme button icon reflects the current theme.
+    $('ed-theme').replaceChildren(icon(currentTheme() === 'dark' ? 'sun' : 'moon'));
+    syncToolbar();
+    void KINDS;
+    void CompositeCommand;
+    void diffDocument;
+    void changeCount;
+    return { view: getView, loadFile, setDisc, openLevel, openLoaded, assets: () => assets, ctx: () => ctx };
 }

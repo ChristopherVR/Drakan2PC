@@ -1,5 +1,11 @@
 import {
+    addObject,
     deleteObject,
+    isScalarParam,
+    paramValue,
+    removeParam,
+    setObjectLinks,
+    setParamScalar,
     duplicateObject,
     findObject,
     FLAG_SCALED,
@@ -14,7 +20,8 @@ import {
     type OdbIndex,
     type Vec3,
 } from '@drakan/formats';
-import { LevelDocument, type LevelObject } from './document.ts';
+import { kindOfClassName, resourceParts } from './catalog.ts';
+import { LevelDocument, type DocField, type LevelObject } from './document.ts';
 import type { EntityKind } from './world.ts';
 
 /**
@@ -44,10 +51,20 @@ export function docRotToLvl(rot: readonly number[]): [number, number, number] {
 const mod360 = (d: number): number => ((d % 360) + 360) % 360;
 
 function kindOf(name: string): EntityKind {
-    if (/^(rynn|player)/i.test(name)) return 'player';
-    if (/camera/i.test(name)) return 'camera';
-    return 'other';
+    return kindOfClassName(name);
 }
+
+/** Cells (2048 units) per max_w / max_h step is unverified; only used for the optional extent warning. */
+export const LAYER_CELL = 2048;
+
+const fieldsOf = (o: LvlObject): DocField[] =>
+    o.params.map((p, slot) => ({
+        slot,
+        fieldIndex: p.fieldIndex,
+        type: p.type,
+        name: p.name,
+        value: paramValue(o, slot),
+    }));
 
 export interface LvlDocumentInfo {
     doc: LevelDocument;
@@ -59,6 +76,14 @@ export interface LvlDocumentInfo {
 export function documentFromLvl(lvl: Lvl, odbs: OdbIndex, levelName: string): LvlDocumentInfo {
     const doc = new LevelDocument();
     doc.level = levelName;
+    if (lvl.header.maxWidth > 0 && lvl.header.maxHeight > 0) {
+        doc.bounds = {
+            minX: 0,
+            maxX: lvl.header.maxWidth * LAYER_CELL,
+            minZ: 0,
+            maxZ: lvl.header.maxHeight * LAYER_CELL,
+        };
+    }
     let unresolved = 0;
     for (const o of lvl.list.objects) {
         const r = resolveClass(lvl.header, odbs, o.classId, o.dbIndex);
@@ -74,8 +99,13 @@ export function documentFromLvl(lvl: Lvl, odbs: OdbIndex, levelName: string): Lv
             transform: { pos: [...o.pos], rot: lvlRotToDoc(o.rot) },
             props: {},
             origin: o.id,
+            links: [...o.links],
+            fields: fieldsOf(o),
         };
-        if (r.db) obj.props.db = r.db;
+        if (r.db) {
+            obj.props.db = r.db;
+            obj.db = r.db;
+        }
         if (o.scale) obj.scale = [...o.scale];
         doc.insert(obj);
     }
@@ -90,6 +120,38 @@ export interface DocumentDiff {
     added: { id: number; origin: number | undefined }[];
     /** Ids in the list but no longer in the document. */
     deleted: number[];
+    /** Existing objects whose link list changed. */
+    linked: number[];
+    /** Existing objects with an edited or removed parameter. */
+    params: number[];
+}
+
+const sameLinks = (a: readonly number[], b: readonly number[]): boolean =>
+    a.length === b.length && a.every((v, i) => v === b[i]);
+
+/** Parameters of `o` (in the base object) that the document changed: edited values and removed fields. */
+function fieldChanges(b: LvlObject, o: LevelObject): { edits: { slot: number; value: number }[]; removed: number[] } {
+    const edits: { slot: number; value: number }[] = [];
+    const removed: number[] = [];
+    if (!o.fields) return { edits, removed };
+    const byIndex = new Map(o.fields.map((f) => [f.fieldIndex, f]));
+    b.params.forEach((p, slot) => {
+        const f = byIndex.get(p.fieldIndex);
+        if (!f) {
+            removed.push(slot);
+            return;
+        }
+        if (!isScalarParam(p.type) || typeof f.value !== 'number') return;
+        const cur = paramValue(b, slot);
+        if (
+            typeof cur === 'number' &&
+            Math.fround(f.value) !== Math.fround(cur) &&
+            !(Number.isNaN(f.value) && Number.isNaN(cur))
+        ) {
+            edits.push({ slot, value: f.value });
+        }
+    });
+    return { edits, removed };
 }
 
 function rotChanged(base: readonly number[], doc: readonly number[]): boolean {
@@ -99,7 +161,7 @@ function rotChanged(base: readonly number[], doc: readonly number[]): boolean {
 
 /** What the document changed relative to `base`. */
 export function diffDocument(base: LvlObjectList, doc: LevelDocument): DocumentDiff {
-    const d: DocumentDiff = { moved: [], rotated: [], scaled: [], added: [], deleted: [] };
+    const d: DocumentDiff = { moved: [], rotated: [], scaled: [], added: [], deleted: [], linked: [], params: [] };
     const seen = new Set<number>();
     const byId = new Map(base.objects.map((b) => [b.id, b]));
     for (const o of doc.objects()) {
@@ -113,6 +175,9 @@ export function diffDocument(base: LvlObjectList, doc: LevelDocument): DocumentD
         if (rotChanged(b.rot, o.transform.rot)) d.rotated.push(o.id);
         const bs = b.scale;
         if (o.scale && bs && o.scale.some((v, i) => Math.fround(v) !== bs[i]!)) d.scaled.push(o.id);
+        if (o.links && !sameLinks(o.links, b.links)) d.linked.push(o.id);
+        const fc = fieldChanges(b, o);
+        if (fc.edits.length || fc.removed.length) d.params.push(o.id);
     }
     for (const b of base.objects) if (!seen.has(b.id)) d.deleted.push(b.id);
     d.added.sort((a, b) => a.id - b.id);
@@ -146,20 +211,62 @@ export function applyDocumentToLvl(
     const report: ApplyReport = { diff, unlinked: [], warnings: [] };
     const policy = opts.onReferenced ?? 'unlink';
 
+    // New objects. A copy of an existing object duplicates it (every byte, strings included); a new instance of a class
+    // is templated from an existing one (or the class defaults) with `addObject`.
+    const idMap = new Map<number, number>();
+    const added: { want: number; obj: LvlObject; doc: LevelObject }[] = [];
     for (const a of diff.added) {
-        const src = a.origin !== undefined ? findObject(list, a.origin) : undefined;
-        if (!src) {
-            report.warnings.push(`object ${a.id}: no LVL source object (origin ${a.origin ?? 'none'}); not exported`);
-            continue;
-        }
-        const copy = duplicateObject(list, src.id);
-        const maxOther = list.objects.reduce((m, o) => (o === copy ? m : Math.max(m, o.id)), 0);
-        if (a.id > maxOther) copy.id = a.id;
         const o = doc.get(a.id)!;
+        const src = a.origin !== undefined ? findObject(list, a.origin) : undefined;
+        let copy: LvlObject;
+        if (src) {
+            copy = duplicateObject(list, src.id);
+        } else if (a.origin !== undefined) {
+            report.warnings.push(`object ${a.id}: no LVL source object (origin ${a.origin}); not exported`);
+            continue;
+        } else {
+            const { classId, dbIndex } = resourceParts(o.resource);
+            if (!o.resource || (classId === 0 && dbIndex === 0)) {
+                report.warnings.push(`object ${a.id}: no class to instantiate; not exported`);
+                continue;
+            }
+            const res = addObject(list, {
+                classId,
+                dbIndex,
+                pos: o.transform.pos,
+                ...(o.template !== undefined && findObject(list, o.template) ? { templateId: o.template } : {}),
+            });
+            copy = res.object;
+            if (res.from === 'default') {
+                report.warnings.push(
+                    `object ${a.id} (${o.class}): no instance of the class in this level; written with a default body (unverified in game)`,
+                );
+            }
+        }
+        const maxOther = list.objects.reduce((m, x) => (x === copy ? m : Math.max(m, x.id)), 0);
+        if (a.id > maxOther) copy.id = a.id;
         copy.pos = o.transform.pos.map(Math.fround) as Vec3;
         copy.rot = docRotToLvl(o.transform.rot);
         if (o.scale && copy.scale) copy.scale = o.scale.map(Math.fround) as Vec3;
         if (copy.id !== a.id) report.warnings.push(`object ${a.id} was exported as id ${copy.id}`);
+        idMap.set(a.id, copy.id);
+        added.push({ want: a.id, obj: copy, doc: o });
+    }
+    // Links and parameters of the new objects (links to other new objects are remapped to the exported ids).
+    for (const { obj, doc: o } of added) {
+        if (o.links) obj.links = [...new Set(o.links.map((l) => idMap.get(l) ?? l))];
+        if (o.fields) {
+            const fc = fieldChanges(obj, o);
+            for (const e of fc.edits) setParamScalar(list, obj.id, e.slot, e.value);
+            for (const slot of fc.removed.sort((x, y) => y - x)) {
+                try {
+                    removeParam(list, obj.id, slot);
+                } catch (e) {
+                    report.warnings.push(`object ${o.id}: ${(e as Error).message}`);
+                    break;
+                }
+            }
+        }
     }
     for (const id of diff.deleted) {
         for (const from of linkedFrom(list, id)) if (from !== id) report.unlinked.push({ from, to: id });
@@ -172,6 +279,30 @@ export function applyDocumentToLvl(
         const o = doc.get(id);
         const t = findObject(list, id);
         if (o?.scale && t && t.flags & FLAG_SCALED) scaleObject(list, id, o.scale);
+    }
+    for (const id of diff.linked) {
+        const o = doc.get(id)!;
+        if (alive(id))
+            setObjectLinks(
+                list,
+                id,
+                o.links!.map((l) => idMap.get(l) ?? l).filter((l) => alive(l) || !diff.deleted.includes(l)),
+            );
+    }
+    for (const id of diff.params) {
+        const o = doc.get(id)!;
+        const t = findObject(list, id);
+        if (!t) continue;
+        const fc = fieldChanges(t, o);
+        for (const e of fc.edits) setParamScalar(list, id, e.slot, e.value);
+        for (const slot of fc.removed.sort((x, y) => y - x)) {
+            try {
+                removeParam(list, id, slot);
+            } catch (e) {
+                report.warnings.push(`object ${id}: ${(e as Error).message}`);
+                break;
+            }
+        }
     }
     return { list, report };
 }

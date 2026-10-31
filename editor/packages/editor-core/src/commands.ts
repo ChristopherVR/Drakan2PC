@@ -9,10 +9,10 @@ export interface Command {
 const cloneT = (t: Transform): Transform => ({ pos: [...t.pos], rot: [...t.rot] });
 
 export class TransformCommand implements Command {
-    readonly label = 'Transform';
     constructor(
         private readonly before: Map<number, Transform>,
         private readonly after: Map<number, Transform>,
+        readonly label = 'Transform',
     ) {}
     private set(doc: LevelDocument, m: Map<number, Transform>): void {
         for (const [id, t] of m) {
@@ -107,6 +107,67 @@ export class SetPropCommand implements Command {
     }
 }
 
+/**
+ * Snapshot command for any change to objects (properties, fields, links, scale, several objects at once). Built with
+ * `editObjects`, which clones the objects, runs the mutator on the clones and keeps before/after copies, so a multi-edit
+ * across a selection is one undo step.
+ */
+export class EditObjectsCommand implements Command {
+    constructor(
+        private readonly before: Map<number, LevelObject>,
+        private readonly after: Map<number, LevelObject>,
+        readonly label = 'Edit',
+    ) {}
+    get ids(): number[] {
+        return [...this.after.keys()];
+    }
+    private put(doc: LevelDocument, m: Map<number, LevelObject>): void {
+        for (const o of m.values()) doc.replace(cloneObject(o));
+    }
+    apply(doc: LevelDocument): void {
+        this.put(doc, this.after);
+    }
+    revert(doc: LevelDocument): void {
+        this.put(doc, this.before);
+    }
+}
+
+/** Build an `EditObjectsCommand` that applies `fn` to every listed object (skipping unknown ids). Null when nothing changes. */
+export function editObjects(
+    doc: LevelDocument,
+    ids: readonly number[],
+    label: string,
+    fn: (o: LevelObject) => void,
+): EditObjectsCommand | null {
+    const before = new Map<number, LevelObject>();
+    const after = new Map<number, LevelObject>();
+    for (const id of ids) {
+        const o = doc.get(id);
+        if (!o) continue;
+        const b = cloneObject(o);
+        const a = cloneObject(o);
+        fn(a);
+        if (JSON.stringify(a) === JSON.stringify(b)) continue;
+        before.set(id, b);
+        after.set(id, a);
+    }
+    return after.size ? new EditObjectsCommand(before, after, label) : null;
+}
+
+/** Several commands run as one undo step. */
+export class CompositeCommand implements Command {
+    constructor(
+        private readonly cmds: Command[],
+        readonly label: string,
+    ) {}
+    apply(doc: LevelDocument): void {
+        for (const c of this.cmds) c.apply(doc);
+    }
+    revert(doc: LevelDocument): void {
+        for (const c of [...this.cmds].reverse()) c.revert(doc);
+    }
+}
+
 /** Undo/redo stack. `onChange` fires after every run/undo/redo with the command involved. */
 export class CommandStack {
     private undoList: Command[] = [];
@@ -151,6 +212,24 @@ export class CommandStack {
     clear(): void {
         this.undoList = [];
         this.redoList = [];
+    }
+    /** Labels oldest first; `done` of them are applied, the rest are redoable (newest redo last). */
+    history(): { labels: string[]; done: number } {
+        const labels = [...this.undoList.map((c) => c.label), ...[...this.redoList].reverse().map((c) => c.label)];
+        return { labels, done: this.undoList.length };
+    }
+    /** Undo or redo until exactly `done` commands are applied. */
+    goTo(done: number): void {
+        while (this.undoList.length > done && this.undo());
+        while (this.undoList.length < done && this.redo());
+    }
+    /** Number of applied commands. */
+    get depth(): number {
+        return this.undoList.length;
+    }
+    /** Identity of the newest applied command: remember it at save time; the document is dirty when it differs. */
+    get top(): Command | undefined {
+        return this.undoList.at(-1);
     }
 
     /** Duplicate objects, offset in x/z by `offset` units. The returned command's `ids` are the new objects. */

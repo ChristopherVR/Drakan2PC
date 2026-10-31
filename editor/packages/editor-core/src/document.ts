@@ -20,6 +20,26 @@ export interface LevelObject {
     origin?: number;
     /** Scale triple; only present for LVL objects that have flag 0x100 (scale cannot be added to others). */
     scale?: [number, number, number];
+    /** Ids of other objects this one triggers (LVL link list). Absent for world-dump objects. */
+    links?: number[];
+    /** Per-instance parameters (the fields that differ from the class default), as stored in the LVL. */
+    fields?: DocField[];
+    /** For a new object (no `origin`): the LVL object whose body is copied when exporting; else any instance of the class. */
+    template?: number;
+    /** Editor-only hint: the class's ODB stem (`NPCS`), also kept in `props.db` for LVL objects. */
+    db?: string;
+}
+
+/** One LVL parameter in document form. `value` is a number (scalar types), a string, or dwords (arrays). */
+export interface DocField {
+    /** Position in the object's parameter list. */
+    slot: number;
+    /** Index of the field in the class (stable key). */
+    fieldIndex: number;
+    /** field_def type word (low byte = type code 1..0x0f, 0x1000 = array). */
+    type: number;
+    name: string;
+    value: number | string | number[];
 }
 
 export const DOCUMENT_FORMAT = 'drakan-level-document';
@@ -38,6 +58,10 @@ export function cloneObject(o: LevelObject): LevelObject {
         transform: { pos: [...o.transform.pos], rot: [...o.transform.rot] },
         props: { ...o.props },
         ...(o.scale ? { scale: [...o.scale] as [number, number, number] } : {}),
+        ...(o.links ? { links: [...o.links] } : {}),
+        ...(o.fields
+            ? { fields: o.fields.map((f) => ({ ...f, value: Array.isArray(f.value) ? [...f.value] : f.value })) }
+            : {}),
     };
 }
 
@@ -45,6 +69,8 @@ export function cloneObject(o: LevelObject): LevelObject {
 export class LevelDocument {
     level = '';
     nextId = 1;
+    /** Playable extent in game units (x/z), when known; used by validation only. */
+    bounds?: { minX: number; maxX: number; minZ: number; maxZ: number };
     private readonly map = new Map<number, LevelObject>();
 
     get size(): number {
@@ -65,6 +91,10 @@ export class LevelDocument {
         if (o.id >= this.nextId) this.nextId = o.id + 1;
         this.map.set(o.id, o);
         return o;
+    }
+    /** Replace the contents of an existing object (same id), keeping its position in iteration order. */
+    replace(o: LevelObject): void {
+        if (this.map.has(o.id)) this.map.set(o.id, o);
     }
     remove(id: number): LevelObject | undefined {
         const o = this.map.get(id);

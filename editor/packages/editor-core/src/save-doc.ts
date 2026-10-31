@@ -7,13 +7,19 @@ import {
     describeRecords,
     formatFieldValue,
     levelNameOf,
+    listProgress,
     listSkills,
     parseSave,
     probeField,
+    readItemPanel,
     resolveField,
+    validateSave,
     type FieldEdit,
     type FieldProbe,
     type FieldValue,
+    type Issue,
+    type ItemPanel,
+    type ProgressRow,
     type RecordInfo,
     type SaveFile,
     type SkillRow,
@@ -54,6 +60,11 @@ export class SaveDocument extends LevelDocument {
     readonly entryOfObject = new Map<number, number>();
     readonly playerObject: number | null;
     readonly skills: SkillRow[] | null;
+    /** The state table rows as opened (kind, key, value); empty when the layout is not recognised. */
+    readonly progress: ProgressRow[];
+    /** The item text kept in Rynn's record (what the Equipment page last showed), or null. */
+    readonly itemPanel: ItemPanel | null;
+    private issuesCache: Issue[] | null = null;
     private readonly probes = new Map<string, FieldProbe>();
 
     private constructor(
@@ -89,10 +100,23 @@ export class SaveDocument extends LevelDocument {
             skills = null;
         }
         this.skills = skills;
+        this.progress = listProgress(save);
+        this.itemPanel = readItemPanel(save);
     }
 
     static open(bytes: Uint8Array): SaveDocument {
         return new SaveDocument(bytes, parseSave(bytes));
+    }
+
+    /** Validation report for the file as opened (cached). */
+    issues(): Issue[] {
+        return (this.issuesCache ??= validateSave(this.save));
+    }
+
+    /** Current value of a progress row: a pending edit or the stored value. */
+    progressValue(key: number): number | undefined {
+        const v = this.value(`progress.${key}`);
+        return typeof v === 'number' ? v : undefined;
     }
 
     /** The field as stored in the opened file (cached). */
@@ -156,7 +180,11 @@ export class SaveDocument extends LevelDocument {
             const { def } = resolveField(name);
             out.push({
                 name,
-                label: name.startsWith('skill.') ? name.replace('skill.', 'skill ') : def.label,
+                label: name.startsWith('skill.')
+                    ? name.replace('skill.', 'skill ')
+                    : name.startsWith('progress.')
+                      ? name.replace('progress.', 'state key ')
+                      : def.label,
                 before,
                 after,
                 confidence: def.confidence,

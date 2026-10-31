@@ -43,3 +43,17 @@ edited entries differed in their compressed bytes.
 - Max HP is unknown, so the HP bar assumes 100. Gold in some saves holds a very large value (second record layout).
 - Marker coordinates assume the record floats at +12 use the same units as world dumps (x0.001 in the scene).
 - Moving non-player records is intentionally blocked: only the player position is verified in game.
+
+## Second pass: AbioticEditor-style panels (2026-10-31)
+
+- Formats: `arokh.pos`, `progress.KEY`, `listProgress`, `readItemPanel`, `validateSave`, `transferPlan`, `recordLabel`
+  (`formats/src/save.ts`, new `save-state.ts`); `SaveDocument` exposes `progress`, `itemPanel`, `issues()`.
+  `savetool.py` gained `progress`, `item`, `validate` and the same two fields. Layouts: save-editor.md, "Inventory,
+  equipment and state".
+- UI (`app/src/save/`: `dom.ts`, `map.ts`, `panels.ts`, `save.css`; tabs added from JS, `index.html` untouched):
+  Character stat tiles with bars; World gets a top-down map (click a dot, filtered records emphasised, Rynn and Arokh
+  rings) and a per-group "where it is" picture; Items (inspected item with durability bar, Arokh card; the inventory grid is
+  explained as not decoded, so no add/remove/stack); Story (state table, filters, edit gated behind a checkbox);
+  Transfer (gold, health, skill levels, positions between two saves, pending until SAVE); Repair (validation with
+  undoable fixes). `classThumbnail()` had not landed; pictures are map-based for now.
+- Tests: vitest `save-state.test.ts` (16), pytest additions (6). Playwright smoke on copies under `build/` (deleted).

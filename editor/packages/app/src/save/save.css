@@ -1,0 +1,167 @@
+/* Save mode additions: stat tiles, world map, group pictures and the Items, Story, Transfer and Repair tabs. */
+
+.subtabs {
+    flex-wrap: wrap;
+}
+
+.tiles {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+    gap: 8px;
+    margin: 10px 0;
+}
+.tile {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    padding: 8px 10px;
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    min-width: 0;
+}
+.tile small {
+    color: var(--dim);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    font-size: 10px;
+}
+.tile b {
+    font-size: 20px;
+    font-variant-numeric: tabular-nums;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.tile .bar {
+    margin-top: 4px;
+}
+
+.mapbox {
+    flex: none;
+    padding: 8px 14px 0;
+}
+.worldmap {
+    display: block;
+    width: 100%;
+    height: auto;
+    max-height: 220px;
+    object-fit: contain;
+    background: var(--bg);
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    cursor: crosshair;
+}
+#sv-groups summary {
+    align-items: center;
+}
+#sv-groups summary .gname {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.gthumb {
+    width: 54px;
+    height: 33px;
+    flex: none;
+    background: var(--bg);
+    border: 1px solid var(--line);
+    border-radius: 3px;
+}
+.gthumb.none {
+    display: inline-block;
+    opacity: 0.4;
+}
+
+.filters.sub,
+.story .filters,
+.transfer .toolbar {
+    display: flex;
+    flex-direction: row;
+    gap: 8px;
+    align-items: center;
+    flex-wrap: wrap;
+    margin: 8px 0;
+}
+.story .filters input[type='search'] {
+    flex: 1;
+    min-width: 180px;
+}
+.check.warn {
+    color: var(--warn, #d29922);
+}
+.story,
+.items,
+.transfer,
+.repair {
+    padding: 4px 14px 14px;
+}
+.story .grid input[type='number'] {
+    width: 96px;
+}
+.story .grid button {
+    max-width: 220px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.itemcard .meta {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    flex: 1;
+}
+.itemcard h3 {
+    margin: 0;
+}
+.itemcard .line {
+    font-variant-numeric: tabular-nums;
+}
+.itemcard .dur {
+    max-width: 260px;
+    margin-top: 6px;
+}
+.note-box {
+    margin: 10px 0;
+    padding: 8px 12px;
+    border: 1px dashed var(--line);
+    border-radius: 6px;
+    color: var(--dim);
+}
+.note-box b {
+    color: var(--text);
+}
+
+.issue {
+    display: flex;
+    gap: 10px;
+    align-items: center;
+    padding: 6px 10px;
+    margin: 6px 0;
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-left-width: 4px;
+    border-radius: 6px;
+}
+.issue .sev {
+    min-width: 44px;
+    text-transform: uppercase;
+    font-size: 10px;
+    letter-spacing: 0.05em;
+}
+.issue .msg {
+    flex: 1;
+}
+.issue.error {
+    border-left-color: var(--bad, #f85149);
+}
+.issue.warn {
+    border-left-color: var(--warn, #d29922);
+}
+.issue.info,
+.issue.ok {
+    border-left-color: var(--ok, #3fb950);
+}

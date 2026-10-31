@@ -153,3 +153,77 @@ layers), session 2026-10-31; details in `docs/journal/2026-10-31/ootf-data-study
   (PC 12-byte vect3f) and PS2 polygons carry only `u16` vertex indices (PC: index plus UV floats per vertex).
 * **Dependencies [OotF]**: a level's `.db`/`.DB` text file serves its own ODB; the LVL 0x0000 table (different indices) serves
   object class references. Same on both platforms.
+
+## 10. Terrain layers (LVL 0x0001) on PS2
+
+Decoder: `editor/packages/formats/src/terrain.ts` (`parsePs2Terrain`, `parsePcTerrain`, tests `terrain.test.ts`). Validated on
+all 13 PAL level LVLs plus `OUT.LVL` (every layer decodes, block sizes match) and on the 23 OotF PC files (4445 layers).
+Credit: the definition fields, the height formula, the cell split rule and the UV corner order are from OpenDrakan
+(`doc/lvl_format.txt`, `src/odCore/Layer.cpp`, commit 6c0d499); the PS2 packing was found against the disc.
+
+```
+u32 layer_count
+layer_count x { layer_def; inline_blob }        // layer_def identical to PC/OpenDrakan (section 9)
+u32 1
+layer_count x { u32 size; zlib block }          // blocks end exactly at the end of the payload      [disc]
+block = (w+1)*(h+1) x vertex(6) , w*h x cell(22) // 6 / 22 bytes (PC: 4 / 26)                           [disc]
+vertex = u16 flags[?], u16 mask, u16 raw_height  // height_wu = world_height + (raw - 0x8000) * 2      [disc]
+cell   = u16 flags, u32 texture, 8 x u16 uv      // row-major, top-left first, like PC
+```
+
+* **Height [disc]**: `world_height` (f32 in the definition) + `(raw - 0x8000) * 2`, in world units (the same units as object
+  positions; a cell is 2048). Origins are in cells. Check: for Surdana, objects with y pinned to the ground (Flower 01: median
+  dy 0, 75th percentile 0) land on the decoded surface; `Grass (Sod)` sits a constant +158 above it (a model pivot offset),
+  Birch trees median -69 (placed sunk into the ground). 866 of 4675 objects are within 1 unit of a surface, 1437 within 50.
+  Scale 1 (not 2) and the inverted diagonal both fit clearly worse. Layers stack (floor/ceiling/in between); an editor picks the
+  surface nearest the object's y.
+* **Cell flags [disc]**: bit 0 set = diagonal from top-left (a) to bottom-right (d), else top-right (b) to bottom-left (c)
+  (best fit against object heights). Other bits and the varying high byte (values like 0xd0, 0xf8) are **[?]**.
+* **Texture ref [D][disc]**: `u16 id, u16 db`; db is an index into the LVL 0x0000 dependency table (Surdana: 9 = `Proc
+  Textures`, id = SRSC id of a type 0x40 entry in that TXD). `0xffffffff` hole, `0xfffffffe` invisible [D]. PS2 stores **one**
+  ref per cell (PC: one per triangle); the editor applies it to both triangles. Only 33 distinct refs in all of Surdana.
+* **UV [D][disc]**: 8 x u16, `0xffff` = 1.0, order `Uc Ud Ub Ua Vc Vd Vb Va` with corners `a b / c d`; v up (GL). 13 distinct
+  patterns in Surdana (the 8 flips/rotations of the unit square plus about 20 odd cells **[?]**).
+* **Vertex words [inf]**: first u16 (0x200, 0x241, 0x000, ...) **[?]**; second u16 low 4 bits = which of the four surrounding
+  cells exist (8/4/2/1 corners, 12/10/5/3 edges, 15 inside).
+* **Inline blob [?]**: each definition is followed by a variable-length blob (92 bytes for a flat 3x4 layer, 7 KB for 21x47)
+  that starts `{u16 seq, u16 0x18, u32 0x40}` (the 0x0c in section 9 is not what the layers show; 0x18 was seen on every layer
+  checked), then header words (w, h, texture-ref count and list, w+1, h+1, count), per-vertex byte arrays and, in most
+  layers, per-vertex `xx xx xx 0x7f` signed-byte normals (probably baked lighting data). It is **not needed** for geometry.
+  The reader does not walk it: it finds the next definition by structure (name string, type <= 2, width/height equal to the next
+  block's size). That resync matched all 483 Surdana layers and ends exactly at the zlib section; a real walk is open.
+* **Units**: PC `Vertex` is `{u8 type, u8 1, u16 height}`, face `{u16 flags, u32 left, u32 right, 8 x u16 uv}`.
+
+## 11. Models (MOD) on PS2
+
+Decoder: `editor/packages/formats/src/model.ts` (`parseModel`, tests `model.test.ts`); 3700 of 3704 models in every MOD on the
+PAL disc decode (the 4 exceptions: three FX quad records and one RESOURES polygon table, see Open). Credit: record names, the
+0x0208 field list and the shading flags are from OpenDrakan (`doc/riot_database_format.txt`, `src/odCore/db/Model.cpp`).
+All records of a model share its SRSC id.
+
+* **0x0200 [disc]**: `string name, u32 shading, u32 0, [f32 distance if shading & 0x20000], u32 count, count x {u16 id, u16 db}`.
+  The texture list lives here (PC has a separate 0x0206); the float (49000.0, 20000.0, 140000.0 seen) is probably a fade/cull
+  distance **[?]**. `db` 0 = the model container's own TXD, else an index into its `.DB`.
+* **0x0203 [disc]**: `u16 n, f32 xyz[n], then n x {i8 nx, i8 ny, i8 nz, 0x7f}`: positions are plain `vect3f` (12 bytes) and the
+  "16-byte vertex" of earlier notes is a separate 4-byte-per-vertex array after them. The trailer decodes as unit normals
+  (|v| about 127) **[inf]**.
+* **0x0204 [disc]**: `u16 count`, then polygons `{u16 flags (2 double sided, 4 on quads), u16 vertex_count (3 or 4), u16 texture
+  (index into the 0x0200 list), u16 index[vertex_count]}`, `u16 0` pad when the polygons end at 2 mod 4, then one `f32 u, v`
+  per polygon corner in the same order (0..1, v up). So the PS2 polygon is index-only and the UVs follow as a block; sizes close
+  exactly (`4 + 36 n` for triangles only). Quads are rare (NPC and FX boxes).
+* **0x0208 character data [disc partial]**: bounds (64 bytes), `u16 lod_count`, names, nodes (36 bytes) as OpenDrakan, but the
+  PS2 joint block differs (an extra u32 vertex count and 6 more bytes follow the nodes), so the skeleton is not decoded. The LOD
+  table (`{u16 1, f32 distance, u32 usage, u32 node, u32 firstVertex, u32 vertexCount, u32 firstPoly, u32 polyCount}`, 30 bytes
+  each, ranges chain and the polygon counts sum to the total) is found by that signature: unique for 132 of 153 skinned models
+  (the rest fall back to "all triangles"). Rynn: LOD 0 = 1628 vertices / 3068 triangles, LOD 1 = 208 / 387 at distance 2300.
+  Polygon indices are relative to the LOD's first vertex.
+* **0x0207 / 0x0211**: 0x0207 bounds (not used; the editor measures the vertices). 0x0211 is the PS2 display-list copy of the mesh
+  (GS/VU1 packets with the same UVs); not decoded and not needed.
+* **Unit [inf]**: model space is in terrain cells (bounds of the Birch tree 3.8 x 4.9 x 3.8, a crate 0.3 x 0.2 x 0.2): multiply
+  by 2048 for world units. No comparison with a live actor dump was made; the numbers are plausible against each other
+  (tree about 12 x Rynn's height).
+* **Class -> model [disc]**: ODB 0x0102 body after the name field starts `u16 group, u16 model_id, u16 model_db`; `model_db` 0 is
+  the MOD of the same database, else an index into that database's `.DB`. 0 id = no model (triggers, timers). Surdana: 444 of
+  538 placed classes have a model.
+* **Open**: three FX polygon tables with 50-byte records (quad variant), RESOURCES model 4871; the 0x0208 joint block and the
+  channel/bone data; what the per-vertex trailer and the 0x20000 float are exactly; polygon flag 0x0f06 on some FX quads.

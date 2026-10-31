@@ -1,6 +1,7 @@
 // Message contract between the UI thread and the parsing worker.
 
 import type { DiscProfile, Lvl, OdbIndex } from '@drakan/formats';
+import type { ModelData, TerrainData } from './scene/decode.ts';
 
 export interface LevelInfo {
     name: string;
@@ -91,6 +92,10 @@ export interface Api {
     exportRoundTrip(path: string, max: number): RoundTripResult;
     loadLevel(dirPath: string): LevelLoadResult;
     decodeTextures(path: string, indices: number[] | null): TextureResult[];
+    /** Terrain layers and their textures for the level in `dirPath` (scene/decode.ts). */
+    loadTerrain(dirPath: string): TerrainData;
+    /** Models (LOD 0) and textures for object classes `(classId, dbIndex)` of the level in `dirPath`. */
+    loadModels(dirPath: string, classes: { classId: number; dbIndex: number }[]): ModelData[];
 }
 
 export type Method = keyof Api;

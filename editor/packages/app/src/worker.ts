@@ -1,4 +1,4 @@
-import type { DiscProfile } from '@drakan/formats';
+import type { DiscProfile, LvlHeader } from '@drakan/formats';
 import {
     Iso9660,
     SrscReader,
@@ -11,11 +11,13 @@ import {
     blobSource,
     decodeTxd,
     parseDb,
+    parseLevelHeader,
     parseLevelList,
     resolveDependencyStem,
     sliceSource,
 } from '@drakan/formats';
 import { srscRoundTrips } from '@drakan/editor-core';
+import { loadModelData, loadTerrainData } from './scene/decode.ts';
 import type {
     Api,
     EntryBytes,
@@ -71,6 +73,15 @@ async function getSrsc(path: string): Promise<SrscReader> {
         srscCache.set(path, r);
     }
     return r;
+}
+
+async function openLevel(fs: Iso9660, dirPath: string): Promise<{ reader: SrscReader; header: LvlHeader }> {
+    const lvlFile = (await fs.list(dirPath)).find((e) => !e.isDir && /\.LVL$/i.test(e.name));
+    if (!lvlFile) throw new Error(`no .LVL file in ${dirPath}`);
+    const reader = await SrscReader.open(sliceSource(fs.source, lvlFile.extent * 2048, lvlFile.size));
+    const e = reader.entries.find((x) => x.type === 0);
+    if (!e) throw new Error('LVL has no header record');
+    return { reader, header: parseLevelHeader((await reader.read(e)).data) };
 }
 
 const api: { [K in keyof Api]: (...a: Parameters<Api[K]>) => Promise<ReturnType<Api[K]>> } = {
@@ -195,6 +206,16 @@ const api: { [K in keyof Api]: (...a: Parameters<Api[K]>) => Promise<ReturnType<
             odbs: await buildOdbIndex(odbReaders),
             missingOdbs,
         };
+    },
+    async loadTerrain(dirPath) {
+        const fs = need();
+        const { reader, header } = await openLevel(fs, dirPath);
+        return loadTerrainData(fs, dirPath, reader, header);
+    },
+    async loadModels(dirPath, classes) {
+        const fs = need();
+        const { header } = await openLevel(fs, dirPath);
+        return loadModelData(fs, dirPath, header, classes);
     },
     async decodeTextures(path, indices) {
         const r = await getSrsc(path);

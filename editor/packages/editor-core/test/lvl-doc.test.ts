@@ -125,7 +125,7 @@ describe('document -> LVL edits', () => {
     it('an untouched document produces no diff and identical bytes', () => {
         const { doc, list } = load();
         const d = diffDocument(list, doc);
-        expect(d).toEqual({ moved: [], rotated: [], scaled: [], added: [], deleted: [] });
+        expect(d).toEqual({ moved: [], rotated: [], scaled: [], added: [], deleted: [], linked: [], params: [] });
         const out = applyDocumentToLvl(list, doc).list;
         expect(writeObjectList(out)).toEqual(writeObjectList(list));
     });

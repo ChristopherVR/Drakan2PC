@@ -11,15 +11,19 @@ import {
     locateField,
     parseFieldValue,
     parseSave,
+    recordLabel,
     resolveField,
     summarizeSave,
     type FieldValue,
     type RecordInfo,
     type SaveDiff,
     type SaveFile,
-    type Screenshot,
 } from '@drakan/formats';
 import { LevelView } from './level.ts';
+import './save/save.css';
+import { badge, fmtDate, h, hex, hexDump, shotCanvas, statTile } from './save/dom.ts';
+import { drawMap, groupColor, mapBounds, pickMap, type MapBounds, type MapPoint } from './save/map.ts';
+import { renderItems, renderRepair, renderStory, renderTransfer, type PanelCtx } from './save/panels.ts';
 import {
     download,
     hasFsa,
@@ -37,56 +41,11 @@ const $ = <T extends HTMLElement>(id: string): T => {
     return el as T;
 };
 
-type Kid = Node | string | null | false | undefined;
-type Attrs = Record<string, string | number | boolean | ((e: Event) => void) | undefined>;
-
-/** Tiny element builder. Keys starting with `on` set handlers, `class` the class name, the rest are attributes. */
-function h<K extends keyof HTMLElementTagNameMap>(
-    tag: K,
-    attrs?: Attrs | null,
-    ...kids: Kid[]
-): HTMLElementTagNameMap[K] {
-    const el = document.createElement(tag);
-    for (const [k, v] of Object.entries(attrs ?? {})) {
-        if (v === undefined || v === false) continue;
-        if (typeof v === 'function') (el as unknown as Record<string, unknown>)[k] = v;
-        else if (k === 'class') el.className = String(v);
-        else if (k === 'value') (el as unknown as { value: string }).value = String(v);
-        else el.setAttribute(k, v === true ? '' : String(v));
-    }
-    for (const kid of kids) if (kid !== null && kid !== false && kid !== undefined) el.append(kid);
-    return el;
-}
-
-const hex = (n: number, w: number): string => n.toString(16).padStart(w, '0');
-const fmtDate = (ms: number): string => (ms ? new Date(ms).toLocaleString() : '');
-
 export interface SaveUiHost {
     setStatus(msg: string, error?: boolean): void;
 }
 
-function shotCanvas(shot: Screenshot, cls: string): HTMLCanvasElement {
-    const c = h('canvas', { class: cls, width: shot.width, height: shot.height });
-    const img = new ImageData(shot.width, shot.height);
-    img.data.set(shot.rgba);
-    c.getContext('2d')?.putImageData(img, 0, 0);
-    return c;
-}
-
-function badge(text: string, kind: string, title?: string): HTMLElement {
-    return h('span', { class: `badge ${kind}`, title }, text);
-}
-
-function hexDump(data: Uint8Array, from: number, to: number): string {
-    const lines: string[] = [];
-    for (let i = from; i < to && i < data.length; i += 16) {
-        const row = data.subarray(i, Math.min(i + 16, data.length, to));
-        const hx = Array.from(row, (b) => hex(b, 2)).join(' ');
-        const asc = Array.from(row, (b) => (b >= 32 && b < 127 ? String.fromCharCode(b) : '.')).join('');
-        lines.push(`${hex(i, 6)}  ${hx.padEnd(47)}  ${asc}`);
-    }
-    return lines.join('\n');
-}
+type SubTab = 'character' | 'world' | 'items' | 'story' | 'transfer' | 'compare' | 'repair';
 
 interface Open {
     ref: SaveRef;
@@ -101,7 +60,7 @@ export function initSaveUi(host: SaveUiHost): { openFile(f: File): Promise<void>
     let view: LevelView | null = null;
     let cur: Open | null = null;
     let discovered: SaveRef[] = [];
-    let subtab: 'character' | 'world' | 'compare' = 'character';
+    let subtab: SubTab = 'character';
     let diff: { a: string; b: string; result: SaveDiff } | null = null;
     let selectedEntry: number | null = null;
     let hexLimit = 512;
@@ -318,15 +277,86 @@ export function initSaveUi(host: SaveUiHost): { openFile(f: File): Promise<void>
 
     // ---- sub tabs ----------------------------------------------------------------------------------------------
 
-    const panes = { character: $('sv-character'), world: $('sv-world'), compare: $('sv-compare') };
-    function showSub(t: typeof subtab): void {
+    // The tabs after World are created here so index.html stays as the shell agents left it.
+    const nav = $('sv-sub-compare').parentElement!;
+    const centre = $('sv-compare').parentElement!;
+    const extraTabs: [SubTab, string][] = [
+        ['items', 'Items'],
+        ['story', 'Story'],
+        ['transfer', 'Transfer'],
+        ['repair', 'Repair'],
+    ];
+    for (const [k, label] of extraTabs) {
+        const b = h('button', { id: `sv-sub-${k}` }, label);
+        if (k === 'repair') nav.append(b);
+        else nav.insertBefore(b, $('sv-sub-compare'));
+        centre.append(h('div', { id: `sv-${k}`, class: 'subpane', hidden: true }));
+    }
+    const panes: Record<SubTab, HTMLElement> = {
+        character: $('sv-character'),
+        world: $('sv-world'),
+        items: $('sv-items'),
+        story: $('sv-story'),
+        transfer: $('sv-transfer'),
+        compare: $('sv-compare'),
+        repair: $('sv-repair'),
+    };
+    function showSub(t: SubTab): void {
         subtab = t;
-        for (const k of Object.keys(panes) as (keyof typeof panes)[]) {
+        for (const k of Object.keys(panes) as SubTab[]) {
             panes[k].hidden = k !== t;
             $(`sv-sub-${k}`).classList.toggle('active', k === t);
         }
+        renderExtra();
+        if (cur && t === 'world') renderWorldList();
     }
-    for (const k of Object.keys(panes) as (keyof typeof panes)[]) $(`sv-sub-${k}`).onclick = () => showSub(k);
+    for (const k of Object.keys(panes) as SubTab[]) $(`sv-sub-${k}`).onclick = () => showSub(k);
+
+    function panelCtx(): PanelCtx {
+        const doc = cur!.doc;
+        return {
+            doc,
+            run: (c) => getView().run(c),
+            setPlayerPos: (v) => {
+                if (doc.playerObject === null) return;
+                for (let i = 0; i < 3; i++) getView().setTransformField(doc.playerObject, 'pos', i, v[i]!);
+            },
+            err,
+            status: (m, e) => host.setStatus(m, e),
+            showRecord: (entry, in3d) => {
+                showSub('world');
+                showDetails(entry, in3d);
+                renderWorldList();
+            },
+            listed: () => discovered,
+            changed: () => refresh(),
+        };
+    }
+
+    /** Render the pane of the current extra tab (they are rebuilt on demand, not kept in sync). */
+    function renderExtra(): void {
+        const render =
+            subtab === 'items'
+                ? renderItems
+                : subtab === 'story'
+                  ? renderStory
+                  : subtab === 'repair'
+                    ? renderRepair
+                    : subtab === 'transfer'
+                      ? (c: PanelCtx) => renderTransfer(c, renderExtra)
+                      : null;
+        if (!render) return;
+        panes[subtab].replaceChildren(
+            cur
+                ? render(panelCtx())
+                : h(
+                      'div',
+                      { class: 'welcome' },
+                      h('h3', null, 'Open a save'),
+                      h('p', null, 'Open a save to use this tab.'),
+                  ),
+        );
+    }
 
     // ---- refresh -----------------------------------------------------------------------------------------------
 
@@ -345,6 +375,7 @@ export function initSaveUi(host: SaveUiHost): { openFile(f: File): Promise<void>
         $('sv-pending').textContent = cur ? (pending.length ? `${pending.length} pending` : 'no pending edits') : '';
         renderCharacter();
         renderEdits(pending);
+        renderExtra();
     }
 
     function renderAll(): void {
@@ -546,11 +577,32 @@ export function initSaveUi(host: SaveUiHost): { openFile(f: File): Promise<void>
                   ),
               )
             : [h('small', { class: 'dim' }, 'No recognisable skill table in this save.')];
+        const hp = doc.value('hp');
+        const gold = doc.value('gold');
+        const hpMax = Math.max(100, Number(hp ?? 0));
+        const skillTotal = skills ? skills.reduce((n, r) => n + Number(doc.value(`skill.${r.id}`) ?? r.level), 0) : 0;
+        const skillCap = skills ? skills.reduce((n, r) => n + Number(doc.value(`skill.${r.id}.max`) ?? r.max), 0) : 0;
         pane.replaceChildren(
             card,
+            h(
+                'div',
+                { class: 'tiles' },
+                statTile('Health', typeof hp === 'number' ? String(hp) : 'n/a', {
+                    bar: typeof hp === 'number' ? [hp, hpMax] : undefined,
+                    note: 'max not in the save; bar assumes 100',
+                }),
+                statTile('Gold', typeof gold === 'number' ? gold.toLocaleString() : 'n/a'),
+                statTile('Skill levels', skills ? `${skillTotal} / ${skillCap}` : 'n/a', {
+                    bar: skills ? [skillTotal, skillCap] : undefined,
+                }),
+                statTile('Item shown', doc.itemPanel ? doc.itemPanel.name || 'item' : 'none', {
+                    note: doc.itemPanel?.durability
+                        ? `${doc.itemPanel.durability.current} / ${doc.itemPanel.durability.max}`
+                        : 'see the Items tab',
+                }),
+            ),
             h('h4', null, 'Character'),
-            numberField('hp', 'Health', { barMax: Math.max(100, Number(doc.value('hp') ?? 0)) }),
-            h('small', { class: 'dim note' }, 'Max health is not located in the save; the bar assumes 100.'),
+            numberField('hp', 'Health', { barMax: hpMax }),
             numberField('gold', 'Gold'),
             positionField(),
             h('h4', null, 'Skills'),
@@ -621,11 +673,51 @@ export function initSaveUi(host: SaveUiHost): { openFile(f: File): Promise<void>
         $('sv-details').replaceChildren(h('small', { class: 'dim' }, cur ? 'Select a record.' : 'No save open.'));
     }
 
+    // A top-down map above the lists: every positioned record as a dot, the filtered ones emphasised.
+    const mapCanvas = h('canvas', { id: 'sv-map', class: 'worldmap', width: 720, height: 300 });
+    const mapNote = h('small', { class: 'dim' });
+    $('sv-world').insertBefore(h('div', { class: 'mapbox' }, mapCanvas, mapNote), $('sv-world').firstChild);
+    let mapPoints: MapPoint[] = [];
+    let mapB: MapBounds = mapBounds([]);
+    mapCanvas.onclick = (e) => {
+        const entry = pickMap(mapCanvas, mapPoints, mapB, e);
+        if (entry !== null) showDetails(entry, false);
+    };
+
+    function pointOf(entry: number): MapPoint | null {
+        return mapPoints.find((p) => p.entry === entry) ?? null;
+    }
+
+    let lastMap: { rows: RecordInfo[]; filtered: boolean } = { rows: [], filtered: false };
+
+    function drawWorldMap(rows: RecordInfo[], filtered: boolean): void {
+        if (!cur) return;
+        lastMap = { rows, filtered };
+        const doc = cur.doc;
+        mapPoints = doc.records.flatMap((r) =>
+            r.pos ? [{ x: r.pos[0], z: r.pos[2], entry: r.index, group: groupKey(r) }] : [],
+        );
+        mapB = mapBounds(mapPoints);
+        const keep = new Set(rows.map((r) => r.index));
+        const player = doc.records.find((r) => r.classId === 0x17081069 && r.pos);
+        const arokh = doc.records.find((r) => r.resource === 0xa60 && r.pos);
+        drawMap(mapCanvas, mapPoints, mapB, {
+            highlight: filtered ? mapPoints.filter((p) => keep.has(p.entry)) : undefined,
+            selected: selectedEntry,
+            player: player ? pointOf(player.index) : null,
+            arokh: arokh ? pointOf(arokh.index) : null,
+            dot: 3,
+        });
+        mapNote.textContent = `${mapPoints.length} positioned records, top-down (x across, z down). Green ring: Rynn. Gold ring: Arokh. Click a dot to inspect it.`;
+    }
+
     function renderWorldList(): void {
         const box = $('sv-groups');
         if (!cur) {
             box.replaceChildren();
             $('sv-wcount').textContent = '';
+            mapCanvas.getContext('2d')?.clearRect(0, 0, mapCanvas.width, mapCanvas.height);
+            mapNote.textContent = '';
             return;
         }
         const q = worldQ.value.trim().toLowerCase();
@@ -643,6 +735,10 @@ export function initSaveUi(host: SaveUiHost): { openFile(f: File): Promise<void>
             g.rows.push(r);
         }
         const shown = [...groups.values()].filter((g) => g.rows.length).sort((a, b) => b.rows.length - a.rows.length);
+        drawWorldMap(
+            shown.flatMap((g) => g.rows),
+            q !== '' || onlyPos,
+        );
         $('sv-wcount').textContent =
             `${shown.reduce((n, g) => n + g.rows.length, 0)} of ${cur.doc.records.length} records, ${shown.length} groups`;
         const openAll = q !== '' && shown.length <= 5;
@@ -654,7 +750,8 @@ export function initSaveUi(host: SaveUiHost): { openFile(f: File): Promise<void>
                     h(
                         'summary',
                         null,
-                        h('span', null, g.title),
+                        groupThumb(g.rows),
+                        h('span', { class: 'gname' }, g.title),
                         h('small', null, g.rows.length === g.total ? String(g.total) : `${g.rows.length} / ${g.total}`),
                     ),
                 );
@@ -678,12 +775,23 @@ export function initSaveUi(host: SaveUiHost): { openFile(f: File): Promise<void>
         );
     }
 
+    /** A small picture of where a group's records are in the level. */
+    function groupThumb(rows: RecordInfo[]): HTMLElement {
+        const pts = rows.flatMap((r) =>
+            r.pos ? [{ x: r.pos[0], z: r.pos[2], entry: r.index, group: groupKey(r) }] : [],
+        );
+        if (!pts.length) return h('span', { class: 'gthumb none', title: 'no positions' });
+        const c = h('canvas', { class: 'gthumb', width: 72, height: 44 });
+        drawMap(c, mapPoints, mapB, { highlight: pts, mono: groupColor(pts[0]!.group), dot: 2 });
+        return c;
+    }
+
     function recordRow(r: RecordInfo): HTMLElement {
         const row = h(
             'div',
             { class: `rec${r.index === selectedEntry ? ' sel' : ''}`, onclick: () => showDetails(r.index, false) },
             h('span', null, `#${r.index}`),
-            h('span', null, `id ${r.id}${r.sub ? `/${r.sub}` : ''}`),
+            h('span', { title: recordLabel(r) }, recordLabel(r) || `id ${r.id}${r.sub ? `/${r.sub}` : ''}`),
             h('span', null, `${r.size} B`),
             h('span', { class: 'dim' }, r.pos ? r.pos.map((x) => Math.round(x)).join(', ') : ''),
             r.pos
@@ -707,6 +815,7 @@ export function initSaveUi(host: SaveUiHost): { openFile(f: File): Promise<void>
     function showDetails(index: number, in3d: boolean): void {
         if (!cur) return;
         selectedEntry = index;
+        drawWorldMap(lastMap.rows, lastMap.filtered);
         for (const el of $('sv-groups').querySelectorAll<HTMLElement>('.rec'))
             el.classList.toggle('sel', el.dataset.index === String(index));
         const doc = cur.doc;
@@ -743,6 +852,11 @@ export function initSaveUi(host: SaveUiHost): { openFile(f: File): Promise<void>
                     ]);
                 }
             }
+            const you = doc.records.find((x) => x.classId === 0x17081069 && x.pos);
+            if (rec.pos && you?.pos) {
+                const d = Math.hypot(rec.pos[0] - you.pos[0], rec.pos[1] - you.pos[1], rec.pos[2] - you.pos[2]);
+                known.push(['from Rynn', `${Math.round(d).toLocaleString()} units`]);
+            }
             known.push([`+0x18..${hex(e.data.length - 1, 3)}`, 'unknown (hex below)']);
         } else if (e.type === 0x400 || (e.type === 0x401 && e.id === 891)) {
             known.push(['text', new TextDecoder('latin1').decode(e.data.subarray(2)).replace(/\0+$/, '')]);
@@ -773,7 +887,7 @@ export function initSaveUi(host: SaveUiHost): { openFile(f: File): Promise<void>
             h(
                 'div',
                 { class: 'dhead' },
-                h('b', null, groupTitle(rec)),
+                h('b', null, recordLabel(rec) || groupTitle(rec)),
                 rec.pos
                     ? h('button', { onclick: () => showDetails(index, true) }, 'Show in 3D')
                     : h('small', { class: 'dim' }, 'no position'),

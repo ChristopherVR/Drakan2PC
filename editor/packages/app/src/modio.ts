@@ -6,6 +6,7 @@ import {
     updateModsIni,
     zipModFiles,
     type ApplyReport,
+    type DocumentDiff,
     type LevelDocument,
     type ModMeta,
 } from '@drakan/editor-core';
@@ -31,6 +32,16 @@ const picker = (): ((o?: unknown) => Promise<DirHandle>) | undefined =>
 
 export const canWriteFolder = (): boolean => typeof picker() === 'function' && !/[?&]nofsa\b/.test(location.search);
 
+/** Number of changed objects in a diff (every category counted once per object per category). */
+export const changeCount = (d: DocumentDiff): number =>
+    d.moved.length +
+    d.rotated.length +
+    d.scaled.length +
+    d.added.length +
+    d.deleted.length +
+    d.linked.length +
+    d.params.length;
+
 export interface LevelPack {
     meta: ModMeta;
     files: Record<string, Uint8Array>;
@@ -43,7 +54,7 @@ export interface LevelPack {
 export function buildLevelPack(src: LevelLoadResult, doc: LevelDocument, meta: ModMeta): LevelPack {
     const { list, report } = applyDocumentToLvl(src.lvl.list, doc, { onReferenced: 'unlink' });
     const d = report.diff;
-    if (!d.moved.length && !d.rotated.length && !d.scaled.length && !d.added.length && !d.deleted.length) {
+    if (changeCount(d) === 0) {
         throw new ModError('No level edits to export.');
     }
     const payload = writeObjectList(list);

@@ -44,3 +44,14 @@ The Save tab edits native `.rsg` saves (hp, gold, position, skills), lists memca
 compares two saves. Edits stay pending until SAVE (File System Access API, keeps a `.bak`) or EXPORT (download). Core
 logic: `packages/formats/src/save.ts`, `packages/editor-core/src/save-doc.ts`. See
 `docs/journal/2026-10-31/editor-save-mode.md`.
+
+## Level editor
+
+The Level tab is a docked editor: toolbar, Outliner (left), viewport, Inspector (right), bottom dock (Asset Browser, History,
+Validation, Mod) and a status bar. Open an ISO, pick a level in the toolbar, edit, then Export mod (zip or straight into
+`mods/`; the Mod panel shows the in-game steps). Press F1 for every shortcut: Q/W/E/R tools, X local/world, G grid snap,
+F frame, Del, Ctrl+D/C/V/Z/Y, H/L hide/lock, Shift+1..9 camera bookmarks. Drag a class from the Asset Browser into the
+viewport to place it; right mouse + WASD flies; alt+left orbits. Edits autosave to IndexedDB. Code: `packages/app/src/editor/*`
+(panels), `level.ts` (viewport), `levelui.ts` (wiring), `packages/editor-core/src/{snap,arrange,clipboard,catalog,schema,validate}.ts`
+(pure logic, tested). Notes and limits: `docs/journal/2026-10-31/editor-ux-overhaul.md`. Hooks for the renderer:
+`LevelView.setGround({ meshes, height })`, `levelUi.assets().setThumbnailProvider(fn)`.
