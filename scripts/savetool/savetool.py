@@ -12,6 +12,9 @@ Commands:
   dump   SAVE DIR                          inflated entries, raw entries and manifest.json
   pack   DIR -o SAVE                       rebuild a save from a dump
   fields                                   list the editable fields with confidence notes
+  progress SAVE                            the state table (kind, key, value) at the end of the text payload
+  item   SAVE                              the item text kept in Rynn's record (last inspected item)
+  validate SAVE                            integrity and plausibility report (exit 1 on errors)
 
 Writes never replace a file silently: an existing output (or the input for --in-place) is first kept as
 NAME.bak, or NAME.bak.1, NAME.bak.2, ... when those exist. Stdlib only; Python 3.11+.
@@ -50,6 +53,9 @@ SKILL_NAME_OFFSET = 12
 RYNN_CLASS = 0x17081069
 GOLD_CLASS = 0x19001255
 CLASS_OFFSET = 8
+AROKH_RESOURCE = 0xA60  # u32 at +0 of Arokh's record (Rynn's is 0xa50)
+PROGRESS_ROW_SIZE = 12
+PROGRESS_KINDS = (20, 50, 68, 75, 100)
 
 
 class SaveToolError(Exception):
@@ -141,10 +147,13 @@ def set_payload(entry: Entry, data: bytes) -> None:
 
 @dataclass(frozen=True)
 class RecordLocator:
-    """A 0x102 object record, found by the u32 class id at +8. entry_id pins the index id where the layout is verified."""
+    """A 0x102 object record, found by the u32 class id at +8 or the u32 resource id at +0.
 
-    class_id: int
+    entry_id pins the index id where the layout is verified."""
+
+    class_id: int | None = None
     entry_id: int | None = None
+    resource_id: int | None = None
 
 
 @dataclass(frozen=True)
@@ -153,8 +162,13 @@ class SkillTableLocator:
 
 
 @dataclass(frozen=True)
+class ProgressLocator:
+    """Rows {u32 kind, u32 key, u32 value} of the state table at the end of the text payload, keyed by `key`."""
+
+
+@dataclass(frozen=True)
 class Field:
-    locator: RecordLocator | SkillTableLocator
+    locator: RecordLocator | SkillTableLocator | ProgressLocator
     offset: int  # byte offset inside the record (or skill row)
     kind: str  # "u32" or "vec3" (three float32)
     confidence: str  # "high", "medium" or "low"
@@ -194,6 +208,25 @@ FIELDS: dict[str, Field] = {
         "Rynn record, float X,Y,Z at +12. Matched by class alone because entry ids vary between saves (53, 56, ...). "
         "The same offsets combat_save_fixture.py moves, verified in game.",
     ),
+    "arokh.pos": Field(
+        RecordLocator(resource_id=AROKH_RESOURCE),
+        12,
+        "vec3",
+        "low",
+        "Record whose resource id (u32 at +0) is 0xa60, float X,Y,Z at +12 like every positioned record. Arokh sits "
+        "far from Rynn in Surdana saves. Only matches by symmetry with Rynn; never moved in game.",
+    ),
+    "progress": Field(
+        ProgressLocator(),
+        8,
+        "u32",
+        "low",
+        "Row of the state table at the end of type 0x401 id 893: {u32 kind, u32 key, u32 value}, 12 bytes, running to "
+        "the end of the payload. kind is one of 20, 50, 68, 75, 100; keys are unique. The table has about 100-370 rows, "
+        "fewer after play than at the start. Meaning of kind and value is a hypothesis (per-actor state); only the "
+        "layout is verified.",
+        minimum=0,
+    ),
     "skill": Field(
         SkillTableLocator(),
         4,
@@ -215,6 +248,7 @@ FIELDS: dict[str, Field] = {
 }
 
 _SKILL_FIELD = re.compile(r"skill\.(\d+)(\.max)?")
+_PROGRESS_FIELD = re.compile(r"progress\.(\d+)")
 
 
 def resolve_field(name: str) -> tuple[str, int | None]:
@@ -222,9 +256,14 @@ def resolve_field(name: str) -> tuple[str, int | None]:
     match = _SKILL_FIELD.fullmatch(name)
     if match:
         return ("skill.max" if match.group(2) else "skill"), int(match.group(1))
+    match = _PROGRESS_FIELD.fullmatch(name)
+    if match:
+        return "progress", int(match.group(1))
     if name in FIELDS and isinstance(FIELDS[name].locator, RecordLocator):
         return name, None
-    raise SaveToolError(f"unknown field {name!r}; run `savetool fields` (skills are skill.N or skill.N.max)")
+    raise SaveToolError(
+        f"unknown field {name!r}; run `savetool fields` (skills are skill.N or skill.N.max, progress rows progress.KEY)"
+    )
 
 
 def _u32(data: bytes, off: int) -> int:
@@ -232,22 +271,29 @@ def _u32(data: bytes, off: int) -> int:
 
 
 def _find_record(save: Save, loc: RecordLocator, force: bool) -> Entry:
+    what = f"class 0x{loc.class_id:08x}" if loc.class_id is not None else f"resource 0x{loc.resource_id:x}"
     candidates = [
         e
         for e in save.entries
-        if e.type == TYPE_RECORD and len(e.data) >= CLASS_OFFSET + 4 and _u32(e.data, CLASS_OFFSET) == loc.class_id
+        if e.type == TYPE_RECORD
+        and len(e.data) >= CLASS_OFFSET + 4
+        and (
+            _u32(e.data, CLASS_OFFSET) == loc.class_id
+            if loc.class_id is not None
+            else _u32(e.data, 0) == loc.resource_id
+        )
     ]
     if loc.entry_id is not None and not force:
         pinned = [e for e in candidates if e.id == loc.entry_id]
         if candidates and not pinned:
             ids = sorted({e.id for e in candidates})
             raise SaveToolError(
-                f"record class 0x{loc.class_id:08x} has entry id {ids}; this field is verified only for id "
+                f"record {what} has entry id {ids}; this field is verified only for id "
                 f"{loc.entry_id} (pass --force to use it anyway)"
             )
         candidates = pinned
     if len(candidates) != 1:
-        raise SaveToolError(f"expected one record for class 0x{loc.class_id:08x}, found {len(candidates)}")
+        raise SaveToolError(f"expected one record for {what}, found {len(candidates)}")
     return candidates[0]
 
 
@@ -267,10 +313,31 @@ def _skill_table(save: Save) -> tuple[Entry, int, int]:
     return tables[0], first, count
 
 
+def progress_table(save: Save) -> tuple[Entry, int, list[tuple[int, int, int]]]:
+    """Return (entry, offset of the first row, rows). The start is found by walking back from the end of the payload
+    while the row kind is known, never into the skill rows."""
+    entry, first, count = _skill_table(save)
+    data = entry.data
+    floor = first + count * SKILL_ROW_SIZE
+    start = len(data)
+    while start - PROGRESS_ROW_SIZE >= floor and _u32(data, start - PROGRESS_ROW_SIZE) in PROGRESS_KINDS:
+        start -= PROGRESS_ROW_SIZE
+    rows = [
+        struct.unpack_from("<III", data, o) for o in range(start, len(data) - PROGRESS_ROW_SIZE + 1, PROGRESS_ROW_SIZE)
+    ]
+    return entry, start, rows
+
+
 def locate(save: Save, field: Field, row_id: int | None, force: bool) -> tuple[Entry, int]:
     """Return (entry, base offset) for a field: the record start, or the start of the matching skill row."""
     if isinstance(field.locator, RecordLocator):
         return _find_record(save, field.locator, force), 0
+    if isinstance(field.locator, ProgressLocator):
+        entry, start, rows = progress_table(save)
+        hits = [start + k * PROGRESS_ROW_SIZE for k, row in enumerate(rows) if row[1] == row_id]
+        if len(hits) != 1:
+            raise SaveToolError(f"no unique progress row with key {row_id}")
+        return entry, hits[0]
     if row_id is None:
         raise SaveToolError("skill fields need a row number, e.g. skill.1")
     entry, first, count = _skill_table(save)
@@ -526,12 +593,17 @@ def set_command(save_path: str, name: str, text: str, out: str | None, in_place:
 
 
 def fields_table() -> int:
-    labels = {"skill": "skill.N", "skill.max": "skill.N.max"}
+    labels = {"skill": "skill.N", "skill.max": "skill.N.max", "progress": "progress.KEY"}
     for name, field in FIELDS.items():
         if isinstance(field.locator, RecordLocator):
-            where = f"record class 0x{field.locator.class_id:08x}"
+            if field.locator.class_id is not None:
+                where = f"record class 0x{field.locator.class_id:08x}"
+            else:
+                where = f"record resource 0x{field.locator.resource_id:x}"
             if field.locator.entry_id is not None:
                 where += f" id {field.locator.entry_id}"
+        elif isinstance(field.locator, ProgressLocator):
+            where = "state table row"
         else:
             where = "skill table row"
         print(f"{labels.get(name, name)}  [{field.confidence}]  {field.kind} at +0x{field.offset:x}  ({where})")
@@ -540,6 +612,168 @@ def fields_table() -> int:
 
 
 # ---------------------------------------------------------------- CLI
+
+
+_LINE_OK = re.compile(r"[A-Za-z' ]+: ?[\w/ ]+|In (left|right) hand|Equips to.*|Indestructible")
+_REPAIRS = (
+    (r"^ill Needed:", "Skill Needed:"),
+    (r"^kill Needed:", "Skill Needed:"),
+    (r"^ange:", "Range:"),
+    (r"^urability:", "Durability:"),
+    (r"^rrows:", "Arrows:"),
+    (r"^mage:", "Damage:"),
+    (r"^oden Arrows", "Wooden Arrows"),
+)
+
+
+def _clean_line(run: str) -> str:
+    text = run
+    cut = re.search(r"[=?]", text[:3])
+    if cut:
+        text = text[cut.end() :]
+    text = text.strip()
+    for pattern, repl in _REPAIRS:
+        if re.match(pattern, text):
+            return re.sub(pattern, repl, text)
+    return text
+
+
+def _runs(data: bytes, start: int, end: int) -> list[tuple[int, str]]:
+    out = []
+    for m in re.finditer(rb"[ -~]+", data[start:end]):
+        text = m.group().decode("latin-1")
+        if re.search(r"[A-Za-z]{3}", text):
+            out.append((start + m.start(), text))
+    return out
+
+
+def item_panel(save: Save) -> dict | None:
+    """The item text the inventory screen keeps in Rynn's record: name and detail lines of the last inspected item."""
+    rec = next(
+        (
+            e
+            for e in save.entries
+            if e.type == TYPE_RECORD and len(e.data) > 12 and _u32(e.data, CLASS_OFFSET) == RYNN_CLASS
+        ),
+        None,
+    )
+    if rec is None:
+        return None
+    data = rec.data
+    m = re.search(rb"ed: \d", data)
+    if not m:
+        return None
+    anchor = m.start()
+    runs = _runs(data, max(0, anchor - 0x60), anchor + 0x1F0)
+    need = next((r for r in runs if "Need" in r[1] and r[0] <= anchor < r[0] + len(r[1])), None)
+    need_at = need[0] if need else anchor
+    before = [r for r in runs if r[0] + len(r[1]) <= need_at]
+    lines: list[str] = []
+    for at, text in runs:
+        if at < need_at:
+            continue
+        line = _clean_line(text)
+        if (_LINE_OK.fullmatch(line) or "Needed" in line) and line not in lines:
+            lines.append(line)
+    panel: dict = {"name": _clean_line(before[-1][1]) if before else "", "lines": lines, "offset": anchor}
+    for line in lines:
+        dm = re.search(r"(\d+)/(\d+)", line)
+        if dm and re.search(r"Durability|Arrows", line):
+            panel["durability"] = [int(dm.group(1)), int(dm.group(2))]
+        if re.search(r"left hand", line, re.I):
+            panel["hand"] = "left"
+        elif re.search(r"right hand", line, re.I):
+            panel["hand"] = "right"
+    return panel
+
+
+def validate_save(save: Save) -> list[tuple[str, str, str]]:
+    """Return (severity, code, message) issues: duplicate keys, bad skills, bad player position, state table."""
+    out: list[tuple[str, str, str]] = []
+    seen: dict[tuple[int, int, int], int] = {}
+    for e in save.entries:
+        key = (e.type, e.id, e.sub)
+        if (e.type, e.id) == (TYPE_SKILLS, 891):  # every save carries two level-name entries
+            continue
+        seen[key] = seen.get(key, 0) + 1
+    dups = [k for k, n in seen.items() if n > 1]
+    if dups:
+        out.append(("error", "duplicate-entries", f"{len(dups)} entry key(s) occur more than once, e.g. {dups[0]}"))
+    path = next((e for e in save.entries if e.type == 0x400), None)
+    text = path.data[2:].decode("latin-1").rstrip("\0") if path is not None and len(path.data) > 2 else ""
+    if not text:
+        out.append(("warn", "level-path", "level path entry (type 0x400) is missing"))
+    elif not text.lower().endswith(".lvl"):
+        out.append(("warn", "level-path", f"level path {text!r} does not end in .lvl"))
+    try:
+        entry, first, count = _skill_table(save)
+        for k in range(count):
+            row = first + k * SKILL_ROW_SIZE
+            ident, level, mx = struct.unpack_from("<III", entry.data, row)
+            if level > mx:
+                out.append(("error", "skill-over-max", f"skill {ident}: level {level} exceeds max {mx}"))
+            if mx > 99:
+                out.append(("warn", "skill-max", f"skill {ident}: max {mx} is far above the 8 seen in normal saves"))
+    except SaveToolError as exc:
+        out.append(("warn", "skills", f"skill table not recognised: {exc}"))
+    players = [
+        e
+        for e in save.entries
+        if e.type == TYPE_RECORD and len(e.data) > 23 and _u32(e.data, CLASS_OFFSET) == RYNN_CLASS
+    ]
+    if not players:
+        out.append(("info", "player", "no Rynn record: health and position cannot be edited"))
+    if len(players) > 1:
+        out.append(("error", "player", f"{len(players)} Rynn records found; expected one"))
+    for p in players:
+        pos = struct.unpack_from("<3f", p.data, 12)
+        if not all(math.isfinite(x) for x in pos):
+            out.append(("error", "player-pos", "Rynn position holds a NaN or infinity"))
+        elif all(x == 0 for x in pos) or any(abs(x) > 1e8 for x in pos):
+            out.append(("warn", "player-pos", "Rynn position is zero or out of range"))
+    try:
+        gold = get_field(save, "gold")
+        if isinstance(gold, int) and gold > 10_000_000:
+            out.append(("warn", "gold-range", f"gold reads {gold}; this size comes from a second record layout"))
+    except SaveToolError:
+        pass
+    try:
+        _, _, rows = progress_table(save)
+        if not rows:
+            out.append(("warn", "progress", "state table has no rows"))
+        keys = [r[1] for r in rows]
+        if len(keys) != len(set(keys)):
+            out.append(("error", "progress-dup", f"{len(keys) - len(set(keys))} state table key(s) repeat"))
+    except SaveToolError:
+        pass
+    return out
+
+
+def progress_command(save_path: str) -> int:
+    _, start, rows = progress_table(parse(_read(save_path)))
+    print(f"state table: {len(rows)} rows from payload offset 0x{start:x}")
+    print(f"{'kind':>5} {'key':>6} {'value':>11}")
+    for kind, key, value in rows:
+        print(f"{kind:>5} {key:>6} {value:>11}")
+    return 0
+
+
+def item_command(save_path: str) -> int:
+    panel = item_panel(parse(_read(save_path)))
+    if panel is None:
+        print("no item text in Rynn's record")
+        return 0
+    print(json.dumps(panel))
+    return 0
+
+
+def validate_command(save_path: str) -> int:
+    issues = validate_save(parse(_read(save_path)))
+    for severity, code, message in issues:
+        print(f"{severity:5} {code}: {message}")
+    if not issues:
+        print("ok")
+    return 1 if any(i[0] == "error" for i in issues) else 0
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -565,6 +799,9 @@ def build_parser() -> argparse.ArgumentParser:
     pack_cmd.add_argument("dir")
     pack_cmd.add_argument("-o", "--out", required=True)
     commands.add_parser("fields", help="list editable fields with confidence notes")
+    commands.add_parser("progress", help="print the state table").add_argument("save")
+    commands.add_parser("item", help="print the item text kept in Rynn's record").add_argument("save")
+    commands.add_parser("validate", help="integrity and plausibility report").add_argument("save")
     return parser
 
 
@@ -581,6 +818,12 @@ def main(argv: list[str] | None = None) -> int:
             return dump(args.save, args.dir)
         if args.command == "pack":
             return pack(args.dir, args.out)
+        if args.command == "progress":
+            return progress_command(args.save)
+        if args.command == "item":
+            return item_command(args.save)
+        if args.command == "validate":
+            return validate_command(args.save)
         return fields_table()
     except (SaveToolError, OSError) as exc:
         print(f"savetool: {exc}", file=sys.stderr)

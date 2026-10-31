@@ -137,3 +137,37 @@ Rename or re-render the companion if that matters.
   for them. HP is still unconfirmed as authoritative (vs re-derived on load).
 - The skill count is not at +0x3d0: it sits 4 bytes before the first row, which is located via the "Melee" name.
 - Gold (record class 0x19001255, id 63) read 376 in 305 of 403 saves, so the field location holds but the value varies.
+
+## Inventory, equipment and state (second pass, same day)
+
+Method: Node and Python probes over the 60 distinct local harness saves (copies of `build/harness/**/mc0/*/*.rsg`
+read in place, nothing written back), diffing record sets and Rynn records between saves from known actions
+(dagger vs club, bow, health elixir, fresh vs played). **[V]** = checked on those saves.
+
+Confirmed, now in the field table (TS `save.ts`, `savetool.py`):
+
+| Field | Layout | Confidence |
+| --- | --- | --- |
+| `arokh.pos` | 0x102 record whose resource id (u32 at +0) is `0xa60` (RAM resource `0x20a60`; Rynn is `0xa50`), class `0x1b001041`, floats at +12. Present in Surdana saves only, far from Rynn [V] | low (symmetry with Rynn, never moved in game) |
+| `progress.KEY` | State table at the **end** of type 0x401 id 893: rows `{u32 kind, u32 key, u32 value}` (12 B) run to the payload end. Start found by walking back from the end while `kind` is in {20, 50, 68, 75, 100}, never into the skill rows. Keys are unique in all 60 saves; 94 to 368 rows, fewer after play than at the start (124 in a fresh Surdana save, 94 after play) [V] | layout verified, meaning low |
+| item text | Rynn's record keeps the inventory screen's UI text buffers (name, "Skill Needed", "Damage", "Speed", "Range", "Durability: a/b" or "Arrows: a/b", "In left hand"). These are the item last selected on the Equipment page, not the inventory. First bytes of lines are often overwritten (`ange:`, `urability:`, `L=Speed`); the readers repair the known cases [V] | read only |
+
+Negative results (what the save does **not** show):
+
+- **Inventory grid and equipped items.** Saves with different inventories (dagger vs club, bow, elixir) hold the same set
+  of 0x102/0x104 records, so items are not separate records. In one lineage the cells of the controller appear in Rynn's
+  record around `+0x980` with a 16-byte stride and a 2-byte phase (values `0xa6`, `0xa6`, `0xa7`), which look like
+  registry handles, not ids that can be resolved offline. Not decoded; no inventory edit is offered.
+- **Rynn's record is not a fixed layout.** Lengths seen: 6734, 6738, 6998, 7082, 7090, 7202, 7230, 7454. The "hp" word
+  at +0x708 in entry-id-56 saves moves to +0x75c (7090-byte layout) and +0x764 (7082), so HP sits behind variable
+  content. The value 84 appears only in one session lineage; HP is still not confirmed as authoritative. **Max HP and
+  XP/level: not found** (no stable word across layouts holds 100 or a plausible level).
+- Quest/story flags beyond the state table, the checkpoint, and enemy alive/dead flags: not found. The state table
+  shrinking with play suggests it tracks live actors, but its keys only sometimes equal 0x102 entry ids.
+- `0x302`, `0x311` (4 to 6308 B), `0x21`, `0x24`, `0x51`: variable blocks, not decoded.
+
+## Validation rules (editor and `savetool validate`)
+
+Duplicate (type, id, sub) keys (except the two 0x401/891 level-name entries every save carries), level path missing or
+not `.lvl`, undecodable thumbnail, skill level above max (fix: set level to max), skill max above 99, Rynn record count
+and finite position, gold above 10,000,000 (second layout), hp above 100,000, state table empty or with repeated keys.

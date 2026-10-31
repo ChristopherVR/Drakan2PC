@@ -58,6 +58,41 @@ def make_srsc(entries, *, level=6, gap=b"", compress=True):
     return bytes(body)
 
 
+PROGRESS = ((50, 610, 35), (68, 611, 0), (20, 1094, 18), (100, 440, 7))
+
+
+def skill_table_with_progress(rows):
+    """The skill table followed by 8 pad bytes and the {kind, key, value} state rows."""
+    base = skill_table()
+    data = bytearray(base + bytes(8) + bytes(12 * len(rows)))
+    for k, (kind, key, value) in enumerate(rows):
+        struct.pack_into("<III", data, len(base) + 8 + 12 * k, kind, key, value)
+    return bytes(data)
+
+
+def item_text_rynn():
+    patches = {0x100: b"Wood Club", 0x140: b"Skill Needed: 1", 0x181: b"?Damage: 8", 0x1C0: b"L=Speed: Medium"}
+    patches |= {0x202: b"ange: Short", 0x240: b"u?Durability: 144/150", 0x280: b"W=In left hand"}
+    patches |= {12: struct.pack("<3f", 100.5, -20.25, 3000.0), 0x708: struct.pack("<I", 84)}
+    return record(RYNN, 0x720, patches)
+
+
+def extended_save(*, arokh=True, rows=PROGRESS, skills=None):
+    entries = sample_entries()
+    entries[1] = (TYPE_REC, 56, 0, item_text_rynn())
+    table = skill_table_with_progress(rows)
+    entries[4] = (st.TYPE_SKILLS, st.SKILL_TABLE_ID, 0, table)
+    if skills is not None:
+        data = bytearray(table)
+        struct.pack_into("<I", data, 0x338 + 4, skills)
+        entries[4] = (st.TYPE_SKILLS, st.SKILL_TABLE_ID, 0, bytes(data))
+    if arokh:
+        entries.append(
+            (TYPE_REC, 71, 0, record(0x1B001041, 0x200, {0: struct.pack("<I", 0xA60), 12: struct.pack("<3f", 7, 8, 9)}))
+        )
+    return make_srsc(entries, gap=b"\xaa" * 3)
+
+
 def sample_entries(rynn_id=56):
     rynn = record(RYNN, 0x720, {0x708: struct.pack("<I", 84), 12: struct.pack("<3f", 100.5, -20.25, 3000.0)})
     gold = record(GOLD, 0x460, {0x448: struct.pack("<I", 376)})
@@ -293,6 +328,65 @@ class SaveToolTest(unittest.TestCase):
         value = st.get_field(st.parse(st.assemble(save)[0]), "pos")
         expected = (424575.125, 160942.844, 502777.0)
         self.assertTrue(all(math.isclose(a, b, rel_tol=1e-6) for a, b in zip(value, expected, strict=True)))
+
+    def test_progress_rows_are_read_by_key_and_edited_in_place(self):
+        save = st.parse(extended_save())
+        _, start, rows = st.progress_table(save)
+        self.assertEqual([tuple(r) for r in rows], list(PROGRESS))
+        self.assertEqual(st.get_field(save, "progress.610"), 35)
+        st.set_field(save, "progress.1094", "99")
+        again = st.parse(st.assemble(save)[0])
+        self.assertEqual([r[2] for r in st.progress_table(again)[2]], [35, 0, 99, 7])
+        with self.assertRaises(st.SaveToolError):
+            st.get_field(save, "progress.9999")
+        with self.assertRaises(st.SaveToolError):
+            st.set_field(save, "progress.610", "-1")
+
+    def test_progress_table_is_empty_without_rows(self):
+        self.assertEqual(st.progress_table(st.parse(sample_save()))[2], [])
+
+    def test_arokh_position_by_resource_id(self):
+        save = st.parse(extended_save())
+        self.assertEqual(st.get_field(save, "arokh.pos"), (7.0, 8.0, 9.0))
+        st.set_field(save, "arokh.pos", "1,2,3")
+        self.assertEqual(st.get_field(save, "arokh.pos"), (1.0, 2.0, 3.0))
+        self.assertEqual(st.get_field(save, "pos"), (100.5, -20.25, 3000.0))
+        with self.assertRaises(st.SaveToolError):
+            st.get_field(st.parse(sample_save()), "arokh.pos")
+
+    def test_item_panel_repairs_damaged_line_starts(self):
+        panel = st.item_panel(st.parse(extended_save()))
+        self.assertEqual(panel["name"], "Wood Club")
+        self.assertEqual(
+            panel["lines"],
+            ["Skill Needed: 1", "Damage: 8", "Speed: Medium", "Range: Short", "Durability: 144/150", "In left hand"],
+        )
+        self.assertEqual(panel["durability"], [144, 150])
+        self.assertEqual(panel["hand"], "left")
+        self.assertIsNone(st.item_panel(st.parse(sample_save())))
+
+    def test_validate_reports_problems(self):
+        clean = st.validate_save(st.parse(extended_save()))
+        self.assertEqual([i for i in clean if i[0] != "info"], [])
+        over = st.validate_save(st.parse(extended_save(skills=9)))
+        self.assertIn("skill-over-max", [i[1] for i in over])
+        dup = st.validate_save(st.parse(extended_save(rows=(*PROGRESS, (50, 610, 1)))))
+        self.assertIn("progress-dup", [i[1] for i in dup])
+        code, text, _ = run(["validate", str(self.write("v.rsg", extended_save(skills=9)))])
+        self.assertEqual(code, 1)
+        self.assertIn("skill-over-max", text)
+        self.assertEqual(run(["validate", str(self.write("ok.rsg", extended_save()))])[0], 0)
+
+    def test_progress_and_item_commands(self):
+        path = self.write("p.rsg", extended_save())
+        code, text, _ = run(["progress", str(path)])
+        self.assertEqual(code, 0)
+        self.assertIn("4 rows", text)
+        self.assertIn("1094", text)
+        code, text, _ = run(["item", str(path)])
+        self.assertEqual(json.loads(text)["name"], "Wood Club")
+        self.assertIn("progress.KEY", run(["fields"])[1])
+        self.assertIn("arokh.pos", run(["fields"])[1])
 
 
 if __name__ == "__main__":
