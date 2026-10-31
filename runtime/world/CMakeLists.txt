@@ -12,12 +12,18 @@ drakan_component_require(gameui)
 add_library(drakan_world STATIC
     src/Reader.cpp
     src/Json.cpp
-    src/Exchange.cpp)
+    src/Exchange.cpp
+    src/Pose.cpp)
 add_library(drakan::world ALIAS drakan_world)
 target_include_directories(drakan_world PUBLIC include)
 target_link_libraries(drakan_world PUBLIC drakan::gameui PRIVATE drakan::options)
 
 if(DRAKAN_BUILD_RUNTIME_TESTS)
+    # Pose model: synthetic memory + interpolation (the bridge to the real net::PlayerState is tested in runtime/net).
+    add_executable(world_pose_test tests/pose_test.cpp)
+    target_link_libraries(world_pose_test PRIVATE drakan_world drakan::options)
+    add_test(NAME world_pose_test COMMAND world_pose_test)
+
     # Synthetic memory images only (built in the test); no game bytes are read or committed.
     add_executable(world_test tests/world_test.cpp)
     target_link_libraries(world_test PRIVATE drakan_world drakan::options)
@@ -29,4 +35,10 @@ if(DRAKAN_BUILD_RUNTIME_TESTS)
     target_compile_definitions(world_ram_test PRIVATE "WORLD_REPO_ROOT=\"${DRAKAN_ROOT_DIR}\"")
     add_test(NAME world_ram_test COMMAND world_ram_test)
     set_tests_properties(world_ram_test PROPERTIES SKIP_RETURN_CODE 77)
+
+    add_executable(world_pose_ram_test tests/pose_ram_test.cpp)
+    target_link_libraries(world_pose_ram_test PRIVATE drakan_world drakan::options)
+    target_compile_definitions(world_pose_ram_test PRIVATE "WORLD_REPO_ROOT=\"${DRAKAN_ROOT_DIR}\"")
+    add_test(NAME world_pose_ram_test COMMAND world_pose_ram_test)
+    set_tests_properties(world_pose_ram_test PROPERTIES SKIP_RETURN_CODE 77)
 endif()

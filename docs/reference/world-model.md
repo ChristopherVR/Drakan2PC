@@ -136,3 +136,42 @@ without them logs "disabled" and the panel stays off (the USA profile has not be
   the reader degrades to `NoContext` / `NoRegistry` or fewer entities while the pointers are being rebuilt. Verified
   only offline on dumps of two levels; a live level-change run is still to do.
 * Spawn / despawn is another agent's area; this layer only reads.
+
+## 6. Pose model: the controlled actor's skeleton channels (S2 groundwork)
+
+`world/Pose.h` (`readPlayerPose`, `PoseBuffer`, `toPlayerState` / `fromPlayerState`) records the local player so a ghost
+can replay it. Every offset below was re-checked against RAM dumps (`world_pose_ram_test`: 7 dumps, 85 checks; Rynn idle,
+strafe, three attack frames, bow drawn, and Arokh controlled; a wider scan of about 2800 dumps confirmed the channel layout
+for every dump with a live player).
+
+Naming: `H` = the player handle (`ctx+0x4b0`), `data = *(*(H+0xfc)+0x10)` = the class instance data (what
+`drakan_dual_wield.cpp` calls `player`), `sk = *(H+0x50)`. `*(data+0x80) == H` in every dump, so the dual-wield code's
+"model" is the handle; the spawn journal's "skeleton at actor+0x50" is right.
+
+| What | Where | Confidence |
+| --- | --- | --- |
+| Skeleton | `sk = *(H+0x50)`; flags `sk+8` (`0x980078` idle, `0x980058` attacking) | [RAM] |
+| Channel array | `*(sk+0xe8)`, count `u32(sk+0xf0)`, stride `0x80`; own node id `+4` (Rynn: 0, 9, 10, 61, 55, 5, 4, 37, 2, 6, 11), attach `+8` (-1 or 0), **clip id `+0x50`** (u32 resource id), **time `+0x58`** (float, seconds into the clip) | [RAM] |
+| Channel count | Rynn 10 to 19 (11 normally, 13 with the bow, 19 with held items), Arokh 7. Cap reads at 32 | [RAM] |
+| node to channel | u16 table `*(sk+0xdc)`; Rynn: node 0 -> channel 0, nodes 2 / 16 / 34 -> channel 8, nodes 54 / 60 (legs) -> channel 0. Arokh: nodes 0 / 2 / 16 / 34 / 60 -> 0, node 54 -> 1 | [RAM] |
+| Locomotion channels | the channel of node 0 (channel 0, plus 3 and 4 = nodes 61 / 55, and 11 / 12 when present) play one clip: the walk / run / idle clip, which keeps playing during a moving attack | [RAM] |
+| Upper body channels | the channel of node 2 (channel 8, plus 1, 2, 5, 6, 7, 9, 10): spine, arms, weapon attachment. Equal to the lower clip while idle or walking; **a different clip during an attack, block or aim** (e.g. lower `0x2066d`, upper `0x206a5`) | [RAM] |
+| Clip ids seen | `0x2047b` / `0x2081b` (dual wield pair), `0x20577` idle, `0x2066d` / `0x206a5` melee stance pair, `0x20691` attack, `0x20894` / `0x20895` / `0x20897` / `0x208ae` bow, `0x40663` Arokh | [RAM] |
+| Clip time | 0 to about 3, wraps when the clip loops (the interpolator treats a backwards step as a wrap) | [RAM] values, [inf] unit is seconds |
+| Attack flag | `data+0x94 & 0x80` (`0x100` during blocking / aim holds, `0x20000` with the bow out) | [RAM] |
+| Weapon holders | `data+0xeb4` (right, melee) and `data+0xe90` (left, bow), `+0x1c` = u16 registry ref of the held item. Resource ids seen: sword / club `0x33cbc`, usable `0x33752`, bow class `0x1004f` (res `0x31bc9`), ammo class `0x1005f` (res `0x3379d`). 0, `0xff00`, `0xff01` mean none | [RAM] |
+| Mounted | the controlled handle's class is `0x1001c` (Arokh); Rynn is then not posed. The class decides; `data+0x4d8` is not a reliable flag (`1`, `0x530001`, `0x5b` seen) | [RAM] |
+| Position / rotation | `H+0x14`, `H+0x20` (section 1); for Rynn a pure Y rotation. The facing sign of `yaw = atan2(m[0][2], m[0][0])` is still unverified in game | [RAM] / [?] |
+
+Library: `PlayerPose` {handle, class, mounted, attacking, time, tick, position, rotation, yaw, velocity, `lower` and
+`upper` (`ChannelPose` = clip + time), `lowerMask` (bit per channel playing the lower clip, all bits when both are equal),
+`weaponRight` / `weaponLeft` resource ids}. Velocity is the finite difference between two reads (`PoseReadState`).
+`PoseBuffer` keeps time-stamped samples: lerp of position and velocity, nlerp of the rotation (shortest arc), clip time lerp
+inside a clip (advance on a wrap), a clip change keeps the old clip until the next sample is reached and then snaps,
+teleports (step over `jumpDistance`) are not blended, a read past the newest sample extrapolates by velocity up to 250 ms,
+`sample(now)` renders `delaySec` (100 ms) behind. Net bridge: duck-typed templates in `Pose.h`, so `world` does not depend
+on `net` (checked against the real `net::PlayerState` by `net_pose_bridge_test` in runtime/net); the wire carries the lower
+clip as u16, the weapon as the low byte of the resource id, yaw only.
+
+Tests: `world_pose_test` (synthetic memory, interpolation, buffer, bridge), `world_pose_ram_test` (local dumps, exit 77
+when absent; `--json out.json <dumps...>` writes poses for playback), `net_pose_bridge_test`.

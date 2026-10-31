@@ -31,6 +31,12 @@ if(NOT EMSCRIPTEN)
 endif()
 
 if(DRAKAN_BUILD_RUNTIME_TESTS)
+    # world::toPlayerState / fromPlayerState against the real wire type (world is a test-only dependency here).
+    drakan_component_require(world)
+    add_executable(net_pose_bridge_test tests/pose_bridge_test.cpp)
+    target_link_libraries(net_pose_bridge_test PRIVATE drakan_net drakan::world drakan::options)
+    add_test(NAME net_pose_bridge_test COMMAND net_pose_bridge_test)
+
     add_executable(net_protocol_test tests/protocol_test.cpp)
     target_link_libraries(net_protocol_test PRIVATE drakan_net drakan::options)
     add_test(NAME net_protocol_test COMMAND net_protocol_test)
