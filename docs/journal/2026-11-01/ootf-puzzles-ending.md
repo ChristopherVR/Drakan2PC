@@ -96,9 +96,10 @@ seconds; `OOTF_TEST_DIRECT=1|2` skips the counter / counter and end timer), `OOT
 * **Link fix + all changes, level loads**: every single-player level except the Book loads and reaches control with the new conversion (runs
   `a1-*`: Ruined Village, Wartok Canyons, Grimstone Mines, Grotto, Islands, Alwarren, Rift Crystal, Islands Night, Succubus Lair, Volcanic, Rift
   World, Intro: all PASS, no crash / missing-target lines). The Book was not re-run (known hang, unrelated).
-* **Plates**: 42 plates convert to 42 detectors and the levels load; the plate-to-gate chain was *not* proven in game. The detector is the same
-  class and message path as the exit detectors, which are proven (`DRAKAN_PLAYTEST_POS` into the box fires them), but the two Wartok runs
-  (`p1`, `p2`: Rynn placed on the plate of the Secret Entrance mover) did not show the movers (p1: Rynn died of a fall off the cliff the plate is on).
+* **Plates**: 42 plates convert to 42 detectors and the levels load. Wartok Canyons run `p2` (Rynn held on the plate of the two Secret Entrance
+  movers, `DRAKAN_PLAYTEST_POS=235520,33900,131072,2.4`): the screenshots alternate between a cave-roof view and the open vista while Rynn is
+  held still, i.e. the world moves around her - consistent with the sliding movers being triggered, but not a clean proof (no object positions were
+  logged). The detector is the class and message path of the exit detectors, which are proven. Run `p1` (y = 35200) put Rynn in the air and she fell.
 * **Quest markers / combination lock / messenger**: convert and load (Rift Crystal, Islands, Volcanic, ...). The journal screen was not opened.
 
 ## What is still open
