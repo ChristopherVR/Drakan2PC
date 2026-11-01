@@ -49,3 +49,25 @@ most of the time (about 1.5 h of waiting for ~8 short runs).
 
 Harness notes: `build/ootf-run/dr_run.sh` (lock with trap, 2 s polling, `PT=` for `DRAKAN_PLAYTEST_POS`), recipes `dr_walk` / `dr_use` / `dr_sw` /
 `dr_wlad`, `dr_sheet.py` (contact sheet, brightened). Use is a tap: `key down E` then `key up E` 60 ms later.
+
+## Follow-up: doors open by proximity, ropes
+
+**Door class (rfl 19, clone of WORLDCON "MW Wood Door01") fields** (converted "Inner Door L", all copied from the PC class, coverage 1.00): `Locked 0`,
+`Auto-Open? 1`, `Auto-Open Distance` 2.0 lu (= 4096 units), `Auto-Close Distance` 3.0 lu, `Open Direction`, `Opened Rotation Angle` ~1.9 rad,
+`Msg Sent When Opened 1`, `Msg Sent When Closed 0`. The village doors therefore do not need a switch: they swing open when Rynn comes within
+~4096 units. The "Generic Detector" #2142 (links to 13 doors) is a separate puzzle trigger (its messages are not what normally opens a plain door).
+The switch (rfl 13, clone of LEVEL1ON "Button", `Switch Type 3`, `Message to send when on 1`, off 0) sends message 1 to its links, and a door's
+`Msg Sent When Opened` is also 1. Links survive the renumbering (checked with `DRAKAN_DBG_LINKS`: Generic Detector #2142 -> doors 916, 917, ...).
+
+**Demonstration (dr8 / dr11m, `build/ootf-run/dr11m/run/s0..s13.png`, "Inner Door L" pulled 6000 units in front of Rynn, `DRAKAN_DBG_PULLROT=-90`
+so it faces the camera, Rynn runs at it, 500 ms per shot).** Shots s0..s3 (distance 6000 to ~4500): the carved door face is turned toward the
+camera; s4 (about 4100 units, the auto-open distance): the door has swung 90 degrees and is a thin edge-on slab, and stays so while Rynn passes it.
+With the original yaw (dr8) the sequence is mirrored (edge-on first, face after the threshold). The earlier "no change" runs had the door already
+inside the open distance from the first frame, so it had opened before the first screenshot (that is why it looked edge-on in every shot).
+
+**Ropes.** The Grimstone Mines "ropes" #2263 / "Bridge Rope" #1938 are engine class 17 (static scenery, cloned from "spear" with the PC model),
+not rfl 73; they load (dr9) but sit in a dark cave, nothing to climb. The rfl 73 ropes are Islands "Swing rope" #3031.. / "Cagerope", Ruined Village
+"Rope" (hangs the crates, name-mapped disc class) and Wartok "Rope". dr10 (Islands, two "Swing rope" pulled 800 units in front): level loads, the
+rope draws as a striped vertical rope and is solid (Rynn runs against it, `build/ootf-run/dr10/run`). Swinging on it (jump, grab) was not tried.
+
+New test aid: `DRAKAN_DBG_PULLROT=<deg>` (adds yaw to pulled objects).
