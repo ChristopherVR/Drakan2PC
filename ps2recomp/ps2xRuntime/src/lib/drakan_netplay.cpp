@@ -500,8 +500,11 @@ void runSession(const Cmd& c, drakan::net::ServerBrowser& browser, uint64_t& las
         so.autoStartPlayers = c.host.autoStart ? 1 : 0;
         applyDrakanPvpTuning(so); // melee reach, weapon limits, damage x3, respawn after 3 s (MatchServer.h)
         if (const char* hr = std::getenv("DRAKAN_PVP_MAX_HIT_RANGE");
-            hr && *hr)                                          // test aid: the harness's ghosts are held
+            hr && *hr) // test aid: the harness's ghosts are held
+        {
             so.maxHitRange = static_cast<float>(std::atof(hr)); // next to each player, far from the real spawns
+            so.maxHitRangeRanged = so.maxHitRange;              // (also for breath and arrow claims)
+        }
         if (const char* ds = std::getenv("DRAKAN_PVP_DAMAGE_SCALE"); ds && *ds)
             so.damageScale = std::clamp(static_cast<float>(std::atof(ds)), 0.1f, 100.0f);
         if (const char* rd = std::getenv("DRAKAN_PVP_RESPAWN_MS"); rd && *rd)

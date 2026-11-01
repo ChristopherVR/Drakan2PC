@@ -216,7 +216,7 @@ void hookBladeHit(uint8_t* rdram, R5900Context* c, PS2Runtime* rt) {
 // the path each one flew since the last boundary is tested against the vertical capsule of every ghost. A crossing is
 // one claim (weapon = 2) per projectile: arrow damage 5 (the starting arrows' inventory "Damage"), spells
 // kSpellDamage (their damage is not decoded; the server caps projectile claims at kMaxProjectileDamage).
-constexpr uint32_t kArrowClass = 0x1005fu, kSpellClass = 0x10008u;
+constexpr uint32_t kArrowClass = 0x1005fu, kSpellClass = 0x10008u, kDragonClass = 0x1001cu;
 constexpr uint16_t kSpellDamage = 10;
 constexpr float kProjSpawnRadius = 900.0f; // a projectile first seen farther from the player is somebody else's
 constexpr float kGhostRadius = 150.0f;     // horizontal reach of a ghost
@@ -352,6 +352,117 @@ void scanProjectiles(drakan_input::IGuest& guest, const uint8_t* rdram, uint32_t
     }
 }
 
+// ---------------------------------------------------------------------------------------------- dragon breath
+
+// Class id of an actor (registry record +8), 0 when unknown.
+uint32_t classOfActor(const uint8_t* rdram, uint32_t h) {
+    const uint32_t ctx = rd32(rdram, guestAddress(kContextPtr));
+    const uint32_t res = ramPtr(ctx) ? rd32(rdram, ctx + 0x320) : 0, recs = ramPtr(res) ? rd32(rdram, res + 8) : 0;
+    const uint16_t ix = ramPtr(h) ? rd16(rdram, h + 0x10) : 0xffff;
+    return ramPtr(recs) && ix != 0xffff ? rd32(rdram, recs + ix * 0x24u + 8) : 0;
+}
+bool controlledIsDragon(const uint8_t* rdram) {
+    return classOfActor(rdram, controlledActor(rdram)) == kDragonClass;
+}
+
+// Dragon breath. The engine's own breath (attack command 0x4006 on Arokh: the dragon controller's slot +0x164 only sets
+// bit 1 of data+0x90 while the button is held) produced no actor and no visible effect in the converted air arenas
+// (docs/journal/2026-11-01/ootf-dragon-pvp.md), so the PvP breath is the host's: while the attack bit is held the
+// dragon claims a hit on every ghost inside a cone in front of him every kBreathTicks boundaries, as a ranged claim
+// (weapon 2, the server's cap and range rules apply). A remote player is two ghosts (rider and dragon) and gets one
+// claim per breath.
+constexpr unsigned kBreathTicks = 20;      // boundaries between two breath claims while the attack is held (~0.4 s)
+constexpr uint16_t kBreathDamage = 4;      // server points before its damage scale (x3: 12 of the 100 point bar)
+constexpr float kBreathRange = 5000.0f;    // reach of the breath along the dragon's heading
+constexpr float kBreathWidth = 350.0f;     // radius of the cone at the dragon, growing by kBreathSpread per unit
+constexpr float kBreathSpread = 0.2f;
+constexpr uint32_t kDragonHp = 0x6b4u;     // Arokh's health, float, 100.0 when full (coop-dragons-health-mount.md)
+
+struct BreathState {
+    bool held = false;
+    unsigned lastTick = 0;
+} g_breath;
+
+// The breath's targets: ghosts inside the cone. Returns the player ids hit (each once).
+std::vector<int> breathTargets(const uint8_t* rdram, uint32_t dragon) {
+    float m[12];
+    std::memcpy(m, rdram + ((dragon + 0x14) & 0x1ffffffu), sizeof m);
+    const float* fwd = m + 9; // row 2 of the 3x3 at +0x20: where the actor looks (testPlaceGhosts' "front")
+    std::vector<int> out;
+    drakan_ghost::forEach([&](const drakan_ghost::Info& i) {
+        if (!i.handle)
+            return;
+        const float d[3] = {rdf(rdram, i.handle + 0x14) - m[0], rdf(rdram, i.handle + 0x18) - m[1],
+                            rdf(rdram, i.handle + 0x1c) - m[2]};
+        const float along = d[0] * fwd[0] + d[1] * fwd[1] + d[2] * fwd[2];
+        if (!(along > 0.0f && along < kBreathRange))
+            return;
+        const float len2 = d[0] * d[0] + d[1] * d[1] + d[2] * d[2];
+        const float perp = std::sqrt(std::max(0.0f, len2 - along * along));
+        if (perp > kBreathWidth + kBreathSpread * along)
+            return;
+        const int player = drakan_netplay::playerOfGhost(i.id);
+        if (player > 0 && std::find(out.begin(), out.end(), player) == out.end())
+            out.push_back(player);
+    });
+    return out;
+}
+
+// Called every boundary while the local player is alive and rides a dragon.
+void scanBreath(const uint8_t* rdram, uint32_t dragon) {
+    const uint32_t data = dataOf(rdram, dragon);
+    const bool attack = ramPtr(data) && (rd32(rdram, data + 0x90) & 2u) != 0;
+    const bool edge = attack && !g_breath.held;
+    g_breath.held = attack;
+    if (!attack || (!edge && g_projTick - g_breath.lastTick < kBreathTicks))
+        return;
+    g_breath.lastTick = g_projTick;
+    for (const int player : breathTargets(rdram, dragon)) {
+        std::fprintf(stderr, "[pvp] breath hit player %d damage %u -> claim\n", player,
+                     static_cast<unsigned>(kBreathDamage));
+        drakan_netplay::sendHitClaim(static_cast<uint8_t>(player), 2, kBreathDamage);
+    }
+}
+
+// Arokh's health bar follows the server's: the float at data+0x6b4 (the engine regenerates it between hits).
+void setDragonHp(drakan_input::IGuest& guest, const uint8_t* rdram, int serverPoints) {
+    const uint32_t data = dataOf(rdram, controlledActor(rdram));
+    if (ramPtr(data))
+        guest.writeF(data + kDragonHp, static_cast<float>(std::clamp(serverPoints, 1, 100)));
+}
+
+// DRAKAN_PVP_DRAGON_PROBE=1: while the controlled actor is a dragon, logs every object that appears in the registry
+// (any kind) with its offset from the dragon, to find what an attack spawns.
+void probeNewActors(const uint8_t* rdram, uint32_t player) {
+    static std::map<uint32_t, uint32_t> seen; // handle -> class
+    static bool seeded = false;
+    const uint32_t ctx = rd32(rdram, guestAddress(kContextPtr));
+    const uint32_t table = rd32(rdram, ctx + 0x7c);
+    const uint32_t n = std::min<uint32_t>(rd32(rdram, ctx + 0x84), 20000u);
+    if (!ramPtr(table))
+        return;
+    std::map<uint32_t, uint32_t> now;
+    for (uint32_t i = 0; i < n; ++i) {
+        const uint32_t h = rd32(rdram, table + i * 8);
+        if (!ramPtr(h))
+            continue;
+        const bool isActor = rd32(rdram, h) == guestAddress(0x51b8b0u);
+        const uint32_t cls = isActor ? classOfActor(rdram, h) : 0xdead0000u + (rd32(rdram, h) & 0xffffu);
+        now[h] = cls;
+        auto it = seen.find(h);
+        if (seeded && (it == seen.end() || it->second != cls))
+            std::fprintf(stderr, "[pvp] dragon probe: new object %x type %u class %x\n", h, rd32(rdram, h + 0xc), cls);
+    }
+    seen.swap(now);
+    seeded = true;
+    static uint32_t lastFlags = 0xffffffffu;
+    const uint32_t fl = rd32(rdram, dataOf(rdram, player) + 0x90);
+    if (fl != lastFlags) {
+        std::fprintf(stderr, "[pvp] dragon probe: flags90 %x -> %x\n", lastFlags, fl);
+        lastFlags = fl;
+    }
+}
+
 // ---------------------------------------------------------------------------------------------- victim side
 
 // Engine hit reaction for the local player: Rynn's own damage method (flinch, sound, HUD message) with a damage that
@@ -418,6 +529,8 @@ void showDeath(drakan_input::IGuest& guest, const uint8_t* rdram, float dt) {
     if (actor != g_deadActor)
         return;
     g_deathTime += dt;
+    if (controlledIsDragon(rdram))
+        return; // Arokh has no clip of Rynn's: the swallowing handler holds him where he was shot down
     const uint32_t sk = rd32(rdram, actor + 0x50);
     const uint32_t ch = ramPtr(sk) ? rd32(rdram, sk + 0xe8) : 0;
     const uint32_t n = ramPtr(sk) ? rd32(rdram, sk + 0xf0) : 0;
@@ -472,6 +585,8 @@ void reviveLocal(drakan_input::IGuest& guest, uint8_t* rdram) {
         std::fprintf(stderr, "[pvp] respawned at spawn %u: %.0f %.0f %.0f\n", g_resp.spawn,
                      static_cast<double>(spawn[0]), static_cast<double>(spawn[1]), static_cast<double>(spawn[2]));
     }
+    if (controlledIsDragon(rdram))
+        setDragonHp(guest, rdram, g_resp.health);
     g_pendingHp = std::max(1, engineUnits(rdram, g_resp.health));
     g_life.store(static_cast<int>(Life::Alive));
 }
@@ -503,7 +618,10 @@ void handleEvent(drakan_input::IGuest& guest, uint8_t* rdram, const Event& e) {
             if (e.b == me && e.health > 0 && life == Life::Alive) {
                 std::fprintf(stderr, "[pvp] hit by player %u: %u damage, server health %u (HP %d)\n", e.a, e.damage,
                              e.health, playerHp(rdram));
-                hurtLocal(guest, rdram, engineUnits(rdram, e.damage));
+                if (controlledIsDragon(rdram))
+                    setDragonHp(guest, rdram, e.health); // Rynn's damage method is not Arokh's: his bar follows the server
+                else
+                    hurtLocal(guest, rdram, engineUnits(rdram, e.damage));
                 g_pendingHp = std::max(1, engineUnits(rdram, e.health));
             }
             break;
@@ -520,6 +638,8 @@ void handleEvent(drakan_input::IGuest& guest, uint8_t* rdram, const Event& e) {
                 g_resp.spawn = 0;
                 g_resp.health = 100;
                 endDeath(rdram);
+                if (controlledIsDragon(rdram))
+                    setDragonHp(guest, rdram, 100);
                 g_pendingHp = std::max(1, engineUnits(rdram, 100));
                 g_life.store(static_cast<int>(Life::Alive));
             }
@@ -533,6 +653,8 @@ void handleEvent(drakan_input::IGuest& guest, uint8_t* rdram, const Event& e) {
                 reviveLocal(guest, rdram);
             } else if (life == Life::Alive) { // a match start / mid-match join: the health, and the arena's spawn point
                 drakan_arena::placeAtSpawn(guest, rdram, e.b);
+                if (controlledIsDragon(rdram))
+                    setDragonHp(guest, rdram, e.health);
                 g_pendingHp = std::max(1, engineUnits(rdram, e.health));
             }
             break;
@@ -690,14 +812,21 @@ void beforePadMgr(drakan_input::IGuest& guest, uint8_t* rdram) {
                 {{rdf(rdram, i.handle + 0x14), rdf(rdram, i.handle + 0x18), rdf(rdram, i.handle + 0x1c)}});
     });
     testPlaceGhosts(rdram, player, g_ready);
+    static const bool dragonProbe = std::getenv("DRAKAN_PVP_DRAGON_PROBE") != nullptr;
+    const bool mounted = controlledIsDragon(rdram);
+    if (mounted && dragonProbe)
+        probeNewActors(rdram, player);
     if (!enemies.empty())
         g_enemies = std::move(enemies);
 
     switch (static_cast<Life>(g_life.load())) {
         case Life::Alive:
             recordCrumb(rdram, player);
-            if (g_local.load() && !g_enemies.empty())
+            if (g_local.load() && !g_enemies.empty()) {
                 scanProjectiles(guest, rdram, player);
+                if (mounted)
+                    scanBreath(rdram, player);
+            }
             break;
         case Life::Dying: {
             ++g_lifeTicks;

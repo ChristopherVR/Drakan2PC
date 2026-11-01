@@ -833,11 +833,16 @@ pack's `maps/<level>.ini`:
   and the dragon pads' spawns are flyable positions instead of a void (Arena of Death: screenshot `build/harness/mp4-aod/a/extra_8000.png`,
   a mounted Rynn over the canyon floor). While mounted the controlled actor is Arokh, whose data object has no inventory: the
   arena skips the loadout and the auto-equip then (`controlledIsDragon`; before, the stow called through a null listener and
-  both instances crashed with `missing-target`). Dragon-vs-dragon play is not implemented: a mounted player's weapon is his breath,
-  PvP damage is wired for Rynn's melee only (see "Not done"), so an air arena can be hosted, joined and flown but not won yet.
+  both instances crashed with `missing-target`). **Dragon-vs-dragon play** (`drakan_pvp.cpp` `scanBreath`): the engine's
+  breath did not produce anything in these arenas (no actor, no flame), so the attack bit of the dragon (`data+0x90` bit 1, set by the
+  normal attack command) fires a host breath: a ranged claim (weapon 2, damage 4, every ~0.4 s while held) on every ghost inside a
+  cone in front of the dragon (range 5000). While mounted the victim's dragon health float (`data+0x6b4`) follows the server, a death
+  freezes the dragon and the Respawn puts him on the next dragon pad spawn; kills, frag limit and match end are the existing flow.
+  Verified with two instances on Arena of Death (`scripts/harness/arena_dragons.py`, journal `2026-11-01/ootf-dragon-pvp.md`): two kills,
+  `match over: player 1 wins`. No flame is drawn yet.
   The dragon pads and the Soul Crystal stay as `marker` lines (authored, not read by the game).
 
-Not done: team spawn sets, PvP damage between mounted players, the USA disc (see `docs/reference/regions.md` "Multiplayer arenas on USA").
+Not done: team spawn sets, a visible breath effect, the USA disc (see `docs/reference/regions.md` "Multiplayer arenas on USA").
 
 ## Tests
 
