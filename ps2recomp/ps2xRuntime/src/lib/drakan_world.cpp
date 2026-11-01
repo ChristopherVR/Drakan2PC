@@ -49,8 +49,9 @@ world::Globals g_globals; // EE thread (set once in configure, before the first 
 world::ReaderState g_state;
 world::SnapshotExchange g_exchange;
 bool g_headless = false;    // DRAKAN_WORLD=2: sample every frame without the overlay (harness runs)
-uint64_t g_dumpAtFrame = 0; // DRAKAN_WORLD_DUMP_FRAME=N: write one JSON dump at the Nth sample (harness runs)
+std::vector<uint64_t> g_dumpAtFrames; // DRAKAN_WORLD_DUMP_FRAME=N[,M...]: write a JSON dump at each listed sample (harness runs)
 uint64_t g_frames = 0;
+std::string g_dumpLevel, g_framesLevel; // DRAKAN_WORLD_DUMP_LEVEL=<substring>: only count / dump samples of that level; the count restarts per level
 
 // ---- UI thread state ----
 struct Ui {
@@ -144,8 +145,16 @@ void configure() {
     }
     g_globals = g;
     g_headless = v[0] == '2';
+    if (const char* l = std::getenv("DRAKAN_WORLD_DUMP_LEVEL"))
+        g_dumpLevel = l;
     if (const char* d = std::getenv("DRAKAN_WORLD_DUMP_FRAME"))
-        g_dumpAtFrame = std::strtoull(d, nullptr, 10);
+        for (const char* p = d; *p;) {
+            char* end = nullptr;
+            const uint64_t n = std::strtoull(p, &end, 10);
+            if (n)
+                g_dumpAtFrames.push_back(n);
+            p = (end && *end == ',') ? end + 1 : (end && end != p ? end : p + 1);
+        }
     g_enabled.store(true);
     std::fprintf(stderr, "[world] panel enabled (F1 > World window); dumps go to %s\n", dumpDir().c_str());
 }
@@ -176,9 +185,14 @@ void sample(const uint8_t* rdram, bool overlayOpen) {
         lastLevel = cur.levelName;
         lastCount = cur.entities.size();
     }
-    if (g_dumpAtFrame && g_exchange.back().status == world::ReadStatus::Ok && g_exchange.back().player() &&
-        ++g_frames == g_dumpAtFrame)
-        dumpJson(g_exchange.back()); // Nth sample with a live player (harness runs)
+    if (g_exchange.back().levelName != g_framesLevel) { // the sample count restarts in each level
+        g_framesLevel = g_exchange.back().levelName;
+        g_frames = 0;
+    }
+    if (!g_dumpAtFrames.empty() && g_exchange.back().status == world::ReadStatus::Ok && g_exchange.back().player() &&
+        (g_dumpLevel.empty() || g_framesLevel.find(g_dumpLevel) != std::string::npos) &&
+        (++g_frames, std::find(g_dumpAtFrames.begin(), g_dumpAtFrames.end(), g_frames) != g_dumpAtFrames.end()))
+        dumpJson(g_exchange.back()); // listed samples with a live player (harness runs)
     g_exchange.publish();
 }
 
