@@ -199,3 +199,33 @@ Not tried: running the rfl-68 pull with the Scavenger's template record (`Scaven
 `FUN_002d2d00` (creature init, error string "does not have a character model assigned!" when the handle has no skeleton) and `FUN_0030ef50` (reads class fields 0x28.. and model records 0x205..0x208).
 Because the Scavenger is invisible, the new-clip-id case (a converted clip id reached through a class animation field) is still not shown playing; the Crimson Knights of `sl1` use them
 (their class fields map to converted ids) and stand in their idle, but no frame sequence of a changing clip was taken.
+
+## Converted-skeleton creatures: the cause is non-square textures (2026-11-01, evening)
+
+**Root cause: a skinned (creature) model with a non-square texture draws no body (only its shadow).** The Scavenger's PC texture 6773 is
+256x128 with alpha; every one of the 143 disc skinned models checked (NPCS.MOD 108, RESOURES.MOD 35; `build/ootf-cr/dt.ts`) uses only square
+textures (256, 128, 64, 32, 16). The Crimson Knight's three textures are square, which is why it always drew.
+
+Bisect (Wartok Canyons, 4 pulled `^Scavenger$`, runs `cs_*`, one change each; 15 s convert + 40 s run):
+
+| Run | Change | Result |
+| --- | --- | --- |
+| cs_b | class record flags 0x21 instead of 0x20 | shadow only (flags are not it) |
+| cs_c | Scavenger cloned from an rfl-68 template | crashed (null vtable): not a usable probe |
+| cs_d | Farmer's converted model on the Scavenger class | the Farmer body draws under rfl 41: **the class is fine, the model is the problem** |
+| cs_e | every polygon of the model mapped to its first texture | body draws |
+| cs_alpha | only the alpha textures (6773 256x128, 6771 128x128) mapped to the opaque 128 px one | body draws (6771 is square, so not "alpha" itself) |
+| cs_sq | `encodePs2Texture(.., {square: true})` for skinned textures (6773 becomes 256x256) | **textured Scavenger draws** |
+
+Fix (formats `33030f4`): `Ps2TextureOptions.square`, set by `OotfAssetBuilder.addTexture` for `indexed` (skinned-model) textures; the larger edge is used both
+ways (UVs are normalised, so nothing else changes). Before this the clone's record flags, clip lists, channel caps and sphere data (all earlier suspects)
+were irrelevant. The engine reads the creature's textures with a square-only assumption; why the shadow still draws is not known (shadow uses the mesh,
+not the textures). Reading `FUN_002d2d00` / `FUN_0030ef50` (Ghidra headless: `analysis/input_run.sh InputDecompile.java build/cr-decomp 2d2d00 30ef50`)
+showed only AI/controller init (class fields 0x13, 0x14, 0x17, 0x2e, 0x205..0x208 for weapon / body part records), nothing about the body draw.
+
+The 0x0200 model record's id list is the TEXTURE list (0x0040 ids), not clips; the clips are the skeleton's own `animIds` list (0x0208).
+
+Proof: `build/ootf-run/cs_seq/run/s0..s11.png` (4 pulled Scavengers 90 units around Rynn, one every 250 ms), contact sheet
+`build/ootf-run/cs_seq_contact.png` and creature crops `cs_seq_crops.png` (private, not committed): the converted, textured Scavenger stands beside Rynn
+and its claw / arm / head pose changes from frame to frame (idle loop of its converted clips; mean frame difference 0.3-0.85 grey levels over the
+whole frame).
