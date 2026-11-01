@@ -415,12 +415,12 @@ void touchEntry(uint8_t* rdram, R5900Context* c, PS2Runtime* rt) {
 }
 bool fire(uint8_t* rdram, PS2Runtime* rt, uint32_t handle);
 std::atomic<bool> g_traceHandlers{false};
-// The exit class handler (0x365138). Message 0x20 is the exit's "touched" message. In the Order of the Flame campaign the
-// converter puts a Trigger Detector box on every exit, so a player who walks in is within a few cells of it; the same message
-// arriving while she is far away comes from something else linked to the exit, in practice the Timer that ends a cut-scene
-// level (the Intro and the Ruined Village Book have no player to walk anywhere: docs/journal/2026-11-01/
-// ootf-campaign-walkthrough.md). The engine's own touch handler ignores it (no toucher), so take the exit the way the
-// host-fired aid does: straight to the transition, no save prompt.
+// The exit class handler (0x365138). Message 0x20 is the exit's "touched" message. In the Order of the Flame campaign
+// the converter puts a Trigger Detector box on every exit, so a player who walks in is within a few cells of it; the
+// same message arriving while she is far away comes from something else linked to the exit, in practice the Timer that
+// ends a cut-scene level (the Intro and the Ruined Village Book have no player to walk anywhere:
+// docs/journal/2026-11-01/ ootf-campaign-walkthrough.md). The engine's own touch handler ignores it (no toucher), so
+// take the exit the way the host-fired aid does: straight to the transition, no save prompt.
 constexpr float kRemoteExitDist = 8000.0f;
 void exitHandlerEntry(uint8_t* rdram, R5900Context* c, PS2Runtime* rt) {
     const Ram r{rdram};
@@ -434,7 +434,8 @@ void exitHandlerEntry(uint8_t* rdram, R5900Context* c, PS2Runtime* rt) {
             const float dx = f32(r, pl + 0x14) - f32(r, h + 0x14), dz = f32(r, pl + 0x1c) - f32(r, h + 0x1c);
             const float dist = std::sqrt(dx * dx + dz * dz);
             if (dist > kRemoteExitDist) {
-                std::fprintf(stderr, "[levelchange] exit %x got its touch message %.0f units from the player: taking it\n", h,
+                std::fprintf(stderr,
+                             "[levelchange] exit %x got its touch message %.0f units from the player: taking it\n", h,
                              static_cast<double>(dist));
                 fire(rdram, rt, h);
             }
