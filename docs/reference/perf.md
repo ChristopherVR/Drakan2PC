@@ -519,3 +519,6 @@ skip): readbacks per walk 2800 -> ~1200, +12..23 % fps in interleaved A/B pairs,
 [journal](../journal/2026-11-01/still-view-fps-jitter.md).
 `syncRT` (memory -> GPU row uploads for targets the game streams textures over, ~13 % of the GS worker while walking) is 46 % cheaper
 after a per-page stamp table for `maxStamp` and a block-wise `readRectCT32`: 2.8 s -> 1.5 s per walk.
+The game's frame-buffer-to-frame-buffer copy (about six per second) is now one GPU copy when both ends are whole targets instead of two
+full readbacks, a per-pixel CPU copy and a re-upload (`GSR_GPU_COPY=0` = old path): +6..12 % fps, p99 down, 0 mismatches over 369
+verified copies. Walking Surdana now measures ~195 fps (p99 8.4 ms) with the DLSS effects on.

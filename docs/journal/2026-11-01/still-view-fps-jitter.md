@@ -117,10 +117,28 @@ instance) loaded the GPU during these runs, so only same-run or mechanism eviden
   rectangles block by block (the page / block address once per 8x8 block). Both backends. Randomised tests: `maxStamp` against a
   block-by-block maximum (80,000 ranges incl. wrap-around) and `readRectCT32` against `read()` (12.3 M pixels), in `mem_stamp`.
   `syncRT` 2.8 s -> 1.5 s per walk; walk 171-181 fps, p99 8.8-9.6 ms (other sessions loading the machine).
-  Still open: skipping the upload for rows an opaque full-coverage draw overwrites anyway (needs proof of coverage per draw),
-  a GPU-side frame-buffer-to-frame-buffer copy for the game's `bp=0 -> bp=0x1000` copies (~6 per second, two full readbacks and an
-  upload each), and the per-draw driver cost of the vertex ring (`drawVertexUpload` 2.8 us) and DLSS motion bookkeeping
-  (`drawObjectMotion` 3.2 us), which is feature work rather than waste.
+* **GPU-side frame-buffer copy.** The game copies its 512x512 frame buffer to the other one about six times a second
+  (`TRXDIR=2`, `bp=0 -> bp=0x1000`). Through memory that was two full readbacks, a per-pixel CPU copy of 262,144 pixels and a
+  later re-upload of the destination at scale 4: a frame-sized hitch every ~170 ms. `Backend::copyLocal` (D3D11) does it as one
+  `CopySubresourceRegion` when both ends are exactly PSMCT32 targets of the same width, neither is mid temporal world pass,
+  and no other target shares either memory range (such a target would need the memory the copy no longer writes); otherwise
+  the memory path runs. The destination becomes GPU-owned like after a draw (dirty rows, `writes`, drawFrame); its stamps move
+  so anything decoded from those blocks is rebuilt, and its rows count as current so `syncRT` cannot push stale memory over
+  the copy. `GSR_GPU_COPY=0` disables it; `GSR_RB_VERIFY=1` flushes the source and compares the copied rows with memory:
+  0 mismatches over 369 copies (Surdana and Ravenshold walks). Interleaved A/B pairs: 175/170/170 -> 192/190/180 fps
+  (+6..12 %), p99 9.2/9.5/9.1 -> 7.9/8.6/9.7 ms. Test: `localCopyTest` (copy onto itself is a no-op, the copy is a GPU copy on
+  D3D11, the destination stays a working target and reaches memory on a read). The WebGPU backend keeps the memory path.
+  After it the walk measures ~195 fps, p99 8.4 ms.
+* **Left on purpose.**
+  * *Skipping the `syncRT` upload of rows an opaque full-coverage draw overwrites anyway* (now ~1.3 s of 22 s, ~6 % of the GS
+    worker). It needs a proof that every pixel of those rows is rewritten (rectangle coverage, scissor, alpha / depth /
+    destination-alpha tests, frame-buffer mask), but `syncRT` runs at the top of `draw()` before those decisions exist, and there
+    is no oracle for it comparable to `GSR_RB_VERIFY`: a missed condition would silently keep stale pixels.
+  * *Per-draw driver cost* (`drawVertexUpload` 2.8 us: `Map` / `Unmap` of the vertex ring; ~240 draws per frame) and the DLSS
+    motion bookkeeping (`drawObjectMotion` 3.3 us: history lookup, a second vertex ring). Lowering the first means recording
+    draws and uploading their vertices in batches (a deferred command layer); the second is feature work, not waste.
+  * *The remaining ~900 readbacks per walk* (1.25 ms each) are genuine: palette / texture data the GPU just rendered into a
+    scratch target (CLUT loads at the start of the next frame).
 * **Texture creation burst (item 1).** `pumpUp` created the GPU textures of all finished upscale jobs in one present (max 4 ms
   observed). The present-time drain now has a 2 ms budget (first job always runs, rest stays queued; D3D11 and WebGPU); callers that
   need their own entry at once still drain everything. Palette-step recolouring (`setupPaletteHd`) never exceeded 2 ms in the walk.
