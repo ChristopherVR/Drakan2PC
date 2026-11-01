@@ -76,10 +76,9 @@ bool D3D11Backend::Impl::drawWideBackdrop(RT& rt, int guiScreen) {
     const float target = (4.0f / 3) / hudScale;
     auto screenName = [](int id) { return id >= 0 ? "screen" + std::to_string(id) : std::string(); };
     // Loading (screen 14) after the title: the art on screen is the title's, so its wide image comes first.
-    const std::string names[4] = {guiScreen == 14 && titleBackdropRecent() ? std::string("screen8") : std::string(),
-                                  screenName(guiScreen),
-                                  nativeMenuScreen != guiScreen ? screenName(nativeMenuScreen) : std::string(),
-                                  "default"};
+    const std::string names[4] = {
+        guiScreen == 14 && titleBackdropRecent() ? std::string("screen8") : std::string(), screenName(guiScreen),
+        nativeMenuScreen != guiScreen ? screenName(nativeMenuScreen) : std::string(), "default"};
     for (const std::string& name : names) {
         if (name.empty())
             continue;
@@ -126,7 +125,8 @@ bool D3D11Backend::Impl::drawWideBackdrop(RT& rt, int guiScreen) {
         ctx->PSSetShaderResources(0, 1, &none);
         if (static const bool log = std::getenv("GSR_BACKDROP_LOG") != nullptr; log) {
             static std::string last;
-            const std::string now = name + " gui=" + std::to_string(guiScreen) + " menu=" + std::to_string(nativeMenuScreen);
+            const std::string now =
+                name + " gui=" + std::to_string(guiScreen) + " menu=" + std::to_string(nativeMenuScreen);
             if (now != last) {
                 last = now;
                 std::fprintf(stderr, "[backdrop] frame %llu: %s\n", (unsigned long long)frame, now.c_str());

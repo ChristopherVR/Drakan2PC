@@ -16,9 +16,9 @@ void setMode(int mode); // 0 off, 1 simple, 2 detailed (thread safe)
 int mode();
 int cycleMode(); // F2
 void setCorner(int corner);
-int corner();                // the corner drawn in (a bottom one while setAvoidTop(true) and the setting is a top one)
-void setAvoidTop(bool avoid); // a full screen page that uses the top of the window is up (multiplayer menu / scoreboard);
-                              // call it every frame the page is drawn, it lapses 0.4 s after the last call
+int corner();                 // the corner drawn in (a bottom one while setAvoidTop(true) and the setting is a top one)
+void setAvoidTop(bool avoid); // a full screen page that uses the top of the window is up (multiplayer menu /
+                              // scoreboard); call it every frame the page is drawn, it lapses 0.4 s after the last call
 void setCornerText(const char* text); // "top-left" | "top-right" | "bottom-left" | "bottom-right"
 void setThreads(void* eeThreadHandle,
                 void* rendererThreadHandle); // native thread handles (HANDLE / pthread_t), may be null

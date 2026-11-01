@@ -68,8 +68,8 @@ double nowSeconds() {
 // 0 tree, 1 plant, -1 not vegetation.
 int kindOf(uint32_t resourceId) {
     const IdKind* end = std::end(kIds);
-    const IdKind* it = std::lower_bound(std::begin(kIds), end, resourceId,
-                                        [](const IdKind& e, uint32_t id) { return e.id < id; });
+    const IdKind* it =
+        std::lower_bound(std::begin(kIds), end, resourceId, [](const IdKind& e, uint32_t id) { return e.id < id; });
     return it != end && it->id == resourceId ? it->kind : -1;
 }
 
@@ -176,8 +176,9 @@ void install(PS2Runtime& rt) {
         return;
     if (!drakan_region::build().identityAddresses || !rt.hasFunction(kRenderObject))
         return;
-    configure(drakan_cfg::getBool("video", "foliage_wind", "DRAKAN_FOLIAGE_WIND", false),
-              static_cast<float>(drakan_cfg::getFloat("video", "foliage_wind_strength", "DRAKAN_FOLIAGE_STRENGTH", 1.0)));
+    configure(
+        drakan_cfg::getBool("video", "foliage_wind", "DRAKAN_FOLIAGE_WIND", false),
+        static_cast<float>(drakan_cfg::getFloat("video", "foliage_wind_strength", "DRAKAN_FOLIAGE_STRENGTH", 1.0)));
     g_log = std::getenv("DRAKAN_FOLIAGE_LOG") != nullptr;
     g_orig = rt.lookupFunction(kRenderObject);
     rt.replaceFunction(kRenderObject, &hookRenderObject);

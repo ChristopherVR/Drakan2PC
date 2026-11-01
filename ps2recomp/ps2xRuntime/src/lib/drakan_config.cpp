@@ -57,7 +57,8 @@ const Entry kEntries[] = {
      "Load Game / Save Game: number of pages of four slots (1 = the original four slots, 4 = 16 slots); Next / Back "
      "buttons, PgUp / PgDn and L1 / R1 switch pages; page 1 = the original save folders (env DRAKAN_SAVE_PAGES)"},
     {"general", "game", "ask",
-     "which game the title menu starts: ask (the title menu offers Drakan and, when an Order of the Flame campaign pack "
+     "which game the title menu starts: ask (the title menu offers Drakan and, when an Order of the Flame campaign "
+     "pack "
      "is installed, Drakan: Order of the Flame) | d2 (Drakan: The Ancients' Gates) | d1 (Drakan: Order of the Flame, "
      "needs a pack with campaign = \"ootf\" in its mod.toml); d1 / d2 skip the game choice, keep the campaign saves "
      "apart and make New Game start the chosen game's first level (env DRAKAN_GAME)"},

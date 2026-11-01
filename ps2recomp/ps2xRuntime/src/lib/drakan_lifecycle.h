@@ -71,15 +71,15 @@ bool installed();
 bool transitionActive();
 
 // Level events carry the level name the guest was given. When the file layer redirects a level (multiplayer: the intro
-// level's files are replaced by a map's, DRAKAN_START_LEVEL), that name is not the level that loads: the mapper turns the
-// stem of a level load's path into the real level name before listeners see it (Event::level). Pass an empty function to
-// clear. Runs on the EE game thread, must not block.
+// level's files are replaced by a map's, DRAKAN_START_LEVEL), that name is not the level that loads: the mapper turns
+// the stem of a level load's path into the real level name before listeners see it (Event::level). Pass an empty
+// function to clear. Runs on the EE game thread, must not block.
 void setLevelNameMapper(std::function<std::string(const std::string&)> mapper);
 
 // While `veto` returns true the save writer (0x169c28: menu save, quick save, level-change save) does not run: the call
-// returns 1 (failure) at once and no BeforeSaveWrite / AfterSaveWrite event is fired. Used by the multiplayer arena world
-// mode (nothing is ever written to the player's save). Pass an empty function to clear. Thread safe to set; `veto` runs on
-// the EE game thread.
+// returns 1 (failure) at once and no BeforeSaveWrite / AfterSaveWrite event is fired. Used by the multiplayer arena
+// world mode (nothing is ever written to the player's save). Pass an empty function to clear. Thread safe to set;
+// `veto` runs on the EE game thread.
 void setSaveWriteVeto(std::function<bool()> veto);
 
 // The mount state of the controlled actor as the hooks last saw it (live read of ctx+0x4b0 when the guest is idle).

@@ -1,7 +1,8 @@
 // Which game the player is in: Drakan: The Ancients' Gates (the disc, "d2") or Drakan: Order of the Flame ("d1", a
 // converted campaign pack with `campaign = "ootf"` in its mod.toml, docs/reference/modding.md "Campaign packs").
 // The choice is made on the title menu (or drakan.ini [general] game / DRAKAN_GAME) and decides
-//   * what New Game opens: for d1 the pack's start level replaces the opening cut scene level ("Level 0 - Intro", a file
+//   * what New Game opens: for d1 the pack's start level replaces the opening cut scene level ("Level 0 - Intro", a
+//   file
 //     redirect), so no D2 movie plays and the campaign's own intro level comes first;
 //   * the memory card: d1 saves live in their own card folder (<mc0>_ootf), so the two games' saves never mix.
 // Multiplayer and co-op do not look at this: they stay shared (their launches set their own redirect and clear it

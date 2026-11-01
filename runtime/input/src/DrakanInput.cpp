@@ -318,8 +318,8 @@ void InputModule::beginFrame() {
         acc_.consume(f, cutoffUs);
         static const bool audit = std::getenv("DRAKAN_MOUSE_AUDIT") != nullptr;
         if (audit && (f.dx || f.dy))
-            std::fprintf(stderr, "[mouse-aud] t=%lld dx=%d dy=%d lag=%lld\n", static_cast<long long>(beginUs), f.dx, f.dy,
-                         static_cast<long long>(beginUs - cutoffUs));
+            std::fprintf(stderr, "[mouse-aud] t=%lld dx=%d dy=%d lag=%lld\n", static_cast<long long>(beginUs), f.dx,
+                         f.dy, static_cast<long long>(beginUs - cutoffUs));
         if (host_)
             host_->poll(f, cfg_.gamepadEnabled, cfg_.gamepadDeadzone);
     }

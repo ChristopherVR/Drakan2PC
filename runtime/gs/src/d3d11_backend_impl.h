@@ -415,7 +415,8 @@ struct D3D11Backend::Impl {
     uint64_t wideReplaceFrame = ~0ull;
     const RT* wideReplaceRT = nullptr;
     // The loading screen redraws the grabbed title page as backdrop tiles, which the menu map stretches from 4:3 to the
-    // output. From the last title frame until another screen starts, the wide title image (screen8) replaces those tiles.
+    // output. From the last title frame until another screen starts, the wide title image (screen8) replaces those
+    // tiles.
     std::chrono::steady_clock::time_point titleBackdropAt{};
     bool titleBackdropRecent() const {
         return titleBackdropAt.time_since_epoch().count() != 0 &&

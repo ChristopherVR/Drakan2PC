@@ -318,7 +318,8 @@ void versionMismatch() {
     while (raw->poll(ev))
         if (ev.type == TransportEventType::Message) {
             Reject r;
-            rejected = decode(ev.data, r) && r.reason == RejectReason::VersionMismatch && r.serverVersion == kProtocolVersion;
+            rejected =
+                decode(ev.data, r) && r.reason == RejectReason::VersionMismatch && r.serverVersion == kProtocolVersion;
         }
     CHECK(rejected && rig.server->players().empty());
     // The discovery query of an old client is not answered either.

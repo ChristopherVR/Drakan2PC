@@ -59,9 +59,9 @@ struct VideoSettings {
     bool modernWater = false;
     bool rayReflections = true;
     bool rayShadows = false;
-    bool foliageWind = false;         // foliage_wind: grass and trees sway in the wind, grass bends away from the player
+    bool foliageWind = false; // foliage_wind: grass and trees sway in the wind, grass bends away from the player
     float foliageWindStrength = 1.0f; // foliage_wind_strength: 0.25 .. 2
-    bool dlssNeural = false; // dlss_neural: DLSS 5 neural rendering, independent of Super Resolution
+    bool dlssNeural = false;          // dlss_neural: DLSS 5 neural rendering, independent of Super Resolution
     std::string dlssNeuralResolution = "output"; // dlss_neural_resolution: output | render (NR on the SR output, or
                                                  // on the reduced raster before SR; only differs with a reduced mode)
     bool operator==(const VideoSettings&) const = default;

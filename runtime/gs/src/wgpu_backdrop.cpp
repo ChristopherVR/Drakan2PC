@@ -48,10 +48,9 @@ bool WgpuBackend::Impl::drawWideBackdrop(RT& rt, int guiScreen) {
     const float target = (4.0f / 3) / hudScale;
     auto screenName = [](int id) { return id >= 0 ? "screen" + std::to_string(id) : std::string(); };
     // Loading (screen 14) after the title: the art on screen is the title's, so its wide image comes first.
-    const std::string names[4] = {guiScreen == 14 && titleBackdropRecent() ? std::string("screen8") : std::string(),
-                                  screenName(guiScreen),
-                                  nativeMenuScreen != guiScreen ? screenName(nativeMenuScreen) : std::string(),
-                                  "default"};
+    const std::string names[4] = {
+        guiScreen == 14 && titleBackdropRecent() ? std::string("screen8") : std::string(), screenName(guiScreen),
+        nativeMenuScreen != guiScreen ? screenName(nativeMenuScreen) : std::string(), "default"};
     for (const std::string& name : names) {
         if (name.empty())
             continue;

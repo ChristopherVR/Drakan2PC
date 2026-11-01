@@ -15,7 +15,8 @@ class PS2Runtime;
 
 namespace drakan_foliage {
 
-// Installs the render hook when the disc profile has PAL addresses and the function exists. Safe to call more than once.
+// Installs the render hook when the disc profile has PAL addresses and the function exists. Safe to call more than
+// once.
 void install(PS2Runtime& runtime);
 // True when the hook is installed (the settings page greys the options out otherwise).
 bool available();

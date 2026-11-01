@@ -15,7 +15,8 @@ struct Lean {
 };
 
 inline constexpr double kTwoPi = 6.283185307179586;
-inline constexpr float kPushRadius = 4800.0f; // world units (a cell is 2048): about two and a half cells around the actor
+inline constexpr float kPushRadius =
+    4800.0f; // world units (a cell is 2048): about two and a half cells around the actor
 inline constexpr float kMaxLean = 0.8f;
 inline constexpr float kMinStrength = 0.25f, kMaxStrength = 2.0f;
 

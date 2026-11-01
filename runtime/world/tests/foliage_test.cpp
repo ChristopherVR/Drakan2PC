@@ -132,7 +132,8 @@ void benchmark() {
     const auto a = std::chrono::steady_clock::now();
     for (int i = 0; i < n; ++i) {
         const double t = 100.0 + (i / 32) * 0.0005; // time stamps shared by 32 objects, like the hook
-        const Lean l = windLean(i & 1, 100000.f + 13.f * (i % 997), 200000.f + 7.f * (i % 991), static_cast<uint32_t>(i), t, 1.0f);
+        const Lean l =
+            windLean(i & 1, 100000.f + 13.f * (i % 997), 200000.f + 7.f * (i % 991), static_cast<uint32_t>(i), t, 1.0f);
         sink += l.x + l.z;
     }
     const double us = std::chrono::duration<double, std::micro>(std::chrono::steady_clock::now() - a).count();
