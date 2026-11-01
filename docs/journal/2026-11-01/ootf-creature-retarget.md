@@ -229,3 +229,18 @@ Proof: `build/ootf-run/cs_seq/run/s0..s11.png` (4 pulled Scavengers 90 units aro
 `build/ootf-run/cs_seq_contact.png` and creature crops `cs_seq_crops.png` (private, not committed): the converted, textured Scavenger stands beside Rynn
 and its claw / arm / head pose changes from frame to frame (idle loop of its converted clips; mean frame difference 0.3-0.85 grey levels over the
 whole frame).
+
+## Remaining creatures in game (2026-11-01, night; runs `build/ootf-run/cre_*`, private)
+
+Helper fixes: `rtconv.sh` now shows the `pull ...` lines; `cre_run.sh` (private) takes the game lock with a trap so it is released on failure.
+Pull ring 150 units (lit Islands) or 250 (dark levels); 4 shots a few hundred ms apart.
+
+| Creature (level) | Result |
+| --- | --- |
+| Death Mage rfl 82 (Volcano) | draws (robed skeleton mage beside Rynn), converted skinned model; idle only, level very dark |
+| Ebon Knight rfl 68 (Volcano) | draws (horned armour) |
+| Goblin rfl 88 (Islands) | was a PS2 stand-in (template model, a huge spiked monster). `MODEL_STANDINS` now includes 88, so the PC goblin model is converted onto the rfl-49 clone: green goblins draw |
+| Succubus 100 / Queen 101 (rfl 30 stand-in) | with the converted model: live entities (hp 44-50, model 0x319ff) and moving shadows but no body visible in the ring (they hover/fly away; not proven). Left as PS2 stand-ins (NOT added to `MODEL_STANDINS`) |
+| Queen (Volcano) | nothing visible in the 400 ring |
+
+Not done: dragons (rfl 30 clones, flying), war giants / orcs / Hueges, attack clips; a flying-creature view needs a camera that looks up (harness input).
