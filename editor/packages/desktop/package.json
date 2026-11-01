@@ -9,6 +9,7 @@
         "dev": "tauri dev",
         "build": "tauri build",
         "build:debug": "tauri build --debug",
+        "build:save": "tauri build --config src-tauri/tauri.save.conf.json",
         "typecheck": "node scripts/check-config.mjs"
     },
     "devDependencies": {

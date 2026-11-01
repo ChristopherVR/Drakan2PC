@@ -17,4 +17,9 @@ for (const c of caps) {
             throw new Error(`capability ${c.identifier}: blanket permission ${p}`);
     }
 }
+// The standalone save editor overlay must only declare windows the capabilities know.
+const save = JSON.parse(readFileSync(join(root, 'tauri.save.conf.json'), 'utf8'));
+for (const w of save.app?.windows ?? [])
+    if (!caps.some((c) => (c.windows ?? []).includes(w.label ?? 'main')))
+        throw new Error(`tauri.save.conf.json: window '${w.label}' has no capability`);
 console.log(`tauri config ok (${conf.productName}, ${caps.length} capability file(s))`);

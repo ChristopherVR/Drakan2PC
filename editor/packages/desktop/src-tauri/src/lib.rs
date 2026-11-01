@@ -47,7 +47,10 @@ pub fn run() {
                 }),
                 settings_file: file,
             });
-            app.set_menu(menu::build(app.handle())?)?;
+            // The standalone save editor (tauri.save.conf.json) has no level editor window and no menu bar.
+            if app.config().app.windows.iter().any(|w| w.label == "main" && w.create) {
+                app.set_menu(menu::build(app.handle())?)?;
+            }
             Ok(())
         })
         .on_menu_event(|app, event| menu::on_event(app, event.id().as_ref()))

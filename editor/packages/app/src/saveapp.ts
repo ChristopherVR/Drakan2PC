@@ -89,7 +89,9 @@ back.onclick = () => void openAppWindow('main');
 const bar = document.querySelector('#save-main .sv-appbar');
 const tools = document.createElement('div');
 tools.className = 'sv-app-tools';
-tools.append(discBtn, back);
+// The standalone save editor release (`?app=save`) ships without the level editor, so it has no way back.
+const standalone = new URLSearchParams(location.search).get('app') === 'save';
+tools.append(...(standalone ? [discBtn] : [discBtn, back]));
 bar?.append(tools);
 
 // ---- actions: #open=file|folder in the URL, or a save-action event from the level editor's File menu ------------------

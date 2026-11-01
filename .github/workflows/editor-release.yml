@@ -1,0 +1,93 @@
+name: Editor release
+
+# Builds the two desktop apps of the editor workspace on every push to main that touches the editor: the Drakan Editor
+# (level / mod editor, editor/packages/desktop/src-tauri/tauri.conf.json) and the standalone Drakan Save Editor
+# (tauri.save.conf.json overlay), then publishes both as a GitHub pre-release. The apps contain no game data: they read
+# the player's own disc image and saves at run time.
+on:
+  push:
+    branches: [main]
+    paths: ['editor/**', '.github/workflows/editor-release.yml']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: editor-release
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: Build and release the editor apps
+    runs-on: windows-2022
+    timeout-minutes: 75
+    if: github.repository == 'ChristopherVR/Drakan2PC'
+    defaults:
+      run:
+        shell: pwsh
+    env:
+      VERSION: 0.1.${{ github.run_number }}
+      TAG: editor-b${{ github.run_number }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          submodules: true
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: editor/package-lock.json
+      - name: Rust toolchain
+        run: |
+          rustup toolchain install stable --profile minimal
+          rustup default stable
+      - name: Install editor dependencies
+        working-directory: editor
+        run: npm ci
+      - name: Test and type-check the editor
+        working-directory: editor
+        run: |
+          npm test
+          npm run build
+      - name: Stamp the build version
+        working-directory: editor/packages/desktop/src-tauri
+        run: |
+          $conf = Get-Content tauri.conf.json -Raw | ConvertFrom-Json
+          $conf.version = $env:VERSION
+          $conf | ConvertTo-Json -Depth 32 | Set-Content tauri.conf.json -Encoding utf8NoBOM
+      - name: Build the Drakan Editor
+        working-directory: editor/packages/desktop
+        run: |
+          npx tauri build
+          New-Item -ItemType Directory -Force "$env:GITHUB_WORKSPACE/out" | Out-Null
+          $bundle = 'src-tauri/target/release/bundle/nsis'
+          Get-ChildItem $bundle -Filter '*.exe' | Move-Item -Destination "$env:GITHUB_WORKSPACE/out/DrakanEditor-$env:VERSION-setup.exe"
+          $exe = Get-ChildItem 'src-tauri/target/release' -Filter '*.exe' -File | Sort-Object LastWriteTime | Select-Object -Last 1
+          Compress-Archive -Path $exe.FullName `
+            -DestinationPath "$env:GITHUB_WORKSPACE/out/DrakanEditor-$env:VERSION-portable.zip"
+      - name: Build the Drakan Save Editor
+        working-directory: editor/packages/desktop
+        run: |
+          npx tauri build --config src-tauri/tauri.save.conf.json
+          $bundle = 'src-tauri/target/release/bundle/nsis'
+          Get-ChildItem $bundle -Filter '*.exe' | Move-Item -Destination "$env:GITHUB_WORKSPACE/out/DrakanSaveEditor-$env:VERSION-setup.exe"
+          Compress-Archive -Path 'src-tauri/target/release/drakan-save-editor.exe' `
+            -DestinationPath "$env:GITHUB_WORKSPACE/out/DrakanSaveEditor-$env:VERSION-portable.zip"
+      - name: Publish the release
+        run: |
+          $files = Get-ChildItem "$env:GITHUB_WORKSPACE/out" | ForEach-Object FullName
+          $short = $env:GITHUB_SHA.Substring(0, 7)
+          $notes = @"
+          Editor build $env:VERSION from $short.
+
+          - **Drakan Editor**: level, mod, story and multiplayer map editor (installer or portable exe).
+          - **Drakan Save Editor**: the save game editor as its own app (installer or portable exe).
+
+          Both need the WebView2 runtime (included with Windows 10 and 11) and read your own disc image and saves;
+          no game data is included.
+          "@
+          gh release create $env:TAG @files --target $env:GITHUB_SHA --prerelease --latest=false `
+            --title "Editor build $env:VERSION ($short)" --notes $notes

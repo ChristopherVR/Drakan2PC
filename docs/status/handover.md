@@ -112,6 +112,13 @@ Engine 5; textures move to UE5-style PBR sets.
 
 - Rust sources in the desktop app are not rustfmt-clean (never were); decide whether to enforce it.
 
+## Releases
+
+`.github/workflows/editor-release.yml` builds the Drakan Editor and the standalone Drakan Save Editor (Tauri, overlay
+`editor/packages/desktop/src-tauri/tauri.save.conf.json`) on every push to main that touches `editor/**`, and publishes
+both (NSIS installer and portable exe) as a pre-release tagged `editor-b<run>`. Local save editor build:
+`npm run build:save -w @drakan/desktop`.
+
 ## Working practice (multi-agent sessions)
 
 - Other sessions commit in the same tree: commit through a private index (`GIT_INDEX_FILE`), stage only your own
