@@ -24,7 +24,7 @@ export interface ItemArt {
  * and rendered with the same thumbnail renderer the Level tab uses. Cached for the session.
  */
 export function createItemArt(call: Call): ItemArt {
-    let names: Map<number, { name: string; detail: string }> | null = null;
+    let names: Map<number, { name: string; detail: string; cells?: number }> | null = null;
     let loading: Promise<void> | null = null;
     let failed = false;
     let cache = new TextureCache();
@@ -47,6 +47,7 @@ export function createItemArt(call: Call): ItemArt {
                         k.classId,
                         {
                             name: k.displayName || k.name,
+                            ...(k.cells !== undefined ? { cells: k.cells } : {}),
                             // The ODB class name is the editor-facing one; the game shows `displayName`.
                             detail: [
                                 ...(k.facts ?? []),
@@ -104,7 +105,12 @@ export function createItemArt(call: Call): ItemArt {
             const item = names?.get(classId);
             if (!item) return null;
             want(classId);
-            return { name: item.name, detail: item.detail, thumb: thumbs.get(classId) ?? null };
+            return {
+                name: item.name,
+                detail: item.detail,
+                thumb: thumbs.get(classId) ?? null,
+                ...(item.cells !== undefined ? { cells: item.cells } : {}),
+            };
         },
         classes: () =>
             names

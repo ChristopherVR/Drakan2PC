@@ -1,5 +1,12 @@
-import { AddItemCommand, RemoveAddedItemCommand, ReplaceItemCommand, SetFieldCommand } from '@drakan/editor-core';
+import {
+    AddItemCommand,
+    MAX_ITEM_CELLS,
+    RemoveAddedItemCommand,
+    ReplaceItemCommand,
+    SetFieldCommand,
+} from '@drakan/editor-core';
 import { INV_CELL_COUNT, type InventoryCell } from '@drakan/formats';
+import { gridTile, itemGrid } from '../shared/components.ts';
 import { badge, emptyState, h } from './dom.ts';
 import type { PanelCtx } from './panels.ts';
 
@@ -21,6 +28,8 @@ export interface ClassInfo {
     detail?: string;
     /** PNG data URL of the model render, or null while it is still being drawn / when there is no model. */
     thumb: string | null;
+    /** Height in inventory cells (1..3) from the game disc's item class, when known. */
+    cells?: number;
 }
 
 export const resourceKey = (resource: number): string => `0x${resource.toString(16)}`;
@@ -47,6 +56,21 @@ export function spans(cells: InventoryCell[]): Map<number, { cols: number; rows:
         }
     }
     return out;
+}
+
+/**
+ * Height in cells of an item class for Add item: the game disc's class field first, else the height of a carried
+ * item of the same class in this save, else undefined (not known).
+ */
+export function itemHeight(
+    resource: number,
+    info: ClassInfo | null | undefined,
+    cells: InventoryCell[],
+): number | undefined {
+    if (info?.cells !== undefined) return info.cells;
+    const span = spans(cells);
+    for (const c of cells) if (c.marker === undefined && c.resource === resource) return span.get(c.cell)?.rows;
+    return undefined;
 }
 
 const hueOf = (n: number): number => (Math.imul(n >>> 0, 2654435761) >>> 0) % 360;
@@ -84,27 +108,29 @@ export function renderInventory(ctx: PanelCtx): HTMLElement {
         return Math.max(0, Math.min(1, cur / Math.max(max, 1)));
     };
 
-    const addedCells = doc.addedCells();
+    const added = doc.addedPlaces();
+    const addedCovered = new Set(added.flatMap((p) => p.cells.slice(1)));
     const tiles: HTMLElement[] = [];
     for (let k = 0; k < INV_CELL_COUNT; k++) {
-        const col = (k % INV_COLS) + 1;
-        const row = Math.floor(k / INV_COLS) + 1;
         const c = byCell.get(k);
         if (!c || c.marker !== undefined) {
-            if (covered.has(k)) continue; // drawn as part of the item above
-            const addIdx = addedCells.indexOf(k);
+            if (covered.has(k) || addedCovered.has(k)) continue; // drawn as part of the item above
+            const addIdx = added.findIndex((p) => p.cell === k);
             if (addIdx >= 0) {
-                const tplRec = doc.itemTemplates().find((t) => t.entry === doc.itemAdds[addIdx]);
+                const tplRec = doc.itemTemplates().find((t) => t.entry === doc.itemAdds[addIdx]!.template);
+                const rows = added[addIdx]!.cells.length;
                 const nm = itemName(tplRec?.resource, infoOf(tplRec?.resource));
                 tiles.push(
-                    h(
-                        'button',
+                    gridTile(
                         {
-                            class: 'slot item chg',
-                            style: `grid-column:${col};grid-row:${row}`,
+                            tag: 'button',
+                            cls: 'slot item chg',
+                            cell: k,
+                            cols: INV_COLS,
+                            span: { rows },
                             title: `Cell ${k}: new ${nm} (added when you save). Click to remove.`,
-                            'data-added': addIdx,
-                            onclick: () => ctx.run(new RemoveAddedItemCommand(addIdx)),
+                            data: { added: addIdx },
+                            onClick: () => ctx.run(new RemoveAddedItemCommand(addIdx)),
                         },
                         h(
                             'div',
@@ -116,13 +142,7 @@ export function renderInventory(ctx: PanelCtx): HTMLElement {
                 );
                 continue;
             }
-            tiles.push(
-                h('div', {
-                    class: 'slot empty',
-                    style: `grid-column:${col};grid-row:${row}`,
-                    title: `Cell ${k}: empty`,
-                }),
-            );
+            tiles.push(gridTile({ cls: 'slot empty', cell: k, cols: INV_COLS, title: `Cell ${k}: empty` }));
             continue;
         }
         const sp = span.get(k)!;
@@ -150,14 +170,16 @@ export function renderInventory(ctx: PanelCtx): HTMLElement {
             );
         }
         tiles.push(
-            h(
-                'button',
+            gridTile(
                 {
-                    class: `slot item${state.selected === k ? ' sel' : ''}${equipped ? ' eq' : ''}${replaced ? ' chg' : ''}`,
-                    style: `grid-column:${col} / span ${sp.cols};grid-row:${row} / span ${sp.rows}`,
+                    tag: 'button',
+                    cls: `slot item${state.selected === k ? ' sel' : ''}${equipped ? ' eq' : ''}${replaced ? ' chg' : ''}`,
+                    cell: k,
+                    cols: INV_COLS,
+                    span: sp,
                     title: [`Cell ${k}: ${name}`, info?.detail].filter(Boolean).join('\n'),
-                    'data-cell': k,
-                    onclick: () => {
+                    data: { cell: k },
+                    onClick: () => {
                         state.selected = k;
                         ctx.rerender();
                     },
@@ -233,14 +255,15 @@ export function renderInventory(ctx: PanelCtx): HTMLElement {
             h('span', { class: 'spacer' }),
             addControl(ctx, infoOf),
         ),
-        h('div', { class: 'invgrid' }, ...tiles),
+        itemGrid('invgrid', tiles),
         inspector,
         h(
             'div',
             { class: 'note-box' },
-            'Add item copies an item class this save has a record for into the first free cell as a new carried item. ' +
+            'Add item copies an item class this save has a record for into the first free place as a new carried item. ' +
+                'Tall items need that many empty cells in one column; without the game disc the size of a new item is not known, so it is given a whole free column. ' +
                 'It also drops one untouched level object (the first entry of the static table) to keep the game’s slot numbering valid. ' +
-                'Single-cell items only (not the bow). Replace with… turns an existing item into another class.',
+                'Not the bow. Replace with… turns an existing item into another class.',
         ),
     );
 }
@@ -382,35 +405,56 @@ function replaceControl(
 /** "+ Add item": a dropdown of the item classes this save has a record for (type to filter). */
 function addControl(ctx: PanelCtx, infoOf: (resource: number | undefined) => ClassInfo | null): HTMLElement {
     const { doc } = ctx;
-    const BOW = 0x31bc9; // three cells: the stream layout of multi-cell items is not known
+    const BOW = 0x31bc9; // three cells; never tried in game
     const templates = doc.itemTemplates().filter((t) => t.resource !== BOW);
-    const room = doc.addedCells().length < 24 && doc.addedCells().length === doc.itemAdds.length;
-    const free = freeCellCount(doc);
+    const rowsOf = (resource: number): number =>
+        itemHeight(resource, infoOf(resource), doc.inventory) ?? MAX_ITEM_CELLS; // not known: a whole column
+    const allPlaced = doc.addedCells().every((c) => c >= 0);
+    const free = allPlaced && doc.placeFor(1) !== null;
     const select = h(
         'select',
         {
             'data-field': 'item.add',
             'data-placeholder': '+ Add item…',
             'aria-label': 'Add item',
-            disabled: !templates.length || free <= 0 || !room,
+            disabled: !templates.length || !free,
         },
         h('option', { value: '' }, '+ Add item…'),
-        ...templates.map((t) =>
-            h(
+        ...templates.map((t) => {
+            const fits = doc.placeFor(rowsOf(t.resource)) !== null;
+            return h(
                 'option',
                 { value: String(t.entry) },
-                `${itemName(t.resource, infoOf(t.resource))} (${resourceKey(t.resource)})`,
-            ),
-        ),
+                `${itemName(t.resource, infoOf(t.resource))} (${resourceKey(t.resource)})${fits ? '' : ' - no room'}`,
+            );
+        }),
     ) as HTMLSelectElement;
     select.value = '';
     select.onchange = () => {
         if (!select.value) return;
-        ctx.run(new AddItemCommand(Number(select.value)));
+        const t = templates.find((x) => String(x.entry) === select.value);
+        select.value = '';
+        if (!t) return;
+        const rows = rowsOf(t.resource);
+        const name = itemName(t.resource, infoOf(t.resource));
+        if (doc.placeFor(rows) === null) {
+            ctx.status(noRoomMessage(name, rows, itemHeight(t.resource, infoOf(t.resource), doc.inventory)), true);
+            return;
+        }
+        try {
+            ctx.run(new AddItemCommand(t.entry, rows));
+        } catch (e) {
+            ctx.err(e);
+        }
     };
-    return h('label', { class: 'f', title: free <= 0 ? 'The inventory is full' : 'Add a new carried item' }, select);
+    return h('label', { class: 'f', title: free ? 'Add a new carried item' : 'The inventory is full' }, select);
 }
 
-function freeCellCount(doc: PanelCtx['doc']): number {
-    return INV_CELL_COUNT - doc.inventory.length - doc.itemAdds.length;
+/** The plain-language reason a new item does not fit; `known` is the item's height when the disc or save says it. */
+export function noRoomMessage(name: string, rows: number, known: number | undefined): string {
+    if (rows <= 1) return `${name} does not fit: the inventory is full.`;
+    if (known === undefined) {
+        return `${name} does not fit: its size is not known without the game disc, so it needs a column with ${rows} empty cells, and there is none.`;
+    }
+    return `${name} does not fit: it is ${rows} cells tall and no column has ${rows} empty cells one above the other.`;
 }

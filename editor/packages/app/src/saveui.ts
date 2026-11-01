@@ -14,6 +14,7 @@ import {
     TYPE_NAMES,
     TYPE_RECORD,
     classHex,
+    isRynnClass,
     diffQuests,
     diffSaves,
     formatFieldValue,
@@ -55,7 +56,7 @@ import {
     type SaveRef,
 } from './saveio.ts';
 import { isDesktop } from './platform.ts';
-import { changeRow } from './shared/components.ts';
+import { changeRow, listRow } from './shared/components.ts';
 
 const $ = <T extends HTMLElement>(id: string): T => {
     const el = document.getElementById(id);
@@ -289,25 +290,16 @@ export function initSaveUi(host: SaveUiHost): { openFile(f: File): Promise<void>
                 h('small', null, 'Reading...'),
             );
             const thumb = h('div', { class: 'sv-slot-thumb' }, icon('file', 18));
-            const li = h(
-                'li',
+            const li = listRow(
                 {
-                    class: 'sv-slot',
-                    onclick: () => void openRef(ref),
+                    cls: 'sv-slot',
                     title: `${ref.folder}/${ref.name}`,
-                    tabindex: 0,
-                    onkeydown: (e: Event) => {
-                        const k = (e as KeyboardEvent).key;
-                        if (k === 'Enter' || k === ' ') {
-                            e.preventDefault();
-                            void openRef(ref);
-                        }
-                    },
+                    key: `${ref.folder}/${ref.name}`,
+                    onActivate: () => void openRef(ref),
                 },
                 thumb,
                 meta,
             );
-            li.dataset.key = `${ref.folder}/${ref.name}`;
             const row = { ref, li, thumb, meta, hay: `${ref.folder} ${ref.name}`.toLowerCase() };
             listRows.push(row);
             return row;
@@ -1127,7 +1119,7 @@ export function initSaveUi(host: SaveUiHost): { openFile(f: File): Promise<void>
         );
         mapB = mapBounds(mapPoints);
         const keep = new Set(rows.map((r) => r.index));
-        const player = doc.records.find((r) => r.classId === 0x17081069 && r.pos);
+        const player = doc.records.find((r) => isRynnClass(r.classId) && r.pos);
         const arokh = doc.records.find((r) => r.resource === 0xa60 && r.pos);
         drawMap(mapCanvas, mapPoints, mapB, {
             highlight: filtered ? mapPoints.filter((p) => keep.has(p.entry)) : undefined,
@@ -1280,7 +1272,7 @@ export function initSaveUi(host: SaveUiHost): { openFile(f: File): Promise<void>
                     ]);
                 }
             }
-            const you = doc.records.find((x) => x.classId === 0x17081069 && x.pos);
+            const you = doc.records.find((x) => isRynnClass(x.classId) && x.pos);
             if (rec.pos && you?.pos) {
                 const d = Math.hypot(rec.pos[0] - you.pos[0], rec.pos[1] - you.pos[1], rec.pos[2] - you.pos[2]);
                 known.push(['from Rynn', `${Math.round(d).toLocaleString()} units`]);

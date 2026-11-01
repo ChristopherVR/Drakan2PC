@@ -222,6 +222,64 @@ describe('Add item (new carried record)', () => {
         expect(() => addItem(parseSave(addFixture()), 1)).toThrow(/not an item record/);
     });
 
+    it('places a tall item where all of its cells are free and marks the cells under it', () => {
+        const once = addItem(parseSave(addFixture()), 7, 3); // cells 0 and 1 hold items: column 2 is the first free one
+        expect(once.cell).toBe(2);
+        const inv = listInventory(once.save);
+        expect(inv.filter((c) => c.marker !== undefined).map((c) => [c.cell, c.marker])).toEqual([
+            [10, 1],
+            [18, 2],
+        ]);
+        // the stream keeps the covered cells as single empty words: Rynn grows by one word only
+        const oldR = parseSave(addFixture()).entries.find((x) => x.type === 0x102 && x.id === 8)!.data;
+        const newR = once.save.entries.find((x) => x.type === 0x102 && x.id === 8)!.data;
+        expect(newR.length).toBe(oldR.length + 4);
+        // the next item does not land on a covered cell
+        const next = addItem(once.save, 7, 2);
+        expect(next.cell).toBe(3);
+        expect(() => addItem(parseSave(addFixture()), 7, 4)).toThrow(/1 to 3 cells/);
+    });
+
+    it('refuses a tall item when no column has room, but a short one still fits', () => {
+        const d = SaveDocument.open(addFixture());
+        const s = new CommandStack(d);
+        for (let i = 0; i < 6; i++) s.run(new AddItemCommand(7, 3)); // columns 2..7
+        expect(d.addedCells()).toEqual([2, 3, 4, 5, 6, 7]);
+        expect(d.placeFor(3)).toBeNull();
+        expect(() => s.run(new AddItemCommand(7, 3))).toThrow(/no free column with 3 empty cells/);
+        expect(d.itemAdds).toHaveLength(6); // the refused add left nothing behind
+        expect(d.placeFor(2)).toBe(8); // under the potion
+        s.run(new AddItemCommand(7, 2));
+        expect(d.addedPlaces().at(-1)).toEqual({ cell: 8, cells: [8, 16] });
+        expect(d.placeFor(1)).toBe(9);
+    });
+
+    it('builds the same placement it shows', () => {
+        const d = SaveDocument.open(addFixture());
+        const s = new CommandStack(d);
+        s.run(new AddItemCommand(7, 2));
+        s.run(new AddItemCommand(7, 1));
+        expect(d.addedCells()).toEqual([2, 3]);
+        const inv = listInventory(parseSave(d.build().bytes));
+        expect(inv.map((c) => [c.cell, c.marker ?? null])).toEqual([
+            [0, null],
+            [1, null],
+            [2, null],
+            [3, null],
+            [10, 1],
+        ]);
+    });
+
+    it('works on a save the game wrote, whose Rynn class word has bit 27 set', () => {
+        const blob = addFixture();
+        const save = parseSave(blob);
+        const r = save.entries.find((x) => x.type === 0x102 && x.id === 8)!;
+        new DataView(r.data.buffer, r.data.byteOffset).setUint32(8, 0x1f081069, true);
+        const out = addItem(save, 7);
+        expect(out.cell).toBe(2);
+        expect(listInventory(out.save).map((c) => c.cell)).toEqual([0, 1, 2]);
+    });
+
     it('findCellStream matches the stream by the carried slots', () => {
         const r = rynnWithStream();
         expect(

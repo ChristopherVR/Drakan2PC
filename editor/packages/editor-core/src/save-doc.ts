@@ -1,5 +1,5 @@
 import {
-    RYNN_CLASS,
+    isRynnClass,
     SaveFieldError,
     applyFieldEdits,
     assembleSave,
@@ -30,7 +30,16 @@ import {
 } from '@drakan/formats';
 import type { Command } from './commands.ts';
 import { LevelDocument, type LevelObject } from './document.ts';
-import { addItem, freeCells, itemResource, itemTemplates, replaceItem, type ItemTemplate } from './save-items.ts';
+import {
+    addItem,
+    itemCells,
+    itemResource,
+    itemTemplates,
+    placeItem,
+    replaceItem,
+    usedCells,
+    type ItemTemplate,
+} from './save-items.ts';
 
 export interface PendingEdit {
     name: string;
@@ -98,8 +107,8 @@ export class SaveDocument extends LevelDocument {
     readonly quests: QuestRow[];
     /** Pending item replacements: inventory cell -> entry id of the template record whose body it gets. */
     readonly itemReplacements = new Map<number, number>();
-    /** Pending new items, in the order they were added: entry id of the template record of each. */
-    readonly itemAdds: number[] = [];
+    /** Pending new items, in the order they were added: template record entry id and height in cells of each. */
+    readonly itemAdds: ItemAdd[] = [];
     private templatesCache: ItemTemplate[] | null = null;
     private issuesCache: Issue[] | null = null;
     private readonly probes = new Map<string, FieldProbe>();
@@ -114,7 +123,7 @@ export class SaveDocument extends LevelDocument {
         let player: number | null = null;
         for (const r of this.records) {
             if (!r.pos) continue;
-            const isPlayer = r.classId === RYNN_CLASS;
+            const isPlayer = isRynnClass(r.classId);
             const o = this.insert({
                 id: r.index + 1,
                 class: (r.classId ?? 0).toString(16).padStart(8, '0'),
@@ -159,13 +168,41 @@ export class SaveDocument extends LevelDocument {
         return (this.templatesCache ??= itemTemplates(this.save));
     }
 
-    /** Cells the pending added items will take (the first free cells, in order). */
+    /**
+     * First cell of each pending added item, in order (the first place where all of its cells are free, after the
+     * items added before it); -1 for an item that does not fit. The same placement `build()` writes.
+     */
     addedCells(): number[] {
+        return this.addedPlaces().map((p) => p.cell);
+    }
+
+    /** Every cell each pending added item takes (empty for one that does not fit). */
+    addedPlaces(): { cell: number; cells: number[] }[] {
         if (this.itemAdds.length === 0) return [];
+        const used = this.usedNow();
+        if (!used) return this.itemAdds.map(() => ({ cell: -1, cells: [] }));
+        return this.itemAdds.map((a) => {
+            const cell = placeItem(used, a.rows);
+            const cells = cell === null ? [] : itemCells(cell, a.rows)!;
+            for (const c of cells) used.add(c);
+            return { cell: cell ?? -1, cells };
+        });
+    }
+
+    /** First cell a new item `rows` cells tall would take after the pending adds, or null when there is no room. */
+    placeFor(rows: number): number | null {
+        const used = this.usedNow();
+        if (!used) return null;
+        for (const p of this.addedPlaces()) for (const c of p.cells) used.add(c);
+        return placeItem(used, rows);
+    }
+
+    /** Cells taken by the items in the save, or null when the inventory was not recognised. */
+    private usedNow(): Set<number> | null {
         try {
-            return freeCells(this.save).slice(0, this.itemAdds.length);
+            return usedCells(this.save);
         } catch {
-            return [];
+            return null;
         }
     }
 
@@ -256,12 +293,12 @@ export class SaveDocument extends LevelDocument {
             });
         }
         const cells = this.addedCells();
-        this.itemAdds.forEach((tpl, i) => {
+        this.itemAdds.forEach(({ template: tpl }, i) => {
             const rec = this.save.entries.find((e) => e.type === 0x102 && e.id === tpl);
             const res = rec ? (itemResource(rec) ?? 0) : 0;
             out.push({
                 name: `add.${i}`,
-                label: `new item ${i + 1}${cells[i] !== undefined ? ` (cell ${cells[i]})` : ' (no free cell)'}`,
+                label: `new item ${i + 1}${cells[i] !== undefined && cells[i] >= 0 ? ` (cell ${cells[i]})` : ' (no free cell)'}`,
                 before: 0,
                 after: res,
                 confidence: 'medium',
@@ -304,22 +341,41 @@ export class SaveDocument extends LevelDocument {
             }));
         let base = this.save;
         for (const [cell, tpl] of this.itemReplacements) base = replaceItem(base, cell, tpl);
-        for (const tpl of this.itemAdds) base = addItem(base, tpl).save;
+        for (const a of this.itemAdds) base = addItem(base, a.template, a.rows).save;
         if (edits.length === 0 && base === this.save) return { bytes: this.bytes.slice(), save: this.save };
         const save = edits.length ? applyFieldEdits(base, edits) : base;
         return { bytes: assembleSave(save).bytes, save };
     }
 }
 
-/** Add a new carried item of a class this save has a record for (see `addItem`). Undo removes it again. */
+/** A pending new item: the template record's entry id and the item's height in cells (1..3). */
+export interface ItemAdd {
+    template: number;
+    rows: number;
+}
+
+/**
+ * Add a new carried item of a class this save has a record for (see `addItem`), `rows` cells tall. Undo removes it
+ * again. Throws when the item has no place where all of its cells are free.
+ */
 export class AddItemCommand implements Command {
     readonly label: string;
-    constructor(private readonly template: number) {
+    constructor(
+        private readonly template: number,
+        private readonly rows = 1,
+    ) {
         this.label = `Add item (record ${template})`;
     }
     apply(doc: LevelDocument): void {
         if (!(doc instanceof SaveDocument)) throw new Error('AddItemCommand needs a SaveDocument');
-        doc.itemAdds.push(this.template);
+        if (doc.placeFor(this.rows) === null) {
+            throw new SaveFieldError(
+                this.rows > 1
+                    ? `There is no free column with ${this.rows} empty cells for this item.`
+                    : 'The inventory is full.',
+            );
+        }
+        doc.itemAdds.push({ template: this.template, rows: this.rows });
     }
     revert(doc: LevelDocument): void {
         if (!(doc instanceof SaveDocument)) throw new Error('AddItemCommand needs a SaveDocument');
@@ -330,7 +386,7 @@ export class AddItemCommand implements Command {
 /** Drop pending added item number `index` (the tray's revert). */
 export class RemoveAddedItemCommand implements Command {
     readonly label: string;
-    private old: number | undefined;
+    private old: ItemAdd | undefined;
     constructor(private readonly index: number) {
         this.label = `Remove added item ${index + 1}`;
     }

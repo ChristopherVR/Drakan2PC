@@ -2,7 +2,7 @@ import { zlibSync } from 'fflate';
 import {
     CLASS_OFFSET,
     ITEM_PTR_GAP,
-    RYNN_CLASS,
+    isRynnClass,
     SaveFieldError,
     TYPE_RECORD,
     INV_CELL_COUNT,
@@ -41,7 +41,7 @@ const heap = (w: number): boolean => w > 0x600000 && w < 0x2000000 && w % 16 ===
 /** Resource id (0x3xxxx) of an item record, or null when the record is not shaped like an item. */
 export function itemResource(e: SaveEntry): number | null {
     const d = e.data;
-    if (e.type !== TYPE_RECORD || d.length < ITEM_HANDLE_AT + ITEM_PTR_GAP + 4 || u32(d, CLASS_OFFSET) === RYNN_CLASS) {
+    if (e.type !== TYPE_RECORD || d.length < ITEM_HANDLE_AT + ITEM_PTR_GAP + 4 || isRynnClass(u32(d, CLASS_OFFSET))) {
         return null;
     }
     const res = u32(d, 0) + ITEM_RESOURCE_BASE;
@@ -162,10 +162,41 @@ function streamOffset(d: Uint8Array, start: number, pos: number): number {
 
 /** Free cells (cell index), in the order "Add item" fills them. Cells covered by multi-cell items are not free. */
 export function freeCells(save: SaveFile): number[] {
-    const used = new Set(listInventory(save).map((c) => c.cell));
+    const used = usedCells(save);
     const out: number[] = [];
     for (let k = 0; k < INV_CELL_COUNT; k++) if (!used.has(k)) out.push(k);
     return out;
+}
+
+/** The Tab screen grid: 8 columns, 3 rows; cell index = column + 8 * row. */
+export const INV_GRID_COLS = 8;
+export const INV_GRID_ROWS = 3;
+/**
+ * Largest item height in cells: the Resources class field "Icon Slot Size (1-3)". A multi-cell item spans DOWN from
+ * its first cell (the bow takes three cells of one column, the Rusty Scimitar two; save-add-item.md), and the cells
+ * below it hold the continuation markers dx * 10 + dy (dx is always 0 for these).
+ */
+export const MAX_ITEM_CELLS = INV_GRID_ROWS;
+
+/** Cells an item `rows` cells tall takes when its first cell is `cell`, or null when it would leave the grid. */
+export function itemCells(cell: number, rows: number): number[] | null {
+    if (!Number.isInteger(rows) || rows < 1 || cell < 0 || cell >= INV_CELL_COUNT) return null;
+    if (Math.floor(cell / INV_GRID_COLS) + rows > INV_GRID_ROWS) return null;
+    return Array.from({ length: rows }, (_, dy) => cell + dy * INV_GRID_COLS);
+}
+
+/** First cell (in cell order) where an item `rows` cells tall fits with every one of its cells free, else null. */
+export function placeItem(used: ReadonlySet<number>, rows: number): number | null {
+    for (let k = 0; k < INV_CELL_COUNT; k++) {
+        const cells = itemCells(k, rows);
+        if (cells && cells.every((c) => !used.has(c))) return k;
+    }
+    return null;
+}
+
+/** Cells taken by the items in the save (first cells and the cells their markers cover). */
+export function usedCells(save: SaveFile): Set<number> {
+    return new Set(listInventory(save).map((c) => c.cell));
 }
 
 export interface AddItemResult {
@@ -179,10 +210,11 @@ export interface AddItemResult {
 }
 
 /**
- * Add a new carried item of the class of `templateEntry` (an item record of this save) to the first free cell.
- * Pure: the input save is untouched. Throws a `SaveFieldError` when the save does not have the structure above.
+ * Add a new carried item of the class of `templateEntry` (an item record of this save) to the first place where all
+ * of its `rows` cells (the item's height, 1..3) are free. Pure: the input save is untouched. Throws a
+ * `SaveFieldError` when the item does not fit or the save does not have the structure above.
  */
-export function addItem(save: SaveFile, templateEntry: number): AddItemResult {
+export function addItem(save: SaveFile, templateEntry: number, rows = 1): AddItemResult {
     const { entry: rynn, base } = cellTable(save);
     const records = save.entries.filter((e) => e.type === TYPE_RECORD);
     const K = records.length;
@@ -190,9 +222,13 @@ export function addItem(save: SaveFile, templateEntry: number): AddItemResult {
     const tpl = records.find((e) => e.id === templateEntry && itemResource(e) !== null);
     if (!tpl) throw new SaveFieldError(`entry ${templateEntry} is not an item record`);
     const cells = listInventory(save);
-    const free = freeCells(save);
-    if (free.length === 0) throw new SaveFieldError('the inventory is full');
-    const cell = free[0]!;
+    if (!Number.isInteger(rows) || rows < 1 || rows > MAX_ITEM_CELLS) {
+        throw new SaveFieldError(`an item is 1 to ${MAX_ITEM_CELLS} cells tall, not ${rows}`);
+    }
+    const used = new Set(cells.map((c) => c.cell));
+    if (used.size >= INV_CELL_COUNT) throw new SaveFieldError('the inventory is full');
+    const cell = placeItem(used, rows);
+    if (cell === null) throw new SaveFieldError(`no free column has ${rows} empty cells for this item`);
     // Donor: an item that is carried now (state words, handle layout, position).
     const slots = new Map<number, number>();
     let donor: SaveEntry | null = null;
@@ -265,6 +301,15 @@ export function addItem(save: SaveFile, templateEntry: number): AddItemResult {
     gv.setUint32(cellAt + 4, 0, true);
     gv.setUint32(cellAt + 8, handle, true);
     gv.setUint32(cellAt + 12, 0, true);
+    // The cells under a tall item: continuation markers (dx * 10 + dy, dx = 0). The stream keeps them as empty words,
+    // as in the game's own save of the tall scimitar (Rynn's record kept its size).
+    for (let dy = 1; dy < rows; dy++) {
+        const o = base + 16 * (cell + dy * INV_GRID_COLS);
+        gv.setUint32(o, 0, true);
+        gv.setUint32(o + 4, 0, true);
+        gv.setUint32(o + 8, dy, true);
+        gv.setUint32(o + 12, 0, true);
+    }
 
     // The entry list: the new record goes after the last record, like the game's own ordering.
     const lastRecord = save.entries

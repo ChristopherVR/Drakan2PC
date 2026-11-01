@@ -9,6 +9,9 @@
  *   changeList  a list of change rows with an empty state
  *   card        a titled section with a hint line and right-hand tools
  *   statTile    a label, a big value, an optional meter and a caption
+ *   itemGrid    a CSS grid of tiles placed by cell index (the save editor's inventory grid)
+ *   gridTile    one tile of that grid, spanning one or more cells
+ *   listRow     a clickable, keyboard-activated list row (the save editor's save list)
  */
 import './components.css';
 
@@ -136,4 +139,69 @@ export function statTile(
         meter,
         opts.note ? el('small', opts.noteCls ?? 'c-dim', opts.note) : null,
     );
+}
+
+/** CSS grid placement of cell `cell` in a grid `cols` wide (cell index = column + cols * row), spanning `span` cells. */
+export function gridArea(cell: number, cols: number, span: { cols?: number; rows?: number } = {}): string {
+    const col = (cell % cols) + 1;
+    const row = Math.floor(cell / cols) + 1;
+    const c = span.cols ?? 1;
+    const r = span.rows ?? 1;
+    return `grid-column:${col}${c > 1 ? ` / span ${c}` : ''};grid-row:${row}${r > 1 ? ` / span ${r}` : ''}`;
+}
+
+export interface GridTileOptions {
+    /** `button` for a tile that does something when clicked, `div` for a plain one. */
+    tag?: 'button' | 'div';
+    cls: string;
+    cell: number;
+    /** Grid width in cells. */
+    cols: number;
+    span?: { cols?: number; rows?: number };
+    title?: string;
+    /** `data-*` attributes (key without the `data-` prefix). */
+    data?: Record<string, string | number>;
+    onClick?: () => void;
+}
+
+/** One tile of an `itemGrid`, placed at its cell and spanning `span` cells. */
+export function gridTile(o: GridTileOptions, ...kids: Kid[]): HTMLElement {
+    const t = el(o.tag ?? 'div', o.cls, ...kids);
+    t.setAttribute('style', gridArea(o.cell, o.cols, o.span));
+    if (o.title) t.title = o.title;
+    for (const [k, v] of Object.entries(o.data ?? {})) t.setAttribute(`data-${k}`, String(v));
+    if (o.onClick) t.onclick = o.onClick;
+    return t;
+}
+
+/** A grid of `gridTile`s; the class sets the grid's columns and cell size. */
+export function itemGrid(cls: string, tiles: Node[]): HTMLElement {
+    return el('div', cls, ...tiles);
+}
+
+/** Keys that activate a focused list row, like a click. */
+export const activatesRow = (key: string): boolean => key === 'Enter' || key === ' ';
+
+export interface ListRowOptions {
+    cls: string;
+    title?: string;
+    /** Stored as `data-key`, to find the row again. */
+    key?: string;
+    /** Click, Enter or Space. */
+    onActivate: () => void;
+}
+
+/** A list item that can be clicked or focused with Tab and activated with Enter / Space. */
+export function listRow(o: ListRowOptions, ...kids: Kid[]): HTMLLIElement {
+    const li = el('li', o.cls, ...kids);
+    if (o.title) li.title = o.title;
+    li.tabIndex = 0;
+    li.onclick = () => o.onActivate();
+    li.onkeydown = (e) => {
+        if (!activatesRow(e.key)) return;
+        e.preventDefault();
+        o.onActivate();
+    };
+    if (o.key !== undefined) li.dataset.key = o.key;
+    return li;
 }

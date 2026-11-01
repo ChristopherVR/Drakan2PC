@@ -147,3 +147,16 @@ modification time on the host by the time zone (the title's "newest save" orders
   are slots 0..K-1, level statics follow at K + their position in the 0x24 table (0x21 pairs mirror it), so a new record needs the
   first static dropped from 0x24 and 0x21. The u16 item count 8 bytes before the cell table goes up by one. Code:
   `editor-core/src/save-items.ts` (`addItem`, `findCellStream`), UI `app/src/save/inventory.ts`.
+- Rynn's class word (record +8) is `0x17081069` in the sample saves and `0x1f081069` in a save the game wrote after play
+  (`journal/2026-11-01/save-add-item.md`). The two differ only in bit 27 (`0x08000000`). Nothing in the repo decodes the word, so
+  the bit's meaning is not known. Other record words also differ only in their top byte: Arokh `0x1b001041` and a camera
+  `0x18001041`, and the gold counter `0x19001255` has bit 27 set. This suggests the top byte holds state flags and is not part of
+  the class. The editor (`isRynnClass` / `classMatches` in `formats/src/save.ts`) matches Rynn with bit 27 ignored and every other
+  bit exact; other classes stay exact. `scripts/savetool/savetool.py` still matches exactly.
+- Item size (2026-11-02): the height of an item in cells is the Resources class field `Icon Slot Size (1-3)`. A tall item spans down
+  one column from its first cell (bow 3, Rusty Scimitar 2), and the cells under it hold continuation markers `dx * 10 + dy` in the
+  cell table. In the word stream the covered cells stay single empty words: the game saved the tall scimitar with Rynn's record at
+  the same size. Add item (`placeItem`, `addItem(save, template, rows)`) puts the item in the first cell where all of its cells
+  are free and inside the 8 x 3 grid, and writes the markers. The UI takes the height from the disc's catalog, else from a carried
+  item of the same class. When neither is known it reserves a full column of 3 cells. It shows a message when nothing fits. The bow
+  stays excluded because it was never tried in game. Not proven in game: a 2- or 3-cell item placed by the editor.

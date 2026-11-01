@@ -27,7 +27,15 @@ export interface ItemCatalog {
      * Class id and ODB name of every class in Resources.ODB, with the game's own name for it (Resources.XDB string
      * `DisplayName`, in the disc's language) and its shop price when the class has them.
      */
-    classes: { classId: number; name: string; displayName?: string; price?: number; facts?: string[] }[];
+    classes: {
+        classId: number;
+        name: string;
+        displayName?: string;
+        price?: number;
+        facts?: string[];
+        /** Height in inventory cells (class field "Icon Slot Size (1-3)"), when the class has the field. */
+        cells?: number;
+    }[];
 }
 
 interface Context {
@@ -76,14 +84,27 @@ function context(fs: Iso9660, language: string): Promise<Context | null> {
     return (ctx ??= findContext(fs, language));
 }
 
+const SLOT_SIZE_FIELD = 'Icon Slot Size (1-3)';
+
 const FACT_FIELDS: [string, string, (v: number) => string][] = [
     ['Damage Maximum', 'Damage', (v) => `up to ${v}`],
     ['Weapon Speed', 'Speed', (v) => String(Number(v.toFixed(2)))],
     ['Health Boost', 'Restores health', (v) => String(v)],
     ['Total Durability Points', 'Durability', (v) => String(v)],
     ['Skill Level', 'Needs skill level', (v) => String(v)],
-    ['Icon Slot Size (1-3)', 'Inventory cells', (v) => String(v)],
+    [SLOT_SIZE_FIELD, 'Inventory cells', (v) => String(v)],
 ];
+
+/** Height in inventory cells of an item class (field "Icon Slot Size (1-3)"), or undefined when absent or out of range. */
+export function itemCellCount(
+    k: Parameters<typeof classFieldDefault>[0],
+    at: (name: string) => number,
+): number | undefined {
+    const i = at(SLOT_SIZE_FIELD);
+    if (i < 0) return undefined;
+    const v = Number(classFieldDefault(k, i));
+    return Number.isInteger(v) && v >= 1 && v <= 3 ? v : undefined;
+}
 
 /**
  * The game has no item description text (Resources.XDB holds names only), so the tooltip is built from the class
@@ -130,8 +151,10 @@ export function loadItemCatalog(fs: Iso9660, language: string): Promise<ItemCata
                     const text = strings && iName >= 0 ? xdbText(strings, k.data![iName]! & 0xffff, slot) : '';
                     const price = iPrice >= 0 ? Number(classFieldDefault(k, iPrice)) : NaN;
                     const facts = itemFacts(k, (n) => at(n));
+                    const cells = itemCellCount(k, (n) => at(n));
                     return {
                         classId: k.id,
+                        ...(cells !== undefined ? { cells } : {}),
                         ...(facts.length ? { facts } : {}),
                         name: k.name,
                         ...(text ? { displayName: text } : {}),
