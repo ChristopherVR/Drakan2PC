@@ -48,10 +48,12 @@ std::atomic<bool> g_enabled{false};
 world::Globals g_globals; // EE thread (set once in configure, before the first sample)
 world::ReaderState g_state;
 world::SnapshotExchange g_exchange;
-bool g_headless = false;    // DRAKAN_WORLD=2: sample every frame without the overlay (harness runs)
-std::vector<uint64_t> g_dumpAtFrames; // DRAKAN_WORLD_DUMP_FRAME=N[,M...]: write a JSON dump at each listed sample (harness runs)
+bool g_headless = false; // DRAKAN_WORLD=2: sample every frame without the overlay (harness runs)
+std::vector<uint64_t>
+    g_dumpAtFrames; // DRAKAN_WORLD_DUMP_FRAME=N[,M...]: write a JSON dump at each listed sample (harness runs)
 uint64_t g_frames = 0;
-std::string g_dumpLevel, g_framesLevel; // DRAKAN_WORLD_DUMP_LEVEL=<substring>: only count / dump samples of that level; the count restarts per level
+std::string g_dumpLevel, g_framesLevel; // DRAKAN_WORLD_DUMP_LEVEL=<substring>: only count / dump samples of that level;
+                                        // the count restarts per level
 
 // ---- UI thread state ----
 struct Ui {
