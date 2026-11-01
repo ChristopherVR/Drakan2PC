@@ -106,3 +106,23 @@ maximum, where file, index and id order agree, so the question only matters for 
 
 Formats suite: `tsc` clean, vitest 266/267; the one failure (`ootfseq` "AI resume zeroed") is a pending uncommitted edit of
 `src/ootfseq.ts` by another session (`keepAiResume` now defaults to true; the test still expects 0).
+
+## Third attempt (2026-11-01, late): the pulled trolls spawn, but their bodies do not draw
+
+New converter aids (`ootfpipeline.ts`): `DRAKAN_DBG_PULLDIST=<d>,<dy>` (ring distance and height offset of pulled objects; default 1200,0),
+`DRAKAN_DBG_PULLP=1` (log object params of pulled objects); `rtconv.sh` forwards `PULLDIST=`. Another session added `DRAKAN_DBG_CLSINFO=<regex>`
+(template, model ref, data of the synthesized classes), which gave the key finding below.
+
+* Runs `p1`/`p0` (`^Troll Leather$`, `PULLDIST=400,150`, `--retarget 1/0`, turn recipe): four weapon props ("Troll Axe", 2-handed axes)
+  appear next to Rynn and tumble / move between frames, identical with and without retarget; no troll body is drawn. So the objects do
+  spawn (the weapons are the creatures' held items) and the body mesh is the problem, or the creature dies at once and drops its axe.
+* `CLSINFO` shows why retarget cannot be exercised by these classes: `Troll Leather` / `Troll Chain` / `Troll Plate` have NO same-named PS2
+  class (PS2 calls them LeatherWartock / PlateTock / ChainTock), so they are plain synthesized rfl-49 classes cloned from the PS2
+  template (`LeatherWartock : Center` #5174, `PlateTock : Center`, ...) with the PC model converted to a new skinned model (id 6649/6663/6664, db 2 =
+  RESOURES). Only the `...AnimWay Point` classes (way points, not creatures) name-match and retarget. A retarget therefore only
+  affects classes whose PC name equals a PS2 class name (e.g. `Spider`); for the trolls a name alias (PC `Troll Leather` -> PS2
+  `LeatherWartock`) would be needed in `byName` in `convertOotfLevels`. Next step: confirm whether the new skinned troll models (6649) draw
+  at all (compare with the Heuge that drew in skin13), and add that alias.
+* The spider run (`rcs1`, `^Spider$`, 300,100) timed out at 180 s on this loaded machine (about 15 node/game processes of other
+  sessions), so no frames. Run names must be unique (`q1` was overwritten by another session).
+* Still NOT shown: a visibly playing converted/retargeted clip.
