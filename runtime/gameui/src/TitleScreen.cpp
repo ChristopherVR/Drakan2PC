@@ -682,3 +682,11 @@ void TitleScreen::draw(const TitleState& st, DrawList& d) const {
 }
 
 } // namespace gameui
+    if (!st.brandTitle.empty()) { // a text plaque over the native logo
+        const Rect plaque{460, 30, 1000, 300};
+        d.panel(p.map(plaque), PanelStyle::Main, withAlpha(th.panel, 242));
+        p.text(d, {plaque.x, plaque.y + 50, plaque.w, 120}, st.brandTitle, FontRole::Title, th.text, TextAlign::Center);
+        if (!st.brandSubtitle.empty())
+            p.text(d, {plaque.x, plaque.y + 175, plaque.w, 70}, st.brandSubtitle, FontRole::Heading, th.textMuted,
+                   TextAlign::Center);
+    }

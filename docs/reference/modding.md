@@ -261,6 +261,12 @@ What the runtime does with it (`drakan_game.cpp`):
   Drakan card, so the two games' saves never mix. Continue / Load Game / Save Game / quick save and the save previews all
   follow the selected game because they use the one configured card root.
 * **Multiplayer and co-op are shared**: one Multiplayer menu for both games, maps of either game selectable (arena maps come
+* **Title art**: the native title art carries the Drakan 2 logo, so while Order of the Flame is chosen the menu draws a text
+  plaque over it ("DRAKAN" and the part of `campaign_name` after "Drakan: ", i.e. "Order of the Flame"). `campaign_name` is
+  the only manifest key involved; a pack-supplied title image (`campaign_title_image`) is not implemented (the text plaque
+  is generated, no original art ships). Drakan 2 keeps the native art.
+* **Co-op**: New Game > Co-op hosts/joins on the campaign's start level (`drakan_game::firstLevel()`, level list = start
+  level then the pack's other levels); the host's level changes follow the pack's own exits.
   from the disc's levels and from every pack's `maps/*.ini`). A multiplayer launch sets its own redirect; when it ends the
   campaign redirect of the chosen game is restored.
 * **Settings** `drakan.ini [general] game = ask | d2 | d1` (env `DRAKAN_GAME`): `ask` (default) offers the card when a

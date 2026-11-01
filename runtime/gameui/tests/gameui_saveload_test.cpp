@@ -577,6 +577,13 @@ void testTitleGameChoice() {
     st.game = 1;
     o = scr.frame(st, {}, kVp);
     CHECK(scr.page() == TitlePage::Main && hasText(o.draw, "Drakan: Order of the Flame"));
+    CHECK(!hasText(o.draw, "DRAKAN")); // no brand plaque while the native art is shown
+    st.brandTitle = "DRAKAN";
+    st.brandSubtitle = "Order of the Flame";
+    o = scr.frame(st, {}, kVp);
+    CHECK(hasText(o.draw, "DRAKAN") && hasText(o.draw, "Order of the Flame"));
+    st.brandTitle.clear();
+    st.brandSubtitle.clear();
     // Back on the main page reopens the card with the current game focused; Back on the card keeps the game.
     o = scr.frame(st, keys({UiKey::Back}), kVp);
     CHECK(scr.page() == TitlePage::GameChoice);

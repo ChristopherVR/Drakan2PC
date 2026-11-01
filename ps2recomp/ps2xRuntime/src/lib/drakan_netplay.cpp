@@ -249,7 +249,8 @@ void addChat(int player, const std::string& who, const std::string& text) {
 void setRedirect(const std::string& level, bool direct = false) {
     if (!g_redirectFn)
         return;
-    if (level.empty() || (!direct && level == kFirstLevel)) {
+    if (level.empty() || (!direct && (level == kFirstLevel || level == drakan_game::firstLevel()))) {
+        // (the chosen game's own first level: New Game already opens it, for Order of the Flame through the campaign redirect)
         g_redirectFn("", "");
         g_redirectActive.store(false);
         g_redirectFrom.clear();

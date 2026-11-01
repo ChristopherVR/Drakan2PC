@@ -956,6 +956,11 @@ void titleTick(const uint8_t* ram, RecompGuest& g) {
         st.game = static_cast<int>(drakan_game::current());
         st.gameNames[0] = drakan_game::name(drakan_game::Game::Drakan);
         st.gameNames[1] = drakan_game::name(drakan_game::Game::Ootf);
+        if (drakan_game::current() == drakan_game::Game::Ootf) { // own title text over the native Drakan 2 logo
+            const std::string full = drakan_game::name(drakan_game::Game::Ootf);
+            st.brandTitle = "DRAKAN";
+            st.brandSubtitle = full.rfind("Drakan: ", 0) == 0 ? full.substr(8) : full;
+        }
         st.dateOrder = menuDateOrder(g, st.clock24);
         gameui::readPauseOptions(RdramMemory(ram), st.options);
         if (++g_title.frames <= 1)

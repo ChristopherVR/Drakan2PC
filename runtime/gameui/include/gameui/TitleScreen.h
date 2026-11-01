@@ -103,6 +103,13 @@ enum class TitlePage : uint8_t { Main, QuitConfirm, Options, PcSettings, Multipl
     bool offerGames = false;
     int game = 0;                     // the game the menu is running for (0 Drakan, 1 Order of the Flame)
     std::string gameNames[2] = {"Drakan", "Drakan: Order of the Flame"};
+    // Order of the Flame is playing: the menu draws its own text title over the native logo (which says The Ancients' Gates).
+    // brandTitle empty = native art as shipped.
+    std::string brandTitle, brandSubtitle;
+};
+
+enum class TitlePage : uint8_t { Main, QuitConfirm, Options, PcSettings, Multiplayer, NewGameChoice, GameChoice };
+
 struct TitleConfig {
     ScreenConfig screen;
     bool showContinue = true;     // a Continue row when TitleState::continueSlot is set

@@ -12,6 +12,7 @@
 #include "drakan_window.h"
 #include "drakan_menus.h"
 #include "drakan_netplay.h"
+#include "drakan_game.h"
 #include "drakan_arena.h"
 #include "drakan_coop_character.h"
 #include "drakan_world.h"
@@ -1543,7 +1544,15 @@ gameui::mp::MpState mpState(bool wantLan) {
         }
         s.lanScanning = drakan_netplay::lanScanning();
     }
-    s.levels = vanillaLevels();
+    const bool ootf = drakan_game::current() == drakan_game::Game::Ootf;
+    if (!ootf)
+        s.levels = vanillaLevels();
+    else { // Order of the Flame: co-op opens the campaign's start level first (drakan_game::firstLevel)
+        LevelEntry e;
+        e.name = drakan_game::firstLevel();
+        e.title = e.name;
+        s.levels.push_back(std::move(e));
+    }
     for (const std::string& n : drakan_netplay::extraLevels()) {
         LevelEntry e;
         e.name = n;
@@ -1654,6 +1663,8 @@ bool mpHudActive() {
 }
 
 // DRAKAN_MP_CAPTURE=0 turns the capture off. One capture per map and run; skipped while a preview file exists.
+        if (ootf && n == drakan_game::firstLevel())
+            continue;
 bool mpPreviewCapture(const drakan_netplay::State& ns, const gameui::mp::HudState& hs) {
     static int hiding = 0;            // frames still drawn without the HUD
     static std::string requestedFor;  // the map a capture was asked for
