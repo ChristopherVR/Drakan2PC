@@ -19,7 +19,8 @@ packs that the recompiled PS2 engine plays; nothing from either game is committe
 * Co-op stays on the Drakan campaign path and shares the New Game card; the OotF Multiplayer page has Host / Join / mplayer.com only.
 * HD textures for both packs (`analysis/scripts/ootf_hd_pack.py <zips>`, output under `dist/DrakanPC/textures`, never committed).
   The converter's texture formats changed on 2026-11-01 (object textures over 128 px with more than 256 colours are 8 bpp), so
-  regenerate after any converter change.
+  regenerate after any converter change. With `--hd` the converter also keeps the lossless pixels of every texture it had to quantise
+  (`<zip>.hdsrc`), and the pack is upscaled from those (`ootf-lossless-hd-source.md`); the guest copy itself is still 8 bpp.
 * Drakan 2 with both packs installed still boots normally (choose Drakan; `Level 0 - Intro` then `Level 1A - Surdana`; no OotF leakage).
 
 ## Known gaps

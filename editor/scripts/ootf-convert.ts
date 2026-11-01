@@ -5,11 +5,12 @@
 //        --template LEVEL1NA --out build/ootf-pack.zip [--id ootf-levels] [--prefix "OotF - "] [--splats <dir with LEVEL1TS.DB and .TXD, default --ps2>] [--campaign 1] [--hd [--hd-out <textures dir>]] [--list] <pc level paths...>
 //
 // Level paths are relative to the install dir, e.g. "Multiplayer/Ground/Relic/Relic.lvl". Without paths every level.
-import { existsSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs';
+import { createHash } from 'node:crypto';
+import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { join, relative, sep } from 'node:path';
 import { buildOotfPack, ootfArenaFromPc, zipOotfPack } from '@drakan/editor-core';
-import { SrscReader, convertOotfLevels, findPcLevels, loadPcLevel, ps2BlobFor, pcLevelName, type PcFileSource } from '@drakan/formats';
+import { SrscReader, convertOotfLevels, findPcLevels, setExactSink, loadPcLevel, ps2BlobFor, pcLevelName, type PcFileSource } from '@drakan/formats';
 
 const args = process.argv.slice(2);
 const opt: Record<string, string> = {};
@@ -26,6 +27,19 @@ for (let i = 0; i < args.length; i++) {
 const need = (k: string): string => opt[k] ?? (console.error(`missing --${k}`), process.exit(2));
 
 const root = need('ootf');
+// --hd: keep the lossless pixels of every texture the converter had to quantise, next to the pack (<out>.hdsrc/<sha1 of the record>.rgba:
+// u32 w, u32 h, RGBA), so the HD pack upscales those instead of the 256-colour guest texture.
+if (hd) {
+    const dir = `${need('out')}.hdsrc`;
+    rmSync(dir, { recursive: true, force: true });
+    mkdirSync(dir, { recursive: true });
+    setExactSink((body, img) => {
+        const head = new Uint8Array(8);
+        new DataView(head.buffer).setUint32(0, img.width, true);
+        new DataView(head.buffer).setUint32(4, img.height, true);
+        writeFileSync(join(dir, `${createHash('sha1').update(body).digest('hex')}.rgba`), Buffer.concat([head, img.rgba]));
+    });
+}
 const all: string[] = [];
 (function walk(d: string) {
     for (const f of readdirSync(d)) {

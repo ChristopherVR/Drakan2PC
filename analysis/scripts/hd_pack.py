@@ -18,6 +18,7 @@ Hash = gsr::texup::hashContent over w*h little-endian uint32 (R | G<<8 | B<<16 |
 
 import argparse
 import glob
+import hashlib
 import json
 import os
 import shutil
@@ -261,6 +262,10 @@ def cmd_modextract(a):
         print("modextract: %s unchanged since the last index, skipped" % a.zip)
         return
     z = zipfile.ZipFile(a.zip)
+    hdsrc = (
+        a.zip + ".hdsrc"
+    )  # lossless pixels of textures the converter quantised (ootf-convert.ts --hd), by SHA-1 of the record
+    exact_n = 0
     for name in z.namelist():
         if name.endswith("/"):
             continue
@@ -283,21 +288,38 @@ def cmd_modextract(a):
                 continue
             hx = hash_content(pack_u32(rgba), w, h)
             n += 1
+            ex = os.path.join(hdsrc, hashlib.sha1(d[o : o + sz]).hexdigest() + ".rgba")
+            exact = None
+            if os.path.exists(ex):
+                raw = open(ex, "rb").read()
+                ew, eh = struct.unpack("<II", raw[:8])
+                exact = np.frombuffer(raw, np.uint8, ew * eh * 4, 8).reshape(eh, ew, 4)
             e = index.get(hx)
+            if e is not None and exact is not None and not e.get("exact"):
+                e["exact"] = True  # earlier index had the quantised picture
+                Image.fromarray(exact, "RGBA").save(os.path.join(src, hx + ".png"))
+                exact_n += 1
             if e is None:
                 e = index[hx] = dict(
                     w=w, h=h, bpp=info["bpp"], kind=info["kind"], src=[], ui=False, rgb=rgb_hash(rgba, w, h),
                     aconst=bool((rgba[..., 3] == rgba[0, 0, 3]).all()), a0=int(rgba[0, 0, 3]), amax=int(rgba[..., 3].max()),
                     apartial=float(((rgba[..., 3] > 0) & (rgba[..., 3] < 0x80)).mean()),
                 )  # fmt: skip
-                save_png(os.path.join(src, hx + ".png"), to_png_rgba(rgba), 1)
+                if exact is not None:
+                    e["exact"] = True
+                    Image.fromarray(exact, "RGBA").save(
+                        os.path.join(src, hx + ".png")
+                    )  # PNG alpha as the lossless source has it
+                    exact_n += 1
+                else:
+                    save_png(os.path.join(src, hx + ".png"), to_png_rgba(rgba), 1)
             e["src"].append("%s#%d" % (name, tid))
         if n:
             print("%-60s %4d textures (%d unique)" % (name, n, len(index)), flush=True)
     json.dump(index, open(ipath, "w"))
     zdone[zkey] = sig
     json.dump(zdone, open(zp, "w"))
-    print("textures %d undecodable %d unique %d" % (total, bad, len(index)))
+    print("textures %d undecodable %d unique %d lossless sources %d" % (total, bad, len(index), exact_n))
 
 
 # ------------------------------------------------------------------------------------------------ compare with a runtime dump
@@ -449,7 +471,13 @@ def cmd_upscale(a):
                 index[h] = e
                 srcdirs[h] = os.path.join(a.work, "src_dump")
     os.makedirs(a.out, exist_ok=True)
-    todo = [h for h in sorted(index) if not os.path.exists(os.path.join(a.out, h + ".png"))]
+    edp = os.path.join(a.out, "exact_done.txt")  # hashes whose pack file was made from the lossless source
+    edone = set(open(edp).read().split()) if os.path.exists(edp) else set()
+    todo = [
+        h
+        for h in sorted(index)
+        if not os.path.exists(os.path.join(a.out, h + ".png")) or (index[h].get("exact") and h not in edone)
+    ]
     if a.limit:
         todo = todo[: a.limit]
     print("upscale: %d of %d textures to do" % (len(todo), len(index)), flush=True)
@@ -553,6 +581,8 @@ def cmd_upscale(a):
             else:
                 out = np.dstack([up, al])
             save_png(os.path.join(a.out, h + ".png"), out, 6)
+            if index[h].get("exact"):
+                edone.add(h)
             done += 1
         el = time.time() - t0
         print(
@@ -561,6 +591,7 @@ def cmd_upscale(a):
             flush=True,
         )
     shutil.rmtree(os.path.join(a.work, "tmp"), ignore_errors=True)
+    open(edp, "w").write(" ".join(sorted(edone)))
     # alias file (rgb hash -> hash) for all textures the pack contains
     lines = []
     seen = set()
