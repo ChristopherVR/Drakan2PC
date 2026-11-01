@@ -244,3 +244,21 @@ Pull ring 150 units (lit Islands) or 250 (dark levels); 4 shots a few hundred ms
 | Queen (Volcano) | nothing visible in the 400 ring |
 
 Not done: dragons (rfl 30 clones, flying), war giants / orcs / Hueges, attack clips; a flying-creature view needs a camera that looks up (harness input).
+
+### Follow-up: flying creatures, giants, orcs, grenadiers, attack (2026-11-01, night)
+
+Harness aids (private, `build/ootf-run/`): `cre_up.txt` / `cre_both.txt` recipes (`mouse 0 -9 20` looks up, `button tap 1` attacks), `cre_run.sh`
+(lock released in a trap), `cre_sheet.py`. Pull regexes see the MAPPED class name: orcs are `^(Yellow|Purple) Orc`, war giants `^Primitive Giant$`
+(`^War Giant$` pulled nothing, which is why earlier orc / giant runs showed nothing).
+
+* Succubus (rfl 100, converted model on a rfl-30 clone, `MODEL_STANDINS` now 88 / 100 / 101): red winged bodies draw high above Rynn and flap
+  (earlier "shadow only" was just the camera not looking up). Queen (101) uses the same path (loads, not seen: the Volcano is too dark).
+* Goblin / Goblin Grenadier (88): green goblins draw and their pose changes between frames.
+* Primitive Giant and Yellow Orc (disc models, retargeted clips): draw next to Rynn, idle (orc pose shifts slightly).
+* Crimson Dragon (rfl 30, converted model 6725: 44 joints, 8 clips, 2 square 256 textures): draws, and in `cre_icd` it attacks Rynn (fire / magic
+  effects, health orb dropping): the AI engages and plays attack clips.
+* Ebon Dragon: same geometry / rig / texture format as the Crimson Dragon (verified with `build/ootf-run/x/dd.ts`, `ta.ts`); in the runs only its wing
+  shadows were seen on the cave wall (alive, hp 225, near the ground per the world dump, but behind / above the third-person camera). Not
+  proven by a picture, no defect found.
+* Not run: Death Mage ghost / Hueges (Navy Hueges rfl 49 clone), batdragon / bladedragon, Drone / Tick (queue contention: the game lock was held
+  by other agents for 20+ minutes, one run gave up with "no lock").
