@@ -12,6 +12,27 @@ describe('launchEnv', () => {
         expect(Object.keys(env).some((k) => k.startsWith('DRAKAN_NET'))).toBe(false);
     });
 
+    it('auto start runs on a throw-away card as Drakan 2, so the title never offers Continue or the game card', () => {
+        const env = launchEnv(opts(), 'Level 4A - Ravenshold');
+        expect(env.DRAKAN_PLAYTEST_CARD).toBe('1');
+        expect(env.DRAKAN_GAME).toBe('d2');
+        expect(env.DRAKAN_START_LEVEL_FROM).toBeUndefined(); // not direct: the intro plays, then the level
+        expect(env.DRAKAN_PLAYTEST_GOD).toBeUndefined();
+    });
+
+    it('a disc level goes straight into the intro slot (no movie, no opening cut scene)', () => {
+        const env = launchEnv(opts(), 'Level 4A - Ravenshold', { direct: true });
+        expect(env.DRAKAN_START_LEVEL_FROM).toBe('Level 0 - Intro');
+        // converted Order of the Flame levels cannot load through the intro slot
+        expect(launchEnv(opts(), 'OotF 03 - Swamp', { direct: true }).DRAKAN_START_LEVEL_FROM).toBeUndefined();
+        expect(launchEnv(opts(), 'Level 0 - Intro', { direct: true }).DRAKAN_START_LEVEL_FROM).toBeUndefined();
+    });
+
+    it('invincible keeps the player alive', () => {
+        expect(launchEnv(opts({ invincible: true }), 'Level 1A - Surdana').DRAKAN_PLAYTEST_GOD).toBe('1');
+        expect(parsePlayOptions(JSON.stringify({ invincible: true })).invincible).toBe(true);
+    });
+
     it('can leave the game on its own defaults', () => {
         expect(launchEnv(opts({ startLevel: false, autoStart: false }), 'Level 1A - Surdana')).toEqual({});
     });

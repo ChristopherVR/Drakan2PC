@@ -602,7 +602,7 @@ export function createToolbar(
                     class: 'ui-btn play sm',
                     type: 'button',
                     id: 'ed-play',
-                    title: 'Play the mod in the game: shows the steps to launch it',
+                    title: 'Play this level in the game from where the camera looks (F5). No title, intro or save.',
                     onclick: a.play,
                 },
                 icon('play', 13),

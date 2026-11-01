@@ -656,6 +656,16 @@ pub fn game_launch(
             cmd.env(k, v);
         }
     }
+    if env.get(paths::PLAYTEST_CARD).is_some_and(|v| v == "1") {
+        let n = if extra { state.inner.lock().unwrap().extras.len() + 1 } else { 0 };
+        let card = paths::playtest_card_dir(&std::env::temp_dir(), n);
+        // The whole card folder: the Order of the Flame saves sit beside mc0 (mc0_ootf).
+        if let Some(root) = card.parent().filter(|r| r.exists()) {
+            std::fs::remove_dir_all(root).map_err(|e| format!("could not clear the test memory card: {e}"))?;
+        }
+        std::fs::create_dir_all(&card).map_err(|e| format!("could not make the test memory card: {e}"))?;
+        cmd.env("DRAKAN_MEMCARD_DIR", &card);
+    }
     if let (Some(m), false) = (&mods, default_mods) {
         cmd.env("DRAKAN_MODS", m);
     }

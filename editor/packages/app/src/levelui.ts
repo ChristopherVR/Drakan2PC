@@ -426,6 +426,9 @@ export function initLevelUi(host: LevelUiHost): LevelUi {
         },
         save: () => saveDocument(),
         play: () => {
+            // Like Play in Unreal: with a level open the game starts on it with the player where the camera looks
+            // (editor/playtestui.ts, F5). Without a level: the Mod panel's Play (the whole mod, from New Game).
+            if (isDesktop && src && runCommand('play.camera')) return;
             ws.show('mod');
             if (isDesktop) {
                 void modPanel.play().catch(fail);

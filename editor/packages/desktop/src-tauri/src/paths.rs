@@ -75,6 +75,8 @@ pub fn allowed_env(key: &str) -> bool {
     matches!(
         key,
         "DRAKAN_START_LEVEL"
+            | "DRAKAN_START_LEVEL_FROM"
+            | "DRAKAN_GAME"
             | "DRAKAN_SKIP_MEMCARD_WARNING"
             | "DRAKAN_AUTOPRESS"
             | "DRAKAN_AUTOPRESS_UNTIL"
@@ -87,7 +89,19 @@ pub fn allowed_env(key: &str) -> bool {
             | "DRAKAN_MP_MAP"
             | "DRAKAN_MP_MAPS"
             | "DRAKAN_PLAYTEST_POS"
+            | "DRAKAN_PLAYTEST_GOD"
     )
+}
+
+/// `DRAKAN_PLAYTEST_CARD=1` (not passed to the game): the shell gives the game a fresh, empty memory card instead of
+/// the player's, so the title's Cross is New Game (on the player's card it was Continue, which loaded their latest save)
+/// and a play test never reads or writes the player's saves. The path is chosen here, never by the web view.
+pub const PLAYTEST_CARD: &str = "DRAKAN_PLAYTEST_CARD";
+
+/// The throw-away card root for instance `n` (0 = the main game, 1.. = extra instances), as `DRAKAN_MEMCARD_DIR` wants
+/// it (`.../mc0`).
+pub fn playtest_card_dir(base: &Path, n: usize) -> PathBuf {
+    base.join("drakan-editor-playtest").join(format!("card{n}")).join("mc0")
 }
 
 pub fn valid_env_value(v: &str) -> bool {
@@ -163,6 +177,10 @@ mod tests {
         assert!(allowed_env("DRAKAN_START_LEVEL"));
         assert!(!allowed_env("PATH"));
         assert!(!allowed_env("DRAKAN_MODS"));
+        assert!(!allowed_env("DRAKAN_MEMCARD_DIR"));
+        assert!(!allowed_env(PLAYTEST_CARD));
+        let d = playtest_card_dir(Path::new("t"), 2);
+        assert!(d.ends_with("drakan-editor-playtest/card2/mc0"));
         assert!(!valid_env_value("a\nb"));
     }
 }

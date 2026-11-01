@@ -11,7 +11,9 @@ import {
     isCutScene,
     playArena,
     playCutScene,
+    findPlayerStart,
     playFromHere,
+    playTestDoc,
     standableProblem,
     yawFromDirection,
     type PlayTestHost,
@@ -71,9 +73,17 @@ export function installPlayTest(ui: LevelUi, status: (msg: string, error?: boole
         run(playFromHere(host, [pos[0]!, pos[1]! + LIFT, pos[2]!], cameraYaw(), what));
     };
     const fromCamera = (): void => {
+        const d = host.doc();
+        if (!d) return fail(new Error('Open a level first.'));
         const p = ui.view().groundAtCentre();
-        if (!p) return fail(new Error('Nothing to stand on in the middle of the view.'));
-        here(p, 'Play from camera');
+        if (p && !standableProblem(d, (x, z) => ui.view().groundHeightAt(x, z), p))
+            return here(p, 'Play from camera', false);
+        // Nothing to stand on where the camera looks (sky, far away): start at the level's own player start rather
+        // than refusing, and say so.
+        ctx.toast('No floor in the middle of the view: starting at the player start.', 'warn');
+        const start = findPlayerStart(d);
+        if (start) return here(start.transform.pos, 'Play from player start', false);
+        run(playTestDoc(host, d, 'Play'));
     };
 
     registerContextItem({

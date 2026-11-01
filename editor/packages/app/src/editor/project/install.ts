@@ -153,7 +153,8 @@ export function installProject(host: ProjectInstallHost): ProjectInstall {
         files,
         openExport: () => openExport(),
         recentProjects: async () => (isDesktop ? (await platform.getSettings()).recentProjects : []),
-        play: (pack, level, opts) => playInGame(pack as unknown as LevelPack | null, opts, level),
+        play: (pack, level, opts) =>
+            playInGame(pack as unknown as LevelPack | null, opts, level, {}, { direct: !!level && isDiscLevel(level) }),
         setStatus: host.setStatus,
         openGuide: (id) => help.open(id),
     });

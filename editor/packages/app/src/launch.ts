@@ -14,8 +14,10 @@ export interface PlayOptions {
     name: string;
     /** New Game loads the level being edited instead of Level 1A. */
     startLevel: boolean;
-    /** Tap through the title, memory card prompts and intro. */
+    /** Tap through the title, memory card prompts and intro (on a throw-away memory card). */
     autoStart: boolean;
+    /** Keep the player at full health while testing (DRAKAN_PLAYTEST_GOD). */
+    invincible: boolean;
 }
 
 export const defaultPlayOptions: PlayOptions = {
@@ -25,6 +27,7 @@ export const defaultPlayOptions: PlayOptions = {
     name: '',
     startLevel: true,
     autoStart: true,
+    invincible: false,
 };
 
 export const PLAY_MODES: { id: PlayMode; label: string }[] = [
@@ -46,21 +49,51 @@ export function checkPlayOptions(o: PlayOptions): string | null {
     return null;
 }
 
+/** The level New Game opens first (the movie and the Drakan 2 opening cut scene). */
+export const INTRO_LEVEL = 'Level 0 - Intro';
+
+export interface LaunchExtras {
+    /**
+     * The level is on the disc: load it in place of the intro level itself, so New Game goes straight into it with no
+     * movie and no opening cut scene (the multiplayer arenas' direct launch, docs/reference/netcode.md "Straight into
+     * the map"). A level copy cannot go this way (the intro slot does not open a new level's files,
+     * docs/journal/2026-10-31/ootf-ingame.md); it replaces the first level and the taps skip the intro.
+     */
+    direct?: boolean;
+}
+
 /**
  * Environment for the game. `level` is the long level name as the disc lists it (`Level 4A - Ravenshold`), used for
  * New Game when `startLevel` is on. Throws on invalid options.
+ *
+ * With `autoStart` the game runs on a throw-away memory card (DRAKAN_PLAYTEST_CARD, made fresh by the desktop shell): on
+ * the player's own card the title's first row is Continue, so the Cross taps loaded their latest save instead of the
+ * level (and a play-test position from another level then dropped Rynn out of the world). The player's saves are never
+ * read or written by a play test.
  */
-export function launchEnv(o: PlayOptions, level: string | null): Record<string, string> {
+export function launchEnv(o: PlayOptions, level: string | null, extras: LaunchExtras = {}): Record<string, string> {
     const bad = checkPlayOptions(o);
     if (bad) throw new Error(bad);
     const env: Record<string, string> = {};
-    if (o.startLevel && level) env.DRAKAN_START_LEVEL = level;
+    if (o.startLevel && level) {
+        // Order of the Flame levels are converted levels (template based): never through the intro slot.
+        const ootf = /^ootf\b/i.test(level);
+        env.DRAKAN_START_LEVEL = level;
+        if (extras.direct && !ootf && level !== INTRO_LEVEL) env.DRAKAN_START_LEVEL_FROM = INTRO_LEVEL;
+        // Which game the title runs: with a campaign pack installed the title first asks (the game card), and a tap
+        // there picked whichever card had focus. The file redirect above works the same for converted Order of the
+        // Flame levels (ootf_level_run.py), so a single-level test always runs as Drakan 2 (d1 would add its own
+        // campaign redirect and save folder).
+        env.DRAKAN_GAME = 'd2';
+    }
     if (o.autoStart) {
+        env.DRAKAN_PLAYTEST_CARD = '1';
         env.DRAKAN_SKIP_MEMCARD_WARNING = '1';
         env.DRAKAN_AUTOPRESS = '3000';
         env.DRAKAN_AUTOPRESS_UNTIL = '120000';
         env.DRAKAN_INPUT_AUTOSTART = '1';
     }
+    if (o.invincible) env.DRAKAN_PLAYTEST_GOD = '1';
     if (o.mode !== 'single') {
         env.DRAKAN_GHOST = '1';
         if (o.name.trim()) env.DRAKAN_NET_NAME = o.name.trim();
@@ -83,7 +116,8 @@ export function parsePlayOptions(text: string | null): PlayOptions {
         const v = JSON.parse(text) as Record<string, unknown>;
         if (PLAY_MODES.some((m) => m.id === v.mode)) out.mode = v.mode as PlayMode;
         for (const k of ['port', 'address', 'name'] as const) if (typeof v[k] === 'string') out[k] = v[k];
-        for (const k of ['startLevel', 'autoStart'] as const) if (typeof v[k] === 'boolean') out[k] = v[k];
+        for (const k of ['startLevel', 'autoStart', 'invincible'] as const)
+            if (typeof v[k] === 'boolean') out[k] = v[k];
     } catch {
         // keep the defaults
     }

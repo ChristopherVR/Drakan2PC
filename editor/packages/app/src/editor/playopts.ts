@@ -58,7 +58,7 @@ export function createPlayControls(onPlay: () => void, canPlay: () => boolean): 
         });
         return el;
     };
-    const check = (key: 'startLevel' | 'autoStart', label: string): HTMLElement => {
+    const check = (key: 'startLevel' | 'autoStart' | 'invincible', label: string): HTMLElement => {
         const el = h('input', { type: 'checkbox' });
         el.checked = opts[key];
         el.addEventListener('change', () => {
@@ -134,7 +134,8 @@ export function createPlayControls(onPlay: () => void, canPlay: () => boolean): 
         h('div', { class: 'row2' }, field('Mode', mode), portF),
         h('div', { class: 'row2' }, addrF, nameF),
         check('startLevel', 'New Game starts this level'),
-        check('autoStart', 'Skip title, memory card prompt and intro'),
+        check('autoStart', 'Skip title, memory card prompt and intro (test memory card)'),
+        check('invincible', 'Player cannot die while testing'),
         h('div', { class: 'btnrow' }, playBtn, gameBtn),
         folder,
         problem,

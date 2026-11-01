@@ -2,10 +2,11 @@
 //
 // The document edits work on a *copy* of the document that goes into a temporary mod pack (`editor.playtest`), never on
 // the author's own document or mod pack:
-//   - Play from here   starts the level (New Game via DRAKAN_START_LEVEL) and asks the game to put the player at the
-//                      clicked ground point facing the camera direction (DRAKAN_PLAYTEST_POS="x y z yaw", read by
-//                      ps2xRuntime/src/lib/drakan_playtest.cpp). Moving the Rynn object in the level does not work: the
-//                      game ignores it at New Game.
+//   - Play from here   starts the level (New Game via DRAKAN_START_LEVEL; a disc level replaces the intro level, so
+//                      there is no movie or opening cut scene; on a throw-away memory card, so no save is loaded) and
+//                      asks the game to put the player at the clicked ground point facing the camera direction
+//                      (DRAKAN_PLAYTEST_POS="x y z yaw", read by ps2xRuntime/src/lib/drakan_playtest.cpp). Moving the
+//                      Rynn object in the level does not work: the game ignores it at New Game.
 //   - Play cut scene   adds a big trigger volume (message Play Sequence) at the player start, linked to the chosen cut scene
 //                      player (Stomp Player), and puts the player there.
 //   - Play test arena  host a multiplayer map from its exported pack (the arena panel provides the pack through
@@ -235,7 +236,8 @@ export async function playTestDoc(
     const edited = changeCount(diffDocument(src.lvl.list, doc)) > 0;
     const pack = copy ?? (edited ? buildLevelPack(src, doc, meta) : null);
     const opts: PlayOptions = { ...savedOptions(), mode: 'single', startLevel: true };
-    const msg = await playInGame(pack, opts, doc.level || null, extraEnv);
+    // A disc level loads straight into the intro's slot (no movie, no opening cut scene); a level copy cannot.
+    const msg = await playInGame(pack, opts, doc.level || null, extraEnv, { direct: copy === null });
     if (msg === null) return;
     host.status(`${what}: ${msg}`);
     host.toast(`${what}: game started`, 'ok');
@@ -293,6 +295,7 @@ export async function playArena(host: PlayTestHost, joiner: boolean): Promise<vo
             DRAKAN_NET_CONNECT: `127.0.0.1:${Number(opts.port) || 27960}`,
             DRAKAN_GHOST: '1',
             DRAKAN_NET_NAME: 'Tester 2',
+            DRAKAN_PLAYTEST_CARD: '1', // its own throw-away card: the title's Cross must be New Game, not Continue
             DRAKAN_SKIP_MEMCARD_WARNING: '1',
             DRAKAN_AUTOPRESS: '3000',
             DRAKAN_AUTOPRESS_UNTIL: '120000',

@@ -172,7 +172,7 @@ export const GUIDES: Guide[] = [
             "The pack is written to the project folder's mod folder (desktop), to a place you choose, or downloaded (browser). Tick the box to also install it into the game's mods folder and turn it on.",
             "For a zip you copied yourself: put it in the game's mods folder, start the game, and turn it on in the Mods page of the game settings.",
             'Start the game and open your level.',
-            'In the desktop app the Play button (F5) does all of this for you, and "Play from here" in the right-click menu starts at that spot.',
+            'In the desktop app the Play button (F5) does all of this for you: the game opens straight into the level with the player where the camera looks (no title, intro or save game; a test memory card is used, your own saves are not touched). "Play from here" in the right-click menu starts at that spot. Tick "Player cannot die while testing" in the Mod panel to stay alive.',
         ],
         notes: [
             'Your disc and its files are never modified. Remove the pack to get the original game back.',

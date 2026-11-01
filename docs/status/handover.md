@@ -49,6 +49,10 @@ Engine 5; textures move to UE5-style PBR sets.
 
 ### Editor
 
+- Play test (2026-11-02, `docs/journal/2026-11-02/editor-play-direct.md`): the toolbar Play / F5 now starts the open
+  level from where the camera looks, on a throw-away memory card, straight into a disc level (no title choice, intro,
+  or save). Built and unit tested; **not yet run in the desktop app with the real disc**: check that Surdana and one
+  other disc level come up with Rynn alive and placed, and that a level copy still loads (it keeps the intro route).
 - Click through the new Vendors panel, Story workspace (new line in Conversations, quest area start/complete
   buttons, making a cut scene from scratch) and Logic graph keyboard paths with the real disc.
 - Launch the desktop app: the separate save window, native menus (`cmd:<id>` items) and Tools > Save Game Editor
