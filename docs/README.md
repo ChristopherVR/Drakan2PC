@@ -413,3 +413,4 @@ The canonical Markdown remains in this repository:
 ### 2026-11-02
 
 - [Release housekeeping and smoke test (2026-11-02)](journal/2026-11-02/release-smoke.md)
+- [Co-op campaign harness runs: 13 levels pass, chain hops, joiner crash, 06:34 runtime regression (2026-11-02)](journal/2026-11-02/ootf-coop-campaign-run.md)
