@@ -1,0 +1,510 @@
+{
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "$id": "https://drakan.invalid/schema/drakan-content-1.json",
+    "title": "Drakan Content Format 1.x",
+    "description": "Engine-neutral level and story content of Drakan: The Ancients' Gates. Contains no game bytes: assets are referenced by stable id and optional package-relative path. Documented in docs/reference/content-format.md; mirrored by the TypeScript types in editor/packages/editor-core/src/content/format.ts.",
+    "oneOf": [{ "$ref": "#/$defs/Scene" }, { "$ref": "#/$defs/Manifest" }],
+    "$defs": {
+        "Vec3": { "type": "array", "items": { "type": "number" }, "minItems": 3, "maxItems": 3 },
+        "Quat": { "type": "array", "items": { "type": "number" }, "minItems": 4, "maxItems": 4 },
+        "Version": { "type": "string", "pattern": "^1\\.[0-9]+$" },
+        "Generator": {
+            "type": "object",
+            "required": ["name", "version"],
+            "properties": { "name": { "type": "string" }, "version": { "type": "string" } },
+            "additionalProperties": false
+        },
+        "AssetRef": {
+            "type": "object",
+            "required": ["kind", "id"],
+            "properties": {
+                "kind": {
+                    "enum": ["mesh", "texture", "material", "sound", "animation", "sequence", "channel", "layer"]
+                },
+                "id": { "type": "string", "pattern": "^[^:\\s]+:[0-9]+$" },
+                "path": { "type": "string", "minLength": 1 },
+                "name": { "type": "string" }
+            },
+            "additionalProperties": false
+        },
+        "ClassRef": {
+            "type": "object",
+            "required": ["class"],
+            "properties": {
+                "class": { "type": "string", "pattern": "^[^:\\s]+:[0-9]+$" },
+                "archetype": { "type": "string", "minLength": 1 }
+            },
+            "additionalProperties": false
+        },
+        "Colour": {
+            "type": "object",
+            "required": ["rgb", "alpha"],
+            "properties": {
+                "rgb": { "type": "string", "pattern": "^#[0-9a-f]{6}$" },
+                "alpha": { "type": "integer", "minimum": 0, "maximum": 255 }
+            },
+            "additionalProperties": false
+        },
+        "PropertyValue": {
+            "anyOf": [
+                { "type": "null" },
+                { "type": "number" },
+                { "type": "boolean" },
+                { "type": "string" },
+                { "$ref": "#/$defs/Colour" },
+                { "$ref": "#/$defs/AssetRef" },
+                { "$ref": "#/$defs/ClassRef" },
+                { "type": "array", "items": { "$ref": "#/$defs/PropertyValue" } }
+            ]
+        },
+        "PropertyType": {
+            "enum": [
+                "int",
+                "float",
+                "bool",
+                "enum",
+                "string",
+                "colour",
+                "class",
+                "model",
+                "sound",
+                "animation",
+                "sequence",
+                "texture",
+                "layer",
+                "channel",
+                "unknown"
+            ]
+        },
+        "PropertyDef": {
+            "type": "object",
+            "required": ["key", "name", "index", "type", "default", "category"],
+            "properties": {
+                "key": { "type": "string", "minLength": 1 },
+                "name": { "type": "string" },
+                "index": { "type": "integer", "minimum": 0 },
+                "type": { "$ref": "#/$defs/PropertyType" },
+                "array": { "const": true },
+                "default": { "$ref": "#/$defs/PropertyValue" },
+                "category": { "type": "string" },
+                "enumNames": { "type": "array", "items": { "type": "string" } },
+                "semantic": { "const": "message" }
+            },
+            "additionalProperties": false
+        },
+        "Archetype": {
+            "type": "object",
+            "required": ["name", "class", "category", "kind", "properties"],
+            "properties": {
+                "name": { "type": "string", "minLength": 1 },
+                "class": {
+                    "type": "object",
+                    "required": ["classId", "db"],
+                    "properties": {
+                        "classId": { "type": "integer", "minimum": 0 },
+                        "db": { "type": "string", "minLength": 1 },
+                        "rflClass": { "type": "integer", "minimum": 0 }
+                    },
+                    "additionalProperties": false
+                },
+                "category": { "type": "string" },
+                "kind": { "enum": ["player", "camera", "creature", "weapon", "usable", "static", "other"] },
+                "role": { "type": "string" },
+                "mesh": { "$ref": "#/$defs/AssetRef" },
+                "properties": { "type": "array", "items": { "$ref": "#/$defs/PropertyDef" } }
+            },
+            "additionalProperties": false
+        },
+        "Transform": {
+            "type": "object",
+            "required": ["position", "rotation", "quaternion"],
+            "properties": {
+                "position": { "$ref": "#/$defs/Vec3" },
+                "rotation": { "$ref": "#/$defs/Vec3" },
+                "quaternion": { "$ref": "#/$defs/Quat" },
+                "scale": { "$ref": "#/$defs/Vec3" }
+            },
+            "additionalProperties": false
+        },
+        "Instance": {
+            "type": "object",
+            "required": ["id", "name", "archetype", "transform"],
+            "properties": {
+                "id": { "type": "integer", "minimum": 0 },
+                "name": { "type": "string" },
+                "archetype": { "type": "string", "minLength": 1 },
+                "transform": { "$ref": "#/$defs/Transform" },
+                "properties": { "type": "object", "additionalProperties": { "$ref": "#/$defs/PropertyValue" } },
+                "mesh": { "$ref": "#/$defs/AssetRef" }
+            },
+            "additionalProperties": false
+        },
+        "MessageSend": {
+            "type": "object",
+            "required": ["field", "label", "message", "name"],
+            "properties": {
+                "field": { "type": "string" },
+                "label": { "type": "string" },
+                "message": { "type": "integer", "minimum": 0 },
+                "name": { "type": "string" }
+            },
+            "additionalProperties": false
+        },
+        "Link": {
+            "type": "object",
+            "required": ["from", "to", "messages"],
+            "properties": {
+                "from": { "type": "integer", "minimum": 0 },
+                "to": { "type": "integer", "minimum": 0 },
+                "messages": { "type": "array", "items": { "$ref": "#/$defs/MessageSend" } }
+            },
+            "additionalProperties": false
+        },
+        "Volume": {
+            "oneOf": [
+                {
+                    "type": "object",
+                    "required": ["shape", "center", "halfExtents", "rotation"],
+                    "properties": {
+                        "shape": { "const": "box" },
+                        "center": { "$ref": "#/$defs/Vec3" },
+                        "halfExtents": { "$ref": "#/$defs/Vec3" },
+                        "rotation": { "$ref": "#/$defs/Vec3" }
+                    },
+                    "additionalProperties": false
+                },
+                {
+                    "type": "object",
+                    "required": ["shape", "center", "radius", "field"],
+                    "properties": {
+                        "shape": { "const": "sphere" },
+                        "center": { "$ref": "#/$defs/Vec3" },
+                        "radius": { "type": "number", "minimum": 0 },
+                        "field": { "type": "string" }
+                    },
+                    "additionalProperties": false
+                }
+            ]
+        },
+        "Trigger": {
+            "type": "object",
+            "required": ["instance", "role", "title", "sends", "listens"],
+            "properties": {
+                "instance": { "type": "integer", "minimum": 0 },
+                "role": { "type": "string" },
+                "title": { "type": "string" },
+                "volumes": { "type": "array", "items": { "$ref": "#/$defs/Volume" } },
+                "sends": { "type": "array", "items": { "$ref": "#/$defs/MessageSend" } },
+                "listens": { "type": "array", "items": { "$ref": "#/$defs/MessageSend" } },
+                "accepts": { "type": "array", "items": { "type": "integer", "minimum": 0 } },
+                "sequences": { "type": "array", "items": { "type": "integer", "minimum": 0 } }
+            },
+            "additionalProperties": false
+        },
+        "SequenceAction": {
+            "oneOf": [
+                {
+                    "type": "object",
+                    "required": ["kind", "time", "position", "rotation", "scale"],
+                    "properties": {
+                        "kind": { "const": "transform" },
+                        "time": { "type": "number" },
+                        "position": { "$ref": "#/$defs/Vec3" },
+                        "rotation": { "$ref": "#/$defs/Quat" },
+                        "scale": { "$ref": "#/$defs/Vec3" }
+                    },
+                    "additionalProperties": false
+                },
+                {
+                    "type": "object",
+                    "required": ["kind", "time", "animation", "mode", "offset", "speed", "flags"],
+                    "properties": {
+                        "kind": { "const": "animation" },
+                        "time": { "type": "number" },
+                        "animation": { "type": "integer" },
+                        "mode": { "type": "integer" },
+                        "offset": { "type": "number" },
+                        "speed": { "type": "number" },
+                        "flags": { "type": "integer" }
+                    },
+                    "additionalProperties": false
+                },
+                {
+                    "type": "object",
+                    "required": ["kind", "time", "sound", "volume"],
+                    "properties": {
+                        "kind": { "const": "sound" },
+                        "time": { "type": "number" },
+                        "sound": { "$ref": "#/$defs/AssetRef" },
+                        "volume": { "type": "integer" }
+                    },
+                    "additionalProperties": false
+                },
+                {
+                    "type": "object",
+                    "required": ["kind", "time", "message", "name", "param"],
+                    "properties": {
+                        "kind": { "const": "message" },
+                        "time": { "type": "number" },
+                        "message": { "type": "integer" },
+                        "name": { "type": "string" },
+                        "param": { "type": "integer" }
+                    },
+                    "additionalProperties": false
+                },
+                {
+                    "type": "object",
+                    "required": ["kind", "time", "fov", "unknown"],
+                    "properties": {
+                        "kind": { "const": "camera" },
+                        "time": { "type": "number" },
+                        "fov": { "type": "number" },
+                        "unknown": { "type": "number" }
+                    },
+                    "additionalProperties": false
+                },
+                {
+                    "type": "object",
+                    "required": ["kind", "time"],
+                    "properties": { "kind": { "enum": ["marker", "hold"] }, "time": { "type": "number" } },
+                    "additionalProperties": false
+                },
+                {
+                    "type": "object",
+                    "required": ["kind", "time", "type", "values"],
+                    "properties": {
+                        "kind": { "const": "unknown" },
+                        "time": { "type": "number" },
+                        "type": { "type": "integer" },
+                        "values": { "type": "object", "additionalProperties": { "type": "number" } }
+                    },
+                    "additionalProperties": false
+                }
+            ]
+        },
+        "SequenceActor": {
+            "type": "object",
+            "required": ["name", "slot", "ref", "target", "actions"],
+            "properties": {
+                "name": { "type": "string" },
+                "slot": { "type": "integer", "minimum": 0 },
+                "ref": { "type": "integer", "minimum": 0 },
+                "target": { "enum": ["instance", "class"] },
+                "actions": { "type": "array", "items": { "$ref": "#/$defs/SequenceAction" } }
+            },
+            "additionalProperties": false
+        },
+        "Sequence": {
+            "type": "object",
+            "required": ["id", "name", "length", "actors"],
+            "properties": {
+                "id": { "type": "integer", "minimum": 0 },
+                "name": { "type": "string" },
+                "folder": { "type": "string" },
+                "length": { "type": "number", "minimum": 0 },
+                "actors": { "type": "array", "items": { "$ref": "#/$defs/SequenceActor" } },
+                "partial": { "const": true }
+            },
+            "additionalProperties": false
+        },
+        "DialogueLine": {
+            "type": "object",
+            "required": ["name", "classId", "speaker", "text", "sounds", "animations", "delay", "playMode", "camera"],
+            "properties": {
+                "name": { "type": "string", "minLength": 1 },
+                "classId": { "type": "integer", "minimum": 0 },
+                "speaker": { "type": "string" },
+                "text": { "type": "string" },
+                "sounds": { "type": "array", "items": { "$ref": "#/$defs/AssetRef" } },
+                "animations": { "type": "array", "items": { "type": "integer" } },
+                "delay": { "type": "number" },
+                "playMode": { "type": "integer" },
+                "camera": {
+                    "type": "object",
+                    "required": ["position", "transition", "transitionTime"],
+                    "properties": {
+                        "position": { "type": "integer" },
+                        "transition": { "type": "integer" },
+                        "transitionTime": { "type": "number" }
+                    },
+                    "additionalProperties": false
+                }
+            },
+            "additionalProperties": false
+        },
+        "ConversationPhase": {
+            "type": "object",
+            "required": ["key", "label", "lines", "message", "messageName"],
+            "properties": {
+                "key": { "type": "string" },
+                "label": { "type": "string" },
+                "lines": { "type": "array", "items": { "type": "string" } },
+                "message": { "type": "integer", "minimum": 0 },
+                "messageName": { "type": "string" }
+            },
+            "additionalProperties": false
+        },
+        "ConversationHandler": {
+            "type": "object",
+            "required": ["instance", "archetype", "initiallyActive", "distance", "hasQuest", "gold", "phases", "items"],
+            "properties": {
+                "instance": { "type": "integer", "minimum": 0 },
+                "archetype": { "type": "string" },
+                "initiallyActive": { "type": "boolean" },
+                "distance": { "type": "number" },
+                "hasQuest": { "type": "boolean" },
+                "gold": { "type": "integer" },
+                "phases": { "type": "array", "items": { "$ref": "#/$defs/ConversationPhase" } },
+                "items": {
+                    "type": "object",
+                    "required": ["getBegin", "giveBegin", "getComplete", "giveComplete"],
+                    "properties": {
+                        "getBegin": { "type": "array", "items": { "type": "string" } },
+                        "giveBegin": { "type": "array", "items": { "type": "string" } },
+                        "getComplete": { "type": "array", "items": { "type": "string" } },
+                        "giveComplete": { "type": "array", "items": { "type": "string" } }
+                    },
+                    "additionalProperties": false
+                }
+            },
+            "additionalProperties": false
+        },
+        "Quest": {
+            "type": "object",
+            "required": ["id", "name", "kind", "optional", "chapter", "chapterName"],
+            "properties": {
+                "id": { "type": "integer", "minimum": 0 },
+                "name": { "type": "string" },
+                "kind": { "enum": ["map", "journal", "both"] },
+                "optional": { "type": "boolean" },
+                "chapter": { "type": "integer", "minimum": 0 },
+                "chapterName": { "type": "string" },
+                "journal": { "type": "string" },
+                "mapText": { "type": "string" },
+                "map": {
+                    "type": "object",
+                    "required": ["x", "y"],
+                    "properties": { "x": { "type": "number" }, "y": { "type": "number" } },
+                    "additionalProperties": false
+                }
+            },
+            "additionalProperties": false
+        },
+        "Diagnostics": {
+            "type": "object",
+            "required": ["objects", "unresolvedClasses", "danglingLinks", "opaqueSequenceActors", "missingSubtitles"],
+            "properties": {
+                "objects": { "type": "integer", "minimum": 0 },
+                "unresolvedClasses": { "type": "integer", "minimum": 0 },
+                "danglingLinks": { "type": "integer", "minimum": 0 },
+                "opaqueSequenceActors": { "type": "integer", "minimum": 0 },
+                "missingSubtitles": { "type": "integer", "minimum": 0 }
+            },
+            "additionalProperties": false
+        },
+        "Scene": {
+            "type": "object",
+            "required": [
+                "format",
+                "version",
+                "kind",
+                "generator",
+                "level",
+                "coordinates",
+                "messages",
+                "archetypes",
+                "instances",
+                "links",
+                "triggers",
+                "sequences",
+                "dialogue",
+                "quests",
+                "diagnostics"
+            ],
+            "properties": {
+                "format": { "const": "drakan-content" },
+                "version": { "$ref": "#/$defs/Version" },
+                "kind": { "const": "scene" },
+                "generator": { "$ref": "#/$defs/Generator" },
+                "level": {
+                    "type": "object",
+                    "required": ["name"],
+                    "properties": {
+                        "name": { "type": "string", "minLength": 1 },
+                        "stem": { "type": "string" },
+                        "storyStem": { "type": "string" },
+                        "language": { "type": "string" },
+                        "bounds": {
+                            "type": "object",
+                            "required": ["minX", "maxX", "minZ", "maxZ"],
+                            "properties": {
+                                "minX": { "type": "number" },
+                                "maxX": { "type": "number" },
+                                "minZ": { "type": "number" },
+                                "maxZ": { "type": "number" }
+                            },
+                            "additionalProperties": false
+                        }
+                    },
+                    "additionalProperties": false
+                },
+                "coordinates": {
+                    "type": "object",
+                    "required": ["unit", "up", "cellSize", "rotation"],
+                    "properties": {
+                        "unit": { "const": "game-unit" },
+                        "up": { "const": "y" },
+                        "cellSize": { "const": 2048 },
+                        "rotation": { "const": "euler-xyz-radians" }
+                    },
+                    "additionalProperties": false
+                },
+                "messages": { "type": "array", "items": { "type": "string" } },
+                "archetypes": { "type": "array", "items": { "$ref": "#/$defs/Archetype" } },
+                "instances": { "type": "array", "items": { "$ref": "#/$defs/Instance" } },
+                "links": { "type": "array", "items": { "$ref": "#/$defs/Link" } },
+                "triggers": { "type": "array", "items": { "$ref": "#/$defs/Trigger" } },
+                "sequences": { "type": "array", "items": { "$ref": "#/$defs/Sequence" } },
+                "dialogue": {
+                    "type": "object",
+                    "required": ["lines", "handlers"],
+                    "properties": {
+                        "lines": { "type": "array", "items": { "$ref": "#/$defs/DialogueLine" } },
+                        "handlers": { "type": "array", "items": { "$ref": "#/$defs/ConversationHandler" } }
+                    },
+                    "additionalProperties": false
+                },
+                "quests": { "type": "array", "items": { "$ref": "#/$defs/Quest" } },
+                "diagnostics": { "$ref": "#/$defs/Diagnostics" }
+            },
+            "additionalProperties": false
+        },
+        "Manifest": {
+            "type": "object",
+            "required": ["format", "version", "kind", "generator", "scenes", "schema"],
+            "properties": {
+                "format": { "const": "drakan-content" },
+                "version": { "$ref": "#/$defs/Version" },
+                "kind": { "const": "package" },
+                "generator": { "$ref": "#/$defs/Generator" },
+                "source": {
+                    "type": "object",
+                    "properties": { "profile": { "type": "string" }, "language": { "type": "string" } },
+                    "additionalProperties": false
+                },
+                "scenes": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "required": ["name", "path"],
+                        "properties": { "name": { "type": "string" }, "path": { "type": "string", "minLength": 1 } },
+                        "additionalProperties": false
+                    }
+                },
+                "schema": { "type": "string", "minLength": 1 },
+                "assetIndex": { "type": "string", "minLength": 1 }
+            },
+            "additionalProperties": false
+        }
+    }
+}

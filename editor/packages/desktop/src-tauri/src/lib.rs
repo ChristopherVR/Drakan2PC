@@ -5,6 +5,7 @@ mod commands;
 mod menu;
 mod paths;
 mod store;
+mod windows;
 
 use std::collections::HashSet;
 use std::path::PathBuf;
@@ -71,6 +72,7 @@ pub fn run() {
             commands::project_open_path,
             commands::project_write,
             commands::project_file_write,
+            windows::window_open,
         ])
         .run(tauri::generate_context!())
         .expect("error while running the Drakan editor");

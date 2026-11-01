@@ -30,7 +30,7 @@ import {
 } from '@drakan/formats';
 import type { Command } from './commands.ts';
 import { LevelDocument, type LevelObject } from './document.ts';
-import { itemResource, itemTemplates, replaceItem, type ItemTemplate } from './save-items.ts';
+import { addItem, freeCells, itemResource, itemTemplates, replaceItem, type ItemTemplate } from './save-items.ts';
 
 export interface PendingEdit {
     name: string;
@@ -98,6 +98,8 @@ export class SaveDocument extends LevelDocument {
     readonly quests: QuestRow[];
     /** Pending item replacements: inventory cell -> entry id of the template record whose body it gets. */
     readonly itemReplacements = new Map<number, number>();
+    /** Pending new items, in the order they were added: entry id of the template record of each. */
+    readonly itemAdds: number[] = [];
     private templatesCache: ItemTemplate[] | null = null;
     private issuesCache: Issue[] | null = null;
     private readonly probes = new Map<string, FieldProbe>();
@@ -155,6 +157,16 @@ export class SaveDocument extends LevelDocument {
     /** One template record per item class that the save contains (what "Replace with..." can offer). */
     itemTemplates(): ItemTemplate[] {
         return (this.templatesCache ??= itemTemplates(this.save));
+    }
+
+    /** Cells the pending added items will take (the first free cells, in order). */
+    addedCells(): number[] {
+        if (this.itemAdds.length === 0) return [];
+        try {
+            return freeCells(this.save).slice(0, this.itemAdds.length);
+        } catch {
+            return [];
+        }
     }
 
     /** The item class of an inventory cell now: the pending replacement, else the stored one. */
@@ -243,6 +255,20 @@ export class SaveDocument extends LevelDocument {
                 text: { before: `0x${before.toString(16)}`, after: `0x${after.toString(16)} (record ${tpl})` },
             });
         }
+        const cells = this.addedCells();
+        this.itemAdds.forEach((tpl, i) => {
+            const rec = this.save.entries.find((e) => e.type === 0x102 && e.id === tpl);
+            const res = rec ? (itemResource(rec) ?? 0) : 0;
+            out.push({
+                name: `add.${i}`,
+                label: `new item ${i + 1}${cells[i] !== undefined ? ` (cell ${cells[i]})` : ' (no free cell)'}`,
+                before: 0,
+                after: res,
+                confidence: 'medium',
+                unconfirmed: false,
+                text: { before: '(none)', after: `0x${res.toString(16)} (copy of record ${tpl})` },
+            });
+        });
         const names = [...this.fieldValues.keys()];
         if (this.playerObject !== null) names.push('pos');
         for (const name of names) {
@@ -263,14 +289,14 @@ export class SaveDocument extends LevelDocument {
     }
 
     describe(name: string, v: FieldValue): string {
-        if (name.startsWith('item.')) return `0x${Number(v).toString(16)}`;
+        if (name.startsWith('item.') || name.startsWith('add.')) return `0x${Number(v).toString(16)}`;
         return formatFieldValue(resolveField(name).def, v);
     }
 
     /** Apply the pending edits to the loaded file. Throws a `SaveFieldError` when the field table rejects one. */
     build(): { bytes: Uint8Array; save: SaveFile } {
         const edits: FieldEdit[] = this.pendingEdits()
-            .filter((e) => !e.name.startsWith('item.'))
+            .filter((e) => !e.name.startsWith('item.') && !e.name.startsWith('add.'))
             .map((e) => ({
                 name: e.name,
                 value: e.after,
@@ -278,9 +304,43 @@ export class SaveDocument extends LevelDocument {
             }));
         let base = this.save;
         for (const [cell, tpl] of this.itemReplacements) base = replaceItem(base, cell, tpl);
+        for (const tpl of this.itemAdds) base = addItem(base, tpl).save;
         if (edits.length === 0 && base === this.save) return { bytes: this.bytes.slice(), save: this.save };
         const save = edits.length ? applyFieldEdits(base, edits) : base;
         return { bytes: assembleSave(save).bytes, save };
+    }
+}
+
+/** Add a new carried item of a class this save has a record for (see `addItem`). Undo removes it again. */
+export class AddItemCommand implements Command {
+    readonly label: string;
+    constructor(private readonly template: number) {
+        this.label = `Add item (record ${template})`;
+    }
+    apply(doc: LevelDocument): void {
+        if (!(doc instanceof SaveDocument)) throw new Error('AddItemCommand needs a SaveDocument');
+        doc.itemAdds.push(this.template);
+    }
+    revert(doc: LevelDocument): void {
+        if (!(doc instanceof SaveDocument)) throw new Error('AddItemCommand needs a SaveDocument');
+        doc.itemAdds.pop();
+    }
+}
+
+/** Drop pending added item number `index` (the tray's revert). */
+export class RemoveAddedItemCommand implements Command {
+    readonly label: string;
+    private old: number | undefined;
+    constructor(private readonly index: number) {
+        this.label = `Remove added item ${index + 1}`;
+    }
+    apply(doc: LevelDocument): void {
+        if (!(doc instanceof SaveDocument)) throw new Error('RemoveAddedItemCommand needs a SaveDocument');
+        this.old = doc.itemAdds.splice(this.index, 1)[0];
+    }
+    revert(doc: LevelDocument): void {
+        if (!(doc instanceof SaveDocument)) throw new Error('RemoveAddedItemCommand needs a SaveDocument');
+        if (this.old !== undefined) doc.itemAdds.splice(this.index, 0, this.old);
     }
 }
 

@@ -14,6 +14,7 @@ import { buildFieldsPanel, closePopover, fieldQuery } from './fieldsui.ts';
 import { nameOf, objectLabel, startLinkPick } from './linking.ts';
 import { attachScrub } from './scrub.ts';
 import { objectAnimationBody } from './animpreview.ts';
+import { vendorDetails } from './vendor.ts';
 
 const R2D = 180 / Math.PI;
 const D2R = Math.PI / 180;
@@ -63,7 +64,7 @@ export function createInspector(ctx: Ctx): Panel {
     });
     let updaters: (() => void)[] = [];
     let sig = '';
-    const open = new Set<string>(['Transform', 'Fields', 'Links', 'Viewport animation']);
+    const open = new Set<string>(['Transform', 'Fields', 'Links', 'Viewport animation', 'Vendor']);
 
     const selected = (): LevelObject[] => {
         const v = ctx.view();
@@ -201,13 +202,7 @@ export function createInspector(ctx: Ctx): Panel {
                     ),
                 );
         } else {
-            kids.push(
-                h(
-                    'div',
-                    { class: 'note' },
-                    'Scale is only stored for objects with the scale flag (0x100); it cannot be added.',
-                ),
-            );
+            kids.push(h('div', { class: 'note' }, 'This object cannot be scaled.'));
         }
         const bar = h(
             'div',
@@ -471,6 +466,11 @@ export function createInspector(ctx: Ctx): Panel {
         return section('Links', one ? (one.links?.length ?? 0) : null, ...kids);
     }
 
+    function vendorSection(o: LevelObject): HTMLElement | null {
+        const body = vendorDetails(ctx, o, ctx.view().lockedIds.has(o.id));
+        return body ? section('Vendor', null, body) : null;
+    }
+
     // ---- info ---------------------------------------------------------------------------------------------------
 
     function infoSection(objs: LevelObject[]): HTMLElement {
@@ -485,7 +485,7 @@ export function createInspector(ctx: Ctx): Panel {
                 row('Resource', o.resource),
                 row('Kind', `${o.kind}${o.type >= 0 ? ` (type ${o.type})` : ''}`),
             );
-            if (o.props.db) kids.push(row('ODB', String(o.props.db)));
+            if (o.props.db) kids.push(row('Container', String(o.props.db)));
             kids.push(
                 row(
                     'Source',
@@ -576,6 +576,9 @@ export function createInspector(ctx: Ctx): Panel {
                 : null,
             objs.length === 1 && has('animation clip play idle walk attack pose skeleton')
                 ? animationSection(objs[0]!)
+                : null,
+            objs.length === 1 && has('vendor shop merchant store stock price gold sell buy')
+                ? vendorSection(objs[0]!)
                 : null,
             has('links link trigger triggers message sends target') ? linksSection(objs) : null,
             has('info id class resource kind address') ? infoSection(objs) : null,

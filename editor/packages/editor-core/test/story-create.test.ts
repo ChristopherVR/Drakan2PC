@@ -11,6 +11,8 @@ import {
     cutsceneBytes,
     dialogLineName,
     lookAtAngles,
+    lookDirection,
+    quatYawPitch,
     planDialogueLine,
     questGiverWiring,
     wireQuestGiver,
@@ -18,6 +20,8 @@ import {
     type CutsceneSpec,
     type LevelObject,
 } from '../src/index.ts';
+
+const D2R = Math.PI / 180;
 
 describe('new dialogue', () => {
     it('names a line after its speaker and sound, and refuses bad names', () => {
@@ -130,9 +134,42 @@ describe('new cut scene', () => {
         ] as const)
             expect(Math.hypot(...yawPitchQuat(y, p))).toBeCloseTo(1, 6);
         expect(yawPitchQuat(0, 0)).toEqual([0, 0, 0, 1]);
-        expect(lookAtAngles([0, 0, 0], [0, 0, 100]).yaw).toBeCloseTo(0);
+        // yaw 0 looks along -Z, yaw 90 along +X, pitch > 0 looks down (convention proven in game)
+        expect(lookAtAngles([0, 0, 0], [0, 0, -100]).yaw).toBeCloseTo(0);
         expect(lookAtAngles([0, 0, 0], [100, 0, 0]).yaw).toBeCloseTo(90);
-        expect(lookAtAngles([0, 0, 0], [0, 100, 100]).pitch).toBeCloseTo(-45);
+        expect(lookAtAngles([0, 0, 0], [-100, 0, 0]).yaw).toBeCloseTo(-90);
+        expect(lookAtAngles([0, 0, 0], [0, 100, -100]).pitch).toBeCloseTo(-45);
+    });
+
+    it('key quaternions look where yaw and pitch say (row-vector convention, forward -Z)', () => {
+        for (const [y, p] of [
+            [0, 0],
+            [90, 0],
+            [-90, 10],
+            [145, -20],
+            [30, 45],
+        ] as const) {
+            const f = lookDirection(yawPitchQuat(y, p));
+            const [sy, cy, sp, cp] = [Math.sin(y * D2R), Math.cos(y * D2R), Math.sin(p * D2R), Math.cos(p * D2R)];
+            expect(f[0]).toBeCloseTo(cp * sy, 6);
+            expect(f[1]).toBeCloseTo(-sp, 6);
+            expect(f[2]).toBeCloseTo(-cp * cy, 6);
+            const back = quatYawPitch(yawPitchQuat(y, p));
+            expect(back.pitch).toBeCloseTo(p, 4);
+            expect(Math.cos(back.yaw * D2R)).toBeCloseTo(cy, 4);
+        }
+        // the look-at angles and the quaternion agree for an arbitrary target
+        const a = lookAtAngles([0, 0, 0], [300, -100, -200]);
+        const f = lookDirection(yawPitchQuat(a.yaw, a.pitch));
+        const n = Math.hypot(300, 100, 200);
+        expect(f[0]).toBeCloseTo(300 / n, 5);
+        expect(f[1]).toBeCloseTo(-100 / n, 5);
+        expect(f[2]).toBeCloseTo(-200 / n, 5);
+        // a disc key (Valley sequence 497 at 12.13 s): the camera at (604949, 239417, 161346) looks toward -X (+Z a little),
+        // where Zola Dane and the two guards stand
+        const d = lookDirection([0.016, -0.852, -0.025, 0.522]);
+        expect(d[0]).toBeLessThan(-0.8);
+        expect(Math.abs(d[1])).toBeLessThan(0.15);
     });
 });
 

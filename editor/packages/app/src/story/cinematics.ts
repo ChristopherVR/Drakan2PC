@@ -24,10 +24,11 @@ import {
     type SsdAction,
     type SsdSequence,
 } from '@drakan/formats';
-import type { ModMeta } from '@drakan/editor-core';
+import { quatYawPitch, yawPitchQuat, type ModMeta } from '@drakan/editor-core';
 import type { Panel } from '../editor/ctx.ts';
 import { fill, h } from '../editor/dom.ts';
 import type { ContentSession } from './content.ts';
+import { createTimeline } from './timeline.ts';
 import './cinematics.css';
 
 const KIND_COLOR: Record<string, string> = {
@@ -72,7 +73,7 @@ export function createCinematicsPanel(session: ContentSession, meta: () => ModMe
             {
                 class: 'btn',
                 type: 'button',
-                title: 'Add an empty sequence (exported as a new entry of the level SSD); then add actors and actions',
+                title: 'Add an empty sequence, then add actors and actions',
                 onclick: () => {
                     try {
                         const id = session.addSequence(newName.value, Number(newFolder.value));
@@ -408,7 +409,44 @@ export function createCinematicsPanel(session: ContentSession, meta: () => ModMe
                 fld('mode', 'Mode', '1'),
             );
         } else if (k.kind === 'transform') {
-            cells.push('x', fld('x', 'X'), 'y', fld('y', 'Y'), 'z', fld('z', 'Z'));
+            // Orientation as yaw / pitch (yaw 0 looks along -Z, 90 along +X, pitch > 0 down; the key quaternion is a row-vector
+            // rotation looking along its -Z, proven in game): editing either one rewrites the four quaternion fields, roll dropped.
+            const look = quatYawPitch([
+                actionField(k, 'qx'),
+                actionField(k, 'qy'),
+                actionField(k, 'qz'),
+                actionField(k, 'qw'),
+            ]);
+            const aim = (yaw: number, pitch: number): void =>
+                edit((actor, act) => {
+                    const [qx, qy, qz, qw] = yawPitchQuat(yaw, pitch);
+                    let bytes = actor.actions;
+                    for (const [f, v] of Object.entries({ qx, qy, qz, qw }))
+                        bytes = setActionField({ ...actor, actions: bytes }, act, f, v);
+                    return bytes;
+                });
+            cells.push(
+                'x',
+                fld('x', 'X'),
+                'y',
+                fld('y', 'Y'),
+                'z',
+                fld('z', 'Z'),
+                'yaw',
+                numInput(
+                    Math.round(look.yaw * 100) / 100,
+                    (v) => aim(v, look.pitch),
+                    'Yaw (degrees, 0 looks along -Z, 90 along +X)',
+                    '1',
+                ),
+                'pitch',
+                numInput(
+                    Math.round(look.pitch * 100) / 100,
+                    (v) => aim(look.yaw, v),
+                    'Pitch (degrees, positive looks down)',
+                    '1',
+                ),
+            );
         } else {
             cells.push(h('span', { class: 'dim' }, k.fields.map((f) => `${f.name} ${num(f.value)}`).join('  ')));
         }
@@ -468,7 +506,22 @@ export function createCinematicsPanel(session: ContentSession, meta: () => ModMe
             );
         }
         const dur = Math.max(sequenceDuration(seq), 0.5);
-        const tl = h('canvas', { class: 'cin-tl', width: 640, height: 12 + seq.actors.length * 14 });
+        const timeline = createTimeline({
+            seq,
+            dur,
+            getT: () => state.t,
+            scrub: (t) => {
+                stop();
+                state.t = Math.min(dur, Math.max(0, t));
+                redraw?.();
+            },
+            moveKey: (ai, ki, t) =>
+                session.editSequence(seq.id, (s2) => {
+                    const actor = s2.actors[ai]!;
+                    const act = parseActions(actor)![ki]!;
+                    actor.actions = setActionTime(actor, act, Math.max(0, t));
+                }),
+        });
         const pathCv = h('canvas', { class: 'cin-path', width: 220, height: 220 });
         const scrub = h('input', {
             type: 'range',
@@ -482,7 +535,7 @@ export function createCinematicsPanel(session: ContentSession, meta: () => ModMe
         const clock = h('span', { class: 'dim cin-clock' });
         subtitleEl = h('div', { class: 'cin-sub' });
         redraw = (): void => {
-            drawTimeline(tl, seq, dur);
+            timeline.sync();
             drawPath(pathCv, seq);
             scrub.value = String(state.t);
             clock.textContent = `${state.t.toFixed(2)} / ${dur.toFixed(2)} s`;
@@ -493,13 +546,6 @@ export function createCinematicsPanel(session: ContentSession, meta: () => ModMe
         scrub.addEventListener('input', () => {
             stop();
             state.t = Number(scrub.value);
-            redraw?.();
-        });
-        tl.addEventListener('click', (e) => {
-            const r = tl.getBoundingClientRect();
-            const px = ((e.clientX - r.left) / r.width) * tl.width;
-            stop();
-            state.t = Math.min(dur, Math.max(0, ((px - 70) / (tl.width - 78)) * dur));
             redraw?.();
         });
         const edited = session.sequenceEdited(rec.id);
@@ -515,7 +561,7 @@ export function createCinematicsPanel(session: ContentSession, meta: () => ModMe
             min: 0,
             value: 0,
             'aria-label': 'Actor object id',
-            title: 'Level object id of the prop or character (908 / 910 for Rynn / the camera, inferred)',
+            title: 'Object id of the prop or character',
         });
         const addActorRow = h(
             'div',
@@ -597,11 +643,7 @@ export function createCinematicsPanel(session: ContentSession, meta: () => ModMe
                 'div',
                 { class: 'cin-head' },
                 nameIn,
-                h(
-                    'span',
-                    { class: 'dim' },
-                    `Sequence ${seq.id}, ${seq.actors.length} actors, length field ${seq.length}`,
-                ),
+                h('span', { class: 'dim' }, `${seq.actors.length} actors`),
                 edited
                     ? h(
                           'button',
@@ -635,11 +677,11 @@ export function createCinematicsPanel(session: ContentSession, meta: () => ModMe
             ),
             addActorRow,
             subtitleEl,
-            h('div', { class: 'cin-viz' }, tl, pathCv),
+            h('div', { class: 'cin-viz' }, timeline.el, pathCv),
             h(
                 'div',
                 { class: 'dim' },
-                'Timeline: blue keyframes, green animations, amber sounds, red messages. Camera path seen from above (x right, z down); the interpolation between keys is inferred.',
+                'Blue keyframes, green animations, amber sounds, red messages. Camera path seen from above.',
             ),
             ...actors,
         );

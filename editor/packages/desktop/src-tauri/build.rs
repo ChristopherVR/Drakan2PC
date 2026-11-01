@@ -21,6 +21,7 @@ fn main() {
         "project_open_path",
         "project_write",
         "project_file_write",
+        "window_open",
     ];
     tauri_build::try_build(
         tauri_build::Attributes::new()

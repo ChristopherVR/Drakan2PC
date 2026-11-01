@@ -1,0 +1,100 @@
+.vendors .vendor-body {
+    padding: 8px 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    overflow: auto;
+}
+.vendor-settings {
+    display: flex;
+    gap: 16px;
+    flex-wrap: wrap;
+}
+.vendor-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 12px;
+}
+.vendor-table th {
+    text-align: left;
+    font-weight: 600;
+    color: var(--text-dim, #8a8f98);
+    padding: 4px 6px;
+}
+.vendor-table td {
+    padding: 3px 6px;
+    border-top: 1px solid var(--line, rgba(128, 128, 128, 0.2));
+}
+.vendor-table td.v-name {
+    max-width: 220px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.vendor-table td.v-pay {
+    text-align: right;
+}
+.vendor-table tr.edited td {
+    background: rgba(255, 190, 60, 0.08);
+}
+.vendor-table input.num {
+    width: 72px;
+}
+.vendor-add {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+.vendor-hits {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+    max-height: 120px;
+    overflow: auto;
+}
+.vendor-sec {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+/* Column widths shared by the header and the rows so they line up (the cells hold controls of fixed width). */
+.vendor-table {
+    table-layout: fixed;
+}
+.vendor-table th,
+.vendor-table td {
+    vertical-align: middle;
+    box-sizing: border-box;
+}
+.vendor-table th:nth-child(2),
+.vendor-table td:nth-child(2) {
+    width: 120px;
+}
+.vendor-table th:nth-child(3),
+.vendor-table td:nth-child(3),
+.vendor-table th:nth-child(4),
+.vendor-table td:nth-child(4) {
+    width: 96px;
+}
+.vendor-table th:nth-child(5),
+.vendor-table td:nth-child(5) {
+    width: 64px;
+    text-align: right;
+}
+.vendor-table th:nth-child(6),
+.vendor-table td:nth-child(6) {
+    width: 36px;
+}
+.vendor-table td .sel,
+.vendor-table td .ui-dd,
+.vendor-table td .nf,
+.vendor-table td input.num {
+    width: 100%;
+    max-width: 100%;
+    box-sizing: border-box;
+}
+.vendor-table th:first-child,
+.vendor-table td.v-name {
+    text-align: left;
+    max-width: none;
+}

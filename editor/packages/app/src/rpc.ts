@@ -109,7 +109,7 @@ export interface Api {
     /** The raw `.LVL` container of the level in `dirPath` (template for converted Order of the Flame levels). */
     readLevelFile(dirPath: string): Uint8Array;
     /** Where the exits of every level on the disc lead (loads every level's object list; seconds). */
-    exitIndex(): import('./logicdata.ts').ExitIndexData;
+    exitIndex(only?: string): import('./logicdata.ts').ExitIndexData;
     decodeTextures(path: string, indices: number[] | null): TextureResult[];
     /** Terrain layers and their textures for the level in `dirPath` (scene/decode.ts). */
     loadTerrain(dirPath: string): TerrainData;

@@ -3,7 +3,7 @@
 // The panels read the disc lazily through the worker.
 
 import type { DiscProfile } from '@drakan/formats';
-import type { ModMeta } from '@drakan/editor-core';
+import { isEmptyStory, type ModMeta, type ProjectStory } from '@drakan/editor-core';
 import type { Ctx } from '../editor/ctx.ts';
 import { allCommands, registerCommand, registerPanel } from '../editor/registry.ts';
 import { createQuestsPanel } from './quests.ts';
@@ -12,6 +12,7 @@ import { createStringsPanel } from './strings.ts';
 import { createContentPanels, type ContentEditors } from './contentregister.ts';
 import { createNewCutscenePanel, createNewDialoguePanel, createQuestPlacePanel } from './compose.ts';
 import { createStoryArea, type StoryArea } from './storyarea.ts';
+import { createConversationPanel } from './conversation.ts';
 import { createPathLayer } from './pathview.ts';
 import { placedStoryObjects } from './placed.ts';
 import { notifyExitEdit, setExitEditHost } from './exitbridge.ts';
@@ -24,6 +25,10 @@ export interface StoryEditors {
     area: StoryArea;
     /** A disc was opened (or closed): forget what was read from the previous one. */
     setDisc(profile: DiscProfile | null, language?: string): void;
+    /** Every story edit as plain JSON for the project file (null when there are none). */
+    exportProject(): ProjectStory | null;
+    /** Restore the edits from a project file (null clears them). */
+    importProject(s: ProjectStory | null): void;
 }
 
 export interface StoryEditorsHost {
@@ -80,20 +85,83 @@ export function initStoryEditors(host: StoryEditorsHost): StoryEditors {
             : {}),
         ...(path ? { showPath: (pts) => path.show(pts), framePath: () => path.frame() } : {}),
     });
+    // One workspace, four places: Quests, Conversations, Cut scenes, and Text and export. The old tab ids stay as
+    // commands (`story.new-dialogue` ...) and open the right place inside.
+    const newDialogue = createNewDialoguePanel(content.session, host.ctx);
+    const conversations = createStoryArea(
+        [
+            {
+                id: 'conversation',
+                title: 'Conversations',
+                panel: createConversationPanel(content.session, () => conversations.select('new-dialogue')),
+            },
+            { id: 'new-dialogue', title: 'Write a new line', panel: newDialogue },
+            { id: 'dialogue', title: 'All lines', panel: content.dialogue },
+        ],
+        'conversation',
+        true,
+    );
+    const cutscenes = createStoryArea(
+        [
+            { id: 'cinematics', title: 'Timeline', panel: content.cinematics },
+            { id: 'new-cutscene', title: 'Make a cut scene', panel: createNewCutscenePanel(content.session, host.ctx) },
+        ],
+        'cinematics',
+        true,
+    );
+    const quests = createStoryArea(
+        [
+            { id: 'quests', title: 'Quests', panel: createQuestsPanel(session, host.ctx) },
+            { id: 'quest-marker', title: 'Place a quest marker', panel: createQuestPlacePanel(session, host.ctx) },
+        ],
+        'quests',
+        true,
+    );
+    const text = createStoryArea(
+        [
+            { id: 'strings', title: 'Texts', panel: createStringsPanel(session) },
+            { id: 'pack', title: 'Export', panel: createStoryPackPanel(session) },
+        ],
+        'strings',
+        true,
+    );
+    const WHERE: Record<string, [string, StoryArea]> = {
+        quests: ['quests', quests],
+        'quest-marker': ['quests', quests],
+        dialogue: ['conversations', conversations],
+        'new-dialogue': ['conversations', conversations],
+        cinematics: ['cutscenes', cutscenes],
+        'new-cutscene': ['cutscenes', cutscenes],
+        strings: ['text', text],
+        pack: ['text', text],
+    };
+    // Showing a tab reads what it needs from the disc, so no page asks for a Load click first.
+    const readDisc = (): void => {
+        void session.ensure().catch(() => undefined);
+        // the story folder of the open level, so the editors start on the level being worked on
+        let stem: string | undefined;
+        try {
+            stem = host
+                .ctx?.()
+                .src()
+                ?.file.replace(/\.LVL$/i, '');
+        } catch {
+            stem = undefined;
+        }
+        void content.session.ensure(content.session.story ? undefined : stem).catch(() => undefined);
+    };
     const area = createStoryArea([
-        { id: 'strings', title: 'Strings', panel: createStringsPanel(session) },
-        { id: 'quests', title: 'Quests', panel: createQuestsPanel(session) },
-        { id: 'dialogue', title: 'Dialogue', panel: content.dialogue },
-        { id: 'cinematics', title: 'Cinematics', panel: content.cinematics },
-        { id: 'new-dialogue', title: 'New dialogue', panel: createNewDialoguePanel(content.session, host.ctx) },
-        {
-            id: 'new-cutscene',
-            title: 'New cut scene',
-            panel: createNewCutscenePanel(content.session, host.ctx),
-        },
-        { id: 'quest-marker', title: 'Quest marker', panel: createQuestPlacePanel(session, host.ctx) },
-        { id: 'pack', title: 'Story pack', panel: createStoryPackPanel(session) },
+        { id: 'quests', title: 'Quests', panel: quests.panel, onShow: readDisc },
+        { id: 'conversations', title: 'Conversations', panel: conversations.panel, onShow: readDisc },
+        { id: 'cutscenes', title: 'Cut scenes', panel: cutscenes.panel, onShow: readDisc },
+        { id: 'text', title: 'Text and export', panel: text.panel, onShow: readDisc },
     ]);
+    const selectTab = (id: string): void => {
+        const w = WHERE[id];
+        if (!w) return area.select(id);
+        area.select(w[0]);
+        w[1].select(id);
+    };
     registerPanel({
         id: 'story',
         title: 'Story',
@@ -114,7 +182,7 @@ export function initStoryEditors(host: StoryEditorsHost): StoryEditors {
             category: 'Panels',
             keywords: 'story',
             run: () => {
-                area.select(id);
+                selectTab(id);
                 allCommands()
                     .find((c) => c.id === 'panel.story')
                     ?.run();
@@ -127,6 +195,7 @@ export function initStoryEditors(host: StoryEditorsHost): StoryEditors {
         text: (file, id) => session.str(file, id)?.text[0],
         set: (file, id, text) => session.setExitDestination(file, id, text),
         changed: (file, id) => session.isChanged(file, id),
+        addDestination: (file, fromId, text) => session.addDestinationString(file, fromId, text),
     });
     // Dialogue lines and cut scenes made in the content session ship in the same pack as strings and quests.
     session.addChangeSource({
@@ -138,11 +207,22 @@ export function initStoryEditors(host: StoryEditorsHost): StoryEditors {
     return {
         session,
         content,
-        area,
+        area: { ...area, select: selectTab },
+        exportProject() {
+            const s: ProjectStory = { ...session.exportState(), content: content.session.exportState() };
+            return isEmptyStory(s) ? null : s;
+        },
+        importProject(s) {
+            session.importState(s);
+            content.session.importState(s?.content ?? null);
+        },
         setDisc(p, language) {
+            // Opening a disc after a project's story edits were restored (nothing could be edited without a disc)
+            // keeps them; closing or switching discs drops them.
+            const keep = !!p && profile === null;
             profile = p;
-            session.reset();
-            content.setDisc(!!p, language);
+            session.reset(keep);
+            content.setDisc(!!p, language, keep);
             path?.show(null);
         },
     };

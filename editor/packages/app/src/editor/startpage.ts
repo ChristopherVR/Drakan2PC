@@ -1,7 +1,8 @@
 import { WORKFLOWS, type TaskId } from '@drakan/editor-core';
 import { h, icon, store } from './dom.ts';
-import { getCommand, runCommand } from './registry.ts';
+import { allCommands, getCommand, onRegistryChange, runCommand } from './registry.ts';
 import { projects } from './project/store.ts';
+import { installQuickAdd, quickAddItems } from './quickadd.ts';
 import './shellux.css';
 import './project/project.css';
 
@@ -51,10 +52,8 @@ const TASK_ICON: Record<TaskId, string> = {
     save: 'save',
 };
 
-/** Tasks in the order they are offered. */
-const TASK_ORDER: TaskId[] = ['campaign', 'multiplayer', 'newlevel', 'story', 'save'];
-
 export function createStartPage(a: StartPageActions): StartPage {
+    installQuickAdd();
     const el = h('div', { class: 'start' });
     const docInput = h('input', { type: 'file', accept: '.json', hidden: true });
     docInput.addEventListener('change', () => {
@@ -64,6 +63,7 @@ export function createStartPage(a: StartPageActions): StartPage {
     });
     let levels: LevelRef[] | null = null;
     let isoName: string | undefined;
+    let overlayWasHidden: boolean | null = null;
 
     const taskCard = (id: TaskId, discOpen: boolean): HTMLElement => {
         const w = WORKFLOWS[id];
@@ -82,7 +82,15 @@ export function createStartPage(a: StartPageActions): StartPage {
             icon(TASK_ICON[id], 20),
             h('strong', {}, w.title),
             h('span', {}, w.summary),
-            h('em', {}, needs ? 'Asks for your disc image first' : 'Start'),
+            h(
+                'em',
+                {},
+                id === 'save'
+                    ? 'Opens the Save Editor (its own window)'
+                    : needs
+                      ? 'Asks for your disc image first'
+                      : 'Start',
+            ),
         );
     };
 
@@ -98,8 +106,27 @@ export function createStartPage(a: StartPageActions): StartPage {
         );
     };
 
+    /** What to make: the Quick Add rows first (the same list as the toolbar's + Add), then the other starting points. */
+    const createCard = (it: ReturnType<typeof quickAddItems>[number], discOpen: boolean): HTMLElement =>
+        h(
+            'button',
+            { class: 'start-task', type: 'button', 'data-add': it.id, onclick: () => void it.run() },
+            icon(it.icon, 20),
+            h('strong', {}, it.title),
+            h('span', {}, it.summary),
+            h('em', {}, discOpen || it.noDisc ? 'Create' : 'Asks for your disc image first'),
+        );
+
     const tasks = (discOpen: boolean): HTMLElement =>
-        h('div', { class: 'start-tasks' }, ...TASK_ORDER.map((t) => taskCard(t, discOpen)), ootfCard());
+        h(
+            'div',
+            { class: 'start-tasks' },
+            ...quickAddItems().map((it) => createCard(it, discOpen)),
+            taskCard('campaign', discOpen),
+            taskCard('story', discOpen),
+            taskCard('save', discOpen),
+            ootfCard(),
+        );
 
     const levelButton = (l: LevelRef, recent: boolean, onPick: (l: LevelRef) => void): HTMLElement => {
         const m = /^(Level\s+\S+)\s*[-–]\s*(.*)$/.exec(l.name);
@@ -144,6 +171,66 @@ export function createStartPage(a: StartPageActions): StartPage {
         ];
     }
 
+    /** The project you are working in (the global context, also in the top bar) and the recent ones. */
+    function projectBlock(): HTMLElement {
+        const p = projects.get();
+        const btn = (label: string, id: string, primary = false): HTMLElement | null =>
+            getCommand(id)
+                ? h(
+                      'button',
+                      {
+                          class: `ui-btn sm${primary ? ' primary' : ''}`,
+                          type: 'button',
+                          'data-command': id,
+                          onclick: () => runCommand(id),
+                      },
+                      label,
+                  )
+                : null;
+        const recent = allCommands().filter((c) => c.id.startsWith('project.recent.'));
+        return h(
+            'div',
+            { class: 'start-projects' },
+            h(
+                'div',
+                { class: 'start-project' },
+                icon('layers', 16),
+                p ? h('strong', {}, p.name || p.id) : h('strong', { class: 'dim' }, 'No project yet'),
+                h(
+                    'span',
+                    { class: 'dim' },
+                    p
+                        ? `${p.levels.length} level${p.levels.length === 1 ? '' : 's'} in your project`
+                        : 'Starting a task below creates one',
+                ),
+                h('span', { class: 'spacer' }),
+                p ? btn('Project Settings', 'panel.project', true) : null,
+                btn('Open project...', 'project.open'),
+                btn('New project...', 'project.new'),
+            ),
+            recent.length
+                ? h(
+                      'div',
+                      { class: 'start-recent-projects' },
+                      h('span', { class: 'dim' }, 'Recent projects'),
+                      ...recent.map((c) =>
+                          h(
+                              'button',
+                              {
+                                  class: 'linkish',
+                                  type: 'button',
+                                  title: c.hint ?? c.title,
+                                  onclick: () => runCommand(c.id),
+                              },
+                              icon('folder', 13),
+                              c.title,
+                          ),
+                      ),
+                  )
+                : null,
+        );
+    }
+
     function refresh(lv: LevelRef[] | null, name?: string): void {
         levels = lv;
         isoName = name;
@@ -152,6 +239,18 @@ export function createStartPage(a: StartPageActions): StartPage {
 
     function render(): void {
         const children: (Node | null)[] = [];
+        // The level picker (Level copy, Edit a campaign level) must be visible even over an open level: the overlay
+        // this page lives in is hidden while a level is shown, so show it for the pick and hide it again after.
+        const overlay = el.parentElement;
+        if (overlay) {
+            if (levels && projects.pickFor) {
+                if (overlayWasHidden === null) overlayWasHidden = overlay.hidden !== false;
+                overlay.hidden = false;
+            } else if (overlayWasHidden !== null) {
+                if (overlayWasHidden) overlay.hidden = true;
+                overlayWasHidden = null;
+            }
+        }
         if (levels && projects.pickFor) {
             el.replaceChildren(...pickView(projects.pickFor, levels), docInput);
             return;
@@ -180,6 +279,7 @@ export function createStartPage(a: StartPageActions): StartPage {
                         'Open a saved level (.json)',
                     ),
                 ),
+                projectBlock(),
                 h('h3', {}, 'Or choose what to make first'),
                 tasks(false),
             );
@@ -190,31 +290,11 @@ export function createStartPage(a: StartPageActions): StartPage {
                 h(
                     'p',
                     { class: 'start-lead' },
-                    `${isoName ?? 'Your disc'} is open. Pick a task: the editor opens the right panels and lists the next steps.`,
+                    `${isoName ?? 'Your disc'} is open. Pick one: the editor opens the right panel with sensible defaults, and a checklist lists the next steps. The + Add button in the toolbar offers the same list at any time.`,
                 ),
+                projectBlock(),
                 tasks(true),
             );
-            if (p) {
-                children.push(
-                    h(
-                        'div',
-                        { class: 'start-project' },
-                        icon('layers', 16),
-                        h('strong', {}, p.name || p.id),
-                        h(
-                            'span',
-                            { class: 'dim' },
-                            `${p.levels.length} level${p.levels.length === 1 ? '' : 's'} in your project`,
-                        ),
-                        h('span', { class: 'spacer' }),
-                        h(
-                            'button',
-                            { class: 'ui-btn sm', type: 'button', onclick: () => runCommand('panel.project') },
-                            'Open the project',
-                        ),
-                    ),
-                );
-            }
             if (rec.length) {
                 children.push(
                     h('h3', {}, 'Recent levels'),
@@ -267,6 +347,16 @@ export function createStartPage(a: StartPageActions): StartPage {
     }
 
     projects.on(render);
+    // Features register their Quick Add rows (and commands) after the start page exists; draw them when they arrive.
+    let again = false;
+    onRegistryChange(() => {
+        if (again) return;
+        again = true;
+        queueMicrotask(() => {
+            again = false;
+            render();
+        });
+    });
     render();
     return { el, refresh };
 }

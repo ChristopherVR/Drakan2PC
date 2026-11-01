@@ -1,4 +1,5 @@
 import type { Screenshot } from '@drakan/formats';
+import { card as sharedCard, statTile as sharedStatTile } from '../shared/components.ts';
 
 export type Kid = Node | string | null | false | undefined;
 export type Attrs = Record<string, string | number | boolean | ((e: Event) => void) | undefined>;
@@ -47,27 +48,13 @@ export function hexDump(data: Uint8Array, from: number, to: number): string {
     return lines.join('\n');
 }
 
-/** A stat tile: label, big value, optional bar (value / max) and a caption. */
+/** A stat tile: label, big value, optional bar (value / max) and a caption (shared/components.ts, save classes). */
 export function statTile(
     label: string,
     value: string,
     opts: { bar?: [number, number]; note?: string } = {},
 ): HTMLElement {
-    const bar = opts.bar
-        ? h(
-              'div',
-              { class: 'sv-meter', title: `${opts.bar[0]} of ${opts.bar[1]}` },
-              h('i', { style: `width:${Math.max(0, Math.min(100, (opts.bar[0] / Math.max(opts.bar[1], 1)) * 100))}%` }),
-          )
-        : null;
-    return h(
-        'div',
-        { class: 'tile' },
-        h('small', null, label),
-        h('b', null, value),
-        bar,
-        opts.note ? h('small', { class: 'sv-dim' }, opts.note) : null,
-    );
+    return sharedStatTile(label, value, { ...opts, cls: 'tile', meterCls: 'sv-meter', noteCls: 'sv-dim' });
 }
 
 const ICON_PATHS: Record<string, string> = {
@@ -143,24 +130,13 @@ export function button(
     );
 }
 
-/** A titled panel (AbioticEditor "card"): accent title row, optional right-hand tools and a hint line. */
+/** A titled panel (AbioticEditor "card"): accent title row, optional right-hand tools and a hint line (shared). */
 export function card(
     title: string,
     opts: { hint?: string; tools?: Kid; class?: string } = {},
     ...kids: Kid[]
 ): HTMLElement {
-    return h(
-        'section',
-        { class: `sv-card${opts.class ? ` ${opts.class}` : ''}` },
-        h(
-            'header',
-            { class: 'sv-card-head' },
-            h('h3', null, title),
-            opts.hint ? h('p', null, opts.hint) : null,
-            opts.tools ? h('div', { class: 'sv-card-tools' }, opts.tools) : null,
-        ),
-        h('div', { class: 'sv-card-body' }, ...kids),
-    );
+    return sharedCard(title, { ...opts, prefix: 'sv-card' }, ...kids);
 }
 
 /** An empty or blocked state: icon, one-line title, an explanation of what to do next, optional actions. */

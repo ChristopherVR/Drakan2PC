@@ -150,9 +150,9 @@ export async function playInGame(
     if (await platform.gameRunning()) throw new ModError('The game is already running. Close it first.');
     const where = pack ? await writePackDesktop(pack) : null;
     await platform.launchGame(env);
-    const parts = [where ? `mod '${pack!.meta.id}' written and enabled` : 'no edits, started without a mod'];
-    if (env.DRAKAN_START_LEVEL) parts.push(`New Game starts ${env.DRAKAN_START_LEVEL}`);
-    if (env.DRAKAN_NET_HOST) parts.push(`hosting on UDP ${env.DRAKAN_NET_HOST}`);
+    const parts = [where ? `mod '${pack!.meta.id}' installed` : 'no edits'];
+    if (env.DRAKAN_START_LEVEL) parts.push(`starting in ${env.DRAKAN_START_LEVEL}`);
+    if (env.DRAKAN_NET_HOST) parts.push(`hosting on port ${env.DRAKAN_NET_HOST}`);
     if (env.DRAKAN_NET_CONNECT) parts.push(`joining ${env.DRAKAN_NET_CONNECT}`);
-    return `Game started: ${parts.join('; ')}.`;
+    return `Game started (${parts.join(', ')}).`;
 }

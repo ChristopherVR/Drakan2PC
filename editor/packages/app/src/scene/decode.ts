@@ -26,6 +26,8 @@ export interface SceneTexture {
     width: number;
     height: number;
     rgba: Uint8Array;
+    /** Disc path of the TXD it came from, `.TXD` included (the PBR pack names textures by it). */
+    txd?: string;
 }
 
 export interface TerrainData {
@@ -53,6 +55,7 @@ export async function readTextures(
     db: number,
     memo?: Map<string, SceneTexture | null>,
     memoKey = '',
+    txdPath?: string,
 ): Promise<SceneTexture[]> {
     const out: SceneTexture[] = [];
     if (!txd) return out;
@@ -62,12 +65,12 @@ export async function readTextures(
         const mk = `${memoKey}:${e.id}`;
         if (memo?.has(mk)) {
             const m = memo.get(mk);
-            if (m) out.push({ ...m, ref: e.id | (db << 16) });
+            if (m) out.push({ ...m, ref: e.id | (db << 16), txd: txdPath });
             continue;
         }
         try {
             const img: TxdImage = decodeTxd((await txd.read(e)).data, { upright: false });
-            const t = { ref: e.id | (db << 16), width: img.width, height: img.height, rgba: img.rgba };
+            const t = { ref: e.id | (db << 16), width: img.width, height: img.height, rgba: img.rgba, txd: txdPath };
             memo?.set(mk, t);
             out.push(t);
         } catch {
@@ -101,7 +104,10 @@ export async function loadTerrainData(
     for (const [db, ids] of byDb) {
         const dep = dependencyPath(header, db);
         if (!dep) continue;
-        textures.push(...(await readTextures(await open(fs, `${resolveDependencyStem(dirPath, dep)}.TXD`), ids, db)));
+        {
+            const path = `${resolveDependencyStem(dirPath, dep)}.TXD`;
+            textures.push(...(await readTextures(await open(fs, path), ids, db, undefined, '', path)));
+        }
     }
     return { layers, textures };
 }
@@ -183,7 +189,7 @@ export async function loadModelData(
             const tbase = tdb === 0 ? base : db.deps.get(tdb);
             if (!tbase) continue;
             const txd = await cached(txdCache, tbase, () => open(fs, `${tbase}.TXD`));
-            r.textures.push(...(await readTextures(txd, ids, tdb, texMemo, tbase)));
+            r.textures.push(...(await readTextures(txd, ids, tdb, texMemo, tbase, `${tbase}.TXD`)));
         }
     }
     return out;

@@ -341,3 +341,76 @@
 .dirty {
     white-space: nowrap;
 }
+
+/* ---- Quick Add (the "+ Add" menu in the main toolbar) ---- */
+.ed-toolbar .qa-btn {
+    height: var(--h-tool);
+    padding: 0 var(--sp-4);
+    font-weight: 600;
+}
+.popover.qa-pop {
+    width: 320px;
+    padding-bottom: var(--sp-3);
+}
+.popover .qa-item {
+    height: auto;
+    min-height: 42px;
+    display: flex;
+    align-items: center;
+    gap: var(--sp-4);
+    width: 100%;
+    padding: var(--sp-3) var(--sp-4);
+    border: 0;
+    border-radius: var(--r-sm);
+    background: none;
+    color: var(--fg);
+    font: inherit;
+    text-align: left;
+    cursor: pointer;
+}
+.qa-item:hover,
+.qa-item:focus-visible {
+    background: var(--surface-4);
+    box-shadow: none;
+}
+.qa-ico {
+    display: grid;
+    place-items: center;
+    flex: none;
+    width: 28px;
+    height: 28px;
+    color: var(--accent);
+    background: var(--surface-1);
+    border: 1px solid var(--border);
+    border-radius: var(--r-sm);
+}
+.qa-text {
+    display: grid;
+    min-width: 0;
+}
+.qa-text strong {
+    font-weight: 600;
+}
+.qa-text span {
+    color: var(--fg-muted);
+    font-size: var(--fs-xs);
+}
+.qa-note {
+    padding: var(--sp-3) var(--sp-4) 0;
+    color: var(--fg-faint);
+    font-size: var(--fs-xs);
+}
+
+/* Viewport overlays (display menus, transform tools, view cube) only make sense over a level, not the start page. */
+#lv-viewport:has(#lv-empty.has-start:not([hidden])) .vp-bar,
+#lv-viewport:has(#lv-empty.has-start:not([hidden])) .vp-gizmo {
+    display: none;
+}
+
+/* Small-caps section headers in menus, like UE5's menu section labels. */
+.popover .mh,
+.ui-menu-label {
+    font-size: var(--fs-2xs);
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+}

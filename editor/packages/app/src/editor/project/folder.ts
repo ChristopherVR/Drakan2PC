@@ -5,6 +5,7 @@ import {
     serializeProjectFile,
     type ModProject,
     type ProjectEdits,
+    type ProjectStory,
     type TaskId,
 } from '@drakan/editor-core';
 import * as platform from '../../platform.ts';
@@ -19,6 +20,8 @@ export interface FolderHost {
     /** A project was opened: re-open the level in the editor when it has restored edits. */
     reloadOpenLevel(titles: ReadonlySet<string>): void;
     download(name: string, data: BlobPart, type: string): Promise<unknown> | void;
+    /** The story session's edits (strings, quests, dialogue, cut scenes) as they go into the project file. */
+    story: { export(): ProjectStory | null; import(s: ProjectStory | null): void };
 }
 
 export interface ProjectFiles {
@@ -87,7 +90,7 @@ export function createProjectFiles(host: FolderHost): ProjectFiles {
         }
         const f = projects.folder;
         await host.flush();
-        const text = serializeProjectFile(p, await collectEdits(p));
+        const text = serializeProjectFile(p, await collectEdits(p), host.story.export());
         if (!f) {
             const name = `${p.id || 'project'}.drakan-project.json`;
             await host.download(name, text, 'application/json');
@@ -117,13 +120,19 @@ export function createProjectFiles(host: FolderHost): ProjectFiles {
     projects.on(saveSoon);
     projects.onEdit(saveSoon);
 
-    async function adopt(project: ModProject, edits: ProjectEdits, folder: { dir: string } | null): Promise<void> {
+    async function adopt(
+        project: ModProject,
+        edits: ProjectEdits,
+        story: ProjectStory | null,
+        folder: { dir: string } | null,
+    ): Promise<void> {
         // Leaving a folder project: its edits are written to its file first.
         if (projects.folder) {
             window.clearTimeout(timer);
             await save(true);
         }
         const titles = await applyEdits(project, edits);
+        host.story.import(story);
         projects.autoRestore.clear();
         for (const t of titles) projects.autoRestore.add(t);
         projects.setFolder(folder ? { dir: folder.dir, savedAt: Date.now(), error: null } : null);
@@ -139,8 +148,8 @@ export function createProjectFiles(host: FolderHost): ProjectFiles {
 
     async function openInfo(info: platform.ProjectFolderInfo): Promise<boolean> {
         if (info.text === null) return false;
-        const { project, edits } = parseProjectFile(info.text);
-        await adopt(project, edits, { dir: info.dir });
+        const { project, edits, story } = parseProjectFile(info.text);
+        await adopt(project, edits, story, { dir: info.dir });
         return true;
     }
 
@@ -151,6 +160,7 @@ export function createProjectFiles(host: FolderHost): ProjectFiles {
             if (!platform.isDesktop) {
                 if (projects.folder) await save(true);
                 projects.setFolder(null);
+                host.story.import(null);
                 projects.set(newProject(nm, task));
                 return true;
             }
@@ -162,6 +172,7 @@ export function createProjectFiles(host: FolderHost): ProjectFiles {
             }
             const p = newProject(nm, task);
             await applyEdits(p, {});
+            host.story.import(null);
             projects.autoRestore.clear();
             projects.setFolder({ dir: info.dir, savedAt: null, error: null });
             projects.set(p);
@@ -177,8 +188,8 @@ export function createProjectFiles(host: FolderHost): ProjectFiles {
             return openInfo(await platform.projectOpenPath(dir));
         },
         async openText(text) {
-            const { project, edits } = parseProjectFile(text);
-            await adopt(project, edits, null);
+            const { project, edits, story } = parseProjectFile(text);
+            await adopt(project, edits, story, null);
         },
         async close() {
             if (projects.folder) {
@@ -186,6 +197,7 @@ export function createProjectFiles(host: FolderHost): ProjectFiles {
                 await save(true);
             }
             projects.setFolder(null);
+            host.story.import(null);
             projects.set(null);
         },
         async reopenLast() {

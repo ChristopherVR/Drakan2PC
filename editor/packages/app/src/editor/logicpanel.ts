@@ -1,41 +1,31 @@
 import {
     ApplyTemplateCommand,
     TEMPLATES,
-    addLink,
-    buildLogicGraph,
     destinationLevelName,
     isError,
-    layoutGraph,
     logicOf,
-    numField,
-    removeLink,
     resourceParts,
-    setMessageField,
     validateLogic,
     type ExitIndex,
     type ExitIndexEntry,
     type LevelObject,
-    type LogicEdge,
     type LogicEnv,
-    type LogicGraph,
     type LogicTemplate,
     type ParamValues,
-    type Placement,
     type TemplateParam,
     type ValidationIssue,
 } from '@drakan/editor-core';
-import { MESSAGE_NAMES, exitDestinationText, type LogicRole } from '@drakan/formats';
+import { exitDestinationText } from '@drakan/formats';
 import type { ExitIndexData } from '../logicdata.ts';
 import type { Ctx, Panel } from './ctx.ts';
 import { fill, h, icon, raf } from './dom.ts';
 import { contextMenu } from './ui.ts';
-import { buildFieldsPanel } from './fieldsui.ts';
 import { addValidationProvider } from './panels.ts';
 import { registerCommand, registerPanel, runCommand } from './registry.ts';
 
 import { exitEditHost, onExitEditChange } from '../story/exitbridge.ts';
+import { createLogicGraph } from './logicgraph.ts';
 import { createVolumeLayer, type VolumeMode } from './logicview.ts';
-import { nameOf } from './linking.ts';
 import { projects } from './project/store.ts';
 
 /** Set by the open Logic panel: opens a template form with some parameters preset. */
@@ -49,97 +39,46 @@ export function openTemplate(id: string, preset: ParamValues = {}): boolean {
     return true;
 }
 
-const NW = 176;
-const NH = 46;
-const SVGNS = 'http://www.w3.org/2000/svg';
-
-const ROLE_COLOR: Record<LogicRole, string> = {
-    detector: '#4cc2ff',
-    timer: '#c79bff',
-    counter: '#ffb454',
-    relay: '#9aa7b8',
-    switch: '#7ee08c',
-    door: '#ff8a6b',
-    cutscene: '#ff6bb5',
-    movie: '#ff6bb5',
-    conversation: '#ffd866',
-    exit: '#5eead4',
-    elevator: '#a3e635',
-    plate: '#7ee08c',
-    lock: '#fb923c',
-    visibility: '#9aa7b8',
-    sound: '#60a5fa',
-    creature: '#f87171',
-    quest: '#facc15',
-    chest: '#d6a85f',
-    teleporter: '#34d399',
-    mechanism: '#cbd5e1',
-    waypoint: '#64748b',
-    other: '#64748b',
-};
-
-function svg<K extends keyof SVGElementTagNameMap>(
-    tag: K,
-    attrs: Record<string, string | number> = {},
-    ...kids: (Node | string)[]
-): SVGElementTagNameMap[K] {
-    const el = document.createElementNS(SVGNS, tag);
-    for (const [k, v] of Object.entries(attrs)) el.setAttribute(k, String(v));
-    for (const k of kids) el.append(k);
-    return el;
-}
-
 const norm = (s: string): string => s.toLowerCase().replace(/[^a-z0-9]/g, '');
 
 /** Install the logic graph panel, the volume overlay and the logic validation checks. */
-export function installLogic(ctx: Ctx, loadExits: () => Promise<ExitIndexData>): Panel {
+export function installLogic(ctx: Ctx, loadExits: (only?: string) => Promise<ExitIndexData>): Panel {
     const env = (): LogicEnv | null => ctx.schemas();
     let exitData: ExitIndexData | null = null;
     let exitLoading = false;
+    /** The open level's exits alone (fast); the whole disc (`exitData`) follows and feeds the arrival check. */
+    let quickExits: ExitIndexData | null = null;
+    let quickFor = '';
+    let quickLoading = false;
     const volumes = createVolumeLayer(ctx, env);
 
-    // ---- state ------------------------------------------------------------------------------------------------------
-    let scope: 'selection' | 'level' = 'selection';
-    let depth = 2;
-    let graph: LogicGraph = { nodes: new Map(), edges: [] };
-    let place = new Map<number, Placement>();
-    const manual = new Map<number, { x: number; y: number }>();
-    let selEdge: string | null = null;
-    let cam = { x: 20, y: 20, k: 1 };
     const listeners = new Set<() => void>();
 
     // ---- DOM --------------------------------------------------------------------------------------------------------
-    const scopeSel = h(
-        'select',
-        { class: 'sel', 'aria-label': 'Graph scope' },
-        h('option', { value: 'selection' }, 'Around selection'),
-        h('option', { value: 'level' }, 'Whole level'),
-    );
-    const depthSel = h(
-        'select',
-        { class: 'sel', 'aria-label': 'Link distance' },
-        ...[1, 2, 3, 4].map((n) => h('option', { value: String(n) }, `${n} link${n > 1 ? 's' : ''}`)),
-    );
-    depthSel.value = '2';
     const volSel = h(
         'select',
-        { class: 'sel', 'aria-label': 'Show volumes', title: 'Trigger volumes and radii in the viewport' },
-        h('option', { value: 'selected' }, 'Volumes: selected'),
-        h('option', { value: 'all' }, 'Volumes: all'),
-        h('option', { value: 'off' }, 'Volumes: off'),
+        { class: 'sel', 'aria-label': 'Show zones', title: 'Trigger zones and distances, drawn in the level view' },
+        h('option', { value: 'selected' }, 'Zones: selected'),
+        h('option', { value: 'all' }, 'Zones: all'),
+        h('option', { value: 'off' }, 'Zones: off'),
     );
     const tplSel = h(
         'select',
-        { class: 'sel', 'aria-label': 'Template' },
-        h('option', { value: '' }, 'Add setup'),
+        { class: 'sel', 'aria-label': 'Ready-made setup' },
+        h('option', { value: '' }, 'Ready-made setup'),
         ...TEMPLATES.map((t) => h('option', { value: t.id }, t.title)),
     );
-    // The select is only the data model (templates can also be opened by id from elsewhere); the toolbar shows a menu button.
+    // The select is only the data model (setups can also be opened by id from elsewhere); the toolbar shows a menu button.
     const tplBtn = h(
         'button',
-        { class: 'btn', type: 'button', 'aria-haspopup': 'menu', title: 'Create a ready-made trigger setup' },
+        {
+            class: 'btn',
+            type: 'button',
+            'aria-haspopup': 'menu',
+            title: 'Make a whole puzzle in one go: plates and a door, a quest, a cut scene trigger...',
+        },
         icon('plus', 13),
-        'Add setup',
+        'Ready-made setup',
         icon('chevron-down', 11),
     );
     tplBtn.addEventListener('click', () => {
@@ -149,6 +88,7 @@ export function installLogic(ctx: Ctx, loadExits: () => Promise<ExitIndexData>):
             r.bottom + 2,
             TEMPLATES.map((t) => ({
                 label: t.title,
+                hint: t.summary.length > 60 ? `${t.summary.slice(0, 58)}...` : t.summary,
                 run: () => {
                     tplSel.value = t.id;
                     tplSel.dispatchEvent(new Event('change'));
@@ -156,422 +96,115 @@ export function installLogic(ctx: Ctx, loadExits: () => Promise<ExitIndexData>):
             })),
         );
     });
-    const info = h('span', { class: 'dim' });
-    const canvas = svg('svg', { class: 'lg-canvas', width: '100%', height: '100%', tabindex: 0 });
-    const world = svg('g');
-    canvas.append(world);
-    const side = h('div', { class: 'lg-side' });
     const form = h('div', { class: 'lg-form', hidden: true });
+    const view = createLogicGraph({
+        ctx,
+        env,
+        openSetup: (id) => {
+            tplSel.value = id;
+            tplSel.dispatchEvent(new Event('change'));
+        },
+        extra: (o) => exitPicker(o),
+    });
     const root = h(
         'div',
         { class: 'panel logic-panel' },
         h(
             'div',
             { class: 'panel-tools' },
-            scopeSel,
-            depthSel,
-            volSel,
+            ...view.tools.slice(0, 3),
             tplBtn,
-            h(
-                'button',
-                { class: 'btn', type: 'button', title: 'Re-run the automatic layout', onclick: () => relayout(true) },
-                'Auto layout',
-            ),
-            h('button', { class: 'btn', type: 'button', onclick: () => fit() }, 'Fit'),
+            ...view.tools.slice(3),
+            volSel,
             h('span', { class: 'spacer' }),
-            info,
+            view.info,
         ),
         form,
-        h('div', { class: 'lg-body' }, h('div', { class: 'lg-wrap' }, canvas), side),
+        view.el,
     );
     const style = document.createElement('style');
     style.textContent = `
 .logic-panel{display:flex;flex-direction:column;height:100%;min-height:0}
 .logic-panel .lg-body{display:flex;flex:1;min-height:0}
 .logic-panel .lg-wrap{flex:1;min-width:0;position:relative;background:var(--surface-0);overflow:hidden}
+.logic-panel .lg-wrap.drop-target{outline:2px dashed var(--accent);outline-offset:-3px}
 .logic-panel .lg-canvas{display:block;user-select:none;outline:none;cursor:grab}
-.logic-panel .lg-side{width:300px;overflow:auto;border-left:1px solid var(--border);padding:8px;font-size:12px}
+.logic-panel .lg-side{width:320px;overflow:auto;border-left:1px solid var(--border);padding:10px;font-size:12px}
 .logic-panel .lg-form{padding:8px;border-bottom:1px solid var(--border);display:flex;flex-wrap:wrap;gap:8px;align-items:end}
 .logic-panel .lg-form label{display:flex;flex-direction:column;gap:2px;font-size:11px}
 .logic-panel .lg-form .lg-note{flex-basis:100%;font-size:11px;opacity:.75}
+.logic-panel .panel-tools .dim.warn{color:var(--warn)}
 .logic-panel .lg-node rect.box{fill:var(--surface-2);stroke-width:1.5}
 .logic-panel .lg-node.sel rect.box{fill:var(--surface-3);stroke-width:3}
-.logic-panel .lg-node text{fill:var(--fg);font-size:11px;pointer-events:none}
+.logic-panel .lg-node.drop rect.box{stroke-width:4;fill:var(--surface-3)}
+.logic-panel .lg-node text{pointer-events:none}
+.logic-panel .lg-node text.role{fill:#101114;font-size:9px;font-weight:700;letter-spacing:.06em}
+.logic-panel .lg-node text.name{fill:var(--fg);font-size:12px;font-weight:600}
 .logic-panel .lg-node text.sub{fill:var(--fg-muted);font-size:10px}
-.logic-panel .lg-port{fill:var(--surface-0);stroke:var(--fg-muted);stroke-width:1.5;cursor:crosshair}
-.logic-panel .lg-port:hover{fill:var(--fg)}
-.logic-panel .lg-edge{fill:none;stroke:var(--fg-faint);stroke-width:1.5}
+.logic-panel .lg-port{fill:var(--surface-0);stroke-width:2;cursor:crosshair}
+.logic-panel .lg-port.in{cursor:default}
+.logic-panel .lg-port.idle{opacity:.35}
+.logic-panel .lg-port.out:hover{fill:var(--fg)}
+.logic-panel .lg-badge circle{fill:var(--warn)}
+.logic-panel .lg-badge text{fill:#101114;font-size:11px;font-weight:800}
+.logic-panel .lg-edge{fill:none;stroke:var(--fg-faint);stroke-width:1.8}
 .logic-panel .lg-edge.sel{stroke:var(--warn);stroke-width:3}
-.logic-panel .lg-hit{fill:none;stroke:transparent;stroke-width:12;cursor:pointer}
-.logic-panel .lg-elabel{fill:var(--fg-muted);font-size:10px;pointer-events:none}
-.logic-panel .lg-side h4{margin:0 0 6px;font-size:12px}
-.logic-panel .lg-side .row{display:flex;gap:6px;align-items:center;margin:4px 0}
+.logic-panel .lg-edge.bad{stroke:var(--danger,#f06a62);stroke-dasharray:6 4}
+.logic-panel .lg-hit{fill:none;stroke:transparent;stroke-width:14;cursor:pointer}
+.logic-panel .lg-pill{cursor:pointer}
+.logic-panel .lg-pill rect{fill:var(--surface-3);stroke:var(--border-strong)}
+.logic-panel .lg-pill:hover rect{stroke:var(--accent)}
+.logic-panel .lg-pill text{fill:var(--fg);font-size:10.5px}
+.logic-panel .lg-pill.bad rect{stroke:var(--danger,#f06a62)}
+.logic-panel .lg-empty{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;text-align:center;padding:24px;color:var(--fg-muted);pointer-events:none}
+.logic-panel .lg-empty[hidden]{display:none}
+.logic-panel .lg-empty strong{color:var(--fg);font-size:14px}
+.logic-panel .lg-empty span{max-width:420px}
+.logic-panel .lg-empty-row{display:flex;gap:8px;pointer-events:auto;margin-top:6px}
+.logic-panel .lg-side h4{margin:0 0 6px;font-size:13px;display:flex;align-items:center;gap:8px}
+.logic-panel .lg-chip{font-size:9px;font-weight:700;color:#101114;border-radius:9px;padding:1px 7px;letter-spacing:.04em;text-transform:uppercase}
+.logic-panel .lg-side .row{display:flex;gap:6px;align-items:center;margin:6px 0;flex-wrap:wrap}
+.logic-panel .lg-sect{margin-top:12px}
+.logic-panel .lg-sect-h{font-size:10px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--fg-muted);margin-bottom:4px}
+.logic-panel .lg-linkrow{display:flex;align-items:center;gap:6px;margin:3px 0}
+.logic-panel .lg-link-name{display:flex;align-items:center;gap:6px;flex:1;min-width:0;background:none;border:0;color:var(--fg);text-align:left;cursor:pointer;padding:2px 0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.logic-panel .lg-link-name:hover{text-decoration:underline}
+.logic-panel .dot,.lg-add .dot{width:8px;height:8px;border-radius:50%;flex:none;display:inline-block}
+.logic-panel .lg-problem{display:flex;gap:6px;align-items:flex-start;background:color-mix(in srgb,var(--warn) 14%,transparent);border-radius:6px;padding:6px 8px;margin:6px 0;color:var(--fg)}
+.logic-panel .lg-problem .ico{flex:none;color:var(--warn);margin-top:1px}
+.logic-panel .lg-sentence{margin:4px 0 8px;font-size:12.5px}
+.logic-panel .lg-howto{margin:0 0 10px;padding-left:18px;line-height:1.6}
+.logic-panel .lg-details{margin-top:14px}
+.logic-panel .lg-details summary{cursor:pointer;color:var(--fg-muted);margin-bottom:6px}
+.lg-add{position:fixed;z-index:1200;width:360px;max-height:min(460px,70vh);display:flex;flex-direction:column;background:var(--surface-2);border:1px solid var(--border-strong);border-radius:10px;box-shadow:0 12px 36px rgba(0,0,0,.45);overflow:hidden}
+.lg-add-head{padding:8px 12px 0;font-size:11px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--fg-muted)}
+.lg-add-q{margin:8px 10px;padding:7px 10px;border-radius:6px;border:1px solid var(--border-strong);background:var(--field);color:var(--fg);font-size:13px}
+.lg-add-list{overflow:auto;padding:0 6px 8px;display:flex;flex-direction:column}
+.lg-add-group{padding:8px 8px 3px;font-size:10px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--fg-muted)}
+.lg-add-row{height:auto;min-height:40px;line-height:1.25;flex:none;display:flex;align-items:center;gap:10px;width:100%;text-align:left;background:none;border:0;border-radius:6px;padding:6px 8px;color:var(--fg);cursor:pointer}
+.lg-add-row.active,.lg-add-row:hover{background:var(--surface-3)}
+.lg-add-row:disabled{opacity:.45;cursor:default}
+.lg-add-row .txt{display:flex;flex-direction:column;min-width:0}
+.lg-add-row .nm{font-size:12.5px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.lg-add-row .sb{font-size:10.5px;color:var(--fg-muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.lg-add-none{padding:14px;color:var(--fg-muted);font-size:12px}
 `;
     root.append(style);
 
-    // ---- graph ------------------------------------------------------------------------------------------------------
-    const pos = (id: number): { x: number; y: number } => manual.get(id) ?? place.get(id) ?? { x: 0, y: 0 };
-
-    function rebuild(): void {
-        const e = env();
-        const doc = ctx.doc();
-        if (!e || doc.size === 0) {
-            graph = { nodes: new Map(), edges: [] };
-            place = new Map();
-            info.textContent = e ? 'No level open.' : 'Open a disc level to see its logic.';
-            draw();
-            return;
-        }
-        if (scope === 'selection') {
-            const sel = [...ctx.view().selection];
-            if (!sel.length) {
-                // keep the last graph visible when nothing is selected, but empty on first use
-                if (graph.nodes.size === 0)
-                    info.textContent = 'Select a trigger, door, cut scene... to see what it is wired to.';
-                return;
-            }
-            graph = buildLogicGraph(doc, e, { focus: sel, depth });
-        } else {
-            graph = buildLogicGraph(doc, e);
-        }
-        place = layoutGraph(graph);
-        const stale = [...manual.keys()].filter((id) => !graph.nodes.has(id));
-        for (const id of stale) manual.delete(id);
-        info.textContent = `${graph.nodes.size} objects, ${graph.edges.length} links`;
-        if (graph.nodes.size > 500) info.textContent += ' (large: use Around selection)';
-        draw();
-    }
-
-    function relayout(reset: boolean): void {
-        if (reset) manual.clear();
-        place = layoutGraph(graph);
-        draw();
-        fit();
-    }
-
-    function fit(): void {
-        const ids = [...graph.nodes.keys()];
-        if (!ids.length) return;
-        const r = canvas.getBoundingClientRect();
-        let minX = Infinity,
-            minY = Infinity,
-            maxX = -Infinity,
-            maxY = -Infinity;
-        for (const id of ids) {
-            const p = pos(id);
-            minX = Math.min(minX, p.x);
-            minY = Math.min(minY, p.y);
-            maxX = Math.max(maxX, p.x + NW);
-            maxY = Math.max(maxY, p.y + NH);
-        }
-        const k = Math.min(
-            1.4,
-            Math.max(0.15, Math.min((r.width - 40) / (maxX - minX), (r.height - 40) / (maxY - minY))),
-        );
-        cam = { k, x: 20 - minX * k + (r.width - 40 - (maxX - minX) * k) / 2, y: 20 - minY * k };
-        applyCam();
-    }
-    const applyCam = (): void => world.setAttribute('transform', `translate(${cam.x} ${cam.y}) scale(${cam.k})`);
-
-    const edgePath = (a: number, b: number): string => {
-        const p = pos(a),
-            q = pos(b);
-        const x1 = p.x + NW,
-            y1 = p.y + NH / 2,
-            x2 = q.x,
-            y2 = q.y + NH / 2;
-        const dx = Math.max(40, Math.abs(x2 - x1) / 2);
-        return `M${x1} ${y1} C${x1 + dx} ${y1} ${x2 - dx} ${y2} ${x2} ${y2}`;
-    };
-
-    function edgeLabel(e: LogicEdge): string {
-        if (!e.messages.length) return '';
-        const m = e.messages[0]!;
-        return e.messages.length > 1 ? `${m.label}: ${m.name} +${e.messages.length - 1}` : m.name;
-    }
-
-    function draw(): void {
-        world.replaceChildren();
-        const sel = ctx.doc().size ? ctx.view().selection : new Set<number>();
-        for (const e of graph.edges) {
-            const g = svg('g');
-            const d = edgePath(e.from, e.to);
-            const path = svg('path', {
-                d,
-                class: `lg-edge${selEdge === e.key ? ' sel' : ''}`,
-                'marker-end': 'url(#lg-arrow)',
-            });
-            const hit = svg('path', { d, class: 'lg-hit' });
-            hit.addEventListener('click', (ev) => {
-                ev.stopPropagation();
-                selEdge = e.key;
-                draw();
-                renderSide();
-            });
-            const p = pos(e.from),
-                q = pos(e.to);
-            const label = svg(
-                'text',
-                { class: 'lg-elabel', x: (p.x + NW + q.x) / 2, y: (p.y + q.y + NH) / 2 - 4, 'text-anchor': 'middle' },
-                edgeLabel(e),
-            );
-            g.append(path, hit, label);
-            world.append(g);
-        }
-        for (const n of graph.nodes.values()) {
-            const p = pos(n.id);
-            const color = ROLE_COLOR[n.role];
-            const g = svg('g', {
-                class: `lg-node${sel.has(n.id) ? ' sel' : ''}`,
-                transform: `translate(${p.x} ${p.y})`,
-                'data-id': n.id,
-            });
-            const rect = svg('rect', { class: 'box', width: NW, height: NH, rx: 6, stroke: color });
-            const title = svg('text', { x: 10, y: 18 }, n.class.length > 24 ? `${n.class.slice(0, 23)}...` : n.class);
-            const sub = svg(
-                'text',
-                { class: 'sub', x: 10, y: 34 },
-                `#${n.id}  ${n.spec.title}${n.hidden ? `  +${n.hidden} hidden` : ''}`,
-            );
-            const port = svg('circle', { class: 'lg-port', cx: NW, cy: NH / 2, r: 6 });
-            g.append(rect, title, sub, port);
-            if (n.spec.out.length === 0 && n.role !== 'creature') port.setAttribute('opacity', '0.35');
-            g.addEventListener('pointerdown', (ev) => startNodeDrag(ev, n.id));
-            port.addEventListener('pointerdown', (ev) => startLink(ev, n.id));
-            g.addEventListener('dblclick', () => ctx.locate([n.id]));
-            world.append(g);
-        }
-        if (!world.querySelector('defs')) {
-            const defs = svg(
-                'defs',
-                {},
-                svg(
-                    'marker',
-                    {
-                        id: 'lg-arrow',
-                        viewBox: '0 0 10 10',
-                        refX: 9,
-                        refY: 5,
-                        markerWidth: 7,
-                        markerHeight: 7,
-                        orient: 'auto-start-reverse',
-                    },
-                    svg('path', { d: 'M0 0L10 5L0 10z', fill: '#7b8697' }),
-                ),
-            );
-            canvas.prepend(defs);
-        }
-        applyCam();
-    }
-
-    // ---- interaction ------------------------------------------------------------------------------------------------
-    const toWorld = (ev: PointerEvent): { x: number; y: number } => {
-        const r = canvas.getBoundingClientRect();
-        return { x: (ev.clientX - r.left - cam.x) / cam.k, y: (ev.clientY - r.top - cam.y) / cam.k };
-    };
-
-    function startNodeDrag(ev: PointerEvent, id: number): void {
-        if (ev.button !== 0) return;
-        ev.stopPropagation();
-        const v = ctx.view();
-        v.select([id], ev.shiftKey || ev.ctrlKey);
-        selEdge = null;
-        const start = toWorld(ev);
-        const p0 = { ...pos(id) };
-        let moved = false;
-        const move = (e: PointerEvent): void => {
-            const w = toWorld(e);
-            if (!moved && Math.hypot(w.x - start.x, w.y - start.y) < 3) return;
-            moved = true;
-            manual.set(id, { x: p0.x + w.x - start.x, y: p0.y + w.y - start.y });
-            draw();
-        };
-        const up = (): void => {
-            window.removeEventListener('pointermove', move);
-            window.removeEventListener('pointerup', up);
-            if (!moved) renderSide();
-        };
-        window.addEventListener('pointermove', move);
-        window.addEventListener('pointerup', up);
-    }
-
-    function startLink(ev: PointerEvent, from: number): void {
-        if (ev.button !== 0) return;
-        ev.stopPropagation();
-        const p = pos(from);
-        const line = svg('path', { class: 'lg-edge sel', 'stroke-dasharray': '5 4', d: '' });
-        world.append(line);
-        const move = (e: PointerEvent): void => {
-            const w = toWorld(e);
-            line.setAttribute('d', `M${p.x + NW} ${p.y + NH / 2} L${w.x} ${w.y}`);
-        };
-        const up = (e: PointerEvent): void => {
-            window.removeEventListener('pointermove', move);
-            window.removeEventListener('pointerup', up);
-            line.remove();
-            const hit = document.elementFromPoint(e.clientX, e.clientY)?.closest('.lg-node');
-            const to = hit ? Number(hit.getAttribute('data-id')) : NaN;
-            if (Number.isNaN(to)) {
-                ctx.toast('Drop the link on another object in the graph.', 'info');
-                return;
-            }
-            if (to === from) return;
-            if (ctx.doc().get(from)?.links?.includes(to)) {
-                ctx.toast('Those objects are already linked.', 'info');
-                return;
-            }
-            ctx.edit(`Link ${nameOf(ctx, from)} to ${nameOf(ctx, to)}`, [from], (o) => void addLink(o, to));
-            selEdge = `${from}>${to}`;
-        };
-        window.addEventListener('pointermove', move);
-        window.addEventListener('pointerup', up);
-    }
-
-    canvas.addEventListener('pointerdown', (ev) => {
-        if (ev.button !== 0 && ev.button !== 1) return;
-        selEdge = null;
-        const s = { x: ev.clientX, y: ev.clientY, cx: cam.x, cy: cam.y };
-        canvas.style.cursor = 'grabbing';
-        const move = (e: PointerEvent): void => {
-            cam.x = s.cx + e.clientX - s.x;
-            cam.y = s.cy + e.clientY - s.y;
-            applyCam();
-        };
-        const up = (): void => {
-            canvas.style.cursor = '';
-            window.removeEventListener('pointermove', move);
-            window.removeEventListener('pointerup', up);
-            draw();
-            renderSide();
-        };
-        window.addEventListener('pointermove', move);
-        window.addEventListener('pointerup', up);
-    });
-    canvas.addEventListener(
-        'wheel',
-        (ev) => {
-            ev.preventDefault();
-            const r = canvas.getBoundingClientRect();
-            const mx = ev.clientX - r.left,
-                my = ev.clientY - r.top;
-            const k = Math.min(3, Math.max(0.1, cam.k * (ev.deltaY < 0 ? 1.12 : 1 / 1.12)));
-            cam.x = mx - ((mx - cam.x) / cam.k) * k;
-            cam.y = my - ((my - cam.y) / cam.k) * k;
-            cam.k = k;
-            applyCam();
-        },
-        { passive: false },
-    );
-    canvas.addEventListener('keydown', (ev) => {
-        if ((ev.key === 'Delete' || ev.key === 'Backspace') && selEdge) {
-            const [a, b] = selEdge.split('>').map(Number) as [number, number];
-            ctx.edit(`Unlink ${nameOf(ctx, a)} from ${nameOf(ctx, b)}`, [a], (o) => void removeLink(o, b));
-            selEdge = null;
-        }
-    });
-
-    // ---- side panel -------------------------------------------------------------------------------------------------
-    function renderSide(): void {
-        const e = env();
-        const doc = ctx.doc();
-        if (!e) return fill(side, h('div', { class: 'dim' }, 'No class data (open a level from the disc).'));
-        if (selEdge) {
-            const edge = graph.edges.find((x) => x.key === selEdge);
-            if (edge) {
-                const [src, dst] = [doc.get(edge.from), doc.get(edge.to)];
-                const rows = edge.messages.map((m) => {
-                    const sel = h('select', { class: 'sel', 'aria-label': m.field });
-                    MESSAGE_NAMES.forEach((n, i) => sel.append(h('option', { value: String(i) }, `${i}  ${n}`)));
-                    sel.value = String(m.value);
-                    sel.addEventListener('change', () =>
-                        ctx.edit(
-                            `Set ${m.field} of ${nameOf(ctx, edge.from)} to ${MESSAGE_NAMES[Number(sel.value)]}`,
-                            [edge.from],
-                            (o) => void setMessageField(o, e, m.field, Number(sel.value)),
-                        ),
-                    );
-                    return h(
-                        'div',
-                        {},
-                        h('div', { class: 'dim' }, `${m.label}  (${m.field})${m.overridden ? '' : '  default'}`),
-                        sel,
-                    );
-                });
-                const ts = dst ? logicOf(dst, e) : undefined;
-                return fill(
-                    side,
-                    h('h4', {}, `${src?.class} #${edge.from}  ->  ${dst?.class} #${edge.to}`),
-                    rows.length
-                        ? h(
-                              'div',
-                              {},
-                              ...rows,
-                              h('div', { class: 'dim' }, 'The source sends this message to every object it links to.'),
-                          )
-                        : h('div', { class: 'dim' }, 'This class sends no configurable message along its links.'),
-                    ts?.accepts?.length
-                        ? h(
-                              'div',
-                              { class: 'dim' },
-                              `${dst?.class} reacts to: ${ts.accepts.map((v) => MESSAGE_NAMES[v] ?? v).join(', ')}`,
-                          )
-                        : null,
-                    ts?.note ? h('div', { class: 'dim' }, ts.note) : null,
-                    h(
-                        'div',
-                        { class: 'row' },
-                        h(
-                            'button',
-                            {
-                                class: 'btn',
-                                type: 'button',
-                                onclick: () => {
-                                    ctx.edit(
-                                        `Unlink ${nameOf(ctx, edge.from)} from ${nameOf(ctx, edge.to)}`,
-                                        [edge.from],
-                                        (o) => void removeLink(o, edge.to),
-                                    );
-                                    selEdge = null;
-                                },
-                            },
-                            icon('trash', 12),
-                            'Remove link',
-                        ),
-                    ),
-                );
-            }
-        }
-        const ids = [...(doc.size ? ctx.view().selection : [])];
-        const one = ids.length === 1 ? doc.get(ids[0]!) : undefined;
-        if (!one)
-            return fill(
-                side,
-                h(
-                    'div',
-                    { class: 'dim' },
-                    "Click a node or a link. Drag from a node's right-hand dot to another node to link them. Select a link and press Delete to remove it. Double-click a node to frame it in the viewport.",
-                ),
-            );
-        const spec = logicOf(one, e);
-        const fp = buildFieldsPanel(ctx, [one]);
-        fill(
-            side,
-            h('h4', {}, `${one.class} #${one.id}`),
-            spec ? h('div', { class: 'dim' }, `${spec.title}. ${spec.note ?? ''}`) : null,
-            spec?.role === 'exit' ? exitPicker(one) : null,
-            ...fp.nodes,
-        );
-    }
-
     // ---- exit destination ---------------------------------------------------------------------------------------------
     /** Destination level picker of an exit: rewrites the class's destination string of the level XDB (exported with the Story pack). */
+    let exitOnlyThis = true;
     function exitPicker(o: LevelObject): HTMLElement | null {
         const host = exitEditHost();
         if (!host) return null;
         loadExitsOnce();
-        if (!exitData) return h('div', { class: 'dim' }, 'Reading where the exits lead...');
+        const data = exitData ?? quickExits;
+        if (!data) {
+            loadQuickOnce();
+            return h('div', { class: 'dim' }, 'Reading where the exits lead...');
+        }
         const doc = ctx.doc();
-        const mine = exitData.levels.find(
+        const mine = data.levels.find(
             (l) => norm(l.name) === norm(doc.level) || norm(destinationLevelName(l.name)) === norm(doc.level),
         );
         const { dbIndex, classId } = resourceParts(o.resource);
@@ -583,14 +216,17 @@ export function installLogic(ctx: Ctx, loadExits: () => Promise<ExitIndexData>):
                 'Destination: ' + (c?.dest ?? 'unknown') + ' (no editable level string behind this exit).',
             );
         }
-        const { file, id } = c.destRef;
+        const { file, id: classId0 } = c.destRef;
+        // An exit with its own string (a per-exit override) edits that one; the others share the class's string.
+        const own = o.fields?.find((f) => f.fieldIndex === 0 && typeof f.value === 'number');
+        const id = own ? (own.value as number) : classId0;
         const text = host.text(file, id);
         if (text === undefined) {
             void host.ensure().catch(() => undefined);
             return h('div', { class: 'dim' }, 'Loading the level strings...');
         }
         const sel = h('select', { class: 'sel', 'aria-label': 'Destination level' });
-        const names = exitData.levels.map((l) => l.name);
+        const names = data.levelNames ? [...data.levelNames] : data.levels.map((l) => l.name);
         // The project's level copies are destinations too (the game opens the copy's own LVL by the path in the text).
         for (const l of projects.get()?.levels ?? [])
             if (l.copyOf && !names.some((n) => norm(n) === norm(l.title))) names.push(l.title);
@@ -598,19 +234,57 @@ export function installLogic(ctx: Ctx, loadExits: () => Promise<ExitIndexData>):
         if (!names.some((n) => norm(n) === norm(now))) names.unshift(now);
         names.forEach((n) => sel.append(h('option', { value: n }, n)));
         sel.value = names.find((n) => norm(n) === norm(now)) ?? now;
+        const only = h('input', { type: 'checkbox', id: 'lg-exit-only', class: 'cb' });
+        only.checked = exitOnlyThis || !!own;
+        only.disabled = !!own;
+        only.addEventListener('change', () => (exitOnlyThis = only.checked));
         sel.addEventListener('change', () => {
+            if (only.checked && !own) {
+                // A new string for this exit alone; the object's own parameter points at it.
+                const fresh = host.addDestination(file, classId0, exitDestinationText(text, sel.value));
+                const schema = ctx.schemas()?.schemaFor(o.resource);
+                const f0 = schema?.fields.find((f) => f.index === 0);
+                if (fresh === null || !f0) {
+                    ctx.toast('This exit has no destination field to override.', 'error');
+                    return;
+                }
+                ctx.edit('Retarget one exit', [o.id], (obj) => {
+                    const rest = (obj.fields ?? []).filter((f) => f.fieldIndex !== 0);
+                    obj.fields = [
+                        ...rest,
+                        { slot: rest.length, fieldIndex: 0, type: f0.type, name: f0.name, value: fresh },
+                    ];
+                });
+                ctx.toast(
+                    `This exit alone now leads to ${sel.value} (new string ${fresh}); export it with the pack.`,
+                    'ok',
+                );
+                return;
+            }
             host.set(file, id, exitDestinationText(text, sel.value));
             ctx.toast(`Exit now leads to ${sel.value}; export it with the Story pack.`, 'ok');
         });
         return h(
             'div',
             { class: 'lg-exit' },
-            h('div', { class: 'dim' }, `Destination (${file} string ${id}${host.changed(file, id) ? ', edited' : ''})`),
-            sel,
             h(
                 'div',
                 { class: 'dim' },
-                'Edits the level string, so every exit of this class changes. Arrival: an exit of the destination that leads back here (check Validation).',
+                `Destination (${file} string ${id}${own ? ', this exit only' : ''}${host.changed(file, id) ? ', edited' : ''})`,
+            ),
+            sel,
+            h(
+                'label',
+                { class: 'dim', title: 'Exits of a class share one destination string; untick to change all of them' },
+                only,
+                ' Only this exit (its own string)',
+            ),
+            h(
+                'div',
+                { class: 'dim' },
+                own
+                    ? 'This exit has its own destination string; the other exits of the class are not affected.'
+                    : 'Unticked: edits the shared level string, so every exit of this class changes. Arrival: an exit of the destination that leads back here (check Validation).',
             ),
         );
     }
@@ -645,7 +319,7 @@ export function installLogic(ctx: Ctx, loadExits: () => Promise<ExitIndexData>):
                 { class: 'sel' },
                 ...(p.options ?? []).map((o) => h('option', { value: o.value }, o.label)),
             );
-            s.value = String(p.default ?? p.options?.[0]?.value ?? '');
+            s.value = String(presets[p.id] ?? p.default ?? p.options?.[0]?.value ?? '');
             vals[p.id] = s.value;
             s.addEventListener('change', () => (vals[p.id] = s.value));
             control = s;
@@ -663,7 +337,9 @@ export function installLogic(ctx: Ctx, loadExits: () => Promise<ExitIndexData>):
             );
             vals[p.id] = list[0]?.resource;
             s.addEventListener('change', () => (vals[p.id] = s.value));
-            control = list.length ? s : h('span', { class: 'dim' }, 'none in this level');
+            control = list.length
+                ? s
+                : h('span', { class: 'dim' }, 'This level has none to copy. Try a level that has one.');
         } else {
             // object / objects
             const sel = new Set(ctx.doc().size ? ctx.view().selection : []);
@@ -684,7 +360,7 @@ export function installLogic(ctx: Ctx, loadExits: () => Promise<ExitIndexData>):
                             h(
                                 'option',
                                 { value: String(o.id) },
-                                `#${o.id} ${o.class}${sel.has(o.id) ? ' (selected)' : ''}`,
+                                `${sel.has(o.id) ? '* ' : ''}${o.class} (object ${o.id})`,
                             ),
                         ),
                 );
@@ -730,10 +406,7 @@ export function installLogic(ctx: Ctx, loadExits: () => Promise<ExitIndexData>):
             for (const w of r.warnings) ctx.toast(w, 'warn');
             ctx.toast(r.notes.join('. '), 'ok');
             form.hidden = true;
-            scope = 'selection';
-            scopeSel.value = 'selection';
-            rebuild();
-            fit();
+            view.docChanged();
         });
         fill(
             form,
@@ -750,22 +423,34 @@ export function installLogic(ctx: Ctx, loadExits: () => Promise<ExitIndexData>):
         form.hidden = false;
     });
 
-    scopeSel.addEventListener('change', () => {
-        scope = scopeSel.value as typeof scope;
-        rebuild();
-        fit();
-    });
-    depthSel.addEventListener('change', () => {
-        depth = Number(depthSel.value);
-        rebuild();
-        fit();
-    });
     volSel.addEventListener('change', () => volumes.setMode(volSel.value as VolumeMode));
 
     // ---- validation provider ----------------------------------------------------------------------------------------
+    /** The level XDB the exit class's destination string lives in. */
+    function ownFile(o: LevelObject): string {
+        const doc = ctx.doc();
+        const mine = (exitData ?? quickExits)?.levels.find(
+            (l) => norm(l.name) === norm(doc.level) || norm(destinationLevelName(l.name)) === norm(doc.level),
+        );
+        const { dbIndex, classId } = resourceParts(o.resource);
+        return mine?.classes[`${dbIndex}:${classId}`]?.destRef?.file ?? '';
+    }
     function exitIndex(): ExitIndex | undefined {
         if (!exitData) return undefined;
         return { levels: new Map(exitData.levels.map((l) => [l.name, l.exits as readonly ExitIndexEntry[]])) };
+    }
+    function loadQuickOnce(): void {
+        const name = ctx.doc().level;
+        if (exitData || quickLoading || (quickExits && quickFor === name)) return;
+        quickLoading = true;
+        quickFor = name;
+        loadExits(name)
+            .then((d) => {
+                quickExits = d;
+                listeners.forEach((f) => f());
+            })
+            .catch(() => undefined)
+            .finally(() => (quickLoading = false));
     }
     function loadExitsOnce(): void {
         if (exitData || exitLoading) return;
@@ -792,7 +477,11 @@ export function installLogic(ctx: Ctx, loadExits: () => Promise<ExitIndexData>):
                 ...(exitData ? { exits: exitIndex()! } : {}),
                 exitDestination: (o: LevelObject) => {
                     if (!exitData) return { dest: '(loading)', portal: false };
+                    // A per-exit string made in this session beats what the disc says.
+                    const own = o.fields?.find((f) => f.fieldIndex === 0 && typeof f.value === 'number');
+                    const ownText = own ? exitEditHost()?.text(ownFile(o), own.value as number) : undefined;
                     const placed = mine?.exits.find((x) => x.id === o.id && o.origin !== undefined);
+                    if (ownText) return { dest: destinationLevelName(ownText), portal: placed?.portal ?? false };
                     if (placed) return { dest: placed.dest, portal: placed.portal };
                     const { dbIndex, classId } = resourceParts(o.resource);
                     const c = mine?.classes[`${dbIndex}:${classId}`];
@@ -807,19 +496,21 @@ export function installLogic(ctx: Ctx, loadExits: () => Promise<ExitIndexData>):
 
     // ---- panel registration -----------------------------------------------------------------------------------------
     const soon = raf(() => {
-        rebuild();
+        view.docChanged();
         volumes.refresh();
-        renderSide();
+    });
+    const soonSel = raf(() => {
+        view.selectionChanged();
+        volumes.refresh();
     });
     const panel: Panel = {
         el: root,
-        onSelection: soon,
+        onSelection: soonSel,
         onChange: soon,
         onVisibility: () => volumes.refresh(),
         onLoad: () => {
-            manual.clear();
-            graph = { nodes: new Map(), edges: [] };
-            soon();
+            view.levelLoaded();
+            volumes.refresh();
         },
     };
     onExitEditChange(soon);
@@ -849,13 +540,7 @@ export function installLogic(ctx: Ctx, loadExits: () => Promise<ExitIndexData>):
         id: 'logic.level',
         title: 'Show the whole level logic graph',
         category: 'View',
-        run: () => {
-            scope = 'level';
-            scopeSel.value = 'level';
-            rebuild();
-            fit();
-        },
+        run: () => view.showLevel(),
     });
-    void numField;
     return panel;
 }

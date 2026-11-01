@@ -3,20 +3,24 @@ import type { Api, EntryInfo, FileInfo, FileOpenResult, LevelInfo, Method, Reque
 import { TextureViewport } from './viewport.ts';
 import { initLevelUi } from './levelui.ts';
 import { installMultiplayerMaps } from './editor/arena/install.ts';
+import { installMenuEditor } from './editor/menus/install.ts';
+import { installVendors } from './editor/vendor.ts';
+import { vendorChangeSource, vendorPrices } from './editor/vendorprices.ts';
 import { installProject } from './editor/project/install.ts';
 import { runCommand } from './editor/registry.ts';
+import { showArea } from './editor/workspace.ts';
+import { installMenuBar } from './editor/menubar.ts';
 import './files.css';
 import { installPlayTest } from './editor/playtestui.ts';
-import { initSaveUi } from './saveui.ts';
-import { createItemArt } from './save/itemart.ts';
-import { createStoryArt } from './save/storyart.ts';
 import { initStoryEditors } from './story/register.ts';
-import { isDesktop, type IsoSource } from './platform.ts';
+import { isDesktop, openAppWindow, type IsoSource } from './platform.ts';
 import { initDesktop } from './desktop.ts';
+import { initMaterialsUi } from './materialsui.ts';
 import { installControls } from './editor/ui.ts';
 
 // Shared control family for every mode: custom dropdowns, slider fills (editor/ui.ts, editor/dropdown.ts).
 installControls();
+initMaterialsUi();
 
 const $ = <T extends HTMLElement>(id: string): T => {
     const el = document.getElementById(id);
@@ -116,9 +120,8 @@ async function openIso(file: IsoSource): Promise<void> {
         discProfile = r.profile;
         levelUi.setDisc({ isoName, levels: r.levels, profile: discProfile });
         storyEditors.setDisc(discProfile, r.language);
+        vendorPrices.setHost(vendorHost);
         projectUi.onDisc();
-        itemArt.reset();
-        storyArt.reset();
         filesEl.replaceChildren();
         filesPath.textContent = '';
         clearEntries();
@@ -197,7 +200,7 @@ const ENTRY_KINDS: Record<number, string> = {
     0x0020: 'object list',
     0x0040: 'texture',
 };
-const entryKind = (e: EntryInfo): string => ENTRY_KINDS[e.type] ?? `data 0x${hex(e.type, 4)}`;
+const entryKind = (e: EntryInfo): string => ENTRY_KINDS[e.type] ?? 'data';
 
 type Preview = 'picture' | 'text' | 'hex' | 'none';
 let preview: Preview = 'none';
@@ -287,8 +290,7 @@ async function openFile(f: FileInfo): Promise<void> {
         entriesTable.hidden = true;
         textView.hidden = false;
         let t = r.text;
-        if (r.deps)
-            t += `\n\nResolved dependency stems (extension appended by the loader):\n${r.deps.map((d) => `  ${d.index}  ${d.resolved}`).join('\n')}`;
+        if (r.deps) t += `\n\nDependencies:\n${r.deps.map((d) => `  ${d.index}  ${d.resolved}`).join('\n')}`;
         textView.textContent = t;
         setStatus(`${f.name}: text file.`);
     } else {
@@ -304,7 +306,7 @@ function renderEntries(entries: EntryInfo[]): void {
     for (const e of entries) {
         const tr = document.createElement('tr');
         tr.dataset.index = String(e.index);
-        tr.title = `offset 0x${hex(e.offset, 6)}${e.zlib ? ', compressed' : ''}`;
+        tr.title = e.zlib ? 'compressed' : '';
         tr.innerHTML = `<td>${e.index}</td><td>${entryKind(e)}</td><td>${e.id}</td><td>${e.sub}</td><td>${fmtSize(e.size)}</td>`;
         tr.onclick = () => {
             tbody.querySelectorAll('tr.sel').forEach((x) => x.classList.remove('sel'));
@@ -474,8 +476,6 @@ langSel.onchange = () => {
             levelUi.setDisc({ isoName, levels, profile: discProfile });
             storyEditors.setDisc(discProfile, langSel.value);
             projectUi.onDisc();
-            itemArt.reset();
-            storyArt.reset();
         })
         .catch(reportError);
 };
@@ -501,8 +501,9 @@ window.addEventListener('drop', (e) => {
     const f = e.dataTransfer?.files[0];
     if (!f) return;
     if (/\.rsg$/i.test(f.name)) {
-        showTab('save');
-        saveUi.openFile(f).catch(reportError);
+        // Saves belong to the save game editor, an application of its own.
+        setStatus(`${f.name} is a save: open it in the Save Editor (opening it now).`);
+        void openAppWindow('save', 'file');
     } else if (/\.json$/i.test(f.name)) {
         showTab('level');
         levelUi.loadFile(f).catch(reportError);
@@ -528,6 +529,18 @@ const multiplayer = installMultiplayerMaps({
     setStatus,
 });
 
+installMenuEditor({
+    ui: levelUi,
+    download: (name, data, type) => {
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(new Blob([data], { type }));
+        a.download = name;
+        a.click();
+        setTimeout(() => URL.revokeObjectURL(a.href), 10_000);
+    },
+    setStatus,
+});
+
 // Right-click "Play from here", F5 and the Play drop-down (desktop app; disabled entries in the browser).
 installPlayTest(levelUi, setStatus);
 
@@ -540,6 +553,30 @@ const storyEditors = initStoryEditors({
     stop: () => levelUi.ctx().refs().stop(),
 });
 
+// Vendors tab and Details section; item price edits ride in the story pack and the project file.
+const vendorHost = {
+    readFile: (p: string) => call('readStoryFile', p).then((b) => b ?? null),
+    itemNames: async () => {
+        const cat = await call('loadItemCatalog');
+        return new Map(cat.classes.filter((c) => c.displayName).map((c) => [c.classId, c.displayName!] as const));
+    },
+};
+installVendors({ ...vendorHost, ctx: () => levelUi.ctx() });
+storyEditors.session.addChangeSource(vendorChangeSource);
+const storyWithPrices: typeof storyEditors = {
+    ...storyEditors,
+    exportProject() {
+        const s = storyEditors.exportProject();
+        const prices = vendorPrices.exportState();
+        if (!prices.length) return s;
+        return { strings: [], quests: [], newQuests: [], content: [], ...s, prices };
+    },
+    importProject(s) {
+        storyEditors.importProject(s);
+        vendorPrices.importState(s?.prices);
+    },
+};
+
 // Mod projects, task checklists, the Project panel and the Help drawer (editor/project/).
 const projectUi = installProject({
     ui: levelUi,
@@ -547,32 +584,21 @@ const projectUi = installProject({
     setStatus,
     showTab: (t) => showTab(t),
     arena: multiplayer.store,
-    story: storyEditors,
+    story: storyWithPrices,
 });
 
-// Item names and pictures for the Save tab work without a level: they come from the shared Resources database.
-const itemArt = createItemArt((method, ...args) => call(method, ...args));
-const storyArt = createStoryArt((method, ...args) => call(method, ...args));
-const saveUi = initSaveUi({
-    setStatus,
-    classInfo: (r) => itemArt.info(r) ?? levelUi.classInfo(r),
-    onItemArt: (fn) => itemArt.onChange(fn),
-    story: () => storyArt.get(),
-    onStory: (fn) => storyArt.onChange(fn),
-});
-
+// The top bar's tabs (Level Editor, editor tabs, Save Editor, Disc Files) belong to the workspace (editor/workspace.ts).
 type Tab = 'inspect' | 'level' | 'save';
 function showTab(tab: Tab): void {
-    $('inspect-main').hidden = tab !== 'inspect';
-    $('level-main').hidden = tab !== 'level';
-    $('save-main').hidden = tab !== 'save';
-    for (const t of ['inspect', 'level', 'save'] as const) $(`tab-${t}`).classList.toggle('active', t === tab);
+    // The save game editor is its own application (save.html / its own desktop window), not a tab.
+    if (tab === 'save') {
+        void openAppWindow('save');
+        return;
+    }
+    showArea(tab);
     if (tab === 'level') levelUi.view();
 }
-$('tab-inspect').onclick = () => showTab('inspect');
-$('tab-level').onclick = () => showTab('level');
-$('tab-save').onclick = () => showTab('save');
-(window as unknown as { drakanEditor: unknown }).drakanEditor = { levelUi, saveUi, showTab };
+(window as unknown as { drakanEditor: unknown }).drakanEditor = { levelUi, showTab };
 
 const desktop = initDesktop({
     openIso: (src) => openIso(src),
@@ -580,3 +606,6 @@ const desktop = initDesktop({
     setStatus,
     projectFiles: () => projectUi.files,
 });
+
+// Browser: File / Edit / Window / Tools / Help menu bar and the project chip (the desktop app has a native menu bar).
+installMenuBar({ desktop: isDesktop });

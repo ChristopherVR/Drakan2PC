@@ -1,0 +1,361 @@
+/* Workspace shell: menu bar, project chip, editor tabs in the top bar, editor tab host, World Settings beside Details,
+   closable bottom-area tabs and floating windows (editor/workspace.ts, editor/menubar.ts). */
+
+/* ---- menu bar ---- */
+#menubar {
+    display: flex;
+    align-items: center;
+    gap: 0;
+    margin-left: calc(var(--sp-4) * -1);
+}
+#menubar[hidden] {
+    display: none;
+}
+.mb-item {
+    height: 24px;
+    padding: 0 var(--sp-4);
+    background: transparent;
+    color: var(--fg-muted);
+    border: 0;
+    border-radius: var(--r-sm);
+    font: inherit;
+    font-size: var(--fs-sm);
+    cursor: default;
+}
+.mb-item:hover,
+.mb-item[aria-expanded='true'] {
+    color: var(--fg);
+    background: var(--surface-2);
+}
+.ui-menu.menubar-menu {
+    min-width: 240px;
+}
+
+/* ---- project chip ---- */
+.project-chip {
+    display: inline-flex;
+    align-items: center;
+    height: 24px;
+    max-width: 240px;
+    padding: 0 var(--sp-4);
+    background: var(--surface-2);
+    color: var(--fg);
+    border: 1px solid var(--border);
+    border-radius: var(--r-lg);
+    font: inherit;
+    font-size: var(--fs-sm);
+    cursor: pointer;
+}
+.project-chip:hover {
+    border-color: var(--border-strong);
+    background: var(--surface-3);
+}
+.project-chip .pc-inner {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--sp-3);
+    min-width: 0;
+}
+.project-chip .pc-name {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-weight: 600;
+}
+.project-chip.none .pc-name {
+    color: var(--fg-muted);
+    font-weight: 500;
+}
+.project-chip svg {
+    flex: none;
+    color: var(--accent-hover);
+}
+.project-chip.none svg {
+    color: var(--fg-faint);
+}
+
+/* ---- editor tabs in the top bar ---- */
+#tabs {
+    min-width: 0;
+    overflow-x: auto;
+    scrollbar-width: none;
+}
+#tabs button.ws-tab {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--sp-3);
+    padding: 0 var(--sp-5);
+    white-space: nowrap;
+    flex: none;
+}
+#tabs button.ws-tab.tool {
+    color: var(--fg-faint);
+}
+#tabs button.ws-tab.tool.active,
+#tabs button.ws-tab.tool:hover {
+    color: var(--fg);
+}
+.ws-tab-x {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 16px;
+    height: 16px;
+    margin-right: calc(var(--sp-2) * -1);
+    border-radius: var(--r-sm);
+    color: var(--fg-faint);
+}
+.ws-tab-x:hover {
+    color: var(--fg);
+    background: var(--surface-4);
+}
+.ws-tab-sep {
+    align-self: center;
+    width: 1px;
+    height: 14px;
+    margin: 0 var(--sp-3);
+    background: var(--border-strong);
+    flex: none;
+}
+
+/* ---- editor tab host (inside #level-main) ---- */
+#ed-doc {
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    background: var(--surface-1);
+}
+#ed-doc[hidden],
+#ed-toolbar[hidden],
+#ed-body[hidden] {
+    display: none;
+}
+.ed-doc-head {
+    display: flex;
+    align-items: center;
+    gap: var(--sp-4);
+    height: var(--h-toolbar);
+    padding: 0 var(--sp-5);
+    background: var(--surface-2);
+    border-bottom: 1px solid var(--border);
+    flex: none;
+}
+.ed-doc-ico {
+    display: inline-flex;
+    color: var(--accent-hover);
+}
+.ed-doc-title {
+    margin: 0;
+    font-size: var(--fs-md);
+    font-weight: 600;
+    color: var(--fg);
+}
+.ed-doc-sum {
+    color: var(--fg-muted);
+    font-size: var(--fs-sm);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    min-width: 0;
+}
+.ed-doc-head .btn {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--sp-3);
+}
+.ed-doc-body {
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+}
+.ed-doc-body > .panel {
+    flex: 1;
+    min-height: 0;
+}
+.ed-doc-body > [hidden] {
+    display: none !important;
+}
+
+/* ---- World Settings beside Details ---- */
+.side-tabs {
+    display: flex;
+    align-items: flex-end;
+    gap: 1px;
+    height: var(--h-tab);
+    padding: 0 var(--sp-3);
+    background: var(--surface-0);
+    border-bottom: 1px solid var(--border);
+    flex: none;
+}
+.side-tabs[hidden] {
+    display: none;
+}
+.side-tab {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--sp-3);
+    height: calc(var(--h-tab) - 2px);
+    padding: 0 var(--sp-5);
+    background: transparent;
+    color: var(--fg-muted);
+    border: 0;
+    border-bottom: 2px solid transparent;
+    font: inherit;
+    font-size: var(--fs-sm);
+    font-weight: 500;
+}
+.side-tab:hover {
+    color: var(--fg);
+    background: var(--surface-2);
+}
+.side-tab.active {
+    color: var(--fg);
+    border-bottom-color: var(--accent);
+    background: var(--surface-1);
+}
+.side-body {
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+}
+#ed-details:not(.side-other) > .side-body {
+    display: none;
+}
+.side-body > [hidden],
+#ed-details > [hidden] {
+    display: none !important;
+}
+
+/* ---- closable bottom-area tabs ---- */
+.dock-tab .dock-tab-x {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 16px;
+    height: 16px;
+    margin-left: var(--sp-1);
+    border-radius: var(--r-sm);
+    color: var(--fg-faint);
+}
+.dock-tab .dock-tab-x:hover {
+    color: var(--fg);
+    background: var(--surface-4);
+}
+.dock-tabs.compact .dock-tab:not(.active) .dock-tab-x {
+    display: none;
+}
+
+/* ---- floating windows (Undo History) ---- */
+#ed-body {
+    position: relative;
+}
+.ed-window {
+    position: absolute;
+    top: 52px;
+    right: calc(var(--ed-right, 320px) + 16px);
+    z-index: 40;
+    display: flex;
+    flex-direction: column;
+    width: 300px;
+    height: 360px;
+    min-width: 220px;
+    min-height: 160px;
+    max-height: calc(100% - 64px);
+    resize: both;
+    overflow: hidden;
+    background: var(--surface-1);
+    border: 1px solid var(--border-strong);
+    border-radius: var(--r-lg);
+    box-shadow: var(--shadow-pop);
+}
+.ed-window-head {
+    display: flex;
+    align-items: center;
+    gap: var(--sp-3);
+    height: var(--h-tab);
+    padding: 0 var(--sp-2) 0 var(--sp-4);
+    background: var(--surface-2);
+    border-bottom: 1px solid var(--border);
+    cursor: move;
+    user-select: none;
+    flex: none;
+}
+.ed-window-head strong {
+    font-size: var(--fs-sm);
+    font-weight: 600;
+}
+.ed-window > .panel {
+    flex: 1;
+    min-height: 0;
+}
+
+/* ---- start page: projects row ---- */
+.start-recent-projects {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--sp-3) var(--sp-5);
+    margin: 0 0 var(--sp-5);
+    font-size: var(--fs-sm);
+}
+.start-recent-projects .linkish {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--sp-2);
+}
+
+/* ---- app bar fit: menu bar + project chip + tabs must stay on one line ---- */
+#appbar {
+    flex-wrap: nowrap;
+    white-space: nowrap;
+    min-width: 0;
+}
+#appbar .brand,
+#appbar .brand h1 {
+    white-space: nowrap;
+    flex: none;
+}
+#appbar #status {
+    flex: 1 1 0;
+    min-width: 40px;
+}
+#appbar > .spacer {
+    flex: 0 0 0;
+}
+@media (max-width: 1500px) {
+    #appbar .brand h1 {
+        display: none;
+    }
+}
+
+/* An editor in its own tab already has its name in the tab header: drop a panel head that only repeats the title. */
+#level-main .ed-doc-body > * > .panel-head:not(:has(> :not(.panel-title, .hp-q, .spacer))),
+#level-main .ed-doc-body > * > * > .panel-head:not(:has(> :not(.panel-title, .hp-q, .spacer))) {
+    display: none;
+}
+
+/* World Settings is a narrow column: the multiplayer arena editor (arena/) stacks its columns there. */
+.side-body .mp-start,
+.side-body .mp-cols,
+.side-body .mp-place,
+.side-body .mp-modes,
+.side-body .mp-grid {
+    grid-template-columns: minmax(0, 1fr) !important;
+}
+.side-body .mp-start-form {
+    max-width: none;
+}
+.side-body .mp-bar,
+.side-body .mp-tabs {
+    flex-wrap: wrap;
+}
+.side-body .mp-obj {
+    grid-template-columns: minmax(0, 1fr) 56px 56px 64px 20px;
+}
+.side-body .mp,
+.side-body .mp * {
+    min-width: 0;
+}

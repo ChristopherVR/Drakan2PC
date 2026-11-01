@@ -45,6 +45,7 @@ import { createOutliner } from './editor/outliner.ts';
 import { buildObjectMenu } from './editor/objectmenu.ts';
 import { installLinking } from './editor/linking.ts';
 import { projects } from './editor/project/store.ts';
+import { rememberLoadedLevel } from './editor/project/export.ts';
 import { createDock, createHistory, createModPanel, createValidation } from './editor/panels.ts';
 import { helpOverlay, initShortcuts } from './editor/shortcuts.ts';
 import { VIEW_COLORS, applyTheme, currentTheme, onThemeChange, toggleTheme } from './editor/theme.ts';
@@ -53,13 +54,16 @@ import { createOutputLog } from './editor/output.ts';
 import { createNavGizmo } from './editor/navgizmo.ts';
 import { contextMenu, emptyState, installTooltips } from './editor/ui.ts';
 import { createPalette } from './editor/palette.ts';
-import { bindPanelHost } from './editor/registry.ts';
+import { bindPanelHost, registerPanel, runCommand } from './editor/registry.ts';
+import { createWorkspace, type Workspace } from './editor/workspace.ts';
 import { installLogic } from './editor/logicpanel.ts';
 import { registerShellCommands } from './editor/shellcommands.ts';
+import { exportContentPackage, type ContentExportHost } from './editor/contentexport.ts';
 import { registerOotfImport } from './editor/ootfimport.ts';
 import { createStartPage, rememberLevel } from './editor/startpage.ts';
 import { createViewportHint } from './editor/hint.ts';
 import { downloadFile, isDesktop } from './platform.ts';
+import { registerUnrealExport } from './editor/unrealexport.ts';
 import './editor/editor.css';
 
 const $ = <T extends HTMLElement>(id: string): T => {
@@ -128,6 +132,8 @@ export function initLevelUi(host: LevelUiHost): LevelUi {
     empty.append(startPage.el);
     let view: LevelView | null = null;
     let levelName = 'level';
+    /** Disc directory of the open disc level (for the Unreal export); empty for documents without one. */
+    let currentDirPath = '';
     let disc: DiscContext | null = null;
     /** The level the document was loaded from (LVL source); null for a world dump or a saved document. */
     let src: LevelLoadResult | null = null;
@@ -189,7 +195,11 @@ export function initLevelUi(host: LevelUiHost): LevelUi {
     });
     /** Drawer behaviour for the status bar buttons: a second click on the active tab folds the bottom dock. */
     function toggleBottom(tab: string): void {
-        if (layout?.isOpen('bottom') && dockRef?.active() === tab) layout.toggle('bottom', false);
+        if (ws && !ws.levelActive()) {
+            ws.showArea('level');
+            layout?.openBottom();
+            dockRef?.show(tab);
+        } else if (layout?.isOpen('bottom') && dockRef?.active() === tab) layout.toggle('bottom', false);
         else {
             layout?.openBottom();
             dockRef?.show(tab);
@@ -241,10 +251,7 @@ export function initLevelUi(host: LevelUiHost): LevelUi {
             v.select(cmd.ids);
             void loader.ensureModels([cls.resource]);
             if (src && !o.template) {
-                toast(
-                    `${cls.name} has no instance in this level, so #${cmd.ids[0]} gets generic class defaults (not verified in game). Prefer a class the level already uses.`,
-                    'warn',
-                );
+                toast(`Added ${cls.name} #${cmd.ids[0]} with default settings.`, 'warn');
             } else toast(`Added ${cls.name} #${cmd.ids[0]}`, 'ok');
         },
         edit(label, ids, fn) {
@@ -284,36 +291,57 @@ export function initLevelUi(host: LevelUiHost): LevelUi {
         target: () => target(),
         targetText: () => {
             const p = disc?.profile;
-            return p
-                ? `Target: ${p.serial}, profile ${p.profile ?? 'unknown'}, hash ${p.hash ?? 'unknown'}`
-                : 'Target: open a disc image to derive the disc profile and hash.';
+            return p ? `Disc: ${p.serial}` : 'Open a disc image first.';
         },
         setStatus: host.setStatus,
         exportMod: () => projects.handlers.export?.(),
+        exportContent: () => void exportContentPackage(contentExportHost),
     });
+    const contentExportHost: ContentExportHost = {
+        call: (method, ...args) => host.call(method, ...args),
+        doc: () => getView().doc,
+        schemas: () => schemas,
+        catalog: () => catalog,
+        src: () => src,
+        profile: () => disc?.profile ?? null,
+        toast,
+        setStatus: host.setStatus,
+    };
     const dock = createDock([
         { id: 'assets', title: 'Content Browser', icon: 'folder-open', panel: assets },
         { id: 'output', title: 'Output Log', icon: 'terminal', panel: output },
         { id: 'validation', title: 'Validation', icon: 'warn', panel: validation },
-        { id: 'history', title: 'History', icon: 'history', panel: history },
-        { id: 'mod', title: 'Mod', icon: 'download', panel: modPanel },
     ]);
     dockRef = dock;
     $('ed-outliner').append(outliner.el);
     $('ed-details').append(inspector.el);
     $('ed-bottom').append(dock.el);
-    const panels = [outliner, inspector, assets, history, validation, modPanel];
-    installLogic(ctx, () => host.call('exitIndex'));
-    bindPanelHost({
-        add: (spec) => {
-            dock.addTab({ id: spec.id, title: spec.title, icon: spec.icon, panel: spec.panel });
-            panels.push(spec.panel);
-        },
-        show: (id) => {
-            layout?.openBottom();
-            dock.show(id);
+    const panels = [outliner, inspector, assets, history, validation];
+    // Where every editor opens (its own tab, the bottom area, or World Settings beside Details): editor/workspace.ts.
+    const ws: Workspace = createWorkspace({
+        frame: root,
+        toolbar: $('ed-toolbar'),
+        body: $('ed-body'),
+        doc: $('ed-doc'),
+        details: $('ed-details'),
+        inspector: inspector.el,
+        dock,
+        layout: () => layout,
+        panels,
+        levelShown: () => window.dispatchEvent(new Event('resize')),
+    });
+    bindPanelHost({ add: (spec) => ws.add(spec), show: (id) => ws.show(id) });
+    registerPanel({
+        id: 'mod',
+        title: 'Mod',
+        icon: 'download',
+        panel: modPanel,
+        command: {
+            keywords: 'mod changes pack export play package status target disc engine neutral',
+            hint: 'What the open level changes, where the mod was written and how to play it',
         },
     });
+    installLogic(ctx, (only) => host.call('exitIndex', ...(only ? [only] : [])));
 
     // ---- real visuals: terrain, models, thumbnails ------------------------------------------------------------------
     const loader = createSceneLoader(host.call, () => getView(), {
@@ -337,7 +365,7 @@ export function initLevelUi(host: LevelUiHost): LevelUi {
         tool: (m: ToolMode) => {
             const v = getView();
             if (m === 'scale' && v.selection.size && ![...v.selection].some((id) => v.doc.get(id)?.scale)) {
-                toast('None of the selected objects has a scale (flag 0x100); scale cannot be added.');
+                toast('The selection cannot be scaled.');
             }
             v.setMode(m);
             syncToolbar();
@@ -398,8 +426,7 @@ export function initLevelUi(host: LevelUiHost): LevelUi {
         },
         save: () => saveDocument(),
         play: () => {
-            layout?.openBottom();
-            dock.show('mod');
+            ws.show('mod');
             if (isDesktop) {
                 void modPanel.play().catch(fail);
                 return;
@@ -409,6 +436,7 @@ export function initLevelUi(host: LevelUiHost): LevelUi {
         exportMod: () => {
             projects.handlers.export?.();
         },
+        exportContent: () => void exportContentPackage(contentExportHost),
         help: () => help.toggle(),
         theme: () => {
             toggleTheme();
@@ -774,14 +802,37 @@ export function initLevelUi(host: LevelUiHost): LevelUi {
             export: () => actions.exportMod(),
             help: () => help.toggle(),
             theme: () => actions.theme(),
+            projectSettings: () => runCommand('panel.project'),
+            contentBrowser: () => toggleBottom('assets'),
+            story: () => runCommand('panel.story'),
+            logic: () => runCommand('panel.logic'),
+            history: () => ws.toggleWindow('history', 'Undo History', 'history', history),
         },
         () => !root.hidden && !(view?.isFlying ?? false),
+        // In an editor tab only the global keys (palette, save, export, help, Window) work: the viewport is not shown.
+        () => !ws.levelActive(),
     );
     registerOotfImport({
         call: (method, ...args) => host.call(method, ...args),
         levels: () => (disc?.levels ?? []).filter((l) => l.present),
         toast,
         profile: () => disc?.profile?.profile ?? null,
+    });
+    registerUnrealExport({
+        collect: () =>
+            src && view && currentDirPath
+                ? {
+                      call: (method, ...args) => host.call(method, ...args),
+                      refs,
+                      schemas,
+                      catalog,
+                      objects: [...view.doc.objects()],
+                      dirPath: currentDirPath,
+                      level: levelName,
+                      status: (m) => host.setStatus(m),
+                  }
+                : null,
+        toast,
     });
     registerShellCommands({
         actions,
@@ -790,9 +841,11 @@ export function initLevelUi(host: LevelUiHost): LevelUi {
         levels: () => disc?.levels ?? [],
         openIso: requestOpenIso,
         openPanel: (tab) => {
+            ws.showArea('level');
             layout?.openBottom();
             dock.show(tab);
         },
+        toggleHistory: () => ws.toggleWindow('history', 'Undo History', 'history', history),
         hasLevel: () => (view?.doc.size ?? 0) > 0,
         selCount: () => view?.selection.size ?? 0,
         canUndo: () => view?.stack.canUndo ?? false,
@@ -864,7 +917,10 @@ export function initLevelUi(host: LevelUiHost): LevelUi {
         host.setStatus(`Loading ${shown}...`);
         toast(`Loading ${shown}...`);
         const r = await host.call('loadLevel', dirPath);
+        // The export compares edits against this read: keeping it spares a second parse in the busy worker.
+        rememberLoadedLevel(dirPath, r);
         await openLoaded(r, asTitle ?? info?.name ?? r.file);
+        currentDirPath = dirPath;
         if (info && !asTitle) rememberLevel({ name: info.name, dirPath });
         const resources = new Set<string>();
         for (const o of getView().doc.objects()) resources.add(o.resource);

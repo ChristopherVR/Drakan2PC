@@ -124,7 +124,7 @@ export function initDesktop(hooks: DesktopHooks): Desktop {
             .catch(fail);
     };
 
-    const tabs: Record<string, Tab> = { 'tab-inspect': 'inspect', 'tab-level': 'level', 'tab-save': 'save' };
+    const tabs: Record<string, Tab> = { 'tab-inspect': 'inspect', 'tab-level': 'level' };
 
     const onAction = (id: string): void => {
         if (id.startsWith('recent:')) {
@@ -143,6 +143,11 @@ export function initDesktop(hooks: DesktopHooks): Desktop {
             editAction(id.slice(5));
             return;
         }
+        // Items built from the editor's own command list (Window, Tools and Help menus; see editor/menubar.ts).
+        if (id.startsWith('cmd:')) {
+            if (!runCommand(id.slice(4))) hooks.setStatus('That is not available right now.');
+            return;
+        }
         const tab = tabs[id];
         if (tab) {
             hooks.showTab(tab);
@@ -152,13 +157,12 @@ export function initDesktop(hooks: DesktopHooks): Desktop {
             case 'open-iso':
                 openIsoDialog();
                 break;
+            // The native menu opens the save editor window itself (windows.rs); these stay for older shells.
             case 'open-save':
-                hooks.showTab('save');
-                click('sv-open');
+                void platform.openAppWindow('save', 'file').catch(fail);
                 break;
             case 'open-save-folder':
-                hooks.showTab('save');
-                click('sv-folder');
+                void platform.openAppWindow('save', 'folder').catch(fail);
                 break;
             case 'project-new':
                 hooks.showTab('level');
@@ -197,18 +201,44 @@ export function initDesktop(hooks: DesktopHooks): Desktop {
 
     registerCommand({
         id: 'desktop.gameFolder',
-        title: 'Choose the game (play) folder...',
+        title: 'Choose the game folder...',
         category: 'File',
-        hint: 'The folder with drakan.exe that Play and Write to mods folder use.',
+        hint: 'The folder with drakan.exe that Play uses.',
         run: () => chooseFolder('game'),
     });
     registerCommand({
         id: 'desktop.modsFolder',
         title: 'Choose a separate mods folder...',
         category: 'File',
-        hint: 'Only needed when mods live outside the game folder (the game gets DRAKAN_MODS).',
+        hint: 'Only needed when mods live outside the game folder.',
         run: () => chooseFolder('mods'),
     });
+
+    // Recent project folders as commands: the project chip, the start page and the palette list them.
+    const recentCmds: (() => void)[] = [];
+    const listRecentProjects = (): void => {
+        void platform
+            .getSettings()
+            .then((s) => {
+                recentCmds.splice(0).forEach((off) => off());
+                s.recentProjects.slice(0, 6).forEach((dir, i) => {
+                    const name = dir.split(/[\\/]/).filter(Boolean).pop() ?? dir;
+                    recentCmds.push(
+                        registerCommand({
+                            id: `project.recent.${i}`,
+                            title: name,
+                            category: 'Recent projects',
+                            icon: 'folder',
+                            hint: dir,
+                            keywords: `open recent project ${dir}`,
+                            run: () => void hooks.projectFiles().openRecent(dir).then(listRecentProjects, fail),
+                        }),
+                    );
+                });
+            })
+            .catch(() => undefined);
+    };
+    listRecentProjects();
 
     // The project folder the last session ended with (its level edits restore when the levels open).
     void hooks

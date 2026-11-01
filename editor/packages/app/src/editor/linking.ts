@@ -1,6 +1,7 @@
 import type { LevelObject } from '@drakan/editor-core';
 import type { Ctx } from './ctx.ts';
 import { h, icon } from './dom.ts';
+import { askLinkMessage, lastPointer } from './linkmenu.ts';
 
 /**
  * Linking objects: a link means "when this object triggers, it sends its message to that object". Entry points (the
@@ -68,6 +69,7 @@ export function startLinkPick(ctx: Ctx, sources: readonly number[]): void {
     v.pickObject((to) => {
         if (to === null) return ctx.toast('Nothing there to link to.', 'warn');
         if (ids.length === 1 && ids[0] === to) return ctx.toast('An object cannot link to itself.', 'warn');
+        if (askLinkMessage(ctx, ids, to, { ...lastPointer })) return;
         const n = addLinks(ctx, ids, to);
         const t = ctx.doc().get(to);
         ctx.toast(n ? `Linked to ${t ? objectLabel(t) : `#${to}`}.` : 'Already linked.', n ? 'ok' : 'info');
@@ -173,6 +175,7 @@ export function installLinking(ctx: Ctx): void {
         const to = v.pickAt(e, false);
         if (to === null) return ctx.toast('Drop the handle on an object to link it.', 'warn');
         if (v.selection.has(to) && v.selection.size === 1) return ctx.toast('An object cannot link to itself.', 'warn');
+        if (askLinkMessage(ctx, [...v.selection], to, { x: e.clientX, y: e.clientY })) return;
         const n = addLinks(ctx, [...v.selection], to);
         const t = ctx.doc().get(to);
         ctx.toast(n ? `Linked to ${t ? objectLabel(t) : `#${to}`}.` : 'Already linked.', n ? 'ok' : 'info');

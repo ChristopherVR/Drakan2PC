@@ -1,0 +1,152 @@
+/* Menus panel (editor/menus). Uses the editor tokens; every class is mn- prefixed. */
+.menus {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    height: 100%;
+    overflow: auto;
+}
+.mn-main {
+    display: grid;
+    grid-template-columns: 170px minmax(280px, 1fr) 590px;
+    gap: var(--sp-3);
+    flex: none;
+    min-height: 420px;
+    padding: var(--sp-3);
+}
+.mn-nav {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    border-right: 1px solid var(--line);
+    padding-right: var(--sp-2);
+    overflow: auto;
+}
+.mn-nav-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 5px 8px;
+    border: 0;
+    border-radius: var(--r-sm);
+    background: transparent;
+    color: var(--fg-muted);
+    font-size: var(--fs-sm);
+    text-align: left;
+    cursor: pointer;
+}
+.mn-nav-item:hover {
+    background: var(--panel2);
+    color: var(--fg);
+}
+.mn-nav-item.active {
+    background: var(--panel2);
+    color: var(--fg);
+    box-shadow: inset 2px 0 0 var(--accent, #e07b2e);
+}
+.mn-dot {
+    margin-left: auto;
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: var(--accent, #e07b2e);
+}
+.mn-center {
+    display: flex;
+    flex-direction: column;
+    gap: var(--sp-3);
+    min-width: 0;
+    overflow: auto;
+}
+.mn-form {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+.mn-rows {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+.mn-row {
+    display: grid;
+    grid-template-columns: auto auto auto 110px minmax(100px, 1fr);
+    gap: 6px;
+    align-items: center;
+}
+.mn-row .mn-desc {
+    grid-column: 5;
+}
+.mn-row.off {
+    opacity: 0.55;
+}
+.mn-row code {
+    color: var(--fg-muted);
+    font-size: var(--fs-xs);
+}
+.mn-field {
+    display: grid;
+    grid-template-columns: 120px auto 1fr auto;
+    gap: 6px;
+    align-items: center;
+}
+.mn-field label {
+    color: var(--fg-muted);
+    font-size: var(--fs-sm);
+    text-transform: capitalize;
+}
+.mn-hex {
+    font-family: var(--mono, monospace);
+    max-width: 120px;
+}
+.mn-sub {
+    margin-top: var(--sp-3);
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+.mn-issue {
+    display: flex;
+    gap: 6px;
+    align-items: center;
+    color: var(--warn);
+    font-size: var(--fs-sm);
+}
+.mn-side {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+.mn-preview {
+    position: relative;
+    overflow: hidden;
+    border: 1px solid var(--border);
+    border-radius: var(--r-sm);
+    background: #000;
+}
+.mn-stage {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 1920px;
+    height: 1080px;
+    transform-origin: 0 0;
+}
+.mn-box {
+    position: absolute;
+    box-sizing: border-box;
+}
+.mn-text {
+    position: absolute;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+    font-family: Georgia, serif;
+}
+.mn-export {
+    border-top: 1px solid var(--line);
+    padding: var(--sp-3);
+}
+.mn-file {
+    display: none;
+}

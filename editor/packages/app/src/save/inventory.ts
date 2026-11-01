@@ -1,4 +1,4 @@
-import { ReplaceItemCommand, SetFieldCommand } from '@drakan/editor-core';
+import { AddItemCommand, RemoveAddedItemCommand, ReplaceItemCommand, SetFieldCommand } from '@drakan/editor-core';
 import { INV_CELL_COUNT, type InventoryCell } from '@drakan/formats';
 import { badge, emptyState, h } from './dom.ts';
 import type { PanelCtx } from './panels.ts';
@@ -84,6 +84,7 @@ export function renderInventory(ctx: PanelCtx): HTMLElement {
         return Math.max(0, Math.min(1, cur / Math.max(max, 1)));
     };
 
+    const addedCells = doc.addedCells();
     const tiles: HTMLElement[] = [];
     for (let k = 0; k < INV_CELL_COUNT; k++) {
         const col = (k % INV_COLS) + 1;
@@ -91,6 +92,30 @@ export function renderInventory(ctx: PanelCtx): HTMLElement {
         const c = byCell.get(k);
         if (!c || c.marker !== undefined) {
             if (covered.has(k)) continue; // drawn as part of the item above
+            const addIdx = addedCells.indexOf(k);
+            if (addIdx >= 0) {
+                const tplRec = doc.itemTemplates().find((t) => t.entry === doc.itemAdds[addIdx]);
+                const nm = itemName(tplRec?.resource, infoOf(tplRec?.resource));
+                tiles.push(
+                    h(
+                        'button',
+                        {
+                            class: 'slot item chg',
+                            style: `grid-column:${col};grid-row:${row}`,
+                            title: `Cell ${k}: new ${nm} (added when you save). Click to remove.`,
+                            'data-added': addIdx,
+                            onclick: () => ctx.run(new RemoveAddedItemCommand(addIdx)),
+                        },
+                        h(
+                            'div',
+                            { class: 'art' },
+                            h('span', { class: 'ph', style: `--hue:${hueOf(tplRec?.resource ?? 0)}` }, '+'),
+                        ),
+                        h('span', { class: 'nm' }, `New: ${nm}`),
+                    ),
+                );
+                continue;
+            }
             tiles.push(
                 h('div', {
                     class: 'slot empty',
@@ -206,27 +231,16 @@ export function renderInventory(ctx: PanelCtx): HTMLElement {
                 `${real.length} items, ${equippedCount} equipped, ${hotCount} in quick slots`,
             ),
             h('span', { class: 'spacer' }),
-            h(
-                'button',
-                {
-                    disabled: true,
-                    title: 'Not supported yet: use Replace with… on an existing item for now (a new item record crashes the game after load, docs/journal/2026-11-01/save-editor-round3.md).',
-                },
-                '+ Add item (not supported yet)',
-            ),
+            addControl(ctx, infoOf),
         ),
         h('div', { class: 'invgrid' }, ...tiles),
         inspector,
         h(
             'div',
             { class: 'note-box' },
-            h('b', null, 'Adding and removing items: not supported. '),
-            'The game restores the carried items from a list in Rynn’s record and does not accept a brand-new item record yet ' +
-                '(it crashes after load); use Replace with… to turn an existing item into another class of the same size. Durability, arrows, quantity, the equipped flag and the ' +
-                'quick-slot flag of existing items are proven in game. ',
-            h('b', null, 'Equipping by flag may not fill the Equipped panel: '),
-            'the weapon actors held in Rynn’s hands are separate from the cell flag. Names and art come from the shared Resources ' +
-                'database on your ISO (no level needed); without the ISO a short name and a placeholder are shown.',
+            'Add item copies an item class this save has a record for into the first free cell as a new carried item. ' +
+                'It also drops one untouched level object (the first entry of the static table) to keep the game’s slot numbering valid. ' +
+                'Single-cell items only (not the bow). Replace with… turns an existing item into another class.',
         ),
     );
 }
@@ -313,11 +327,6 @@ function inspect(
                 flag('equipped', 'Equipped flag (E)', 'Sets the cell flag only; the Equipped panel may stay empty.'),
                 flag('hot', 'Quick slot (Q)', 'Shows the item in the Quick Inventory.'),
             ),
-            h(
-                'div',
-                { class: 'frow' },
-                badge('proven in game', 'high', 'Edits of these fields were loaded and shown in game.'),
-            ),
         ),
     );
 }
@@ -360,11 +369,6 @@ function replaceControl(
                   'Undo replacement',
               )
             : null,
-        badge(
-            'proven in game once',
-            'medium',
-            'Loaded in game: a potion became a second dagger in the same cell. Pick items of the same size.',
-        ),
         h(
             'small',
             { class: 'sv-dim' },
@@ -373,4 +377,40 @@ function replaceControl(
                 : 'This save has no other item records to copy from.',
         ),
     );
+}
+
+/** "+ Add item": a dropdown of the item classes this save has a record for (type to filter). */
+function addControl(ctx: PanelCtx, infoOf: (resource: number | undefined) => ClassInfo | null): HTMLElement {
+    const { doc } = ctx;
+    const BOW = 0x31bc9; // three cells: the stream layout of multi-cell items is not known
+    const templates = doc.itemTemplates().filter((t) => t.resource !== BOW);
+    const room = doc.addedCells().length < 24 && doc.addedCells().length === doc.itemAdds.length;
+    const free = freeCellCount(doc);
+    const select = h(
+        'select',
+        {
+            'data-field': 'item.add',
+            'data-placeholder': '+ Add item…',
+            'aria-label': 'Add item',
+            disabled: !templates.length || free <= 0 || !room,
+        },
+        h('option', { value: '' }, '+ Add item…'),
+        ...templates.map((t) =>
+            h(
+                'option',
+                { value: String(t.entry) },
+                `${itemName(t.resource, infoOf(t.resource))} (${resourceKey(t.resource)})`,
+            ),
+        ),
+    ) as HTMLSelectElement;
+    select.value = '';
+    select.onchange = () => {
+        if (!select.value) return;
+        ctx.run(new AddItemCommand(Number(select.value)));
+    };
+    return h('label', { class: 'f', title: free <= 0 ? 'The inventory is full' : 'Add a new carried item' }, select);
+}
+
+function freeCellCount(doc: PanelCtx['doc']): number {
+    return INV_CELL_COUNT - doc.inventory.length - doc.itemAdds.length;
 }

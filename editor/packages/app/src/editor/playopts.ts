@@ -93,7 +93,7 @@ export function createPlayControls(onPlay: () => void, canPlay: () => boolean): 
             class: 'btn',
             type: 'button',
             id: 'play-pick-folder',
-            title: 'The play folder that holds drakan.exe (for example dist/DrakanPC)',
+            title: 'The game folder that holds drakan.exe',
             onclick: () =>
                 void pickFolder('game').then(
                     () => refresh(),

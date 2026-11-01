@@ -1,8 +1,8 @@
 {
     "$schema": "../gen/schemas/desktop-schema.json",
     "identifier": "default",
-    "description": "The editor window: app commands by name, event listening. No fs, shell or http access.",
-    "windows": ["main"],
+    "description": "The editor and save editor windows: app commands by name, event listening. No fs, shell or http access.",
+    "windows": ["main", "save"],
     "permissions": [
         "core:event:allow-listen",
         "core:event:allow-unlisten",
@@ -25,6 +25,7 @@
         "allow-project-open",
         "allow-project-open-path",
         "allow-project-write",
-        "allow-project-file-write"
+        "allow-project-file-write",
+        "allow-window-open"
     ]
 }

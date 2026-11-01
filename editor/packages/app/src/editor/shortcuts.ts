@@ -8,6 +8,8 @@ export interface Shortcut {
     group: string;
     /** Also fire while typing (rare: Esc). */
     inInput?: boolean;
+    /** Also works while another editor tab (Story, Project Settings, ...) is shown instead of the Level Editor. */
+    global?: boolean;
 }
 
 export const SHORTCUTS: Shortcut[] = [
@@ -17,8 +19,16 @@ export const SHORTCUTS: Shortcut[] = [
         label: 'Search everything (commands, levels, classes, objects)',
         group: 'Help',
         inInput: true,
+        global: true,
     },
-    { id: 'commands', keys: 'Ctrl+Shift+P', label: 'Command palette (commands only)', group: 'Help', inInput: true },
+    {
+        id: 'commands',
+        keys: 'Ctrl+Shift+P',
+        label: 'Command palette (commands only)',
+        group: 'Help',
+        inInput: true,
+        global: true,
+    },
     { id: 'select', keys: 'Q', label: 'Select tool', group: 'Tools' },
     { id: 'move', keys: 'W', label: 'Move tool', group: 'Tools' },
     { id: 'rotate', keys: 'E', label: 'Rotate tool', group: 'Tools' },
@@ -50,10 +60,15 @@ export const SHORTCUTS: Shortcut[] = [
     { id: 'lock', keys: 'L', label: 'Lock / unlock selection', group: 'Selection' },
     { id: 'deselect', keys: 'Esc', label: 'Clear selection / cancel a pick', group: 'Selection', inInput: false },
     { id: 'box', keys: 'Drag on empty space', label: 'Box select (Shift/Ctrl adds)', group: 'Selection' },
-    { id: 'save', keys: 'Ctrl+S', label: 'Save document', group: 'File' },
-    { id: 'export', keys: 'Ctrl+E', label: 'Export mod', group: 'File' },
-    { id: 'help', keys: 'F1', label: 'Show this help (also ?)', group: 'Help', inInput: true },
-    { id: 'theme', keys: 'Ctrl+Shift+L', label: 'Toggle dark / light theme', group: 'Help' },
+    { id: 'save', keys: 'Ctrl+S', label: 'Save (the project, or the level document)', group: 'File', global: true },
+    { id: 'export', keys: 'Ctrl+E', label: 'Export mod', group: 'File', global: true },
+    { id: 'projectSettings', keys: 'Ctrl+,', label: 'Project Settings', group: 'Window', global: true },
+    { id: 'contentBrowser', keys: 'Ctrl+Space', label: 'Content Browser', group: 'Window', global: true },
+    { id: 'story', keys: 'Ctrl+Shift+Y', label: 'Story editor', group: 'Window', global: true },
+    { id: 'logic', keys: 'Ctrl+Shift+K', label: 'Logic graph', group: 'Window', global: true },
+    { id: 'history', keys: 'Ctrl+Shift+H', label: 'Undo History', group: 'Window', global: true },
+    { id: 'help', keys: 'F1', label: 'Show this help (also ?)', group: 'Help', inInput: true, global: true },
+    { id: 'theme', keys: 'Ctrl+Shift+L', label: 'Toggle dark / light theme', group: 'Help', global: true },
 ];
 
 export type Handler = (e: KeyboardEvent, arg?: number) => void;
@@ -80,16 +95,21 @@ function matches(e: KeyboardEvent, keys: string): boolean {
  * Global key handler. `active()` says whether the editor tab is showing; shortcuts never fire while typing in a field
  * (except those marked `inInput`). Digit shortcuts (`..9`) call the handler with the digit.
  */
-export function initShortcuts(handlers: Record<string, Handler>, active: () => boolean): () => void {
+export function initShortcuts(
+    handlers: Record<string, Handler>,
+    active: () => boolean,
+    globalOnly: () => boolean = () => false,
+): () => void {
     const onKey = (e: KeyboardEvent): void => {
         if (!active()) return;
+        const onlyGlobal = globalOnly();
         const t = e.target as HTMLElement | null;
         const typing = !!t && (/^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName) || t.isContentEditable);
         // Esc belongs to an open picker, popover or dialog (it closes that, not the selection).
         if (e.key === 'Escape' && (e.defaultPrevented || t?.closest?.('.ed-pop, [role="dialog"], .ui-menu'))) return;
         // Bookmarks: Shift+digit jumps, Ctrl+Shift+digit saves.
         const digit = /^Digit([1-9])$/.exec(e.code);
-        if (digit && !typing && e.shiftKey && !e.altKey) {
+        if (digit && !typing && e.shiftKey && !e.altKey && !onlyGlobal) {
             const fn = handlers[e.ctrlKey || e.metaKey ? 'bookmark' : 'gotoBookmark'];
             if (fn) {
                 e.preventDefault();
@@ -105,7 +125,7 @@ export function initShortcuts(handlers: Record<string, Handler>, active: () => b
         for (const s of SHORTCUTS) {
             if (s.keys.includes('..') || s.keys.includes(' ')) continue;
             const fn = handlers[s.id];
-            if (!fn || (typing && !s.inInput)) continue;
+            if (!fn || (typing && !s.inInput) || (onlyGlobal && !s.global)) continue;
             // Alternative bindings
             const alt = s.id === 'redo' && matches(e, 'Ctrl+Shift+Z');
             const del = s.id === 'delete' && matches(e, 'Backspace');

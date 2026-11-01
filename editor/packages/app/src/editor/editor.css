@@ -134,6 +134,11 @@ body.ed-scrub {
 .ed-toolbar .ui-dd.ui-dd {
     height: var(--h-tool);
 }
+/* Export, Play and Add share the height of the tools and dropdowns beside them (beats `#level-main .btn.sm`). */
+#level-main .ed-toolbar .btn.sm,
+#level-main .ed-toolbar .ui-btn.sm {
+    height: var(--h-tool);
+}
 .slider {
     width: 76px;
     accent-color: var(--accent);

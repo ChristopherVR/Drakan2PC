@@ -3,6 +3,7 @@ import { KINDS, type CameraBookmark, type ToolMode } from '../level.ts';
 import { HELPER_GROUPS, type HelperGroup } from '../scene/instances.ts';
 import { LIGHTING, type LightingPreset, type ViewOptions } from '../scene/viewopts.ts';
 import { fill, h, icon, iconButton } from './dom.ts';
+import { buildQuickAddMenu, installQuickAdd } from './quickadd.ts';
 
 /** What the toolbar can trigger and read; implemented by `levelui.ts`. */
 export interface ToolbarActions {
@@ -32,6 +33,8 @@ export interface ToolbarActions {
     lock(): void;
     save(): void;
     exportMod(): void;
+    /** Save the open level as an engine-neutral Drakan Content Format package. */
+    exportContent(): void;
     /** Show the Mod panel's steps for launching the mod in the game. */
     play(): void;
     help(): void;
@@ -89,10 +92,11 @@ function menuButton(
     ico: string,
     build: (box: HTMLElement, close: () => void) => void,
     title: string,
+    cls = 'tool wide',
 ): { wrap: HTMLElement; btn: HTMLButtonElement; close: () => void; refresh: () => void } {
     const btn = h(
         'button',
-        { class: 'tool wide', type: 'button', title, 'aria-haspopup': 'true', 'aria-expanded': 'false' },
+        { class: cls, type: 'button', title, 'aria-haspopup': 'true', 'aria-expanded': 'false' },
         icon(ico),
         h('span', {}, label),
         icon('chevron', 10),
@@ -142,6 +146,17 @@ export function createToolbar(
 ): Toolbar {
     const q: Record<string, HTMLButtonElement> = {};
     const reg = (id: string, b: HTMLButtonElement): HTMLButtonElement => ((q[id] = b), b);
+
+    // ---- quick add (the "+ Add" entry point)
+    installQuickAdd();
+    const quickAdd = menuButton(
+        'Add',
+        'plus',
+        (box, close) => buildQuickAddMenu(box, close, getState().hasLevels),
+        'Create something: an arena, a puzzle, a cut scene, a dialogue line, a quest or a level copy',
+        'btn primary sm qa-btn',
+    );
+    quickAdd.btn.id = 'ed-add';
 
     // ---- file
     const levelSelect = h('select', {
@@ -599,6 +614,8 @@ export function createToolbar(
     );
 
     root.append(
+        quickAdd.wrap,
+        sep(),
         fileGroup,
         sep(),
         editGroup,

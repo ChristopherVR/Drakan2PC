@@ -11,7 +11,10 @@ export interface ShellHost {
     view(): LevelView;
     levels(): { name: string; dirPath: string }[];
     openIso(): void;
+    /** Show a tab of the Level Editor's bottom area (Content Browser, Output Log, Validation). */
     openPanel(tab: string): void;
+    /** Open or close the Undo History window. */
+    toggleHistory(): void;
     hasLevel(): boolean;
     selCount(): number;
     canUndo(): boolean;
@@ -57,6 +60,12 @@ export function registerShellCommands(s: ShellHost): void {
         hint: 'Build the mod pack from the project and save it (zip, project folder, or the game)',
         keywords: 'publish build pack zip',
     });
+    cmd('file.exportContent', 'Export engine-neutral package...', 'File', () => a.exportContent(), {
+        icon: 'download',
+        enabled: () => s.canExport() && lvl(),
+        hint: 'Save the open level as a Drakan Content Format package (JSON + schema) for other engines',
+        keywords: 'unreal ue5 godot unity json scene content portable',
+    });
     cmd('file.play', 'How to play your mod', 'File', () => a.play(), {
         icon: 'play',
         enabled: lvl,
@@ -67,8 +76,10 @@ export function registerShellCommands(s: ShellHost): void {
     // Edit
     cmd('edit.undo', 'Undo', 'Edit', () => a.undo(), { keys: 'Ctrl+Z', icon: 'undo', enabled: s.canUndo });
     cmd('edit.redo', 'Redo', 'Edit', () => a.redo(), { keys: 'Ctrl+Y', icon: 'redo', enabled: s.canRedo });
-    cmd('edit.history', 'Show undo history', 'Edit', () => s.openPanel('history'), {
+    cmd('edit.history', 'Undo History', 'Edit', () => s.toggleHistory(), {
         icon: 'history',
+        keys: 'Ctrl+Shift+H',
+        keywords: 'history steps undo list window',
         hint: 'Every step you made, with labels; click one to jump back',
     });
     cmd('edit.duplicate', 'Duplicate selection', 'Edit', () => a.duplicate(), {
@@ -169,14 +180,23 @@ export function registerShellCommands(s: ShellHost): void {
     cmd('view.right', 'Toggle the Outliner and Details', 'View', () => a.togglePanel('right'));
     cmd('view.bottom', 'Toggle the bottom panel', 'View', () => a.togglePanel('bottom'));
     cmd('view.reset', 'Reset the panel layout', 'View', () => a.resetLayout());
-    for (const [tab, title, ico] of [
-        ['assets', 'Content Browser', 'folder-open'],
-        ['output', 'Output Log', 'terminal'],
-        ['validation', 'Validation', 'warn'],
-        ['mod', 'Mod', 'download'],
+    for (const [tab, title, ico, keys] of [
+        ['assets', 'Content Browser', 'folder-open', 'Ctrl+Space'],
+        ['output', 'Output Log', 'terminal', ''],
+        ['validation', 'Validation', 'warn', ''],
     ] as const) {
-        cmd(`panel.show.${tab}`, `Show ${title}`, 'Panels', () => s.openPanel(tab), { icon: ico });
+        cmd(`panel.show.${tab}`, `Show ${title}`, 'Window', () => s.openPanel(tab), {
+            icon: ico,
+            ...(keys ? { keys } : {}),
+        });
     }
+    cmd(
+        'file.openDocument',
+        'Open a saved level or world dump (.json)...',
+        'File',
+        () => document.getElementById('lv-load')?.click(),
+        { icon: 'open', keywords: 'load level document json dump' },
+    );
 
     // Help
     cmd('help.shortcuts', 'Keyboard shortcuts', 'Help', () => a.help(), { keys: 'F1', icon: 'help' });

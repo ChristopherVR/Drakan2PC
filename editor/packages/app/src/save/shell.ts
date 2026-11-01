@@ -47,7 +47,7 @@ export function buildShell(root: HTMLElement, fsa: boolean): void {
                 id: 'sv-folder',
                 icon: 'folder',
                 kind: 'primary',
-                title: 'Pick the memory card folder (mc0) to list every slot',
+                title: 'Pick the memory card folder to list every slot',
             }),
             h('input', { id: 'sv-file', type: 'file', accept: '.rsg', hidden: true }),
             h('input', { id: 'sv-dir', type: 'file', webkitdirectory: true, hidden: true }),
@@ -84,7 +84,7 @@ export function buildShell(root: HTMLElement, fsa: boolean): void {
                         emptyState(
                             'folder',
                             'No saves listed yet',
-                            'Open the memory card folder (mc0) to list every slot with its screenshot, or open a single .rsg file.',
+                            'Open the memory card folder to list every slot with its screenshot, or open a single .rsg file.',
                         ),
                     ),
                 ),
@@ -183,7 +183,7 @@ export function buildShell(root: HTMLElement, fsa: boolean): void {
                                               h('input', {
                                                   id: 'sv-q',
                                                   type: 'search',
-                                                  placeholder: 'Search class (hex), type, id, entry number',
+                                                  placeholder: 'Search records',
                                               }),
                                           ),
                                           h(
@@ -262,7 +262,7 @@ export function buildShell(root: HTMLElement, fsa: boolean): void {
                 'span',
                 { class: 'sv-foot-note' },
                 fsa
-                    ? 'Save writes the file in place and keeps a .bak copy beside it.'
+                    ? 'Save writes the file in place and keeps a backup beside it.'
                     : 'This browser cannot write files in place: Save downloads the edited .rsg instead.',
             ),
         ),

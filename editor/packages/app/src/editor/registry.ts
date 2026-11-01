@@ -5,12 +5,15 @@
  *   registerCommand({ id, title, run, ... })   adds an entry to the command palette (Ctrl+P) and, with `keys`, to the
  *                                              shortcut sheet and the keyboard handler.
  *   registerSource({ id, label, search })      adds a family of dynamic palette results (objects, levels, ...).
- *   registerPanel({ id, title, icon, panel })  adds a tab to the bottom dock (and a "Show <title>" command); the
- *                                              panel receives selection / change / load events like the built-in ones.
+ *   registerPanel({ id, title, icon, panel })  adds an editor (and a "Show <title>" command). Where it opens (its own
+ *                                              tab, the Level Editor's bottom area or beside Details) and its name
+ *                                              come from the placement table in `ia.ts`; the panel receives selection
+ *                                              / change / load events like the built-in ones.
  *
  * Registrations may happen before or after the editor starts; the shell reads the registry when it needs it.
  */
 import type { Panel } from './ctx.ts';
+import { placementOf } from './ia.ts';
 
 export interface Command {
     /** Stable id, `area.verb` (for example `file.export`). */
@@ -95,16 +98,22 @@ export function registerSource(src: PaletteSource): () => void {
     };
 }
 
-/** Add a bottom-dock tab. Safe to call before the editor exists: it is attached when the shell binds. */
-export function registerPanel(spec: PanelSpec): void {
+/**
+ * Add an editor panel. Safe to call before the editor exists: it is attached when the shell binds. The placement table
+ * (`ia.ts`) decides where it opens and may rename it and its command.
+ */
+export function registerPanel(spec0: PanelSpec): void {
+    const place = placementOf(spec0.id);
+    const spec: PanelSpec = { ...spec0, title: place.title ?? spec0.title };
     if (panelHost) panelHost.add(spec);
     else pendingPanels.push(spec);
+    const keys = place.keys ?? spec.command?.keys;
     registerCommand({
         id: `panel.${spec.id}`,
-        title: spec.command?.title ?? `Show ${spec.title}`,
-        category: 'Panels',
+        title: place.command ?? spec.command?.title ?? `Show ${spec.title}`,
+        category: 'Window',
         icon: spec.icon,
-        ...(spec.command?.keys ? { keys: spec.command.keys } : {}),
+        ...(keys ? { keys } : {}),
         ...(spec.command?.keywords ? { keywords: spec.command.keywords } : {}),
         ...(spec.command?.hint ? { hint: spec.command.hint } : {}),
         run: () => panelHost?.show(spec.id),

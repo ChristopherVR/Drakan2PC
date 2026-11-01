@@ -352,3 +352,60 @@ describe('disc profile', () => {
         expect(parseSystemCnf('nothing')).toBeNull();
     });
 });
+
+describe('per-exit destination string', () => {
+    const NAME = 'Transition To...';
+    const exitList = (): LvlObjectList => ({
+        objects: [
+            mk(2),
+            mk(5, {
+                // an exit that already has its own string (id 17: length 0, id in the offset half)
+                data: [17],
+                params: [{ fieldIndex: 0, type: 0x0a, name: NAME, nameRaw: enc(NAME) }],
+            }),
+        ],
+        warnings: [],
+    });
+    const field = (value: number | string) => ({ slot: 0, fieldIndex: 0, type: 0x0a, name: NAME, value });
+
+    it('reads an own string id as a number and leaves an untouched exit alone', () => {
+        const { doc, list } = load(exitList());
+        expect(doc.get(5)!.fields![0]!.value).toBe(17);
+        expect(diffDocument(list, doc).params).toEqual([]);
+        expect(writeObjectList(applyDocumentToLvl(list, doc).list)).toEqual(writeObjectList(list));
+    });
+
+    it('writes a new string id for one exit and keeps the others as they were', () => {
+        const { doc, list } = load(exitList());
+        doc.replace({ ...doc.get(2)!, fields: [field(18)] });
+        const d = diffDocument(list, doc);
+        expect(d.params).toEqual([2]);
+        const out = applyDocumentToLvl(list, doc).list;
+        const o2 = out.objects.find((o) => o.id === 2)!;
+        expect(o2.params).toHaveLength(1);
+        expect(o2.data).toEqual([18]); // length 0, id in the offset half
+        expect(out.objects.find((o) => o.id === 5)!.data).toEqual([17]);
+        // survives the file round trip, and reads back as the same id
+        const back = parseObjectList(writeObjectList(out));
+        expect(back.objects.find((o) => o.id === 2)!.data).toEqual([18]);
+        const again = load(back).doc;
+        expect(again.get(2)!.fields![0]!.value).toBe(18);
+        expect(diffDocument(back, again).params).toEqual([]);
+    });
+
+    it('moves an exit that has its own string without losing the string', () => {
+        const { doc, list } = load(exitList());
+        const o = doc.get(5)!;
+        doc.replace({ ...o, transform: { ...o.transform, pos: [1, 2, 3] } });
+        const out = applyDocumentToLvl(list, doc).list;
+        expect(out.objects.find((x) => x.id === 5)!.data).toEqual([17]);
+    });
+
+    it('keeps the string when an older save stored the field as empty text', () => {
+        const { doc, list } = load(exitList());
+        doc.replace({ ...doc.get(5)!, fields: [field('')] });
+        expect(diffDocument(list, doc).params).toEqual([]);
+        const out = applyDocumentToLvl(list, doc).list;
+        expect(out.objects.find((x) => x.id === 5)!.data).toEqual([17]);
+    });
+});

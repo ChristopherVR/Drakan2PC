@@ -10,11 +10,13 @@ import {
 } from '@drakan/editor-core';
 import { writeObjectList } from '@drakan/formats';
 import { buildLevelPack, changeCount, playInGame } from '../modio.ts';
+import { copyPlayPack } from '../playtest.ts';
 import { isDesktop } from '../platform.ts';
 import { createPlayControls } from './playopts.ts';
 import type { Ctx, Panel } from './ctx.ts';
 import { fill, h, icon, raf } from './dom.ts';
 import { projects } from './project/store.ts';
+import { changeList } from '../shared/components.ts';
 
 // ---- bottom dock with tabs -------------------------------------------------------------------------------------
 
@@ -23,6 +25,9 @@ export interface DockTab {
     title: string;
     icon: string;
     panel: Panel;
+    /** Opened on demand: the tab gets a close button (and `onPopOut` a button that moves it to its own tab). */
+    onClose?: () => void;
+    onPopOut?: () => void;
 }
 
 export interface Dock {
@@ -33,6 +38,9 @@ export interface Dock {
     setBadge(id: string, text: string, kind?: 'warn' | 'bad' | ''): void;
     /** Add a tab after creation (`registerPanel`). */
     addTab(tab: DockTab): void;
+    /** Take a tab out again (its panel element is detached, not destroyed). */
+    removeTab(id: string): void;
+    has(id: string): boolean;
 }
 
 export function createDock(initial: DockTab[]): Dock {
@@ -68,9 +76,34 @@ export function createDock(initial: DockTab[]): Dock {
             h('span', { class: 'dock-tab-label' }, t.title),
             badge,
         );
+        const tabAction = (ico: string, label: string, fn: () => void): HTMLElement =>
+            h(
+                'span',
+                {
+                    class: 'dock-tab-x',
+                    role: 'button',
+                    tabindex: '-1',
+                    title: label,
+                    'aria-label': label,
+                    onclick: (e: Event) => {
+                        e.stopPropagation();
+                        fn();
+                    },
+                },
+                icon(ico, 11),
+            );
+        if (t.onPopOut) b.append(tabAction('external', 'Open in its own tab', t.onPopOut));
+        if (t.onClose) {
+            b.append(tabAction('x', `Close ${t.title}`, t.onClose));
+            b.classList.add('closable');
+            b.addEventListener('auxclick', (e) => {
+                if (e.button === 1) t.onClose?.();
+            });
+        }
         buttons.set(t.id, b);
         badges.set(t.id, badge);
-        bar.append(b);
+        // Tabs opened later go after the other tabs, before anything else on the strip (the guide "?").
+        bar.insertBefore(b, bar.querySelector(':scope > :not(.dock-tab)'));
         content.append(t.panel.el);
     };
     for (const t of tabs) mount(t);
@@ -164,6 +197,18 @@ export function createDock(initial: DockTab[]): Dock {
             applyOrder();
             fit();
         },
+        removeTab(id) {
+            const i = tabs.findIndex((t) => t.id === id);
+            if (i < 0) return;
+            const [t] = tabs.splice(i, 1);
+            buttons.get(id)?.remove();
+            buttons.delete(id);
+            badges.delete(id);
+            t!.panel.el.remove();
+            if (current === id && tabs.length) show(tabs[Math.max(0, i - 1)]!.id);
+            fit();
+        },
+        has: (id) => buttons.has(id),
         el: h('div', { class: 'dock' }, bar, content),
         show,
         active: () => current,
@@ -284,9 +329,7 @@ export function createValidation(ctx: Ctx, onCount: (errors: number, warnings: n
                     'div',
                     { class: 'empty-note ok' },
                     icon('check', 18),
-                    doc.size
-                        ? 'The level passes every check: links, ids, transforms, class names, extent.'
-                        : 'Open a level to check it.',
+                    doc.size ? 'No problems found.' : 'Open a level to check it.',
                 ),
             );
             return;
@@ -304,7 +347,7 @@ export function createValidation(ctx: Ctx, onCount: (errors: number, warnings: n
                     },
                     icon('warn', 14),
                     h('span', { class: 'msg' }, i.message),
-                    h('span', { class: 'dim code' }, i.code),
+                    h('span', { class: 'dim code', hidden: true }, i.code),
                 ),
             ),
             ...issues.slice(0, 500).map((i) =>
@@ -318,7 +361,7 @@ export function createValidation(ctx: Ctx, onCount: (errors: number, warnings: n
                     },
                     icon(i.severity === 'error' ? 'warn' : 'warn', 14),
                     h('span', { class: 'msg' }, i.message),
-                    h('span', { class: 'dim code' }, i.code),
+                    h('span', { class: 'dim code', hidden: true }, i.code),
                 ),
             ),
             issues.length > 500 ? h('div', { class: 'more' }, `${issues.length - 500} more`) : null,
@@ -349,6 +392,8 @@ export interface ModHost {
     setStatus(msg: string, error?: boolean): void;
     /** Open the Export dialog. */
     exportMod(): void;
+    /** Save the open level as an engine-neutral content package. */
+    exportContent(): void;
 }
 
 function describeDiff(ctx: Ctx, d: DocumentDiff): { label: string; ids: number[]; tone: string }[] {
@@ -401,10 +446,32 @@ export function createModPanel(ctx: Ctx, host: ModHost): ModPanel {
         h(
             'p',
             { class: 'dim small' },
-            'The pack is built from the project: every project level with changes, its copies and the story edits. Name, version and author are set in the Project tab.',
+            'Contains every changed level and story edit in the project. Name and version are set in Project.',
         ),
         target,
         h('div', { class: 'btnrow' }, exportBtn),
+        h('div', { class: 'lbl' }, 'Engine-neutral package'),
+        h(
+            'p',
+            { class: 'dim small' },
+            'The open level as JSON (instances, archetypes, links, triggers, sequences, dialogue, quests) plus its schema, for other engines.',
+        ),
+        h(
+            'div',
+            { class: 'btnrow' },
+            h(
+                'button',
+                {
+                    class: 'btn',
+                    type: 'button',
+                    id: 'mod-export-content',
+                    title: 'Save the open level as a Drakan Content Format package',
+                    onclick: () => host.exportContent(),
+                },
+                icon('download', 14),
+                'Export package...',
+            ),
+        ),
         report,
     );
     const right = h('div', { class: 'mod-side' }, h('div', { class: 'lbl' }, 'Changed entries'), info, changes);
@@ -439,11 +506,13 @@ export function createModPanel(ctx: Ctx, host: ModHost): ModPanel {
         const src = ctx.src();
         const d = src ? diffDocument(src.lvl.list, ctx.doc()) : null;
         const edited = !!d && changeCount(d) > 0;
-        const pack = edited ? buildLevelPack(src!, ctx.doc(), meta()) : null;
+        // A project's level copy has no LVL on the disc: its play pack adds the whole level (like Play from here does).
+        const copy = await copyPlayPack(ctx.doc().level, ctx.doc(), meta());
+        const pack = copy ?? (edited ? buildLevelPack(src!, ctx.doc(), meta()) : null);
         host.setStatus('Starting the game...');
         const msg = await playInGame(pack, desktopPlay.read(), src ? ctx.doc().level || null : null);
         if (msg === null) return;
-        report.textContent = [...(pack?.warnings ?? []), msg].join('\n');
+        report.textContent = [...(pack && 'warnings' in pack ? (pack.warnings as string[]) : []), msg].join('\n');
         host.setStatus(msg);
         ctx.toast('Game started', 'ok');
     }
@@ -457,55 +526,15 @@ export function createModPanel(ctx: Ctx, host: ModHost): ModPanel {
             fill(play, desktopPlay.el);
             return;
         }
-        const id = projects.get()?.id || '<mod id>';
-        const cmd = `Copy-Item "${id}.zip" "dist\\DrakanPC\\mods\\"\n(Get-Content dist\\DrakanPC\\mods\\mods.ini) -replace '^${id.replace(/[.]/g, '\\.')}\\s*=.*','${id} = on' | Set-Content dist\\DrakanPC\\mods\\mods.ini`;
         fill(
             play,
-            h('div', { class: 'lbl' }, icon('play', 14), 'Play in game'),
+            h('div', { class: 'lbl' }, icon('play', 14), 'Play'),
             h(
-                'ol',
-                { class: 'steps' },
-                h(
-                    'li',
-                    {},
-                    ready
-                        ? 'Export the zip, or use Write to mods folder and pick the game folder (the step below is then done).'
-                        : 'Make an edit, then export.',
-                ),
-                h('li', {}, 'Put the zip (or the folder) in ', h('code', {}, 'dist/DrakanPC/mods/'), '.'),
-                h(
-                    'li',
-                    {},
-                    'Start the game once so ',
-                    h('code', {}, 'mods/mods.ini'),
-                    ' lists it, then set ',
-                    h('code', {}, `${id} = on`),
-                    ' (the Mods page in game settings does the same).',
-                ),
-                h(
-                    'li',
-                    {},
-                    'Restart the game and start ',
-                    h('code', {}, ctx.doc().level || 'the level'),
-                    '. The log shows ',
-                    h('code', {}, `mods: loaded '${id}'`),
-                    '.',
-                ),
-            ),
-            h('pre', { class: 'cmd' }, cmd),
-            h(
-                'button',
-                {
-                    class: 'btn',
-                    type: 'button',
-                    onclick: () =>
-                        void navigator.clipboard?.writeText(cmd).then(
-                            () => ctx.toast('Command copied', 'ok'),
-                            () => ctx.toast('Copy failed', 'error'),
-                        ),
-                },
-                icon('copy', 14),
-                'Copy PowerShell',
+                'p',
+                { class: 'dim small' },
+                ready
+                    ? 'Export the mod, put it in the game’s mods folder, then turn it on in the game’s Mods settings.'
+                    : 'Make an edit, then export.',
             ),
         );
     }
@@ -541,7 +570,7 @@ export function createModPanel(ctx: Ctx, host: ModHost): ModPanel {
                 n ? 'info' : 'dim',
                 '2  Mod contents',
                 n && id ? `${id}: one level override` : n ? 'Create a project first' : 'Empty',
-                n ? 'Only the changed level data is written, never game files' : '',
+                n ? 'Only changed data is written' : '',
             ),
             cell(
                 !out ? 'dim' : stale ? 'warn' : 'ok',
@@ -558,10 +587,8 @@ export function createModPanel(ctx: Ctx, host: ModHost): ModPanel {
                     ? n || out
                         ? 'Play button runs the game with your edits'
                         : 'Make an edit first'
-                    : 'Copy the zip into dist/DrakanPC/mods/',
-                isDesktop
-                    ? 'Toolbar Play or F5; right-click > Play from here'
-                    : 'Steps are listed at the bottom of this panel',
+                    : 'Put the zip in the game’s mods folder',
+                isDesktop ? 'Toolbar Play or F5; right-click > Play from here' : '',
             ),
         );
     }
@@ -583,14 +610,7 @@ export function createModPanel(ctx: Ctx, host: ModHost): ModPanel {
         lastReady = ready;
         fill(changes);
         if (!src || !d) {
-            fill(
-                info,
-                h(
-                    'span',
-                    { class: 'dim' },
-                    'Open a level from the disc to export edits. A world dump or saved document has no LVL source.',
-                ),
-            );
+            fill(info, h('span', { class: 'dim' }, 'Open a level from the disc to export edits.'));
             renderPlay(false);
             return;
         }
@@ -614,21 +634,18 @@ export function createModPanel(ctx: Ctx, host: ModHost): ModPanel {
             h('strong', {}, n ? `${n} change${n === 1 ? '' : 's'}` : 'No changes yet'),
             h('span', { class: `dim${over ? ' bad' : ''}` }, sizeLine ? ` ${sizeLine}` : ` in ${src.file}`),
         );
+        // The shared change row (shared/components.ts), as in the save editor's pending-changes tray.
         changes.append(
-            ...rows.slice(0, 300).map((r) =>
-                h(
-                    'button',
-                    {
-                        class: `chg ${r.tone}`,
-                        type: 'button',
-                        disabled: !r.ids.length,
-                        onclick: () => r.ids.length && ctx.locate(r.ids),
-                    },
-                    r.label,
-                ),
+            changeList(
+                rows.map((r) => ({
+                    label: r.label,
+                    tag: r.tone === 'add' ? 'Added' : r.tone === 'del' ? 'Deleted' : 'Changed',
+                    tone: r.tone,
+                    ...(r.ids.length ? { onLocate: () => ctx.locate(r.ids), locateTitle: 'Select and frame it' } : {}),
+                })),
+                h('span', { class: 'dim' }, 'No changes yet.'),
             ),
         );
-        if (rows.length > 300) changes.append(h('div', { class: 'more' }, `${rows.length - 300} more`));
         renderPlay(ready);
     }
     const later = (): void => {

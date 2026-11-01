@@ -1,6 +1,9 @@
 import {
     addObject,
     deleteObject,
+    FIELD_STRING,
+    fieldIsArray,
+    fieldBase,
     objectParamSpecs,
     paramValue,
     setObjectLinks,
@@ -58,13 +61,31 @@ function kindOf(name: string): EntityKind {
 /** Cells (2048 units) per max_w / max_h step is unverified; only used for the optional extent warning. */
 export const LAYER_CELL = 2048;
 
+/**
+ * An exit's `Transition To...` string field holds an XDB string id of the level (length 0, the id in the offset half),
+ * not text. The document keeps that id as a number so a per-exit override survives a round trip; everything else about
+ * the field is a plain string field.
+ */
+export const isStringRefField = (type: number, name: string): boolean =>
+    fieldBase(type) === FIELD_STRING && !fieldIsArray(type) && /^Transition To\.\.\./i.test(name);
+
+/** The XDB string id a string-reference parameter holds, undefined when it is not one (or holds text). */
+function stringRefOf(o: LvlObject, slot: number): number | undefined {
+    const p = o.params[slot];
+    const dword = o.data[slot];
+    if (!p || dword === undefined || !isStringRefField(p.type, p.name)) return undefined;
+    return dword >>> 16 === 0 && (dword & 0xffff) !== 0 ? dword & 0xffff : undefined;
+}
+
+const paramValueOf = (o: LvlObject, slot: number): DocField['value'] => stringRefOf(o, slot) ?? paramValue(o, slot);
+
 const fieldsOf = (o: LvlObject): DocField[] =>
     o.params.map((p, slot) => ({
         slot,
         fieldIndex: p.fieldIndex,
         type: p.type,
         name: p.name,
-        value: paramValue(o, slot),
+        value: paramValueOf(o, slot),
     }));
 
 export interface LvlDocumentInfo {
@@ -132,7 +153,47 @@ const sameLinks = (a: readonly number[], b: readonly number[]): boolean =>
 
 /** The parameters a document object wants written: its overrides, by class field index. */
 function desiredParams(o: LevelObject): ParamSpec[] {
-    return (o.fields ?? []).map((f) => ({ fieldIndex: f.fieldIndex, type: f.type, name: f.name, value: f.value }));
+    return (o.fields ?? []).map((f) => ({
+        fieldIndex: f.fieldIndex,
+        type: f.type,
+        name: f.name,
+        // A string id is written after the rest (see `writeParams`); the placeholder keeps the data area layout.
+        value: typeof f.value === 'number' && isStringRefField(f.type, f.name) ? '' : f.value,
+    }));
+}
+
+/** `setObjectParams` for a document object, then the string ids of its `Transition To...` fields into place. */
+function writeParams(list: LvlObjectList, id: number, o: LevelObject): void {
+    const before = findObject(list, id);
+    // Ids the object holds now: kept when the document only carries the empty text an older save wrote for them.
+    const held = new Map<number, number>();
+    before?.params.forEach((p, slot) => {
+        const r = stringRefOf(before, slot);
+        if (r !== undefined) held.set(p.fieldIndex, r);
+    });
+    setObjectParams(list, id, desiredParams(o));
+    const t = findObject(list, id);
+    if (!t) return;
+    for (const f of o.fields ?? []) {
+        if (!isStringRefField(f.type, f.name)) continue;
+        const ref = typeof f.value === 'number' ? f.value : f.value === '' ? held.get(f.fieldIndex) : undefined;
+        if (ref === undefined) continue;
+        const i = t.params.findIndex((p) => p.fieldIndex === f.fieldIndex);
+        if (i < 0) continue;
+        // The placeholder text took words in the data area: cut them out and shift the later offsets back.
+        const dword = t.data[i]!;
+        const off = dword & 0xffff;
+        const len = dword >>> 16;
+        if (len > 0) {
+            t.data.splice(off, len);
+            t.data.forEach((d, k) => {
+                const p = t.params[k];
+                if (k !== i && p && (fieldIsArray(p.type) || fieldBase(p.type) === FIELD_STRING) && (d & 0xffff) > off)
+                    t.data[k] = ((d & 0xffff0000) | ((d & 0xffff) - len)) >>> 0;
+            });
+        }
+        t.data[i] = ref & 0xffff;
+    }
 }
 
 /**
@@ -141,12 +202,18 @@ function desiredParams(o: LevelObject): ParamSpec[] {
  */
 function paramsChanged(b: LvlObject, o: LevelObject): boolean {
     if (!o.fields) return false;
-    const want = desiredParams(o);
-    const have = objectParamSpecs(b);
+    const want = (o.fields ?? []).map((f) => ({
+        fieldIndex: f.fieldIndex,
+        type: f.type,
+        name: f.name,
+        value: f.value,
+    }));
+    const have = objectParamSpecs(b).map((s, i) => ({ ...s, value: paramValueOf(b, i) }));
     if (want.length !== have.length) return true;
     const byIndex = new Map(have.map((p) => [p.fieldIndex, p]));
     return want.some((w) => {
         const h = byIndex.get(w.fieldIndex);
+        if (h && w.value === '' && typeof h.value === 'number' && isStringRefField(h.type, h.name)) return false;
         return !h || h.type !== w.type || !sameFieldValue(w.type, w.value, h.value);
     });
 }
@@ -253,7 +320,7 @@ export function applyDocumentToLvl(
         if (o.links) obj.links = [...new Set(o.links.map((l) => idMap.get(l) ?? l))];
         if (o.fields && paramsChanged(obj, o)) {
             try {
-                setObjectParams(list, obj.id, desiredParams(o));
+                writeParams(list, obj.id, o);
             } catch (e) {
                 report.warnings.push(`object ${o.id}: ${(e as Error).message}`);
             }
@@ -285,7 +352,7 @@ export function applyDocumentToLvl(
         const t = findObject(list, id);
         if (!t) continue;
         try {
-            setObjectParams(list, id, desiredParams(o));
+            writeParams(list, id, o);
         } catch (e) {
             report.warnings.push(`object ${id}: ${(e as Error).message}`);
         }

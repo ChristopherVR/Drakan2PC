@@ -295,14 +295,14 @@ export function createDialoguePanel(session: ContentSession, meta: () => ModMeta
             max: 65535,
             value: refParts(session.lineSound(l.classId, 0)).id,
             'aria-label': 'Sound id of the new line',
-            title: 'A sound of this level folder SDB (new recordings cannot be added)',
+            title: 'An existing sound of this level',
         });
         const add = h(
             'button',
             {
                 class: 'btn',
                 type: 'button',
-                title: 'Add a new dialog line class that copies this one (exported as a new class in the level ODB)',
+                title: 'Add a new line that copies this one',
                 onclick: () => {
                     try {
                         const id = session.addLine(l.classId, name.value, Number(snd.value) >>> 0);
@@ -459,13 +459,7 @@ export function createDialoguePanel(session: ContentSession, meta: () => ModMeta
                     'Revert phase edits',
                 ),
             );
-        out.push(
-            h(
-                'div',
-                { class: 'dim' },
-                'Which phase plays is decided by the quest state. Message 1 is On and 18 is Quest Complete (inferred).',
-            ),
-        );
+        out.push(h('div', { class: 'dim' }, 'The quest state decides which phase plays.'));
         const placed = (session.host.placed?.() ?? []).filter((o) => o.fields.has('Beginning Dialog Exchange'));
         if (placed.length) {
             out.push(h('div', { class: 'story-group' }, 'Placed in the open level'));

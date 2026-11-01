@@ -204,6 +204,15 @@ export function setCopyPlayProvider(p: CopyPlayProvider | null): void {
     copyProvider = p;
 }
 
+/** The pack that adds the open level when it is a project's level copy (the disc has no LVL under its title); else null. */
+export async function copyPlayPack(
+    title: string,
+    doc: LevelDocument,
+    meta: ModMeta,
+): Promise<Pick<LevelPack, 'meta' | 'files'> | null> {
+    return copyProvider && title ? copyProvider(title, doc, meta) : null;
+}
+
 export async function playTestDoc(
     host: PlayTestHost,
     doc: LevelDocument,

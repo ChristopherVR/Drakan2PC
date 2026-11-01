@@ -104,6 +104,14 @@ const CLASSES: Record<string, StubClass> = {
         name: 'Level Transition',
         fields: [{ name: 'Send This Message', type: 7, def: 0 }],
     },
+    '0x2000d': {
+        rfl: 0x22,
+        name: 'Key Lock',
+        fields: [
+            { name: 'Lock Code', type: 1, def: 0 },
+            { name: 'Trigger To Send', type: 7, def: 1 },
+        ],
+    },
     '0x2000c': { rfl: 0x68, name: 'Kill the Inquisitor', fields: [{ name: 'Type', type: 7, def: 1 }] },
 };
 
@@ -455,6 +463,33 @@ describe('templates', () => {
         const d = level();
         const r = templateById('pressure-plates')!.build(ctxFor(d), { target: 4, count: 3 });
         expect(isError(r) && r.error).toMatch(/no pressure plate class/);
+    });
+
+    it('timed trigger: volume starts a timer that fires at the target', () => {
+        const d = level();
+        const r = templateById('timer-door')!.build(ctxFor(d), { target: 4, delay: 2, then: 'Unlock' });
+        if (isError(r)) throw new Error(r.error);
+        const det = r.objects.find((o) => o.class === 'Trigger Detector')!;
+        const timer = r.objects.find((o) => o.class === 'Timer')!;
+        expect(det.links).toEqual([timer.id]);
+        expect(timer.links).toEqual([4]);
+        const fv = (o: LevelObject, n: string) => o.fields!.find((f) => f.name === n)!.value;
+        expect(fv(timer, 'Time Until Trigger')).toBe(2);
+        expect(fv(timer, 'Trigger Message')).toBe(3);
+        expect(fv(det, 'Trigger Message')).toBe(1);
+        expect('error' in templateById('timer-door')!.build(ctxFor(d), {})).toBe(true);
+    });
+
+    it('key lock sends Unlock to the door', () => {
+        const d = level();
+        const k = templateById('key-lock')!.build(ctxFor(d), { door: 4, code: 49 });
+        if (isError(k)) throw new Error(k.error);
+        const lock = k.objects[0]!;
+        expect(lock.links).toEqual([4]);
+        expect(Object.fromEntries(lock.fields!.map((f) => [f.name, f.value]))).toEqual({
+            'Lock Code': 49,
+            'Trigger To Send': 3,
+        });
     });
 
     it('places a quest object and its start / complete volumes', () => {

@@ -48,7 +48,8 @@ export function initLayout(root: HTMLElement, onResize: () => void): Layout {
             splitter: q('#ed-split-bottom'),
             min: 120,
             max: 640,
-            def: 280,
+            // A short window gets a shorter dock so the viewport keeps most of the height.
+            def: window.innerHeight < 800 ? 224 : 280,
             axis: 'y',
             invert: true,
         },

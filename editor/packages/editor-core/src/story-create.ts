@@ -83,7 +83,7 @@ export interface CameraPoint {
     time: number;
     /** Game units. */
     pos: [number, number, number];
-    /** Degrees about the vertical axis / tilt. The quaternion convention is inferred (see level-format.md 14). */
+    /** Degrees: yaw 0 looks along -Z and 90 along +X; pitch > 0 looks down (convention proven in game, level-format.md 14). */
     yaw: number;
     pitch: number;
 }
@@ -104,6 +104,11 @@ export interface CutsceneSpec {
     steps: CutsceneStep[];
     /** Seconds the scene lasts at least (the end marker goes at the later of this and the last point / step). */
     duration?: number;
+    /**
+     * Camera setup value of the disc's camera actors (type 9 action at 0 s: `1.0` and 40, 50 or 55; "field of view" is inferred).
+     * Written when set; 0 or missing leaves the action out.
+     */
+    camSetup?: number;
 }
 
 /** Sound action parameter word seen on 809 of the disc's sound actions (`0x82710`: level 10000 in the low half). */
@@ -111,16 +116,39 @@ export const SOUND_PARAMS_DEFAULT = 0x82710;
 
 const D2R = Math.PI / 180;
 
-/** Quaternion (x y z w) of a yaw about the vertical axis followed by a pitch about X. Convention inferred. */
+/**
+ * Camera key orientation, settled in game and on the disc (2026-11-01, docs/reference/level-format.md section 14): the engine
+ * applies the key quaternion as a ROW-VECTOR rotation, so the camera looks along `R(q)^-1 * (0, 0, -1)` (textbook rotation `R`).
+ * For `q = qpitch(X) * qyaw(Y)` that is `f = (cos p sin y, -sin p, -cos p cos y)`: yaw 0 looks along -Z, yaw 90 along +X (the
+ * play-test convention, mirrored sign), pitch > 0 looks DOWN. Checked on 1553 disc camera keys (median 23 degrees from the
+ * nearest actor with this model, 80 to 160 degrees for the 11 other axis / handedness choices) and by static cameras in Surdana.
+ * Returns the quaternion (x y z w).
+ */
 export function yawPitchQuat(yawDeg: number, pitchDeg: number): [number, number, number, number] {
     const hy = (yawDeg * D2R) / 2;
     const hp = (pitchDeg * D2R) / 2;
     const [sy, cy, sp, cp] = [Math.sin(hy), Math.cos(hy), Math.sin(hp), Math.cos(hp)];
-    // q = qyaw * qpitch, with qyaw = (0, sy, 0, cy) and qpitch = (sp, 0, 0, cp)
-    return [cy * sp, sy * cp, -sy * sp + 0, cy * cp];
+    // q = qpitch * qyaw, with qyaw = (0, sy, 0, cy) and qpitch = (sp, 0, 0, cp)
+    return [sp * cy, cp * sy, sp * sy, cp * cy];
 }
 
-/** Yaw and pitch (degrees) that point from `from` to `to` (identity looks along +Z, Y up; inferred convention). */
+/** Direction the camera looks along for a key quaternion (the convention above; unit length). */
+export function lookDirection(q: readonly [number, number, number, number]): [number, number, number] {
+    // R(q^-1) applied to (0, 0, -1) = -(third column of R(q)) taken as a row: the conjugate rotation of -Z
+    const [x, y, z, w] = q;
+    const n = Math.hypot(x, y, z, w) || 1;
+    const [a, b, c, d] = [x / n, y / n, z / n, w / n];
+    // row-vector convention: forward = -(row 3 of the textbook matrix) = -(2(ac - bd), 2(bc + ad), 1 - 2(a^2 + b^2))
+    return [-2 * (a * c - b * d), -2 * (b * c + a * d), -(1 - 2 * (a * a + b * b))];
+}
+
+/** Yaw and pitch (degrees) of a key quaternion; roll is dropped. Inverse of `yawPitchQuat` for roll-free keys. */
+export function quatYawPitch(q: readonly [number, number, number, number]): { yaw: number; pitch: number } {
+    const [fx, fy, fz] = lookDirection(q);
+    return { yaw: Math.atan2(fx, -fz) / D2R, pitch: Math.asin(Math.max(-1, Math.min(1, -fy))) / D2R };
+}
+
+/** Yaw and pitch (degrees) that point from `from` to `to` (yaw 0 looks along -Z, yaw 90 along +X, pitch > 0 down). */
 export function lookAtAngles(
     from: readonly [number, number, number],
     to: readonly [number, number, number],
@@ -128,7 +156,7 @@ export function lookAtAngles(
     const dx = to[0] - from[0];
     const dy = to[1] - from[1];
     const dz = to[2] - from[2];
-    return { yaw: Math.atan2(dx, dz) / D2R, pitch: -Math.atan2(dy, Math.hypot(dx, dz)) / D2R };
+    return { yaw: Math.atan2(dx, -dz) / D2R, pitch: -Math.atan2(dy, Math.hypot(dx, dz)) / D2R };
 }
 
 export interface CutsceneIssue {
@@ -179,6 +207,7 @@ export function buildCutscene(spec: CutsceneSpec): SsdSequence {
     const marker = (a: SsdActor, value: number, t: number): void => put(a, newActionBytes(5, t, { value }));
     const cam = addActor(seq, 'Camera', spec.cameraRef);
     marker(cam, 0, 0);
+    if (spec.camSetup) put(cam, newActionBytes(9, 0, { a: 1, b: spec.camSetup }));
     for (const p of byTime(spec.camera)) {
         const [qx, qy, qz, qw] = yawPitchQuat(p.yaw, p.pitch);
         put(cam, newActionBytes(0, p.time, { qx, qy, qz, qw, x: p.pos[0], y: p.pos[1], z: p.pos[2] }));
@@ -223,8 +252,8 @@ export const storedNameLen = (name: string): number => sequenceNameLen(name);
 
 // ---- quest placement --------------------------------------------------------------------------------------------------
 
-/** Message values by game name (`logic.ts` ordinals, level-format.md section 15). */
-export const QUEST_MESSAGE = { initiate: 31, complete: 18 } as const;
+/** Message ordinals (`logic.ts`; ordinal table in level-format.md section 15.1): 30 = Quest Initiate (0x1176), 18 = Quest Complete. */
+export const QUEST_MESSAGE = { initiate: 30, complete: 18 } as const;
 
 export interface QuestGiverWiring {
     /** Fields written on the placed conversation handler, by field name. */

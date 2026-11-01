@@ -15,6 +15,7 @@ import type { LevelInfo, LevelLoadResult } from '../../rpc.ts';
 import type { LevelUiHost } from '../../levelui.ts';
 import { autosaveKey, loadAutosave } from '../autosave.ts';
 import { changeCount } from '../../modio.ts';
+import { getMenusProvider } from '../menus/bridge.ts';
 
 export interface ProjectExportDeps {
     call: LevelUiHost['call'];
@@ -67,6 +68,10 @@ export async function levelEditCounts(deps: ProjectExportDeps, p: ModProject): P
 const srcCache = new Map<string, Promise<LevelLoadResult>>();
 /** Forget loaded levels (a different disc or language was opened). */
 export const resetExportCache = (): void => srcCache.clear();
+/** The editor already read this level from the disc to open it: the export reuses that read instead of asking the worker. */
+export const rememberLoadedLevel = (dir: string, r: LevelLoadResult): void => {
+    srcCache.set(dir, Promise.resolve(r));
+};
 function loadSrc(deps: ProjectExportDeps, dir: string): Promise<LevelLoadResult> {
     let p = srcCache.get(dir);
     if (!p) {
@@ -87,7 +92,16 @@ export async function buildProjectPack(
     p: ModProject,
     /** Documents to use instead of the open one or the autosave, by level title (the play test's edited copies). */
     docs?: ReadonlyMap<string, LevelDocument>,
+    /** Called with what the build is doing now (the Export dialog shows it). */
+    progress?: (msg: string) => void,
 ): Promise<ProjectPack> {
+    const t0 = performance.now();
+    const say = (msg: string): Promise<void> => {
+        progress?.(msg);
+        console.debug(`[export] +${Math.round(performance.now() - t0)} ms ${msg}`);
+        // Let the dialog paint before the next synchronous stretch (diffing thousands of objects).
+        return new Promise((r) => setTimeout(r, 0));
+    };
     const target = deps.target();
     if (!target) throw new ModError('The disc profile is unknown; open your disc image first.');
     const warnings: string[] = [];
@@ -97,15 +111,25 @@ export async function buildProjectPack(
     const copies: string[] = [];
     const copyOf: string[] = [];
 
+    let n = 0;
     for (const l of p.levels) {
+        n++;
+        const where = p.levels.length > 1 ? ` (${n} of ${p.levels.length})` : '';
         const srcTitle = l.copyOf ?? l.title;
         const dir = sourceDir(deps, srcTitle);
         if (!dir) throw new ModError(`"${srcTitle}" is not on the open disc.`);
-        const src = await loadSrc(deps, dir);
+        // Cheap first: a level without edits needs no read of its object list for a plain level.
         const doc = docs?.get(l.title) ?? (await editedDoc(deps, l.title));
+        if (!doc && !l.copyOf) {
+            lines.push(`${l.title}: no changes, left out`);
+            continue;
+        }
+        await say(`Reading ${srcTitle} from the disc${where}...`);
+        const src = await loadSrc(deps, dir);
         let payload: Uint8Array | null = null;
         let report: ReturnType<typeof applyDocumentToLvl>['report'] | null = null;
         if (doc) {
+            await say(`Comparing ${l.title} with the disc${where}...`);
             const r = applyDocumentToLvl(src.lvl.list, doc, { onReferenced: 'unlink' });
             if (changeCount(r.report.diff) > 0) {
                 payload = writeObjectList(r.list);
@@ -132,6 +156,7 @@ export async function buildProjectPack(
             continue;
         }
         // A copy ships as a whole new LVL under its own name, with the splat files the game opens for every level.
+        await say(`Packing the copy ${l.title}${where}...`);
         const bytes = await deps.call('readLevelFile', dir);
         let out: Uint8Array = bytes;
         if (payload) {
@@ -173,6 +198,7 @@ export async function buildProjectPack(
     Object.assign(files, extra);
 
     if (deps.story && deps.story.count() > 0) {
+        await say('Building the story edits...');
         const sf = await deps.story.files(meta);
         let n = 0;
         for (const [k, v] of Object.entries(sf)) {
@@ -182,6 +208,12 @@ export async function buildProjectPack(
             n++;
         }
         lines.push(`Story: ${deps.story.count()} edit(s), ${n} file(s)`);
+    }
+    // Menu and HUD skin of the Menus panel (ui/menus.ini), when it changes anything.
+    const menus = getMenusProvider();
+    if (menus?.dirty()) {
+        files['ui/menus.ini'] = menus.packFiles(meta)['ui/menus.ini']!;
+        lines.push('Menus: ui/menus.ini');
     }
     if (Object.keys(files).length <= 1) {
         throw new ModError('Nothing to export yet: no level in the project has changes and there are no story edits.');

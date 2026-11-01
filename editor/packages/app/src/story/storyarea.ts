@@ -8,6 +8,8 @@ export interface StoryTab {
     id: string;
     title: string;
     panel: Panel;
+    /** Runs each time the tab is shown (reading what the tab needs from the disc). */
+    onShow?: () => void;
 }
 
 export interface StoryArea {
@@ -17,9 +19,9 @@ export interface StoryArea {
     selected(): string;
 }
 
-export function createStoryArea(tabs: readonly StoryTab[], initial?: string): StoryArea {
+export function createStoryArea(tabs: readonly StoryTab[], initial?: string, sub = false): StoryArea {
     let cur = tabs.find((t) => t.id === initial)?.id ?? tabs[0]!.id;
-    const strip = h('div', { class: 'story-tabs', role: 'tablist', 'aria-label': 'Story editors' });
+    const strip = h('div', { class: `story-tabs${sub ? ' sub' : ''}`, role: 'tablist', 'aria-label': 'Story editors' });
     const body = h('div', { class: 'story-area-body' });
     const root = h('div', { class: 'panel story-area' }, strip, body);
     const active = (): StoryTab => tabs.find((t) => t.id === cur) ?? tabs[0]!;
@@ -48,6 +50,7 @@ export function createStoryArea(tabs: readonly StoryTab[], initial?: string): St
         cur = id;
         render();
         active().panel.onLoad?.();
+        active().onShow?.();
     }
     render();
     const each = (f: (p: Panel) => void): void => tabs.forEach((t) => f(t.panel));
@@ -59,7 +62,10 @@ export function createStoryArea(tabs: readonly StoryTab[], initial?: string): St
             onSelection: () => active().panel.onSelection?.(),
             onChange: () => each((p) => p.onChange?.()),
             onVisibility: () => each((p) => p.onVisibility?.()),
-            onLoad: () => each((p) => p.onLoad?.()),
+            onLoad: () => {
+                each((p) => p.onLoad?.());
+                active().onShow?.();
+            },
         },
     };
 }

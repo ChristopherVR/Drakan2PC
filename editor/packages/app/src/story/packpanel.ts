@@ -38,16 +38,11 @@ export function createStoryPackPanel(session: StorySession): Panel {
         {
             class: 'btn',
             type: 'button',
-            title: "Write into the game's mods folder and enable it in mods.ini",
+            title: "Write into the game's mods folder and turn it on",
             onclick: () =>
                 void session
                     .exportToMods(meta())
-                    .then(
-                        (r) =>
-                            (report.textContent = r.where
-                                ? `Written to ${r.where} and enabled in mods.ini.`
-                                : 'Cancelled.'),
-                    )
+                    .then((r) => (report.textContent = r.where ? `Written to ${r.where} and turned on.` : 'Cancelled.'))
                     .catch(fail),
         },
         'Write to mods folder',

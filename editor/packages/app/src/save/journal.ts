@@ -78,9 +78,9 @@ export function renderJournal(ctx: PanelCtx): HTMLElement {
             emptyState(
                 'scroll',
                 'Quest names need the game disc',
-                'The journal text lives in the disc’s System database. Open the ISO with Open ISO in the top bar and this view fills in with titles, chapters and states. The raw rows are below.',
+                'Open your disc image to see quest titles and states.',
             ),
-            rawTable(ctx),
+            h('details', { class: 'adv' }, h('summary', null, 'Raw rows'), rawTable(ctx)),
         );
     }
     const eff = effectiveRows(ctx);
@@ -186,7 +186,7 @@ export function renderJournal(ctx: PanelCtx): HTMLElement {
             statTile('Done', String(done), { bar: [done, Math.max(journal.length, 1)] }),
             statTile('Active', String(journal.length - done)),
             statTile('Places found', String(places.length)),
-            statTile('New', String(fresh), { note: 'not opened in game yet' }),
+            statTile('New', String(fresh), { note: 'not opened yet' }),
         ),
         h(
             'div',
@@ -199,10 +199,7 @@ export function renderJournal(ctx: PanelCtx): HTMLElement {
         h(
             'p',
             { class: 'sv-dim' },
-            'Ticking an entry sets its done flag, which the in-game journal draws as a ticked box (checked in game on ' +
-                'edited saves). Quests the save has no row for cannot be added: the row is created when the game ' +
-                'meets the quest, and marking them started is not supported. ',
-            badge('done flag: medium', 'medium', 'Row word +0x0c; toggled both ways in the original journal screen.'),
+            'Tick an entry to mark it done. Quests the game has not started yet cannot be added.',
         ),
         h('details', null, h('summary', null, 'Raw rows'), rawTable(ctx)),
     );
@@ -272,7 +269,7 @@ function questRow(ctx: PanelCtx, e: QuestEntry): HTMLElement {
                   type: 'checkbox',
                   class: 'qtick',
                   checked: e.state === 'done',
-                  title: 'Done flag (quest row word +0x0c)',
+                  title: 'Done',
                   'aria-label': 'Done',
                   onchange: (ev: Event) =>
                       ctx.run(

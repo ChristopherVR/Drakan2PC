@@ -26,6 +26,7 @@ export function flowDiagram(labels: readonly string[]): HTMLElement {
 }
 
 export function createHelp(): Help {
+    const bottomGuides = new Map<Element, string>();
     const body = h('div', { class: 'hp-body' });
     const title = h('h2', {}, 'Help');
     const back = h(
@@ -68,7 +69,7 @@ export function createHelp(): Help {
                 h('kbd', {}, 'Ctrl+P'),
                 ' to search every command, ',
                 h('kbd', {}, '?'),
-                ' for the keyboard shortcuts. The same guides are in docs/reference/editor-guide.md.',
+                ' for the keyboard shortcuts.',
             ),
         );
     }
@@ -151,7 +152,33 @@ export function createHelp(): Help {
         toggle: () => (el.hidden ? open() : close()),
         isOpen: () => !el.hidden,
         attach(host, guideId, label = 'Open the guide for this panel') {
-            if (!host || host.querySelector(':scope > .hp-q')) return;
+            if (!host) return;
+            const strip = host.closest('#ed-bottom')?.querySelector<HTMLElement>('.dock-tabs');
+            if (strip) {
+                // Bottom dock: one "?" at the end of the tab strip that opens the guide of the tab being shown, so it
+                // never sits on top of a panel's own buttons.
+                bottomGuides.set(host, guideId);
+                if (!strip.querySelector(':scope > .hp-q')) {
+                    strip.append(
+                        h(
+                            'button',
+                            {
+                                class: 'hp-q hp-strip',
+                                type: 'button',
+                                title: 'Open the guide for this panel',
+                                'aria-label': 'Open the guide for this panel',
+                                onclick: () => {
+                                    const shown = [...bottomGuides.keys()].find((el) => el.getClientRects().length > 0);
+                                    open(shown ? bottomGuides.get(shown) : undefined);
+                                },
+                            },
+                            '?',
+                        ),
+                    );
+                }
+                return;
+            }
+            if (host.querySelector(':scope > .hp-q')) return;
             if (getComputedStyle(host).position === 'static') (host as HTMLElement).style.position = 'relative';
             host.append(
                 h(

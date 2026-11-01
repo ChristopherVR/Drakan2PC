@@ -10,6 +10,7 @@ import {
     zipModFiles,
     type ModMeta,
     type NewQuest,
+    type ProjectStory,
     type StoryEntryChange,
 } from '@drakan/editor-core';
 import {
@@ -91,14 +92,61 @@ export class StorySession {
         return this.loading;
     }
 
-    reset(): void {
+    /** Forget the disc data; `keepEdits` keeps the edits (a project's story edits restored before the disc opened). */
+    reset(keepEdits = false): void {
         this.data = null;
         this.usage = null;
         this.stringUsage = null;
         this.loading = null;
+        if (!keepEdits) {
+            this.edited.clear();
+            this.drafts.clear();
+            this.newQuests = [];
+        }
+        this.emit();
+    }
+
+    /** Strings, quest and new quest edits as plain JSON for the project file (the content session adds its own). */
+    exportState(): Pick<ProjectStory, 'strings' | 'quests' | 'newQuests'> {
+        const strings: ProjectStory['strings'] = [];
+        for (const [file, m] of [...this.edited].sort((a, b) => a[0].localeCompare(b[0])))
+            for (const s of [...m.values()].sort((a, b) => a.id - b.id))
+                if (!this.data || this.isChanged(file, s.id))
+                    strings.push({ file, id: s.id, sub: s.sub, text: [...s.text] });
+        const quests = [...this.drafts]
+            .sort((a, b) => a[0] - b[0])
+            .map(([classId, d]) => ({ classId, draft: { ...d } }));
+        const newQuests = this.newQuests.map((n) => ({
+            templateId: n.templateId,
+            group: n.group,
+            name: n.name,
+            classId: n.classId!,
+            draft: { ...n.draft },
+        }));
+        return { strings, quests, newQuests };
+    }
+
+    /** Replace the edits with a project file's. The disc data is read later (`ensure`) when the pack is built. */
+    importState(s: Pick<ProjectStory, 'strings' | 'quests' | 'newQuests'> | null): void {
         this.edited.clear();
         this.drafts.clear();
         this.newQuests = [];
+        for (const x of s?.strings ?? []) {
+            const t = [...x.text];
+            while (t.length < 8) t.push('');
+            let m = this.edited.get(x.file);
+            if (!m) this.edited.set(x.file, (m = new Map()));
+            m.set(x.id, { id: x.id, sub: x.sub, text: t });
+        }
+        for (const q of s?.quests ?? []) this.drafts.set(q.classId, { ...q.draft });
+        for (const n of s?.newQuests ?? [])
+            this.newQuests.push({
+                templateId: n.templateId,
+                group: n.group,
+                name: n.name,
+                classId: n.classId,
+                draft: { ...n.draft },
+            });
         this.emit();
     }
 
@@ -131,6 +179,16 @@ export class StorySession {
         if (!cur) return false;
         this.put(file, withDestination(cur, text));
         return true;
+    }
+
+    /** A new exit destination: a copy of string `fromId` (same sub and language slots) with `text`, under a fresh id. */
+    addDestinationString(file: string, fromId: number, text: string): number | null {
+        const cur = this.str(file, fromId);
+        if (!cur) return null;
+        const all = new Map(this.strings(file).map((s) => [s.id, s] as const));
+        const id = nextStringId(all);
+        this.put(file, { ...withDestination(cur, text), id });
+        return id;
     }
 
     // ---- strings ----------------------------------------------------------------------------------------------
@@ -307,6 +365,8 @@ export class StorySession {
     }
 
     private async ownChanges(): Promise<StoryEntryChange[]> {
+        // Edits restored from a project file may be waiting for the disc data.
+        if (!this.data && (this.edited.size || this.drafts.size || this.newQuests.length)) await this.ensure();
         const d = this.data;
         if (!d) return [];
         const out: StoryEntryChange[] = [];

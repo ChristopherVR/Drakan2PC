@@ -193,3 +193,23 @@ export async function onMenuAction(fn: (id: string) => void): Promise<() => void
     const { listen } = await import('@tauri-apps/api/event');
     return listen<string>('menu-action', (e) => fn(e.payload));
 }
+
+/**
+ * Open (or bring forward) the other application: the level/mod editor (`main`) or the save game editor (`save`), with
+ * an optional action for the save editor (`file`, `folder`). Desktop: its own window; browser: its own page.
+ */
+export async function openAppWindow(which: 'main' | 'save', action?: 'file' | 'folder'): Promise<void> {
+    if (isDesktop) {
+        await invoke('window_open', { which, action: action ?? null });
+        return;
+    }
+    const page = which === 'save' ? 'save.html' : 'index.html';
+    window.open(`${page}${action ? `#open=${action}` : ''}`, which === 'save' ? 'drakan-save-editor' : 'drakan-editor');
+}
+
+/** Desktop: actions sent to the save editor window (`file`, `folder`). */
+export async function onSaveAction(fn: (action: string) => void): Promise<() => void> {
+    if (!isDesktop) return () => {};
+    const { listen } = await import('@tauri-apps/api/event');
+    return listen<string>('save-action', (e) => fn(e.payload));
+}

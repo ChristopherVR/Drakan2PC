@@ -15,6 +15,7 @@ import {
     type LevelStory,
     type OdbClass,
 } from '@drakan/formats';
+import { newProject, parseProjectFile, serializeProject, serializeProjectFile } from '@drakan/editor-core';
 import { ContentSession, type ContentHost } from '../src/story/content.ts';
 import { StorySession } from '../src/story/session.ts';
 
@@ -270,5 +271,127 @@ describe('story session: composed dialogue and cut scenes', () => {
         pack.subscribe(() => told++);
         s.addSequence('Another', 5);
         expect(told).toBe(1);
+    });
+});
+
+describe('story edits in the project file', () => {
+    it('round-trips dialogue, line, phase and cut scene edits through JSON', async () => {
+        const { s } = await session();
+        const scene = s.addSequence('Scene', 5);
+        s.addSequenceActor(scene, 'Camera', 910);
+        const line = s.addLine(449, 'Farmer - B', 34);
+        s.setPhaseLines(445, 'beginning', [449, line]);
+        s.setLineSound(449, 0, 77);
+        const state = s.exportState();
+        expect(state).toHaveLength(1);
+        const file = serializeProjectFile(
+            newProject('P', null),
+            {},
+            { strings: [], quests: [], newQuests: [], content: state },
+        );
+        const back = parseProjectFile(file).story!;
+        expect(back.content).toEqual(state);
+
+        const t = (await session()).s;
+        t.importState(back.content);
+        expect(t.exportState()).toEqual(state);
+        expect(t.count()).toBe(s.count());
+        expect(t.sequenceIsNew(scene)).toBe(true);
+        expect(t.sequence(scene)!.actors.map((a) => a.name)).toEqual(['Camera']);
+        expect(t.phaseLines(445, 'beginning')).toEqual([449, line]);
+        expect(t.lineSound(449, 0)).toBe(77);
+        // the restored edits build the same pack entries
+        const a = await s.changes();
+        const b = await t.changes();
+        expect(b.map((c) => [c.file, c.type, c.id, c.isNew, [...c.data]])).toEqual(
+            a.map((c) => [c.file, c.type, c.id, c.isNew, [...c.data]]),
+        );
+        t.importState(null);
+        expect(t.count()).toBe(0);
+    });
+
+    it('keeps content edits across a disc reset only when asked, and loads their level folder when building', async () => {
+        const { s } = await session();
+        s.addSequence('Scene', 5);
+        const state = s.exportState();
+        s.reset();
+        expect(s.exportState()).toEqual([]);
+        s.importState(state);
+        s.reset(true);
+        expect(s.exportState()).toEqual(state);
+    });
+
+    it('round-trips string, quest and new quest edits and keeps them across reset(true)', () => {
+        const ss = new StorySession({ call: (async () => null) as never, target: () => null, status: () => {} });
+        const draft = { kind: 'journal' as const, optional: true, journalId: 5, mapTextId: 0, mapX: 1, mapY: 2 };
+        ss.importState({
+            strings: [{ file: 'SYSTEM.XDB', id: 9000, sub: 3, text: ['Hello', '', '', '', '', '', '', ''] }],
+            quests: [{ classId: 12, draft }],
+            newQuests: [{ templateId: 12, group: 4, name: 'Fetch', classId: 700, draft }],
+        });
+        expect(ss.str('SYSTEM.XDB', 9000)?.text[0]).toBe('Hello');
+        const state = ss.exportState();
+        expect(state.strings).toHaveLength(1);
+        expect(state.quests[0]).toEqual({ classId: 12, draft });
+        expect(state.newQuests[0]).toMatchObject({ classId: 700, name: 'Fetch' });
+        expect(ss.editCount()).toBeGreaterThanOrEqual(3);
+        ss.reset(true);
+        expect(ss.exportState()).toEqual(state);
+        ss.reset();
+        expect(ss.exportState()).toEqual({ strings: [], quests: [], newQuests: [] });
+    });
+
+    it('drops malformed story parts instead of failing, and omits an empty story from the file', () => {
+        const p = newProject('P', null);
+        expect(JSON.parse(serializeProjectFile(p, {}, null))).not.toHaveProperty('story');
+        expect(
+            JSON.parse(serializeProjectFile(p, {}, { strings: [], quests: [], newQuests: [], content: [] })),
+        ).not.toHaveProperty('story');
+        const bad = JSON.stringify({
+            ...p,
+            story: {
+                strings: [{ file: 1 }, 5],
+                quests: [{ classId: 'x' }],
+                content: [{ stem: 'A', texts: [['x', 1]] }],
+            },
+        });
+        expect(parseProjectFile(bad).story).toEqual({
+            strings: [],
+            quests: [],
+            newQuests: [],
+            content: [{ stem: 'A', texts: [], lineSounds: [], seqs: [], newSeqs: [], newLines: [], phases: [] }],
+        });
+        expect(parseProjectFile(serializeProject(p)).story).toBeNull();
+    });
+});
+
+describe('per-exit destination strings', () => {
+    it('adds a new string beside the shared one and leaves the shared one unchanged', () => {
+        const ss = new StorySession({ call: (async () => null) as never, target: () => null, status: () => {} });
+        const B = String.fromCharCode(92);
+        const city = ['Levels', 'Level 1D - City', 'Level 1D - City.lvl'].join(B);
+        ss.data = {
+            slot: 0,
+            xdbs: [
+                {
+                    file: 'LEVEL1ON.XDB',
+                    strings: [
+                        { id: 12, sub: 3, text: [city, '', '', '', '', '', '', ''] },
+                        { id: 15, sub: 3, text: [city, 'Ville', '', '', '', '', '', ''] },
+                    ],
+                    refs: [],
+                },
+            ],
+            quests: [],
+        } as never;
+        const id = ss.addDestinationString('LEVEL1ON.XDB', 15, 'Level 1E - Lair')!;
+        expect(id).toBe(16);
+        expect(ss.str('LEVEL1ON.XDB', 15)!.text[0]).toBe(city);
+        expect(ss.str('LEVEL1ON.XDB', id)).toMatchObject({ sub: 3 });
+        // the text goes into every language slot that had text
+        expect(ss.str('LEVEL1ON.XDB', id)!.text.filter(Boolean)).toEqual(['Level 1E - Lair', 'Level 1E - Lair']);
+        expect(ss.isNewString('LEVEL1ON.XDB', id)).toBe(true);
+        expect(ss.isChanged('LEVEL1ON.XDB', 15)).toBe(false);
+        expect(ss.addDestinationString('LEVEL1ON.XDB', 99, 'x')).toBeNull();
     });
 });

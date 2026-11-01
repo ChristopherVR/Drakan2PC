@@ -36,6 +36,8 @@ export interface ExitLevelData {
 
 export interface ExitIndexData {
     levels: ExitLevelData[];
+    /** Every level of the disc (only set for a single-level answer, where `levels` holds just that level). */
+    levelNames?: string[];
 }
 
 /** String id or inline text of an exit's destination dword (strings keep `id` in the low half when the length is 0). */

@@ -260,7 +260,7 @@ export function openRefPicker(
             const search = h('input', {
                 type: 'search',
                 class: 'rp-search',
-                placeholder: `Search ${KIND_LABEL[kind].toLowerCase()}s by name or id`,
+                placeholder: `Search ${KIND_LABEL[kind].toLowerCase()}s`,
                 'aria-label': `Search ${KIND_LABEL[kind].toLowerCase()}s`,
                 spellcheck: 'false',
                 autocomplete: 'off',
@@ -532,14 +532,7 @@ ${it.note ?? `${it.stem} #${it.id}`}`,
                         await ap.setModel(m);
                     })();
                 }
-                if (kind === 'sequence')
-                    body.push(
-                        h(
-                            'div',
-                            { class: 'note' },
-                            'Cutscene sequence from the level sound script (SSD 0x311, inferred).',
-                        ),
-                    );
+                if (kind === 'sequence') body.push(h('div', { class: 'note' }, 'Cutscene sequence.'));
                 fill(preview, ...body);
             }
 

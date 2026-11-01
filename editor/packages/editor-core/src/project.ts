@@ -135,15 +135,156 @@ export type ProjectEdits = Record<string, ProjectLevelEdit>;
 /** File name of a project inside its folder (desktop) and the suggested name of a downloaded one (browser). */
 export const PROJECT_FILE = 'project.drakan.json';
 
-/** The project plus its level edits as one file: the project fields, and `edits` beside them. */
-export function serializeProjectFile(p: ModProject, edits: ProjectEdits): string {
-    return JSON.stringify({ ...p, edits }, null, 1) + '\n';
+/**
+ * The story session's edits as plain JSON (strings, quests, dialogue, cut scenes). Sequences are base64 of their SSD
+ * bytes; everything else is numbers and text. Empty when the user made no story edits.
+ */
+export interface ProjectStory {
+    /** Edited or added string-table entries: file, id, sub, the eight language slots. */
+    strings: { file: string; id: number; sub: number; text: string[] }[];
+    /** Edited quest records by class id. */
+    quests: { classId: number; draft: ProjectQuestDraft }[];
+    newQuests: { templateId: number; group: number; name: string; classId: number; draft: ProjectQuestDraft }[];
+    /** Dialogue and cut scene edits per level folder (stem). */
+    content: ProjectContentEdits[];
+    /** Item price edits of the Vendors tab (container stem, item class id, gold). */
+    prices?: { stem: string; id: number; price: number }[];
+}
+
+export interface ProjectQuestDraft {
+    kind: 'map' | 'journal' | 'both';
+    optional: boolean;
+    journalId: number;
+    mapTextId: number;
+    mapX: number;
+    mapY: number;
+}
+
+export interface ProjectContentEdits {
+    stem: string;
+    texts: [number, string][];
+    lineSounds: [number, [number, number][]][];
+    seqs: { id: number; folder: number; data: string }[];
+    newSeqs: { id: number; folder: number; data: string }[];
+    newLines: { classId: number; templateId: number; name: string; soundRef: number }[];
+    phases: [number, [string, number[]][]][];
+}
+
+export const emptyProjectStory = (): ProjectStory => ({ strings: [], quests: [], newQuests: [], content: [] });
+
+export const isEmptyStory = (s: ProjectStory | null | undefined): boolean =>
+    !s || (!s.strings.length && !s.quests.length && !s.newQuests.length && !s.content.length && !s.prices?.length);
+
+/** The project plus its level edits (and story edits) as one file: the project fields, and `edits`/`story` beside them. */
+export function serializeProjectFile(p: ModProject, edits: ProjectEdits, story?: ProjectStory | null): string {
+    return JSON.stringify({ ...p, edits, ...(story && !isEmptyStory(story) ? { story } : {}) }, null, 1) + '\n';
+}
+
+const num = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v);
+const isObj = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v);
+const arr = (v: unknown): unknown[] => (Array.isArray(v) ? v : []);
+
+function parseDraft(v: unknown): ProjectQuestDraft | null {
+    if (!isObj(v)) return null;
+    const kind = v['kind'];
+    if (kind !== 'map' && kind !== 'journal' && kind !== 'both') return null;
+    if (![v['journalId'], v['mapTextId'], v['mapX'], v['mapY']].every(num)) return null;
+    return {
+        kind,
+        optional: v['optional'] === true,
+        journalId: v['journalId'] as number,
+        mapTextId: v['mapTextId'] as number,
+        mapX: v['mapX'] as number,
+        mapY: v['mapY'] as number,
+    };
+}
+
+/** Read the `story` part of a project file; anything malformed is dropped, never thrown. */
+export function parseProjectStory(raw: unknown): ProjectStory | null {
+    if (!isObj(raw)) return null;
+    const out = emptyProjectStory();
+    for (const x of arr(raw['strings'])) {
+        if (!isObj(x) || typeof x['file'] !== 'string' || !num(x['id']) || !num(x['sub'])) continue;
+        const text = arr(x['text']).filter((t): t is string => typeof t === 'string');
+        out.strings.push({ file: x['file'], id: x['id'], sub: x['sub'], text });
+    }
+    for (const x of arr(raw['quests'])) {
+        if (!isObj(x) || !num(x['classId'])) continue;
+        const draft = parseDraft(x['draft']);
+        if (draft) out.quests.push({ classId: x['classId'], draft });
+    }
+    for (const x of arr(raw['newQuests'])) {
+        if (!isObj(x) || !num(x['classId']) || !num(x['templateId']) || !num(x['group'])) continue;
+        const draft = parseDraft(x['draft']);
+        if (draft)
+            out.newQuests.push({
+                classId: x['classId'],
+                templateId: x['templateId'],
+                group: x['group'],
+                name: typeof x['name'] === 'string' ? x['name'] : 'New Quest',
+                draft,
+            });
+    }
+    for (const c of arr(raw['content'])) {
+        if (!isObj(c) || typeof c['stem'] !== 'string') continue;
+        const e: ProjectContentEdits = {
+            stem: c['stem'],
+            texts: [],
+            lineSounds: [],
+            seqs: [],
+            newSeqs: [],
+            newLines: [],
+            phases: [],
+        };
+        for (const t of arr(c['texts']))
+            if (Array.isArray(t) && num(t[0]) && typeof t[1] === 'string') e.texts.push([t[0], t[1]]);
+        for (const t of arr(c['lineSounds'])) {
+            if (!Array.isArray(t) || !num(t[0])) continue;
+            const m = arr(t[1]).filter((p): p is [number, number] => Array.isArray(p) && num(p[0]) && num(p[1]));
+            if (m.length) e.lineSounds.push([t[0], m.map((p) => [p[0], p[1]])]);
+        }
+        for (const [key, dst] of [
+            ['seqs', e.seqs],
+            ['newSeqs', e.newSeqs],
+        ] as const)
+            for (const q of arr(c[key]))
+                if (isObj(q) && num(q['id']) && num(q['folder']) && typeof q['data'] === 'string')
+                    dst.push({ id: q['id'], folder: q['folder'], data: q['data'] });
+        for (const l of arr(c['newLines']))
+            if (isObj(l) && num(l['classId']) && num(l['templateId']) && num(l['soundRef']))
+                e.newLines.push({
+                    classId: l['classId'],
+                    templateId: l['templateId'],
+                    name: typeof l['name'] === 'string' ? l['name'] : '',
+                    soundRef: l['soundRef'],
+                });
+        for (const t of arr(c['phases'])) {
+            if (!Array.isArray(t) || !num(t[0])) continue;
+            const m: [string, number[]][] = [];
+            for (const p of arr(t[1]))
+                if (Array.isArray(p) && typeof p[0] === 'string' && Array.isArray(p[1]) && p[1].every(num))
+                    m.push([p[0], p[1] as number[]]);
+            if (m.length) e.phases.push([t[0], m]);
+        }
+        out.content.push(e);
+    }
+    for (const x of arr(raw['prices'])) {
+        if (isObj(x) && typeof x['stem'] === 'string' && num(x['id']) && num(x['price']) && x['price'] >= 0) {
+            (out.prices ??= []).push({ stem: x['stem'], id: x['id'], price: x['price'] });
+        }
+    }
+    return isEmptyStory(out) ? null : out;
 }
 
 /** Read a project file written by `serializeProjectFile` (or the older settings-only one: no edits). */
-export function parseProjectFile(text: string): { project: ModProject; edits: ProjectEdits } {
+export function parseProjectFile(text: string): {
+    project: ModProject;
+    edits: ProjectEdits;
+    story: ProjectStory | null;
+} {
     const project = parseProject(text);
-    const raw = (JSON.parse(text) as { edits?: unknown }).edits;
+    const parsed = JSON.parse(text) as { edits?: unknown; story?: unknown };
+    const raw = parsed.edits;
     const edits: ProjectEdits = {};
     if (raw && typeof raw === 'object') {
         for (const [title, v] of Object.entries(raw as Record<string, unknown>)) {
@@ -156,7 +297,7 @@ export function parseProjectFile(text: string): { project: ModProject; edits: Pr
             };
         }
     }
-    return { project, edits };
+    return { project, edits, story: parseProjectStory(parsed.story) };
 }
 
 // ---- levels --------------------------------------------------------------------------------------------------------
@@ -532,7 +673,7 @@ export const WORKFLOWS: Record<TaskId, Workflow> = {
                 title: 'Open the Multiplayer Map tab and pick a level',
                 text: 'The level provides the terrain. Choose one that is open and flat enough to fight in.',
                 auto: (f) => f.mpActive,
-                action: { label: 'Open Multiplayer Map', command: 'panel.multiplayer' },
+                action: { label: 'Open World Settings', command: 'panel.multiplayer' },
             },
             {
                 id: 'details',
@@ -588,7 +729,7 @@ export const WORKFLOWS: Record<TaskId, Workflow> = {
                 title: 'Name your project',
                 text: 'In the Project panel, give the mod a name and an id.',
                 auto: (f) => f.projectLevels > 0 || f.projectCopies > 0,
-                action: { label: 'Open Project', command: 'panel.project' },
+                action: { label: 'Project Settings', command: 'panel.project' },
             },
             {
                 id: 'copy',

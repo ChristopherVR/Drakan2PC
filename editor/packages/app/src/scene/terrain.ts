@@ -24,30 +24,35 @@ export interface TerrainScene {
     dispose(): void;
 }
 
-interface Bucket {
+type Corner = [number, number, number, number, number];
+
+export interface TerrainBucket {
+    /** Stored texture reference (`id | db << 16`) of the cells in the bucket. */
     ref: number;
+    /** Chunk key (`cx,cz` in chunk units). */
+    chunk: string;
+    /** Scene units, 3 floats per vertex, non-indexed triangles. */
     pos: number[];
+    /** 2 floats per vertex, stored V (GL order, row 0 = bottom). */
     uv: number[];
 }
 
-type Corner = [number, number, number, number, number];
-
 /**
- * Build the terrain for decoded layers. Holes and invisible cells are skipped. Triangles follow the engine's cell
- * split (cell flag bit 0: a-d diagonal, else b-c) and the stored UV corners (`Uc Ud Ub Ua Vc Vd Vb Va`).
- * Coordinates: scene = game units * SCENE_SCALE, y up.
+ * Terrain triangles per (chunk, texture). Holes and invisible cells are skipped. Triangles follow the engine's cell
+ * split (cell flag bit 0: a-d diagonal, else b-c) and the stored UV corners (`Uc Ud Ub Ua Vc Vd Vb Va`), wound counter
+ * clockwise seen from +y. Coordinates: scene = game units * SCENE_SCALE, y up. `perCell` chunks by cell position (the
+ * default keys a whole layer by its origin, which suits culling but cannot split a large layer; the exporter splits).
  */
-export function buildTerrain(
+export function terrainBuckets(
     layers: readonly TerrainLayer[],
-    textures: TextureLookup,
-    opts: { chunkCells?: number } = {},
-): TerrainScene {
+    opts: { chunkCells?: number; perCell?: boolean } = {},
+): TerrainBucket[] {
     const chunk = opts.chunkCells ?? CHUNK_CELLS;
-    const buckets = new Map<string, Bucket>();
+    const buckets = new Map<string, TerrainBucket>();
     const S = SCENE_SCALE;
     for (const L of layers) {
         const stride = L.width + 1;
-        const ck = `${Math.floor(L.originX / chunk)},${Math.floor(L.originZ / chunk)}`;
+        const layerKey = `${Math.floor(L.originX / chunk)},${Math.floor(L.originZ / chunk)}`;
         for (let cz = 0; cz < L.height; cz++) {
             for (let cx = 0; cx < L.width; cx++) {
                 const c = cz * L.width + cx;
@@ -56,6 +61,9 @@ export function buildTerrain(
                 const skipL = tl === TEX_HOLE || tl === TEX_INVISIBLE;
                 const skipR = tr === TEX_HOLE || tr === TEX_INVISIBLE;
                 if (skipL && skipR) continue;
+                const ck = opts.perCell
+                    ? `${Math.floor((L.originX + cx) / chunk)},${Math.floor((L.originZ + cz) / chunk)}`
+                    : layerKey;
                 const x0 = (L.originX + cx) * CELL_SIZE * S;
                 const z0 = (L.originZ + cz) * CELL_SIZE * S;
                 const x1 = x0 + CELL_SIZE * S;
@@ -87,7 +95,7 @@ export function buildTerrain(
                     if (skip) continue;
                     const k = `${ck}:${ref}`;
                     let b = buckets.get(k);
-                    if (!b) buckets.set(k, (b = { ref, pos: [], uv: [] }));
+                    if (!b) buckets.set(k, (b = { ref, chunk: ck, pos: [], uv: [] }));
                     for (const v of tri) {
                         b.pos.push(v[0], v[1], v[2]);
                         b.uv.push(v[3], v[4]);
@@ -96,11 +104,21 @@ export function buildTerrain(
             }
         }
     }
+    return [...buckets.values()];
+}
+
+/** Build the terrain for decoded layers (see `terrainBuckets`). */
+export function buildTerrain(
+    layers: readonly TerrainLayer[],
+    textures: TextureLookup,
+    opts: { chunkCells?: number } = {},
+): TerrainScene {
+    const buckets = terrainBuckets(layers, opts);
     const group = new THREE.Group();
     group.name = 'terrain';
     const geometries: THREE.BufferGeometry[] = [];
     const materials = new Map<number, THREE.Material>();
-    for (const b of buckets.values()) {
+    for (const b of buckets) {
         const g = new THREE.BufferGeometry();
         g.setAttribute('position', new THREE.Float32BufferAttribute(b.pos, 3));
         g.setAttribute('uv', new THREE.Float32BufferAttribute(b.uv, 2));

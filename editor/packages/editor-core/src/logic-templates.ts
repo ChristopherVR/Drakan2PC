@@ -353,6 +353,17 @@ export const TEMPLATES: LogicTemplate[] = [
             { id: 'count', label: 'Plates', kind: 'number', default: 3, min: 1, max: 8, step: 1 },
             { id: 'target', label: 'Target', kind: 'object', roles: ['door', 'mechanism', 'cutscene', 'timer'] },
             { id: 'plate', label: 'Plate class', kind: 'class', rfl: 0x1d },
+            { id: 'spacing', label: 'Plate spacing (units)', kind: 'number', default: 3000, min: 1000, step: 500 },
+            {
+                id: 'axis',
+                label: 'Plates in a row along',
+                kind: 'choice',
+                default: 'x',
+                options: [
+                    { value: 'x', label: 'X' },
+                    { value: 'z', label: 'Z' },
+                ],
+            },
             {
                 id: 'then',
                 label: 'Counter sends',
@@ -396,16 +407,108 @@ export const TEMPLATES: LogicTemplate[] = [
                     'Message To Send': msg(then),
                 });
                 for (let i = 0; i < n; i++) {
-                    const p = b.make(plate, [ctx.at[0] + i * 3000, ctx.at[1], ctx.at[2]], {
-                        'Sink Distance (wu)': 50, // the placed plates of Stratos use 50 (class default 100)
-                        'Send Message When': 1, // Reached Bottom (the class default 0 only sends at the top)
-                        'Message To Send At Bottom': msg('On'),
-                        'Message To Send At Top': msg('<none>'),
-                    });
+                    const step = num(v, 'spacing', 3000) * i;
+                    const along = v.axis === 'z';
+                    const p = b.make(
+                        plate,
+                        [ctx.at[0] + (along ? 0 : step), ctx.at[1], ctx.at[2] + (along ? step : 0)],
+                        {
+                            'Sink Distance (wu)': 50, // the placed plates of Stratos use 50 (class default 100)
+                            'Send Message When': 1, // Reached Bottom (the class default 0 only sends at the top)
+                            'Message To Send At Bottom': msg('On'),
+                            'Message To Send At Top': msg('<none>'),
+                        },
+                    );
                     b.link(p.id, counter.id);
                 }
                 b.link(counter.id, target);
                 b.notes.push(`${n} plate(s) feed counter #${counter.id}, which sends ${then} to #${target}`);
+                return b.done();
+            }),
+    },
+    {
+        id: 'timer-door',
+        title: 'Timed trigger (volume, delay, target)',
+        summary:
+            'A volume starts a timer when the player enters; after the delay the timer sends a message (default On, opens a door) to the target.',
+        params: [
+            { id: 'target', label: 'Target', kind: 'object', roles: ['door', 'mechanism', 'cutscene', 'visibility'] },
+            { id: 'delay', label: 'Delay (seconds)', kind: 'number', default: 3, min: 0, step: 0.5 },
+            {
+                id: 'then',
+                label: 'Timer sends',
+                kind: 'choice',
+                default: 'On',
+                options: ['On', 'Off', 'Unlock', 'Lock', 'Play Sequence'].map((n) => ({ value: n, label: n })),
+            },
+            { id: 'w', label: 'Width (cells)', kind: 'number', default: 3, min: 0.25, step: 0.25 },
+            { id: 'h', label: 'Height (cells)', kind: 'number', default: 2, min: 0.25, step: 0.25 },
+            { id: 'd', label: 'Depth (cells)', kind: 'number', default: 1, min: 0.25, step: 0.25 },
+            { id: 'who', label: 'Detects', kind: 'choice', default: '2', options: detectOptions },
+        ],
+        build: (ctx, v) =>
+            guard(() => {
+                const b = new Builder(ctx);
+                const target = objId(v, 'target');
+                if (target === undefined) throw new TemplateError('Pick the object the timer fires at.');
+                need2(ctx, target, 'Target');
+                const det = need(
+                    pickClass(ctx.catalog, 0x3d, /^trigger detector$/i) ?? pickClass(ctx.catalog, 0x3d),
+                    'trigger detector class',
+                );
+                const tc = need(
+                    pickClass(ctx.catalog, 0x3e, /^timer$/i) ?? pickClass(ctx.catalog, 0x3e),
+                    'timer class',
+                );
+                const then = String(v.then ?? 'On');
+                const delay = num(v, 'delay', 3);
+                const timer = b.make(tc, [ctx.at[0], ctx.at[1], ctx.at[2] + 3000], {
+                    'Time Until Trigger': delay,
+                    'Start Mode': enumIndex('0x3e:Start Mode', 'Run When Triggered By Any Message'),
+                    'Trigger Message': msg(then),
+                    'Destroy After Timeout?': 0,
+                });
+                const d = b.make(
+                    det,
+                    ctx.at,
+                    {
+                        'Trigger Message': msg('On'),
+                        'Detect Only Once?': 1,
+                        'Detect Which?': Number(v.who ?? 2),
+                    },
+                    { scale: [num(v, 'w', 3), num(v, 'h', 2), num(v, 'd', 1)] },
+                );
+                b.link(d.id, timer.id);
+                b.link(timer.id, target);
+                b.notes.push(
+                    `Volume #${d.id} starts timer #${timer.id}; after ${delay} s it sends ${then} to #${target}`,
+                );
+                return b.done();
+            }),
+    },
+    {
+        id: 'key-lock',
+        title: 'Key lock opens door',
+        summary:
+            'A lock plate that sends Unlock to a door when Rynn uses the matching key (the key item carries the same Lock Code). Needs a key lock class in the level.',
+        params: [
+            { id: 'door', label: 'Door', kind: 'object', roles: ['door', 'mechanism'] },
+            { id: 'lock', label: 'Lock class', kind: 'class', rfl: 0x22 },
+            { id: 'code', label: 'Lock code (key item code)', kind: 'number', default: 1, min: 0, step: 1 },
+        ],
+        build: (ctx, v) =>
+            guard(() => {
+                const b = new Builder(ctx);
+                const door = objId(v, 'door');
+                if (door === undefined) throw new TemplateError('Pick the door the lock opens.');
+                need2(ctx, door, 'Door');
+                const wanted = typeof v.lock === 'string' ? ctx.catalog.find((c) => c.resource === v.lock) : undefined;
+                const cls = need(wanted ?? pickClass(ctx.catalog, 0x22), 'key lock class');
+                const code = Math.round(num(v, 'code', 1));
+                const lock = b.make(cls, ctx.at, { 'Lock Code': code, 'Trigger To Send': msg('Unlock') });
+                b.link(lock.id, door);
+                b.notes.push(`${cls.name} #${lock.id} (code ${code}) sends Unlock to door #${door}`);
+                b.notes.push('Unlock only unlocks: leave Auto-Open on, or add a lever / volume that sends On.');
                 return b.done();
             }),
     },

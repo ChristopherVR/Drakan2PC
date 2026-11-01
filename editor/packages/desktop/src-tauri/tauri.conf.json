@@ -21,6 +21,18 @@
                 "minHeight": 640,
                 "center": true,
                 "dragDropEnabled": false
+            },
+            {
+                "label": "save",
+                "title": "Drakan Save Editor",
+                "url": "save.html",
+                "width": 1360,
+                "height": 860,
+                "minWidth": 1000,
+                "minHeight": 640,
+                "center": true,
+                "dragDropEnabled": false,
+                "create": false
             }
         ],
         "security": {

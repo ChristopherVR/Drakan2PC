@@ -257,7 +257,7 @@ export function createNewDialoguePanel(session: ContentSession, ctx?: () => Ctx)
         if (st.target !== 'class' && !targets.some((x) => `obj:${x.id}` === st.target)) st.target = 'class';
         const targetSel = selectField(
             [
-                ['class', 'The conversation class (every handler that uses its default lines)'],
+                ['class', 'All conversations of this class'],
                 ...targets.map((o): Opt => [`obj:${o.id}`, `Placed ${o.name} #${o.id} in the open level`]),
             ],
             st.target,
@@ -789,11 +789,7 @@ export function createNewCutscenePanel(session: ContentSession, ctx?: () => Ctx)
                         ),
                     ),
                 ),
-            h(
-                'div',
-                { class: 'cmp-note' },
-                'The scene is a new SSD entry. A trigger volume sends Play Sequence to a cut scene player whose Sequence List holds its id; the placement makes both and links them.',
-            ),
+            h('div', { class: 'cmp-note' }, 'Places a trigger and a cut scene player, already linked.'),
         );
         renderPreview();
     }

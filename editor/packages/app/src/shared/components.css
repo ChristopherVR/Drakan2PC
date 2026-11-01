@@ -1,0 +1,177 @@
+/* Shared building blocks (shared/components.ts), default `c-` names in the level editor's UE5 tokens. The save editor
+   uses its own prefixes and keeps its Drakan skin (save.css / drakan.css). */
+.c-change-list {
+    display: flex;
+    flex-direction: column;
+    gap: var(--sp-2);
+    min-height: 0;
+    overflow: auto;
+}
+.c-change {
+    display: flex;
+    align-items: center;
+    gap: var(--sp-4);
+    padding: var(--sp-3) var(--sp-4) var(--sp-3) var(--sp-5);
+    background: var(--surface-2);
+    border-left: 3px solid var(--warn);
+    border-radius: var(--r-md);
+    font-size: var(--fs-sm);
+}
+.c-change.add {
+    border-left-color: var(--ok);
+}
+.c-change.del {
+    border-left-color: var(--bad);
+}
+.c-change.mod {
+    border-left-color: var(--accent);
+}
+.c-change.locatable {
+    cursor: default;
+}
+.c-change.locatable:hover {
+    background: var(--surface-3);
+}
+.c-change-main {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+}
+.c-change-main b {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-weight: 500;
+}
+.c-change-chg {
+    display: flex;
+    align-items: center;
+    gap: var(--sp-3);
+    font-family: var(--mono);
+    font-size: var(--fs-xs);
+    min-width: 0;
+}
+.c-change-chg s {
+    color: var(--fg-faint);
+}
+.c-change-chg em {
+    font-style: normal;
+    color: var(--fg);
+}
+.c-change-tag {
+    flex: none;
+    padding: 0 var(--sp-3);
+    border-radius: var(--r-sm);
+    background: var(--surface-4);
+    color: var(--fg-muted);
+    font-size: var(--fs-2xs);
+    line-height: 16px;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+}
+.c-change-tag.add {
+    background: var(--ok-soft);
+    color: var(--ok);
+}
+.c-change-tag.del {
+    background: var(--bad-soft);
+    color: var(--bad);
+}
+.c-change-tag.mod {
+    background: var(--accent-soft);
+    color: var(--accent-hover);
+}
+.c-change-act {
+    flex: none;
+    height: var(--h-ctl-sm);
+    padding: 0 var(--sp-4);
+    background: transparent;
+    color: var(--fg-muted);
+    border: 1px solid var(--border);
+    border-radius: var(--r-sm);
+    font: inherit;
+    font-size: var(--fs-xs);
+}
+.c-change-act:hover:not(:disabled) {
+    color: var(--fg);
+    border-color: var(--border-strong);
+    background: var(--surface-3);
+}
+.c-change-more {
+    padding: var(--sp-3);
+    color: var(--fg-faint);
+    font-size: var(--fs-xs);
+}
+
+.c-card {
+    display: flex;
+    flex-direction: column;
+    background: var(--surface-1);
+    border: 1px solid var(--border);
+    border-radius: var(--r-lg);
+    min-width: 0;
+}
+.c-card-head {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: var(--sp-2) var(--sp-4);
+    padding: var(--sp-4) var(--sp-5);
+    border-bottom: 1px solid var(--border);
+}
+.c-card-head h3 {
+    margin: 0;
+    font-size: var(--fs-sm);
+    font-weight: 600;
+}
+.c-card-head p {
+    margin: 0;
+    flex-basis: 100%;
+    color: var(--fg-muted);
+    font-size: var(--fs-xs);
+}
+.c-card-tools {
+    margin-left: auto;
+    display: flex;
+    gap: var(--sp-2);
+}
+.c-card-body {
+    padding: var(--sp-4) var(--sp-5);
+    display: flex;
+    flex-direction: column;
+    gap: var(--sp-3);
+    min-height: 0;
+}
+
+.c-stat {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    padding: var(--sp-4) var(--sp-5);
+    background: var(--surface-2);
+    border-radius: var(--r-md);
+}
+.c-stat small {
+    color: var(--fg-muted);
+    font-size: var(--fs-xs);
+}
+.c-stat b {
+    font-size: var(--fs-lg);
+    font-weight: 600;
+}
+.c-meter {
+    height: 4px;
+    background: var(--surface-4);
+    border-radius: 2px;
+    overflow: hidden;
+}
+.c-meter i {
+    display: block;
+    height: 100%;
+    background: var(--accent);
+}
+.c-dim {
+    color: var(--fg-faint);
+}

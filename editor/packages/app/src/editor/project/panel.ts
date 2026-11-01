@@ -527,7 +527,7 @@ export function createProjectPanel(host: ProjectPanelHost): ProjectPanel {
                 : h(
                       'p',
                       { class: 'pj-note' },
-                      "To play: put the zip in the game's mods folder, turn it on in mods.ini, restart the game. ",
+                      "To play: put the zip in the game's mods folder, turn it on in the game's Mods settings, restart the game. ",
                       h(
                           'button',
                           { class: 'pj-link', type: 'button', onclick: () => host.openGuide('package') },

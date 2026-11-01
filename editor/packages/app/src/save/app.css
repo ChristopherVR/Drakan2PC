@@ -1,0 +1,32 @@
+/* The save game editor as its own application (save.html): the page is the save editor. The Drakan skin itself stays in
+   save.css / drakan.css. */
+body.save-app {
+    height: 100vh;
+}
+body.save-app > #save-main {
+    flex: 1;
+    min-height: 0;
+}
+#save-main.sv .sv-app-tools {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-left: auto;
+}
+#save-main.sv .sv-app-btn {
+    height: 28px;
+    max-width: 260px;
+    padding: 0 12px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    background: var(--sv-raised);
+    color: var(--sv-ink);
+    border: 1px solid var(--sv-line-strong);
+    border-radius: 3px;
+    font: inherit;
+    cursor: pointer;
+}
+#save-main.sv .sv-app-btn:hover {
+    background: var(--sv-hover);
+}

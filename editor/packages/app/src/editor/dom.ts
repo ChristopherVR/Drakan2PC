@@ -37,6 +37,8 @@ export function fill(el: Element, ...children: Child[]): void {
 
 const PATHS: Record<string, string> = {
     select: '<path d="M5 3l14 7-6 2-2 6z"/>',
+    external: '<path d="M14 4h6v6M20 4l-9 9M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5"/>',
+    'dock-bottom': '<rect x="3" y="4" width="18" height="16" rx="1.5"/><path d="M3 14h18"/>',
     move: '<path d="M12 3v18M3 12h18M12 3l-3 3M12 3l3 3M12 21l-3-3M12 21l3-3M3 12l3-3M3 12l3 3M21 12l-3-3M21 12l-3 3"/>',
     rotate: '<path d="M20 12a8 8 0 1 1-2.5-5.8"/><path d="M20 4v5h-5"/>',
     scale: '<rect x="4" y="10" width="10" height="10" rx="1"/><path d="M14 10l6-6M15 4h5v5"/>',

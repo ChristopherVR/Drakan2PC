@@ -224,7 +224,7 @@ function resourcePicker(
     openPopover(anchor, (close) => {
         const search = h('input', {
             type: 'search',
-            placeholder: 'Search by container, id or class',
+            placeholder: 'Search classes',
             'aria-label': 'Search',
         });
         const list = h('div', { class: 'pop-list' });

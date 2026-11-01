@@ -292,7 +292,9 @@ export async function loadRefModel(
     for (const [db, ids] of byDb) {
         const tstem = db === 0 ? stem : deps.get(db);
         if (!tstem) continue;
-        out.textures.push(...(await readTextures(await reader(d, tstem, 'TXD'), ids, db, undefined, tstem)));
+        out.textures.push(
+            ...(await readTextures(await reader(d, tstem, 'TXD'), ids, db, undefined, tstem, `${tstem}.TXD`)),
+        );
     }
     return out;
 }

@@ -188,3 +188,89 @@
 #entries td:last-child {
     text-align: right;
 }
+
+/* Materials view (materialsui.ts): list, the three maps, a lit preview. */
+.mat-pane {
+    flex: 1;
+    min-height: 0;
+    display: grid;
+    grid-template-columns: 260px minmax(0, 1fr);
+    gap: 1px;
+    background: var(--border);
+}
+.mat-pane[hidden] {
+    display: none;
+}
+.mat-bar {
+    display: flex;
+    gap: var(--sp-3);
+    padding: var(--sp-3) var(--sp-4);
+}
+.mat-bar input[type='search'] {
+    flex: 1;
+    min-width: 0;
+}
+.mat-side .list {
+    flex: 1;
+    overflow: auto;
+}
+.mat-side .list li small {
+    float: right;
+    color: var(--fg-muted);
+}
+.mat-side .list li.sel {
+    background: var(--select);
+}
+.mat-maps {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: var(--sp-3);
+    padding: var(--sp-3) var(--sp-4);
+}
+.mat-maps figure {
+    margin: 0;
+    text-align: center;
+}
+.mat-maps img,
+.mat-none {
+    width: 100%;
+    max-height: 22vh;
+    aspect-ratio: 1;
+    object-fit: contain;
+    background: var(--surface-0);
+    border: 1px solid var(--border);
+}
+.mat-maps figcaption {
+    color: var(--fg-muted);
+    font-size: var(--fs-xs);
+}
+.mat-toolbar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--sp-5);
+    padding: var(--sp-2) var(--sp-4);
+    color: var(--fg-muted);
+}
+.mat-stage {
+    flex: 1;
+    min-height: 220px;
+    position: relative;
+}
+.mat-stage canvas {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+}
+.mat-sources {
+    margin: 0;
+    padding: var(--sp-2) var(--sp-4);
+    max-height: 4.5em;
+    overflow: auto;
+    color: var(--fg-faint);
+    font: var(--fs-xs) / 1.4 var(--mono);
+}
+.fl-cols[hidden] {
+    display: none;
+}

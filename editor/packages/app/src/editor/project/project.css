@@ -150,6 +150,15 @@
     cursor: pointer;
     opacity: 0.75;
 }
+.hp-q.hp-strip {
+    position: sticky;
+    top: auto;
+    right: var(--sp-2);
+    flex: none;
+    align-self: center;
+    margin-left: auto;
+    opacity: 0.9;
+}
 .hp-q:hover,
 .hp-q:focus-visible {
     opacity: 1;
@@ -724,4 +733,15 @@ dialog.pj-dlg::backdrop {
     justify-self: start;
     text-align: left;
     overflow-wrap: anywhere;
+}
+
+/* Buttons in the Project panel are the same height as the fields beside them, like every other dock panel. */
+.panel.project .ui-btn.sm {
+    height: var(--h-ctl);
+}
+
+/* The "?" sits in the top right corner of the Save header and the Files intro: keep their own buttons clear of it. */
+#save-main > :first-child:not(.hp-q):not(.hp-q):not(.hp-q),
+.fl-main .fl-intro {
+    padding-right: 44px;
 }

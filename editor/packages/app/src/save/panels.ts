@@ -136,7 +136,7 @@ export function renderStory(ctx: PanelCtx): HTMLElement {
     };
     const search = h('input', {
         type: 'search',
-        placeholder: 'Search key, hex key, value',
+        placeholder: 'Search fields',
         value: storyState.q,
         oninput: () => {
             storyState.q = search.value;
@@ -338,9 +338,7 @@ export function renderTransfer(ctx: PanelCtx, rerender: () => void): HTMLElement
     const intro = h(
         'p',
         { class: 'sv-lede' },
-        'Copy values from another save into the open one: health, gold, mana, XP, level, skill points, skill levels, item ' +
-            'counts (same item in the same cell), and positions when both saves are from the same level. The result is ' +
-            'pending until you save. Items themselves cannot be moved: adding items is not supported yet.',
+        'Copy stats, skills, item counts and positions from another save. Nothing is written until you save.',
     );
     if (!transfer.source) {
         return h(
@@ -479,7 +477,9 @@ export function renderRepair(ctx: PanelCtx): HTMLElement {
             { code: 'pending', severity: 'error', message: `The pending edits do not build: ${(e as Error).message}` },
         ];
     }
-    issues = [...issues].sort((a, b) => SEVERITY_ORDER[a.severity] - SEVERITY_ORDER[b.severity]);
+    issues = issues
+        .filter((i) => i.severity !== 'info')
+        .sort((a, b) => SEVERITY_ORDER[a.severity] - SEVERITY_ORDER[b.severity]);
     const errors = issues.filter((i) => i.severity === 'error').length;
     const warns = issues.filter((i) => i.severity === 'warn').length;
     const list = issues.length
@@ -524,15 +524,10 @@ export function renderRepair(ctx: PanelCtx): HTMLElement {
             { class: 'tiles' },
             statTile('Errors', String(errors)),
             statTile('Warnings', String(warns)),
-            statTile('Records', String(doc.save.entries.length), { note: 'all zlib streams inflate' }),
+            statTile('Records', String(doc.save.entries.length), { note: 'all readable' }),
         ),
         pendingNote ? h('small', { class: 'sv-dim' }, pendingNote) : null,
         ...list,
-        h(
-            'p',
-            { class: 'sv-dim' },
-            'The container carries no checksum, so structure is checked here (keys, skill bounds, positions, the state table). ' +
-                'Fixes are ordinary pending edits and can be undone. Whether the game itself accepts a save is only known from loading it.',
-        ),
+        h('p', { class: 'sv-dim' }, 'Fixes are pending edits and can be undone.'),
     );
 }

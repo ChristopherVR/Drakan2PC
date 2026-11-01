@@ -394,7 +394,7 @@ export function createArenaPanel(ctx: Ctx, st: ArenaStore, host: ArenaHost): Are
             render();
             ctx.toast('Multiplayer map started: place spawns and pickups, then export.', 'ok');
         };
-        const imp = h('input', { type: 'file', accept: '.ini,.txt', hidden: true, 'aria-label': 'Import arena INI' });
+        const imp = h('input', { type: 'file', accept: '.ini,.txt', hidden: true, 'aria-label': 'Import arena map' });
         imp.addEventListener('change', async () => {
             const f = imp.files?.[0];
             if (!f) return;
@@ -460,9 +460,9 @@ export function createArenaPanel(ctx: Ctx, st: ArenaStore, host: ArenaHost): Are
                         ico: 'plus',
                         disabled: !open && !levels.length,
                     }),
-                    btn('Import arena INI...', () => imp.click(), {
+                    btn('Import map...', () => imp.click(), {
                         ico: 'open',
-                        title: 'Edit a map from mp_maps.ini or a pack maps/*.ini',
+                        title: 'Edit a map from the game or a pack',
                     }),
                     imp,
                     saved && saved.level === open
@@ -1303,7 +1303,6 @@ export function createArenaPanel(ctx: Ctx, st: ArenaStore, host: ArenaHost): Are
                     ? h('div', { class: 'mp-problems' }, ...problems.map((m) => h('div', {}, icon('warn', 12), m)))
                     : null,
             ),
-            h('div', { class: 'mp-support' }, h('h4', {}, 'What the game runs today'), supportTable()),
         );
     }
 
@@ -1505,39 +1504,7 @@ export function createArenaPanel(ctx: Ctx, st: ArenaStore, host: ArenaHost): Are
                     ),
                 ),
             ),
-            h('details', { class: 'mp-preview' }, h('summary', {}, 'Descriptor text'), h('pre', {}, serializeMode(m))),
-        );
-    }
-
-    function supportTable(): HTMLElement {
-        const rows: [string, 'runs' | 'saved', string][] = [
-            ['base, frag limit, time limit, respawn delay, start health', 'runs', 'the server has these match options'],
-            ['max players, spawn points, pickups, loadout, bounds', 'runs', 'arena world mode'],
-            ['score values, friendly fire, allowed weapons, mode loadout', 'saved', 'parsed and listed; not executed'],
-            [
-                'objectives, flag / base / zone markers, spawn team and facing',
-                'saved',
-                'parsed; the server has no capture or hold rule yet',
-            ],
-            ['keep / remove object lines', 'saved', 'parsed; the world filter ignores them'],
-        ];
-        return h(
-            'div',
-            { class: 'mp-table' },
-            ...rows.map(([what, s, note]) =>
-                h(
-                    'div',
-                    { class: `mp-trow ${s}` },
-                    h('span', { class: 'badge' }, s === 'runs' ? 'runs' : 'authored'),
-                    h('span', { class: 'n' }, what),
-                    h('span', { class: 'dim' }, note),
-                ),
-            ),
-            h(
-                'div',
-                { class: 'dim small' },
-                'Authored settings are written into the pack so maps and modes can be built now; each one starts working when the runtime reads it. Details: netcode.md, "Custom game modes".',
-            ),
+            h('details', { class: 'mp-preview' }, h('summary', {}, 'Mode file'), h('pre', {}, serializeMode(m))),
         );
     }
 
@@ -1570,7 +1537,6 @@ export function createArenaPanel(ctx: Ctx, st: ArenaStore, host: ArenaHost): Are
                           { class: 'dim pad' },
                           'No picture yet. Capture one from the viewport (top-down) so the menu shows it.',
                       ),
-                h('div', { class: 'dim small mono' }, `previews/${previewFileName(d.name || d.id)}`),
             );
         };
         const target = host.target();
@@ -1585,7 +1551,7 @@ export function createArenaPanel(ctx: Ctx, st: ArenaStore, host: ArenaHost): Are
                     );
                 if (mode === 'ini') {
                     host.download(`${d.id}.ini`, serializeMapFile(d, st.modes), 'text/plain');
-                    report = `Downloaded ${d.id}.ini (drop it in maps/ of a pack, or next to the game as mp_maps.ini).`;
+                    report = `Downloaded ${d.id}.ini (add it to a pack or the game folder).`;
                     return void refreshExport();
                 }
                 if (!preview) await capture(true);
@@ -1601,13 +1567,11 @@ export function createArenaPanel(ctx: Ctx, st: ArenaStore, host: ArenaHost): Are
                 const lines = Object.entries(files).map(([p, b]) => `${p}  ${b.length} bytes`);
                 if (mode === 'zip') {
                     host.download(`${meta.id}.zip`, zipModFiles(files) as BlobPart, 'application/zip');
-                    lines.push(
-                        `Downloaded ${meta.id}.zip. Put it in the game's mods folder and enable it in mods.ini.`,
-                    );
+                    lines.push(`Downloaded ${meta.id}.zip. Put it in the game's mods folder and turn it on.`);
                 } else {
                     const where = await writePackToModsFolder({ meta, files });
                     if (where === null) return;
-                    lines.push(`Written to ${where} and enabled in mods.ini.`);
+                    lines.push(`Written to ${where} and turned on.`);
                 }
                 lines.push(`Base level ${d.level} is used from the disc; no level file is needed.`);
                 report = lines.join('\n');
@@ -1642,13 +1606,7 @@ export function createArenaPanel(ctx: Ctx, st: ArenaStore, host: ArenaHost): Are
                 f('Pack id', 'id', 'letters, digits . _ -'),
                 f('Pack name', 'name'),
                 h('div', { class: 'mp-row2' }, f('Version', 'version'), f('Author', 'author')),
-                h(
-                    'div',
-                    { class: 'dim small' },
-                    target
-                        ? `Target: profile ${target.profile ?? '*'}${target.hash ? `, hash ${target.hash}` : ''}`
-                        : 'Target: any disc (open an ISO to pin it to your disc profile).',
-                ),
+                h('div', { class: 'dim small' }, target ? 'For your disc.' : 'Works with any disc.'),
                 h(
                     'div',
                     { class: 'mp-btnrow' },
@@ -1660,7 +1618,7 @@ export function createArenaPanel(ctx: Ctx, st: ArenaStore, host: ArenaHost): Are
                     btn('Write to mods folder', () => void doExport('folder'), {
                         ico: 'open',
                         disabled: !!errors || !packFields.id.trim(),
-                        title: "Write into the game's mods folder and enable it in mods.ini",
+                        title: "Write into the game's mods folder and turn it on",
                     }),
                     btn('Map INI only', () => void doExport('ini'), { ico: 'save', disabled: !!errors }),
                 ),
@@ -1684,23 +1642,15 @@ export function createArenaPanel(ctx: Ctx, st: ArenaStore, host: ArenaHost): Are
                         disabled: !preview,
                     }),
                 ),
-                h(
-                    'div',
-                    { class: 'dim small' },
-                    'The multiplayer menu looks for previews/<map name>.png; the pack ships it and the game copies it on start.',
-                ),
+                h('div', { class: 'dim small' }, 'Shown in the multiplayer map list.'),
             ),
             section(
-                'Pack contents',
-                h(
-                    'pre',
-                    { class: 'mp-pre' },
-                    `mod.toml\nmaps/${d.id || '<id>'}.ini\n${preview ? `previews/${previewFileName(d.name || d.id)}\n` : ''}`,
-                ),
+                'Contents',
+                h('div', {}, `${d.name || d.id || 'Map'}${preview ? ' + preview picture' : ''}`),
                 h(
                     'details',
-                    { class: 'mp-preview', open: true },
-                    h('summary', {}, 'maps ini'),
+                    { class: 'mp-preview' },
+                    h('summary', {}, 'Advanced: map file'),
                     h('pre', {}, serializeMapFile(d, st.modes)),
                 ),
             ),

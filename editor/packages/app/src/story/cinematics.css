@@ -102,3 +102,101 @@
     flex: 1;
     min-width: 0;
 }
+
+/* Timeline (timeline.ts): ruler, one lane per actor and kind, draggable keys, playhead. */
+.tl {
+    width: 100%;
+    background: var(--field);
+    border: 1px solid var(--border);
+    border-radius: var(--r-xs);
+    overflow: hidden;
+}
+.tl-area {
+    position: relative;
+    padding-bottom: 4px;
+}
+.tl-row {
+    display: grid;
+    grid-template-columns: var(--label) 1fr;
+    align-items: center;
+    min-height: 26px;
+    border-bottom: 1px solid var(--border);
+}
+.tl-label {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 0 var(--sp-2);
+    font-size: var(--fs-xs);
+    overflow: hidden;
+    white-space: nowrap;
+}
+.tl-name {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    color: var(--fg);
+}
+.tl-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    flex: none;
+}
+.tl-track {
+    position: relative;
+    height: 26px;
+    margin-right: 14px;
+    cursor: col-resize;
+    background: color-mix(in srgb, var(--fg) 4%, transparent);
+}
+.tl-ruler-track {
+    background: none;
+    height: 22px;
+}
+.tl-tick {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    border-left: 1px solid var(--border-strong);
+    font-size: 10px;
+    color: var(--fg-muted);
+    pointer-events: none;
+}
+.tl-tick span {
+    position: absolute;
+    left: 3px;
+    top: 4px;
+}
+.tl-key {
+    position: absolute;
+    top: 50%;
+    width: 12px;
+    height: 12px;
+    margin: -6px 0 0 -6px;
+    padding: 0;
+    border: 1px solid #101114;
+    background: var(--c);
+    transform: rotate(45deg);
+    cursor: grab;
+}
+.tl-key:hover,
+.tl-key.drag {
+    outline: 2px solid var(--fg);
+    z-index: 2;
+}
+.tl-key.drag {
+    cursor: grabbing;
+}
+.tl-playhead {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    width: 2px;
+    margin-left: -1px;
+    background: var(--accent, #fff);
+    pointer-events: none;
+    z-index: 3;
+}
+.tl-none {
+    padding: var(--sp-3);
+}

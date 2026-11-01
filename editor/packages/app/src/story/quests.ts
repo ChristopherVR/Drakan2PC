@@ -3,7 +3,8 @@
 // see where each quest is placed and started / completed in the levels.
 
 import { chapterOfGroup, type QuestKind } from '@drakan/formats';
-import type { Panel } from '../editor/ctx.ts';
+import type { Ctx, Panel } from '../editor/ctx.ts';
+import { questStepsBlock } from './queststeps.ts';
 import { fill, h } from '../editor/dom.ts';
 import { openTemplate } from '../editor/logicpanel.ts';
 import { SYSTEM_XDB, type QuestRow, type StorySession } from './session.ts';
@@ -15,7 +16,7 @@ const KINDS: [QuestKind, string][] = [
 ];
 const MAP_MAX = 512;
 
-export function createQuestsPanel(session: StorySession): Panel {
+export function createQuestsPanel(session: StorySession, ctx?: () => Ctx): Panel {
     const state = { q: '', sel: 0, slot: 0, dragging: false };
     const search = h('input', {
         type: 'search',
@@ -312,6 +313,7 @@ export function createQuestsPanel(session: StorySession): Panel {
             r.draft.kind !== 'journal' ? textField(r, 'Map text (place name)', 'mapTextId') : null,
             needsMap ? h('div', { class: 'row2' }, num('Map X', 'mapX'), num('Map Y', 'mapY')) : null,
             needsMap ? mapPlot(r) : null,
+            ctx ? questStepsBlock(ctx(), r.classId) : null,
             usageBlock(r),
             h(
                 'div',
@@ -380,5 +382,5 @@ export function createQuestsPanel(session: StorySession): Panel {
         renderAll();
     });
     renderAll();
-    return { el: root, onLoad: renderAll };
+    return { el: root, onLoad: renderAll, onChange: renderDetail, onSelection: () => undefined };
 }

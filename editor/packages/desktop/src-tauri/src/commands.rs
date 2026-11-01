@@ -149,7 +149,7 @@ pub async fn folder_pick(app: AppHandle, state: State<'_, AppState>, which: Stri
     let (title, start) = {
         let g = state.inner.lock().unwrap();
         match which.as_str() {
-            "game" => ("Choose the play folder (the one with drakan.exe)", g.settings.game_dir.clone()),
+            "game" => ("Choose the game folder (the one with drakan.exe)", g.settings.game_dir.clone()),
             "mods" => ("Choose the mods folder", g.settings.mods_folder().map(|p| p.to_string_lossy().to_string())),
             _ => return Err(format!("unknown folder kind '{which}'")),
         }
@@ -165,7 +165,7 @@ pub async fn folder_pick(app: AppHandle, state: State<'_, AppState>, which: Stri
     let has_game = paths::find_game_exe(&dir).is_some();
     if which == "game" && !has_game {
         return Err(format!(
-            "{} has no drakan.exe. Pick the play folder (for example dist/DrakanPC).",
+            "{} has no drakan.exe. Choose the game folder.",
             dir.display()
         ));
     }
@@ -397,7 +397,7 @@ fn mods_folder(state: &AppState) -> Res<PathBuf> {
         .unwrap()
         .settings
         .mods_folder()
-        .ok_or_else(|| "No game folder is set. Choose the play folder first.".to_string())
+        .ok_or_else(|| "No game folder is set. Choose the game folder first.".to_string())
 }
 
 /// Current `mods.ini` text ("" when there is none yet).
@@ -619,7 +619,7 @@ pub fn game_launch(
     let extra = extra.unwrap_or(false);
     let (dir, mods, default_mods) = {
         let g = state.inner.lock().unwrap();
-        let dir = g.settings.game_dir.clone().ok_or("No game folder is set. Choose the play folder first.")?;
+        let dir = g.settings.game_dir.clone().ok_or("No game folder is set. Choose the game folder first.")?;
         let mods = g.settings.mods_folder();
         (PathBuf::from(dir), mods, g.settings.game_dir.is_some() && g.settings.mods_dir.is_none())
     };

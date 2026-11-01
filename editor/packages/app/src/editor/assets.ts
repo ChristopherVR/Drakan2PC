@@ -230,11 +230,15 @@ export function createAssets(ctx: Ctx): AssetsPanel {
                 h('div', {}, h('strong', {}, cls.name), h('div', { class: 'dim' }, cls.category)),
             ),
             row('Resource', cls.resource),
-            row('ODB', `${cls.db} (index ${cls.dbIndex})`),
-            row('Class id', `${cls.classId} (0x${hex(cls.classId)})`),
-            row('Engine class', cls.runtimeClass === null ? 'n/a' : `0x${hex(cls.runtimeClass)}`),
-            row('OotF class id', cls.rflClass === null ? 'n/a' : String(cls.rflClass)),
             row('In this level', String(cls.instances)),
+            h(
+                'details',
+                { class: 'adv' },
+                h('summary', {}, 'Advanced'),
+                row('Container', `${cls.db} (index ${cls.dbIndex})`),
+                row('Class id', `${cls.classId} (0x${hex(cls.classId)})`),
+                row('Engine class', cls.runtimeClass === null ? 'n/a' : `0x${hex(cls.runtimeClass)}`),
+            ),
             h(
                 'button',
                 { class: 'btn primary', type: 'button', onclick: () => ctx.placeClass(cls) },
@@ -246,7 +250,7 @@ export function createAssets(ctx: Ctx): AssetsPanel {
                 { class: 'dim small' },
                 cls.instances
                     ? 'New instances copy the fields of an existing one.'
-                    : 'No instance in this level: the new object gets the class defaults (unverified in game).',
+                    : 'Not used in this level yet: the new object gets default settings.',
             ),
         );
     }
@@ -286,7 +290,7 @@ export function createAssets(ctx: Ctx): AssetsPanel {
             folderRow('fav', 'Favourites', 'star', all.filter((c) => favs.has(c.resource)).length),
         ];
         if (dbs.size) {
-            rows.push(h('div', { class: 'cb-tree-head' }, 'Containers (ODB)'));
+            rows.push(h('div', { class: 'cb-tree-head' }, 'Containers'));
             const cur = parseDb(folder);
             if (cur) openDbs.add(cur.db);
             for (const [db, n] of [...dbs].sort((a, b) => a[0].localeCompare(b[0]))) {

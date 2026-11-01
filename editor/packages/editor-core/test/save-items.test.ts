@@ -1,8 +1,18 @@
 import { describe, expect, it } from 'vitest';
-import { listInventory, parseSave } from '@drakan/formats';
+import { assembleSave, listInventory, parseSave } from '@drakan/formats';
 import { liveEntries } from '../../formats/test/livefixture.ts';
 import { buildSave } from '../../formats/test/savefixture.ts';
-import { CommandStack, ReplaceItemCommand, SaveDocument, itemTemplates, replacedBody } from '../src/index.ts';
+import {
+    AddItemCommand,
+    CommandStack,
+    RemoveAddedItemCommand,
+    ReplaceItemCommand,
+    SaveDocument,
+    addItem,
+    findCellStream,
+    itemTemplates,
+    replacedBody,
+} from '../src/index.ts';
 
 const CELL_BASE = 0x302;
 const HANDLE_A = 0xa59e30;
@@ -110,5 +120,174 @@ describe('Replace with... (item class swap)', () => {
         expect(out.entries.find((e) => e.id === 328)!.data.length).toBe(0x260);
         s.run(new ReplaceItemCommand(0, undefined));
         expect(d.pendingEdits()).toEqual([]);
+    });
+});
+
+describe('Add item (new carried record)', () => {
+    const K = 12;
+    const STATICS = [5020, 5018, 5016, 5014];
+    const SLOT_A = 3; // carried potion, entry id 4
+    const SLOT_B = 4; // carried dagger, entry id 5
+
+    function words(ws: number[]): Uint8Array {
+        const b = new Uint8Array(ws.length * 4);
+        const dv = new DataView(b.buffer);
+        ws.forEach((v, i) => dv.setUint32(4 * i, v >>> 0, true));
+        return b;
+    }
+
+    /** Rynn with the cell table at CELL_BASE and the cell word stream (potion in cell 0, dagger in cell 1) after it. */
+    function rynnWithStream(): Uint8Array {
+        const base = rynn();
+        const stream: number[] = [];
+        // 24 positions, column-major: cell 0 = position 0, cell 1 = position 3
+        for (let p = 0; p < 24; p++) {
+            if (p === 0) stream.push(SLOT_A, 1);
+            else if (p === 3) stream.push(SLOT_B, 1);
+            else stream.push(0xffffffff);
+        }
+        const out = new Uint8Array(0x700 + stream.length * 4 + 0x40);
+        out.set(base.subarray(0, 0x700), 0);
+        out.set(words(stream), 0x700);
+        out.fill(0x5a, 0x700 + stream.length * 4); // the rest of the record
+        new DataView(out.buffer).setUint16(CELL_BASE - 8, 2, true); // item count
+        return out;
+    }
+
+    function addFixture(): Uint8Array {
+        const base = liveEntries().filter((e) => e.type !== 0x102 && e.type !== 0x21 && e.type !== 0x24);
+        const recs = [];
+        for (let id = 1; id <= K; id++) {
+            if (id === 4) recs.push({ type: 0x102, id, data: item(0x33753, HANDLE_A, 1, 2) });
+            else if (id === 5) recs.push({ type: 0x102, id, data: item(0x33cbc, HANDLE_B, 2, 2) });
+            else if (id === 7) recs.push({ type: 0x102, id, data: item(0x31cbc, HANDLE_GROUND, 3, 0, 0x260) });
+            else if (id === 8) recs.push({ type: 0x102, id, data: rynnWithStream() });
+            else recs.push({ type: 0x102, id, data: new Uint8Array(0x60) });
+        }
+        const pairs = words([4000 + K, 8, 9, STATICS.length, ...STATICS.flatMap((u, i) => [u, K + i])]);
+        return buildSave([
+            ...base,
+            { type: 0x24, id: 0, data: words([STATICS.length, ...STATICS]) },
+            { type: 0x21, id: 0, data: pairs },
+            ...recs,
+        ]);
+    }
+
+    it('appends the record, drops the first static, grows Rynn by one word', () => {
+        const save = parseSave(addFixture());
+        const out = addItem(save, 7);
+        expect(out.slot).toBe(K);
+        expect(out.cell).toBe(2); // first free cell
+        expect(out.droppedStatic).toBe(5020);
+        const e = out.save.entries;
+        const added = e.find((x) => x.type === 0x102 && x.id === K + 1)!;
+        const dv = new DataView(added.data.buffer, added.data.byteOffset);
+        expect(dv.getUint32(0, true) + 0x20000).toBe(0x31cbc); // the club class
+        expect(added.data.length).toBe(0x260);
+        expect(dv.getUint32(0x56, true)).toBe(2); // carried state of the donor (the potion)
+        expect(dv.getUint32(0x48, true)).toBeGreaterThan(0x102); // a new serial
+        expect(dv.getUint32(0x86, true)).toBe(dv.getUint32(0x86 + 0xe0, true));
+        expect([HANDLE_A, HANDLE_B, HANDLE_GROUND]).not.toContain(dv.getUint32(0x86, true));
+        // 0x24: first uid gone, count down; 0x21: its pair gone, count down
+        const st = e.find((x) => x.type === 0x24)!.data;
+        expect([...new Uint32Array(st.buffer.slice(st.byteOffset, st.byteOffset + st.length))]).toEqual([
+            3, 5018, 5016, 5014,
+        ]);
+        const pr = e.find((x) => x.type === 0x21)!.data;
+        const pw = [...new Uint32Array(pr.buffer.slice(pr.byteOffset, pr.byteOffset + pr.length))];
+        expect(pw[3]).toBe(3);
+        expect(pw.slice(4)).toEqual([5018, K + 1, 5016, K + 2, 5014, K + 3]);
+        // Rynn: +4 bytes, the cell-2 word became (slot, 1), count 3
+        const oldR = save.entries.find((x) => x.id === 8)!.data;
+        const newR = e.find((x) => x.type === 0x102 && x.id === 8)!.data;
+        expect(newR.length).toBe(oldR.length + 4);
+        const rv = new DataView(newR.buffer, newR.byteOffset);
+        expect(rv.getUint16(CELL_BASE - 8, true)).toBe(3);
+        const at = 0x700 + 4 * (2 + 1 + 1 + 2 + 1 + 1); // words before stream position 6
+        expect(rv.getUint32(at, true)).toBe(K);
+        expect(rv.getUint32(at + 4, true)).toBe(1);
+        expect(newR.subarray(at + 8)).toEqual(oldR.subarray(at + 4));
+        // ids stay contiguous and the file round-trips
+        const re = parseSave(assembleSave(out.save).bytes);
+        expect(re.entries.filter((x) => x.type === 0x102).map((x) => x.id)).toEqual(
+            Array.from({ length: K + 1 }, (_, i) => i + 1),
+        );
+    });
+
+    it('fills the next free cell and refuses a non-item template', () => {
+        const once = addItem(parseSave(addFixture()), 7).save;
+        const twice = addItem(once, 7);
+        expect(twice.slot).toBe(K + 1);
+        expect(twice.droppedStatic).toBe(5018);
+        expect(() => addItem(parseSave(addFixture()), 1)).toThrow(/not an item record/);
+    });
+
+    it('findCellStream matches the stream by the carried slots', () => {
+        const r = rynnWithStream();
+        expect(
+            findCellStream(
+                r,
+                new Map([
+                    [0, SLOT_A],
+                    [1, SLOT_B],
+                ]),
+            ),
+        ).toBe(0x700);
+        expect(() => findCellStream(r, new Map([[0, 99]]))).toThrow(/not found/);
+    });
+});
+
+describe('Add item through the document', () => {
+    it('is an undoable pending edit and builds a file with one more item', () => {
+        // reuse the fixture of the previous block through a fresh builder
+        const K = 12;
+        const w = (ws: number[]): Uint8Array => {
+            const b = new Uint8Array(ws.length * 4);
+            ws.forEach((v, i) => new DataView(b.buffer).setUint32(4 * i, v >>> 0, true));
+            return b;
+        };
+        const stream: number[] = [];
+        for (let p = 0; p < 24; p++) stream.push(...(p === 0 ? [3, 1] : p === 3 ? [4, 1] : [0xffffffff]));
+        const r = new Uint8Array(0x700 + stream.length * 4 + 0x40);
+        r.set(rynn().subarray(0, 0x700), 0);
+        r.set(w(stream), 0x700);
+        new DataView(r.buffer).setUint16(CELL_BASE - 8, 2, true);
+        const recs = [];
+        for (let id = 1; id <= K; id++) {
+            recs.push({
+                type: 0x102,
+                id,
+                data:
+                    id === 4
+                        ? item(0x33753, HANDLE_A, 1, 2)
+                        : id === 5
+                          ? item(0x33cbc, HANDLE_B, 2, 2)
+                          : id === 7
+                            ? item(0x31cbc, HANDLE_GROUND, 3, 0, 0x260)
+                            : id === 8
+                              ? r
+                              : new Uint8Array(0x60),
+            });
+        }
+        const base = liveEntries().filter((e) => e.type !== 0x102 && e.type !== 0x21 && e.type !== 0x24);
+        const blob = buildSave([
+            ...base,
+            { type: 0x24, id: 0, data: w([2, 5020, 5018]) },
+            { type: 0x21, id: 0, data: w([4000, 8, 9, 2, 5020, K, 5018, K + 1]) },
+            ...recs,
+        ]);
+        const d = SaveDocument.open(blob);
+        const s = new CommandStack(d);
+        s.run(new AddItemCommand(7));
+        expect(d.addedCells()).toEqual([2]);
+        expect(d.pendingEdits().map((e) => [e.name, e.label])).toEqual([['add.0', 'new item 1 (cell 2)']]);
+        const out = parseSave(d.build().bytes);
+        expect(out.entries.filter((e) => e.type === 0x102)).toHaveLength(K + 1);
+        s.undo();
+        expect(d.pendingEdits()).toEqual([]);
+        expect(d.itemAdds).toEqual([]);
+        s.run(new AddItemCommand(7));
+        s.run(new RemoveAddedItemCommand(0));
+        expect(d.itemAdds).toEqual([]);
     });
 });

@@ -68,10 +68,11 @@
     --sp-5: 12px;
     --sp-6: 16px;
 
+    /* one corner radius for controls, menus and cards (UE5 keeps them nearly square); --r-lg is for floating cards */
     --r-xs: 2px;
     --r-sm: 3px;
-    --r-md: 4px;
-    --r-lg: 6px;
+    --r-md: 3px;
+    --r-lg: 4px;
 
     --h-appbar: 32px;
     --h-toolbar: 40px;

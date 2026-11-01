@@ -1,5 +1,7 @@
 //! Native menu bar. Items either act in the shell (`view-*`, `about`, `quit`, `recent-clear`) or are forwarded to the
 //! webview as a `menu-action` event carrying the item id, which `packages/app/src/desktop.ts` maps to editor actions.
+//! `cmd:<id>` items run the editor command `<id>` (the same list as the browser's menu bar, `editor/menubar.ts`), so the
+//! File / Edit / Window / Tools / Help structure matches in both.
 
 use crate::AppState;
 use tauri::menu::{Menu, MenuBuilder, MenuItemBuilder, SubmenuBuilder};
@@ -53,14 +55,15 @@ pub fn build(app: &AppHandle) -> tauri::Result<Menu<Wry>> {
         .item(&item(app, "open-iso", "Open &ISO...", Some("CmdOrCtrl+O"))?)
         .item(&recent)
         .separator()
-        .item(&item(app, "open-save", "Open &Save File...", None)?)
+        .item(&item(app, "open-save", "Open &Save File in the Save Editor...", None)?)
         .item(&item(app, "open-save-folder", "Open Memory &Card Folder...", None)?)
         .separator()
         .item(&item(app, "save-document", "&Save\tCtrl+S", None)?)
+        .item(&item(app, "cmd:file.openDocument", "Open Saved &Level (.json)...", None)?)
         .item(&item(app, "export-mod", "&Export...\tCtrl+E", None)?)
         .separator()
         .item(&item(app, "play", "&Play in Game", Some("F5"))?)
-        .item(&item(app, "game-folder", "Game (Play) Folder...", None)?)
+        .item(&item(app, "game-folder", "Game Folder...", None)?)
         .item(&item(app, "mods-folder", "Mods Folder...", None)?)
         .separator()
         .item(&item(app, "quit", "E&xit", None)?)
@@ -77,13 +80,39 @@ pub fn build(app: &AppHandle) -> tauri::Result<Menu<Wry>> {
         .item(&item(app, "edit-select-all", "Select &All\tCtrl+A", None)?)
         .item(&item(app, "edit-duplicate", "&Duplicate\tCtrl+D", None)?)
         .item(&item(app, "edit-delete", "De&lete\tDel", None)?)
+        .separator()
+        .item(&item(app, "cmd:edit.history", "Undo &History\tCtrl+Shift+H", None)?)
+        .item(&item(app, "cmd:panel.project", "Pro&ject Settings\tCtrl+,", None)?)
+        .build()?;
+
+    // Editors open as their own tabs (or below the viewport); where is decided by the editor (`editor/ia.ts`).
+    let window_menu = SubmenuBuilder::new(app, "&Window")
+        .item(&item(app, "tab-level", "&Level Editor", None)?)
+        .separator()
+        .item(&item(app, "cmd:panel.mod", "&Package and Play", None)?)
+        .item(&item(app, "cmd:panel.story", "&Story\tCtrl+Shift+Y", None)?)
+        .item(&item(app, "cmd:panel.logic", "Lo&gic\tCtrl+Shift+K", None)?)
+        .item(&item(app, "cmd:panel.multiplayer", "&World Settings (Multiplayer)", None)?)
+        .item(&item(app, "cmd:panel.vendors", "&Vendors", None)?)
+        .item(&item(app, "cmd:panel.menus", "&Menus", None)?)
+        .separator()
+        .item(&item(app, "cmd:panel.show.assets", "&Content Browser\tCtrl+Space", None)?)
+        .item(&item(app, "cmd:panel.show.output", "&Output Log", None)?)
+        .item(&item(app, "cmd:panel.show.validation", "V&alidation", None)?)
+        .separator()
+        .item(&item(app, "cmd:view.reset", "&Reset Layout", None)?)
+        .build()?;
+
+    let tools = SubmenuBuilder::new(app, "&Tools")
+        .item(&item(app, "open-save-editor", "Save &Game Editor", None)?)
+        .item(&item(app, "tab-inspect", "&Disc Files", None)?)
+        .separator()
+        .item(&item(app, "cmd:file.importOotf", "Import &Order of the Flame Levels...", None)?)
+        .item(&item(app, "cmd:file.exportContent", "Export &Engine-Neutral Package...", None)?)
+        .item(&item(app, "cmd:file.exportUnreal", "Export Level for &Unreal (glTF)...", None)?)
         .build()?;
 
     let mut view = SubmenuBuilder::new(app, "&View")
-        .item(&item(app, "tab-inspect", "&Files", None)?)
-        .item(&item(app, "tab-level", "&Level Editor", None)?)
-        .item(&item(app, "tab-save", "&Save Editor", None)?)
-        .separator()
         .item(&item(app, "theme", "Toggle &Theme\tCtrl+Shift+L", None)?)
         .item(&item(app, "view-fullscreen", "&Full Screen", Some("F11"))?)
         .item(&item(app, "view-reload", "&Reload", Some("CmdOrCtrl+R"))?);
@@ -93,11 +122,13 @@ pub fn build(app: &AppHandle) -> tauri::Result<Menu<Wry>> {
     let view = view.build()?;
 
     let help = SubmenuBuilder::new(app, "&Help")
+        .item(&item(app, "cmd:help.guides", "&Guides", None)?)
         .item(&item(app, "help", "&Keyboard Shortcuts\tF1", None)?)
+        .item(&item(app, "cmd:help.palette", "&Search Everything\tCtrl+P", None)?)
         .item(&item(app, "about", "&About Drakan Editor", None)?)
         .build()?;
 
-    MenuBuilder::new(app).items(&[&file, &edit, &view, &help]).build()
+    MenuBuilder::new(app).items(&[&file, &edit, &window_menu, &tools, &view, &help]).build()
 }
 
 /// Rebuild the bar (the recent list changed).
@@ -111,6 +142,17 @@ pub fn on_event(app: &AppHandle, id: &str) {
     let window = app.get_webview_window("main");
     match id {
         "quit" => app.exit(0),
+        // The save game editor is its own application window (windows.rs).
+        "open-save-editor" | "open-save" | "open-save-folder" => {
+            let action = match id {
+                "open-save" => Some("file"),
+                "open-save-folder" => Some("folder"),
+                _ => None,
+            };
+            if let Err(e) = crate::windows::open(app, "save", action) {
+                app.dialog().message(e).kind(MessageDialogKind::Error).show(|_| {});
+            }
+        }
         "view-fullscreen" => {
             if let Some(w) = window {
                 let on = w.is_fullscreen().unwrap_or(false);

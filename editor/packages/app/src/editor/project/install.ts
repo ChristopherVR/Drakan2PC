@@ -115,6 +115,7 @@ export function installProject(host: ProjectInstallHost): ProjectInstall {
         toast: (m, k) => ctx.toast(m, k),
         setStatus: host.setStatus,
         download: (name, data, type) => downloadFile(name, data, type),
+        story: { export: () => host.story.exportProject(), import: (s) => host.story.importProject(s) },
         reloadOpenLevel: (titles) => {
             const open = openDoc();
             const p = projects.get();
@@ -122,6 +123,15 @@ export function installProject(host: ProjectInstallHost): ProjectInstall {
             const l = p.levels.find((x) => norm(x.title) === norm(open.title));
             if (l) void openProjectLevel(l).catch((e: unknown) => ctx.toast(String(e), 'error'));
         },
+    });
+
+    // Story edits are part of the project file: a change saves the project soon after, like a level edit.
+    let storySig = '';
+    host.story.session.subscribe(() => {
+        const sig = JSON.stringify(host.story.exportProject());
+        if (sig === storySig) return;
+        storySig = sig;
+        projects.edited();
     });
 
     // Play test of a level copy: the pack adds the whole level (the disc has no LVL under that title).
@@ -161,7 +171,7 @@ export function installProject(host: ProjectInstallHost): ProjectInstall {
                 }
                 return p;
             },
-            build: (p) => buildProjectPack(exportDeps, p),
+            build: (p, progress) => buildProjectPack(exportDeps, p, undefined, progress),
             blockers: () =>
                 panel
                     .issues()
@@ -266,9 +276,13 @@ export function installProject(host: ProjectInstallHost): ProjectInstall {
     // ---- starting a task --------------------------------------------------------------------------------------------
 
     function startTask(task: TaskId): void {
+        // Saves are edited in the save game editor, an application of its own: no mod project, no tab here.
+        if (task === 'save') {
+            host.showTab('save');
+            return;
+        }
         const w = WORKFLOWS[task];
-        const needsDisc = task !== 'save';
-        if (needsDisc && !ui.levels().length) {
+        if (!ui.levels().length) {
             projects.pendingTask = task;
             runCommand('file.openIso');
             return;
@@ -291,8 +305,6 @@ export function installProject(host: ProjectInstallHost): ProjectInstall {
                 break;
             case 'story':
                 runCommand('panel.story');
-                break;
-            case 'save':
                 break;
         }
         projects.notify();
@@ -332,22 +344,27 @@ export function installProject(host: ProjectInstallHost): ProjectInstall {
     }
     registerCommand({
         id: 'mode.level',
-        title: 'Go to the Level tab',
-        category: 'Go to',
+        title: 'Level Editor',
+        category: 'Window',
+        icon: 'world',
+        keywords: 'go to level tab viewport',
         run: () => host.showTab('level'),
     });
     registerCommand({
         id: 'mode.save',
-        title: 'Go to the Save tab',
-        category: 'Go to',
-        keywords: 'save editor rsg',
+        title: 'Save Editor',
+        category: 'Tools',
+        icon: 'save',
+        keywords: 'go to save tab editor rsg game',
+        hint: 'Opens the save game editor, an application of its own (its own window)',
         run: () => host.showTab('save'),
     });
     registerCommand({
         id: 'mode.files',
-        title: 'Go to the Files tab',
-        category: 'Go to',
-        keywords: 'inspect disc browser raw hex textures advanced',
+        title: 'Disc Files',
+        category: 'Tools',
+        icon: 'folder',
+        keywords: 'go to files tab inspect disc browser raw hex textures advanced',
         hint: 'Advanced: browse the raw files on the disc',
         run: () => host.showTab('inspect'),
     });

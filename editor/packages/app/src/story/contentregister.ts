@@ -15,7 +15,7 @@ export interface ContentEditors {
     dialogue: Panel;
     cinematics: Panel;
     /** The disc was opened or closed: forget what was read from the previous one. */
-    setDisc(open: boolean, language?: string): void;
+    setDisc(open: boolean, language?: string, keepEdits?: boolean): void;
 }
 
 export interface ContentEditorsHost {
@@ -51,9 +51,9 @@ export function createContentPanels(host: ContentEditorsHost): ContentEditors {
         session,
         dialogue: createDialoguePanel(session, meta),
         cinematics: createCinematicsPanel(session, meta),
-        setDisc(_open, l) {
+        setDisc(_open, l, keepEdits) {
             if (l) language = l;
-            session.reset();
+            session.reset(keepEdits);
         },
     };
 }

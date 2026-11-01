@@ -16,7 +16,7 @@ import {
     resolveDependencyStem,
     sliceSource,
 } from '@drakan/formats';
-import { srscRoundTrips } from '@drakan/editor-core';
+import { destinationLevelName, srscRoundTrips } from '@drakan/editor-core';
 import { loadModelData, loadTerrainData } from './scene/decode.ts';
 import { loadItemCatalog, loadItemModels, resetItemData } from './itemdata.ts';
 import { loadStoryCatalog, resetStoryData } from './storydata.ts';
@@ -270,10 +270,18 @@ const api: { [K in keyof Api]: (...a: Parameters<Api[K]>) => Promise<ReturnType<
             missingOdbs,
         };
     },
-    async exitIndex() {
+    async exitIndex(only) {
         const fs = need();
         const levels = (await loadLevels()).filter((l) => l.present);
         const out: ExitIndexData = { levels: [] };
+        if (only) {
+            // One level only (the destination picker needs just the open level's exits); the whole disc takes much longer.
+            const key = (s: string): string => s.toLowerCase().replace(/[^a-z0-9]/g, '');
+            const l = levels.find((x) => key(x.name) === key(only) || key(destinationLevelName(x.name)) === key(only));
+            if (l) out.levels.push(await levelExitData(fs, l.dirPath, l.name, await api.loadLevel(l.dirPath)));
+            out.levelNames = levels.map((x) => x.name);
+            return out;
+        }
         for (const l of levels) {
             const r = await api.loadLevel(l.dirPath);
             out.levels.push(await levelExitData(fs, l.dirPath, l.name, r));

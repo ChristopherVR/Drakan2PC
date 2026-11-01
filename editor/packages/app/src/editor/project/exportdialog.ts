@@ -12,7 +12,7 @@ import type { ProjectPack } from './export.ts';
 export interface ExportHost {
     /** The project, created on first use, with the open edited level added to it. */
     ensureProject(): ModProject;
-    build(p: ModProject): Promise<ProjectPack>;
+    build(p: ModProject, progress?: (msg: string) => void): Promise<ProjectPack>;
     /** Problems that make an export pointless (the Project tab's errors). */
     blockers(): string[];
     zip(pack: ProjectPack): Uint8Array;
@@ -105,17 +105,35 @@ export function openExportDialog(host: ExportHost): void {
     };
 
     let busy = false;
+    let stale = true;
     let buildError = '';
     let last: ProjectPack | null = null;
     let timer = 0;
     function schedule(): void {
+        stale = true;
         window.clearTimeout(timer);
         timer = window.setTimeout(() => void preview(), 250);
     }
+    let runId = 0;
     async function preview(): Promise<void> {
         buildError = '';
+        const mine = ++runId;
+        const started = Date.now();
+        let step = 'Checking what the pack holds...';
+        const paint = (): void => {
+            if (mine !== runId) return;
+            summary.replaceChildren(
+                h('span', { class: 'ex-wait' }, `${step} ${Math.round((Date.now() - started) / 1000)} s`),
+            );
+        };
+        const tick = window.setInterval(paint, 1000);
         try {
-            last = await host.build(projects.get() ?? p);
+            last = await host.build(projects.get() ?? p, (m) => {
+                step = m;
+                paint();
+            });
+            if (mine !== runId) return;
+            stale = false;
             const files = Object.keys(last.files).length;
             summary.replaceChildren(
                 h('strong', {}, `${files} file${files === 1 ? '' : 's'} in the pack`),
@@ -128,9 +146,12 @@ export function openExportDialog(host: ExportHost): void {
                 ),
             );
         } catch (e) {
+            if (mine !== runId) return;
             last = null;
             buildError = e instanceof Error ? e.message : String(e);
             summary.replaceChildren(h('span', { class: 'bad' }, buildError));
+        } finally {
+            window.clearInterval(tick);
         }
         const bl = host.blockers();
         if (bl.length) summary.append(h('p', { class: 'bad' }, `Fix first: ${bl.slice(0, 3).join(' ')}`));
@@ -159,7 +180,14 @@ export function openExportDialog(host: ExportHost): void {
         busy = true;
         paintId();
         const cur = projects.get() ?? p;
-        const pack = await host.build(cur);
+        // The preview's pack is reused when nothing changed since (building can take a while for big levels).
+        const pack =
+            last && !stale
+                ? last
+                : await host.build(cur, (m) => {
+                      result.hidden = false;
+                      result.textContent = m;
+                  });
         const zip = host.zip(pack);
         const text = [...pack.lines, ...pack.warnings.map((w) => `Warning: ${w}`)];
         let where: string | null;
@@ -178,7 +206,7 @@ export function openExportDialog(host: ExportHost): void {
         if (install.checked && host.installAvailable()) {
             const inst = await host.install(pack);
             if (inst) {
-                text.push(`Installed into ${inst} and enabled in mods.ini.`);
+                text.push(`Installed into ${inst} and turned on.`);
                 place += `; installed in ${inst}`;
             }
         }

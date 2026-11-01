@@ -13,6 +13,7 @@ import {
     type DialogueDraft,
     zipModFiles,
     type ModMeta,
+    type ProjectContentEdits,
     type StoryEntryChange,
 } from '@drakan/editor-core';
 import {
@@ -42,6 +43,18 @@ import {
     type StorySequence,
 } from '@drakan/formats';
 import { downloadFile } from '../platform.ts';
+
+export function toBase64(b: Uint8Array): string {
+    let s = '';
+    for (let i = 0; i < b.length; i += 0x8000) s += String.fromCharCode(...b.subarray(i, i + 0x8000));
+    return btoa(s);
+}
+export function fromBase64(t: string): Uint8Array {
+    const s = atob(t);
+    const b = new Uint8Array(s.length);
+    for (let i = 0; i < s.length; i++) b[i] = s.charCodeAt(i);
+    return b;
+}
 
 export interface ContentHost {
     fs(): StoryFsList | null;
@@ -104,13 +117,76 @@ export class ContentSession {
         this.listeners.forEach((l) => l());
     }
 
-    /** Forget everything (another disc). */
-    reset(): void {
+    /** Forget everything (another disc); `keepEdits` keeps the edits (restored from a project before the disc opened). */
+    reset(keepEdits = false): void {
         this.stems = [];
         this.stem = null;
         this.story = null;
         this.stories.clear();
+        if (!keepEdits) this.edits.clear();
+        this.emit();
+    }
+
+    /** The edits as plain JSON for the project file (sequences as base64 of their bytes). */
+    exportState(): ProjectContentEdits[] {
+        const out: ProjectContentEdits[] = [];
+        const seq = (s: SsdSequence): { id: number; folder: number; data: string } => ({
+            id: s.id,
+            folder: s.folder,
+            data: toBase64(writeSequence(s)),
+        });
+        for (const [stem, e] of [...this.edits].sort((a, b) => a[0].localeCompare(b[0]))) {
+            const c: ProjectContentEdits = {
+                stem,
+                texts: [...e.texts].sort((a, b) => a[0] - b[0]),
+                lineSounds: [...e.lineSounds]
+                    .sort((a, b) => a[0] - b[0])
+                    .map(([k, m]) => [k, [...m].sort((a, b) => a[0] - b[0])] as [number, [number, number][]]),
+                seqs: [...e.seqs.values()].sort((a, b) => a.id - b.id).map(seq),
+                newSeqs: [...e.newSeqs.values()].sort((a, b) => a.id - b.id).map(seq),
+                newLines: [...e.newLines.values()].sort((a, b) => a.classId - b.classId).map((n) => ({ ...n })),
+                phases: [...e.phases]
+                    .sort((a, b) => a[0] - b[0])
+                    .map(
+                        ([k, m]) =>
+                            [k, [...m].map(([ph, refs]) => [ph, [...refs]] as [string, number[]])] as [
+                                number,
+                                [string, number[]][],
+                            ],
+                    ),
+            };
+            if (
+                c.texts.length ||
+                c.lineSounds.length ||
+                c.seqs.length ||
+                c.newSeqs.length ||
+                c.newLines.length ||
+                c.phases.length
+            )
+                out.push(c);
+        }
+        return out;
+    }
+
+    /** Replace the edits with a project file's. Entries that do not decode are skipped. */
+    importState(list: ProjectContentEdits[] | null): void {
         this.edits.clear();
+        for (const c of list ?? []) {
+            const e = this.ed(c.stem);
+            for (const [id, t] of c.texts) e.texts.set(id, t);
+            for (const [k, m] of c.lineSounds) e.lineSounds.set(k, new Map(m));
+            for (const [dst, src] of [
+                [e.seqs, c.seqs],
+                [e.newSeqs, c.newSeqs],
+            ] as const)
+                for (const q of src) {
+                    const seq = parseSequence(q.id, q.folder, fromBase64(q.data));
+                    if (seq) dst.set(q.id, seq);
+                }
+            for (const n of c.newLines) e.newLines.set(n.classId, { ...n });
+            for (const [hid, phases] of c.phases)
+                e.phases.set(hid, new Map(phases.map(([ph, refs]) => [ph as HandlerPhaseKey, [...refs]])));
+        }
         this.emit();
     }
 
@@ -123,15 +199,21 @@ export class ContentSession {
         if (!this.story || want) await this.use(want ?? this.stem ?? this.stems[0]!);
     }
 
-    async use(stem: string): Promise<void> {
+    private load(stem: string): Promise<LevelStory> | null {
         const fs = this.host.fs();
-        if (!fs) return;
+        if (!fs) return this.stories.get(stem) ?? null;
         let p = this.stories.get(stem);
         if (!p) {
             p = loadLevelStory(fs, this.host.language(), stem);
             this.stories.set(stem, p);
             p.catch(() => this.stories.delete(stem));
         }
+        return p;
+    }
+
+    async use(stem: string): Promise<void> {
+        const p = this.load(stem);
+        if (!p) return;
         this.story = await p;
         this.stem = stem;
         this.emit();
@@ -453,7 +535,8 @@ export class ContentSession {
     async changes(): Promise<StoryEntryChange[]> {
         const out: StoryEntryChange[] = [];
         for (const [stem, e] of this.edits) {
-            const story = await this.stories.get(stem);
+            // Edits restored from a project file wait for their level folder to be read.
+            const story = await this.load(stem);
             if (!story) continue;
             for (const [id, text] of [...e.texts].sort((a, b) => a[0] - b[0])) {
                 const s = story.sounds.get(id);

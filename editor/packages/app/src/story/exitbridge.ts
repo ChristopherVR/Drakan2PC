@@ -10,6 +10,8 @@ export interface ExitEditHost {
     set(file: string, id: number, text: string): boolean;
     /** Whether the string differs from the disc. */
     changed(file: string, id: number): boolean;
+    /** A new string of the same table holding `text` as the destination (copy of string `fromId`); its id, null when unknown. */
+    addDestination(file: string, fromId: number, text: string): number | null;
 }
 
 let host: ExitEditHost | null = null;

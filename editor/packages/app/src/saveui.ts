@@ -1,4 +1,5 @@
 import {
+    RemoveAddedItemCommand,
     ReplaceItemCommand,
     SetFieldCommand,
     SaveDocument,
@@ -54,6 +55,7 @@ import {
     type SaveRef,
 } from './saveio.ts';
 import { isDesktop } from './platform.ts';
+import { changeRow } from './shared/components.ts';
 
 const $ = <T extends HTMLElement>(id: string): T => {
     const el = document.getElementById(id);
@@ -273,7 +275,7 @@ export function initSaveUi(host: SaveUiHost): { openFile(f: File): Promise<void>
                     emptyState(
                         'folder',
                         'No saves found',
-                        `No .rsg files under "${root}". Pick the memory card folder (mc0), the one that holds the BESCES-... slot folders.`,
+                        `No .rsg files under "${root}". Pick the memory card folder.`,
                     ),
                 ),
             );
@@ -644,11 +646,7 @@ export function initSaveUi(host: SaveUiHost): { openFile(f: File): Promise<void>
         const def = resolveField(name).def;
         const unconfirmed = cur?.doc.probe(name).status === 'unconfirmed';
         if (unconfirmed) {
-            return badge(
-                'unconfirmed',
-                'bad',
-                'This save does not match the layout the field was verified on. ' + def.note,
-            );
+            return badge('unconfirmed', 'bad', 'This save may not support this field. ' + def.note);
         }
         return def.confidence === 'high' ? null : badge(def.confidence, def.confidence, def.note);
     }
@@ -923,7 +921,7 @@ export function initSaveUi(host: SaveUiHost): { openFile(f: File): Promise<void>
                               statField('stat.hp', 'Health', { max: maxhp ?? undefined, slider: true }),
                               heal,
                           ),
-                          vitalBar('Mana', mana, maxmana, 'mana', 'Shown only: never changed in the saves checked.'),
+                          vitalBar('Mana', mana, maxmana, 'mana', 'Read only.'),
                       )
                     : null,
             ),
@@ -955,7 +953,7 @@ export function initSaveUi(host: SaveUiHost): { openFile(f: File): Promise<void>
         const stats = card(
             'Stats',
             {
-                hint: 'Level and XP are stored separately; the game does not recompute one from the other, so keep them sensible.',
+                hint: 'Level and XP are separate values. Keep them consistent.',
             },
             h(
                 'div',
@@ -1010,7 +1008,7 @@ export function initSaveUi(host: SaveUiHost): { openFile(f: File): Promise<void>
             h(
                 'p',
                 { class: 'sv-hint' },
-                'Candidates read from other records. The game applies the stats block above, not these, so editing them probably has no visible effect.',
+                'Older values read from other records. They may have no visible effect in game.',
             ),
             h(
                 'div',
@@ -1032,7 +1030,8 @@ export function initSaveUi(host: SaveUiHost): { openFile(f: File): Promise<void>
             const t = structuredClone(doc.get(id)!.transform);
             t.pos = [...(e.before as [number, number, number])];
             view.run(new TransformCommand(before, new Map([[id, t]])));
-        } else if (e.name.startsWith('item.')) view.run(new ReplaceItemCommand(Number(e.name.slice(5)), undefined));
+        } else if (e.name.startsWith('add.')) view.run(new RemoveAddedItemCommand(Number(e.name.slice(4))));
+        else if (e.name.startsWith('item.')) view.run(new ReplaceItemCommand(Number(e.name.slice(5)), undefined));
         else view.run(new SetFieldCommand(e.name, undefined));
     }
 
@@ -1055,31 +1054,22 @@ export function initSaveUi(host: SaveUiHost): { openFile(f: File): Promise<void>
             return;
         }
         const doc = cur.doc;
+        // One shared change row (shared/components.ts) with the save editor's classes, icons and badges.
         box.replaceChildren(
             ...pending.map((e) =>
-                h(
-                    'div',
-                    { class: 'sv-edit' },
-                    h(
-                        'div',
-                        { class: 'sv-edit-main' },
-                        h('b', null, e.label),
-                        h(
-                            'span',
-                            { class: 'sv-edit-chg' },
-                            h('s', null, e.text?.before ?? doc.describe(e.name, e.before)),
-                            icon('chevron', 12),
-                            h('em', null, e.text?.after ?? doc.describe(e.name, e.after)),
-                        ),
-                    ),
-                    badge(e.unconfirmed ? 'unconfirmed' : e.confidence, e.unconfirmed ? 'bad' : e.confidence),
-                    button('', {
-                        icon: 'revert',
-                        kind: 'icon sm',
-                        title: `Revert ${e.label} (undoable)`,
-                        onclick: () => revert(e),
-                    }),
-                ),
+                changeRow({
+                    prefix: 'sv-edit',
+                    label: e.label,
+                    before: e.text?.before ?? doc.describe(e.name, e.before),
+                    after: e.text?.after ?? doc.describe(e.name, e.after),
+                    tag: e.unconfirmed ? 'unconfirmed' : e.confidence,
+                    tone: '',
+                    arrow: () => icon('chevron', 12),
+                    badge: (t) => badge(t, e.unconfirmed ? 'bad' : e.confidence),
+                    button: (title, run) => button('', { icon: 'revert', kind: 'icon sm', title, onclick: run }),
+                    onRevert: () => revert(e),
+                    revertTitle: `Revert ${e.label} (undoable)`,
+                }),
             ),
         );
     }
@@ -1096,21 +1086,15 @@ export function initSaveUi(host: SaveUiHost): { openFile(f: File): Promise<void>
     }
     function groupTitle(r: RecordInfo): string {
         if (r.type === TYPE_RECORD && r.classId !== undefined) {
-            return `${KNOWN_CLASSES[r.classId] ?? 'Object class'} ${classHex(r.classId)}`;
+            return KNOWN_CLASSES[r.classId] ?? `Object ${classHex(r.classId)}`;
         }
-        return `${TYPE_NAMES[r.type] ?? 'Type'} 0x${hex(r.type, 3)}`;
+        return TYPE_NAMES[r.type] ?? `Record 0x${hex(r.type, 3)}`;
     }
 
     function renderWorld(): void {
         renderWorldList();
         $('sv-details').replaceChildren(
-            cur
-                ? emptyState(
-                      'map',
-                      'Select a record',
-                      'Click a row in the list or a dot on the map to see its fields and hex.',
-                  )
-                : noSave(),
+            cur ? emptyState('map', 'Select a record', 'Click a row in the list or a dot on the map.') : noSave(),
         );
     }
 
@@ -1118,7 +1102,7 @@ export function initSaveUi(host: SaveUiHost): { openFile(f: File): Promise<void>
     const mapCanvas = h('canvas', { id: 'sv-map', class: 'sv-worldmap', width: 720, height: 300 });
     const mapNote = h('small', { class: 'sv-hint' });
     $('sv-worldside').insertBefore(
-        card('Map', { hint: 'Top-down, x across and z down.' }, mapCanvas, mapNote),
+        card('Map', { hint: 'Top-down view.' }, mapCanvas, mapNote),
         $('sv-worldside').firstChild,
     );
     let mapPoints: MapPoint[] = [];
@@ -1307,12 +1291,17 @@ export function initSaveUi(host: SaveUiHost): { openFile(f: File): Promise<void>
         } else if (e.type === 0x401 && e.id === 893 && doc.skills) {
             known.push(['skill table', doc.skills.map((s) => `${s.name} ${s.level}/${s.max}`).join(', ')]);
         }
-        const table = h('table', { class: 'sv-kv' });
-        for (const [k, v] of [...rows, ...known]) {
-            const tr = table.insertRow();
-            tr.insertCell().textContent = k;
-            tr.insertCell().textContent = v;
-        }
+        const kv = (list: [string, string][]): HTMLElement => {
+            const t = h('table', { class: 'sv-kv' });
+            for (const [k, v] of list) {
+                const tr = t.insertRow();
+                tr.insertCell().textContent = k;
+                tr.insertCell().textContent = v;
+            }
+            return t;
+        };
+        const friendly = known.filter(([k]) => !k.startsWith('+0x'));
+        const table = kv([...rows, ...known.filter(([k]) => k.startsWith('+0x'))]);
         const pre = h('pre', { class: 'sv-hex' }, hexDump(e.data, 0, hexLimit));
         const more =
             e.data.length > hexLimit
@@ -1336,9 +1325,8 @@ export function initSaveUi(host: SaveUiHost): { openFile(f: File): Promise<void>
                     ? h('button', { onclick: () => showDetails(index, true) }, 'Show in 3D')
                     : h('small', { class: 'sv-dim' }, 'no position'),
             ),
-            table,
-            pre,
-            ...(more ? [more] : []),
+            ...(friendly.length ? [kv(friendly)] : []),
+            h('details', { class: 'adv' }, h('summary', null, 'Raw data'), table, pre, ...(more ? [more] : [])),
         );
         if (in3d) showIn3d(index);
         else if (view && cur.doc.objectOfEntry.has(index)) {

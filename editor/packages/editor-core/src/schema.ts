@@ -289,6 +289,12 @@ export class SchemaProvider {
         return this.classOf(resource)?.cls.rflClass ?? null;
     }
 
+    /** The model of a class record as a reference word `(db << 16) | id` (db in the class's own ODB list), or 0 when it has none. */
+    modelWord(resource: string): number {
+        const m = this.classOf(resource)?.cls.model;
+        return m ? ((m.db << 16) | (m.id & 0xffff)) >>> 0 : 0;
+    }
+
     /** The stored dword of a class default (strings keep their offset/length word), or undefined. */
     rawDefault(resource: string, index: number): number | undefined {
         return this.classOf(resource)?.cls.data?.[index];
@@ -345,6 +351,29 @@ export class SchemaProvider {
         hit = [...acc.values()].sort((a, b) => b.count - a.count || a.stem.localeCompare(b.stem) || a.id - b.id);
         this.refCache.set(key, hit);
         return hit;
+    }
+
+    /** A scalar number field of a class of ODB `stem` by name (index and class default), or null. */
+    classNumber(stem: string, classId: number, fieldName: string): { index: number; value: number } | null {
+        const c = this.odbs.get(stem)?.get(classId);
+        const index = c?.fields?.findIndex((f) => f.name === fieldName) ?? -1;
+        if (!c || index < 0) return null;
+        const v = classFieldDefault(c, index);
+        return typeof v === 'number' ? { index, value: v } : null;
+    }
+
+    /** Every class of every loaded ODB that has a field `fieldName`: its stem, id, developer name and number default. */
+    classesWithField(fieldName: string): { stem: string; id: number; name: string; index: number; value: number }[] {
+        const out: { stem: string; id: number; name: string; index: number; value: number }[] = [];
+        for (const [stem, classes] of this.odbs) {
+            for (const c of classes.values()) {
+                const index = c.fields?.findIndex((f) => f.name === fieldName) ?? -1;
+                if (index < 0) continue;
+                const v = classFieldDefault(c, index);
+                if (typeof v === 'number') out.push({ stem, id: c.id, name: c.name, index, value: v });
+            }
+        }
+        return out;
     }
 
     /** Values an enum field (name and type) takes across every class default decoded so far, ascending. */
