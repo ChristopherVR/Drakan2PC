@@ -9,13 +9,14 @@
 #include <map>
 #include <set>
 #include <unordered_map>
+#include <unordered_set>
 #include <functional>
 #include <string>
 
 namespace drakan_scene_models {
 inline bool enabled = false;
 inline std::set<uint32_t> live;
-inline std::map<uint32_t, uint64_t> generations;
+inline std::unordered_map<uint32_t, uint64_t> generations;
 inline uint64_t nextGeneration = 0;
 inline void constructed(uint32_t p) {
     if (enabled) {
@@ -97,11 +98,17 @@ inline bool layerGround(const Reader& r, uint32_t layer, float x, float z, float
     ground = r.f(layer + 12) + v;
     return std::isfinite(ground);
 }
+// Identities, topology and cache keys are only compared within one run, so the wide hash is enough.
 inline uint64_t hashBytes(uint64_t h, const void* p, size_t n) {
-    return drakan_object_motion::captureHash(h, p, n);
+    return drakan_object_motion::captureHashWide(h, p, n);
 }
 inline uint64_t key(unsigned material, std::array<uint16_t, 3> v) {
-    std::sort(v.begin(), v.end());
+    if (v[0] > v[1])
+        std::swap(v[0], v[1]);
+    if (v[1] > v[2])
+        std::swap(v[1], v[2]);
+    if (v[0] > v[1])
+        std::swap(v[0], v[1]);
     return uint64_t(material) << 48 | uint64_t(v[2]) << 32 | uint64_t(v[1]) << 16 | v[0];
 }
 // Conservative fallback until the native sky owner is exported explicitly.
@@ -175,6 +182,17 @@ public:
 // 12b640's resource buckets, 189b38/18bb90's model faces and 1ec160/1ec8f0's
 // packed position selectors, zero-delimited strips and per-output-vertex UVs.
 class Capture {
+    // What a pose-independent rebuild of a mesh needs: the vertex indices of every emitted triangle (in order), the
+    // vertex count the positions must cover, and whether any triangle was dropped for a non-finite position.
+    struct Corners {
+        std::vector<std::array<uint16_t, 3>> indices;
+        uint32_t vertices = 0;
+        bool positionRejected = false;
+    };
+    struct PosedTemplate {
+        std::shared_ptr<const gsr::SceneModelMesh> base;
+        Corners corners;
+    };
     BackdropTracker backdrops;
     uint64_t level = ~0ull;
     unsigned ticks = 0;
@@ -185,6 +203,7 @@ class Capture {
     std::vector<std::shared_ptr<const gsr::SceneModelTexture>> textures;
     std::map<uint32_t, uint32_t> textureIndices;
     std::unordered_map<uint64_t, std::shared_ptr<const gsr::SceneModelMesh>> meshes;
+    std::unordered_map<uint64_t, PosedTemplate> templates;
     std::shared_ptr<const gsr::SceneModelTexture> texture(const Reader& r, uint32_t id, uint32_t p) {
         const auto width = r.u(p + 0x24), height = r.u(p + 0x28), stride = r.u(p + 0x34), bits = r.u(p + 0x38),
                    source = r.u(p + 0x50), palette = r.u(p + 0x3c);
@@ -239,14 +258,13 @@ class Capture {
         return t;
     }
     // Resumable texture refresh (see capture()). Builds refreshNext / refreshIndices from the resident resources in
-    // id order, at most kRefreshBudget per call when `sliced`; the finished set replaces `textures` atomically.
-    static constexpr std::chrono::microseconds kRefreshBudget{250};
+    // id order, at most refreshBudget per call when `sliced`; the finished set replaces `textures` atomically.
     void refreshTextures(const Reader& r, bool sliced) {
         const auto begin = std::chrono::steady_clock::now();
         const auto resources = r.resources(0x4db280, 0x51cfe8);
         unsigned done = 0;
         for (auto it = resources.lower_bound(refreshCursor); it != resources.end(); ++it, ++done) {
-            if (sliced && done && std::chrono::steady_clock::now() - begin > kRefreshBudget) {
+            if (sliced && done && std::chrono::steady_clock::now() - begin > refreshBudget) {
                 refreshCursor = it->first;
                 return;
             }
@@ -294,8 +312,10 @@ class Capture {
                 }
             }
         }
-        if (indices != textureIndices)
+        if (indices != textureIndices) {
             meshes.clear();
+            templates.clear();
+        }
         textureIndices = std::move(indices);
         textures = std::move(refreshNext);
         refreshNext = {};
@@ -304,7 +324,7 @@ class Capture {
         refreshCursor = 0;
     }
     std::shared_ptr<const gsr::SceneModelMesh> mesh(const Reader& r, uint32_t m, uint32_t id, uint32_t positions = 0,
-                                                    uint32_t slot = 0) {
+                                                    uint32_t slot = 0, Corners* corners = nullptr) {
         auto nv = r.u(m + 0x1c), nf = r.u(m + 0x20), fp = r.u(m + 0x28), uv = r.u(m + 0x30);
         uint32_t vertexStart = 0, faceStart = 0;
         if (r.u(m + 0x18) == 0x519a00) {
@@ -334,6 +354,8 @@ class Capture {
         if (materialCount > 4096 || !r.span(library, uint64_t(materialCount) * 4))
             return {};
         auto out = std::make_shared<gsr::SceneModelMesh>();
+        if (corners)
+            corners->vertices = nv;
         out->nativeId = id;
         out->topology = hashBytes(14695981039346656037ull, &id, sizeof(id));
         struct Face {
@@ -343,7 +365,9 @@ class Capture {
         std::vector<Face> faces(nf);
         std::memcpy(faces.data(), r.ram + fp, nf * 12);
         std::unordered_map<uint64_t, uint32_t> originals;
-        std::set<uint64_t> emitted;
+        originals.reserve(size_t(nf) * 2);
+        std::unordered_set<uint64_t> emitted;
+        emitted.reserve(size_t(nf) * 2);
         std::vector<unsigned> covered(nf);
         for (uint32_t f = 0; f < nf; ++f) {
             const auto& a = faces[f];
@@ -370,8 +394,11 @@ class Capture {
             for (unsigned j = 0; j < 3; ++j)
                 for (unsigned c = 0; c < 3; ++c) {
                     const auto v = r.f(positions + indices[j] * 12 + c * 4);
-                    if (!std::isfinite(v) || std::abs(v) > 1e7)
+                    if (!std::isfinite(v) || std::abs(v) > 1e7) {
+                        if (corners)
+                            corners->positionRejected = true;
                         return;
+                    }
                     t.position[j][c] = v;
                 }
             for (unsigned j = 0; j < 3; ++j)
@@ -384,6 +411,8 @@ class Capture {
             out->topology = hashBytes(out->topology, &textureId, sizeof(textureId));
             out->topology = hashBytes(out->topology, tex, sizeof(float) * 6);
             out->triangles.push_back(t);
+            if (corners)
+                corners->indices.push_back(indices);
             ++covered[found->second];
         };
         const auto slots = r.u(m + 0xa8);
@@ -465,9 +494,55 @@ class Capture {
         return out;
     }
 
+    // Posed (skinned / animated) instances change positions every frame but never their triangles, indices, materials
+    // or UVs: the first build per (resource, LOD slot) records the vertex indices and later poses only re-read
+    // positions. Any pose the template cannot represent exactly (a position out of range, a triangle the first pose
+    // dropped) takes the full build, so the result is always what mesh() would produce.
+    std::shared_ptr<const gsr::SceneModelMesh> posedMesh(const Reader& r, uint32_t m, uint32_t id, uint32_t positions,
+                                                         uint32_t slot, uint64_t templateKey) {
+        if (auto found = templates.find(templateKey); found != templates.end()) {
+            const auto& t = found->second;
+            if (r.span(positions, uint64_t(t.corners.vertices) * 12)) {
+                auto out = std::make_shared<gsr::SceneModelMesh>();
+                out->nativeId = t.base->nativeId;
+                out->topology = t.base->topology;
+                out->triangles = t.base->triangles;
+                bool valid = true;
+                for (size_t i = 0; valid && i < out->triangles.size(); ++i) {
+                    auto& triangle = out->triangles[i];
+                    for (unsigned j = 0; valid && j < 3; ++j) {
+                        const uint32_t at = positions + t.corners.indices[i][j] * 12u;
+                        for (unsigned c = 0; c < 3; ++c) {
+                            const float v = r.f(at + c * 4);
+                            if (!std::isfinite(v) || std::abs(v) > 1e7) {
+                                valid = false;
+                                break;
+                            }
+                            triangle.position[j][c] = v;
+                        }
+                    }
+                }
+                if (valid) {
+                    out->identity = hashBytes(hashBytes(14695981039346656037ull, &id, 4), out->triangles.data(),
+                                              out->triangles.size() * sizeof(gsr::SceneModelTriangle));
+                    return out;
+                }
+            }
+        }
+        Corners corners;
+        auto out = mesh(r, m, id, positions, slot, &corners);
+        if (out && !corners.positionRejected && out->triangles.size() == corners.indices.size())
+            templates[templateKey] = PosedTemplate{out, std::move(corners)};
+        else
+            templates.erase(templateKey);
+        return out;
+    }
+
 public:
     using TextureLoader = std::function<std::shared_ptr<const gsr::SceneModelTexture>(uint32_t, const std::string&)>;
     TextureLoader loadTexture;
+    // CPU time one capture may spend on the resident-texture refresh (tests set it very large for a synchronous pass).
+    std::chrono::microseconds refreshBudget{250};
     void reset() { level = ~0ull; }
     std::shared_ptr<const gsr::SceneModels> capture(const uint8_t* ram, uint32_t bytes, uint64_t scene) {
         auto out = std::make_shared<gsr::SceneModels>();
@@ -554,6 +629,7 @@ public:
             ticks = 0;
             backdrops.clear();
             meshes.clear();
+            templates.clear();
             textures.clear();
             textureIndices.clear();
             refreshing = false;
@@ -586,7 +662,8 @@ public:
         }
         out->textures = textures;
         auto resources = r.resources(0x4dae20, 0x51cc98, 0x519a00);
-        std::map<uint64_t, uint32_t> used;
+        std::unordered_map<uint64_t, uint32_t> used;
+        used.reserve(256);
         backdrops.prune();
         for (auto object : live) {
             if (out->instances.size() >= 16384)
@@ -603,6 +680,7 @@ public:
                 continue;
             uint32_t positions = 0, slot = 0;
             uint64_t cacheKey = uint64_t(it->first) << 32 | it->second;
+            uint64_t templateKey = 0;
             if (r.u(object + 0x50)) {
                 const auto controller = r.u(object + 0x50);
                 if (!r.span(controller, 0x12c) || r.u(controller + 0xd4) != object) {
@@ -625,6 +703,7 @@ public:
                     vertexCount = r.u(d + 12);
                 }
                 cacheKey = hashBytes(cacheKey, &slot, 4);
+                templateKey = cacheKey;
                 if (r.u(controller + 8) & 0x100000) {
                     auto pose = drakan_object_motion::provenPoseSource(ram, bytes, object);
                     if (!pose.address || pose.count != vertexCount) {
@@ -641,11 +720,13 @@ public:
                 }
             }
             std::shared_ptr<const gsr::SceneModelMesh> geometry;
-            if (auto found = meshes.find(cacheKey); found != meshes.end())
+            if (positions)
+                geometry = posedMesh(r, it->second, it->first, positions, slot, templateKey);
+            else if (auto found = meshes.find(cacheKey); found != meshes.end())
                 geometry = found->second;
             else {
                 geometry = mesh(r, it->second, it->first, positions, slot);
-                if (geometry && !positions)
+                if (geometry)
                     meshes[cacheKey] = geometry;
             }
             if (!geometry || geometry->triangles.empty()) {

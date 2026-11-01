@@ -503,3 +503,8 @@ Fix: texture identity uses `captureHashWide` (4 lanes, 32-byte blocks; equality-
 ~250 us slices over the following captures (`Capture::refreshTextures`) and replaces the texture set when complete. After:
 gaps over 14 ms 78-86 -> 1-5 per 20 s, p99 17.6 -> 10-13 ms, gap SD 2.4 -> 1.2-1.6 ms, world fps 123 -> 125-157 (run to run
 differences are load from other processes). Details: [journal](../journal/2026-11-01/still-view-fps-jitter.md).
+
+Round 2 (same day): posed scene-model instances were rebuilt from scratch every capture (~84 `mesh()` calls, 2.6 of ~3 ms).
+They now reuse a per-resource topology template and only re-read positions (`Capture::posedMesh`), output verified
+byte-identical to the previous implementation over 420 captures. Capture cost 2.7-3.5 -> 0.6-0.7 ms per frame; Surdana still
+view 128-157 -> 192-215 fps, gap SD 0.7-0.9 ms, p99 under 8 ms (the EE thread is now waiting on the VU1 worker).

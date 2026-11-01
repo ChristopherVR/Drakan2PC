@@ -46,3 +46,32 @@ Report: fps jumps around even when looking at one spot. Measured with
 Remaining spread is the content itself (gaps 4-10 ms, VU1-bound; EE thread ~95 % busy with the VU1 handoff spin). Not
 investigated: whether the same scene-model capture costs time every frame (mesh hashing in `Capture::mesh`) when many
 animated objects are on screen.
+
+## Round 2: the per-frame scene-model capture (same day)
+
+With the periodic spike gone, the sampler still put 35-40 % of the EE thread in `Capture::mesh` and its helpers every frame.
+Phase timers on a RAM dump (`dump ram_<label>` in an input script) showed ~84 `mesh()` calls per capture, 2.6 of ~3 ms:
+posed (skinned / animated) instances were rebuilt from scratch every frame (never cached), each with `unordered_map` / `set`
+work, a 3-element `std::sort` per candidate triangle, and byte-serial FNV over every triangle.
+
+* `Capture::posedMesh`: the first build per (resource, LOD slot) records the vertex indices of every emitted triangle; later
+  poses copy the template and re-read only positions (identity re-hashed). A pose with an out-of-range position, a vertex
+  span that does not fit, or a template whose first pose dropped a triangle for a non-finite position takes the full
+  `mesh()` build, so the result is always what a full build would give. Templates are cleared with `meshes`.
+* `hashBytes` in this file is the wide hash; `key()` sorts three values with swaps; `originals` / `emitted` reserve and use
+  hash containers; `generations` and the per-frame `used` map are unordered.
+* `Capture::refreshBudget` (default 250 us) is public so tests can make the texture refresh synchronous.
+
+Verification: a scratch harness (not committed: it needs level RAM) runs the original header (`git show bf23d5f~1:...`) and
+the new one over three RAM dumps of Surdana (140 captures each, poses differ between dumps) and digests everything the
+renderer sees (instances, transforms, opacity, every triangle's positions / UVs / material, texture pixels, lighting).
+With the synchronous refresh the digests are **identical for all 420 captures** (0 diff lines). Cost per capture on the
+dumps: 2.7-3.5 ms -> 0.6-0.7 ms.
+
+In game (Surdana still view, nothing else running; original `dist/DrakanPC` build vs this one, same ini): 155 -> 176 fps,
+and against the first-round build 128-157 -> 192-215 fps with gap SD 0.7-0.9 ms, p99 6.7-7.7 ms, 93 % of frames in 4-5 ms.
+The EE thread now mostly waits for the VU1 worker (`syncSlow` 16 %, VU1 worker ~80 % busy), so the remaining frame time is the
+VU1 geometry load, not the host.
+
+Not done: 80 non-posed instances per frame still retry a `mesh()` that returns null (rejected, never cached; ~0.08 ms per
+frame) - caching negatives needs a retry rule for resources that load later.
