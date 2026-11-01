@@ -13,7 +13,7 @@ import {
     type Ps2LevelParts,
     type SrscReader,
 } from '@drakan/formats';
-import { newDraft, serializeMapFile, slugify, type ArenaDraft, type Vec3 } from './arena.ts';
+import { newDraft, serializeMapFile, slugify, type ArenaDraft, type MarkerKind, type Vec3 } from './arena.ts';
 import { buildManifestToml, ModError, MOD_MAX_ENTRY, zipModFiles, type ModMeta } from './mod.ts';
 
 /**
@@ -130,6 +130,19 @@ export function ootfArenaFromPc(pc: PcLevel, title: string): ArenaDraft | null {
     d.description = 'A multiplayer map of Drakan: Order of the Flame.';
     d.players = Math.min(12, starts.length);
     for (const pos of starts) d.spawns.push({ uid: d.nextUid++, pos, yaw: 0, team: 0 });
+    // PC-only multiplayer objects without a PS2 engine class (dragon launch pads, the Soul Crystal, dragon invulnerability)
+    // are kept as authored markers for custom modes; the game does not read them yet.
+    const marks: [RegExp, MarkerKind, string][] = [
+        [/red\s*dragon\s*launch/i, 'base', 'Red dragon launch pad'],
+        [/^dragon\s*launch/i, 'base', 'Dragon launch pad'],
+        [/soul crystal/i, 'flag', 'Fire Dragon Soul Crystal'],
+        [/dragon invun/i, 'zone', 'Dragon invulnerability'],
+    ];
+    for (const o of pc.list.objects) {
+        const n = (pc.classes.get(o.dbIndex)?.get(o.classId)?.name ?? '').trim();
+        const m = marks.find(([re]) => re.test(n));
+        if (m) d.markers.push({ uid: d.nextUid++, kind: m[1], pos: [...o.pos] as Vec3, radius: 400, team: 0, label: m[2] });
+    }
     return d;
 }
 

@@ -31,6 +31,22 @@ describe('ootfArenaFromPc', () => {
         expect(back.level).toBe('OotF Test Arena');
         expect(back.spawns.length).toBe(3);
     });
+    it('keeps dragon pads and the Soul Crystal as markers', () => {
+        const l = level('Multiplayer/QOD/Test/Test.lvl', 2);
+        const cls = l.classes.get(0)!;
+        cls.set(3, { name: 'DragonLaunch Pad' } as never);
+        cls.set(4, { name: 'Fire Dragon Soul Crystal' } as never);
+        (l.list.objects as unknown as { id: number; classId: number; dbIndex: number; pos: number[] }[]).push(
+            { id: 90, classId: 3, dbIndex: 0, pos: [10, 20, 30] },
+            { id: 91, classId: 4, dbIndex: 0, pos: [40, 50, 60] },
+        );
+        const d = ootfArenaFromPc(l, 'x')!;
+        expect(d.markers.map((m) => [m.kind, m.label])).toEqual([
+            ['base', 'Dragon launch pad'],
+            ['flag', 'Fire Dragon Soul Crystal'],
+        ]);
+        expect(d.spawns.length).toBe(2);
+    });
     it('ignores campaign levels and levels with fewer than two starts', () => {
         expect(ootfArenaFromPc(level('Mountain World/Intro/Intro.lvl', 4), 'x')).toBeNull();
         expect(ootfArenaFromPc(level('Multiplayer/Ground/Relic/Relic.lvl', 1), 'x')).toBeNull();
