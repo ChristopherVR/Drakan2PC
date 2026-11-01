@@ -12,8 +12,9 @@ bool quickSaveExists() {
     const auto& io = PS2Runtime::getIoPaths();
     const auto root = io.mcRoot.empty() ? io.elfDirectory / "mc0" : io.mcRoot;
     std::error_code ec;
-    for (std::filesystem::directory_iterator it(root / (std::string(drakan_region::build().saveId) + "Slot33"), ec), end; !ec && it != end;
-         it.increment(ec)) {
+    for (std::filesystem::directory_iterator it(root / (std::string(drakan_region::build().saveId) + "Slot33"), ec),
+         end;
+         !ec && it != end; it.increment(ec)) {
         if (it->path().extension() == ".rsg" && it->is_regular_file(ec) && !ec)
             return true;
     }
@@ -60,7 +61,7 @@ void quickSaveTick(uint8_t* ram, R5900Context* c, PS2Runtime* rt, RecompGuest& g
             if (sourceLevel(b, edge, true))
                 request = static_cast<int>(b.value);
         }
-        if (request && arenaWorldMode()) {
+        if (request && arenaWorldMode() && !std::getenv("DRAKAN_ARENA_ALLOW_SAVE")) { // test aid: save the arena world
             menuLog("quick %s ignored: multiplayer arena (nothing is saved or loaded)", request == 1 ? "save" : "load");
             return;
         }

@@ -168,19 +168,39 @@ constexpr DestText kDestTexts[] = {
 };
 // Destinations learned in this run: (level, string id) -> level the exit led to (set when a level change through an
 // exit completes), so exits whose text the string manager has not cached yet get a name after they were used once.
-std::map<std::pair<std::string, uint32_t>, std::string> g_learned; // guarded by g_m
-std::pair<std::string, uint32_t> g_fireKey;                        // exit being taken (level, string id), EE thread
+std::map<std::pair<std::string, uint32_t>, std::string> g_learned;   // guarded by g_m
+std::function<std::string(const std::string&, uint32_t)> g_destHook; // guarded by g_m
+std::map<std::string, std::string>
+    g_copies;                               // level copy -> source level (mod packs, registerLevelCopy), guarded by g_m
+std::pair<std::string, uint32_t> g_fireKey; // exit being taken (level, string id), EE thread
+std::string levelNameOf(std::string t);
 std::string knownName(const std::string& level, uint32_t id) {
     {
         std::lock_guard<std::mutex> l(g_m);
         if (const auto it = g_learned.find({level, id}); it != g_learned.end())
             return it->second;
     }
+    std::string src = level; // a mod pack's level copy shares the destination strings of the level it was copied from
+    {
+        std::lock_guard<std::mutex> l(g_m);
+        if (const auto it = g_copies.find(level); it != g_copies.end())
+            src = it->second;
+    }
     for (const LevelGroup& g : kLevelGroups)
-        if (level == g.level)
+        if (src == g.level) {
+            // A mod pack's override of the destination string beats the disc's text in the table below.
+            std::function<std::string(const std::string&, uint32_t)> hook;
+            {
+                std::lock_guard<std::mutex> l(g_m);
+                hook = g_destHook;
+            }
+            if (hook)
+                if (std::string t = hook(g.group, id); !t.empty())
+                    return levelNameOf(t);
             for (const DestText& d : kDestTexts)
                 if (id == d.id && std::strcmp(d.group, g.group) == 0)
                     return d.to;
+        }
     return {};
 }
 
@@ -196,6 +216,12 @@ std::string levelNameOf(std::string t) {
 
 bool isPortalName(const std::string& name) {
     return name.size() == 6 && strncasecmp(name.c_str(), "portal", 6) == 0;
+}
+
+// Destination texts of exits whose level is not on the disc (cut content): Stratos' "Transition to Desert". The game's
+// load fails (result -4) and the title screen comes up with a "Save Failed!" box, so the host does not fire them.
+bool isMissingLevel(const std::string& name) {
+    return name == "Level 6 - Transition to Desert";
 }
 
 uint32_t callGuest(uint8_t* rdram, R5900Context* c, PS2Runtime* rt, uint32_t fn, uint32_t a0, uint32_t a1 = 0,
@@ -294,9 +320,10 @@ void scan(uint8_t* rdram, R5900Context* c, PS2Runtime* rt) {
                 e.prop[k] = Ram::ok(p) ? r.u32(p) : 0xdeadbeefu;
             }
             e.dest = e.prop[0];
-            e.destName = knownName(g_currentLevel, e.prop[0]);
+            // The live text wins: a mod pack may have pointed the exit at a level copy, the tables describe the disc.
+            e.destName = levelNameOf(readString(rdram, e.prop[0]));
             if (e.destName.empty())
-                e.destName = levelNameOf(readString(rdram, e.prop[0]));
+                e.destName = knownName(g_currentLevel, e.prop[0]);
             e.direct = e.prop[6] != 0 && e.prop[6] != 0xdeadbeefu;
             e.portal = isPortalName(e.destName);
             {
@@ -371,6 +398,29 @@ void transitionEntry(uint8_t* rdram, R5900Context* c, PS2Runtime* rt) {
     g_origTransition(rdram, c, rt);
 }
 
+// Trace of what the engine delivers to the exit triggers (DRAKAN_LEVELCHANGE_TRACE=1): the touch handler 0x361440
+// (inst, msg; event id = u16 at msg+4) and the class handler 0x365138 (handle, msg), to see whether a walk reaches
+// them.
+constexpr uint32_t kTouchHandler = 0x361440u;
+constexpr uint32_t kExitHandler = 0x365138u;
+PS2Runtime::RecompiledFunction g_origTouch = nullptr, g_origExitHandler = nullptr;
+std::atomic<int> g_traceCount{0};
+void touchEntry(uint8_t* rdram, R5900Context* c, PS2Runtime* rt) {
+    const Ram r{rdram};
+    const uint32_t inst = getRegU32(c, 4), msg = getRegU32(c, 5);
+    if (g_traceCount.fetch_add(1) < 400)
+        std::fprintf(stderr, "[levelchange] trace touch handler inst %x msg %x event %x state %x\n", inst, msg,
+                     r.u16(msg + 4), r.u16(inst));
+    g_origTouch(rdram, c, rt);
+}
+void exitHandlerEntry(uint8_t* rdram, R5900Context* c, PS2Runtime* rt) {
+    const Ram r{rdram};
+    const uint32_t h = getRegU32(c, 4), msg = getRegU32(c, 5);
+    if (g_traceCount.fetch_add(1) < 400)
+        std::fprintf(stderr, "[levelchange] trace exit handler handle %x msg %x id %x\n", h, msg, r.u16(msg + 4));
+    g_origExitHandler(rdram, c, rt);
+}
+
 bool fire(uint8_t* rdram, PS2Runtime* rt, uint32_t handle) {
     const Ram r{rdram};
     const uint32_t eng = r.u32(addr(kContextPtr));
@@ -378,7 +428,14 @@ bool fire(uint8_t* rdram, PS2Runtime* rt, uint32_t handle) {
         return false;
     {
         std::lock_guard<std::mutex> l(g_m);
-        for (const ExitInfo& e : g_exits)
+        for (const ExitInfo& e : g_exits) {
+            if (e.handle == handle && isMissingLevel(e.destName)) {
+                std::fprintf(stderr,
+                             "[levelchange] exit %x leads to '%s', a level that is not on the disc (the game's own "
+                             "load fails and drops to the title screen with \"Save Failed!\"): not fired\n",
+                             handle, e.destName.c_str());
+                return false;
+            }
             if (e.handle == handle && e.portal) {
                 std::fprintf(stderr,
                              "[levelchange] exit %x leads to '%s', an arrival marker and not a level (the game's "
@@ -386,6 +443,7 @@ bool fire(uint8_t* rdram, PS2Runtime* rt, uint32_t handle) {
                              handle, e.destName.c_str());
                 return false;
             }
+        }
     }
     const uint32_t inner = r.u32(handle + 0xfc);
     const uint32_t inst = Ram::ok(inner, 0x14) ? r.u32(inner + 0x10) : 0;
@@ -469,12 +527,25 @@ void hookTick(uint8_t* rdram, R5900Context* c, PS2Runtime* rt) {
         const bool live = Ram::ok(eng, 0x4b8) && r.u32(eng + 0x4b0) != 0;
         if (live) {
             ++g_framesInLevel;
-            if (g_probe.steps.size() && (g_framesInLevel <= 3 || g_framesInLevel == 60 || g_framesInLevel == 200)) {
+            if (g_probe.steps.size() && (g_framesInLevel <= 3 || g_framesInLevel == 60 || g_framesInLevel % 100 == 0)) {
                 const uint32_t pl = r.u32(eng + 0x4b0);
                 std::fprintf(stderr, "[levelchange] arrival report '%s' frame %llu player %08x pos %.0f %.0f %.0f\n",
                              g_currentLevel.c_str(), static_cast<unsigned long long>(g_framesInLevel), pl,
                              static_cast<double>(f32(r, pl + 0x14)), static_cast<double>(f32(r, pl + 0x18)),
                              static_cast<double>(f32(r, pl + 0x1c)));
+                if (g_framesInLevel % 100 == 0 || g_framesInLevel <= 3)
+                    std::fprintf(stderr, "[levelchange]   lock state: scripted %x player flags %08x %08x ctx+4c4 %x\n",
+                                 r.u32(addr(0x4fbafcu)), r.u32(pl + 0x90), r.u32(pl + 0x94), r.u32(eng + 0x4c4));
+                if (g_framesInLevel % 100 == 0 || g_framesInLevel <= 3) {
+                    std::string m;
+                    char tmp[16];
+                    for (uint32_t k = 0x490; k < 0x4e0; k += 4) {
+                        std::snprintf(tmp, sizeof tmp, " %x", r.u32(eng + k));
+                        m += tmp;
+                    }
+                    std::fprintf(stderr, "[levelchange]   ctx+490:%s pl vt %x +c %x +10 %x +fc %x\n", m.c_str(),
+                                 r.u32(pl), r.u32(pl + 0xc), r.u32(pl + 0x10), r.u32(pl + 0xfc));
+                }
                 if (g_framesInLevel == 3) {
                     {
                         std::string m;
@@ -602,6 +673,16 @@ void install(PS2Runtime& rt) {
         g_origTransition = rt.lookupFunction(addr(kTransition));
         rt.replaceFunction(addr(kTransition), &transitionEntry);
     }
+    if (std::getenv("DRAKAN_LEVELCHANGE_TRACE")) {
+        if (rt.hasFunction(addr(kTouchHandler))) {
+            g_origTouch = rt.lookupFunction(addr(kTouchHandler));
+            rt.replaceFunction(addr(kTouchHandler), &touchEntry);
+        }
+        if (rt.hasFunction(addr(kExitHandler))) {
+            g_origExitHandler = rt.lookupFunction(addr(kExitHandler));
+            rt.replaceFunction(addr(kExitHandler), &exitHandlerEntry);
+        }
+    }
     drakan_lifecycle::subscribe(drakan_lifecycle::Kind::BeforeSaveWrite, onLevelEvent);
     drakan_lifecycle::subscribe(drakan_lifecycle::Kind::BeforeLevelLoad, onLevelEvent);
     drakan_lifecycle::subscribe(drakan_lifecycle::Kind::AfterLevelLoad, onLevelEvent);
@@ -648,6 +729,16 @@ bool requestExitIndex(size_t index) {
         return false;
     g_fireIndex = static_cast<int64_t>(index);
     return true;
+}
+
+void setDestinationTextHook(std::function<std::string(const std::string& group, uint32_t id)> hook) {
+    std::lock_guard<std::mutex> l(g_m);
+    g_destHook = std::move(hook);
+}
+
+void registerLevelCopy(const std::string& copy, const std::string& source) {
+    std::lock_guard<std::mutex> l(g_m);
+    g_copies[copy] = source;
 }
 
 bool requestLevel(const std::string& level) {

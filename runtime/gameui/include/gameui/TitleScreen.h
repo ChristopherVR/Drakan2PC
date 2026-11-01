@@ -43,7 +43,11 @@ enum class TitleRow : uint8_t {
     GameDrakan,
     GameOotf,
 };
+// Label shown (the skin's `title.row.<id>` when set, else the default), stable id, default label / description.
 const char* titleRowLabel(TitleRow r);
+const char* titleRowId(TitleRow r);
+const char* titleRowDefaultLabel(TitleRow r);
+const char* titleRowDefaultDescription(TitleRow r); // null: dynamic or none
 
 enum class TitleActionKind : uint8_t {
     Continue,       // value = slot number of the save to load
@@ -52,11 +56,11 @@ enum class TitleActionKind : uint8_t {
     Credits,        // tap 0x2306
     OpenPcSettings, // drakan_settings_host::requestOpen() (only without the modern PC Settings pages)
     QuitToDesktop,  // drakan_win::requestClose()
+    SelectGame, // value = 0 Drakan (Ancients' Gates), 1 Drakan: Order of the Flame; applied at once (no native press)
 };
 const char* titleActionName(TitleActionKind k);
 
 struct TitleAction {
-    SelectGame,     // value = 0 Drakan (Ancients' Gates), 1 Drakan: Order of the Flame; applied at once (no native press)
     uint32_t id = 0; // assigned by TitleActionQueue::push
     TitleActionKind kind = TitleActionKind::LoadGame;
     int32_t value = 0;
@@ -94,17 +98,13 @@ struct TitleState {
     std::string capturedKey;
     // Multiplayer menu: the network layer snapshot (the glue fills it from drakan_netplay each frame).
     mp::MpState multiplayer;
-};
-
-enum class TitlePage : uint8_t { Main, QuitConfirm, Options, PcSettings, Multiplayer, NewGameChoice, GameChoice };
-
     // Game choice (drakan_game): the card opens with the title when a campaign pack is installed and drakan.ini
     // [general] game is "ask"; Back on the main page reopens it.
     bool offerGames = false;
-    int game = 0;                     // the game the menu is running for (0 Drakan, 1 Order of the Flame)
+    int game = 0; // the game the menu is running for (0 Drakan, 1 Order of the Flame)
     std::string gameNames[2] = {"Drakan", "Drakan: Order of the Flame"};
-    // Order of the Flame is playing: the menu draws its own text title over the native logo (which says The Ancients' Gates).
-    // brandTitle empty = native art as shipped.
+    // Order of the Flame is playing: the menu draws its own text title over the native logo (which says The Ancients'
+    // Gates). brandTitle empty = native art as shipped.
     std::string brandTitle, brandSubtitle;
 };
 
@@ -115,7 +115,7 @@ struct TitleConfig {
     bool showContinue = true;     // a Continue row when TitleState::continueSlot is set
     bool showPcSettings = true;   // a PC Settings row on the main page
     bool showMultiplayer = false; // a Multiplayer row (after New Game); the host glue turns it on
-    bool showCoop = false;        // New Game asks Solo / Co-op first (Co-op is played on the campaign, not in Multiplayer)
+    bool showCoop = false; // New Game asks Solo / Co-op first (Co-op is played on the campaign, not in Multiplayer)
     uint32_t suspendFrames = 240; // input ignored after an action that leaves the menu, until reactivate()
     int32_t sliderStep = 5;       // Options pages (PauseConfig)
     uint32_t optionHoldFrames = 120;
@@ -189,12 +189,12 @@ private:
     TargetId focus_, hover_, mainFocus_;
     uint32_t suspendLeft_ = 0;
     bool loading_ = false;
+    bool gameAsked_ = false;  // the game card was shown since open()
+    bool offerGames_ = false; // TitleState::offerGames of the last frame
     std::vector<HitTarget> targets_;
     std::vector<Hint> hints_;
     LayoutFrame lf_;
 
-    bool gameAsked_ = false; // the game card was shown since open()
-    bool offerGames_ = false; // TitleState::offerGames of the last frame
     std::vector<TitleRow> rowsOf(TitlePage page, const TitleState& st) const;
     const HitTarget* findTarget(const TargetId& id) const;
     Rect rowRect(int i, int n) const; // design units, main column

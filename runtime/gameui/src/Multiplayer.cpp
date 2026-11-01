@@ -175,6 +175,8 @@ void MultiplayerScreen::open(const MpState& st, MpScope scope) {
     if (scope == MpScope::Coop) {
         host_.coop = true;
         host_.mode = GameMode::Coop;
+        host_.modeId.clear();
+        host_.modeTeam = false;
     } else if (scope == MpScope::Versus && host_.coop) {
         host_.coop = false;
         host_.mode = host_.teams >= 2 ? GameMode::TeamDeathmatch : GameMode::Deathmatch;
@@ -266,7 +268,23 @@ std::vector<LevelEntry> MultiplayerScreen::groupLevels(const MpState& st) const 
 }
 
 GameMode MultiplayerScreen::hostMode() const {
-    return host_.coop ? GameMode::Coop : host_.teams >= 2 ? GameMode::TeamDeathmatch : GameMode::Deathmatch;
+    if (host_.coop)
+        return GameMode::Coop;
+    if (!host_.modeId.empty()) // a custom mode brings its own base rules
+        return host_.modeTeam ? GameMode::TeamDeathmatch : GameMode::Deathmatch;
+    return host_.teams >= 2 ? GameMode::TeamDeathmatch : GameMode::Deathmatch;
+}
+
+// The custom modes the chosen map can play (Game Mode row); none for co-op and for campaign levels.
+std::vector<const ModeEntry*> MultiplayerScreen::modesForMap(const MpState& st) const {
+    std::vector<const ModeEntry*> out;
+    if (host_.coop)
+        return out;
+    const LevelEntry map = hostMap(st);
+    for (const ModeEntry& m : st.modes)
+        if (std::find(map.modeIds.begin(), map.modeIds.end(), m.id) != map.modeIds.end())
+            out.push_back(&m);
+    return out;
 }
 
 // The characters the local player may pick: the host is Rynn, a joiner picks one of the others.
@@ -318,6 +336,8 @@ bool MultiplayerScreen::selectMode(GameMode m, const MpState& st) {
     if (!modeAvailable(m) || !scopeAllows(scope_, m))
         return false;
     host_.coop = m == GameMode::Coop;
+    host_.modeId.clear();
+    host_.modeTeam = false;
     if (m == GameMode::Deathmatch)
         host_.teams = 0;
     else if (m == GameMode::TeamDeathmatch && host_.teams < 2)
@@ -403,6 +423,22 @@ void MultiplayerScreen::buildRows(const MpState& st) {
             if (host_.level >= levelScroll_ + kVisibleMaps)
                 levelScroll_ = host_.level - kVisibleMaps + 1;
             levelScroll_ = std::clamp(levelScroll_, 0, std::max(0, static_cast<int>(levels.size()) - kVisibleMaps));
+            // A custom mode that does not fit this map (or this game type) drops back to the standard rules.
+            const std::vector<const ModeEntry*> fits = modesForMap(st);
+            const ModeEntry* mode = nullptr;
+            for (const ModeEntry* m : fits)
+                if (m->id == host_.modeId)
+                    mode = m;
+            if (!mode && !host_.modeId.empty()) {
+                host_.modeId.clear();
+                host_.modeTeam = false;
+            }
+            if (mode) { // its rules fix the type, the limits and the teams
+                host_.modeTeam = mode->teamBase;
+                host_.teams = mode->teamBase ? std::max(2, mode->teams) : 0;
+                host_.fragLimit = mode->fragLimit;
+                host_.timeLimitMin = (mode->timeLimitSec + 59) / 60;
+            }
             const bool team = host_.teams >= 2;
             const bool arenas = !host_.coop && !st.arenas.empty();
             const char* const kGroups[] = {arenas ? "All Maps" : "All Levels", arenas ? "Arenas" : "Disc levels",
@@ -418,19 +454,27 @@ void MultiplayerScreen::buildRows(const MpState& st) {
             add(RowId::HostType, RowKind::Choice, "Game Type",
                 host_.coop ? std::string("Co-op") : std::string(team ? "Team Deathmatch" : "Deathmatch"),
                 scope_ == MpScope::Any);
+            add(RowId::HostMode, RowKind::Choice, "Game Mode",
+                host_.coop     ? std::string("-")
+                : mode         ? mode->name
+                : fits.empty() ? std::string("Standard  (no modes for this map)")
+                               : std::string("Standard"),
+                !host_.coop && !fits.empty());
             add(RowId::HostMax, RowKind::Number, "Maximum Number of Players", std::to_string(host_.maxPlayers));
-            // Co-op has no kills, time or teams: the rows stay (the form keeps its shape) but are greyed.
+            // Co-op has no kills, time or teams: the rows stay (the form keeps its shape) but are greyed. A custom mode
+            // fixes them as well (shown with the mode's values; the limit counts the mode's points).
             const bool coop = host_.coop;
-            add(RowId::HostFrag, RowKind::Number, "Kills Limit",
-                coop ? std::string("-") : limitText(host_.fragLimit, ""), !coop);
+            const bool fixed = coop || mode;
+            add(RowId::HostFrag, RowKind::Number, mode ? "Score Limit" : "Kills Limit",
+                coop ? std::string("-") : limitText(host_.fragLimit, ""), !fixed);
             add(RowId::HostTime, RowKind::Number, "Time Limit",
-                coop ? std::string("-") : limitText(host_.timeLimitMin, " minutes"), !coop);
+                coop ? std::string("-") : limitText(host_.timeLimitMin, " minutes"), !fixed);
             add(RowId::HostTeams, RowKind::Number, "Number of Teams",
-                coop               ? std::string("-")
-                : host_.teams == 0 ? std::string("No Teams")
-                : host_.teams > 2  ? std::to_string(host_.teams) + "  (coming)"
-                                   : std::to_string(host_.teams),
-                !coop);
+                coop                       ? std::string("-")
+                : host_.teams == 0         ? std::string("No Teams")
+                : host_.teams > 2 && !mode ? std::to_string(host_.teams) + "  (coming)"
+                                           : std::to_string(host_.teams),
+                !fixed);
             add(RowId::HostFriendly, RowKind::Toggle, "Friendly Fire?",
                 coop   ? "No"
                 : team ? "No  (coming)"
@@ -438,7 +482,7 @@ void MultiplayerScreen::buildRows(const MpState& st) {
                 false);
             add(RowId::HostRegister, RowKind::Toggle, "Register With Master Servers?", "No  (servers are gone)", false);
             add(RowId::HostStart, RowKind::Action, "Begin Game", {},
-                net && (coop || host_.teams <= 2) && !levels.empty() &&
+                net && (coop || host_.teams <= 2 || mode) && !levels.empty() &&
                     levels[static_cast<size_t>(host_.level)].supports(hostMode()));
             add(RowId::HostBack, RowKind::Action, "Back");
             break;
@@ -468,7 +512,7 @@ void MultiplayerScreen::buildRows(const MpState& st) {
             break;
         }
         case MpPage::Lobby: {
-            const std::string mode = std::string(modeName(st.mode));
+            const std::string mode = st.modeName.empty() ? std::string(modeName(st.mode)) : st.modeName;
             add(RowId::LobbyInfo, RowKind::Info,
                 (st.serverName.empty() ? std::string("Match") : st.serverName) + "   " + mode + "   " +
                     (st.level.empty() ? std::string("-") : st.level));
@@ -518,7 +562,8 @@ void MultiplayerScreen::buildRows(const MpState& st) {
                 break;
             }
     ensureFocus();
-    if (mapListMode_ && !(focus_ >= 0 && focus_ < rowCount() && rows_[static_cast<size_t>(focus_)].id == RowId::HostLevel))
+    if (mapListMode_ &&
+        !(focus_ >= 0 && focus_ < rowCount() && rows_[static_cast<size_t>(focus_)].id == RowId::HostLevel))
         mapListMode_ = false; // the focus left the Map row (pointer, Left / Right ...)
 }
 
@@ -570,6 +615,7 @@ void MultiplayerScreen::layoutRows(const MpState& st) {
                 r.rect = {80, 468, 540, 522};
                 break;
             case RowId::HostType:
+            case RowId::HostMode:
             case RowId::HostMax:
             case RowId::HostFrag:
             case RowId::HostTime:
@@ -577,7 +623,7 @@ void MultiplayerScreen::layoutRows(const MpState& st) {
             case RowId::HostFriendly:
             case RowId::HostRegister: {
                 const int k = static_cast<int>(r.id) - static_cast<int>(RowId::HostType);
-                // the ids run Type, Max, Frag, Time, Teams, Friendly, Register
+                // the ids run Type, Mode, Max, Frag, Time, Teams, Friendly, Register
                 r.rect = {640, 288 + static_cast<float>(k) * 60, 560, 52};
                 break;
             }
@@ -659,7 +705,7 @@ MpAction MultiplayerScreen::baseAction(MpActionKind k, const MpState& st) const 
     a.kind = k;
     a.setup = setup_;
     a.host = host_;
-    a.host.mode = host_.coop ? GameMode::Coop : host_.teams >= 2 ? GameMode::TeamDeathmatch : GameMode::Deathmatch;
+    a.host.mode = hostMode();
     const std::vector<LevelEntry> levels = groupLevels(st);
     if (!levels.empty())
         a.level = levels[static_cast<size_t>(wrapIdx(host_.level, static_cast<int>(levels.size())))].name;
@@ -768,6 +814,23 @@ void MultiplayerScreen::adjust(int i, int dir, const MpState& st, MpFrameOutput&
                          : host_.teams >= 2 ? GameMode::TeamDeathmatch
                                             : GameMode::Deathmatch;
             break;
+        case RowId::HostMode: {
+            // Standard, then every custom mode the map can play (Left / Right cycle, wrapping around).
+            const std::vector<const ModeEntry*> fits = modesForMap(st);
+            int at = 0; // 0 = Standard
+            for (size_t k = 0; k < fits.size(); ++k)
+                if (fits[k]->id == host_.modeId)
+                    at = static_cast<int>(k) + 1;
+            at = wrapIdx(at + dir, static_cast<int>(fits.size()) + 1);
+            if (at == 0) {
+                host_.modeId.clear();
+                host_.modeTeam = false;
+            } else {
+                host_.modeId = fits[static_cast<size_t>(at - 1)]->id;
+                host_.modeTeam = fits[static_cast<size_t>(at - 1)]->teamBase;
+            }
+            break;
+        }
         case RowId::HostMax:
             host_.maxPlayers = std::clamp(host_.maxPlayers + dir, kMinPlayers, kMaxPlayers);
             break;
@@ -1007,8 +1070,8 @@ MpFrameOutput MultiplayerScreen::frame(const MpState& st, const UiInput& in, con
             if (rows_[static_cast<size_t>(i)].id == RowId::LobbyReady && rows_[static_cast<size_t>(i)].enabled)
                 focus_ = i;
     }
-    // A joiner whose session character is not one of the characters she may play (the default is Rynn, the host's) takes
-    // the first one that is: tell the session once.
+    // A joiner whose session character is not one of the characters she may play (the default is Rynn, the host's)
+    // takes the first one that is: tell the session once.
     if (page_ == MpPage::Lobby && st.mode == GameMode::Coop && st.conn == Conn::Connected &&
         st.phase == MatchPhaseView::Lobby && !st.hosting && st.selfCharacter >= 0) {
         const CharacterEntry c = selectedCharacter(st);
@@ -1561,13 +1624,15 @@ void MultiplayerScreen::draw(const MpState& st, DrawList& d, const std::vector<H
                 if (host_.coop)
                     rules = "Co-op campaign for up to " + std::to_string(host_.maxPlayers) + " players.";
                 else
-                    rules =
-                        "First to " +
-                        (host_.fragLimit > 0 ? std::to_string(host_.fragLimit) + " kills" : std::string("no limit")) +
-                        (host_.timeLimitMin > 0 ? " or " + std::to_string(host_.timeLimitMin) + " minutes"
-                                                : std::string()) +
-                        (host_.teams >= 2 ? ", " + std::to_string(host_.teams) + " teams." : ".");
-                lineWrapped({640, 720, 560, 28}, rules, FontRole::Body, 22, th.textMuted, 3, 30);
+                    rules = "First to " +
+                            (host_.fragLimit > 0
+                                 ? std::to_string(host_.fragLimit) + (host_.modeId.empty() ? " kills" : " points")
+                                 : std::string("no limit")) +
+                            (host_.timeLimitMin > 0 ? " or " + std::to_string(host_.timeLimitMin) + " minutes"
+                                                    : std::string()) +
+                            (host_.teams >= 2 ? ", " + std::to_string(host_.teams) + " teams." : ".");
+                lineWrapped({640, 774, 560, 28}, rules, FontRole::Body, 22, th.textMuted, 2,
+                            30); // below the last row (ends 760)
             }
             // Preview pane.
             const LevelEntry me = hostMap(st);
@@ -1765,7 +1830,15 @@ void MultiplayerScreen::draw(const MpState& st, DrawList& d, const std::vector<H
                 d.outline(p.map(stage), th.brassDim, 2.0f);
                 d.image(p.map({stage.cx() - 130, stage.cy() - 130, 260, 260}), ImageRef{ImageKind::SkinOrb, 0},
                         withAlpha(cc, 150));
-                drawFigure(d, p, stage.inset(14), cc, ch.classId, st.now);
+                if (ch.turnFrames > 0) { // the real model, turning (frames made at run time from the disc)
+                    const int fr = static_cast<int>(st.now * 6.0) % ch.turnFrames;
+                    const float ih = stage.h - 12, iw = ih / 1.5f;
+                    d.image(p.map({stage.cx() - iw / 2, stage.y + 6, iw, ih}),
+                            ImageRef{ImageKind::CharTurntable,
+                                     static_cast<uint32_t>(ch.classId & 0xffff) | (static_cast<uint32_t>(fr) << 16)});
+                } else {
+                    drawFigure(d, p, stage.inset(14), cc, ch.classId, st.now);
+                }
                 p.label(d, {430, cpn.y + 20, 600, 28}, st.hosting ? "YOUR CHARACTER (HOST)" : "CHOOSE YOUR CHARACTER",
                         th.brass, TextAlign::Left, 16);
                 p.text(d, {430, cpn.y + 48, 640, 64}, ch.name.empty() ? std::string("-") : ch.name, FontRole::Title,
@@ -1783,15 +1856,20 @@ void MultiplayerScreen::draw(const MpState& st, DrawList& d, const std::vector<H
             for (const RosterRow& pl : st.roster)
                 ready += pl.ready ? 1 : 0;
             if (team) {
-                for (int t = 0; t < 2; ++t) {
-                    const float x = kM + static_cast<float>(t) * 520;
-                    d.rect(p.map({x, 258, 500, 6}), teamRgba(t));
+                int teams = 2; // custom modes play with up to four teams: one column per team on the roster
+                for (const RosterRow& pl : st.roster)
+                    teams = std::max(teams, std::min(pl.team + 1, 4));
+                const float colW = 1020.0f / static_cast<float>(teams);
+                for (int t = 0; t < teams; ++t) {
+                    const float x = kM + static_cast<float>(t) * colW;
+                    d.rect(p.map({x, 258, colW - 20, 6}), teamRgba(t));
                     int cnt = 0;
                     for (const RosterRow& pl : st.roster)
-                        cnt += (pl.team & 1) == t ? 1 : 0;
-                    p.text(d, {x, 218, 300, 40}, teamName(t), FontRole::Heading, th.heading, TextAlign::Left, 30);
-                    p.text(d, {x + 300, 218, 200, 40}, std::to_string(cnt) + " players", FontRole::Small, th.textMuted,
-                           TextAlign::Right, 20);
+                        cnt += pl.team == t ? 1 : 0;
+                    p.text(d, {x, 218, colW * 0.55f, 40}, teamName(t), FontRole::Heading, th.heading, TextAlign::Left,
+                           30);
+                    p.text(d, {x + colW * 0.5f, 218, colW * 0.5f - 20, 40}, std::to_string(cnt) + " players",
+                           FontRole::Small, th.textMuted, TextAlign::Right, 20);
                 }
             } else {
                 p.label(d, {kM, 232, 400, 28},
@@ -1849,8 +1927,114 @@ void MultiplayerScreen::draw(const MpState& st, DrawList& d, const std::vector<H
 
 // ---- in-game HUD ----
 
+namespace {
+// Design rects (the 1920 x 1080 canvas) of the results screen's buttons: a row at the bottom right of the panel (the
+// panel is {110, 60, 1700, 960}).
+std::vector<Rect> resultsButtonDesign(size_t count) {
+    std::vector<Rect> out;
+    const float w = count > 3 ? 236.0f : 262.0f, h = 66.0f, gap = 14.0f;
+    const float right = 110.0f + 1700.0f - 44.0f, y = 60.0f + 960.0f - 100.0f;
+    float x = right - static_cast<float>(count) * w - static_cast<float>(count > 0 ? count - 1 : 0) * gap;
+    for (size_t i = 0; i < count; ++i, x += w + gap)
+        out.push_back({x, y, w, h});
+    return out;
+}
+} // namespace
+
+namespace {
+// Design rects of the vote cards: a row of up to three above the results buttons.
+constexpr float kVoteY = 640, kVoteCardH = 170;
+std::vector<Rect> mapVoteDesign(size_t count) {
+    std::vector<Rect> out;
+    const float gap = 16, left = 110 + 44, w = (1700 - 88 - 2 * gap) / 3.0f;
+    for (size_t i = 0; i < count && i < 3; ++i)
+        out.push_back({left + static_cast<float>(i) * (w + gap), kVoteY + 38, w, kVoteCardH});
+    return out;
+}
+} // namespace
+
+std::vector<Rect> mapVoteRects(size_t count, const Viewport& vp, const ScreenConfig& cfg) {
+    const LayoutFrame lf = computeFrame(vp);
+    const detail::Paint p(lf, cfg);
+    std::vector<Rect> out;
+    for (const Rect& r : mapVoteDesign(count))
+        out.push_back(p.map(r));
+    return out;
+}
+
+int mapVoteFrame(size_t count, int mine, const UiInput& in, const Viewport& vp, const ScreenConfig& cfg) {
+    if (count == 0)
+        return -1;
+    const int n = static_cast<int>(std::min<size_t>(count, 3));
+    if (in.pointerValid && in.leftClick) {
+        const std::vector<Rect> rects = mapVoteRects(count, vp, cfg);
+        for (int i = 0; i < n; ++i)
+            if (rects[static_cast<size_t>(i)].contains(in.pointerX, in.pointerY))
+                return i;
+    }
+    if (in.has(UiKey::PageNext))
+        return mine < 0 ? 0 : (mine + 1) % n;
+    if (in.has(UiKey::PagePrev))
+        return mine < 0 ? n - 1 : (mine + n - 1) % n;
+    return -1;
+}
+
+std::vector<Rect> resultsButtonRects(size_t count, const Viewport& vp, const ScreenConfig& cfg) {
+    const LayoutFrame lf = computeFrame(vp);
+    const detail::Paint p(lf, cfg);
+    std::vector<Rect> out;
+    for (const Rect& r : resultsButtonDesign(count))
+        out.push_back(p.map(r));
+    return out;
+}
+
+int ResultsMenu::frame(const std::vector<ResultsButton>& buttons, const UiInput& in, const Viewport& vp,
+                       const ScreenConfig& cfg) {
+    const int n = static_cast<int>(buttons.size());
+    if (n == 0) {
+        focus_ = -1;
+        return -1;
+    }
+    if (focus_ < 0 || focus_ >= n || !buttons[static_cast<size_t>(focus_)].enabled) {
+        focus_ = -1;
+        for (int i = 0; i < n && focus_ < 0; ++i)
+            if (buttons[static_cast<size_t>(i)].enabled)
+                focus_ = i;
+    }
+    const auto move = [&](int dir) {
+        for (int i = focus_ + dir; i >= 0 && i < n; i += dir)
+            if (buttons[static_cast<size_t>(i)].enabled) {
+                focus_ = i;
+                return;
+            }
+    };
+    for (UiKey k : in.keys) {
+        if (k == UiKey::Left || k == UiKey::Up)
+            move(-1);
+        else if (k == UiKey::Right || k == UiKey::Down)
+            move(1);
+    }
+    int pressed = -1;
+    if (in.pointerValid) {
+        const std::vector<Rect> rects = resultsButtonRects(buttons.size(), vp, cfg);
+        for (int i = 0; i < n; ++i)
+            if (buttons[static_cast<size_t>(i)].enabled &&
+                rects[static_cast<size_t>(i)].contains(in.pointerX, in.pointerY)) {
+                if (in.pointerMoved || in.leftClick)
+                    focus_ = i;
+                if (in.leftClick)
+                    pressed = i;
+            }
+    }
+    if (pressed < 0 && in.has(UiKey::Confirm) && focus_ >= 0)
+        pressed = focus_;
+    return pressed;
+}
+
 std::vector<RosterRow> sortedRoster(std::vector<RosterRow> r) {
     std::stable_sort(r.begin(), r.end(), [](const RosterRow& a, const RosterRow& b) {
+        if (a.score != b.score)
+            return a.score > b.score; // points first (a standard match: score = kills)
         if (a.kills != b.kills)
             return a.kills > b.kills;
         if (a.deaths != b.deaths)
@@ -1870,7 +2054,8 @@ std::string mmss(int sec) {
 
 // One standings table (header + rows) in a design rect: rank, colour swatch, name, kills, deaths, ping, time.
 void drawStandings(DrawList& d, const detail::Paint& p, const Rect& box, const std::vector<RosterRow>& rows,
-                   float colStep, float rowStep, int maxRows, const char* killsLabel = "KILLS", bool ranks = true) {
+                   float colStep, float rowStep, int maxRows, const char* killsLabel = "KILLS", bool ranks = true,
+                   bool scoreMode = false) {
     const Theme& th = p.th();
     const float W = box.w;
     const float tEnd = W - 20, pEnd = tEnd - colStep, dEnd = pEnd - colStep, kEnd = dEnd - colStep;
@@ -1899,8 +2084,8 @@ void drawStandings(DrawList& d, const detail::Paint& p, const Rect& box, const s
                r.name + (r.self ? "  (you)" : "") +
                    (r.characterName.empty() ? std::string() : "   as " + r.characterName),
                FontRole::Body, r.self ? th.heading : th.text, TextAlign::Left, 28);
-        p.text(d, {rr.x + kEnd - 110, rr.y, 110, rr.h}, std::to_string(r.kills), FontRole::Numeric, th.heading,
-               TextAlign::Right, 30);
+        p.text(d, {rr.x + kEnd - 110, rr.y, 110, rr.h}, std::to_string(scoreMode ? r.score : r.kills),
+               FontRole::Numeric, th.heading, TextAlign::Right, 30);
         p.text(d, {rr.x + dEnd - 110, rr.y, 110, rr.h}, std::to_string(r.deaths), FontRole::Numeric, th.textMuted,
                TextAlign::Right, 28);
         p.text(d, {rr.x + pEnd - 110, rr.y, 110, rr.h}, r.pingMs < 0 ? std::string("-") : std::to_string(r.pingMs),
@@ -1924,6 +2109,8 @@ DrawList drawHud(const HudState& hs, const Viewport& vp, const ScreenConfig& cfg
     if (hs.scoreboard || hs.results) {
         const std::vector<RosterRow> rows = sortedRoster(hs.roster);
         const bool teamGame = hs.mode == GameMode::TeamDeathmatch;
+        const int ts[4] = {hs.scoreMode ? hs.teamScore[0] : hs.teamKills[0],
+                           hs.scoreMode ? hs.teamScore[1] : hs.teamKills[1], hs.teamScore[2], hs.teamScore[3]};
         const Rect box{110, 60, 1700, 960};
         d.rect(view, withAlpha(th.backdropEdge, hs.results ? 190 : 150));
         d.panel(p.map(box), PanelStyle::Main, withAlpha(th.panel, 238));
@@ -1933,7 +2120,7 @@ DrawList drawHud(const HudState& hs, const Viewport& vp, const ScreenConfig& cfg
                                              : std::string("Match Over"))
                                      : (hs.serverName.empty() ? std::string("Scoreboard") : hs.serverName);
         p.text(d, {box.x + 44, box.y + 20, 900, 76}, head, FontRole::Title, th.heading, TextAlign::Left, 60);
-        std::string sub = std::string(modeName(hs.mode)) + "   " + hs.level;
+        std::string sub = (hs.modeName.empty() ? std::string(modeName(hs.mode)) : hs.modeName) + "   " + hs.level;
         if (hs.results && !hs.serverName.empty())
             sub = hs.serverName + "   " + sub;
         p.text(d, {box.x + 46, box.y + 96, 1000, 36}, sub, FontRole::Body, th.textMuted, TextAlign::Left, 26);
@@ -1959,20 +2146,30 @@ DrawList drawHud(const HudState& hs, const Viewport& vp, const ScreenConfig& cfg
         if (hs.timeLeftSec >= 0)
             chip(hs.results ? "TIME" : "TIME LEFT", mmss(hs.timeLeftSec));
         if (hs.fragLimit > 0 && !coop)
-            chip("FRAG LIMIT", std::to_string(hs.fragLimit));
+            chip(hs.scoreMode ? "SCORE LIMIT" : "FRAG LIMIT", std::to_string(hs.fragLimit));
         p.ornateRule(d, p.map({box.x + 44, 0, 0, 0}).x, p.map({box.right() - 44, 0, 0, 0}).x,
                      p.map({0, box.y + 150, 0, 0}).y, false);
         float top = box.y + 168;
+        const bool voteOn = hs.results && !hs.vote.empty();
         // Winner banner on the results screen.
         std::string winner;
         if (hs.results && coop) {
             winner = hs.levelComplete ? "Level complete" : "The party was defeated";
         } else if (hs.results && !rows.empty()) {
             if (teamGame) {
-                winner = hs.teamKills[0] == hs.teamKills[1]
-                             ? "Draw"
-                             : (hs.teamKills[0] > hs.teamKills[1] ? "Team Fire wins" : "Team Water wins");
-            } else if (rows.size() > 1 && rows[0].kills == rows[1].kills && rows[0].deaths == rows[1].deaths) {
+                int best = 0;
+                bool tie = false;
+                for (int t = 1; t < std::clamp(hs.teamCount, 2, 4); ++t) {
+                    if (ts[t] > ts[best]) {
+                        best = t;
+                        tie = false;
+                    } else if (ts[t] == ts[best]) {
+                        tie = true;
+                    }
+                }
+                winner = tie ? std::string("Draw") : std::string("Team ") + teamName(best) + " wins";
+            } else if (rows.size() > 1 && rows[0].score == rows[1].score && rows[0].kills == rows[1].kills &&
+                       rows[0].deaths == rows[1].deaths) {
                 winner = "Draw";
             } else {
                 winner = rows[0].name + (rows[0].self ? " (you) win" : " wins");
@@ -1983,12 +2180,27 @@ DrawList drawHud(const HudState& hs, const Viewport& vp, const ScreenConfig& cfg
         if (!winner.empty()) {
             d.panel(p.map({box.x + 44, top, box.w - 88, 72}), PanelStyle::Card, th.panelRaised);
             p.text(d, {box.x + 60, top, box.w - 120, 72}, winner, FontRole::Heading,
-                   coop ? (hs.levelComplete ? th.good : th.bad) : th.gilt, TextAlign::Center, 46);
+                   coop ? (hs.levelComplete ? th.good : th.bad) : th.hudAccent, TextAlign::Center, 46);
             top += 90;
         }
         if (coop) {
             drawStandings(d, p, {box.x + 44, top, box.w - 88, 0}, rows, 150, hs.results ? 52.0f : 56.0f,
                           hs.results ? 8 : 8, "CREATURES", false);
+        } else if (teamGame && hs.teamCount > 2) {
+            // 3 or 4 teams: one score card per team, then every player in one table (the swatch is the team's colour).
+            const int n = std::clamp(hs.teamCount, 2, 4);
+            const float cw = (box.w - 88 - static_cast<float>(n - 1) * 16) / static_cast<float>(n);
+            for (int t = 0; t < n; ++t) {
+                const float x = box.x + 44 + static_cast<float>(t) * (cw + 16);
+                d.panel(p.map({x, top, cw, 76}), PanelStyle::Inset, withAlpha(th.inset, 220));
+                d.rect(p.map({x, top, cw, 6}), teamRgba(t));
+                p.text(d, {x + 14, top + 8, cw - 140, 64}, std::string("Team ") + teamName(t), FontRole::Heading,
+                       th.heading, TextAlign::Left, 32);
+                p.text(d, {x + cw - 130, top + 6, 116, 68}, std::to_string(ts[t]), FontRole::Numeric, teamRgba(t),
+                       TextAlign::Right, 52);
+            }
+            drawStandings(d, p, {box.x + 44, top + 92, box.w - 88, 0}, rows, 150, hs.results ? 46.0f : 50.0f,
+                          hs.results ? (voteOn ? 3 : 6) : 8, hs.scoreMode ? "SCORE" : "KILLS", true, hs.scoreMode);
         } else if (teamGame) {
             for (int t = 0; t < 2; ++t) {
                 const float x = box.x + 44 + static_cast<float>(t) * 818;
@@ -1996,17 +2208,51 @@ DrawList drawHud(const HudState& hs, const Viewport& vp, const ScreenConfig& cfg
                 d.rect(p.map({x, top, 790, 6}), teamRgba(t));
                 p.text(d, {x, top + 10, 400, 56}, std::string("Team ") + teamName(t), FontRole::Heading, th.heading,
                        TextAlign::Left, 38);
-                p.text(d, {x + 440, top + 6, 350, 64}, std::to_string(hs.teamKills[t]), FontRole::Numeric, teamRgba(t),
+                p.text(d, {x + 440, top + 6, 350, 64}, std::to_string(ts[t]), FontRole::Numeric, teamRgba(t),
                        TextAlign::Right, 56);
                 std::vector<RosterRow> mine;
                 for (const RosterRow& r : rows)
                     if ((r.team & 1) == t)
                         mine.push_back(r);
-                drawStandings(d, p, {pane.x, top + 76, 790, 0}, mine, 100, 52, hs.results ? 8 : 9);
+                drawStandings(d, p, {pane.x, top + 76, 790, 0}, mine, 100, 52, hs.results ? (voteOn ? 3 : 6) : 9,
+                              hs.scoreMode ? "SCORE" : "KILLS", true, hs.scoreMode);
             }
         } else {
             drawStandings(d, p, {box.x + 44, top, box.w - 88, 0}, rows, 150, hs.results ? 52.0f : 56.0f,
-                          hs.results ? 10 : 12);
+                          hs.results ? (voteOn                      ? 4
+                                        : hs.resultsButtons.empty() ? 10
+                                                                    : 7)
+                                     : 12,
+                          hs.scoreMode ? "SCORE" : "KILLS", true, hs.scoreMode);
+        }
+        if (voteOn) { // the map vote: one picture card per candidate
+            p.label(d, {box.x + 46, kVoteY, 900, 30}, "VOTE FOR THE NEXT MAP", th.brass, TextAlign::Left, 17);
+            p.text(d, {box.x + 600, kVoteY - 6, box.w - 600 - 44, 38}, "Click a map or press Q / E", FontRole::Small,
+                   th.textMuted, TextAlign::Right, 20);
+            const std::vector<Rect> cards = mapVoteDesign(hs.vote.size());
+            for (size_t i = 0; i < cards.size(); ++i) {
+                const VoteCandidate& v = hs.vote[i];
+                const Rect& c = cards[i];
+                const bool mine = static_cast<int>(i) == hs.voteMine, won = static_cast<int>(i) == hs.voteWinner;
+                d.panel(p.map(c), mine || won ? PanelStyle::Card : PanelStyle::Inset,
+                        mine || won ? th.panelRaised : withAlpha(th.inset, 225));
+                if (mine || won)
+                    d.outline(p.map(c), won ? th.good : th.hudAccent, 3.0f, 4);
+                const Rect pic{c.x + 10, c.y + 10, 300, 111};
+                if (v.previewId)
+                    d.image(p.map(pic), ImageRef{ImageKind::LevelPreview, v.previewId});
+                else
+                    drawMapArt(d, p, pic, v.name, 0, hs.now);
+                d.outline(p.map(pic), withAlpha(th.brass, 150), 1.5f, 3);
+                p.text(d, {c.x + 328, c.y + 8, c.w - 340, 80}, std::to_string(v.votes), FontRole::Numeric,
+                       v.votes > 0 ? th.heading : th.textDisabled, TextAlign::Center, 64);
+                p.label(d, {c.x + 328, c.y + 82, c.w - 340, 28}, v.votes == 1 ? "VOTE" : "VOTES", th.brass,
+                        TextAlign::Center, 15);
+                if (mine)
+                    p.label(d, {c.x + 328, c.y + 106, c.w - 340, 28}, "YOUR PICK", th.hudAccent, TextAlign::Center, 15);
+                p.text(d, {c.x + 12, c.y + 124, c.w - 24, 40}, v.name, FontRole::Body,
+                       mine || won ? th.heading : th.text, TextAlign::Left, 25);
+            }
         }
         if (hs.results) {
             std::string next = hs.resultsText;
@@ -2014,9 +2260,38 @@ DrawList drawHud(const HudState& hs, const Viewport& vp, const ScreenConfig& cfg
                 next = "Next match in " + std::to_string(static_cast<int>(std::ceil(hs.nextMatchSec))) + " ...";
             if (next.empty())
                 next = coop ? "Continuing to the next level ..." : "Returning to the lobby ...";
-            p.rule(d, box.x + 44, box.bottom() - 70, box.w - 88);
-            p.text(d, {box.x + 44, box.bottom() - 62, box.w - 88, 48}, next, FontRole::Body, th.brass,
-                   TextAlign::Center, 28);
+            if (hs.resultsButtons.empty()) {
+                p.rule(d, box.x + 44, box.bottom() - 70, box.w - 88);
+                p.text(d, {box.x + 44, box.bottom() - 62, box.w - 88, 48}, next, FontRole::Body, th.brass,
+                       TextAlign::Center, 28);
+            } else {
+                // Buttons, right aligned at the bottom of the panel; the countdown (and a note) to their left.
+                p.rule(d, box.x + 44, box.bottom() - 112, box.w - 88);
+                const std::vector<Rect> rects = resultsButtonDesign(hs.resultsButtons.size());
+                float textRight = box.right() - 44;
+                for (size_t i = 0; i < hs.resultsButtons.size() && i < rects.size(); ++i) {
+                    const ResultsButton& b = hs.resultsButtons[i];
+                    const bool focus = static_cast<int>(i) == hs.resultsFocus && b.enabled;
+                    d.panel(p.map(rects[i]), focus ? PanelStyle::Card : PanelStyle::Inset,
+                            focus ? th.panelRaised : withAlpha(th.inset, b.enabled ? 230 : 130));
+                    if (focus)
+                        d.outline(p.map(rects[i]), th.hudAccent, 3.0f, 4);
+                    p.text(d, {rects[i].x + 8, rects[i].y, rects[i].w - 16, rects[i].h}, b.label, FontRole::Heading,
+                           !b.enabled ? th.textDisabled
+                           : focus    ? th.heading
+                                      : th.text,
+                           TextAlign::Center, 28);
+                    textRight = std::min(textRight, rects[i].x);
+                }
+                const float textW = textRight - 24 - (box.x + 44);
+                if (textW > 100) {
+                    p.text(d, {box.x + 44, box.bottom() - 100, textW, 40}, next, FontRole::Body, th.brass,
+                           TextAlign::Left, 26);
+                    if (!hs.resultsNote.empty())
+                        p.text(d, {box.x + 44, box.bottom() - 62, textW, 34}, hs.resultsNote, FontRole::Small,
+                               th.textMuted, TextAlign::Left, 21);
+                }
+            }
         } else {
             p.text(d, {box.x + 44, box.bottom() - 50, box.w - 88, 36}, "Hold F4 for the scoreboard", FontRole::Small,
                    th.textDisabled, TextAlign::Center, 19);
@@ -2064,25 +2339,36 @@ DrawList drawHud(const HudState& hs, const Viewport& vp, const ScreenConfig& cfg
                 ky += 52;
             }
     }
+    constexpr float kPartyRowStride = 98;
     if (hs.mode == GameMode::Coop && !hs.scoreboard && !hs.results) { // Co-op: party panel and partner markers
         const size_t n = std::min<size_t>(hs.partners.size(), 7);
         float y = 24;
-        for (size_t i = 0; i < n; ++i, y += 62) {
+        for (size_t i = 0; i < n; ++i, y += kPartyRowStride) {
             const HudPartner& q = hs.partners[i];
             const Color sw = q.colour >= 0 ? colourRgba(q.colour) : colourRgba(q.id);
-            const Rect row{24, y, 440, 56};
-            d.panel(p.map(row), PanelStyle::Inset, withAlpha(th.inset, q.down ? 150 : 215));
-            d.rect(p.map({row.x + 10, row.y + 8, 8, row.h - 16}), q.down ? th.textDisabled : sw, 3);
-            p.text(d, {row.x + 30, row.y + 2, 250, 28},
+            const Rect row{24, y, 560, 88};
+            d.panel(p.map(row), PanelStyle::Inset, withAlpha(th.inset, q.down ? 160 : 225));
+            d.rect(p.map({row.x + 10, row.y + 8, 10, row.h - 16}), q.down ? th.textDisabled : sw, 3);
+            p.text(d, {row.x + 34, row.y + 2, 400, 34},
                    q.name + (q.character.empty() ? std::string() : "  (" + q.character + ")"), FontRole::Body,
-                   q.down ? th.textMuted : th.text, TextAlign::Left, 23);
-            const Rect bar{row.x + 30, row.y + 34, 260, 14};
+                   q.down ? th.textMuted : th.text, TextAlign::Left, 30);
+            const Rect bar{row.x + 34, row.y + 40, 360, 26};
             const float f = std::clamp(q.down ? 0.0f : q.hpFrac, 0.0f, 1.0f);
             if (q.hpKnown || q.down) { // the session does not always know a partner's health: no bar then
-                d.rect(p.map(bar), rgba(0, 0, 0, 170), 3);
+                d.rect(p.map(bar), rgba(0, 0, 0, 190), 4);
                 if (f > 0)
-                    d.rect(p.map({bar.x, bar.y, bar.w * f, bar.h}), f > 0.35f ? th.hp : th.bad, 3);
-                d.outline(p.map(bar), withAlpha(th.brassDim, 220), 1.0f, 3);
+                    d.rect(p.map({bar.x, bar.y, bar.w * f, bar.h}), f > 0.35f ? th.hp : th.bad, 4);
+                d.outline(p.map(bar), withAlpha(th.brassDim, 230), 1.5f, 4);
+            }
+            if (q.dragonKnown && !q.down) { // mounted: the dragon's own bar under the health
+                const Rect db{bar.x, bar.y + 32, 360, 10};
+                const float df = std::clamp(q.dragonFrac, 0.0f, 1.0f);
+                d.rect(p.map(db), rgba(0, 0, 0, 190), 3);
+                if (df > 0)
+                    d.rect(p.map({db.x, db.y, db.w * df, db.h}), th.brass, 3);
+                d.outline(p.map(db), withAlpha(th.brassDim, 230), 1.0f, 3);
+                p.text(d, {db.x + db.w + 8, db.y - 9, 120, 28}, "DRAGON", FontRole::Small, th.brass, TextAlign::Left,
+                       18);
             }
             if (q.down) {
                 char b[48];
@@ -2090,11 +2376,11 @@ DrawList drawHud(const HudState& hs, const Viewport& vp, const ScreenConfig& cfg
                     std::snprintf(b, sizeof b, "DOWN  %ds", static_cast<int>(std::ceil(q.respawnInSec)));
                 else
                     std::snprintf(b, sizeof b, "DOWN");
-                p.text(d, {row.x + 290, row.y + 4, 140, row.h - 8}, b, FontRole::Small, th.bad, TextAlign::Right, 20);
+                p.text(d, {row.x + 400, row.y + 36, 150, 34}, b, FontRole::Body, th.bad, TextAlign::Left, 30);
             } else if (q.hpKnown) {
-                p.text(d, {row.x + 300, row.y + 4, 130, row.h - 8},
-                       std::to_string(static_cast<int>(f * 100 + 0.5f)) + "%", FontRole::Small, th.textMuted,
-                       TextAlign::Right, 20);
+                const std::string t = q.hpMax > 0 ? std::to_string(q.hp) + " / " + std::to_string(q.hpMax)
+                                                  : std::to_string(static_cast<int>(f * 100 + 0.5f)) + "%";
+                p.text(d, {row.x + 404, row.y + 36, 150, 34}, t, FontRole::Body, th.text, TextAlign::Left, 28);
             }
         }
         for (size_t i = 0; i < hs.partners.size(); ++i) {
@@ -2121,7 +2407,7 @@ DrawList drawHud(const HudState& hs, const Viewport& vp, const ScreenConfig& cfg
                 mx = kDesignW * 0.5f + dx * t;
                 my = kDesignH * 0.5f + dy * t;
                 // Not over the party panel (top left): slide along the edge the arrow sits on.
-                const float panelR = 24 + 440 + 50, panelB = 24 + 62 * static_cast<float>(n) + 40;
+                const float panelR = 24 + 560 + 50, panelB = 24 + kPartyRowStride * static_cast<float>(n) + 40;
                 if (n > 0 && mx < panelR && my < panelB) {
                     if (ty <= tx)
                         mx = panelR;
@@ -2150,7 +2436,8 @@ DrawList drawHud(const HudState& hs, const Viewport& vp, const ScreenConfig& cfg
         const int secs = std::max(1, static_cast<int>(std::ceil(hs.respawnInSec)));
         if (hs.respawnInSec > 0) {
             p.label(d, {480, 500, 960, 30}, "RESPAWNING IN", th.brass, TextAlign::Center, 18);
-            p.text(d, {480, 526, 960, 120}, std::to_string(secs), FontRole::Numeric, th.gilt, TextAlign::Center, 96);
+            p.text(d, {480, 526, 960, 120}, std::to_string(secs), FontRole::Numeric, th.hudAccent, TextAlign::Center,
+                   96);
         } else {
             p.text(d, {480, 540, 960, 60}, "Respawning ...", FontRole::Heading, th.brass, TextAlign::Center, 40);
         }
@@ -2179,8 +2466,8 @@ DrawList drawHud(const HudState& hs, const Viewport& vp, const ScreenConfig& cfg
                    26);
         } else {
             const float nw = p.textWidth(c->who + ": ", FontRole::Body, 26);
-            p.text(d, {76, y, nw + 4, lineH - 4}, c->who + ": ", FontRole::Body, withAlpha(th.gilt, a), TextAlign::Left,
-                   26);
+            p.text(d, {76, y, nw + 4, lineH - 4}, c->who + ": ", FontRole::Body, withAlpha(th.hudAccent, a),
+                   TextAlign::Left, 26);
             p.text(d, {76 + nw, y, 950 - nw, lineH - 4}, c->text, FontRole::Body, withAlpha(th.text, a),
                    TextAlign::Left, 26);
         }

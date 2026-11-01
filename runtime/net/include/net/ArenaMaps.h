@@ -62,6 +62,10 @@ struct ArenaDef {
     uint16_t startHealth = 100;
     bool hasBounds = false;
     float bounds[4] = {0, 0, 0, 0}; // minX, minZ, maxX, maxZ
+    // preview = x y z [yaw [pitch]]: where the game takes the map's menu picture from (the camera stands behind this
+    // point looking along yaw, degrees; pitch degrees, positive looks up). Without it the first spawn point is used.
+    bool hasPreview = false;
+    float preview[5] = {0, 0, 0, 0, 0};
     std::vector<uint32_t> loadout;
     std::vector<ArenaSpawn> spawns;
     std::vector<ArenaPickup> pickups;

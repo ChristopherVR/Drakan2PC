@@ -128,13 +128,14 @@ int main() {
         r.press(UiKey::Confirm);
         CHECK(r.s.page() == MpPage::Host);
         const RowId order[] = {RowId::HostName,  RowId::HostPassword, RowId::HostGroup,    RowId::HostLevel,
-                               RowId::HostType,  RowId::HostMax,      RowId::HostFrag,     RowId::HostTime,
-                               RowId::HostTeams, RowId::HostFriendly, RowId::HostRegister, RowId::HostStart,
-                               RowId::HostBack};
-        CHECK(r.s.rows().size() == 13);
-        for (size_t i = 0; i < 13; ++i)
+                               RowId::HostType,  RowId::HostMode,     RowId::HostMax,      RowId::HostFrag,
+                               RowId::HostTime,  RowId::HostTeams,    RowId::HostFriendly, RowId::HostRegister,
+                               RowId::HostStart, RowId::HostBack};
+        CHECK(r.s.rows().size() == 14);
+        for (size_t i = 0; i < 14; ++i)
             CHECK(r.s.rows()[i].id == order[i]);
-        CHECK(!r.s.rows()[9].enabled && !r.s.rows()[10].enabled); // friendly fire / master servers: placeholders
+        CHECK(!r.s.rows()[5].enabled);                             // Game Mode: no custom mode fits this map
+        CHECK(!r.s.rows()[10].enabled && !r.s.rows()[11].enabled); // friendly fire / master servers: placeholders
         // Game Type: Deathmatch <-> Co-op. Co-op greys the limits and the teams and hosts with the Coop mode.
         r.focusRow(RowId::HostType);
         CHECK(r.focused().value == "Deathmatch" && !r.s.host().coop);
@@ -838,7 +839,7 @@ int main() {
         CHECK(drawHud(hs, kVp, {}).size() < known);
         const DrawList arrows = drawHud(hs, kVp, {});
         for (const DrawCmd& c : arrows.commands())
-            if (c.kind == DrawKind::Line) // no arrow stroke inside the party panel
+            if (c.kind == DrawKind::Line)                  // no arrow stroke inside the party panel
                 CHECK(!(c.rect.x < 464 && c.rect.y < 90)); // the panel is 24..464 wide, one row (24..80) tall
     }
 
@@ -890,7 +891,8 @@ int main() {
         t.frame(st, key(UiKey::Confirm), kVp);
         o = t.frame(st, key(UiKey::Down), kVp); // Solo -> Co-op
         o = t.frame(st, key(UiKey::Confirm), kVp);
-        CHECK(t.page() == TitlePage::Multiplayer && t.multiplayer().scope() == MpScope::Coop && t.multiplayer().host().coop);
+        CHECK(t.page() == TitlePage::Multiplayer && t.multiplayer().scope() == MpScope::Coop &&
+              t.multiplayer().host().coop);
         o = t.frame(st, key(UiKey::Back), kVp);
         CHECK(t.page() == TitlePage::Main);
         // Solo starts the ordinary New Game.
@@ -941,6 +943,164 @@ int main() {
         plain.open();
         for (TitleRow r : plain.rows(st))
             CHECK(r != TitleRow::Multiplayer);
+    }
+
+    // Game Mode row: Standard or a custom mode that fits the chosen map; the mode fixes the type, the teams and the
+    // limits.
+    {
+        Rig r;
+        LevelEntry meadow, pit;
+        meadow.name = meadow.title = "Meadow";
+        meadow.arena = true;
+        meadow.modeIds = {"quick", "trio"};
+        pit.name = pit.title = "Pit";
+        pit.arena = true; // takes no custom mode
+        r.st.arenas = {meadow, pit};
+        ModeEntry quick;
+        quick.id = "quick";
+        quick.name = "Quick Frags";
+        quick.fragLimit = 10;
+        quick.timeLimitSec = 300;
+        ModeEntry trio;
+        trio.id = "trio";
+        trio.name = "Three Teams";
+        trio.teamBase = true;
+        trio.teams = 3;
+        trio.fragLimit = 30;
+        r.st.modes = {quick, trio};
+        r.s.setPage(MpPage::Host, r.st);
+        r.focusRow(RowId::HostMode);
+        CHECK(r.focused().enabled && r.focused().value == "Standard");
+        r.press(UiKey::Right);
+        CHECK(r.s.host().modeId == "quick" && r.focused().value == "Quick Frags");
+        CHECK(r.s.hostMode() == GameMode::Deathmatch);
+        CHECK(r.s.host().fragLimit == 10 && r.s.host().timeLimitMin == 5);
+        // The limit rows show the mode values and are fixed.
+        CHECK(!r.s.rows()[static_cast<size_t>(r.rowOf(RowId::HostFrag))].enabled);
+        CHECK(r.s.rows()[static_cast<size_t>(r.rowOf(RowId::HostFrag))].label == "Score Limit");
+        r.focusRow(RowId::HostMode);
+        r.press(UiKey::Right);
+        CHECK(r.s.host().modeId == "trio" && r.s.hostMode() == GameMode::TeamDeathmatch && r.s.host().teams == 3);
+        CHECK(r.s.rows()[static_cast<size_t>(r.rowOf(RowId::HostStart))].enabled); // 3 teams start with a mode
+        {
+            Rig b; // Begin Game carries the mode id, the base game type and the mode team count
+            b.st = r.st;
+            b.s.setPage(MpPage::Host, b.st);
+            b.focusRow(RowId::HostMode);
+            b.press(UiKey::Right);
+            b.press(UiKey::Right);
+            b.focusRow(RowId::HostStart);
+            b.actions.clear();
+            b.press(UiKey::Confirm);
+            CHECK(!b.actions.empty() && b.actions.back().kind == MpActionKind::HostMatch &&
+                  b.actions.back().host.modeId == "trio" && b.actions.back().host.mode == GameMode::TeamDeathmatch &&
+                  b.actions.back().host.teams == 3);
+        }
+        // Right wraps to Standard, which frees the rows.
+        r.focusRow(RowId::HostMode);
+        r.press(UiKey::Right);
+        CHECK(r.s.host().modeId.empty());
+        CHECK(r.s.rows()[static_cast<size_t>(r.rowOf(RowId::HostFrag))].enabled);
+        // Another map without the mode drops it.
+        r.focusRow(RowId::HostMode);
+        r.press(UiKey::Right);
+        CHECK(r.s.host().modeId == "quick");
+        r.focusRow(RowId::HostLevel);
+        r.press(UiKey::Right);
+        CHECK(r.s.hostMap(r.st).name == "Pit");
+        CHECK(r.s.host().modeId.empty() && !r.s.rows()[static_cast<size_t>(r.rowOf(RowId::HostMode))].enabled);
+    }
+
+    // Results buttons: the layout, keyboard / pad / mouse handling, and the HUD draws them.
+    {
+        ScreenConfig cfg;
+        std::vector<ResultsButton> bs = {{ResultsButtonId::BackToLobby, "Back to lobby", true},
+                                         {ResultsButtonId::NextMap, "Next map", true},
+                                         {ResultsButtonId::Rematch, "Rematch", true},
+                                         {ResultsButtonId::Leave, "Leave", true}};
+        const std::vector<Rect> rects = resultsButtonRects(bs.size(), kVp, cfg);
+        CHECK(rects.size() == 4);
+        for (size_t i = 0; i < rects.size(); ++i) {
+            CHECK(rects[i].w > 100 && rects[i].h > 30 && rects[i].right() <= 1920 && rects[i].bottom() <= 1080);
+            if (i)
+                CHECK(rects[i].x > rects[i - 1].right()); // a row, no overlap
+        }
+        ResultsMenu m;
+        CHECK(m.frame(bs, UiInput{}, kVp, cfg) == -1 && m.focus() == 0); // the first enabled button
+        CHECK(m.frame(bs, key(UiKey::Right), kVp, cfg) == -1 && m.focus() == 1);
+        CHECK(m.frame(bs, key(UiKey::Confirm), kVp, cfg) == 1);
+        bs[2].enabled = false; // Rematch greyed: the focus skips it
+        CHECK(m.frame(bs, key(UiKey::Right), kVp, cfg) == -1 && m.focus() == 3);
+        CHECK(m.frame(bs, key(UiKey::Left), kVp, cfg) == -1 && m.focus() == 1);
+        // The pointer: hover moves the focus, a click presses; a disabled button ignores both.
+        UiInput hover;
+        hover.pointerValid = hover.pointerMoved = true;
+        hover.pointerX = rects[0].x + 10;
+        hover.pointerY = rects[0].y + 10;
+        CHECK(m.frame(bs, hover, kVp, cfg) == -1 && m.focus() == 0);
+        UiInput click = hover;
+        click.pointerX = rects[3].x + rects[3].w / 2;
+        click.pointerY = rects[3].y + rects[3].h / 2;
+        click.leftClick = true;
+        CHECK(m.frame(bs, click, kVp, cfg) == 3 && m.focus() == 3);
+        click.pointerX = rects[2].x + 5;
+        click.pointerY = rects[2].y + 5;
+        CHECK(m.frame(bs, click, kVp, cfg) == -1);
+        // The HUD draws them, and more when they exist.
+        HudState hs;
+        hs.results = true;
+        hs.mode = GameMode::Deathmatch;
+        RosterRow a, b;
+        a.id = 1;
+        a.name = "Aria";
+        a.self = true;
+        a.kills = 3;
+        a.deaths = 1;
+        a.score = 3;
+        b.id = 2;
+        b.name = "Bo";
+        b.kills = 1;
+        b.deaths = 3;
+        b.score = 1;
+        hs.roster = {a, b};
+        hs.nextMatchSec = 12;
+        const size_t plain = drawHud(hs, kVp, cfg).size();
+        hs.resultsButtons = bs;
+        hs.resultsFocus = 1;
+        hs.resultsNote = "Waiting for the host";
+        CHECK(drawHud(hs, kVp, cfg).size() > plain);
+    }
+
+    // Custom modes in the standings: points instead of kills, sorted by points; four teams get one card each.
+    {
+        std::vector<RosterRow> rows(3);
+        rows[0].id = 1;
+        rows[0].kills = 5;
+        rows[0].score = 5;
+        rows[1].id = 2;
+        rows[1].kills = 2;
+        rows[1].score = 8; // fewer kills, more points (objectives)
+        rows[2].id = 3;
+        rows[2].kills = 1;
+        rows[2].score = 1;
+        const std::vector<RosterRow> sorted = sortedRoster(rows);
+        CHECK(sorted[0].id == 2 && sorted[1].id == 1 && sorted[2].id == 3);
+        HudState hs;
+        hs.results = true;
+        hs.mode = GameMode::TeamDeathmatch;
+        hs.scoreMode = true;
+        hs.modeName = "Flags";
+        hs.roster = rows;
+        for (int i = 0; i < 3; ++i)
+            hs.roster[static_cast<size_t>(i)].team = i;
+        hs.teamCount = 2;
+        const size_t two = drawHud(hs, kVp, {}).size();
+        hs.teamCount = 4;
+        hs.teamScore[0] = 4;
+        hs.teamScore[1] = 9;
+        hs.teamScore[2] = 2;
+        hs.teamScore[3] = 9;
+        CHECK(drawHud(hs, kVp, {}).size() > 20 && two > 20);
     }
 
     std::puts("gameui_multiplayer_test ok");

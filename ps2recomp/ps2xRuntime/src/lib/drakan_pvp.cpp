@@ -316,7 +316,8 @@ void scanProjectiles(drakan_input::IGuest& guest, const uint8_t* rdram, uint32_t
             // The projectile's own "Damage" (item property 0x1a, like a blade's): other arrow types and the spells
             // carry their value there; the table / flat numbers stay the fallback for records without a plausible one.
             const uint32_t own = actorProperty(guest, rdram, h, 0x1a);
-            if (own >= 1 && own <= drakan::net::kMaxProjectileDamage)
+            // A spell projectile's property 0x1a reads 1 (measured, not its damage): only an arrow's value is trusted.
+            if (own >= (cls == kArrowClass ? 1u : 2u) && own <= drakan::net::kMaxProjectileDamage)
                 pr.damage = static_cast<uint16_t>(own);
             std::fprintf(stderr, "[pvp] projectile %x class %x damage property %u -> claim damage %u\n", h, cls, own,
                          static_cast<unsigned>(pr.damage));
@@ -595,14 +596,28 @@ void testPlaceGhosts(uint8_t* rdram, uint32_t player, unsigned tick) {
     float m[12];
     std::memcpy(m, rdram + ((player + 0x14) & 0x1ffffffu), sizeof m);
     const float dist = static_cast<float>(std::atof(place));
-    const unsigned phase = (tick / 240) % 4;
+    // DRAKAN_PVP_TEST_FRONT=1: the ghosts stay in front of the player (aimed shots: a bow or a spell every few
+    // seconds).
+    static const bool front = std::getenv("DRAKAN_PVP_TEST_FRONT") != nullptr;
+    const unsigned phase = front ? 0u : (tick / 240) % 4;
     const float* axis = phase < 2 ? m + 9 : m + 3;
     const float sign = (phase & 1) ? -1.0f : 1.0f;
     float pos[3] = {m[0] + sign * dist * axis[0], m[1], m[2] + sign * dist * axis[2]};
     drakan_ghost::forEach([&](const drakan_ghost::Info& i) {
         if (i.handle)
-            drakan_ghost::setTransform(i.id, pos, m + 3);
+            drakan_ghost::pinTransform(i.id, pos, m + 3);
     });
+    // DRAKAN_PVP_TEST_CLAIM=<ticks>: a hit claim on every ghost each <ticks> boundaries, as if the blade had landed
+    // (the engine's blade sweep only finds ghosts that sit in a collision cell; some maps' floors give none: cell -1).
+    static const unsigned claimEvery = [] {
+        const char* e = std::getenv("DRAKAN_PVP_TEST_CLAIM");
+        return e ? static_cast<unsigned>(std::max(1, std::atoi(e))) : 0u;
+    }();
+    if (claimEvery && tick % claimEvery == 0 && g_life.load() == static_cast<int>(Life::Alive))
+        drakan_ghost::forEach([&](const drakan_ghost::Info& i) {
+            if (const int pl = drakan_netplay::playerOfGhost(i.id); i.handle && pl > 0)
+                drakan_netplay::sendHitClaim(static_cast<uint8_t>(pl), 0, 4);
+        });
 }
 
 } // namespace

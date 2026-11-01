@@ -55,9 +55,11 @@ ARENAS = [
 ]
 
 
-def host_keys(arena_index: int = 0, coop: bool = False, level_index: int = 0) -> list[list[str]]:
+def host_keys(arena_index: int = 0, coop: bool = False, level_index: int = 0, mode_steps: int = 0) -> list[list[str]]:
     """Key groups from the title menu to Begin Game (the last group ends on the Begin Game row). Row model of the Host
-    page: Server Name, Password, Level Group, Map, Game Type, Max Players, Kills, Time, Teams, [greyed rows], Begin Game.
+    page: Server Name, Password, Level Group, Map, Game Type, Game Mode, Max Players, Kills, Time, Teams, [greyed rows],
+    Begin Game. `mode_steps`: Right presses on the Game Mode row (0 = Standard, 1 = the first custom mode that fits the
+    map); a custom mode fixes Kills / Time / Teams (greyed, focus skips them).
     The Map row is a list: Left / Right step it, Select enters it so that Up / Down step through the maps (Select or
     Back leaves it); outside the list Up / Down move between rows. Co-op lists the campaign levels (the Game Type
     switch resets the list, so the level is picked after it) and greys Kills / Time / Teams out (focus skips them)."""
@@ -67,7 +69,13 @@ def host_keys(arena_index: int = 0, coop: bool = False, level_index: int = 0) ->
     else:
         if arena_index:
             groups.append(["ENTER"] + ["DOWN"] * arena_index + ["ENTER"])  # into the list, step, out again
-        groups.append(["DOWN"] * 6)  # Game Type, Max Players, Kills, Time, Teams, Begin Game
+        if mode_steps:
+            groups.append(["DOWN", "DOWN"] + ["RIGHT"] * mode_steps)  # Game Type, Game Mode: the custom mode
+            groups.append(["DOWN", "DOWN"])  # Max Players, Begin Game (Kills / Time / Teams are fixed by the mode)
+        else:
+            groups.append(
+                ["DOWN"] * 6
+            )  # Game Mode, Max Players, Kills, Time, Teams, Begin Game (Game Type is greyed in the Versus scope: focus skips it)
     return groups
 
 
@@ -96,15 +104,15 @@ def screens_recipe() -> str:
         (["ENTER"], "mp_host_list_mode"),  # Select enters the list: Up / Down step through the maps
         (["DOWN"], "mp_host_map2"),
         (["DOWN", "ENTER"], None),  # third map, back out of the list
-        (["DOWN"] * 5 + ["RIGHT"], "mp_host_teams"),  # Number of Teams: 2 = Team Deathmatch
-        (["UP"] * 4 + ["RIGHT"], "mp_host_coop"),  # Game Type: Co-op (campaign levels)
+        (["DOWN"] * 6 + ["RIGHT"], "mp_host_teams"),  # Number of Teams: 2 = Team Deathmatch
+        (["UP"] * 5 + ["RIGHT"], "mp_host_coop"),  # Game Type: Co-op (campaign levels)
         (["RIGHT"], None),  # Game Type back to Team Deathmatch (teams stay 2): the lobby is a team lobby
         (["ESC"], None),
         (["DOWN"] * 6 + ["ENTER"], "mp_join_lan"),  # Join Game
         (["DOWN", "DOWN", "ENTER"], "mp_join_add_server"),  # Refresh -> Add Server (entry open)
         (["ESC", "ESC"], None),
         (["DOWN"] * 5 + ["ENTER"], None),  # Host Game again
-        (["DOWN"] * 3 + ["DOWN"] * 6 + ["ENTER"], "mp_lobby"),  # Begin Game: the lobby, alone
+        (["DOWN"] * 3 + ["DOWN"] * 7 + ["ENTER"], "mp_lobby"),  # Begin Game: the lobby, alone
         (["DOWN", "ENTER"], "mp_lobby_countdown"),  # Start Match: the countdown card
     ):
         ls, t = taps(t, keys)
@@ -161,7 +169,7 @@ def recipe_b_text(shots: str, quit_at: int, coop: bool = False, kick: bool = Fal
     return "\n".join(lines) + "\n"
 
 
-def pvp_recipe(role: str, arena_index: int = 0) -> str:
+def pvp_recipe(role: str, arena_index: int = 0, mode_steps: int = 0, start_ms: int = 22000) -> str:
     """The whole flow for one instance. Times are ms after the preceding `sync`.
 
     A hosts (Multiplayer > Host Game > Begin Game, Start Match in the lobby), B joins from the LAN list. In the level both
@@ -172,12 +180,16 @@ def pvp_recipe(role: str, arena_index: int = 0) -> str:
     lines = ["clock milliseconds", "0 sync screen 8 3"]
     if a:
         t = 1500
-        for keys in host_keys(arena_index):
+        for keys in host_keys(arena_index, mode_steps=mode_steps):
             ls, t = taps(t, keys, 200)
             lines += ls
             t += 500
         lines += [f"{t} shot a_host_form", f"{t + 300} key tap ENTER", f"{t + 2500} shot a_lobby_alone"]
-        lines += ["22000 shot a_lobby_with_b", "22500 key tap DOWN", "23000 key tap ENTER"]
+        lines += [
+            f"{start_ms} shot a_lobby_with_b",
+            f"{start_ms + 500} key tap DOWN",
+            f"{start_ms + 1000} key tap ENTER",
+        ]
     else:
         t = 3000
         for keys in (["DOWN", "ENTER"], ["DOWN"] * 6 + ["ENTER"]):
@@ -345,6 +357,7 @@ def pvp_flow_checks(ta: str, tb: str, n: int, notes: list[str], by_time: bool = 
 
 
 WINDOW = [1280, 720]  # game window client size (--size)
+PORT: list[int] = []  # --port: the base UDP port of the rig (DRAKAN_MP_PORT: servers and the LAN sweep), none = 47800
 
 
 def log(msg: str) -> None:
@@ -381,6 +394,8 @@ def game_env(out: Path, folder: Path, recipe: Path, timeout: int, name: str) -> 
             "DRAKAN_WINDOW_HEIGHT": str(WINDOW[1]),
         }
     )
+    if PORT:
+        env["DRAKAN_MP_PORT"] = str(PORT[0])
     return env
 
 
@@ -434,8 +449,21 @@ def main() -> int:
         "--kick", action="store_true", help="A removes B from the lobby with Kick player (see recipe_a_text)"
     )
     ap.add_argument("--size", default="1280x720", help="window client size WxH, e.g. 1920x1080 or 3840x2160")
+    ap.add_argument(
+        "--play-sec", type=int, default=0, help="seconds in the match before quitting (default 16 / 30 co-op)"
+    )
+    ap.add_argument(
+        "--port", type=int, default=0, help="base UDP port of the rig (default 47800; other rigs use others)"
+    )
+    ap.add_argument(
+        "--mode-steps",
+        type=int,
+        default=0,
+        help="--pvp: Right presses on the Host page's Game Mode row (1 = the first custom mode, instagib-lite)",
+    )
     a = ap.parse_args()
     WINDOW[:] = [int(v) for v in a.size.lower().split("x")]
+    PORT[:] = [a.port] if a.port else []
     name = a.name or (
         "mp_menu_screens" if a.screens else "mp_full" if a.pvp else "mp_menu_coop" if a.coop else "mp_menu_two"
     )
@@ -465,7 +493,9 @@ def main() -> int:
     elif a.pvp:
         timeout = max(a.timeout, 330)
         for k in ("a", "b"):
-            (run / k / "recipe.txt").write_text(pvp_recipe(k, a.arena_index), encoding="utf-8", newline="\n")
+            (run / k / "recipe.txt").write_text(
+                pvp_recipe(k, a.arena_index, a.mode_steps), encoding="utf-8", newline="\n"
+            )
         aids = {
             "DRAKAN_PVP_DAMAGE_SCALE": "8",
             "DRAKAN_PVP_TEST_PLACE": "140",
@@ -517,9 +547,19 @@ def main() -> int:
         level = LEVELS[a.level_index] if a.coop else ARENAS[a.arena_index][1]
         shots_a = "\n6000 shot a_in_level\n9000 shot a_sees_b\n12500 shot a_scoreboard"
         recipe_a = recipe_a_text(
-            a.level_index, walk + shots_a, 30000 if a.coop else 16000, a.coop, a.arena_index, a.kick
+            a.level_index,
+            walk + shots_a,
+            a.play_sec * 1000 or (30000 if a.coop else 16000),
+            a.coop,
+            a.arena_index,
+            a.kick,
         )
-        recipe_b = recipe_b_text("1000 shot b_in_level\n5000 shot b_sees_a", 31000 if a.coop else 17000, a.coop, a.kick)
+        recipe_b = recipe_b_text(
+            "1000 shot b_in_level\n5000 shot b_sees_a",
+            a.play_sec * 1000 + 1000 if a.play_sec else (31000 if a.coop else 17000),
+            a.coop,
+            a.kick,
+        )
         (run / "a" / "recipe.txt").write_text(recipe_a, encoding="utf-8", newline="\n")
         (run / "b" / "recipe.txt").write_text(recipe_b, encoding="utf-8", newline="\n")
         # B starts later so that A's server is up and listed.

@@ -121,9 +121,20 @@ void memcpy(uint8_t* rdram, R5900Context* ctx, PS2Runtime* runtime) {
 }
 
 void memset(uint8_t* rdram, R5900Context* ctx, PS2Runtime* runtime) {
-    uint32_t destAddr = getRegU32(ctx, 4);       // $a0
-    int value = (int)(getRegU32(ctx, 5) & 0xFF); // $a1 (char value)
-    uint32_t size = getRegU32(ctx, 6);           // $a2
+    uint32_t destAddr = getRegU32(ctx, 4);                                  // $a0
+    int value = (int)(getRegU32(ctx, 5) & 0xFF);                            // $a1 (char value)
+    uint32_t size = getRegU32(ctx, 6);                                      // $a2
+    if (size > PS2_RAM_SIZE && std::getenv("DRAKAN_STACK_ON_BAD_MEMSET")) { // debug: guest call chain of a bad size
+        const uint32_t sp = getRegU32(ctx, 29);
+        std::cerr << "[memset] stack code words:" << std::hex;
+        for (uint32_t o = 0; o < 0x600; o += 4) {
+            uint32_t w = 0;
+            std::memcpy(&w, rdram + ((sp + o) & (PS2_RAM_SIZE - 1)), 4);
+            if (w >= 0x100000u && w < 0x4f0000u)
+                std::cerr << " +" << o << ":" << w;
+        }
+        std::cerr << std::dec << std::endl;
+    }
     size = sanitizeMemTransferSize(size, "memset", ctx, true);
 
     uint32_t written = 0u;

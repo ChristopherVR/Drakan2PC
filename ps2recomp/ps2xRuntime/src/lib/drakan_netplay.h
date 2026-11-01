@@ -47,8 +47,10 @@ struct HostConfig {
     int fragLimit = 20;     // 0 = none
     int timeLimitSec = 600; // 0 = none
     std::string password;   // empty = open
-    uint16_t port = 47800;  // UDP; LAN discovery probes 47800..47809
+    uint16_t port = 0; // UDP; 0 = net::basePort() (47800, or DRAKAN_MP_PORT); LAN discovery probes ten ports from it
     bool autoStart = false; // start as soon as one player is in (the DRAKAN_NET_HOST shortcut)
+    std::string
+        modeId; // a custom game mode ([mode <id>], drakan_modes.h): scoring, teams, objectives; empty = standard
 };
 
 enum class Conn : uint8_t { Idle, Connecting, Connected, Rejected };
@@ -57,11 +59,12 @@ enum class Phase : uint8_t { Lobby, Loading, Playing, Results };
 struct Player {
     int id = 0;
     std::string name;
-    int team = -1; // 0 / 1, -1 none
+    int team = -1; // 0..3, -1 none
     bool ready = false, self = false, host = false;
     int kills = 0, deaths = 0;
-    int pingMs = -1; // own player: the measured round trip; others unknown (-1)
-    int timeSec = 0; // seconds since this client saw the player join
+    int score = 0;     // points of the match's mode (a standard match: the kills)
+    int pingMs = -1;   // own player: the measured round trip; others unknown (-1)
+    int timeSec = 0;   // seconds since this client saw the player join
     int character = 0; // co-op character the player picked in the lobby (drakan_coop_character id, 0 = Rynn)
 };
 
@@ -81,6 +84,9 @@ struct State {
     std::string message; // last reject / status text
     std::string serverName, level;
     int mode = 0, maxPlayers = 8, fragLimit = 0, timeLimitSec = 0;
+    std::string modeId; // the session's custom game mode (empty = standard rules)
+    int teamCount = 0;  // team games: how many teams are in play (2..4), 0 = none
+    int hostId = 0;     // the host (who may kick and use the results buttons), 0 = unknown
     int selfId = 0;
     bool selfReady = false;
     std::vector<Player> roster;
@@ -114,6 +120,17 @@ State state();     // snapshot
 bool startMatch(); // host only, in the lobby (the server counts down first: State::countdownKind 1)
 void setReady(bool ready);
 void kickPlayer(int playerId); // host only: remove a player from the lobby / match (the server checks the sender)
+// The results screen's buttons (host only, the server checks): 1 back to the lobby for everybody, 2 the next map
+// (co-op: the same level again) and the match start, 3 a rematch on the same map.
+void resultsAction(int choice);
+// The results screen's map vote: the local player's pick (index into Scoreboard::voteNames, -1 withdraws).
+void voteMap(int candidate);
+// After a results choice, or Leave, the game is still in the match level: the EE glue goes to the title (Esc > Quit to
+// Title, done for the player), where the lobby / the next match's load is. The glue polls returnToTitleRequested() and
+// calls clearReturnToTitle() once the title is up.
+void requestReturnToTitle();
+bool returnToTitleRequested();
+void clearReturnToTitle();
 // Co-op lobby: tell the session which character the local player picked (also drakan_coop_character::setSelected).
 void pickCharacter(uint16_t id);
 // The mod packs this process runs (names, comma separated); a hosted server reports them in its query answer.
@@ -152,6 +169,7 @@ struct ScoreRow {
     std::string name;
     int team = -1;
     int kills = 0, deaths = 0;
+    int score = 0;
     int health = 0;
     bool alive = false, self = false;
     int pingMs = -1; // own player: measured round trip, others unknown (-1)
@@ -171,16 +189,25 @@ struct Scoreboard {
     int mode = 0, fragLimit = 0, timeLimitSec = 0;
     int timeLeftSec = -1; // -1 = no time limit or not playing
     int teamKills[2] = {0, 0};
+    std::string modeId;              // custom game mode of the match (empty = standard)
+    int teamCount = 0;               // team games: teams in play (2..4)
+    int teamScore[4] = {0, 0, 0, 0}; // points per team (a standard match: the team kills)
+    bool selfHost = false;           // the local player may use the results buttons (the host)
+    // The map vote of the Results phase (net::MapVoteState; empty = none): candidates, votes, our pick, the decided
+    // one.
+    std::vector<std::string> voteNames;
+    std::vector<int> voteTally;
+    int voteMine = -1, voteWinner = -1;
     int selfHealth = 0, selfMaxHealth = 100;
     bool selfAlive = true;
     double respawnInSec = 0; // while dead: seconds until the server respawns us
     // Once phase == Results (the match is over):
     bool over = false, tie = false;
-    int winnerId = 0, winnerTeam = -1;   // deathmatch / team deathmatch winner (0 / -1 when tied)
+    int winnerId = 0, winnerTeam = -1;   // deathmatch / team deathmatch winner (0 / -1 when tied; team 0..3)
     std::string winnerName;              // the deathmatch winner's name ("" when tied or team game)
     std::string reason;                  // "frag limit", "time limit" or "match ended"
     std::vector<KillFeedEntry> killFeed; // newest last, the last 8 kills
-    double nextMatchSec = -1; // Results: the server countdown to the next match / the lobby (< 0 = unknown)
+    double nextMatchSec = -1;            // Results: the server countdown to the next match / the lobby (< 0 = unknown)
     double now = 0;
 };
 Scoreboard scoreboard(); // snapshot for the scoreboard overlay / the results screen
@@ -206,15 +233,26 @@ bool coopPoll(drakan::net::CoopCreatures& out);
 bool coopPoll(drakan::net::CoopEvent& out);
 
 // ---- co-op party HUD data (published by drakan_coop, shown by the in-game HUD) ----
-// The wire does not carry health: drakan_coop knows what it can (the partner downed state from CoopKind::PlayerDied /
-// Respawn, the level completion) and publishes it here every EE tick; the HUD draws what is known.
+// Health travels in the Vitals message (client -> server -> everybody); drakan_coop adds the downed state it knows
+// (CoopKind::PlayerDied / Respawn) and the level completion, and publishes it here every EE tick.
 struct CoopPartnerInfo {
     int player = 0;
     bool hpKnown = false;
     float hpFrac = 1;
+    int hp = 0, hpMax = 0;
+    bool dragonKnown = false;
+    float dragonFrac = 1;
     bool down = false;
     double respawnInSec = 0; // while down, 0 = unknown
 };
+// The local player's health, published by the EE thread each tick (sent as Vitals about 5 times a second).
+// dragonMax 0 = not mounted / unknown. Cleared with hp = -1.
+void setLocalVitals(int hp, int hpMax, int dragonHp, int dragonMax);
+// The partners' health as the server relayed it (player id -> hp / max / dragon); empty when none arrived.
+struct PartnerVitals {
+    int player = 0, hp = 0, hpMax = 0, dragonHp = 0, dragonMax = 0;
+};
+std::vector<PartnerVitals> partnerVitals();
 void setCoopParty(const std::vector<CoopPartnerInfo>& partners, bool levelComplete);
 std::vector<CoopPartnerInfo> coopParty(bool& levelComplete);
 

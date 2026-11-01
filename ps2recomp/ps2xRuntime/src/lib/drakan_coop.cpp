@@ -1681,11 +1681,30 @@ void keyChestChildren(const uint8_t* rdram, uint32_t chest, uint32_t chestKey) {
         return;
     for (int32_t i = 0; i < n; ++i) {
         const uint32_t child = registryObject(rdram, rd16(rdram, refs + 2u * i));
-        if (!ramPtr(child) || rd32(rdram, child + 0xc) != 11 || g_obj.count(child))
+        if (!ramPtr(child) || rd32(rdram, child + 0xc) != 11)
             continue;
         world::EntitySnapshot e;
         if (!world::readEntity(RdramMemory(rdram), g_globals, ctx, child, e))
             continue;
+        // A handle the engine recycled for the new loot may still be filed as an earlier pickup that a player took a
+        // frame before the spew (watchObjects has not seen it leave yet): that entry is stale and the child is a new
+        // item. The old pickup's removal is reported now, or the partner would keep its copy.
+        const auto old = g_obj.find(child);
+        if (old != g_obj.end()) {
+            Obj& prev = old->second;
+            if (prev.resId == e.resourceId && prev.ref == e.ref)
+                continue;
+            if (prev.pickup && !prev.gone) {
+                prev.gone = true;
+                g_goneKeys.insert(prev.key);
+                pushReliable(kMsgObjGone, &prev.key, 4);
+                ++g_st.goneSent;
+                coopLog("%s: pickup %08x (class %x key %08x) left the registry (its handle was reused by chest loot) "
+                        "-> peer",
+                        g_host ? "host" : "client", child, prev.classId, prev.key);
+            }
+            g_objKeyToHandle.erase(prev.key);
+        }
         addChild(child, chestKey, static_cast<uint32_t>(i), e.ref, e.resourceId, e.classId, e.type, "from the list");
     }
 }
@@ -2309,6 +2328,7 @@ struct TestTo { // DRAKAN_COOP_TEST_TO=<class hex>,<dist>@<file>: stand <dist> i
                 // class
     bool want = false, done = false;
     uint32_t cls = 0;
+    uint32_t key = 0; // DRAKAN_COOP_TEST_TO_KEY (hex): only the object with this key (0: the nearest)
     float dist = 0;
     std::string file;
     uint32_t flipMs = 0; // DRAKAN_COOP_TEST_TO_FLIP: stand on the other side of the object every <flipMs> (3 times)
@@ -2383,7 +2403,7 @@ void testAids(drakan_input::IGuest& guest, uint8_t* rdram) {
             uint32_t bestH = 0;
             float best = 1e30f;
             for (auto& [h, o] : g_obj)
-                if (ramPtr(me) && o.classId == g_to.cls && !o.gone &&
+                if (ramPtr(me) && o.classId == g_to.cls && !o.gone && (!g_to.key || o.key == g_to.key) &&
                     world::isLiveHandle(mem, g_globals, h, o.ref - 1)) {
                     const float d = std::hypot(rdF(rdram, h + 0x14) - rdF(rdram, me + 0x14),
                                                rdF(rdram, h + 0x1c) - rdF(rdram, me + 0x1c));
@@ -2596,6 +2616,8 @@ void install(PS2Runtime& rt) {
             g_to.file = file;
         }
     }
+    if (const char* s = std::getenv("DRAKAN_COOP_TEST_TO_KEY"))
+        g_to.key = static_cast<uint32_t>(std::strtoul(s, nullptr, 16));
     if (const char* s = std::getenv("DRAKAN_COOP_TEST_TO_FLIP"))
         g_to.flipMs = static_cast<uint32_t>(std::strtoul(s, nullptr, 10));
     if (const char* s = std::getenv("DRAKAN_COOP_TEST_HURT_SCALE"))
@@ -2720,18 +2742,50 @@ void syncLink(uint8_t* rdram) {
 // Feeds the co-op party panel (drakan_netplay::setCoopParty): the host knows which guests are down and when the
 // respawn comes; the wire carries no partner health (hpKnown stays false). "Level complete" = a level change (exit)
 // is under way in the match.
-void publishParty() {
+void publishParty(const uint8_t* rdram) {
     std::vector<drakan_netplay::CoopPartnerInfo> v;
     const uint64_t now = nowMs();
+    // Own health to the server (the wire message Vitals); garbage reads (no level) are not sent.
+    {
+        const int hp = g_globals.hpKey && rdram ? playerHp(rdram) : -1;
+        const int mx = g_globals.hpKey && rdram ? playerHpMax(rdram) : 0;
+        if (mx > 0 && mx <= 65535 && hp >= 0 && hp <= mx)
+            drakan_netplay::setLocalVitals(hp, mx, 0, 0); // the dragon's own health is not located yet
+        else
+            drakan_netplay::setLocalVitals(-1, 0, 0, 0);
+    }
+    for (const drakan_netplay::PartnerVitals& pv : drakan_netplay::partnerVitals()) {
+        drakan_netplay::CoopPartnerInfo i;
+        i.player = pv.player;
+        if (pv.hpMax > 0) {
+            i.hpKnown = true;
+            i.hp = pv.hp;
+            i.hpMax = pv.hpMax;
+            i.hpFrac = static_cast<float>(pv.hp) / static_cast<float>(pv.hpMax);
+            i.down = pv.hp <= 0;
+        }
+        if (pv.dragonMax > 0) {
+            i.dragonKnown = true;
+            i.dragonFrac = static_cast<float>(pv.dragonHp) / static_cast<float>(pv.dragonMax);
+        }
+        v.push_back(i);
+    }
     if (g_host)
         for (const auto& [pid, slot] : g_players) {
-            drakan_netplay::CoopPartnerInfo i;
-            i.player = pid;
-            i.down = slot.dead;
+            drakan_netplay::CoopPartnerInfo* found = nullptr;
+            for (auto& e : v)
+                if (e.player == pid)
+                    found = &e;
+            if (!found) {
+                v.emplace_back();
+                found = &v.back();
+                found->player = pid;
+            }
+            drakan_netplay::CoopPartnerInfo& i = *found;
+            i.down = i.down || slot.dead;
             if (slot.dead)
                 i.respawnInSec =
                     now - slot.deadMs >= kRespawnDelayMs ? 0.0 : (kRespawnDelayMs - (now - slot.deadMs)) / 1000.0;
-            v.push_back(i);
         }
     drakan_netplay::setCoopParty(v, drakan_lifecycle::transitionActive());
 }
@@ -2742,7 +2796,7 @@ void beforePadMgr(drakan_input::IGuest& guest, uint8_t* rdram) {
     syncLink(rdram);
     if (!g_enabled.load(std::memory_order_relaxed))
         return;
-    publishParty();
+    publishParty(rdram);
     g_rdramForLog = rdram;
     static uint64_t epoch = ~0ull;
     if (epoch != g_loadEpoch.load()) {

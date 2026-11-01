@@ -31,6 +31,7 @@ import argparse
 import re
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -53,8 +54,20 @@ CASES = {
 }
 
 
+def prepare_exe(a: argparse.Namespace) -> Path:
+    """Private play folder; the exe of the run before may still be shutting down, so the copy is retried."""
+    for attempt in range(30):
+        try:
+            return net.prepare_folder(a.src, a.exe, ROOT / "build" / f"{a.prefix}-play")
+        except PermissionError:
+            if attempt == 29:
+                raise
+            time.sleep(2)
+    raise RuntimeError("unreachable")
+
+
 def run_case(a: argparse.Namespace, name: str, steps: str, expect: list[str]) -> bool:
-    exe = net.prepare_folder(a.src, a.exe, ROOT / "build" / f"{a.prefix}-play")
+    exe = prepare_exe(a)
     n_steps = len(steps.split(","))
     wait = 14 + 18 * n_steps  # seconds after "play": 1200 frames in the level + the load, per step
     shots = "".join(f"{(10 + 18 * i) * 1000} shot s{i}\n" for i in range(1, n_steps + 1))
@@ -105,16 +118,18 @@ def parse_indices(text: str) -> list[int]:
 
 def sweep_case(a: argparse.Namespace, level: str, index: int) -> dict:
     """One exit of `level` (reached from Surdana) fired in a fresh run; returns the table row."""
-    prefix = [] if level == "surdana" else [level]
+    prefix = [] if level == "surdana" else (a.via.split(",") if a.via else [level])
     steps = prefix + [str(index)] + (["0"] if level == "surdana" else [])
     name = f"{level}-{index}"
+    if a.via:
+        name = f"{level}-via-{a.via.replace(',', '_')}-{index}"
     n_steps = len(steps)
     wait = 14 + 18 * n_steps
     shots = "".join(f"{(10 + 18 * i) * 1000} shot s{i}\n" for i in range(1, n_steps + 1))
     recipe = ROOT / "build" / "harness" / f"{a.prefix}-{name}-recipe.txt"
     recipe.parent.mkdir(parents=True, exist_ok=True)
     recipe.write_text(RECIPE.format(shots=shots, quit_at=wait * 1000), encoding="utf-8", newline="\n")
-    exe = net.prepare_folder(a.src, a.exe, ROOT / "build" / f"{a.prefix}-play")
+    exe = prepare_exe(a)
     out_name = f"{a.prefix}-{name}"
     cmd = [
         sys.executable, str(ROOT / "scripts" / "harness" / "play_run.py"),
@@ -136,9 +151,9 @@ def sweep_case(a: argparse.Namespace, level: str, index: int) -> dict:
     if "no such exit" in text:
         row["note"] = "no such exit"
         return row
-    refused = "an arrival marker and not a level" in text
+    refused = "an arrival marker and not a level" in text or "a level that is not on the disc" in text
     if refused and len(loads) <= len(prefix):
-        row["note"] = "portal marker (destination text 'portal'), not fired"
+        row["note"] = "not fired (destination is a portal marker or a level that is not on the disc)"
         row["skip"] = True
         return row
     sane = True
@@ -170,6 +185,11 @@ def main() -> int:
     ap.add_argument("--src", type=Path, default=ROOT / "dist" / "DrakanPC", help="play folder to copy DLLs / ini from")
     ap.add_argument("--prefix", default="lc", help="private folders build/<prefix>-play, build/harness/<prefix>-<case>")
     ap.add_argument("--sweep", help="fire every exit of this level, one run each, and print a table (see above)")
+    ap.add_argument(
+        "--via",
+        help="comma separated steps (level names) that reach the --sweep level from Surdana, e.g. andrellian,crystal "
+        "for the Crystal Mine (default: the sweep name itself as one step)",
+    )
     ap.add_argument("--indices", help="exit indices for --sweep, e.g. 0-10 or 0,2,5")
     ap.add_argument("--env", action="append", default=[], help="extra KEY=VALUE for the game (repeatable)")
     ap.add_argument("--frames", type=int, default=600, help="frames in a level before the next step fires")
@@ -184,10 +204,15 @@ def main() -> int:
         elif a.sweep == "surdana":
             indices = list(range(11))
         else:  # exit 0 first: its own log lists the exits of the level (frame 3 of the third level load)
+            prefix = a.via.split(",") if a.via else [a.sweep]
             rows.append(sweep_case(a, a.sweep, 0))
             log = ROOT / "build" / "harness" / rows[0]["dir"] / "stdout_1.log"
             blocks = (log.read_text(encoding="latin-1") if log.is_file() else "").split("player block:")
-            count = len(re.findall(r"\[levelchange\]   exit ", blocks[3])) if len(blocks) > 3 else 1
+            count = (
+                len(re.findall(r"\[levelchange\]   exit ", blocks[len(prefix) + 2]))
+                if len(blocks) > len(prefix) + 2
+                else 1
+            )
             indices = list(range(1, count))
         rows += [sweep_case(a, a.sweep, i) for i in indices]
         print(f"{'exit':>4}  {'leads to':<34} {'result':<6} loads / note")

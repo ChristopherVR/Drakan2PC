@@ -251,11 +251,40 @@ const ModeDef* ModeCatalog::find(const std::string& idOrName) const {
 
 void applyModeToConfig(const ModeDef& mode, MatchConfigData& config) {
     config.mode = mode.teamBase ? MatchMode::TeamDeathmatch : MatchMode::Deathmatch;
+    config.modeId = mode.id;
     config.fragLimit = mode.fragLimit;
     config.timeLimitSec = mode.timeLimitSec;
     config.respawnDelayMs = static_cast<uint16_t>(mode.respawnDelaySec * 1000u);
     if (mode.startHealth)
         config.startHealth = mode.startHealth;
+}
+
+bool modeFitsArena(const ModeDef& mode, const ArenaDef& arena, std::string* why) {
+    const auto no = [&](const char* text) {
+        if (why)
+            *why = text;
+        return false;
+    };
+    bool listed = false;
+    for (const std::string& id : arena.customModes)
+        listed = listed || id == mode.id;
+    if (!listed && !(mode.teamBase ? arena.teamDeathmatch : arena.deathmatch))
+        return no(mode.teamBase ? "the map has no team games" : "the map has no deathmatch");
+    bool flag = false, base = false, zone = false;
+    for (const ArenaMarker& m : arena.markers) {
+        flag = flag || m.kind == ArenaMarker::Kind::Flag;
+        base = base || m.kind == ArenaMarker::Kind::Base;
+        zone = zone || m.kind == ArenaMarker::Kind::Zone;
+    }
+    for (const ModeObjective& o : mode.objectives) {
+        if (o.kind == ModeObjective::Kind::Capture && !(flag && base))
+            return no("the map has no flag and base markers");
+        if (o.kind == ModeObjective::Kind::Hold && !zone)
+            return no("the map has no zone marker");
+    }
+    if (mode.teamCount() > arena.maxPlayers)
+        return no("the map holds too few players for that many teams");
+    return true;
 }
 
 } // namespace drakan::net

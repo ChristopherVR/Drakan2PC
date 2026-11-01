@@ -3,6 +3,7 @@
 #include <cmath>
 #include <cstdlib>
 
+#include "gameui/UiSkin.h"
 #include "gameui/UnifiedOptions.h"
 
 #include <algorithm>
@@ -17,10 +18,33 @@ namespace {
 using detail::fmtInt;
 
 constexpr float kMargin = 96;
-constexpr float kPanelY = 160, kPanelH = 660;
-constexpr float kMenuX = kMargin, kMenuW = 560;
+constexpr float kPanelH = 660;
 constexpr float kStatusW = 560, kStatusX = kDesignW - kMargin - kStatusW;
-constexpr float kRowX = kMenuX + 28, kRowW = kMenuW - 56, kRowY = kPanelY + 36, kRowH = 88, kRowStep = 104;
+// The menu column's geometry is skin-driven ([layout] pause_*; defaults 96 / 560 / 160 / 88 / 104).
+float menuX() {
+    return skinNumber("pause_menu_x", kMargin);
+}
+float menuW() {
+    return skinNumber("pause_menu_w", 560);
+}
+float panelY() {
+    return skinNumber("pause_panel_y", 160);
+}
+float rowX() {
+    return menuX() + 28;
+}
+float rowW() {
+    return menuW() - 56;
+}
+float rowY() {
+    return panelY() + 36;
+}
+float rowH() {
+    return skinNumber("pause_row_h", 88);
+}
+float rowStep() {
+    return skinNumber("pause_row_step", 104);
+}
 constexpr float kFooterY = 1012, kHintH = 44, kHintGlyph = 40, kHintGap = 36;
 // Slider rows: the label on the upper line, the track below it.
 constexpr float kTrackInset = 32, kTrackY = 58, kTrackH = 14;
@@ -208,6 +232,60 @@ const char* pausePageName(PausePage p) {
 }
 
 const char* pauseRowLabel(PauseRow r) {
+    return skinText(std::string("pause.row.") + pauseRowId(r), pauseRowDefaultLabel(r));
+}
+
+const char* pauseRowId(PauseRow r) {
+    switch (r) {
+        case PauseRow::Resume:
+            return "resume";
+        case PauseRow::Save:
+            return "save";
+        case PauseRow::Load:
+            return "load";
+        case PauseRow::Options:
+            return "options";
+        case PauseRow::Quit:
+            return "quit";
+        case PauseRow::Controller:
+            return "controller";
+        case PauseRow::Audio:
+            return "audio";
+        case PauseRow::PcSettings:
+            return "pc_settings";
+        case PauseRow::Defaults:
+            return "defaults";
+        case PauseRow::Back:
+            return "back";
+        case PauseRow::MasterVolume:
+            return "master_volume";
+        case PauseRow::MusicVolume:
+            return "music_volume";
+        case PauseRow::Subtitles:
+            return "subtitles";
+        case PauseRow::Stereo:
+            return "stereo";
+        case PauseRow::Scheme:
+            return "scheme";
+        case PauseRow::Vibration:
+            return "vibration";
+        case PauseRow::ReversePitch:
+            return "reverse_pitch";
+        case PauseRow::KeyBindings:
+            return "key_bindings";
+        case PauseRow::QuitToTitle:
+            return "quit_to_title";
+        case PauseRow::QuitToDesktop:
+            return "quit_to_desktop";
+        case PauseRow::RestoreDefaults:
+            return "restore_defaults";
+        case PauseRow::Cancel:
+            return "cancel";
+    }
+    return "";
+}
+
+const char* pauseRowDefaultLabel(PauseRow r) {
     switch (r) {
         case PauseRow::Resume:
             return "Resume";
@@ -344,13 +422,13 @@ void PauseActionQueue::clear() {
 
 namespace design::pause {
 Rect menuPanel() {
-    return {kMenuX, kPanelY, kMenuW, kPanelH};
+    return {menuX(), panelY(), menuW(), kPanelH};
 }
 Rect row(int i) {
-    return {kRowX, kRowY + static_cast<float>(i) * kRowStep, kRowW, kRowH};
+    return {rowX(), rowY() + static_cast<float>(i) * rowStep(), rowW(), rowH()};
 }
 Rect statusPanel() {
-    return {kStatusX, kPanelY, kStatusW, kPanelH};
+    return {kStatusX, panelY(), kStatusW, kPanelH};
 }
 Rect sliderTrack(int i) {
     const Rect r = row(i);
@@ -375,7 +453,7 @@ Rect cardRow(int i, int rows) {
 PauseScreen::PauseScreen(PauseConfig cfg) : cfg_(std::move(cfg)), pcPages_(SettingsPagesConfig{cfg_.screen}) {}
 
 float PauseScreen::dx() const {
-    return cfg_.centred ? (kDesignW - kMenuW) * 0.5f - kMenuX : 0.0f;
+    return cfg_.centred ? (kDesignW - menuW()) * 0.5f - menuX() : 0.0f;
 }
 
 void PauseScreen::open() {
@@ -485,23 +563,31 @@ std::vector<PausePage> PauseScreen::pageStack() const {
 }
 
 std::vector<PauseRow> PauseScreen::rowsOf(PausePage p) {
+    const char* page = nullptr; // the skin's [rows] page, for the pages a mod may reorder
+    std::vector<PauseRow> r;
     switch (p) {
         case PausePage::Root:
+            page = "pause.root";
+            r = {PauseRow::Resume, PauseRow::Save, PauseRow::Load, PauseRow::Options, PauseRow::Quit};
             break;
         case PausePage::Options:
-            return {PauseRow::Controller, PauseRow::Audio, PauseRow::PcSettings, PauseRow::Defaults, PauseRow::Back};
+            page = "pause.options";
+            r = {PauseRow::Controller, PauseRow::Audio, PauseRow::PcSettings, PauseRow::Defaults, PauseRow::Back};
+            break;
         case PausePage::Audio:
-            return {PauseRow::MasterVolume, PauseRow::MusicVolume, PauseRow::Subtitles, PauseRow::Stereo,
-                    PauseRow::Back};
+            page = "pause.audio";
+            r = {PauseRow::MasterVolume, PauseRow::MusicVolume, PauseRow::Subtitles, PauseRow::Stereo, PauseRow::Back};
+            break;
         case PausePage::Controller:
-            return {PauseRow::Scheme, PauseRow::Vibration, PauseRow::ReversePitch, PauseRow::KeyBindings,
-                    PauseRow::Back};
+            page = "pause.controller";
+            r = {PauseRow::Scheme, PauseRow::Vibration, PauseRow::ReversePitch, PauseRow::KeyBindings, PauseRow::Back};
+            break;
         case PausePage::QuitConfirm:
             return {PauseRow::QuitToTitle, PauseRow::QuitToDesktop, PauseRow::Cancel};
         case PausePage::DefaultsConfirm:
             return {PauseRow::RestoreDefaults, PauseRow::Cancel};
     }
-    return {PauseRow::Resume, PauseRow::Save, PauseRow::Load, PauseRow::Options, PauseRow::Quit};
+    return applyRowOrder(page, std::move(r), [](PauseRow x) { return pauseRowId(x); });
 }
 
 std::vector<PauseRow> PauseScreen::rows() const {
@@ -1068,8 +1154,8 @@ void PauseScreen::drawMenu(PausePage page, bool live, const PauseState& st, Draw
             focusedRow = rs[i];
     }
     if (focusedRow) {
-        const Rect desc{kRowX + dx() + 4, kRowY + 5 * kRowStep + 4, kRowW - 8, 60};
-        p.rule(d, kRowX + dx(), desc.y - 6, kRowW);
+        const Rect desc{rowX() + dx() + 4, rowY() + 5 * rowStep() + 4, rowW() - 8, 60};
+        p.rule(d, rowX() + dx(), desc.y - 6, rowW());
         const bool en = rowEnabled(*focusedRow, st);
         const std::vector<std::string> lines =
             p.wrap(rowDescription(*focusedRow, en, optionValue(PauseOption::Scheme, st)), desc.w, FontRole::Small);

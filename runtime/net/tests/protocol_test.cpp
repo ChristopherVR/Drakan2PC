@@ -37,14 +37,19 @@ PlayerState sampleState() {
     return s;
 }
 
+// `olderSize`: the length (type byte included) an older peer wrote when the message later gained trailing optional
+// fields; that one prefix is accepted on purpose (default: none).
 template <class T>
-void expectTruncationsFail(const T& msg) {
+void expectTruncationsFail(const T& msg, size_t olderSize = SIZE_MAX) {
     const auto bytes = encode(msg);
     T out;
     CHECK(decode(bytes, out));
     for (size_t n = 0; n < bytes.size(); ++n) {
         T t;
-        CHECK(!decode(bytes.data(), n, t)); // every proper prefix is rejected
+        if (n == olderSize)
+            CHECK(decode(bytes.data(), n, t));
+        else
+            CHECK(!decode(bytes.data(), n, t)); // every proper prefix is rejected
     }
     auto longer = bytes;
     longer.push_back(0);
@@ -177,17 +182,17 @@ int main() {
 
     // Truncation and trailing garbage.
     expectTruncationsFail(Hello{});
-    expectTruncationsFail(Welcome{.player = 1});
+    expectTruncationsFail(Welcome{.player = 1}, encode(Welcome{.player = 1}).size() - 2); // modeId is optional
     expectTruncationsFail(Reject{});
     expectTruncationsFail(sampleState());
     expectTruncationsFail(Hit{});
     expectTruncationsFail(Death{});
     expectTruncationsFail(Respawn{});
     expectTruncationsFail(Chat{});
-    expectTruncationsFail(Score{});
+    expectTruncationsFail(Score{}, 10); // score and teamScore are optional (the v8 body is 9 bytes)
     expectTruncationsFail(PlayerJoin{});
     expectTruncationsFail(PlayerLeave{});
-    expectTruncationsFail(PhaseChange{});
+    expectTruncationsFail(PhaseChange{}, 6); // byHost is optional (the older body is 5 bytes)
 
     // Wrong type byte, empty, unknown types.
     {
@@ -414,7 +419,7 @@ int main() {
         MsgType t;
         const auto lb = encode(LevelChange{});
         CHECK(peekType(lb.data(), lb.size(), t) && t == MsgType::LevelChange);
-        const uint8_t beyond[] = {29}; // one past Character (28)
+        const uint8_t beyond[] = {33}; // one past MapVoteState (32)
         CHECK(!peekType(beyond, 1, t));
 
         // The co-op mode travels in MatchConfig and ServerInfo.

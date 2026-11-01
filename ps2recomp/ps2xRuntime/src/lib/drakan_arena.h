@@ -38,7 +38,9 @@ struct MapEntry {
     int spawns = 0, pickups = 0;
     bool hasBounds = false;
     float bounds[4] = {0, 0, 0, 0}; // minX, minZ, maxX, maxZ (world units), for a map preview
-    bool installed = true;          // the base level exists on this disc / in the loaded mod packs
+    bool hasPreview = false;
+    float preview[5] = {0, 0, 0, 0, 0}; // x y z yaw pitch of the menu picture's camera (hasPreview)
+    bool installed = true;              // the base level exists on this disc / in the loaded mod packs
 };
 
 // The catalog is read once at start-up (install): configs/mp_maps.ini compiled in, `mp_maps.ini` next to the exe (and
@@ -53,6 +55,16 @@ size_t addMaps(const std::string& text, const std::string& source, const std::st
 void setInstalledLevels(std::vector<std::string> levels);
 
 void install(PS2Runtime& runtime);
+
+// ---- the map's menu picture ----
+// requestPreviewShot(file): in an arena match the player is put at the map's `preview` point (the first spawn point
+// when the map has none) looking along its yaw / pitch, the window is saved as a PNG at `file` and she is sent back to
+// a spawn point. previewShotState(): 0 idle, 1 running, 2 the last shot was written (resets with the next request).
+void requestPreviewShot(const std::string& file);
+int previewShotState();
+// Directory of the co-op character turntables (<previews>/chars/): <id hex4>.png = 12 frames of 160 x 240 side by side.
+// Made by DRAKAN_CHAR_PREVIEWS (see drakan_arena.cpp).
+std::string charPreviewDir();
 
 // ---- session (drakan_netplay, any thread) ----
 // The arena world mode on / off. `def` (may be null: a plain level match, the world is still stripped of the campaign)

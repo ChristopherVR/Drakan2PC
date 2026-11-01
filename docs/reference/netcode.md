@@ -18,7 +18,7 @@ the game side has ghosts, a Multiplayer title menu with host / join / lobby (see
 | `net/LoopbackTransport.h` | In-process; `LoopbackNetwork` has a virtual clock, optional one-way latency and unreliable loss. |
 | `net/ServerBrowser.h` | LAN / direct discovery client: `queryLan()` (broadcast + loopback, ports 47800..47809), `queryHost()`, `poll()` returns merged `ServerEntry`s (v5). |
 | `net/UdpTransport.h` | IPv4 UDP, non-blocking; answers `Query` datagrams through `setQueryResponder` (v5). Winsock on Windows, BSD sockets elsewhere (kept out of headers). Not built for Emscripten. |
-| `runtime/net/server/` | `drakan_server --port --max-players --mode dm\|tdm\|coop --level` (also `--frag-limit --time-limit --auto-start --tick-rate --profile-hash`). No game, no ISO. |
+| `runtime/net/server/` | `drakan_server --port --max-players --mode dm\|tdm\|coop --level` (also `--frag-limit --time-limit --auto-start --tick-rate --profile-hash --game-mode --start-countdown --results-sec --host-kick --status-sec`; stdin console: `status`, `kick`, `start`, `end`). No game, no ISO. |
 | `runtime/net/tests/` | `net_protocol_test`, `net_match_test`, `net_coop_test` (v6: relay rules, co-op session, level change, version mismatch), `net_loopback_e2e_test`, `net_udp_smoke_test` (exit 77 = skipped when sockets are unavailable). |
 
 A browser build needs a WebSocket / WebRTC `Transport` in `src/`; nothing above `Transport` may rely on more than the
@@ -31,6 +31,81 @@ Datagram = `'D' 'K'` + type byte. Types: Connect, ConnectAck, Disconnect (empty)
 QueryReply (8) (v5, no connection: an encoded `Query` / `ServerInfo` message, see "LAN discovery"). Reliable channel:
 per-peer sequence, receiver accepts only the next sequence, sender resends unacked packets every 150 ms (window 128,
 excess queued). Connect retried every 250 ms for 5 s; a peer silent for 10 s is dropped.
+
+## Results screen, custom modes, dedicated server (2026-11-01, no version bump)
+
+Addenda on v8, every new field is trailing and optional (older peers read the old body, see `net_protocol_test`).
+
+| Message | New |
+| --- | --- |
+| `ResultsAction = 30` (C>S, reliable) | `u8 choice`: 1 back to the lobby, 2 next map, 3 rematch. Honoured only in the Results phase and only from the host (`hostPlayer()`, the longest connected player) |
+| `PhaseChange` | trailing `u8 byHost`: the change follows a host's results choice, not the results timer |
+| `Status` | trailing `u8 host`: the host's player id (`MatchClient::hostPlayer()`; the lobby's host mark and the results buttons use it) |
+| `Score` | trailing `i32 score`, `i32 teamScore[4]`: points per player and team (a standard match: score = kills, teamScore = team kills) |
+| `MatchConfig` / `Welcome` config | trailing `str modeId` (<= 32): the custom game mode of the match |
+| `PlayerJoin` | `team` may be 0..3 (was 0..1) |
+
+`DRAKAN_MP_PORT` (read by `net::basePort()`): the first UDP port a server listens on and the LAN sweep probes (ten ports from
+it), default 47800. Test rigs that must not meet other instances on the PC set it (the menu harness has `--port`).
+
+### Results screen
+
+The results phase draws the standings and four buttons (`gameui::mp::ResultsMenu`, laid out by `resultsButtonRects`): **Back to
+lobby**, **Next map**, **Rematch** (co-op: Back to lobby, Play / Try again, Leave) and **Leave**. The overlay owns the input
+while the results are up (`InputModule::setHostScreen`, so Rynn stands still): Left / Right (D-pad) move the focus over the
+enabled buttons, Confirm presses, the mouse hovers and clicks. Only the host's buttons are live; a guest sees them greyed and
+"Waiting for the host to choose", and can still Leave.
+
+* Back to lobby: `ResultsAction(1)`; the server runs the same code as the results timer (`returnToLobby`: everybody to the
+  lobby, ready flags cleared) but marks the PhaseChange `byHost`.
+* Rematch: `ResultsAction(3)`: lobby (byHost), then `startMatch()` (the 3 s start countdown of the listen server, Status
+  shows it), so the same map and rules load again.
+* Next map: `ResultsAction(2)`: `ServerOptions::rotation` (the game fills it with every installed multiplayer map, the
+  dedicated server with the whole catalog) is walked from the current map to the next one the mode fits (`modeFitsArena`;
+  wraps around), the match config and the arena change (MatchConfig broadcast), then the same start. Co-op has no rotation: it is
+  the same level again.
+* Leave: `leave()` (the server removes the player when the connection drops) and the game goes to the title.
+* The game is still inside the match level after any of them. A `byHost` PhaseChange to the lobby (and Leave) therefore sets
+  `drakan_netplay::requestReturnToTitle()`; `autoTitleTick` (EE side, `drakan_pause_screen.inl`) taps START until the pause
+  menu is bound, forces the modern pause menu for the run (its Quit to Title executor answers the native box) and queues
+  `QuitToTitle`; at the title the lobby page resumes, the countdown runs and the Loading phase launches the next match through
+  the usual New Game path. Gives up after 45 s. The results *timer* does not do this (the old "Esc > Quit to Title" flow stays).
+
+### Map vote (2026-11-01, no version bump)
+
+At the start of a non-co-op results phase the server (`MatchServer::beginVote`) offers up to three maps: the maps of
+`ServerOptions::rotation` that follow the current one and fit the mode; fewer than three are filled up with the current map
+(two choices at least; a rotation with no other map, co-op or no rotation: no vote). `MapVote` (type 31, C>S, reliable,
+Results only; candidate index or `kNoVote` to withdraw; a vote can be changed) and `MapVoteState` (type 32, S>C, reliable:
+candidate names, tally per candidate, `winner`) on every change. When the results end (timer, **Back to lobby** or **Next map**)
+the leading candidate (ties: lowest index; no votes: nothing changes) becomes the map (`leaveResults` -> `applyArena`, lobby
+only) before the lobby or the next countdown; **Next map** without a vote walks the rotation as before, **Rematch** ignores the
+vote. A voter that leaves takes the vote with it. Client: `MatchClient::sendMapVote / mapVote() / myMapVote()`; the game:
+`drakan_netplay::voteMap`, `Scoreboard::voteNames / voteTally / voteMine / voteWinner`; the screen: `HudState::vote`
+(`VoteCandidate` with the map picture id), `mapVoteRects / mapVoteFrame` (click a card, or Q / E = LB / RB cycle the pick).
+The cards show the cached map pictures (`ImageKind::LevelPreview`), the drawn sketch for maps without one. Tests:
+`net_map_vote_test`, `gameui_mapvote_test`.
+
+### Dedicated server console
+
+`drakan_server` reads commands from stdin: `status` (phase, countdown, and a table with team, ready, score, k/d and **ping**
+per player, the host marked), `kick <id|name>`, `start`, `end`, `quit`. It prints one line a second while a countdown runs
+(`match starts in N s`, `next match (lobby) in N s`) and the player table every `--status-sec N`. New options: `--game-mode
+<id>`, `--start-countdown SEC` (default 5 with `--auto-start`), `--results-sec SEC`, `--host-kick` (the host may kick over the
+wire and use the results buttons). Check: `scripts/harness/dedicated_server_check.py` (server plus two `drakan_netbot` clients
+over UDP).
+
+## Vitals (2026-11-01, no version bump)
+
+`MsgType::Vitals = 29`, like Status an addendum on v8 (older peers drop unknown types). Body: `u8 n` then n x
+`{u8 player, u16 hp, u16 maxHp, u16 dragonHp, u16 dragonMaxHp}` (dragon 0 / 0 = on foot or unknown). C>S carries exactly one
+entry (the sender's health, about 5 per second and at once on a change; unreliable); the server overwrites `player` with the
+sender, stores it and relays every stored entry to everybody after each Status tick (2 Hz, at once after a change). The
+client keeps it in `RemotePlayer.vitals` / `hasVitals`. `drakan_coop` reads Rynn's health and maximum (the XOR-keyed stats
+block) every EE tick and hands them to `drakan_netplay::setLocalVitals`; the party HUD gets the partners' through
+`partnerVitals()` and `setCoopParty` (`hp`, `hpMax`, `hpFrac`, down = hp 0, plus the host's respawn countdown). The dragon's
+own health has no known address yet, so the dragon fields are sent as 0 and the HUD's second bar stays hidden (the field and
+bar are in place: `HudPartner::dragonKnown`).
 
 ## Protocol v8
 
@@ -199,8 +274,11 @@ simulates the game and needs no level data.
   resulting health; at 0 health the server broadcasts Death and two Scores, then Respawn after `respawnDelayMs`. Every
   rejection is logged with its reason ("hit rejected: out of range (1447 > 900)", "victim dead", ...).
 - Movement checks: stale sequence numbers are dropped, non-finite or huge coordinates and speeds above `maxSpeed`
-  (units/s between accepted states, default 30000; Rynn runs ~2500) are discarded. The first state after (re)spawn is exempt. A dropped teleport
-  heals itself as the elapsed time grows.
+  (units/s between accepted states, default 30000; Rynn runs ~2500) are discarded. The first state after (re)spawn is exempt. In an arena a state that arrives within 3000 units of the
+  player's spawn point is accepted as the game moving her there (the level takes far longer than any window to load, so this holds
+  until she has arrived once), and 12 speed-rejected states in a row that agree with each other are taken as a teleport the
+  server was not told about (`player N resynced ... (stale last position)`). A pickup claim is checked against the last
+  position, or the spawn point while she has not arrived yet (before this a claim after a respawn was refused "too far").
 - Remote players: the client buffers snapshot states per player and renders `interpolationDelayMs` (100) behind the
   estimated server clock, interpolating position, velocity, yaw (shortest arc) and animation time; discrete fields come
   from the nearer sample; no extrapolation. A Respawn clears that player's buffer. A **dead player keeps publishing**
@@ -344,6 +422,14 @@ arrows are never claimed), and the path each one flew since the last boundary is
 every ghost (radius 150, from 60 below to 460 above the ghost's origin). A crossing is one claim with `weapon = 2` per
 projectile. Run: `python scripts/harness/netplay_two_instances.py --pvp --weapon bow --card build/harness/gw-net/a/card/mc0`
 (see the results in `docs/journal/2026-10-31/pvp.md`).
+
+**Ranged PvP in the arena (2026-11-01, `scripts/harness/arena_ranged.py`, details `docs/journal/2026-11-01/arena-ranged-pvp.md`).**
+A bow cannot come from the arena loadout (the factory's bow is never registered, like the potions); the archer picks Surdana's own
+bow up from the ground (test map `scripts/harness/maps/arena_ranged_test.ini`) and the arena equips it (`DRAKAN_ARENA_EQUIP=bow`:
+waits for a bow, raises the bow skill, quick slot). A caster gets the spells through the debug console's `shaman` and the
+game's own selector (`DRAKAN_ARENA_SPELL=<n>`). Arrows claim 5 (their property `0x1a` reads 0), spells 10 (the projectile's
+`0x1a` reads 1, which is no damage: only values of 2 or more are trusted); the server caps both. Test aids: `DRAKAN_ARENA_LOADOUT`
+(per-instance loadout), `DRAKAN_PVP_TEST_FRONT=1` (the ghost test placement stays in front).
 
 Not done: PvP while mounted, USA disc (PAL addresses; the module reports "no address translation" and stays off, what it needs: `docs/reference/regions.md`), team
 deathmatch in game (unit tests only), lag compensation, arrow / spell damage per ammunition type and per spell (the claim
@@ -552,6 +638,25 @@ weapons on respawn), the power-up class `0x100ab` (`0x31b33`, `0x31b34`) spawn; 
 only spawnable resources. An **adopted** pickup of a non-spawnable class (a level's own potion) works until it is taken once and
 then never comes back; use `res=` of a spawnable one next to it instead (items near a `res=` pickup are removed by the world filter).
 
+**A bow as the loadout (2026-11-01).** Since the factory cannot make a bow, `DRAKAN_ARENA_LOADOUT_ADOPT="x,y,z;..."` (test
+aid, arena.cpp `bindAdoptLoadout`) takes the level's own loose item nearest to each spot (within 600 units) out of the world
+filter's reach and files it into the inventory as the loadout (the engine's stow, like a spawned loadout item): every
+instance owns a copy of the level's items, so every player can get "the" bow without walking onto it. Measured on Surdana
+(`scripts/harness/arena_ranged.py --adopt`): `loadout adopt: the level's item ... (class 1004f)`, `1 items given`, the bow
+is equipped and its arrows kill. A map-file key for it is not written yet (the ini only knows factory resources).
+
+**Placement vs the level start (2026-11-01).** The game applies its own start position when the level comes up, which can
+land after the server's spawn placement made during the load (`level up: player at <level start>` is logged after
+`player placed at spawn N`). The arena remembers the assigned spawn across level loads and places again when the level is
+up (`level up: placing at the assigned spawn N again`), and a placement that took is watched for 120 more boundaries
+(`pulled N units away from spawn S right after the placement: placing again`). No more "back to spawn N" a second later.
+
+**Ghost collision cells (2026-11-01).** The engine's refile (`0x1496a0`) returns at once for an actor whose cell index
+(`+0x7c`) is -1, so an actor created where no cell was resident yet (a ghost spawned while the level streams in, or
+right after a reload) stayed out of every cell list for good and a blade sweep never found it (inquisitor-depths,
+city-skeleton-square). `drakan_ghost::refileHandle` now files such an actor by hand (the lookup the refile uses, vtable
+`+0x6c` of `*(world+0x24b4)`, then the refile itself). Real blade hits on the ghost now land on all three maps.
+
 ### Map definitions
 
 `configs/mp_maps.ini` (committed, compiled into the game by `runtime/net/CMakeLists.txt` as the default list, no game data
@@ -569,13 +674,15 @@ players = 8                              ; 2..16
 health = 100                             ; start health bar in server points
 bounds = 398000 543000 432000 576000     ; playable rectangle x0 z0 x1 z1
 loadout = 0x3372b                        ; resource ids every player gets at the start (optional)
+game = Drakan 2                          ; menu tag: Drakan 1 (Order of the Flame) or Drakan 2; default Drakan 2 (built-in), Drakan 1 (pack with campaign = "ootf"), none (other packs)
+preview = 412221 173800 556494 90 6      ; menu picture camera x y z [yaw [pitch]] (degrees, pitch > 0 looks up); default: first spawn
 spawn = 412221 173800 556494 [yawDeg]    ; at least 2, at most 32
 pickup = 412921 173800 556494 30 res=0x3372b name=Steel Club   ; x y z respawnSec [res=] [name=], at most 64
 ```
 
 `net::ArenaCatalog::add(text, source, &errors)` parses it (errors name `source:line`, an invalid arena is dropped as a whole);
 `find(idOrName)`. The menu reads the list through **`drakan_arena::maps()`**: `MapEntry{id, name, level, description, source,
-deathmatch, teamDeathmatch, maxPlayers, spawns, pickups, hasBounds, bounds[4], installed}` (`installed` = the base level exists on
+hasPreview, preview[5], deathmatch, teamDeathmatch, maxPlayers, spawns, pickups, hasBounds, bounds[4], installed}` (`installed` = the base level exists on
 this disc or in a loaded pack). Hosting a map: put `MapEntry::name` (or the id) into `HostConfig.level`; `drakan_netplay` resolves
 it (`drakan_arena::findMap`), gives the server the arena (`ServerOptions::hasArena` / `arena`, start health, player cap),
 and the clients resolve `MatchConfig.level` themselves; a client that does not have the map or its base level refuses the launch
@@ -625,12 +732,48 @@ mod packs' `maps/*.ini`); `ArenaCatalog` skips them, `ModeCatalog` (`net/GameMod
 `capture` = carry a `flag` marker to the team's `base` marker; `hold` = stay inside a `zone` marker for `seconds`.
 Example: `instagib-lite` in `configs/mp_maps.ini`.
 
+What the server does with a mode (`MatchServer`, selected by `MatchConfig.modeId` in `ServerOptions::modes`):
+
+* **Score**: a kill gives the killer `score_kill` (a team kill with friendly fire on gives nothing), a death gives the victim
+  `score_death`; the points and the team points travel in `Score`. `frag_limit` is the limit on the **points** (first player or
+  team to reach it ends the match; in a standard match points = kills, so nothing changes). The scoreboard sorts by points,
+  then kills, then fewest deaths; ties and the winner (also for 3 or 4 teams) use the points.
+* **Teams**: `base = tdm` with `teams = 2..4`: players are placed on the emptiest team when they join and re-placed when the
+  match starts (`fixTeams`; the host may have changed the mode in the lobby), `PlayerJoin.team` goes up to 3. The HUD names the teams
+  Fire / Water / Earth / Air.
+* **Friendly fire**: `friendly_fire = on` lets team hits land (no points for the shooter).
+* **Capture**: a player touching a `flag` marker (radius `radius=` of the objective, else the marker's) that is not its team's
+  own (marker `team=N` is team N's flag, 0 = anyone's) picks it up; carrying it into a `base` marker of its own team (base `team=0` =
+  any) scores `points + score_objective` for the player and the team, announced in the chat as a system line. Death or leaving
+  returns the flag. Free for all: any base.
+* **Hold**: the only team (free for all: the only player) inside a `zone` marker for `seconds` scores `points + score_objective`;
+  a contested or empty zone starts over.
+* **Menu**: the Host page's **Game Mode** row (after Game Type) cycles Standard and every custom mode the chosen map can play
+  (`modeFitsArena`: the map lists the mode id in `modes =` or supports its base, a capture objective needs a flag and a base
+  marker, a hold objective a zone marker, 3..4 teams need that many players). A mode fixes the game type, the teams and the limits
+  (Kills Limit becomes Score Limit and is greyed). The lobby shows the mode's name, the results show a SCORE column.
+* Not run: `weapons`, mode `loadout`, spawn team / yaw, `keep` / `remove`.
+
 | Field | Honoured by the runtime today? |
 | --- | --- |
-| `base`, `frag_limit`, `time_limit`, `respawn_delay`, `start_health` | yes, through `applyModeToConfig(mode, MatchConfigData)` into the match config (the server already has these options); nothing calls it from a menu yet |
+| `base`, `frag_limit`, `time_limit`, `respawn_delay`, `start_health` | yes, through `applyModeToConfig(mode, MatchConfigData)` (also sets `modeId`) |
+| `score_*`, `teams` (2..4), `friendly_fire`, `objective` with `flag` / `base` / `zone` markers | yes, the server (see above) |
 | arena `players`, `health`, `spawn` positions, `pickup`, `loadout` | yes (the arena mode) |
-| `score_*`, `teams` beyond tdm's two, `friendly_fire`, `weapons`, mode `loadout`, `objective`, markers, spawn `team` / yaw, `keep` / `remove` | authored only: parsed, listed, not executed |
-| the menu | lists maps from `drakan_arena::maps()`; custom modes are available from `drakan_modes::customModes()` but no menu row shows them yet |
+| `weapons`, mode `loadout`, spawn `team` / yaw, `keep` / `remove` | authored only: parsed, listed, not executed |
+| the menu | the Host page's Game Mode row lists `drakan_modes::customModes()` entries that fit the map |
+
+Map pictures the game takes itself (journal 2026-11-01/map-previews.md): the first time a match runs on a map and no picture exists,
+`mpPreviewCapture` (drakan_settings_host) waits about 12 s into the match, hides the MP HUD and calls
+`drakan_arena::requestPreviewShot(file)`: the player is put at the map's `preview` point (the first spawn point without one),
+facing its yaw, the camera's look pitch (camera object `+0x84`) is set, the shot waits until the follow camera has held still, the
+window is saved as a PNG and she goes back to a spawn point (bounds checks are suspended meanwhile; no file when she never
+settles on the point). Campaign levels (co-op, plain level matches) are captured from the view she starts with. The file goes to the
+user's data folder, `%LOCALAPPDATA%/Drakan2PC/previews/<safe map name>.png` (`DRAKAN_PREVIEW_DIR` overrides; never the repository
+or the play folder), and the Host / Join / lobby map card picks it up (centre band only: the native HUD along the bottom and
+the stats overlay are cropped). Lookup order: `previews/<name>.png` next to the exe, `previews/mods/`, the data folder,
+`previews/captured/`. `DRAKAN_MP_CAPTURE=0` turns it off; test aid `DRAKAN_ARENA_PREVIEW_SHOT=<file>` takes the shot by itself with
+`DRAKAN_ARENA_FORCE` (`scripts/harness/arena_tour.py --map <id> --tour 0 --env DRAKAN_ARENA_PREVIEW_SHOT=<file>`; `--maps-file`
+reads an extra mp_maps.ini).
 
 Map pictures from mod packs: `previews/<safe map name>.png` in a pack (<= 8 MiB) is copied to `previews/mods/` next to the
 exe at startup; the menu looks at `previews/<name>.png` first, then `previews/mods/<name>.png`.
@@ -678,7 +821,10 @@ Not done: team spawn sets, arena maps for levels where Rynn starts mounted, the 
 
 ## Tests
 
-`ctest --preset runtime-tests -R net_`. `net_coop_test` covers the v6 relay rules (authority, routing classes, targets, range
+`ctest --preset runtime-tests -R net_`. `net_results_modes_test`: the results buttons (host only, other phases ignored, back to
+the lobby, rematch, next map with wrap-around and mode filter, co-op, `byHost` only for the host's choices, the timer
+unchanged), custom scoring and the points limit, three-team and friendly-fire matches, capture (own flag, wrong base, score,
+drop on death), hold (contested, repeat), `modeFitsArena`, and the wire forms (`ResultsAction`, `Score`, `modeId`, team 3). `net_coop_test` covers the v6 relay rules (authority, routing classes, targets, range
 checks, no PvP / limits in Coop), the authority's lifecycle (late joiner, leaving, empty match, mode switch in the lobby), host migration (the oldest remaining player
 takes over, also over 40 ms / 15 percent loss with the old owner leaving, its disconnect possibly lost so the timeout covers it: the announcement arrives once, events and claims
 continue exactly once and in order, a late joiner after the migration, a chain of three migrations with a recycled player id),

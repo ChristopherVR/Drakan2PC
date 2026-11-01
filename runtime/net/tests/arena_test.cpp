@@ -20,6 +20,7 @@ players = 4
 health = 80
 bounds = 0 0 10000 10000
 loadout = 0x20abc 0x20abd
+preview = 500 60 700 135 -20
 spawn = 1000 50 1000 90
 spawn = 9000 50 9000
 spawn = 1000 50 9000
@@ -72,6 +73,7 @@ int main() {
         CHECK(a->deathmatch && !a->teamDeathmatch);
         CHECK(a->hasBounds && a->bounds[2] == 10000 && a->insideBounds(5000, 5000) && !a->insideBounds(-1, 5000));
         CHECK(a->loadout.size() == 2 && a->loadout[1] == 0x20abd);
+        CHECK(a->hasPreview && a->preview[0] == 500 && a->preview[3] == 135 && a->preview[4] == -20);
         CHECK(a->spawns.size() == 3 && a->spawns[0].yawDeg == 90 && a->spawns[1].pos[2] == 9000);
         CHECK(a->pickups.size() == 2 && a->pickups[0].resId == 0x3372b && a->pickups[0].label == "Steel Club" &&
               a->pickups[0].respawnSec == 30 && a->pickups[1].resId == 0 && a->pickups[1].respawnSec == 15);
@@ -93,6 +95,7 @@ int main() {
                           "[arena c]\nname = C\nlevel = L\nspawn = 1 2 3\nspawn = 4 5 6\nplayers = 99\n"
                           "[arena d]\nname = D\nlevel = L\nspawn = 1 2 3\nspawn = 4 5 6\nbounds = 5 5 1 1\n"
                           "[arena e]\nname = E\nlevel = L\nspawn = 1 2 3\nspawn = 4 5 6\nbogus = 1\n"
+                          "[arena g]\nname = G\nlevel = L\nspawn = 1 2 3\nspawn = 4 5 6\npreview = 1 2\n"
                           "[arena bad id!]\nname = F\n"
                           "orphan = 1\n"
                           "[arena ok]\nname = OK\nlevel = L\nspawn = 1 2 3\nspawn = 4 5 6\npickup = 1 2 3 0\n";
@@ -238,6 +241,80 @@ int main() {
         CHECK(a.sendPickupClaim(0)); // takeable again
         rig.run(60);
         CHECK(count<PickupState>(collect(b)) >= 1);
+    }
+    {
+        // a claim right after a respawn: the published position is still the old life's (stale), the spawn point counts
+        ArenaCatalog cat;
+        cat.add("[arena stale]\nname = Stale\nlevel = X\nspawn = 1000 50 1000\nspawn = 1100 50 1000\n"
+                "pickup = 1000 10 1000 30\npickup = 1050 10 1000 30\n",
+                "t");
+        const ArenaDef def = *cat.find("stale");
+        Rig rig(arenaOptions(def));
+        MatchClient& a = rig.addClient("A", 0xABCD);
+        rig.run(100);
+        CHECK(rig.server->startMatch(rig.now));
+        rig.run(50);
+        a.sendLoadDone();
+        rig.run(100);
+        CHECK(rig.server->phase() == MatchPhase::Playing);
+        collect(a);
+        a.sendState(at(-50000, -50000)); // the old life / level start, far from the spawn point
+        rig.run(60);
+        CHECK(a.sendPickupClaim(0)); // at the spawn point as far as the server knows: accepted
+        rig.run(60);
+        CHECK(count<PickupState>(collect(a)) == 1);
+        rig.run(9000); // a level takes long to load: the spawn point still stands in until she has arrived
+        CHECK(a.sendPickupClaim(1));
+        rig.run(60);
+        CHECK(count<PickupState>(collect(a)) == 1);
+        a.sendState(at(1000, 1000)); // arrived at the spawn point; now her position is real
+        rig.run(60);
+        a.sendState(at(-50000, -50000));
+        rig.run(60);
+        collect(a);
+        rig.run(31000); // pickup 0 is back
+        collect(a);
+        CHECK(a.sendPickupClaim(0)); // far from it now: refused
+        rig.run(60);
+        CHECK(count<PickupState>(collect(a)) == 0);
+    }
+    {
+        // moves after a respawn / teleport the server was not told about: the stale last position must not make it
+        // refuse every later state (speed check on)
+        ArenaCatalog cat;
+        cat.add("[arena far]\nname = Far\nlevel = X\nspawn = 1000 50 1000\nspawn = 1100 50 1000\n"
+                "pickup = 500000 10 500000 30\n",
+                "t");
+        const ArenaDef def = *cat.find("far");
+        ServerOptions o = arenaOptions(def);
+        o.maxSpeed = 30000.0f;
+        Rig rig(o);
+        MatchClient& a = rig.addClient("A", 0xABCD);
+        rig.run(100);
+        CHECK(rig.server->startMatch(rig.now));
+        rig.run(50);
+        a.sendLoadDone();
+        rig.run(100);
+        CHECK(rig.server->phase() == MatchPhase::Playing);
+        a.sendState(at(-50000, -50000)); // the level start: accepted as the first state
+        rig.run(60);
+        a.sendState(at(1000, 1000)); // the game moved her to the spawn point: far from the stale position, accepted
+        rig.run(60);
+        const ServerPlayer* sp = rig.server->player(a.playerId());
+        CHECK(sp && sp->state.pos[0] == 1000 && sp->state.pos[2] == 1000);
+        rig.run(9000); // trust window over: a jump is a speed violation again
+        a.sendState(at(500000, 500000));
+        rig.run(60);
+        CHECK(rig.server->player(a.playerId())->state.pos[0] == 1000);
+        collect(a);
+        CHECK(a.sendPickupClaim(0)); // she is really there: the refused newest position counts for a claim
+        rig.run(60);
+        CHECK(count<PickupState>(collect(a)) == 1);
+        for (int i = 0; i < 14; ++i) { // but states that keep agreeing from the new place are a teleport: resync
+            a.sendState(at(500000 + static_cast<float>(i), 500000));
+            rig.run(60);
+        }
+        CHECK(rig.server->player(a.playerId())->state.pos[0] >= 500000);
     }
     {
         // a newcomer is spread away from the spawn point a player was just given, not from the (stale) position she

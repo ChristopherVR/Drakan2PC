@@ -260,7 +260,7 @@ void hook(uint8_t* rdram, R5900Context* c, PS2Runtime* rt) {
             std::lock_guard<std::mutex> l(g_vetoM);
             veto = g_saveVeto;
         }
-        if (veto && veto()) {
+        if (veto && veto() && !std::getenv("DRAKAN_ARENA_ALLOW_SAVE")) {
             std::fprintf(stderr, "[lifecycle] save write vetoed (multiplayer arena)\n");
             SET_GPR_U32(c, 2, 1u);
             c->pc = getRegU32(c, 31);

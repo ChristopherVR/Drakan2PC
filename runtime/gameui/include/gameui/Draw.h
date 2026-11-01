@@ -54,6 +54,8 @@ enum class ImageKind : uint8_t {
     TitleArt,      // index unused: the title menu's background art (title screen widget 0x2301)
     LevelPreview,  // index = LevelEntry::previewId: a multiplayer map's picture, generated at run time from the
                    // player's own disc / mod pack (never stored in the repository); nothing when unknown
+    CharTurntable, // index = classId | frame << 16: one frame of a co-op character's turntable strip (made at run time
+                   // from the player's disc, drakan_arena character studio); nothing when there is no strip
 };
 // Pictures of the game's inventory icon atlas (INTERFCE.TXD 94, the native section tabs and the gold bag).
 enum class UiIconId : uint8_t { Chest, Stars, Face, Map, Book, Trade, GoldBag, Count };

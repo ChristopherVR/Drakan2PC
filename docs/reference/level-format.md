@@ -472,6 +472,42 @@ two NULs, which is also what `u32 2` of a silent descriptor looks like) and then
 the descriptor ends 4-aligned; a NUL terminator is optional when the text fills the area exactly. Timed pages: `\<seconds>`
 between pages, the number is the delay before the next page.
 
+### Starting a conversation, and the in-game proof (2026-11-01)
+
+**How it starts [proven in game, decoded in the PAL ELF].** Use is pad L1 / key E (command `0x4009`). Press calls `FUN_003168a0(player, 1)`
+and only arms a 0.5 s timer (player `+0xb5c`); the release calls `FUN_003168a0(player, 0)`, which does the use **only while that
+timer is still >= 0** (game time). A held key (the old harness held E for 20-30 frames at 5 fps) never does anything: tap it
+(`key down E` then `key up E` 2 frames later). Past the climb / pick-up tests it calls `FUN_00321180`, which takes the nearest
+class `0x1009d` NPC of the player's candidate list (`player +0xe40`) and sends it message **`0x116d`** (`FUN_00321200`).
+The NPC (`FUN_00464200`, message `0x116d`) asks its talk gate `FUN_0046b368` / `FUN_00469458` and, if it passes, forwards `0x116d`
+to its conversation handler, whose handler method `FUN_002442c8` calls `FUN_002447c0` (begin: loads the phase lines, sends
+`0x1065` "conversation started", camera, speech). The gate passes only when all of these hold:
+
+* the NPC is not busy (vslot `+0x174` of its AI sub-object is 0);
+* the distance NPC to Rynn is at most `Maximum conversation distance (lu)` x 2048 units (class default 1.0 lu = 2048; field 0x110);
+* Rynn faces the NPC: `forward(Rynn) . dir(Rynn -> NPC) > 0.4`; and the NPC faces Rynn: `forward(NPC) . dir(NPC -> Rynn) > 0.2`
+  (forward = minus the third matrix column; the matrix is a pure Y rotation `[c 0 s; 0 1 0; -s 0 c]`, forward = `(-s, 0, -c)`);
+* the NPC's accept-Use field `Accept Use button?` = Yes (the farmer has it), and the player is not busy (`player +0x94 & 0x104874`).
+
+`Proximity dialog handlers` of an NPC only preload sounds of the phase (`FUN_002443e8`), they do not start speech. A conversation
+handler also accepts `0x1001` (On: active) and `0x1002` (Off) and `0x116e` (quest complete: phase state), `0x116f` (end).
+The handler **does** need its NPC as the sender: a `Start Conversation` volume linked to a handler (sender = the volume) did
+nothing in the earlier attempts; the working path is the NPC, whose own link list names its handler.
+
+**Recipe (harness `scripts/harness/story_dialogue.py`).** Surdana farmer = NPC #5102 `(613788, 152432, 433259)`, forward
+`(0.342, 0, 0.940)`, handler #7806. `DRAKAN_PLAYTEST_POS="613993 152400 433823 0.349"` puts Rynn 600 units in front of him facing him
+(yaw 0.349 = `atan2(-dx, -dz)` of the direction to the farmer); a 2-frame tap of E at frame 400 starts the conversation. The
+lines (`Beginning Dialog Exchange` 876, 875, 883, 878) play one after the other, the subtitle bar showing each sound's SDB text.
+`DRAKAN_TRACE_FN=4149a0` logs every `SetSubtitle` text as `[subtitle-set] speaker=.. text=..`.
+
+**Proven** (`build/harness/story-dialogue-*`; real disc, packs built by the editor code): the stock conversation shows
+"Please, miss, can you help me?" then Rynn's "Just calm down."; with the Story pack the **edited subtitle** (SDB 0x0302 override of
+sound 721), a **swapped sound** (the ODB 0x0102 patch of Rynn's line 875: sound 153 -> 33; the bar shows sound 33's text and
+the game requests `0304/33`, not `0304/153`) and a **new dialogue line** (new class in the level ODB + 0x0103 list, inserted first
+in the placed handler's Beginning array through the `.LVL` object override, sound 34 with a new subtitle) all show / play in
+the running conversation. Sound requests of a line are issued when the line starts, so `LEVEL1ON.SDB 0304/<id>` in the HLE log
+(`DRAKAN_HLE_LOG=100000`) is a valid "this sound was played" signal for lines (the level-load preloads only cover 720 / 721).
+
 ### Sequence record (SSD 0x0311)
 
 SRSC id = sequence id, `sub` = id of the `0x0312` folder record that lists it (`u16 length + name`, `sub` = parent folder).
@@ -523,9 +559,10 @@ Panels `app/src/story/compose.ts` (Story > New dialogue, New cut scene, Quest ma
 * **New cut scene** is written as `new/<LEVEL>.SSD/0311_<id>_<folder>.bin`: a `Camera` actor (marker 0 at t=0, one type 0 key per
   point, sound cues, marker 1 at the end) and one actor per acted-on object (marker 0, animations and messages in time order,
   marker 1). Header word 60, `slots` = highest slot + 1, name length padded so `2 + len` is a multiple of 4 (disc rule). The
-  shape follows the census above; **[proven in game]** only that an `0311` override of an empty sequence with the same header is read
-  (2026-10-31). A new sequence entry, a camera path from the editor and a trigger playing it were **not seen in game**. Key
-  orientation is `q = qyaw(Y) * qpitch(X)` with identity looking along +Z: inferred.
+  shape follows the census above. **[proven in game, 2026-11-01]** a new `new/<LEVEL>.SSD/0311_<id>_<folder>.bin` sequence is read
+  (`resource: ...SSD 0311/1411`), a Trigger Detector + Stomp Player pair from the `cutscene-trigger` template starts it, the camera
+  follows the editor's keys and control returns at the end (`scripts/harness/story_cinematic.py`). Key orientation: see
+  "Camera key orientation" below.
 * **New dialogue line** = new class in `<LEVEL>.ODB` (copy of an existing line, name `Speaker - SOUND`, `Sound[0]` replaced) with the
   0x0103 field list extended, the subtitle on the sound's `0302` descriptor (shared by every user of that sound), and the line id
   appended to a phase array. A class edit only reaches handlers without their own array: placed handler objects (Surdana's farmer
@@ -537,13 +574,31 @@ Panels `app/src/story/compose.ts` (Story > New dialogue, New cut scene, Quest ma
   setting `Is there a quest?`, `Message to send after Beginning dialog` = 31 (Quest Initiate) and `... Complete dialog` = 18 and linking
   the handler to the quest object (**inferred**, not run).
 
+### Camera key orientation and cinematic edits (proven 2026-11-01)
+
+* **Convention.** The key quaternion is a row-vector rotation and the camera looks along its local -Z: forward = `R(q)^-1 * (0,0,-1)`
+  (textbook `R`). For `q = qpitch(X) * qyaw(Y)` that is `f = (cos p sin y, -sin p, -cos p cos y)`: yaw 0 looks along -Z, 90 along +X,
+  pitch > 0 looks down. Evidence: over 1553 camera keys of all 202 disc sequences this model puts the view a median 22.8 degrees from the
+  nearest scene actor (56 % within 30 degrees); the 11 other axis / handedness combinations give 80 to 160 degrees (0 to 14 % within 30).
+  Valley sequence 497 at 12.13 s (yaw about -117 degrees) looks toward -X with Zola Dane between the two guards. In game, static
+  cameras with pitch +25 / -25 look down / up and yaw steps move the view consistently (`build/harness/cine-single-*`). The earlier
+  editor formula (`qyaw * qpitch`, forward +Z) was wrong and is replaced (`yawPitchQuat`, `lookAtAngles`, `quatYawPitch`, `lookDirection`).
+* **Interpolation.** Position is interpolated linearly between keys (a camera raised 30000 units at key 0 drifts to key 1 over 6.5 s);
+  two keys 0.01 s apart make a cut. Orientation is interpolated too.
+* **HUD / camera setup.** The Valley entry scene (player 7577, `Initial State` 1, plays at load) hides the HUD and shows subtitles for its
+  sound actions; a new scene without a type 9 camera action keeps the HUD. Type 9's second value (`CutsceneSpec.camSetup`) changes the view
+  angle (40 zooms in strongly versus none), so it is a field of view.
+* **Edits that changed the game picture:** camera key position (y + 30000), camera orientation (all keys yawed 90 degrees), camera
+  retime (x2.5), animation id swap; asserted by `story_cinematic.py` (phases stock / edit / new).
+* The Rynn start object is not where Rynn stands at runtime; use `DRAKAN_PLAYTEST_POS` to put her somewhere.
+
 ### Mod support
 
 Sequence, descriptor and class edits ship as entry overrides (`overrides/<LEVEL>.SSD/0311_<id>_<sub>.bin`,
 `overrides/<LEVEL>.SDB/0302_<id>_<sub>.bin`, `overrides/<LEVEL>.ODB/0102_<id>_<sub>.bin`); see [modding.md](modding.md). In game
 (2026-10-31, `story-closeout-a.md`): an `0311` override of Surdana's sequence 484 (replaced by an empty sequence) removes the cut
 scene, so SSD overrides are read; an SDB subtitle override loads but was not seen on screen (cut scene sound actions show no
-subtitle bar in the stock game either; conversations drive it). A camera keyframe edit changed nothing visible.
+subtitle bar in the stock game either; conversations drive it). A camera keyframe edit on that sequence changed nothing visible because sequence 484 is a conversation scene shown through the gameplay camera; cinematic scenes (Valley 497) use the Camera actor and do respond to edits (below).
 
 ## 15. Level logic: links, messages, triggers
 
@@ -574,23 +629,50 @@ that sits in the string pool after the generator's "Activate Message" property:
 The ordinals are checked against the links on the disc **[disc]**: value 4 (Play Sequence) from detectors and timers lands on cut
 scene players, 23 (Load) also on cut scene players, 28 and 18 on conversation handlers, 7 on creatures, 3 and 2 on doors, 8 is
 the creature default and the counters' decrement default. Values such as 14, 15 and 22 are class defaults for "never used"
-slots (elevator Activate/Deactivate, timer Reset), i.e. a message nobody sends. The engine message ids are read as `u16` at `*(msg+4)` by every class handler **[dec]** (PAL ELF, 2026-10-31 pass). Findings:
+slots (elevator Activate/Deactivate, timer Reset), i.e. a message nobody sends. The engine message ids are read as `u16` at `*(msg+4)` by the quest handlers; class handlers are `handler(handle, event, ...)` and
+event 20 is a message, with `a3` pointing at the message whose first `u16` is the engine id **[dec + game, 2026-11-01]**.
 
-* Ordinals 0 to 7 (Off .. Move to WayPoint) map to engine ids `0x1000 + n` **[dec + inf]**: handlers compare against exactly `0x1001`,
-  `0x1002`, `0x1003`, `0x1004`, `0x1005`, `0x1006`, `0x1007` in 40 to 70 places each (level transition `0x361440` takes `0x1001` =
-  On = "player touches"; journal / quest marker `0x40e3b8` takes `0x1001` and `0x1002` and `0x1007`), and the in-game cut scene
-  proof (Trigger Message 4 starts a cut scene player) fits `0x1004`. The link to the ordinal is not a table: there is no table of
-  ids in the ELF (searched for `u16` / `u32` runs in `0x1000..0x1300`), and no `addiu 0x1000`-style conversion either, so the
-  conversion is not located; the equality for 0 to 7 is **inferred** from the handler sets.
-* Ordinals 8 and up are **not** `0x1000 + n`: the code never compares against `0x1008` to `0x101f` (zero hits). The ids used by the
-  quest family live in a separate block `0x1161 .. 0x1183` (registered in the list at `0x2cd790`: `0x1161 0x1164 0x1166 .. 0x116c
-  0x116e 0x1170 .. 0x1175 0x1181 .. 0x1183`; messages `0x116d / 0x116e / 0x116f` are handled by the quest class record handler
-  `0x393258` and the journal / marker handler `0x40e3b8`, where `0x116e` sets the done flag). That `0x116e` is the id behind
-  ordinal 18 (Quest Complete) is **inferred** from where it is handled, not proven; the engine ids of the other ordinals above 7 were
-  not mapped. Cut scene sequence message actions (SSD type 7) carry engine ids directly (4097 = `0x1001` On, 4259 = `0x10a3`).
-* Status 2026-11-01 (`docs/journal/2026-11-01/story-edits-in-game.md`): still only ordinal 1 (start) and 18 (complete) of quests, 4 (Play
-  Sequence) and 3 (Unlock, from the key lock data) have in-game or disc evidence; the conversation and plate -> door proofs were attempted
-  and **not** achieved, so the 8+ mapping stays unmapped and the editor table is unchanged.
+**Ordinal -> engine id table [dec + game].** The registration code at `0x2cd648` fills a 33 entry table of 8 byte slots at `0x4fbc40`
+(u16 id at +0), indexed by the ordinal. Runtime proof (DRAKAN_TRACE_FN on the class handlers, Stratos): ordinal 1 (On) arrives as
+`0x1001` at counter, timer and door, ordinal 0 (Off) as `0x1002` at the visibility toggler, ordinal 4 (Play Sequence) as `0x10a1` at the
+cut scene player. These three match the table slots; the earlier guess `0x1000 + n` was wrong for 0 and 4. The other slots are read from
+the table, not yet seen at run time except 18 (see below):
+
+| Ordinal | Name | Engine id | Ordinal | Name | Engine id |
+| --- | --- | --- | --- | --- | --- |
+| 0 | Off | 0x1002 (game) | 17 | Alert AI | 0x116c |
+| 1 | On | 0x1001 (game) | 18 | Quest Complete | 0x116e |
+| 2 | Lock | 0x1101 | 19 | Positive | 0x1170 |
+| 3 | Unlock | 0x1102 | 20 | Negative | 0x1171 |
+| 4 | Play Sequence | 0x10a1 (game) | 21 | Neutral | 0x1172 |
+| 5 | Blow Up | 0x10a3 | 22 | Enrage | 0x1173 |
+| 6 | Triggered | 0x1007 | 23 | Load | 0x1174 |
+| 7 | Move to WayPoint | 0x1161 | 24 | Shoot | 0x1175 |
+| 8 | I'm Dead | 0x1003 | 25 | Random | 0x1181 |
+| 9 | Gib | 0x10d9 | 26 | Cyclic | 0x1182 |
+| 10 | Attack Linked AI | 0x1164 | 27 | Simultaneous | 0x1183 |
+| 11 | Follow | 0x1166 | 28 | Start Conversation | 0x116d |
+| 12 | Make Vulnerable | 0x1167 | 29 | Attack(Stomp) | 0x10a7 |
+| 13 | Make Invincible | 0x1168 | 30 | Quest Initiate | 0x1176 |
+| 14 | Stop Speaking | 0x1169 | 31 | Item PickedUp | 0x1004 |
+| 15 | Stop Following | 0x116a | 32 | `<none>` | 0 |
+| 16 | Play Next Dialog | 0x116b | | | |
+
+Slot 18 = `0x116e` agrees with the quest handler (`0x393258`, `0x116e` sets the done flag); slot 8 = `0x1003` with the counter's default
+Decrement message. The editor's ordinal names are right; only the engine ids differ from the earlier inference. The in-game chain
+pressure plate -> counter -> door was observed at handler level (counter and door both received `0x1001`, `scripts/harness/story_puzzles.py`);
+the door's visible opening was not captured (Rynn stood inside the huge Necropolis door model in the shots), and lever, timer and key lock
+were not play-tested.
+* **Ordinal -> engine id table found (2026-11-01, `FUN_002cd648`, written to `0x4fbd48` as `u16[33]`, index = ordinal, 0 ends).**
+  Two independent readings disagree on where the table lives and its stride (`0x4fbc40` with 8 byte slots above, `0x4fbd48` as
+  packed `u16` here); the ordinal -> id values agree, and the editor only needs the values. Re-check the location before relying on it.
+  `0:0x1002 Off`, `1:0x1001 On`, `2:0x1101 Lock`, `3:0x1102 Unlock`, `4:0x10a1 Play Sequence`, `5:0x10a3 Blow Up`, `6:0x1007 Triggered`,
+  `7:0x1161 Move to WayPoint`, `8:0x1003 I'm Dead`, `9:0x10d9 Gib`, `10:0x1164`, `11:0x1166`, `12:0x1167`, `13:0x1168`, `14:0x1169`,
+  `15:0x116a`, `16:0x116b`, `17:0x116c`, `18:0x116e Quest Complete`, `19:0x1170`, `20..24:0x1171..0x1175`, `25:0x1181`, `26:0x1182`,
+  `27:0x1183`, `28:0x116d Start Conversation`, `29:0x10a7`, `30:0x1176 Quest Initiate`, `31:0x1004`. So the earlier "0x1000 + n for
+  0..7" inference was wrong for Off / On (swapped: Off = 0x1002, On = 0x1001) and for 2..7; the proven handler facts fit the table
+  (conversation handler: 0x1001 active, 0x1002 inactive, 0x116d start, 0x116e quest done). The editor's ordinal list is unchanged and
+  consistent with it. The ordinal names of 10..17 and 19..27 remain unverified beyond their table position.
 * Door On/Off: no door handler was isolated, so "On opens / Off closes" stays inference from the link data (3/2 land on doors).
 * Detector volume: not decompiled; the box (model collision with the LVL scale) remains the editor's model.
 
@@ -673,3 +755,48 @@ target, 1 unreachable cut scene (#15177), 1 ignored message (timer #18128 sends 
 **Verified in game**: a template-made trigger volume at the player start, linked to Surdana's cut scene #7809, plays that cut
 scene at the start of the game (baseline: Rynn stands at the start with the quest text; with the pack the orc ambush sequence
 runs and Rynn ends about 50000 units away, at the cut scene's location). Journal: `2026-10-31/level-logic.md`.
+
+## 16. Vendors (shops) (2026-11-01)
+
+Proven = read off the whole PAL disc (the 14 level dumps, all ODBs) or checked in the running game; inferred = from the data only. Editor:
+`editor-core/src/vendor.ts`, panel `app/src/editor/vendor.ts`; pack builder `editor/scripts/vendor-pack.ts`; in-game proof
+`scripts/harness/vendor_shop.py`. Journal: `docs/journal/2026-11-01/vendor-shops.md`.
+
+**The shop object.** A vendor is an object of the runtime class `0x100ac` (RFL id 172). There is one class per shop, in the level ODB
+(`Blacksmith` 118, `Alchemist` 119 and `Mage` 126 in LEVEL1ON; `BlackSmith Store` in LEVEL3ON and LEVEL6EN; `Alt The Smith Store` and `The
+Outskirts Store` in LEVEL4ON) and 8 placed instances on the disc: Surdana 3 (blacksmith #1648, Mage #7715, Alchemist #13253), Level 3 (LEVEL3ES) 1,
+Ravenshold (LEVEL4LD) 1, Northern Tundra (LEVEL4RA) 1 (it sets no stock, so it sells its class's 4 potions) and the Valley of the Fallen
+(LEVEL6EN) 2. The shop object is a logic object with no model; it is
+linked to the shopkeeper NPC (the blacksmith NPC `0x1009d` #1650 links back to #1648), and the NPC is what the player talks to.
+
+**Class fields** (40 fields, same list in every shop class; index in brackets). Stock:
+`Objects For Infinite Sale` [1] and `Objects For Sale` [2], both arrays of class references (type `0x1003`). Elements are
+`(db << 16) | id` relative to the shop class's `.DB` list (db 4 = RESOURES for LEVEL1ON, so `0x41ebd` = RESOURES class 7869 "Rusty Short
+Sword"; the spell unlockers of the Mage are MAGIC classes). **Infinite** items never run out; **limited** items are one unit per element, so
+the same class repeated N times is N units (`BlackSmith Store` in LEVEL6EN lists `269107` twice). Class defaults are merged with the placed
+object's override per field: the Surdana blacksmith #1648 overrides only the infinite list (15 items), its limited list (Mithril Short Sword)
+comes from the class, so the shop shows 16 items. Prices and rules: `Item Sale Price Mod (0-1)` [4] (what the player pays: item price x
+this), `Item Buy Price Mod (0-1)` [5] (what the shop pays for an item the player sells; 0.7 for the smiths and the alchemist, 1.0 for the
+Mage), `Durability Price Mod` [6] and `Charges Price Mod` [7] (repair and recharge prices), `Repair Quality` [8], `Repair or recharge?` [9],
+`Items Purchased` [3] (what the shop buys back: 1 weapons and armour (blacksmith), 2 potions (alchemist), 0 nothing (Mage), 3 and 4 used by
+the Ravenshold and later smiths **[inferred]**; in game the blacksmith refuses the Health Elixir and Jade's refuses a bow),
+`Display items in Rows?` [10] (the Mage's spells), `Default On Status` [0], `Distance player must move before reopen` [11], the shopkeeper
+camera (`Shopkeer View Distance in Front / to Side / Up`, `...Target Vertical Offset`) [12..15], three sounds (bought / sold / repair) [16..18],
+fifteen dialog classes (`Greeting`, `Farewell`, `Item Sold To Player`, `Not Enough Money`, `No Room in Inventory`, `Won't Buy`, `Item
+Repaired`, spell dialogs, ... [19..36]), `Chance of Verbose Dialog` [37], `Quest Conversations` [38] and `One Free Sale Message` [39].
+
+**The price of an item** is not on the shop. Every item class (RFL 14 weapons and items, 45 armour, 79 bows, 144 shields, 178 spell
+unlockers, ...) has `Cost to Buy (in Gold)` (an int; index 17 in the 49-field weapon class, 17 in the 25-field unlocker class) and `Quantity`
+(units a purchase gives, 1 for weapons). 283 RESOURES classes and 30 MAGIC classes have the field. Surdana examples: Rusty Short Sword 165,
+Iron Short Sword 210, Ornate Leather Armor 1250, War Bow 850, Fireball Unlocker 270, Health Potion (Red) 100. So a price edit is an
+override of the item class record (`0x0102` in `RESOURES.ODB` / `MAGIC.ODB`, in-place patch of the data dword) and changes the item in
+every shop that sells it; a per-shop price is the shop's `Item Sale Price Mod`.
+
+**The shop screen.** Talking to the shopkeeper (`33be50`) opens the inventory screen 0x15 in shop mode: tabs Equipment (the sell pane),
+Spells and the shop list. Square buys ("Buy this item?" box, text in INTERFCE.XDB: `Buy Item?`, `Sell Item To Store?`, `Sell All To Store?`,
+`Price:`), Circle sells. Details: `docs/journal/2026-10-24/shop-mouse.md`, `docs/reference/mouse-menus.md` section 11.
+
+**Editing.** Stock and modifiers are ordinary LVL object parameters (`applyDocumentToLvl`, one `params` change, nothing else touched); an
+item price is a class-record override. `readVendor` / `writeStock` group repeated limited elements into one entry with a count and write
+infinite entries once, limited entries `count` times, as references the shop's own `.DB` list can name (an item of a database the shop class
+cannot reach is refused, not written wrongly). Test: `editor-core/test/vendor.test.ts`.

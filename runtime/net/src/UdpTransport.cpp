@@ -532,7 +532,7 @@ bool ServerBrowser::available() const {
 
 void ServerBrowser::queryLan() {
     for (uint16_t i = 0; i < kDiscoveryPortCount; ++i) {
-        const uint16_t port = static_cast<uint16_t>(kDefaultPort + i);
+        const uint16_t port = static_cast<uint16_t>(basePort() + i);
         impl_->sendQuery(htonl(INADDR_BROADCAST), port);
         impl_->sendQuery(htonl(INADDR_LOOPBACK), port); // a server on this PC does not see its own broadcast
     }

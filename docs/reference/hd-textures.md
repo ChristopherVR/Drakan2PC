@@ -153,3 +153,76 @@ step is in the pack), because each palette step has a new content hash. Indexed 
   screen at those level starts, so a real cycling animation is still unobserved. Dumped steps
   (`GSR_PALETTE_HD_DUMP`, Kragmor) match the native colours exactly at HD-pack sharpness, with no wrong-index specks.
 
+
+## 10. PBR materials (UE5 conventions), 2026-11-01
+
+Goal: every game texture as a UE5-style material set a modder or the UE5 level export can use. Tool: `analysis/scripts/pbr_pack.py`
+(Python, next to `hd_pack.py`, because it consumes that tool's `build/hdpack/index.json` + `src/<hash>.png` and the upscaled
+`dist/DrakanPC/textures/<hash>.png`; it needs no ISO and no game run). Output is generated per machine under `build/pbr/` (or
+any `--out`) and never committed: the pictures derive from the disc.
+
+```
+python -I analysis/scripts/pbr_pack.py build --select LEVEL1ON,LEVEL1TS --sheet     # Surdana: 287 materials, contact sheets
+python -I analysis/scripts/pbr_pack.py build                                          # every texture of every TXD (about 2960)
+python -I analysis/scripts/pbr_pack.py sheet --out build/pbr --cols 4 --tile 128
+```
+
+Output (`--out`): `Textures/T_<Name>_BC.png`, `_N.png`, `_ORM.png`, `Materials/M_<Name>.json`, `index.json`. `<Name>` is
+`<Txd>_<id>` of the preferred source (the selected TXD, then level / world TXDs, then COMMON), e.g. `Level1on_00762`; the same
+picture living in several TXDs is one material whose JSON lists every source in `sources`. A different picture that would get an
+existing name gets the first 4 hash digits appended. Images are upright (the TXD stores rows bottom-up; the tool flips them).
+
+| Map | Content | UE5 import |
+| --- | --- | --- |
+| `_BC` | BaseColor, de-lit; alpha = opacity only for Masked / Translucent / Additive | sRGB on, TC_Default |
+| `_N` | normal, **DirectX** (green points down the image); three.js needs `normalScale.y = -1` | sRGB off, TC_Normalmap, no green flip |
+| `_ORM` | R = ambient occlusion, G = roughness, B = metallic | sRGB off, TC_Masks |
+
+`Materials/M_<Name>.json` (schema 1, consumed by the editor Materials view and by the glTF / UE5 export): `name`, `textureHash`
+(the renderer's content hash = HD pack file name), `sources`, `sourceSize` / `size` / `hd` / `hdFactor`, `domain` (`Surface`, or
+`UserInterface` for INTERFCE / SYSTEM / DEBUG / PS2MUSIC which get a BaseColor only), `blendMode` (`Opaque` / `Masked` /
+`Translucent` / `Additive`), `shadingModel` (`DefaultLit`, `Unlit` for Additive), `twoSided`, `opacityMaskClip`, `textures` (paths
+relative to the pack root), `textureSettings` (sRGB / compression / normal convention per map), `uvTiling`, `emissive`
+(`{source:"baseColor", intensity}` or null), `scalars` (`roughnessMean`, `metallic`), `heuristics` (every parameter that was applied
+and the measured alpha fractions), `overrides` (matching override rules).
+
+### Heuristics (what is a guess)
+
+* **De-light**: the PS2 art has lighting baked in. The wrap-around low-pass (sigma 12 percent of the size) of the linear luminance
+  is divided out with exponent 0.6 (ratio clamped 0.5..2); albedo is then limited to sRGB 30..240 (PBR range). FX glow sprites are
+  left as painted. This is conservative; tile atlases with a magenta filler (LEVEL1TS) keep the filler, which the game never samples.
+* **Height / normal**: the de-lit luminance blurred at 0.6 and 2.5 source texels, slope by central differences per **source** texel
+  (so HD and source resolution look alike), strength 1.2, wrap-around (seamless tiles). A texture whose height std is below 1.5/255 gets
+  a flat normal. This is "bump from painted detail", not recovered geometry: bricks and stones read well, flat colour areas do not.
+* **AO**: cavity of the height against its own low-pass, 0.55..1. **Roughness**: 0.78 default, 0.88 when green dominates (foliage),
+  0.92 FX, plus 0.25 x (0.5 - luminance), clamped 0.3..1. **Metallic**: always 0 by default; nothing in the textures says "metal".
+* **Blend**: 16 / 24 bit and 5551-palette textures (the GS ignores their alpha) and textures with `amax` 0 are Opaque; only alpha 0 or
+  opaque (partial < 4 percent) is Masked; partial alpha is Translucent; textures only in FX / MAGIC are Additive + Unlit + emissive;
+  constant alpha below 0x7C is Translucent. **Two-sided**: Masked / Translucent / Additive and PROCTEES. The game's per-polygon
+  double-sided flag is in the model (`0x0204` flags bit 1, `level-format.md`), not in the texture, so an exporter should OR it per mesh.
+  On Surdana (287 textures) the classifier gives 282 Opaque, 3 Translucent, 2 two-sided Opaque: almost everything is opaque; the
+  cut-out foliage is mostly in PROCTEES and the model alpha flags.
+
+### Overrides: `configs/pbr_overrides.toml`
+
+`[[override]]` tables with `match` (hash, material name, or fnmatch pattern over the name or a source such as
+`LEVELS/LEVEL1ON/LEVEL1ON.TXD#693`) and any of `delit`, `normal_strength`, `ao`, `roughness`, `metallic`, `blend`, `two_sided`,
+`emissive`, `tiling`, `opacity_mask_clip`, `skip`. Later rules win. The shipped file only documents the keys. Names are stable
+because they come from TXD + texture id.
+
+### Editor preview
+
+Files tab, **Materials** button (`editor/packages/app/src/materialsui.ts`, pure parsing in `materialpack.ts`, tests
+`test/materialpack.test.ts`): open (or drop) the pack folder; the list shows every `M_*.json`, the right side shows BaseColor /
+Normal / ORM and a three.js `MeshStandardMaterial` sphere or plane (room environment, light angle slider, Normal / ORM toggles) with
+the JSON's blend mode, two-sidedness, emissive and tiling applied. It works without a disc.
+
+### Renderer (runtime/gs): not done
+
+The D3D11 backend (`runtime/gs`) emulates the GS: it receives already transformed vertices with UV and vertex colour
+(`gs_shaders.h` `VSIn`), no normals, tangents or light list, and it samples one texture per draw. Using the normal / ORM maps there
+needs (1) per-vertex normals + tangents from the model draw path (the HLE model path in `scene_models.h` knows the 0x0203 normals but
+only for models it re-draws itself, not for terrain and the rest), (2) a world-space light (the game's lighting is baked into
+vertex colour, so a new light model must replace, not add to, it), (3) extra texture slots keyed by the same hash (`texture_dir`
+lookups `<hash>_n.png` / `_orm.png`) and a second shader permutation. That is a renderer project, not a safe addition; the maps are
+for the editor and the UE5 export today.

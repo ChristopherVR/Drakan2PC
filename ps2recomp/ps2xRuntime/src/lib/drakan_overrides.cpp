@@ -23,6 +23,7 @@
 
 #include "hle/RsrcIop.h"
 #include "hle/ModPack.h"
+#include "gameui/UiSkin.h"
 #ifdef PS2X_HAVE_UI
 #include "ui/Prompts.h"
 #include "ui/FontAtlas.h"
@@ -34,8 +35,8 @@
 #include "drakan_arena.h"
 #include "drakan_modes.h"
 #endif
-#include "drakan_netplay.h"
 #include "drakan_game.h"
+#include "drakan_netplay.h"
 #endif
 #include "spu2/AudioOutput.h"
 #include "drakan_pause.h"
@@ -855,7 +856,9 @@ void startSound(HleHost& h) {
 }
 
 // Debug aid: DRAKAN_TRACE_FN="1bf6e0,12b640" logs a0..a3 (+16 bytes behind each a-register that looks like a pointer)
-// on entry and v0 on return for the listed guest functions (up to 8, only the first DRAKAN_TRACE_N hits, default 200).
+// on entry and v0 on return for the listed guest functions (class handlers are handler(handle, event, ..): event 20 =
+// message, a3 -> u16 engine message id, see level-format.md 15.1) (up to 8, only the first DRAKAN_TRACE_N hits, default
+// 200).
 constexpr int kMaxTraceFns = 8;
 PS2Runtime::RecompiledFunction g_traceOrig[kMaxTraceFns] = {};
 uint32_t g_traceAddr[kMaxTraceFns] = {};
@@ -891,8 +894,44 @@ void traceHook(uint8_t* rdram, R5900Context* ctx, PS2Runtime* rt) {
             }
         }
         std::fprintf(stderr, "%s\n", line);
+        if (g_traceAddr[N] == 0x4149a0u) {
+            // SetSubtitle(Subtitle*, const char* text, int speaker): log the text of every subtitle the game shows.
+            const uint32_t t = getRegU32(ctx, 5) & 0x1FFFFFFFu;
+            char text[161] = {};
+            if (t >= 0x100000u && t + 160 <= PS2_RAM_SIZE)
+                std::memcpy(text, rdram + t, 160);
+            for (char& c : text)
+                if (c != 0 && (static_cast<unsigned char>(c) < 32 || static_cast<unsigned char>(c) > 126))
+                    c = '?';
+            std::fprintf(stderr, "[subtitle-set] speaker=%u text=%s\n", getRegU32(ctx, 6), text);
+        }
+        if (g_traceAddr[N] == 0x46b368u) {
+            // NPC talk gate (FUN_00469458): a0 = NPC; dump the handler (NPC+0x23c) and the controlled actor poses.
+            auto rd = [&](uint32_t a) {
+                uint32_t v = 0;
+                a &= 0x1FFFFFFFu;
+                if (a + 4 <= PS2_RAM_SIZE)
+                    std::memcpy(&v, rdram + a, 4);
+                return v;
+            };
+            auto rf = [&](uint32_t a) {
+                const uint32_t v = rd(a);
+                float f;
+                std::memcpy(&f, &v, 4);
+                return f;
+            };
+            const uint32_t npc = getRegU32(ctx, 4), pl = rd(rd(0x5565d4u) + 0x4b0u), h = rd(npc + 0x23c);
+            std::fprintf(stderr, "[talk-gate] npc=%x handler=%x active=%x player=%x\n", npc, h, rd(h + 4), pl);
+            std::fprintf(stderr, "[talk-gate] handler pos=(%.0f %.0f %.0f) zaxis=(%.3f %.3f %.3f) scale=%.3f\n",
+                         rf(h + 0x14), rf(h + 0x18), rf(h + 0x1c), rf(h + 0x28), rf(h + 0x34), rf(h + 0x40),
+                         rf(h + 0x4c));
+            std::fprintf(stderr, "[talk-gate] player  pos=(%.0f %.0f %.0f) zaxis=(%.3f %.3f %.3f) scale=%.3f\n",
+                         rf(pl + 0x14), rf(pl + 0x18), rf(pl + 0x1c), rf(pl + 0x28), rf(pl + 0x34), rf(pl + 0x40),
+                         rf(pl + 0x4c));
+        }
     }
     g_traceOrig[N](rdram, ctx, rt);
+
     if (log)
         std::fprintf(stderr, "[fn %x] -> v0=%x\n", g_traceAddr[N], getRegU32(ctx, 2));
 }
@@ -1178,6 +1217,7 @@ void applyDrakanOverrides(PS2Runtime& runtime) {
         drakan_frame_rate::install(runtime);
     if constexpr (supports(Feature::DualWield))
         drakan_dual_wield::install(runtime);
+    drakan_region::reportMultiplayerAvailability();
     drakan_lifecycle::install(runtime);   // engine lifecycle events (PAL addresses; no-op elsewhere)
     drakan_levelchange::install(runtime); // host-triggered level change through the exit triggers (PAL)
     drakan_foliage::install(runtime);     // living foliage: wind sway for grass and trees, off by default (PAL)
@@ -1279,39 +1319,36 @@ void applyDrakanOverrides(PS2Runtime& runtime) {
             std::fprintf(stderr, "[mods] %zu pack(s) active, %zu entries, %zu text lines\n", n, g_mods->entryCount(),
                          g_mods->textCount());
         }
+        {
+            // UI skin (docs/reference/modding.md "Menus and HUD"): ui.ini next to the exe, then ui/*.ini of the enabled
+            // packs in load order (later keys win). Installed before any screen is built.
+            gameui::UiSkin skin;
+            auto addSkin = [&skin](const std::string& source, const std::string& text) {
+                std::vector<std::string> warnings;
+                const size_t n = gameui::parseUiSkin(text, skin, &warnings);
+                std::fprintf(stderr, "[ui] skin %s: %zu setting(s)\n", source.c_str(), n);
+                for (const std::string& w : warnings)
+                    std::fprintf(stderr, "[ui] skin %s: %s\n", source.c_str(), w.c_str());
+            };
+            auto readText = [](const std::string& path, std::string& out) {
+                std::ifstream f(path, std::ios::binary);
+                if (!f)
+                    return false;
+                out.assign(std::istreambuf_iterator<char>(f), {});
+                return true;
+            };
+            std::string text;
+            if (readText(drakan_cfg::exeDir() + "ui.ini", text))
+                addSkin("ui.ini", text);
+            if (const char* f = std::getenv("DRAKAN_UI_SKIN"); f && *f && readText(f, text))
+                addSkin(f, text);
+            if (g_mods)
+                for (const auto& [source, content] : g_mods->uiFiles())
+                    addSkin(source, content);
+            gameui::setUiSkin(std::move(skin));
+        }
         drakan_settings_host::setModManager(g_mods.get(), modsDir); // the Mods page of the PC settings
     }
-#ifdef PS2X_HAVE_GSR
-    {
-        // Multiplayer: a match launched from the title menu loads its level through New Game with the level name
-        // redirected at the file layer (docs/reference/netcode.md "Multiplayer menu"); the map list also offers the
-        // custom levels the mod packs registered.
-        drakan_netplay::setLevelRedirectFn([](const std::string& from, const std::string& to) {
-            drakan_game::redirect(from, to); // clearing restores the chosen game's campaign redirect
-        });
-        std::vector<std::string> extra;
-        if (g_mods) {
-            for (const hle::mods::ExtraLevel& l : g_mods->extraLevels())
-                extra.push_back(l.name);
-            std::string names; // the loaded packs, for the server list (ServerInfo.mods)
-            for (const hle::mods::ModStatus& st : g_mods->status())
-                if (st.state == hle::mods::ModState::Loaded) {
-                    if (!names.empty())
-                        names += ",";
-                    names += st.hasManifest && !st.manifest.name.empty() ? st.manifest.name : st.key;
-                }
-            drakan_netplay::setLoadedMods(names);
-        }
-        // Multiplayer maps: the pack's `maps/*.ini` join the built-in list (drakan_arena), a map is installed when its
-        // base level is a disc level or a level of a loaded pack.
-        std::vector<std::string> installed = {"Level 1A - Surdana",
-                                              "Level 1B - Kragmor",
-                                              "Level 1C - Catacombs",
-                                              "Level 1D - City of the Damned",
-                                              "Level 1E - Inquisitor's Lair",
-                                              "Level 2 - Shadowmire",
-                                              "Level 3A - Andrellian Isles",
-                                              "Level 3B - Crystal Mine",
     {
         // Campaign packs (manifest `campaign = "ootf"`): Drakan: Order of the Flame in the title menu; the choice
         // redirects the opening cut scene level to the campaign's first level (drakan_game.h).
@@ -1346,6 +1383,59 @@ void applyDrakanOverrides(PS2Runtime& runtime) {
             gameFiles->setLevelRedirect(from, to);
         });
     }
+#ifdef PS2X_HAVE_GSR
+    {
+        // Multiplayer: a match launched from the title menu loads its level through New Game with the level name
+        // redirected at the file layer (docs/reference/netcode.md "Multiplayer menu"); the map list also offers the
+        // custom levels the mod packs registered.
+        drakan_netplay::setLevelRedirectFn([](const std::string& from, const std::string& to) {
+            drakan_game::redirect(from, to); // clearing restores the chosen game's campaign redirect
+        });
+        std::vector<std::string> extra;
+        if (g_mods) {
+            if (auto entries = g_mods->entries()) {
+                // English text of a level string a pack replaced (an exit pointed at a level copy).
+                drakan_levelchange::setDestinationTextHook([entries](const std::string& group, uint32_t id) {
+                    hle::ResourceId rid;
+                    rid.file = group + ".XDB";
+                    rid.path = "ENGLISH\\LEVELS\\" + group + "\\" + group + ".XDB";
+                    rid.type = 0x400;
+                    rid.id = static_cast<uint16_t>(id & 0xffffu);
+                    rid.sub = 1;
+                    if (!entries->wants(rid))
+                        return std::string();
+                    std::vector<uint8_t> data;
+                    if (!entries->apply(rid, data) || data.size() < 2)
+                        return std::string();
+                    const size_t n = std::min<size_t>(data[0] | (data[1] << 8), data.size() - 2);
+                    const char* t = reinterpret_cast<const char*>(data.data() + 2);
+                    return std::string(t, strnlen(t, n));
+                });
+            }
+            for (const hle::mods::ExtraLevel& l : g_mods->extraLevels()) {
+                extra.push_back(l.name);
+                if (!l.copyOf.empty())
+                    drakan_levelchange::registerLevelCopy(l.name, l.copyOf);
+            }
+            std::string names; // the loaded packs, for the server list (ServerInfo.mods)
+            for (const hle::mods::ModStatus& st : g_mods->status())
+                if (st.state == hle::mods::ModState::Loaded) {
+                    if (!names.empty())
+                        names += ",";
+                    names += st.hasManifest && !st.manifest.name.empty() ? st.manifest.name : st.key;
+                }
+            drakan_netplay::setLoadedMods(names);
+        }
+        // Multiplayer maps: the pack's `maps/*.ini` join the built-in list (drakan_arena), a map is installed when its
+        // base level is a disc level or a level of a loaded pack.
+        std::vector<std::string> installed = {"Level 1A - Surdana",
+                                              "Level 1B - Kragmor",
+                                              "Level 1C - Catacombs",
+                                              "Level 1D - City of the Damned",
+                                              "Level 1E - Inquisitor's Lair",
+                                              "Level 2 - Shadowmire",
+                                              "Level 3A - Andrellian Isles",
+                                              "Level 3B - Crystal Mine",
                                               "Level 4A - Ravenshold",
                                               "Level 4B - Northern Tundra",
                                               "Level 5 - Shiverbane",
@@ -1388,8 +1478,8 @@ void applyDrakanOverrides(PS2Runtime& runtime) {
                 if (have.size() == png.size() && std::equal(have.begin(), have.end(), png.begin()))
                     continue;
                 std::filesystem::create_directories(pdir, ec);
-                std::ofstream(f, std::ios::binary).write(reinterpret_cast<const char*>(png.data()),
-                                                         static_cast<std::streamsize>(png.size()));
+                std::ofstream(f, std::ios::binary)
+                    .write(reinterpret_cast<const char*>(png.data()), static_cast<std::streamsize>(png.size()));
             }
         }
         drakan_netplay::setExtraLevels(std::move(extra));

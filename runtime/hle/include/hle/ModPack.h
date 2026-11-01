@@ -40,7 +40,8 @@ struct Manifest {
     std::vector<std::string> profileHashes;                       // target.hash (hex), optional
     std::vector<std::string> loadAfter, loadBefore, dependencies; // dependencies: "id" or "id>=1.2.0"
     std::vector<std::string> levels; // top-level `levels = ["Level 9X - Name"]`: new levels for LEVELLST.TXT
-    std::vector<std::string> levelCopies; // top-level `level_copies = ["Copy = Source level"]`: which disc level a copy is
+    std::vector<std::string>
+        levelCopies; // top-level `level_copies = ["Copy = Source level"]`: which disc level a copy is
     // top-level `campaign = "ootf"`: the pack's `levels` are a whole game's campaign (Drakan: Order of the Flame); the
     // title menu then offers it. `campaign_name` = menu label (default by id), `campaign_start` = the level New Game
     // opens (default the first of `levels`).
@@ -86,6 +87,7 @@ bool patchSrsc(const std::vector<u8>& in, const std::vector<SrscPatch>& patches,
 struct ExtraLevel {
     std::string name, modId, path;
     int listIndex = -1;
+    std::string copyOf; // disc level this one was copied from (manifest `level_copies`), empty otherwise
 };
 
 enum class ModState { Loaded, Disabled, Skipped };
@@ -157,12 +159,15 @@ public:
     // For the Multiplayer map list: `name` is what the game's level list holds, `path` the file the game opens.
     const std::vector<ExtraLevel>& extraLevels() const { return extraLevels_; }
     size_t fileCount() const { return files_.size(); }
-    // Multiplayer map definitions (docs/reference/netcode.md "Multiplayer maps"): the text of every `maps/*.ini` of every
-    // loaded pack, in load order. `first` is "mod <id>", `second` the file content (the game parses it).
+    // Multiplayer map definitions (docs/reference/netcode.md "Multiplayer maps"): the text of every `maps/*.ini` of
+    // every loaded pack, in load order. `first` is "mod <id>", `second` the file content (the game parses it).
     const std::vector<std::pair<std::string, std::string>>& mapFiles() const { return mapFiles_; }
     // Map pictures: every `previews/<name>.png` (<= 8 MiB) of every loaded pack, `first` = <name> without extension
     // (the safe form of the map's display name), `second` = the PNG bytes.
     const std::vector<std::pair<std::string, std::vector<u8>>>& previewFiles() const { return previewFiles_; }
+    // UI skins (docs/reference/modding.md "Menus and HUD"): the text of every `ui/*.ini` of every loaded pack, in load
+    // order. `first` is "mod <id>: <path>", `second` the file content (gameui::parseUiSkin reads it).
+    const std::vector<std::pair<std::string, std::string>>& uiFiles() const { return uiFiles_; }
 
     // Register in this order (entries first, then texts) before the first resource request. Null when empty.
     std::shared_ptr<IResourceOverride> entries() const;
@@ -189,6 +194,7 @@ private:
     std::vector<ExtraLevel> levelDefs_, extraLevels_;
     std::vector<std::pair<std::string, std::string>> mapFiles_;
     std::vector<std::pair<std::string, std::vector<u8>>> previewFiles_;
+    std::vector<std::pair<std::string, std::string>> uiFiles_;
     std::shared_ptr<XdbTextOverride> texts_;
     size_t textCount_ = 0;
 };

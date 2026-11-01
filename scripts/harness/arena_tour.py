@@ -66,6 +66,7 @@ def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--map", required=True)
     ap.add_argument("--name", default="")
+    ap.add_argument("--maps-file", type=Path, default=None, help="an extra mp_maps.ini (DRAKAN_MP_MAPS) to look in")
     ap.add_argument("--tour", type=int, default=90, help="boundaries per spawn point (0 = no tour)")
     ap.add_argument("--exe", type=Path, default=ROOT / "build" / "final-game" / "bin" / "drakan.exe")
     ap.add_argument("--src", type=Path, default=ROOT / "dist" / "DrakanPC")
@@ -77,7 +78,7 @@ def main() -> int:
     ap.add_argument("--env", action="append", default=[], help="extra KEY=VALUE for the game (test aids)")
     a = ap.parse_args()
 
-    m = find_map(a.map)
+    m = find_map(a.map, a.maps_file)
     name = a.name or ("arena_" + m["id"])
     out = ROOT / "build" / "harness" / name / "a"
     out.mkdir(parents=True, exist_ok=True)
@@ -105,6 +106,8 @@ def main() -> int:
         "DRAKAN_ARENA_DUMP": "1",  # arena_before.json / arena_after.json in <folder>/dev/world
     }
     extra["DRAKAN_ARENA_FORCE"] = m["id"]
+    if a.maps_file:
+        extra["DRAKAN_MP_MAPS"] = str(a.maps_file.resolve())
     for kv in a.env:
         k, _, v = kv.partition("=")
         extra[k] = v

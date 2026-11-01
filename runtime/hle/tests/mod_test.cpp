@@ -270,8 +270,9 @@ static void filesTests(const fs::path& root, const DiscProfile& pal) {
         CHECK(!patchSrsc(base, noSub, out, err));
     }
 
-    // ODB header record 0x0100: the u16 class and group counts follow the added 0x0102 / 0x0101 records (the guest sizes
-    // its class table from them; 3 records past the declared count corrupted the heap), but a pack's own counts stay
+    // ODB header record 0x0100: the u16 class and group counts follow the added 0x0102 / 0x0101 records (the guest
+    // sizes its class table from them; 3 records past the declared count corrupted the heap), but a pack's own counts
+    // stay
     {
         auto hdr = [](u16 c, u16 g) {
             std::vector<u8> h(8, 0);
@@ -330,8 +331,8 @@ static void filesTests(const fs::path& root, const DiscProfile& pal) {
     {
         const fs::path mods = root / "mods_files";
         writeText(mods / "pk/mod.toml", toml("pk", "1.0",
-                                           "levels = [\"Level 9X - Clone Test\", \"Bad/Name\"]\n"
-                                           "level_copies = [\"Level 9X - Clone Test = Level 1A - Surdana\"]\n"));
+                                             "levels = [\"Level 9X - Clone Test\", \"Bad/Name\"]\n"
+                                             "level_copies = [\"Level 9X - Clone Test = Level 1A - Surdana\"]\n"));
         writeFile(mods / "pk/files/ENGLISH/LEVELS/LEVEL9ST/LEVEL9ST.LVL",
                   makeSrsc({{{0x20, 1, 0, 0, 0}, fill(10, 0x55)}}));
         writeFile(mods / "pk/files/ENGLISH/COMMON/WEAP/WEAP.TXD", makeSrsc({{{0x40, 7, 0, 0, 0}, fill(70, 0x66)}}));
@@ -372,7 +373,8 @@ static void filesTests(const fs::path& root, const DiscProfile& pal) {
         CHECK(mm.previewFiles().size() == 1 && mm.previewFiles()[0].first == "Clone_Arena" &&
               mm.previewFiles()[0].second.size() == 20);
         CHECK(mm.extraLevels().size() == 1 && mm.extraLevels()[0].name == "Level 9X - Clone Test" &&
-              mm.extraLevels()[0].listIndex == 1 && mm.extraLevels()[0].modId == "pk");
+              mm.extraLevels()[0].listIndex == 1 && mm.extraLevels()[0].modId == "pk" &&
+              mm.extraLevels()[0].copyOf == "Level 1A - Surdana");
         CHECK(f.lookup("LEVELLST.TXT", n));
         std::vector<u8> lst = f.readAll(n);
         std::string txt(lst.begin(), lst.end());

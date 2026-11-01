@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <bit>
 #include <cmath>
+#include <cstdlib>
 
 namespace drakan::net {
 
@@ -96,6 +97,7 @@ void MatchConfigData::write(ByteWriter& w) const {
     w.u16(respawnDelayMs);
     w.u16(startHealth);
     w.str(serverName);
+    w.str(modeId);
 }
 bool MatchConfigData::read(ByteReader& r) {
     readEnum(r, mode, 2);
@@ -106,6 +108,7 @@ bool MatchConfigData::read(ByteReader& r) {
     respawnDelayMs = r.u16();
     startHealth = r.u16();
     serverName = r.str(kMaxServerNameLength);
+    modeId = r.atEnd() ? std::string() : r.str(kMaxModeIdLength); // older peers stop after the server name
     if (maxPlayers < 1 || maxPlayers > kMaxPlayers || startHealth == 0)
         r.fail();
     return r.ok();
@@ -158,11 +161,28 @@ bool Reject::read(ByteReader& r) {
 void PhaseChange::write(ByteWriter& w) const {
     w.u8(static_cast<uint8_t>(phase));
     w.u32(serverTimeMs);
+    w.u8(byHost ? 1 : 0);
 }
 bool PhaseChange::read(ByteReader& r) {
     readEnum(r, phase, 3);
     serverTimeMs = r.u32();
+    byHost = false;
+    if (!r.atEnd()) { // older servers stop after the server time
+        const uint8_t b = r.u8();
+        byHost = b == 1;
+        if (b > 1)
+            r.fail();
+    }
     return r.ok();
+}
+
+uint16_t basePort() {
+    static const uint16_t port = [] {
+        const char* e = std::getenv("DRAKAN_MP_PORT");
+        const long v = e && *e ? std::strtol(e, nullptr, 10) : 0;
+        return static_cast<uint16_t>(v >= 1024 && v <= 65000 ? v : kDefaultPort);
+    }();
+    return port;
 }
 
 void PlayerState::write(ByteWriter& w) const {
@@ -292,6 +312,9 @@ void Score::write(ByteWriter& w) const {
     w.u16(deaths);
     w.u16(teamKills[0]);
     w.u16(teamKills[1]);
+    w.u32(static_cast<uint32_t>(score));
+    for (int32_t t : teamScore)
+        w.u32(static_cast<uint32_t>(t));
 }
 bool Score::read(ByteReader& r) {
     player = r.u8();
@@ -299,6 +322,15 @@ bool Score::read(ByteReader& r) {
     deaths = r.u16();
     teamKills[0] = r.u16();
     teamKills[1] = r.u16();
+    if (r.atEnd()) { // an older server: the points are the kills
+        score = kills;
+        for (size_t i = 0; i < kMaxTeams; ++i)
+            teamScore[i] = i < 2 ? teamKills[i] : 0;
+        return r.ok();
+    }
+    score = static_cast<int32_t>(r.u32());
+    for (int32_t& t : teamScore)
+        t = static_cast<int32_t>(r.u32());
     return r.ok();
 }
 
@@ -311,7 +343,7 @@ bool PlayerJoin::read(ByteReader& r) {
     player = r.u8();
     team = r.u8();
     name = r.str(kMaxNameLength);
-    if (team != kNoTeam && team > 1)
+    if (team != kNoTeam && team >= kMaxTeams)
         r.fail();
     return r.ok();
 }
@@ -327,7 +359,7 @@ bool PlayerLeave::read(ByteReader& r) {
 bool peekType(const uint8_t* data, size_t size, MsgType& out) {
     if (size == 0)
         return false;
-    if (data[0] < static_cast<uint8_t>(MsgType::Hello) || data[0] > static_cast<uint8_t>(MsgType::Character))
+    if (data[0] < static_cast<uint8_t>(MsgType::Hello) || data[0] > static_cast<uint8_t>(MsgType::MapVoteState))
         return false;
     out = static_cast<MsgType>(data[0]);
     return true;
@@ -550,6 +582,7 @@ void Status::write(ByteWriter& w) const {
         w.u16(pings[i].pingMs);
         w.u16(pings[i].character);
     }
+    w.u8(host);
 }
 bool Status::read(ByteReader& r) {
     token = r.u32();
@@ -568,6 +601,9 @@ bool Status::read(ByteReader& r) {
             r.fail();
         pings.push_back(p);
     }
+    host = r.atEnd() ? kNoPlayer : r.u8();
+    if (host > kMaxPlayers)
+        r.fail();
     return r.ok();
 }
 void StatusEcho::write(ByteWriter& w) const {
@@ -584,12 +620,85 @@ bool SetCharacter::read(ByteReader& r) {
     character = r.u16();
     return r.ok();
 }
+void Vitals::write(ByteWriter& w) const {
+    const size_t n = std::min(entries.size(), kMaxStatusPlayers);
+    w.u8(static_cast<uint8_t>(n));
+    for (size_t i = 0; i < n; ++i) {
+        w.u8(entries[i].player);
+        w.u16(entries[i].hp);
+        w.u16(entries[i].maxHp);
+        w.u16(entries[i].dragonHp);
+        w.u16(entries[i].dragonMaxHp);
+    }
+}
+bool Vitals::read(ByteReader& r) {
+    const uint8_t n = r.u8();
+    if (n > kMaxStatusPlayers)
+        r.fail();
+    entries.clear();
+    for (uint8_t i = 0; i < n && r.ok(); ++i) {
+        PlayerVitals v;
+        v.player = r.u8();
+        v.hp = r.u16();
+        v.maxHp = r.u16();
+        v.dragonHp = r.u16();
+        v.dragonMaxHp = r.u16();
+        entries.push_back(v);
+    }
+    return r.ok();
+}
 void Kick::write(ByteWriter& w) const {
     w.u8(player);
 }
 bool Kick::read(ByteReader& r) {
     player = r.u8();
     if (player == kNoPlayer || player > kMaxPlayers)
+        r.fail();
+    return r.ok();
+}
+
+void ResultsAction::write(ByteWriter& w) const {
+    w.u8(static_cast<uint8_t>(choice));
+}
+bool ResultsAction::read(ByteReader& r) {
+    const uint8_t c = r.u8();
+    if (c < static_cast<uint8_t>(ResultsChoice::BackToLobby) || c > static_cast<uint8_t>(ResultsChoice::Rematch))
+        r.fail();
+    choice = static_cast<ResultsChoice>(c);
+    return r.ok();
+}
+
+void MapVote::write(ByteWriter& w) const {
+    w.u8(choice);
+}
+bool MapVote::read(ByteReader& r) {
+    choice = r.u8();
+    if (choice != kNoVote && choice >= kMaxVoteCandidates)
+        r.fail();
+    return r.ok();
+}
+
+void MapVoteState::write(ByteWriter& w) const {
+    const size_t n = std::min(candidates.size(), kMaxVoteCandidates);
+    w.u8(static_cast<uint8_t>(n));
+    for (size_t i = 0; i < n; ++i) {
+        w.str(candidates[i]);
+        w.u8(i < tally.size() ? tally[i] : 0);
+    }
+    w.u8(winner);
+}
+bool MapVoteState::read(ByteReader& r) {
+    const uint8_t n = r.u8();
+    if (n > kMaxVoteCandidates)
+        r.fail();
+    candidates.clear();
+    tally.clear();
+    for (uint8_t i = 0; i < n && r.ok(); ++i) {
+        candidates.push_back(r.str(96));
+        tally.push_back(r.u8());
+    }
+    winner = r.u8();
+    if (winner != kNoVote && winner >= n)
         r.fail();
     return r.ok();
 }

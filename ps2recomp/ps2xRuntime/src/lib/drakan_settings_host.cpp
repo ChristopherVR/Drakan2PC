@@ -14,6 +14,7 @@
 #include "drakan_netplay.h"
 #include "drakan_game.h"
 #include "drakan_arena.h"
+#include "drakan_modes.h"
 #include "drakan_coop_character.h"
 #include "drakan_world.h"
 #include "drakan_fmv_hd.h"
@@ -1289,6 +1290,21 @@ std::mutex g_mapPreviewM;
 std::map<uint32_t, std::string> g_mapPreviewPaths; // previewId -> file
 std::map<uint32_t, PreviewTexture> g_mapPreviews;
 
+// Where the game's own map pictures are cached: the user's data folder (DRAKAN_PREVIEW_DIR overrides), never the
+// repository or the play folder. Falls back to previews/captured/ next to the exe when there is none.
+std::string capturedPreviewDir() {
+    if (const char* e = std::getenv("DRAKAN_PREVIEW_DIR"); e && *e)
+        return std::string(e) + "/";
+#ifdef _WIN32
+    if (const char* l = std::getenv("LOCALAPPDATA"); l && *l)
+        return std::string(l) + "/Drakan2PC/previews/";
+#else
+    if (const char* h = std::getenv("HOME"); h && *h)
+        return std::string(h) + "/.local/share/Drakan2PC/previews/";
+#endif
+    return drakan_cfg::exeDir() + "previews/captured/";
+}
+
 std::string mapSafeName(const std::string& mapName) {
     std::string safe;
     for (char c : mapName)
@@ -1298,7 +1314,7 @@ std::string mapSafeName(const std::string& mapName) {
 
 // previews/<name>.png (the player's own picture) wins, then previews/mods/<name>.png (drakan_overrides copies the
 // previews/<name>.png of every loaded mod pack there), then previews/captured/<name>.png (the game's own capture of the
-// map in a match, mpPreviewCapture).
+// map in a match, mpPreviewCapture) in the user's data folder (capturedPreviewDir()).
 uint32_t mapPreviewId(const std::string& mapName) {
     struct Known {
         uint32_t id = 0;
@@ -1313,8 +1329,10 @@ uint32_t mapPreviewId(const std::string& mapName) {
     const std::string safe = mapSafeName(mapName);
     std::error_code ec;
     uint32_t id = 0;
-    for (const char* dir : {"previews/", "previews/mods/", "previews/captured/"}) {
-        const std::string path = drakan_cfg::exeDir() + dir + safe + ".png";
+    const std::string captured = capturedPreviewDir();
+    for (const std::string& base : {drakan_cfg::exeDir() + "previews/", drakan_cfg::exeDir() + "previews/mods/",
+                                    captured, drakan_cfg::exeDir() + "previews/captured/"}) {
+        const std::string path = base + safe + ".png";
         if (!std::filesystem::exists(path, ec))
             continue;
         id = 2166136261u;
@@ -1346,17 +1364,89 @@ void updateMapPreviews() {
             continue;
         PreviewDecode r = t.decode.get();
         ImTextureID tex = r.img ? makeTexture(r.img.rgba.data(), r.img.width, r.img.height) : 0;
+        std::fprintf(stderr, "[menu-screens] map picture %08x: %s (%ux%u)\n", id, tex ? "loaded" : "failed",
+                     r.img.width, r.img.height);
         if (!tex)
             continue;
         t.tex = tex;
-        t.uv0 = ImVec2(0, 0);
-        t.uv1 = ImVec2(1, 1);
+        // The game's own captures (the player's data folder) include the native HUD: orbs along the bottom, the stats
+        // overlay at the top left. The menu shows the band between them.
+        const bool own =
+            t.hd.rfind(capturedPreviewDir(), 0) == 0 || t.hd.find("previews/captured/") != std::string::npos;
+        t.uv0 = ImVec2(0, own ? 0.08f : 0.0f);
+        t.uv1 = ImVec2(1, own ? 0.74f : 1.0f);
         t.w = float(r.img.width);
-        t.h = float(r.img.height);
+        t.h = float(r.img.height) * (own ? 0.66f : 1.0f);
     }
 }
 
+// Co-op character turntables: <previews>/chars/<class id hex4>.png, 12 frames of 160 x 240 side by side (RGBA, cut out
+// by drakan_arena's character studio). Loaded on first use; turnFrames(id) is 0 until the strip has been read.
+constexpr int kTurnFrames = 12;
+struct TurnTexture {
+    ImTextureID tex = 0;
+    float w = 0, h = 0;
+    std::future<gsr::Image> decode;
+    bool started = false, failed = false;
+    std::chrono::steady_clock::time_point checked;
+};
+std::map<int, TurnTexture> g_turns;
+int turnFrames(int classId) {
+    TurnTexture& t = g_turns[classId];
+    if (t.tex)
+        return kTurnFrames;
+    const auto now = std::chrono::steady_clock::now();
+    if (!t.started && (!t.failed || now - t.checked > std::chrono::seconds(5))) {
+        char nm[16];
+        std::snprintf(nm, sizeof nm, "%04x.png", static_cast<unsigned>(classId) & 0xffffu);
+        const std::string path = drakan_arena::charPreviewDir() + nm;
+        std::error_code ec;
+        t.checked = now;
+        if (std::filesystem::exists(path, ec)) {
+            t.started = true;
+            t.decode = std::async(std::launch::async, [path] {
+                gsr::Image img;
+                if (!gsr::readImage(path.c_str(), img))
+                    return gsr::Image{};
+                // The strip is cut out against black (empty pixels are 0 0 0): take the alpha from the colour, the
+                // readers hand the file's alpha over in GS units and the overlay's texture path ignores it.
+                for (size_t i = 0; i + 3 < img.rgba.size(); i += 4) {
+                    const int m = std::max({img.rgba[i], img.rgba[i + 1], img.rgba[i + 2]});
+                    img.rgba[i + 3] = static_cast<uint8_t>(std::clamp((m - 6) * 24, 0, 255));
+                }
+                return img;
+            });
+        } else {
+            t.failed = true;
+        }
+    }
+    if (t.started && t.decode.valid() && t.decode.wait_for(std::chrono::seconds(0)) == std::future_status::ready) {
+        gsr::Image img = t.decode.get();
+        t.started = false;
+        t.tex = img ? makeTexture(img.rgba.data(), img.width, img.height) : 0;
+        t.failed = !t.tex;
+        t.w = static_cast<float>(img.width) / kTurnFrames;
+        t.h = static_cast<float>(img.height);
+        if (t.tex)
+            std::fprintf(stderr, "[menu-screens] character turntable %04x: loaded (%ux%u)\n", classId, img.width,
+                         img.height);
+    }
+    return t.tex ? kTurnFrames : 0;
+}
+
 bool previewCrop(const gameui::ImageRef& ref, dsettings::IconCrop& c) {
+    if (ref.kind == gameui::ImageKind::CharTurntable) {
+        const auto it = g_turns.find(static_cast<int>(ref.index & 0xffff));
+        if (it == g_turns.end() || !it->second.tex)
+            return false;
+        const int fr = static_cast<int>((ref.index >> 16) % kTurnFrames);
+        c.texture = it->second.tex;
+        c.uv0 = ImVec2(float(fr) / kTurnFrames, 0);
+        c.uv1 = ImVec2(float(fr + 1) / kTurnFrames, 1);
+        c.w = it->second.w;
+        c.h = it->second.h;
+        return true;
+    }
     if (ref.kind == gameui::ImageKind::LevelPreview) {
         const auto it = g_mapPreviews.find(ref.index);
         if (it == g_mapPreviews.end() || !it->second.tex)
@@ -1450,8 +1540,11 @@ std::vector<gameui::mp::LevelEntry> mpArenas() {
     const char* off = std::getenv("DRAKAN_MP_ARENAS");
     const std::vector<drakan_arena::MapEntry> maps =
         off && off[0] == '0' ? std::vector<drakan_arena::MapEntry>() : drakan_arena::maps();
-    if (cachedFrom != maps.size()) {
+    const size_t modeCount = drakan_modes::customModes().modes().size();
+    static size_t cachedModes = ~size_t(0);
+    if (cachedFrom != maps.size() || cachedModes != modeCount) {
         cachedFrom = maps.size();
+        cachedModes = modeCount;
         cache.clear();
         for (const drakan_arena::MapEntry& a : maps) {
             if (!a.installed)
@@ -1463,11 +1556,16 @@ std::vector<gameui::mp::LevelEntry> mpArenas() {
             e.arena = true;
             e.custom = a.source != "built-in";
             e.author = e.custom ? a.source : std::string();
-            e.game = !a.game.empty() ? a.game : (a.source.rfind("mod ", 0) == 0 ? std::string() : std::string("Drakan 2"));
+            e.game =
+                !a.game.empty() ? a.game : (a.source.rfind("mod ", 0) == 0 ? std::string() : std::string("Drakan 2"));
             e.maxPlayers = a.maxPlayers;
             e.spawns = a.spawns;
             e.modes = (a.deathmatch ? 1u << static_cast<unsigned>(GameMode::Deathmatch) : 0u) |
                       (a.teamDeathmatch ? 1u << static_cast<unsigned>(GameMode::TeamDeathmatch) : 0u);
+            if (const drakan::net::ArenaDef* def = drakan_arena::findMap(a.id))
+                for (const drakan::net::ModeDef& m : drakan_modes::customModes().modes())
+                    if (drakan::net::modeFitsArena(m, *def))
+                        e.modeIds.push_back(m.id);
             cache.push_back(std::move(e));
         }
     }
@@ -1496,6 +1594,21 @@ gameui::mp::MpState mpState(bool wantLan) {
     s.maxPlayers = ns.maxPlayers;
     s.fragLimit = ns.fragLimit;
     s.timeLimitMin = ns.timeLimitSec / 60;
+    s.modeId = ns.modeId;
+    if (!ns.modeId.empty())
+        if (const drakan::net::ModeDef* m = drakan_modes::customModes().find(ns.modeId))
+            s.modeName = m->name;
+    for (const drakan::net::ModeDef& m : drakan_modes::customModes().modes()) {
+        ModeEntry e;
+        e.id = m.id;
+        e.name = m.name;
+        e.description = m.description;
+        e.teamBase = m.teamBase;
+        e.teams = m.teamCount();
+        e.fragLimit = m.fragLimit;
+        e.timeLimitSec = m.timeLimitSec;
+        s.modes.push_back(std::move(e));
+    }
     s.selfReady = ns.selfReady;
     s.message = ns.launching ? std::string("Starting the match ...") : ns.message;
     for (const auto& p : ns.roster) {
@@ -1508,6 +1621,7 @@ gameui::mp::MpState mpState(bool wantLan) {
         r.host = p.host;
         r.kills = p.kills;
         r.deaths = p.deaths;
+        r.score = p.score;
         r.pingMs = p.pingMs;
         r.timeSec = p.timeSec;
         if (ns.mode == 2)
@@ -1520,6 +1634,8 @@ gameui::mp::MpState mpState(bool wantLan) {
         c.classId = e.id;
         c.name = e.name;
         c.hostOnly = e.id == 0;
+        if (e.id == drakan_coop_character::selected()) // only the shown one is loaded
+            c.turnFrames = turnFrames(e.id);
         c.model = e.id == 0 ? "SYSTEM.MOD #" + std::to_string(e.modelId) : "NPCS.MOD #" + std::to_string(e.modelId);
         c.description = e.id == 0 ? "The dragon rider. Always the host's character."
                                   : "A partner stand-in: plays its own walk, run and fight animations.";
@@ -1554,10 +1670,12 @@ gameui::mp::MpState mpState(bool wantLan) {
         s.levels.push_back(std::move(e));
     }
     for (const std::string& n : drakan_netplay::extraLevels()) {
+        if (ootf && n == drakan_game::firstLevel())
+            continue;
         LevelEntry e;
         e.name = n;
         e.title = n.rfind("Level ", 0) == 0 ? n.substr(6) : n;
-        e.custom = true;
+        e.custom = !ootf;
         s.levels.push_back(std::move(e));
     }
     for (LevelEntry& e : s.levels)
@@ -1593,6 +1711,7 @@ void mpApply(const gameui::mp::MpAction& a, gameui::mp::MultiplayerScreen& scree
             hc.fragLimit = a.host.fragLimit;
             hc.timeLimitSec = a.host.timeLimitMin * 60;
             hc.password = a.host.password;
+            hc.modeId = a.host.modeId;
             drakan_netplay::hostMatch(hc, a.setup.name);
             break;
         }
@@ -1644,8 +1763,10 @@ MpHud g_mpHud;
 // The chat line is open: the screen layer takes the window messages (WM_CHAR is only fed to ImGui then).
 std::atomic<bool> g_mpChatOpen{false};
 
+bool mpResultsUp();
 // An active match in the Playing phase: the HUD draws (and the screen layer wakes up for it).
 bool mpHudActive() {
+    (void)mpResultsUp();        // keeps the input hold in step with the results phase, drawn or not
     static bool played = false; // this process was in a match; the lobby phase that follows is shown in the level
     if (!drakan_netplay::enabled())
         return false;
@@ -1662,42 +1783,73 @@ bool mpHudActive() {
            (s.phase == drakan_netplay::Phase::Lobby && played);
 }
 
-// DRAKAN_MP_CAPTURE=0 turns the capture off. One capture per map and run; skipped while a preview file exists.
-        if (ootf && n == drakan_game::firstLevel())
-            continue;
+// The results screen is up (the match is over and the session is still connected): the overlay takes the input and the
+// buttons work. Rynn is held (the guest input is neutral) while it is.
+bool mpResultsUp() {
+    const drakan_netplay::State s = drakan_netplay::state();
+    const bool up =
+        s.inSession && s.conn == drakan_netplay::Conn::Connected && s.phase == drakan_netplay::Phase::Results;
+    static bool was = false; // the single owner of the guest input hold: set with the results, released with them
+    if (up != was) {
+        was = up;
+        drakan_input::module().setHostScreen(up);
+    }
+    return up;
+}
+
+// DRAKAN_MP_CAPTURE=0 turns the capture off. One capture per map and run; skipped while a picture exists. In an arena
+// match the player is put at the map's `preview` camera point (drakan_arena::requestPreviewShot); in a campaign level
+// (co-op, plain level match) the picture is the view she starts with.
 bool mpPreviewCapture(const drakan_netplay::State& ns, const gameui::mp::HudState& hs) {
-    static int hiding = 0;            // frames still drawn without the HUD
-    static std::string requestedFor;  // the map a capture was asked for
+    static int hiding = 0;           // frames still drawn without the HUD
+    static std::string requestedFor; // the map a capture was asked for
+    static bool arenaShot = false;   // an arena shot is under way
     static double playingSince = -1, lastPhaseAt = 0;
     static const bool off = [] {
         const char* e = std::getenv("DRAKAN_MP_CAPTURE");
         return e && e[0] == '0';
     }();
     const double now = ImGui::GetTime();
+    if (arenaShot) {
+        if (drakan_arena::previewShotState() == 1)
+            return true;
+        arenaShot = false;
+        hiding = 6; // the file is written a few frames after the request
+        return true;
+    }
     if (hiding > 0) {
         --hiding;
         return true;
     }
-    if (off || ns.phase != drakan_netplay::Phase::Playing || ns.mode == 2 || ns.level.empty() ||
-        !drakan_arena::active() || hs.scoreboard || hs.chatOpen || !hs.alive) {
+    if (off || ns.phase != drakan_netplay::Phase::Playing || ns.level.empty() || hs.scoreboard || hs.chatOpen ||
+        !hs.alive) {
         playingSince = -1;
         return false;
     }
     if (now - lastPhaseAt > 1.0 || playingSince < 0)
         playingSince = now;
     lastPhaseAt = now;
-    if (now - playingSince < 9.0 || requestedFor == ns.level || mapPreviewId(ns.level) != 0)
+    const bool arena = drakan_arena::active() && ns.mode != 2;
+    if (now - playingSince < (arena ? 12.0 : 9.0) || requestedFor == ns.level || mapPreviewId(ns.level) != 0)
         return false;
     requestedFor = ns.level;
-    const std::filesystem::path dir = std::filesystem::path(drakan_cfg::exeDir()) / "previews" / "captured";
+    const std::filesystem::path dir = capturedPreviewDir();
     std::error_code ec;
     std::filesystem::create_directories(dir, ec);
     const std::string file = (dir / (mapSafeName(ns.level) + ".png")).string();
-    std::fprintf(stderr, "[menu-screens] map picture: capturing %s\n", file.c_str());
-    gsr::requestWindowShot(file);
-    hiding = 4;
+    std::fprintf(stderr, "[menu-screens] map picture: capturing %s (%s)\n", file.c_str(),
+                 arena ? "preview camera" : "start view");
+    if (arena) {
+        drakan_arena::requestPreviewShot(file);
+        arenaShot = true;
+    } else {
+        gsr::requestWindowShot(file);
+        hiding = 4;
+    }
     return true;
 }
+
+constexpr const char* kTeamNames[4] = {"Fire", "Water", "Earth", "Air"};
 
 void mpHudDraw(const dsettings::SettingsOverlay::ScreenFrame& f) {
     MpHud& h = g_mpHud;
@@ -1767,6 +1919,13 @@ void mpHudDraw(const dsettings::SettingsOverlay::ScreenFrame& f) {
     hs.teamKills[1] = sb.teamKills[1];
     hs.now = sb.now;
     // The standings come from the scoreboard (kills / deaths as the server scored them, most kills first).
+    hs.scoreMode = !sb.modeId.empty();
+    if (hs.scoreMode)
+        if (const drakan::net::ModeDef* m = drakan_modes::customModes().find(sb.modeId))
+            hs.modeName = m->name;
+    hs.teamCount = std::clamp(sb.teamCount, 2, 4);
+    for (int t = 0; t < 4; ++t)
+        hs.teamScore[t] = sb.teamScore[t];
     for (const auto& r : sb.rows) {
         gameui::mp::RosterRow row;
         row.id = r.id;
@@ -1775,6 +1934,7 @@ void mpHudDraw(const dsettings::SettingsOverlay::ScreenFrame& f) {
         row.self = r.self;
         row.kills = r.kills;
         row.deaths = r.deaths;
+        row.score = r.score;
         row.pingMs = r.pingMs;
         row.timeSec = r.timeSec;
         hs.roster.push_back(std::move(row));
@@ -1787,11 +1947,12 @@ void mpHudDraw(const dsettings::SettingsOverlay::ScreenFrame& f) {
         if (sb.tie)
             who = "Draw";
         else if (sb.mode == 1)
-            who = std::string(sb.winnerTeam == 0 ? "Team Fire" : "Team Water") + " wins";
+            who = std::string("Team ") + (sb.winnerTeam >= 0 && sb.winnerTeam < 4 ? kTeamNames[sb.winnerTeam] : "?") +
+                  " wins";
         else
             who = (sb.winnerName.empty() ? std::string("?") : sb.winnerName) + " wins";
         hs.banner = std::string("Match over - ") + who + " (" + sb.reason + ")";
-        hs.resultsText = "Back to the lobby shortly: then Esc > Quit to Title";
+        hs.resultsText = "Choose what happens next";
     } else if (sb.phase == drakan_netplay::Phase::Lobby) {
         hs.banner = "Match finished";
         hs.resultsText = "Esc > Quit to Title returns to the lobby for the next match";
@@ -1817,11 +1978,15 @@ void mpHudDraw(const dsettings::SettingsOverlay::ScreenFrame& f) {
             q.id = pl.id;
             q.name = pl.name;
             q.character = drakan_coop_character::entry(static_cast<uint16_t>(pl.character)).name;
-            q.hpKnown = false; // the wire does not carry health; drakan_coop publishes what it knows (setCoopParty)
+            q.hpKnown = false; // set from the Vitals message below (drakan_coop publishes it with setCoopParty)
             for (const auto& info : party)
                 if (info.player == pl.id) {
                     q.hpKnown = info.hpKnown;
                     q.hpFrac = info.hpFrac;
+                    q.hp = info.hp;
+                    q.hpMax = info.hpMax;
+                    q.dragonKnown = info.dragonKnown;
+                    q.dragonFrac = info.dragonFrac;
                     q.down = info.down;
                     q.respawnInSec = info.respawnInSec;
                 }
@@ -1849,6 +2014,49 @@ void mpHudDraw(const dsettings::SettingsOverlay::ScreenFrame& f) {
         hs.chat.push_back({c.who, c.text, c.at});
     gameui::ScreenConfig sc;
     sc.measure = tu.renderer.measure();
+    // The results buttons: the host chooses (back to the lobby, next map, rematch), everybody can leave. The overlay
+    // owns the keyboard / pad / mouse while the results are up (the game input is held, so Rynn stands still).
+    static gameui::mp::ResultsMenu resultsMenu;
+    static bool resultsWas = false, resultsSent = false;
+    gameui::UiInput resultsIn;
+    {
+        const bool up = hs.results && ns.conn == drakan_netplay::Conn::Connected;
+        if (up != resultsWas) {
+            resultsWas = up;
+            resultsSent = false;
+            resultsMenu.reset();
+            tu.gate.reset();
+        }
+        if (up) {
+            using gameui::mp::ResultsButton;
+            using gameui::mp::ResultsButtonId;
+            const bool host = sb.selfHost && !resultsSent;
+            if (hs.mode == gameui::mp::GameMode::Coop)
+                hs.resultsButtons = {{ResultsButtonId::BackToLobby, "Back to lobby", host},
+                                     {ResultsButtonId::Rematch, hs.levelComplete ? "Play again" : "Try again", host},
+                                     {ResultsButtonId::Leave, "Leave", true}};
+            else
+                hs.resultsButtons = {{ResultsButtonId::BackToLobby, "Back to lobby", host},
+                                     {ResultsButtonId::NextMap, "Next map", host},
+                                     {ResultsButtonId::Rematch, "Rematch", host},
+                                     {ResultsButtonId::Leave, "Leave", true}};
+            for (size_t i = 0; i < sb.voteNames.size(); ++i)
+                hs.vote.push_back({sb.voteNames[i], mapPreviewId(sb.voteNames[i]), sb.voteTally[i]});
+            hs.voteMine = sb.voteMine;
+            hs.voteWinner = sb.voteWinner;
+            hs.resultsNote = sb.selfHost ? (resultsSent ? "Waiting for the server ..." : std::string())
+                                         : "Waiting for the host to choose";
+            const bool take = f.input;
+            resultsIn = hostScreenInput(take, false, f.w, f.h);
+            static int dbg = 0;
+            if (std::getenv("DRAKAN_MP_RESULTS_DEBUG") &&
+                (++dbg % 60 == 0 || !resultsIn.keys.empty() || resultsIn.leftClick))
+                std::fprintf(stderr, "[results] input take=%d pointer=%d (%.0f,%.0f) keys=%zu click=%d hostScreen=%d\n",
+                             take ? 1 : 0, resultsIn.pointerValid ? 1 : 0, resultsIn.pointerX, resultsIn.pointerY,
+                             resultsIn.keys.size(), resultsIn.leftClick ? 1 : 0,
+                             drakan_input::module().hostScreen() ? 1 : 0);
+        }
+    }
     if (hs.scoreboard || hs.results || !hs.partners.empty())
         drakan_fpsmeter::setAvoidTop(true);
     // The first picture of an arena: a window capture a few seconds into a match on a map without one, taken with the
@@ -1857,9 +2065,53 @@ void mpHudDraw(const dsettings::SettingsOverlay::ScreenFrame& f) {
         h.last = {};
         return;
     }
+    if (!hs.vote.empty())
+        updateMapPreviews(); // the candidates' pictures (ImageKind::LevelPreview)
+    if (!hs.vote.empty() && hs.voteWinner < 0) {
+        const int pick = gameui::mp::mapVoteFrame(hs.vote.size(), hs.voteMine, resultsIn, {0, 0, f.w, f.h}, sc);
+        if (pick >= 0 && pick != hs.voteMine) {
+            std::fprintf(stderr, "[results] vote for map %d (%s)\n", pick,
+                         hs.vote[static_cast<size_t>(pick)].name.c_str());
+            drakan_netplay::voteMap(pick);
+            hs.voteMine = pick; // shown at once, the server's tally follows
+        }
+    }
+    if (!hs.resultsButtons.empty()) {
+        const int pressed = resultsMenu.frame(hs.resultsButtons, resultsIn, {0, 0, f.w, f.h}, sc);
+        hs.resultsFocus = resultsMenu.focus();
+        if (pressed >= 0) {
+            using gameui::mp::ResultsButtonId;
+            switch (hs.resultsButtons[static_cast<size_t>(pressed)].id) {
+                case ResultsButtonId::BackToLobby:
+                    resultsSent = true;
+                    std::fprintf(stderr, "[results] Back to lobby\n");
+                    drakan_netplay::resultsAction(1);
+                    break;
+                case ResultsButtonId::NextMap:
+                    resultsSent = true;
+                    std::fprintf(stderr, "[results] Next map\n");
+                    drakan_netplay::resultsAction(2);
+                    break;
+                case ResultsButtonId::Rematch:
+                    resultsSent = true;
+                    std::fprintf(stderr, "[results] Rematch\n");
+                    drakan_netplay::resultsAction(3);
+                    break;
+                case ResultsButtonId::Leave:
+                    resultsSent = true;
+                    std::fprintf(stderr, "[results] Leave\n");
+                    drakan_netplay::leave();
+                    drakan_netplay::requestReturnToTitle();
+                    (void)mpResultsUp(); // the session is gone: the input hold ends now
+                    break;
+            }
+        }
+    }
     h.last = gameui::mp::drawHud(hs, {0, 0, f.w, f.h}, sc);
-    drawHostList(f, h.last, ImGui::GetTime(), 1.0f,
-                 [](const gameui::ImageRef&, dsettings::IconCrop&) { return false; });
+    drawHostList(f, h.last, ImGui::GetTime(), 1.0f, &previewCrop); // the map vote's pictures
+    if (!hs.resultsButtons.empty() && resultsIn.pointerValid && tu.device == gameui::InputDevice::KeyboardMouse &&
+        f.input)
+        dsettings::drawMenuCursor(resultsIn.pointerX, resultsIn.pointerY, std::clamp(f.h / 1080.0f, 0.62f, 3.0f));
 }
 
 struct TitleUi {
@@ -1905,7 +2157,11 @@ void titleDraw(const dsettings::SettingsOverlay::ScreenFrame& f, bool background
         ui.screen.open();
         { // Back from a match with the session still up: the lobby page again (the next match starts from there).
             const drakan_netplay::State ns = drakan_netplay::state();
-            if (ns.inSession && ns.conn == drakan_netplay::Conn::Connected) {
+            // (Not while a match is loading or running: the shortcut launches, DRAKAN_NET_HOST / _CONNECT, bring the
+            // title up under a live session and the lobby page would sit over the level, holding the world.)
+            const bool matchOver =
+                ns.phase == drakan_netplay::Phase::Lobby || ns.phase == drakan_netplay::Phase::Results;
+            if (ns.inSession && ns.conn == drakan_netplay::Conn::Connected && matchOver) {
                 ui.screen.resumeMultiplayer(mpState(false));
                 std::fprintf(stderr, "[menu-screens] title: resumed the multiplayer lobby\n");
             }
@@ -1978,7 +2234,8 @@ void titleDraw(const dsettings::SettingsOverlay::ScreenFrame& f, bool background
             g_pcs->applyAll(out.settings, ui.screen.pcSettings());
         ui.last = std::move(out.draw);
     }
-    drawHostList(f, ui.last, now, ui.fade, [](const gameui::ImageRef&, dsettings::IconCrop&) { return false; });
+    updateMapPreviews(); // the Multiplayer pages' map pictures (ImageKind::LevelPreview)
+    drawHostList(f, ui.last, now, ui.fade, &previewCrop);
     if (visible && ui.last.size() > 0)
         sh.titleDrawn.fetch_add(1); // the EE watchdog (drakan_menu_screens.inl titleTick)
     if (in.pointerValid && tu.device == gameui::InputDevice::KeyboardMouse && f.input && visible)
@@ -2446,7 +2703,7 @@ void overlayCallback(const gsr::OverlayContext& oc) {
                 const auto& ms = drakan_menu_screens::shared();
                 if (ms.quickOperation.load())
                     return false;
-                if (g_mpChatOpen.load())
+                if (g_mpChatOpen.load() || mpResultsUp())
                     return true;
                 if (ms.slotsActive.load())
                     return !ms.slotsChild.load() && !ms.slotsLeaving.load();

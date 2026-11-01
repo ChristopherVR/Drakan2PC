@@ -4,6 +4,7 @@
 // listen server hands it the loopback or UDP transport; the dedicated server hands it UdpTransport).
 // See docs/reference/netcode.md for the authority model.
 #include "net/ArenaMaps.h"
+#include "net/GameModes.h"
 #include "net/Protocol.h"
 #include "net/Scoreboard.h"
 #include "net/Transport.h"
@@ -32,8 +33,8 @@ struct ServerOptions {
     uint8_t autoStartPlayers = 0;     // 0 = never start on its own (host calls startMatch())
     uint32_t lobbyCountdownMs = 5000; // countdown once autoStartPlayers have joined
     uint32_t startCountdownMs = 0;    // startMatch(): 0 = Loading at once, else a countdown (Status shows it) first
-    bool hostKick = false;            // honour Kick from the host (the longest connected player); a listen server sets it
-    std::string mods;                 // comma separated mod pack names, reported in ServerInfo (<= kMaxModsLength)
+    bool hostKick = false; // honour Kick from the host (the longest connected player); a listen server sets it
+    std::string mods;      // comma separated mod pack names, reported in ServerInfo (<= kMaxModsLength)
     // Sanity limits for client claims (all in world units / ms).
     uint32_t respawnProtectionMs = 2000;
     uint16_t maxDamagePerHit = 200;
@@ -59,6 +60,13 @@ struct ServerOptions {
     bool hasArena = false;
     ArenaDef arena;
     float pickupClaimRange = 4000.0f; // a claim from farther than this from the pickup (last known position) is refused
+    // Custom game modes (GameModes.h): the rules the match runs are the entry of `modes` named by config.modeId
+    // (scoring, 2..4 teams, friendly fire, capture / hold objectives on the arena's markers); an unknown id or an empty
+    // one is a standard match. applyModeToConfig() fills the match options the mode implies.
+    std::vector<ModeDef> modes;
+    // The maps "Next map" on the results screen walks through (the arena after the current one that the mode fits,
+    // wrapping around); empty = the same map again. The game fills it from its multiplayer map list.
+    std::vector<ArenaDef> rotation;
 };
 
 struct ServerPlayer {
@@ -76,6 +84,12 @@ struct ServerPlayer {
     PlayerState state;
     uint64_t stateAtMs = 0;
     bool acceptAnyState = true; // first state after (re)spawn is not speed checked
+    // Speed-rejected states in a row that agree with each other (a teleport the server was not told about): after a few
+    // the player is taken to be at the new place.
+    bool spawnPending =
+        false; // arena: spawned, the game has not yet moved her to the spawn point (level still loading)
+    uint32_t rejectStreak = 0;
+    float lastRejectPos[3] = {0, 0, 0};
     uint64_t respawnAtMs = 0;
     uint64_t protectedUntilMs = 0;
     uint64_t lastHitAtMs = 0;
@@ -84,10 +98,15 @@ struct ServerPlayer {
     float spawnPos[2] = {
         0, 0}; // arena: x / z of the spawn point it was given (stands in for its position until it publishes)
     bool hasSpawnPos = false;
-    uint64_t spawnedAtMs = 0;   // arena: when it last (re)spawned
-    uint32_t joinSeq = 0; // join order (ids are recycled, so the lowest id is not the oldest player)
+    uint64_t spawnedAtMs = 0;       // arena: when it last (re)spawned
+    uint32_t joinSeq = 0;           // join order (ids are recycled, so the lowest id is not the oldest player)
     uint16_t character = 0;         // co-op character picked in the lobby (SetCharacter), 0 = Rynn
     uint16_t pingMs = kPingUnknown; // round trip measured with Status / StatusEcho (smoothed)
+    int32_t score = 0;              // points: kills, deaths and objectives as the match's mode values them
+    uint16_t objectives = 0;        // objectives completed this match (flag captures, zone holds)
+    int carriedFlag = -1;           // capture objective: index into the arena's markers of the flag it carries
+    bool hasVitals = false;
+    PlayerVitals vitals; // the last Vitals the player sent (co-op party HUD)
 };
 
 struct ServerStats {
@@ -131,6 +150,13 @@ public:
     const std::map<PlayerId, ServerPlayer>& players() const { return players_; }
     const ServerPlayer* player(PlayerId id) const;
     uint16_t teamKills(uint8_t team) const { return team < 2 ? teamKills_[team] : 0; }
+    int32_t teamScore(uint8_t team) const { return team < kMaxTeams ? teamScore_[team] : 0; }
+    // The custom mode the match runs (null = a standard match) and how many teams it plays with (0 = free for all).
+    const ModeDef* activeMode() const;
+    uint8_t teamCount() const;
+    // The results screen's map vote (empty outside the Results phase or when the rotation offers no choice).
+    const std::vector<ArenaDef>& voteCandidates() const { return voteCands_; }
+    int voteTally(size_t candidate) const;
     const ServerStats& stats() const { return stats_; }
     // Scoreboard (sorted, see sortScoreboard) and, once the phase is Results, how and with whom the match ended.
     std::vector<ScoreRow> scoreboard() const;
@@ -164,7 +190,24 @@ private:
     void onPickupClaim(ServerPlayer& p, const std::vector<uint8_t>& data);
     void onStatusEcho(ServerPlayer& p, const std::vector<uint8_t>& data);
     void onKick(ServerPlayer& p, const std::vector<uint8_t>& data);
+    void onVitals(ServerPlayer& p, const std::vector<uint8_t>& data);
     void onSetCharacter(ServerPlayer& p, const std::vector<uint8_t>& data);
+    void onResultsAction(ServerPlayer& p, const std::vector<uint8_t>& data);
+    void returnToLobby(bool byHost = false);
+    bool advanceMap();
+    bool applyArena(const ArenaDef& a);
+    void beginVote();
+    void onMapVote(ServerPlayer& p, const std::vector<uint8_t>& data);
+    void sendVoteState(uint8_t winner = kNoVote);
+    int voteLeader() const;
+    // Leaves the results for the lobby, applying the vote's leading map when there is one (true then).
+    bool leaveResults(bool byHost);
+    void fixTeams();
+    Score makeScore(const ServerPlayer& p) const;
+    void award(ServerPlayer& p, int32_t points);
+    void tickObjectives();
+    void resetObjectives();
+    void announce(const std::string& text);
     void sendStatus();
     void beginLoading();
     void resetPickups();
@@ -173,7 +216,7 @@ private:
     void sendExcept(PlayerId except, const std::vector<uint8_t>& bytes, Channel ch);
     void reject(PeerId peer, Peer& state, RejectReason why, const std::string& text);
     void removePlayer(PeerId peer);
-    void setPhase(MatchPhase p);
+    void setPhase(MatchPhase p, bool byHost = false);
     void beginPlaying();
     void spawnPlayer(ServerPlayer& p);
     void scoreFor(const ServerPlayer& p);
@@ -182,7 +225,7 @@ private:
     uint16_t hitLimit(const ServerPlayer& attacker, uint8_t weapon) const;
     void resetMatch();
     void sendSnapshot();
-    uint8_t pickTeam() const;
+    uint8_t pickTeam(PlayerId except = kNoPlayer) const;
 
     void sendTo(PeerId peer, const std::vector<uint8_t>& bytes, Channel ch);
     void broadcast(const std::vector<uint8_t>& bytes, Channel ch);
@@ -200,11 +243,22 @@ private:
     uint64_t lastSnapshotMs_ = 0;
     uint8_t spawnCounter_ = 0;
     uint16_t teamKills_[2] = {0, 0};
+    int32_t teamScore_[kMaxTeams] = {0, 0, 0, 0};
+    // Objective state (capture: who carries each flag marker; hold: who is alone in each zone and for how long).
+    struct ZoneState {
+        int holder = -1; // team index, or 100 + player id in a free for all; -1 = empty or contested
+        uint64_t heldMs = 0;
+    };
+    std::vector<PlayerId> flagCarrier_; // per arena marker (only Flag markers are used)
+    std::vector<ZoneState> zones_;      // per arena marker (only Zone markers are used)
+    uint64_t lastObjectiveMs_ = 0;
     std::vector<uint64_t> pickupBackAtMs_; // arena pickups: 0 = available, else the time it returns
     std::vector<PlayerId> pickupTakenBy_;
     PlayerId coopAuthority_ = kNoPlayer;
     uint32_t joinCounter_ = 0;
     std::unordered_map<PeerId, Peer> peers_;
+    std::vector<ArenaDef> voteCands_;   // the results screen's candidates
+    std::map<PlayerId, uint8_t> votes_; // player -> candidate index
     std::map<PlayerId, ServerPlayer> players_;
     ServerStats stats_;
     MatchOutcome outcome_;

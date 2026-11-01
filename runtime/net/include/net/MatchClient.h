@@ -34,16 +34,20 @@ struct RemotePlayer {
     bool alive = false;
     bool ready = false; // v5 lobby ready flag
     int32_t health = 0;
+    bool hasVitals = false;
+    PlayerVitals vitals;            // the server's last relay of this player's health (Vitals)
     uint16_t character = 0;         // co-op character the player picked in the lobby (Status), 0 = Rynn
     uint16_t pingMs = kPingUnknown; // the server's measure of this player's round trip (Status), kPingUnknown = none
+    int32_t score = 0;              // points of the match's mode (a standard match: the kills)
 };
 
 struct DisconnectedEvent {
     bool wasRejected = false;
 };
 
-using ClientEvent = std::variant<Hit, Death, Respawn, Chat, Score, PhaseChange, PlayerJoin, PlayerLeave, MatchConfigMsg,
-                                 Ready, DisconnectedEvent, CoopAuthority, CoopCreatures, CoopEvent, LevelChange, PickupState>;
+using ClientEvent =
+    std::variant<Hit, Death, Respawn, Chat, Score, PhaseChange, PlayerJoin, PlayerLeave, MatchConfigMsg, Ready,
+                 DisconnectedEvent, CoopAuthority, CoopCreatures, CoopEvent, LevelChange, PickupState>;
 
 class MatchClient {
 public:
@@ -62,6 +66,9 @@ public:
     PlayerId playerId() const { return self_; }
     // v6: the player that owns the creature world of a Coop match (0 = unknown / none), and whether that is us.
     PlayerId coopAuthority() const { return coopAuthority_; }
+    // The host (the longest connected player) as the server last reported it (Status); kNoPlayer until the first
+    // report.
+    PlayerId hostPlayer() const { return host_; }
     bool isCoopAuthority() const { return coopAuthority_ != kNoPlayer && coopAuthority_ == self_; }
     MatchPhase phase() const { return phase_; }
     const MatchConfigData& config() const { return config_; }
@@ -69,6 +76,9 @@ public:
     const std::map<PlayerId, RemotePlayer>& roster() const { return roster_; }
     const RemotePlayer* self() const;
     uint16_t teamKills(uint8_t team) const { return team < 2 ? teamKills_[team] : 0; }
+    int32_t teamScore(uint8_t team) const { return team < kMaxTeams ? teamScore_[team] : 0; }
+    // Teams in play (the highest team on the roster + 1, at least 2 in a team game, 0 otherwise).
+    uint8_t teamCount() const;
     // Scoreboard from the roster (sorted, see sortScoreboard) and the outcome the current scores give. The outcome is
     // final once phase() == Results; its reason is inferred from the config (frag limit reached, else time limit).
     std::vector<ScoreRow> scoreboard() const;
@@ -79,9 +89,16 @@ public:
     bool sendHit(PlayerId victim, uint8_t weapon, uint16_t damage); // a claim; the server decides
     bool sendChat(const std::string& text);
     bool sendLoadDone();
-    bool sendReady(bool ready); // lobby only (the server ignores it elsewhere)
+    bool sendReady(bool ready);             // lobby only (the server ignores it elsewhere)
     bool sendCharacter(uint16_t character); // co-op lobby: the character this player picks
-    bool sendKick(PlayerId player); // the host removes a player (the server checks, ServerOptions::hostKick)
+    bool sendVitals(const PlayerVitals& v); // co-op: own health, unreliable
+    bool sendKick(PlayerId player);         // the host removes a player (the server checks, ServerOptions::hostKick)
+    // Results screen buttons (host only; the server ignores anybody else and any other phase).
+    bool sendResultsAction(ResultsChoice choice);
+    // Map vote (results screen): the candidates and tallies the server last sent (empty = no vote now) and ours.
+    bool sendMapVote(uint8_t candidate); // kNoVote withdraws
+    const MapVoteState& mapVote() const { return mapVote_; }
+    uint8_t myMapVote() const { return myVote_; }
     // v6 co-op (the server drops what the routing rules forbid, see MatchServer): the authority streams creatures and
     // sends the authority-origin events, the others send claims / death notices / catch-up requests.
     bool sendCoopCreatures(const CoopCreatures& c); // unreliable
@@ -128,10 +145,14 @@ private:
     Reject reject_;
     PlayerId self_ = kNoPlayer;
     PlayerId coopAuthority_ = kNoPlayer;
+    PlayerId host_ = kNoPlayer;
+    MapVoteState mapVote_;
+    uint8_t myVote_ = kNoVote;
     MatchPhase phase_ = MatchPhase::Lobby;
     MatchConfigData config_;
     uint8_t tickRateHz_ = 30;
     uint16_t teamKills_[2] = {0, 0};
+    int32_t teamScore_[kMaxTeams] = {0, 0, 0, 0};
     uint32_t sendSequence_ = 0;
     uint32_t sendTick_ = 0;
     struct SentMark {

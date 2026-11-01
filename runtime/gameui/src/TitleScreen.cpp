@@ -3,13 +3,26 @@
 #include <algorithm>
 
 #include "Paint.h"
+#include "gameui/UiSkin.h"
 
 namespace gameui {
 
 namespace {
 
-constexpr float kColW = 520, kColX = (kDesignW - kColW) * 0.5f;
-constexpr float kRowH = 56, kRowStep = 64, kColPad = 24, kColCentreY = 650, kDescH = 64;
+constexpr float kColPad = 24, kDescH = 64;
+// The menu column's geometry is skin-driven ([layout] title_*; defaults 520 / 56 / 64 / 650).
+float colW() {
+    return skinNumber("title_column_w", 520);
+}
+float rowH() {
+    return skinNumber("title_row_h", 56);
+}
+float rowStep() {
+    return skinNumber("title_row_step", 64);
+}
+float colCentreY() {
+    return skinNumber("title_centre_y", 650);
+}
 constexpr float kMargin = 96, kFooterY = 1012, kHintH = 44, kHintGlyph = 40, kHintGap = 36;
 
 PauseConfig optionsConfig(const TitleConfig& c) {
@@ -29,6 +42,9 @@ PauseConfig optionsConfig(const TitleConfig& c) {
 }
 
 std::string rowDescription(TitleRow r, bool enabled, const TitleState& st) {
+    if (r != TitleRow::Continue && !(r == TitleRow::LoadGame && !enabled))
+        if (const char* d = titleRowDefaultDescription(r))
+            return skinText(std::string("title.desc.") + titleRowId(r), d);
     switch (r) {
         case TitleRow::Continue: {
             std::string s = "Your newest save";
@@ -57,6 +73,8 @@ std::string rowDescription(TitleRow r, bool enabled, const TitleState& st) {
         case TitleRow::Cancel:
         case TitleRow::NewGameSolo:
         case TitleRow::NewGameCoop:
+        case TitleRow::GameDrakan:
+        case TitleRow::GameOotf:
             break;
     }
     return {};
@@ -64,7 +82,62 @@ std::string rowDescription(TitleRow r, bool enabled, const TitleState& st) {
 
 } // namespace
 
+const char* titleRowId(TitleRow r) {
+    switch (r) {
+        case TitleRow::Continue:
+            return "continue";
+        case TitleRow::LoadGame:
+            return "load_game";
+        case TitleRow::NewGame:
+            return "new_game";
+        case TitleRow::Options:
+            return "options";
+        case TitleRow::Credits:
+            return "credits";
+        case TitleRow::PcSettings:
+            return "pc_settings";
+        case TitleRow::Quit:
+            return "quit";
+        case TitleRow::Multiplayer:
+            return "multiplayer";
+        case TitleRow::QuitToDesktop:
+            return "quit_to_desktop";
+        case TitleRow::Cancel:
+            return "cancel";
+        case TitleRow::NewGameSolo:
+            return "new_game_solo";
+        case TitleRow::NewGameCoop:
+            return "new_game_coop";
+    }
+    return "";
+}
+
+const char* titleRowDefaultDescription(TitleRow r) {
+    switch (r) {
+        case TitleRow::LoadGame:
+            return "Load a saved game.";
+        case TitleRow::NewGame:
+            return "Start a new adventure.";
+        case TitleRow::Options:
+            return "Controller and audio options.";
+        case TitleRow::Credits:
+            return "The people who made the game.";
+        case TitleRow::PcSettings:
+            return "Display, graphics, controls and more.";
+        case TitleRow::Quit:
+            return "Close the game.";
+        case TitleRow::Multiplayer:
+            return "Host or join a match over the network.";
+        default:
+            return nullptr;
+    }
+}
+
 const char* titleRowLabel(TitleRow r) {
+    return skinText(std::string("title.row.") + titleRowId(r), titleRowDefaultLabel(r));
+}
+
+const char* titleRowDefaultLabel(TitleRow r) {
     switch (r) {
         case TitleRow::Continue:
             return "Continue";
@@ -73,8 +146,6 @@ const char* titleRowLabel(TitleRow r) {
         case TitleRow::NewGame:
             return "New Game";
         case TitleRow::Options:
-        case TitleRow::GameDrakan:
-        case TitleRow::GameOotf:
             return "Options";
         case TitleRow::Credits:
             return "Credits";
@@ -92,6 +163,10 @@ const char* titleRowLabel(TitleRow r) {
             return "Solo";
         case TitleRow::NewGameCoop:
             return "Co-op";
+        case TitleRow::GameDrakan:
+            return "Drakan";
+        case TitleRow::GameOotf:
+            return "Order of the Flame";
     }
     return "";
 }
@@ -110,6 +185,8 @@ const char* titleActionName(TitleActionKind k) {
             return "OpenPcSettings";
         case TitleActionKind::QuitToDesktop:
             return "QuitToDesktop";
+        case TitleActionKind::SelectGame:
+            return "SelectGame";
     }
     return "?";
 }
@@ -142,12 +219,12 @@ void TitleActionQueue::clear() {
 
 namespace design::title {
 Rect menuPanel(int rows) {
-    const float h = static_cast<float>(rows) * kRowStep - (kRowStep - kRowH) + 2 * kColPad + kDescH;
-    return {kColX, kColCentreY - h * 0.5f, kColW, h};
+    const float h = static_cast<float>(rows) * rowStep() - (rowStep() - rowH()) + 2 * kColPad + kDescH;
+    return {(kDesignW - colW()) * 0.5f, colCentreY() - h * 0.5f, colW(), h};
 }
 Rect row(int i, int rows) {
     const Rect p = menuPanel(rows);
-    return {p.x + kColPad, p.y + kColPad + static_cast<float>(i) * kRowStep, p.w - 2 * kColPad, kRowH};
+    return {p.x + kColPad, p.y + kColPad + static_cast<float>(i) * rowStep(), p.w - 2 * kColPad, rowH()};
 }
 Rect cardPanel() {
     return design::pause::cardPanel(2);
@@ -163,10 +240,6 @@ TitleScreen::TitleScreen(TitleConfig cfg)
 
 void TitleScreen::open() {
     open_ = true;
-        case TitleRow::GameDrakan:
-            return "Drakan";
-        case TitleRow::GameOotf:
-            return "Order of the Flame";
     page_ = TitlePage::Main;
     focus_ = hover_ = mainFocus_ = {};
     suspendLeft_ = 0;
@@ -174,6 +247,7 @@ void TitleScreen::open() {
     options_.close();
     pcPages_.close();
     mpScreen_.close();
+    gameAsked_ = false; // every visit to the title asks which game again (the last choice has the focus)
 }
 
 void TitleScreen::close() {
@@ -185,8 +259,6 @@ void TitleScreen::close() {
     targets_.clear();
     hints_.clear();
 }
-        case TitleActionKind::SelectGame:
-            return "SelectGame";
 
 void TitleScreen::reactivate() {
     open_ = true;
@@ -209,6 +281,8 @@ std::vector<TitleRow> TitleScreen::rowsOf(TitlePage page, const TitleState& st) 
         return {TitleRow::QuitToDesktop, TitleRow::Cancel};
     if (page == TitlePage::NewGameChoice)
         return {TitleRow::NewGameSolo, TitleRow::NewGameCoop};
+    if (page == TitlePage::GameChoice)
+        return {TitleRow::GameDrakan, TitleRow::GameOotf};
     std::vector<TitleRow> r;
     if (cfg_.showContinue && st.continueSlot > 0)
         r.push_back(TitleRow::Continue);
@@ -220,7 +294,7 @@ std::vector<TitleRow> TitleScreen::rowsOf(TitlePage page, const TitleState& st) 
         r.push_back(TitleRow::PcSettings);
     if (st.canQuit)
         r.push_back(TitleRow::Quit);
-    return r;
+    return applyRowOrder("title.main", std::move(r), [](TitleRow x) { return titleRowId(x); }); // skin order / hidden
 }
 
 bool TitleScreen::rowEnabled(TitleRow r, const TitleState& st) const {
@@ -247,18 +321,16 @@ Rect TitleScreen::rowRect(int i, int n) const {
 
 void TitleScreen::buildTargets(const TitleState& st) {
     targets_.clear();
-    gameAsked_ = false; // every visit to the title asks which game again (the last choice has the focus)
     const std::vector<TitleRow> rs = rows(st);
     const int n = static_cast<int>(rs.size());
     for (int i = 0; i < n; ++i) {
         const TitleRow r = rs[static_cast<size_t>(i)];
         const bool en = rowEnabled(r, st);
         const Rect rd = isCard(page_) ? design::title::cardRow(i) : rowRect(i, n);
-        targets_.push_back(
-            {{isCard(page_) ? TargetKind::CardButton : TargetKind::TitleRow, static_cast<int>(r)},
-             lf_.map(rd),
-             en,
-             en});
+        targets_.push_back({{isCard(page_) ? TargetKind::CardButton : TargetKind::TitleRow, static_cast<int>(r)},
+                            lf_.map(rd),
+                            en,
+                            en});
     }
 }
 
@@ -281,8 +353,6 @@ void TitleScreen::ensureFocus(const TitleState& st) {
             return;
         }
 }
-    if (page == TitlePage::GameChoice)
-        return {TitleRow::GameDrakan, TitleRow::GameOotf};
 
 void TitleScreen::buildHints(const TitleState& st) {
     hints_.clear();
@@ -330,9 +400,17 @@ void TitleScreen::activate(TitleRow r, const TitleState& st, TitleFrameOutput& o
             focus_ = mainFocus_;
             emit(TitleActionKind::NewGame);
             break;
-        case TitleRow::NewGameCoop: // the party is hosted or joined on the campaign (the Multiplayer pages, Co-op scope)
+        case TitleRow::NewGameCoop: // the party is hosted or joined on the campaign (the Multiplayer pages, Co-op
+                                    // scope)
             page_ = TitlePage::Multiplayer;
             mpScreen_.open(st.multiplayer, mp::MpScope::Coop);
+            out.sound = UiSound::Confirm;
+            break;
+        case TitleRow::GameDrakan:
+        case TitleRow::GameOotf:
+            out.actions.push_back({0, TitleActionKind::SelectGame, r == TitleRow::GameOotf ? 1 : 0});
+            page_ = TitlePage::Main;
+            focus_ = {};
             out.sound = UiSound::Confirm;
             break;
         case TitleRow::Options:
@@ -412,13 +490,6 @@ void TitleScreen::applyInput(const TitleState& st, const UiInput& in, TitleFrame
             if (hover_.kind == TargetKind::TitleRow || hover_.kind == TargetKind::CardButton) {
                 focus_ = hover_;
                 activate(static_cast<TitleRow>(hover_.index), st, out);
-        case TitleRow::GameDrakan:
-        case TitleRow::GameOotf:
-            out.actions.push_back({0, TitleActionKind::SelectGame, r == TitleRow::GameOotf ? 1 : 0});
-            page_ = TitlePage::Main;
-            focus_ = {};
-            out.sound = UiSound::Confirm;
-            break;
             } else if (hover_.kind == TargetKind::Hint) {
                 if (static_cast<Prompt>(hover_.index) == Prompt::Back)
                     back(out);
@@ -483,6 +554,12 @@ TitleFrameOutput TitleScreen::frame(const TitleState& st, const UiInput& in, con
     if (!open_)
         return out;
     lf_ = computeFrame(vp);
+    offerGames_ = st.offerGames;
+    if (st.offerGames && !gameAsked_ && page_ == TitlePage::Main && !loading_) {
+        gameAsked_ = true;
+        page_ = TitlePage::GameChoice;
+        focus_ = {TargetKind::CardButton, static_cast<int>(st.game == 1 ? TitleRow::GameOotf : TitleRow::GameDrakan)};
+    }
     const auto optionsState = [&] {
         PauseState ps;
         ps.options = st.options;
@@ -554,12 +631,6 @@ TitleFrameOutput TitleScreen::frame(const TitleState& st, const UiInput& in, con
         out.sound = UiSound::Back;
         buildTargets(st);
         ensureFocus(st);
-    offerGames_ = st.offerGames;
-    if (st.offerGames && !gameAsked_ && page_ == TitlePage::Main && !loading_) {
-        gameAsked_ = true;
-        page_ = TitlePage::GameChoice;
-        focus_ = {TargetKind::CardButton, static_cast<int>(st.game == 1 ? TitleRow::GameOotf : TitleRow::GameDrakan)};
-    }
         buildHints(st);
         draw(st, out.draw);
         return out;
@@ -618,6 +689,14 @@ void TitleScreen::draw(const TitleState& st, DrawList& d) const {
     fb.h = std::max(fb.h, lf_.view.y + lf_.view.h - fb.y); // to the viewport bottom (letterboxed 4:3)
     d.gradient(fb, withAlpha(th.panel, 0), withAlpha(th.panel, 220));
 
+    if (!st.brandTitle.empty()) { // a text plaque over the native logo
+        const Rect plaque{460, 30, 1000, 300};
+        d.panel(p.map(plaque), PanelStyle::Main, withAlpha(th.panel, 242));
+        p.text(d, {plaque.x, plaque.y + 50, plaque.w, 120}, st.brandTitle, FontRole::Title, th.text, TextAlign::Center);
+        if (!st.brandSubtitle.empty())
+            p.text(d, {plaque.x, plaque.y + 175, plaque.w, 70}, st.brandSubtitle, FontRole::Heading, th.textMuted,
+                   TextAlign::Center);
+    }
     if (loading_) {
         p.confirmCard(d, design::title::cardPanel(), "Loading...",
                       st.continueLocation.empty() ? std::string("Continuing your last game.")
@@ -662,8 +741,8 @@ void TitleScreen::draw(const TitleState& st, DrawList& d) const {
         else if (page_ == TitlePage::NewGameChoice)
             p.confirmCard(d, design::title::cardPanel(), "New Game", "Play the campaign alone or with friends.");
         else
-            p.confirmCard(d, design::title::cardPanel(), "Quit the game?",
-                          "Drakan closes and returns to the desktop.");
+            p.confirmCard(d, design::title::cardPanel(), skinText("title.quit.title", "Quit the game?"),
+                          skinText("title.quit.body", "Drakan closes and returns to the desktop."));
         const std::vector<TitleRow> cr = rows(st);
         for (size_t i = 0; i < cr.size(); ++i) {
             const TargetId id{TargetKind::CardButton, static_cast<int>(cr[i])};
@@ -682,11 +761,3 @@ void TitleScreen::draw(const TitleState& st, DrawList& d) const {
 }
 
 } // namespace gameui
-    if (!st.brandTitle.empty()) { // a text plaque over the native logo
-        const Rect plaque{460, 30, 1000, 300};
-        d.panel(p.map(plaque), PanelStyle::Main, withAlpha(th.panel, 242));
-        p.text(d, {plaque.x, plaque.y + 50, plaque.w, 120}, st.brandTitle, FontRole::Title, th.text, TextAlign::Center);
-        if (!st.brandSubtitle.empty())
-            p.text(d, {plaque.x, plaque.y + 175, plaque.w, 70}, st.brandSubtitle, FontRole::Heading, th.textMuted,
-                   TextAlign::Center);
-    }

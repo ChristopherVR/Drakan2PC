@@ -111,6 +111,27 @@ void pings() {
     rig.run(1200);
     CHECK(a.roster().at(b.playerId()).character == 0x0ee7);
     CHECK(a.roster().at(a.playerId()).character == 0);
+    // Health (Vitals) travels client -> server -> every client, and nobody forges another player's entry.
+    CHECK(!a.roster().at(b.playerId()).hasVitals);
+    PlayerVitals v;
+    v.player = a.playerId(); // ignored: the server uses the sender
+    v.hp = 340;
+    v.maxHp = 500;
+    v.dragonHp = 90;
+    v.dragonMaxHp = 200;
+    CHECK(b.sendVitals(v));
+    rig.run(1200);
+    const RemotePlayer& rb = a.roster().at(b.playerId());
+    CHECK(rb.hasVitals && rb.vitals.hp == 340 && rb.vitals.maxHp == 500 && rb.vitals.dragonHp == 90 &&
+          rb.vitals.dragonMaxHp == 200);
+    CHECK(!a.roster().at(a.playerId()).hasVitals);
+    Vitals two;
+    two.entries = {v, v};
+    std::vector<uint8_t> raw = encode(two);
+    Vitals back;
+    CHECK(decode(raw, back) && back.entries.size() == 2 && back.entries[1].hp == 340);
+    raw.pop_back();
+    CHECK(!decode(raw, back));
 }
 
 void kicks() {

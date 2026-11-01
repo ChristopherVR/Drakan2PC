@@ -36,6 +36,8 @@ ORC_SPOT_C = "675500,159748,523349"  # the third player, 370 units from it
 ORC_RES = "51206"  # Yellow Orc : Center
 DOOR_A = "475700,160700,487600"  # in front of Town Door 16660 (about 2100 units south of it)
 SACK = "447359,174700,380000"  # near the SackoGold in the chest room (id 16497)
+# Beside a chest that holds gold (budget 103 here; its spew makes four gold items): both players start next to it.
+CHESTLOOT_SPOT = "614272,150100,506500"
 GOLD_SPOT = "447359,174700,380000"  # Rynn starts here in the gold scenario (the sack is 1400 units away)
 
 EQUIP = (
@@ -68,13 +70,18 @@ def make_fixture(card: Path, name: str, spot: str) -> Path:
     return dst / "mc0"
 
 
+SWING_HOLD_MS = (
+    60  # --swing-hold: a longer press for a slow (loaded) machine, where a 60 ms click can fall between two polls
+)
+
+
 def swings(start: int, count: int, tag: str, every: int = 900, shot_every: int = 3) -> str:
     out, t = "", start
     for i in range(count):
         t += every
         if i % 8 == 0:  # lock on (F) so the swings face the nearest enemy
             out += f"{t - 400} key down F\n{t - 300} key up F\n"
-        out += f"{t} button down 1\n{t + 60} button up 1\n"
+        out += f"{t} button down 1\n{t + SWING_HOLD_MS} button up 1\n"
         if i % shot_every == 1:
             out += f"{t + 350} shot {tag}{i:02d}\n"
     return out
@@ -106,20 +113,26 @@ def recipes(scenario: str) -> tuple[str, str, int]:
             b = head + "".join(f"{14000 + i * 3000} shot b_l{i:02d}{NL}" for i in range(10)) + f"45000 quit{NL}"
             timeout = 150
         return a, b, timeout
-    if scenario in ("chest", "walkover", "gold"):
+    if scenario in ("chest", "chestloot", "walkover", "gold"):
         # B stands in front of the nearest chest / elixir (test aid DRAKAN_COOP_TEST_TO) and uses it (E) / walks over it.
         # A stays where it is and watches.
         a = head + f"1500 shot pre{NL}" + "".join(f"{4000 + i * 3000} shot a_c{i:02d}{NL}" for i in range(9))
         a += f"34000 quit{NL}"
         # a short walk first: the test aid takes her heading from how she moved
         b = head + f"500 key down W{NL}1200 key up W{NL}1500 shot pre{NL}3500 shot b_before{NL}"
-        for i in range(6):  # E picks up a loose item (and would open a chest) in front of her
+        for i in range(
+            20 if scenario == "chestloot" else 6
+        ):  # E picks up a loose item (and would open a chest) in front of her
             t = 5000 + i * 2500
             b += f"{t} key down E{NL}{t + 150} key up E{NL}{t + 1500} shot b_use{i}{NL}"
-        for i in range(5):  # and a few punches: a chest may open when it is hit
+        for i in range(0 if scenario == "chestloot" else 5):  # and a few punches: a chest may open when it is hit
             t = 21000 + i * 900
             b += f"{t} button down 1{NL}{t + 80} button up 1{NL}"
         b += f"27500 shot b_end{NL}29000 quit{NL}"
+        if scenario == "chestloot":  # the loot flies out and is taken after the spew: leave time for both worlds
+            a = a.replace("34000 quit", "80000 quit")
+            b = b.replace("29000 quit", "75000 quit").replace("27500 shot", "74000 shot")
+            return a, b, 200
         return a, b, 100
     if scenario == "latejoin":
         # A opens the town door and takes a pickup (test aid), long before B starts (--b-delay); B must get both at the
@@ -167,6 +180,7 @@ def main() -> int:
             "fight",
             "death",
             "chest",
+            "chestloot",
             "chesthost",
             "chestlate",
             "walkover",
@@ -202,14 +216,22 @@ def main() -> int:
         default=ROOT / "build" / "runtime-tests" / "bin" / "Release" / "drakan_server.exe",
         help="migrate scenario: the dedicated server both instances join",
     )
+    ap.add_argument(
+        "--chest-key", default="", help="chestloot: key (hex) of the chest to open; default: the nearest to --spot"
+    )
+    ap.add_argument(
+        "--swing-hold", type=int, default=60, help="ms the attack button is held per swing (slow machine: 250)"
+    )
     ap.add_argument("--summon", action="store_true", help="host test aid: move two orcs to the players")
     a = ap.parse_args()
+    if a.scenario == "chestloot" and not a.spot:
+        a.spot = CHESTLOOT_SPOT
     keys = "abc"[: a.players]
     cards = {k: a.card for k in keys}
     if a.spot and a.card == DEFAULT_CARD:
         cards = {k: make_fixture(a.card, k, a.spot) for k in keys}
     elif (
-        a.scenario in ("fight", "death", "migrate", "chest", "chesthost", "chestlate", "walkover")
+        a.scenario in ("fight", "death", "migrate", "chest", "chestloot", "chesthost", "chestlate", "walkover")
         and a.card == DEFAULT_CARD
     ):
         spots = {"a": ORC_SPOT_A, "b": ORC_SPOT_B, "c": ORC_SPOT_C}
@@ -268,11 +290,14 @@ def main() -> int:
     if a.scenario == "death":  # the guests take 6x damage from the host's orcs so they die within the run
         for k in keys[1:]:
             env[k]["DRAKAN_COOP_TEST_HURT_SCALE"] = "6"
-    if a.scenario in ("chest", "chesthost", "chestlate", "walkover", "gold"):
+    if a.scenario in ("chest", "chestloot", "chesthost", "chestlate", "walkover", "gold"):
         env["a"]["DRAKAN_COOP_RETARGET"] = "0"  # the orcs near the start stay out of it
         who = "a" if a.scenario in ("chesthost", "chestlate") else "b"
         target = {"walkover": "10059,0", "gold": "1006d,0"}.get(a.scenario, "100c5,110")
         env[who]["DRAKAN_COOP_TEST_TO"] = f"{target}@{go[who]}"
+        if a.scenario == "chestloot":  # a chest that holds gold (its spew makes new items, not level pickups)
+            if a.chest_key:
+                env[who]["DRAKAN_COOP_TEST_TO_KEY"] = a.chest_key
         if "chest" in a.scenario:  # the open side of a chest is not known: try both sides
             env[who]["DRAKAN_COOP_TEST_TO_FLIP"] = "6000"
     if a.scenario == "chestlate":
@@ -313,6 +338,15 @@ def main() -> int:
                 [str(exes[k])], cwd=exes[k].parent, env=e, stdout=logs[k].open("wb"), stderr=subprocess.STDOUT
             )
             print(f"started {k.upper()} (pid {procs[k].pid})", flush=True)
+            if k == "a" and a.scenario != "migrate":
+                # A must hold the session (player 1, creature world owner) before B connects: under load A's boot can
+                # outlast the fixed delay, and B would win the election (roles swapped, every host/client check wrong).
+                for _ in range(120):
+                    if procs[k].poll() is not None:
+                        break
+                    if logs[k].is_file() and b"co-op authority: player 1 (us)" in logs[k].read_bytes():
+                        break
+                    time.sleep(1)
             time.sleep(a.b_delay if k == "a" else a.c_delay if k == "b" else 4)
         while any(p.poll() is None for p in procs.values()):
             if a.scenario == "pickup" and not go["a"].exists() and logs["b"].is_file():
@@ -421,7 +455,7 @@ def main() -> int:
     elif a.scenario == "gold":
         checks["b: the gold was taken, reported"] = "pickup" in text["b"] and "-> peer" in text["b"]
         checks["a: the partner's gold removed"] = "taken by the partner: removed" in text["a"]
-    elif a.scenario in ("chest", "chesthost", "chestlate"):
+    elif a.scenario in ("chest", "chestloot", "chesthost", "chestlate"):
         op, ot = ("a", "b") if a.scenario in ("chesthost", "chestlate") else ("b", "a")
         host, client = text["a"], text["b"]
         checks[f"{op}: stood at the chest"] = "test: stood" in text[op]
@@ -431,7 +465,10 @@ def main() -> int:
                 re.search(r"open doors, [1-9]\d* open chests", host) is not None
             )
         else:
-            checks[f"{ot}: the partner's open replayed"] = "was opened by the partner: opening it" in text[ot]
+            replayed = "was opened by the partner: opening it" in text[ot]
+            if a.scenario == "chestloot":  # both players start beside the chest: it may open for both of them
+                replayed = replayed or "opened by the local player -> peer" in text[ot]
+            checks[f"{ot}: the partner's open replayed"] = replayed
         checks["a: the host's chest spewed, reported"] = re.search(r"host: chest key \w+ spews", host) is not None
         checks["b: the client spewed the host's loot"] = "spews the host's loot" in client
         # loot is keyed at the spew ("child N -> pickup ... key K (keyed at the spew)"), or by order of appearance
@@ -440,6 +477,8 @@ def main() -> int:
         keys_b = set(re.findall(pat, client))
         print(f"loot keys: host {sorted(keys_a)} client {sorted(keys_b)}")
         checks["loot: both sides spawned the same pickups"] = keys_a == keys_b
+        if a.scenario == "chestloot":
+            checks["loot: the chest spawned new loot (non-empty key set)"] = bool(keys_a) and bool(keys_b)
     else:
         checks["a: pickup left the registry, reported"] = "left the registry -> peer" in text["a"]
         checks["b: the partner's pickup removed"] = "taken by the partner: removed" in text["b"]

@@ -310,7 +310,7 @@ the string manager's cache instead (`*(ctx+0x344)`, `this = sm + s16(vt+0x90)`, 
 chain at entry `+0x14`, `entry+0` id, `entry+8 & 3 == 3` text pointer at `entry+0x1c`). The marker search of a level load reads that
 level's exit texts up to the match, so most are cached. Because the cache is incomplete, the names come from tables read from the
 disc's XDBs (id = `0x80000 +` the string id in the level's own XDB, e.g. `LEVEL1ON.XDB`; `drakan_levelchange.cpp`
-`kLevelGroups` / `kDestTexts`); a name learned by using an exit still wins. **A destination text `portal` is an arrival marker,
+`kLevelGroups` / `kDestTexts`); a name learned by using an exit still wins, and so does the live cached string and, before it is cached, the text a mod pack's XDB override gives it (`setDestinationTextHook`), so an exit a pack points at a level copy is named after the copy. A level copy (`level_copies` in the manifest) uses its source's group (`registerLevelCopy`). **A destination text `portal` is an arrival marker,
 not a level**: the game's own transition cuts the text at the first `.` without a NULL check (`0x101220`), copies about 4 GB and never
 returns, so `fire()` refuses such exits (`ExitInfo::portal`).
 
@@ -319,6 +319,31 @@ Catacombs, Shadowmire (Rynn on the arrival marker, 70 to 180 fps), round trips a
 Sweeps of every level reachable from Surdana (City, Lair, Kragmor, Catacombs, Shadowmire, Ravenshold, Shiverbane, Valley, Isles): no
 arrival failure (journal sections 8 to 10). The walk-in path (touch event, queue, save screen, loading screen) is still not reproduced:
 Rynn can be placed and walked at the City exit but the trigger never fired (journal section 8).
+
+**2026-11-01 update** ([journal](../journal/2026-11-01/level-exits.md)):
+* Walk-in still not reproduced. With the arrival report uncapped (positions every 100 frames) Rynn walks out of and back
+  through the Kragmor arrival trigger (and over its centre) and no call of `0x361440` / `0x365138` follows
+  (`DRAKAN_LEVELCHANGE_TRACE=1` logs both): the touch is not a point-in-trigger test. Next step: decompile the sender of
+  message `0x20` to `0x365138`.
+* Sweeps of Crystal Mine (1 exit, Isles), Northern Tundra (Ravenshold, Shiverbane) and Stratos: all load the right level.
+  Stratos exit 0 ("Level 6 - Transition to Desert") is not on the disc: the game's own load fails (`result=-4`) and drops
+  to the title screen with "Save Failed!", so `fire()` refuses it (`isMissingLevel`). Stratos exit 1 ("Out") loads
+  `Level 0 - Intro/Out.lvl`, the outro.
+* Isles / Valley "arrival height": no placement bug. The Isles arrival (`859626 185498 524421`) is stable for 100 frames,
+  then the level's entry cutscene moves the player object (y up to 250 000, rest at `825804 204507 1217679`); the Valley
+  arrival is held at the marker (`434176 230667 309248`, standing on a ledge) for the whole entry cutscene (1500+ frames,
+  HUD hidden). Firing an exit while such a cutscene runs leaves the cutscene / input lock on in the next level (Surdana from
+  the Valley: Rynn frozen at the trigger height, no HUD); player-walked exits cannot happen then.
+* Harness: `level_change_run.py --sweep <level> --via <steps>` reaches deeper levels.
+
+**2026-11-01 (later) walk-in solved** ([journal](../journal/2026-11-01/level-exit-walk-in.md)): the exit object is never touched
+directly. Each exit is the link target of a Trigger Detector (`0x1003d`) box placed beside it (up to 9000 units away; the
+Kragmor one is 12288 x 6144 x 2048 centred 6144 units from the exit); the detector's message reaches `0x365138` (message
+`0x20`) -> `0x361440`. A real keyboard walk into the Kragmor detector (`level_change_walk.py --exit 735232,772096 --dist 5000
+--y 153300`) raises the "game must be saved" box (gui screen 2), then the save screen (5), then loads Kragmor; a partner
+instance follows (`level follow: arrived in the leader's level`, `netplay_two_instances.py --port 28300` with a walk recipe for A).
+Fired exits during an entry cutscene still leave Rynn frozen in the next level: not `DAT_004fbafc`, not `player+0x90/0x94`
+(inventory list), not the `ctx+0x4d4` list; open (journal section 3).
 
 ## 11. Dragon (Arokh): spawn, mount, dismount, dragon sections (2026-10-31)
 
@@ -332,6 +357,7 @@ the level data (`lvl_objects.py`), ids from the ODB; nothing here was changed in
 | Init (event 1, `0x270d20`) | sets up the controller sub-objects (`+0x57c`, `+0x580`), `0x44b490` / `0x44b7e8`, inserts itself through the level object (vtable `+0x74`), then **if the camera mode word (`camera data +0x14c`) is 7 it returns** (the same early-out as Rynn's init). Otherwise: finds the first class `0x10009` actor (`0x452190`), writes **`ctx+0x4b0` = the dragon** and links the pair with `0x27dfa0`, then HUD message 0x10 | [dec] |
 | Rynn's side | Rynn's init (non-mode-7) does the mirror image: `0x452190(0x1001c)` then `0x27dfa0(dragon data, Rynn, -1, 1)` | [dec] |
 | Link `0x27dfa0(dragonData, rider, mode, flag)` | sets rider data `+0x94 |= 1`, both `+0x4d8` refs (dragon data `+0x4d8` = rider's registry ref, rider data `+0x4d8` = dragon's ref, `0x168388`). `mode == -1` reads the rider record's property `0x91` (the level's start state): 1 = mounted flight (`0x44d3b0`, `0x27e9c8`, camera `0x450970`, ground snap `0x27caf8` and a sector refile), 0 = dismounted standing dragon (`0x27e760(.., 0)`, rider attached), 2 = a third state (`0x27e760(.., 2)`) | [dec], modes' meaning [inf] |
+| Dragon health | float at the dragon's instance data (`*(*(h+0xfc)+0x10)`) `+0x6b4`, 100.0 full, regenerates; engine getter `0x3d3b80`, delta `0x3d3bc0`; no max field (max sent = highest seen) | [RAM] [dec] |
 | Mounted state | while mounted the controlled actor `ctx+0x4b0` **is the dragon** and Rynn is its passenger (not posed); `drakan_lifecycle` reports `mountChanged`; the local pose reader reports `mounted` (class `0x1001c`) and Arokh's own channels | [RAM] |
 | Mount / dismount | driven by the dragon's controller (`0x271ac0` per tick) and the mount / dismount clips (`Mount` 1606, `Dismount` 1605 in the Dragon class fields); the controlled-actor switch is written by `0x270d20` / `0x27dfa0`, nothing else in the engine sets `ctx+0x4b0` | [dec] |
 | Dragon sections | levels where the player starts or ends mounted: Ravenshold (starts on Arokh, [RAM]); the rest are ground levels with a parked Arokh that Rynn reaches and mounts (not enumerated). The engine allows exactly one mounted pair: `0x452190` returns the first match and the single `ctx+0x4b0` / `ctx+0x4b4` pair is the only controller | [dec] |
@@ -357,3 +383,12 @@ PAL only (`drakan_foliage.{h,cpp}`, wind model in `runtime/world/include/world/F
 | Method | for a vegetation handle add a horizontal shear to column 1 of `R` (floats at `+0x24`, `+0x30`, `+0x3c`) before the call, restore after it: the top of the model moves by `lean * height` and nothing else in the engine (save, physics, culling by position) sees the change. The shear is linear in model y, so a tree leans as a whole and grass tips move most | [inf], effect checked in game |
 | Which objects | by resource id (resource record `+0` through `handle+0x10` and `*(ctx+0x320)`); the low 16 bits are the class inside the level's ODB and collide across levels (`Grass (Sod)` 0x0576 vs `Tree Small 04 Base` 0x0576), so the table keeps full ids. Generated by `analysis/scripts/foliage_ids.py` from `lvl_objects.py` output (static prop classes `0x100d3`, `0x100d8`, `0x10011` with a vegetation name) into `drakan_foliage_ids.inc` | [disc] |
 | Not covered | the RT scene export (`drakan_scene_models.h`) reads the unmodified transforms, so ray-traced shadows of swaying trees stay still; skinned / animated characters never match the table | known limit |
+
+## 12b. Vendors (2026-11-01)
+
+A shop is one object of class `0x100ac` linked to its shopkeeper NPC; the engine reads `Objects For Infinite Sale` / `Objects For Sale` into the
+stock list at shop-object `+0x18` (count `+0x1c`, see `DRAKAN_DEBUG_OPEN_SHOP` in `drakan_input_glue.cpp`: shop `+0x44` = NPC handle, `+4` =
+enabled). The list order in the shop screen is infinite items first, then limited units. The data layout (fields, price modifiers, price in the
+item class) is in [level-format.md](level-format.md) section 16; the shop screen is the inventory screen 0x15 in shop mode
+([mouse-menus.md](mouse-menus.md) section 11). Gold is an obfuscated stat: `rotr8(*0x4fbae0 ^ *0x4fe86c)` (same scheme as the skill points at
+`0x4fbaf4`), which `scripts/harness/vendor_shop.py` decodes from RAM dumps.

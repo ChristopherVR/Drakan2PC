@@ -125,7 +125,10 @@ enum class PauseRow : uint8_t {
     RestoreDefaults,
     Cancel,
 };
+// Label shown (the skin's `pause.row.<id>` when set, else the default) and the stable id / default label.
 const char* pauseRowLabel(PauseRow r);
+const char* pauseRowId(PauseRow r);
+const char* pauseRowDefaultLabel(PauseRow r);
 
 enum class PauseRowKind : uint8_t { Button, Slider, Toggle, Choice };
 PauseRowKind pauseRowKind(PauseRow r);

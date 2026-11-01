@@ -54,6 +54,12 @@ bool requestExitIndex(size_t index);
 // of the current level that leads there. false when this level has no such exit (a level only connects to its
 // neighbours; use several hops).
 bool requestLevel(const std::string& level);
+// A level a mod pack added as a copy of a disc level: its exits name their destinations like the source's do.
+void registerLevelCopy(const std::string& copy, const std::string& source);
+// Text of a level-local destination string as a mod pack replaced it (group = the level XDB's stem, e.g. "LEVEL1ON";
+// id = 0x80000 + string id), empty when no pack touches it. Lets the exit list name an exit that a pack points at a
+// copy.
+void setDestinationTextHook(std::function<std::string(const std::string& group, uint32_t id)> hook);
 
 // Called on the EE thread when the game starts a level change through an exit (walked into, or fired here), with the
 // trigger's world position. Not called for loads from a save or for changes made by followExit().

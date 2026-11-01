@@ -49,10 +49,21 @@ struct LevelEntry {
     uint32_t previewId = 0; // nonzero: the glue can draw a real picture for ImageKind::LevelPreview(previewId)
     bool arena = false;     // a multiplayer map (not a campaign level)
     std::string game;       // which game the map belongs to ("Drakan 1" / "Drakan 2"), empty = not shown
+    std::vector<std::string> modeIds; // custom game modes (ModeEntry::id) the map can play (the glue checks them)
     bool supports(GameMode m) const { return modes == 0 || (modes & (1u << static_cast<unsigned>(m))) != 0; }
 };
 // The disc's levels (the playable ones; cut scene levels are not matches), in campaign order.
 std::vector<LevelEntry> vanillaLevels();
+
+// A custom game mode ([mode <id>] of mp_maps.ini, docs/reference/netcode.md "Custom game modes") the Host page can
+// pick.
+struct ModeEntry {
+    std::string id, name, description;
+    bool teamBase = false; // base = tdm
+    int teams = 0;         // teams the mode plays with (0 = free for all)
+    int fragLimit = 0;     // the limit on the mode's score, 0 = none
+    int timeLimitSec = 0;  // 0 = none
+};
 
 struct HostForm {
     std::string serverName = "Drakan server";
@@ -66,6 +77,10 @@ struct HostForm {
     int timeLimitMin = 10;    // 0 = No Limit
     bool coop = false;        // Game Type: Co-op (the mode is Coop; limits and teams do not apply)
     int teams = 0; // 0 = No Teams, 2, 3, 4 (3 and 4 are shown but cannot start yet: the server has two teams)
+    // A custom game mode (ModeEntry::id) instead of the plain deathmatch: it sets the game type (its base), the teams
+    // and the limits, so those rows show the mode's values and stay fixed. Empty = standard rules.
+    std::string modeId;
+    bool modeTeam = false;       // the chosen mode's base is team deathmatch
     bool friendlyFire = false;   // placeholder: the server never allows it in team games yet
     bool registerMaster = false; // placeholder: the master servers are gone
 };
@@ -78,6 +93,7 @@ struct CharacterEntry {
     std::string model;       // model name shown under the name
     std::string description; // one line
     bool hostOnly = false;   // Rynn: locked to the host
+    int turnFrames = 0;      // > 0: a turntable strip of that many frames exists (ImageKind::CharTurntable)
 };
 std::vector<CharacterEntry> placeholderCharacters();
 
@@ -115,6 +131,7 @@ struct RosterRow {
     bool self = false;
     bool host = false;
     int kills = 0, deaths = 0;
+    int score = 0;             // points of the match's mode (a custom mode scores kills, deaths and objectives)
     int colour = -1;           // Player Color index (colourRgba), -1 = derived from the id
     int pingMs = -1;           // -1 = unknown
     int timeSec = 0;           // time in the match
@@ -148,6 +165,8 @@ struct MpState {
     std::vector<CharacterEntry> characters;  // co-op character list (empty = placeholderCharacters())
     int selfCharacter = -1;                  // the local player's chosen class id as the session has it (-1 unknown)
     std::vector<LevelEntry> arenas;          // the multiplayer maps (arenas + mod pack maps); empty = use `levels`
+    std::vector<ModeEntry> modes;            // the custom game modes the Host page's Game Mode row offers
+    std::string modeId, modeName;            // the session's custom mode (lobby info), empty = standard rules
     std::vector<HudChatLine> chat;           // lobby chat log (oldest first)
     double countdownSec = -1;                // the match starts in this many seconds (< 0 = no countdown)
     std::string defaultName;                 // initial Player Setup name
@@ -198,6 +217,7 @@ enum class RowId : uint8_t {
     HostGroup,
     HostLevel,
     HostType,
+    HostMode, // custom game mode (Standard, or a [mode] that fits the map)
     HostMax,
     HostFrag,
     HostTime,
@@ -276,7 +296,7 @@ public:
     std::vector<uint32_t> previewRequests(const MpState& st) const;
     int selectedServer() const { return selectedServer_; }
     bool mapListActive() const { return mapListMode_; } // Host: Up / Down step through the map list (Select toggles)
-    GameMode hostMode() const; // the mode the Host form currently describes
+    GameMode hostMode() const;                          // the mode the Host form currently describes
     // Host page: pick a game mode card (mode cards are clickable; unavailable modes are ignored, returns false).
     bool selectMode(GameMode m, const MpState& st);
     const std::string& chatInput() const { return chatInput_; }
@@ -310,7 +330,7 @@ private:
     std::vector<Row> rows_;
     LayoutFrame lf_;
     int listScroll_ = 0;
-    int levelScroll_ = 0; // Host page: first visible map of the list
+    int levelScroll_ = 0;      // Host page: first visible map of the list
     bool mapListMode_ = false; // Host page: the map list holds Up / Down (entered with Select on the Map row)
     int autoChar_ = -1;        // co-op joiner: the class id the screen already announced on its own (see frame)
     int kickIdx_ = 0;          // Lobby: the player the Kick row would remove (index among the other players)
@@ -322,6 +342,7 @@ private:
     void buildRows(const MpState& st);
     void buildEntries(const MpState& st);
     std::vector<LevelEntry> groupLevels(const MpState& st) const;
+    std::vector<const ModeEntry*> modesForMap(const MpState& st) const;
     int rowCount() const { return static_cast<int>(rows_.size()); }
     bool navigable(int i) const;
     void moveFocus(int dir);
@@ -351,10 +372,13 @@ struct HudKill {
 struct HudPartner {
     int id = 0;
     std::string name;
-    std::string character;   // co-op character name ("" = not shown)
-    int colour = -1;         // Player Color index, -1 = derived from the id
-    float hpFrac = 1;        // 0..1 health
-    bool hpKnown = true;     // false: the session cannot say (no health bar / percentage is drawn)
+    std::string character;    // co-op character name ("" = not shown)
+    int colour = -1;          // Player Color index, -1 = derived from the id
+    float hpFrac = 1;         // 0..1 health
+    bool hpKnown = true;      // false: the session cannot say (no health bar / percentage is drawn)
+    int hp = 0, hpMax = 0;    // the numbers behind hpFrac (hpMax 0 = only the fraction is known)
+    bool dragonKnown = false; // the partner is mounted and its dragon's health is known: a second, thinner bar
+    float dragonFrac = 1;
     bool down = false;       // downed / dead, waiting for the respawn
     double respawnInSec = 0; // while down (0 = unknown)
     // Marker: where the partner is on the screen. `onScreen` positions are 0..1 of the 16:9 design canvas; otherwise
@@ -363,6 +387,22 @@ struct HudPartner {
     bool markerValid = false, onScreen = false;
     float markerX = 0.5f, markerY = 0.5f, dirDeg = 0;
     float distance = 0; // metres, 0 = unknown
+};
+
+// The results screen's buttons (host: Back to lobby / Next map / Rematch; everybody: Leave).
+enum class ResultsButtonId : uint8_t { BackToLobby, NextMap, Rematch, Leave };
+struct ResultsButton {
+    ResultsButtonId id = ResultsButtonId::Leave;
+    std::string label;
+    bool enabled = true;
+};
+
+// One candidate of the results screen's map vote (the server's MapVoteState): the map's name, its picture (ImageKind::
+// LevelPreview, 0 = the drawn sketch) and the votes it has.
+struct VoteCandidate {
+    std::string name;
+    uint32_t previewId = 0;
+    int votes = 0;
 };
 
 struct HudState {
@@ -385,8 +425,18 @@ struct HudState {
     bool results = false;             // the match is over: the standings stay up under the banner
     std::string resultsText;          // second banner line ("Next match: back to the lobby ...")
     double nextMatchSec = -1;         // results: the next match / lobby follows in this many seconds (< 0 = unknown)
-    std::string status;               // top centre chip: "3:42 left   First to 3" (empty = none)
-    std::string chatInput;            // while typing
+    std::vector<ResultsButton> resultsButtons; // results: the buttons (empty = none drawn)
+    int resultsFocus = -1;                     // results: the focused button (index, -1 = none)
+    std::string resultsNote;                   // results: a line next to the buttons ("Waiting for the host ...")
+    std::vector<VoteCandidate> vote; // results: the map vote's candidates (empty = no vote), drawn as picture cards
+    int voteMine = -1;               // results: the candidate this player voted for
+    int voteWinner = -1;             // results: the decided candidate (highlighted)
+    bool scoreMode = false;          // a custom mode: the standings show points (RosterRow::score) instead of kills
+    std::string modeName;            // the custom mode's name (header), empty = standard rules
+    int teamCount = 2;               // team games: 2..4 teams
+    int teamScore[4] = {0, 0, 0, 0}; // points per team when scoreMode (else teamKills decide)
+    std::string status;              // top centre chip: "3:42 left   First to 3" (empty = none)
+    std::string chatInput;           // while typing
     bool chatOpen = false;
     double now = 0;
 };
@@ -397,6 +447,30 @@ struct HudState {
 DrawList drawHud(const HudState& hs, const Viewport& vp, const ScreenConfig& cfg, float chatLifeSec = 8.0f,
                  int maxLines = 6, float killLifeSec = 7.0f);
 std::vector<RosterRow> sortedRoster(std::vector<RosterRow> r);
+
+// Where drawHud puts the results buttons (pixels), for hit tests: `count` buttons in a row at the bottom of the results
+// panel, right aligned.
+std::vector<Rect> resultsButtonRects(size_t count, const Viewport& vp, const ScreenConfig& cfg);
+
+// Where drawHud puts the map vote's cards (pixels), and their handling: a click on a card votes for it, Q / E (the page
+// keys, LB / RB) step the vote over the candidates. Returns the candidate to vote for, or -1.
+std::vector<Rect> mapVoteRects(size_t count, const Viewport& vp, const ScreenConfig& cfg);
+int mapVoteFrame(size_t count, int mine, const UiInput& in, const Viewport& vp, const ScreenConfig& cfg);
+
+// Keyboard / pad / mouse handling of the results buttons: Left / Right (Up / Down) move the focus over the enabled
+// buttons, Confirm presses the focused one, a click presses the button under the pointer (the focus follows the
+// pointer).
+class ResultsMenu {
+public:
+    int focus() const { return focus_; }
+    void reset() { focus_ = -1; }
+    // Returns the pressed button (index into `buttons`) or -1.
+    int frame(const std::vector<ResultsButton>& buttons, const UiInput& in, const Viewport& vp,
+              const ScreenConfig& cfg);
+
+private:
+    int focus_ = -1;
+};
 
 } // namespace gameui::mp
 

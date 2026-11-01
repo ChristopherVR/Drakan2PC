@@ -1,0 +1,20 @@
+# Per-material overrides for analysis/scripts/pbr_pack.py (docs/reference/hd-textures.md, "PBR materials").
+# `match` is a texture hash, a material name (e.g. "Level1on_00693") or an fnmatch pattern over the material name or a
+# source entry ("LEVELS/LEVEL1ON/LEVEL1ON.TXD#693", "*LEVEL1ON.TXD#6*"). Later rules win. Keys (all optional):
+#   delit = 0..1.5          de-light strength (0 = keep painted lighting)
+#   normal_strength = 0..4  bump strength (0 = flat normal)
+#   ao = 0..2               cavity AO strength
+#   roughness = 0..1        constant roughness instead of the heuristic
+#   metallic = 0..1         constant metallic (default 0)
+#   blend = "Opaque" | "Masked" | "Translucent" | "Additive"
+#   two_sided = true | false
+#   emissive = 0..          emissive intensity (BaseColor drives it); Additive materials default to 1
+#   tiling = [u, v]         UV tiling written to the material JSON
+#   opacity_mask_clip = 0..1
+#   skip = true             do not generate this material
+# Example (disabled):
+# [[override]]
+# match = "Level1on_00693"
+# metallic = 1.0
+# roughness = 0.35
+# note = "iron bands"

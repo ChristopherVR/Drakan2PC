@@ -61,6 +61,8 @@ unsigned spawnFailures();
 void destroy(int id); // queue 0x1413c0; the engine frees it at its next flush
 // Applied on the EE thread at the next PadMgr boundary (position and rotation only; no sector update yet).
 void setTransform(int id, const float pos[3], const float rot[9]);
+// Test aid: like setTransform, but held every tick and winning over the poses the net layer sets afterwards.
+void pinTransform(int id, const float pos[3], const float rot[9]);
 // Clip state: write clip resource id `clip` and time `time` (seconds) into skeleton channel `channel` (< 32; -1 = every
 // channel) of the ghost. Applied by the host every tick at the PadMgr boundary (it is held until changed), before the
 // engine evaluates the skeleton.
@@ -68,6 +70,9 @@ void setAnim(int id, int channel, int clip, float time);
 // Position, rotation and animation in one call (what the net layer calls per remote sample): pose.position / rotation
 // as setTransform, pose.lower on channels set in pose.lowerMask, pose.upper on the others (setAnim per channel).
 void setPose(int id, const world::PlayerPose& pose);
+// Plays one clip (low 16 bits of the id; the level's SYSTEM prefix is added) on every channel and lets the engine's own
+// playback advance and loop it (the next setPose goes back to externally driven clips). Used by parked dragons.
+void setAnimFree(int id, uint32_t clipLow);
 // Weapons the ghost holds, by resource record id (PlayerPose.weaponRight / weaponLeft, e.g. 0x33cbc; 0 = none; the left
 // hand is the bow's). Applied at the PadMgr boundary: an item actor of that record is created with the engine factory,
 // owned by the ghost and attached to its hand bone (properties 0x45 / 0x46); a changed id drops the old item first.
@@ -75,6 +80,8 @@ void setPose(int id, const world::PlayerPose& pose);
 // and HP are not touched. setPose applies PlayerPose.weaponRight / weaponLeft the same way (0 clears the hand).
 void setWeapons(int id, uint32_t rightRecordId, uint32_t leftRecordId);
 void forEach(const std::function<void(const Info&)>& fn);
+// True for an item actor a ghost holds in its hands (a loose-item sweep must leave it alone).
+bool isGhostItem(uint32_t handle);
 // Files an actor whose position the host wrote in the collision cells again (the engine's mover does this itself; a
 // host write does not). Used for ghosts every tick they move (a blade sweep only finds actors in the cell lists) and by
 // drakan_pvp after it teleports the player. EE thread (nested calls).

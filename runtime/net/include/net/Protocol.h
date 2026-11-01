@@ -16,6 +16,11 @@ constexpr uint16_t kProtocolVersion = 8; // v8: PlayerState.pitch / roll / clipH
                                          // v4: weaponRight/weaponLeft record ids replace the weapon byte; v3: v3:
                                          // levelHash in PlayerState (v2: upper-body clip + channel mask)
 constexpr size_t kMaxPlayers = 16;
+constexpr size_t kMaxTeams = 4; // custom game modes: 2..4 teams (standard team deathmatch has two)
+constexpr size_t kMaxModeIdLength = 32;
+// The first UDP port a server listens on and a LAN browser probes (kDiscoveryPortCount ports from it): kDefaultPort, or
+// the number in the DRAKAN_MP_PORT environment variable (test rigs that must not meet other instances on the PC).
+uint16_t basePort();
 constexpr size_t kMaxNameLength = 24;
 constexpr size_t kMaxChatLength = 128;
 constexpr size_t kMaxLevelLength = 64;
@@ -73,6 +78,11 @@ enum class MsgType : uint8_t {
     StatusEcho = 26, // C>S, unreliable: the Status token (the server measures the round trip)
     Kick = 27,       // C>S, reliable: the host removes a player
     Character = 28,  // C>S, reliable: the co-op character the sender picked in the lobby (PlayerState.character later)
+    ResultsAction =
+        30,       // C>S, reliable: the host's choice on the results screen (back to the lobby / next map / rematch)
+    MapVote = 31, // C>S, reliable, Results phase: the sender's vote for the next map (index into the candidates)
+    MapVoteState = 32, // S>C, reliable: the candidates, their tallies and (once decided) the winner
+    Vitals = 29,       // C>S one entry (own health), S>C every player's, unreliable (co-op party HUD; no version bump)
 };
 
 class ByteWriter {
@@ -121,6 +131,9 @@ struct MatchConfigData {
     uint16_t respawnDelayMs = 3000;
     uint16_t startHealth = 100;
     std::string serverName; // v5, shown in lobbies and server lists (<= kMaxServerNameLength)
+    // Trailing optional field (older peers omit it): the id of the custom game mode ([mode <id>], GameModes.h) the
+    // match runs; empty = a standard deathmatch / team deathmatch / co-op.
+    std::string modeId;
     void write(ByteWriter& w) const;
     bool read(ByteReader& r);
 };
@@ -167,6 +180,10 @@ struct PhaseChange {
     static constexpr MsgType kType = MsgType::PhaseChange;
     MatchPhase phase = MatchPhase::Lobby;
     uint32_t serverTimeMs = 0;
+    // Trailing optional field (older servers omit it): the change follows a host's choice on the results screen (back
+    // to the lobby, next map, rematch) and not the results timer: clients that still sit in the match level leave it
+    // for the title, where the lobby (and the next match's load) is.
+    bool byHost = false;
     void write(ByteWriter& w) const;
     bool read(ByteReader& r);
 };
@@ -260,6 +277,10 @@ struct Score {
     uint16_t kills = 0;
     uint16_t deaths = 0;
     uint16_t teamKills[2] = {0, 0};
+    // Trailing optional fields (older servers omit them; then score = kills and teamScore = teamKills): the points a
+    // custom game mode scores (kills x score_kill + deaths x score_death + objectives), per player and per team.
+    int32_t score = 0;
+    int32_t teamScore[kMaxTeams] = {0, 0, 0, 0};
     void write(ByteWriter& w) const;
     bool read(ByteReader& r);
 };
@@ -451,6 +472,9 @@ struct Status {
     CountdownKind countdown = CountdownKind::None;
     uint32_t countdownMs = 0;
     std::vector<PlayerPing> pings; // at most kMaxStatusPlayers
+    // Trailing optional field (older servers omit it): the host, the longest connected player, who may kick and use the
+    // results screen's buttons (kNoPlayer = unknown).
+    PlayerId host = kNoPlayer;
     void write(ByteWriter& w) const;
     bool read(ByteReader& r);
 };
@@ -474,6 +498,58 @@ struct Kick {
 struct SetCharacter {
     static constexpr MsgType kType = MsgType::Character;
     uint16_t character = 0;
+    void write(ByteWriter& w) const;
+    bool read(ByteReader& r);
+};
+
+// Co-op party HUD: each player's health. The client sends its own as a single entry (the server overwrites `player`
+// and stores it); the server relays every stored entry to everybody with each Status tick (and at once on a change).
+// A partner that never sends one has no entry (the HUD then draws no bar). Dragon fields: 0 / 0 = not mounted /
+// unknown.
+struct PlayerVitals {
+    PlayerId player = kNoPlayer;
+    uint16_t hp = 0;
+    uint16_t maxHp = 0;
+    uint16_t dragonHp = 0;
+    uint16_t dragonMaxHp = 0;
+};
+struct Vitals {
+    static constexpr MsgType kType = MsgType::Vitals;
+    std::vector<PlayerVitals> entries; // at most kMaxStatusPlayers
+    void write(ByteWriter& w) const;
+    bool read(ByteReader& r);
+};
+
+// Client to server, reliable, during the Results phase: what the results screen's buttons ask for. Honoured only from
+// the host (the longest connected player); the server answers with the usual PhaseChange / MatchConfig messages.
+enum class ResultsChoice : uint8_t {
+    BackToLobby = 1, // everybody returns to the lobby (also what the results timer does on its own)
+    NextMap = 2,     // the next map of the server's rotation (co-op: the same level again), then the match start
+    Rematch = 3,     // the same map and rules again, then the match start
+};
+struct ResultsAction {
+    static constexpr MsgType kType = MsgType::ResultsAction;
+    ResultsChoice choice = ResultsChoice::BackToLobby;
+    void write(ByteWriter& w) const;
+    bool read(ByteReader& r);
+};
+
+// Map vote on the results screen (no version bump, older peers drop the unknown types). The server picks up to
+// kMaxVoteCandidates maps of its rotation the mode fits when the results start and broadcasts them with a tally on
+// every change; when the results end the leading map (ties: the lowest index) becomes the next map.
+constexpr size_t kMaxVoteCandidates = 3;
+constexpr uint8_t kNoVote = 0xFF;
+struct MapVote {
+    static constexpr MsgType kType = MsgType::MapVote;
+    uint8_t choice = kNoVote; // candidate index, kNoVote withdraws the vote
+    void write(ByteWriter& w) const;
+    bool read(ByteReader& r);
+};
+struct MapVoteState {
+    static constexpr MsgType kType = MsgType::MapVoteState;
+    std::vector<std::string> candidates; // map names (ArenaDef::name), at most kMaxVoteCandidates; empty = no vote
+    std::vector<uint8_t> tally;          // votes per candidate
+    uint8_t winner = kNoVote;            // set once the vote is decided
     void write(ByteWriter& w) const;
     bool read(ByteReader& r);
 };

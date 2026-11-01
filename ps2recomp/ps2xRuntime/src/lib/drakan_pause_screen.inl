@@ -835,3 +835,53 @@ void installPauseScreenHooks(PS2Runtime& rt) {
         ilog("[pause-screen] 2bea48 / 2be9a8 missing: widget changes during a hidden draw are not followed\n");
     }
 }
+
+// A match ends for this player on its own (the results screen: the host chose Back to lobby / Next map / Rematch, or
+// the player pressed Leave), but the game is still in the match level. It goes to the title the way the player would:
+// START opens the pause menu and the modern pause menu's Quit to Title action answers the native box (pauseExecute
+// above). The request lives in drakan_netplay (returnToTitleRequested) until the title is the active screen.
+void autoTitleTick(int screen, bool gameplay) {
+    (void)gameplay;
+    static int frames = 0, lastTap = -1000;
+    static bool forced = false, wasModern = false;
+    auto& sh = drakan_pause_screen::shared();
+    if (!drakan_netplay::returnToTitleRequested()) {
+        frames = 0;
+        return;
+    }
+    const int titleId = static_cast<int>(gameui::addr::gui::kScreenTitle);
+    const auto finish = [&](const char* why) {
+        ilog("[in] auto return to the title: %s (frame %d)\n", why, frames);
+        drakan_netplay::clearReturnToTitle();
+        if (forced)
+            drakan_pause_screen::setEnabled(wasModern);
+        forced = false;
+        frames = 0;
+    };
+    if (screen == titleId) {
+        finish("the title is up");
+        return;
+    }
+    if (++frames > 60 * 45) {
+        finish("gave up");
+        return;
+    }
+    if (!forced) {
+        wasModern = drakan_pause_screen::enabled();
+        forced = true;
+        drakan_pause_screen::setEnabled(true); // the executor of Quit to Title belongs to the modern pause menu
+    }
+    if (g_pause.screen && !g_pause.fallBack && sh.active.load()) {
+        if (!g_pause.action && sh.actions.size() == 0 && frames - lastTap > 30) {
+            gameui::PauseAction a;
+            a.kind = gameui::PauseActionKind::QuitToTitle;
+            sh.actions.push(a);
+            lastTap = frames;
+            ilog("[in] auto return to the title: Quit to Title queued (frame %d)\n", frames);
+        }
+    } else if (screen < 0 && frames - lastTap > 90) { // (not `gameplay`: an unfocused window never counts as playing)
+        module().injectPadTap(Pad::START, 4);
+        lastTap = frames;
+        ilog("[in] auto return to the title: START (frame %d)\n", frames);
+    }
+}

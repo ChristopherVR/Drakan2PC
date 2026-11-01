@@ -6,6 +6,7 @@
 #include "drakan_ghost.h"
 #include "drakan_levelchange.h"
 #include "drakan_lifecycle.h"
+#include "drakan_modes.h"
 #include "drakan_pvp.h"
 #include "drakan_region.h"
 #include "net/MatchClient.h"
@@ -130,7 +131,7 @@ void netLog(const char* fmt, ...) {
 // ------------------------------------------------------------------------------------------------ session control
 
 struct Cmd {
-    enum Kind { Host, Join, Leave, Start, Ready, Chat, Kick } kind = Leave;
+    enum Kind { Host, Join, Leave, Start, Ready, Chat, Kick, Results, Vote } kind = Leave;
     HostConfig host;
     std::string addr, password, name, text;
     bool flag = false;
@@ -151,6 +152,13 @@ std::string loadedMods() {
 }
 std::mutex g_partyM;
 std::vector<CoopPartnerInfo> g_party;
+struct LocalVitals {
+    int hp = -1, hpMax = 0, dragonHp = 0, dragonMax = 0;
+};
+LocalVitals g_localVitals;             // guarded by g_partyM
+std::atomic<int> g_dragonHpNow{0};     // Arokh's health while the local player rides him (float at data+0x6b4), else 0
+std::atomic<int> g_dragonHpSeenMax{0}; // highest value seen this ride: the dragon has no max field we know
+std::vector<PartnerVitals> g_partnerVitals; // guarded by g_partyM
 bool g_partyComplete = false;
 std::mutex g_lanM;
 std::vector<LanServer> g_lan;
@@ -250,7 +258,8 @@ void setRedirect(const std::string& level, bool direct = false) {
     if (!g_redirectFn)
         return;
     if (level.empty() || (!direct && (level == kFirstLevel || level == drakan_game::firstLevel()))) {
-        // (the chosen game's own first level: New Game already opens it, for Order of the Flame through the campaign redirect)
+        // (the chosen game's own first level: New Game already opens it, for Order of the Flame through the campaign
+        // redirect)
         g_redirectFn("", "");
         g_redirectActive.store(false);
         g_redirectFrom.clear();
@@ -372,12 +381,12 @@ void runSession(const Cmd& c, drakan::net::ServerBrowser& browser, uint64_t& las
     const bool hosting = c.kind == Cmd::Host;
     const bool legacy = hosting ? c.host.autoStart : c.flag;
     std::string connectHost = "127.0.0.1";
-    uint16_t connectPort = hosting ? c.host.port : 0;
+    uint16_t connectPort = hosting ? (c.host.port ? c.host.port : basePort()) : 0;
     if (!hosting) {
         const size_t colon = c.addr.rfind(':');
         connectHost = colon == std::string::npos ? c.addr : c.addr.substr(0, colon);
-        const long p = colon == std::string::npos ? kDefaultPort : std::strtol(c.addr.c_str() + colon + 1, nullptr, 10);
-        connectPort = static_cast<uint16_t>(p > 0 && p < 65536 ? p : kDefaultPort);
+        const long p = colon == std::string::npos ? basePort() : std::strtol(c.addr.c_str() + colon + 1, nullptr, 10);
+        connectPort = static_cast<uint16_t>(p > 0 && p < 65536 ? p : basePort());
     }
     auto publish = [&](const State& s) {
         std::lock_guard<std::mutex> l(g_stM);
@@ -413,16 +422,16 @@ void runSession(const Cmd& c, drakan::net::ServerBrowser& browser, uint64_t& las
         // The first free port from the requested one (a second instance on this PC takes the next, LAN discovery probes
         // ten ports).
         bool listening = false;
-        for (uint16_t p = c.host.port; p < c.host.port + 10 && serverT->available() && !listening; ++p) {
+        for (uint16_t p = connectPort; p < connectPort + 10 && serverT->available() && !listening; ++p) {
             serverT = std::make_unique<UdpTransport>();
             listening = serverT->listen(p);
         }
         if (listening)
             connectPort = serverT->localPort();
         if (!listening) {
-            netLog("host: cannot listen on UDP port %u", c.host.port);
+            netLog("host: cannot listen on UDP port %u", connectPort);
             base.conn = Conn::Rejected;
-            base.message = "Cannot listen on UDP port " + std::to_string(c.host.port) + " (already in use?)";
+            base.message = "Cannot listen on UDP port " + std::to_string(connectPort) + " (already in use?)";
             publish(base);
             while (!g_stop.load()) { // stay until the UI leaves, so it can show the message
                 Cmd x;
@@ -444,9 +453,17 @@ void runSession(const Cmd& c, drakan::net::ServerBrowser& browser, uint64_t& las
         if (const char* ml = std::getenv("DRAKAN_MP_MAP"); ml && *ml) // test aid: pick the map without the menu
             level = ml;
         so.config.level = (level.empty() ? std::string("any") : level).substr(0, kMaxLevelLength);
+        // A custom game mode (mp_maps.ini [mode <id>]): the server runs its scoring, teams and objectives, and the mode
+        // brings its game type (base) and limits.
+        const drakan::net::ModeDef* customMode = nullptr;
+        if (!c.host.modeId.empty() && so.config.mode != MatchMode::Coop)
+            customMode = drakan_modes::customModes().find(c.host.modeId);
+        if (customMode)
+            so.config.mode = customMode->teamBase ? MatchMode::TeamDeathmatch : MatchMode::Deathmatch;
         if (const drakan::net::ArenaDef* arena = drakan_arena::findMap(level);
             arena && so.config.mode != MatchMode::Coop &&
-            (so.config.mode == MatchMode::TeamDeathmatch ? arena->teamDeathmatch : arena->deathmatch)) {
+            (customMode ? drakan::net::modeFitsArena(*customMode, *arena)
+                        : (so.config.mode == MatchMode::TeamDeathmatch ? arena->teamDeathmatch : arena->deathmatch))) {
             // A multiplayer map: the server also owns its spawn choice and its pickups (MatchServer arena options).
             so.hasArena = true;
             so.arena = *arena;
@@ -459,6 +476,15 @@ void runSession(const Cmd& c, drakan::net::ServerBrowser& browser, uint64_t& las
         so.config.serverName = c.host.serverName.substr(0, kMaxServerNameLength);
         so.config.fragLimit = static_cast<uint16_t>(std::clamp(c.host.fragLimit, 0, 65535));
         so.config.timeLimitSec = static_cast<uint16_t>(std::clamp(c.host.timeLimitSec, 0, 65535));
+        so.modes = drakan_modes::customModes().modes();
+        if (customMode)
+            drakan::net::applyModeToConfig(*customMode, so.config); // its limits, respawn delay, start health
+        // "Next map" on the results screen walks the multiplayer maps (the server skips the ones the mode does not
+        // fit).
+        for (const drakan_arena::MapEntry& me : drakan_arena::maps())
+            if (me.installed)
+                if (const drakan::net::ArenaDef* a = drakan_arena::findMap(me.id))
+                    so.rotation.push_back(*a);
         // Test aids for the menu host (the menu offers 5 .. 200 kills and 5 .. 60 minutes): a short match for the
         // harness.
         if (const char* fl = std::getenv("DRAKAN_MP_FRAG_LIMIT"); fl && *fl)
@@ -543,6 +569,13 @@ void runSession(const Cmd& c, drakan::net::ServerBrowser& browser, uint64_t& las
                 case Cmd::Kick:
                     if (!client.sendKick(static_cast<PlayerId>(cmd.value)))
                         netLog("kick refused (not connected)");
+                    break;
+                case Cmd::Results:
+                    netLog("results: button %d%s", cmd.value,
+                           client.sendResultsAction(static_cast<ResultsChoice>(cmd.value)) ? "" : " (not sent)");
+                    break;
+                case Cmd::Vote:
+                    client.sendMapVote(cmd.value < 0 ? drakan::net::kNoVote : static_cast<uint8_t>(cmd.value));
                     break;
                 case Cmd::Chat:
                     client.sendChat(cmd.text);
@@ -683,6 +716,12 @@ void runSession(const Cmd& c, drakan::net::ServerBrowser& browser, uint64_t& las
                        sc->teamKills[0], sc->teamKills[1]);
             } else if (const auto* pc = std::get_if<PhaseChange>(&ev)) {
                 drakan_pvp::onServerPhase(static_cast<uint8_t>(pc->phase));
+                if (pc->byHost && pc->phase == MatchPhase::Lobby) {
+                    // The host chose from the results screen (back to the lobby, next map or rematch): this game still
+                    // sits in the match level, so it goes to the title, where the lobby and the next load are.
+                    netLog("host chose from the results: returning to the title");
+                    requestReturnToTitle();
+                }
                 if (pc->phase == MatchPhase::Results) {
                     const MatchOutcome o = client.outcome();
                     std::string rows;
@@ -862,6 +901,45 @@ void runSession(const Cmd& c, drakan::net::ServerBrowser& browser, uint64_t& las
                 ++statSent;
         }
 
+        // Co-op health: own to the server about 5 times a second (and at once on a change), the partners' into the
+        // party panel's feed.
+        {
+            static uint64_t lastVitals = 0;
+            static LocalVitals sentV;
+            LocalVitals lv;
+            std::vector<PartnerVitals> pv;
+            if (connected)
+                for (const auto& kv : client.roster())
+                    if (kv.first != client.playerId() && kv.second.hasVitals)
+                        pv.push_back({kv.first, kv.second.vitals.hp, kv.second.vitals.maxHp, kv.second.vitals.dragonHp,
+                                      kv.second.vitals.dragonMaxHp});
+            {
+                std::lock_guard<std::mutex> l(g_partyM);
+                lv = g_localVitals;
+                if (pv.size() != g_partnerVitals.size() ||
+                    !std::equal(pv.begin(), pv.end(), g_partnerVitals.begin(),
+                                [](const PartnerVitals& a, const PartnerVitals& b) {
+                                    return a.player == b.player && a.hp == b.hp;
+                                }))
+                    for (const PartnerVitals& e : pv)
+                        netLog("vitals: player %d hp %d / %d", e.player, e.hp, e.hpMax);
+                g_partnerVitals = std::move(pv);
+            }
+            const bool changed = lv.hp != sentV.hp || lv.hpMax != sentV.hpMax || lv.dragonHp != sentV.dragonHp;
+            if (connected && lv.hp >= 0 && (changed || now - lastVitals >= 200) && now - lastVitals >= 60) {
+                lastVitals = now;
+                if (changed)
+                    netLog("vitals: sent hp %d / %d", lv.hp, lv.hpMax);
+                sentV = lv;
+                drakan::net::PlayerVitals v;
+                v.hp = static_cast<uint16_t>(std::clamp(lv.hp, 0, 65535));
+                v.maxHp = static_cast<uint16_t>(std::clamp(lv.hpMax, 0, 65535));
+                v.dragonHp = static_cast<uint16_t>(std::clamp(lv.dragonHp, 0, 65535));
+                v.dragonMaxHp = static_cast<uint16_t>(std::clamp(lv.dragonMax, 0, 65535));
+                client.sendVitals(v);
+            }
+        }
+
         // Incoming: interpolated remote states for the EE thread.
         {
             std::lock_guard<std::mutex> l(g_s.m);
@@ -913,6 +991,9 @@ void runSession(const Cmd& c, drakan::net::ServerBrowser& browser, uint64_t& las
                 s.maxPlayers = cf.maxPlayers;
                 s.fragLimit = cf.fragLimit;
                 s.timeLimitSec = cf.timeLimitSec;
+                s.modeId = cf.modeId;
+                s.teamCount = client.teamCount();
+                s.hostId = client.hostPlayer() != kNoPlayer ? client.hostPlayer() : 1;
                 s.selfId = client.playerId();
                 {
                     uint32_t ms = 0;
@@ -925,12 +1006,13 @@ void runSession(const Cmd& c, drakan::net::ServerBrowser& browser, uint64_t& las
                     Player p;
                     p.id = kv.first;
                     p.name = kv.second.name;
-                    p.team = kv.second.team < 2 ? kv.second.team : -1;
+                    p.team = kv.second.team < kMaxTeams ? kv.second.team : -1;
                     p.ready = kv.second.ready;
                     p.self = kv.first == client.playerId();
-                    p.host = kv.first == 1;
+                    p.host = static_cast<int>(kv.first) == s.hostId;
                     p.kills = kv.second.kills;
                     p.deaths = kv.second.deaths;
+                    p.score = kv.second.score;
                     if (!seenAt.count(p.id))
                         seenAt[p.id] = now;
                     p.timeSec = static_cast<int>((now - seenAt[p.id]) / 1000);
@@ -970,15 +1052,28 @@ void runSession(const Cmd& c, drakan::net::ServerBrowser& browser, uint64_t& las
                 b.timeLimitSec = cf.timeLimitSec;
                 b.teamKills[0] = client.teamKills(0);
                 b.teamKills[1] = client.teamKills(1);
+                b.modeId = cf.modeId;
+                b.teamCount = client.teamCount();
+                for (size_t t = 0; t < 4; ++t)
+                    b.teamScore[t] = client.teamScore(static_cast<uint8_t>(t));
+                for (size_t i = 0; i < client.mapVote().candidates.size(); ++i) {
+                    b.voteNames.push_back(client.mapVote().candidates[i]);
+                    b.voteTally.push_back(i < client.mapVote().tally.size() ? client.mapVote().tally[i] : 0);
+                }
+                b.voteMine = client.myMapVote() == kNoVote ? -1 : client.myMapVote();
+                b.voteWinner = client.mapVote().winner == kNoVote ? -1 : client.mapVote().winner;
+                b.selfHost = client.hostPlayer() != kNoPlayer ? client.hostPlayer() == client.playerId()
+                                                              : client.playerId() == 1;
                 for (const ScoreRow& r : [&] {
                          std::vector<ScoreRow> rows;
                          for (const drakan::net::ScoreRow& n : client.scoreboard()) {
                              ScoreRow r;
                              r.id = n.player;
                              r.name = n.name;
-                             r.team = n.team < 2 ? n.team : -1;
+                             r.team = n.team < kMaxTeams ? n.team : -1;
                              r.kills = n.kills;
                              r.deaths = n.deaths;
+                             r.score = n.points();
                              r.health = n.health;
                              r.alive = n.alive;
                              for (const Player& pl : boardRoster)
@@ -1014,7 +1109,7 @@ void runSession(const Cmd& c, drakan::net::ServerBrowser& browser, uint64_t& las
                     b.over = true;
                     b.tie = o.tie;
                     b.winnerId = o.winner;
-                    b.winnerTeam = o.winningTeam < 2 ? o.winningTeam : -1;
+                    b.winnerTeam = o.winningTeam < kMaxTeams ? o.winningTeam : -1;
                     if (o.winner != kNoPlayer)
                         for (const ScoreRow& r : b.rows)
                             if (r.id == o.winner)
@@ -1126,6 +1221,8 @@ struct RemoteView {
     double tickRate = 60.0; // sender world ticks per second, smoothed
     int ghostId = 0;
     int dragonId = 0; // the partner's Arokh while the partner is mounted (a second, visual-only dragon body)
+    world::PlayerPose lastDragonPose; // the dragon's last mounted pose (where a dismounted dragon is parked)
+    bool dragonParked = false; // the partner dismounted: the dragon body stays where it landed (last mounted pose)
     double dragonRetryAt = 0;
     uint16_t character = 0; // the stand-in character the ghost was spawned as (PlayerState.character)
     bool wasVisible = false;
@@ -1148,8 +1245,11 @@ void publishLoading() {
 // The level / save is being replaced: drakan_ghost destroys the actors itself, we only drop our ids.
 void forgetGhosts() {
     for (auto& kv : g_views) {
+        if (kv.second.ghostId)
+            netLog("ghost of player %u removed (local level change or save)", kv.first);
         kv.second.ghostId = 0;
         kv.second.dragonId = 0;
+        kv.second.dragonParked = false;
         kv.second.wasVisible = false;
         kv.second.buffer.clear();
         kv.second.haveSample = false;
@@ -1171,6 +1271,7 @@ void hide(drakan::net::PlayerId id, RemoteView& v, const char* why) {
     if (v.dragonId) {
         drakan_ghost::destroy(v.dragonId);
         v.dragonId = 0;
+        v.dragonParked = false;
     }
     if (v.ghostId) {
         drakan_ghost::destroy(v.ghostId);
@@ -1280,6 +1381,37 @@ void kickPlayer(int playerId) {
     pushCmd(std::move(c));
 }
 
+void voteMap(int candidate) {
+    if (!g_inSession.load() || candidate < -1 || candidate > 2)
+        return;
+    Cmd c;
+    c.kind = Cmd::Vote;
+    c.value = candidate;
+    pushCmd(std::move(c));
+}
+
+void resultsAction(int choice) {
+    if (!g_inSession.load() || choice < 1 || choice > 3)
+        return;
+    Cmd c;
+    c.kind = Cmd::Results;
+    c.value = choice;
+    pushCmd(std::move(c));
+}
+
+namespace {
+std::atomic<bool> g_returnToTitle{false};
+}
+void requestReturnToTitle() {
+    g_returnToTitle.store(true);
+}
+bool returnToTitleRequested() {
+    return g_returnToTitle.load();
+}
+void clearReturnToTitle() {
+    g_returnToTitle.store(false);
+}
+
 void pickCharacter(uint16_t id) {
     drakan_coop_character::setSelected(id);
 }
@@ -1287,6 +1419,20 @@ void pickCharacter(uint16_t id) {
 void setLoadedMods(const std::string& names) {
     std::lock_guard<std::mutex> l(g_modsM);
     g_mods = names;
+}
+
+void setLocalVitals(int hp, int hpMax, int dragonHp, int dragonMax) {
+    std::lock_guard<std::mutex> l(g_partyM);
+    if (dragonMax <= 0 &&
+        g_dragonHpSeenMax.load() > 0) { // the netplay layer reads Arokh's health itself (mounted only)
+        dragonHp = g_dragonHpNow.load();
+        dragonMax = g_dragonHpSeenMax.load();
+    }
+    g_localVitals = {hp, hpMax, dragonHp, dragonMax};
+}
+std::vector<PartnerVitals> partnerVitals() {
+    std::lock_guard<std::mutex> l(g_partyM);
+    return g_partnerVitals;
 }
 
 void setCoopParty(const std::vector<CoopPartnerInfo>& partners, bool levelComplete) {
@@ -1736,6 +1882,51 @@ world::PlayerPose riderPose(const world::PlayerPose& dragon) {
     return b;
 }
 
+// Test aid (a ground level's real Arokh is parked far from the start): DRAKAN_COOP_FAKE_MOUNT=on1,off1[,on2,off2...]
+// (seconds after the first pose) publishes the local player as mounted on a dragon at DRAKAN_COOP_FAKE_MOUNT_OFFSET
+// (x,y,z from Rynn, default 600,0,0) during each on..off window and as on foot between them. Only what the partners
+// are told changes; the local game is untouched.
+void fakeMount(world::PlayerPose& pose, double t) {
+    static std::vector<double> sched;
+    static float off[3] = {600.0f, 0.0f, 0.0f};
+    static double t0 = -1;
+    static bool init = false;
+    if (!init) {
+        init = true;
+        if (const char* e = std::getenv("DRAKAN_COOP_FAKE_MOUNT")) {
+            for (const char* c = e; *c;) {
+                char* end = nullptr;
+                sched.push_back(std::strtod(c, &end));
+                if (end == c)
+                    break;
+                c = *end == ',' ? end + 1 : end;
+            }
+        }
+        if (const char* e = std::getenv("DRAKAN_COOP_FAKE_MOUNT_OFFSET"))
+            std::sscanf(e, "%f,%f,%f", &off[0], &off[1], &off[2]);
+    }
+    if (sched.empty())
+        return;
+    if (t0 < 0)
+        t0 = t;
+    const double dt = t - t0;
+    bool on = false;
+    for (size_t i = 0; i + 1 < sched.size() + 1; i += 2)
+        if (dt >= sched[i] && (i + 1 >= sched.size() || dt < sched[i + 1]))
+            on = true;
+    if (!on)
+        return;
+    pose.mounted = true;
+    pose.position.x += off[0];
+    pose.position.y += off[1];
+    pose.position.z += off[2];
+    pose.pitch = pose.roll = 0;
+    const uint32_t hi = pose.lower.clip & 0xffff0000u;
+    const uint32_t hover = (hi ? hi : 0x20000u) | 0x663u; // Arokh's "Hover" clip of this level's SYSTEM database
+    pose.lower = pose.upper = {hover, static_cast<float>(std::fmod(dt, 1.0))};
+    pose.lowerMask = ~0u;
+}
+
 // DRAKAN_DRAGON_PROBE: the local player's rider seen from the dragon (the controlled actor is the dragon, its
 // data+0x4d8 holds the rider's registry ref): offset in the dragon's frame and the heading difference, one line a
 // second.
@@ -1776,6 +1967,104 @@ void probeRider(const uint8_t* rdram, const world::PlayerPose& dragon, double t)
            f(ch + 0x58), dragon.lower.clip, dragon.lower.time);
 }
 
+// The clip a dismounted (parked) partner dragon plays: Arokh's landed idle (G_Idle_WingsW2, SYSTEM clip 0x880) after a
+// ground clip, his flying hover (F_hover2, 0x663) when the last mounted clip was a hover. The dragon clips are ADB
+// group 71 of SYSTEM.ADB; the engine loops them once started.
+uint32_t parkedDragonClip(uint32_t lastClip) {
+    const uint32_t low = lastClip & 0xffffu;
+    const bool hover = low == 0x663u || low == 0x899u || low == 0x63cu || low == 0x78cu;
+    return hover ? 0x663u : 0x880u;
+}
+
+// DRAKAN_DRAGON_HP_PROBE=1: while the controlled actor is Arokh, logs every word of his instance data (and of the
+// actor record) that reads as a health-like number, raw and decoded with the stats key (a research aid for the dragon's
+// HP field, coop-dragons-ground.md), once every 3 seconds.
+// Arokh's health: the float at his instance data + 0x6b4 (the engine getter 0x3d3b80 returns it, -1.0 without a dragon;
+// the delta function 0x3d3bc0 adds to it). Read every tick while mounted; 0x6b8 is not a max (the engine stores -1
+// there).
+void readDragonHp(const uint8_t* rdram, uint32_t handle, bool mounted) {
+    if (!mounted) {
+        g_dragonHpNow.store(0);
+        g_dragonHpSeenMax.store(0);
+        return;
+    }
+    const RdramMemory m(rdram);
+    const uint32_t inner = m.read32(handle + 0xfc);
+    const uint32_t data = inner ? m.read32(inner + 0x10) : 0;
+    if (!data)
+        return;
+    const uint32_t v = m.read32(data + 0x6b4);
+    float f;
+    std::memcpy(&f, &v, 4);
+    if (!(f >= 0.0f && f <= 60000.0f))
+        return;
+    const int hp = static_cast<int>(f + 0.5f);
+    if (hp != g_dragonHpNow.load())
+        netLog("dragon health %d (seen max %d)", hp, std::max(hp, g_dragonHpSeenMax.load()));
+    g_dragonHpNow.store(hp);
+    if (hp > g_dragonHpSeenMax.load())
+        g_dragonHpSeenMax.store(hp);
+}
+
+void probeDragonHp(const uint8_t* rdram, uint32_t handle, double t) {
+    static const bool on = std::getenv("DRAKAN_DRAGON_HP_PROBE") != nullptr;
+    static double last = -10;
+    if (!on || t - last < 3.0)
+        return;
+    last = t;
+    const RdramMemory m(rdram);
+    const uint32_t inner = m.read32(handle + 0xfc);
+    const uint32_t data = m.read32(inner + 0x10);
+    const uint32_t key = m.read32(g_globals.hpKey);
+    const auto rotr8 = [](uint32_t x) { return (x >> 8) | (x << 24); };
+    const auto asF = [](uint32_t v) {
+        float x;
+        std::memcpy(&x, &v, 4);
+        return x;
+    };
+    // DRAKAN_DRAGON_HP_POKE=<hex offset>:<float>[,..]: writes floats into the dragon's data once (test aid: which field
+    // moves the game's own health orb).
+    if (data) { // every probe tick: the engine heals / the value would otherwise be read before the HUD shows it
+        if (const char* e = std::getenv("DRAKAN_DRAGON_HP_POKE")) {
+            for (const char* q = e; q && *q;) {
+                unsigned off = 0;
+                float val = 0;
+                if (std::sscanf(q, "%x:%f", &off, &val) == 2) {
+                    uint32_t bits;
+                    std::memcpy(&bits, &val, 4);
+                    const uint32_t at = (data + off) & 0x1ffffffu;
+                    if (at + 4 <= PS2_RAM_SIZE)
+                        std::memcpy(const_cast<uint8_t*>(rdram) + at, &bits, 4);
+                    netLog("hp poke: data+%x = %.2f", off, static_cast<double>(val));
+                }
+                q = std::strchr(q, ',');
+                if (q)
+                    ++q;
+            }
+        }
+    }
+    netLog("hp probe: handle %x inner %x data %x key %x", handle, inner, data, key);
+    for (int pass = 0; pass < 3; ++pass) {
+        const uint32_t base = pass == 0 ? data : pass == 1 ? handle : inner;
+        const uint32_t len = pass == 0 ? 0x1000u : 0x200u;
+        if (!base)
+            continue;
+        for (uint32_t o = 0; o < len; o += 4) {
+            const uint32_t v = m.read32(base + o);
+            const int32_t dec = static_cast<int32_t>(rotr8(v ^ key));
+            const float f = asF(v);
+            const bool rawI = v >= 20 && v <= 20000, decI = dec >= 20 && dec <= 20000;
+            const bool rawF = f >= 20.0f && f <= 20000.0f;
+            if (rawI || decI || rawF)
+                netLog("hp probe: %s+%x raw %u float %.2f dec %d",
+                       pass == 0   ? "data"
+                       : pass == 1 ? "actor"
+                                   : "inner",
+                       o, v, static_cast<double>(f), dec);
+        }
+    }
+}
+
 void beforePadMgr(const uint8_t* rdram) {
     if (!g_enabled.load(std::memory_order_relaxed) || !rdram)
         return;
@@ -1791,8 +2080,13 @@ void beforePadMgr(const uint8_t* rdram) {
     if (!transition)
         status = world::readPlayerPose(RdramMemory(rdram), g_globals, g_poseState, t, ++g_tick, pose);
     const bool posed = status == world::PoseStatus::Ok && myLevel != 0 && !transition;
+    if (posed && !pose.mounted)
+        fakeMount(pose, t);
     if (posed && pose.mounted)
         probeRider(rdram, pose, t);
+    readDragonHp(rdram, pose.handle, posed && pose.mounted);
+    if (posed && pose.mounted)
+        probeDragonHp(rdram, pose.handle, t);
     if (g_trace && posed)
         std::fprintf(stderr, "[nettrace-local %.4f] %.2f %.2f %.2f yaw %.3f lower %x@%.3f\n", t, pose.position.x,
                      pose.position.y, pose.position.z, pose.yaw, pose.lower.clip, pose.lower.time);
@@ -1880,9 +2174,12 @@ void beforePadMgr(const uint8_t* rdram) {
         if (!v.buffer.sampleAt(v.playTick / kTickHz, p))
             continue;
         if (p.mounted) {
-            p.position.x += g_dragonTestOffset[0];
-            p.position.y += g_dragonTestOffset[1];
-            p.position.z += g_dragonTestOffset[2];
+            // DRAKAN_DRAGON_TEST_SPREAD=1: partner N is drawn N times the offset away (three dragons side by side)
+            static const bool spread = std::getenv("DRAKAN_DRAGON_TEST_SPREAD") != nullptr;
+            const float k = spread ? static_cast<float>(kv.first) : 1.0f;
+            p.position.x += g_dragonTestOffset[0] * k;
+            p.position.y += g_dragonTestOffset[1] * k;
+            p.position.z += g_dragonTestOffset[2] * k;
         }
         v.wasVisible = true;
         if (v.ghostId && !ghostExists(v.ghostId)) {
@@ -1934,16 +2231,28 @@ void beforePadMgr(const uint8_t* rdram) {
                 v.dragonId = drakan_ghost::spawnDragon(&tr);
                 if (!v.dragonId)
                     v.dragonRetryAt = t + 0.5;
-                else
+                else {
+                    v.lastDragonPose = p;
+                    v.dragonParked = false;
+                }
+                if (v.dragonId)
                     netLog("dragon of player %u spawned (id %d) at %.0f %.0f %.0f, clips %x", kv.first, v.dragonId,
                            p.position.x, p.position.y, p.position.z, p.lower.clip);
             } else if (v.dragonId) {
+                if (v.dragonParked)
+                    netLog("dragon of player %u re-mounted", kv.first);
+                v.dragonParked = false;
                 drakan_ghost::setPose(v.dragonId, p);
+                v.lastDragonPose = p;
             }
-        } else if (v.dragonId) { // dismounted (or the body is gone): Arokh stays behind in the partner's world only
-            drakan_ghost::destroy(v.dragonId);
-            netLog("dragon of player %u removed (dismounted)", kv.first);
-            v.dragonId = 0;
+        } else if (v.dragonId && !v.dragonParked) {
+            // Dismounted: the partner's Arokh stays where it landed (it is parked in the partner's own world too);
+            // the rider body is already on foot (the pose we receive is Rynn's again). Re-mounting reuses the body.
+            v.dragonParked = true;
+            drakan_ghost::setPose(v.dragonId, v.lastDragonPose);
+            drakan_ghost::setAnimFree(v.dragonId, parkedDragonClip(v.lastDragonPose.lower.clip));
+            netLog("dragon of player %u parked (dismounted) at %.0f %.0f %.0f", kv.first, v.lastDragonPose.position.x,
+                   v.lastDragonPose.position.y, v.lastDragonPose.position.z);
         }
         ++shown;
     }

@@ -63,7 +63,7 @@ as the NPC:
   inspected up close (the walking partner is small in the screenshots); attack, hit and death clips are mapped but not seen.
 * Level changes, saves and respawn on character change use the existing ghost lifecycle; the registry slot check of Rynn ghosts does
   not apply to stand-ins (they are tested by vtable and the dying flag, a stand-in's `ref` was valid in the run).
-* Not done: weapons on stand-ins (no Rynn hand bones, `startWeaponChange` skips them), the joiner's own body (stays Rynn),
+* Weapons on stand-ins: done 2026-11-01 (see `docs/journal/2026-11-01/coop-standin-weapons.md`). Not done: the joiner's own body (stays Rynn),
   HP / hit reactions of the stand-in (inert like every ghost), the character-select UI (roster API only).
 * Creature keying skips ghost handles (`drakan_coop.cpp keyCreatures`): an NPC stand-in is type 7 with HP and would otherwise
   look like a placed creature.

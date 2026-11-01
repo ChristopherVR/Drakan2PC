@@ -69,6 +69,19 @@ my_mod/
   ODBs the level pulls in, so a clone of an existing level works with no extra files. A level is only registered when
   its LVL exists on the merged disc. `LEVELLST.TXT` is rebuilt (original lines plus one CRLF line per level, no duplicates)
   and served to the game; a list the game reads once at start therefore contains the new level.
+* **Level copies** (what the editor's "copy a level" exports): the manifest also carries
+  `level_copies = ["City Copy = Level 1D - City of the Damned"]` (`Title = disc level`, top-level key), reported as
+  `ExtraLevel::copyOf`. The runtime only uses it to name the copy's exits like the source's (`drakan_levelchange`
+  `registerLevelCopy`). The copy's folder must hold the splat files under **both** names: `<copy>TS.*` (6 characters of the
+  mangled copy title + `TS`, what the New Game redirect of a play test asks for) and `<source>TS.*` (`LEVEL1TS.*`: the LVL's
+  dependency table still says `<source level>_splats`, which is what the game opens when the copy is entered through an
+  exit). A missing `.DB`/`.TXD` there crashed the load (journal 2026-11-01/level-copy-campaign.md).
+* **Pointing an exit at a copy**: an exit's destination is a level XDB string, `Levels\<name>\<name>.lvl`; override it with
+  `overrides/LEVEL1ON.XDB/0400_<id>_1.bin` (text in all language slots) and the game's own transition loads the copy by that
+  path, no runtime table involved. The string is shared by every exit that uses it; the editor's exit picker therefore
+  offers "Only this exit" (default): it adds a **new string** to the level XDB for that one exit and points the exit
+  object's own `Transition To...` parameter at it (string id in the offset half of the dword, length 0, exactly like the
+  class default), so the other exits of the class keep the shared string.
 * **`ModManager::extraLevels()`** (valid after `installFiles`) returns `std::vector<ExtraLevel>{name, modId, path,
   listIndex}` for menus (std-only API). `ModManager::status()` entries gained `files`, `added`, `levels` counters.
 * Order of work in `installFiles`: whole files, then entry patches on the resulting files (so a pack can ship a file and a
@@ -209,6 +222,17 @@ commit 048b136 also dropped `overrides/<ODB>/0103` (check `rebuilt with N entry 
 `text.ini` still only patches strings that exist; adding a string always goes through `new/`.
 The editor's Strings and Quests panels write exactly these files (editor-core `story.ts`, `buildStoryPackFiles`).
 
+### Shops (vendors)
+
+| What | File | Entry | Note |
+| --- | --- | --- | --- |
+| a shop's stock list and price modifiers | `<LEVEL>.LVL` | the object list (`0020`), object parameters of the `0x100ac` object | `Objects For Infinite Sale`, `Objects For Sale`, `Item Sale Price Mod`, `Item Buy Price Mod` (the editor's Vendors tab, `docs/reference/level-format.md` section 16) |
+| the price of an item (every shop that sells it) | `RESOURES.ODB` / `MAGIC.ODB` | `0102/<item class id>/<group>`, field `Cost to Buy (in Gold)` | in-place patch of one data dword, so the container is rebuilt with the same size |
+
+**Verified in game** (2026-11-01, `scripts/harness/vendor_shop.py`): with both entries the Surdana blacksmith offers an added Iron Mace
+and the Rusty Short Sword costs 7 gold instead of 165 in the shop screen; buying it takes exactly 7 gold. Journal:
+`docs/journal/2026-11-01/vendor-shops.md`.
+
 ### What a pack can add (custom weapons and models)
 
 Evidence and open questions: [mods-custom-content](../journal/2026-10-31/mods-custom-content.md). In short: a new
@@ -251,6 +275,12 @@ What the runtime does with it (`drakan_game.cpp`):
 * **Title menu**: when a campaign is installed, a card "Choose your game" (Drakan / Order of the Flame) opens with the title
   and again after Back on the main page; Esc on the card keeps the current game. The main menu (New Game, Load Game,
   Continue, Multiplayer, Options ...) then runs for the chosen game. The label under the menu names it.
+* **Title art**: the native title art carries the Drakan 2 logo, so while Order of the Flame is chosen the menu draws a text
+  plaque over it ("DRAKAN" and the part of `campaign_name` after "Drakan: ", i.e. "Order of the Flame"). `campaign_name` is
+  the only manifest key involved; a pack-supplied title image (`campaign_title_image`) is not implemented (the text plaque
+  is generated, no original art ships). Drakan 2 keeps the native art.
+* **Co-op**: New Game > Co-op hosts/joins on the campaign's start level (`drakan_game::firstLevel()`, level list = start
+  level then the pack's other levels); the host's level changes follow the pack's own exits.
 * **New Game** in Order of the Flame redirects the disc's opening cut scene level (`Level 0 - Intro`, which New Game opens
   first, then Level 1A) to the campaign start level at the file layer, so the Drakan 2 movie / cut scene never plays and the
   campaign's own intro level comes first. (Before this a pack only registered levels, New Game still ran the Drakan 2 flow
@@ -261,12 +291,6 @@ What the runtime does with it (`drakan_game.cpp`):
   Drakan card, so the two games' saves never mix. Continue / Load Game / Save Game / quick save and the save previews all
   follow the selected game because they use the one configured card root.
 * **Multiplayer and co-op are shared**: one Multiplayer menu for both games, maps of either game selectable (arena maps come
-* **Title art**: the native title art carries the Drakan 2 logo, so while Order of the Flame is chosen the menu draws a text
-  plaque over it ("DRAKAN" and the part of `campaign_name` after "Drakan: ", i.e. "Order of the Flame"). `campaign_name` is
-  the only manifest key involved; a pack-supplied title image (`campaign_title_image`) is not implemented (the text plaque
-  is generated, no original art ships). Drakan 2 keeps the native art.
-* **Co-op**: New Game > Co-op hosts/joins on the campaign's start level (`drakan_game::firstLevel()`, level list = start
-  level then the pack's other levels); the host's level changes follow the pack's own exits.
   from the disc's levels and from every pack's `maps/*.ini`). A multiplayer launch sets its own redirect; when it ends the
   campaign redirect of the chosen game is restored.
 * **Settings** `drakan.ini [general] game = ask | d2 | d1` (env `DRAKAN_GAME`): `ask` (default) offers the card when a

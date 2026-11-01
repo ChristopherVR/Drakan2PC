@@ -550,10 +550,11 @@ bool GameUiRenderer::image(ImDrawList* dl, const DrawCmd& c, const GameUiCanvas&
             if (skin_ && skin_->ready())
                 skin_->frame(dl, v(r.x, r.y), v(r.right(), r.bottom()), std::min(r.w, r.h) * 0.1f, col(c.color, fade));
             return true;
-        case ImageKind::LevelPreview: // a multiplayer map's picture (the glue's file texture), centre-cropped like
-                                      // these
-        case ImageKind::SavePreview:  // a save's picture (HD companion or the native thumbnail) or the title art: a
-        case ImageKind::TitleArt: {   // texture of the glue's (IconCrop::texture), drawn to fill the rect (centre crop)
+        case ImageKind::CharTurntable: // one frame of a co-op character's turntable strip (the glue's file texture)
+        case ImageKind::LevelPreview:  // a multiplayer map's picture (the glue's file texture), centre-cropped like
+                                       // these
+        case ImageKind::SavePreview:   // a save's picture (HD companion or the native thumbnail) or the title art: a
+        case ImageKind::TitleArt: { // texture of the glue's (IconCrop::texture), drawn to fill the rect (centre crop)
             IconCrop crop;
             if (!icons || !icons(c.image, crop) || !crop.texture || !(crop.w > 0 && crop.h > 0) || r.w <= 0 || r.h <= 0)
                 return false;

@@ -690,6 +690,7 @@ void hookPadMgrUpdate(uint8_t* rdram, R5900Context* c, PS2Runtime* rt) {
     uint32_t scripted = 0;
     std::memcpy(&scripted, rdram + drakan_region::guestAddress(0x4fbafcu), 4);
     drakan_pause::tickInput(m, scr, gameplay, scripted != 0);
+    autoTitleTick(scr, gameplay);
     // On foot the camera-look hook proves control; mounted on Arokh (Ravenshold starts in flight) it is not called,
     // so a long uninterrupted gameplay run counts as well.
     if (g_autoStart && !g_steady && drakan_input_flow::autostartReady(g_lookCalls.load(), g_playRun)) {
@@ -888,6 +889,15 @@ void hookPadMgrUpdate(uint8_t* rdram, R5900Context* c, PS2Runtime* rt) {
         g.write32(0x4fbaf4u, rotated ^ g.read32(0x4fe86cu));
         ilog("[in] debug skill points: %d\n", skillPoints);
         skillPoints = 0;
+    }
+    // Test aid (DRAKAN_DEBUG_GOLD=<n>): Rynn's gold, stored like the skill points (rotr8(*0x4fbae0 ^ *0x4fe86c)),
+    // written once she is under control (before DRAKAN_DEBUG_OPEN_SHOP opens a shop on the same frame).
+    static int debugGold = std::getenv("DRAKAN_DEBUG_GOLD") ? std::atoi(std::getenv("DRAKAN_DEBUG_GOLD")) : -1;
+    if (debugGold >= 0 && gameplay && scr < 0 && g_playRun > 150) {
+        const uint32_t n = uint32_t(debugGold), rotated = (n << 8) | (n >> 24);
+        g.write32(0x4fbae0u, rotated ^ g.read32(0x4fe86cu));
+        ilog("[in] debug gold: %d\n", debugGold);
+        debugGold = -1;
     }
     static const char* shopList = std::getenv("DRAKAN_DEBUG_OPEN_SHOP");
     const int shopRequest = shopList && *shopList ? std::atoi(shopList) : 0;

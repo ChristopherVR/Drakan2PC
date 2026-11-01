@@ -182,9 +182,9 @@ size_t ArenaCatalog::add(const std::string& text, const std::string& source, std
             cur.level = val;
         } else if (key == "game") { // which game the map belongs to (menu tag)
             const std::string g = lower(val);
-            cur.game = g == "d1" || g == "ootf" || g == "drakan 1" || g == "drakan1"   ? "Drakan 1"
+            cur.game = g == "d1" || g == "ootf" || g == "drakan 1" || g == "drakan1"     ? "Drakan 1"
                        : g == "d2" || g == "drakan 2" || g == "drakan2" || g == "drakan" ? "Drakan 2"
-                                                                                           : val.substr(0, 16);
+                                                                                         : val.substr(0, 16);
         } else if (key == "description") {
             cur.description = val;
         } else if (key == "modes") {
@@ -229,6 +229,18 @@ size_t ArenaCatalog::add(const std::string& text, const std::string& source, std
             } else {
                 cur.hasBounds = true;
                 std::copy(b, b + 4, cur.bounds);
+            }
+        } else if (key == "preview") {
+            float v[5] = {0, 0, 0, 0, 0};
+            bool ok = w.size() >= 3 && w.size() <= 5;
+            for (size_t i = 0; ok && i < w.size(); ++i)
+                ok = parseFloat(w[i], v[i]);
+            if (!ok || std::fabs(v[4]) > 80.0f) {
+                err(lineNo, "preview = x y z [yaw [pitch]] (degrees, pitch within 80)");
+                bad = true;
+            } else {
+                cur.hasPreview = true;
+                std::copy(v, v + 5, cur.preview);
             }
         } else if (key == "loadout") {
             for (const std::string& t : w) {

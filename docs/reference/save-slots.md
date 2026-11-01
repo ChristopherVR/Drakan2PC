@@ -136,4 +136,10 @@ modification time on the host by the time zone (the title's "newest save" orders
 - Backups written by the editor: `NAME.bak` first, then `.bak.1`, `.bak.2`; existing backups are never overwritten.
 - Rynn's record carries the carried-item list: 16-byte entries `{slot = entry id - 1, 1, -1, -1}` starting near +0x14de (Surdana sample), in
   inventory order; the game rebuilds the cells from it. A carried item record can be replaced in place by another class's record (keep the
-  serial, handle copies, +0x52..0x5e, +0x96 and position). A brand-new carried record is not accepted yet (crash after load).
+  serial, handle copies, +0x52..0x5e, +0x96 and position).
+- Add item works (2026-11-01, `journal/2026-11-01/save-add-item.md`). The "list" above is a word stream: Rynn's record holds the 24
+  cells column-major (position = column * 3 + row); an empty cell is one word (-1), an item two (slot, flag 1), so one more item makes
+  the record 4 bytes longer (the old `{slot,1,-1,-1}` view and in-place writes caused the `[memset] bad size` crash). Slot space: records
+  are slots 0..K-1, level statics follow at K + their position in the 0x24 table (0x21 pairs mirror it), so a new record needs the
+  first static dropped from 0x24 and 0x21. The u16 item count 8 bytes before the cell table goes up by one. Code:
+  `editor-core/src/save-items.ts` (`addItem`, `findCellStream`), UI `app/src/save/inventory.ts`.

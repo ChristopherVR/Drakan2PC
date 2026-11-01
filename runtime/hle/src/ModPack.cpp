@@ -1342,6 +1342,7 @@ size_t ModManager::load(const std::string& modsDir, const std::vector<std::pair<
     extraLevels_.clear();
     mapFiles_.clear();
     previewFiles_.clear();
+    uiFiles_.clear();
     texts_ = std::make_shared<XdbTextOverride>();
     textCount_ = 0;
     for (auto& c : cands) {
@@ -1370,7 +1371,13 @@ size_t ModManager::load(const std::string& modsDir, const std::vector<std::pair<
                     conflicts_.push_back({"level " + ln, d.modId, mid});
                 }
             if (!dup) {
-                levelDefs_.push_back({ln, mid, "\\Levels\\" + ln + "\\" + ln + ".lvl", -1});
+                std::string copyOf;
+                for (const std::string& lc : c.st.manifest.levelCopies) {
+                    const size_t eq = lc.find('=');
+                    if (eq != std::string::npos && lower(trim(lc.substr(0, eq))) == lower(ln))
+                        copyOf = trim(lc.substr(eq + 1));
+                }
+                levelDefs_.push_back({ln, mid, "\\Levels\\" + ln + "\\" + ln + ".lvl", -1, copyOf});
                 ++nLevels;
             }
         }
@@ -1378,15 +1385,26 @@ size_t ModManager::load(const std::string& modsDir, const std::vector<std::pair<
             const std::string lowPath = lower(it.path);
             const std::string mapsRoot = lower(c.prefix) + "maps/";
             if (lowPath.rfind(mapsRoot, 0) == 0 && lowPath.size() > mapsRoot.size() + 4 &&
-                lowPath.compare(lowPath.size() - 4, 4, ".ini") == 0 && lowPath.find('/', mapsRoot.size()) == std::string::npos) {
+                lowPath.compare(lowPath.size() - 4, 4, ".ini") == 0 &&
+                lowPath.find('/', mapsRoot.size()) == std::string::npos) {
                 std::vector<u8> text;
                 if (it.size <= (1u << 20) && c.archive->read(it.path, text))
                     mapFiles_.emplace_back("mod " + mid + ": " + it.path, std::string(text.begin(), text.end()));
                 continue;
             }
+            const std::string uiRoot = lower(c.prefix) + "ui/";
+            if (lowPath.rfind(uiRoot, 0) == 0 && lowPath.size() > uiRoot.size() + 4 &&
+                lowPath.compare(lowPath.size() - 4, 4, ".ini") == 0 &&
+                lowPath.find('/', uiRoot.size()) == std::string::npos) {
+                std::vector<u8> text;
+                if (it.size <= (1u << 20) && c.archive->read(it.path, text))
+                    uiFiles_.emplace_back("mod " + mid + ": " + it.path, std::string(text.begin(), text.end()));
+                continue;
+            }
             const std::string prevRoot = lower(c.prefix) + "previews/";
             if (lowPath.rfind(prevRoot, 0) == 0 && lowPath.size() > prevRoot.size() + 4 &&
-                lowPath.compare(lowPath.size() - 4, 4, ".png") == 0 && lowPath.find('/', prevRoot.size()) == std::string::npos) {
+                lowPath.compare(lowPath.size() - 4, 4, ".png") == 0 &&
+                lowPath.find('/', prevRoot.size()) == std::string::npos) {
                 std::vector<u8> png;
                 if (it.size <= (8u << 20) && c.archive->read(it.path, png))
                     previewFiles_.emplace_back(it.path.substr(prevRoot.size(), it.path.size() - prevRoot.size() - 4),
@@ -1539,8 +1557,9 @@ static bool isSrscFile(const std::string& name) {
 // they are applied by rebuilding the file. (Everything else is patched per request.)
 static bool isPlainReadContainer(const std::string& name) {
     const std::string up = upper(name);
-    // .LVL and .ODB are read by the guest with plain file reads (no 0x1202 entry requests are ever made for them: checked
-    // with DRAKAN_HLE_LOG on SYSTEM.ODB), so a per-request override never reaches them; their entry patches rebuild the file.
+    // .LVL and .ODB are read by the guest with plain file reads (no 0x1202 entry requests are ever made for them:
+    // checked with DRAKAN_HLE_LOG on SYSTEM.ODB), so a per-request override never reaches them; their entry patches
+    // rebuild the file.
     return up.size() > 4 && (up.compare(up.size() - 4, 4, ".LVL") == 0 || up.compare(up.size() - 4, 4, ".ODB") == 0);
 }
 static bool srscIndexOf(const std::vector<u8>& b, std::vector<SrscEntry>& out) {

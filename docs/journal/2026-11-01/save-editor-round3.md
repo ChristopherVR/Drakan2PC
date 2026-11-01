@@ -18,7 +18,7 @@
   Not proven: the game shows no visible "new" marker, and the quest table was not found in a RAM dump (class ids 0x10c7 / 0x1047
   with 0x20 stride not present at 0x4fbb70 nor anywhere), so the bit's effect after viewing was not observed.
 
-## Add item: still not working
+## Add item: still not working (SOLVED later the same day: see save-add-item.md)
 
 Tried ground-item clones: cloned the world dagger record (entry 262, resource 0x33cbc, state word differs from carried items:
 u16 at +0x56 is 0 on the ground and 2 when carried, +0x60 word differs too) four times beside Rynn at several heights, new ids, fresh

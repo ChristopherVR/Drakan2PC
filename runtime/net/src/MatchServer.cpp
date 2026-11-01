@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstring>
 
 namespace drakan::net {
 
@@ -132,6 +133,7 @@ void MatchServer::tick(uint64_t nowMs) {
                     broadcast(encode(ps), Channel::Reliable);
                 }
             }
+            tickObjectives();
             const uint32_t limit = options_.config.mode == MatchMode::Coop ? 0 : options_.config.timeLimitSec;
             if (limit > 0 && now_ - phaseStartMs_ >= uint64_t(limit) * 1000) {
                 log("time limit reached");
@@ -144,11 +146,8 @@ void MatchServer::tick(uint64_t nowMs) {
             break;
         }
         case MatchPhase::Results:
-            if (now_ - phaseStartMs_ >= options_.resultsDurationMs) {
-                for (auto& kv : players_)
-                    kv.second.alive = false;
-                setPhase(MatchPhase::Lobby);
-            }
+            if (now_ - phaseStartMs_ >= options_.resultsDurationMs)
+                leaveResults(false);
             break;
     }
     if (!players_.empty() && now_ - lastStatusMs_ >= kStatusIntervalMs) {
@@ -231,6 +230,15 @@ void MatchServer::handleMessage(PeerId peer, Peer& state, const std::vector<uint
         case MsgType::Character:
             onSetCharacter(p, data);
             break;
+        case MsgType::ResultsAction:
+            onResultsAction(p, data);
+            break;
+        case MsgType::MapVote:
+            onMapVote(p, data);
+            break;
+        case MsgType::Vitals:
+            onVitals(p, data);
+            break;
         default:
             break; // server-to-client types from a client are ignored
     }
@@ -247,12 +255,79 @@ void MatchServer::reject(PeerId peer, Peer& state, RejectReason why, const std::
     log("rejected join: " + text);
 }
 
-uint8_t MatchServer::pickTeam() const {
-    int count[2] = {0, 0};
+const ModeDef* MatchServer::activeMode() const {
+    if (options_.config.modeId.empty())
+        return nullptr;
+    for (const ModeDef& m : options_.modes)
+        if (m.id == options_.config.modeId)
+            return &m;
+    return nullptr;
+}
+
+uint8_t MatchServer::teamCount() const {
+    if (options_.config.mode != MatchMode::TeamDeathmatch)
+        return 0;
+    const ModeDef* m = activeMode();
+    return m ? std::min<uint8_t>(m->teamCount(), static_cast<uint8_t>(kMaxTeams)) : 2;
+}
+
+// The team with the fewest players (the lowest index on a tie); `except` is a player that is being placed.
+uint8_t MatchServer::pickTeam(PlayerId except) const {
+    int count[kMaxTeams] = {0, 0, 0, 0};
     for (const auto& kv : players_)
-        if (kv.second.team < 2)
+        if (kv.first != except && kv.second.team < kMaxTeams)
             ++count[kv.second.team];
-    return count[1] < count[0] ? 1 : 0;
+    const size_t teams = std::max<size_t>(teamCount(), 2);
+    size_t best = 0;
+    for (size_t t = 1; t < teams; ++t)
+        if (count[t] < count[best])
+            best = t;
+    return static_cast<uint8_t>(best);
+}
+
+// A match is about to start: every player has a team of the mode's team count (or none in a free for all). Players that
+// joined under other rules (the host changed the mode in the lobby) are placed now and the clients told.
+void MatchServer::fixTeams() {
+    const uint8_t teams = teamCount();
+    for (auto& kv : players_) {
+        ServerPlayer& p = kv.second;
+        const uint8_t want = teams == 0 ? kNoTeam : (p.team < teams ? p.team : pickTeam(p.id));
+        if (want == p.team)
+            continue;
+        p.team = want;
+        PlayerJoin j;
+        j.player = p.id;
+        j.team = p.team;
+        j.name = p.name;
+        broadcast(encode(j), Channel::Reliable);
+    }
+}
+
+Score MatchServer::makeScore(const ServerPlayer& p) const {
+    Score s;
+    s.player = p.id;
+    s.kills = p.kills;
+    s.deaths = p.deaths;
+    s.teamKills[0] = teamKills_[0];
+    s.teamKills[1] = teamKills_[1];
+    s.score = p.score;
+    for (size_t t = 0; t < kMaxTeams; ++t)
+        s.teamScore[t] = teamScore_[t];
+    return s;
+}
+
+// Objective points to a player (and its team).
+void MatchServer::award(ServerPlayer& p, int32_t points) {
+    p.score += points;
+    if (p.team < kMaxTeams)
+        teamScore_[p.team] += points;
+}
+
+void MatchServer::announce(const std::string& text) {
+    Chat c;
+    c.player = 0; // system line
+    c.text = text;
+    broadcast(encode(c), Channel::Reliable);
 }
 
 void MatchServer::onHello(PeerId peer, Peer& state, const std::vector<uint8_t>& data) {
@@ -298,7 +373,7 @@ void MatchServer::onHello(PeerId peer, Peer& state, const std::vector<uint8_t>& 
     p.id = id;
     p.peer = peer;
     p.name = h.name;
-    p.team = options_.config.mode == MatchMode::TeamDeathmatch ? pickTeam() : kNoTeam;
+    p.team = teamCount() > 0 ? pickTeam() : kNoTeam;
     p.joinSeq = ++joinCounter_;
     state.player = id;
 
@@ -323,15 +398,8 @@ void MatchServer::onHello(PeerId peer, Peer& state, const std::vector<uint8_t>& 
             rd.ready = true;
             sendTo(peer, encode(rd), Channel::Reliable);
         }
-        if (kv.second.kills || kv.second.deaths) {
-            Score s;
-            s.player = kv.first;
-            s.kills = kv.second.kills;
-            s.deaths = kv.second.deaths;
-            s.teamKills[0] = teamKills_[0];
-            s.teamKills[1] = teamKills_[1];
-            sendTo(peer, encode(s), Channel::Reliable);
-        }
+        if (kv.second.kills || kv.second.deaths || kv.second.score)
+            sendTo(peer, encode(makeScore(kv.second)), Channel::Reliable);
     }
     PlayerJoin self;
     self.player = id;
@@ -376,7 +444,12 @@ void MatchServer::removePlayer(PeerId peer) {
     if (it == players_.end())
         return;
     log("player " + std::to_string(id) + " '" + it->second.name + "' left");
+    for (PlayerId& c : flagCarrier_)
+        if (c == id)
+            c = kNoPlayer; // its flag is back home
     players_.erase(it);
+    if (votes_.erase(id) && phase_ == MatchPhase::Results)
+        sendVoteState();
     pit->second.player = kNoPlayer;
     PlayerLeave l;
     l.player = id;
@@ -398,7 +471,7 @@ void MatchServer::removePlayer(PeerId peer) {
     }
 }
 
-void MatchServer::setPhase(MatchPhase p) {
+void MatchServer::setPhase(MatchPhase p, bool byHost) {
     phase_ = p;
     phaseStartMs_ = now_;
     countdownActive_ = false;
@@ -406,6 +479,7 @@ void MatchServer::setPhase(MatchPhase p) {
     PhaseChange pc;
     pc.phase = p;
     pc.serverTimeMs = serverTimeMs();
+    pc.byHost = byHost;
     broadcast(encode(pc), Channel::Reliable);
     log(std::string("phase -> ") + phaseName(p));
     if (p == MatchPhase::Lobby)
@@ -421,9 +495,15 @@ void MatchServer::setPhase(MatchPhase p) {
 
 void MatchServer::resetMatch() {
     teamKills_[0] = teamKills_[1] = 0;
+    for (int32_t& t : teamScore_)
+        t = 0;
+    resetObjectives();
     for (auto& kv : players_) {
         ServerPlayer& p = kv.second;
         p.kills = p.deaths = 0;
+        p.score = 0;
+        p.objectives = 0;
+        p.carriedFlag = -1;
         p.alive = false;
         p.loaded = false;
         p.health = 0;
@@ -486,10 +566,29 @@ void MatchServer::sendStatus() {
     uint32_t ms = 0;
     st.countdown = countdown(ms);
     st.countdownMs = ms;
+    st.host = hostPlayer();
     for (const auto& kv : players_)
         if (st.pings.size() < kMaxStatusPlayers)
             st.pings.push_back({kv.first, kv.second.pingMs, kv.second.character});
     broadcast(encode(st), Channel::Unreliable);
+    Vitals v;
+    for (const auto& kv : players_)
+        if (kv.second.hasVitals && v.entries.size() < kMaxStatusPlayers)
+            v.entries.push_back(kv.second.vitals);
+    if (!v.entries.empty())
+        broadcast(encode(v), Channel::Unreliable);
+}
+
+void MatchServer::onVitals(ServerPlayer& p, const std::vector<uint8_t>& data) {
+    Vitals v;
+    if (!decode(data, v) || v.entries.size() != 1)
+        return;
+    const PlayerVitals old = p.vitals;
+    p.vitals = v.entries[0];
+    p.vitals.player = p.id;
+    p.hasVitals = true;
+    if (old.hp != p.vitals.hp || old.maxHp != p.vitals.maxHp || old.dragonHp != p.vitals.dragonHp)
+        lastStatusMs_ = 0; // a change reaches everybody at the next tick
 }
 
 void MatchServer::onStatusEcho(ServerPlayer& p, const std::vector<uint8_t>& data) {
@@ -541,6 +640,7 @@ void MatchServer::beginLoading() {
     startPending_ = false;
     if (phase_ != MatchPhase::Lobby || players_.empty())
         return;
+    fixTeams();
     resetMatch();
     outcome_ = MatchOutcome{};
     MatchConfigMsg c;
@@ -568,6 +668,7 @@ bool MatchServer::setConfig(const MatchConfigData& config) {
 void MatchServer::beginPlaying() {
     setPhase(MatchPhase::Playing);
     lastSnapshotMs_ = now_;
+    lastObjectiveMs_ = now_;
     resetPickups();
     for (auto& kv : players_) {
         kv.second.lastSpawn = -1;
@@ -584,7 +685,7 @@ void MatchServer::endMatch(uint64_t nowMs) {
 }
 
 void MatchServer::endMatchWith(EndReason reason) {
-    outcome_ = decideOutcome(scoreboard(), options_.config.mode, teamKills_, reason);
+    outcome_ = decideOutcome(scoreboard(), options_.config.mode, teamScore_, reason, teamCount());
     setPhase(MatchPhase::Results);
     if (outcome_.tie)
         log("match over: tie");
@@ -592,6 +693,7 @@ void MatchServer::endMatchWith(EndReason reason) {
         log("match over: player " + std::to_string(outcome_.winner) + " wins");
     else
         log("match over: team " + std::to_string(outcome_.winningTeam) + " wins");
+    beginVote();
 }
 
 std::vector<ScoreRow> MatchServer::scoreboard() const {
@@ -605,6 +707,8 @@ std::vector<ScoreRow> MatchServer::scoreboard() const {
         r.deaths = kv.second.deaths;
         r.health = kv.second.health;
         r.alive = kv.second.alive;
+        r.hasScore = true;
+        r.score = kv.second.score;
         rows.push_back(std::move(r));
     }
     sortScoreboard(rows);
@@ -644,6 +748,7 @@ void MatchServer::spawnPlayer(ServerPlayer& p) {
         p.spawnPos[1] = options_.arena.spawns[static_cast<size_t>(arenaSpawn)].pos[2];
         p.hasSpawnPos = true;
         p.spawnedAtMs = now_;
+        p.spawnPending = true;
     } else {
         r.spawnIndex = spawnCounter_++;
     }
@@ -652,14 +757,12 @@ void MatchServer::spawnPlayer(ServerPlayer& p) {
 }
 
 void MatchServer::scoreFor(const ServerPlayer& p) {
-    Score s;
-    s.player = p.id;
-    s.kills = p.kills;
-    s.deaths = p.deaths;
-    s.teamKills[0] = teamKills_[0];
-    s.teamKills[1] = teamKills_[1];
-    broadcast(encode(s), Channel::Reliable);
+    broadcast(encode(makeScore(p)), Channel::Reliable);
 }
+
+constexpr uint64_t kSpawnTrustMs = 8000; // arena: how long a fresh spawn point stands in for the player's position
+constexpr float kSpawnArrivalRadius = 3000.0f; // a state this close to the spawn point is the player arriving there
+constexpr uint32_t kResyncStreak = 12;         // agreeing speed-rejected states before the server believes a teleport
 
 void MatchServer::onPlayerState(ServerPlayer& p, const std::vector<uint8_t>& data) {
     if (phase_ != MatchPhase::Playing) // a dead player keeps publishing: its death animation is shown to the others
@@ -675,6 +778,16 @@ void MatchServer::onPlayerState(ServerPlayer& p, const std::vector<uint8_t>& dat
             ++stats_.statesRejected;
             return;
         }
+    // The spawn point stands in for a stale position right after a (re)spawn: a state that arrives there is the game
+    // having moved the player (her last published position is the old life's or the level start's). A level takes
+    // longer than any fixed window to load, so this holds until she has arrived once.
+    bool arrivedAtSpawn = false;
+    if (p.hasSpawnPos && p.spawnPending) {
+        const float sx = s.pos[0] - p.spawnPos[0], sz = s.pos[2] - p.spawnPos[1];
+        arrivedAtSpawn = sx * sx + sz * sz < kSpawnArrivalRadius * kSpawnArrivalRadius;
+        if (arrivedAtSpawn)
+            p.spawnPending = false;
+    }
     // A level change (levelHash differs) moves the player to another coordinate space: not a speed violation.
     const bool levelChanged = p.hasState && s.levelHash != p.state.levelHash;
     if (p.hasState && !p.acceptAnyState && !levelChanged && options_.maxSpeed > 0.0f) {
@@ -683,10 +796,23 @@ void MatchServer::onPlayerState(ServerPlayer& p, const std::vector<uint8_t>& dat
         const float dz = s.pos[2] - p.state.pos[2];
         const float dist = std::sqrt(dx * dx + dy * dy + dz * dz);
         const float dt = std::max<float>(static_cast<float>(now_ - p.stateAtMs), 20.0f) / 1000.0f;
-        if (dist / dt > options_.maxSpeed) {
+        if (dist / dt > options_.maxSpeed && !arrivedAtSpawn) {
+            // Several rejected states that follow each other at a believable speed are a teleport (a respawn the
+            // server was not told about, a level change on the client): resync instead of rejecting for ever.
+            const float rx = s.pos[0] - p.lastRejectPos[0], ry = s.pos[1] - p.lastRejectPos[1],
+                        rz = s.pos[2] - p.lastRejectPos[2];
+            const bool consistent =
+                p.rejectStreak > 0 && std::sqrt(rx * rx + ry * ry + rz * rz) / dt <= options_.maxSpeed;
+            p.rejectStreak = consistent ? p.rejectStreak + 1 : 1;
+            std::memcpy(p.lastRejectPos, s.pos, sizeof p.lastRejectPos);
             ++stats_.statesRejected;
-            return;
+            if (p.rejectStreak < kResyncStreak)
+                return;
+            log("player " + std::to_string(p.id) + " resynced to " + std::to_string(static_cast<int>(s.pos[0])) + " " +
+                std::to_string(static_cast<int>(s.pos[2])) + " after " + std::to_string(p.rejectStreak) +
+                " rejected states (stale last position)");
         }
+        p.rejectStreak = 0;
     }
     s.player = p.id;
     p.state = s;
@@ -722,7 +848,8 @@ void MatchServer::onHit(ServerPlayer& attacker, const std::vector<uint8_t>& data
         float dist = 0.0f;
         if (now_ < v.protectedUntilMs)
             why = "victim protected after its respawn";
-        else if (options_.config.mode == MatchMode::TeamDeathmatch && v.team == attacker.team)
+        else if (options_.config.mode == MatchMode::TeamDeathmatch && v.team == attacker.team &&
+                 !(activeMode() && activeMode()->friendlyFire))
             why = "friendly fire";
         else if (attacker.hasHit && now_ - attacker.lastHitAtMs < options_.minHitIntervalMs)
             why = "attacker too fast";
@@ -772,6 +899,21 @@ void MatchServer::onHit(ServerPlayer& attacker, const std::vector<uint8_t>& data
     ++attacker.kills;
     if (attacker.team < 2)
         ++teamKills_[attacker.team];
+    {
+        // Points: a kill is worth the mode's score_kill, a death its score_death; a team kill (friendly fire on) earns
+        // nothing. Without a custom mode that is one point per kill.
+        const ModeDef* mode = activeMode();
+        const int32_t perKill = mode ? mode->scoreKill : 1, perDeath = mode ? mode->scoreDeath : 0;
+        const bool teamKill = options_.config.mode == MatchMode::TeamDeathmatch && v.team == attacker.team;
+        if (!teamKill)
+            award(attacker, perKill);
+        award(v, perDeath);
+    }
+    if (v.carriedFlag >= 0 && static_cast<size_t>(v.carriedFlag) < flagCarrier_.size()) {
+        flagCarrier_[static_cast<size_t>(v.carriedFlag)] = kNoPlayer; // dropped: the flag is back home
+        announce(v.name + " lost the flag");
+    }
+    v.carriedFlag = -1;
     v.respawnAtMs = now_ + options_.config.respawnDelayMs;
     if (v.respawnAtMs == 0)
         v.respawnAtMs = 1;
@@ -792,15 +934,300 @@ void MatchServer::checkMatchEnd() {
         return;
     bool reached = false;
     if (options_.config.mode == MatchMode::TeamDeathmatch) {
-        reached = teamKills_[0] >= limit || teamKills_[1] >= limit;
+        for (size_t t = 0; t < std::max<size_t>(teamCount(), 2); ++t)
+            reached = reached || teamScore_[t] >= limit;
     } else {
         for (const auto& kv : players_)
-            if (kv.second.kills >= limit)
+            if (kv.second.score >= limit)
                 reached = true;
     }
     if (reached) {
         log("frag limit reached");
         endMatchWith(EndReason::FragLimit);
+    }
+}
+
+void MatchServer::returnToLobby(bool byHost) {
+    for (auto& kv : players_)
+        kv.second.alive = false;
+    setPhase(MatchPhase::Lobby, byHost);
+}
+
+// "Next map": the arena after the current one in options_.rotation that the match's mode fits (wrapping around).
+// False when there is none other than the current one (the caller then replays the same map).
+bool MatchServer::advanceMap() {
+    if (options_.rotation.empty() || options_.config.mode == MatchMode::Coop)
+        return false;
+    size_t cur = options_.rotation.size();
+    for (size_t i = 0; i < options_.rotation.size(); ++i)
+        if (options_.rotation[i].name == options_.config.level || options_.rotation[i].id == options_.config.level)
+            cur = i;
+    const ModeDef* mode = activeMode();
+    for (size_t step = 1; step <= options_.rotation.size(); ++step) {
+        const size_t i = (cur == options_.rotation.size() ? step - 1 : (cur + step) % options_.rotation.size());
+        const ArenaDef& a = options_.rotation[i];
+        if (i == cur)
+            break;
+        const bool fits = mode ? modeFitsArena(*mode, a)
+                               : (options_.config.mode == MatchMode::TeamDeathmatch ? a.teamDeathmatch : a.deathmatch);
+        if (!fits)
+            continue;
+        return applyArena(a);
+    }
+    return false;
+}
+
+// Makes `a` the match's map (lobby only, like setConfig).
+bool MatchServer::applyArena(const ArenaDef& a) {
+    const ModeDef* mode = activeMode();
+    MatchConfigData c = options_.config;
+    c.level = a.name;
+    c.startHealth = a.startHealth;
+    if (mode && mode->startHealth)
+        c.startHealth = mode->startHealth;
+    c.maxPlayers = std::max<uint8_t>(static_cast<uint8_t>(players_.size()),
+                                     std::min<uint8_t>(options_.config.maxPlayers, a.maxPlayers));
+    if (!setConfig(c))
+        return false;
+    options_.hasArena = true;
+    options_.arena = a;
+    log("next map: " + a.name);
+    return true;
+}
+
+// The vote opens with the results: up to kMaxVoteCandidates maps of the rotation that follow the current one and fit
+// the mode; with fewer than that the current map fills the list, so there are two or three choices (none when the
+// rotation offers no other map, in co-op or without a rotation).
+void MatchServer::beginVote() {
+    voteCands_.clear();
+    votes_.clear();
+    if (options_.rotation.empty() || options_.config.mode == MatchMode::Coop)
+        return;
+    const size_t n = options_.rotation.size();
+    size_t cur = n;
+    for (size_t i = 0; i < n; ++i)
+        if (options_.rotation[i].name == options_.config.level || options_.rotation[i].id == options_.config.level)
+            cur = i;
+    const ModeDef* mode = activeMode();
+    for (size_t step = 1; step <= n && voteCands_.size() < kMaxVoteCandidates; ++step) {
+        const size_t i = (cur == n ? step - 1 : (cur + step) % n);
+        if (i == cur)
+            break;
+        const ArenaDef& a = options_.rotation[i];
+        const bool fits = mode ? modeFitsArena(*mode, a)
+                               : (options_.config.mode == MatchMode::TeamDeathmatch ? a.teamDeathmatch : a.deathmatch);
+        if (fits)
+            voteCands_.push_back(a);
+    }
+    if (cur != n && !voteCands_.empty() && voteCands_.size() < kMaxVoteCandidates)
+        voteCands_.push_back(options_.rotation[cur]);
+    if (voteCands_.size() < 2) {
+        voteCands_.clear();
+        return;
+    }
+    sendVoteState();
+}
+
+int MatchServer::voteTally(size_t candidate) const {
+    int n = 0;
+    for (const auto& kv : votes_)
+        if (kv.second == candidate)
+            ++n;
+    return n;
+}
+
+// The leading candidate (ties: the lowest index), -1 without votes.
+int MatchServer::voteLeader() const {
+    int best = -1, bestN = 0;
+    for (size_t i = 0; i < voteCands_.size(); ++i) {
+        const int n = voteTally(i);
+        if (n > bestN) {
+            bestN = n;
+            best = static_cast<int>(i);
+        }
+    }
+    return best;
+}
+
+void MatchServer::sendVoteState(uint8_t winner) {
+    MapVoteState s;
+    for (size_t i = 0; i < voteCands_.size(); ++i) {
+        s.candidates.push_back(voteCands_[i].name);
+        s.tally.push_back(static_cast<uint8_t>(std::min(voteTally(i), 255)));
+    }
+    s.winner = winner;
+    broadcast(encode(s), Channel::Reliable);
+}
+
+void MatchServer::onMapVote(ServerPlayer& p, const std::vector<uint8_t>& data) {
+    MapVote v;
+    if (!decode(data, v) || phase_ != MatchPhase::Results || voteCands_.empty())
+        return;
+    if (v.choice == kNoVote)
+        votes_.erase(p.id);
+    else if (v.choice < voteCands_.size())
+        votes_[p.id] = v.choice;
+    else
+        return;
+    log("vote: player " + std::to_string(p.id) +
+        (v.choice == kNoVote ? std::string(" withdrew") : " voted " + voteCands_[v.choice].name));
+    sendVoteState();
+}
+
+// Results over: back to the lobby, on the map the vote chose (when anybody voted).
+bool MatchServer::leaveResults(bool byHost) {
+    const int w = voteLeader();
+    if (w >= 0)
+        sendVoteState(static_cast<uint8_t>(w));
+    returnToLobby(byHost);
+    bool applied = false;
+    if (w >= 0) {
+        const ArenaDef a = voteCands_[static_cast<size_t>(w)];
+        applied = applyArena(a);
+        log("vote result: " + a.name);
+    }
+    voteCands_.clear();
+    votes_.clear();
+    return applied;
+}
+
+// The results screen's buttons. Only the host (the longest connected player) decides; Leave is a disconnect, which
+// needs no message.
+void MatchServer::onResultsAction(ServerPlayer& p, const std::vector<uint8_t>& data) {
+    ResultsAction a;
+    if (!decode(data, a) || phase_ != MatchPhase::Results || p.id != hostPlayer())
+        return;
+    switch (a.choice) {
+        case ResultsChoice::BackToLobby:
+            log("results: back to the lobby (host)");
+            leaveResults(true);
+            break;
+        case ResultsChoice::NextMap:
+        case ResultsChoice::Rematch:
+            log(a.choice == ResultsChoice::NextMap ? "results: next map (host)" : "results: rematch (host)");
+            if (a.choice == ResultsChoice::NextMap) {
+                if (!leaveResults(true))
+                    advanceMap();
+            } else
+                returnToLobby(true);
+            startMatch(now_);
+            break;
+    }
+}
+
+void MatchServer::resetObjectives() {
+    const size_t n = options_.hasArena ? options_.arena.markers.size() : 0;
+    flagCarrier_.assign(n, kNoPlayer);
+    zones_.assign(n, ZoneState{});
+    lastObjectiveMs_ = now_;
+}
+
+// Capture and hold objectives of the active custom mode, on the arena's markers (docs/reference/netcode.md "Custom game
+// modes"). Capture: touching a flag marker that is not your team's takes it, bringing it to one of your team's base
+// markers scores `points + score_objective`; dying or leaving returns the flag. Hold: the only team (the only player in
+// a free for all) inside a zone for `seconds` scores the same; a contested or empty zone starts over.
+void MatchServer::tickObjectives() {
+    const ModeDef* mode = activeMode();
+    if (!mode || mode->objectives.empty() || !options_.hasArena || phase_ != MatchPhase::Playing)
+        return;
+    const std::vector<ArenaMarker>& markers = options_.arena.markers;
+    if (flagCarrier_.size() != markers.size())
+        resetObjectives();
+    const uint64_t dt = now_ >= lastObjectiveMs_ ? now_ - lastObjectiveMs_ : 0;
+    lastObjectiveMs_ = now_;
+    const auto inside = [](const ServerPlayer& p, const ArenaMarker& m, float radius) {
+        if (!p.alive || !p.hasState)
+            return false;
+        const float dx = p.state.pos[0] - m.pos[0], dz = p.state.pos[2] - m.pos[2];
+        return dx * dx + dz * dz <= radius * radius;
+    };
+    const ModeObjective* capture = nullptr;
+    for (const ModeObjective& o : mode->objectives)
+        if (o.kind == ModeObjective::Kind::Capture && !capture)
+            capture = &o;
+    if (capture) {
+        for (auto& kv : players_) {
+            ServerPlayer& p = kv.second;
+            if (p.carriedFlag < 0) {
+                for (size_t i = 0; i < markers.size(); ++i) {
+                    const ArenaMarker& m = markers[i];
+                    if (m.kind != ArenaMarker::Kind::Flag || flagCarrier_[i] != kNoPlayer)
+                        continue;
+                    if (m.team != 0 && p.team != kNoTeam && m.team == p.team + 1)
+                        continue; // a team does not take its own flag
+                    if (!inside(p, m, capture->radius > 0 ? capture->radius : m.radius))
+                        continue;
+                    flagCarrier_[i] = p.id;
+                    p.carriedFlag = static_cast<int>(i);
+                    announce(p.name + " took the flag");
+                    break;
+                }
+            } else {
+                const size_t f = static_cast<size_t>(p.carriedFlag);
+                for (size_t i = 0; i < markers.size(); ++i) {
+                    const ArenaMarker& m = markers[i];
+                    if (m.kind != ArenaMarker::Kind::Base)
+                        continue;
+                    if (m.team != 0 && p.team != kNoTeam && m.team != p.team + 1)
+                        continue; // another team's base
+                    if (!inside(p, m, capture->radius > 0 ? capture->radius : m.radius))
+                        continue;
+                    const int32_t pts = static_cast<int32_t>(capture->points) + mode->scoreObjective;
+                    award(p, pts);
+                    ++p.objectives;
+                    if (f < flagCarrier_.size())
+                        flagCarrier_[f] = kNoPlayer;
+                    p.carriedFlag = -1;
+                    announce(p.name + " captured the flag (+" + std::to_string(pts) + ")");
+                    scoreFor(p);
+                    checkMatchEnd();
+                    break;
+                }
+            }
+            if (phase_ != MatchPhase::Playing)
+                return;
+        }
+    }
+    for (const ModeObjective& o : mode->objectives) {
+        if (o.kind != ModeObjective::Kind::Hold)
+            continue;
+        for (size_t i = 0; i < markers.size(); ++i) {
+            const ArenaMarker& m = markers[i];
+            if (m.kind != ArenaMarker::Kind::Zone)
+                continue;
+            int holder = -1;
+            bool contested = false;
+            ServerPlayer* who = nullptr;
+            for (auto& kv : players_) {
+                ServerPlayer& p = kv.second;
+                if (!inside(p, m, o.radius > 0 ? o.radius : m.radius))
+                    continue;
+                const int key = p.team != kNoTeam ? p.team : 100 + p.id;
+                if (holder >= 0 && holder != key)
+                    contested = true;
+                holder = key;
+                who = &p;
+            }
+            ZoneState& z = zones_[i];
+            if (contested || holder < 0 || holder != z.holder) {
+                z.holder = contested ? -1 : holder;
+                z.heldMs = 0;
+                continue;
+            }
+            z.heldMs += dt;
+            if (z.heldMs < uint64_t(o.seconds) * 1000)
+                continue;
+            z.heldMs = 0;
+            const int32_t pts = static_cast<int32_t>(o.points) + mode->scoreObjective;
+            award(*who, pts);
+            ++who->objectives;
+            announce((who->team != kNoTeam ? std::string("Team ") + std::to_string(who->team + 1) : who->name) +
+                     " held the zone (+" + std::to_string(pts) + ")");
+            scoreFor(*who);
+            checkMatchEnd();
+            if (phase_ != MatchPhase::Playing)
+                return;
+        }
     }
 }
 
@@ -978,9 +1405,7 @@ void MatchServer::sendSnapshot() {
 
 // ---- PvP arena: spawn choice and pickups (docs/reference/netcode.md "Multiplayer maps") ----
 
-namespace {
-constexpr uint64_t kSpawnTrustMs = 8000; // arena: how long a fresh spawn point stands in for the player's position
-}
+namespace {}
 
 int MatchServer::chooseSpawn(const ServerPlayer& p) const {
     if (!options_.hasArena || options_.arena.spawns.empty())
@@ -1026,9 +1451,26 @@ void MatchServer::onPickupClaim(ServerPlayer& p, const std::vector<uint8_t>& dat
         log("pickup " + std::to_string(c.index) + " claim refused: already taken");
         return; // the claimer took it in its own world already: nothing to undo, both copies are gone
     }
-    if (options_.pickupClaimRange > 0 && p.hasState) {
-        const float dx = p.state.pos[0] - def.pos[0], dz = p.state.pos[2] - def.pos[2];
-        if (dx * dx + dz * dz > options_.pickupClaimRange * options_.pickupClaimRange) {
+    // Right after a (re)spawn the last published position is the old life's (or the level start's) until the game has
+    // moved the player to the spawn point: the spawn point stands in for it, so a claim from either is in reach.
+    const bool spawnFresh = p.hasSpawnPos && (p.spawnPending || now_ - p.spawnedAtMs < kSpawnTrustMs);
+    if (options_.pickupClaimRange > 0 && (p.hasState || spawnFresh)) {
+        const float r2 = options_.pickupClaimRange * options_.pickupClaimRange;
+        bool inReach = false;
+        if (spawnFresh) {
+            const float sx = p.spawnPos[0] - def.pos[0], sz = p.spawnPos[1] - def.pos[2];
+            inReach = sx * sx + sz * sz <= r2;
+        }
+        const float dx = p.hasState ? p.state.pos[0] - def.pos[0] : 0.0f;
+        const float dz = p.hasState ? p.state.pos[2] - def.pos[2] : 0.0f;
+        inReach = inReach || !p.hasState || dx * dx + dz * dz <= r2;
+        // The newest published position may be one the speed check refused (the player was just moved far by the game
+        // and the resync has not come yet): it is the freshest there is.
+        if (!inReach && p.rejectStreak > 0) {
+            const float rx = p.lastRejectPos[0] - def.pos[0], rz = p.lastRejectPos[2] - def.pos[2];
+            inReach = rx * rx + rz * rz <= r2;
+        }
+        if (!inReach) {
             log("pickup " + std::to_string(c.index) + " claim refused: player " + std::to_string(p.id) +
                 " is too far (distance " + std::to_string(static_cast<int>(std::sqrt(dx * dx + dz * dz))) +
                 ", player at " + std::to_string(static_cast<int>(p.state.pos[0])) + " " +

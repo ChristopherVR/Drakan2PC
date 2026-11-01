@@ -26,7 +26,8 @@ add_library(drakan_gameui STATIC
     src/SaveLoadScreen.cpp
     src/Multiplayer.cpp
     src/TitleScreen.cpp
-    src/UnifiedOptions.cpp)
+    src/UnifiedOptions.cpp
+    src/UiSkin.cpp)
 add_library(drakan::gameui ALIAS drakan_gameui)
 target_include_directories(drakan_gameui PUBLIC include)
 target_link_libraries(drakan_gameui PRIVATE drakan::options)
@@ -60,6 +61,11 @@ if(DRAKAN_BUILD_RUNTIME_TESTS)
     target_link_libraries(gameui_multiplayer_test PRIVATE drakan_gameui drakan::options)
     add_test(NAME gameui_multiplayer_test COMMAND gameui_multiplayer_test)
 
+    # The results screen's map vote (cards, click / Q / E, pictures).
+    add_executable(gameui_mapvote_test tests/gameui_mapvote_test.cpp)
+    target_link_libraries(gameui_mapvote_test PRIVATE drakan_gameui drakan::options)
+    add_test(NAME gameui_mapvote_test COMMAND gameui_mapvote_test)
+
     # SettingsPages: the modern PC Settings pages (navigation, cards, capture, the PauseScreen hook).
     add_executable(gameui_settings_test tests/gameui_settings_test.cpp)
     target_link_libraries(gameui_settings_test PRIVATE drakan_gameui drakan::options)
@@ -68,6 +74,12 @@ if(DRAKAN_BUILD_RUNTIME_TESTS)
     add_executable(gameui_saveload_test tests/gameui_saveload_test.cpp)
     target_link_libraries(gameui_saveload_test PRIVATE drakan_gameui drakan::options)
     add_test(NAME gameui_saveload_test COMMAND gameui_saveload_test)
+
+    # UI skin (gameui/UiSkin.h): parser, Theme / title / pause hooks, configs/ui/default.ini equals the defaults.
+    add_executable(gameui_skin_test tests/gameui_skin_test.cpp)
+    target_link_libraries(gameui_skin_test PRIVATE drakan_gameui drakan::options)
+    target_compile_definitions(gameui_skin_test PRIVATE "GAMEUI_REPO_ROOT=\"${DRAKAN_ROOT_DIR}\"")
+    add_test(NAME gameui_skin_test COMMAND gameui_skin_test)
 
     # Offline preview: writes the screens' draw lists (synthetic data, several aspects) as JSON lines for
     # tests/render_drawlist.py. Not a test; run by hand: gameui_preview <outdir>.

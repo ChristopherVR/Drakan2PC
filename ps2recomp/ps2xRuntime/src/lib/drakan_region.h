@@ -106,6 +106,11 @@ constexpr bool supports(Feature feature) {
 }
 
 uint32_t translateGuestAddress(uint32_t palAddress);
+
+// Prints once, when the profile is not the reference disc, that the multiplayer / co-op / arena / level-change /
+// lifecycle hooks stay off because they read unverified SCES-500.06 addresses, and how to fill the table
+// (analysis/scripts/mp_region_find.py). A no-op on the reference disc.
+void reportMultiplayerAvailability();
 inline uint32_t guestAddress(uint32_t palAddress) {
     if constexpr (build().identityAddresses)
         return palAddress;

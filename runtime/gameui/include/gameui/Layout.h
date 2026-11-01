@@ -46,6 +46,8 @@ std::string ellipsize(std::string_view text, float width, FontRole font, float s
 // gilded bronze edges, dark red-brown cells on bronze grid lines, a thin red selection trace, bone-ivory and a pale
 // blue-grey gem for ornaments; text in parchment ivory with gilt headings and bronze letter-spaced labels.
 struct Theme {
+    // Starts as the defaults below with the active UI skin (UiSkin.h) applied on top.
+    Theme();
     Color backdrop = rgba(9, 6, 4, 205);
     Color backdropEdge = rgba(0, 0, 0, 235); // vignette edge
     Color panel = rgba(21, 14, 10, 232);
@@ -69,6 +71,7 @@ struct Theme {
     Color hp = rgba(184, 50, 46);
     Color mana = rgba(74, 127, 216);
     Color xp = rgba(201, 164, 76);
+    Color hudAccent = rgba(226, 182, 92); // the in-game HUD's accent (respawn count, chat names, dragon bar)
     Color parchment = rgba(217, 201, 163, 245);
     Color ink = rgba(58, 42, 26);
     // design-unit font sizes

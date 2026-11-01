@@ -42,6 +42,8 @@ std::vector<ScoreRow> MatchClient::scoreboard() const {
         r.deaths = kv.second.deaths;
         r.health = kv.second.health;
         r.alive = kv.second.alive;
+        r.hasScore = true;
+        r.score = kv.second.score;
         rows.push_back(std::move(r));
     }
     sortScoreboard(rows);
@@ -53,17 +55,29 @@ MatchOutcome MatchClient::outcome() const {
     const std::vector<ScoreRow> rows = scoreboard();
     if (config_.fragLimit > 0) {
         bool hit = false;
-        if (config_.mode == MatchMode::TeamDeathmatch)
-            hit = teamKills_[0] >= config_.fragLimit || teamKills_[1] >= config_.fragLimit;
-        else
+        if (config_.mode == MatchMode::TeamDeathmatch) {
+            for (size_t t = 0; t < std::max<size_t>(teamCount(), 2); ++t)
+                hit = hit || teamScore_[t] >= config_.fragLimit;
+        } else {
             for (const ScoreRow& r : rows)
-                hit = hit || r.kills >= config_.fragLimit;
+                hit = hit || r.points() >= config_.fragLimit;
+        }
         if (hit)
             reason = EndReason::FragLimit;
     }
     if (reason == EndReason::Ended && config_.timeLimitSec > 0)
         reason = EndReason::TimeLimit;
-    return decideOutcome(rows, config_.mode, teamKills_, reason);
+    return decideOutcome(rows, config_.mode, teamScore_, reason, teamCount());
+}
+
+uint8_t MatchClient::teamCount() const {
+    if (config_.mode != MatchMode::TeamDeathmatch)
+        return 0;
+    uint8_t n = 2;
+    for (const auto& kv : roster_)
+        if (kv.second.team < kMaxTeams && kv.second.team + 1 > n)
+            n = static_cast<uint8_t>(kv.second.team + 1);
+    return n;
 }
 
 bool MatchClient::connect(const std::string& host, uint16_t port, uint64_t nowMs) {
@@ -76,6 +90,7 @@ bool MatchClient::connect(const std::string& host, uint16_t port, uint64_t nowMs
     connectStartMs_ = now_ = nowMs;
     self_ = kNoPlayer;
     roster_.clear();
+    host_ = kNoPlayer;
     buffers_.clear();
     haveClock_ = false;
     sendSequence_ = 0;
@@ -137,10 +152,34 @@ bool MatchClient::sendCharacter(uint16_t character) {
     return sendReliable(encode(c));
 }
 
+bool MatchClient::sendVitals(const PlayerVitals& v) {
+    if (state_ != ClientState::Connected)
+        return false;
+    Vitals m;
+    m.entries.push_back(v);
+    return transport_.send(peer_, Channel::Unreliable, encode(m));
+}
+
 bool MatchClient::sendKick(PlayerId player) {
     Kick k;
     k.player = player;
     return sendReliable(encode(k));
+}
+
+bool MatchClient::sendResultsAction(ResultsChoice choice) {
+    ResultsAction a;
+    a.choice = choice;
+    return sendReliable(encode(a));
+}
+
+bool MatchClient::sendMapVote(uint8_t candidate) {
+    if (!connected() || phase_ != MatchPhase::Results ||
+        (candidate != kNoVote && candidate >= mapVote_.candidates.size()))
+        return false;
+    MapVote v;
+    v.choice = candidate;
+    myVote_ = candidate;
+    return sendReliable(encode(v));
 }
 
 bool MatchClient::sendChat(const std::string& text) {
@@ -188,10 +227,13 @@ bool MatchClient::pollEvent(ClientEvent& out) {
 void MatchClient::applyScore(const Score& s) {
     teamKills_[0] = s.teamKills[0];
     teamKills_[1] = s.teamKills[1];
+    for (size_t t = 0; t < kMaxTeams; ++t)
+        teamScore_[t] = s.teamScore[t];
     auto it = roster_.find(s.player);
     if (it != roster_.end()) {
         it->second.kills = s.kills;
         it->second.deaths = s.deaths;
+        it->second.score = s.score;
     }
 }
 
@@ -253,6 +295,8 @@ void MatchClient::handleMessage(const TransportEvent& ev) {
             countdownKind_ = st.countdown;
             countdownMs_ = st.countdownMs;
             countdownAtMs_ = now_;
+            if (st.host != kNoPlayer)
+                host_ = st.host;
             for (const PlayerPing& pp : st.pings) {
                 auto it = roster_.find(pp.player);
                 if (it != roster_.end()) {
@@ -263,6 +307,19 @@ void MatchClient::handleMessage(const TransportEvent& ev) {
             StatusEcho echo;
             echo.token = st.token;
             transport_.send(peer_, Channel::Unreliable, encode(echo));
+            break;
+        }
+        case MsgType::Vitals: {
+            Vitals vt;
+            if (!decode(ev.data, vt))
+                break;
+            for (const PlayerVitals& e : vt.entries) {
+                auto it = roster_.find(e.player);
+                if (it != roster_.end()) {
+                    it->second.vitals = e;
+                    it->second.hasVitals = true;
+                }
+            }
             break;
         }
         case MsgType::Reject: { // the host removed us
@@ -283,9 +340,22 @@ void MatchClient::handleMessage(const TransportEvent& ev) {
             }
             break;
         }
+        case MsgType::MapVoteState: {
+            MapVoteState s;
+            if (decode(ev.data, s) && phase_ == MatchPhase::Results) {
+                mapVote_ = std::move(s);
+                if (myVote_ != kNoVote && myVote_ >= mapVote_.candidates.size())
+                    myVote_ = kNoVote;
+            }
+            break;
+        }
         case MsgType::PhaseChange: {
             PhaseChange p;
             if (decode(ev.data, p)) {
+                if (p.phase != MatchPhase::Results) {
+                    mapVote_ = MapVoteState{};
+                    myVote_ = kNoVote;
+                }
                 phase_ = p.phase;
                 events_.push_back(p);
             }

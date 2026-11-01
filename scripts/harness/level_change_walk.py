@@ -40,6 +40,11 @@ clock milliseconds
 0 sync play 60
 {settle} key down W
 {walk}
+0 sync screen 2 3
+0 key up W
+0 key up S
+50 shot message_box
+20 pad tap CROSS
 0 sync screen 5 3
 0 key up W
 0 key up S
@@ -76,7 +81,9 @@ def main() -> int:
         "--settle", type=int, default=6000, help="ms between 'play' and the first step (the placement needs about 5 s)"
     )
     ap.add_argument(
-        "--confirm", default="20 pad tap CROSS\n60 pad tap CROSS\n100 pad tap CROSS", help="save screen input"
+        "--confirm",
+        default="4000 pad tap CROSS\n2000 pad tap CROSS\n2000 pad tap CROSS\n2000 pad tap CROSS",
+        help="save screen input (the memory card read takes seconds)",
     )
     ap.add_argument("--exe", type=Path, default=ROOT / "build" / "final-game" / "bin" / "drakan.exe")
     ap.add_argument("--src", type=Path, default=ROOT / "dist" / "DrakanPC")

@@ -37,6 +37,9 @@ constexpr uint32_t kHandleVtable = 0x51b8b0u, kRynnClass = 0x10009u, kDragonClas
 constexpr uint32_t kDikF9 = 0x43u, kDikF10 = 0x44u;
 constexpr uint32_t kBoneAttach = 0x13b878u, kBoneDetach = 0x13b8c8u; // (model, item, bone, 0, 0) / (model, bone)
 constexpr uint32_t kPropHand[2] = {0x45u, 0x46u};
+// NPC bodies (stand-in characters) have no hand bone properties; every humanoid roster model (30 of 30, disc 0x0208
+// node lists) has the same layout: joint 30 is the node "Rweapon", joint 13 "Lweapon" (Rynn: 37 / 19).
+constexpr uint32_t kNpcWeaponJoint[2] = {30u, 13u};
 constexpr uint32_t kWeaponOwner = 0x60u;
 constexpr float kOffsetX = 300.0f;
 float g_offX = kOffsetX, g_offZ = 0.0f; // DRAKAN_GHOST_OFFSET=x,z (mirror mode test aid)
@@ -48,10 +51,13 @@ struct Ghost {
     bool hasTransform = false; // target is set (a spawn at a given transform, or a pending setTransform)
     bool hold = false;         // after the spawn, rewrite `target` into the actor every tick
     Transform target;
+    bool pinned = false; // test aid (pinTransform): `pin` wins over every pose the net layer sets
+    Transform pin;
     // Clip state written into the skeleton every tick (channels 0..31; bit set in animSet = channel is driven).
     uint32_t animSet = 0;
     uint32_t animClip[world::skel::kMaxChannels] = {};
     float animTime[world::skel::kMaxChannels] = {};
+    bool animFree = false; // setAnimFree: the clip is written once and the engine's own playback loops it
     // Weapons (hand 0 = right / bone property 0x45, 1 = left / 0x46): wanted record id, record id of the live item.
     uint32_t wantRec[2] = {};
     uint32_t haveRec[2] = {};
@@ -128,6 +134,8 @@ std::vector<drakan_coop_character::Act>
     g_actCycle; // DRAKAN_GHOST_ACTS=attack,hit,death: mirror stand-ins play these in turn
 uint32_t g_dragonClipHi =
     0x40000u; // high half of the dragon's clip ids (the wire carries 16 bits); DRAKAN_DRAGON_CLIP_HI
+bool g_dragonClipHiForced = false;     // the env override is set: it wins over the level's own SYSTEM index
+std::atomic<uint32_t> g_levelSysHi{0}; // the level's SYSTEM database index << 16 (0x20000 Surdana, 0x40000 Ravenshold)
 
 uint32_t rd32(const uint8_t* ram, uint32_t a) {
     a &= 0x1ffffffu;
@@ -473,6 +481,8 @@ int writeAnim(drakan_input::IGuest& guest, const Ghost& g) {
     for (uint32_t i = 0; i < n; ++i)
         if (g.animSet >> i & 1u) {
             const uint32_t a = ch + i * world::skel::kChannelStride;
+            if (g.animFree && guest.read32(a + world::skel::kChannelClip) == g.animClip[i])
+                continue; // already playing: the engine advances (and loops) it
             guest.write32(a + world::skel::kChannelClip, g.animClip[i]);
             guest.writeF(a + world::skel::kChannelTime, g.animTime[i]);
             ++written;
@@ -504,6 +514,30 @@ void refileHandle(drakan_input::IGuest& guest, uint32_t ctx, uint32_t h) {
     guest.write32(h + 0x104, guest.read32(h + 0x104) & ~0x800u);
     if (const uint32_t refile = guest.read32(vt + 0x8c); ramPtr(refile))
         guest.call(drakan_input::GuestCall(refile).arg(adjusted(0x88)).arg(h));
+    if (static_cast<int32_t>(guest.read32(h + 0x7c)) == -1) {
+        // The engine's refile returns at once for an actor whose cell is -1, so an actor created where no cell was
+        // resident yet (a ghost spawned while the level streams in, a respawn during a load) stays out of every cell
+        // list for good and a blade sweep never finds it. File it by hand: the cell lookup the refile uses (vtable
+        // +0x6c: old cell, flags 5, the position), then the refile proper, which now links it into that cell.
+        const uint32_t lookup = guest.read32(vt + 0x6c);
+        if (ramPtr(lookup)) {
+            const uint32_t cell = guest.call(drakan_input::GuestCall(lookup)
+                                                 .arg(adjusted(0x68))
+                                                 .arg(0xffffffffu)
+                                                 .arg(5)
+                                                 .argf(guest.readF(h + 0x14))
+                                                 .argf(guest.readF(h + 0x18))
+                                                 .argf(guest.readF(h + 0x1c)));
+            if (static_cast<int32_t>(cell) >= 0 && cell < guest.read32(world + 0x10)) {
+                guest.write32(h + 0x7c, cell);
+                if (const uint32_t refile = guest.read32(vt + 0x8c); ramPtr(refile))
+                    guest.call(drakan_input::GuestCall(refile).arg(adjusted(0x88)).arg(h));
+                if (g_log)
+                    std::fprintf(stderr, "[ghost] actor %x had no collision cell: filed in cell %u (now %d)\n", h, cell,
+                                 static_cast<int32_t>(guest.read32(h + 0x7c)));
+            }
+        }
+    }
 }
 
 void updateSector(drakan_input::IGuest& guest, uint32_t ctx, Ghost& g) {
@@ -527,6 +561,7 @@ void updateSector(drakan_input::IGuest& guest, uint32_t ctx, Ghost& g) {
 
 // Caller holds g_m. Position, rotation and the clips of every channel (lower on the mask, upper on the rest).
 void applyPose(Ghost& g, const world::PlayerPose& p) {
+    g.animFree = false;
     const float pos[3] = {p.position.x, p.position.y, p.position.z};
     std::memcpy(g.target.pos, pos, sizeof pos);
     std::memcpy(g.target.rot, p.rotation, sizeof g.target.rot);
@@ -535,10 +570,13 @@ void applyPose(Ghost& g, const world::PlayerPose& p) {
         world::PlayerPose q = p;
         // The net layer sends Arokh's own clip ids (PlayerState.clipHi, v8); a pose that still carries Rynn's 0x2
         // prefix (the mirror test aid) gets the guessed one.
+        // The level's own SYSTEM index wins (Surdana's dragon clips really are 0x2xxxx: no rewrite there).
+        const uint32_t lvlHi = g_levelSysHi.load();
+        const uint32_t hi = g_dragonClipHiForced || !lvlHi ? g_dragonClipHi : lvlHi;
         if (q.lower.clip && (q.lower.clip >> 16) == 2u)
-            q.lower.clip = (q.lower.clip & 0xffffu) | g_dragonClipHi;
+            q.lower.clip = (q.lower.clip & 0xffffu) | hi;
         if (q.upper.clip && (q.upper.clip >> 16) == 2u)
-            q.upper.clip = (q.upper.clip & 0xffffu) | g_dragonClipHi;
+            q.upper.clip = (q.upper.clip & 0xffffu) | hi;
         for (uint32_t c = 0; c < world::skel::kMaxChannels; ++c) {
             const world::ChannelPose& cp = (q.lowerMask >> c & 1u) ? q.lower : q.upper;
             g.animSet |= 1u << c;
@@ -676,8 +714,10 @@ void install(PS2Runtime& rt) {
             pos = e + 1;
         }
     }
-    if (const char* h = std::getenv("DRAKAN_DRAGON_CLIP_HI"))
+    if (const char* h = std::getenv("DRAKAN_DRAGON_CLIP_HI")) {
         g_dragonClipHi = static_cast<uint32_t>(std::strtoul(h, nullptr, 16));
+        g_dragonClipHiForced = true;
+    }
     if (const char* w = std::getenv("DRAKAN_GHOST_WEAPONS"))
         std::sscanf(w, "%x,%x", &g_forceRec[0], &g_forceRec[1]);
     if (g_mirror) {
@@ -742,6 +782,16 @@ void setTransform(int id, const float pos[3], const float rot[9]) {
         }
 }
 
+void pinTransform(int id, const float pos[3], const float rot[9]) {
+    std::lock_guard<std::mutex> l(g_m);
+    for (Ghost& g : g_ghosts)
+        if (g.info.id == id) {
+            std::memcpy(g.pin.pos, pos, sizeof g.pin.pos);
+            std::memcpy(g.pin.rot, rot, sizeof g.pin.rot);
+            g.pinned = true;
+        }
+}
+
 void setAnim(int id, int channel, int clip, float time) {
     std::lock_guard<std::mutex> l(g_m);
     for (Ghost& g : g_ghosts)
@@ -753,6 +803,21 @@ void setAnim(int id, int channel, int clip, float time) {
                 g.animClip[c] = static_cast<uint32_t>(clip);
                 g.animTime[c] = time;
             }
+        }
+}
+
+void setAnimFree(int id, uint32_t clipLow) {
+    std::lock_guard<std::mutex> l(g_m);
+    for (Ghost& g : g_ghosts)
+        if (g.info.id == id) {
+            const uint32_t lvlHi = g_levelSysHi.load();
+            const uint32_t hi = g.dragon ? (g_dragonClipHiForced || !lvlHi ? g_dragonClipHi : lvlHi) : 0x20000u;
+            for (uint32_t c = 0; c < world::skel::kMaxChannels; ++c) {
+                g.animSet |= 1u << c;
+                g.animClip[c] = hi | (clipLow & 0xffffu);
+                g.animTime[c] = 0.0f;
+            }
+            g.animFree = true;
         }
 }
 
@@ -790,6 +855,16 @@ void refileActor(drakan_input::IGuest& guest, uint32_t actor) {
         refileHandle(guest, ctx, actor);
 }
 
+bool isGhostItem(uint32_t handle) {
+    if (!handle)
+        return false;
+    std::lock_guard<std::mutex> l(g_m);
+    for (const Ghost& g : g_ghosts)
+        if (g.weapon[0] == handle || g.weapon[1] == handle)
+            return true;
+    return g_wf.actor == handle;
+}
+
 void forEach(const std::function<void(const Info&)>& fn) {
     std::vector<Info> copy;
     {
@@ -825,6 +900,8 @@ bool startWeaponChange(drakan_input::IGuest& guest, uint32_t ctx) { // g_m held 
             if (g.wantRec[hand] == g.haveRec[hand])
                 continue;
             const uint32_t bone = [&] {
+                if (g.character)
+                    return kNpcWeaponJoint[hand];
                 const uint32_t pb = guest.read32(g.info.handle + 0x54);
                 const uint32_t props = ramPtr(pb) ? guest.read32(pb + 4) : 0;
                 return ramPtr(props) ? guest.read32(props + kPropHand[hand] * 4u) : 0xffffffffu;
@@ -1040,7 +1117,9 @@ void beforePadMgr(drakan_input::IGuest& guest, drakan_input::InputModule& input)
             writeAnim(guest, g);
     // Transforms (the spawn's own transform is applied by the factory, so only live ghosts here).
     for (Ghost& g : g_ghosts)
-        if ((g.hasTransform || g.hold) && g.info.handle) {
+        if ((g.hasTransform || g.hold || g.pinned) && g.info.handle) {
+            if (g.pinned)
+                g.target = g.pin;
             for (int k = 0; k < 3; ++k)
                 guest.writeF(g.info.handle + 0x14 + 4u * static_cast<uint32_t>(k), g.target.pos[k]);
             for (int k = 0; k < 9; ++k)
@@ -1123,6 +1202,7 @@ void beforePadMgr(drakan_input::IGuest& guest, drakan_input::InputModule& input)
     g_flight.npc = false;
     g_flight.dragon = false;
     const uint32_t sysHiNow = sysHi;
+    g_levelSysHi.store(sysHi);
     if (want->character || want->dragon) {
         const uint32_t rec = want->dragon ? (sysHiNow | (kDragonRecord & 0xffffu))
                                           : drakan_coop_character::entry(want->character).recordId;

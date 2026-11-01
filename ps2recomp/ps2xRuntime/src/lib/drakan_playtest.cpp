@@ -46,6 +46,13 @@ constexpr unsigned kWaitTicks = 240;              // boundaries after the player
 constexpr unsigned kRetryTicks = 30, kTries = 40; // the terrain around a far target streams in over a few seconds
 constexpr float kTolerance = 3500.0f;
 constexpr unsigned kHoldTicks = 240; // keep the player on the spot while the terrain under her streams in
+// DRAKAN_PLAYTEST_HOLD=<boundaries> overrides the hold (test aid: a scripted E to call / mount Arokh needs her to stay
+// put).
+unsigned holdTicks() {
+    const char* e = std::getenv("DRAKAN_PLAYTEST_HOLD");
+    const long v = e ? std::strtol(e, nullptr, 10) : 0;
+    return v > 0 ? static_cast<unsigned>(v) : kHoldTicks;
+}
 
 struct State {
     bool init = false, enabled = false, hasYaw = false, done = false;
@@ -80,9 +87,10 @@ void beforePadMgr(drakan_input::IGuest& guest, uint8_t* /*rdram*/) {
         const char* e = std::getenv("DRAKAN_PLAYTEST_POS");
         g.enabled = e && *e && parsePose(e, g.pos, g.yaw, g.hasYaw);
         if (e && *e)
-            std::fprintf(stderr, "[playtest] %s: target %.0f %.0f %.0f yaw %s %.3f\n", g.enabled ? "armed" : "bad value",
-                         static_cast<double>(g.pos[0]), static_cast<double>(g.pos[1]), static_cast<double>(g.pos[2]),
-                         g.hasYaw ? "set" : "unchanged", static_cast<double>(g.yaw));
+            std::fprintf(stderr, "[playtest] %s: target %.0f %.0f %.0f yaw %s %.3f\n",
+                         g.enabled ? "armed" : "bad value", static_cast<double>(g.pos[0]),
+                         static_cast<double>(g.pos[1]), static_cast<double>(g.pos[2]), g.hasYaw ? "set" : "unchanged",
+                         static_cast<double>(g.yaw));
     }
     if (!g.enabled || !drakan_ghost::ready())
         return;
@@ -102,13 +110,36 @@ void beforePadMgr(drakan_input::IGuest& guest, uint8_t* /*rdram*/) {
     const uint32_t player = engine ? guest.read32(engine + kControlled) : 0;
     if (!player)
         return;
-    if (player != g.player) { // a new level came up: start counting again
+    if (player != g.player) {         // a new level came up: start counting again
+        if (g.hold > 0 && g.player) { // the controlled actor changed while she was held (mounted Arokh): let go
+            std::fprintf(stderr, "[playtest] controlled actor changed during the hold (%x -> %x): released\n", g.player,
+                         player);
+            g.hold = 0;
+            g.done = true;
+            g.watch = 1;
+            g.player = player;
+            return;
+        }
         g.player = player;
         g.seen = 0;
         g.tries = 0;
         return;
     }
     if (g.hold > 0) { // placed: a player over terrain that is not resident yet falls through it, so hold her
+        // DRAKAN_PLAYTEST_SOFT=1: only pull her back when she is more than 400 units off the point, so the engine's own
+        // movement of a mount (Rynn climbing onto Arokh) is not overwritten.
+        static const bool soft = std::getenv("DRAKAN_PLAYTEST_SOFT") != nullptr;
+        if (soft) {
+            const float sdx = guest.readF(player + 0x14) - g.pos[0], sdz = guest.readF(player + 0x1c) - g.pos[2];
+            if (sdx * sdx + sdz * sdz < 400.0f * 400.0f) {
+                if (--g.hold == 0) {
+                    std::fprintf(stderr, "[playtest] released\n");
+                    g.done = true;
+                    g.watch = 1;
+                }
+                return;
+            }
+        }
         for (int k = 0; k < 3; ++k)
             guest.writeF(player + 0x14 + 4u * static_cast<uint32_t>(k), g.pos[k]);
         writeYaw(guest, player);
@@ -135,7 +166,7 @@ void beforePadMgr(drakan_input::IGuest& guest, uint8_t* /*rdram*/) {
             if (d <= kTolerance) {
                 std::fprintf(stderr, "[playtest] placed after %u %s (%.0f units from the point)\n", g.tries,
                              g.tries == 1 ? "try" : "tries", static_cast<double>(d));
-                g.hold = kHoldTicks;
+                g.hold = holdTicks();
                 return;
             }
             if (g.tries >= kTries) {

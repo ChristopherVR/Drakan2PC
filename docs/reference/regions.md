@@ -322,3 +322,12 @@ arena would not work with them alone: it reads **PAL object layouts**. To enable
 The disc itself has the same levels, so `configs/mp_maps.ini` positions carry over unchanged. Not done here: no USA disc was
 available to verify any of it, and an unverified mapping would silently misread RAM.
 
+### Finding the multiplayer addresses for a new disc (2026-11-01)
+
+`analysis/scripts/mp_region_find.py` lists the 79 hard-coded PAL addresses used by the arena / co-op / PvP / ghost /
+level-change / lifecycle hooks (`inventory`) and finds signature-based candidates for another region's ELF (`find`,
+then `table`). Only unique hits are reported; on the USA ELF 68 of 79 are unique and all 68 agree with `function_map.csv`
+/ `data_map.csv`, 2 are ambiguous (`0x13b7c0`, `0x3d5a30`), 9 are range ends or scratch addresses that are not symbols.
+Candidates are not audited entries: layouts must still be ported. On a non-PAL profile the runtime logs
+"[region] multiplayer, co-op, arena, level change and the lifecycle hooks are disabled for disc profile ..." once.
+Notes: [journal](../journal/2026-11-01/usa-multiplayer-addresses.md).

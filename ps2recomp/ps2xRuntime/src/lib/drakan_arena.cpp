@@ -3,6 +3,7 @@
 // docs/journal/2026-10-31/mp-arenas.md.
 #include "drakan_arena.h"
 #include "drakan_config.h"
+#include "drakan_coop_character.h"
 #include "drakan_ghost.h"
 #include "drakan_lifecycle.h"
 #include "drakan_region.h"
@@ -25,6 +26,7 @@
 #include <deque>
 #include <filesystem>
 #include <fstream>
+#include <future>
 #include <mutex>
 #include <set>
 #include <sstream>
@@ -226,6 +228,10 @@ struct PendingStow {
     unsigned since;
 };
 std::deque<PendingStow> g_pendingStow; // loadout items the factory made, stowed once they are live actors
+// DRAKAN_ARENA_LOADOUT_ADOPT="x,y,z;x,y,z": the level's own loose items at these spots (a bow cannot be made by the
+// factory, see "Which res= resources spawn") are protected from the world filter and filed into the inventory as the
+// loadout of every player (each instance owns a copy of the level's items).
+std::vector<uint32_t> g_adoptLoadout;
 uint32_t controlledActor(const uint8_t* rdram);
 bool snapshot(const uint8_t* rdram);
 
@@ -241,6 +247,14 @@ bool g_loadoutArmed = false, g_loadoutDone = false;
 unsigned g_removed = 0;
 unsigned g_tourStop = 0, g_tourTick = 0;
 int g_tourEvery = 0;
+// The map's menu picture (requestPreviewShot): stage 0 idle, 1 placing / settling, 2 shot taken, waiting for the file.
+std::atomic<int> g_shotStage{0};
+std::atomic<int> g_shotDone{0};
+std::string g_shotFile;
+std::mutex g_shotM;
+unsigned g_shotAt = 0;
+unsigned g_shotTries = 0;
+std::string g_envShotFile; // DRAKAN_ARENA_PREVIEW_SHOT: the test aid takes the picture by itself
 bool g_vetoInstalled = false;
 std::mutex g_levelM;
 std::string g_loadedLevel;         // g_levelM: the level the last load opened (the lifecycle's mapped name)
@@ -392,8 +406,12 @@ void pumpSpawns(drakan_input::IGuest& guest, uint8_t* rdram) {
                      rd32(rdram, player + 0x584 + 0x20));
             g_pendingStow.pop_front();
             g_calls.push_back(drakan_input::GuestCall(guestAddress(kStow)).arg(player).arg(ps.handle));
-        } else if (g_ticks > ps.since + 240) {
-            arenaLog("loadout: actor %x never became a live actor, dropped", ps.handle);
+        } else if (g_ticks > ps.since + 1200) { // a bow's model may still be loading
+            arenaLog("loadout: actor %x never became a live actor, dropped (now vtable %x flags %x type %u ref %x "
+                     "selfref %x, snapshot %s with %zu entities)",
+                     ps.handle, rd32(rdram, ps.handle), rd32(rdram, ps.handle + 4), rd32(rdram, ps.handle + 0xc),
+                     rd32(rdram, ps.handle + 0x10), (rd32(rdram, ps.handle + (world::handle::kSelfRef & ~3u)) >> 16),
+                     g_worldOk ? "ok" : "failed", g_snap.entities.size());
             g_pendingStow.pop_front();
         }
     }
@@ -517,6 +535,11 @@ void bindPickups(drakan_input::IGuest&, const uint8_t* rdram) {
 // A loose item is the map's own when it is bound to a pickup, or lies at an adopted one; items next to a spawned pickup
 // (`res=`) are the level's own copies and go: the map spawns its own (and can respawn it).
 bool nearAnyPickup(const world::Vec3& pos, uint32_t handle) {
+    if (drakan_ghost::isGhostItem(handle))
+        return true;
+    for (uint32_t h : g_adoptLoadout)
+        if (h == handle)
+            return true;
     for (const Pick& p : g_picks) {
         if (p.state == PState::Unbound && !p.def.resId)
             continue;
@@ -540,6 +563,38 @@ void arenaShot(const std::string& name) {
 
 bool g_noFilter = false; // test aid DRAKAN_ARENA_NOFILTER=1: place players and run pickups but leave the campaign alone
 
+// The engine takes a loose item into the inventory by touch. A pickup copy that someone else took first is removed
+// here, but our own player may already hold it (she stands next to it at the spawn): the inventory cell and the hand
+// slot would then point at a destroyed actor and the engine's equip / use code calls through its freed data (a null
+// JALR at 0x341548 that ended the guest thread). Clear every reference to the handle before the actor goes.
+void dropFromInventory(drakan_input::IGuest& guest, uint8_t* rdram, uint32_t handle) {
+    const uint32_t player = dataOf(rdram, controlledActor(rdram));
+    if (!ramPtr(player) || !handle)
+        return;
+    const uint32_t ctl = player + kCtlOffset;
+    unsigned n = 0;
+    for (uint32_t i = 0; i < kCellCount; ++i) {
+        const uint32_t cell = ctl + kCtlCells + i * 16u;
+        if (rd32(rdram, cell + 8) == handle) {
+            for (uint32_t k = 0; k < 16; k += 4)
+                guest.write32(cell + k, 0);
+            ++n;
+        }
+    }
+    for (uint32_t i = 0; i < 4; ++i) {
+        const uint32_t slot = player + kHandSlots + i * 0x10u;
+        if (rd32(rdram, slot) == handle) {
+            guest.write32(slot, 0);
+            ++n;
+        }
+    }
+    if (n) {
+        guest.write32(ctl + 0x238u, 1u); // list dirty
+        arenaLog("pickup copy %x was already in our inventory: %u reference(s) cleared before it is removed", handle,
+                 n);
+    }
+}
+
 unsigned removeCampaign(drakan_input::IGuest& guest, uint8_t* rdram, bool sweepItems) {
     if (g_noFilter)
         return 0;
@@ -556,6 +611,10 @@ unsigned removeCampaign(drakan_input::IGuest& guest, uint8_t* rdram, bool sweepI
         }
         if (!creature && !storyObj && !item)
             continue;
+        if (item && !creature && !storyObj)
+            arenaLog("sweep: loose item %x (class %x) at %.0f %.0f %.0f", e.handle, e.classId,
+                     static_cast<double>(e.position.x), static_cast<double>(e.position.y),
+                     static_cast<double>(e.position.z));
         killActor(guest, rdram, e.handle);
         ++n;
         creatures += creature;
@@ -612,8 +671,9 @@ float spawnYawDeg(const ArenaDef& def, const drakan::net::ArenaSpawn& s) {
 }
 
 // The engine puts a player back where she came from when no floor is resident at the target (the terrain streams around
-// her): a far teleport may fail the first time. The placement is watched and repeated (every 40 boundaries, 6 times); a
-// spawn point that never takes is given up and she plays on from where she landed.
+// her): a far teleport may fail the first time. The placement is watched and repeated (every 40 boundaries, 40 times:
+// terrain streams in by wall time, a fast machine runs through six tries before the floor is there); a spawn point that
+// never takes is given up and she plays on from where she landed.
 struct GotoStep {
     int pickup;
     unsigned at;
@@ -633,7 +693,14 @@ struct Placement {
     int index = -1;
 } g_place;
 constexpr float kPlaceTolerance = 3500.0f;
-constexpr unsigned kPlaceTries = 6, kPlaceRetryTicks = 40;
+// The spawn point the server gave this player: the game applies its own start position when a level comes up, which can
+// land after a placement made during the load (the player then stands at the level start, outside the arena). The
+// assignment is kept across level loads and applied again once the level is up (firstPass); a placement that "took" is
+// watched for kPlaceHoldTicks more boundaries and made again if she is pulled away.
+int g_assignedSpawn = -1;
+unsigned g_placeHoldUntil = 0;
+constexpr unsigned kPlaceHoldTicks = 120;
+constexpr unsigned kPlaceTries = 40, kPlaceRetryTicks = 40;
 
 void teleport(drakan_input::IGuest& guest, uint32_t player, const float pos[3], int index = -1,
               float yawDeg = std::nanf("")) {
@@ -647,6 +714,20 @@ void teleport(drakan_input::IGuest& guest, uint32_t player, const float pos[3], 
 }
 
 void placementTick(drakan_input::IGuest& guest, const uint8_t* rdram, uint32_t player) {
+    if (!g_place.active && g_placeHoldUntil > g_ticks && g_place.index >= 0) {
+        const float hx = rdf(rdram, player + 0x14) - g_place.target[0],
+                    hz = rdf(rdram, player + 0x1c) - g_place.target[2];
+        const float hd = std::sqrt(hx * hx + hz * hz);
+        if (hd > kPlaceTolerance) {
+            arenaLog("pulled %.0f units away from spawn %d right after the placement: placing again",
+                     static_cast<double>(hd), g_place.index);
+            g_place.active = true;
+            g_place.tries = 1;
+            g_place.nextTick = g_ticks + kPlaceRetryTicks;
+            teleportOnce(guest, player, g_place.target);
+        }
+        return;
+    }
     if (!g_place.active || g_ticks < g_place.nextTick)
         return;
     const float dx = rdf(rdram, player + 0x14) - g_place.target[0], dz = rdf(rdram, player + 0x1c) - g_place.target[2];
@@ -655,6 +736,7 @@ void placementTick(drakan_input::IGuest& guest, const uint8_t* rdram, uint32_t p
         arenaLog("placement of spawn %d took after %u %s (%.0f units from the point)", g_place.index, g_place.tries,
                  g_place.tries == 1 ? "try" : "tries", static_cast<double>(d));
         g_place.active = false;
+        g_placeHoldUntil = g_ticks + kPlaceHoldTicks;
         if (g_place.index == -1 &&
             !g_goto.empty()) { // a test walk onto a pickup: sweep through it, press Use a few times
             g_useTaps = 4;
@@ -681,6 +763,42 @@ void captureStart(const uint8_t* rdram, uint32_t player) {
 }
 
 void armLoadout(const uint8_t* rdram, uint32_t player);
+
+void bindAdoptLoadout() {
+    g_adoptLoadout.clear();
+    const char* e = std::getenv("DRAKAN_ARENA_LOADOUT_ADOPT");
+    if (!e || !*e)
+        return;
+    for (const char* p = e; *p;) {
+        float at[3];
+        if (std::sscanf(p, "%f,%f,%f", &at[0], &at[1], &at[2]) == 3) {
+            const world::EntitySnapshot* best = nullptr;
+            float bestD = kAdoptRadius * kAdoptRadius;
+            for (const auto& en : g_snap.entities) {
+                if (!isItemEntity(en) || std::fabs(en.position.y - at[1]) > 600.0f)
+                    continue;
+                const float d = dist2xz(en.position, at);
+                if (d < bestD) {
+                    bestD = d;
+                    best = &en;
+                }
+            }
+            if (best) {
+                g_adoptLoadout.push_back(best->handle);
+                arenaLog("loadout adopt: the level's item %x (class %x) at %.0f %.0f %.0f is every player's loadout",
+                         best->handle, best->classId, static_cast<double>(best->position.x),
+                         static_cast<double>(best->position.y), static_cast<double>(best->position.z));
+            } else {
+                arenaLog("loadout adopt: no loose item near %.0f %.0f %.0f", static_cast<double>(at[0]),
+                         static_cast<double>(at[1]), static_cast<double>(at[2]));
+            }
+        }
+        while (*p && *p != ';')
+            ++p;
+        if (*p == ';')
+            ++p;
+    }
+}
 
 void firstPass(drakan_input::IGuest& guest, uint8_t* rdram, uint32_t player) {
     if (!snapshot(rdram))
@@ -718,11 +836,17 @@ void firstPass(drakan_input::IGuest& guest, uint8_t* rdram, uint32_t player) {
             }
     }
     bindPickups(guest, rdram);
+    bindAdoptLoadout();
     if (std::getenv("DRAKAN_ARENA_FORCE")) // test: no spawn event arms it
         armLoadout(rdram, player);
     g_removed += removeCampaign(guest, rdram, true);
     g_passTick = g_ticks;
     g_filteredGen = g_loadGen;
+    if (g_assignedSpawn >=
+        0) { // the placement made before / during the load is not trusted: the level start was applied
+        arenaLog("level up: placing at the assigned spawn %d again", g_assignedSpawn);
+        placeAtSpawn(guest, rdram, g_assignedSpawn);
+    }
 }
 
 void applyPickupEvents(drakan_input::IGuest& guest, uint8_t* rdram) {
@@ -738,6 +862,7 @@ void applyPickupEvents(drakan_input::IGuest& guest, uint8_t* rdram) {
             p.serverTaken = e.taken;
             if (e.taken && p.state == PState::Present) {
                 if (e.player != g_local.load() || !g_local.load()) {
+                    dropFromInventory(guest, rdram, p.handle);
                     killActor(guest, rdram, p.handle); // somebody else took it: ours goes too
                     arenaLog("pickup %zu (%s) taken by player %u: removed here", i, p.def.label.c_str(), e.player);
                     arenaShot("pickup" + std::to_string(i) + "_removed_here");
@@ -855,7 +980,9 @@ void pickupTick(drakan_input::IGuest& guest, uint8_t* rdram) {
 
 void armLoadout(const uint8_t* rdram, uint32_t player) {
     std::lock_guard<std::mutex> l(g_sessM);
-    if (!g_hasDef || !g_defFits.load() || g_def.loadout.empty() || g_loadoutDone)
+    if (!g_hasDef || !g_defFits.load() ||
+        (g_def.loadout.empty() && !std::getenv("DRAKAN_ARENA_LOADOUT") && !std::getenv("DRAKAN_ARENA_LOADOUT_ADOPT")) ||
+        g_loadoutDone)
         return;
     g_loadoutArmed = true;
     (void)rdram;
@@ -879,6 +1006,21 @@ void loadoutTick(drakan_input::IGuest&, uint8_t* rdram, uint32_t player) {
             std::lock_guard<std::mutex> l(g_sessM);
             ids = g_def.loadout;
         }
+        // Test aid DRAKAN_ARENA_LOADOUT="0x31bc9 0x3379d": replaces the map's loadout for this instance (a bow for one
+        // player, something else for the other).
+        if (const char* e = std::getenv("DRAKAN_ARENA_LOADOUT"); e && *e) {
+            ids.clear();
+            for (const char* q = e; *q;) {
+                char* end = nullptr;
+                const unsigned long v = std::strtoul(q, &end, 0);
+                if (end == q) {
+                    ++q;
+                    continue;
+                }
+                ids.push_back(static_cast<uint32_t>(v));
+                q = end;
+            }
+        }
         float pos[3];
         for (int k = 0; k < 3; ++k)
             pos[k] = rdf(rdram, player + 0x14 + 4u * static_cast<uint32_t>(k));
@@ -894,6 +1036,10 @@ void loadoutTick(drakan_input::IGuest&, uint8_t* rdram, uint32_t player) {
             g_loadoutIdx.push_back(idx);
             queueSpawn(idx, pos, -1);
         }
+        for (uint32_t h : g_adoptLoadout) {
+            g_loadoutIdx.push_back(0);
+            g_pendingStow.push_back({h, g_ticks});
+        }
         if (g_loadoutIdx.empty())
             g_loadoutPhase = 2;
         return;
@@ -902,7 +1048,7 @@ void loadoutTick(drakan_input::IGuest&, uint8_t* rdram, uint32_t player) {
         g_ticks > g_loadoutStart + 20) {
         arenaLog("loadout: %zu items given", g_loadoutIdx.size());
         g_loadoutPhase = 2;
-    } else if (g_ticks > g_loadoutStart + 900) {
+    } else if (g_ticks > g_loadoutStart + 1500) {
         arenaLog("loadout: gave up waiting");
         g_loadoutPhase = 2;
     }
@@ -941,13 +1087,16 @@ void armTick(drakan_input::IGuest& guest, uint8_t* rdram, uint32_t actor) {
         return;
     if (g_arm.done || g_ticks < g_passTick + kSweepTicks + 40 || g_ticks < g_arm.next)
         return;
+    if (std::getenv("DRAKAN_ARENA_SPELL")) // a caster keeps her hands for the spell (spellTick)
+        return;
     if (g_loadoutArmed && g_loadoutPhase < 2)
         return;
     if (guest.postBusy() || !g_calls.empty() || !g_pendingStow.empty() || g_spawnInFlight || !g_spawnQueue.empty())
         return;
     g_arm.next = g_ticks + 120;
     const uint32_t hand = rd32(rdram, player + kHandSlots);
-    if (ramPtr(hand)) {
+    const char* preferEnv0 = std::getenv("DRAKAN_ARENA_EQUIP");
+    if (ramPtr(hand) && !(preferEnv0 && std::strcmp(preferEnv0, "bow") == 0)) {
         arenaLog("armed: right hand holds actor %x (class %x)", hand, itemClassOf(rdram, hand));
         g_arm.done = true;
         return;
@@ -955,14 +1104,35 @@ void armTick(drakan_input::IGuest& guest, uint8_t* rdram, uint32_t actor) {
     const uint32_t ctl = player + kCtlOffset;
     int cell = -1;
     uint32_t slot = 0;
-    for (int pass = 0; pass < 2 && cell < 0; ++pass)
+    const char* preferEnv = std::getenv("DRAKAN_ARENA_EQUIP"); // test aid: "bow" equips a bow before any melee weapon
+    const bool preferBow = preferEnv && std::strcmp(preferEnv, "bow") == 0;
+    if (preferBow) {
+        // The archer waits for her bow (picked up from the ground: a bow cannot be spawned, see "Which res= resources
+        // spawn") and does not fall back to a melee weapon; the bow goes to the left hand, so a hand check would
+        // re-equip (= put away) it.
+        bool haveBow = false;
+        for (uint32_t i = 0; i < kCellCount; ++i) {
+            const uint32_t h = rd32(rdram, ctl + kCtlCells + i * 16u + 8u);
+            if (h <= 0x53u || !ramPtr(h) || itemClassOf(rdram, h) != kClassBow)
+                continue;
+            haveBow = true;
+            if (rd32(rdram, ctl + kCtlCells + i * 16u) != 0) {
+                arenaLog("armed: the bow (actor %x) is equipped", h);
+                g_arm.done = true;
+                return;
+            }
+        }
+        if (!haveBow)
+            return;
+    }
+    for (int pass = 0; pass < (preferBow ? 1 : 2) && cell < 0; ++pass)
         for (uint32_t i = 0; i < kCellCount; ++i) {
             const uint32_t h = rd32(rdram, ctl + kCtlCells + i * 16u + 8u);
             if (h <= 0x53u || !ramPtr(h))
                 continue;
             const uint32_t cls = itemClassOf(rdram, h);
             // The engine refuses to equip an item its usability check (0x341858: broken / unusable) fails.
-            if (cls == (pass == 0 ? kClassMelee : kClassBow) &&
+            if (cls == ((pass == 0) != preferBow ? kClassMelee : kClassBow) &&
                 guest.call(drakan_input::GuestCall(guestAddress(0x341858u)).arg(h)) != 0) {
                 cell = static_cast<int>(i);
                 slot = pass;
@@ -999,8 +1169,7 @@ void armTick(drakan_input::IGuest& guest, uint8_t* rdram, uint32_t actor) {
             arenaLog("  weapon %x needs skill %u, has %u%s", h, need, have, have < need ? ": raised" : "");
             if (have < need)
                 guest.write32(skill + 4, need);
-            break;
-        }
+        } // every weapon of the inventory: a bow needs its own skill (2) next to the melee one
         arenaLog("armed: no weapon in the inventory (try %d)", g_arm.tries + 1);
         if (++g_arm.tries >= 10)
             g_arm.done = true;
@@ -1041,7 +1210,80 @@ void armTick(drakan_input::IGuest& guest, uint8_t* rdram, uint32_t actor) {
     g_quickRequest.store(true);
 }
 
+// Test aid DRAKAN_ARENA_SPELL=<index>: gives this instance the spells and selects one (a caster instead of an archer or
+// swordsman). The debug console's "shaman" command unlocks the spells (the string is the game's own, 0x51e3c8); the
+// selector 0x3422c8 (controller = player + 0x584, selected index at controller + 0x4b4) arms it with commit = 1. Posted
+// calls: both play sounds and show messages.
+struct SpellState {
+    int phase = 0;
+    unsigned next = 0;
+    int tries = 0;
+} g_spell;
+
+void spellTick(drakan_input::IGuest& guest, uint8_t* rdram, uint32_t actor) {
+    const char* e = std::getenv("DRAKAN_ARENA_SPELL");
+    const uint32_t player = dataOf(rdram, actor);
+    if (!e || !*e || !ramPtr(player) || g_ticks < g_passTick + kSweepTicks + 60 || g_ticks < g_spell.next ||
+        guest.postBusy())
+        return;
+    if (g_spell.phase >= 3) {
+        // A spell costs 15 percent of the mana bar: refill it every five seconds so a scripted caster keeps casting.
+        // The stats block (g_globals.playerStats) keeps current mana at +0x1c and the maximum at +0x20 in the same
+        // encoding as the health words (enc(v) = rotl32(v, 8) ^ key). A new game has no mana bar (maximum 0, the orb is
+        // empty), so the maximum is raised to 100 first. (The console's `heal` also refills health, which the server
+        // owns in a match.)
+        g_spell.next = g_ticks + 300;
+        const uint32_t stats = g_globals.playerStats;
+        const auto dec = [&](uint32_t raw) {
+            const uint32_t x = raw ^ rd32(rdram, g_globals.hpKey);
+            return static_cast<int32_t>((x >> 8) | (x << 24));
+        };
+        const uint32_t key = rd32(rdram, g_globals.hpKey);
+        const auto enc = [&](int32_t v) {
+            const uint32_t u = static_cast<uint32_t>(v);
+            return ((u << 8) | (u >> 24)) ^ key;
+        };
+        const int32_t before = dec(rd32(rdram, stats + 0x1c));
+        int32_t mx = dec(rd32(rdram, stats + 0x20));
+        if (mx < 100) { // a new game starts without a mana bar (the orb is empty): give her the full one
+            guest.write32(stats + 0x20, enc(100));
+            mx = 100;
+        }
+        if (before < mx) {
+            guest.write32(stats + 0x1c, enc(mx));
+            arenaLog("spell: mana refilled %d -> %d", before, mx);
+        }
+        return;
+    }
+    const uint32_t ctl = player + 0x584u; // the inventory controller: selected spell at +0x4b4, spells at player+0x1028
+    g_spell.next = g_ticks + 90;
+    if (g_spell.phase == 0) {
+        arenaLog("spell: unlocking the spells (shaman)");
+        guest.post(drakan_input::GuestCall(guestAddress(0x240480u)).arg(guestAddress(0x51e3c8u)));
+        g_spell.phase = 1;
+    } else if (g_spell.phase == 1) {
+        const int idx = std::atoi(e);
+        const uint32_t table = rd32(rdram, player + 0x1028u);
+        arenaLog("spell: selecting spell %d (selected now %d, cast state %u, %u spells, first record level %u)", idx,
+                 static_cast<int>(rd32(rdram, ctl + 0x4b4u)), rd32(rdram, player + 0x1040u),
+                 rd32(rdram, player + 0x1030u), ramPtr(table) ? rd32(rdram, table) : 0u);
+        guest.post(drakan_input::GuestCall(guestAddress(0x3422c8u)).arg(ctl).arg(static_cast<uint32_t>(idx)).arg(1u));
+        g_spell.phase = 2;
+    } else {
+        arenaLog("spell: selected %d, hand %x, mana word %u", static_cast<int>(rd32(rdram, ctl + 0x4b4u)),
+                 rd32(rdram, player + kHandSlots), rd32(rdram, player + 0x1040u));
+        if (static_cast<int>(rd32(rdram, ctl + 0x4b4u)) == std::atoi(e) || ++g_spell.tries > 4)
+            g_spell.phase = 3;
+        else
+            g_spell.phase = 1;
+    }
+}
+
 void boundsTick(drakan_input::IGuest& guest, uint8_t* rdram, uint32_t player) {
+    if (g_shotStage.load()) {
+        g_outsideTicks = 0;
+        return;
+    }
     ArenaDef def;
     {
         std::lock_guard<std::mutex> l(g_sessM);
@@ -1050,6 +1292,10 @@ void boundsTick(drakan_input::IGuest& guest, uint8_t* rdram, uint32_t player) {
             return;
         }
         def = g_def;
+    }
+    if (g_place.active) { // a placement is already retrying: a fresh teleport would only reset its tries
+        g_outsideTicks = 0;
+        return;
     }
     const float x = rdf(rdram, player + 0x14), y = rdf(rdram, player + 0x18), z = rdf(rdram, player + 0x1c);
     // A fall past every spawn point (a map on a cliff top over a void) is out at once, leaving the rectangle after a
@@ -1077,6 +1323,464 @@ void boundsTick(drakan_input::IGuest& guest, uint8_t* rdram, uint32_t player) {
              static_cast<double>(x), static_cast<double>(y), static_cast<double>(z), s);
     teleport(guest, player, def.spawns[static_cast<size_t>(s)].pos, s,
              spawnYawDeg(def, def.spawns[static_cast<size_t>(s)]));
+}
+
+// Test aid DRAKAN_ARENA_TEST_FALL=<boundaries after the level pass>: once, the player is dropped far below the map so
+// the fall-out-of-world respawn (boundsTick) can be watched.
+void testFallTick(drakan_input::IGuest& guest, uint8_t* rdram, uint32_t player, unsigned since) {
+    static const unsigned at = [] {
+        const char* e = std::getenv("DRAKAN_ARENA_TEST_FALL");
+        return e ? static_cast<unsigned>(std::max(1, std::atoi(e))) : 0u;
+    }();
+    static unsigned doneGen = ~0u;
+    if (at == 0 || since < at || doneGen == g_loadGen)
+        return;
+    doneGen = g_loadGen;
+    const float pos[3] = {rdf(rdram, player + 0x14), rdf(rdram, player + 0x18) - 30000.0f, rdf(rdram, player + 0x1c)};
+    arenaLog("test: dropping the player to y=%.0f", static_cast<double>(pos[1]));
+    for (int k = 0; k < 3; ++k)
+        guest.writeF(player + 0x14 + 4u * static_cast<uint32_t>(k), pos[k]);
+}
+
+// Test aid DRAKAN_ARENA_TEST_SAVE=<boundaries after the level pass>: the engine's save writer (0x169c28, what the menu
+// save, the quick save and the level-change save all call) is called once, so the veto can be seen refusing it
+// ('[lifecycle] save write vetoed' and a return value of 1).
+void testSaveTick(drakan_input::IGuest& guest, unsigned since) {
+    static const unsigned at = [] {
+        const char* e = std::getenv("DRAKAN_ARENA_TEST_SAVE");
+        return e ? static_cast<unsigned>(std::max(1, std::atoi(e))) : 0u;
+    }();
+    static unsigned doneGen = ~0u;
+    if (at == 0 || since < at || doneGen == g_loadGen)
+        return;
+    doneGen = g_loadGen;
+    const uint32_t r = guest.call(drakan_input::GuestCall(guestAddress(0x169c28u)).arg(0).arg(0).arg(0).arg(0));
+    arenaLog("test: save writer called, returned %u (1 = refused by the veto)", r);
+}
+
+// The menu picture: the player is placed at the map's preview point (yaw from the map, the engine's follow camera comes
+// along behind her), the camera's look pitch is set, and after the terrain around has streamed in the window is saved.
+constexpr unsigned kShotSettleTicks = 240, kShotWriteTicks = 40;
+
+void previewShotTick(drakan_input::IGuest& guest, uint8_t* rdram, uint32_t player) {
+    const int stage = g_shotStage.load();
+    if (stage == 0) {
+        if (g_envShotFile.empty() || g_ticks < g_passTick + 600)
+            return;
+        requestPreviewShot(g_envShotFile);
+        g_envShotFile.clear();
+        return;
+    }
+    ArenaDef def;
+    {
+        std::lock_guard<std::mutex> l(g_sessM);
+        if (!g_hasDef || !g_defFits.load()) {
+            g_shotStage = 0;
+            return;
+        }
+        def = g_def;
+    }
+    float pos[3], yaw = 0, pitch = 0;
+    if (def.hasPreview) {
+        std::copy(def.preview, def.preview + 3, pos);
+        yaw = def.preview[3];
+        pitch = def.preview[4];
+    } else if (!def.spawns.empty()) {
+        std::copy(def.spawns[0].pos, def.spawns[0].pos + 3, pos);
+        yaw = spawnYawDeg(def, def.spawns[0]);
+    } else {
+        g_shotStage = 0;
+        return;
+    }
+    const uint32_t camH = rd32(rdram, engineCtx(rdram) + 0x4b4);
+    const uint32_t camObj = ramPtr(camH) ? rd32(rdram, rd32(rdram, camH + 0xfc) + 0x10) : 0;
+    if (stage == 1) {
+        if (g_shotAt == 0) {
+            g_shotAt = g_ticks + kShotSettleTicks;
+            teleport(guest, player, pos, -3, yaw);
+            arenaLog("preview shot: standing at %.0f %.0f %.0f yaw %.0f pitch %.0f", static_cast<double>(pos[0]),
+                     static_cast<double>(pos[1]), static_cast<double>(pos[2]), static_cast<double>(yaw),
+                     static_cast<double>(pitch));
+        }
+        if (ramPtr(camObj))
+            guest.writeF(camObj + 0x84, pitch * 3.14159265f / 180.0f);
+        // The follow camera glides to its place after a placement: the shot waits until it has held still.
+        static float lastCam[3] = {0, 0, 0};
+        static unsigned steady = 0, waited = 0;
+        if (g_shotAt == g_ticks + kShotSettleTicks) // first tick of the stage
+            steady = waited = 0;
+        if (ramPtr(camH)) {
+            const float c[3] = {rdf(rdram, camH + 0x14), rdf(rdram, camH + 0x18), rdf(rdram, camH + 0x1c)};
+            const float moved =
+                std::fabs(c[0] - lastCam[0]) + std::fabs(c[1] - lastCam[1]) + std::fabs(c[2] - lastCam[2]);
+            steady = moved < 12.0f ? steady + 1 : 0;
+            std::copy(c, c + 3, lastCam);
+        }
+        if (g_ticks >= g_shotAt && steady < 60 && waited < 900) {
+            ++waited;
+            return;
+        }
+        if (g_ticks >= g_shotAt) {
+            if (ramPtr(camH))
+                arenaLog("preview shot: camera at %.0f %.0f %.0f (%.0f from the player), steady %u, waited %u",
+                         static_cast<double>(lastCam[0]), static_cast<double>(lastCam[1]),
+                         static_cast<double>(lastCam[2]),
+                         static_cast<double>(std::hypot(lastCam[0] - rdf(rdram, player + 0x14),
+                                                        lastCam[2] - rdf(rdram, player + 0x1c))),
+                         steady, waited);
+            // Only with her standing on the point: a spawn the engine would not take (no floor yet) gives a picture
+            // of a fall. Try again a few times, then give up without a file.
+            const float dx = rdf(rdram, player + 0x14) - pos[0], dy = rdf(rdram, player + 0x18) - pos[1],
+                        dz = rdf(rdram, player + 0x1c) - pos[2];
+            if (std::sqrt(dx * dx + dz * dz) > 1500.0f || std::fabs(dy) > 2500.0f) {
+                if (++g_shotTries >= 4) {
+                    arenaLog("preview shot: the player never settled at the point, no picture");
+                    g_shotTries = 0;
+                    g_shotAt = 0;
+                    g_shotStage = 0;
+                    g_shotDone = 1;
+                    return;
+                }
+                g_shotAt = g_ticks + 120;
+                teleport(guest, player, pos, -3, yaw);
+                return;
+            }
+            std::string file;
+            {
+                std::lock_guard<std::mutex> l(g_shotM);
+                file = g_shotFile;
+            }
+            gsr::requestWindowShot(file);
+            g_shotAt = g_ticks + kShotWriteTicks;
+            g_shotStage = 2;
+        }
+    } else if (stage == 2 && g_ticks >= g_shotAt) {
+        const int s = def.pickSpawn({});
+        if (s >= 0)
+            teleport(guest, player, def.spawns[static_cast<size_t>(s)].pos, s,
+                     spawnYawDeg(def, def.spawns[static_cast<size_t>(s)]));
+        g_shotAt = 0;
+        g_shotDone = 1;
+        g_shotStage = 0;
+    }
+}
+
+// ---- Character turntables for the co-op character picker (docs/journal/2026-11-01/character-previews.md) ----
+// The title menu has no model renderer, so the pictures are made from a loaded level: with DRAKAN_CHAR_PREVIEWS set
+// (all, or hex class ids separated by commas) the player stands still, one window shot is taken of the empty spot
+// beside her, and each character is spawned as a ghost stand-in there and turned in kStudioFrames steps with a shot per
+// step. A thread subtracts the empty shot from each frame (the camera and the world hold still), cuts the character out
+// (alpha = how much the pixel changed), and writes one strip PNG per character into <previews>/chars/<id>.png, which
+// the menu plays back. Characters with a strip are skipped, so an interrupted run resumes.
+constexpr int kStudioFrames = 12;
+constexpr unsigned kStudioSettle = 220, kStudioWrite = 14, kStudioTurn = 12;
+struct Studio {
+    int phase = 0; // 0 waiting, 1 empty shot, 2 spawn, 3 turn, 4 clean up, 5 retry spawn
+    bool wanted = false, all = true, done = false;
+    std::vector<uint16_t> ids;
+    size_t next = 0;
+    unsigned ticks = 0, at = 0;
+    int ghost = 0, frame = 0;
+    uint16_t cur = 0;
+    float base[3] = {0, 0, 0}, rot[9] = {1, 0, 0, 0, 1, 0, 0, 0, 1};
+    std::vector<std::future<void>> jobs;
+} g_studio;
+
+std::string studioDir() {
+    std::string d;
+    if (const char* e = std::getenv("DRAKAN_PREVIEW_DIR"); e && *e)
+        d = e;
+    else if (const char* l = std::getenv("LOCALAPPDATA"); l && *l)
+        d = std::string(l) + "/Drakan2PC/previews/";
+    else if (const char* h = std::getenv("HOME"); h && *h)
+        d = std::string(h) + "/.local/share/Drakan2PC/previews/";
+    else
+        d = drakan_cfg::exeDir() + "previews/captured/";
+    if (!d.empty() && d.back() != '/' && d.back() != '\\')
+        d += '/';
+    return d + "chars/";
+}
+std::string hex4(unsigned v) {
+    char b[16];
+    std::snprintf(b, sizeof b, "%04x", v & 0xffffu);
+    return b;
+}
+
+// Builds <dir>/<id>.png from the empty shot and the frames (worker thread). False without a usable cut.
+bool studioAssemble(const std::string& dir, uint16_t id) {
+    constexpr int cw = 160, ch = 240;
+    gsr::Image bg;
+    if (!gsr::readImage((dir + "raw/bg.png").c_str(), bg) || !bg)
+        return false;
+    std::vector<gsr::Image> fr(kStudioFrames);
+    for (int k = 0; k < kStudioFrames; ++k)
+        if (!gsr::readImage((dir + "raw/" + hex4(id) + "_" + std::to_string(k) + ".png").c_str(), fr[k]) || !fr[k] ||
+            fr[k].width != bg.width || fr[k].height != bg.height)
+            return false;
+    const unsigned W = bg.width, H = bg.height;
+    // Where the stand-in is: the right half of the picture (the player is in the middle).
+    const unsigned zx0 = W * 62 / 100, zy0 = H / 10, zy1 = H * 9 / 10;
+    const auto diff = [&](const gsr::Image& a, unsigned x, unsigned y) {
+        const uint8_t* p = a.rgba.data() + (size_t(y) * W + x) * 4;
+        const uint8_t* q = bg.rgba.data() + (size_t(y) * W + x) * 4;
+        return std::max({std::abs(int(p[0]) - q[0]), std::abs(int(p[1]) - q[1]), std::abs(int(p[2]) - q[2])});
+    };
+    unsigned x0 = W, y0 = H, x1 = 0, y1 = 0;
+    for (const gsr::Image& f : fr) {
+        std::vector<int> col(W, 0), row(H, 0);
+        for (unsigned y = zy0; y < zy1; ++y)
+            for (unsigned x = zx0; x < W; ++x)
+                if (diff(f, x, y) > 40) {
+                    ++col[x];
+                    ++row[y];
+                }
+        for (unsigned x = zx0; x < W; ++x)
+            if (col[x] >= 4) {
+                x0 = std::min(x0, x);
+                x1 = std::max(x1, x);
+            }
+        for (unsigned y = zy0; y < zy1; ++y)
+            if (row[y] >= 4) {
+                y0 = std::min(y0, y);
+                y1 = std::max(y1, y);
+            }
+    }
+    if (x1 <= x0 + 20 || y1 <= y0 + 40)
+        return false;
+    // A cell of 2 : 3 around the cut, a little air all round.
+    double h = (y1 - y0 + 1) * 1.08, w = (x1 - x0 + 1) * 1.08;
+    h = std::max(h, w * 1.5);
+    w = h / 1.5;
+    const double cx = (x0 + x1) * 0.5, cy = (y0 + y1) * 0.5;
+    const double sx0 = cx - w * 0.5, sy0 = cy - h * 0.5;
+    gsr::Image out;
+    out.width = cw * kStudioFrames;
+    out.height = ch;
+    out.rgba.assign(size_t(out.width) * out.height * 4, 0);
+    for (int k = 0; k < kStudioFrames; ++k)
+        for (int y = 0; y < ch; ++y)
+            for (int x = 0; x < cw; ++x) {
+                const int sx = static_cast<int>(sx0 + (x + 0.5) * w / cw),
+                          sy = static_cast<int>(sy0 + (y + 0.5) * h / ch);
+                if (sx < int(zx0) || sy < 0 || sx >= int(W) || sy >= int(H))
+                    continue;
+                // 2 x 2 source samples; the alpha is the change against the empty shot
+                int a = 0, r = 0, g = 0, b = 0;
+                for (int j = 0; j < 2; ++j)
+                    for (int i = 0; i < 2; ++i) {
+                        const unsigned px = std::min<unsigned>(sx + i, W - 1), py = std::min<unsigned>(sy + j, H - 1);
+                        const int d = diff(fr[k], px, py);
+                        const int al = std::clamp((d - 24) * 12, 0, 255);
+                        const uint8_t* p = fr[k].rgba.data() + (size_t(py) * W + px) * 4;
+                        a += al;
+                        r += p[0] * al;
+                        g += p[1] * al;
+                        b += p[2] * al;
+                    }
+                uint8_t* o = out.rgba.data() + (size_t(y) * out.width + size_t(k) * cw + x) * 4;
+                if (a > 0) {
+                    o[0] = static_cast<uint8_t>(r / a);
+                    o[1] = static_cast<uint8_t>(g / a);
+                    o[2] = static_cast<uint8_t>(b / a);
+                    o[3] = static_cast<uint8_t>(a / 4);
+                }
+            }
+    std::error_code ec;
+    // Holes where the character's colours match the ground behind it: close the cut-out (alpha follows the closed
+    // mask).
+    for (int k = 0; k < kStudioFrames; ++k) {
+        std::vector<uint8_t> m(size_t(cw) * ch), t(size_t(cw) * ch);
+        const auto cell = [&](int x, int y) -> uint8_t* {
+            return out.rgba.data() + (size_t(y) * out.width + size_t(k) * cw + x) * 4;
+        };
+        for (int y = 0; y < ch; ++y)
+            for (int x = 0; x < cw; ++x)
+                m[size_t(y) * cw + x] = cell(x, y)[3] > 24 ? 255 : 0;
+        const auto filt = [&](std::vector<uint8_t>& a, int r, bool grow) {
+            for (int pass = 0; pass < 2; ++pass) {
+                for (int y = 0; y < ch; ++y)
+                    for (int x = 0; x < cw; ++x) {
+                        uint8_t v = grow ? 0 : 255;
+                        for (int d = -r; d <= r; ++d) {
+                            const int xx = pass == 0 ? std::clamp(x + d, 0, cw - 1) : x;
+                            const int yy = pass == 0 ? y : std::clamp(y + d, 0, ch - 1);
+                            const uint8_t u = a[size_t(yy) * cw + xx];
+                            v = grow ? std::max(v, u) : std::min(v, u);
+                        }
+                        t[size_t(y) * cw + x] = v;
+                    }
+                a = t;
+            }
+        };
+        filt(m, 4, true);
+        filt(m, 4, false);
+        // Colour of a filled pixel: the nearest cut-out pixel to its left or right (same row).
+        for (int y = 0; y < ch; ++y)
+            for (int x = 0; x < cw; ++x) {
+                uint8_t* o = cell(x, y);
+                if (!m[size_t(y) * cw + x] || o[3] > 24)
+                    continue;
+                for (int d = 1; d < 12; ++d) {
+                    const int xs[2] = {x - d, x + d};
+                    bool got = false;
+                    for (int xx : xs)
+                        if (xx >= 0 && xx < cw && cell(xx, y)[3] > 24) {
+                            std::copy(cell(xx, y), cell(xx, y) + 3, o);
+                            o[3] = 255;
+                            got = true;
+                            break;
+                        }
+                    if (got)
+                        break;
+                }
+            }
+    }
+    const bool ok = gsr::writePng((dir + hex4(id) + ".png").c_str(), out);
+    for (int k = 0; k < kStudioFrames; ++k)
+        std::filesystem::remove(dir + "raw/" + hex4(id) + "_" + std::to_string(k) + ".png", ec);
+    return ok;
+}
+
+void studioTick(drakan_input::IGuest& guest, uint8_t* rdram) {
+    (void)guest;
+    Studio& s = g_studio;
+    if (s.done)
+        return;
+    if (!s.wanted) {
+        const char* e = std::getenv("DRAKAN_CHAR_PREVIEWS");
+        if (!e || !*e || std::strcmp(e, "0") == 0) {
+            s.done = true;
+            return;
+        }
+        s.wanted = true;
+        const std::string v = e;
+        if (v != "1" && v != "all") {
+            s.all = false;
+            for (size_t p = 0; p < v.size();) {
+                s.ids.push_back(static_cast<uint16_t>(std::strtoul(v.c_str() + p, nullptr, 16)));
+                p = v.find(',', p);
+                if (p == std::string::npos)
+                    break;
+                ++p;
+            }
+        }
+    }
+    const uint32_t player = controlledActor(rdram);
+    if (!ramPtr(player) || !drakan_ghost::ready() || !drakan_ghost::enabled())
+        return;
+    const std::string dir = studioDir();
+    ++s.ticks;
+    if (s.phase == 0) {
+        if (s.ticks < 900) // the level has settled, the follow camera holds still
+            return;
+        std::error_code ec;
+        std::filesystem::create_directories(dir + "raw", ec);
+        if (s.all) {
+            const char* mx = std::getenv("DRAKAN_CHAR_PREVIEW_MAX");
+            const size_t max = mx ? std::strtoul(mx, nullptr, 10) : 1000;
+            for (const auto& e : drakan_coop_character::roster())
+                if (s.ids.size() < max)
+                    s.ids.push_back(e.id);
+        }
+        std::erase_if(s.ids, [&](uint16_t id) { return std::filesystem::exists(dir + hex4(id) + ".png"); });
+        if (s.ids.empty()) {
+            arenaLog("character previews: nothing to do");
+            s.done = true;
+            return;
+        }
+        arenaLog("character previews: %zu characters into %s", s.ids.size(), dir.c_str());
+        for (int i = 0; i < 3; ++i)
+            s.base[i] = rdf(rdram, player + 0x14 + 4u * static_cast<uint32_t>(i));
+        for (int i = 0; i < 9; ++i)
+            s.rot[i] = rdf(rdram, player + 0x20 + 4u * static_cast<uint32_t>(i));
+        // Beside her, to one side of the camera's view of her.
+        const uint32_t camH = rd32(rdram, engineCtx(rdram) + 0x4b4);
+        if (ramPtr(camH)) {
+            float dx = s.base[0] - rdf(rdram, camH + 0x14), dz = s.base[2] - rdf(rdram, camH + 0x1c);
+            const float n = std::max(1.0f, std::hypot(dx, dz));
+            dx /= n;
+            dz /= n;
+            const float side = std::getenv("DRAKAN_CHAR_PREVIEW_LEFT") ? 1.0f : -1.0f; // -1: the right of the picture
+            s.base[0] += side * dz * 520.0f - dx * 60.0f;
+            s.base[2] += side * -dx * 520.0f - dz * 60.0f;
+        }
+        gsr::requestWindowShot(dir + "raw/bg.png");
+        s.at = s.ticks + kStudioWrite + 20;
+        s.phase = 1;
+        return;
+    }
+    if (s.phase == 1) {
+        if (s.ticks < s.at)
+            return;
+        s.phase = 2;
+    }
+    if (s.phase == 2 && s.next >= s.ids.size()) {
+        if (s.ticks < s.at)
+            return;
+        for (auto& j : s.jobs)
+            j.wait();
+        arenaLog("character previews: finished");
+        s.done = true;
+        return;
+    }
+    const auto place = [&](float angle) {
+        const float c = std::cos(angle), sn = std::sin(angle);
+        float r[9]; // R * Ry(angle), rows of the 3 x 3
+        for (int row = 0; row < 3; ++row) {
+            const float a = s.rot[row * 3], b = s.rot[row * 3 + 1], d = s.rot[row * 3 + 2];
+            r[row * 3] = a * c - d * sn;
+            r[row * 3 + 1] = b;
+            r[row * 3 + 2] = a * sn + d * c;
+        }
+        drakan_ghost::pinTransform(s.ghost, s.base, r);
+    };
+    if (s.phase == 2) {
+        s.cur = s.ids[s.next];
+        drakan_ghost::Transform t;
+        std::copy(s.base, s.base + 3, t.pos);
+        std::copy(s.rot, s.rot + 9, t.rot);
+        s.ghost = drakan_ghost::spawn(&t, s.cur);
+        if (s.ghost == 0) { // refused (not ready yet): try again shortly
+            s.at = s.ticks + 30;
+            s.phase = 5;
+            return;
+        }
+        s.frame = 0;
+        s.at = s.ticks + kStudioSettle;
+        s.phase = 3;
+        return;
+    }
+    if (s.phase == 5) {
+        if (s.ticks >= s.at)
+            s.phase = 2;
+        return;
+    }
+    if (s.phase == 3) {
+        place(static_cast<float>(s.frame) * 6.2831853f / kStudioFrames);
+        if (s.ticks < s.at)
+            return;
+        gsr::requestWindowShot(dir + "raw/" + hex4(s.cur) + "_" + std::to_string(s.frame) + ".png");
+        ++s.frame;
+        s.at = s.ticks + kStudioWrite + kStudioTurn;
+        if (s.frame >= kStudioFrames) {
+            s.phase = 4;
+            s.at = s.ticks + kStudioWrite + 10;
+        }
+        return;
+    }
+    if (s.phase == 4) {
+        if (s.ticks < s.at)
+            return;
+        drakan_ghost::destroy(s.ghost);
+        const uint16_t id = s.cur;
+        s.jobs.push_back(std::async(std::launch::async, [dir, id] {
+            const bool ok = studioAssemble(dir, id);
+            arenaLog("character previews: %04x %s", id, ok ? "written" : "no usable cut");
+        }));
+        ++s.next;
+        s.at = s.ticks + (s.next >= s.ids.size() ? 120 : 60);
+        s.phase = 2;
+    }
 }
 
 // Test aid DRAKAN_ARENA_TOUR=<boundaries per stop>: visits every spawn point in turn (screenshots come from the input
@@ -1219,10 +1923,13 @@ void resetEeState() {
     g_loadoutArmed = g_loadoutDone = false;
     g_loadoutPhase = 0;
     g_arm = ArmState();
+    g_spell = SpellState();
     g_calls.clear();
     g_pendingStow.clear();
     g_removed = 0;
     g_place.active = false;
+    g_assignedSpawn = -1;
+    g_placeHoldUntil = 0;
 }
 
 } // namespace
@@ -1248,6 +1955,8 @@ std::vector<MapEntry> maps() {
         m.pickups = static_cast<int>(a.pickups.size());
         m.hasBounds = a.hasBounds;
         std::copy(a.bounds, a.bounds + 4, m.bounds);
+        m.hasPreview = a.hasPreview;
+        std::copy(a.preview, a.preview + 5, m.preview);
         m.installed =
             !g_haveInstalled || std::find(g_installed.begin(), g_installed.end(), a.level) != g_installed.end();
         out.push_back(std::move(m));
@@ -1371,6 +2080,7 @@ bool placeAtSpawn(drakan_input::IGuest& guest, uint8_t* rdram, int index) {
     if (!g_haveStart)
         captureStart(rdram, player);
     teleport(guest, player, s.pos, index, spawnYawDeg(def, s));
+    g_assignedSpawn = index;
     g_outsideTicks = 0;
     arenaLog("player placed at spawn %d: %.0f %.0f %.0f", index, static_cast<double>(s.pos[0]),
              static_cast<double>(s.pos[1]), static_cast<double>(s.pos[2]));
@@ -1378,8 +2088,30 @@ bool placeAtSpawn(drakan_input::IGuest& guest, uint8_t* rdram, int index) {
     return true;
 }
 
+void requestPreviewShot(const std::string& file) {
+    if (file.empty() || g_shotStage.load())
+        return;
+    {
+        std::lock_guard<std::mutex> l(g_shotM);
+        g_shotFile = file;
+    }
+    g_shotAt = 0;
+    g_shotDone = 0;
+    g_shotStage = 1;
+}
+
+std::string charPreviewDir() {
+    return studioDir();
+}
+
+int previewShotState() {
+    return g_shotStage.load() ? 1 : (g_shotDone.load() ? 2 : 0);
+}
+
 void install(PS2Runtime& rt) {
     (void)rt;
+    if (const char* f = std::getenv("DRAKAN_ARENA_PREVIEW_SHOT"))
+        g_envShotFile = f;
     if (const char* v = std::getenv("DRAKAN_ARENA_LOG"))
         g_log = v[0] != '0';
     world::Globals g;
@@ -1437,6 +2169,7 @@ void install(PS2Runtime& rt) {
         g_calls.clear();
         g_pendingStow.clear();
         g_arm = ArmState();
+        g_spell = SpellState();
         g_loadoutPhase = 0;
         g_loadoutArmed = false;
     });
@@ -1462,6 +2195,7 @@ void beforePadMgr(drakan_input::IGuest& guest, uint8_t* rdram) {
         g_seenSerial = serial;
         resetEeState();
     }
+    studioTick(guest, rdram);
     if (!g_active.load())
         return;
     const uint32_t player = controlledActor(rdram);
@@ -1495,10 +2229,14 @@ void beforePadMgr(drakan_input::IGuest& guest, uint8_t* rdram) {
     pumpSpawns(guest, rdram);
     loadoutTick(guest, rdram, player);
     armTick(guest, rdram, player);
+    spellTick(guest, rdram, player);
     placementTick(guest, rdram, player);
     gotoTick(guest, rdram, player);
+    testFallTick(guest, rdram, player, since);
+    testSaveTick(guest, since);
     boundsTick(guest, rdram, player);
     tourTick(guest, rdram, player);
+    previewShotTick(guest, rdram, player);
 }
 
 } // namespace drakan_arena
