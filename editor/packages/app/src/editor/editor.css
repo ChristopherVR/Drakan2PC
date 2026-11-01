@@ -461,6 +461,28 @@ body.ed-scrub {
     padding: 10px 12px;
     border-bottom: 1px solid var(--line);
 }
+.insp-revert {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    padding: 6px 12px;
+    background: var(--warn-soft);
+    border-bottom: 1px solid var(--line);
+    font-size: var(--fs-sm);
+}
+.insp-revert[hidden] {
+    display: none;
+}
+.insp-revert-t {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    min-width: 0;
+}
+.insp-revert .btn {
+    flex: none;
+}
 .insp-title {
     display: flex;
     flex-direction: column;

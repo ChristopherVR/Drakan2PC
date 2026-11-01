@@ -192,6 +192,10 @@
 .side-tabs[hidden] {
     display: none;
 }
+/* The Details tab names the panel; its own header would say it twice. */
+#ed-details.side-tabbed > .inspector > .panel-head {
+    display: none;
+}
 .side-tab {
     display: inline-flex;
     align-items: center;

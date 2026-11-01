@@ -2,6 +2,7 @@ import {
     applyDocumentToLvl,
     checkEntrySize,
     diffDocument,
+    levelObjectFromLvl,
     validateDocument,
     type DocumentDiff,
     type LevelDocument,
@@ -17,6 +18,7 @@ import type { Ctx, Panel } from './ctx.ts';
 import { fill, h, icon, raf } from './dom.ts';
 import { projects } from './project/store.ts';
 import { changeList } from '../shared/components.ts';
+import { revertBlocked, revertToOriginal } from './revert.ts';
 
 // ---- bottom dock with tabs -------------------------------------------------------------------------------------
 
@@ -396,27 +398,34 @@ export interface ModHost {
     exportContent(): void;
 }
 
-function describeDiff(ctx: Ctx, d: DocumentDiff): { label: string; ids: number[]; tone: string }[] {
+/** One row per changed object: what happened to it, in plain words. */
+function describeDiff(ctx: Ctx, d: DocumentDiff): { label: string; id: number; ids: number[]; tone: string }[] {
     const doc = ctx.doc();
+    const src = ctx.src();
+    const base = new Map((src?.lvl.list.objects ?? []).map((b) => [b.id, b]));
     const name = (id: number): string => {
         const o = doc.get(id);
-        return o ? `${o.class} #${id}` : `object ${id}`;
+        if (o) return `${o.class} #${id}`;
+        const b = base.get(id);
+        return b && src ? `${levelObjectFromLvl(src.lvl.header, src.odbs, b).class} #${id}` : `object ${id}`;
     };
-    const out: { label: string; ids: number[]; tone: string }[] = [];
-    const add = (verb: string, tone: string, ids: number[]): void => {
-        for (const id of ids) out.push({ label: `${verb} ${name(id)}`, ids: doc.has(id) ? [id] : [], tone });
+    const out: { label: string; id: number; ids: number[]; tone: string }[] = [];
+    for (const a of d.added)
+        out.push({ label: `Added ${name(a.id)}`, id: a.id, ids: doc.has(a.id) ? [a.id] : [], tone: 'add' });
+    for (const id of d.deleted) out.push({ label: `Deleted ${name(id)}`, id, ids: [], tone: 'del' });
+    const what = new Map<number, string[]>();
+    const note = (verb: string, ids: number[]): void => {
+        for (const id of ids) what.set(id, [...(what.get(id) ?? []), verb]);
     };
-    add(
-        'Added',
-        'add',
-        d.added.map((a) => a.id),
-    );
-    add('Deleted', 'del', d.deleted);
-    add('Moved', 'mod', d.moved);
-    add('Rotated', 'mod', d.rotated);
-    add('Scaled', 'mod', d.scaled);
-    add('Links changed on', 'mod', d.linked);
-    add('Fields changed on', 'mod', d.params);
+    note('moved', d.moved);
+    note('rotated', d.rotated);
+    note('scaled', d.scaled);
+    note('links changed', d.linked);
+    note('fields changed', d.params);
+    for (const [id, verbs] of what) {
+        const text = verbs.length > 1 ? `${verbs.slice(0, -1).join(', ')} and ${verbs.at(-1)}` : verbs[0]!;
+        out.push({ label: `${name(id)}: ${text}`, id, ids: doc.has(id) ? [id] : [], tone: 'mod' });
+    }
     return out;
 }
 
@@ -650,6 +659,17 @@ export function createModPanel(ctx: Ctx, host: ModHost): ModPanel {
                     tag: r.tone === 'add' ? 'Added' : r.tone === 'del' ? 'Deleted' : 'Changed',
                     tone: r.tone,
                     ...(r.ids.length ? { onLocate: () => ctx.locate(r.ids), locateTitle: 'Select and frame it' } : {}),
+                    ...(revertBlocked(ctx, [r.id])
+                        ? {}
+                        : {
+                              onRevert: () => void revertToOriginal(ctx, [r.id]),
+                              revertTitle:
+                                  r.tone === 'add'
+                                      ? 'Remove this added object'
+                                      : r.tone === 'del'
+                                        ? 'Put this object back'
+                                        : 'Put this object back the way it is on the disc',
+                          }),
                 })),
                 h('span', { class: 'dim' }, 'No changes yet.'),
             ),

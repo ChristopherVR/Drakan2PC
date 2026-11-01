@@ -162,6 +162,98 @@ export function editObjects(
     return after.size ? new EditObjectsCommand(before, after, label) : null;
 }
 
+/**
+ * Before/after snapshot of whole objects where either side may be missing (`null`): the object is removed, put back or
+ * replaced. Used by `revertObjects`, which can remove an added object and restore a deleted one in the same step.
+ */
+export class SnapshotCommand implements Command {
+    constructor(
+        private readonly before: Map<number, LevelObject | null>,
+        private readonly after: Map<number, LevelObject | null>,
+        readonly label: string,
+    ) {}
+    get ids(): number[] {
+        return [...this.after.keys()];
+    }
+    private put(doc: LevelDocument, m: Map<number, LevelObject | null>): void {
+        for (const [id, o] of m) {
+            if (!o) doc.remove(id);
+            else if (doc.has(id)) doc.replace(cloneObject(o));
+            else doc.insert(cloneObject(o));
+        }
+    }
+    apply(doc: LevelDocument): void {
+        this.put(doc, this.after);
+    }
+    revert(doc: LevelDocument): void {
+        this.put(doc, this.before);
+    }
+}
+
+/** One object to revert and its original (disc) version; `original` is undefined for an object that is not on the disc. */
+export interface RevertTarget {
+    id: number;
+    original: LevelObject | undefined;
+}
+
+/**
+ * Build one undo step that puts objects back the way they were on the disc:
+ *   - a changed object gets its original position, rotation, scale, links and fields back (editor notes in `props`
+ *     are kept);
+ *   - an added object (no original) is removed, and links from other objects to it are dropped;
+ *   - a deleted object (not in the document) is put back with its original id.
+ * Null when nothing would change.
+ */
+export function revertObjects(
+    doc: LevelDocument,
+    targets: readonly RevertTarget[],
+    label?: string,
+): SnapshotCommand | null {
+    const before = new Map<number, LevelObject | null>();
+    const after = new Map<number, LevelObject | null>();
+    const named: Pick<LevelObject, 'class' | 'id'>[] = [];
+    const removed = new Set<number>();
+    for (const { id, original } of targets) {
+        const cur = doc.get(id);
+        if (!cur && !original) continue;
+        let next: LevelObject | null;
+        if (!original) {
+            next = null;
+            removed.add(id);
+        } else if (!cur) {
+            next = cloneObject(original);
+        } else {
+            next = cloneObject(cur);
+            const o = cloneObject(original);
+            next.transform = o.transform;
+            if (o.scale) next.scale = o.scale;
+            else delete next.scale;
+            if (o.links) next.links = o.links;
+            else delete next.links;
+            if (o.fields) next.fields = o.fields;
+            else delete next.fields;
+            if (JSON.stringify(next) === JSON.stringify(cur)) continue;
+        }
+        before.set(id, cur ? cloneObject(cur) : null);
+        after.set(id, next);
+        named.push(cur ?? original!);
+    }
+    // Links to a removed object would point at nothing.
+    if (removed.size) {
+        for (const o of doc.objects()) {
+            if (removed.has(o.id)) continue;
+            const base = after.get(o.id) ?? o;
+            if (!base.links?.some((l) => removed.has(l))) continue;
+            const next = cloneObject(base);
+            next.links = next.links!.filter((l) => !removed.has(l));
+            if (!before.has(o.id)) before.set(o.id, cloneObject(o));
+            after.set(o.id, next);
+        }
+    }
+    if (!after.size) return null;
+    return new SnapshotCommand(before, after, label ?? `Revert ${describeObjects(named)} to original`);
+}
+
 /** Several commands run as one undo step. */
 export class CompositeCommand implements Command {
     constructor(

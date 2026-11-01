@@ -25,6 +25,7 @@ import {
 } from '@drakan/formats';
 import { kindOfClassName, resourceParts } from './catalog.ts';
 import { sameFieldValue } from './schema.ts';
+import { revertObjects, type SnapshotCommand } from './commands.ts';
 import { LevelDocument, type DocField, type LevelObject } from './document.ts';
 import type { EntityKind } from './world.ts';
 
@@ -88,6 +89,35 @@ const fieldsOf = (o: LvlObject): DocField[] =>
         value: paramValueOf(o, slot),
     }));
 
+function convertObject(header: Lvl['header'], odbs: OdbIndex, o: LvlObject): { obj: LevelObject; resolved: boolean } {
+    const r = resolveClass(header, odbs, o.classId, o.dbIndex);
+    const name = r.class?.name;
+    const obj: LevelObject = {
+        id: o.id,
+        class: name ?? `class ${o.classId}`,
+        type: -1,
+        kind: kindOf(name ?? ''),
+        resource: `0x${(((o.dbIndex << 16) | o.classId) >>> 0).toString(16)}`,
+        model: '',
+        transform: { pos: [...o.pos], rot: lvlRotToDoc(o.rot) },
+        props: {},
+        origin: o.id,
+        links: [...o.links],
+        fields: fieldsOf(o),
+    };
+    if (r.db) {
+        obj.props.db = r.db;
+        obj.db = r.db;
+    }
+    if (o.scale) obj.scale = [...o.scale];
+    return { obj, resolved: !!name };
+}
+
+/** One LVL object in document form, as `documentFromLvl` builds it (class name resolved through the ODBs). */
+export function levelObjectFromLvl(header: Lvl['header'], odbs: OdbIndex, o: LvlObject): LevelObject {
+    return convertObject(header, odbs, o).obj;
+}
+
 export interface LvlDocumentInfo {
     doc: LevelDocument;
     /** Objects whose class name could not be resolved through the ODBs. */
@@ -108,27 +138,8 @@ export function documentFromLvl(lvl: Lvl, odbs: OdbIndex, levelName: string): Lv
     }
     let unresolved = 0;
     for (const o of lvl.list.objects) {
-        const r = resolveClass(lvl.header, odbs, o.classId, o.dbIndex);
-        const name = r.class?.name;
-        if (!name) unresolved++;
-        const obj: LevelObject = {
-            id: o.id,
-            class: name ?? `class ${o.classId}`,
-            type: -1,
-            kind: kindOf(name ?? ''),
-            resource: `0x${(((o.dbIndex << 16) | o.classId) >>> 0).toString(16)}`,
-            model: '',
-            transform: { pos: [...o.pos], rot: lvlRotToDoc(o.rot) },
-            props: {},
-            origin: o.id,
-            links: [...o.links],
-            fields: fieldsOf(o),
-        };
-        if (r.db) {
-            obj.props.db = r.db;
-            obj.db = r.db;
-        }
-        if (o.scale) obj.scale = [...o.scale];
+        const { obj, resolved } = convertObject(lvl.header, odbs, o);
+        if (!resolved) unresolved++;
         doc.insert(obj);
     }
     return { doc, unresolved };
@@ -223,6 +234,15 @@ function rotChanged(base: readonly number[], doc: readonly number[]): boolean {
     return want.some((w, i) => mod360(w) !== mod360(base[i]!));
 }
 
+function diffOne(d: DocumentDiff, b: LvlObject, o: LevelObject): void {
+    if (o.transform.pos.some((v, i) => Math.abs(Math.fround(v) - b.pos[i]!) > POS_EPSILON)) d.moved.push(o.id);
+    if (rotChanged(b.rot, o.transform.rot)) d.rotated.push(o.id);
+    const bs = b.scale;
+    if (o.scale && bs && o.scale.some((v, i) => Math.fround(v) !== bs[i]!)) d.scaled.push(o.id);
+    if (o.links && !sameLinks(o.links, b.links)) d.linked.push(o.id);
+    if (paramsChanged(b, o)) d.params.push(o.id);
+}
+
 /** What the document changed relative to `base`. */
 export function diffDocument(base: LvlObjectList, doc: LevelDocument): DocumentDiff {
     const d: DocumentDiff = { moved: [], rotated: [], scaled: [], added: [], deleted: [], linked: [], params: [] };
@@ -235,16 +255,58 @@ export function diffDocument(base: LvlObjectList, doc: LevelDocument): DocumentD
             d.added.push({ id: o.id, origin: o.origin });
             continue;
         }
-        if (o.transform.pos.some((v, i) => Math.abs(Math.fround(v) - b.pos[i]!) > POS_EPSILON)) d.moved.push(o.id);
-        if (rotChanged(b.rot, o.transform.rot)) d.rotated.push(o.id);
-        const bs = b.scale;
-        if (o.scale && bs && o.scale.some((v, i) => Math.fround(v) !== bs[i]!)) d.scaled.push(o.id);
-        if (o.links && !sameLinks(o.links, b.links)) d.linked.push(o.id);
-        if (paramsChanged(b, o)) d.params.push(o.id);
+        diffOne(d, b, o);
     }
     for (const b of base.objects) if (!seen.has(b.id)) d.deleted.push(b.id);
     d.added.sort((a, b) => a.id - b.id);
     return d;
+}
+
+/** How one object differs from the disc: `added`, `deleted`, `changed` (moved, rotated, scaled, links or fields), or null. */
+export function objectChange(d: DocumentDiff, id: number): 'added' | 'deleted' | 'changed' | null {
+    if (d.added.some((a) => a.id === id)) return 'added';
+    if (d.deleted.includes(id)) return 'deleted';
+    const lists = [d.moved, d.rotated, d.scaled, d.linked, d.params];
+    return lists.some((l) => l.includes(id)) ? 'changed' : null;
+}
+
+/** Object lookup per disc list (the list a document was loaded from is not changed afterwards). */
+const baseIndex = new WeakMap<readonly LvlObject[], Map<number, LvlObject>>();
+
+/** `objectChange` for one object without diffing the whole document (Details panel, right-click menu). */
+export function objectChangeVsLvl(
+    base: LvlObjectList,
+    doc: LevelDocument,
+    id: number,
+): 'added' | 'deleted' | 'changed' | null {
+    let byId = baseIndex.get(base.objects);
+    if (!byId) baseIndex.set(base.objects, (byId = new Map(base.objects.map((x) => [x.id, x]))));
+    const b = byId.get(id);
+    const o = doc.get(id);
+    if (!b) return o ? 'added' : null;
+    if (!o) return 'deleted';
+    const d: DocumentDiff = { moved: [], rotated: [], scaled: [], added: [], deleted: [], linked: [], params: [] };
+    diffOne(d, b, o);
+    return objectChange(d, id);
+}
+
+/**
+ * One undo step that puts the listed objects back as they are in `lvl` (the disc level the document was loaded from):
+ * changed objects get their original data, added ones are removed, deleted ones come back. Null when none differ.
+ */
+export function revertToLvl(
+    doc: LevelDocument,
+    lvl: Lvl,
+    odbs: OdbIndex,
+    ids: readonly number[],
+    label?: string,
+): SnapshotCommand | null {
+    const byId = new Map(lvl.list.objects.map((b) => [b.id, b]));
+    const targets = [...new Set(ids)].map((id) => {
+        const b = byId.get(id);
+        return { id, original: b ? levelObjectFromLvl(lvl.header, odbs, b) : undefined };
+    });
+    return revertObjects(doc, targets, label);
 }
 
 export interface ApplyReport {

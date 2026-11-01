@@ -15,6 +15,7 @@ import { nameOf, objectLabel, startLinkPick } from './linking.ts';
 import { attachScrub } from './scrub.ts';
 import { objectAnimationBody } from './animpreview.ts';
 import { vendorDetails } from './vendor.ts';
+import { changeOf, revertBlocked, revertToOriginal } from './revert.ts';
 
 const R2D = 180 / Math.PI;
 const D2R = Math.PI / 180;
@@ -506,6 +507,53 @@ export function createInspector(ctx: Ctx): Panel {
         return section('Info', null, ...kids);
     }
 
+    // ---- changed from the disc -----------------------------------------------------------------------------------
+
+    /** "Changed" note with a Revert to original button; kept up to date in place as edits come in. */
+    function revertBar(objs: LevelObject[]): HTMLElement {
+        const bar = h('div', { class: 'insp-revert', hidden: true });
+        const ids = objs.map((o) => o.id);
+        let last = '';
+        const update = (): void => {
+            const kinds = ids.map((id) => changeOf(ctx, id));
+            const changed = ids.filter((_, i) => kinds[i] !== null);
+            const key = kinds.join(',');
+            if (key === last) return;
+            last = key;
+            bar.hidden = changed.length === 0;
+            if (!changed.length) return;
+            const added = kinds.every((k) => k === null || k === 'added');
+            const text =
+                ids.length === 1
+                    ? added
+                        ? 'Added in this edit (not in the original level)'
+                        : 'Changed from the original level'
+                    : `${changed.length} of ${ids.length} changed from the original level`;
+            const why = revertBlocked(ctx, changed);
+            fill(
+                bar,
+                h('span', { class: 'insp-revert-t' }, icon('info', 12), text),
+                h(
+                    'button',
+                    {
+                        class: 'btn sm',
+                        type: 'button',
+                        disabled: !!why,
+                        title:
+                            why ??
+                            (added ? 'Remove what was added' : 'Put back the position, links and fields from the disc'),
+                        onclick: () => void revertToOriginal(ctx, changed),
+                    },
+                    icon('undo', 12),
+                    added ? 'Remove' : 'Revert to original',
+                ),
+            );
+        };
+        updaters.push(update);
+        update();
+        return bar;
+    }
+
     // ---- render -------------------------------------------------------------------------------------------------
 
     function render(force = false): void {
@@ -569,6 +617,7 @@ export function createInspector(ctx: Ctx): Panel {
         fill(
             body,
             head,
+            ctx.src() ? revertBar(objs) : null,
             has('transform position rotation scale pos rot ground snap x y z') ? transformSection(objs) : null,
             fieldsSection(objs),
             objs.length === 1 && has('animation clip play idle walk attack pose skeleton viewport')

@@ -109,6 +109,7 @@ export function createWorkspace(d: WorkspaceDeps): Workspace {
     const sideIds: string[] = [];
     function renderSide(): void {
         sideStrip.hidden = sideIds.length === 0;
+        d.details.classList.toggle('side-tabbed', sideIds.length > 0);
         const btn = (id: string, title: string, ico: string): HTMLElement =>
             h(
                 'button',

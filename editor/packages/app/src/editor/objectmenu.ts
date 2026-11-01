@@ -1,5 +1,6 @@
 import type { Ctx } from './ctx.ts';
 import { startLinkPick } from './linking.ts';
+import { changedIds, revertBlocked, revertToOriginal } from './revert.ts';
 import { contextItems, type ContextItem, type ContextTarget } from './registry.ts';
 import type { MenuItem } from './ui.ts';
 
@@ -63,6 +64,18 @@ export function buildObjectMenu(
         { label: 'Duplicate', icon: 'copy', hint: 'Ctrl+D', disabled: !edit, run: () => v.duplicateSelected() },
         { label: 'Delete', icon: 'trash', hint: 'Del', danger: true, disabled: !edit, run: () => v.deleteSelected() },
     ];
+    // Only for objects that differ from the disc level; an added object is removed.
+    const changed = changedIds(ctx, ids);
+    if (changed.length) {
+        const why = revertBlocked(ctx, changed);
+        items.push({
+            label:
+                changed.length === ids.length ? 'Revert to original' : `Revert ${changed.length} changed to original`,
+            icon: 'undo',
+            ...(why ? { disabled: true, hint: why } : {}),
+            run: () => void revertToOriginal(ctx, changed),
+        });
+    }
     if (extra.length) {
         items.push({ sep: true }, ...extra.map((x) => extraItem(x, { ids, ground: point })));
     }
