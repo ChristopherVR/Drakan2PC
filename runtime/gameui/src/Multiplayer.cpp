@@ -1527,6 +1527,8 @@ void MultiplayerScreen::draw(const MpState& st, DrawList& d, const std::vector<H
                                                 "Fight through the campaign together."};
             for (int m = 0; m < static_cast<int>(GameMode::Count); ++m) {
                 const GameMode gm = static_cast<GameMode>(m);
+                if (scope_ == MpScope::Versus && gm == GameMode::Coop)
+                    continue; // co-op is played from New Game, not from the Multiplayer menu
                 const Rect c = hostCard(m);
                 const bool sel = gm == hostMode(), ok = modeAvailable(gm) && scopeAllows(scope_, gm);
                 const bool hov = ptrValid_ && p.map(c).contains(ptrX_, ptrY_);
