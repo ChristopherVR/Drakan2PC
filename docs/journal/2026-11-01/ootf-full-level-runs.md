@@ -37,3 +37,18 @@ PASS = level registered and loaded (`afterLevelLoad ok=1`), `gameplay=1` (Rynn u
 Terrain-only Volcano (`--only textures,singletons`) also failed earlier (941 layers), then loaded after the chunk-texture fixes;
 with objects it hangs in the allocator code, so a size-related overflow (layers / textures / objects) rather than one class is likely.
 Not bisected.
+
+## Alwarren fixed (bisect result)
+
+Bisect with `build/ootf-run/bis3.sh` (descends from a failing `OBJSPLIT n,k` into the failing half, 2048 splits, one object left):
+the single object index 32 plus the essentials still crashed. It was a **Left Turn** (castle piece, PC engine class 17), whose class is
+a new record cloned from the PS2 class "Nichol's Tome Stomp" (new test aid `DRAKAN_DBG_CLSINFO=<regex>` prints each synthesized
+class with its template). Other crashing sets held "Staright Piece", "Entrance", "Alwarren Entrance", which were cloned from the
+BloodVialBlood family.
+
+Cause: the class body has a u32 flags word at body offset 6 (after u16 group, u16 model id, u16 model db). Over the 1344 RESOURES
+classes it is 0 (966), 1 (340), 33 (30), 32 (5), 3 (3). The clones that crashed had template flags 32 and 3. The engine builds a
+per-object controller (`this+0xd4`, virtual call at 0x10822c) for those, and with the PC model patched in it ends up with a null vtable.
+
+Fix (`planClassMapping`, wants-model path): drop templates whose flags word is not 0, 1 or 33 while other candidates remain. Alwarren
+now reaches Rynn control (`autostart` at frame 6212, no `missing-target`).
