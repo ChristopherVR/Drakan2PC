@@ -226,3 +226,10 @@ only for models it re-draws itself, not for terrain and the rest), (2) a world-s
 vertex colour, so a new light model must replace, not add to, it), (3) extra texture slots keyed by the same hash (`texture_dir`
 lookups `<hash>_n.png` / `_orm.png`) and a second shader permutation. That is a renderer project, not a safe addition; the maps are
 for the editor and the UE5 export today.
+
+## Converted (Order of the Flame) levels
+
+Converted terrain textures are enlarged to 128 px (`DRAKAN_TERRAIN_TEX_MIN`, wrap-around Catmull-Rom, stored 8 bpp) because OotF ground is 64 px
+(99.8 % of Ruined Village cells) where the disc's is 128 px (61 % of LEVEL1NA cells). Mod textures have their own hashes: run
+`hd_pack.py modextract` + `upscale` on the mod zip after converting, or they only get the live upscale. See
+`docs/journal/2026-11-01/ootf-pixelation.md`.
