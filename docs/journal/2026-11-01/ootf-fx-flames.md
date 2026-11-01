@@ -34,3 +34,18 @@ flames with the fire texture draw around her (`build/ootf-run/fl4/run/c*.png`; f
 
 `DRAKAN_DBG_LINKS=<regex>` lists objects with their link targets and linkers (names + ids); `DRAKAN_DBG_PULLIDS=<ids>` restricts `DRAKAN_DBG_PULL`
 to those object ids (up to 8, a second ring at 1.5x distance); `DRAKAN_DBG_PULLP` also prints radius / flags / links.
+
+## Ladders, doors, switches in game (same session, game lock, Ruined Village / Alwarren, pulled objects)
+
+| Run | Setup | Result |
+| --- | --- | --- |
+| dr3 / dr4 (Alwarren) | "House Ladder" #2551 (MOUNTAON clone of "Shaft Ladder01", rfl 15, one field) pulled 450 units in front of Rynn; key E tap | ladder draws (wooden rungs with the converted model); the use key alone does nothing |
+| **dr6** (Alwarren) | same ladder at 900, W held from 2.6 s | **Rynn walks into the ladder and climbs it** (climb animation, rising each shot, `build/ootf-run/dr6/run/s0..s11.png`). Ladders (rfl 15) work in game |
+| dr2a / dr2b (Ruined Village) | "Inner Door R/L" #916 / #917 with and without the "Generic Detector" #2142 that links to all the village doors | level loads, doors draw; the detector (Task 6, Detect Which 2) makes Rynn flinch (arms over head, dr1 c5..c9, dr2b s6) but no door state change is visible (the doors are seen edge-on) |
+| dr5 / dr7 | "Switch" #1911 (+ a test link Switch -> Inner Door L, `DRAKAN_DBG_LINKADD="1911>917"`) 700 and the door 1050 units in front, `DRAKAN_PLAYTEST_POS` yaw set, E tap at 3.5 s | Rynn plays the use animation with her hand on the object in front of her (dr7 s2, s3) but the door slab is in the same place in s0 and s9 (dr7 `build/ootf-run/dr7/run`): **door opening not demonstrated**. Open: the switch -> door message chain (rfl 13 sends which message, does rfl 19 open on it), and whether "Inner Door" needs its own Initial State / Open fields from the PC class (the clone only copies same-named fields) |
+
+Ropes (rfl 73, Grimstone Mines "ropes" #2263 / "Bridge Rope") were converted (packs build) but not run in game in this session; the lock was contended for
+most of the time (about 1.5 h of waiting for ~8 short runs).
+
+Harness notes: `build/ootf-run/dr_run.sh` (lock with trap, 2 s polling, `PT=` for `DRAKAN_PLAYTEST_POS`), recipes `dr_walk` / `dr_use` / `dr_sw` /
+`dr_wlad`, `dr_sheet.py` (contact sheet, brightened). Use is a tap: `key down E` then `key up E` 60 ms later.
