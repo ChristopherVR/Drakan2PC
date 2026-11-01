@@ -528,7 +528,7 @@ void D3D11Backend::Impl::endFrame() {
                 r->wstate = 0;
         }
     clusterHud();
-    pumpUp();
+    pumpUp(std::chrono::milliseconds(2));
     st.texCacheBytes = texBytes + upBytes;
     texPeakBytes = std::max(texPeakBytes, st.texCacheBytes);
     if ((frame & 15) != 0)

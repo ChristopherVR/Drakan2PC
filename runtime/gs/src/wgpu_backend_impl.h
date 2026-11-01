@@ -483,7 +483,7 @@ struct WgpuBackend::Impl {
     uint32_t pickFactor(uint32_t W, uint32_t H, bool ui = false) const;
     void submitJob(std::function<void()> job, bool urgent = false);
     void pushDone(UpDone&& d);
-    void pumpUp();
+    void pumpUp(std::chrono::microseconds budget = std::chrono::microseconds(0)); // 0: drain everything
     void adoptUp(TexEntry& e);
     static void resampleBilinear(const std::vector<uint32_t>& img, uint32_t rw, uint32_t rh, uint32_t tw, uint32_t th,
                                  std::vector<uint32_t>& out);

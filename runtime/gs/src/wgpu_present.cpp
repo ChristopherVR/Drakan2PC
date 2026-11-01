@@ -328,7 +328,7 @@ void WgpuBackend::Impl::endFrame() {
     }
     ++frame;
     clusterHud();
-    pumpUp();
+    pumpUp(std::chrono::milliseconds(2));
     st.texCacheBytes = texBytes + upBytes;
     texPeakBytes = std::max(texPeakBytes, st.texCacheBytes);
     if ((frame & 15) != 0)

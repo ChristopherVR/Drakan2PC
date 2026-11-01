@@ -147,7 +147,7 @@ void WgpuBackend::Impl::pushDone(UpDone&& d) {
 }
 
 // create the GPU texture of a finished job (render thread only)
-void WgpuBackend::Impl::pumpUp() {
+void WgpuBackend::Impl::pumpUp(std::chrono::microseconds budget) {
     CpuProfile::Scope profile(cpuProfile, CpuProfile::PumpUp);
     if (doneCount.load() == 0)
         return;
@@ -157,7 +157,17 @@ void WgpuBackend::Impl::pumpUp() {
         local.swap(done);
         doneCount.store(0);
     }
-    for (UpDone& d : local) {
+    const auto started = std::chrono::steady_clock::now();
+    for (size_t i = 0; i < local.size(); ++i) {
+        // Per-frame budget for the background drain: a burst of finished jobs (new scenery while moving) created all
+        // their GPU textures in one frame. The rest stays queued for the next one; the first job always runs.
+        if (budget.count() > 0 && i > 0 && std::chrono::steady_clock::now() - started > budget) {
+            std::lock_guard<std::mutex> lk(doneMu);
+            done.insert(done.begin(), std::make_move_iterator(local.begin() + i), std::make_move_iterator(local.end()));
+            doneCount.fetch_add(static_cast<decltype(doneCount.load())>(local.size() - i));
+            break;
+        }
+        UpDone& d = local[i];
         if (d.gen != upGen)
             continue; // started before a live settings change flushed the caches
         auto ue = std::make_shared<UpEntry>();
