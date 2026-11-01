@@ -126,3 +126,33 @@ New converter aids (`ootfpipeline.ts`): `DRAKAN_DBG_PULLDIST=<d>,<dy>` (ring dis
 * The spider run (`rcs1`, `^Spider$`, 300,100) timed out at 180 s on this loaded machine (about 15 node/game processes of other
   sessions), so no frames. Run names must be unique (`q1` was overwritten by another session).
 * Still NOT shown: a visibly playing converted/retargeted clip.
+
+## Name aliases (2026-11-01, night)
+
+`ootfclass.ts` `PC_CLASS_ALIASES` / `aliasSquash`: PC creature class -> differently named PS2 class, used as a fallback after the same-name lookup in
+`planClassMapping` and in the pipeline's retarget lookup. Table: Troll Leather / Chain / Plate (+ "defense side attack") -> LeatherWartock / ChainTock /
+PlateTock Center (Flank for the side-attack variants), Orc Leather (purple) -> Purple Orc Center, Orc Plate (yellow) -> Yellow Orc : Center,
+War Giant / starving wargiant -> Primitive Giant. Goblin (engine id 88) has no PS2 class, Hueges are rfl 17 ground objects: no alias.
+Converter result on Wartok Canyons: Troll Leather/Chain/Plate and their side-attack variants now `retarget` (30/30 joints onto PS2 4418 / 4422 / 4427,
+17 / 1 / 2 same-named PS2 clips replaced); the Orcs retarget onto the PS2 hueges rig (26 of 34 matched). Scavenger still converts.
+The pull helpers: `PULLDIST` is read by `rtconv.sh` (converter side), not by `rtrun.sh`; `rtrun.sh` honours `TMO=` (run timeout, seconds).
+
+### In game (runs `tr_f` retarget 1, `tr_g` retarget 0, `tr_h..tr_l`, `tr_j`; Wartok Canyons, `DRAKAN_DBG_PULL` of 4 objects 180 units from Rynn)
+
+* Pull regexes now see the *mapped* class name: `^LeatherWartock : Center$` (not `^Troll Leather$`, which only matched the 76 way points, so
+  every earlier "pull Troll Leather" run pulled way points and never a troll). That also explains the earlier "no troll body" runs.
+* Trolls (aliased to the PS2 class and model 4418) draw and animate. `--retarget 0` (disc clips, `tr_g`) vs `--retarget 1` (PC clips retargeted
+  over the PS2 clips, `tr_f`): mean frame difference between the two runs about 9-11 grey levels in every frame pair, clearly different poses
+  (contact sheet `build/ootf-run/tr_contact.png`, private). World dump (`DUMP=<frame>` in `rtrun.sh`, `DRAKAN_WORLD_DUMP_FRAME`) lists the four
+  trolls (class 0x10031, model 0x51142, hp 50) beside Rynn. The trolls stand around Rynn in their idle clip; they do not attack from the
+  `DRAKAN_DBG_NOOBJ` level, so only idle/turn clips are compared, not combat clips.
+* Converted-model creature classes still do not draw: Scavenger (rfl 41, cloned from PS2 Scavenger #2296 with converted model 6675) spawns four
+  live entities (hp 35, model 0x31a13 per the world dump) and casts a correctly posed shadow, but no body is drawn. Eliminated: the 0x0200 shading /
+  distance / second word (PS2 character models have 0x20002 / 35000 / 1, ours 2 / none / 0; now written like the disc, no change), the converted clips
+  (template clip ids kept: still invisible; every anim field set to 0: still invisible), textures (Farmer, Warrior and Queen, converted skinned rfl-17
+  clones in the same level and texture container, draw fine in `tr_j`). So the failure is specific to creature (rfl 41 / 49) classes cloned with a
+  converted skeleton model; the skinning itself works (the shadow is the posed mesh). Differences still untested: the PS2 skeleton has 2 LODs and
+  an `_L` LOD name (ours 1 LOD, no name), 8 channels with caps (ours 23 without caps), and the class record's model block / joint-index tables copied
+  from the template (weapon / head joints indexed for a 54-joint rig, ours has 43).
+* The new-clip-id case (a converted clip reached through a class animation field) could therefore not be shown: only converted-model classes
+  read new ids, and those are the invisible ones.
