@@ -2040,6 +2040,16 @@ bool hasSpawns() {
     return g_active.load() && g_hasDef && !g_def.spawns.empty();
 }
 
+bool floorHint(float& y) {
+    std::lock_guard<std::mutex> l(g_sessM);
+    if (!g_active.load() || !g_hasDef || g_def.spawns.empty())
+        return false;
+    y = 1e30f;
+    for (const auto& s : g_def.spawns)
+        y = std::min(y, s.pos[1]);
+    return true;
+}
+
 void setLocalPlayer(uint8_t id) {
     g_local.store(id);
 }

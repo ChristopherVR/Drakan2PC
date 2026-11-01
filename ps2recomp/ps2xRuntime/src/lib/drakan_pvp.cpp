@@ -523,14 +523,58 @@ void endDeath(uint8_t* rdram) {
     g_deadActor = 0;
 }
 
+constexpr float kDragonGravity = 2600.0f; // units / s^2
+constexpr float kDragonFallMax = 7000.0f; // the longest drop when the arena has no floor hint
+constexpr float kDragonRoll = 2.2f;       // rad / s about his heading while he falls
+struct DragonFall {
+    bool active = false;
+    float vy = 0.0f, startY = 0.0f, floorY = -1e30f;
+    uint32_t actor = 0;
+} g_fall;
+
+void fallDragon(drakan_input::IGuest& guest, const uint8_t* rdram, uint32_t actor, float dt) {
+    float m[12];
+    std::memcpy(m, rdram + ((actor + 0x14) & 0x1ffffffu), sizeof m);
+    if (!g_fall.active || g_fall.actor != actor || g_deathTime <= dt * 1.5f) { // first tick of this death
+        g_fall = DragonFall();
+        g_fall.active = true;
+        g_fall.actor = actor;
+        g_fall.startY = m[1];
+        float hint = 0;
+        g_fall.floorY = g_fall.startY - kDragonFallMax;
+        if (drakan_arena::floorHint(hint) && hint < g_fall.startY)
+            g_fall.floorY = std::max(g_fall.floorY, hint);
+        std::fprintf(stderr, "[pvp] dragon shot down at height %.0f: falls to %.0f\n", static_cast<double>(m[1]),
+                     static_cast<double>(g_fall.floorY));
+    }
+    if (m[1] <= g_fall.floorY)
+        return; // landed
+    g_fall.vy += kDragonGravity * dt;
+    m[1] = std::max(g_fall.floorY, m[1] - g_fall.vy * dt);
+    // roll: rows 0 and 1 of the 3x3 (m[3..8]) turn about row 2 (m[9..11], his heading)
+    const float c = std::cos(kDragonRoll * dt), s = std::sin(kDragonRoll * dt);
+    for (int k = 0; k < 3; ++k) {
+        const float r0 = m[3 + k], r1 = m[6 + k];
+        m[3 + k] = r0 * c + r1 * s;
+        m[6 + k] = -r0 * s + r1 * c;
+    }
+    for (int k = 0; k < 12; ++k)
+        guest.writeF(actor + 0x14 + 4u * static_cast<uint32_t>(k), m[k]);
+}
+
 // Writes the death clip into every channel of the player's skeleton, once per boundary (before the engine draws).
 void showDeath(drakan_input::IGuest& guest, const uint8_t* rdram, float dt) {
     const uint32_t actor = controlledActor(rdram);
     if (actor != g_deadActor)
         return;
     g_deathTime += dt;
-    if (controlledIsDragon(rdram))
-        return; // Arokh has no clip of Rynn's: the swallowing handler holds him where he was shot down
+    if (controlledIsDragon(rdram)) {
+        // Arokh has no clip of Rynn's: the swallowing handler holds him, so the host drops him: gravity, a roll about
+        // his heading, down to the arena's lowest spawn height (the host has no terrain query) or kDragonFallMax,
+        // whichever is higher; he stays there until the Respawn.
+        fallDragon(guest, rdram, actor, dt);
+        return;
+    }
     const uint32_t sk = rd32(rdram, actor + 0x50);
     const uint32_t ch = ramPtr(sk) ? rd32(rdram, sk + 0xe8) : 0;
     const uint32_t n = ramPtr(sk) ? rd32(rdram, sk + 0xf0) : 0;

@@ -72,6 +72,10 @@ std::string charPreviewDir();
 void setSession(bool active, const drakan::net::ArenaDef* def);
 bool active();
 bool hasSpawns(); // the map has spawn points the server chooses from
+// The lowest spawn point's height: a floor stand-in for host-driven falls (a dying dragon). False when the map has
+// none. There is no terrain height query in the host; ground spawns sit on the walkable floor, so this is a lower bound
+// of it.
+bool floorHint(float& y);
 // The local player's player id (0 = unknown) for claim bookkeeping.
 void setLocalPlayer(uint8_t id);
 
