@@ -41,3 +41,12 @@ Open: co-op hosting for Order of the Flame should open `drakan_game::firstLevel(
 multiplayer session); a campaign in `ask` mode shows the card also when returning from a match to the title. The title art still
 says "The Ancients' Gates" (the native art; a separate OotF art would be a pack file). Unit test: `testTitleGameChoice`
 (`gameui_saveload_test.cpp`, not run here: no free runtime-tests build; covered by the in-game runs above).
+
+## Follow-up (co-op start level, title plaque)
+
+* Co-op: `setRedirect` (drakan_netplay.cpp) treats `drakan_game::firstLevel()` like the disc's first level (New Game already opens it;
+  for d1 through the campaign redirect), and the Host level list for d1 is the campaign start first, then the pack's other levels.
+  Not run in game (no free instance: other sessions had drakan.exe open); host-side only by code reading.
+* Title: `TitleState::brandTitle/brandSubtitle` draw a generated "DRAKAN / Order of the Flame" plaque over the native logo when d1 is
+  chosen. A pack-supplied `campaign_title_image` is not implemented. `testTitleGameChoice` and all gameui tests pass (runtime-tests).
+* dist/DrakanPC not refreshed (games running); run `Build-LocalGame.ps1 -Incremental` when idle.
