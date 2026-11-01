@@ -110,8 +110,6 @@ Engine 5; textures move to UE5-style PBR sets.
 
 ### Tests and housekeeping
 
-- `disc_profile_pal` / `disc_profile_usa` fail: the DebugMenu feature bit was added without updating the expected
-  mask in `scripts/tests/disc_profile_test.cpp` (0x7ffff should include bit 19).
 - Rust sources in the desktop app are not rustfmt-clean (never were); decide whether to enforce it.
 
 ## Working practice (multi-agent sessions)

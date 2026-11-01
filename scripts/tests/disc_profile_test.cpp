@@ -201,7 +201,7 @@ int main() {
     assert(supports(Feature::MoviePacing));
     assert(supports(Feature::StereoSync));
     if (std::strcmp(build().id, "pal") == 0) {
-        assert(build().features == (0x7ffffu & ~featureBit(Feature::BasicInput)));
+        assert(build().features == (0xfffffu & ~featureBit(Feature::BasicInput)));
         assert(guestAddress(0x1767a0u) == 0x1767a0u);
         assert(guestAddress(0x123456u) == 0x123456u);
         assert(supports(Feature::AdvancedInput));
@@ -212,10 +212,11 @@ int main() {
         assert(guestAddress(0x4fb6d0u) + build().audio.optionStereo == 0x4fb744u);
     } else {
         assert(std::strcmp(build().id, "usa") == 0);
-        assert(build().features == (featureBit(Feature::BasicInput) | featureBit(Feature::MoviePacing) |
-                                    featureBit(Feature::MovieGuard) | featureBit(Feature::StereoSync) |
-                                    featureBit(Feature::InputFlow) | featureBit(Feature::OptionsSettings) |
-                                    featureBit(Feature::DirectMouseLook) | featureBit(Feature::MovementInput)));
+        assert(build().features ==
+               (featureBit(Feature::BasicInput) | featureBit(Feature::MoviePacing) | featureBit(Feature::MovieGuard) |
+                featureBit(Feature::StereoSync) | featureBit(Feature::InputFlow) |
+                featureBit(Feature::OptionsSettings) | featureBit(Feature::DirectMouseLook) |
+                featureBit(Feature::MovementInput) | featureBit(Feature::DebugMenu)));
         assert(std::strcmp(build().bootElf, "SCUS_971.28") == 0);
         assert(std::strcmp(build().saveId, "BASCUS-97128") == 0);
         assert(guestAddress(0x1767a0u) == 0x176740u);
