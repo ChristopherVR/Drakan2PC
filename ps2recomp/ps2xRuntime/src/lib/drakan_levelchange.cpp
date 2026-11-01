@@ -413,11 +413,33 @@ void touchEntry(uint8_t* rdram, R5900Context* c, PS2Runtime* rt) {
                      r.u16(msg + 4), r.u16(inst));
     g_origTouch(rdram, c, rt);
 }
+bool fire(uint8_t* rdram, PS2Runtime* rt, uint32_t handle);
+std::atomic<bool> g_traceHandlers{false};
+// The exit class handler (0x365138). Message 0x20 is the exit's "touched" message. In the Order of the Flame campaign the
+// converter puts a Trigger Detector box on every exit, so a player who walks in is within a few cells of it; the same message
+// arriving while she is far away comes from something else linked to the exit, in practice the Timer that ends a cut-scene
+// level (the Intro and the Ruined Village Book have no player to walk anywhere: docs/journal/2026-11-01/
+// ootf-campaign-walkthrough.md). The engine's own touch handler ignores it (no toucher), so take the exit the way the
+// host-fired aid does: straight to the transition, no save prompt.
+constexpr float kRemoteExitDist = 8000.0f;
 void exitHandlerEntry(uint8_t* rdram, R5900Context* c, PS2Runtime* rt) {
     const Ram r{rdram};
     const uint32_t h = getRegU32(c, 4), msg = getRegU32(c, 5);
-    if (g_traceCount.fetch_add(1) < 400)
+    if (g_traceHandlers.load() && g_traceCount.fetch_add(1) < 400)
         std::fprintf(stderr, "[levelchange] trace exit handler handle %x msg %x id %x\n", h, msg, r.u16(msg + 4));
+    if (msg == 0x20 && drakan_game::current() == drakan_game::Game::Ootf && Ram::ok(h, 0x20)) {
+        const uint32_t eng = r.u32(addr(kContextPtr));
+        const uint32_t pl = Ram::ok(eng, 0x4b8) ? r.u32(eng + 0x4b0) : 0;
+        if (Ram::ok(pl, 0x20)) {
+            const float dx = f32(r, pl + 0x14) - f32(r, h + 0x14), dz = f32(r, pl + 0x1c) - f32(r, h + 0x1c);
+            const float dist = std::sqrt(dx * dx + dz * dz);
+            if (dist > kRemoteExitDist) {
+                std::fprintf(stderr, "[levelchange] exit %x got its touch message %.0f units from the player: taking it\n", h,
+                             static_cast<double>(dist));
+                fire(rdram, rt, h);
+            }
+        }
+    }
     g_origExitHandler(rdram, c, rt);
 }
 
@@ -674,14 +696,15 @@ void install(PS2Runtime& rt) {
         rt.replaceFunction(addr(kTransition), &transitionEntry);
     }
     if (std::getenv("DRAKAN_LEVELCHANGE_TRACE")) {
+        g_traceHandlers = true;
         if (rt.hasFunction(addr(kTouchHandler))) {
             g_origTouch = rt.lookupFunction(addr(kTouchHandler));
             rt.replaceFunction(addr(kTouchHandler), &touchEntry);
         }
-        if (rt.hasFunction(addr(kExitHandler))) {
-            g_origExitHandler = rt.lookupFunction(addr(kExitHandler));
-            rt.replaceFunction(addr(kExitHandler), &exitHandlerEntry);
-        }
+    }
+    if (rt.hasFunction(addr(kExitHandler))) {
+        g_origExitHandler = rt.lookupFunction(addr(kExitHandler));
+        rt.replaceFunction(addr(kExitHandler), &exitHandlerEntry);
     }
     drakan_lifecycle::subscribe(drakan_lifecycle::Kind::BeforeSaveWrite, onLevelEvent);
     drakan_lifecycle::subscribe(drakan_lifecycle::Kind::BeforeLevelLoad, onLevelEvent);
