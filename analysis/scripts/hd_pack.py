@@ -252,6 +252,14 @@ def cmd_modextract(a):
     ipath = os.path.join(a.work, "index.json")
     index = json.load(open(ipath)) if os.path.exists(ipath) else {}
     total = bad = 0
+    zp = os.path.join(a.work, "zips.json")  # zips already indexed: (size, mtime) -> skip when unchanged
+    zdone = json.load(open(zp)) if os.path.exists(zp) else {}
+    zkey = os.path.abspath(a.zip)
+    st = os.stat(a.zip)
+    sig = [st.st_size, int(st.st_mtime)]
+    if zdone.get(zkey) == sig and not getattr(a, "force", False):
+        print("modextract: %s unchanged since the last index, skipped" % a.zip)
+        return
     z = zipfile.ZipFile(a.zip)
     for name in z.namelist():
         if name.endswith("/"):
@@ -287,6 +295,8 @@ def cmd_modextract(a):
         if n:
             print("%-60s %4d textures (%d unique)" % (name, n, len(index)), flush=True)
     json.dump(index, open(ipath, "w"))
+    zdone[zkey] = sig
+    json.dump(zdone, open(zp, "w"))
     print("textures %d undecodable %d unique %d" % (total, bad, len(index)))
 
 
@@ -425,7 +435,7 @@ def run_esrgan(exe, model, indir, outdir, scale=4, gpu=None, tile=0):
     r = subprocess.run(cmd, cwd=os.path.dirname(exe), capture_output=True, text=True)
     if r.returncode != 0:
         print(r.stdout[-2000:], r.stderr[-2000:])
-        raise SystemExit("realesrgan failed")
+        raise RuntimeError("realesrgan failed (exit %d)" % r.returncode)
 
 
 def cmd_upscale(a):
@@ -446,6 +456,7 @@ def cmd_upscale(a):
     t0 = time.time()
     scale = a.scale
     done = 0
+    failed = []
     PAD = 16
     for c0 in range(0, len(todo), a.chunk):
         chunk = todo[c0 : c0 + a.chunk]
@@ -505,8 +516,17 @@ def cmd_upscale(a):
             ("alpha", "realesrgan-x4plus-anime"),
         ):
             if any(os.scandir(dirs[k] + "_in")):
-                run_esrgan(exe, model, dirs[k] + "_in", dirs[k] + "_out", 4, a.gpu)
+                try:
+                    run_esrgan(exe, model, dirs[k] + "_in", dirs[k] + "_out", 4, a.gpu)
+                except RuntimeError:  # out of VRAM / driver hiccup: retry tiled, else the textures of this model are skipped
+                    try:
+                        run_esrgan(exe, model, dirs[k] + "_in", dirs[k] + "_out", 4, a.gpu, tile=128)
+                    except RuntimeError as ex:
+                        print("  %s chunk failed twice (%s); its textures are skipped, rerun to retry" % (k, ex))
         for h, m in meta.items():
+            if not os.path.exists(os.path.join(dirs[m["model"]] + "_out", h + ".png")):
+                failed.append(h)
+                continue
             up = np.array(Image.open(os.path.join(dirs[m["model"]] + "_out", h + ".png")).convert("RGB"))
             S = up.shape[1] // (m["w"] + 2 * m["px"])  # esrgan native 4x
             cx, cy = m["px"] * S, m["py"] * S
@@ -534,7 +554,7 @@ def cmd_upscale(a):
             done += 1
         el = time.time() - t0
         print(
-            "  %d / %d done, %.0f s elapsed, eta %.0f s" % (done, len(todo), el, el / done * (len(todo) - done)),
+            "  %d / %d done, %.0f s elapsed, eta %.0f s" % (done, len(todo), el, el / max(done, 1) * (len(todo) - done)),
             flush=True,
         )
     shutil.rmtree(os.path.join(a.work, "tmp"), ignore_errors=True)
@@ -556,6 +576,9 @@ def cmd_upscale(a):
         "# <rgbhash> <hash>: same picture, different palette alpha\n" + "\n".join(lines) + "\n"
     )
     print("upscale finished: %d textures in %.0f s, alias entries %d" % (done, time.time() - t0, len(lines)))
+    if failed:
+        print("upscale: %d textures failed (rerun upscale to retry): %s" % (len(failed), " ".join(failed[:10])))
+        return 1
 
 
 def main():
@@ -568,6 +591,7 @@ def main():
     p.add_argument("--out", default=os.path.join(ROOT, "dist", "DrakanPC", "textures"))
     p.add_argument("--exe", default=os.path.join(ROOT, "tools", "hdpack", "realesrgan", "realesrgan-ncnn-vulkan.exe"))
     p.add_argument("--limit", type=int, default=0)
+    p.add_argument("--force", action="store_true", help="modextract: re-index a zip even if unchanged")
     p.add_argument("--chunk", type=int, default=300)
     p.add_argument("--scale", type=int, default=4)
     p.add_argument("--gpu", type=int, default=None)
@@ -587,7 +611,7 @@ def main():
     if a.cmd == "hybrid":
         cmd_hybrid(a)
     if a.cmd in ("upscale", "all"):
-        cmd_upscale(a)
+        sys.exit(cmd_upscale(a) or 0)
 
 
 if __name__ == "__main__":

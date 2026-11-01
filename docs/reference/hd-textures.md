@@ -230,6 +230,10 @@ for the editor and the UE5 export today.
 ## Converted (Order of the Flame) levels
 
 Converted terrain textures are enlarged to 128 px (`DRAKAN_TERRAIN_TEX_MIN`, wrap-around Catmull-Rom, stored 8 bpp) because OotF ground is 64 px
-(99.8 % of Ruined Village cells) where the disc's is 128 px (61 % of LEVEL1NA cells). Mod textures have their own hashes: run
-`hd_pack.py modextract` + `upscale` on the mod zip after converting, or they only get the live upscale. See
-`docs/journal/2026-11-01/ootf-pixelation.md`.
+(99.8 % of Ruined Village cells) where the disc's is 128 px (61 % of LEVEL1NA cells). Mod textures have their own hashes, so the HD pack must be built from the converted zips: `python -I analysis/scripts/ootf_hd_pack.py
+<pack.zip>...` (or `ootf-convert.ts ... --hd`) runs `hd_pack.py modextract` (index of every SRSC member by runtime hash, zips
+unchanged since the last index skipped) and one incremental `upscale` (existing hashes skipped, alias.txt merged, chunk failures retried
+tiled then reported with exit 1) into `dist/DrakanPC/textures`. Full 13-level campaign plus 10 arenas: 3129 unique textures (1367 at
+128 px, 1002 at 64, 423 at 32, 284 at 256), 1382 new, 18 s index + 162 s upscale (RTX 5080), +1.2 GB; a rerun takes 1 s. See
+`docs/journal/2026-11-01/ootf-hd-all-levels.md` for the in-game check (hashes of the enlarged terrain textures match the runtime;
+unmatched dump entries are non-texture noise and 1x1 fills).

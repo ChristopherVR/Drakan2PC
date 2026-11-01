@@ -300,10 +300,21 @@ What the runtime does with it (`drakan_game.cpp`):
 
 ## HD textures for converted OotF mods
 
-`python -I analysis/scripts/hd_pack.py modextract --zip <mod.zip> --work build/hdpack-mod` then `... upscale --work build/hdpack-mod`
-indexes the mod pack's textures by decoded-RGBA hash and writes the upscaled replacements into `dist/DrakanPC/textures` (never
-committed). Default settings (`texture_upscale = auto`, `texture_dir = textures`) already apply them. See
-`docs/journal/2026-11-01/ootf-texture-quality.md`.
+One command after converting (campaign pack, multiplayer arenas, any pack):
+
+```sh
+node --experimental-transform-types --no-warnings editor/scripts/ootf-convert.ts ... --out <pack.zip> --hd [--hd-out <dir>]
+# or on existing packs, any number at once:
+python -I analysis/scripts/ootf_hd_pack.py <pack.zip> [<more.zip> ...] [--out dist/DrakanPC/textures]
+```
+
+It runs `hd_pack.py modextract` per zip (every SRSC member: level splat TXDs, `PROCTEES.TXD`, `RESOURES.TXD`, the per-pack model and
+creature texture files, hashed like the runtime) into the shared index `build/hdpack-mod`, then one `upscale` (Real-ESRGAN) into
+`dist/DrakanPC/textures`, merging `alias.txt`. Incremental: zips unchanged since the last index are skipped (`zips.json`), hashes that
+already have a PNG are not redone, a failed Real-ESRGAN chunk is retried tiled and then skipped and reported (exit 1, rerun to retry).
+Cost for the 13-level campaign plus the 10 arenas: 3129 unique textures, 1382 not yet in the pack, index 18 s + upscale 162 s on an
+RTX 5080; the textures folder grows by about 1.2 GB (4969 files, 1.86 GB with the disc pack). Output is never committed. Default
+settings (`texture_upscale = auto`, `texture_dir = textures`) apply it; no pack change. Details: `docs/reference/hd-textures.md`.
 
 ## Menus and HUD (UI skins)
 

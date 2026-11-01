@@ -2,21 +2,24 @@
 //
 //   node --experimental-transform-types --no-warnings editor/scripts/ootf-convert.ts \
 //        --ootf <OotF install dir> --ps2 <dir with the extracted PS2 LEVEL*.LVL and *.ODB> \
-//        --template LEVEL1NA --out build/ootf-pack.zip [--id ootf-levels] [--prefix "OotF - "] [--splats <dir with LEVEL1TS.DB and .TXD, default --ps2>] [--campaign 1] [--list] <pc level paths...>
+//        --template LEVEL1NA --out build/ootf-pack.zip [--id ootf-levels] [--prefix "OotF - "] [--splats <dir with LEVEL1TS.DB and .TXD, default --ps2>] [--campaign 1] [--hd [--hd-out <textures dir>]] [--list] <pc level paths...>
 //
 // Level paths are relative to the install dir, e.g. "Multiplayer/Ground/Relic/Relic.lvl". Without paths every level.
 import { existsSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
 import { join, relative, sep } from 'node:path';
-import { buildOotfPack, zipOotfPack } from '@drakan/editor-core';
-import { SrscReader, convertOotfLevels, findPcLevels, ps2BlobFor, pcLevelName, type PcFileSource } from '@drakan/formats';
+import { buildOotfPack, ootfArenaFromPc, zipOotfPack } from '@drakan/editor-core';
+import { SrscReader, convertOotfLevels, findPcLevels, loadPcLevel, ps2BlobFor, pcLevelName, type PcFileSource } from '@drakan/formats';
 
 const args = process.argv.slice(2);
 const opt: Record<string, string> = {};
 const free: string[] = [];
 let list = false;
+let hd = false;
 for (let i = 0; i < args.length; i++) {
     const a = args[i]!;
     if (a === '--list') list = true;
+    else if (a === '--hd') hd = true;
     else if (a.startsWith('--')) opt[a.slice(2)] = args[++i] ?? '';
     else free.push(a);
 }
@@ -150,6 +153,14 @@ if (res.assets) {
 if (res.classPlan) {
     console.log(`classes: ${res.classPlan.mapped.size} mapped, ${res.classPlan.synthesized.length} synthesized, ${res.classPlan.unsupported.size} unsupported`);
 }
+// Multiplayer/* levels also get a map definition (spawns from the launch pads), as the editor's import dialog does.
+const arenas = new Map<string, NonNullable<ReturnType<typeof ootfArenaFromPc>>>();
+for (const l of res.levels) {
+    if (!/^multiplayer[\\/]/i.test(l.pcPath)) continue;
+    const a = ootfArenaFromPc(await loadPcLevel(src, l.pcPath), l.title);
+    if (a) arenas.set(l.pcPath, a);
+    else console.warn(`warning: ${l.pcPath}: no arena (fewer than two launch pads)`);
+}
 const pack = await buildOotfPack(
     {
         id: opt['id'] ?? 'ootf-levels',
@@ -159,10 +170,16 @@ const pack = await buildOotfPack(
         ...(opt['campaign'] !== undefined ? { campaign: 'ootf' as const, campaignName: 'Drakan: Order of the Flame' } : {}),
     },
     template,
-    res.levels.map((l) => ({ title: l.title, parts: l.parts, splats: l.splats })),
+    res.levels.map((l) => ({ title: l.title, parts: l.parts, splats: l.splats, arena: arenas.get(l.pcPath) })),
     ps2BlobFor,
     { splats, extraFiles: res.files },
 );
 for (const w of [...res.warnings, ...pack.warnings]) console.warn('warning:', w);
 writeFileSync(need('out'), zipOotfPack(pack));
 console.log(`wrote ${opt['out']} (${pack.levels.length} levels, ${Object.keys(pack.files).length} files)`);
+// --hd [--hd-out dir]: HD pack for the converted textures (Real-ESRGAN, by decoded-RGBA hash) into dist/DrakanPC/textures or <dir>; never committed.
+if (hd) {
+    const hdArgs = ['-I', 'analysis/scripts/ootf_hd_pack.py', need('out'), ...(opt['hd-out'] ? ['--out', opt['hd-out']] : [])];
+    const r = spawnSync('python', hdArgs, { stdio: 'inherit' });
+    if (r.status) process.exit(r.status);
+}
