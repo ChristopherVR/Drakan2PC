@@ -1,0 +1,16 @@
+# Pull-ring creature check: DRAKAN_DBG_PULL=<class regex> (converter test aid) puts up to 4 matching objects 700 units around Rynn; shots front then looking up.
+clock milliseconds
+0 sync play 300
+2500 shot f0
+2850 shot f1
+3200 shot f2
+3600 button tap 1
+3900 button tap 1
+4000 shot f3
+4300 shot f4
+4800 mouse 0 -9 20
+5300 shot u0
+5700 shot u1
+6100 shot u2
+6500 shot u3
+7500 quit

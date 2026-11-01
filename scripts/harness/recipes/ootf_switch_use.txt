@@ -1,0 +1,11 @@
+# Switch -> portcullis check: convert with DRAKAN_DBG_PULLIDS=<switch id>,9999,<portcullis id> DRAKAN_DBG_PULLDIST=500,0 DRAKAN_DBG_PULL=^(Switch|Portcullis)$ then tap E (use); compare b0..b3.
+clock milliseconds
+0 sync play 300
+2500 shot a0
+3000 shot a1
+3200 key tap E
+4000 shot b0
+5000 shot b1
+6500 shot b2
+8000 shot b3
+9000 quit

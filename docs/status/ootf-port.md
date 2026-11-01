@@ -40,6 +40,9 @@ packs that the recompiled PS2 engine plays; nothing from either game is committe
 * Map-file key for an adopted loadout item (the ini only knows factory resources), `arena-pvp-open-items.md`.
 * Duplicate-object warnings from source data (Alwarren, Grimstone Mines) are harmless but unexamined.
 
+* 2026-11-02 pass (`journal/2026-11-02/ootf-unproven-creatures-chains.md`): Succubus drawn; Blade Dragons alive and attacking; Queen / Hueges alive;
+  Ebon Dragon / Drone / switch-to-portcullis still unproven by picture; the pack conflict needs one combined conversion (not started).
+
 ## Release checks (2026-11-02)
 
 `npm run build` and `npm test` in `editor/` (63 files, 603 tests), `python scripts/run_tests.py` (213), `scripts/repository_guard.py`, ruff
