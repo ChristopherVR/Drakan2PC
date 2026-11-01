@@ -517,3 +517,5 @@ GPU. Reads of blocks an applied upload made identical now skip the readback, dir
 and the game's frame-buffer-onto-itself copy is a no-op (`GSR_RB_SKIP=0` = old behaviour, `GSR_RB_VERIFY=1` cross-checks every
 skip): readbacks per walk 2800 -> ~1200, +12..23 % fps in interleaved A/B pairs, 0 mismatches over 93 M verified pixels. See the
 [journal](../journal/2026-11-01/still-view-fps-jitter.md).
+`syncRT` (memory -> GPU row uploads for targets the game streams textures over, ~13 % of the GS worker while walking) is 46 % cheaper
+after a per-page stamp table for `maxStamp` and a block-wise `readRectCT32`: 2.8 s -> 1.5 s per walk.

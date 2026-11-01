@@ -108,6 +108,19 @@ instance) loaded the GPU during these runs, so only same-run or mechanism eviden
   walk, `readbackMap` 3.1-3.5 s -> 0.2-0.9 s, 139/131/153 -> 171/155/175 fps (+12..23 %), p99 11.1/11.5/9.9 -> 9.2/10.5/9.3 ms.
   What is left (~0.2 per frame): genuine frame-buffer to frame-buffer copies (`bp=0 -> bp=0x1000`, ~6 per second) and
   CLUT/texture reads of blocks the GPU really owns.
+* **Pushing target rows from memory to the GPU (`syncRT`).** With the readbacks gone this was the largest GS-worker cost
+  while walking: ~13 % (2.7-3.7 s per 22 s walk). Only ~6,000 of its 250,000 slow-path calls did work, but ~100,000 row uploads
+  per walk: the game streams textures over the scratch targets in memory, and the next draw into a target re-uploads every stale
+  page row (35 us each at scale 4: 19 us the per-pixel swizzle reads of `mem.read`, 8 us the 4x expansion, 8 us
+  `UpdateSubresource`). Two changes: `LocalMemory` keeps a per-page maximum stamp, so `maxStamp` over whole page rows is one
+  read per page instead of 32 per page (was 4,096 block reads per draw for a 512x512 target), and `readRectCT32` reads PSMCT32
+  rectangles block by block (the page / block address once per 8x8 block). Both backends. Randomised tests: `maxStamp` against a
+  block-by-block maximum (80,000 ranges incl. wrap-around) and `readRectCT32` against `read()` (12.3 M pixels), in `mem_stamp`.
+  `syncRT` 2.8 s -> 1.5 s per walk; walk 171-181 fps, p99 8.8-9.6 ms (other sessions loading the machine).
+  Still open: skipping the upload for rows an opaque full-coverage draw overwrites anyway (needs proof of coverage per draw),
+  a GPU-side frame-buffer-to-frame-buffer copy for the game's `bp=0 -> bp=0x1000` copies (~6 per second, two full readbacks and an
+  upload each), and the per-draw driver cost of the vertex ring (`drawVertexUpload` 2.8 us) and DLSS motion bookkeeping
+  (`drawObjectMotion` 3.2 us), which is feature work rather than waste.
 * **Texture creation burst (item 1).** `pumpUp` created the GPU textures of all finished upscale jobs in one present (max 4 ms
   observed). The present-time drain now has a 2 ms budget (first job always runs, rest stays queued; D3D11 and WebGPU); callers that
   need their own entry at once still drain everything. Palette-step recolouring (`setupPaletteHd`) never exceeded 2 ms in the walk.
