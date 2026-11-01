@@ -217,6 +217,10 @@ struct RT {
     uint64_t seen = 0;
     uint64_t lastUse = 0;
     bool copyValid = false;
+    // Blocks an applied upload made identical on the GPU and in memory (completeTargetUpload), valid while rt.writes
+    // still equals cleanWrites: any later GPU write (draw, row sync, resize) invalidates the whole set.
+    std::vector<uint64_t> cleanBlocks;
+    uint64_t cleanWrites = ~0ull;
     hud::CanvasFrame inventoryCanvasFrame;
     uint64_t displaySeenFrame = ~0ull;
     uint32_t displayHeight = 0;
@@ -277,6 +281,7 @@ public:
     std::string adapterName() const override;
     void draw(const GsDrawState& st, const ClutBuf& clut, const DrawVertex* v, uint32_t count) override;
     void flushToMemory(uint32_t firstBlock, uint32_t lastBlock) override;
+    void flushForRead(uint32_t firstBlock, uint32_t lastBlock) override;
     bool beginTargetUpload(uint32_t psm, uint32_t bp, uint32_t bw, uint32_t x, uint32_t y, uint32_t w,
                            uint32_t h) override;
     void completeTargetUpload(uint32_t psm, uint32_t bp, uint32_t bw, uint32_t x, uint32_t y, uint32_t w, uint32_t h,
@@ -655,10 +660,14 @@ struct D3D11Backend::Impl {
     void readbackRT(RT& rt);
     void syncRT(RT& rt);
     void flushToMemory(uint32_t first, uint32_t last);
+    void flushForRead(uint32_t first, uint32_t last);
+    bool blocksAreClean(const RT& rt, uint32_t first, uint32_t last) const;
+    void verifyRTBlocks(RT& rt, uint32_t first, uint32_t last, uint32_t rowLo, uint32_t rowHi);
     bool beginTargetUpload(uint32_t psm, uint32_t bp, uint32_t bw, uint32_t x, uint32_t y, uint32_t w, uint32_t h);
     void completeTargetUpload(uint32_t psm, uint32_t bp, uint32_t bw, uint32_t x, uint32_t y, uint32_t w, uint32_t h,
                               bool apply);
     bool uploadCovers(uint32_t block) const;
+    void trimDirtyRows(RT& rt);
     RT* aliasedTarget(uint32_t psm, uint32_t mxl, const std::vector<std::pair<uint32_t, uint32_t>>& spans);
     void copyAliasedBlocks(RT& rt, ID3D11Texture2D* texture, uint32_t tbp, uint32_t tbw, uint32_t w, uint32_t h);
     bool touchesUpload(const RT& rt) const;

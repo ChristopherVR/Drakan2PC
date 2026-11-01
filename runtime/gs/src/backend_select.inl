@@ -61,6 +61,9 @@ std::string Backend::adapterName() const {
 void Backend::draw(const GsDrawState& st, const ClutBuf& clut, const DrawVertex* v, uint32_t count) {
     m_api->draw(st, clut, v, count);
 }
+void Backend::flushForRead(uint32_t firstBlock, uint32_t lastBlock) {
+    m_api->flushForRead(firstBlock, lastBlock);
+}
 void Backend::flushToMemory(uint32_t firstBlock, uint32_t lastBlock) {
     m_api->flushToMemory(firstBlock, lastBlock);
 }

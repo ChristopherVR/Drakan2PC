@@ -40,6 +40,9 @@ void D3D11Backend::draw(const GsDrawState& st, const ClutBuf& clut, const DrawVe
 void D3D11Backend::flushToMemory(uint32_t a, uint32_t b) {
     m_impl->flushToMemory(a, b);
 }
+void D3D11Backend::flushForRead(uint32_t a, uint32_t b) {
+    m_impl->flushForRead(a, b);
+}
 bool D3D11Backend::beginTargetUpload(uint32_t psm, uint32_t bp, uint32_t bw, uint32_t x, uint32_t y, uint32_t w,
                                      uint32_t h) {
     return m_impl->beginTargetUpload(psm, bp, bw, x, y, w, h);

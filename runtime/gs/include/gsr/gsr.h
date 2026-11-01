@@ -127,6 +127,8 @@ struct Stats {
     uint64_t targetUploads = 0;      // image uploads applied to a GPU-owned render target (no readback)
     uint64_t aliasedTextures = 0;    // textures assembled on the GPU from an aliased render target
     uint64_t rtReadbacks = 0, rtUploads = 0, transfersH2L = 0, transfersL2L = 0, transfersL2H = 0;
+    uint64_t rtReadbacksSkipped = 0; // flushForRead found every block it needed already identical on the GPU
+    uint64_t rtDirtyCleared = 0; // dirty targets an applied upload made current again (no readback needed)
     uint64_t clutLoads = 0, shaderBlendDraws = 0, hwBlendDraws = 0;
     uint64_t frames = 0;
     // texture upscaling / replacement

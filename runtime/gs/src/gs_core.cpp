@@ -841,7 +841,7 @@ struct Renderer::Impl {
                 const uint32_t cov = (uint32_t)bitsOf(texclut, 12, 10);
                 spanBlocks(rpsm, cbp, cbw ? cbw : 1, (cou * 16) & 2047, cov, count, 1, lo, hi);
             }
-            backend->flushToMemory(lo, hi);
+            backend->flushForRead(lo, hi);
         }
 
         clut.is16 = is16;
@@ -1199,7 +1199,7 @@ struct Renderer::Impl {
                 return;
             uint32_t lo, hi;
             spanBlocks(spsm, sbp, sbw, ssax, ssay, rrw, rrh, lo, hi);
-            backend->flushToMemory(lo, hi);
+            backend->flushForRead(lo, hi);
             // pack the rectangle into the stream
             l2h.clear();
             l2hPos = 0;

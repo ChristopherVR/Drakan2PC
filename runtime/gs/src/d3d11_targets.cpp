@@ -280,6 +280,94 @@ void D3D11Backend::Impl::flushToMemory(uint32_t first, uint32_t last) {
     }
 }
 
+// True when every block of [first, last] that lies in the target's dirty rows was made identical on the GPU and in
+// memory by an applied upload and nothing has written to the target since.
+bool D3D11Backend::Impl::blocksAreClean(const RT& rt, uint32_t first, uint32_t last) const {
+    if (rt.cleanWrites != rt.writes || rt.cleanBlocks.empty())
+        return false;
+    uint32_t lo, hi;
+    rowSpan(rt, rt.dy0, std::min(rt.dy1, rt.h), lo, hi);
+    for (uint32_t b = std::max(first, lo); b <= std::min(hi, last); ++b)
+        if (!((rt.cleanBlocks[b / 64] >> (b % 64)) & 1))
+            return false;
+    return true;
+}
+
+// GSR_RB_VERIFY=1 (debug): reads the target back anyway and compares the pixels of blocks [first, last] with memory;
+// a difference means a skipped readback would have served stale data.
+void D3D11Backend::Impl::verifyRTBlocks(RT& rt, uint32_t first, uint32_t last, uint32_t rowLo, uint32_t rowHi) {
+    if (rt.wstate == 1 || rt.dy1 <= rt.dy0)
+        return;
+    const uint32_t y0 = rt.dy0, y1 = std::min(rt.dy1, rt.h), rows = y1 - y0;
+    ID3D11Texture2D* compact = scale > 1 && nativeReadbackEnabled
+                                   ? nativeReadback.gather(dev.Get(), ctx.Get(), rt.srv.Get(), rt.w, rows, scale, y0)
+                                   : nullptr;
+    const uint32_t readScale = compact ? 1 : scale;
+    ensureStaging(rt.w * readScale, rows * readScale);
+    const uint32_t readY = compact ? 0 : y0 * scale;
+    D3D11_BOX box{0, readY, 0, rt.w * readScale, readY + rows * readScale, 1};
+    ctx->CopySubresourceRegion(staging.Get(), 0, 0, 0, 0, compact ? compact : rt.tex.Get(), 0, &box);
+    D3D11_MAPPED_SUBRESOURCE ms{};
+    if (FAILED(ctx->Map(staging.Get(), 0, D3D11_MAP_READ, 0, &ms)))
+        return;
+    static uint64_t compared = 0, bad = 0, calls = 0;
+    const uint8_t* src = (const uint8_t*)ms.pData;
+    const uint32_t half = readScale / 2;
+    uint64_t badHere = 0;
+    for (uint32_t y = 0; y < rows; ++y) {
+        const uint8_t* row = src + (size_t)(y * readScale + half) * ms.RowPitch;
+        for (uint32_t x = 0; x < rt.w; ++x) {
+            const uint32_t b = blockOf(rt.psm, rt.base(), rt.fbw, x, y0 + y);
+            if (b < first || b > last || y0 + y < rowLo || y0 + y >= rowHi)
+                continue;
+            ++compared;
+            const uint32_t gpu = packPixel(rt.psm, row + (size_t)(x * readScale + half) * 4);
+            const uint32_t cpu = mem.read(rt.psm, rt.base(), rt.fbw, x, y0 + y);
+            if (gpu != cpu) {
+                ++bad;
+                ++badHere;
+                if (bad <= 8)
+                    std::fprintf(stderr, "[rb-verify] MISMATCH rt=%x (%u,%u) block=%x gpu=%08x mem=%08x\n", rt.base(),
+                                 x, y0 + y, b, gpu, cpu);
+            }
+        }
+    }
+    ctx->Unmap(staging.Get(), 0);
+    if (++calls % 200 == 0 || badHere)
+        std::fprintf(stderr, "[rb-verify] skips checked=%llu pixels compared=%llu mismatches=%llu\n",
+                     (unsigned long long)calls, (unsigned long long)compared, (unsigned long long)bad);
+}
+
+// flushToMemory for a reader of memory. The game streams textures through VRAM every frame, a CLUT right before its
+// image, over blocks a scratch target occupies; those uploads are applied to the target as well, so asking for exactly
+// those blocks must not read the whole target back (a GPU sync) to learn what the CPU just wrote.
+void D3D11Backend::Impl::flushForRead(uint32_t first, uint32_t last) {
+    static const bool skipEnabled = [] {
+        const char* e = std::getenv("GSR_RB_SKIP"); // 0 = always read the whole target back (the previous behaviour)
+        return !(e && e[0] == '0');
+    }();
+    if (!skipEnabled) {
+        flushToMemory(first, last);
+        return;
+    }
+    for (auto& r : rts) {
+        if (!r->dirty)
+            continue;
+        uint32_t lo, hi;
+        rowSpan(*r, r->dy0, std::min(r->dy1, r->h), lo, hi);
+        if (hi < first || lo > last)
+            continue;
+        if (blocksAreClean(*r, first, last)) {
+            ++st.rtReadbacksSkipped;
+            static const bool verify = std::getenv("GSR_RB_VERIFY") != nullptr;
+            if (verify)
+                verifyRTBlocks(*r, std::max(first, lo), std::min(last, hi), 0, ~0u);
+            continue;
+        }
+        readbackRT(*r);
+    }
+}
+
 // Image upload into memory a dirty render target occupies. The game stamps 16x16 patches into both frame buffers and
 // streams textures over scratch targets every frame; reading the whole target back first is a GPU sync per upload.
 // An upload aligned to its format's blocks rewrites whole 256-byte blocks, so instead those blocks are copied into the
@@ -370,6 +458,9 @@ void D3D11Backend::Impl::completeTargetUpload(uint32_t, uint32_t, uint32_t, uint
             continue;
         bool touched = false;
         std::vector<uint32_t> buf, up;
+        // Blocks of consecutive applied uploads accumulate while nothing else wrote to the target in between.
+        if (apply && (rt.cleanWrites != rt.writes || rt.cleanBlocks.empty()))
+            rt.cleanBlocks.assign(kVramBlocks / 64, 0);
         for (uint32_t by = y0; by < y1; by += g.blockH)
             for (uint32_t bx = 0; bx < rt.w;) {
                 if (!uploadCovers(blockOf(rt.psm, rt.base(), rt.fbw, bx, by))) {
@@ -381,6 +472,11 @@ void D3D11Backend::Impl::completeTargetUpload(uint32_t, uint32_t, uint32_t, uint
                     end += g.blockW;
                 const uint32_t runW = std::min(end, rt.w) - bx, runH = std::min(by + g.blockH, rt.h) - by;
                 touched = true;
+                if (apply)
+                    for (uint32_t cx = bx; cx < std::min(end, rt.w); cx += g.blockW) {
+                        const uint32_t cb = blockOf(rt.psm, rt.base(), rt.fbw, cx, by);
+                        rt.cleanBlocks[cb / 64] |= 1ull << (cb % 64);
+                    }
                 // The GPU copy is (or will be) current for these rows; never refresh them from memory.
                 if (by / ph < rt.rowStamp.size())
                     rt.rowStamp[by / ph] = mem.clock();
@@ -405,11 +501,61 @@ void D3D11Backend::Impl::completeTargetUpload(uint32_t, uint32_t, uint32_t, uint
         if (touched && apply) {
             rt.copyValid = false;
             ++rt.writes;
+            rt.cleanWrites = rt.writes;
             st.targetUploads++;
+            trimDirtyRows(rt);
         }
     }
     if (apply)
         uploadActive = false;
+}
+
+// After an applied upload the GPU rows of every covered block equal memory. Rows of the dirty range whose blocks are
+// all covered therefore need no readback any more: take them off both ends of the range, and clear the flag when
+// nothing is left. (A texture sampled from the very blocks that were just uploaded used to read the whole target back
+// to get data the CPU had just written.)
+void D3D11Backend::Impl::trimDirtyRows(RT& rt) {
+    static const bool enabled = [] {
+        const char* e = std::getenv("GSR_RB_SKIP");
+        return !(e && e[0] == '0');
+    }();
+    if (!rt.dirty || !enabled)
+        return;
+    const PsmGeom g = geomOf(rt.psm);
+    const auto rowCovered = [&](uint32_t by) {
+        for (uint32_t bx = 0; bx < rt.w; bx += g.blockW)
+            if (!uploadCovers(blockOf(rt.psm, rt.base(), rt.fbw, bx, by)))
+                return false;
+        return true;
+    };
+    uint32_t y0 = rt.dy0, y1 = std::min(rt.dy1, rt.h);
+    while (y0 < y1) {
+        const uint32_t by = y0 / g.blockH * g.blockH;
+        if (!rowCovered(by))
+            break;
+        y0 = by + g.blockH;
+    }
+    while (y1 > y0) {
+        const uint32_t by = (y1 - 1) / g.blockH * g.blockH;
+        if (!rowCovered(by))
+            break;
+        y1 = by;
+    }
+    if (std::getenv("GSR_RB_VERIFY") && (y0 > rt.dy0 || y1 < std::min(rt.dy1, rt.h) || y0 >= y1)) {
+        // rows about to be declared clean must equal memory
+        const uint32_t top = std::min(y0, std::min(rt.dy1, rt.h));
+        verifyRTBlocks(rt, 0, ~0u, rt.dy0, top);
+        if (y1 > top)
+            verifyRTBlocks(rt, 0, ~0u, y1, std::min(rt.dy1, rt.h));
+    }
+    if (y0 >= y1) {
+        rt.dirty = false;
+        rt.seen = mem.clock();
+        ++st.rtDirtyCleared;
+    } else {
+        rt.dy0 = y0;
+        rt.dy1 = y1;
+    }
 }
 
 // A 32-bit texture whose memory overlaps a dirty 32-bit render target at another base (the HUD atlas aliases the

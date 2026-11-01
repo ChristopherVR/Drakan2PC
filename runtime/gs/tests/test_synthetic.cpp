@@ -1390,6 +1390,82 @@ static void uploadCoherenceTest(Config cfg) {
     expectPixel(image, 308 * s, 308 * s, 200, 0, 200, 1, "CLUT next to a dirty target is read correctly");
 }
 
+// The game streams a CLUT and its image through VRAM every frame, over blocks a scratch target occupies. An upload that
+// is applied to the target makes those blocks identical on the GPU and in memory, so reading exactly them (a CLUT load)
+// must not read the whole target back, and the target must keep both the upload and the GPU drawing around it.
+static void uploadReadSkipTest(Config cfg) {
+    cfg.textureUpscale = 1;
+    cfg.textureFilter = 1;
+    cfg.smoothMenuHighlight = false;
+    auto gs = Renderer::create(cfg);
+    if (!gs) {
+        ++g_fail;
+        return;
+    }
+    const int plain = (int)mkPrim(6, 0, 0, 0, 0, 0), textured = (int)mkPrim(6, 0, 1, 0, 0, 1);
+    const uint64_t fullScissor = 511ull << 16 | 511ull << 48;
+    auto solid = [](uint32_t w, uint32_t h, uint8_t r, uint8_t gg, uint8_t b) {
+        std::vector<uint8_t> v((size_t)w * h * 4);
+        for (size_t i = 0; i < v.size(); i += 4) {
+            v[i] = r;
+            v[i + 1] = gg;
+            v[i + 2] = b;
+            v[i + 3] = 128;
+        }
+        return v;
+    };
+    Gif g;
+    g.ad({{FRAME_1, 8ull << 16},
+          {ZBUF_1, 140ull | (1ull << 32)},
+          {XYOFFSET_1, kOfs},
+          {SCISSOR_1, fullScissor},
+          {PRMODECONT, 1},
+          {COLCLAMP, 1},
+          {TEST_1, mkTest(0, 1, 0, 0, 0, 0, 0, 1)},
+          {0x49, 0},
+          {0x4a, 0}});
+    sprite(g, 0, 0, 512, 512, 200, 0, 0, 128, 0, plain);
+    // A 128x128 CT32 target at page 0x100 drawn on the GPU (dirty), then a CLUT image uploaded over its first four
+    // blocks.
+    const uint32_t parent = 0x100, cbp = parent * 32, t8 = 0x3000;
+    g.ad({{FRAME_1, parent | (2ull << 16)}, {SCISSOR_1, 127ull << 16 | 127ull << 48}});
+    sprite(g, 0, 0, 128, 128, 40, 40, 40, 128, 0, plain);
+    uploadImage(g, cbp, 1, 0, 0, 0, 16, 16, solid(16, 16, 200, 0, 200));
+    uploadImage(g, t8, 2, 0x13, 0, 0, 16, 16, std::vector<uint8_t>(16 * 16, 1));
+    g.ad({{FRAME_1, 8ull << 16},
+          {SCISSOR_1, fullScissor},
+          {TEXFLUSH, 0},
+          {TEX0_1, mkTex0(t8, 2, 0x13, 4, 4, 1, 1, cbp, 0, 0, 0, 1)},
+          {TEX1_1, 0},
+          {CLAMP_1, 5}});
+    sprite(g, 300, 300, 316, 316, 128, 128, 128, 128, 0, textured, 0, 0, 16, 16);
+    gs->submitGifPacket(GifPath::Path3, g.d.data(), (uint32_t)g.d.size());
+    const auto& st = gs->stats();
+    std::printf("  upload read skip: target uploads %llu readbacks %llu skipped %llu\n",
+                (unsigned long long)st.targetUploads, (unsigned long long)st.rtReadbacks,
+                (unsigned long long)st.rtReadbacksSkipped);
+    expectTrue(st.targetUploads >= 1, "CLUT image applied to the dirty target");
+    expectTrue(st.rtReadbacks == 0, "CLUT load over just-uploaded blocks of a dirty target needs no readback");
+    expectTrue(st.rtReadbacksSkipped >= 1, "the skipped readback is counted");
+    Image image;
+    if (!gs->captureFramebuffer(0, 8, 0, 512, 512, image)) {
+        ++g_fail;
+        return;
+    }
+    const int s = (int)cfg.scale;
+    expectPixel(image, 308 * s, 308 * s, 200, 0, 200, 1, "CLUT entry comes from the uploaded blocks");
+    Image target;
+    if (!gs->captureFramebuffer(parent, 2, 0, 128, 128, target)) {
+        ++g_fail;
+        return;
+    }
+    expectPixel(target, 4 * s, 4 * s, 200, 0, 200, 1, "target holds the uploaded blocks");
+    expectPixel(target, 60 * s, 60 * s, 40, 40, 40, 1, "target keeps the GPU drawing around the upload");
+    // Everything the GPU still owns must reach memory when something later reads other blocks of the target.
+    gs->flushToMemory();
+    expectTrue(gs->stats().rtReadbacks >= 1, "a later full flush reads the target back");
+}
+
 static void rtOverlapTest(Config cfg) {
     auto gs = Renderer::create(cfg);
     if (!gs) {
@@ -1815,6 +1891,7 @@ int main(int argc, char** argv) {
     rtShiftedRowTest(cfg);
     rtCacheCoherenceDiagnostic(cfg);
     uploadCoherenceTest(cfg);
+    uploadReadSkipTest(cfg);
     rtOverlapTest(cfg);
     hudClusterTest(cfg);
     loadingCanvasTest(cfg);

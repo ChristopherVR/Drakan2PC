@@ -140,6 +140,9 @@ public:
     virtual std::string adapterName() const = 0;
     virtual void draw(const GsDrawState& st, const ClutBuf& clut, const DrawVertex* v, uint32_t count) = 0;
     virtual void flushToMemory(uint32_t firstBlock, uint32_t lastBlock) = 0;
+    // Same, for a reader of local memory (CLUT load, texture decode, local->host read): a backend may skip a readback
+    // when every block asked for is known to be identical on the GPU and in memory. Writers must use flushToMemory.
+    virtual void flushForRead(uint32_t firstBlock, uint32_t lastBlock) { flushToMemory(firstBlock, lastBlock); }
     virtual bool beginTargetUpload(uint32_t psm, uint32_t bp, uint32_t bw, uint32_t x, uint32_t y, uint32_t w,
                                    uint32_t h) = 0;
     virtual void completeTargetUpload(uint32_t psm, uint32_t bp, uint32_t bw, uint32_t x, uint32_t y, uint32_t w,
@@ -193,6 +196,7 @@ public:
     void draw(const GsDrawState& st, const ClutBuf& clut, const DrawVertex* v, uint32_t count);
     // make local memory reflect GPU render targets overlapping blocks [first,last]
     void flushToMemory(uint32_t firstBlock, uint32_t lastBlock);
+    void flushForRead(uint32_t firstBlock, uint32_t lastBlock);
     // host->local image upload into a GPU-owned render target: true = apply it to the target when it completes
     // (completeTargetUpload) instead of reading the target back first
     bool beginTargetUpload(uint32_t psm, uint32_t bp, uint32_t bw, uint32_t x, uint32_t y, uint32_t w, uint32_t h);
