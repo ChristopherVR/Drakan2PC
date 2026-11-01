@@ -1669,8 +1669,15 @@ gameui::mp::MpState mpState(bool wantLan) {
         e.title = e.name;
         s.levels.push_back(std::move(e));
     }
+    // Order of the Flame packs also carry the Multiplayer/* levels as arena base levels: they are not campaign levels.
+    std::vector<std::string> arenaLevels;
+    if (ootf)
+        for (const auto& m : drakan_arena::maps())
+            arenaLevels.push_back(m.level);
     for (const std::string& n : drakan_netplay::extraLevels()) {
         if (ootf && n == drakan_game::firstLevel())
+            continue;
+        if (std::find(arenaLevels.begin(), arenaLevels.end(), n) != arenaLevels.end())
             continue;
         LevelEntry e;
         e.name = n;

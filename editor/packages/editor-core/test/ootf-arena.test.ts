@@ -31,6 +31,11 @@ describe('ootfArenaFromPc', () => {
         expect(back.level).toBe('OotF Test Arena');
         expect(back.spawns.length).toBe(3);
     });
+    it('lists a pad that the PC level repeats at one spot once', () => {
+        const pc = level('Multiplayer/Ground/Test/Test.lvl', 3);
+        pc.list.objects.push({ ...pc.list.objects[0]!, id: 99 });
+        expect(ootfArenaFromPc(pc, 'OotF Test Arena')!.spawns.length).toBe(3);
+    });
     it('keeps dragon pads and the Soul Crystal as markers', () => {
         const l = level('Multiplayer/QOD/Test/Test.lvl', 2);
         const cls = l.classes.get(0)!;

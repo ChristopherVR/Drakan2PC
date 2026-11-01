@@ -118,7 +118,9 @@ export function ootfArenaFromPc(pc: PcLevel, title: string): ArenaDraft | null {
             .map((o): Vec3 => {
                 const g = terrainHeightAt(pc.terrain, o.pos[0], o.pos[2]);
                 return [o.pos[0], Number.isFinite(g) ? g + 400 : o.pos[1], o.pos[2]];
-            });
+            })
+            // The PC levels list some pads more than once at the same spot (Relic: 18 records, 9 places).
+            .filter((p, i, all) => all.findIndex((q) => q[0] === p[0] && q[2] === p[2]) === i);
     let starts = pads(/rynn launch pad/i);
     if (starts.length < 2) starts = pads(/launch pad/i);
     if (starts.length < 2) return null;
