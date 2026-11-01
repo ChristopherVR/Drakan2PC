@@ -91,6 +91,12 @@ my_mod/
   is shared by both games: the Multiplayer menu lists the disc's (Drakan 2) maps and every pack's maps together, each with a game tag
   (`game =` key; maps of a pack with `campaign = "ootf"` default to Drakan 1). The editor's Order of the Flame import writes one
   `maps/<level>.ini` per `Multiplayer/*` level (`ootfArenaFromPc`: spawns from the Rynn launch pads, snapped to the terrain).
+  The map also carries what an Order of the Flame arena needs to be playable (a Drakan 1 New Game starts with an empty
+  inventory): `loadout =` (club and axe, granted at the start) and one `pickup =` (respawning weapon) per PC Weapon Pad.
+  **Convert the Multiplayer levels and the campaign in one run / one pack.** Every converted pack ships whole-file
+  copies of the shared containers (`PROCTEES.TXD`, `RESOURES.TXD` / `.MOD`, `WORLDCON.*`) holding the textures and models of
+  *its* levels; with two OotF packs enabled the later one replaces the earlier one's file, and the other pack's levels lose
+  their terrain textures (Relic rendered almost black next to a separately built campaign pack).
   **`previews/<safe map name>.png`** (<= 8 MiB): the map's picture for the multiplayer menu; the name is the map's display
   name with every character outside letters, digits, `-` and `_` turned into `_`. At startup the game copies it to
   `previews/mods/` next to the exe (`ModManager::previewFiles()`); `previews/<name>.png` there wins over a pack's.

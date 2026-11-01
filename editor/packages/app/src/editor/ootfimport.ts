@@ -182,10 +182,7 @@ function openDialog(host: OotfHost): void {
     const intro = h(
         'div',
         { class: 'od-dim' },
-        'Levels are converted from your own Order of the Flame install (nothing is uploaded). Placement, terrain and ' +
-            'every class setting that exists on a PS2 class of the same name come across; models, textures and sounds ' +
-            'of the PC game do not exist in this game yet, so objects of classes without a PS2 counterpart are left out ' +
-            'and the terrain uses one texture. The report lists what was dropped.',
+        'Convert levels from your own Order of the Flame install. Nothing is uploaded. Objects without a matching class are left out; the report lists them.',
     );
     const picker = h('input', { type: 'file', webkitdirectory: true, multiple: true, hidden: true });
     const folderLabel = h('span', { class: 'od-dim' }, 'No folder chosen');
