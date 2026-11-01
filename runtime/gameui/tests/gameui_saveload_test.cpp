@@ -555,7 +555,8 @@ void testTitleRows() {
     CHECK(t3.rows(none).size() == 4);
 }
 
-// Game choice (drakan_game): the card opens first when a campaign pack is installed, and again after Back on the main page.
+// Game choice (drakan_game): the card opens first when a campaign pack is installed, and again after Back on the main
+// page.
 void testTitleGameChoice() {
     TitleState st = titleState();
     TitleScreen plain; // no campaign: no card, nothing changes
