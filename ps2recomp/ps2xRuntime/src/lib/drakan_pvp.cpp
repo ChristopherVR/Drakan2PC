@@ -371,12 +371,12 @@ bool controlledIsDragon(const uint8_t* rdram) {
 // dragon claims a hit on every ghost inside a cone in front of him every kBreathTicks boundaries, as a ranged claim
 // (weapon 2, the server's cap and range rules apply). A remote player is two ghosts (rider and dragon) and gets one
 // claim per breath.
-constexpr unsigned kBreathTicks = 20;      // boundaries between two breath claims while the attack is held (~0.4 s)
-constexpr uint16_t kBreathDamage = 4;      // server points before its damage scale (x3: 12 of the 100 point bar)
-constexpr float kBreathRange = 5000.0f;    // reach of the breath along the dragon's heading
-constexpr float kBreathWidth = 350.0f;     // radius of the cone at the dragon, growing by kBreathSpread per unit
+constexpr unsigned kBreathTicks = 20;   // boundaries between two breath claims while the attack is held (~0.4 s)
+constexpr uint16_t kBreathDamage = 4;   // server points before its damage scale (x3: 12 of the 100 point bar)
+constexpr float kBreathRange = 5000.0f; // reach of the breath along the dragon's heading
+constexpr float kBreathWidth = 350.0f;  // radius of the cone at the dragon, growing by kBreathSpread per unit
 constexpr float kBreathSpread = 0.2f;
-constexpr uint32_t kDragonHp = 0x6b4u;     // Arokh's health, float, 100.0 when full (coop-dragons-health-mount.md)
+constexpr uint32_t kDragonHp = 0x6b4u; // Arokh's health, float, 100.0 when full (coop-dragons-health-mount.md)
 
 struct BreathState {
     bool held = false;
@@ -619,7 +619,8 @@ void handleEvent(drakan_input::IGuest& guest, uint8_t* rdram, const Event& e) {
                 std::fprintf(stderr, "[pvp] hit by player %u: %u damage, server health %u (HP %d)\n", e.a, e.damage,
                              e.health, playerHp(rdram));
                 if (controlledIsDragon(rdram))
-                    setDragonHp(guest, rdram, e.health); // Rynn's damage method is not Arokh's: his bar follows the server
+                    setDragonHp(guest, rdram,
+                                e.health); // Rynn's damage method is not Arokh's: his bar follows the server
                 else
                     hurtLocal(guest, rdram, engineUnits(rdram, e.damage));
                 g_pendingHp = std::max(1, engineUnits(rdram, e.health));
