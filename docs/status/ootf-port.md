@@ -18,9 +18,9 @@ packs that the recompiled PS2 engine plays; nothing from either game is committe
   arenas (host-claimed hits, dragon health, death, respawn), ranged and melee PvP on ground arenas.
 * Co-op stays on the Drakan campaign path and shares the New Game card; the OotF Multiplayer page has Host / Join / mplayer.com only.
 * HD textures for both packs (`analysis/scripts/ootf_hd_pack.py <zips>`, output under `dist/DrakanPC/textures`, never committed).
-  The converter's texture formats changed on 2026-11-01 (object textures over 128 px with more than 256 colours are 8 bpp), so
-  regenerate after any converter change. With `--hd` the converter also keeps the lossless pixels of every texture it had to quantise
-  (`<zip>.hdsrc`), and the pack is upscaled from those (`ootf-lossless-hd-source.md`); the guest copy itself is still 8 bpp.
+  Textures are no longer quantised: the engine filters 16 / 24 / 32 bpp mip levels natively (`drakan_texscale.cpp`,
+  `ootf-native-mips.md`), so object, creature and terrain textures keep 32 bpp at any size (packs need this engine build; `OOTF_TEXPIX`
+  restores the old 128 px budget). Regenerate the HD pack after any converter change.
 * Drakan 2 with both packs installed still boots normally (choose Drakan; `Level 0 - Intro` then `Level 1A - Surdana`; no OotF leakage).
 
 ## Known gaps
@@ -40,6 +40,7 @@ packs that the recompiled PS2 engine plays; nothing from either game is committe
 * Map-file key for an adopted loadout item (the ini only knows factory resources), `arena-pvp-open-items.md`.
 * Duplicate-object warnings from source data (Alwarren, Grimstone Mines) are harmless but unexamined.
 
+* 2026-11-02 state proofs (`journal/2026-11-02/ootf-state-proofs.md`): switch -> portcullis and plate -> mover chains proven by world dumps; Dr. Evil: 3 of 4 heads killed in game, ending not reached (4th head stayed 22000 units away); dying dragon now falls; breath visual still open.
 * 2026-11-02 pass (`journal/2026-11-02/ootf-unproven-creatures-chains.md`): Succubus drawn; Blade Dragons alive and attacking; Queen / Hueges alive;
   Ebon Dragon / Drone / switch-to-portcullis still unproven by picture; the pack conflict is fixed by one combined conversion (`journal/2026-11-02/ootf-combined-pack.md`).
 

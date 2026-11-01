@@ -81,7 +81,22 @@ void writePose(drakan_input::IGuest& guest, uint32_t player) {
 
 } // namespace
 
+// DRAKAN_PLAYTEST_GOD=1: the player's hit points are kept at their maximum (test aid: a harness run through a fight
+// needs her to live). Same obfuscation as the world model: word = rotl8(value) ^ key (docs/reference/world-model.md).
+static void keepAlive(drakan_input::IGuest& guest) {
+    static const bool god = std::getenv("DRAKAN_PLAYTEST_GOD") != nullptr;
+    if (!god)
+        return;
+    const uint32_t key = guest.read32(drakan_region::guestAddress(0x4fe86cu));
+    const uint32_t stats = drakan_region::guestAddress(0x4fbac8u);
+    const uint32_t raw = guest.read32(stats + 0x10) ^ key;
+    const uint32_t max = (raw >> 8) | (raw << 24);
+    if (max > 0 && max < 100000u)
+        guest.write32(stats + 0xc, ((max << 8) | (max >> 24)) ^ key);
+}
+
 void beforePadMgr(drakan_input::IGuest& guest, uint8_t* /*rdram*/) {
+    keepAlive(guest);
     if (!g.init) {
         g.init = true;
         const char* e = std::getenv("DRAKAN_PLAYTEST_POS");
