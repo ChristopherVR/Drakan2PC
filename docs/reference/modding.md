@@ -93,13 +93,15 @@ my_mod/
   `maps/<level>.ini` per `Multiplayer/*` level (`ootfArenaFromPc`: spawns from the Rynn launch pads, snapped to the terrain).
   The map also carries what an Order of the Flame arena needs to be playable (a Drakan 1 New Game starts with an empty
   inventory): `loadout =` (club and axe, granted at the start) and one `pickup =` (respawning weapon) per PC Weapon Pad.
-  **Known problem: an arena next to a big campaign.** A multiplayer arena converted together with the Intro, Ruined Village and Wartok
-  Canyons (one pack of four levels), or enabled beside a pack holding them, came up almost black: the level shows 110 actors and Rynn at the engine's
-  default start (32768 200498 32768) instead of 170 and her own start, so the player has no weapon and sees only a slice of
-  floor. The Relic LVL is byte-identical in the lit and the dark runs; arenas in a pack alone or with one or two other levels were all fine (up
-  to a 2.4k-file pack); play arenas with only such a pack enabled. The dark packs ship a `RESOURES.MOD` of 9.96 MB and a `RESOURES.TXD` of 26.9 MB
-  (lit: at most 8.4 MB / 15.7 MB); `PROCTEES.TXD` size and terrain texture size do not matter (a 5.4 MB `PROCTEES` with `--tex-max 64`
-  was dark too). Cause not found (journal `2026-11-01/ootf-mp-arenas-followup.md`).
+  **Arena next to a campaign pack (fixed 2026-11-01).** The "dark Relic" (110 actors, Rynn at the default start 32768 200498 32768, a black
+  screen) was not a size or count limit of any container. A pack with `campaign = "ootf"` makes `drakan_game::applyBase` redirect the opening
+  cut scene file (`Level 0 - Intro`) to the campaign's first level, and that ran **after** the `DRAKAN_START_LEVEL` test aid had redirected the
+  same file to the arena level, replacing it: the harness started "Relic" but the guest loaded the campaign's `OotF 00 - Intro` (the world dump
+  says `levelName: OotF 00 - Intro`, the scene has 18 layers / 10 water layers instead of Relic's 32 / 0), while the netplay / arena layers
+  still believed the level was Relic. Packs without the campaign key (arena alone, with one or two other levels) were lit, which is why the
+  correlation with pack size looked real. `applyBase` now leaves an env-started redirect alone. The title-menu route (Multiplayer > map) sets
+  its redirect after start-up and was not affected. Container sizes are not limited by anything found: 9.96 MB `RESOURES.MOD`, 26.9 MB
+  `RESOURES.TXD`, 8 MB `RESOURES.ADB` (2000 patches), 1779 classes in `RESOURES.ODB` all load (journal `2026-11-01/ootf-dark-relic-cause.md`).
   **`previews/<safe map name>.png`** (<= 8 MiB): the map's picture for the multiplayer menu; the name is the map's display
   name with every character outside letters, digits, `-` and `_` turned into `_`. At startup the game copies it to
   `previews/mods/` next to the exe (`ModManager::previewFiles()`); `previews/<name>.png` there wins over a pack's.

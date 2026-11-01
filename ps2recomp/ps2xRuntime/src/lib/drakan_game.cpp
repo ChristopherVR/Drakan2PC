@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cstdio>
+#include <cstdlib>
 #include <filesystem>
 #include <mutex>
 
@@ -24,6 +25,11 @@ std::filesystem::path g_baseCard;
 // start keeps the DRAKAN_START_LEVEL test aid).
 void applyBase(bool clearIfNone) {
     if (!g_redirect)
+        return;
+    // The DRAKAN_START_LEVEL test aid (drakan_overrides) installed its own redirect before the campaign was known:
+    // keep it, or a multiplayer arena started next to a campaign pack loads the campaign's first level instead
+    // (the "dark Relic": Intro level, 110 actors, Rynn at the default start).
+    if (const char* sl = std::getenv("DRAKAN_START_LEVEL"); !clearIfNone && sl && *sl)
         return;
     if (g_game == Game::Ootf && !g_campaigns.empty())
         g_redirect(kIntroLevel, g_campaigns.front().start);
