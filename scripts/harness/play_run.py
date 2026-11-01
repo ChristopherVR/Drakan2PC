@@ -105,6 +105,11 @@ def main() -> int:
     ap.add_argument("--level", help="start level instead of Level 1A - Surdana (name, code like 4a, or part)")
     ap.add_argument("--shots", default="0,120", help="screenshot frames after gameplay starts (generated recipe)")
     ap.add_argument("--recipe", type=Path, help="own input script instead of the generated one (must end in quit)")
+    ap.add_argument(
+        "--save-ootf",
+        type=Path,
+        help="memory card folder for the Order of the Flame card (the game's mc0_ootf sibling) to copy into the run",
+    )
     ap.add_argument("--save", type=Path, help="memory card folder (mc0) to copy into the run instead of an empty one")
     ap.add_argument("--env", action="append", default=[], help="extra KEY=VALUE for the game (repeatable)")
     ap.add_argument("--audio", action="store_true", help="keep audio on (off by default)")
@@ -175,6 +180,8 @@ def main() -> int:
             shutil.copytree(a.save, card / "mc0")
         else:
             (card / "mc0").mkdir(parents=True)
+        if a.save_ootf:
+            shutil.copytree(a.save_ootf, card / "mc0_ootf")
         env["DRAKAN_MEMCARD_DIR"] = str(card / "mc0")
         t0 = time.monotonic()
         if run_once(a.exe, env, out, a.timeout + 30, attempt):
