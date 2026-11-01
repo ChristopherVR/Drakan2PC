@@ -76,6 +76,12 @@ bool transitionActive();
 // function to clear. Runs on the EE game thread, must not block.
 void setLevelNameMapper(std::function<std::string(const std::string&)> mapper);
 
+// A level load can be pointed at another file before the engine sees it: `rewriter(path, fromSave)` returns the path to
+// load instead, or an empty string to keep it. Unlike a file redirect the engine then knows the level by its real name
+// (exits, arrival markers and saves work). Used by the editor play test to put New Game's opening level (`Level 0 -
+// Intro`) straight on the tested level (drakan_playtest.cpp). Pass an empty function to clear. EE game thread.
+void setLevelPathRewriter(std::function<std::string(const std::string&, bool)> rewriter);
+
 // While `veto` returns true the save writer (0x169c28: menu save, quick save, level-change save) does not run: the call
 // returns 1 (failure) at once and no BeforeSaveWrite / AfterSaveWrite event is fired. Used by the multiplayer arena
 // world mode (nothing is ever written to the player's save). Pass an empty function to clear. Thread safe to set;

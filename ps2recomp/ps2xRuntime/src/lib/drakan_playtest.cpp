@@ -1,15 +1,48 @@
 #include "drakan_playtest.h"
 
 #include "drakan_ghost.h"
+#include "drakan_lifecycle.h"
 #include "drakan_region.h"
 #include "input/GuestInterface.h"
 
+#include <algorithm>
+#include <cctype>
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <string>
 
 namespace drakan_playtest {
+
+namespace {
+constexpr const char* kIntroLevel = "Level 0 - Intro";
+
+bool equalNoCase(const std::string& a, const std::string& b) {
+    return a.size() == b.size() &&
+           std::equal(a.begin(), a.end(), b.begin(), [](char x, char y) { return std::tolower(x) == std::tolower(y); });
+}
+} // namespace
+
+std::string introToLevel(const std::string& path, const std::string& level) {
+    if (level.empty() || equalNoCase(level, kIntroLevel))
+        return {};
+    const size_t slash = path.find_last_of("/\\");
+    const std::string file = slash == std::string::npos ? path : path.substr(slash + 1);
+    const size_t dot = file.rfind('.');
+    if (!equalNoCase(dot == std::string::npos ? file : file.substr(0, dot), kIntroLevel))
+        return {}; // another level, or another file of the intro folder (Out.lvl, the outro)
+    std::string out;
+    const std::string intro = kIntroLevel;
+    for (size_t i = 0; i < path.size();) {
+        if (equalNoCase(path.substr(i, intro.size()), intro)) {
+            out += level;
+            i += intro.size();
+        } else
+            out += path[i++];
+    }
+    return out;
+}
 
 bool parsePose(const char* text, float pos[3], float& yaw, bool& hasYaw) {
     if (!text)
@@ -99,6 +132,19 @@ void beforePadMgr(drakan_input::IGuest& guest, uint8_t* /*rdram*/) {
     keepAlive(guest);
     if (!g.init) {
         g.init = true;
+        // DRAKAN_START_LEVEL with DRAKAN_START_LEVEL_FROM="Level 0 - Intro" (the editor's Play on a disc level): New
+        // Game's first level load is pointed at the tested level itself, so the engine knows it by its real name. The
+        // file redirect alone (drakan_overrides) loaded it as "Level 0 - Intro": an exit taken there arrived at the
+        // wrong spot in the next level or stalled (docs/journal/2026-11-02/editor-play-direct.md).
+        const char* to = std::getenv("DRAKAN_START_LEVEL");
+        const char* from = std::getenv("DRAKAN_START_LEVEL_FROM");
+        if (to && *to && from && equalNoCase(from, kIntroLevel)) {
+            const std::string level = to;
+            drakan_lifecycle::setLevelPathRewriter([level](const std::string& path, bool fromSave) {
+                return fromSave ? std::string() : introToLevel(path, level);
+            });
+            std::fprintf(stderr, "[playtest] New Game opens '%s' in place of '%s'\n", to, kIntroLevel);
+        }
         const char* e = std::getenv("DRAKAN_PLAYTEST_POS");
         g.enabled = e && *e && parsePose(e, g.pos, g.yaw, g.hasYaw);
         if (e && *e)

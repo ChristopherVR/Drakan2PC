@@ -194,7 +194,12 @@ std::array<SlotState, kSlotCount> g_slots;
 std::atomic<int> g_active{0}; // calls between their before and after event
 std::mutex g_vetoM;
 std::function<bool()> g_saveVeto;
-std::function<std::string(const std::string&)> g_levelMapper; // g_vetoM
+std::function<std::string(const std::string&)> g_levelMapper;        // g_vetoM
+std::function<std::string(const std::string&, bool)> g_pathRewriter; // g_vetoM
+// Where a rewritten level path is put for the guest: the tail of the speech controller's text buffer (idle while a
+// level loads; the DRAKAN_LIFECYCLE_EXIT test aid hands the same spot to the level-change entry).
+constexpr uint32_t kRewrittenPath = 0x5b7d20u;
+constexpr size_t kRewrittenPathMax = 0x200;
 
 Event makeEvent(int slot, uint8_t* rdram, R5900Context* c, Pending& p, bool after) {
     const Ram r{rdram};
@@ -270,6 +275,23 @@ void hook(uint8_t* rdram, R5900Context* c, PS2Runtime* rt) {
     if (c->pc != s.entry) { // the guest thread is resuming inside the function after a switch: nothing to announce
         s.orig(rdram, c, rt);
         return;
+    }
+    if constexpr (N == kSlotLevel) {
+        std::function<std::string(const std::string&, bool)> rewriter;
+        {
+            std::lock_guard<std::mutex> l(g_vetoM);
+            rewriter = g_pathRewriter;
+        }
+        if (rewriter) {
+            const Ram r{rdram};
+            const std::string from = r.str(getRegU32(c, 4));
+            const std::string to = rewriter(from, getRegU32(c, 5) != 0);
+            if (!to.empty() && to != from && to.size() < kRewrittenPathMax) {
+                std::memcpy(rdram + addr(kRewrittenPath), to.c_str(), to.size() + 1);
+                SET_GPR_U32(c, 4, addr(kRewrittenPath));
+                std::fprintf(stderr, "[lifecycle] level load '%s' -> '%s'\n", from.c_str(), to.c_str());
+            }
+        }
     }
     Pending p;
     p.ra = getRegU32(c, 31);
@@ -477,6 +499,11 @@ bool installed() {
 void setLevelNameMapper(std::function<std::string(const std::string&)> mapper) {
     std::lock_guard<std::mutex> l(g_vetoM);
     g_levelMapper = std::move(mapper);
+}
+
+void setLevelPathRewriter(std::function<std::string(const std::string&, bool)> rewriter) {
+    std::lock_guard<std::mutex> l(g_vetoM);
+    g_pathRewriter = std::move(rewriter);
 }
 
 void setSaveWriteVeto(std::function<bool()> veto) {

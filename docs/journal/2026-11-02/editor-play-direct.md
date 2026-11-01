@@ -29,8 +29,32 @@ User report: Play in the editor launched the game, opened a save game, showed th
   with no floor under the view centre it starts at the Rynn player start instead of refusing. Mod panel "Play now"
   and the project's Play also go direct for disc levels.
 
+## In-game runs (same day, dist build, harness = what the editor's Play now sends, empty card)
+
+| Run | Result |
+| --- | --- |
+| `play_run.py --level 1a` + `START_LEVEL_FROM=Level 0 - Intro` (`build/harness/pie_surdana`) | Surdana up at 18 s after launch, no intro, Rynn alive with HUD; quit clean (25 s total). |
+| Same, Stratos, `PLAYTEST_POS` at Rynn's start + `PLAYTEST_GOD=1` | placed after 1 try, stays; clean. |
+| Same, Ravenshold | on Arokh in flight, quest text, 21 s total. |
+| Stratos with an editor-built pack (`puz-mods-plate`, LVL entry patch) | pack rebuilt into `LEVEL8OS.LVL`, level loads in the intro slot, 3284 entities vs 3281 without the pack. |
+| **Exit walk-in with the file redirect only** (`level_change_walk.py --exit 735232,772096 --dist 5000`) | **broken**: `exit taken in 'Level 0 - Intro'`; one run stalled on the level-change save, another reached Kragmor at a wrong arrival, Rynn died, and the title's Continue looped Kragmor -> title. The engine kept calling the level "Level 0 - Intro". Control run on the old route: Kragmor, arrival 341935 172624 230850. |
+| Exit walk-in after the fix below (`pie2-walk-*`) | `exit taken in 'Level 1A - Surdana'`, Kragmor loads, arrival 342162 172679 230735 (= the control), no title loop. (The harness's verdict line skips the first two loads, intro + Surdana, so it prints "nothing" for a direct run.) |
+
+A play-test position near an exit trigger (my first Surdana pick, 735232 153300 767096, is the harness's walk start
+5000 units short of the Kragmor detector) is a legitimate way to test an exit; a point *on* the trigger's edge keeps
+its offset from the trigger centre at arrival ("Maintain Player Position") and can put Rynn off the floor in the next
+level. That is the engine's own rule, not the play test.
+
+## Fix: rewrite the path, not the file
+
+`drakan_lifecycle::setLevelPathRewriter` (hook of the level loader `0x1c94c8`, before the engine sees `a0`): the
+play test (`drakan_playtest.cpp`, armed by `DRAKAN_START_LEVEL` + `DRAKAN_START_LEVEL_FROM=Level 0 - Intro`) turns New
+Game's `.../Level 0 - Intro/Level 0 - Intro.lvl` into `.../<level>/<level>.lvl` (not a save restore, not `Out.lvl`).
+The new path is written to the speech controller's idle buffer tail `0x5b7d20` (the spot the `DRAKAN_LIFECYCLE_EXIT`
+aid already hands to the level-change entry). The engine then loads the level under its real name. The file redirect
+from drakan_overrides stays installed but no longer matches anything on that load.
+
 ## Not verified
 
-Not run in the desktop app with the disc yet (no game run in this session). Expected: about 5 s from launch to the
-level for a disc level instead of ~25 s. Risk to check: an edited disc level loaded through the intro slot (the arenas
-used unedited levels plus a pack).
+The desktop app itself (Tauri) was not clicked: the env it sends is unit tested and the shell's card handling has a
+cargo test; the game side above is the same env. Level copies keep the Surdana route (proven earlier, with the intro).
