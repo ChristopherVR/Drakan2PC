@@ -18,9 +18,8 @@ packs that the recompiled PS2 engine plays; nothing from either game is committe
   arenas (host-claimed hits, dragon health, death, respawn), ranged and melee PvP on ground arenas.
 * Co-op stays on the Drakan campaign path and shares the New Game card; the OotF Multiplayer page has Host / Join / mplayer.com only.
 * HD textures for both packs (`analysis/scripts/ootf_hd_pack.py <zips>`, output under `dist/DrakanPC/textures`, never committed).
-  Textures are no longer quantised: the engine filters 16 / 24 / 32 bpp mip levels natively (`drakan_texscale.cpp`,
-  `ootf-native-mips.md`), so object, creature and terrain textures keep 32 bpp at any size (packs need this engine build; `OOTF_TEXPIX`
-  restores the old 128 px budget). Regenerate the HD pack after any converter change.
+  The converter still quantises object textures above 128 px to 8 bpp because the guest's 32 bpp mip loop is slow; an opt-in native
+  filter (`DRAKAN_TEXSCALE=1`, `ootf-native-mips.md`) removes the cost but stalls the heap intermittently (Islands Night), so it is off.
 * Drakan 2 with both packs installed still boots normally (choose Drakan; `Level 0 - Intro` then `Level 1A - Surdana`; no OotF leakage).
 
 ## Known gaps
