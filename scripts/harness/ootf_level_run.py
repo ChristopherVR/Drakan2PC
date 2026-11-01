@@ -51,6 +51,9 @@ def iso_path(arg: str | None) -> Path:
     return Path(ini.get("general", "iso"))
 
 
+HOST_FILES = {f"{s}.{e}" for s in ("LEVEL1ON", "WORLDCON", "FX", "MOUNTAON") for e in ("MOD", "TXD")}
+
+
 def extract(iso: Path, data: Path, template: str) -> None:
     from ui_layout_dump import iso_files, read
 
@@ -66,6 +69,9 @@ def extract(iso: Path, data: Path, template: str) -> None:
         in_template = len(parts) > 2 and parts[-2].upper() == template
         if n.endswith((".ODB", ".LVL", ".SSD", ".XDB")) or n in ("PROCTEES.TXD", "RESOURES.MOD", "RESOURES.TXD", "RESOURES.SDB", "RESOURES.ADB", "NPCS.MOD", "NPCS.ADB") or (in_template and n.startswith(stem)):
             (data / n).write_bytes(read(f, files[p]))
+        if n in HOST_FILES and not any(x in p.upper() for x in ("/DESERTON/",)):  # own MOD / TXD of template ODBs that host models
+            (data.parent / "hosts").mkdir(parents=True, exist_ok=True)
+            (data.parent / "hosts" / n).write_bytes(read(f, files[p]))
         if n.endswith(".ODB"):  # the ODB's .DB (dependency list) and its disc directory, for the converter's model refs
             db = p[: -len(".ODB")] + ".DB" if p.upper().endswith(".ODB") else None
             if db in files:
@@ -108,6 +114,7 @@ def main() -> int:
         or not (data / "RESOURES.MOD").is_file()
         or not (data / "PROCTEES.TXD").is_file()
         or not (data / "RESOURES.SDB").is_file()
+        or not (data.parent / "hosts" / "LEVEL1ON.MOD").is_file()
     ):
         extract(iso_path(a.iso), data, a.template)
     zip_path = mods / "ootf-levels.zip"

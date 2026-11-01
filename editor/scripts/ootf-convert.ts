@@ -76,6 +76,24 @@ if (existsSync(pathsFile)) {
     }
 }
 
+// Own MOD / TXD of template ODBs that host models of cloned doors / switches / flames (scripts/harness/ootf_level_run.py writes them
+// next to the ps2 data dir as <ps2>/../hosts/<STEM>.MOD|TXD, see OotfPs2Context.hostFiles).
+const hostFiles = new Map<string, { mod: SrscReader; txd: SrscReader }>();
+{
+    const hostsDir = opt['hosts'] ?? join(ps2, '..', 'hosts');
+    if (existsSync(hostsDir)) {
+        for (const f of readdirSync(hostsDir).filter((x) => /\.MOD$/i.test(x))) {
+            const stem = f.slice(0, -4).toUpperCase();
+            const t = join(hostsDir, `${stem}.TXD`);
+            if (!existsSync(t)) continue;
+            hostFiles.set(stem, {
+                mod: await SrscReader.fromBytes(new Uint8Array(readFileSync(join(hostsDir, f)))),
+                txd: await SrscReader.fromBytes(new Uint8Array(readFileSync(t))),
+            });
+        }
+    }
+}
+
 // The template's splat files (LEVEL1TS.DB / .TXD): needed beside every converted LVL (the game crashes without them).
 const splatDir = opt['splats'] ?? ps2;
 const splatStem = opt['splat-stem'] ?? `${tplName.slice(0, 6)}TS`;
@@ -91,7 +109,7 @@ const only = opt['only'] ? new Set(opt['only'].split(',')) : null; // stage swit
 const res = await convertOotfLevels(
     src,
     levels,
-    { template, odbs, ssds, dbFiles, hostMod: await optReader('RESOURES.MOD'), hostTxd: await optReader('RESOURES.TXD'), hostAdb: await optReader('RESOURES.ADB'), hostSdb: await optReader('RESOURES.SDB'), mods: await optMap('MOD'), adbs: await optMap('ADB'), xdbFiles: readdirSync(ps2).some((f) => /\.XDB$/i.test(f)) ? new Set(readdirSync(ps2).filter((f) => /\.XDB$/i.test(f)).map((f) => f.toUpperCase())) : undefined, splatTxd: splats['TXD'], procTxd: existsSync(join(ps2, 'PROCTEES.TXD')) ? new Uint8Array(readFileSync(join(ps2, 'PROCTEES.TXD'))) : undefined },
+    { template, odbs, ssds, dbFiles, hostMod: await optReader('RESOURES.MOD'), hostTxd: await optReader('RESOURES.TXD'), hostAdb: await optReader('RESOURES.ADB'), hostSdb: await optReader('RESOURES.SDB'), mods: await optMap('MOD'), hostFiles, adbs: await optMap('ADB'), xdbFiles: readdirSync(ps2).some((f) => /\.XDB$/i.test(f)) ? new Set(readdirSync(ps2).filter((f) => /\.XDB$/i.test(f)).map((f) => f.toUpperCase())) : undefined, splatTxd: splats['TXD'], procTxd: existsSync(join(ps2, 'PROCTEES.TXD')) ? new Uint8Array(readFileSync(join(ps2, 'PROCTEES.TXD'))) : undefined },
     {
         name: (pc) => `${prefix}${pcLevelName(pc.header)}`,
         log: (m) => console.warn(m),
