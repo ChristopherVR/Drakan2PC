@@ -59,10 +59,7 @@ Engine 5; textures move to UE5-style PBR sets.
 - Save editor checklist steps cannot tick from the level editor window since the save editor became its own app.
 - The Menus dock panel is cramped (export bar overlaps); remaining game pages (inventory, journal, map, save/load,
   multiplayer, settings) are not skinnable; the skin is read once at startup.
-- Order of the Flame importer (`editor/ootfimport.ts`) has an uncommitted string clean-up from this round; it is the
-  other session's area, so merge it with them.
-- The full `npm run build` fails in the formats submodule (`ootfpipeline.ts`, `ootfclass.ts`), which belongs to the
-  Order of the Flame work.
+- Order of the Flame port state: see [ootf-port.md](ootf-port.md). The full `npm run build` passes again (2026-11-02).
 
 ### Story and logic
 
