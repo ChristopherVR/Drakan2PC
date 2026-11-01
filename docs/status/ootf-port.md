@@ -32,7 +32,7 @@ packs that the recompiled PS2 engine plays; nothing from either game is committe
 * Volcanic runs at about 42 fps with the rift effect live (Vortex / Inner / Outer Rift movers).
 * The exit scan cannot resolve level-local destination strings of converted levels; use the exit index with `DRAKAN_LEVELCHANGE`.
 * Two packs installed together share patched files (`RESOURES.MOD/.TXD`, `PROCTEES.TXD`, `WORLDCON.*`, `RESOURES.SDB` entries): the
-  later pack wins and logs conflicts. Keep `ootf-levels` after `ootf-arenas` in `mods.ini`; arena models missing from the campaign
+  later pack wins and logs conflicts. Convert campaign and arenas together instead (no level paths = all 23 levels in one pack); for separate packs keep `ootf-levels` after `ootf-arenas` in `mods.ini`; arena models missing from the campaign
   copy were not checked in a full arena match with both packs installed.
 * The Host Game mode strip still shows a disabled Co-op tile ("Coming") beside the PvP modes.
 * The Ruined Village arrival fade is black for a few seconds after a host-fired exit; the arrival marker placement and a walked exit
@@ -41,7 +41,7 @@ packs that the recompiled PS2 engine plays; nothing from either game is committe
 * Duplicate-object warnings from source data (Alwarren, Grimstone Mines) are harmless but unexamined.
 
 * 2026-11-02 pass (`journal/2026-11-02/ootf-unproven-creatures-chains.md`): Succubus drawn; Blade Dragons alive and attacking; Queen / Hueges alive;
-  Ebon Dragon / Drone / switch-to-portcullis still unproven by picture; the pack conflict needs one combined conversion (not started).
+  Ebon Dragon / Drone / switch-to-portcullis still unproven by picture; the pack conflict is fixed by one combined conversion (`journal/2026-11-02/ootf-combined-pack.md`).
 
 ## Release checks (2026-11-02)
 
