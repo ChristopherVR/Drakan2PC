@@ -77,6 +77,29 @@ int main(int argc, char** argv) {
         assert(!cameraBackdrop(sphere, transform, camera));
     }
     {
+        // captureHashWide: deterministic, covers every byte (blocks and tail) and the length, and depends on the seed.
+        std::vector<uint8_t> bytes(64 * 1024 + 13);
+        uint32_t state = 12345;
+        for (auto& b : bytes) {
+            state = state * 1664525u + 1013904223u;
+            b = uint8_t(state >> 24);
+        }
+        constexpr uint64_t seed = 14695981039346656037ull;
+        const auto base = drakan_object_motion::captureHashWide(seed, bytes.data(), bytes.size());
+        assert(base == drakan_object_motion::captureHashWide(seed, bytes.data(), bytes.size()));
+        assert(base != drakan_object_motion::captureHashWide(seed + 1, bytes.data(), bytes.size()));
+        assert(base != drakan_object_motion::captureHashWide(seed, bytes.data(), bytes.size() - 1));
+        for (size_t at : {size_t(0), size_t(1), size_t(7), size_t(8), size_t(31), size_t(32), size_t(33), size_t(65535),
+                          bytes.size() - 13, bytes.size() - 12, bytes.size() - 1}) {
+            bytes[at] ^= 1;
+            assert(base != drakan_object_motion::captureHashWide(seed, bytes.data(), bytes.size()));
+            bytes[at] ^= 1;
+        }
+        assert(base == drakan_object_motion::captureHashWide(seed, bytes.data(), bytes.size()));
+        assert(drakan_object_motion::captureHashWide(seed, nullptr, 0) ==
+               drakan_object_motion::captureHashWide(seed, bytes.data(), 0));
+    }
+    {
         std::vector<uint8_t> memory(0x101000);
         Reader r{memory.data(), uint32_t(memory.size())};
         auto put = [&](uint32_t at, auto v) { std::memcpy(memory.data() + at, &v, sizeof(v)); };
@@ -191,6 +214,14 @@ int main(int argc, char** argv) {
         const auto previous = scene->meshes.front();
         auto again = cache.capture(ram.data(), uint32_t(ram.size()), 9);
         assert(again->meshes.front() == previous);
+        // The resident-texture refresh runs in slices over several captures; unchanged memory must settle on the very
+        // same textures (identity and order) as the first, synchronous pass.
+        for (unsigned i = 0; i < 2000; ++i)
+            cache.capture(ram.data(), uint32_t(ram.size()), 9);
+        auto settled = cache.capture(ram.data(), uint32_t(ram.size()), 9);
+        assert(settled->textures.size() == scene->textures.size());
+        for (size_t i = 0; i < settled->textures.size(); ++i)
+            assert(settled->textures[i]->identity == scene->textures[i]->identity);
         for (const auto& instance : scene->instances) {
             Reader r{ram.data(), uint32_t(ram.size())};
             assert(r.u(instance.object + 4) & 1);

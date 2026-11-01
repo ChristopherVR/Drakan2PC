@@ -99,7 +99,8 @@ public:
                 }
                 t->pixels[y * 128 + x] = c;
             }
-        t->identity = hashBytes(14695981039346656037ull, t->pixels.data(), t->pixels.size() * 4);
+        t->identity =
+            drakan_object_motion::captureHashWide(14695981039346656037ull, t->pixels.data(), t->pixels.size() * 4);
         return t;
     }
     std::shared_ptr<const gsr::SceneModelTexture> load(uint32_t id, const std::string& path) {

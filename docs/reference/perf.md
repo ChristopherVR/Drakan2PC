@@ -490,3 +490,16 @@ and tick snapping now apply whenever vsync is on. NR on, 40 s walk: present gaps
 The readbacks themselves remain (~1 per frame while moving in Ravenshold, ~0.5-0.8 ms each in `Map`, ~5 % of the GS
 worker). Uncapped with vsync off (246-361 FPS, VU1-bound) windows with 552 readbacks per 2 s ran no slower than quiet
 ones, so removing them (the ownership work in `../journal/2026-10-21/cpu-gpu-readback.md`) is not worth its risk now.
+
+## Periodic 17 ms hitch from the scene-model texture refresh (2026-11-01)
+
+Standing still (uncapped, 4K scale 4, vsync off) the frame time showed a 16-19 ms gap every 32nd frame (~4 per second, 78-86
+per 20 s), p99 17.6 ms, world fps swinging 123-150. `DRAKAN_FRAME_AUDIT=3` + `scripts/perf/ee_samples.py` showed the EE thread
+inside `drakan_scene_models::hashBytes` / `Capture::texture` for the whole gap: with scene-model capture on (ray effects / NR),
+every 32nd capture re-sampled every resident texture to 128x128 and hashed its 64 KB with the byte-serial FNV in `captureHash`
+(151 textures = 11 ms on the EE thread). The GS worker sat idle meanwhile and the flip waited a vblank.
+
+Fix: texture identity uses `captureHashWide` (4 lanes, 32-byte blocks; equality-only, not persisted), and the refresh runs in
+~250 us slices over the following captures (`Capture::refreshTextures`) and replaces the texture set when complete. After:
+gaps over 14 ms 78-86 -> 1-5 per 20 s, p99 17.6 -> 10-13 ms, gap SD 2.4 -> 1.2-1.6 ms, world fps 123 -> 125-157 (run to run
+differences are load from other processes). Details: [journal](../journal/2026-11-01/still-view-fps-jitter.md).

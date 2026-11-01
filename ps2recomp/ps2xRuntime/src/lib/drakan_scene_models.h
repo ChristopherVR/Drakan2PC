@@ -1,4 +1,5 @@
 #pragma once
+#include <chrono>
 #include <gsr/scene_models.h>
 #include "runtime/object_motion_capture.h"
 #include <algorithm>
@@ -177,6 +178,10 @@ class Capture {
     BackdropTracker backdrops;
     uint64_t level = ~0ull;
     unsigned ticks = 0;
+    bool refreshing = false;
+    uint32_t refreshCursor = 0;
+    std::vector<std::shared_ptr<const gsr::SceneModelTexture>> refreshNext;
+    std::map<uint32_t, uint32_t> refreshIndices;
     std::vector<std::shared_ptr<const gsr::SceneModelTexture>> textures;
     std::map<uint32_t, uint32_t> textureIndices;
     std::unordered_map<uint64_t, std::shared_ptr<const gsr::SceneModelMesh>> meshes;
@@ -229,8 +234,74 @@ class Capture {
                 }
                 t->pixels[y * 128 + x] = pixel;
             }
-        t->identity = hashBytes(14695981039346656037ull, t->pixels.data(), t->pixels.size() * 4);
+        t->identity =
+            drakan_object_motion::captureHashWide(14695981039346656037ull, t->pixels.data(), t->pixels.size() * 4);
         return t;
+    }
+    // Resumable texture refresh (see capture()). Builds refreshNext / refreshIndices from the resident resources in
+    // id order, at most kRefreshBudget per call when `sliced`; the finished set replaces `textures` atomically.
+    static constexpr std::chrono::microseconds kRefreshBudget{250};
+    void refreshTextures(const Reader& r, bool sliced) {
+        const auto begin = std::chrono::steady_clock::now();
+        const auto resources = r.resources(0x4db280, 0x51cfe8);
+        unsigned done = 0;
+        for (auto it = resources.lower_bound(refreshCursor); it != resources.end(); ++it, ++done) {
+            if (sliced && done && std::chrono::steady_clock::now() - begin > kRefreshBudget) {
+                refreshCursor = it->first;
+                return;
+            }
+            const auto& [id, p] = *it;
+            if (auto t = texture(r, id, p)) {
+                refreshIndices[id] = uint32_t(refreshNext.size());
+                auto previous = textureIndices.find(id);
+                if (previous != textureIndices.end() && previous->second < textures.size() &&
+                    textures[previous->second]->identity == t->identity)
+                    t = textures[previous->second];
+                refreshNext.push_back(t);
+            }
+        }
+        auto& indices = refreshIndices;
+        // 12ad60: the high word is the live database namespace, not a
+        // fixed level number. Resolve its exact registered path.
+        if (loadTexture && r.span(0x4dade8, 12)) {
+            std::map<uint32_t, std::string> paths;
+            auto list = r.u(0x4dade8), count = r.u(0x4dadf0);
+            if (count < 256 && r.span(list, count * 4))
+                for (unsigned i = 0; i < count; ++i) {
+                    auto db = r.u(list + i * 4);
+                    if (!r.span(db, 260))
+                        continue;
+                    const char* s = reinterpret_cast<const char*>(r.ram + db + 4);
+                    const auto end = std::find(s, s + 256, '\0');
+                    if (end != s + 256)
+                        paths[r.u(db)] = std::string(s, end) + ".TXD";
+                }
+            for (const auto& [modelId, m] : r.resources(0x4dae20, 0x51cc98, 0x519a00)) {
+                auto library = r.u(m + 0x38), n = r.u(m + 0x40);
+                if (n > 4096 || !r.span(library, uint64_t(n) * 4))
+                    continue;
+                for (unsigned i = 0; i < n && refreshNext.size() < 768; ++i) {
+                    auto id = r.u(library + i * 4);
+                    if (indices.contains(id))
+                        continue;
+                    auto path = paths.find(id >> 16);
+                    if (path == paths.end())
+                        continue;
+                    if (auto t = loadTexture(id, path->second)) {
+                        indices[id] = uint32_t(refreshNext.size());
+                        refreshNext.push_back(std::move(t));
+                    }
+                }
+            }
+        }
+        if (indices != textureIndices)
+            meshes.clear();
+        textureIndices = std::move(indices);
+        textures = std::move(refreshNext);
+        refreshNext = {};
+        refreshIndices = {};
+        refreshing = false;
+        refreshCursor = 0;
     }
     std::shared_ptr<const gsr::SceneModelMesh> mesh(const Reader& r, uint32_t m, uint32_t id, uint32_t positions = 0,
                                                     uint32_t slot = 0) {
@@ -485,6 +556,9 @@ public:
             meshes.clear();
             textures.clear();
             textureIndices.clear();
+            refreshing = false;
+            refreshNext.clear();
+            refreshIndices.clear();
             live.clear();
             generations.clear();
             for (uint32_t p = 0x100000; p + 0x120 <= bytes; p += 4)
@@ -493,55 +567,22 @@ public:
                     generations[p] = ++nextGeneration;
                 }
         }
-        if (textures.empty() || (++ticks % 32) == 0) {
-            auto resources = r.resources(0x4db280, 0x51cfe8);
-            std::vector<std::shared_ptr<const gsr::SceneModelTexture>> next;
-            std::map<uint32_t, uint32_t> indices;
-            for (const auto& [id, p] : resources)
-                if (auto t = texture(r, id, p)) {
-                    indices[id] = uint32_t(next.size());
-                    auto previous = textureIndices.find(id);
-                    if (previous != textureIndices.end() && textures[previous->second]->identity == t->identity)
-                        t = textures[previous->second];
-                    next.push_back(t);
-                }
-            // 12ad60: the high word is the live database namespace, not a
-            // fixed level number. Resolve its exact registered path.
-            if (loadTexture && r.span(0x4dade8, 12)) {
-                std::map<uint32_t, std::string> paths;
-                auto list = r.u(0x4dade8), count = r.u(0x4dadf0);
-                if (count < 256 && r.span(list, count * 4))
-                    for (unsigned i = 0; i < count; ++i) {
-                        auto db = r.u(list + i * 4);
-                        if (!r.span(db, 260))
-                            continue;
-                        const char* s = reinterpret_cast<const char*>(ram + db + 4);
-                        const auto end = std::find(s, s + 256, '\0');
-                        if (end != s + 256)
-                            paths[r.u(db)] = std::string(s, end) + ".TXD";
-                    }
-                for (const auto& [modelId, m] : r.resources(0x4dae20, 0x51cc98, 0x519a00)) {
-                    auto library = r.u(m + 0x38), n = r.u(m + 0x40);
-                    if (n > 4096 || !r.span(library, uint64_t(n) * 4))
-                        continue;
-                    for (unsigned i = 0; i < n && next.size() < 768; ++i) {
-                        auto id = r.u(library + i * 4);
-                        if (indices.contains(id))
-                            continue;
-                        auto path = paths.find(id >> 16);
-                        if (path == paths.end())
-                            continue;
-                        if (auto t = loadTexture(id, path->second)) {
-                            indices[id] = uint32_t(next.size());
-                            next.push_back(std::move(t));
-                        }
-                    }
-                }
+        if (textures.empty()) {
+            refreshing = true;
+            refreshCursor = 0;
+            refreshNext.clear();
+            refreshIndices.clear();
+            refreshTextures(r, false);
+        } else if (refreshing || (++ticks % 32) == 0) {
+            // The resident textures are rebuilt in slices of a few hundred microseconds: one pass over every resource
+            // (a 128x128 sample and hash each) took ~11 ms on the EE thread, a visible hitch every 32nd frame.
+            if (!refreshing) {
+                refreshing = true;
+                refreshCursor = 0;
+                refreshNext.clear();
+                refreshIndices.clear();
             }
-            if (indices != textureIndices)
-                meshes.clear();
-            textureIndices = std::move(indices);
-            textures = std::move(next);
+            refreshTextures(r, true);
         }
         out->textures = textures;
         auto resources = r.resources(0x4dae20, 0x51cc98, 0x519a00);

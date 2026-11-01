@@ -26,6 +26,7 @@ namespace {
 std::atomic<bool> g_stop{false};
 std::thread g_reporter;
 std::thread g_sampler;
+std::thread g_eeSampler;
 
 double threadCpuSeconds(HANDLE h) {
     FILETIME c, e, k, u;
@@ -118,6 +119,56 @@ void start(void* gameThreadNativeHandle, uint64_t (*vsyncTick)(void*), void* vsy
                     "vu1runs/s=%.0f vu1Mpairs/s=%.1f ee_thread_cpu=%.0f%% ee_ms/flip=%.2f other_cpu=%.0f%%%s\n",
                     line++, df / dt, df2 / dt, dv / dt, gifPk, gifMb, vuMc, vuRuns, vuMp, 100.0 * gameCpu / dt,
                     df ? 1000.0 * gameCpu / df : 0.0, 100.0 * otherCpu / dt, others.c_str());
+            }
+        });
+    }
+
+    if (const char* fa = std::getenv("DRAKAN_FRAME_AUDIT"); fa && std::atoi(fa) >= 3 && gameThreadNativeHandle) {
+        // Diagnostic: timestamped RIP samples of the EE thread, "[ft] X <us> <rva> <caller rva>".
+        HANDLE gameH = reinterpret_cast<HANDLE>(gameThreadNativeHandle);
+        HANDLE dup = nullptr;
+        DuplicateHandle(GetCurrentProcess(), gameH, GetCurrentProcess(), &dup,
+                        THREAD_SUSPEND_RESUME | THREAD_GET_CONTEXT | THREAD_QUERY_INFORMATION, FALSE, 0);
+        g_eeSampler = std::thread([dup]() {
+            const uint64_t mainBase = reinterpret_cast<uintptr_t>(GetModuleHandleW(nullptr));
+            const auto* dos = reinterpret_cast<const IMAGE_DOS_HEADER*>(mainBase);
+            const auto* nt = reinterpret_cast<const IMAGE_NT_HEADERS64*>(mainBase + dos->e_lfanew);
+            const uint64_t mainSize = nt->OptionalHeader.SizeOfImage;
+            while (!g_stop.load() && dup) {
+                if (SuspendThread(dup) != static_cast<DWORD>(-1)) {
+                    CONTEXT ctx{};
+                    ctx.ContextFlags = CONTEXT_CONTROL | CONTEXT_INTEGER;
+                    uint64_t rip = 0, caller = 0;
+                    if (GetThreadContext(dup, &ctx)) {
+                        rip = ctx.Rip;
+                        CONTEXT c = ctx;
+                        for (int depth = 0; depth < 14 && c.Rip != 0; ++depth) {
+                            if (c.Rip - mainBase < mainSize) {
+                                caller = c.Rip - mainBase;
+                                break;
+                            }
+                            DWORD64 imageBase = 0;
+                            PRUNTIME_FUNCTION fe = RtlLookupFunctionEntry(c.Rip, &imageBase, nullptr);
+                            if (!fe) {
+                                c.Rip = *reinterpret_cast<const DWORD64*>(c.Rsp);
+                                c.Rsp += 8;
+                            } else {
+                                PVOID handlerData = nullptr;
+                                DWORD64 establisher = 0;
+                                RtlVirtualUnwind(UNW_FLAG_NHANDLER, imageBase, c.Rip, fe, &c, &handlerData,
+                                                 &establisher, nullptr);
+                            }
+                        }
+                    }
+                    ResumeThread(dup);
+                    std::fprintf(stderr, "[ft] X %lld %llx %llx %llx\n",
+                                 (long long)std::chrono::duration_cast<std::chrono::microseconds>(
+                                     std::chrono::steady_clock::now().time_since_epoch())
+                                     .count(),
+                                 (unsigned long long)(rip - mainBase), (unsigned long long)caller,
+                                 (unsigned long long)mainSize);
+                }
+                std::this_thread::sleep_for(std::chrono::microseconds(500));
             }
         });
     }
@@ -241,6 +292,8 @@ void stop() {
         g_reporter.join();
     if (g_sampler.joinable())
         g_sampler.join();
+    if (g_eeSampler.joinable())
+        g_eeSampler.join();
 }
 #else
 void start(void*, uint64_t (*)(void*), void*) {}
