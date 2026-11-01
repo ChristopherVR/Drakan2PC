@@ -59,3 +59,25 @@ distinct spawns and the arena logic runs, then the on-foot players fall into the
 153256 units from it after 40 tries (no floor there?)`, black screen, `build/harness/mpco-arena/a/a_arena.png`): air arenas are dragon
 fights over a floating structure with no floor for Rynn. Hosting works, play does not until air arenas get dragon spawns (Dragon's Duel mode,
 "Coming" in the menu). Ground maps are the PvP verification (see below).
+
+## PvP arena from an OotF pack (ground map)
+
+`arena_two_instances.py --map relic-ground --maps-file <the pack's maps/OOTFREND.ini> ... DRAKAN_GAME=d1 DRAKAN_MODS=<pack>`
+(`build/harness/mpco-arena-relic/`, sheet `build/harness/mpco-arena-relic_sheet.png`): A hosts, B joins, both load `OotF - Relic (ground)`
+through the Level 0 redirect, the campaign actors are removed (`removed 3 campaign actors`), the server hands out different spawns (A spawn
+0 at 44032 202448 35840, B spawn 3 at 9216 202444 25600) and `placement of spawn 0 took after 1 try (161 units from the point)`: the
+`terrain + 400` heights land on the floor. Checks passed: arena world mode, campaign removed, placed at a spawn, different spawns, save
+vetoed, quick save / load ignored, no creatures left. Checks failed: everything needing a weapon.
+**Open: nobody can fight in an OotF arena.** `[arena] armed: no weapon in the inventory`: a Drakan 1 New Game starts with an empty
+inventory (the Drakan 2 one starts with the dagger, which the arena only equips) and `ootfArenaFromPc` emits no pickups (the PC maps'
+weapon / power-up items are not turned into `pickup =` entries). The arena needs either a granted starting weapon or pickups; granting
+needs the engine's add-to-inventory path (not found in the runtime yet). The Relic level also renders very dark (a slice of floor only in
+the screenshots), unrelated to the arena layer.
+
+## Not done
+
+* Co-op started from the menu (Title > New Game > Co-op > Begin Game) on OotF: only the host / join pages were exercised (`mp_pages_check.py
+  --coop`, Co-op scope, OotF levels); the match start itself was done with the `DRAKAN_NET_*` shortcuts.
+* The Ruined Village -> Wartok Canyons second hop (`DRAKAN_LEVELCHANGE=0,1`) was started once (the Intro hit the crash above before the
+  fix); not re-run after it.
+* Run-to-run flake count of the Intro fix is 4 of 4 clean loads; the earlier failure rate was 50-80 %, so the sample is small but separated.
