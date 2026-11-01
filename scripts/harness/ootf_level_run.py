@@ -67,9 +67,16 @@ def extract(iso: Path, data: Path, template: str) -> None:
             continue
         n = parts[-1].upper()
         in_template = len(parts) > 2 and parts[-2].upper() == template
-        if n.endswith((".ODB", ".LVL", ".SSD", ".XDB")) or n in ("PROCTEES.TXD", "RESOURES.MOD", "RESOURES.TXD", "RESOURES.SDB", "RESOURES.ADB", "NPCS.MOD", "NPCS.ADB") or (in_template and n.startswith(stem)):
+        if (
+            n.endswith((".ODB", ".LVL", ".SSD", ".XDB"))
+            or n
+            in ("PROCTEES.TXD", "RESOURES.MOD", "RESOURES.TXD", "RESOURES.SDB", "RESOURES.ADB", "NPCS.MOD", "NPCS.ADB")
+            or (in_template and n.startswith(stem))
+        ):
             (data / n).write_bytes(read(f, files[p]))
-        if n in HOST_FILES and not any(x in p.upper() for x in ("/DESERTON/",)):  # own MOD / TXD of template ODBs that host models
+        if n in HOST_FILES and not any(
+            x in p.upper() for x in ("/DESERTON/",)
+        ):  # own MOD / TXD of template ODBs that host models
             (data.parent / "hosts").mkdir(parents=True, exist_ok=True)
             (data.parent / "hosts" / n).write_bytes(read(f, files[p]))
         if n.endswith(".ODB"):  # the ODB's .DB (dependency list) and its disc directory, for the converter's model refs
@@ -97,11 +104,13 @@ def main() -> int:
     ap.add_argument(
         "--campaign",
         action="store_true",
-        help="pack the levels as a campaign (mod.toml campaign = \"ootf\") and boot with DRAKAN_GAME=d1: New Game opens "
+        help='pack the levels as a campaign (mod.toml campaign = "ootf") and boot with DRAKAN_GAME=d1: New Game opens '
         "the first level directly (no Drakan 2 intro); without it the level replaces Level 1A after the D2 intro",
     )
     ap.add_argument("--env", action="append", default=[])
-    ap.add_argument("--convert-arg", action="append", default=[], help="extra converter argument, e.g. --only (repeat per token)")
+    ap.add_argument(
+        "--convert-arg", action="append", default=[], help="extra converter argument, e.g. --only (repeat per token)"
+    )
     a = ap.parse_args()
 
     work = ROOT / "build" / "ootf-run" / a.name
