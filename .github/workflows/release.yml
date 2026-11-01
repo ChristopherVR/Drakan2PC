@@ -1,6 +1,7 @@
 name: Release
 
-# Builds DrakanPC-Setup.exe (and the zip builder kit) from the tagged commit and publishes them as a GitHub Release.
+# Builds DrakanPC-Setup.exe (and the zip builder kit) from the tagged commit and publishes them as a GitHub Release,
+# then attaches the Drakan Editor and Save Editor builds of the same commit (editor-release.yml).
 # Both contain source, build scripts and build tools only; the game is built on the player's PC from their own disc.
 on:
   push:
@@ -73,3 +74,14 @@ jobs:
           # releases/latest/download/DrakanPC-Setup.exe (README, install guide) must resolve to a game release, never
           # to a newer site-media release.
           gh release edit $env:TAG --latest
+
+  # The Drakan Editor and Drakan Save Editor are part of the Drakan PC release, built from the same commit. They run
+  # after the release exists; if this job fails the game release is still published, so re-run only this job.
+  # Editor changes between game releases refresh the same assets on the newest release (editor-release.yml).
+  editor:
+    needs: installer
+    permissions:
+      contents: write
+    uses: ./.github/workflows/editor-release.yml
+    with:
+      tag: ${{ github.event.inputs.tag || github.ref_name }}

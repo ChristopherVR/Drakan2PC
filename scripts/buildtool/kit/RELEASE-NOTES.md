@@ -6,6 +6,8 @@ the first time). No game files are included or downloaded.
 
 - `DrakanPC-Setup.exe`: guided installer (bundles PowerShell, Python and the prebuilt recompiler).
 - `DrakanPC-Builder.zip`: the same builder as a zip, for people who already have PowerShell 7, Python 3.11+ and Git.
+- `DrakanEditor-Setup.exe` / `DrakanEditor-Portable.zip`: the level and mod editor. `DrakanSaveEditor-Setup.exe` /
+  `DrakanSaveEditor-Portable.zip`: the save editor. They read your own disc image and saves; no game data is included.
 - Browser version: tick it in the installer (needs WSL with Ubuntu), then play it with `Play-Browser.cmd` or on the
   [browser player page](https://christophervr.github.io/Drakan2PC/).
 

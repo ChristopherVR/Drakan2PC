@@ -304,6 +304,25 @@ The level/save editor (`editor/`) also builds as a desktop app: `cd editor && np
 install) plus the MSVC build tools; WebView2 ships with Windows 11. The browser editor is unaffected. Details:
 `editor/README.md`, "Desktop app (Tauri)".
 
+## Releases
+
+There is one release stream: "Drakan PC vX.Y.Z" (tag `v*`). Each release holds `DrakanPC-Setup.exe`,
+`DrakanPC-Builder.zip` and `SHA256SUMS.txt` (game builder, built by `.github/workflows/release.yml`) plus the editor
+assets `DrakanEditor-Setup.exe`, `DrakanEditor-Portable.zip`, `DrakanSaveEditor-Setup.exe`,
+`DrakanSaveEditor-Portable.zip` and `EDITOR-SHA256SUMS.txt` (built by `.github/workflows/editor-release.yml`).
+
+- **New game release**: push a `v*` tag (or run Release with a tag). `release.yml` publishes the game files, marks the
+  release Latest, then calls `editor-release.yml` for the same tag, so the release gets editor builds of the same commit.
+  If the editor job fails, re-run just that job; the game files are already published.
+- **Editor changes between game releases**: a push to `main` touching `editor/**` rebuilds the apps and replaces the
+  four editor assets on the newest `v*` release (`gh release upload --clobber`, fixed file names, so nothing stale
+  remains). "Newest" means the most recently created published `v*` release; `site-media-*` and legacy `editor-b*` are
+  ignored. Run "Editor assets" manually (optionally with a tag) to refresh by hand.
+- The workflows check out submodules (`editor/packages/formats` is the `drakan-formats` repository); the editor build
+  needs them, the game builder kit does not.
+- `editor-b*` pre-releases (b1 to b4) are legacy and no longer created; `site-media-*` pre-releases only host
+  documentation captures (`--prerelease --latest=false`, see `docs/reference/github-pages.md`).
+
 ## Linux and browser ISO builds
 
 The Linux bootstrap accepts the same verified PAL ISO as Windows. It installs missing public

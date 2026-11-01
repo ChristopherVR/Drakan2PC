@@ -115,9 +115,10 @@ Engine 5; textures move to UE5-style PBR sets.
 ## Releases
 
 `.github/workflows/editor-release.yml` builds the Drakan Editor and the standalone Drakan Save Editor (Tauri, overlay
-`editor/packages/desktop/src-tauri/tauri.save.conf.json`) on every push to main that touches `editor/**`, and publishes
-both (NSIS installer and portable exe) as a pre-release tagged `editor-b<run>`. Local save editor build:
-`npm run build:save -w @drakan/desktop`.
+`editor/packages/desktop/src-tauri/tauri.save.conf.json`) and attaches them (NSIS installer and portable zip, fixed asset
+names) to the newest `v*` Drakan PC release: `release.yml` calls it for a new tag, and a push to main touching
+`editor/**` replaces the assets on the newest release. There are no more `editor-b<N>` releases (b1 to b4 are legacy).
+Procedure: `BUILDING.md`, "Releases". Local save editor build: `npm run build:save -w @drakan/desktop`.
 
 ## Working practice (multi-agent sessions)
 

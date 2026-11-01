@@ -1,40 +1,77 @@
-name: Editor release
+name: Editor assets
 
-# Builds the two desktop apps of the editor workspace on every push to main that touches the editor: the Drakan Editor
-# (level / mod editor, editor/packages/desktop/src-tauri/tauri.conf.json) and the standalone Drakan Save Editor
-# (tauri.save.conf.json overlay), then publishes both as a GitHub pre-release. The apps contain no game data: they read
-# the player's own disc image and saves at run time.
+# Builds the two desktop apps of the editor workspace: the Drakan Editor (level / mod editor,
+# editor/packages/desktop/src-tauri/tauri.conf.json) and the standalone Drakan Save Editor (tauri.save.conf.json overlay),
+# and attaches them to the newest "Drakan PC" game release (a v* tag). There is no separate editor release.
+#
+#  - release.yml calls this workflow after it publishes a new v* release, so a game release carries editor builds of
+#    the same commit.
+#  - A push to main that touches editor/** (or a manual run) rebuilds the apps and replaces the editor assets on the
+#    newest existing v* release, so the editor download always comes from the latest Drakan PC release.
+#
+# Asset names are fixed so replacing them (gh release upload --clobber) never leaves stale files behind:
+#   DrakanEditor-Setup.exe, DrakanEditor-Portable.zip, DrakanSaveEditor-Setup.exe, DrakanSaveEditor-Portable.zip,
+#   EDITOR-SHA256SUMS.txt (a separate checksum file, so release.yml's SHA256SUMS.txt is never overwritten).
+# The apps contain no game data: they read the player's own disc image and saves at run time.
 on:
   push:
     branches: [main]
     paths: ['editor/**', '.github/workflows/editor-release.yml']
   workflow_dispatch:
+    inputs:
+      tag:
+        description: Release to attach the editor to (empty = the newest v* release)
+        required: false
+        default: ''
+  workflow_call:
+    inputs:
+      tag:
+        description: Release to attach the editor to (empty = the newest v* release)
+        type: string
+        required: false
+        default: ''
 
 permissions:
   contents: write
 
-concurrency:
-  group: editor-release
-  cancel-in-progress: false
-
 jobs:
   build:
-    name: Build and release the editor apps
+    name: Build the editor apps and attach them to the Drakan PC release
     runs-on: windows-2022
     timeout-minutes: 75
     if: github.repository == 'ChristopherVR/Drakan2PC'
+    # One refresh per release at a time; the newest request for a release replaces a queued older one.
+    concurrency:
+      group: editor-assets-${{ inputs.tag || 'latest' }}
+      cancel-in-progress: false
     defaults:
       run:
         shell: pwsh
     env:
-      VERSION: 0.1.${{ github.run_number }}
-      TAG: editor-b${{ github.run_number }}
       GH_TOKEN: ${{ github.token }}
+      REQUESTED_TAG: ${{ inputs.tag }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
-          submodules: true
+          # editor/packages/formats is a submodule (ChristopherVR/drakan-formats); npm ci and the build need it.
+          submodules: recursive
+          fetch-depth: 0
           persist-credentials: false
+      - name: Pick the Drakan PC release
+        run: |
+          $tag = $env:REQUESTED_TAG
+          if (-not $tag) {
+            # Newest published game release: v* tags only (never site-media-* or the legacy editor-b*).
+            $releases = gh release list --limit 100 --exclude-drafts --json tagName,createdAt | ConvertFrom-Json
+            $tag = $releases | Where-Object { $_.tagName -match '^v\d' } | Sort-Object { [datetime]$_.createdAt } -Descending |
+              Select-Object -First 1 -ExpandProperty tagName
+          }
+          if (-not $tag) { Write-Warning 'No v* release exists yet; the editor is built and tested but not published.' }
+          "TAG=$tag" >> $env:GITHUB_ENV
+          # The version is the commit count, so it only ever grows and the installer upgrades older ones.
+          $count = (git rev-list --count HEAD).Trim()
+          "VERSION=0.1.$count" >> $env:GITHUB_ENV
+          Write-Host "Release: $tag, editor version 0.1.$count"
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: '22'
@@ -64,30 +101,35 @@ jobs:
           npx tauri build
           New-Item -ItemType Directory -Force "$env:GITHUB_WORKSPACE/out" | Out-Null
           $bundle = 'src-tauri/target/release/bundle/nsis'
-          Get-ChildItem $bundle -Filter '*.exe' | Move-Item -Destination "$env:GITHUB_WORKSPACE/out/DrakanEditor-$env:VERSION-setup.exe"
+          Get-ChildItem $bundle -Filter '*.exe' | Move-Item -Destination "$env:GITHUB_WORKSPACE/out/DrakanEditor-Setup.exe"
           $exe = Get-ChildItem 'src-tauri/target/release' -Filter '*.exe' -File | Sort-Object LastWriteTime | Select-Object -Last 1
           Compress-Archive -Path $exe.FullName `
-            -DestinationPath "$env:GITHUB_WORKSPACE/out/DrakanEditor-$env:VERSION-portable.zip"
+            -DestinationPath "$env:GITHUB_WORKSPACE/out/DrakanEditor-Portable.zip"
       - name: Build the Drakan Save Editor
         working-directory: editor/packages/desktop
         run: |
           npx tauri build --config src-tauri/tauri.save.conf.json
           $bundle = 'src-tauri/target/release/bundle/nsis'
-          Get-ChildItem $bundle -Filter '*.exe' | Move-Item -Destination "$env:GITHUB_WORKSPACE/out/DrakanSaveEditor-$env:VERSION-setup.exe"
+          Get-ChildItem $bundle -Filter '*.exe' | Move-Item -Destination "$env:GITHUB_WORKSPACE/out/DrakanSaveEditor-Setup.exe"
           Compress-Archive -Path 'src-tauri/target/release/drakan-save-editor.exe' `
-            -DestinationPath "$env:GITHUB_WORKSPACE/out/DrakanSaveEditor-$env:VERSION-portable.zip"
-      - name: Publish the release
+            -DestinationPath "$env:GITHUB_WORKSPACE/out/DrakanSaveEditor-Portable.zip"
+      - name: Attach the editor to the release
+        if: env.TAG != ''
         run: |
-          $files = Get-ChildItem "$env:GITHUB_WORKSPACE/out" | ForEach-Object FullName
-          $short = $env:GITHUB_SHA.Substring(0, 7)
-          $notes = @"
-          Editor build $env:VERSION from $short.
-
-          - **Drakan Editor**: level, mod, story and multiplayer map editor (installer or portable exe).
-          - **Drakan Save Editor**: the save game editor as its own app (installer or portable exe).
-
-          Both need the WebView2 runtime (included with Windows 10 and 11) and read your own disc image and saves;
-          no game data is included.
-          "@
-          gh release create $env:TAG @files --target $env:GITHUB_SHA --prerelease --latest=false `
-            --title "Editor build $env:VERSION ($short)" --notes $notes
+          $out = "$env:GITHUB_WORKSPACE/out"
+          $expected = 'DrakanEditor-Setup.exe', 'DrakanEditor-Portable.zip', 'DrakanSaveEditor-Setup.exe', 'DrakanSaveEditor-Portable.zip'
+          foreach ($name in $expected) { if (-not (Test-Path -LiteralPath "$out/$name")) { throw "$name was not built" } }
+          $lines = @("Drakan Editor $env:VERSION, commit $env:GITHUB_SHA")
+          $lines += $expected | ForEach-Object { "$((Get-FileHash "$out/$_" -Algorithm SHA256).Hash.ToLower())  $_" }
+          Set-Content -Encoding ascii "$out/EDITOR-SHA256SUMS.txt" $lines
+          gh release view $env:TAG --json tagName | Out-Null
+          if ($LASTEXITCODE -ne 0) { throw "Release $env:TAG does not exist" }
+          # Remove editor assets from older builds that used other names.
+          $keep = $expected + 'EDITOR-SHA256SUMS.txt'
+          $existing = (gh release view $env:TAG --json assets | ConvertFrom-Json).assets.name
+          foreach ($name in $existing) {
+            if ($name -match '^Drakan(Save)?Editor-' -and $keep -notcontains $name) { gh release delete-asset $env:TAG $name --yes }
+          }
+          gh release upload $env:TAG @($keep | ForEach-Object { "$out/$_" }) --clobber
+          if ($LASTEXITCODE -ne 0) { throw 'Upload failed' }
+          Write-Host "Attached the editor $env:VERSION to $env:TAG"

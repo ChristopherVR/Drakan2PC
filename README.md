@@ -101,6 +101,11 @@ other release's disc. Details: [USA disc support](docs/guides/install.md#usa-dis
    build takes one to two hours; some files take about 10 minutes each with no output.
 4. Start the game from the **Drakan - The Ancients' Gates** shortcut.
 
+The same [release](https://github.com/ChristopherVR/Drakan2PC/releases/latest) also carries the level/mod editor and
+the save editor: **DrakanEditor-Setup.exe** / **DrakanEditor-Portable.zip** and **DrakanSaveEditor-Setup.exe** /
+**DrakanSaveEditor-Portable.zip**. There is no separate editor release; the newest Drakan PC release always has the
+latest editor build.
+
 | | Build specs (once) | Game specs (to play) |
 | --- | --- | --- |
 | OS | Windows 10/11 64-bit | Windows 10/11 64-bit |

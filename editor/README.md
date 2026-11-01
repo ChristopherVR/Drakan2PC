@@ -115,6 +115,10 @@ cd packages/desktop && npx tauri build --debug --no-bundle   # quick debug exe
 cd packages/desktop/src-tauri && cargo test                  # Rust unit tests
 ```
 
+Downloads: the desktop apps are attached to the newest "Drakan PC" GitHub release (`DrakanEditor-Setup.exe`,
+`DrakanEditor-Portable.zip`, `DrakanSaveEditor-Setup.exe`, `DrakanSaveEditor-Portable.zip`); there is no separate editor
+release. See `BUILDING.md`, "Releases". The apps have no in-app update check.
+
 Needs Rust (rustup user install, MSVC build tools from Visual Studio) and WebView2 (part of Windows 11). Settings live in
 `%APPDATA%/dev.drakan.editor/settings.json`. Icons are generated from `app-icon.svg` at build time (`scripts/prepare.mjs`;
 no binaries are tracked). Dropped files in the desktop window arrive as browser `File`s (no remembered path).
