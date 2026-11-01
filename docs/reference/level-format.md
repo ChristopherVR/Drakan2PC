@@ -141,7 +141,7 @@ layers), session 2026-10-31; details in `docs/journal/2026-10-31/ootf-data-study
   f32 x y z, u32 flags, u16 event_count, u16 link_count, u16 links[], u16 rot[3], f32 scale[3] (flags & 0x100), u32
   data_dwords, u32 param_count, u32 data[], u16 indices[], {u32 type, string name} x param_count`. All 23 files consume
   exactly, and `field_value` decoding (section 2) works unchanged (0 range errors). PC lacks every PS2 addition: no second
-  prefix word, no 0x10 radius flag (flags seen: 0, 1, 0x100, 0x101), u16 link ids (PS2 u32), unsigned rotations 0-359, no
+  prefix word, no 0x10 radius flag (flags seen: 0, 1, 0x100, 0x101), u16 links (PS2 u32 ids; **a PC link is the 0-based position of the target in the object table, not its id**: all 78 links of Rift World and every link of Alwarren / Ruined Village / Volcano hit an object only when read as positions, see `docs/journal/2026-11-01/ootf-puzzles-ending.md`), unsigned rotations 0-359, no
   `0 / 0xffffffff` pair. `initial_event_count` is 1 on every PC object with no event data after it. Ids are not always ascending.
 * **ODB class record [OotF]**: PC `0x0102`: name, `u16 group`, model ref (`u16 id`, `u16 db`), `u16 rfl_class_id`, `u16 icon`,
   `u32 field_count`, `u32 dword_count`, `u32 data[]`, `field_count` x `{u32 type, name}` (no 0x0103 pool on PC). PS2 classes
