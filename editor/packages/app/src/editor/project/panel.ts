@@ -21,6 +21,7 @@ import type { ExitIndexData } from '../../logicdata.ts';
 import type { Ctx, Panel } from '../ctx.ts';
 import { h, icon } from '../dom.ts';
 import { createPlayControls } from '../playopts.ts';
+import { runCommand } from '../registry.ts';
 import { isDesktop } from '../../platform.ts';
 import type { PlayOptions } from '../../launch.ts';
 import { buildProjectPack, levelEditCounts, type ProjectExportDeps } from './export.ts';
@@ -56,7 +57,8 @@ export interface ProjectPanel extends Panel {
     onIssues(fn: () => void): void;
     /** Focus the "add a copy" form. */
     addCopy(): void;
-    play(): Promise<void>;
+    /** Play the whole project, starting in `level` (default: the start level). */
+    play(level?: string): Promise<void>;
     refreshSoon(): void;
     resetExits(): void;
     /** The exits of every level were read, so `issues()` is complete. */
@@ -295,6 +297,20 @@ export function createProjectPanel(host: ProjectPanelHost): ProjectPanel {
                 { class: 'ui-btn sm', type: 'button', onclick: () => void host.openLevel(l).catch(fail) },
                 'Open',
             ),
+            isDesktop
+                ? h(
+                      'button',
+                      {
+                          class: 'ui-btn play sm',
+                          type: 'button',
+                          title: 'Play the whole project in the game, starting in this level (no title, intro or save game)',
+                          'aria-label': `Play from ${l.title}`,
+                          onclick: () => void play(l.title).catch(fail),
+                      },
+                      icon('play', 12),
+                      'Play',
+                  )
+                : null,
             h(
                 'button',
                 {
@@ -374,14 +390,17 @@ export function createProjectPanel(host: ProjectPanelHost): ProjectPanel {
                                       {
                                           class: 'pj-link',
                                           type: 'button',
-                                          title: 'Open the level and select this exit; change its destination in the Logic panel',
+                                          title: 'Open the level, select this exit and show the Logic panel with its destination picker',
                                           onclick: () =>
                                               void host
                                                   .openLevel(l)
-                                                  .then(() => host.ctx.locate([e.id]))
+                                                  .then(() => {
+                                                      host.ctx.locate([e.id]);
+                                                      runCommand('panel.logic');
+                                                  })
                                                   .catch(fail),
                                       },
-                                      'Show exit',
+                                      e.portal ? 'Show exit' : 'Change destination',
                                   ),
                               ),
                           )
@@ -543,7 +562,7 @@ export function createProjectPanel(host: ProjectPanelHost): ProjectPanel {
         );
     }
 
-    async function play(): Promise<void> {
+    async function play(from?: string): Promise<void> {
         const p = projects.get();
         if (!p) throw new ModError('Create a project first.');
         let pack: Awaited<ReturnType<typeof buildProjectPack>> | null = null;
@@ -552,7 +571,7 @@ export function createProjectPanel(host: ProjectPanelHost): ProjectPanel {
         } catch (e) {
             if (!(e instanceof ModError) || !/Nothing to export/.test(e.message)) throw e;
         }
-        const level = p.start ?? host.exportDeps.openDoc()?.title ?? null;
+        const level = from ?? p.start ?? host.exportDeps.openDoc()?.title ?? null;
         const msg = await host.play(pack ? { meta: pack.meta, files: pack.files } : null, level, playControls.read());
         if (msg === null) return;
         projects.session.played = true;
