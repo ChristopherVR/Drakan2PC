@@ -412,6 +412,7 @@ public:
     std::vector<PendingTransfer> m_pendingVif1Transfers;
     std::mutex m_completedDmacMutex;
     std::vector<uint32_t> m_completedDmacCauses;
+    std::atomic<uint32_t> m_completedDmacCount{0}; // size of the queue, so an empty poll takes no lock
 
     struct CodeRegion {
         uint32_t start;

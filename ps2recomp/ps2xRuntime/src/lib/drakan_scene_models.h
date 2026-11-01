@@ -204,6 +204,9 @@ class Capture {
     std::map<uint32_t, uint32_t> textureIndices;
     std::unordered_map<uint64_t, std::shared_ptr<const gsr::SceneModelMesh>> meshes;
     std::unordered_map<uint64_t, PosedTemplate> templates;
+    // Static meshes mesh() rejected. Retried when the resident-texture refresh completes (a resource can finish loading
+    // later), not on every frame: about 80 instances per capture on Surdana fail the same way every time.
+    std::unordered_set<uint64_t> missing;
     std::shared_ptr<const gsr::SceneModelTexture> texture(const Reader& r, uint32_t id, uint32_t p) {
         const auto width = r.u(p + 0x24), height = r.u(p + 0x28), stride = r.u(p + 0x34), bits = r.u(p + 0x38),
                    source = r.u(p + 0x50), palette = r.u(p + 0x3c);
@@ -316,6 +319,7 @@ class Capture {
             meshes.clear();
             templates.clear();
         }
+        missing.clear();
         textureIndices = std::move(indices);
         textures = std::move(refreshNext);
         refreshNext = {};
@@ -630,6 +634,7 @@ public:
             backdrops.clear();
             meshes.clear();
             templates.clear();
+            missing.clear();
             textures.clear();
             textureIndices.clear();
             refreshing = false;
@@ -724,10 +729,12 @@ public:
                 geometry = posedMesh(r, it->second, it->first, positions, slot, templateKey);
             else if (auto found = meshes.find(cacheKey); found != meshes.end())
                 geometry = found->second;
-            else {
+            else if (!missing.contains(cacheKey)) {
                 geometry = mesh(r, it->second, it->first, positions, slot);
                 if (geometry)
                     meshes[cacheKey] = geometry;
+                else
+                    missing.insert(cacheKey);
             }
             if (!geometry || geometry->triangles.empty()) {
                 ++out->rejectedInstances;
