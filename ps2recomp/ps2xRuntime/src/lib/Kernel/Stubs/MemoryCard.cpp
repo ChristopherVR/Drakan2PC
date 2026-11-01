@@ -414,11 +414,23 @@ MemoryCardDebugSnapshot getMemoryCardDebugSnapshot() {
     return snapshot;
 }
 
+// DRAKAN_MC_TRACE=1: one stderr line per card call with the calling host thread, the guest ra and the pending flag
+// (diagnoses a guest polling loop that never sees its command finish).
+void mcTrace(const char* name, R5900Context* ctx) {
+    static const bool on = std::getenv("DRAKAN_MC_TRACE") != nullptr;
+    if (!on)
+        return;
+    std::fprintf(stderr, "[mc-trace] %s thread=%zu ra=0x%x a0=%d a1=%d pending=%d\n", name,
+                 std::hash<std::thread::id>{}(std::this_thread::get_id()) % 100000u, getRegU32(ctx, 31),
+                 static_cast<int>(getRegU32(ctx, 4)), static_cast<int>(getRegU32(ctx, 5)), g_mcCommandPending ? 1 : 0);
+}
+
 void sceMcChangeThreadPriority(uint8_t* rdram, R5900Context* ctx, PS2Runtime* runtime) {
     setReturnS32(ctx, 0);
 }
 
 void sceMcChdir(uint8_t* rdram, R5900Context* ctx, PS2Runtime* runtime) {
+    mcTrace("sceMcChdir", ctx);
     const int32_t port = static_cast<int32_t>(getRegU32(ctx, 4));
     const int32_t slot = static_cast<int32_t>(getRegU32(ctx, 5));
     const uint32_t pathAddr = getRegU32(ctx, 6);
@@ -463,6 +475,7 @@ void setMcFileWrittenCallback(McFileWrittenCallback callback) {
     g_fileWritten = callback;
 }
 void sceMcClose(uint8_t* rdram, R5900Context* ctx, PS2Runtime* runtime) {
+    mcTrace("sceMcClose", ctx);
     const int32_t fd = static_cast<int32_t>(getRegU32(ctx, 4));
     int32_t result = kMcResultNoEntry;
     std::filesystem::path written;
@@ -587,6 +600,7 @@ void sceMcFormat(uint8_t* rdram, R5900Context* ctx, PS2Runtime* runtime) {
 }
 
 void sceMcGetDir(uint8_t* rdram, R5900Context* ctx, PS2Runtime* runtime) {
+    mcTrace("sceMcGetDir", ctx);
     const int32_t port = static_cast<int32_t>(getRegU32(ctx, 4));
     const int32_t slot = static_cast<int32_t>(getRegU32(ctx, 5));
     const std::string rawPath = readPs2CStringBounded(rdram, getRegU32(ctx, 6), kMcMaxPathLen);
@@ -718,6 +732,7 @@ void sceMcGetEntSpace(uint8_t* rdram, R5900Context* ctx, PS2Runtime* runtime) {
 }
 
 void sceMcGetInfo(uint8_t* rdram, R5900Context* ctx, PS2Runtime* runtime) {
+    mcTrace("sceMcGetInfo", ctx);
     const int32_t port = static_cast<int32_t>(getRegU32(ctx, 4));
     const int32_t slot = static_cast<int32_t>(getRegU32(ctx, 5));
     const uint32_t typePtr = getRegU32(ctx, 6);
@@ -786,6 +801,7 @@ void sceMcInit(uint8_t* rdram, R5900Context* ctx, PS2Runtime* runtime) {
 }
 
 void sceMcMkdir(uint8_t* rdram, R5900Context* ctx, PS2Runtime* runtime) {
+    mcTrace("sceMcMkdir", ctx);
     const int32_t port = static_cast<int32_t>(getRegU32(ctx, 4));
     const int32_t slot = static_cast<int32_t>(getRegU32(ctx, 5));
     const std::string path = readPs2CStringBounded(rdram, getRegU32(ctx, 6), kMcMaxPathLen);
@@ -819,6 +835,7 @@ void sceMcMkdir(uint8_t* rdram, R5900Context* ctx, PS2Runtime* runtime) {
 }
 
 void sceMcOpen(uint8_t* rdram, R5900Context* ctx, PS2Runtime* runtime) {
+    mcTrace("sceMcOpen", ctx);
     const int32_t port = static_cast<int32_t>(getRegU32(ctx, 4));
     const int32_t slot = static_cast<int32_t>(getRegU32(ctx, 5));
     const std::string path = readPs2CStringBounded(rdram, getRegU32(ctx, 6), kMcMaxPathLen);
@@ -864,6 +881,7 @@ void sceMcOpen(uint8_t* rdram, R5900Context* ctx, PS2Runtime* runtime) {
 }
 
 void sceMcRead(uint8_t* rdram, R5900Context* ctx, PS2Runtime* runtime) {
+    mcTrace("sceMcRead", ctx);
     const int32_t fd = static_cast<int32_t>(getRegU32(ctx, 4));
     const uint32_t dstAddr = getRegU32(ctx, 5);
     const int32_t size = static_cast<int32_t>(getRegU32(ctx, 6));
@@ -982,6 +1000,7 @@ void sceMcSetFileInfo(uint8_t* rdram, R5900Context* ctx, PS2Runtime* runtime) {
 }
 
 void sceMcSync(uint8_t* rdram, R5900Context* ctx, PS2Runtime* runtime) {
+    mcTrace("sceMcSync", ctx);
     const uint32_t cmdPtr = getRegU32(ctx, 5);
     const uint32_t resultPtr = getRegU32(ctx, 6);
     int32_t cmd = 0;
@@ -1047,6 +1066,7 @@ void sceMcUnformat(uint8_t* rdram, R5900Context* ctx, PS2Runtime* runtime) {
 }
 
 void sceMcWrite(uint8_t* rdram, R5900Context* ctx, PS2Runtime* runtime) {
+    mcTrace("sceMcWrite", ctx);
     const int32_t fd = static_cast<int32_t>(getRegU32(ctx, 4));
     const uint32_t srcAddr = getRegU32(ctx, 5);
     const int32_t size = static_cast<int32_t>(getRegU32(ctx, 6));

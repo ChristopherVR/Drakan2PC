@@ -25,6 +25,10 @@ The save-exists hook checks the quicksave page too, including with `save_pages =
 only a quicksave. The title's Continue action still selects the newest **manual** save; F8 selects the quicksave.
 Validation notes: `docs/journal/2026-10-25/quick-save-load.md`.
 
+Known issue: one player report of a freeze at F5 (guest stops inside the slot scan, log ends after `flags 9`) is not
+reproduced; the game now logs a `[stall]` dump after 8 s without a guest frame, `DRAKAN_MC_TRACE=1` traces card calls and
+`scripts/harness/recipes/quick_save_stress.txt` hammers F5/F8. See `docs/journal/2026-11-01/quick-save-freeze.md`.
+
 ## Current save browser (2026-10-18)
 
 The pager is now drawn by the PC presentation overlay on every displayed frame,

@@ -710,6 +710,13 @@ void hookPadMgrUpdate(uint8_t* rdram, R5900Context* c, PS2Runtime* rt) {
         m.setScriptClientSize(width, height); // headless scripts have no HostInput::poll
     }
     // Mouse motion is windowed on the refresh grid the engine tick is snapped to (drakan_frame_rate.h).
+    const auto beat = drakan_present_clock::g_guestHeartbeat.fetch_add(1, std::memory_order_relaxed);
+    if (static const long freezeAt = [] {
+            const char* v = std::getenv("DRAKAN_TEST_FREEZE_AT"); // test aid: block the guest thread for 12 s once
+            return v ? std::atol(v) : 0L;
+        }();
+        freezeAt && static_cast<long>(beat) == freezeAt)
+        std::this_thread::sleep_for(std::chrono::seconds(12));
     m.setSampleRefresh(drakan_present_clock::lockedRefreshSeconds());
     if (!(g_skipBits & 16))
         beginFrame();

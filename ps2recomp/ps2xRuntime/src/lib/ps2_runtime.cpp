@@ -10,6 +10,7 @@
 #if defined(_WIN32)
 #include "drakan_fpsmeter.h"
 #include "drakan_log.h"
+#include "drakan_present_clock.h"
 #endif
 void drakanShutdownAudio(); // drakan_overrides.cpp
 void ps2PollHostPad();      // Window thread snapshot for the portable libpad backend.
@@ -2440,6 +2441,10 @@ void PS2Runtime::run() {
     const auto wdStart = std::chrono::steady_clock::now();
     auto wdLast = wdStart;
     bool screenshotTaken = false;
+    uint64_t stallBeat = 0;
+    auto stallSince = wdStart;
+    bool stallReported = false;
+    int stallDumps = 0;
     while (!isStopRequested() && !gameThreadFinished.load(std::memory_order_acquire)) {
 #if defined(__EMSCRIPTEN__)
         emscripten_current_thread_process_queued_calls();
@@ -2450,7 +2455,24 @@ void PS2Runtime::run() {
             ps2PollHostPad();
         {
             const auto now = std::chrono::steady_clock::now();
-            if (wdPeriod > 0.0 && std::chrono::duration<double>(now - wdLast).count() >= wdPeriod) {
+            // Always-on stall detector: the guest's per-frame input boundary (g_guestHeartbeat) stopped advancing.
+            // Dump the live pc / threads / semaphores once per 10 s (at most 6 times) so a freeze leaves a trace in
+            // drakan.log even when PS2X_WATCHDOG is off (docs/journal/2026-11-01/quick-save-freeze.md).
+            bool stallDump = false;
+            {
+                const uint64_t beat = drakan_present_clock::g_guestHeartbeat.load(std::memory_order_relaxed);
+                if (beat != stallBeat || beat == 0) {
+                    stallBeat = beat;
+                    stallSince = now;
+                    stallReported = false;
+                } else if (!stallReported && stallDumps < 6 &&
+                           std::chrono::duration<double>(now - stallSince).count() >= 8.0) {
+                    stallReported = stallDump = true;
+                    ++stallDumps;
+                    std::cerr << "[stall] guest input boundary silent for 8 s (frame " << beat << ")" << std::endl;
+                }
+            }
+            if (stallDump || (wdPeriod > 0.0 && std::chrono::duration<double>(now - wdLast).count() >= wdPeriod)) {
                 wdLast = now;
                 uint32_t spc = 0, sra = 0, ssp = 0;
                 int stid = 0;
