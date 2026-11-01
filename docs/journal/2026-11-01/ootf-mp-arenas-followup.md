@@ -47,4 +47,15 @@ an arena-only pack (modding.md "Known problem"). Open for the converter: shrink 
 
 ## 4. Menu start (OotF co-op) and the Ruined Village -> Wartok hop
 
-See the bottom of this file (filled in after the run).
+* **Menu start** (`build/ootf-run/mp13/drv.py`, not in the repo: the `mp_pages_check.py --coop` key script plus Start Match and play time;
+  `DRAKAN_GAME=d1`, pack = `ootf-levels` of Intro / Ruined Village / Wartok): A New Game > Co-op > Host Game > Begin Game, B Join > the LAN row;
+  `host: listening ... level 'OotF 00 - Intro'`, `co-op authority: player 1`, `multiplayer launch: New Game with 'OotF 00 - Intro'` on both,
+  both `loaded (playable, hash 21025d26)`, `co-op on: host (... 2 players)` / `client`, ghosts of each other (`build/harness/mp13-ui`). Note
+  `netplay_menu_two_instances.py --coop` does **not** work for OotF: its key script is the Drakan 2 title menu (it hosted the Versus
+  default `Surdana Meadow`).
+* **Ruined Village -> Wartok Canyons** (`mpco/run.py --lc "0,2@1500"`, exit indices come from the `[levelchange] exit N` log lines of the
+  level: Intro exit 0 -> RV; RV exit 0 is an unlinked marker, 1 goes back to the Intro, **2 goes to Wartok**): A fires both, B follows both
+  (`player 1 changed level through the exit at 148480 24496 211968 (destination hash 81a373d3): following`, `follow exit ...: found`,
+  `arrived in the leader's level (hash 81a373d3)`), ghosts of each other in Wartok. The destination hash of the second hop is now real
+  (exit text names `OotF 02 - Wartok Canyons`); the Intro exit still carries 0. `build/harness/mp13-hop2`. (`"0,1"` in the earlier attempt
+  took the RV -> Intro exit.)
