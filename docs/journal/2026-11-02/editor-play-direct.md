@@ -54,7 +54,18 @@ The new path is written to the speech controller's idle buffer tail `0x5b7d20` (
 aid already hands to the level-change entry). The engine then loads the level under its real name. The file redirect
 from drakan_overrides stays installed but no longer matches anything on that load.
 
-## Not verified
+## Desktop app, clicked (same day)
 
-The desktop app itself (Tauri) was not clicked: the env it sends is unit tested and the shell's card handling has a
-cargo test; the game side above is the same env. Level copies keep the Surdana route (proven earlier, with the intro).
+Debug build (`tauri build --debug --no-bundle`), private WebView2 profile with CDP on 9393, private play folder
+`build/scratch/pie-desktop/play` (settings.json `gameDir` pointed there, restored afterwards). Disc reopened, Level 1A
+opened (4675 objects; the Details panel shows its title once), real mouse click on the toolbar Play:
+* the camera looked down on the whole level, so the editor said "No floor in the middle of the view: starting at the
+  player start." and used the Rynn object;
+* game log: `[game] playing d2`, `New Game opens 'Level 1A - Surdana' in place of 'Level 0 - Intro'`, the memory card
+  warning skipped, `level load '.../Level 0 - Intro.lvl' -> '.../Level 1A - Surdana.lvl'` at 18.7 s, player under
+  control, `placed after 1 try`, released, standing at 450786 171630 340019. No Continue, no save, no intro.
+* the play folder's `mc0` stayed empty (the game used `%TEMP%/drakan-editor-playtest/card0/mc0`); `mc1` holds only the
+  game's settings file.
+
+Not clicked yet: the Project panel's per-level Play and "Change destination", the revert UI, the save editor changes.
+Level copies keep the Surdana route (proven earlier, with the intro).
