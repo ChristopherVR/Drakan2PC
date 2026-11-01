@@ -5,7 +5,10 @@ import sys
 import unittest
 from pathlib import Path
 
-import numpy as np
+try:
+    import numpy as np
+except ImportError:  # CI installs only the lint tools
+    raise unittest.SkipTest("numpy is not installed") from None
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "analysis" / "scripts"))

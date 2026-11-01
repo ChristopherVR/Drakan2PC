@@ -109,6 +109,9 @@ if(TARGET drakan::gs_rhi)
     # libraries, so single-pass linkers (GNU ld) see gsr_webgpu again after gsr_core. Windows also has the D3D11
     # variants, so gsr_core cannot name one there (and MSVC rescans libraries anyway).
     target_link_libraries(gsr_core INTERFACE gsr_webgpu)
+    # Two repeats leave the last gsr_webgpu_backend scan without a gsr_core after it, so the motion-history and guide-camera
+    # objects that only the backend's later-extracted members need stay unresolved: repeat the cycle more often.
+    set_property(TARGET gsr_core gsr_webgpu gsr_webgpu_backend PROPERTY LINK_INTERFACE_MULTIPLICITY 4)
   endif()
   if(DRAKAN_BUILD_RUNTIME_TESTS AND NOT EMSCRIPTEN)
     # The synthetic GIF scenes and their pixel checks, rendered by the WebGPU backend (gsr_test_synthetic runs them
