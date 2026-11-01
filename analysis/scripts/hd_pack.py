@@ -518,7 +518,9 @@ def cmd_upscale(a):
             if any(os.scandir(dirs[k] + "_in")):
                 try:
                     run_esrgan(exe, model, dirs[k] + "_in", dirs[k] + "_out", 4, a.gpu)
-                except RuntimeError:  # out of VRAM / driver hiccup: retry tiled, else the textures of this model are skipped
+                except (
+                    RuntimeError
+                ):  # out of VRAM / driver hiccup: retry tiled, else the textures of this model are skipped
                     try:
                         run_esrgan(exe, model, dirs[k] + "_in", dirs[k] + "_out", 4, a.gpu, tile=128)
                     except RuntimeError as ex:
@@ -554,7 +556,8 @@ def cmd_upscale(a):
             done += 1
         el = time.time() - t0
         print(
-            "  %d / %d done, %.0f s elapsed, eta %.0f s" % (done, len(todo), el, el / max(done, 1) * (len(todo) - done)),
+            "  %d / %d done, %.0f s elapsed, eta %.0f s"
+            % (done, len(todo), el, el / max(done, 1) * (len(todo) - done)),
             flush=True,
         )
     shutil.rmtree(os.path.join(a.work, "tmp"), ignore_errors=True)

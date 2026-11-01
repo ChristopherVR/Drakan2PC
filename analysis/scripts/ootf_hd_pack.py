@@ -33,10 +33,13 @@ def main():
             print("modextract failed for", z)
             return 2
     t1 = time.time()
-    r = subprocess.run(py + ["upscale", "--work", a.work, "--out", a.out, *a.extra]).returncode
+    r = subprocess.run([*py, "upscale", "--work", a.work, "--out", a.out, *a.extra]).returncode
     n = len([f for f in os.listdir(a.out) if f.endswith(".png")]) if os.path.isdir(a.out) else 0
     sz = sum(os.path.getsize(os.path.join(a.out, f)) for f in os.listdir(a.out)) / 1e6 if n else 0
-    print("ootf_hd_pack: index %.0f s, upscale %.0f s, %d textures / %.0f MB in %s" % (t1 - t0, time.time() - t1, n, sz, a.out))
+    print(
+        "ootf_hd_pack: index %.0f s, upscale %.0f s, %d textures / %.0f MB in %s"
+        % (t1 - t0, time.time() - t1, n, sz, a.out)
+    )
     return r
 
 
