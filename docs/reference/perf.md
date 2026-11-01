@@ -508,3 +508,9 @@ Round 2 (same day): posed scene-model instances were rebuilt from scratch every 
 They now reuse a per-resource topology template and only re-read positions (`Capture::posedMesh`), output verified
 byte-identical to the previous implementation over 420 captures. Capture cost 2.7-3.5 -> 0.6-0.7 ms per frame; Surdana still
 view 128-157 -> 192-215 fps, gap SD 0.7-0.9 ms, p99 under 8 ms (the EE thread is now waiting on the VU1 worker).
+
+Round 3 (same day): the frame limiter now sleeps precisely (`gs_precise_sleep.h`): present spread 0.74-0.78 -> 0.15-0.18 ms at
+144/120/90 fps. GPU texture creation for finished upscale jobs is budgeted to 2 ms per present. The per-frame GPU readbacks
+(15-20 % of the GS worker, ~0.7 per frame, 44 % texture sampling / 28 % CLUT loads / 28 % image uploads over a 128x512 scratch
+target) are real GPU waits; flushing earlier does not shorten them (measured), only GPU-side CLUT / texture-from-target paths would.
+See the [journal](../journal/2026-11-01/still-view-fps-jitter.md).

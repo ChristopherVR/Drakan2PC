@@ -75,3 +75,31 @@ VU1 geometry load, not the host.
 
 Not done: 80 non-posed instances per frame still retry a `mesh()` that returns null (rejected, never cached; ~0.08 ms per
 frame) - caching negatives needs a retry rule for resources that load later.
+
+## Round 3: moving, readbacks, pacing (same day)
+
+Walk-and-turn recipe (Surdana, no RAM dumps), `GSR_PROFILE=2` for the renderer's own buckets. Other applications (and a second game
+instance) loaded the GPU during these runs, so only same-run or mechanism evidence is used below.
+
+* **Startup is not steady state.** The 30+ ms `setupUpscale` calls (six 256x256 HUD textures, inline because the GUI page is on screen)
+  and the 10-25 ms GIF records belong to the first seconds after entering gameplay. In steady walking the largest renderer-side
+  stalls are GPU readbacks.
+* **Readbacks (item 2, not removed).** `readbackMap` = 15-20 % of the GS worker's time (avg 1.6-2.0 ms on a quiet GPU, 3-4 ms under
+  contention, singles up to 13 ms), ~0.7 per frame. Causes (call stacks of 2242 readbacks): `resolveTexture` -> flushToMemory 44 %,
+  `loadClut` -> flushToMemory 28 %, `startTransfer` (image upload) -> flushToMemory 28 %; 73 % of them are the 128x512 CT32 scratch
+  target. Tried: flushing the command stream right after draws into the small scratch targets so the GPU can run ahead (A/B
+  alternating every second inside one run): `Map` 3.7 ms with, 3.2 ms without. The wait is real GPU time (the queue behind the
+  readback holds the previous frame's passes), so submission timing does not help. Removing the stall needs GPU-side CLUT loads and
+  texture sampling from a render target's memory (the three call sites above), and a partial-overlap upload path
+  (`docs/journal/2026-10-21/cpu-gpu-readback.md`); a mistake there corrupts rendering, so it was not attempted blind.
+* **Texture creation burst (item 1).** `pumpUp` created the GPU textures of all finished upscale jobs in one present (max 4 ms
+  observed). The present-time drain now has a 2 ms budget (first job always runs, rest stays queued; D3D11 and WebGPU); callers that
+  need their own entry at once still drain everything. Palette-step recolouring (`setupPaletteHd`) never exceeded 2 ms in the walk.
+* **Small items (item 3).** `consumeCompletedDmacCauses` polled a mutex and discarded the vector's capacity at every checkpoint: an
+  atomic count makes the empty poll lock-free. Static meshes `mesh()` rejects (about 80 instances per capture) are remembered until
+  the next texture refresh instead of being rebuilt every frame.
+* **Pacing (item 4).** The frame limiter (`frame_limit` / `DRAKAN_FRAME_LIMIT`) delivered the right rate but with a 0.74-0.78 ms
+  spread between presents, because `sleep_until` wakes up to a scheduler tick late. It now waits on a high-resolution waitable timer
+  and spins the last 0.8 ms (`gs_precise_sleep.h`, test `precise_sleep`): spread 0.15-0.18 ms at 144, 120 and 90 fps, no gap over
+  14 ms, and every present still shows a new world frame. Uncapped presentation is unchanged (it is paced by the frames themselves);
+  a limiter just under the display's refresh (or a VRR display) is the way to get an even cadence.

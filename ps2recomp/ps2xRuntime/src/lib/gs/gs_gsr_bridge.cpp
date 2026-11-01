@@ -14,6 +14,7 @@
 #include "../drakan_present_clock.h"
 #include "gs_vblank_handoff.h"
 #include "gs_frame_activity.h"
+#include "gs_precise_sleep.h"
 #define GSR_BATCH_DEFINE 1
 #include "gs_gsr_batch.h"
 
@@ -1375,7 +1376,8 @@ void GsrBridge::hostTick() {
         if (s.nextFrame < now)
             s.nextFrame = now;
         else
-            std::this_thread::sleep_until(s.nextFrame);
+            drakan_pacing::preciseSleepUntil(
+                s.nextFrame); // the frame limiter: an even cadence, not a scheduler tick late
     }
     // SetMaximumFrameLatency(1) only throttles callers of the frame-latency waitable (also NR's D3D12 swapchain).
     // Without this wait two or three vsynced flips queued up: every GPU readback then waited 2-3 refreshes (30-48 ms
