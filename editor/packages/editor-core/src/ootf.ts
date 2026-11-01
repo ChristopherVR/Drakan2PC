@@ -104,6 +104,15 @@ export async function buildOotfPack(
     return { meta: full, files, levels, warnings };
 }
 
+const OOTF_LOADOUT_CLUB = 0x3372b;
+const OOTF_LOADOUT_AXE = 0x33734;
+/** Weapon resources that stay spawnable as pickups in the converted levels (the axe 0x33734 only works in the loadout). */
+const OOTF_PICKUP_WEAPONS: readonly (readonly [number, string])[] = [
+    [0x31f30, 'Great Sword'],
+    [0x3372a, 'Iron Club'],
+    [0x3372b, 'Steel Club'],
+];
+
 /**
  * The multiplayer map of a PC `Multiplayer/*` level: the Rynn launch pads (OotF's player starts) become the spawn points,
  * snapped over the terrain like the converted Rynn start (the engine lets her fall otherwise). Dragon launch pads are
@@ -132,6 +141,18 @@ export function ootfArenaFromPc(pc: PcLevel, title: string): ArenaDraft | null {
     d.description = 'A multiplayer map of Drakan: Order of the Flame.';
     d.players = Math.min(12, starts.length);
     for (const pos of starts) d.spawns.push({ uid: d.nextUid++, pos, yaw: 0, team: 0 });
+    // A Drakan 1 New Game starts with an empty inventory (the arena only equips). Every player is granted a club and an
+    // axe through the factory (resources measured to spawn in the converted levels: netcode.md "Starting loadout"), and
+    // the PC "Weapon Pad" spots hold weapon pickups that respawn.
+    d.loadout = [OOTF_LOADOUT_CLUB, OOTF_LOADOUT_AXE];
+    const rawPads = pc.list.objects.filter((o) => /^weapon pad/i.test((pc.classes.get(o.dbIndex)?.get(o.classId)?.name ?? '').trim()));
+    for (const o of rawPads.slice(0, 64)) {
+        const g = terrainHeightAt(pc.terrain, o.pos[0], o.pos[2]);
+        const pos: Vec3 = [o.pos[0], Number.isFinite(g) ? g + 120 : o.pos[1], o.pos[2]];
+        if (d.pickups.some((k) => k.pos[0] === pos[0] && k.pos[2] === pos[2])) continue;
+        const res = OOTF_PICKUP_WEAPONS[d.pickups.length % OOTF_PICKUP_WEAPONS.length]!;
+        d.pickups.push({ uid: d.nextUid++, pos, respawn: 30, res: res[0], label: res[1] });
+    }
     // PC-only multiplayer objects without a PS2 engine class (dragon launch pads, the Soul Crystal, dragon invulnerability)
     // are kept as authored markers for custom modes; the game does not read them yet.
     const marks: [RegExp, MarkerKind, string][] = [

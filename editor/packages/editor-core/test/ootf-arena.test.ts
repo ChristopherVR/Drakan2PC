@@ -52,6 +52,19 @@ describe('ootfArenaFromPc', () => {
         ]);
         expect(d.spawns.length).toBe(2);
     });
+    it('grants a loadout and puts weapon pickups on the Weapon Pads', () => {
+        const l = level('Multiplayer/Ground/Test/Test.lvl', 2);
+        l.classes.get(0)!.set(5, { name: 'Weapon Pad' } as never);
+        (l.list.objects as unknown as { id: number; classId: number; dbIndex: number; pos: number[] }[]).push(
+            { id: 80, classId: 5, dbIndex: 0, pos: [100, 7, 200] },
+            { id: 81, classId: 5, dbIndex: 0, pos: [900, 7, 800] },
+        );
+        const d = ootfArenaFromPc(l, 'x')!;
+        expect(d.loadout.length).toBeGreaterThan(0);
+        expect(d.pickups.length).toBe(2);
+        expect(d.pickups.every((p) => p.res > 0 && p.respawn > 0)).toBe(true);
+        expect(parseArenaIni(serializeMapFile(d, [])).arenas[0]!.pickups.length).toBe(2);
+    });
     it('ignores campaign levels and levels with fewer than two starts', () => {
         expect(ootfArenaFromPc(level('Mountain World/Intro/Intro.lvl', 4), 'x')).toBeNull();
         expect(ootfArenaFromPc(level('Multiplayer/Ground/Relic/Relic.lvl', 1), 'x')).toBeNull();
