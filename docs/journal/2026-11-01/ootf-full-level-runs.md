@@ -14,11 +14,11 @@ PASS = level registered and loaded (`afterLevelLoad ok=1`), `gameplay=1` (Rynn u
 | 4 | Grimstone Mines | 1542 | PASS, control |
 | 5 | Grotto | 486 | PASS, control |
 | 6 | Islands | 2350 | PASS, control |
-| 7 | Alwarren | 1470 | loads, **crash after load**: `missing-target` JALR 0 at 0x10822c (`lw v1,0(a2); lw v0,0x2c(v1); jalr v0` with a2 = `this+0xd4`, a null vtable slot) |
+| 7 | Alwarren | 1470 | (fixed, see below) loads, **crash after load**: `missing-target` JALR 0 at 0x10822c (`lw v1,0(a2); lw v0,0x2c(v1); jalr v0` with a2 = `this+0xd4`, a null vtable slot) |
 | 8 | Rift Crystal | 1294 | PASS, control |
 | 9 | Islands Night | 713 | PASS, control (2 cells on fallback texture) |
 | 10 | Succubus Lair | 1022 | PASS, control |
-| 11 | Volcanic | 1457 | loads, **hang** after load (main thread loops at pc 0x4ac960, ra 0x126d2c; the allocator-corruption signature of earlier hangs) |
+| 11 | Volcanic | 1457 | (fixed, see below) loads, **hang** after load (main thread loops at pc 0x4ac960, ra 0x126d2c; the allocator-corruption signature of earlier hangs) |
 | 12 | Rift World | 164 | PASS, control |
 
 11 of 13 reach control (Book excluded: no player). Class ids above the ODB maximum make no difference to any result.
@@ -32,11 +32,22 @@ PASS = level registered and loaded (`afterLevelLoad ok=1`), `gameplay=1` (Rynn u
 * Same crash with `OOTF_IDS_BELOW_MAX=1`. New converter test aid `DRAKAN_DBG_LISTCLS=1` prints the class histogram of the placed objects.
 * Next: split the crashing eighths again (16/32), and look for what sets `this+0xd4` (a per-object controller) in the caller of 0x108208.
 
-## Volcano (open)
+## Volcano fixed (visibility list total)
 
-Terrain-only Volcano (`--only textures,singletons`) also failed earlier (941 layers), then loaded after the chunk-texture fixes;
-with objects it hangs in the allocator code, so a size-related overflow (layers / textures / objects) rather than one class is likely.
-Not bisected.
+Symptoms varied run to run (allocator hang in the first full run, then wild `JALR` at 0x10a45c / 0x10a3e4 / 0x10ba48 / 0x17a068 in the
+object teardown code, `target` a heap value, at the first kill-list flush after the level load). That is heap corruption, not one
+object: `OBJSPLIT` 2,0 crashed while 4,0 and 4,2 passed; dropping all lights passed, but 64 or 128 lights, `AnimWay`, `Lava`
+dropped all still crashed; so objects only changed where the corruption landed.
+
+Bisect on terrain (`DRAKAN_DBG_MAXLAYERS`): 470 and 700 layers pass, 800 and 900 crash. Then per-layer visible lists: capping every
+list to 60 entries (`all 941 layers kept`) passes, 110 crashes. Disc statistics (all PAL LVLs, `parsePs2Terrain`): at most 660 layers,
+the largest `visible` total is **41362** (LEVEL1NA, 483 layers, longest list 221). Volcano had 941 layers, **67105** entries
+(longest 162); Islands 20102, Wartok 17000, Alwarren 6927. So the engine sizes something by the total visible entries.
+
+Fix: `limitVisibleEntries` (`ootfterrain.ts`, budget `MAX_VISIBLE_ENTRIES = 40000`) cuts the longest lists first, keeping the nearest
+layers by origin; levels under the budget are unchanged. Volcano then reaches control twice in a row (`autostart` at frames 8894,
+8339). Test aids added: `DRAKAN_DBG_MAXNAME=<regex>=<n>`, `DRAKAN_DBG_DUMPNAME=<regex>`, `DRAKAN_DBG_CLSINFO=<regex>`.
+Harness: `build/ootf-run/bis3.sh <tag> <level> <n> <k>` (descends into the failing OBJSPLIT half; one run is 4 to 8 minutes).
 
 ## Alwarren fixed (bisect result)
 
