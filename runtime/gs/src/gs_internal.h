@@ -144,6 +144,13 @@ public:
     // Same, for a reader of local memory (CLUT load, texture decode, local->host read): a backend may skip a readback
     // when every block asked for is known to be identical on the GPU and in memory. Writers must use flushToMemory.
     virtual void flushForRead(uint32_t firstBlock, uint32_t lastBlock) { flushToMemory(firstBlock, lastBlock); }
+    // Local-to-local transfer between two whole render targets: true = done on the GPU (the destination is then
+    // GPU-owned like after a draw), false = the caller copies through memory.
+    virtual bool copyLocal(uint32_t /*spsm*/, uint32_t /*sbp*/, uint32_t /*sbw*/, uint32_t /*sx*/, uint32_t /*sy*/,
+                           uint32_t /*dpsm*/, uint32_t /*dbp*/, uint32_t /*dbw*/, uint32_t /*dx*/, uint32_t /*dy*/,
+                           uint32_t /*w*/, uint32_t /*h*/) {
+        return false;
+    }
     virtual bool beginTargetUpload(uint32_t psm, uint32_t bp, uint32_t bw, uint32_t x, uint32_t y, uint32_t w,
                                    uint32_t h) = 0;
     virtual void completeTargetUpload(uint32_t psm, uint32_t bp, uint32_t bw, uint32_t x, uint32_t y, uint32_t w,
@@ -208,6 +215,8 @@ public:
     // make local memory reflect GPU render targets overlapping blocks [first,last]
     void flushToMemory(uint32_t firstBlock, uint32_t lastBlock);
     void flushForRead(uint32_t firstBlock, uint32_t lastBlock);
+    bool copyLocal(uint32_t spsm, uint32_t sbp, uint32_t sbw, uint32_t sx, uint32_t sy, uint32_t dpsm, uint32_t dbp,
+                   uint32_t dbw, uint32_t dx, uint32_t dy, uint32_t w, uint32_t h);
     // host->local image upload into a GPU-owned render target: true = apply it to the target when it completes
     // (completeTargetUpload) instead of reading the target back first
     bool beginTargetUpload(uint32_t psm, uint32_t bp, uint32_t bw, uint32_t x, uint32_t y, uint32_t w, uint32_t h);

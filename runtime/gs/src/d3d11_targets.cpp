@@ -298,7 +298,8 @@ bool D3D11Backend::Impl::blocksAreClean(const RT& rt, uint32_t first, uint32_t l
 
 // GSR_RB_VERIFY=1 (debug): reads the target back anyway and compares the pixels of blocks [first, last] with memory;
 // a difference means a skipped readback would have served stale data.
-void D3D11Backend::Impl::verifyRTBlocks(RT& rt, uint32_t first, uint32_t last, uint32_t rowLo, uint32_t rowHi) {
+void D3D11Backend::Impl::verifyRTBlocks(RT& rt, uint32_t first, uint32_t last, uint32_t rowLo, uint32_t rowHi,
+                                        uint32_t cmpBase, uint32_t cmpFbw) {
     if (rt.wstate == 1 || rt.dy1 <= rt.dy0)
         return;
     const uint32_t y0 = rt.dy0, y1 = std::min(rt.dy1, rt.h), rows = y1 - y0;
@@ -325,7 +326,8 @@ void D3D11Backend::Impl::verifyRTBlocks(RT& rt, uint32_t first, uint32_t last, u
                 continue;
             ++compared;
             const uint32_t gpu = packPixel(rt.psm, row + (size_t)(x * readScale + half) * 4);
-            const uint32_t cpu = mem.read(rt.psm, rt.base(), rt.fbw, x, y0 + y);
+            const uint32_t cpu =
+                mem.read(rt.psm, cmpBase == ~0u ? rt.base() : cmpBase, cmpFbw ? cmpFbw : rt.fbw, x, y0 + y);
             if (gpu != cpu) {
                 ++bad;
                 ++badHere;
@@ -339,6 +341,75 @@ void D3D11Backend::Impl::verifyRTBlocks(RT& rt, uint32_t first, uint32_t last, u
     if (++calls % 200 == 0 || badHere)
         std::fprintf(stderr, "[rb-verify] skips checked=%llu pixels compared=%llu mismatches=%llu\n",
                      (unsigned long long)calls, (unsigned long long)compared, (unsigned long long)bad);
+}
+
+// Local-to-local transfer between two whole PSMCT32 render targets (the game copies its 512x512 frame buffer to
+// the other one several times a second). Through memory that is two full readbacks, a per-pixel CPU copy and a later
+// re-upload of the destination; here it is one GPU copy, and the destination becomes GPU-owned like after a draw. Only
+// taken when the result is provably the same: both ends are exactly the targets, no other target shares either
+// memory range (it would need the memory the copy no longer writes), and neither target is mid temporal world pass.
+bool D3D11Backend::Impl::copyLocal(uint32_t spsm, uint32_t sbp, uint32_t sbw, uint32_t sx, uint32_t sy, uint32_t dpsm,
+                                   uint32_t dbp, uint32_t dbw, uint32_t dx, uint32_t dy, uint32_t w, uint32_t h) {
+    static const bool enabled = [] {
+        const char* e = std::getenv("GSR_GPU_COPY"); // 0 = copy through memory as before
+        return !(e && e[0] == '0');
+    }();
+    if (!enabled || !readbackSkipEnabled() || spsm != PSM_CT32 || dpsm != PSM_CT32 || sx || sy || dx || dy || !w || !h)
+        return false;
+    RT *src = nullptr, *dst = nullptr;
+    for (auto& r : rts) {
+        if (r->psm != PSM_CT32 || r->w != w || !r->tex)
+            continue;
+        if (r->base() == sbp && r->fbw == sbw)
+            src = r.get();
+        if (r->base() == dbp && r->fbw == dbw)
+            dst = r.get();
+    }
+    if (!src || !dst || src == dst || h > src->h || h > dst->h || src->wstate == 1 || dst->wstate == 1)
+        return false;
+    uint32_t slo, shi, dlo, dhi;
+    spanBlocks(PSM_CT32, sbp, sbw, 0, 0, w, h, slo, shi);
+    spanBlocks(PSM_CT32, dbp, dbw, 0, 0, w, h, dlo, dhi);
+    if (!(shi < dlo || dhi < slo))
+        return false; // the ranges overlap each other
+    for (auto& r : rts) {
+        if (r.get() == src || r.get() == dst)
+            continue;
+        uint32_t lo, hi;
+        rowSpan(*r, 0, r->h, lo, hi);
+        if (!(hi < slo || lo > shi) || !(hi < dlo || lo > dhi))
+            return false; // another target aliases the memory involved
+    }
+    syncRT(*src); // rows of the source the CPU wrote since the target was last current
+    if (h < dst->h)
+        syncRT(*dst); // rows below the copy stay as they are
+    D3D11_BOX box{0, 0, 0, w * scale, h * scale, 1};
+    ctx->CopySubresourceRegion(dst->tex.Get(), 0, 0, 0, 0, src->tex.Get(), 0, &box);
+    // Memory is not written (the GPU owns the destination); the stamps still move so anything decoded from those
+    // blocks is rebuilt, and the destination's rows count as current so syncRT does not push stale memory over them.
+    mem.touchRect(PSM_CT32, dbp, dbw, 0, 0, w, h);
+    const uint32_t ph = dst->pageH();
+    for (uint32_t r = 0; r * ph < h && r < dst->rowStamp.size(); ++r)
+        dst->rowStamp[r] = mem.clock();
+    if (!dst->dirty) {
+        dst->dirty = true;
+        dst->dy0 = 0;
+        dst->dy1 = h;
+    } else {
+        dst->dy0 = 0;
+        dst->dy1 = std::max(dst->dy1, h);
+    }
+    dst->copyValid = false;
+    dst->drawFrame = frame;
+    ++dst->writes;
+    ++st.rtGpuCopies;
+    static const bool verify = std::getenv("GSR_RB_VERIFY") != nullptr;
+    if (verify) {
+        // The memory path would have produced the source's memory contents at the destination.
+        flushToMemory(slo, shi);
+        verifyRTBlocks(*dst, 0, ~0u, 0, h, src->base(), src->fbw);
+    }
+    return true;
 }
 
 // flushToMemory for a reader of memory. The game streams textures through VRAM every frame, a CLUT right before its

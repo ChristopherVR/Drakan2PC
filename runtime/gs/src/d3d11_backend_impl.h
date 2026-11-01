@@ -282,6 +282,8 @@ public:
     void draw(const GsDrawState& st, const ClutBuf& clut, const DrawVertex* v, uint32_t count) override;
     void flushToMemory(uint32_t firstBlock, uint32_t lastBlock) override;
     void flushForRead(uint32_t firstBlock, uint32_t lastBlock) override;
+    bool copyLocal(uint32_t spsm, uint32_t sbp, uint32_t sbw, uint32_t sx, uint32_t sy, uint32_t dpsm, uint32_t dbp,
+                   uint32_t dbw, uint32_t dx, uint32_t dy, uint32_t w, uint32_t h) override;
     bool beginTargetUpload(uint32_t psm, uint32_t bp, uint32_t bw, uint32_t x, uint32_t y, uint32_t w,
                            uint32_t h) override;
     void completeTargetUpload(uint32_t psm, uint32_t bp, uint32_t bw, uint32_t x, uint32_t y, uint32_t w, uint32_t h,
@@ -662,7 +664,10 @@ struct D3D11Backend::Impl {
     void flushToMemory(uint32_t first, uint32_t last);
     void flushForRead(uint32_t first, uint32_t last);
     bool blocksAreClean(const RT& rt, uint32_t first, uint32_t last) const;
-    void verifyRTBlocks(RT& rt, uint32_t first, uint32_t last, uint32_t rowLo, uint32_t rowHi);
+    void verifyRTBlocks(RT& rt, uint32_t first, uint32_t last, uint32_t rowLo, uint32_t rowHi, uint32_t cmpBase = ~0u,
+                        uint32_t cmpFbw = 0);
+    bool copyLocal(uint32_t spsm, uint32_t sbp, uint32_t sbw, uint32_t sx, uint32_t sy, uint32_t dpsm, uint32_t dbp,
+                   uint32_t dbw, uint32_t dx, uint32_t dy, uint32_t w, uint32_t h);
     bool beginTargetUpload(uint32_t psm, uint32_t bp, uint32_t bw, uint32_t x, uint32_t y, uint32_t w, uint32_t h);
     void completeTargetUpload(uint32_t psm, uint32_t bp, uint32_t bw, uint32_t x, uint32_t y, uint32_t w, uint32_t h,
                               bool apply);

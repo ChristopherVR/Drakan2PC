@@ -1254,6 +1254,10 @@ struct Renderer::Impl {
                 stats.transfersL2L++;
                 return;
             }
+            if (backend->copyLocal(spsm, sbp, sbw, ssax, ssay, dpsm, dbp, dbw, dsax, dsay, rrw, rrh)) {
+                stats.transfersL2L++;
+                return;
+            }
             uint32_t lo, hi, lo2, hi2;
             spanBlocks(spsm, sbp, sbw, ssax, ssay, rrw, rrh, lo, hi);
             spanBlocks(dpsm, dbp, dbw, dsax, dsay, rrw, rrh, lo2, hi2);

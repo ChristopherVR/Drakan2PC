@@ -1466,6 +1466,74 @@ static void uploadReadSkipTest(Config cfg) {
     expectTrue(gs->stats().rtReadbacks >= 1, "a later full flush reads the target back");
 }
 
+// A local-to-local transfer between two whole render targets (the game copies its frame buffer to the other one) is
+// done on the GPU when the backend can: the destination must show the source, keep working as a target afterwards, and
+// reach memory once something reads it. A copy of a rectangle onto itself changes nothing.
+static void localCopyTest(Config cfg) {
+    cfg.textureUpscale = 1;
+    cfg.textureFilter = 1;
+    cfg.smoothMenuHighlight = false;
+    auto gs = Renderer::create(cfg);
+    if (!gs) {
+        ++g_fail;
+        return;
+    }
+    const int plain = (int)mkPrim(6, 0, 0, 0, 0, 0);
+    const uint32_t srcPage = 0x100, dstPage = 0x180, srcBp = srcPage * 32, dstBp = dstPage * 32;
+    Gif g;
+    g.ad({{FRAME_1, srcPage | (2ull << 16)},
+          {ZBUF_1, 140ull | (1ull << 32)},
+          {XYOFFSET_1, kOfs},
+          {SCISSOR_1, 127ull << 16 | 127ull << 48},
+          {PRMODECONT, 1},
+          {COLCLAMP, 1},
+          {TEST_1, mkTest(0, 1, 0, 0, 0, 0, 0, 1)},
+          {0x49, 0},
+          {0x4a, 0}});
+    sprite(g, 0, 0, 128, 128, 200, 0, 0, 128, 0, plain);
+    // both frame buffers exist before the copy, as in the game
+    g.ad({{FRAME_1, dstPage | (2ull << 16)}, {SCISSOR_1, 127ull << 16 | 127ull << 48}});
+    sprite(g, 0, 0, 128, 128, 0, 200, 0, 128, 0, plain);
+    const auto copy = [&](uint32_t from, uint32_t to) {
+        g.ad({{BITBLTBUF, (uint64_t)from | (2ull << 16) | ((uint64_t)to << 32) | (2ull << 48)},
+              {TRXPOS, 0},
+              {TRXREG, 128ull | (128ull << 32)},
+              {TRXDIR, 2}});
+    };
+    copy(srcBp, srcBp); // onto itself: nothing to do
+    copy(srcBp, dstBp);
+    // the destination keeps working as a target: a blue patch drawn over part of the copy
+    g.ad({{FRAME_1, dstPage | (2ull << 16)}, {SCISSOR_1, 127ull << 16 | 127ull << 48}});
+    sprite(g, 0, 0, 32, 32, 0, 0, 200, 128, 0, plain);
+    gs->submitGifPacket(GifPath::Path3, g.d.data(), (uint32_t)g.d.size());
+    const int s = (int)cfg.scale;
+    Image image;
+    if (!gs->captureFramebuffer(dstPage, 2, 0, 128, 128, image)) {
+        ++g_fail;
+        return;
+    }
+    expectPixel(image, 64 * s, 64 * s, 200, 0, 0, 1, "copied target shows the source");
+    expectPixel(image, 16 * s, 16 * s, 0, 0, 200, 1, "copied target keeps working as a target");
+    gs->flushToMemory();
+    ++g_checks;
+    if (gs->readVram(0, dstBp, 2, 100, 100) != 0x800000c8u || gs->readVram(0, srcBp, 2, 100, 100) != 0x800000c8u) {
+        std::printf("  [FAIL] copy reaches memory at the destination, source unchanged\n");
+        ++g_fail;
+    } else {
+        std::printf("  [ok] copy reaches memory at the destination, source unchanged\n");
+    }
+    ++g_checks;
+    if (gs->readVram(0, dstBp, 2, 8, 8) != 0x80c80000u) {
+        std::printf("  [FAIL] patch drawn over the copy reaches memory\n");
+        ++g_fail;
+    } else {
+        std::printf("  [ok] patch drawn over the copy reaches memory\n");
+    }
+#ifndef GSR_TEST_WEBGPU
+    expectTrue(gs->stats().rtGpuCopies == 1, "the frame copy was done on the GPU, the self copy skipped");
+#endif
+}
+
 static void rtOverlapTest(Config cfg) {
     auto gs = Renderer::create(cfg);
     if (!gs) {
@@ -1892,6 +1960,7 @@ int main(int argc, char** argv) {
     rtCacheCoherenceDiagnostic(cfg);
     uploadCoherenceTest(cfg);
     uploadReadSkipTest(cfg);
+    localCopyTest(cfg);
     rtOverlapTest(cfg);
     hudClusterTest(cfg);
     loadingCanvasTest(cfg);

@@ -694,13 +694,13 @@ GsrBridge::~GsrBridge() {
         const gsr::Stats& s = m_impl->gs->stats();
         std::fprintf(stderr,
                      "[gsr] exit: frames=%llu gifPackets=%llu tags=%llu vertices=%llu draws=%llu texDecodes=%llu "
-                     "texRevalidated=%llu readbacks=%llu dirtyCleared=%llu skipped=%llu targetUploads=%llu "
+                     "texRevalidated=%llu readbacks=%llu dirtyCleared=%llu skipped=%llu gpuCopies=%llu targetUploads=%llu "
                      "aliasedTextures=%llu l2h=%llu\n",
                      (unsigned long long)m_impl->frames, (unsigned long long)s.gifPackets,
                      (unsigned long long)s.gifTags, (unsigned long long)s.vertices, (unsigned long long)s.drawCalls,
                      (unsigned long long)s.textureDecodes, (unsigned long long)s.textureRevalidated,
                      (unsigned long long)s.rtReadbacks, (unsigned long long)s.rtDirtyCleared,
-                     (unsigned long long)s.rtReadbacksSkipped, (unsigned long long)s.targetUploads,
+                     (unsigned long long)s.rtReadbacksSkipped, (unsigned long long)s.rtGpuCopies, (unsigned long long)s.targetUploads,
                      (unsigned long long)s.aliasedTextures, (unsigned long long)s.transfersL2H);
         m_impl->gs.reset();
     }

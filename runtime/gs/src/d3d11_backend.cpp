@@ -40,6 +40,10 @@ void D3D11Backend::draw(const GsDrawState& st, const ClutBuf& clut, const DrawVe
 void D3D11Backend::flushToMemory(uint32_t a, uint32_t b) {
     m_impl->flushToMemory(a, b);
 }
+bool D3D11Backend::copyLocal(uint32_t spsm, uint32_t sbp, uint32_t sbw, uint32_t sx, uint32_t sy, uint32_t dpsm,
+                             uint32_t dbp, uint32_t dbw, uint32_t dx, uint32_t dy, uint32_t w, uint32_t h) {
+    return m_impl->copyLocal(spsm, sbp, sbw, sx, sy, dpsm, dbp, dbw, dx, dy, w, h);
+}
 void D3D11Backend::flushForRead(uint32_t a, uint32_t b) {
     m_impl->flushForRead(a, b);
 }

@@ -61,22 +61,29 @@ std::string Backend::adapterName() const {
 void Backend::draw(const GsDrawState& st, const ClutBuf& clut, const DrawVertex* v, uint32_t count) {
     m_api->draw(st, clut, v, count);
 }
+bool Backend::copyLocal(uint32_t spsm, uint32_t sbp, uint32_t sbw, uint32_t sx, uint32_t sy, uint32_t dpsm,
+                        uint32_t dbp, uint32_t dbw, uint32_t dx, uint32_t dy, uint32_t w, uint32_t h) {
+    return m_api->copyLocal(spsm, sbp, sbw, sx, sy, dpsm, dbp, dbw, dx, dy, w, h);
+}
 void Backend::flushForRead(uint32_t firstBlock, uint32_t lastBlock) {
     m_api->flushForRead(firstBlock, lastBlock);
 }
 void Backend::flushToMemory(uint32_t firstBlock, uint32_t lastBlock) {
     m_api->flushToMemory(firstBlock, lastBlock);
 }
-bool Backend::beginTargetUpload(uint32_t psm, uint32_t bp, uint32_t bw, uint32_t x, uint32_t y, uint32_t w, uint32_t h) {
+bool Backend::beginTargetUpload(uint32_t psm, uint32_t bp, uint32_t bw, uint32_t x, uint32_t y, uint32_t w,
+                                uint32_t h) {
     return m_api->beginTargetUpload(psm, bp, bw, x, y, w, h);
 }
-void Backend::completeTargetUpload(uint32_t psm, uint32_t bp, uint32_t bw, uint32_t x, uint32_t y, uint32_t w, uint32_t h, bool apply) {
+void Backend::completeTargetUpload(uint32_t psm, uint32_t bp, uint32_t bw, uint32_t x, uint32_t y, uint32_t w,
+                                   uint32_t h, bool apply) {
     m_api->completeTargetUpload(psm, bp, bw, x, y, w, h, apply);
 }
 void Backend::flushAll() {
     m_api->flushAll();
 }
-void Backend::drawMovieFrame(uint32_t dbp, uint32_t dbw, uint32_t x, uint32_t y, uint32_t w, uint32_t h, const MovieImage& image, uint64_t imageId) {
+void Backend::drawMovieFrame(uint32_t dbp, uint32_t dbw, uint32_t x, uint32_t y, uint32_t w, uint32_t h,
+                             const MovieImage& image, uint64_t imageId) {
     m_api->drawMovieFrame(dbp, dbw, x, y, w, h, image, imageId);
 }
 void Backend::present(const DisplayState& d) {
