@@ -56,6 +56,7 @@ The canonical Markdown remains in this repository:
 
 - [Recompiled Drakan: status](status/recomp-status.md)
 - [Recompiler evaluation: PS2Recomp vs. own translator](status/recompiler-eval.md)
+- [Handover: editor, mods, multiplayer and engine portability (what works, what is open)](status/handover.md)
 
 ## Journal (84 entries, by date)
 

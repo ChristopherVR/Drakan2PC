@@ -1,0 +1,128 @@
+# Handover: editor, mods, multiplayer (as of 2026-11-01)
+
+Living tracker for the editor / mod / multiplayer / engine-portability track. Last updated at commit c03a3b0
+(editor) and c270bb9 (game and runtime). Details live in the dated notes under `docs/journal/2026-11-01/` and
+`docs/journal/2026-10-31/`; this page says what works, what is unproven, and what to do next.
+
+## Goal
+
+A full level / game / mod editor (UE5-like but simple), an updated game with mod support, and multiplayer: PvP on
+dedicated arenas like Drakan: Order of the Flame, and co-op on the campaign (host plays Rynn, joiners pick another
+character, everyone has a dragon). Content should become engine-neutral so the game can later be ported to Unreal
+Engine 5; textures move to UE5-style PBR sets.
+
+## Where things are
+
+| Area | Code | Reference docs |
+| --- | --- | --- |
+| Level / mod editor | `editor/packages/app/src` (shell in `editor/ia.ts`, `workspace.ts`, `menubar.ts`) | `docs/reference/editor-guide.md` (generated from `editor-core/src/guides.ts`) |
+| Save game editor (own app) | `editor/packages/app/save.html`, `src/saveapp.ts`, `src/save/*` | `docs/reference/save-slots.md` |
+| Editor model / writers | `editor/packages/editor-core/src` | `docs/reference/level-format.md`, `modding.md` |
+| Desktop app (Tauri v2) | `editor/packages/desktop/src-tauri` | `editor-guide.md` |
+| Netcode, server, game modes | `runtime/net` | `docs/reference/netcode.md` |
+| Multiplayer menus, HUD, UI skin | `runtime/gameui` | `netcode.md`, `modding.md` ("Menus and HUD") |
+| Game hooks | `ps2recomp/ps2xRuntime/src/lib/drakan_{coop,netplay,ghost,arena,pvp,levelchange,playtest}.cpp` | `world-model.md`, `env-flags.md` |
+| Engine-neutral content | `editor-core/src/content/*`, `schema/drakan-content.schema.json` | `docs/reference/content-format.md`, `docs/proposals/engine-portability.md` |
+| Unreal export | `editor/packages/app/src/unreal/*`, `public/ue5/drakan_import.py` | `docs/reference/unreal-export.md` |
+| PBR materials | `analysis/scripts/pbr_pack.py`, `configs/pbr_overrides.toml` | `docs/reference/hd-textures.md` section 10 |
+
+## Proven in game or editor this round
+
+- Story: conversations start from real input (quick E tap, facing, through the NPC); edited subtitles, swapped
+  sound lines and new lines play (`scripts/harness/story_dialogue.py`, 14/14). Existing and new cut scenes play,
+  camera edits show (`story_cinematic.py`). Message ordinal -> engine id table decoded.
+- Vendors: stock and price edits show in the shop and buying charges the edited price (`vendor_shop.py`).
+- Save editor: Replace with... and Add item work in game and survive the game's own save and reload.
+- Level change: exits fire from their trigger detector boxes; a real walk-in into Kragmor works and a co-op partner
+  follows. Level copies load and can be linked; per-exit destinations work.
+- PvP: real blade hits on all three arenas; bow and spell kills in one run (`arena_ranged.py` 14/14); full matches
+  to the frag limit with results, back to lobby, next map, rematch and map vote.
+- Co-op: partners' weapons in hand, dragons for three players, parked dragon idle, player and dragon health in the
+  party HUD, map pictures and character turntables in the lobby.
+- Menus: a mod can rename, reorder and recolour main and pause menu entries (`ui_skin_check.py`).
+- Editor: UE5-style structure (project chip, editor tabs, World Settings, three dock tabs, menu bar, + Add),
+  Logic graph with plain-language links, Story workspace with conversation cards and a cut scene timeline.
+- Exports: Drakan Content Format 1.0 validates on Surdana; Level for Unreal (glTF) validates with the Khronos
+  validator and loads back in three.js.
+
+## Open work
+
+### Editor
+
+- Click through the new Vendors panel, Story workspace (new line in Conversations, quest area start/complete
+  buttons, making a cut scene from scratch) and Logic graph keyboard paths with the real disc.
+- Launch the desktop app: the separate save window, native menus (`cmd:<id>` items) and Tools > Save Game Editor
+  are only built (cargo), not clicked.
+- Per-change revert in the level editor (only the undo stack today); move the save editor's item grid and list rows
+  into `src/shared/components.ts`.
+- "Details" header shows twice in the right panel (tab plus inner header).
+- Save editor checklist steps cannot tick from the level editor window since the save editor became its own app.
+- The Menus dock panel is cramped (export bar overlaps); remaining game pages (inventory, journal, map, save/load,
+  multiplayer, settings) are not skinnable; the skin is read once at startup.
+- Order of the Flame importer (`editor/ootfimport.ts`) has an uncommitted string clean-up from this round; it is the
+  other session's area, so merge it with them.
+- The full `npm run build` fails in the formats submodule (`ootfpipeline.ts`, `ootfclass.ts`), which belongs to the
+  Order of the Flame work.
+
+### Story and logic
+
+- Quests: prove a quest starts and completes in game. The writer now uses ordinal 30 (Quest Initiate) instead of
+  31 (Item PickedUp); unverified. Item classes send no messages, so "complete on pickup" is an area around the item.
+- Puzzles: no on-screen proof of a door opening yet (Stratos plates are tall blocks; pick a level with a walkable
+  plate). Counter with two plates, lever, timer -> door and key lock are not run in game. The NecroBB door death
+  at +7000 units is undiagnosed. See `puzzle-messages.md`.
+- The ordinal table's address and stride differ between two readings (`0x4fbc40` 8-byte slots vs `0x4fbd48` u16);
+  values agree. Recheck before relying on the location.
+- Cut scenes: single-step retiming, animation swap on its own, sound and message steps, and walking into a new
+  cut scene trigger (only teleport tested).
+- Host-fired exits during an entry cutscene leave the next level frozen (lock not found; next step: what the
+  Valley cutscene player class 0x10033 sets on the player). See `level-exit-walk-in.md`.
+
+### Co-op
+
+- Real dragon mount with the call/use input (Surdana's Arokh may be story-gated; look at the dragon controller at
+  `0x271ac0`). Natural dragon damage is only inferred (HP field at dragon data + 0x6b4).
+- Three-player fight/death/latejoin and chest/chesthost runs failed under machine load; rerun on a quiet machine.
+  Partner swings sometimes hit another player's ghost instead of an orc (known claim flake).
+- Using or equipping items the save editor added; multi-cell items need size checks in Add item.
+- A game-written save can carry Rynn's class word `0x1f081069` instead of `0x17081069`, which the editor's exact
+  Rynn match rejects.
+
+### PvP and multiplayer menus
+
+- Map vote by mouse (keys only so far); custom game mode never played through in game (unit tests only); a chained
+  run of back to lobby, next map and rematch.
+- Character turntables exist for 5 characters; the capture studio (`DRAKAN_CHAR_PREVIEWS`) is not run automatically.
+- Bows cannot be spawned from their resource id; the adopt route (`DRAKAN_ARENA_LOADOUT_ADOPT`) has no map-file key.
+- Pickup and quick-save checks failed on inquisitor-depths and city runs under load; recheck.
+- LAN discovery sometimes misses the server under load.
+- USA disc: multiplayer stays off until the address table is filled with `analysis/scripts/mp_region_find.py`
+  (needs a USA disc; object layouts also differ by 4 bytes).
+
+### Engine portability and textures
+
+- Phase 2 of `docs/proposals/engine-portability.md`: an importer for the content format; only Surdana exported so far.
+- Unreal: run `drakan_import.py` and check the axis mapping in a real UE5 install; re-export a full level after the
+  skeleton fix; per-polygon double-sided flags are not exposed by the formats package yet.
+- PBR: run `pbr_pack.py` over the whole disc (about 2,960 textures); masked/additive materials untested; metallic is
+  0 unless overridden; the game renderer does not use normal maps (needs normals, tangents and lighting in
+  `runtime/gs`).
+
+### Tests and housekeeping
+
+- `disc_profile_pal` / `disc_profile_usa` fail: the DebugMenu feature bit was added without updating the expected
+  mask in `scripts/tests/disc_profile_test.cpp` (0x7ffff should include bit 19).
+- Rust sources in the desktop app are not rustfmt-clean (never were); decide whether to enforce it.
+
+## Working practice (multi-agent sessions)
+
+- Other sessions commit in the same tree: commit through a private index (`GIT_INDEX_FILE`), stage only your own
+  files, then reset the shared index to the new HEAD.
+- Build with `scripts/buildtool/Build-LocalGame.ps1 -Incremental` under `build/final-game.build.lock` (create it,
+  build, delete it). `dist/DrakanPC` cannot refresh while a game runs from it; harnesses copy `build/final-game/bin`.
+- Agents must not git add/commit, must not kill processes by image name, must write LF line endings and never put a
+  literal newline inside a string literal (that broke the shared build several times).
+- Use a private Playwright browser context and a static `vite build` for editor screenshots; the shared browser and
+  the dev server get disturbed by parallel work. The level picker is the custom dropdown `#ed-level + .ui-dd`.
+- Generated textures, exports, screenshots and probe output stay under `build/` or the user's folders; never commit
+  game assets.
