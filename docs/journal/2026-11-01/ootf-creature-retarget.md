@@ -156,3 +156,46 @@ The pull helpers: `PULLDIST` is read by `rtconv.sh` (converter side), not by `rt
   from the template (weapon / head joints indexed for a 54-joint rig, ours has 43).
 * The new-clip-id case (a converted clip reached through a class animation field) could therefore not be shown: only converted-model classes
   read new ids, and those are the invisible ones.
+
+## Converted-skeleton creature bisect (2026-11-01, afternoon): Scavenger still invisible, but most suspects cleared
+
+Probes in `build/ootf-cr/*.ts` (private), runs `build/ootf-run/cr*`, `sl*` (Wartok Canyons `^Scavenger$`, Succubus Lair pulls, `rtrun3.sh` with `XENV1=GSR_DRAWLOG=a-b`).
+
+**Disc facts found (all PAL, checked on the 154 skinned models):**
+* The 64 byte "model block" of a class record (body 16..80) is a byte copy of the first 64 bytes of the model's 0x0208: sphere (centre, radius), AABB min,
+  extents (Scavenger 5055: `-0.009 0.001 -0.090 0.388 | -0.351 -0.157 -0.275 0.699 | 0 0 0 0.271 | 0 0 0 0.459`). There are NO joint-index tables in it. Clones now
+  carry their own model's block (`OotfAssetBuilder.skeletonBounds` / `modelBounds`, `patchRecordModel(.., bounds)`).
+* Channel 0 (joint 0) carries one cap per LOD, `{0, 0, firstPoly, polyCount, 0}` (Scavenger 1693 + 223, troll 1229 + 606 + 302); other channels mostly none. The
+  converter dropped all caps; channel 0 now gets its cap back. (Earlier note "mostly with no caps" was about the other channels.)
+* Channel-typed class fields (Head / Neck / Upper Body / Jaw / Weapon, Choppable / Dmg Inflicting lists) hold JOINT ids of the rig (Scavenger Head 3 = `Head`, Jaw 4).
+  The PC class holds PC joint ids that are valid for the converted rig (PC Scavenger Head 6, Neck 5, Upper 3, Jaw 7, Dmg [8, 22, 11]); `mergeDefaults(.., copyChannels)` now
+  copies them for converted models. Known gap: a template can name a field twice (`Jaw Channel` at 52 and 234), the name map only reaches the last, so field 52 keeps the
+  PS2 joint 4 (not a channel of the PC rig). Writing both made the run `cr30` lose even the shadow (confounded: the pack also carried another session's changes), so it was NOT committed.
+* PC bounding spheres name their centre by a vertex that sits AFTER the LOD's own vertices (Scavenger 165..174 of 180); the converter read the sliced list and wrote
+  every centre as (0,0,0). Now read from the unsliced list.
+* Skinned-model textures are written 8 bpp (`addTexture(.., indexed)`), like the disc's creature textures (the default 32 bpp truecolor draws on static models).
+  This did not change the invisibility.
+
+**Controls (Wartok Canyons, 4 pulled Scavengers, screens `a3.png`):**
+| Run | Model of the cloned rfl-41 class | Result |
+| --- | --- | --- |
+| cr5 | template's own PS2 model 5055 db 0 (clone keeps the template record) | PS2 Scavengers draw |
+| cr7 | PS2 5055 records verbatim in RESOURES.MOD (db 2) + its textures copied | draws (so cloning, new ODB id, db 2 hosting, converted anim fields are all fine) |
+| cr4 | the same without its textures | nothing, not even a shadow (missing textures kill the creature) |
+| cr11 / cr13 | cr7 + 23 channels / + only 10 spheres | draw |
+| cr12 / cr9 | cr7 + the skeleton clip list replaced by the converted ids (43 track clips on a 54 joint rig) | nothing, no shadow |
+| cr6 | real conversion (caps, bounds, channel fields, sphere centres, sorted clip list) | shadow, no body (as before) |
+| cr17 | real conversion, empty skeleton clip list | nothing, no shadow |
+| cr2order / cr2first / cr2rev / cr2ps2 | real conversion, clip list in PC order / one id / descending / the PS2 template's ids | nothing, no shadow |
+| sl1 | Succubus Lair: converted Crimson Knight (rfl 68, model 6657) x4 | **bodies DRAW** (dark armour, idle) |
+| sl2 / sl3 | Succubus Lair converted Scavenger (rfl 41) / Death Mage (rfl 82) | not visible (dark level, no sign of either) |
+
+Reading: the converted skeleton itself is accepted and draws for a creature class (rfl 68), so "converted skeleton + creature class" is not the failure. The Scavenger (41) and
+probably the Death Mage (82) classes fail: whatever they do with the model differs from rfl 68. What is known: the model's own clip id list matters (only the ascending list of the
+converted ids leaves a shadow; any other order, subset, the empty list or the PS2 ids make the creature vanish completely); a PS2 rig with the converted list also vanishes, so clip
+and rig must agree (clips 43 tracks / 23 channels vs rig 43 joints / 23 channels agree in the real conversion). Spheres (10 vs 25), channel count (23 vs 8), texture format, shading
+word, LOD count are not the cause. A GS draw log (`GSR_DRAWLOG`) of the Scavenger run could not be matched to the body (scenes differ run to run, TBPs move).
+Not tried: running the rfl-68 pull with the Scavenger's template record (`ScavengerTest`/`Scavenger` rfl-41 body flags), the Death Mage in a lit level, 2 LODs, the engine code
+`FUN_002d2d00` (creature init, error string "does not have a character model assigned!" when the handle has no skeleton) and `FUN_0030ef50` (reads class fields 0x28.. and model records 0x205..0x208).
+Because the Scavenger is invisible, the new-clip-id case (a converted clip id reached through a class animation field) is still not shown playing; the Crimson Knights of `sl1` use them
+(their class fields map to converted ids) and stand in their idle, but no frame sequence of a changing clip was taken.
