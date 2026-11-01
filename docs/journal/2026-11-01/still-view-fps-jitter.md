@@ -84,14 +84,30 @@ instance) loaded the GPU during these runs, so only same-run or mechanism eviden
 * **Startup is not steady state.** The 30+ ms `setupUpscale` calls (six 256x256 HUD textures, inline because the GUI page is on screen)
   and the 10-25 ms GIF records belong to the first seconds after entering gameplay. In steady walking the largest renderer-side
   stalls are GPU readbacks.
-* **Readbacks (item 2, not removed).** `readbackMap` = 15-20 % of the GS worker's time (avg 1.6-2.0 ms on a quiet GPU, 3-4 ms under
-  contention, singles up to 13 ms), ~0.7 per frame. Causes (call stacks of 2242 readbacks): `resolveTexture` -> flushToMemory 44 %,
-  `loadClut` -> flushToMemory 28 %, `startTransfer` (image upload) -> flushToMemory 28 %; 73 % of them are the 128x512 CT32 scratch
-  target. Tried: flushing the command stream right after draws into the small scratch targets so the GPU can run ahead (A/B
-  alternating every second inside one run): `Map` 3.7 ms with, 3.2 ms without. The wait is real GPU time (the queue behind the
-  readback holds the previous frame's passes), so submission timing does not help. Removing the stall needs GPU-side CLUT loads and
-  texture sampling from a render target's memory (the three call sites above), and a partial-overlap upload path
-  (`docs/journal/2026-10-21/cpu-gpu-readback.md`); a mistake there corrupts rendering, so it was not attempted blind.
+* **Readbacks (item 2).** `readbackMap` was 15-20 % of the GS worker's time (avg 1.6-2.0 ms on a quiet GPU, singles up to
+  13 ms), ~0.5 per frame. Tried first: flushing the command stream right after draws into the small scratch targets (A/B
+  alternating every second in one run: `Map` 3.7 ms with, 3.2 ms without): the wait is real GPU time, not an unsubmitted
+  batch. A per-frame staging prefetch behind each frame's draws was also built and dropped: ~20 image uploads per frame land on
+  the same targets afterwards and invalidate it. What the traces (call stacks of 2242 readbacks, one frame's uploads / draws /
+  requests) showed instead:
+  * The game streams textures through VRAM every frame (`U` lines: a 16x16 CT32 CLUT, then the T8 image and its mips, ~30 per
+    frame) over the blocks of 128x128 CT32 scratch targets (bases 0x3000..0x3860). The uploads are already applied to the target
+    on the GPU (`beginTargetUpload`), but the target stayed `dirty`, so the next CLUT load / texture decode / read asked for
+    exactly those blocks and still pulled the whole target back to learn what the CPU had just written (44 % texture sampling,
+    28 % CLUT loads, 28 % uploads).
+  * The game also copies its whole 512x512 frame buffer onto itself (`bp=0 -> bp=0`) several times a second, a no-op that read
+    both targets back in full each time.
+  Changes: applied uploads record the blocks they made identical on both sides (`RT::cleanBlocks`, valid while `rt.writes` is
+  unchanged); `flushForRead` (CLUT load, texture decode, local->host read) skips the readback when every needed block is in
+  that set, writers (`flushToMemory`) keep the full flush; the dirty range is trimmed past fully rewritten rows
+  (`trimDirtyRows`); a local copy of a rectangle onto itself returns at once. D3D11 and WebGPU. `GSR_RB_SKIP=0` restores the
+  old behaviour; `GSR_RB_VERIFY=1` (D3D11) reads the target back anyway on every skip and compares those blocks / rows with
+  memory: 0 mismatches over 93 M pixels (18,600 skip checks on a Surdana walk, 8,400 on Ravenshold). Regression test:
+  `uploadReadSkipTest` in `gsr_test_synthetic` (fails with `GSR_RB_SKIP=0`).
+  Result, interleaved A/B pairs of the same walk (Surdana, other sessions loading the machine): readbacks 2800 -> ~1200 per
+  walk, `readbackMap` 3.1-3.5 s -> 0.2-0.9 s, 139/131/153 -> 171/155/175 fps (+12..23 %), p99 11.1/11.5/9.9 -> 9.2/10.5/9.3 ms.
+  What is left (~0.2 per frame): genuine frame-buffer to frame-buffer copies (`bp=0 -> bp=0x1000`, ~6 per second) and
+  CLUT/texture reads of blocks the GPU really owns.
 * **Texture creation burst (item 1).** `pumpUp` created the GPU textures of all finished upscale jobs in one present (max 4 ms
   observed). The present-time drain now has a 2 ms budget (first job always runs, rest stays queued; D3D11 and WebGPU); callers that
   need their own entry at once still drain everything. Palette-step recolouring (`setupPaletteHd`) never exceeded 2 ms in the walk.

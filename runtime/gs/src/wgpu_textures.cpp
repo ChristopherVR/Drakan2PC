@@ -752,7 +752,7 @@ bool WgpuBackend::Impl::resolveTexture(const GsDrawState& s, const ClutBuf& clut
                 if (e.aliasTarget)
                     valid = false; // the target was read back: memory is authoritative again
                 for (auto& sp : e.spans)
-                    flushToMemory(sp.first, sp.second);
+                    flushForRead(sp.first, sp.second);
             }
         }
         if (valid && e.checkedClock != mem.clock()) {
@@ -864,7 +864,7 @@ bool WgpuBackend::Impl::resolveTexture(const GsDrawState& s, const ClutBuf& clut
         spans.push_back({lo, hi});
         if (!aliased) {
             CpuProfile::Scope detail(cpuProfile, CpuProfile::TextureCoherenceFlush);
-            flushToMemory(lo, hi);
+            flushForRead(lo, hi);
         }
         levels.emplace_back();
         {

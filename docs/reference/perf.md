@@ -511,6 +511,9 @@ view 128-157 -> 192-215 fps, gap SD 0.7-0.9 ms, p99 under 8 ms (the EE thread is
 
 Round 3 (same day): the frame limiter now sleeps precisely (`gs_precise_sleep.h`): present spread 0.74-0.78 -> 0.15-0.18 ms at
 144/120/90 fps. GPU texture creation for finished upscale jobs is budgeted to 2 ms per present. The per-frame GPU readbacks
-(15-20 % of the GS worker, ~0.7 per frame, 44 % texture sampling / 28 % CLUT loads / 28 % image uploads over a 128x512 scratch
-target) are real GPU waits; flushing earlier does not shorten them (measured), only GPU-side CLUT / texture-from-target paths would.
-See the [journal](../journal/2026-11-01/still-view-fps-jitter.md).
+(15-20 % of the GS worker) were mostly redundant: the game uploads a texture's CLUT / image over a scratch render target and the
+following read of exactly those blocks pulled the whole target back although the upload had already been applied to it on the
+GPU. Reads of blocks an applied upload made identical now skip the readback, dirty rows an upload fully rewrote are trimmed,
+and the game's frame-buffer-onto-itself copy is a no-op (`GSR_RB_SKIP=0` = old behaviour, `GSR_RB_VERIFY=1` cross-checks every
+skip): readbacks per walk 2800 -> ~1200, +12..23 % fps in interleaved A/B pairs, 0 mismatches over 93 M verified pixels. See the
+[journal](../journal/2026-11-01/still-view-fps-jitter.md).

@@ -1,4 +1,5 @@
 #pragma once
+#include <cstdlib>
 #include "gsr/gsr.h"
 #include "gs_mem.h"
 
@@ -182,6 +183,16 @@ public:
     virtual std::string waterRenderingStatus() const = 0;
     virtual std::string rayTracingStatus() const = 0;
 };
+
+// GSR_RB_SKIP=0 turns off the readback avoidance (clean-block reads, dirty-row trimming, no-op local copies) and
+// restores the previous always-read-back behaviour; GSR_RB_VERIFY=1 additionally cross-checks every skip.
+inline bool readbackSkipEnabled() {
+    static const bool on = [] {
+        const char* e = std::getenv("GSR_RB_SKIP");
+        return !(e && e[0] == '0');
+    }();
+    return on;
+}
 
 class Backend {
 public:

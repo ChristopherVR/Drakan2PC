@@ -1247,6 +1247,13 @@ struct Renderer::Impl {
         } else if (dir == 2) {
             if (!isValidPsm(spsm) || !isValidPsm(dpsm))
                 return;
+            // A copy of a rectangle onto itself changes nothing. The game does this with its whole 512x512 frame buffer
+            // several times a second; reading both (identical) targets back to copy memory onto itself was two full
+            // GPU syncs each time.
+            if (readbackSkipEnabled() && spsm == dpsm && sbp == dbp && sbw == dbw && ssax == dsax && ssay == dsay) {
+                stats.transfersL2L++;
+                return;
+            }
             uint32_t lo, hi, lo2, hi2;
             spanBlocks(spsm, sbp, sbw, ssax, ssay, rrw, rrh, lo, hi);
             spanBlocks(dpsm, dbp, dbw, dsax, dsay, rrw, rrh, lo2, hi2);

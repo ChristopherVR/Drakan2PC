@@ -243,6 +243,73 @@ void WgpuBackend::Impl::flushToMemory(uint32_t first, uint32_t last) {
     }
 }
 
+// See D3D11Backend::Impl::blocksAreClean / flushForRead (d3d11_targets.cpp).
+bool WgpuBackend::Impl::blocksAreClean(const RT& rt, uint32_t first, uint32_t last) const {
+    if (rt.cleanWrites != rt.writes || rt.cleanBlocks.empty())
+        return false;
+    uint32_t lo, hi;
+    rowSpan(rt, rt.dy0, std::min(rt.dy1, rt.h), lo, hi);
+    for (uint32_t b = std::max(first, lo); b <= std::min(hi, last); ++b)
+        if (!((rt.cleanBlocks[b / 64] >> (b % 64)) & 1))
+            return false;
+    return true;
+}
+
+void WgpuBackend::Impl::flushForRead(uint32_t first, uint32_t last) {
+    if (!readbackSkipEnabled()) {
+        flushToMemory(first, last);
+        return;
+    }
+    for (auto& r : rts) {
+        if (!r->dirty)
+            continue;
+        uint32_t lo, hi;
+        rowSpan(*r, r->dy0, std::min(r->dy1, r->h), lo, hi);
+        if (hi < first || lo > last)
+            continue;
+        if (blocksAreClean(*r, first, last)) {
+            ++st.rtReadbacksSkipped;
+            continue;
+        }
+        readbackRT(*r);
+    }
+}
+
+// After an applied upload the GPU rows of every covered block equal memory: take fully rewritten rows off both ends of
+// the dirty range (see D3D11Backend::Impl::trimDirtyRows).
+void WgpuBackend::Impl::trimDirtyRows(RT& rt) {
+    if (!rt.dirty || !readbackSkipEnabled())
+        return;
+    const PsmGeom g = geomOf(rt.psm);
+    const auto rowCovered = [&](uint32_t by) {
+        for (uint32_t bx = 0; bx < rt.w; bx += g.blockW)
+            if (!uploadCovers(blockOf(rt.psm, rt.base(), rt.fbw, bx, by)))
+                return false;
+        return true;
+    };
+    uint32_t y0 = rt.dy0, y1 = std::min(rt.dy1, rt.h);
+    while (y0 < y1) {
+        const uint32_t by = y0 / g.blockH * g.blockH;
+        if (!rowCovered(by))
+            break;
+        y0 = by + g.blockH;
+    }
+    while (y1 > y0) {
+        const uint32_t by = (y1 - 1) / g.blockH * g.blockH;
+        if (!rowCovered(by))
+            break;
+        y1 = by;
+    }
+    if (y0 >= y1) {
+        rt.dirty = false;
+        rt.seen = mem.clock();
+        ++st.rtDirtyCleared;
+    } else {
+        rt.dy0 = y0;
+        rt.dy1 = y1;
+    }
+}
+
 // Image upload into memory a dirty render target occupies: see d3d11_targets.cpp. The blocks an aligned upload
 // rewrites are copied into the target when the upload completes instead of reading the whole target back first.
 bool WgpuBackend::Impl::beginTargetUpload(uint32_t psm, uint32_t bp, uint32_t bw, uint32_t x, uint32_t y, uint32_t w,
@@ -326,6 +393,8 @@ void WgpuBackend::Impl::completeTargetUpload(uint32_t, uint32_t, uint32_t, uint3
             continue;
         bool touched = false;
         std::vector<uint32_t> buf, up;
+        if (apply && (rt.cleanWrites != rt.writes || rt.cleanBlocks.empty()))
+            rt.cleanBlocks.assign(kVramBlocks / 64, 0);
         for (uint32_t by = y0; by < y1; by += g.blockH)
             for (uint32_t bx = 0; bx < rt.w;) {
                 if (!uploadCovers(blockOf(rt.psm, rt.base(), rt.fbw, bx, by))) {
@@ -337,6 +406,11 @@ void WgpuBackend::Impl::completeTargetUpload(uint32_t, uint32_t, uint32_t, uint3
                     end += g.blockW;
                 const uint32_t runW = std::min(end, rt.w) - bx, runH = std::min(by + g.blockH, rt.h) - by;
                 touched = true;
+                if (apply)
+                    for (uint32_t cx = bx; cx < std::min(end, rt.w); cx += g.blockW) {
+                        const uint32_t cb = blockOf(rt.psm, rt.base(), rt.fbw, cx, by);
+                        rt.cleanBlocks[cb / 64] |= 1ull << (cb % 64);
+                    }
                 if (by / ph < rt.rowStamp.size())
                     rt.rowStamp[by / ph] = mem.clock();
                 if (apply) {
@@ -360,7 +434,9 @@ void WgpuBackend::Impl::completeTargetUpload(uint32_t, uint32_t, uint32_t, uint3
         if (touched && apply) {
             rt.copyValid = false;
             ++rt.writes;
+            rt.cleanWrites = rt.writes;
             st.targetUploads++;
+            trimDirtyRows(rt);
         }
     }
     if (apply)

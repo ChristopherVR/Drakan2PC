@@ -342,11 +342,7 @@ void D3D11Backend::Impl::verifyRTBlocks(RT& rt, uint32_t first, uint32_t last, u
 // image, over blocks a scratch target occupies; those uploads are applied to the target as well, so asking for exactly
 // those blocks must not read the whole target back (a GPU sync) to learn what the CPU just wrote.
 void D3D11Backend::Impl::flushForRead(uint32_t first, uint32_t last) {
-    static const bool skipEnabled = [] {
-        const char* e = std::getenv("GSR_RB_SKIP"); // 0 = always read the whole target back (the previous behaviour)
-        return !(e && e[0] == '0');
-    }();
-    if (!skipEnabled) {
+    if (!readbackSkipEnabled()) {
         flushToMemory(first, last);
         return;
     }
@@ -515,11 +511,7 @@ void D3D11Backend::Impl::completeTargetUpload(uint32_t, uint32_t, uint32_t, uint
 // nothing is left. (A texture sampled from the very blocks that were just uploaded used to read the whole target back
 // to get data the CPU had just written.)
 void D3D11Backend::Impl::trimDirtyRows(RT& rt) {
-    static const bool enabled = [] {
-        const char* e = std::getenv("GSR_RB_SKIP");
-        return !(e && e[0] == '0');
-    }();
-    if (!rt.dirty || !enabled)
+    if (!rt.dirty || !readbackSkipEnabled())
         return;
     const PsmGeom g = geomOf(rt.psm);
     const auto rowCovered = [&](uint32_t by) {

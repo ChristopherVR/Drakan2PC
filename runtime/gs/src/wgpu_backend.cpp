@@ -36,6 +36,9 @@ void WgpuBackend::draw(const GsDrawState& st, const ClutBuf& clut, const DrawVer
 void WgpuBackend::flushToMemory(uint32_t a, uint32_t b) {
     m_impl->flushToMemory(a, b);
 }
+void WgpuBackend::flushForRead(uint32_t a, uint32_t b) {
+    m_impl->flushForRead(a, b);
+}
 bool WgpuBackend::beginTargetUpload(uint32_t psm, uint32_t bp, uint32_t bw, uint32_t x, uint32_t y, uint32_t w,
                                     uint32_t h) {
     return m_impl->beginTargetUpload(psm, bp, bw, x, y, w, h);
