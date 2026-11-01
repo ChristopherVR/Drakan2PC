@@ -212,9 +212,12 @@ void WgpuBackend::Impl::syncRT(RT& rt) {
         const uint32_t rows = y1 - y0;
         cpuProfile.uploaded(uint64_t(rt.w) * rows * scale * scale * 4);
         buf.resize((size_t)rt.w * rows);
-        for (uint32_t y = 0; y < rows; ++y)
-            for (uint32_t x = 0; x < rt.w; ++x)
-                buf[(size_t)y * rt.w + x] = unpackPixel(rt.psm, mem.read(rt.psm, rt.base(), rt.fbw, x, y0 + y));
+        if (rt.psm == PSM_CT32)
+            mem.readRectCT32(rt.base(), rt.fbw, 0, y0, rt.w, rows, buf.data());
+        else
+            for (uint32_t y = 0; y < rows; ++y)
+                for (uint32_t x = 0; x < rt.w; ++x)
+                    buf[(size_t)y * rt.w + x] = unpackPixel(rt.psm, mem.read(rt.psm, rt.base(), rt.fbw, x, y0 + y));
         if (scale == 1)
             gpu->writeTexture(*rt.tex, 0, 0, y0, rt.w, rows, buf.data(), rt.w * 4);
         else {
@@ -415,10 +418,13 @@ void WgpuBackend::Impl::completeTargetUpload(uint32_t, uint32_t, uint32_t, uint3
                     rt.rowStamp[by / ph] = mem.clock();
                 if (apply) {
                     buf.resize((size_t)runW * runH);
-                    for (uint32_t row = 0; row < runH; ++row)
-                        for (uint32_t col = 0; col < runW; ++col)
-                            buf[(size_t)row * runW + col] =
-                                unpackPixel(rt.psm, mem.read(rt.psm, rt.base(), rt.fbw, bx + col, by + row));
+                    if (rt.psm == PSM_CT32)
+                        mem.readRectCT32(rt.base(), rt.fbw, bx, by, runW, runH, buf.data());
+                    else
+                        for (uint32_t row = 0; row < runH; ++row)
+                            for (uint32_t col = 0; col < runW; ++col)
+                                buf[(size_t)row * runW + col] =
+                                    unpackPixel(rt.psm, mem.read(rt.psm, rt.base(), rt.fbw, bx + col, by + row));
                     if (scale == 1)
                         gpu->writeTexture(*rt.tex, 0, bx, by, runW, runH, buf.data(), runW * 4);
                     else {

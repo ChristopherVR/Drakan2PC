@@ -248,9 +248,12 @@ void D3D11Backend::Impl::syncRT(RT& rt) {
         const uint32_t rows = y1 - y0;
         cpuProfile.uploaded(uint64_t(rt.w) * rows * scale * scale * 4);
         buf.resize((size_t)rt.w * rows);
-        for (uint32_t y = 0; y < rows; ++y)
-            for (uint32_t x = 0; x < rt.w; ++x)
-                buf[(size_t)y * rt.w + x] = unpackPixel(rt.psm, mem.read(rt.psm, rt.base(), rt.fbw, x, y0 + y));
+        if (rt.psm == PSM_CT32)
+            mem.readRectCT32(rt.base(), rt.fbw, 0, y0, rt.w, rows, buf.data());
+        else
+            for (uint32_t y = 0; y < rows; ++y)
+                for (uint32_t x = 0; x < rt.w; ++x)
+                    buf[(size_t)y * rt.w + x] = unpackPixel(rt.psm, mem.read(rt.psm, rt.base(), rt.fbw, x, y0 + y));
         D3D11_BOX box{0, y0 * scale, 0, rt.w * scale, y1 * scale, 1};
         if (scale == 1)
             ctx->UpdateSubresource(rt.tex.Get(), 0, &box, buf.data(), rt.w * 4, 0);
@@ -478,10 +481,13 @@ void D3D11Backend::Impl::completeTargetUpload(uint32_t, uint32_t, uint32_t, uint
                     rt.rowStamp[by / ph] = mem.clock();
                 if (apply) {
                     buf.resize((size_t)runW * runH);
-                    for (uint32_t row = 0; row < runH; ++row)
-                        for (uint32_t col = 0; col < runW; ++col)
-                            buf[(size_t)row * runW + col] =
-                                unpackPixel(rt.psm, mem.read(rt.psm, rt.base(), rt.fbw, bx + col, by + row));
+                    if (rt.psm == PSM_CT32)
+                        mem.readRectCT32(rt.base(), rt.fbw, bx, by, runW, runH, buf.data());
+                    else
+                        for (uint32_t row = 0; row < runH; ++row)
+                            for (uint32_t col = 0; col < runW; ++col)
+                                buf[(size_t)row * runW + col] =
+                                    unpackPixel(rt.psm, mem.read(rt.psm, rt.base(), rt.fbw, bx + col, by + row));
                     D3D11_BOX box{bx * scale, by * scale, 0, (bx + runW) * scale, (by + runH) * scale, 1};
                     if (scale == 1)
                         ctx->UpdateSubresource(rt.tex.Get(), 0, &box, buf.data(), runW * 4, 0);

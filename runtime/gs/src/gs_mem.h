@@ -2,6 +2,7 @@
 // The address tables (block/column tables) follow the layout used by PCSX2's GSLocalMemory/GSTables
 // (GPL-3.0-or-later); they were cross-checked against the PS2 GS manual page layouts.
 #pragma once
+#include <algorithm>
 #include <cstdint>
 #include <cstring>
 #include <vector>
@@ -280,7 +281,7 @@ inline void spanBlocks(uint32_t psm, uint32_t bp, uint32_t bw, uint32_t x, uint3
 
 class LocalMemory {
 public:
-    LocalMemory() : m_data(kVramSize, 0), m_stamp(kVramBlocks, 0) {}
+    LocalMemory() : m_data(kVramSize, 0), m_stamp(kVramBlocks, 0), m_pageStamp(kVramBlocks / 32, 0) {}
 
     uint8_t* data() { return m_data.data(); }
     const uint8_t* data() const { return m_data.data(); }
@@ -288,12 +289,22 @@ public:
     // monotonically increasing write clock; stamp[block] = clock value at last write
     uint64_t clock() const { return m_clock; }
     uint64_t blockStamp(uint32_t block) const { return m_stamp[block & (kVramBlocks - 1)]; }
+    // Largest stamp in blocks [firstBlock, firstBlock + count), wrapping at the end of memory. A page (32 blocks) keeps
+    // the largest stamp of its blocks, so aligned whole pages cost one read instead of 32: render targets ask about
+    // whole page rows for every draw (syncRT), which was thousands of block reads per draw.
     uint64_t maxStamp(uint32_t firstBlock, uint32_t count) const {
         uint64_t m = 0;
-        for (uint32_t i = 0; i < count; ++i) {
-            const uint32_t b = (firstBlock + i) & (kVramBlocks - 1);
-            if (m_stamp[b] > m)
-                m = m_stamp[b];
+        uint32_t b = firstBlock & (kVramBlocks - 1);
+        while (count) {
+            if ((b & 31u) == 0 && count >= 32) {
+                m = std::max(m, m_pageStamp[b >> 5]);
+                b = (b + 32) & (kVramBlocks - 1);
+                count -= 32;
+            } else {
+                m = std::max(m, m_stamp[b]);
+                b = (b + 1) & (kVramBlocks - 1);
+                --count;
+            }
         }
         return m;
     }
@@ -316,8 +327,11 @@ public:
     }
     void touchBlocks(uint32_t firstBlock, uint32_t count) {
         ++m_clock;
-        for (uint32_t i = 0; i < count; ++i)
-            m_stamp[(firstBlock + i) & (kVramBlocks - 1)] = m_clock;
+        for (uint32_t i = 0; i < count; ++i) {
+            const uint32_t b = (firstBlock + i) & (kVramBlocks - 1);
+            m_stamp[b] = m_clock;
+            m_pageStamp[b >> 5] = m_clock;
+        }
     }
     void touchRect(uint32_t psm, uint32_t bp, uint32_t bw, uint32_t x, uint32_t y, uint32_t w, uint32_t h) {
         if (!w || !h)
@@ -325,8 +339,35 @@ public:
         ++m_clock;
         const PsmGeom g = geomOf(psm);
         for (uint32_t by = y & ~(g.blockH - 1); by < y + h; by += g.blockH)
-            for (uint32_t bx = x & ~(g.blockW - 1); bx < x + w; bx += g.blockW)
-                m_stamp[blockOf(psm, bp, bw, bx, by)] = m_clock;
+            for (uint32_t bx = x & ~(g.blockW - 1); bx < x + w; bx += g.blockW) {
+                const uint32_t b = blockOf(psm, bp, bw, bx, by);
+                m_stamp[b] = m_clock;
+                m_pageStamp[b >> 5] = m_clock;
+            }
+    }
+
+    // PSMCT32 words of the w x h rectangle at (x0, y0), row-major into out (same values as read() pixel by pixel).
+    // Works block by block: the page / block address is computed once per 8x8 block instead of once per pixel, which is
+    // what makes uploading a render target's rows from memory (syncRT) several times cheaper.
+    void readRectCT32(uint32_t bp, uint32_t bw, uint32_t x0, uint32_t y0, uint32_t w, uint32_t h, uint32_t* out) const {
+        using namespace tables;
+        const uint32_t bpLow = bp & 31u, pagesPerRow = bw ? bw : 1u;
+        for (uint32_t by = y0 & ~7u; by < y0 + h; by += 8) {
+            const uint32_t ya = std::max(by, y0), yb = std::min(by + 8, y0 + h);
+            for (uint32_t bx = x0 & ~7u; bx < x0 + w; bx += 8) {
+                const uint32_t page = (bp >> 5) + (by >> 5) * pagesPerRow + (bx >> 6);
+                const uint32_t blockId = bpLow + block32[(by >> 3) & 3][(bx >> 3) & 7];
+                const size_t offset =
+                    ((size_t(page + (blockId >> 5)) << 13) + (size_t(blockId & 31u) << 8)) & (kVramSize - 1);
+                const uint8_t* block = m_data.data() + offset;
+                const uint32_t xa = std::max(bx, x0), xb = std::min(bx + 8, x0 + w);
+                for (uint32_t y = ya; y < yb; ++y) {
+                    uint32_t* row = out + (size_t)(y - y0) * w;
+                    for (uint32_t x = xa; x < xb; ++x)
+                        std::memcpy(row + (x - x0), block + col32[y & 7][x & 7] * 4u, 4);
+                }
+            }
+        }
     }
 
     uint32_t read(uint32_t psm, uint32_t bp, uint32_t bw, uint32_t x, uint32_t y) const {
@@ -416,6 +457,7 @@ public:
 private:
     std::vector<uint8_t> m_data;
     std::vector<uint64_t> m_stamp;
+    std::vector<uint64_t> m_pageStamp; // max of m_stamp over each 32-block page
     uint64_t m_clock = 1;
 };
 
