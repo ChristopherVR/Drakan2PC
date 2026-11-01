@@ -817,7 +817,27 @@ from `arena_candidates.py`.
 * Ghosts of players 46k units away show and move normally (3 ranges tested, 10k / 21k / 36k / 46k); the limit is the floor residency of a *teleport*, handled by the retry above.
 * A pickup is taken with Use, walking over it does nothing.
 
-Not done: team spawn sets, arena maps for levels where Rynn starts mounted, the USA disc (see `docs/reference/regions.md` "Multiplayer arenas on USA").
+### Order of the Flame arenas (2026-11-01)
+
+`ootfArenaFromPc` (editor-core `ootf.ts`, also run by `editor/scripts/ootf-convert.ts` for every `Multiplayer/*` level) writes the
+pack's `maps/<level>.ini`:
+
+* **Weapons.** A Drakan 1 New Game has an empty inventory (the Drakan 2 one starts with a dagger the arena only equips), so the map
+  carries `loadout = 0x3372b 0x33734` (club, axe: both are granted by the factory in the converted levels and the arena equips the
+  first usable one, raising the melee skill when needed) and one `pickup = x y z 30 res=...` per PC **Weapon Pad** (terrain + 120,
+  resources `0x31f30` great sword, `0x3372a` iron club, `0x3372b` club in turn; the axe `0x33734` is **not** spawnable as a pickup:
+  `never registered`, disabled). Verified with two instances on Relic: both `armed: right hand holds actor ... (class 1000e)`, the
+  server accepted a claim, B removed its copy, both copies came back, the match ran to the frag limit.
+* **Air arenas start mounted.** The converter (formats `ensureSingletons`, paths `Multiplayer/Air/*`) adds a **Dragon object with
+  `Initial Mode` 0** (the value of Ravenshold's Dragon; the template's parked Arokh has 1) at Rynn's start: Rynn then starts on Arokh
+  and the dragon pads' spawns are flyable positions instead of a void (Arena of Death: screenshot `build/harness/mp4-aod/a/extra_8000.png`,
+  a mounted Rynn over the canyon floor). While mounted the controlled actor is Arokh, whose data object has no inventory: the
+  arena skips the loadout and the auto-equip then (`controlledIsDragon`; before, the stow called through a null listener and
+  both instances crashed with `missing-target`). Dragon-vs-dragon play is not implemented: a mounted player's weapon is his breath,
+  PvP damage is wired for Rynn's melee only (see "Not done"), so an air arena can be hosted, joined and flown but not won yet.
+  The dragon pads and the Soul Crystal stay as `marker` lines (authored, not read by the game).
+
+Not done: team spawn sets, PvP damage between mounted players, the USA disc (see `docs/reference/regions.md` "Multiplayer arenas on USA").
 
 ## Tests
 

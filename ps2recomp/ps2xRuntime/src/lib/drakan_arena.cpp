@@ -48,7 +48,7 @@ constexpr uint32_t kContextPtr = 0x5565d4u, kFactory = 0x181ad8u, kKillActor = 0
 // player+0xa48.
 constexpr uint32_t kStow = 0x320f70u, kEquipPost = 0x341058u, kEquipDirect = 0x31e460u;
 constexpr uint32_t kCtlOffset = 0x584u, kCtlCells = 0x30u, kCellCount = 24u, kHandSlots = 0xa48u;
-constexpr uint32_t kClassMelee = 0x1000eu, kClassBow = 0x1004fu;
+constexpr uint32_t kClassMelee = 0x1000eu, kClassBow = 0x1004fu, kClassDragon = 0x1001cu;
 // The tail of the speech controller's idle text buffer: pvp uses 0x5b8480 (4 bytes), coop 0x5b84c0.. (0x34 bytes); the
 // 60 bytes between hold the spawn transform (12 floats) of one pickup / loadout item at a time.
 
@@ -997,7 +997,17 @@ std::vector<uint32_t> g_loadoutIdx;
 int g_loadoutPhase = 0; // 0 not started, 1 waiting for the spawns, 2 done
 unsigned g_loadoutStart = 0;
 
+uint32_t itemClassOf(const uint8_t* rdram, uint32_t handle);
+
+// The controlled actor is Arokh while Rynn rides him (air arenas start mounted, netcode.md "Air arenas"): his data
+// object has no inventory, so the loadout stow / equip routines would call through garbage (JALR into 0x56d2c0).
+bool controlledIsDragon(const uint8_t* rdram, uint32_t actor) {
+    return itemClassOf(rdram, actor) == kClassDragon;
+}
+
 void loadoutTick(drakan_input::IGuest&, uint8_t* rdram, uint32_t player) {
+    if (controlledIsDragon(rdram, player))
+        return;
     if (!g_loadoutArmed || g_loadoutPhase >= 2 || g_ticks < g_passTick + kSweepTicks + 30)
         return;
     if (g_loadoutPhase == 0) {
@@ -1086,6 +1096,8 @@ void armTick(drakan_input::IGuest& guest, uint8_t* rdram, uint32_t actor) {
     if (!ramPtr(player))
         return;
     if (g_arm.done || g_ticks < g_passTick + kSweepTicks + 40 || g_ticks < g_arm.next)
+        return;
+    if (controlledIsDragon(rdram, actor))
         return;
     if (std::getenv("DRAKAN_ARENA_SPELL")) // a caster keeps her hands for the spell (spellTick)
         return;

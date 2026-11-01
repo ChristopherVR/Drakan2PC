@@ -93,10 +93,13 @@ my_mod/
   `maps/<level>.ini` per `Multiplayer/*` level (`ootfArenaFromPc`: spawns from the Rynn launch pads, snapped to the terrain).
   The map also carries what an Order of the Flame arena needs to be playable (a Drakan 1 New Game starts with an empty
   inventory): `loadout =` (club and axe, granted at the start) and one `pickup =` (respawning weapon) per PC Weapon Pad.
-  **Convert the Multiplayer levels and the campaign in one run / one pack.** Every converted pack ships whole-file
-  copies of the shared containers (`PROCTEES.TXD`, `RESOURES.TXD` / `.MOD`, `WORLDCON.*`) holding the textures and models of
-  *its* levels; with two OotF packs enabled the later one replaces the earlier one's file, and the other pack's levels lose
-  their terrain textures (Relic rendered almost black next to a separately built campaign pack).
+  **Known problem: an arena next to a big campaign.** A multiplayer arena converted together with the Intro, Ruined Village and Wartok
+  Canyons (one pack of four levels), or enabled beside a pack holding them, came up almost black: the level shows 110 actors and Rynn at the engine's
+  default start (32768 200498 32768) instead of 170 and her own start, so the player has no weapon and sees only a slice of
+  floor. The Relic LVL is byte-identical in the lit and the dark runs; arenas in a pack alone or with one or two other levels were all fine (up
+  to a 2.4k-file pack); play arenas with only such a pack enabled. The dark packs ship a `RESOURES.MOD` of 9.96 MB and a `RESOURES.TXD` of 26.9 MB
+  (lit: at most 8.4 MB / 15.7 MB); `PROCTEES.TXD` size and terrain texture size do not matter (a 5.4 MB `PROCTEES` with `--tex-max 64`
+  was dark too). Cause not found (journal `2026-11-01/ootf-mp-arenas-followup.md`).
   **`previews/<safe map name>.png`** (<= 8 MiB): the map's picture for the multiplayer menu; the name is the map's display
   name with every character outside letters, digits, `-` and `_` turned into `_`. At startup the game copies it to
   `previews/mods/` next to the exe (`ModManager::previewFiles()`); `previews/<name>.png` there wins over a pack's.
