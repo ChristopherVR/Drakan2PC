@@ -561,12 +561,11 @@
     "height": 800,
     "source": "scripts/buildtool/capture_editor_media.py, scene editor-start (editor browser build, no disc, synthetic data)",
     "url": "https://github.com/ChristopherVR/Drakan2PC/releases/download/site-media-20261102/editor-start.jpg",
-    "sha256": "1ae6c3c8703aecece326c1dfcf4cadffe4f0ce821f491472ea3f8cf5cc3bc3b0",
-    "pending": true,
+    "sha256": "9d0819d670f5f31896a1fa7ba55b690d6e526244b76db60a64c8b41c0ab4c1d8",
     "loop": true,
     "video": "editor-start.mp4",
     "video_url": "https://github.com/ChristopherVR/Drakan2PC/releases/download/site-media-20261102/editor-start.mp4",
-    "video_sha256": "0cfaf6c9d31510b1571a2d41aa8218bfa491428bbb7bef63bff53d0ca4d284ad"
+    "video_sha256": "2742ab55fe82565ac20b0277effef60894d78af2dd0175845c964e1bb3591425"
   },
   "editor-add-menu": {
     "file": "editor-add-menu.jpg",
@@ -576,8 +575,7 @@
     "height": 800,
     "source": "scripts/buildtool/capture_editor_media.py, scene editor-start (editor browser build, no disc, synthetic data)",
     "url": "https://github.com/ChristopherVR/Drakan2PC/releases/download/site-media-20261102/editor-add-menu.jpg",
-    "sha256": "73b314d7bd8849f1e4ab6ff2606d0a880345f85897503f1891972ebbbd620feb",
-    "pending": true
+    "sha256": "248006a71e299024bebf459047e7ae01cc84704f2943852782e276df53ec299c"
   },
   "editor-help": {
     "file": "editor-help.jpg",
@@ -587,12 +585,11 @@
     "height": 800,
     "source": "scripts/buildtool/capture_editor_media.py, scene editor-help (editor browser build, no disc, synthetic data)",
     "url": "https://github.com/ChristopherVR/Drakan2PC/releases/download/site-media-20261102/editor-help.jpg",
-    "sha256": "6e4a38093df15db90ee969b67f82cef24544fd422449f6719bf6a8a1173a9888",
-    "pending": true,
+    "sha256": "f574091af58a48ba6a356006efc65e295d4b30804ce3fa27f3e3d65f1b11dc45",
     "loop": true,
     "video": "editor-help.mp4",
     "video_url": "https://github.com/ChristopherVR/Drakan2PC/releases/download/site-media-20261102/editor-help.mp4",
-    "video_sha256": "5858a772d8cfba84749fb4559f13d277008f34346534db3d5464a09df81e2730"
+    "video_sha256": "9d32c69908312aaedb9f0827aa1bc23c636f078a42f81ba109035804dc8a763a"
   },
   "editor-palette": {
     "file": "editor-palette.jpg",
@@ -602,8 +599,7 @@
     "height": 800,
     "source": "scripts/buildtool/capture_editor_media.py, scene editor-palette (editor browser build, no disc, synthetic data)",
     "url": "https://github.com/ChristopherVR/Drakan2PC/releases/download/site-media-20261102/editor-palette.jpg",
-    "sha256": "e568fd1697f7f95162ba44ae3fa7f4a0405d5de0a74187ed2ad09d7b6219df7c",
-    "pending": true
+    "sha256": "e568fd1697f7f95162ba44ae3fa7f4a0405d5de0a74187ed2ad09d7b6219df7c"
   },
   "editor-project": {
     "file": "editor-project.jpg",
@@ -613,12 +609,11 @@
     "height": 800,
     "source": "scripts/buildtool/capture_editor_media.py, scene editor-project (editor browser build, no disc, synthetic data)",
     "url": "https://github.com/ChristopherVR/Drakan2PC/releases/download/site-media-20261102/editor-project.jpg",
-    "sha256": "cd97494795e124541fa53e87a6e3e84d9658c27c5febaaad35681a652a66419a",
-    "pending": true,
+    "sha256": "5bca3e0082dccab036b4804c34efee61df77680b6cbbd99a2ac9a9fee6badadb",
     "loop": true,
     "video": "editor-project.mp4",
     "video_url": "https://github.com/ChristopherVR/Drakan2PC/releases/download/site-media-20261102/editor-project.mp4",
-    "video_sha256": "c1b2b8856521b4b113402e45ebd57cdccabedb1eb04df8947e8c163870586760"
+    "video_sha256": "ab2dcf70aa11891a95ff2a63e22935d4335dd91b713f8ee1c2094643118b7f5c"
   },
   "editor-campaign-map": {
     "file": "editor-campaign-map.jpg",
@@ -628,8 +623,7 @@
     "height": 800,
     "source": "scripts/buildtool/capture_editor_media.py, scene editor-project (editor browser build, no disc, synthetic data)",
     "url": "https://github.com/ChristopherVR/Drakan2PC/releases/download/site-media-20261102/editor-campaign-map.jpg",
-    "sha256": "c0351b851335e25b8af4446a68c8fadfa921af180dda5bb1712737eef4073e95",
-    "pending": true
+    "sha256": "c0351b851335e25b8af4446a68c8fadfa921af180dda5bb1712737eef4073e95"
   },
   "save-editor-tour": {
     "file": "save-editor-tour.jpg",
@@ -639,12 +633,11 @@
     "height": 800,
     "source": "scripts/buildtool/capture_editor_media.py, scene save-editor-tour (editor browser build, no disc, synthetic data)",
     "url": "https://github.com/ChristopherVR/Drakan2PC/releases/download/site-media-20261102/save-editor-tour.jpg",
-    "sha256": "7b7e09cdebb51b36531f41b25a2eb0e48907d07a0b46a2b5f96cc10f58d21428",
-    "pending": true,
+    "sha256": "501cb7add2773d65c5c1698b4820b46c05761b1d69d6c1b1e1ad6e957688a8c8",
     "loop": true,
     "video": "save-editor-tour.mp4",
     "video_url": "https://github.com/ChristopherVR/Drakan2PC/releases/download/site-media-20261102/save-editor-tour.mp4",
-    "video_sha256": "a4759ddfe53d7adabbe7d03ccc9d790dd8006b57b0d80e0185eac42665d199f9"
+    "video_sha256": "7e25efa9b2e4a5b9cd13e4e0f0a4d87091fcaec1e25d834eaca0ac57c5cfa1a0"
   },
   "save-editor-inventory": {
     "file": "save-editor-inventory.jpg",
@@ -654,7 +647,6 @@
     "height": 800,
     "source": "scripts/buildtool/capture_editor_media.py, scene save-editor-tour (editor browser build, no disc, synthetic data)",
     "url": "https://github.com/ChristopherVR/Drakan2PC/releases/download/site-media-20261102/save-editor-inventory.jpg",
-    "sha256": "afb284fd3d82be6d4d87a54ce95073708684a57e520a31f64a7083a58e11aff5",
-    "pending": true
+    "sha256": "afb284fd3d82be6d4d87a54ce95073708684a57e520a31f64a7083a58e11aff5"
   }
 }
