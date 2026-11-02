@@ -179,3 +179,6 @@ modification time on the host by the time zone (the title's "newest save" orders
 - Verified in game 2026-11-02: Steel Club (0x3372b), Wood Long Bow (0x32266, 3 cells) and Bitter Touch (0x33728, handle at
   +0x9a) added by the editor equip and work; Replace with... to a 3-cell class survives the game's own save and reload
   (stream `slot/3`, markers 1 and 2 under it). See `docs/journal/2026-11-02/save-editor-items-in-game.md`.
+- Item badge (2026-11-02): the Tab screen's grid badge on a bow (arrow count) and on charge items is the same instance
+  quantity (+0x14 current, +0x18 max) that the detail panel's bar shows (`runtime/gameui` `ItemEntry::quantity`). An editor-added
+  Wood Long Bow shows 300 on both and 298 after two shots. A "390" seen once was a downscaled-screenshot misreading of "300".

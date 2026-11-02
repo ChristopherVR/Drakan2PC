@@ -133,3 +133,16 @@ No editor bugs found in this round. Notes:
   `DRAKAN_AUTOPRESS=3000`, which taps Cross every 3 s on the title and bounces between the title and the Load screen
   whenever the run is not already steady/playing. Passing `--env DRAKAN_AUTOPRESS=0` fixes it (all runs above). Whether
   the cause is the current runtime build or the machine was not found; the 10:30 runs of the earlier round did not need it.
+
+## Long bow badge
+
+The "390" on the Wood Long Bow's grid badge was a misreading, not a data fault. The badge reads **300**: the screenshots in
+`build/scratch/saveitems2/bow/` are 3840x2160 PNGs that were viewed as 1280-wide JPEGs, and the skin font's old-style
+figures draw "0" small, so "300" looks like "390" at that size. Crops of the full-size PNGs
+(`build/scratch/bow390/c1.png` for `d_longbow_equip`, `c2.png` for `h_tab_after`) show "300" before firing and "298" after.
+
+Where the number comes from: `runtime/gameui/src/Screen.cpp` (grid cell) and `StripScreen.cpp` print `it.quantity` as the
+badge for every item whose `quantityKindFor` is Ammo or Charges, and the detail panel bar uses the same `it.quantity` /
+`it.quantityMax`. `Reader.cpp` fills both from the item instance (`a::actor::kQtyCur` / `kQtyMax`, +0x14 / +0x18 of the
+instance, decoded). One field feeds both, so they cannot disagree; the panel said 300 / 300 and the badge said 300.
+The editor wrote nothing wrong for the bow (no code change, no test change).
