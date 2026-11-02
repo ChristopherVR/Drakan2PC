@@ -158,6 +158,10 @@ def main() -> int:
     if a.level_save:
         env["DRAKAN_TEST_LEVEL_SAVE"] = "1"
         env["DRAKAN_MENU_MOUSE_LOG"] = "1"
+    if a.save and not a.level:
+        # A run from a save loads it itself (recipe F8 quick load). The title now has Continue and a Load screen, so
+        # the 3 s Cross taps would bounce between them and never reach gameplay; --env DRAKAN_AUTOPRESS=... overrides.
+        env["DRAKAN_AUTOPRESS"] = "0"
     for kv in a.env:
         key, sep, value = kv.partition("=")
         if not sep:

@@ -94,7 +94,8 @@ Engine 5; textures move to UE5-style PBR sets.
 - Save editor items proven in game 2026-11-02 (`docs/journal/2026-11-02/save-editor-items-in-game.md`): 1-, 2- and
   3-cell items and the bow added, used/equipped, fired, kept over the game's own save and reload. Later the same day: Steel
   Club, Wood Long Bow and Bitter Touch equipped and used; Replace with... survives the game's own save and reload; mana
-  power-ups are listed as "Power-ups (used at once)". (The long bow's "390" badge was a misread of 300 in a downscaled screenshot.) Open: `play_run.py --save` runs stalled at the title until `DRAKAN_AUTOPRESS=0` (cause unknown).
+  power-ups are listed as "Power-ups (used at once)". (The long bow's "390" badge was a misread of 300 in a downscaled screenshot.) `play_run.py --save` no longer auto-presses (the taps opened the title's Load screen instead of letting the recipe's
+  F8 load run; `harness-title-stall.md`).
 - Rynn's class word `0x1f081069` (bit 27 set, game-written save) is accepted by the editor (`isRynnClass`);
   `scripts/savetool/savetool.py` still matches `0x17081069` only.
 
