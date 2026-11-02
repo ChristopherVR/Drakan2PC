@@ -46,7 +46,9 @@ pub fn open(app: &AppHandle, which: &str, action: Option<&str>) -> Result<(), St
     Ok(())
 }
 
+/// Async on purpose: a synchronous command runs on the main thread, and building a webview window there deadlocks on
+/// Windows (the new window stayed on about:blank and the calling page hung).
 #[tauri::command]
-pub fn window_open(app: AppHandle, which: String, action: Option<String>) -> Result<(), String> {
+pub async fn window_open(app: AppHandle, which: String, action: Option<String>) -> Result<(), String> {
     open(&app, &which, action.as_deref())
 }

@@ -434,7 +434,7 @@ export function initLevelUi(host: LevelUiHost): LevelUi {
                 void modPanel.play().catch(fail);
                 return;
             }
-            modPanel.el.querySelector('.play')?.scrollIntoView({ block: 'nearest' });
+            modPanel.el.querySelector('div.play')?.scrollIntoView({ block: 'nearest' });
         },
         exportMod: () => {
             projects.handlers.export?.();

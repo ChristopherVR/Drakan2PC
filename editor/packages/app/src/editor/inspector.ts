@@ -65,6 +65,9 @@ export function createInspector(ctx: Ctx): Panel {
     });
     let updaters: (() => void)[] = [];
     let sig = '';
+    // The array the built sections read from. An edit replaces the edited objects in the document, so the in-place
+    // refresh swaps the fresh ones into this same array; otherwise the fields would show the values from before.
+    let live: LevelObject[] = [];
     const open = new Set<string>(['Transform', 'Fields', 'Links', 'Viewport animation', 'Vendor']);
 
     const selected = (): LevelObject[] => {
@@ -571,10 +574,12 @@ export function createInspector(ctx: Ctx): Panel {
                 : '';
         const next = `${objs.map((o) => o.id).join(',')}#${fieldSig}#${linkSig}#${ctx.view().lockedIds.size}#${doc.size}`;
         if (!force && next === sig) {
+            live.splice(0, live.length, ...objs);
             for (const u of updaters) u();
             return;
         }
         sig = next;
+        live = objs;
         const keepScroll = body.scrollTop;
         closePopover();
         updaters = [];
