@@ -21,8 +21,8 @@ Know which mode to use for what you want to make.
 Path: Open your disc > Pick a task > Edit > Export a mod > Play
 
 1. Open your own Drakan disc image (.iso). Nothing is uploaded; the editor reads it in place and never changes it.
-2. On the start page, or with the + Add button at the left of the toolbar, pick what to make: an arena (PvP map), a puzzle, a cut scene, a dialogue line, a quest, a vendor, a menu page or a level copy. The editor opens the right panel with defaults. Other starting points: edit a campaign level, change the story, or edit a save.
-3. The top bar shows your project (click it for Project Settings, Save, Export and Play) and the open editors: the Level Editor and the editors you opened (Story, Menus, Vendors, ...). Saves are edited in the Save Editor, an application of its own (Tools > Save Editor). A checklist at the bottom right lists the next steps and ticks them off.
+2. On the start page ("What do you want to make?") click a template: a campaign level, a multiplayer arena, a level copy, a puzzle, a shop, a cut scene, a dialogue line, a quest, story texts, a menu page, a save or an Order of the Flame level. The pane on the right says what you will do and what it needs. Its button does the first step: it asks for your disc image and a level when needed, then opens the editor that makes it. Double-click a template to start it straight away. The + Add button at the left of the toolbar offers the same list at any time.
+3. The top bar shows your project (click it for Project Settings, Save, Export and Play) and the open editors: the Level Editor and the editors you opened (Story, Menus, Vendors, ...). Saves are edited in the Save Editor, an application of its own (Tools > Save Editor). A checklist (in the corner of the viewport, or of the window) lists the steps of what you started, highlights the next one with its button, and ticks them off; its Making list switches to something else.
 4. Everything you change is kept in a mod project. Export (Ctrl+E) builds one mod pack from the project, which the PC port loads on top of your disc.
 5. Play it: the desktop app starts the game for you; in the browser put the zip in the game's mods folder.
 
@@ -41,7 +41,7 @@ Path: Open a level > Select > Move or place > Change fields > Validate
 1. Open a level from the start page or with Ctrl+P and the level name.
 2. Click an object in the viewport or in the Outliner (right side). Drag on empty space to box-select.
 3. Press W and drag an arrow to move it. E rotates, R scales (where the object allows it). End drops the selection on the ground.
-4. To add something, drag a class from the Content Browser (bottom) into the world, or press Ctrl+P and type @ and the class name.
+4. To add something, pick a group in the Place panel (left) and drag a row into the world, drag a class from the Content Browser (bottom), or press Ctrl+P and type @ and the class name. Double-click a row to put it in the middle of the view.
 5. Change health, speed, models and sounds in the Details panel (right). Changed fields are marked and can be reset.
 6. Ctrl+D duplicates, Delete removes, Ctrl+Z undoes. Edit > Undo History (Ctrl+Shift+H) lists every step and jumps back to one.
 
@@ -49,6 +49,7 @@ Path: Open a level > Select > Move or place > Change fields > Validate
 * Creatures and people play their idle animation in the viewport (Display > Play animations turns it off). Only the nearest on-screen characters move, so far ones stay still. To see another clip on the selected one, pick it under Viewport animation in the Details panel.
 * Prefer a class the level already uses. A class with no instance in the level gets default settings.
 * Locked objects (L) cannot be moved by accident; hidden ones (H) are still in the level.
+* Drag the thin bars between the panels to make them bigger or smaller; double-click a bar to go back to the starting size. The Window menu shows or hides the Place panel, the Outliner and Details, and the bottom panel.
 
 <a id="triggers"></a>
 
@@ -145,9 +146,10 @@ Path: Open Story > Pick a page > Change or create entries > Story pack > Play
 2. Quests: pick a quest to edit its title and text. Under Steps in the open level, see what starts and completes it, and add "The player enters an area" or "Something in the level fires". Place a quest marker puts a new quest in the level.
 3. Conversations: pick a conversation. Each stage of the talk (first meeting, quest still open, quest finished) is a branch of line cards with the speaker, the subtitle (type to change it), the recording (Play) and up, down and remove buttons. Add a line from the level or use Write a new line.
 4. Write a new line: pick a conversation and stage, type the speaker and subtitle, choose a sound of the level (Play previews it), and add the line. The preview shows the order after the insert.
-5. Cut scenes: pick a scene. The timeline has a ruler you can scrub and a lane for each actor and kind of step (moves, animation, sound, message). Drag a key sideways to retime it. Below, edit each key and see the camera path. Make a cut scene adds camera points and ordered steps to a new scene.
-6. Text and export: Texts lists every piece of game text; search, edit, and see where it is used.
-7. Story pack: review every change, including the new lines, scenes and quests, and export them as one mod pack.
+5. Cut scenes: pick a scene. The timeline has a ruler you can scrub and a lane for each actor and kind of step (moves, animation, sound, message). Drag a key sideways to retime it. Below, edit each key and see the camera path. New cut scene places one where the level view looks (a player, the box that starts it and a camera move) and opens its timeline. Build from camera points makes one from points and ordered steps.
+6. In the level: cut scenes, shops, quests and the characters you can talk to have badges (Show > Story switches each group). Hover a badge for what it does; click it to select; double-click it to open its editor. A cut scene shows its camera path, dashed lines to the objects it moves and its trigger box; a quest shows its start (green) and finish (amber) areas. Right-click the ground for Add cut scene here, or with a quest selected, Add quest start / finish area here.
+7. Text and export: Texts lists every piece of game text; search, edit, and see where it is used.
+8. Story pack: review every change, including the new lines, scenes and quests, and export them as one mod pack.
 
 * Story edits are a separate pack from level edits. Enable both in the game's Mods page.
 * Text in other languages is edited separately; pick the language in the Disc Files header (Tools > Disc Files).

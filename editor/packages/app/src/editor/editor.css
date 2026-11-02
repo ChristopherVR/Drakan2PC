@@ -40,61 +40,7 @@
 #level-main input {
     font: inherit;
 }
-#ed-body {
-    flex: 1;
-    min-height: 0;
-    display: grid;
-    grid-template-columns: minmax(0, 1fr) 4px var(--ed-right, 320px);
-}
-#ed-mid {
-    display: grid;
-    grid-template-rows: minmax(120px, 1fr) 4px var(--ed-bottom, 250px);
-    min-width: 0;
-    min-height: 0;
-}
-.ed-dock {
-    min-width: 0;
-    min-height: 0;
-    overflow: hidden;
-    background: var(--surface-1);
-    display: flex;
-    flex-direction: column;
-}
-.ed-dock.collapsed {
-    visibility: hidden;
-}
-#ed-right {
-    background: var(--surface-0);
-}
-.ed-sub {
-    min-height: 0;
-    display: flex;
-    flex-direction: column;
-    background: var(--surface-1);
-}
-#ed-outliner {
-    flex: 0 0 min(var(--ed-outliner, 300px), calc(100% - 200px));
-}
-#ed-details {
-    flex: 1;
-}
-#ed-bottom {
-    background: var(--surface-1);
-}
-.splitter.v {
-    cursor: col-resize;
-}
-.splitter.h {
-    cursor: row-resize;
-}
-body.ed-resizing {
-    user-select: none;
-    cursor: col-resize;
-}
-body.ed-resizing-y {
-    user-select: none;
-    cursor: row-resize;
-}
+/* The Level Editor's dock layout (#ed-body, panes and splitters) lives in workspace.css. */
 body.ed-scrub {
     user-select: none;
     cursor: ew-resize;
@@ -1740,8 +1686,14 @@ body.dragging-asset {
     border-bottom: 1px solid var(--border);
 }
 .assets-kinds .chips {
-    flex-wrap: wrap;
-    row-gap: var(--sp-2);
+    /* One row of category chips (there are up to 19); it scrolls sideways instead of eating the grid. */
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    scrollbar-width: thin;
+    padding-bottom: 2px;
+}
+.assets-kinds .chip.clear {
+    color: var(--fg-muted);
 }
 .assets-kinds .chip {
     flex: none;
@@ -1845,6 +1797,10 @@ body.dragging-asset {
 }
 .cb-folder.sel .ico {
     color: var(--accent-hover);
+}
+/* Type folders (display categories): the icon takes the category colour. */
+.cb-folder.cb-type .ico {
+    color: var(--k, var(--fg-faint));
 }
 .cb-folder .n {
     font-size: var(--fs-xs);

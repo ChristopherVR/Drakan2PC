@@ -71,6 +71,14 @@ Engine 5; textures move to UE5-style PBR sets.
   multiplayer, settings) are not skinnable; the skin is read once at startup.
 - Order of the Flame port state: see [ootf-port.md](ootf-port.md). The full `npm run build` passes again (2026-11-02).
 
+- UI overhaul 2026-11-02 (journals `editor-shell-layout`, `start-page-redesign`, `project-panel-redesign`,
+  `object-categories`, `story-in-viewport`): resizable docks + left Place panel; template-picker start page with a step
+  checklist; Project Settings as levels tree table + message-log Checks; 19 display categories (no placed object in
+  "Other"); cut scenes / shops / quests / conversations drawn in the viewport, "Add cut scene here". Follow-ups: Place
+  panel should list `storyPlaceables()` (story/storyactions.ts); "Add shop here" needs the shop-to-character link;
+  Story tab hides the viewport unless docked; "Show in folder" needs a Tauri command; Project Id stops following Name
+  after one keystroke (reported by the docs agent, recheck); site media (`docs/site/media.json`) pending upload.
+
 ### Story and logic
 
 - Quests: prove a quest starts and completes in game. The writer now uses ordinal 30 (Quest Initiate) instead of

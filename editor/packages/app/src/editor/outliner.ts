@@ -1,5 +1,10 @@
-import type { EntityKind, LevelObject } from '@drakan/editor-core';
-import { KINDS } from '../level.ts';
+import {
+    OBJECT_CATEGORIES,
+    categoryIndex,
+    type AssetClass,
+    type LevelObject,
+    type ObjectCategory,
+} from '@drakan/editor-core';
 import type { Ctx, Panel } from './ctx.ts';
 import { fill, h, icon, raf } from './dom.ts';
 import { buildObjectMenu } from './objectmenu.ts';
@@ -10,24 +15,25 @@ interface ClassGroup {
     name: string;
     ids: number[];
 }
-interface KindGroup {
-    kind: EntityKind;
+interface CategoryGroup {
+    cat: ObjectCategory;
     label: string;
+    hint: string;
     color: string;
     classes: ClassGroup[];
     count: number;
 }
 
-const colorOf = (kind: EntityKind): string =>
-    `#${(KINDS.find((k) => k.kind === kind)?.color ?? 0x888888).toString(16).padStart(6, '0')}`;
+const hexColor = (c: number): string => `#${c.toString(16).padStart(6, '0')}`;
+const LABEL = new Map(OBJECT_CATEGORIES.map((c) => [c.id, c.label.toLowerCase()]));
 
 /**
- * Outliner: objects grouped by category and class, with search, visibility and lock toggles, multi-select (Ctrl toggles,
+ * Outliner: objects grouped by display category (`categories.ts` in editor-core) and class, with search, visibility and lock toggles, multi-select (Ctrl toggles,
  * Shift selects a range) and double-click to frame. The tree is rebuilt only when the object set, search or toggles
  * change; selection highlights are patched in place so moving objects stays cheap.
  */
 export function createOutliner(ctx: Ctx): Panel {
-    const searchBox = searchField('Search objects', 'Search objects by class, id or kind');
+    const searchBox = searchField('Search objects', 'Search objects by class, id or category');
     const search = searchBox.input;
     const count = h('span', { class: 'dim count' });
     const tree = h('div', { class: 'tree', role: 'tree' });
@@ -51,7 +57,17 @@ export function createOutliner(ctx: Ctx): Panel {
     );
 
     const expanded = new Set<string>();
-    let groups: KindGroup[] = [];
+    let groups: CategoryGroup[] = [];
+    let catFor: AssetClass[] | null = null;
+    let catFn = categoryIndex([]);
+    const categoryOf = (o: LevelObject): ObjectCategory => {
+        const cat = ctx.catalog();
+        if (cat !== catFor) {
+            catFor = cat;
+            catFn = categoryIndex(cat);
+        }
+        return catFn(o);
+    };
     let builtKey = '';
     const rows = new Map<number, HTMLElement>();
     const groupRows = new Map<string, { el: HTMLElement; ids: number[] }>();
@@ -60,29 +76,31 @@ export function createOutliner(ctx: Ctx): Panel {
 
     const matches = (o: LevelObject): boolean => {
         if (!query) return true;
-        return `${o.id} ${o.class} ${o.kind} ${o.resource}`.toLowerCase().includes(query);
+        return `${o.id} ${o.class} ${LABEL.get(categoryOf(o)) ?? ''} ${o.resource}`.toLowerCase().includes(query);
     };
 
-    function collect(): KindGroup[] {
-        const byKind = new Map<EntityKind, Map<string, ClassGroup>>();
+    function collect(): CategoryGroup[] {
+        const byCat = new Map<ObjectCategory, Map<string, ClassGroup>>();
         for (const o of ctx.doc().objects()) {
             if (!matches(o)) continue;
-            let m = byKind.get(o.kind);
-            if (!m) byKind.set(o.kind, (m = new Map()));
+            const cat = categoryOf(o);
+            let m = byCat.get(cat);
+            if (!m) byCat.set(cat, (m = new Map()));
             const name = o.class || o.resource || 'Unnamed';
             let g = m.get(name);
             if (!g) m.set(name, (g = { key: name, name, ids: [] }));
             g.ids.push(o.id);
         }
-        const out: KindGroup[] = [];
-        for (const k of KINDS) {
-            const m = byKind.get(k.kind);
+        const out: CategoryGroup[] = [];
+        for (const k of OBJECT_CATEGORIES) {
+            const m = byCat.get(k.id);
             if (!m) continue;
             const classes = [...m.values()].sort((a, b) => a.name.localeCompare(b.name));
             out.push({
-                kind: k.kind,
+                cat: k.id,
                 label: k.label,
-                color: colorOf(k.kind),
+                hint: k.hint,
+                color: hexColor(k.color),
                 classes,
                 count: classes.reduce((n, c) => n + c.ids.length, 0),
             });
@@ -94,7 +112,7 @@ export function createOutliner(ctx: Ctx): Panel {
         const v = ctx.view();
         let sum = 0;
         for (const o of ctx.doc().objects()) sum = (sum + o.id * 31 + o.class.length) >>> 0;
-        return `${ctx.doc().size}:${sum}:${query}`;
+        return `${ctx.doc().size}:${sum}:${query}:${ctx.catalog().length}`;
     }
 
     const eyeBtn = (hidden: boolean, onclick: () => void, title: string): HTMLElement => {
@@ -174,6 +192,7 @@ export function createOutliner(ctx: Ctx): Panel {
         ids: () => number[],
         color: string | null,
         body: () => HTMLElement[],
+        hint = '',
     ): HTMLElement {
         const open = expanded.has(key);
         const wrap = h('div', { class: 'group' });
@@ -181,7 +200,12 @@ export function createOutliner(ctx: Ctx): Panel {
         const allIds = ids();
         const row = h(
             'div',
-            { class: `row grp d${depth}`, role: 'treeitem', 'aria-expanded': String(open) },
+            {
+                class: `row grp d${depth}`,
+                role: 'treeitem',
+                'aria-expanded': String(open),
+                ...(hint ? { title: hint } : {}),
+            },
             h(
                 'button',
                 {
@@ -254,7 +278,7 @@ export function createOutliner(ctx: Ctx): Panel {
         }
         const nodes: HTMLElement[] = [];
         for (const g of groups) {
-            const kk = `k:${g.kind}`;
+            const kk = `k:${g.cat}`;
             if (searching && g.classes.length <= 3) expanded.add(kk);
             nodes.push(
                 groupRow(
@@ -266,7 +290,7 @@ export function createOutliner(ctx: Ctx): Panel {
                     g.color,
                     () =>
                         g.classes.map((c) => {
-                            const ck = `c:${g.kind}:${c.key}`;
+                            const ck = `c:${g.cat}:${c.key}`;
                             if (searching && c.ids.length <= 40) expanded.add(ck);
                             return groupRow(
                                 ck,
@@ -295,6 +319,7 @@ export function createOutliner(ctx: Ctx): Panel {
                                 },
                             );
                         }),
+                    g.hint,
                 ),
             );
         }
@@ -310,8 +335,9 @@ export function createOutliner(ctx: Ctx): Panel {
             let row = rows.get(id);
             const o = ctx.doc().get(id);
             if (!row && o && matches(o)) {
-                expanded.add(`k:${o.kind}`);
-                expanded.add(`c:${o.kind}:${o.class || o.resource || 'Unnamed'}`);
+                const cat = categoryOf(o);
+                expanded.add(`k:${cat}`);
+                expanded.add(`c:${cat}:${o.class || o.resource || 'Unnamed'}`);
                 build();
                 row = rows.get(id);
             }

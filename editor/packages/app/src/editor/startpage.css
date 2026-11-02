@@ -1,0 +1,486 @@
+/* Start page ("What do you want to make?"): template tiles, the details pane and the level picker (startpage.ts),
+   plus the checklist's attention and peek styles (project/checklist.ts). */
+
+.start.sp {
+    width: min(1180px, 100%);
+    padding: 28px 28px 32px;
+    container-type: inline-size;
+}
+
+/* ---- header and disc ---- */
+.sp-head h2 {
+    margin: 0 0 4px;
+    font-size: 22px;
+}
+.sp-head .start-lead {
+    margin: 0 0 14px;
+    max-width: 72ch;
+}
+.sp-disc {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-bottom: 18px;
+    padding: 7px 12px;
+    color: var(--fg-muted);
+    font-size: var(--fs-sm);
+    background: var(--surface-1);
+    border: 1px solid var(--border);
+    border-radius: var(--r-lg);
+}
+.sp-disc > svg {
+    color: var(--ok);
+}
+.sp-disc strong {
+    color: var(--fg);
+    font-weight: 600;
+}
+.sp-disc .spacer {
+    flex: 1;
+}
+.sp-disc.none {
+    gap: 12px;
+    padding: 14px 16px;
+    border-color: var(--accent);
+    background: linear-gradient(90deg, var(--accent-soft), transparent 70%), var(--surface-1);
+}
+.sp-disc-t {
+    display: grid;
+    gap: 2px;
+    flex: 1 1 320px;
+    min-width: 0;
+}
+.sp-disc-t strong {
+    font-size: var(--fs-lg);
+}
+.sp .linkish {
+    padding: 0;
+    color: var(--fg-muted);
+    font: inherit;
+    background: none;
+    border: 0;
+    cursor: pointer;
+    text-decoration: underline;
+    text-underline-offset: 2px;
+}
+.sp .linkish:hover {
+    color: var(--fg);
+}
+
+/* ---- browser: tiles | details ---- */
+.sp-browser {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 300px;
+    gap: 22px;
+    align-items: start;
+}
+.sp-group + .sp-group {
+    margin-top: 18px;
+}
+.sp-group h3 {
+    margin: 0 0 8px;
+}
+.sp-tiles {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(176px, 1fr));
+    gap: 10px;
+}
+.sp-tile {
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 2px;
+    height: auto;
+    padding: 0 0 10px;
+    overflow: hidden;
+    color: var(--fg);
+    font: inherit;
+    text-align: left;
+    background: var(--surface-1);
+    border: 1px solid var(--border);
+    border-radius: var(--r-lg);
+    cursor: pointer;
+}
+.sp-tile:hover {
+    border-color: var(--border-strong);
+    background: var(--surface-2);
+}
+.sp-tile:focus-visible {
+    outline: 2px solid var(--focus);
+    outline-offset: 2px;
+}
+.sp-tile.on {
+    border-color: var(--accent);
+    box-shadow: 0 0 0 1px var(--accent);
+    background: var(--surface-2);
+}
+.sp-tile-art {
+    position: relative;
+    display: block;
+    aspect-ratio: 16 / 9;
+    margin-bottom: 6px;
+    border-bottom: 1px solid var(--border);
+}
+.sp-tile-t {
+    padding: 0 10px;
+    font-weight: 600;
+}
+.sp-tile-l {
+    padding: 0 10px;
+    color: var(--fg-muted);
+    font-size: var(--fs-sm);
+    line-height: 1.35;
+}
+.sp-badge {
+    position: absolute;
+    top: 6px;
+    left: 6px;
+    padding: 1px 7px;
+    color: var(--accent-fg);
+    font-size: var(--fs-2xs);
+    font-weight: 600;
+    background: var(--ok);
+    border-radius: 999px;
+}
+
+/* The "map table" every preview is drawn on: a faint survey grid under a soft light. */
+.sp-tile-art,
+.sp-details-art {
+    background:
+        linear-gradient(color-mix(in srgb, var(--border) 60%, transparent) 1px, transparent 1px) 0 0 / 14px 14px,
+        linear-gradient(90deg, color-mix(in srgb, var(--border) 60%, transparent) 1px, transparent 1px) 0 0 / 14px 14px,
+        radial-gradient(ellipse at 35% 25%, var(--surface-3), var(--field) 75%);
+}
+.sp-tile-art::after,
+.sp-details-art::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: radial-gradient(ellipse at 35% 25%, transparent 30%, var(--field) 100%);
+    opacity: 0.55;
+    pointer-events: none;
+}
+.sp-art {
+    position: absolute;
+    inset: 0;
+    z-index: 1;
+    width: 100%;
+    height: 100%;
+}
+.sp-tile:not(.on):not(:hover) .sp-art {
+    opacity: 0.82;
+}
+.sp-art .ln,
+.sp-art .dm,
+.sp-art .wm-line {
+    fill: none;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+}
+.sp-art .ln {
+    stroke: var(--accent);
+    stroke-width: 1.6;
+}
+.sp-art .ln.thin {
+    stroke-width: 1;
+}
+.sp-art .ln.dash {
+    stroke-dasharray: 4 3;
+}
+.sp-art .dm {
+    stroke: var(--fg-faint);
+    stroke-width: 1.2;
+}
+.sp-art .wm-line {
+    stroke: var(--warn);
+    stroke-width: 1.6;
+}
+.sp-art .ln-solid,
+.sp-art .ln-fill,
+.sp-art .team-a {
+    fill: var(--accent);
+}
+.sp-art .team-b {
+    fill: var(--bad);
+}
+.sp-art .fl {
+    fill: var(--accent-soft);
+}
+.sp-art .wm {
+    fill: var(--warn);
+}
+.sp-art .dm-fill {
+    fill: var(--surface-4);
+}
+.sp-art .bg-dot {
+    fill: var(--field);
+}
+
+/* ---- details pane ---- */
+.sp-details {
+    position: sticky;
+    top: 12px;
+    padding: 0 16px 16px;
+    overflow: hidden;
+    background: var(--surface-1);
+    border: 1px solid var(--border);
+    border-radius: var(--r-lg);
+}
+.sp-details-art {
+    position: relative;
+    aspect-ratio: 16 / 9;
+    margin: 0 -16px 14px;
+    border-bottom: 1px solid var(--border);
+}
+.sp-details h2 {
+    margin: 0 0 4px;
+    font-size: 18px;
+}
+.sp-about {
+    margin: 0 0 12px;
+    color: var(--fg-muted);
+}
+.sp-details h3 {
+    margin: 0 0 6px;
+}
+.sp-steps {
+    margin: 0 0 12px;
+    padding: 0;
+    list-style: none;
+    counter-reset: sp-step;
+}
+.sp-steps li {
+    position: relative;
+    padding: 3px 0 3px 26px;
+    counter-increment: sp-step;
+}
+.sp-steps li::before {
+    content: counter(sp-step);
+    position: absolute;
+    left: 0;
+    top: 4px;
+    width: 18px;
+    height: 18px;
+    color: var(--fg-muted);
+    font-size: var(--fs-2xs);
+    font-weight: 600;
+    line-height: 16px;
+    text-align: center;
+    border: 1px solid var(--border-strong);
+    border-radius: 50%;
+}
+.sp-steps li:first-child::before {
+    color: var(--accent-fg);
+    background: var(--accent);
+    border-color: var(--accent);
+}
+.sp-needs {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin: 0 0 14px;
+    color: var(--fg-muted);
+    font-size: var(--fs-sm);
+}
+.sp-needs.missing svg {
+    color: var(--warn);
+}
+.sp-go-box {
+    display: grid;
+    gap: 6px;
+}
+.start .ui-btn.sp-go {
+    height: 36px;
+    font-size: var(--fs-md);
+    font-weight: 600;
+    justify-content: center;
+}
+.sp-note {
+    margin: 0;
+    color: var(--fg-faint);
+    font-size: var(--fs-sm);
+}
+.sp-wait-box {
+    display: grid;
+    gap: 10px;
+}
+.sp-wait {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-height: 36px;
+    padding: 0 12px;
+    color: var(--fg);
+    background: var(--accent-soft);
+    border-radius: var(--r-md);
+}
+.sp-wait > svg {
+    transform: rotate(180deg);
+    color: var(--accent);
+}
+.sp-row {
+    display: flex;
+    gap: 8px;
+}
+.sp-spin {
+    width: 14px;
+    height: 14px;
+    border: 2px solid var(--accent-soft);
+    border-top-color: var(--accent);
+    border-radius: 50%;
+    animation: sp-spin 0.8s linear infinite;
+}
+@keyframes sp-spin {
+    to {
+        transform: rotate(360deg);
+    }
+}
+
+/* ---- level picker (in place of the tiles) ---- */
+.sp-pick .start-back {
+    gap: 6px;
+    margin-bottom: 12px;
+}
+.sp .sp-pick-t {
+    margin: 0 0 4px;
+    color: var(--fg);
+    font-size: var(--fs-lg);
+}
+.sp-pick-lead {
+    margin: 0 0 14px;
+    max-width: 64ch;
+    color: var(--fg-muted);
+}
+.sp-pick-sec + .sp-pick-sec {
+    margin-top: 14px;
+}
+.sp-pick h4 {
+    margin: 0 0 6px;
+    color: var(--fg-muted);
+    font-size: var(--fs-sm);
+    font-weight: 600;
+}
+.start-level.good {
+    border-color: var(--ok);
+}
+
+/* ---- below the browser ---- */
+.sp-projects {
+    margin-top: 26px;
+}
+.sp-more {
+    margin-top: 18px;
+}
+.sp-more.start-all > summary {
+    color: var(--fg-muted);
+    cursor: pointer;
+}
+.sp-more.start-all > .start-levels {
+    margin-top: 8px;
+}
+
+/* Narrow: the details shrink to a bar pinned to the bottom (title and button), so a click on a tile still visibly
+   changes something without scrolling the tiles away. */
+@container (max-width: 760px) {
+    .sp-browser {
+        grid-template-columns: minmax(0, 1fr);
+    }
+    .sp-details {
+        position: sticky;
+        top: auto;
+        bottom: 0;
+        z-index: 2;
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 8px 12px;
+        padding: 10px 12px;
+        box-shadow: var(--shadow-pop);
+    }
+    .sp-details-art,
+    .sp-about,
+    .sp-details h3,
+    .sp-steps,
+    .sp-needs,
+    .sp-note {
+        display: none;
+    }
+    .sp-details h2 {
+        flex: 1 1 140px;
+        margin: 0;
+        font-size: var(--fs-lg);
+    }
+    .sp-go-box,
+    .sp-wait-box {
+        flex: 1 1 180px;
+    }
+    .sp-tiles {
+        grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+    }
+}
+
+/* ---- checklist: opens with a short ring when something starts, and names the next step when collapsed ---- */
+.pj-card.fresh {
+    animation: pj-fresh 0.7s ease-out 2;
+}
+@keyframes pj-fresh {
+    0% {
+        box-shadow:
+            var(--shadow-pop),
+            0 0 0 0 var(--accent);
+    }
+    100% {
+        box-shadow:
+            var(--shadow-pop),
+            0 0 0 10px transparent;
+    }
+}
+.pj-peek {
+    display: flex;
+    height: auto;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+    padding: 6px var(--sp-3) 7px;
+    color: var(--fg);
+    font: inherit;
+    text-align: left;
+    background: var(--accent-soft);
+    border: 0;
+    cursor: pointer;
+}
+.pj-peek-n {
+    flex: none;
+    width: 18px;
+    height: 18px;
+    color: var(--accent-fg);
+    font-size: var(--fs-2xs);
+    font-weight: 600;
+    line-height: 18px;
+    text-align: center;
+    background: var(--accent);
+    border-radius: 50%;
+}
+.pj-peek-t {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.pj-card.small.collapsed .pj-peek {
+    display: none;
+}
+.pj-skip {
+    display: block;
+    margin-top: 6px;
+    font-size: var(--fs-xs);
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .pj-card.fresh {
+        animation: none;
+    }
+    .sp-spin {
+        animation-duration: 2.4s;
+    }
+}

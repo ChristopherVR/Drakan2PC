@@ -1004,13 +1004,39 @@ input[type='range']:disabled {
     flex: none;
 }
 
-/* ---- splitter ---- */
+/* ---- splitter ----
+   A thin bar between two panes (Unreal style): the gap itself is the bar, a wider invisible grip (::before) makes it
+   easy to catch, and a 2 px accent line (::after) shows on hover, while dragging and on keyboard focus. Give the bar
+   its thickness from the layout (a 4 px grid track, or `flex: none` plus a width / height); `.v` sits between panes
+   side by side, `.h` between panes stacked on top of each other. */
 .ui-splitter,
 .splitter {
     position: relative;
     z-index: 3;
     background: var(--surface-0);
     touch-action: none;
+    outline: none;
+}
+.ui-splitter.v,
+.splitter.v {
+    cursor: col-resize;
+}
+.ui-splitter.h,
+.splitter.h {
+    cursor: row-resize;
+}
+.ui-splitter::before,
+.splitter::before {
+    content: '';
+    position: absolute;
+}
+.ui-splitter.v::before,
+.splitter.v::before {
+    inset: 0 -4px;
+}
+.ui-splitter.h::before,
+.splitter.h::before {
+    inset: -4px 0;
 }
 .ui-splitter::after,
 .splitter::after {
@@ -1018,6 +1044,7 @@ input[type='range']:disabled {
     position: absolute;
     background: transparent;
     transition: background var(--t-fast);
+    pointer-events: none;
 }
 .ui-splitter.v::after,
 .splitter.v::after {
@@ -1029,13 +1056,21 @@ input[type='range']:disabled {
 }
 .ui-splitter:hover::after,
 .ui-splitter.dragging::after,
+.ui-splitter:focus-visible::after,
 .splitter:hover::after,
 .splitter.dragging::after,
 .splitter:focus-visible::after {
     background: var(--accent);
 }
+.ui-splitter:focus-visible,
 .splitter:focus-visible {
     box-shadow: none;
+}
+@media (prefers-reduced-motion: reduce) {
+    .ui-splitter::after,
+    .splitter::after {
+        transition: none;
+    }
 }
 
 /* ---- feedback: toasts, empty states, tooltips ---- */

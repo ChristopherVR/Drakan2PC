@@ -103,7 +103,13 @@ export class LevelView {
     private hoverMesh: THREE.Mesh;
     /** Terrain and model instances (real visuals); filled by the level loader. */
     readonly models = new ModelLayer();
-    viewOptions: ViewOptions = { ...DEFAULT_VIEW_OPTIONS, helpers: { ...DEFAULT_VIEW_OPTIONS.helpers } };
+    viewOptions: ViewOptions = {
+        ...DEFAULT_VIEW_OPTIONS,
+        helpers: { ...DEFAULT_VIEW_OPTIONS.helpers },
+        story: { ...DEFAULT_VIEW_OPTIONS.story },
+    };
+    /** Called after every rendered frame (overlays that position screen labels, `story/storyview.ts`). */
+    readonly afterFrame = new Set<() => void>();
     private readonly hemi = new THREE.HemisphereLight(0xffffff, 0x445066, 1.6);
     private readonly sun = new THREE.DirectionalLight(0xffffff, 1.2);
     private bgColor = 0x14161a;
@@ -158,6 +164,9 @@ export class LevelView {
     stack = new CommandStack(this.doc);
     selection = new Set<number>();
     hiddenKinds = new Set<EntityKind>();
+    /** Display categories switched off in the Show menu (`ObjectCategory` ids) and the function that names them. */
+    hiddenCategories = new Set<string>();
+    categoryOf: ((o: LevelObject) => string) | null = null;
     hiddenIds = new Set<number>();
     lockedIds = new Set<number>();
     /** Restrictions for hosts that edit a fixed set of objects (the save editor): no add/remove, optional move-only. */
@@ -464,6 +473,8 @@ export class LevelView {
     passes(o: LevelObject): boolean {
         if (this.hiddenIds.has(o.id)) return false;
         if (this.hiddenKinds.has(o.kind)) return false;
+        if (this.hiddenCategories.size && this.categoryOf && this.hiddenCategories.has(this.categoryOf(o)))
+            return false;
         if (this.classFilter && !o.class.toLowerCase().includes(this.classFilter)) return false;
         if (this.search) {
             const q = this.search;
@@ -473,8 +484,16 @@ export class LevelView {
         return true;
     }
 
-    setFilters(f: { hidden?: Set<EntityKind>; cls?: string; search?: string }): void {
+    setFilters(f: {
+        hidden?: Set<EntityKind>;
+        categories?: Set<string>;
+        categoryOf?: (o: LevelObject) => string;
+        cls?: string;
+        search?: string;
+    }): void {
         if (f.hidden) this.hiddenKinds = f.hidden;
+        if (f.categories) this.hiddenCategories = f.categories;
+        if (f.categoryOf) this.categoryOf = f.categoryOf;
         if (f.cls !== undefined) this.classFilter = f.cls.trim().toLowerCase();
         if (f.search !== undefined) this.search = f.search.trim().toLowerCase();
         for (const id of [...this.selection]) {
@@ -1599,6 +1618,7 @@ export class LevelView {
         this.orbit.update();
         this.models.anim.update(dt, this.camera);
         this.renderer.render(this.scene, this.camera);
+        for (const f of this.afterFrame) f();
         this.frames++;
         if (now - this.fpsT >= 1000) {
             this.fps = Math.round((this.frames * 1000) / (now - this.fpsT));

@@ -26,7 +26,7 @@ import {
 } from '@drakan/formats';
 import { quatYawPitch, yawPitchQuat, type ModMeta } from '@drakan/editor-core';
 import type { Panel } from '../editor/ctx.ts';
-import { fill, h } from '../editor/dom.ts';
+import { fill, h, icon } from '../editor/dom.ts';
 import type { ContentSession } from './content.ts';
 import { createTimeline } from './timeline.ts';
 import './cinematics.css';
@@ -44,7 +44,20 @@ const kindColor = (k: string): string => KIND_COLOR[k] ?? '#a3a3ad';
 
 const num = (v: number, d = 2): string => (Number.isInteger(v) ? String(v) : v.toFixed(d));
 
-export function createCinematicsPanel(session: ContentSession, meta: () => ModMeta | null): Panel {
+export interface CinematicsPanel extends Panel {
+    /** Show one sequence's timeline. */
+    focus(id: number): void;
+}
+
+/**
+ * `onNewCutscene` adds the "New cut scene" button: the host makes one at the camera target (player, trigger box and a
+ * starter camera move), selects it in the level and focuses it here.
+ */
+export function createCinematicsPanel(
+    session: ContentSession,
+    meta: () => ModMeta | null,
+    onNewCutscene?: () => void,
+): CinematicsPanel {
     const state = { q: '', sel: 0, t: 0, playing: false, raf: 0, t0: 0, cue: 0 };
     const stemSel = h('select', { class: 'story-sel', 'aria-label': 'Level folder' });
     const search = h('input', {
@@ -124,7 +137,28 @@ export function createCinematicsPanel(session: ContentSession, meta: () => ModMe
     const root = h(
         'div',
         { class: 'panel story cin' },
-        h('div', { class: 'story-bar' }, loadBtn, stemSel, search, exportBtn, info),
+        h(
+            'div',
+            { class: 'story-bar' },
+            onNewCutscene
+                ? h(
+                      'button',
+                      {
+                          class: 'btn primary',
+                          type: 'button',
+                          title: 'Place a new cut scene where the camera looks: a player, a trigger box and a starter camera move',
+                          onclick: () => onNewCutscene(),
+                      },
+                      icon('plus', 13),
+                      'New cut scene',
+                  )
+                : null,
+            loadBtn,
+            stemSel,
+            search,
+            exportBtn,
+            info,
+        ),
         newBar,
         h('div', { class: 'story-body' }, list, detail),
     );
@@ -713,5 +747,15 @@ export function createCinematicsPanel(session: ContentSession, meta: () => ModMe
     const open = (): Promise<void> =>
         session.ensure().then(renderAll, (e) => session.host.status(e instanceof Error ? e.message : String(e), true));
     renderAll();
-    return { el: root, onLoad: renderAll };
+    return {
+        el: root,
+        onLoad: renderAll,
+        focus(id) {
+            stop();
+            state.sel = id;
+            state.t = 0;
+            renderAll();
+            list.querySelector('.story-row.sel')?.scrollIntoView({ block: 'nearest' });
+        },
+    };
 }

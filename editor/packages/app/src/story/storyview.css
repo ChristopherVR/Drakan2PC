@@ -1,0 +1,142 @@
+/* Story overlay in the level view (storyview.ts): badges on cut scene players, shops, quests and talking characters,
+   quest area labels and the hover card. The layer covers the viewport and lets the pointer through except on badges. */
+
+.sv-layer {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    overflow: hidden;
+    z-index: 3;
+}
+
+.sv-badge {
+    --sv-c: #ff5fd2;
+    position: absolute;
+    left: 0;
+    top: 0;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    max-width: 260px;
+    height: 22px;
+    padding: 0 9px 0 2px;
+    margin-left: -11px;
+    border: 1px solid color-mix(in srgb, var(--sv-c) 55%, transparent);
+    border-radius: 11px;
+    background: color-mix(in srgb, var(--surface-0, #121214) 82%, transparent);
+    color: var(--fg, #e6e6ea);
+    font: 500 var(--fs-xs, 11px) / 1 var(--font, system-ui);
+    white-space: nowrap;
+    pointer-events: auto;
+    cursor: pointer;
+    box-shadow: 0 1px 3px rgb(0 0 0 / 0.45);
+    will-change: transform;
+}
+/* The stem from the badge down to the object. */
+.sv-badge::after {
+    content: '';
+    position: absolute;
+    left: 10px;
+    top: 21px;
+    width: 1px;
+    height: 9px;
+    background: color-mix(in srgb, var(--sv-c) 70%, transparent);
+}
+.sv-badge:hover,
+.sv-badge.sel {
+    border-color: var(--sv-c);
+    background: color-mix(in srgb, var(--sv-c) 22%, var(--surface-0, #121214));
+}
+.sv-badge.sel {
+    box-shadow:
+        0 0 0 1px var(--sv-c),
+        0 2px 8px rgb(0 0 0 / 0.5);
+}
+.sv-badge:focus-visible {
+    outline: 2px solid var(--focus, #6aa9ff);
+    outline-offset: 1px;
+}
+.sv-ico {
+    display: grid;
+    place-items: center;
+    flex: none;
+    width: 18px;
+    height: 18px;
+    border-radius: 50%;
+    background: var(--sv-c);
+    color: #15151a;
+}
+.sv-label {
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+/* Far away: just the icon. */
+.sv-badge.far {
+    padding-right: 2px;
+}
+.sv-badge.far .sv-label {
+    display: none;
+}
+
+.sv-area-label {
+    position: absolute;
+    left: 0;
+    top: 0;
+    translate: -50% -100%;
+    padding: 2px 7px;
+    border-radius: 4px;
+    font: 600 var(--fs-xs, 11px) / 1.3 var(--font, system-ui);
+    color: #101410;
+    white-space: nowrap;
+    pointer-events: none;
+    opacity: 0.92;
+}
+.sv-area-label.sv-start {
+    background: #6ad37a;
+}
+.sv-area-label.sv-complete {
+    background: #f0b43c;
+}
+
+.sv-tip {
+    position: absolute;
+    left: 0;
+    top: 0;
+    z-index: 4;
+    max-width: 300px;
+    padding: 7px 10px 8px;
+    border: 1px solid var(--border-strong, #45454d);
+    border-radius: 6px;
+    background: var(--surface-2, #232327);
+    color: var(--fg, #e6e6ea);
+    font: var(--fs-sm, 12px) / 1.45 var(--font, system-ui);
+    box-shadow: var(--shadow-pop, 0 6px 20px rgb(0 0 0 / 0.5));
+    pointer-events: none;
+}
+.sv-tip-head {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-bottom: 3px;
+}
+.sv-tip-line {
+    color: var(--fg-muted, #a3a3ad);
+}
+.sv-tip-line:last-child {
+    margin-top: 4px;
+    color: var(--fg-faint, #6f6f7a);
+}
+
+@media (prefers-reduced-motion: no-preference) {
+    .sv-badge {
+        transition:
+            background-color var(--t-fast, 0.12s),
+            border-color var(--t-fast, 0.12s);
+    }
+}
+
+.sv-badge[hidden],
+.sv-area-label[hidden],
+.sv-tip[hidden] {
+    display: none;
+}

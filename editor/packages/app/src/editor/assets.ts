@@ -1,5 +1,13 @@
-import { groupCatalog, searchCatalog, type AssetClass, type AssetIcon } from '@drakan/editor-core';
-import { KINDS, KIND_HINT } from '../level.ts';
+import {
+    OBJECT_CATEGORIES,
+    categoryInfo,
+    classCategory,
+    groupCatalog,
+    searchCatalog,
+    type AssetClass,
+    type AssetIcon,
+    type ObjectCategory,
+} from '@drakan/editor-core';
 import type { Ctx, Panel } from './ctx.ts';
 import { attachAssetDrag, dragState } from './assetdrag.ts';
 import { fill, h, hex, icon, raf, store } from './dom.ts';
@@ -24,8 +32,15 @@ export interface AssetsPanel extends Panel {
 
 const PER_GROUP = 160;
 
-const kindColor = (cls: AssetClass): string =>
-    `#${(KINDS.find((k) => k.kind === cls.kind)?.color ?? 0x888888).toString(16).padStart(6, '0')}`;
+const hexColor = (c: number): string => `#${c.toString(16).padStart(6, '0')}`;
+/** Display category of a class, cached per class object (the catalog is rebuilt per level). */
+const catCache = new WeakMap<AssetClass, ObjectCategory>();
+const catOf = (cls: AssetClass): ObjectCategory => {
+    let c = catCache.get(cls);
+    if (!c) catCache.set(cls, (c = classCategory(cls)));
+    return c;
+};
+const kindColor = (cls: AssetClass): string => hexColor(categoryInfo(catOf(cls)).color);
 
 /**
  * Asset Browser: every class the level can use, grouped by category, with search, favourites and a size slider. Drag a
@@ -54,7 +69,7 @@ export function createAssets(ctx: Ctx): AssetsPanel {
                   },
                   { rootMargin: '120px' },
               );
-    /** The selected folder: 'all', 'fav', 'level' or `db:<ODB stem>`. */
+    /** The selected folder: 'all', 'fav', 'level', `cat:<category>` or `db:<ODB stem>` (`db:<stem>/<category>`). */
     let folder = store.get('cb-folder') ?? 'all';
     const kindsOn = new Set<string>();
     let query = '';
@@ -227,7 +242,12 @@ export function createAssets(ctx: Ctx): AssetsPanel {
                 'div',
                 { class: 'detail-head' },
                 thumb(cls),
-                h('div', {}, h('strong', {}, cls.name), h('div', { class: 'dim' }, cls.category)),
+                h(
+                    'div',
+                    {},
+                    h('strong', {}, cls.name),
+                    h('div', { class: 'dim' }, `${categoryInfo(catOf(cls)).label}, ${cls.category}`),
+                ),
             ),
             row('Resource', cls.resource),
             row('In this level', String(cls.instances)),
@@ -273,12 +293,17 @@ export function createAssets(ctx: Ctx): AssetsPanel {
         return b;
     }
 
-    /** `db:STEM` or `db:STEM/kind`: a container, or the classes of one kind inside it. */
-    const parseDb = (f: string): { db: string; kind: string | null } | null => {
+    /** `db:STEM` or `db:STEM/category`: a container, or the classes of one category inside it. */
+    const parseDb = (f: string): { db: string; cat: string | null } | null => {
         if (!f.startsWith('db:')) return null;
-        const [db, kind] = f.slice(3).split('/');
-        return { db: db!, kind: kind ?? null };
+        const [db, cat] = f.slice(3).split('/');
+        return { db: db!, cat: cat ?? null };
     };
+    /** `cat:<category>`: every class of one category. */
+    const parseCat = (f: string): ObjectCategory | null =>
+        f.startsWith('cat:') && OBJECT_CATEGORIES.some((c) => c.id === f.slice(4))
+            ? (f.slice(4) as ObjectCategory)
+            : null;
     const openDbs = new Set<string>();
 
     function buildTree(all: AssetClass[]): void {
@@ -289,6 +314,20 @@ export function createAssets(ctx: Ctx): AssetsPanel {
             folderRow('level', 'In this level', 'layers', all.filter((c) => c.instances > 0).length),
             folderRow('fav', 'Favourites', 'star', all.filter((c) => favs.has(c.resource)).length),
         ];
+        const cats = new Map<ObjectCategory, number>();
+        for (const c of all) cats.set(catOf(c), (cats.get(catOf(c)) ?? 0) + 1);
+        if (cats.size) {
+            rows.push(h('div', { class: 'cb-tree-head' }, 'Types'));
+            for (const k of OBJECT_CATEGORIES) {
+                const n = cats.get(k.id);
+                if (!n) continue;
+                const row = folderRow(`cat:${k.id}`, k.label, k.icon, n, 0);
+                row.title = k.hint;
+                row.classList.add('cb-type');
+                row.style.setProperty('--k', hexColor(k.color));
+                rows.push(row);
+            }
+        }
         if (dbs.size) {
             rows.push(h('div', { class: 'cb-tree-head' }, 'Containers'));
             const cur = parseDb(folder);
@@ -297,9 +336,9 @@ export function createAssets(ctx: Ctx): AssetsPanel {
                 const row = folderRow(`db:${db}`, db, 'folder', n, 0);
                 const open = openDbs.has(db);
                 const kinds = new Map<string, number>();
-                for (const c of all) if (c.db === db) kinds.set(c.kind, (kinds.get(c.kind) ?? 0) + 1);
+                for (const c of all) if (c.db === db) kinds.set(catOf(c), (kinds.get(catOf(c)) ?? 0) + 1);
                 if (kinds.size > 1) {
-                    // A caret toggles the sub-folders (one per kind of class in the container) without changing the folder.
+                    // A caret toggles the sub-folders (one per category in the container) without changing the folder.
                     const caret = h(
                         'span',
                         {
@@ -319,9 +358,9 @@ export function createAssets(ctx: Ctx): AssetsPanel {
                 }
                 rows.push(row);
                 if (open && kinds.size > 1) {
-                    for (const k of KINDS) {
-                        const kn = kinds.get(k.kind);
-                        if (kn) rows.push(folderRow(`db:${db}/${k.kind}`, k.label, 'folder', kn, 2));
+                    for (const k of OBJECT_CATEGORIES) {
+                        const kn = kinds.get(k.id);
+                        if (kn) rows.push(folderRow(`db:${db}/${k.id}`, k.label, 'folder', kn, 2));
                     }
                 }
             }
@@ -330,42 +369,53 @@ export function createAssets(ctx: Ctx): AssetsPanel {
     }
 
     function buildKindChips(all: AssetClass[]): void {
-        const present = new Set(all.map((c) => c.kind));
-        fill(
-            kindChips,
-            ...KINDS.filter((k) => present.has(k.kind)).map((k) => {
-                const on = kindsOn.has(k.kind);
-                const c = h(
-                    'button',
-                    {
-                        class: `chip${on ? ' active' : ''}`,
-                        type: 'button',
-                        title: `Show only ${k.label} classes. ${KIND_HINT[k.kind]}`,
-                    },
-                    h('i', { class: 'ui-dot', style: `background:#${k.color.toString(16).padStart(6, '0')}` }),
-                    k.label,
-                );
-                c.addEventListener('click', () => {
-                    if (kindsOn.has(k.kind)) kindsOn.delete(k.kind);
-                    else kindsOn.add(k.kind);
-                    build();
-                });
-                return c;
-            }),
-        );
+        const present = new Map<ObjectCategory, number>();
+        for (const c of all) present.set(catOf(c), (present.get(catOf(c)) ?? 0) + 1);
+        const chips = OBJECT_CATEGORIES.filter((k) => present.has(k.id)).map((k) => {
+            const on = kindsOn.has(k.id);
+            const c = h(
+                'button',
+                {
+                    class: `chip${on ? ' active' : ''}`,
+                    type: 'button',
+                    'aria-pressed': String(on),
+                    title: `Show only ${k.label.toLowerCase()} (${present.get(k.id)} classes): ${k.hint.toLowerCase()}`,
+                },
+                h('i', { class: 'ui-dot', style: `background:${hexColor(k.color)}` }),
+                k.label,
+            );
+            c.addEventListener('click', () => {
+                if (kindsOn.has(k.id)) kindsOn.delete(k.id);
+                else kindsOn.add(k.id);
+                build();
+            });
+            return c;
+        });
+        if (kindsOn.size) {
+            const clear = h('button', { class: 'chip clear', type: 'button', title: 'Show every category' }, 'Clear');
+            clear.addEventListener('click', () => {
+                kindsOn.clear();
+                build();
+            });
+            chips.unshift(clear);
+        }
+        fill(kindChips, ...chips);
     }
 
     function build(): void {
         const all = ctx.catalog();
         const pf = parseDb(folder);
+        const pc = parseCat(folder);
         if (pf && !all.some((c) => c.db === pf.db)) folder = 'all';
+        if (folder.startsWith('cat:') && (!pc || !all.some((c) => catOf(c) === pc))) folder = 'all';
         buildTree(all);
         buildKindChips(all);
         let list = searchCatalog(all, query);
-        if (kindsOn.size) list = list.filter((c) => kindsOn.has(c.kind));
+        if (kindsOn.size) list = list.filter((c) => kindsOn.has(catOf(c)));
         if (folder === 'fav') list = list.filter((c) => favs.has(c.resource));
         else if (folder === 'level') list = list.filter((c) => c.instances > 0);
-        else if (pf) list = list.filter((c) => c.db === pf.db && (!pf.kind || c.kind === pf.kind));
+        else if (pc) list = list.filter((c) => catOf(c) === pc);
+        else if (pf) list = list.filter((c) => c.db === pf.db && (!pf.cat || catOf(c) === pf.cat));
         const folderName =
             folder === 'all'
                 ? 'All classes'
@@ -373,9 +423,11 @@ export function createAssets(ctx: Ctx): AssetsPanel {
                   ? 'Favourites'
                   : folder === 'level'
                     ? 'In this level'
-                    : pf
-                      ? `${pf.db}${pf.kind ? ` / ${KINDS.find((k) => k.kind === pf.kind)?.label ?? pf.kind}` : ''}`
-                      : folder;
+                    : pc
+                      ? categoryInfo(pc).label
+                      : pf
+                        ? `${pf.db}${pf.cat ? ` / ${categoryInfo(pf.cat as ObjectCategory).label}` : ''}`
+                        : folder;
         fill(crumb, icon('folder-open', 14), h('span', { class: 'dim' }, 'Content'), icon('chevron', 11), folderName);
         info.textContent = all.length ? `${list.length} of ${all.length} classes` : '';
         if (!all.length) {
@@ -393,7 +445,7 @@ export function createAssets(ctx: Ctx): AssetsPanel {
                     folder === 'fav' ? 'No favourites yet' : 'No classes match',
                     folder === 'fav'
                         ? 'Click the star on a tile to keep a class here.'
-                        : 'Clear the search or the kind filters to see more.',
+                        : 'Clear the search or the category filters to see more.',
                 ),
             );
             return;

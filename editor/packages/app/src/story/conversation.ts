@@ -24,7 +24,12 @@ export const STAGE_TITLES: Record<HandlerPhaseKey, { title: string; hint: string
 
 const soundStem = (s: ContentSession, db: number): string | null => (db === 0 ? s.stem : (s.story?.deps[db] ?? null));
 
-export function createConversationPanel(session: ContentSession, onNewLine?: () => void): Panel {
+export interface ConversationPanel extends Panel {
+    /** Show the conversation of one handler class. */
+    focus(classId: number): void;
+}
+
+export function createConversationPanel(session: ContentSession, onNewLine?: () => void): ConversationPanel {
     const state = { handler: 0 };
     const stemSel = h('select', { class: 'story-sel', 'aria-label': 'Level folder' });
     const convSel = h('select', { class: 'story-sel', 'aria-label': 'Conversation' });
@@ -244,5 +249,12 @@ export function createConversationPanel(session: ContentSession, onNewLine?: () 
         renderAll();
     });
     renderAll();
-    return { el: root, onLoad: renderAll };
+    return {
+        el: root,
+        onLoad: renderAll,
+        focus(classId) {
+            state.handler = classId;
+            renderAll();
+        },
+    };
 }

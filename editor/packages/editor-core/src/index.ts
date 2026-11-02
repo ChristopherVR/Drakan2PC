@@ -9,6 +9,7 @@ export * from './snap.ts';
 export * from './arrange.ts';
 export * from './clipboard.ts';
 export * from './catalog.ts';
+export * from './categories.ts';
 export * from './schema.ts';
 export * from './suggest.ts';
 export * from './validate.ts';

@@ -10,7 +10,8 @@ export const dragState = { suppressClick: false };
  * with a mouse, touch and pen, shows the model thumbnail as the ghost and a ground marker in the viewport. The native
  * HTML5 drag is not used: browsers differ and automation cannot start it.
  *
- * `thumb` returns a decoded image for the ghost when one exists; `load` asks for the thumbnail to be made.
+ * `thumb` returns a decoded image for the ghost when one exists; `load` asks for the thumbnail to be made; `onDrop`
+ * hears about a drop on the viewport (the Place panel's recently placed list).
  */
 export function attachAssetDrag(
     el: HTMLElement,
@@ -19,6 +20,7 @@ export function attachAssetDrag(
     thumb: (resource: string) => HTMLImageElement | undefined,
     load: (cls: AssetClass) => void,
     ignore = '.star',
+    onDrop?: () => void,
 ): void {
     el.addEventListener('pointerdown', (e) => {
         if (e.button !== 0 || (ignore && (e.target as HTMLElement).closest(ignore))) return;
@@ -53,8 +55,10 @@ export function attachAssetDrag(
             document.body.classList.remove('dragging-asset');
             if (!ghost) return;
             ghost.remove();
-            if (!cancelled && view.isOverViewport(u.clientX, u.clientY)) view.dragDrop(u);
-            else view.dragCancel();
+            if (!cancelled && view.isOverViewport(u.clientX, u.clientY)) {
+                view.dragDrop(u);
+                onDrop?.();
+            } else view.dragCancel();
             dragState.suppressClick = true;
             setTimeout(() => (dragState.suppressClick = false), 0);
         };

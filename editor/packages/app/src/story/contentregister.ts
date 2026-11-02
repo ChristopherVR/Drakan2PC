@@ -7,13 +7,13 @@ import type { StoryFsList } from '@drakan/formats';
 import { registerPanel } from '../editor/registry.ts';
 import type { Panel } from '../editor/ctx.ts';
 import { ContentSession, type ContentHost } from './content.ts';
-import { createCinematicsPanel } from './cinematics.ts';
+import { createCinematicsPanel, type CinematicsPanel } from './cinematics.ts';
 import { createDialoguePanel } from './dialogue.ts';
 
 export interface ContentEditors {
     session: ContentSession;
     dialogue: Panel;
-    cinematics: Panel;
+    cinematics: CinematicsPanel;
     /** The disc was opened or closed: forget what was read from the previous one. */
     setDisc(open: boolean, language?: string, keepEdits?: boolean): void;
 }
@@ -29,6 +29,8 @@ export interface ContentEditorsHost {
     showPath?: ContentHost['showPath'];
     /** Pack id / name used by the export buttons. */
     packId?: string;
+    /** Adds the Cut scenes list's "New cut scene" button (`register.ts` places one at the camera target). */
+    newCutscene?: () => void;
 }
 
 export function createContentPanels(host: ContentEditorsHost): ContentEditors {
@@ -50,7 +52,7 @@ export function createContentPanels(host: ContentEditorsHost): ContentEditors {
     return {
         session,
         dialogue: createDialoguePanel(session, meta),
-        cinematics: createCinematicsPanel(session, meta),
+        cinematics: createCinematicsPanel(session, meta, host.newCutscene),
         setDisc(_open, l, keepEdits) {
             if (l) language = l;
             session.reset(keepEdits);

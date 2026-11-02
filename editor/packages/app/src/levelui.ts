@@ -6,7 +6,9 @@ import {
     SchemaProvider,
     alignPositions,
     buildCatalog,
+    categoryIndex,
     copyObjects,
+    countByCategory,
     diffDocument,
     distributePositions,
     documentFromLvl,
@@ -19,8 +21,8 @@ import {
     snapToGround,
     type AlignMode,
     type AssetClass,
+    type ObjectCategory,
     type Axis,
-    type EntityKind,
     type LevelObject,
     type ModMeta,
     type WorldComparison,
@@ -41,6 +43,7 @@ import { fill, h, icon, store } from './editor/dom.ts';
 import { createRefs } from './refs.ts';
 import { createInspector } from './editor/inspector.ts';
 import { initLayout, type Layout } from './editor/layout.ts';
+import { createPlacePanel } from './editor/placepanel.ts';
 import { createOutliner } from './editor/outliner.ts';
 import { buildObjectMenu } from './editor/objectmenu.ts';
 import { installLinking } from './editor/linking.ts';
@@ -124,7 +127,12 @@ export function initLevelUi(host: LevelUiHost): LevelUi {
     const startPage = createStartPage({
         openIso: requestOpenIso,
         openDocument: (f) => void loadFile(f).catch(fail),
-        openLevel: (p) => void openLevel(p).catch(fail),
+        openLevel: (p) => {
+            const r = openLevel(p);
+            r.catch(fail);
+            return r;
+        },
+        levelOpen: () => !!src,
         openPalette: () => palette.open(),
         openHelp: () => help.toggle(true),
     });
@@ -147,7 +155,30 @@ export function initLevelUi(host: LevelUiHost): LevelUi {
     let restoredDirty = false;
     let autosaveTimer = 0;
     let lastAutosave = 0;
-    const hiddenKinds = new Set<EntityKind>();
+    /** Display categories switched off in the Show menu (`ObjectCategory` ids). */
+    const hiddenCategories = new Set<string>();
+    /** Category of an object for the open catalog (memoised per catalog). */
+    let catFor: AssetClass[] | null = null;
+    let catFn = categoryIndex([]);
+    const objectCategory = (o: LevelObject): ObjectCategory => {
+        if (catFor !== catalog) {
+            catFor = catalog;
+            catFn = categoryIndex(catalog);
+        }
+        return catFn(o);
+    };
+    let catCountKey = '';
+    let catCountCache: { id: string; label: string; hint: string; color: number; count: number }[] = [];
+    function categoryCounts(): typeof catCountCache {
+        const v = view;
+        const key = `${v?.doc.size ?? 0}:${src?.file ?? ''}:${catalog.length}:${v?.helperRevision ?? 0}`;
+        if (key === catCountKey) return catCountCache;
+        catCountKey = key;
+        catCountCache = v
+            ? countByCategory(v.doc.objects(), objectCategory).map(({ info, count }) => ({ ...info, count }))
+            : [];
+        return catCountCache;
+    }
     let gridSnapOn = true;
     let viewOpts: ViewOptions = parseViewOptions(store.json('view-options', null));
     let visuals: Promise<void> = Promise.resolve();
@@ -316,7 +347,13 @@ export function initLevelUi(host: LevelUiHost): LevelUi {
     $('ed-outliner').append(outliner.el);
     $('ed-details').append(inspector.el);
     $('ed-bottom').append(dock.el);
-    const panels = [outliner, inspector, assets, history, validation];
+    // Place sidebar on the left (editor/placepanel.ts).
+    const place = createPlacePanel(ctx, {
+        hide: () => layout?.toggle('left', false),
+        toggle: () => layout?.toggle('left'),
+    });
+    $('ed-left').append(place.el);
+    const panels = [outliner, inspector, assets, history, validation, place];
     // Where every editor opens (its own tab, the bottom area, or World Settings beside Details): editor/workspace.ts.
     const ws: Workspace = createWorkspace({
         frame: root,
@@ -455,10 +492,10 @@ export function initLevelUi(host: LevelUiHost): LevelUi {
             getView().setShowLinks(m);
             syncToolbar();
         },
-        toggleKind: (k, shown) => {
-            if (shown) hiddenKinds.delete(k as EntityKind);
-            else hiddenKinds.add(k as EntityKind);
-            getView().setFilters({ hidden: new Set(hiddenKinds) });
+        toggleCategory: (c, shown) => {
+            if (shown) hiddenCategories.delete(c);
+            else hiddenCategories.add(c);
+            getView().setFilters({ categories: new Set(hiddenCategories) });
             syncToolbar();
         },
         setViewOptions: (patch, live) => {
@@ -506,7 +543,8 @@ export function initLevelUi(host: LevelUiHost): LevelUi {
             links: v?.showLinks ?? 'selection',
             gridVisible: v?.gridVisible ?? true,
             flySpeed: v?.flySpeed ?? 1,
-            hiddenKinds,
+            hiddenCategories,
+            categoryCounts: categoryCounts(),
             bookmarks: v?.bookmarks ?? [],
             ghosts: worldDoc && src ? ghosts : null,
             viewOptions: viewOpts,
@@ -564,6 +602,7 @@ export function initLevelUi(host: LevelUiHost): LevelUi {
                 },
             });
             view.setEditorControls(true);
+            view.setFilters({ categoryOf: objectCategory });
             view.models.anim.setSource(createAnimSource(refs, () => schemas));
             view.setViewOptions(viewOpts);
             view.setSnap({});

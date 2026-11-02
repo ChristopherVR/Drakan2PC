@@ -1,29 +1,59 @@
-import { clamp, store } from './dom.ts';
+import { h, icon, store } from './dom.ts';
+import {
+    dragTo,
+    keyResize,
+    readLayout,
+    roomFor,
+    shownSize,
+    writeLayout,
+    type Axis,
+    type PaneLimits,
+    type PaneState,
+} from './splitmath.ts';
 
 /**
- * Resizable dock layout: right panel and bottom dock separated from the viewport by splitters. Sizes and
- * collapsed state persist (localStorage, optional). Double-click a splitter to collapse or restore its panel.
+ * Resizable Level Editor layout, like Unreal's: the Place sidebar on the left, the Outliner and Details column on the
+ * right (split between the two), and the bottom drawer under the viewport. Every boundary is a thin splitter: drag it,
+ * focus it and use the arrow keys (Shift for bigger steps, Home / End for smallest / largest, Enter to hide or show
+ * the panel), double-click it to go back to the starting size. Dragging a side panel or the drawer almost shut hides
+ * it; a tab on the viewport's edge (or the Window menu) brings it back. Sizes and hidden panels are remembered.
+ * The size rules themselves are in splitmath.ts.
  */
-interface Dock {
-    key: 'right' | 'bottom';
+export type DockKey = 'left' | 'right' | 'bottom';
+
+interface Pane {
+    key: DockKey | 'outliner';
+    /** Accessible name of the splitter. */
+    label: string;
     panel: HTMLElement;
     splitter: HTMLElement;
-    min: number;
-    max: number;
-    def: number;
-    /** Axis the size is measured on. */
-    axis: 'x' | 'y';
-    /** Dragging toward the viewport grows the panel (right and bottom docks). */
+    lim: PaneLimits;
+    axis: Axis;
+    /** The pane sits after its splitter: moving the splitter toward it shrinks it. */
     invert: boolean;
+    collapsible: boolean;
+    /** Pixels the rest of the axis keeps (the viewport and the splitters, or Details under the Outliner). */
+    keep(total: number): number;
+    /** Length of the axis the pane shares. */
+    total(): number;
+    /** Open neighbours on the same axis. */
+    others(): number;
 }
 
 export interface Layout {
-    toggle(key: Dock['key'], open?: boolean): void;
-    isOpen(key: Dock['key']): boolean;
+    toggle(key: DockKey, open?: boolean): void;
+    isOpen(key: DockKey): boolean;
     reset(): void;
     /** Show the bottom dock (used when something wants a tab in view). */
     openBottom(): void;
 }
+
+const STORE_KEY = 'layout';
+/** The viewport keeps at least this much of the window: a fixed floor, or a share of a small window. */
+const viewportW = (total: number): number => Math.max(360, Math.round(total * 0.4)) + 8;
+const viewportH = (total: number): number => Math.max(160, Math.round(total * 0.3)) + 4;
+const detailsH = (): number => 164;
+const TIP = 'Drag to resize. Double-click to go back to the starting size.';
 
 export function initLayout(root: HTMLElement, onResize: () => void): Layout {
     const q = (s: string): HTMLElement => {
@@ -31,173 +61,214 @@ export function initLayout(root: HTMLElement, onResize: () => void): Layout {
         if (!el) throw new Error(`layout: missing ${s}`);
         return el;
     };
-    const docks: Dock[] = [
+    const body = q('#ed-body');
+    const mid = q('#ed-mid');
+    const right = q('#ed-right');
+    const viewport = q('#lv-viewport');
+    const short = window.innerHeight < 800;
+    const LIMITS: Record<Pane['key'], PaneLimits> = {
+        left: { min: 200, max: 560, def: 320 },
+        right: { min: 240, max: 720, def: 340 },
+        // A short window gets a shorter drawer so the viewport keeps most of the height.
+        bottom: { min: 120, max: 720, def: short ? 224 : 280 },
+        outliner: { min: 110, max: 2000, def: 300 },
+    };
+    const stored = store.json<Record<string, unknown>>(STORE_KEY, {});
+    // Older versions kept the Outliner height on its own.
+    if (!stored.outliner) {
+        const old = store.json<{ size?: unknown }>('outliner-h', {});
+        if (typeof old.size === 'number') stored.outliner = { size: old.size, open: true };
+    }
+    const state = readLayout(stored, LIMITS);
+    const st = (k: Pane['key']): PaneState => state[k]!;
+
+    const panes: Pane[] = [
+        {
+            key: 'left',
+            label: 'Resize the Place panel',
+            panel: q('#ed-left'),
+            splitter: q('#ed-split-left'),
+            lim: LIMITS.left,
+            axis: 'x',
+            invert: false,
+            collapsible: true,
+            keep: viewportW,
+            total: () => body.clientWidth,
+            others: () => shownOf('right'),
+        },
         {
             key: 'right',
-            panel: q('#ed-right'),
+            label: 'Resize the Outliner and Details',
+            panel: right,
             splitter: q('#ed-split-right'),
-            min: 240,
-            max: 640,
-            def: 320,
+            lim: LIMITS.right,
             axis: 'x',
             invert: true,
+            collapsible: true,
+            keep: viewportW,
+            total: () => body.clientWidth,
+            others: () => shownOf('left'),
         },
         {
             key: 'bottom',
+            label: 'Resize the bottom panel',
             panel: q('#ed-bottom'),
             splitter: q('#ed-split-bottom'),
-            min: 120,
-            max: 640,
-            // A short window gets a shorter dock so the viewport keeps most of the height.
-            def: window.innerHeight < 800 ? 224 : 280,
+            lim: LIMITS.bottom,
             axis: 'y',
             invert: true,
+            collapsible: true,
+            keep: viewportH,
+            total: () => mid.clientHeight,
+            others: () => 0,
+        },
+        {
+            key: 'outliner',
+            label: 'Resize the Outliner',
+            panel: q('#ed-outliner'),
+            splitter: q('#ed-split-outliner'),
+            lim: LIMITS.outliner,
+            axis: 'y',
+            invert: false,
+            collapsible: false,
+            keep: detailsH,
+            total: () => right.clientHeight,
+            others: () => 0,
         },
     ];
-    const state: Record<string, { size: number; open: boolean }> = store.json('layout', {});
-
-    const apply = (d: Dock): void => {
-        const s = (state[d.key] ??= { size: d.def, open: true });
-        s.size = clamp(s.size, d.min, d.max);
-        root.style.setProperty(`--ed-${d.key}`, s.open ? `${s.size}px` : '0px');
-        d.panel.classList.toggle('collapsed', !s.open);
-        d.splitter.classList.toggle('collapsed', !s.open);
-    };
-    const save = (): void => store.set('layout', JSON.stringify(state));
-    const maxFor = (d: Dock): number => {
-        // Keep at least 240 px of viewport.
-        const total = d.axis === 'x' ? root.clientWidth : root.clientHeight - 80;
-        const others = docks
-            .filter((o) => o !== d && o.axis === d.axis)
-            .reduce((n, o) => n + (state[o.key]?.open ? (state[o.key]?.size ?? 0) : 0), 0);
-        return Math.max(d.min, Math.min(d.max, total - others - 240));
+    const pane = (k: Pane['key']): Pane => panes.find((p) => p.key === k)!;
+    // Before the first layout pass sizes are their stored values (the room check needs measured boxes).
+    const shown = new Map<Pane['key'], number>();
+    const shownOf = (k: Pane['key']): number => shown.get(k) ?? (st(k).open ? st(k).size : 0);
+    const maxOf = (p: Pane): number => {
+        const total = p.total();
+        return roomFor(total, p.others(), p.lim, p.keep(total));
     };
 
-    for (const d of docks) {
-        apply(d);
+    // Tabs on the viewport edge that bring a hidden side panel back (Unreal shows a collapsed panel's tab the same way).
+    const edge = (k: 'left' | 'right', text: string, ico: string): HTMLElement => {
+        const b = h(
+            'button',
+            {
+                type: 'button',
+                class: `ed-edge-tab ${k}`,
+                title: `Show the ${text} panel`,
+                'aria-label': `Show the ${text} panel`,
+                hidden: true,
+                onclick: () => layout.toggle(k, true),
+            },
+            icon(ico, 14),
+            h('span', {}, text),
+        );
+        viewport.append(b);
+        return b;
+    };
+    const edges: Partial<Record<DockKey, HTMLElement>> = {
+        left: edge('left', 'Place', 'place'),
+        right: edge('right', 'Outliner', 'outliner'),
+    };
+
+    const apply = (p: Pane): void => {
+        const s = st(p.key);
+        const max = maxOf(p);
+        const px = shownSize(s, p.lim, max);
+        shown.set(p.key, px);
+        root.style.setProperty(`--ed-${p.key}`, `${px}px`);
+        p.panel.classList.toggle('collapsed', !s.open);
+        p.splitter.classList.toggle('collapsed', !s.open);
+        p.splitter.setAttribute('aria-valuemin', '0');
+        p.splitter.setAttribute('aria-valuemax', String(max));
+        p.splitter.setAttribute('aria-valuenow', String(px));
+        p.splitter.setAttribute('aria-valuetext', s.open ? `${px} pixels` : 'hidden');
+        const e = edges[p.key as DockKey];
+        if (e) e.hidden = s.open;
+    };
+    const applyAll = (): void => {
+        // Side panels first: the room of each depends on the other's shown size.
+        for (const p of panes) apply(p);
+        apply(pane('left'));
+    };
+    const save = (): void => store.set(STORE_KEY, writeLayout(state));
+    const changed = (persist = true): void => {
+        applyAll();
+        if (persist) save();
+        onResize();
+    };
+
+    for (const p of panes) {
+        const sp = p.splitter;
+        sp.setAttribute('role', 'separator');
+        sp.setAttribute('tabindex', '0');
+        // A vertical bar (left / right column) separates panes side by side.
+        sp.setAttribute('aria-orientation', p.axis === 'x' ? 'vertical' : 'horizontal');
+        sp.setAttribute('aria-label', p.label);
+        if (p.panel.id) sp.setAttribute('aria-controls', p.panel.id);
+        sp.title = p.collapsible ? `${TIP} Drag it almost shut to hide the panel.` : TIP;
+        sp.classList.add('ui-splitter', p.axis === 'x' ? 'v' : 'h');
+
         let start = 0;
         let startSize = 0;
-        d.splitter.addEventListener('pointerdown', (e) => {
+        let prev: PaneState = st(p.key);
+        sp.addEventListener('pointerdown', (e) => {
+            if (e.button !== 0) return;
             e.preventDefault();
-            d.splitter.setPointerCapture(e.pointerId);
-            start = d.axis === 'x' ? e.clientX : e.clientY;
-            startSize = state[d.key]!.open ? state[d.key]!.size : 0;
-            d.splitter.classList.add('dragging');
-            document.body.classList.add('ed-resizing');
+            sp.setPointerCapture(e.pointerId);
+            start = p.axis === 'x' ? e.clientX : e.clientY;
+            startSize = shownOf(p.key);
+            prev = { ...st(p.key) };
+            sp.classList.add('dragging');
+            document.body.classList.add(p.axis === 'x' ? 'ed-resizing' : 'ed-resizing-y');
         });
-        d.splitter.addEventListener('pointermove', (e) => {
-            if (!d.splitter.hasPointerCapture(e.pointerId)) return;
-            const delta = (d.axis === 'x' ? e.clientX : e.clientY) - start;
-            const size = startSize + (d.invert ? -delta : delta);
-            const s = state[d.key]!;
-            if (size < d.min * 0.5) s.open = false;
-            else {
-                s.open = true;
-                s.size = clamp(size, d.min, maxFor(d));
-            }
-            apply(d);
-            onResize();
+        sp.addEventListener('pointermove', (e) => {
+            if (!sp.hasPointerCapture(e.pointerId)) return;
+            const delta = (p.axis === 'x' ? e.clientX : e.clientY) - start;
+            state[p.key] = dragTo(startSize, delta, p.invert, p.lim, maxOf(p), p.collapsible, prev);
+            changed(false);
         });
         const end = (e: PointerEvent): void => {
-            if (d.splitter.hasPointerCapture(e.pointerId)) d.splitter.releasePointerCapture(e.pointerId);
-            d.splitter.classList.remove('dragging');
-            document.body.classList.remove('ed-resizing');
-            save();
-            onResize();
+            if (!sp.hasPointerCapture(e.pointerId)) return;
+            sp.releasePointerCapture(e.pointerId);
+            sp.classList.remove('dragging');
+            document.body.classList.remove('ed-resizing', 'ed-resizing-y');
+            changed();
         };
-        d.splitter.addEventListener('pointerup', end);
-        d.splitter.addEventListener('pointercancel', end);
-        d.splitter.addEventListener('dblclick', () => layout.toggle(d.key));
-        d.splitter.addEventListener('keydown', (e) => {
-            const step = e.shiftKey ? 60 : 20;
-            const dir =
-                e.key === 'ArrowLeft' || e.key === 'ArrowUp'
-                    ? -1
-                    : e.key === 'ArrowRight' || e.key === 'ArrowDown'
-                      ? 1
-                      : 0;
-            if (!dir) return;
+        sp.addEventListener('pointerup', end);
+        sp.addEventListener('pointercancel', end);
+        sp.addEventListener('lostpointercapture', () => {
+            sp.classList.remove('dragging');
+            document.body.classList.remove('ed-resizing', 'ed-resizing-y');
+        });
+        sp.addEventListener('dblclick', () => {
+            state[p.key] = { size: p.lim.def, open: true };
+            changed();
+        });
+        sp.addEventListener('keydown', (e) => {
+            const next = keyResize(st(p.key), e.key, e.shiftKey, p.axis, p.invert, p.lim, maxOf(p), p.collapsible);
+            if (!next) return;
             e.preventDefault();
-            const s = state[d.key]!;
-            s.open = true;
-            s.size = clamp(s.size + (d.invert ? -dir : dir) * step, d.min, maxFor(d));
-            apply(d);
-            save();
-            onResize();
+            state[p.key] = next;
+            changed();
         });
     }
+    applyAll();
+    // The window got smaller or larger: fit the panels again (the remembered sizes stay as they are).
+    window.addEventListener('resize', applyAll);
+    // The right column is measured once it has a height (it has none while an editor tab covers the Level Editor).
+    if (typeof ResizeObserver !== 'undefined') new ResizeObserver(() => apply(pane('outliner'))).observe(right);
 
-    // Outliner / Details split inside the right dock (height of the Outliner in px).
-    const osplit = root.querySelector<HTMLElement>('#ed-split-outliner');
-    const oDef = 300;
-    const oState: { size: number } = store.json('outliner-h', { size: oDef });
-    const applyO = (): void => {
-        // The CSS caps the height at (dock - 160px); this only keeps the stored value sane while the tab is hidden.
-        oState.size = clamp(oState.size, 110, 2000);
-        root.style.setProperty('--ed-outliner', `${oState.size}px`);
-    };
-    applyO();
-    if (osplit) {
-        let start = 0;
-        let startSize = 0;
-        osplit.addEventListener('pointerdown', (e) => {
-            e.preventDefault();
-            osplit.setPointerCapture(e.pointerId);
-            start = e.clientY;
-            startSize = oState.size;
-            osplit.classList.add('dragging');
-            document.body.classList.add('ed-resizing-y');
-        });
-        osplit.addEventListener('pointermove', (e) => {
-            if (!osplit.hasPointerCapture(e.pointerId)) return;
-            oState.size = startSize + (e.clientY - start);
-            applyO();
-        });
-        const end = (e: PointerEvent): void => {
-            if (osplit.hasPointerCapture(e.pointerId)) osplit.releasePointerCapture(e.pointerId);
-            osplit.classList.remove('dragging');
-            document.body.classList.remove('ed-resizing-y');
-            store.set('outliner-h', JSON.stringify(oState));
-        };
-        osplit.addEventListener('pointerup', end);
-        osplit.addEventListener('pointercancel', end);
-        osplit.addEventListener('dblclick', () => {
-            oState.size = oDef;
-            applyO();
-            store.set('outliner-h', JSON.stringify(oState));
-        });
-        osplit.addEventListener('keydown', (e) => {
-            const dir = e.key === 'ArrowUp' ? -1 : e.key === 'ArrowDown' ? 1 : 0;
-            if (!dir) return;
-            e.preventDefault();
-            oState.size += dir * (e.shiftKey ? 60 : 20);
-            applyO();
-            store.set('outliner-h', JSON.stringify(oState));
-        });
-        window.addEventListener('resize', applyO);
-    }
-
-    const find = (k: Dock['key']): Dock => docks.find((d) => d.key === k)!;
     const layout: Layout = {
         toggle(key, open) {
-            const s = state[key]!;
-            s.open = open ?? !s.open;
-            apply(find(key));
-            save();
-            onResize();
+            const s = st(key);
+            state[key] = { size: s.size, open: open ?? !s.open };
+            changed();
         },
-        isOpen: (key) => state[key]!.open,
+        isOpen: (key) => st(key).open,
         reset() {
-            for (const d of docks) state[d.key] = { size: d.def, open: true };
-            for (const d of docks) apply(d);
-            oState.size = oDef;
-            applyO();
-            store.set('outliner-h', JSON.stringify(oState));
-            save();
-            onResize();
+            for (const p of panes) state[p.key] = { size: p.lim.def, open: true };
+            changed();
         },
         openBottom() {
-            if (!state.bottom!.open) layout.toggle('bottom', true);
+            if (!st('bottom').open) layout.toggle('bottom', true);
         },
     };
     return layout;

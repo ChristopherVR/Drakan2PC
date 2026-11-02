@@ -16,7 +16,12 @@ const KINDS: [QuestKind, string][] = [
 ];
 const MAP_MAX = 512;
 
-export function createQuestsPanel(session: StorySession, ctx?: () => Ctx): Panel {
+export interface QuestsPanel extends Panel {
+    /** Show one quest. */
+    focus(classId: number): void;
+}
+
+export function createQuestsPanel(session: StorySession, ctx?: () => Ctx): QuestsPanel {
     const state = { q: '', sel: 0, slot: 0, dragging: false };
     const search = h('input', {
         type: 'search',
@@ -382,5 +387,15 @@ export function createQuestsPanel(session: StorySession, ctx?: () => Ctx): Panel
         renderAll();
     });
     renderAll();
-    return { el: root, onLoad: renderAll, onChange: renderDetail, onSelection: () => undefined };
+    return {
+        el: root,
+        onLoad: renderAll,
+        onChange: renderDetail,
+        onSelection: () => undefined,
+        focus(classId) {
+            state.sel = classId;
+            renderAll();
+            list.querySelector('.story-row.sel')?.scrollIntoView({ block: 'nearest' });
+        },
+    };
 }

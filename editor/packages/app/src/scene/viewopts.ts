@@ -2,6 +2,16 @@
 
 import type { HelperGroup } from './instances.ts';
 
+/** Story overlays drawn over the level (`story/storyview.ts`): cut scenes, shops, quest areas and talking characters. */
+export type StoryGroup = 'cutscene' | 'vendor' | 'quest' | 'talk';
+
+export const STORY_GROUPS: { id: StoryGroup; label: string; hint: string }[] = [
+    { id: 'cutscene', label: 'Cut scenes', hint: 'Cut scene players, their camera paths, actors and trigger boxes' },
+    { id: 'vendor', label: 'Shops', hint: 'Shopkeepers with their name and how many items they sell' },
+    { id: 'quest', label: 'Quest areas', hint: 'Where quests start and finish, with the quest title' },
+    { id: 'talk', label: 'Conversations', hint: 'Characters the player can talk to' },
+];
+
 export type MarkerMode = 'fallback' | 'all' | 'off';
 export type LightingPreset = 'day' | 'overcast' | 'dusk' | 'flat';
 
@@ -14,6 +24,8 @@ export interface ViewOptions {
     wireframe: boolean;
     /** Which helper classes are drawn. */
     helpers: Record<HelperGroup, boolean>;
+    /** Which story overlays are drawn (Show menu, "Story"). */
+    story: Record<StoryGroup, boolean>;
     /** Draw helper classes as billboard icons (off: their placeholder models). */
     editorIcons: boolean;
     lighting: LightingPreset;
@@ -39,6 +51,7 @@ export const DEFAULT_VIEW_OPTIONS: ViewOptions = {
         spawn: true,
         barrier: true,
     },
+    story: { cutscene: true, vendor: true, quest: true, talk: true },
     editorIcons: true,
     lighting: 'day',
     fog: false,
@@ -67,7 +80,7 @@ const BOOLS = ['models', 'animate', 'terrain', 'wireframe', 'fog', 'keepAboveGro
 /** Merge a stored (possibly partial or stale) value over the defaults; unknown keys and bad types are dropped. */
 export function parseViewOptions(raw: unknown): ViewOptions {
     const d = DEFAULT_VIEW_OPTIONS;
-    const o: ViewOptions = { ...d, helpers: { ...d.helpers } };
+    const o: ViewOptions = { ...d, helpers: { ...d.helpers }, story: { ...d.story } };
     if (!raw || typeof raw !== 'object') return o;
     const r = raw as Record<string, unknown>;
     for (const k of BOOLS) {
@@ -84,6 +97,13 @@ export function parseViewOptions(raw: unknown): ViewOptions {
         for (const g of Object.keys(o.helpers) as HelperGroup[]) {
             const v = h[g];
             if (typeof v === 'boolean') o.helpers[g] = v;
+        }
+    }
+    if (r.story && typeof r.story === 'object') {
+        const st = r.story as Record<string, unknown>;
+        for (const g of Object.keys(o.story) as StoryGroup[]) {
+            const v = st[g];
+            if (typeof v === 'boolean') o.story[g] = v;
         }
     }
     return o;

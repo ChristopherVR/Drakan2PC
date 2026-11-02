@@ -363,3 +363,116 @@
 .side-body .mp * {
     min-width: 0;
 }
+
+/* ---- Level Editor dock layout (editor/layout.ts) ----
+   Place sidebar | viewport over the bottom drawer | Outliner over Details. Every gap is a 4 px splitter; the sizes
+   come from layout.ts as --ed-left, --ed-right, --ed-bottom and --ed-outliner (0px while a panel is hidden). */
+#ed-body {
+    flex: 1;
+    min-height: 0;
+    display: grid;
+    grid-template-columns: var(--ed-left, 280px) 4px minmax(0, 1fr) 4px var(--ed-right, 340px);
+}
+#ed-mid {
+    position: relative;
+    display: grid;
+    grid-template-rows: minmax(120px, 1fr) 4px var(--ed-bottom, 280px);
+    min-width: 0;
+    min-height: 0;
+}
+.ed-dock {
+    min-width: 0;
+    min-height: 0;
+    overflow: hidden;
+    background: var(--surface-1);
+    display: flex;
+    flex-direction: column;
+}
+.ed-dock.collapsed {
+    visibility: hidden;
+}
+#ed-right {
+    background: var(--surface-0);
+}
+.ed-sub {
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    background: var(--surface-1);
+}
+#ed-outliner {
+    flex: 0 0 min(var(--ed-outliner, 300px), calc(100% - 164px));
+}
+#ed-split-outliner {
+    flex: none;
+    height: 4px;
+}
+#ed-details {
+    flex: 1;
+}
+#ed-bottom {
+    background: var(--surface-1);
+}
+/* A hidden panel's splitter stays as a 4 px gap that can be dragged open again. */
+#ed-body .splitter.collapsed:not(:hover, .dragging, :focus-visible)::after {
+    background: var(--border);
+}
+body.ed-resizing,
+body.ed-resizing * {
+    user-select: none;
+    cursor: col-resize !important;
+}
+body.ed-resizing-y,
+body.ed-resizing-y * {
+    user-select: none;
+    cursor: row-resize !important;
+}
+/* The viewport's canvas must not take the pointer while a splitter is dragged across it. */
+body.ed-resizing #lv-viewport,
+body.ed-resizing-y #lv-viewport {
+    pointer-events: none;
+}
+
+/* Tabs on the viewport edge that bring a hidden side panel back. */
+.ed-edge-tab {
+    position: absolute;
+    top: 50%;
+    z-index: 6;
+    display: inline-flex;
+    align-items: center;
+    gap: var(--sp-3);
+    padding: var(--sp-4) var(--sp-2);
+    writing-mode: vertical-rl;
+    background: var(--surface-2);
+    color: var(--fg-muted);
+    border: 1px solid var(--border);
+    font: inherit;
+    font-size: var(--fs-sm);
+    font-weight: 500;
+    cursor: pointer;
+    transform: translateY(-50%);
+}
+.ed-edge-tab[hidden] {
+    display: none;
+}
+.ed-edge-tab.left {
+    left: 0;
+    border-left: 0;
+    border-radius: 0 var(--r-md) var(--r-md) 0;
+}
+.ed-edge-tab.right {
+    right: 0;
+    border-right: 0;
+    border-radius: var(--r-md) 0 0 var(--r-md);
+}
+.ed-edge-tab svg {
+    transform: rotate(90deg);
+}
+.ed-edge-tab:hover {
+    color: var(--fg);
+    background: var(--surface-3);
+}
+.ed-edge-tab:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: -2px;
+}

@@ -62,6 +62,7 @@ export const MENUS: { id: string; label: string; items: string[] }[] = [
             'panel.show.output',
             'panel.show.validation',
             '-',
+            'view.left',
             'view.right',
             'view.bottom',
             'view.reset',

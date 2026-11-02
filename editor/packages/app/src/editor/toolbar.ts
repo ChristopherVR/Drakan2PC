@@ -1,7 +1,7 @@
 import { ANGLE_STEPS, GRID_SIZES, type AlignMode, type Axis } from '@drakan/editor-core';
-import { KINDS, type CameraBookmark, type ToolMode } from '../level.ts';
+import type { CameraBookmark, ToolMode } from '../level.ts';
 import { HELPER_GROUPS, type HelperGroup } from '../scene/instances.ts';
-import { LIGHTING, type LightingPreset, type ViewOptions } from '../scene/viewopts.ts';
+import { LIGHTING, STORY_GROUPS, type LightingPreset, type ViewOptions } from '../scene/viewopts.ts';
 import { fill, h, icon, iconButton } from './dom.ts';
 import { buildQuickAddMenu, installQuickAdd } from './quickadd.ts';
 
@@ -43,7 +43,8 @@ export interface ToolbarActions {
     openDumpFile(f: File): void;
     toggleGridVisible(): void;
     setLinks(m: 'selection' | 'all' | 'off'): void;
-    toggleKind(kind: string, shown: boolean): void;
+    /** Show or hide every object of a display category (`ObjectCategory` id). */
+    toggleCategory(category: string, shown: boolean): void;
     toggleGhosts(on: boolean): void;
     /** Display options (lighting, terrain, models, helpers, fog). `live` = a slider is moving: do not rebuild menus. */
     setViewOptions(patch: Partial<ViewOptions>, live?: boolean): void;
@@ -52,7 +53,7 @@ export interface ToolbarActions {
     gotoBookmark(i: number): void;
     removeBookmark(i: number): void;
     resetLayout(): void;
-    togglePanel(k: 'right' | 'bottom'): void;
+    togglePanel(k: 'left' | 'right' | 'bottom'): void;
 }
 
 export interface ToolbarState {
@@ -65,7 +66,9 @@ export interface ToolbarState {
     links: 'selection' | 'all' | 'off';
     gridVisible: boolean;
     flySpeed: number;
-    hiddenKinds: Set<string>;
+    hiddenCategories: Set<string>;
+    /** Objects per display category in the open level (display order, empty ones left out). */
+    categoryCounts: { id: string; label: string; hint: string; color: number; count: number }[];
     bookmarks: CameraBookmark[];
     ghosts: boolean | null;
     viewOptions: ViewOptions;
@@ -383,10 +386,22 @@ export function createToolbar(
                 row.append(h('span', { class: 'dim' }, n ? ` (${n})` : ''));
                 box.append(row);
             }
-            box.append(h('div', { class: 'mh' }, 'Show kinds'));
-            for (const k of KINDS) {
-                const row = check(k.label, !s.hiddenKinds.has(k.kind), (v) => a.toggleKind(k.kind, v));
-                row.prepend(h('i', { class: 'dot', style: `background:#${k.color.toString(16).padStart(6, '0')}` }));
+            // story overlays in the level (story/storyview.ts)
+            box.append(h('div', { class: 'mh' }, 'Story'));
+            for (const g of STORY_GROUPS) {
+                const o = s.viewOptions;
+                const row = check(g.label, o.story[g.id], (v) =>
+                    a.setViewOptions({ story: { ...o.story, [g.id]: v } }),
+                );
+                row.title = g.hint;
+                box.append(row);
+            }
+            box.append(h('div', { class: 'mh' }, 'Show categories'));
+            for (const c of s.categoryCounts) {
+                const row = check(c.label, !s.hiddenCategories.has(c.id), (v) => a.toggleCategory(c.id, v));
+                row.prepend(h('i', { class: 'dot', style: `background:#${c.color.toString(16).padStart(6, '0')}` }));
+                row.append(h('span', { class: 'dim' }, ` (${c.count})`));
+                row.title = c.hint;
                 box.append(row);
             }
             if (s.ghosts !== null)
@@ -396,6 +411,7 @@ export function createToolbar(
                 );
             box.append(h('div', { class: 'mh' }, 'Panels'));
             for (const [k, l] of [
+                ['left', 'Place panel'],
                 ['right', 'Outliner and Details'],
                 ['bottom', 'Content Browser and logs'],
             ] as const) {
@@ -417,7 +433,7 @@ export function createToolbar(
                 ),
             );
         },
-        'Show: grid, link lines, object kinds and panels',
+        'Show: grid, link lines, object categories and panels',
     );
 
     // ---- display menu (terrain, models, helper classes, lighting, fog)
