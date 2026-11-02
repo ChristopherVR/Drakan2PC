@@ -13,6 +13,7 @@
 
 #include <algorithm>
 #include <atomic>
+#include <cctype>
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
@@ -35,7 +36,11 @@ namespace {
 
 // SCES-500.06 (identity addresses only; install() refuses other profiles).
 constexpr uint32_t kPadMgrUpdate = 0x1e3970u;
-constexpr uint32_t kTransition = 0x362d38u; // the level transition on the main thread
+constexpr uint32_t kTransition = 0x362d38u;    // the level transition on the main thread
+constexpr uint32_t kArrivalLookup = 0x362a60u; // (old level name): the new level's arrival marker, 0 when none
+// Where a substituted old-level name is put for the lookup: the speech controller's idle text buffer, clear of the
+// level-path rewrite at 0x5b7d20 (drakan_lifecycle) and the scratch words at 0x5b8480 (drakan_pvp / drakan_coop).
+constexpr uint32_t kArrivalName = 0x5b7f20u;
 constexpr uint32_t kContextPtr = 0x5565d4u;
 constexpr uint32_t kExitClass = 0x10037u;    // "Level Transition"
 constexpr uint32_t kPendingExit = 0x4fbba4u; // handle of the trigger the main loop is about to process (0 = none)
@@ -360,6 +365,78 @@ void setPos(const Ram& r, uint32_t o, const float* p) {
 // Camera offset from the player at the time an exit was fired (the transition keeps it, see transitionEntry()).
 float g_camOff[3] = {};
 PS2Runtime::RecompiledFunction g_origTransition = nullptr;
+
+// Arrival out of a level copy. The lookup 0x362a60 picks the new level's arrival marker whose destination text equals
+// the old level's name. A copy is known to the engine by its own title ("Surdana Copy"), but the levels it leads to
+// still name its source ("Level 1A - Surdana") in their way back, so nothing matched and the player landed at the
+// fallback point (docs/journal/2026-11-02/level-copy-direct-play.md). At the lookup's entry: when the old level is a
+// registered copy, no exit of the new level names the copy and one names its source, the lookup is given the source's
+// name. An author who pointed the destination's way back at the copy itself keeps that marker. The decision is made
+// before the call (the lookup is resumable, a retry after it returned could not be wrapped safely).
+PS2Runtime::RecompiledFunction g_origArrival = nullptr;
+void arrivalEntry(uint8_t* rdram, R5900Context* c, PS2Runtime* rt) {
+    if (c->pc == addr(kArrivalLookup)) {
+        const uint32_t a0 = getRegU32(c, 4);
+        std::string old;
+        if (Ram::ok(a0, 1)) {
+            const char* text = reinterpret_cast<const char*>(rdram + (a0 & 0x1fffffffu));
+            old.assign(text, strnlen(text, std::min<size_t>(0x100, PS2_RAM_SIZE - (a0 & 0x1fffffffu))));
+        }
+        static const bool trace = std::getenv("DRAKAN_LEVELCHANGE_TRACE") != nullptr;
+        if (trace)
+            std::fprintf(stderr, "[levelchange] arrival lookup for '%s'\n", old.c_str());
+        // The argument is the old level's path as the engine keeps it, lower case
+        // ("cdrom0:/english/levels/surdana copy/surdana copy.lvl"): its file stem names the level.
+        const auto lower = [](std::string t) {
+            for (char& ch : t)
+                ch = static_cast<char>(std::tolower(static_cast<unsigned char>(ch)));
+            return t;
+        };
+        const size_t slash = old.find_last_of("/\\");
+        std::string stem = slash == std::string::npos ? old : old.substr(slash + 1);
+        if (const size_t dot = stem.rfind('.'); dot != std::string::npos)
+            stem.resize(dot);
+        std::string copy, source;
+        {
+            std::lock_guard<std::mutex> l(g_m);
+            for (const auto& [k, v] : g_copies)
+                if (lower(k) == lower(stem)) {
+                    copy = k;
+                    source = v;
+                }
+        }
+        if (!source.empty()) {
+            scan(rdram, c, rt); // the new level's exits (Level_Load has returned, g_currentLevel is the new level)
+            bool copyNamed = false, sourceNamed = false;
+            {
+                std::lock_guard<std::mutex> l(g_m);
+                for (const ExitInfo& e : g_exits) {
+                    copyNamed = copyNamed || lower(e.destName) == lower(copy);
+                    sourceNamed = sourceNamed || lower(e.destName) == lower(source);
+                }
+            }
+            // Same path with the source's name for the copy's (folder and file), lower case like the engine's own.
+            std::string path;
+            const std::string from = lower(copy), to = lower(source), low = lower(old);
+            for (size_t i = 0; i < low.size();) {
+                if (low.compare(i, from.size(), from) == 0) {
+                    path += to;
+                    i += from.size();
+                } else
+                    path += low[i++];
+            }
+            if (!copyNamed && sourceNamed && path.size() < 0x100) {
+                std::memcpy(rdram + addr(kArrivalName), path.c_str(), path.size() + 1);
+                SET_GPR_U32(c, 4, addr(kArrivalName));
+                std::fprintf(stderr, "[levelchange] arrival from copy '%s': using the marker of its source '%s'\n",
+                             copy.c_str(), source.c_str());
+            } else if (trace)
+                std::fprintf(stderr, "[levelchange] arrival from copy '%s': kept (copy named %d, source named %d)\n",
+                             copy.c_str(), copyNamed ? 1 : 0, sourceNamed ? 1 : 0);
+        }
+    }
+    g_origArrival(rdram, c, rt);
+}
 
 // Wrapper of the transition function 0x362d38 (runs on the main thread when the main loop sees the pending trigger).
 // The transition keeps the player's offset from the trigger ("Maintain Player Position") and places the respawned
@@ -695,6 +772,10 @@ void install(PS2Runtime& rt) {
     if (rt.hasFunction(addr(kTransition))) {
         g_origTransition = rt.lookupFunction(addr(kTransition));
         rt.replaceFunction(addr(kTransition), &transitionEntry);
+    }
+    if (rt.hasFunction(addr(kArrivalLookup))) {
+        g_origArrival = rt.lookupFunction(addr(kArrivalLookup));
+        rt.replaceFunction(addr(kArrivalLookup), &arrivalEntry);
     }
     if (std::getenv("DRAKAN_LEVELCHANGE_TRACE")) {
         g_traceHandlers = true;

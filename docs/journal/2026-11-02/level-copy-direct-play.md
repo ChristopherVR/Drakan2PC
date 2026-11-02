@@ -53,3 +53,14 @@ whose text equals the old level's name, `level-copy-campaign.md`).
 
 Not done: the desktop Play button on a copy was not clicked (the env it sends is the one the harness used); the
 arrival fix above.
+
+## Arrival fix (same day, lead)
+
+`drakan_levelchange.cpp` wraps the arrival lookup `0x362a60` (`arrivalEntry`). Its argument is the old level's path as
+the engine keeps it, lower case (`cdrom0:/english/levels/surdana copy/surdana copy.lvl`, seen with
+`DRAKAN_LEVELCHANGE_TRACE=1`). When the file stem is a registered copy, the new level's exits are scanned; if none
+names the copy and one names its source, the lookup gets the same path with the source's name (written to the idle
+speech buffer at `0x5b7f20`). Decided before the call because the lookup is resumable. Run
+`build/harness/arr2-walk-735232_772096` (Surdana Copy, walk-in to Kragmor): `arrival from copy 'Surdana Copy': using the
+marker of its source 'Level 1A - Surdana'`, arrival **342012 172640 230540** (disc control 342162 172679 230735), still
+there at frame 300. An author who pointed the destination's way back at the copy keeps that marker (not run).
