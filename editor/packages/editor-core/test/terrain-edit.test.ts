@@ -9,13 +9,16 @@ import {
     connectedLayers,
     expandLayer,
     expandLayerCommand,
+    groundedObjects,
     layerAt,
     layerHeightRange,
+    makeLayer,
     quantizeHeight,
     terrainLayerFromJson,
     terrainLayerToJson,
     terrainPalette,
     vertexMaskBits,
+    type LevelObject,
     type TerrainTouch,
 } from '../src/index.ts';
 
@@ -318,5 +321,112 @@ describe('expand and add layer', () => {
         expect(layerAt(t, CELL_SIZE, CELL_SIZE, 5900)).toBe(1);
         expect(layerAt(t, CELL_SIZE, CELL_SIZE, 1100)).toBe(0);
         expect(layerAt(t, 99 * CELL_SIZE, CELL_SIZE, 1000)).toBe(-1);
+    });
+});
+
+function obj(id: number, x: number, y: number, z: number): LevelObject {
+    return {
+        id,
+        class: `Obj${id}`,
+        type: 0,
+        kind: 'static',
+        resource: '',
+        model: '',
+        transform: { pos: [x, y, z], rot: [0, 0, 0] },
+        props: {},
+    };
+}
+
+describe('objects ride the sculpted ground', () => {
+    const c = 4 * CELL_SIZE;
+    it('moves only objects standing on the edited layers, in the same undo step', () => {
+        // Layer 1 is a roof 5000 above the ground at the same place.
+        const d = docWith(layer(0, 8, 8), layer(1, 8, 8, 0, 0, 6000));
+        d.insert(obj(1, c, 1000, c)); // on the ground
+        d.insert(obj(2, c + 100, 1040, c)); // 40 above: still standing (tolerance 64)
+        d.insert(obj(3, c, 1500, c + 100)); // flying / stacked on something
+        d.insert(obj(4, c, 6000, c)); // on the roof layer
+        d.insert(obj(5, 7.9 * CELL_SIZE, 1000, 7.9 * CELL_SIZE)); // on the ground, outside the brush
+        d.insert(obj(6, c - 100, 1000, c)); // locked
+        d.insert(obj(7, c, 780, c - 100)); // a tree sunk 220 into the ground
+        d.insert(obj(8, c + 100, 300, c - 100)); // 700 under the ground (a logic object)
+        expect(groundedObjects(d, [0]).map((g) => g.id)).toEqual([1, 2, 5, 6, 7]);
+        expect(groundedObjects(d, [1]).map((g) => g.id)).toEqual([4]);
+
+        const st = new CommandStack(d);
+        const seen: number[] = [];
+        const stroke = new TerrainStroke(d, [0], 'Raise', 1, {
+            carryObjects: true,
+            skipObject: (o) => o.id === 6,
+            onObjects: (ids) => seen.push(...ids),
+        });
+        for (let i = 0; i < 10; i++) stroke.sculpt('raise', c, c, brush, 0.05);
+        const L = d.terrain![0]!;
+        const top = layerHeightAt(L, c, c);
+        expect(top).toBeGreaterThan(1500);
+        // Live: the object follows the ground during the stroke.
+        expect(d.get(1)!.transform.pos[1]).toBe(top);
+        expect(seen).toContain(1);
+        const cmd = stroke.finish()!;
+        expect(cmd.lifts.map((m) => m.id).sort()).toEqual([1, 2, 7]);
+        st.run(cmd);
+        expect(d.get(1)!.transform.pos[1]).toBe(top);
+        expect(d.get(2)!.transform.pos[1]).toBeCloseTo(layerHeightAt(L, c + 100, c) + 40, 3);
+        expect(d.get(3)!.transform.pos[1]).toBe(1500);
+        expect(d.get(4)!.transform.pos[1]).toBe(6000);
+        expect(d.get(5)!.transform.pos[1]).toBe(1000);
+        expect(d.get(6)!.transform.pos[1]).toBe(1000);
+        expect(d.get(7)!.transform.pos[1]).toBeCloseTo(layerHeightAt(L, c, c - 100) - 220, 3);
+        expect(d.get(8)!.transform.pos[1]).toBe(300);
+        // One undo puts the ground and the objects back; redo moves both again.
+        st.undo();
+        expect(layerHeightAt(d.terrain![0]!, c, c)).toBe(1000);
+        expect(d.get(1)!.transform.pos[1]).toBe(1000);
+        expect(d.get(2)!.transform.pos[1]).toBe(1040);
+        st.redo();
+        expect(d.get(1)!.transform.pos[1]).toBe(top);
+    });
+
+    it('leaves objects alone when carrying is off, and cancel puts them back', () => {
+        const d = docWith(layer(0, 8, 8));
+        d.insert(obj(1, c, 1000, c));
+        const off = new TerrainStroke(d, [0], 'Raise');
+        off.sculpt('raise', c, c, brush, 0.2);
+        expect(off.finish()!.lifts).toEqual([]);
+        expect(d.get(1)!.transform.pos[1]).toBe(1000);
+        // The object is now buried under the raised ground: no longer standing on it, so it is not carried either.
+        expect(groundedObjects(d, [0])).toEqual([]);
+
+        d.setTerrainLayer(0, layer(0, 8, 8));
+        const on = new TerrainStroke(d, [0], 'Lower', 2, { carryObjects: true });
+        const before = layerHeightAt(d.terrain![0]!, c, c);
+        on.sculpt('raise', c, c, brush, 0.2, { invert: true });
+        expect(d.get(1)!.transform.pos[1]).toBeLessThan(1000);
+        on.cancel();
+        expect(layerHeightAt(d.terrain![0]!, c, c)).toBe(before);
+        expect(d.get(1)!.transform.pos[1]).toBe(1000);
+    });
+
+    it('ramp and smooth carry objects too', () => {
+        const d = docWith(layer(0, 8, 8));
+        d.insert(obj(1, c, 1000, c));
+        const s = new TerrainStroke(d, [0], 'Ramp', 1, { carryObjects: true });
+        s.ramp([CELL_SIZE, 1000, c], [7 * CELL_SIZE, 4000, c], 2 * CELL_SIZE, 0);
+        const ground = layerHeightAt(d.terrain![0]!, c, c);
+        expect(ground).toBeGreaterThan(2000);
+        expect(d.get(1)!.transform.pos[1]).toBeCloseTo(ground, 3);
+        expect(s.finish()!.lifts).toHaveLength(1);
+    });
+});
+
+describe('new layer visible list', () => {
+    it('lists its own index first, then the template links without duplicates', () => {
+        const tpl = layer(3, 2, 2);
+        tpl.visible = [3, 7, 3, 9, 12];
+        const L = makeLayer({ originX: 0, originZ: 0, width: 2, height: 2, worldHeight: 0, ref: GRASS }, 12, 99, tpl);
+        expect(L.visible).toEqual([12, 3, 7, 9]);
+        expect(
+            makeLayer({ originX: 0, originZ: 0, width: 1, height: 1, worldHeight: 0, ref: GRASS }, 5, 1).visible,
+        ).toEqual([5]);
     });
 });

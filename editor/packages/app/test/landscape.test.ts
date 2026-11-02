@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest';
 import { LevelDocument, TerrainStroke } from '@drakan/editor-core';
 import { CELL_SIZE, type TerrainLayer } from '@drakan/formats';
 import { averageColor, buildSwatches, colorName } from '../src/editor/landscape/palette.ts';
-import { EditableTerrain } from '../src/scene/terrainlive.ts';
+import { EditableTerrain, cellBlends } from '../src/scene/terrainlive.ts';
 
 function flat(index: number, w: number, h: number, ox: number, refs: number[]): TerrainLayer {
     const nv = (w + 1) * (h + 1);
@@ -82,6 +82,61 @@ describe('live terrain mesh', () => {
         s.sculpt('raise', 5 * CELL_SIZE, 5 * CELL_SIZE, { radius: 2 * CELL_SIZE, strength: 1, falloff: 0 }, 0.1);
         live.flush();
         expect(live.group.children.includes(other!)).toBe(true);
+        live.dispose();
+    });
+});
+
+describe('ground texture blending (the writer weight rule)', () => {
+    // 4 x 1 strip: grass grass sand sand.
+    const L = flat(0, 4, 1, 0, [1, 1, 2, 2]);
+    const rank = (r: number): number => r;
+
+    it('blends a neighbour texture over the border cell by vertex counts', () => {
+        // Cell 0 has only grass around it: nothing to blend.
+        expect(cellBlends(L, 0, 0, rank)).toEqual([]);
+        // Cell 1 (grass) borders sand at its east corners: there 1 grass + 1 sand cell share the vertex -> 1/2.
+        expect(cellBlends(L, 1, 0, rank)).toEqual([{ ref: 2, alpha: [0, 0.5, 0, 0.5] }]);
+        // Cell 2 (sand) gets grass at its west corners.
+        expect(cellBlends(L, 2, 0, rank)).toEqual([{ ref: 1, alpha: [0.5, 0, 0.5, 0] }]);
+    });
+
+    it('composites several textures to their vertex weights', () => {
+        // 2 x 2: grass, sand / rock, grass. The centre vertex has 2 grass, 1 sand, 1 rock.
+        const Q = flat(0, 2, 2, 0, [1, 2, 3, 1]);
+        const b = cellBlends(Q, 0, 0, rank);
+        expect(b.map((x) => x.ref)).toEqual([2, 3]);
+        // Over grass (2/4): sand 1/(2+1), then rock 1/(2+1+1); composited = grass 1/2, sand 1/4, rock 1/4.
+        const a2 = b[0]!.alpha[3];
+        const a3 = b[1]!.alpha[3];
+        expect(a2).toBeCloseTo(1 / 3);
+        expect(a3).toBeCloseTo(1 / 4);
+        const sand = a2 * (1 - a3);
+        const grass = (1 - a2) * (1 - a3);
+        expect(grass).toBeCloseTo(0.5);
+        expect(sand).toBeCloseTo(0.25);
+    });
+
+    it('adds overlay meshes at texture borders and rebuilds them after a repaint', () => {
+        const doc = new LevelDocument();
+        doc.attachTerrain([flat(0, 8, 8, 0, [7])]);
+        const live = new EditableTerrain(
+            () => doc.terrain!,
+            () => null,
+        );
+        doc.onTerrain = (t) => live.touch(t);
+        const overlays = (): number => live.group.children.filter((m) => m.userData.terrainBlend).length;
+        expect(overlays()).toBe(0);
+        const s = new TerrainStroke(doc, [0], 'Paint');
+        s.paint(9, 4 * CELL_SIZE, 4 * CELL_SIZE, { radius: CELL_SIZE, strength: 1, falloff: 0 });
+        live.flush();
+        // Grass gets a sand overlay and sand a grass overlay.
+        expect(overlays()).toBe(2);
+        s.cancel();
+        live.flush();
+        expect(overlays()).toBe(0);
+        live.blend = false;
+        live.rebuildAll();
+        expect(overlays()).toBe(0);
         live.dispose();
     });
 });

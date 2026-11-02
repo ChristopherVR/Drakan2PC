@@ -7,7 +7,7 @@ import {
     type TerrainLayer,
 } from '@drakan/formats';
 import type { Command } from './commands.ts';
-import type { LevelDocument, TerrainTouch } from './document.ts';
+import type { LevelDocument, LevelObject, TerrainTouch } from './document.ts';
 import { cloneTerrainLayer, heightOfRaw, rawOfHeight } from './terrain-json.ts';
 
 /**
@@ -192,6 +192,13 @@ interface CellEdit {
 
 type Rect = { x0: number; z0: number; x1: number; z1: number };
 
+/** An object carried by a sculpt stroke: its y before and after (x, z never change). */
+export interface ObjectLift {
+    id: number;
+    before: number;
+    after: number;
+}
+
 function vertexRect(L: TerrainLayer, idx: ArrayLike<number>): Rect | undefined {
     if (!idx.length) return undefined;
     const s = L.width + 1;
@@ -248,12 +255,18 @@ export class TerrainEditCommand implements Command {
         readonly label: string,
         private readonly heights: HeightEdit[],
         private readonly cells: CellEdit[],
+        /** Objects that stood on the edited ground and moved with it (same undo step). */
+        readonly lifts: readonly ObjectLift[] = [],
     ) {}
     /** Layers the command changes. */
     get layers(): number[] {
         return [...new Set([...this.heights.map((e) => e.layer), ...this.cells.map((e) => e.layer)])];
     }
     private put(doc: LevelDocument, after: boolean): void {
+        for (const m of this.lifts) {
+            const o = doc.get(m.id);
+            if (o) o.transform.pos[1] = after ? m.after : m.before;
+        }
         const touched = new Map<number, Rect | undefined>();
         for (const e of this.heights) {
             const L = doc.writableLayer(e.layer);
@@ -315,6 +328,80 @@ export interface SculptOptions {
     target?: number;
 }
 
+/** Objects at most this far (world units) above the ground under them count as standing on it (`groundedObjects`). */
+export const CARRY_TOLERANCE = 64;
+/**
+ * ...and at most this far below it: level objects are often sunk into the ground (Surdana's birches stand about 220
+ * below the surface, tents about 90), and they belong to the ground just the same.
+ */
+export const CARRY_SUNK = 512;
+
+export interface StrokeOptions {
+    /**
+     * Move the objects that stand on the edited ground with it (Unreal's Landscape does the same), in the stroke's undo
+     * step. Only objects at most `carryTolerance` above (or `carrySunk` below) the surface before the stroke, whose
+     * nearest ground is one of the stroke's layers: flying objects and objects stacked on other objects are further up
+     * and stay where they are.
+     */
+    carryObjects?: boolean;
+    carryTolerance?: number;
+    carrySunk?: number;
+    /** Objects never carried (locked ones). */
+    skipObject?: (o: LevelObject) => boolean;
+    /** Called after a dab that moved objects (the view redraws them). */
+    onObjects?: (ids: readonly number[]) => void;
+}
+
+/** An object standing on terrain layer `layer`: its y and the surface under it, both before the stroke. */
+export interface GroundedObject {
+    id: number;
+    x: number;
+    z: number;
+    y: number;
+    layer: number;
+    ground: number;
+}
+
+/**
+ * Objects of `doc` that stand on one of `layers`: the object's y is at most `tolerance` above and `sunk` below the surface
+ * under it, and no other terrain layer there is closer to it (a bridge or roof layer above keeps its own objects).
+ */
+export function groundedObjects(
+    doc: LevelDocument,
+    layers: readonly number[],
+    tolerance = CARRY_TOLERANCE,
+    skip?: (o: LevelObject) => boolean,
+    sunk = CARRY_SUNK,
+): GroundedObject[] {
+    const t = doc.terrain;
+    if (!t || !layers.length) return [];
+    const set = new Set(layers);
+    let x0 = Infinity;
+    let z0 = Infinity;
+    let x1 = -Infinity;
+    let z1 = -Infinity;
+    for (const i of set) {
+        const L = t[i];
+        if (!L) continue;
+        x0 = Math.min(x0, L.originX * CELL_SIZE);
+        z0 = Math.min(z0, L.originZ * CELL_SIZE);
+        x1 = Math.max(x1, (L.originX + L.width) * CELL_SIZE);
+        z1 = Math.max(z1, (L.originZ + L.height) * CELL_SIZE);
+    }
+    const out: GroundedObject[] = [];
+    for (const o of doc.objects()) {
+        const [x, y, z] = o.transform.pos;
+        if (!(x >= x0 && x <= x1 && z >= z0 && z <= z1)) continue;
+        if (skip?.(o)) continue;
+        const i = layerAt(t, x, z, y, Math.max(tolerance, sunk));
+        if (i < 0 || !set.has(i)) continue;
+        const ground = layerHeightAt(t[i]!, x, z);
+        if (y - ground > tolerance || ground - y > sunk) continue;
+        out.push({ id: o.id, x, z, y, layer: i, ground });
+    }
+    return out;
+}
+
 export interface PaintOptions {
     /** Also paint over holes and invisible cells (fill them in). Painting `TEX_HOLE` itself cuts holes. */
     fillHoles?: boolean;
@@ -331,18 +418,62 @@ export class TerrainStroke {
     private readonly acc = new Map<number, Map<number, number>>();
     private readonly cellBefore = new Map<number, Map<number, [number, number]>>();
     readonly layers: readonly number[];
+    /** Objects standing on the stroke's layers (looked up on the first sculpt dab), null when not carrying. */
+    private grounded: GroundedObject[] | null = null;
+    /** y before the stroke of every object it moved. */
+    private readonly lifted = new Map<number, number>();
 
     constructor(
         private readonly doc: LevelDocument,
         layers: readonly number[],
         readonly label: string,
         private readonly seed = 1,
+        private readonly opts: StrokeOptions = {},
     ) {
         this.layers = [...new Set(layers)].filter((i) => !!doc.terrain?.[i]);
     }
 
     get empty(): boolean {
         return !this.before.size && !this.cellBefore.size;
+    }
+
+    /** Ids of the objects the stroke has moved so far. */
+    get movedObjects(): number[] {
+        return [...this.lifted.keys()];
+    }
+
+    /** Before the first height change: which objects stand on the ground about to move. */
+    private prepareCarry(): void {
+        if (this.grounded || !this.opts.carryObjects) return;
+        this.grounded = groundedObjects(
+            this.doc,
+            this.layers,
+            this.opts.carryTolerance ?? CARRY_TOLERANCE,
+            this.opts.skipObject,
+            this.opts.carrySunk ?? CARRY_SUNK,
+        );
+    }
+
+    /** Move the grounded objects inside the world rectangle with the surface under them. */
+    private carry(x0: number, z0: number, x1: number, z1: number): void {
+        const g = this.grounded;
+        if (!g?.length) return;
+        const t = this.doc.terrain!;
+        const moved: number[] = [];
+        for (const e of g) {
+            if (e.x < x0 || e.x > x1 || e.z < z0 || e.z > z1) continue;
+            const o = this.doc.get(e.id);
+            const L = t[e.layer];
+            if (!o || !L) continue;
+            const h = layerHeightAt(L, e.x, e.z);
+            if (Number.isNaN(h)) continue;
+            const y = e.y + (h - e.ground);
+            if (o.transform.pos[1] === y) continue;
+            if (!this.lifted.has(e.id)) this.lifted.set(e.id, e.y);
+            o.transform.pos[1] = y;
+            moved.push(e.id);
+        }
+        if (moved.length) this.opts.onObjects?.(moved);
     }
 
     private layersNear(x0: number, z0: number, x1: number, z1: number): number[] {
@@ -430,6 +561,7 @@ export class TerrainStroke {
         const near = this.layersNear(x - r - CELL_SIZE, z - r - CELL_SIZE, x + r + CELL_SIZE, z + r + CELL_SIZE);
         const k = clamp01(b.strength);
         const blend = 1 - Math.exp(-BLEND_RATE * k * dt);
+        this.prepareCarry();
         const writes: [number, number, number][] = [];
         for (const i of near) {
             const L = t[i]!;
@@ -478,6 +610,7 @@ export class TerrainStroke {
         }
         // Smooth reads its neighbours before anything is written, so the result does not depend on the visit order.
         for (const [i, v, h] of writes) this.setHeight(i, v, h);
+        if (writes.length) this.carry(x - r - CELL_SIZE, z - r - CELL_SIZE, x + r + CELL_SIZE, z + r + CELL_SIZE);
         return this.touches(writes);
     }
 
@@ -504,6 +637,7 @@ export class TerrainStroke {
             Math.max(a[0], b[0]) + r,
             Math.max(a[2], b[2]) + r,
         );
+        this.prepareCarry();
         const writes: [number, number, number][] = [];
         // Every call starts again from the heights before the stroke (the ramp is dragged out live).
         for (const [i, m] of this.before) for (const [v, h] of m) writes.push([i, v, h]);
@@ -525,6 +659,8 @@ export class TerrainStroke {
             });
         }
         for (const [i, v, h] of writes) this.setHeight(i, v, h);
+        // Earlier calls may have moved objects anywhere along the ramp: carry over every layer the stroke spans.
+        if (writes.length) this.carry(-Infinity, -Infinity, Infinity, Infinity);
         return this.touches(writes);
     }
 
@@ -625,11 +761,20 @@ export class TerrainStroke {
             if (!heights.some((e) => e.layer === layer) && !cells.some((e) => e.layer === layer))
                 this.doc.markTerrainEdit(layer, 0);
         }
+        const lifts: ObjectLift[] = [];
+        for (const [id, y0] of this.lifted) {
+            const o = this.doc.get(id);
+            if (!o) continue;
+            if (!heights.length) o.transform.pos[1] = y0;
+            else if (o.transform.pos[1] !== y0) lifts.push({ id, before: y0, after: o.transform.pos[1] });
+        }
         this.before.clear();
         this.acc.clear();
         this.cellBefore.clear();
+        this.lifted.clear();
+        this.grounded = null;
         if (!heights.length && !cells.length) return null;
-        return new TerrainEditCommand(this.label, heights, cells);
+        return new TerrainEditCommand(this.label, heights, cells, lifts);
     }
 
     /** Put everything the stroke changed back (a cancelled stroke). */
@@ -808,7 +953,9 @@ export function makeLayer(spec: NewLayerSpec, index: number, id: number, templat
         lightColor: template?.lightColor ?? 0xffffff,
         ambientColor: template?.ambientColor ?? 0x808080,
         lightDropoff: template?.lightDropoff ?? 0,
-        visible: template ? [...template.visible] : [],
+        // Its own index first, then the template's links (every disc layer lists itself; a new layer that did not hung
+        // the game near it: journal 2026-11-02/terrain-editing-write.md). Same rule as formats `linkVisibleLists`.
+        visible: [index, ...new Set((template?.visible ?? []).filter((v) => v !== index && v >= 0))],
         heights: new Float32Array(nv).fill(wh),
         vertexFlags: new Uint16Array(nv).fill(vflag),
         vertexMask: new Uint8Array(nv),

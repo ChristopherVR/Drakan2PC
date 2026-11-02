@@ -78,3 +78,66 @@ Driver and screenshots: `build/scratch/landscape-ui/drive.py`, `shots/` (not com
 * Brush on stacked layers (bridges, roofs) picks the layer nearest the ray hit; "Blend" can reach a stacked layer that
   touches the ground at the same height.
 * Texture names are colour words; a user rename (stored in the project) would help once the palette gets long.
+
+## Follow-up: objects ride the ground, new-layer visible list, blended paint preview, end-to-end proof
+
+### Code
+
+* **Objects move with the ground** (`editor-core/src/terrain-edit.ts`): `TerrainStroke` takes `StrokeOptions`
+  (`carryObjects`, `carryTolerance` = `CARRY_TOLERANCE` 64, `carrySunk` = `CARRY_SUNK` 512, `skipObject`, `onObjects`).
+  On the first sculpt or ramp dab, `groundedObjects` picks the objects that stand on the stroke's layers: at most 64 above
+  or 512 below the surface under them (Surdana's birches stand about 220 *below* the surface, tents about 90; with a
+  symmetric 64 they would have been left inside the hill), and whose nearest terrain layer is one of the stroke's (a roof or
+  bridge layer above keeps its objects; flying and stacked objects are further up). Each dab moves them by the surface
+  change under them; `finish()` puts the moves into the stroke's `TerrainEditCommand` (`lifts`), so one undo / redo moves
+  ground and objects together, and `cancel()` restores both. Paint strokes never carry. UI: "Move objects with the ground"
+  under the sculpt tools (default on, saved with the landscape settings); locked objects are skipped; the view redraws
+  live through the new `LevelView.objectsMoved()`.
+* **`makeLayer` visible list**: the new layer's own index first, then the template's links without duplicates (same rule as
+  formats `linkVisibleLists`, which still fixes older documents on export).
+* **Blended ground preview** (`app/src/scene/terrainlive.ts`): `cellBlends` uses the writer's weight rule, now exported from
+  formats as `textureCountAt` (`weightByte` calls it): per vertex and texture, the number of the four cells around it that use
+  the texture. The cell's own texture is drawn opaque as before; every other texture of its 3x3 neighbourhood is drawn over
+  it as a transparent overlay mesh (per-vertex alpha `count / (own + counts drawn so far)`, fixed per-texture order through
+  negative `renderOrder`, polygon offset, no depth write), which composites to exactly `count / total` per vertex like the
+  PS2 splat. A repaint marks one extra cell around the touched rectangle so the neighbours' overlays rebuild.
+  `EditableTerrain.blend = false` gives the old one-texture-per-cell look. Surdana overview: draw calls 101 -> 323 in the
+  paint close-up, still 60 fps in headless SwiftShader.
+* Tests: editor-core `terrain-edit.test.ts` +4 (carry: grounded / flying / sunk / under-ground / roof / locked objects, one
+  undo step; carrying off; cancel; ramp; visible list), app `landscape.test.ts` +3 (`cellBlends` weights, three-texture
+  compositing, overlay meshes appear on a repaint and go on cancel). Whole suite 85 files / 828 tests; `tsc` clean for app,
+  editor-core and formats.
+
+### End-to-end through the real UI (private, `build/scratch/terrain-e2e/`, not committed)
+
+`drive.py` (static `vite build` in `dist/`, Playwright private context on an ephemeral port, the PAL ISO): opens Surdana,
+hides the other objects, frames Birch Tree 01 #9478 (438315, 171243, 351312; ground 171462), Landscape mode, Raise with
+"Move objects with the ground" ticked (default), size 19,200, strength 60 %, a 3 s drag over the birch. The birch went
+171243 -> 175363 with the ground 171462 -> 175582 (its 219 sink kept); Ctrl+Z put both back, Ctrl+Y both up again. Paint
+"Sand 2" (ref 0x9025b) from a top-down camera on the hill's east slope; `03b` / `03c` compare the blended preview with one
+texture per cell. Manage: pick layer 305, Expand south by 4 (42 x 30 -> 42 x 34). Export through Ctrl+E (the Export dialog,
+browser download): "14 change(s) in LEVEL1NA.LVL, 2 terrain layer(s) edited" (the objects are the birch and other ground
+objects carried by the stroke) and the known warning "layer 305: its slot overlaps layers of group 38 that it is never drawn
+with". `export/my-campaign-mod.zip` (mod.toml + 0x0001 and 0x0020 overrides) unpacked into `mods/` with a `mods.ini`.
+
+Game (`play_run.py --level 1a`, `DRAKAN_START_LEVEL_FROM=Level 0 - Intro`, `DRAKAN_GAME=d2`, `DRAKAN_FAST_START=1`,
+`DRAKAN_MODS=<abs mods>`), runs in `runs/`:
+
+| Run | Pose | Result |
+| --- | --- | --- |
+| `e2e-hill2` | 440815 176458 351612 1.451 (on the sand patch, on the hill, facing the birch) | the mod loads (2 entries); Rynn stands at y 176617 (old ground about 171500) for the whole run on the pale sand, which blends into the grass at its edge; the birch trunk rises from the hill in front of her (on the old ground it would be 5,000 below). |
+| `e2e-hill` (2nd run, same pose) | same | placed, then dead by frame 150 ("Press Enter to load the last saved game"); frame 0 shows the pre-placement camera in the level-start water. Same pose in the first build and in `e2e-hill2` stood fine: looks like the known playtest race with Surdana's opening, not the terrain (1 of 3 runs at that pose). |
+| `e2e-extend` | 439296 173288 361472 3.142 (middle of the new 4-row strip of layer 305) | Rynn stands on the new grass strip (y 173803) over the valley with the cliff ahead. |
+| `e2e-view1571`, `e2e-viewm1571`, `e2e-hill-wide` | east / south of the hill | yaw check (1.571 faces -x); the wide views ended up against slopes, not useful. |
+
+Note for drivers: aim paint from above. From the oblique camera the ray of a point behind the hill's crest hits the near
+slope, and the first paint pass landed 5 cells away from the intended spot.
+
+### Still open
+
+* Carry rule is height-only: an object standing on another object within 64 of the ground (a bottle on a low crate) is
+  carried too; objects with no model (logic volumes, sounds) placed on the ground move as well (they are ground-relative in
+  practice). Rotation is not aligned to the new slope (Unreal does not by default either).
+* The blended preview counts only cells inside the layer (the writer's border rule for neighbour layers is not modelled), and
+  the right-triangle ref of per-triangle cells is not blended.
+* The in-game death in one of three runs at the hill pose is unexplained (no log line); worth a few more runs if it recurs.

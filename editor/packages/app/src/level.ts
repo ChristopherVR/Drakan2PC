@@ -400,6 +400,14 @@ export class LevelView {
         this.stack.run(cmd);
     }
 
+    /** Objects were moved outside a command (a landscape stroke carrying them, live): redraw them and the gizmo. */
+    objectsMoved(): void {
+        this.dirtyInstances = true;
+        this.dirtySel = true;
+        this.dirtyLinks = true;
+        this.updateGizmo();
+    }
+
     private afterCommand(): void {
         for (const id of [...this.selection]) if (!this.doc.has(id)) this.selection.delete(id);
         for (const id of [...this.hiddenIds]) if (!this.doc.has(id)) this.hiddenIds.delete(id);

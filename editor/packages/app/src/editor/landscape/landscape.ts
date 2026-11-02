@@ -160,6 +160,8 @@ interface Settings {
     falloff: number;
     /** Edit the layers stitched to the one under the brush too (seams stay closed). */
     blend: boolean;
+    /** Sculpting moves the objects standing on the ground with it. */
+    carry: boolean;
     flatten: 'start' | 'fixed';
     flattenHeight: number;
     paintRef: number | null;
@@ -176,6 +178,7 @@ const DEFAULTS: Settings = {
     strength: 0.35,
     falloff: 0.5,
     blend: true,
+    carry: true,
     flatten: 'start',
     flattenHeight: 0,
     paintRef: null,
@@ -521,6 +524,12 @@ export function installLandscape(ctx: Ctx, host: LandscapeHost): Landscape {
                     st.blend,
                     (v) => (st.blend = v),
                     'The ground is made of many layers stitched together. On: the brush edits them all so no gaps open at the seams. Off: only the layer under the brush.',
+                ),
+                check(
+                    'Move objects with the ground',
+                    st.carry,
+                    (v) => (st.carry = v),
+                    'Trees, rocks and characters standing on the ground (or sunk a little into it) rise and sink with it, in the same undo step. Objects in the air or stacked on other objects stay where they are. Locked objects never move.',
                 ),
             );
         } else if (info().group === 'paint') {
@@ -910,11 +919,18 @@ export function installLandscape(ctx: Ctx, host: LandscapeHost): Landscape {
         const L = layerAt(t, p[0], p[2], p[1], 1500);
         if (L < 0) return;
         const set = layerSet(L);
+        const view = ctx.view();
+        const sculpting = info().group === 'sculpt';
         const s = new TerrainStroke(
             ctx.doc(),
             set,
             info().label + (st.tool === 'paint' ? ' ground texture' : ' ground'),
             seed++,
+            {
+                carryObjects: sculpting && st.carry,
+                skipObject: (o) => view.lockedIds.has(o.id),
+                onObjects: () => view.objectsMoved(),
+            },
         );
         const target = st.tool === 'flatten' ? (st.flatten === 'fixed' ? st.flattenHeight : p[1]) : undefined;
         stroke = {
@@ -937,8 +953,10 @@ export function installLandscape(ctx: Ctx, host: LandscapeHost): Landscape {
         overlay.clearPreview();
         if (canvas().hasPointerCapture(k.pointerId)) canvas().releasePointerCapture(k.pointerId);
         if (cancel) {
+            const moved = k.s.movedObjects.length > 0;
             k.s.cancel();
             flushTerrain();
+            if (moved) ctx.view().objectsMoved();
             return;
         }
         const cmd = k.s.finish();
