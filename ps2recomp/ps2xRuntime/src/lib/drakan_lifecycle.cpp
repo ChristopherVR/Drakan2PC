@@ -368,6 +368,53 @@ void hookFlush(uint8_t* rdram, R5900Context* c, PS2Runtime* rt) {
     g_origFlush(rdram, c, rt);
 }
 
+// Reference guard. The engine keeps arrays of 108-byte records on some objects (array at +0xf4, count at +0xfc); each
+// record holds a u16 registry reference at +4. 0x1042c8 walks them and calls a virtual function on whatever the
+// registry slot holds, without checking that the slot is still a live handle. When the referenced object was destroyed
+// behind the holder's back (a ghost or a proxied creature whose own events are swallowed, a handle recycled), the slot
+// holds a free-list link, the "object" is a neighbouring slot and the call goes through a float: the joiner crash in
+// docs/journal/2026-11-02 (missing-target JALR at 0x1043a0 / 0x1946cc). A reference whose slot is not a live handle
+// with that very reference is cleared, which the engine already treats as "no reference".
+constexpr uint32_t kRefRelease = 0x1042c8u;
+PS2Runtime::RecompiledFunction g_origRefs = nullptr;
+uint32_t g_refsCleared = 0;
+
+void clearStaleRefs(uint8_t* rdram, uint32_t owner) {
+    const Ram r{rdram};
+    const uint32_t eng = engineOf(r);
+    if (!eng || !Ram::ok(owner, 0x100))
+        return;
+    const int32_t count = static_cast<int32_t>(r.u32(owner + 0xfc));
+    const uint32_t arr = r.u32(owner + 0xf4);
+    if (count <= 0 || count > 4096 || !Ram::ok(arr, static_cast<uint32_t>(count) * 108u))
+        return;
+    const uint32_t table = r.u32(eng + 0x7c);
+    const uint32_t high = r.u32(eng + 0x84);
+    const uint32_t vtable = addr(kHandleVtable);
+    for (int32_t i = 0; i < count; ++i) {
+        const uint32_t rec = arr + static_cast<uint32_t>(i) * 108u;
+        const uint32_t ref = r.u16(rec + 4);
+        if (!ref || ref > high + 1 || !Ram::ok(table + (ref - 1) * 8u, 8))
+            continue; // empty, or out of range (the engine clears these itself)
+        const uint32_t v = r.u32(table + (ref - 1) * 8u);
+        if (!v || (Ram::ok(v, 0x120) && r.u32(v) == vtable && r.u16(v + 0x12) == ref))
+            continue;
+        const uint16_t zero = 0;
+        std::memcpy(rdram + ((rec + 4) & 0x1fffffffu), &zero, 2);
+        if (++g_refsCleared <= 24)
+            std::fprintf(stderr,
+                         "[refguard %.3f] owner %08x (class %x) record %d held reference %u to a destroyed object "
+                         "(slot value %08x): cleared\n",
+                         nowS(), owner, classOf(r, eng, owner), i, ref, v);
+    }
+}
+
+void hookRefs(uint8_t* rdram, R5900Context* c, PS2Runtime* rt) {
+    if (c->pc == addr(kRefRelease))
+        clearStaleRefs(rdram, getRegU32(c, 4));
+    g_origRefs(rdram, c, rt);
+}
+
 uint32_t freeTableSlot(PS2Runtime& rt, PS2Runtime::RecompiledFunction fn) {
     for (uint32_t a = 0x100000u; a < 0x100100u; a += 4)
         if (!rt.hasFunction(a) && rt.registerFunction(a, fn))
@@ -601,6 +648,10 @@ void install(PS2Runtime& runtime) {
     if (runtime.hasFunction(addr(kKillFlush))) {
         g_origFlush = runtime.lookupFunction(addr(kKillFlush));
         runtime.replaceFunction(addr(kKillFlush), &hookFlush);
+    }
+    if (const char* g = std::getenv("DRAKAN_REFGUARD"); !(g && g[0] == '0') && runtime.hasFunction(addr(kRefRelease))) {
+        g_origRefs = runtime.lookupFunction(addr(kRefRelease));
+        runtime.replaceFunction(addr(kRefRelease), &hookRefs);
     }
     if (const char* k = std::getenv("DRAKAN_LIFECYCLE_KILL"); k && *k) {
         // "<class hex>[:save|restore|level]": destroy the first live handle of that class in the chosen "before" event

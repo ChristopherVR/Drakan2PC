@@ -109,6 +109,9 @@ def main() -> int:
     )
     ap.add_argument("--env", action="append", default=[])
     ap.add_argument(
+        "--exe", type=Path, help="game executable (default dist/DrakanPC/drakan.exe); lets a run use its own build"
+    )
+    ap.add_argument(
         "--convert-arg", action="append", default=[], help="extra converter argument, e.g. --only (repeat per token)"
     )
     a = ap.parse_args()
@@ -148,7 +151,7 @@ def main() -> int:
     run_cmd = [
         sys.executable, str(ROOT / "scripts" / "harness" / "play_run.py"),
         "--name", "run", "--out-root", str(work), "--recipe", str(recipe),
-        "--timeout", str(a.timeout), "--attempts", "1",
+        "--timeout", str(a.timeout), "--attempts", "1", *(["--exe", str(a.exe)] if a.exe else []),
         "--env", f"DRAKAN_MODS={mods}",
         *(["--env", "DRAKAN_GAME=d1"] if a.campaign else ["--env", f"DRAKAN_START_LEVEL={title}"]),
         "--env", "PS2X_GS_SCALE=1", "--env", "DRAKAN_FULLSCREEN=0", "--env", "DRAKAN_DLSS=off",

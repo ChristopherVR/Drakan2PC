@@ -1588,10 +1588,14 @@ void probeDoors(const uint8_t* rdram) {
 // gets the same retargeting wrapper as the creatures: with the partner's ghost near the door and the local player far
 // away, the door sees "the player" at the ghost, so a door one player opens opens for the other as well.
 void wrapDoors(uint8_t* rdram) {
-    if (g_retarget && g_aiSlot)
-        for (auto& [h, o] : g_obj)
-            if (o.classId == 0x10013u && !o.swapped && !o.gone)
-                o.swapped = swapHandlerTo(rdram, h, g_aiSlot);
+    if (!g_retarget || !g_aiSlot)
+        return;
+    const RdramMemory mem(rdram);
+    for (auto& [h, o] : g_obj)
+        // A door that is gone, or whose handle was recycled for another object, must not get the wrapper: it would
+        // be written into whatever lives in that handle now.
+        if (o.classId == 0x10013u && !o.swapped && !o.gone && world::isLiveHandle(mem, g_globals, h, o.ref - 1))
+            o.swapped = swapHandlerTo(rdram, h, g_aiSlot);
 }
 
 // ------------------------------------------------------------------------------------------------------- chests
@@ -2098,10 +2102,12 @@ void hostTick(drakan_input::IGuest& guest, uint8_t* rdram, uint32_t levelHash) {
         probeDoors(rdram);
     wrapDoors(rdram);
     // Creatures: their own handler gets the retargeting wrapper once (the first time they are keyed).
-    if (g_retarget && g_aiSlot)
+    if (g_retarget && g_aiSlot) {
+        const RdramMemory mem(rdram);
         for (auto& [h, k] : g_keyed)
-            if (!k.swapped)
+            if (!k.swapped && world::isLiveHandle(mem, g_globals, h, k.ref - 1))
                 k.swapped = swapHandlerTo(rdram, h, g_aiSlot);
+    }
     std::vector<Entry> entries;
     std::unordered_map<uint32_t, const world::EntitySnapshot*> present;
     g_st.hostMoved = 0;

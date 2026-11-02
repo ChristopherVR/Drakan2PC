@@ -177,6 +177,7 @@ def run_session(
     extra: list[str],
     soak: bool = False,
     exe: Path | None = None,
+    steps_override: str | None = None,
 ) -> dict:
     """One host (+ joiner) session; returns per-instance analysis."""
     shutil.rmtree(out, ignore_errors=True)
@@ -202,6 +203,8 @@ def run_session(
         # step 0 is the Intro's exit by index (it has no destination name); the others name the next level, the probe
         # takes the exit whose destination contains the text. @1500 = frames after arrival before each step.
         steps = ["0", *[t for t, _ in LEVELS[1:] if "Book" not in t][:chain]]  # the Book is a side level
+        if steps_override:  # e.g. "0,0,0,0": always the first exit (bounces Ruined Village <-> Book)
+            steps = steps_override.split(",")
         env["a"]["DRAKAN_LEVELCHANGE"] = ",".join(steps) + "@1500"
     for kv in extra:
         for k in keys:
@@ -317,6 +320,10 @@ def main() -> int:
     ap.add_argument(
         "--exe", type=Path, help="game binary to copy into the private folders (default build/final-game/bin)"
     )
+    ap.add_argument("--steps", help="chain mode: explicit exit steps (comma separated index or destination text)")
+    ap.add_argument(
+        "--no-lock", action="store_true", help="do not take the shared game lock (use a unique --port and --name)"
+    )
     ap.add_argument("--solo", action="store_true", help="host only (same checks, no joiner)")
     ap.add_argument("--timeout", type=int, default=150, help="per session, seconds")
     ap.add_argument("--name", default="run")
@@ -342,14 +349,17 @@ def main() -> int:
     for kind, idx in jobs:
         title = LEVELS[idx][0] if idx is not None else LEVELS[0][0]
         label = f"chain{a.chain}" if kind == "chain" else f"{idx:02d}"
-        if not acquire_lock(a.lock_wait):
+        if not a.no_lock and not acquire_lock(a.lock_wait):
             print("no game lock, giving up", flush=True)
             return 3
         try:
             print(f"[{label}] {title} ...", flush=True)
-            res = run_session(out_root / label, pack, a.port, title, a.timeout, a.solo, a.chain, a.env, a.soak, a.exe)
+            res = run_session(
+                out_root / label, pack, a.port, title, a.timeout, a.solo, a.chain, a.env, a.soak, a.exe, a.steps
+            )
         finally:
-            release_lock()
+            if not a.no_lock:
+                release_lock()
         ok, why = verdict(res, not a.solo)
         ok_all &= ok
         entry = {"label": label, "level": title, "pass": ok, "why": why, "instances": res, **convert_stats(pack, title)}

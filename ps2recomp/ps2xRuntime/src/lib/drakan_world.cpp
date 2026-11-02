@@ -169,6 +169,28 @@ void sample(const uint8_t* rdram, bool overlayOpen) {
     if (!g_enabled.load(std::memory_order_relaxed) || !rdram || !(overlayOpen || g_headless))
         return;
     const RdramMemory mem(rdram);
+    static const bool sceneListLog = std::getenv("DRAKAN_DBG_SCENELIST") != nullptr;
+    if (sceneListLog) { // test aid: the scene's per-frame object list (scene + 0x488, count at +0x490) and each
+                        // object's controller
+        static uint64_t n = 0;
+        auto u32 = [rdram](uint32_t a) {
+            uint32_t w = 0;
+            if (a < 0x2000000u - 4u)
+                std::memcpy(&w, rdram + a, 4);
+            return w;
+        };
+        if (++n % 90 == 0) {
+            const uint32_t scene = 0x4de5e0u, arr = u32(scene + 0x488u), cnt = u32(scene + 0x490u);
+            std::string line;
+            char buf[96];
+            for (uint32_t i = 0; i < cnt && i < 64u; ++i) {
+                const uint32_t e = u32(arr + i * 4u);
+                std::snprintf(buf, sizeof buf, " [%x:%x,%x,ctrl=%x]", e, u32(e + 4u), u32(e + 8u), u32(e + 0x50u));
+                line += buf;
+            }
+            std::fprintf(stderr, "[scenelist n=%u]%s\n", cnt, line.c_str());
+        }
+    }
     world::readSnapshot(mem, g_globals, g_state, g_exchange.back());
     {
         // Log status transitions (level load, save / load rebuild the registry) so harness runs can check recovery.

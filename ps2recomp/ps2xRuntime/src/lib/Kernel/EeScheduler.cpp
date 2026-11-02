@@ -424,6 +424,9 @@ void ps2xNoPreemptEnter() noexcept {
 void ps2xNoPreemptLeave() noexcept {
     --g_drakanNoPreempt;
 }
+bool ps2xNoPreemptActive() noexcept {
+    return g_drakanNoPreempt > 0;
+}
 
 bool EeScheduler::checkpointDue(uint32_t cycles) noexcept {
     accountCycles(cycles);

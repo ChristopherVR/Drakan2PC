@@ -15,6 +15,7 @@
 void drakanShutdownAudio(); // drakan_overrides.cpp
 void ps2PollHostPad();      // Window thread snapshot for the portable libpad backend.
 #include <cctype>
+#include <cstdio>
 #include "ps2_perf.h"
 #include "vu/ps2_vu1_check.h"
 #include "runtime/ps2_vu1_async.h"
@@ -1356,6 +1357,58 @@ void PS2Runtime::reportMissingFunction(uint8_t* rdram, R5900Context* ctx, uint32
                                 readGuestU32Offset(a0Word0, 0x08u, vtableSlot8) &&
                                 readGuestU32Offset(a0Word0, 0x0cu, vtableSlotC);
 
+    // Return addresses found on the guest stack (a word w with a jal / jalr at w-8): the caller chain of a
+    // null call, which the dispatch history alone does not give (docs/journal/2026-11-02/ootf-null-controller.md).
+    std::string stackRas;
+    if (rdram && sp >= 0x1000u && sp < PS2_RAM_SIZE - 0x1000u) {
+        int found = 0;
+        for (uint32_t off = 0; off < 0x800u && found < 14; off += 4u) {
+            uint32_t w = 0u, ins = 0u;
+            if (!readGuestU32At(sp + off, w) || w < 0x100008u || w >= 0x4f0000u || (w & 3u) != 0u ||
+                !readGuestU32At(w - 8u, ins))
+                continue;
+            if ((ins >> 26) == 3u || ((ins >> 26) == 0u && (ins & 0x3fu) == 9u)) {
+                char buf[32];
+                std::snprintf(buf, sizeof buf, " +%x:%x", static_cast<unsigned>(off), static_cast<unsigned>(w));
+                stackRas += buf;
+                ++found;
+            }
+        }
+    }
+
+    // 0x10822c is the owner call of 0x108208(controller). Its callers 0x103928 <- 0x109058 <- 0x140ba8 walk the scene's
+    // object list (scene+0x488 pointers, count at +0x490) calling 0x109058(object->controller at +0x50); a null
+    // controller ends here. 0x109058 saved the walker's s0 (the object), s1 (its index) and s2 (the scene) at
+    // sp+0xa0 / +0xb0 / +0xc0 of this frame.
+    std::string nullObject;
+    if (rdram && sourcePc == 0x10822cu && sp >= 0x1000u && sp < PS2_RAM_SIZE - 0x1000u) {
+        uint32_t obj = 0u, idx = 0u, scene = 0u;
+        readGuestU32At(sp + 0xa0u, obj);
+        readGuestU32At(sp + 0xb0u, idx);
+        readGuestU32At(sp + 0xc0u, scene);
+        std::ostringstream o;
+        o << " walker-object=0x" << std::hex << obj << " index=0x" << idx << " scene=0x" << scene << " object-words:";
+        for (uint32_t off = 0; off < 0x120u && obj != 0u; off += 4u) {
+            uint32_t w = 0u;
+            if (readGuestU32At(obj + off, w) && w != 0u)
+                o << " +" << off << "=" << w;
+        }
+        uint32_t arr = 0u, cnt = 0u;
+        readGuestU32At(scene + 0x488u, arr);
+        readGuestU32At(scene + 0x490u, cnt);
+        o << " | scene-list n=" << std::dec << cnt << std::hex << " [object:+4,+8,ctrl(+50),+70]";
+        for (uint32_t i = 0; i < cnt && i < 64u && arr != 0u; ++i) {
+            uint32_t e = 0u, f4 = 0u, f8 = 0u, c = 0u, f70 = 0u;
+            readGuestU32At(arr + i * 4u, e);
+            readGuestU32At(e + 4u, f4);
+            readGuestU32At(e + 8u, f8);
+            readGuestU32At(e + 0x50u, c);
+            readGuestU32At(e + 0x70u, f70);
+            o << " [" << e << ":" << f4 << "," << f8 << "," << c << "," << f70 << "]";
+        }
+        nullObject = o.str();
+    }
+
     if (firstReport) {
         std::ostringstream oss;
         uint32_t lpc_ = 0, lra_ = 0, lsp_ = 0;
@@ -1374,7 +1427,8 @@ void PS2Runtime::reportMissingFunction(uint8_t* rdram, R5900Context* ctx, uint32
             << " record[c]=0x" << recordWordC << " vtableReadable=" << (vtableReadable ? "yes" : "no") << " vtbl[0]=0x"
             << vtableSlot0 << " vtbl[4]=0x" << vtableSlot4 << " vtbl[8]=0x" << vtableSlot8 << " vtbl[c]=0x"
             << vtableSlotC << " codeRegion=" << (m_memory.isCodeAddress(targetPc) ? "yes" : "no")
-            << " policy=" << static_cast<uint32_t>(policy) << " trace=" << formatDispatchHistory() << std::dec;
+            << " policy=" << static_cast<uint32_t>(policy) << " stack-ras=" << stackRas << nullObject
+            << " trace=" << formatDispatchHistory() << std::dec;
 
         static std::mutex s_missingFunctionLogMutex;
         {

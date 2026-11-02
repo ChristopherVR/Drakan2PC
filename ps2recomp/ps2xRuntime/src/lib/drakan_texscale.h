@@ -6,6 +6,8 @@
 class PS2Runtime;
 
 namespace drakan_texscale {
-// Env DRAKAN_TEXSCALE=1 enables the native filter (off by default, experimental); DRAKAN_TEXSCALE_LOG=1 times the guest calls (2: logs the lock step).
+// The native filter is on by default (DRAKAN_TEXSCALE=0 restores the guest loop); DRAKAN_TEXSCALE_LOG=1 times the guest
+// calls (2: logs the lock step); DRAKAN_TEXSCALE_VERIFY=1 checks every native result against a reference;
+// DRAKAN_TEXSCALE_CHARGE=<cycles per pixel>.
 void install(PS2Runtime& runtime);
 } // namespace drakan_texscale
