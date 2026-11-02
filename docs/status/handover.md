@@ -92,9 +92,10 @@ Engine 5; textures move to UE5-style PBR sets.
 - Three-player fight/death/latejoin and chest/chesthost runs failed under machine load; rerun on a quiet machine.
   Partner swings sometimes hit another player's ghost instead of an orc (known claim flake).
 - Save editor items proven in game 2026-11-02 (`docs/journal/2026-11-02/save-editor-items-in-game.md`): 1-, 2- and
-  3-cell items and the bow added, used/equipped, fired, kept over the game's own save and reload. Left: equip the Steel
-  Club and the long bow (skill needed), game save + reload after Replace with..., pickup classes (mana power-ups) are
-  offered like inventory items.
+  3-cell items and the bow added, used/equipped, fired, kept over the game's own save and reload. Later the same day: Steel
+  Club, Wood Long Bow and Bitter Touch equipped and used; Replace with... survives the game's own save and reload; mana
+  power-ups are listed as "Power-ups (used at once)". Open: the long bow's grid badge read 390 while its panel said
+  300/300 (bytes not checked); `play_run.py --save` runs stalled at the title until `DRAKAN_AUTOPRESS=0` (cause unknown).
 - Rynn's class word `0x1f081069` (bit 27 set, game-written save) is accepted by the editor (`isRynnClass`);
   `scripts/savetool/savetool.py` still matches `0x17081069` only.
 

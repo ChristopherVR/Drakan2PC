@@ -104,3 +104,32 @@ unequipped donor with the holder words. `npx vitest run` in `editor/`: 67 files,
    game; add 57 to the set if they turn out to act at once too.
 
 Tests: `app/test/save-ui-leftovers.test.ts`, plus a catalog case in `app/test/itemdata.test.ts`.
+
+## Remaining proofs
+
+Run folders are under `build/scratch/saveitems2/` (builder and cell-table scripts are the ones in `build/scratch/saveitems/`).
+Cards: `cardS` (Surdana sample + Melee/Archery/Magic 3 via `SetFieldCommand`, then Add item: Steel Club 2 cells at cell 5,
+Wood Long Bow 3 at cell 6, Bitter Touch 2 at cell 7); `cardP` (Melee 3, Replace cell 1 potion -> Rusty Long Sword, height 3).
+Recipes `rec1.txt`, `recBow.txt`, `recRep.txt`, `recRel.txt`.
+
+| Proof | Result | Evidence |
+| --- | --- | --- |
+| Steel Club equipped (Melee 3) and swung | PASS: "Equipped, Left hand", swing trail drawn | `r1/d_club_equip`, `r1/j_swing` |
+| Wood Long Bow (3 cells) equipped and fired | PASS: "Equipped", 300 arrows, 298 after two shots | `bow/d_longbow_equip`, `bow/g_fire2`, `bow/h_tab_after` |
+| Bitter Touch (handle at +0x9a) added, equipped | PASS: "Equipped, Right hand", Damage 8 AP, Very Fast, 300/300 durability, shown in Rynn's hand | `r1/h_bitter_equip`, `r1/j_swing` |
+| Replace with... (potion -> Rusty Long Sword, 3 cells), game's own F5, reload | PASS: 3 cells tall before and after; equipped left hand before the save and still "L" after the reload; unequip then equip again works; swing ok | `rep/d_replaced_equip`, `rep/g_saved`, `rel/b_tab_reloaded`, `rel/e_reequipped`, `rel/g_swing` |
+
+The game's own save (`rep/card/mc0`, loaded in `rel`) has the replaced item as stream `311/3` with markers 9 (1) and 17 (2),
+the same as the editor wrote. The game also rewrote the sample's other two blades to heights 2 and 3 (stream `632/2`,
+`631/3`; the sample's own stream had 1 for both, with markers for 2 and 3 already present). The icons in the Tab screen
+changed from cut off to full size. This is the sample's stale data, not the editor's.
+
+No editor bugs found in this round. Notes:
+
+- Equipping a one-handed weapon in the right hand with a bow equipped unequips the bow (`r1/h_bitter_equip`). Normal game.
+- Wood Long Bow: the grid showed 390 arrows while the detail panel said 300/300 and the first shot after equipping read
+  298 after two shots. The 390 is unexplained (not checked against the save bytes); the game's count after firing is right.
+- Harness: `play_run.py` runs failed for ~1 h at the title (never reaching the F8 quick load) because the harness sets
+  `DRAKAN_AUTOPRESS=3000`, which taps Cross every 3 s on the title and bounces between the title and the Load screen
+  whenever the run is not already steady/playing. Passing `--env DRAKAN_AUTOPRESS=0` fixes it (all runs above). Whether
+  the cause is the current runtime build or the machine was not found; the 10:30 runs of the earlier round did not need it.
