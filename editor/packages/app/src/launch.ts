@@ -52,37 +52,31 @@ export function checkPlayOptions(o: PlayOptions): string | null {
 /** The level New Game opens first (the movie and the Drakan 2 opening cut scene). */
 export const INTRO_LEVEL = 'Level 0 - Intro';
 
-export interface LaunchExtras {
-    /**
-     * The level is on the disc: load it in place of the intro level itself, so New Game goes straight into it with no
-     * movie and no opening cut scene (the multiplayer arenas' direct launch, docs/reference/netcode.md "Straight into
-     * the map"). A level copy cannot go this way (the intro slot does not open a new level's files,
-     * docs/journal/2026-10-31/ootf-ingame.md); it replaces the first level and the taps skip the intro.
-     */
-    direct?: boolean;
-}
-
 /**
- * Environment for the game. `level` is the long level name as the disc lists it (`Level 4A - Ravenshold`), used for
- * New Game when `startLevel` is on. Throws on invalid options.
+ * Environment for the game. `level` is the long level name as the disc lists it (`Level 4A - Ravenshold`), or the
+ * title of a project's level copy or converted Order of the Flame level, used for New Game when `startLevel` is on.
+ * Throws on invalid options.
+ *
+ * Every level loads in place of the intro level itself (DRAKAN_START_LEVEL_FROM), so New Game goes straight into it with
+ * no movie and no opening cut scene: the runtime rewrites the intro's level-load path to the level's own path, so the
+ * engine knows the level by its real name and a mod pack's new level (copy, OotF) is opened like a disc one
+ * (docs/journal/2026-11-02/editor-play-direct.md, level-copy-direct-play.md).
  *
  * With `autoStart` the game runs on a throw-away memory card (DRAKAN_PLAYTEST_CARD, made fresh by the desktop shell): on
  * the player's own card the title's first row is Continue, so the Cross taps loaded their latest save instead of the
  * level (and a play-test position from another level then dropped Rynn out of the world). The player's saves are never
  * read or written by a play test.
  */
-export function launchEnv(o: PlayOptions, level: string | null, extras: LaunchExtras = {}): Record<string, string> {
+export function launchEnv(o: PlayOptions, level: string | null): Record<string, string> {
     const bad = checkPlayOptions(o);
     if (bad) throw new Error(bad);
     const env: Record<string, string> = {};
     if (o.startLevel && level) {
-        // Order of the Flame levels are converted levels (template based): never through the intro slot.
-        const ootf = /^ootf\b/i.test(level);
         env.DRAKAN_START_LEVEL = level;
-        if (extras.direct && !ootf && level !== INTRO_LEVEL) env.DRAKAN_START_LEVEL_FROM = INTRO_LEVEL;
+        if (level !== INTRO_LEVEL) env.DRAKAN_START_LEVEL_FROM = INTRO_LEVEL;
         // Which game the title runs: with a campaign pack installed the title first asks (the game card), and a tap
-        // there picked whichever card had focus. The file redirect above works the same for converted Order of the
-        // Flame levels (ootf_level_run.py), so a single-level test always runs as Drakan 2 (d1 would add its own
+        // there picked whichever card had focus. Converted Order of the Flame levels load the same way under Drakan 2
+        // (proven with an `ootf` campaign pack), so a single-level test always runs as Drakan 2 (d1 would add its own
         // campaign redirect and save folder).
         env.DRAKAN_GAME = 'd2';
     }

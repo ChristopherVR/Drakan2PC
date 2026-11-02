@@ -12,7 +12,7 @@ import {
 } from '@drakan/editor-core';
 import { writeObjectList } from '@drakan/formats';
 import type { LevelLoadResult } from './rpc.ts';
-import { launchEnv, type LaunchExtras, type PlayOptions } from './launch.ts';
+import { launchEnv, type PlayOptions } from './launch.ts';
 import * as platform from './platform.ts';
 
 /** Minimal File System Access shapes for writing a pack into a chosen folder. */
@@ -143,10 +143,9 @@ export async function playInGame(
     opts: PlayOptions,
     level: string | null,
     extraEnv: Record<string, string> = {},
-    extras: LaunchExtras = {},
 ): Promise<string | null> {
     if (!platform.isDesktop) throw new ModError('Play needs the desktop app.');
-    const env = { ...launchEnv(opts, level, extras), ...extraEnv }; // validate before touching the disk
+    const env = { ...launchEnv(opts, level), ...extraEnv }; // validate before touching the disk
     if (!(await ensureGameFolder())) return null;
     if (await platform.gameRunning()) throw new ModError('The game is already running. Close it first.');
     const where = pack ? await writePackDesktop(pack) : null;

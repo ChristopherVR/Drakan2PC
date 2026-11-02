@@ -519,15 +519,7 @@ export function createModPanel(ctx: Ctx, host: ModHost): ModPanel {
         const copy = await copyPlayPack(ctx.doc().level, ctx.doc(), meta());
         const pack = copy ?? (edited ? buildLevelPack(src!, ctx.doc(), meta()) : null);
         host.setStatus('Starting the game...');
-        const msg = await playInGame(
-            pack,
-            desktopPlay.read(),
-            src ? ctx.doc().level || null : null,
-            {},
-            {
-                direct: copy === null,
-            },
-        );
+        const msg = await playInGame(pack, desktopPlay.read(), src ? ctx.doc().level || null : null);
         if (msg === null) return;
         report.textContent = [...(pack && 'warnings' in pack ? (pack.warnings as string[]) : []), msg].join('\n');
         host.setStatus(msg);

@@ -177,8 +177,7 @@ export async function buildProjectPack(
             const data = await deps.call('readStoryFile', `LEVELS\\${srcStem}\\${from}.${ext}`);
             if (data) {
                 // The LVL's dependency table still names `<source level>_splats` (opened when the copy is entered
-                // through an exit); a play test that starts the copy through the New Game redirect asks for
-                // `<copy>_splats`. Both names ship: a missing splat file crashes the level load.
+                // through an exit); a play test that starts the copy in the intro's slot asks for `<copy>_splats`. Both names ship: a missing splat file crashes the level load.
                 extra[`files/ENGLISH/LEVELS/${mangled}/${from}.${ext}`] = data;
                 extra[`files/ENGLISH/LEVELS/${mangled}/${to}.${ext}`] = data;
                 splats++;

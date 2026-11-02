@@ -17,16 +17,20 @@ describe('launchEnv', () => {
         expect(env.DRAKAN_PLAYTEST_CARD).toBe('1');
         expect(env.DRAKAN_FAST_START).toBe('1');
         expect(env.DRAKAN_GAME).toBe('d2');
-        expect(env.DRAKAN_START_LEVEL_FROM).toBeUndefined(); // not direct: the intro plays, then the level
         expect(env.DRAKAN_PLAYTEST_GOD).toBeUndefined();
     });
 
-    it('a disc level goes straight into the intro slot (no movie, no opening cut scene)', () => {
-        const env = launchEnv(opts(), 'Level 4A - Ravenshold', { direct: true });
-        expect(env.DRAKAN_START_LEVEL_FROM).toBe('Level 0 - Intro');
-        // converted Order of the Flame levels cannot load through the intro slot
-        expect(launchEnv(opts(), 'OotF 03 - Swamp', { direct: true }).DRAKAN_START_LEVEL_FROM).toBeUndefined();
-        expect(launchEnv(opts(), 'Level 0 - Intro', { direct: true }).DRAKAN_START_LEVEL_FROM).toBeUndefined();
+    it('every level goes straight into the intro slot (no movie, no opening cut scene)', () => {
+        // a disc level, a project's level copy and a converted Order of the Flame level alike
+        for (const level of ['Level 4A - Ravenshold', 'Surdana Copy', 'OotF - Islands']) {
+            const env = launchEnv(opts(), level);
+            expect(env.DRAKAN_START_LEVEL).toBe(level);
+            expect(env.DRAKAN_START_LEVEL_FROM).toBe('Level 0 - Intro');
+            expect(env.DRAKAN_GAME).toBe('d2');
+        }
+        // the intro itself loads as itself
+        expect(launchEnv(opts(), 'Level 0 - Intro').DRAKAN_START_LEVEL_FROM).toBeUndefined();
+        expect(launchEnv(opts({ startLevel: false }), 'Surdana Copy').DRAKAN_START_LEVEL_FROM).toBeUndefined();
     });
 
     it('invincible keeps the player alive', () => {

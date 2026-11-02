@@ -236,8 +236,8 @@ export async function playTestDoc(
     const edited = changeCount(diffDocument(src.lvl.list, doc)) > 0;
     const pack = copy ?? (edited ? buildLevelPack(src, doc, meta) : null);
     const opts: PlayOptions = { ...savedOptions(), mode: 'single', startLevel: true };
-    // A disc level loads straight into the intro's slot (no movie, no opening cut scene); a level copy cannot.
-    const msg = await playInGame(pack, opts, doc.level || null, extraEnv, { direct: copy === null });
+    // Every level (disc level or copy) loads straight into the intro's slot: no movie, no opening cut scene.
+    const msg = await playInGame(pack, opts, doc.level || null, extraEnv);
     if (msg === null) return;
     host.status(`${what}: ${msg}`);
     host.toast(`${what}: game started`, 'ok');
