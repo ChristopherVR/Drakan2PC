@@ -19,6 +19,12 @@
 //   loadout = 0x20abc             ; resource ids added to the map's loadout
 //   weapons = 0x20abc             ; allowed weapon resource ids, empty = all
 //   objective = capture points=1  ; repeatable: capture | hold [points=N] [seconds=N] [radius=N]
+//   lives = 3                     ; 0 unlimited, 1..99: out of lives = out of the match; the last player (team) left
+//   wins score_team_kill = -1          ; points for killing a team mate (friendly fire on), default 0 spawn_protection
+//   = 2          ; seconds a fresh spawn cannot be hurt (default: the server's, 2) pickup_respawn = never        ; map
+//   (default: each pickup's own time) | never | seconds 1..3600 team_names = Red, Blue        ; up to 4 names (<= 16
+//   characters) shown by the HUD instead of Fire / Water / ... team_colors = c83c28 3c78dc   ; up to 4 HUD colours,
+//   rrggbb hex (no '#': it starts a comment)
 #include "net/ArenaMaps.h"
 #include "net/Protocol.h"
 
@@ -52,6 +58,12 @@ struct ModeDef {
     std::vector<uint32_t> loadout;
     std::vector<uint32_t> weapons;
     std::vector<ModeObjective> objectives;
+    uint8_t lives = 0;                  // 0 = unlimited; else each player has this many lives (last one standing)
+    int32_t scoreTeamKill = 0;          // points for a team kill (friendly fire on)
+    int16_t spawnProtectionSec = -1;    // -1 = the server's respawnProtectionMs
+    int32_t pickupRespawnSec = -1;      // -1 = each pickup's own respawnSec, 0 = never, else seconds
+    std::vector<std::string> teamNames; // HUD names per team (empty = Fire / Water / Earth / Air)
+    std::vector<uint32_t> teamColors;   // HUD colours per team, 0xRRGGBB (empty = the built-in ones)
     // Teams the mode plays with: 0 for a free for all (base = dm), else teams (2 when base = tdm and none was given).
     uint8_t teamCount() const { return !teamBase ? 0 : teams >= 2 ? teams : 2; }
 };
@@ -78,5 +90,11 @@ void applyModeToConfig(const ModeDef& mode, MatchConfigData& config);
 // (dm / tdm); a capture objective needs a flag and a base marker, a hold objective a zone marker; 3..4 teams need the
 // map's player limit to allow that many players. `why` (optional) gets the reason when it does not fit.
 bool modeFitsArena(const ModeDef& mode, const ArenaDef& arena, std::string* why = nullptr);
+
+// Plain-language text for menus and the HUD. modeGoal: one short line, what wins ("Last one standing, 3 lives",
+// "First to 20 points", "Capture the flag, first to 5"). modeSummary: the rules in one or two sentences
+// ("Free for all. 3 lives each, the last one standing wins. 5 minutes. Pickups do not come back.").
+std::string modeGoal(const ModeDef& mode);
+std::string modeSummary(const ModeDef& mode);
 
 } // namespace drakan::net

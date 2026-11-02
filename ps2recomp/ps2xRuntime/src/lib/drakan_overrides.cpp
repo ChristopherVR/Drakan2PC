@@ -74,6 +74,7 @@
 #include <cstdio>
 #include <fstream>
 #include <iterator>
+#include <map>
 #include <cstdlib>
 #include <cstring>
 #include <deque>
@@ -637,6 +638,10 @@ struct HleHost {
 
 HleHost* g_host = nullptr;                     // intentionally leaked: its threads outlive static destruction
 std::unique_ptr<hle::mods::ModManager> g_mods; // mod packs (docs/reference/modding.md); kept for the process lifetime
+// Menu skin without the campaign packs' own files, and those files per campaign pack id ("mod <id>: <path>", text):
+// the game card applies a campaign's skin on top of the base one only while it is chosen.
+gameui::UiSkin g_baseSkin;
+std::map<std::string, std::vector<std::pair<std::string, std::string>>> g_campaignSkins;
 
 bool isRsrcSid(uint32_t sid) {
     return hle::RsrcIop::isRsrcSid(sid);
@@ -1343,8 +1348,9 @@ void applyDrakanOverrides(PS2Runtime& runtime) {
         }
         {
             // UI skin (docs/reference/modding.md "Menus and HUD"): ui.ini next to the exe, then ui/*.ini of the enabled
-            // packs in load order (later keys win). Installed before any screen is built.
-            gameui::UiSkin skin;
+            // packs in load order (later keys win). Installed before any screen is built. A campaign pack's own skin
+            // applies only while that campaign is chosen (g_campaignSkins, drakan_game's SkinFn below).
+            gameui::UiSkin& skin = g_baseSkin;
             auto addSkin = [&skin](const std::string& source, const std::string& text) {
                 std::vector<std::string> warnings;
                 const size_t n = gameui::parseUiSkin(text, skin, &warnings);
@@ -1364,46 +1370,96 @@ void applyDrakanOverrides(PS2Runtime& runtime) {
                 addSkin("ui.ini", text);
             if (const char* f = std::getenv("DRAKAN_UI_SKIN"); f && *f && readText(f, text))
                 addSkin(f, text);
-            if (g_mods)
-                for (const auto& [source, content] : g_mods->uiFiles())
-                    addSkin(source, content);
-            gameui::setUiSkin(std::move(skin));
+            if (g_mods) {
+                std::vector<std::string> campaignPacks;
+                for (const hle::mods::ModStatus& st : g_mods->status())
+                    if (st.state == hle::mods::ModState::Loaded && !st.manifest.campaign.empty())
+                        campaignPacks.push_back(st.manifest.id);
+                for (const auto& [source, content] : g_mods->uiFiles()) {
+                    // source = "mod <id>: <path>"
+                    const size_t colon = source.find(':');
+                    const std::string mod = source.rfind("mod ", 0) == 0 && colon != std::string::npos
+                                                ? source.substr(4, colon - 4)
+                                                : std::string();
+                    if (std::find(campaignPacks.begin(), campaignPacks.end(), mod) != campaignPacks.end())
+                        g_campaignSkins[mod].emplace_back(source, content);
+                    else
+                        addSkin(source, content);
+                }
+            }
+            gameui::setUiSkin(skin);
         }
         drakan_settings_host::setModManager(g_mods.get(), modsDir); // the Mods page of the PC settings
     }
     {
-        // Campaign packs (manifest `campaign = "ootf"`): Drakan: Order of the Flame in the title menu; the choice
-        // redirects the opening cut scene level to the campaign's first level (drakan_game.h).
+        // Campaign packs (manifest `campaign = "<id>"`, docs/reference/modding.md "Campaign packs"): Drakan: Order of
+        // the Flame ("ootf") and custom campaigns on the title's game card; the choice redirects the opening cut scene
+        // level to the campaign's first level, moves the memory card and switches the menu skin (drakan_game.h).
         std::vector<drakan_game::Campaign> campaigns;
         if (g_mods) {
             for (const hle::mods::ModStatus& st : g_mods->status()) {
-                if (st.state != hle::mods::ModState::Loaded || st.manifest.campaign.empty())
+                const hle::mods::Manifest& m = st.manifest;
+                if (st.state != hle::mods::ModState::Loaded || m.campaign.empty())
                     continue;
-                std::string start = st.manifest.campaignStart;
+                if (!drakan_game::validCampaignId(m.campaign)) {
+                    std::fprintf(stderr,
+                                 "[game] pack '%s': campaign id '%s' is not valid (1-32 of a-z 0-9 _ -, not d1 d2 "
+                                 "drakan ask)\n",
+                                 m.id.c_str(), m.campaign.c_str());
+                    continue;
+                }
+                if (std::any_of(campaigns.begin(), campaigns.end(),
+                                [&](const drakan_game::Campaign& c) { return c.id == m.campaign; })) {
+                    std::fprintf(stderr, "[game] pack '%s': campaign '%s' is already given by pack '%s'\n",
+                                 m.id.c_str(), m.campaign.c_str(),
+                                 std::find_if(campaigns.begin(), campaigns.end(), [&](const drakan_game::Campaign& c) {
+                                     return c.id == m.campaign;
+                                 })->modId.c_str());
+                    continue;
+                }
                 std::vector<std::string> mine;
                 for (const hle::mods::ExtraLevel& l : g_mods->extraLevels())
-                    if (l.modId == st.manifest.id)
+                    if (l.modId == m.id)
                         mine.push_back(l.name);
+                std::string start = m.campaignStart;
                 if (start.empty() && !mine.empty())
                     start = mine.front();
                 if (std::find(mine.begin(), mine.end(), start) == mine.end()) {
                     std::fprintf(stderr, "[game] pack '%s': campaign start level '%s' is not one of its levels\n",
-                                 st.manifest.id.c_str(), start.c_str());
+                                 m.id.c_str(), start.c_str());
                     continue;
                 }
-                if (st.manifest.campaign != "ootf") {
-                    std::fprintf(stderr, "[game] pack '%s': unknown campaign '%s' (known: ootf)\n",
-                                 st.manifest.id.c_str(), st.manifest.campaign.c_str());
-                    continue;
+                std::string saves = m.campaignSaves;
+                if (!saves.empty() && !drakan_game::validSaveFolder(saves)) {
+                    std::fprintf(stderr, "[game] pack '%s': campaign_saves '%s' is not valid, using '%s'\n",
+                                 m.id.c_str(), saves.c_str(), m.campaign.c_str());
+                    saves.clear();
                 }
-                campaigns.push_back({st.manifest.campaign, st.manifest.campaignName, st.manifest.id, start});
-                break; // one Order of the Flame campaign at a time (the first pack in load order)
+                // Play order: the manifest's `levels` (registered ones only).
+                std::vector<std::string> order;
+                for (const std::string& n : m.levels)
+                    if (std::find(mine.begin(), mine.end(), n) != mine.end())
+                        order.push_back(n);
+                campaigns.push_back({m.campaign, m.campaignName, m.campaignDescription, m.id, start, saves, order});
             }
         }
         hle::FileService* gameFiles = &host->iop.file;
-        drakan_game::configure(std::move(campaigns), [gameFiles](const std::string& from, const std::string& to) {
-            gameFiles->setLevelRedirect(from, to);
-        });
+        drakan_game::configure(
+            std::move(campaigns),
+            [gameFiles](const std::string& from, const std::string& to) { gameFiles->setLevelRedirect(from, to); },
+            [](const drakan_game::Campaign* c) {
+                // The base skin plus the chosen campaign's own ui/*.ini (later keys win).
+                gameui::UiSkin skin = g_baseSkin;
+                if (c)
+                    if (auto it = g_campaignSkins.find(c->modId); it != g_campaignSkins.end())
+                        for (const auto& [source, text] : it->second) {
+                            std::vector<std::string> warnings;
+                            const size_t n = gameui::parseUiSkin(text, skin, &warnings);
+                            std::fprintf(stderr, "[ui] skin %s (campaign '%s'): %zu setting(s)\n", source.c_str(),
+                                         c->id.c_str(), n);
+                        }
+                gameui::setUiSkin(std::move(skin));
+            });
     }
 #ifdef PS2X_HAVE_GSR
     {

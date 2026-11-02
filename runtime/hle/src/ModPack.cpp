@@ -435,6 +435,8 @@ bool parseManifest(const std::string& textIn, bool json, Manifest& m, std::strin
     m.campaign = one("campaign");
     m.campaignName = one("campaign_name");
     m.campaignStart = one("campaign_start");
+    m.campaignDescription = one("campaign_description");
+    m.campaignSaves = one("campaign_saves");
     m.levelCopies = many("level_copies");
     for (auto& d : many("load.dependencies")) // tolerated: written after a [load] header by mistake
         m.dependencies.push_back(d);

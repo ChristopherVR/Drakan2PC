@@ -867,10 +867,9 @@ void titleExecute(RecompGuest& g, uint32_t active, int id) {
                 titleFinish(gameui::Outcome::Confirmed, true);
             return;
         case K::SelectGame: { // the game card (drakan_game.h): the card folder and the New Game redirect follow at once
-            const auto game = a.value == 1 ? drakan_game::Game::Ootf : drakan_game::Game::Drakan;
-            if (!drakan_game::select(game))
+            if (!drakan_game::select(a.value)) // the card index: 0 Drakan, then the campaigns
                 return refuse("that game is not installed");
-            menuLog("game: %s", drakan_game::name(game).c_str());
+            menuLog("game: %s", drakan_game::currentName().c_str());
             g_title.scanned = false; // the other game's saves: Continue / Load Game
             // Load Game's native enable state came from the old card: the title's own refresh (message 4) from 37e810.
             if (id == static_cast<int>(titleui::kScreenTitle))
@@ -953,13 +952,19 @@ void titleTick(const uint8_t* ram, RecompGuest& g) {
         }
         st.canQuit = drakan_menus::titleQuit();
         st.offerGames = drakan_game::offerChoice();
-        st.game = static_cast<int>(drakan_game::current());
-        st.gameNames[0] = drakan_game::name(drakan_game::Game::Drakan);
-        st.gameNames[1] = drakan_game::name(drakan_game::Game::Ootf);
-        if (drakan_game::current() == drakan_game::Game::Ootf) { // own title text over the native Drakan 2 logo
-            const std::string full = drakan_game::name(drakan_game::Game::Ootf);
-            st.brandTitle = "DRAKAN";
-            st.brandSubtitle = full.rfind("Drakan: ", 0) == 0 ? full.substr(8) : full;
+        st.game = drakan_game::currentIndex();
+        st.games.clear();
+        for (const drakan_game::GameInfo& gi : drakan_game::games())
+            st.games.push_back({gi.id, gi.name, gi.description, {}}); // covers: the host side (titleDraw)
+        if (drakan_game::current() != drakan_game::Game::Drakan) { // own title text over the native Drakan 2 logo
+            const std::string full = drakan_game::currentName();
+            if (full.rfind("Drakan: ", 0) == 0) {
+                st.brandTitle = "DRAKAN";
+                st.brandSubtitle = full.substr(8);
+            } else { // a custom campaign: its title, "a Drakan campaign" under it
+                st.brandTitle = full;
+                st.brandSubtitle = "A Drakan campaign";
+            }
         }
         st.dateOrder = menuDateOrder(g, st.clock24);
         gameui::readPauseOptions(RdramMemory(ram), st.options);

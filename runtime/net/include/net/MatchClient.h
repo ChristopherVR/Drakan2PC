@@ -35,10 +35,12 @@ struct RemotePlayer {
     bool ready = false; // v5 lobby ready flag
     int32_t health = 0;
     bool hasVitals = false;
-    PlayerVitals vitals;            // the server's last relay of this player's health (Vitals)
-    uint16_t character = 0;         // co-op character the player picked in the lobby (Status), 0 = Rynn
-    uint16_t pingMs = kPingUnknown; // the server's measure of this player's round trip (Status), kPingUnknown = none
-    int32_t score = 0;              // points of the match's mode (a standard match: the kills)
+    PlayerVitals vitals;             // the server's last relay of this player's health (Vitals)
+    uint16_t character = 0;          // co-op character the player picked in the lobby (Status), 0 = Rynn
+    uint16_t pingMs = kPingUnknown;  // the server's measure of this player's round trip (Status), kPingUnknown = none
+    int32_t score = 0;               // points of the match's mode (a standard match: the kills)
+    uint8_t lives = kLivesUnlimited; // a mode with lives: lives left (Score)
+    bool eliminated = false;         // out of lives (Score)
 };
 
 struct DisconnectedEvent {

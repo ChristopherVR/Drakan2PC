@@ -106,7 +106,9 @@ struct ServerPlayer {
     uint16_t objectives = 0;        // objectives completed this match (flag captures, zone holds)
     int carriedFlag = -1;           // capture objective: index into the arena's markers of the flag it carries
     bool hasVitals = false;
-    PlayerVitals vitals; // the last Vitals the player sent (co-op party HUD)
+    PlayerVitals vitals;             // the last Vitals the player sent (co-op party HUD)
+    uint8_t lives = kLivesUnlimited; // a mode with lives: lives left this match
+    bool eliminated = false;         // out of lives: not respawned, cannot hurt or be hurt until the next match
 };
 
 struct ServerStats {
@@ -221,6 +223,9 @@ private:
     void spawnPlayer(ServerPlayer& p);
     void scoreFor(const ServerPlayer& p);
     void checkMatchEnd();
+    // A mode with lives: how many sides (players in a free for all, teams) still have a player in the match.
+    size_t sidesLeft() const;
+    void checkLastStanding();
     void endMatchWith(EndReason reason);
     uint16_t hitLimit(const ServerPlayer& attacker, uint8_t weapon) const;
     void resetMatch();
@@ -252,6 +257,9 @@ private:
     std::vector<PlayerId> flagCarrier_; // per arena marker (only Flag markers are used)
     std::vector<ZoneState> zones_;      // per arena marker (only Zone markers are used)
     uint64_t lastObjectiveMs_ = 0;
+    // A mode with lives: the last-standing check is armed once two sides have played (a listen server starts alone
+    // and the opponent joins a moment later); a player joining after that watches until the next match.
+    bool livesArmed_ = false;
     std::vector<uint64_t> pickupBackAtMs_; // arena pickups: 0 = available, else the time it returns
     std::vector<PlayerId> pickupTakenBy_;
     PlayerId coopAuthority_ = kNoPlayer;

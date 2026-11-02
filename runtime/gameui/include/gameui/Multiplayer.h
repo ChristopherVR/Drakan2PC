@@ -63,6 +63,9 @@ struct ModeEntry {
     int teams = 0;         // teams the mode plays with (0 = free for all)
     int fragLimit = 0;     // the limit on the mode's score, 0 = none
     int timeLimitSec = 0;  // 0 = none
+    int lives = 0;         // 0 = unlimited, else lives per player (last one standing)
+    std::string goal;      // one line: what wins ("Last one standing, 3 lives each"), net::modeGoal
+    std::string summary;   // the rules in plain words (net::modeSummary), shown under the Host form
 };
 
 struct HostForm {
@@ -136,6 +139,8 @@ struct RosterRow {
     int pingMs = -1;           // -1 = unknown
     int timeSec = 0;           // time in the match
     std::string characterName; // co-op: the chosen character ("Rynn"), empty = not shown
+    int lives = -1;            // a mode with lives: lives left (-1 = no limit)
+    bool eliminated = false;   // out of lives (shown as OUT, listed after the players still in)
 };
 
 enum class Conn : uint8_t { Offline, Connecting, Connected, Rejected };
@@ -167,6 +172,9 @@ struct MpState {
     std::vector<LevelEntry> arenas;          // the multiplayer maps (arenas + mod pack maps); empty = use `levels`
     std::vector<ModeEntry> modes;            // the custom game modes the Host page's Game Mode row offers
     std::string modeId, modeName;            // the session's custom mode (lobby info), empty = standard rules
+    std::string modeGoal;                    // the session's custom mode in one line (lobby info)
+    std::string teamNames[4];                // a custom mode's team names (empty = Fire / Water / Earth / Air)
+    int teamColors[4] = {-1, -1, -1, -1};    // a custom mode's team colours 0xRRGGBB (-1 = the built-in ones)
     std::vector<HudChatLine> chat;           // lobby chat log (oldest first)
     double countdownSec = -1;                // the match starts in this many seconds (< 0 = no countdown)
     std::string defaultName;                 // initial Player Setup name
@@ -433,10 +441,16 @@ struct HudState {
     int voteWinner = -1;             // results: the decided candidate (highlighted)
     bool scoreMode = false;          // a custom mode: the standings show points (RosterRow::score) instead of kills
     std::string modeName;            // the custom mode's name (header), empty = standard rules
-    int teamCount = 2;               // team games: 2..4 teams
-    int teamScore[4] = {0, 0, 0, 0}; // points per team when scoreMode (else teamKills decide)
-    std::string status;              // top centre chip: "3:42 left   First to 3" (empty = none)
-    std::string chatInput;           // while typing
+    std::string goal;                // the custom mode's goal in one line (header and top chip), empty = none
+    bool livesMode = false;          // the mode has lives: the standings show LIVES (or OUT) instead of PING
+    bool eliminated = false;         // the local player is out of lives: the overlay says so instead of a countdown
+    std::string winnerText;          // results: the winner line as the match decided it (empty = from the standings)
+    std::string teamNames[4];        // a custom mode's team names (empty = Fire / Water / Earth / Air)
+    int teamColors[4] = {-1, -1, -1, -1}; // a custom mode's team colours 0xRRGGBB (-1 = the built-in ones)
+    int teamCount = 2;                    // team games: 2..4 teams
+    int teamScore[4] = {0, 0, 0, 0};      // points per team when scoreMode (else teamKills decide)
+    std::string status;                   // top centre chip: "3:42 left   First to 3" (empty = none)
+    std::string chatInput;                // while typing
     bool chatOpen = false;
     double now = 0;
 };

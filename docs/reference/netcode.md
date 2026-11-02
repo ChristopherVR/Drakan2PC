@@ -42,6 +42,7 @@ Addenda on v8, every new field is trailing and optional (older peers read the ol
 | `PhaseChange` | trailing `u8 byHost`: the change follows a host's results choice, not the results timer |
 | `Status` | trailing `u8 host`: the host's player id (`MatchClient::hostPlayer()`; the lobby's host mark and the results buttons use it) |
 | `Score` | trailing `i32 score`, `i32 teamScore[4]`: points per player and team (a standard match: score = kills, teamScore = team kills) |
+| `Score` (2026-11-02) | further trailing `u8 lives` (255 = no limit), `u8 eliminated`: a mode with `lives` (older servers omit them) |
 | `MatchConfig` / `Welcome` config | trailing `str modeId` (<= 32): the custom game mode of the match |
 | `PlayerJoin` | `team` may be 0..3 (was 0..1) |
 
@@ -728,9 +729,31 @@ mod packs' `maps/*.ini`); `ArenaCatalog` skips them, `ModeCatalog` (`net/GameMod
 | `start_health` | 0 (the map's) | 0..1000 |
 | `loadout` / `weapons` | empty | resource ids (<= 16); loadout is added to the map's, weapons empty = all |
 | `objective` (repeatable, <= 8) | | `capture` or `hold`, `[points=N] [seconds=N] [radius=N]`; hold needs `seconds` |
+| `lives` | 0 (unlimited) | 0..99: lives per player; out of lives = out of the match, the last player (team) left wins |
+| `score_team_kill` | 0 | -1000..1000: points for killing a team mate (friendly fire on) |
+| `spawn_protection` | the server's (2 s) | 0..10 seconds a fresh spawn cannot be hurt |
+| `pickup_respawn` | `map` | `map` (each pickup's own seconds), `never` (a taken pickup is gone for the match), or 1..3600 seconds for every pickup |
+| `team_names` | Fire, Water, Earth, Air | up to 4 names (<= 16 characters), comma separated: the HUD, scoreboard, lobby and results use them |
+| `team_colors` | the built-in ones | up to 4 colours `rrggbb` (no `#`: it starts a comment), HUD only (the ghosts are not tinted) |
 
 `capture` = carry a `flag` marker to the team's `base` marker; `hold` = stay inside a `zone` marker for `seconds`.
-Example: `instagib-lite` in `configs/mp_maps.ini`.
+Example: `instagib-lite` in `configs/mp_maps.ini`; a last one standing mode (2026-11-02, journal
+`2026-11-02/custom-game-modes.md`):
+
+```ini
+[mode last-rynn-standing]
+name = Last Rynn Standing
+description = Three lives each. The last one standing wins.
+base = dm
+frag_limit = 0
+time_limit = 300
+lives = 3
+pickup_respawn = never
+```
+
+Not expressible because the runtime cannot enforce it: a score for suicides / falls (an environment death never reaches
+the server: the PvP glue keeps the engine's HP above 0 and only server Hits kill) and "dragons allowed" (the air arenas
+need Arokh, who is the level's own object and is kept by the arena filter).
 
 What the server does with a mode (`MatchServer`, selected by `MatchConfig.modeId` in `ServerOptions::modes`):
 
@@ -748,18 +771,49 @@ What the server does with a mode (`MatchServer`, selected by `MatchConfig.modeId
   returns the flag. Free for all: any base.
 * **Hold**: the only team (free for all: the only player) inside a `zone` marker for `seconds` scores `points + score_objective`;
   a contested or empty zone starts over.
+* **Lives** (`lives = N`, 2026-11-02): every player starts the match with N lives; a death takes one (`player P has N lives
+  left` in the server log). The last one puts the player out (`eliminated`, a system chat line "<name> is out of lives"): no
+  Respawn, hits from or on that player are refused (it is dead), its game stays frozen on the death clip and the HUD shows
+  "You are out" instead of the respawn countdown. When at most one player (team, in a team mode) is left with lives the match
+  ends with `EndReason::LastStanding` (`last one standing`), the survivor wins even with fewer points (`sortScoreboard` puts
+  the players still in before the eliminated ones; `decideOutcome` picks the team that still has a player). The check is
+  armed once two sides have played (a listen server starts with the host alone, the opponent joins a moment later and still
+  plays); a player who joins after that watches until the next match (joins eliminated, a chat line says so). A leaver can end
+  it too. `Score` carries `lives` and `eliminated` (trailing, see the table at the top of this file's addenda: older servers
+  omit them = unlimited); `MatchClient::outcome()` reports `LastStanding` when somebody is out and one side is left. The time
+  and score limits still apply next to the lives.
+* **Team kill score** (`score_team_kill`): with friendly fire on, a team kill gives the killer this (default 0, as before).
+* **Spawn protection** (`spawn_protection`): replaces `ServerOptions::respawnProtectionMs` for the match.
+* **Pickup respawn** (`pickup_respawn`): `never` keeps a taken pickup gone until the next match (`does not come back (game mode)`
+  in the server log; a late joiner is told it is taken), a number replaces every pickup's `respawnSec`.
+* **Allowed weapons** (`weapons`): a hit claim whose hand holds a weapon record not in the list is refused (`weapon not
+  allowed in this mode`); bare hands always count. The ids are the record ids of `PlayerState.weaponRight / weaponLeft` (the
+  same numbers as `res=` / `loadout`).
+* **Mode loadout** (`loadout`): `drakan_netplay` adds the mode's items to the map's `loadout` before it hands the arena to
+  `drakan_arena::setSession`, so they are given like the map's (factory resources only, see Pickups).
+* **Team names / colours**: the HUD (scoreboard, results, the lobby's team columns, the results banner) uses them; they are
+  read from the local mode catalogue by `modeId`, nothing travels on the wire.
+* **Goal text**: `net::modeGoal(mode)` ("Last one standing, 3 lives each", "First to 20 points", "Capture the flag, or first
+  to 5 points") is the HUD's top chip (a lives mode: "Last one standing   Lives 2" and the time) and the scoreboard header;
+  `net::modeSummary(mode)` (the rules in a sentence or two) is shown under the Host form when the mode is picked. The editor
+  shows the same words (`modeGoal` / `modeSummary` in `editor-core/src/gamemodes.ts`).
+* Test aid `DRAKAN_NET_GAME_MODE=<id>`: the `DRAKAN_NET_HOST` shortcut hosts with that custom mode (what the Host page's Game
+  Mode row does). In game: `scripts/harness/arena_game_mode.py --mods <dir> --map <id> --mode <id>` (two instances, a pack from
+  a mods folder).
 * **Menu**: the Host page's **Game Mode** row (after Game Type) cycles Standard and every custom mode the chosen map can play
   (`modeFitsArena`: the map lists the mode id in `modes =` or supports its base, a capture objective needs a flag and a base
   marker, a hold objective a zone marker, 3..4 teams need that many players). A mode fixes the game type, the teams and the limits
   (Kills Limit becomes Score Limit and is greyed). The lobby shows the mode's name, the results show a SCORE column.
-* Not run: `weapons`, mode `loadout`, spawn team / yaw, `keep` / `remove`.
+* Not run: spawn team / yaw, `keep` / `remove`.
 
 | Field | Honoured by the runtime today? |
 | --- | --- |
 | `base`, `frag_limit`, `time_limit`, `respawn_delay`, `start_health` | yes, through `applyModeToConfig(mode, MatchConfigData)` (also sets `modeId`) |
 | `score_*`, `teams` (2..4), `friendly_fire`, `objective` with `flag` / `base` / `zone` markers | yes, the server (see above) |
+| `lives`, `score_team_kill`, `spawn_protection`, `pickup_respawn`, `weapons` | yes, the server (2026-11-02) |
+| mode `loadout`, `team_names`, `team_colors` | yes, the game (arena loadout, HUD) |
 | arena `players`, `health`, `spawn` positions, `pickup`, `loadout` | yes (the arena mode) |
-| `weapons`, mode `loadout`, spawn `team` / yaw, `keep` / `remove` | authored only: parsed, listed, not executed |
+| spawn `team` / yaw, `keep` / `remove` | authored only: parsed, listed, not executed |
 | the menu | the Host page's Game Mode row lists `drakan_modes::customModes()` entries that fit the map |
 
 Map pictures the game takes itself (journal 2026-11-01/map-previews.md): the first time a match runs on a map and no picture exists,
@@ -797,9 +851,15 @@ from `arena_candidates.py`.
   player start and from adopted pickups), counted per class; each object can be kept (`keep = x y z`) or marked for
   removal (`remove = x y z`). The editor guesses creatures and loose items from class names, the game decides by hit points
   and entity type, so the counts can differ slightly. `keep` / `remove` are authored only (see the table above).
-* **Modes tab**: create, copy and edit `[mode]` descriptors (score values, limits, respawn delay, friendly fire, loadout,
-  allowed weapons, capture / hold objectives); a table next to the form says what the game runs today. Modes are
-  stored in this browser and written, together with the arena, into every pack that uses them.
+* **Modes tab** ("Game modes", 2026-11-02): the list (built-in deathmatch / team deathmatch, then your modes with their goal
+  line; New mode starts blank or from a template: Last one standing, Frag race, Team battle, Capture the flag, King of the
+  hill), a form in plain groups (About; Players and teams: free for all or 2..4 teams with names and colours, friendly fire and
+  the team kill score; How a match is won: lives, score limit, time limit in minutes, capture / hold objectives; Scoring;
+  Respawn: delay, spawn protection, start health; Weapons and pickups: pickups come back as the map says / never / after N
+  seconds, extra starting items, weapons that can hurt) and a right column with what players see (the mode's name, goal and
+  rules in the words the Host page and HUD use, the team chips), an "Offer it on <map>" checkbox with the reason when the map
+  cannot play it (`modeMapProblem`, the runtime's `modeFitsArena` rules), the problems that block an export and the mode file.
+  Modes are stored in this browser and written, together with the arena, into every pack that uses them (`maps/<id>.ini`).
 * **Export tab**: pack id / name / version / author, a top-down preview capture (orthographic render of the terrain over the
   bounds with spawns and pickups drawn on it, saved as `previews/<safe map name>.png`), then download a zip, write
   into the game's `mods/` folder (browser folder picker, or straight to the remembered game folder in the desktop app) or
@@ -850,7 +910,7 @@ Not done: team spawn sets, the USA disc (see `docs/reference/regions.md` "Multip
 
 ## Tests
 
-`ctest --preset runtime-tests -R net_`. `net_results_modes_test`: the results buttons (host only, other phases ignored, back to
+`ctest --preset runtime-tests -R net_`. `net_custom_rules_test` (2026-11-02): the new mode keys and their errors, the goal / summary texts, `Score` with lives on the wire, lives and last one standing (three players, an eliminated player can neither hurt nor be hurt, the survivor wins with fewer points, the rematch gives the lives back), a late joiner (plays when the host was alone, watches after that), a leaver ending it, the team version with a team kill score, spawn protection, pickups never back / on the mode's clock, allowed weapons. `net_results_modes_test`: the results buttons (host only, other phases ignored, back to
 the lobby, rematch, next map with wrap-around and mode filter, co-op, `byHost` only for the host's choices, the timer
 unchanged), custom scoring and the points limit, three-team and friendly-fire matches, capture (own flag, wrong base, score,
 drop on death), hold (contested, repeat), `modeFitsArena`, and the wire forms (`ResultsAction`, `Score`, `modeId`, team 3). `net_coop_test` covers the v6 relay rules (authority, routing classes, targets, range

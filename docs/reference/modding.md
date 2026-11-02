@@ -87,7 +87,11 @@ my_mod/
 * Order of work in `installFiles`: whole files, then entry patches on the resulting files (so a pack can ship a file and a
   later pack patch it), then `LEVELLST.TXT`.
 
-* **`maps/*.ini`** (directly in `maps/`): multiplayer map and game mode definitions, see netcode.md "Multiplayer maps". The map list
+* **`maps/*.ini`** (directly in `maps/`): multiplayer map and game mode definitions, see netcode.md "Multiplayer maps" and
+  "Custom game modes" (`[mode <id>]`: teams and their names / colours, lives and last one standing, score, time and point
+  limits, points per kill / death / team kill, respawn delay, spawn protection, pickup respawn, extra starting items, allowed
+  weapons, capture / hold objectives). The editor's Multiplayer Map > Modes tab writes them; the game lists a pack's modes on the
+  Host page's Game Mode row for every map that can play them. The map list
   is shared by both games: the Multiplayer menu lists the disc's (Drakan 2) maps and every pack's maps together, each with a game tag
   (`game =` key; maps of a pack with `campaign = "ootf"` default to Drakan 1). The editor's Order of the Flame import writes one
   `maps/<level>.ini` per `Multiplayer/*` level (`ootfArenaFromPc`: spawns from the Rynn launch pads, snapped to the terrain).
@@ -239,10 +243,13 @@ The editor's Strings and Quests panels write exactly these files (editor-core `s
 | --- | --- | --- | --- |
 | a shop's stock list and price modifiers | `<LEVEL>.LVL` | the object list (`0020`), object parameters of the `0x100ac` object | `Objects For Infinite Sale`, `Objects For Sale`, `Item Sale Price Mod`, `Item Buy Price Mod` (the editor's Vendors tab, `docs/reference/level-format.md` section 16) |
 | the price of an item (every shop that sells it) | `RESOURES.ODB` / `MAGIC.ODB` | `0102/<item class id>/<group>`, field `Cost to Buy (in Gold)` | in-place patch of one data dword, so the container is rebuilt with the same size |
+| a new shop | `<LEVEL>.LVL` | the object list (`0020`): three added objects | a `0x100ac` shop of one of the level's shop classes, a copied `0x1009d` shopkeeper, links shop -> keeper (first) and keeper -> shop, and a trigger box sending On to the keeper (editor: right-click the ground, "Add shop here"; level-format.md section 16) |
 
 **Verified in game** (2026-11-01, `scripts/harness/vendor_shop.py`): with both entries the Surdana blacksmith offers an added Iron Mace
 and the Rusty Short Sword costs 7 gold instead of 165 in the shop screen; buying it takes exactly 7 gold. Journal:
 `docs/journal/2026-11-01/vendor-shops.md`.
+A new shop made with "Add shop here" in Surdana (a copy of the Alchemist and its keeper next to the start) opens when Rynn presses Use
+next to the keeper and sells its 4 potions; buying the Health Elixir takes 100 gold (2026-11-02, `docs/journal/2026-11-02/add-shop-here.md`).
 
 ### What a pack can add (custom weapons and models)
 
@@ -264,49 +271,74 @@ current maximum did not spawn). Authoring the class record fields (damage, grip,
 
 Authoring tools (editor export, `scripts/` helpers) should write exactly this layout.
 
-## Campaign packs (Drakan: Order of the Flame)
+## Campaign packs (Order of the Flame and custom campaigns)
 
-A pack whose `levels` are a whole converted Order of the Flame campaign says so in the manifest (top-level keys, above the
-tables; the editor's OotF export and `editor/scripts/ootf-convert.ts --campaign 1` write them):
+A pack whose `levels` are a whole campaign says so in the manifest (top-level keys, above the tables). Two kinds exist:
+the converted Drakan: Order of the Flame (`campaign = "ootf"`; the editor's OotF export and
+`editor/scripts/ootf-convert.ts --campaign 1` write it) and **custom campaigns** made in the editor (Project Settings >
+Campaign, "Make this a campaign"; any other id).
 
 ```toml
-levels = ["OotF 00 - Intro", "OotF 01 - Ruined Village", ...]   # play order
-campaign = "ootf"                                    # the only campaign kind so far
-campaign_name = "Drakan: Order of the Flame"         # optional: the title menu's label (default that text)
-campaign_start = "OotF 00 - Intro"                   # optional: the level New Game opens (default the first of `levels`)
+levels = ["Surdana Copy", "Kragmor Copy"]            # play order (copies or new levels of this pack)
+level_copies = ["Surdana Copy = Level 1A - Surdana", "Kragmor Copy = Level 1B - Kragmor"]
+campaign = "test-valley"                             # campaign id; "ootf" = Drakan: Order of the Flame
+campaign_name = "The Test Valley"                    # optional: the title on the game card (default "Drakan: Order of
+                                                     #   the Flame" for ootf, else the id)
+campaign_description = "Two valleys, one road."      # optional: one line under the cover on the game card
+campaign_start = "Surdana Copy"                      # optional: the level New Game opens (default the first of `levels`)
+campaign_saves = "testvalley"                        # optional: memory card folder suffix (default the id)
 ```
 
-Only a pack that is **enabled and loaded** with `campaign` set counts (the first one in load order if several; the start
-level must be one of the pack's registered levels, else `[game] pack ...: campaign start level ... is not one of its
-levels` and no campaign). Without such a pack the game behaves as before: no game choice, Drakan 2 only. A pack with plain
-`levels` (single maps, level copies) is unchanged and never offered as a game.
+Plus, optionally, **`previews/campaign-<id>.png`** in the pack: the cover picture of the game card (PNG, at most 8 MiB, 16:9;
+960 x 540 is what the editor writes). It goes through the map picture path (`ModManager::previewFiles()`, copied to
+`previews/mods/` next to the exe; `previews/campaign-<id>.png` there wins). Without one the card shows the title on a plain
+panel.
+
+Rules (`drakan_overrides.cpp`, logged as `[game] pack ...`): only packs that are **enabled and loaded** count. The id is 1-32
+of `a-z 0-9 _ -`, a letter or digit first, not `d1`, `d2`, `drakan` or `ask`; a second pack with the same id is ignored (the
+first in load order wins). The start level must be one of the pack's registered levels (`levels`, LVL present), else
+`campaign start level ... is not one of its levels` and the pack is not a campaign. `campaign_saves` is 1-32 of letters,
+digits, `_ -` (an invalid one falls back to the id). Every valid campaign pack is listed, in load order. Without one the
+game behaves as before: no game card, Drakan 2 only. A pack with plain `levels` (single maps, level copies) is never offered
+as a game.
+
+**Keep a campaign self-contained.** Packs are installed once at start-up for the whole session, so an entry override of a
+disc level (`overrides/LEVEL1NA.LVL/...`, a shared XDB string) changes that level for Drakan 2 too. A campaign's levels
+should therefore be copies or new levels, and its exits should use the "Only this exit" destination (a new XDB string plus
+the exit's own parameter in the copy's LVL), which adds instead of replacing. The editor's campaign checks warn about both.
 
 What the runtime does with it (`drakan_game.cpp`):
 
-* **Title menu**: when a campaign is installed, a card "Choose your game" (Drakan / Order of the Flame) opens with the title
-  and again after Back on the main page; Esc on the card keeps the current game. The main menu (New Game, Load Game,
-  Continue, Multiplayer, Options ...) then runs for the chosen game. The label under the menu names it.
-* **Title art**: the native title art carries the Drakan 2 logo, so while Order of the Flame is chosen the menu draws a text
-  plaque over it ("DRAKAN" and the part of `campaign_name` after "Drakan: ", i.e. "Order of the Flame"). `campaign_name` is
-  the only manifest key involved; a pack-supplied title image (`campaign_title_image`) is not implemented (the text plaque
-  is generated, no original art ships). Drakan 2 keeps the native art.
-* **Co-op**: New Game > Co-op hosts/joins on the campaign's start level (`drakan_game::firstLevel()`, level list = start
-  level then the pack's other levels); the host's level changes follow the pack's own exits.
-* **New Game** in Order of the Flame redirects the disc's opening cut scene level (`Level 0 - Intro`, which New Game opens
-  first, then Level 1A) to the campaign start level at the file layer, so the Drakan 2 movie / cut scene never plays and the
-  campaign's own intro level comes first. (Before this a pack only registered levels, New Game still ran the Drakan 2 flow
-  and `DRAKAN_START_LEVEL` replaced only Level 1A after the intro.) The level chain after that is the pack's own exits
-  (journal 2026-10-31/ootf-campaign.md).
-* **Saves**: Order of the Flame uses its own memory card folder `<card>_ootf` (next to `mc0`; `mc0_ootf`, or
-  `<DRAKAN_MEMCARD_DIR>_ootf`), created on first use and seeded with a copy of the options (`<saveId>Settings`) of the
-  Drakan card, so the two games' saves never mix. Continue / Load Game / Save Game / quick save and the save previews all
-  follow the selected game because they use the one configured card root.
-* **Multiplayer and co-op are shared**: one Multiplayer menu for both games, maps of either game selectable (arena maps come
-  from the disc's levels and from every pack's `maps/*.ini`). A multiplayer launch sets its own redirect; when it ends the
-  campaign redirect of the chosen game is restored.
-* **Settings** `drakan.ini [general] game = ask | d2 | d1` (env `DRAKAN_GAME`): `ask` (default) offers the card when a
-  campaign is installed, `d2` / `d1` fix the game without a card (headless runs, harness): `d1` without an installed campaign
-  logs it and starts Drakan 2.
+* **Title menu**: when a campaign is installed, the card "Choose your game" opens with the title and again after Back on the
+  main page; Esc on the card keeps the current game. It lists Drakan, then every campaign (Order of the Flame and the custom
+  ones) on the left, and the focused game's cover and description on the right ("Playing" marks the current one; more than
+  seven games scroll). The main menu (New Game, Load Game, Continue, Multiplayer, Options ...) then runs for the chosen game;
+  the footer names it. Code: `gameui::TitleState::games`, `TitlePage::GameChoice`, `TitleActionKind::SelectGame` (value =
+  card index), `drakan_game::select(index)`.
+* **Title art**: the native art carries the Drakan 2 logo, so while a campaign is chosen the menu draws a text plaque over
+  it: "DRAKAN" and the part of `campaign_name` after "Drakan: " (Order of the Flame), or the campaign's title over "A Drakan
+  campaign". A pack-supplied title image is not implemented. Drakan 2 keeps the native art.
+* **New Game** redirects the disc's opening cut scene level (`Level 0 - Intro`, which New Game opens first, then Level 1A)
+  to the campaign start level at the file layer, so the Drakan 2 movie / cut scene never plays and the campaign's own
+  first level comes first. The level chain after that is the pack's own exits; exits out of a copy arrive at the source's
+  marker (`drakan_levelchange` arrival fallback, journal 2026-11-02/level-copy-direct-play.md).
+* **Saves**: each campaign uses its own memory card folder `<card>_<campaign_saves>` (next to `mc0`: `mc0_ootf`,
+  `mc0_testvalley`, or `<DRAKAN_MEMCARD_DIR>_<saves>`), created on first use and seeded with a copy of the options
+  (`<saveId>Settings`) of the Drakan card, so the games' saves never mix (`[game] memory card folder ...` in the log).
+  Continue / Load Game / Save Game / quick save and the save previews all follow the selected game because they use the one
+  configured card root.
+* **Menus**: a campaign pack's own `ui/*.ini` skin (see "Menus and HUD") applies **only while that campaign is chosen**:
+  the game keeps a base skin (`ui.ini`, `DRAKAN_UI_SKIN`, the `ui/*.ini` of packs without `campaign`) and lays the chosen
+  campaign's files over it on every switch (`[ui] skin mod <id>: ui/menus.ini (campaign '<id>'): N setting(s)`). The title
+  screen is rebuilt on the main page after a switch so the theme colours follow at once; the pause menu and Options read
+  the skin when they open.
+* **Co-op**: New Game > Co-op hosts/joins on the campaign's start level (`drakan_game::firstLevel()`); the host level list is
+  the start level then the campaign's other levels (Order of the Flame: the pack's levels without its arena bases).
+* **Multiplayer is shared**: one Multiplayer menu for every game, maps of any game selectable. A multiplayer launch sets its
+  own redirect; when it ends the campaign redirect of the chosen game is restored.
+* **Settings** `drakan.ini [general] game = ask | d2 | d1 | ootf | <campaign id>` (env `DRAKAN_GAME`): `ask` (default)
+  offers the card when a campaign is installed, the others fix the game without a card (headless runs, harness); a game
+  that is not installed logs it and starts Drakan 2.
   `scripts/harness/ootf_level_run.py --campaign ...` converts the level as a campaign pack and runs with `DRAKAN_GAME=d1`.
 
 ## HD textures for converted OotF mods
@@ -335,7 +367,8 @@ stable ids (`new_game`, `pause.root`), so another front end (for example Unreal 
 `runtime/gameui/include/gameui/UiSkin.h`; editor: the **Menus** dock tab (Level mode), `editor-core/src/uiskin.ts`.
 
 Where it comes from, later keys win: `ui.ini` next to `drakan.exe`, `DRAKAN_UI_SKIN=<file>` (testing), then
-`ui/*.ini` of every enabled pack in load order (`ModManager::uiFiles()`). The game logs `[ui] skin <source>: N setting(s)`
+`ui/*.ini` of every enabled pack in load order (`ModManager::uiFiles()`); a campaign pack's files only while that campaign
+is chosen on the game card ("Campaign packs"). The game logs `[ui] skin <source>: N setting(s)`
 and one line per rejected key. A pack ships only the lines it changes. `configs/ui/default.ini` lists every key with its
 compiled-in default (generated and checked by `gameui_skin_test`; `DRAKAN_WRITE_DEFAULT_SKIN=1` rewrites it); loading it
 changes nothing.

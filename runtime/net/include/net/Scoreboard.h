@@ -22,13 +22,18 @@ struct ScoreRow {
     // are the kills, the standard deathmatch.
     bool hasScore = false;
     int32_t score = 0;
+    // A mode with lives: what is left (kLivesUnlimited = no limit) and whether the player is out of the match.
+    uint8_t lives = kLivesUnlimited;
+    bool eliminated = false;
     int32_t points() const { return hasScore ? score : static_cast<int32_t>(kills); }
 };
 
-// Most points (kills in a standard match) first, then most kills, then fewest deaths, then lowest player id (stable and
-// identical on every machine).
+// Players still in the match before eliminated ones (a mode with lives), then most points (kills in a standard match),
+// then most kills, then fewest deaths, then lowest player id (stable and identical on every machine).
 inline void sortScoreboard(std::vector<ScoreRow>& rows) {
     std::sort(rows.begin(), rows.end(), [](const ScoreRow& a, const ScoreRow& b) {
+        if (a.eliminated != b.eliminated)
+            return !a.eliminated;
         if (a.points() != b.points())
             return a.points() > b.points();
         if (a.kills != b.kills)
@@ -39,7 +44,8 @@ inline void sortScoreboard(std::vector<ScoreRow>& rows) {
     });
 }
 
-enum class EndReason : uint8_t { None, FragLimit, TimeLimit, Ended };
+// LastStanding: a mode with lives, one player (team) is left with lives.
+enum class EndReason : uint8_t { None, FragLimit, TimeLimit, Ended, LastStanding };
 
 struct MatchOutcome {
     EndReason reason = EndReason::None;
@@ -48,9 +54,10 @@ struct MatchOutcome {
     bool tie = false;
 };
 
-// Winner of a match from the final scores. Deathmatch: strictly more points (kills in a standard match), or equal
-// points and kills and strictly fewer deaths, than every other player; anything else is a tie. Team deathmatch: the
-// team with the most points (2..kMaxTeams teams; `teamScore` has kMaxTeams entries, unused teams are 0 and never win).
+// Winner of a match from the final scores. Last standing: the player (team) left with lives. Deathmatch: strictly more
+// points (kills in a standard match), or equal points and kills and strictly fewer deaths, than every other player;
+// anything else is a tie. Team deathmatch: the team with the most points (2..kMaxTeams teams; `teamScore` has kMaxTeams
+// entries, unused teams are 0 and never win).
 inline MatchOutcome decideOutcome(std::vector<ScoreRow> rows, MatchMode mode, const int32_t teamScore[kMaxTeams],
                                   EndReason reason, size_t teamCount = 2) {
     MatchOutcome o;
@@ -58,6 +65,20 @@ inline MatchOutcome decideOutcome(std::vector<ScoreRow> rows, MatchMode mode, co
     if (rows.empty()) {
         o.tie = true;
         return o;
+    }
+    if (mode == MatchMode::TeamDeathmatch && reason == EndReason::LastStanding) {
+        // The team that still has a player in the match.
+        int left = -1;
+        bool several = false;
+        for (const ScoreRow& r : rows)
+            if (!r.eliminated && r.team < kMaxTeams) {
+                several = several || (left >= 0 && left != r.team);
+                left = r.team;
+            }
+        if (left >= 0 && !several) {
+            o.winningTeam = static_cast<uint8_t>(left);
+            return o;
+        }
     }
     if (mode == MatchMode::TeamDeathmatch) {
         size_t best = 0;
@@ -77,8 +98,8 @@ inline MatchOutcome decideOutcome(std::vector<ScoreRow> rows, MatchMode mode, co
         return o;
     }
     sortScoreboard(rows);
-    if (rows.size() > 1 && rows[0].points() == rows[1].points() && rows[0].kills == rows[1].kills &&
-        rows[0].deaths == rows[1].deaths)
+    if (rows.size() > 1 && rows[0].eliminated == rows[1].eliminated && rows[0].points() == rows[1].points() &&
+        rows[0].kills == rows[1].kills && rows[0].deaths == rows[1].deaths)
         o.tie = true;
     else
         o.winner = rows[0].player;

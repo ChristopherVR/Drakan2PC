@@ -1,4 +1,12 @@
-import { cloneDraft, cloneMode, newDraft, type ArenaDraft, type ModeDef, type Vec3 } from '@drakan/editor-core';
+import {
+    cloneDraft,
+    cloneMode,
+    defaultMode,
+    newDraft,
+    type ArenaDraft,
+    type ModeDef,
+    type Vec3,
+} from '@drakan/editor-core';
 import type { Command, LevelDocument } from '@drakan/editor-core';
 import type { LevelView } from '../../level.ts';
 import { store as local } from '../dom.ts';
@@ -46,7 +54,10 @@ export class ArenaStore {
     constructor(private readonly view: () => LevelView) {
         const saved = local.json<unknown>(MODES_KEY, []);
         if (Array.isArray(saved)) {
-            this.modes = (saved as ModeDef[]).filter((m) => m && typeof m.id === 'string').map(cloneMode);
+            // Modes saved by an older editor lack the newer keys (lives, team names, ...): their defaults fill in.
+            this.modes = (saved as ModeDef[])
+                .filter((m) => m && typeof m.id === 'string')
+                .map((m) => cloneMode({ ...defaultMode(m.id), ...m }));
         }
     }
 

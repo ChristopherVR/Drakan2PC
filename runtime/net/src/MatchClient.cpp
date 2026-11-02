@@ -1,5 +1,6 @@
 #include "net/MatchClient.h"
 
+#include <algorithm>
 #include <cmath>
 
 namespace drakan::net {
@@ -44,6 +45,8 @@ std::vector<ScoreRow> MatchClient::scoreboard() const {
         r.alive = kv.second.alive;
         r.hasScore = true;
         r.score = kv.second.score;
+        r.lives = kv.second.lives;
+        r.eliminated = kv.second.eliminated;
         rows.push_back(std::move(r));
     }
     sortScoreboard(rows);
@@ -53,6 +56,19 @@ std::vector<ScoreRow> MatchClient::scoreboard() const {
 MatchOutcome MatchClient::outcome() const {
     EndReason reason = EndReason::Ended;
     const std::vector<ScoreRow> rows = scoreboard();
+    {
+        // A mode with lives that ended with one player (team) left in the match: last one standing.
+        bool anyOut = false;
+        std::vector<int> sides;
+        for (const ScoreRow& r : rows) {
+            anyOut = anyOut || r.eliminated;
+            const int side = config_.mode == MatchMode::TeamDeathmatch ? r.team : 1000 + r.player;
+            if (!r.eliminated && std::find(sides.begin(), sides.end(), side) == sides.end())
+                sides.push_back(side);
+        }
+        if (anyOut && sides.size() <= 1)
+            return decideOutcome(rows, config_.mode, teamScore_, EndReason::LastStanding, teamCount());
+    }
     if (config_.fragLimit > 0) {
         bool hit = false;
         if (config_.mode == MatchMode::TeamDeathmatch) {
@@ -234,6 +250,8 @@ void MatchClient::applyScore(const Score& s) {
         it->second.kills = s.kills;
         it->second.deaths = s.deaths;
         it->second.score = s.score;
+        it->second.lives = s.lives;
+        it->second.eliminated = s.eliminated;
     }
 }
 

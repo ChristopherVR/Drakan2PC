@@ -3,6 +3,10 @@ import { describe, expect, it } from 'vitest';
 import {
     cloneDraft,
     defaultMode,
+    MODE_TEMPLATES,
+    modeGoal,
+    modeMapProblem,
+    modeSummary,
     newDraft,
     parseArenaIni,
     parseModes,
@@ -289,6 +293,97 @@ describe('game modes', () => {
         expect(r.modes).toEqual([]);
         expect(r.errors[0]).toContain('frag_limit must be 0..1000');
         expect(parseModes('[mode x]\nname = X\nbase = ctf\n').errors[0]).toContain('base must be dm or tdm');
+    });
+
+    it('writes and reads lives, team kill score, spawn protection, pickup respawn and team names', () => {
+        const lrs: ModeDef = {
+            ...defaultMode('lrs'),
+            name: 'Last Rynn Standing',
+            lives: 3,
+            fragLimit: 0,
+            timeLimit: 300,
+            pickupRespawn: 0,
+            spawnProtection: 4,
+        };
+        const t = serializeMode(lrs);
+        expect(t).toContain('lives = 3\n');
+        expect(t).toContain('pickup_respawn = never\n');
+        expect(t).toContain('spawn_protection = 4\n');
+        expect(t).not.toContain('team_names');
+        expect(parseModes(t).modes).toEqual([lrs]);
+        const teams: ModeDef = {
+            ...defaultMode('rvb'),
+            name: 'Red vs Blue',
+            base: 'tdm',
+            teams: 2,
+            friendlyFire: true,
+            scoreTeamKill: -2,
+            pickupRespawn: 45,
+            teamNames: ['Red', 'Blue'],
+            teamColors: ['c83c28', '3c78dc'],
+        };
+        const t2 = serializeMode(teams);
+        expect(t2).toContain('team_names = Red, Blue\n');
+        expect(t2).toContain('team_colors = c83c28 3c78dc\n');
+        expect(t2).toContain('score_team_kill = -2\n');
+        expect(parseModes(t2).modes).toEqual([teams]);
+        expect(validateMode({ ...teams, teamColors: ['#ff0000'] })).toContain(
+            'team colour "#ff0000" is not rrggbb hex',
+        );
+        expect(validateMode({ ...lrs, lives: 100 })).toEqual(['lives must be 0..99']);
+        expect(parseModes('[mode x]\nname = X\npickup_respawn = soon\n').modes).toEqual([]);
+    });
+
+    it('says in plain words what the mode is (same text as the runtime)', () => {
+        const lrs: ModeDef = {
+            ...defaultMode('lrs'),
+            name: 'Last Rynn Standing',
+            lives: 3,
+            fragLimit: 0,
+            timeLimit: 300,
+            pickupRespawn: 0,
+        };
+        expect(modeGoal(lrs)).toBe('Last one standing, 3 lives each');
+        expect(modeSummary(lrs)).toBe(
+            'Free for all. 3 lives each; the last player standing wins. 5 minutes. Pickups do not come back.',
+        );
+        expect(modeGoal(defaultMode('x'))).toBe('First to 20 points');
+        expect(modeGoal({ ...defaultMode('t'), base: 'tdm', teams: 2, lives: 1, fragLimit: 0 })).toBe(
+            'Last team standing, 1 life each',
+        );
+        expect(
+            modeGoal({
+                ...defaultMode('c'),
+                fragLimit: 5,
+                objectives: [{ kind: 'capture', points: 1, seconds: 10, radius: 300 }],
+            }),
+        ).toBe('Capture the flag, or first to 5 points');
+    });
+
+    it('knows which maps can play a mode', () => {
+        const ctfMode: ModeDef = {
+            ...defaultMode('ctf'),
+            name: 'CTF',
+            base: 'tdm',
+            teams: 2,
+            objectives: [{ kind: 'capture', points: 1, seconds: 10, radius: 300 }],
+        };
+        expect(modeMapProblem(ctfMode, { modes: ['dm'], players: 8, markers: [] })).toBe('the map has no team games');
+        expect(modeMapProblem(ctfMode, { modes: ['tdm'], players: 8, markers: [] })).toContain('flag and base');
+        expect(
+            modeMapProblem(ctfMode, {
+                modes: ['dm', 'ctf'],
+                players: 8,
+                markers: [{ kind: 'flag' }, { kind: 'base' }],
+            }),
+        ).toBeNull();
+        expect(
+            modeMapProblem({ ...ctfMode, teams: 4, objectives: [] }, { modes: ['tdm'], players: 3, markers: [] }),
+        ).toContain('too few players');
+    });
+
+    it('templates are valid modes', () => {
+        for (const t of MODE_TEMPLATES) expect(validateMode(t.make(`t-${t.key}`))).toEqual([]);
     });
 });
 

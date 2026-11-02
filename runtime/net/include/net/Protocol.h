@@ -34,6 +34,7 @@ constexpr uint16_t kDiscoveryPortCount = 10;
 using PlayerId = uint8_t; // 1..kMaxPlayers on the wire; 0 = none / server
 constexpr PlayerId kNoPlayer = 0;
 constexpr uint8_t kNoTeam = 255;
+constexpr uint8_t kLivesUnlimited = 255; // Score.lives: the mode has no lives limit
 
 enum class MatchMode : uint8_t { Deathmatch = 0, TeamDeathmatch = 1, Coop = 2 }; // Coop: v6
 enum class MatchPhase : uint8_t { Lobby = 0, Loading = 1, Playing = 2, Results = 3 };
@@ -281,6 +282,10 @@ struct Score {
     // custom game mode scores (kills x score_kill + deaths x score_death + objectives), per player and per team.
     int32_t score = 0;
     int32_t teamScore[kMaxTeams] = {0, 0, 0, 0};
+    // Trailing optional (2026-11-02, a mode with `lives`): lives left (kLivesUnlimited = no limit) and whether the
+    // player is out of the match. Older servers omit them (unlimited, not out).
+    uint8_t lives = kLivesUnlimited;
+    bool eliminated = false;
     void write(ByteWriter& w) const;
     bool read(ByteReader& r);
 };

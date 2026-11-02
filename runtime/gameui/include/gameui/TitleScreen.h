@@ -39,7 +39,8 @@ enum class TitleRow : uint8_t {
     // New Game card (TitleConfig::showCoop): the campaign alone or with friends
     NewGameSolo,
     NewGameCoop,
-    // Game card (TitleState::offerGames): which game the menu runs for
+    // Game card (TitleState::offerGames): which game the menu runs for. Entry i of TitleState::games is the row
+    // GameDrakan + i (GameOotf = entry 1, further campaigns follow: the values past GameOotf are valid rows).
     GameDrakan,
     GameOotf,
 };
@@ -56,7 +57,7 @@ enum class TitleActionKind : uint8_t {
     Credits,        // tap 0x2306
     OpenPcSettings, // drakan_settings_host::requestOpen() (only without the modern PC Settings pages)
     QuitToDesktop,  // drakan_win::requestClose()
-    SelectGame, // value = 0 Drakan (Ancients' Gates), 1 Drakan: Order of the Flame; applied at once (no native press)
+    SelectGame, // value = index in TitleState::games (0 Drakan, then the campaigns); applied at once (no native press)
 };
 const char* titleActionName(TitleActionKind k);
 
@@ -99,11 +100,18 @@ struct TitleState {
     // Multiplayer menu: the network layer snapshot (the glue fills it from drakan_netplay each frame).
     mp::MpState multiplayer;
     // Game choice (drakan_game): the card opens with the title when a campaign pack is installed and drakan.ini
-    // [general] game is "ask"; Back on the main page reopens it.
+    // [general] game is "ask"; Back on the main page reopens it. One entry per game: the disc first, then Order of the
+    // Flame and the custom campaigns of the installed packs, each with its title, a one-line description and an
+    // optional cover picture (ImageKind::LevelPreview, the pack's previews/campaign-<id>.png).
+    struct Game {
+        std::string id; // "d2", "ootf", a campaign id
+        std::string name, description;
+        ImageRef cover;
+    };
     bool offerGames = false;
-    int game = 0; // the game the menu is running for (0 Drakan, 1 Order of the Flame)
-    std::string gameNames[2] = {"Drakan", "Drakan: Order of the Flame"};
-    // Order of the Flame is playing: the menu draws its own text title over the native logo (which says The Ancients'
+    int game = 0; // the game the menu is running for (index in `games`)
+    std::vector<Game> games = {{"d2", "Drakan", "", {}}, {"ootf", "Drakan: Order of the Flame", "", {}}};
+    // A campaign is playing: the menu draws its own text title over the native logo (which says The Ancients'
     // Gates). brandTitle empty = native art as shipped.
     std::string brandTitle, brandSubtitle;
 };
@@ -156,6 +164,8 @@ public:
     TitleFrameOutput frame(const TitleState& st, const UiInput& in, const Viewport& vp);
 
     TitlePage page() const { return page_; }
+    // Do not open the game card by itself on this visit (the host rebuilt the screen after a game switch).
+    void skipGameChoice() { gameAsked_ = true; }
     // Continue was chosen: the menu shows the loading card in place of its column until reactivate() / open().
     bool loading() const { return loading_; }
     // pcSettingsPages: the PC Settings pages are shown (from the main row or from Options), and those pages
@@ -205,6 +215,7 @@ private:
     void back(TitleFrameOutput& out);
     void applyInput(const TitleState& st, const UiInput& in, TitleFrameOutput& out);
     void draw(const TitleState& st, DrawList& d) const;
+    void drawGameCard(const TitleState& st, DrawList& d) const;
 };
 
 namespace design::title {
@@ -212,6 +223,12 @@ Rect menuPanel(int rows);
 Rect row(int i, int rows);
 Rect cardPanel();
 Rect cardRow(int i);
+// The game card: a list of games on the left, the focused game's cover and description on the right.
+constexpr int kGameRowsShown = 7;
+Rect gameCard();
+Rect gameRow(int i); // i = visible position 0..kGameRowsShown-1
+Rect gameCover();
+Rect gameDescription();
 } // namespace design::title
 
 } // namespace gameui

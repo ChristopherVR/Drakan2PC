@@ -597,6 +597,41 @@ void testTitleGameChoice() {
     scr.frame(st, {}, kVp);
     CHECK(scr.page() == TitlePage::GameChoice);
     CHECK(scr.focus() == (TargetId{TargetKind::CardButton, static_cast<int>(TitleRow::GameOotf)}));
+
+    // Custom campaigns (packs with campaign = "<id>"): one row per game, the focused game's cover and description.
+    TitleState cs = titleState();
+    cs.offerGames = true;
+    cs.games = {{"d2", "Drakan", "The disc.", {}},
+                {"ootf", "Drakan: Order of the Flame", "", {}},
+                {"test-valley", "The Test Valley", "Two levels.", {ImageKind::LevelPreview, 77}}};
+    TitleScreen cc;
+    cc.open();
+    o = cc.frame(cs, {}, kVp);
+    CHECK(cc.page() == TitlePage::GameChoice && hasText(o.draw, "The Test Valley") && hasText(o.draw, "The disc."));
+    CHECK(hasText(o.draw, "Playing"));                                    // the current game is marked
+    o = cc.frame(cs, keys({UiKey::Down, UiKey::Down, UiKey::Down}), kVp); // the last row stops the focus
+    CHECK(cc.focus() == (TargetId{TargetKind::CardButton, static_cast<int>(TitleRow::GameDrakan) + 2}));
+    CHECK(hasText(o.draw, "Two levels.") && findImage(o.draw, ImageKind::LevelPreview, 77) != nullptr);
+    o = cc.frame(cs, keys({UiKey::Confirm}), kVp);
+    CHECK(cc.page() == TitlePage::Main && o.actions.size() == 1);
+    CHECK(o.actions[0].kind == TitleActionKind::SelectGame && o.actions[0].value == 2);
+    cs.game = 2;
+    o = cc.frame(cs, {}, kVp);
+    CHECK(hasText(o.draw, "The Test Valley")); // the footer names the game the menu runs for
+    // The host rebuilt the screen after the switch (a campaign skin): no card by itself on that visit.
+    TitleScreen rb;
+    rb.open();
+    rb.skipGameChoice();
+    rb.frame(cs, {}, kVp);
+    CHECK(rb.page() == TitlePage::Main);
+    // A long list scrolls: ten games, the focus on the last one keeps it visible.
+    for (int i = 0; i < 7; ++i)
+        cs.games.push_back({"c" + std::to_string(i), "Campaign " + std::to_string(i), "", {}});
+    cs.game = 9;
+    TitleScreen lc;
+    lc.open();
+    o = lc.frame(cs, {}, kVp);
+    CHECK(hasText(o.draw, "Campaign 6") && !hasText(o.draw, "Drakan") && hasText(o.draw, "More above"));
 }
 
 void testTitleActions() {

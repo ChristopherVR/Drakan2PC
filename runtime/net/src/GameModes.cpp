@@ -232,6 +232,54 @@ size_t ModeCatalog::add(const std::string& text, const std::string& source, std:
             } else {
                 cur.objectives.push_back(o);
             }
+        } else if (key == "lives") {
+            if (num(0, 99))
+                cur.lives = static_cast<uint8_t>(n);
+        } else if (key == "score_team_kill") {
+            if (num(-1000, 1000))
+                cur.scoreTeamKill = static_cast<int32_t>(n);
+        } else if (key == "spawn_protection") {
+            if (num(0, 10))
+                cur.spawnProtectionSec = static_cast<int16_t>(n);
+        } else if (key == "pickup_respawn") {
+            const std::string b = lower(val);
+            if (b == "map") {
+                cur.pickupRespawnSec = -1;
+            } else if (b == "never") {
+                cur.pickupRespawnSec = 0;
+            } else if (parseInt(val, 1, 3600, n)) {
+                cur.pickupRespawnSec = static_cast<int32_t>(n);
+            } else {
+                err(lineNo, "pickup_respawn must be map, never or 1..3600 seconds");
+                bad = true;
+            }
+        } else if (key == "team_names") {
+            cur.teamNames.clear();
+            std::string part;
+            std::istringstream parts(val);
+            while (std::getline(parts, part, ','))
+                if (!trim(part).empty())
+                    cur.teamNames.push_back(trim(part));
+            bool ok = cur.teamNames.size() <= kMaxTeams;
+            for (const std::string& t : cur.teamNames)
+                ok = ok && t.size() <= 16;
+            if (!ok) {
+                err(lineNo, "team_names: at most 4 names of at most 16 characters, separated by commas");
+                bad = true;
+            }
+        } else if (key == "team_colors" || key == "team_colours") {
+            cur.teamColors.clear();
+            bool ok = w.size() <= kMaxTeams;
+            for (const std::string& t : w) {
+                long long v = 0;
+                ok = ok && t.size() == 6 && t.find_first_not_of("0123456789abcdefABCDEF") == std::string::npos &&
+                     parseInt("0x" + t, 0, 0xffffff, v);
+                cur.teamColors.push_back(static_cast<uint32_t>(v));
+            }
+            if (!ok) {
+                err(lineNo, "team_colors: at most 4 colours, rrggbb hex");
+                bad = true;
+            }
         } else {
             err(lineNo, "unknown key '" + key + "'");
             bad = true;
@@ -285,6 +333,78 @@ bool modeFitsArena(const ModeDef& mode, const ArenaDef& arena, std::string* why)
     if (mode.teamCount() > arena.maxPlayers)
         return no("the map holds too few players for that many teams");
     return true;
+}
+
+namespace {
+
+std::string plural(long long n, const char* one, const char* many) {
+    return std::to_string(n) + " " + (n == 1 ? one : many);
+}
+
+std::string minutesText(uint32_t sec) {
+    if (sec % 60 == 0)
+        return plural(sec / 60, "minute", "minutes");
+    return plural(sec, "second", "seconds");
+}
+
+} // namespace
+
+std::string modeGoal(const ModeDef& m) {
+    const bool teams = m.teamCount() >= 2;
+    std::string goal;
+    if (m.lives > 0)
+        goal = std::string(teams ? "Last team standing" : "Last one standing") + ", " +
+               plural(m.lives, "life", "lives") + " each";
+    bool capture = false, hold = false;
+    for (const ModeObjective& o : m.objectives) {
+        capture = capture || o.kind == ModeObjective::Kind::Capture;
+        hold = hold || o.kind == ModeObjective::Kind::Hold;
+    }
+    if (goal.empty() && capture)
+        goal = "Capture the flag";
+    if (goal.empty() && hold)
+        goal = "Hold the zone";
+    if (m.fragLimit > 0) {
+        const std::string first = "first to " + plural(m.fragLimit, "point", "points");
+        goal = goal.empty() ? std::string(1, static_cast<char>(std::toupper(first[0]))) + first.substr(1)
+                            : goal + ", or " + first;
+    }
+    if (goal.empty())
+        goal = m.timeLimitSec > 0 ? "Most points when the time is up" : "Score points";
+    return goal;
+}
+
+std::string modeSummary(const ModeDef& m) {
+    std::string s;
+    const uint8_t teams = m.teamCount();
+    s = teams >= 2 ? std::to_string(teams) + " teams." : std::string("Free for all.");
+    if (m.lives > 0)
+        s += " " + plural(m.lives, "life", "lives") + " each; the last " + (teams >= 2 ? "team" : "player") +
+             " standing wins.";
+    if (m.fragLimit > 0)
+        s += " First to " + plural(m.fragLimit, "point", "points") + " wins.";
+    if (m.timeLimitSec > 0)
+        s += " " + minutesText(m.timeLimitSec) + ".";
+    if (m.scoreKill != 1 || m.scoreDeath != 0)
+        s += " Kill " + std::string(m.scoreKill >= 0 ? "+" : "") + std::to_string(m.scoreKill) +
+             (m.scoreDeath ? ", death " + std::string(m.scoreDeath >= 0 ? "+" : "") + std::to_string(m.scoreDeath)
+                           : std::string()) +
+             ".";
+    if (teams >= 2 && m.friendlyFire)
+        s += " Friendly fire" +
+             (m.scoreTeamKill ? std::string(" (team kill ") + (m.scoreTeamKill > 0 ? "+" : "") +
+                                    std::to_string(m.scoreTeamKill) + ")"
+                              : std::string()) +
+             ".";
+    if (m.pickupRespawnSec == 0)
+        s += " Pickups do not come back.";
+    else if (m.pickupRespawnSec > 0)
+        s += " Pickups come back after " + minutesText(static_cast<uint32_t>(m.pickupRespawnSec)) + ".";
+    if (!m.weapons.empty())
+        s += " Limited weapons.";
+    if (!m.loadout.empty())
+        s += " Extra starting items.";
+    return s;
 }
 
 } // namespace drakan::net

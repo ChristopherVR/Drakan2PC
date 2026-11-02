@@ -38,15 +38,15 @@ PlayerState sampleState() {
 }
 
 // `olderSize`: the length (type byte included) an older peer wrote when the message later gained trailing optional
-// fields; that one prefix is accepted on purpose (default: none).
+// fields; those prefixes are accepted on purpose (default: none).
 template <class T>
-void expectTruncationsFail(const T& msg, size_t olderSize = SIZE_MAX) {
+void expectTruncationsFail(const T& msg, size_t olderSize = SIZE_MAX, size_t olderSize2 = SIZE_MAX) {
     const auto bytes = encode(msg);
     T out;
     CHECK(decode(bytes, out));
     for (size_t n = 0; n < bytes.size(); ++n) {
         T t;
-        if (n == olderSize)
+        if (n == olderSize || n == olderSize2)
             CHECK(decode(bytes.data(), n, t));
         else
             CHECK(!decode(bytes.data(), n, t)); // every proper prefix is rejected
@@ -189,7 +189,7 @@ int main() {
     expectTruncationsFail(Death{});
     expectTruncationsFail(Respawn{});
     expectTruncationsFail(Chat{});
-    expectTruncationsFail(Score{}, 10); // score and teamScore are optional (the v8 body is 9 bytes)
+    expectTruncationsFail(Score{}, 10, 30); // score / teamScore (the v8 body is 9 bytes) and lives are optional
     expectTruncationsFail(PlayerJoin{});
     expectTruncationsFail(PlayerLeave{});
     expectTruncationsFail(PhaseChange{}, 6); // byHost is optional (the older body is 5 bytes)

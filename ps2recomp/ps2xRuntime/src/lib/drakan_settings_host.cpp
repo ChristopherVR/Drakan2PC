@@ -37,6 +37,7 @@
 #endif
 #include <settings/TxdImage.h>
 #include <gameui/MapScreen.h>
+#include <gameui/UiSkin.h>
 #include <gameui/Multiplayer.h>
 #include <net/ArenaMaps.h>
 #include <gameui/PauseScreen.h>
@@ -1597,8 +1598,16 @@ gameui::mp::MpState mpState(bool wantLan) {
     s.timeLimitMin = ns.timeLimitSec / 60;
     s.modeId = ns.modeId;
     if (!ns.modeId.empty())
-        if (const drakan::net::ModeDef* m = drakan_modes::customModes().find(ns.modeId))
+        if (const drakan::net::ModeDef* m = drakan_modes::customModes().find(ns.modeId)) {
             s.modeName = m->name;
+            s.modeGoal = drakan::net::modeGoal(*m);
+            for (size_t t = 0; t < 4; ++t) {
+                if (t < m->teamNames.size())
+                    s.teamNames[t] = m->teamNames[t];
+                if (t < m->teamColors.size())
+                    s.teamColors[t] = static_cast<int>(m->teamColors[t]);
+            }
+        }
     for (const drakan::net::ModeDef& m : drakan_modes::customModes().modes()) {
         ModeEntry e;
         e.id = m.id;
@@ -1608,6 +1617,9 @@ gameui::mp::MpState mpState(bool wantLan) {
         e.teams = m.teamCount();
         e.fragLimit = m.fragLimit;
         e.timeLimitSec = m.timeLimitSec;
+        e.lives = m.lives;
+        e.goal = drakan::net::modeGoal(m);
+        e.summary = drakan::net::modeSummary(m);
         s.modes.push_back(std::move(e));
     }
     s.selfReady = ns.selfReady;
@@ -1662,9 +1674,10 @@ gameui::mp::MpState mpState(bool wantLan) {
         s.lanScanning = drakan_netplay::lanScanning();
     }
     const bool ootf = drakan_game::current() == drakan_game::Game::Ootf;
-    if (!ootf)
+    const bool custom = drakan_game::current() == drakan_game::Game::Custom;
+    if (!ootf && !custom)
         s.levels = vanillaLevels();
-    else { // Order of the Flame: co-op opens the campaign's start level first (drakan_game::firstLevel)
+    else { // a campaign: co-op opens the campaign's start level first (drakan_game::firstLevel)
         LevelEntry e;
         e.name = drakan_game::firstLevel();
         e.title = e.name;
@@ -1675,15 +1688,16 @@ gameui::mp::MpState mpState(bool wantLan) {
     if (ootf)
         for (const auto& m : drakan_arena::maps())
             arenaLevels.push_back(m.level);
-    for (const std::string& n : drakan_netplay::extraLevels()) {
-        if (ootf && n == drakan_game::firstLevel())
+    // A custom campaign lists its own levels in play order; otherwise every level the packs registered.
+    for (const std::string& n : custom ? drakan_game::campaignLevels() : drakan_netplay::extraLevels()) {
+        if ((ootf || custom) && n == drakan_game::firstLevel())
             continue;
         if (std::find(arenaLevels.begin(), arenaLevels.end(), n) != arenaLevels.end())
             continue;
         LevelEntry e;
         e.name = n;
         e.title = n.rfind("Level ", 0) == 0 ? n.substr(6) : n;
-        e.custom = !ootf;
+        e.custom = !ootf && !custom;
         s.levels.push_back(std::move(e));
     }
     for (LevelEntry& e : s.levels)
@@ -1928,9 +1942,22 @@ void mpHudDraw(const dsettings::SettingsOverlay::ScreenFrame& f) {
     hs.now = sb.now;
     // The standings come from the scoreboard (kills / deaths as the server scored them, most kills first).
     hs.scoreMode = !sb.modeId.empty();
-    if (hs.scoreMode)
-        if (const drakan::net::ModeDef* m = drakan_modes::customModes().find(sb.modeId))
-            hs.modeName = m->name;
+    const drakan::net::ModeDef* hudMode = hs.scoreMode ? drakan_modes::customModes().find(sb.modeId) : nullptr;
+    if (hudMode) {
+        hs.modeName = hudMode->name;
+        hs.goal = drakan::net::modeGoal(*hudMode);
+        hs.livesMode = hudMode->lives > 0;
+        for (size_t t = 0; t < 4; ++t) {
+            if (t < hudMode->teamNames.size())
+                hs.teamNames[t] = hudMode->teamNames[t];
+            if (t < hudMode->teamColors.size())
+                hs.teamColors[t] = static_cast<int>(hudMode->teamColors[t]);
+        }
+    }
+    const auto hudTeamName = [&](int t) {
+        return t >= 0 && t < 4 && !hs.teamNames[t].empty() ? hs.teamNames[t]
+                                                           : std::string(t >= 0 && t < 4 ? kTeamNames[t] : "?");
+    };
     hs.teamCount = std::clamp(sb.teamCount, 2, 4);
     for (int t = 0; t < 4; ++t)
         hs.teamScore[t] = sb.teamScore[t];
@@ -1945,6 +1972,8 @@ void mpHudDraw(const dsettings::SettingsOverlay::ScreenFrame& f) {
         row.score = r.score;
         row.pingMs = r.pingMs;
         row.timeSec = r.timeSec;
+        row.lives = r.lives;
+        row.eliminated = r.eliminated;
         hs.roster.push_back(std::move(row));
     }
     // OotF has no results screen: a banner with the winner while the server shows the results phase, the final
@@ -1955,11 +1984,14 @@ void mpHudDraw(const dsettings::SettingsOverlay::ScreenFrame& f) {
         if (sb.tie)
             who = "Draw";
         else if (sb.mode == 1)
-            who = std::string("Team ") + (sb.winnerTeam >= 0 && sb.winnerTeam < 4 ? kTeamNames[sb.winnerTeam] : "?") +
-                  " wins";
+            who = "Team " + hudTeamName(sb.winnerTeam) + " wins";
         else
             who = (sb.winnerName.empty() ? std::string("?") : sb.winnerName) + " wins";
         hs.banner = std::string("Match over - ") + who + " (" + sb.reason + ")";
+        if (sb.reason == "last one standing" && !sb.tie) // the standings alone cannot tell: say what the match decided
+            hs.winnerText =
+                sb.mode == 1 ? "Team " + hudTeamName(sb.winnerTeam) + " is the last team standing"
+                             : (sb.winnerName.empty() ? std::string("?") : sb.winnerName) + " is the last one standing";
         hs.resultsText = "Choose what happens next";
     } else if (sb.phase == drakan_netplay::Phase::Lobby) {
         hs.banner = "Match finished";
@@ -1971,7 +2003,16 @@ void mpHudDraw(const dsettings::SettingsOverlay::ScreenFrame& f) {
             std::snprintf(t, sizeof t, "%d:%02d left", sb.timeLeftSec / 60, sb.timeLeftSec % 60);
             st = t;
         }
-        if (sb.fragLimit > 0)
+        // A custom mode: its goal in words (a mode with lives: "Last one standing" and the lives left, the full goal is
+        // on the scoreboard).
+        if (hudMode && hs.livesMode)
+            st +=
+                std::string(st.empty() ? "" : "   ") +
+                (hudMode->teamCount() >= 2 ? "Last team standing" : "Last one standing") +
+                (sb.selfLives >= 0 && !sb.selfEliminated ? "   Lives " + std::to_string(sb.selfLives) : std::string());
+        else if (hudMode)
+            st += std::string(st.empty() ? "" : "   ") + hs.goal;
+        else if (sb.fragLimit > 0)
             st += std::string(st.empty() ? "" : "   ") + "First to " + std::to_string(sb.fragLimit);
         hs.status = st;
     }
@@ -2003,6 +2044,9 @@ void mpHudDraw(const dsettings::SettingsOverlay::ScreenFrame& f) {
         hs.banner.clear();
     }
     hs.alive = sb.selfAlive || sb.respawnInSec <= 0.0; // the overlay only runs while the countdown does
+    hs.eliminated = sb.selfEliminated && sb.phase == drakan_netplay::Phase::Playing; // out of lives: watching
+    if (hs.eliminated)
+        hs.alive = false;
     hs.respawnInSec = sb.respawnInSec;
     for (const auto& k : sb.killFeed) {
         gameui::mp::HudKill hk;
@@ -2128,6 +2172,7 @@ struct TitleUi {
     uint32_t session = 0, reactivated = 0;
     float fade = 0;
     double lastTime = -1;
+    const gameui::UiSkin* skin = nullptr; // the skin the screen was built with (a campaign switch replaces it)
 };
 TitleUi g_titleUi;
 
@@ -2153,15 +2198,30 @@ void titleDraw(const dsettings::SettingsOverlay::ScreenFrame& f, bool background
     ui.fade = visible ? std::min(1.0f, ui.fade + dt * 8.0f) : std::max(0.0f, ui.fade - dt * 10.0f);
     tu.renderer.setFonts(*f.fonts);
     tu.renderer.setSkin(f.skin);
-    if (show && sh.titleSession.load() != ui.session) {
-        ui.session = sh.titleSession.load();
-        ui.reactivated = sh.titleReactivated.load();
-        gameui::TitleConfig cfg;
+    const auto titleConfig = [&tu] {
+        gameui::TitleConfig cfg; // its Theme reads the active skin
         cfg.screen.measure = tu.renderer.measure();
         cfg.pcSettingsPages = cfg.unifiedOptions = g_pcs != nullptr;
         cfg.showMultiplayer = drakan_netplay::wanted();
         cfg.showCoop = cfg.showMultiplayer; // New Game asks Solo / Co-op (Co-op is not in the Multiplayer menu)
-        ui.screen = gameui::TitleScreen(cfg);
+        return cfg;
+    };
+    if (show && sh.titleSession.load() == ui.session && ui.skin != &gameui::activeUiSkin() &&
+        ui.screen.page() == gameui::TitlePage::Main) {
+        // The game card switched to a campaign with its own menu skin (or back): the theme colours are read when the
+        // screen is built, so build it again, on the main page (the choice was just made).
+        ui.skin = &gameui::activeUiSkin();
+        ui.screen = gameui::TitleScreen(titleConfig());
+        ui.screen.open();
+        ui.screen.skipGameChoice();
+        std::fprintf(stderr, "[menu-screens] title: rebuilt for the menu skin of %s\n",
+                     drakan_game::currentName().c_str());
+    }
+    if (show && sh.titleSession.load() != ui.session) {
+        ui.session = sh.titleSession.load();
+        ui.reactivated = sh.titleReactivated.load();
+        ui.skin = &gameui::activeUiSkin();
+        ui.screen = gameui::TitleScreen(titleConfig());
         ui.screen.open();
         { // Back from a match with the session still up: the lobby page again (the next match starts from there).
             const drakan_netplay::State ns = drakan_netplay::state();
@@ -2207,6 +2267,10 @@ void titleDraw(const dsettings::SettingsOverlay::ScreenFrame& f, bool background
     tu.renderer.setGamepadPrompts(tu.device == gameui::InputDevice::Gamepad);
     if (visible && ui.screen.isOpen()) {
         gameui::TitleState st = sh.titleState();
+        for (gameui::TitleState::Game& g : st.games) // a campaign's cover: the pack's previews/campaign-<id>.png
+            if (g.id != "d2")
+                if (const uint32_t pic = mapPreviewId("campaign-" + g.id))
+                    g.cover = {gameui::ImageKind::LevelPreview, pic};
         st.multiplayer = mpState(ui.screen.page() == gameui::TitlePage::Multiplayer &&
                                  ui.screen.multiplayer().page() == gameui::mp::MpPage::Join);
         st.pcSettings = pcSettingsSchema(ui.screen.pcSettingsOpen(), now);

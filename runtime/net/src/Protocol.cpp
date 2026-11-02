@@ -315,6 +315,8 @@ void Score::write(ByteWriter& w) const {
     w.u32(static_cast<uint32_t>(score));
     for (int32_t t : teamScore)
         w.u32(static_cast<uint32_t>(t));
+    w.u8(lives);
+    w.u8(eliminated ? 1 : 0);
 }
 bool Score::read(ByteReader& r) {
     player = r.u8();
@@ -331,6 +333,13 @@ bool Score::read(ByteReader& r) {
     score = static_cast<int32_t>(r.u32());
     for (int32_t& t : teamScore)
         t = static_cast<int32_t>(r.u32());
+    if (r.atEnd()) { // a server before lives
+        lives = kLivesUnlimited;
+        eliminated = false;
+        return r.ok();
+    }
+    lives = r.u8();
+    eliminated = r.u8() != 0;
     return r.ok();
 }
 

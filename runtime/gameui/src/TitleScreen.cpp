@@ -232,7 +232,45 @@ Rect cardPanel() {
 Rect cardRow(int i) {
     return design::pause::cardRow(i, 2);
 }
+namespace {
+constexpr float kGamePad = 44, kGameHeadH = 120, kGameListW = 600, kGameRowH = 64, kGameRowStep = 76;
+}
+Rect gameCard() {
+    return {200, 160, 1520, 760};
+}
+Rect gameRow(int i) {
+    const Rect c = gameCard();
+    return {c.x + kGamePad, c.y + kGameHeadH + static_cast<float>(i) * kGameRowStep, kGameListW, kGameRowH};
+}
+Rect gameCover() {
+    const Rect c = gameCard();
+    const float x = c.x + kGamePad + kGameListW + 40, w = c.right() - kGamePad - x;
+    return {x, c.y + kGameHeadH, w, w * 9.0f / 16.0f};
+}
+Rect gameDescription() {
+    const Rect cv = gameCover();
+    return {cv.x, cv.bottom() + 20, cv.w, gameCard().bottom() - kGamePad + 14 - (cv.bottom() + 20)};
+}
 } // namespace design::title
+
+namespace {
+bool isGameRow(TitleRow r) {
+    return static_cast<int>(r) >= static_cast<int>(TitleRow::GameDrakan);
+}
+int gameOf(TitleRow r) {
+    return static_cast<int>(r) - static_cast<int>(TitleRow::GameDrakan);
+}
+TitleRow gameRowOf(int i) {
+    return static_cast<TitleRow>(static_cast<int>(TitleRow::GameDrakan) + i);
+}
+int gameCount(const TitleState& st) {
+    return std::clamp(static_cast<int>(st.games.size()), 1, 100);
+}
+// First game shown in the list: the focused one stays visible.
+int gameScroll(int focused, int n) {
+    return std::clamp(focused - (design::title::kGameRowsShown - 1), 0, std::max(0, n - design::title::kGameRowsShown));
+}
+} // namespace
 
 TitleScreen::TitleScreen(TitleConfig cfg)
     : cfg_(std::move(cfg)), options_(optionsConfig(cfg_)), pcPages_(SettingsPagesConfig{cfg_.screen}),
@@ -281,8 +319,12 @@ std::vector<TitleRow> TitleScreen::rowsOf(TitlePage page, const TitleState& st) 
         return {TitleRow::QuitToDesktop, TitleRow::Cancel};
     if (page == TitlePage::NewGameChoice)
         return {TitleRow::NewGameSolo, TitleRow::NewGameCoop};
-    if (page == TitlePage::GameChoice)
-        return {TitleRow::GameDrakan, TitleRow::GameOotf};
+    if (page == TitlePage::GameChoice) {
+        std::vector<TitleRow> g;
+        for (int i = 0; i < gameCount(st); ++i)
+            g.push_back(gameRowOf(i));
+        return g;
+    }
     std::vector<TitleRow> r;
     if (cfg_.showContinue && st.continueSlot > 0)
         r.push_back(TitleRow::Continue);
@@ -323,6 +365,17 @@ void TitleScreen::buildTargets(const TitleState& st) {
     targets_.clear();
     const std::vector<TitleRow> rs = rows(st);
     const int n = static_cast<int>(rs.size());
+    if (page_ == TitlePage::GameChoice) { // the visible part of the game list
+        const int focused =
+            focus_.kind == TargetKind::CardButton ? gameOf(static_cast<TitleRow>(focus_.index)) : st.game;
+        const int first = gameScroll(focused, n);
+        for (int i = first; i < n && i < first + design::title::kGameRowsShown; ++i)
+            targets_.push_back({{TargetKind::CardButton, static_cast<int>(gameRowOf(i))},
+                                lf_.map(design::title::gameRow(i - first)),
+                                true,
+                                true});
+        return;
+    }
     for (int i = 0; i < n; ++i) {
         const TitleRow r = rs[static_cast<size_t>(i)];
         const bool en = rowEnabled(r, st);
@@ -373,6 +426,13 @@ void TitleScreen::buildHints(const TitleState& st) {
 void TitleScreen::activate(TitleRow r, const TitleState& st, TitleFrameOutput& out) {
     if (!rowEnabled(r, st))
         return;
+    if (isGameRow(r)) { // the game card: the menu runs for that game from now on (the host switches at once)
+        out.actions.push_back({0, TitleActionKind::SelectGame, gameOf(r)});
+        page_ = TitlePage::Main;
+        focus_ = {};
+        out.sound = UiSound::Confirm;
+        return;
+    }
     auto emit = [&](TitleActionKind k, int32_t v = 0) {
         out.actions.push_back({0, k, v});
         out.sound = UiSound::Confirm;      // the host leaves it to the native row press where there is one
@@ -408,11 +468,7 @@ void TitleScreen::activate(TitleRow r, const TitleState& st, TitleFrameOutput& o
             break;
         case TitleRow::GameDrakan:
         case TitleRow::GameOotf:
-            out.actions.push_back({0, TitleActionKind::SelectGame, r == TitleRow::GameOotf ? 1 : 0});
-            page_ = TitlePage::Main;
-            focus_ = {};
-            out.sound = UiSound::Confirm;
-            break;
+            break; // handled above
         case TitleRow::Options:
             mainFocus_ = focus_;
             page_ = TitlePage::Options;
@@ -532,6 +588,13 @@ void TitleScreen::applyInput(const TitleState& st, const UiInput& in, TitleFrame
         }
         if (dy == 0)
             continue;
+        if (page_ == TitlePage::GameChoice) { // by index: the list scrolls past its visible rows
+            const int n = gameCount(st);
+            const int i = focus_.kind == TargetKind::CardButton ? gameOf(static_cast<TitleRow>(focus_.index)) : st.game;
+            focus_ = {TargetKind::CardButton, static_cast<int>(gameRowOf(std::clamp(i + dy, 0, n - 1)))};
+            buildTargets(st);
+            continue;
+        }
         const HitTarget* cur = findTarget(focus_);
         if (!cur) {
             ensureFocus(st);
@@ -558,7 +621,7 @@ TitleFrameOutput TitleScreen::frame(const TitleState& st, const UiInput& in, con
     if (st.offerGames && !gameAsked_ && page_ == TitlePage::Main && !loading_) {
         gameAsked_ = true;
         page_ = TitlePage::GameChoice;
-        focus_ = {TargetKind::CardButton, static_cast<int>(st.game == 1 ? TitleRow::GameOotf : TitleRow::GameDrakan)};
+        focus_ = {TargetKind::CardButton, static_cast<int>(gameRowOf(std::clamp(st.game, 0, gameCount(st) - 1)))};
     }
     const auto optionsState = [&] {
         PauseState ps;
@@ -678,6 +741,56 @@ TitleFrameOutput TitleScreen::frame(const TitleState& st, const UiInput& in, con
     return out;
 }
 
+void TitleScreen::drawGameCard(const TitleState& st, DrawList& d) const {
+    const detail::Paint p(lf_, cfg_.screen);
+    const Theme& th = cfg_.screen.theme;
+    const Rect c = design::title::gameCard();
+    d.rect({lf_.view.x, lf_.view.y, lf_.view.w, lf_.view.h}, withAlpha(th.backdropEdge, 120));
+    d.panel(p.map(c), PanelStyle::Main, th.panelRaised);
+    constexpr float pad = 44;
+    p.text(d, {c.x + pad, c.y + 28, c.w - 2 * pad, 52}, "Choose your game", FontRole::Title, th.heading);
+    p.text(d, {c.x + pad, c.y + 40, c.w - 2 * pad, 40}, "Each game keeps its own saves.", FontRole::Small, th.textMuted,
+           TextAlign::Right);
+    p.rule(d, c.x + pad, c.y + 92, c.w - 2 * pad);
+    const int n = gameCount(st);
+    const int focused =
+        focus_.kind == TargetKind::CardButton ? std::clamp(gameOf(static_cast<TitleRow>(focus_.index)), 0, n - 1) : 0;
+    const int first = gameScroll(focused, n);
+    const float listW = design::title::gameRow(0).w;
+    for (int i = first; i < n && i < first + design::title::kGameRowsShown; ++i) {
+        const TargetId id{TargetKind::CardButton, static_cast<int>(gameRowOf(i))};
+        const std::string name = i < static_cast<int>(st.games.size()) ? st.games[static_cast<size_t>(i)].name : "?";
+        const Rect r = design::title::gameRow(i - first);
+        p.button(d, r, name, focus_ == id, hover_ == id, true);
+        if (i == st.game) // the game the menu runs for now
+            p.text(d, {r.x + 24, r.y, r.w - 48, r.h}, "Playing", FontRole::Small, th.textMuted, TextAlign::Right);
+    }
+    if (first > 0)
+        p.text(d, {c.x + pad, c.y + 96, listW, 22}, "More above", FontRole::Small, th.textMuted, TextAlign::Center);
+    if (first + design::title::kGameRowsShown < n)
+        p.text(d, {c.x + pad, c.bottom() - pad + 6, listW, 30}, "More below", FontRole::Small, th.textMuted,
+               TextAlign::Center);
+    if (focused >= static_cast<int>(st.games.size()))
+        return;
+    const TitleState::Game& g = st.games[static_cast<size_t>(focused)];
+    const Rect cv = design::title::gameCover();
+    d.panel(p.map(cv), PanelStyle::Main, th.panel);
+    if (g.cover.kind != ImageKind::None)
+        d.image(p.map(cv), g.cover);
+    else // no picture: the title on the plain panel
+        p.text(d, {cv.x + 24, cv.y + cv.h * 0.5f - 40, cv.w - 48, 80}, g.name, FontRole::Title, th.text,
+               TextAlign::Center);
+    d.outline(p.map(cv), withAlpha(th.brass, 200), p.px(2));
+    const Rect dr = design::title::gameDescription();
+    p.text(d, {dr.x, dr.y, dr.w, 40}, g.name, FontRole::Heading, th.text);
+    const std::vector<std::string> lines =
+        p.wrap(g.description.empty() ? std::string("A campaign from an installed mod pack.") : g.description, dr.w,
+               FontRole::Body);
+    float y = dr.y + 46;
+    for (size_t i = 0; i < lines.size() && y + 30 <= dr.bottom() + 1; ++i, y += 30)
+        p.text(d, {dr.x, y, dr.w, 30}, lines[i], FontRole::Body, th.textMuted);
+}
+
 void TitleScreen::draw(const TitleState& st, DrawList& d) const {
     const detail::Paint p(lf_, cfg_.screen);
     const Theme& th = cfg_.screen.theme;
@@ -731,15 +844,17 @@ void TitleScreen::draw(const TitleState& st, DrawList& d) const {
                TextAlign::Center);
     }
     if (!st.footer.empty() || st.offerGames) {
-        const std::string game = st.offerGames ? st.gameNames[st.game == 1 ? 1 : 0] : std::string();
+        const std::string game = st.offerGames && st.game >= 0 && st.game < static_cast<int>(st.games.size())
+                                     ? st.games[static_cast<size_t>(st.game)].name
+                                     : std::string();
         const std::string line = game.empty() ? st.footer : st.footer.empty() ? game : game + "   " + st.footer;
         p.text(d, {kMargin, kFooterY, 700, kHintH}, line, FontRole::Small, th.textMuted);
     }
 
-    if (card) {
-        if (page_ == TitlePage::GameChoice)
-            p.confirmCard(d, design::title::cardPanel(), "Choose your game", "Each game keeps its own saves.");
-        else if (page_ == TitlePage::NewGameChoice)
+    if (page_ == TitlePage::GameChoice) {
+        drawGameCard(st, d);
+    } else if (card) {
+        if (page_ == TitlePage::NewGameChoice)
             p.confirmCard(d, design::title::cardPanel(), "New Game", "Play the campaign alone or with friends.");
         else
             p.confirmCard(d, design::title::cardPanel(), skinText("title.quit.title", "Quit the game?"),
@@ -747,9 +862,7 @@ void TitleScreen::draw(const TitleState& st, DrawList& d) const {
         const std::vector<TitleRow> cr = rows(st);
         for (size_t i = 0; i < cr.size(); ++i) {
             const TargetId id{TargetKind::CardButton, static_cast<int>(cr[i])};
-            const std::string label = cr[i] == TitleRow::GameDrakan ? st.gameNames[0]
-                                      : cr[i] == TitleRow::GameOotf ? st.gameNames[1]
-                                                                    : std::string(titleRowLabel(cr[i]));
+            const std::string label = titleRowLabel(cr[i]);
             p.button(d, design::title::cardRow(static_cast<int>(i)), label, focus_ == id, hover_ == id, true);
         }
     }

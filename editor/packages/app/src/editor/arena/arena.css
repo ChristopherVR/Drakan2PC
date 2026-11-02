@@ -460,6 +460,160 @@
     border-right: 1px solid var(--line);
     min-width: 0;
 }
+/* game modes: list rows with the goal, grouped form, the in-game card */
+.mp-moderow {
+    flex-wrap: wrap;
+    row-gap: 0;
+    align-items: flex-start;
+    height: auto;
+    min-height: 38px;
+    padding: 4px 6px;
+    line-height: 1.35;
+}
+.mp-moderow .n {
+    flex: 1 1 60%;
+}
+.mp-moderow .dim {
+    flex: 1 1 100%;
+    font-size: var(--fs-2xs);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.mp-bad {
+    color: var(--warn);
+    display: inline-flex;
+}
+.mp-group {
+    border: 1px solid var(--line);
+    border-radius: var(--r-sm);
+    padding: var(--sp-2) var(--sp-3) 2px;
+    margin-bottom: var(--sp-2);
+    background: var(--panel2);
+}
+.mp-group .mp-grid3,
+.mp-group .mp-row2 {
+    grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+}
+.mp-group h4 {
+    margin: 0 0 var(--sp-2);
+    font-size: var(--fs-xs);
+    font-weight: 600;
+    color: var(--fg-muted);
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+.mp-hint {
+    font-size: var(--fs-2xs);
+    color: var(--dim);
+    margin: -4px 0 8px;
+}
+.mp-warnline,
+.mp-okline {
+    display: flex;
+    gap: 6px;
+    align-items: center;
+    font-size: var(--fs-xs);
+    margin: 4px 0 8px;
+}
+.mp-warnline {
+    color: var(--warn);
+}
+.mp-okline {
+    color: var(--ok);
+}
+.mp-note {
+    font-size: var(--fs-2xs);
+    margin: 4px 0 10px;
+}
+.mp-teamrow {
+    display: grid;
+    grid-template-columns: 30px 1fr;
+    gap: 6px;
+    align-items: center;
+    margin-bottom: 4px;
+}
+.mp-color {
+    width: 28px;
+    height: 22px;
+    padding: 0;
+    border: 1px solid var(--border);
+    border-radius: var(--r-sm);
+    background: none;
+    cursor: pointer;
+}
+.mp-modecard {
+    border: 1px solid var(--border);
+    border-radius: var(--r-md, 6px);
+    padding: var(--sp-3);
+    background: linear-gradient(180deg, var(--panel2), var(--panel));
+}
+.mp-modecard-name {
+    font-size: var(--fs-lg, 15px);
+    font-weight: 600;
+    color: var(--fg);
+}
+.mp-modecard-goal {
+    font-size: var(--fs-sm);
+    color: var(--accent);
+    margin-top: 2px;
+}
+.mp-modecard-desc,
+.mp-modecard-rules {
+    font-size: var(--fs-xs);
+    color: var(--fg-muted);
+    margin: 8px 0 0;
+    line-height: 1.45;
+}
+.mp-modecard-desc {
+    color: var(--fg);
+}
+.mp-modecard-teams {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px 12px;
+    margin-top: 10px;
+    font-size: var(--fs-xs);
+}
+.mp-teamchip {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+}
+.mp-support h4 + .mp-check {
+    margin-bottom: 4px;
+}
+.mp-problems h4 {
+    color: var(--bad);
+}
+.mp-templates {
+    min-width: 280px;
+    padding: 4px;
+}
+.mp-templates h4 {
+    margin: 2px 6px 6px;
+    font-size: var(--fs-xs);
+    color: var(--fg-muted);
+}
+.mp-templates .mp-pick {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0;
+}
+.mp-templates .mp-pick .n {
+    flex: none;
+}
+.mp-templates .mp-pick .dim {
+    font-size: var(--fs-2xs);
+}
+.mp-empty {
+    padding: var(--sp-3);
+    max-width: 440px;
+}
+.mp-empty h4 {
+    margin: 0 0 6px;
+}
 .mp-obj {
     display: grid;
     grid-template-columns: 1.4fr 70px 70px 80px 20px;

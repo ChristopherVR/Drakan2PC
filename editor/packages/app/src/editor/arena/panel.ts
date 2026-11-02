@@ -9,6 +9,13 @@ import {
     cloneMode,
     defaultArenaBounds,
     defaultMode,
+    DEFAULT_TEAM_COLORS,
+    DEFAULT_TEAM_NAMES,
+    MODE_TEMPLATES,
+    modeGoal,
+    modeMapProblem,
+    modeSummary,
+    teamCount,
     insideBounds,
     overrideIndex,
     parseArenaIni,
@@ -1220,6 +1227,10 @@ export function createArenaPanel(ctx: Ctx, st: ArenaStore, host: ArenaHost): Are
     }
 
     // ---- Modes page ----
+    //
+    // A game mode is a set of rules the server runs ([mode <id>] in the pack's maps/*.ini): who plays with whom, how a
+    // match is won, what a kill is worth, respawns and items. Left: the modes; middle: the rules, grouped; right: what
+    // players will see in the game (the same words the Host page and the HUD use) and whether this map offers it.
 
     function modesPage(): HTMLElement {
         const list = st.modes;
@@ -1228,10 +1239,15 @@ export function createArenaPanel(ctx: Ctx, st: ArenaStore, host: ArenaHost): Are
         const save = (fn: (m: ModeDef) => void, rerender = false): void => {
             const next = list.map((m) => (m.id === modeSel ? cloneMode(m) : m));
             const m = next.find((x) => x.id === modeSel)!;
+            const oldId = m.id;
             fn(m);
             modeSel = m.id;
             st.setModes(next);
+            // A renamed id stays offered on this map.
+            if (m.id !== oldId && st.draft.modes.includes(oldId))
+                st.commit('Rename mode', (n) => (n.modes = n.modes.map((x) => (x === oldId ? m.id : x))));
             if (rerender) render();
+            else refreshModeSide();
             revalidate();
         };
         const rows: HTMLElement[] = ['dm', 'tdm'].map((id) =>
@@ -1247,30 +1263,83 @@ export function createArenaPanel(ctx: Ctx, st: ArenaStore, host: ArenaHost): Are
                 h(
                     'button',
                     {
-                        class: `mp-row${m.id === modeSel ? ' sel' : ''}`,
+                        class: `mp-row mp-moderow${m.id === modeSel ? ' sel' : ''}`,
                         type: 'button',
+                        title: modeSummary(m),
                         onclick: () => ((modeSel = m.id), render()),
                     },
                     h('span', { class: 'n' }, m.name || m.id),
-                    h('span', { class: 'dim mono' }, `${m.base}${m.teams ? ` x${m.teams}` : ''}`),
+                    h('span', { class: 'dim' }, modeGoal(m)),
+                    validateMode(m).length
+                        ? h('span', { class: 'mp-bad', title: 'Has problems' }, icon('warn', 11))
+                        : null,
                 ),
             );
-        const add = (copy?: ModeDef): void => {
-            let id = copy ? `${copy.id}-copy` : 'my-mode';
-            for (let i = 2; list.some((m) => m.id === id); i++) id = `${copy ? `${copy.id}-copy` : 'my-mode'}-${i}`;
-            const m = copy ? { ...cloneMode(copy), id, name: `${copy.name} copy` } : defaultMode(id);
-            modeSel = id;
+        const freeId = (base: string): string => {
+            let id = base;
+            for (let i = 2; list.some((m) => m.id === id); i++) id = `${base}-${i}`;
+            return id;
+        };
+        const addMode = (m: ModeDef): void => {
+            modeSel = m.id;
             st.setModes([...list, m]);
             render();
         };
+        const newBtn = btn('New mode', () => openTemplates(newBtn), { ico: 'plus', cls: 'primary' });
+        function openTemplates(anchor: HTMLElement): void {
+            openPopover(
+                anchor,
+                (close) =>
+                    h(
+                        'div',
+                        { class: 'mp-templates' },
+                        h('h4', {}, 'Start from'),
+                        h(
+                            'button',
+                            {
+                                class: 'mp-pick',
+                                type: 'button',
+                                onclick: () => (close(), addMode(defaultMode(freeId('my-mode')))),
+                            },
+                            h('span', { class: 'n' }, 'Blank mode'),
+                            h('span', { class: 'dim' }, 'Free for all, first to 20 points'),
+                        ),
+                        ...MODE_TEMPLATES.map((t) =>
+                            h(
+                                'button',
+                                {
+                                    class: 'mp-pick',
+                                    type: 'button',
+                                    onclick: () => {
+                                        close();
+                                        const made = t.make('x');
+                                        addMode({ ...made, id: freeId(slugify(made.name).slice(0, 26) || t.key) });
+                                    },
+                                },
+                                h('span', { class: 'n' }, t.label),
+                                h('span', { class: 'dim' }, t.hint),
+                            ),
+                        ),
+                    ),
+                { className: 'mp-pop' },
+            );
+        }
         const form = cur
             ? modeForm(cur, save)
             : h(
                   'div',
-                  { class: 'dim pad' },
-                  'Create a mode to set score rules, limits and objectives. Built-in deathmatch and team deathmatch stay as they are.',
+                  { class: 'mp-empty' },
+                  h('h4', {}, 'Make your own rules'),
+                  h(
+                      'p',
+                      { class: 'dim' },
+                      'A game mode decides who plays with whom, how a match is won, what a kill is worth and how ' +
+                          'players come back. Built-in deathmatch and team deathmatch stay as they are.',
+                  ),
+                  btn('New mode', () => openTemplates(newBtn), { ico: 'plus', cls: 'primary' }),
               );
-        const problems = cur ? validateMode(cur) : [];
+        modeSide = h('div', { class: 'mp-support' });
+        refreshModeSide();
         return h(
             'div',
             { class: 'mp-modes' },
@@ -1282,8 +1351,16 @@ export function createArenaPanel(ctx: Ctx, st: ArenaStore, host: ArenaHost): Are
                 h(
                     'div',
                     { class: 'mp-btnrow' },
-                    btn('New mode', () => add(), { ico: 'plus', cls: 'primary' }),
-                    btn('Duplicate', () => cur && add(cur), { disabled: !cur }),
+                    newBtn,
+                    btn(
+                        'Duplicate',
+                        () =>
+                            cur &&
+                            addMode({ ...cloneMode(cur), id: freeId(`${cur.id}-copy`), name: `${cur.name} copy` }),
+                        {
+                            disabled: !cur,
+                        },
+                    ),
                     btn(
                         'Delete',
                         () =>
@@ -1295,49 +1372,166 @@ export function createArenaPanel(ctx: Ctx, st: ArenaStore, host: ArenaHost): Are
                     ),
                 ),
             ),
+            h('div', { class: 'mp-modeform' }, form),
+            modeSide,
+        );
+    }
+
+    let modeSide: HTMLElement | null = null;
+    /** The right column: the in-game card, this map's offer and the problems (refreshed on every edit). */
+    function refreshModeSide(): void {
+        if (!modeSide) return;
+        const m = st.modes.find((x) => x.id === modeSel);
+        if (!m) return void fill(modeSide);
+        const d = st.draft;
+        const problems = validateMode(m);
+        const fit = modeMapProblem(m, { modes: d.modes, players: d.players, markers: d.markers });
+        const offered = d.modes.includes(m.id);
+        const offer = h('input', { type: 'checkbox', checked: offered });
+        offer.addEventListener('change', () =>
+            st.commit(offer.checked ? 'Offer mode on map' : 'Stop offering mode', (n) => {
+                n.modes = offer.checked ? [...new Set([...n.modes, m.id])] : n.modes.filter((x) => x !== m.id);
+            }),
+        );
+        const teams = teamCount(m);
+        fill(
+            modeSide,
+            h('h4', {}, icon('eye', 12), 'In the game'),
             h(
                 'div',
-                { class: 'mp-modeform' },
-                form,
-                problems.length
-                    ? h('div', { class: 'mp-problems' }, ...problems.map((m) => h('div', {}, icon('warn', 12), m)))
+                { class: 'mp-modecard' },
+                h('div', { class: 'mp-modecard-name' }, m.name || m.id),
+                h('div', { class: 'mp-modecard-goal' }, modeGoal(m)),
+                m.description ? h('p', { class: 'mp-modecard-desc' }, m.description) : null,
+                h('p', { class: 'mp-modecard-rules' }, modeSummary(m)),
+                teams >= 2
+                    ? h(
+                          'div',
+                          { class: 'mp-modecard-teams' },
+                          ...Array.from({ length: teams }, (_, t) =>
+                              h(
+                                  'span',
+                                  { class: 'mp-teamchip' },
+                                  h('span', {
+                                      class: 'mp-dot',
+                                      style: `background:#${m.teamColors[t] ?? DEFAULT_TEAM_COLORS[t]}`,
+                                  }),
+                                  m.teamNames[t] || DEFAULT_TEAM_NAMES[t],
+                              ),
+                          ),
+                      )
                     : null,
             ),
+            h(
+                'div',
+                { class: 'dim mp-note' },
+                'The Host page shows this text under the settings; the HUD shows the goal.',
+            ),
+            h('h4', {}, icon('world', 12), 'This map'),
+            h('label', { class: 'mp-check' }, offer, `Offer it on ${d.name || 'this map'}`),
+            offered && fit
+                ? h('div', { class: 'mp-warnline' }, icon('warn', 12), `Cannot be played here: ${fit}`)
+                : null,
+            !offered && !fit
+                ? h(
+                      'div',
+                      { class: 'dim mp-note' },
+                      `Offered already: the map has ${m.base === 'tdm' ? 'team games' : 'deathmatch'}. Tick it to list the mode by name.`,
+                  )
+                : null,
+            problems.length
+                ? h(
+                      'div',
+                      { class: 'mp-problems' },
+                      h('h4', {}, 'Fix before export'),
+                      ...problems.map((p) => h('div', {}, icon('warn', 12), p)),
+                  )
+                : h('div', { class: 'mp-okline' }, icon('check', 12), 'Valid: the game will load this mode'),
+            h('details', { class: 'mp-preview' }, h('summary', {}, 'Mode file'), h('pre', {}, serializeMode(m))),
         );
     }
 
     function modeForm(m: ModeDef, save: (fn: (m: ModeDef) => void, rerender?: boolean) => void): HTMLElement {
-        const n = (label: string, key: keyof ModeDef, lim: readonly [number, number], step = 1): HTMLElement =>
+        const n = (
+            label: string,
+            key: keyof ModeDef,
+            lim: readonly [number, number],
+            step = 1,
+            rerender = false,
+        ): HTMLElement =>
             field(
                 label,
-                numInput(m[key] as number, (v) => save((x) => ((x[key] as number) = v)), {
+                numInput(m[key] as number, (v) => save((x) => ((x[key] as number) = v), rerender), {
                     min: lim[0],
                     max: lim[1],
                     step,
                     label,
                 }),
             );
-        const base = h('select', { class: 'mp-text', 'aria-label': 'Base mode' }) as HTMLSelectElement;
-        for (const b of ['dm', 'tdm'])
-            base.append(
-                h(
-                    'option',
-                    { value: b, selected: b === m.base },
-                    b === 'dm' ? 'Deathmatch (free for all)' : 'Team deathmatch',
-                ),
-            );
-        base.addEventListener(
-            'change',
-            () =>
-                save((x) => {
-                    const b = base.value as ModeDef['base'];
-                    x.base = b;
-                    x.teams = b === 'tdm' ? Math.max(2, x.teams) : 0;
-                }),
-            true,
-        );
-        const ff = h('input', { type: 'checkbox', checked: m.friendlyFire });
-        ff.addEventListener('change', () => save((x) => (x.friendlyFire = ff.checked)));
+        const hint = (text: string): HTMLElement => h('div', { class: 'mp-hint' }, text);
+        const select = (
+            label: string,
+            options: [string, string][],
+            value: string,
+            set: (v: string) => void,
+        ): HTMLElement => {
+            const el = h('select', { class: 'mp-text', 'aria-label': label }) as HTMLSelectElement;
+            for (const [v, t] of options) el.append(h('option', { value: v, selected: v === value }, t));
+            el.addEventListener('change', () => set(el.value));
+            return field(label, el);
+        };
+        const check = (label: string, value: boolean, set: (v: boolean) => void): HTMLElement => {
+            const cb = h('input', { type: 'checkbox', checked: value });
+            cb.addEventListener('change', () => set(cb.checked));
+            return h('label', { class: 'mp-check pushdown' }, cb, label);
+        };
+        const group = (name: string, ico: string, ...kids: (Node | null)[]): HTMLElement =>
+            h('section', { class: 'mp-group' }, h('h4', {}, icon(ico, 12), name), ...kids);
+        const teams = teamCount(m);
+
+        // Teams: names and colours per team.
+        const teamRows =
+            teams >= 2
+                ? Array.from({ length: teams }, (_, t) => {
+                      const col = h('input', {
+                          type: 'color',
+                          class: 'mp-color',
+                          'aria-label': `Team ${t + 1} colour`,
+                          value: `#${m.teamColors[t] ?? DEFAULT_TEAM_COLORS[t]}`,
+                      }) as HTMLInputElement;
+                      col.addEventListener('change', () =>
+                          save((x) => {
+                              const cs = Array.from(
+                                  { length: Math.max(x.teamColors.length, t + 1) },
+                                  (_, i) => x.teamColors[i] ?? DEFAULT_TEAM_COLORS[i]!,
+                              );
+                              cs[t] = col.value.slice(1).toLowerCase();
+                              x.teamColors = cs;
+                          }, true),
+                      );
+                      return h(
+                          'div',
+                          { class: 'mp-teamrow' },
+                          col,
+                          textInput(
+                              m.teamNames[t] ?? '',
+                              (s) =>
+                                  save((x) => {
+                                      const ns = Array.from(
+                                          { length: Math.max(x.teamNames.length, t + 1) },
+                                          (_, i) => x.teamNames[i] ?? DEFAULT_TEAM_NAMES[i]!,
+                                      );
+                                      ns[t] = s || DEFAULT_TEAM_NAMES[t]!;
+                                      x.teamNames = ns;
+                                  }, true),
+                              `Team ${t + 1} name`,
+                              DEFAULT_TEAM_NAMES[t],
+                              16,
+                          ),
+                      );
+                  })
+                : [];
+
         const resList = (label: string, key: 'loadout' | 'weapons', empty: string): HTMLElement => {
             const anchor = btn(
                 'Add item',
@@ -1396,8 +1590,8 @@ export function createArenaPanel(ctx: Ctx, st: ArenaStore, host: ArenaHost): Are
                     'Points',
                     numInput(o.points, (v) => save((x) => (x.objectives[i]!.points = v)), {
                         label: 'Points',
-                        min: -1000,
-                        max: 1000,
+                        min: MODE_LIMITS.objectivePoints[0],
+                        max: MODE_LIMITS.objectivePoints[1],
                     }),
                 ),
                 o.kind === 'hold'
@@ -1409,7 +1603,7 @@ export function createArenaPanel(ctx: Ctx, st: ArenaStore, host: ArenaHost): Are
                               max: 600,
                           }),
                       )
-                    : null,
+                    : h('span'),
                 field(
                     'Radius',
                     numInput(o.radius, (v) => save((x) => (x.objectives[i]!.radius = v)), {
@@ -1431,80 +1625,214 @@ export function createArenaPanel(ctx: Ctx, st: ArenaStore, host: ArenaHost): Are
                 ),
             ),
         );
+        const pickupChoice = m.pickupRespawn < 0 ? 'map' : m.pickupRespawn === 0 ? 'never' : 'after';
+        const protChoice = m.spawnProtection < 0 ? 'default' : String(m.spawnProtection);
         return h(
             'div',
             { class: 'mp-form' },
-            h(
-                'div',
-                { class: 'mp-row2' },
-                field(
-                    'Name',
-                    textInput(m.name, (s) => save((x) => (x.name = s), true), 'Mode name', 'Shown in the menu', 40),
+            group(
+                'About',
+                'info',
+                h(
+                    'div',
+                    { class: 'mp-row2' },
+                    field(
+                        'Name',
+                        textInput(m.name, (s) => save((x) => (x.name = s), true), 'Mode name', 'Shown in the menu', 40),
+                    ),
+                    field(
+                        'Id',
+                        textInput(
+                            m.id,
+                            (s) => save((x) => (x.id = s.replace(/[^A-Za-z0-9_-]/g, '-')), true),
+                            'Mode id',
+                            'letters, digits, - _',
+                            32,
+                        ),
+                    ),
                 ),
                 field(
-                    'Id',
+                    'Description',
                     textInput(
-                        m.id,
-                        (s) => save((x) => (x.id = s.replace(/[^A-Za-z0-9_-]/g, '-')), true),
-                        'Mode id',
-                        'letters, digits, - _',
-                        32,
+                        m.description,
+                        (s) => save((x) => (x.description = s)),
+                        'Description',
+                        'One line for the menu',
+                        120,
                     ),
                 ),
             ),
-            field(
-                'Description',
-                textInput(m.description, (s) => save((x) => (x.description = s)), 'Description', 'One line', 120),
+            group(
+                'Players and teams',
+                'character',
+                h(
+                    'div',
+                    { class: 'mp-row2' },
+                    select(
+                        'Play as',
+                        [
+                            ['dm', 'Everyone for themselves'],
+                            ['tdm', 'Teams'],
+                        ],
+                        m.base,
+                        (v) =>
+                            save((x) => {
+                                x.base = v as ModeDef['base'];
+                                x.teams = v === 'tdm' ? Math.max(2, x.teams) : 0;
+                            }, true),
+                    ),
+                    teams >= 2
+                        ? select(
+                              'Number of teams',
+                              [
+                                  ['2', '2 teams'],
+                                  ['3', '3 teams'],
+                                  ['4', '4 teams'],
+                              ],
+                              String(teams),
+                              (v) => save((x) => (x.teams = Number(v)), true),
+                          )
+                        : h('span'),
+                ),
+                teams >= 2
+                    ? h(
+                          'div',
+                          { class: 'mp-f' },
+                          h('span', {}, 'Team names and colours (HUD and scoreboard)'),
+                          ...teamRows,
+                      )
+                    : null,
+                teams >= 2
+                    ? h(
+                          'div',
+                          { class: 'mp-row2' },
+                          check('Friendly fire (team mates can hurt each other)', m.friendlyFire, (v) =>
+                              save((x) => (x.friendlyFire = v), true),
+                          ),
+                          m.friendlyFire ? n('Points for a team kill', 'scoreTeamKill', MODE_LIMITS.score) : h('span'),
+                      )
+                    : null,
             ),
-            h('div', { class: 'mp-row2' }, field('Based on', base), n('Teams (0 = none)', 'teams', MODE_LIMITS.teams)),
-            h(
-                'div',
-                { class: 'mp-grid3' },
-                n('Score per kill', 'scoreKill', MODE_LIMITS.score),
-                n('Per death', 'scoreDeath', MODE_LIMITS.score),
-                n('Per objective', 'scoreObjective', MODE_LIMITS.score),
-            ),
-            h(
-                'div',
-                { class: 'mp-grid3' },
-                n('Frag limit (0 = none)', 'fragLimit', MODE_LIMITS.fragLimit),
-                n('Time limit s (0 = none)', 'timeLimit', MODE_LIMITS.timeLimit, 30),
-                n('Respawn delay s', 'respawnDelay', MODE_LIMITS.respawnDelay),
-            ),
-            h(
-                'div',
-                { class: 'mp-row2' },
-                n('Start health (0 = map)', 'startHealth', MODE_LIMITS.startHealth, 10),
-                h('label', { class: 'mp-check pushdown' }, ff, 'Friendly fire'),
-            ),
-            resList('Extra loadout', 'loadout', 'none'),
-            resList('Allowed weapons', 'weapons', 'all weapons'),
-            h(
-                'div',
-                { class: 'mp-f' },
-                h('span', {}, 'Objectives'),
-                ...objs,
+            group(
+                'How a match is won',
+                'star',
+                h(
+                    'div',
+                    { class: 'mp-grid3' },
+                    n('Lives each', 'lives', MODE_LIMITS.lives, 1, true),
+                    n('Score limit', 'fragLimit', MODE_LIMITS.fragLimit, 1, true),
+                    field(
+                        'Time limit (minutes)',
+                        numInput(m.timeLimit / 60, (v) => save((x) => (x.timeLimit = Math.round(v * 60)), true), {
+                            min: 0,
+                            max: MODE_LIMITS.timeLimit[1] / 60,
+                            step: 0.5,
+                            label: 'Time limit in minutes',
+                        }),
+                    ),
+                ),
+                hint('0 means no limit.'),
+                m.lives > 0
+                    ? hint(
+                          `Out of lives = out of the match. The last ${teams >= 2 ? 'team' : 'player'} with lives left wins; ` +
+                              'players who join a running match watch until the next one.',
+                      )
+                    : null,
+                m.lives === 0 && m.fragLimit === 0 && m.timeLimit === 0
+                    ? h(
+                          'div',
+                          { class: 'mp-warnline' },
+                          icon('warn', 12),
+                          'Nothing ends this match: set lives, a score limit or a time limit.',
+                      )
+                    : null,
+                h(
+                    'div',
+                    { class: 'mp-f' },
+                    h('span', {}, 'Objectives (need flag, base or zone markers on the map)'),
+                    ...objs,
+                ),
                 h(
                     'div',
                     { class: 'mp-btnrow' },
                     btn(
-                        'Capture flag',
+                        'Capture the flag',
                         () =>
                             save(
-                                (x) => x.objectives.push({ kind: 'capture', points: 5, seconds: 10, radius: 300 }),
+                                (x) => x.objectives.push({ kind: 'capture', points: 1, seconds: 10, radius: 300 }),
                                 true,
                             ),
-                        { ico: 'plus' },
+                        { ico: 'plus', disabled: m.objectives.length >= 8 },
                     ),
                     btn(
-                        'Hold zone',
+                        'Hold a zone',
                         () =>
                             save((x) => x.objectives.push({ kind: 'hold', points: 1, seconds: 15, radius: 700 }), true),
-                        { ico: 'plus' },
+                        { ico: 'plus', disabled: m.objectives.length >= 8 },
                     ),
                 ),
             ),
-            h('details', { class: 'mp-preview' }, h('summary', {}, 'Mode file'), h('pre', {}, serializeMode(m))),
+            group(
+                'Scoring',
+                'sliders',
+                h(
+                    'div',
+                    { class: 'mp-grid3' },
+                    n('Points per kill', 'scoreKill', MODE_LIMITS.score, 1, true),
+                    n('Points per death', 'scoreDeath', MODE_LIMITS.score, 1, true),
+                    n('Bonus per objective', 'scoreObjective', MODE_LIMITS.score),
+                ),
+                hint('Deaths without a killer (falls) are not counted.'),
+            ),
+            group(
+                'Respawn',
+                'history',
+                h(
+                    'div',
+                    { class: 'mp-row2' },
+                    n('Respawn delay, seconds', 'respawnDelay', MODE_LIMITS.respawnDelay),
+                    select(
+                        'Spawn protection',
+                        [
+                            ['default', 'Game default (2 s)'],
+                            ['0', 'None'],
+                            ['1', '1 second'],
+                            ['3', '3 seconds'],
+                            ['5', '5 seconds'],
+                            ['10', '10 seconds'],
+                            ...(['default', '0', '1', '3', '5', '10'].includes(protChoice)
+                                ? []
+                                : ([[protChoice, `${protChoice} seconds`]] as [string, string][])),
+                        ],
+                        protChoice,
+                        (v) => save((x) => (x.spawnProtection = v === 'default' ? -1 : Number(v)), true),
+                    ),
+                ),
+                n("Start health (0 = the map's)", 'startHealth', MODE_LIMITS.startHealth, 10),
+            ),
+            group(
+                'Weapons and pickups',
+                'item',
+                h(
+                    'div',
+                    { class: 'mp-row2' },
+                    select(
+                        'Pickups come back',
+                        [
+                            ['map', 'As the map sets each one'],
+                            ['never', 'Never (taken is gone)'],
+                            ['after', 'After a fixed time'],
+                        ],
+                        pickupChoice,
+                        (v) => save((x) => (x.pickupRespawn = v === 'map' ? -1 : v === 'never' ? 0 : 30), true),
+                    ),
+                    pickupChoice === 'after'
+                        ? n('Seconds until back', 'pickupRespawn', [1, MODE_LIMITS.pickupRespawn[1]], 5, true)
+                        : h('span'),
+                ),
+                resList("Extra starting items (on top of the map's)", 'loadout', 'none'),
+                resList('Weapons that can hurt (empty = all)', 'weapons', 'all weapons'),
+            ),
         );
     }
 

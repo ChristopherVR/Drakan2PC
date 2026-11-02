@@ -172,8 +172,10 @@ struct ScoreRow {
     int score = 0;
     int health = 0;
     bool alive = false, self = false;
-    int pingMs = -1; // own player: measured round trip, others unknown (-1)
-    int timeSec = 0; // seconds since this client saw the player join
+    int pingMs = -1;         // own player: measured round trip, others unknown (-1)
+    int timeSec = 0;         // seconds since this client saw the player join
+    int lives = -1;          // a game mode with lives: lives left (-1 = no limit)
+    bool eliminated = false; // out of lives (watching until the match ends)
 };
 struct KillFeedEntry {
     int killer = 0, victim = 0; // player ids (killer 0 = none)
@@ -200,12 +202,14 @@ struct Scoreboard {
     int voteMine = -1, voteWinner = -1;
     int selfHealth = 0, selfMaxHealth = 100;
     bool selfAlive = true;
-    double respawnInSec = 0; // while dead: seconds until the server respawns us
+    bool selfEliminated = false; // a game mode with lives: we are out of lives
+    int selfLives = -1;          // lives left (-1 = no limit)
+    double respawnInSec = 0;     // while dead: seconds until the server respawns us
     // Once phase == Results (the match is over):
     bool over = false, tie = false;
     int winnerId = 0, winnerTeam = -1;   // deathmatch / team deathmatch winner (0 / -1 when tied; team 0..3)
     std::string winnerName;              // the deathmatch winner's name ("" when tied or team game)
-    std::string reason;                  // "frag limit", "time limit" or "match ended"
+    std::string reason;                  // "frag limit", "time limit", "last one standing" or "match ended"
     std::vector<KillFeedEntry> killFeed; // newest last, the last 8 kills
     double nextMatchSec = -1;            // Results: the server countdown to the next match / the lobby (< 0 = unknown)
     double now = 0;

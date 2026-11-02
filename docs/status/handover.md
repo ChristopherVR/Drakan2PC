@@ -40,6 +40,10 @@ Engine 5; textures move to UE5-style PBR sets.
 - Co-op: partners' weapons in hand, dragons for three players, parked dragon idle, player and dragon health in the
   party HUD, map pictures and character turntables in the lobby.
 - Menus: a mod can rename, reorder and recolour main and pause menu entries (`ui_skin_check.py`).
+- Campaign packs (2026-11-02, `docs/journal/2026-11-02/campaign-packs.md`): Project Settings > Campaign exports a project as
+  its own campaign (`campaign = "<id>"`, cover, own save folder, per-campaign menu skin); the title's game card lists every
+  installed campaign, New Game opens its start level by its real name, an exit chains into its second level at the right
+  marker and saves go to `mc0_<saves>` (proven with an editor-built two-level pack).
 - Editor: UE5-style structure (project chip, editor tabs, World Settings, three dock tabs, menu bar, + Add),
   Logic graph with plain-language links, Story workspace with conversation cards and a cut scene timeline.
 - Exports: Drakan Content Format 1.0 validates on Surdana; Level for Unreal (glTF) validates with the Khronos
@@ -75,9 +79,10 @@ Engine 5; textures move to UE5-style PBR sets.
   `object-categories`, `story-in-viewport`): resizable docks + left Place panel; template-picker start page with a step
   checklist; Project Settings as levels tree table + message-log Checks; 19 display categories (no placed object in
   "Other"); cut scenes / shops / quests / conversations drawn in the viewport, "Add cut scene here". Follow-ups: Place
-  panel should list `storyPlaceables()` (story/storyactions.ts); "Add shop here" needs the shop-to-character link;
-  Story tab hides the viewport unless docked; "Show in folder" needs a Tauri command; Project Id stops following Name
+  panel should list `storyPlaceables()` (story/storyactions.ts); Story tab hides the viewport unless docked; "Show in folder" needs a Tauri command; Project Id stops following Name
   after one keystroke (reported by the docs agent, recheck); site media (`docs/site/media.json`) pending upload.
+- "Add shop here" works (2026-11-02, journal `add-shop-here`): shopkeeper + shop + On box (`buildNewShop`,
+  editor-core `vendor.ts`); proven in Surdana: talking (Use) to the new keeper opens its shop, a purchase takes the gold.
 
 ### Story and logic
 
@@ -109,8 +114,10 @@ Engine 5; textures move to UE5-style PBR sets.
 
 ### PvP and multiplayer menus
 
-- Map vote by mouse (keys only so far); custom game mode never played through in game (unit tests only); a chained
-  run of back to lobby, next map and rematch.
+- Map vote by mouse (keys only so far); a chained run of back to lobby, next map and rematch. Custom game modes were
+  played through in game 2026-11-02 (`docs/journal/2026-11-02/custom-game-modes.md`: a pack's "Last Rynn Standing", lives,
+  elimination, last one standing, pickups that never come back); not yet seen in game: the "You are out" overlay (needs
+  three players: with two the elimination ends the match), team names / colours, allowed weapons, the mode loadout.
 - Character turntables exist for 5 characters; the capture studio (`DRAKAN_CHAR_PREVIEWS`) is not run automatically.
 - Bows cannot be spawned from their resource id; the adopt route (`DRAKAN_ARENA_LOADOUT_ADOPT`) has no map-file key.
 - Pickup and quick-save checks failed on inquisitor-depths and city runs under load; recheck.

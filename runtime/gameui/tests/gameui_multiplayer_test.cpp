@@ -1103,6 +1103,64 @@ int main() {
         CHECK(drawHud(hs, kVp, {}).size() > 20 && two > 20);
     }
 
+    // A mode with lives (last one standing): the players still in sort first, the LIVES column shows what is left (OUT
+    // when eliminated), the eliminated overlay replaces the respawn countdown, the match's winner line and the mode's
+    // team names / colours are used.
+    {
+        const auto hasText = [](const DrawList& d, const std::string& t) {
+            for (const DrawCmd& c : d.commands())
+                if (c.text.find(t) != std::string::npos)
+                    return true;
+            return false;
+        };
+        std::vector<RosterRow> rows(2);
+        rows[0].id = 1;
+        rows[0].name = "Alpha";
+        rows[0].score = 5;
+        rows[0].eliminated = true;
+        rows[0].lives = 0;
+        rows[1].id = 2;
+        rows[1].name = "Bravo";
+        rows[1].score = 1;
+        rows[1].lives = 2;
+        CHECK(sortedRoster(rows)[0].id == 2); // the survivor heads the table despite fewer points
+        HudState hs;
+        hs.scoreboard = true;
+        hs.scoreMode = true;
+        hs.livesMode = true;
+        hs.modeName = "Last Rynn Standing";
+        hs.goal = "Last one standing, 3 lives each";
+        hs.roster = rows;
+        DrawList d = drawHud(hs, kVp, {});
+        CHECK(hasText(d, "LIVES") && hasText(d, "OUT") && hasText(d, "Last Rynn Standing - Last one standing"));
+        CHECK(!hasText(d, "PING"));
+        hs.scoreboard = false;
+        hs.alive = false;
+        hs.eliminated = true;
+        d = drawHud(hs, kVp, {});
+        CHECK(hasText(d, "You are out") && !hasText(d, "RESPAWNING IN"));
+        hs.results = true;
+        hs.winnerText = "Bravo is the last one standing";
+        d = drawHud(hs, kVp, {});
+        CHECK(hasText(d, "Bravo is the last one standing"));
+        // Team names from the mode.
+        HudState th;
+        th.scoreboard = true;
+        th.mode = GameMode::TeamDeathmatch;
+        th.teamNames[0] = "Red";
+        th.teamNames[1] = "Blue";
+        th.teamColors[0] = 0xff0000;
+        th.roster = rows;
+        th.roster[0].team = 0;
+        th.roster[1].team = 1;
+        d = drawHud(th, kVp, {});
+        CHECK(hasText(d, "Team Red") && hasText(d, "Team Blue") && !hasText(d, "Team Fire"));
+        bool red = false;
+        for (const DrawCmd& c : d.commands())
+            red = red || c.color == rgba(255, 0, 0);
+        CHECK(red);
+    }
+
     std::puts("gameui_multiplayer_test ok");
     return 0;
 }

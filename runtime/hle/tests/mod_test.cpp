@@ -506,6 +506,14 @@ int main() {
                             true, m, err));
         CHECK(m.id == "j1" && m.profiles[0] == "pal" && m.profileHashes[0] == "ABCDEF" && m.loadAfter[0] == "x" &&
               m.dependencies.size() == 2);
+        // A custom campaign (docs/reference/modding.md "Campaign packs").
+        CHECK(
+            parseManifest("id = \"c1\"\nlevels = [\"A Copy\", \"B Copy\"]\ncampaign = \"test-valley\"\n"
+                          "campaign_name = \"The Test Valley\"\ncampaign_description = \"Two levels.\"\n"
+                          "campaign_start = \"A Copy\"\ncampaign_saves = \"testvalley\"\n[target]\nprofile = \"pal\"\n",
+                          false, m, err));
+        CHECK(m.campaign == "test-valley" && m.campaignName == "The Test Valley" &&
+              m.campaignDescription == "Two levels." && m.campaignStart == "A Copy" && m.campaignSaves == "testvalley");
         CHECK(!parseManifest("name = \"x\"\n", false, m, err) && err.find("'id'") != std::string::npos);
         CHECK(!parseManifest("id = \"a b\"\n", false, m, err));
         CHECK(!parseManifest("id = \"a\"\nname = \"unterminated\n", false, m, err));

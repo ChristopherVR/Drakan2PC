@@ -635,7 +635,12 @@ void runSession(const Cmd& c, drakan::net::ServerBrowser& browser, uint64_t& las
                 netLog("player %u left", l->player);
             } else if (const auto* ch = std::get_if<Chat>(&ev)) {
                 const auto it = client.roster().find(ch->player);
-                addChat(ch->player, it != client.roster().end() ? it->second.name : std::string("?"), ch->text);
+                // Player 0 is the server's own line (MatchServer::announce: flags, "<name> is out of lives"): no name.
+                addChat(ch->player,
+                        ch->player == 0               ? std::string()
+                        : it != client.roster().end() ? it->second.name
+                                                      : std::string("?"),
+                        ch->text);
             } else if (const auto* ca = std::get_if<CoopAuthority>(&ev)) {
                 netLog("co-op authority: player %u%s", ca->player, ca->player == client.playerId() ? " (us)" : "");
             } else if (auto* cc = std::get_if<CoopCreatures>(&ev)) {
@@ -715,8 +720,12 @@ void runSession(const Cmd& c, drakan::net::ServerBrowser& browser, uint64_t& las
                 }
                 drakan_pvp::onServerRespawn(rsp->player, rsp->spawnIndex, rsp->health);
             } else if (const auto* sc = std::get_if<Score>(&ev)) {
-                netLog("score: player %u kills %u deaths %u (team kills %u / %u)", sc->player, sc->kills, sc->deaths,
-                       sc->teamKills[0], sc->teamKills[1]);
+                if (sc->lives != drakan::net::kLivesUnlimited)
+                    netLog("score: player %u kills %u deaths %u points %d lives %u%s", sc->player, sc->kills,
+                           sc->deaths, static_cast<int>(sc->score), sc->lives, sc->eliminated ? " (eliminated)" : "");
+                else
+                    netLog("score: player %u kills %u deaths %u (team kills %u / %u)", sc->player, sc->kills,
+                           sc->deaths, sc->teamKills[0], sc->teamKills[1]);
             } else if (const auto* pc = std::get_if<PhaseChange>(&ev)) {
                 drakan_pvp::onServerPhase(static_cast<uint8_t>(pc->phase));
                 if (pc->byHost && pc->phase == MatchPhase::Lobby) {
@@ -732,9 +741,10 @@ void runSession(const Cmd& c, drakan::net::ServerBrowser& browser, uint64_t& las
                         rows += " [" + std::to_string(r.player) + " '" + r.name + "' " + std::to_string(r.kills) + "/" +
                                 std::to_string(r.deaths) + "]";
                     netLog("match over (%s): %s, results (kills/deaths):%s",
-                           o.reason == EndReason::FragLimit   ? "frag limit"
-                           : o.reason == EndReason::TimeLimit ? "time limit"
-                                                              : "ended",
+                           o.reason == EndReason::FragLimit      ? "frag limit"
+                           : o.reason == EndReason::TimeLimit    ? "time limit"
+                           : o.reason == EndReason::LastStanding ? "last one standing"
+                                                                 : "ended",
                            o.tie                   ? "tie"
                            : o.winner != kNoPlayer ? ("player " + std::to_string(o.winner) + " wins").c_str()
                                                    : ("team " + std::to_string(o.winningTeam) + " wins").c_str(),
@@ -792,6 +802,17 @@ void runSession(const Cmd& c, drakan::net::ServerBrowser& browser, uint64_t& las
                             (client.phase() == MatchPhase::Loading || client.phase() == MatchPhase::Playing ||
                              client.phase() == MatchPhase::Results);
             const drakan::net::ArenaDef* def = dm ? drakan_arena::findMap(client.config().level) : nullptr;
+            // A custom game mode's `loadout` is given on top of the map's.
+            drakan::net::ArenaDef withMode;
+            if (def && !client.config().modeId.empty())
+                if (const drakan::net::ModeDef* m = drakan_modes::customModes().find(client.config().modeId);
+                    m && !m->loadout.empty()) {
+                    withMode = *def;
+                    for (uint32_t id : m->loadout)
+                        if (std::find(withMode.loadout.begin(), withMode.loadout.end(), id) == withMode.loadout.end())
+                            withMode.loadout.push_back(id);
+                    def = &withMode;
+                }
             drakan_arena::setSession(dm && (!legacy || def), def);
             drakan_arena::setLocalPlayer(connected ? client.playerId() : 0);
         }
@@ -1079,6 +1100,8 @@ void runSession(const Cmd& c, drakan::net::ServerBrowser& browser, uint64_t& las
                              r.score = n.points();
                              r.health = n.health;
                              r.alive = n.alive;
+                             r.lives = n.lives == drakan::net::kLivesUnlimited ? -1 : n.lives;
+                             r.eliminated = n.eliminated;
                              for (const Player& pl : boardRoster)
                                  if (pl.id == r.id) {
                                      r.pingMs = pl.pingMs;
@@ -1092,6 +1115,8 @@ void runSession(const Cmd& c, drakan::net::ServerBrowser& browser, uint64_t& las
                     if (r.self) {
                         b.selfHealth = r.health;
                         b.selfAlive = r.alive;
+                        b.selfEliminated = r.eliminated;
+                        b.selfLives = r.lives;
                     }
                     b.rows.push_back(r);
                 }
@@ -1117,9 +1142,10 @@ void runSession(const Cmd& c, drakan::net::ServerBrowser& browser, uint64_t& las
                         for (const ScoreRow& r : b.rows)
                             if (r.id == o.winner)
                                 b.winnerName = r.name;
-                    b.reason = o.reason == EndReason::FragLimit   ? "frag limit"
-                               : o.reason == EndReason::TimeLimit ? "time limit"
-                                                                  : "match ended";
+                    b.reason = o.reason == EndReason::FragLimit      ? "frag limit"
+                               : o.reason == EndReason::TimeLimit    ? "time limit"
+                               : o.reason == EndReason::LastStanding ? "last one standing"
+                                                                     : "match ended";
                 }
             }
             g_board = std::move(b);
@@ -1734,9 +1760,25 @@ void install(PS2Runtime& rt) {
         hc.autoStart = true;
         if (const char* m = std::getenv("DRAKAN_NET_MODE"); m && *m) // test aid: co-op host
             hc.mode = std::string(m) == "coop" ? 2 : std::string(m) == "tdm" ? 1 : 0;
+        if (const char* gm = std::getenv("DRAKAN_NET_GAME_MODE"); gm && *gm) // test aid: a custom game mode by id
+            hc.modeId = gm;
         hc.serverName = g_name + "'s game";
         std::fprintf(stderr, "[netplay] DRAKAN_NET_HOST: host on UDP %u, name '%s'\n", hc.port, g_name.c_str());
-        hostMatch(hc, g_name);
+        if (hc.modeId.empty()) {
+            hostMatch(hc, g_name);
+        } else {
+            // A custom mode (and its map) usually comes from a mod pack, whose maps and modes are registered after this
+            // install: wait for the map (drakan_arena's catalogue is thread safe; the pack's modes are added right
+            // after its maps), then host. The menu hosts long after start-up and needs none of this.
+            std::thread([hc, name = g_name] {
+                const char* ml = std::getenv("DRAKAN_MP_MAP");
+                for (int i = 0; i < 300 && ml && *ml && !drakan_arena::findMap(ml); ++i)
+                    std::this_thread::sleep_for(std::chrono::milliseconds(100));
+                std::this_thread::sleep_for(std::chrono::milliseconds(ml && *ml ? 500 : 3000));
+                std::fprintf(stderr, "[netplay] DRAKAN_NET_GAME_MODE: hosting with mode '%s'\n", hc.modeId.c_str());
+                hostMatch(hc, name);
+            }).detach();
+        }
     } else if (wantConn) {
         const std::string c = conn;
         const size_t colon = c.rfind(':');

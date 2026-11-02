@@ -313,6 +313,8 @@ Score MatchServer::makeScore(const ServerPlayer& p) const {
     s.score = p.score;
     for (size_t t = 0; t < kMaxTeams; ++t)
         s.teamScore[t] = teamScore_[t];
+    s.lives = p.lives;
+    s.eliminated = p.eliminated;
     return s;
 }
 
@@ -431,7 +433,23 @@ void MatchServer::onHello(PeerId peer, Peer& state, const std::vector<uint8_t>& 
             ps.player = pickupTakenBy_[i];
             sendTo(peer, encode(ps), Channel::Reliable);
         }
-        spawnPlayer(players_[id]);
+        ServerPlayer& np = players_[id];
+        const ModeDef* mode = activeMode();
+        if (mode && mode->lives > 0 && livesArmed_) {
+            // Last one standing is under way: the newcomer watches until the next match.
+            np.lives = 0;
+            np.eliminated = true;
+            scoreFor(np);
+            announce(np.name + " joined a match in progress and will play the next one");
+            log("player " + std::to_string(id) + " joined a last-standing match in progress: spectating");
+        } else {
+            np.lives = mode && mode->lives > 0 ? mode->lives : kLivesUnlimited;
+            spawnPlayer(np);
+            if (mode && mode->lives > 0) {
+                scoreFor(np);
+                livesArmed_ = livesArmed_ || sidesLeft() >= 2;
+            }
+        }
     }
 }
 
@@ -468,6 +486,8 @@ void MatchServer::removePlayer(PeerId peer) {
     if (players_.empty() && phase_ != MatchPhase::Lobby) {
         log("last player left, back to lobby");
         setPhase(MatchPhase::Lobby);
+    } else {
+        checkLastStanding(); // the leaver may have been the last opponent
     }
 }
 
@@ -498,8 +518,13 @@ void MatchServer::resetMatch() {
     for (int32_t& t : teamScore_)
         t = 0;
     resetObjectives();
+    livesArmed_ = false;
+    const ModeDef* mode = activeMode();
+    const uint8_t lives = mode && mode->lives > 0 ? mode->lives : kLivesUnlimited;
     for (auto& kv : players_) {
         ServerPlayer& p = kv.second;
+        p.lives = lives;
+        p.eliminated = false;
         p.kills = p.deaths = 0;
         p.score = 0;
         p.objectives = 0;
@@ -676,6 +701,7 @@ void MatchServer::beginPlaying() {
     }
     for (auto& kv : players_)
         spawnPlayer(kv.second);
+    livesArmed_ = sidesLeft() >= 2;
 }
 
 void MatchServer::endMatch(uint64_t nowMs) {
@@ -737,7 +763,10 @@ void MatchServer::spawnPlayer(ServerPlayer& p) {
     p.respawnAtMs = 0;
     p.acceptAnyState = true;
     p.hasState = false; // the corpse's last pose must not be replicated as the new life's first one
-    p.protectedUntilMs = now_ + options_.respawnProtectionMs;
+    const ModeDef* mode = activeMode();
+    p.protectedUntilMs =
+        now_ + (mode && mode->spawnProtectionSec >= 0 ? static_cast<uint64_t>(mode->spawnProtectionSec) * 1000u
+                                                      : static_cast<uint64_t>(options_.respawnProtectionMs));
     Respawn r;
     r.player = p.id;
     const int arenaSpawn = chooseSpawn(p);
@@ -842,6 +871,12 @@ void MatchServer::onHit(ServerPlayer& attacker, const std::vector<uint8_t>& data
         why = "bad damage or weapon";
     else if (h.damage > hitLimit(attacker, h.weapon))
         why = "damage above the weapon's limit";
+    else if (const ModeDef* mode = activeMode(); mode && !mode->weapons.empty() && attacker.hasState) {
+        // The mode allows only some weapons: a hit with another one does nothing (bare hands always count).
+        const uint32_t held = h.weapon == kHitMeleeRight ? attacker.state.weaponRight : attacker.state.weaponLeft;
+        if (held != 0 && std::find(mode->weapons.begin(), mode->weapons.end(), held) == mode->weapons.end())
+            why = "weapon not allowed in this mode";
+    }
     if (!why) {
         ServerPlayer& v = vit->second;
         const float range = h.weapon == kHitProjectile ? options_.maxHitRangeRanged : options_.maxHitRange;
@@ -907,6 +942,8 @@ void MatchServer::onHit(ServerPlayer& attacker, const std::vector<uint8_t>& data
         const bool teamKill = options_.config.mode == MatchMode::TeamDeathmatch && v.team == attacker.team;
         if (!teamKill)
             award(attacker, perKill);
+        else if (mode && mode->scoreTeamKill)
+            award(attacker, mode->scoreTeamKill);
         award(v, perDeath);
     }
     if (v.carriedFlag >= 0 && static_cast<size_t>(v.carriedFlag) < flagCarrier_.size()) {
@@ -917,6 +954,18 @@ void MatchServer::onHit(ServerPlayer& attacker, const std::vector<uint8_t>& data
     v.respawnAtMs = now_ + options_.config.respawnDelayMs;
     if (v.respawnAtMs == 0)
         v.respawnAtMs = 1;
+    if (v.lives != kLivesUnlimited) {
+        v.lives = v.lives > 0 ? static_cast<uint8_t>(v.lives - 1) : 0;
+        if (v.lives == 0) { // out of lives: no respawn, the player watches until the match ends
+            v.eliminated = true;
+            v.respawnAtMs = 0;
+            announce(v.name + " is out of lives");
+            log("player " + std::to_string(v.id) + " eliminated (out of lives)");
+        } else {
+            log("player " + std::to_string(v.id) + " has " + std::to_string(v.lives) +
+                (v.lives == 1 ? " life left" : " lives left"));
+        }
+    }
     Death d;
     d.victim = v.id;
     d.killer = attacker.id;
@@ -928,7 +977,36 @@ void MatchServer::onHit(ServerPlayer& attacker, const std::vector<uint8_t>& data
     checkMatchEnd();
 }
 
+size_t MatchServer::sidesLeft() const {
+    const bool teams = options_.config.mode == MatchMode::TeamDeathmatch;
+    bool team[kMaxTeams] = {false, false, false, false};
+    size_t n = 0;
+    for (const auto& kv : players_) {
+        const ServerPlayer& p = kv.second;
+        if (p.eliminated)
+            continue;
+        if (!teams)
+            ++n;
+        else if (p.team < kMaxTeams && !team[p.team]) {
+            team[p.team] = true;
+            ++n;
+        }
+    }
+    return n;
+}
+
+void MatchServer::checkLastStanding() {
+    const ModeDef* mode = activeMode();
+    if (!mode || mode->lives == 0 || phase_ != MatchPhase::Playing || !livesArmed_)
+        return;
+    if (sidesLeft() <= 1) {
+        log("last one standing");
+        endMatchWith(EndReason::LastStanding);
+    }
+}
+
 void MatchServer::checkMatchEnd() {
+    checkLastStanding();
     const uint16_t limit = options_.config.fragLimit;
     if (limit == 0 || phase_ != MatchPhase::Playing || options_.config.mode == MatchMode::Coop)
         return;
@@ -1480,7 +1558,11 @@ void MatchServer::onPickupClaim(ServerPlayer& p, const std::vector<uint8_t>& dat
             return;
         }
     }
-    pickupBackAtMs_[c.index] = now_ + uint64_t(def.respawnSec) * 1000u;
+    // The mode may override every pickup's time: never back (a last-standing match), or its own number of seconds.
+    const ModeDef* mode = activeMode();
+    const int32_t modeSec = mode ? mode->pickupRespawnSec : -1;
+    const uint32_t backSec = modeSec > 0 ? static_cast<uint32_t>(modeSec) : def.respawnSec;
+    pickupBackAtMs_[c.index] = modeSec == 0 ? UINT64_MAX : now_ + uint64_t(backSec) * 1000u;
     pickupTakenBy_[c.index] = p.id;
     PickupState ps;
     ps.index = c.index;
@@ -1488,7 +1570,8 @@ void MatchServer::onPickupClaim(ServerPlayer& p, const std::vector<uint8_t>& dat
     ps.player = p.id;
     broadcast(encode(ps), Channel::Reliable);
     log("pickup " + std::to_string(c.index) + " (" + def.label + ") taken by player " + std::to_string(p.id) +
-        ", back in " + std::to_string(def.respawnSec) + " s");
+        (modeSec == 0 ? std::string(", does not come back (game mode)")
+                      : ", back in " + std::to_string(backSec) + " s"));
 }
 
 } // namespace drakan::net

@@ -1263,6 +1263,16 @@ const char* teamName(int team) {
     static const char* const n[] = {"Fire", "Water", "Earth", "Air"};
     return n[team & 3];
 }
+// A custom mode's team names / colours (team_names, team_colors) where it set them, else the built-in ones.
+std::string teamName(const std::string (&names)[4], int team) {
+    return names[team & 3].empty() ? std::string(teamName(team)) : names[team & 3];
+}
+Color teamRgba(const int (&colors)[4], int team) {
+    const int v = colors[team & 3];
+    return v < 0 ? teamRgba(team)
+                 : rgba(static_cast<uint8_t>((v >> 16) & 255), static_cast<uint8_t>((v >> 8) & 255),
+                        static_cast<uint8_t>(v & 255));
+}
 
 void pxLine(DrawList& d, const detail::Paint& p, float x0, float y0, float x1, float y1, Color c, float thick) {
     const Rect a = p.map({x0, y0, 0, 0}), b = p.map({x1, y1, 0, 0});
@@ -1473,6 +1483,9 @@ void MultiplayerScreen::draw(const MpState& st, DrawList& d, const std::vector<H
                 continue;
             s += (s.empty() ? "" : ", ") + std::string(modeName(gm));
         }
+        for (const ModeEntry& m : st.modes) // the custom game modes this map can play
+            if (std::find(e.modeIds.begin(), e.modeIds.end(), m.id) != e.modeIds.end())
+                s += (s.empty() ? "" : ", ") + m.name;
         return s.empty() ? std::string("-") : s;
     };
     const auto statLine = [&](float x, float y, float w, const char* k, const std::string& v, Color vc) {
@@ -1623,8 +1636,14 @@ void MultiplayerScreen::draw(const MpState& st, DrawList& d, const std::vector<H
             // Rules summary under the settings column.
             {
                 std::string rules;
+                const ModeEntry* chosen = nullptr;
+                for (const ModeEntry* m : modesForMap(st))
+                    if (m->id == host_.modeId)
+                        chosen = m;
                 if (host_.coop)
                     rules = "Co-op campaign for up to " + std::to_string(host_.maxPlayers) + " players.";
+                else if (chosen && !chosen->summary.empty()) // a custom mode: its description, then its rules
+                    rules = (chosen->description.empty() ? std::string() : chosen->description + " ") + chosen->summary;
                 else
                     rules = "First to " +
                             (host_.fragLimit > 0
@@ -1633,8 +1652,8 @@ void MultiplayerScreen::draw(const MpState& st, DrawList& d, const std::vector<H
                             (host_.timeLimitMin > 0 ? " or " + std::to_string(host_.timeLimitMin) + " minutes"
                                                     : std::string()) +
                             (host_.teams >= 2 ? ", " + std::to_string(host_.teams) + " teams." : ".");
-                lineWrapped({640, 774, 560, 28}, rules, FontRole::Body, 22, th.textMuted, 2,
-                            30); // below the last row (ends 760)
+                lineWrapped({640, 774, 560, 28}, rules, FontRole::Body, chosen ? 20.0f : 22.0f, th.textMuted,
+                            chosen ? 4 : 2, chosen ? 25.0f : 30.0f); // below the last row (ends 760)
             }
             // Preview pane.
             const LevelEntry me = hostMap(st);
@@ -1764,7 +1783,7 @@ void MultiplayerScreen::draw(const MpState& st, DrawList& d, const std::vector<H
                         if (pl.self)
                             d.outline(p.map(r.rect), th.gilt, 2.0f, 4);
                         const Color sw = pl.colour >= 0 ? colourRgba(pl.colour)
-                                         : pl.team >= 0 ? teamRgba(pl.team)
+                                         : pl.team >= 0 ? teamRgba(st.teamColors, pl.team)
                                                         : colourRgba(pl.id);
                         d.rect(p.map({r.rect.x + 12, r.rect.y + 9, 14, r.rect.h - 18}), sw, 3);
                         p.text(d, {r.rect.x + 40, r.rect.y, r.rect.w - 220, r.rect.h},
@@ -1864,12 +1883,12 @@ void MultiplayerScreen::draw(const MpState& st, DrawList& d, const std::vector<H
                 const float colW = 1020.0f / static_cast<float>(teams);
                 for (int t = 0; t < teams; ++t) {
                     const float x = kM + static_cast<float>(t) * colW;
-                    d.rect(p.map({x, 258, colW - 20, 6}), teamRgba(t));
+                    d.rect(p.map({x, 258, colW - 20, 6}), teamRgba(st.teamColors, t));
                     int cnt = 0;
                     for (const RosterRow& pl : st.roster)
                         cnt += pl.team == t ? 1 : 0;
-                    p.text(d, {x, 218, colW * 0.55f, 40}, teamName(t), FontRole::Heading, th.heading, TextAlign::Left,
-                           30);
+                    p.text(d, {x, 218, colW * 0.55f, 40}, teamName(st.teamNames, t), FontRole::Heading, th.heading,
+                           TextAlign::Left, 30);
                     p.text(d, {x + colW * 0.5f, 218, colW * 0.5f - 20, 40}, std::to_string(cnt) + " players",
                            FontRole::Small, th.textMuted, TextAlign::Right, 20);
                 }
@@ -2035,6 +2054,8 @@ int ResultsMenu::frame(const std::vector<ResultsButton>& buttons, const UiInput&
 
 std::vector<RosterRow> sortedRoster(std::vector<RosterRow> r) {
     std::stable_sort(r.begin(), r.end(), [](const RosterRow& a, const RosterRow& b) {
+        if (a.eliminated != b.eliminated)
+            return !a.eliminated; // a mode with lives: the players still in first
         if (a.score != b.score)
             return a.score > b.score; // points first (a standard match: score = kills)
         if (a.kills != b.kills)
@@ -2057,7 +2078,8 @@ std::string mmss(int sec) {
 // One standings table (header + rows) in a design rect: rank, colour swatch, name, kills, deaths, ping, time.
 void drawStandings(DrawList& d, const detail::Paint& p, const Rect& box, const std::vector<RosterRow>& rows,
                    float colStep, float rowStep, int maxRows, const char* killsLabel = "KILLS", bool ranks = true,
-                   bool scoreMode = false) {
+                   bool scoreMode = false, const HudState* hs = nullptr) {
+    const bool lives = hs && hs->livesMode; // the PING column shows the lives left (OUT when eliminated)
     const Theme& th = p.th();
     const float W = box.w;
     const float tEnd = W - 20, pEnd = tEnd - colStep, dEnd = pEnd - colStep, kEnd = dEnd - colStep;
@@ -2065,7 +2087,7 @@ void drawStandings(DrawList& d, const detail::Paint& p, const Rect& box, const s
     p.label(d, {box.x + 70, hy, 300, 28}, "PLAYER", th.brass, TextAlign::Left, 17);
     p.label(d, {box.x + kEnd - 110, hy, 110, 28}, killsLabel, th.brass, TextAlign::Right, 17);
     p.label(d, {box.x + dEnd - 110, hy, 110, 28}, "DEATHS", th.brass, TextAlign::Right, 17);
-    p.label(d, {box.x + pEnd - 110, hy, 110, 28}, "PING", th.brass, TextAlign::Right, 17);
+    p.label(d, {box.x + pEnd - 110, hy, 110, 28}, lives ? "LIVES" : "PING", th.brass, TextAlign::Right, 17);
     p.label(d, {box.x + tEnd - 110, hy, 110, 28}, "TIME", th.brass, TextAlign::Right, 17);
     float y = hy + 36;
     int rank = 1;
@@ -2080,7 +2102,9 @@ void drawStandings(DrawList& d, const detail::Paint& p, const Rect& box, const s
         if (ranks)
             p.text(d, {rr.x + 8, rr.y, 44, rr.h}, std::to_string(rank), FontRole::Numeric,
                    rank == 1 ? th.gilt : th.textMuted, TextAlign::Center, 26);
-        const Color sw = r.colour >= 0 ? colourRgba(r.colour) : r.team >= 0 ? teamRgba(r.team) : colourRgba(r.id);
+        const Color sw = r.colour >= 0 ? colourRgba(r.colour)
+                         : r.team >= 0 ? (hs ? teamRgba(hs->teamColors, r.team) : teamRgba(r.team))
+                                       : colourRgba(r.id);
         d.rect(p.map({rr.x + 60, rr.y + 8, 10, rr.h - 16}), sw, 3);
         p.text(d, {rr.x + 84, rr.y, kEnd - 84 - 130, rr.h},
                r.name + (r.self ? "  (you)" : "") +
@@ -2090,8 +2114,16 @@ void drawStandings(DrawList& d, const detail::Paint& p, const Rect& box, const s
                FontRole::Numeric, th.heading, TextAlign::Right, 30);
         p.text(d, {rr.x + dEnd - 110, rr.y, 110, rr.h}, std::to_string(r.deaths), FontRole::Numeric, th.textMuted,
                TextAlign::Right, 28);
-        p.text(d, {rr.x + pEnd - 110, rr.y, 110, rr.h}, r.pingMs < 0 ? std::string("-") : std::to_string(r.pingMs),
-               FontRole::Numeric, th.textMuted, TextAlign::Right, 28);
+        if (lives)
+            p.text(d, {rr.x + pEnd - 110, rr.y, 110, rr.h},
+                   r.eliminated  ? std::string("OUT")
+                   : r.lives < 0 ? std::string("-")
+                                 : std::to_string(r.lives),
+                   r.eliminated ? FontRole::Body : FontRole::Numeric, r.eliminated ? th.bad : th.heading,
+                   TextAlign::Right, 28);
+        else
+            p.text(d, {rr.x + pEnd - 110, rr.y, 110, rr.h}, r.pingMs < 0 ? std::string("-") : std::to_string(r.pingMs),
+                   FontRole::Numeric, th.textMuted, TextAlign::Right, 28);
         p.text(d, {rr.x + tEnd - 110, rr.y, 110, rr.h}, mmss(r.timeSec), FontRole::Numeric, th.textMuted,
                TextAlign::Right, 28);
         y += rowStep;
@@ -2122,7 +2154,8 @@ DrawList drawHud(const HudState& hs, const Viewport& vp, const ScreenConfig& cfg
                                              : std::string("Match Over"))
                                      : (hs.serverName.empty() ? std::string("Scoreboard") : hs.serverName);
         p.text(d, {box.x + 44, box.y + 20, 900, 76}, head, FontRole::Title, th.heading, TextAlign::Left, 60);
-        std::string sub = (hs.modeName.empty() ? std::string(modeName(hs.mode)) : hs.modeName) + "   " + hs.level;
+        std::string sub = (hs.modeName.empty() ? std::string(modeName(hs.mode)) : hs.modeName) +
+                          (hs.goal.empty() ? std::string() : " - " + hs.goal) + "   " + hs.level;
         if (hs.results && !hs.serverName.empty())
             sub = hs.serverName + "   " + sub;
         p.text(d, {box.x + 46, box.y + 96, 1000, 36}, sub, FontRole::Body, th.textMuted, TextAlign::Left, 26);
@@ -2169,7 +2202,7 @@ DrawList drawHud(const HudState& hs, const Viewport& vp, const ScreenConfig& cfg
                         tie = true;
                     }
                 }
-                winner = tie ? std::string("Draw") : std::string("Team ") + teamName(best) + " wins";
+                winner = tie ? std::string("Draw") : std::string("Team ") + teamName(hs.teamNames, best) + " wins";
             } else if (rows.size() > 1 && rows[0].score == rows[1].score && rows[0].kills == rows[1].kills &&
                        rows[0].deaths == rows[1].deaths) {
                 winner = "Draw";
@@ -2178,6 +2211,8 @@ DrawList drawHud(const HudState& hs, const Viewport& vp, const ScreenConfig& cfg
                 if (rows[0].self)
                     winner = "You win";
             }
+            if (!hs.winnerText.empty()) // the match's own decision (last one standing) wins over the standings
+                winner = hs.winnerText;
         }
         if (!winner.empty()) {
             d.panel(p.map({box.x + 44, top, box.w - 88, 72}), PanelStyle::Card, th.panelRaised);
@@ -2195,29 +2230,29 @@ DrawList drawHud(const HudState& hs, const Viewport& vp, const ScreenConfig& cfg
             for (int t = 0; t < n; ++t) {
                 const float x = box.x + 44 + static_cast<float>(t) * (cw + 16);
                 d.panel(p.map({x, top, cw, 76}), PanelStyle::Inset, withAlpha(th.inset, 220));
-                d.rect(p.map({x, top, cw, 6}), teamRgba(t));
-                p.text(d, {x + 14, top + 8, cw - 140, 64}, std::string("Team ") + teamName(t), FontRole::Heading,
-                       th.heading, TextAlign::Left, 32);
-                p.text(d, {x + cw - 130, top + 6, 116, 68}, std::to_string(ts[t]), FontRole::Numeric, teamRgba(t),
-                       TextAlign::Right, 52);
+                d.rect(p.map({x, top, cw, 6}), teamRgba(hs.teamColors, t));
+                p.text(d, {x + 14, top + 8, cw - 140, 64}, std::string("Team ") + teamName(hs.teamNames, t),
+                       FontRole::Heading, th.heading, TextAlign::Left, 32);
+                p.text(d, {x + cw - 130, top + 6, 116, 68}, std::to_string(ts[t]), FontRole::Numeric,
+                       teamRgba(hs.teamColors, t), TextAlign::Right, 52);
             }
             drawStandings(d, p, {box.x + 44, top + 92, box.w - 88, 0}, rows, 150, hs.results ? 46.0f : 50.0f,
-                          hs.results ? (voteOn ? 3 : 6) : 8, hs.scoreMode ? "SCORE" : "KILLS", true, hs.scoreMode);
+                          hs.results ? (voteOn ? 3 : 6) : 8, hs.scoreMode ? "SCORE" : "KILLS", true, hs.scoreMode, &hs);
         } else if (teamGame) {
             for (int t = 0; t < 2; ++t) {
                 const float x = box.x + 44 + static_cast<float>(t) * 818;
                 const Rect pane{x, top, 790, 0};
-                d.rect(p.map({x, top, 790, 6}), teamRgba(t));
-                p.text(d, {x, top + 10, 400, 56}, std::string("Team ") + teamName(t), FontRole::Heading, th.heading,
-                       TextAlign::Left, 38);
-                p.text(d, {x + 440, top + 6, 350, 64}, std::to_string(ts[t]), FontRole::Numeric, teamRgba(t),
-                       TextAlign::Right, 56);
+                d.rect(p.map({x, top, 790, 6}), teamRgba(hs.teamColors, t));
+                p.text(d, {x, top + 10, 400, 56}, std::string("Team ") + teamName(hs.teamNames, t), FontRole::Heading,
+                       th.heading, TextAlign::Left, 38);
+                p.text(d, {x + 440, top + 6, 350, 64}, std::to_string(ts[t]), FontRole::Numeric,
+                       teamRgba(hs.teamColors, t), TextAlign::Right, 56);
                 std::vector<RosterRow> mine;
                 for (const RosterRow& r : rows)
                     if ((r.team & 1) == t)
                         mine.push_back(r);
                 drawStandings(d, p, {pane.x, top + 76, 790, 0}, mine, 100, 52, hs.results ? (voteOn ? 3 : 6) : 9,
-                              hs.scoreMode ? "SCORE" : "KILLS", true, hs.scoreMode);
+                              hs.scoreMode ? "SCORE" : "KILLS", true, hs.scoreMode, &hs);
             }
         } else {
             drawStandings(d, p, {box.x + 44, top, box.w - 88, 0}, rows, 150, hs.results ? 52.0f : 56.0f,
@@ -2225,7 +2260,7 @@ DrawList drawHud(const HudState& hs, const Viewport& vp, const ScreenConfig& cfg
                                         : hs.resultsButtons.empty() ? 10
                                                                     : 7)
                                      : 12,
-                          hs.scoreMode ? "SCORE" : "KILLS", true, hs.scoreMode);
+                          hs.scoreMode ? "SCORE" : "KILLS", true, hs.scoreMode, &hs);
         }
         if (voteOn) { // the map vote: one picture card per candidate
             p.label(d, {box.x + 46, kVoteY, 900, 30}, "VOTE FOR THE NEXT MAP", th.brass, TextAlign::Left, 17);
@@ -2429,7 +2464,17 @@ DrawList drawHud(const HudState& hs, const Viewport& vp, const ScreenConfig& cfg
             }
         }
     }
-    if (!hs.alive && !hs.results) { // respawn overlay
+    if (hs.eliminated && !hs.results) { // out of lives: watching until the match ends
+        d.rect(view, withAlpha(rgba(30, 0, 0), 70));
+        d.panel(p.map({460, 330, 1000, 300}), PanelStyle::Main, withAlpha(th.panelRaised, 240));
+        p.text(d, {480, 350, 960, 90}, "You are out", FontRole::Title, th.heading, TextAlign::Center, 66);
+        if (!hs.deathText.empty())
+            p.text(d, {480, 440, 960, 44}, hs.deathText, FontRole::Body, th.textMuted, TextAlign::Center, 28);
+        p.text(d, {480, 500, 960, 60}, "No lives left. Watching until the match ends.", FontRole::Heading, th.brass,
+               TextAlign::Center, 34);
+        if (!hs.goal.empty())
+            p.text(d, {480, 560, 960, 44}, hs.goal, FontRole::Body, th.textMuted, TextAlign::Center, 26);
+    } else if (!hs.alive && !hs.results) { // respawn overlay
         d.rect(view, withAlpha(rgba(60, 0, 0), 100));
         d.panel(p.map({460, 330, 1000, 340}), PanelStyle::Main, withAlpha(th.panelRaised, 240));
         p.text(d, {480, 350, 960, 90}, "You were killed", FontRole::Title, th.heading, TextAlign::Center, 66);

@@ -80,6 +80,10 @@ if(DRAKAN_BUILD_RUNTIME_TESTS)
     target_link_libraries(net_modes_test PRIVATE drakan_net drakan::options)
     add_test(NAME net_modes_test COMMAND net_modes_test)
 
+    add_executable(net_custom_rules_test tests/custom_rules_test.cpp)
+    target_link_libraries(net_custom_rules_test PRIVATE drakan_net drakan::options)
+    add_test(NAME net_custom_rules_test COMMAND net_custom_rules_test)
+
     add_executable(net_results_modes_test tests/results_modes_test.cpp)
     target_link_libraries(net_results_modes_test PRIVATE drakan_net drakan::options)
     add_test(NAME net_results_modes_test COMMAND net_results_modes_test)
