@@ -20,7 +20,7 @@ import type { ArenaStore } from '../arena/store.ts';
 import { addValidationProvider } from '../panels.ts';
 import { registerCommand, registerPanel, runCommand } from '../registry.ts';
 import { createChecklist } from './checklist.ts';
-import { buildProjectPack, resetExportCache, zipProjectPack } from './export.ts';
+import { buildProjectPack, levelEditCounts, resetExportCache, zipProjectPack } from './export.ts';
 import { openExportDialog } from './exportdialog.ts';
 import { createProjectFiles, type ProjectFiles } from './folder.ts';
 import { createHelp, type Help } from './help.ts';
@@ -112,6 +112,9 @@ export function installProject(host: ProjectInstallHost): ProjectInstall {
 
     const files = createProjectFiles({
         flush: () => ui.flushAutosave(),
+        dropUnedited: async (p) => {
+            if (p.levels.length && ui.levels().length) await levelEditCounts(exportDeps, p, true);
+        },
         toast: (m, k) => ctx.toast(m, k),
         setStatus: host.setStatus,
         download: (name, data, type) => downloadFile(name, data, type),

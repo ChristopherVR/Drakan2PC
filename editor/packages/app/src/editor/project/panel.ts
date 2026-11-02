@@ -3,6 +3,8 @@ import {
     MOD_ID_PATTERN,
     addDiscLevel,
     addLevelCopy,
+    exitDestinationText,
+    isPortalWord,
     levelExits,
     moveLevel,
     projectExitIndex,
@@ -410,8 +412,8 @@ export function createProjectPanel(host: ProjectPanelHost): ProjectPanel {
                                   'li',
                                   { class: e.problem ? 'warn' : '' },
                                   h('span', { class: 'arrow' }, '→'),
-                                  h('span', { class: 'dest' }, e.dest ?? 'unknown destination'),
-                                  e.portal ? h('span', { class: 'ui-badge' }, 'portal') : null,
+                                  h('span', { class: 'dest' }, exitDestinationText(e)),
+                                  e.portal && !isPortalWord(e.dest) ? h('span', { class: 'ui-badge' }, 'portal') : null,
                                   !e.inProject && e.dest
                                       ? h(
                                             'span',
@@ -767,7 +769,9 @@ export function createProjectPanel(host: ProjectPanelHost): ProjectPanel {
         issues = validateProject(cur, { discLevels: discTitles(), exits });
         try {
             counts =
-                cur.levels.length && host.levels().length ? await levelEditCounts(host.exportDeps, cur) : new Map();
+                cur.levels.length && host.levels().length
+                    ? await levelEditCounts(host.exportDeps, cur, true)
+                    : new Map();
         } catch {
             counts = new Map();
         }

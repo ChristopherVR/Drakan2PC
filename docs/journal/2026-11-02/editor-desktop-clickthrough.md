@@ -76,3 +76,20 @@ redo and revert all show the document's value (`r2.mjs`, `r3.mjs`, `33-reverted-
 * After Locate, the Details panel keeps its scroll position, so the header and revert bar can be scrolled out of view.
 * The Details sections built for one object (viewport animation, animation, vendor) still take the object captured at
   build time; they rebuild on most changes, but were not checked after an edit.
+
+## Leftovers fixed
+
+* Exit shown as "portal": the exit index carries the destination text of a "Transition To 'portal' object" exit, which is
+  the word `portal` (with `portal: false`), and the Project panel printed `e.dest` as is. New `exitDestinationText` and
+  `isPortalWord` in editor-core `project.ts` give "Portal inside this level"; the panel uses them and drops the extra badge.
+* "with edits to 1 level" after a revert: the level's autosave stayed (undo depth above 0, or the project file already
+  held it) although its diff against the disc was empty. `levelEditCounts(deps, p, true)` now clears the autosave of a level
+  whose stored edits change nothing (`uneditedTitles`); the Project panel refresh calls it, and the project save calls it
+  first (`FolderHost.dropUnedited`), so the file no longer carries the level.
+* Details scroll: a different selection now resets the scroll to the top (`scrollAfterRebuild`); the same selection keeps it.
+* Per-selection Details sections: the animation and vendor sections read `o.fields` of the object captured at build time.
+  They are now built through `rebuilding()` in `inspector.ts`, which rebuilds them in place when the live object's fields
+  print changes (edit or undo). Viewport animation depends only on the resource and the animation service, and the
+  Fields, Transform, Links and revert-bar sections already read the live array or ids, so they needed no change.
+* Tests: editor-core `project.test.ts` (destination text), app `project-store.test.ts` (unedited titles),
+  `inspectorsync.test.ts` (scroll, fields print).

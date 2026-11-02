@@ -25,3 +25,16 @@ describe('project store', () => {
         expect(projects.session.exported).toBe(false);
     });
 });
+
+describe('unedited levels', () => {
+    it('lists the levels whose stored edits changed nothing', async () => {
+        const { uneditedTitles } = await import('../src/editor/project/export.ts');
+        const counts = new Map([
+            ['A', 0],
+            ['B', 3],
+            ['C', 0],
+        ]);
+        // C has no stored edits at all (never loaded a document): nothing to drop
+        expect(uneditedTitles(counts, new Set(['A', 'B']))).toEqual(['A']);
+    });
+});

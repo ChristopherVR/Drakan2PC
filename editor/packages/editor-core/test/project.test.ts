@@ -4,6 +4,7 @@ import {
     WORKFLOWS,
     addLevelCopy,
     addDiscLevel,
+    exitDestinationText,
     levelExits,
     moveLevel,
     newProject,
@@ -147,5 +148,15 @@ describe('workflows', () => {
         for (const w of Object.values(WORKFLOWS)) {
             expect(new Set(w.steps.map((s) => s.id)).size).toBe(w.steps.length);
         }
+    });
+});
+
+describe('exit destination text', () => {
+    it('never shows the raw word portal', () => {
+        expect(exitDestinationText({ dest: 'portal', portal: false })).toBe('Portal inside this level');
+        expect(exitDestinationText({ dest: ' Portal ', portal: true })).toBe('Portal inside this level');
+        expect(exitDestinationText({ dest: null, portal: true })).toBe('Portal inside this level');
+        expect(exitDestinationText({ dest: null, portal: false })).toBe('unknown destination');
+        expect(exitDestinationText({ dest: 'Level B - Two', portal: false })).toBe('Level B - Two');
     });
 });

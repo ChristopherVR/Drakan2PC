@@ -13,7 +13,7 @@ import {
 import { SrscReader, mangleComponent, writeObjectList, writeSrsc } from '@drakan/formats';
 import type { LevelInfo, LevelLoadResult } from '../../rpc.ts';
 import type { LevelUiHost } from '../../levelui.ts';
-import { autosaveKey, loadAutosave } from '../autosave.ts';
+import { autosaveKey, clearAutosave, loadAutosave } from '../autosave.ts';
 import { changeCount } from '../../modio.ts';
 import { getMenusProvider } from '../menus/bridge.ts';
 
@@ -45,9 +45,23 @@ async function editedDoc(deps: ProjectExportDeps, title: string): Promise<LevelD
     return rec ? LevelDocument.fromJSON(rec.doc) : null;
 }
 
-/** Which of the project's levels have edits, without building anything (for the Project panel). */
-export async function levelEditCounts(deps: ProjectExportDeps, p: ModProject): Promise<Map<string, number>> {
+/** The titles whose stored edits changed nothing (diff of zero against the disc level): they count as unedited. */
+export function uneditedTitles(counts: ReadonlyMap<string, number>, hadDoc: ReadonlySet<string>): string[] {
+    return [...counts].filter(([t, n]) => n === 0 && hadDoc.has(t)).map(([t]) => t);
+}
+
+/**
+ * Which of the project's levels have edits, without building anything (for the Project panel). With `dropUnedited`,
+ * a level whose stored edits turn out to change nothing (a revert made it equal to the disc again) loses its autosave,
+ * so the project file stops carrying it and reopening does not report it as edited.
+ */
+export async function levelEditCounts(
+    deps: ProjectExportDeps,
+    p: ModProject,
+    dropUnedited = false,
+): Promise<Map<string, number>> {
     const out = new Map<string, number>();
+    const hadDoc = new Set<string>();
     for (const l of p.levels) {
         const doc = await editedDoc(deps, l.title);
         if (!doc) {
@@ -60,8 +74,10 @@ export async function levelEditCounts(deps: ProjectExportDeps, p: ModProject): P
             continue;
         }
         const src = await loadSrc(deps, dir);
+        hadDoc.add(l.title);
         out.set(l.title, changeCount(applyDocumentToLvl(src.lvl.list, doc, { onReferenced: 'unlink' }).report.diff));
     }
+    if (dropUnedited) for (const t of uneditedTitles(out, hadDoc)) await clearAutosave(autosaveKey(t));
     return out;
 }
 

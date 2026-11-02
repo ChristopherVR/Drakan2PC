@@ -13,6 +13,7 @@ import { fill, h, icon } from './dom.ts';
 import { buildFieldsPanel, closePopover, fieldQuery } from './fieldsui.ts';
 import { nameOf, objectLabel, startLinkPick } from './linking.ts';
 import { attachScrub } from './scrub.ts';
+import { objectFieldsPrint, scrollAfterRebuild } from './inspectorsync.ts';
 import { objectAnimationBody } from './animpreview.ts';
 import { vendorDetails } from './vendor.ts';
 import { changeOf, revertBlocked, revertToOriginal } from './revert.ts';
@@ -65,6 +66,7 @@ export function createInspector(ctx: Ctx): Panel {
     });
     let updaters: (() => void)[] = [];
     let sig = '';
+    let shownIds = '';
     // The array the built sections read from. An edit replaces the edited objects in the document, so the in-place
     // refresh swaps the fresh ones into this same array; otherwise the fields would show the values from before.
     let live: LevelObject[] = [];
@@ -557,6 +559,35 @@ export function createInspector(ctx: Ctx): Panel {
         return bar;
     }
 
+    /**
+     * A section built from one object's data. It is rebuilt in place when that data changes (an edit, an undo), because
+     * the built section holds the object it was made from and the document replaces edited objects.
+     */
+    function rebuilding(
+        build: (o: LevelObject) => HTMLElement | null,
+        print: (o: LevelObject) => string,
+    ): HTMLElement | null {
+        const first = live[0];
+        if (!first) return null;
+        let seen = print(first);
+        let el = build(first);
+        if (!el) return null;
+        updaters.push(() => {
+            const o = live[0];
+            if (!o || !el) return;
+            const now = print(o);
+            if (now === seen) return;
+            seen = now;
+            const fresh = build(o);
+            if (!fresh) return;
+            el.replaceWith(fresh);
+            el = fresh;
+        });
+        return el;
+    }
+
+    const vendorPrint = (o: LevelObject): string => `${objectFieldsPrint(o)}#${ctx.view().lockedIds.has(o.id)}`;
+
     // ---- render -------------------------------------------------------------------------------------------------
 
     function render(force = false): void {
@@ -580,7 +611,11 @@ export function createInspector(ctx: Ctx): Panel {
         }
         sig = next;
         live = objs;
-        const keepScroll = body.scrollTop;
+        // A different selection starts at the top, so the header and the revert bar are in view; a rebuild of the same
+        // selection (a section opened, the level reloaded) keeps the scroll position.
+        const ids = objs.map((o) => o.id).join(',');
+        const keepScroll = scrollAfterRebuild(shownIds, ids, body.scrollTop);
+        shownIds = ids;
         closePopover();
         updaters = [];
         if (!objs.length) {
@@ -629,10 +664,10 @@ export function createInspector(ctx: Ctx): Panel {
                 ? viewportAnimSection(objs[0]!)
                 : null,
             objs.length === 1 && has('animation clip play idle walk attack pose skeleton')
-                ? animationSection(objs[0]!)
+                ? rebuilding(animationSection, objectFieldsPrint)
                 : null,
             objs.length === 1 && has('vendor shop merchant store stock price gold sell buy')
-                ? vendorSection(objs[0]!)
+                ? rebuilding(vendorSection, vendorPrint)
                 : null,
             has('links link trigger triggers message sends target') ? linksSection(objs) : null,
             has('info id class resource kind address') ? infoSection(objs) : null,

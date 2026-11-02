@@ -385,6 +385,15 @@ export interface CampaignExit {
     inProject: boolean;
 }
 
+/** The destination text of a "Transition To 'portal' object" exit is the word portal, not a level. */
+export const isPortalWord = (dest: string | null | undefined): boolean => norm(dest ?? '') === 'portal';
+
+/** Where an exit leads, in plain language (never the raw word "portal"). */
+export function exitDestinationText(e: Pick<CampaignExit, 'dest' | 'portal'>): string {
+    if (!e.dest) return e.portal ? 'Portal inside this level' : 'unknown destination';
+    return isPortalWord(e.dest) ? 'Portal inside this level' : e.dest;
+}
+
 /** The exit index with each copy's exits added under the copy's title (a copy has the exits of its source). */
 export function projectExitIndex(p: ModProject, index: ExitIndex): ExitIndex {
     const levels = new Map(index.levels);

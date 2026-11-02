@@ -15,6 +15,8 @@ import { projects } from './store.ts';
 export interface FolderHost {
     /** Write the open level's edits to the autosave now. */
     flush(): Promise<void>;
+    /** Drop the stored edits of project levels that no longer differ from the disc (optional). */
+    dropUnedited?(p: ModProject): Promise<void>;
     toast(msg: string, kind?: 'info' | 'error' | 'ok' | 'warn'): void;
     setStatus(msg: string, error?: boolean): void;
     /** A project was opened: re-open the level in the editor when it has restored edits. */
@@ -90,6 +92,7 @@ export function createProjectFiles(host: FolderHost): ProjectFiles {
         }
         const f = projects.folder;
         await host.flush();
+        await host.dropUnedited?.(p).catch(() => undefined);
         const text = serializeProjectFile(p, await collectEdits(p), host.story.export());
         if (!f) {
             const name = `${p.id || 'project'}.drakan-project.json`;
