@@ -1,0 +1,416 @@
+/* Campaign map (project/campaignmap.ts): a Blueprint-style graph of the project's levels. */
+.cm {
+    --cm-wire: #8d93a3;
+    --cm-wire-hot: var(--accent-hover);
+    --cm-grid-minor: rgb(255 255 255 / 0.035);
+    --cm-grid-major: rgb(255 255 255 / 0.075);
+    --cm-head: linear-gradient(180deg, #2c3a52 0%, #243045 100%);
+    --cm-head-start: linear-gradient(180deg, #24493a 0%, #1d3b30 100%);
+    --cm-head-copy: linear-gradient(180deg, #3d3157 0%, #312847 100%);
+    position: relative;
+    height: clamp(420px, calc(100vh - 260px), 900px);
+    overflow: hidden;
+    border: 1px solid var(--border);
+    border-radius: var(--r-md);
+    background-color: var(--surface-0);
+    background-image:
+        linear-gradient(var(--cm-grid-major) 1px, transparent 1px),
+        linear-gradient(90deg, var(--cm-grid-major) 1px, transparent 1px),
+        linear-gradient(var(--cm-grid-minor) 1px, transparent 1px),
+        linear-gradient(90deg, var(--cm-grid-minor) 1px, transparent 1px);
+    font-size: var(--fs-sm);
+    cursor: grab;
+    outline: none;
+    user-select: none;
+    touch-action: none;
+}
+:root[data-theme='light'] .cm {
+    --cm-wire: #6b7180;
+    --cm-grid-minor: rgb(0 0 0 / 0.04);
+    --cm-grid-major: rgb(0 0 0 / 0.08);
+    --cm-head: linear-gradient(180deg, #dfe7f5 0%, #d3dded 100%);
+    --cm-head-start: linear-gradient(180deg, #d6efe2 0%, #c8e6d6 100%);
+    --cm-head-copy: linear-gradient(180deg, #e7def5 0%, #dcd1ee 100%);
+}
+.cm:focus-visible {
+    box-shadow: var(--ring);
+}
+.cm.panning {
+    cursor: grabbing;
+}
+.cm-world {
+    position: absolute;
+    left: 0;
+    top: 0;
+    transform-origin: 0 0;
+}
+.cm-edges {
+    position: absolute;
+    overflow: visible;
+    pointer-events: none;
+}
+
+/* ---- wires ---- */
+.cm-edge {
+    color: var(--cm-wire);
+    cursor: pointer;
+}
+.cm-edge.warn {
+    color: var(--warn);
+}
+.cm-edge.hot {
+    color: var(--cm-wire-hot);
+}
+.cm-edge.warn.hot {
+    color: color-mix(in srgb, var(--warn) 70%, white);
+}
+.cm-edge .hit {
+    fill: none;
+    stroke: transparent;
+    stroke-width: 14;
+    pointer-events: stroke;
+}
+.cm-edge .wire {
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 2;
+    stroke-linecap: round;
+}
+.cm-edge.hot .wire {
+    stroke-width: 3;
+}
+.cm-edge.out .wire {
+    stroke-dasharray: 4 4;
+}
+.cm-edge .head {
+    fill: currentColor;
+    pointer-events: all;
+}
+
+/* ---- cards ---- */
+.cm-card {
+    position: absolute;
+    box-sizing: border-box;
+    display: flex;
+    flex-direction: column;
+    border: 1px solid #0b0b0d;
+    border-radius: 6px;
+    background: rgb(28 28 32 / 0.96);
+    box-shadow:
+        0 6px 18px rgb(0 0 0 / 0.45),
+        inset 0 0 0 1px rgb(255 255 255 / 0.04);
+    cursor: pointer;
+    transition: box-shadow var(--t-fast);
+}
+:root[data-theme='light'] .cm-card {
+    border-color: var(--border-strong);
+    background: rgb(255 255 255 / 0.97);
+    box-shadow: 0 4px 14px rgb(0 0 0 / 0.14);
+}
+.cm-card:hover {
+    box-shadow:
+        0 6px 18px rgb(0 0 0 / 0.45),
+        0 0 0 1px var(--accent);
+}
+.cm-card.warn {
+    border-color: color-mix(in srgb, var(--warn) 55%, #0b0b0d);
+}
+.cm-card.dragging {
+    z-index: 2;
+    cursor: grabbing;
+    box-shadow:
+        0 12px 30px rgb(0 0 0 / 0.6),
+        0 0 0 2px var(--accent);
+}
+.cm-head {
+    box-sizing: border-box;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    gap: 6px;
+    padding: 0 var(--sp-5);
+    border-radius: 5px 5px 0 0;
+    background: var(--cm-head);
+}
+.cm-card.copy .cm-head {
+    background: var(--cm-head-copy);
+}
+.cm-card.cm-start .cm-head {
+    background: var(--cm-head-start);
+}
+.cm-card:not(:has(.cm-exits)) .cm-head {
+    border-radius: 5px;
+}
+.cm-row1,
+.cm-row2 {
+    display: flex;
+    align-items: center;
+    gap: var(--sp-3);
+    min-width: 0;
+}
+.cm-idx {
+    flex: none;
+    min-width: 16px;
+    color: var(--fg-faint);
+    font-size: var(--fs-xs);
+    font-variant-numeric: tabular-nums;
+}
+.cm-title {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    color: var(--fg);
+    font-size: var(--fs-md);
+    font-weight: 600;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+}
+.cm-play {
+    flex: none;
+    display: grid;
+    place-items: center;
+    width: 22px;
+    height: 22px;
+    padding: 0;
+    border: 0;
+    border-radius: 50%;
+    background: var(--play);
+    color: #fff;
+    cursor: pointer;
+    opacity: 0.85;
+}
+.cm-play:hover {
+    opacity: 1;
+}
+.cm-play svg {
+    margin-left: 1px;
+}
+.cm-badge {
+    flex: none;
+    padding: 0 6px;
+    border-radius: 999px;
+    background: rgb(255 255 255 / 0.08);
+    color: var(--fg-muted);
+    font-size: var(--fs-2xs);
+    font-weight: 600;
+    line-height: 16px;
+    letter-spacing: 0.02em;
+}
+:root[data-theme='light'] .cm-badge {
+    background: rgb(0 0 0 / 0.07);
+}
+.cm-badge.cm-start {
+    background: var(--ok-soft);
+    color: var(--ok);
+}
+.cm-badge.copy {
+    background: rgb(181 140 255 / 0.18);
+    color: var(--icon-barrier);
+}
+.cm-badge.edits {
+    background: var(--accent-soft);
+    color: var(--accent-hover);
+}
+.cm-badge.warn {
+    background: var(--warn-soft);
+    color: var(--warn);
+}
+.cm-badge.cm-dim {
+    background: transparent;
+    color: var(--fg-faint);
+    font-weight: 400;
+}
+.cm-exits {
+    display: flex;
+    flex-direction: column;
+    padding-bottom: 6px;
+}
+.cm-exit {
+    position: relative;
+    box-sizing: border-box;
+    display: flex;
+    align-items: center;
+    gap: var(--sp-3);
+    width: 100%;
+    padding: 0 var(--sp-6) 0 var(--sp-5);
+    border: 0;
+    background: none;
+    color: var(--fg-muted);
+    font: inherit;
+    font-size: var(--fs-xs);
+    text-align: left;
+    cursor: pointer;
+}
+.cm-exit:hover {
+    background: rgb(255 255 255 / 0.05);
+    color: var(--fg);
+}
+.cm-exit.warn {
+    color: var(--warn);
+}
+.cm-exit-name {
+    flex: none;
+    max-width: 45%;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+}
+.cm-exit-dest {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    color: var(--fg-faint);
+    white-space: nowrap;
+    text-overflow: ellipsis;
+    text-align: right;
+}
+.cm-exit.warn .cm-exit-dest {
+    color: color-mix(in srgb, var(--warn) 70%, var(--fg-faint));
+}
+.cm-pin {
+    position: absolute;
+    box-sizing: border-box;
+    width: 10px;
+    height: 10px;
+    border: 2px solid var(--cm-wire);
+    border-radius: 50%;
+    background: var(--surface-1);
+}
+.cm-pin.in {
+    left: -6px;
+}
+.cm-pin.out {
+    right: -6px;
+    top: calc(50% - 5px);
+    background: var(--cm-wire);
+}
+.cm-exit.warn .cm-pin.out {
+    border-color: var(--warn);
+    background: var(--warn);
+}
+.cm-exit.out .cm-pin.out {
+    background: var(--surface-1);
+}
+.cm-stub {
+    position: absolute;
+    box-sizing: border-box;
+    max-width: 180px;
+    height: 20px;
+    padding: 0 8px;
+    overflow: hidden;
+    border: 1px dashed var(--cm-wire);
+    border-radius: 10px;
+    background: var(--surface-1);
+    color: var(--fg-muted);
+    font: inherit;
+    font-size: var(--fs-2xs);
+    white-space: nowrap;
+    text-overflow: ellipsis;
+    cursor: pointer;
+}
+.cm-stub:hover {
+    border-color: var(--accent);
+    color: var(--fg);
+}
+.cm-stub.warn {
+    border-color: var(--warn);
+    color: var(--warn);
+}
+
+/* ---- overlays ---- */
+.cm-note[hidden],
+.cm-empty[hidden] {
+    display: none;
+}
+.cm-bar {
+    position: absolute;
+    left: var(--sp-4);
+    top: var(--sp-4);
+    display: flex;
+    align-items: center;
+    gap: var(--sp-2);
+    padding: 3px;
+    border: 1px solid var(--border);
+    border-radius: var(--r-lg);
+    background: color-mix(in srgb, var(--surface-2) 92%, transparent);
+    box-shadow: var(--shadow-1);
+    cursor: default;
+}
+.cm-sep {
+    width: 1px;
+    height: 16px;
+    margin: 0 var(--sp-2);
+    background: var(--border-strong);
+}
+.cm-zoom {
+    min-width: 40px;
+    color: var(--fg-muted);
+    font-size: var(--fs-xs);
+    font-variant-numeric: tabular-nums;
+    text-align: center;
+}
+.cm-note {
+    position: absolute;
+    right: var(--sp-4);
+    top: var(--sp-4);
+    max-width: 50%;
+    padding: 4px var(--sp-4);
+    border-radius: var(--r-lg);
+    background: color-mix(in srgb, var(--surface-2) 92%, transparent);
+    color: var(--fg-muted);
+    font-size: var(--fs-xs);
+}
+.cm-empty {
+    position: absolute;
+    inset: 0;
+    display: grid;
+    place-items: center;
+    padding: 0 15%;
+    color: var(--fg-faint);
+    font-size: var(--fs-md);
+    text-align: center;
+    pointer-events: none;
+}
+.cm-legend {
+    position: absolute;
+    left: var(--sp-4);
+    right: var(--sp-4);
+    bottom: var(--sp-4);
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--sp-3) var(--sp-5);
+    color: var(--fg-faint);
+    font-size: var(--fs-2xs);
+    pointer-events: none;
+}
+.cm-key {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+}
+.cm-key::before {
+    content: '';
+    width: 18px;
+    height: 0;
+    border-top: 2px solid var(--cm-wire);
+}
+.cm-key.warn::before {
+    border-top-color: var(--warn);
+}
+.cm-key.stub::before {
+    border-top-style: dashed;
+}
+.cm-help {
+    margin-left: auto;
+}
+
+/* The levels column gets the room when the map is shown. */
+.pj-grid.pj-map {
+    grid-template-columns: minmax(200px, 0.8fr) minmax(480px, 3fr) minmax(220px, 1fr);
+}
+@media (max-width: 1100px) {
+    .pj-grid.pj-map {
+        grid-template-columns: 1fr;
+    }
+}

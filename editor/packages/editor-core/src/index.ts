@@ -21,6 +21,7 @@ export * from './logic.ts';
 export * from './logic-templates.ts';
 export * from './logic-plain.ts';
 export * from './project.ts';
+export * from './campaign-map.ts';
 export * from './guides.ts';
 export * from './save-items.ts';
 export * from './content/index.ts';

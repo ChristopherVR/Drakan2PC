@@ -19,11 +19,12 @@ import {
 import type { LevelInfo } from '../../rpc.ts';
 import type { ExitIndexData } from '../../logicdata.ts';
 import type { Ctx, Panel } from '../ctx.ts';
-import { h, icon } from '../dom.ts';
+import { h, icon, store } from '../dom.ts';
 import { createPlayControls } from '../playopts.ts';
 import { runCommand } from '../registry.ts';
 import { isDesktop } from '../../platform.ts';
 import type { PlayOptions } from '../../launch.ts';
+import { createCampaignMap } from './campaignmap.ts';
 import { buildProjectPack, levelEditCounts, type ProjectExportDeps } from './export.ts';
 import type { ProjectFiles } from './folder.ts';
 import { projects } from './store.ts';
@@ -214,6 +215,47 @@ export function createProjectPanel(host: ProjectPanelHost): ProjectPanel {
     }
 
     // ---- levels -----------------------------------------------------------------------------------------------------
+
+    // The levels as a list or as the Campaign map (project/campaignmap.ts); the choice is remembered.
+    const VIEW_KEY = 'project-levels-view';
+    let view: 'list' | 'map' = store.get(VIEW_KEY) === 'map' ? 'map' : 'list';
+    const map = createCampaignMap({
+        openLevel: (l) => void host.openLevel(l).catch(fail),
+        openExit: (l, id) =>
+            void host
+                .openLevel(l)
+                .then(() => {
+                    host.ctx.locate([id]);
+                    runCommand('panel.logic');
+                })
+                .catch(fail),
+        play: isDesktop ? (t) => void play(t).catch(fail) : null,
+        setLayout: (layout) => projects.update((q) => ({ ...q, mapLayout: layout })),
+    });
+    const viewToggle = (): HTMLElement =>
+        h(
+            'div',
+            { class: 'ui-seg', role: 'group', 'aria-label': 'Show the levels as' },
+            ...(['list', 'map'] as const).map((v) =>
+                h(
+                    'button',
+                    {
+                        class: `ui-seg-btn${view === v ? ' active' : ''}`,
+                        type: 'button',
+                        id: `pj-view-${v}`,
+                        'aria-pressed': String(view === v),
+                        title: v === 'list' ? 'Show the levels as a list' : 'Show the levels and their exits as a map',
+                        onclick: () => {
+                            view = v;
+                            store.set(VIEW_KEY, v);
+                            render();
+                        },
+                    },
+                    icon(v === 'list' ? 'list' : 'link', 12),
+                    v === 'list' ? 'List' : 'Map',
+                ),
+            ),
+        );
 
     const addSel = h('select', { class: 'ui-select', id: 'pj-add-sel', 'aria-label': 'Level to add' });
     const copySel = h('select', { class: 'ui-select', id: 'pj-copy-sel', 'aria-label': 'Level to copy' });
@@ -431,6 +473,7 @@ export function createProjectPanel(host: ProjectPanelHost): ProjectPanel {
                 { class: 'pj-title' },
                 'Levels, in campaign order',
                 h('span', { class: 'spacer' }),
+                viewToggle(),
                 h(
                     'button',
                     {
@@ -471,13 +514,25 @@ export function createProjectPanel(host: ProjectPanelHost): ProjectPanel {
                 ),
             ),
             !connected ? h('p', { class: 'pj-note' }, 'Open your disc image to add levels.') : null,
-            p.levels.length
-                ? h('ol', { class: 'pj-list' }, ...p.levels.map((l, i) => levelRow(p, l, i)))
-                : h(
-                      'p',
-                      { class: 'pj-empty' },
-                      'No levels yet. A level joins the project when you add it here, or when you edit it with the "Edit a campaign level" task. Levels you do not change are left out of the pack.',
-                  ),
+            view === 'map'
+                ? map.update({
+                      project: p,
+                      exits,
+                      issues,
+                      counts,
+                      note: exits
+                          ? ''
+                          : exitsLoading
+                            ? 'Reading the exits of every level...'
+                            : exitsError || (connected ? '' : 'Open your disc image to see the exits.'),
+                  })
+                : p.levels.length
+                  ? h('ol', { class: 'pj-list' }, ...p.levels.map((l, i) => levelRow(p, l, i)))
+                  : h(
+                        'p',
+                        { class: 'pj-empty' },
+                        'No levels yet. A level joins the project when you add it here, or when you edit it with the "Edit a campaign level" task. Levels you do not change are left out of the pack.',
+                    ),
             exitsLoading ? h('p', { class: 'pj-note' }, 'Reading the exits of every level (a few seconds)...') : null,
             exitsError ? h('p', { class: 'pj-note bad' }, exitsError) : null,
         );
@@ -666,7 +721,13 @@ export function createProjectPanel(host: ProjectPanelHost): ProjectPanel {
             return;
         }
         if (!copyTitle.value && copySel.value) copyTitle.placeholder = suggestCopyTitle(p, copySel.value, discTitles());
-        const grid = h('div', { class: 'pj-grid' }, detailsCol(p), levelsCol(p), outputCol(p));
+        const grid = h(
+            'div',
+            { class: `pj-grid${view === 'map' ? ' pj-map' : ''}` },
+            detailsCol(p),
+            levelsCol(p),
+            outputCol(p),
+        );
         // Keep focus in the field being typed in across a re-render.
         const active = document.activeElement as HTMLInputElement | null;
         const focusId = active && root.contains(active) ? active.id : '';

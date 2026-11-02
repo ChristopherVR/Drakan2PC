@@ -110,6 +110,7 @@ export const GUIDES: Guide[] = [
             'Add levels from the disc with "Add level", or make a copy of one with "Add copy" and give the copy its own title.',
             'Each level lists its exits and where they lead. A warning means the destination is missing or has no way back to this level. "Change destination" opens the level with that exit selected and the Logic panel showing where it leads.',
             'Open a level from the list to edit it. Its edits are kept for the project, level by level.',
+            'Switch the level list to Map to see the campaign as a graph: each level is a card, each exit an arrow to the level it leads to (dashed when it leaves the project, orange when it needs fixing). Click a card to open the level, double-click it to play from there, click an arrow to change where that exit leads, and drag cards (or press Auto arrange) to lay the route out.',
             'Use "Order by route" to sort the list the way a player would meet the levels, and "Start here" to choose the level the Play button opens.',
             'Press Play on any level row to test the whole project from that level (desktop app): the game opens straight into it with every project edit, so you can walk through its exits into the next project level.',
             'Export from Project Settings or the toolbar. One pack holds every changed level and every copy.',

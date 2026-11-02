@@ -36,6 +36,14 @@ export interface ModProject {
     /** Checklist steps ticked by hand, per task. */
     ticks: Partial<Record<TaskId, string[]>>;
     createdAt: number;
+    /** Where each level's card sits on the Campaign map (level title -> top-left corner); absent until arranged. */
+    mapLayout?: Record<string, MapPoint>;
+}
+
+/** A position on the Campaign map, in map units (pixels at 100% zoom). */
+export interface MapPoint {
+    x: number;
+    y: number;
 }
 
 export class ProjectError extends Error {}
@@ -105,6 +113,7 @@ export function parseProject(text: string): ModProject {
             if (Array.isArray(v)) ticks[t] = v.filter((x): x is string => typeof x === 'string');
         }
     }
+    const mapLayout = parseMapLayout(r['mapLayout']);
     return {
         format: PROJECT_FORMAT,
         id: str('id', 'my-mod'),
@@ -117,7 +126,22 @@ export function parseProject(text: string): ModProject {
         task,
         ticks,
         createdAt: typeof r['createdAt'] === 'number' ? r['createdAt'] : Date.now(),
+        ...(mapLayout ? { mapLayout } : {}),
     };
+}
+
+/** The `mapLayout` field: entries with a finite x and y are kept, anything else is dropped; empty -> undefined. */
+function parseMapLayout(v: unknown): Record<string, MapPoint> | undefined {
+    if (!v || typeof v !== 'object' || Array.isArray(v)) return undefined;
+    const out: Record<string, MapPoint> = {};
+    for (const [k, p] of Object.entries(v as Record<string, unknown>)) {
+        const o = p as { x?: unknown; y?: unknown } | null;
+        if (!o || typeof o !== 'object') continue;
+        if (typeof o.x !== 'number' || typeof o.y !== 'number' || !Number.isFinite(o.x) || !Number.isFinite(o.y))
+            continue;
+        out[k] = { x: o.x, y: o.y };
+    }
+    return Object.keys(out).length ? out : undefined;
 }
 
 // ---- project file with level edits ---------------------------------------------------------------------------------
@@ -317,11 +341,17 @@ export function addLevelCopy(p: ModProject, copyOf: string, title: string): ModP
 }
 
 export function removeLevel(p: ModProject, title: string): ModProject {
-    return {
+    const out: ModProject = {
         ...p,
         levels: p.levels.filter((l) => l.title !== title),
         start: p.start === title ? null : p.start,
     };
+    if (p.mapLayout && title in p.mapLayout) {
+        const rest = Object.fromEntries(Object.entries(p.mapLayout).filter(([k]) => k !== title));
+        if (Object.keys(rest).length) out.mapLayout = rest;
+        else delete out.mapLayout;
+    }
+    return out;
 }
 
 export function moveLevel(p: ModProject, title: string, delta: -1 | 1): ModProject {
