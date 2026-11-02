@@ -34,7 +34,19 @@ import {
 import { LevelView } from './level.ts';
 import './save/save.css';
 import './save/drakan.css';
-import { badge, button, card, emptyState, fmtDate, h, hex, hexDump, icon, shotCanvas, statTile } from './save/dom.ts';
+import {
+    badge,
+    button,
+    card,
+    emptyState,
+    fileChanged,
+    h,
+    hex,
+    hexDump,
+    icon,
+    shotCanvas,
+    statTile,
+} from './save/dom.ts';
 import { TABS, buildShell, type SubTab } from './save/shell.ts';
 import { drawMap, groupColor, mapBounds, pickMap, type MapBounds, type MapPoint } from './save/map.ts';
 import type { ClassInfo } from './save/inventory.ts';
@@ -314,7 +326,7 @@ export function initSaveUi(host: SaveUiHost): { openFile(f: File): Promise<void>
                 r.hay += ` ${sum.levelName} ${slot}`.toLowerCase();
                 r.meta.replaceChildren(
                     h('b', null, sum.levelName || r.ref.name.replace(/\.rsg$/i, '')),
-                    h('small', null, `${slot} \u00b7 ${fmtDate(r.ref.modified)}`),
+                    h('small', null, [slot, fileChanged(r.ref.modified)].filter(Boolean).join(' \u00b7 ')),
                     h(
                         'div',
                         { class: 'sv-slot-tags' },
@@ -898,7 +910,7 @@ export function initSaveUi(host: SaveUiHost): { openFile(f: File): Promise<void>
                         { class: 'sv-tags' },
                         ref.folder ? h('span', { class: 'sv-tag' }, ref.folder.replace(/^BESCES-\d+/i, '')) : null,
                         h('span', { class: 'sv-tag' }, `${(ref.size / 1024).toFixed(1)} KB`),
-                        h('span', { class: 'sv-tag' }, fmtDate(ref.modified)),
+                        ref.modified ? h('span', { class: 'sv-tag' }, fileChanged(ref.modified)) : null,
                         h('span', { class: 'sv-tag' }, `${doc.save.entries.length} records`),
                     ),
                     sum?.levelPath ? h('small', { class: 'sv-faint' }, sum.levelPath) : null,

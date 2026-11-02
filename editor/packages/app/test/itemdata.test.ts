@@ -29,11 +29,19 @@ const header = (): Uint8Array =>
 /** A 0x0102 class record: name field, then a body long enough for the runtime-class probe. */
 const classRecord = (name: string): Uint8Array => Uint8Array.from([...str(name, 1), ...Array(24).fill(0)]);
 
-function disc(): Iso9660 | Promise<Iso9660> {
+/** A class record whose runtime class (u32 at +16 of the body) is `runtime`. */
+const classRecordRt = (name: string, runtime: number): Uint8Array => {
+    const b = Array(24).fill(0);
+    b.splice(16, 4, ...u32(runtime));
+    return Uint8Array.from([...str(name, 1), ...b]);
+};
+
+function disc(extra: { id: number; name: string; runtime: number }[] = []): Iso9660 | Promise<Iso9660> {
     const odb = buildSrsc([
         { type: 0x0102, id: 0x1bc9, sub: 0, data: classRecord('Wood Bow: Short') },
         { type: 0x0102, id: 0x3752, sub: 0, data: classRecord('Health Potion (Red)') },
         { type: 0x0102, id: 0x0042, sub: 0, data: Uint8Array.from([...u16(1), 0, ...Array(24).fill(0)]) }, // no name
+        ...extra.map((x) => ({ type: 0x0102, id: x.id, sub: 0, data: classRecordRt(x.name, x.runtime) })),
     ]);
     const lst = new TextEncoder().encode('\\Levels\\Test\\Test.lvl\r\n');
     return Iso9660.open(
@@ -56,6 +64,19 @@ describe('item catalog without a level', () => {
             { classId: 0x1bc9, name: 'Wood Bow: Short' },
             { classId: 0x3752, name: 'Health Potion (Red)' },
         ]);
+    });
+
+    it('flags the mana power-up class (engine class 171) and no other', async () => {
+        resetItemData();
+        const fs = await disc([
+            { id: 0x1b33, name: 'Full Mana PwrUp', runtime: 0x100ab },
+            { id: 0x1b35, name: 'Some Sword', runtime: 0x1000e },
+        ]);
+        const c = await loadItemCatalog(fs, 'ENGLISH');
+        const by = (id: number) => c.classes.find((k) => k.classId === id)!;
+        expect(by(0x1b33).powerUp).toBe(true);
+        expect(by(0x1b35).powerUp).toBeUndefined();
+        expect(by(0x3752).powerUp).toBeUndefined();
     });
 
     it('returns an entry per requested class even when there is no model', async () => {

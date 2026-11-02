@@ -35,8 +35,17 @@ export interface ItemCatalog {
         facts?: string[];
         /** Height in inventory cells (class field "Icon Slot Size (1-3)"), when the class has the field. */
         cells?: number;
+        /** True for pickups the game uses up the moment Rynn takes them (the mana power-ups). */
+        powerUp?: boolean;
     }[];
 }
+
+/**
+ * Engine class ids (`rflClass`, the low 16 bits of the ODB runtime class) of the pickups that act at once instead of
+ * sitting in the pack. Only the mana power-ups (Full / Half Mana PwrUp, rflClass 171) are confirmed in the game; the
+ * spell power-ups (rflClass 57) are not listed because their behaviour was not checked.
+ */
+export const POWER_UP_RFL_CLASSES: ReadonlySet<number> = new Set([171]);
 
 interface Context {
     dirPath: string;
@@ -152,8 +161,12 @@ export function loadItemCatalog(fs: Iso9660, language: string): Promise<ItemCata
                     const price = iPrice >= 0 ? Number(classFieldDefault(k, iPrice)) : NaN;
                     const facts = itemFacts(k, (n) => at(n));
                     const cells = itemCellCount(k, (n) => at(n));
+                    const engineClass = k.rflClass ?? (k.runtimeClass === null ? undefined : k.runtimeClass & 0xffff);
                     return {
                         classId: k.id,
+                        ...(engineClass !== undefined && POWER_UP_RFL_CLASSES.has(engineClass)
+                            ? { powerUp: true }
+                            : {}),
                         ...(cells !== undefined ? { cells } : {}),
                         ...(facts.length ? { facts } : {}),
                         name: k.name,

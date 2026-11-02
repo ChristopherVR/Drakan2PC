@@ -86,3 +86,21 @@ unequipped donor with the holder words. `npx vitest run` in `editor/`: 67 files,
 - The mana power-up is a pickup class. It worked from the pack, but the editor does not tell such classes apart from
   inventory items.
 - Classes found with other handle offsets (0x9a: Bitter Touch) were added in no test.
+
+## UI leftovers (Save Game Editor)
+
+1. **Stale "does not fit" message.** The status line kept the no-room text after a later Add item worked. Add item now
+   goes through `addChosen` (`app/src/save/inventory.ts`), which sets "Added NAME; pending until you save." on success
+   (replacing the old text and clearing the error colour) and the no-room text, as an error, when it does not fit.
+2. **Save date.** The save carries no date and no play time: the `.rsg` entries have no such field (see
+   `reference/save-slots.md` section 7), and the card folder's `icon.sys` holds none. The game's own load screen shows
+   the host file time. The list and the save header therefore say "File changed <date>" (`fileChanged` in
+   `app/src/save/dom.ts`), and nothing when the file time is unknown. No change under `packages/formats`.
+3. **Power-ups.** The disc's item classes carry an engine class (`rflClass`, low 16 bits of the ODB runtime class).
+   The two mana power-ups (Full / Half Mana PwrUp) are class 171 and no other Resources class uses it, so
+   `loadItemCatalog` marks them `powerUp` (`POWER_UP_RFL_CLASSES` in `app/src/itemdata.ts`) and Add item lists them
+   under "Power-ups (used at once)". Without the disc they cannot be told apart and stay in the normal list. The spell
+   power-ups ("#1 Fireball Power Up" and the like, class 57) are not listed because their behaviour was not checked in
+   game; add 57 to the set if they turn out to act at once too.
+
+Tests: `app/test/save-ui-leftovers.test.ts`, plus a catalog case in `app/test/itemdata.test.ts`.

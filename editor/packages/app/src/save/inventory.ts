@@ -1,5 +1,6 @@
 import {
     AddItemCommand,
+    type ItemTemplate,
     MAX_ITEM_CELLS,
     RemoveAddedItemCommand,
     ReplaceItemCommand,
@@ -30,6 +31,8 @@ export interface ClassInfo {
     thumb: string | null;
     /** Height in inventory cells (1..3) from the game disc's item class, when known. */
     cells?: number;
+    /** A pickup the game uses up at once (mana power-up), not an item that stays in the pack. */
+    powerUp?: boolean;
 }
 
 export const resourceKey = (resource: number): string => `0x${resource.toString(16)}`;
@@ -431,14 +434,7 @@ function addControl(ctx: PanelCtx, infoOf: (resource: number | undefined) => Cla
             disabled: !templates.length || !free,
         },
         h('option', { value: '' }, '+ Add item…'),
-        ...templates.map((t) => {
-            const fits = doc.placeFor(rowsOf(t.resource)) !== null;
-            return h(
-                'option',
-                { value: String(t.entry) },
-                `${itemName(t.resource, infoOf(t.resource))} (${resourceKey(t.resource)})${fits ? '' : ' - no room'}`,
-            );
-        }),
+        ...addOptions(addEntries(templates, infoOf, (t) => doc.placeFor(rowsOf(t.resource)) !== null)),
     ) as HTMLSelectElement;
     select.value = '';
     select.onchange = () => {
@@ -446,20 +442,79 @@ function addControl(ctx: PanelCtx, infoOf: (resource: number | undefined) => Cla
         const t = templates.find((x) => String(x.entry) === select.value);
         select.value = '';
         if (!t) return;
-        const rows = rowsOf(t.resource);
-        const name = itemName(t.resource, infoOf(t.resource));
-        if (doc.placeFor(rows) === null) {
-            ctx.status(noRoomMessage(name, rows, itemHeight(t.resource, infoOf(t.resource), doc.inventory)), true);
-            return;
-        }
-        try {
-            ctx.run(new AddItemCommand(t.entry, rows));
-        } catch (e) {
-            ctx.err(e);
-        }
+        addChosen(
+            ctx,
+            t,
+            infoOf(t.resource),
+            rowsOf(t.resource),
+            itemHeight(t.resource, infoOf(t.resource), doc.inventory),
+        );
     };
     return h('label', { class: 'f', title: free ? 'Add a new carried item' : 'The inventory is full' }, select);
 }
+
+/** Add the chosen item, or say why it does not fit. Either way the status line shows the latest outcome. */
+export function addChosen(
+    ctx: Pick<PanelCtx, 'doc' | 'run' | 'status' | 'err'>,
+    t: ItemTemplate,
+    info: ClassInfo | null,
+    rows: number,
+    known: number | undefined,
+): void {
+    const name = itemName(t.resource, info);
+    if (ctx.doc.placeFor(rows) === null) {
+        ctx.status(noRoomMessage(name, rows, known), true);
+        return;
+    }
+    try {
+        ctx.run(new AddItemCommand(t.entry, rows));
+        ctx.status(addedMessage(name, !!info?.powerUp));
+    } catch (e) {
+        ctx.err(e);
+    }
+}
+
+/** Status text after an item was added (replaces an earlier "does not fit" message). */
+export function addedMessage(name: string, powerUp: boolean): string {
+    return powerUp
+        ? `Added ${name}; the game uses it up as soon as it is picked up. Pending until you save.`
+        : `Added ${name}; pending until you save.`;
+}
+
+function addOptions(e: { items: AddEntry[]; powerUps: AddEntry[] }): HTMLElement[] {
+    const opt = (x: AddEntry): HTMLElement => h('option', { value: x.value }, x.text);
+    return [
+        ...e.items.map(opt),
+        ...(e.powerUps.length ? [h('optgroup', { label: POWER_UP_GROUP }, ...e.powerUps.map(opt))] : []),
+    ];
+}
+
+/** One line of the Add item list. */
+export interface AddEntry {
+    value: string;
+    text: string;
+}
+
+/**
+ * The lines of the Add item list: the items first, then the pickups the game uses at once (shown under their own
+ * heading). Pickups are only told apart when the disc names them; without it they stay among the items.
+ */
+export function addEntries(
+    templates: ItemTemplate[],
+    infoOf: (resource: number | undefined) => ClassInfo | null,
+    fits: (t: ItemTemplate) => boolean,
+): { items: AddEntry[]; powerUps: AddEntry[] } {
+    const entry = (t: ItemTemplate): AddEntry => ({
+        value: String(t.entry),
+        text: `${itemName(t.resource, infoOf(t.resource))} (${resourceKey(t.resource)})${fits(t) ? '' : ' - no room'}`,
+    });
+    return {
+        items: templates.filter((t) => !infoOf(t.resource)?.powerUp).map(entry),
+        powerUps: templates.filter((t) => infoOf(t.resource)?.powerUp).map(entry),
+    };
+}
+
+export const POWER_UP_GROUP = 'Power-ups (used at once)';
 
 /** The plain-language reason a new item does not fit; `known` is the item's height when the disc or save says it. */
 export function noRoomMessage(name: string, rows: number, known: number | undefined): string {

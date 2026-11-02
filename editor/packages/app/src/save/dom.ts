@@ -25,6 +25,12 @@ export function h<K extends keyof HTMLElementTagNameMap>(
 export const hex = (n: number, w: number): string => n.toString(16).padStart(w, '0');
 export const fmtDate = (ms: number): string => (ms ? new Date(ms).toLocaleString() : '');
 
+/**
+ * The date shown for a save. A save records neither a date nor a play time (the date on the game's own load screen
+ * is the file's), so this is the time the file last changed, labelled so.
+ */
+export const fileChanged = (ms: number): string => (ms ? `File changed ${fmtDate(ms)}` : '');
+
 export function badge(text: string, kind: string, title?: string): HTMLElement {
     return h('span', { class: `sv-badge ${kind}`, title }, text);
 }
