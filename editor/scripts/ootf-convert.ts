@@ -158,6 +158,11 @@ for (const l of res.levels) {
         `${l.pcPath}: ${R.objectsOut}/${R.objectsIn} objects, ${R.unmappedClasses.size} classes unmapped, ${R.layers} layers, ${R.cellsMapped} cells textured, ${R.cellsFallback} on fallback`,
     );
 }
+// --audit <regex>: print the class-plan row (outcome, PS2 class, model state) of every PC class whose name matches.
+if (opt['audit']) {
+    const re = new RegExp(opt['audit'], 'i');
+    for (const r of res.classAudit) if (re.test(r.name)) console.log(`audit ${r.name}: rfl ${r.rfl} ${r.kind} x${r.objects} -> ${r.outcome} ${r.template ?? r.ps2Name ?? ''} model=${r.model} ${r.reason ?? ''} ${r.detail ?? ''}`);
+}
 for (const s of res.stages) if (!s.ok) console.warn(`STAGE FAILED ${s.stage}: ${s.error}`);
 if (res.assets) {
     const a = res.assets;
