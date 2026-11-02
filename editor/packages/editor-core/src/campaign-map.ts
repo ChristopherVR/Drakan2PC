@@ -14,10 +14,11 @@ export const MAP_ROW_H = 24;
 export const MAP_FOOT_H = 6;
 /** Height of the incoming pin on a card's left edge. */
 export const MAP_IN_PIN_Y = 18;
-export const MAP_GAP_X = 160;
+/** Wide enough for a stub (arrow and label) between two columns. */
+export const MAP_GAP_X = 260;
 export const MAP_GAP_Y = 40;
 /** Room a stub takes to the right of a card (its arrow and its label). */
-export const MAP_STUB_W = 190;
+export const MAP_STUB_W = 216;
 /** Cards per column for levels that no exit reaches (auto layout). */
 const LOOSE_PER_COLUMN = 4;
 

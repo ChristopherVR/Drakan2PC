@@ -79,6 +79,8 @@ export function createCampaignMap(deps: CampaignMapDeps): CampaignMap {
     let pan = { x: 40, y: 40 };
     let zoom = 1;
     let fittedFor = '';
+    /** True once the user has panned, zoomed or dragged a card; until then the view keeps fitting every card. */
+    let touched = false;
     let dragging = false;
     let pending: CampaignMapState | null = null;
     let clickTimer = 0;
@@ -162,6 +164,7 @@ export function createCampaignMap(deps: CampaignMapDeps): CampaignMap {
     }
 
     function zoomAt(z: number, cx: number, cy: number): void {
+        touched = true;
         const nz = Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, z));
         pan = { x: cx - ((cx - pan.x) * nz) / zoom, y: cy - ((cy - pan.y) * nz) / zoom };
         zoom = nz;
@@ -175,6 +178,7 @@ export function createCampaignMap(deps: CampaignMapDeps): CampaignMap {
         const vh = root.clientHeight;
         const b = mapBounds(graph, pos);
         if (!vw || !vh || !b.w) return;
+        touched = false;
         const pad = 56;
         zoom = Math.min(1, Math.max(ZOOM_MIN, Math.min((vw - pad * 2) / b.w, (vh - pad * 2 - 40) / b.h)));
         pan = { x: (vw - b.w * zoom) / 2 - b.x * zoom, y: (vh - b.h * zoom) / 2 - b.y * zoom + 12 };
@@ -182,7 +186,7 @@ export function createCampaignMap(deps: CampaignMapDeps): CampaignMap {
     }
 
     new ResizeObserver(() => {
-        if (state && fittedFor !== state.project.id && root.clientWidth) {
+        if (state && (fittedFor !== state.project.id || !touched) && root.clientWidth) {
             fittedFor = state.project.id;
             fit();
         }
@@ -426,6 +430,7 @@ export function createCampaignMap(deps: CampaignMapDeps): CampaignMap {
             if (!moved && Math.hypot(m.clientX - start.x, m.clientY - start.y) < DRAG_PX) return;
             if (!moved) {
                 moved = dragging = true;
+                touched = true;
                 el.classList.add('dragging');
             }
             // Snap to the minor grid (16 units), like dragging a node in a Blueprint graph.
@@ -472,6 +477,7 @@ export function createCampaignMap(deps: CampaignMapDeps): CampaignMap {
         root.setPointerCapture(ev.pointerId);
         root.classList.add('panning');
         const move = (m: PointerEvent): void => {
+            touched = true;
             pan = { x: m.clientX - start.x, y: m.clientY - start.y };
             applyView();
         };
@@ -514,7 +520,8 @@ export function createCampaignMap(deps: CampaignMapDeps): CampaignMap {
         pos = mapPositions(graph, s.project.mapLayout, mapStart(s.project));
         draw();
         applyView();
-        if (fittedFor !== s.project.id && root.clientWidth) {
+        // The exits arrive after the cards (they widen the map with stubs): keep fitting until the user takes over.
+        if ((fittedFor !== s.project.id || !touched) && root.clientWidth) {
             fittedFor = s.project.id;
             fit();
         }
