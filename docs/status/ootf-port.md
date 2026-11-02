@@ -49,3 +49,5 @@ packs that the recompiled PS2 engine plays; nothing from either game is committe
 `npm run build` and `npm test` in `editor/` (63 files, 603 tests), `python scripts/run_tests.py` (213), `scripts/repository_guard.py`, ruff
 and clang-format 19 clean; `dist/DrakanPC` rebuilt with `Build-LocalGame.ps1 -Incremental`. Smoke run evidence is private under
 `build/ootf-run/rel/smoke/`. See `docs/journal/2026-11-02/release-smoke.md`.
+
+- Hidden creatures (PC flag 0x01 clear) start hidden until a Detect and Execute / timer link fires: proven for Death Mage and Navy Hueges; the Queen has no links, so the converter now shows linked-to-nothing creatures (formats 10f4c65), Queen draws. Tick detector spot (126944,152576) crashes the guest for a reason not in the Tick class (see `docs/journal/2026-11-02/ootf-hidden-creatures.md`).
