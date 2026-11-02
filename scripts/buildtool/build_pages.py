@@ -161,6 +161,27 @@ def render_media(content, media):
     return content
 
 
+def place_page_media(markdown_text: str, page: dict) -> str:
+    """Options for a published source generated elsewhere (the editor guide comes from guides.ts and must stay equal).
+
+    ``start_at``: publish from this exact text on (drops a maintainer preamble). ``media_after``: anchor id -> media
+    ids placed under the first heading after ``<a id="anchor"></a>``.
+    """
+    start = page.get("start_at")
+    if start:
+        index = markdown_text.find(start)
+        if index < 0:
+            raise ValueError(f"start_at text not found in {page['source']}: {start}")
+        markdown_text = markdown_text[index:]
+    for anchor, ids in page.get("media_after", {}).items():
+        match = re.search(r'<a id="' + re.escape(anchor) + r'"></a>\s*\n#{2,3} [^\n]+\n', markdown_text)
+        if not match:
+            raise ValueError(f"media_after anchor not found in {page['source']}: {anchor}")
+        markers = "".join(f"\n<!-- media:{media_id} -->\n" for media_id in ids)
+        markdown_text = markdown_text[: match.end()] + markers + markdown_text[match.end() :]
+    return markdown_text
+
+
 def relative_url(target: str, current: str) -> str:
     return posixpath.relpath(target, posixpath.dirname(current) or ".")
 
@@ -320,6 +341,7 @@ def build(output: Path, base_path: str = "/Drakan2PC/"):
         markdown_text = source.read_text(encoding="utf-8")
         # The page shell supplies the single h1; source Markdown stays readable on GitHub.
         markdown_text = re.sub(r"\A# [^\n]+\n", "", markdown_text, count=1)
+        markdown_text = place_page_media(markdown_text, page)
         renderer = markdown.Markdown(
             extensions=["tables", "fenced_code", "toc", "sane_lists"], extension_configs={"toc": {"toc_depth": "2-3"}}
         )

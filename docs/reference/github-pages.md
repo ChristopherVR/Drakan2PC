@@ -47,6 +47,20 @@ Every URL in an entry, including scene URLs, must point at a `site-media-*` rele
 
 Diagrams are for the Development pages, where there is no game screen to show. Player guides use real captures of the game, launcher or builder; a section without a possible capture stays without an image rather than getting a diagram. Diagrams follow the site look with the dark panel, gilt frame and fonts baked into the SVG, so they read the same on the light theme. Draw them from the code and current references, keep them few, and check the layout with the Georgia fallback as well (Castellar and Goudy Old Style are Windows fonts).
 
+### Editor and Save Editor captures
+
+The editor guides (`docs/guides/editor.md`, `save-editor.md`, the published editor task guides) use captures of the editor UI only, recorded with no disc: the start page, the Add menu, the help drawer, the command palette, Project Settings and the Campaign map with an invented project, and the Save Editor with a synthetic `.rsg` built by the editor's own test fixture. They contain no game content, but follow the same rule as every capture: hosted on a `site-media-*` release (`site-media-20261102`), never committed, listed in `media.json` with SHA-256 values, `"pending": true` until uploaded.
+
+```powershell
+python scripts/buildtool/capture_editor_media.py --update-media-json
+```
+
+The script builds the editor's browser app into `build/site-media/editor/app` (`vite build`, no typecheck, so a tree with other work in progress still builds), serves it on a free local port, records each scene in a private Playwright context (installed Chrome, else Playwright's Chromium) with a drawn pointer, encodes the clips with FFmpeg (H.264, 20 fps, no audio, each about 150-350 KB) and writes the stills, `manifest.json` and `UPLOAD.md` (release upload commands) to `build/site-media/editor/out`. `--update-media-json` copies the new hashes and sizes into the matching `media.json` entries; `--scene <id>` re-records one scene, `--headed` shows the browser. Scenes find controls by their visible text, so after a UI redesign a renamed control fails with a screenshot of the last frame (`build/site-media/editor/failed-<scene>.png`); adjust the scene and run again. Re-record after the editor layout changes, review every file, upload, then drop the `pending` flags.
+
+Views that need a disc (a level in the viewport, the Logic graph, the Story and Vendors editors, the Campaign map with exit arrows, World Settings for an arena) are not recorded: the scripts cannot open a disc, and captures of disc content would need the same review as the game captures above. Captions say what the disc-free capture shows; any later disc-based capture is a separate, reviewed release upload.
+
+`docs/reference/editor-guide.md` is generated from the in-app help (`editor/packages/editor-core/src/guides.ts`) and published as is. Two `pages.json` options keep it unedited: `start_at` publishes from that text on (the maintainer preamble is dropped) and `media_after` places media ids under the heading after an `<a id="...">` anchor.
+
 ### Capturing comparison and clip media
 
 Comparisons must show the same frame: run the same harness recipe twice and change only the texture settings. Camera moves are deterministic between runs; walking and animation phase (Arokh's wings, for example) are not, so use still-camera scenes.

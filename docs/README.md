@@ -12,6 +12,8 @@ The canonical Markdown remains in this repository:
 - [Controls & combat](guides/controls.md) and [graphics & PC settings](guides/settings.md)
 - [HD textures, video & subtitles](guides/extras.md)
 - [Saves & updates](guides/saves.md) and [troubleshooting](guides/troubleshooting.md)
+- [Multiplayer](guides/multiplayer.md)
+- [Level & mod editor](guides/editor.md), [editor task guides](reference/editor-guide.md), [Save Game Editor](guides/save-editor.md), [install & share mods](guides/mods.md) and the [editor & mod FAQ](guides/editor-faq.md)
 - [Developer overview](guides/development.md) and [technical reference index](guides/reference.md)
 - [Maintain the GitHub Pages site](reference/github-pages.md)
 

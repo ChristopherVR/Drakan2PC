@@ -152,6 +152,21 @@ class PagesTests(unittest.TestCase):
         wide = pages.compare_figure({"width": 1920, "height": 1080, "caption": "c", "scenes": [scene]})
         self.assertNotIn("aspect-ratio", wide)
 
+    def test_generated_source_options(self):
+        # The editor guide is generated from guides.ts, so its maintainer preamble is cut and media placed by anchor.
+        tasks = (self.output / "guides/editor-tasks.html").read_text(encoding="utf-8")
+        self.assertNotIn("UPDATE_GUIDE", tasks)
+        self.assertIn('id="campaign"', tasks)
+        self.assertNotIn("<!-- media:", tasks)
+        page = {"source": "x.md", "start_at": '<a id="a"></a>', "media_after": {"a": ["m1", "m2"]}}
+        text = 'Preamble\n\n<a id="a"></a>\n\n## Title\n\nBody\n'
+        placed = pages.place_page_media(text, page)
+        self.assertTrue(placed.startswith('<a id="a"></a>'))
+        self.assertIn("## Title\n\n<!-- media:m1 -->\n\n<!-- media:m2 -->\n\nBody", placed)
+        for broken in ({**page, "start_at": "missing"}, {**page, "media_after": {"zz": ["m1"]}}):
+            with self.assertRaises(ValueError):
+                pages.place_page_media(text, broken)
+
     def test_feature_clips_and_loops(self):
         clip = {"kind": "clip", "label": "F5 & F8", "url": "p.jpg", "video_url": "v.mp4", "alt": "a", "caption": "c"}
         link = pages.render_media("<li><!-- media:q --></li>", {"q": clip})
