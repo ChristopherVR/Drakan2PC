@@ -42,7 +42,7 @@ packs that the recompiled PS2 engine plays; nothing from either game is committe
 
 * 2026-11-02 state proofs (`journal/2026-11-02/ootf-state-proofs.md`): switch -> portcullis and plate -> mover chains proven by world dumps; Dr. Evil: 3 of 4 heads killed in game (4th head blind: fixed, see `journal/2026-11-02/ootf-drevil-ending-and-creature-closeups.md`: all four die and the credits roll); dying dragon now falls. Breath visual: done, see `ootf-dragon-breath-visual.md`.
 * 2026-11-02 pass (`journal/2026-11-02/ootf-unproven-creatures-chains.md`): Succubus drawn; Blade Dragons alive and attacking; Queen / Hueges / Tick alive but NOT drawn (close-up control with the Succubus proves the method, cause open);
-  Ebon Dragon / Drone / switch-to-portcullis still unproven by picture; the pack conflict is fixed by one combined conversion (`journal/2026-11-02/ootf-combined-pack.md`).
+  Ebon Dragon and Drone now shown drawn and moving, bats alive but not photographed (`journal/2026-11-02/ootf-flyer-closeups.md`); switch-to-portcullis proven by state; the pack conflict is fixed by one combined conversion (`journal/2026-11-02/ootf-combined-pack.md`).
 
 ## Release checks (2026-11-02)
 
