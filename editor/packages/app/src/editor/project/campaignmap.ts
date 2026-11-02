@@ -179,9 +179,12 @@ export function createCampaignMap(deps: CampaignMapDeps): CampaignMap {
         const b = mapBounds(graph, pos);
         if (!vw || !vh || !b.w) return;
         touched = false;
-        const pad = 56;
-        zoom = Math.min(1, Math.max(ZOOM_MIN, Math.min((vw - pad * 2) / b.w, (vh - pad * 2 - 40) / b.h)));
-        pan = { x: (vw - b.w * zoom) / 2 - b.x * zoom, y: (vh - b.h * zoom) / 2 - b.y * zoom + 12 };
+        // Frame the cards and stubs with a small margin; the back-wire lanes (a little left of and below the cards)
+        // are allowed to overflow it rather than shrinking everything.
+        const pad = 24;
+        const top = 44; // the toolbar sits over the top-left corner
+        zoom = Math.min(1, Math.max(ZOOM_MIN, Math.min((vw - pad * 2) / b.w, (vh - pad * 2 - top) / b.h)));
+        pan = { x: (vw - b.w * zoom) / 2 - b.x * zoom, y: top + (vh - top - b.h * zoom) / 2 - b.y * zoom };
         applyView();
     }
 
@@ -227,8 +230,8 @@ export function createCampaignMap(deps: CampaignMapDeps): CampaignMap {
                 onpointerleave: () => hot(n.title, e.id, false),
             },
             e.problem ? icon('warn', 11) : null,
-            h('span', { class: 'cm-exit-name' }, e.name || `Exit ${e.id}`),
             h('span', { class: 'cm-exit-dest' }, label),
+            h('span', { class: 'cm-exit-name' }, e.name || `Exit ${e.id}`),
             h('span', { class: 'cm-pin out' }),
         );
     }

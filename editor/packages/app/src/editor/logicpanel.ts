@@ -472,8 +472,10 @@ export function installLogic(ctx: Ctx, loadExits: (only?: string) => Promise<Exi
             const mine = exitData?.levels.find(
                 (l) => norm(l.name) === norm(doc.level) || norm(destinationLevelName(l.name)) === norm(doc.level),
             );
+            const copy = projects.get()?.levels.find((l) => l.copyOf && norm(l.title) === norm(doc.level));
             return validateLogic(doc, e, {
                 level: mine?.name ?? doc.level,
+                ...(copy?.copyOf ? { copyOf: copy.copyOf } : {}),
                 ...(exitData ? { exits: exitIndex()! } : {}),
                 exitDestination: (o: LevelObject) => {
                     if (!exitData) return { dest: '(loading)', portal: false };

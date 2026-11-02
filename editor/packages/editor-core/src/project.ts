@@ -573,7 +573,9 @@ export function validateProject(p: ModProject, ctx: ProjectCheckContext): Projec
                     add({
                         severity: 'info',
                         code: 'unreachable',
-                        message: `No exit of the project leads to "${l.title}" yet. A player reaches it only from the level list.`,
+                        message: l.copyOf
+                            ? `Nothing leads to the copy "${l.title}" yet. Point an exit at it in the Logic panel, or start it from the level list.`
+                            : `No exit of the project leads to "${l.title}" yet. A player reaches it only from the level list.`,
                         level: l.title,
                     });
                 }

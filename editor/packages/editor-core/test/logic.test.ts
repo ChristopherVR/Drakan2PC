@@ -362,6 +362,14 @@ describe('validation', () => {
             exitDestination: () => ({ dest: 'Level 2 - Shadowmire', portal: false }),
         });
         expect(out.map((i) => i.code)).toEqual(['exit-no-arrival']);
+        // a copy of Level 1A is fine when the destination leads back to the source
+        const back = validateLogic(d, env, {
+            level: 'Surdana Copy',
+            copyOf: 'Level 1A - Surdana',
+            exits: index,
+            exitDestination: () => ({ dest: 'Level 1B - Kragmor', portal: false }),
+        });
+        expect(back.map((i) => i.code)).not.toContain('exit-no-arrival');
         const none = validateLogic(d, env, { level: 'x', exits: index, exitDestination: () => null });
         expect(none.map((i) => i.code)).toEqual(['exit-no-destination']);
     });

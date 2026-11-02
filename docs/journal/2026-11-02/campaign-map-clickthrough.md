@@ -29,3 +29,23 @@ Setup as in `editor-desktop-clickthrough.md`: debug Tauri build, private WebView
   the Checks list.
 * Fit leaves a lot of empty space because back-wire lanes widen the bounds.
 * Row labels truncate ("Transition from 1..."); only the tooltip shows the full name.
+
+## Polish
+
+Screenshots in `build/scratch/mappolish/` (before: `build/scratch/mapclick/shots/16-map-after-reopen.png`).
+
+* Copy warnings: `validateLogic` (per-level Validation, `logic.ts`) now takes `copyOf` and passes it to
+  `exitArrivalProblem`; the Logic panel supplies it from the project's copy entry. `validateProject` and the map
+  already used it via `levelExits`. A copy is fine when the destination leads back to the copy or its source; a real
+  warning remains when neither does. The "No exit of the project leads to ..." note says "Nothing leads to the copy
+  ... Point an exit at it in the Logic panel, or start it from the level list." for copies. Tests in
+  `logic.test.ts` and `project.test.ts`.
+* Fit frames cards and stubs with a 24 px margin (was 56) and lets the back-wire lanes overflow slightly
+  (`campaignmap.ts`).
+* Exit rows show the destination as the main text (left, normal colour) and the exit's own name as small faint
+  secondary text on the right (`campaignmap.ts`, `campaignmap.css`); tooltip unchanged. Mock of the rows:
+  `after-exit-rows-mock.png`.
+* Browser build (static `vite build`, private Playwright context, seeded project, no disc): map renders three cards,
+  Fit gives 95 %, card drag works, List/Map toggle works, no Play buttons (only the Start badge), "Open your disc
+  image to see the exits." note shown. `after-browser-map.png`, `after-browser-dragged.png`. Real exits and lanes
+  were not re-shot (needs the desktop app with a disc).

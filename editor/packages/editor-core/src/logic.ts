@@ -456,6 +456,8 @@ export interface ExitIndex {
 export interface LogicValidateOptions {
     /** Name of the open level (the key in `exits`). */
     level?: string;
+    /** When the open level is a project copy: the level it was copied from (the game arrives at that level's marker too). */
+    copyOf?: string;
     exits?: ExitIndex;
     /** Destination of an exit object of the open document, or null when unknown. */
     exitDestination?: (o: LevelObject) => { dest: string | null; portal: boolean } | null;
@@ -557,7 +559,7 @@ export function validateLogic(doc: LevelDocument, env: LogicEnv, opts: LogicVali
                     message: `${lbl(o)}: the destination of this exit could not be read`,
                 });
             } else if (opts.exits && opts.level) {
-                const issue = exitArrivalProblem(opts.level, d.dest, d.portal, opts.exits);
+                const issue = exitArrivalProblem(opts.level, d.dest, d.portal, opts.exits, opts.copyOf);
                 if (issue)
                     out.push({
                         severity: 'warning',

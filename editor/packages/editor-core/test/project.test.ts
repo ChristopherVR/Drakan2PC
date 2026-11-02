@@ -103,6 +103,15 @@ describe('campaign checks', () => {
         const issues = validateProject(p, { discLevels: disc, exits });
         expect(issues.filter((i) => i.code === 'unreachable').map((i) => i.level)).toEqual(['Level C - Three']);
     });
+    it('raises no exit warnings for a fresh copy but says plainly that nothing leads to it', () => {
+        let p = addDiscLevel(newProject('x'), 'Level A - One');
+        p = addLevelCopy(p, 'Level A - One', 'Level 9X - Copy');
+        p = { ...p, start: 'Level A - One' };
+        const issues = validateProject(p, { discLevels: disc, exits });
+        expect(issues.filter((i) => i.code === 'exit' && i.level === 'Level 9X - Copy')).toHaveLength(0);
+        const note = issues.find((i) => i.code === 'unreachable' && i.level === 'Level 9X - Copy');
+        expect(note?.message).toMatch(/Nothing leads to the copy/);
+    });
     it('validates ids, titles and file name clashes', () => {
         let p = { ...newProject('x'), id: 'bad id', version: 'v1' };
         p = addLevelCopy(p, 'Level A - One', 'Level 9X - My Map');
