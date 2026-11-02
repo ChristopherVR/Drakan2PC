@@ -76,7 +76,7 @@ describe('project file', () => {
 });
 
 describe('campaign checks', () => {
-    it('lists exits and flags a missing way back for a copy', () => {
+    it('lists exits; a copy arrives at the way back to its source', () => {
         let p = addDiscLevel(newProject('x'), 'Level A - One');
         p = addLevelCopy(p, 'Level A - One', 'Level 9X - Copy');
         const e = levelExits(p, p.levels[0]!, exits);
@@ -85,8 +85,8 @@ describe('campaign checks', () => {
         expect(e[0]!.inProject).toBe(false);
         const c = levelExits(p, p.levels[1]!, exits);
         expect(c[0]!.dest).toBe('Level B - Two');
-        // Level B leads back to A, not to the copy: the copy's exit has no marker to arrive at.
-        expect(c[0]!.problem).toMatch(/no exit leading back/);
+        // Level B leads back to A, not to the copy: the game arrives at that marker (the copy's source), no problem.
+        expect(c[0]!.problem).toBeNull();
     });
     it('flags destinations that are not on the disc', () => {
         const p = addDiscLevel(newProject('x'), 'Level C - Three');

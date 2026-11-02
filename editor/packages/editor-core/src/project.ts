@@ -422,7 +422,7 @@ export function levelExits(p: ModProject, level: ProjectLevel, index: ExitIndex)
             problem: intra
                 ? null
                 : e.dest
-                  ? exitArrivalProblem(level.title, e.dest, e.portal, full)
+                  ? exitArrivalProblem(level.title, e.dest, e.portal, full, level.copyOf)
                   : 'the destination of this exit could not be read',
             inProject:
                 intra ||

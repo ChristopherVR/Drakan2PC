@@ -595,8 +595,18 @@ export function validateLogic(doc: LevelDocument, env: LogicEnv, opts: LogicVali
     return out;
 }
 
-/** Problem text when an exit to `dest` has no arrival in the destination level, else null. */
-export function exitArrivalProblem(thisLevel: string, dest: string, portal: boolean, index: ExitIndex): string | null {
+/**
+ * Problem text when an exit to `dest` has no arrival in the destination level, else null. `copyOf`: this level is a copy
+ * of that level; the game then also arrives at the destination's way back to the source (the runtime's arrival lookup
+ * falls back to it, `drakan_levelchange.cpp` arrivalEntry).
+ */
+export function exitArrivalProblem(
+    thisLevel: string,
+    dest: string,
+    portal: boolean,
+    index: ExitIndex,
+    copyOf?: string,
+): string | null {
     const entry = [...index.levels.entries()].find(([name]) => norm(name) === norm(dest));
     if (!entry) return `destination level "${dest}" is not on this disc`;
     const exits = entry[1];
@@ -605,7 +615,9 @@ export function exitArrivalProblem(thisLevel: string, dest: string, portal: bool
             ? null
             : `"${entry[0]}" has no object named "portal" to arrive at`;
     }
-    return exits.some((e) => e.dest && norm(e.dest) === norm(thisLevel))
+    const back = (e: { dest: string | null }): boolean =>
+        !!e.dest && (norm(e.dest) === norm(thisLevel) || (!!copyOf && norm(e.dest) === norm(copyOf)));
+    return exits.some(back)
         ? null
         : `"${entry[0]}" has no exit leading back to "${thisLevel}", so the player arrives with no marker (and falls)`;
 }

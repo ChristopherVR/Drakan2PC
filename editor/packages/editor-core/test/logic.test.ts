@@ -347,6 +347,9 @@ describe('validation', () => {
             /no exit leading back/,
         );
         expect(exitArrivalProblem('Level 1A - Surdana', 'Level 9', false, index)).toMatch(/not on this disc/);
+        // a copy of Surdana arrives at Kragmor's way back to Surdana
+        expect(exitArrivalProblem('Surdana Copy', 'Level 1B - Kragmor', false, index)).toMatch(/no exit leading back/);
+        expect(exitArrivalProblem('Surdana Copy', 'Level 1B - Kragmor', false, index, 'Level 1A - Surdana')).toBeNull();
         expect(exitArrivalProblem('Level 1A - Surdana', 'Level 1B - Kragmor', true, index)).toMatch(/portal/);
         expect(destinationLevelName('Levels\\Level 2 - Shadowmire\\Level 2 - Shadowmire.lvl')).toBe(
             'Level 2 - Shadowmire',
