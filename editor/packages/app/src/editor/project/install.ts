@@ -20,7 +20,8 @@ import type { ArenaStore } from '../arena/store.ts';
 import { addValidationProvider } from '../panels.ts';
 import { registerCommand, registerPanel, runCommand } from '../registry.ts';
 import { createChecklist } from './checklist.ts';
-import { buildProjectPack, levelEditCounts, resetExportCache, zipProjectPack } from './export.ts';
+import { createCampaignPane } from './campaign.ts';
+import { buildProjectPack, levelEditCounts, projectLevelDoc, resetExportCache, zipProjectPack } from './export.ts';
 import { openExportDialog } from './exportdialog.ts';
 import { createProjectFiles, type ProjectFiles } from './folder.ts';
 import { createHelp, type Help } from './help.ts';
@@ -68,6 +69,8 @@ const HELP_TARGETS: [string, string][] = [
     ['.panel.project', 'campaign'],
     ['.panel.logic-panel', 'triggers'],
     ['.panel.mp', 'multiplayer'],
+    ['.panel.vendors', 'vendors'],
+    ['.panel.menus', 'menus'],
     ['.story-area', 'story'],
     ['#save-main > :first-child', 'save'],
     ['.fl-intro', 'files'],
@@ -147,7 +150,20 @@ export function installProject(host: ProjectInstallHost): ProjectInstall {
         return { meta: { ...pack.meta, description: meta.description, target: meta.target }, files: pack.files };
     });
 
+    // Project Settings > Campaign: "Make this a campaign" (its own entry on the game's title card).
+    const campaign = createCampaignPane({
+        levels: () => ui.levels(),
+        loadExits: () => host.call('exitIndex'),
+        levelDoc: (title) => projectLevelDoc(exportDeps, title),
+        strings: {
+            ensure: () => host.story.session.ensure(),
+            text: (file, id) => host.story.session.str(file, id)?.text[0],
+            changed: (file, id) => host.story.session.isChanged(file, id),
+        },
+        toast: (m, k) => ctx.toast(m, k),
+    });
     const panel = createProjectPanel({
+        sidePane: () => campaign.el(),
         ctx,
         levels: () => ui.levels(),
         loadExits: () => host.call('exitIndex'),
@@ -175,11 +191,13 @@ export function installProject(host: ProjectInstallHost): ProjectInstall {
                 return p;
             },
             build: (p, progress) => buildProjectPack(exportDeps, p, undefined, progress),
-            blockers: () =>
-                panel
+            blockers: () => [
+                ...panel
                     .issues()
                     .filter((i) => i.severity === 'error')
                     .map((i) => i.message),
+                ...campaign.errors().map((m) => `Campaign: ${m}`),
+            ],
             zip: zipProjectPack,
             writeToProjectFolder: (rel, bytes) => files.writeFile(rel, bytes),
             saveZip: (name, bytes) => downloadFile(name, bytes as BlobPart, 'application/zip'),

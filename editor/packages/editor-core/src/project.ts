@@ -1,6 +1,15 @@
 import { mangleComponent } from '@drakan/formats';
 import type { LevelDocumentJson } from './document.ts';
-import { MOD_ID_PATTERN, type ModMeta, type ModTarget } from './mod.ts';
+import {
+    CAMPAIGN_DESCRIPTION_MAX,
+    CAMPAIGN_SAVES_PATTERN,
+    MOD_ID_PATTERN,
+    RESERVED_CAMPAIGN_IDS,
+    campaignIdProblem,
+    type ModMeta,
+    type ModTarget,
+} from './mod.ts';
+import { COVER_PALETTES } from './cover.ts';
 import { exitArrivalProblem, type ExitIndex, type ExitIndexEntry } from './logic.ts';
 
 /**
@@ -38,6 +47,30 @@ export interface ModProject {
     createdAt: number;
     /** Where each level's card sits on the Campaign map (level title -> top-left corner); absent until arranged. */
     mapLayout?: Record<string, MapPoint>;
+    /** "Make this a campaign": the export offers the levels as a campaign of their own on the game's title card. */
+    campaign?: ProjectCampaign;
+}
+
+/** The cover picture of a campaign: made in the editor from a palette and a seed, or a picture of the user's own. */
+export type CampaignCover =
+    | { kind: 'generated'; palette: string; seed: number; dragon: boolean }
+    /** A PNG (base64) the user picked from their own files, already scaled to 960 x 540. */
+    | { kind: 'picked'; png: string; name: string };
+
+/** A project exported as a campaign (docs/reference/modding.md "Campaign packs"). */
+export interface ProjectCampaign {
+    enabled: boolean;
+    /** `campaign = "<id>"` (CAMPAIGN_ID_PATTERN). */
+    id: string;
+    /** Title on the game card. */
+    title: string;
+    /** One line under it. */
+    description: string;
+    /** Level New Game opens (a project copy). */
+    start: string | null;
+    /** Memory card folder suffix: the saves live in `<card>_<saves>`. */
+    saves: string;
+    cover: CampaignCover | null;
 }
 
 /** A position on the Campaign map, in map units (pixels at 100% zoom). */
@@ -114,6 +147,7 @@ export function parseProject(text: string): ModProject {
         }
     }
     const mapLayout = parseMapLayout(r['mapLayout']);
+    const campaign = parseCampaign(r['campaign']);
     return {
         format: PROJECT_FORMAT,
         id: str('id', 'my-mod'),
@@ -127,6 +161,7 @@ export function parseProject(text: string): ModProject {
         ticks,
         createdAt: typeof r['createdAt'] === 'number' ? r['createdAt'] : Date.now(),
         ...(mapLayout ? { mapLayout } : {}),
+        ...(campaign ? { campaign } : {}),
     };
 }
 
@@ -345,6 +380,9 @@ export function removeLevel(p: ModProject, title: string): ModProject {
         ...p,
         levels: p.levels.filter((l) => l.title !== title),
         start: p.start === title ? null : p.start,
+        ...(p.campaign
+            ? { campaign: { ...p.campaign, start: p.campaign.start === title ? null : p.campaign.start } }
+            : {}),
     };
     if (p.mapLayout && title in p.mapLayout) {
         const rest = Object.fromEntries(Object.entries(p.mapLayout).filter(([k]) => k !== title));
@@ -860,3 +898,211 @@ export function stepStates(w: Workflow, f: StepFacts, ticks: readonly string[]):
 
 /** Index of the first step not done, or -1 when all are. */
 export const nextStep = (states: readonly boolean[]): number => states.findIndex((d) => !d);
+
+// ---- campaign ------------------------------------------------------------------------------------------------------
+
+/** `The Lost Valley` -> `the-lost-valley`: a valid campaign id (never one of the game's own words). */
+export function campaignSlug(name: string): string {
+    let s = name
+        .trim()
+        .toLowerCase()
+        .replace(/[^a-z0-9_-]+/g, '-')
+        .replace(/^[-_]+/g, '')
+        .slice(0, 32)
+        .replace(/-+$/g, '');
+    if (!s) s = 'my-campaign';
+    if (RESERVED_CAMPAIGN_IDS.includes(s)) s = `${s}-campaign`;
+    return s;
+}
+
+/** Campaign settings for a project that has none yet: named after the project, starting at its first copy. */
+export function newCampaign(p: ModProject, seed = Math.floor(Math.random() * 0x7fffffff)): ProjectCampaign {
+    const id = campaignSlug(p.name || p.id);
+    const first = p.levels.find((l) => l.title === p.start && l.copyOf) ?? p.levels.find((l) => l.copyOf);
+    return {
+        enabled: true,
+        id,
+        title: p.name.trim() || id,
+        description: p.description
+            .trim()
+            .replace(/\s*[\r\n]+\s*/g, ' ')
+            .slice(0, CAMPAIGN_DESCRIPTION_MAX),
+        start: first?.title ?? null,
+        saves: id,
+        cover: { kind: 'generated', palette: COVER_PALETTES[0]!.id, seed, dragon: true },
+    };
+}
+
+function parseCampaign(v: unknown): ProjectCampaign | undefined {
+    if (!v || typeof v !== 'object' || Array.isArray(v)) return undefined;
+    const o = v as Record<string, unknown>;
+    const s = (k: string): string => (typeof o[k] === 'string' ? (o[k] as string) : '');
+    let cover: CampaignCover | null = null;
+    const c = o['cover'] as Record<string, unknown> | null | undefined;
+    if (c && typeof c === 'object') {
+        if (c['kind'] === 'generated' && typeof c['seed'] === 'number' && Number.isFinite(c['seed'])) {
+            cover = {
+                kind: 'generated',
+                palette: typeof c['palette'] === 'string' ? c['palette'] : COVER_PALETTES[0]!.id,
+                seed: c['seed'] >>> 0,
+                dragon: c['dragon'] !== false,
+            };
+        } else if (c['kind'] === 'picked' && typeof c['png'] === 'string' && c['png']) {
+            cover = { kind: 'picked', png: c['png'], name: typeof c['name'] === 'string' ? c['name'] : 'picture' };
+        }
+    }
+    return {
+        enabled: o['enabled'] === true,
+        id: s('id'),
+        title: s('title'),
+        description: s('description'),
+        start: typeof o['start'] === 'string' ? (o['start'] as string) : null,
+        saves: s('saves'),
+        cover,
+    };
+}
+
+/** The manifest's campaign keys of a project whose campaign is on (empty otherwise). */
+export function campaignMeta(p: ModProject): Partial<ModMeta> {
+    const c = p.campaign;
+    if (!c?.enabled) return {};
+    return {
+        campaign: c.id,
+        campaignName: c.title.trim() || c.id,
+        ...(c.description.trim() ? { campaignDescription: c.description.trim() } : {}),
+        ...(c.start ? { campaignStart: c.start } : {}),
+        ...(c.saves && c.saves !== c.id ? { campaignSaves: c.saves } : {}),
+    };
+}
+
+/** One exit whose destination the project changed (an "Only this exit" retarget, or a shared string edit). */
+export interface ExitOverride {
+    /** Project level title (a copy's own title). */
+    level: string;
+    exitId: number;
+    /** Destination level name. */
+    dest: string;
+}
+
+/** The exit index with the copies' exits added and the project's own exit edits applied. */
+export function withExitOverrides(p: ModProject, index: ExitIndex, overrides: readonly ExitOverride[]): ExitIndex {
+    const full = projectExitIndex(p, index);
+    if (!overrides.length) return full;
+    const levels = new Map(full.levels);
+    for (const [name, exits] of full.levels) {
+        const mine = overrides.filter((o) => norm(o.level) === norm(name));
+        if (!mine.length) continue;
+        levels.set(
+            name,
+            exits.map((e) => {
+                const o = mine.find((x) => x.exitId === e.id);
+                return o ? { ...e, dest: o.dest } : e;
+            }),
+        );
+    }
+    return { levels };
+}
+
+/**
+ * The checks of "Make this a campaign" (nothing when it is off). `ctx.exits` should already hold the project's exit
+ * edits (`withExitOverrides`); without exits only the settings are checked.
+ */
+export function validateCampaign(p: ModProject, ctx: ProjectCheckContext): ProjectIssue[] {
+    const c = p.campaign;
+    if (!c?.enabled) return [];
+    const out: ProjectIssue[] = [];
+    const add = (severity: ProjectIssue['severity'], code: string, message: string, level?: string): void =>
+        void out.push({ severity, code: `campaign-${code}`, message, ...(level ? { level } : {}) });
+    const idWhy = campaignIdProblem(c.id);
+    if (idWhy) add('error', 'id', idWhy);
+    if (c.id === 'ootf')
+        add(
+            'warning',
+            'id',
+            '"ootf" is the id of the converted Order of the Flame; a campaign of your own should have its own id.',
+        );
+    if (!c.title.trim()) add('error', 'title', 'Give the campaign a title: it is what the game card shows.');
+    if (c.description.length > CAMPAIGN_DESCRIPTION_MAX)
+        add(
+            'warning',
+            'description',
+            `The short description is cut to ${CAMPAIGN_DESCRIPTION_MAX} characters on the game card.`,
+        );
+    if (!CAMPAIGN_SAVES_PATTERN.test(c.saves))
+        add('error', 'saves', 'The save folder name may only hold letters, digits, _ and - (1 to 32).');
+    if (!p.levels.some((l) => l.copyOf))
+        add('error', 'no-levels', 'A campaign needs levels of its own: add a copy of a level to the project.');
+    const start = c.start ? p.levels.find((l) => norm(l.title) === norm(c.start!)) : undefined;
+    if (!c.start) add('error', 'start', 'Choose the level New Game starts in.');
+    else if (!start) add('error', 'start', `The start level "${c.start}" is not in the project.`);
+    else if (!start.copyOf)
+        add(
+            'error',
+            'start',
+            `The start level "${start.title}" is a level of the disc; New Game can only start a level of the campaign's own (a copy).`,
+            start.title,
+        );
+    for (const l of p.levels) {
+        if (!l.copyOf)
+            add(
+                'warning',
+                'disc-level',
+                `"${l.title}" is edited in place: those edits also show in Drakan itself, not only in the campaign. Use a copy of it instead.`,
+                l.title,
+            );
+    }
+    if (!c.cover) add('info', 'cover', 'The campaign has no cover picture; the game card shows its title only.');
+    if (!ctx.exits || !start) return out;
+    // Every level is reached from the start through exits; every exit leads to a level that exists.
+    const reached = new Set<string>([start.title]);
+    const queue = [start];
+    for (let i = 0; i < queue.length; i++) {
+        for (const e of levelExits(p, queue[i]!, ctx.exits)) {
+            const next = e.dest ? p.levels.find((l) => norm(l.title) === norm(e.dest!)) : undefined;
+            if (next && !reached.has(next.title)) {
+                reached.add(next.title);
+                queue.push(next);
+            }
+        }
+    }
+    for (const l of p.levels) {
+        if (!reached.has(l.title))
+            add(
+                'error',
+                'unreachable',
+                `No exit leads to "${l.title}" from the start level "${start.title}". Point an exit at it (Logic panel, "Only this exit"), or take it out of the campaign.`,
+                l.title,
+            );
+        if (!l.copyOf) continue;
+        for (const e of levelExits(p, l, ctx.exits)) {
+            if (e.portal) continue;
+            const name = e.name || `#${e.id}`;
+            if (!e.dest) {
+                add(
+                    'error',
+                    'exit-nowhere',
+                    `${l.title}: exit "${name}" has no destination that can be read.`,
+                    l.title,
+                );
+                continue;
+            }
+            const inCampaign = p.levels.some((x) => norm(x.title) === norm(e.dest!));
+            const onDisc = ctx.discLevels.some((d) => norm(d) === norm(e.dest!));
+            if (!inCampaign && !onDisc)
+                add(
+                    'error',
+                    'exit-nowhere',
+                    `${l.title}: exit "${name}" leads to "${e.dest}", which is neither in the campaign nor on the disc.`,
+                    l.title,
+                );
+            else if (!inCampaign)
+                add(
+                    'warning',
+                    'exit-out',
+                    `${l.title}: exit "${name}" leads out of the campaign into Drakan's own "${e.dest}".`,
+                    l.title,
+                );
+        }
+    }
+    return out;
+}

@@ -59,7 +59,7 @@ The script builds the editor's browser app into `build/site-media/editor/app` (`
 
 Views that need a disc (a level in the viewport, the Logic graph, the Story and Vendors editors, the Campaign map with exit arrows, World Settings for an arena) are not recorded: the scripts cannot open a disc, and captures of disc content would need the same review as the game captures above. Captions say what the disc-free capture shows; any later disc-based capture is a separate, reviewed release upload.
 
-`docs/reference/editor-guide.md` is generated from the in-app help (`editor/packages/editor-core/src/guides.ts`) and published as is. Two `pages.json` options keep it unedited: `start_at` publishes from that text on (the maintainer preamble is dropped) and `media_after` places media ids under the heading after an `<a id="...">` anchor.
+`docs/reference/editor-guide.md` is generated from the in-app help (`editor/packages/editor-core/src/guides.ts`) and published as is. Two `pages.json` options keep it unedited: `start_at` publishes from that text on (the maintainer preamble is dropped) and `media_after` places media ids under the heading after an `<a id="...">` anchor. Each guide id is such an anchor, and the editor's Help drawer links every guide to it ("Open on the web", `guideWebUrl` in `guides.ts`, which holds the page address); `build_pages.py` fails when a guide id from `guides.ts` has no anchor on `guides/editor-tasks.html` or the address does not match the base path, so renaming a guide id breaks the build rather than the links.
 
 ### Capturing comparison and clip media
 

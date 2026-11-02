@@ -25,6 +25,7 @@ import { HELPER_GROUPS, helperGroupOf, partitionObjects, type HelperGroup } from
 import { docInstanceMatrix } from './scene/models.ts';
 import { clientToNdc, nearestScreenPoint, pointsInRect, type ScreenPoint } from './scene/pickmath.ts';
 import { DEFAULT_VIEW_OPTIONS, LIGHTING, type ViewOptions } from './scene/viewopts.ts';
+import { canvasSize, inBurst, sameSize, settled, type CanvasSize } from './scene/viewsize.ts';
 
 /** Game units to scene units. World coordinates run to about 7.4e5; y is up. */
 const S = 0.001;
@@ -162,6 +163,8 @@ export class LevelView {
 
     doc = new LevelDocument();
     stack = new CommandStack(this.doc);
+    /** Called with every document `setDocument` installs (the landscape binding attaches the level terrain). */
+    readonly documentListeners = new Set<(doc: LevelDocument) => void>();
     selection = new Set<number>();
     hiddenKinds = new Set<EntityKind>();
     /** Display categories switched off in the Show menu (`ObjectCategory` ids) and the function that names them. */
@@ -194,12 +197,16 @@ export class LevelView {
     gridVisible = true;
     private frames = 0;
     private fpsT = performance.now();
+    /** Size the canvas has now; the host changed size and the next frame applies it (scene/viewsize.ts). */
+    private size: CanvasSize | null = null;
+    private sizeDirty = true;
+    private resizeBurst = false;
+    private lastResizeAt = -Infinity;
 
     constructor(
         private readonly host: HTMLElement,
         private readonly ev: LevelViewEvents,
     ) {
-        this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
         host.appendChild(this.renderer.domElement);
         this.scene.background = new THREE.Color(0x14161a);
         this.scene.add(this.hemi, this.sun, this.models.root, this.icons.group, this.iconVolumes.group);
@@ -271,7 +278,8 @@ export class LevelView {
         window.addEventListener('keydown', this.onKeyDown);
         window.addEventListener('keyup', this.onKeyUp);
         window.addEventListener('blur', () => this.keys.clear());
-        new ResizeObserver(() => this.resize()).observe(host);
+        // A resize only marks the size; the frame loop applies it right before it draws (see scene/viewsize.ts).
+        new ResizeObserver(() => this.noteResize()).observe(host);
         this.resize();
         this.rebuildScheduled();
     }
@@ -285,6 +293,7 @@ export class LevelView {
     setActive(on: boolean): void {
         cancelAnimationFrame(this.raf);
         if (on) {
+            this.sizeDirty = true;
             this.resize();
             this.lastTick = performance.now();
             const loop = (): void => {
@@ -376,6 +385,7 @@ export class LevelView {
         this.updateGizmo();
         this.ev.onSelection([]);
         this.frameAll();
+        for (const l of this.documentListeners) l(doc);
         this.ev.onChange();
         this.ev.onVisibility?.();
     }
@@ -1589,11 +1599,28 @@ export class LevelView {
 
     // ---- loop -------------------------------------------------------------------------------------------------
 
+    private noteResize(): void {
+        const now = performance.now();
+        this.resizeBurst = inBurst(this.lastResizeAt, now);
+        this.lastResizeAt = now;
+        this.sizeDirty = true;
+    }
+
+    /** Fit the canvas and the camera's aspect to the host. Nothing in the scene changes. */
     private resize(): void {
-        const w = Math.max(this.host.clientWidth, 1);
-        const h = Math.max(this.host.clientHeight, 1);
-        this.renderer.setSize(w, h, false);
-        this.camera.aspect = w / h;
+        const next = canvasSize(
+            this.host.clientWidth,
+            this.host.clientHeight,
+            window.devicePixelRatio,
+            this.sizeDirty && this.resizeBurst,
+        );
+        this.sizeDirty = false;
+        if (sameSize(this.size, next)) return;
+        // Each of these reallocates (and clears) the drawing buffer: only call them for a real change.
+        if (!this.size || this.size.ratio !== next.ratio) this.renderer.setPixelRatio(next.ratio);
+        this.renderer.setSize(next.w, next.h, false);
+        this.size = next;
+        this.camera.aspect = next.w / next.h;
         this.camera.updateProjectionMatrix();
     }
 
@@ -1601,6 +1628,8 @@ export class LevelView {
         const now = performance.now();
         const dt = Math.min((now - this.lastTick) / 1000, 0.1);
         this.lastTick = now;
+        // Resize here, just before drawing, so the cleared canvas is drawn again in the same frame.
+        if (this.sizeDirty || settled(this.size, this.lastResizeAt, now, window.devicePixelRatio)) this.resize();
         this.fly(dt);
         if (this.dirtyInstances) {
             this.dirtyInstances = false;

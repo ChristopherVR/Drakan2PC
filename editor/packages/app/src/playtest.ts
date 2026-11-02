@@ -19,6 +19,7 @@ import {
     LevelDocument,
     TEMPLATES,
     diffDocument,
+    hasTerrainEdits,
     logicOf,
     updateModsIni,
     type AssetClass,
@@ -233,7 +234,7 @@ export async function playTestDoc(
     };
     // The pack carries the author's edits (and the cut scene switch); without any edit the game starts unmodified.
     const copy = copyProvider && doc.level ? await copyProvider(doc.level, doc, meta) : null;
-    const edited = changeCount(diffDocument(src.lvl.list, doc)) > 0;
+    const edited = changeCount(diffDocument(src.lvl.list, doc)) > 0 || hasTerrainEdits(doc);
     const pack = copy ?? (edited ? buildLevelPack(src, doc, meta) : null);
     const opts: PlayOptions = { ...savedOptions(), mode: 'single', startLevel: true };
     // Every level (disc level or copy) loads straight into the intro's slot: no movie, no opening cut scene.

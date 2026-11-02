@@ -41,6 +41,12 @@ export interface Workspace {
     add(spec: PanelSpec): void;
     /** Show an editor where it lives (opening its tab first). */
     show(id: string): void;
+    /**
+     * Show it beside the viewport (opened from the level view: a story badge, "Add cut scene here"): in the Level
+     * Editor's bottom drawer, unless it is open in its own tab right now (the user popped it out). Changes nothing
+     * about where it opens from the Window menu.
+     */
+    showBeside(id: string): void;
     /** Show it in a given place (`tab` or `dock`); `remember` keeps the choice for later sessions too. */
     openIn(id: string, home: 'tab' | 'dock', remember?: boolean): void;
     close(id: string): void;
@@ -190,15 +196,24 @@ export function createWorkspace(d: WorkspaceDeps): Workspace {
             selectSide(id);
             return;
         }
-        if (home === 'dock') {
-            showArea('level');
-            dockTab(id);
-            d.layout()?.openBottom();
-            d.dock.show(id);
-            return;
-        }
+        if (home === 'dock') return showDocked(id);
         if (!openTabs.includes(id)) openTabs.push(id);
         showArea(id);
+    }
+
+    function showDocked(id: string): void {
+        showArea('level');
+        // Freshly docked (or the drawer was shut): give an editor that needs room its share of the height.
+        const fresh = !d.dock.has(id) || !d.layout()?.isOpen('bottom');
+        dockTab(id);
+        d.layout()?.openBottom(fresh ? placementOf(id).dockShare : undefined);
+        d.dock.show(id);
+    }
+
+    function showBeside(id: string): void {
+        if (!specs.has(id)) return;
+        if (homeOf(id) === 'side' || openTabs.includes(id)) return show(id);
+        showDocked(id);
     }
 
     function close(id: string): void {
@@ -218,7 +233,8 @@ export function createWorkspace(d: WorkspaceDeps): Workspace {
 
     function openIn(id: string, home: 'tab' | 'dock', remember = true): void {
         if (!specs.has(id)) return;
-        if (homeOf(id) !== home || !(openTabs.includes(id) || d.dock.has(id))) close(id);
+        // Open in the other place (a pop-out of a tab that was docked from the viewport): take it out of there first.
+        if (home === 'tab' ? d.dock.has(id) : openTabs.includes(id)) close(id);
         where.set(id, home);
         if (remember) store.set(`ws-place:${id}`, home);
         show(id);
@@ -440,6 +456,7 @@ export function createWorkspace(d: WorkspaceDeps): Workspace {
     const ws: Workspace = {
         add,
         show,
+        showBeside,
         openIn,
         close,
         showArea,

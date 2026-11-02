@@ -1,6 +1,11 @@
 /* Start page ("What do you want to make?"): template tiles, the details pane and the level picker (startpage.ts),
    plus the checklist's attention and peek styles (project/checklist.ts). */
 
+/* Over an open level the page covers the viewport's own layers too (story badges, hints: z-index 3). */
+#lv-empty.has-start {
+    z-index: 5;
+}
+
 .start.sp {
     width: min(1180px, 100%);
     padding: 28px 28px 32px;
@@ -8,6 +13,20 @@
 }
 
 /* ---- header and disc ---- */
+.sp-head {
+    display: flex;
+    align-items: flex-start;
+    gap: 16px;
+}
+.sp-head-t {
+    flex: 1;
+    min-width: 0;
+}
+.start .ui-btn.sp-back {
+    flex: none;
+    gap: 6px;
+    margin-top: 2px;
+}
 .sp-head h2 {
     margin: 0 0 4px;
     font-size: 22px;
@@ -68,6 +87,57 @@
     color: var(--fg);
 }
 
+/* ---- the way into the editor: template, disc, level, editor ---- */
+.sp-flow {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px 4px;
+    margin: 0 0 14px;
+    padding: 0;
+    list-style: none;
+    font-size: var(--fs-sm);
+}
+.sp-flow-s {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    color: var(--fg-faint);
+}
+.sp-flow-s + .sp-flow-s::before {
+    content: '';
+    width: 18px;
+    height: 1px;
+    margin-right: 2px;
+    background: var(--border-strong);
+}
+.sp-flow-n {
+    display: grid;
+    place-items: center;
+    width: 18px;
+    height: 18px;
+    font-size: var(--fs-2xs);
+    font-weight: 600;
+    border: 1px solid var(--border-strong);
+    border-radius: 50%;
+}
+.sp-flow-s.done {
+    color: var(--fg-muted);
+}
+.sp-flow-s.done .sp-flow-n {
+    color: var(--ok);
+    border-color: var(--ok);
+}
+.sp-flow-s.current {
+    color: var(--fg);
+    font-weight: 600;
+}
+.sp-flow-s.current .sp-flow-n {
+    color: var(--accent-fg);
+    background: var(--accent);
+    border-color: var(--accent);
+}
+
 /* ---- browser: tiles | details ---- */
 .sp-browser {
     display: grid;
@@ -114,6 +184,27 @@
     border-color: var(--accent);
     box-shadow: 0 0 0 1px var(--accent);
     background: var(--surface-2);
+}
+.sp-tile.on .sp-tile-t {
+    color: var(--accent);
+}
+/* The selected tile carries a check in its corner, so it reads as chosen and not just hovered. */
+.sp-check {
+    position: absolute;
+    top: 6px;
+    right: 6px;
+    z-index: 2;
+    display: none;
+    place-items: center;
+    width: 20px;
+    height: 20px;
+    color: var(--accent-fg);
+    background: var(--accent);
+    border-radius: 50%;
+    box-shadow: 0 0 0 2px var(--surface-2);
+}
+.sp-tile.on .sp-check {
+    display: grid;
 }
 .sp-tile-art {
     position: relative;
@@ -279,7 +370,7 @@
     display: flex;
     align-items: center;
     gap: 6px;
-    margin: 0 0 14px;
+    margin: 0;
     color: var(--fg-muted);
     font-size: var(--fs-sm);
 }
@@ -289,6 +380,17 @@
 .sp-go-box {
     display: grid;
     gap: 6px;
+}
+.sp-details > .sp-go-box,
+.sp-details > .sp-wait-box {
+    margin-bottom: 16px;
+}
+/* Picking a level: the sketch makes way for the button. */
+.sp-details.picking .sp-details-art {
+    display: none;
+}
+.sp-details.picking {
+    padding-top: 14px;
 }
 .start .ui-btn.sp-go {
     height: 36px;
@@ -361,8 +463,21 @@
     font-size: var(--fs-sm);
     font-weight: 600;
 }
-.start-level.good {
-    border-color: var(--ok);
+/* In the picker the sections say which levels are suggested or recent; the only coloured level is the chosen one. */
+.sp-pick .start-level.good,
+.sp-pick .start-level.recent {
+    border-color: var(--border);
+}
+.sp-pick .start-level.on {
+    background: var(--accent-soft);
+    border-color: var(--accent);
+    box-shadow: 0 0 0 1px var(--accent);
+}
+.sp-pick .start-level.on .n {
+    color: var(--accent);
+}
+.start .ui-btn.sp-go {
+    gap: 8px;
 }
 
 /* ---- below the browser ---- */
@@ -483,4 +598,10 @@
     .sp-spin {
         animation-duration: 2.4s;
     }
+}
+
+/* "Show me how": the template's guided tour (editor/tour), under the primary button. */
+.sp-details > .sp-tour {
+    align-self: flex-start;
+    margin-top: var(--sp-2);
 }

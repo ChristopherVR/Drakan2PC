@@ -111,6 +111,12 @@ def main() -> int:
         help="memory card folder for the Order of the Flame card (the game's mc0_ootf sibling) to copy into the run",
     )
     ap.add_argument("--save", type=Path, help="memory card folder (mc0) to copy into the run instead of an empty one")
+    ap.add_argument(
+        "--save-card",
+        action="append",
+        default=[],
+        help="NAME=DIR: another memory card folder to copy into the run as card/NAME (a campaign's mc0_<saves>)",
+    )
     ap.add_argument("--env", action="append", default=[], help="extra KEY=VALUE for the game (repeatable)")
     ap.add_argument("--audio", action="store_true", help="keep audio on (off by default)")
     ap.add_argument("--timeout", type=float, default=300, help="seconds per attempt")
@@ -186,6 +192,11 @@ def main() -> int:
             (card / "mc0").mkdir(parents=True)
         if a.save_ootf:
             shutil.copytree(a.save_ootf, card / "mc0_ootf")
+        for spec in a.save_card:
+            cname, sep, cdir = spec.partition("=")
+            if not sep:
+                raise SystemExit(f"--save-card {spec!r}: expected NAME=DIR")
+            shutil.copytree(cdir, card / cname)
         env["DRAKAN_MEMCARD_DIR"] = str(card / "mc0")
         t0 = time.monotonic()
         if run_once(a.exe, env, out, a.timeout + 30, attempt):

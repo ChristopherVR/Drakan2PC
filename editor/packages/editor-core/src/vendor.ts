@@ -1,5 +1,8 @@
 import { ODB_CLASS_TYPE, fieldIndex, patchClassData, type ClassFieldDef } from '@drakan/formats';
-import type { LevelObject } from './document.ts';
+import { newObjectFromClass, type AssetClass } from './catalog.ts';
+import { cloneObject, type LevelDocument, type LevelObject } from './document.ts';
+import { addLink, schemaField, type LogicEnv } from './logic.ts';
+import { msg, pickClass, type TemplateBuild, type TemplateContext } from './logic-templates.ts';
 import { ModError } from './mod.ts';
 import {
     effectiveValue,
@@ -318,4 +321,163 @@ export function vendorIssues(
             out.push({ level: 'warning', message: `${e.stem} #${e.id} is listed as limited and as infinite stock.` });
     if (view.settings.saleMod < 0) out.push({ level: 'error', message: 'The sale price modifier cannot be negative.' });
     return out;
+}
+
+// ---- shopkeepers ----------------------------------------------------------------------------------------------------
+
+/**
+ * The character class a shopkeeper is (RFL 157, engine class `0x1009d`, the NPC class of the NPCS database). On the disc
+ * every one of the 8 placed shops links to exactly one such character first, and that character's only link is the shop
+ * (Surdana blacksmith #1648 <-> NPC #1650, Mage #7715 <-> #7714, Alchemist #13253 <-> #7713, and the five shops of
+ * levels 3, 4 and 6). docs/reference/level-format.md section 16.
+ */
+export const SHOPKEEPER_RFL_CLASS = 157;
+
+/** The shopkeeper of a placed shop: its first linked character (RFL 157), preferring one that links back to the shop. */
+export function shopkeeperOf(doc: LevelDocument, shop: LevelObject, env: LogicEnv): LevelObject | undefined {
+    const chars = (shop.links ?? [])
+        .map((id) => doc.get(id))
+        .filter((o): o is LevelObject => !!o && env.rflOf(o.resource) === SHOPKEEPER_RFL_CLASS);
+    return chars.find((c) => c.links?.includes(shop.id)) ?? chars[0];
+}
+
+/** Every shop of the level with its keeper (absent when the shop has no linked character). */
+export function levelShops(doc: LevelDocument, env: LogicEnv): { shop: LevelObject; keeper?: LevelObject }[] {
+    const out: { shop: LevelObject; keeper?: LevelObject }[] = [];
+    for (const o of doc.objects()) {
+        if (env.rflOf(o.resource) !== VENDOR_RFL_CLASS) continue;
+        const keeper = shopkeeperOf(doc, o, env);
+        out.push(keeper ? { shop: o, keeper } : { shop: o });
+    }
+    return out;
+}
+
+export interface NewShopOptions {
+    /** An existing shop whose class, stock and settings the new shop copies (and whose keeper is the model). */
+    like?: number;
+    /** Shop class (resource string, RFL 172) when `like` is not given; default: the level's most used shop class. */
+    shopClass?: string;
+    /** Yaw of the new shopkeeper (radians). */
+    yaw?: number;
+}
+
+/** Size (cells) of the box that switches a new keeper on: wider than the largest keeper trigger radius on the disc (1.5). */
+export const KEEPER_BOX: [number, number, number] = [4, 2, 4];
+
+const byUse = (list: readonly AssetClass[], rfl: number): AssetClass[] =>
+    list.filter((c) => c.rflClass === rfl).sort((a, b) => b.instances - a.instances || a.name.localeCompare(b.name));
+
+/**
+ * A new shop at `ctx.at`: a shopkeeper character, the shop object and a trigger box that switches the keeper on.
+ *
+ * - Shop and keeper are linked both ways as on the disc (shop -> keeper first, keeper -> shop); the engine resolves the
+ *   shop's keeper from that link (shop object `+0x44` = the keeper's handle, seen in game).
+ * - Shopkeepers start switched off: on the disc each Surdana keeper gets On / Off from two trigger boxes in its shop's
+ *   doorway. A keeper that never receives On stays hidden or idle and the shop never opens, so the new keeper gets a
+ *   box (`KEEPER_BOX` cells, centred on it, larger than any keeper's `Player Trigger Radius`) that sends On every time
+ *   the player walks in. Once on, walking up to the keeper (within its `Player Trigger Radius`) opens the shop.
+ * - The keeper is a copy of an existing shopkeeper of the same shop class when the level has one (model, voice and
+ *   conversation settings), else of another shopkeeper, else a character class with its class defaults.
+ * - The shop gets its class stock ("default stock") or, with `like`, that shop's stock and settings, and is switched on
+ *   (`Default On Status` 1; several shop classes are off until a quest turns them on).
+ *
+ * Proven in game 2026-11-02 (docs/journal/2026-11-02/add-shop-here.md). Apply with `ApplyTemplateCommand` (one undo
+ * step).
+ */
+export function buildNewShop(ctx: TemplateContext, opts: NewShopOptions = {}): TemplateBuild | { error: string } {
+    const { doc, env, catalog, at } = ctx;
+    const shops = levelShops(doc, env);
+    const like = opts.like !== undefined ? doc.get(opts.like) : undefined;
+    if (opts.like !== undefined && (!like || env.rflOf(like.resource) !== VENDOR_RFL_CLASS))
+        return { error: `#${opts.like} is not a shop of this level.` };
+    const shopClasses = byUse(catalog, VENDOR_RFL_CLASS);
+    const shopCls = like
+        ? catalog.find((c) => c.resource === like.resource)
+        : opts.shopClass
+          ? shopClasses.find((c) => c.resource === opts.shopClass)
+          : shopClasses[0];
+    if (!shopCls)
+        return {
+            error: opts.shopClass
+                ? `${opts.shopClass} is not a shop class of this level.`
+                : 'This level has no shop class (only Surdana, levels 3, 4 and 6 have one), so a shop cannot be made here.',
+        };
+    const pos: [number, number, number] = [at[0], at[1], at[2]];
+    const notes: string[] = [];
+    const warnings: string[] = [];
+    let next = doc.nextId;
+
+    // the keeper: the shop's own keeper, else a keeper of the same class, else any keeper, else a character class
+    const model =
+        (like && shopkeeperOf(doc, like, env)) ??
+        shops.find((s) => s.keeper && s.shop.resource === shopCls.resource)?.keeper ??
+        shops.find((s) => s.keeper)?.keeper;
+    let keeper: LevelObject;
+    if (model) {
+        keeper = cloneObject(model);
+        if (model.origin !== undefined) keeper.template = model.origin;
+        delete keeper.origin;
+        keeper.transform = { pos: [...pos], rot: [0, opts.yaw ?? model.transform.rot[1] ?? 0, 0] };
+        notes.push(`Shopkeeper: a copy of ${model.class} #${model.id}.`);
+    } else {
+        const npc = byUse(catalog, SHOPKEEPER_RFL_CLASS)[0];
+        if (!npc) return { error: 'This level has no character class to be the shopkeeper.' };
+        keeper = newObjectFromClass(doc, npc, pos, opts.yaw ?? 0);
+        notes.push(`Shopkeeper: ${npc.name} (no shopkeeper in this level to copy).`);
+        warnings.push('The shopkeeper uses a plain character, not a copy of a working shopkeeper; untested in game.');
+    }
+    keeper.id = next++;
+    keeper.links = [];
+
+    let shop: LevelObject;
+    if (like) {
+        shop = cloneObject(like);
+        if (like.origin !== undefined) shop.template = like.origin;
+        delete shop.origin;
+        shop.transform = { pos: [...pos], rot: [0, 0, 0] };
+        notes.push(`Shop: ${like.class}, same stock and prices as #${like.id}.`);
+    } else {
+        shop = newObjectFromClass(doc, shopCls, pos, 0);
+        shop.fields = [];
+        notes.push(`Shop: ${shopCls.name} with the class's own stock.`);
+    }
+    shop.id = next++;
+    shop.links = [];
+    const schema = env.schemaFor(shopCls.resource);
+    const on = schema && fieldByName(schema, VENDOR_FIELD.defaultOn);
+    if (on && effectiveValue(shop, on).value !== 1) setObjectField(shop, on, 1);
+    if (!schema) warnings.push(`The fields of ${shopCls.name} could not be read; the shop may start switched off.`);
+    if (!shop.template && !shopCls.instances)
+        warnings.push(`${shopCls.name} has no instance in this level: it uses generic class defaults`);
+
+    // shop -> keeper first (every disc shop lists its keeper first), keeper -> shop
+    addLink(shop, keeper.id);
+    addLink(keeper, shop.id);
+    const objects = [shop, keeper];
+
+    // the box that switches the keeper on (what the disc's doorway boxes do)
+    const det = pickClass(catalog, 0x3d, /^trigger detector$/i) ?? pickClass(catalog, 0x3d);
+    if (det) {
+        const box = newObjectFromClass(doc, det, pos, 0);
+        box.id = next++;
+        box.fields = [];
+        box.links = [];
+        if (box.scale) box.scale = [...KEEPER_BOX];
+        else warnings.push('The trigger box could not be sized (its class has no scale); check it in the level.');
+        const dschema = env.schemaFor(det.resource);
+        const set = (name: string, v: number): void => {
+            const f = schemaField(dschema, name);
+            if (f) setObjectField(box, f, v);
+        };
+        set('Trigger Message', msg('On'));
+        set('Detect Only Once?', 0);
+        set('Detect Which?', 2);
+        addLink(box, keeper.id);
+        objects.push(box);
+        notes.push(`Trigger box #${box.id} switches the shopkeeper on when the player comes near.`);
+    } else
+        warnings.push(
+            'This level has no trigger box class: the shopkeeper stays switched off until something sends it On.',
+        );
+    return { objects, links: [], notes, warnings };
 }

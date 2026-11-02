@@ -62,6 +62,7 @@ const PATHS: Record<string, string> = {
     moon: '<path d="M20 14.5A8 8 0 0 1 9.5 4 8 8 0 1 0 20 14.5z"/>',
     help: '<circle cx="12" cy="12" r="9"/><path d="M9.5 9.5a2.5 2.5 0 1 1 3.5 2.3c-.7.4-1 .9-1 1.7M12 17h.01"/>',
     plus: '<path d="M12 5v14M5 12h14"/>',
+    home: '<path d="M4 11l8-7 8 7M6 9.5V20h4.5v-6h3v6H18V9.5"/>',
     download: '<path d="M12 4v11M7 11l5 5 5-5M5 20h14"/>',
     play: '<path d="M7 4l13 8-13 8z"/>',
     chevron: '<path d="M9 6l6 6-6 6"/>',

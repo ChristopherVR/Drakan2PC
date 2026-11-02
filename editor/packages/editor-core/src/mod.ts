@@ -31,13 +31,36 @@ export interface ModMeta {
     /** For a level copy: `Copy title = Disc level` lines, so the game names the copy's exits like the source's. */
     levelCopies?: string[];
     /**
-     * `campaign = "ootf"`: the pack's `levels` are a whole Order of the Flame campaign in play order. The game's title
-     * menu then offers it as "Drakan: Order of the Flame" (its own saves, New Game opens the first level or
-     * `campaignStart`). `campaignName` is the menu label.
+     * `campaign = "<id>"`: the pack's `levels` are a whole campaign in play order, offered on the game's title card
+     * ("Choose your game") next to Drakan. `"ootf"` is the converted Order of the Flame; any other id is a custom
+     * campaign (CAMPAIGN_ID_PATTERN, not one of RESERVED_CAMPAIGN_IDS). New Game opens `campaignStart` (default the
+     * first level), `campaignName` is the card title, `campaignDescription` its one-line text, `campaignSaves` the
+     * memory card folder suffix (`<card>_<saves>`, default the id). The cover is `previews/campaign-<id>.png`.
      */
-    campaign?: 'ootf';
+    campaign?: string;
     campaignName?: string;
+    campaignDescription?: string;
     campaignStart?: string;
+    campaignSaves?: string;
+}
+
+/** A campaign id: 1-32 of a-z 0-9 _ -, starting with a letter or digit. */
+export const CAMPAIGN_ID_PATTERN = /^[a-z0-9][a-z0-9_-]{0,31}$/;
+/** Save folder suffix of a campaign (`<card>_<saves>`). */
+export const CAMPAIGN_SAVES_PATTERN = /^[A-Za-z0-9_-]{1,32}$/;
+/** Words the game's `[general] game` setting uses itself: not campaign ids. */
+export const RESERVED_CAMPAIGN_IDS: readonly string[] = ['d1', 'd2', 'drakan', 'ask'];
+/** Longest campaign description the title card shows in full. */
+export const CAMPAIGN_DESCRIPTION_MAX = 200;
+/** Pack path of a campaign's cover picture. */
+export const campaignCoverPath = (id: string): string => `previews/campaign-${id}.png`;
+
+/** Plain-language problem with a campaign id, null when it is fine. */
+export function campaignIdProblem(id: string): string | null {
+    if (!CAMPAIGN_ID_PATTERN.test(id))
+        return 'The campaign id may only hold small letters, digits, _ and - (1 to 32, starting with a letter or digit).';
+    if (RESERVED_CAMPAIGN_IDS.includes(id)) return `"${id}" is a word the game uses itself; pick another campaign id.`;
+    return null;
 }
 
 export interface ChangedEntry {
@@ -55,6 +78,7 @@ export const overridePath = (file: string, e: ChangedEntry['entry']): string =>
     `overrides/${file}/${hex4(e.type)}_${e.id}_${e.sub}.bin`;
 
 const tomlStr = (s: string): string => JSON.stringify(s);
+const oneLine = (s: string): string => s.replace(/\s*[\r\n]+\s*/g, ' ').trim();
 
 /** Validate the manifest fields the runtime requires; throws ModError with the reason. */
 export function validateModMeta(m: ModMeta): void {
@@ -66,7 +90,12 @@ export function validateModMeta(m: ModMeta): void {
     }
     if (m.version !== undefined && !/^\d+(\.\d+)*$/.test(m.version))
         throw new ModError('version must be dotted numbers');
-    if (m.campaign !== undefined && m.campaign !== 'ootf') throw new ModError('campaign must be "ootf"');
+    if (m.campaign !== undefined) {
+        const why = campaignIdProblem(m.campaign);
+        if (why) throw new ModError(why);
+    }
+    if (m.campaignSaves !== undefined && !CAMPAIGN_SAVES_PATTERN.test(m.campaignSaves))
+        throw new ModError('campaignSaves must be 1-32 characters of letters, digits _ -');
     if (m.campaignStart !== undefined && !m.levels?.includes(m.campaignStart))
         throw new ModError('campaignStart must be one of the pack levels');
 }
@@ -84,7 +113,10 @@ export function buildManifestToml(m: ModMeta): string {
     if (m.levelCopies?.length) l.push(`level_copies = [${m.levelCopies.map(tomlStr).join(', ')}]`);
     if (m.campaign) l.push(`campaign = ${tomlStr(m.campaign)}`);
     if (m.campaign && m.campaignName) l.push(`campaign_name = ${tomlStr(m.campaignName)}`);
+    if (m.campaign && m.campaignDescription)
+        l.push(`campaign_description = ${tomlStr(oneLine(m.campaignDescription).slice(0, CAMPAIGN_DESCRIPTION_MAX))}`);
     if (m.campaign && m.campaignStart) l.push(`campaign_start = ${tomlStr(m.campaignStart)}`);
+    if (m.campaign && m.campaignSaves) l.push(`campaign_saves = ${tomlStr(m.campaignSaves)}`);
     l.push('', '[target]');
     if (m.target.profile !== undefined) {
         const p = m.target.profile;

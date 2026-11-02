@@ -21,14 +21,19 @@ import { createStoryView, type StoryView } from './storyview.ts';
 import type { StoryFocus, StoryMapSource } from './storymap.ts';
 import {
     addQuestArea,
+    addShopAt,
     cameraTarget,
     levelStem,
     makeCutsceneAt,
+    noShopClass,
     openLevelStory,
     questObjects,
+    registerStoryPlacer,
     report,
+    selectedShop,
 } from './storyactions.ts';
 import { SYSTEM_XDB } from './session.ts';
+import { workspace } from '../editor/workspace.ts';
 import { notifyExitEdit, setExitEditHost } from './exitbridge.ts';
 import { StorySession, type Call } from './session.ts';
 import './story.css';
@@ -259,7 +264,12 @@ export function initStoryEditors(host: StoryEditorsHost): StoryEditors {
         void openLevelStory(c, content.session).catch(() => undefined);
         void session.ensure().catch(() => undefined);
     }
-    const showStory = (): void => void runCommand('panel.story');
+    // Opened from the level view: Story docks below the viewport so the level stays in view (Unreal's Sequencer).
+    const showStory = (): void => {
+        const ws = workspace();
+        if (ws) ws.showBeside('story');
+        else runCommand('panel.story');
+    };
     function openFocus(f: StoryFocus): void {
         switch (f.kind) {
             case 'sequence':
@@ -367,15 +377,27 @@ export function initStoryEditors(host: StoryEditorsHost): StoryEditors {
                 enabled: () => !noQuest(),
                 run: () => questArea(kind, null),
             });
+            registerStoryPlacer(`story.place.quest-${kind}`, {
+                place: (at) => questArea(kind, at),
+                unavailable: noQuest,
+            });
         }
-        const noShop = 'Not yet: a new shop needs the character who opens it, and that link is not decoded';
+        const noShop = (): string | null => noLevel() ?? noShopClass(ctx());
+        const shopAt = (at: [number, number, number] | null): void => {
+            const c = ctx();
+            try {
+                c.toast(addShopAt(c, at ?? cameraTarget(c), selectedShop(c)).note, 'ok');
+            } catch (e) {
+                c.toast(e instanceof Error ? e.message : String(e), 'error');
+            }
+        };
         registerContextItem({
             id: 'story.vendor.here',
             label: 'Add shop here',
             icon: 'item',
             where: 'world',
-            unavailable: () => noShop,
-            run: () => undefined,
+            unavailable: noShop,
+            run: (t) => shopAt(t.ground),
         });
         registerCommand({
             id: 'story.place.cutscene',
@@ -390,15 +412,22 @@ export function initStoryEditors(host: StoryEditorsHost): StoryEditors {
                 newCutsceneAt(null, sel.length === 1 ? sel[0] : undefined);
             },
         });
+        // The Place panel: a drop puts the cut scene at the drop point; Enter / double-click is the command above.
+        registerStoryPlacer('story.place.cutscene', {
+            place: (at) => (at ? newCutsceneAt(at) : void runCommand('story.place.cutscene')),
+            unavailable: noLevel,
+        });
         registerCommand({
             id: 'story.place.vendor',
             title: 'Add shop',
             category: 'Story',
             icon: 'item',
-            hint: noShop,
-            enabled: () => false,
-            run: () => undefined,
+            keywords: 'vendor shopkeeper merchant store sell buy new place',
+            hint: 'A shopkeeper and a shop with its default stock where the camera looks (copies the selected shop’s stock)',
+            enabled: () => !noShop(),
+            run: () => shopAt(null),
         });
+        registerStoryPlacer('story.place.vendor', { place: (at) => shopAt(at), unavailable: noShop });
     }
 
     registerPanel({

@@ -4,10 +4,13 @@ import { HELPER_GROUPS, type HelperGroup } from '../scene/instances.ts';
 import { LIGHTING, STORY_GROUPS, type LightingPreset, type ViewOptions } from '../scene/viewopts.ts';
 import { fill, h, icon, iconButton } from './dom.ts';
 import { buildQuickAddMenu, installQuickAdd } from './quickadd.ts';
+import { runCommand } from './registry.ts';
 
 /** What the toolbar can trigger and read; implemented by `levelui.ts`. */
 export interface ToolbarActions {
     tool(m: ToolMode): void;
+    /** Editor mode, like Unreal's mode switch: place and move objects, or sculpt and paint the ground. */
+    editorMode?(m: 'objects' | 'landscape'): void;
     toggleSpace(): void;
     toggleGridSnap(): void;
     toggleAngleSnap(): void;
@@ -58,6 +61,7 @@ export interface ToolbarActions {
 
 export interface ToolbarState {
     mode: ToolMode;
+    editorMode?: 'objects' | 'landscape';
     space: 'world' | 'local';
     gridSnap: boolean;
     angleSnap: boolean;
@@ -150,6 +154,9 @@ export function createToolbar(
     const q: Record<string, HTMLButtonElement> = {};
     const reg = (id: string, b: HTMLButtonElement): HTMLButtonElement => ((q[id] = b), b);
 
+    // ---- home: back to the start page (templates, the disc, the project, recent levels)
+    const homeBtn = iconButton('home', 'Start page', () => runCommand('view.startPage'), { id: 'ed-home' });
+
     // ---- quick add (the "+ Add" entry point)
     installQuickAdd();
     const quickAdd = menuButton(
@@ -160,6 +167,29 @@ export function createToolbar(
         'btn primary sm qa-btn',
     );
     quickAdd.btn.id = 'ed-add';
+
+    // ---- editor mode (objects / landscape)
+    const modeBtn = (m: 'objects' | 'landscape', label: string, title: string): HTMLButtonElement =>
+        h(
+            'button',
+            {
+                type: 'button',
+                class: `ui-seg-btn ${m}`,
+                id: `ed-mode-${m}`,
+                title,
+                'aria-pressed': 'false',
+                onclick: () => a.editorMode?.(m),
+            },
+            label,
+        );
+    const modeObjects = modeBtn('objects', 'Objects', 'Place, select and move objects');
+    const modeLandscape = modeBtn('landscape', 'Landscape', 'Sculpt the ground and paint its textures (Shift+L)');
+    const modeSeg = h(
+        'div',
+        { class: 'ui-seg mode-seg', role: 'group', 'aria-label': 'Editor mode' },
+        modeObjects,
+        modeLandscape,
+    );
 
     // ---- file
     const levelSelect = h('select', {
@@ -630,6 +660,9 @@ export function createToolbar(
     );
 
     root.append(
+        homeBtn,
+        modeSeg,
+        sep(),
         quickAdd.wrap,
         sep(),
         fileGroup,
@@ -649,6 +682,15 @@ export function createToolbar(
         closeMenus: () => document.dispatchEvent(new CustomEvent('ed-close-menus')),
         sync(s) {
             const on = (id: string, v: boolean): void => void q[id]?.classList.toggle('active', v);
+            const em = s.editorMode ?? 'objects';
+            for (const [b, m] of [
+                [modeObjects, 'objects'],
+                [modeLandscape, 'landscape'],
+            ] as const) {
+                b.classList.toggle('active', em === m);
+                b.setAttribute('aria-pressed', String(em === m));
+            }
+            modeLandscape.disabled = !s.hasSource;
             on('select', s.mode === 'select');
             on('translate', s.mode === 'translate');
             on('rotate', s.mode === 'rotate');

@@ -2,6 +2,7 @@ import {
     applyDocumentToLvl,
     checkEntrySize,
     diffDocument,
+    hasTerrainEdits,
     levelObjectFromLvl,
     validateDocument,
     type DocumentDiff,
@@ -514,7 +515,7 @@ export function createModPanel(ctx: Ctx, host: ModHost): ModPanel {
     async function doPlay(): Promise<void> {
         const src = ctx.src();
         const d = src ? diffDocument(src.lvl.list, ctx.doc()) : null;
-        const edited = !!d && changeCount(d) > 0;
+        const edited = !!d && (changeCount(d) > 0 || hasTerrainEdits(ctx.doc()));
         // A project's level copy has no LVL on the disc: its play pack adds the whole level (like Play from here does).
         const copy = await copyPlayPack(ctx.doc().level, ctx.doc(), meta());
         const pack = copy ?? (edited ? buildLevelPack(src!, ctx.doc(), meta()) : null);

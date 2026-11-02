@@ -3,11 +3,14 @@
  * Creatures, Items, Lights, Triggers and logic, Cut scenes ...), the things in the chosen group beside them. Drag a row
  * into the viewport to place it where the pointer meets the ground (the Content Browser's drag: assetdrag.ts), or
  * double-click / press Enter to place it in the middle of the view. Groups also list the ready-made set-ups that make
- * something (a cut scene, a quest, a puzzle), which open the editor that builds them. A search box looks through every
- * group, and "Recently placed" keeps the last things used. Grouping rules: placecats.ts.
+ * something (a cut scene, a quest, a puzzle), which open the editor that builds them. The story set-ups that need no
+ * editor first (a cut scene, a quest start / finish area: story/storyactions.ts `storyPlaceables`) are placed like a
+ * class: drag into the viewport, or click / Enter for the middle of the view; one that cannot be placed right now is
+ * greyed with the reason. A search box looks through every group, and "Recently placed" keeps the last things used.
+ * Grouping rules: placecats.ts.
  */
 import { categoryInfo, classCategory, TEMPLATES, type AssetClass } from '@drakan/editor-core';
-import { attachAssetDrag, dragState } from './assetdrag.ts';
+import { attachAssetDrag, attachPointDrag, dragState } from './assetdrag.ts';
 import type { Ctx, Panel } from './ctx.ts';
 import { fill, h, icon, store } from './dom.ts';
 import { openTemplate } from './logicpanel.ts';
@@ -19,12 +22,16 @@ import {
     placeCategory,
     pushRecent,
     readRecent,
+    sentence,
+    storyCategory,
     templateCategory,
     type PlaceCat,
 } from './placecats.ts';
 import { installQuickAdd, quickAddItems } from './quickadd.ts';
-import { onRegistryChange, registerCommand } from './registry.ts';
+import { onRegistryChange, registerCommand, runCommand } from './registry.ts';
 import { emptyState, searchField } from './ui.ts';
+import { placeableReason, storyPlaceables, storyPlacer, type StoryPlaceable } from '../story/storyactions.ts';
+import { STORY_COLORS, storyGlyph } from '../story/storyview.ts';
 import './placepanel.css';
 
 export interface PlaceHost {
@@ -37,7 +44,9 @@ export interface PlaceHost {
 /** One row of the list: a class to place, or a set-up that opens the editor making it. */
 type Entry =
     | { type: 'class'; key: string; cat: PlaceCat; cls: AssetClass }
-    | { type: 'action'; key: string; cat: PlaceCat; title: string; summary: string; icon: string; run: () => void };
+    | { type: 'action'; key: string; cat: PlaceCat; title: string; summary: string; icon: string; run: () => void }
+    | { type: 'story'; key: string; cat: PlaceCat; item: StoryPlaceable };
+type StoryEntry = Extract<Entry, { type: 'story' }>;
 
 type Sel = PlaceCat | 'recent';
 const RECENT_KEY = 'place-recent';
@@ -82,6 +91,18 @@ export function createPlacePanel(ctx: Ctx, host: PlaceHost): Panel {
             { class: 'panel-head' },
             h('span', { class: 'panel-title' }, icon('place', 14), 'Place'),
             h('span', { class: 'spacer' }),
+            // Landscape mode (editor/landscape/landscape.ts) swaps this panel for its ground tools.
+            h(
+                'button',
+                {
+                    class: 'btn sm pl-landscape',
+                    type: 'button',
+                    title: 'Sculpt the ground and paint its textures (Landscape mode, Shift+L)',
+                    onclick: () => runCommand('landscape.mode'),
+                },
+                icon('ground', 14),
+                'Landscape',
+            ),
             h(
                 'button',
                 {
@@ -102,6 +123,8 @@ export function createPlacePanel(ctx: Ctx, host: PlaceHost): Panel {
 
     function collect(): Entry[] {
         const out: Entry[] = [];
+        for (const item of storyPlaceables())
+            out.push({ type: 'story', key: item.id, cat: storyCategory(item.category), item });
         for (const it of quickAddItems()) {
             const cat = ACTION_CAT[it.id];
             if (!cat) continue;
@@ -131,7 +154,20 @@ export function createPlacePanel(ctx: Ctx, host: PlaceHost): Panel {
     }
 
     const textOf = (e: Entry): string =>
-        e.type === 'class' ? `${e.cls.name} ${e.cls.category}` : `${e.title} ${e.summary}`;
+        e.type === 'class'
+            ? `${e.cls.name} ${e.cls.category}`
+            : e.type === 'story'
+              ? `${e.item.title} ${e.item.hint} ${e.item.category}`
+              : `${e.title} ${e.summary}`;
+    const nameOf = (e: Entry): string =>
+        e.type === 'class' ? e.cls.name : e.type === 'story' ? e.item.title : e.title;
+    const reasonOf = (item: StoryPlaceable): string | null => {
+        try {
+            return placeableReason(item, storyPlacer(item.command));
+        } catch {
+            return 'Open a level from the disc first';
+        }
+    };
 
     function use(e: Entry): void {
         recent = pushRecent(recent, e.key);
@@ -140,8 +176,20 @@ export function createPlacePanel(ctx: Ctx, host: PlaceHost): Panel {
     }
 
     function activate(e: Entry): void {
+        if (e.type === 'story') return placeStory(e, null);
         if (e.type === 'class') ctx.placeClass(e.cls);
         else e.run();
+        use(e);
+    }
+
+    /** Place a story set-up at `at` (a drop), or in the middle of the view; say why when it cannot be placed now. */
+    function placeStory(e: StoryEntry, at: [number, number, number] | null): void {
+        const why = reasonOf(e.item);
+        if (why) {
+            ctx.toast(`${e.item.title}: ${sentence(why)}`, 'info');
+            return;
+        }
+        storyPlacer(e.item.command)!.place(at);
         use(e);
     }
 
@@ -160,7 +208,62 @@ export function createPlacePanel(ctx: Ctx, host: PlaceHost): Panel {
         return img;
     };
 
+    /** Greyed with the reason, or live with the hint (the reason changes with the selection: `refreshStory`). */
+    function paintStory(b: HTMLElement, item: StoryPlaceable): void {
+        const why = reasonOf(item);
+        const off = !!why;
+        if (b.getAttribute('aria-disabled') === String(off) && b.dataset.why === (why ?? '')) return;
+        b.setAttribute('aria-disabled', String(off));
+        b.dataset.why = why ?? '';
+        b.classList.toggle('off', off);
+        b.title = off
+            ? `${item.hint} Not available now: ${sentence(why!)}`
+            : `${item.hint} Drag into the viewport to place it there, or click to place it in the middle of the view.`;
+        const small = b.querySelector('.pl-text small');
+        if (small) small.textContent = off ? sentence(why!) : item.hint;
+    }
+
+    function storyRow(e: StoryEntry): HTMLElement {
+        const item = e.item;
+        const b = h(
+            'button',
+            {
+                class: 'pl-row pl-story',
+                type: 'button',
+                role: 'listitem',
+                'data-key': e.key,
+                'data-command': item.command,
+                style: `--k:#${STORY_COLORS[item.glyph].toString(16).padStart(6, '0')}`,
+                onclick: () => {
+                    if (!dragState.suppressClick) activate(e);
+                },
+            },
+            h('span', { class: 'pl-ico' }, storyGlyph(item.glyph, 15)),
+            h('span', { class: 'pl-text' }, h('span', { class: 'pl-name' }, item.title), h('small', {}, item.hint)),
+        );
+        paintStory(b, item);
+        attachPointDrag(
+            b,
+            `story:${item.id}`,
+            item.title,
+            ctx,
+            (at) => placeStory(e, at),
+            () => storyGlyph(item.glyph, 14),
+        );
+        return b;
+    }
+
+    /** Selection or level changed: a quest area becomes available once one quest is selected. */
+    function refreshStory(): void {
+        const items = new Map(storyPlaceables().map((i) => [i.id, i]));
+        for (const r of list.querySelectorAll<HTMLElement>('.pl-story')) {
+            const item = items.get(r.dataset.key ?? '');
+            if (item) paintStory(r, item);
+        }
+    }
+
     function row(e: Entry): HTMLElement {
+        if (e.type === 'story') return storyRow(e);
         if (e.type === 'action') {
             return h(
                 'button',
@@ -241,8 +344,7 @@ export function createPlacePanel(ctx: Ctx, host: PlaceHost): Panel {
         return out;
     }
 
-    const byName = (a: Entry, b: Entry): number =>
-        compareNames(a.type === 'class' ? a.cls.name : a.title, b.type === 'class' ? b.cls.name : b.title);
+    const byName = (a: Entry, b: Entry): number => compareNames(nameOf(a), nameOf(b));
 
     function renderCats(): void {
         const counts = new Map<PlaceCat, number>();
@@ -327,10 +429,13 @@ export function createPlacePanel(ctx: Ctx, host: PlaceHost): Panel {
             const c = PLACE_CATS.find((x) => x.id === sel)!;
             kids.push(h('div', { class: 'pl-head' }, h('strong', {}, c.title), h('span', {}, c.hint)));
             const inCat = entries.filter((e) => e.cat === sel);
+            const story = inCat.filter((e) => e.type === 'story');
             const actions = inCat.filter((e) => e.type === 'action');
             const classes = inCat.filter((e) => e.type === 'class').sort(byName);
-            kids.push(...group(actions.length && classes.length ? 'Set up' : null, actions, `a:${sel}`));
-            if (classes.length) kids.push(...group(actions.length ? 'Objects' : null, classes, `c:${sel}`));
+            const titled = [story, actions, classes].filter((x) => x.length).length > 1;
+            kids.push(...group(titled ? 'Place in the level' : null, story, `s:${sel}`));
+            kids.push(...group(titled ? 'Set up in an editor' : null, actions, `a:${sel}`));
+            if (classes.length) kids.push(...group(titled ? 'Objects' : null, classes, `c:${sel}`));
             else if (!hasLevel)
                 kids.push(h('p', { class: 'pl-note' }, 'Open a level to see the objects it can use in this group.'));
         }
@@ -426,6 +531,7 @@ export function createPlacePanel(ctx: Ctx, host: PlaceHost): Panel {
 
     return {
         el,
+        onSelection: refreshStory,
         onLoad: () => {
             thumbs.clear();
             showAll.clear();
@@ -433,6 +539,7 @@ export function createPlacePanel(ctx: Ctx, host: PlaceHost): Panel {
         },
         onChange: () => {
             // Only the counts change: update them in place (focus and scroll stay where they are).
+            refreshStory();
             countLevel();
             for (const r of list.querySelectorAll<HTMLElement>('.pl-class')) {
                 const n = counts.get(r.dataset.res ?? '') ?? 0;

@@ -150,3 +150,14 @@
 .mn-file {
     display: none;
 }
+
+/* The project is a campaign: the skin is part of it (menus/panel.ts campaignNote). */
+.mn-campaign {
+    flex: none;
+    margin: var(--sp-2) var(--sp-3) 0;
+    padding: var(--sp-2) var(--sp-3);
+    border-left: 2px solid var(--accent);
+    background: var(--surface-2);
+    font-size: var(--fs-sm);
+    line-height: 1.4;
+}

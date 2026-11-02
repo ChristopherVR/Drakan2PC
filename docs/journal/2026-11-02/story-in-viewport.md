@@ -75,3 +75,49 @@ starter camera move, view option parsing).
 - No new shop placement (see above). No in-viewport editing of camera keys yet (edit them in the timeline; the path
   redraws).
 - Not run in game: a cut scene made with one click (same writer as the proven "Make a cut scene", untested start pose).
+
+## Follow-ups
+
+### Story placements in the Place panel
+
+The left Place panel lists `storyPlaceables()` under their groups, above the editor set-ups and the classes, with a
+"Place in the level" sub-heading: Cut scenes > Cut scene, Quests > Quest start area / Quest finish area, Vendors >
+Shop. Each row has its viewport badge glyph (`storyGlyph`) in the badge colour (`STORY_COLORS`).
+
+- Click or Enter places at the view centre (the same as the `story.place.*` command); dragging the row into the
+  viewport shows the ground marker and places at the drop point. Placement at a point goes through a small placer
+  table in `story/storyactions.ts` (`registerStoryPlacer` / `storyPlacer`; `register.ts` registers one per command with
+  the same "why not" check the command's `enabled` uses). The drag is `attachPointDrag` in `editor/assetdrag.ts` (the
+  class drag without the class: it reads `view.groundAt` on drop instead of `dragDrop`).
+- A row that cannot be placed is greyed and shows the reason in place of its hint ("Select one quest first (click its !
+  badge in the level).", the shop's "Not yet: ..."); clicking it says the same in a toast; it cannot be dragged. The
+  rows repaint on selection and document changes, so selecting a quest's "!" badge turns the quest rows on.
+- Placed rows join "Recently placed". Pure parts (`storyCategory`, `sentence`, `placeableReason`) are tested in
+  `packages/app/test/story-place.test.ts`.
+
+### Story beside the viewport
+
+Story's home is now the Level Editor's bottom drawer (`ia.ts`, `home: 'dock'`), like Unreal's Sequencer: the viewport
+stays visible while editing. When it is newly docked (or the drawer was shut) the drawer grows to at least half the
+Level Editor's height (`dockShare: 0.5`, `Layout.openBottom(share)`, pure `grownSize` in `splitmath.ts`); a drawer the
+user made bigger is kept.
+
+- Opened from the level view (double-click a story badge or its object, "Add cut scene here", the Place panel, the
+  Quick Add story rows) it uses `Workspace.showBeside('story')`: the drawer, unless Story is open in its own tab right
+  now (the user popped it out), in which case that tab comes forward. It does not change the remembered place.
+- The dock tab's "Open in its own tab" button pops it out (remembered); the tab's header "Dock in Level Editor" brings
+  it back. `openIn` now closes the editor only where it is open in the other place (a pop-out of an editor docked from
+  the viewport while its remembered home was "tab" used to leave it in both).
+
+Checked with a static `vite build` and a private Playwright context, PAL disc, Surdana, 1700 x 1000 (shots in
+`build/scratch/followup-story/`, script `shot.mjs`): Cut scenes group lists the live row (`1-place-cutscenes.png`);
+quest rows greyed with the reason (`2-place-quests-greyed.png`), the shop row greyed (`2b-place-vendors.png`); dragging
+"Cut scene" onto the ground made sequence 1411 "New cut scene 1" and opened the timeline docked under a 1032 x 448
+viewport (`3a-dragging-cutscene.png`, `3-dropped-cutscene-docked.png`); after selecting a quest badge the quest rows are
+live (`4a-place-quests-live.png`) and a click added "Quest start area added for Brakks Icon." (`4-quest-start-placed.png`);
+closing Story and double-clicking a cut scene badge opened it docked on "Revised Heuge Thieves"
+(`5-badge-opens-docked.png`); pop-out made it a tab (`6-popped-out.png`), a badge double-click then kept the tab, and
+"Dock in Level Editor" put it back (`7-docked-back.png`). `npx vitest run` 715 passed, `tsc`, prettier on the touched
+files.
+
+Not checked: the desktop app, touch drag, the light theme; dropping a quest area by drag (same placer as the click).

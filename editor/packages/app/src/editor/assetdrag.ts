@@ -69,3 +69,61 @@ export function attachAssetDrag(
         window.addEventListener('pointercancel', cancel);
     });
 }
+
+/**
+ * The same pointer drag for something that is not a class (the Place panel's story set-ups: a cut scene, a quest area).
+ * The viewport shows its ground marker under the pointer; a drop calls `onDrop` with that ground point (game units).
+ * `label` is the ghost's text and `glyph` an optional icon in front of it.
+ */
+export function attachPointDrag(
+    el: HTMLElement,
+    key: string,
+    label: string,
+    ctx: Ctx,
+    onDrop: (at: [number, number, number]) => void,
+    glyph?: () => Element,
+): void {
+    el.addEventListener('pointerdown', (e) => {
+        if (e.button !== 0 || el.getAttribute('aria-disabled') === 'true') return;
+        const sx = e.clientX;
+        const sy = e.clientY;
+        const view = ctx.view();
+        let ghost: HTMLElement | null = null;
+        const move = (m: PointerEvent): void => {
+            if (!ghost) {
+                if (Math.hypot(m.clientX - sx, m.clientY - sy) < 5) return;
+                view.dragKey = key;
+                ghost = h('div', { class: 'drag-ghost live point' }, glyph?.() ?? null, label);
+                document.body.append(ghost);
+                document.body.classList.add('dragging-asset');
+            }
+            ghost.style.left = `${m.clientX + 12}px`;
+            ghost.style.top = `${m.clientY + 12}px`;
+            if (view.isOverViewport(m.clientX, m.clientY)) {
+                view.dragHover(m);
+                ghost.classList.add('over');
+            } else {
+                view.placeGhostHide();
+                ghost.classList.remove('over');
+            }
+        };
+        const end = (u: PointerEvent, cancelled: boolean): void => {
+            window.removeEventListener('pointermove', move);
+            window.removeEventListener('pointerup', up);
+            window.removeEventListener('pointercancel', cancel);
+            document.body.classList.remove('dragging-asset');
+            if (!ghost) return;
+            ghost.remove();
+            const at = !cancelled && view.isOverViewport(u.clientX, u.clientY) ? view.groundAt(u) : null;
+            view.dragCancel();
+            if (at) onDrop(at);
+            dragState.suppressClick = true;
+            setTimeout(() => (dragState.suppressClick = false), 0);
+        };
+        const up = (u: PointerEvent): void => end(u, false);
+        const cancel = (u: PointerEvent): void => end(u, true);
+        window.addEventListener('pointermove', move);
+        window.addEventListener('pointerup', up);
+        window.addEventListener('pointercancel', cancel);
+    });
+}

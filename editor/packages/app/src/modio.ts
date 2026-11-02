@@ -3,9 +3,12 @@ import {
     applyDocumentToLvl,
     buildModFiles,
     checkEntrySize,
+    hasTerrainEdits,
+    terrainPackEntry,
     updateModsIni,
     zipModFiles,
     type ApplyReport,
+    type ChangedEntry,
     type DocumentDiff,
     type LevelDocument,
     type ModMeta,
@@ -51,30 +54,57 @@ export interface LevelPack {
     entry: { file: string; type: number; id: number; sub: number; bytes: number; originalBytes: number };
     report: ApplyReport;
     warnings: string[];
+    /** Summary of the terrain edits in the pack (LVL 0x0001), when there are any. */
+    terrain?: string;
+}
+
+/** True when the document has object or terrain edits to export. */
+export const hasLevelEdits = (src: LevelLoadResult, doc: LevelDocument): boolean =>
+    changeCount(applyDocumentToLvl(src.lvl.list, doc, { onReferenced: 'unlink' }).report.diff) > 0 ||
+    hasTerrainEdits(doc);
+
+/** The rebuilt terrain entry (LVL 0x0001) for the document's terrain edits, or null. Throws ModError when it cannot be built. */
+export function levelTerrainEntry(src: LevelLoadResult, doc: LevelDocument): ReturnType<typeof terrainPackEntry> {
+    if (!hasTerrainEdits(doc)) return null;
+    if (!src.layers) throw new ModError(`${src.file} has no terrain entry to rebuild.`);
+    return terrainPackEntry(src.file, src.layers, src.layers.data, doc);
 }
 
 /** Apply the document to the level it was loaded from and lay out the pack. Throws ModError when it is unsafe. */
 export function buildLevelPack(src: LevelLoadResult, doc: LevelDocument, meta: ModMeta): LevelPack {
     const { list, report } = applyDocumentToLvl(src.lvl.list, doc, { onReferenced: 'unlink' });
     const d = report.diff;
-    if (changeCount(d) === 0) {
+    const terrain = levelTerrainEntry(src, doc);
+    if (changeCount(d) === 0 && !terrain) {
         throw new ModError('No level edits to export.');
     }
-    const payload = writeObjectList(list);
     const warnings = [...report.warnings];
-    const size = checkEntrySize(src.file, src.objects.size, payload.length);
-    if (size) throw new ModError(size);
-    if (report.unlinked.length) warnings.push(`${report.unlinked.length} link(s) to deleted objects were removed.`);
-    const entry = {
-        file: src.file,
-        type: src.objects.type,
-        id: src.objects.id,
-        sub: src.objects.sub,
-        bytes: payload.length,
-        originalBytes: src.objects.size,
-    };
-    const files = buildModFiles(meta, [{ file: entry.file, entry, data: payload }]);
-    return { meta, files, entry, report, warnings };
+    const changes: ChangedEntry[] = [];
+    let entry: LevelPack['entry'];
+    if (changeCount(d) > 0) {
+        const payload = writeObjectList(list);
+        const size = checkEntrySize(src.file, src.objects.size, payload.length);
+        if (size) throw new ModError(size);
+        if (report.unlinked.length) warnings.push(`${report.unlinked.length} link(s) to deleted objects were removed.`);
+        entry = {
+            file: src.file,
+            type: src.objects.type,
+            id: src.objects.id,
+            sub: src.objects.sub,
+            bytes: payload.length,
+            originalBytes: src.objects.size,
+        };
+        changes.push({ file: entry.file, entry, data: payload });
+    } else {
+        const t = terrain!.change;
+        entry = { file: t.file, ...t.entry, bytes: t.data.length, originalBytes: src.layers!.size };
+    }
+    if (terrain) {
+        changes.push(terrain.change);
+        warnings.push(...terrain.report.warnings);
+    }
+    const files = buildModFiles(meta, changes);
+    return { meta, files, entry, report, warnings, ...(terrain ? { terrain: terrain.line } : {}) };
 }
 
 export const zipPack = (pack: LevelPack): Uint8Array => zipModFiles(pack.files);

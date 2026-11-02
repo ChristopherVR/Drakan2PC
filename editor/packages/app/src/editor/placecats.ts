@@ -110,6 +110,21 @@ export const ACTION_CAT: Readonly<Record<string, PlaceCat>> = {
     vendor: 'vendors',
 };
 
+/** Story placements (story/storyactions.ts `storyPlaceables`, by their category name) and the group they are listed in. */
+export const STORY_CAT: Readonly<Record<string, PlaceCat>> = {
+    'Cut scenes': 'cutscenes',
+    Quests: 'quests',
+    Shops: 'vendors',
+    Vendors: 'vendors',
+};
+export const storyCategory = (name: string): PlaceCat => STORY_CAT[name] ?? 'other';
+
+/** A reason as a sentence for a row or a toast: capital first letter, full stop at the end. */
+export function sentence(s: string): string {
+    const t = s.trim();
+    return t ? `${t[0]!.toUpperCase()}${t.slice(1)}${/[.!?]$/.test(t) ? '' : '.'}` : t;
+}
+
 /** Ready-made logic set-ups (editor-core logic-templates.ts) listed outside Triggers and logic. */
 export const TEMPLATE_CAT: Readonly<Record<string, PlaceCat>> = {
     'cutscene-trigger': 'cutscenes',

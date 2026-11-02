@@ -391,4 +391,5 @@ stock list at shop-object `+0x18` (count `+0x1c`, see `DRAKAN_DEBUG_OPEN_SHOP` i
 enabled). The list order in the shop screen is infinite items first, then limited units. The data layout (fields, price modifiers, price in the
 item class) is in [level-format.md](level-format.md) section 16; the shop screen is the inventory screen 0x15 in shop mode
 ([mouse-menus.md](mouse-menus.md) section 11). Gold is an obfuscated stat: `rotr8(*0x4fbae0 ^ *0x4fe86c)` (same scheme as the skill points at
-`0x4fbaf4`), which `scripts/harness/vendor_shop.py` decodes from RAM dumps.
+`0x4fbaf4`), which `scripts/harness/vendor_shop.py` decodes from RAM dumps. The keeper is the shop's first LVL link (it links back);
+the keeper must receive On before Use next to it opens the shop (level-format.md section 16, "Shop to shopkeeper").

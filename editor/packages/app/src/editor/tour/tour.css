@@ -1,0 +1,547 @@
+/*
+ * Guided tours (tour/engine.ts): the dimmed and blurred shade with a hole on the target, corner brackets that close in
+ * on it (the same bracket a selected object gets in the viewport), the callout card, and the demo pointer.
+ * Everything uses the theme tokens; motion is off under prefers-reduced-motion.
+ */
+.tour-root {
+    --tour-shade: rgb(6 8 12 / 0.55);
+    --tour-bracket: var(--accent);
+    position: fixed;
+    inset: 0;
+    z-index: 9000;
+    pointer-events: none;
+    font-family: var(--font);
+}
+:root[data-theme='light'] .tour-root {
+    --tour-shade: rgb(28 32 42 / 0.4);
+}
+
+.tour-shade {
+    position: absolute;
+    inset: 0;
+    pointer-events: auto;
+    background: var(--tour-shade);
+    -webkit-backdrop-filter: blur(3px) saturate(0.7);
+    backdrop-filter: blur(3px) saturate(0.7);
+    transition: clip-path var(--t-med) ease-out;
+}
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+    .tour-shade {
+        background: rgb(6 8 12 / 0.68);
+    }
+    :root[data-theme='light'] .tour-shade {
+        background: rgb(28 32 42 / 0.55);
+    }
+}
+.tour-root.finished .tour-shade {
+    background: rgb(6 8 12 / 0.3);
+}
+
+/* ---- corner brackets on the target ---------------------------------------------------------------------------- */
+
+.tour-frame {
+    position: absolute;
+    left: 0;
+    top: 0;
+    border-radius: 8px;
+    box-shadow:
+        0 0 0 1px color-mix(in srgb, var(--accent) 45%, transparent),
+        0 0 0 4px color-mix(in srgb, var(--accent) 12%, transparent);
+    transition:
+        transform var(--t-med) ease-out,
+        width var(--t-med) ease-out,
+        height var(--t-med) ease-out;
+}
+.tour-frame i {
+    position: absolute;
+    width: 14px;
+    height: 14px;
+    border: 0 solid var(--tour-bracket);
+}
+.tour-frame .tl {
+    left: -3px;
+    top: -3px;
+    border-width: 2px 0 0 2px;
+    border-top-left-radius: 9px;
+}
+.tour-frame .tr {
+    right: -3px;
+    top: -3px;
+    border-width: 2px 2px 0 0;
+    border-top-right-radius: 9px;
+}
+.tour-frame .bl {
+    left: -3px;
+    bottom: -3px;
+    border-width: 0 0 2px 2px;
+    border-bottom-left-radius: 9px;
+}
+.tour-frame .br {
+    right: -3px;
+    bottom: -3px;
+    border-width: 0 2px 2px 0;
+    border-bottom-right-radius: 9px;
+}
+/* The one orchestrated moment of a step: the brackets close in from outside. */
+.tour-frame.lock .tl {
+    animation: tour-lock-tl 320ms cubic-bezier(0.2, 0.9, 0.3, 1.2) both;
+}
+.tour-frame.lock .tr {
+    animation: tour-lock-tr 320ms cubic-bezier(0.2, 0.9, 0.3, 1.2) both;
+}
+.tour-frame.lock .bl {
+    animation: tour-lock-bl 320ms cubic-bezier(0.2, 0.9, 0.3, 1.2) both;
+}
+.tour-frame.lock .br {
+    animation: tour-lock-br 320ms cubic-bezier(0.2, 0.9, 0.3, 1.2) both;
+}
+@keyframes tour-lock-tl {
+    from {
+        transform: translate(-16px, -16px);
+        opacity: 0;
+    }
+}
+@keyframes tour-lock-tr {
+    from {
+        transform: translate(16px, -16px);
+        opacity: 0;
+    }
+}
+@keyframes tour-lock-bl {
+    from {
+        transform: translate(-16px, 16px);
+        opacity: 0;
+    }
+}
+@keyframes tour-lock-br {
+    from {
+        transform: translate(16px, 16px);
+        opacity: 0;
+    }
+}
+/* While the tour waits for a click, the outline breathes. */
+.tour-root:has(.tour-card.waiting) .tour-frame {
+    animation: tour-breathe 1.8s ease-in-out infinite;
+}
+@keyframes tour-breathe {
+    50% {
+        box-shadow:
+            0 0 0 1px color-mix(in srgb, var(--accent) 70%, transparent),
+            0 0 0 7px color-mix(in srgb, var(--accent) 20%, transparent);
+    }
+}
+
+/* ---- callout card --------------------------------------------------------------------------------------------- */
+
+.tour-card {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: min(340px, calc(100vw - 24px));
+    box-sizing: border-box;
+    padding: 12px 16px 10px;
+    pointer-events: auto;
+    background: var(--surface-2);
+    color: var(--fg);
+    border: 1px solid var(--border-strong);
+    border-radius: var(--r-lg);
+    box-shadow: var(--shadow-pop);
+    transition: transform var(--t-med) ease-out;
+    outline: none;
+}
+.tour-card:focus-visible {
+    box-shadow: var(--shadow-pop), var(--ring);
+}
+.tour-card.enter {
+    animation: tour-card-in 200ms ease-out;
+}
+@keyframes tour-card-in {
+    from {
+        opacity: 0;
+    }
+}
+.tour-card.nudge {
+    animation: tour-nudge 300ms ease-in-out;
+}
+@keyframes tour-nudge {
+    25% {
+        translate: -5px 0;
+    }
+    75% {
+        translate: 5px 0;
+    }
+}
+
+/* Arrow notch toward the target. */
+.tour-card::before {
+    content: '';
+    position: absolute;
+    width: 10px;
+    height: 10px;
+    background: var(--surface-2);
+    border: 1px solid var(--border-strong);
+    rotate: 45deg;
+    display: none;
+}
+.tour-card[data-side='bottom']::before {
+    display: block;
+    top: -6px;
+    left: calc(var(--tour-arrow, 50%) - 5px);
+    border-right: 0;
+    border-bottom: 0;
+}
+.tour-card[data-side='top']::before {
+    display: block;
+    bottom: -6px;
+    left: calc(var(--tour-arrow, 50%) - 5px);
+    border-left: 0;
+    border-top: 0;
+}
+.tour-card[data-side='right']::before {
+    display: block;
+    left: -6px;
+    top: calc(var(--tour-arrow, 50%) - 5px);
+    border-right: 0;
+    border-top: 0;
+}
+.tour-card[data-side='left']::before {
+    display: block;
+    right: -6px;
+    top: calc(var(--tour-arrow, 50%) - 5px);
+    border-left: 0;
+    border-bottom: 0;
+}
+
+.tour-head {
+    display: flex;
+    align-items: center;
+    gap: var(--sp-4);
+    margin-bottom: 6px;
+}
+.tour-name {
+    flex: 1;
+    min-width: 0;
+    font-size: var(--fs-xs);
+    color: var(--fg-muted);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.tour-steps {
+    display: flex;
+    gap: 3px;
+}
+.tour-steps i {
+    width: 12px;
+    height: 3px;
+    border-radius: 2px;
+    background: var(--border-strong);
+}
+.tour-steps i.done {
+    background: color-mix(in srgb, var(--accent) 55%, transparent);
+}
+.tour-steps i.now {
+    width: 20px;
+    background: var(--accent);
+}
+.tour-card .tour-title {
+    display: flex;
+    align-items: center;
+    gap: var(--sp-3);
+    height: auto;
+    padding: 0;
+    background: none;
+    border: 0;
+    margin: 0 0 4px;
+    font-size: var(--fs-lg);
+    font-weight: 600;
+    line-height: 1.3;
+}
+.tour-text {
+    margin: 0;
+    font-size: var(--fs-md);
+    line-height: 1.5;
+    color: var(--fg);
+}
+.tour-wait,
+.tour-hint,
+.tour-missing,
+.tour-outside {
+    display: flex;
+    align-items: flex-start;
+    gap: var(--sp-3);
+    margin: 8px 0 0;
+    font-size: var(--fs-sm);
+    line-height: 1.45;
+    color: var(--fg-muted);
+}
+.tour-wait[hidden],
+.tour-missing[hidden],
+.tour-outside[hidden] {
+    display: none;
+}
+.tour-hint {
+    color: var(--warn);
+}
+.tour-hint .ico {
+    flex: none;
+    margin-top: 1px;
+}
+.tour-dot {
+    flex: none;
+    width: 8px;
+    height: 8px;
+    margin-top: 4px;
+    border-radius: 50%;
+    background: var(--accent);
+    animation: tour-dot 1.4s ease-in-out infinite;
+}
+@keyframes tour-dot {
+    50% {
+        opacity: 0.3;
+    }
+}
+.tour-tick {
+    display: inline-grid;
+    place-items: center;
+    width: 22px;
+    height: 22px;
+    border-radius: 50%;
+    background: var(--ok-soft);
+    color: var(--ok);
+}
+.tour-foot {
+    display: flex;
+    align-items: center;
+    gap: var(--sp-3);
+    margin-top: 12px;
+}
+.tour-count {
+    flex: 1;
+    text-align: right;
+    font-size: var(--fs-xs);
+    color: var(--fg-faint);
+    font-variant-numeric: tabular-nums;
+}
+.tour-card .tour-skip {
+    padding: 0;
+    font: inherit;
+    font-size: var(--fs-xs);
+    color: var(--fg-muted);
+    background: none;
+    border: 0;
+    cursor: pointer;
+    text-decoration: underline;
+    text-underline-offset: 2px;
+}
+.tour-card .tour-skip:hover {
+    color: var(--fg);
+}
+.tour-card .tour-skip:focus-visible {
+    outline: none;
+    box-shadow: var(--ring);
+    border-radius: var(--r-xs);
+}
+.tour-card .tour-later {
+    color: var(--fg-muted);
+}
+.tour-live {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+}
+
+/* ---- pointer, drag ghost and trail ---------------------------------------------------------------------------- */
+
+.tour-pointer {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 0;
+    height: 0;
+}
+.tour-pointer[hidden] {
+    display: none;
+}
+.tour-pulse {
+    position: absolute;
+    left: -18px;
+    top: -18px;
+    width: 36px;
+    height: 36px;
+    border-radius: 50%;
+    border: 2px solid var(--accent);
+    animation: tour-pulse 1.6s ease-out infinite;
+}
+@keyframes tour-pulse {
+    from {
+        transform: scale(0.4);
+        opacity: 0.9;
+    }
+    to {
+        transform: scale(1.7);
+        opacity: 0;
+    }
+}
+.tour-cursor {
+    position: absolute;
+    left: -5px;
+    top: -3px;
+    fill: #fff;
+    stroke: #0d0f14;
+    stroke-width: 1.3;
+    stroke-linejoin: round;
+    filter: drop-shadow(0 2px 3px rgb(0 0 0 / 0.5));
+    transform-origin: 5px 3px;
+}
+.tour-pointer.pulse-only .tour-cursor {
+    display: none;
+}
+.tour-ghost {
+    position: absolute;
+    left: 16px;
+    top: 18px;
+    max-width: 180px;
+    padding: 3px 8px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    font-size: var(--fs-xs);
+    color: var(--fg);
+    background: var(--surface-3);
+    border: 1px solid var(--accent);
+    border-radius: var(--r-sm);
+    box-shadow: var(--shadow-1);
+}
+.tour-ghost[hidden] {
+    display: none;
+}
+.tour-trail {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    overflow: visible;
+}
+.tour-trail path,
+.tour-trail circle {
+    fill: none;
+    stroke: var(--accent);
+    stroke-width: 2;
+    stroke-dasharray: 6 6;
+    stroke-linecap: round;
+    animation: tour-march 0.9s linear infinite;
+}
+.tour-trail circle {
+    stroke-dasharray: 4 4;
+}
+@keyframes tour-march {
+    to {
+        stroke-dashoffset: -12;
+    }
+}
+
+/* ---- tour list (Help > Start a tutorial) ---------------------------------------------------------------------- */
+
+.tour-picker-back {
+    position: fixed;
+    inset: 0;
+    z-index: 8990;
+    display: grid;
+    place-items: center;
+    padding: 16px;
+    background: rgb(6 8 12 / 0.5);
+}
+.tour-picker {
+    width: min(560px, 100%);
+    max-height: min(680px, calc(100vh - 32px));
+    display: flex;
+    flex-direction: column;
+    background: var(--surface-1);
+    color: var(--fg);
+    border: 1px solid var(--border-strong);
+    border-radius: var(--r-lg);
+    box-shadow: var(--shadow-pop);
+    font-family: var(--font);
+}
+.tour-picker > header {
+    display: flex;
+    align-items: flex-start;
+    gap: var(--sp-4);
+    padding: 14px 16px 10px;
+    border-bottom: 1px solid var(--border);
+}
+.tour-picker > header h2 {
+    display: block;
+    height: auto;
+    padding: 0;
+    background: none;
+    border: 0;
+    margin: 0;
+    font-size: var(--fs-lg);
+    font-weight: 600;
+}
+.tour-picker > header p {
+    margin: 2px 0 0;
+    font-size: var(--fs-sm);
+    color: var(--fg-muted);
+}
+.tour-picker > header > div {
+    flex: 1;
+}
+.tour-list {
+    overflow: auto;
+    padding: 4px 0 10px;
+}
+.tour-list h3 {
+    margin: 10px 16px 4px;
+    font-size: var(--fs-sm);
+    font-weight: 600;
+    color: var(--fg-muted);
+}
+.tour-row {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    align-items: center;
+    gap: var(--sp-5);
+    padding: 7px 16px;
+}
+.tour-row:hover,
+.tour-row:focus-within {
+    background: var(--surface-2);
+}
+.tour-row b {
+    display: flex;
+    align-items: center;
+    gap: var(--sp-3);
+    font-size: var(--fs-md);
+    font-weight: 600;
+}
+.tour-row b .ico {
+    color: var(--ok);
+}
+.tour-row small {
+    display: block;
+    margin-top: 1px;
+    font-size: var(--fs-sm);
+    line-height: 1.4;
+    color: var(--fg-muted);
+}
+.tour-row .tour-row-btns {
+    display: flex;
+    gap: var(--sp-3);
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .tour-shade,
+    .tour-frame,
+    .tour-card {
+        transition: none;
+    }
+}
+.tour-root.reduced *,
+.tour-root.reduced .tour-frame {
+    animation: none !important;
+}

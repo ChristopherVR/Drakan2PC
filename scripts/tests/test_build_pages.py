@@ -67,6 +67,13 @@ class PagesTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "Unexpected public artifact"):
             pages.validate_site(self.output, "/Drakan2PC/")
 
+    def test_editor_guide_anchors(self):
+        self.assertGreater(pages.validate_editor_guides(self.output, "/Drakan2PC/"), 5)
+        page = self.output / pages.EDITOR_GUIDES_URL
+        page.write_text(page.read_text(encoding="utf-8").replace('id="campaign"', 'id="renamed"'), encoding="utf-8")
+        with self.assertRaisesRegex(ValueError, "campaign"):
+            pages.validate_editor_guides(self.output, "/Drakan2PC/")
+
     def test_root_hosting_and_output_guard(self):
         pages.build(self.output, "/")
         not_found = (self.output / "404.html").read_text(encoding="utf-8")

@@ -80,6 +80,8 @@ export interface LevelLoadResult {
     file: string;
     /** SRSC entry holding the object list (0x0020) with its stored size. */
     objects: { type: number; id: number; sub: number; size: number };
+    /** The terrain entry (LVL 0x0001) with its disc bytes, which terrain edits are rebuilt from (`loadLevel` only). */
+    layers?: { type: number; id: number; sub: number; size: number; data: Uint8Array };
     lvl: Lvl;
     /** Class tables of the ODBs the level depends on, keyed by stem. */
     odbs: OdbIndex;

@@ -185,23 +185,26 @@ cell   = u16 flags, u32 texture, 8 x u16 uv      // row-major, top-left first, l
 * **UV [D][disc]**: 8 x u16, `0xffff` = 1.0, order `Uc Ud Ub Ua Vc Vd Vb Va` with corners `a b / c d`; v up (GL). 13 distinct
   patterns in Surdana (the 8 flips/rotations of the unit square plus about 20 odd cells **[?]**).
 * **Vertex words [inf]**: first u16 (0x200, 0x241, 0x000, ...) **[?]**; second u16 low 4 bits = which of the four surrounding
-  cells exist (8/4/2/1 corners, 12/10/5/3 edges, 15 inside).
+  cells exist **and are not holes** (8 down-right, 4 down-left, 2 up-right, 1 up-left; 98.8 % of LEVEL1NA vertices, "exist"
+  alone 91 %); its upper byte is 0 on every disc vertex [disc, 2026-11-02].
+* **`visible` [disc]**: every layer lists itself (483 of 483 in LEVEL1NA, first in 175); 90 % of links are symmetric. An
+  appended layer that did not list itself hung the game when the player came near it [game, 2026-11-02].
 * **Inline blob [?]**: each definition is followed by a variable-length blob (92 bytes for a flat 3x4 layer, 7 KB for 21x47)
   that starts `{u16 seq, u16 0x18, u32 0x40}` (the 0x0c in section 9 is not what the layers show; 0x18 was seen on every layer
   checked), then header words (w, h, texture-ref count and list, w+1, h+1, count), per-vertex byte arrays and, in most
   layers, per-vertex `xx xx xx 0x7f` signed-byte normals (probably baked lighting data). It is **not needed** for geometry.
-  The reader does not walk it: it finds the next definition by structure (name string, type <= 2, width/height equal to the next
-  block's size). That resync matched all 483 Surdana layers and ends exactly at the zlib section; a real walk is open.
+  The parser finds the next definition by structure (`splitPs2Terrain`: name string, type <= 2, width/height equal to the next
+  block's size); the blob itself is now walked exactly (`readPs2Blob`, section 10.1).
 * **Units**: PC `Vertex` is `{u8 type, u8 1, u16 height}`, face `{u16 flags, u32 left, u32 right, 8 x u16 uv}`.
 
 ### 10.1 Inline blob layout
 
-Generator: `editor/packages/formats/src/terrainblob.ts` (`buildPs2TerrainBlob`). Checked against LEVEL0RO (19 layers),
-LEVEL5NE (278) and LEVEL1NA (287), all PAL; the walker below consumes every blob to its last byte except about 3% of
-layers whose slice my resync cut wrongly.
+Generator: `editor/packages/formats/src/terrainblob.ts` (`buildPs2TerrainBlob`). Reader / writer: `terrainwrite.ts`
+(`readPs2Blob`, `writePs2Blob`): byte-exact on **every** layer of the 14 PAL level LVLs (2026-11-02).
 
 ```
 u16 seq, u16 level_tag, u32 pool, u32 x_lo, x_hi, z_lo, z_hi, u32 chunk_count            // 28 bytes   [disc]
+  or u32 0 (4 bytes, no chunks): layer without draw data                                 //            [disc]
 chunk_count x {                                                                          // x outer, z inner
   u32 x0, x1, z0, z1 ; u32 ntex ; ntex x u32 ref ; u32 vw, vh, n(=ntex)
   n x (vw*vh) bytes                                                                      // one array per texture
@@ -213,8 +216,10 @@ else: 00 00 00 00, then (w+1)*(h+1) x { i8 nx, ny, nz, 0x7f }  // entry v+1 = ve
 * **Header [disc]**: `level_tag` is constant per level (0x0c LEVEL0RO, 0x16 LEVEL5NE; meaning [?]). `x_hi = 4w-1`, `z_hi = 4h-1`
   for every solo layer; `pool` = 64/128/256, the smallest that holds the largest `hi+1` of the group. `seq` is a group id
   (layers that coexist share one; twin floor/ceiling layers have equal seq). Inside a group the two ranges are slot
-  allocations that overlap between layers that are never visible together (LEVEL5NE seq 1: ranges 0..43, 44..55, 0..11); the
-  allocation rule is **not derived**. A solo range `0..4w-1` / `0..4h-1` is self-consistent **[inf]**.
+  allocations that **never overlap** (0 of about 14,000 same-group pairs in 14 levels; an earlier "overlap" note came from
+  blobs the old resync had cut wrongly); the allocation order is **not derived**. A solo range `0..4w-1` / `0..4h-1` is
+  self-consistent **[inf]**. `seq` runs 1..n (LEVEL1NA 50, LEVEL4LD 103; one gap in LEVEL1OR). A layer moved into a
+  **new** `seq` (one past the highest) was not drawn at all (collision kept) [game, 2026-11-02].
   Groups hold 1..20 layers (LEVEL1NA seq 1: twelve layers shelf-packed at x 0..11, 12..15, 16..31 / z 0..15, 0..3, ... in a 64
   pool). `planTerrainSlots` (terrainblob.ts) does the same for converted levels; in-game accepted (Volcano: 941 layers).
 * **Limit [game]**: at most **10 textures per chunk**. The chunk record is 0x4c bytes: `+0x00 x0, +0x08 x1, +0x04 z0, +0x0c z1,
@@ -249,6 +254,23 @@ else: 00 00 00 00, then (w+1)*(h+1) x { i8 nx, ny, nz, 0x7f }  // entry v+1 = ve
   texture), not collision; heights, flags and UVs all live in the zlib block. Untested in-game. Safe defaults for a new
   layer: unique `seq`, solo ranges, texture order by the new texture's own priority, `outside` = none for flat layers and
   any otherwise, up-pointing or central-difference normals; set the flat flag (0x04) to skip normals entirely.
+
+### 10.2 Writing edited terrain (2026-11-02)
+
+Writer: `editor/packages/formats/src/terrainwrite.ts` (`rebuildPs2Terrain`); pack wiring in editor-core `terrain-pack.ts`.
+In-game evidence: `docs/journal/2026-11-02/terrain-editing-write.md`.
+
+* **Override [game]**: the rebuilt 0x0001 payload as `overrides/<LEVEL>.LVL/0001_0_0.bin`; no other entry, no splat file and
+  no runtime change is needed for height, texture (refs the level already uses), resize and new-layer edits. 0x0001 is
+  larger than the 0x40800 whole-entry limit on 10 of 14 levels, so it may grow there.
+* **Heights [game]**: collision follows the zlib block heights at once (Rynn stands on a +3000 hill, falls without the pack).
+  Normals in the blob only shade; recomputing the 3x3 neighbourhood of moved vertices is enough. Objects keep their y.
+* **Cell textures [game]**: a new ref in a chunk needs its texture-list entry and weight array; recomputing the bytes around
+  the repainted cells blends the patch into its surroundings like disc patches.
+* **Resize / new layer [game]**: needs a blob with a slot in an **existing** group (a new `seq` drew nothing); overlapping the
+  slot of a group member that no `visible` list links to it drew correctly. A new layer must list itself in `visible`
+  (else the game hangs once the player is near it) and the layers around it must list it to draw it from there.
+* **Unchanged layers** are copied byte for byte; an unedited rebuild is the disc payload (all 14 levels).
 
 ## 11. Models (MOD) on PS2
 
@@ -768,6 +790,18 @@ Outskirts Store` in LEVEL4ON) and 8 placed instances on the disc: Surdana 3 (bla
 Ravenshold (LEVEL4LD) 1, Northern Tundra (LEVEL4RA) 1 (it sets no stock, so it sells its class's 4 potions) and the Valley of the Fallen
 (LEVEL6EN) 2. The shop object is a logic object with no model; it is
 linked to the shopkeeper NPC (the blacksmith NPC `0x1009d` #1650 links back to #1648), and the NPC is what the player talks to.
+
+**Shop to shopkeeper** (proven 2026-11-02, `docs/journal/2026-11-02/add-shop-here.md`). There is no shop field on the character and
+no character field on the shop: the tie is the LVL link list. On all 8 disc shops the shop's **first link** is its keeper (a
+character of RFL 157, runtime `0x1009d`, NPCS database) and the keeper's **only link** is the shop; other shop links are quest
+objects and timers. The engine resolves it at load: the shop object's `+0x44` holds the keeper's handle (`DRAKAN_DEBUG_OPEN_SHOP`
+log, also for an editor-added pair). Shopkeepers start **switched off** (hidden or idle): Surdana's keepers each get On / Off from two
+trigger boxes in their shop's doorway (`15581`/`15582` Alchemist, `15585`/`15586` Blacksmith, `15823`/`15824` Mage). A keeper that
+never gets On stays hidden (a copy of the Alchemist keeper, LVL flags 0) or visible but deaf (a copy of the Mage keeper, flags 1), and
+Use next to it does nothing. Once on, pressing Use within the keeper's `Player Trigger Radius (lu)` (1 lu = 2048 units) talks to it
+and opens the shop screen. A shop class with `Default On Status` 0 (the smiths) also needs the shop switched on. The editor's
+"Add shop here" (`buildNewShop`) writes all three parts: shop -> keeper, keeper -> shop, and a 4 x 2 x 4 cell trigger box around the
+keeper sending On every time.
 
 **Class fields** (40 fields, same list in every shop class; index in brackets). Stock:
 `Objects For Infinite Sale` [1] and `Objects For Sale` [2], both arrays of class references (type `0x1003`). Elements are

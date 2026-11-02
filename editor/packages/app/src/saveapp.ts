@@ -8,6 +8,7 @@ import './save/app.css';
 import { createItemArt } from './save/itemart.ts';
 import { createStoryArt } from './save/storyart.ts';
 import { installControls } from './editor/ui.ts';
+import { installSaveWindowTours } from './editor/tour/index.ts';
 import * as platform from './platform.ts';
 import { isDesktop, openAppWindow, type IsoSource } from './platform.ts';
 
@@ -137,3 +138,6 @@ if (isDesktop) {
 }
 
 (window as unknown as { drakanSave: unknown }).drakanSave = { saveUi, status: () => lastStatus };
+
+// Guided tour of this window (started when the editor's "Edit a save" tour hands over): editor/tour/.
+installSaveWindowTours();

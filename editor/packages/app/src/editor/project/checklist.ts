@@ -2,6 +2,7 @@ import { WORKFLOWS, nextStep, type StepFacts, type TaskId, type WorkflowStep } f
 import { getCommand } from '../registry.ts';
 import { h, icon, store } from '../dom.ts';
 import { startFlow } from '../startflow.ts';
+import { LOAD_CARD_EVENT, loadCardCovering } from '../loadprogress.ts';
 import { availableTemplates, templateStepStates, type TemplateId } from '../starttemplates.ts';
 import { projects } from './store.ts';
 import './project.css';
@@ -97,9 +98,16 @@ export function createChecklist(host: ChecklistHost): { el: HTMLElement; refresh
         el.style.maxHeight = fits ? `${Math.round(r!.height - 70)}px` : '';
     }
 
+    /** The start page is open over a level (Home): the card would cover its button, and the page shows the same. */
+    const startOverLevel = (): boolean => {
+        const empty = document.getElementById('lv-empty');
+        return !!empty && !empty.hidden && !!empty.offsetParent && host.facts().levelOpen;
+    };
+
     function refresh(): void {
         const f = flow();
-        if (!f || dismissedFor === f.key) {
+        // While a level is being read the loading card has the middle of the viewport; the card comes back after.
+        if (!f || dismissedFor === f.key || startOverLevel() || loadCardCovering()) {
             el.hidden = true;
             last = '';
             return;
@@ -288,6 +296,16 @@ export function createChecklist(host: ChecklistHost): { el: HTMLElement; refresh
         refresh();
     };
     projects.on(changed);
+    document.addEventListener(LOAD_CARD_EVENT, () => {
+        last = '';
+        refresh();
+    });
+    const empty = document.getElementById('lv-empty');
+    if (empty)
+        new MutationObserver(() => {
+            last = '';
+            refresh();
+        }).observe(empty, { attributes: true, attributeFilter: ['hidden'] });
     startFlow.on(() => {
         dismissedFor = null;
         last = '';

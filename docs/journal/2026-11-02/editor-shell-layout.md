@@ -74,3 +74,47 @@ Not checked: the desktop app (WebView2), touch, a screen reader pass, light them
 - Row thumbnails: rows show the category icon; the model thumbnail is used only as the drag ghost when it exists.
 - The character / creature split is a name list; an RFL-level split (villager vs enemy AI classes) would be better.
 - Splitters inside other editors (Story, Logic graph, Project) are not converted to the shared splitter yet.
+
+## Resize without reloading
+
+Report: "Resizing has issues forcing the 3D map to reload." Dragging a splitter or resizing the window made the viewport
+look as if the level was being loaded again.
+
+**Cause.** Nothing was reloaded. The level view applied a new size from its `ResizeObserver` callback
+(`renderer.setSize`). Setting a canvas's size clears its drawing buffer, and ResizeObserver callbacks run after the
+frame's `requestAnimationFrame` callbacks (where the view draws) and before paint. So on every step of a drag the cleared,
+empty canvas was what got painted, and the map flashed back only once the drag stopped. A probe confirmed it: 361 of 361
+resize frames during the splitter drags showed an empty viewport. Also, `layout.ts` sent a synthetic window `resize`
+event on every pointer move, so every window-level listener (menus, the project checklist, the layout itself) ran on
+every step.
+
+**Fix.**
+
+- `scene/viewsize.ts` (new, pure; tests in `test/viewsize.test.ts`): the canvas size for a host box, "same size" check,
+  drag-burst and settle rules.
+- `level.ts`: the ResizeObserver only marks the size as changed. The frame loop applies it right before it draws, so the
+  cleared canvas is drawn again in the same frame (between the change and that frame the browser stretches the last
+  image). A resize to the same size does nothing. While resizes come less than 180 ms apart (a drag) the pixel ratio is
+  capped at 1, and the full ratio (device ratio, 2 at most) comes back once it has been still for 180 ms. Only the
+  canvas and the camera's aspect change: no scene rebuild, no model or terrain work, the camera stays where it is. The
+  save editor's view (also a `LevelView`) gets the same behaviour.
+- `editor/layout.ts`: the steps of a drag move the panels only. The size is stored and the window `resize` event is
+  sent at the end of the drag (and for keys, Enter, double-click and the Window menu toggles), once per frame at most.
+
+**Checked.** Static `vite build` and a private Playwright context (own port, SwiftShader), PAL disc, Level 1A Surdana,
+1600 x 900, measured after all models had loaded. Two passes of six splitter drags (right, bottom, left, out and back,
+30 steps each), then Enter on the Place, right and bottom splitters, the edge tabs, a double-click, and four window sizes.
+Counters: worker calls (`loadTerrain`, `loadModels`), GL texture and buffer uploads to the viewport's context, viewport
+canvas resets, and frames where the canvas was reset and painted without a draw.
+
+|                                                    | before    | after     |
+| -------------------------------------------------- | --------- | --------- |
+| `loadTerrain` / `loadModels` calls during the test | 0 / 0     | 0 / 0     |
+| viewport texture / buffer uploads during the test  | 0 / 0     | 0 / 0     |
+| camera                                             | unchanged | unchanged |
+| canvas resets (drags, whole test)                  | 360, 370  | 203, 209  |
+| empty frames painted (drags, whole test)           | 360, 367  | 0, 0      |
+
+Frame times under SwiftShader (2 to 3 fps for 1950 draws at any size) say nothing about a real GPU; the headless page has
+a device ratio of 1, so the lowered ratio while dragging did not come into play there. Screenshots in
+`build/scratch/resize-fix/` (not committed).

@@ -3,10 +3,16 @@ import {
     ModError,
     applyDocumentToLvl,
     buildModFiles,
+    campaignCoverPath,
+    campaignMeta,
+    renderCoverPng,
+    validateCampaign,
     checkEntrySize,
+    hasTerrainEdits,
     projectMeta,
     zipModFiles,
     type ChangedEntry,
+    type CampaignCover,
     type ModProject,
     type ModTarget,
 } from '@drakan/editor-core';
@@ -14,7 +20,7 @@ import { SrscReader, mangleComponent, writeObjectList, writeSrsc } from '@drakan
 import type { LevelInfo, LevelLoadResult } from '../../rpc.ts';
 import type { LevelUiHost } from '../../levelui.ts';
 import { autosaveKey, clearAutosave, loadAutosave } from '../autosave.ts';
-import { changeCount } from '../../modio.ts';
+import { changeCount, levelTerrainEntry } from '../../modio.ts';
 import { getMenusProvider } from '../menus/bridge.ts';
 
 export interface ProjectExportDeps {
@@ -75,11 +81,17 @@ export async function levelEditCounts(
         }
         const src = await loadSrc(deps, dir);
         hadDoc.add(l.title);
-        out.set(l.title, changeCount(applyDocumentToLvl(src.lvl.list, doc, { onReferenced: 'unlink' }).report.diff));
+        const objects = changeCount(applyDocumentToLvl(src.lvl.list, doc, { onReferenced: 'unlink' }).report.diff);
+        // Terrain edits count once per edited or added layer.
+        out.set(l.title, objects + (hasTerrainEdits(doc) ? Math.max(1, doc.terrainChanged.size) : 0));
     }
     if (dropUnedited) for (const t of uneditedTitles(out, hadDoc)) await clearAutosave(autosaveKey(t));
     return out;
 }
+
+/** The edited document of a project level (the open level, else its autosave), null when it has no edits. */
+export const projectLevelDoc = (deps: ProjectExportDeps, title: string): Promise<LevelDocument | null> =>
+    editedDoc(deps, title);
 
 const srcCache = new Map<string, Promise<LevelLoadResult>>();
 /** Forget loaded levels (a different disc or language was opened). */
@@ -102,6 +114,15 @@ function sourceDir(deps: ProjectExportDeps, title: string): string | null {
     return deps.levels().find((x) => x.present && norm(x.name) === norm(title))?.dirPath ?? null;
 }
 
+/** PNG bytes of a campaign cover (made from its palette and seed, or the user's own picture). */
+export function coverPng(cover: CampaignCover): Uint8Array {
+    if (cover.kind === 'generated') return renderCoverPng(cover);
+    const bin = atob(cover.png);
+    const out = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+    return out;
+}
+
 /** Build one pack from every level the project lists, plus story edits. Throws ModError with a plain reason. */
 export async function buildProjectPack(
     deps: ProjectExportDeps,
@@ -122,6 +143,11 @@ export async function buildProjectPack(
     if (!target) throw new ModError('The disc profile is unknown; open your disc image first.');
     const warnings: string[] = [];
     const lines: string[] = [];
+    // A campaign whose settings are wrong would not show in the game (the exit checks run in the Campaign section).
+    const campaignErrors = validateCampaign(p, { discLevels: deps.levels().map((l) => l.name), exits: null }).filter(
+        (i) => i.severity === 'error',
+    );
+    if (campaignErrors.length) throw new ModError(`Campaign: ${campaignErrors[0]!.message}`);
     const entries: ChangedEntry[] = [];
     const extra: Record<string, Uint8Array> = {};
     const copies: string[] = [];
@@ -156,32 +182,53 @@ export async function buildProjectPack(
                 }
             }
         }
+        // Terrain edits: the level's LVL 0x0001 entry rebuilt from the disc bytes (formats rebuildPs2Terrain).
+        let terrain: ReturnType<typeof levelTerrainEntry> = null;
+        if (doc && hasTerrainEdits(doc)) {
+            await say(`Writing the terrain of ${l.title}${where}...`);
+            try {
+                terrain = levelTerrainEntry(src, doc);
+            } catch (e) {
+                throw new ModError(`${l.title}: ${e instanceof Error ? e.message : String(e)}`);
+            }
+            if (terrain) warnings.push(...terrain.report.warnings.map((w) => `${l.title}: ${w}`));
+        }
         if (!l.copyOf) {
-            if (!payload || !report) {
+            if ((!payload || !report) && !terrain) {
                 lines.push(`${l.title}: no changes, left out`);
                 continue;
             }
-            const size = checkEntrySize(src.file, src.objects.size, payload.length);
-            if (size) throw new ModError(`${l.title}: ${size}`);
-            entries.push({
-                file: src.file,
-                entry: { type: src.objects.type, id: src.objects.id, sub: src.objects.sub },
-                data: payload,
-            });
-            lines.push(`${l.title}: ${changeCount(report.diff)} change(s) in ${src.file}`);
+            if (payload && report) {
+                const size = checkEntrySize(src.file, src.objects.size, payload.length);
+                if (size) throw new ModError(`${l.title}: ${size}`);
+                entries.push({
+                    file: src.file,
+                    entry: { type: src.objects.type, id: src.objects.id, sub: src.objects.sub },
+                    data: payload,
+                });
+                lines.push(`${l.title}: ${changeCount(report.diff)} change(s) in ${src.file}`);
+            }
+            if (terrain) {
+                entries.push(terrain.change);
+                lines.push(`${l.title}: ${terrain.line} in ${src.file}`);
+            }
             continue;
         }
         // A copy ships as a whole new LVL under its own name, with the splat files the game opens for every level.
         await say(`Packing the copy ${l.title}${where}...`);
         const bytes = await deps.call('readLevelFile', dir);
         let out: Uint8Array = bytes;
-        if (payload) {
+        if (payload || terrain) {
             const reader = await SrscReader.fromBytes(bytes);
-            const idx = reader.entries.findIndex(
-                (e) => e.type === src.objects.type && e.id === src.objects.id && e.sub === src.objects.sub,
-            );
-            if (idx < 0) throw new ModError(`${l.title}: the object list entry was not found in ${src.file}.`);
-            out = await writeSrsc(reader, new Map([[idx, payload]]));
+            const replace = new Map<number, Uint8Array>();
+            const put = (e: { type: number; id: number; sub: number }, data: Uint8Array, what: string): void => {
+                const idx = reader.entries.findIndex((x) => x.type === e.type && x.id === e.id && x.sub === e.sub);
+                if (idx < 0) throw new ModError(`${l.title}: the ${what} entry was not found in ${src.file}.`);
+                replace.set(idx, data);
+            };
+            if (payload) put(src.objects, payload, 'object list');
+            if (terrain) put(terrain.change.entry, terrain.change.data, 'terrain');
+            out = await writeSrsc(reader, replace);
         }
         const mangled = mangleComponent(l.title);
         extra[`files/ENGLISH/LEVELS/${mangled}/${mangled}.LVL`] = out;
@@ -204,13 +251,27 @@ export async function buildProjectPack(
         copies.push(l.title);
         copyOf.push(`${l.title} = ${srcTitle}`);
         lines.push(
-            `${l.title}: new level (copy of ${srcTitle})${payload ? `, ${changeCount(report!.diff)} change(s)` : ''}`,
+            `${l.title}: new level (copy of ${srcTitle})${payload ? `, ${changeCount(report!.diff)} change(s)` : ''}${terrain ? `, ${terrain.line}` : ''}`,
         );
     }
 
-    const meta = { ...projectMeta(p, target), ...(copies.length ? { levels: copies, levelCopies: copyOf } : {}) };
+    const meta = {
+        ...projectMeta(p, target),
+        ...(copies.length ? { levels: copies, levelCopies: copyOf } : {}),
+        ...campaignMeta(p),
+    };
     const files = buildModFiles(meta, entries);
     Object.assign(files, extra);
+    if (p.campaign?.enabled) {
+        const c = p.campaign;
+        if (c.cover) {
+            await say('Drawing the campaign cover...');
+            files[campaignCoverPath(c.id)] = coverPng(c.cover);
+        }
+        lines.push(
+            `Campaign "${meta.campaignName}" (${c.id}): New Game starts in ${c.start}, saves go to the card folder <card>_${c.saves || c.id}${c.cover ? ', with a cover picture' : ''}`,
+        );
+    }
 
     if (deps.story && deps.story.count() > 0) {
         await say('Building the story edits...');

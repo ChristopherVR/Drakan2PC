@@ -17,6 +17,8 @@ ROOT = Path(__file__).resolve().parents[2]
 SITE = ROOT / "docs" / "site"
 REPOSITORY = "https://github.com/ChristopherVR/Drakan2PC"
 PLAYER_FILES = ("loader.js", "handles.js", "sw.js", "loader.css")
+EDITOR_GUIDES = ROOT / "editor" / "packages" / "editor-core" / "src" / "guides.ts"
+EDITOR_GUIDES_URL = "guides/editor-tasks.html"
 
 
 MEDIA_URL_KEYS = ("url", "animation_url", "video_url", "before_url", "after_url")
@@ -295,6 +297,26 @@ def validate_site(output: Path, base_path: str):
                 raise ValueError(f"Broken fragment in {path.name}: {link}")
 
 
+def validate_editor_guides(output: Path, base_path: str) -> int:
+    """The editor's Help drawer links each guide to ``guides/editor-tasks.html#<id>``: every id must be an anchor there."""
+    source = EDITOR_GUIDES.read_text(encoding="utf-8")
+    ids = re.findall(r"^ {8}id: '([a-z][a-z0-9-]*)',$", source, re.M)
+    if not ids:
+        raise ValueError(f"No guide ids found in {EDITOR_GUIDES}")
+    web = re.search(r"GUIDES_WEB_PAGE = '([^']+)'", source)
+    if not web or not web.group(1).endswith(base_path + EDITOR_GUIDES_URL):
+        raise ValueError(f"GUIDES_WEB_PAGE in {EDITOR_GUIDES.name} must point at {base_path}{EDITOR_GUIDES_URL}")
+    page = output / EDITOR_GUIDES_URL
+    if not page.is_file():
+        raise ValueError(f"The editor guides page is not published: {EDITOR_GUIDES_URL}")
+    parser = PageParser()
+    parser.feed(page.read_text(encoding="utf-8"))
+    missing = [i for i in ids if i not in parser.ids]
+    if missing:
+        raise ValueError(f"Editor guide anchors missing from {EDITOR_GUIDES_URL}: {', '.join(missing)}")
+    return len(ids)
+
+
 def build(output: Path, base_path: str = "/Drakan2PC/"):
     import markdown
 
@@ -426,7 +448,8 @@ def build(output: Path, base_path: str = "/Drakan2PC/"):
     (output / "search-index.json").write_text(json.dumps(search, ensure_ascii=False), encoding="utf-8", newline="\n")
     (output / ".nojekyll").touch()
     validate_site(output, base_path)
-    print(f"Built {len(pages) + 4} pages; local links and fragments verified: {output}")
+    guides = validate_editor_guides(output, base_path)
+    print(f"Built {len(pages) + 4} pages; local links, fragments and {guides} editor guide anchors verified: {output}")
 
 
 def main():

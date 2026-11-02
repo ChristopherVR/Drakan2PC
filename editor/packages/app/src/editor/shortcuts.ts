@@ -37,6 +37,18 @@ export const SHORTCUTS: Shortcut[] = [
     { id: 'snap', keys: 'G', label: 'Toggle grid snap', group: 'Tools' },
     { id: 'angleSnap', keys: 'Shift+G', label: 'Toggle angle snap', group: 'Tools' },
     { id: 'ground', keys: 'End', label: 'Snap selection to ground', group: 'Tools' },
+    {
+        id: 'landscape',
+        keys: 'Shift+L',
+        label: 'Landscape mode on / off (sculpt and paint the ground)',
+        group: 'Tools',
+    },
+    {
+        id: 'brushSize',
+        keys: '[ / ]',
+        label: 'Landscape: smaller / bigger brush (Shift inverts the tool)',
+        group: 'Tools',
+    },
     { id: 'frame', keys: 'F', label: 'Focus (frame) selection', group: 'Camera' },
     { id: 'frameAll', keys: 'Home', label: 'Frame all', group: 'Camera' },
     { id: 'topView', keys: 'T', label: 'Top view', group: 'Camera' },
@@ -167,8 +179,8 @@ export function helpOverlay(): { el: HTMLElement; toggle(open?: boolean): void }
         h(
             'p',
             { class: 'help-foot' },
-            'Drag a class from the Asset Browser into the viewport to place it. Changes are autosaved in this browser; ' +
-                'Export writes a mod pack for the game.',
+            'Drag a row of the Place panel or a class of the Content Browser into the viewport to place it. Your edits are ' +
+                'kept in the mod project; Export writes a mod pack for the game. Help in the top bar has step-by-step guides.',
         ),
     );
     const el = h('div', { class: 'help-overlay', hidden: true }, card);

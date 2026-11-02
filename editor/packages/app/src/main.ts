@@ -17,6 +17,7 @@ import { isDesktop, openAppWindow, type IsoSource } from './platform.ts';
 import { initDesktop } from './desktop.ts';
 import { initMaterialsUi } from './materialsui.ts';
 import { installControls } from './editor/ui.ts';
+import { installEditorTours } from './editor/tour/index.ts';
 
 // Shared control family for every mode: custom dropdowns, slider fills (editor/ui.ts, editor/dropdown.ts).
 installControls();
@@ -609,3 +610,5 @@ const desktop = initDesktop({
 
 // Browser: File / Edit / Window / Tools / Help menu bar and the project chip (the desktop app has a native menu bar).
 installMenuBar({ desktop: isDesktop });
+// Guided tours: Help > Start a tutorial, and startTour(id) for the start page and Help (editor/tour/).
+installEditorTours();

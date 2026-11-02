@@ -232,3 +232,34 @@
 .pl-list .ui-empty {
     padding: var(--sp-6) var(--sp-3);
 }
+/* Story set-ups placed straight into the level (cut scene, quest areas): dragged like a class, coloured like their
+   badge in the viewport. A greyed one shows why it cannot be placed now in place of its hint. */
+.pl-story {
+    align-items: flex-start;
+}
+.pl-story .pl-ico {
+    color: var(--k);
+}
+.pl-story.off {
+    cursor: default;
+}
+.pl-story.off .pl-ico {
+    background: var(--surface-3);
+    color: var(--fg-faint);
+}
+.pl-story.off .pl-name {
+    color: var(--fg-muted);
+}
+.pl-story.off .pl-text small {
+    color: var(--fg-faint);
+    font-style: italic;
+}
+.pl-story.off:hover {
+    background: transparent;
+    border-color: var(--border);
+}
+.drag-ghost.point {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--sp-2);
+}

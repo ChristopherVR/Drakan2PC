@@ -1,0 +1,440 @@
+/* Landscape mode (editor/landscape/landscape.ts). The mode has its own moss-green accent, so it is always clear that a
+   drag on the viewport changes the ground and not objects. Everything else comes from tokens.css. */
+:root {
+    --ls-accent: #93c46a;
+    --ls-accent-soft: rgb(147 196 106 / 0.16);
+    --ls-accent-line: rgb(147 196 106 / 0.55);
+    --ls-warm: #ffb36b;
+}
+:root[data-theme='light'] {
+    --ls-accent: #4f8a2a;
+    --ls-accent-soft: rgb(79 138 42 / 0.13);
+    --ls-accent-line: rgb(79 138 42 / 0.5);
+    --ls-warm: #c76a12;
+}
+
+.panel.landscape {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    min-height: 0;
+    background: var(--surface-1);
+}
+.panel.landscape[hidden] {
+    display: none;
+}
+.panel.landscape .panel-title .ico {
+    color: var(--ls-accent);
+}
+.panel.landscape .ls-exit {
+    margin-right: 26px;
+}
+
+.ls-body {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    padding: var(--sp-4);
+    display: flex;
+    flex-direction: column;
+    gap: var(--sp-4);
+    scrollbar-width: thin;
+}
+.ls-body > * {
+    flex: none;
+}
+.ls-body[hidden] {
+    display: none;
+}
+.ls-groups {
+    display: flex;
+    width: 100%;
+}
+.ls-groups .ui-seg-btn {
+    flex: 1;
+}
+.ls-groups .ui-seg-btn.active {
+    color: var(--ls-accent);
+    box-shadow: inset 0 -2px 0 var(--ls-accent);
+}
+
+/* ---- tools: a grid of tiles, the active one lit in the mode colour ---- */
+.ls-tools {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(76px, 1fr));
+    gap: var(--sp-2);
+}
+.ls-tool {
+    height: auto;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: var(--sp-2);
+    min-height: 58px;
+    padding: var(--sp-3) var(--sp-2);
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-radius: var(--r-md);
+    color: var(--fg-muted);
+    font: inherit;
+    font-size: var(--fs-xs);
+    cursor: pointer;
+    transition:
+        background var(--t-fast),
+        color var(--t-fast),
+        border-color var(--t-fast);
+}
+.ls-tool:hover {
+    background: var(--surface-3);
+    color: var(--fg);
+}
+.ls-tool.active {
+    background: var(--ls-accent-soft);
+    border-color: var(--ls-accent-line);
+    color: var(--fg);
+}
+.ls-tool.active .ico {
+    color: var(--ls-accent);
+}
+.ls-tool:focus-visible {
+    outline: none;
+    box-shadow: var(--ring);
+}
+.ls-how {
+    margin: 0;
+    color: var(--fg-muted);
+    font-size: var(--fs-sm);
+    line-height: 1.45;
+    max-width: 52ch;
+}
+
+/* ---- sections ---- */
+.ls-section {
+    display: flex;
+    flex-direction: column;
+    gap: var(--sp-3);
+    padding-top: var(--sp-4);
+    border-top: 1px solid var(--border);
+}
+.ls-section[hidden] {
+    display: none;
+}
+.ls-section:empty {
+    display: none;
+}
+.ls-head {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: var(--sp-3);
+    color: var(--fg);
+    font-weight: 600;
+    font-size: var(--fs-sm);
+}
+.ls-keys {
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+    color: var(--fg-faint);
+    font-weight: 400;
+    font-size: var(--fs-xs);
+}
+.ls-keys .ui-kbd {
+    font-size: var(--fs-2xs);
+    line-height: 14px;
+}
+.ls-slider {
+    display: grid;
+    grid-template-columns: 64px minmax(0, 1fr);
+    grid-template-rows: auto auto;
+    column-gap: var(--sp-3);
+    align-items: center;
+}
+.ls-slider .ls-lab {
+    grid-row: 1 / span 2;
+}
+.ls-slider input[type='range'] {
+    width: 100%;
+}
+.ls-val {
+    color: var(--fg-faint);
+    font-size: var(--fs-xs);
+    font-variant-numeric: tabular-nums;
+}
+.ls-lab {
+    color: var(--fg-muted);
+    font-size: var(--fs-sm);
+}
+.ls-check {
+    white-space: normal;
+    align-items: flex-start;
+    line-height: 1.35;
+}
+.ls-check input {
+    margin-top: 2px;
+    flex: none;
+}
+.ls-inline {
+    display: flex;
+    align-items: center;
+    gap: var(--sp-3);
+    flex-wrap: wrap;
+}
+.ls-num {
+    width: 84px;
+}
+.ls-field {
+    display: flex;
+    align-items: center;
+    gap: var(--sp-3);
+}
+.ls-hint {
+    margin: 0;
+    color: var(--fg-faint);
+    font-size: var(--fs-xs);
+    line-height: 1.4;
+}
+
+/* ---- palette: texture tiles with a colour name ---- */
+.ls-swatches {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(84px, 1fr));
+    gap: var(--sp-2);
+}
+.ls-swatch {
+    position: relative;
+    height: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    padding: 3px 3px var(--sp-2);
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-radius: var(--r-md);
+    color: var(--fg);
+    font: inherit;
+    text-align: left;
+    cursor: pointer;
+}
+.ls-swatch img,
+.ls-swatch .ls-noimg {
+    display: block;
+    width: 100%;
+    height: 56px;
+    object-fit: cover;
+    border-radius: var(--r-sm);
+    image-rendering: pixelated;
+    background: repeating-conic-gradient(var(--surface-3) 0 25%, var(--surface-2) 0 50%) 0 0 / 12px 12px;
+}
+.ls-sw-name {
+    padding: 0 var(--sp-1);
+    font-size: var(--fs-xs);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.ls-sw-share {
+    padding: 0 var(--sp-1);
+    color: var(--fg-faint);
+    font-size: var(--fs-2xs);
+}
+.ls-swatch:hover {
+    border-color: var(--border-strong);
+}
+.ls-swatch.sel {
+    border-color: var(--ls-accent);
+    box-shadow: 0 0 0 1px var(--ls-accent);
+}
+.ls-swatch:focus-visible {
+    outline: none;
+    box-shadow: var(--ring);
+}
+
+/* ---- picked layer card and the expand compass ---- */
+.ls-card {
+    display: flex;
+    flex-direction: column;
+    gap: var(--sp-2);
+    padding: var(--sp-3) var(--sp-4);
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-left: 3px solid var(--ls-accent);
+    border-radius: var(--r-md);
+}
+.ls-card-empty {
+    border-left-color: var(--border-strong);
+    color: var(--fg-muted);
+}
+.ls-card-title {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--sp-3);
+    min-width: 0;
+}
+.ls-card-title strong {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.ls-card-row {
+    display: flex;
+    justify-content: space-between;
+    gap: var(--sp-3);
+    color: var(--fg-muted);
+    font-size: var(--fs-xs);
+    font-variant-numeric: tabular-nums;
+}
+.ls-card-row.ls-tex {
+    align-items: center;
+}
+.ls-tag {
+    flex: none;
+    padding: 0 6px;
+    border-radius: var(--r-sm);
+    font-size: var(--fs-2xs);
+    line-height: 16px;
+    background: var(--surface-3);
+    color: var(--fg-muted);
+}
+.ls-tag.edited,
+.ls-tag.new {
+    background: var(--ls-accent-soft);
+    color: var(--ls-accent);
+}
+.ls-compass {
+    display: grid;
+    grid-template-columns: repeat(3, 32px);
+    grid-template-rows: repeat(3, 32px);
+    gap: 3px;
+    justify-content: center;
+}
+.ls-compass .tool {
+    width: 32px;
+    height: 32px;
+}
+.ls-edge-north {
+    grid-area: 1 / 2;
+}
+.ls-edge-west {
+    grid-area: 2 / 1;
+}
+.ls-compass-mid {
+    grid-area: 2 / 2;
+    display: grid;
+    place-items: center;
+    border: 1px dashed var(--ls-accent-line);
+    border-radius: var(--r-sm);
+    color: var(--ls-accent);
+}
+.ls-edge-east {
+    grid-area: 2 / 3;
+}
+.ls-edge-south {
+    grid-area: 3 / 2;
+}
+
+/* ---- footer: the note on what the game sees ---- */
+.ls-foot {
+    flex: none;
+    display: flex;
+    flex-direction: column;
+    gap: var(--sp-2);
+    padding: var(--sp-3) var(--sp-4);
+    border-top: 1px solid var(--border);
+    background: var(--surface-2);
+}
+.ls-notice {
+    display: flex;
+    gap: var(--sp-3);
+    color: var(--fg-muted);
+    font-size: var(--fs-xs);
+    line-height: 1.4;
+}
+.ls-notice .ico {
+    flex: none;
+    margin-top: 1px;
+    color: var(--warn);
+}
+.ls-count {
+    color: var(--fg-faint);
+    font-size: var(--fs-xs);
+}
+
+.ls-empty {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: var(--sp-3);
+    padding: var(--sp-6);
+    color: var(--fg-muted);
+    text-align: center;
+    font-size: var(--fs-sm);
+}
+.ls-empty .ico {
+    color: var(--ls-accent);
+}
+.ls-empty strong {
+    color: var(--fg);
+}
+.ls-empty[hidden] {
+    display: none;
+}
+
+/* ---- viewport: a thin mode-coloured frame and a chip naming the tool ---- */
+.ls-on::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    box-shadow: inset 0 0 0 2px var(--ls-accent-line);
+    z-index: 3;
+}
+.ls-on canvas {
+    cursor: crosshair;
+}
+.ls-chip {
+    position: absolute;
+    left: 14px;
+    bottom: 14px;
+    display: flex;
+    align-items: center;
+    gap: var(--sp-3);
+    padding: 5px 12px;
+    background: color-mix(in srgb, var(--surface-1) 88%, transparent);
+    border: 1px solid var(--ls-accent-line);
+    border-radius: 999px;
+    color: var(--fg-muted);
+    font-size: var(--fs-xs);
+    pointer-events: none;
+    z-index: 4;
+    box-shadow: var(--shadow-1);
+}
+.ls-chip strong {
+    color: var(--fg);
+    font-weight: 600;
+}
+.ls-chip .ico {
+    color: var(--ls-accent);
+}
+.ls-chip[hidden] {
+    display: none;
+}
+
+/* ---- toolbar mode switch ---- */
+.mode-seg .ui-seg-btn.active {
+    color: var(--fg);
+}
+.mode-seg .ui-seg-btn.active.landscape {
+    background: var(--ls-accent-soft);
+    color: var(--ls-accent);
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .ls-tool {
+        transition: none;
+    }
+}

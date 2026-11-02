@@ -44,6 +44,8 @@ import { createRefs } from './refs.ts';
 import { createInspector } from './editor/inspector.ts';
 import { initLayout, type Layout } from './editor/layout.ts';
 import { createPlacePanel } from './editor/placepanel.ts';
+import { installLandscape } from './editor/landscape/landscape.ts';
+import { tourBridge } from './editor/tour/index.ts';
 import { createOutliner } from './editor/outliner.ts';
 import { buildObjectMenu } from './editor/objectmenu.ts';
 import { installLinking } from './editor/linking.ts';
@@ -57,7 +59,9 @@ import { createOutputLog } from './editor/output.ts';
 import { createNavGizmo } from './editor/navgizmo.ts';
 import { contextMenu, emptyState, installTooltips } from './editor/ui.ts';
 import { createPalette } from './editor/palette.ts';
-import { bindPanelHost, registerPanel, runCommand } from './editor/registry.ts';
+import { bindPanelHost, registerCommand, registerPanel, runCommand } from './editor/registry.ts';
+import { createLoadProgress } from './editor/loadprogress.ts';
+import { LoadCancelled, isCancelled } from './editor/loadsteps.ts';
 import { createWorkspace, type Workspace } from './editor/workspace.ts';
 import { installLogic } from './editor/logicpanel.ts';
 import { registerShellCommands } from './editor/shellcommands.ts';
@@ -133,6 +137,10 @@ export function initLevelUi(host: LevelUiHost): LevelUi {
             return r;
         },
         levelOpen: () => !!src,
+        openLevelName: () => (src ? shownName : null),
+        close: () => {
+            if (src) empty.hidden = true;
+        },
         openPalette: () => palette.open(),
         openHelp: () => help.toggle(true),
     });
@@ -140,6 +148,8 @@ export function initLevelUi(host: LevelUiHost): LevelUi {
     empty.append(startPage.el);
     let view: LevelView | null = null;
     let levelName = 'level';
+    /** Display name of the open document ("Level 1A - Surdana"). */
+    let shownName = '';
     /** Disc directory of the open disc level (for the Unreal export); empty for documents without one. */
     let currentDirPath = '';
     let disc: DiscContext | null = null;
@@ -182,6 +192,10 @@ export function initLevelUi(host: LevelUiHost): LevelUi {
     let gridSnapOn = true;
     let viewOpts: ViewOptions = parseViewOptions(store.json('view-options', null));
     let visuals: Promise<void> = Promise.resolve();
+    /** Bumped by every disc level open; an older open that finishes late is dropped. */
+    let openToken = 0;
+    /** A level is being read: the start page stays away (an empty document would show it again). */
+    let opening = false;
 
     // ---- shell ----------------------------------------------------------------------------------------------------
 
@@ -247,6 +261,8 @@ export function initLevelUi(host: LevelUiHost): LevelUi {
         output.log(msg, kind === 'info' ? 'info' : kind);
     }
     const fail = (e: unknown): void => {
+        // Cancelled on purpose: the loading card already went away.
+        if (isCancelled(e)) return;
         const msg = e instanceof Error ? e.message : String(e);
         host.setStatus(msg, true);
         toast(msg, 'error');
@@ -353,7 +369,14 @@ export function initLevelUi(host: LevelUiHost): LevelUi {
         toggle: () => layout?.toggle('left'),
     });
     $('ed-left').append(place.el);
-    const panels = [outliner, inspector, assets, history, validation, place];
+    // Landscape mode: its tools panel takes the Place panel's spot while it is on (editor/landscape/landscape.ts).
+    const landscape = installLandscape(ctx, {
+        leftEl: $('ed-left'),
+        placeEl: place.el,
+        showLeft: () => layout?.toggle('left', true),
+        changed: () => syncToolbar(),
+    });
+    const panels = [outliner, inspector, assets, history, validation, place, tourBridge(ctx), landscape.panel];
     // Where every editor opens (its own tab, the bottom area, or World Settings beside Details): editor/workspace.ts.
     const ws: Workspace = createWorkspace({
         frame: root,
@@ -393,12 +416,31 @@ export function initLevelUi(host: LevelUiHost): LevelUi {
         },
     });
     assets.setThumbnailProvider((cls) => loader.thumbnail(cls.resource));
+    const loadCard = createLoadProgress($('lv-viewport'));
+
+    // ---- the start page, again ---------------------------------------------------------------------------------------
+    registerCommand({
+        id: 'view.startPage',
+        title: 'Start page',
+        category: 'File',
+        icon: 'home',
+        keywords: 'home templates new what do you want to make begin welcome',
+        hint: 'Templates, your disc, the mod project and recent levels. The open level stays open.',
+        run: () => {
+            runCommand('mode.level');
+            startPage.show();
+            empty.hidden = false;
+            empty.scrollTo({ top: 0 });
+            empty.querySelector<HTMLElement>('.sp-tile.on, .sp-go')?.focus();
+        },
+    });
     assets.setThumbnailLoader((cls) => loader.wantThumbnail(cls));
 
     // ---- toolbar --------------------------------------------------------------------------------------------------
 
     let layout: Layout | null = null;
     const actions: ToolbarActions = {
+        editorMode: (m) => landscape.setActive(m === 'landscape'),
         tool: (m: ToolMode) => {
             const v = getView();
             if (m === 'scale' && v.selection.size && ![...v.selection].some((id) => v.doc.get(id)?.scale)) {
@@ -535,6 +577,7 @@ export function initLevelUi(host: LevelUiHost): LevelUi {
         const v = view;
         return {
             mode: v?.mode ?? 'translate',
+            editorMode: landscape.active() ? 'landscape' : 'objects',
             space: v?.space ?? 'world',
             gridSnap: v?.snap.grid ?? true,
             angleSnap: v?.snap.angle ?? true,
@@ -638,7 +681,7 @@ export function initLevelUi(host: LevelUiHost): LevelUi {
 
     function onChange(): void {
         const v = getView();
-        empty.hidden = v.doc.size > 0;
+        if (!opening) empty.hidden = v.doc.size > 0;
         for (const p of panels) p.onChange?.();
         syncToolbar();
         updateStatus();
@@ -849,6 +892,7 @@ export function initLevelUi(host: LevelUiHost): LevelUi {
             story: () => runCommand('panel.story'),
             logic: () => runCommand('panel.logic'),
             history: () => ws.toggleWindow('history', 'Undo History', 'history', history),
+            landscape: () => landscape.toggle(),
         },
         () => !root.hidden && !(view?.isFlying ?? false),
         // In an editor tab only the global keys (palette, save, export, help, Window) work: the viewport is not shown.
@@ -953,20 +997,85 @@ export function initLevelUi(host: LevelUiHost): LevelUi {
         modPanel.onLoad?.();
     }
 
+    /**
+     * Open a disc level. The viewport shows it at once: the start page goes, the loading card names the level and its
+     * steps, the objects appear as soon as the level file is read, then the terrain and the models fill in.
+     */
     async function openLevel(dirPath: string, asTitle?: string): Promise<void> {
         const info = disc?.levels.find((l) => l.dirPath === dirPath);
         const shown = asTitle ?? info?.name ?? dirPath;
+        const tk = ++openToken;
+        const hadLevel = !!src;
+        const startWasShown = !empty.hidden;
+        let cancel: (e: LoadCancelled) => void = () => undefined;
+        const cancelled = new Promise<never>((_, rej) => (cancel = rej));
+        cancelled.catch(() => undefined);
+        // A level that was still filling in stops; this one takes the viewport.
+        loader.stop();
+        opening = true;
+        empty.hidden = true;
+        loadCard.begin(shown, {
+            covering: !hadLevel,
+            onCancel: () => {
+                openToken++;
+                opening = false;
+                loadCard.hide();
+                if (startWasShown || !hadLevel) empty.hidden = false;
+                host.setStatus(`Opening ${shown} was cancelled.`);
+                cancel(new LoadCancelled());
+            },
+            onStop: () => {
+                loader.stop();
+                loadCard.step('models', 'stopped');
+                loadCard.finish();
+                host.setStatus(`Stopped loading models of ${shown}; the rest show as markers.`);
+            },
+        });
         host.setStatus(`Loading ${shown}...`);
-        toast(`Loading ${shown}...`);
-        const r = await host.call('loadLevel', dirPath);
+        let r: LevelLoadResult;
+        try {
+            r = await Promise.race([host.call('loadLevel', dirPath), cancelled]);
+        } catch (e) {
+            if (tk === openToken && !isCancelled(e)) {
+                opening = false;
+                loadCard.step('read', 'failed');
+                loadCard.set({ error: `${shown} could not be read.` });
+                if (startWasShown || !hadLevel) empty.hidden = false;
+                window.setTimeout(() => loadCard.hide(), 2500);
+            }
+            throw e;
+        }
+        if (tk !== openToken) throw new LoadCancelled();
+        loadCard.step('read', 'done');
+        loadCard.step('objects', 'active');
         // The export compares edits against this read: keeping it spares a second parse in the busy worker.
         rememberLoadedLevel(dirPath, r);
-        await openLoaded(r, asTitle ?? info?.name ?? r.file);
+        try {
+            await openLoaded(r, asTitle ?? info?.name ?? r.file);
+        } finally {
+            opening = false;
+        }
         currentDirPath = dirPath;
         if (info && !asTitle) rememberLevel({ name: info.name, dirPath });
         const resources = new Set<string>();
         for (const o of getView().doc.objects()) resources.add(o.resource);
-        visuals = loader.loadLevel(dirPath, resources).catch(fail);
+        loadCard.set({ objects: getView().doc.size });
+        loadCard.step('objects', 'done');
+        visuals = loader
+            .loadLevel(dirPath, resources, (p) => {
+                if (tk !== openToken) return;
+                if (p.step === 'terrain') {
+                    if (p.layers !== undefined) loadCard.set({ layers: p.layers });
+                    loadCard.step('terrain', p.state);
+                } else {
+                    loadCard.set({ models: { done: p.done, total: p.total, missing: p.missing ?? 0 } });
+                    loadCard.step('models', p.state);
+                }
+            })
+            .then(() => {
+                if (tk === openToken && loadCard.state()?.steps.models !== 'stopped') loadCard.finish();
+            })
+            .catch(fail);
     }
 
     async function openLoaded(r: LevelLoadResult, displayName: string): Promise<void> {
@@ -974,6 +1083,7 @@ export function initLevelUi(host: LevelUiHost): LevelUi {
         getView().setGround({});
         const { doc, unresolved } = documentFromLvl(r.lvl, r.odbs, displayName);
         src = r;
+        shownName = displayName;
         levelName = r.file.replace(/\.lvl$/i, '');
         catalog = buildCatalog(r.lvl.header, r.odbs, doc.objects());
         schemas = new SchemaProvider(r.lvl.header, r.odbs, r.odbDeps);

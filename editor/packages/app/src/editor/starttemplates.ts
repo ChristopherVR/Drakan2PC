@@ -45,6 +45,10 @@ export interface StartTemplate {
     whenCommand?: string;
     /** Name of a new project started from it. */
     projectName?: string;
+    /** Where it lands, as a short name with its article ("the Level Editor"). */
+    place: string;
+    /** Where it lands, as the end of "Next: Surdana opens in ..." (the place and what is shown there). */
+    lands: string;
 }
 
 export const GROUP_TITLES: Record<TemplateGroup, string> = {
@@ -84,6 +88,8 @@ export const TEMPLATES: readonly StartTemplate[] = [
         line: 'Move, add or remove creatures and items in a level of the game.',
         about: 'Pick a level of the game and change what is in it. Your edits become a mod; the disc stays as it is.',
         group: 'levels',
+        place: 'the Level Editor',
+        lands: 'the Level Editor',
         needs: 'level',
         task: 'campaign',
         steps: WORKFLOWS.campaign.steps,
@@ -97,6 +103,8 @@ export const TEMPLATES: readonly StartTemplate[] = [
         line: 'Spawn points and pickups on the terrain of a level.',
         about: 'A level of the game becomes a deathmatch or team arena. You place where players appear and what they can pick up.',
         group: 'levels',
+        place: 'the Level Editor',
+        lands: 'the Level Editor, with World Settings on the right',
         needs: 'level',
         task: 'multiplayer',
         steps: [
@@ -117,6 +125,8 @@ export const TEMPLATES: readonly StartTemplate[] = [
         line: 'Start a new level as a copy of one of the game.',
         about: 'The copy gets its own name and its own place in your mod. The original level is never touched.',
         group: 'levels',
+        place: 'the Level Editor',
+        lands: 'the Level Editor',
         needs: 'disc',
         task: 'newlevel',
         steps: WORKFLOWS.newlevel.steps.map((s) =>
@@ -138,6 +148,8 @@ export const TEMPLATES: readonly StartTemplate[] = [
         line: 'Plates on the floor that open a door when all are pressed.',
         about: 'The plates, a counter and the door link are made for you. You pick the door and how many plates.',
         group: 'levels',
+        place: 'the Level Editor',
+        lands: 'the Level Editor, with the pressure plate setup below the viewport',
         needs: 'level',
         task: 'campaign',
         steps: [
@@ -163,6 +175,8 @@ export const TEMPLATES: readonly StartTemplate[] = [
         line: 'What a shopkeeper sells, how many, and for how much.',
         about: 'Change the stock and prices of a shop. Surdana has a blacksmith, an alchemist and a mage.',
         group: 'levels',
+        place: 'Vendors',
+        lands: 'the Level Editor, with Vendors open on its first shop',
         needs: 'level',
         task: 'campaign',
         whenCommand: 'panel.vendors',
@@ -190,6 +204,8 @@ export const TEMPLATES: readonly StartTemplate[] = [
         line: 'A camera path that plays when the player walks in.',
         about: 'Set a few camera points and what happens at each. A trigger and a player for the scene are placed and linked for you.',
         group: 'story',
+        place: 'the Level Editor',
+        lands: 'the Level Editor, with Cut scenes below the viewport',
         needs: 'level',
         task: 'campaign',
         steps: [
@@ -215,6 +231,8 @@ export const TEMPLATES: readonly StartTemplate[] = [
         line: 'Something a character says, with a subtitle.',
         about: 'Add a line to a conversation of the level: who says it, the subtitle, and a recording from the disc.',
         group: 'story',
+        place: 'the Level Editor',
+        lands: 'the Level Editor, with Write a new line below the viewport',
         needs: 'level',
         task: 'campaign',
         steps: [
@@ -240,6 +258,8 @@ export const TEMPLATES: readonly StartTemplate[] = [
         line: 'A title, the quest text and a marker in the world.',
         about: 'Write a quest and place its marker in the level. You choose what starts it and what completes it.',
         group: 'story',
+        place: 'the Level Editor',
+        lands: 'the Level Editor, with Place a quest marker below the viewport',
         needs: 'level',
         task: 'campaign',
         steps: [
@@ -265,6 +285,8 @@ export const TEMPLATES: readonly StartTemplate[] = [
         line: 'Change any text, quest, conversation or cut scene of the game.',
         about: 'Browse every piece of text and every quest and conversation on your disc, and change the words.',
         group: 'story',
+        place: 'the Story editor',
+        lands: 'the Story editor',
         needs: 'disc',
         task: 'story',
         steps: [
@@ -286,6 +308,8 @@ export const TEMPLATES: readonly StartTemplate[] = [
         line: 'Rename, reorder and restyle menu entries.',
         about: 'Change how the menus of the game read and look.',
         group: 'story',
+        place: 'the Menus editor',
+        lands: 'the Menus editor',
         needs: 'disc',
         task: 'story',
         whenCommand: 'panel.menus',
@@ -312,6 +336,8 @@ export const TEMPLATES: readonly StartTemplate[] = [
         line: 'A character, inventory, quests or the world of a .rsg save.',
         about: 'The Save Editor opens in its own window. Keep a copy of the save before you change it.',
         group: 'other',
+        place: 'the Save Editor',
+        lands: 'the Save Editor, in its own window',
         needs: 'nothing',
         task: null,
         steps: WORKFLOWS.save.steps,
@@ -323,6 +349,8 @@ export const TEMPLATES: readonly StartTemplate[] = [
         line: 'Convert a level of the older game that you own.',
         about: 'Point the importer at your own Drakan: Order of the Flame install; its levels become a mod for this game.',
         group: 'other',
+        place: 'the importer',
+        lands: 'the Order of the Flame importer',
         needs: 'disc',
         task: null,
         whenCommand: 'file.importOotf',
@@ -362,25 +390,66 @@ export function startPlan(t: StartTemplate, s: StartState): ('disc' | 'pick' | '
     return plan;
 }
 
-/** The primary button's label for the current state. */
-export function primaryLabel(t: StartTemplate, s: StartState): string {
+/** "Level 1A - Surdana" -> "Surdana" (buttons and lines name the place, not the disc number). */
+export function shortLevelName(name: string): string {
+    const m = /^Level\s+\S+\s*[-–]\s*(.+)$/.exec(name);
+    return m ? m[1]!.trim() : name;
+}
+
+/** The level chosen in the picker, before its button is pressed. */
+export interface PickedLevel {
+    name: string;
+}
+
+/** The primary button's label for the current state: exactly what pressing it does. */
+export function primaryLabel(t: StartTemplate, s: StartState, picked?: PickedLevel | null): string {
     const plan = startPlan(t, s);
     if (plan[0] === 'disc') return 'Open your disc to start';
-    if (plan[0] === 'pick') return t.button;
+    if (plan[0] === 'pick') {
+        if (!picked) return t.button;
+        const n = shortLevelName(picked.name);
+        return t.id === 'newlevel' ? `Copy ${n}` : `Open ${n}`;
+    }
     if (t.needs === 'level') return 'Start in the open level';
     return t.button;
 }
 
-/** One line under the button: what happens next. */
-export function primaryNote(t: StartTemplate, s: StartState): string {
+/** One line under the button, starting with "Next:": what happens when it is pressed. */
+export function primaryNote(t: StartTemplate, s: StartState, picked?: PickedLevel | null): string {
     const plan = startPlan(t, s);
     if (plan[0] === 'disc')
         return plan.includes('pick')
-            ? 'You choose your Drakan disc image (.iso) first, then a level.'
-            : 'You choose your Drakan disc image (.iso) first; the editor then carries on.';
-    if (plan[0] === 'pick') return 'Next you pick a level from your disc.';
-    if (t.id === 'save') return 'Opens in its own window.';
-    return 'A checklist then shows each step and highlights the next one.';
+            ? 'Next: you choose your Drakan disc image (.iso), then a level.'
+            : 'Next: you choose your Drakan disc image (.iso); the editor then carries on.';
+    if (plan[0] === 'pick') {
+        if (!picked) return 'Next: you choose a level of your disc.';
+        const n = shortLevelName(picked.name);
+        return t.id === 'newlevel'
+            ? `Next: a copy of ${n} opens in the Level Editor under its own name.`
+            : `Next: ${n} opens in ${t.lands}.`;
+    }
+    if (t.id === 'save') return 'Next: the Save Editor opens in its own window.';
+    if (t.needs === 'level') return `Next: works in the level that is open, in ${t.lands}.`;
+    return `Next: ${t.lands} opens and a checklist shows each step.`;
+}
+
+export interface FlowStep {
+    label: string;
+    state: 'done' | 'current' | 'todo';
+}
+
+/**
+ * The steps from the start page into the editor, for the line above the tiles: what you are doing now and what
+ * comes after (the template, the disc, the level, then the editor it opens).
+ */
+export function flowSteps(t: StartTemplate, s: StartState, phase: { picking: boolean }): FlowStep[] {
+    const plan = startPlan(t, s);
+    const labels: string[] = ['Choose what to make'];
+    if (plan.includes('disc')) labels.push('Open your disc');
+    if (plan.includes('pick')) labels.push(t.id === 'newlevel' ? 'Choose the level to copy' : 'Choose a level');
+    labels.push(`Continue in ${t.place}`);
+    const current = phase.picking ? labels.length - 2 : 0;
+    return labels.map((label, i) => ({ label, state: i < current ? 'done' : i === current ? 'current' : 'todo' }));
 }
 
 /** What the template needs, as a short sentence for the details pane. */

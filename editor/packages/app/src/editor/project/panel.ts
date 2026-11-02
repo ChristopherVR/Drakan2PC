@@ -81,6 +81,8 @@ export interface ProjectPanelHost {
     ): Promise<string | null>;
     setStatus(msg: string, error?: boolean): void;
     openGuide(id: string): void;
+    /** Extra pane at the top of the side column (Project Settings > Campaign, campaign.ts). */
+    sidePane?(p: ModProject): HTMLElement | null;
 }
 
 export interface ProjectPanel extends Panel {
@@ -1555,7 +1557,7 @@ export function createProjectPanel(host: ProjectPanelHost): ProjectPanel {
             { class: `pj-grid pjx-grid${view === 'map' ? ' pj-map' : ''}` },
             detailsPane(p),
             levelsPane(p),
-            h('div', { class: 'pjx-side' }, checksPane(p), exportPane()),
+            h('div', { class: 'pjx-side' }, host.sidePane?.(p) ?? null, checksPane(p), exportPane()),
         );
         root.replaceChildren(grid);
         root.querySelectorAll<HTMLElement>('.pjx-pane-body').forEach((b, n) => {

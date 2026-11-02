@@ -1,0 +1,131 @@
+/* Project Settings > Campaign (campaign.ts). */
+.cpg-pane {
+    flex: none;
+    max-height: 62%;
+}
+.cpg-body {
+    display: flex;
+    flex-direction: column;
+    gap: var(--sp-3);
+    padding: var(--sp-4) var(--sp-5);
+}
+.cpg-inline {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--sp-2);
+    font-size: var(--fs-sm);
+    color: var(--fg-muted);
+    white-space: nowrap;
+}
+.cpg-intro {
+    margin: 0;
+    color: var(--fg-muted);
+    font-size: var(--fs-sm);
+    line-height: 1.45;
+}
+.cpg-props .pjx-prop {
+    grid-template-columns: 86px minmax(0, 1fr);
+}
+.cpg-sel {
+    min-width: 0;
+    max-width: 100%;
+}
+.cpg-cover {
+    display: flex;
+    flex-direction: column;
+    gap: var(--sp-2);
+}
+.cpg-cover-frame {
+    position: relative;
+    aspect-ratio: 16 / 9;
+    border: 1px solid var(--border-strong);
+    border-radius: var(--r-md);
+    overflow: hidden;
+    background: var(--surface-3);
+}
+.cpg-cover-img {
+    display: block;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+}
+.cpg-cover-none {
+    display: grid;
+    place-items: center;
+    height: 100%;
+    color: var(--fg-muted);
+    font-size: var(--fs-sm);
+}
+.cpg-cover-title {
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    padding: var(--sp-3) var(--sp-4);
+    background: linear-gradient(transparent, rgba(0, 0, 0, 0.7));
+    color: #fff;
+    font-weight: 600;
+    font-size: var(--fs-md);
+    text-shadow: 0 1px 2px #000;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.cpg-cover-tools {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--sp-2);
+}
+.cpg-cover-tools .cpg-sel {
+    width: auto;
+    flex: 1 1 80px;
+}
+.cpg-note {
+    font-size: var(--fs-sm);
+    line-height: 1.4;
+    padding: var(--sp-2) var(--sp-3);
+    border-left: 2px solid var(--accent);
+    background: var(--surface-2);
+}
+.cpg-note.dim {
+    color: var(--fg-muted);
+    border-left-color: var(--border-strong);
+}
+.cpg-checks-head {
+    display: flex;
+    align-items: center;
+    gap: var(--sp-2);
+}
+.cpg-checks-head .spacer {
+    flex: 1;
+}
+.cpg-issues {
+    margin: var(--sp-2) 0 0;
+    padding: 0;
+    list-style: none;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+.cpg-issue {
+    display: grid;
+    grid-template-columns: 16px minmax(0, 1fr);
+    gap: var(--sp-2);
+    align-items: start;
+    padding: 3px var(--sp-2);
+    font-size: var(--fs-sm);
+    line-height: 1.35;
+    border-radius: var(--r-sm);
+}
+.cpg-issue.error {
+    background: color-mix(in srgb, var(--danger, #d04848) 10%, transparent);
+}
+.cpg-issue svg {
+    margin-top: 2px;
+}
+.cpg-ok {
+    margin-top: var(--sp-2);
+    font-size: var(--fs-sm);
+    color: var(--fg-muted);
+}

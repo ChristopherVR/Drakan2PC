@@ -2,8 +2,10 @@ import { describe, expect, it } from 'vitest';
 import {
     TEMPLATES,
     availableTemplates,
+    flowSteps,
     primaryLabel,
     primaryNote,
+    shortLevelName,
     startPlan,
     suggestedLevels,
     templateById,
@@ -67,8 +69,43 @@ describe('start page templates', () => {
         expect(primaryLabel(t('puzzle'), disc)).toBe('Choose a level');
         expect(primaryLabel(t('puzzle'), level)).toBe('Start in the open level');
         expect(primaryLabel(t('save'), none)).toBe('Open the Save Editor');
-        expect(primaryNote(t('puzzle'), none)).toMatch(/disc image .* then a level/);
+        expect(primaryNote(t('puzzle'), none)).toMatch(/^Next: .*disc image .* then a level/);
         expect(primaryNote(t('story'), none)).toMatch(/carries on/);
+    });
+
+    it('names the picked level on the button and says where it opens', () => {
+        const surdana = { name: 'Level 1A - Surdana' };
+        expect(primaryLabel(t('campaign'), disc, surdana)).toBe('Open Surdana');
+        expect(primaryLabel(t('newlevel'), level, surdana)).toBe('Copy Surdana');
+        expect(primaryLabel(t('campaign'), disc, null)).toBe('Choose a level');
+        expect(primaryNote(t('arena'), disc, surdana)).toBe(
+            'Next: Surdana opens in the Level Editor, with World Settings on the right.',
+        );
+        expect(primaryNote(t('campaign'), disc)).toBe('Next: you choose a level of your disc.');
+        expect(shortLevelName('Level 0 - Intro')).toBe('Intro');
+        expect(shortLevelName('My level')).toBe('My level');
+        for (const x of TEMPLATES) expect(primaryNote(x, none)).toMatch(/^Next: /);
+    });
+
+    it('shows the way into the editor, marking where you are', () => {
+        const at = (id: string, s = disc, picking = false) =>
+            flowSteps(t(id), s, { picking }).map((x) => `${x.state}:${x.label}`);
+        expect(at('campaign')).toEqual([
+            'current:Choose what to make',
+            'todo:Choose a level',
+            'todo:Continue in the Level Editor',
+        ]);
+        expect(at('campaign', disc, true)).toEqual([
+            'done:Choose what to make',
+            'current:Choose a level',
+            'todo:Continue in the Level Editor',
+        ]);
+        expect(at('story', none)).toEqual([
+            'current:Choose what to make',
+            'todo:Open your disc',
+            'todo:Continue in the Story editor',
+        ]);
+        expect(at('newlevel', level)[1]).toBe('todo:Choose the level to copy');
     });
 
     it('hides templates whose feature is not installed', () => {

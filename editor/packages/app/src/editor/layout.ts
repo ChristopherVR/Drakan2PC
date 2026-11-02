@@ -1,6 +1,7 @@
 import { h, icon, store } from './dom.ts';
 import {
     dragTo,
+    grownSize,
     keyResize,
     readLayout,
     roomFor,
@@ -44,8 +45,11 @@ export interface Layout {
     toggle(key: DockKey, open?: boolean): void;
     isOpen(key: DockKey): boolean;
     reset(): void;
-    /** Show the bottom dock (used when something wants a tab in view). */
-    openBottom(): void;
+    /**
+     * Show the bottom dock (used when something wants a tab in view). With `share`, also grow it to at least that share
+     * of the Level Editor's height (an editor that needs room, like Story, docks there).
+     */
+    openBottom(share?: number): void;
 }
 
 const STORE_KEY = 'layout';
@@ -189,10 +193,22 @@ export function initLayout(root: HTMLElement, onResize: () => void): Layout {
         apply(pane('left'));
     };
     const save = (): void => store.set(STORE_KEY, writeLayout(state));
-    const changed = (persist = true): void => {
+    // Tell the rest of the page once per frame at most, and not on every step of a drag: the viewport and the lists
+    // watch their own boxes (ResizeObserver), the broadcast is for window-level listeners (menus, cards).
+    let notifyRaf = 0;
+    const notify = (): void => {
+        if (notifyRaf) return;
+        notifyRaf = requestAnimationFrame(() => {
+            notifyRaf = 0;
+            onResize();
+        });
+    };
+    /** `final` is false for the steps of a drag: the panels move, nothing is stored or broadcast yet. */
+    const changed = (final = true): void => {
         applyAll();
-        if (persist) save();
-        onResize();
+        if (!final) return;
+        save();
+        notify();
     };
 
     for (const p of panes) {
@@ -267,8 +283,13 @@ export function initLayout(root: HTMLElement, onResize: () => void): Layout {
             for (const p of panes) state[p.key] = { size: p.lim.def, open: true };
             changed();
         },
-        openBottom() {
-            if (!st('bottom').open) layout.toggle('bottom', true);
+        openBottom(share) {
+            const s = st('bottom');
+            const p = pane('bottom');
+            const size = share ? grownSize(s.size, p.total(), share, p.lim, maxOf(p)) : s.size;
+            if (s.open && size === s.size) return;
+            state.bottom = { size, open: true };
+            changed();
         },
     };
     return layout;

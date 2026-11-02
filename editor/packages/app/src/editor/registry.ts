@@ -79,14 +79,36 @@ const listeners = new Set<() => void>();
 
 const changed = (): void => listeners.forEach((l) => l());
 
+const ranListeners = new Set<(id: string) => void>();
+
 /** Add or replace a command. Returns a function that removes it. */
 export function registerCommand(cmd: Command): () => void {
-    commands.set(cmd.id, cmd);
+    // Every way of running it (menu, palette, shortcut, button) goes through `run`, so `onCommandRan` hears them all.
+    const stored: Command = {
+        ...cmd,
+        run: () => {
+            cmd.run();
+            for (const l of ranListeners) {
+                try {
+                    l(cmd.id);
+                } catch {
+                    // A listener never breaks the command.
+                }
+            }
+        },
+    };
+    commands.set(cmd.id, stored);
     changed();
     return () => {
-        if (commands.get(cmd.id) === cmd) commands.delete(cmd.id);
+        if (commands.get(cmd.id) === stored) commands.delete(cmd.id);
         changed();
     };
+}
+
+/** Be told after any registered command ran (the guided tours wait on these). Returns the unsubscribe function. */
+export function onCommandRan(fn: (id: string) => void): () => void {
+    ranListeners.add(fn);
+    return () => ranListeners.delete(fn);
 }
 
 export function registerSource(src: PaletteSource): () => void {

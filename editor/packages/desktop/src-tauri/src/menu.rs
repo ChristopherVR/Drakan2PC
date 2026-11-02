@@ -52,6 +52,8 @@ pub fn build(app: &AppHandle) -> tauri::Result<Menu<Wry>> {
         .item(&item(app, "project-open", "Open &Project...", Some("CmdOrCtrl+Shift+O"))?)
         .item(&recent_proj)
         .separator()
+        .item(&item(app, "cmd:view.startPage", "S&tart Page", None)?)
+        .separator()
         .item(&item(app, "open-iso", "Open &ISO...", Some("CmdOrCtrl+O"))?)
         .item(&recent)
         .separator()

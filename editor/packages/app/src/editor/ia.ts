@@ -9,7 +9,9 @@
  *   side  a tab beside Details in the Level Editor's right column (per-level settings, like Unreal's World Settings)
  *
  * A `tab` or `dock` editor can be moved to the other place by the user ("Dock in Level Editor" / "Open in own tab");
- * the choice is remembered.
+ * the choice is remembered. Opening an editor from the viewport (double-click a story badge, "Add cut scene here")
+ * always docks it below the viewport unless it is open in its own tab right now (`Workspace.showBeside`), the way
+ * Unreal's Sequencer opens in the bottom drawer while the level stays in view.
  */
 export type Home = 'tab' | 'dock' | 'side';
 
@@ -25,6 +27,8 @@ export interface Placement {
     keys?: string;
     /** Can be moved between `tab` and `dock`. */
     movable?: boolean;
+    /** Docked, it grows the bottom drawer to at least this share of the Level Editor's height (0..1) when it opens. */
+    dockShare?: number;
 }
 
 export const PLACEMENT: Record<string, Placement> = {
@@ -42,12 +46,14 @@ export const PLACEMENT: Record<string, Placement> = {
         command: 'Open Package and Play',
     },
     story: {
-        home: 'tab',
+        // Beside the viewport by default (cut scenes, quest areas and talkers are drawn in it); can be popped out.
+        home: 'dock',
         title: 'Story',
         summary: 'Quests, conversations, cut scenes and text',
         command: 'Open the Story editor',
         keys: 'Ctrl+Shift+Y',
         movable: true,
+        dockShare: 0.5,
     },
     logic: {
         home: 'dock',

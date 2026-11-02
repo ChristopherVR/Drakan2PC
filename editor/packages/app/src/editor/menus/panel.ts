@@ -24,6 +24,7 @@ import {
 import { writePackToModsFolder } from '../../modio.ts';
 import type { Panel } from '../ctx.ts';
 import { fill, h, icon } from '../dom.ts';
+import { projects } from '../project/store.ts';
 
 export interface MenusHost {
     target(): ModMeta['target'] | null;
@@ -511,9 +512,21 @@ export function createMenusPanel(host: MenusHost): MenusPanel {
         });
     });
 
+    // A campaign project: these menus belong to the campaign (the game shows them only while it is chosen).
+    const campaignNote = h('div', { class: 'mn-campaign', id: 'mn-campaign', role: 'note' });
+    const paintCampaign = (): void => {
+        const c = projects.get()?.campaign;
+        campaignNote.hidden = !c?.enabled;
+        if (c?.enabled)
+            campaignNote.textContent = `Part of the campaign "${c.title || c.id}": the project export ships these menus with it, and the game shows them only while "${c.title || c.id}" is chosen on its title card.`;
+    };
+    projects.on(paintCampaign);
+    paintCampaign();
+
     const root = h(
         'div',
         { class: 'panel menus' },
+        campaignNote,
         h(
             'div',
             { class: 'mn-main' },

@@ -5,7 +5,8 @@
 import { resourceParts, type AssetClass } from '@drakan/editor-core';
 import type { LevelView } from './level.ts';
 import type { Api, Method } from './rpc.ts';
-import { TextureCache, buildTerrain, classThumbnail, classesToLoad } from './scene/index.ts';
+import { TextureCache, classThumbnail, classesToLoad } from './scene/index.ts';
+import { bindLevelTerrain, clearLevelTerrain } from './editor/landscape/terrainbind.ts';
 
 type Call = <M extends Method>(method: M, ...args: Parameters<Api[M]>) => Promise<ReturnType<Api[M]>>;
 
@@ -18,13 +19,20 @@ export interface SceneLoaderHooks {
     modelsChanged(): void;
 }
 
+/** How far a level load got, for the viewport's loading card (editor/loadprogress.ts). */
+export type SceneProgress =
+    | { step: 'terrain'; state: 'active' | 'done' | 'failed'; layers?: number }
+    | { step: 'models'; state: 'active' | 'done' | 'failed'; done: number; total: number; missing?: number };
+
 /** Classes per worker request while a level loads (keeps each request short and progress visible). */
 const BATCH = 24;
 const THUMB_SIZE = 96;
 
 export interface SceneLoader {
     /** Drop the current visuals and load terrain and the models of `resources` for the level in `dirPath`. */
-    loadLevel(dirPath: string, resources: Iterable<string>): Promise<void>;
+    loadLevel(dirPath: string, resources: Iterable<string>, progress?: (p: SceneProgress) => void): Promise<void>;
+    /** Stop loading the current level's models; what has loaded stays (the rest show as markers). */
+    stop(): void;
     /** Make sure models exist for these classes (thumbnails, drag ghost, newly placed classes). */
     ensureModels(resources: string[]): Promise<void>;
     /** Ask for a thumbnail of a catalog class (loads its model first when needed). Returns at once. */
@@ -36,6 +44,8 @@ export interface SceneLoader {
 
 export function createSceneLoader(call: Call, view: () => LevelView, hooks: SceneLoaderHooks): SceneLoader {
     let token = 0;
+    /** The load whose models were stopped (its terrain and the classes asked for one by one still come in). */
+    let stoppedTk = -1;
     let dirPath = '';
     let cache = new TextureCache();
     const requested = new Set<string>();
@@ -73,7 +83,14 @@ export function createSceneLoader(call: Call, view: () => LevelView, hooks: Scen
         pump();
     }
 
-    async function fetchModels(path: string, tk: number, list: { resource: string }[], label: string): Promise<number> {
+    async function fetchModels(
+        path: string,
+        tk: number,
+        list: { resource: string }[],
+        label: string,
+        onBatch?: (done: number) => void,
+    ): Promise<number> {
+        const stoppable = !!label;
         let added = 0;
         const layer = view().models;
         for (let i = 0; i < list.length; i += BATCH) {
@@ -84,10 +101,11 @@ export function createSceneLoader(call: Call, view: () => LevelView, hooks: Scen
                 path,
                 part.map((c) => resourceParts(c.resource)),
             );
-            if (tk !== token) return added;
+            if (tk !== token || (stoppable && tk === stoppedTk)) return added;
             const ok = layer.addModelData(data, cache);
             added += ok.length;
             view().modelsChanged();
+            onBatch?.(Math.min(i + BATCH, list.length));
             for (const res of ok) if (thumbWanted.has(res)) queueThumb(res);
             // Let the viewport render between batches.
             await new Promise((r) => setTimeout(r, 0));
@@ -115,7 +133,7 @@ export function createSceneLoader(call: Call, view: () => LevelView, hooks: Scen
     }
 
     return {
-        async loadLevel(path, resources) {
+        async loadLevel(path, resources, progress) {
             const tk = ++token;
             dirPath = path;
             requested.clear();
@@ -125,14 +143,17 @@ export function createSceneLoader(call: Call, view: () => LevelView, hooks: Scen
             const v = view();
             v.models.reset();
             v.setGround({});
+            clearLevelTerrain();
             cache.dispose();
             cache = new TextureCache();
             v.modelsChanged();
             try {
                 hooks.status('Loading terrain...');
+                progress?.({ step: 'terrain', state: 'active' });
                 const t = await call('loadTerrain', path);
                 if (tk !== token) return;
-                const terrain = buildTerrain(t.layers, cache.add('terrain', t.textures));
+                // Editable: follows the document's terrain (landscape edits, restored autosaves).
+                const terrain = bindLevelTerrain(v, t.layers, t.textures, cache.add('terrain', t.textures));
                 v.models.setTerrain(terrain);
                 v.setGround({
                     height: (x, z) => {
@@ -144,29 +165,50 @@ export function createSceneLoader(call: Call, view: () => LevelView, hooks: Scen
                 v.modelsChanged();
                 v.frameAll();
                 hooks.status(`Terrain: ${t.layers.length} layers, ${terrain.group.children.length} meshes.`);
+                progress?.({ step: 'terrain', state: 'done', layers: t.layers.length });
             } catch (e) {
+                if (tk !== token) return;
+                progress?.({ step: 'terrain', state: 'failed' });
                 hooks.toast(`Terrain failed to load: ${e instanceof Error ? e.message : String(e)}`, 'error');
             }
+            if (tk === stoppedTk) return;
             const want = classesToLoad(resources, () => false);
             want.forEach((c) => requested.add(c.resource));
+            const total = want.length;
+            progress?.({ step: 'models', state: 'active', done: 0, total });
             try {
-                const run = chain.then(() => fetchModels(path, tk, want, 'Loading models'));
+                const run = chain.then(() =>
+                    fetchModels(path, tk, want, 'Loading models', (done) => {
+                        if (tk === token) progress?.({ step: 'models', state: 'active', done, total });
+                    }),
+                );
                 chain = run.then(
                     () => undefined,
                     () => undefined,
                 );
                 const added = await run;
-                if (tk !== token) return;
+                if (tk !== token || tk === stoppedTk) return;
                 const missing = want.length - added;
                 hooks.modelsChanged();
                 hooks.status(
                     `Models: ${added} of ${want.length} classes decoded` +
                         (missing ? `; ${missing} show as markers (no model or undecodable).` : '.'),
                 );
-                if (missing) hooks.toast(`${missing} of ${want.length} classes have no model: shown as markers.`);
+                progress?.({ step: 'models', state: 'done', done: total, total, missing });
+                // The loading card says it when there is one.
+                if (missing && !progress)
+                    hooks.toast(`${missing} of ${want.length} classes have no model: shown as markers.`);
             } catch (e) {
+                if (tk !== token) return;
+                progress?.({ step: 'models', state: 'failed', done: 0, total });
                 hooks.toast(`Models failed to load: ${e instanceof Error ? e.message : String(e)}`, 'error');
             }
+        },
+
+        stop() {
+            // The batch on its way is the last; classes it did not reach can still be asked for one by one.
+            stoppedTk = token;
+            requested.clear();
         },
 
         ensureModels,
@@ -184,6 +226,7 @@ export function createSceneLoader(call: Call, view: () => LevelView, hooks: Scen
 
         clear() {
             token++;
+            clearLevelTerrain();
             cache.dispose();
             cache = new TextureCache();
             view().models.reset();

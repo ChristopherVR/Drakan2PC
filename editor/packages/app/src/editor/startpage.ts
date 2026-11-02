@@ -3,13 +3,17 @@ import { allCommands, getCommand, onRegistryChange, runCommand } from './registr
 import { projects } from './project/store.ts';
 import { installQuickAdd, quickAddItems } from './quickadd.ts';
 import { templateArt } from './startart.ts';
+import { hasTour, startTour } from './tour/registry.ts';
 import { startFlow } from './startflow.ts';
+import { isCancelled } from './loadsteps.ts';
 import {
     GROUP_TITLES,
     availableTemplates,
+    flowSteps,
     needsText,
     primaryLabel,
     primaryNote,
+    shortLevelName,
     startPlan,
     suggestedLevels,
     templateById,
@@ -36,6 +40,10 @@ export interface StartPageActions {
     openLevel(dirPath: string): Promise<void> | void;
     /** A level is open in the editor. */
     levelOpen?(): boolean;
+    /** Display name of the open level, or null. */
+    openLevelName?(): string | null;
+    /** Go back to the open level (the start page was opened over it). */
+    close?(): void;
     openPalette(): void;
     openHelp(): void;
 }
@@ -49,6 +57,8 @@ export interface StartPage {
     el: HTMLElement;
     /** Re-render for the current disc (levels = null when no disc is open). */
     refresh(levels: LevelRef[] | null, isoName?: string): void;
+    /** Redraw before the page is shown again over an open level (File > Start page, the Home button). */
+    show(): void;
 }
 
 const RECENT_KEY = 'recent-levels';
@@ -88,8 +98,8 @@ export function createStartPage(a: StartPageActions): StartPage {
     let waiting: TemplateId | null = null;
     /** The level picker is shown for this template. */
     let picking: TemplateId | null = null;
-    /** A level is being opened for the template. */
-    let opening: { id: TemplateId; name: string } | null = null;
+    /** The level chosen in the picker; its button opens it. */
+    let picked: LevelRef | null = null;
 
     const levelOpen = (): boolean => {
         try {
@@ -134,6 +144,7 @@ export function createStartPage(a: StartPageActions): StartPage {
         waiting = null;
         if (next === 'pick') {
             picking = id;
+            picked = null;
             render();
             el.closest('#lv-empty')?.scrollTo({ top: 0 });
             el.querySelector<HTMLElement>('.sp-pick .sp-level')?.focus();
@@ -152,6 +163,7 @@ export function createStartPage(a: StartPageActions): StartPage {
     /** The template's first real step, with everything it needs in place. */
     function run(t: StartTemplate): void {
         picking = null;
+        picked = null;
         projects.pickFor = null;
         fileUnder(t);
         // The Save Editor is its own window: its steps would never tick here, so the checklist keeps what it had.
@@ -179,8 +191,14 @@ export function createStartPage(a: StartPageActions): StartPage {
         render();
     }
 
+    /**
+     * Open the picked level for the template. The Level Editor takes over at once (its loading card shows the
+     * steps), so the page does not linger or come back while the level loads; it only returns, on the picker, when
+     * the open is cancelled or fails.
+     */
     async function pickLevel(t: StartTemplate, l: LevelRef): Promise<void> {
         picking = null;
+        picked = null;
         projects.pickFor = null;
         if (t.id === 'newlevel') {
             fileUnder(t);
@@ -189,24 +207,33 @@ export function createStartPage(a: StartPageActions): StartPage {
             render();
             return;
         }
-        opening = { id: t.id, name: l.name };
+        const opened = a.openLevel(l.dirPath);
         render();
         try {
-            await a.openLevel(l.dirPath);
-            opening = null;
+            await opened;
             run(t);
-        } catch {
-            // The level view already reported why; stay on the picker.
-            opening = null;
+        } catch (e) {
+            // Cancelled: back on the picker with the same level chosen. Failed: the level view said why.
             picking = t.id;
+            picked = isCancelled(e) ? l : null;
             render();
         }
+    }
+
+    function choose(l: LevelRef): void {
+        picked = l;
+        for (const b of el.querySelectorAll<HTMLElement>('.sp-pick .sp-level')) {
+            const on = b.dataset['dir'] === l.dirPath;
+            b.classList.toggle('on', on);
+            b.setAttribute('aria-pressed', String(on));
+        }
+        el.querySelector('.sp-details')?.replaceWith(details());
     }
 
     function cancel(): void {
         waiting = null;
         picking = null;
-        opening = null;
+        picked = null;
         projects.pickFor = null;
         projects.notify();
         render();
@@ -226,7 +253,9 @@ export function createStartPage(a: StartPageActions): StartPage {
                 type: 'button',
                 'data-template': t.id,
                 'aria-pressed': String(on),
-                title: 'Click to see what it involves; double-click to start',
+                title: on
+                    ? 'Selected: press its button on the right, or double-click, to start'
+                    : 'Click to select; double-click to start',
                 onclick: () => select(t.id),
                 ondblclick: () => begin(t.id),
                 onkeydown: (e: Event) => {
@@ -241,6 +270,7 @@ export function createStartPage(a: StartPageActions): StartPage {
                 { class: 'sp-tile-art' },
                 templateArt(t.id),
                 active ? h('span', { class: 'sp-badge' }, 'In progress') : null,
+                h('span', { class: 'sp-check', 'aria-hidden': 'true' }, icon('check', 12)),
             ),
             h('span', { class: 'sp-tile-t' }, t.title),
             h('span', { class: 'sp-tile-l' }, t.line),
@@ -268,13 +298,6 @@ export function createStartPage(a: StartPageActions): StartPage {
         const t = templateById(selected) ?? templates()[0]!;
         const s = state();
         const primary = (): HTMLElement => {
-            if (opening && opening.id === t.id)
-                return h(
-                    'div',
-                    { class: 'sp-wait', role: 'status' },
-                    h('span', { class: 'sp-spin' }),
-                    `Opening ${opening.name}...`,
-                );
             if (waiting === t.id)
                 return h(
                     'div',
@@ -292,13 +315,27 @@ export function createStartPage(a: StartPageActions): StartPage {
                         h('button', { class: 'ui-btn', type: 'button', onclick: cancel }, 'Cancel'),
                     ),
                 );
-            if (picking === t.id)
+            if (picking === t.id && !picked)
                 return h(
                     'div',
                     { class: 'sp-wait-box' },
-                    h('div', { class: 'sp-wait' }, icon('chevron', 12), 'Pick a level on the left.'),
-                    h('button', { class: 'ui-btn', type: 'button', onclick: cancel }, 'Cancel'),
+                    h('div', { class: 'sp-wait' }, icon('chevron', 12), 'Choose a level on the left.'),
+                    h('p', { class: 'sp-note' }, 'Click a level to choose it; double-click opens it straight away.'),
                 );
+            if (picking === t.id && picked) {
+                const l = picked;
+                return h(
+                    'div',
+                    { class: 'sp-go-box' },
+                    h(
+                        'button',
+                        { class: 'ui-btn primary sp-go', type: 'button', onclick: () => void pickLevel(t, l) },
+                        icon(t.id === 'newlevel' ? 'copy' : 'open', 14),
+                        primaryLabel(t, s, l),
+                    ),
+                    h('p', { class: 'sp-note' }, primaryNote(t, s, l)),
+                );
+            }
             return h(
                 'div',
                 { class: 'sp-go-box' },
@@ -312,10 +349,30 @@ export function createStartPage(a: StartPageActions): StartPage {
         };
         return h(
             'aside',
-            { class: 'sp-details', 'aria-live': 'polite', 'data-template': t.id },
+            {
+                class: `sp-details${picking === t.id ? ' picking' : ''}`,
+                'aria-live': 'polite',
+                'data-template': t.id,
+            },
             h('div', { class: 'sp-details-art' }, templateArt(t.id)),
             h('h2', {}, t.title),
             h('p', { class: 'sp-about' }, t.about),
+            // The button comes before the details, so it is in view without scrolling on a small window.
+            primary(),
+            // A guided tour of this template (editor/tour): highlights each control in turn and waits for the step.
+            hasTour(t.id)
+                ? h(
+                      'button',
+                      {
+                          class: 'ui-btn sm sp-tour',
+                          type: 'button',
+                          title: 'A guided walkthrough that highlights each thing to click',
+                          onclick: () => void startTour(t.id),
+                      },
+                      icon('play', 12),
+                      'Show me how',
+                  )
+                : null,
             h('h3', {}, "What you'll do"),
             h('ol', { class: 'sp-steps' }, ...t.steps.slice(0, 5).map((st) => h('li', {}, st.title))),
             h(
@@ -324,25 +381,52 @@ export function createStartPage(a: StartPageActions): StartPage {
                 icon(t.needs === 'nothing' ? 'save' : 'open', 13),
                 needsText(t),
             ),
-            primary(),
         );
     }
 
-    const levelButton = (l: LevelRef, cls: string, onPick: (l: LevelRef) => void): HTMLElement => {
+    /** A level: opens on click, or (picker, with `onOpen`) is chosen on click and opens on double-click or Enter. */
+    const levelButton = (
+        l: LevelRef,
+        cls: string,
+        onPick: (l: LevelRef) => void,
+        onOpen?: (l: LevelRef) => void,
+    ): HTMLElement => {
         const [n, d] = splitName(l.name);
-        return h(
+        const short = shortLevelName(l.name);
+        const on = !!onOpen && picked?.dirPath === l.dirPath;
+        const b = h(
             'button',
-            { class: `start-level sp-level${cls}`, type: 'button', onclick: () => onPick(l) },
+            {
+                class: `start-level sp-level${cls}${on ? ' on' : ''}`,
+                type: 'button',
+                'data-dir': l.dirPath,
+                title: onOpen
+                    ? `Click to choose ${short}; double-click to open it`
+                    : `Open ${short} in the Level Editor`,
+                onclick: () => onPick(l),
+            },
             h('span', { class: 'n' }, n),
             h('span', { class: 'd' }, d),
         );
+        if (onOpen) {
+            b.setAttribute('aria-pressed', String(on));
+            b.addEventListener('dblclick', () => onOpen(l));
+            b.addEventListener('keydown', (e) => {
+                if (e.key === 'Enter' && picked?.dirPath === l.dirPath) {
+                    e.preventDefault();
+                    onOpen(l);
+                }
+            });
+        }
+        return b;
     };
 
     /** The level picker, in place of the tiles. */
     function pickView(t: StartTemplate, all: LevelRef[]): HTMLElement {
         const good = suggestedLevels(t, all);
         const rec = recentLevels().filter((r) => all.some((l) => l.dirPath === r.dirPath));
-        const pick = (l: LevelRef): void => void pickLevel(t, l);
+        const open = (l: LevelRef): void => void pickLevel(t, l);
+        const pick = (l: LevelRef, cls: string): HTMLElement => levelButton(l, cls, choose, open);
         return h(
             'div',
             { class: 'sp-pick' },
@@ -365,7 +449,7 @@ export function createStartPage(a: StartPageActions): StartPage {
                       'div',
                       { class: 'sp-pick-sec' },
                       h('h4', {}, 'Good place to start'),
-                      h('div', { class: 'start-levels' }, ...good.map((l) => levelButton(l, ' good', pick))),
+                      h('div', { class: 'start-levels' }, ...good.map((l) => pick(l, ' good'))),
                   )
                 : null,
             rec.length
@@ -373,14 +457,14 @@ export function createStartPage(a: StartPageActions): StartPage {
                       'div',
                       { class: 'sp-pick-sec' },
                       h('h4', {}, 'Opened recently'),
-                      h('div', { class: 'start-levels' }, ...rec.map((l) => levelButton(l, ' recent', pick))),
+                      h('div', { class: 'start-levels' }, ...rec.map((l) => pick(l, ' recent'))),
                   )
                 : null,
             h(
                 'div',
                 { class: 'sp-pick-sec' },
                 h('h4', {}, 'All levels'),
-                h('div', { class: 'start-levels' }, ...all.map((l) => levelButton(l, '', pick))),
+                h('div', { class: 'start-levels' }, ...all.map((l) => pick(l, ''))),
             ),
         );
     }
@@ -516,6 +600,23 @@ export function createStartPage(a: StartPageActions): StartPage {
         ];
     }
 
+    /** Where you are on the way into the editor: the template, the disc, the level, the editor it opens. */
+    function stepper(t: StartTemplate, isPicking: boolean): HTMLElement {
+        const steps = flowSteps(t, state(), { picking: isPicking });
+        return h(
+            'ol',
+            { class: 'sp-flow', 'aria-label': `Steps for ${t.title}` },
+            ...steps.map((st, i) =>
+                h(
+                    'li',
+                    { class: `sp-flow-s ${st.state}`, ...(st.state === 'current' ? { 'aria-current': 'step' } : {}) },
+                    h('span', { class: 'sp-flow-n' }, st.state === 'done' ? icon('check', 11) : String(i + 1)),
+                    h('span', { class: 'sp-flow-t' }, st.label),
+                ),
+            ),
+        );
+    }
+
     function refresh(lv: LevelRef[] | null, name?: string): void {
         levels = lv;
         isoName = name;
@@ -542,7 +643,7 @@ export function createStartPage(a: StartPageActions): StartPage {
         // The picker must be visible even over an open level: the overlay this page lives in is hidden while a level
         // is shown, so show it for the pick and hide it again after.
         const overlay = el.parentElement;
-        const forced = !!levels && (!!picking || !!opening);
+        const forced = !!levels && !!picking;
         if (overlay) {
             if (forced) {
                 if (overlayWasHidden === null) overlayWasHidden = overlay.hidden !== false;
@@ -553,19 +654,38 @@ export function createStartPage(a: StartPageActions): StartPage {
             }
         }
         const pickT = picking && levels ? templateById(picking) : undefined;
+        const openName = levelOpen() ? (a.openLevelName?.() ?? null) : null;
         el.replaceChildren(
             ...[
                 h(
                     'header',
                     { class: 'sp-head' },
-                    h('h2', {}, 'What do you want to make?'),
                     h(
-                        'p',
-                        { class: 'start-lead' },
-                        'Choose a template to see what it involves, then press its button. A checklist guides you through the rest. The + Add button in the toolbar offers the same at any time.',
+                        'div',
+                        { class: 'sp-head-t' },
+                        h('h2', {}, 'What do you want to make?'),
+                        h(
+                            'p',
+                            { class: 'start-lead' },
+                            'Select a template, then press its button on the right. A checklist guides you through the rest. The Home button, top left, brings you back here.',
+                        ),
                     ),
+                    openName && a.close
+                        ? h(
+                              'button',
+                              {
+                                  class: 'ui-btn sp-back',
+                                  type: 'button',
+                                  title: 'Close the start page (Esc)',
+                                  onclick: () => a.close?.(),
+                              },
+                              icon('undo', 13),
+                              `Back to ${shortLevelName(openName)}`,
+                          )
+                        : null,
                 ),
                 discBar(),
+                stepper(pickT ?? templateById(selected) ?? templates()[0]!, !!pickT),
                 h('div', { class: 'sp-browser' }, pickT && levels ? pickView(pickT, levels) : grid(), details()),
                 projectBlock(),
                 ...more(),
@@ -599,6 +719,14 @@ export function createStartPage(a: StartPageActions): StartPage {
             render();
         });
     });
+    // Esc over an open level goes back to it (or back from the level picker to the templates).
+    el.addEventListener('keydown', (e) => {
+        if (e.key !== 'Escape' || e.defaultPrevented) return;
+        if (picking) cancel();
+        else if (levelOpen() && a.close) a.close();
+        else return;
+        e.preventDefault();
+    });
     render();
-    return { el, refresh };
+    return { el, refresh, show: render };
 }

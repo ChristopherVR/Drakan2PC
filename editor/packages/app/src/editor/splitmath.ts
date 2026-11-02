@@ -105,3 +105,14 @@ export const writeLayout = (state: Record<string, PaneState>): string =>
     JSON.stringify(
         Object.fromEntries(Object.entries(state).map(([k, s]) => [k, { size: Math.round(s.size), open: s.open }])),
     );
+
+/**
+ * Size of a pane asked to take at least `share` of `total` (an editor that needs room docks into the bottom drawer):
+ * the larger of its size and that share, never past `max` (the room it has) and never below its minimum. A pane already
+ * that large keeps its size, so a drawer the user made bigger is not shrunk.
+ */
+export function grownSize(size: number, total: number, share: number, lim: PaneLimits, max: number): number {
+    if (!(total > 0) || !(share > 0)) return size;
+    const want = Math.round(total * Math.min(share, 1));
+    return want > size ? clampSize(want, lim.min, Math.max(size, max)) : size;
+}

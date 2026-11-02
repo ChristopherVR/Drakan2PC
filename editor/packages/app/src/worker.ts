@@ -1,7 +1,8 @@
-import type { BlobLike, DiscProfile, LvlHeader } from '@drakan/formats';
+import type { BlobLike, ByteSource, DiscProfile, LvlHeader } from '@drakan/formats';
 import {
     Iso9660,
     SrscReader,
+    LVL_TYPE_LAYERS,
     LVL_TYPE_OBJECTS,
     TXD_ENTRY_TYPE,
     buildOdbIndex,
@@ -9,6 +10,7 @@ import {
     parseSystemCnf,
     readLvl,
     blobSource,
+    blockCacheSource,
     decodeTxd,
     parseDb,
     parseLevelHeader,
@@ -84,6 +86,54 @@ function need(): Iso9660 {
     return iso;
 }
 
+// ---- foreground first ---------------------------------------------------------------------------------------------
+// Requests run interleaved at every disc read. A whole-disc scan (story texts, quest and string usage, exits) started
+// at disc open used to share every read with the level the user just opened and made it take several times longer.
+// Those scans read through a gated view of the disc that waits while a level is being opened or drawn.
+
+/** Requests the user is waiting for in the viewport. */
+const FOREGROUND: ReadonlySet<string> = new Set(['loadLevel', 'loadTerrain', 'loadModels']);
+let foreground = 0;
+let gateWaiters: (() => void)[] = [];
+let gatedIso: { of: Iso9660; fs: Iso9660 } | null = null;
+
+const gate = (): Promise<void> | null =>
+    foreground > 0 || graceTimer ? new Promise<void>((r) => gateWaiters.push(r)) : null;
+
+/** The viewport asks for the next batch of models right after drawing the last one: stay closed that long. */
+const GATE_GRACE_MS = 250;
+let graceTimer: ReturnType<typeof setTimeout> | null = null;
+
+function releaseGate(): void {
+    if (foreground > 0 || graceTimer) return;
+    graceTimer = setTimeout(() => {
+        graceTimer = null;
+        if (foreground > 0) return;
+        const w = gateWaiters;
+        gateWaiters = [];
+        w.forEach((r) => r());
+    }, GATE_GRACE_MS);
+}
+
+/** The disc for background scans: the same image, but every read waits while a foreground request runs. */
+function needBackground(): Iso9660 {
+    const fs = need();
+    if (gatedIso?.of === fs) return gatedIso.fs;
+    const src = fs.source;
+    const gated: ByteSource = {
+        size: src.size,
+        async read(offset, length) {
+            const g = gate();
+            if (g) await g;
+            return src.read(offset, length);
+        },
+    };
+    // Same directory data, own source: the Iso9660 methods read through `this.source`.
+    const view = Object.create(fs, { source: { value: gated } }) as Iso9660;
+    gatedIso = { of: fs, fs: view };
+    return view;
+}
+
 /** The .DB dependency list beside an ODB (stem path without extension): dependency index -> container stem. */
 async function readOdbDeps(fs: Iso9660, stemPath: string): Promise<Record<number, string>> {
     const out: Record<number, string> = {};
@@ -133,9 +183,52 @@ async function openLevel(fs: Iso9660, dirPath: string): Promise<{ reader: SrscRe
     return { reader, header: parseLevelHeader((await reader.read(e)).data) };
 }
 
+/** `withTerrain`: also read the terrain entry's bytes (`layers`, what a terrain edit is rebuilt from; about 1 MB). */
+async function readLevel(fs: Iso9660, dirPath: string, withTerrain = false): Promise<LevelLoadResult> {
+    const lvlFile = (await fs.list(dirPath)).find((e) => !e.isDir && /\.LVL$/i.test(e.name));
+    if (!lvlFile) throw new Error(`no .LVL file in ${dirPath}`);
+    const reader = await SrscReader.open(sliceSource(fs.source, lvlFile.extent * 2048, lvlFile.size));
+    const lvl = await readLvl(reader);
+    const e = reader.entries.find((x) => x.type === LVL_TYPE_OBJECTS)!;
+    const le = withTerrain ? reader.entries.find((x) => x.type === LVL_TYPE_LAYERS) : undefined;
+    const layers = le
+        ? { type: le.type, id: le.id, sub: le.sub, size: le.size, data: await reader.readRaw(le) }
+        : undefined;
+    const odbReaders = new Map<string, SrscReader>();
+    const missingOdbs: string[] = [];
+    const odbDeps: Record<string, Record<number, string>> = {};
+    for (const d of lvl.header.dependencies) {
+        const stem = odbStemForDependency(d.path.text);
+        if (odbReaders.has(stem)) continue;
+        const f = await fs.find(`${resolveDependencyStem(dirPath, d.path.text)}.ODB`);
+        if (!f || f.isDir) {
+            missingOdbs.push(d.path.text);
+            continue;
+        }
+        try {
+            odbReaders.set(stem, await SrscReader.open(sliceSource(fs.source, f.extent * 2048, f.size)));
+        } catch {
+            missingOdbs.push(d.path.text);
+            continue;
+        }
+        odbDeps[stem] = await readOdbDeps(fs, resolveDependencyStem(dirPath, d.path.text));
+    }
+    return {
+        path: lvlFile.path,
+        file: lvlFile.name,
+        objects: { type: e.type, id: e.id, sub: e.sub, size: e.size },
+        ...(layers ? { layers } : {}),
+        lvl,
+        odbs: await buildOdbIndex(odbReaders),
+        odbDeps,
+        missingOdbs,
+    };
+}
+
 const api: { [K in keyof Api]: (...a: Parameters<Api[K]>) => Promise<ReturnType<Api[K]>> } = {
     async open(file) {
-        iso = await Iso9660.open(blobSource('url' in file ? remoteBlob(file) : file));
+        // Block cache: a level is thousands of small records, and each read of a File or URL is its own round trip.
+        iso = await Iso9660.open(blockCacheSource(blobSource('url' in file ? remoteBlob(file) : file)));
         srscCache.clear();
         const languages: string[] = [];
         for (const e of await iso.list('')) {
@@ -235,55 +328,22 @@ const api: { [K in keyof Api]: (...a: Parameters<Api[K]>) => Promise<ReturnType<
         return fs.source.read(lvlFile.extent * 2048, lvlFile.size);
     },
     async loadLevel(dirPath): Promise<LevelLoadResult> {
-        const fs = need();
-        const lvlFile = (await fs.list(dirPath)).find((e) => !e.isDir && /\.LVL$/i.test(e.name));
-        if (!lvlFile) throw new Error(`no .LVL file in ${dirPath}`);
-        const reader = await SrscReader.open(sliceSource(fs.source, lvlFile.extent * 2048, lvlFile.size));
-        const lvl = await readLvl(reader);
-        const e = reader.entries.find((x) => x.type === LVL_TYPE_OBJECTS)!;
-        const odbReaders = new Map<string, SrscReader>();
-        const missingOdbs: string[] = [];
-        const odbDeps: Record<string, Record<number, string>> = {};
-        for (const d of lvl.header.dependencies) {
-            const stem = odbStemForDependency(d.path.text);
-            if (odbReaders.has(stem)) continue;
-            const f = await fs.find(`${resolveDependencyStem(dirPath, d.path.text)}.ODB`);
-            if (!f || f.isDir) {
-                missingOdbs.push(d.path.text);
-                continue;
-            }
-            try {
-                odbReaders.set(stem, await SrscReader.open(sliceSource(fs.source, f.extent * 2048, f.size)));
-            } catch {
-                missingOdbs.push(d.path.text);
-                continue;
-            }
-            odbDeps[stem] = await readOdbDeps(fs, resolveDependencyStem(dirPath, d.path.text));
-        }
-        return {
-            path: lvlFile.path,
-            file: lvlFile.name,
-            objects: { type: e.type, id: e.id, sub: e.sub, size: e.size },
-            lvl,
-            odbs: await buildOdbIndex(odbReaders),
-            odbDeps,
-            missingOdbs,
-        };
+        return readLevel(need(), dirPath, true);
     },
     async exitIndex(only) {
-        const fs = need();
+        const fs = needBackground();
         const levels = (await loadLevels()).filter((l) => l.present);
         const out: ExitIndexData = { levels: [] };
         if (only) {
             // One level only (the destination picker needs just the open level's exits); the whole disc takes much longer.
             const key = (s: string): string => s.toLowerCase().replace(/[^a-z0-9]/g, '');
             const l = levels.find((x) => key(x.name) === key(only) || key(destinationLevelName(x.name)) === key(only));
-            if (l) out.levels.push(await levelExitData(fs, l.dirPath, l.name, await api.loadLevel(l.dirPath)));
+            if (l) out.levels.push(await levelExitData(fs, l.dirPath, l.name, await readLevel(fs, l.dirPath)));
             out.levelNames = levels.map((x) => x.name);
             return out;
         }
         for (const l of levels) {
-            const r = await api.loadLevel(l.dirPath);
+            const r = await readLevel(fs, l.dirPath);
             out.levels.push(await levelExitData(fs, l.dirPath, l.name, r));
         }
         return out;
@@ -302,14 +362,15 @@ const api: { [K in keyof Api]: (...a: Parameters<Api[K]>) => Promise<ReturnType<
         return loadItemCatalog(need(), language);
     },
     async loadStoryEdit() {
-        return loadStoryEdit(need(), language);
+        return loadStoryEdit(needBackground(), language);
     },
     async scanQuestUsage() {
-        const data = await loadStoryEdit(need(), language);
+        const fs = needBackground();
+        const data = await loadStoryEdit(fs, language);
         const ids = new Set(data.quests.map((q) => q.cls.classId));
         const dirs = (await loadLevels()).filter((l) => l.present).map((l) => l.dirPath);
         return scanQuestUsage(ids, dirs, async (dir) => {
-            const r = await api.loadLevel(dir);
+            const r = await readLevel(fs, dir);
             return { header: r.lvl.header, list: r.lvl.list, odbs: r.odbs };
         });
     },
@@ -320,9 +381,10 @@ const api: { [K in keyof Api]: (...a: Parameters<Api[K]>) => Promise<ReturnType<
         return isoStoryFs(need(), language).stems();
     },
     async scanStringUsage() {
+        const fs = needBackground();
         const dirs = (await loadLevels()).filter((l) => l.present).map((l) => l.dirPath);
         return scanStringUsage(dirs, async (dir) => {
-            const r = await api.loadLevel(dir);
+            const r = await readLevel(fs, dir);
             return { header: r.lvl.header, list: r.lvl.list, odbs: r.odbs };
         });
     },
@@ -388,6 +450,8 @@ const scope = self as unknown as {
 
 scope.onmessage = async (ev) => {
     const { id, method, args } = ev.data;
+    const fore = FOREGROUND.has(method);
+    if (fore) foreground++;
     try {
         const fn = api[method] as (...a: unknown[]) => Promise<unknown>;
         const result = await fn(...args);
@@ -400,5 +464,10 @@ scope.onmessage = async (ev) => {
         scope.postMessage({ id, ok: true, result }, transfer);
     } catch (err) {
         scope.postMessage({ id, ok: false, error: err instanceof Error ? err.message : String(err) });
+    } finally {
+        if (fore) {
+            foreground--;
+            releaseGate();
+        }
     }
 };

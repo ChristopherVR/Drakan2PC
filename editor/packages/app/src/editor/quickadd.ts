@@ -52,7 +52,7 @@ function registerBuiltIns(): void {
     const via = (command: string) => (): boolean => runCommand(command);
     /** Story tools that place things in the world open below the viewport (camera and selection stay in view). */
     const besideViewport = (command: string) => (): boolean => {
-        workspace()?.openIn('story', 'dock', false);
+        workspace()?.showBeside('story');
         return runCommand(command);
     };
     registerQuickAdd({

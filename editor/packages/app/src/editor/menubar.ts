@@ -16,6 +16,8 @@ export const MENUS: { id: string; label: string; items: string[] }[] = [
         id: 'file',
         label: 'File',
         items: [
+            'view.startPage',
+            '-',
             'project.new',
             'project.open',
             'project.save',
@@ -82,7 +84,11 @@ export const MENUS: { id: string; label: string; items: string[] }[] = [
             'view.theme',
         ],
     },
-    { id: 'help', label: 'Help', items: ['help.guides', 'help.shortcuts', 'help.palette'] },
+    {
+        id: 'help',
+        label: 'Help',
+        items: ['help.guides', 'help.tours', 'help.web', '-', 'help.shortcuts', 'help.palette'],
+    },
 ];
 
 /** Window-menu order of the registered editors. */
