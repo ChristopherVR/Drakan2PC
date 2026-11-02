@@ -215,8 +215,16 @@ std::vector<Pick> g_picks;
 struct SpawnReq {
     uint32_t resIndex = 0;
     float pos[3] = {0, 0, 0};
-    int pickup = -1; // pickup index, or -1 for a loadout item
+    int pickup = -1; // pickup index, -1 for a loadout item, kEffectSpawn for a short-lived effect (the dragon's breath)
+    float rot[9] = {1, 0, 0, 0, 1, 0, 0, 0, 1};
 };
+constexpr int kEffectSpawn = -2;
+struct LiveEffect {
+    uint32_t handle = 0;
+    unsigned dieTick = 0;
+};
+std::deque<LiveEffect> g_effects; // effect actors the factory made, killed when their life is over
+unsigned g_effectLife = 40;       // ticks an effect actor lives
 std::deque<SpawnReq> g_spawnQueue;
 bool g_spawnInFlight = false;
 unsigned g_spawnPostedTick = 0;
@@ -368,7 +376,10 @@ void pumpSpawns(drakan_input::IGuest& guest, uint8_t* rdram) {
         const uint32_t handle = g_itemResult.load();
         g_spawnInFlight = false;
         const uint32_t player = dataOf(rdram, controlledActor(rdram));
-        if (g_inflightPickup < 0) {
+        if (g_inflightPickup == kEffectSpawn) {
+            if (handle)
+                g_effects.push_back({handle, g_ticks + g_effectLife});
+        } else if (g_inflightPickup < 0) {
             arenaLog("loadout: the factory returned actor %x (vtable %x flags %x type %u ref %x)", handle,
                      ramPtr(handle) ? rd32(rdram, handle) : 0u, ramPtr(handle) ? rd32(rdram, handle + 4) : 0u,
                      ramPtr(handle) ? rd32(rdram, handle + 0xc) : 0u, ramPtr(handle) ? rd32(rdram, handle + 0x10) : 0u);
@@ -439,7 +450,8 @@ void pumpSpawns(drakan_input::IGuest& guest, uint8_t* rdram) {
         return;
     if (!g_itemSlot1 || !g_itemSlot2)
         return;
-    const float xform[12] = {r.pos[0], r.pos[1], r.pos[2], 1, 0, 0, 0, 1, 0, 0, 0, 1};
+    const float xform[12] = {r.pos[0], r.pos[1], r.pos[2], r.rot[0], r.rot[1], r.rot[2],
+                             r.rot[3], r.rot[4], r.rot[5], r.rot[6], r.rot[7], r.rot[8]};
     std::memcpy(g_item.xform, xform, sizeof xform);
     g_item.idx = r.resIndex;
     g_inflightPickup = r.pickup;
@@ -452,6 +464,8 @@ void pumpSpawns(drakan_input::IGuest& guest, uint8_t* rdram) {
         g_picks[static_cast<size_t>(r.pickup)].spawnTick = g_ticks;
         g_picks[static_cast<size_t>(r.pickup)].spawnHandle = 0;
     }
+    if (r.pickup == kEffectSpawn)
+        return;
     arenaLog("spawn: resource index %u at %.0f %.0f %.0f (%s %d)", r.resIndex, static_cast<double>(r.pos[0]),
              static_cast<double>(r.pos[1]), static_cast<double>(r.pos[2]), r.pickup >= 0 ? "pickup" : "loadout",
              r.pickup);
@@ -2130,6 +2144,20 @@ int previewShotState() {
     return g_shotStage.load() ? 1 : (g_shotDone.load() ? 2 : 0);
 }
 
+bool spawnEffect(uint8_t* rdram, uint32_t resId, const float pos[3], const float rot[9], unsigned lifeTicks) {
+    const uint32_t idx = findResourceIndex(rdram, resId);
+    if (idx == 0xffffffffu || g_spawnQueue.size() > 1)
+        return false;
+    g_effectLife = lifeTicks ? lifeTicks : 40;
+    SpawnReq r;
+    r.resIndex = idx;
+    r.pickup = kEffectSpawn;
+    std::memcpy(r.pos, pos, sizeof r.pos);
+    std::memcpy(r.rot, rot, sizeof r.rot);
+    g_spawnQueue.push_back(r);
+    return true;
+}
+
 void install(PS2Runtime& rt) {
     (void)rt;
     if (const char* f = std::getenv("DRAKAN_ARENA_PREVIEW_SHOT"))
@@ -2239,6 +2267,10 @@ void beforePadMgr(drakan_input::IGuest& guest, uint8_t* rdram) {
         return;
     }
     applyPickupEvents(guest, rdram);
+    while (!g_effects.empty() && g_ticks >= g_effects.front().dieTick) { // breath flames past their life
+        killActor(guest, rdram, g_effects.front().handle);
+        g_effects.pop_front();
+    }
     const unsigned since = g_ticks - g_passTick;
     if (since < kSweepTicks ? since % 20 == 0 : since % 120 == 0) {
         if (snapshot(rdram))
@@ -2246,6 +2278,18 @@ void beforePadMgr(drakan_input::IGuest& guest, uint8_t* rdram) {
     }
     if (g_dumpWanted && since == kSweepTicks + 120 && snapshot(rdram))
         dumpWorld("after");
+    if (std::getenv("DRAKAN_ARENA_RESDUMP") && since == kSweepTicks + 60) { // test aid: the level's resource records
+        const uint32_t ctx = engineCtx(rdram);
+        const uint32_t res = ramPtr(ctx) ? rd32(rdram, ctx + 0x320) : 0;
+        const uint32_t table = ramPtr(res) ? rd32(rdram, res + 8) : 0,
+                       count = ramPtr(res) ? rd32(rdram, res + 0x10) : 0;
+        arenaLog("resdump: %u records", count);
+        for (uint32_t i = 0; ramPtr(table) && i <= count && i < 0x20000u; ++i) {
+            const uint32_t r = table + i * 0x24u;
+            arenaLog("resdump %u id %x type %u class %x props %x model %x", i, rd32(rdram, r), rd32(rdram, r + 4),
+                     rd32(rdram, r + 8), rd32(rdram, r + 0xc), rd32(rdram, r + 0x10));
+        }
+    }
     if (g_ticks % 3 == 0)
         pickupTick(guest, rdram);
     pumpSpawns(guest, rdram);

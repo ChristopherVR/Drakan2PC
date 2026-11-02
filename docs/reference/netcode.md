@@ -839,10 +839,14 @@ pack's `maps/<level>.ini`:
   cone in front of the dragon (range 5000). While mounted the victim's dragon health float (`data+0x6b4`) follows the server, a death
   freezes the dragon and the Respawn puts him on the next dragon pad spawn; kills, frag limit and match end are the existing flow.
   Verified with two instances on Arena of Death (`scripts/harness/arena_dragons.py`, journal `2026-11-01/ootf-dragon-pvp.md`): two kills,
-  `match over: player 1 wins`. No flame is drawn yet.
+  `match over: player 1 wins`. **The breath is drawn**: while the attack bit is held the host spawns FX-database particle effects at
+  the dragon's mouth through the engine factory (`drakan_arena::spawnEffect`, one every 6 pad updates, puffs 700..2050 units ahead, each
+  killed after 40 updates): `Part: BaseFireBlend [2]` (resource `0x418a5`, orange flame) and `Part: FireWisp [2]` (`0x418a4`, sparks).
+  Test aids: `DRAKAN_BREATH_RES=<id,id,..>` (other emitters), `DRAKAN_BREATH_SWEEP=<ids>` (side by side), `DRAKAN_ARENA_RESDUMP=1`
+  (logs the level's resource table; FX class id N is resource `0x40000 | N`; journal `2026-11-02/ootf-dragon-breath-visual.md`).
   The dragon pads and the Soul Crystal stay as `marker` lines (authored, not read by the game).
 
-Not done: team spawn sets, a visible breath effect, the USA disc (see `docs/reference/regions.md` "Multiplayer arenas on USA").
+Not done: team spawn sets, the USA disc (see `docs/reference/regions.md` "Multiplayer arenas on USA").
 
 ## Tests
 

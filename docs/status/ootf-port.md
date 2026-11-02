@@ -24,8 +24,9 @@ packs that the recompiled PS2 engine plays; nothing from either game is committe
 
 ## Known gaps
 
-* Dragon breath in the air arenas draws no flame or particle (the engine's breath effect was not found); dragon health regeneration
-  lifts the bar between hits; a dying dragon hangs frozen until respawn (`ootf-dragon-pvp.md`).
+* Dragon breath in the air arenas draws a flame trail (host-spawned FX particles, `ootf-dragon-breath-visual.md`); it needs the FX
+  resources in the arena level (true for the air arenas, other maps untested) and is not wired to the campaign dragon. Dragon health
+  regeneration lifts the bar between hits (`ootf-dragon-pvp.md`).
 * The real PC triggers were not walked: Islands Detector 4131, Volcanic Detector 2318 (mount only), Succubus `ship2`. The placed exit
   boxes are the tested path (`ootf-link-regression.md`).
 * Volcanic runs at about 42 fps with the rift effect live (Vortex / Inner / Outer Rift movers).
@@ -39,7 +40,7 @@ packs that the recompiled PS2 engine plays; nothing from either game is committe
 * Map-file key for an adopted loadout item (the ini only knows factory resources), `arena-pvp-open-items.md`.
 * Duplicate-object warnings from source data (Alwarren, Grimstone Mines) are harmless but unexamined.
 
-* 2026-11-02 state proofs (`journal/2026-11-02/ootf-state-proofs.md`): switch -> portcullis and plate -> mover chains proven by world dumps; Dr. Evil: 3 of 4 heads killed in game, ending not reached (4th head stayed 22000 units away); dying dragon now falls; breath visual still open.
+* 2026-11-02 state proofs (`journal/2026-11-02/ootf-state-proofs.md`): switch -> portcullis and plate -> mover chains proven by world dumps; Dr. Evil: 3 of 4 heads killed in game, ending not reached (4th head stayed 22000 units away); dying dragon now falls. Breath visual: done, see `ootf-dragon-breath-visual.md`.
 * 2026-11-02 pass (`journal/2026-11-02/ootf-unproven-creatures-chains.md`): Succubus drawn; Blade Dragons alive and attacking; Queen / Hueges alive;
   Ebon Dragon / Drone / switch-to-portcullis still unproven by picture; the pack conflict is fixed by one combined conversion (`journal/2026-11-02/ootf-combined-pack.md`).
 

@@ -89,6 +89,11 @@ bool takePickupClaim(uint16_t& index);                          // net::PickupCl
 // collision cell and arms the first-spawn loadout.
 bool placeAtSpawn(drakan_input::IGuest& guest, uint8_t* rdram, int index);
 
+// EE thread. Create the object of resource `resId` (an effect: a flame emitter) at `pos` with rotation `rot` (3x3, rows
+// as the actor transform) through the engine's factory; the actor is killed after `lifeTicks` pad updates. False when
+// the level has no such resource or spawns are backed up.
+bool spawnEffect(uint8_t* rdram, uint32_t resId, const float pos[3], const float rot[9], unsigned lifeTicks);
+
 // EE thread, every PadMgr_Update (after drakan_pvp::beforePadMgr).
 void beforePadMgr(drakan_input::IGuest& guest, uint8_t* rdram);
 

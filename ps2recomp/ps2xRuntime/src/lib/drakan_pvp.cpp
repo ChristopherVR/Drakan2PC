@@ -408,12 +408,72 @@ std::vector<int> breathTargets(const uint8_t* rdram, uint32_t dragon) {
     return out;
 }
 
+// The breath's flame: a short-lived flame emitter actor made through the engine's factory at the dragon's mouth every
+// kFlameTicks boundaries while the attack is held (drakan_arena::spawnEffect kills it after kFlameLife). The emitter
+// resources are the FX database's own particle classes (resource id 0x4xxxx = FX class id; `Part: BaseFireBlend [2]`
+// 0x418a5, the orange flame, and `Part: FireWisp [2]` 0x418a4, the sparks; the BaseFire classes carry a camp-fire log
+// model and are not used). DRAKAN_BREATH_RES=<id,id,...> overrides them (experiments).
+constexpr unsigned kFlameTicks = 6, kFlameLife = 40;
+constexpr float kMouthAhead = 700.0f;
+// DRAKAN_BREATH_RES=<resource id> picks the emitter; DRAKAN_BREATH_SWEEP=<id,id,...> (experiment) spawns each in turn
+// side by side to see which resource is the flame.
+std::vector<uint32_t> breathResources() {
+    std::vector<uint32_t> out;
+    for (const char* name : {"DRAKAN_BREATH_SWEEP", "DRAKAN_BREATH_RES"}) {
+        const char* e = std::getenv(name);
+        for (; e && *e;) {
+            char* end = nullptr;
+            const uint32_t v = static_cast<uint32_t>(std::strtoul(e, &end, 0));
+            if (end == e)
+                break;
+            out.push_back(v);
+            e = *end == ',' ? end + 1 : end;
+        }
+        if (!out.empty())
+            break;
+    }
+    if (out.empty())
+        out = {0x418a5u, 0x418a4u};
+    return out;
+}
+unsigned g_flameCalls = 0, g_flameTick = 0, g_flameNext = 0;
+void spawnFlame(uint8_t* rdram, uint32_t dragon) {
+    static const std::vector<uint32_t> res = breathResources();
+    ++g_flameCalls;
+    if (res.empty() || g_flameCalls - g_flameTick < kFlameTicks)
+        return;
+    float m[12];
+    std::memcpy(m, rdram + ((dragon + 0x14) & 0x1ffffffu), sizeof m);
+    const float* fwd = m + 9;
+    const float* right = m + 3;
+    static const bool once = std::getenv("DRAKAN_BREATH_SWEEP_ONCE") != nullptr; // experiment: one long-lived pass
+    if (once && g_flameNext >= res.size())
+        return;
+    const size_t k = g_flameNext % res.size();
+    static const bool sweep = std::getenv("DRAKAN_BREATH_SWEEP") != nullptr;
+    const float side = sweep && res.size() > 1 ? (static_cast<float>(k) - 0.5f * static_cast<float>(res.size() - 1)) *
+                                                     (once ? 350.0f : 450.0f)
+                                               : 0.0f;
+    // A trail: successive puffs sit 450 units further along the breath (700, 1150, 1600, 2050).
+    const float ahead = once ? 1500.0f : kMouthAhead + 450.0f * static_cast<float>((g_flameNext / res.size()) % 4);
+    const float pos[3] = {m[0] + fwd[0] * ahead + right[0] * side, m[1] + fwd[1] * ahead + right[1] * side,
+                          m[2] + fwd[2] * ahead + right[2] * side};
+    if (drakan_arena::spawnEffect(rdram, res[k], pos, m + 3, once ? 900u : kFlameLife)) {
+        g_flameTick = g_flameCalls;
+        ++g_flameNext;
+        std::fprintf(stderr, "[pvp] breath flame resource %x at %.0f %.0f %.0f\n", res[k], static_cast<double>(pos[0]),
+                     static_cast<double>(pos[1]), static_cast<double>(pos[2]));
+    }
+}
+
 // Called every boundary while the local player is alive and rides a dragon.
-void scanBreath(const uint8_t* rdram, uint32_t dragon) {
+void scanBreath(uint8_t* rdram, uint32_t dragon) {
     const uint32_t data = dataOf(rdram, dragon);
     const bool attack = ramPtr(data) && (rd32(rdram, data + 0x90) & 2u) != 0;
     const bool edge = attack && !g_breath.held;
     g_breath.held = attack;
+    if (attack)
+        spawnFlame(rdram, dragon);
     if (!attack || (!edge && g_projTick - g_breath.lastTick < kBreathTicks))
         return;
     g_breath.lastTick = g_projTick;
@@ -867,8 +927,9 @@ void beforePadMgr(drakan_input::IGuest& guest, uint8_t* rdram) {
     switch (static_cast<Life>(g_life.load())) {
         case Life::Alive:
             recordCrumb(rdram, player);
-            if (g_local.load() && !g_enemies.empty()) {
-                scanProjectiles(guest, rdram, player);
+            if (g_local.load()) {
+                if (!g_enemies.empty())
+                    scanProjectiles(guest, rdram, player);
                 if (mounted)
                     scanBreath(rdram, player);
             }
