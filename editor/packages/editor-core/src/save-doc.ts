@@ -33,6 +33,7 @@ import { LevelDocument, type LevelObject } from './document.ts';
 import {
     addItem,
     itemCells,
+    itemRows,
     itemResource,
     itemTemplates,
     placeItem,
@@ -107,6 +108,8 @@ export class SaveDocument extends LevelDocument {
     readonly quests: QuestRow[];
     /** Pending item replacements: inventory cell -> entry id of the template record whose body it gets. */
     readonly itemReplacements = new Map<number, number>();
+    /** Height in cells of the class each pending replacement takes (only for cells whose height is known). */
+    readonly itemReplacementRows = new Map<number, number>();
     /** Pending new items, in the order they were added: template record entry id and height in cells of each. */
     readonly itemAdds: ItemAdd[] = [];
     private templatesCache: ItemTemplate[] | null = null;
@@ -197,13 +200,44 @@ export class SaveDocument extends LevelDocument {
         return placeItem(used, rows);
     }
 
-    /** Cells taken by the items in the save, or null when the inventory was not recognised. */
+    /** Cells taken by the items in the save (with the heights of pending replacements), or null when not recognised. */
     private usedNow(): Set<number> | null {
         try {
-            return usedCells(this.save);
+            const used = usedCells(this.save);
+            for (const [cell, rows] of this.itemReplacementRows) {
+                for (const c of this.ownCells(cell)) used.delete(c);
+                for (const c of itemCells(cell, rows) ?? [cell]) used.add(c);
+            }
+            return used;
         } catch {
             return null;
         }
+    }
+
+    /** Cells the item whose first cell is `cell` takes in the save as opened. */
+    private ownCells(cell: number): number[] {
+        let rows = 1;
+        try {
+            rows = itemRows(this.save, cell);
+        } catch {
+            rows = 1;
+        }
+        return itemCells(cell, Math.max(1, Math.min(rows, 3))) ?? [cell];
+    }
+
+    /**
+     * Whether the item in `cell` can become `rows` cells tall: every cell it then needs is inside the grid and free,
+     * apart from the cells it takes now (pending added items count as taken).
+     */
+    replaceFits(cell: number, rows: number): boolean {
+        const cells = itemCells(cell, rows);
+        if (!cells) return false;
+        const used = this.usedNow();
+        if (!used) return false;
+        for (const p of this.addedPlaces()) for (const c of p.cells) used.add(c);
+        const pending = this.itemReplacementRows.get(cell);
+        const own = new Set(pending === undefined ? this.ownCells(cell) : (itemCells(cell, pending) ?? [cell]));
+        return cells.every((c) => own.has(c) || !used.has(c));
     }
 
     /** The item class of an inventory cell now: the pending replacement, else the stored one. */
@@ -340,7 +374,9 @@ export class SaveDocument extends LevelDocument {
                 force: e.unconfirmed,
             }));
         let base = this.save;
-        for (const [cell, tpl] of this.itemReplacements) base = replaceItem(base, cell, tpl);
+        for (const [cell, tpl] of this.itemReplacements) {
+            base = replaceItem(base, cell, tpl, this.itemReplacementRows.get(cell));
+        }
         for (const a of this.itemAdds) base = addItem(base, a.template, a.rows).save;
         if (edits.length === 0 && base === this.save) return { bytes: this.bytes.slice(), save: this.save };
         const save = edits.length ? applyFieldEdits(base, edits) : base;
@@ -423,26 +459,42 @@ export class SetFieldCommand implements Command {
     }
 }
 
-/** Replace the item in an inventory cell by another class (undefined clears the replacement). */
+/**
+ * Replace the item in an inventory cell by another class (undefined clears the replacement). `rows` is the new
+ * class's height in cells when known: the item then takes that many cells of its column (refused when they are
+ * taken). Without it the item keeps its height.
+ */
 export class ReplaceItemCommand implements Command {
     readonly label: string;
     private old: number | undefined;
+    private oldRows: number | undefined;
     constructor(
         private readonly cell: number,
         private readonly template: number | undefined,
+        private readonly rows?: number,
     ) {
         this.label = `Replace item in cell ${cell}`;
     }
-    private put(doc: LevelDocument, v: number | undefined): void {
+    private put(doc: LevelDocument, v: number | undefined, rows: number | undefined): void {
         if (!(doc instanceof SaveDocument)) throw new Error('ReplaceItemCommand needs a SaveDocument');
         if (v === undefined) doc.itemReplacements.delete(this.cell);
         else doc.itemReplacements.set(this.cell, v);
+        if (v === undefined || rows === undefined) doc.itemReplacementRows.delete(this.cell);
+        else doc.itemReplacementRows.set(this.cell, rows);
     }
     apply(doc: LevelDocument): void {
-        if (doc instanceof SaveDocument) this.old = doc.itemReplacements.get(this.cell);
-        this.put(doc, this.template);
+        if (doc instanceof SaveDocument) {
+            if (this.template !== undefined && this.rows !== undefined && !doc.replaceFits(this.cell, this.rows)) {
+                throw new SaveFieldError(
+                    `The new item is ${this.rows} cells tall and the cells under cell ${this.cell} are taken.`,
+                );
+            }
+            this.old = doc.itemReplacements.get(this.cell);
+            this.oldRows = doc.itemReplacementRows.get(this.cell);
+        }
+        this.put(doc, this.template, this.rows);
     }
     revert(doc: LevelDocument): void {
-        this.put(doc, this.old);
+        this.put(doc, this.old, this.oldRows);
     }
 }

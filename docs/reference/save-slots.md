@@ -142,10 +142,10 @@ modification time on the host by the time zone (the title's "newest save" orders
   inventory order; the game rebuilds the cells from it. A carried item record can be replaced in place by another class's record (keep the
   serial, handle copies, +0x52..0x5e, +0x96 and position).
 - Add item works (2026-11-01, `journal/2026-11-01/save-add-item.md`). The "list" above is a word stream: Rynn's record holds the 24
-  cells column-major (position = column * 3 + row); an empty cell is one word (-1), an item two (slot, flag 1), so one more item makes
+  cells column-major (position = column * 3 + row); an empty cell is one word (-1), an item two (slot, height in cells), so one more item makes
   the record 4 bytes longer (the old `{slot,1,-1,-1}` view and in-place writes caused the `[memset] bad size` crash). Slot space: records
   are slots 0..K-1, level statics follow at K + their position in the 0x24 table (0x21 pairs mirror it), so a new record needs the
-  first static dropped from 0x24 and 0x21. The u16 item count 8 bytes before the cell table goes up by one. Code:
+  first static dropped from 0x24 and 0x21. The u16 counter 8 bytes before the cell table goes up by one. Code:
   `editor-core/src/save-items.ts` (`addItem`, `findCellStream`), UI `app/src/save/inventory.ts`.
 - Rynn's class word (record +8) is `0x17081069` in the sample saves and `0x1f081069` in a save the game wrote after play
   (`journal/2026-11-01/save-add-item.md`). The two differ only in bit 27 (`0x08000000`). Nothing in the repo decodes the word, so
@@ -153,10 +153,25 @@ modification time on the host by the time zone (the title's "newest save" orders
   `0x18001041`, and the gold counter `0x19001255` has bit 27 set. This suggests the top byte holds state flags and is not part of
   the class. The editor (`isRynnClass` / `classMatches` in `formats/src/save.ts`) matches Rynn with bit 27 ignored and every other
   bit exact; other classes stay exact. `scripts/savetool/savetool.py` still matches exactly.
-- Item size (2026-11-02): the height of an item in cells is the Resources class field `Icon Slot Size (1-3)`. A tall item spans down
-  one column from its first cell (bow 3, Rusty Scimitar 2), and the cells under it hold continuation markers `dx * 10 + dy` in the
-  cell table. In the word stream the covered cells stay single empty words: the game saved the tall scimitar with Rynn's record at
-  the same size. Add item (`placeItem`, `addItem(save, template, rows)`) puts the item in the first cell where all of its cells
-  are free and inside the 8 x 3 grid, and writes the markers. The UI takes the height from the disc's catalog, else from a carried
-  item of the same class. When neither is known it reserves a full column of 3 cells. It shows a message when nothing fits. The bow
-  stays excluded because it was never tried in game. Not proven in game: a 2- or 3-cell item placed by the editor.
+- Item size (2026-11-02): the height of an item in cells is the Resources class field `Icon Slot Size (1-3)`. A tall item spans
+  down one column from its first cell, and the cells under it hold continuation markers `dx * 10 + dy` in the cell table.
+  Heights: bow 2, Wood Club and scimitars 2, long swords, great swords, long bows and maces 3. The bow is 2, not 3 as noted
+  earlier. In the word stream the covered cells stay single empty words. The second word of an item's pair is its height
+  (`(slot, rows)`, not a flag 1). It is 2 for every bow, club and scimitar in the game's saves, 3 for a long sword the game
+  re-saved. The loader passes it to the cell placement, which writes the markers: a tall item stored with 1 loads as a
+  one-cell item. Add item (`placeItem`, `addItem(save, template, rows)`) puts the item in the first cell where all of its
+  cells are free and inside the 8 x 3 grid, writes the height word and the markers. Replace with... changes the height
+  too when the new class's height is known (`replaceItem(save, cell, template, rows)`). The UI takes the height from the
+  disc's catalog, else from a carried item of the same class. When neither is known, Add item reserves a full column of 3
+  cells.
+- Proven in game (2026-11-02, `journal/2026-11-02/save-editor-items-in-game.md`): added Health Elixir and Full Mana used,
+  Rusty Scimitar (2) and Rusty Long Sword (3) equipped and swung, Short Wood Bow (2) equipped and fired. All of them were
+  kept by the game's own save and reload.
+- Item record layout: the self handle (a heap word repeated 0xe0 later, `itemHandleAt`) is at +0x86 in most item
+  records. Some classes keep it further on: +0x96 in 606-byte weapons (Steel Club, Iron / Steel swords), +0x9a, +0x112
+  in shop and world bows, +0x140 / +0x148 in carried bows. The word 0x10 after it is the carried slot kind (2 or 4).
+  The header (+0x0c position, +0x48 serial, +0x52..+0x5e state) sits at the same offsets in every layout. u16 +0x52 /
+  +0x54 name the holder: 0xffff, 0xffff for every carried item that is not equipped, and a reference with +0x54 = 0
+  (0xc0, 0xd6, 0x1e4 ...) for an equipped one. A new item that kept an equipped donor's reference was drawn on Rynn's
+  body.
+- The u16 8 bytes before the cell table counts items gained, not items held (3 in the sample with 2 items).

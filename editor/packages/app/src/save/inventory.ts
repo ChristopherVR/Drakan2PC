@@ -10,7 +10,7 @@ import { gridTile, itemGrid } from '../shared/components.ts';
 import { badge, emptyState, h } from './dom.ts';
 import type { PanelCtx } from './panels.ts';
 
-/** The Tab screen's grid is 8 cells wide and 3 high; a multi-cell item (the bow) spans down from its first cell. */
+/** The Tab screen's grid: 8 cells wide, 3 high; a tall item (bow 2, long sword 3) spans down from its first cell. */
 export const INV_COLS = 8;
 const INDESTRUCTIBLE = 0xffffffff;
 
@@ -240,6 +240,7 @@ export function renderInventory(ctx: PanelCtx): HTMLElement {
     const real = cells.filter((c) => c.marker === undefined);
     const equippedCount = real.filter((c) => val(c.cell, 'equipped') === 1).length;
     const hotCount = real.filter((c) => val(c.cell, 'hot') === 1).length;
+    const newCount = added.length;
     return h(
         'div',
         { class: 'invwrap' },
@@ -250,7 +251,7 @@ export function renderInventory(ctx: PanelCtx): HTMLElement {
             h(
                 'small',
                 { class: 'sv-dim' },
-                `${real.length} items, ${equippedCount} equipped, ${hotCount} in quick slots`,
+                `${real.length} item${real.length === 1 ? '' : 's'}${newCount ? `, ${newCount} new (not saved yet)` : ''}, ${equippedCount} equipped, ${hotCount} in quick slots`,
             ),
             h('span', { class: 'spacer' }),
             addControl(ctx, infoOf),
@@ -263,7 +264,7 @@ export function renderInventory(ctx: PanelCtx): HTMLElement {
             'Add item copies an item class this save has a record for into the first free place as a new carried item. ' +
                 'Tall items need that many empty cells in one column; without the game disc the size of a new item is not known, so it is given a whole free column. ' +
                 'It also drops one untouched level object (the first entry of the static table) to keep the game’s slot numbering valid. ' +
-                'Not the bow. Replace with… turns an existing item into another class.',
+                'Replace with… turns an existing item into another class (a taller class needs the cells under it).',
         ),
     );
 }
@@ -368,18 +369,29 @@ function replaceControl(
         'select',
         { 'data-field': `item.${c.cell}`, 'data-placeholder': 'Replace with…', 'aria-label': 'Replace with' },
         h('option', { value: '' }, 'Replace with…'),
-        ...templates.map((t) =>
-            h(
+        ...templates.map((t) => {
+            const rows = itemHeight(t.resource, infoOf(t.resource), doc.inventory);
+            const fits = rows === undefined || doc.replaceFits(c.cell, rows);
+            return h(
                 'option',
                 { value: String(t.entry), selected: pending && t.resource === current },
-                `${itemName(t.resource, infoOf(t.resource))} (${resourceKey(t.resource)})`,
-            ),
-        ),
+                `${itemName(t.resource, infoOf(t.resource))} (${resourceKey(t.resource)})${fits ? '' : ' - no room'}`,
+            );
+        }),
     ) as HTMLSelectElement;
     if (!pending) select.value = '';
     select.onchange = () => {
         if (!select.value) return;
-        ctx.run(new ReplaceItemCommand(c.cell, Number(select.value)));
+        const t = templates.find((x) => String(x.entry) === select.value);
+        if (!t) return;
+        // The class's height when the disc or a carried item says it: the item then takes that many cells.
+        const rows = itemHeight(t.resource, infoOf(t.resource), doc.inventory);
+        try {
+            ctx.run(new ReplaceItemCommand(c.cell, t.entry, rows));
+        } catch (e) {
+            select.value = '';
+            ctx.err(e);
+        }
     };
     return h(
         'div',
@@ -405,8 +417,7 @@ function replaceControl(
 /** "+ Add item": a dropdown of the item classes this save has a record for (type to filter). */
 function addControl(ctx: PanelCtx, infoOf: (resource: number | undefined) => ClassInfo | null): HTMLElement {
     const { doc } = ctx;
-    const BOW = 0x31bc9; // three cells; never tried in game
-    const templates = doc.itemTemplates().filter((t) => t.resource !== BOW);
+    const templates = doc.itemTemplates();
     const rowsOf = (resource: number): number =>
         itemHeight(resource, infoOf(resource), doc.inventory) ?? MAX_ITEM_CELLS; // not known: a whole column
     const allPlaced = doc.addedCells().every((c) => c >= 0);

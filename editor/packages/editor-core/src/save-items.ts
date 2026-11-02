@@ -23,20 +23,39 @@ import {
  * written over it, except for the fields that make it "this carried item": serial, handle pointers, +0x52..0x5e
  * (state), +0x96 and the position. Brand-new carried records are not accepted by the game yet.
  */
+/**
+ * Offset of the self handle in most item records (the potions, the dagger, the Wood Club, the Rusty Scimitar). Some
+ * classes have more data before it and carry it further on: 0x96 (Steel Club and other 606-byte records), 0x112,
+ * 0x140 / 0x148 (the bow; the word at +0x68 counts a list in front of it). `itemHandleAt` finds it per record.
+ */
 export const ITEM_HANDLE_AT = 0x86;
-/** Byte ranges of a carried item record that are kept when its body is replaced. */
+/** Header byte ranges a carried item keeps when its body is replaced (the same offset in every layout). */
 export const KEEP_RANGES: readonly [number, number][] = [
     [0x0c, 0x18], // position
     [0x48, 0x4c], // serial
     [0x52, 0x5e], // state words
-    [ITEM_HANDLE_AT, ITEM_HANDLE_AT + 4], // handle pointer
-    [ITEM_HANDLE_AT + ITEM_PTR_GAP, ITEM_HANDLE_AT + ITEM_PTR_GAP + 4], // its second copy
-    [0x96, 0x9a], // carried slot kind
+];
+/** Ranges kept relative to the self handle: the handle, its second copy and the carried slot kind 0x10 after it. */
+export const KEEP_HANDLE_RANGES: readonly [number, number][] = [
+    [0, 4],
+    [ITEM_PTR_GAP, ITEM_PTR_GAP + 4],
+    [0x10, 0x14],
 ];
 const ITEM_RESOURCE_BASE = 0x20000;
+/** Search window for the self handle (the largest offset seen in the game's saves is 0x148). */
+const HANDLE_SEARCH = [0x60, 0x200] as const;
 
 const u32 = (d: Uint8Array, o: number): number => new DataView(d.buffer, d.byteOffset, d.byteLength).getUint32(o, true);
 const heap = (w: number): boolean => w > 0x600000 && w < 0x2000000 && w % 16 === 0;
+
+/** Offset of an item record's self handle (a heap word repeated 0xe0 bytes later), or null when there is none. */
+export function itemHandleAt(d: Uint8Array): number | null {
+    for (let o = HANDLE_SEARCH[0]; o <= HANDLE_SEARCH[1] && o + ITEM_PTR_GAP + 4 <= d.length; o += 2) {
+        const h = u32(d, o);
+        if (heap(h) && u32(d, o + ITEM_PTR_GAP) === h) return o;
+    }
+    return null;
+}
 
 /** Resource id (0x3xxxx) of an item record, or null when the record is not shaped like an item. */
 export function itemResource(e: SaveEntry): number | null {
@@ -46,8 +65,7 @@ export function itemResource(e: SaveEntry): number | null {
     }
     const res = u32(d, 0) + ITEM_RESOURCE_BASE;
     if (res < 0x30000 || res >= 0x40000) return null;
-    const h = u32(d, ITEM_HANDLE_AT);
-    return heap(h) && u32(d, ITEM_HANDLE_AT + ITEM_PTR_GAP) === h ? res : null;
+    return itemHandleAt(d) === null ? null : res;
 }
 
 export interface ItemTemplate {
@@ -72,7 +90,7 @@ export function itemTemplates(save: SaveFile): ItemTemplate[] {
         const resource = itemResource(e);
         if (resource === null) continue;
         const state = u32(e.data, 0x56);
-        const rank = (carried.has(u32(e.data, ITEM_HANDLE_AT)) ? 2 : 0) + (state === 0 ? 0 : 1);
+        const rank = (carried.has(u32(e.data, itemHandleAt(e.data)!)) ? 2 : 0) + (state === 0 ? 0 : 1);
         const have = best.get(resource);
         if (!have || rank < have.rank) best.set(resource, { t: { resource, entry: e.id, size: e.data.length }, rank });
     }
@@ -83,25 +101,110 @@ export function itemTemplates(save: SaveFile): ItemTemplate[] {
 export function replacedBody(carried: Uint8Array, template: Uint8Array): Uint8Array {
     const out = template.slice();
     for (const [a, b] of KEEP_RANGES) out.set(carried.subarray(a, b), a);
+    // The handle block sits at each record's own offset (the classes differ in what comes before it).
+    const from = itemHandleAt(carried) ?? ITEM_HANDLE_AT;
+    const to = itemHandleAt(template) ?? ITEM_HANDLE_AT;
+    for (const [a, b] of KEEP_HANDLE_RANGES) out.set(carried.subarray(from + a, from + b), to + a);
     return out;
 }
 
-/** Replace the item in inventory cell `cell` by the record body of template entry `templateEntry`. Input untouched. */
-export function replaceItem(save: SaveFile, cell: number, templateEntry: number): SaveFile {
+/**
+ * Replace the item in inventory cell `cell` by the record body of template entry `templateEntry`. Input untouched.
+ * `rows` is the new class's height in cells; when it is given and differs from the item's height now, the height word
+ * in Rynn's item stream and the markers of the cells under the item follow (a `SaveFieldError` when the cells it needs
+ * are taken). Without `rows` the height stays as it is.
+ */
+export function replaceItem(save: SaveFile, cell: number, templateEntry: number, rows?: number): SaveFile {
     const { entry: rynn, base } = cellTable(save);
     const handle = u32(rynn.data, base + 16 * cell + 8);
     if (!heap(handle)) throw new SaveFieldError(`cell ${cell} holds no item`);
     const { entry: item, at } = itemRecord(save, handle);
-    if (at !== ITEM_HANDLE_AT) throw new SaveFieldError(`item record of cell ${cell} has an unrecognised layout`);
+    if (at !== itemHandleAt(item.data)) {
+        throw new SaveFieldError(`item record of cell ${cell} has an unrecognised layout`);
+    }
     const tpl = save.entries.find((e) => e.type === TYPE_RECORD && e.id === templateEntry && itemResource(e) !== null);
     if (!tpl) throw new SaveFieldError(`entry ${templateEntry} is not an item record`);
     const data = replacedBody(item.data, tpl.data);
+    const rynnData = rows === undefined ? null : resizedRynn(save, cell, rows);
     return {
         ...save,
-        entries: save.entries.map((e) =>
-            e.index === item.index && !sameBytes(e.data, data) ? { ...e, data, raw: zlibSync(data) } : e,
-        ),
+        entries: save.entries.map((e) => {
+            if (e.index === item.index && !sameBytes(e.data, data)) return { ...e, data, raw: zlibSync(data) };
+            if (rynnData && e.index === rynn.index) return { ...e, data: rynnData, raw: zlibSync(rynnData) };
+            return e;
+        }),
     };
+}
+
+/**
+ * Cell index -> slot (entry id - 1) of every carried item, and the record a new item copies its carried state from:
+ * the first carried item that is not equipped, else the first one.
+ */
+function carriedSlots(save: SaveFile): { slots: Map<number, number>; donor: SaveEntry | null } {
+    const slots = new Map<number, number>();
+    let donor: SaveEntry | null = null;
+    let equippedDonor: SaveEntry | null = null;
+    for (const c of listInventory(save)) {
+        if (c.marker !== undefined || c.handle === undefined) continue;
+        const { entry } = itemRecord(save, c.handle);
+        slots.set(c.cell, entry.id - 1);
+        if (c.equipped) equippedDonor ??= entry;
+        else donor ??= entry;
+    }
+    return { slots, donor: donor ?? equippedDonor };
+}
+
+/**
+ * Header words of an item record that name what holds it (u16 +0x52, u16 +0x54). An equipped item holds a reference
+ * there (0xc0, 0xd6, 0x1e4 ... with +0x54 = 0); every carried item that is not equipped has 0xffff, 0xffff (all saves
+ * the game wrote). A new item copied from an equipped donor kept the reference and was drawn on Rynn's body (a potion
+ * in her left hand, a club at her hip) although it sat in the pack.
+ */
+const HOLDER_AT = 0x52;
+const NO_HOLDER = 0xffff;
+
+/** Height in cells of the item whose first cell is `cell`, as Rynn's item stream records it. */
+export function itemRows(save: SaveFile, cell: number): number {
+    const { entry: rynn } = cellTable(save);
+    const start = findCellStream(rynn.data, carriedSlots(save).slots);
+    const at = streamOffset(rynn.data, start, streamPosition(cell));
+    if (u32(rynn.data, at) === EMPTY) throw new SaveFieldError(`cell ${cell} holds no item`);
+    return u32(rynn.data, at + 4);
+}
+
+/**
+ * Rynn's record with the item in `cell` made `rows` cells tall (stream height word and the markers under it), or null
+ * when that is already its height. Throws when a cell it needs is outside the grid or taken by another item.
+ */
+function resizedRynn(save: SaveFile, cell: number, rows: number): Uint8Array | null {
+    if (!Number.isInteger(rows) || rows < 1 || rows > MAX_ITEM_CELLS) {
+        throw new SaveFieldError(`an item is 1 to ${MAX_ITEM_CELLS} cells tall, not ${rows}`);
+    }
+    const { entry: rynn, base } = cellTable(save);
+    const start = findCellStream(rynn.data, carriedSlots(save).slots);
+    const at = streamOffset(rynn.data, start, streamPosition(cell));
+    const old = u32(rynn.data, at + 4);
+    if (old === rows) return null;
+    const cells = itemCells(cell, rows);
+    if (!cells) throw new SaveFieldError(`an item ${rows} cells tall does not fit below cell ${cell}`);
+    const own = new Set(itemCells(cell, Math.max(1, Math.min(old, MAX_ITEM_CELLS))) ?? [cell]);
+    const used = usedCells(save);
+    if (cells.some((c) => used.has(c) && !own.has(c))) {
+        throw new SaveFieldError(
+            `the cells under cell ${cell} are taken: an item ${rows} cells tall does not fit there`,
+        );
+    }
+    const out = rynn.data.slice();
+    const dv = dvOf(out);
+    dv.setUint32(at + 4, rows, true);
+    for (let dy = 1; dy < MAX_ITEM_CELLS; dy++) {
+        const c = cell + dy * INV_GRID_COLS;
+        if (c >= INV_CELL_COUNT) break;
+        const o = base + 16 * c;
+        if (dy < rows) [0, 0, dy, 0].forEach((v, i) => dv.setUint32(o + 4 * i, v, true));
+        else if (own.has(c)) [0, 0, 0, 0].forEach((_, i) => dv.setUint32(o + 4 * i, 0, true));
+    }
+    return out;
 }
 
 // ---------------------------------------------------------------------------------------------------------------------
@@ -114,11 +217,13 @@ export function replaceItem(save: SaveFile, cell: number, templateEntry: number)
 //     K + their position in the 0x24 table. Adding a record shifts every static slot by one, so the FIRST static
 //     (0x24 word 1) is dropped from the 0x24 table and from the 0x21 uid -> slot pairs: all other static slots stay;
 //  3. Rynn's record serialises the 24 cells as a word stream (column-major: position = column * 3 + row): an empty cell
-//     is ONE word (-1), an item is TWO words (slot, flag). The new item turns the -1 of a free cell into (slot, 1),
-//     so the record grows by 4 bytes (writing the pair over two words desynchronises the rest of the record: the
-//     game then reads a garbage count, `[memset] bad size 0xe570a3d0`, and jumps to 0);
-//  4. the u16 item count 8 bytes before the cell table goes up by one.
-const SLOT_FLAG = 1;
+//     is ONE word (-1), an item is TWO words (slot, height in cells). The new item turns the -1 of a free cell into
+//     (slot, rows), so the record grows by 4 bytes (writing the pair over two words desynchronises the rest of the
+//     record: the game then reads a garbage count, `[memset] bad size 0xe570a3d0`, and jumps to 0). The second word
+//     is the item's height (1..3; 2 for the bow, club and scimitar in every save the game wrote): the loader passes
+//     it to the cell placement, which marks the cells under a tall item. Writing 1 for a tall item loads it as a
+//     one-cell item (journal/2026-11-02/save-editor-items-in-game.md);
+//  4. the u16 counter 8 bytes before the cell table goes up by one (it counts items gained, not items held).
 const EMPTY = 0xffffffff;
 const T_STATICS = 0x24;
 const T_PAIRS = 0x21;
@@ -230,14 +335,7 @@ export function addItem(save: SaveFile, templateEntry: number, rows = 1): AddIte
     const cell = placeItem(used, rows);
     if (cell === null) throw new SaveFieldError(`no free column has ${rows} empty cells for this item`);
     // Donor: an item that is carried now (state words, handle layout, position).
-    const slots = new Map<number, number>();
-    let donor: SaveEntry | null = null;
-    for (const c of cells) {
-        if (c.marker !== undefined || c.handle === undefined) continue;
-        const { entry } = itemRecord(save, c.handle);
-        slots.set(c.cell, entry.id - 1);
-        donor ??= entry;
-    }
+    const { slots, donor } = carriedSlots(save);
     if (!donor) throw new SaveFieldError('add item needs one carried item to copy the carried state from');
     const statics = save.entries.find((e) => e.type === T_STATICS);
     const pairs = save.entries.find((e) => e.type === T_PAIRS);
@@ -248,7 +346,9 @@ export function addItem(save: SaveFile, templateEntry: number, rows = 1): AddIte
     const handles = new Set<number>();
     let serial = 0;
     for (const e of records) {
-        if (e.data.length > ITEM_HANDLE_AT + 4) handles.add(u32(e.data, ITEM_HANDLE_AT));
+        const at = itemResource(e) !== null ? itemHandleAt(e.data) : null;
+        if (at !== null) handles.add(u32(e.data, at));
+        else if (e.data.length > ITEM_HANDLE_AT + 4) handles.add(u32(e.data, ITEM_HANDLE_AT));
         if (itemResource(e) !== null) {
             const s = u32(e.data, 0x48);
             if (s < 0x10000 && s > serial) serial = s;
@@ -257,9 +357,12 @@ export function addItem(save: SaveFile, templateEntry: number, rows = 1): AddIte
     let handle = 0x00a60010;
     while (handles.has(handle)) handle += 0x10;
     const bv = dvOf(body);
-    bv.setUint32(ITEM_HANDLE_AT, handle, true);
-    bv.setUint32(ITEM_HANDLE_AT + ITEM_PTR_GAP, handle, true);
+    const handleAt = itemHandleAt(body) ?? ITEM_HANDLE_AT;
+    bv.setUint32(handleAt, handle, true);
+    bv.setUint32(handleAt + ITEM_PTR_GAP, handle, true);
     bv.setUint32(0x48, serial + 1, true);
+    bv.setUint16(HOLDER_AT, NO_HOLDER, true);
+    bv.setUint16(HOLDER_AT + 2, NO_HOLDER, true);
     const slot = K;
 
     // 2. statics
@@ -291,7 +394,7 @@ export function addItem(save: SaveFile, templateEntry: number, rows = 1): AddIte
     const grown = new Uint8Array(rynn.data.length + 4);
     grown.set(rynn.data.subarray(0, at), 0);
     dvOf(grown).setUint32(at, slot, true);
-    dvOf(grown).setUint32(at + 4, SLOT_FLAG, true);
+    dvOf(grown).setUint32(at + 4, rows, true);
     grown.set(rynn.data.subarray(at + 4), at + 8);
     const gv = dvOf(grown);
     gv.setUint16(base - 8, gv.getUint16(base - 8, true) + 1, true);

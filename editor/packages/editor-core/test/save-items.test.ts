@@ -10,7 +10,10 @@ import {
     SaveDocument,
     addItem,
     findCellStream,
+    itemHandleAt,
+    itemRows,
     itemTemplates,
+    replaceItem,
     replacedBody,
 } from '../src/index.ts';
 
@@ -32,6 +35,20 @@ function item(resource: number, handle: number, marker: number, state: number, l
     dv.setUint32(0x86 + 0xe0, handle, true);
     dv.setUint32(0x96, state === 2 ? 2 : 1, true);
     b.fill(marker, 0x180, len); // the class body
+    return b;
+}
+
+/** An item record whose self handle sits further on (the bow: 0x112 / 0x148, the Steel Club: 0x96). */
+function shiftedItem(resource: number, handle: number, at: number, state: number, len = 0x280): Uint8Array {
+    const b = new Uint8Array(len);
+    const dv = new DataView(b.buffer);
+    dv.setUint32(0, resource - 0x20000, true);
+    dv.setUint32(8, 0x11000045, true);
+    dv.setUint32(0x48, 0x300, true);
+    dv.setUint32(0x56, state, true);
+    dv.setUint32(at, handle, true);
+    dv.setUint32(at + 0xe0, handle, true);
+    dv.setUint32(at + 0x10, 7, true);
     return b;
 }
 
@@ -120,6 +137,39 @@ describe('Replace with... (item class swap)', () => {
         expect(out.entries.find((e) => e.id === 328)!.data.length).toBe(0x260);
         s.run(new ReplaceItemCommand(0, undefined));
         expect(d.pendingEdits()).toEqual([]);
+    });
+});
+
+describe('item records with the handle further on (bow, Steel Club)', () => {
+    it('finds the handle per record and lists those classes', () => {
+        expect(itemHandleAt(item(0x33753, HANDLE_A, 1, 2))).toBe(0x86);
+        expect(itemHandleAt(shiftedItem(0x31bc9, 0x7b0010, 0x112, 0))).toBe(0x112);
+        expect(itemHandleAt(new Uint8Array(0x200))).toBeNull();
+        const blob = buildSave([
+            ...liveEntries().filter((e) => e.type !== 0x102),
+            { type: 0x102, id: 56, data: rynn() },
+            { type: 0x102, id: 328, data: item(0x33753, HANDLE_A, 1, 2) },
+            { type: 0x102, id: 615, data: item(0x33cbc, HANDLE_B, 2, 2) },
+            { type: 0x102, id: 700, data: shiftedItem(0x31bc9, 0x7b0010, 0x112, 0) },
+        ]);
+        expect(itemTemplates(SaveDocument.open(blob).save).map((t) => t.resource)).toContain(0x31bc9);
+    });
+
+    it('moves the carried handle block to the template’s own offset', () => {
+        const carried = item(0x33753, HANDLE_A, 1, 2);
+        const out = replacedBody(carried, shiftedItem(0x31bc9, 0x7b0010, 0x112, 0));
+        const dv = new DataView(out.buffer);
+        expect(out.length).toBe(0x280);
+        expect(dv.getUint32(0, true) + 0x20000).toBe(0x31bc9);
+        expect(dv.getUint32(0x56, true)).toBe(2); // header: carried state of the donor
+        expect(dv.getUint32(0x112, true)).toBe(HANDLE_A);
+        expect(dv.getUint32(0x112 + 0xe0, true)).toBe(HANDLE_A);
+        expect(dv.getUint32(0x122, true)).toBe(2); // the carried slot kind, 0x10 after the handle
+        expect(dv.getUint32(0x86, true)).toBe(0); // nothing written at the usual offset
+        // and back: a shifted carried item turned into a usual one
+        const back = new DataView(replacedBody(out, item(0x33cbc, 0x7a0050, 4, 0)).buffer);
+        expect(back.getUint32(0x86, true)).toBe(HANDLE_A);
+        expect(back.getUint32(0x96, true)).toBe(2);
     });
 });
 
@@ -278,6 +328,104 @@ describe('Add item (new carried record)', () => {
         const out = addItem(save, 7);
         expect(out.cell).toBe(2);
         expect(listInventory(out.save).map((c) => c.cell)).toEqual([0, 1, 2]);
+    });
+
+    it('writes the item height as the second word of its stream pair', () => {
+        // In every save the game wrote the word is the height in cells (bow, club, scimitar 2; potions 1), and the
+        // loader marks the cells under the item from it: a tall item written with 1 loads as a one-cell item.
+        const tall = addItem(parseSave(addFixture()), 7, 2);
+        expect(itemRows(tall.save, tall.cell)).toBe(2);
+        const r = tall.save.entries.find((x) => x.type === 0x102 && x.id === 8)!.data;
+        const rv = new DataView(r.buffer, r.byteOffset);
+        const at = 0x700 + 4 * (2 + 1 + 1 + 2 + 1 + 1); // stream position 6 = cell 2
+        expect([rv.getUint32(at, true), rv.getUint32(at + 4, true)]).toEqual([K, 2]);
+        const short = addItem(tall.save, 7, 1);
+        expect(itemRows(short.save, short.cell)).toBe(1);
+        expect(itemRows(short.save, 0)).toBe(1); // the carried potion
+    });
+
+    it('copies the carried state from an unequipped item and holds the new item in the pack, not in a hand', () => {
+        // cell 0 (the potion) is flagged equipped in the fixture; the dagger in cell 1 is not
+        const save = parseSave(addFixture());
+        const potion = save.entries.find((x) => x.type === 0x102 && x.id === 4)!;
+        new DataView(potion.data.buffer, potion.data.byteOffset).setUint32(0x52, 0x000000c0, true); // a holder ref
+        const out = addItem(save, 7);
+        const added = out.save.entries.find((x) => x.type === 0x102 && x.id === K + 1)!;
+        const dv = new DataView(added.data.buffer, added.data.byteOffset);
+        expect(dv.getFloat32(0x0c, true)).toBe(2); // position of the dagger (the unequipped donor)
+        expect([dv.getUint16(0x52, true), dv.getUint16(0x54, true)]).toEqual([0xffff, 0xffff]);
+    });
+
+    it('adds a bow-shaped record with its new handle at the record’s own offset', () => {
+        const save = parseSave(addFixture());
+        const withBow = {
+            ...save,
+            entries: save.entries.map((e) =>
+                e.type === 0x102 && e.id === 9 ? { ...e, data: shiftedItem(0x31bc9, 0x7b0010, 0x112, 0) } : e,
+            ),
+        };
+        const out = addItem(withBow, 9, 2);
+        const added = out.save.entries.find((x) => x.type === 0x102 && x.id === K + 1)!;
+        const dv = new DataView(added.data.buffer, added.data.byteOffset);
+        const h = dv.getUint32(0x112, true);
+        expect(dv.getUint32(0x112 + 0xe0, true)).toBe(h);
+        expect([HANDLE_A, HANDLE_B, HANDLE_GROUND, 0x7b0010]).not.toContain(h);
+        expect(listInventory(out.save).find((c) => c.cell === out.cell)!.resource).toBe(0x31bc9);
+        expect(itemRows(out.save, out.cell)).toBe(2);
+    });
+
+    it('Replace with a taller class takes the cells under the item, or refuses when they are taken', () => {
+        const save = parseSave(addFixture());
+        const out = replaceItem(save, 1, 7, 3); // the dagger in cell 1 becomes a 3-cell club
+        expect(itemRows(out, 1)).toBe(3);
+        expect(listInventory(out).map((c) => [c.cell, c.marker ?? null])).toEqual([
+            [0, null],
+            [1, null],
+            [9, 1],
+            [17, 2],
+        ]);
+        // the record grows by nothing: only the height word changes
+        const len = (s: typeof save): number => s.entries.find((x) => x.type === 0x102 && x.id === 8)!.data.length;
+        expect(len(out)).toBe(len(save));
+        // back to one cell: the markers go again
+        const back = replaceItem(out, 1, 7, 1);
+        expect(listInventory(back).map((c) => c.cell)).toEqual([0, 1]);
+        // a tall item under the potion's column blocks a 2-cell potion
+        const blocked = addItem(save, 7, 1); // cell 2
+        const under = addItem(blocked.save, 7, 1); // cell 3
+        expect(() => replaceItem(under.save, 0, 7, 4)).toThrow(/1 to 3 cells/);
+        const tallNext = addItem(save, 7, 3); // column 2
+        expect(() => replaceItem(tallNext.save, 2, 7, 2)).not.toThrow(); // shrinking its own column is fine
+        // without a height the item keeps its height (the old behaviour)
+        expect(itemRows(replaceItem(save, 1, 7), 1)).toBe(1);
+    });
+
+    it('refuses a taller replacement when a pending added item takes the cell under it', () => {
+        const d = SaveDocument.open(addFixture());
+        const s = new CommandStack(d);
+        for (let i = 0; i < 6; i++) s.run(new AddItemCommand(7, 1)); // cells 2..7
+        s.run(new AddItemCommand(7, 1)); // cell 8: under the potion
+        expect(d.addedCells().at(-1)).toBe(8);
+        expect(d.replaceFits(0, 2)).toBe(false);
+        expect(() => s.run(new ReplaceItemCommand(0, 7, 2))).toThrow(/cells under cell 0 are taken/);
+        expect(d.itemReplacements.size).toBe(0);
+        expect(d.replaceFits(1, 3)).toBe(true);
+        for (let i = 0; i < 7; i++) s.undo(); // the fixture has only four static objects to give up for new records
+        s.run(new ReplaceItemCommand(1, 7, 3));
+        expect(d.placeFor(1)).toBe(2);
+        expect(d.placeFor(3)).toBe(2); // 9 and 17 now belong to the replaced item
+        s.run(new AddItemCommand(7, 1));
+        s.run(new AddItemCommand(7, 3));
+        expect(d.addedCells()).toEqual([2, 3]);
+        const out = parseSave(d.build().bytes);
+        expect(itemRows(out, 1)).toBe(3);
+        expect(
+            listInventory(out)
+                .filter((c) => c.marker !== undefined)
+                .map((c) => c.cell),
+        ).toEqual([9, 11, 17, 19]);
+        for (let i = 0; i < 3; i++) s.undo();
+        expect(d.itemReplacementRows.size).toBe(0);
     });
 
     it('findCellStream matches the stream by the carried slots', () => {

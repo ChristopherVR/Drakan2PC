@@ -58,6 +58,10 @@ Engine 5; textures move to UE5-style PBR sets.
   buttons, making a cut scene from scratch) and Logic graph keyboard paths with the real disc.
 - Launch the desktop app: the separate save window, native menus (`cmd:<id>` items) and Tools > Save Game Editor
   are only built (cargo), not clicked.
+- 2026-11-02 later: Play reaches the level in ~10 s (`DRAKAN_FAST_START`: boot logo fast-forwarded, New Game at once);
+  level copies and OotF levels also open straight away; exits out of a copy arrive at the source's marker; Project panel
+  has a Campaign map (List | Map). Clicked in the desktop app: row Play, Change destination, revert, save size check
+  (`editor-desktop-clickthrough.md`). Map view not yet clicked with the disc. Small leftovers listed in that note.
 - Done 2026-11-02, not yet clicked with the disc: per-object "Revert to original" (right-click, Details bar, Mod panel
   rows; `revertObjects` in editor-core), the Details header shows once, the save editor's item grid and save list rows
   use `itemGrid` / `gridTile` / `listRow` from `src/shared/components.ts`, and the Project panel has Play on every level
@@ -87,8 +91,10 @@ Engine 5; textures move to UE5-style PBR sets.
   `0x271ac0`). Natural dragon damage is only inferred (HP field at dragon data + 0x6b4).
 - Three-player fight/death/latejoin and chest/chesthost runs failed under machine load; rerun on a quiet machine.
   Partner swings sometimes hit another player's ghost instead of an orc (known claim flake).
-- Using or equipping items the save editor added. Add item now checks item size (`Icon Slot Size`, spans down a
-  column), but no 2- or 3-cell item placed by the editor has been loaded in game yet; the bow is still excluded.
+- Save editor items proven in game 2026-11-02 (`docs/journal/2026-11-02/save-editor-items-in-game.md`): 1-, 2- and
+  3-cell items and the bow added, used/equipped, fired, kept over the game's own save and reload. Left: equip the Steel
+  Club and the long bow (skill needed), game save + reload after Replace with..., pickup classes (mana power-ups) are
+  offered like inventory items.
 - Rynn's class word `0x1f081069` (bit 27 set, game-written save) is accepted by the editor (`isRynnClass`);
   `scripts/savetool/savetool.py` still matches `0x17081069` only.
 
