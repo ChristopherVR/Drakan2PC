@@ -15,6 +15,7 @@ describe('launchEnv', () => {
     it('auto start runs on a throw-away card as Drakan 2, so the title never offers Continue or the game card', () => {
         const env = launchEnv(opts(), 'Level 4A - Ravenshold');
         expect(env.DRAKAN_PLAYTEST_CARD).toBe('1');
+        expect(env.DRAKAN_FAST_START).toBe('1');
         expect(env.DRAKAN_GAME).toBe('d2');
         expect(env.DRAKAN_START_LEVEL_FROM).toBeUndefined(); // not direct: the intro plays, then the level
         expect(env.DRAKAN_PLAYTEST_GOD).toBeUndefined();

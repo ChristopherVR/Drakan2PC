@@ -88,6 +88,9 @@ export function launchEnv(o: PlayOptions, level: string | null, extras: LaunchEx
     }
     if (o.autoStart) {
         env.DRAKAN_PLAYTEST_CARD = '1';
+        // Boot logo fast-forwarded, New Game pressed as soon as the title is up, the play-test placement after ~1 s
+        // (drakan_overrides / drakan_settings_host / drakan_playtest).
+        env.DRAKAN_FAST_START = '1';
         env.DRAKAN_SKIP_MEMCARD_WARNING = '1';
         env.DRAKAN_AUTOPRESS = '3000';
         env.DRAKAN_AUTOPRESS_UNTIL = '120000';

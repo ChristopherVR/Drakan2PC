@@ -121,7 +121,10 @@ constexpr uint32_t kMovieDoneThunk = 0x440610u;
 constexpr uint32_t kScreenManager = 0x4fb600u; // screens by id at +0x10 + 4*id (ids 0..0x20)
 PS2Runtime::RecompiledFunction g_origMovieDone = nullptr;
 
+std::atomic<bool> g_firstMovieDone{false}; // the boot logo has finished (DRAKAN_FAST_START fast-forward, below)
+
 void hookMovieDone(uint8_t* rdram, R5900Context* c, PS2Runtime* rt) {
+    g_firstMovieDone.store(true);
     const uint32_t listener = getRegU32(c, 4);
     const bool alive = drakan_movie::liveListener({rdram, PS2_RAM_SIZE}, drakan_region::guestAddress(kScreenManager),
                                                   listener, drakan_region::build().movie);
@@ -166,7 +169,24 @@ void hookMovieDecodeStep(uint8_t* rdram, R5900Context* c, PS2Runtime* rt) {
         std::memcpy(&fpsIndex, rdram + player + layout.fpsIndex, 4);
         std::memcpy(&count, rdram + player + layout.frameCount, 4);
     }
-    if (fpsIndex == 0u) {
+    // DRAKAN_FAST_START=1 (the editor's Play): the first movie of the run, the boot logo, is not held to the PAL rate,
+    // so it runs at the engine's uncapped tick (about 1 s instead of 10.5 s). Later movies (intro, outro, cut scenes)
+    // keep their pace.
+    static const bool fastStart = [] {
+        const char* e = std::getenv("DRAKAN_FAST_START");
+        return e && *e && *e != '0';
+    }();
+    // Only the first movie: its completion (hookMovieDone) ends the fast-forward, so a later movie at the same address
+    // (intro, outro) keeps its pace.
+    static uint32_t firstPlayer = 0;
+    if (fpsIndex == 0u && firstPlayer == 0u)
+        firstPlayer = player;
+    if (fpsIndex == 0u && fastStart && player == firstPlayer && !g_firstMovieDone.load()) {
+        if (player != lastPlayer) {
+            std::fprintf(stderr, "[drakan] movie player 0x%x: boot logo fast-forwarded (DRAKAN_FAST_START)\n", player);
+            lastPlayer = player;
+        }
+    } else if (fpsIndex == 0u) {
         const auto now = Clock::now();
         if (player != lastPlayer) {
             std::fprintf(stderr, "[drakan] movie player 0x%x: \"Full\" frame rate, engine tick held to %.3f fps\n",

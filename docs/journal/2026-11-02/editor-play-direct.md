@@ -69,3 +69,16 @@ opened (4675 objects; the Details panel shows its title once), real mouse click 
 
 Not clicked yet: the Project panel's per-level Play and "Change destination", the revert UI, the save editor changes.
 Level copies keep the Surdana route (proven earlier, with the intro).
+
+## Faster start (`DRAKAN_FAST_START`, set by every editor Play with auto start)
+
+Where the time went (user's `dist` settings, vsync off, Surdana direct): process start to input clock ~3 s, boot
+loading screen 31 ~3 s, **logo movie 11.5 s** (264 frames held to 25 fps by `hookMovieDecodeStep`), title to New Game
+~1 s (next auto-press tap), level load ~1 s, then the play-test placement waited 240 boundaries (~4 s).
+Changes: the first movie of the run is not held to the PAL rate until `hookMovieDone` reports it finished (later movies
+keep their pace); the modern title pushes New Game as soon as it is up (`drakan_playtest::takeTitleNewGame`, same path
+as the multiplayer launch); the placement starts after 60 boundaries. Runs (`build/harness/fast2..5`, private copy of
+the dist folder): logo 1.7-2.8 s, New Game 0.2 s after the title, **level loaded at 9.5-10.5 s** after launch (was
+18.2 s; ~25 s on the old intro route). Tapping the memory-card warning earlier did not help: screen 31 is the game's
+own boot loading, not waiting for input (reverted). With vsync on (the build folder's default ini) the logo runs at the
+display rate (~6 s). Not tried: skipping the logo outright.

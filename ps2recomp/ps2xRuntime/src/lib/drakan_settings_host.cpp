@@ -12,6 +12,7 @@
 #include "drakan_window.h"
 #include "drakan_menus.h"
 #include "drakan_netplay.h"
+#include "drakan_playtest.h"
 #include "drakan_game.h"
 #include "drakan_arena.h"
 #include "drakan_modes.h"
@@ -2228,6 +2229,9 @@ void titleDraw(const dsettings::SettingsOverlay::ScreenFrame& f, bool background
             std::string matchLevel;
             if (drakan_netplay::takeLaunchRequest(matchLevel)) {
                 std::fprintf(stderr, "[menu-screens] multiplayer launch: New Game with '%s'\n", matchLevel.c_str());
+                sh.titleActions.push({0, gameui::TitleActionKind::NewGame, 0});
+            } else if (drakan_playtest::takeTitleNewGame()) { // the editor's Play (DRAKAN_FAST_START)
+                std::fprintf(stderr, "[menu-screens] play test: New Game at once\n");
                 sh.titleActions.push({0, gameui::TitleActionKind::NewGame, 0});
             }
         }

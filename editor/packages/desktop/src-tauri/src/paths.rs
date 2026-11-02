@@ -90,6 +90,7 @@ pub fn allowed_env(key: &str) -> bool {
             | "DRAKAN_MP_MAPS"
             | "DRAKAN_PLAYTEST_POS"
             | "DRAKAN_PLAYTEST_GOD"
+            | "DRAKAN_FAST_START"
     )
 }
 

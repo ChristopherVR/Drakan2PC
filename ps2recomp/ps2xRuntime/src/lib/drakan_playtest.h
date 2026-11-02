@@ -28,4 +28,8 @@ bool parsePose(const char* text, float pos[3], float& yaw, bool& hasYaw);
 // (`.../<level>/<level>.lvl`, same folder layout); empty for any other file (the intro folder's Out.lvl included).
 std::string introToLevel(const std::string& path, const std::string& level);
 
+// DRAKAN_FAST_START=1 (the editor's Play, with DRAKAN_START_LEVEL): true once, the first time the title menu asks, so
+// it starts New Game at once instead of waiting for the next auto-press tap. Any thread.
+bool takeTitleNewGame();
+
 } // namespace drakan_playtest

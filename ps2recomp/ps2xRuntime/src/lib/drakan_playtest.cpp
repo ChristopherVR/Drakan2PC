@@ -6,6 +6,7 @@
 #include "input/GuestInterface.h"
 
 #include <algorithm>
+#include <atomic>
 #include <cctype>
 #include <cmath>
 #include <cstdio>
@@ -23,6 +24,16 @@ bool equalNoCase(const std::string& a, const std::string& b) {
            std::equal(a.begin(), a.end(), b.begin(), [](char x, char y) { return std::tolower(x) == std::tolower(y); });
 }
 } // namespace
+
+bool takeTitleNewGame() {
+    static std::atomic<bool> taken{false};
+    static const bool wanted = [] {
+        const char* f = std::getenv("DRAKAN_FAST_START");
+        const char* l = std::getenv("DRAKAN_START_LEVEL");
+        return f && *f && *f != '0' && l && *l;
+    }();
+    return wanted && !taken.exchange(true);
+}
 
 std::string introToLevel(const std::string& path, const std::string& level) {
     if (level.empty() || equalNoCase(level, kIntroLevel))
@@ -73,9 +84,17 @@ bool parsePose(const char* text, float pos[3], float& yaw, bool& hasYaw) {
 
 namespace {
 
-constexpr uint32_t kContextPtr = 0x5565d4u;       // engine object pointer (PAL)
-constexpr uint32_t kControlled = 0x4b0u;          // engine + 0x4b0: the controlled actor
-constexpr unsigned kWaitTicks = 240;              // boundaries after the player appears before the first move
+constexpr uint32_t kContextPtr = 0x5565d4u; // engine object pointer (PAL)
+constexpr uint32_t kControlled = 0x4b0u;    // engine + 0x4b0: the controlled actor
+constexpr unsigned kWaitTicks = 240;        // boundaries after the player appears before the first move
+// DRAKAN_FAST_START (the editor's Play): 60 (about 1 s); a move onto floor that is not resident yet is retried anyway.
+unsigned waitTicks() {
+    static const unsigned v = [] {
+        const char* e = std::getenv("DRAKAN_FAST_START");
+        return e && *e && *e != '0' ? 60u : kWaitTicks;
+    }();
+    return v;
+}
 constexpr unsigned kRetryTicks = 30, kTries = 40; // the terrain around a far target streams in over a few seconds
 constexpr float kTolerance = 3500.0f;
 constexpr unsigned kHoldTicks = 240; // keep the player on the spot while the terrain under her streams in
@@ -213,7 +232,7 @@ void beforePadMgr(drakan_input::IGuest& guest, uint8_t* /*rdram*/) {
         }
         return;
     }
-    if (++g.seen < kWaitTicks)
+    if (++g.seen < waitTicks())
         return;
     if (g.tries == 0 || g.seen >= g.nextAt) {
         if (g.tries > 0) {
