@@ -75,6 +75,7 @@ pub fn run() {
             commands::project_open_path,
             commands::project_write,
             commands::project_file_write,
+            commands::folder_reveal,
             windows::window_open,
         ])
         .run(tauri::generate_context!())

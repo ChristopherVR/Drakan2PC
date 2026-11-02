@@ -599,6 +599,37 @@ pub fn project_file_write(state: State<'_, AppState>, request: Request<'_>) -> R
     Ok(target.to_string_lossy().to_string())
 }
 
+// ---- show in folder ----------------------------------------------------------------------------------------------------
+
+/// The folders the shell may show: the project folders opened this session, the game folder and the mods folder.
+fn reveal_roots(state: &AppState) -> Vec<PathBuf> {
+    let g = state.inner.lock().unwrap();
+    let mut roots: Vec<PathBuf> = g.granted_projects.iter().map(PathBuf::from).collect();
+    roots.extend(g.settings.game_dir.as_ref().map(PathBuf::from));
+    roots.extend(g.settings.mods_folder());
+    roots
+}
+
+/// Show a folder in Explorer (Finder, the desktop's file manager). Only a folder the app already knows, or one inside
+/// it, is accepted; anything else from the web view is refused.
+#[tauri::command]
+pub fn folder_reveal(state: State<'_, AppState>, path: String) -> Res<()> {
+    let dir = paths::reveal_target(Path::new(&path), &reveal_roots(&state))
+        .ok_or_else(|| "Only the project, game or mods folder can be shown.".to_string())?;
+    #[cfg(target_os = "windows")]
+    let program = "explorer";
+    #[cfg(target_os = "macos")]
+    let program = "open";
+    #[cfg(not(any(target_os = "windows", target_os = "macos")))]
+    let program = "xdg-open";
+    // Not waited on: Explorer stays a separate process and its exit code means nothing.
+    std::process::Command::new(program)
+        .arg(&dir)
+        .spawn()
+        .map(|_| ())
+        .map_err(|e| format!("{program}: {e}"))
+}
+
 // ---- the game ----------------------------------------------------------------------------------------------------------
 
 #[derive(Serialize)]

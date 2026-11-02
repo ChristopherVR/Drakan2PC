@@ -7,6 +7,7 @@ import {
     exitSummary,
     groupIssues,
     parseExitIssue,
+    renameProject,
     reorder,
     shortLevelName,
     worstSeverity,
@@ -157,5 +158,38 @@ describe('project checks', () => {
         expect(exitSummary([])).toEqual({ count: 0, problems: 0, text: 'No exits' });
         expect(exitSummary([{ problem: null }, { problem: 'x' }]).text).toBe('2 exits, 1 to fix');
         expect(exitSummary([{ problem: null }]).text).toBe('1 exit');
+    });
+});
+
+describe('project name and id', () => {
+    const type = <P extends { name: string; id: string }>(p: P, text: string): P => {
+        let q = p;
+        for (let i = 1; i <= text.length; i++) q = renameProject(q, text.slice(0, i));
+        return q;
+    };
+
+    it('keeps the id following the name for every keystroke', () => {
+        const p = type(newProject(''), 'test map');
+        expect(p.name).toBe('test map');
+        expect(p.id).toBe('test-map');
+    });
+
+    it('follows from a default project too', () => {
+        const p = newProject('My mod');
+        expect(type({ ...p, name: '' }, 'Surdana Remix').id).toBe('surdana-remix');
+        expect(renameProject(p, 'Other').id).toBe('other');
+    });
+
+    it('stops following once the id was edited by hand', () => {
+        let p = type(newProject(''), 'abc');
+        p = { ...p, id: 'my.custom-id' };
+        p = type({ ...p, name: '' }, 'renamed');
+        expect(p.name).toBe('renamed');
+        expect(p.id).toBe('my.custom-id');
+    });
+
+    it('starts following again when the id is cleared', () => {
+        const p = renameProject({ name: 'x', id: '' }, 'New name');
+        expect(p.id).toBe('new-name');
     });
 });

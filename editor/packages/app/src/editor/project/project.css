@@ -539,6 +539,11 @@
 .pjx-folder-sub.bad {
     color: var(--bad);
 }
+.pjx-reveal {
+    align-self: flex-start;
+    margin: var(--sp-2) 0 0 calc(-1 * var(--sp-3));
+    white-space: nowrap;
+}
 
 /* Levels: split "Add level" button, then the tree table. */
 .pjx-split {

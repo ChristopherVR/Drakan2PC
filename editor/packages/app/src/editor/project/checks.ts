@@ -3,7 +3,7 @@
  * long explanation kept for the details, grouped by level, counted and filtered) and the level table (reordering, exit
  * summaries). No DOM here, so the tests run in node.
  */
-import type { CampaignExit, ProjectIssue } from '@drakan/editor-core';
+import { slugId, type CampaignExit, type ProjectIssue } from '@drakan/editor-core';
 
 export type Severity = ProjectIssue['severity'];
 export const SEVERITIES: readonly Severity[] = ['error', 'warning', 'info'];
@@ -193,4 +193,14 @@ export function exitSummary(exits: readonly Pick<CampaignExit, 'problem'>[]): {
     const n = exits.length;
     const text = n ? `${n} exit${n === 1 ? '' : 's'}${problems ? `, ${problems} to fix` : ''}` : 'No exits';
     return { count: n, problems, text };
+}
+
+/**
+ * A new project name, with the Id following it while the Id is still the one derived from the current name (or empty);
+ * once the user typed their own Id it stays. Works on the latest project state, never a copy captured at render time
+ * (the panel re-renders after a delay, so a captured name went stale after one keystroke).
+ */
+export function renameProject<P extends { name: string; id: string }>(p: P, name: string): P {
+    const follows = !p.id || p.id === slugId(p.name);
+    return { ...p, name, id: follows ? slugId(name) : p.id };
 }

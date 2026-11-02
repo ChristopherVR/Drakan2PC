@@ -104,6 +104,12 @@ export async function openRecentIso(path: string): Promise<RemoteBlob> {
 
 export const pickFolder = (which: 'game' | 'mods'): Promise<FolderInfo | null> => invoke('folder_pick', { which });
 
+/**
+ * Show a folder in Explorer (Finder, the file manager). The shell only accepts a folder it already knows (the open
+ * project folder, the game folder, the mods folder) or one inside it. Desktop only.
+ */
+export const revealFolder = (path: string): Promise<void> => invoke('folder_reveal', { path });
+
 // ---- saves --------------------------------------------------------------------------------------------------------------
 
 export const pickSaveFile = (): Promise<SaveFileInfo | null> => invoke('save_pick_file');

@@ -26,6 +26,7 @@
         "allow-project-open-path",
         "allow-project-write",
         "allow-project-file-write",
+        "allow-folder-reveal",
         "allow-window-open"
     ]
 }

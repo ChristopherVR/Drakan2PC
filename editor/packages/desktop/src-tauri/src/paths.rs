@@ -126,6 +126,34 @@ pub fn find_game_exe(dir: &Path) -> Option<PathBuf> {
     })
 }
 
+/// A folder the shell may show in the file manager: `path` must be an existing folder that is one of `roots` (folders the
+/// app itself knows: the open project, the game folder, the mods folder) or inside one. Both sides are resolved first
+/// (`..`, links, case), so a path that only looks like it is under a root is refused. Returns the resolved folder in a
+/// form the file manager accepts.
+pub fn reveal_target(path: &Path, roots: &[PathBuf]) -> Option<PathBuf> {
+    let target = std::fs::canonicalize(path).ok()?;
+    if !target.is_dir() {
+        return None;
+    }
+    let inside = roots
+        .iter()
+        .filter_map(|r| std::fs::canonicalize(r).ok())
+        .any(|r| target.starts_with(&r));
+    inside.then(|| plain_path(&target))
+}
+
+/// Drop the `\\?\` prefix `canonicalize` adds on Windows (Explorer does not take it). Other paths pass unchanged.
+pub fn plain_path(p: &Path) -> PathBuf {
+    let s = p.to_string_lossy();
+    if let Some(rest) = s.strip_prefix(r"\\?\UNC\") {
+        PathBuf::from(format!(r"\\{rest}"))
+    } else if let Some(rest) = s.strip_prefix(r"\\?\") {
+        PathBuf::from(rest)
+    } else {
+        p.to_path_buf()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -183,5 +211,46 @@ mod tests {
         let d = playtest_card_dir(Path::new("t"), 2);
         assert!(d.ends_with("drakan-editor-playtest/card2/mc0"));
         assert!(!valid_env_value("a\nb"));
+    }
+
+    #[test]
+    fn reveal_only_known_folders() {
+        let base = std::env::temp_dir().join(format!("drakan-reveal-test-{}", std::process::id()));
+        let project = base.join("My project");
+        let inner = project.join("mod");
+        let other = base.join("other");
+        let lookalike = base.join("My project2");
+        for d in [&inner, &other, &lookalike] {
+            std::fs::create_dir_all(d).unwrap();
+        }
+        std::fs::write(project.join("project.drakan.json"), "{}").unwrap();
+        let roots = vec![project.clone(), base.join("missing-root")];
+
+        let got = reveal_target(&project, &roots).unwrap();
+        assert!(!got.to_string_lossy().starts_with(r"\\?\"), "{}", got.display());
+        assert!(got.ends_with("My project"));
+        assert!(reveal_target(&inner, &roots).unwrap().ends_with("mod"));
+        // `..` that lands back inside a root is fine.
+        assert!(reveal_target(&inner.join(".."), &roots).is_some());
+        // A sibling, the parent, a `..` escape, a file, a missing folder, a name that only starts like the root and no
+        // roots at all are refused.
+        assert!(reveal_target(&other, &roots).is_none());
+        assert!(reveal_target(&base, &roots).is_none());
+        assert!(reveal_target(&project.join("..").join("other"), &roots).is_none());
+        assert!(reveal_target(&project.join("project.drakan.json"), &roots).is_none());
+        assert!(reveal_target(&project.join("nope"), &roots).is_none());
+        assert!(reveal_target(&lookalike, &roots).is_none());
+        assert!(reveal_target(&project, &[]).is_none());
+        std::fs::remove_dir_all(&base).ok();
+    }
+
+    #[test]
+    fn plain_paths() {
+        assert_eq!(plain_path(Path::new(r"\\?\C:\Games\x")), PathBuf::from(r"C:\Games\x"));
+        assert_eq!(
+            plain_path(Path::new(r"\\?\UNC\srv\share")),
+            PathBuf::from(r"\\srv\share")
+        );
+        assert_eq!(plain_path(Path::new("/home/a")), PathBuf::from("/home/a"));
     }
 }

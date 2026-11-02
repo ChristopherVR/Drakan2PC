@@ -24,7 +24,6 @@ import {
     moveLevel,
     removeLevel,
     routeOrder,
-    slugId,
     suggestCopyTitle,
     validateProject,
     type CampaignExit,
@@ -41,7 +40,7 @@ import { createPlayControls } from '../playopts.ts';
 import { openPopover, closePopover } from '../popover.ts';
 import { runCommand } from '../registry.ts';
 import { contextMenu, searchField, type MenuItem } from '../ui.ts';
-import { isDesktop } from '../../platform.ts';
+import { isDesktop, revealFolder } from '../../platform.ts';
 import type { PlayOptions } from '../../launch.ts';
 import { createCampaignMap } from './campaignmap.ts';
 import {
@@ -51,6 +50,7 @@ import {
     exitSummary,
     groupIssues,
     issueKey,
+    renameProject,
     reorder,
     worstSeverity,
     type Severity,
@@ -273,6 +273,18 @@ export function createProjectPanel(host: ProjectPanelHost): ProjectPanel {
                     f.dir,
                 ),
                 status,
+                h(
+                    'button',
+                    {
+                        class: 'ui-btn ghost sm pjx-reveal',
+                        type: 'button',
+                        id: 'pj-reveal',
+                        title: 'Open the project folder in Explorer',
+                        onclick: () => void revealFolder(f.dir).catch(fail),
+                    },
+                    ico('folder-open', 13),
+                    'Show in folder',
+                ),
             ),
             h(
                 'button',
@@ -345,12 +357,11 @@ export function createProjectPanel(host: ProjectPanelHost): ProjectPanel {
                         'Name',
                         p.name,
                         (v) => {
-                            const prevSlug = slugId(p.name);
-                            projects.update((q) => ({
-                                ...q,
-                                name: v,
-                                id: q.id === prevSlug || !q.id ? slugId(v) : q.id,
-                            }));
+                            projects.update((q) => renameProject(q, v));
+                            // Show the followed Id now; the pane itself re-renders a moment later.
+                            const id = root.querySelector<HTMLInputElement>('#pj-id');
+                            const q = projects.get();
+                            if (id && q && document.activeElement !== id) id.value = q.id;
                         },
                         { id: 'pj-name', placeholder: 'My mod' },
                     ),
