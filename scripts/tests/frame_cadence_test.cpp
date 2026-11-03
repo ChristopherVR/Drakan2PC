@@ -4,6 +4,42 @@
 #include <cstdio>
 #include <initializer_list>
 int main() {
+    using drakan_frame_rate::useForwardWalkJump;
+    assert(useForwardWalkJump(0x2f94b0, 2, 19, 0x101, 0, 1168));
+    assert(!useForwardWalkJump(0x2f94b8, 2, 19, 0x101, 0, 1168));
+    assert(!useForwardWalkJump(0x2f94b0, 0, 19, 0x101, 0, 1168));
+    assert(!useForwardWalkJump(0x2f94b0, 2, 17, 0x101, 0, 1168));
+    assert(!useForwardWalkJump(0x2f94b0, 2, 19, 0, 0, 1168));
+    assert(!useForwardWalkJump(0x2f94b0, 2, 19, 2, 0, 1168));
+    assert(!useForwardWalkJump(0x2f94b0, 2, 19, 3, 0, 1168));
+    assert(!useForwardWalkJump(0x2f94b0, 2, 19, 0x101, 1, 1168));
+    assert(!useForwardWalkJump(0x2f94b0, 2, 19, 0x101, 0, 1000));
+    assert(!useForwardWalkJump(0x2f94b0, 2, 19, 0x101, 0, 0));
+    using drakan_frame_rate::restoreGroundSnapMotion;
+    const float snap[3] = {0, -35, 0}, walk[3] = {-7.03125f, -0.015625f, -0.0625f};
+    float velocity[3] = {0, -1050, 0};
+    restoreGroundSnapMotion(velocity, snap, walk, false);
+    assert(velocity[0] == walk[0] * 30 && velocity[1] == walk[1] * 30 && velocity[2] == walk[2] * 30);
+    // Recorded 6 ms walking tick: the corrected forward speed clears the game's 1000-unit jump threshold.
+    assert(-velocity[0] / (30 * 0.006f) > 1000);
+    for (const auto& motion : {std::initializer_list<float>{0, 0, 0}, {0, -2, 0}}) {
+        float still[3] = {0, -1050, 0};
+        restoreGroundSnapMotion(still, snap, motion.begin(), false);
+        assert(still[0] == 0 && still[2] == 0); // stationary or blocked by a wall: no invented forward speed
+        // No change to its native vertical result either.
+        assert(still[1] == -1050);
+    }
+    const float normal[3] = {-7, 0, 0}, noSnap[3] = {0, 0, 0};
+    for (const float* displacement : {normal, noSnap}) {
+        float native[3] = {0, -1050, 0};
+        restoreGroundSnapMotion(native, displacement, walk, false);
+        assert(native[0] == 0 && native[2] == 0);
+    }
+    float slower[3] = {0, -1050, 0}, moving[3] = {-3, -1050, 1};
+    restoreGroundSnapMotion(slower, snap, walk, true);
+    restoreGroundSnapMotion(moving, snap, walk, false);
+    assert(slower[0] == 0 && slower[2] == 0);
+    assert(moving[0] == -3 && moving[2] == 1);
     using drakan_frame_rate::cadenceCount;
     constexpr unsigned pc = 0x4bc080, ra = 0x1d7a24;
     for (unsigned n = 0; n < 100; ++n) {
@@ -66,5 +102,5 @@ int main() {
     assert(near(snapTickToRefresh(0.016, 0.0, carry), 0.016) && carry == 0); // not vsync-locked
     carry = 0.002;
     assert(snapTickToRefresh(-1.0, T, carry) == -1.0 && carry == 0);
-    std::puts("41615 frame cadence checks passed");
+    std::puts("Frame cadence and forward-jump checks passed");
 }

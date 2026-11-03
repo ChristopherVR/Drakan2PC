@@ -380,6 +380,26 @@ rates it under-reported speed by `30 / rate` and running jumps went straight up.
 `docs/journal/2026-10-23/running-jump.md`). The harness `[in-pos]` log line carries `spd=` (`player+8`),
 `mv=` (`+0x504/+0x508/+0x50c` move bits) and `jt=` (jump type) for this.
 
+Follow-up (2026-11-03): the native keyboard Walk command (`0x4010`, now sent by Shift / toggle-run) also forces
+vertical dodge state 19 **before** the speed test. `walkActionHook` redirects only that jump-start call to the native
+type-2 jump when forward is held, back/strafe are not, and measured speed exceeds 1000. Stationary, blocked,
+backward and side actions keep their native behavior. Separately, at high rates a vertical ground snap can mask
+forward motion in the velocity chooser: for the forward-speed query only, `velocityHook` restores the existing
+collision-resolved motion when the chosen vector and position history are vertical-only. The old rate correction
+then applies. The velocity hook also covers its pause-query resume boundary so a scheduler yield cannot skip it.
+Live run/walk/standing checks pass at 30, 60 and uncapped; details in
+[forward-jump-regression.md](../journal/2026-11-03/forward-jump-regression.md).
+
+Regression check (isolated fresh card, player's settings unchanged):
+
+```sh
+python scripts/harness/play_run.py --name forward-jump --recipe scripts/harness/recipes/forward_jump.txt --env DRAKAN_GAME=d2
+python scripts/harness/jump_check.py build/harness/forward-jump
+```
+
+Repeat with `--env DRAKAN_WORLD_RATE=30|60|uncapped` on the runner. The checker requires the native jump type,
+actual horizontal travel and ascent, plus a stationary type-1 jump; a completed script alone is not a pass.
+
 Jumping during a melee swing keeps the attack on an animation layer (`player+0xaec`, `ab0` bit 2) over the jump; at
 60 / uncapped the in-air switch froze that layer in the jump pose (`docs/journal/2026-10-25/attack-jump-freeze.md`,
 fixed in `drakan_frame_rate.h`). The `[in-anim]` line next to `[in-pos]` logs that layer's record (`anim`, `spd`, `t`,

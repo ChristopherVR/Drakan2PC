@@ -180,6 +180,7 @@ The canonical Markdown remains in this repository:
 - [DLSS 5 neural rendering at render resolution (2026-10-23)](journal/2026-10-23/nr-resolution.md)
 - [Modern water lost under the pause menu — 2026-10-23](journal/2026-10-23/pause-modern-water.md)
 - [Running jump went straight up at uncapped world rates](journal/2026-10-23/running-jump.md)
+- [Forward-jump regression: native Walk and vertical ground snaps](journal/2026-11-03/forward-jump-regression.md)
 - [Sky seams, light-streak lines and smeared sky tiles from the HD pack (23 October 2026)](journal/2026-10-23/sky-hd-seams.md)
 - [Snowfall clumps: host rand range](journal/2026-10-23/snow-rand.md)
 - [Terrain crease lines from ray-traced AO — 2026-10-23](journal/2026-10-23/terrain-ao-creases.md)

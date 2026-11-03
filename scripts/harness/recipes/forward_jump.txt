@@ -1,0 +1,18 @@
+# Run, Shift-walk, then stand still and jump. Use jump_check.py on the play_run output.
+# Wall-clock timing leaves enough time to land even when the world is uncapped.
+clock milliseconds
+0 sync play 90
+0 log on 1
+1000 key down W
+1800 key down Space
+1900 key up Space
+2400 key up W
+5000 key down LSHIFT
+5001 key down W
+5800 key down Space
+5900 key up Space
+6400 key up W
+6401 key up LSHIFT
+9000 key down Space
+9100 key up Space
+12000 quit

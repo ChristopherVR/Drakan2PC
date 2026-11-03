@@ -148,7 +148,15 @@ inline float readFloat(const uint8_t* ram, uint32_t address) {
 // 2f90c8's running-jump test (player+8 > 1000) failed and jumps went straight
 // up. Rescale to the real rate; paused (fixed 30 by 142688) stays native.
 inline void velocityHook(uint8_t* ram, R5900Context* ctx, PS2Runtime* rt) {
-    const uint32_t out = GPR_U32(ctx, 4), ra = GPR_U32(ctx, 31);
+    // 325da4 resumes after the pause query. Its arguments/return address now live in the guest frame, not a0/a1/ra.
+    const bool resumed = ctx->pc == 0x325da4u;
+    const uint32_t sp = GPR_U32(ctx, 29);
+    if (resumed && sp > PS2_RAM_SIZE - 128) {
+        velocityOriginal(ram, ctx, rt);
+        return;
+    }
+    const uint32_t out = GPR_U32(ctx, resumed ? 16 : 4), player = GPR_U32(ctx, resumed ? 17 : 5);
+    const uint32_t ra = resumed ? readWord(ram, sp + 96) : GPR_U32(ctx, 31);
     const uint32_t engine = readWord(ram, 0x5565d4u);
     velocityOriginal(ram, ctx, rt);
     if (ctx->pc != ra || out < 0x100000u || out > PS2_RAM_SIZE - 12 || engine < 0x100000u ||
@@ -162,11 +170,44 @@ inline void velocityHook(uint8_t* ram, R5900Context* ctx, PS2Runtime* rt) {
     const float rate = 1.0f / tick;
     if (rate <= 30.0f)
         return;
+    float velocity[3] = {readFloat(ram, out), readFloat(ram, out + 4), readFloat(ram, out + 8)};
+    if (ra == 0x325f54u && player >= 0x100000u && player <= PS2_RAM_SIZE - 0xab4) {
+        const uint32_t handle = readWord(ram, player + 0x80);
+        if (handle >= 0x100000u && handle <= PS2_RAM_SIZE - 0x54) {
+            const uint32_t model = readWord(ram, handle + 0x50);
+            if (model >= 0x100000u && model <= PS2_RAM_SIZE - 0x180) {
+                float displacement[3], motion[3];
+                for (uint32_t i = 0; i < 3; ++i) {
+                    displacement[i] = readFloat(ram, handle + 0x14 + 4 * i) - readFloat(ram, model + 0x174 + 4 * i);
+                    motion[i] = readFloat(ram, model + 0xc8 + 4 * i);
+                }
+                restoreGroundSnapMotion(velocity, displacement, motion, (readWord(ram, player + 0xab0) & 0x400u) != 0);
+            }
+        }
+    }
     const float scale = rate / 30.0f;
     for (uint32_t i = 0; i < 3; ++i) {
-        const float v = readFloat(ram, out + 4 * i) * scale;
+        const float v = velocity[i] * scale;
         std::memcpy(ram + out + 4 * i, &v, 4);
     }
+}
+inline PS2Runtime::RecompiledFunction walkActionOriginal = nullptr, jumpStartOriginal = nullptr;
+inline void walkActionHook(uint8_t* ram, R5900Context* ctx, PS2Runtime* rt) {
+    const uint32_t player = GPR_U32(ctx, 4);
+    if (player >= 0x100000u && player <= PS2_RAM_SIZE - 0x50c &&
+        useForwardWalkJump(GPR_U32(ctx, 31), readWord(ram, 0x4fbb34u), readWord(ram, player + 0xc4),
+                           readWord(ram, player + 0x504), readWord(ram, player + 0x508), readFloat(ram, player + 8))) {
+        // Discard only the pending vertical dodge, then tail-call the native running jump. No temporary global
+        // flag changes or host-side guest-call loop: a scheduler yield resumes in the native jump as usual.
+        const uint32_t none = 0xffffffffu;
+        std::memcpy(ram + player + 0xc4, &none, 4);
+        SET_GPR_U32(ctx, 5, 2u);
+        SET_GPR_U32(ctx, 6, 0u);
+        ctx->pc = 0x2f9520u;
+        jumpStartOriginal(ram, ctx, rt);
+        return;
+    }
+    walkActionOriginal(ram, ctx, rt);
 }
 inline PS2Runtime::RecompiledFunction layerSpeedOriginal = nullptr;
 // 450cf0(speed, player, layer) sets an animation layer's speed. The in-air update 2fa328 calls it with (0, Rynn, 0)
@@ -316,6 +357,11 @@ inline void install(PS2Runtime& rt) {
         std::fprintf(stderr, "[frame-rate] required native boundaries unavailable; uncapped disabled\n");
     }
     retryGeneration = 0;
+    if (rt.hasFunction(0x2fe198u) && rt.hasFunction(0x2f9520u)) {
+        walkActionOriginal = rt.lookupFunction(0x2fe198u);
+        jumpStartOriginal = rt.lookupFunction(0x2f9520u);
+        rt.replaceFunction(0x2fe198u, walkActionHook);
+    }
     if (rate != "30" && rate != "60" && !uncapped)
         std::fprintf(stderr, "[frame-rate] unsupported world_rate; using original 30 FPS cadence\n");
     if ((highRate || uncapped) && rt.hasFunction(0x1d78f0u) && rt.hasFunction(0x4bc080u)) {
@@ -324,9 +370,10 @@ inline void install(PS2Runtime& rt) {
         std::fprintf(stderr, "[frame-rate] %s world cadence; guest clock unchanged\n",
                      uncapped ? "uncapped" : "60 FPS");
     }
-    if ((highRate || uncapped) && rt.hasFunction(0x325d30u)) {
+    if ((highRate || uncapped) && rt.hasFunction(0x325d30u) && rt.hasFunction(0x325da4u)) {
         velocityOriginal = rt.lookupFunction(0x325d30u);
         rt.replaceFunction(0x325d30u, velocityHook);
+        rt.replaceFunction(0x325da4u, velocityHook);
     }
     if ((highRate || uncapped) && rt.hasFunction(0x450cf0u)) {
         layerSpeedOriginal = rt.lookupFunction(0x450cf0u);

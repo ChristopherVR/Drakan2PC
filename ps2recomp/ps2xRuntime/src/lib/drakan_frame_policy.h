@@ -3,6 +3,28 @@
 #include <cmath>
 #include <cstdint>
 namespace drakan_frame_rate {
+// Native keyboard Walk also forces the vertical dodge (state 19) in jump-start, before it tests forward speed.
+// Keep that action for stationary/backward/sideways input; a moving forward PC walk uses the normal jump path.
+inline bool useForwardWalkJump(uint32_t ra, uint32_t flags, uint32_t state, uint32_t forward, uint32_t sideways,
+                               float speed) {
+    return ra == 0x2f94b0u && (flags & 2u) && state == 19 && (forward & 1u) && !(forward & 2u) && !(sideways & 3u) &&
+           speed > 1000.0f;
+}
+
+// A ground snap can leave only vertical displacement in the position history, while the collision-resolved
+// motion still contains this tick's forward travel. At high rates the fixed snap overwhelms the smaller motion
+// and the native velocity chooser returns a vertical-only vector. Restore resolved motion for the
+// forward-speed measurement, not for airborne physics or the native "prefer slower" mode.
+inline void restoreGroundSnapMotion(float* velocity, const float* displacement, const float* motion,
+                                    bool preferSlower) {
+    if (!preferSlower && displacement[0] == 0.0f && displacement[2] == 0.0f && displacement[1] != 0.0f &&
+        velocity[0] == 0.0f && velocity[2] == 0.0f && (motion[0] != 0.0f || motion[2] != 0.0f)) {
+        velocity[0] = motion[0] * 30.0f;
+        velocity[1] = motion[1] * 30.0f;
+        velocity[2] = motion[2] * 30.0f;
+    }
+}
+
 // Only the graphics worker's SleepThread call participates. Other threads,
 // resumed syscalls, counter overflow and the original cadence are unchanged.
 constexpr uint32_t cadenceCount(uint32_t count, bool higher, uint32_t pc, uint32_t ra) {

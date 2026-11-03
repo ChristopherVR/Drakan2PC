@@ -90,6 +90,10 @@ Use `--region pal` for the same checks with a native PAL card. Combat timing and
 extends the existing pause/settings ownership check to mounted flight. `--name` preserves earlier named evidence;
 `--timeout` permits a complete native introduction before control becomes available. Neither harness uses desktop input.
 
+Forward-jump regression: run `harness/play_run.py --name forward-jump --recipe scripts/harness/recipes/forward_jump.txt
+--env DRAKAN_GAME=d2`, then `python scripts/harness/jump_check.py build/harness/forward-jump`. Repeat the runner with
+`--env DRAKAN_WORLD_RATE=30`, `60` and `uncapped`; checks require actual run/walk travel and a stationary jump.
+
 ## savetool
 
 `savetool/savetool.py` inspects and edits native `.rsg` saves (SRSC containers, stdlib only). Run it on a copy;
