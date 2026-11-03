@@ -2,7 +2,7 @@
 import { describe, expect, it } from 'vitest';
 import { CommandStack, LevelDocument, defaultArenaBounds, defaultMode } from '@drakan/editor-core';
 import type { LevelView } from '../src/level.ts';
-import { ArenaStore } from '../src/editor/arena/store.ts';
+import { ArenaStore, arenaTestMode, modeIdClash } from '../src/editor/arena/store.ts';
 
 function setup(): { st: ArenaStore; stack: CommandStack } {
     const stack = new CommandStack(new LevelDocument());
@@ -70,5 +70,31 @@ describe('default bounds', () => {
         expect(b[2]).toBeLessThan(21000);
         expect(b[2]).toBeGreaterThan(19000);
         expect(defaultArenaBounds([[1, 2, 3]])).toBeNull();
+    });
+});
+
+describe('modeIdClash', () => {
+    const modes = [{ id: 'frag-race' }, { id: 'last-rynn' }];
+    it("refuses an empty id and another mode's id", () => {
+        expect(modeIdClash('', 'last-rynn', modes)).toMatch(/needs an id/);
+        expect(modeIdClash('frag-race', 'last-rynn', modes)).toMatch(/already has the id "frag-race"/);
+        expect(modeIdClash('dm', 'last-rynn', modes)).toMatch(/built-in/);
+        expect(modeIdClash('tdm', 'last-rynn', modes)).toMatch(/built-in/);
+    });
+    it('accepts the same id and a free one', () => {
+        expect(modeIdClash('last-rynn', 'last-rynn', modes)).toBeNull();
+        expect(modeIdClash('three-lives', 'last-rynn', modes)).toBeNull();
+    });
+});
+
+describe('arenaTestMode', () => {
+    const lrs = { ...defaultMode('last-rynn'), lives: 3 };
+    const koth = { ...defaultMode('koth'), objectives: [{ kind: 'hold' as const }] } as typeof lrs;
+    it('hosts the first offered mode the map can play', () => {
+        const map = { modes: ['dm', 'koth', 'last-rynn'], players: 8, markers: [] };
+        expect(arenaTestMode(map, [koth, lrs])?.id).toBe('last-rynn');
+    });
+    it('hosts plain deathmatch when no custom mode is offered', () => {
+        expect(arenaTestMode({ modes: ['dm'], players: 8, markers: [] }, [lrs])).toBeNull();
     });
 });

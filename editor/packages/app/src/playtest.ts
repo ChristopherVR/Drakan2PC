@@ -135,6 +135,9 @@ export interface ArenaPlay {
     /** Display name or id of the map (DRAKAN_MP_MAP). */
     map: string;
     mode: 'dm' | 'tdm';
+    /** A custom game mode of the pack to host (DRAKAN_NET_GAME_MODE), and its name for the status line. */
+    gameMode?: string;
+    gameModeName?: string;
 }
 let arenaProvider: (() => ArenaPlay | { problem: string } | null) | null = null;
 /**
@@ -287,6 +290,11 @@ export async function playArena(host: PlayTestHost, joiner: boolean): Promise<vo
     };
     const env = launchEnv(opts, null);
     env.DRAKAN_MP_MAP = a.map;
+    // With a campaign pack installed the title first shows "Choose your game" and waits there (the host runs behind
+    // it); a multiplayer test is always Drakan 2.
+    env.DRAKAN_GAME = 'd2';
+    // The map's offered custom mode (its rules run on the server; the HUD shows its goal).
+    if (a.gameMode) env.DRAKAN_NET_GAME_MODE = a.gameMode;
     if (await platform.gameRunning()) throw new Error('The game is already running. Close it first.');
     const where = await writePackToModsFolder({ meta: a.meta, files: a.files });
     if (where === null) return;
@@ -296,6 +304,7 @@ export async function playArena(host: PlayTestHost, joiner: boolean): Promise<vo
             DRAKAN_NET_CONNECT: `127.0.0.1:${Number(opts.port) || 27960}`,
             DRAKAN_GHOST: '1',
             DRAKAN_NET_NAME: 'Tester 2',
+            DRAKAN_GAME: 'd2',
             DRAKAN_PLAYTEST_CARD: '1', // its own throw-away card: the title's Cross must be New Game, not Continue
             DRAKAN_SKIP_MEMCARD_WARNING: '1',
             DRAKAN_AUTOPRESS: '3000',
@@ -305,6 +314,8 @@ export async function playArena(host: PlayTestHost, joiner: boolean): Promise<vo
         await new Promise((r) => setTimeout(r, 15000)); // the host needs to be up before a client connects
         await platform.launchGame(join, true);
     }
-    host.status(`Play test arena: hosting '${a.map}'${joiner ? ' with a second instance joining' : ''}.`);
+    host.status(
+        `Play test arena: hosting '${a.map}'${a.gameMode ? ` with the mode "${a.gameModeName ?? a.gameMode}"` : ''}${joiner ? ' with a second instance joining' : ''}.`,
+    );
     host.toast('Arena play test started', 'ok');
 }

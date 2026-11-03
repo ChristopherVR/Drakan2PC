@@ -5,7 +5,7 @@ import { addValidationProvider } from '../panels.ts';
 import { setArenaPlayProvider } from '../../playtest.ts';
 import { buildArenaPackFiles, exportBlockers } from '@drakan/editor-core';
 import { createArenaPanel } from './panel.ts';
-import { ArenaStore } from './store.ts';
+import { ArenaStore, arenaTestMode } from './store.ts';
 import './arena.css';
 
 export interface ArenaInstallHost {
@@ -86,11 +86,17 @@ export function installMultiplayerMaps(host: ArenaInstallHost): { store: ArenaSt
             description: `Multiplayer map ${d.name} (play test from the Drakan editor).`,
             target,
         };
+        const custom = arenaTestMode(d, store.modes);
         return {
             meta,
             files: buildArenaPackFiles(d, store.modes, meta, null),
             map: d.id,
-            mode: d.modes.includes('dm') || !d.modes.includes('tdm') ? ('dm' as const) : ('tdm' as const),
+            mode: custom
+                ? custom.base
+                : d.modes.includes('dm') || !d.modes.includes('tdm')
+                  ? ('dm' as const)
+                  : ('tdm' as const),
+            ...(custom ? { gameMode: custom.id, gameModeName: custom.name || custom.id } : {}),
         };
     });
     addValidationProvider({

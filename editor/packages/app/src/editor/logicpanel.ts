@@ -27,6 +27,7 @@ import { exitEditHost, onExitEditChange } from '../story/exitbridge.ts';
 import { createLogicGraph } from './logicgraph.ts';
 import { createVolumeLayer, type VolumeMode } from './logicview.ts';
 import { projects } from './project/store.ts';
+import { exitSourceLevel } from './project/campaign.ts';
 
 /** Set by the open Logic panel: opens a template form with some parameters preset. */
 let openTemplateHook: ((id: string, preset: ParamValues) => void) | null = null;
@@ -203,10 +204,7 @@ export function installLogic(ctx: Ctx, loadExits: (only?: string) => Promise<Exi
             loadQuickOnce();
             return h('div', { class: 'dim' }, 'Reading where the exits lead...');
         }
-        const doc = ctx.doc();
-        const mine = data.levels.find(
-            (l) => norm(l.name) === norm(doc.level) || norm(destinationLevelName(l.name)) === norm(doc.level),
-        );
+        const mine = exitLevelOf(data);
         const { dbIndex, classId } = resourceParts(o.resource);
         const c = mine?.classes[`${dbIndex}:${classId}`];
         if (!c?.destRef) {
@@ -427,11 +425,21 @@ export function installLogic(ctx: Ctx, loadExits: (only?: string) => Promise<Exi
 
     // ---- validation provider ----------------------------------------------------------------------------------------
     /** The level XDB the exit class's destination string lives in. */
-    function ownFile(o: LevelObject): string {
-        const doc = ctx.doc();
-        const mine = (exitData ?? quickExits)?.levels.find(
-            (l) => norm(l.name) === norm(doc.level) || norm(destinationLevelName(l.name)) === norm(doc.level),
+    /**
+     * The disc level whose exits the open level has: a level copy of the project (`Surdana Copy`) reads the exits and
+     * destination strings of its source (`Level 1A - Surdana`); the exit index only knows the disc's levels.
+     */
+    function exitLevelName(): string {
+        return exitSourceLevel(projects.get()?.levels ?? [], ctx.doc().level);
+    }
+    function exitLevelOf(data: ExitIndexData | null): ExitIndexData['levels'][number] | undefined {
+        const name = exitLevelName();
+        return data?.levels.find(
+            (l) => norm(l.name) === norm(name) || norm(destinationLevelName(l.name)) === norm(name),
         );
+    }
+    function ownFile(o: LevelObject): string {
+        const mine = exitLevelOf(exitData ?? quickExits);
         const { dbIndex, classId } = resourceParts(o.resource);
         return mine?.classes[`${dbIndex}:${classId}`]?.destRef?.file ?? '';
     }
@@ -440,7 +448,7 @@ export function installLogic(ctx: Ctx, loadExits: (only?: string) => Promise<Exi
         return { levels: new Map(exitData.levels.map((l) => [l.name, l.exits as readonly ExitIndexEntry[]])) };
     }
     function loadQuickOnce(): void {
-        const name = ctx.doc().level;
+        const name = exitLevelName();
         if (exitData || quickLoading || (quickExits && quickFor === name)) return;
         quickLoading = true;
         quickFor = name;
@@ -448,6 +456,7 @@ export function installLogic(ctx: Ctx, loadExits: (only?: string) => Promise<Exi
             .then((d) => {
                 quickExits = d;
                 listeners.forEach((f) => f());
+                soonSel(); // the side pane may still say "Reading where the exits lead"
             })
             .catch(() => undefined)
             .finally(() => (quickLoading = false));
@@ -459,6 +468,7 @@ export function installLogic(ctx: Ctx, loadExits: (only?: string) => Promise<Exi
             .then((d) => {
                 exitData = d;
                 listeners.forEach((f) => f());
+                soonSel();
             })
             .catch(() => undefined)
             .finally(() => (exitLoading = false));

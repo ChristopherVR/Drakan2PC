@@ -2,6 +2,7 @@ import {
     cloneDraft,
     cloneMode,
     defaultMode,
+    modeMapProblem,
     newDraft,
     type ArenaDraft,
     type ModeDef,
@@ -10,6 +11,30 @@ import {
 import type { Command, LevelDocument } from '@drakan/editor-core';
 import type { LevelView } from '../../level.ts';
 import { store as local } from '../dom.ts';
+
+/**
+ * Why a mode of the Modes list cannot take `id` (empty, a built-in id, or another mode's), or null. The id is what
+ * selects the mode in the list, so the panel keeps the old id instead.
+ */
+export function modeIdClash(id: string, oldId: string, modes: readonly { id: string }[]): string | null {
+    if (!id) return 'A mode needs an id; it keeps its old one.';
+    // dm / tdm name the built-in modes in the map's mode list: renaming to one and back took them off the map.
+    if (id === 'dm' || id === 'tdm') return `"${id}" is a built-in mode; this one keeps its old id.`;
+    if (id !== oldId && modes.some((m) => m.id === id))
+        return `Another mode already has the id "${id}"; this one keeps its old id.`;
+    return null;
+}
+
+/**
+ * The custom mode "Play test arena" hosts: the first mode offered on the map ("Offer it on <map>") that the map can play,
+ * or null to host the map's plain deathmatch / team deathmatch.
+ */
+export function arenaTestMode(
+    d: Pick<ArenaDraft, 'modes' | 'players' | 'markers'>,
+    modes: readonly ModeDef[],
+): ModeDef | null {
+    return modes.find((m) => d.modes.includes(m.id) && !modeMapProblem(m, d)) ?? null;
+}
 
 export type ArenaTool = 'select' | 'spawn' | 'pickup' | 'flag' | 'base' | 'zone' | 'bounds';
 export type ArenaSel = { kind: 'spawn' | 'pickup' | 'marker'; uid: number } | { kind: 'bounds'; corner: 0 | 1 } | null;

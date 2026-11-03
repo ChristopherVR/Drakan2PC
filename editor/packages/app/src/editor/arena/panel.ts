@@ -47,7 +47,7 @@ import { openPopover } from '../popover.ts';
 import { emptyState, searchField } from '../ui.ts';
 import { ArenaOverlay } from './overlay.ts';
 import { capturePreview } from './preview.ts';
-import type { ArenaSel, ArenaStore, ArenaTool } from './store.ts';
+import { modeIdClash, type ArenaSel, type ArenaStore, type ArenaTool } from './store.ts';
 
 export interface ArenaHost {
     /** The disc's levels (title and folder) for starting a map from any campaign level. */
@@ -1241,10 +1241,18 @@ export function createArenaPanel(ctx: Ctx, st: ArenaStore, host: ArenaHost): Are
             const m = next.find((x) => x.id === modeSel)!;
             const oldId = m.id;
             fn(m);
+            // The id picks the mode in this list: an empty one or another mode's would jump the form to a different
+            // mode (and later edits would land there), so it keeps its old id.
+            const idProblem = modeIdClash(m.id, oldId, list);
+            if (idProblem) {
+                m.id = oldId;
+                ctx.toast(idProblem, 'warn');
+                rerender = true;
+            }
             modeSel = m.id;
             st.setModes(next);
             // A renamed id stays offered on this map.
-            if (m.id !== oldId && st.draft.modes.includes(oldId))
+            if (m.id !== oldId && st.draft.modes.includes(oldId) && oldId !== 'dm' && oldId !== 'tdm')
                 st.commit('Rename mode', (n) => (n.modes = n.modes.map((x) => (x === oldId ? m.id : x))));
             if (rerender) render();
             else refreshModeSide();
@@ -1429,16 +1437,18 @@ export function createArenaPanel(ctx: Ctx, st: ArenaStore, host: ArenaHost): Are
             ),
             h('h4', {}, icon('world', 12), 'This map'),
             h('label', { class: 'mp-check' }, offer, `Offer it on ${d.name || 'this map'}`),
-            offered && fit
+            // The reason shows whether or not the box is ticked: ticking it does not make a mode without its markers
+            // playable (a capture mode on a map without flags was silent until ticked). Unticked modes are not exported
+            // (serializeMapFile writes the offered ones only).
+            fit
                 ? h('div', { class: 'mp-warnline' }, icon('warn', 12), `Cannot be played here: ${fit}`)
-                : null,
-            !offered && !fit
-                ? h(
-                      'div',
-                      { class: 'dim mp-note' },
-                      `Offered already: the map has ${m.base === 'tdm' ? 'team games' : 'deathmatch'}. Tick it to list the mode by name.`,
-                  )
-                : null,
+                : !offered
+                  ? h(
+                        'div',
+                        { class: 'dim mp-note' },
+                        `Not in the pack yet: only ticked modes are exported with ${d.name || 'this map'} and offered on its Host page.`,
+                    )
+                  : null,
             problems.length
                 ? h(
                       'div',

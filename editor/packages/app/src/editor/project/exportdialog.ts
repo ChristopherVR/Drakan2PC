@@ -153,7 +153,8 @@ export function openExportDialog(host: ExportHost): void {
         } finally {
             window.clearInterval(tick);
         }
-        const bl = host.blockers();
+        // A blocker the build already reported (the campaign settings) is not said twice.
+        const bl = host.blockers().filter((b) => last || b !== buildError);
         if (bl.length) summary.append(h('p', { class: 'bad' }, `Fix first: ${bl.slice(0, 3).join(' ')}`));
         paintId();
     }

@@ -1,7 +1,12 @@
 /* Project Settings > Campaign (campaign.ts). */
 .cpg-pane {
-    flex: none;
+    /* Shrinks (its body scrolls) so the Checks pane below keeps room for its list. */
+    flex: 0 1 auto;
     max-height: 62%;
+    min-height: 160px;
+}
+.pjx-side .cpg-pane ~ .pjx-checks {
+    min-height: 150px;
 }
 .cpg-body {
     display: flex;

@@ -25,6 +25,7 @@ import {
     removeLevel,
     routeOrder,
     suggestCopyTitle,
+    validateCampaign,
     validateProject,
     type CampaignExit,
     type ExitIndex,
@@ -1382,7 +1383,13 @@ export function createProjectPanel(host: ProjectPanelHost): ProjectPanel {
     );
 
     function exportPane(): HTMLElement {
-        const errs = issues.filter((i) => i.severity === 'error').length;
+        const cur = projects.get();
+        // The Campaign section's setting errors block the pack too (buildProjectPack refuses them).
+        const campaignErrs = cur?.campaign?.enabled
+            ? validateCampaign(cur, { discLevels: discTitles(), exits: null }).filter((i) => i.severity === 'error')
+                  .length
+            : 0;
+        const errs = issues.filter((i) => i.severity === 'error').length + campaignErrs;
         return pane(
             'pjx-export',
             isDesktop ? 'Export and play' : 'Export',
@@ -1398,7 +1405,11 @@ export function createProjectPanel(host: ProjectPanelHost): ProjectPanel {
                             type: 'button',
                             id: 'pj-export',
                             disabled: errs > 0,
-                            title: errs ? 'Fix the errors in Checks first' : 'Build the mod pack (Ctrl+E)',
+                            title: errs
+                                ? campaignErrs
+                                    ? 'Fix the errors in Checks and the Campaign section first'
+                                    : 'Fix the errors in Checks first'
+                                : 'Build the mod pack (Ctrl+E)',
                             onclick: () => host.openExport(),
                         },
                         icon('download', 13),
@@ -1460,8 +1471,8 @@ export function createProjectPanel(host: ProjectPanelHost): ProjectPanel {
             spellcheck: 'false',
             placeholder: 'My mod',
         });
-        nameIn.value = 'My mod';
-        const create = (): void => void host.files.create(nameIn.value).then(() => undefined, fail);
+        // Empty with the default as placeholder: a click then types the name instead of adding to "My mod".
+        const create = (): void => void host.files.create(nameIn.value.trim() || 'My mod').then(() => undefined, fail);
         nameIn.addEventListener('keydown', (e) => {
             if (e.key === 'Enter') create();
         });

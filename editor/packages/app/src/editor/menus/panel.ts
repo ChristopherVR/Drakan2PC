@@ -25,6 +25,7 @@ import { writePackToModsFolder } from '../../modio.ts';
 import type { Panel } from '../ctx.ts';
 import { fill, h, icon } from '../dom.ts';
 import { projects } from '../project/store.ts';
+import { notifyMenusChanged } from './bridge.ts';
 
 export interface MenusHost {
     target(): ModMeta['target'] | null;
@@ -97,6 +98,7 @@ export function createMenusPanel(host: MenusHost): MenusPanel {
         renderPreview();
         const list = validateUiSkin(skin);
         fill(issues, ...list.map((m) => h('div', { class: 'mn-issue' }, icon('warn', 13), m)));
+        notifyMenusChanged();
     }
 
     function setString(key: string, v: string): void {

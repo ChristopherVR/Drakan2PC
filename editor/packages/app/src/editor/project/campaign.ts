@@ -18,12 +18,13 @@ import {
     type ExitOverride,
     type ModProject,
     type ProjectCampaign,
+    type ProjectLevel,
     type ProjectIssue,
 } from '@drakan/editor-core';
 import type { ExitIndexData } from '../../logicdata.ts';
 import type { LevelInfo } from '../../rpc.ts';
 import { h, icon } from '../dom.ts';
-import { getMenusProvider } from '../menus/bridge.ts';
+import { getMenusProvider, onMenusChanged } from '../menus/bridge.ts';
 import { projects } from './store.ts';
 import './campaign.css';
 
@@ -51,6 +52,14 @@ export interface CampaignPane {
 }
 
 const norm = (s: string): string => s.toLowerCase().replace(/[^a-z0-9]/g, '');
+
+/**
+ * The disc level whose exits a level has: a level copy of the project (`Surdana Copy`) has the exits and destination
+ * strings of its source (`Level 1A - Surdana`), since the exit index only knows the disc's levels. Other names as is.
+ */
+export function exitSourceLevel(levels: readonly ProjectLevel[], name: string): string {
+    return levels.find((l) => l.copyOf && norm(l.title) === norm(name))?.copyOf ?? name;
+}
 
 /**
  * The exits a project changed: an "Only this exit" retarget (the exit object's own destination string, field 0) or an
@@ -106,6 +115,8 @@ const SEV_ICON = { error: 'clear', warning: 'warn', info: 'info' } as const;
 
 export function createCampaignPane(host: CampaignHost): CampaignPane {
     let exits: ExitIndex | null = null;
+    /** The disc's exits, read once ("Check the exits" reads them again); a level edit only redoes the overrides. */
+    let exitData: ExitIndexData | null = null;
     let exitsState: 'none' | 'loading' | 'done' | 'failed' = 'none';
     let exitsSig = '';
     let issues: ProjectIssue[] = [];
@@ -412,13 +423,20 @@ export function createCampaignPane(host: CampaignHost): CampaignPane {
         }
     }
 
+    /**
+     * Read the exits and follow them from the start. `force` = the user's "Check the exits" (reads the disc's exits
+     * again, says so in a toast); otherwise a quiet refresh after a level edit that keeps the last result on screen.
+     */
     async function checkExits(force: boolean): Promise<void> {
         const p = projects.get();
         if (!p?.campaign?.enabled || !host.levels().length || exitsState === 'loading') return;
-        exitsState = 'loading';
-        recheck();
+        if (force || !exitData) {
+            exitsState = 'loading';
+            recheck();
+        }
         try {
-            const data = await host.loadExits();
+            const data = force || !exitData ? await host.loadExits() : exitData;
+            exitData = data;
             await host.strings.ensure().catch(() => undefined);
             const cur = projects.get() ?? p;
             const index: ExitIndex = { levels: new Map(data.levels.map((l) => [l.name, l.exits])) };
@@ -447,17 +465,25 @@ export function createCampaignPane(host: CampaignHost): CampaignPane {
     }
 
     let timer = 0;
+    // The note under the cover says whether the Menus tab's changes ship with the campaign.
+    let menusDirty = getMenusProvider()?.dirty() ?? false;
+    onMenusChanged(() => {
+        const d = getMenusProvider()?.dirty() ?? false;
+        if (d === menusDirty) return;
+        menusDirty = d;
+        render();
+    });
     projects.on(() => {
         window.clearTimeout(timer);
         timer = window.setTimeout(recheck, 120);
     });
-    // Level edits (an exit pointed somewhere else) make the exit check stale.
+    // Level edits (an exit pointed somewhere else) change the overrides: follow the exits again with the disc's exits
+    // already read. (Autosaves and story loads also report edits, so the result must not just be thrown away.)
+    let editTimer = 0;
     projects.onEdit(() => {
-        if (exitsState === 'done') {
-            exits = null;
-            exitsState = 'none';
-            recheck();
-        }
+        if (exitsState !== 'done') return;
+        window.clearTimeout(editTimer);
+        editTimer = window.setTimeout(() => void checkExits(false), 300);
     });
 
     return {

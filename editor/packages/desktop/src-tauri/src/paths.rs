@@ -84,6 +84,7 @@ pub fn allowed_env(key: &str) -> bool {
             | "DRAKAN_NET_HOST"
             | "DRAKAN_NET_CONNECT"
             | "DRAKAN_NET_MODE"
+            | "DRAKAN_NET_GAME_MODE"
             | "DRAKAN_NET_NAME"
             | "DRAKAN_GHOST"
             | "DRAKAN_MP_MAP"
@@ -204,6 +205,7 @@ mod tests {
     #[test]
     fn env_allow_list() {
         assert!(allowed_env("DRAKAN_START_LEVEL"));
+        assert!(allowed_env("DRAKAN_NET_GAME_MODE"));
         assert!(!allowed_env("PATH"));
         assert!(!allowed_env("DRAKAN_MODS"));
         assert!(!allowed_env("DRAKAN_MEMCARD_DIR"));
