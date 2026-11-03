@@ -38,6 +38,11 @@ the game. Small final-blit rounding differences were at most two color levels.
   `drakan_widescreen_policy.h`); projection and HUD scale stay native. Native mode and 4:3 windows are unchanged.
 * The presenter used to start in 4:3 and the first host tick widened it a few frames later (the logo screens are world
   pages). `initialPresenter` now starts in the wide layout (and seeds the world policy) when the mode and window are wide.
+* Ordered title/loading GUI packets also consume queued renderer settings before the page's draws (2026-11-03).
+  Previously those settings could wait until the display latch, after the first page had already rendered with the
+  preceding movie's 4:3 canvas/original artwork. Older batched draws are flushed before changing the layout. The shared
+  GS front end handles this for D3D11 and WebGPU; movie presentation policy is unchanged. CPU integration coverage
+  checks both GUI boundaries in 4:3, 16:9, 21:9 and window-fill modes.
 
 ## Wide menu backdrops
 

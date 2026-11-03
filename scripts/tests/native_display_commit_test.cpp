@@ -26,6 +26,7 @@ struct Event {
 };
 std::mutex eventMutex;
 std::vector<Event> events;
+gsr::LiveSettings appliedSettings;
 unsigned checks = 0;
 void check(bool condition) {
     ++checks;
@@ -181,6 +182,10 @@ bool FakeBackend::vsyncEnabled() const {
     return false;
 }
 void FakeBackend::applyLive(const LiveSettings& ls) {
+    {
+        std::lock_guard<std::mutex> lock(eventMutex);
+        appliedSettings = ls;
+    }
     if (ls.mask & LiveSettings::F_SCALE)
         scale = ls.scale;
     record('S');
@@ -363,6 +368,34 @@ uint64_t hashContentRgb(const uint32_t*, uint32_t, uint32_t) {
 } // namespace gsr::texup
 
 int main() {
+    // A movie -> title/loading transition must consume the queued layout
+    // before the first menu draws, not when that already-drawn frame is latched.
+    for (int screen : {8, 14}) {
+        for (float aspect : {4.0f / 3, 16.0f / 9, 21.0f / 9, 0.0f}) {
+            auto renderer = gsr::Renderer::create(gsr::Config{});
+            triangle(*renderer); // previous page: must flush with its old settings
+            renderer->setAspect(aspect, aspect == 0);
+            renderer->setNativeMenu(true, screen);
+            renderer->setHudScaleX(aspect > 1.4f ? (4.0f / 3) / aspect : 1.0f);
+            renderer->setHudSize(1.0f);
+            clearEvents();
+            gsr::SceneGuideCamera menu;
+            menu.sourcePc = screen == 8 ? 0x43e4c8u : 0x43d340u;
+            menu.guiScreen = screen;
+            renderer->noteSceneCamera(menu);
+            const auto boundary = recorded();
+            check(boundary.size() == 3 && boundary[0].kind == 'D' && boundary[1].kind == 'S' &&
+                  boundary[2].kind == 'C');
+            check(appliedSettings.forcedAspect == aspect && appliedSettings.stretch == (aspect == 0));
+            check(appliedSettings.nativeMenu && appliedSettings.nativeMenuScreen == screen);
+            check(appliedSettings.hudSize == 1.0f);
+            check(appliedSettings.hudScale == (aspect > 1.4f ? (4.0f / 3) / aspect : 1.0f));
+            triangle(*renderer);
+            renderer->completeDisplayFrame();
+            check(count('S') == 1); // no delayed layout change on first latch
+        }
+    }
+
     // Shared initial/resize algorithm: viewport fit, width for a known square
     // 512-line display, legacy vertical fallback otherwise, bounds and stability.
     check(AutoInternalScale::choose(3840, 2160, 4.0 / 3, false, true) == 6);

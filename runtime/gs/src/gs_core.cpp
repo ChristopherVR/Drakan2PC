@@ -4,6 +4,7 @@
 #include "runtime_flags.h"
 #include "gs_texup.h"
 #include "gs_image_upload.h"
+#include <gsr/scene_guide_camera.h>
 
 #include <algorithm>
 #include <memory>
@@ -152,7 +153,7 @@ float asFloat(uint32_t v) {
 
 struct Renderer::Impl {
     std::recursive_mutex mtx; // serialises the public API (host present thread vs. the submitting thread)
-    // live settings: written by any thread under setMu, consumed at frame boundaries under mtx
+    // Live settings: written by any thread under setMu, consumed at frame/GUI boundaries under mtx.
     std::mutex setMu;
     LiveSettings pend;
     std::atomic<bool> hasPend{false};
@@ -2005,6 +2006,13 @@ void Renderer::noteVuUpload(uint32_t a, uint32_t n, const float* rows) {
 void Renderer::noteSceneCamera(const SceneGuideCamera& camera) {
     std::lock_guard<std::recursive_mutex> lk(m_impl->mtx);
     m_impl->flushBatch();
+    // These ordered GUI boundaries precede the page's own draws. Apply the
+    // host's queued aspect/menu/HUD settings now: applying only at the next
+    // display latch lets the first page render with the preceding movie's 4:3
+    // canvas and original artwork, then switches to the configured backdrop.
+    if ((camera.sourcePc == 0x43e4c8u && camera.guiScreen == 8) ||
+        (camera.sourcePc == 0x43d340u && camera.guiScreen == 14))
+        m_impl->applyPending();
     m_impl->backend->noteSceneCamera(camera);
 }
 void Renderer::noteMovieFrame(uint64_t signature, uint32_t width, uint32_t height, uint32_t movie, uint32_t frame) {
