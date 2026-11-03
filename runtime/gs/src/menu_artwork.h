@@ -2,8 +2,8 @@
 #include <cstdint>
 
 namespace gsr::hud {
-// Exact immutable INTERFCE.TXD title/scenic tiles, not generic full-color effects.
-constexpr bool menuArtwork(std::uint64_t hash) {
+// The six immutable title tiles, excluding the scenic save/load backgrounds.
+constexpr bool titleArtwork(std::uint64_t hash) {
     switch (hash) {
         case 0xb3cdb49737930d6dull:
         case 0x4f7ee3d0edc23360ull:
@@ -11,6 +11,46 @@ constexpr bool menuArtwork(std::uint64_t hash) {
         case 0x2ca46f8a975e9e38ull:
         case 0x3d7202d7d8b7115full:
         case 0xce000a7fd2216f1cull:
+            return true;
+        default:
+            return false;
+    }
+}
+
+// The first title tiles can precede both the host's screen poll and the
+// title-handler packet. Retain the configured startup presenter while movies
+// temporarily select 4:3, then restore it at the first title artwork draw.
+struct StartupTitle {
+    float aspect;
+    bool stretch;
+    bool pending = true;
+
+    struct Layout {
+        bool apply = false;
+        float aspect = 0;
+        bool stretch = false;
+        float foreground = 1;
+    };
+
+    Layout select(bool title, unsigned width, unsigned height, bool hostTitle, float currentAspect, bool currentStretch,
+                  float windowAspect) {
+        if (!pending || !title || width < 480 || height < 320)
+            return {};
+        pending = false;
+        // If the host already selected the title, keep its potentially newer
+        // live settings instead of restoring the startup snapshot.
+        const float selected = hostTitle ? currentAspect : aspect;
+        const bool fill = hostTitle ? currentStretch : stretch;
+        const float target = fill ? windowAspect : selected;
+        return {true, selected, fill, target > 1.4f ? (4.0f / 3) / target : 1.0f};
+    }
+};
+
+// Exact immutable INTERFCE.TXD title/scenic tiles, not generic full-color effects.
+constexpr bool menuArtwork(std::uint64_t hash) {
+    if (titleArtwork(hash))
+        return true;
+    switch (hash) {
         case 0x4ce8e477b5873557ull:
         case 0x81bd5b91d7726154ull:
         case 0xbb40ebe4a17c57abull:

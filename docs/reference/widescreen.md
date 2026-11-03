@@ -43,6 +43,11 @@ the game. Small final-blit rounding differences were at most two color levels.
   preceding movie's 4:3 canvas/original artwork. Older batched draws are flushed before changing the layout. The shared
   GS front end handles this for D3D11 and WebGPU; movie presentation policy is unchanged. CPU integration coverage
   checks both GUI boundaries in 4:3, 16:9, 21:9 and window-fill modes.
+* The title artwork itself can precede that GUI boundary. Both backends now recognize the six exact title tiles and
+  establish screen 8, its configured presenter and centered foreground before the first tile is drawn. This one-shot
+  startup policy retains the original configured aspect while the logo movie temporarily uses 4:3; if the host has
+  already selected the title, its newer live settings win. Scenic menu tiles, movie frames and small off-screen targets
+  cannot trigger it. The wide `screen8` image is loaded/drawn before the native artwork can become visible.
 
 ## Wide menu backdrops
 

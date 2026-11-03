@@ -259,6 +259,18 @@ void WgpuBackend::Impl::draw(const GsDrawState& s, const ClutBuf& clut, const Dr
     bool haveTex = false;
     if (tme)
         haveTex = resolveTexture(s, clut, tb, oneToOneSprite(s, v, count));
+    const auto title =
+        startupTitle.select(haveTex && tb.titleArtwork, rt->w, rt->h, nativeMenu && nativeMenuScreen == 8,
+                            cfg.forcedAspect, cfg.stretchToWindow, swapH ? float(swapW) / float(swapH) : 4.0f / 3);
+    if (title.apply) {
+        cfg.forcedAspect = title.aspect;
+        cfg.stretchToWindow = title.stretch;
+        hudScale = title.foreground;
+        hudSize = 1.0f;
+        nativeMenu = true;
+        nativeMenuScreen = 8;
+        sceneCamera.guiScreen = 8;
+    }
     // Startup may have opened a generic world phase before the first
     // menu handler tick. Exact retail artwork identifies this first GUI
     // draw without waiting a frame or classifying arbitrary world images.

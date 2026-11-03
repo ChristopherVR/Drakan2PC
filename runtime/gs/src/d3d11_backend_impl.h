@@ -533,6 +533,7 @@ struct D3D11Backend::Impl {
     float mipBias = 0.0f;
     float userMipBias = 0.0f;
     float hudScale = 1.0f; // Config::hudScaleX
+    hud::StartupTitle startupTitle{cfg.forcedAspect, cfg.stretchToWindow};
     bool nativeMenu = false;
     int nativeMenuScreen = -1; // GUI screen the host saw when it set nativeMenu (wide backdrop fallback)
     float hudSize = 1.0f;      // hud_scale
@@ -695,7 +696,7 @@ struct D3D11Backend::Impl {
     struct TexBind {
         ID3D11ShaderResourceView* srv = nullptr;
         bool isRT = false;
-        bool fontAtlas = false, menuArtwork = false;
+        bool fontAtlas = false, menuArtwork = false, titleArtwork = false;
         RT* rt = nullptr;
         float ox = 0, oy = 0;
         uint32_t mxl = 0;

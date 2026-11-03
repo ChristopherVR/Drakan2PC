@@ -27,3 +27,33 @@ Validation:
   over black before the first title artwork submission; this change does not remove that separate overlay lead-in.
   The specific reported 4:3 flash was not reproduced pixel-for-pixel, so live confirmation by the player is still needed.
 - Changed C++ files pass `clang-format --dry-run --Werror`; `git diff --check` and the repository source audit pass.
+
+## Follow-up: title artwork before the handler
+
+The player confirmed the flash remained after `8c24eef` and identified the image as the Drakan title artwork, not
+the Sony/Surreal logo or loading text. The previous change only moved settings application to the title-handler
+packet; that packet is not guaranteed to precede the title's first artwork draw.
+
+The backends now distinguish the six exact title-tile hashes from the other scenic menu images. A one-shot
+`hud::StartupTitle` policy snapshots the configured startup presenter before movie policy temporarily selects 4:3.
+At the first title texture draw on a full-size target it establishes screen 8, the configured aspect/fill and the
+centered menu foreground, allowing synchronous wide-backdrop replacement before drawing the native tile. If the
+host has already selected the title, its current settings win instead; subsequent title draws never restore the
+snapshot over a live settings change. Both D3D11 and WebGPU use the same policy.
+
+CPU tests in `test_hud_page.cpp` cover exact title/non-title classification, movie/scenic and off-screen rejection,
+4:3/native/16:9/21:9/32:9 and window fill with stale movie settings, one-shot behavior and newer host settings.
+Additional pre-change early startup captures are under `build/harness/startup-early-20261103/`.
+
+Follow-up validation:
+
+- Focused CTest: `hud_page`, `widescreen_policy`, `native_display_commit`: 3/3 passed.
+- Both D3D11 and WebGPU backends compiled; incremental build/deployment succeeded with player INIs preserved.
+  Final executable SHA-256: `5006bc3f9faa56e371c98cc3cc986b6ecb42e5f99a852414448c6f64b8d2566d`.
+- Cold D3D11 startup completed cleanly in configured fullscreen/window-fill (1920x1080, vsync off) and forced
+  21:9 (1680x720, vsync on). Captures/logs: `build/harness/startup-title-fix-4k/` (historical run name; actual output
+  1080p) and `build/harness/startup-title-fix-21x9/`. The first artwork draw selected `screen8`; captured title artwork
+  used the wide replacement rather than the native 4:3 tiles. The earlier black-background host-menu lead-in remains.
+- These live runs already had host title metadata by the first artwork draw; the delayed-host case is covered by
+  the shared CPU policy tests, not claimed as a reproduced live race.
+- Changed C++ files pass clang-format; `git diff --check` and the repository source audit pass.

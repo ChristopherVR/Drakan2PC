@@ -819,6 +819,7 @@ bool D3D11Backend::Impl::resolveTexture(const GsDrawState& s, const ClutBuf& clu
             out.mxl = mxl;
             out.fontAtlas = e.fontAtlas;
             out.menuArtwork = e.menuArtwork;
+            out.titleArtwork = hud::titleArtwork(e.previewHash);
             std::copy(e.averageColor, e.averageColor + 3, out.averageColor);
             out.minimumAlpha = e.minimumAlpha;
             out.reflectionTexture = e.reflectionTexture;
@@ -1119,6 +1120,7 @@ bool D3D11Backend::Impl::resolveTexture(const GsDrawState& s, const ClutBuf& clu
     out.mxl = mxl;
     out.fontAtlas = e.fontAtlas;
     out.menuArtwork = e.menuArtwork;
+    out.titleArtwork = hud::titleArtwork(e.previewHash);
     if (e.up) {
         e.up->lastFrame = frame;
         out.srv = e.up->srv.Get();

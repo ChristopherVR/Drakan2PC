@@ -416,6 +416,7 @@ struct WgpuBackend::Impl {
     float userMipBias = 0.0f;
     float hudScale = 1.0f;
     bool nativeMenu = false;
+    hud::StartupTitle startupTitle{cfg.forcedAspect, cfg.stretchToWindow};
     int nativeMenuScreen = -1;
     float hudSize = 1.0f;
     struct HudBox {
@@ -554,7 +555,7 @@ struct WgpuBackend::Impl {
     struct TexBind {
         rhi::Texture* srv = nullptr;
         bool isRT = false;
-        bool fontAtlas = false, menuArtwork = false;
+        bool fontAtlas = false, menuArtwork = false, titleArtwork = false;
         RT* rt = nullptr;
         float ox = 0, oy = 0;
         uint32_t mxl = 0;

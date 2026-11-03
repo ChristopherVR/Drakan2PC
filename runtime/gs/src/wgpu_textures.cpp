@@ -815,6 +815,7 @@ bool WgpuBackend::Impl::resolveTexture(const GsDrawState& s, const ClutBuf& clut
             out.mxl = mxl;
             out.fontAtlas = e.fontAtlas;
             out.menuArtwork = e.menuArtwork;
+            out.titleArtwork = hud::titleArtwork(e.previewHash);
             std::copy(e.averageColor, e.averageColor + 3, out.averageColor);
             out.minimumAlpha = e.minimumAlpha;
             out.reflectionTexture = e.reflectionTexture;
@@ -1104,6 +1105,7 @@ bool WgpuBackend::Impl::resolveTexture(const GsDrawState& s, const ClutBuf& clut
     out.mxl = mxl;
     out.fontAtlas = e.fontAtlas;
     out.menuArtwork = e.menuArtwork;
+    out.titleArtwork = hud::titleArtwork(e.previewHash);
     if (e.up) {
         e.up->lastFrame = frame;
         out.srv = e.up->tex.get();

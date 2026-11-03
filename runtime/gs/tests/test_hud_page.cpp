@@ -1,4 +1,5 @@
 #include "../src/hud_page.h"
+#include "../src/menu_artwork.h"
 #include <cstdio>
 #include <initializer_list>
 
@@ -92,6 +93,33 @@ static bool nativeMenuSourceChecks() {
 }
 
 int main() {
+    {
+        // Cold movie -> title: no title handler packet or host menu flag yet.
+        // Only exact title content can establish the configured first canvas.
+        if (!titleArtwork(0xb3cdb49737930d6dull) || !titleArtwork(0xce000a7fd2216f1cull) ||
+            titleArtwork(0x4ce8e477b5873557ull) || titleArtwork(0))
+            return 50;
+        for (float aspect : {4.0f / 3, 16.0f / 9, 21.0f / 9, 32.0f / 9, 0.0f}) {
+            for (bool fill : {false, true}) {
+                StartupTitle startup{aspect, fill};
+                if (startup.select(false, 512, 512, false, 4.0f / 3, false, 16.0f / 9).apply ||
+                    startup.select(true, 128, 128, false, 4.0f / 3, false, 16.0f / 9).apply || !startup.pending)
+                    return 51;
+                const auto first = startup.select(true, 512, 512, false, 4.0f / 3, false, 16.0f / 9);
+                const float target = fill ? 16.0f / 9 : aspect;
+                const float expected = target > 1.4f ? (4.0f / 3) / target : 1;
+                if (!first.apply || first.aspect != aspect || first.stretch != fill || first.foreground != expected)
+                    return 52;
+                if (startup.select(true, 512, 512, false, 4.0f / 3, false, 16.0f / 9).apply)
+                    return 53; // later live changes must never be overwritten
+            }
+        }
+        StartupTitle live{16.0f / 9, false};
+        const auto updated = live.select(true, 512, 512, true, 21.0f / 9, false, 16.0f / 9);
+        if (!updated.apply || updated.aspect != 21.0f / 9 || updated.foreground != (4.0f / 3) / (21.0f / 9))
+            return 54; // settings changed before the title appeared
+        std::printf("PASS cold title artwork: exact-content and target gates, configured aspect/fill, live override\n");
+    }
     {
         // The wide image's embedded 4:3 art must land exactly on the squeezed native canvas.
         const float set[] = {16.0f / 9, 21.0f / 9, 32.0f / 9};
