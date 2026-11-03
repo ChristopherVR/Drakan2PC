@@ -56,6 +56,8 @@ std::vector<ScoreRow> MatchClient::scoreboard() const {
 MatchOutcome MatchClient::outcome() const {
     EndReason reason = EndReason::Ended;
     const std::vector<ScoreRow> rows = scoreboard();
+    if (phase_ == MatchPhase::Results && endReason_ != 0) // the server said why (a leaver is gone from the roster)
+        return decideOutcome(rows, config_.mode, teamScore_, static_cast<EndReason>(endReason_), teamCount());
     {
         // A mode with lives that ended with one player (team) left in the match: last one standing.
         bool anyOut = false;
@@ -105,6 +107,7 @@ bool MatchClient::connect(const std::string& host, uint16_t port, uint64_t nowMs
     state_ = ClientState::Connecting;
     connectStartMs_ = now_ = nowMs;
     self_ = kNoPlayer;
+    endReason_ = 0;
     roster_.clear();
     host_ = kNoPlayer;
     buffers_.clear();
@@ -375,6 +378,7 @@ void MatchClient::handleMessage(const TransportEvent& ev) {
                     myVote_ = kNoVote;
                 }
                 phase_ = p.phase;
+                endReason_ = p.phase == MatchPhase::Results ? p.endReason : 0;
                 events_.push_back(p);
             }
             break;

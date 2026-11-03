@@ -491,7 +491,7 @@ void MatchServer::removePlayer(PeerId peer) {
     }
 }
 
-void MatchServer::setPhase(MatchPhase p, bool byHost) {
+void MatchServer::setPhase(MatchPhase p, bool byHost, EndReason reason) {
     phase_ = p;
     phaseStartMs_ = now_;
     countdownActive_ = false;
@@ -500,6 +500,7 @@ void MatchServer::setPhase(MatchPhase p, bool byHost) {
     pc.phase = p;
     pc.serverTimeMs = serverTimeMs();
     pc.byHost = byHost;
+    pc.endReason = p == MatchPhase::Results ? static_cast<uint8_t>(reason) : 0;
     broadcast(encode(pc), Channel::Reliable);
     log(std::string("phase -> ") + phaseName(p));
     if (p == MatchPhase::Lobby)
@@ -712,7 +713,7 @@ void MatchServer::endMatch(uint64_t nowMs) {
 
 void MatchServer::endMatchWith(EndReason reason) {
     outcome_ = decideOutcome(scoreboard(), options_.config.mode, teamScore_, reason, teamCount());
-    setPhase(MatchPhase::Results);
+    setPhase(MatchPhase::Results, false, reason);
     if (outcome_.tie)
         log("match over: tie");
     else if (outcome_.winner != kNoPlayer)

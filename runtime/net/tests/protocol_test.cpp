@@ -174,7 +174,17 @@ int main() {
         PhaseChange pc;
         pc.phase = MatchPhase::Results;
         PhaseChange pco;
-        CHECK(decode(encode(pc), pco) && pco.phase == MatchPhase::Results);
+        CHECK(decode(encode(pc), pco) && pco.phase == MatchPhase::Results && pco.endReason == 0);
+        pc.endReason = 4; // last one standing
+        CHECK(decode(encode(pc), pco) && pco.endReason == 4);
+        auto olderPhase = encode(pc);
+        olderPhase.pop_back(); // previous servers sent byHost, but no endReason
+        CHECK(decode(olderPhase, pco) && pco.endReason == 0 && !pco.byHost);
+        olderPhase.pop_back(); // original servers sent neither optional field
+        CHECK(decode(olderPhase, pco) && pco.endReason == 0 && !pco.byHost);
+        auto badReason = encode(pc);
+        badReason.back() = 5;
+        CHECK(!decode(badReason, pco));
         LoadDone ld;
         LoadDone ldo;
         CHECK(decode(encode(ld), ldo));
@@ -192,7 +202,7 @@ int main() {
     expectTruncationsFail(Score{}, 10, 30); // score / teamScore (the v8 body is 9 bytes) and lives are optional
     expectTruncationsFail(PlayerJoin{});
     expectTruncationsFail(PlayerLeave{});
-    expectTruncationsFail(PhaseChange{}, 6); // byHost is optional (the older body is 5 bytes)
+    expectTruncationsFail(PhaseChange{}, 6, 7); // byHost and endReason are optional (older bodies: 5, 6 bytes)
 
     // Wrong type byte, empty, unknown types.
     {

@@ -830,9 +830,33 @@ void testPlaceGhosts(uint8_t* rdram, uint32_t player, unsigned tick) {
     const float* axis = phase < 2 ? m + 9 : m + 3;
     const float sign = (phase & 1) ? -1.0f : 1.0f;
     float pos[3] = {m[0] + sign * dist * axis[0], m[1], m[2] + sign * dist * axis[2]};
+    // DRAKAN_PVP_TEST_ONE=<ticks>: one opponent at a time (three or more players): the target moves to the next
+    // opponent by player id every <ticks> boundaries and its ghost is held there unless it is out of the match (then
+    // nobody is, for that turn: the players still in fight on a while after an elimination); the other ghosts are held
+    // far above (out of the blade's reach).
+    static const unsigned oneEvery = [] {
+        const char* e = std::getenv("DRAKAN_PVP_TEST_ONE");
+        return e ? static_cast<unsigned>(std::max(1, std::atoi(e))) : 0u;
+    }();
+    static std::vector<std::pair<int, bool>> opponents; // {player id, eliminated}, refreshed every 30 boundaries
+    if (oneEvery && tick % 30 == 0) {
+        opponents.clear();
+        for (const drakan_netplay::ScoreRow& r : drakan_netplay::scoreboard().rows)
+            if (!r.self)
+                opponents.emplace_back(r.id, r.eliminated);
+        std::sort(opponents.begin(), opponents.end());
+    }
+    int target = 0;
+    if (oneEvery && !opponents.empty()) {
+        const auto& t = opponents[(tick / oneEvery) % opponents.size()];
+        target = t.second ? -1 : t.first;
+    }
+    const float away[3] = {m[0], m[1] + 4000.0f, m[2]};
     drakan_ghost::forEach([&](const drakan_ghost::Info& i) {
-        if (i.handle)
-            drakan_ghost::pinTransform(i.id, pos, m + 3);
+        if (!i.handle)
+            return;
+        const bool held = !oneEvery || drakan_netplay::playerOfGhost(i.id) == target;
+        drakan_ghost::pinTransform(i.id, held ? pos : away, m + 3);
     });
     // DRAKAN_PVP_TEST_CLAIM=<ticks>: a hit claim on every ghost each <ticks> boundaries, as if the blade had landed
     // (the engine's blade sweep only finds ghosts that sit in a collision cell; some maps' floors give none: cell -1).

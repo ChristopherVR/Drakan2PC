@@ -185,6 +185,9 @@ struct PhaseChange {
     // to the lobby, next map, rematch) and not the results timer: clients that still sit in the match level leave it
     // for the title, where the lobby (and the next match's load) is.
     bool byHost = false;
+    // Second trailing optional field: why the match ended when `phase` is Results (EndReason in net/Scoreboard.h: 1
+    // frag limit, 2 time limit, 3 ended, 4 last one standing); 0 = not said (older servers: the client infers it).
+    uint8_t endReason = 0;
     void write(ByteWriter& w) const;
     bool read(ByteReader& r);
 };

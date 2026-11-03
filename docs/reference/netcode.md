@@ -40,6 +40,7 @@ Addenda on v8, every new field is trailing and optional (older peers read the ol
 | --- | --- |
 | `ResultsAction = 30` (C>S, reliable) | `u8 choice`: 1 back to the lobby, 2 next map, 3 rematch. Honoured only in the Results phase and only from the host (`hostPlayer()`, the longest connected player) |
 | `PhaseChange` | trailing `u8 byHost`: the change follows a host's results choice, not the results timer |
+| `PhaseChange` (2026-11-02) | second trailing `u8 endReason` (Results only: 1 frag limit, 2 time limit, 3 ended, 4 last one standing; 0 / absent = the client infers it as before). A client whose last opponent left (gone from its roster, nobody eliminated) logged "time limit"; it now shows the server's reason |
 | `Status` | trailing `u8 host`: the host's player id (`MatchClient::hostPlayer()`; the lobby's host mark and the results buttons use it) |
 | `Score` | trailing `i32 score`, `i32 teamScore[4]`: points per player and team (a standard match: score = kills, teamScore = team kills) |
 | `Score` (2026-11-02) | further trailing `u8 lives` (255 = no limit), `u8 eliminated`: a mode with `lives` (older servers omit them) |
@@ -799,7 +800,11 @@ What the server does with a mode (`MatchServer`, selected by `MatchConfig.modeId
   shows the same words (`modeGoal` / `modeSummary` in `editor-core/src/gamemodes.ts`).
 * Test aid `DRAKAN_NET_GAME_MODE=<id>`: the `DRAKAN_NET_HOST` shortcut hosts with that custom mode (what the Host page's Game
   Mode row does). In game: `scripts/harness/arena_game_mode.py --mods <dir> --map <id> --mode <id>` (two instances, a pack from
-  a mods folder).
+  a mods folder). Three players and the other rules: `scripts/harness/arena_game_mode3.py --scenario lrs | teams | weapons |
+  lobby` with two more test aids: `DRAKAN_NET_AUTO_START_PLAYERS=<n>` (the shortcut host waits in the lobby for n players; a
+  third player joining a last-standing match already under way only watches) and `DRAKAN_PVP_TEST_ONE=<ticks>` (with
+  `DRAKAN_PVP_TEST_PLACE`: only one opponent still in the match is held in front, the target moves on every <ticks>
+  boundaries, the other ghosts float 4000 units up).
 * **Menu**: the Host page's **Game Mode** row (after Game Type) cycles Standard and every custom mode the chosen map can play
   (`modeFitsArena`: the map lists the mode id in `modes =` or supports its base, a capture objective needs a flag and a base
   marker, a hold objective a zone marker, 3..4 teams need that many players). A mode fixes the game type, the teams and the limits

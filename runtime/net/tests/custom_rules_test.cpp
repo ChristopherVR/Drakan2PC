@@ -190,6 +190,9 @@ void lateJoinAndLeaver() {
         m.rig.run(2000);
         CHECK(m.rig.server->phase() == MatchPhase::Results &&
               m.rig.server->outcome().reason == EndReason::LastStanding);
+        // The remaining client gets the reason from the server (the leaver is gone from its roster, nobody is out).
+        CHECK(m.c[0]->phase() == MatchPhase::Results && m.c[0]->outcome().reason == EndReason::LastStanding &&
+              m.c[0]->outcome().winner == m.c[0]->playerId());
     }
     // Without lives nothing of this happens.
     {

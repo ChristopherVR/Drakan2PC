@@ -162,15 +162,22 @@ void PhaseChange::write(ByteWriter& w) const {
     w.u8(static_cast<uint8_t>(phase));
     w.u32(serverTimeMs);
     w.u8(byHost ? 1 : 0);
+    w.u8(endReason);
 }
 bool PhaseChange::read(ByteReader& r) {
     readEnum(r, phase, 3);
     serverTimeMs = r.u32();
     byHost = false;
+    endReason = 0;
     if (!r.atEnd()) { // older servers stop after the server time
         const uint8_t b = r.u8();
         byHost = b == 1;
         if (b > 1)
+            r.fail();
+    }
+    if (!r.atEnd()) { // and before the end reason
+        endReason = r.u8();
+        if (endReason > 4)
             r.fail();
     }
     return r.ok();

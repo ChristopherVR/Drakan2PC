@@ -498,6 +498,10 @@ void runSession(const Cmd& c, drakan::net::ServerBrowser& browser, uint64_t& las
         so.serverId = std::random_device{}() | 1u;
         so.profileHash = g_profileHash;
         so.autoStartPlayers = c.host.autoStart ? 1 : 0;
+        // Test aid DRAKAN_NET_AUTO_START_PLAYERS=<n>: the shortcut host waits in the lobby for n players (a
+        // last-standing match with three: the third would otherwise join a match in progress and watch).
+        if (const char* ap = std::getenv("DRAKAN_NET_AUTO_START_PLAYERS"); ap && *ap && c.host.autoStart)
+            so.autoStartPlayers = static_cast<uint8_t>(std::clamp(std::atoi(ap), 1, static_cast<int>(kMaxPlayers)));
         applyDrakanPvpTuning(so); // melee reach, weapon limits, damage x3, respawn after 3 s (MatchServer.h)
         if (const char* hr = std::getenv("DRAKAN_PVP_MAX_HIT_RANGE");
             hr && *hr) // test aid: the harness's ghosts are held
@@ -724,8 +728,9 @@ void runSession(const Cmd& c, drakan::net::ServerBrowser& browser, uint64_t& las
                     netLog("score: player %u kills %u deaths %u points %d lives %u%s", sc->player, sc->kills,
                            sc->deaths, static_cast<int>(sc->score), sc->lives, sc->eliminated ? " (eliminated)" : "");
                 else
-                    netLog("score: player %u kills %u deaths %u (team kills %u / %u)", sc->player, sc->kills,
-                           sc->deaths, sc->teamKills[0], sc->teamKills[1]);
+                    netLog("score: player %u kills %u deaths %u points %d (team kills %u / %u, team points %d / %d)",
+                           sc->player, sc->kills, sc->deaths, static_cast<int>(sc->score), sc->teamKills[0],
+                           sc->teamKills[1], static_cast<int>(sc->teamScore[0]), static_cast<int>(sc->teamScore[1]));
             } else if (const auto* pc = std::get_if<PhaseChange>(&ev)) {
                 drakan_pvp::onServerPhase(static_cast<uint8_t>(pc->phase));
                 if (pc->byHost && pc->phase == MatchPhase::Lobby) {

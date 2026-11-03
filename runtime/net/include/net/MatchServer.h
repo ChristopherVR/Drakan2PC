@@ -218,7 +218,7 @@ private:
     void sendExcept(PlayerId except, const std::vector<uint8_t>& bytes, Channel ch);
     void reject(PeerId peer, Peer& state, RejectReason why, const std::string& text);
     void removePlayer(PeerId peer);
-    void setPhase(MatchPhase p, bool byHost = false);
+    void setPhase(MatchPhase p, bool byHost = false, EndReason reason = EndReason::None); // reason: Results only
     void beginPlaying();
     void spawnPlayer(ServerPlayer& p);
     void scoreFor(const ServerPlayer& p);

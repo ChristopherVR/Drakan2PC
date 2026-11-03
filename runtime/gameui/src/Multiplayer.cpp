@@ -519,9 +519,9 @@ void MultiplayerScreen::buildRows(const MpState& st) {
             std::string limits =
                 st.mode == GameMode::Coop
                     ? "Players " + std::to_string(st.roster.size()) + "/" + std::to_string(st.maxPlayers)
-                    : "Kills limit " + limitText(st.fragLimit, "") + "   Time limit " +
-                          limitText(st.timeLimitMin, " min") + "   Players " + std::to_string(st.roster.size()) + "/" +
-                          std::to_string(st.maxPlayers);
+                    : (st.modeName.empty() ? "Kills limit " : "Score limit ") + limitText(st.fragLimit, "") +
+                          "   Time limit " + limitText(st.timeLimitMin, " min") + "   Players " +
+                          std::to_string(st.roster.size()) + "/" + std::to_string(st.maxPlayers);
             add(RowId::LobbyInfo, RowKind::Info, limits);
             if (!st.message.empty())
                 add(RowId::LobbyInfo, RowKind::Info, st.message);
@@ -2351,7 +2351,8 @@ DrawList drawHud(const HudState& hs, const Viewport& vp, const ScreenConfig& cfg
                 ks.push_back(&k);
         if (ks.size() > 6)
             ks.erase(ks.begin(), ks.end() - 6);
-        float ky = hs.scoreboard || hs.results ? 1030.0f : 24.0f;
+        // Below the limits chip when it is up (the 800 wide rows reach under the chip's right half otherwise).
+        float ky = hs.scoreboard || hs.results ? 1030.0f : hs.status.empty() ? 24.0f : 90.0f;
         if (!(hs.scoreboard || hs.results))
             for (const HudKill* k : ks) {
                 const double age = hs.now - k->at;

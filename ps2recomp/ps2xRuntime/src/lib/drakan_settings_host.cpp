@@ -1595,7 +1595,7 @@ gameui::mp::MpState mpState(bool wantLan) {
     s.mode = ns.mode == 2 ? GameMode::Coop : ns.mode == 1 ? GameMode::TeamDeathmatch : GameMode::Deathmatch;
     s.maxPlayers = ns.maxPlayers;
     s.fragLimit = ns.fragLimit;
-    s.timeLimitMin = ns.timeLimitSec / 60;
+    s.timeLimitMin = (ns.timeLimitSec + 59) / 60; // a mode's 150 s is 3 min (the Host page rounds up too)
     s.modeId = ns.modeId;
     if (!ns.modeId.empty())
         if (const drakan::net::ModeDef* m = drakan_modes::customModes().find(ns.modeId)) {

@@ -82,7 +82,8 @@ public:
     // Teams in play (the highest team on the roster + 1, at least 2 in a team game, 0 otherwise).
     uint8_t teamCount() const;
     // Scoreboard from the roster (sorted, see sortScoreboard) and the outcome the current scores give. The outcome is
-    // final once phase() == Results; its reason is inferred from the config (frag limit reached, else time limit).
+    // final once phase() == Results; its reason is the one the server sent with the Results PhaseChange (older servers:
+    // inferred from the config and the roster: one side left with lives, frag limit reached, else time limit).
     std::vector<ScoreRow> scoreboard() const;
     MatchOutcome outcome() const;
 
@@ -151,6 +152,7 @@ private:
     MapVoteState mapVote_;
     uint8_t myVote_ = kNoVote;
     MatchPhase phase_ = MatchPhase::Lobby;
+    uint8_t endReason_ = 0; // the server's EndReason of the last Results PhaseChange (0 = not said)
     MatchConfigData config_;
     uint8_t tickRateHz_ = 30;
     uint16_t teamKills_[2] = {0, 0};
