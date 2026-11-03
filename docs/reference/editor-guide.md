@@ -258,11 +258,11 @@ Turn your levels into a campaign of its own, with its own entry on the title car
 
 Path: Make a campaign > Levels and start > Cover > Check the exits > Export > Choose it in the game
 
-1. Open Project Settings (Ctrl+,) and turn on "Make this a campaign" in the Campaign section. Give it a title and a short text, choose the level New Game starts in and a cover picture. Add and order its levels in the Levels section.
+1. On the start page choose "Make a campaign", or use "Make a campaign step by step" in Project Settings > Campaign. The wizard guides you through Name and cover, Levels, Link the exits, Check, Play test, and Export and install. You can also edit these settings directly in Project Settings (Ctrl+,).
 2. Use level copies (New level from a copy, or "Add a copy of a level..." in Levels) for every level of the campaign, and start the campaign in one of them. Edits to a level of the disc itself would also show in Drakan, so the checks warn about them.
 3. Link the copies to each other: select an exit in each copy and point it at the next copy in Logic with "Only this exit", or click its arrow on the campaign map.
 4. The cover: New picture draws a sky, mountains and a dragon from the palette you pick (press it again for another), "Use my own picture..." takes a picture of yours (cut to 16:9), No picture leaves the card plain. The campaign id and the save folder are filled in from the name; saves of the campaign never mix with Drakan's.
-5. Press "Check the exits" in Campaign checks. It follows every exit from the start level: every level of the campaign must be reached, and every exit of a copy must lead somewhere. Fix the errors it lists; Export stays blocked until they are gone.
+5. In the wizard, Link levels in order connects copies whose source levels already connect, including the way back. Otherwise choose an exit yourself. Check follows every exit from the start; fix its errors before exporting. The wizard blocks export until the route has been checked successfully. Exits back into Drakan are warnings: read them before sharing.
 6. Changes you make in the Menus tab ship with the campaign and show only while it is chosen.
 7. Export (Ctrl+E) and install the pack. In the game the title opens with "Choose your game": your campaign is listed next to Drakan with its cover and text. Choose it, then New Game starts in your start level; Continue and Load Game show only the campaign's saves.
 

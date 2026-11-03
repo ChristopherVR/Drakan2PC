@@ -4,6 +4,10 @@
 multiplayer changes from the unconnected campaign wizard and local OotF investigations. It also records three-player
 mode harness results that supersede some unproven items below. Older bullets are historical unless rechecked there.
 
+**Follow-through:** [campaign wizard and OotF tools](../journal/2026-11-03/recovery-follow-through.md) records the wired
+wizard, real-disc route/pack-build check, tested extractor and formats diagnostics. The null-controller mitigation
+remains an opt-in diagnostic: regression found a third unchecked controller pass, so that lifecycle bug is still open.
+
 Living tracker for the editor / mod / multiplayer / engine-portability track. Last updated at commit c03a3b0
 (editor) and c270bb9 (game and runtime). Details live in the dated notes under `docs/journal/2026-11-01/` and
 `docs/journal/2026-10-31/`; this page says what works, what is unproven, and what to do next.

@@ -169,6 +169,10 @@ export function createStartPage(a: StartPageActions): StartPage {
         // The Save Editor is its own window: its steps would never tick here, so the checklist keeps what it had.
         if (t.id !== 'save') startFlow.set(t.id);
         switch (t.id) {
+            case 'build-campaign':
+                startFlow.set(null);
+                runCommand('campaign.wizard');
+                break;
             case 'campaign':
             case 'arena':
             case 'story':

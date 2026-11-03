@@ -264,6 +264,66 @@ std::string resolveIsoPath() {
     return cfg;
 }
 
+// Null controller guard. The engine walks the scene's per-frame object list (scene + 0x488, count at +0x490) and for
+// each object runs the controller routines 0x109058 -> 0x103928 -> 0x108208 and 0x11a848 on `object + 0x50`, without
+// checking that the object has a controller. An object that entered the list with +0x50 still 0 made 0x108208 read its
+// owner through a null controller and call through a null vtable slot (missing-target JALR at 0x10822c); 0x11a848 would
+// write through low memory. Converted Order of the Flame weapons (bows, short swords, axes) and the Succubus Lair's
+// Tick detector area hit this (docs/journal/2026-11-03/ootf-null-controller.md). A call with no controller is skipped;
+// this prevents those two invalid accesses, but a later scene pass also uses the controller unchecked. This is an
+// opt-in diagnostic, NOT a complete fix (the weapon repro still fails at 0x140eb0).
+constexpr uint32_t kControllerStep = 0x108208u; // (controller) -> owner-derived result, v0 = 0 when nothing to do
+inline void returnS32(R5900Context* ctx, int32_t value);
+constexpr uint32_t kControllerPose = 0x11a848u; // (controller)
+PS2Runtime::RecompiledFunction g_origControllerStep = nullptr;
+PS2Runtime::RecompiledFunction g_origControllerPose = nullptr;
+std::atomic<uint32_t> g_nullControllerSkips{0};
+
+void noteNullController(const char* what, R5900Context* c) {
+    const uint32_t n = g_nullControllerSkips.fetch_add(1) + 1;
+    if (n <= 3 || (n & (n - 1)) == 0)
+        std::fprintf(stderr, "[nullctrl] %s called without a controller (ra=%x), skipped (%u so far)\n", what,
+                     getRegU32(c, 31), n);
+}
+
+void hookControllerStep(uint8_t* rdram, R5900Context* c, PS2Runtime* rt) {
+    if (getRegU32(c, 4) == 0) {
+        noteNullController("controller step", c);
+        returnS32(c, 0);
+        return;
+    }
+    g_origControllerStep(rdram, c, rt);
+}
+
+void hookControllerPose(uint8_t* rdram, R5900Context* c, PS2Runtime* rt) {
+    if (getRegU32(c, 4) == 0) {
+        noteNullController("controller pose", c);
+        c->pc = getRegU32(c, 31);
+        return;
+    }
+    g_origControllerPose(rdram, c, rt);
+}
+
+void installNullControllerGuard(PS2Runtime& rt) {
+    const char* e = std::getenv("DRAKAN_NULLCTRL_GUARD");
+    if (!e || e[0] != '1') // incomplete mitigation: do not change normal gameplay
+        return;
+    if (!drakan_region::build().identityAddresses) // SCES-500.06 addresses only
+        return;
+    const struct {
+        uint32_t addr;
+        PS2Runtime::RecompiledFunction* orig;
+        PS2Runtime::RecompiledFunction hook;
+    } hooks[] = {{kControllerStep, &g_origControllerStep, &hookControllerStep},
+                 {kControllerPose, &g_origControllerPose, &hookControllerPose}};
+    for (const auto& h : hooks) {
+        const uint32_t a = drakan_region::guestAddress(h.addr);
+        *h.orig = rt.lookupFunction(a);
+        if (*h.orig)
+            rt.replaceFunction(a, h.hook);
+    }
+}
+
 // drakan.ini [general] language -> disc language folder (env DRAKAN_LANG wins)
 std::string resolveLanguageRoot() {
     if (const char* e = std::getenv("DRAKAN_LANG"))
@@ -1245,6 +1305,7 @@ void applyDrakanOverrides(PS2Runtime& runtime) {
         drakan_dual_wield::install(runtime);
     drakan_region::reportMultiplayerAvailability();
     drakan_texscale::install(runtime);    // fast surface downscale (PAL)
+    installNullControllerGuard(runtime);  // objects without a controller in the scene walk (PAL)
     drakan_lifecycle::install(runtime);   // engine lifecycle events (PAL addresses; no-op elsewhere)
     drakan_levelchange::install(runtime); // host-triggered level change through the exit triggers (PAL)
     drakan_foliage::install(runtime);     // living foliage: wind sway for grass and trees, off by default (PAL)

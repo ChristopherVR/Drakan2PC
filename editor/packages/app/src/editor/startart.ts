@@ -6,6 +6,11 @@ import type { TemplateId } from './starttemplates.ts';
  * work. Static strings only.
  */
 const ART: Record<TemplateId, string> = {
+    'build-campaign':
+        '<path class="ln dash" d="M32 30 C80 0 80 100 128 70"/>' +
+        '<rect class="fl" x="12" y="14" width="40" height="30" rx="3"/><rect class="ln" x="12" y="14" width="40" height="30" rx="3"/>' +
+        '<rect class="fl" x="108" y="56" width="40" height="30" rx="3"/><rect class="ln" x="108" y="56" width="40" height="30" rx="3"/>' +
+        '<circle class="wm" cx="32" cy="30" r="4"/><circle class="wm" cx="128" cy="70" r="4"/>',
     // A level seen from above: terrain contours, a few creatures (warm) and the selected one being moved.
     campaign:
         '<path class="dm" d="M10 78 C40 60 60 88 92 70 S140 52 152 64"/><path class="dm" d="M8 40 C34 26 58 48 86 36 S132 18 154 30"/>' +

@@ -16,11 +16,13 @@ import { canWriteFolder, playInGame, writePackToModsFolder, type LevelPack } fro
 import * as platform from '../../platform.ts';
 import { setCopyPlayProvider } from '../../playtest.ts';
 import { downloadFile, isDesktop } from '../../platform.ts';
+import { defaultPlayOptions } from '../../launch.ts';
 import type { ArenaStore } from '../arena/store.ts';
 import { addValidationProvider } from '../panels.ts';
 import { registerCommand, registerPanel, runCommand } from '../registry.ts';
 import { createChecklist } from './checklist.ts';
 import { createCampaignPane } from './campaign.ts';
+import { installCampaignWizard } from './campaignwizard.ts';
 import { buildProjectPack, levelEditCounts, projectLevelDoc, resetExportCache, zipProjectPack } from './export.ts';
 import { openExportDialog } from './exportdialog.ts';
 import { createProjectFiles, type ProjectFiles } from './folder.ts';
@@ -162,8 +164,40 @@ export function installProject(host: ProjectInstallHost): ProjectInstall {
         },
         toast: (m, k) => ctx.toast(m, k),
     });
+    const wizard = installCampaignWizard({
+        ctx,
+        call: host.call,
+        levels: () => ui.levels(),
+        openLevel: openProjectLevel,
+        levelDoc: (title) => projectLevelDoc(exportDeps, title),
+        flush: () => ui.flushAutosave(),
+        newProject: () => files.create('My campaign', 'newlevel'),
+        strings: {
+            ensure: () => host.story.session.ensure(),
+            text: (file, id) => host.story.session.str(file, id)?.text[0],
+            changed: (file, id) => host.story.session.isChanged(file, id),
+        },
+        buildPack: (p, progress) => buildProjectPack(exportDeps, p, undefined, progress),
+        zip: zipProjectPack,
+        saveZip: async (name, bytes) => {
+            const where = await downloadFile(name, bytes as BlobPart, 'application/zip');
+            // Browser downloads have no chosen path; null only means cancellation in the native dialog.
+            return where ?? (isDesktop ? null : name);
+        },
+        installAvailable: canWriteFolder,
+        install: writePackToModsFolder,
+        playLevel: (title) => panel.play(title),
+        playCampaign: (pack) =>
+            playInGame(pack, { ...defaultPlayOptions, startLevel: false, autoStart: false }, null, {
+                DRAKAN_GAME: 'ask',
+                DRAKAN_PLAYTEST_CARD: '1',
+                DRAKAN_SKIP_MEMCARD_WARNING: '1',
+            }),
+        startGame: () => playInGame(null, { ...defaultPlayOptions, startLevel: false, autoStart: false }, null),
+        openDisc: () => void runCommand('file.openIso'),
+    });
     const panel = createProjectPanel({
-        sidePane: () => campaign.el(),
+        sidePane: () => wizard.attachLink(campaign.el()),
         ctx,
         levels: () => ui.levels(),
         loadExits: () => host.call('exitIndex'),
@@ -500,6 +534,7 @@ export function installProject(host: ProjectInstallHost): ProjectInstall {
         startTask,
         onDisc() {
             resetExportCache();
+            wizard.resetDisc();
             panel.resetExits();
             if (projects.pendingTask && ui.levels().length) startTask(projects.pendingTask);
             else projects.notify();

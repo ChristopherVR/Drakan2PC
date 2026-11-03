@@ -7,6 +7,7 @@ import { WORKFLOWS, type StepFacts, type TaskId, type WorkflowStep } from '@drak
  */
 export type TemplateId =
     | 'campaign'
+    | 'build-campaign'
     | 'arena'
     | 'newlevel'
     | 'puzzle'
@@ -82,6 +83,30 @@ const exportStep: WorkflowStep = {
 };
 
 export const TEMPLATES: readonly StartTemplate[] = [
+    {
+        id: 'build-campaign',
+        title: 'Make a campaign',
+        line: 'Your own title card, linked levels and separate saves.',
+        about: 'A step-by-step wizard takes you from a name and cover to an installed campaign. It uses copies, so Drakan stays unchanged.',
+        group: 'levels',
+        place: 'the campaign wizard',
+        lands: 'the campaign wizard',
+        needs: 'nothing',
+        task: null,
+        whenCommand: 'campaign.wizard',
+        button: 'Make a campaign',
+        steps: [
+            { id: 'name', title: 'Name it and choose a cover', text: 'Players see these on Choose your game.' },
+            { id: 'levels', title: 'Add copies of levels', text: 'Put the copies in play order.' },
+            { id: 'exits', title: 'Link the exits and check the route', text: 'The wizard suggests links and fixes.' },
+            {
+                id: 'play',
+                title: 'Play test the campaign',
+                text: 'Choose it from the title screen in the desktop app.',
+            },
+            exportStep,
+        ],
+    },
     {
         id: 'campaign',
         title: 'Change a campaign level',
@@ -454,6 +479,7 @@ export function flowSteps(t: StartTemplate, s: StartState, phase: { picking: boo
 
 /** What the template needs, as a short sentence for the details pane. */
 export function needsText(t: StartTemplate): string {
+    if (t.id === 'build-campaign') return 'Start with a name; open your disc image when you add levels.';
     if (t.needs === 'nothing') return 'Needs a save file (.rsg). Your disc is optional.';
     if (t.id === 'newlevel') return 'Needs your disc image and a level to copy.';
     if (t.needs === 'level') return 'Needs your disc image and one of its levels.';

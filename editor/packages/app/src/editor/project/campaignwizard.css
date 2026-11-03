@@ -1,0 +1,685 @@
+/* The campaign wizard (campaignwizard.ts): a large panel over the editor, steps on a route at the left.
+   Theme tokens only. Sits below the guided tour's shade (z-index 8990+) so a tour can light up its parts. */
+.cwz-backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: 800;
+    display: grid;
+    place-items: center;
+    padding: 24px;
+    background: rgb(0 0 0 / 0.5);
+}
+.cwz-backdrop[hidden] {
+    display: none;
+}
+.cwz {
+    display: grid;
+    grid-template-rows: auto minmax(0, 1fr) auto;
+    width: min(1180px, 100%);
+    height: min(820px, 100%);
+    background: var(--surface-1);
+    border-radius: var(--r-lg);
+    box-shadow: var(--shadow-pop);
+    color: var(--fg);
+    font-size: var(--fs-md);
+    overflow: hidden;
+}
+.cwz-head {
+    display: flex;
+    align-items: center;
+    gap: var(--sp-4);
+    height: 40px;
+    padding: 0 var(--sp-4) 0 var(--sp-6);
+    border-bottom: 1px solid var(--border);
+    background: var(--surface-2);
+}
+.cwz-title {
+    margin: 0;
+    font-size: var(--fs-md);
+    font-weight: 600;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.cwz .spacer {
+    flex: 1;
+}
+.cwz-main {
+    display: grid;
+    grid-template-columns: 210px minmax(0, 1fr);
+    min-height: 0;
+}
+
+/* The step rail: waypoints on a dashed route, the journey of the campaign itself. */
+.cwz-nav {
+    padding: 22px 0 22px 18px;
+    border-right: 1px solid var(--border);
+    background: var(--surface-0);
+    overflow: auto;
+}
+.cwz-rail {
+    position: relative;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+}
+.cwz-rail::before {
+    content: '';
+    position: absolute;
+    left: 11px;
+    top: 14px;
+    bottom: 14px;
+    border-left: 2px dashed var(--border-strong);
+}
+.cwz-step button {
+    position: relative;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    width: 100%;
+    min-height: 44px;
+    padding: 0 12px 0 0;
+    border: 0;
+    background: none;
+    color: var(--fg-muted);
+    font: inherit;
+    text-align: left;
+    cursor: pointer;
+}
+.cwz-step button:hover .cwz-step-name {
+    color: var(--fg);
+}
+.cwz-step button:focus-visible {
+    outline: none;
+}
+.cwz-step button:focus-visible .cwz-dot {
+    box-shadow: var(--ring);
+}
+.cwz-dot {
+    display: grid;
+    place-items: center;
+    flex: none;
+    width: 24px;
+    height: 24px;
+    border-radius: 50%;
+    border: 2px solid var(--border-strong);
+    background: var(--surface-0);
+    font-size: var(--fs-xs);
+    font-weight: 700;
+    color: var(--fg-muted);
+}
+.cwz-step.done .cwz-dot {
+    border-color: var(--ok);
+    background: var(--ok);
+    color: var(--surface-0);
+}
+.cwz-step.on .cwz-dot {
+    border-color: var(--accent);
+    background: var(--accent);
+    color: var(--accent-fg);
+    box-shadow: 0 0 0 4px var(--accent-soft);
+}
+.cwz-step.on .cwz-step-name {
+    color: var(--fg);
+    font-weight: 600;
+}
+
+.cwz-body {
+    min-height: 0;
+    display: flex;
+}
+.cwz-content {
+    flex: 1;
+    min-width: 0;
+    overflow: auto;
+    padding: 22px 28px 28px;
+}
+.cwz-stepno {
+    font-size: var(--fs-xs);
+    color: var(--fg-faint);
+}
+.cwz-step-title {
+    margin: 2px 0 4px;
+    font-size: 20px;
+    font-weight: 600;
+    letter-spacing: -0.01em;
+}
+.cwz-intro {
+    margin: 0 0 18px;
+    max-width: 68ch;
+    color: var(--fg-muted);
+    line-height: 1.5;
+}
+.cwz-foot {
+    display: flex;
+    align-items: center;
+    gap: var(--sp-5);
+    padding: 10px var(--sp-6);
+    border-top: 1px solid var(--border);
+    background: var(--surface-2);
+}
+.cwz-status {
+    flex: 1;
+    min-width: 0;
+    color: var(--fg-muted);
+    font-size: var(--fs-sm);
+    text-align: center;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+/* Shared bits */
+.cwz-split {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    gap: 28px;
+    align-items: start;
+}
+.cwz-col,
+.cwz-form,
+.cwz-stack {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    min-width: 0;
+}
+.cwz-row {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: var(--sp-4);
+}
+.cwz-field {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+.cwz-field > label {
+    font-size: var(--fs-sm);
+    font-weight: 600;
+}
+.cwz-field textarea {
+    resize: vertical;
+    min-height: 52px;
+}
+.cwz-hint {
+    margin: 0;
+    color: var(--fg-muted);
+    font-size: var(--fs-sm);
+    line-height: 1.45;
+}
+.cwz-hint.bad {
+    color: var(--bad);
+}
+.cwz-kicker {
+    font-size: var(--fs-sm);
+    font-weight: 600;
+    color: var(--fg-muted);
+}
+.cwz-check {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--sp-3);
+    font-size: var(--fs-sm);
+}
+.cwz-empty {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 8px;
+    max-width: 460px;
+    margin: 40px auto;
+    text-align: center;
+    color: var(--fg-muted);
+}
+.cwz-empty.left {
+    align-items: flex-start;
+    text-align: left;
+    margin: 0;
+}
+.cwz-empty strong {
+    color: var(--fg);
+    font-size: var(--fs-lg);
+}
+.cwz-empty p {
+    margin: 0 0 6px;
+    line-height: 1.5;
+}
+.cwz-choice p {
+    margin: 0 0 10px;
+}
+
+/* Step 1: the game card preview */
+.cwz-preview {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+.cwz-card {
+    position: relative;
+    margin: 0;
+    aspect-ratio: 16 / 9;
+    border-radius: var(--r-lg);
+    overflow: hidden;
+    background: var(--surface-3);
+    border: 1px solid var(--border-strong);
+}
+.cwz-card-img {
+    display: block;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+}
+.cwz-card-img.none {
+    background: linear-gradient(var(--surface-3), var(--surface-4));
+}
+.cwz-card-text {
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    padding: 36px 18px 14px;
+    background: linear-gradient(transparent, rgb(0 0 0 / 0.72));
+    color: #f4f1ea;
+}
+.cwz-card-title {
+    font-size: 24px;
+    font-weight: 700;
+    letter-spacing: 0.02em;
+    text-shadow: 0 2px 6px rgb(0 0 0 / 0.6);
+}
+.cwz-card-sub {
+    font-size: var(--fs-sm);
+    opacity: 0.8;
+}
+.cwz-card-desc {
+    margin-top: 6px;
+    font-size: var(--fs-sm);
+    line-height: 1.4;
+    max-width: 60ch;
+}
+
+/* Step 2: levels */
+.cwz-lvls {
+    margin: 0;
+    padding: 0;
+    list-style: none;
+    display: flex;
+    flex-direction: column;
+    border: 1px solid var(--border);
+    border-radius: var(--r-md);
+    background: var(--surface-2);
+}
+.cwz-lvl {
+    display: flex;
+    align-items: center;
+    gap: var(--sp-4);
+    min-height: 42px;
+    padding: 4px 8px;
+}
+.cwz-lvl + .cwz-lvl {
+    border-top: 1px solid var(--border);
+}
+.cwz-lvl-n {
+    display: grid;
+    place-items: center;
+    flex: none;
+    width: 22px;
+    height: 22px;
+    border-radius: 50%;
+    background: var(--surface-4);
+    font-size: var(--fs-xs);
+    font-weight: 700;
+}
+.cwz-lvl.disc .cwz-lvl-n {
+    background: var(--warn-soft);
+    color: var(--warn);
+}
+.cwz-lvl-t {
+    display: flex;
+    flex-direction: column;
+    flex: 1;
+    min-width: 0;
+}
+.cwz-lvl-t strong {
+    font-weight: 600;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.cwz-lvl-sub {
+    font-size: var(--fs-xs);
+    color: var(--fg-muted);
+}
+.cwz-lvl.disc .cwz-lvl-sub {
+    color: var(--warn);
+}
+.ui-tool.flip svg {
+    transform: none;
+}
+.cwz-lvl .ui-tool:not(.flip) svg:first-child:not(:only-child),
+.cwz-lvl button[title='Earlier'] svg {
+    transform: rotate(180deg);
+}
+.cwz-none {
+    padding: 18px;
+    border: 1px dashed var(--border-strong);
+    border-radius: var(--r-md);
+    color: var(--fg-muted);
+    text-align: center;
+}
+.cwz-why {
+    padding: 10px 12px;
+    border-left: 3px solid var(--accent);
+    background: var(--accent-soft);
+    border-radius: 0 var(--r-md) var(--r-md) 0;
+}
+.cwz-why p {
+    margin: 4px 0 0;
+    line-height: 1.5;
+    color: var(--fg);
+}
+.cwz-disc {
+    margin: 0;
+    padding: 2px;
+    list-style: none;
+    height: 260px;
+    overflow: auto;
+    border: 1px solid var(--border);
+    border-radius: var(--r-md);
+    background: var(--field);
+}
+.cwz-disc-row {
+    display: flex;
+    align-items: center;
+    gap: var(--sp-4);
+    min-height: var(--h-row);
+    padding: 3px 8px;
+    border-radius: var(--r-sm);
+    cursor: pointer;
+}
+.cwz-disc-row:hover {
+    background: var(--surface-3);
+}
+.cwz-disc-row.on {
+    background: var(--select);
+}
+.cwz-disc-row:focus-visible {
+    outline: none;
+    box-shadow: var(--ring);
+}
+.cwz-disc-name {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.cwz-tag {
+    font-size: var(--fs-2xs);
+    padding: 1px 6px;
+    border-radius: 8px;
+    background: var(--ok-soft);
+    color: var(--ok);
+}
+
+/* Step 3: links and the map */
+.cwz-linkbar {
+    gap: var(--sp-6);
+}
+.cwz-links {
+    margin: 0;
+    padding: 0;
+    list-style: none;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+.cwz-link {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: var(--sp-5);
+    padding: 6px 10px;
+    border-radius: var(--r-md);
+    background: var(--surface-2);
+}
+.cwz-link-route {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+}
+.cwz-link-route strong {
+    font-weight: 600;
+}
+.cwz-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    font-size: var(--fs-sm);
+    color: var(--fg-muted);
+}
+.cwz-chip.ok {
+    color: var(--ok);
+}
+.cwz-chip.todo {
+    color: var(--accent-hover);
+}
+.cwz-chip.warn {
+    color: var(--warn);
+}
+.cwz-exit-sel {
+    max-width: 320px;
+}
+.cwz-mapwrap {
+    height: 340px;
+    min-height: 240px;
+    border: 1px solid var(--border);
+    border-radius: var(--r-md);
+    overflow: hidden;
+    display: flex;
+}
+.cwz-mapwrap > * {
+    flex: 1;
+    min-width: 0;
+}
+
+/* Step 4: checks */
+.cwz-verdict {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: var(--sp-4);
+    padding: 10px 12px;
+    border-radius: var(--r-md);
+    background: var(--surface-2);
+    font-weight: 600;
+}
+.cwz-verdict.ok {
+    background: var(--ok-soft);
+    color: var(--ok);
+}
+.cwz-verdict.bad {
+    background: var(--bad-soft);
+    color: var(--bad);
+}
+.cwz-verdict.warn {
+    background: var(--warn-soft);
+    color: var(--warn);
+}
+.cwz-issues {
+    margin: 0;
+    padding: 0;
+    list-style: none;
+    border: 1px solid var(--border);
+    border-radius: var(--r-md);
+}
+.cwz-issue {
+    display: flex;
+    align-items: center;
+    gap: var(--sp-4);
+    min-height: 34px;
+    padding: 4px 10px;
+}
+.cwz-issue + .cwz-issue {
+    border-top: 1px solid var(--border);
+}
+.cwz-issue-text {
+    flex: 1;
+    min-width: 0;
+    line-height: 1.4;
+}
+.cwz-sev {
+    flex: none;
+}
+.cwz-sev.error {
+    color: var(--bad);
+}
+.cwz-sev.warning {
+    color: var(--warn);
+}
+.cwz-sev.info {
+    color: var(--fg-muted);
+}
+
+/* Step 5 and 6 */
+.cwz-playcard {
+    display: flex;
+    align-items: center;
+    gap: 18px;
+    padding: 14px 16px;
+    border: 1px solid var(--border-strong);
+    border-radius: var(--r-lg);
+    background: var(--surface-2);
+}
+.cwz-playcard > div {
+    flex: 1;
+}
+.cwz-playcard p {
+    margin: 4px 0 0;
+    color: var(--fg-muted);
+    line-height: 1.45;
+}
+.cwz-facts {
+    display: grid;
+    grid-template-columns: max-content minmax(0, 1fr);
+    gap: 6px 18px;
+    margin: 0;
+}
+.cwz-facts dt {
+    color: var(--fg-muted);
+}
+.cwz-facts dd {
+    margin: 0;
+}
+.cwz-packlines {
+    margin: 0;
+    padding-left: 18px;
+    color: var(--fg-muted);
+    font-size: var(--fs-sm);
+    line-height: 1.5;
+}
+.cwz-done {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 10px;
+    margin: 30px auto;
+    max-width: 560px;
+    text-align: center;
+}
+.cwz-done > svg {
+    color: var(--ok);
+}
+.cwz-done h2 {
+    margin: 0;
+    font-size: 20px;
+}
+.cwz-done-line {
+    margin: 0;
+    font-size: var(--fs-lg);
+    line-height: 1.5;
+}
+
+/* Corner button back to the wizard, and the link in Project Settings > Campaign */
+.cwz-resume {
+    position: fixed;
+    right: 16px;
+    bottom: 36px;
+    z-index: 790;
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    height: 32px;
+    padding: 0 14px;
+    border: 1px solid var(--accent);
+    border-radius: 16px;
+    background: var(--surface-2);
+    color: var(--fg);
+    font: inherit;
+    font-size: var(--fs-sm);
+    box-shadow: var(--shadow-pop);
+    cursor: pointer;
+}
+.cwz-resume[hidden] {
+    display: none;
+}
+.cwz-resume:hover {
+    background: var(--surface-3);
+}
+.cwz-panelink {
+    display: flex;
+    align-items: center;
+    gap: var(--sp-5);
+    padding: var(--sp-4) var(--sp-5);
+    border-bottom: 1px solid var(--border);
+    background: var(--accent-soft);
+    font-size: var(--fs-sm);
+}
+.cwz-panelink span {
+    flex: 1;
+    line-height: 1.4;
+}
+
+@media (max-width: 860px) {
+    .cwz-backdrop {
+        padding: 0;
+    }
+    .cwz {
+        height: 100%;
+        border-radius: 0;
+    }
+    .cwz-main {
+        grid-template-columns: minmax(0, 1fr);
+        grid-template-rows: auto minmax(0, 1fr);
+    }
+    .cwz-nav {
+        padding: 8px 12px;
+        border-right: 0;
+        border-bottom: 1px solid var(--border);
+    }
+    .cwz-rail {
+        display: flex;
+        gap: 4px;
+        overflow-x: auto;
+    }
+    .cwz-rail::before {
+        display: none;
+    }
+    .cwz-step-name {
+        display: none;
+    }
+    .cwz-step.on .cwz-step-name {
+        display: inline;
+    }
+    .cwz-split {
+        grid-template-columns: minmax(0, 1fr);
+    }
+    .cwz-content {
+        padding: 16px;
+    }
+}

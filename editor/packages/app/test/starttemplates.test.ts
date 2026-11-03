@@ -61,6 +61,7 @@ describe('start page templates', () => {
         expect(startPlan(t('story'), disc)).toEqual(['run']);
         // A save needs no disc; a copy always picks the level to copy.
         expect(startPlan(t('save'), none)).toEqual(['run']);
+        expect(startPlan(t('build-campaign'), none)).toEqual(['run']);
         expect(startPlan(t('newlevel'), level)).toEqual(['pick', 'run']);
     });
 
