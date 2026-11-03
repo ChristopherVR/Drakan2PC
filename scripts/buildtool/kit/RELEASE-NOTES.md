@@ -1,5 +1,10 @@
 Windows installer for the Drakan: The Ancients' Gates PC port.
 
+This refresh includes the updated level/mod editor and standalone save editor, landscape sculpting and painting,
+campaign packs with separate saves, and custom multiplayer modes. Arena play tests now use the map's offered custom
+mode, and match results retain the server's end reason when the last opponent leaves. The builder includes the
+corresponding runtime source; rebuild your game to use the runtime changes.
+
 **You need your own disc image of the PAL release (SCES-500.06).** The download contains source code, build scripts
 and build tools only: run `DrakanPC-Setup.exe`, pick your `.iso`, and the game is built on your PC (one to two hours
 the first time). No game files are included or downloaded.

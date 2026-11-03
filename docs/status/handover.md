@@ -1,4 +1,8 @@
-# Handover: editor, mods, multiplayer (as of 2026-11-01)
+# Handover: editor, mods, multiplayer (recovery reviewed 2026-11-03)
+
+**Recovery update:** [2026-11-03 session review](../journal/2026-11-03/session-recovery.md) separates the ready editor /
+multiplayer changes from the unconnected campaign wizard and local OotF investigations. It also records three-player
+mode harness results that supersede some unproven items below. Older bullets are historical unless rechecked there.
 
 Living tracker for the editor / mod / multiplayer / engine-portability track. Last updated at commit c03a3b0
 (editor) and c270bb9 (game and runtime). Details live in the dated notes under `docs/journal/2026-11-01/` and
