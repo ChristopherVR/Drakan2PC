@@ -5,6 +5,12 @@ packs that the recompiled PS2 engine plays; nothing from either game is committe
 `docs/journal/2026-10-31/` and `docs/journal/2026-11-01/` (`ootf-*.md`, `arena-*.md`, `game-select-ootf-boot.md`); formats are in the
 `editor/packages/formats` submodule, pack rules in `reference/modding.md` ("Campaign packs").
 
+**Current acceptance:** a normal New Game is not yet reliably playable through the Ruined Village opening,
+and uninterrupted completion of the campaign is not established. Earlier isolated level loads and scripted
+exit tests below do not establish that result. The November 4 native trace reproduces intermittent stalls
+at the first cinematic and the transition from scene 1.1 to 1.2; see
+[readiness investigation](../journal/2026-11-04/ootf-native-readiness-probe.md).
+
 ## What works
 
 * Converter `editor/scripts/ootf-convert.ts` (`--campaign 1` for the campaign): terrain, textures, models, creatures (skinned, retargeted
@@ -12,8 +18,10 @@ packs that the recompiled PS2 engine plays; nothing from either game is committe
   `ootf-levels` (13 levels, 9119 files) and arenas `ootf-arenas` (10 levels, 158 files, one `maps/*.ini` each).
 * Game choice at the title ("Choose your game": Drakan / Drakan: Order of the Flame, `drakan.ini [general] game = ask|d2|d1`), a
   campaign-only New Game that starts at `OotF 00 - Intro` (no Drakan 2 intro), separate save cards, Order of the Flame title plaque.
-* All 13 campaign levels load and run; level exits work by walking into converted exit boxes (`exitBoxes`) and by the host-fired
-  `DRAKAN_LEVELCHANGE` path, including the Volcanic hops. Intro -> Ruined Village verified from the title with the packs installed.
+* Earlier isolated tests loaded all 13 campaign levels and exercised host-fired `DRAKAN_LEVELCHANGE` exits, including Volcanic
+  hops. Intro -> Ruined Village is reached naturally from the title. The November 4 converter fixes detector message routing;
+  a real Ruined Village -> Wartok walk-in transition is verified with the opening cinematic disabled in that private fixture.
+  Normal opening cinematics and the complete walk-through chain remain unverified.
 * Ten multiplayer arenas as maps tagged `Drakan 1 / CUSTOM` (4 air, 3 ground, 3 QOD-style), dragon-vs-dragon breath PvP in the air
   arenas (host-claimed hits, dragon health, death, respawn), ranged and melee PvP on ground arenas.
 * Co-op stays on the Drakan campaign path and shares the New Game card; the OotF Multiplayer page has Host / Join / mplayer.com only.
