@@ -39,6 +39,7 @@ void ps2PollHostPad();      // Window thread snapshot for the portable libpad ba
 #include <iostream>
 #include <stdexcept>
 #include <fstream>
+#include <filesystem>
 #include <algorithm>
 #include <array>
 #include <cstring>
@@ -2499,6 +2500,7 @@ void PS2Runtime::run() {
     auto stallSince = wdStart;
     bool stallReported = false;
     int stallDumps = 0;
+    bool stallCaptureAttempted = false;
     while (!isStopRequested() && !gameThreadFinished.load(std::memory_order_acquire)) {
 #if defined(__EMSCRIPTEN__)
         emscripten_current_thread_process_queued_calls();
@@ -2535,6 +2537,40 @@ void PS2Runtime::run() {
                           << std::chrono::duration<double>(now - wdStart).count() << "s] live thread=" << stid
                           << " pc=0x" << std::hex << (ok ? spc : 0) << " ra=0x" << sra << " sp=0x" << ssp << std::dec
                           << " | " << formatDispatchHistory() << std::endl;
+                // Explicit forensic output only: one best-effort snapshot on an actual silent-input stall,
+                // never on an ordinary periodic watchdog tick. No guest pause or memory/register writes.
+                if (stallDump && !stallCaptureAttempted) {
+                    stallCaptureAttempted = true;
+                    if (const char* directory = std::getenv("PS2X_WATCHDOG_DUMP_DIR")) {
+                        std::error_code error;
+                        const std::filesystem::path dir(directory);
+                        if (!dir.is_absolute() || !std::filesystem::is_directory(dir, error) || error) {
+                            std::cerr << "[watchdog-dump] requires an existing absolute output directory" << std::endl;
+                        } else {
+                            const auto stamp = std::chrono::steady_clock::now().time_since_epoch().count();
+                            const auto base = dir / ("watchdog-stall-" + std::to_string(stamp));
+                            std::ofstream registers(base.string() + ".txt", std::ios::out);
+                            const auto captureRegisters = [&](const char* phase) {
+                                const R5900Context* live = m_eeScheduler->liveContextForCrash();
+                                registers << phase << " best-effort, guest not suspended; pc=" << std::hex
+                                          << (live ? live->pc : 0) << " thread=" << std::dec << stid << '\n';
+                                if (live)
+                                    for (int reg = 0; reg < 32; ++reg)
+                                        registers << "gpr" << std::dec << reg << "=" << std::hex << getRegU32(live, reg)
+                                                  << '\n';
+                            };
+                            captureRegisters("before-ram");
+                            std::ofstream memory(base.string() + ".ram", std::ios::out | std::ios::binary);
+                            memory.write(reinterpret_cast<const char*>(m_memory.getRDRAM()), PS2_RAM_SIZE);
+                            memory.close();
+                            captureRegisters("after-ram");
+                            registers << "dispatch=" << formatDispatchHistory() << '\n';
+                            registers.close();
+                            std::cerr << "[watchdog-dump] " << base.string() << " ram=" << (memory ? "ok" : "failed")
+                                      << " registers=" << (registers ? "ok" : "failed") << std::endl;
+                        }
+                    }
+                }
                 if (const char* peek = std::getenv("PS2X_PEEK")) {
                     // comma separated guest addresses (hex): print the 32-bit word at each
                     std::string list = peek;

@@ -3,6 +3,7 @@
 #include "drakan_region.h"
 #include "ps2_runtime.h"
 #include "ps2_runtime_macros.h"
+#include "runtime/ee_scheduler.h"
 
 #include <algorithm>
 #include <chrono>
@@ -22,6 +23,14 @@ Fn g_preload = nullptr, g_actorReady = nullptr, g_resourceReady = nullptr, g_tic
 constexpr uint32_t kPose = 0x1a61e8, kCamera = 0x1a68d8, kModel = 0x17a828;
 Fn g_pose = nullptr, g_camera = nullptr, g_model = nullptr;
 uint32_t g_sequence = 0, g_actor = 0;
+using Owner = std::pair<int, size_t>;
+Owner g_sequenceOwner{}, g_actorOwner{};
+constexpr uint32_t kFrame = 0x1e3970;
+Fn g_frame = nullptr;
+Owner owner(PS2Runtime* rt) {
+    const auto* thread = rt->eeScheduler().currentThread();
+    return {rt->eeScheduler().currentThreadId(), thread ? thread->invocations.size() : 0};
+}
 int g_lines = 0, g_limit = 512;
 Clock::time_point g_start, g_lastTick;
 struct Ram {
@@ -115,9 +124,12 @@ void preload(uint8_t* ram, R5900Context* c, PS2Runtime* rt) {
         return;
     }
     const uint32_t old = g_sequence, sequence = getRegU32(c, 4), ra = getRegU32(c, 31);
+    const Owner oldOwner = g_sequenceOwner;
+    g_sequenceOwner = owner(rt);
     g_sequence = sequence;
     g_preload(ram, c, rt);
     g_sequence = old;
+    g_sequenceOwner = oldOwner;
     // A guest yield returns at an internal PC; only inspect a completed invocation.
     if (c->pc == ra && getRegU32(c, 2) == 2 && due(0, sequence, 0)) {
         const Ram r{ram};
@@ -127,14 +139,17 @@ void preload(uint8_t* ram, R5900Context* c, PS2Runtime* rt) {
     }
 }
 void actorReady(uint8_t* ram, R5900Context* c, PS2Runtime* rt) {
-    if (c->pc != kActorReady || !g_sequence || g_lines >= g_limit) {
+    if (c->pc != kActorReady || !g_sequence || g_sequenceOwner != owner(rt) || g_lines >= g_limit) {
         g_actorReady(ram, c, rt);
         return;
     }
     const uint32_t old = g_actor, actor = getRegU32(c, 4), sequence = g_sequence, ra = getRegU32(c, 31);
+    const Owner oldOwner = g_actorOwner;
+    g_actorOwner = owner(rt);
     g_actor = actor;
     g_actorReady(ram, c, rt);
     g_actor = old;
+    g_actorOwner = oldOwner;
     if (c->pc == ra && getRegU32(c, 2) == 2 && due(1, sequence, actor)) {
         const Ram r{ram};
         log("actor pending seq=%08x object=%u actor=%08x resource=%08x controller=%08x", sequence,
@@ -144,21 +159,24 @@ void actorReady(uint8_t* ram, R5900Context* c, PS2Runtime* rt) {
 void resourceReady(uint8_t* ram, R5900Context* c, PS2Runtime* rt) {
     const uint32_t ra = getRegU32(c, 31);
     const Ram current{ram};
-    const uint32_t observed = g_sequence ? g_sequence : activeSequence(current);
+    const Owner currentOwner = owner(rt);
+    const bool scoped = g_sequence && g_sequenceOwner == currentOwner;
+    const uint32_t observed = scoped ? g_sequence : activeSequence(current);
     const bool cinematicCaller = (ra >= 0x1a1900 && ra < 0x1a7500) || loadingScene(current, observed);
-    if (c->pc != kResourceReady || (!g_sequence && !cinematicCaller) || g_lines >= g_limit) {
+    if (c->pc != kResourceReady || (!scoped && !cinematicCaller) || g_lines >= g_limit) {
         g_resourceReady(ram, c, rt);
         return;
     }
     const uint32_t manager = getRegU32(c, 4), id = getRegU32(c, 5);
-    const uint32_t actor = g_actor, sequence = observed;
+    const uint32_t actor = g_actorOwner == currentOwner ? g_actor : 0, sequence = observed;
     g_resourceReady(ram, c, rt);
     if (c->pc == ra && getRegU32(c, 2) == 2 && due(2, manager, id)) {
         const Ram r{ram};
         const uint32_t descriptor = cached(r, manager, id);
         log("resource pending seq=%08x object=%u actor=%08x manager=%08x id=%08x descriptor=%08x flags=%08x "
-            "caller=%08x",
-            sequence, objectId(r, sequence, actor), actor, manager, id, descriptor, r.u32(descriptor + 8), ra);
+            "caller=%08x thread=%d invocation=%zu scoped=%d",
+            sequence, objectId(r, sequence, actor), actor, manager, id, descriptor, r.u32(descriptor + 8), ra,
+            currentOwner.first, currentOwner.second, scoped ? 1 : 0);
     }
 }
 void tick(uint8_t* ram, R5900Context* c, PS2Runtime* rt) {
@@ -178,6 +196,34 @@ void tick(uint8_t* ram, R5900Context* c, PS2Runtime* rt) {
         }
     }
     g_tick(ram, c, rt);
+}
+// Independent frame sampling remains available when the cinematic manager stops being scheduled.
+void frame(uint8_t* ram, R5900Context* c, PS2Runtime* rt) {
+    static Clock::time_point last;
+    const Ram r{ram};
+    const uint32_t sequence = activeSequence(r), ref = r.u32(r.u32(sequence + 0xc));
+    if (c->pc == kFrame && ref >= 0x8003b && ref <= 0x8003d && g_lines < g_limit &&
+        Clock::now() - last >= std::chrono::seconds(5)) {
+        last = Clock::now();
+        const auto state = rt->eeScheduler().snapshot();
+        log("kernel seq=%08x ref=%08x elapsed=%.4f gui=%08x running=%d snapshot=%llu", sequence, ref,
+            r.f32(sequence + 0x18), r.u32(0x4fb60c), state.runningThreadId,
+            static_cast<unsigned long long>(state.sequence));
+        size_t count = 0;
+        for (const auto& thread : state.threads) {
+            if (++count > 16)
+                break;
+            log("thread id=%d pc=%08x ra=%08x sp=%08x state=%u wait=%u waitId=%d priority=%d invocation=%u", thread.id,
+                thread.pc, thread.ra, thread.sp, static_cast<unsigned>(thread.status),
+                static_cast<unsigned>(thread.waitReason), thread.waitId, thread.currentPriority,
+                thread.invocationDepth);
+            for (const auto& sema : state.semaphores)
+                if (thread.waitReason == EeWaitReason::Semaphore && thread.waitId == sema.id)
+                    log("semaphore id=%d count=%d maximum=%d waiters=%u", sema.id, sema.count, sema.maxCount,
+                        sema.waiters);
+        }
+    }
+    g_frame(ram, c, rt);
 }
 // Entry/return/resume observations distinguish a stalled nested call from a manager that is no longer scheduled.
 // These wrappers never redirect guest returns; a yield is reported with its actual suspended PC.
@@ -208,7 +254,8 @@ void install(PS2Runtime& rt) {
     if (g_preload)
         return;
     if (!rt.hasFunction(kPreload) || !rt.hasFunction(kActorReady) || !rt.hasFunction(kResourceReady) ||
-        !rt.hasFunction(kTick) || !rt.hasFunction(kPose) || !rt.hasFunction(kCamera) || !rt.hasFunction(kModel)) {
+        !rt.hasFunction(kTick) || !rt.hasFunction(kPose) || !rt.hasFunction(kCamera) || !rt.hasFunction(kModel) ||
+        !rt.hasFunction(kFrame)) {
         std::fprintf(stderr, "[stomp-probe] required guest function missing; no hooks installed\n");
         return;
     }
@@ -230,6 +277,8 @@ void install(PS2Runtime& rt) {
     rt.replaceFunction(kPose, phase<kPose>);
     rt.replaceFunction(kCamera, phase<kCamera>);
     rt.replaceFunction(kModel, phase<kModel>);
+    g_frame = rt.lookupFunction(kFrame);
+    rt.replaceFunction(kFrame, frame);
     log("installed maxLines=%d (completed readiness calls only; yielded calls are not inferred)", g_limit);
 }
 } // namespace drakan_stomp_probe

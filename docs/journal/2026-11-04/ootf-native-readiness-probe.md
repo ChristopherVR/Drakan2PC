@@ -13,7 +13,7 @@ source object, actor handle, resource manager/id, exact hash-cache descriptor,
 state flags and caller. Tick includes elapsed time, pause, action/preload cursors,
 schedule count, native delta time and current GUI pointer.
 
-Default maximum512 detail lines; `DRAKAN_STOMP_PROBE_LINES` clamps1–4096.
+Default maximum512 detail lines; `DRAKAN_STOMP_PROBE_LINES` clamps1â€“4096.
 Repeated pending keys and tick state are limited to1Hz, and deduplication state
 has a512-key bound. Once exhausted, wrappers pass through silently. No guest
 calls, ready overrides, resource loads or timing writes are made. Guest yields

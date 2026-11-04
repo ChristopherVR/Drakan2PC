@@ -36,7 +36,7 @@ the expected release. An emitted record with mode1 is format evidence; it is not
 The completed `ootf-normal-alias` run **did not prove release**. At RV+245 seconds the
 player remained stationary without HUD and unconditional W did not move it. Camera
 phase matching identifies scene1.1 at source48s around RV+75, and scene1.2a at
-source14–18s around RV+245. This is an inter-scene readiness delay, not uniform
+source14â€“18s around RV+245. This is an inter-scene readiness delay, not uniform
 time scaling. Identity recognition remains a format correction; it is not a
 complete startup fix. Only the combined OOTF pack was mounted, excluding the
 separate generated character-motion pack.
@@ -73,7 +73,7 @@ ceiling, borrowing an ODB class restriction. Sound-specific native evidence is
 different: descriptor loader `0x1b3860` requests SRSC302 by full resource id via
 the generic resource index, and resource cache `0x12b640` hashes full ids. No
 SDB0300 high-water read occurs in that descriptor path. `soundIdAllocator` now
-reserves existing302–305 ids, reuses holes, then extends to65535. Synthetic
+reserves existing302â€“305 ids, reuses holes, then extends to65535. Synthetic
 allocation coverage includes orphan samples/lipsync ids and exhaustion.19
 sound/sequence tests and the formats typecheck pass. Full candidate regeneration
 is separate at `build/scratch/ootf-speech-full`; an above608 descriptor/sample
