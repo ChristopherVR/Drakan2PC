@@ -1244,25 +1244,25 @@ void stopThread() {
 
 world::Globals g_globals;
 world::PoseReadState g_poseState;
+world::InventoryPoseFilter g_inventoryPose;
 uint32_t g_tick = 0;
 double g_spawnNotBefore = 0; // EE thread
 constexpr double kSettleSec = 1.5;
 constexpr double kDebounceSec = 0.5;
-constexpr double kTickHz = 60.0;  // PoseBuffer time unit: sender ticks / kTickHz
-constexpr double kDelaySec = 0.1; // replay this far behind the newest sample (two snapshot intervals)
+constexpr double kTickHz = 60.0; // PoseBuffer time unit: sender ticks / kTickHz
 
 world::PoseBufferConfig bufferConfig() {
     world::PoseBufferConfig c;
-    c.delaySec = 0; // unused: the replay position is chosen by tick (sampleAt)
+    c.delaySec = 0;          // unused: the replay position is chosen by tick (sampleAt)
+    c.maxExtrapolateSec = 0; // sender-tick seconds and wire velocity's wall seconds are different clocks
     return c;
 }
 
 struct RemoteView {
     world::PoseBuffer buffer{bufferConfig()};
-    bool haveSample = false, havePlay = false;
-    uint32_t newestTick = 0, prevSampleMs = 0;
-    double playTick = 0;
-    double tickRate = 60.0; // sender world ticks per second, smoothed
+    bool haveSample = false;
+    uint32_t newestTick = 0;
+    world::PosePlaybackClock playback;
     int ghostId = 0;
     int dragonId = 0; // the partner's Arokh while the partner is mounted (a second, visual-only dragon body)
     world::PlayerPose lastDragonPose; // the dragon's last mounted pose (where a dismounted dragon is parked)
@@ -1288,6 +1288,7 @@ void publishLoading() {
 
 // The level / save is being replaced: drakan_ghost destroys the actors itself, we only drop our ids.
 void forgetGhosts() {
+    g_inventoryPose = {};
     for (auto& kv : g_views) {
         if (kv.second.ghostId)
             netLog("ghost of player %u removed (local level change or save)", kv.first);
@@ -1297,7 +1298,7 @@ void forgetGhosts() {
         kv.second.wasVisible = false;
         kv.second.buffer.clear();
         kv.second.haveSample = false;
-        kv.second.havePlay = false;
+        kv.second.playback = {};
     }
     g_ghostsVisible.store(0);
 }
@@ -1324,7 +1325,7 @@ void hide(drakan::net::PlayerId id, RemoteView& v, const char* why) {
     }
     v.buffer.clear();
     v.haveSample = false;
-    v.havePlay = false;
+    v.playback = {};
     v.wasVisible = false;
     v.failures = 0;
     v.retryAt = 0;
@@ -2141,6 +2142,14 @@ void beforePadMgr(const uint8_t* rdram) {
     world::PoseStatus status = world::PoseStatus::NoContext;
     if (!transition)
         status = world::readPlayerPose(RdramMemory(rdram), g_globals, g_poseState, t, ++g_tick, pose);
+    if (transition || myLevel == 0)
+        g_inventoryPose = {};
+    if (status == world::PoseStatus::Ok) {
+        // This native stats flag remains set under inventory help / confirmation dialogs, unlike the top screen id.
+        const bool inventoryOpen = RdramMemory(rdram).read32(g_globals.playerStats + 0x34u) != 0;
+        if (!g_inventoryPose.apply(pose, inventoryOpen))
+            status = world::PoseStatus::NoPlayer;
+    }
     const bool posed = status == world::PoseStatus::Ok && myLevel != 0 && !transition;
     if (posed && !pose.mounted)
         fakeMount(pose, t);
@@ -2213,30 +2222,16 @@ void beforePadMgr(const uint8_t* rdram) {
             continue;
         }
         v.unwantedSince = -1;
-        // Replay on the sender's world-tick clock (ghost-spike.md "Ghost smoothness"): the game advances in bursts, so
-        // wall-clock replay turns them into stalls and jumps. Samples are stamped tick / 60; the playback position
-        // advances once per OUR PadMgr boundary and is steered to stay `delay` ticks behind the newest sample.
+        // Keep sender ticks as the interpolation coordinate, but do not equate one local update with one sender
+        // update. Uncapped gameplay and inventory can run at very different cadences on the two machines.
         if (!v.haveSample || r.state.tick > v.newestTick) {
-            if (v.haveSample && r.sampleServerMs > v.prevSampleMs) {
-                const double inst = (r.state.tick - v.newestTick) * 1000.0 / (r.sampleServerMs - v.prevSampleMs);
-                if (inst > 5.0 && inst < 500.0)
-                    v.tickRate = v.tickRate * 0.8 + inst * 0.2;
-            }
             v.haveSample = true;
             v.newestTick = r.state.tick;
-            v.prevSampleMs = r.sampleServerMs;
             v.buffer.push(world::fromPlayerState(r.state, r.state.tick / kTickHz));
         }
-        const double delayTicks = std::max(3.0, kDelaySec * v.tickRate);
-        if (!v.havePlay) {
-            v.playTick = v.newestTick - delayTicks;
-            v.havePlay = true;
-        } else {
-            const double lag = v.newestTick - v.playTick - delayTicks;
-            v.playTick += 1.0 + std::clamp(lag * 0.05, -0.5, 3.0);
-        }
+        const double playTick = v.playback.advance(r.state.tick, r.sampleServerMs, t);
         world::PlayerPose p;
-        if (!v.buffer.sampleAt(v.playTick / kTickHz, p))
+        if (!v.buffer.sampleAt(playTick / kTickHz, p))
             continue;
         if (p.mounted) {
             // DRAKAN_DRAGON_TEST_SPREAD=1: partner N is drawn N times the offset away (three dragons side by side)

@@ -307,10 +307,21 @@ Environment (all opt-in; also set `DRAKAN_GHOST=1`, the ghosts are `drakan_ghost
 How it works: sockets, the embedded server and the `MatchClient` live on one network thread that never touches guest
 memory. At each `PadMgr_Update` the EE thread reads the controlled actor with `world::readPlayerPose`, converts it with
 `toPlayerState` and drops it into a mutex-protected slot; the network thread sends it at 20 Hz. Raw received snapshot samples
-go the other way into a `world::PoseBuffer` per player, replayed on the sender's world-tick clock (`PlayerState.tick` is the
-sender's PadMgr counter; playback advances once per receiver tick); the ghost is spawned (`drakan_ghost::spawn`) when the remote player is Playing, mounted-off, and in the same level, and driven with
+go the other way into a `world::PoseBuffer` per player, indexed by the sender's PadMgr counter (`PlayerState.tick`).
+`world::PosePlaybackClock` advances using elapsed time and an estimated sender cadence, with phase correction and a
+ceiling at the newest received tick. It does not assume matching update rates between instances. Network pose
+extrapolation is disabled: sender-tick seconds and the transmitted velocity's wall seconds have different units.
+The ghost is spawned (`drakan_ghost::spawn`) when the remote player is Playing, mounted-off, and in the same level, and driven with
 `drakan_ghost::setPose` (position, yaw and clips) every frame. It is removed when the player leaves, changes level (their `levelHash` goes to 0 while
 loading, then to the new level's hash) or when this instance loads a level or writes a save (`drakan_lifecycle`).
+
+**Inventory preview isolation (2026-11-04):** the native inventory rotates the live player actor by pi radians for
+its camera, including when the modern inventory is selected. Outgoing poses pass through `world::InventoryPoseFilter`:
+while the native inventory-open stats flag is set (also under help/confirmation dialogs), retain the last gameplay
+position and rotation and publish zero velocity. Current clips, equipment and tick data continue to update. Actor /
+mount changes and lifecycle resets invalidate the cache; mounted dragons bypass the on-foot preview filter.
+This leaves the local preview intact while partners retain the player's world heading. Evidence and regression
+coverage: [co-op position and inventory](../journal/2026-11-04/coop-position-inventory.md).
 
 Mismatch rules: the disc profile (hash of the serial and save id) is sent in `Hello`; a server started with that hash (the
 listen server always is) rejects other discs with `ProfileMismatch`, and a different protocol version with

@@ -89,6 +89,29 @@ void eulerFromRotation(PlayerPose& p);
 PoseStatus readPlayerPose(const IGuestMemory& m, const Globals& g, PoseReadState& st, double nowSec, uint32_t tick,
                           PlayerPose& out);
 
+// Inventory turns the live actor for its preview. Retain its gameplay transform for replication, while still
+// publishing current clips and equipped items. False means no gameplay transform has been observed yet.
+class InventoryPoseFilter {
+public:
+    bool apply(PlayerPose& pose, bool inventoryOpen);
+
+private:
+    PlayerPose gameplay_;
+    bool valid_ = false, wasOpen_ = false;
+};
+
+// Sender ticks are a sample coordinate, not the receiving instance's update clock. Advance on elapsed time,
+// estimate the sender's cadence, and never run past its newest sample (wire velocity is in wall seconds).
+class PosePlaybackClock {
+public:
+    double advance(uint32_t newestTick, uint32_t sampleServerMs, double nowSec);
+
+private:
+    bool valid_ = false;
+    uint32_t newestTick_ = 0, sampleServerMs_ = 0;
+    double playTick_ = 0, rate_ = 60, lastTime_ = 0;
+};
+
 // Interpolation of two poses at `alpha` in [0,1]: position and velocity lerp, rotation nlerp of the quaternions, clip
 // time lerp when both play the same clip without a wrap (else advance); a clip change snaps to b's clip when b is
 // reached (a's clip keeps playing until then). Flags / weapons come from a until alpha reaches 1.

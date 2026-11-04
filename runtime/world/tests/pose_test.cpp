@@ -262,6 +262,67 @@ struct MockState {
     uint16_t clipHi = 0;
 };
 
+void testInventoryReplication() {
+    InventoryPoseFilter filter;
+    PlayerPose p = pose(1, 100, 0.75f, 0x2047b, 0.4f);
+    p.handle = 123;
+    CHECK(!filter.apply(p, true)); // joining with a preview already open cannot seed a gameplay transform
+    CHECK(filter.apply(p, false));
+    p.position.x = 900;
+    setYaw(p, -2.4f);
+    p.velocity = {100, 200, 300};
+    p.weaponRight = 42;
+    p.tick = 99;
+    CHECK(filter.apply(p, true));
+    NEAR(p.position.x, 100, 1e-4);
+    NEAR(p.yaw, 0.75, 1e-4);
+    NEAR(p.rotation[2], std::sin(0.75), 1e-4);
+    CHECK(p.velocity.x == 0 && p.velocity.y == 0 && p.tick == 99 && p.weaponRight == 42);
+    p.position.x = 900;
+    setYaw(p, -2.4f);
+    CHECK(filter.apply(p, false)); // flag clears before the native transform restoration
+    NEAR(p.position.x, 100, 1e-4);
+    NEAR(p.yaw, 0.75, 1e-4);
+    p.position.x = 110;
+    setYaw(p, 0.8f);
+    CHECK(filter.apply(p, false));
+    NEAR(p.position.x, 110, 1e-4);
+    NEAR(p.yaw, 0.8, 1e-4);
+    p.handle = 456;
+    CHECK(!filter.apply(p, true)); // never reuse a freed / replaced actor's transform
+    p.mounted = true;
+    CHECK(filter.apply(p, true)); // dragon gameplay is not an inventory preview
+}
+
+void testPlaybackCadence() {
+    for (int senderHz : {30, 60, 240}) {
+        double finalTicks[3] = {};
+        int index = 0;
+        for (int receiverHz : {30, 60, 240}) {
+            PosePlaybackClock clock;
+            double played = 0;
+            for (int i = 0; i <= receiverHz * 10; ++i) {
+                const double t = double(i) / receiverHz;
+                const uint32_t sampleMs = static_cast<uint32_t>(t * 20 + 1e-6) * 50;
+                const uint32_t tick = 1000 + sampleMs * senderHz / 1000;
+                const double next = clock.advance(tick, sampleMs, t);
+                CHECK(next <= tick); // cannot extrapolate a transform ahead of actual received movement
+                CHECK(next >= played);
+                played = next;
+            }
+            finalTicks[index++] = played;
+            const uint32_t stoppedTick = 1000 + 10 * senderHz;
+            for (int i = 1; i <= receiverHz * 3; ++i)
+                played = clock.advance(stoppedTick, 10000, 10 + double(i) / receiverHz);
+            NEAR(played, stoppedTick, 1e-3); // a stalled sender settles on its real last coordinate
+            const double resumed = clock.advance(stoppedTick + senderHz * 4, 17000, 17);
+            CHECK(resumed > stoppedTick && resumed <= stoppedTick + senderHz * 4);
+        }
+        NEAR(finalTicks[0], finalTicks[1], senderHz * 0.04);
+        NEAR(finalTicks[0], finalTicks[2], senderHz * 0.04);
+    }
+}
+
 void testBridge() {
     PlayerPose p = pose(2.0, 123.5f, 0.75f, 0x2047b, 0.4f);
     p.tick = 99;
@@ -289,6 +350,8 @@ int main() {
     testInterpolation();
     testBuffer();
     testBridge();
+    testInventoryReplication();
+    testPlaybackCadence();
     if (g_failed)
         std::fprintf(stderr, "world_pose_test: %d failed\n", g_failed);
     else

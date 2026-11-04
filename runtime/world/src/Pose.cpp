@@ -214,6 +214,57 @@ PoseStatus readPlayerPose(const IGuestMemory& m, const Globals& g, PoseReadState
     return PoseStatus::Ok;
 }
 
+bool InventoryPoseFilter::apply(PlayerPose& pose, bool inventoryOpen) {
+    if (!valid_ || gameplay_.handle != pose.handle || gameplay_.mounted != pose.mounted) {
+        valid_ = false;
+        wasOpen_ = false;
+    }
+    // The native close clears its flag one PadMgr boundary before restoring the actor's saved transform.
+    if ((inventoryOpen || wasOpen_) && !pose.mounted) {
+        if (!valid_)
+            return false;
+        pose.position = gameplay_.position;
+        std::copy(gameplay_.rotation, gameplay_.rotation + 9, pose.rotation);
+        pose.yaw = gameplay_.yaw;
+        pose.pitch = gameplay_.pitch;
+        pose.roll = gameplay_.roll;
+        pose.velocity = {};
+        wasOpen_ = inventoryOpen;
+    } else {
+        if (wasOpen_)
+            pose.velocity = {};
+        gameplay_ = pose;
+        valid_ = true;
+        wasOpen_ = false;
+    }
+    return true;
+}
+
+double PosePlaybackClock::advance(uint32_t newestTick, uint32_t sampleServerMs, double nowSec) {
+    const bool reset = !valid_ || newestTick < newestTick_;
+    if (!reset && newestTick > newestTick_ && sampleServerMs > sampleServerMs_) {
+        const double measured = (newestTick - newestTick_) * 1000.0 / (sampleServerMs - sampleServerMs_);
+        if (measured > 5 && measured < 2000)
+            rate_ += (measured - rate_) * 0.2;
+    }
+    const double delay = std::max(3.0, rate_ * 0.1);
+    const double target = static_cast<double>(newestTick) - delay;
+    const double dt = std::max(0.0, nowSec - lastTime_);
+    if (reset || dt > 0.5 || target - playTick_ > rate_ * 0.5) {
+        playTick_ = target;
+    } else {
+        const double step = (target - playTick_ + rate_ / 5.0) * (1.0 - std::exp(-dt * 5.0));
+        playTick_ = std::min(static_cast<double>(newestTick), playTick_ + std::max(0.0, step));
+    }
+    valid_ = true;
+    if (reset || newestTick > newestTick_) {
+        newestTick_ = newestTick;
+        sampleServerMs_ = sampleServerMs;
+    }
+    lastTime_ = nowSec;
+    return playTick_;
+}
+
 PlayerPose interpolatePose(const PlayerPose& a, const PlayerPose& b, float alpha) {
     alpha = std::clamp(alpha, 0.0f, 1.0f);
     PlayerPose r = alpha >= 1.0f ? b : a;
