@@ -48,8 +48,10 @@ diagnostics, referenced-only cyclic generators, and otherwise identical generato
 
 ## Isolated candidate audit and remaining acceptance
 
-The parent generated `build/scratch/ootf-classref/mods/ootf-levels.zip` from a private baseline with only indexed
-terrain and this class-reference repair. Its 1,990 synthesized class records have no dangling emitted class references
+The parent generated `build/scratch/ootf-classref/mods/ootf-levels.zip` from isolated formats source `ad867c7`,
+indexed terrain and this class-reference repair. That source already contains cinematic speech absent from the older
+137,794,044-byte baseline pack, so the resulting pack is not a one-variable class-reference comparison; see
+[normal opening/control evidence](ootf-normal-opening-control.md). Its 1,990 synthesized class records have no dangling emitted class references
 and no references to the native dust-devil classes. The Ruined Village Soul Flare generators now name Soul Flare
 01/02/03; the dragon explosion generator names the 15 source dragon body parts.
 
@@ -86,3 +88,11 @@ cloud texture, spawn rate, effect/particle life, size, upward speed, color, dama
 class 43 shares four fields, but its shape, rate and damage behavior need an explicit supported port. Solve Magic 81
 is a procedural spiral/ribbon with cycles, radius, ellipse and motion controls; the nearest native schemas share only
 Face Camera. No numeric substitute or unsupported claim of equivalent behavior was added.
+
+The second isolated pack, `build/scratch/ootf-classref-kinds/mods/ootf-levels.zip`, contains 2,126 synthesized classes.
+All emitted class references resolve. Of 1,816 cloned-class model references, none is missing against the generated
+assets and available original archives; 38 use original archives not extracted locally and remain unverified by this
+audit. The Soul Lightning generators now reference imported Soul Lightning 1/2. Ebon Dragon's Weapon Objects names
+Sonic Boom, whose references name Sonic Wave, Sonic Ring and the source explosion effects. Succubus names Suc Attack 2
+and its source explosion children. Remaining diagnostics number 430 references across 135 classes, including the
+lightning strike explosion `0xeaf`; this is not a claim of complete visual/weapon fidelity. Live acceptance remains pending.
