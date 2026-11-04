@@ -317,6 +317,40 @@ static void testOotfAutoTarget() {
     CHECK(m.bowAutoTarget(g, BOW, scratch) == 0);
 }
 
+void testOotfJumpAttackGate() {
+    InputModule m;
+    m.initHeadless(Config::defaults());
+    FakeGuest g;
+    setup(g);
+    constexpr uint32_t caller = 0x31de5c, native = 0x104b70;
+    g.write32(PLAYER + 0x94, 0x10);
+    CHECK(m.bowAttackMask(g, PLAYER, caller, native) == (native & ~0x10u));
+    CHECK(g.read32(PLAYER + 0x94) == 0x10); // the animation and physics retain the real jump state
+    CHECK(m.bowAttackMask(g, PLAYER, caller, native | 0x1000) == ((native | 0x1000) & ~0x10u));
+    g.write32(PLAYER + 0x94, 0x30);
+    CHECK((m.bowAttackMask(g, PLAYER, caller, native) & g.read32(PLAYER + 0x94)) == 0x20); // falling still refuses
+    CHECK(m.bowAttackMask(g, PLAYER, caller + 4, native) == native);
+    CHECK(m.bowAttackMask(g, PLAYER + 4, caller, native) == native);
+    CHECK(m.bowAttackMask(g, PLAYER, caller, native | 0x800000) == (native | 0x800000));
+    g.write32(PLAYER + 0xe90, 1);
+    CHECK(m.bowAttackMask(g, PLAYER, caller, native) == native); // melee unchanged
+    g.write32(PLAYER + 0xe90, 5);
+    g.write32(PLAYER + 0x94, 0);
+    CHECK(m.bowAttackMask(g, PLAYER, caller, native) == native); // grounded behavior unchanged
+    g.write32(PLAYER + 0x94, 0x10);
+    g.write32(0x4fbafc, 1);
+    CHECK(m.bowAttackMask(g, PLAYER, caller, native) == native); // scripted sequence
+    g.write32(0x4fbafc, 0);
+    g.write32(0x4fb730, 0);
+    CHECK(m.bowAttackMask(g, PLAYER, caller, native) == native); // outside gameplay
+    g.write32(0x4fb730, 1);
+    auto c = Config::defaults();
+    c.bowAimModern = true;
+    m.reloadConfig(c);
+    m.beginFrame(FrameInput{});
+    CHECK(m.bowAttackMask(g, PLAYER, caller, native) == native);
+}
+
 int main() {
     {
         InputModule m;
@@ -338,6 +372,7 @@ int main() {
     testShoulderOffset();
     testArrowRetarget();
     testOotfAutoTarget();
+    testOotfJumpAttackGate();
     std::printf("%d checks, %d failures\n", g_checks, g_fail);
     return g_fail ? 1 : 0;
 }

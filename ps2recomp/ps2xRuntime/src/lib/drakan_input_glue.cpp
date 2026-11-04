@@ -105,6 +105,7 @@ constexpr uint32_t kPadInit = 0x4b0948u, kPadPortOpen = 0x4b0ba8u, kPadRead = 0x
 
 PS2Runtime::RecompiledFunction g_origPadMgrUpdate = nullptr, g_origCameraLook = nullptr;
 PS2Runtime::RecompiledFunction g_origCameraFollow = nullptr, g_origBowLaunch = nullptr;
+PS2Runtime::RecompiledFunction g_origBowAttackReset = nullptr;
 PS2Runtime::RecompiledFunction g_parryOriginal[4] = {};
 using ParryReduction = drakan_parry_audit::PendingReduction;
 ParryReduction g_parryPending[64] = {};
@@ -977,8 +978,21 @@ void hookCameraFollow(uint8_t* rdram, R5900Context* c, PS2Runtime* rt) {
     beforeCameraFollow(g, cam);
     g_origCameraFollow(rdram, c, rt);
 }
-// FUN_0020e6c8 (a0 = bow object): launches the nocked arrow (*(bow+0x158)) along its matrix, retargeted only for a
-// locked target / homing arrow; modern bow aiming points it at the crosshair first.
+// FUN_0031da90's reset callback preserves the attack mask in s2 across this call. Change that register only at
+// its known callback, preserving the actor's real airborne flags for the subsequent native animation setup.
+void hookBowAttackReset(uint8_t* rdram, R5900Context* c, PS2Runtime* rt) {
+    if (c->pc == 0x307198u && getRegU32(c, 4) == getRegU32(c, 16)) {
+        RecompGuest g(rdram, c, rt);
+        const auto mask = getRegU32(c, 18);
+        const auto adjusted = module().bowAttackMask(g, getRegU32(c, 4), getRegU32(c, 31), mask);
+        if (adjusted != mask && std::getenv("DRAKAN_BOW_LOG"))
+            ilog("[bow] jumping attack gate: player=%x mask=%x->%x\n", getRegU32(c, 4), mask, adjusted);
+        SET_GPR_U32(c, 18, adjusted);
+    }
+    g_origBowAttackReset(rdram, c, rt);
+}
+
+// FUN_0020e6c8 (a0 = bow object): launches the nocked arrow along its matrix, retargeted for a native target.
 void hookBowLaunch(uint8_t* rdram, R5900Context* c, PS2Runtime* rt) {
     if (c->pc != kBowLaunch) {
         g_origBowLaunch(rdram, c, rt);
@@ -1313,6 +1327,12 @@ void drakanInstallInput(PS2Runtime& rt) {
     if constexpr (drakan_region::supports(drakan_region::Feature::DebugMenu))
         drakan_debug_menu::install(rt);
     g_origBowLaunch = rt.lookupFunction(kBowLaunch);
+    if constexpr (drakan_region::build().identityAddresses &&
+                  drakan_region::supports(drakan_region::Feature::AdvancedInput)) {
+        g_origBowAttackReset = rt.lookupFunction(0x307198u);
+        if (g_origBowAttackReset && !(skip & 64))
+            rt.replaceFunction(0x307198u, &hookBowAttackReset);
+    }
     if (g_origBowLaunch && !(skip & 64)) // 64: no modern bow aim hook
         rt.replaceFunction(kBowLaunch, &hookBowLaunch);
     rt.replaceFunction(kPadInit, &hookPadInit);
@@ -1333,6 +1353,12 @@ void drakanInstallPortableMenuHooks(PS2Runtime& rt) {
     installPauseScreenHooks(rt);
     installMenuScreenHooks(rt);
     g_origBowLaunch = rt.lookupFunction(kBowLaunch);
+    if constexpr (drakan_region::build().identityAddresses &&
+                  drakan_region::supports(drakan_region::Feature::AdvancedInput)) {
+        g_origBowAttackReset = rt.lookupFunction(0x307198u);
+        if (g_origBowAttackReset)
+            rt.replaceFunction(0x307198u, &hookBowAttackReset);
+    }
     if (g_origBowLaunch)
         rt.replaceFunction(kBowLaunch, &hookBowLaunch); // modern bow aim, as on Windows
 }

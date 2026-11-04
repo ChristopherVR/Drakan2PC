@@ -71,6 +71,9 @@ public:
     // OotF third-person autoaim: native visible-target selection around the camera centre. scratch is a caller-owned
     // 32-byte guest stack block above the guest call's stack pointer. Returns a temporary target handle or zero.
     uint16_t bowAutoTarget(IGuest& g, uint32_t bow, uint32_t scratch);
+    // At the native attack gate's reset callback, permit the original PC bow's jumping state without changing
+    // the actor state or any other native refusal condition. Unrecognized callers/masks remain native.
+    uint32_t bowAttackMask(IGuest& g, uint32_t player, uint32_t caller, uint32_t mask);
     // While aiming: draw a crosshair at the centre of the game image (overlay thread).
     bool bowCrosshairVisible() const { return bowAiming_.load() && !hostOwned() && !menuActive_.load(); }
     // Before-hook for PadMgr_Update: A / D strafe (on foot) by pointing the left stick's X at the strafe axis (3)

@@ -219,6 +219,19 @@ void InputModule::beforeBowLaunch(IGuest& g, uint32_t bow) {
                  d[2], from[0], from[1], from[2]);
 }
 
+uint32_t InputModule::bowAttackMask(IGuest& g, uint32_t player, uint32_t caller, uint32_t mask) {
+    std::lock_guard<std::mutex> lock(m_);
+    // PC attack entry 1006f9d0 excludes jumping (actor+68 bit10) from its refusal mask; PS2 31da90 explicitly
+    // adds that bit for bows. The PS2 reset callback 307198 returns to 31de5c with the mask in s2. Preserve
+    // the optional held-object refusal bit1000, falling bit20, and every other native gate.
+    if (cfg_.bowAimModern || dragon_ || caller != 0x31de5cu || (mask & ~0x1000u) != 0x104b70u ||
+        !player || player != contextPlayer(g, g.read32(cfg_.addrCtxPtr)) ||
+        g.read32(player + 0xe90) != kBowMode || !(g.read32(player + 0x94) & 0x10u) ||
+        !g.read32(0x4fb730) || g.read32(0x4fbafc))
+        return mask;
+    return mask & ~0x10u;
+}
+
 uint16_t InputModule::bowAutoTarget(IGuest& g, uint32_t bow, uint32_t scratch) {
     std::lock_guard<std::mutex> lock(m_);
     if (std::getenv("DRAKAN_BOW_LOG"))
