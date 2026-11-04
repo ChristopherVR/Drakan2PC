@@ -46,7 +46,7 @@ import time
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
-JUNCTIONS = ("textures", "movies", "nr", "ngx_data")
+JUNCTIONS = ("textures", "movies", "nr", "ngx_data", "mods", "previews")
 SKIP = {"mc0", "mc1", "saves", "logs", "drakan.exe", "drakan_native_options.ini"} | set(JUNCTIONS)
 SURDANA = "Level 1A - Surdana"
 # The level change target: A takes the Surdana exit to the City of the Damned (drakan_levelchange, see
@@ -110,7 +110,7 @@ def pvp_recipes(weapon: str = "dagger") -> tuple[str, str]:
     return a, b
 
 
-def pvp_checks(text: dict[str, str], checks: dict[str, bool], frag_limit: int = 0) -> None:
+def pvp_checks(text: dict[str, str], checks: dict[str, bool], frag_limit: int = 0, base_damage: int = 4) -> None:
     a, b = text["a"], text["b"]
     claims = len(re.findall(r"\[netplay [\d.]+\] claim: hit on player 2", a))
     hits = re.findall(r"\[netplay [\d.]+\] hit: player 1 hit player 2 for (\d+) \(weapon (\d)\), health now (\d+)", a)
@@ -121,8 +121,9 @@ def pvp_checks(text: dict[str, str], checks: dict[str, bool], frag_limit: int = 
     print(f"A: {claims} claims, {len(hits)} accepted hits, {len(deaths)} deaths, respawns {resp}")
     print(f"scores seen by A: player 1 kills {kills}, player 2 deaths {deaths_score}")
     checks["a: hits on the ghost became claims"] = claims >= 4
-    checks["server accepted hits (damage x8 of the dagger's 4)"] = bool(hits) and all(
-        h[0] == "32" and h[1] == "0" for h in hits
+    damage = base_damage * 8
+    checks[f"server accepted melee hits (damage x8 of base {base_damage})"] = bool(hits) and all(
+        h[0] == str(damage) and h[1] == "0" for h in hits
     )
     checks["server: Death after the health ran out"] = bool(deaths) and any(h[2] == "0" for h in hits)
     checks["score: kills 1 / deaths 1 broadcast"] = 1 in kills and 1 in deaths_score
@@ -130,7 +131,9 @@ def pvp_checks(text: dict[str, str], checks: dict[str, bool], frag_limit: int = 
     checks["server: hits on a dead / protected victim rejected"] = (
         "hit rejected: victim dead" in a and "hit rejected: victim protected" in a
     )
-    checks["b: engine hit reaction + health set"] = len(re.findall(r"\[pvp\] hit by player 1: 32 damage", b)) >= 3
+    checks["b: engine hit reaction + health set"] = (
+        len(re.findall(rf"\[pvp\] hit by player 1: {damage} damage", b)) >= 3
+    )
     checks["b: death shown (frozen with the death clip)"] = "[pvp] killed by player 1" in b
     checks["b: respawned at a spawn point"] = re.search(r"\[pvp\] respawned at spawn \d+", b) is not None
     if frag_limit:
@@ -166,6 +169,9 @@ def log(msg: str) -> None:
 
 
 def prepare_folder(src: Path, exe: Path, dst: Path) -> Path:
+    src, exe, dst = src.resolve(), exe.resolve(), dst.absolute()
+    if not dst.resolve().is_relative_to((ROOT / "build").resolve()):
+        raise ValueError("Private harness play folder must stay inside build/")
     dst.mkdir(parents=True, exist_ok=True)
     for item in src.iterdir():
         if item.name in SKIP or item.is_dir():
@@ -175,8 +181,22 @@ def prepare_folder(src: Path, exe: Path, dst: Path) -> Path:
             shutil.copy2(item, target)
     for name in JUNCTIONS:
         s, t = src / name, dst / name
-        if s.is_dir() and not t.exists():
-            subprocess.run(["cmd", "/c", "mklink", "/J", str(t), str(s)], check=True, stdout=subprocess.DEVNULL)
+        if os.path.lexists(t):
+            if s.is_dir() and t.resolve() == s.resolve():
+                continue
+            linked = t.is_symlink() or (os.name == "nt" and bool(t.lstat().st_file_attributes & 0x400))
+            if not linked:
+                raise ValueError(f"Private asset path is a regular directory, not a replaceable link: {t}")
+            # Remove only the old link; never walk or remove its asset contents (or the private memory cards).
+            if t.is_symlink():
+                t.unlink()
+            else:
+                t.rmdir()
+        if s.is_dir():
+            if os.name == "nt":
+                subprocess.run(["cmd", "/c", "mklink", "/J", str(t), str(s)], check=True, stdout=subprocess.DEVNULL)
+            else:
+                t.symlink_to(s, target_is_directory=True)
     shutil.copy2(exe, dst / "drakan.exe")
     return dst / "drakan.exe"
 
@@ -205,6 +225,7 @@ def game_env(
             "DRAKAN_INPUT_AUTOSTART": "1",
             "PS2X_MAX_SECONDS": str(timeout),
             "DRAKAN_NO_ACTIVATE": "1",
+            "DRAKAN_PAUSE_UNFOCUSED": "0",
             "DRAKAN_AUDIO": "0",
             "DRAKAN_START_LEVEL": SURDANA,
             "DRAKAN_MEMCARD_DIR": str(card),
@@ -344,6 +365,10 @@ def main() -> int:
         "--weapon", choices=("dagger", "bow"), default="dagger", help="--pvp: bow = A shoots arrows at B's ghost"
     )
     ap.add_argument("--frag-limit", type=int, default=0, help="--pvp: the match ends at this many kills (results)")
+    ap.add_argument("--melee-distance", type=int, default=140, help="native melee ghost distance for contact probes")
+    ap.add_argument(
+        "--melee-base-damage", type=int, default=4, help="expected equipped melee item damage (dagger 4, club 8)"
+    )
     ap.add_argument("--no-anchor", action="store_true", help="--pvp: do not hold A in place (DRAKAN_PVP_TEST_ANCHOR)")
     ap.add_argument("--env", action="append", default=[], metavar="K=V", help="extra environment for both instances")
     ap.add_argument("--env-a", action="append", default=[], metavar="K=V", help="extra environment for A only")
@@ -357,7 +382,7 @@ def main() -> int:
         if a.name == "netplay":
             a.name = "pvp"
         a.no_level_change = True
-        a.env_a += [f"DRAKAN_PVP_TEST_PLACE={700 if a.weapon == 'bow' else 140}"]
+        a.env_a += [f"DRAKAN_PVP_TEST_PLACE={700 if a.weapon == 'bow' else a.melee_distance}"]
         if not a.no_anchor:  # multiplayer maps: the players stand on their spawn points, nothing holds them
             a.env_a += ["DRAKAN_PVP_TEST_ANCHOR=1"]
         a.env += ["DRAKAN_PVP_DAMAGE_SCALE=8"]
@@ -463,7 +488,7 @@ def main() -> int:
     if a.pvp and a.weapon == "bow":
         ranged_checks(text, checks)
     elif a.pvp:
-        pvp_checks(text, checks, a.frag_limit)
+        pvp_checks(text, checks, a.frag_limit, a.melee_base_damage)
     else:
         trace_report(out, text["a"], text["b"], checks)
     stats = {

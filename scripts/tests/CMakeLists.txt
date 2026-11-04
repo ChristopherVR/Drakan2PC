@@ -44,6 +44,12 @@ foreach(target pacing_bridge_test vblank_handoff_test frame_cadence_test widescr
 endforeach()
 
 find_package(Threads REQUIRED)
+add_executable(character_roster_test character_roster_test.cpp
+  "${PS2X_RUNTIME_SOURCE}/ps2xRuntime/src/lib/drakan_coop_character.cpp")
+target_include_directories(character_roster_test PRIVATE "${PS2X_RUNTIME_SOURCE}/ps2xRuntime/src/lib")
+target_compile_features(character_roster_test PRIVATE cxx_std_20)
+drakan_enable_asserts(character_roster_test)
+add_test(NAME character_roster COMMAND character_roster_test)
 add_executable(host_pad_test host_pad_test.cpp)
 target_include_directories(host_pad_test PRIVATE "${PS2X_RUNTIME_SOURCE}/ps2xRuntime/src/lib" "${DRAKAN_ROOT}/runtime/input/include")
 target_link_libraries(host_pad_test PRIVATE Threads::Threads)

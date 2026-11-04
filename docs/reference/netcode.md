@@ -490,10 +490,10 @@ game's own font and skin art (Paint / `GameUiRenderer`); no OotF art is used.
 
 | Page | Contents |
 | --- | --- |
-| Multiplayer (OotF's player setup screen) | Player Name, Player Color (swatch), Human Skin (Rynn only for now), Dragon Skin (7 names, no effect yet), Connection Speed (Modem 28.8k .. LAN/T1 1M), Host Game, Join Game, mplayer.com (greyed: the service is gone), Back (saves the profile) |
+| Multiplayer (OotF's player setup screen) | Player Name, Player Color (swatch), Character (15-character initial roster), Dragon Skin (7 names, no effect yet), Connection Speed (Modem 28.8k .. LAN/T1 1M), Host Game, Join Game, mplayer.com (greyed: the service is gone), Back (saves the profile) |
 | Host Game | Server Name, Password (blank = open), Level Group (All Levels / Disc levels / Custom levels), Starting Level (14 disc levels, then the levels `ModManager::extraLevels()` reports, marked "(custom)"), Game Type (Versus scope: Deathmatch or Team Deathmatch from the team count, fixed; Co-op scope: Co-op, v6, greys the limits and teams and hosts a `MatchMode::Coop` match; the Multiplayer menu itself offers no Co-op), Maximum Number of Players 2..12, Kills Limit (No Limit, 5 .. 200), Time Limit (No Limit, 5 .. 45 minutes, 60), Number of Teams (No Teams, 2; 3 and 4 shown "(coming)" and not startable: the server has two teams), Friendly Fire? and Register With Master Servers? (greyed placeholders), Begin Game, Back. OotF takes the mode from the level type; here Game Type = Co-op means co-op, else teams >= 2 means team deathmatch, otherwise deathmatch (Dragon's Duel / Master of the Dragon are not implemented). |
 | Join Game | the server table Server Name / Current Level / Players / Ping sorted by ping (blue = LAN, white "+" = Add Server entry, green = selected, "[password]" marker), Refresh, Add Server (address entry; OK keeps it for this session), Server Info (IP, level, players, mode, password card), Password, Connect; a list row also joins. No Stop / Remove / master server / version-colour rows yet. |
-| Lobby | server / mode / map / limits, the roster (ready flags, team names Fire / Water, `[host]`), Ready, Start Match (host), Leave; a Loading card while the match starts. Team select (four teams) is not shown: the server assigns teams. |
+| Lobby | server / mode / map / limits, the roster (ready flags, team names Fire / Water, `[host]`, character names), Character (every mode, hosts and joiners), Ready, Start Match (host), Leave; a Loading card while the match starts. Team select (four teams) is not shown: the server assigns teams. |
 | In game | see "Match flow and HUD": **F4** held = scoreboard (Player / Kills / Deaths / Ping / Time), kill feed, death overlay with the respawn countdown, limits chip with the time left, **F6** = chat, results banner with the final standings, then the lobby page again after Quit to Title. OotF binds the scoreboard to Tab; here Tab is the inventory, hence F4. |
 
 Navigation: keyboard (arrows / WASD, Enter, Esc), mouse (hover, click, wheel, right click = back) and pad (D-pad, Cross,
@@ -501,6 +501,88 @@ Circle). Text fields (server name, password, address, player name) take typed ch
 last character, Right appends, Left deletes. Code: model and drawing `runtime/gameui/{include/gameui/Multiplayer.h,src/Multiplayer.cpp}`
 (std only, `gameui_multiplayer_test`), title integration `TitleRow::Multiplayer` / `TitlePage::Multiplayer` in `TitleScreen`,
 glue `drakan_settings_host.cpp` (`mpState`, `mpApply`, `mpHudDraw`), network control `drakan_netplay.h`.
+
+### Character selection and original-asset previews (2026-11-03)
+
+The main menu's former `Human Skin` row and every lobby now use `drakan_coop_character::roster()` and emit
+`SetCharacter` with a class id, not an index into a one-element skin list. Hosts and joiners have the same choices;
+Rynn is not reserved for the host. The initial PAL roster is restricted to **15 human-sized characters**: Rynn,
+Northmen Archer, Male Villager, Monk, Blacksmith, Denman, Zola Dane (Passive), Monk Boss, Ranwulf, Guard 1, Captain,
+Sevoth, Nichols the Bold, Atlus and Capn Serris. The full metadata table remains available for investigation, but
+`kSelectableCharacters` (generated from `CHARACTER_IDS`) alone controls `roster()` / `known()`; other ids fall back to
+Rynn, including old saved choices. Every NPC choice must also be a humanoid with idle, walk, run, attack and death clips;
+both the generator and runtime enforce this. Non-combat Mage / Empress variants are excluded. Items, inventory and
+combat use the normal player mechanics and the known NPC hand-joint layout. Creatures / Arokh are not main-player
+choices; dragon appearance belongs to Dragon Skin and dragon-required modes / scripts (e.g. Dragon's Duel), not this
+NPC selector. This is not a mod importer.
+`multiplayer.ini` persists `character = <decimal class id>` separately from the old `model` index;
+`DRAKAN_COOP_CHARACTER` still takes precedence. The choice is relayed through lobby Status and PlayerState in all modes.
+
+`analysis/scripts/character_previews.py` exports original MOD geometry, UVs and TXD materials as private `.dcpm` model
+bundles, not pre-rendered frames. The PAL `Build-LocalGame.ps1` path runs it automatically, caching by script / ISO
+signature under the existing WorkDir's `bin/previews/chars/` and deploying with the normal play-folder refresh. No save
+fixture, game launch, capture run, AI art or third-party Python package is needed. The decoder handles PS2 LOD polygon
+separators / unused trailing polygons and `.DB` texture dependencies. All extracted output remains private and ignored.
+
+The menu loads `previews/chars/<hex4 class id>.dcpm` asynchronously. `settings/CharacterPreview` projects the actual
+bind-pose mesh continuously, depth-orders its triangles and submits textured geometry to the overlay GPU at the panel's
+output resolution (both D3D11 and WebGPU). Both panels request `ImageKind::CharacterModel`. There is no 160 x 240 image
+being enlarged and no twelve-frame / 6-fps rotation. Original PS2 texture detail is retained, using the overlay's linear
+texture filtering. Missing / invalid models are explicitly labelled **Character preview unavailable**, never replaced
+with fake art or cached PNGs. Player colour does not recolour the character. Legacy strip generation remains available
+only with the exporter's investigation option `--turntables`.
+
+The former `Dragon Skin` row was an unimplemented list of seven colour names. It is now **Dragon Appearance: Arokh
+(original)**, disabled until real alternatives exist; it does not select Arokh as the main humanoid player.
+
+**Local character appearance:** the selected character is also drawn on its owner's screen during a multiplayer match.
+`drakan_ghost` drives a render-only body from the local pose using the character's own skeleton / mapped clips. The
+per-object draw hook (`0x189b38`, chained after the foliage hook) hides the controller model, while the selected body
+uses its own native render preparation. Merely substituting the model pointer at the final draw is too late: it reuses
+the wrong skinning / material state. Collision and visibility share cell membership, so `RenderWorld` (`0x139010`)
+temporarily files the cosmetic body for rendering and unfiles it on return; PadMgr also unfiles it before simulation.
+The real controller remains the gameplay collision / damage actor. The original body is not hidden until the new body
+has actually reached the native draw pipeline. Cosmetic held items replace the original held-item draws when ready. Scene capture
+also excludes the old model / held items, retaining the selected body for reflections. No player visibility flags,
+controller pointers, inventory, HP, camera or skeleton are swapped. Movement / combat use the existing player mechanics;
+All selectable NPCs have native combat clips. The PAL build also generates a private compatible motion pack from the
+user's disc: all 219 Rynn controller clips are retargeted through source/target bind frames to each selected NPC rig.
+When this pack is loaded, exact source clip/time mapping preserves directional jumps, rolls/cartwheels, landing phases,
+weapon grips and attacks. NPCs receive a native torso playback channel, and live channels are routed by their actual owning nodes, retaining
+independent lower and upper body motion. Without the pack, missing airborne/evasive animations fall back to a held own-rig ready pose.
+
+The local NPC sound hook substitutes only the seven Rynn `HitRxn` vocalizations. Characters with configured damage
+voices use those; other curated male NPCs share the original Nichols nonverbal male damage reaction set. Weapon
+impacts, hard landings and unrelated audio remain unchanged. Rynn and ordinary single-player audio retain the original
+path. This supplies appropriate shared male reactions, not newly recorded individual character voices.
+
+Avatar preparation is asynchronous and never covers gameplay or mutes input. It starts during a session's level
+loading rather than waiting for Playing. At RenderWorld entry, the cosmetic body takes the completed gameplay
+transform, avoiding the previous PadMgr-to-render position lag. The original model is suppressed at draw submission;
+its gameplay visibility flags are not mutated (native animation / equipment preparation relies on them). The collision/controller actor remains an
+implementation detail; there must only be one visible avatar at its actual movement position.
+Leaving the match, selecting Rynn, and level / save /
+restore transitions clear the render substitution; local bodies and held items are destroyed through the existing
+lifecycle cleanup. They respawn after the world is ready. While mounted, the linked local rider supplies the passenger
+transform / clip instead of the dragon's pose; Arokh's controller is left alone.
+
+Arena campaign cleanup protects all ghost-owned local / remote bodies before inspecting NPC class or HP. A player
+avatar being an NPC is not permission to delete it as campaign population. Regression evidence and the removed
+cosmetic loading gate are documented in `docs/journal/2026-11-04/arena-avatar-respawn-loop.md`.
+
+**Campaign-free arena loading:** stock campaign terrain reused by a versus arena is filtered at the HLE file-open
+boundary, before any placed actor initialization. The private LVL view retains the player, camera, level properties,
+scenery, lights, sky and ambient visual/audio effects; it removes NPC-bank placements and all non-environment classes
+(cutscenes, detectors, timers, sequences, shops, quests, exits and campaign pickups). Retained object links to removed
+placements are pruned. Other SRSC entries, including terrain, stay byte-identical. The original disc / mod overlay is
+not modified; campaign and co-op opens get original bytes. The ordinary periodic arena sweep remains a safety net,
+not the mechanism relied upon to stop a mission from starting. Built-in arenas declare their own starting dagger;
+inventory-private factory items are stowed through the native inventory path without requiring a world registry ref.
+
+**Character shadows:** the active character projector is `0x1ab890` (a0 = projector manager, a1 = model), a separate
+path from `0x189b38` mesh drawing. The local view redirects the full projector to the selected NPC before silhouette /
+pose preparation and suppresses a duplicate projection of the cosmetic body. The manager and light remain unchanged.
+The unused generic-model shadow paths are not hooked. See the dated arena/shadow investigation for live proof.
 
 ### Session control API (`drakan_netplay.h`)
 

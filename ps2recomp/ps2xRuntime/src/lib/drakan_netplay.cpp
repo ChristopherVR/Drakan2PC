@@ -1050,6 +1050,16 @@ void runSession(const Cmd& c, drakan::net::ServerBrowser& browser, uint64_t& las
                     else if (p.self && client.rttMs() >= 0)
                         p.pingMs = static_cast<int>(client.rttMs());
                     p.character = kv.second.character;
+                    // Playing snapshots are authoritative for the body (direct-start sessions may skip lobby
+                    // selection).
+                    if (client.phase() == MatchPhase::Playing) {
+                        PlayerState pose;
+                        uint32_t sampleMs = 0;
+                        if (p.self)
+                            p.character = drakan_coop_character::selected();
+                        else if (client.newestSample(kv.first, pose, sampleMs))
+                            p.character = pose.character;
+                    }
                     if (p.self)
                         s.selfReady = p.ready;
                     s.roster.push_back(std::move(p));
@@ -2116,8 +2126,10 @@ void probeDragonHp(const uint8_t* rdram, uint32_t handle, double t) {
 }
 
 void beforePadMgr(const uint8_t* rdram) {
-    if (!g_enabled.load(std::memory_order_relaxed) || !rdram)
+    if (!g_enabled.load(std::memory_order_relaxed) || !rdram) {
+        drakan_ghost::setLocalCharacterEnabled(false);
         return;
+    }
     loadDragonEnv();
     const double t = nowSec();
     const uint32_t myLevel = g_levelHash.load();
@@ -2164,6 +2176,9 @@ void beforePadMgr(const uint8_t* rdram) {
         remotes = g_s.remotes;
         playing = g_s.playing;
     }
+    // Prepare the avatar during the session's level loading, not only after Playing. Native loading UI already
+    // covers that transition; cosmetic preparation must never add a gameplay-blocking gate of its own.
+    drakan_ghost::setLocalCharacterEnabled(g_inSession.load() && myLevel != 0 && !transition);
     for (auto it = g_views.begin(); it != g_views.end();) {
         if (!remotes.count(it->first)) {
             hide(it->first, it->second, "player left");

@@ -10,6 +10,8 @@ param(
     [string]$ToolWorkDir,
     # Playable folder, cleaned and refilled from the fresh build on every run (default <repo>/dist/DrakanPC).
     [string]$DistDirectory,
+    # Explicit private mod pack source to install; existing mods survive ordinary rebuilds.
+    [string]$ModDirectory,
     [switch]$NoDist,
     [string]$Python = 'python',
     # NVIDIA options. A DLSS SDK at <repo>/tools/dlss/dlss_sdk is picked up automatically; pass -DlssSdkDirectory for
@@ -87,6 +89,16 @@ $RepoRoot = (Resolve-Path -LiteralPath $RepoRoot).Path
 $IsoPath = (Resolve-Path -LiteralPath $IsoPath).Path
 if (-not $WorkDir) { $WorkDir = Join-Path $RepoRoot 'build/local-game' }
 $WorkDir = [IO.Path]::GetFullPath($WorkDir)
+# One writer per build tree; game instances do not take this lock.
+New-Item -ItemType Directory -Force -Path (Split-Path $WorkDir) | Out-Null
+try {
+    $buildWriterLock = [IO.File]::Open("$WorkDir.build.lock", [IO.FileMode]::OpenOrCreate,
+        [IO.FileAccess]::ReadWrite, [IO.FileShare]::None)
+} catch {
+    throw "Another build owns $WorkDir. Wait for it to finish before rebuilding this tree."
+}
+try {
+
 if ($Incremental) {
     if (-not (Test-Path -LiteralPath (Join-Path $WorkDir 'local-input.json') -PathType Leaf)) {
         throw "$WorkDir is not a prepared build directory; run a full build into it first (without -Incremental)."
@@ -374,6 +386,16 @@ if ($windowsHost) {
 $gameExe = Join-Path $gameOutput $gameName
 if (-not (Test-Path -LiteralPath $gameExe -PathType Leaf)) { throw "Build did not produce $gameExe" }
 Write-BuildStep 'Setting up the play folder'
+if ($gameRegion -eq 'pal') {
+    # Private derivatives of the supplied disc, never tracked / downloaded. Cached in the existing WorkDir; copied
+    # through the normal deployment below, so the multiplayer menu has live original meshes on its first launch.
+    Write-Detail 'Extracting original character meshes and materials'
+    Invoke-Checked $Python @((Join-Path $RepoRoot 'analysis/scripts/character_previews.py'),'--iso',$IsoPath,
+        '--out',(Join-Path $gameOutput 'previews/chars'))
+    Invoke-Checked $Python @('-I',(Join-Path $RepoRoot 'analysis/scripts/character_motion.py'),'--iso',$IsoPath,
+        '--out',(Join-Path $gameOutput 'mods/drakan-character-motion.zip'))
+
+}
 if (-not $NoDist) {
     # A non-PAL build gets its own play folder so it never replaces the PAL one (dist/DrakanPC-usa).
     $regionSuffix = if ($gameRegion -eq 'pal') { '' } else { "-$gameRegion" }
@@ -386,7 +408,7 @@ if (-not $NoDist) {
         throw 'DistDirectory cannot be a filesystem root or the source checkout.'
     }
     # Saves, user settings and hand-staged assets survive the clean; everything else is a build product or stale.
-    $keep = 'mc0','mc1','textures','movies','subtitles','nr','ngx_data','*.ini','Play*.cmd','Play*.sh','PLAY.txt'
+    $keep = 'mc0','mc1','mc0_*','mc1_*','saves','mods','textures','movies','subtitles','nr','ngx_data','*.ini','Play*.cmd','Play*.sh','PLAY.txt'
     New-Item -ItemType Directory -Force -Path $DistDirectory | Out-Null
     foreach ($item in Get-ChildItem -LiteralPath $DistDirectory -Force) {
         $name = $item.Name
@@ -402,6 +424,15 @@ if (-not $NoDist) {
         if ($keep | Where-Object { $name -like $_ }) { continue }
         if ($name -like '*.map' -or $name -like '*.log') { continue }
         Copy-Item -LiteralPath $item.FullName -Destination $DistDirectory -Recurse -Force
+    }
+    if ($ModDirectory) {
+        Invoke-Checked $Python @((Join-Path $PSScriptRoot 'install_private_mods.py'),
+            '--source',$ModDirectory,'--target',(Join-Path $DistDirectory 'mods'))
+    }
+    if ($gameRegion -eq 'pal') {
+        Invoke-Checked $Python @((Join-Path $PSScriptRoot 'install_private_mods.py'),
+            '--source',(Join-Path $gameOutput 'mods/drakan-character-motion.zip'),
+            '--target',(Join-Path $DistDirectory 'mods'),'--activate','drakan-character-motion')
     }
     if ($windowsHost) {
         # The DLSS runtime comes from the player's own NVIDIA SDK download (or an override in local/nvidia/dlss); it is
@@ -488,3 +519,7 @@ Write-Detail "Private executable: $gameExe"
 Write-Detail "ISO playback path: $IsoPath"
 Write-Detail "Launch from PowerShell: Start-Process -FilePath '$quotedExe' -WorkingDirectory '$quotedOutput'"
 Write-Detail 'Local ISO/ELF paths and default input bindings are staged next to the executable; existing configs are preserved. No launch or upload was performed.'
+
+} finally {
+    $buildWriterLock.Dispose()
+}

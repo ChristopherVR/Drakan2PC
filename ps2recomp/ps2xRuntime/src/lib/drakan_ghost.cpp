@@ -1,6 +1,7 @@
 // Drakan: ghost players (drakan_ghost.h). PAL addresses are canonical, translated through the disc profile.
 #include "drakan_ghost.h"
 #include "drakan_coop_character.h"
+#include "drakan_local_character_view.h"
 #include "drakan_lifecycle.h"
 #include "drakan_region.h"
 #include "gameui/GuestMemory.h"
@@ -72,6 +73,7 @@ struct Ghost {
     bool rawSet = false;
     bool standInLogged = false;
     world::ChannelPose rawLower, rawUpper;
+    bool localVisual = false; // render-only local body: cell membership is scoped to world rendering
 };
 
 std::atomic<bool> g_enabled{false};
@@ -105,8 +107,69 @@ std::atomic<unsigned> g_sinceLoad{0};
 std::atomic<unsigned> g_spawnFailures{0};
 constexpr unsigned kReadyTicks = 90;
 double g_gameTime = 0; // seconds of game time (sum of the engine's per-tick dt, ctx+0x24), EE thread only
-uint32_t g_t1 = 0, g_t2 = 0, g_t3 = 0, g_handlerSlot = 0, g_w1 = 0, g_w2 = 0, g_w3 = 0;
+uint32_t g_t1 = 0, g_t2 = 0, g_t3 = 0, g_channelDone = 0, g_handlerSlot = 0, g_w1 = 0, g_w2 = 0, g_w3 = 0;
 PS2Runtime::RecompiledFunction g_rynn = nullptr;
+PS2Runtime::RecompiledFunction g_renderObject = nullptr;
+PS2Runtime::RecompiledFunction g_characterProjector = nullptr;
+PS2Runtime::RecompiledFunction g_playSound = nullptr;
+uint32_t g_shadowedBody = 0;
+PS2Runtime::RecompiledFunction g_renderWorld = nullptr;
+PS2Runtime::RecompiledFunction g_endWorld = nullptr;
+uint32_t g_localWorldBody = 0, g_localWorldReturn = 0;
+bool g_localEnabled = false;
+int g_localId = 0;
+unsigned g_localRetry = 0;
+uint32_t g_localSource = 0;
+uint32_t g_localDrawn = 0;
+world::PoseReadState g_localRead;
+
+void hookPlaySound(uint8_t* ram, R5900Context* c, PS2Runtime* rt);
+
+void hookRenderObject(uint8_t* ram, R5900Context* c, PS2Runtime* rt) {
+    if (c->pc == guestAddress(0x189b38u)) {
+        const uint32_t object = getRegU32(c, 4);
+        uint32_t draw = drakan_local_character::g_view.nativeObject(object);
+        const auto& view = drakan_local_character::g_view;
+        if (object == view.body && object && g_localDrawn != object) {
+            g_localDrawn = object;
+            std::fprintf(stderr, "[local-character] native draw ready: body %x\n", object);
+        }
+        {
+            std::lock_guard<std::mutex> lock(g_m);
+            for (const Ghost& g : g_ghosts)
+                if (g.localVisual && g.info.handle == object && object != drakan_local_character::g_view.body)
+                    draw = 0; // includes bodies queued for removal / not ready to substitute yet
+        }
+        if (!draw) {
+            SET_GPR_U32(c, 2, 0u);
+            c->pc = getRegU32(c, 31);
+            return;
+        }
+    }
+    g_renderObject(ram, c, rt);
+}
+
+void hookCharacterProjector(uint8_t* ram, R5900Context* c, PS2Runtime* rt) {
+    // This is the character projector, not the generic model-shadow renderer. a0 is its manager; a1 is the model.
+    // Redirect before silhouette bounds / pose / projected geometry are prepared, retaining the manager and light.
+    if (c->pc == guestAddress(0x1ab890u)) {
+        const uint32_t source = getRegU32(c, 5);
+        const uint32_t caster = drakan_local_character::g_view.shadowObject(source);
+        if (!caster) {
+            SET_GPR_U32(c, 2, 0u);
+            c->pc = getRegU32(c, 31);
+            return;
+        }
+        if (caster != source) {
+            SET_GPR_U32(c, 5, caster);
+            if (g_shadowedBody != caster) {
+                g_shadowedBody = caster;
+                std::fprintf(stderr, "[local-character] character shadow: %x -> selected body %x\n", source, caster);
+            }
+        }
+    }
+    g_characterProjector(ram, c, rt);
+}
 
 // In-flight spawn (one at a time; written on the EE thread before the post, read by the trampolines on the dispatcher)
 struct Flight {
@@ -170,7 +233,7 @@ uint32_t linkedActor(const uint8_t* ram, uint32_t ctx, uint32_t ref) {
 // the camera mode word to 7 (Rynn's init takes its early-out for a second body), call 0x181ad8 returning to stage 2.
 void spawnStage1(uint8_t* rdram, R5900Context* c, PS2Runtime*) {
     // The dragon init may block (model / resource waits), which must stay possible: no no-preempt section for it.
-    g_flight.noPreempt = !g_flight.dragon;
+    g_flight.noPreempt = !g_flight.dragon && !g_flight.npc;
     if (g_flight.noPreempt)
         ps2xNoPreemptEnter(); // the camera mode word must stay 7 until Rynn's init has read it: no thread switch
     g_flight.savedSp = getRegU32(c, 29);
@@ -196,6 +259,39 @@ void spawnStage1(uint8_t* rdram, R5900Context* c, PS2Runtime*) {
     SET_GPR_U32(c, 9, g_flight.resIndex);
     SET_GPR_U32(c, 31, g_t2);
     c->pc = guestAddress(kFactory);
+}
+
+void finishSpawn(uint8_t* rdram, R5900Context* c, uint32_t actor) {
+    // Rynn's init took the camera-mode-7 early out, which skips the world insert (the engine's free-cam body is
+    // inserted by its own handler): do it here the way event 1 does, through the level object's vtable +0x74 (this
+    // adjusted by the +0x70 offset).
+    const uint32_t world = rd32(rdram, rd32(rdram, guestAddress(kContextPtr)) + 0x31c);
+    const uint32_t vt = ramPtr(world) && (!g_flight.npc || g_npcInsert) ? rd32(rdram, world + 0x24b4) : 0;
+    const uint32_t fn = ramPtr(vt) ? rd32(rdram, vt + 0x74) : 0;
+    if (ramPtr(actor) && fn) {
+        uint16_t adj = 0;
+        std::memcpy(&adj, rdram + ((vt + 0x70) & 0x1ffffffu), 2);
+        SET_GPR_U32(c, 4, world + static_cast<uint32_t>(static_cast<int32_t>(static_cast<int16_t>(adj))));
+        SET_GPR_U32(c, 5, actor);
+        SET_GPR_U32(c, 6, 0xffffffffu);
+        SET_GPR_U32(c, 31, g_t3);
+        g_flight.actor = actor;
+        c->pc = fn;
+        return;
+    }
+    SET_GPR_U32(c, 29, g_flight.savedSp);
+    SET_GPR_U32(c, 31, g_flight.savedRa);
+    c->pc = g_flight.savedRa;
+    if (g_flight.noPreempt)
+        ps2xNoPreemptLeave();
+    g_busy.store(false);
+}
+
+void spawnChannelDone(uint8_t* rdram, R5900Context* c, PS2Runtime*) {
+    const uint32_t sk = rd32(rdram, g_flight.actor + world::skel::kHandleSkeleton);
+    std::fprintf(stderr, "[character-motion] split torso channel: actor %x skeleton %x channels %u\n", g_flight.actor,
+                 sk, rd32(rdram, sk + world::skel::kChannelCount));
+    finishSpawn(rdram, c, g_flight.actor);
 }
 
 // Stage 2: the factory returned the actor in v0. Restore the camera mode and the stack, swap the handler (what 0x283ae0
@@ -258,29 +354,18 @@ void spawnStage2(uint8_t* rdram, R5900Context* c, PS2Runtime*) {
         if (it != g_ghosts.end())
             g_ghosts.erase(it);
     }
-    // Rynn's init took the camera-mode-7 early out, which skips the world insert (the engine's free-cam body is
-    // inserted by its own handler): do it here the way event 1 does, through the level object's vtable +0x74 (this
-    // adjusted by the +0x70 offset).
-    const uint32_t world = rd32(rdram, rd32(rdram, guestAddress(kContextPtr)) + 0x31c);
-    const uint32_t vt = ramPtr(world) && (!g_flight.npc || g_npcInsert) ? rd32(rdram, world + 0x24b4) : 0;
-    const uint32_t fn = ramPtr(vt) ? rd32(rdram, vt + 0x74) : 0;
-    if (ramPtr(actor) && fn) {
-        uint16_t adj = 0;
-        std::memcpy(&adj, rdram + ((vt + 0x70) & 0x1ffffffu), 2);
-        SET_GPR_U32(c, 4, world + static_cast<uint32_t>(static_cast<int32_t>(static_cast<int16_t>(adj))));
-        SET_GPR_U32(c, 5, actor);
-        SET_GPR_U32(c, 6, 0xffffffffu);
-        SET_GPR_U32(c, 31, g_t3);
-        g_flight.actor = actor;
-        c->pc = fn;
+    g_flight.actor = actor;
+    const uint32_t sk = ramPtr(actor) ? rd32(rdram, actor + world::skel::kHandleSkeleton) : 0;
+    if (g_flight.npc && ramPtr(sk) && g_channelDone) {
+        // Channel creation may allocate / yield: enter through the spawn trampoline, never a nested call.
+        // All curated rigs share torso node 2; root retains the independent locomotion channel.
+        SET_GPR_U32(c, 4, sk);
+        SET_GPR_U32(c, 5, 2u);
+        SET_GPR_U32(c, 31, g_channelDone);
+        c->pc = guestAddress(0x102e70u);
         return;
     }
-    SET_GPR_U32(c, 29, g_flight.savedSp);
-    SET_GPR_U32(c, 31, g_flight.savedRa);
-    c->pc = g_flight.savedRa;
-    if (g_flight.noPreempt)
-        ps2xNoPreemptLeave();
-    g_busy.store(false);
+    finishSpawn(rdram, c, actor);
 }
 
 // Stage 3: the world insert returned; hand the actor back as the result.
@@ -446,6 +531,28 @@ double nowSeconds() {
 
 // Writes the driven clips into the ghost skeleton's channels (sk = *(handle+0x50), channels at sk+0xe8, stride 0x80,
 // clip +0x50, time +0x58). Returns the number of channels written.
+void hookPlaySound(uint8_t* ram, R5900Context* c, PS2Runtime* rt) {
+    // PlaySound's a1 is a resource id. Only damage vocalizations change; impact / weapon / ambient sounds pass through.
+    // The controller remains Rynn for gameplay, so its native HitRxn arrays would otherwise supply Rynn's voice.
+    if (c->pc == guestAddress(0x1b7f30u) && g_localEnabled && g_localSource && g_localId) {
+        const uint32_t sound = getRegU32(c, 5);
+        const uint32_t sysHi = g_levelSysHi.load();
+        // A relocated SYSTEM bank can leave another resource in bank 2. Do not reinterpret that resource as Rynn.
+        const uint32_t canonical =
+            sysHi && (sound & 0xffff0000u) != sysHi ? 0u : (sysHi ? 0x20000u | (sound & 0xffffu) : sound);
+        const uint32_t mapped = drakan_coop_character::mapHitSound(drakan_coop_character::selected(), canonical);
+        if (mapped != canonical) {
+            if (!mapped) {
+                SET_GPR_U32(c, 2, 0u); // NPC has no damage voice: no sound instance, preserving native caller contract
+                c->pc = getRegU32(c, 31);
+                return;
+            }
+            SET_GPR_U32(c, 5, mapped);
+        }
+    }
+    g_playSound(ram, c, rt);
+}
+
 int writeAnim(drakan_input::IGuest& guest, const Ghost& g) {
     if (g.character && g.rawSet) { // stand-in character: its own clips; channel 0 (locomotion) lower, the others upper
         const uint32_t sk = guest.read32(g.info.handle + world::skel::kHandleSkeleton);
@@ -458,11 +565,14 @@ int writeAnim(drakan_input::IGuest& guest, const Ghost& g) {
         const auto up = split ? drakan_coop_character::mapClip(g.character, g.rawUpper.clip, g.rawUpper.time) : lo;
         int written = 0;
         for (uint32_t i = 0; i < n; ++i) {
-            const auto& m = (i == 0 || !split) ? lo : up;
+            const uint32_t a = ch + i * world::skel::kChannelStride;
+            const uint32_t node = guest.read32(a + 4u);
+            const auto& m = (!split || drakan_coop_character::nodeUsesLower(g.character, node)) ? lo : up;
             if (!m.clip)
                 continue;
-            const uint32_t a = ch + i * world::skel::kChannelStride;
-            guest.write32(a + world::skel::kChannelClip, m.clip);
+            const uint32_t sysHi = g_levelSysHi.load();
+            const uint32_t clip = (m.clip & 0xffff0000u) == 0x20000u && sysHi ? sysHi | (m.clip & 0xffffu) : m.clip;
+            guest.write32(a + world::skel::kChannelClip, clip);
             guest.writeF(a + world::skel::kChannelTime, m.time);
             ++written;
         }
@@ -540,6 +650,70 @@ void refileHandle(drakan_input::IGuest& guest, uint32_t ctx, uint32_t h) {
     }
 }
 
+// Collision and visibility share cell membership. Expose the cosmetic body to those lists only while the engine
+// renders a world, allowing its normal material / skinning / culling preparation without a gameplay collider.
+void localRenderCell(uint8_t* ram, R5900Context* c, PS2Runtime* rt, uint32_t body, bool insert) {
+    if (!ramPtr(body) || rd32(ram, body) != guestAddress(kHandleVtable))
+        return;
+    const uint32_t ctx = rd32(ram, guestAddress(kContextPtr));
+    const uint32_t world = ramPtr(ctx) ? rd32(ram, ctx + 0x31c) : 0;
+    const uint32_t vt = ramPtr(world) ? rd32(ram, world + 0x24b4) : 0;
+    if (!ramPtr(vt))
+        return;
+    drakan_lifecycle::Event e;
+    e.rdram = ram;
+    e.ctx = c;
+    e.runtime = rt;
+    if (insert) {
+        const auto& view = drakan_local_character::g_view;
+        const uint32_t source = view.poseSource ? view.poseSource : view.controller;
+        if (!ramPtr(source))
+            return;
+        wr32(ram, body + 0x7c, rd32(ram, source + 0x7c));
+        wr32(ram, body + 0x104, rd32(ram, body + 0x104) & ~0x800u);
+        const int16_t adjust = static_cast<int16_t>(rd32(ram, vt + 0x88) & 0xffffu);
+        drakan_lifecycle::callGuest(e, rd32(ram, vt + 0x8c), world + adjust, body);
+    } else {
+        if (rd32(ram, body + 0x104) & 0x10000000u) {
+            const int16_t adjust = static_cast<int16_t>(rd32(ram, vt + 0x80) & 0xffffu);
+            drakan_lifecycle::callGuest(e, rd32(ram, vt + 0x84), world + adjust, body);
+        }
+        wr32(ram, body + 0x7c, 0xffffffffu);
+    }
+}
+
+void hookRenderWorld(uint8_t* ram, R5900Context* c, PS2Runtime* rt) {
+    if (c->pc == guestAddress(0x139010u)) {
+        g_localWorldBody = drakan_local_character::g_view.body;
+        g_localWorldReturn = getRegU32(c, 31);
+        if (g_localWorldBody) {
+            const auto& view = drakan_local_character::g_view;
+            const uint32_t source = view.poseSource ? view.poseSource : view.controller;
+            // Sample the completed gameplay transform, not the preceding PadMgr pose. This keeps the visible avatar
+            // on the real movement / collision position even when the game advances several updates per present.
+            if (ramPtr(source) && rd32(ram, source) == guestAddress(kHandleVtable)) {
+                std::memcpy(ram + g_localWorldBody + 0x14, ram + source + 0x14, 0x30);
+            }
+            localRenderCell(ram, c, rt, g_localWorldBody, true);
+        }
+    }
+    g_renderWorld(ram, c, rt);
+    if (g_localWorldBody && c->pc == g_localWorldReturn) {
+        localRenderCell(ram, c, rt, g_localWorldBody, false);
+        g_localWorldBody = 0;
+    }
+}
+
+void hookEndWorld(uint8_t* ram, R5900Context* c, PS2Runtime* rt) {
+    if (c->pc == guestAddress(0x147690u) && getRegU32(c, 31) == guestAddress(0x139344u)) {
+        if (g_localWorldBody) {
+            localRenderCell(ram, c, rt, g_localWorldBody, false);
+            g_localWorldBody = 0;
+        }
+    }
+    g_endWorld(ram, c, rt);
+}
+
 void updateSector(drakan_input::IGuest& guest, uint32_t ctx, Ghost& g) {
     const uint32_t h = g.info.handle;
     float p[3];
@@ -586,6 +760,15 @@ void applyPose(Ghost& g, const world::PlayerPose& p) {
         return;
     }
     if (g.character) {
+        if (g_log && (!g.rawSet || g.rawLower.clip != p.lower.clip || g.rawUpper.clip != p.upper.clip)) {
+            const auto lower = drakan_coop_character::mapClip(g.character, p.lower.clip, p.lower.time);
+            const auto upper = drakan_coop_character::mapClip(g.character, p.upper.clip, p.upper.time);
+            std::fprintf(
+                stderr,
+                "[character-motion] local=%d character=%x source=%x/%x mapped=%x/%x mask=%x pos=%.1f,%.1f,%.1f\n",
+                g.localVisual ? 1 : 0, g.character, p.lower.clip, p.upper.clip, lower.clip, upper.clip, p.lowerMask,
+                p.position.x, p.position.y, p.position.z);
+        }
         g.rawLower = p.lower;
         g.rawUpper = p.upper;
         g.rawSet = true;
@@ -600,10 +783,135 @@ void applyPose(Ghost& g, const world::PlayerPose& p) {
     }
 }
 
+// g_m held, EE thread. Clearing this view restores the original body immediately: no player flags, skeleton,
+// inventory, camera links or controller pointers were changed.
+void resetLocalCharacter() {
+    drakan_local_character::g_view = {};
+    g_localWorldBody = g_localWorldReturn = 0;
+    for (Ghost& g : g_ghosts)
+        if (g.info.id == g_localId)
+            g.destroyRequested = true;
+    g_localId = 0;
+    g_localSource = 0;
+    g_localDrawn = 0;
+    g_shadowedBody = 0;
+}
+
+uint32_t localReference(drakan_input::IGuest& guest, uint32_t ctx, uint32_t ref) {
+    const uint32_t table = guest.read32(ctx + 0x7c);
+    if (!ref || ref > guest.read32(ctx + 0x84) + 1 || !ramPtr(table))
+        return 0;
+    const uint32_t h = guest.read32(table + (ref - 1) * 8u);
+    return ramPtr(h) && guest.read32(h) == guestAddress(kHandleVtable) && guest.read16(h + 0x12) == ref &&
+                   !(guest.read32(h + 4) & 0x80000000u)
+               ? h
+               : 0;
+}
+
+void localCharacterTick(drakan_input::IGuest& guest, uint32_t ctx) {
+    const uint16_t character = drakan_coop_character::selected();
+    if (!g_localEnabled || !character || !g_renderObject || drakan_lifecycle::transitionActive() ||
+        g_cutsceneLevel.load()) {
+        resetLocalCharacter();
+        return;
+    }
+    if (g_sinceLoad.load() < kReadyTicks)
+        return;
+    world::Globals globals;
+    globals.contextPtr = guestAddress(kContextPtr);
+    globals.hpKey = guestAddress(globals.hpKey);
+    globals.playerStats = guestAddress(globals.playerStats);
+    globals.handleVtable = guestAddress(kHandleVtable);
+    world::PlayerPose pose;
+    if (world::readPlayerPose(GuestMem(guest), globals, g_localRead, g_gameTime, g_tick, pose) != world::PoseStatus::Ok)
+        return;
+    uint32_t source = pose.handle;
+    if (pose.mounted) {
+        const uint32_t inner = guest.read32(source + 0xfc);
+        const uint32_t data = ramPtr(inner) ? guest.read32(inner + 0x10) : 0;
+        source = ramPtr(data) ? localReference(guest, ctx, guest.read16(data + 0x4d8)) : 0;
+        if (!source) {
+            resetLocalCharacter();
+            return;
+        }
+        // The actual passenger supplies its world transform and Ride clip, not the dragon's animation.
+        pose.position = {guest.readF(source + 0x14), guest.readF(source + 0x18), guest.readF(source + 0x1c)};
+        for (int i = 0; i < 9; ++i)
+            pose.rotation[i] = guest.readF(source + 0x20 + 4u * i);
+        const uint32_t sk = guest.read32(source + 0x50);
+        const uint32_t ch = ramPtr(sk) ? guest.read32(sk + world::skel::kChannels) : 0;
+        if (!ramPtr(ch))
+            return;
+        pose.lower =
+            pose.upper = {guest.read32(ch + world::skel::kChannelClip), guest.readF(ch + world::skel::kChannelTime)};
+        pose.weaponRight = pose.weaponLeft = 0;
+    }
+    auto it = std::find_if(g_ghosts.begin(), g_ghosts.end(), [](const Ghost& g) { return g.info.id == g_localId; });
+    if (g_localId &&
+        (it == g_ghosts.end() || it->destroyRequested || it->character != character || g_localSource != source)) {
+        const bool failed = it == g_ghosts.end();
+        resetLocalCharacter();
+        g_localRetry = failed ? g_tick + 120 : g_tick;
+        it = g_ghosts.end();
+    }
+    if (!g_localId) {
+        if (g_tick < g_localRetry)
+            return;
+        Ghost body;
+        body.info.id = g_nextId++;
+        body.character = character;
+        body.localVisual = true;
+        body.hold = true;
+        g_localId = body.info.id;
+        g_localSource = source;
+        g_ghosts.push_back(body);
+        it = g_ghosts.end() - 1;
+        std::fprintf(stderr, "[local-character] selected %04x (%s), body id %d, controller %x unchanged\n", character,
+                     drakan_coop_character::entry(character).name.c_str(), g_localId, source);
+    }
+    applyPose(*it, pose);
+    it->wantRec[0] = pose.weaponRight;
+    it->wantRec[1] = pose.weaponLeft;
+    const uint32_t h = it->info.handle;
+    if (!h || !ramPtr(guest.read32(h + 0x50)))
+        return; // retain the original body while the selected body is loading
+    if (!drakan_local_character::g_view.body)
+        std::fprintf(stderr, "[local-character] visible %04x: body %x replaces model %x (render only)\n", character, h,
+                     source);
+    drakan_local_character::View view;
+    view.controller = source;
+    view.poseSource = source;
+    view.body = h;
+    const uint32_t inner = guest.read32(source + 0xfc);
+    const uint32_t data = ramPtr(inner) ? guest.read32(inner + 0x10) : 0;
+    if (ramPtr(data)) {
+        const uint32_t visual = guest.read32(data + 0x80);
+        if (ramPtr(visual) && guest.read32(visual) == guestAddress(kHandleVtable) &&
+            ramPtr(guest.read32(visual + 0x50)))
+            view.controller = visual;
+        if (!drakan_local_character::g_view.body)
+            std::fprintf(stderr, "[local-character] binding: actor %x, native visual %x, suppressed model %x\n", source,
+                         visual, view.controller);
+        if (!drakan_local_character::g_view.body)
+            std::fprintf(stderr, "[local-character] native shadow mode %u\n", guest.read32(guestAddress(0x4df434u)));
+    }
+    if (ramPtr(data))
+        for (unsigned hand = 0; hand < 2; ++hand)
+            if (it->weapon[hand]) {
+                const uint32_t holder = hand ? world::playerdata::kLeftHolder : world::playerdata::kRightHolder;
+                view.weapons[hand] =
+                    localReference(guest, ctx, guest.read16(data + holder + world::playerdata::kHolderWeaponRef));
+            }
+    drakan_local_character::g_view = view;
+}
+
 // Level load and save write (drakan_lifecycle, EE thread at the hooked call): ghosts must not survive either (the level
 // loader does not flush the kill list; the serialisers iterate every class 0x10009 actor).
 void destroyAll(const drakan_lifecycle::Event& e) {
     std::lock_guard<std::mutex> l(g_m);
+    resetLocalCharacter();
+    g_localRetry = 0;
+    g_localRead = {};
     for (const Ghost& g : g_ghosts)
         for (uint32_t w : g.weapon)
             if (w && drakan_lifecycle::destroyActor(e, w, true))
@@ -653,6 +961,10 @@ bool enabled() {
     return g_enabled.load();
 }
 
+void setLocalCharacterEnabled(bool active) {
+    g_localEnabled = active;
+}
+
 void install(PS2Runtime& rt) {
     const char* v = std::getenv("DRAKAN_GHOST");
     const char* mir = std::getenv("DRAKAN_GHOST_MIRROR");
@@ -670,14 +982,35 @@ void install(PS2Runtime& rt) {
         return;
     }
     g_rynn = rt.lookupFunction(guestAddress(kRynnHandler));
+    if (const uint32_t play = guestAddress(0x1b7f30u); play && rt.hasFunction(play)) {
+        g_playSound = rt.lookupFunction(play);
+        rt.replaceFunction(play, &hookPlaySound);
+    }
+    if (const uint32_t draw = guestAddress(0x189b38u); draw && rt.hasFunction(draw)) {
+        g_renderObject = rt.lookupFunction(draw);
+        rt.replaceFunction(draw, &hookRenderObject);
+    }
+    if (const uint32_t shadow = guestAddress(0x1ab890u); shadow && rt.hasFunction(shadow)) {
+        g_characterProjector = rt.lookupFunction(shadow);
+        rt.replaceFunction(shadow, &hookCharacterProjector);
+    }
+    if (const uint32_t draw = guestAddress(0x139010u); draw && rt.hasFunction(draw)) {
+        g_renderWorld = rt.lookupFunction(draw);
+        rt.replaceFunction(draw, &hookRenderWorld);
+    }
+    if (const uint32_t end = guestAddress(0x147690u); end && rt.hasFunction(end)) {
+        g_endWorld = rt.lookupFunction(end);
+        rt.replaceFunction(end, &hookEndWorld);
+    }
     g_t1 = freeSlot(rt, &spawnStage1);
     g_t2 = freeSlot(rt, &spawnStage2);
     g_t3 = freeSlot(rt, &spawnStage3);
+    g_channelDone = freeSlot(rt, &spawnChannelDone);
     g_handlerSlot = freeSlot(rt, &ghostHandler);
     g_w1 = freeSlot(rt, &weaponStage1);
     g_w2 = freeSlot(rt, &weaponStage2);
     g_w3 = freeSlot(rt, &weaponStage3);
-    if (!g_rynn || !g_t1 || !g_t2 || !g_t3 || !g_handlerSlot || !g_w1 || !g_w2 || !g_w3) {
+    if (!g_rynn || !g_t1 || !g_t2 || !g_t3 || !g_channelDone || !g_handlerSlot || !g_w1 || !g_w2 || !g_w3) {
         std::fprintf(stderr, "[ghost] disabled: Rynn's handler or a free function slot is missing\n");
         return;
     }
@@ -694,6 +1027,7 @@ void install(PS2Runtime& rt) {
     drakan_lifecycle::subscribe(drakan_lifecycle::Kind::BeforeSaveWrite, destroyAll);
     drakan_lifecycle::subscribe(drakan_lifecycle::Kind::AfterLevelLoad, onLoaded);
     drakan_lifecycle::subscribe(drakan_lifecycle::Kind::BeforeSaveRestore, onLoadStart);
+    drakan_lifecycle::subscribe(drakan_lifecycle::Kind::BeforeSaveRestore, destroyAll);
     drakan_lifecycle::subscribe(drakan_lifecycle::Kind::AfterSaveRestore, onLoadStart);
     if (const char* o = std::getenv("DRAKAN_GHOST_OFFSET"))
         std::sscanf(o, "%f,%f", &g_offX, &g_offZ);
@@ -894,7 +1228,8 @@ uint32_t recordIndex(drakan_input::IGuest& guest, uint32_t ctx, uint32_t rec) {
 // wrong item first (detach + the engine's kill list), then spawns the wanted one. True when a guest call was posted.
 bool startWeaponChange(drakan_input::IGuest& guest, uint32_t ctx) { // g_m held by the caller
     for (Ghost& g : g_ghosts) {
-        if (!g.info.handle || g.destroyRequested || g.dragon)
+        if (!g.info.handle || g.destroyRequested || g.dragon ||
+            (g.character && !drakan_coop_character::entry(g.character).humanoid))
             continue; // (a stand-in character's hand bone is looked up through the same properties: see coop-stand-ins)
         for (int hand = 0; hand < 2; ++hand) {
             if (g.wantRec[hand] == g.haveRec[hand])
@@ -993,6 +1328,10 @@ void beforePadMgr(drakan_input::IGuest& guest, drakan_input::InputModule& input)
     // Destroy: 0x1413c0(engine, actor) queues the kill, the engine frees it at its next flush.
     for (size_t i = 0; i < g_ghosts.size();) {
         const Ghost& g = g_ghosts[i];
+        if (g.destroyRequested && !g.info.handle && (!g_busy.load() || g_flight.ghostId != g.info.id)) {
+            g_ghosts.erase(g_ghosts.begin() + static_cast<long>(i));
+            continue;
+        }
         if (g.destroyRequested && g.info.handle) {
             for (uint32_t w : g.weapon)
                 if (w)
@@ -1014,6 +1353,7 @@ void beforePadMgr(drakan_input::IGuest& guest, drakan_input::InputModule& input)
     if (!(engineDt > 0.0f && engineDt < 0.25f))
         engineDt = 1.0f / 60.0f;
     g_gameTime += static_cast<double>(engineDt);
+    localCharacterTick(guest, ctx);
     if (g_mirror) {
         // Record the local player and replay the pose from 1.0 s ago beside it (EE thread).
         world::PlayerPose cur, past;
@@ -1125,8 +1465,23 @@ void beforePadMgr(drakan_input::IGuest& guest, drakan_input::InputModule& input)
             for (int k = 0; k < 9; ++k)
                 guest.writeF(g.info.handle + 0x20 + 4u * static_cast<uint32_t>(k), g.target.rot[k]);
             g.hasTransform = false;
-            if (!g_busy.load() && g_sectorUpdate)
-                updateSector(guest, ctx, g);
+            if (!g_busy.load()) {
+                if (g.localVisual) {
+                    // Keep the cosmetic body out of collision / blade-sweep cells during simulation. RenderWorld
+                    // temporarily files it for the native visibility / skinning pipeline, then unfiles it again.
+                    const uint32_t world = guest.read32(ctx + 0x31c);
+                    const uint32_t vt = ramPtr(world) ? guest.read32(world + 0x24b4) : 0;
+                    if (ramPtr(vt) && (guest.read32(g.info.handle + 0x104) & 0x10000000u)) {
+                        const uint32_t remove = guest.read32(vt + 0x84);
+                        const int16_t adjust = static_cast<int16_t>(guest.read16(vt + 0x80));
+                        if (ramPtr(remove))
+                            guest.call(drakan_input::GuestCall(remove).arg(world + adjust).arg(g.info.handle));
+                    }
+                    guest.write32(g.info.handle + 0x7c, 0xffffffffu);
+                } else if (g_sectorUpdate) {
+                    updateSector(guest, ctx, g);
+                }
+            }
         }
 
     if (g_log) {
@@ -1204,8 +1559,10 @@ void beforePadMgr(drakan_input::IGuest& guest, drakan_input::InputModule& input)
     const uint32_t sysHiNow = sysHi;
     g_levelSysHi.store(sysHi);
     if (want->character || want->dragon) {
-        const uint32_t rec = want->dragon ? (sysHiNow | (kDragonRecord & 0xffffu))
-                                          : drakan_coop_character::entry(want->character).recordId;
+        const uint32_t chosen = drakan_coop_character::entry(want->character).recordId;
+        const uint32_t rec = want->dragon                         ? (sysHiNow | (kDragonRecord & 0xffffu))
+                             : (chosen & 0xffff0000u) == 0x20000u ? sysHiNow | (chosen & 0xffffu)
+                                                                  : chosen;
         const uint32_t idx = recordIndex(guest, ctx, rec);
         if (idx == 0xffffu) {
             std::fprintf(stderr, "[ghost] spawn of id %d: record %x of character %x is not in this level's database\n",
@@ -1216,7 +1573,7 @@ void beforePadMgr(drakan_input::IGuest& guest, drakan_input::InputModule& input)
         }
         g_flight.resIndex = idx;
         g_flight.npc = true;
-        g_flight.dragon = want->dragon;
+        g_flight.dragon = want->dragon || chosen == kDragonRecord;
     }
     // Camera mode word: *(*(ctx+0x4b4)+0xfc)+0x10 = camera instance data, +0x14c
     const uint32_t cam = guest.read32(ctx + 0x4b4);

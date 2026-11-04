@@ -1,6 +1,7 @@
 // Drakan: PvP combat glue (drakan_pvp.h). PAL addresses are canonical, translated through the disc profile.
 // Evidence and the design: docs/journal/2026-10-31/pvp.md, docs/reference/netcode.md "PvP".
 #include "drakan_pvp.h"
+#include "drakan_pvp_targets.h"
 #include "drakan_arena.h"
 #include "drakan_ghost.h"
 #include "drakan_lifecycle.h"
@@ -145,7 +146,7 @@ uint32_t controlledActor(const uint8_t* rdram) {
 bool isGhost(uint32_t handle, int* id = nullptr) {
     bool found = false;
     drakan_ghost::forEach([&](const drakan_ghost::Info& i) {
-        if (i.handle && i.handle == handle) {
+        if (i.handle && i.handle == handle && drakan_netplay::playerOfGhost(i.id) > 0) {
             found = true;
             if (id)
                 *id = i.id;
@@ -219,8 +220,6 @@ void hookBladeHit(uint8_t* rdram, R5900Context* c, PS2Runtime* rt) {
 constexpr uint32_t kArrowClass = 0x1005fu, kSpellClass = 0x10008u, kDragonClass = 0x1001cu;
 constexpr uint16_t kSpellDamage = 10;
 constexpr float kProjSpawnRadius = 900.0f; // a projectile first seen farther from the player is somebody else's
-constexpr float kGhostRadius = 150.0f;     // horizontal reach of a ghost
-constexpr float kGhostBottom = -60.0f, kGhostTop = 460.0f; // vertical window around the ghost's origin
 constexpr unsigned kProjMaxAgeTicks = 600;
 
 struct Proj {
@@ -232,19 +231,6 @@ struct Proj {
 };
 std::map<uint32_t, Proj> g_proj;
 unsigned g_projTick = 0;
-
-bool segmentHitsGhost(const float a[3], const float b[3], const float g[3]) {
-    const float dx = b[0] - a[0], dy = b[1] - a[1], dz = b[2] - a[2];
-    const float len = std::sqrt(dx * dx + dy * dy + dz * dz);
-    const int steps = std::clamp(static_cast<int>(len / 50.0f) + 1, 1, 64);
-    for (int i = 0; i <= steps; ++i) {
-        const float t = static_cast<float>(i) / static_cast<float>(steps);
-        const float x = a[0] + dx * t - g[0], z = a[2] + dz * t - g[2], y = a[1] + dy * t - g[1];
-        if (x * x + z * z <= kGhostRadius * kGhostRadius && y >= kGhostBottom && y <= kGhostTop)
-            return true;
-    }
-    return false;
-}
 
 // Item property `index` of actor `h` (the property block's accessor: vtable +0x1c, this adjust at +0x18), 0 when
 // absent. The accessor only indexes a table: safe to call nested.
@@ -272,15 +258,13 @@ void scanProjectiles(drakan_input::IGuest& guest, const uint8_t* rdram, uint32_t
                    recs = ramPtr(res) ? rd32(rdram, res + 8) : 0;
     if (!ramPtr(table) || !ramPtr(recs))
         return;
-    struct Target {
-        int id;
-        float pos[3];
-    };
-    std::vector<Target> targets;
+    std::vector<detail::ProjectileTarget> targets;
     drakan_ghost::forEach([&](const drakan_ghost::Info& i) {
         if (i.handle)
             targets.push_back(
-                {i.id, {rdf(rdram, i.handle + 0x14), rdf(rdram, i.handle + 0x18), rdf(rdram, i.handle + 0x1c)}});
+                {i.id,
+                 drakan_netplay::playerOfGhost(i.id),
+                 {rdf(rdram, i.handle + 0x14), rdf(rdram, i.handle + 0x18), rdf(rdram, i.handle + 0x1c)}});
     });
     float me[3];
     for (int k = 0; k < 3; ++k)
@@ -313,15 +297,16 @@ void scanProjectiles(drakan_input::IGuest& guest, const uint8_t* rdram, uint32_t
             std::memcpy(pr.last, p, sizeof p);
             pr.born = g_projTick;
             pr.damage = cls == kArrowClass ? drakan::net::kArrowDamage : kSpellDamage;
-            // The projectile's own "Damage" (item property 0x1a, like a blade's): other arrow types and the spells
-            // carry their value there; the table / flat numbers stay the fallback for records without a plausible one.
-            const uint32_t own = actorProperty(guest, rdram, h, 0x1a);
-            // A spell projectile's property 0x1a reads 1 (measured, not its damage): only an arrow's value is trusted.
-            if (own >= (cls == kArrowClass ? 1u : 2u) && own <= drakan::net::kMaxProjectileDamage)
+            // Projectile class 0x1005f: property 0 is Damage; property 0x1a is Armor Piercing, not damage.
+            const uint32_t data = dataOf(rdram, h);
+            const uint32_t owner = ramPtr(data) ? registryObject(rdram, rd16(rdram, data + 0x130u)) : 0;
+            const bool ours = owner ? owner == player : std::sqrt(dx * dx + dy * dy + dz * dz) <= kProjSpawnRadius;
+            const uint32_t own = actorProperty(guest, rdram, h, 0u);
+            if (own >= 1u && own <= drakan::net::kMaxProjectileDamage)
                 pr.damage = static_cast<uint16_t>(own);
             std::fprintf(stderr, "[pvp] projectile %x class %x damage property %u -> claim damage %u\n", h, cls, own,
                          static_cast<unsigned>(pr.damage));
-            pr.claimed = std::sqrt(dx * dx + dy * dy + dz * dz) > kProjSpawnRadius; // not ours: never claim
+            pr.claimed = !ours; // never claim another actor's projectile
             if (g_probe)
                 std::fprintf(stderr, "[pvp] projectile %x class %x at %.0f %.0f %.0f (%s)\n", h, cls,
                              static_cast<double>(p[0]), static_cast<double>(p[1]), static_cast<double>(p[2]),
@@ -330,16 +315,13 @@ void scanProjectiles(drakan_input::IGuest& guest, const uint8_t* rdram, uint32_t
         }
         Proj& pr = it->second;
         if (!pr.claimed && g_projTick - pr.born <= kProjMaxAgeTicks) {
-            for (const Target& t : targets) {
-                if (!segmentHitsGhost(pr.last, p, t.pos))
-                    continue;
-                const int player = drakan_netplay::playerOfGhost(t.id);
+            if (const auto* target = detail::firstProjectileTarget(targets, pr.last, p)) {
                 pr.claimed = true;
                 std::fprintf(stderr, "[pvp] %s %x hit ghost %d (player %d) damage %u -> claim\n",
-                             cls == kArrowClass ? "arrow" : "spell", h, t.id, player, static_cast<unsigned>(pr.damage));
-                if (player > 0 && g_life.load() == static_cast<int>(Life::Alive))
-                    drakan_netplay::sendHitClaim(static_cast<uint8_t>(player), 2, pr.damage);
-                break;
+                             cls == kArrowClass ? "arrow" : "spell", h, target->ghost, target->player,
+                             static_cast<unsigned>(pr.damage));
+                if (g_life.load() == static_cast<int>(Life::Alive))
+                    drakan_netplay::sendHitClaim(static_cast<uint8_t>(target->player), 2, pr.damage);
             }
         }
         std::memcpy(pr.last, p, sizeof p);
@@ -853,8 +835,8 @@ void testPlaceGhosts(uint8_t* rdram, uint32_t player, unsigned tick) {
     }
     const float away[3] = {m[0], m[1] + 4000.0f, m[2]};
     drakan_ghost::forEach([&](const drakan_ghost::Info& i) {
-        if (!i.handle)
-            return;
+        if (!i.handle || drakan_netplay::playerOfGhost(i.id) <= 0)
+            return; // local cosmetic body must never be pinned or used as a projectile target
         const bool held = !oneEvery || drakan_netplay::playerOfGhost(i.id) == target;
         drakan_ghost::pinTransform(i.id, held ? pos : away, m + 3);
     });
@@ -936,7 +918,7 @@ void beforePadMgr(drakan_input::IGuest& guest, uint8_t* rdram) {
     // Remember where enemies are (for spawn selection) and where we walked.
     std::vector<Crumb> enemies;
     drakan_ghost::forEach([&](const drakan_ghost::Info& i) {
-        if (i.handle)
+        if (i.handle && drakan_netplay::playerOfGhost(i.id) > 0)
             enemies.push_back(
                 {{rdf(rdram, i.handle + 0x14), rdf(rdram, i.handle + 0x18), rdf(rdram, i.handle + 0x1c)}});
     });

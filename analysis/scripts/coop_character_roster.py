@@ -27,6 +27,26 @@ import odb_fields
 
 RYNN_CLASS = 2640  # SYSTEM.ODB "Rynn" (resource 0x20a50)
 NPC_RFL = 0x9D  # runtime class 0x1009d
+AROKH_CLASS = 0xA60
+EXCLUDED_BEHAVIOURS = {0x11, 0x70, 0x25, 0xA5, 0xBB, 0x3D, 0xB5, 0xBA}
+# Initial multiplayer roster: 15 human-sized characters, compatible with the existing camera and player mechanics.
+CHARACTER_IDS = (
+    0,
+    0xE88,
+    0xEE7,
+    0x16BF,
+    0x1626,
+    0x1642,
+    0x1643,
+    0x16C0,
+    0x166A,
+    0x16E1,
+    0x16EC,
+    0x177D,
+    0x177F,
+    0x1797,
+    0x1798,
+)
 ACTS = [
     "Idle",
     "Walk",
@@ -136,7 +156,34 @@ def npc_clips(cls):
     c["Crouch"] = first("Cower", "Crouch Ready")
     c["Block"] = first("Block Mid Animations", "Combat Ready")
     c["Draw"] = first("Aim Arrow anim", "Load Arrow anim")
+    # Creature and flying-character behaviours use different field names. Never put Rynn's clips on their skeletons.
+    alternatives = {
+        "Idle": ("Idle", "Combat Ready", "Hover", "Idle On Ground"),
+        "Walk": ("Flight", "Fly", "Move"),
+        "Run": ("Flight", "Fly", "Glide"),
+        "Attack": ("Attack Animations (no weapon)", "Center Attack Animations", "Attack", "Fire"),
+        "Hit": ("Hit Reaction",),
+        "Death": ("Ground Death", "Crash", "Fall"),
+        "RunBack": ("Walk Backward",),
+        "StrafeL": ("Ground Strafe L",),
+        "StrafeR": ("Ground Strafe R",),
+        "TurnL": ("Turn Left (Gnd)",),
+        "TurnR": ("Turn Right (Gnd)",),
+    }
+    for act, names in alternatives.items():
+        c[act] = c[act] or first(*names)
+    if not c["Idle"]:
+        # Non-combat characters may only have a named idle/cutscene animation.
+        for field in cls["fields"]:
+            clips = anims(cls, field["name"])
+            if clips:
+                c["Idle"] = clips[0]
+                break
     return c
+
+
+def selectable(cls):
+    return bool(cls.get("model") and cls["rfl_class"] not in EXCLUDED_BEHAVIOURS and npc_clips(cls)["Idle"])
 
 
 def main(argv=None):
@@ -160,21 +207,33 @@ def main(argv=None):
     rynn_acts = rynn_clip_activities(sys_odb[RYNN_CLASS])
     rows = []
     for cid, c in sorted(npc_odb.items()):
-        if c["rfl_class"] != NPC_RFL or not c.get("model"):
+        # Static props, animation waypoints and helper objects are not characters. Include every animated NPC /
+        # creature behaviour, not only combat-capable humanoids (which excluded villagers, the Mage and Empress).
+        if not selectable(c):
             continue
         clips = npc_clips(c)
+        if not clips["Idle"]:
+            continue
         ok = all(clips[a] for a in ("Idle", "Walk", "Run", "Attack", "Death"))
-        rows.append((cid, c["name"].strip(), c["model"][0], ok, clips))
+        rows.append((cid, c["name"].strip(), c["model"][0], ok, clips, c["rfl_class"] == NPC_RFL))
+    assert AROKH_CLASS not in npc_odb, "Arokh's wire id must not collide with an NPC class"
+    arokh = sys_odb[AROKH_CLASS]
+    rows.append((AROKH_CLASS, "Arokh", arokh["model"][0], False, npc_clips(arokh), False))
+    selected = {cid: (combat, humanoid) for cid, _name, _model, combat, _clips, humanoid in rows}
+    assert len(CHARACTER_IDS) == len(set(CHARACTER_IDS)) == 15 and CHARACTER_IDS[0] == 0
+    assert all(selected.get(cid) == (True, True) for cid in CHARACTER_IDS if cid), (
+        "Main-player choices must be humanoid NPCs with idle, walk, run, attack and death clips; dragons belong to modes / skins"
+    )
 
     if args.csv:
         with args.csv.open("w", newline="\n") as fh:
             fh.write("class_id,record_id,name,model,usable," + ",".join(ACTS) + "\n")
-            for cid, name, model, ok, clips in rows:
+            for cid, name, model, ok, clips, _humanoid in rows:
                 fh.write(
                     "0x%x,0x%x,%s,%d,%d,%s\n"
                     % (
                         cid,
-                        0x50000 | cid,
+                        (0x20000 if cid == AROKH_CLASS else 0x50000) | cid,
                         name.replace(",", ";"),
                         model,
                         int(ok),
@@ -195,16 +254,45 @@ def main(argv=None):
                 )
             fh.write("};\n")
             fh.write(
-                "// Characters: {class id, name, model id, usable, clips by Act {clip resource id 0x50000 | NPCS.ADB id, duration ms}}\n"
+                "// Characters: {class id, name, model id, combat clips, humanoid, clips by Act {resource id, duration ms}}\n"
             )
             fh.write("constexpr CharacterRow kCharacterRows[] = {\n")
-            for cid, name, model, ok, clips in rows:
+            for cid, name, model, ok, clips, humanoid in rows:
+                hi = 0x20000 if cid == AROKH_CLASS else 0x50000
+                adb = sys_adb if cid == AROKH_CLASS else npc_adb
                 cells = ", ".join(
-                    "{0x%x, %d}" % ((0x50000 | clips[a]) if clips[a] else 0, npc_adb.get(clips[a], ("", 0))[1])
-                    for a in ACTS
+                    "{0x%x, %d}" % ((hi | clips[a]) if clips[a] else 0, adb.get(clips[a], ("", 0))[1]) for a in ACTS
                 )
-                fh.write('    {0x%x, "%s", %d, %s, {%s}},\n' % (cid, name, model, "true" if ok else "false", cells))
+                escaped = name.replace("\\", "\\\\").replace('"', '\\"')
+                fh.write(
+                    '    {0x%x, "%s", %d, %s, %s, {%s}},\n'
+                    % (cid, escaped, model, "true" if ok else "false", "true" if humanoid else "false", cells)
+                )
             fh.write("};\n")
+            fh.write("// Rynn damage vocalizations and each selectable NPC's configured damage voice ids.\n")
+            hit_ids = sorted(
+                {
+                    x
+                    for field in sys_odb[RYNN_CLASS]["fields"]
+                    if "sound" in field["type_name"] and field["name"].startswith("HitRxn")
+                    for x in field["default"]
+                    if x
+                }
+            )
+            fh.write("constexpr uint32_t kRynnHitSounds[] = {" + ", ".join(hex(0x20000 | x) for x in hit_ids) + "};\n")
+            fh.write("constexpr HitVoiceRow kHitVoices[] = {\n")
+            for cid in CHARACTER_IDS[1:]:
+                sounds = next(
+                    (field["default"] for field in npc_odb[cid]["fields"] if field["name"] == "Damage Reaction Sounds"),
+                    [],
+                )
+                sounds = [0x50000 | x for x in sounds if x]
+                assert len(sounds) <= 8
+                fh.write("    {0x%x, %d, {%s}},\n" % (cid, len(sounds), ", ".join(map(hex, sounds)) or "0"))
+            fh.write("};\n")
+            fh.write(
+                "constexpr uint16_t kSelectableCharacters[] = {" + ", ".join(f"0x{x:x}" for x in CHARACTER_IDS) + "};\n"
+            )
     print("rynn clips %d, npc classes %d (usable %d)" % (len(rynn_acts), len(rows), sum(1 for r in rows if r[3])))
     return 0
 

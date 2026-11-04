@@ -65,6 +65,8 @@
 #include "spu2/Sdr.h"
 #include "spu2/Spu2.h"
 
+#include "drakan_coop_character.h"
+
 #include <algorithm>
 #include <atomic>
 #include <cctype>
@@ -1402,6 +1404,10 @@ void applyDrakanOverrides(PS2Runtime& runtime) {
             const size_t n = g_mods->load(modsDir);
             g_mods->install(host->iop.res);
             g_mods->installFiles(host->fs); // files/, LVL entry overrides, new/ entries, LEVELLST.TXT
+            drakan_coop_character::setRetargetedMotion(std::any_of(
+                g_mods->status().begin(), g_mods->status().end(), [](const hle::mods::ModStatus& st) {
+                    return st.state == hle::mods::ModState::Loaded && st.manifest.id == "drakan-character-motion";
+                }));
             for (const std::string& line : g_mods->report())
                 std::fprintf(stderr, "[mods] %s\n", line.c_str());
             std::fprintf(stderr, "[mods] %zu pack(s) active, %zu entries, %zu text lines\n", n, g_mods->entryCount(),

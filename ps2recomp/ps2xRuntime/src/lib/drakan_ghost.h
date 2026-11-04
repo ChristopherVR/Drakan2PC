@@ -40,6 +40,9 @@ struct Info {
 
 void install(PS2Runtime& runtime); // reads DRAKAN_GHOST; registers the host trampolines
 bool enabled();
+// EE thread: show the selected character on this player's own screen during a multiplayer match. The existing
+// controller remains responsible for mechanics; a render-only body uses the character's own skeleton and clips.
+void setLocalCharacterEnabled(bool active);
 
 // Thread safe. Queue a spawn (at `t`, or +300 units beside the controlled actor when null); returns the ghost id
 // (> 0), or 0 when disabled. The actor exists a few frames later (forEach shows handle != 0).

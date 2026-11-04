@@ -5,7 +5,6 @@
 #include <atomic>
 #include <cmath>
 #include <cstdlib>
-#include <set>
 
 namespace drakan_coop_character {
 namespace {
@@ -24,13 +23,21 @@ struct CharacterRow {
     const char* name;
     uint32_t model;
     bool usable;
+    bool humanoid;
     Cell clips[static_cast<size_t>(Act::Count)];
+};
+
+struct HitVoiceRow {
+    uint16_t classId;
+    unsigned count;
+    uint32_t sounds[8];
 };
 
 #include "drakan_coop_character_table.inc"
 
 constexpr uint32_t kRynnRecord = 0x20a50u, kRynnModel = 3877u;
 
+std::atomic<bool> g_retargetedMotion{false};
 std::atomic<int> g_selected{-1}; // -1: not read from the environment yet
 
 const RynnClip* findRynn(uint32_t clip) {
@@ -77,8 +84,8 @@ Cell pick(const CharacterRow& row, Act a) {
         /*StrafeR*/ {Act::StrafeR, Act::Walk, Act::Run, Act::Idle},
         /*TurnL*/ {Act::TurnL, Act::Idle, Act::Idle, Act::Idle},
         /*TurnR*/ {Act::TurnR, Act::Idle, Act::Idle, Act::Idle},
-        /*Jump*/ {Act::Jump, Act::Run, Act::Idle, Act::Idle},
-        /*InAir*/ {Act::InAir, Act::Run, Act::Idle, Act::Idle},
+        /*Jump*/ {Act::Jump, Act::Crouch, Act::Block, Act::Idle},
+        /*InAir*/ {Act::InAir, Act::Crouch, Act::Block, Act::Idle},
         /*Land*/ {Act::Land, Act::Idle, Act::Idle, Act::Idle},
         /*Crouch*/ {Act::Crouch, Act::Idle, Act::Idle, Act::Idle},
         /*Attack*/ {Act::Attack, Act::Idle, Act::Idle, Act::Idle},
@@ -87,7 +94,7 @@ Cell pick(const CharacterRow& row, Act a) {
         /*Draw*/ {Act::Draw, Act::Attack, Act::Idle, Act::Idle},
         /*Death*/ {Act::Death, Act::Idle, Act::Idle, Act::Idle},
         /*Spell*/ {Act::Spell, Act::Attack, Act::Idle, Act::Idle},
-        /*Roll*/ {Act::Roll, Act::Run, Act::Idle, Act::Idle},
+        /*Roll*/ {Act::Roll, Act::Crouch, Act::Block, Act::Idle},
         /*Other*/ {Act::Other, Act::Idle, Act::Idle, Act::Idle},
     };
     for (Act c : chain[static_cast<size_t>(a)]) {
@@ -104,12 +111,10 @@ const std::vector<Entry>& roster() {
     static const std::vector<Entry> list = [] {
         std::vector<Entry> v;
         v.push_back({0, kRynnRecord, "Rynn", kRynnModel});
-        std::set<uint32_t> models;
-        for (const CharacterRow& r : kCharacterRows) {
-            if (!r.usable || !models.insert(r.model).second)
-                continue;
-            v.push_back({r.classId, 0x50000u | r.classId, r.name, r.model});
-        }
+        for (uint16_t id : kSelectableCharacters)
+            if (id)
+                if (const CharacterRow* r = findRow(id); r && r->usable && r->humanoid)
+                    v.push_back({id, 0x50000u | id, r->name, r->model, true});
         return v;
     }();
     return list;
@@ -143,6 +148,40 @@ uint16_t selected() {
 
 void setSelected(uint16_t id) {
     g_selected.store(known(id) ? id : 0);
+}
+
+uint32_t mapHitSound(uint16_t id, uint32_t sound) {
+    if (!id)
+        return sound;
+    const auto* begin = std::begin(kRynnHitSounds);
+    const auto* end = std::end(kRynnHitSounds);
+    const auto* voice = std::find(begin, end, sound);
+    if (voice == end)
+        return sound;
+    const HitVoiceRow* chosen = nullptr;
+    const HitVoiceRow* maleFallback = nullptr;
+    for (const HitVoiceRow& row : kHitVoices) {
+        if (row.classId == id)
+            chosen = &row;
+        if (row.classId == 0x177f)
+            maleFallback = &row; // original Nichols nonverbal male damage reactions, shared when no own voice exists
+    }
+    if (!chosen)
+        return sound;
+    if (!chosen->count)
+        chosen = maleFallback;
+    return chosen && chosen->count ? chosen->sounds[static_cast<unsigned>(voice - begin) % chosen->count] : sound;
+}
+
+bool nodeUsesLower(uint16_t id, uint32_t targetNode) {
+    const uint32_t model = entry(id).modelId;
+    const bool warrior = model == 4402 || model == 4544 || model == 4705 || model == 4706;
+    // Torso node 2 owns upper-body attacks; the lowerbody subtree starts at 44 / 45 on the two curated rigs.
+    return targetNode == 0 || targetNode >= (warrior ? 45u : 44u);
+}
+
+void setRetargetedMotion(bool enabled) {
+    g_retargetedMotion.store(enabled);
 }
 
 Act activityOf(uint32_t rynnClip) {
@@ -179,17 +218,41 @@ Mapped mapClip(uint16_t id, uint32_t rynnClip, float time) {
     if (!row)
         return m;
     m.act = r ? r->act : Act::Idle;
+    if (r && known(id) && id && g_retargetedMotion.load()) {
+        // Generator allocates 256 ids per distinct model in ascending order, with source clips in table order.
+        // Exact source clips retain left/right evasion, weapon grip and jump phases, locally and over the network.
+        static const std::vector<uint32_t> models = [] {
+            std::vector<uint32_t> result;
+            for (const Entry& e : roster())
+                if (e.id)
+                    result.push_back(e.modelId);
+            std::sort(result.begin(), result.end());
+            result.erase(std::unique(result.begin(), result.end()), result.end());
+            return result;
+        }();
+        const auto model = std::find(models.begin(), models.end(), row->model);
+        if (model != models.end()) {
+            m.clip = 0x58000u + static_cast<uint32_t>(model - models.begin()) * 256u +
+                     static_cast<uint32_t>(r - std::begin(kRynnClips));
+            m.time = std::isfinite(time) ? std::max(time, 0.0f) : 0.0f;
+            return m;
+        }
+    }
     const Cell c = pick(*row, m.act);
     if (!c.id)
         return m;
     m.clip = c.id;
-    float t = time;
+    float t = std::isfinite(time) ? std::max(time, 0.0f) : 0.0f;
     if (r && r->durMs > 0 && c.durMs > 0)
-        t = time * static_cast<float>(c.durMs) / static_cast<float>(r->durMs);
+        t = t * static_cast<float>(c.durMs) / static_cast<float>(r->durMs);
     const float dur = static_cast<float>(c.durMs) / 1000.0f;
     if (dur > 0.0f)
         t = loops(m.act) ? std::fmod(std::max(t, 0.0f), dur) : std::min(std::max(t, 0.0f), dur * 0.999f);
-    m.time = t;
+    // The shipped selectable NPCs have no airborne / evasion clips. Hold their own ready/cower pose instead of
+    // cycling a run while the controller jumps. Never send Rynn's incompatible joint tracks to an NPC skeleton.
+    const bool heldFallback =
+        (m.act == Act::Jump || m.act == Act::InAir || m.act == Act::Roll) && !row->clips[static_cast<size_t>(m.act)].id;
+    m.time = heldFallback ? dur * 0.5f : t;
     return m;
 }
 
