@@ -74,6 +74,12 @@ void bvhChecks() {
 } // namespace
 
 int main() {
+    check(surface::rayDiagnosticEffects("") == 0 && surface::rayDiagnosticEffects("off") == 0 &&
+              surface::rayDiagnosticEffects("AO") == 0 && surface::rayDiagnosticEffects("direct,ao") == 0,
+          "invalid/unset diagnostics preserve normal shader flags");
+    check(surface::rayDiagnosticEffects("ao") == 64 && surface::rayDiagnosticEffects("direct") == 32 &&
+              surface::rayDiagnosticEffects("receiver") == 128,
+          "diagnostic masks match both shader Effects.w contracts");
     bvhChecks();
     drakan::gpu::ContextOptions options;
     options.allowSoftwareAdapter = true;

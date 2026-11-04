@@ -60,6 +60,13 @@ RuntimeFlags parse() {
     if (const char* e = env("GSR_WATER_TIME"))
         f.waterTime = std::strtof(e, nullptr);
     f.raySceneDump = optString("GSR_RAY_SCENE_DUMP");
+    f.rayDiagnostic = optString("GSR_RAY_DIAGNOSTIC");
+    if (const char* value = env("GSR_RAY_SCENE_DUMP_EPOCH")) {
+        char* end = nullptr;
+        const auto epoch = std::strtoull(value, &end, 10);
+        if (*value >= '0' && *value <= '9' && end && !*end && epoch > 0)
+            f.raySceneDumpEpoch = epoch;
+    }
     f.waterLog = present("GSR_WATER_LOG");
     if (const char* e = env("GSR_RAY_WATCHDOG_MS"))
         f.rayWatchdogMs = uint32_t(std::atoi(e));

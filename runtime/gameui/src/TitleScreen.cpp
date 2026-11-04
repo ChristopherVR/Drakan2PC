@@ -3,6 +3,7 @@
 #include <algorithm>
 
 #include "Paint.h"
+#include "gameui/MenuText.h"
 #include "gameui/UiSkin.h"
 
 namespace gameui {
@@ -32,7 +33,7 @@ PauseConfig optionsConfig(const TitleConfig& c) {
     p.rootPage = PausePage::Options;
     p.statusPanel = false;
     p.centred = true;
-    p.rootTitle = "Main Menu";
+    p.rootTitle = menuText("Main Menu");
     p.sliderStep = c.sliderStep;
     p.optionHoldFrames = c.optionHoldFrames;
     p.suspendFrames = c.suspendFrames;
@@ -47,7 +48,7 @@ std::string rowDescription(TitleRow r, bool enabled, const TitleState& st) {
             return skinText(std::string("title.desc.") + titleRowId(r), d);
     switch (r) {
         case TitleRow::Continue: {
-            std::string s = "Your newest save";
+            std::string s = menuText("Your newest save");
             if (!st.continueLocation.empty())
                 s += ": " + st.continueLocation;
             const std::string d = formatSaveDate(st.continueTime, st.dateOrder);
@@ -56,19 +57,19 @@ std::string rowDescription(TitleRow r, bool enabled, const TitleState& st) {
             return s + ".";
         }
         case TitleRow::LoadGame:
-            return enabled ? "Load a saved game." : "No saved games on the memory card.";
+            return enabled ? menuText("Load a saved game.") : menuText("No saved games on the memory card.");
         case TitleRow::NewGame:
-            return "Start a new adventure.";
+            return menuText("Start a new adventure.");
         case TitleRow::Options:
-            return "Controller and audio options.";
+            return menuText("Controller and audio options.");
         case TitleRow::Credits:
-            return "The people who made the game.";
+            return menuText("The people who made the game.");
         case TitleRow::PcSettings:
-            return "Display, graphics, controls and more.";
+            return menuText("Display, graphics, controls and more.");
         case TitleRow::Quit:
-            return "Close the game.";
+            return menuText("Close the game.");
         case TitleRow::Multiplayer:
-            return "Host or join a match over the network.";
+            return menuText("Host or join a match over the network.");
         case TitleRow::QuitToDesktop:
         case TitleRow::Cancel:
         case TitleRow::NewGameSolo:
@@ -115,19 +116,19 @@ const char* titleRowId(TitleRow r) {
 const char* titleRowDefaultDescription(TitleRow r) {
     switch (r) {
         case TitleRow::LoadGame:
-            return "Load a saved game.";
+            return menuText("Load a saved game.");
         case TitleRow::NewGame:
-            return "Start a new adventure.";
+            return menuText("Start a new adventure.");
         case TitleRow::Options:
-            return "Controller and audio options.";
+            return menuText("Controller and audio options.");
         case TitleRow::Credits:
-            return "The people who made the game.";
+            return menuText("The people who made the game.");
         case TitleRow::PcSettings:
-            return "Display, graphics, controls and more.";
+            return menuText("Display, graphics, controls and more.");
         case TitleRow::Quit:
-            return "Close the game.";
+            return menuText("Close the game.");
         case TitleRow::Multiplayer:
-            return "Host or join a match over the network.";
+            return menuText("Host or join a match over the network.");
         default:
             return nullptr;
     }
@@ -140,29 +141,29 @@ const char* titleRowLabel(TitleRow r) {
 const char* titleRowDefaultLabel(TitleRow r) {
     switch (r) {
         case TitleRow::Continue:
-            return "Continue";
+            return menuText("Continue");
         case TitleRow::LoadGame:
-            return "Load Game";
+            return menuText("Load Game");
         case TitleRow::NewGame:
-            return "New Game";
+            return menuText("New Game");
         case TitleRow::Options:
-            return "Options";
+            return menuText("Options");
         case TitleRow::Credits:
-            return "Credits";
+            return menuText("Credits");
         case TitleRow::PcSettings:
-            return "PC Settings";
+            return menuText("PC Settings");
         case TitleRow::Quit:
-            return "Quit";
+            return menuText("Quit");
         case TitleRow::Multiplayer:
-            return "Multiplayer";
+            return menuText("Multiplayer");
         case TitleRow::QuitToDesktop:
-            return "Quit to Desktop";
+            return menuText("Quit to Desktop");
         case TitleRow::Cancel:
-            return "Cancel";
+            return menuText("Cancel");
         case TitleRow::NewGameSolo:
-            return "Solo";
+            return menuText("Solo");
         case TitleRow::NewGameCoop:
-            return "Co-op";
+            return menuText("Co-op");
         case TitleRow::GameDrakan:
             return "Drakan";
         case TitleRow::GameOotf:
@@ -411,9 +412,9 @@ void TitleScreen::buildHints(const TitleState& st) {
     hints_.clear();
     const bool card = isCard(page_);
     const HitTarget* t = findTarget(focus_);
-    hints_.push_back({Prompt::Confirm, "Select", t && t->enabled});
+    hints_.push_back({Prompt::Confirm, menuText("Select"), t && t->enabled});
     if (card)
-        hints_.push_back({Prompt::Back, "Cancel"});
+        hints_.push_back({Prompt::Back, menuText("Cancel")});
     (void)st;
     const detail::Paint p(lf_, cfg_.screen);
     const std::vector<Rect> rs =
@@ -483,7 +484,7 @@ void TitleScreen::activate(TitleRow r, const TitleState& st, TitleFrameOutput& o
             if (cfg_.pcSettingsPages && st.pcSettings) { // the modern pages, inside the title menu
                 mainFocus_ = focus_;
                 page_ = TitlePage::PcSettings;
-                pcPages_.setTrail({"Main Menu"});
+                pcPages_.setTrail({menuText("Main Menu")});
                 pcPages_.open();
                 out.sound = UiSound::Confirm;
             } else
@@ -748,9 +749,9 @@ void TitleScreen::drawGameCard(const TitleState& st, DrawList& d) const {
     d.rect({lf_.view.x, lf_.view.y, lf_.view.w, lf_.view.h}, withAlpha(th.backdropEdge, 120));
     d.panel(p.map(c), PanelStyle::Main, th.panelRaised);
     constexpr float pad = 44;
-    p.text(d, {c.x + pad, c.y + 28, c.w - 2 * pad, 52}, "Choose your game", FontRole::Title, th.heading);
-    p.text(d, {c.x + pad, c.y + 40, c.w - 2 * pad, 40}, "Each game keeps its own saves.", FontRole::Small, th.textMuted,
-           TextAlign::Right);
+    p.text(d, {c.x + pad, c.y + 28, c.w - 2 * pad, 52}, menuText("Choose your game"), FontRole::Title, th.heading);
+    p.text(d, {c.x + pad, c.y + 40, c.w - 2 * pad, 40}, menuText("Each game keeps its own saves."), FontRole::Small,
+           th.textMuted, TextAlign::Right);
     p.rule(d, c.x + pad, c.y + 92, c.w - 2 * pad);
     const int n = gameCount(st);
     const int focused =
@@ -763,12 +764,14 @@ void TitleScreen::drawGameCard(const TitleState& st, DrawList& d) const {
         const Rect r = design::title::gameRow(i - first);
         p.button(d, r, name, focus_ == id, hover_ == id, true);
         if (i == st.game) // the game the menu runs for now
-            p.text(d, {r.x + 24, r.y, r.w - 48, r.h}, "Playing", FontRole::Small, th.textMuted, TextAlign::Right);
+            p.text(d, {r.x + 24, r.y, r.w - 48, r.h}, menuText("Playing"), FontRole::Small, th.textMuted,
+                   TextAlign::Right);
     }
     if (first > 0)
-        p.text(d, {c.x + pad, c.y + 96, listW, 22}, "More above", FontRole::Small, th.textMuted, TextAlign::Center);
+        p.text(d, {c.x + pad, c.y + 96, listW, 22}, menuText("More above"), FontRole::Small, th.textMuted,
+               TextAlign::Center);
     if (first + design::title::kGameRowsShown < n)
-        p.text(d, {c.x + pad, c.bottom() - pad + 6, listW, 30}, "More below", FontRole::Small, th.textMuted,
+        p.text(d, {c.x + pad, c.bottom() - pad + 6, listW, 30}, menuText("More below"), FontRole::Small, th.textMuted,
                TextAlign::Center);
     if (focused >= static_cast<int>(st.games.size()))
         return;
@@ -784,8 +787,8 @@ void TitleScreen::drawGameCard(const TitleState& st, DrawList& d) const {
     const Rect dr = design::title::gameDescription();
     p.text(d, {dr.x, dr.y, dr.w, 40}, g.name, FontRole::Heading, th.text);
     const std::vector<std::string> lines =
-        p.wrap(g.description.empty() ? std::string("A campaign from an installed mod pack.") : g.description, dr.w,
-               FontRole::Body);
+        p.wrap(g.description.empty() ? std::string(menuText("A campaign from an installed mod pack.")) : g.description,
+               dr.w, FontRole::Body);
     float y = dr.y + 46;
     for (size_t i = 0; i < lines.size() && y + 30 <= dr.bottom() + 1; ++i, y += 30)
         p.text(d, {dr.x, y, dr.w, 30}, lines[i], FontRole::Body, th.textMuted);
@@ -812,9 +815,9 @@ void TitleScreen::draw(const TitleState& st, DrawList& d) const {
                    TextAlign::Center);
     }
     if (loading_) {
-        p.confirmCard(d, design::title::cardPanel(), "Loading...",
-                      st.continueLocation.empty() ? std::string("Continuing your last game.")
-                                                  : "Continuing at " + st.continueLocation + ".");
+        p.confirmCard(d, design::title::cardPanel(), menuText("Loading..."),
+                      st.continueLocation.empty() ? std::string(menuText("Continuing your last game."))
+                                                  : menuFormat("Continuing at {0}.", {st.continueLocation}));
         return;
     }
     const bool card = isCard(page_);
@@ -855,10 +858,11 @@ void TitleScreen::draw(const TitleState& st, DrawList& d) const {
         drawGameCard(st, d);
     } else if (card) {
         if (page_ == TitlePage::NewGameChoice)
-            p.confirmCard(d, design::title::cardPanel(), "New Game", "Play the campaign alone or with friends.");
+            p.confirmCard(d, design::title::cardPanel(), menuText("New Game"),
+                          menuText("Play the campaign alone or with friends."));
         else
-            p.confirmCard(d, design::title::cardPanel(), skinText("title.quit.title", "Quit the game?"),
-                          skinText("title.quit.body", "Drakan closes and returns to the desktop."));
+            p.confirmCard(d, design::title::cardPanel(), skinText("title.quit.title", menuText("Quit the game?")),
+                          skinText("title.quit.body", menuText("Drakan closes and returns to the desktop.")));
         const std::vector<TitleRow> cr = rows(st);
         for (size_t i = 0; i < cr.size(); ++i) {
             const TargetId id{TargetKind::CardButton, static_cast<int>(cr[i])};

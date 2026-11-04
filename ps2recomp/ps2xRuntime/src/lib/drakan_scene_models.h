@@ -1,4 +1,5 @@
 #pragma once
+#include "drakan_local_character_view.h"
 #include <chrono>
 #include <gsr/scene_models.h>
 #include "runtime/object_motion_capture.h"
@@ -548,7 +549,7 @@ public:
     // CPU time one capture may spend on the resident-texture refresh (tests set it very large for a synchronous pass).
     std::chrono::microseconds refreshBudget{250};
     void reset() { level = ~0ull; }
-    std::shared_ptr<const gsr::SceneModels> capture(const uint8_t* ram, uint32_t bytes, uint64_t scene) {
+    std::shared_ptr<gsr::SceneModels> capture(const uint8_t* ram, uint32_t bytes, uint64_t scene) {
         auto out = std::make_shared<gsr::SceneModels>();
         out->level = scene;
         Reader r{ram, bytes};
@@ -671,6 +672,8 @@ public:
         used.reserve(256);
         backdrops.prune();
         for (auto object : live) {
+            if (drakan_local_character::g_view.hiddenModel(object))
+                continue;
             if (out->instances.size() >= 16384)
                 break;
             if (!r.span(object, 0x120) || r.u(object) != 0x51b8b0)

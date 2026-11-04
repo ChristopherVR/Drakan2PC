@@ -26,6 +26,9 @@
 namespace gsr {
 
 struct RuntimeFlags {
+    std::optional<std::string> rayDiagnostic; // GSR_RAY_DIAGNOSTIC: ao / direct / receiver; unset = normal
+    uint64_t raySceneDumpEpoch = 200;         // GSR_RAY_SCENE_DUMP_EPOCH: positive integer; default 200
+
     // ---- modern water / ray tracing (d3d11_backend, ray_water) -------------------------------------------------
     bool modernWater = false;                // GSR_MODERN_WATER: not-"0"; default off
     bool rayReflections = true;              // GSR_RAY_REFLECTIONS: unset or not-"0"; default on
@@ -37,7 +40,7 @@ struct RuntimeFlags {
     bool rayPackedTextures = true;           // GSR_RAY_PACKED_TEXTURES: first-char != '0'; default on
     uint32_t waterCoverageDebug = 0;         // GSR_WATER_COVERAGE_DEBUG: atoi; default 0
     std::optional<float> waterTime;          // GSR_WATER_TIME: strtof; fixes the water clock (site rejects non-finite)
-    std::optional<std::string> raySceneDump; // GSR_RAY_SCENE_DUMP: string; ray scene dump path (world epoch 200 only)
+    std::optional<std::string> raySceneDump; // GSR_RAY_SCENE_DUMP: string; dump at raySceneDumpEpoch
     bool waterLog = false;                   // GSR_WATER_LOG: presence
     uint32_t rayWatchdogMs = 3000; // GSR_RAY_WATCHDOG_MS: atoi; a pass stuck this long on the GPU (7x on the CPU) is
                                    // abandoned and the shared fences released; 0 = report stalls but never abandon

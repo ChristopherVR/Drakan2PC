@@ -201,6 +201,7 @@ float visibility(float3 p,float3 normal,float3 direction,float maximum,uint self
 // Ray-traced ambient occlusion. The native ambient term is a flat fill that also lights creases, the ground under
 // props and characters' feet; occluding it (and only it) grounds the scene without changing open surfaces.
 float ambientOcclusion(float3 p,float3 normal,float rotation,uint self) {
+    if(Effects.w&32)return 1; // GSR_RAY_DIAGNOSTIC=direct
     float3 t,b;basis(normal,t,b);float occlusion=0;
     [unroll]for(uint sample=0;sample<kOcclusionRays;++sample){
         // A uniform disk point lifted onto the hemisphere is cosine distributed.
@@ -233,7 +234,7 @@ Lighting nativeLighting(float3 p,float3 normal,float3 shading,float rotation,flo
             attenuation=saturate(1-distanceSquared/LightColor[light].w);}
         float3 centre=normalize(l);float ndl=saturate(dot(shading,centre));if(ndl<=0)continue;
         float3 direct=LightColor[light].rgb*ndl*attenuation;float visible=1;
-        if(Effects.y){
+        if(Effects.y && !(Effects.w&64)){
             // Soft shadows from per-pixel rotated samples over the emitter: the penumbra widens with blocker
             // distance (contact hardening), and its noise resolves temporally instead of in fixed steps.
             float3 tangent,bitangent;basis(centre,tangent,bitangent);
@@ -479,15 +480,17 @@ void main(uint3 id : SV_DispatchThreadID) {
     Lighting waterLight;waterLight.lit=waterLight.unshadowed=1;waterLight.sun=0;
     if(haveWater)waterLight=nativeLighting(p,geometric,geometric,rotation,1,kNoInstance);
     if(Effects.y && Effects.z && sceneDepth>0){
+        if(Effects.w&128)receiverShadow=0;
         if(haveWater)receiverShadow=shadowRatio(waterLight);
         else {
             float3 surface=worldPosition(id.xy,sceneDepth),normal,shading;float confidence;uint self;
             if(all(isfinite(surface)) && primarySurface(surface,normal,shading,confidence,self)){
+                if(Effects.w&128){Output[id.xy]=float4(confidence.xxx,original.a);return;}
                 float occlusion=ambientOcclusion(surface,normal,pixelNoise(id.xy,1),self);
                 receiverShadow=lerp(float3(1,1,1),shadowRatio(nativeLighting(surface,normal,shading,rotation,occlusion,self)),confidence);
             }
         }
-        Output[id.xy]=float4(toDisplay(toLinear(original.rgb)*receiverShadow),original.a);
+        Output[id.xy]=(Effects.w&128)?float4(receiverShadow,original.a):float4(toDisplay(toLinear(original.rgb)*receiverShadow),original.a);
     }
     if(!Effects.x || !haveWater)return;
     float bottom=distance+8000;

@@ -6,6 +6,7 @@
 #include <mutex>
 #include <string>
 #include <vector>
+#include <functional>
 
 namespace hle {
 
@@ -30,6 +31,10 @@ public:
     // "Level 1A - Surdana", which is both the folder and the file stem) opens the same path with `to` instead, so the
     // game loads another level under the original name. Empty `from` or `to` disables it.
     void setLevelRedirect(std::string from, std::string to);
+    // Per-open view of an existing file (e.g. a campaign-free arena LVL). Never mutates the merged disc or another
+    // handle's bytes. Runs under the file-service lock; use IsoFs directly, not FileService, inside the callback.
+    using OpenFilter = std::function<bool(const IsoFs&, IsoFs::Node&, std::string&)>;
+    void setOpenFilter(OpenFilter filter);
     // `path` with the redirect applied (unchanged when it does not match).
     std::string redirectPath(const std::string& path) const;
 
@@ -44,6 +49,7 @@ private:
     mutable std::mutex mu_;
     std::vector<Open> files_;
     std::string redirectFrom_, redirectTo_;
+    OpenFilter openFilter_;
 };
 
 } // namespace hle

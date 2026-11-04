@@ -46,6 +46,7 @@ bool g_probe = false;
 std::atomic<uint8_t> g_local{0};
 std::atomic<int> g_life{static_cast<int>(Life::Alive)};
 PS2Runtime::RecompiledFunction g_origBladeHit = nullptr;
+PS2Runtime::RecompiledFunction g_origClassIndex = nullptr;
 uint32_t g_deadHandlerSlot = 0;          // function table slot of deadHandler
 std::atomic<uint32_t> g_savedHandler{0}; // the player's behaviour handler while a death is shown
 uint32_t g_deadActor = 0;                // the player actor the handler was swapped on
@@ -167,6 +168,34 @@ uint8_t handOfBlade(const uint8_t* rdram, uint32_t blade) {
     if (blade && blade == left)
         return 1;
     return 2;
+}
+
+// The native player blade sweep excludes the whole NPC RFL class. Keep that exclusion for ordinary NPCs, but
+// classify a registered opponent's avatar as a player for this one collision-mask lookup. Geometry, actor identity,
+// native hit lists and damage messages remain native; no global faction / mask table is changed.
+void hookMeleeCandidateClass(uint8_t* rdram, R5900Context* c, PS2Runtime* rt) {
+    if (c->pc == guestAddress(0x1cca68u) && getRegU32(c, 31) == guestAddress(0x1244fcu) &&
+        getRegU32(c, 5) == 0x1009du && !drakan_netplay::coopMatch()) {
+        // PAL FUN_1242d8: s2 is the candidate actor, s4 the query object; +564 is the source weapon actor.
+        const uint32_t query = getRegU32(c, 20), candidate = getRegU32(c, 18);
+        const uint32_t source = ramPtr(query) ? rd32(rdram, query + 0x564u) : 0;
+        const uint32_t blade = dataOf(rdram, source);
+        const uint32_t owner = ramPtr(blade) ? registryObject(rdram, rd16(rdram, blade + 0x60u)) : 0;
+        const uint32_t controlled = controlledActor(rdram);
+        int ghost = 0;
+        const int remote =
+            owner && owner == controlled && isGhost(candidate, &ghost) ? drakan_netplay::playerOfGhost(ghost) : 0;
+        if (detail::usePlayerMeleeMask(false, owner, controlled, remote, getRegU32(c, 5))) {
+            SET_GPR_U32(c, 5, 0x10009u); // lookup player mask only; the NPC's real class / data stay unchanged
+            if (g_probe) {
+                static unsigned logged = 0;
+                if (logged++ < 32)
+                    std::fprintf(stderr, "[pvp] native melee candidate: player %d NPC %x accepted for local blade %x\n",
+                                 remote, candidate, blade);
+            }
+        }
+    }
+    g_origClassIndex(rdram, c, rt);
 }
 
 // ---------------------------------------------------------------------------------------------- attacker side
@@ -870,6 +899,10 @@ void install(PS2Runtime& rt) {
         return;
     }
     g_probe = std::getenv("DRAKAN_PVP_PROBE") != nullptr;
+    if (const uint32_t index = guestAddress(0x1cca68u); index && guestAddress(0x1244fcu) && rt.hasFunction(index)) {
+        g_origClassIndex = rt.lookupFunction(index);
+        rt.replaceFunction(index, &hookMeleeCandidateClass);
+    }
     if (const char* st = std::getenv("DRAKAN_PVP_SELFTEST"))
         parseSelfTest(st);
     for (uint32_t slot = 0x100300u; slot < 0x100400u && !g_deadHandlerSlot; slot += 4)

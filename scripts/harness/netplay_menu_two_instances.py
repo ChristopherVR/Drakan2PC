@@ -63,7 +63,11 @@ def host_keys(arena_index: int = 0, coop: bool = False, level_index: int = 0, mo
     The Map row is a list: Left / Right step it, Select enters it so that Up / Down step through the maps (Select or
     Back leaves it); outside the list Up / Down move between rows. Co-op lists the campaign levels (the Game Type
     switch resets the list, so the level is picked after it) and greys Kills / Time / Teams out (focus skips them)."""
-    groups = [["DOWN", "ENTER"], ["DOWN"] * 5 + ["ENTER"], ["DOWN"] * 3]  # Multiplayer, Host Game, the Map row
+    groups = [
+        ["DOWN", "ENTER"],
+        ["DOWN"] * 4 + ["ENTER"],
+        ["DOWN"] * 3,
+    ]  # Dragon Appearance is informational / disabled
     if coop:
         groups += [["DOWN", "RIGHT", "UP"] + ["RIGHT"] * level_index, ["DOWN"] * 3]  # Game Type: Co-op; Map; Begin Game
     else:
@@ -108,10 +112,10 @@ def screens_recipe() -> str:
         (["UP"] * 5 + ["RIGHT"], "mp_host_coop"),  # Game Type: Co-op (campaign levels)
         (["RIGHT"], None),  # Game Type back to Team Deathmatch (teams stay 2): the lobby is a team lobby
         (["ESC"], None),
-        (["DOWN"] * 6 + ["ENTER"], "mp_join_lan"),  # Join Game
+        (["DOWN"] * 5 + ["ENTER"], "mp_join_lan"),  # Join Game
         (["DOWN", "DOWN", "ENTER"], "mp_join_add_server"),  # Refresh -> Add Server (entry open)
         (["ESC", "ESC"], None),
-        (["DOWN"] * 5 + ["ENTER"], None),  # Host Game again
+        (["DOWN"] * 4 + ["ENTER"], None),  # Host Game again
         (["DOWN"] * 3 + ["DOWN"] * 7 + ["ENTER"], "mp_lobby"),  # Begin Game: the lobby, alone
         (["DOWN", "ENTER"], "mp_lobby_countdown"),  # Start Match: the countdown card
     ):
@@ -154,7 +158,7 @@ def recipe_b_text(shots: str, quit_at: int, coop: bool = False, kick: bool = Fal
     until A removes it and shows the Join page with the reason."""
     lines = ["clock milliseconds", "0 sync screen 8 3"]
     t = 3000
-    for keys in (["DOWN", "ENTER"], ["DOWN"] * 6 + ["ENTER"]):
+    for keys in (["DOWN", "ENTER"], ["DOWN"] * 5 + ["ENTER"]):
         ls, t = taps(t, keys, 200)
         lines += ls
         t += 600
@@ -192,7 +196,7 @@ def pvp_recipe(role: str, arena_index: int = 0, mode_steps: int = 0, start_ms: i
         ]
     else:
         t = 3000
-        for keys in (["DOWN", "ENTER"], ["DOWN"] * 6 + ["ENTER"]):
+        for keys in (["DOWN", "ENTER"], ["DOWN"] * 5 + ["ENTER"]):
             ls, t = taps(t, keys, 200)
             lines += ls
             t += 600

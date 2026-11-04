@@ -10,6 +10,7 @@
 #include <cmath>
 
 #include "Paint.h"
+#include "gameui/MenuText.h"
 
 namespace gameui {
 
@@ -56,11 +57,11 @@ constexpr float kCardW = 720, kCardHeadH = 176, kCardRowH = 76, kCardRowStep = 8
 const char* schemeDescription(int32_t scheme) {
     switch (scheme) {
         case 0:
-            return "Scheme A: left stick turns and moves, right stick orbits the camera.";
+            return menuText("Scheme A: left stick turns and moves, right stick orbits the camera.");
         case 1:
-            return "Scheme B: the sticks as scheme A, an alternative button layout.";
+            return menuText("Scheme B: the sticks as scheme A, an alternative button layout.");
         case 2:
-            return "Scheme C: twin stick. Left stick moves and strafes, right stick turns and looks.";
+            return menuText("Scheme C: twin stick. Left stick moves and strafes, right stick turns and looks.");
         default:
             return "";
     }
@@ -69,47 +70,56 @@ const char* schemeDescription(int32_t scheme) {
 const char* rowDescription(PauseRow r, bool enabled, int32_t scheme) {
     switch (r) {
         case PauseRow::Resume:
-            return "Return to the game.";
+            return menuText("Return to the game.");
         case PauseRow::Save:
-            return enabled ? "Save your progress to the memory card." : "Saving is not possible right now.";
+            return enabled ? menuText("Save your progress to the memory card.")
+                           : menuText("Saving is not possible right now.");
         case PauseRow::Load:
-            return enabled ? "Load a saved game." : "No saved games found.";
+            return enabled ? menuText("Load a saved game.") : menuText("No saved games found.");
         case PauseRow::Options:
-            return "Controller, audio and PC settings.";
+            return menuText("Controller, audio and PC settings.");
         case PauseRow::Quit:
-            return "Leave the game. Unsaved progress is lost.";
+            return menuText("Leave the game. Unsaved progress is lost.");
         case PauseRow::Controller:
-            return "Button scheme, vibration and pitch.";
+            return menuText("Button scheme, vibration and pitch.");
         case PauseRow::Audio:
-            return "Volume, subtitles and stereo sound.";
+            return menuText("Volume, subtitles and stereo sound.");
         case PauseRow::PcSettings:
-            return "Display, graphics, controls and more.";
+            return menuText("Display, graphics, controls and more.");
         case PauseRow::Defaults:
-            return "Restore the default game options.";
+            return menuText("Restore the default game options.");
         case PauseRow::Back:
-            return "Back to the previous page.";
+            return menuText("Back to the previous page.");
         case PauseRow::MasterVolume:
-            return enabled ? "Volume of all sound." : "The audio options are not available right now.";
+            return enabled ? menuText("Volume of all sound.")
+                           : menuText("The audio options are not available right now.");
         case PauseRow::MusicVolume:
-            return enabled ? "Volume of the music." : "The audio options are not available right now.";
+            return enabled ? menuText("Volume of the music.")
+                           : menuText("The audio options are not available right now.");
         case PauseRow::Subtitles:
-            return enabled ? "Show subtitles in cut scenes." : "The audio options are not available right now.";
+            return enabled ? menuText("Show subtitles in cut scenes.")
+                           : menuText("The audio options are not available right now.");
         case PauseRow::Stereo:
-            return enabled ? "Stereo or mono sound output." : "The audio options are not available right now.";
+            return enabled ? menuText("Stereo or mono sound output.")
+                           : menuText("The audio options are not available right now.");
         case PauseRow::Scheme:
-            return enabled ? schemeDescription(scheme) : "The controller options are not available right now.";
+            return enabled ? schemeDescription(scheme)
+                           : menuText("The controller options are not available right now.");
         case PauseRow::Vibration:
-            return enabled ? "Controller vibration." : "The controller options are not available right now.";
+            return enabled ? menuText("Controller vibration.")
+                           : menuText("The controller options are not available right now.");
         case PauseRow::ReversePitch:
-            return enabled ? "Invert looking up and down." : "The controller options are not available right now.";
+            return enabled ? menuText("Invert looking up and down.")
+                           : menuText("The controller options are not available right now.");
         case PauseRow::KeyBindings:
-            return "Keyboard, mouse and gamepad bindings (PC Settings).";
+            return menuText("Keyboard, mouse and gamepad bindings (PC Settings).");
         case PauseRow::QuitToTitle:
-            return enabled ? "End the game and return to the title screen." : "Not possible right now.";
+            return enabled ? menuText("End the game and return to the title screen.")
+                           : menuText("Not possible right now.");
         case PauseRow::QuitToDesktop:
-            return "Close the game.";
+            return menuText("Close the game.");
         case PauseRow::RestoreDefaults:
-            return "Reset the audio and controller options.";
+            return menuText("Reset the audio and controller options.");
         case PauseRow::Cancel:
             return "";
     }
@@ -216,17 +226,17 @@ PauseActionKind pauseSetAction(PauseOption o) {
 const char* pausePageName(PausePage p) {
     switch (p) {
         case PausePage::Root:
-            return "Paused";
+            return menuText("Paused");
         case PausePage::Options:
-            return "Options";
+            return menuText("Options");
         case PausePage::Audio:
-            return "Audio";
+            return menuText("Audio");
         case PausePage::Controller:
-            return "Controller";
+            return menuText("Controller");
         case PausePage::QuitConfirm:
-            return "Quit";
+            return menuText("Quit");
         case PausePage::DefaultsConfirm:
-            return "Default Settings";
+            return menuText("Default Settings");
     }
     return "";
 }
@@ -288,49 +298,49 @@ const char* pauseRowId(PauseRow r) {
 const char* pauseRowDefaultLabel(PauseRow r) {
     switch (r) {
         case PauseRow::Resume:
-            return "Resume";
+            return menuText("Resume");
         case PauseRow::Save:
-            return "Save Game";
+            return menuText("Save Game");
         case PauseRow::Load:
-            return "Load Game";
+            return menuText("Load Game");
         case PauseRow::Options:
-            return "Options";
+            return menuText("Options");
         case PauseRow::Quit:
-            return "Quit";
+            return menuText("Quit");
         case PauseRow::Controller:
-            return "Controller";
+            return menuText("Controller");
         case PauseRow::Audio:
-            return "Audio";
+            return menuText("Audio");
         case PauseRow::PcSettings:
-            return "PC Settings";
+            return menuText("PC Settings");
         case PauseRow::Defaults:
-            return "Default Settings";
+            return menuText("Default Settings");
         case PauseRow::Back:
-            return "Back";
+            return menuText("Back");
         case PauseRow::MasterVolume:
-            return "Master Volume";
+            return menuText("Master Volume");
         case PauseRow::MusicVolume:
-            return "Music Volume";
+            return menuText("Music Volume");
         case PauseRow::Subtitles:
-            return "Show Subtitles";
+            return menuText("Show Subtitles");
         case PauseRow::Stereo:
-            return "Stereo Sound";
+            return menuText("Stereo Sound");
         case PauseRow::Scheme:
-            return "Control Scheme";
+            return menuText("Control Scheme");
         case PauseRow::Vibration:
-            return "Vibration";
+            return menuText("Vibration");
         case PauseRow::ReversePitch:
-            return "Reverse Pitch";
+            return menuText("Reverse Pitch");
         case PauseRow::KeyBindings:
-            return "Key Bindings";
+            return menuText("Key Bindings");
         case PauseRow::QuitToTitle:
-            return "Quit to Title";
+            return menuText("Quit to Title");
         case PauseRow::QuitToDesktop:
-            return "Quit to Desktop";
+            return menuText("Quit to Desktop");
         case PauseRow::RestoreDefaults:
-            return "Restore Defaults";
+            return menuText("Restore Defaults");
         case PauseRow::Cancel:
-            return "Cancel";
+            return menuText("Cancel");
     }
     return "";
 }
@@ -498,7 +508,7 @@ void PauseScreen::openUnified(PauseFrameOutput* out) {
     else if (cfg_.rootPage == PausePage::Root)
         trail.push_back(pausePageName(PausePage::Root));
     pcPages_.setTrail(trail);
-    pcPages_.setTitle("Options");
+    pcPages_.setTitle(menuText("Options"));
     pcPages_.open();
     pcOpen_ = unified_ = true;
     unifiedPending_ = false;
@@ -677,16 +687,17 @@ void PauseScreen::buildHints(const PauseState& st) {
     const PauseRowKind kind = row ? pauseRowKind(fr) : PauseRowKind::Button;
     const bool en = row && rowEnabled(fr, st);
     if (kind == PauseRowKind::Slider || kind == PauseRowKind::Choice || kind == PauseRowKind::Toggle)
-        hints_.push_back({Prompt::Adjust, "Adjust", en});
+        hints_.push_back({Prompt::Adjust, menuText("Adjust"), en});
     if (kind != PauseRowKind::Slider)
         hints_.push_back({Prompt::Confirm,
-                          kind == PauseRowKind::Toggle   ? "Toggle"
-                          : kind == PauseRowKind::Choice ? "Change"
-                                                         : "Select",
+                          kind == PauseRowKind::Toggle   ? menuText("Toggle")
+                          : kind == PauseRowKind::Choice ? menuText("Change")
+                                                         : menuText("Select"),
                           en});
-    hints_.push_back({Prompt::Back, isCard(page_)
-                                        ? "Cancel"
-                                        : (stack_.empty() && cfg_.rootPage == PausePage::Root ? "Resume" : "Back")});
+    hints_.push_back(
+        {Prompt::Back,
+         isCard(page_) ? menuText("Cancel")
+                       : (stack_.empty() && cfg_.rootPage == PausePage::Root ? menuText("Resume") : menuText("Back"))});
     const detail::Paint p(lf_, cfg_.screen);
     const std::vector<Rect> rs =
         p.layoutHints(hints_, kDesignW - kMargin, false, kFooterY, kHintH, kHintGlyph, kHintGap, FontRole::Body);
@@ -802,7 +813,7 @@ void PauseScreen::activate(PauseRow r, const PauseState& st, PauseFrameOutput& o
         case PauseRow::PcSettings:
             if (cfg_.pcSettingsPages && st.pcSettings) { // the modern pages, inside the pause menu
                 pcPages_.setTrail({pausePageName(PausePage::Root), pausePageName(PausePage::Options)});
-                pcPages_.setTitle("PC Settings");
+                pcPages_.setTitle(menuText("PC Settings"));
                 pcPages_.open();
                 pcOpen_ = true;
             } else
@@ -818,7 +829,7 @@ void PauseScreen::activate(PauseRow r, const PauseState& st, PauseFrameOutput& o
             if (cfg_.pcSettingsPages && st.pcSettings) { // straight onto the gameplay keys; Back returns here
                 pcPages_.setTrail({pausePageName(PausePage::Root), pausePageName(PausePage::Options),
                                    pausePageName(PausePage::Controller)});
-                pcPages_.setTitle("PC Settings");
+                pcPages_.setTitle(menuText("PC Settings"));
                 pcPages_.open("game");
                 pcOpen_ = true;
             } else
@@ -1186,7 +1197,7 @@ void PauseScreen::drawRow(PauseRow r, const Rect& rd, bool live, const PauseStat
         case PauseRowKind::Button:
             p.text(d, inner, pauseRowLabel(r), FontRole::Heading, labelC);
             if (!en)
-                p.text(d, inner, "Unavailable", FontRole::Small, th.textDisabled, TextAlign::Right);
+                p.text(d, inner, menuText("Unavailable"), FontRole::Small, th.textDisabled, TextAlign::Right);
             break;
         case PauseRowKind::Slider: {
             const Rect line{inner.x, rd.y + 6, inner.w, 46};
@@ -1214,8 +1225,8 @@ void PauseScreen::drawRow(PauseRow r, const Rect& rd, bool live, const PauseStat
             d.outline(p.map(box), en ? th.brass : th.textDisabled, p.px(2), p.px(3));
             if (v && en)
                 d.rect(p.map(box.inset(7)), foc ? th.ember : th.brass, p.px(2));
-            p.text(d, {inner.x, rd.y, inner.w - 46, rd.h}, en ? (v ? "On" : "Off") : "--", FontRole::Body,
-                   v && en ? valueC : th.textMuted, TextAlign::Right);
+            p.text(d, {inner.x, rd.y, inner.w - 46, rd.h}, en ? (v ? menuText("On") : menuText("Off")) : "--",
+                   FontRole::Body, v && en ? valueC : th.textMuted, TextAlign::Right);
             break;
         }
         case PauseRowKind::Choice: {
@@ -1241,11 +1252,13 @@ void PauseScreen::drawCard(const PauseState& st, DrawList& d) const {
     const Rect c = design::pause::cardPanel(n);
     d.panel(p.map(c), PanelStyle::Main, th.panelRaised);
     const bool quit = page_ == PausePage::QuitConfirm;
-    p.text(d, {c.x + kCardPad, c.y + 28, c.w - 2 * kCardPad, 52}, quit ? "Quit the game?" : "Restore default settings?",
-           FontRole::Title, th.heading);
+    p.fittedText(d, {c.x + kCardPad, c.y + 28, c.w - 2 * kCardPad, 52},
+                 quit ? menuText("Quit the game?") : menuText("Restore default settings?"), FontRole::Title,
+                 th.heading);
     p.rule(d, c.x + kCardPad, c.y + 92, c.w - 2 * kCardPad);
     const std::vector<std::string> body =
-        p.wrap(quit ? "Unsaved progress is lost." : "Audio and controller options return to their default values.",
+        p.wrap(quit ? menuText("Unsaved progress is lost.")
+                    : menuText("Audio and controller options return to their default values."),
                c.w - 2 * kCardPad, FontRole::Body);
     float y = c.y + 104;
     for (size_t i = 0; i < body.size() && i < 2; ++i, y += 30)
@@ -1263,20 +1276,20 @@ void PauseScreen::drawStatus(const Snapshot& s, const PauseState& st, DrawList& 
     float y = panel.y + 24;
 
     const std::string loc = locationName(s, st.location);
-    p.label(d, {x, y, w, 28}, "Location", th.brass);
+    p.label(d, {x, y, w, 28}, menuText("Location"), th.brass);
     y += 28;
-    p.text(d, {x, y, w, 56}, loc.empty() ? std::string("Unknown") : loc, FontRole::Title,
+    p.text(d, {x, y, w, 56}, loc.empty() ? std::string(menuText("Unknown")) : loc, FontRole::Title,
            loc.empty() ? th.textMuted : th.heading);
     y += 72;
     p.rule(d, x, y, w);
     y += 16;
 
-    p.label(d, {x, y, w, 28}, "Objectives", th.brass);
+    p.label(d, {x, y, w, 28}, menuText("Objectives"), th.brass);
     y += 40;
     const std::vector<const QuestEntry*> open = orderedObjectives(s, false);
     const float limit = panel.y + 400;
     if (open.empty()) {
-        p.text(d, {x, y, w, 32}, "No open objectives.", FontRole::Body, th.textDisabled, TextAlign::Left, 23);
+        p.text(d, {x, y, w, 32}, menuText("No open objectives."), FontRole::Body, th.textDisabled, TextAlign::Left, 23);
     }
     int shown = 0;
     for (const QuestEntry* q : open) {
@@ -1300,20 +1313,21 @@ void PauseScreen::drawStatus(const Snapshot& s, const PauseState& st, DrawList& 
     }
     if (static_cast<int>(open.size()) > shown && y + 26 <= limit + 26)
         p.text(d, {x + 30, y, w - 30, 26},
-               "+" + fmtInt(static_cast<int32_t>(open.size()) - shown) + " more in the journal", FontRole::Small,
-               th.textMuted);
+               menuFormat("+{0} more in the journal", {fmtInt(static_cast<int32_t>(open.size()) - shown)}),
+               FontRole::Small, th.textMuted);
 
     y = panel.y + 420;
     p.rule(d, x, y, w);
     y += 16;
     p.label(d, {x, y, w, 28}, "Rynn", th.brass);
-    p.text(d, {x, y, w, 28}, "Level " + fmtInt(s.stats.level), FontRole::Small, th.text, TextAlign::Right);
+    p.text(d, {x, y, w, 28}, menuFormat("Level {0}", {fmtInt(s.stats.level)}), FontRole::Small, th.text,
+           TextAlign::Right);
     y += 40;
-    p.bar(d, {x, y, w, 34}, s.stats.hp, s.stats.hpMax, th.hp, "Health");
+    p.bar(d, {x, y, w, 34}, s.stats.hp, s.stats.hpMax, th.hp, menuText("Health"));
     y += 46;
-    p.bar(d, {x, y, w, 34}, s.stats.mana, s.stats.manaMax, th.mana, "Mana");
+    p.bar(d, {x, y, w, 34}, s.stats.mana, s.stats.manaMax, th.mana, menuText("Mana"));
     y += 52;
-    p.text(d, {x, y, w, 36}, "Gold", FontRole::Body, th.textMuted);
+    p.text(d, {x, y, w, 36}, menuText("Gold"), FontRole::Body, th.textMuted);
     p.text(d, {x, y, w - 44, 36}, fmtInt(s.stats.gold), FontRole::Numeric, th.heading, TextAlign::Right);
     d.imageOr(p.map({x + w - 38, y - 2, 40, 40}), {ImageKind::UiIcon, uint32_t(UiIconId::GoldBag)},
               {ImageKind::SkinOrb, 0}, 0xffffffffu, th.xp);

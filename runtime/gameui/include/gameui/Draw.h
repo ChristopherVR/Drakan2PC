@@ -36,26 +36,28 @@ constexpr Color withAlpha(Color c, uint8_t a) {
 // What an image reference points at; the renderer owns the mapping to textures.
 enum class ImageKind : uint8_t {
     None,
-    ItemIcon,      // index = grid cell (or 0x1b for the shop stock item): crop of the native page canvas
-    CategoryIcon,  // index = CategoryFilter
-    PageIcon,      // index = Page
-    SpellIcon,     // index = spell index
-    Prompt,        // index = Prompt: button glyph for the current device
-    MapBackground, // index = region
-    SkinFrame,     // brass 9-slice frame (INTERFCE.TXD 118)
-    SkinStone,     // stone tile (88)
-    SkinOrb,       // orb (128)
-    SkinFire,      // fire highlight (28)
-    SkinCrest,     // the shared ornament: the pale blue-grey gem (INTERFCE.TXD 129) in a gilt setting between two
-                   // bone-ivory crescents (Order of the Flame's inventory frame); index unused
-    UiIcon,        // index = UiIconId: the game's inventory icon atlas (INTERFCE.TXD 94)
-    SavePreview,   // index = save slot number (1-based, BESCES-50006Slot<n>): the HD companion picture
-                   // (drakan_save_previews) or the save's native 128 x 128 thumbnail; nothing for an empty slot
-    TitleArt,      // index unused: the title menu's background art (title screen widget 0x2301)
-    LevelPreview,  // index = LevelEntry::previewId: a multiplayer map's picture, generated at run time from the
-                   // player's own disc / mod pack (never stored in the repository); nothing when unknown
-    CharTurntable, // index = classId | frame << 16: one frame of a co-op character's turntable strip (made at run time
-                   // from the player's disc, drakan_arena character studio); nothing when there is no strip
+    ItemIcon,       // index = grid cell (or 0x1b for the shop stock item): crop of the native page canvas
+    CategoryIcon,   // index = CategoryFilter
+    PageIcon,       // index = Page
+    SpellIcon,      // index = spell index
+    Prompt,         // index = Prompt: button glyph for the current device
+    MapBackground,  // index = region
+    SkinFrame,      // brass 9-slice frame (INTERFCE.TXD 118)
+    SkinStone,      // stone tile (88)
+    SkinOrb,        // orb (128)
+    SkinFire,       // fire highlight (28)
+    SkinCrest,      // the shared ornament: the pale blue-grey gem (INTERFCE.TXD 129) in a gilt setting between two
+                    // bone-ivory crescents (Order of the Flame's inventory frame); index unused
+    UiIcon,         // index = UiIconId: the game's inventory icon atlas (INTERFCE.TXD 94)
+    SavePreview,    // index = save slot number (1-based, BESCES-50006Slot<n>): the HD companion picture
+                    // (drakan_save_previews) or the save's native 128 x 128 thumbnail; nothing for an empty slot
+    TitleArt,       // index unused: the title menu's background art (title screen widget 0x2301)
+    LevelPreview,   // index = LevelEntry::previewId: a multiplayer map's picture, generated at run time from the
+                    // player's own disc / mod pack (never stored in the repository); nothing when unknown
+    CharTurntable,  // index = classId | frame << 16: one frame of a co-op character's turntable strip (made at run time
+                    // from the player's disc, drakan_arena character studio); nothing when there is no strip
+    CharacterModel, // index = class id: original textured mesh, projected continuously and GPU-rasterized at output
+                    // size
 };
 // Pictures of the game's inventory icon atlas (INTERFCE.TXD 94, the native section tabs and the gold bag).
 enum class UiIconId : uint8_t { Chest, Stars, Face, Map, Book, Trade, GoldBag, Count };

@@ -109,18 +109,12 @@ std::vector<LevelEntry> vanillaLevels() {
 }
 
 std::vector<CharacterEntry> placeholderCharacters() {
-    return {{0, "Rynn", "Rynn", "The dragon rider. Always the host's character.", true},
-            {1, "Wartok", "Placeholder 1", "A heavy fighter (placeholder).", false},
-            {2, "Tarn", "Placeholder 2", "A quick scout (placeholder).", false},
-            {3, "Sera", "Placeholder 3", "A battle mage (placeholder).", false}};
+    // No invented characters or class ids when the runtime catalogue is unavailable.
+    return {{0, "Rynn", "Rynn", "The dragon rider.", false}};
 }
 
-const std::vector<std::string>& modelNames() {
-    static const std::vector<std::string> v = {"Rynn"};
-    return v;
-}
 const std::vector<std::string>& dragonSkinNames() {
-    static const std::vector<std::string> v = {"Red", "Green serpent", "Tan lizard", "Grey", "Blue", "Black", "White"};
+    static const std::vector<std::string> v = {"Arokh (original)"};
     return v;
 }
 const std::vector<std::string>& speedNames() {
@@ -194,6 +188,7 @@ void MultiplayerScreen::open(const MpState& st, MpScope scope) {
         setup_.model = st.defaultModel;
         profileSeeded_ = true;
     }
+    setup_.character = selectedCharacter(st).classId;
     host_.level = 0;
     levelScroll_ = 0;
     chatInput_.clear();
@@ -287,16 +282,9 @@ std::vector<const ModeEntry*> MultiplayerScreen::modesForMap(const MpState& st) 
     return out;
 }
 
-// The characters the local player may pick: the host is Rynn, a joiner picks one of the others.
+// Every player may pick any character supplied by the runtime, including Rynn.
 std::vector<CharacterEntry> MultiplayerScreen::allowedCharacters(const MpState& st) const {
-    std::vector<CharacterEntry> all = st.characters.empty() ? placeholderCharacters() : st.characters;
-    std::vector<CharacterEntry> out;
-    for (const CharacterEntry& c : all)
-        if (c.hostOnly == st.hosting)
-            out.push_back(c);
-    if (out.empty())
-        out = all;
-    return out;
+    return st.characters.empty() ? placeholderCharacters() : st.characters;
 }
 
 CharacterEntry MultiplayerScreen::selectedCharacter(const MpState& st) const {
@@ -407,8 +395,9 @@ void MultiplayerScreen::buildRows(const MpState& st) {
         case MpPage::Menu: // the OotF "Multiplayer" screen: Player Name, Player Color, skins, Connection Speed, buttons
             add(RowId::MenuName, RowKind::Text, "Player Name", setup_.name);
             add(RowId::MenuColour, RowKind::Choice, "Player Color", pick(colourNames(), setup_.colour));
-            add(RowId::MenuHumanSkin, RowKind::Choice, "Human Skin", pick(modelNames(), setup_.model));
-            add(RowId::MenuDragonSkin, RowKind::Choice, "Dragon Skin", pick(dragonSkinNames(), setup_.dragonSkin));
+            add(RowId::MenuHumanSkin, RowKind::Choice, "Character", selectedCharacter(st).name,
+                allowedCharacters(st).size() > 1);
+            add(RowId::MenuDragonSkin, RowKind::Choice, "Dragon Appearance", "Arokh (original)", false);
             add(RowId::MenuSpeed, RowKind::Choice, "Connection Speed", pick(speedNames(), setup_.speed));
             add(RowId::MenuHost, RowKind::Action, "Host Game", {}, net);
             add(RowId::MenuJoin, RowKind::Action, "Join Game", {}, net);
@@ -529,10 +518,8 @@ void MultiplayerScreen::buildRows(const MpState& st) {
             for (const RosterRow& p : st.roster)
                 add(RowId::LobbyPlayer, RowKind::Info, p.name, {}, true, i++);
             const bool lobby = st.conn == Conn::Connected && st.phase == MatchPhaseView::Lobby;
-            if (st.mode == GameMode::Coop)
-                add(RowId::LobbyCharacter, RowKind::Choice, "Character",
-                    selectedCharacter(st).name + (st.hosting ? "  (host)" : ""),
-                    lobby && !st.hosting && allowedCharacters(st).size() > 1);
+            add(RowId::LobbyCharacter, RowKind::Choice, "Character", selectedCharacter(st).name,
+                lobby && allowedCharacters(st).size() > 1);
             add(RowId::LobbyReady, RowKind::Toggle, "Ready", st.selfReady ? "Ready" : "Not ready", lobby);
             if (st.hosting)
                 add(RowId::LobbyStart, RowKind::Action, "Start Match", {}, lobby && !st.roster.empty());
@@ -672,9 +659,10 @@ void MultiplayerScreen::layoutRows(const MpState& st) {
                 int& ord = second ? colB : colA;
                 if (teamLobby)
                     r.rect = {second ? 600.0f : 80.0f, 276 + static_cast<float>(ord) * 56, 500, 50};
-                else
-                    r.rect = st.mode == GameMode::Coop ? Rect{80, 262 + static_cast<float>(ord) * 50, 1020, 44}
-                                                       : Rect{80, 270 + static_cast<float>(ord) * 56, 1020, 50};
+                else {
+                    const float step = std::min(50.0f, 398.0f / std::max(1.0f, float(st.roster.size())));
+                    r.rect = {80, 262 + static_cast<float>(ord) * step, 1020, step - 6};
+                }
                 ++ord;
                 break;
             }
@@ -849,15 +837,13 @@ void MultiplayerScreen::adjust(int i, int dir, const MpState& st, MpFrameOutput&
         case RowId::MenuColour:
             setup_.colour = wrapIdx(setup_.colour + dir, static_cast<int>(colourNames().size()));
             break;
-        case RowId::MenuHumanSkin:
-            setup_.model = wrapIdx(setup_.model + dir, static_cast<int>(modelNames().size()));
-            break;
         case RowId::MenuDragonSkin:
             setup_.dragonSkin = wrapIdx(setup_.dragonSkin + dir, static_cast<int>(dragonSkinNames().size()));
             break;
         case RowId::MenuSpeed:
             setup_.speed = wrapIdx(setup_.speed + dir, static_cast<int>(speedNames().size()));
             break;
+        case RowId::MenuHumanSkin:
         case RowId::LobbyCharacter: {
             const std::vector<CharacterEntry> ok = allowedCharacters(st);
             const CharacterEntry cur = selectedCharacter(st);
@@ -868,6 +854,7 @@ void MultiplayerScreen::adjust(int i, int dir, const MpState& st, MpFrameOutput&
             const CharacterEntry& next =
                 ok[static_cast<size_t>(wrapIdx(static_cast<int>(at) + dir, static_cast<int>(ok.size())))];
             setup_.character = next.classId;
+            setup_.model = wrapIdx(static_cast<int>(at) + dir, static_cast<int>(ok.size()));
             MpAction a = baseAction(MpActionKind::SetCharacter, st);
             a.character = next.classId;
             out.actions.push_back(a);
@@ -1070,10 +1057,9 @@ MpFrameOutput MultiplayerScreen::frame(const MpState& st, const UiInput& in, con
             if (rows_[static_cast<size_t>(i)].id == RowId::LobbyReady && rows_[static_cast<size_t>(i)].enabled)
                 focus_ = i;
     }
-    // A joiner whose session character is not one of the characters she may play (the default is Rynn, the host's)
-    // takes the first one that is: tell the session once.
-    if (page_ == MpPage::Lobby && st.mode == GameMode::Coop && st.conn == Conn::Connected &&
-        st.phase == MatchPhaseView::Lobby && !st.hosting && st.selfCharacter >= 0) {
+    // Repair an obsolete saved character id, without replacing a valid choice on entering a lobby.
+    if (page_ == MpPage::Lobby && st.conn == Conn::Connected && st.phase == MatchPhaseView::Lobby &&
+        st.selfCharacter >= 0) {
         const CharacterEntry c = selectedCharacter(st);
         if (c.classId != st.selfCharacter && c.classId != autoChar_) {
             autoChar_ = c.classId;
@@ -1249,12 +1235,6 @@ Rect lobbyPreview() {
     return {1140, kTop, 700, 330};
 }
 
-Color dragonSkinRgba(int i) {
-    static const Color c[] = {rgba(190, 48, 40),  rgba(70, 150, 84), rgba(196, 166, 106), rgba(150, 156, 164),
-                              rgba(64, 116, 200), rgba(36, 34, 40),  rgba(228, 226, 220)};
-    return c[wrapIdx(i, 7)];
-}
-
 Color teamRgba(int team) {
     static const Color c[] = {rgba(206, 70, 40), rgba(70, 130, 220), rgba(76, 170, 90), rgba(210, 190, 230)};
     return c[team & 3];
@@ -1362,28 +1342,14 @@ void drawMapCard(DrawList& d, const detail::Paint& p, const Rect& r, const Level
             withAlpha(th.ivory, 220), TextAlign::Left, 14);
 }
 
-// A hooded fighter in the player's colour (a stylised stand-in until models can be drawn in the menu), idle sway.
-void drawFigure(DrawList& d, const detail::Paint& p, const Rect& r, Color cloak, int skin, double now) {
-    const Theme& th = p.th();
-    const float s = p.lf().scale;
-    const float sway = 4.0f * static_cast<float>(std::sin(now * 1.4));
-    const float cx = r.cx() + sway * 0.4f, base = r.bottom() - 30;
-    const float u = r.h / 10.0f; // the figure is about ten units high
-    const Color dark = mix(cloak, rgba(0, 0, 0), 0.55f), light = mix(cloak, rgba(255, 240, 210), 0.3f);
-    const Color leather = skin % 2 ? rgba(88, 62, 40) : rgba(64, 52, 46);
-    d.rect(p.map({cx - u * 2.4f, base - 10, u * 4.8f, 22}), rgba(0, 0, 0, 120), 11 * s);
-    d.rect(p.map({cx - u * 0.95f, base - u * 3.1f, u * 0.8f, u * 3.1f}), leather, 6 * s);
-    d.rect(p.map({cx + u * 0.15f, base - u * 3.1f, u * 0.8f, u * 3.1f}), leather, 6 * s);
-    d.rect(p.map({cx - u * 1.7f + sway * 0.3f, base - u * 7.2f, u * 3.4f, u * 4.6f}), dark, 14 * s);
-    d.rect(p.map({cx - u * 1.15f, base - u * 7.0f, u * 2.3f, u * 3.1f}), light, 12 * s);
-    d.rect(p.map({cx - u * 1.15f, base - u * 4.5f, u * 2.3f, u * 0.4f}), rgba(40, 30, 20), 3 * s);
-    d.outline(p.map({cx - u * 1.15f, base - u * 7.0f, u * 2.3f, u * 3.1f}), withAlpha(th.gilt, 160), 1.5f, 12 * s);
-    d.rect(p.map({cx - u * 1.7f, base - u * 6.8f, u * 0.6f, u * 2.4f}), cloak, 8 * s);
-    d.rect(p.map({cx + u * 1.1f, base - u * 6.8f, u * 0.6f, u * 2.4f}), cloak, 8 * s);
-    d.rect(p.map({cx - u * 0.75f, base - u * 9.2f, u * 1.5f, u * 1.7f}), dark, 20 * s);
-    d.rect(p.map({cx - u * 0.52f, base - u * 8.9f, u * 1.04f, u * 1.15f}), rgba(214, 170, 132), 14 * s);
-    pxLine(d, p, cx + u * 1.5f, base - u * 4.3f, cx + u * 1.85f + sway * 0.2f, base - u * 8.4f, rgba(212, 218, 226), 4);
-    pxLine(d, p, cx + u * 1.3f, base - u * 4.9f, cx + u * 1.75f, base - u * 4.9f, th.gilt, 4);
+// Only show the actual disc model. Missing art must not masquerade as the selected character.
+void drawCharacter(DrawList& d, const detail::Paint& p, const Rect& r, const CharacterEntry& ch, double now) {
+    if (!ch.previewReady) {
+        p.text(d, r, "Character preview unavailable", FontRole::Small, p.th().textMuted, TextAlign::Center, 20);
+        return;
+    }
+    (void)now;
+    d.image(p.map(r), ImageRef{ImageKind::CharacterModel, static_cast<uint32_t>(ch.classId & 0xffff)});
 }
 
 } // namespace
@@ -1509,28 +1475,20 @@ void MultiplayerScreen::draw(const MpState& st, DrawList& d, const std::vector<H
             const Rect stage{pv.x + 40, pv.y + 70, pv.w - 80, pv.h - 250};
             d.gradient(p.map(stage), mix(colourRgba(setup_.colour), rgba(0, 0, 0), 0.72f), rgba(10, 6, 4));
             d.outline(p.map(stage), th.brassDim, 2.0f);
-            d.image(p.map({stage.cx() - 260, stage.cy() - 260, 520, 520}), ImageRef{ImageKind::SkinOrb, 0},
-                    withAlpha(colourRgba(setup_.colour), 170));
-            drawFigure(d, p, stage.inset(30), colourRgba(setup_.colour), setup_.model, st.now);
+            const CharacterEntry ch = selectedCharacter(st);
+            drawCharacter(d, p, stage.inset(12), ch, st.now);
             p.label(d, {pv.x + 40, pv.y + 22, pv.w - 80, 34}, "YOUR CHARACTER", th.brass, TextAlign::Left, 18);
             const std::string nm = setup_.name.empty() ? std::string("Rynn") : setup_.name;
             p.text(d, {pv.x + 40, pv.bottom() - 170, pv.w - 280, 64}, nm, FontRole::Title, th.heading, TextAlign::Left,
                    54);
             p.text(d, {pv.x + 40, pv.bottom() - 104, pv.w - 280, 40},
-                   modelNames()[static_cast<size_t>(wrapIdx(setup_.model, static_cast<int>(modelNames().size())))] +
-                       "   " + colourNames()[static_cast<size_t>(wrapIdx(setup_.colour, 8))],
-                   FontRole::Body, th.textMuted, TextAlign::Left, 26);
+                   ch.name + "   " + colourNames()[static_cast<size_t>(wrapIdx(setup_.colour, 8))], FontRole::Body,
+                   th.textMuted, TextAlign::Left, 26);
             // Dragon skin chip.
             const Rect dc{pv.right() - 220, pv.bottom() - 170, 180, 110};
             d.panel(p.map(dc), PanelStyle::Inset, withAlpha(th.inset, 220));
-            const Color dg = dragonSkinRgba(setup_.dragonSkin);
-            d.rect(p.map({dc.x + 36, dc.y + 36, 108, 34}), dg, 17 * lf_.scale);
-            d.rect(p.map({dc.x + 118, dc.y + 24, 38, 24}), mix(dg, rgba(0, 0, 0), 0.2f), 12 * lf_.scale);
-            pxLine(d, p, dc.x + 60, dc.y + 38, dc.x + 30, dc.y + 8, mix(dg, rgba(255, 255, 255), 0.2f), 5);
-            pxLine(d, p, dc.x + 90, dc.y + 38, dc.x + 100, dc.y + 6, mix(dg, rgba(255, 255, 255), 0.2f), 5);
-            p.text(d, {dc.x + 6, dc.y + 76, dc.w - 12, 30},
-                   dragonSkinNames()[static_cast<size_t>(wrapIdx(setup_.dragonSkin, 7))], FontRole::Small, th.text,
-                   TextAlign::Center, 20);
+            p.label(d, {dc.x + 6, dc.y + 16, dc.w - 12, 30}, "DRAGON", th.brass, TextAlign::Center, 14);
+            p.text(d, {dc.x + 6, dc.y + 76, dc.w - 12, 30}, "Arokh", FontRole::Small, th.text, TextAlign::Center, 20);
             break;
         }
         case MpPage::Host: {
@@ -1841,7 +1799,7 @@ void MultiplayerScreen::draw(const MpState& st, DrawList& d, const std::vector<H
                         break;
                 }
             }
-            if (st.mode == GameMode::Coop) { // character select: big preview, name, description, the selector row
+            { // character select in every mode: preview, name, description, selector
                 const CharacterEntry ch = selectedCharacter(st);
                 const Rect cpn{80, 676, 1020, 314};
                 d.panel(p.map(cpn), PanelStyle::Main, withAlpha(th.panel, 226));
@@ -1849,26 +1807,14 @@ void MultiplayerScreen::draw(const MpState& st, DrawList& d, const std::vector<H
                 const Color cc = colourRgba(setup_.colour);
                 d.gradient(p.map(stage), mix(cc, rgba(0, 0, 0), 0.75f), rgba(10, 6, 4));
                 d.outline(p.map(stage), th.brassDim, 2.0f);
-                d.image(p.map({stage.cx() - 130, stage.cy() - 130, 260, 260}), ImageRef{ImageKind::SkinOrb, 0},
-                        withAlpha(cc, 150));
-                if (ch.turnFrames > 0) { // the real model, turning (frames made at run time from the disc)
-                    const int fr = static_cast<int>(st.now * 6.0) % ch.turnFrames;
-                    const float ih = stage.h - 12, iw = ih / 1.5f;
-                    d.image(p.map({stage.cx() - iw / 2, stage.y + 6, iw, ih}),
-                            ImageRef{ImageKind::CharTurntable,
-                                     static_cast<uint32_t>(ch.classId & 0xffff) | (static_cast<uint32_t>(fr) << 16)});
-                } else {
-                    drawFigure(d, p, stage.inset(14), cc, ch.classId, st.now);
-                }
+                drawCharacter(d, p, stage.inset(6), ch, st.now);
                 p.label(d, {430, cpn.y + 20, 600, 28}, st.hosting ? "YOUR CHARACTER (HOST)" : "CHOOSE YOUR CHARACTER",
                         th.brass, TextAlign::Left, 16);
                 p.text(d, {430, cpn.y + 48, 640, 64}, ch.name.empty() ? std::string("-") : ch.name, FontRole::Title,
                        th.heading, TextAlign::Left, 52);
                 p.text(d, {430, cpn.y + 112, 640, 34}, ch.model, FontRole::Body, th.textMuted, TextAlign::Left, 24);
                 lineWrapped({430, cpn.y + 156, 640, 28}, ch.description, FontRole::Small, 21, th.text, 2, 28);
-                p.text(d, {430, cpn.y + 184, 640, 30},
-                       st.hosting ? "Rynn is locked to the host. Everyone gets their own dragon."
-                                  : "Rynn belongs to the host. Everyone gets their own dragon.",
+                p.text(d, {430, cpn.y + 184, 640, 30}, "Your character, shown locally and to other players.",
                        FontRole::Small, th.textDisabled, TextAlign::Left, 19);
                 if (const int ci = rowOf(RowId::LobbyCharacter); ci >= 0)
                     field(ci, 170, 26); // the selector sits on the panel (drawn again over it)

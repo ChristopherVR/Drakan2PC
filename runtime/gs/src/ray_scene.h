@@ -6,9 +6,13 @@
 #include <gsr/scene_models.h>
 #include <array>
 #include <cstdint>
+#include <string_view>
 #include <vector>
 
 namespace gsr::surface {
+// Diagnostic bits share Effects.w in both shaders. Unknown modes preserve normal rendering.
+constexpr uint32_t kRayDiagnosticNoAo = 32, kRayDiagnosticNoDirect = 64, kRayDiagnosticReceiver = 128;
+uint32_t rayDiagnosticEffects(std::string_view mode);
 struct Triangle {
     Point p[3];
     float color[3]{};

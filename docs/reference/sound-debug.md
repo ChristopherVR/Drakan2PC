@@ -97,6 +97,17 @@ Workflow used here: key-on log -> volume 0 for positional sounds -> `[setgain]` 
 capstone does not decode = `sqrt.s $f21, $f1`) -> generated code `FPU_SQRT_S(ctx->f[0])`.
 
 ## 5. Open / not done
+
+Current reported regression (2026-11-04): [GitHub #1](https://github.com/ChristopherVR/Drakan2PC/issues/1) describes a
+persistent high-pitched tone in v0.1.2, including the title menu and system recordings. A deployed internal PCM capture
+reproduced narrow tones at exactly half the playback rates of voices parked at SSA `0x5000` (for example pitch `0x6ff`
+produces 10494.14 Hz). `sdInit` filled the supposedly silent HLE parking block's payload with `0x0707`, decoding to
+alternating 224/0 samples. It now writes only the loop header and zeros the payload. Normal uploaded ADPCM and output
+remain unchanged. Asset-free cold/warm/both-core regression failed all 36 cases before the change and passes afterward.
+The rebuilt deployed parking gap is exact-zero PCM; a local Realtek system loopback also lacks the 11027 Hz line.
+See [the parking-tone investigation](../journal/2026-11-04/audio-parking-tone.md) for captures, validation and remaining
+live/device checks. This is separate from the older `SQRT.S` missing-sounds bug above.
+
 * Not listened to by a human; verified by key-on volumes, `[setgain]` and RMS in the dump only.
 * Reverb / effects: the game does not use them (no `sdrdrv` effect call after init).
 * Other `sqrt`-dependent behaviour (collision, AI, camera) was not re-audited; the fix changes it everywhere, which is the intent (visible: Rynn, inventory).

@@ -1,0 +1,36 @@
+{
+  "issue": "https://github.com/ChristopherVR/Drakan2PC/issues/1",
+  "source": "Issue body and attached drakan.log, reviewed 2026-11-04",
+  "reporter_known": {
+    "release": "Official installer v0.1.2",
+    "os": "Windows 11 25H2, build 26200.9168",
+    "cpu": "AMD Ryzen 9 9900X3D",
+    "gpu": "NVIDIA GeForce RTX 5080",
+    "ram_gb": 64,
+    "audio": "Sound Blaster AE-7, WASAPI shared 48 kHz float",
+    "disc": "German PAL SCES-50006",
+    "renderer_in_log": "d3d11",
+    "also_reported": "Both symptoms reported on DX11 and WebGPU",
+    "window_in_log": [1280, 960],
+    "presentation": "borderless fullscreen",
+    "internal_scale": 4,
+    "internal_dimensions": [2048, 2048],
+    "aspect": 1.778,
+    "vsync": 0,
+    "filter": 0,
+    "deinterlace": 0,
+    "flicker_filter": 0,
+    "world_cadence": "uncapped",
+    "foliage": {"enabled": true, "strength": 0.9},
+    "language_requested": "German",
+    "language_resources_observed": "English",
+    "first_three_ray_passes": {"water": true, "reflections": true, "shadows": false}
+  },
+  "unknown": [
+    "Screenshot location, save, camera pose and exact capture time",
+    "Ray-shadow toggle state at screenshot time; early shadows=off logs do not establish it",
+    "DLSS, neural rendering, replacement texture pack, texture upscaling and anisotropy settings",
+    "Native shadow setting, FOV, input sensitivity and full WebGPU configuration"
+  ],
+  "interpretation": "Ray tracing enabled in the report does not establish ray_shadows=1. Preserve the observed water/reflection-only baseline. New Game camera sweeps are coverage scenes, not reproductions of the reporter's location."
+}

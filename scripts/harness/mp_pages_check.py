@@ -33,7 +33,7 @@ def recipe_a(coop: bool, level_index: int) -> str:
         groups = [
             ["ENTER"],
             ["DOWN", "ENTER"],
-            ["DOWN"] * 5 + ["ENTER"],
+            ["DOWN"] * 4 + ["ENTER"],
             ["DOWN"] * 3 + ["RIGHT"] * level_index,
             ["DOWN"] * 2,
         ]
@@ -51,9 +51,9 @@ def recipe_a(coop: bool, level_index: int) -> str:
 def recipe_b(coop: bool) -> str:
     lines = ["clock milliseconds", "0 sync screen 8 3"]
     t = 3000
-    groups = [["DOWN", "ENTER"], ["DOWN"] * 6 + ["ENTER"]]
+    groups = [["DOWN", "ENTER"], ["DOWN"] * 5 + ["ENTER"]]
     if coop:
-        groups = [["ENTER"], ["DOWN", "ENTER"], ["DOWN"] * 6 + ["ENTER"]]
+        groups = [["ENTER"], ["DOWN", "ENTER"], ["DOWN"] * 5 + ["ENTER"]]
     for keys in groups:
         ls, t = taps(t, keys, 200)
         lines += ls

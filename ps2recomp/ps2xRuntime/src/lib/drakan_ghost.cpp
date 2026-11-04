@@ -153,6 +153,20 @@ void hookCharacterProjector(uint8_t* ram, R5900Context* c, PS2Runtime* rt) {
     // This is the character projector, not the generic model-shadow renderer. a0 is its manager; a1 is the model.
     // Redirect before silhouette bounds / pose / projected geometry are prepared, retaining the manager and light.
     if (c->pc == guestAddress(0x1ab890u)) {
+        // Diagnostic isolation of native projection from the later modern ray composite. Keep the default native
+        // path intact: replacement eligibility cannot be decided here, before the renderer finishes this frame.
+        static const bool disabled = [] {
+            const char* value = std::getenv("DRAKAN_NATIVE_CHARACTER_SHADOWS");
+            const bool off = value && std::strcmp(value, "0") == 0;
+            if (off)
+                std::fprintf(stderr, "[shadow-diagnostic] native character projection disabled\n");
+            return off;
+        }();
+        if (disabled) {
+            SET_GPR_U32(c, 2, 0u);
+            c->pc = getRegU32(c, 31);
+            return;
+        }
         const uint32_t source = getRegU32(c, 5);
         const uint32_t caster = drakan_local_character::g_view.shadowObject(source);
         if (!caster) {

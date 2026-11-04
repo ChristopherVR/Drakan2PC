@@ -88,27 +88,26 @@ struct HostForm {
     bool registerMaster = false; // placeholder: the master servers are gone
 };
 
-// A co-op character (the host plays Rynn, joiners pick another). The runtime side supplies the list
+// A multiplayer character (the same catalogue for hosts and joiners in every mode). The runtime supplies the list
 // (drakan_coop_character::roster(): class id, name, model); until it does the screen offers `placeholderCharacters()`.
 struct CharacterEntry {
     int classId = 0;
     std::string name;
-    std::string model;       // model name shown under the name
-    std::string description; // one line
-    bool hostOnly = false;   // Rynn: locked to the host
-    int turnFrames = 0;      // > 0: a turntable strip of that many frames exists (ImageKind::CharTurntable)
+    std::string model;         // model name shown under the name
+    std::string description;   // one line
+    bool hostOnly = false;     // legacy metadata, no longer restricts selection
+    bool previewReady = false; // original model / materials are loaded (ImageKind::CharacterModel)
 };
 std::vector<CharacterEntry> placeholderCharacters();
 
 struct SetupForm {
-    int character = -1; // co-op character class id (-1 = the default: Rynn for the host, the first free one otherwise)
+    int character = -1; // character class id (-1 = the first catalogue entry)
     std::string name = "Rynn";
     int colour = 0;     // Player Color
     int model = 0;      // Human Skin
     int dragonSkin = 0; // Dragon Skin (no effect until dragon matches exist)
     int speed = 4;      // Connection Speed (LAN / T1 default)
 };
-const std::vector<std::string>& modelNames(); // placeholder list: Rynn only until custom models land
 const std::vector<std::string>& dragonSkinNames();
 const std::vector<std::string>& speedNames();  // Modem 28.8k .. LAN/T1 1M
 const std::vector<std::string>& colourNames(); // swatch names; colourRgba(i) gives the swatch

@@ -17,6 +17,8 @@
 #include "drakan_arena.h"
 #include "drakan_modes.h"
 #include "drakan_coop_character.h"
+#include "drakan_ghost.h"
+#include "settings/CharacterPreview.h"
 #include "drakan_world.h"
 #include "drakan_fmv_hd.h"
 #include "drakan_save_previews.h"
@@ -1382,71 +1384,44 @@ void updateMapPreviews() {
     }
 }
 
-// Co-op character turntables: <previews>/chars/<class id hex4>.png, 12 frames of 160 x 240 side by side (RGBA, cut out
-// by drakan_arena's character studio). Loaded on first use; turnFrames(id) is 0 until the strip has been read.
-constexpr int kTurnFrames = 12;
-struct TurnTexture {
-    ImTextureID tex = 0;
-    float w = 0, h = 0;
-    std::future<gsr::Image> decode;
+// Original meshes and materials, drawn live at the panel's output resolution. No turntable PNG fallback.
+struct MenuCharacterModel {
+    std::shared_ptr<dsettings::CharacterPreview> model;
+    std::future<std::shared_ptr<dsettings::CharacterPreview>> decode;
     bool started = false, failed = false;
     std::chrono::steady_clock::time_point checked;
 };
-std::map<int, TurnTexture> g_turns;
-int turnFrames(int classId) {
-    TurnTexture& t = g_turns[classId];
-    if (t.tex)
-        return kTurnFrames;
+std::map<int, MenuCharacterModel> g_characterModels;
+bool characterPreviewReady(int classId) {
+    MenuCharacterModel& t = g_characterModels[classId];
+    if (t.model && t.model->ready())
+        return true;
     const auto now = std::chrono::steady_clock::now();
     if (!t.started && (!t.failed || now - t.checked > std::chrono::seconds(5))) {
-        char nm[16];
-        std::snprintf(nm, sizeof nm, "%04x.png", static_cast<unsigned>(classId) & 0xffffu);
-        const std::string path = drakan_arena::charPreviewDir() + nm;
-        std::error_code ec;
+        char name[24];
+        std::snprintf(name, sizeof name, "%04x.dcpm", static_cast<unsigned>(classId) & 0xffffu);
+        const std::string path = drakan_cfg::exeDir() + "previews/chars/" + name;
         t.checked = now;
-        if (std::filesystem::exists(path, ec)) {
-            t.started = true;
-            t.decode = std::async(std::launch::async, [path] {
-                gsr::Image img;
-                if (!gsr::readImage(path.c_str(), img))
-                    return gsr::Image{};
-                // The strip is cut out against black (empty pixels are 0 0 0): take the alpha from the colour, the
-                // readers hand the file's alpha over in GS units and the overlay's texture path ignores it.
-                for (size_t i = 0; i + 3 < img.rgba.size(); i += 4) {
-                    const int m = std::max({img.rgba[i], img.rgba[i + 1], img.rgba[i + 2]});
-                    img.rgba[i + 3] = static_cast<uint8_t>(std::clamp((m - 6) * 24, 0, 255));
-                }
-                return img;
-            });
-        } else {
-            t.failed = true;
-        }
+        t.started = true;
+        t.decode = std::async(std::launch::async, [path] { return dsettings::CharacterPreview::load(path); });
     }
     if (t.started && t.decode.valid() && t.decode.wait_for(std::chrono::seconds(0)) == std::future_status::ready) {
-        gsr::Image img = t.decode.get();
+        t.model = t.decode.get();
         t.started = false;
-        t.tex = img ? makeTexture(img.rgba.data(), img.width, img.height) : 0;
-        t.failed = !t.tex;
-        t.w = static_cast<float>(img.width) / kTurnFrames;
-        t.h = static_cast<float>(img.height);
-        if (t.tex)
-            std::fprintf(stderr, "[menu-screens] character turntable %04x: loaded (%ux%u)\n", classId, img.width,
-                         img.height);
+        t.failed = !t.model || !t.model->upload(makeTexture, [](ImTextureID id) { dropTexture(id); });
+        if (!t.failed)
+            std::fprintf(stderr, "[menu-screens] live character model %04x: loaded (%zu triangles)\n", classId,
+                         t.model->triangleCount());
     }
-    return t.tex ? kTurnFrames : 0;
+    return !t.failed && t.model && t.model->ready();
 }
 
 bool previewCrop(const gameui::ImageRef& ref, dsettings::IconCrop& c) {
-    if (ref.kind == gameui::ImageKind::CharTurntable) {
-        const auto it = g_turns.find(static_cast<int>(ref.index & 0xffff));
-        if (it == g_turns.end() || !it->second.tex)
+    if (ref.kind == gameui::ImageKind::CharacterModel) {
+        const auto it = g_characterModels.find(static_cast<int>(ref.index));
+        if (it == g_characterModels.end() || !it->second.model || !it->second.model->ready())
             return false;
-        const int fr = static_cast<int>((ref.index >> 16) % kTurnFrames);
-        c.texture = it->second.tex;
-        c.uv0 = ImVec2(float(fr) / kTurnFrames, 0);
-        c.uv1 = ImVec2(float(fr + 1) / kTurnFrames, 1);
-        c.w = it->second.w;
-        c.h = it->second.h;
+        c.model = it->second.model.get();
         return true;
     }
     if (ref.kind == gameui::ImageKind::LevelPreview) {
@@ -1489,7 +1464,7 @@ void drawHostList(const dsettings::SettingsOverlay::ScreenFrame& f, const gameui
 
 struct MpProfile {
     std::string name;
-    int colour = 0, model = 0;
+    int colour = 0, model = 0, character = -1;
     bool loaded = false;
 };
 MpProfile g_mpProfile;
@@ -1520,15 +1495,20 @@ void loadMpProfile() {
             g_mpProfile.colour = std::atoi(v.c_str());
         else if (k == "model")
             g_mpProfile.model = std::atoi(v.c_str());
+        else if (k == "character")
+            g_mpProfile.character = std::atoi(v.c_str());
     }
+    if (!std::getenv("DRAKAN_COOP_CHARACTER") && g_mpProfile.character >= 0 && g_mpProfile.character <= 0xffff)
+        drakan_coop_character::setSelected(static_cast<uint16_t>(g_mpProfile.character));
 }
 void saveMpProfile(const gameui::mp::SetupForm& s) {
     g_mpProfile.name = s.name;
     g_mpProfile.colour = s.colour;
     g_mpProfile.model = s.model;
+    g_mpProfile.character = s.character >= 0 ? s.character : drakan_coop_character::selected();
     std::ofstream out(mpProfilePath(), std::ios::trunc);
     out << "; Player Setup of the Multiplayer menu\nname = " << s.name << "\ncolour = " << s.colour
-        << "\nmodel = " << s.model << "\n";
+        << "\nmodel = " << s.model << "\ncharacter = " << g_mpProfile.character << "\n";
 }
 
 // The multiplayer maps (arenas): the catalogue of configs/mp_maps.ini compiled into drakan::net plus the player's own
@@ -1637,8 +1617,7 @@ gameui::mp::MpState mpState(bool wantLan) {
         r.score = p.score;
         r.pingMs = p.pingMs;
         r.timeSec = p.timeSec;
-        if (ns.mode == 2)
-            r.characterName = drakan_coop_character::entry(static_cast<uint16_t>(p.character)).name;
+        r.characterName = drakan_coop_character::entry(static_cast<uint16_t>(p.character)).name;
         s.roster.push_back(std::move(r));
     }
     s.countdownSec = ns.countdownKind == 1 ? ns.countdownSec : -1.0;
@@ -1646,12 +1625,10 @@ gameui::mp::MpState mpState(bool wantLan) {
         CharacterEntry c;
         c.classId = e.id;
         c.name = e.name;
-        c.hostOnly = e.id == 0;
         if (e.id == drakan_coop_character::selected()) // only the shown one is loaded
-            c.turnFrames = turnFrames(e.id);
-        c.model = e.id == 0 ? "SYSTEM.MOD #" + std::to_string(e.modelId) : "NPCS.MOD #" + std::to_string(e.modelId);
-        c.description = e.id == 0 ? "The dragon rider. Always the host's character."
-                                  : "A partner stand-in: plays its own walk, run and fight animations.";
+            c.previewReady = characterPreviewReady(e.id);
+        c.model = ((e.recordId & 0xffff0000u) == 0x20000u ? "SYSTEM.MOD #" : "NPCS.MOD #") + std::to_string(e.modelId);
+        c.description = e.id == 0 ? "The dragon rider." : "The original game model, using its own animations.";
         s.characters.push_back(std::move(c));
     }
     s.selfCharacter = drakan_coop_character::selected();
@@ -2937,6 +2914,13 @@ void detachRenderer() {
         dropTexture(p.second.tex);
     }
     g_mapPreviews.clear();
+    for (auto& [id, preview] : g_characterModels) {
+        if (preview.decode.valid())
+            preview.decode.wait();
+        if (preview.model)
+            preview.model->release([](ImTextureID texture) { dropTexture(texture); });
+    }
+    g_characterModels.clear();
     g_previewDrops.clear(); // waits for the dropped decodes
     g_pcs.reset();          // it refers to the overlay's store
     g_overlay.reset();

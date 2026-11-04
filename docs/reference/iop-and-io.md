@@ -101,7 +101,18 @@ Call chain (all EE addresses): `crt0` calls `main` @0x101400 (via `jal 0x101400`
    (0x4c3190 / 0x4bff60).
 2. `0x1015d8` **SelectLanguage**: `sceScfGetLanguage` (0x4bae48) -> table @0x519570 -> index into
    {English, German, French, Italian, Spanish} (names @0x51d55c, stride 0x24). Result stored at 0x4deAD0.
-   (scf 1=EN, 2=FR, 3=ES, 4=DE, 5=IT; anything else -> English.) The PC build should just pick a language.
+   (scf 1=EN, 2=FR, 3=ES, 4=DE, 5=IT; anything else -> English.) Before guest startup, the PC build resolves
+   `[general] language` with `DRAKAN_LANG` precedence and configures both emulated OSD views using
+   `ps2_syscalls::configureOsdLanguage`. The same effective selection sets the RSRCIOP root, native menu labels and
+   automatic narration subtitle language. Values accept case-insensitive full names with optional outer slashes;
+   invalid/empty values, languages outside the build profile, or an absent selected `DRAKAN2.RRC` fall back to English
+   with a diagnostic. PAL supports five languages; USA supports English. Changes require restart. Explicit language
+   paths in IsoFs remain explicit, so tools/mods can address another tree deliberately.
+   The original guest menus and modern title/pause/save-load labels follow this language; the modern menu catalog
+   is in `runtime/gameui/src/MenuText.cpp`. Broad PC settings, editor and multiplayer-page labels retain their current
+   language. Explicit skin overrides and guest/campaign/save names stay verbatim.
+   Deployed German/English native-title screenshots and resource-open evidence are recorded in
+   `docs/journal/2026-11-04/issue-1-language.md`.
 3. `0x101710` **LoadIopModules**:
    * path = `sprintf("%s\%s", "cdrom0:", langname)` upper-cased, then the obfuscated suffix constant @0x5195a8
      (`"-7?NN*OHARAHX"`: reverse + 4 per byte) = `"\LEVELS.RRC;1"`; so

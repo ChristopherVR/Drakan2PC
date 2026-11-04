@@ -1,5 +1,7 @@
 // libsd_test: data-free checks of Note2Pitch / Pitch2Note and of the LIBSD.IRX reverb preset finder.
 #include "spu2/Spu2.h"
+#include <algorithm>
+#include <array>
 #include <cstdio>
 #include <vector>
 
@@ -16,7 +18,54 @@ static int g_failures = 0;
         }                                                                                                              \
     } while (0)
 
+static void testParkingSilence() {
+    Spu2 spu;
+    // Drakan parks completed voices on the libsd init block without clearing their pitch, gain or ADSR.
+    // Exercise cold/warm/repeated init, both cores and pitches from the issue #1 gameplay trace.
+    for (int init : {0, 1, 0}) {
+        spu.sdInit(init);
+        for (int core = 0; core < 2; ++core) {
+            for (int c = 0; c < 2; ++c) {
+                spu.setParam(SD_PARAM_MVOLL | c, 0x3fff);
+                spu.setParam(SD_PARAM_MVOLR | c, 0x3fff);
+            }
+            const u16 voice = SD_VOICE(core, 23);
+            spu.setParam(SD_VPARAM_VOLL | voice, 0x3fff);
+            spu.setParam(SD_VPARAM_VOLR | voice, 0x3fff);
+            spu.setParam(SD_VPARAM_ADSR1 | voice, 0x000f);
+            spu.setParam(SD_VPARAM_ADSR2 | voice, 0x1fc0);
+            for (u16 pitch : {0x6ff, 0x7e7, 0x6cc, 0x75a, 0x1000, 0x3fff}) {
+                spu.setParam(SD_VPARAM_PITCH | voice, pitch);
+                // A deliberately audible looping block at an ordinary upload address. This must stay audible:
+                // the fix must initialize the parking block, not suppress flag=7 blocks or high frequencies.
+                std::array<u8, 16> tone;
+                tone.fill(0x07);
+                spu.ramWrite(0x6000, tone.data(), tone.size());
+                spu.setAddr(SD_VADDR_SSA | voice, 0x6000);
+                spu.setAddr(SD_VADDR_LSAX | voice, 0x6000);
+                spu.setSwitch(SD_SWITCH_KON | core, 1u << 23);
+                std::vector<s16> pcm(4800 * 2);
+                spu.render(pcm.data(), pcm.size() / 2);
+                CHECK(std::any_of(pcm.begin() + 128, pcm.end(), [](s16 s) { return s != 0; }),
+                      "uploaded tone suppressed init=%d core=%d pitch=%x", init, core, pitch);
+                spu.setAddr(SD_VADDR_SSA | voice, 0x5000);
+                spu.setAddr(SD_VADDR_LSAX | voice, 0x5000);
+                spu.setSwitch(SD_SWITCH_KON | core, 1u << 23);
+                spu.render(pcm.data(), pcm.size() / 2);
+                CHECK(std::all_of(pcm.begin() + 128, pcm.end(), [](s16 s) { return s == 0; }),
+                      "parking tone init=%d core=%d pitch=%x", init, core, pitch);
+                const u32 nax = spu.getAddr(SD_VADDR_NAX | voice);
+                CHECK(nax >= 0x5000 && nax < 0x5010, "parking loop escaped: %x", nax);
+                CHECK(spu.getSwitch(SD_SWITCH_ENDX | core) & (1u << 23), "parking loop did not reach ENDX");
+            }
+            spu.setParam(SD_VPARAM_VOLL | voice, 0);
+            spu.setParam(SD_VPARAM_VOLR | voice, 0);
+        }
+    }
+}
+
 int main() {
+    testParkingSilence();
     // Octaves around the centre note are exact powers of two of 0x1000; two octaves up and beyond stay at the
     // two-octave scale (libsd behaviour).
     CHECK(Spu2::note2Pitch(60, 0, 60, 0) == 0x1000, "unity %x", Spu2::note2Pitch(60, 0, 60, 0));

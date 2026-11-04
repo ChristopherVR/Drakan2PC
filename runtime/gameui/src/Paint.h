@@ -38,6 +38,9 @@ public:
     // Single-line text in a design rect, ellipsized to fit.
     void text(DrawList& d, const Rect& design, const std::string& s, FontRole f, Color c, TextAlign a = TextAlign::Left,
               float size = 0) const;
+    // Fit a menu heading/button label to one line before ellipsizing (localized labels can be longer).
+    void fittedText(DrawList& d, const Rect& design, const std::string& s, FontRole f, Color c,
+                    TextAlign a = TextAlign::Left, float size = 0) const;
     // A line struck through text drawn with the same arguments (completed objectives).
     void strike(DrawList& d, const Rect& design, const std::string& s, FontRole f, Color c,
                 TextAlign a = TextAlign::Left, float size = 0) const;

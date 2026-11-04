@@ -4,6 +4,7 @@
 #include "drakan_arena.h"
 #include "drakan_config.h"
 #include "drakan_coop_character.h"
+#include "drakan_arena_filter.h"
 #include "drakan_ghost.h"
 #include "drakan_lifecycle.h"
 #include "drakan_region.h"
@@ -406,12 +407,22 @@ void pumpSpawns(drakan_input::IGuest& guest, uint8_t* rdram) {
         bool live = false;
         if (snapshot(rdram))
             for (const auto& e : g_snap.entities)
-                if (e.handle == ps.handle) {
+                if (e.handle == ps.handle && isItemEntity(e)) {
                     live = true;
                     arenaLog("loadout: actor %x is live (type %u class %x resource index %u) at %.0f %.0f %.0f",
                              e.handle, e.type, e.classId, e.resourceIndex, static_cast<double>(e.position.x),
                              static_cast<double>(e.position.y), static_cast<double>(e.position.z));
                 }
+        // Inventory-only items (notably the starting dagger) are fully constructed but deliberately have no world
+        // registry reference. Stow is the native path that takes ownership; waiting for a world snapshot deadlocks
+        // the loadout after campaign placements have been stripped before initialization.
+        const uint32_t type = ramPtr(ps.handle) ? rd32(rdram, ps.handle + 0xc) : 0;
+        if (!live && ramPtr(ps.handle) && rd32(rdram, ps.handle) == g_globals.handleVtable &&
+            !(rd32(rdram, ps.handle + 4) & 0x80000000u) && ramPtr(dataOf(rdram, ps.handle)) &&
+            (type == world::type::kWeapon || type == world::type::kUsable)) {
+            live = true;
+            arenaLog("loadout: constructed private item %x accepted for native inventory stow", ps.handle);
+        }
         if (live && ramPtr(player)) {
             arenaLog("loadout: inventory UI listener player+0xa28 = %x, stow state %x", rd32(rdram, player + 0xa28),
                      rd32(rdram, player + 0x584 + 0x20));
@@ -613,8 +624,16 @@ unsigned removeCampaign(drakan_input::IGuest& guest, uint8_t* rdram, bool sweepI
     if (g_noFilter)
         return 0;
     unsigned n = 0, creatures = 0, story = 0, items = 0;
+    // Player avatars can be NPC-class actors. Protect every ghost-owned body (local and remote), not just Rynn-class
+    // players and held items; otherwise the periodic campaign sweep deletes the avatar and starts a respawn loop.
+    std::vector<uint32_t> playerBodies;
+    drakan_ghost::forEach([&](const drakan_ghost::Info& body) {
+        if (body.handle)
+            playerBodies.push_back(body.handle);
+    });
     for (const auto& e : g_snap.entities) {
-        if (e.handle == g_snap.playerHandle || e.handle == g_snap.cameraHandle || e.type == world::type::kPlayer)
+        if (detail::protectedPlayerActor(e.handle, g_snap.playerHandle, g_snap.cameraHandle,
+                                         e.type == world::type::kPlayer, playerBodies))
             continue;
         const bool creature = e.hpKind == world::HpKind::Creature && e.hpMax > 0;
         const bool storyObj = isStoryClass(e.classId);

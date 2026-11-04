@@ -3,6 +3,7 @@
 #include <algorithm>
 
 #include "Paint.h"
+#include "gameui/MenuText.h"
 #include "gameui/PauseScreen.h"
 
 namespace gameui {
@@ -26,15 +27,15 @@ const char* slotTitle(const SaveSlot& s, SaveLoadMode mode) {
         case SlotState::Used:
             return nullptr; // the location
         case SlotState::Empty:
-            return mode == SaveLoadMode::Save ? "Empty slot" : "Empty";
+            return mode == SaveLoadMode::Save ? menuText("Empty slot") : menuText("Empty");
         case SlotState::NoSpace:
-            return "Not enough space";
+            return menuText("Not enough space");
         case SlotState::Corrupt:
-            return "Damaged save";
+            return menuText("Damaged save");
         case SlotState::Unknown:
             break;
     }
-    return "Reading...";
+    return menuText("Reading...");
 }
 
 std::string dateLine(const SaveSlotsState& st, const SaveSlot& s) {
@@ -45,13 +46,13 @@ std::string dateLine(const SaveSlotsState& st, const SaveSlot& s) {
 }
 
 std::string locationOf(const SaveSlot& s) {
-    return s.location.empty() ? std::string("Unknown location") : s.location;
+    return s.location.empty() ? std::string(menuText("Unknown location")) : s.location;
 }
 
 const char* confirmLabel(SaveLoadMode mode, SlotState s) {
     if (mode == SaveLoadMode::Load)
-        return "Load";
-    return s == SlotState::Used || s == SlotState::Corrupt ? "Overwrite" : "Save";
+        return menuText("Load");
+    return s == SlotState::Used || s == SlotState::Corrupt ? menuText("Overwrite") : menuText("Save");
 }
 
 } // namespace
@@ -266,16 +267,16 @@ void SaveLoadScreen::ensureFocus(const SaveSlotsState& st) {
 void SaveLoadScreen::buildHints(const SaveSlotsState& st) {
     hints_.clear();
     if (card_ != SaveCard::None) {
-        hints_.push_back({Prompt::Confirm, "Select"});
-        hints_.push_back({Prompt::Back, "Cancel"});
+        hints_.push_back({Prompt::Confirm, menuText("Select")});
+        hints_.push_back({Prompt::Back, menuText("Cancel")});
     } else {
         const int n = focusedSlot();
         const SaveSlot* s = n ? st.slot(n) : nullptr;
         const bool en = s && listLive(st) && !st.busy && slotActionable(mode_, s->state);
         hints_.push_back({Prompt::Confirm, confirmLabel(mode_, s ? s->state : SlotState::Empty), en});
         if (st.pageCount > 1)
-            hints_.push_back({Prompt::PageNext, "Page", pendingPage_ < 0});
-        hints_.push_back({Prompt::Back, ctx_ == SaveLoadContext::LevelChange ? "Skip" : "Back"});
+            hints_.push_back({Prompt::PageNext, menuText("Page"), pendingPage_ < 0});
+        hints_.push_back({Prompt::Back, ctx_ == SaveLoadContext::LevelChange ? menuText("Skip") : menuText("Back")});
     }
     const detail::Paint p(lf_, cfg_.screen);
     const std::vector<Rect> rs =
@@ -540,8 +541,9 @@ void SaveLoadScreen::draw(const SaveSlotsState& st, DrawList& d) const {
     const Theme& th = cfg_.screen.theme;
     d.panel({lf_.view.x, lf_.view.y, lf_.view.w, lf_.view.h}, PanelStyle::Backdrop, th.backdrop);
     if (st.quickOperation) {
-        p.confirmCard(d, design::saveload::cardPanel(), st.quickOperation == 1 ? "Quick saving..." : "Quick loading...",
-                      "Quicksave");
+        p.confirmCard(d, design::saveload::cardPanel(),
+                      st.quickOperation == 1 ? menuText("Quick saving...") : menuText("Quick loading..."),
+                      menuText("Quicksave"));
         return;
     }
 
@@ -549,11 +551,12 @@ void SaveLoadScreen::draw(const SaveSlotsState& st, DrawList& d) const {
     const Rect band = lf_.band(0, 120);
     d.gradient(band, withAlpha(th.panel, 240), withAlpha(th.panel, 0));
     p.ornateRule(d, band.x, band.right(), band.y + p.px(112), true);
-    p.text(d, {kDesignW * 0.5f - 450, 24, 900, 60}, mode_ == SaveLoadMode::Save ? "Save Game" : "Load Game",
-           FontRole::Title, th.heading, TextAlign::Center);
-    const char* from = ctx_ == SaveLoadContext::Title         ? "Main Menu"
-                       : ctx_ == SaveLoadContext::LevelChange ? "Level complete"
-                                                              : "Paused";
+    p.text(d, {kDesignW * 0.5f - 450, 24, 900, 60},
+           mode_ == SaveLoadMode::Save ? menuText("Save Game") : menuText("Load Game"), FontRole::Title, th.heading,
+           TextAlign::Center);
+    const char* from = ctx_ == SaveLoadContext::Title         ? menuText("Main Menu")
+                       : ctx_ == SaveLoadContext::LevelChange ? menuText("Level complete")
+                                                              : menuText("Paused");
     p.text(d, {kDesignW * 0.5f - 450, 80, 900, 24}, from, FontRole::Small, th.textMuted, TextAlign::Center);
 
     // Slot list.
@@ -561,7 +564,8 @@ void SaveLoadScreen::draw(const SaveSlotsState& st, DrawList& d) const {
     d.panel(p.map(lp), PanelStyle::Main, th.panel);
     const Rect bar = design::saveload::pageBar();
     const int first = st.page * 4 + 1;
-    p.label(d, {bar.x + 4, bar.y, 400, bar.h}, "Slots " + fmtInt(first) + " - " + fmtInt(first + 3), th.brass);
+    p.label(d, {bar.x + 4, bar.y, 400, bar.h}, menuFormat("Slots {0} - {1}", {fmtInt(first), fmtInt(first + 3)}),
+            th.brass);
     if (st.pageCount > 1) {
         const bool en = pendingPage_ < 0;
         const Rect a0 = design::saveload::pageArrow(-1), a1 = design::saveload::pageArrow(1);
@@ -572,7 +576,7 @@ void SaveLoadScreen::draw(const SaveSlotsState& st, DrawList& d) const {
                 en ? 0xffffffffu : withAlpha(0xffffffffu, 90));
         const int shown = pendingPage_ >= 0 ? pendingPage_ : st.page;
         p.text(d, {a0.right(), bar.y, a1.x - a0.right(), bar.h},
-               "Page " + fmtInt(shown + 1) + " of " + fmtInt(st.pageCount), FontRole::Body,
+               menuFormat("Page {0} of {1}", {fmtInt(shown + 1), fmtInt(st.pageCount)}), FontRole::Body,
                h0 || h1 ? th.heading : (en ? th.text : th.textMuted), TextAlign::Center);
     }
     p.rule(d, bar.x, bar.bottom() + 6, bar.w);
@@ -580,7 +584,7 @@ void SaveLoadScreen::draw(const SaveSlotsState& st, DrawList& d) const {
     auto message = [&](const char* title, const std::string& body) {
         const Rect m{lp.x + 56, lp.y + 300, lp.w - 112, 200};
         p.crest(d, p.map({m.cx(), m.y, 0, 0}).x, p.map({0, m.y, 0, 0}).y, 34);
-        p.text(d, {m.x, m.y + 40, m.w, 52}, title, FontRole::Title, th.heading, TextAlign::Center);
+        p.fittedText(d, {m.x, m.y + 40, m.w, 52}, title, FontRole::Title, th.heading, TextAlign::Center);
         const std::vector<std::string> lines = p.wrap(body, m.w, FontRole::Body);
         float y = m.y + 104;
         for (size_t i = 0; i < lines.size() && i < 3; ++i, y += 32)
@@ -588,15 +592,16 @@ void SaveLoadScreen::draw(const SaveSlotsState& st, DrawList& d) const {
     };
     switch (st.card) {
         case CardState::NoCard:
-            message("No memory card", "The memory card could not be read. Check the memory card folder (mc0) of "
-                                      "the game and try again.");
+            message(menuText("No memory card"), menuText("The memory card could not be read. Check the memory card "
+                                                         "folder (mc0) of the game and try again."));
             break;
         case CardState::Unformatted:
-            message("Memory card not formatted", "The memory card has no file system. Format it before saving.");
+            message(menuText("Memory card not formatted"),
+                    menuText("The memory card has no file system. Format it before saving."));
             break;
         case CardState::Error:
-            message("Memory card error",
-                    st.message.empty() ? std::string("The memory card could not be read.") : st.message);
+            message(menuText("Memory card error"),
+                    st.message.empty() ? std::string(menuText("The memory card could not be read.")) : st.message);
             break;
         case CardState::Reading:
         case CardState::Ready:
@@ -610,8 +615,8 @@ void SaveLoadScreen::draw(const SaveSlotsState& st, DrawList& d) const {
                     const Rect c = design::saveload::slotCard(i);
                     d.panel(p.map(c), PanelStyle::Card, withAlpha(th.panel, 140));
                     d.panel(p.map(design::saveload::slotThumb(i)), PanelStyle::Inset, withAlpha(th.inset, 150));
-                    p.text(d, {c.x + kThumbPad + kThumbW + 28, c.y + 44, 400, 40},
-                           i == 0 ? "Reading the memory card..." : "", FontRole::Body, th.textMuted);
+                    p.fittedText(d, {c.x + kThumbPad + kThumbW + 28, c.y + 44, 400, 40},
+                                 i == 0 ? menuText("Reading the memory card...") : "", FontRole::Body, th.textMuted);
                 }
             }
             break;
@@ -655,31 +660,31 @@ void SaveLoadScreen::drawSlot(const SaveSlotsState& st, const SaveSlot& s, const
             d.image(p.map(tb.inset(2)), s.preview,
                     s.state == SlotState::Corrupt ? withAlpha(0xffffffffu, 110) : 0xffffffffu);
     } else {
-        p.text(d, tb, s.state == SlotState::NoSpace ? "Full" : "Empty", FontRole::Small, th.textDisabled,
-               TextAlign::Center);
+        p.text(d, tb, s.state == SlotState::NoSpace ? menuText("Full") : menuText("Empty"), FontRole::Small,
+               th.textDisabled, TextAlign::Center);
     }
     d.outline(p.map(tb), foc ? th.gilt : withAlpha(th.brassDim, 200), p.px(1.25f));
 
     const float tx = tb.right() + 28, tw = rd.right() - 24 - tx;
     const Color headC = !usable ? th.textMuted : (foc ? th.heading : th.text);
-    p.label(d, {tx, rd.y + 14, tw, 26}, "Slot " + fmtInt(s.number), foc ? th.brass : th.brassDim);
+    p.label(d, {tx, rd.y + 14, tw, 26}, menuFormat("Slot {0}", {fmtInt(s.number)}), foc ? th.brass : th.brassDim);
     const char* t = slotTitle(s, mode_);
     p.text(d, {tx, rd.y + 42, tw, 44}, t ? std::string(t) : locationOf(s), FontRole::Heading, headC);
     std::string sub;
     if (s.state == SlotState::Used || s.state == SlotState::Corrupt)
         sub = dateLine(st, s);
     else if (s.state == SlotState::Empty)
-        sub = mode_ == SaveLoadMode::Save ? "Save your progress here." : "No saved game.";
+        sub = mode_ == SaveLoadMode::Save ? menuText("Save your progress here.") : menuText("No saved game.");
     else if (s.state == SlotState::NoSpace)
-        sub = "No room for a new save.";
+        sub = menuText("No room for a new save.");
     p.text(d, {tx, rd.y + 92, tw, 30}, sub, FontRole::Body, th.textMuted);
     if (s.playSeconds >= 0 && (s.state == SlotState::Used))
         p.text(d, {tx, rd.y + 92, tw, 30}, formatPlayTime(s.playSeconds), FontRole::Small, th.textMuted,
                TextAlign::Right);
     if (!usable && s.state != SlotState::Unknown)
         p.text(d, {tx, rd.y + 14, tw, 26},
-               mode_ == SaveLoadMode::Load && s.state == SlotState::Empty ? "" : "Unavailable", FontRole::Small,
-               th.textDisabled, TextAlign::Right);
+               mode_ == SaveLoadMode::Load && s.state == SlotState::Empty ? "" : menuText("Unavailable"),
+               FontRole::Small, th.textDisabled, TextAlign::Right);
 }
 
 void SaveLoadScreen::drawPreview(const SaveSlotsState& st, DrawList& d) const {
@@ -707,14 +712,14 @@ void SaveLoadScreen::drawPreview(const SaveSlotsState& st, DrawList& d) const {
         d.image(ip.inset(p.px(3)), s->preview,
                 s->state == SlotState::Corrupt ? withAlpha(0xffffffffu, 110) : 0xffffffffu);
     if (!hasPicture) {
-        const char* big = s->state == SlotState::NoSpace                                ? "No space"
-                          : mode_ == SaveLoadMode::Save && s->state == SlotState::Empty ? "Save here"
-                                                                                        : "Empty slot";
+        const char* big = s->state == SlotState::NoSpace                                ? menuText("No space")
+                          : mode_ == SaveLoadMode::Save && s->state == SlotState::Empty ? menuText("Save here")
+                                                                                        : menuText("Empty slot");
         p.text(d, {img.x, img.cy() + 30, img.w, 52}, big, FontRole::Title, th.textMuted, TextAlign::Center);
     }
     d.outline(ip, th.gilt, p.px(1.5f));
 
-    p.label(d, {x, y, w, 26}, "Slot " + fmtInt(s->number), th.brass);
+    p.label(d, {x, y, w, 26}, menuFormat("Slot {0}", {fmtInt(s->number)}), th.brass);
     if (s->state == SlotState::Used && !s->file.empty())
         p.text(d, {x, y, w, 26}, s->file, FontRole::Small, th.textMuted, TextAlign::Right);
     y += 30;
@@ -724,11 +729,12 @@ void SaveLoadScreen::drawPreview(const SaveSlotsState& st, DrawList& d) const {
     y += 64;
     if (hasPicture) {
         const std::string date = formatSaveDate(s->time, st.dateOrder), time = formatSaveTime(s->time, st.clock24);
-        p.text(d, {x, y, w * 0.5f, 32}, date.empty() ? std::string("Date unknown") : date, FontRole::Body, th.text);
+        p.text(d, {x, y, w * 0.5f, 32}, date.empty() ? std::string(menuText("Date unknown")) : date, FontRole::Body,
+               th.text);
         p.text(d, {x, y, w, 32}, time, FontRole::Numeric, th.text, TextAlign::Right);
         y += 36;
         if (s->playSeconds >= 0) {
-            p.text(d, {x, y, w, 30}, "Play time", FontRole::Body, th.textMuted);
+            p.text(d, {x, y, w, 30}, menuText("Play time"), FontRole::Body, th.textMuted);
             p.text(d, {x, y, w, 30}, formatPlayTime(s->playSeconds), FontRole::Body, th.text, TextAlign::Right);
             y += 34;
         }
@@ -739,20 +745,21 @@ void SaveLoadScreen::drawPreview(const SaveSlotsState& st, DrawList& d) const {
     switch (s->state) {
         case SlotState::Used:
             desc = mode_ == SaveLoadMode::Load
-                       ? (st.inGame ? "Load this game. Progress since your last save is lost." : "Load this game.")
-                       : "Overwrite this save with your current progress.";
+                       ? (st.inGame ? menuText("Load this game. Progress since your last save is lost.")
+                                    : menuText("Load this game."))
+                       : menuText("Overwrite this save with your current progress.");
             break;
         case SlotState::Empty:
-            desc = mode_ == SaveLoadMode::Save ? "Save your current progress in this slot."
-                                               : "This slot holds no saved game.";
+            desc = mode_ == SaveLoadMode::Save ? menuText("Save your current progress in this slot.")
+                                               : menuText("This slot holds no saved game.");
             break;
         case SlotState::NoSpace:
-            desc = "There is not enough free space on the memory card for a new save. Overwrite an existing save "
-                   "instead.";
+            desc = menuText("There is not enough free space on the memory card for a new save. Overwrite an existing "
+                            "save instead.");
             break;
         case SlotState::Corrupt:
-            desc = mode_ == SaveLoadMode::Save ? "This save is damaged. Saving here replaces it."
-                                               : "This save is damaged and cannot be loaded.";
+            desc = mode_ == SaveLoadMode::Save ? menuText("This save is damaged. Saving here replaces it.")
+                                               : menuText("This save is damaged and cannot be loaded.");
             break;
         case SlotState::Unknown:
             break;
@@ -767,11 +774,11 @@ void SaveLoadScreen::drawPreview(const SaveSlotsState& st, DrawList& d) const {
 void SaveLoadScreen::drawProgress(const SaveSlotsState& st, DrawList& d) const {
     const detail::Paint p(lf_, cfg_.screen);
     const SaveSlot* s = st.slot(progressSlot_);
-    std::string body = "Slot " + fmtInt(progressSlot_);
+    std::string body = menuFormat("Slot {0}", {fmtInt(progressSlot_)});
     if (s && s->state == SlotState::Used && !locationOf(*s).empty())
         body += ": " + locationOf(*s);
-    p.confirmCard(d, design::saveload::cardPanel(), progress_ == SaveProgress::Loading ? "Loading..." : "Saving...",
-                  body + ".");
+    p.confirmCard(d, design::saveload::cardPanel(),
+                  progress_ == SaveProgress::Loading ? menuText("Loading...") : menuText("Saving..."), body + ".");
 }
 
 void SaveLoadScreen::drawCard(const SaveSlotsState& st, DrawList& d) const {
@@ -782,20 +789,20 @@ void SaveLoadScreen::drawCard(const SaveSlotsState& st, DrawList& d) const {
     const std::string when = s ? dateLine(st, *s) : std::string();
     switch (card_) {
         case SaveCard::Overwrite:
-            title = "Overwrite this save?";
-            body = "Slot " + fmtInt(cardSlot_) + " (" + what + (when.empty() ? "" : ", " + when) +
-                   ") is replaced by your current progress.";
-            primary = "Overwrite";
+            title = menuText("Overwrite this save?");
+            body = menuFormat("Slot {0} ({1}) is replaced by your current progress.",
+                              {fmtInt(cardSlot_), what + (when.empty() ? "" : ", " + when)});
+            primary = menuText("Overwrite");
             break;
         case SaveCard::Load:
-            title = "Load this game?";
-            body = "Progress since your last save is lost. Slot " + fmtInt(cardSlot_) + ": " + what + ".";
-            primary = "Load";
+            title = menuText("Load this game?");
+            body = menuFormat("Progress since your last save is lost. Slot {0}: {1}.", {fmtInt(cardSlot_), what});
+            primary = menuText("Load");
             break;
         case SaveCard::Save:
-            title = "Save in slot " + fmtInt(cardSlot_) + "?";
-            body = "Your current progress is saved to the memory card.";
-            primary = "Save";
+            title = menuFormat("Save in slot {0}?", {fmtInt(cardSlot_)});
+            body = menuText("Your current progress is saved to the memory card.");
+            primary = menuText("Save");
             break;
         case SaveCard::None:
             return;
@@ -803,7 +810,7 @@ void SaveLoadScreen::drawCard(const SaveSlotsState& st, DrawList& d) const {
     p.confirmCard(d, design::saveload::cardPanel(), title, body);
     for (int i = 0; i < 2; ++i) {
         const TargetId id{TargetKind::CardButton, i};
-        p.button(d, design::saveload::cardButton(i), i == 0 ? primary : std::string("Cancel"), focus_ == id,
+        p.button(d, design::saveload::cardButton(i), i == 0 ? primary : std::string(menuText("Cancel")), focus_ == id,
                  hover_ == id, true);
     }
 }

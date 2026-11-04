@@ -6,6 +6,15 @@
 #include <cmath>
 
 namespace gsr::surface {
+uint32_t rayDiagnosticEffects(std::string_view mode) {
+    if (mode == "ao")
+        return kRayDiagnosticNoDirect;
+    if (mode == "direct")
+        return kRayDiagnosticNoAo;
+    if (mode == "receiver")
+        return kRayDiagnosticReceiver;
+    return 0;
+}
 // A small closed shell around the camera with every face plane well clear of it: the underwater tint box (a
 // 12-triangle box, faces about 4096 units out) or a sky sphere trailing the camera. Drawn around the view, these
 // are not world geometry; as occluders they shadow every receiver inside them (the whole submerged scene).

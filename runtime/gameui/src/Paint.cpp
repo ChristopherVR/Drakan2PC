@@ -1,4 +1,5 @@
 #include "Paint.h"
+#include "gameui/MenuText.h"
 
 #include <algorithm>
 
@@ -61,6 +62,14 @@ void Paint::text(DrawList& d, const Rect& design, const std::string& s, FontRole
     const Rect r = lf_.map(design);
     const float px = fontPx(f, size);
     d.text(r, ellipsize(s, r.w, f, px, cfg_.measure), f, px, c, a);
+}
+
+void Paint::fittedText(DrawList& d, const Rect& design, const std::string& s, FontRole f, Color c, TextAlign a,
+                       float size) const {
+    const float base = size > 0 ? size : themeSize(cfg_.theme, f);
+    const float width = textWidth(s, f, base);
+    const float fitted = width > design.w && width > 0 ? base * design.w / width * 0.98f : base;
+    text(d, design, s, f, c, a, fitted);
 }
 
 void Paint::strike(DrawList& d, const Rect& design, const std::string& s, FontRole f, Color c, TextAlign a,
@@ -188,9 +197,10 @@ void Paint::button(DrawList& d, const Rect& design, const std::string& label, bo
     if (focused)
         focus(d, rp);
     const Rect inner{design.x + 32, design.y, design.w - 64, design.h};
-    text(d, inner, label, FontRole::Heading, !enabled ? th.textDisabled : (focused ? th.heading : th.text), align);
+    fittedText(d, inner, label, FontRole::Heading, !enabled ? th.textDisabled : (focused ? th.heading : th.text),
+               align);
     if (!enabled && align == TextAlign::Left)
-        text(d, inner, "Unavailable", FontRole::Small, th.textDisabled, TextAlign::Right);
+        text(d, inner, menuText("Unavailable"), FontRole::Small, th.textDisabled, TextAlign::Right);
 }
 
 void Paint::confirmCard(DrawList& d, const Rect& c, const std::string& title, const std::string& body) const {
@@ -198,7 +208,7 @@ void Paint::confirmCard(DrawList& d, const Rect& c, const std::string& title, co
     d.rect({lf_.view.x, lf_.view.y, lf_.view.w, lf_.view.h}, withAlpha(th.backdropEdge, 120));
     d.panel(map(c), PanelStyle::Main, th.panelRaised);
     constexpr float pad = 44;
-    text(d, {c.x + pad, c.y + 28, c.w - 2 * pad, 52}, title, FontRole::Title, th.heading);
+    fittedText(d, {c.x + pad, c.y + 28, c.w - 2 * pad, 52}, title, FontRole::Title, th.heading);
     rule(d, c.x + pad, c.y + 92, c.w - 2 * pad);
     const std::vector<std::string> lines = wrap(body, c.w - 2 * pad, FontRole::Body);
     float y = c.y + 104;

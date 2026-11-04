@@ -449,7 +449,9 @@ void D3D11Backend::Impl::finalizeNeuralWorld(RT& rt) {
             waterRenderer->submit(textures.color.texture, textures.depth.texture, textures.output.texture, constants,
                                   rayScene, waterSeconds, rayReflections, reflectionTextures, nativeModels,
                                   surface::RayOptions{wantWater, wantShadows,
-                                                      motionEpoch == 200 ? cstr(runtimeFlags().raySceneDump) : nullptr,
+                                                      motionEpoch == runtimeFlags().raySceneDumpEpoch
+                                                          ? cstr(runtimeFlags().raySceneDump)
+                                                          : nullptr,
                                                       true})) {
             ctx->OMSetRenderTargets(0, nullptr, nullptr);
             ctx->CopyResource(textures.color.texture, textures.output.texture);

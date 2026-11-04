@@ -15,6 +15,9 @@
 #include <cstdlib>
 using Microsoft::WRL::ComPtr;
 int main(int argc, char** argv) {
+    assert(gsr::surface::rayDiagnosticEffects("") == 0 && gsr::surface::rayDiagnosticEffects("invalid") == 0);
+    assert(gsr::surface::rayDiagnosticEffects("ao") == 64 && gsr::surface::rayDiagnosticEffects("direct") == 32 &&
+           gsr::surface::rayDiagnosticEffects("receiver") == 128);
     // Runtime flags are read once, on first use: set the lost-signal hooks before anything reads them.
     const bool lostSignal = argc > 1 && std::strcmp(argv[1], "--lost-signal") == 0;
     if (lostSignal) {

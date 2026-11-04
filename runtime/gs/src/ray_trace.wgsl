@@ -497,6 +497,7 @@ fn visibility(p: vec3f, normal: vec3f, direction: vec3f, maximum: f32, self_: u3
     return transmission;
 }
 fn ambientOcclusion(p: vec3f, normal: vec3f, rotation: f32, self_: u32) -> f32 {
+    if ((L.effects.w & 32u) != 0u) { return 1.0; } // GSR_RAY_DIAGNOSTIC=direct
     let t = basisT(normal);
     let b = cross(normal, t);
     var occlusion = 0.0;
@@ -543,7 +544,7 @@ fn nativeLighting(p: vec3f, normal: vec3f, shading: vec3f, rotation: f32, occlus
         }
         let direct = L.lightColor[light].rgb * ndl * attenuation;
         var visible = 1.0;
-        if (L.effects.y != 0u && samples > 0u) {
+        if (L.effects.y != 0u && samples > 0u && (L.effects.w & 64u) == 0u) {
             let tangent = basisT(centre);
             let bitangent = cross(centre, tangent);
             var sum = 0.0;
@@ -828,6 +829,7 @@ fn lowMain(@builtin(global_invocation_id) id: vec3u) {
     }
     let pixel = shadowPixel(id.xy);
     var ratio = vec3f(1.0);
+    if ((L.effects.w & 128u) != 0u) { ratio = vec3f(0.0); }
     var water = 0.0;
     var reflection = vec4f(0.0, 0.0, 0.0, 1.0); // display-referred reflection, sun visibility
     var shadedWater = false;
@@ -866,6 +868,7 @@ fn lowMain(@builtin(global_invocation_id) id: vec3u) {
                 let occlusion = ambientOcclusion(s.p, s.normal, pixelNoise(vec2u(pixel), 1u), s.self_);
                 ratio = mix(vec3f(1.0), shadowRatio(nativeLighting(s.p, s.normal, s.shading, pixelNoise(vec2u(pixel), 0u),
                                                                    occlusion, s.self_, C.quality.x)), s.confidence);
+                if ((L.effects.w & 128u) != 0u) { ratio = vec3f(s.confidence); }
             }
         }
     }
@@ -1014,6 +1017,7 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
             receiverShadow = upsampledShadow(pixel, sceneDepth);
         }
         result = vec4f(toDisplay(toLinear(original.rgb) * receiverShadow), original.a);
+        if ((L.effects.w & 128u) != 0u) { result = vec4f(receiverShadow, original.a); }
     }
     if (L.effects.x == 0u || !haveWater || dot(geometric, -direction) <= 0.0) {
         textureStore(Output, id.xy, result);

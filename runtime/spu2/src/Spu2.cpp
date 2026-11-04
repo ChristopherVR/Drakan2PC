@@ -607,8 +607,11 @@ int Spu2::sdInit(int flag) {
             }
         }
     }
-    // InitVoices(): silent looping ADPCM block at 0x5000
-    static const u16 initData[16] = {0x707, 0x707, 0x707, 0x707, 0x707, 0x707, 0x707, 0x707, 0, 0, 0, 0, 0, 0, 0, 0};
+    // InitVoices(): synthesize the HLE's silent parking loop at 0x5000. Only the header has loop flags;
+    // repeating 0x0707 through the payload decodes as alternating 224/0 samples, producing a persistent
+    // pitch/2 tone when Drakan parks a voice here with its previous gain and pitch still set (issue #1).
+    // Keep normal ADPCM decoding unchanged, including uploaded blocks with the same loop flags.
+    static const u16 initData[16] = {0x0707};
     memcpy(&ram_[0x5000 >> 1], initData, sizeof initData);
     for (int c = 0; c < 2; ++c) {
         Core& co = cores_[c];

@@ -27,7 +27,7 @@ add_library(drakan_settings_schema STATIC src/Schema.cpp src/ModernSettings.cpp 
 target_include_directories(drakan_settings_schema PUBLIC include)
 target_link_libraries(drakan_settings_schema PUBLIC drakan_settings_core drakan::gameui PRIVATE drakan::options)
 
-add_library(drakan_settings_ui STATIC src/Menu.cpp src/Skin.cpp src/GameUiRenderer.cpp src/Hud.cpp)
+add_library(drakan_settings_ui STATIC src/Menu.cpp src/Skin.cpp src/GameUiRenderer.cpp src/Hud.cpp src/CharacterPreview.cpp)
 # third_party/fonts: the vendored Gelasio faces (OFL), compressed into sources.
 target_include_directories(drakan_settings_ui PUBLIC include PRIVATE src "${CMAKE_CURRENT_LIST_DIR}/../../third_party/fonts")
 target_link_libraries(drakan_settings_ui PUBLIC drakan_settings_core drakan_settings_schema drakan::imgui drakan::gameui
@@ -78,6 +78,10 @@ if(TARGET drakan::gs_rhi)
 endif()
 
 if(DRAKAN_BUILD_RUNTIME_TESTS)
+    add_executable(character_preview_test tests/character_preview_test.cpp)
+    target_link_libraries(character_preview_test PRIVATE drakan_settings_ui drakan::options)
+    drakan_enable_asserts(character_preview_test)
+    add_test(NAME character_preview_test COMMAND character_preview_test)
     add_executable(settings_test tests/settings_test.cpp)
     target_link_libraries(settings_test PRIVATE drakan_settings_core drakan::options)
 

@@ -16,6 +16,7 @@
 #include "settings/Skin.h"
 
 namespace dsettings {
+class CharacterPreview;
 
 struct GameUiCanvas {
     ImTextureID frame = 0; // the back buffer before the overlay drew (0 = none: plain dim, no icons)
@@ -28,6 +29,7 @@ struct GameUiCanvas {
 // A rectangle of the frame copy for an ItemIcon / SpellIcon (black background: drawn additively) or a MapBackground
 // (`opaque`: copied): UVs and its size in pixels (for aspect-correct fitting).
 struct IconCrop {
+    const CharacterPreview* model = nullptr; // CharacterModel: draw the mesh, not a texture crop
     ImVec2 uv0, uv1;
     float w = 0, h = 0;
     bool opaque = false;

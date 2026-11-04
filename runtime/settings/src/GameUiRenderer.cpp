@@ -1,4 +1,5 @@
 #include "settings/GameUiRenderer.h"
+#include "settings/CharacterPreview.h"
 
 #include <algorithm>
 #include <cfloat>
@@ -550,7 +551,14 @@ bool GameUiRenderer::image(ImDrawList* dl, const DrawCmd& c, const GameUiCanvas&
             if (skin_ && skin_->ready())
                 skin_->frame(dl, v(r.x, r.y), v(r.right(), r.bottom()), std::min(r.w, r.h) * 0.1f, col(c.color, fade));
             return true;
-        case ImageKind::CharTurntable: // one frame of a co-op character's turntable strip (the glue's file texture)
+        case ImageKind::CharacterModel: {
+            IconCrop crop;
+            if (!icons || !icons(c.image, crop) || !crop.model || !crop.model->ready())
+                return false;
+            crop.model->draw(dl, r, ImGui::GetTime(), alpha);
+            return true;
+        }
+        case ImageKind::CharTurntable: // legacy studio strips; not used by character selection
         case ImageKind::LevelPreview:  // a multiplayer map's picture (the glue's file texture), centre-cropped like
                                        // these
         case ImageKind::SavePreview:   // a save's picture (HD companion or the native thumbnail) or the title art: a

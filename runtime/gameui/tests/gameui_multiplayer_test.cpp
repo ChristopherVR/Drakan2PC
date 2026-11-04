@@ -33,6 +33,10 @@ struct Rig {
     std::vector<MpAction> actions;
     Rig() {
         st.defaultName = "Tester";
+        st.characters = {{0, "Rynn", "m0", "", true},
+                         {1, "Wartok", "m1", "", false},
+                         {2, "Tarn", "m2", "", false},
+                         {3, "Sera", "m3", "", false}};
         s.open(st);
     }
     void send(const UiInput& in) {
@@ -109,6 +113,59 @@ int main() {
         r.press(UiKey::Back);
         CHECK(r.last.wantsClose && r.actions.front().kind == MpActionKind::SaveProfile &&
               r.actions.front().setup.name == "Aria" && r.actions.back().kind == MpActionKind::Close);
+    }
+
+    // Main setup uses class ids from the runtime, wraps in both directions and carries the choice into HostMatch.
+    // The same real-model image is requested on the setup and lobby screens; missing art is labelled, never invented.
+    {
+        Rig r;
+        r.st.characters = {{0, "Rynn", "m0", "", true, true},
+                           {0xc19, "Orc", "m1", "", false, true},
+                           {0xfbc, "Mage", "m2", "", false, true}};
+        r.focusRow(RowId::MenuHumanSkin);
+        r.actions.clear();
+        r.press(UiKey::Left);
+        CHECK(r.s.setup().character == 0xfbc && r.focused().value == "Mage");
+        CHECK(r.actions.size() == 1 && r.actions[0].kind == MpActionKind::SetCharacter &&
+              r.actions[0].character == 0xfbc);
+        bool realModel = false;
+        for (const DrawCmd& cmd : r.last.draw.commands())
+            if (cmd.kind == DrawKind::Image && cmd.image.kind == ImageKind::CharacterModel) {
+                CHECK((cmd.image.index & 0xffffu) == 0xfbcu);
+                realModel = true;
+            }
+        CHECK(realModel);
+        r.press(UiKey::Right);
+        CHECK(r.s.setup().character == 0);
+        r.press(UiKey::Right);
+        CHECK(r.s.setup().character == 0xc19);
+        r.focusRow(RowId::MenuHost);
+        r.press(UiKey::Confirm);
+        r.focusRow(RowId::HostStart);
+        r.actions.clear();
+        r.press(UiKey::Confirm);
+        CHECK(r.actions[0].kind == MpActionKind::HostMatch && r.actions[0].setup.character == 0xc19);
+
+        r.st.conn = Conn::Connected;
+        r.st.selfCharacter = 0xc19;
+        r.s.setPage(MpPage::Lobby, r.st);
+        r.send({});
+        realModel = false;
+        for (const DrawCmd& cmd : r.last.draw.commands())
+            realModel |= cmd.kind == DrawKind::Image && cmd.image.kind == ImageKind::CharacterModel &&
+                         (cmd.image.index & 0xffffu) == 0xc19u;
+        CHECK(realModel);
+
+        Rig empty;
+        empty.st.characters.clear();
+        empty.send({});
+        CHECK(!empty.s.rows()[static_cast<size_t>(empty.rowOf(RowId::MenuHumanSkin))].enabled);
+        bool unavailable = false;
+        for (const DrawCmd& cmd : empty.last.draw.commands()) {
+            CHECK(cmd.kind != DrawKind::Image || cmd.image.kind != ImageKind::CharacterModel);
+            unavailable |= cmd.kind == DrawKind::Text && cmd.text == "Character preview unavailable";
+        }
+        CHECK(unavailable);
     }
 
     // Unavailable networking greys Host / Join; the profile controls still work.
@@ -427,7 +484,7 @@ int main() {
         CHECK(r.focused().id == RowId::LobbyLeave); // nothing else is enabled yet
         r.st.conn = Conn::Connected;
         r.st.roster = {{1, "Me", -1, false, true, true, 0, 0}};
-        r.press(UiKey::Up);
+        r.send({});
         CHECK(r.focused().id == RowId::LobbyReady); // the lobby came up: focus starts on Ready
         r.press(UiKey::Down);
         CHECK(r.focused().id == RowId::LobbyStart);
@@ -650,7 +707,7 @@ int main() {
         CHECK(drawHud(hs, k4, {}).size() == drawHud(hs, kVp, {}).size());
     }
 
-    // Co-op lobby: the host is Rynn (locked), a joiner cycles the other characters and sends SetCharacter.
+    // Every lobby lets hosts and joiners select the same complete character catalogue.
     {
         Rig h;
         h.st.conn = Conn::Connected;
@@ -661,8 +718,12 @@ int main() {
         h.press(UiKey::Down);
         CHECK(h.rowOf(RowId::LobbyCharacter) >= 0);
         const Row& hr = h.s.rows()[static_cast<size_t>(h.rowOf(RowId::LobbyCharacter))];
-        CHECK(!hr.enabled && hr.value.find("Rynn") == 0); // locked to the host
+        CHECK(hr.enabled && hr.value.find("Rynn") == 0);
         CHECK(h.s.character(h.st).classId == 0);
+        h.focusRow(RowId::LobbyCharacter);
+        h.actions.clear();
+        h.press(UiKey::Right);
+        CHECK(h.actions.size() == 1 && h.actions[0].kind == MpActionKind::SetCharacter && h.actions[0].character != 0);
 
         Rig j;
         j.st.conn = Conn::Connected;
@@ -671,7 +732,7 @@ int main() {
         j.st.roster = {{1, "Host", -1, false, false, true, 0, 0}, {2, "Me", -1, false, true, false, 0, 0}};
         j.s.setPage(MpPage::Lobby, j.st);
         j.press(UiKey::Down);
-        CHECK(j.s.character(j.st).name != "Rynn"); // joiners never get Rynn
+        CHECK(j.s.character(j.st).name == "Rynn"); // Rynn is available to joiners too
         j.focusRow(RowId::LobbyCharacter);
         j.actions.clear();
         const int before = j.s.character(j.st).classId;
@@ -683,11 +744,19 @@ int main() {
         j.st.selfCharacter = 9;
         j.press(UiKey::Down);
         CHECK(j.s.character(j.st).name == "Kai");
-        // Non-co-op lobbies have no selector.
+        // Versus lobbies also have the selector, enabled until the match starts.
         Rig d;
         d.st.conn = Conn::Connected;
         d.s.setPage(MpPage::Lobby, d.st);
-        CHECK(d.rowOf(RowId::LobbyCharacter) < 0);
+        d.send({});
+        CHECK(d.rowOf(RowId::LobbyCharacter) >= 0);
+        d.focusRow(RowId::LobbyCharacter);
+        d.actions.clear();
+        d.press(UiKey::Left);
+        CHECK(d.actions.size() == 1 && d.actions[0].kind == MpActionKind::SetCharacter);
+        d.st.phase = MatchPhaseView::Loading;
+        d.send({});
+        CHECK(!d.s.rows()[static_cast<size_t>(d.rowOf(RowId::LobbyCharacter))].enabled);
     }
 
     // Co-op HUD: partner panel and markers (on screen and edge arrows), co-op scoreboard and the level-complete view.
@@ -806,7 +875,7 @@ int main() {
         m.press(UiKey::Back);
         CHECK(!m.s.mapListActive() && m.s.page() == MpPage::Host);
 
-        // A joiner whose session character is Rynn (the host's) announces the first one she may play.
+        // A joiner keeps a valid Rynn selection. An obsolete saved id is repaired just once.
         Rig j;
         j.st.conn = Conn::Connected;
         j.st.hosting = false;
@@ -816,7 +885,10 @@ int main() {
         j.s.setPage(MpPage::Lobby, j.st);
         j.actions.clear();
         j.press(UiKey::Down);
-        CHECK(!j.actions.empty() && j.actions[0].kind == MpActionKind::SetCharacter && j.actions[0].character != 0);
+        CHECK(j.actions.empty());
+        j.st.selfCharacter = 65535;
+        j.press(UiKey::Down);
+        CHECK(!j.actions.empty() && j.actions[0].kind == MpActionKind::SetCharacter && j.actions[0].character == 0);
         const size_t announced = j.actions.size();
         j.press(UiKey::Down); // only once
         CHECK(j.actions.size() == announced);
@@ -931,7 +1003,7 @@ int main() {
         CHECK(t.focus().index == static_cast<int>(TitleRow::Multiplayer));
         TitleFrameOutput o = t.frame(st, key(UiKey::Confirm), kVp);
         CHECK(t.page() == TitlePage::Multiplayer && o.draw.size() > 10);
-        for (int i = 0; i < 6; ++i) // Player Name ... Connection Speed, Host Game, Join Game
+        for (int i = 0; i < 4; ++i) // No runtime catalogue: Character and Dragon Appearance are disabled.
             o = t.frame(st, key(UiKey::Down), kVp);
         o = t.frame(st, key(UiKey::Confirm), kVp);
         CHECK(o.mpActions.size() == 2 && o.mpActions[1].kind == MpActionKind::RefreshLan);

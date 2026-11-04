@@ -1208,6 +1208,7 @@ void RayWater::Impl::execute(Job& job) {
         params.effects[1] = options.shadows;
         params.effects[3] = (totalCounts[2] ? 1u : 0u) | (totalCounts[1] ? 2u : 0u) |
                             (options.requireWaterCoverage ? 4u : 0u) | (packedTextures ? 16u : 0u);
+        params.effects[3] |= rayDiagnosticEffects(runtimeFlags().rayDiagnostic.value_or(""));
         const uint64_t skyLevel = models ? models->level : 0;
         if (s.skyLevel != skyLevel) {
             params.effects[3] |= 8;
@@ -1287,6 +1288,29 @@ void RayWater::Impl::execute(Job& job) {
                         }
                     }
                 std::fclose(file);
+                // Exact-frame source provenance for the triangle dump. This contains metadata only, and
+                // describes exported instances before admission/build success (opacity and shell are explicit).
+                const std::string metadataPath = job.diagnosticDump + ".models.csv";
+                if (models)
+                    if (FILE* metadata = std::fopen(metadataPath.c_str(), "wb")) {
+                        std::fprintf(metadata,
+                                     "object,resource,mesh,generation,triangles,opacity,shell,cameraX,cameraY,"
+                                     "cameraZ,level,m0,m1,m2,m3,m4,m5,m6,m7,m8,m9,m10,m11\n");
+                        for (const auto& instance : models->instances) {
+                            if (instance.mesh >= models->meshes.size())
+                                continue;
+                            const auto& mesh = *models->meshes[instance.mesh];
+                            std::fprintf(metadata, "%x,%x,%llx,%llu,%zu,%.9g,%u,%.9g,%.9g,%.9g,%llx", instance.object,
+                                         mesh.nativeId, static_cast<unsigned long long>(mesh.identity),
+                                         static_cast<unsigned long long>(instance.generation), mesh.triangles.size(),
+                                         instance.opacity, unsigned(cameraShell(mesh, instance.transform, origin)),
+                                         origin.x, origin.y, origin.z, static_cast<unsigned long long>(models->level));
+                            for (float value : instance.transform)
+                                std::fprintf(metadata, ",%.9g", value);
+                            std::fputc('\n', metadata);
+                        }
+                        std::fclose(metadata);
+                    }
             }
         s.upload(frame.constants, &params, sizeof(params), frame.retired);
         stage.reset();
@@ -1559,6 +1583,11 @@ void RayWater::Impl::execute(Job& job) {
                     (options.shadows ? (params.effects[2] ? std::to_string(params.effects[2]) + " native lights"
                                                           : "waiting for native lights")
                                      : "off"));
+        const uint32_t diagnostic = rayDiagnosticEffects(runtimeFlags().rayDiagnostic.value_or(""));
+        static std::atomic_flag diagnosticLogged = ATOMIC_FLAG_INIT;
+        if (diagnostic && !diagnosticLogged.test_and_set())
+            std::fprintf(stderr, "[ray-diagnostic] backend=d3d11 mode=%s mask=%u applied in submitted pass\n",
+                         runtimeFlags().rayDiagnostic->c_str(), diagnostic);
     }
 }
 } // namespace gsr::surface

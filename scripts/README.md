@@ -59,6 +59,44 @@ either.
 
 ### Disc settings and camera checks
 
+`shadow_review.py` reviews issue #1 using the reporter's logged configuration and fresh New Game cards. It launches
+only `dist/DrakanPC/drakan.exe`; it creates new output folders and isolates the main, input and native-options INIs.
+Empty per-run mods and developer-overrides folders prevent local packs from changing the test geometry.
+The checked-in `shadow_review_profile.json` separates log/body facts from unknown settings and screenshot timing.
+The default case retains water/reflections **on** and ray shadows **off**, as the reporter's first three ray passes
+actually logged. The screenshot toggle state and exact location remain unknown.
+
+```sh
+python scripts/harness/shadow_review.py --dry-run --case observed-baseline --case both --backend both
+python scripts/harness/shadow_review.py --name issue1-baseline --case observed-baseline --backend d3d11
+python scripts/harness/shadow_review.py --name issue1-direct --case direct --backend webgpu
+python scripts/harness/shadow_review.py --dry-run --all-cases --backend both --scene surdana --scene shadowmire
+```
+
+Select cases individually to keep runs bounded: `observed-baseline` / `native-off` isolate native projection with
+ray shadows off, `both` / `ray-only` add modern shadows, and `ao` / `direct` / `receiver` separate modern shading.
+All retain modern water and reflections. The fresh-card camera sweep does not require a save or reproduce an
+unknown reporter location. `--language english` follows the reporter's observed English resources; default German
+follows their requested setting. `--windowed` records a departure from their borderless presentation.
+
+`manifest.json` records known facts, assumptions, requested environment, executable hash and local host.
+Each case writes logs, camera shots, a request and `report.json`, with executable hashes before and after each run
+and actual PNG dimensions (borderless presentation uses the local monitor). Texture upscaling is explicitly 1x/off.
+DXR additionally attempts paired scene, `.models.csv` source metadata and temporal dumps at `--dump-epoch`
+(default 1000). Early epoch 200 preceded gameplay in the German profile smoke. Model identity must match the
+post-load resident-model level, camera X/Z and depth dimensions must agree, and the selected epoch must appear
+after target load; raw depth has no independent epoch tag. WebGPU lacks equivalent scene/model/depth dumps and
+reflection-enable receipts; both backends log applied diagnostic masks after successful submission. Reports
+retain gaps instead of inferring activation from environment alone. A case's `evidence_complete`
+means its **backend-supported** execution receipts are complete; inspect `unverified_configuration` as well.
+Shader diagnostic cases without a mask receipt remain incomplete. Clean exits, configuration receipts and images
+never establish a visual fix: `visual_review` remains pending. Nonzero exit means incomplete execution/evidence.
+Existing run folders are refused. Timeouts use process termination only after the scripted quit/watchdog did not
+finish, and are always classified as failed execution. The full matrix is opt-in.
+The 30-second post-control recipe leaves time for epoch 1000 after the camera sweep. Selected German DX11 baseline
+and receiver, German WebGPU direct, and English DX11 observed-baseline smokes were validated on 2026-11-04;
+execution/configuration evidence passed, visual defect attribution remains pending (see the dated issue-1 journal).
+
 `python scripts/harness/settings_check.py --region usa --mode title` checks title F1, Apply persistence and
 Options > PC Settings. `--mode gameplay --resume 0|1` checks native pause, overlay input isolation and pause
 ownership. `--mode camera --resume 1` measures direct yaw/pitch, idle persistence and sensitivity reload.

@@ -24,6 +24,7 @@
 #include "hle/RsrcIop.h"
 #include "hle/ModPack.h"
 #include "gameui/UiSkin.h"
+#include "gameui/MenuText.h"
 #ifdef PS2X_HAVE_UI
 #include "ui/Prompts.h"
 #include "ui/FontAtlas.h"
@@ -33,6 +34,7 @@
 #include "drakan_dlss.h"
 #ifdef PS2X_HAVE_GSR
 #include "drakan_arena.h"
+#include "hle/ArenaLevel.h"
 #include "drakan_modes.h"
 #endif
 #include "drakan_game.h"
@@ -56,6 +58,8 @@
 #include "drakan_foliage.h"
 #include "drakan_levelchange.h"
 #include "drakan_region.h"
+#include "drakan_language_policy.h"
+#include "ps2_syscalls.h"
 #include "drakan_movie_policy.h"
 #include "drakan_input_flow.h"
 #if defined(PS2X_HAVE_DRAKAN_INPUT) && defined(_WIN32)
@@ -324,15 +328,6 @@ void installNullControllerGuard(PS2Runtime& rt) {
         if (*h.orig)
             rt.replaceFunction(a, h.hook);
     }
-}
-
-// drakan.ini [general] language -> disc language folder (env DRAKAN_LANG wins)
-std::string resolveLanguageRoot() {
-    if (const char* e = std::getenv("DRAKAN_LANG"))
-        return e;
-    std::string l = drakan_cfg::getString("general", "language", nullptr, "english");
-    std::transform(l.begin(), l.end(), l.begin(), [](unsigned char ch) { return (char)std::toupper(ch); });
-    return l.empty() ? std::string("\\ENGLISH") : "\\" + l;
 }
 
 inline void returnS32(R5900Context* ctx, int32_t value) {
@@ -1333,7 +1328,13 @@ void applyDrakanOverrides(PS2Runtime& runtime) {
 #endif
 
     const std::string iso = resolveIsoPath();
-    const std::string lang = resolveLanguageRoot();
+    const auto selectedLanguage =
+        drakan_language::select(drakan_cfg::getString("general", "language", nullptr, "english"),
+                                std::getenv("DRAKAN_LANG"), drakan_region::build().languageCount);
+    std::string lang = selectedLanguage.root;
+    uint32_t osdLanguage = selectedLanguage.osdLanguage;
+    if (selectedLanguage.fallback)
+        std::fprintf(stderr, "[drakan] invalid or unsupported language; using English for this disc profile\n");
     const char* logEnv = std::getenv("DRAKAN_HLE_LOG");
     if (logEnv)
         g_logBudget = std::atol(logEnv);
@@ -1366,7 +1367,20 @@ void applyDrakanOverrides(PS2Runtime& runtime) {
             std::exit(1);
         }
     }
+    // Keep the guest's explicit language paths and RSRCIOP's implicit root in agreement.
+    // Do not rewrite explicit language prefixes: mod/tools callers may deliberately use another tree.
+    hle::IsoFs::Node languageArchive;
+    if (!host->fs.findKey(lang.substr(1) + "\\DRAKAN2.RRC", languageArchive) || languageArchive.dir) {
+        std::fprintf(stderr, "[drakan] language tree %s unavailable; using English\n", lang.c_str());
+        lang = "\\ENGLISH";
+        osdLanguage = 1;
+    }
+    ps2_syscalls::configureOsdLanguage(osdLanguage);
+    drakan_language::setEffectiveLanguage(osdLanguage);
+    gameui::setMenuLanguage(drakan_language::effectiveName());
     host->fs.setLanguageRoot(lang);
+    std::fprintf(stderr, "[drakan] guest console language %u, effective resource root %s (restart required)\n",
+                 osdLanguage, lang.c_str());
     // libsd's reverb presets come from the disc's own LIBSD.IRX; without them reverb stays silent (Drakan never
     // enables it, so this only matters for completeness).
     {
@@ -1404,8 +1418,8 @@ void applyDrakanOverrides(PS2Runtime& runtime) {
             const size_t n = g_mods->load(modsDir);
             g_mods->install(host->iop.res);
             g_mods->installFiles(host->fs); // files/, LVL entry overrides, new/ entries, LEVELLST.TXT
-            drakan_coop_character::setRetargetedMotion(std::any_of(
-                g_mods->status().begin(), g_mods->status().end(), [](const hle::mods::ModStatus& st) {
+            drakan_coop_character::setRetargetedMotion(
+                std::any_of(g_mods->status().begin(), g_mods->status().end(), [](const hle::mods::ModStatus& st) {
                     return st.state == hle::mods::ModState::Loaded && st.manifest.id == "drakan-character-motion";
                 }));
             for (const std::string& line : g_mods->report())
@@ -1511,6 +1525,17 @@ void applyDrakanOverrides(PS2Runtime& runtime) {
             }
         }
         hle::FileService* gameFiles = &host->iop.file;
+#ifdef PS2X_HAVE_GSR
+        gameFiles->setOpenFilter([](const hle::IsoFs& fs, hle::IsoFs::Node& node, std::string& error) {
+            if (!drakan_arena::active() || std::getenv("DRAKAN_ARENA_NOFILTER") || node.key.size() < 4 ||
+                node.key.compare(node.key.size() - 4, 4, ".LVL"))
+                return true;
+            for (const auto& map : drakan_arena::maps())
+                if (node.key.ends_with("\\" + hle::mangleComponent(map.level) + ".LVL"))
+                    return hle::filterArenaLevel(fs, node, error);
+            return true; // unrelated UI / movie / campaign helper levels are not the arena's terrain source
+        });
+#endif
         drakan_game::configure(
             std::move(campaigns),
             [gameFiles](const std::string& from, const std::string& to) { gameFiles->setLevelRedirect(from, to); },
@@ -1727,9 +1752,7 @@ void applyDrakanOverrides(PS2Runtime& runtime) {
     startSound(*g_host);
     drakan_settings_host::setAudio(&g_host->audio);
     if constexpr (supports(Feature::Subtitles)) {
-        std::string lg = drakan_cfg::getString("general", "language", "DRAKAN_LANG", "english");
-        lg.erase(0, std::min(lg.find_first_not_of("\\/"), lg.size()));
-        drakan_subtitles::init(&g_host->audio, runtime.memory().getRDRAM(), lg);
+        drakan_subtitles::init(&g_host->audio, runtime.memory().getRDRAM(), drakan_language::effectiveName());
     }
     // Guest liveness watchdog: the vblank counter is advanced by the EE scheduler thread. If it stops (EE held /
     // blocked / hung) the SPU2 output pauses instead of looping the last buffered chunk of a streamed voice.

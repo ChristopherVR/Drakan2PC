@@ -1056,6 +1056,31 @@ void register_ps2_runtime_kernel_tests() {
             t.Equals((readConfig1 >> 16) & 0x1Fu, 10u, "SetOsdConfigParam2 should sync ConfigParam.language");
         });
 
+        tc.Run("host language config reaches both OSD syscall views", [](TestCase& t) {
+            TestEnv env;
+            constexpr uint32_t kOut1 = 0x5000u, kOut2 = 0x5010u;
+            constexpr uint32_t kOtherFields = 1u | (2u << 1) | (1u << 4) | (60u << 21);
+            writeGuestU32(env.rdram.data(), K_PARAM_ADDR, kOtherFields | (1u << 13) | (1u << 16));
+            setRegU32(env.ctx, 4, K_PARAM_ADDR);
+            t.IsTrue(callSyscall(0x4Au, env.rdram.data(), &env.ctx, &env.runtime), "seed OSD state");
+            for (uint32_t language : {1u, 4u, 2u, 5u, 3u, 1u}) {
+                ps2_syscalls::configureOsdLanguage(language);
+                setRegU32(env.ctx, 4, kOut1);
+                t.IsTrue(callSyscall(0x4Bu, env.rdram.data(), &env.ctx, &env.runtime), "read base OSD");
+                const uint32_t base = readGuestU32(env.rdram.data(), kOut1);
+                t.Equals((base >> 16) & 31u, language, "guest sceScfGetLanguage sees host selection");
+                t.Equals((base >> 13) & 7u, 1u, "OSD2 language field enabled");
+                t.Equals(base & ~((7u << 13) | (31u << 16)), kOtherFields, "preserve other OSD fields");
+                setRegU32(env.ctx, 4, kOut2);
+                setRegU32(env.ctx, 5, 4u);
+                setRegU32(env.ctx, 6, 0u);
+                t.IsTrue(callSyscall(0x6Fu, env.rdram.data(), &env.ctx, &env.runtime), "read extended OSD");
+                const uint32_t extended = readGuestU32(env.rdram.data(), kOut2);
+                t.Equals(extended >> 24, language, "extended OSD agrees with base language");
+                t.Equals((extended >> 16) & 255u, 1u, "extended OSD agrees with base version");
+            }
+        });
+
         tc.Run("numeric syscall 0x83 finds matching table entry", [](TestCase& t) {
             TestEnv env;
             constexpr uint32_t kTableBase = 0x00002000u;

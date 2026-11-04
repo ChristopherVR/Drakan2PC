@@ -49,6 +49,11 @@ void FileService::setLevelRedirect(std::string from, std::string to) {
     redirectTo_ = std::move(to);
 }
 
+void FileService::setOpenFilter(OpenFilter filter) {
+    std::lock_guard<std::mutex> lock(mu_);
+    openFilter_ = std::move(filter);
+}
+
 std::string FileService::redirectPath(const std::string& path) const {
     if (redirectFrom_.empty() || redirectTo_.empty())
         return path;
@@ -104,6 +109,14 @@ int FileService::handle(u32 fno, const void* send, u32 sendSize, void* reply, u3
                 if (!fs_.lookup(path, n) || n.dir) {
                     logf("file open '%s' -> not found (key %s)", path, fs_.resolveKey(path).c_str());
                 } else {
+                    std::string filterError;
+                    if (openFilter_ && !openFilter_(fs_, n, filterError)) {
+                        logf("file open '%s' rejected by content filter: %s", path, filterError.c_str());
+                        memcpy(reply, &h, 4);
+                        if (replyCap >= 8)
+                            put32((u8*)reply + 4, 0);
+                        return replyCap >= 8 ? 8 : 4;
+                    }
                     int slot = -1;
                     for (size_t i = 0; i < files_.size(); ++i)
                         if (!files_[i].used) {

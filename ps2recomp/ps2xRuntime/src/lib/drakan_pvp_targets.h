@@ -1,9 +1,15 @@
 #pragma once
 #include <algorithm>
 #include <cmath>
+#include <cstdint>
 #include <vector>
 
 namespace drakan_pvp::detail {
+
+// Only an actual opponent's NPC avatar bypasses the original player-versus-NPC melee exclusion.
+inline bool usePlayerMeleeMask(bool coop, uint32_t owner, uint32_t controlled, int remotePlayer, uint32_t actorClass) {
+    return !coop && owner && owner == controlled && remotePlayer > 0 && actorClass == 0x1009du;
+}
 
 struct ProjectileTarget {
     int ghost = 0;

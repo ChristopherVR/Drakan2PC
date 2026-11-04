@@ -7,6 +7,7 @@
 #include "ps2_runtime.h"
 #include "ps2_runtime_macros.h"
 #include "drakan_config.h"
+#include "drakan_language_policy.h"
 #include "input/DrakanInput.h"
 #if defined(PS2X_HAVE_DRAKAN_SETTINGS) || defined(PS2X_HAVE_PORTABLE_UI)
 #include "settings/Store.h"
@@ -236,20 +237,12 @@ const Labels& labels() {
                            "gina",
                            "\xBF"
                            "Seguro que quieres abandonar?"};
-    static const Labels* sel = nullptr;
-    if (!sel) {
-        std::string l = drakan_cfg::getString("general", "language", "DRAKAN_LANG", "english");
-        std::transform(l.begin(), l.end(), l.begin(),
-                       [](unsigned char ch) { return static_cast<char>(std::tolower(ch)); });
-        while (!l.empty() && (l[0] == '\\' || l[0] == '/'))
-            l.erase(0, 1);
-        sel = l.rfind("ger", 0) == 0 || l.rfind("deu", 0) == 0   ? &de
-              : l.rfind("fre", 0) == 0 || l.rfind("fra", 0) == 0 ? &fr
-              : l.rfind("ita", 0) == 0                           ? &it
-              : l.rfind("spa", 0) == 0 || l.rfind("esp", 0) == 0 ? &es
-                                                                 : &en;
-    }
-    return *sel;
+    const std::string language = drakan_language::effectiveName();
+    return language == "german"    ? de
+           : language == "french"  ? fr
+           : language == "italian" ? it
+           : language == "spanish" ? es
+                                   : en;
 }
 
 std::string labelUtf8(const char* text) {

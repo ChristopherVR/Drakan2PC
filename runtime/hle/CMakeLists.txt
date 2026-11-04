@@ -9,6 +9,7 @@ drakan_component_begin(hle)
 add_library(drakan_hle STATIC
     src/IsoFs.cpp
     src/FileService.cpp
+    src/ArenaLevel.cpp
     src/ResourceService.cpp
     src/ResourceOverride.cpp
     src/ModPack.cpp
@@ -23,6 +24,10 @@ target_include_directories(drakan_hle PUBLIC include)
 target_link_libraries(drakan_hle PRIVATE drakan::options)
 
 if(DRAKAN_BUILD_RUNTIME_TESTS)
+    add_executable(arena_level_test tests/arena_level_test.cpp)
+    target_link_libraries(arena_level_test PRIVATE drakan_hle drakan::options)
+    drakan_enable_asserts(arena_level_test)
+    add_test(NAME arena_level_test COMMAND arena_level_test)
     add_executable(iso_source_test tests/iso_source_test.cpp)
     target_link_libraries(iso_source_test PRIVATE drakan_hle drakan::options)
     drakan_enable_asserts(iso_source_test)

@@ -118,3 +118,31 @@ Initial live gameplay / sound evidence was pending at this checkpoint; see the v
 Remaining validation: genuine melee contacts are being isolated with explicit native inventory mode; only projectile
 combat is claimed above. Four selectable classes across both rig families have live motion evidence; the remaining
 models have generation/matching coverage, not individual live-match certification.
+
+
+### Melee isolation and a narrow native collision-mask correction (under live verification)
+
+Matched tests used native inventory, Wood Club, a target held 180 units directly in front, damage scale 8, no injected
+claims, separate cards, and explicit `DRAKAN_PAUSE_UNFOCUSED=0`:
+
+| Attacker / victim appearance | Evidence folder under build/harness | Actual melee result |
+| --- | --- | --- |
+| Rynn / Rynn | character-melee-rynn-180 | 46 claims, 16 accepted hits, 8 kills; all 16 checks pass |
+| Monk / Nichols | character-melee-npc-180 | 0 callbacks/claims; both processes exit cleanly |
+| Rynn / Monk | character-melee-rynn-npc | 0 callbacks/claims; both processes exit cleanly |
+| Monk / Rynn | character-melee-npc-rynn | 48 claims, 16 accepted hits, 8 kills; all 16 checks pass |
+
+This isolates the NPC **victim**. It disproves the proposed hidden-controller weapon-transform problem: a selected
+NPC attacker produces real native sweeps against a Rynn victim, so rendering was preserved.
+
+Read-only Ghidra evidence: `4979a8` excludes RFL class 1009d (all NPCs) from the player blade collision query. The per-cell
+narrow-phase loop `1242d8` reads the candidate's class mask after native class-index lookup `1cca68`; return address
+`1244fc` is its bit 0 eligibility check, candidate actor is s2/r18, query object s4/r20, query + 0x564 is source weapon actor.
+The scoped hook recognizes only that callsite, a blade owned by the real local controller, and a registered remote
+NPC avatar during PvP. For this one class-mask lookup it requests the enabled player class index. It never alters
+any actor class, mask table, faction, ordinary NPC behavior or co-op rules; native geometry, hit lists and damage
+application continue normally. Focused tests cover all qualification exclusions. Live contact verification follows.
+
+**User clarification / scope correction:** newly added bow damage/flight-stat overrides were removed. The measured
+10/80 arrow event above remains historical evidence of genuine hit-to-male-voice playback, but does not describe final
+weapon tuning. The actual Damage property 0 correction and self-cosmetic projectile-target exclusion remain.

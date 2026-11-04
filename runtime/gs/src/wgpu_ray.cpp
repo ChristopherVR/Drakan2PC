@@ -2,6 +2,7 @@
 // attribute layout ([static world][frame triangles][native models]), instance groups and masks (1 opaque, 2 water
 // coverage, 4 native water), instance IDs (material base | opacity << 19) and camera-relative coordinates.
 #include "wgpu_ray.h"
+#include "runtime_flags.h"
 
 #include <algorithm>
 #include <atomic>
@@ -687,6 +688,7 @@ bool WgpuRay::render(const PassFrame& f, std::span<const Triangle> triangles,
     lit.effects[0] = options.water && (water || coverage);
     lit.effects[1] = options.shadows;
     lit.effects[3] = (water ? 1u : 0u) | (coverage ? 2u : 0u) | (options.requireWaterCoverage ? 4u : 0u);
+    lit.effects[3] |= surface::rayDiagnosticEffects(runtimeFlags().rayDiagnostic.value_or(""));
     const uint64_t level = models ? models->level : 0;
     if (skyLevel_ != level) {
         lit.effects[3] |= 8;
@@ -781,6 +783,11 @@ bool WgpuRay::render(const PassFrame& f, std::span<const Triangle> triangles,
         "; CPU" + timing + " total " +
         std::to_string(std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - started).count()) +
         " ms";
+    const uint32_t diagnostic = surface::rayDiagnosticEffects(runtimeFlags().rayDiagnostic.value_or(""));
+    static std::atomic_flag diagnosticLogged = ATOMIC_FLAG_INIT;
+    if (diagnostic && !diagnosticLogged.test_and_set())
+        std::fprintf(stderr, "[ray-diagnostic] backend=webgpu mode=%s mask=%u applied in submitted pass\n",
+                     runtimeFlags().rayDiagnostic->c_str(), diagnostic);
     return true;
 }
 

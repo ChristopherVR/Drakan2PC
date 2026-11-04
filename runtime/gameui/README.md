@@ -425,3 +425,19 @@ instead, so the glue executes them as in "Pause menu actions":
 | Back from the landing page | `LeavePage` of the open sub page, then `LeavePage(Options)` (pause) / `wantsBack` (title) |
 
 Every other SettingsAction goes to `dsettings::ModernSettings` as before. Tests: `gameui_settings_test` "unified".
+
+## Menu language
+
+The modern title, pause and save/load screens use `MenuText.h` for authored labels, descriptions, hints, card states
+and confirmation dialogs in English, German, French, Italian and Spanish. The runtime calls `setMenuLanguage` before
+guest startup with the effective validated game language. Unknown locale names fall back to English; language changes
+follow the game's restart requirement.
+
+Call `menuText` only with a catalog key, and use `menuFormat` for `{0}`, `{1}` placeholders. Insert guest locations,
+campaign names, save details and other user-provided values as arguments; do not pass them through the catalog.
+Explicit skin overrides stay verbatim. Translation precedes layout measurement and wrapping. Menu buttons and modal
+titles fit their translated text to their existing bounds. UTF-8 Latin accents use the existing host font atlas.
+
+This catalog covers the main/pause/save-load flows and their embedded legacy Audio/Controller pages. The broad PC
+settings schema, editor and multiplayer pages retain their current labels. Host-provided error messages and campaign
+metadata stay as supplied. `gameui_locale_test` exercises every locale and the English fallback at three viewports.

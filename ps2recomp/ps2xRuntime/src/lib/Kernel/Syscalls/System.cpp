@@ -2,6 +2,13 @@
 #include "System.h"
 
 namespace ps2_syscalls {
+void configureOsdLanguage(uint32_t language) {
+    ensureOsdConfigInitialized();
+    std::lock_guard<std::mutex> lock(g_osd_mutex);
+    g_osd_config_raw = syncOsdConfigRawVersionLanguage(g_osd_config_raw, 1, language);
+    g_osd_config2_raw = makeReadableOsdConfig2RawLocked();
+}
+
 void GsSetCrt(uint8_t* rdram, R5900Context* ctx, PS2Runtime* runtime) {
     int interlaced = getRegU32(ctx, 4); // $a0 - 0=non-interlaced, 1=interlaced
     int videoMode = getRegU32(ctx, 5);  // $a1 - 0=NTSC, 1=PAL, 2=VESA, 3=HiVision

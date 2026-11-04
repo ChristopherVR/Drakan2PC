@@ -74,6 +74,12 @@ int main() {
     assert(mapHitSound(0x177f, 0x2024c) == 0x50804);
     assert(mapHitSound(0x177f, 0x201cc) == 0x201cc); // hard landing, outside the HitRxn set
     assert(mapHitSound(0x177f, 0x501a1) == 0x501a1); // same low id in another sound bank
+    using drakan_pvp::detail::usePlayerMeleeMask;
+    assert(usePlayerMeleeMask(false, 100, 100, 2, 0x1009d));  // local blade versus a registered NPC opponent
+    assert(!usePlayerMeleeMask(true, 100, 100, 2, 0x1009d));  // co-op friendly fire remains native
+    assert(!usePlayerMeleeMask(false, 200, 100, 2, 0x1009d)); // NPC / remote attacks keep their native mask
+    assert(!usePlayerMeleeMask(false, 100, 100, 0, 0x1009d)); // ordinary NPCs and local cosmetics stay excluded
+    assert(!usePlayerMeleeMask(false, 100, 100, 2, 0x10009)); // original player class needs no bypass
     // A projectile starts inside its own visual body. That body must not consume it before the remote player.
     using drakan_pvp::detail::firstProjectileTarget;
     using drakan_pvp::detail::ProjectileTarget;

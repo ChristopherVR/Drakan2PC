@@ -15,6 +15,7 @@ add_library(drakan_gameui STATIC
     src/Actions.cpp
     src/Layout.cpp
     src/Screen.cpp
+    src/MenuText.cpp
     src/Paint.cpp
     src/StripScreen.cpp
     src/MapScreen.cpp
@@ -33,6 +34,11 @@ target_include_directories(drakan_gameui PUBLIC include)
 target_link_libraries(drakan_gameui PRIVATE drakan::options)
 
 if(DRAKAN_BUILD_RUNTIME_TESTS)
+    add_executable(gameui_locale_test tests/gameui_locale_test.cpp)
+    target_link_libraries(gameui_locale_test PRIVATE drakan_gameui drakan::options)
+    drakan_enable_asserts(gameui_locale_test)
+    add_test(NAME gameui_locale_test COMMAND gameui_locale_test)
+
     add_executable(gameui_dialog_test tests/gameui_dialog_test.cpp)
     target_link_libraries(gameui_dialog_test PRIVATE drakan_gameui drakan::options)
     add_test(NAME gameui_dialog_test COMMAND gameui_dialog_test)

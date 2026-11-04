@@ -78,3 +78,28 @@ allocation coverage includes orphan samples/lipsync ids and exhaustion.19
 sound/sequence tests and the formats typecheck pass. Full candidate regeneration
 is separate at `build/scratch/ootf-speech-full`; an above608 descriptor/sample
 request must be verified in the live engine before promoting it.
+
+Full speech candidate conversion completed:153,965,079bytes,9,931 files,553
+descriptor/sample pairs, maximum id818 (210 ids above608). Every packed SSD
+parses with its declared action count.424 sequence sound actions across19
+sequences reference exactly matching descriptors and samples in SSD dependency4;
+50 actions use ids above608. No sound allocation/cap warnings remain. Audit
+script: `build/scratch/audit-speech-full.ts`. Live proof fixture redirects only
+the first RV time0 Rynn sound to609 (`I_don't_trust_them`,22050Hz), keeping all
+timing unchanged. A direct-RV start had player0 and was rejected as invalid; the
+retry uses normal title selection, OOTF NewGame and the natural Intro exit.
+
+The normal high-id fixture ended cleanly at its scripted quit. Natural Intro exit
+was73.44s and RV loaded75.01s, but the111.68s screenshot remained Loading100%;
+no609 descriptor/sample request occurred. This does **not** validate extended-id
+playback. The candidate remains separate and unpromoted. Raw dump labels must
+start with `ram`; this attempt's `speech_ram` printed state only (valid player
+`0x8d3690`). The earlier `ootf-normal-alias` raw snapshots remain valid.
+
+Native cache lookup uses manager bucket `4 * ((id * 0x59 & 127) + 8)`, descriptor
+next pointer+0x14, resource id+0 and state bits+8. Recursing actual cache entries
+for the1.2a scheduled actor class/model/active animation dependencies found no
+pending state2 at the captured boundary; runtime logging is required to capture
+the transient blocker. Native tick advances elapsed by float `0x4de604`, unless
+instance+0x1c pause is set. Converted max action timestamps were independently
+audited61.1888/52.8477/90.7621 for1.1/1.2a/1.3, with no hidden long action tail.
