@@ -25,6 +25,8 @@ Imported Long Bow nocking and shooting now work in an isolated native fixture af
 
 A separate third-person test now verifies a commanded native running jump (type 2), upward motion, a fresh fire press and a real shot consuming one arrow. Holding fire does not create extra shots in the bounded test. See [running-jump input acceptance](../journal/2026-11-05/bow-imported-running-jump-acceptance.md); this remains distinct from original combat timing parity.
 
+The full-hole terrain conversion now preserves the native triangle collision flags. An identical-input comparison removes the false upper floor blocking the tavern descent; a continuation traverses the low stairs using ordinary crouched movement and reaches the cellar with health unchanged. Native saving and reloading pass. The key and subsequent route remain open. See [terrain collision and cellar traversal](../journal/2026-11-05/ootf-terrain-hole-collision.md).
+
 ## What works
 
 * Converter `editor/scripts/ootf-convert.ts` (`--campaign 1` for the campaign): terrain, textures, models, creatures (skinned, retargeted
