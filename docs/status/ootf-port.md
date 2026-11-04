@@ -5,12 +5,10 @@ packs that the recompiled PS2 engine plays; nothing from either game is committe
 `docs/journal/2026-10-31/` and `docs/journal/2026-11-01/` (`ootf-*.md`, `arena-*.md`, `game-select-ootf-boot.md`); formats are in the
 `editor/packages/formats` submodule, pack rules in `reference/modding.md` ("Campaign packs").
 
-**Current acceptance:** the November 4 private candidate reaches real keyboard/mouse control after a normal New Game
-and the Ruined Village opening. The next idle observation ended in an enemy killing Rynn and a return to the title,
-without a watchdog failure; this is not sustained progression or campaign completion. Native particle counts still grow,
-and uninterrupted completion remains unestablished. The candidate is not promoted to the primary play folder.
-Earlier isolated level loads and scripted exits below do not establish that result. See the
-[class-reference and heap investigation](../journal/2026-11-04/ootf-class-reference-defaults.md) and earlier
+**Current acceptance:** the November 4 header-corrected private candidate completes the original opening through normal New Game, returns keyboard/mouse control, and makes a native quicksave. A 541-second run ended with actual process exit 0 after normal movement and a sustained observation beyond the previous approximately 331-second allocator failure. Unintended Dust Devil generators and particle actors remain absent in all RAM samples; live guest heap settles near 16.33 MB instead of exhausting the guest heap. This verifies the specific current-header repair in that run, not uninterrupted campaign completion. Native save/load roundtrip and legitimate traversal from the fresh checkpoint remain in progress; the candidate is not promoted to the primary play folder. Audio was disabled in this harness run, so cinematic speech playback is unverified.
+Earlier isolated level loads and scripted exits below do not establish full progression. See the
+[current-header runtime acceptance](../journal/2026-11-04/ootf-current-header-runtime.md),
+[class-reference and heap investigation](../journal/2026-11-04/ootf-class-reference-defaults.md), and earlier
 [cinematic readiness investigation](../journal/2026-11-04/ootf-native-readiness-probe.md).
 
 ## What works
