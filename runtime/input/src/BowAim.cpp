@@ -86,6 +86,10 @@ void InputModule::updateBowAim(IGuest& g) {
     const uint32_t ctx = g.read32(cfg_.addrCtxPtr);
     const uint32_t cam = contextCamera(g, ctx);
     const uint32_t player = contextPlayer(g, ctx);
+    if (!player || !g.read32(0x4fb730)) {
+        bowSightJumpPlayer_ = 0;
+        bowSightLocomotionPlayer_ = bowSightLocomotionMotion_ = 0;
+    }
     const bool camOk = cam && g.read32(cam + 0x14c) == 6 && !(g.read32(cam + 0x48) & kCameraSightFlag);
     const bool ready = cfg_.bowAimModern && camOk && player && !dragon_ && mouseKeyboardOwner_ &&
                        g.read32(player + 0xe90) == kBowMode && g.read32(0x4fb730) && !g.read32(0x4fbafc);
@@ -219,37 +223,305 @@ void InputModule::beforeBowLaunch(IGuest& g, uint32_t bow) {
                  d[2], from[0], from[1], from[2]);
 }
 
+// PC Bow launch100b0360 bypasses third-person target selection in manual sight and launches the projectile pose.
+// The native running/jumping rig tilts that pose away from the sight; rotate its basis only, retaining every
+// axis magnitude and the native launch origin. No convergence distance, flight property or velocity is introduced.
+bool InputModule::beforeBowSightLaunch(IGuest& g, uint32_t bow) {
+    std::lock_guard<std::mutex> lock(m_);
+    const auto ctx = g.read32(cfg_.addrCtxPtr), player = contextPlayer(g, ctx);
+    const auto cam = ootfBowSightCamera(g, player);
+    if (!bow || !cam || g.read16(player + 0x4da) ||
+        objectFromHandle(g, ctx, g.read16(bow + 0x60)) != g.read32(ctx + 0x4b0))
+        return false;
+    const auto arrow = objectFromHandle(g, ctx, g.read16(bow + 0x158));
+    const auto registry = g.read32(ctx + 0x320), object = g.read32(cam + 0x148);
+    if (!arrow || !registry || !object)
+        return false;
+    const uint32_t index = g.read16(arrow + 0x10), records = g.read32(registry + 8);
+    const auto valid = [](uint32_t p, uint32_t bytes) { return p >= 0x100000u && p <= 0x2000000u - bytes; };
+    if (index == 0xffff || index > g.read32(registry + 0x10) || !valid(records, (index + 1u) * 0x24u) ||
+        g.read32(records + index * 0x24 + 8) != 0x1005fu)
+        return false;
+    // Native Arrow class95 uses field16 (0x10) for SeekType. The audited 192e48 reader with default=-1
+    // returns *(reader+4)+field*4 directly. Read only this proven flat layout, never modify its shared properties.
+    const auto reader = g.read32(arrow + 0x54), readerVt = valid(reader, 12) ? g.read32(reader + 8) : 0;
+    if (!valid(readerVt, 0x20) || g.read32(readerVt + 0x1c) != 0x192e48u || g.readS16(readerVt + 0x18) != 0)
+        return false;
+    const auto fields = g.read32(reader + 4);
+    if (!valid(fields, 0x44) || g.read32(fields + 0x40) != 0)
+        return false; // intentional tracking/homing arrows retain their native solver
+    float old[3][3], length[3], back[3];
+    for (uint32_t axis = 0; axis < 3; ++axis) {
+        for (uint32_t row = 0; row < 3; ++row)
+            old[axis][row] = g.readF(arrow + 0x20 + row * 12 + axis * 4);
+        length[axis] =
+            std::sqrt(old[axis][0] * old[axis][0] + old[axis][1] * old[axis][1] + old[axis][2] * old[axis][2]);
+        if (!finite3(old[axis]) || !std::isfinite(length[axis]) || length[axis] < 1e-4f)
+            return false;
+        back[axis] = g.readF(object + 0x28 + axis * 12);
+    }
+    const float norm = std::sqrt(back[0] * back[0] + back[1] * back[1] + back[2] * back[2]);
+    if (!finite3(back) || !std::isfinite(norm) || norm < 1e-4f)
+        return false;
+    const auto cross = [](const float* a, const float* b, float* v) {
+        v[0] = a[1] * b[2] - a[2] * b[1];
+        v[1] = a[2] * b[0] - a[0] * b[2];
+        v[2] = a[0] * b[1] - a[1] * b[0];
+    };
+    float axes[3][3], priorCross[3];
+    cross(old[0], old[1], priorCross);
+    const float handed =
+        priorCross[0] * old[2][0] + priorCross[1] * old[2][1] + priorCross[2] * old[2][2] < 0 ? -1.0f : 1.0f;
+    float dot = 0;
+    for (unsigned i = 0; i < 3; ++i) {
+        axes[0][i] = back[i] / norm;
+        dot += old[1][i] * axes[0][i];
+    }
+    float sideLength = 0;
+    for (unsigned i = 0; i < 3; ++i) {
+        axes[1][i] = old[1][i] - dot * axes[0][i];
+        sideLength += axes[1][i] * axes[1][i];
+    }
+    sideLength = std::sqrt(sideLength);
+    if (sideLength < 1e-4f) {
+        const float up[3] = {0, 1, 0};
+        cross(up, axes[0], axes[1]);
+        sideLength = std::sqrt(axes[1][0] * axes[1][0] + axes[1][1] * axes[1][1] + axes[1][2] * axes[1][2]);
+        if (sideLength < 1e-4f)
+            return false;
+    }
+    for (float& value : axes[1])
+        value /= sideLength;
+    cross(axes[0], axes[1], axes[2]);
+    for (unsigned row = 0; row < 3; ++row)
+        for (unsigned axis = 0; axis < 3; ++axis)
+            g.writeF(arrow + 0x20 + row * 12 + axis * 4, axes[axis][row] * length[axis] * (axis == 2 ? handed : 1.0f));
+    if (std::getenv("DRAKAN_BOW_LOG"))
+        std::fprintf(stderr, "[bow] sight shot basis: arrow=%x direction=(%g,%g,%g) magnitudes=(%g,%g,%g)\n", arrow,
+                     -back[0] / norm, -back[1] / norm, -back[2] / norm, length[0], length[1], length[2]);
+    return true;
+}
+
 uint32_t InputModule::bowAttackMask(IGuest& g, uint32_t player, uint32_t caller, uint32_t mask) {
     std::lock_guard<std::mutex> lock(m_);
     // PC attack entry 1006f9d0 excludes jumping (actor+68 bit10) from its refusal mask; PS2 31da90 explicitly
     // adds that bit for bows. The PS2 reset callback 307198 returns to 31de5c with the mask in s2. Preserve
     // the optional held-object refusal bit1000, falling bit20, and every other native gate.
-    if (cfg_.bowAimModern || dragon_ || caller != 0x31de5cu || (mask & ~0x1000u) != 0x104b70u ||
-        !player || player != contextPlayer(g, g.read32(cfg_.addrCtxPtr)) ||
-        g.read32(player + 0xe90) != kBowMode || !(g.read32(player + 0x94) & 0x10u) ||
-        !g.read32(0x4fb730) || g.read32(0x4fbafc))
+    if (cfg_.bowAimModern || dragon_ || caller != 0x31de5cu || (mask & ~0x1000u) != 0x104b70u || !player ||
+        player != contextPlayer(g, g.read32(cfg_.addrCtxPtr)) || g.read32(player + 0xe90) != kBowMode ||
+        !(g.read32(player + 0x94) & 0x10u) || !g.read32(0x4fb730) || g.read32(0x4fbafc))
         return mask;
     return mask & ~0x10u;
 }
 
 uint32_t InputModule::ootfBowSightCamera(IGuest& g, uint32_t player) const {
-    if (cfg_.bowAimModern || dragon_ || !player || !g.read32(0x4fb730) || g.read32(0x4fbafc))
+    const bool padSteering = cfg_.gamepadEnabled && frame_.gamepad.connected &&
+                             (frame_.gamepad.lx != 0.0f || frame_.gamepad.ly != 0.0f || frame_.gamepad.rx != 0.0f ||
+                              frame_.gamepad.ry != 0.0f);
+    if (cfg_.bowAimModern || dragon_ || !player || !mouseKeyboardOwner_ || padSteering ||
+        cfg_.lookMode != LookMode::Direct || nativeLookControlActive() || !g.read32(0x4fb730) || g.read32(0x4fbafc))
         return 0;
     const auto ctx = g.read32(cfg_.addrCtxPtr), cam = contextCamera(g, ctx);
-    if (player != contextPlayer(g, ctx) || g.read32(player + 0xe90) != kBowMode || !cam ||
-        g.read32(cam + 0x14c) != 6 || !(g.read32(cam + 0x48) & kCameraSightFlag))
+    if (player != contextPlayer(g, ctx) || g.read32(player + 0xe90) != kBowMode || !cam || g.read32(cam + 0x14c) != 6 ||
+        !(g.read32(cam + 0x48) & kCameraSightFlag))
         return 0;
     return cam;
+}
+
+void InputModule::captureBowSightJump(IGuest& g, uint32_t player) {
+    std::lock_guard<std::mutex> lock(m_);
+    // PC 10069500 retains the jump command in its sight path. PS2 Controller C clears +50c at entry. Remember
+    // only a genuine grounded jump request until its exact post-clear callback, including across a guest yield.
+    bowSightJumpPlayer_ =
+        ootfBowSightCamera(g, player) && !g.read32(player + 0x94) && g.read32(player + 0x50c) == 1 ? player : 0;
+}
+
+bool InputModule::restoreBowSightJump(IGuest& g, uint32_t player, uint32_t caller) {
+    std::lock_guard<std::mutex> lock(m_);
+    if (caller != 0x311314u || player != bowSightJumpPlayer_)
+        return false;
+    bowSightJumpPlayer_ = 0;
+    if (!ootfBowSightCamera(g, player) || g.read32(player + 0x94) || g.read32(player + 0x50c))
+        return false;
+    g.write32(player + 0x50c, 1); // restore the input, never an actor physics/state flag
+    return true;
+}
+
+bool InputModule::keepBowSightOnJump(IGuest& g, uint32_t player, uint32_t cam, uint32_t caller) {
+    std::lock_guard<std::mutex> lock(m_);
+    // Native jump start closes the sight here; original PC jump transitions do not. All other closes stay native.
+    return caller == 0x2f9610u && cam && cam == ootfBowSightCamera(g, player);
 }
 
 bool InputModule::suppressBowSightForwardLook(IGuest& g, uint32_t player, uint32_t caller, uint32_t axis) {
     std::lock_guard<std::mutex> lock(m_);
     // PS2 Camera_UpdateLook reads forward axis2 as pitch in the sight (44e678). Keyboard W/S must remain
     // movement commands; direct mouse displacement already owns pitch. A physical stick retains its native read.
-    const bool padSteering = cfg_.gamepadEnabled && frame_.gamepad.connected &&
-                             (frame_.gamepad.lx != 0.0f || frame_.gamepad.ly != 0.0f);
+    const bool padSteering =
+        cfg_.gamepadEnabled && frame_.gamepad.connected && (frame_.gamepad.lx != 0.0f || frame_.gamepad.ly != 0.0f);
     return caller == 0x44e680u && axis == 2 && mouseKeyboardOwner_ && !padSteering &&
            cfg_.lookMode == LookMode::Direct && !nativeLookControlActive() && ootfBowSightCamera(g, player);
+}
+
+// Direct OotF sight orientation: keep native position/bob, remove animation-driven look tilt.
+// Native 327700 and original PC 100761a0 both use -1.5 times the camera pitch. Apply at the FPS
+// bow-sight writer32a608 (mode6+sight, return218794), after its animated basis and native positional bob.
+bool InputModule::stabilizeBowSightOrientation(IGuest& g, uint32_t camera, uint32_t caller) {
+    std::lock_guard<std::mutex> lock(m_);
+    if (caller != 0x218794u)
+        return false;
+    const bool padSteering = cfg_.gamepadEnabled && frame_.gamepad.connected &&
+                             (frame_.gamepad.lx != 0.0f || frame_.gamepad.ly != 0.0f || frame_.gamepad.rx != 0.0f ||
+                              frame_.gamepad.ry != 0.0f);
+    if (!mouseKeyboardOwner_ || padSteering || cfg_.lookMode != LookMode::Direct || nativeLookControlActive()) {
+        if (std::getenv("DRAKAN_BOW_LOG")) {
+            static unsigned logged = 0;
+            if (logged++ < 8)
+                std::fprintf(stderr, "[bow] orientation input guard: owner=%d pad=%d direct=%d native=%d\n",
+                             mouseKeyboardOwner_, padSteering, cfg_.lookMode == LookMode::Direct,
+                             nativeLookControlActive());
+        }
+        return false;
+    }
+    const auto player = contextPlayer(g, g.read32(cfg_.addrCtxPtr));
+    const auto cam = ootfBowSightCamera(g, player);
+    const auto actor = player ? g.read32(player + 0x80) : 0;
+    const auto object = cam ? g.read32(cam + 0x148) : 0;
+    if (!cam || camera != cam || !actor || !object) {
+        if (std::getenv("DRAKAN_BOW_LOG")) {
+            static unsigned logged = 0;
+            if (logged++ < 8)
+                std::fprintf(stderr, "[bow] orientation context guard: player=%x cam=%x actor=%x object=%x\n", player,
+                             cam, actor, object);
+        }
+        return false;
+    }
+    const float x = g.readF(actor + 0x28), z = g.readF(actor + 0x40), pitch = g.readF(cam + 0x84);
+    const float length = std::sqrt(x * x + z * z);
+    if (!std::isfinite(length) || length < 1e-4f || !std::isfinite(pitch))
+        return false;
+    const float bx = x / length, bz = z / length;
+    const float c = std::cos(-1.5f * pitch), s = std::sin(-1.5f * pitch);
+    const float matrix[9] = {bz, -bx * s, bx * c, 0, c, s, -bx, -bz * s, bz * c};
+    if (std::getenv("DRAKAN_BOW_LOG")) {
+        static unsigned logged = 0;
+        if (logged < 16 && std::fabs(g.readF(object + 0x34) - s) > 0.01f) {
+            ++logged;
+            std::fprintf(stderr, "[bow] sight orientation: player=%x pitch=%g backY=%g->%g\n", player, pitch,
+                         g.readF(object + 0x34), s);
+        }
+    }
+    for (uint32_t i = 0; i < 9; ++i)
+        g.writeF(object + 0x20 + 4 * i, matrix[i]);
+    return true;
+}
+
+void InputModule::releaseBowSightLocomotion(IGuest& g, uint32_t player) {
+    if (!bowSightLocomotionPlayer_)
+        return;
+    if (player != bowSightLocomotionPlayer_) {
+        bowSightLocomotionPlayer_ = bowSightLocomotionMotion_ = 0;
+        return;
+    }
+    if (g.read32(player + 0x94) || g.read32(player + 0x50c))
+        return; // retain cleanup ownership until the native jump/shot is finished
+    const auto actor = g.read32(player + 0x80), model = actor ? g.read32(actor + 0x50) : 0;
+    const auto records = model ? g.read32(model + 0xe8) : 0, channels = model ? g.read32(model + 0xdc) : 0;
+    const auto modelVt = model ? g.read32(model) : 0;
+    if (!records || !channels || !modelVt || g.read32(modelVt + 0xcc) != 0x11a5a8u)
+        return;
+    const int channel = g.readS16(channels);
+    if (channel < 0 || channel > 255)
+        return;
+    if (g.read32(records + static_cast<uint32_t>(channel) * 0x80 + 0x50) == bowSightLocomotionMotion_) {
+        const auto pose =
+            g.call(GuestCall(0x325650u).arg(player).arg(g.read32(player + 0xabc)).arg(0).arg(0xffffffffu));
+        if (!pose || pose == 0xffffffffu)
+            return;
+        GuestCall play(0x3253a0u);
+        play.argf(0.2f).argf(-1.0f).argf(1.0f).arg(player).arg(pose).arg(0).arg(0);
+        g.call(play);
+        g.call(GuestCall(0x11a5a8u).arg(model + static_cast<uint32_t>(g.readS16(modelVt + 0xc8))).arg(0));
+    }
+    bowSightLocomotionPlayer_ = bowSightLocomotionMotion_ = 0;
+}
+
+bool InputModule::updateBowSightLocomotion(IGuest& g, uint32_t player, uint32_t caller) {
+    std::lock_guard<std::mutex> lock(m_);
+    if (caller != 0x311314u || !player || player != contextPlayer(g, g.read32(cfg_.addrCtxPtr)))
+        return false;
+    const bool padSteering =
+        cfg_.gamepadEnabled && frame_.gamepad.connected && (frame_.gamepad.lx != 0.0f || frame_.gamepad.ly != 0.0f);
+    if (!ootfBowSightCamera(g, player) || !mouseKeyboardOwner_ || padSteering) {
+        releaseBowSightLocomotion(g, player);
+        return false;
+    }
+    // Let native jump, attack, crouch and other state machines finish. The next grounded callback then selects
+    // idle/run again, including after a shot; no actor state flags or movement velocities are synthesized.
+    if (g.read32(player + 0x94) & ~0x30u)
+        return false;
+    const auto actor = g.read32(player + 0x80), vt = g.read32(player + 0x57c);
+    const auto model = actor ? g.read32(actor + 0x50) : 0;
+    const auto records = model ? g.read32(model + 0xe8) : 0;
+    const auto channels = model ? g.read32(model + 0xdc) : 0;
+    const auto modelVt = model ? g.read32(model) : 0;
+    const auto valid = [](uint32_t p) { return p >= 0x100000u && p < 0x1ff0000u; };
+    if (!valid(records) || !valid(channels) || !vt || g.read32(vt + 0x144) != 0x32cf30u)
+        return false;
+    // Audited native model root-motion predicates/setters used by Controller C immediately after PlayMotion.
+    if (!modelVt || g.read32(modelVt + 0xb4) != 0x11a488u || g.read32(modelVt + 0xbc) != 0x11a4e8u ||
+        g.read32(modelVt + 0xc4) != 0x11a548u || g.read32(modelVt + 0xcc) != 0x11a5a8u)
+        return false;
+    const int channel = g.readS16(channels);
+    if (channel < 0 || channel > 255)
+        return false;
+    if (g.read32(player + 0x94) || g.read32(player + 0x50c))
+        return false;
+    const auto current = g.read32(records + static_cast<uint32_t>(channel) * 0x80 + 0x50);
+    const auto forward = g.read32(player + 0x504), strafe = g.read32(player + 0x508);
+    const bool otherDirection = (forward & 2u) || strafe;
+    if (otherDirection && (bowSightLocomotionPlayer_ != player || current != bowSightLocomotionMotion_)) {
+        bowSightLocomotionPlayer_ = bowSightLocomotionMotion_ = 0;
+        return false; // native lateral/back handling already owns its motion
+    }
+    const bool moving = (forward & 1u) && !otherDirection;
+    // Native cached Stand / Run / Walk, resolved for the actually equipped bow by the same weapon motion mapper
+    // used by Controller C. Its sight branch skips these transitions, which otherwise start AND stop root motion.
+    const auto source = g.read32(player + (moving ? (walkActive_ ? 0xac4 : 0xac0) : 0xabc));
+    if (!source)
+        return false;
+    const auto motion = g.call(GuestCall(0x325650u).arg(player).arg(source).arg(0).arg(0xffffffffu));
+    if (!motion || motion == 0xffffffffu)
+        return false;
+    bowSightLocomotionPlayer_ = moving ? player : 0;
+    bowSightLocomotionMotion_ = moving ? motion : 0;
+    bool changed = motion != current;
+    if (changed) {
+        GuestCall play(0x32cf30u);              // native base-motion transition, without owning a torso layer
+        play.argf(0.2f).argf(-1.0f).argf(1.0f); // Controller C's native transition/default playback arguments
+        play.arg(player).arg(motion).arg(0).arg(0).arg(0);
+        g.call(play);
+    } // otherwise retain the current loop's phase
+    const auto rootFlags = g.read32(model + 8);
+    const auto modelMode = [&](uint32_t slot, uint32_t enabled) {
+        g.call(GuestCall(g.read32(modelVt + slot))
+                   .arg(model + static_cast<uint32_t>(g.readS16(modelVt + slot - 4)))
+                   .arg(enabled));
+        changed = true;
+    };
+    if (moving) {
+        if (!(rootFlags & 0x10u))
+            modelMode(0xb4, 1);
+        if (!(rootFlags & 0x40u))
+            modelMode(0xc4, 1);
+        if (rootFlags & 0x20u)
+            modelMode(0xbc, 0);
+    } else if (rootFlags & 0x70u)
+        modelMode(0xcc, 0);
+    if (changed && std::getenv("DRAKAN_BOW_LOG"))
+        std::fprintf(stderr, "[bow] sight locomotion: player=%x moving=%d motion=%x->%x\n", player, moving, current,
+                     motion);
+    return changed;
 }
 
 uint16_t InputModule::bowAutoTarget(IGuest& g, uint32_t bow, uint32_t scratch) {

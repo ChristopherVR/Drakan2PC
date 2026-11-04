@@ -448,13 +448,24 @@ first-person sight and toggles back. The default now delivers LMB on press and l
 release. Holding LMB no longer delays the initial shot until release. Existing explicit `modern` settings are retained.
 
 Third-person automatic selection uses the native homing-arrow target finder (`0x49ec60`) around the camera centre,
-borrows the selected handle during the native launch, then restores the player's target. The sight and explicit
-target lock retain native behavior. The adapter uses the original PC Long / Heavy / Speed Bow class defaults:
+borrows the selected handle during the native launch, then restores the player's target. Explicit
+target lock retains native aiming. The adapter uses the original PC Long / Heavy / Speed Bow class defaults:
 25-degree cone and 16000-unit range. Special PC bows have different values, not yet preserved as runtime metadata.
 Damage, velocity, gravity, acceleration, lifetime and ammunition retain the native game values. Temporary stat/flight
 experiments from this investigation were removed following the user's scope clarification: the requested change is
-the way aiming and shooting work. Precise original click/hold cadence, draw/reload timing and airborne firing are
-being compared against the original PC runtime before further input changes.
+the way aiming and shooting work. Exact original per-bow draw/reload timing and special-bow metadata remain open.
+
+With default `ootf` and direct keyboard/mouse input, the sight accepts movement, real jumps, mouse aiming and firing
+together. Native cached stand/run/walk motions start and stop through native root-motion callbacks; no movement
+speed or actor physics flags are invented. The view keeps native eye position/bob and uses player yaw plus the
+original/native -1.5 pitch multiplier, avoiding run-animation tilt. Ordinary non-tracking arrows (native class95,
+audited field reader, SeekType0) launch parallel to the sight ray while retaining their native origin, axis magnitudes
+and all flight properties. Intentional tracking arrows retain their native solver. Physical sticks, explicit native-look
+bindings, stick-look mode and `modern` retain their existing sight path as a whole. The former private test gate is
+removed. This is a validated controls/aiming checkpoint, not complete1:1 original combat.
+
+Live default Short/Long Bow combined and launch-direction evidence, native call sites and remaining limits:
+[bow-cadence-and-airborne-evidence.md](../journal/2026-11-04/bow-cadence-and-airborne-evidence.md).
 
 Native bow (static analysis, live-checked where noted):
 

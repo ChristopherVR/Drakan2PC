@@ -106,6 +106,9 @@ constexpr uint32_t kPadInit = 0x4b0948u, kPadPortOpen = 0x4b0ba8u, kPadRead = 0x
 PS2Runtime::RecompiledFunction g_origPadMgrUpdate = nullptr, g_origCameraLook = nullptr;
 PS2Runtime::RecompiledFunction g_origCameraFollow = nullptr, g_origBowLaunch = nullptr;
 PS2Runtime::RecompiledFunction g_origBowAttackReset = nullptr;
+PS2Runtime::RecompiledFunction g_origBowSightController = nullptr, g_origBowSightGuard = nullptr;
+PS2Runtime::RecompiledFunction g_origBowSightClose = nullptr, g_origBowSightFinalize = nullptr;
+bool g_bowSightControls = false;
 PS2Runtime::RecompiledFunction g_origBowSightAxis = nullptr;
 PS2Runtime::RecompiledFunction g_parryOriginal[4] = {};
 using ParryReduction = drakan_parry_audit::PendingReduction;
@@ -979,6 +982,46 @@ void hookCameraFollow(uint8_t* rdram, R5900Context* c, PS2Runtime* rt) {
     beforeCameraFollow(g, cam);
     g_origCameraFollow(rdram, c, rt);
 }
+void hookBowSightController(uint8_t* rdram, R5900Context* c, PS2Runtime* rt) {
+    if (c->pc == 0x311220u) {
+        RecompGuest g(rdram, c, rt);
+        module().captureBowSightJump(g, getRegU32(c, 4));
+    }
+    g_origBowSightController(rdram, c, rt);
+}
+
+// Camera dispatcher218350 selects32a608 for mode6+sight, separately from generic mode1 first-person.
+void hookBowSightFinalize(uint8_t* rdram, R5900Context* c, PS2Runtime* rt) {
+    g_origBowSightFinalize(rdram, c, rt);
+    if (c->pc == 0x218794u && getRegU32(c, 31) == 0x218794u) {
+        RecompGuest g(rdram, c, rt);
+        module().stabilizeBowSightOrientation(g, cameraObject(g), c->pc);
+    }
+}
+
+void hookBowSightGuard(uint8_t* rdram, R5900Context* c, PS2Runtime* rt) {
+    if (c->pc == 0x458090u && getRegU32(c, 4) == getRegU32(c, 20)) {
+        RecompGuest g(rdram, c, rt);
+        if (module().restoreBowSightJump(g, getRegU32(c, 4), getRegU32(c, 31)) && std::getenv("DRAKAN_BOW_LOG"))
+            ilog("[bow] sight jump command preserved: player=%x\n", getRegU32(c, 4));
+        module().updateBowSightLocomotion(g, getRegU32(c, 4), getRegU32(c, 31));
+    }
+    g_origBowSightGuard(rdram, c, rt);
+}
+
+void hookBowSightClose(uint8_t* rdram, R5900Context* c, PS2Runtime* rt) {
+    if (c->pc == 0x421418u) {
+        RecompGuest g(rdram, c, rt);
+        if (module().keepBowSightOnJump(g, getRegU32(c, 18), getRegU32(c, 4), getRegU32(c, 31))) {
+            if (std::getenv("DRAKAN_BOW_LOG"))
+                ilog("[bow] sight retained on jump: player=%x\n", getRegU32(c, 18));
+            c->pc = getRegU32(c, 31);
+            return;
+        }
+    }
+    g_origBowSightClose(rdram, c, rt);
+}
+
 void hookBowSightAxis(uint8_t* rdram, R5900Context* c, PS2Runtime* rt) {
     if (c->pc == 0x1e4c70u) {
         RecompGuest g(rdram, c, rt);
@@ -991,10 +1034,22 @@ void hookBowSightAxis(uint8_t* rdram, R5900Context* c, PS2Runtime* rt) {
     g_origBowSightAxis(rdram, c, rt);
 }
 
-void installBowSightAxis(PS2Runtime& rt) {
+void installBowSightControls(PS2Runtime& rt) {
+    // The committed keyboard-forward pitch correction is independent of the all-or-none sight controls below.
     g_origBowSightAxis = rt.lookupFunction(0x1e4c70u);
     if (g_origBowSightAxis)
         rt.replaceFunction(0x1e4c70u, &hookBowSightAxis);
+    g_origBowSightFinalize = rt.lookupFunction(0x32a608u);
+    g_origBowSightController = rt.lookupFunction(0x311220u);
+    g_origBowSightGuard = rt.lookupFunction(0x458090u);
+    g_origBowSightClose = rt.lookupFunction(0x421418u);
+    if (g_origBowSightFinalize && g_origBowSightController && g_origBowSightGuard && g_origBowSightClose) {
+        g_bowSightControls = true;
+        rt.replaceFunction(0x32a608u, &hookBowSightFinalize);
+        rt.replaceFunction(0x311220u, &hookBowSightController);
+        rt.replaceFunction(0x458090u, &hookBowSightGuard);
+        rt.replaceFunction(0x421418u, &hookBowSightClose);
+    }
 }
 
 // FUN_0031da90's reset callback preserves the attack mask in s2 across this call. Change that register only at
@@ -1020,6 +1075,8 @@ void hookBowLaunch(uint8_t* rdram, R5900Context* c, PS2Runtime* rt) {
     const uint32_t bow = getRegU32(c, 4);
     RecompGuest g(rdram, c, rt);
     beforeBowLaunch(g, bow);
+    if (g_bowSightControls)
+        module().beforeBowSightLaunch(g, bow);
     // Reserve ray arguments above the nested selector's stack. RecompGuest::call copies this SP and native callees
     // grow down from it, so their frames cannot overwrite our arguments. Restore before entering the real launch.
     const uint32_t sp = getRegU32(c, 29);
@@ -1352,7 +1409,7 @@ void drakanInstallInput(PS2Runtime& rt) {
         if (g_origBowAttackReset && !(skip & 64))
             rt.replaceFunction(0x307198u, &hookBowAttackReset);
         if (!(skip & 64))
-            installBowSightAxis(rt);
+            installBowSightControls(rt);
     }
     if (g_origBowLaunch && !(skip & 64)) // 64: no modern bow aim hook
         rt.replaceFunction(kBowLaunch, &hookBowLaunch);
@@ -1379,7 +1436,7 @@ void drakanInstallPortableMenuHooks(PS2Runtime& rt) {
         g_origBowAttackReset = rt.lookupFunction(0x307198u);
         if (g_origBowAttackReset)
             rt.replaceFunction(0x307198u, &hookBowAttackReset);
-        installBowSightAxis(rt);
+        installBowSightControls(rt);
     }
     if (g_origBowLaunch)
         rt.replaceFunction(kBowLaunch, &hookBowLaunch); // modern bow aim, as on Windows

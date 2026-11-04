@@ -68,13 +68,19 @@ public:
     // Before the native arrow launch FUN_0020e6c8 (bow = its argument): points the arrow of a shot started by
     // releasing the aim button at the crosshair (the camera's centre ray), unless a target is locked.
     void beforeBowLaunch(IGuest& g, uint32_t bow);
+    bool beforeBowSightLaunch(IGuest& g, uint32_t bow);
     // OotF third-person autoaim: native visible-target selection around the camera centre. scratch is a caller-owned
     // 32-byte guest stack block above the guest call's stack pointer. Returns a temporary target handle or zero.
     uint16_t bowAutoTarget(IGuest& g, uint32_t bow, uint32_t scratch);
     // At the native attack gate's reset callback, permit the original PC bow's jumping state without changing
     // the actor state or any other native refusal condition. Unrecognized callers/masks remain native.
     uint32_t bowAttackMask(IGuest& g, uint32_t player, uint32_t caller, uint32_t mask);
+    void captureBowSightJump(IGuest& g, uint32_t player);
+    bool restoreBowSightJump(IGuest& g, uint32_t player, uint32_t caller);
+    bool keepBowSightOnJump(IGuest& g, uint32_t player, uint32_t cam, uint32_t caller);
     bool suppressBowSightForwardLook(IGuest& g, uint32_t player, uint32_t caller, uint32_t axis);
+    bool updateBowSightLocomotion(IGuest& g, uint32_t player, uint32_t caller);
+    bool stabilizeBowSightOrientation(IGuest& g, uint32_t camera, uint32_t caller);
     // While aiming: draw a crosshair at the centre of the game image (overlay thread).
     bool bowCrosshairVisible() const { return bowAiming_.load() && !hostOwned() && !menuActive_.load(); }
     // Before-hook for PadMgr_Update: A / D strafe (on foot) by pointing the left stick's X at the strafe axis (3)
@@ -217,6 +223,9 @@ private:
     float bowZoomNative_ = 0, bowZoomTarget_ = 0;
     bool bowShoulderActive_ = false;
     uint32_t bowShoulderCam_ = 0;
+    uint32_t bowSightJumpPlayer_ = 0;
+    uint32_t bowSightLocomotionPlayer_ = 0, bowSightLocomotionMotion_ = 0;
+    void releaseBowSightLocomotion(IGuest& g, uint32_t player);    // m_ held
     uint32_t ootfBowSightCamera(IGuest& g, uint32_t player) const; // m_ held
     float bowShoulderNative_[2] = {};
     bool plainPitchBranch(IGuest& g, uint32_t player, uint32_t cam) const;
