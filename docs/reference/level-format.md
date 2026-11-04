@@ -39,7 +39,7 @@ count x body:
   u16 initial_event_count                               // 1 or 0 seen; the events are not stored here [?]
   [f32 radius if flags & 0x10]                          // e.g. 6144.0, 8000.0, 100000.0 (trigger/detect range) [inf]
   u16 link_count; u32 link_id[link_count]               // ids of other objects in this list (trigger targets)
-  i16 rot_x, rot_y, rot_z                               // degrees, signed
+  u16 rot_x, rot_y, rot_z                               // degrees; native loading is unsigned
   [f32 sx, sy, sz if flags & 0x100]
   u32 0; u32 0xFFFFFFFF                                 // constants; the first word is probably an owner/parent id [?]
   u32 data_dwords; u32 param_count
@@ -72,10 +72,13 @@ per class are not verified. Class defaults and the full field list are decoded i
 * Stored y is not always the final y: Arokh is stored at 200000.0 (the layer world height) and rests at 202773 at runtime;
   some props settle onto the ground. Only 27 of the 296 unmatched records are near a live actor of the same resource
   (<300 units), the rest are not live in that dump. **[RAM]**
-* Rotation: three signed degrees (`rot_deg`). With rx = rz = 0 the runtime yaw (`atan2(m[0][2], m[0][0])`) equals
-  `rot_y - 90`. 3890 of the 4379 matched actors agree within 6 degrees; 326 of the remaining 489 have rx = rz = 0 as well,
-  so their rotation changed after load (AI turning, physics). **[RAM]** The composition order of the three angles for tilted
-  objects is **[?]** (the dump only exposes yaw); an editor should keep all three values.
+* Rotation: three 16-bit degree words. Native loader `0x1c9f40` reads each through `0x12cfe8` into an unsigned
+  halfword, converts it to radians, and applies Y with a minus-90-degree offset, then X and Z. With rx = rz = 0,
+  runtime yaw (`atan2(m[0][2], m[0][0])`) equals `unsigned(rot_y) - 90`, modulo 360. The editor reader retains
+  legacy signed bit patterns for roundtrip; that does not make negative and positive degree encodings interchangeable.
+  PC 270 must stay 270: writing -90 produces unsigned 65446, adding 16 degrees modulo 360. **[native code/RAM]**
+  The earlier Surdana census found 3890 of 4379 matched actors within 6 degrees; discrepancies alone do not establish
+  AI turning or physics. Keep all three authored values when copying existing records.
 
 ## 4. Field types (low byte)
 
