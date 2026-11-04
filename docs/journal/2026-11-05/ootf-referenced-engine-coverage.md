@@ -46,3 +46,32 @@ Converting a new referenced class can change generated class IDs; regenerated
 packs must be audited before loading earlier earned cards. Neither catalogue
 coverage nor a successful isolated projectile test establishes ordinary campaign
 completion.
+
+## Radius damage catalogue repair
+
+Engine 3 now has its `fx` catalogue classification, allowing the existing
+model-less native conversion path to retain referenced explosion damage
+classes. It supplies no invented geometry, damage values or substitute engine.
+The source/native schema comparison matches Damage, Damage radius, Damage Owner,
+Sound, Lens Flare, Camera Shake Time, Shake Magnitude and Damage Effect; the
+source-only sound frequency-shift field remains unsupported. The native-only
+alternate detection field retains the chosen native template default.
+
+The real-source emission probe `build/scratch/emit-radius-proof.mts` processes
+all 23 referenced source radius classes against the extracted native ODBs.
+Twenty-one model-less classes synthesize successfully, including Barrel
+Explosion Damage, Fire Ball Explosion Damage and Explosive Arrow Radius. Their
+emitted runtime class is `0x10003`, and every emitted Damage, Damage radius and
+Damage Owner word exactly matches its source. Two model-bearing goblin effects
+remain diagnosed as requiring a model; this repair does not discard their
+geometry or invent a replacement. The private report is
+`build/scratch/radius-emission/report.json`.
+
+This isolated emission omits the secondary damage-effect closure and reports
+14 unresolved effect references. Full conversion still uses the existing
+owner-aware reference relocation. A synthetic regression follows a generator
+to its referenced radius, checks reordered native fields and emitted class
+words, clears an unrelated native effect when the source requests none, and
+refuses missing templates or unsupported source models. Actual area-damage
+contacts and full projectile/effect fidelity remain runtime checks; this
+checkpoint establishes conversion and reference preservation only.
