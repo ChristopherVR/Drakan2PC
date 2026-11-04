@@ -5,11 +5,13 @@ packs that the recompiled PS2 engine plays; nothing from either game is committe
 `docs/journal/2026-10-31/` and `docs/journal/2026-11-01/` (`ootf-*.md`, `arena-*.md`, `game-select-ootf-boot.md`); formats are in the
 `editor/packages/formats` submodule, pack rules in `reference/modding.md` ("Campaign packs").
 
-**Current acceptance:** a normal New Game is not yet reliably playable through the Ruined Village opening,
-and uninterrupted completion of the campaign is not established. Earlier isolated level loads and scripted
-exit tests below do not establish that result. The November 4 native trace reproduces intermittent stalls
-at the first cinematic and the transition from scene 1.1 to 1.2; see
-[readiness investigation](../journal/2026-11-04/ootf-native-readiness-probe.md).
+**Current acceptance:** the November 4 private candidate reaches real keyboard/mouse control after a normal New Game
+and the Ruined Village opening. The next idle observation ended in an enemy killing Rynn and a return to the title,
+without a watchdog failure; this is not sustained progression or campaign completion. Native particle counts still grow,
+and uninterrupted completion remains unestablished. The candidate is not promoted to the primary play folder.
+Earlier isolated level loads and scripted exits below do not establish that result. See the
+[class-reference and heap investigation](../journal/2026-11-04/ootf-class-reference-defaults.md) and earlier
+[cinematic readiness investigation](../journal/2026-11-04/ootf-native-readiness-probe.md).
 
 ## What works
 
@@ -21,7 +23,7 @@ at the first cinematic and the transition from scene 1.1 to 1.2; see
 * Earlier isolated tests loaded all 13 campaign levels and exercised host-fired `DRAKAN_LEVELCHANGE` exits, including Volcanic
   hops. Intro -> Ruined Village is reached naturally from the title. The November 4 converter fixes detector message routing;
   a real Ruined Village -> Wartok walk-in transition is verified with the opening cinematic disabled in that private fixture.
-  Normal opening cinematics and the complete walk-through chain remain unverified.
+  The private November 4 candidate now reaches control through the normal opening; the complete walk-through chain remains unverified.
 * Ten multiplayer arenas as maps tagged `Drakan 1 / CUSTOM` (4 air, 3 ground, 3 QOD-style), dragon-vs-dragon breath PvP in the air
   arenas (host-claimed hits, dragon health, death, respawn), ranged and melee PvP on ground arenas.
 * Co-op stays on the Drakan campaign path and shares the New Game card; the OotF Multiplayer page has Host / Join / mplayer.com only.
