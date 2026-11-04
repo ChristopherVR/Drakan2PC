@@ -212,7 +212,7 @@ void spawn(uint8_t* ram, R5900Context* c, PS2Runtime* rt) {
             const uint32_t record = table + index * 0x24, resource = r.u32(record), kind = r.u32(record + 8);
             const uint32_t id = resource & 0xffff;
             const bool dust = kind == 0x1007c && (id == 0x187a || id == 0x18ec);
-            const bool generator = kind == 0x1003e && id == 0x1890;
+            const bool generator = kind == 0x1003f && id == 0x1890;
             if (dust || generator) {
                 const unsigned slot = generator ? 2 : id == 0x187a ? 0 : 1;
                 if (counts[slot] < 16) {
