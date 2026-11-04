@@ -155,6 +155,7 @@ def main() -> int:
             "PS2X_MAX_SECONDS": str(int(a.timeout)),
             # shown behind the other windows and never activated: a run does not take the foreground from the user
             "DRAKAN_NO_ACTIVATE": "1",
+            "DRAKAN_PAUSE_UNFOCUSED": "0",
         }
     )
     if not a.audio:

@@ -124,7 +124,7 @@ def recipe(prefix: str, walk_key: str, seconds: int | None) -> str:
 def analyse(text: str, title: str | None) -> dict:
     loads = re.findall(r"afterLevelLoad level='(.*?)'[^\n]*? ok=(\d)", text)
     # control counts only after the expected level loaded (a New Game in the campaign plays the Intro first)
-    start = 0
+    start = 0 if title is None else len(text)
     if title:
         for m in re.finditer(r"afterLevelLoad level='(.*?)'[^\n]*? ok=1", text):
             if m.group(1) == title or title.endswith(m.group(1)):
@@ -143,8 +143,7 @@ def analyse(text: str, title: str | None) -> dict:
     )
     return {
         "loaded_levels": [lv for lv, ok in loads if ok == "1"],
-        "loaded": title is None
-        or any(lv == title or title.endswith(lv) or lv in title for lv, ok in loads if ok == "1"),
+        "loaded": any(title is None or lv == title or title.endswith(lv) for lv, ok in loads if ok == "1"),
         "control": first_gp >= 0,
         "crash": [ln.strip()[:140] for ln in text.splitlines() if CRASH.search(ln)][:3],
         "stall": [ln.strip()[:140] for ln in text.splitlines() if "[stall]" in ln][:3],
@@ -202,7 +201,8 @@ def run_session(
     if chain is not None:
         # step 0 is the Intro's exit by index (it has no destination name); the others name the next level, the probe
         # takes the exit whose destination contains the text. @1500 = frames after arrival before each step.
-        steps = ["0", *[t for t, _ in LEVELS[1:] if "Book" not in t][:chain]]  # the Book is a side level
+        # Exit zero already takes Intro to Ruined Village; the next destination is Wartok.
+        steps = ["0", *[t for t, _ in LEVELS[3:]]][:chain]  # Book is an optional side level
         if steps_override:  # e.g. "0,0,0,0": always the first exit (bounces Ruined Village <-> Book)
             steps = steps_override.split(",")
         env["a"]["DRAKAN_LEVELCHANGE"] = ",".join(steps) + "@1500"
@@ -244,6 +244,10 @@ def run_session(
         log = out / k / "stdout_1.log"
         text = log.read_bytes().decode("latin-1") if log.is_file() else ""
         r = analyse(text, title if chain is None else None)
+        if chain is not None:
+            r["loaded"] = any(level.startswith("OotF ") for level in r["loaded_levels"])
+            r["chain_required"] = len(steps)
+            r["chain_completed"] = len(r["exits_taken"]) if k == "a" else r["follow"]
         r["exit_code"] = procs[k].returncode
         r["hang"] = k in hung
         r["quit_clean"] = "[in] script quit" in text
@@ -254,7 +258,12 @@ def run_session(
 
 def verdict(res: dict, coop: bool) -> tuple[bool, list[str]]:
     why = []
+    for k in "ab" if coop else "a":
+        if k not in res:
+            why.append(f"{k}: missing instance evidence")
     for k, r in res.items():
+        if r.get("chain_completed", 0) < r.get("chain_required", 0):
+            why.append(f"{k}: incomplete chain {r['chain_completed']}/{r['chain_required']}")
         if not r["loaded"]:
             why.append(f"{k}: level not loaded")
         if not r["control"]:
@@ -285,7 +294,7 @@ def reanalyse(out_root: Path, pack: Path, solo: bool) -> dict:
             r.update(exit_code=0 if "[in] script quit" in log.read_bytes().decode("latin-1") else None, hang=False,
                      quit_clean="[in] script quit" in log.read_bytes().decode("latin-1"))  # fmt: skip
             res[k] = r
-        ok, why = verdict(res, "b" in res)
+        ok, why = verdict(res, not solo)
         report["sessions"].append({"label": d.name, "level": title or LEVELS[0][0], "pass": ok, "why": why,
                                    "instances": res})  # fmt: skip
     return report
@@ -298,7 +307,7 @@ def write_outputs(out_root: Path, report: dict) -> None:
         "|---|---|---|---|---|---|",
     ]
     for s in report["sessions"]:
-        ra = s["instances"]["a"]
+        ra = s["instances"].get("a", {"flips_min": None, "flips_median": None, "loaded_levels": []})
         lines.append(
             f"| {s['label']} | {s['level']} | {'PASS' if s['pass'] else 'FAIL'} | {ra['flips_min']}/{ra['flips_median']} "
             f"| {', '.join(ra['loaded_levels'][-4:])} | {'; '.join(s['why'])} |"
@@ -335,7 +344,7 @@ def main() -> int:
     ap.add_argument("--env", action="append", default=[], metavar="K=V", help="extra environment for every instance")
     a = ap.parse_args()
 
-    pack = ensure_pack(a.pack, a.reconvert)
+    pack = ensure_pack(a.pack.resolve(), a.reconvert)
     out_root = ROOT / "build" / "harness" / "ootf-coop" / a.name
     out_root.mkdir(parents=True, exist_ok=True)
     picks = list(range(len(LEVELS))) if a.levels == "all" else [int(x) for x in a.levels.split(",")]
