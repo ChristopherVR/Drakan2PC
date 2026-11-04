@@ -396,6 +396,13 @@ Test aids: `DRAKAN_PVP_SELFTEST=hit:<n>,kill:<n>,respawn:<n>` feeds the victim s
 `DRAKAN_PVP_TEST_ANCHOR=1` holds the player (solid ghosts pushed her away, out of the server's melee range);
 `DRAKAN_NET_FRAG_LIMIT` / `DRAKAN_NET_TIME_LIMIT` for the `DRAKAN_NET_HOST` shortcut; `DRAKAN_PVP_PROBE=1` logs every hit.
 
+NPC player avatars retain their real native class. The native player blade query excludes class `0x1009d`, so the
+runtime treats only a registered remote PvP avatar as the player class for its bit 0 mask lookup (`0x124498` /
+`0x1244fc` return sites), and only when the blade belongs to the local controller. Ordinary NPCs, local cosmetic
+bodies, foreign owners and co-op retain their original eligibility. Native geometry, hit lists, contacts and damage
+callbacks still decide the hit. Genuine Monk-versus-Nichols Wood Club contacts, deaths and respawns pass the matched
+180-unit fixture; see the 2026-11-04 multiplayer animation journal.
+
 ### Weapons and damage
 
 `runtime/net/include/net/WeaponTable.h` lists every weapon the player can hold, by resource record id (what
@@ -409,10 +416,11 @@ Test aids: `DRAKAN_PVP_SELFTEST=hit:<n>,kill:<n>,respawn:<n>` feeds the victim s
 | Bows `0x1004f` | properties `0x1a` .. `0x1f` are floats (`0x1a` 0.4 .. 2.0, `0x1e` 40.0), `0x16 / 0x17` arrow count 200; **the damage is the arrow's** ("Wooden Arrows" show Damage 5 in the inventory of every bow, not a bow property) | 20 bow records, ids and names only. A projectile claim is 5 (the starting arrows) and capped at 40. |
 | Spells (scroll items `0x100b2`, projectile class `0x10008`) | the dumps carry no damage field for them | A spell projectile claims 10 (`kSpellDamage`, a design value: the real numbers were not decoded), capped at 40 like arrows. Casting was never verified in game here (earlier journals could not cast reliably). |
 
-**2026-10-31 (unverified in game).** `scanProjectiles` now asks the projectile actor for its own property `0x1a` through the
+**2026-11-04.** `scanProjectiles` asks the projectile actor for its own Damage property `0` through the
 property accessor (nested guest call, a table lookup) and claims that value when it is 1..40, falling back to the starting arrow's 5 /
 the flat 10; every projectile logs `[pvp] projectile X class C damage property P -> claim damage D`, which is what a bow / spell
-run has to read to settle whether other arrows and spells carry their numbers there. A blade whose holder the lookup misses
+run records for each projectile. Property `0x1a` is Armor Piercing and must not be used as damage. Native arrow statistics
+remain unchanged. A blade whose holder the lookup misses
 (two-handed weapons) claims as the right hand instead of being dropped. The server cap needs no change: `weaponMaxDamage` already
 holds every table weapon at 4 x its damage (two-handed `0x31f30` 19 -> 76, `0x33e0f` 25 -> 100, hammers `0x32256` 28 -> 112) and
 bows / projectiles at 40.

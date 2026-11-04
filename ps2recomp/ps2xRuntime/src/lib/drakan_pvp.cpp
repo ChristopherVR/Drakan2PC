@@ -47,6 +47,8 @@ std::atomic<uint8_t> g_local{0};
 std::atomic<int> g_life{static_cast<int>(Life::Alive)};
 PS2Runtime::RecompiledFunction g_origBladeHit = nullptr;
 PS2Runtime::RecompiledFunction g_origClassIndex = nullptr;
+PS2Runtime::RecompiledFunction g_origBladeSweep = nullptr;
+uint64_t g_bladeMaskCalls = 0, g_bladeGhostCandidates = 0;
 uint32_t g_deadHandlerSlot = 0;          // function table slot of deadHandler
 std::atomic<uint32_t> g_savedHandler{0}; // the player's behaviour handler while a death is shown
 uint32_t g_deadActor = 0;                // the player actor the handler was swapped on
@@ -173,8 +175,55 @@ uint8_t handOfBlade(const uint8_t* rdram, uint32_t blade) {
 // The native player blade sweep excludes the whole NPC RFL class. Keep that exclusion for ordinary NPCs, but
 // classify a registered opponent's avatar as a player for this one collision-mask lookup. Geometry, actor identity,
 // native hit lists and damage messages remain native; no global faction / mask table is changed.
+void hookBladeSweepProbe(uint8_t* rdram, R5900Context* c, PS2Runtime* rt) {
+    const uint32_t blade = getRegU32(c, 4);
+    const bool active =
+        g_probe && c->pc == guestAddress(0x4979a8u) && ramPtr(blade) && (rd32(rdram, blade + 0x1cu) & 8u);
+    static unsigned logged = 0;
+    const bool report = active && logged < 16;
+    const uint64_t calls = g_bladeMaskCalls, ghosts = g_bladeGhostCandidates;
+    g_origBladeSweep(rdram, c, rt);
+    if (report) {
+        ++logged;
+        std::fprintf(stderr,
+                     "[pvp] blade query probe: blade=%x source=%x owner=%x controlled=%x maskcalls=%llu ghosts=%llu\n",
+                     blade, rd32(rdram, blade + 0xcu), registryObject(rdram, rd16(rdram, blade + 0x60u)),
+                     controlledActor(rdram), static_cast<unsigned long long>(g_bladeMaskCalls - calls),
+                     static_cast<unsigned long long>(g_bladeGhostCandidates - ghosts));
+    }
+}
+
 void hookMeleeCandidateClass(uint8_t* rdram, R5900Context* c, PS2Runtime* rt) {
-    if (c->pc == guestAddress(0x1cca68u) && getRegU32(c, 31) == guestAddress(0x1244fcu) &&
+    if (g_probe && c->pc == guestAddress(0x1cca68u)) {
+        const uint32_t ra = getRegU32(c, 31);
+        if (ra >= guestAddress(0x124400u) && ra < guestAddress(0x124900u)) {
+            const uint32_t query = getRegU32(c, 20), candidate = getRegU32(c, 18);
+            const uint32_t source = ramPtr(query) ? rd32(rdram, query + 0x564u) : 0;
+            const uint32_t blade = dataOf(rdram, source);
+            const uint32_t owner = ramPtr(blade) ? registryObject(rdram, rd16(rdram, blade + 0x60u)) : 0;
+            const uint32_t context = rd32(rdram, guestAddress(kContextPtr));
+            const uint32_t bladeQuery = ramPtr(context) ? rd32(rdram, context + 0x348u) : 0;
+            int ghost = 0;
+            static unsigned logged = 0;
+            const bool bladeCall = query == bladeQuery;
+            const bool ghostCandidate = bladeCall && isGhost(candidate, &ghost);
+            if (bladeCall)
+                ++g_bladeMaskCalls;
+            if (ghostCandidate)
+                ++g_bladeGhostCandidates;
+            if (logged < 64 && ghostCandidate && owner && owner == controlledActor(rdram)) {
+                ++logged;
+                std::fprintf(stderr,
+                             "[pvp] mask probe: ra=%x class=%x ghost=%d player=%d query=%x source=%x type=%x "
+                             "blade=%x owner=%x controlled=%x\n",
+                             ra, getRegU32(c, 5), ghost, drakan_netplay::playerOfGhost(ghost), query, source,
+                             ramPtr(source) ? rd32(rdram, source + 0xcu) : 0, blade, owner, controlledActor(rdram));
+            }
+        }
+    }
+    const uint32_t returnAddress = getRegU32(c, 31);
+    if (c->pc == guestAddress(0x1cca68u) &&
+        (returnAddress == guestAddress(0x124498u) || returnAddress == guestAddress(0x1244fcu)) &&
         getRegU32(c, 5) == 0x1009du && !drakan_netplay::coopMatch()) {
         // PAL FUN_1242d8: s2 is the candidate actor, s4 the query object; +564 is the source weapon actor.
         const uint32_t query = getRegU32(c, 20), candidate = getRegU32(c, 18);
@@ -902,6 +951,15 @@ void install(PS2Runtime& rt) {
     if (const uint32_t index = guestAddress(0x1cca68u); index && guestAddress(0x1244fcu) && rt.hasFunction(index)) {
         g_origClassIndex = rt.lookupFunction(index);
         rt.replaceFunction(index, &hookMeleeCandidateClass);
+        if (g_probe)
+            std::fprintf(stderr, "[pvp] native mask probe installed at %x\n", index);
+    }
+    if (g_probe) {
+        const uint32_t sweep = guestAddress(0x4979a8u);
+        if (sweep && rt.hasFunction(sweep)) {
+            g_origBladeSweep = rt.lookupFunction(sweep);
+            rt.replaceFunction(sweep, &hookBladeSweepProbe);
+        }
     }
     if (const char* st = std::getenv("DRAKAN_PVP_SELFTEST"))
         parseSelfTest(st);
