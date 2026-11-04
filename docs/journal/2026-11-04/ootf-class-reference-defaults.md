@@ -58,3 +58,31 @@ unresolved; other warnings include creature weapon objects and weapon effects. T
 claiming full fidelity. The normal-start candidate must still demonstrate stable heap occupancy, no native dust swarm,
 actual player control, and genuine progression. Prior isolated low-HP boss kills reaching credits do not establish an
 uninterrupted campaign run.
+
+## First candidate live result: dust producer remains
+
+`build/scratch/ootf-classref/normal-control` mounts the repaired candidate (9,580 new entries). The RV +15/+75/+135
+RAM snapshots still contain 1/6/24 pairs of native dust-devil actors, exactly the earlier baseline counts. In-use heap
+occupancy is lower at 11.12/14.46/16.69 MiB, with 19/110/365 large particle pages, but the dust producer remains.
+Therefore the class-default defect is real and repaired in the output; it is not established as the complete cause of
+the dust swarm or heap exhaustion. A bounded native factory observation is needed to identify the remaining creator.
+
+The parent separately reconstructs the placed RV generator classes and their object overrides: the Soul Flare/dragon
+body references match the static audit, the unsupported Soul Lightning lists are empty, and no placed Spawn Object
+override restores the dust references. Host logs using a cached player pointer also became stale; garbage at that
+stale address is not evidence that the real `ctx + 0x4b0` player handle is corrupt.
+
+## Referenced-only engine kinds
+
+The first conversion reports 439 unresolved references across 138 classes. A second concrete gap is the engine-kind
+table: it listed placed types only. Referenced-only source types 1 (expanding/fading effects), 8 (weapon projectiles),
+and 58 (lightning) have matching native same-id class schemas and imported-model support, but were rejected as
+unknown kinds. These are now classified, with tests covering class/model serialization and generator-to-lightning /
+creature-to-projectile references. This includes source Soul Lightning 1/2, Ebon Dragon's Sonic Boom, and Suc Attack 2.
+The revised isolated candidate must be audited and tested separately; the first live candidate stays unchanged.
+
+Source types 69 and 81 have no matching native same-id class in the extracted full disc ODB set. Poison Gas 69 uses
+cloud texture, spawn rate, effect/particle life, size, upward speed, color, damage per second and sounds. Native smoke
+class 43 shares four fields, but its shape, rate and damage behavior need an explicit supported port. Solve Magic 81
+is a procedural spiral/ribbon with cycles, radius, ellipse and motion controls; the nearest native schemas share only
+Face Camera. No numeric substitute or unsupported claim of equivalent behavior was added.
