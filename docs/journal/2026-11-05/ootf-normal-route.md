@@ -35,3 +35,10 @@ A guarded-counter retry from the earlier earned route 04 card, `fight-atimar-par
 
 
 `fight-atimar-finish/` continues from that legitimate guarded save. Ordinary turning, guarding and counters reduce the same enemy from 6 to 1, then -1 with native AI state 16, followed by death state 17. The screenshot shows the fallen Wartok. Rynn loses 20 naturally during load/initial exchange and ends at health 60. Native F5 saves this state and scripted quit exits cleanly. This establishes an actual normal-route enemy kill; no kill message, damage value or death state was injected. The correctly transformed and equipped route now continues from that earned checkpoint toward the tavern cellar.
+
+
+## Normal tavern entry and persistent victory
+
+`fresh-route06/` loads the naturally earned victory through native F8. The same Wartok remains dead at health -6 and native death state 17, so the kill survives save/reload. Ordinary mouse turning, W movement and a Triangle jump clear the tavern doorstep and reach the lit interior at (222635, 19458, 184078), with Rynn's health unchanged at 60. Intermediate jump samples rise to Y 19914 and 19517, demonstrating actual elevation rather than a held pose. The earlier interrupted doorstep attempts do not establish a movement or collision defect. `entry_jump.png`, `tavern_inside.png` and `report.json` record this milestone; native F5 saves it and the run exits through scripted quit.
+
+The next westward movement encounters source Barrel object 3153 at (222290, 19200, 183996). It is optional, and its presence is not a quest-state failure. Three high attacks do not establish a destruction result; visibility is poor with the camera close to the wall. Source Initial Health 5 alone is not used as proof of a native HP offset. The route will move around it toward the cellar rather than make barrel destruction a prerequisite. The Priest's Key and all later required quest objects remain uncollected.
