@@ -91,3 +91,56 @@ later snapshot, which does not establish its value at initialization. These
 failed fixtures are not campaign or cadence acceptance. Current PC-derived
 Long has Ammo Object 0 / energy charges 0, so the native external-ammunition path
 must be established before interpreting a missing shot as a cadence failure.
+
+
+## Referenced ammunition projectile conversion
+
+The authentic original Wartok Long Bow1592 and adjacent Arrows1593 have no
+per-object parameter overrides. Source Arrows3106 (engine39) names Standard
+Arrow3105 (engine95) through typed `My Ammo Object`. The latest immutable7DBB
+pack instead emits that field as0, with an explicit omitted-class warning:
+engine95 was absent from the converter catalogue even though reference closure
+had discovered it. Native20f9c8 reads the selected quiver's field22 to create
+the nock. Zero therefore blocks native creation; assigning a native default
+arrow would hide the conversion error.
+
+Engine95 now has its verified weapon/projectile catalogue entry. Original and
+native95 share37 of38 named source fields; the unmatched field is launch-sound
+frequency shift. Existing typed/name-based merging handles the different field
+indices. Ordinary native arrows use rigid visible class flags1, unlike the
+separate imported Bow79 controller mismatch. This change adds no runtime
+flight/stat policy. Model conversion remains required and unresolved references
+remain diagnosed/cleared.
+
+`build/ootf/emit-arrow95-proof.ts` converts actual original Standard Arrow3934
+and quiver3714 models with the production asset builder, then plans and emits
+actual native class/field-list records. Its report is
+`build/ootf/arrow95-emission/report.json`: two models,118 triangles, three
+textures; emitted projectile runtime word1005f, class flags1, model30000;
+emitted quiver references projectile16931 instead of0. This isolated emission
+uses a fresh native allocation space; these IDs are not a full-pack install.
+It intentionally does not include the projectile's whole referenced effect
+closure, and reports three omitted effect/piece references. This is conversion
+proof, not yet a native launch or special-arrow fidelity claim.
+
+The focused regression discovers the projectile from the quiver reference,
+requires a converted model, merges reordered typed native fields, reparses the
+emitted quiver link and verifies the full runtime class word and rigid flags.
+27 focused tests and formats typecheck pass. Source95/schema/flags audit tools
+and output remain private under `build/ootf/`.
+
+## Native-created rigid Long diagnostic
+
+Private `bow-source-pair73` genuinely adopts the original Long343e2 and
+Arrows343b2 into native Surdana with arena filtering disabled. Long has a rigid
+model7016 (records0200/0203/0204/0207, no0208 skeleton), but inherited class
+flags33. It faults at scene walker10822c with actor controller+50 null.
+`bow-source-pair74-rigid` changes only that Long header33 to1 relative to the
+same Skill0/source-pair fixture. It quits cleanly, adopts both authored items,
+equips Long with owner4/mode5, selects external Arrows quantity100, but creates
+no nock because My Ammo Object is0. Native rigid Villiager Cross Bow7835 is a
+relevant comparator: flags1, model4570 without0208, load/loaded animation IDs0;
+native210920 explicitly guards a null controller before playing a load clip.
+No production Bow79 flags/template change is included in this projectile fix.
+These injected native-Surdana fixtures isolate item behavior and are not earned
+campaign or original-runtime cadence acceptance.
