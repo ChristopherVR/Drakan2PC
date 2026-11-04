@@ -76,3 +76,16 @@ areas. Existing UI/core tests passed before this pass; the final focused run inc
 The catalog deliberately offers only template classes present in the current save; it does not fabricate records for
 every class on the disc. Editing default values on pending additions still requires exporting/saving and reopening,
 which the inspector explains. Native desktop save-dialog delivery was not exercised by this browser check.
+
+## Replacement count edits
+
+A later review found that editing an item's durability/quantity or maximum before replacing it left those edits in
+the export queue. The replacement inspector hid them and promised the new template's defaults, but export silently
+applied the original item's numbers to the replacement. Pending/exported count edits now exclude replaced cells;
+the original edits remain in memory and return when the replacement is undone. New count edits on a pending
+replacement are explicitly rejected, matching the existing inspector behavior. Equipment and quick-slot edits remain
+independent of item counts.
+
+A regression exports and reopens the replacement, undoes it, exports/reopens the original with its edited counts,
+and redoes the replacement. All 33 save document/item tests, editor-core TypeScript checks and formatting checks pass.
+This corrects the existing replacement workflow; editing a pending new item's defaults still needs further work.

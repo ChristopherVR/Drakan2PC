@@ -300,6 +300,9 @@ export class SaveDocument extends LevelDocument {
     /** Null when `value` may be written to `name` now, else the reason it may not. */
     checkEdit(name: string, value: FieldValue): string | null {
         try {
+            const itemCount = /^inv\.(\d+)\.(durability|max)$/.exec(name);
+            if (itemCount && this.itemReplacements.has(Number(itemCount[1])))
+                return 'Undo the item replacement before editing its quantity or durability.';
             const { def, rowId } = resolveField(name);
             if (!this.editable(name)) {
                 return this.probe(name).status === 'missing'
@@ -352,6 +355,10 @@ export class SaveDocument extends LevelDocument {
         const names = [...this.fieldValues.keys()];
         if (this.playerObject !== null) names.push('pos');
         for (const name of names) {
+            // Count edits belong to the original carried item. A replacement uses its template's counts;
+            // retain these edits in memory so undoing the replacement restores the previous work.
+            const itemCount = /^inv\.(\d+)\.(durability|max)$/.exec(name);
+            if (itemCount && this.itemReplacements.has(Number(itemCount[1]))) continue;
             const before = this.originalValue(name);
             const after = this.value(name);
             if (before === undefined || after === undefined || feq(before, after)) continue;

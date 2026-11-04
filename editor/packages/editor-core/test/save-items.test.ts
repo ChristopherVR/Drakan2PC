@@ -8,6 +8,7 @@ import {
     RemoveAddedItemCommand,
     ReplaceItemCommand,
     SaveDocument,
+    SetFieldCommand,
     addItem,
     findCellStream,
     itemHandleAt,
@@ -77,6 +78,28 @@ function fixture(): Uint8Array {
 }
 
 describe('Replace with... (item class swap)', () => {
+    it('keeps replacement defaults instead of exporting hidden count edits from the original item', () => {
+        const doc = SaveDocument.open(fixture());
+        const stack = new CommandStack(doc);
+        stack.run(new SetFieldCommand('inv.0.durability', 77));
+        stack.run(new SetFieldCommand('inv.0.max', 99));
+        stack.run(new ReplaceItemCommand(0, 262));
+        expect(doc.checkEdit('inv.0.durability', 88)).toMatch(/Undo the item replacement/);
+        const expected = listInventory(replaceItem(doc.save, 0, 262))[0]!;
+        const replaced = SaveDocument.open(doc.build().bytes).inventory[0]!;
+        expect(replaced.resource).toBe(0x31cbc);
+        expect(replaced.durability).toBe(expected.durability);
+        expect(replaced.max).toBe(expected.max);
+        expect(doc.pendingEdits().map((e) => e.name)).not.toContain('inv.0.durability');
+        expect(doc.pendingEdits().map((e) => e.name)).not.toContain('inv.0.max');
+        stack.undo();
+        const restored = SaveDocument.open(doc.build().bytes).inventory[0]!;
+        expect(restored.resource).toBe(0x33753);
+        expect(restored.durability).toBe(77);
+        expect(restored.max).toBe(99);
+        stack.redo();
+        expect(SaveDocument.open(doc.build().bytes).inventory[0]!.durability).toBe(expected.durability);
+    });
     it('offers one template per class and prefers a record lying in the world', () => {
         const d = SaveDocument.open(fixture());
         expect(itemTemplates(d.save)).toEqual([
