@@ -41,8 +41,10 @@ Every change is listed under **Pending changes** on the right with its old and n
 The item catalog offers classes with a usable record in the current save. Open your disc for names, artwork and gameplay
 facts. Select a catalog card, inspect it, then press its **Add** or **Replace** button. Tall items need contiguous empty
 cells in a column; the catalog explains when an item does not fit. Newly added items remain marked **New** until saved.
-Select one to inspect it or use **Remove added item**; selecting its tile keeps it in the pack. Save or export and reopen
-to edit a new item's default quantity or durability.
+Select one to inspect it or use **Remove added item**; selecting its tile keeps it in the pack. You can edit a new
+item's quantity/arrows/durability and maximum before saving. Its count bar updates immediately, and Undo/Redo also
+works for these values. Replacing an existing item uses the replacement's defaults; undoing the replacement restores
+any count edits you made to the original item.
 
 An empty pack still shows its inventory grid. Adding items currently needs an existing carried item to copy the
 game's ownership state from; if none is recognised, **Add item** is disabled with an explanation. Pick up an item
