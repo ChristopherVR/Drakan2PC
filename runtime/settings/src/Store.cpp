@@ -491,15 +491,15 @@ const std::vector<Field>& fields() {
         {"mouse", "camera_follow", true, GETF(controls.cameraFollow, "%.0f"), SETF(controls.cameraFollow),
          "how quickly the camera catches up as Rynn moves; turning stays locked (0 = the game's own rubber band)"},
         {"mouse", "bow_aim", true,
-         [](const Settings& s) { return std::string(s.controls.bowAimModern ? "modern" : "classic"); },
+         [](const Settings& s) { return std::string(s.controls.bowAimModern ? "modern" : "ootf"); },
          [](Settings& s, const std::string& v) {
              const std::string u = lower(trim(v));
              if (u == "modern")
                  s.controls.bowAimModern = true;
-             else if (u == "classic")
+             else if (u == "classic" || u == "ootf")
                  s.controls.bowAimModern = false;
          },
-         "modern: hold the left button to aim the bow (zoom, crosshair), release to shoot; classic: native bow"},
+         "ootf: left click fires, right click toggles the sight; modern: hold left to aim, release to shoot"},
         {"mouse", "free_combat", true, GETB(controls.freeCombat), SETB(controls.freeCombat),
          "free mouse combat: no controller target lock; mouse turns Rynn through attack animations"},
         {"keyboard", "strafe", true, GETB(controls.strafeKeys), SETB(controls.strafeKeys), nullptr},

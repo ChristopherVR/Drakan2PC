@@ -62,7 +62,7 @@ The defaults follow the game's own **Standard controller scheme** (Options > Con
 | Left Shift | WALK | native walk command + left stick x `walk_scale` (0.5); hold by default, press to switch walk/run with `[keyboard] toggle_run = 1` |
 | Mouse move | look | direct: camera pitch + player yaw (mouse right = turn right, mouse up = look up) |
 | Mouse1 (LMB) | SQUARE (0x4006) | Attack |
-| Mouse2 (RMB) | CIRCLE (0x4007) | Hold bow sight / Use Magic / Parry |
+| Mouse2 (RMB) | CIRCLE (0x4007) | Toggle bow sight / Use Magic / Parry |
 | Mouse3 (MMB), F | R2 (0x400b) | Toggle Targeting |
 | Space | TRIANGLE (0x4011) | Jump |
 | Left Ctrl, C | CROSS (0x4012) | Crouch |
@@ -258,7 +258,8 @@ explicit native target lock and to the native alternate aiming camera (flag 0x80
 The runtime no longer intercepts target requests or cancels them every camera
 update, so F/MMB can toggle targeting while free combat remains enabled.
 
-The native bow sight toggles on Circle. The mouse adapter remembers a sight
+The native bow sight toggles on Circle. By default (`bow_aim = ootf`, also `classic`), RMB toggles it and releasing
+RMB leaves it open, matching the original PC manual. In optional `bow_aim = modern`, the mouse adapter remembers a sight
 opened while RMB is held and sends a native close press on release, followed
 by its release on the next tick. It does not close sights opened by a controller
 or a different binding. Menus/focus loss defer a close until gameplay resumes;
@@ -295,7 +296,9 @@ Details: `docs/reference/input.md` section 15, `docs/journal/2026-10-24/mouse-ca
 
 ## Modern bow aiming (24 October 2026)
 
-`[mouse] bow_aim = modern` (default) / `classic`, `[mouse] bow_zoom = 0.85`. With the bow out, hold the left button to
+`[mouse] bow_aim = ootf` is the default: LMB fires on press, RMB toggles the native first-person sight, and third-person
+shots acquire a nearby visible target around the camera centre through the native selector. `classic` is an alias.
+`bow_aim = modern` remains optional, `[mouse] bow_zoom = 0.85`. With the bow out, hold the left button to
 aim (zoom, over-the-shoulder offset, crosshair), release to shoot at the crosshair; RMB still opens the native sight.
 `src/BowAim.cpp`, `tests/bow_aim_tests.cpp`; details and measurements in `docs/reference/input.md` section 16.
 

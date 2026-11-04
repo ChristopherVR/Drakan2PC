@@ -513,11 +513,11 @@ void controlsPage(gameui::SettingPage& pg, const Settings& st, const SchemaEnv& 
     {
         SettingRow& r = b.row("input.mouse.bow_aim", SettingKind::Toggle, "Modern bow aiming",
                               "With the bow out: hold the left button to aim (slight zoom and a crosshair), release "
-                              "to shoot at the crosshair. Off: the game's own bow (left click shoots, right click "
-                              "opens the sight).",
+                              "to shoot at the crosshair. Off (default): left click fires, right click toggles "
+                              "the first-person sight, as in Order of the Flame.",
                               false, true);
         r.onValue = "modern";
-        r.offValue = "classic";
+        r.offValue = "ootf";
         r.on = c.bowAimModern;
     }
     b.toggle("input.mouse.free_combat", "Free mouse combat",

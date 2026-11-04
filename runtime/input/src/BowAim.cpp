@@ -1,4 +1,6 @@
-// Modern bow aiming (`[mouse] bow_aim = modern`): with the bow out on foot, holding the left button aims (a slight
+// Default OotF bow: press fires, alternate attack toggles the native sight; camera-centred native target acquisition
+// uses the original PC aiming model. Optional modern aiming
+// (`[mouse] bow_aim = modern`): with the bow out on foot, holding the left button aims (a slight
 // zoom through the camera's own FOV ramp and a crosshair drawn by the host) and releasing it sends one Square tap; the
 // arrow of that shot is pointed at the crosshair just before the native launch. Static analysis and measurements:
 // docs/reference/input.md section 16.
@@ -6,6 +8,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
+#include <cstdlib>
 
 namespace drakan_input {
 
@@ -44,6 +47,7 @@ uint32_t contextPlayer(IGuest& g, uint32_t ctx) {
 bool finite3(const float v[3]) {
     return std::isfinite(v[0]) && std::isfinite(v[1]) && std::isfinite(v[2]);
 }
+
 } // namespace
 
 bool InputModule::bowLmbIsSquare() const {
@@ -145,7 +149,9 @@ void InputModule::beforeBowLaunch(IGuest& g, uint32_t bow) {
     if (!obj || !arrow || !owner || (g.read32(cam + 0x48) & kCameraSightFlag))
         return;
     const uint32_t ownerObj = contextPlayer(g, ctx);
-    if (!ownerObj || g.read16(ownerObj + 0x4da)) // a locked target keeps the game's own ballistic aim
+    // Launch hooks also run for other actors' bows. Their shots must neither use our camera nor consume our pending
+    // shot.
+    if (!ownerObj || owner != g.read32(ctx + 0x4b0) || g.read16(ownerObj + 0x4da)) // native ballistic aim
         return;
     bowShotFrames_ = 0;
     // Camera centre ray: position *(cam+0x148)+0x14, back axis = column 2 of the matrix at +0x20 (+0x28/+0x34/+0x40).
@@ -211,6 +217,53 @@ void InputModule::beforeBowLaunch(IGuest& g, uint32_t bow) {
     }
     std::fprintf(stderr, "[bow] aimed shot: arrow 0x%x dir (%.3f %.3f %.3f) from (%.0f %.0f %.0f)\n", arrow, d[0], d[1],
                  d[2], from[0], from[1], from[2]);
+}
+
+uint16_t InputModule::bowAutoTarget(IGuest& g, uint32_t bow, uint32_t scratch) {
+    std::lock_guard<std::mutex> lock(m_);
+    if (std::getenv("DRAKAN_BOW_LOG"))
+        std::fprintf(stderr, "[bow] autoaim entry: bow=%x modern=%d dragon=%d mouseOwner=%d scratch=%x\n", bow,
+                     cfg_.bowAimModern, dragon_, mouseKeyboardOwner_, scratch);
+    if (cfg_.bowAimModern || dragon_ || !mouseKeyboardOwner_ || !bow || !scratch)
+        return 0;
+    const uint32_t ctx = g.read32(cfg_.addrCtxPtr), cam = contextCamera(g, ctx), player = contextPlayer(g, ctx);
+    if (std::getenv("DRAKAN_BOW_LOG"))
+        std::fprintf(stderr,
+                     "[bow] autoaim state: ctx=%x cam=%x player=%x cameraMode=%u sight=%x weapon=%u target=%u "
+                     "gameplay=%u scripted=%u\n",
+                     ctx, cam, player, cam ? g.read32(cam + 0x14c) : 0, cam ? g.read32(cam + 0x48) : 0,
+                     player ? g.read32(player + 0xe90) : 0, player ? g.read16(player + 0x4da) : 0, g.read32(0x4fb730),
+                     g.read32(0x4fbafc));
+    if (!ctx || !cam || !player || g.read32(cam + 0x14c) != 6 || (g.read32(cam + 0x48) & kCameraSightFlag) ||
+        g.read32(player + 0xe90) != kBowMode || g.read16(player + 0x4da) || !g.read32(0x4fb730) || g.read32(0x4fbafc))
+        return 0;
+    const uint32_t owner = objectFromHandle(g, ctx, g.read16(bow + 0x60));
+    const uint32_t obj = g.read32(cam + 0x148);
+    if (!owner || owner != g.read32(ctx + 0x4b0) || !obj)
+        return 0;
+    float eye[3], direction[3];
+    for (uint32_t i = 0; i < 3; ++i) {
+        eye[i] = g.readF(obj + 0x14 + 4 * i);
+        direction[i] = -g.readF(obj + 0x28 + 12 * i);
+    }
+    if (!finite3(eye) || !finite3(direction))
+        return 0;
+    const float length =
+        std::sqrt(direction[0] * direction[0] + direction[1] * direction[1] + direction[2] * direction[2]);
+    if (!(length > 0.1f))
+        return 0;
+    for (uint32_t i = 0; i < 3; ++i) {
+        g.writeF(scratch + 4 * i, eye[i]);
+        g.writeF(scratch + 16 + 4 * i, direction[i] / length);
+    }
+    // Native homing-arrow selector excludes the owner, dead/inactive actors and occluded targets. Original PC Long,
+    // Heavy and Speed Bow class data specifies a 25-degree autoaim cone and 16000-unit range. Special PC bows have
+    // distinct values; preserving their extra metadata through conversion remains separate work.
+    const uint32_t target =
+        g.call(GuestCall(0x49ec60).arg(owner).arg(scratch).arg(scratch + 16).argf(25.0f).argf(16000.0f));
+    const uint16_t handle = target ? g.read16(target + 0x12) : 0;
+    std::fprintf(stderr, "[bow] autoaim query: owner=%x target=%x handle=%u\n", owner, target, handle);
+    return handle && objectFromHandle(g, ctx, handle) == target ? handle : 0;
 }
 
 void updateBowAim(IGuest& g) {

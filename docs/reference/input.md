@@ -435,11 +435,26 @@ Rynn's anchor by her heading and view-pitch change before each tick, and its tra
 ratio). F1 > Controls > Camera follow edits `camera_follow`. Details and limits: `runtime/input/README.md`,
 `docs/journal/2026-10-24/mouse-camera-follow.md`.
 
-## 16. Modern bow aiming (2026-10-24)
+## 16. Bow aiming (2026-10-24, default revised 2026-11-04)
 
-`[mouse] bow_aim = modern` (default; `classic` = the game's own bow), `[mouse] bow_zoom = 0.85`, F1 > Controls >
+`[mouse] bow_aim = ootf` (default; `classic` is an alias), `modern` (optional hold/release adapter),
+`[mouse] bow_zoom = 0.85` (modern only), F1 > Controls >
 "Modern bow aiming". Code: `runtime/input/src/BowAim.cpp`, glue hooks in `drakan_input_glue.cpp`, crosshair in
 `drakan_settings_host.cpp` (`SettingsOverlay::drawCrosshair`). `DRAKAN_INPUT_SKIP` bit 64 disables the launch hook.
+
+The original [publisher manual](https://www.arokhslair.net/downloads/Drakan_Manual.pdf), printed page 15, specifies
+press-to-fire in third person with automatic aiming near the screen centre; alternate attack toggles a zoomed
+first-person sight and toggles back. The default now delivers LMB on press and leaves the native sight open after RMB
+release. Holding LMB no longer delays the initial shot until release. Existing explicit `modern` settings are retained.
+
+Third-person automatic selection uses the native homing-arrow target finder (`0x49ec60`) around the camera centre,
+borrows the selected handle during the native launch, then restores the player's target. The sight and explicit
+target lock retain native behavior. The adapter uses the original PC Long / Heavy / Speed Bow class defaults:
+25-degree cone and 16000-unit range. Special PC bows have different values, not yet preserved as runtime metadata.
+Damage, velocity, gravity, acceleration, lifetime and ammunition retain the native game values. Temporary stat/flight
+experiments from this investigation were removed following the user's scope clarification: the requested change is
+the way aiming and shooting work. Precise original click/hold cadence, draw/reload timing and airborne firing are
+being compared against the original PC runtime before further input changes.
 
 Native bow (static analysis, live-checked where noted):
 
@@ -455,7 +470,9 @@ longer reaches the pad. Holding it aims: `cam+0x60` x `bow_zoom` (restored on re
 camera target offset `cam+0x10c/+0x114` 200 units along the camera's right axis (over the shoulder; the native easing
 slides the camera), and a host crosshair at the centre of the game image. Release sends one Square tap (2 frames).
 Within 120 frames, the launch hook points the arrow from its position at the camera's centre ray 8000 units ahead,
-keeping the matrix handedness; a locked target keeps the native ballistic aim. Live (Surdana, fixture-bow-item): FOV
+keeping the matrix handedness; only bows owned by the current player are retargeted, and a locked target keeps the native
+ballistic aim. Other actors' launches leave the pending player shot intact (fake-guest regression, 2026-11-04).
+Live (Surdana, fixture-bow-item): FOV
 80 -> 68 while aiming and back, Square only on release, the arrow converged on the centre ray (101 -> 36 -> 20 units
 off it) and stuck where the ray met the ground. Not yet live-checked: the shoulder offset and the crosshair overlay
 (renderer screenshots do not include the overlay layer).

@@ -980,11 +980,45 @@ void hookCameraFollow(uint8_t* rdram, R5900Context* c, PS2Runtime* rt) {
 // FUN_0020e6c8 (a0 = bow object): launches the nocked arrow (*(bow+0x158)) along its matrix, retargeted only for a
 // locked target / homing arrow; modern bow aiming points it at the crosshair first.
 void hookBowLaunch(uint8_t* rdram, R5900Context* c, PS2Runtime* rt) {
+    if (c->pc != kBowLaunch) {
+        g_origBowLaunch(rdram, c, rt);
+        return;
+    }
     const uint32_t bow = getRegU32(c, 4);
     RecompGuest g(rdram, c, rt);
     beforeBowLaunch(g, bow);
+    // Reserve ray arguments above the nested selector's stack. RecompGuest::call copies this SP and native callees
+    // grow down from it, so their frames cannot overwrite our arguments. Restore before entering the real launch.
+    const uint32_t sp = getRegU32(c, 29);
+    if (std::getenv("DRAKAN_BOW_LOG"))
+        ilog("[bow] launch entry: bow=%x sp=%x\n", bow, sp);
+    uint16_t target = 0;
+    if (sp >= 0x100080u && sp < PS2_RAM_SIZE) {
+        SET_GPR_U32(c, 29, sp - 64);
+        target = module().bowAutoTarget(g, bow, sp - 48);
+        SET_GPR_U32(c, 29, sp);
+    }
+    const uint32_t context = g.read32(module().config().addrCtxPtr);
+    const uint32_t actor = context ? g.read32(context + 0x4b0) : 0;
+    const uint32_t inner = actor ? g.read32(actor + 0xfc) : 0;
+    const uint32_t player = inner ? g.read32(inner + 0x10) : 0;
+    if (target && player) {
+        // Only the arrow launch borrows a target: no persistent lock or camera change. The native launch retains
+        // its own ballistic solution, arrow properties, damage, ammunition and animation cooldown.
+        const uint16_t old = g.read16(player + 0x4da);
+        g.write8(player + 0x4da, static_cast<uint8_t>(target));
+        g.write8(player + 0x4db, static_cast<uint8_t>(target >> 8));
+        ps2xNoPreemptEnter();
+        g_origBowLaunch(rdram, c, rt);
+        ps2xNoPreemptLeave();
+        g.write8(player + 0x4da, static_cast<uint8_t>(old));
+        g.write8(player + 0x4db, static_cast<uint8_t>(old >> 8));
+        ilog("[bow] third-person autoaim target=%u player=%x\n", target, player);
+        return;
+    }
     g_origBowLaunch(rdram, c, rt);
 }
+
 } // namespace
 
 namespace drakan_tab {
@@ -1075,7 +1109,8 @@ void setSaveModern(bool on) {
     g_save.store(on ? 1 : 0);
 }
 bool titleModern() {
-    return modernMode(g_title, "title_menu", "DRAKAN_TITLE_MENU");
+    // The native title has no campaign selector; installed campaigns must remain reachable with default settings.
+    return drakan_game::offerChoice() || modernMode(g_title, "title_menu", "DRAKAN_TITLE_MENU");
 }
 void setTitleModern(bool on) {
     g_title.store(on ? 1 : 0);

@@ -5,6 +5,7 @@
 #include <cstdio>
 #include <cstring>
 #include <map>
+#include <vector>
 
 using namespace drakan_input;
 
@@ -30,6 +31,8 @@ static int g_fail = 0, g_checks = 0;
 namespace {
 struct FakeGuest : IGuest {
     std::map<uint32_t, uint8_t> mem;
+    std::vector<GuestCall> calls;
+    uint32_t selectedTarget = 0;
     uint8_t read8(uint32_t a) override {
         const auto it = mem.find(a);
         return it == mem.end() ? 0 : it->second;
@@ -46,7 +49,10 @@ struct FakeGuest : IGuest {
         mem[a] = static_cast<uint8_t>(v);
         mem[a + 1] = static_cast<uint8_t>(v >> 8);
     }
-    uint32_t call(const GuestCall&) override { return 0; }
+    uint32_t call(const GuestCall& c) override {
+        calls.push_back(c);
+        return c.addr == 0x49ec60 ? selectedTarget : 0;
+    }
 };
 
 constexpr uint32_t CTX = 0x600000, CAMH = 0x610000, CAM = 0x620000, CAMOBJ = 0x630000, PLH = 0x640000,
@@ -69,7 +75,7 @@ void setup(FakeGuest& g) {
     g.write32(CTX + 0x7c, TABLE);
     g.write32(CTX + 0x84, 10);
     g.write32(TABLE + 2 * 8, ARROW);
-    g.write32(TABLE + 3 * 8, PLAYER);
+    g.write32(TABLE + 3 * 8, PLH); // owner handle resolves an actor, whose +fc/+10 points at PLAYER data
     g.write16(BOW + 0x158, 3);
     g.write16(BOW + 0x60, 4);
     // camera at (0, 300, 0) looking along -x (back axis = column 2 = +x)
@@ -110,6 +116,8 @@ float col(FakeGuest& g, int j, int i) {
 
 static void testAimAndRelease() {
     Config c = Config::defaults();
+    CHECK(!c.bowAimModern);
+    Config::parse("[mouse]\nbow_aim = modern\n", c, nullptr);
     CHECK(c.bowAimModern);
     NEAR(c.bowZoom, 0.85, 1e-6);
     InputModule m;
@@ -171,7 +179,9 @@ static void testAimAndRelease() {
 
 static void testShoulderOffset() {
     InputModule m;
-    m.initHeadless(Config::defaults());
+    Config c = Config::defaults();
+    c.bowAimModern = true;
+    m.initHeadless(c);
     FakeGuest g;
     setup(g); // camera right axis (column 0) = (0, 0, -1)
     m.beginFrame(FrameInput{});
@@ -192,7 +202,9 @@ static void testShoulderOffset() {
 
 static void testZoomHandsOver() {
     InputModule m;
-    m.initHeadless(Config::defaults());
+    Config c = Config::defaults();
+    c.bowAimModern = true;
+    m.initHeadless(c);
     FakeGuest g;
     setup(g);
     m.beginFrame(FrameInput{});
@@ -209,7 +221,9 @@ static void testZoomHandsOver() {
 
 static void testArrowRetarget() {
     InputModule m;
-    m.initHeadless(Config::defaults());
+    Config c = Config::defaults();
+    c.bowAimModern = true;
+    m.initHeadless(c);
     FakeGuest g;
     setup(g);
     m.beginFrame(FrameInput{});
@@ -219,6 +233,14 @@ static void testArrowRetarget() {
     NEAR(col(g, 0, 0), 1.0, 1e-6);
     pad(m, mouse(MBTN_LEFT, MBTN_LEFT, 0));
     pad(m, mouse(0, 0, MBTN_LEFT));
+    // Another actor can launch first while our animation is pending. Leave its arrow alone and retain our shot.
+    constexpr uint32_t otherOwner = 0x690000;
+    g.write32(TABLE + 4 * 8, otherOwner);
+    g.write16(BOW + 0x60, 5);
+    m.beforeBowLaunch(g, BOW);
+    NEAR(col(g, 0, 0), 1.0, 1e-6);
+    NEAR(col(g, 0, 1), 0.0, 1e-6);
+    g.write16(BOW + 0x60, 4);
     // A locked target keeps the game's ballistic aim.
     g.write16(PLAYER + 0x4da, 7);
     m.beforeBowLaunch(g, BOW);
@@ -257,11 +279,65 @@ static void testArrowRetarget() {
     CHECK(col(g, 0, 1) == before);
 }
 
+static void testOotfAutoTarget() {
+    InputModule m;
+    m.initHeadless(Config::defaults());
+    FakeGuest g;
+    setup(g);
+    constexpr uint32_t target = 0x690000, scratch = 0x6a0000;
+    g.write32(TABLE + 4 * 8, target);
+    g.write16(target + 0x12, 5);
+    g.selectedTarget = target;
+    m.beginFrame(FrameInput{});
+    CHECK(m.bowAutoTarget(g, BOW, scratch) == 5);
+    CHECK(g.calls.size() == 1);
+    CHECK(g.calls[0].addr == 0x49ec60 && g.calls[0].i[0] == PLH);
+    CHECK(g.calls[0].i[1] == scratch && g.calls[0].i[2] == scratch + 16);
+    NEAR(g.calls[0].f[0], 25.0, 1e-6);
+    NEAR(g.calls[0].f[1], 16000.0, 1e-6);
+    NEAR(g.readF(scratch + 4), 300.0, 1e-6);
+    NEAR(g.readF(scratch + 16), -1.0, 1e-6);
+    CHECK(g.read16(PLAYER + 0x4da) == 0); // selection never creates a persistent lock
+    g.write32(CAM + 0x48, 0x20);
+    CHECK(m.bowAutoTarget(g, BOW, scratch) == 0); // sight is precise manual aim
+    g.write32(CAM + 0x48, 0);
+    g.write16(PLAYER + 0x4da, 8);
+    CHECK(m.bowAutoTarget(g, BOW, scratch) == 0); // explicit target has priority
+    g.write16(PLAYER + 0x4da, 0);
+    g.write16(BOW + 0x60, 5);
+    CHECK(m.bowAutoTarget(g, BOW, scratch) == 0); // another actor's bow
+    g.write16(BOW + 0x60, 4);
+    g.write16(target + 0x12, 6);
+    CHECK(m.bowAutoTarget(g, BOW, scratch) == 0); // stale/unregistered actor
+    Config c = Config::defaults();
+    c.bowAimModern = true;
+    m.reloadConfig(c);
+    m.beginFrame(FrameInput{});
+    g.write16(target + 0x12, 5);
+    CHECK(m.bowAutoTarget(g, BOW, scratch) == 0);
+}
+
 int main() {
+    {
+        InputModule m;
+        m.initHeadless(Config::defaults());
+        FakeGuest g;
+        setup(g);
+        m.beginFrame(FrameInput{});
+        m.updateBowAim(g);
+        const PadSample press = pad(m, mouse(MBTN_LEFT, MBTN_LEFT, 0));
+        CHECK(press.buttons & Pad::SQUARE); // original PC behavior: attack starts on press
+        CHECK(!m.bowCrosshairVisible());
+        const PadSample release = pad(m, mouse(0, 0, MBTN_LEFT));
+        CHECK(!(release.buttons & Pad::SQUARE));
+        m.updateBowAim(g);
+        NEAR(g.readF(CAM + 0x60), 60.0, 1e-4);
+    }
     testAimAndRelease();
     testZoomHandsOver();
     testShoulderOffset();
     testArrowRetarget();
+    testOotfAutoTarget();
     std::printf("%d checks, %d failures\n", g_checks, g_fail);
     return g_fail ? 1 : 0;
 }

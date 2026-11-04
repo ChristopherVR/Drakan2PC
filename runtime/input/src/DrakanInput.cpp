@@ -1062,7 +1062,7 @@ void InputModule::afterPadMgrUpdate(IGuest& g) {
         pending_.clear();
     }
 
-    // Native Circle toggles the bow sight (camera bit 5). Mouse aiming is held:
+    // Native Circle toggles the bow sight (camera bit 5), as on the original PC. Optional modern mouse aiming is held:
     // a second native press closes only a sight acquired by held RMB. Keep its
     // release on a separate tick so the controller can consume the close press.
     auto sightCommand = [&](bool down) {
@@ -1079,9 +1079,9 @@ void InputModule::afterPadMgrUpdate(IGuest& g) {
     const uint32_t sightInner = sightHandle ? g.read32(sightHandle + 0xfc) : 0;
     const uint32_t sightCam = sightInner ? g.read32(sightInner + 0x10) : 0;
     const bool sightOpen = sightCam && (g.read32(sightCam + 0x48) & 0x20u);
-    if (!sightOpen || sightCam != mouseBowCamera_ || !mouseKeyboardOwner_)
+    if (!sightOpen || sightCam != mouseBowCamera_ || !mouseKeyboardOwner_ || !cfg_.bowAimModern)
         mouseBowCamera_ = 0;
-    if (!blocked && !layerIsMenu_ && frame_.captured && !dragon_ && mouseKeyboardOwner_) {
+    if (cfg_.bowAimModern && !blocked && !layerIsMenu_ && frame_.captured && !dragon_ && mouseKeyboardOwner_) {
         const bool bound = std::any_of(cfg_.game.begin(), cfg_.game.end(), [](const Binding& b) {
             return b.src == Binding::Mouse && b.code == MBTN_RIGHT && b.act == Binding::PadBtn &&
                    b.value == Pad::CIRCLE;

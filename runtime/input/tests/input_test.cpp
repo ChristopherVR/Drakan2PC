@@ -2544,6 +2544,7 @@ static void testEscClosesInventoryOnly() {
 
 static void testHeldMouseBowSight() {
     Config c = Config::defaults();
+    c.bowAimModern = true;
     InputModule m;
     m.initHeadless(legacyPitch(c));
     FakeGuest g;
@@ -2564,6 +2565,23 @@ static void testHeldMouseBowSight() {
     m.beginFrame(FrameInput{});
     m.afterPadMgrUpdate(g);
     CHECK(g.calls.size() == 4); // no repeats or closing a sight opened by another source
+}
+
+static void testOotfMouseBowSight() {
+    Config c = Config::defaults();
+    CHECK(!c.bowAimModern);
+    Config::parse("[mouse]\nbow_aim = ootf\n", c, nullptr);
+    InputModule m;
+    m.initHeadless(legacyPitch(c));
+    FakeGuest g;
+    setupCamera(g, 0, .6283f);
+    g.write32(CAM + 0x48, 0x220);
+    m.beginFrame(keys({}, MBTN_RIGHT));
+    m.afterPadMgrUpdate(g);
+    m.beginFrame(FrameInput{});
+    m.afterPadMgrUpdate(g);
+    CHECK(g.calls.empty()); // native sight stays open when the alternate attack button is released
+    CHECK(g.read32(CAM + 0x48) & 0x20);
 }
 
 static void testFreeMouseCombat() {
@@ -2881,6 +2899,7 @@ int main() {
     testCameraFollowAndPitchGain();
     testFreeMouseCombat();
     testHeldMouseBowSight();
+    testOotfMouseBowSight();
     testRightClickAfterInventory();
     testEscClosesInventoryOnly();
     testAlternateMouseAimAndMomentum();

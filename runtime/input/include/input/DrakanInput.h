@@ -68,6 +68,9 @@ public:
     // Before the native arrow launch FUN_0020e6c8 (bow = its argument): points the arrow of a shot started by
     // releasing the aim button at the crosshair (the camera's centre ray), unless a target is locked.
     void beforeBowLaunch(IGuest& g, uint32_t bow);
+    // OotF third-person autoaim: native visible-target selection around the camera centre. scratch is a caller-owned
+    // 32-byte guest stack block above the guest call's stack pointer. Returns a temporary target handle or zero.
+    uint16_t bowAutoTarget(IGuest& g, uint32_t bow, uint32_t scratch);
     // While aiming: draw a crosshair at the centre of the game image (overlay thread).
     bool bowCrosshairVisible() const { return bowAiming_.load() && !hostOwned() && !menuActive_.load(); }
     // Before-hook for PadMgr_Update: A / D strafe (on foot) by pointing the left stick's X at the strafe axis (3)
