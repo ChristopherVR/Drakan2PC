@@ -26,9 +26,9 @@ python scripts/harness/ootf_coop_campaign.py --name all1 --reanalyse   # recompu
 | Field | Meaning |
 | --- | --- |
 | `loaded`, `loaded_levels` | `afterLevelLoad ... ok=1` for the expected title (chain: the list of levels reached) |
-| `control` | `gameplay=1` after that load |
+| `control` | GUI `gameplay=1` or periodic `[in-log] ... play player=` after that load, before another level loads; this proves the input profile, not successful movement or quest progression |
 | `crash` | `missing-target`, `[crash]`, access violation, non-zero exit code |
-| `stall` | any `[stall]` line (input boundary silent for 8 s) |
+| `stall` | any `[stall]` or `[watchdog t=` line (input boundary silent for 8 s) |
 | `hang` | the instance had to be killed by the harness (timeout + 45 s) |
 | `flips_min`, `flips_median` | `completedFlips` of the 2 s `[frame-uncapped]` lines after control, first interval skipped (about 100 = 50 fps; the 13 levels run 70 to 350) |
 | `ghost` | `ghost of player N '...' spawned` (co-op only) |
@@ -36,6 +36,12 @@ python scripts/harness/ootf_coop_campaign.py --name all1 --reanalyse   # recompu
 | `unexpected_not_found` | `[hle] ... not found` resources that are not the usual stand-in noise (missing pack content) |
 | `puzzles`, `dropped_props_total` | converter statistics for the level from the pack's `convert.log` (plates, detectors, quest markers) |
 
-PASS = loaded + control + no crash / stall / hang + both ghosts (co-op). Output goes to `build/harness/ootf-coop/<name>/`
+PASS = loaded + control + recorded successful process exit + no crash / stall / hang + both ghosts (co-op), plus all requested
+probe exits in chain mode. This is a load/transition smoke test; forced probe exits do not establish normal campaign completion.
+Reanalysis preserves exit codes, hangs and chain requirements from `report.json`; a quit request in the log alone cannot establish
+successful shutdown. Missing process evidence fails validation. Set `DRAKAN_INPUT_LOG=120` to sample the input profile when a
+cinematic releases control without changing the GUI screen.
+
+Output goes to `build/harness/ootf-coop/<name>/`
 (`report.json`, `report.md`, `<level>/{a,b}/stdout_1.log` and screenshots); nothing there is committed. Exit status 0 when every
 session passed. Results of runs: `docs/journal/2026-11-02/ootf-coop-campaign-run.md`.

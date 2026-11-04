@@ -129,8 +129,13 @@ def analyse(text: str, title: str | None) -> dict:
         for m in re.finditer(r"afterLevelLoad level='(.*?)'[^\n]*? ok=1", text):
             if m.group(1) == title or title.endswith(m.group(1)):
                 start = m.end()
-    first_gp = text.find("(gameplay=1)", start)
-    after = text[first_gp:] if first_gp >= 0 else ""
+    next_load = re.search(r"afterLevelLoad level='.*?'[^\n]*? ok=1", text[start:]) if title else None
+    end = start + next_load.start() if next_load else len(text)
+    # GUI transition logs need not fire when a cinematic releases control. Periodic input logs report the same
+    # gameplay predicate independently. Neither establishes successful movement or quest progression by itself.
+    control = re.search(r"\(gameplay=1\)|\[in-log\] t=[\d.]+ frame=\d+ play player=", text[start:end])
+    first_gp = start + control.start() if control else -1
+    after = text[first_gp:end] if first_gp >= 0 else ""
     flips = [int(m) for m in re.findall(r"\[frame-uncapped\] seconds=[\d.]+ completedFlips=(\d+)", after)]
     # the first intervals after control include streaming; the floor is taken over the later ones
     steady = flips[1:] if len(flips) > 2 else flips
@@ -270,6 +275,8 @@ def verdict(res: dict, coop: bool) -> tuple[bool, list[str]]:
             why.append(f"{k}: no control")
         if r["crash"] or (r["exit_code"] not in (0, None) and not r["hang"]):
             why.append(f"{k}: crash/exit {r['exit_code']}")
+        if r["exit_code"] is None:
+            why.append(f"{k}: missing process exit evidence")
         if r["stall"]:
             why.append(f"{k}: stall")
         if r["hang"]:
@@ -282,6 +289,9 @@ def verdict(res: dict, coop: bool) -> tuple[bool, list[str]]:
 def reanalyse(out_root: Path, pack: Path, solo: bool) -> dict:
     """Recompute the report from the logs of an earlier run (after changing the checks)."""
     report = {"pack": str(pack), "mode": "solo" if solo else "coop", "sessions": []}
+    saved_report = out_root / "report.json"
+    previous = json.loads(saved_report.read_text(encoding="utf-8")) if saved_report.is_file() else {}
+    previous_sessions = {s["label"]: s for s in previous.get("sessions", [])}
     for d in sorted(p for p in out_root.iterdir() if p.is_dir()):
         idx = None if d.name.startswith("chain") else int(d.name)
         title = LEVELS[idx][0] if idx is not None else None
@@ -290,9 +300,15 @@ def reanalyse(out_root: Path, pack: Path, solo: bool) -> dict:
             log = d / k / "stdout_1.log"
             if not log.is_file():
                 continue
-            r = analyse(log.read_bytes().decode("latin-1"), title)
-            r.update(exit_code=0 if "[in] script quit" in log.read_bytes().decode("latin-1") else None, hang=False,
-                     quit_clean="[in] script quit" in log.read_bytes().decode("latin-1"))  # fmt: skip
+            text = log.read_bytes().decode("latin-1")
+            r = analyse(text, title)
+            saved = previous_sessions.get(d.name, {}).get("instances", {}).get(k, {})
+            # A quit request in a log is not a process exit: shutdown may still crash or hang afterwards.
+            r.update(exit_code=saved.get("exit_code"), hang=saved.get("hang", False),
+                     quit_clean="[in] script quit" in text)  # fmt: skip
+            if idx is None:
+                r["chain_required"] = saved.get("chain_required", int(d.name.removeprefix("chain")))
+                r["chain_completed"] = len(r["exits_taken"]) if k == "a" else r["follow"]
             res[k] = r
         ok, why = verdict(res, not solo)
         report["sessions"].append({"label": d.name, "level": title or LEVELS[0][0], "pass": ok, "why": why,
