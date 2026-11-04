@@ -138,6 +138,66 @@ function bowOwnerSlotAt(data: Uint8Array): number | null {
     return self + 0x154;
 }
 
+/** Only the verified default PAL player-camera record is used to choose the native reload branch. */
+function savedBowSight(save: SaveFile): boolean | null {
+    const cameras = save.entries.filter(
+        (entry) => entry.type === TYPE_RECORD && entry.data.length >= 12 && u32(entry.data, 0) === 2,
+    );
+    if (cameras.length !== 1) return null;
+    const data = cameras[0]!.data;
+    const raw = 0x7e;
+    if (
+        data.length < raw + 0x18c ||
+        u32(data, CLASS_OFFSET) !== 0x10001049 ||
+        (data[raw - 2]! | (data[raw - 1]! << 8)) !== 0x1b ||
+        u32(data, raw + 0x14c) !== 6 ||
+        !heap(u32(data, raw + 0x148))
+    ) {
+        return null;
+    }
+    const flags = u32(data, raw + 0x48);
+    // Conservative eligibility, not reload prerequisites: 44e4a8/423790 route alternate pitch for
+    // bits800/1000; the audited freeCombatAllowed predicate also vetoes80000. Bit100000
+    // selects a scripted camera actor instead of the context player. Never infer a player sight there.
+    if (flags & 0x181800) return null;
+    return (flags & 0x20) !== 0;
+}
+
+/** Queue the engine's own missing-arrow reload, only after this Bow's serialized owner was verified/preserved. */
+function prepareBowReload(save: SaveFile, player: Uint8Array, cells: number, bow: Uint8Array, self: number) {
+    const raw = cells - 0x5b4; // native inventory controller584 + inline cells30
+    if (
+        raw < 2 ||
+        raw + 0x111c > player.length ||
+        (player[raw - 2]! | (player[raw - 1]! << 8)) !== 9 ||
+        u32(player, raw + 0xe90) !== 5 ||
+        u32(player, raw + 0xeb4) !== 6 ||
+        u32(player, raw + 0x94) !== 0 ||
+        (u32(player, raw + 0x90) & 0x4002) !== 0 ||
+        u32(player, raw + 0x504) !== 0 ||
+        u32(player, raw + 0x508) !== 0 ||
+        u32(player, raw + 0x50c) !== 0 ||
+        (u32(player, raw + 0xab0) & 0x200002) !== 0 ||
+        dec(u32(bow, self + 8)) === 0 ||
+        dec(u32(bow, self + 12)) === 0 ||
+        u32(bow, self + 0x164) !== 0xffffffff
+    ) {
+        return null;
+    }
+    const ammo = u32(bow, self + 0x160);
+    if (ammo < 0x10000 || ammo >= 0x20000) return null; // verified native Resources ammunition reference family
+    const sight = savedBowSight(save);
+    if (sight === null) return null;
+    const data = player.slice();
+    const dv = new DataView(data.buffer, data.byteOffset, data.byteLength);
+    // 20ff00 -> 20f9c8 creates the replacement's own arrow; 305460 clears the pending state afterward.
+    // The sight-open completion branch additionally requires attack80. With no nock its launch returns before
+    // consuming ammunition, then the same native reload creates the correct arrow and clears both flags.
+    dv.setUint32(raw + 0xab0, u32(player, raw + 0xab0) | 0x200000, true);
+    if (sight) dv.setUint32(raw + 0x94, u32(player, raw + 0x94) | 0x80, true);
+    return data;
+}
+
 /**
  * Replace the item in inventory cell `cell` by the record body of template entry `templateEntry`. Input untouched.
  * `rows` is the new class's height in cells; when it is given and differs from the item's height now, the height word
@@ -155,6 +215,7 @@ export function replaceItem(save: SaveFile, cell: number, templateEntry: number,
     const tpl = save.entries.find((e) => e.type === TYPE_RECORD && e.id === templateEntry && itemResource(e) !== null);
     if (!tpl) throw new SaveFieldError(`entry ${templateEntry} is not an item record`);
     const data = replacedBody(item.data, tpl.data);
+    let rynnData = rows === undefined ? null : resizedRynn(save, cell, rows);
     // Native 34d960 reads this appended record slot, replacing the raw runtime owner word. Only preserve a
     // verified equipped Bow's reference to this save's Rynn; do not carry its ammunition, nocked arrow or state.
     // Keep this out of replacedBody: Add uses that helper with an identity donor, which must not confer ownership.
@@ -167,8 +228,8 @@ export function replaceItem(save: SaveFile, cell: number, templateEntry: number,
         u32(item.data, ownerFrom) === rynn.id - 1
     ) {
         data.set(item.data.subarray(ownerFrom, ownerFrom + 4), ownerTo);
+        rynnData = prepareBowReload(save, rynnData ?? rynn.data, base, data, ownerTo - 0x154) ?? rynnData;
     }
-    const rynnData = rows === undefined ? null : resizedRynn(save, cell, rows);
     return {
         ...save,
         entries: save.entries.map((e) => {

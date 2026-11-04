@@ -61,3 +61,48 @@ original 0x100040 and left physics flags94 at 0. Both presses fired 300â†’2
 without E or copying an incompatible Short Arrow. This probe is not an editor
 implementation: sight-open saves use a separate native branch and remain under
 investigation. No readiness flags are changed by the ownership repair.
+
+## Guarded native reload preparation
+
+The editor now prepares first-shot readiness internally after the verified owner
+reference has been preserved. It queues the native missing-arrow reload rather
+than copying the donor's incompatible arrow. This supports only idle, equipped
+PAL Bow replacements with the verified Rynn raw layout (class 10009, size 111c)
+and player-camera layout (class 1001b, size 18c). Rynn raw start is the inline
+inventory-cell base minus 5b4. Zero movement504/508 and queued jump50c, no active
+flags94, queued attack90 bit2, script lock90 bit4000, or owned torso/reload AB0
+bits200002 are required. Unknown layouts, foreign owners, busy states, existing
+nocks, empty ammunition, missing ammunition objects and unknown ammunition
+reference families remain unchanged. Resize and readiness edits share the same
+Rynn data buffer; unrelated flags and camera bytes are preserved.
+
+Native 310d20 calls the Bow update20ff00. With sight closed, AB0 bit200000
+allows20f9c8 to create the replacement's own arrow;305460 clears the pending
+state. With sight open,20ff00 additionally requires94 bit80. Its initial native
+launch20e6c8 returns before ammunition/audio/flight effects when the nock is
+empty, then20f9c8 creates the correct arrow and305460 clears both pending flags.
+Private `build/harness/bow-fps-reload60` proves this branch: the first100 ms
+snapshot already has the correct Short Arrow, unchanged ammo200, cleared94 and
+AB0, and the saved sight remains open (camera flags220). The two actual presses
+consume200 to199 to198, without re-equipping. Closed-sight `bow-reload59` proves
+Long Arrow creation with ammo300 unchanged before input and300 to299 to298 on
+the two actual presses. No native runtime hooks were added for this repair.
+
+Camera exclusion mask181800 is conservative eligibility, not a set of required
+reload flags: audited44e4a8/423790 route alternate pitch for bits800/1000;
+existing input freeCombatAllowed also vetoes80000; camera bit100000 selects a
+scripted actor rather than the context player. Unsupported camera ownership is
+left untouched instead of inferring a player sight state.
+
+The real updated replaceItem exports exactly match the native-tested probes in
+all decompressed records: `bow-longbow-generated-ready` versus
+`bow-longbow-pending-reload` (868 records), and
+`bow-shortbow-generated-fps-ready` versus `bow-shortbow-fps-reload` (901 records).
+Private generator/comparator scripts and cards remain under build/ootf. This
+also verifies the new zero-movement guards accept both proven idle saves.
+Validation:64 focused save-item tests, editor-core typecheck and formatting pass.
+Tests cover both sight branches, shifted raw prefixes, movement/jump/fall/attack/
+script/queued states, empty or absent ammunition, unknown layouts and cameras,
+owner rejection, unchanged nock/ammo/camera data, and repeated replacement/build
+determinism. Ownership-only commit bf9f41e remains a separate checkpoint; this
+readiness follow-up makes no claim for busy or custom-layout saves.

@@ -280,6 +280,128 @@ describe('equipped Bow replacement ownership', () => {
     });
 });
 
+describe('idle PAL equipped Bow reload preparation', () => {
+    const sourceAt = 0x112;
+    const targetAt = 0x148;
+    const cameraRaw = 0x7e;
+    type FixtureParts = { player: Uint8Array; source: Uint8Array; target: Uint8Array; camera: Uint8Array; raw: number };
+
+    function reloadFixture(sight: boolean, change?: (parts: FixtureParts) => void, raw = 0x200) {
+        const player = new Uint8Array(raw + 0x1300);
+        const dv = new DataView(player.buffer);
+        dv.setUint32(8, 0x17081069, true);
+        dv.setUint16(raw - 2, 9, true);
+        dv.setUint32(raw + 0x90, 0x10062000, true); // unrelated state bits must survive
+        dv.setUint32(raw + 0xab0, 0x40100040, true);
+        dv.setUint32(raw + 0xe90, 5, true);
+        dv.setUint32(raw + 0xeb4, 6, true);
+        const cells = raw + 0x5b4;
+        dv.setInt32(cells - 4, -1, true);
+        dv.setInt32(cells - 0x14, -1, true);
+        dv.setUint32(cells - 0x10, 0, true);
+        [1, 0, HANDLE_A, 0].forEach((value, i) => dv.setUint32(cells + i * 4, value, true));
+        const camera = new Uint8Array(734);
+        const cv = new DataView(camera.buffer);
+        cv.setUint32(0, 2, true);
+        cv.setUint32(8, 0x10001049, true);
+        cv.setUint16(cameraRaw - 2, 0x1b, true);
+        cv.setUint32(cameraRaw + 0x148, 0x7e0000, true);
+        cv.setUint32(cameraRaw + 0x14c, 6, true);
+        cv.setUint32(cameraRaw + 0x48, sight ? 0x220 : 0x200, true);
+        const source = bowItem(0x31bc9, HANDLE_A, sourceAt, 55);
+        const target = bowItem(0x32266, HANDLE_GROUND, targetAt, 0xffffffff);
+        change?.({ player, source, target, camera, raw });
+        return parseSave(
+            buildSave([
+                ...liveEntries().filter((e) => e.type !== 0x102),
+                { type: 0x102, id: 56, data: player },
+                { type: 0x102, id: 57, data: camera },
+                { type: 0x102, id: 328, data: source },
+                { type: 0x102, id: 700, data: target },
+            ]),
+        );
+    }
+
+    it.each([false, true])(
+        'queues the appropriate native reload branch with sight=%s and preserves other state',
+        (sight) => {
+            const raw = 0x2a2; // a different actor prefix must not change the native offset mapping
+            const save = reloadFixture(sight, undefined, raw);
+            const before = save.entries.find((e) => e.id === 56)!.data;
+            const out = replaceItem(save, 0, 700);
+            const after = out.entries.find((e) => e.id === 56)!.data;
+            const expected = before.slice();
+            const dv = new DataView(expected.buffer);
+            dv.setUint32(raw + 0xab0, 0x40300040, true);
+            if (sight) dv.setUint32(raw + 0x94, 0x80, true);
+            expect(after).toEqual(expected);
+            expect(out.entries.find((e) => e.id === 57)!.data).toEqual(save.entries.find((e) => e.id === 57)!.data);
+            const bow = out.entries.find((e) => e.id === 328)!.data;
+            const bv = new DataView(bow.buffer, bow.byteOffset);
+            expect(bv.getUint32(targetAt + 0x160, true)).toBe(0x137aa);
+            expect(bv.getUint32(targetAt + 0x164, true)).toBe(0xffffffff); // the engine must create the correct new arrow
+            const again = replaceItem(out, 0, 700);
+            expect(assembleSave(again).bytes).toEqual(assembleSave(out).bytes);
+        },
+    );
+
+    const negativeCases: [string, (parts: FixtureParts) => void][] = [
+        ['empty ammunition', ({ target }) => new DataView(target.buffer).setUint32(targetAt + 8, enc(0), true)],
+        ['zero maximum', ({ target }) => new DataView(target.buffer).setUint32(targetAt + 12, enc(0), true)],
+        ['no ammunition object', ({ target }) => new DataView(target.buffer).setUint32(targetAt + 0x160, 0, true)],
+        [
+            'missing ammunition reference',
+            ({ target }) => new DataView(target.buffer).setUint32(targetAt + 0x160, 0xffffffff, true),
+        ],
+        [
+            'unknown ammunition family',
+            ({ target }) => new DataView(target.buffer).setUint32(targetAt + 0x160, 0x237aa, true),
+        ],
+        ['already nocked', ({ target }) => new DataView(target.buffer).setUint32(targetAt + 0x164, 0x309, true)],
+        ['wrong player layout', ({ player, raw }) => new DataView(player.buffer).setUint16(raw - 2, 8, true)],
+        ['non-bow mode', ({ player, raw }) => new DataView(player.buffer).setUint32(raw + 0xe90, 1, true)],
+        ['other ammunition mode', ({ player, raw }) => new DataView(player.buffer).setUint32(raw + 0xeb4, 4, true)],
+        ['jumping', ({ player, raw }) => new DataView(player.buffer).setUint32(raw + 0x94, 0x10, true)],
+        ['falling', ({ player, raw }) => new DataView(player.buffer).setUint32(raw + 0x94, 0x20, true)],
+        ['attacking', ({ player, raw }) => new DataView(player.buffer).setUint32(raw + 0x94, 0x80, true)],
+        ['script lock', ({ player, raw }) => new DataView(player.buffer).setUint32(raw + 0x90, 0x66000, true)],
+        ['queued attack', ({ player, raw }) => new DataView(player.buffer).setUint32(raw + 0x90, 0x62002, true)],
+        ['forward movement', ({ player, raw }) => new DataView(player.buffer).setFloat32(raw + 0x504, 1, true)],
+        ['strafe movement', ({ player, raw }) => new DataView(player.buffer).setFloat32(raw + 0x508, -1, true)],
+        ['queued jump', ({ player, raw }) => new DataView(player.buffer).setUint32(raw + 0x50c, 1, true)],
+        ['owned torso action', ({ player, raw }) => new DataView(player.buffer).setUint32(raw + 0xab0, 0x100042, true)],
+        ['existing reload', ({ player, raw }) => new DataView(player.buffer).setUint32(raw + 0xab0, 0x300040, true)],
+        ['foreign owner', ({ source }) => new DataView(source.buffer).setUint32(sourceAt + 0x154, 54, true)],
+        ['non-Bow source', ({ source }) => new DataView(source.buffer).setUint16(sourceAt - 0x0e, 0x2d, true)],
+        ['unknown camera class', ({ camera }) => new DataView(camera.buffer).setUint32(8, 0x10001048, true)],
+        ['unknown camera payload', ({ camera }) => new DataView(camera.buffer).setUint16(cameraRaw - 2, 0x1a, true)],
+        ['alternate camera mode', ({ camera }) => new DataView(camera.buffer).setUint32(cameraRaw + 0x14c, 1, true)],
+        ['scripted camera', ({ camera }) => new DataView(camera.buffer).setUint32(cameraRaw + 0x48, 0x100200, true)],
+        ['invalid camera self', ({ camera }) => new DataView(camera.buffer).setUint32(cameraRaw + 0x148, 0, true)],
+    ];
+    it.each(negativeCases)('leaves player state untouched for %s', (_name, change) => {
+        const save = reloadFixture(true, change);
+        const before = save.entries.find((e) => e.id === 56)!.data;
+        const out = replaceItem(save, 0, 700);
+        expect(out.entries.find((e) => e.id === 56)!.data).toEqual(before);
+    });
+
+    it.each(['no camera', 'duplicate camera', 'short camera', 'short player'])(
+        'rejects %s without changing player state',
+        (kind) => {
+            const save = reloadFixture(true);
+            const camera = save.entries.find((e) => e.id === 57)!;
+            const player = save.entries.find((e) => e.id === 56)!;
+            if (kind === 'no camera') save.entries = save.entries.filter((e) => e.id !== 57);
+            if (kind === 'duplicate camera') save.entries.push({ ...camera, id: 58 });
+            if (kind === 'short camera') camera.data = camera.data.slice(0, cameraRaw + 0x18b);
+            if (kind === 'short player') player.data = player.data.slice(0, 0x200 + 0x111b);
+            const before = player.data.slice();
+            expect(replaceItem(save, 0, 700).entries.find((e) => e.id === 56)!.data).toEqual(before);
+        },
+    );
+});
+
 describe('Add item (new carried record)', () => {
     const K = 12;
     const STATICS = [5020, 5018, 5016, 5014];
