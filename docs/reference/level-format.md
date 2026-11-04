@@ -174,6 +174,10 @@ vertex = u16 flags[?], u16 mask, u16 raw_height  // height_wu = world_height + (
 cell   = u16 flags, u32 texture, 8 x u16 uv      // row-major, top-left first, like PC
 ```
 
+* **Collision triangles [PAL]**: native routine 15a2f0 skips the first triangle on cell flag `0x40` and the second on
+  `0x80`, independently of the cell's shared texture. With diagonal bit 0 set these are a-c-d and a-d-b; otherwise
+  a-c-b and c-d-b (corners a b / c d). `layerHeightAt` honours these bits only for PS2 layers; PC holes use the two
+  separate triangle texture references. Invisible rendering bits `0x30` retain collision.
 * **Height [disc]**: `world_height` (f32 in the definition) + `(raw - 0x8000) * 2`, in world units (the same units as object
   positions; a cell is 2048). Origins are in cells. Check: for Surdana, objects with y pinned to the ground (Flower 01: median
   dy 0, 75th percentile 0) land on the decoded surface; `Grass (Sod)` sits a constant +158 above it (a model pivot offset),
