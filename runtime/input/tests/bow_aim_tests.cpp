@@ -282,6 +282,65 @@ static void testArrowRetarget() {
     CHECK(col(g, 0, 1) == before);
 }
 
+static void testImportedBowAutoAimMetadata() {
+    InputModule m;
+    m.initHeadless(Config::defaults());
+    FakeGuest g;
+    setup(g);
+    constexpr uint32_t target = 0x690000, scratch = 0x6a0000, actor = 0x6c0000, registry = 0x6d0000, records = 0x6e0000;
+    g.write32(TABLE + 4 * 8, target);
+    g.write16(target + 0x12, 5);
+    g.selectedTarget = target;
+    g.write32(BOW + 0xc, actor);
+    g.write16(actor + 0x10, 2);
+    g.write32(CTX + 0x320, registry);
+    g.write32(registry + 8, records);
+    g.write32(registry + 0x10, 2);
+    g.write32(records + 2 * 0x24, 0x343e2);
+    g.write32(records + 2 * 0x24 + 8, 0x1004f);
+    m.beginFrame(FrameInput{});
+    const std::string source = "format = 1\n[bow 0x343e2]\ncone_degrees = 35\nmaximum_range = 18000\n";
+    CHECK(m.setBowAimFiles({{"source", source}}) == 1);
+    CHECK(m.bowAutoTarget(g, BOW, scratch) == 5);
+    NEAR(g.calls.back().f[0], 35, 1e-6);
+    NEAR(g.calls.back().f[1], 18000, 1e-6);
+    CHECK(g.read16(PLAYER + 0x4da) == 0);
+    // The metadata follows exact resource identity, not every weapon or NPC using a similar layout.
+    g.write32(records + 2 * 0x24, 0x343e3);
+    m.bowAutoTarget(g, BOW, scratch);
+    NEAR(g.calls.back().f[0], 25, 1e-6);
+    NEAR(g.calls.back().f[1], 16000, 1e-6);
+    g.write32(records + 2 * 0x24, 0x343e2);
+    g.write32(records + 2 * 0x24 + 8, 0x1000e);
+    m.bowAutoTarget(g, BOW, scratch);
+    NEAR(g.calls.back().f[0], 25, 1e-6);
+    g.write32(records + 2 * 0x24 + 8, 0x1004f);
+    g.write16(BOW + 0x60, 5);
+    const auto count = g.calls.size();
+    CHECK(m.bowAutoTarget(g, BOW, scratch) == 0);
+    CHECK(g.calls.size() == count);
+    g.write16(BOW + 0x60, 4);
+    CHECK(m.setBowAimFiles(
+              {{"first", source}, {"later", "format = 1\n[bow 0x343e2]\ncone_degrees=40\nmaximum_range=0\n"}}) == 1);
+    CHECK(m.bowAutoTarget(g, BOW, scratch) == 0);
+    CHECK(g.calls.size() == count); // authored zero disables autoaim
+    for (const auto& invalid : {
+             "[bow 0x343e2]\ncone_degrees=35\nmaximum_range=18000\n",
+             "format=2\n[bow 0x343e2]\ncone_degrees=35\nmaximum_range=18000\n",
+             "format=1\n[bow 0x343e2]\ncone_degrees=35\n",
+             "format=1\n[bow 0x343e2]\ncone_degrees=nan\nmaximum_range=18000\n",
+             "format=1\n[bow 0x343e2]\ncone_degrees=181\nmaximum_range=18000\n",
+             "format=1\n[bow 0x343e2]\ncone_degrees=35\nmaximum_range=-1\n",
+             "format=1\n[bow 0x343e2]\ncone_degrees=35\ncone_degrees=25\nmaximum_range=18000\n",
+             "format=1\n[bow 0x1000343e2]\ncone_degrees=35\nmaximum_range=18000\n",
+         })
+        CHECK(m.setBowAimFiles({{"invalid", invalid}}) == 0);
+    CHECK(m.setBowAimFiles({{"oversized", std::string(65537, 'x')}}) == 0);
+    CHECK(m.setBowAimFiles({}) == 0);
+    m.bowAutoTarget(g, BOW, scratch);
+    NEAR(g.calls.back().f[0], 25, 1e-6);
+}
+
 static void testOotfAutoTarget() {
     InputModule m;
     m.initHeadless(Config::defaults());
@@ -651,6 +710,7 @@ int main() {
     testShoulderOffset();
     testArrowRetarget();
     testOotfAutoTarget();
+    testImportedBowAutoAimMetadata();
     testOotfJumpAttackGate();
     testOotfSightJumpCommand();
     testOotfSightForwardLook();

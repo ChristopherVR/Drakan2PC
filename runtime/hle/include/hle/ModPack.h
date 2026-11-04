@@ -169,6 +169,8 @@ public:
     // UI skins (docs/reference/modding.md "Menus and HUD"): the text of every `ui/*.ini` of every loaded pack, in load
     // order. `first` is "mod <id>: <path>", `second` the file content (gameui::parseUiSkin reads it).
     const std::vector<std::pair<std::string, std::string>>& uiFiles() const { return uiFiles_; }
+    // Imported bow automatic-aiming sidecars, in enabled pack load order.
+    const std::vector<std::pair<std::string, std::string>>& bowAimFiles() const { return bowAimFiles_; }
 
     // Register in this order (entries first, then texts) before the first resource request. Null when empty.
     std::shared_ptr<IResourceOverride> entries() const;
@@ -196,6 +198,7 @@ private:
     std::vector<std::pair<std::string, std::string>> mapFiles_;
     std::vector<std::pair<std::string, std::vector<u8>>> previewFiles_;
     std::vector<std::pair<std::string, std::string>> uiFiles_;
+    std::vector<std::pair<std::string, std::string>> bowAimFiles_;
     std::shared_ptr<XdbTextOverride> texts_;
     size_t textCount_ = 0;
 };

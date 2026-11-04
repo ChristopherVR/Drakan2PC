@@ -1345,6 +1345,7 @@ size_t ModManager::load(const std::string& modsDir, const std::vector<std::pair<
     mapFiles_.clear();
     previewFiles_.clear();
     uiFiles_.clear();
+    bowAimFiles_.clear();
     texts_ = std::make_shared<XdbTextOverride>();
     textCount_ = 0;
     for (auto& c : cands) {
@@ -1385,6 +1386,12 @@ size_t ModManager::load(const std::string& modsDir, const std::vector<std::pair<
         }
         for (auto& it : c.archive->list()) {
             const std::string lowPath = lower(it.path);
+            if (lowPath == lower(c.prefix) + "gameplay/bows.ini") {
+                std::vector<u8> text;
+                if (it.size <= (64u << 10) && c.archive->read(it.path, text))
+                    bowAimFiles_.emplace_back("mod " + mid + ": " + it.path, std::string(text.begin(), text.end()));
+                continue;
+            }
             const std::string mapsRoot = lower(c.prefix) + "maps/";
             if (lowPath.rfind(mapsRoot, 0) == 0 && lowPath.size() > mapsRoot.size() + 4 &&
                 lowPath.compare(lowPath.size() - 4, 4, ".ini") == 0 &&

@@ -6,6 +6,8 @@
 // docs/reference/input.md section 16.
 #include "input/DrakanInput.h"
 #include <algorithm>
+#include <charconv>
+#include <sstream>
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
@@ -524,6 +526,80 @@ bool InputModule::updateBowSightLocomotion(IGuest& g, uint32_t player, uint32_t 
     return changed;
 }
 
+size_t InputModule::setBowAimFiles(const std::vector<std::pair<std::string, std::string>>& files) {
+    std::lock_guard<std::mutex> lock(m_);
+    bowAimProfiles_.clear();
+    const auto trim = [](std::string value) {
+        const auto first = value.find_first_not_of(" \t\r");
+        const auto last = value.find_last_not_of(" \t\r");
+        return first == std::string::npos ? std::string{} : value.substr(first, last - first + 1);
+    };
+    for (const auto& file : files) {
+        if (file.second.size() > (64u << 10))
+            continue;
+        std::istringstream stream(file.second);
+        std::string line;
+        BowAimProfile pending{};
+        bool version = false, bad = false, cone = false, range = false;
+        const auto flush = [&] {
+            if (!version || bad || !pending.resource || !cone || !range)
+                return;
+            const auto it = std::find_if(bowAimProfiles_.begin(), bowAimProfiles_.end(),
+                                         [&](const auto& p) { return p.resource == pending.resource; });
+            if (it != bowAimProfiles_.end())
+                *it = pending;
+            else if (bowAimProfiles_.size() < 4096)
+                bowAimProfiles_.push_back(pending);
+        };
+        while (std::getline(stream, line)) {
+            line = trim(line.substr(0, line.find_first_of(";#")));
+            if (line.empty())
+                continue;
+            if (line.front() == '[') {
+                flush();
+                pending = {};
+                bad = true;
+                cone = range = false;
+                if (line.rfind("[bow 0x", 0) != 0 || line.back() != ']')
+                    continue;
+                const auto text = line.substr(7, line.size() - 8);
+                const auto parsed = std::from_chars(text.data(), text.data() + text.size(), pending.resource, 16);
+                bad = parsed.ec != std::errc{} || parsed.ptr != text.data() + text.size() ||
+                      !(pending.resource & 0xffffu) || (pending.resource & 0xffffu) == 0xffffu;
+                continue;
+            }
+            const auto eq = line.find('=');
+            if (eq == std::string::npos) {
+                bad = true;
+                continue;
+            }
+            const auto key = trim(line.substr(0, eq)), text = trim(line.substr(eq + 1));
+            if (!pending.resource && key == "format") {
+                version = text == "1";
+                if (!version)
+                    break;
+                continue;
+            }
+            float value = 0;
+            const auto parsed = std::from_chars(text.data(), text.data() + text.size(), value);
+            if (parsed.ec != std::errc{} || parsed.ptr != text.data() + text.size() || !std::isfinite(value)) {
+                bad = true;
+            } else if (key == "cone_degrees" && !cone && value >= 0 && value <= 180) {
+                pending.cone = value;
+                cone = true;
+            } else if (key == "maximum_range" && !range && value >= 0) {
+                pending.range = value;
+                range = true;
+            } else
+                bad = true;
+        }
+        flush();
+    }
+    if (!bowAimProfiles_.empty())
+        std::fprintf(stderr, "[bow] loaded autoaim metadata for %zu converted bows\n", bowAimProfiles_.size());
+    return bowAimProfiles_.size();
+}
+
 uint16_t InputModule::bowAutoTarget(IGuest& g, uint32_t bow, uint32_t scratch) {
     std::lock_guard<std::mutex> lock(m_);
     if (std::getenv("DRAKAN_BOW_LOG"))
@@ -561,11 +637,31 @@ uint16_t InputModule::bowAutoTarget(IGuest& g, uint32_t bow, uint32_t scratch) {
         g.writeF(scratch + 4 * i, eye[i]);
         g.writeF(scratch + 16 + 4 * i, direction[i] / length);
     }
-    // Native homing-arrow selector excludes the owner, dead/inactive actors and occluded targets. Original PC Long,
-    // Heavy and Speed Bow class data specifies a 25-degree autoaim cone and 16000-unit range. Special PC bows have
-    // distinct values; preserving their extra metadata through conversion remains separate work.
+    // Original Bow21/23 are cone degrees and maximum range, consumed by its automatic target selector.
+    // Imported classes retain these extra properties in a host sidecar; native/unmapped bows keep the baseline.
+    float cone = 25.0f, range = 16000.0f;
+    const auto actor = g.read32(bow + 0xc), registry = g.read32(ctx + 0x320);
+    const auto valid = [](uint32_t p, uint32_t bytes) { return p >= 0x100000u && p <= 0x2000000u - bytes; };
+    uint32_t resource = 0;
+    if (valid(actor, 0x14) && valid(registry, 0x14)) {
+        const uint32_t index = g.read16(actor + 0x10), records = g.read32(registry + 8);
+        if (index != 0xffff && index <= g.read32(registry + 0x10) && valid(records, (index + 1u) * 0x24u) &&
+            g.read32(records + index * 0x24u + 8) == 0x1004fu) {
+            resource = g.read32(records + index * 0x24u);
+            const auto it = std::find_if(bowAimProfiles_.begin(), bowAimProfiles_.end(),
+                                         [&](const auto& p) { return p.resource == resource; });
+            if (it != bowAimProfiles_.end()) {
+                cone = it->cone;
+                range = it->range;
+            }
+        }
+    }
+    if (range == 0)
+        return 0;
     const uint32_t target =
-        g.call(GuestCall(0x49ec60).arg(owner).arg(scratch).arg(scratch + 16).argf(25.0f).argf(16000.0f));
+        g.call(GuestCall(0x49ec60).arg(owner).arg(scratch).arg(scratch + 16).argf(cone).argf(range));
+    if (std::getenv("DRAKAN_BOW_LOG"))
+        std::fprintf(stderr, "[bow] autoaim properties: resource=%x cone=%g range=%g\n", resource, cone, range);
     const uint16_t handle = target ? g.read16(target + 0x12) : 0;
     std::fprintf(stderr, "[bow] autoaim query: owner=%x target=%x handle=%u\n", owner, target, handle);
     return handle && objectFromHandle(g, ctx, handle) == target ? handle : 0;

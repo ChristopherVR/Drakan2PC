@@ -327,6 +327,23 @@ static void filesTests(const fs::path& root, const DiscProfile& pal) {
         CHECK(plainCount == 2);
     }
 
+    // Imported-bow sidecars are bounded, enabled-pack-only, and preserve mod load order.
+    {
+        const fs::path mods = root / "mods_bow_metadata";
+        for (const auto* id : {"first", "last", "off"}) {
+            writeText(mods / id / "mod.toml", toml(id));
+            writeText(mods / id / "gameplay/bows.ini", std::string("format=1\n;") + id);
+        }
+        writeText(mods / "first/gameplay/deeper/bows.ini", "ignored");
+        ModManager mm(pal);
+        CHECK(mm.load(mods.string(), {{"first", true}, {"off", false}, {"last", true}}) == 2);
+        CHECK(mm.bowAimFiles().size() == 2);
+        CHECK(mm.bowAimFiles()[0].second == "format=1\n;first");
+        CHECK(mm.bowAimFiles()[1].second == "format=1\n;last");
+        CHECK(mm.load(mods.string(), {{"first", false}, {"off", false}, {"last", false}}) == 0);
+        CHECK(mm.bowAimFiles().empty());
+    }
+
     // pack with files/, LVL override, new/ entry, levels
     {
         const fs::path mods = root / "mods_files";

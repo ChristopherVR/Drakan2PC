@@ -16,6 +16,7 @@
 #include <mutex>
 #include <string>
 #include <vector>
+#include <utility>
 
 namespace drakan_input {
 
@@ -72,6 +73,8 @@ public:
     // OotF third-person autoaim: native visible-target selection around the camera centre. scratch is a caller-owned
     // 32-byte guest stack block above the guest call's stack pointer. Returns a temporary target handle or zero.
     uint16_t bowAutoTarget(IGuest& g, uint32_t bow, uint32_t scratch);
+    // Enabled mod sidecars, in load order. Replaces only imported-bow automatic aiming metadata.
+    size_t setBowAimFiles(const std::vector<std::pair<std::string, std::string>>& files);
     // At the native attack gate's reset callback, permit the original PC bow's jumping state without changing
     // the actor state or any other native refusal condition. Unrecognized callers/masks remain native.
     uint32_t bowAttackMask(IGuest& g, uint32_t player, uint32_t caller, uint32_t mask);
@@ -252,6 +255,11 @@ private:
     void applyPendingLocked();
     std::mutex m_; // guest hooks may run on different EE host threads
     Config cfg_;
+    struct BowAimProfile {
+        uint32_t resource;
+        float cone, range;
+    };
+    std::vector<BowAimProfile> bowAimProfiles_;
     bool mouseKeyboardOwner_ = true;
     std::atomic<int> externalCapture_{-1};
     std::atomic<bool> freeCombatFrame_{false};

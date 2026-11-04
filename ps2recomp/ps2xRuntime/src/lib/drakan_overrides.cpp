@@ -1414,12 +1414,14 @@ void applyDrakanOverrides(PS2Runtime& runtime) {
         const char* modsEnv = std::getenv("DRAKAN_MODS");
         const std::string modsDir = modsEnv && *modsEnv ? std::string(modsEnv) : drakan_cfg::exeDir() + "mods";
         std::error_code modsEc;
+        drakan_input::module().setBowAimFiles({});
         if (std::filesystem::is_directory(modsDir, modsEc)) {
             const hle::mods::DiscProfile discProfile{prof.id, hle::mods::profileHash(prof.serial, prof.saveId)};
             std::fprintf(stderr, "[mods] disc profile %s hash %s, folder %s\n", prof.id,
                          hle::mods::hex64(discProfile.hash).c_str(), modsDir.c_str());
             g_mods = std::make_unique<hle::mods::ModManager>(discProfile);
             const size_t n = g_mods->load(modsDir);
+            drakan_input::module().setBowAimFiles(g_mods->bowAimFiles());
             g_mods->install(host->iop.res);
             g_mods->installFiles(host->fs); // files/, LVL entry overrides, new/ entries, LEVELLST.TXT
             drakan_coop_character::setRetargetedMotion(

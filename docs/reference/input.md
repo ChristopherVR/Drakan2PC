@@ -449,11 +449,24 @@ release. Holding LMB no longer delays the initial shot until release. Existing e
 
 Third-person automatic selection uses the native homing-arrow target finder (`0x49ec60`) around the camera centre,
 borrows the selected handle during the native launch, then restores the player's target. Explicit
-target lock retains native aiming. The adapter uses the original PC Long / Heavy / Speed Bow class defaults:
-25-degree cone and 16000-unit range. Special PC bows have different values, not yet preserved as runtime metadata.
-Damage, velocity, gravity, acceleration, lifetime and ammunition retain the native game values. Temporary stat/flight
-experiments from this investigation were removed following the user's scope clarification: the requested change is
-the way aiming and shooting work. Exact original per-bow draw/reload timing and special-bow metadata remain open.
+target lock retains native aiming. Native/unmapped bows use the original PC Long / Heavy / Speed baseline:
+25-degree cone and 16000-unit range. Converted original bows carry their authored automatic-aim cone/range through
+`gameplay/bows.ini`; the input module reads the exact registered Bow resource ID and passes these values to the
+native selector. Newly converted Energy Bow therefore uses 35 degrees, and FlameBow uses range 18000. Existing
+packs require re-export to carry this sidecar; without it the baseline remains unchanged. The converter emits only
+verified scalar source fields and Resources bank 3 targets; unknown/shared-conflicting layouts are omitted.
+
+The optional sidecar has `format = 1`, then `[bow 0x<resource>]` sections containing `cone_degrees` and
+`maximum_range`. Enabled packs are read in load order (later valid values win), with a 64 KiB file and 4096-profile
+limit. Invalid/nonfinite/out-of-range values and invalid IDs are rejected. Reload/removal clears stale metadata.
+Only the existing local-player automatic-aim path consumes it; manual sight, explicit target locks, NPCs, controller
+ownership and modern-mode exclusions retain their existing behavior.
+
+No runtime damage, velocity, gravity, acceleration, lifetime or ammunition policy is added. Temporary stat/flight
+experiments were removed following the user's clarification that the issue is the way aiming and shooting work.
+Exact original draw/reload and reattack timing, ray-origin/basis parity, sight FOV/accuracy and remaining special-bow
+effects remain open. Original code uses the shooter's position and its arrow pose; the current third-person adapter
+uses the camera ray, so preserving cone/range does not establish complete original targeting parity.
 
 With default `ootf` and direct keyboard/mouse input, the sight accepts movement, real jumps, mouse aiming and firing
 together. Native cached stand/run/walk motions start and stop through native root-motion callbacks; no movement
