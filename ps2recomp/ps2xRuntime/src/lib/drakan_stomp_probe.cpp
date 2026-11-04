@@ -27,6 +27,8 @@ using Owner = std::pair<int, size_t>;
 Owner g_sequenceOwner{}, g_actorOwner{};
 constexpr uint32_t kFrame = 0x1e3970;
 Fn g_frame = nullptr;
+constexpr uint32_t kSpawn = 0x181ad8;
+Fn g_spawn = nullptr;
 Owner owner(PS2Runtime* rt) {
     const auto* thread = rt->eeScheduler().currentThread();
     return {rt->eeScheduler().currentThreadId(), thread ? thread->invocations.size() : 0};
@@ -197,6 +199,36 @@ void tick(uint8_t* ram, R5900Context* c, PS2Runtime* rt) {
     }
     g_tick(ram, c, rt);
 }
+// Trace only the two native dust-particle classes implicated by the allocator census.
+// Factory argument t1 is a class-registry index; it is not a resource reference.
+void spawn(uint8_t* ram, R5900Context* c, PS2Runtime* rt) {
+    static unsigned counts[2] = {};
+    if (c->pc == kSpawn && g_lines < g_limit) {
+        const Ram r{ram};
+        const uint32_t context = getRegU32(c, 4), index = getRegU32(c, 9);
+        const uint32_t registry = r.u32(context + 0x320), table = r.u32(registry + 8);
+        if (Ram::valid(context, 0x324) && Ram::valid(registry, 0x14) && index <= 0xffff &&
+            index <= r.u32(registry + 0x10) && Ram::valid(table, index * 0x24 + 0x24)) {
+            const uint32_t record = table + index * 0x24, resource = r.u32(record), kind = r.u32(record + 8);
+            const uint32_t id = resource & 0xffff;
+            if (kind == 0x1007c && (id == 0x187a || id == 0x18ec)) {
+                const unsigned slot = id == 0x187a ? 0 : 1;
+                if (counts[slot]++ < 16) {
+                    const Owner current = owner(rt);
+                    log("dust-spawn resource=%08x class=%08x index=%u caller=%08x thread=%d invocation=%zu sample=%u",
+                        resource, kind, index, getRegU32(c, 31), current.first, current.second, counts[slot]);
+                    log("dust-spawn args a0=%08x a1=%08x a2=%08x a3=%08x t0=%08x t1=%08x t2=%08x", getRegU32(c, 4),
+                        getRegU32(c, 5), getRegU32(c, 6), getRegU32(c, 7), getRegU32(c, 8), getRegU32(c, 9),
+                        getRegU32(c, 10));
+                    log("dust-spawn saved s0=%08x s1=%08x s2=%08x s3=%08x s4=%08x s5=%08x s6=%08x s7=%08x",
+                        getRegU32(c, 16), getRegU32(c, 17), getRegU32(c, 18), getRegU32(c, 19), getRegU32(c, 20),
+                        getRegU32(c, 21), getRegU32(c, 22), getRegU32(c, 23));
+                }
+            }
+        }
+    }
+    g_spawn(ram, c, rt);
+}
 // Independent frame sampling remains available when the cinematic manager stops being scheduled.
 void frame(uint8_t* ram, R5900Context* c, PS2Runtime* rt) {
     static Clock::time_point last;
@@ -279,6 +311,12 @@ void install(PS2Runtime& rt) {
     rt.replaceFunction(kModel, phase<kModel>);
     g_frame = rt.lookupFunction(kFrame);
     rt.replaceFunction(kFrame, frame);
+    if (rt.hasFunction(kSpawn)) {
+        g_spawn = rt.lookupFunction(kSpawn);
+        rt.replaceFunction(kSpawn, spawn);
+    } else {
+        log("dust spawn factory unavailable; other observations remain enabled");
+    }
     log("installed maxLines=%d (completed readiness calls only; yielded calls are not inferred)", g_limit);
 }
 } // namespace drakan_stomp_probe
