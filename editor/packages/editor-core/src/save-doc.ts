@@ -102,6 +102,8 @@ export class SaveDocument extends LevelDocument {
     readonly itemPanel: ItemPanel | null;
     /** Occupied inventory cells as opened (empty when the cell table is not recognised). */
     readonly inventory: InventoryCell[];
+    /** A recognised empty pack is editable too; absence of items is not a missing table. */
+    readonly hasInventory: boolean;
     /** Whether the raw stats block (the authoritative copy of HP, gold, XP...) was found. */
     readonly hasStats: boolean;
     /** Quest / map marker rows as opened: row N's raw state word and the row's other words. */
@@ -154,8 +156,10 @@ export class SaveDocument extends LevelDocument {
         let inv: InventoryCell[] = [];
         try {
             inv = listInventory(save);
+            this.hasInventory = true;
         } catch {
             inv = [];
+            this.hasInventory = false;
         }
         this.inventory = inv;
         this.hasStats = this.probe('stat.hp').status !== 'missing';
@@ -169,6 +173,11 @@ export class SaveDocument extends LevelDocument {
     /** One template record per item class that the save contains (what "Replace with..." can offer). */
     itemTemplates(): ItemTemplate[] {
         return (this.templatesCache ??= itemTemplates(this.save));
+    }
+
+    /** New items need a recognised carried record to supply the game's ownership state. */
+    get canAddItems(): boolean {
+        return this.inventory.some((cell) => cell.marker === undefined && cell.entry !== undefined);
     }
 
     /**
@@ -404,6 +413,10 @@ export class AddItemCommand implements Command {
     }
     apply(doc: LevelDocument): void {
         if (!(doc instanceof SaveDocument)) throw new Error('AddItemCommand needs a SaveDocument');
+        if (!doc.canAddItems)
+            throw new SaveFieldError(
+                'Pick up an item in the game and save first. Adding items needs an existing carried item.',
+            );
         if (doc.placeFor(this.rows) === null) {
             throw new SaveFieldError(
                 this.rows > 1

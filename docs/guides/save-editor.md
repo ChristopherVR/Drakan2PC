@@ -6,7 +6,7 @@ The Save Game Editor opens the PC version's save files (`.rsg`) and lets you cha
 
 ## Before you start
 
-- **Close the game** first, or at least do not save in the game while the editor has the same slot open.
+- The game can stay running. Avoid saving to the same slot from the game and editor at the same time.
 - **Back up your saves.** Copy the whole `mc0` folder (see [Saves & updates](saves.md) for where it is) before editing. Saving from the editor also keeps a backup beside the file, but a copy of your own is the safest undo.
 - Your disc image is optional. Without it the editor shows values and short names; with it (**Disc** button in the header) it shows item names, pictures and quest text.
 
@@ -43,6 +43,10 @@ facts. Select a catalog card, inspect it, then press its **Add** or **Replace** 
 cells in a column; the catalog explains when an item does not fit. Newly added items remain marked **New** until saved.
 Select one to inspect it or use **Remove added item**; selecting its tile keeps it in the pack. Save or export and reopen
 to edit a new item's default quantity or durability.
+
+An empty pack still shows its inventory grid. Adding items currently needs an existing carried item to copy the
+game's ownership state from; if none is recognised, **Add item** is disabled with an explanation. Pick up an item
+in the game, save, and reopen that save to enable it.
 
 ## Save or export
 

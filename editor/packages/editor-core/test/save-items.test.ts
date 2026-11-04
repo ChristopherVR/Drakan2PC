@@ -223,6 +223,23 @@ describe('Add item (new carried record)', () => {
         ]);
     }
 
+    it('distinguishes an empty pack from a missing table and refuses additions before creating pending edits', () => {
+        const save = parseSave(addFixture());
+        const player = save.entries.find((e) => e.type === 0x102 && e.id === 8)!;
+        player.data.fill(0, CELL_BASE, CELL_BASE + 24 * 16);
+        player.data.fill(0xff, 0x700, 0x700 + 24 * 4);
+        const doc = SaveDocument.open(buildSave(save.entries));
+        expect(doc.hasInventory).toBe(true);
+        expect(doc.inventory).toEqual([]);
+        const stack = new CommandStack(doc);
+        expect(doc.canAddItems).toBe(false);
+        expect(() => stack.run(new AddItemCommand(7, 3))).toThrow(/Pick up an item/);
+        expect(doc.itemAdds).toEqual([]);
+        expect(SaveDocument.open(doc.build().bytes).inventory).toEqual([]);
+        player.data.fill(0, CELL_BASE - 0x14, CELL_BASE);
+        expect(SaveDocument.open(buildSave(save.entries)).hasInventory).toBe(false);
+    });
+
     it('appends the record, drops the first static, grows Rynn by one word', () => {
         const save = parseSave(addFixture());
         const out = addItem(save, 7);

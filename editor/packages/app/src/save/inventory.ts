@@ -122,7 +122,7 @@ export function renderInventory(ctx: PanelCtx): HTMLElement {
         state.replace = null;
     }
     const cells = previewCells(doc.inventory, doc.itemReplacementRows);
-    if (!cells.length) {
+    if (!doc.hasInventory) {
         return emptyState(
             'bag',
             'No inventory found in this save',
@@ -335,6 +335,13 @@ export function renderInventory(ctx: PanelCtx): HTMLElement {
             addControl(ctx, infoOf),
         ),
         itemGrid('invgrid', tiles),
+        !doc.canAddItems
+            ? h(
+                  'p',
+                  { class: 'note-box' },
+                  'Your pack is empty or has no recognised item records. Pick up an item in the game and save first to enable adding items here.',
+              )
+            : null,
         inspector,
         state.catalog ? renderCatalog(ctx, infoOf, itemArt) : null,
         h(
@@ -494,6 +501,7 @@ function addControl(ctx: PanelCtx, _infoOf: (resource: number | undefined) => Cl
         'button',
         {
             class: 'sv-btn',
+            disabled: !ctx.doc.canAddItems,
             onclick: () => {
                 state.catalog = true;
                 state.replace = null;
