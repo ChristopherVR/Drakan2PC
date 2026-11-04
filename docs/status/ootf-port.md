@@ -21,6 +21,8 @@ A private Atimar-only model candidate now produces genuine melee damage against 
 
 A separate controlled texture comparison restores Atimar's visible blade by making its texture square while preserving the original alpha metadata. The converter now applies guarded draw-list and indexed-square texture requirements to imported native melee weapons, preserving authored sphere bounds and resource IDs. Coherent pack regeneration and broader weapon validation remain pending; cellar/key progression continues. See [melee representation and isolated visibility proof](../journal/2026-11-04/ootf-retained-cinematic-props.md).
 
+Imported Long Bow nocking and shooting now work in an isolated native fixture after restoring its quiver's projectile reference and choosing a compatible rigid native Bow template. Six native launches consume exactly six carried arrows, including a shot while running and airborne with the sight retained. The converter fixes are committed; original aiming/cadence parity, held-bow rendering, special effects and earned campaign acquisition remain open. See [projectile and rigid-template validation](../journal/2026-11-05/bow-projectile-and-rigid-template.md).
+
 ## What works
 
 * Converter `editor/scripts/ootf-convert.ts` (`--campaign 1` for the campaign): terrain, textures, models, creatures (skinned, retargeted
