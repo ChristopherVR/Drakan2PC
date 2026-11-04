@@ -122,6 +122,22 @@ export function replacedBody(carried: Uint8Array, template: Uint8Array): Uint8Ar
     return out;
 }
 
+/** PAL Bow save layout: raw class 0x4f, base-item and Bow behaviour tables, then serialized references. */
+function bowOwnerSlotAt(data: Uint8Array): number | null {
+    const self = itemHandleAt(data);
+    if (
+        self === null ||
+        self < 0x0e ||
+        self + 0x16c > data.length ||
+        (data[self - 0x0e]! | (data[self - 0x0d]! << 8)) !== 0x4f ||
+        u32(data, self + 0x50) !== 0x51c030 ||
+        u32(data, self + 0x138) !== 0x521378
+    ) {
+        return null;
+    }
+    return self + 0x154;
+}
+
 /**
  * Replace the item in inventory cell `cell` by the record body of template entry `templateEntry`. Input untouched.
  * `rows` is the new class's height in cells; when it is given and differs from the item's height now, the height word
@@ -139,6 +155,19 @@ export function replaceItem(save: SaveFile, cell: number, templateEntry: number,
     const tpl = save.entries.find((e) => e.type === TYPE_RECORD && e.id === templateEntry && itemResource(e) !== null);
     if (!tpl) throw new SaveFieldError(`entry ${templateEntry} is not an item record`);
     const data = replacedBody(item.data, tpl.data);
+    // Native 34d960 reads this appended record slot, replacing the raw runtime owner word. Only preserve a
+    // verified equipped Bow's reference to this save's Rynn; do not carry its ammunition, nocked arrow or state.
+    // Keep this out of replacedBody: Add uses that helper with an identity donor, which must not confer ownership.
+    const ownerFrom = bowOwnerSlotAt(item.data);
+    const ownerTo = bowOwnerSlotAt(tpl.data);
+    if (
+        u32(rynn.data, base + 16 * cell) === 1 &&
+        ownerFrom !== null &&
+        ownerTo !== null &&
+        u32(item.data, ownerFrom) === rynn.id - 1
+    ) {
+        data.set(item.data.subarray(ownerFrom, ownerFrom + 4), ownerTo);
+    }
     const rynnData = rows === undefined ? null : resizedRynn(save, cell, rows);
     return {
         ...save,

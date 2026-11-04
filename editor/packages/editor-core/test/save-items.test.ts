@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { assembleSave, listInventory, parseSave } from '@drakan/formats';
+import { assembleSave, enc, listInventory, parseSave } from '@drakan/formats';
 import { liveEntries } from '../../formats/test/livefixture.ts';
 import { buildSave } from '../../formats/test/savefixture.ts';
 import {
@@ -52,6 +52,21 @@ function shiftedItem(resource: number, handle: number, at: number, state: number
     dv.setUint32(at + 0xe0, handle, true);
     dv.setUint32(at + 0x10, 7, true);
     return b;
+}
+
+function bowItem(resource: number, handle: number, at: number, ownerSlot: number): Uint8Array {
+    const data = shiftedItem(resource, handle, at, 2, at + 0x180);
+    const dv = new DataView(data.buffer);
+    dv.setUint16(at - 0x0e, 0x4f, true);
+    dv.setUint32(at + 0x50, 0x51c030, true);
+    dv.setUint32(at + 0x138, 0x521378, true);
+    dv.setUint32(at + 0x154, ownerSlot, true);
+    dv.setUint32(at + 8, enc(resource === 0x31bc9 ? 200 : 300), true);
+    dv.setUint32(at + 12, enc(resource === 0x31bc9 ? 200 : 300), true);
+    dv.setUint32(at + 0x160, resource === 0x31bc9 ? 0x1379e : 0x137aa, true);
+    dv.setUint32(at + 0x164, ownerSlot === 0xffffffff ? 0xffffffff : 0x19a, true);
+    dv.setUint32(at + 0x168, ownerSlot === 0xffffffff ? 0 : 2, true);
+    return data;
 }
 
 function rynn(): Uint8Array {
@@ -197,6 +212,74 @@ describe('item records with the handle further on (bow, Steel Club)', () => {
     });
 });
 
+describe('equipped Bow replacement ownership', () => {
+    const sourceAt = 0x112;
+    const targetAt = 0x148;
+
+    function bowFixture(change?: (source: Uint8Array, target: Uint8Array, player: Uint8Array) => void) {
+        const source = bowItem(0x31bc9, HANDLE_A, sourceAt, 55);
+        const target = bowItem(0x32266, HANDLE_GROUND, targetAt, 0xffffffff);
+        const player = rynn(); // record 56; serialized owner slot is therefore 55
+        change?.(source, target, player);
+        return parseSave(
+            buildSave([
+                ...liveEntries().filter((e) => e.type !== 0x102),
+                { type: 0x102, id: 56, data: player },
+                { type: 0x102, id: 328, data: source },
+                { type: 0x102, id: 615, data: item(0x33cbc, HANDLE_B, 2, 2) },
+                { type: 0x102, id: 700, data: target },
+            ]),
+        );
+    }
+
+    it('keeps the verified Rynn owner slot across shifted Bow prefixes without inheriting the old ammunition', () => {
+        const save = bowFixture();
+        const source = save.entries.find((e) => e.id === 328)!.data;
+        const target = save.entries.find((e) => e.id === 700)!.data;
+        const before = replacedBody(source, target);
+        const out = replaceItem(save, 0, 700).entries.find((e) => e.id === 328)!.data;
+        const expected = before.slice();
+        new DataView(expected.buffer).setUint32(targetAt + 0x154, 55, true);
+        expect(out).toEqual(expected); // the only additional preservation is the appended owner reference
+        expect(new DataView(out.buffer).getUint32(targetAt + 0x160, true)).toBe(0x137aa);
+        expect(new DataView(out.buffer).getUint32(targetAt + 0x164, true)).toBe(0xffffffff);
+        expect(new DataView(out.buffer).getUint32(targetAt + 0x168, true)).toBe(0);
+        expect(out.subarray(targetAt + 8, targetAt + 16)).toEqual(target.subarray(targetAt + 8, targetAt + 16));
+    });
+
+    it.each(['foreign-owner', 'source-class', 'target-class', 'source-vtable', 'target-vtable', 'not-equipped'])(
+        'does not preserve ownership for %s',
+        (reason) => {
+            const save = bowFixture((source, target, player) => {
+                if (reason === 'foreign-owner') new DataView(source.buffer).setUint32(sourceAt + 0x154, 54, true);
+                if (reason === 'source-class') new DataView(source.buffer).setUint16(sourceAt - 0x0e, 0x2d, true);
+                if (reason === 'target-class') new DataView(target.buffer).setUint16(targetAt - 0x0e, 0x2d, true);
+                if (reason === 'source-vtable') new DataView(source.buffer).setUint32(sourceAt + 0x50, 0x51c034, true);
+                if (reason === 'target-vtable') new DataView(target.buffer).setUint32(targetAt + 0x138, 0x52137c, true);
+                if (reason === 'not-equipped') new DataView(player.buffer).setUint32(CELL_BASE, 0, true);
+            });
+            const out = replaceItem(save, 0, 700).entries.find((e) => e.id === 328)!.data;
+            expect(new DataView(out.buffer).getUint32(targetAt + 0x154, true)).toBe(0xffffffff);
+        },
+    );
+
+    it('does not confer equipped ownership through the identity helper used by Add', () => {
+        const source = bowItem(0x31bc9, HANDLE_A, sourceAt, 55);
+        const target = bowItem(0x32266, HANDLE_GROUND, targetAt, 0xffffffff);
+        const addedBody = replacedBody(source, target);
+        expect(new DataView(addedBody.buffer).getUint32(targetAt + 0x154, true)).toBe(0xffffffff);
+    });
+
+    it('leaves a truncated target layout alone', () => {
+        const save = bowFixture();
+        const target = save.entries.find((e) => e.id === 700)!;
+        target.data = target.data.slice(0, targetAt + 0x154);
+        const source = save.entries.find((e) => e.id === 328)!.data;
+        const out = replaceItem(save, 0, 700).entries.find((e) => e.id === 328)!.data;
+        expect(out).toEqual(replacedBody(source, target.data));
+    });
+});
+
 describe('Add item (new carried record)', () => {
     const K = 12;
     const STATICS = [5020, 5018, 5016, 5014];
@@ -303,6 +386,23 @@ describe('Add item (new carried record)', () => {
         expect(re.entries.filter((x) => x.type === 0x102).map((x) => x.id)).toEqual(
             Array.from({ length: K + 1 }, (_, i) => i + 1),
         );
+    });
+
+    it('does not copy an equipped Bow donor owner when adding a ground-template Bow', () => {
+        const save = parseSave(addFixture());
+        save.entries.find((e) => e.type === 0x102 && e.id === 4)!.data = bowItem(0x31bc9, HANDLE_A, 0x112, 7);
+        save.entries.find((e) => e.type === 0x102 && e.id === 7)!.data = bowItem(
+            0x32266,
+            HANDLE_GROUND,
+            0x148,
+            0xffffffff,
+        );
+        const player = save.entries.find((e) => e.type === 0x102 && e.id === 8)!.data;
+        new DataView(player.buffer, player.byteOffset).setUint32(CELL_BASE + 16, 1, true);
+        const out = addItem(parseSave(buildSave(save.entries)), 7);
+        const added = out.save.entries.find((e) => e.type === 0x102 && e.id === out.slot + 1)!.data;
+        expect(new DataView(added.buffer, added.byteOffset).getUint32(0x148 + 0x154, true)).toBe(0xffffffff);
+        expect(listInventory(out.save).find((c) => c.cell === out.cell)!.equipped).toBe(0);
     });
 
     it('fills the next free cell and refuses a non-item template', () => {
