@@ -17,6 +17,8 @@ Converted cinematic actors are also retained by default after the model/clip and
 
 **November 5 rotation repair:** preserving unsigned source angles fixes a 16-degree native orientation error affecting 2,374 imported objects. A fresh normal opening on the controlled `7DBB` pack completed in 316 seconds, followed by native equip, save and reload. Tavern and entrance bases now match their authored orientation, including after reload. Traversal continues from this fresh earned card; earlier saves contain the old transforms. See [rotation encoding and fresh validation](../journal/2026-11-05/ootf-rotation-encoding.md).
 
+A private Atimar-only model candidate now produces genuine five-point melee hits against the pursuing Wartok from an earned save. It adds the missing draw list while preserving the complete authored sphere collision hierarchy; replacing that hierarchy with box bounds caused native weapon deletion. This verifies contacts and lifecycle in that candidate. Held-blade visibility, general weapon conversion and ordinary quest progression remain in progress. See [ordinary combat evidence](../journal/2026-11-05/ootf-normal-route.md).
+
 ## What works
 
 * Converter `editor/scripts/ootf-convert.ts` (`--campaign 1` for the campaign): terrain, textures, models, creatures (skinned, retargeted
