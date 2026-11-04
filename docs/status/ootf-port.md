@@ -15,6 +15,8 @@ Earlier isolated level loads and scripted exits below do not establish full prog
 
 Converted cinematic actors are also retained by default after the model/clip and display-list repairs. Normal opening solo/co-op checks and isolated later lifecycle checks support that restoration. A further conversion fix supplies native draw lists for rigid generic props: an isolated ending comparison now renders textured room walls and the mirror frame around Delon's original animation. The middle black interval is an authored fade. The regenerated pack preserves every level/class payload and model ID; only the common model container changes. Loading the earned save now renders the tavern's stone and wood surfaces, and ordinary movement reaches its visible entrance. Cellar entry and quest collection remain in progress. These checks do not establish a naturally earned or fully verified ending. See [retained cinematic actors](../journal/2026-11-04/ootf-retained-cinematic-props.md) and [ordinary route evidence](../journal/2026-11-05/ootf-normal-route.md).
 
+**November 5 rotation repair:** preserving unsigned source angles fixes a 16-degree native orientation error affecting 2,374 imported objects. A fresh normal opening on the controlled `7DBB` pack completed in 316 seconds, followed by native equip, save and reload. Tavern and entrance bases now match their authored orientation, including after reload. Traversal continues from this fresh earned card; earlier saves contain the old transforms. See [rotation encoding and fresh validation](../journal/2026-11-05/ootf-rotation-encoding.md).
+
 ## What works
 
 * Converter `editor/scripts/ootf-convert.ts` (`--campaign 1` for the campaign): terrain, textures, models, creatures (skinned, retargeted
