@@ -14,11 +14,14 @@ struct FontAtlas {
     std::vector<FontAtlasCell> cells;
 };
 // Recognizes the plain 256x256 atlas by marker layout, not dimensions alone.
-// Copies all source pixels 8x. Only ASCII !..~ ink cells are replaced using
+// Copies all source pixels 8x. ASCII !..~ and Latin-1 192..255 ink cells are replaced using
 // the installed TTF, fitted to the original glyph's ink bounds. Prompts,
-// accents, markers, spacing and native UVs are preserved. Never writes assets.
+// markers, spacing and native UVs are preserved. Never writes assets.
 bool buildFont97Atlas(const uint32_t* source, uint32_t w, uint32_t h, const std::string& ttfPath, FontAtlas& out);
 bool font97AsciiCells(const uint32_t* source, uint32_t w, uint32_t h, std::vector<FontAtlasCell>& cells);
+// Returns ASCII and the Latin-1 alphabet. Legacy symbol substitutions and
+// the final 35 engine-symbol cells retain their native artwork.
+bool font97TextCells(const uint32_t* source, uint32_t w, uint32_t h, std::vector<FontAtlasCell>& cells);
 // Decorative menu font, identified by both native marker rows. Keeps native
 // cell positions/advances so radio labels and measurement remain consistent.
 bool font96AsciiCells(const uint32_t* source, uint32_t w, uint32_t h, std::vector<FontAtlasCell>& cells);

@@ -1,5 +1,28 @@
 # Subtitles: what the game has, how it works, what to add
 
+## Native font and spacing corrections (2026-11-04)
+
+Gameplay dialogue uses the guest subtitle renderer; intro/outro narration uses
+the separate host SRT overlay. Native display lines now collapse repeated
+spaces and tab/CR/LF whitespace to one space, trimming line edges before the
+guest measures and centres them. Cleanup is bounded to the four 0x400-byte
+display buffers after page selection and word wrapping. It does not edit sound
+descriptors, timing escapes or narration cue timings; existing wraps remain
+conservative rather than being recomputed.
+
+The generated plain-font atlas now replaces the Latin-1 alphabet (192–255) as
+well as ASCII. Previously accented dialogue/UI letters retained low-resolution
+disc artwork alongside the sharper ASCII glyphs. Native cell bounds, advances,
+marker rows and engine symbols remain intact. The intervening legacy symbol
+run retains original artwork because its substitutions are not a one-to-one
+Unicode mapping. Font 96's decorative replacement remains ASCII-only.
+
+Both GPU backends now exempt only the subtitle background from horizontal
+scaling. A text batch spanning 85% or more of the native canvas receives the
+same centred map as its individual glyph/shadow packets.
+
+Validation and private evidence: [font investigation](../journal/2026-11-04/subtitle-font.md).
+
 Research 2026-10-17 (SCES_500.06 PAL, English/French/German trees of the disc). Everything below was measured on the disc data and the
 Ghidra project (`tools/ghidra_proj/Drakan`); the runtime checks were done with a scratch copy of the merged runtime
 (`build/research/ws_build`, nothing under `tools/` or `runtime/` was touched). Tools: `analysis/scripts/sub_sdb_text.py`, `sub_export.py`,

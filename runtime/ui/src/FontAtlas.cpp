@@ -106,12 +106,43 @@ bool font96AsciiCells(const uint32_t* source, uint32_t w, uint32_t h, std::vecto
     }
     return cells.size() == 95;
 }
+bool font97TextCells(const uint32_t* source, uint32_t w, uint32_t h, std::vector<FontAtlasCell>& cells) {
+    if (!font97AsciiCells(source, w, h, cells))
+        return false;
+    cells.clear();
+    uint32_t code = 32;
+    for (uint32_t y = 0; code <= 255 && y + kRow <= h; y += kRow) {
+        const auto bounds = markers(source, h - 1 - y);
+        if (bounds.size() < 2)
+            break;
+        for (size_t i = 0; i + 1 < bounds.size() && code <= 255; ++i) {
+            const uint32_t width = bounds[i + 1] - bounds[i] - 1;
+            if (!width || width > 40) {
+                cells.clear();
+                return false;
+            }
+            cells.push_back({code, bounds[i], y, width, kRow});
+            code = code == 126 ? 161 : code + 1;
+        }
+    }
+    if (cells.size() != 190) {
+        cells.clear();
+        return false;
+    }
+    // The native symbol run between ASCII and the accented alphabet has
+    // legacy substitutions. Preserve it rather than assigning Unicode
+    // punctuation to artwork whose encoding is not one-to-one.
+    cells.erase(std::remove_if(cells.begin(), cells.end(),
+                               [](const FontAtlasCell& c) { return c.codepoint >= 161 && c.codepoint < 192; }),
+                cells.end());
+    return true;
+}
 static bool buildAsciiAtlas(const uint32_t* source, uint32_t w, uint32_t h, const std::string& path, FontAtlas& out,
                             bool decorative) {
 
     out = {};
     std::vector<FontAtlasCell> cells;
-    if (!(decorative ? font96AsciiCells(source, w, h, cells) : font97AsciiCells(source, w, h, cells)))
+    if (!(decorative ? font96AsciiCells(source, w, h, cells) : font97TextCells(source, w, h, cells)))
         return false;
     std::vector<unsigned char> ttf;
     stbtt_fontinfo font{};
@@ -158,7 +189,7 @@ static bool buildAsciiAtlas(const uint32_t* source, uint32_t w, uint32_t h, cons
                 stbtt_FreeBitmap(bitmap, nullptr);
             continue;
         }
-        // Clear only this ASCII sprite. Row-zero markers and every other cell stay copied.
+        // Clear only this text sprite. Row-zero markers and every other cell stay copied.
         for (uint32_t y = kScale; y < c.height * kScale; ++y)
             for (uint32_t x = 0; x < c.width * kScale; ++x)
                 result.rgba[static_cast<size_t>(result.height - 1 - (c.y * kScale + y)) * result.width + c.x * kScale +

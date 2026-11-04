@@ -6,6 +6,7 @@
 #include "ps2_runtime.h"
 #include "ps2_runtime_macros.h"
 #include "runtime/ee_scheduler.h"
+#include "ui/SubtitleText.h"
 #include <algorithm>
 #include <cmath>
 #include <cstring>
@@ -410,6 +411,14 @@ void subtitleDraw(uint8_t* ram, R5900Context* c, PS2Runtime* rt) {
     };
     if (c->pc == 0x3afd18u) {
         const uint32_t object = GPR_U32(c, 4) & 0x1fffffffu;
+        // These are the display buffers after the game's page selection and
+        // wrapping. Keep descriptor text and timing escapes intact.
+        if (range(object, 0x24 + 4 * 0x400)) {
+            const uint32_t lines = rd(ram, object + 0x20);
+            if (lines <= 4)
+                for (uint32_t i = 0; i < lines; ++i)
+                    drakan_ui::tidySubtitleLine(reinterpret_cast<char*>(ram + object + 0x24 + i * 0x400), 0x400);
+        }
         scope.returnPc = GPR_U32(c, 31);
         scope.active =
             enabled() && sink && range(object, 0x24) && rd(ram, object + 0x20) > 0 && rd(ram, object + 0x10) != 3;

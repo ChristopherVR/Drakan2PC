@@ -99,6 +99,12 @@ int main(int argc, char** argv) {
         if (atlas.rgba.empty())
             continue;
         check(atlas.width == 2048 && atlas.height == 2048, "8x atlas dimensions");
+        cells = atlas.cells;
+        check(cells.size() == 159 && cells[95].codepoint == 192 && cells.back().codepoint == 255,
+              "native ASCII/Latin-1 alphabet order, excluding legacy symbols");
+        const auto& eAcute = cells[95 + 233 - 192];
+        check(eAcute.x == 81 && eAcute.y == 154 && eAcute.width == 10,
+              "accented e uses its measured native cell, not a neighboring glyph");
         unsigned sourceInkCells = 0;
         for (const auto& c : cells)
             if (c.codepoint != 32) {
@@ -130,7 +136,7 @@ int main(int argc, char** argv) {
                     ++alphaErrors;
             }
         check(changed > 1000, "glyph ink actually changed");
-        check(outsideChanges == 0, "prompt/nonASCII/marker/spacing copy exact outside editable glyphs");
+        check(outsideChanges == 0, "prompt/marker/spacing copy exact outside editable text glyphs");
         check(alphaErrors == 0, "GS alpha range preserved");
         std::printf("CELLS [");
         for (size_t j = 0; j < cells.size(); ++j) {

@@ -2,6 +2,7 @@
 #include "hle/IsoFs.h"
 #include "ui/Draw.h"
 #include "ui/Prompts.h"
+#include "ui/SubtitleText.h"
 #include "ui/Txd.h"
 #include <cstdio>
 #include <cstring>
@@ -37,6 +38,21 @@ static std::vector<hle::u8> makeTex8(int w, int h, const std::vector<Rgba>& pal,
 }
 
 int main(int argc, char** argv) {
+    // Native dialogue is already split into timed pages and display lines.
+    {
+        char line[] = "  First sentence.    Second\t sentence. \r\n";
+        tidySubtitleLine(line, sizeof(line));
+        CHECK(std::strcmp(line, "First sentence. Second sentence.") == 0);
+        char localized[] = "  Fr\xe4ulein,  h\xf6rt! ";
+        tidySubtitleLine(localized, sizeof(localized));
+        CHECK(std::strcmp(localized, "Fr\xe4ulein, h\xf6rt!") == 0);
+        char incomplete[] = {'x', ' ', ' ', 'y'};
+        tidySubtitleLine(incomplete, sizeof(incomplete));
+        CHECK(incomplete[1] == ' ' && incomplete[2] == ' ' && incomplete[3] == 'y');
+        char blank[] = " \t ";
+        tidySubtitleLine(blank, sizeof(blank));
+        CHECK(blank[0] == 0);
+    }
     // ---- bindings
     {
         Bindings d = Bindings::defaults();

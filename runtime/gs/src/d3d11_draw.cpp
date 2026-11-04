@@ -895,7 +895,10 @@ void D3D11Backend::Impl::draw(const GsDrawState& s, const ClutBuf& clut, const D
                     const bool glyph = haveTex && nativeSubtitleBounds.glyph(k.b[1], k.b[2], top, bottom);
                     if (band || glyph) {
                         for (uint32_t i = b; i < e; ++i) {
-                            if (hi - lo < .85f * cornerFrameW)
+                            // Only the background stays full width. A long
+                            // text batch must share the map of its shadows
+                            // and individual glyph packets too.
+                            if (!band)
                                 dv[i].x = map.x(dv[i].x);
                             dv[i].y = map.y(dv[i].y);
                         }
