@@ -351,6 +351,35 @@ void testOotfJumpAttackGate() {
     CHECK(m.bowAttackMask(g, PLAYER, caller, native) == native);
 }
 
+void testOotfSightForwardLook() {
+    InputModule m;
+    m.initHeadless(Config::defaults());
+    FakeGuest g;
+    setup(g);
+    g.write32(CAM + 0x48, 0x20);
+    CHECK(m.suppressBowSightForwardLook(g, PLAYER, 0x44e680, 2));
+    CHECK(!m.suppressBowSightForwardLook(g, PLAYER, 0x44e680, 1));
+    CHECK(!m.suppressBowSightForwardLook(g, PLAYER, 0x44e684, 2));
+    CHECK(!m.suppressBowSightForwardLook(g, PLAYER + 4, 0x44e680, 2));
+    g.write32(CAM + 0x48, 0);
+    CHECK(!m.suppressBowSightForwardLook(g, PLAYER, 0x44e680, 2));
+    g.write32(CAM + 0x48, 0x20);
+    g.write32(PLAYER + 0xe90, 1);
+    CHECK(!m.suppressBowSightForwardLook(g, PLAYER, 0x44e680, 2));
+    g.write32(PLAYER + 0xe90, 5);
+    FrameInput f;
+    f.focused = f.captured = true;
+    f.gamepad.connected = true;
+    f.gamepad.ly = 1;
+    m.beginFrame(f);
+    CHECK(!m.suppressBowSightForwardLook(g, PLAYER, 0x44e680, 2));
+    auto c = Config::defaults();
+    c.bowAimModern = true;
+    m.reloadConfig(c);
+    m.beginFrame(FrameInput{});
+    CHECK(!m.suppressBowSightForwardLook(g, PLAYER, 0x44e680, 2));
+}
+
 int main() {
     {
         InputModule m;
@@ -373,6 +402,7 @@ int main() {
     testArrowRetarget();
     testOotfAutoTarget();
     testOotfJumpAttackGate();
+    testOotfSightForwardLook();
     std::printf("%d checks, %d failures\n", g_checks, g_fail);
     return g_fail ? 1 : 0;
 }

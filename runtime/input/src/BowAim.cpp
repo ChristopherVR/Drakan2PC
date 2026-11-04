@@ -232,6 +232,26 @@ uint32_t InputModule::bowAttackMask(IGuest& g, uint32_t player, uint32_t caller,
     return mask & ~0x10u;
 }
 
+uint32_t InputModule::ootfBowSightCamera(IGuest& g, uint32_t player) const {
+    if (cfg_.bowAimModern || dragon_ || !player || !g.read32(0x4fb730) || g.read32(0x4fbafc))
+        return 0;
+    const auto ctx = g.read32(cfg_.addrCtxPtr), cam = contextCamera(g, ctx);
+    if (player != contextPlayer(g, ctx) || g.read32(player + 0xe90) != kBowMode || !cam ||
+        g.read32(cam + 0x14c) != 6 || !(g.read32(cam + 0x48) & kCameraSightFlag))
+        return 0;
+    return cam;
+}
+
+bool InputModule::suppressBowSightForwardLook(IGuest& g, uint32_t player, uint32_t caller, uint32_t axis) {
+    std::lock_guard<std::mutex> lock(m_);
+    // PS2 Camera_UpdateLook reads forward axis2 as pitch in the sight (44e678). Keyboard W/S must remain
+    // movement commands; direct mouse displacement already owns pitch. A physical stick retains its native read.
+    const bool padSteering = cfg_.gamepadEnabled && frame_.gamepad.connected &&
+                             (frame_.gamepad.lx != 0.0f || frame_.gamepad.ly != 0.0f);
+    return caller == 0x44e680u && axis == 2 && mouseKeyboardOwner_ && !padSteering &&
+           cfg_.lookMode == LookMode::Direct && !nativeLookControlActive() && ootfBowSightCamera(g, player);
+}
+
 uint16_t InputModule::bowAutoTarget(IGuest& g, uint32_t bow, uint32_t scratch) {
     std::lock_guard<std::mutex> lock(m_);
     if (std::getenv("DRAKAN_BOW_LOG"))

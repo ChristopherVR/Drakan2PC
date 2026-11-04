@@ -74,6 +74,7 @@ public:
     // At the native attack gate's reset callback, permit the original PC bow's jumping state without changing
     // the actor state or any other native refusal condition. Unrecognized callers/masks remain native.
     uint32_t bowAttackMask(IGuest& g, uint32_t player, uint32_t caller, uint32_t mask);
+    bool suppressBowSightForwardLook(IGuest& g, uint32_t player, uint32_t caller, uint32_t axis);
     // While aiming: draw a crosshair at the centre of the game image (overlay thread).
     bool bowCrosshairVisible() const { return bowAiming_.load() && !hostOwned() && !menuActive_.load(); }
     // Before-hook for PadMgr_Update: A / D strafe (on foot) by pointing the left stick's X at the strafe axis (3)
@@ -216,6 +217,7 @@ private:
     float bowZoomNative_ = 0, bowZoomTarget_ = 0;
     bool bowShoulderActive_ = false;
     uint32_t bowShoulderCam_ = 0;
+    uint32_t ootfBowSightCamera(IGuest& g, uint32_t player) const; // m_ held
     float bowShoulderNative_[2] = {};
     bool plainPitchBranch(IGuest& g, uint32_t player, uint32_t cam) const;
     bool followOwned_ = false; // cam+0x210 of followCam_ is ours; followNative_ is the game's value

@@ -106,6 +106,7 @@ constexpr uint32_t kPadInit = 0x4b0948u, kPadPortOpen = 0x4b0ba8u, kPadRead = 0x
 PS2Runtime::RecompiledFunction g_origPadMgrUpdate = nullptr, g_origCameraLook = nullptr;
 PS2Runtime::RecompiledFunction g_origCameraFollow = nullptr, g_origBowLaunch = nullptr;
 PS2Runtime::RecompiledFunction g_origBowAttackReset = nullptr;
+PS2Runtime::RecompiledFunction g_origBowSightAxis = nullptr;
 PS2Runtime::RecompiledFunction g_parryOriginal[4] = {};
 using ParryReduction = drakan_parry_audit::PendingReduction;
 ParryReduction g_parryPending[64] = {};
@@ -978,6 +979,24 @@ void hookCameraFollow(uint8_t* rdram, R5900Context* c, PS2Runtime* rt) {
     beforeCameraFollow(g, cam);
     g_origCameraFollow(rdram, c, rt);
 }
+void hookBowSightAxis(uint8_t* rdram, R5900Context* c, PS2Runtime* rt) {
+    if (c->pc == 0x1e4c70u) {
+        RecompGuest g(rdram, c, rt);
+        if (module().suppressBowSightForwardLook(g, getRegU32(c, 19), getRegU32(c, 31), getRegU32(c, 5))) {
+            c->f[0] = 0.0f;
+            c->pc = getRegU32(c, 31);
+            return;
+        }
+    }
+    g_origBowSightAxis(rdram, c, rt);
+}
+
+void installBowSightAxis(PS2Runtime& rt) {
+    g_origBowSightAxis = rt.lookupFunction(0x1e4c70u);
+    if (g_origBowSightAxis)
+        rt.replaceFunction(0x1e4c70u, &hookBowSightAxis);
+}
+
 // FUN_0031da90's reset callback preserves the attack mask in s2 across this call. Change that register only at
 // its known callback, preserving the actor's real airborne flags for the subsequent native animation setup.
 void hookBowAttackReset(uint8_t* rdram, R5900Context* c, PS2Runtime* rt) {
@@ -1332,6 +1351,8 @@ void drakanInstallInput(PS2Runtime& rt) {
         g_origBowAttackReset = rt.lookupFunction(0x307198u);
         if (g_origBowAttackReset && !(skip & 64))
             rt.replaceFunction(0x307198u, &hookBowAttackReset);
+        if (!(skip & 64))
+            installBowSightAxis(rt);
     }
     if (g_origBowLaunch && !(skip & 64)) // 64: no modern bow aim hook
         rt.replaceFunction(kBowLaunch, &hookBowLaunch);
@@ -1358,6 +1379,7 @@ void drakanInstallPortableMenuHooks(PS2Runtime& rt) {
         g_origBowAttackReset = rt.lookupFunction(0x307198u);
         if (g_origBowAttackReset)
             rt.replaceFunction(0x307198u, &hookBowAttackReset);
+        installBowSightAxis(rt);
     }
     if (g_origBowLaunch)
         rt.replaceFunction(kBowLaunch, &hookBowLaunch); // modern bow aim, as on Windows
