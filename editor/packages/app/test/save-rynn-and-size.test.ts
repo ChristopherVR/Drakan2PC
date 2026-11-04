@@ -13,7 +13,7 @@ import {
 import { SaveDocument, itemCells, placeItem } from '@drakan/editor-core';
 import { buildSave, saveEntries } from '../../formats/test/savefixture.ts';
 import { itemCellCount } from '../src/itemdata.ts';
-import { itemHeight, noRoomMessage } from '../src/save/inventory.ts';
+import { itemHeight, noRoomMessage, previewCells, spans } from '../src/save/inventory.ts';
 
 /** The synthetic save with Rynn's class word replaced (the game-written variant sets bit 27). */
 function saveWithRynnWord(word: number): Uint8Array {
@@ -55,6 +55,24 @@ describe("Rynn's class word", () => {
 });
 
 describe('Add item size checks', () => {
+    it('previews taller and shorter pending replacements without leaving old occupied cells', () => {
+        const original = [
+            { cell: 1, resource: 0x33752 },
+            { cell: 2, resource: 0x3372d },
+            { cell: 10, marker: 1 },
+        ];
+        const preview = previewCells(
+            original,
+            new Map([
+                [1, 3],
+                [2, 1],
+            ]),
+        );
+        expect(spans(preview).get(1)?.rows).toBe(3);
+        expect(spans(preview).get(2)?.rows).toBe(1);
+        expect(preview.filter((c) => c.marker !== undefined).map((c) => c.cell)).toEqual([9, 17]);
+        expect(original).toHaveLength(3);
+    });
     it('keeps a tall item inside the grid, spanning down one column', () => {
         expect(itemCells(0, 1)).toEqual([0]);
         expect(itemCells(5, 3)).toEqual([5, 13, 21]);

@@ -35,7 +35,7 @@ export interface PanelCtx {
     /** Redraw only the current tab. */
     rerender(): void;
     /** Game name and model render of an item class (resource like `0x31bc9`), when a level with it is open. */
-    classInfo?(resource: string): ClassInfo | null;
+    classInfo?(resource: string, thumbnail?: boolean): ClassInfo | null;
     /** Quest classes and journal text of the open disc (null until loaded or without a disc). */
     story?(): StoryData | null;
 }

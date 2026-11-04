@@ -79,7 +79,7 @@ const $ = <T extends HTMLElement>(id: string): T => {
 export interface SaveUiHost {
     setStatus(msg: string, error?: boolean): void;
     /** Game name and model render of an item class (`0x31bc9`), when a level with that class is open in Level mode. */
-    classInfo?(resource: string): ClassInfo | null;
+    classInfo?(resource: string, thumbnail?: boolean): ClassInfo | null;
     /** Subscribe to "item names or pictures arrived" so the Items tab can redraw. */
     onItemArt?(fn: () => void): void;
     /** Quest classes and journal text of the open disc. */
@@ -580,7 +580,9 @@ export function initSaveUi(host: SaveUiHost): { openFile(f: File): Promise<void>
                       ? (c: PanelCtx) => renderTransfer(c, renderExtra)
                       : null;
         if (!render) return;
+        const catalogSearch = document.activeElement?.id === 'sv-catalog-search';
         panes[subtab].replaceChildren(cur ? render(panelCtx()) : noSave());
+        if (catalogSearch) document.getElementById('sv-catalog-search')?.focus({ preventScroll: true });
     }
 
     function noSave(): HTMLElement {

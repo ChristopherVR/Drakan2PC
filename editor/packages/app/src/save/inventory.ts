@@ -61,6 +61,19 @@ export function spans(cells: InventoryCell[]): Map<number, { cols: number; rows:
     return out;
 }
 
+/** Preview replacement heights immediately, including releasing the cells of a shorter replacement. */
+export function previewCells(cells: InventoryCell[], heights: ReadonlyMap<number, number>): InventoryCell[] {
+    const sizes = spans(cells);
+    const result: InventoryCell[] = [];
+    for (const cell of cells) {
+        if (cell.marker !== undefined) continue;
+        result.push(cell);
+        const rows = heights.get(cell.cell) ?? sizes.get(cell.cell)?.rows ?? 1;
+        for (let row = 1; row < rows; row++) result.push({ cell: cell.cell + row * INV_COLS, marker: row });
+    }
+    return result;
+}
+
 /**
  * Height in cells of an item class for Add item: the game disc's class field first, else the height of a carried
  * item of the same class in this save, else undefined (not known).
@@ -78,12 +91,37 @@ export function itemHeight(
 
 const hueOf = (n: number): number => (Math.imul(n >>> 0, 2654435761) >>> 0) % 360;
 
-const state: { selected: number | null } = { selected: null };
+const state: {
+    selected: number | null;
+    added: number | null;
+    catalog: boolean;
+    replace: number | null;
+    query: string;
+    template: number | null;
+    limit: number;
+} = {
+    selected: null,
+    added: null,
+    catalog: false,
+    replace: null,
+    query: '',
+    template: null,
+    limit: 12,
+};
+let shownDocument: PanelCtx['doc'] | null = null;
 
 /** The Tab-screen style 24-cell inventory grid with an inspector for the selected item. */
 export function renderInventory(ctx: PanelCtx): HTMLElement {
     const { doc } = ctx;
-    const cells = doc.inventory;
+    if (shownDocument !== doc) {
+        shownDocument = doc;
+        state.selected = null;
+        state.added = null;
+        state.catalog = false;
+        state.template = null;
+        state.replace = null;
+    }
+    const cells = previewCells(doc.inventory, doc.itemReplacementRows);
     if (!cells.length) {
         return emptyState(
             'bag',
@@ -96,8 +134,30 @@ export function renderInventory(ctx: PanelCtx): HTMLElement {
     const covered = new Set(cells.filter((c) => c.marker !== undefined).map((c) => c.cell));
     const val = (cell: number, key: string): number => Number(doc.value(`inv.${cell}.${key}`));
     const thumbs: { el: HTMLImageElement; resource: number }[] = [];
-    const infoOf = (resource: number | undefined): ClassInfo | null =>
-        resource === undefined ? null : (ctx.classInfo?.(resourceKey(resource)) ?? null);
+    const infoOf = (resource: number | undefined, thumbnail = false): ClassInfo | null =>
+        resource === undefined ? null : (ctx.classInfo?.(resourceKey(resource), thumbnail) ?? null);
+    // Pending additions use exactly the same disc-derived art as carried items.
+    const itemArt = (resource: number | undefined, name: string): HTMLElement => {
+        const art = h('div', { class: 'art' });
+        const info = infoOf(resource, true);
+        if (info?.thumb) art.append(h('img', { src: info.thumb, alt: name }));
+        else {
+            const img = h('img', { alt: name, hidden: true });
+            if (resource !== undefined) thumbs.push({ el: img, resource });
+            art.append(
+                img,
+                h(
+                    'span',
+                    { class: 'ph', style: `--hue:${hueOf(resource ?? 0)}` },
+                    name
+                        .replace(/^Item /, '')
+                        .slice(0, 2)
+                        .toUpperCase(),
+                ),
+            );
+        }
+        return art;
+    };
 
     const durText = (c: InventoryCell): string => {
         const cur = val(c.cell, 'durability');
@@ -127,19 +187,19 @@ export function renderInventory(ctx: PanelCtx): HTMLElement {
                     gridTile(
                         {
                             tag: 'button',
-                            cls: 'slot item chg',
+                            cls: `slot item chg${state.added === addIdx ? ' sel' : ''}`,
                             cell: k,
                             cols: INV_COLS,
                             span: { rows },
-                            title: `Cell ${k}: new ${nm} (added when you save). Click to remove.`,
+                            title: `Cell ${k}: new ${nm} (added when you save). Select for details.`,
                             data: { added: addIdx },
-                            onClick: () => ctx.run(new RemoveAddedItemCommand(addIdx)),
+                            onClick: () => {
+                                state.added = addIdx;
+                                state.selected = null;
+                                ctx.rerender();
+                            },
                         },
-                        h(
-                            'div',
-                            { class: 'art' },
-                            h('span', { class: 'ph', style: `--hue:${hueOf(tplRec?.resource ?? 0)}` }, '+'),
-                        ),
+                        itemArt(tplRec?.resource, nm),
                         h('span', { class: 'nm' }, `New: ${nm}`),
                     ),
                 );
@@ -155,23 +215,7 @@ export function renderInventory(ctx: PanelCtx): HTMLElement {
         const name = itemName(resource, info);
         const equipped = val(k, 'equipped') === 1;
         const hot = val(k, 'hot') === 1;
-        const art = h('div', { class: 'art' });
-        if (info?.thumb) art.append(h('img', { src: info.thumb, alt: name }));
-        else {
-            const img = h('img', { alt: name, hidden: true });
-            if (resource !== undefined) thumbs.push({ el: img, resource });
-            art.append(
-                img,
-                h(
-                    'span',
-                    { class: 'ph', style: `--hue:${hueOf(resource ?? 0)}` },
-                    name
-                        .replace(/^Item /, '')
-                        .slice(0, 2)
-                        .toUpperCase(),
-                ),
-            );
-        }
+        const art = itemArt(resource, name);
         tiles.push(
             gridTile(
                 {
@@ -184,6 +228,7 @@ export function renderInventory(ctx: PanelCtx): HTMLElement {
                     data: { cell: k },
                     onClick: () => {
                         state.selected = k;
+                        state.added = null;
                         ctx.rerender();
                     },
                 },
@@ -215,7 +260,7 @@ export function renderInventory(ctx: PanelCtx): HTMLElement {
             let pending = 0;
             for (const t of thumbs) {
                 if (!t.el.isConnected) continue;
-                const i = infoOf(t.resource);
+                const i = infoOf(t.resource, true);
                 if (i?.thumb) {
                     t.el.src = i.thumb;
                     t.el.hidden = false;
@@ -227,7 +272,7 @@ export function renderInventory(ctx: PanelCtx): HTMLElement {
     }
 
     const sel = state.selected !== null ? byCell.get(state.selected) : undefined;
-    const inspector =
+    let inspector =
         sel && sel.marker === undefined
             ? inspect(
                   ctx,
@@ -239,6 +284,36 @@ export function renderInventory(ctx: PanelCtx): HTMLElement {
                   infoOf,
               )
             : h('div', { class: 'inspector sv-dim' }, 'Select an item to edit its durability, quantity and flags.');
+    if (state.added !== null && doc.itemAdds[state.added]) {
+        const index = state.added;
+        const template = doc.itemTemplates().find((t) => t.entry === doc.itemAdds[index]!.template);
+        const info = infoOf(template?.resource);
+        const name = itemName(template?.resource, info);
+        inspector = h(
+            'div',
+            { class: 'inspector sv-box inv-detail' },
+            h('div', { class: 'inv-portrait' }, itemArt(template?.resource, name)),
+            h(
+                'div',
+                { class: 'sv-meta' },
+                h('small', { class: 'sv-dim' }, 'New item · pending until saved'),
+                h('h3', null, name),
+                h('p', null, 'This item uses its class defaults. Save and reopen to edit its quantity or durability.'),
+                info?.detail ? h('p', { class: 'catalog-facts' }, info.detail) : null,
+                h(
+                    'button',
+                    {
+                        class: 'sv-btn',
+                        onclick: () => {
+                            state.added = null;
+                            ctx.run(new RemoveAddedItemCommand(index));
+                        },
+                    },
+                    'Remove added item',
+                ),
+            ),
+        );
+    }
 
     const real = cells.filter((c) => c.marker === undefined);
     const equippedCount = real.filter((c) => val(c.cell, 'equipped') === 1).length;
@@ -261,6 +336,7 @@ export function renderInventory(ctx: PanelCtx): HTMLElement {
         ),
         itemGrid('invgrid', tiles),
         inspector,
+        state.catalog ? renderCatalog(ctx, infoOf, itemArt) : null,
         h(
             'div',
             { class: 'note-box' },
@@ -318,19 +394,38 @@ function inspect(
     };
     const indestructible = doc.value(`inv.${c.cell}.durability`) === INDESTRUCTIBLE;
     const replacing = doc.itemReplacements.has(c.cell);
+    const resource = doc.itemResourceOf(c.cell) ?? c.resource;
+    const info = infoOf(resource);
     const replace = replaceControl(ctx, c, infoOf);
     return h(
         'div',
-        { class: 'inspector sv-box' },
+        { class: 'inspector sv-box inv-detail' },
+        h(
+            'div',
+            { class: 'inv-portrait', 'aria-label': name },
+            info?.thumb
+                ? h('img', { src: info.thumb, alt: name })
+                : h('span', { class: 'sv-dim' }, info ? 'Item preview unavailable' : 'Open your disc for item artwork'),
+        ),
         h(
             'div',
             { class: 'sv-meta' },
             h('small', { class: 'sv-dim' }, `Cell ${c.cell}`),
             h('h3', null, name),
+            info?.detail
+                ? h(
+                      'ul',
+                      { class: 'inv-facts' },
+                      ...info.detail
+                          .split('\n')
+                          .filter((line) => !line.startsWith('Class: '))
+                          .map((line) => h('li', null, line)),
+                  )
+                : null,
             h(
                 'small',
                 { class: 'sv-dim' },
-                `resource ${c.resource === undefined ? '?' : resourceKey(c.resource)} · handle 0x${(c.handle ?? 0).toString(16)}`,
+                `resource ${resource === undefined ? '?' : resourceKey(resource)} · handle 0x${(c.handle ?? 0).toString(16)}`,
             ),
             replace,
             c.durability === undefined || replacing
@@ -365,92 +460,237 @@ function replaceControl(
     infoOf: (resource: number | undefined) => ClassInfo | null,
 ): HTMLElement {
     const { doc } = ctx;
-    const templates = doc.itemTemplates();
-    const current = doc.itemResourceOf(c.cell);
     const pending = doc.itemReplacements.has(c.cell);
-    const select = h(
-        'select',
-        { 'data-field': `item.${c.cell}`, 'data-placeholder': 'Replace with…', 'aria-label': 'Replace with' },
-        h('option', { value: '' }, 'Replace with…'),
-        ...templates.map((t) => {
-            const rows = itemHeight(t.resource, infoOf(t.resource), doc.inventory);
-            const fits = rows === undefined || doc.replaceFits(c.cell, rows);
-            return h(
-                'option',
-                { value: String(t.entry), selected: pending && t.resource === current },
-                `${itemName(t.resource, infoOf(t.resource))} (${resourceKey(t.resource)})${fits ? '' : ' - no room'}`,
-            );
-        }),
-    ) as HTMLSelectElement;
-    if (!pending) select.value = '';
-    select.onchange = () => {
-        if (!select.value) return;
-        const t = templates.find((x) => String(x.entry) === select.value);
-        if (!t) return;
-        // The class's height when the disc or a carried item says it: the item then takes that many cells.
-        const rows = itemHeight(t.resource, infoOf(t.resource), doc.inventory);
-        try {
-            ctx.run(new ReplaceItemCommand(c.cell, t.entry, rows));
-        } catch (e) {
-            select.value = '';
-            ctx.err(e);
-        }
-    };
     return h(
         'div',
         { class: 'frow' },
-        h('label', { class: 'f' }, h('small', null, 'Replace with…'), select),
+        h(
+            'button',
+            {
+                class: 'sv-btn',
+                onclick: () => {
+                    state.catalog = true;
+                    state.replace = c.cell;
+                    state.template = null;
+                    ctx.rerender();
+                    document.querySelector('.item-catalog')?.scrollIntoView({ block: 'start' });
+                },
+            },
+            'Browse replacement…',
+        ),
         pending
             ? h(
                   'button',
-                  { class: 'sv-btn ghost sm', onclick: () => ctx.run(new ReplaceItemCommand(c.cell, undefined)) },
+                  { class: 'sv-btn ghost', onclick: () => ctx.run(new ReplaceItemCommand(c.cell, undefined)) },
                   'Undo replacement',
               )
             : null,
-        h(
-            'small',
-            { class: 'sv-dim' },
-            templates.length
-                ? 'Classes come from item records in this save (pickups, shop stock, chests).'
-                : 'This save has no other item records to copy from.',
-        ),
     );
 }
 
-/** "+ Add item": a dropdown of the item classes this save has a record for (type to filter). */
-function addControl(ctx: PanelCtx, infoOf: (resource: number | undefined) => ClassInfo | null): HTMLElement {
+/** Open the shared visual catalog in Add mode. */
+function addControl(ctx: PanelCtx, _infoOf: (resource: number | undefined) => ClassInfo | null): HTMLElement {
+    return h(
+        'button',
+        {
+            class: 'sv-btn',
+            onclick: () => {
+                state.catalog = true;
+                state.replace = null;
+                state.template = null;
+                ctx.rerender();
+                document.querySelector('.item-catalog')?.scrollIntoView({ block: 'start' });
+            },
+        },
+        '+ Add item…',
+    );
+}
+
+/** Search the classes present in this save, inspect their artwork, then choose an explicit action. */
+function renderCatalog(
+    ctx: PanelCtx,
+    infoOf: (resource: number | undefined) => ClassInfo | null,
+    art: (resource: number | undefined, name: string) => HTMLElement,
+): HTMLElement {
     const { doc } = ctx;
     const templates = doc.itemTemplates();
-    const rowsOf = (resource: number): number =>
-        itemHeight(resource, infoOf(resource), doc.inventory) ?? MAX_ITEM_CELLS; // not known: a whole column
-    const allPlaced = doc.addedCells().every((c) => c >= 0);
-    const free = allPlaced && doc.placeFor(1) !== null;
-    const select = h(
-        'select',
+    const replacement = state.replace;
+    const grid = h('div', { class: 'catalog-grid' });
+    const count = h('small', { class: 'sv-dim', 'aria-live': 'polite' });
+    const detail = h('div', { class: 'catalog-detail' });
+
+    const more = h(
+        'button',
         {
-            'data-field': 'item.add',
-            'data-placeholder': '+ Add item…',
-            'aria-label': 'Add item',
-            disabled: !templates.length || !free,
+            class: 'sv-btn ghost',
+            onclick: () => {
+                state.limit += 12;
+                fill();
+            },
         },
-        h('option', { value: '' }, '+ Add item…'),
-        ...addOptions(addEntries(templates, infoOf, (t) => doc.placeFor(rowsOf(t.resource)) !== null)),
-    ) as HTMLSelectElement;
-    select.value = '';
-    select.onchange = () => {
-        if (!select.value) return;
-        const t = templates.find((x) => String(x.entry) === select.value);
-        select.value = '';
-        if (!t) return;
-        addChosen(
-            ctx,
-            t,
-            infoOf(t.resource),
-            rowsOf(t.resource),
-            itemHeight(t.resource, infoOf(t.resource), doc.inventory),
+        'Show more items',
+    );
+    const fill = (): void => {
+        detail.replaceChildren();
+        const q = state.query.trim().toLowerCase();
+        const filtered = templates
+            .filter((t) =>
+                `${itemName(t.resource, infoOf(t.resource))} ${resourceKey(t.resource)}`.toLowerCase().includes(q),
+            )
+            .sort((a, b) =>
+                itemName(a.resource, infoOf(a.resource)).localeCompare(itemName(b.resource, infoOf(b.resource))),
+            );
+        count.textContent = `${filtered.length} item classes in this save`;
+        more.hidden = filtered.length <= state.limit;
+        grid.replaceChildren(
+            ...filtered.slice(0, state.limit).map((t) => {
+                const info = infoOf(t.resource);
+                const name = itemName(t.resource, info);
+                const rows = itemHeight(t.resource, info, doc.inventory);
+                const height = rows ?? MAX_ITEM_CELLS;
+                const fits =
+                    replacement === null
+                        ? doc.placeFor(height) !== null
+                        : rows === undefined || doc.replaceFits(replacement, rows);
+                const choose = (): void => {
+                    state.template = t.entry;
+                    const preview = art(t.resource, name);
+                    detail.replaceChildren(
+                        h('div', { class: 'inv-portrait' }, preview),
+                        h(
+                            'div',
+                            { class: 'sv-meta' },
+                            h('h3', null, name),
+                            h(
+                                'p',
+                                { class: 'catalog-facts' },
+                                info?.detail ||
+                                    `Resource ${resourceKey(t.resource)}. Open your disc for gameplay facts and artwork.`,
+                            ),
+                            h(
+                                'p',
+                                { class: 'sv-dim' },
+                                rows === undefined
+                                    ? 'Size unknown: adding reserves a whole column.'
+                                    : `${rows} inventory cell${rows === 1 ? '' : 's'} tall`,
+                            ),
+                            !fits
+                                ? h(
+                                      'p',
+                                      { class: 'catalog-warning' },
+                                      replacement === null
+                                          ? noRoomMessage(name, height, rows)
+                                          : 'There is not enough free space below this item for the replacement.',
+                                  )
+                                : null,
+                            h(
+                                'button',
+                                {
+                                    class: 'sv-btn primary',
+                                    disabled: !fits,
+                                    onclick: () => {
+                                        if (replacement === null) {
+                                            state.added = doc.itemAdds.length;
+                                            state.selected = null;
+                                            addChosen(ctx, t, info, height, rows);
+                                        } else
+                                            try {
+                                                ctx.run(new ReplaceItemCommand(replacement, t.entry, rows));
+                                                ctx.status(`Replaced with ${name}; pending until you save.`);
+                                            } catch (e) {
+                                                ctx.err(e);
+                                            }
+                                    },
+                                },
+                                replacement === null ? `Add ${name}` : `Replace with ${name}`,
+                            ),
+                        ),
+                    );
+                };
+                if (state.template === t.entry) choose();
+                return h(
+                    'button',
+                    {
+                        class: `slot catalog-item${fits ? '' : ' no-room'}`,
+                        'aria-pressed': state.template === t.entry ? 'true' : 'false',
+                        onclick: () => {
+                            choose();
+                            for (const tile of grid.querySelectorAll('button')) {
+                                tile.setAttribute(
+                                    'aria-pressed',
+                                    String(tile.getAttribute('data-template') === String(t.entry)),
+                                );
+                            }
+                        },
+                        'data-template': String(t.entry),
+                        'aria-label': `Inspect ${name}`,
+                    },
+                    art(t.resource, name),
+                    h('strong', null, name),
+                    h('small', { class: 'sv-dim' }, resourceKey(t.resource)),
+                    h(
+                        'small',
+                        { class: 'sv-dim' },
+                        `${info?.powerUp ? 'Power-up · ' : ''}${rows ?? '?'} cells${fits ? '' : ' · no room'}`,
+                    ),
+                );
+            }),
         );
+        if (!filtered.length)
+            grid.append(
+                h(
+                    'p',
+                    { class: 'sv-dim' },
+                    templates.length
+                        ? 'No items match your search.'
+                        : 'This save has no item records available to copy.',
+                ),
+            );
     };
-    return h('label', { class: 'f', title: free ? 'Add a new carried item' : 'The inventory is full' }, select);
+    const search = h('input', {
+        id: 'sv-catalog-search',
+        type: 'search',
+        value: state.query,
+        placeholder: 'Search items by name or resource…',
+        'aria-label': 'Search item catalog',
+        oninput: (e) => {
+            state.query = (e.target as HTMLInputElement).value;
+            state.limit = 12;
+            fill();
+        },
+    });
+    fill();
+    return h(
+        'section',
+        { class: 'sv-box item-catalog', 'aria-label': 'Item catalog' },
+        h(
+            'div',
+            { class: 'invhead' },
+            h('h3', null, replacement === null ? 'Add an item' : `Replace item in cell ${replacement}`),
+            h('span', { class: 'spacer' }),
+            h(
+                'button',
+                {
+                    class: 'sv-btn ghost',
+                    onclick: () => {
+                        state.catalog = false;
+                        ctx.rerender();
+                    },
+                },
+                'Close catalog',
+            ),
+        ),
+        h(
+            'p',
+            { class: 'sv-dim' },
+            'Choose an item to inspect it before adding or replacing. Only classes with a usable record in this save are available.',
+        ),
+        search,
+        count,
+        grid,
+        more,
+        detail,
+    );
 }
 
 /** Add the chosen item, or say why it does not fit. Either way the status line shows the latest outcome. */

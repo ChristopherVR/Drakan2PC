@@ -27,7 +27,7 @@ The pages along the top hold everything the editor can change:
 | Page | What you can do |
 | --- | --- |
 | **Character** | Health (with **Heal to full**), gold, experience, level and the melee, archery and magic skills. |
-| **Inventory** | The item grid. Select an item to change its durability, quantity and flags; **Add item** and **Replace with...** add or swap items. |
+| **Inventory** | The item grid. Select an item to change its durability, quantity and flags. **Add item** and **Browse replacement** open a searchable illustrated catalog with item facts and space checks before you confirm. |
 | **Story** | Quests and their progress. |
 | **World** | Every record of the level, searchable. Records with a position appear in the 3D view on the right; click one to select it. |
 | **Transfer** | Take values (stats, items) from another save, for example to carry a character into an older slot. |
@@ -37,6 +37,12 @@ The pages along the top hold everything the editor can change:
 <!-- media:save-editor-inventory -->
 
 Every change is listed under **Pending changes** on the right with its old and new value. The arrow beside a change reverts just that one, **Revert all** drops them all, and **Undo** / **Redo** step through them. Nothing touches the file until you save.
+
+The item catalog offers classes with a usable record in the current save. Open your disc for names, artwork and gameplay
+facts. Select a catalog card, inspect it, then press its **Add** or **Replace** button. Tall items need contiguous empty
+cells in a column; the catalog explains when an item does not fit. Newly added items remain marked **New** until saved.
+Select one to inspect it or use **Remove added item**; selecting its tile keeps it in the pack. Save or export and reopen
+to edit a new item's default quantity or durability.
 
 ## Save or export
 

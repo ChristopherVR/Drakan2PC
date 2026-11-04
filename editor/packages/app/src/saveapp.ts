@@ -42,7 +42,7 @@ const itemArt = createItemArt((method, ...args) => call(method, ...args));
 const storyArt = createStoryArt((method, ...args) => call(method, ...args));
 const saveUi = initSaveUi({
     setStatus,
-    classInfo: (r) => itemArt.info(r),
+    classInfo: (r, thumbnail) => itemArt.info(r, thumbnail),
     onItemArt: (fn) => itemArt.onChange(fn),
     story: () => storyArt.get(),
     onStory: (fn) => storyArt.onChange(fn),

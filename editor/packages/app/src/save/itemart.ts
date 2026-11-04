@@ -11,7 +11,7 @@ const THUMB = 96;
 
 export interface ItemArt {
     /** Name and picture of a save resource id (`0x31bc9`); null when it is not a Resources class or no disc is open. */
-    info(resource: string): ClassInfo | null;
+    info(resource: string, thumbnail?: boolean): ClassInfo | null;
     /** Class names (sorted) for pickers; empty until the catalog has loaded. */
     classes(): { classId: number; name: string }[];
     /** Forget everything (a different disc was opened) and start loading again on the next request. */
@@ -75,7 +75,9 @@ export function createItemArt(call: Call): ItemArt {
         for (const d of data) {
             if (!d.model || !d.model.triTexture.length) continue;
             const lookup = cache.addShared(d.textures);
-            const url = classThumbnail(`item:${d.classId}`, d.model, lookup, THUMB, `item:${d.classId}`);
+            // Both the PNG and geometry caches outlive this service's reset when a different disc is opened.
+            const key = `item:${epoch}:${d.classId}`;
+            const url = classThumbnail(key, d.model, lookup, THUMB, key);
             if (url) thumbs.set(d.classId, url);
         }
     }
@@ -98,14 +100,14 @@ export function createItemArt(call: Call): ItemArt {
     }
 
     return {
-        info(resource) {
+        info(resource, thumbnail = true) {
             const n = Number(resource) >>> 0;
             if (n >>> 16 !== RESOURCES_DB) return null;
             ensureCatalog();
             const classId = n & 0xffff;
             const item = names?.get(classId);
             if (!item) return null;
-            want(classId);
+            if (thumbnail) want(classId);
             return {
                 name: item.name,
                 detail: item.detail,

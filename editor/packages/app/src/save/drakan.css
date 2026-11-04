@@ -1083,9 +1083,130 @@
     scrollbar-color: var(--dk-pewter) transparent;
 }
 
+/* The selected item reads like the game's inventory description beside its model. */
+#save-main.sv .inv-detail {
+    display: flex;
+    gap: 22px;
+    align-items: flex-start;
+}
+#save-main.sv .inv-detail .sv-meta {
+    min-width: 0;
+    flex: 1;
+}
+#save-main.sv .inv-portrait {
+    display: grid;
+    place-items: center;
+    flex: 0 0 128px;
+    min-height: 150px;
+    padding: 12px;
+    text-align: center;
+    background: var(--sv-field);
+    border: 1px solid var(--dk-pewter-lo);
+    box-shadow: inset 0 0 18px var(--dk-cut);
+}
+#save-main.sv .inv-portrait img {
+    width: 128px;
+    height: 150px;
+    object-fit: contain;
+    image-rendering: auto;
+}
+#save-main.sv .inv-facts {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px 20px;
+    list-style: none;
+    margin: 8px 0 12px;
+    padding: 0;
+    color: var(--sv-num);
+}
+@media (max-width: 1000px) {
+    #save-main.sv .inv-detail {
+        flex-wrap: wrap;
+    }
+}
+
 /* ------------------------------------------------------------------ narrow windows */
+.item-catalog .catalog-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
+    gap: 10px;
+    margin: 16px 0;
+}
+#save-main.sv .catalog-item {
+    position: relative;
+    min-height: 160px;
+    padding: 100px 8px 10px;
+    display: flex;
+    flex-direction: column;
+    justify-content: flex-start;
+    align-items: stretch;
+    gap: 5px;
+    background: var(--sv-field);
+    border: 1px solid var(--dk-pewter);
+    text-align: center;
+}
+#save-main.sv .catalog-item .art {
+    position: absolute;
+    inset: 8px 8px auto;
+    height: 88px;
+    display: grid;
+    place-items: center;
+}
+#save-main.sv .catalog-item img {
+    max-width: 100%;
+    max-height: 88px;
+    object-fit: contain;
+}
+#save-main.sv .catalog-item:hover,
+#save-main.sv .catalog-item[aria-pressed='true'],
+#save-main.sv .catalog-item:focus-visible {
+    border-color: var(--sv-accent);
+    background: var(--sv-hover);
+}
+#save-main.sv .catalog-item.no-room {
+    opacity: 0.65;
+}
+#save-main.sv .catalog-detail {
+    display: flex;
+    gap: 22px;
+    margin-top: 16px;
+}
+#save-main.sv .catalog-detail:empty {
+    display: none;
+}
+#save-main.sv .item-catalog [hidden] {
+    display: none !important;
+}
+#save-main.sv .catalog-facts {
+    white-space: pre-line;
+    line-height: 1.6;
+}
+#save-main.sv .catalog-warning {
+    color: var(--sv-warn);
+}
+#save-main.sv .item-catalog > input {
+    width: 100%;
+    margin: 10px 0;
+}
+#save-main.sv .item-catalog > small {
+    display: block;
+}
+#save-main.sv .inv-portrait {
+    position: relative;
+}
+#save-main.sv .inv-portrait .art {
+    display: grid;
+    place-items: center;
+    min-height: 150px;
+}
+#save-main.sv .inv-portrait .art img {
+    max-width: 128px;
+}
 
 @media (max-width: 1360px) {
+    #save-main.sv .invgrid {
+        grid-template-columns: repeat(8, minmax(0, 1fr));
+    }
     #save-main.sv {
         font-size: 15px;
     }
