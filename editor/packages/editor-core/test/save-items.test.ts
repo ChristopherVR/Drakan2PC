@@ -9,6 +9,7 @@ import {
     ReplaceItemCommand,
     SaveDocument,
     SetFieldCommand,
+    SetAddedItemCountCommand,
     addItem,
     findCellStream,
     itemHandleAt,
@@ -310,6 +311,39 @@ describe('Add item (new carried record)', () => {
         expect(twice.slot).toBe(K + 1);
         expect(twice.droppedStatic).toBe(5018);
         expect(() => addItem(parseSave(addFixture()), 1)).toThrow(/not an item record/);
+    });
+
+    it('edits new item counts before export and preserves them when another addition is removed', () => {
+        const doc = SaveDocument.open(addFixture());
+        const stack = new CommandStack(doc);
+        stack.run(new AddItemCommand(7, 2));
+        const defaults = doc.addedItemCounts(0)!;
+        stack.run(new SetAddedItemCountCommand(0, 'durability', 77));
+        stack.run(new SetAddedItemCountCommand(0, 'max', 200));
+        stack.run(new AddItemCommand(7, 2));
+        stack.run(new SetAddedItemCountCommand(1, 'durability', 88));
+        const exported = () => SaveDocument.open(doc.build().bytes).inventory.filter((c) => c.resource === 0x31cbc);
+        expect(exported().map((c) => [c.cell, c.durability])).toEqual([
+            [2, 77],
+            [3, 88],
+        ]);
+        expect(exported()[0]!.max).toBe(200);
+        expect(doc.pendingEdits().find((e) => e.name === 'add.0')!.text!.after).toContain('quantity/durability 77');
+        stack.run(new RemoveAddedItemCommand(0));
+        expect(exported().map((c) => [c.cell, c.durability])).toEqual([[2, 88]]);
+        stack.undo();
+        expect(exported().map((c) => [c.cell, c.durability])).toEqual([
+            [2, 77],
+            [3, 88],
+        ]);
+        stack.undo(); // second item's count
+        expect(doc.addedItemCounts(1)!.durability).toBe(defaults.durability);
+        stack.redo();
+        expect(exported()[1]!.durability).toBe(88);
+        expect(() => stack.run(new SetAddedItemCountCommand(1, 'max', -1))).toThrow();
+        expect(() => stack.run(new SetAddedItemCountCommand(1, 'max', 1.5))).toThrow();
+        expect(() => stack.run(new SetAddedItemCountCommand(1, 'max', 0x100000000))).toThrow();
+        expect(doc.addedItemCounts(1)!.max).toBe(defaults.max);
     });
 
     it('places a tall item where all of its cells are free and marks the cells under it', () => {

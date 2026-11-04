@@ -7,6 +7,7 @@ import {
     TYPE_RECORD,
     INV_CELL_COUNT,
     cellTable,
+    dec,
     itemRecord,
     listInventory,
     sameBytes,
@@ -74,6 +75,19 @@ export interface ItemTemplate {
     /** Entry id of the record whose body is used. */
     entry: number;
     size: number;
+}
+
+export interface ItemCounts {
+    durability: number;
+    max: number;
+}
+
+/** Counts at the recognised self-handle offset, using the same encoding as carried inventory records. */
+export function itemTemplateCounts(save: SaveFile, templateEntry: number): ItemCounts | null {
+    const record = save.entries.find((e) => e.type === TYPE_RECORD && e.id === templateEntry);
+    if (!record || itemResource(record) === null) return null;
+    const at = itemHandleAt(record.data)!;
+    return { durability: dec(u32(record.data, at + 8)), max: dec(u32(record.data, at + 12)) };
 }
 
 /** One template record per item class found in the save. A record lying in the world is preferred to a carried one. */

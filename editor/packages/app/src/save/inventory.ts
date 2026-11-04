@@ -5,6 +5,7 @@ import {
     RemoveAddedItemCommand,
     ReplaceItemCommand,
     SetFieldCommand,
+    SetAddedItemCountCommand,
 } from '@drakan/editor-core';
 import { INV_CELL_COUNT, type InventoryCell } from '@drakan/formats';
 import { gridTile, itemGrid } from '../shared/components.ts';
@@ -183,6 +184,13 @@ export function renderInventory(ctx: PanelCtx): HTMLElement {
                 const tplRec = doc.itemTemplates().find((t) => t.entry === doc.itemAdds[addIdx]!.template);
                 const rows = added[addIdx]!.cells.length;
                 const nm = itemName(tplRec?.resource, infoOf(tplRec?.resource));
+                const counts = doc.addedItemCounts(addIdx);
+                const infinite = counts?.durability === INDESTRUCTIBLE;
+                const fraction = infinite
+                    ? 1
+                    : counts?.max
+                      ? Math.max(0, Math.min(1, counts.durability / counts.max))
+                      : 0;
                 tiles.push(
                     gridTile(
                         {
@@ -201,6 +209,14 @@ export function renderInventory(ctx: PanelCtx): HTMLElement {
                         },
                         itemArt(tplRec?.resource, nm),
                         h('span', { class: 'nm' }, `New: ${nm}`),
+                        counts
+                            ? h(
+                                  'span',
+                                  { class: 'dbar' },
+                                  h('i', { style: `width:${(fraction * 100).toFixed(1)}%` }),
+                                  h('em', null, infinite ? '∞' : `${counts.durability} / ${counts.max}`),
+                              )
+                            : null,
                     ),
                 );
                 continue;
@@ -289,6 +305,27 @@ export function renderInventory(ctx: PanelCtx): HTMLElement {
         const template = doc.itemTemplates().find((t) => t.entry === doc.itemAdds[index]!.template);
         const info = infoOf(template?.resource);
         const name = itemName(template?.resource, info);
+        const counts = doc.addedItemCounts(index);
+        const countInput = (key: 'durability' | 'max', label: string): HTMLElement => {
+            const input = h('input', {
+                type: 'number',
+                min: 0,
+                max: 0xffffffff,
+                step: 1,
+                value: String(counts?.[key] ?? ''),
+                'data-field': `add.${index}.${key}`,
+                onchange: () => {
+                    try {
+                        if (input.value.trim() === '') throw new Error('Enter a whole number.');
+                        ctx.run(new SetAddedItemCountCommand(index, key, Number(input.value)));
+                    } catch (e) {
+                        ctx.err(e);
+                        input.value = String(doc.addedItemCounts(index)?.[key] ?? '');
+                    }
+                },
+            });
+            return h('label', { class: 'f' }, h('small', null, label), input);
+        };
         inspector = h(
             'div',
             { class: 'inspector sv-box inv-detail' },
@@ -298,8 +335,20 @@ export function renderInventory(ctx: PanelCtx): HTMLElement {
                 { class: 'sv-meta' },
                 h('small', { class: 'sv-dim' }, 'New item · pending until saved'),
                 h('h3', null, name),
-                h('p', null, 'This item uses its class defaults. Save and reopen to edit its quantity or durability.'),
-                info?.detail ? h('p', { class: 'catalog-facts' }, info.detail) : null,
+                counts
+                    ? h(
+                          'div',
+                          { class: 'frow' },
+                          countInput('durability', 'Durability / arrows / quantity'),
+                          countInput('max', 'Max'),
+                          counts.durability === INDESTRUCTIBLE
+                              ? badge('indestructible', 'medium', '0xffffffff means it never wears out.')
+                              : null,
+                      )
+                    : h('p', null, 'The item record’s count layout is unavailable.'),
+                info?.detail
+                    ? h('p', { class: 'catalog-facts' }, info.detail.replace(/^Durability:/m, 'Base durability:'))
+                    : null,
                 h(
                     'button',
                     {

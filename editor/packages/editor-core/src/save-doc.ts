@@ -36,10 +36,12 @@ import {
     itemRows,
     itemResource,
     itemTemplates,
+    itemTemplateCounts,
     placeItem,
     replaceItem,
     usedCells,
     type ItemTemplate,
+    type ItemCounts,
 } from './save-items.ts';
 
 export interface PendingEdit {
@@ -114,6 +116,13 @@ export class SaveDocument extends LevelDocument {
     readonly itemReplacementRows = new Map<number, number>();
     /** Pending new items, in the order they were added: template record entry id and height in cells of each. */
     readonly itemAdds: ItemAdd[] = [];
+
+    addedItemCounts(index: number): ItemCounts | null {
+        const added = this.itemAdds[index];
+        if (!added) return null;
+        const original = itemTemplateCounts(this.save, added.template);
+        return original ? { ...original, ...added.counts } : null;
+    }
     private templatesCache: ItemTemplate[] | null = null;
     private issuesCache: Issue[] | null = null;
     private readonly probes = new Map<string, FieldProbe>();
@@ -339,7 +348,7 @@ export class SaveDocument extends LevelDocument {
             });
         }
         const cells = this.addedCells();
-        this.itemAdds.forEach(({ template: tpl }, i) => {
+        this.itemAdds.forEach(({ template: tpl, counts }, i) => {
             const rec = this.save.entries.find((e) => e.type === 0x102 && e.id === tpl);
             const res = rec ? (itemResource(rec) ?? 0) : 0;
             out.push({
@@ -349,7 +358,10 @@ export class SaveDocument extends LevelDocument {
                 after: res,
                 confidence: 'medium',
                 unconfirmed: false,
-                text: { before: '(none)', after: `0x${res.toString(16)} (copy of record ${tpl})` },
+                text: {
+                    before: '(none)',
+                    after: `0x${res.toString(16)} (copy of record ${tpl})${counts?.durability !== undefined ? ` · quantity/durability ${counts.durability}` : ''}${counts?.max !== undefined ? ` · max ${counts.max}` : ''}`,
+                },
             });
         });
         const names = [...this.fieldValues.keys()];
@@ -393,7 +405,14 @@ export class SaveDocument extends LevelDocument {
         for (const [cell, tpl] of this.itemReplacements) {
             base = replaceItem(base, cell, tpl, this.itemReplacementRows.get(cell));
         }
-        for (const a of this.itemAdds) base = addItem(base, a.template, a.rows).save;
+        for (const a of this.itemAdds) {
+            const added = addItem(base, a.template, a.rows);
+            const counts: FieldEdit[] = Object.entries(a.counts ?? {}).map(([key, value]) => ({
+                name: `inv.${added.cell}.${key}`,
+                value,
+            }));
+            base = counts.length ? applyFieldEdits(added.save, counts) : added.save;
+        }
         if (edits.length === 0 && base === this.save) return { bytes: this.bytes.slice(), save: this.save };
         const save = edits.length ? applyFieldEdits(base, edits) : base;
         return { bytes: assembleSave(save).bytes, save };
@@ -404,6 +423,38 @@ export class SaveDocument extends LevelDocument {
 export interface ItemAdd {
     template: number;
     rows: number;
+    counts?: Partial<ItemCounts>;
+}
+
+/** Counts stay attached to a pending item, even when removing another addition moves it to a different cell. */
+export class SetAddedItemCountCommand implements Command {
+    readonly label: string;
+    private old: number | undefined;
+    constructor(
+        private readonly index: number,
+        private readonly key: keyof ItemCounts,
+        private readonly value: number,
+    ) {
+        this.label = `Set new item ${index + 1} ${key}`;
+    }
+    private put(doc: LevelDocument, value: number | undefined): void {
+        if (!(doc instanceof SaveDocument)) throw new Error('SetAddedItemCountCommand needs a SaveDocument');
+        const item = doc.itemAdds[this.index];
+        if (!item || !doc.addedItemCounts(this.index)) throw new SaveFieldError('New item record is unavailable.');
+        if (value === undefined) {
+            if (item.counts) delete item.counts[this.key];
+        } else {
+            checkFieldValue(`inv.0.${this.key}`, value);
+            (item.counts ??= {})[this.key] = value;
+        }
+    }
+    apply(doc: LevelDocument): void {
+        if (doc instanceof SaveDocument) this.old = doc.itemAdds[this.index]?.counts?.[this.key];
+        this.put(doc, this.value);
+    }
+    revert(doc: LevelDocument): void {
+        this.put(doc, this.old);
+    }
 }
 
 /**

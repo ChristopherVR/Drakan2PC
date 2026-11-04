@@ -89,3 +89,20 @@ independent of item counts.
 A regression exports and reopens the replacement, undoes it, exports/reopens the original with its edited counts,
 and redoes the replacement. All 33 save document/item tests, editor-core TypeScript checks and formatting checks pass.
 This corrects the existing replacement workflow; editing a pending new item's defaults still needs further work.
+
+## Edit new-item counts before saving
+
+The pending-add inspector now edits durability/arrows/quantity and maximum directly. It reads the template's
+recognised item-handle layout and uses the existing encoded inventory-field writer after adding the native record.
+Overrides belong to the pending item, so removing an earlier addition and shifting its cell does not transfer the
+counts to another item. Undo/redo restores values, and invalid fractional, negative or oversized counts are rejected.
+The inventory tile displays its current count bar immediately; disc-derived durability is labelled Base durability.
+The pending-change summary includes edited counts. This supersedes the earlier save-and-reopen requirement for additions.
+
+Validation: 51 focused save document/item/UI tests, workspace TypeScript/config checks, formatting and Vite production
+build pass. The browser used the player's ISO and existing private Surdana fixture: added Short Wood Bow, changed
+200/200 to 77/250, undid/redid the maximum change, and inspected the item artwork/count bar at 1600x1100. The actual
+Export button produced a 179,191-byte Blob, reopened through the file input; it showed seven items, the new bow at
+77/250, and zero pending changes. The reopened grid was also inspected at 1100x900. Screenshots remain private at
+`build/scratch/save-pending-counts-final.png` and `save-pending-counts-reopened.png`. Browser and dev server were closed.
+Native game loading of this particular export was not retested; serialization uses the already-established add/count paths.
