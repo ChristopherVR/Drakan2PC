@@ -55,6 +55,7 @@
 #include "drakan_texscale.h"
 #include "drakan_debug_menu.h"
 #include "drakan_lifecycle.h"
+#include "drakan_stomp_probe.h"
 #include "drakan_foliage.h"
 #include "drakan_levelchange.h"
 #include "drakan_region.h"
@@ -1303,6 +1304,7 @@ void applyDrakanOverrides(PS2Runtime& runtime) {
     drakan_region::reportMultiplayerAvailability();
     drakan_texscale::install(runtime);    // fast surface downscale (PAL)
     installNullControllerGuard(runtime);  // objects without a controller in the scene walk (PAL)
+    drakan_stomp_probe::install(runtime);
     drakan_lifecycle::install(runtime);   // engine lifecycle events (PAL addresses; no-op elsewhere)
     drakan_levelchange::install(runtime); // host-triggered level change through the exit triggers (PAL)
     drakan_foliage::install(runtime);     // living foliage: wind sway for grass and trees, off by default (PAL)

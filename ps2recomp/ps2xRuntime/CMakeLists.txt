@@ -391,6 +391,7 @@ add_library(ps2_runtime STATIC
     src/lib/drakan_object_motion.cpp
     src/lib/drakan_dual_wield.cpp
     src/lib/drakan_texscale.cpp
+    src/lib/drakan_stomp_probe.cpp
     src/lib/drakan_lifecycle.cpp
     src/lib/drakan_levelchange.cpp
     src/lib/drakan_foliage.cpp
