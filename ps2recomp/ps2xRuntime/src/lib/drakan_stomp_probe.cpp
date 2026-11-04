@@ -29,6 +29,11 @@ constexpr uint32_t kFrame = 0x1e3970;
 Fn g_frame = nullptr;
 constexpr uint32_t kSpawn = 0x181ad8;
 Fn g_spawn = nullptr;
+constexpr uint32_t kItemEnable = 0x17e418, kItemBaseInit = 0x346180, kMeleeInit = 0x497478;
+Fn g_itemEnable = nullptr, g_itemBaseInit = nullptr, g_meleeInit = nullptr;
+uint32_t g_itemResource = 0x344db;
+unsigned g_itemLines = 0;
+
 Owner owner(PS2Runtime* rt) {
     const auto* thread = rt->eeScheduler().currentThread();
     return {rt->eeScheduler().currentThreadId(), thread ? thread->invocations.size() : 0};
@@ -199,6 +204,51 @@ void tick(uint8_t* ram, R5900Context* c, PS2Runtime* rt) {
     }
     g_tick(ram, c, rt);
 }
+// Opt-in observations of the initial pickup lifecycle. Per-resource counts are independent of cinematic log budgets.
+template <uint32_t Entry>
+void itemLifecycle(uint8_t* ram, R5900Context* c, PS2Runtime* rt) {
+    const Fn original = Entry == kItemEnable ? g_itemEnable : Entry == kItemBaseInit ? g_itemBaseInit : g_meleeInit;
+    const Ram r{ram};
+    const bool entry = c->pc == Entry;
+    const uint32_t actor = getRegU32(c, Entry == kItemEnable ? 4 : 5), caller = getRegU32(c, 31);
+    const uint32_t context = r.u32(0x5565d4), registry = r.u32(context + 0x320), table = r.u32(registry + 8);
+    const uint32_t index = r.u16(actor + 0x10);
+    bool observe = false;
+    uint32_t resource = 0;
+    unsigned sample = 0;
+    if (entry && Ram::valid(actor, 0x120) && r.u32(actor) == 0x51b8b0 && index != 0xffff &&
+        index <= r.u32(registry + 0x10) && Ram::valid(table, index * 0x24 + 0x24)) {
+        const uint32_t record = table + index * 0x24;
+        resource = r.u32(record);
+        const uint32_t kind = r.u32(record + 8);
+        static unsigned count = 0;
+        observe = resource == g_itemResource && kind == 0x1000e && count < 12 && g_itemLines < 128;
+        if (observe) {
+            sample = ++count;
+            ++g_itemLines;
+            const uint32_t data = Entry == kItemEnable ? r.u32(r.u32(actor + 0xfc) + 0x10) : getRegU32(c, 4);
+            const uint32_t message = r.u32(context + 0x4e0);
+            const Owner current = owner(rt);
+            std::fprintf(stderr,
+                         "[item-probe] entry=%08x resource=%08x actor=%08x data=%08x caller=%08x "
+                         "arg1=%08x arg2=%08x flags4=%08x flags104=%08x itemFlags=%08x state=%08x "
+                         "message=%08x code=%04x source=%04x msgFlags=%04x classFlags=%08x/%08x "
+                         "thread=%d invocation=%zu sample=%u\n",
+                         Entry, resource, actor, data, caller, getRegU32(c, 5), getRegU32(c, 6), r.u32(actor + 4),
+                         r.u32(actor + 0x104), r.u32(data + 0x10), r.u32(data + 0x1c), message, r.u16(message),
+                         r.u16(message + 4), r.u16(message + 6), r.u32(record + 0x18), r.u32(record + 0x1c),
+                         current.first, current.second, sample);
+        }
+    }
+    original(ram, c, rt);
+    if (observe && c->pc == caller && g_itemLines < 128) {
+        ++g_itemLines;
+        std::fprintf(stderr,
+                     "[item-probe] returned entry=%08x resource=%08x actor=%08x flags4=%08x flags104=%08x sample=%u\n",
+                     Entry, resource, actor, r.u32(actor + 4), r.u32(actor + 0x104), sample);
+    }
+}
+
 // Trace the two native dust-particle classes and their generator implicated by the allocator census.
 // Factory argument t1 is a class-registry index; it is not a resource reference.
 void spawn(uint8_t* ram, R5900Context* c, PS2Runtime* rt) {
@@ -338,6 +388,20 @@ void install(PS2Runtime& rt) {
         rt.replaceFunction(kSpawn, spawn);
     } else {
         log("dust spawn factory unavailable; other observations remain enabled");
+    }
+    if (const char* item = std::getenv("DRAKAN_ITEM_PROBE"); item && std::strcmp(item, "1") == 0) {
+        if (const char* resource = std::getenv("DRAKAN_ITEM_PROBE_RESOURCE"))
+            g_itemResource = static_cast<uint32_t>(std::strtoul(resource, nullptr, 0));
+        if (rt.hasFunction(kItemEnable) && rt.hasFunction(kItemBaseInit) && rt.hasFunction(kMeleeInit)) {
+            g_itemEnable = rt.lookupFunction(kItemEnable);
+            g_itemBaseInit = rt.lookupFunction(kItemBaseInit);
+            g_meleeInit = rt.lookupFunction(kMeleeInit);
+            rt.replaceFunction(kItemEnable, itemLifecycle<kItemEnable>);
+            rt.replaceFunction(kItemBaseInit, itemLifecycle<kItemBaseInit>);
+            rt.replaceFunction(kMeleeInit, itemLifecycle<kMeleeInit>);
+            std::fprintf(stderr, "[item-probe] installed resource=%08x maxLines=128 maxSamplesPerFunction=12\n",
+                         g_itemResource);
+        }
     }
     log("installed maxLines=%d (completed readiness calls only; yielded calls are not inferred)", g_limit);
 }
