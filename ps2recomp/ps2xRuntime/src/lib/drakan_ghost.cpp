@@ -1,5 +1,6 @@
 // Drakan: ghost players (drakan_ghost.h). PAL addresses are canonical, translated through the disc profile.
 #include "drakan_ghost.h"
+#include "drakan_dlss.h"
 #include "drakan_coop_character.h"
 #include "drakan_local_character_view.h"
 #include "drakan_lifecycle.h"
@@ -181,6 +182,7 @@ void hookCharacterProjector(uint8_t* ram, R5900Context* c, PS2Runtime* rt) {
                 std::fprintf(stderr, "[local-character] character shadow: %x -> selected body %x\n", source, caster);
             }
         }
+        drakan_dlss::noteNativeCharacterShadow(caster);
     }
     g_characterProjector(ram, c, rt);
 }

@@ -6,6 +6,7 @@
 #include "drakan_scene_camera.h"
 #include "drakan_scene_geometry.h"
 #include "drakan_scene_models.h"
+#include "drakan_shadow_ownership.h"
 #include "drakan_scene_assets.h"
 #include "drakan_object_motion.h"
 #include "ps2_runtime.h"
@@ -29,6 +30,13 @@
 
 namespace drakan_dlss {
 static drakan_scene_models::Assets reflectionAssets;
+static drakan_shadow::Frame shadowFrame;
+void noteNativeCharacterShadow(uint32_t object) {
+    object &= 0x1fffffffu;
+    const auto found = drakan_scene_models::generations.find(object);
+    if (found != drakan_scene_models::generations.end())
+        shadowFrame.record(object, found->second);
+}
 void setAssetSource(hle::IsoFs* fs) {
     reflectionAssets.source(fs);
 }
@@ -80,10 +88,28 @@ void sceneSink(PS2Runtime& runtime, const gsr::SceneGuideCamera& camera, void*) 
     if (!async)
         vu1async::sync();
     profile.finish(camera.sourcePc, (camera.flags & gsr::SceneGuideCamera::EndWorld) != 0, before, after);
+    // Publish ownership before EndWorld can trigger the modern pass. The initial immutable snapshot was captured
+    // before native projector calls; this second snapshot carries only this world's actual projector requests.
+    if ((camera.flags & gsr::SceneGuideCamera::EndWorld) &&
+        (camera.sourcePc == 0x147690u || camera.sourcePc == 0x139010u)) {
+        if (auto models = shadowFrame.finish()) {
+            static bool logged = false;
+            const auto count = std::count_if(models->instances.begin(), models->instances.end(),
+                                             [](const auto& model) { return model.nativeShadow; });
+            if (count && !logged) {
+                logged = true;
+                std::fprintf(stderr,
+                             "[shadow-policy] native projection owns direct casting for %zu caster(s) in this world\n",
+                             size_t(count));
+            }
+            send([models = std::move(models)](GsrBridge& bridge) { bridge.noteSceneModels(models); });
+        }
+    }
     send([camera](GsrBridge& bridge) { bridge.noteSceneCamera(camera); });
     // World entry precedes camera culling; export resident level layers, not
     // just the current GIF stream. Hash checks avoid reuploading static data.
     if (camera.sourcePc == 0x139010u && !(camera.flags & gsr::SceneGuideCamera::EndWorld)) {
+        shadowFrame.begin(nullptr);
         static uint64_t identity = 0;
         static unsigned checks = 0;
         static bool wasOn = false;
@@ -113,6 +139,7 @@ void sceneSink(PS2Runtime& runtime, const gsr::SceneGuideCamera& camera, void*) 
                 capture.reset();
             capture.loadTexture = [](uint32_t id, const std::string& path) { return reflectionAssets.load(id, path); };
             auto models = capture.capture(runtime.memory().getRDRAM(), PS2_RAM_SIZE, identity);
+            shadowFrame.begin(models);
             if (!wasOn || checks % 120 == 0)
                 std::fprintf(
                     stderr,

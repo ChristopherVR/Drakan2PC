@@ -475,7 +475,7 @@ fn visibility(p: vec3f, normal: vec3f, direction: vec3f, maximum: f32, self_: u3
     shadowReceiver = normal;
     for (var layer = 0u; layer < 8u && transmission > 0.01; layer++) {
         shadowTravelled = travelled;
-        let h = trace(o, direction, 2.0, tmax, 1u, kShadow, self_);
+        let h = trace(o, direction, 2.0, tmax, 8u, kShadow, self_); // direct-shadow caster mask
         if (traceBlocked) {
             return 0.0;
         }

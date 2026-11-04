@@ -1295,7 +1295,7 @@ void RayWater::Impl::execute(Job& job) {
                     if (FILE* metadata = std::fopen(metadataPath.c_str(), "wb")) {
                         std::fprintf(metadata,
                                      "object,resource,mesh,generation,triangles,opacity,shell,cameraX,cameraY,"
-                                     "cameraZ,level,m0,m1,m2,m3,m4,m5,m6,m7,m8,m9,m10,m11\n");
+                                     "cameraZ,level,m0,m1,m2,m3,m4,m5,m6,m7,m8,m9,m10,m11,nativeShadow\n");
                         for (const auto& instance : models->instances) {
                             if (instance.mesh >= models->meshes.size())
                                 continue;
@@ -1307,7 +1307,7 @@ void RayWater::Impl::execute(Job& job) {
                                          origin.x, origin.y, origin.z, static_cast<unsigned long long>(models->level));
                             for (float value : instance.transform)
                                 std::fprintf(metadata, ",%.9g", value);
-                            std::fputc('\n', metadata);
+                            std::fprintf(metadata, ",%u\n", unsigned(instance.nativeShadow));
                         }
                         std::fclose(metadata);
                     }
@@ -1368,7 +1368,7 @@ void RayWater::Impl::execute(Job& job) {
                     i.Transform[1][3] = translate.y;
                     i.Transform[2][3] = translate.z;
                     i.InstanceID = (31u << 19) | materialBase;
-                    i.InstanceMask = 1u << g;
+                    i.InstanceMask = (1u << g) | (g == 0 ? kDirectShadowMask : 0u);
                     i.AccelerationStructure = s.staticBlas[g]->GetGPUVirtualAddress();
                     instances.push_back(i);
                 }
@@ -1379,7 +1379,7 @@ void RayWater::Impl::execute(Job& job) {
                     D3D12_RAYTRACING_INSTANCE_DESC i{};
                     i.Transform[0][0] = i.Transform[1][1] = i.Transform[2][2] = 1;
                     i.InstanceID = (31u << 19) | materialBase;
-                    i.InstanceMask = 1u << g;
+                    i.InstanceMask = (1u << g) | (g == 0 ? kDirectShadowMask : 0u);
                     i.AccelerationStructure = s.blas[g]->GetGPUVirtualAddress();
                     instances.push_back(i);
                 }
@@ -1464,7 +1464,7 @@ void RayWater::Impl::execute(Job& job) {
                 i.Transform[1][3] -= origin.y;
                 i.Transform[2][3] -= origin.z;
                 i.InstanceID = modelOffsets[source.mesh] | (opacity << 19);
-                i.InstanceMask = 1;
+                i.InstanceMask = 1u | (source.nativeShadow ? 0u : kDirectShadowMask);
                 i.AccelerationStructure = s.nativeMeshes.at(model->identity).blas->GetGPUVirtualAddress();
                 instances.push_back(i);
             }

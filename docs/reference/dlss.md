@@ -4,6 +4,23 @@ The DLSS 5 neural rendering bridge (`gsr_nr`, `nr_prototype`) was removed on 28 
 layout NVIDIA does not publish. DLSS Super Resolution / DLAA are unchanged. Sections below that describe the neural path
 are history.
 
+## Native and ray shadow ownership, 4 November 2026
+
+The shared resident exporter excludes models whose native resource class is sky (`0x1001a`), including the
+camera-following planet billboards that are not enclosing sky shells. They remain in the game's sky rendering,
+but cannot cast physical shadows or become nearby reflection/geometry-guide surfaces.
+
+For characters, the native projector owns direct shadow casting when it is requested during the current world
+submission. The resolved visible caster and its lifetime generation are recorded, then published in an immutable
+model snapshot **before** EndWorld triggers the modern pass. DXR and WebGPU use a separate direct-caster mask;
+native-owned models remain shadow receivers, reflectors and contact-AO contributors. Unprojected models keep their
+ray shadows. Native rendering is retained if the modern pass fails; no previous-frame success feedback is used.
+This deliberately retains the original character silhouette rather than replacing it with a ray-traced silhouette.
+
+`DRAKAN_NATIVE_CHARACTER_SHADOWS=0` remains an isolation switch: with no native projector requests, the same models
+regain direct ray casting. Settings changes and each new world submission recompute ownership. Evidence and the
+limits of the reporter-scene reproduction are in [the issue investigation](../journal/2026-11-04/issue-1-shadow-fix.md).
+
 ## Still world under the pause menu, 24 October 2026
 
 Behind the pause menu (0x17) and the pages it opens (Load 4, Save 5, Options 9, Controller 10, Audio 13) the

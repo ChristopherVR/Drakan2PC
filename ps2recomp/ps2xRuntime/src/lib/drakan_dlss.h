@@ -4,6 +4,7 @@
 // needed for the game to run: with dlss = off (default) the hook is not even installed.
 #pragma once
 #include <string>
+#include <cstdint>
 
 namespace gsr {
 class Renderer;
@@ -24,8 +25,9 @@ void configure(gsr::Config& cfg);
 void attach(GsrBridge* bridge, gsr::Renderer* gs);
 void detach();
 void installSceneHooks(PS2Runtime& runtime);
-void hostTick();                         // optional bounded developer toggle sequence
-void commitDisplay(PS2Runtime& runtime); // ordered complete native display transaction
+void noteNativeCharacterShadow(uint32_t object); // EE thread, selected visible caster, before native projection
+void hostTick();                                 // optional bounded developer toggle sequence
+void commitDisplay(PS2Runtime& runtime);         // ordered complete native display transaction
 
 // Mode names: off | dlaa | quality | balanced | performance. Presets: auto | j | k | l | m.
 void setMode(const std::string& mode, const std::string& preset,

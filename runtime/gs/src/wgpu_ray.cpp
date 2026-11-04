@@ -1,6 +1,7 @@
 // The WebGPU ray pass, see wgpu_ray.h. Scene packing follows RayWater::Impl::execute (ray_water.cpp): the same material
 // attribute layout ([static world][frame triangles][native models]), instance groups and masks (1 opaque, 2 water
-// coverage, 4 native water), instance IDs (material base | opacity << 19) and camera-relative coordinates.
+// coverage, 4 native water, 8 direct-shadow casters), instance IDs (material base | opacity << 19) and camera-relative
+// coordinates.
 #include "wgpu_ray.h"
 #include "runtime_flags.h"
 
@@ -512,14 +513,15 @@ bool WgpuRay::render(const PassFrame& f, std::span<const Triangle> triangles,
         uint32_t materialBase = 0;
         for (unsigned g = 0; g < 3; ++g) {
             if (staticCounts_[g])
-                addInstance(translate, staticRoots_[g], (31u << 19) | materialBase, 1u << g, staticBlas_[g].bounds);
+                addInstance(translate, staticRoots_[g], (31u << 19) | materialBase,
+                            (1u << g) | (g == 0 ? surface::kDirectShadowMask : 0u), staticBlas_[g].bounds);
             materialBase += staticCounts_[g];
         }
         for (const auto& chunk : frameChunks) {
             uint32_t root = 0;
             append(chunk.blas, root);
-            addInstance(identity, root, (31u << 19) | (materialBase + uint32_t(chunk.first)), 1u << chunk.group,
-                        chunk.blas.bounds);
+            addInstance(identity, root, (31u << 19) | (materialBase + uint32_t(chunk.first)),
+                        (1u << chunk.group) | (chunk.group == 0 ? surface::kDirectShadowMask : 0u), chunk.blas.bounds);
             if (chunk.first + chunk.count == counts[chunk.group])
                 materialBase += counts[chunk.group];
         }
@@ -553,7 +555,8 @@ bool WgpuRay::render(const PassFrame& f, std::span<const Triangle> triangles,
             m[3] -= origin.x;
             m[7] -= origin.y;
             m[11] -= origin.z;
-            addInstance(m, modelRoots[source.mesh], modelOffsets[source.mesh] | (opacity << 19), 1, mesh.blas.bounds);
+            addInstance(m, modelRoots[source.mesh], modelOffsets[source.mesh] | (opacity << 19),
+                        1u | (source.nativeShadow ? 0u : surface::kDirectShadowMask), mesh.blas.bounds);
         }
         std::erase_if(meshes_, [&](const auto& entry) { return entry.second.used + 120 < pass_; });
     }

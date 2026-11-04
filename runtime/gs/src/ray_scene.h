@@ -12,6 +12,7 @@
 namespace gsr::surface {
 // Diagnostic bits share Effects.w in both shaders. Unknown modes preserve normal rendering.
 constexpr uint32_t kRayDiagnosticNoAo = 32, kRayDiagnosticNoDirect = 64, kRayDiagnosticReceiver = 128;
+constexpr uint32_t kDirectShadowMask = 8; // separate from land (1), water coverage (2) and native water (4)
 uint32_t rayDiagnosticEffects(std::string_view mode);
 struct Triangle {
     Point p[3];

@@ -50,6 +50,17 @@ struct Reader {
         std::memcpy(&v, ram + p, 4);
         return v;
     }
+    uint32_t resourceClass(uint32_t object, uint32_t database) const {
+        if (!span(object, 0x14) || !span(database, 0x14))
+            return 0;
+        const uint32_t index = h(object + 0x10);
+        if (index == 0xffff || index > u(database + 0x10))
+            return 0;
+        const uint64_t record = uint64_t(u(database + 8)) + uint64_t(index) * 0x24;
+        if (record > UINT32_MAX || !span(uint32_t(record), 0x24))
+            return 0;
+        return u(uint32_t(record) + 8);
+    }
     std::map<uint32_t, uint32_t> resources(uint32_t manager, uint32_t vt, uint32_t alternate = 0) const {
         std::map<uint32_t, uint32_t> out;
         if (!span(manager, 0x220))
@@ -682,6 +693,11 @@ public:
             // distance/frustum path. Keep semantic visibility, bypass only
             // camera culling: hidden trigger/helper boxes are not reflectors.
             if (!(r.u(object + 4) & 1))
+                continue;
+            // RFL 0x1a is the native sky behaviour, including camera-following planet billboards. Those open
+            // quads do not satisfy cameraShell's enclosing-volume test, but must not cast shadows on cliffs or
+            // appear as nearby physical reflectors. Use ownership, not resource IDs, size or camera proximity.
+            if (r.resourceClass(object, 0x4db4c0) == 0x1001a)
                 continue;
             auto it = resources.find(r.u(object + 8));
             if (it == resources.end())

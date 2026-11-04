@@ -34,6 +34,7 @@ struct SceneModelInstance {
     // Row-major 3x4 object-to-world, suitable for a DXR instance transform.
     float transform[12]{};
     float opacity = 1;
+    bool nativeShadow = false; // this world submission's native character projector owns direct shadow casting
 };
 struct SceneModels {
     uint64_t level = 0;

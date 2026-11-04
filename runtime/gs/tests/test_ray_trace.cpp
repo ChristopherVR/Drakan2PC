@@ -209,6 +209,49 @@ int main() {
             check(shade[0] + 8 >= lit[0], "a material-only change reaches the GPU");
         }
     }
+    // A native-projected model still belongs to the scene, but does not cast a second direct silhouette.
+    {
+        SceneModels models;
+        models.lighting.ambient[0] = models.lighting.ambient[1] = models.lighting.ambient[2] = .3f;
+        SceneLight sun;
+        sun.vector[1] = .5f;
+        sun.vector[2] = -1;
+        sun.color[0] = sun.color[1] = sun.color[2] = 1;
+        models.lighting.lights.push_back(sun);
+        auto mesh = std::make_shared<SceneModelMesh>();
+        mesh->identity = 12345;
+        const float corners[4][3]{{-300, -100, -1500}, {300, -100, -1500}, {300, 400, -1500}, {-300, 400, -1500}};
+        for (const auto& indices : {std::array<unsigned, 3>{0, 1, 2}, std::array<unsigned, 3>{0, 2, 3}}) {
+            SceneModelTriangle tri;
+            for (unsigned j = 0; j < 3; ++j)
+                std::copy(corners[indices[j]], corners[indices[j]] + 3, tri.position[j]);
+            mesh->triangles.push_back(tri);
+        }
+        models.meshes.push_back(mesh);
+        SceneModelInstance instance;
+        instance.transform[0] = instance.transform[5] = instance.transform[10] = 1;
+        models.instances.push_back(instance);
+        std::vector<surface::Triangle> ground;
+        ground.push_back(triangle({-5000, -100, -10}, {5000, -100, -10}, {5000, -100, -5000}, .5f, .5f, .5f, false));
+        ground.push_back(triangle({-5000, -100, -10}, {5000, -100, -5000}, {-5000, -100, -5000}, .5f, .5f, .5f, false));
+        pass.shareStaticWorld(std::make_shared<const std::vector<surface::Triangle>>(ground), 2, 3);
+        surface::RayOptions shadows;
+        shadows.water = false;
+        shadows.shadows = true;
+        auto sample = [&]() {
+            std::vector<uint8_t> pixels;
+            check(pass.render(f, {}, {}, &models, shadows), "native model shadow pass runs");
+            check(device->readTexture(*pass.output(), 0, 0, 0, W, H, pixels) && pixels.size() == W * H * 4,
+                  "native model shadow readback");
+            return pixels.empty() ? 0u : unsigned(pixels[(36 * W + 32) * 4]);
+        };
+        const auto cast = sample();
+        models.instances[0].nativeShadow = true;
+        const auto owned = sample();
+        check(owned >= 120 && cast + 30 < owned, "native ownership removes the duplicate direct silhouette");
+        models.instances[0].nativeShadow = false;
+        check(sample() == cast, "unprojected model regains its ray shadow in the next submission");
+    }
     if (g_failures) {
         std::fprintf(stderr, "%d failure(s)\n", g_failures);
         return 1;

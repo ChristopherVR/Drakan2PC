@@ -180,7 +180,7 @@ float visibility(float3 p,float3 normal,float3 direction,float maximum,uint self
     RayDesc ray;ray.Origin=p+normal*offset+direction*2;ray.Direction=direction;ray.TMin=2;ray.TMax=maximum;
     float transmission=1,travelled=0;
     [loop]for(uint layer=0;layer<8 && transmission>.01;++layer){
-        RayQuery<RAY_FLAG_NONE> query;query.TraceRayInline(Scene,RAY_FLAG_NONE,1,ray);
+        RayQuery<RAY_FLAG_NONE> query;query.TraceRayInline(Scene,RAY_FLAG_NONE,8,ray); // direct-shadow caster mask
         while(query.Proceed())if(query.CandidateType()==CANDIDATE_NON_OPAQUE_TRIANGLE && query.CandidateInstanceIndex()!=self){
             uint primitive=(query.CandidateInstanceID()&0x7ffff)+query.CandidatePrimitiveIndex();
             if(!(uint(Materials[primitive*kAttributes+5].z)&256) && materialAlpha(primitive,query.CandidateTriangleBarycentrics())>0)query.CommitNonOpaqueTriangleHit();

@@ -1,5 +1,6 @@
 #include "drakan_scene_models.h"
 #include "drakan_scene_assets.h"
+#include "drakan_shadow_ownership.h"
 #include <fstream>
 #include <cassert>
 #include <iostream>
@@ -7,6 +8,55 @@ int main(int argc, char** argv) {
     using namespace drakan_scene_models;
     Capture cache;
     assert(cache.capture(nullptr, 0, 1)->instances.empty());
+    {
+        auto source = std::make_shared<gsr::SceneModels>();
+        gsr::SceneModelInstance actor;
+        actor.object = 0x100000;
+        actor.generation = 7;
+        source->instances.push_back(actor);
+        actor.object += 0x120;
+        source->instances.push_back(actor);
+        drakan_shadow::Frame frame;
+        frame.record(source->instances[0].object, 7); // outside a world: ignored
+        frame.begin(source);
+        frame.record(source->instances[0].object, 6); // stale object lifetime: ignored
+        assert(!frame.finish()->instances[0].nativeShadow);
+        frame.begin(source);
+        frame.record(source->instances[0].object, 7);
+        auto result = frame.finish();
+        assert(result->instances[0].nativeShadow && !result->instances[1].nativeShadow);
+        assert(!source->instances[0].nativeShadow);   // queued earlier snapshot remains immutable
+        assert(!frame.finish());                      // a second end-world does not republish an old result
+        frame.record(source->instances[1].object, 7); // after end-world: ignored
+        frame.begin(source);
+        assert(!frame.finish()->instances[0].nativeShadow);
+        frame.begin(source);
+        frame.record(source->instances[0].object, 7);
+        frame.begin(nullptr); // disabled/reset/new world invalidates pending projection
+        assert(!frame.finish());
+    }
+    {
+        std::vector<uint8_t> memory(0x101000);
+        Reader reader{memory.data(), uint32_t(memory.size())};
+        const auto put = [&](uint32_t at, auto value) { std::memcpy(memory.data() + at, &value, sizeof(value)); };
+        constexpr uint32_t object = 0x100000, database = 0x100200, records = 0x100300;
+        put(database + 8, records);
+        put(database + 0x10, 1u); // native resource limit is inclusive
+        put(object + 0x10, uint16_t(1));
+        put(records + 0x24 + 8, 0x1001au); // sky, even when its geometry is only a pair of billboards
+        assert(reader.resourceClass(object, database) == 0x1001a);
+        put(records + 0x24 + 8, 0x100d3u); // ordinary scenery keeps its class
+        assert(reader.resourceClass(object, database) == 0x100d3);
+        put(object + 0x10, uint16_t(2));
+        assert(reader.resourceClass(object, database) == 0);
+        put(object + 0x10, uint16_t(0xffff));
+        assert(reader.resourceClass(object, database) == 0);
+        put(object + 0x10, uint16_t(1));
+        put(database + 8, 0xfffffff0u);
+        assert(reader.resourceClass(object, database) == 0);
+        assert(reader.resourceClass(object, 0) == 0);
+        assert(reader.resourceClass(uint32_t(memory.size() - 4), database) == 0);
+    }
     {
         gsr::SceneModelMesh sphere;
         sphere.nativeId = 3;

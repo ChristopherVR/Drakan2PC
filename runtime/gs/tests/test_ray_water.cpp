@@ -583,6 +583,10 @@ int main(int argc, char** argv) {
     assert(water.render(color.Get(), depth.Get(), output.Get(), c, triangles, 1, true, {}, &models));
     auto instanced = read();
     assert(instanced == cold);
+    models.instances[0].nativeShadow = true;
+    assert(water.render(color.Get(), depth.Get(), output.Get(), c, triangles, 1, true, {}, &models));
+    assert(read() == cold); // native shadow ownership must not remove the reflector
+    models.instances[0].nativeShadow = false;
     // Native lights stand in for a native model's GS vertex colour, so they modulate the texel before it is
     // linearised: an ambient-lit model reflects exactly like the same surface with that vertex colour.
     {
@@ -975,6 +979,23 @@ int main(int argc, char** argv) {
             cast += castShadow[i * 4] < 0x3266;
         assert(castShadow[(32 * w + 32) * 4] < 0x3266 && cast > 25);
         std::cout << "Native model receives " << cast << " shadowed pixels from another model and none from itself\n";
+        // A native-projected caster remains a receiver/reflector/AO contributor, but must not add a second direct
+        // silhouette. Put the blocker beyond AO reach to isolate direct casting.
+        actors.instances[1].transform[11] = 1000;
+        assert(water.render(color.Get(), depth.Get(), output.Get(), c, triangles, 1, false, {}, &actors, shadows));
+        assert(read()[(32 * w + 32) * 4] < 0x3266);
+        actors.instances[1].nativeShadow = true;
+        assert(water.render(color.Get(), depth.Get(), output.Get(), c, triangles, 1, false, {}, &actors, shadows));
+        const auto nativeOwned = read();
+        for (unsigned i = 0; i < w * h; ++i)
+            assert(nativeOwned[i * 4] == 0x3266);
+        actors.instances[1].nativeShadow = false;
+        assert(water.render(color.Get(), depth.Get(), output.Get(), c, triangles, 1, false, {}, &actors, shadows));
+        assert(read()[(32 * w + 32) * 4] < 0x3266);
+        actors.instances[1].nativeShadow = true;
+        actors.instances[1].transform[11] = 0;
+        assert(water.render(color.Get(), depth.Get(), output.Get(), c, triangles, 1, false, {}, &actors, shadows));
+        assert(read()[(32 * w + 32) * 4] < 0x3266); // nearby native caster still contributes contact AO
         // A shadowed resident ridge (two faces 30 degrees apart) is lit per vertex by the GS. Its shadow must darken
         // smoothly across the ridge rather than in one flat-normal step per face.
         const float slope = std::tan(15 * 3.14159265f / 180), ridgeBack = -320 - 1000 * slope;
