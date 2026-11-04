@@ -6,6 +6,7 @@ import {
     ReplaceItemCommand,
     SetFieldCommand,
     SetAddedItemCountCommand,
+    SetReplacementItemCountCommand,
 } from '@drakan/editor-core';
 import { INV_CELL_COUNT, type InventoryCell } from '@drakan/formats';
 import { gridTile, itemGrid } from '../shared/components.ts';
@@ -256,7 +257,7 @@ export function renderInventory(ctx: PanelCtx): HTMLElement {
                     hot ? h('b', { class: 'mk q', title: 'In the Quick Inventory' }, 'Q') : null,
                 ),
                 h('span', { class: 'nm' }, name),
-                c.durability !== undefined && !replaced
+                (replaced ? !!doc.replacementItemCounts(k) : c.durability !== undefined)
                     ? h(
                           'span',
                           { class: 'dbar' },
@@ -417,12 +418,17 @@ function inspect(
             type: 'number',
             min: 0,
             value: String(doc.value(field) ?? ''),
-            disabled: !doc.editable(field),
+            disabled: doc.itemReplacements.has(c.cell) ? !doc.replacementItemCounts(c.cell) : !doc.editable(field),
             'data-field': field,
             onchange: () => {
                 try {
+                    if (!input.value.trim()) throw new Error('Enter a whole number.');
                     const n = Number(input.value);
                     if (!Number.isInteger(n) || n < 0) throw new Error('expected a whole number');
+                    if (doc.itemReplacements.has(c.cell)) {
+                        ctx.run(new SetReplacementItemCountCommand(c.cell, key, n));
+                        return;
+                    }
                     const problem = doc.checkEdit(field, n);
                     if (problem) throw new Error(problem);
                     ctx.run(new SetFieldCommand(field, n));
@@ -432,7 +438,8 @@ function inspect(
                 }
             },
         });
-        const orig = doc.originalValue(field);
+        const template = doc.itemReplacements.get(c.cell);
+        const orig = template === undefined ? doc.originalValue(field) : undefined;
         const was =
             orig !== undefined && orig !== doc.value(field) ? h('small', { class: 'sv-dim' }, ` was ${orig}`) : null;
         return h('label', { class: 'f' }, h('small', null, label), input, was);
@@ -484,12 +491,12 @@ function inspect(
                 `resource ${resource === undefined ? '?' : resourceKey(resource)} · handle 0x${(c.handle ?? 0).toString(16)}`,
             ),
             replace,
-            c.durability === undefined || replacing
+            (replacing ? !doc.replacementItemCounts(c.cell) : c.durability === undefined)
                 ? h(
                       'small',
                       { class: 'sv-dim' },
                       replacing
-                          ? 'Counts of the new item are its own defaults; undo the replacement to edit the old item.'
+                          ? 'The replacement item record’s count layout is unavailable.'
                           : 'The item record was not found, so its count cannot be edited.',
                   )
                 : h(

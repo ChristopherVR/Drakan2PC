@@ -10,6 +10,7 @@ import {
     SaveDocument,
     SetFieldCommand,
     SetAddedItemCountCommand,
+    SetReplacementItemCountCommand,
     addItem,
     findCellStream,
     itemHandleAt,
@@ -94,6 +95,34 @@ function fixture(): Uint8Array {
 }
 
 describe('Replace with... (item class swap)', () => {
+    it('edits replacement counts independently through switching, undo, redo and export', () => {
+        const doc = SaveDocument.open(fixture());
+        const stack = new CommandStack(doc);
+        stack.run(new SetFieldCommand('inv.0.durability', 12));
+        stack.run(new ReplaceItemCommand(0, 262));
+        stack.run(new SetReplacementItemCountCommand(0, 'durability', 77));
+        stack.run(new SetReplacementItemCountCommand(0, 'max', 250));
+        expect(doc.value('inv.0.durability')).toBe(77);
+        const exported = () => SaveDocument.open(doc.build().bytes).inventory[0]!;
+        expect([exported().durability, exported().max]).toEqual([77, 250]);
+        expect(doc.pendingEdits().find((e) => e.name === 'item.0')!.text!.after).toContain('quantity/durability 77');
+        stack.run(new ReplaceItemCommand(0, 270));
+        expect(doc.itemReplacementCounts.has(0)).toBe(false);
+        stack.undo();
+        expect([exported().durability, exported().max]).toEqual([77, 250]);
+        stack.undo();
+        stack.undo();
+        stack.undo();
+        expect(exported().durability).toBe(12);
+        stack.redo();
+        stack.redo();
+        stack.redo();
+        expect(exported().durability).toBe(77);
+        for (const bad of [-1, 1.5, 0x100000000, NaN])
+            expect(() => stack.run(new SetReplacementItemCountCommand(0, 'max', bad))).toThrow();
+        expect(exported().max).toBe(250);
+    });
+
     it('keeps replacement defaults instead of exporting hidden count edits from the original item', () => {
         const doc = SaveDocument.open(fixture());
         const stack = new CommandStack(doc);

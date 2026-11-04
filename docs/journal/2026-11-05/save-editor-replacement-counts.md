@@ -1,0 +1,9 @@
+# Save Editor replacement item counts
+
+The selected-item inspector now edits a pending replacement’s quantity/durability and maximum before export. Previously it disabled those controls until export and reopen. This follows the selected-item editing workflow reviewed in the read-only AbioticEditor reference while preserving the current Drakan presentation and asset rendering.
+
+Replacement overrides are separate from the original carried item’s field edits. Switching or clearing a replacement resets its overrides; undo restores the previous replacement and its values. Undoing the replacement itself restores the original item’s prior count edits. Export applies overrides after creating the replacement, using the existing validated native field writers. Ownership/link repair remains unchanged. The inventory tile and pending-change description preview the replacement values.
+
+Validation: 71 focused save-document/item tests pass, editor-core and app typechecks pass, and the Vite production build passes (existing large-chunk warning). The regression covers switching, undo/redo, export/reopen, original edits and invalid counts.
+
+Actual browser workflow used a private existing Surdana file (893 records, six items), replaced the equipped Dagger with the available Bow template, and entered 77/250 through the inspector. The tile displayed 77/250. The actual Export Blob was 178,808 bytes and was reopened through the file input; it retained six items, the equipped Bow, quantity 77 and maximum 250, with zero pending changes. The source file was untouched. Artwork was intentionally unavailable in this no-disc browser sample; this batch does not modify asset decoding or caching. Private screenshots: `build/scratch/replacement-counts-before.png` and `build/scratch/replacement-counts-reopened.png`, directly inspected for layout and values. This verifies editor serialization, not a new native gameplay roundtrip.

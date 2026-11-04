@@ -114,6 +114,15 @@ export class SaveDocument extends LevelDocument {
     readonly itemReplacements = new Map<number, number>();
     /** Height in cells of the class each pending replacement takes (only for cells whose height is known). */
     readonly itemReplacementRows = new Map<number, number>();
+    /** Count overrides belong to the replacement, never to the original carried item. */
+    readonly itemReplacementCounts = new Map<number, Partial<ItemCounts>>();
+
+    replacementItemCounts(cell: number): ItemCounts | null {
+        const template = this.itemReplacements.get(cell);
+        if (template === undefined) return null;
+        const defaults = itemTemplateCounts(this.save, template);
+        return defaults ? { ...defaults, ...this.itemReplacementCounts.get(cell) } : null;
+    }
     /** Pending new items, in the order they were added: template record entry id and height in cells of each. */
     readonly itemAdds: ItemAdd[] = [];
 
@@ -303,6 +312,9 @@ export class SaveDocument extends LevelDocument {
             const p = this.get(this.playerObject)!.transform.pos;
             return [p[0], p[1], p[2]];
         }
+        const count = /^inv\.(\d+)\.(durability|max)$/.exec(name);
+        if (count && this.itemReplacements.has(Number(count[1])))
+            return this.replacementItemCounts(Number(count[1]))?.[count[2] as keyof ItemCounts];
         return this.fieldValues.get(name) ?? this.originalValue(name);
     }
 
@@ -337,6 +349,7 @@ export class SaveDocument extends LevelDocument {
         for (const [cell, tpl] of this.itemReplacements) {
             const before = this.inventory.find((c) => c.cell === cell)?.resource ?? 0;
             const after = this.itemResourceOf(cell) ?? 0;
+            const counts = this.itemReplacementCounts.get(cell);
             out.push({
                 name: `item.${cell}`,
                 label: `cell ${cell} item`,
@@ -344,7 +357,10 @@ export class SaveDocument extends LevelDocument {
                 after,
                 confidence: 'medium',
                 unconfirmed: false,
-                text: { before: `0x${before.toString(16)}`, after: `0x${after.toString(16)} (record ${tpl})` },
+                text: {
+                    before: `0x${before.toString(16)}`,
+                    after: `0x${after.toString(16)} (record ${tpl})${counts?.durability !== undefined ? ` · quantity/durability ${counts.durability}` : ''}${counts?.max !== undefined ? ` · max ${counts.max}` : ''}`,
+                },
             });
         }
         const cells = this.addedCells();
@@ -404,6 +420,11 @@ export class SaveDocument extends LevelDocument {
         let base = this.save;
         for (const [cell, tpl] of this.itemReplacements) {
             base = replaceItem(base, cell, tpl, this.itemReplacementRows.get(cell));
+            const counts = Object.entries(this.itemReplacementCounts.get(cell) ?? {}).map(([key, value]) => ({
+                name: `inv.${cell}.${key}`,
+                value,
+            }));
+            if (counts.length) base = applyFieldEdits(base, counts);
         }
         for (const a of this.itemAdds) {
             const added = addItem(base, a.template, a.rows);
@@ -539,6 +560,7 @@ export class ReplaceItemCommand implements Command {
     readonly label: string;
     private old: number | undefined;
     private oldRows: number | undefined;
+    private oldCounts: Partial<ItemCounts> | undefined;
     constructor(
         private readonly cell: number,
         private readonly template: number | undefined,
@@ -563,9 +585,46 @@ export class ReplaceItemCommand implements Command {
             this.old = doc.itemReplacements.get(this.cell);
             this.oldRows = doc.itemReplacementRows.get(this.cell);
         }
+        if (doc instanceof SaveDocument) {
+            this.oldCounts = doc.itemReplacementCounts.get(this.cell);
+            doc.itemReplacementCounts.delete(this.cell);
+        }
         this.put(doc, this.template, this.rows);
     }
     revert(doc: LevelDocument): void {
         this.put(doc, this.old, this.oldRows);
+        if (doc instanceof SaveDocument) {
+            if (this.oldCounts) doc.itemReplacementCounts.set(this.cell, this.oldCounts);
+            else doc.itemReplacementCounts.delete(this.cell);
+        }
+    }
+}
+
+/** Edit the pending replacement's own counts without touching the original item. */
+export class SetReplacementItemCountCommand implements Command {
+    readonly label: string;
+    private old: number | undefined;
+    constructor(
+        private readonly cell: number,
+        private readonly key: keyof ItemCounts,
+        private readonly value: number,
+    ) {
+        this.label = `Set replacement cell ${cell} ${key}`;
+    }
+    private put(doc: LevelDocument, value: number | undefined): void {
+        if (!(doc instanceof SaveDocument)) throw new Error('SetReplacementItemCountCommand needs a SaveDocument');
+        if (!doc.replacementItemCounts(this.cell)) throw new SaveFieldError('Replacement item record is unavailable.');
+        if (value !== undefined) checkFieldValue(`inv.${this.cell}.${this.key}`, value);
+        const counts = { ...doc.itemReplacementCounts.get(this.cell) };
+        if (value === undefined) delete counts[this.key];
+        else counts[this.key] = value;
+        doc.itemReplacementCounts.set(this.cell, counts);
+    }
+    apply(doc: LevelDocument): void {
+        if (doc instanceof SaveDocument) this.old = doc.itemReplacementCounts.get(this.cell)?.[this.key];
+        this.put(doc, this.value);
+    }
+    revert(doc: LevelDocument): void {
+        this.put(doc, this.old);
     }
 }
