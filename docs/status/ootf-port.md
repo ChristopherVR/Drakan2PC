@@ -1,6 +1,6 @@
 # Order of the Flame in the PS2 engine: status
 
-Living tracker (updated 2026-11-02). Drakan 1 (Order of the Flame, PC) levels are converted from the player's own install into mod
+Living tracker (reviewed 2026-11-04). Drakan 1 (Order of the Flame, PC) levels are converted from the player's own install into mod
 packs that the recompiled PS2 engine plays; nothing from either game is committed. Detail lives in the dated notes under
 `docs/journal/2026-10-31/` and `docs/journal/2026-11-01/` (`ootf-*.md`, `arena-*.md`, `game-select-ootf-boot.md`); formats are in the
 `editor/packages/formats` submodule, pack rules in `reference/modding.md` ("Campaign packs").
@@ -31,7 +31,7 @@ packs that the recompiled PS2 engine plays; nothing from either game is committe
   boxes are the tested path (`ootf-link-regression.md`).
 * Volcanic runs at about 42 fps with the rift effect live (Vortex / Inner / Outer Rift movers).
 * The exit scan cannot resolve level-local destination strings of converted levels; use the exit index with `DRAKAN_LEVELCHANGE`.
-* Two packs installed together share patched files (`RESOURES.MOD/.TXD`, `PROCTEES.TXD`, `WORLDCON.*`, `RESOURES.SDB` entries): the
+* The older separate packs share patched files (`RESOURES.MOD/.TXD`, `PROCTEES.TXD`, `WORLDCON.*`, `RESOURES.SDB` entries): the
   later pack wins and logs conflicts. Convert campaign and arenas together instead (no level paths = all 23 levels in one pack); for separate packs keep `ootf-levels` after `ootf-arenas` in `mods.ini`; arena models missing from the campaign
   copy were not checked in a full arena match with both packs installed.
 * The Host Game mode strip still shows a disabled Co-op tile ("Coming") beside the PvP modes.
@@ -41,7 +41,7 @@ packs that the recompiled PS2 engine plays; nothing from either game is committe
 * Duplicate-object warnings from source data (Alwarren, Grimstone Mines) are harmless but unexamined.
 
 * 2026-11-02 state proofs (`journal/2026-11-02/ootf-state-proofs.md`): switch -> portcullis and plate -> mover chains proven by world dumps; Dr. Evil: 3 of 4 heads killed in game (4th head blind: fixed, see `journal/2026-11-02/ootf-drevil-ending-and-creature-closeups.md`: all four die and the credits roll); dying dragon now falls. Breath visual: done, see `ootf-dragon-breath-visual.md`.
-* 2026-11-02 pass (`journal/2026-11-02/ootf-unproven-creatures-chains.md`): Succubus drawn; Blade Dragons alive and attacking; Queen / Hueges / Tick alive but NOT drawn (close-up control with the Succubus proves the method, cause open);
+* 2026-11-02 pass (`journal/2026-11-02/ootf-unproven-creatures-chains.md`): Succubus drawn; Blade Dragons alive and attacking. The initial Queen / Hueges / Tick close-ups were superseded by the hidden-creature investigation below;
   Ebon Dragon and Drone now shown drawn and moving, bats alive but not photographed (`journal/2026-11-02/ootf-flyer-closeups.md`); switch-to-portcullis proven by state; the pack conflict is fixed by one combined conversion (`journal/2026-11-02/ootf-combined-pack.md`).
 
 ## Release checks (2026-11-02)
@@ -50,4 +50,10 @@ packs that the recompiled PS2 engine plays; nothing from either game is committe
 and clang-format 19 clean; `dist/DrakanPC` rebuilt with `Build-LocalGame.ps1 -Incremental`. Smoke run evidence is private under
 `build/ootf-run/rel/smoke/`. See `docs/journal/2026-11-02/release-smoke.md`.
 
-- Hidden creatures (PC flag 0x01 clear) start hidden until a Detect and Execute / timer link fires: proven for Death Mage and Navy Hueges; the Queen has no links, so the converter now shows linked-to-nothing creatures (formats 10f4c65), Queen draws. Tick detector spot (126944,152576) crashes the guest for a reason not in the Tick class (see `docs/journal/2026-11-02/ootf-hidden-creatures.md`).
+- Hidden creatures (PC flag 0x01 clear) start hidden until a Detect and Execute / timer link fires: proven for Death Mage and Navy Hueges.
+  Queen, Navy Hueges and Tick draw when visible. The Queen has no links, so the converter now shows unlinked hidden creatures
+  (formats 10f4c65); Queen drawing is proven without the debug visibility flag.
+- Tick activation by its detector remains unproven: teleporting to (126944,209400,152576), near Detectors 1691/1702 in Succubus Lair,
+  fails with a missing-target JALR to zero at guest 0x10822c. The failure persisted after removing Ticks, their waypoints, detectors,
+  timers, nearby scenery and music/sound objects, and after position offsets. This isolates an unresolved area/terrain/teleport issue,
+  not a demonstrated Tick class defect. See [hidden-creature investigation](../journal/2026-11-02/ootf-hidden-creatures.md).
