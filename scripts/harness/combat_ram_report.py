@@ -51,14 +51,18 @@ def report(path):
     if not valid(resources, 0x14) or not valid(tb, max(8, n * 8)):
         return unavailable("actor_registry_unavailable")
 
-    def resource_class(handle):
+    def resource_record(handle):
         if not valid(handle, 0x12):
             return None
         ix = h(handle + 0x10)
         if ix == 0xFFFF or ix > u(resources + 0x10):
             return None
         record = u(resources + 8) + ix * 0x24
-        return u(record + 8) if valid(record, 0x24) else None
+        return record if valid(record, 0x24) else None
+
+    def resource_class(handle):
+        record = resource_record(handle)
+        return u(record + 8) if record is not None else None
 
     # Controlled actor can change on mounting: never interpret dragon memory as Rynn.
     ph = controlled
@@ -138,6 +142,33 @@ def report(path):
     # Inventory-close observations, not a verdict about which path executed.
     screen = u(0x4FB60C)
     controller = p + 0x584
+    # Actual carried cells, independently of the inventory screen being open. Small nonzero values in the item
+    # word can be multi-cell continuation markers. Carried objects can be absent from the active world table;
+    # validate the PAL actor type and both base-item self pointers before resolving their resource record.
+    out["inventory_cells"] = []
+    for cell in range(24):
+        address = controller + 0x30 + cell * 16
+        handle = u(address + 8)
+        data = obj(handle)
+        is_item = (
+            valid(handle, 0x100)
+            and u(handle) == 0x51B8B0
+            and valid(data, 0xF0)
+            and u(data + 0xC) == handle
+            and u(data + 0xEC) == handle
+        )
+        record = resource_record(handle) if is_item else None
+        out["inventory_cells"].append(
+            {
+                "cell": cell,
+                "equipped": u(address),
+                "hot": u(address + 4),
+                "item_word": hex(handle),
+                "icon": hex(u(address + 12)),
+                "resource": hex(u(record)) if record is not None else None,
+                "resource_class": hex(u(record + 8)) if record is not None else None,
+            }
+        )
     out["inventory"] = {
         "screen": hex(screen),
         "global_active": u(0x4FBAFC),
@@ -229,23 +260,28 @@ def report(path):
     return out
 
 
-paths = []
-for arg in sys.argv[1:]:
-    p = pathlib.Path(arg)
-    paths.extend(sorted(p.glob("ram*.ram")) if p.is_dir() else [p])
-results = []
-for p in paths:
-    try:
-        result = report(p)
-        # Validate each result before serializing the batch (including finite floats).
-        json.dumps(result, allow_nan=False)
-    except Exception as error:
-        result = {
-            "ram": p.name,
-            "rynn_available": False,
-            "reason": "parse_error",
-            "error_type": type(error).__name__,
-            "error": str(error),
-        }
-    results.append(result)
-print(json.dumps(results, indent=2, allow_nan=False))
+def main(args):
+    paths = []
+    for arg in args:
+        p = pathlib.Path(arg)
+        paths.extend(sorted(p.glob("ram*.ram")) if p.is_dir() else [p])
+    results = []
+    for p in paths:
+        try:
+            result = report(p)
+            # Validate each result before serializing the batch (including finite floats).
+            json.dumps(result, allow_nan=False)
+        except Exception as error:
+            result = {
+                "ram": p.name,
+                "rynn_available": False,
+                "reason": "parse_error",
+                "error_type": type(error).__name__,
+                "error": str(error),
+            }
+        results.append(result)
+    print(json.dumps(results, indent=2, allow_nan=False))
+
+
+if __name__ == "__main__":
+    main(sys.argv[1:])
