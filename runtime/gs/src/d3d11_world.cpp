@@ -333,8 +333,9 @@ void D3D11Backend::Impl::finalizeNeuralWorld(RT& rt) {
     const bool wantWater =
         modernWater && rt.surface.epoch == motionEpoch &&
         std::any_of(rt.surface.triangles.begin(), rt.surface.triangles.end(), [](const auto& t) { return t.water; });
-    const bool wantShadows = rayShadows && nativeModels && !nativeModels->lighting.lights.empty();
-    const bool wantRayScene = wantWater || wantShadows;
+    // Ambient-only worlds still need the contact-occlusion part of the shadow pass.
+    const bool wantShadows = rayShadows && nativeModels && nativeModels->lighting.hasContribution();
+    const bool wantRayScene = wantWater || wantShadows || rayReflections || rayGlobalIllumination;
     wantNR = false;
     const bool wantSR = rt.temporalSR && combinedSr;
     if ((!wantNR && !wantSR && !wantRayScene) || !neuralGuides)
@@ -400,9 +401,10 @@ void D3D11Backend::Impl::finalizeNeuralWorld(RT& rt) {
     const bool compareWater = compareEffect && std::strcmp(compareEffect, "water") == 0 && !wantSR && !wantNR;
     const bool compareModels = compareEffect && std::strcmp(compareEffect, "models") == 0 && !wantSR && !wantNR;
     const bool compareShadows = compareEffect && std::strcmp(compareEffect, "shadows") == 0 && !wantSR && !wantNR;
+    const bool compareTransport = compareEffect && std::strcmp(compareEffect, "transport") == 0 && !wantSR && !wantNR;
     ComPtr<ID3D11Texture2D> waterBefore;
-    if ((compareWater || compareModels || compareShadows) && wantRayScene && runtimeFlags().matchedCompareEpoch &&
-        motionEpoch == *runtimeFlags().matchedCompareEpoch) {
+    if ((compareWater || compareModels || compareShadows || compareTransport) && wantRayScene &&
+        runtimeFlags().matchedCompareEpoch && motionEpoch == *runtimeFlags().matchedCompareEpoch) {
         D3D11_TEXTURE2D_DESC desc{};
         rt.tex->GetDesc(&desc);
         if (SUCCEEDED(dev->CreateTexture2D(&desc, nullptr, &waterBefore))) {
@@ -429,13 +431,15 @@ void D3D11Backend::Impl::finalizeNeuralWorld(RT& rt) {
         std::vector<surface::Triangle> noTriangles;
         auto& rayScene = rt.surface.epoch == motionEpoch ? rt.surface.triangles : noTriangles;
         std::vector<surface::Triangle> compareScene;
-        if ((compareModels || compareShadows) && waterBefore)
+        if ((compareModels || compareShadows || compareTransport) && waterBefore)
             compareScene = rayScene;
-        if ((compareModels || compareShadows) && waterBefore && waterRenderer->ready() &&
-            waterRenderer->submit(
-                textures.color.texture, textures.depth.texture, textures.output.texture, constants, compareScene,
-                waterSeconds, rayReflections, reflectionTextures, compareModels ? nullptr : nativeModels,
-                surface::RayOptions{wantWater, compareShadows ? false : wantShadows, nullptr, true})) {
+        if ((compareModels || compareShadows || compareTransport) && waterBefore && waterRenderer->ready() &&
+            waterRenderer->submit(textures.color.texture, textures.depth.texture, textures.output.texture, constants,
+                                  compareScene, waterSeconds, rayReflections, reflectionTextures,
+                                  compareModels ? nullptr : nativeModels,
+                                  surface::RayOptions{wantWater, compareShadows ? false : wantShadows, nullptr, true,
+                                                      compareTransport ? false : rayGlobalIllumination,
+                                                      compareTransport ? false : rayReflections})) {
             ComPtr<ID3D11RenderTargetView> beforeRtv;
             if (SUCCEEDED(dev->CreateRenderTargetView(waterBefore.Get(), nullptr, &beforeRtv))) {
                 ctx->OMSetRenderTargets(0, nullptr, nullptr);
@@ -452,7 +456,7 @@ void D3D11Backend::Impl::finalizeNeuralWorld(RT& rt) {
                                                       motionEpoch == runtimeFlags().raySceneDumpEpoch
                                                           ? cstr(runtimeFlags().raySceneDump)
                                                           : nullptr,
-                                                      true})) {
+                                                      true, rayGlobalIllumination, rayReflections})) {
             ctx->OMSetRenderTargets(0, nullptr, nullptr);
             ctx->CopyResource(textures.color.texture, textures.output.texture);
             waterEvaluated = wantWater;
@@ -601,7 +605,7 @@ void D3D11Backend::Impl::finalizeNeuralWorld(RT& rt) {
             rt.rayOutputEpoch = motionEpoch;
         // The NR on/off compare needs a separate NR image; render-resolution NR has none (its SR image includes it).
         if (((wantNR && !neuralBeforeSr) ||
-             ((compareWater || compareModels || compareShadows) && waterBefore && rayEvaluated)) &&
+             ((compareWater || compareModels || compareShadows || compareTransport) && waterBefore && rayEvaluated)) &&
             runtimeFlags().matchedCompareEpoch && motionEpoch == *runtimeFlags().matchedCompareEpoch) {
             D3D11_TEXTURE2D_DESC desc{};
             rt.tex->GetDesc(&desc);
@@ -614,7 +618,7 @@ void D3D11Backend::Impl::finalizeNeuralWorld(RT& rt) {
                 ctx->OMSetRenderTargets(0, nullptr, nullptr);
                 ctx->CopyResource(rt.compareTex.Get(), rt.tex.Get());
                 bool offComposed = true;
-                if (compareWater || compareModels || compareShadows) {
+                if (compareWater || compareModels || compareShadows || compareTransport) {
                     ctx->OMSetRenderTargets(0, nullptr, nullptr);
                     ctx->CopyResource(rt.compareTex.Get(), waterBefore.Get());
                 } else

@@ -5,6 +5,31 @@
 #include <cstring>
 
 namespace drakan_scene_geometry {
+// Cheap per-world boundary check. Do not wait for the periodic full terrain hash when the loader replaces layer
+// storage. Exclude animated light/color contents; their changes are not new resource lifetimes.
+inline uint64_t layoutIdentity(const uint8_t* ram, uint32_t bytes) {
+    if (!ram || bytes < 0x4dc124)
+        return 0;
+    const auto read = [&](uint32_t p) {
+        uint32_t value;
+        std::memcpy(&value, ram + p, sizeof(value));
+        return value;
+    };
+    const uint32_t base = read(0x4dc118), count = read(0x4dc120);
+    if (!count || count > 4096 || base < 0x100000 || uint64_t(base) + uint64_t(count) * 0x164 > bytes)
+        return 0;
+    uint64_t hash = 14695981039346656037ull;
+    const auto mix = [&](uint32_t value) { hash = (hash ^ value) * 1099511628211ull; };
+    mix(base);
+    mix(count);
+    for (uint32_t layer = 0; layer < count; ++layer) {
+        const uint32_t p = base + layer * 0x164;
+        for (uint32_t offset : {8u, 12u, 16u, 0x1cu, 0x20u, 0x24u, 0x28u, 0x40u, 0x4cu})
+            mix(read(p + offset));
+        mix(read(p + 0x50) & 0x1c00001);
+    }
+    return hash;
+}
 // Layout follows 152330's layer iteration and 158148/161a78/1ef1c8's
 // grid inputs. The 0x400000 flag stores ONE height, not an entire array.
 inline gsr::SceneGeometry capture(const uint8_t* ram, uint32_t bytes, uint64_t previous = 0) {

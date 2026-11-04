@@ -36,16 +36,16 @@ void WgpuBackend::draw(const GsDrawState& st, const ClutBuf& clut, const DrawVer
 void WgpuBackend::flushToMemory(uint32_t a, uint32_t b) {
     m_impl->flushToMemory(a, b);
 }
-void WgpuBackend::flushForRead(uint32_t a, uint32_t b) {
-    m_impl->flushForRead(a, b);
+void WgpuBackend::flushForRead(uint32_t a, uint32_t b, const VramRect* rect) {
+    m_impl->flushForRead(a, b, rect);
 }
 bool WgpuBackend::beginTargetUpload(uint32_t psm, uint32_t bp, uint32_t bw, uint32_t x, uint32_t y, uint32_t w,
                                     uint32_t h) {
     return m_impl->beginTargetUpload(psm, bp, bw, x, y, w, h);
 }
 void WgpuBackend::completeTargetUpload(uint32_t psm, uint32_t bp, uint32_t bw, uint32_t x, uint32_t y, uint32_t w,
-                                       uint32_t h, bool apply) {
-    m_impl->completeTargetUpload(psm, bp, bw, x, y, w, h, apply);
+                                       uint32_t h, bool apply, uint64_t written) {
+    m_impl->completeTargetUpload(psm, bp, bw, x, y, w, h, apply, written);
 }
 void WgpuBackend::drawMovieFrame(uint32_t dbp, uint32_t dbw, uint32_t x, uint32_t y, uint32_t w, uint32_t h,
                                  const MovieImage& image, uint64_t imageId) {
@@ -277,15 +277,20 @@ std::string WgpuBackend::waterRenderingStatus() const {
 }
 std::string WgpuBackend::rayTracingStatus() const {
     const auto& s = *m_impl;
-    if (!s.modernWater && !s.rayShadows)
+    if (!s.modernWater && !s.rayShadows && !s.rayReflections && !s.rayGlobalIllumination)
         return "Ray tracing off";
     if (s.rayPass && !s.rayPass->ready())
         return s.rayPass->status();
-    if (s.rayShadows && s.nativeModels && s.nativeModels->lighting.lights.empty())
+    if (s.rayShadows && !s.rayReflections && !s.rayGlobalIllumination && s.nativeModels &&
+        !s.nativeModels->lighting.hasContribution())
         return "Ray-traced shadows enabled; waiting for valid native world lighting";
     if (s.lastPresentedRay && s.rayPass) {
         std::string text = s.rayShadows ? "Ray-traced shadows rendered in the last gameplay image (WebGPU compute)."
-                                        : "Ray-traced water rendered in the last gameplay image (WebGPU compute).";
+                                        : "Ray-traced scene rendered in the last gameplay image (WebGPU compute).";
+        if (s.rayGlobalIllumination)
+            text += " Diffuse global illumination active.";
+        if (s.rayReflections)
+            text += " Opaque-material reflections active.";
         if (s.lastPresentedWater && s.rayReflections)
             text += " Water reflections active.";
         return text;
@@ -294,6 +299,17 @@ std::string WgpuBackend::rayTracingStatus() const {
 }
 void WgpuBackend::noteSceneGeometry(const SceneGeometry& geometry) {
     m_impl->surfaceBuilder->drain();
+    if (m_impl->residentScene.identity != geometry.identity) {
+        // Keep the current camera: it is published immediately before this level's resident geometry.
+        auto& s = *m_impl;
+        s.discardTemporalWorlds();
+        s.taaReset = true;
+        s.taaPrevValid = false;
+        s.taaPrevCamera = {};
+        s.motionHistory.reset();
+        for (auto& target : s.rts)
+            target->wstate = 0;
+    }
     m_impl->residentScene.replace(geometry);
     m_impl->nativeModels.reset();
     // References into material texel storage never survive a different level.

@@ -1149,7 +1149,8 @@ struct Renderer::Impl {
 
     void startTransfer(uint32_t dir) {
         if (xfer.active && xfer.intoTarget) // abandoned upload: publish what arrived
-            backend->completeTargetUpload(xfer.dpsm, xfer.dbp, xfer.dbw, xfer.x0, xfer.y0, xfer.w, xfer.h, true);
+            backend->completeTargetUpload(xfer.dpsm, xfer.dbp, xfer.dbw, xfer.x0, xfer.y0, xfer.w, xfer.h, true,
+                                          uint64_t(xfer.w) * xfer.h - xfer.pixelsLeft);
         trxdir = dir;
         xfer = Xfer{};
         const uint32_t sbp = (uint32_t)bitsOf(bitbltbuf, 0, 14), sbw = (uint32_t)bitsOf(bitbltbuf, 16, 6),
@@ -1193,14 +1194,15 @@ struct Renderer::Impl {
                 xfer.raw.clear();
             mem.touchRect(dpsm, dbp, dbw, dsax, dsay, rrw, rrh);
             if (xfer.intoTarget) // memory is not the target's source while the pixels stream in
-                backend->completeTargetUpload(dpsm, dbp, dbw, dsax, dsay, rrw, rrh, false);
+                backend->completeTargetUpload(dpsm, dbp, dbw, dsax, dsay, rrw, rrh, false, 0);
             stats.transfersH2L++;
         } else if (dir == 1) {
             if (!isValidPsm(spsm))
                 return;
             uint32_t lo, hi;
             spanBlocks(spsm, sbp, sbw, ssax, ssay, rrw, rrh, lo, hi);
-            backend->flushForRead(lo, hi);
+            const VramRect rect{spsm, sbp, sbw, ssax, ssay, rrw, rrh};
+            backend->flushForRead(lo, hi, &rect);
             // pack the rectangle into the stream
             l2h.clear();
             l2hPos = 0;
@@ -1331,11 +1333,15 @@ struct Renderer::Impl {
                 }
             }
         }
+        if (xfer.intoTarget && xfer.pixelsLeft != 0)
+            backend->completeTargetUpload(xfer.dpsm, xfer.dbp, xfer.dbw, xfer.x0, xfer.y0, xfer.w, xfer.h, false,
+                                          uint64_t(xfer.w) * xfer.h - xfer.pixelsLeft);
         if (xfer.pixelsLeft == 0) {
             xfer.active = false;
             mem.touchRect(xfer.dpsm, xfer.dbp, xfer.dbw, xfer.x0, xfer.y0, xfer.w, xfer.h);
             if (xfer.intoTarget)
-                backend->completeTargetUpload(xfer.dpsm, xfer.dbp, xfer.dbw, xfer.x0, xfer.y0, xfer.w, xfer.h, true);
+                backend->completeTargetUpload(xfer.dpsm, xfer.dbp, xfer.dbw, xfer.x0, xfer.y0, xfer.w, xfer.h, true,
+                                              uint64_t(xfer.w) * xfer.h);
             if (xfer.movieBlock && xfer.raw.size() == movie::kBlockBytes)
                 movieBlockUploaded(xfer.dbp, xfer.dbw, xfer.x0, xfer.y0, xfer.raw.data());
             if (cfg.onUpload) {
@@ -2140,13 +2146,14 @@ bool Renderer::sceneModelsRequested() const {
     return waterRenderingRequested() || m_impl->modelNeuralRequested.load(std::memory_order_acquire) ||
            m_impl->modelSrRequested.load(std::memory_order_acquire);
 }
-void Renderer::setWaterRendering(bool water, bool reflections, bool shadows) {
-    m_impl->waterRequested.store(water || shadows, std::memory_order_release);
+void Renderer::setWaterRendering(bool water, bool reflections, bool shadows, bool globalIllumination) {
+    m_impl->waterRequested.store(water || shadows || reflections || globalIllumination, std::memory_order_release);
     m_impl->queue([&](LiveSettings& p) {
         p.mask |= LiveSettings::F_WATER;
         p.modernWater = water;
         p.rayReflections = reflections;
         p.rayShadows = shadows;
+        p.rayGlobalIllumination = globalIllumination;
     });
 }
 bool Renderer::waterRenderingAvailable(std::string& status) const {

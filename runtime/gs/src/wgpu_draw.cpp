@@ -301,10 +301,10 @@ void WgpuBackend::Impl::draw(const GsDrawState& s, const ClutBuf& clut, const Dr
                                                     (waterWorldCamera.flags & SceneGuideCamera::World)
                                                 ? waterWorldCamera
                                                 : sceneCamera;
-    if ((modernWater || rayShadows) && (engineWorldOpen || pendingTemporalEnd) &&
-        surface::surfaceCameraAccepted(surfaceSource, pendingTemporalEnd) && rt->w >= surfaceSource.frameWidth &&
-        rt->h >= surfaceSource.frameHeight && (nativeWaterPass || (zte && ztst >= 2)) &&
-        !(s.flags & (DF_SPRITE | DF_LINE | DF_POINT)) && count % 3 == 0) {
+    if ((modernWater || rayShadows || rayReflections || rayGlobalIllumination) &&
+        (engineWorldOpen || pendingTemporalEnd) && surface::surfaceCameraAccepted(surfaceSource, pendingTemporalEnd) &&
+        rt->w >= surfaceSource.frameWidth && rt->h >= surfaceSource.frameHeight &&
+        (nativeWaterPass || (zte && ztst >= 2)) && !(s.flags & (DF_SPRITE | DF_LINE | DF_POINT)) && count % 3 == 0) {
         if (surfaceBuilder->needsConfigure(surfaceSource.serial, s.xyoffset))
             surfaceBuilder->stageCamera(pendingTemporalEnd ? rt->taaCamera : surfaceSource, s.xyoffset);
         const bool waterState =
@@ -357,7 +357,7 @@ void WgpuBackend::Impl::draw(const GsDrawState& s, const ClutBuf& clut, const Dr
         !(s.flags & DF_SPRITE))
         rt->worldEpoch = motionEpoch;
     bool worldDraw = false; // a jittered draw of the open temporal AA world (wgpu_temporal.cpp)
-    if (upMode || modernWater || rayShadows) {
+    if (upMode || modernWater || rayShadows || rayReflections || rayGlobalIllumination) {
         constexpr uint32_t kWorldCamera =
             SceneGuideCamera::Valid | SceneGuideCamera::World | SceneGuideCamera::HaveViewport;
         const bool fullFrame = !neuralWorldClosed && (sceneCamera.flags & kWorldCamera) == kWorldCamera &&

@@ -447,10 +447,12 @@ void D3D11Backend::Impl::applyLive(const LiveSettings& ls) {
         setUpscale(ls.upMode, ls.upPreset, ls.upSharp);
     if (ls.mask & L::F_WATER) {
         discardTemporalWorlds();
-        const bool newlyEnabled = !(modernWater || rayShadows) && (ls.modernWater || ls.rayShadows);
+        const bool newlyEnabled = !(modernWater || rayShadows || rayReflections || rayGlobalIllumination) &&
+                                  (ls.modernWater || ls.rayShadows || ls.rayReflections || ls.rayGlobalIllumination);
         modernWater = ls.modernWater;
         rayReflections = ls.rayReflections;
         rayShadows = ls.rayShadows;
+        rayGlobalIllumination = ls.rayGlobalIllumination;
         lastPresentedWater = false;
         lastPresentedRay = false;
         if (newlyEnabled)

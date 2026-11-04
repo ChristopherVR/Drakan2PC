@@ -44,16 +44,16 @@ bool D3D11Backend::copyLocal(uint32_t spsm, uint32_t sbp, uint32_t sbw, uint32_t
                              uint32_t dbp, uint32_t dbw, uint32_t dx, uint32_t dy, uint32_t w, uint32_t h) {
     return m_impl->copyLocal(spsm, sbp, sbw, sx, sy, dpsm, dbp, dbw, dx, dy, w, h);
 }
-void D3D11Backend::flushForRead(uint32_t a, uint32_t b) {
-    m_impl->flushForRead(a, b);
+void D3D11Backend::flushForRead(uint32_t a, uint32_t b, const VramRect* rect) {
+    m_impl->flushForRead(a, b, rect);
 }
 bool D3D11Backend::beginTargetUpload(uint32_t psm, uint32_t bp, uint32_t bw, uint32_t x, uint32_t y, uint32_t w,
                                      uint32_t h) {
     return m_impl->beginTargetUpload(psm, bp, bw, x, y, w, h);
 }
 void D3D11Backend::completeTargetUpload(uint32_t psm, uint32_t bp, uint32_t bw, uint32_t x, uint32_t y, uint32_t w,
-                                        uint32_t h, bool apply) {
-    m_impl->completeTargetUpload(psm, bp, bw, x, y, w, h, apply);
+                                        uint32_t h, bool apply, uint64_t written) {
+    m_impl->completeTargetUpload(psm, bp, bw, x, y, w, h, apply, written);
 }
 void D3D11Backend::drawMovieFrame(uint32_t dbp, uint32_t dbw, uint32_t x, uint32_t y, uint32_t w, uint32_t h,
                                   const MovieImage& image, uint64_t imageId) {
@@ -294,15 +294,20 @@ std::string D3D11Backend::waterRenderingStatus() const {
 }
 std::string D3D11Backend::rayTracingStatus() const {
     const auto& s = *m_impl;
-    if (!s.modernWater && !s.rayShadows)
+    if (!s.modernWater && !s.rayShadows && !s.rayReflections && !s.rayGlobalIllumination)
         return "Ray tracing off";
     if (s.waterRenderer && !s.waterRenderer->ready())
         return s.waterRenderer->status();
-    if (s.rayShadows && s.nativeModels && s.nativeModels->lighting.lights.empty())
+    if (s.rayShadows && !s.rayReflections && !s.rayGlobalIllumination && s.nativeModels &&
+        !s.nativeModels->lighting.hasContribution())
         return "Ray-traced shadows enabled; waiting for valid native world lighting";
     if (s.lastPresentedRay && s.waterRenderer) {
         std::string text = s.rayShadows ? "Ray-traced shadows rendered in the last gameplay image."
-                                        : "Ray-traced water rendered in the last gameplay image.";
+                                        : "Ray-traced scene rendered in the last gameplay image.";
+        if (s.rayGlobalIllumination)
+            text += " Diffuse global illumination active.";
+        if (s.rayReflections)
+            text += " Opaque-material reflections active.";
         if (s.lastPresentedWater && s.rayReflections)
             text += " Water reflections active.";
         return text;
@@ -314,6 +319,24 @@ std::string D3D11Backend::rayTracingStatus() const {
 namespace gsr {
 void D3D11Backend::noteSceneGeometry(const SceneGeometry& geometry) {
     m_impl->surfaceBuilder->drain();
+    if (m_impl->residentScene.identity != geometry.identity) {
+        // The scene camera arrives before resident geometry. Invalidate previous-level history without clearing
+        // that newly published current camera (upscaleCut() also clears it).
+        auto& s = *m_impl;
+        s.discardTemporalWorlds();
+        s.upReset = s.neuralReset = true;
+        s.camPrevValid = false;
+        s.neuralPrevious = {};
+        s.motionHistory.reset();
+        s.modelMotion.reset();
+        s.pendingModels.ready = false;
+        s.pendingModels.scene.reset();
+        s.pendingModels.previous.reset();
+        if (s.combinedSr)
+            s.combinedSr->reset();
+        for (auto& target : s.rts)
+            target->wstate = 0;
+    }
     m_impl->residentScene.replace(geometry);
     m_impl->nativeModels.reset();
     // References into material texel storage never survive a different level.

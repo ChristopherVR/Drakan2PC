@@ -4,10 +4,115 @@
 #include <fstream>
 #include <cassert>
 #include <iostream>
+#include <limits>
 int main(int argc, char** argv) {
     using namespace drakan_scene_models;
+    {
+        gsr::SceneLighting lighting;
+        assert(!lighting.hasContribution());
+        lighting.ambient[0] = std::numeric_limits<float>::quiet_NaN();
+        lighting.ambient[1] = std::numeric_limits<float>::infinity();
+        lighting.ambient[2] = -1;
+        assert(!lighting.hasContribution());
+        lighting.ambient[2] = .25f;
+        assert(lighting.hasContribution()); // ambient-only worlds must run ray-traced contact occlusion
+        lighting.ambient[2] = 0;
+        lighting.lights.push_back({});
+        assert(lighting.hasContribution()); // preserve the existing direct-light eligibility
+    }
     Capture cache;
     assert(cache.capture(nullptr, 0, 1)->instances.empty());
+    {
+        // Streaming may replace a model in place before the next level-identity poll. Preserve its address, ID,
+        // vertex count and LOD while changing the source topology/UV/material data behind a warmed pose template.
+        std::vector<uint8_t> ram(0x520000);
+        auto put = [&](uint32_t at, auto value) { std::memcpy(ram.data() + at, &value, sizeof(value)); };
+        constexpr uint32_t model = 0x110000, object = 0x120000, controller = 0x130000, vt = 0x140000;
+        constexpr uint32_t header = 0x150000, pose = 0x151000, faces = 0x153000, library = 0x154000;
+        constexpr uint32_t uv = 0x155000, texture = 0x156000, pixels = 0x157000;
+        put(0x4dae20 + 0x20, model);
+        put(model, 2u);
+        put(model + 8, 3u);
+        put(model + 0x18, 0x51cc98u);
+        put(model + 0x1c, 4u);
+        put(model + 0x20, 2u);
+        put(model + 0x24, pose);
+        put(model + 0x28, faces);
+        put(model + 0x30, uv);
+        put(model + 0x38, library);
+        put(model + 0x40, 2u);
+        put(library, 11u);
+        put(library + 4, 12u);
+        const uint16_t indices[12] = {0, 1, 2, 0, 0, 0, 0, 2, 3, 0, 0, 0};
+        std::memcpy(ram.data() + faces, indices, sizeof(indices));
+        const float positions[12] = {0, 0, 0, 10, 0, 0, 10, 10, 0, 0, 10, 0};
+        std::memcpy(ram.data() + pose, positions, sizeof(positions));
+        put(object, 0x51b8b0u);
+        put(object + 4, 1u);
+        put(object + 8, 2u);
+        put(object + 0x20, 1.f);
+        put(object + 0x30, 1.f);
+        put(object + 0x40, 1.f);
+        put(object + 0x50, controller);
+        put(object + 0x114, 1.f);
+        put(controller, vt);
+        put(controller + 8, 0x100000u);
+        put(controller + 0xd4, object);
+        put(controller + 0x10c, 0x152000u);
+        put(controller + 0x114, 2u);
+        put(controller + 0x118, 4u);
+        put(controller + 0x120, header);
+        put(vt + 0x144, 0x106aa8u);
+        put(header, pose);
+        put(header + 8, 4u);
+        put(0x4db280 + 0x20, texture);
+        put(texture, 11u);
+        put(texture + 8, 3u);
+        put(texture + 0x18, 0x51cfe8u);
+        put(texture + 0x24, 1u);
+        put(texture + 0x28, 1u);
+        put(texture + 0x34, 4u);
+        put(texture + 0x38, 32u);
+        put(texture + 0x50, pixels);
+        put(pixels, 0x80402010u);
+        Capture warm;
+        const auto first = warm.capture(ram.data(), uint32_t(ram.size()), 7);
+        assert(first->instances.size() == 1 && first->meshes[0]->triangles.size() == 2);
+        Reader reader{ram.data(), uint32_t(ram.size())};
+        auto signature = meshContentSignature(reader, model, 0);
+        const auto staticSignature = meshContentSignature(reader, model, 0, true);
+        put(pose, 3.f);
+        assert(meshContentSignature(reader, model, 0) == signature); // animation is not template metadata
+        assert(meshContentSignature(reader, model, 0, true) != staticSignature);
+        auto moved = warm.capture(ram.data(), uint32_t(ram.size()), 7);
+        assert(moved->meshes[0]->triangles[0].position[0][0] == 3);
+        auto compareFresh = [&] {
+            Capture cold;
+            const auto actual = warm.capture(ram.data(), uint32_t(ram.size()), 7);
+            const auto expected = cold.capture(ram.data(), uint32_t(ram.size()), 7);
+            assert(actual->meshes.size() == 1 && expected->meshes.size() == 1);
+            assert(actual->meshes[0]->identity == expected->meshes[0]->identity);
+            assert(actual->meshes[0]->topology == expected->meshes[0]->topology);
+            assert(meshContentSignature(reader, model, 0) != signature);
+            signature = meshContentSignature(reader, model, 0);
+        };
+        put(uv, .75f);
+        compareFresh();
+        put(faces + 2, uint16_t(3));
+        compareFresh();
+        put(library, 12u);
+        compareFresh();
+        // Identical pixels do not justify retaining stale alpha/blend flags during a resident refresh.
+        put(texture + 0x20, 0x10000u);
+        std::shared_ptr<gsr::SceneModels> refreshed;
+        for (unsigned i = 0; i < 40; ++i)
+            refreshed = warm.capture(ram.data(), uint32_t(ram.size()), 7);
+        assert(refreshed->textures.size() == 1 && refreshed->textures[0]->flags == 0x10000);
+        assert(first->textures[0]->flags == 0); // queued snapshots remain immutable
+        live.clear();
+        generations.clear();
+        std::cout << "Same-address pose templates track UV/topology/material replacement; equal-pixel flags refresh\n";
+    }
     {
         auto source = std::make_shared<gsr::SceneModels>();
         gsr::SceneModelInstance actor;

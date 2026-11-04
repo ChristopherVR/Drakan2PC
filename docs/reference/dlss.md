@@ -4,6 +4,55 @@ The DLSS 5 neural rendering bridge (`gsr_nr`, `nr_prototype`) was removed on 28 
 layout NVIDIA does not publish. DLSS Super Resolution / DLAA are unchanged. Sections below that describe the neural path
 are history.
 
+## Level-transition lifetime, 5 November 2026
+
+A changed resident geometry identity explicitly resets previous-level temporal camera/image and object/model motion
+state in both renderers. The new current camera is preserved because it is published before the geometry packet.
+Native ray mesh, material and corner-weld caches also use the published model level as their namespace; reused numeric
+mesh IDs do not establish unchanged DXR BLAS content. Model capture validates pose-independent source metadata before
+reusing indexed templates. World-entry layout changes and camera resets trigger an immediate full scene identity check,
+in addition to the periodic check. These fixes address verified lifetime gaps; the user's exact Rynn transition artifact
+has not yet been reproduced. See [the investigation](../journal/2026-11-05/rynn-level-transition-artifacts.md).
+
+## Diffuse bounce and opaque reflections, 4 November 2026
+
+F1 â†’ Video â†’ Ray tracing now offers **Ray-traced global illumination** (`ray_gi`, environment `GSR_RAY_GI`)
+and **Ray-traced reflections** (`ray_reflections`, `GSR_RAY_REFLECTIONS`). Both work independently of modern water
+and direct shadows. The reflection setting includes rough opaque surfaces as well as water. Fresh settings default
+both off; explicit saved choices are respected.
+
+DXR and WebGPU trace one diffuse bounce from textured resident geometry, including offscreen surfaces, and sample
+GGX reflections using per-material roughness and reflectance. Opaque materials default to a rough dielectric;
+cutout/blended foliage does not receive a glossy coating. Secondary hit lighting respects native lights and occluders.
+Diffuse misses add no invented ambient light. The new transport is composed before DLSS/temporal resolve and the HUD.
+
+Opaque transport traces at half resolution and reconstructs with depth, normal, material and color rejection.
+The intermediate stores incoming RGB and scalar reflected energy separately; attenuation uses each final pixel's
+own native color. Filtering a signed RGB correction could transfer a neighbor's colored subtraction onto another
+texture, so that representation was replaced. Transport preparation no longer repeats shadow/ambient occlusion;
+the existing shadow path owns that work. DXR/WebGPU regressions and a moving-camera gameplay check pass; residual opaque-reflection color bands remain. GPU timing and upload-cache evidence is in
+[the quality/performance review](../journal/2026-11-04/ray-gpu-upload-review.md).
+
+This supplements original lighting rather than replacing it with a full path tracer. The native assets lack calibrated
+PBR maps, some material colors already contain authored lighting, and geometry/material export remains partial.
+It is not DLSS Ray Reconstruction. Implementation, sampling/coverage limits and validation are recorded in
+[the transport investigation](../journal/2026-11-04/ray-transport.md).
+
+## Shadow contrast and ambient-only coverage, 4 November 2026
+
+Native lighting modulates the GS image in display space. DXR and WebGPU now convert the shadow/ambient-occlusion
+ratio to linear space before multiplying linear scene radiance. Previously a 20% native brightness ratio retained
+about 48% of displayed brightness, weakening shadows and contact shading. Open surfaces retain their original
+brightness; the change restores the native lighting ratio rather than introducing a global contrast adjustment.
+
+Both backends also run contact occlusion with positive ambient lighting and no direct lights. The old backend,
+dispatch and shader gates incorrectly required a direct light. WebGPU converts its stored linear shadow ratio
+back to display lighting units when reconstructing water lighting, avoiding a second attenuation conversion.
+See [the coverage investigation](../journal/2026-11-04/ambient-only-ray-coverage.md).
+
+The initial review found only native-light shadows, contact occlusion and water reflections. The subsequent
+transport extension above adds diffuse bounce and opaque reflections; DLSS SR/DLAA resolves their rendered output.
+
 ## Native and ray shadow ownership, 4 November 2026
 
 The shared resident exporter excludes models whose native resource class is sky (`0x1001a`), including the
@@ -30,10 +79,16 @@ Both world entries (`enterWorld`, `enterTemporalWorld`) now use zero jitter whil
 such a screen; history is kept. Surdana pause frames 30 samples apart: mean difference in the world region
 0.25 -> 0.0007 (max 15 -> 10 levels, the remainder is the HUD text fade).
 
+The level-exit "save to continue" confirmation (screen 2, before save browser 5) also uses zero jitter as of
+5 November 2026. Its camera packets and ray pass remain active; it was previously missing from the frozen-screen
+list. Guest screen reads after EndWorld now finish pending modern lighting before copying the target to VRAM,
+matching the display/HUD resolve boundary. Reads during active world or late-water drawing remain unfinalized.
+See [the closed-world readback regression](../journal/2026-11-05/closed-world-readback.md).
+
 ## Water and shadow shading upgrade, 23 October 2026
 
 The DXR pass now shades water with an eight-wave world-space spectrum (sub-pixel waves become GGX
-roughness), glossy reflections, slope-driven refraction, hue-aware Beer–Lambert absorption, bed
+roughness), glossy reflections, slope-driven refraction, hue-aware Beerâ€“Lambert absorption, bed
 caustics, crest scattering and shoreline foam. `ray_shadows` gives soft directional and point-light
 shadows from per-pixel rotated samples (resolved temporally by DLSS), a terminator bias against
 low-poly self-shadow stripes, and ray-traced ambient occlusion of the native ambient term (1 m
@@ -173,7 +228,7 @@ enabled. A separate melee/audio encounter records 420 successful evaluations of
 each feature and enemy damage. The receipt records remaining visual artifacts;
 successful evaluations do not establish artifact-free output.
 
-Open F1 in gameplay, then Video → NVIDIA DLSS → **DLSS 5 neural rendering**. The switch applies live and saves as `[video] dlss_neural = 0|1`. It does not select an SR quality mode. The four matching DLLs belong in `<exe>/nr`; the local dist deployment includes the user's supplied bundle. A different folder can be selected with `[video] dlss_neural_runtime` or `DRAKAN_DLSS_NEURAL_DIR`. `DRAKAN_DLSS_NEURAL=1` overrides the initial switch.
+Open F1 in gameplay, then Video â†’ NVIDIA DLSS â†’ **DLSS 5 neural rendering**. The switch applies live and saves as `[video] dlss_neural = 0|1`. It does not select an SR quality mode. The four matching DLLs belong in `<exe>/nr`; the local dist deployment includes the user's supplied bundle. A different folder can be selected with `[video] dlss_neural_runtime` or `DRAKAN_DLSS_NEURAL_DIR`. `DRAKAN_DLSS_NEURAL=1` overrides the initial switch.
 
 The bridge verifies the four audited hashes and Authenticode signatures before loading. An unsupported GPU, absent bundle or initialization failure leaves ordinary rendering available and reports a reason. Present/resize failures retire the bridge and restore ordinary presentation where the device permits it. No vendor binary is tracked in source control.
 
@@ -196,14 +251,14 @@ selection. Model presets use runtime defaults unless explicitly changed.
 
 ### Neural rendering resolution
 
-`[video] dlss_neural_resolution = output | render` (env `DRAKAN_DLSS_NEURAL_RESOLUTION`; F1 → Video → NVIDIA DLSS →
+`[video] dlss_neural_resolution = output | render` (env `DRAKAN_DLSS_NEURAL_RESOLUTION`; F1 â†’ Video â†’ NVIDIA DLSS â†’
 *Neural rendering resolution*; live, resets NR/SR history; default `output`). It only matters with a reduced SR mode.
 
 - `output`: SR, then NR on the SR output (scale 4: 2048x2048). NR GPU 6.85 ms in Surdana.
 - `render`: NR on the reduced raster (SR Quality: 1364x1364) before SR; SR upscales the NR image and keeps the GS
-  alpha (`sr_combined::Inputs::alphaRender`). NR GPU 3.68 ms (−3.2 ms/frame). Stills are very close (slightly
+  alpha (`sr_combined::Inputs::alphaRender`). NR GPU 3.68 ms (âˆ’3.2 ms/frame). Stills are very close (slightly
   coarser grain); motion not yet compared.
-- The NR bundle (sl.dlss_nr 2.13 / nvngx_dlssnr 310.8) has no working internal upscale: performance modes 1–4 fail or
+- The NR bundle (sl.dlss_nr 2.13 / nvngx_dlssnr 310.8) has no working internal upscale: performance modes 1â€“4 fail or
   are unsupported with a reduced input, a reduced input subrect is processed 1:1, and mode 3 costs the same as mode 6.
   NR keeps the raster jitter (its output follows the sample positions; `jitterOffset` has no effect), so a jittered NR
   image is a valid SR input. No frame-skipping mechanism is used.

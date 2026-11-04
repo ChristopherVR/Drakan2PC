@@ -2,6 +2,7 @@
 #ifdef GSR_HAVE_DXR_WATER
 #include "ray_water_bytecode.h"
 #include "ray_sky_bytecode.h"
+#include "ray_transport_bytecode.h"
 #include "nr_interop.h"
 #include "cpu_profile.h"
 #include "runtime_flags.h"
@@ -87,12 +88,20 @@ struct RayWater::Impl {
     static constexpr uint32_t kTriangleBudget = 500000;
     static constexpr uint32_t kTextureBudget = 768;
     static constexpr UINT64 kTracedPasses = 3; // the first passes of each interop are logged step by step
+    static constexpr UINT kGpuTimestamps = 5;
     struct Frame {
         ComPtr<ID3D12CommandAllocator> allocator;
         ComPtr<ID3D12DescriptorHeap> heap;
+        ComPtr<ID3D12Resource> transport, transportGuide;
         UploadBuffer vertices, instances, constants, staging, models;
         std::vector<ComPtr<ID3D12Resource>> retired; // released once this slot's fence has passed
         uint64_t fence = 0;
+        ComPtr<ID3D12QueryHeap> timestamps;
+        ComPtr<ID3D12Resource> timestampReadback;
+        uint64_t timedPass = 0;
+        uint64_t timedUploadBytes = 0, timedDynamicBytes = 0, timedDynamicTotal = 0;
+        uint32_t timedWidth = 0, timedHeight = 0, timedEffects = 0;
+        uint32_t timedRejectedTriangles = 0;
     };
     struct TextureUpload {
         uint32_t slot = 0;
@@ -114,7 +123,7 @@ struct RayWater::Impl {
         uint32_t width = 0, height = 0;
         UINT64 produced = 0, consumed = 0;
         bool consumedSignaled = false;
-        bool cpuCache = false, checkCache = false, worldCache = false, packedTextures = false;
+        bool cpuCache = false, checkCache = false, worldCache = false, packedTextures = false, modelReuse = true;
         uint32_t coverageDebug = 0;
     };
     CpuProfile cpuProfile;    // renderer thread
@@ -366,7 +375,7 @@ struct RayWater::Impl {
     std::array<Frame, kFrames> frames;
     unsigned frameIndex = 0;
     ComPtr<ID3D12RootSignature> root;
-    ComPtr<ID3D12PipelineState> pipeline, skyPipeline;
+    ComPtr<ID3D12PipelineState> pipeline, skyPipeline, transportPipeline;
     ComPtr<ID3D12Resource> materials, scratch, blas[3], tlas, sky;
     uint64_t skyLevel = UINT64_MAX;
     // Replaced by the renderer thread only while the pass thread is idle; the watchdog holds its own reference.
@@ -374,6 +383,7 @@ struct RayWater::Impl {
     struct NativeMesh {
         ComPtr<ID3D12Resource> blas;
         bool built = false;
+        std::shared_ptr<const SceneModelMesh> blasSource;
         std::shared_ptr<const SceneModelMesh> attributeSource;
         std::vector<Attribute> attributes;
         uint64_t attributeGeneration = 0;
@@ -381,6 +391,8 @@ struct RayWater::Impl {
         uint32_t texturedTriangles = 0;
     };
     std::unordered_map<uint64_t, NativeMesh> nativeMeshes;
+    std::optional<uint64_t> modelLevel;
+    std::vector<ComPtr<ID3D12Resource>> retiredModelResources;
     // Vertex-normal welds by mesh topology: each pose of an animated model is a new mesh with the same welds.
     std::unordered_map<uint64_t, CornerWelds> modelWelds;
     // Animated models get a new mesh identity for every pose but keep their topology. Each pose reuses a BLAS of the
@@ -398,9 +410,14 @@ struct RayWater::Impl {
     uint64_t modelPass = 0, modelRefits = 0;
     std::vector<Point> cpuPositions;
     std::vector<Attribute> cpuMaterials;
+    // Exact bytes most recently submitted to the single queue-ordered GPU material buffer.
+    std::vector<Attribute> uploadedDynamicAttributes;
+    uint32_t uploadedDynamicBase = ~0u;
     std::vector<D3D12_RAYTRACING_INSTANCE_DESC> cpuInstances;
     std::vector<uint32_t> materialFlags;
+    ModelAlphaCoverage modelAlphaCoverage;
     uint64_t materialGeneration = 0, checkedFrames = 0;
+    uint64_t timestampFrequency = 0;
     uint32_t width = 0, height = 0; // interop extent (renderer thread)
     // Static world the GPU currently holds.
     uint64_t staticGeometry = ~0ull, staticAttributes = ~0ull;
@@ -440,12 +457,38 @@ struct RayWater::Impl {
             return;
         check(queue->Signal(fence.Get(), ++serial), "DXR drain signal");
         waitFor(serial);
-        for (auto& f : frames)
+        for (auto& f : frames) {
+            reportGpuTime(f);
             f.retired.clear();
+        }
+    }
+    // Read only after the slot's existing completion fence, never add a profiling wait to the rendering path.
+    void reportGpuTime(Frame& f) {
+        if (!f.timedPass || !f.timestampReadback)
+            return;
+        const D3D12_RANGE read{0, kGpuTimestamps * sizeof(uint64_t)};
+        uint64_t* ticks = nullptr;
+        check(f.timestampReadback->Map(0, &read, reinterpret_cast<void**>(&ticks)), "DXR timestamp readback");
+        const auto elapsed = [&](unsigned a, unsigned b) {
+            return double(ticks[b] - ticks[a]) * 1000.0 / double(timestampFrequency);
+        };
+        std::fprintf(stderr,
+                     "[ray-gpu] pass=%llu size=%ux%u effects=%u build=%.4fms sky=%.4fms transport=%.4fms "
+                     "compose=%.4fms total=%.4fms upload_bytes=%llu dynamic_bytes=%llu dynamic_total=%llu "
+                     "rejected_frame_triangles=%u\n",
+                     static_cast<unsigned long long>(f.timedPass), f.timedWidth, f.timedHeight, f.timedEffects,
+                     elapsed(0, 1), elapsed(1, 2), elapsed(2, 3), elapsed(3, 4), elapsed(0, 4),
+                     static_cast<unsigned long long>(f.timedUploadBytes),
+                     static_cast<unsigned long long>(f.timedDynamicBytes),
+                     static_cast<unsigned long long>(f.timedDynamicTotal), f.timedRejectedTriangles);
+        const D3D12_RANGE written{0, 0};
+        f.timestampReadback->Unmap(0, &written);
+        f.timedPass = 0;
     }
     Frame& acquire() {
         Frame& f = frames[frameIndex];
         waitFor(f.fence);
+        reportGpuTime(f);
         f.retired.clear();
         return f;
     }
@@ -590,7 +633,7 @@ RayWater::RayWater(ID3D11Device* d11, ID3D11DeviceContext*) : impl(std::make_uni
         q.Type = D3D12_COMMAND_LIST_TYPE_DIRECT;
         check(s.device->CreateCommandQueue(&q, IID_PPV_ARGS(&s.queue)), "DXR queue");
         D3D12_DESCRIPTOR_HEAP_DESC hd{};
-        hd.NumDescriptors = 3;
+        hd.NumDescriptors = 5;
         hd.Type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
         hd.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
         for (auto& f : s.frames) {
@@ -604,9 +647,10 @@ RayWater::RayWater(ID3D11Device* d11, ID3D11DeviceContext*) : impl(std::make_uni
         s.event = CreateEventW(nullptr, FALSE, FALSE, nullptr);
         if (!s.event)
             throw std::runtime_error("DXR event creation failed");
-        D3D12_DESCRIPTOR_RANGE ranges[2]{};
+        D3D12_DESCRIPTOR_RANGE ranges[3]{};
         ranges[0] = {D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 2, 2, 0, 0};
         ranges[1] = {D3D12_DESCRIPTOR_RANGE_TYPE_UAV, 1, 0, 0, 2};
+        ranges[2] = {D3D12_DESCRIPTOR_RANGE_TYPE_UAV, 2, 2, 0, 3};
         D3D12_ROOT_PARAMETER p[5]{};
         p[0].ParameterType = D3D12_ROOT_PARAMETER_TYPE_CBV;
         p[0].Descriptor.ShaderRegister = 0;
@@ -615,7 +659,7 @@ RayWater::RayWater(ID3D11Device* d11, ID3D11DeviceContext*) : impl(std::make_uni
         p[2].ParameterType = D3D12_ROOT_PARAMETER_TYPE_SRV;
         p[2].Descriptor.ShaderRegister = 1;
         p[3].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
-        p[3].DescriptorTable = {2, ranges};
+        p[3].DescriptorTable = {3, ranges};
         p[4].ParameterType = D3D12_ROOT_PARAMETER_TYPE_UAV;
         p[4].Descriptor.ShaderRegister = 1;
         D3D12_ROOT_SIGNATURE_DESC rd{};
@@ -632,6 +676,8 @@ RayWater::RayWater(ID3D11Device* d11, ID3D11DeviceContext*) : impl(std::make_uni
         check(s.device->CreateComputePipelineState(&pd, IID_PPV_ARGS(&s.pipeline)), "DXR water pipeline");
         pd.CS = {g_raySky, sizeof(g_raySky)};
         check(s.device->CreateComputePipelineState(&pd, IID_PPV_ARGS(&s.skyPipeline)), "DXR sky reduction pipeline");
+        pd.CS = {g_rayTransport, sizeof(g_rayTransport)};
+        check(s.device->CreateComputePipelineState(&pd, IID_PPV_ARGS(&s.transportPipeline)), "DXR transport pipeline");
         s.device.As(&s.debug);
         if (s.debug)
             s.debug->ClearStoredMessages();
@@ -760,7 +806,8 @@ bool RayWater::submit(ID3D11Texture2D* color, ID3D11Texture2D* depth, ID3D11Text
             }
         const bool frameWater =
             std::any_of(triangles.begin(), triangles.end(), [](const Triangle& t) { return t.water; });
-        if (!frameWater && !s.staticPublishedWater && !options.shadows) {
+        if (!frameWater && !s.staticPublishedWater && !options.shadows && !options.globalIllumination &&
+            !options.materialReflections) {
             s.setStatus("DXR water bypassed: no verified water world geometry");
             return false;
         }
@@ -817,6 +864,7 @@ bool RayWater::submit(ID3D11Texture2D* color, ID3D11Texture2D* depth, ID3D11Text
         job->width = d.Width;
         job->height = d.Height;
         job->cpuCache = runtimeFlags().rayCpuCache;
+        job->modelReuse = runtimeFlags().rayModelReuse;
         job->checkCache = runtimeFlags().rayCpuCacheCheck;
         job->worldCache = runtimeFlags().rayWorldCache;
         job->packedTextures = runtimeFlags().rayPackedTextures;
@@ -855,6 +903,8 @@ void RayWater::Impl::execute(Job& job) {
     auto& s = *this;
     const auto& camera = job.camera;
     const auto& triangles = job.triangles;
+    const bool pruneRejected = runtimeFlags().rayPruneRejected;
+    const bool validatedFrame = !pruneRejected || hasValidatedOpaque(triangles);
     const SceneModels* models = job.models.get();
     const auto& options = job.options;
     const float seconds = job.seconds;
@@ -865,6 +915,24 @@ void RayWater::Impl::execute(Job& job) {
     const size_t textureCount = job.textureCount;
     const uint32_t nativeTextureBase = job.nativeTextureBase;
     const bool cpuCache = job.cpuCache, checkCache = job.checkCache;
+    if (models && s.modelLevel != models->level) {
+        // Resource/topology IDs are level-local. Keep old GPU allocations alive until a later queued frame's
+        // completion fence; CPU normal/material state may be discarded immediately on this ordered worker.
+        for (auto& [identity, mesh] : s.nativeMeshes)
+            if (mesh.blas)
+                s.retiredModelResources.push_back(std::move(mesh.blas));
+        for (auto& [topology, slots] : s.deformables)
+            for (auto& slot : slots)
+                if (slot.blas)
+                    s.retiredModelResources.push_back(std::move(slot.blas));
+        s.nativeMeshes.clear();
+        s.modelWelds.clear();
+        s.deformables.clear();
+        s.materialFlags.clear();
+        s.modelAlphaCoverage = {};
+        ++s.materialGeneration;
+        s.modelLevel = models->level;
+    }
     const struct {
         UINT Width, Height;
     } d{job.width, job.height};
@@ -995,15 +1063,20 @@ void RayWater::Impl::execute(Job& job) {
         colors.clear();
         positions.reserve(triangles.size() * 3);
         colors.reserve((totalTriangles - staticTriangles.size()) * kTriangleAttributes);
+        const auto alphaCoverage = s.modelAlphaCoverage.update(models);
         if (cpuCache) {
             // Material attributes depend on flags, texture-table indices and
             // immutable mesh data, not on instance transforms or lighting. A new
             // texture base (frame texture count) only moves the texture indices.
             std::vector<uint32_t> flags;
             if (models) {
-                flags.reserve(models->textures.size());
-                for (const auto& t : models->textures)
+                flags.reserve(models->textures.size() * 3);
+                for (size_t index = 0; index < models->textures.size(); ++index) {
+                    const auto& t = models->textures[index];
                     flags.push_back(t->flags);
+                    flags.push_back(uint32_t(surface::packRayMaterial(t->roughness, t->reflectance)));
+                    flags.push_back(alphaCoverage[index]);
+                }
             }
             if (flags != s.materialFlags) {
                 s.materialFlags = std::move(flags);
@@ -1063,11 +1136,18 @@ void RayWater::Impl::execute(Job& job) {
                         weldCorners(model->triangles.size(), corners, welds);
                     std::vector<Point> normals;
                     smoothNormals(model->triangles.size(), corners, welds, normals);
-                    return packModelAttributes(*model, *models, nativeTextureBase, normals, target);
+                    std::vector<float> packedNormals;
+                    if (job.modelReuse)
+                        packCornerNormals(welds, normals, packedNormals);
+                    return packModelAttributes(*model, *models, nativeTextureBase, normals, target, packedNormals,
+                                               alphaCoverage);
                 };
                 if (cpuCache) {
                     auto& cached = s.nativeMeshes[model->identity];
-                    if (cached.attributeSource != model || cached.attributeGeneration != s.materialGeneration) {
+                    const bool unchanged =
+                        cached.attributeSource == model || (job.modelReuse && cached.attributeSource &&
+                                                            sameModelGeometry(*cached.attributeSource, *model));
+                    if (!unchanged || cached.attributeGeneration != s.materialGeneration) {
                         cached.attributes.clear();
                         cached.attributes.reserve(model->triangles.size() * kTriangleAttributes);
                         cached.texturedTriangles = buildAttributes(cached.attributes);
@@ -1078,6 +1158,7 @@ void RayWater::Impl::execute(Job& job) {
                         rebaseModelAttributes(*model, *models, nativeTextureBase, cached.attributes);
                         cached.attributeBase = nativeTextureBase;
                     }
+                    cached.attributeSource = model;
                     if (checkCache) {
                         std::vector<Attribute> reference;
                         reference.reserve(model->triangles.size() * kTriangleAttributes);
@@ -1107,6 +1188,9 @@ void RayWater::Impl::execute(Job& job) {
         stage.emplace(s.threadProfile, CpuProfile::RayWait);
         s.setStage(kWaitingSlot);
         auto& frame = s.acquire();
+        for (auto& resource : s.retiredModelResources)
+            frame.retired.push_back(std::move(resource));
+        s.retiredModelResources.clear();
         stage.reset();
         stage.emplace(s.threadProfile, CpuProfile::RayUpload);
         s.setStage(kUploading);
@@ -1140,7 +1224,30 @@ void RayWater::Impl::execute(Job& job) {
             for (const auto& [first, end] : s.staticDirty)
                 addCopy(uint64_t(first) * kTriangleAttributes * sizeof(Attribute),
                         uint64_t(end - first) * kTriangleAttributes * sizeof(Attribute));
-        addCopy(uint64_t(staticTotal) * kTriangleAttributes * sizeof(Attribute), colors.size() * sizeof(Attribute));
+        const bool uploadCache = runtimeFlags().rayUploadCache;
+        std::vector<std::pair<size_t, size_t>> dynamicDirty;
+        if (!colors.empty()) {
+            if (!uploadCache || s.uploadedDynamicBase != staticTotal ||
+                s.uploadedDynamicAttributes.size() != colors.size())
+                dynamicDirty.emplace_back(0, colors.size());
+            else {
+                // Preserve triangle boundaries, and coalesce adjacent changed blocks into one DMA copy.
+                constexpr size_t kBlockAttributes = 128 * kTriangleAttributes;
+                for (size_t first = 0; first < colors.size(); first += kBlockAttributes) {
+                    const size_t end = std::min(first + kBlockAttributes, colors.size());
+                    if (std::memcmp(colors.data() + first, s.uploadedDynamicAttributes.data() + first,
+                                    (end - first) * sizeof(Attribute)) != 0) {
+                        if (!dynamicDirty.empty() && dynamicDirty.back().second == first)
+                            dynamicDirty.back().second = end;
+                        else
+                            dynamicDirty.emplace_back(first, end);
+                    }
+                }
+            }
+        }
+        for (const auto& [first, end] : dynamicDirty)
+            addCopy((uint64_t(staticTotal) * kTriangleAttributes + first) * sizeof(Attribute),
+                    (end - first) * sizeof(Attribute));
         for (const auto& upload : job.textureUploads)
             addCopy(uint64_t(texelOffset) * sizeof(Attribute) + upload.slot * textureBytes, textureBytes);
         if (stagingBytes) {
@@ -1156,9 +1263,11 @@ void RayWater::Impl::execute(Job& job) {
                     std::memcpy(bytes + at, s.staticAttributeData.data() + size_t(first) * kTriangleAttributes, size);
                     at += size;
                 }
-            if (!colors.empty())
-                std::memcpy(bytes + at, colors.data(), colors.size() * sizeof(Attribute));
-            at += colors.size() * sizeof(Attribute);
+            for (const auto& [first, end] : dynamicDirty) {
+                const size_t size = (end - first) * sizeof(Attribute);
+                std::memcpy(bytes + at, colors.data() + first, size);
+                at += size;
+            }
             for (const auto& texture : job.textureUploads) {
                 if (packedTextures)
                     std::memcpy(bytes + at, texture.pixels.data(), textureBytes);
@@ -1172,6 +1281,13 @@ void RayWater::Impl::execute(Job& job) {
                 }
                 at += textureBytes;
             }
+        }
+        if (uploadCache) {
+            s.uploadedDynamicAttributes.resize(colors.size());
+            for (const auto& [first, end] : dynamicDirty)
+                std::memcpy(s.uploadedDynamicAttributes.data() + first, colors.data() + first,
+                            (end - first) * sizeof(Attribute));
+            s.uploadedDynamicBase = staticTotal;
         }
         if (uploadStatic)
             s.staticUploaded = true;
@@ -1208,6 +1324,11 @@ void RayWater::Impl::execute(Job& job) {
         params.effects[1] = options.shadows;
         params.effects[3] = (totalCounts[2] ? 1u : 0u) | (totalCounts[1] ? 2u : 0u) |
                             (options.requireWaterCoverage ? 4u : 0u) | (packedTextures ? 16u : 0u);
+        params.effects[3] |= (options.globalIllumination ? 512u : 0u) | (options.materialReflections ? 1024u : 0u);
+        params.effects[3] |= runtimeFlags().rayAlphaFastPath ? 2048u : 0u;
+        params.effects[3] |= runtimeFlags().rayAlphaCoverage ? 4096u : 0u;
+        params.effects[3] |= runtimeFlags().rayAcceptedAlpha ? 8192u : 0u;
+        params.effects[3] |= pruneRejected ? 32768u : 0u;
         params.effects[3] |= rayDiagnosticEffects(runtimeFlags().rayDiagnostic.value_or(""));
         const uint64_t skyLevel = models ? models->level : 0;
         if (s.skyLevel != skyLevel) {
@@ -1247,6 +1368,10 @@ void RayWater::Impl::execute(Job& job) {
                 }
             }
         }
+        // AO only multiplies the ambient term. With all three channels zero,
+        // its result cannot change either primary lighting or the fallback.
+        if (runtimeFlags().rayZeroAmbient && params.ambient[0] == 0 && params.ambient[1] == 0 && params.ambient[2] == 0)
+            params.effects[3] |= 16384u;
         if (!job.diagnosticDump.empty())
             if (FILE* file = std::fopen(job.diagnosticDump.c_str(), "wb")) {
                 const uint32_t header[] = {0x52545831, uint32_t(sizeof(params))};
@@ -1319,6 +1444,22 @@ void RayWater::Impl::execute(Job& job) {
         s.interop->wait12(s.queue.Get(), job.produced); // the D3D11 input copies precede this pass on the GPU
         check(frame.allocator->Reset(), "DXR allocator reset");
         check(s.list->Reset(frame.allocator.Get(), nullptr), "DXR list reset");
+        const bool gpuTiming = runtimeFlags().rayGpuTiming;
+        if (gpuTiming && !frame.timestamps) {
+            if (!s.timestampFrequency)
+                check(s.queue->GetTimestampFrequency(&s.timestampFrequency), "DXR timestamp frequency");
+            D3D12_QUERY_HEAP_DESC query{};
+            query.Type = D3D12_QUERY_HEAP_TYPE_TIMESTAMP;
+            query.Count = Impl::kGpuTimestamps;
+            check(s.device->CreateQueryHeap(&query, IID_PPV_ARGS(&frame.timestamps)), "DXR timestamp heap");
+            s.buffer(frame.timestampReadback, Impl::kGpuTimestamps * sizeof(uint64_t), D3D12_HEAP_TYPE_READBACK,
+                     D3D12_RESOURCE_STATE_COPY_DEST, frame.retired);
+        }
+        const auto timestamp = [&](UINT index) {
+            if (gpuTiming)
+                s.list->EndQuery(frame.timestamps.Get(), D3D12_QUERY_TYPE_TIMESTAMP, index);
+        };
+        timestamp(0);
         s.buffer(s.sky, 7 * 16, D3D12_HEAP_TYPE_DEFAULT, D3D12_RESOURCE_STATE_UNORDERED_ACCESS, frame.retired,
                  D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS);
         for (const auto& c : copies)
@@ -1368,7 +1509,7 @@ void RayWater::Impl::execute(Job& job) {
                     i.Transform[1][3] = translate.y;
                     i.Transform[2][3] = translate.z;
                     i.InstanceID = (31u << 19) | materialBase;
-                    i.InstanceMask = (1u << g) | (g == 0 ? kDirectShadowMask : 0u);
+                    i.InstanceMask = (1u << g) | (g == 0 ? kDirectShadowMask | kValidatedGeometryMask : 0u);
                     i.AccelerationStructure = s.staticBlas[g]->GetGPUVirtualAddress();
                     instances.push_back(i);
                 }
@@ -1379,7 +1520,8 @@ void RayWater::Impl::execute(Job& job) {
                     D3D12_RAYTRACING_INSTANCE_DESC i{};
                     i.Transform[0][0] = i.Transform[1][1] = i.Transform[2][2] = 1;
                     i.InstanceID = (31u << 19) | materialBase;
-                    i.InstanceMask = (1u << g) | (g == 0 ? kDirectShadowMask : 0u);
+                    i.InstanceMask =
+                        (1u << g) | (g == 0 && validatedFrame ? kDirectShadowMask | kValidatedGeometryMask : 0u);
                     i.AccelerationStructure = s.blas[g]->GetGPUVirtualAddress();
                     instances.push_back(i);
                 }
@@ -1393,13 +1535,17 @@ void RayWater::Impl::execute(Job& job) {
                 Deformable* slot;
                 size_t first;
                 uint32_t count;
+                std::shared_ptr<const SceneModelMesh> source;
             };
             std::vector<Build> builds;
             ++s.modelPass;
             s.modelPositions.clear();
             for (const auto& model : models->meshes) {
                 auto& cached = s.nativeMeshes[model->identity];
-                if (cached.built || model->triangles.empty())
+                // Identity is only a lookup key: a reused/colliding ID must not pair new attributes with an old BLAS.
+                // Keep this source separate from attributeSource, which was already updated during CPU packing.
+                if ((cached.built && cached.blasSource && sameModelGeometry(*cached.blasSource, *model)) ||
+                    model->triangles.empty())
                     continue;
                 const size_t first = s.modelPositions.size();
                 for (const auto& t : model->triangles)
@@ -1421,8 +1567,7 @@ void RayWater::Impl::execute(Job& job) {
                     slot->used = s.modelPass;
                     slot->identity = model->identity;
                 }
-                builds.push_back({&cached, slot, first, count});
-                cached.built = true;
+                builds.push_back({&cached, slot, first, count, model});
             }
             if (!builds.empty()) {
                 s.upload(frame.models, s.modelPositions.data(), s.modelPositions.size() * sizeof(Point), frame.retired);
@@ -1432,6 +1577,8 @@ void RayWater::Impl::execute(Job& job) {
                         s.buildBlas(b.mesh->blas, vertices, b.count,
                                     D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAG_PREFER_FAST_TRACE, frame.retired,
                                     true);
+                        b.mesh->blasSource = b.source;
+                        b.mesh->built = true;
                         continue;
                     }
                     Deformable& d = *b.slot;
@@ -1443,6 +1590,8 @@ void RayWater::Impl::execute(Job& job) {
                     d.updates = refit ? d.updates + 1 : 0;
                     s.modelRefits += refit;
                     b.mesh->blas = d.blas;
+                    b.mesh->blasSource = b.source;
+                    b.mesh->built = true;
                 }
             }
             for (const auto& source : models->instances) {
@@ -1464,7 +1613,7 @@ void RayWater::Impl::execute(Job& job) {
                 i.Transform[1][3] -= origin.y;
                 i.Transform[2][3] -= origin.z;
                 i.InstanceID = modelOffsets[source.mesh] | (opacity << 19);
-                i.InstanceMask = 1u | (source.nativeShadow ? 0u : kDirectShadowMask);
+                i.InstanceMask = 1u | kValidatedGeometryMask | (source.nativeShadow ? 0u : kDirectShadowMask);
                 i.AccelerationStructure = s.nativeMeshes.at(model->identity).blas->GetGPUVirtualAddress();
                 instances.push_back(i);
             }
@@ -1490,6 +1639,35 @@ void RayWater::Impl::execute(Job& job) {
         build.ScratchAccelerationStructureData = s.scratch->GetGPUVirtualAddress();
         s.list->BuildRaytracingAccelerationStructure(&build, 0, nullptr);
         s.barrier(s.tlas.Get());
+        const bool transportEnabled = (params.effects[3] & 1536u) && !(params.effects[3] & 224u);
+        if (transportEnabled) {
+            // Frame-owned images cannot be overwritten while an earlier queued pass still samples them.
+            // Allocate lazily: a water/shadow-only pass retains its existing memory and dispatch cost.
+            auto image = [&](ComPtr<ID3D12Resource>& resource) {
+                const UINT width = (d.Width + 1) / 2, height = (d.Height + 1) / 2;
+                if (resource && resource->GetDesc().Width == width && resource->GetDesc().Height == height)
+                    return;
+                if (resource)
+                    frame.retired.push_back(resource);
+                resource.Reset();
+                D3D12_HEAP_PROPERTIES heap{};
+                heap.Type = D3D12_HEAP_TYPE_DEFAULT;
+                D3D12_RESOURCE_DESC desc{};
+                desc.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
+                desc.Width = width;
+                desc.Height = height;
+                desc.DepthOrArraySize = desc.MipLevels = 1;
+                desc.Format = DXGI_FORMAT_R16G16B16A16_FLOAT;
+                desc.SampleDesc.Count = 1;
+                desc.Flags = D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
+                check(s.device->CreateCommittedResource(&heap, D3D12_HEAP_FLAG_NONE, &desc,
+                                                        D3D12_RESOURCE_STATE_UNORDERED_ACCESS, nullptr,
+                                                        IID_PPV_ARGS(&resource)),
+                      "DXR half-resolution transport image");
+            };
+            image(frame.transport);
+            image(frame.transportGuide);
+        }
         D3D12_RESOURCE_BARRIER before[] = {
             transition(s.interop->texture(0), D3D12_RESOURCE_STATE_COMMON,
                        D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE),
@@ -1513,6 +1691,11 @@ void RayWater::Impl::execute(Job& job) {
         uav.ViewDimension = D3D12_UAV_DIMENSION_TEXTURE2D;
         uav.Format = DXGI_FORMAT_R16G16B16A16_FLOAT;
         s.device->CreateUnorderedAccessView(s.interop->texture(1), nullptr, &uav, cpu);
+        cpu.ptr += stride;
+        s.device->CreateUnorderedAccessView(transportEnabled ? frame.transport.Get() : nullptr, nullptr, &uav, cpu);
+        cpu.ptr += stride;
+        s.device->CreateUnorderedAccessView(transportEnabled ? frame.transportGuide.Get() : nullptr, nullptr, &uav,
+                                            cpu);
         ID3D12DescriptorHeap* heaps[] = {frame.heap.Get()};
         s.list->SetDescriptorHeaps(1, heaps);
         s.list->SetComputeRootSignature(s.root.Get());
@@ -1522,11 +1705,24 @@ void RayWater::Impl::execute(Job& job) {
         s.list->SetComputeRootShaderResourceView(2, s.materials->GetGPUVirtualAddress());
         s.list->SetComputeRootDescriptorTable(3, frame.heap->GetGPUDescriptorHandleForHeapStart());
         s.list->SetComputeRootUnorderedAccessView(4, s.sky->GetGPUVirtualAddress());
+        timestamp(1);
         s.list->SetPipelineState(s.skyPipeline.Get());
         s.list->Dispatch(1, 1, 1);
         s.barrier(s.sky.Get());
+        timestamp(2);
+        if (transportEnabled) {
+            s.list->SetPipelineState(s.transportPipeline.Get());
+            s.list->Dispatch((d.Width + 15) / 16, (d.Height + 15) / 16, 1);
+            s.barrier(frame.transport.Get());
+            s.barrier(frame.transportGuide.Get());
+        }
+        timestamp(3);
         s.list->SetPipelineState(s.pipeline.Get());
         s.list->Dispatch((d.Width + 7) / 8, (d.Height + 7) / 8, 1);
+        timestamp(4);
+        if (gpuTiming)
+            s.list->ResolveQueryData(frame.timestamps.Get(), D3D12_QUERY_TYPE_TIMESTAMP, 0, Impl::kGpuTimestamps,
+                                     frame.timestampReadback.Get(), 0);
         for (auto& b : before)
             std::swap(b.Transition.StateBefore, b.Transition.StateAfter);
         s.list->ResourceBarrier(3, before);
@@ -1535,6 +1731,18 @@ void RayWater::Impl::execute(Job& job) {
         s.queue->ExecuteCommandLists(1, lists);
         s.setStage(kSubmitted);
         s.submitted(frame);
+        if (gpuTiming) {
+            frame.timedPass = job.consumed;
+            frame.timedWidth = uint32_t(d.Width);
+            frame.timedHeight = d.Height;
+            frame.timedEffects = params.effects[3];
+            frame.timedRejectedTriangles = validatedFrame ? 0 : counts[0];
+            frame.timedUploadBytes = stagingBytes;
+            frame.timedDynamicBytes = 0;
+            for (const auto& [first, end] : dynamicDirty)
+                frame.timedDynamicBytes += (end - first) * sizeof(Attribute);
+            frame.timedDynamicTotal = colors.size() * sizeof(Attribute);
+        }
         // The D3D11 context waits for this value on the GPU before it copies the output; the CPU continues.
         s.signalConsumed(job);
         if (s.debug) {
@@ -1581,7 +1789,9 @@ void RayWater::Impl::execute(Job& job) {
                     " material textures; " + std::to_string(models ? models->instances.size() : 0) +
                     " resident model instances; " + std::to_string(s.modelRefits) + " model BLAS refits; shadows=" +
                     (options.shadows ? (params.effects[2] ? std::to_string(params.effects[2]) + " native lights"
-                                                          : "waiting for native lights")
+                                                          : (models && models->lighting.hasContribution()
+                                                                 ? "ambient occlusion only"
+                                                                 : "waiting for native lighting"))
                                      : "off"));
         const uint32_t diagnostic = rayDiagnosticEffects(runtimeFlags().rayDiagnostic.value_or(""));
         static std::atomic_flag diagnosticLogged = ATOMIC_FLAG_INIT;

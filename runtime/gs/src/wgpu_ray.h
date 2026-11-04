@@ -74,9 +74,9 @@ private:
     std::unique_ptr<Workers> workers_;
     bool ready_ = false;
     std::string status_ = "Ray tracing not started";
-    rhi::ProgramPtr sky_, shadow_, main_;
+    rhi::ProgramPtr sky_, shadow_, transport_, main_;
     rhi::BufferPtr nodes_, tris_, instances_, materials_, texels_, skyBuffer_;
-    rhi::TexturePtr output_, shadowTex_, reflectTex_, dummy_, dummyStorage_;
+    rhi::TexturePtr output_, shadowTex_, reflectTex_, transportTex_, transportGuide_, dummy_, dummyStorage_;
     // Static (resident) world: three BLAS (by group) in base-relative coordinates, uploaded at the start of the node /
     // triangle buffers and of the material attributes.
     std::shared_ptr<const std::vector<surface::Triangle>> staticPublished_;
@@ -104,7 +104,11 @@ private:
     std::vector<surface::Attribute> attributes;
     std::vector<Instance> instanceData;
     std::unordered_map<uint64_t, Mesh> meshes_;
+    std::vector<uint32_t> modelMaterialFlags_;
+    surface::ModelAlphaCoverage modelAlphaCoverage_;
     std::unordered_map<uint64_t, surface::CornerWelds> welds_;
+    bool modelLevelValid_ = false;
+    uint64_t modelLevel_ = 0;
     uint64_t pass_ = 0;
     std::vector<uint64_t> textureFingerprints_;
     uint32_t texelCapacity_ = 0; // textures the texel buffer holds

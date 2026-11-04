@@ -522,3 +522,67 @@ after a per-page stamp table for `maxStamp` and a block-wise `readRectCT32`: 2.8
 The game's frame-buffer-to-frame-buffer copy (about six per second) is now one GPU copy when both ends are whole targets instead of two
 full readbacks, a per-pixel CPU copy and a re-upload (`GSR_GPU_COPY=0` = old path): +6..12 % fps, p99 down, 0 mismatches over 369
 verified copies. Walking Surdana now measures ~195 fps (p99 8.4 ms) with the DLSS effects on.
+
+## Ray-model snapshot and normal reuse (2026-11-04)
+
+The ray backends now recognize a new immutable model snapshot containing exactly the same geometry by metadata and full
+triangle-byte comparison. Unchanged poses retain their material/normal cache and WebGPU BVH. Material flags and texture-base
+changes still invalidate/rebase attributes; WebGPU also handles alpha-flag changes without rebuilding unchanged geometry.
+Welded corners with identical normals share their packed value, and bounded normal quantization avoids general `lround` calls.
+`GSR_RAY_MODEL_REUSE=0` disables snapshot and welded-normal reuse for comparisons. Rendering tests and 1.8 million normal
+comparisons passed. The isolated quantizer is approximately 8% faster; this is not a game-FPS percentage. Stationary-view
+measurements and the shared-machine limitations are recorded in the [journal](../journal/2026-11-04/stationary-performance-review.md).
+
+## Campaign map sweep (2026-11-04)
+
+All 13 playable PAL campaign maps loaded in the [all-map sweep](../journal/2026-11-04/all-map-performance-sweep.md).
+Twelve completed two fixed-view samples and a movement check; the redirected Isles start returned to the title during
+its second sample and remains open. Transition to Desert is absent from the disc. Several stationary views remain
+readback-bound, particularly Catacombs, Northern Tundra and Shiverbane; a good Surdana result does not establish global
+frame-time consistency. The journal records per-map FPS/p99, cinematic and survival fixtures, executable identity,
+screenshots/log locations and the user's retained concurrent-game session. These are diagnostic samples, not isolated
+cross-map benchmarks or full campaign playthroughs.
+
+## Small uploads, exact readers and constant alpha tests (2026-11-04)
+
+D3D11 can patch the exact written bits of small unaligned image uploads on the GPU. Exact mip/local-to-host reader
+rectangles and retained knowledge across CT32 CPU-row refreshes avoid reading back data the CPU already owns. Unknown
+bits and unsupported cases retain the readback fallback. Small genuine scratch reads can stage after their producing
+draw, with strict version/row/scale validation. Both ray backends skip interpolation and texture-alpha filtering for
+constant alpha-test results; cutouts and translucent alpha retain full evaluation.
+
+The [investigation and measurements](../journal/2026-11-04/generic-map-performance-fixes.md) record the toggles, pixel
+regressions, executable identities and shared-machine limits. Catacombs readbacks fell from about two to one per present,
+but its remaining GPU wait still limits FPS. Separate alpha-shortcut comparisons measured approximately 5% / 7% lower
+ray-pass GPU time in Catacombs / Tundra, with modest game-FPS gains. These mechanisms apply across maps; they do not
+guarantee the same improvement in every scene.
+
+## Native coverage and upload expansion (2026-11-05)
+
+Both ray backends cache exact native-texture alpha coverage. Nonblended GREATER-0 cutouts whose every texel has positive
+alpha can accept a ray hit without bilinear alpha sampling. Original material classification remains unchanged, and a
+single zero-alpha texel prevents the shortcut. Texture replacement and coverage changes invalidate cached attributes.
+D3D11 CPU uploads also specialize exact pixel replication at common render scales and copy repeated rows in doubling
+runs. The implementation remains portable C++.
+
+Corrected same-executable coverage pairs measured 2–17% lower ray GPU time in Isles, Catacombs, Tundra and Shadowmire;
+observed FPS gains were smaller. Common scale-four expansion cases measured about 25–30% less CPU time in isolation,
+with no meaningful Catacombs FPS gain in the separate upload-only pair. These percentages must not be added together.
+See the [continued investigation](../journal/2026-11-05/native-alpha-coverage-performance.md) for comparisons, the earlier
+native-settings path correction, exact image/pixel regressions and the latest per-map sweep. Debug toggles are
+`GSR_RAY_ALPHA_COVERAGE=0` and `GSR_RT_UPLOAD_SPECIALIZE=0`.
+
+## Accepted-hit and rejected-batch query work (2026-11-05)
+
+Both ray backends avoid reevaluating nonblended opacity after a successful alpha test and skip AO whose sanitized
+ambient term is exactly zero. Entirely reconstructed opaque frame batches are excluded from receiver, AO and shadow
+queries whose existing per-triangle tests reject them universally. Water reflections retain those batches, and mixed
+batches retain per-hit filtering. Geometry capture, visual quality and contributing ray sample counts are unchanged.
+
+Same-executable batch-filtering comparisons measured Isles at about 52 → 58 FPS in both orders, Catacombs 63.1 → 65.1
+and Shadowmire 93.9 → 99.5. Ray GPU time fell about 12–30% in those pairs; this is a GPU-time reduction, not an FPS
+percentage. Readback waits still limit the game. A Tundra redirected-start visual anomaly reproduced with filtering
+disabled, invalidating its FPS pairs; that issue remains open. See the
+[measurements and qualifications](../journal/2026-11-05/ray-query-work-pruning.md), including exact image regressions
+and the all-map checks. Diagnostic switches are `GSR_RAY_ACCEPTED_ALPHA`, `GSR_RAY_ZERO_AMBIENT` and
+`GSR_RAY_PRUNE_REJECTED` (`0` restores the corresponding old work).

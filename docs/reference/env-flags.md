@@ -13,9 +13,12 @@ Parse rules: **presence** = variable exists (even empty); **not-0** = exists and
 | Variable | Type / rule | Default | Effect |
 | --- | --- | --- | --- |
 | `GSR_MODERN_WATER` | not-0 | off | Modern (ray-traced) water pass. |
-| `GSR_RAY_REFLECTIONS` | unset or not-0 | on | DXR reflections in the water pass. |
+| `GSR_RAY_REFLECTIONS` | not-0 | off | Ray-traced water and rough opaque-material reflections; independent of modern water. |
+| `GSR_RAY_GI` | not-0 | off | Experimental ray-traced diffuse indirect illumination from nearby surfaces. |
 | `GSR_RAY_SHADOWS` | not-0 | off | Ray-traced shadows. |
 | `GSR_RAY_CPU_CACHE` | first-char != `0` | on | CPU cache of packed ray textures. |
+| `GSR_RAY_UPLOAD_CACHE` | first-char != `0` | on | Skip byte-identical dynamic/native material attribute blocks in the ordered DXR material buffer. `0` restores full uploads for comparison. |
+| `GSR_RAY_GPU_TIMING` | presence | off | Delayed DXR GPU timestamps: upload/AS build, sky reduction, opaque transport, composition and total; also logs material upload bytes. Reads only after the existing frame-slot fence. |
 | `GSR_RAY_CPU_CACHE_CHECK` | first-char == `1` | off | Verify the CPU cache against a fresh pack. |
 | `GSR_SURFACE_ASYNC` | first-char != `0` | on | Reconstruct ray-scene surface triangles and prepare model motion on the surface builder thread (`0`: on the GS worker, same results). |
 | `GSR_RAY_WORLD_CACHE` | first-char != `0` | on | Incremental world triangle cache. |
@@ -28,6 +31,8 @@ Parse rules: **presence** = variable exists (even empty); **not-0** = exists and
 | `GSR_WATER_LOG` | presence | off | Log water passes (every `[ray-water]` pass line, not only the first three and slow ones). |
 | `GSR_RAY_WATCHDOG_MS` | atoi | 3000 | Ray pass watchdog: a pass stuck this long on the GPU (7x as long on the CPU) is abandoned, the shared D3D11/D3D12 fences are released from the CPU and modern water/ray shadows turn off for the session. `0` = log stalls, never abandon. |
 | `GSR_RAY_TEST_DROP_SIGNAL` | strtoull | unset | Test hook: the ray pass with this consumer fence value never signals D3D11, simulating a lost cross-API signal (the watchdog must recover). |
+
+Fresh settings now default reflections off because they can run on opaque scenes without modern water. Explicit saved `ray_reflections=1` settings remain enabled. Global illumination also defaults off.
 
 ## Temporal upscaler / DLSS
 
@@ -53,7 +58,7 @@ Parse rules: **presence** = variable exists (even empty); **not-0** = exists and
 | --- | --- | --- | --- |
 | `GSR_MATCHED_COMPARE` | string | unset | Output prefix for on/off comparison images. |
 | `GSR_MATCHED_COMPARE_EPOCH` | strtoull | unset | World epoch to compare. |
-| `GSR_MATCHED_COMPARE_EFFECT` | `water`/`models`/`shadows`/other | unset | Which effect is toggled off. |
+| `GSR_MATCHED_COMPARE_EFFECT` | `water`/`models`/`shadows`/`transport`/other | unset | Which effect is toggled off; `transport` compares diffuse GI and opaque reflections together, preserving water and shadows (SR off). |
 | `GSR_WORLD_SHOT_AT` / `GSR_WORLD_SHOT` | strtoull / prefix | unset | Screenshot at a world epoch to `<prefix>.png`. |
 | `GSR_WINSHOT`, `GSR_WINSHOT_AT`, `GSR_WINSHOT_PRESENT` | prefix / comma list (default `600`) / presence | unset | Window screenshots at frames (or present counts). |
 | `GSR_SURFACE_PICK` (`x,y`), `GSR_SURFACE_PICK_EPOCH` | string / strtoull | unset / 70 | Report triangles under a raster pixel. |
@@ -156,7 +161,7 @@ variable exists it wins over the `drakan.ini` value of `[section] key`. `DRAKAN_
 | `DRAKAN_DLSS` / `DRAKAN_DLSS_PRESET` / `DRAKAN_DLSS_SHARPNESS` | `[video] dlss` / `dlss_preset` / `dlss_sharpness` | `off` / `auto` / 0.0 |
 | `DRAKAN_DLSS_NEURAL` / `DRAKAN_DLSS_NEURAL_DIR` | `[video] dlss_neural` / `dlss_neural_runtime` | off / empty |
 | `DRAKAN_DLSS_NEURAL_RESOLUTION` | `[video] dlss_neural_resolution` (`output` \| `render`; see `dlss.md` "Neural rendering resolution") | `output` |
-| `GSR_MODERN_WATER` / `GSR_RAY_REFLECTIONS` / `GSR_RAY_SHADOWS` | `[video] modern_water` / `ray_reflections` / `ray_shadows` | see the water table above |
+| `GSR_MODERN_WATER` / `GSR_RAY_REFLECTIONS` / `GSR_RAY_SHADOWS` / `GSR_RAY_GI` | `[video] modern_water` / `ray_reflections` / `ray_shadows` / `ray_gi` | see the water table above |
 | `DRAKAN_FOLIAGE_WIND` / `DRAKAN_FOLIAGE_STRENGTH` / `DRAKAN_FOLIAGE_LOG` | `[video] foliage_wind` / `foliage_wind_strength` (living foliage, `world-model.md` section 12); the log flag prints how many trees / plants were drawn every 5 s | off / 1.0 / off |
 | `DRAKAN_MOUSE_AUDIT` / `DRAKAN_THREAD_BOOST` | per-packet and per-tick mouse log for `scripts/perf/mouse_audit_report.py`; `DRAKAN_THREAD_BOOST=0` disables the frame-thread priority / MMCSS / power hints (`mouse-microstutter.md`) | off / on |
 | `GSR_BACKDROP_LOG` | prints the wide menu backdrop image chosen whenever it changes (D3D11) | off |
@@ -223,6 +228,16 @@ variable exists it wins over the `drakan.ini` value of `[section] key`. `DRAKAN_
 | `PS2X_IPU_DUMP`, `PS2X_IPU_DUMP_N`, `PS2X_TRACE_IPU` | Dump the first N decoded IPU movie frames as raw RGBA; trace the IPU. |
 | `GSR_GPU_COPY` | `0`: local-to-local transfers between two whole render targets (the game's frame-buffer copy) go through memory again instead of one GPU copy (D3D11). |
 | `GSR_RB_SKIP`, `GSR_RB_VERIFY` | `GSR_RB_SKIP=0` turns off the GPU-readback avoidance (reads of blocks an applied upload already made identical, dirty-row trimming, frame-buffer-onto-itself copies) and restores the always-read-back behaviour. `GSR_RB_VERIFY=1` (D3D11) reads the target back on every skip and compares it with memory, logging `[rb-verify]` lines (`MISMATCH` = stale data would have been served). |
+| `GSR_PARTIAL_UPLOAD` | D3D11: default on. `0` disables masked GPU updates for small unaligned image uploads. The default preserves untouched GPU bits and tracks the actual written prefix, including fragmented or abandoned transfers; exact readers can skip readback only for bits proven identical in CPU/GPU memory. Unsupported targets and larger transfers retain the readback fallback. |
+| `GSR_RB_CLEAN_SYNC` | D3D11: default on. `0` disables retention of known-current CT32 blocks across CPU page-row refreshes. A row refresh makes its blocks current and preserves the proof for disjoint rows; GPU draws invalidate it through the target write version. |
+| `GSR_RB_PREFETCH` | D3D11: default on. `0` disables early staging copies for recently read small scratch targets. Reuse requires matching write version, dirty rows and render scale; world/effects targets are excluded. This moves the copy ahead of unrelated GPU work without returning older data. |
+| `GSR_RB_TRACE` | D3D11 diagnostic: presence logs up to 4096 read/write flush, readback and prefetch records with target geometry and VRAM block spans. Unset normally. |
+| `GSR_RAY_ALPHA_FAST_PATH` | Both ray backends: default on. `0` restores interpolation/texture sampling even for constant alpha-test results. The default returns immediately for NEVER and for opaque ALWAYS materials; cutout tests and translucent alpha retain the original evaluation. |
+| `GSR_RAY_ALPHA_COVERAGE` | Both ray backends: default on. Exact cached coverage of immutable native textures can prove a nonblended GREATER-0 cutout always passes when every texel has nonzero alpha. Original material classification stays intact; any zero-alpha texel retains sampling. `0` forces the original shader alpha evaluation for comparison. Replacement textures invalidate coverage; ad-hoc identity-zero inputs are rescanned. |
+| `GSR_RT_UPLOAD_SPECIALIZE` | D3D11: default on. Use constant-scale exact CPU replication at 2x/4x/8x, a bulk copy at 1x, and doubling runs for duplicated rows. Other scales retain the generic path; `0` restores the variable-scale expansion for comparison. Pixel values, upload sizes and visual settings are unchanged. |
+| `GSR_RAY_ACCEPTED_ALPHA` | Both ray backends: default on. After a hit has passed the material alpha test, its nonblended opacity is known to be one. Avoid sampling it again; blended materials and instance fades retain their opacity. `0` restores the second evaluation. |
+| `GSR_RAY_ZERO_AMBIENT` | Both ray backends: default on. Skip ambient-occlusion queries only when all three sanitized ambient-light channels are exactly zero. Any positive channel retains AO. `0` traces the zero-contribution queries for comparison. |
+| `GSR_RAY_PRUNE_REJECTED` | Both ray backends: default on. Omit an entirely reconstructed opaque frame batch from shadow, receiver and AO query masks when every triangle fails their existing geometry-eligibility test. Keep it in water-reflection queries; mixed batches retain per-hit filtering. `0` restores traversal for comparison. GPU timing logs include `rejected_frame_triangles`. |
 | `PS2X_PERF`, `PS2X_PROFILE`, `PS2X_HOSTPROF`, `PS2X_HOSTPROF_DELAY` | Per-second perf line, profiler, host RIP sampling (`docs/reference/perf.md`). |
 | `PS2X_TRACE_CALLS`, `PS2X_TRACE_FROM`, `PS2X_TRACE_PCS`, `PS2X_TRACE_RING`, `PS2X_TRACE_SCHED`, `PS2X_TRACE_WAKE`, `PS2X_PEEK`, `PS2X_WATCH_POLL`, `PS2X_WATCH_RING`, `PS2X_WATCH_W` | Guest call / scheduler / wakeup tracing and guest-memory word watches. |
 | `PS2X_WATCHDOG`, `PS2X_MAX_SECONDS`, `PS2X_FTZ`, `PS2X_FUZZ_UNWIND`, `PS2X_UNWIND_FIX`, `PS2X_RPCLOOP_RETURNS` | Watchdog / run-time limit, flush-to-zero, unwinding and RPC-loop behaviour switches (`ps2_runtime.cpp`, `Kernel/`). |

@@ -111,7 +111,8 @@ void WgpuBackend::Impl::enterTemporalWorld(RT& rt, uint32_t zbp, float zmax, uin
     rt.temporalSR = false;
     rt.wjx = rt.wjy = 0;
     // One history (and one ray-traced world): the first full world target of an epoch owns it.
-    if ((!upMode && !modernWater && !rayShadows) || (taaOwnerEpoch == motionEpoch && taaOwner != &rt)) {
+    if ((!upMode && !modernWater && !rayShadows && !rayReflections && !rayGlobalIllumination) ||
+        (taaOwnerEpoch == motionEpoch && taaOwner != &rt)) {
         rt.neuralState = 2;
         return;
     }
@@ -152,7 +153,7 @@ void WgpuBackend::Impl::finalizeNeuralWorld(RT& rt) {
     const bool jittered = rt.temporalSR;
     rt.temporalSR = false;
     // The ray pass works on this frame's (jittered) world; the temporal AA then accumulates its result.
-    if (modernWater || rayShadows)
+    if (modernWater || rayShadows || rayReflections || rayGlobalIllumination)
         traceWorld(rt, jittered);
     if (!jittered || !upMode)
         return;
@@ -258,8 +259,8 @@ void WgpuBackend::Impl::traceWorld(RT& rt, bool jittered) {
     const bool wantWater =
         modernWater && current &&
         std::any_of(rt.surface.triangles.begin(), rt.surface.triangles.end(), [](const auto& t) { return t.water; });
-    const bool wantShadows = rayShadows && nativeModels && !nativeModels->lighting.lights.empty();
-    if (!wantWater && !wantShadows)
+    const bool wantShadows = rayShadows && nativeModels && nativeModels->lighting.hasContribution();
+    if (!wantWater && !wantShadows && !rayReflections && !rayGlobalIllumination)
         return;
     DepthBuf* depth = getDepth(rt.taaDepth, rt.w, rt.h);
     const SceneGuideCamera& cam = rt.taaCamera;
@@ -328,8 +329,9 @@ void WgpuBackend::Impl::traceWorld(RT& rt, bool jittered) {
     f.reflectionRays = jittered ? 2 : 4;
     static const std::vector<surface::Triangle> noTriangles;
     const auto& scene = current ? rt.surface.triangles : noTriangles;
-    if (!rayPass->render(f, scene, reflectionTextures, nativeModels.get(),
-                         surface::RayOptions{wantWater, wantShadows, nullptr, true})) {
+    if (!rayPass->render(
+            f, scene, reflectionTextures, nativeModels.get(),
+            surface::RayOptions{wantWater, wantShadows, nullptr, true, rayGlobalIllumination, rayReflections})) {
         static bool warned = false;
         if (!warned) {
             std::fprintf(stderr, "[modern-water] bypass: %s\n", rayPass->status().c_str());

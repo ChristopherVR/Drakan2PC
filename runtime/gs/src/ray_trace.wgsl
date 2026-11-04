@@ -34,6 +34,8 @@ struct Instance { r0: vec4f, r1: vec4f, r2: vec4f, info: vec4u } // world -> obj
 @group(0) @binding(8) var Color: texture_2d<f32>;
 @group(0) @binding(9) var Depth: texture_2d<f32>;
 @group(0) @binding(10) var ShadowIn: texture_2d<f32>; // lowMain's result: shadow ratio, water coverage (main only)
+@group(0) @binding(12) var TransportIn: texture_2d<f32>;
+@group(0) @binding(13) var TransportGuide: texture_2d<f32>;
 @group(0) @binding(11) var ReflectIn: texture_2d<f32>; // lowMain's water reflection (display) and sun visibility
 @group(0) @binding(20) var<storage, read> Nodes: array<Node>;
 @group(0) @binding(21) var<storage, read> Tris: array<vec4f>;     // 3 per triangle; first.w = primitive (bits)
@@ -204,10 +206,17 @@ fn materialDisplay(primitive: u32, bary: vec2f) -> vec3f {
     return materialTexel(primitive, bary).rgb * light;
 }
 fn materialFlags(primitive: u32) -> u32 { return u32(Materials[primitive * kAttributes + 5u].z); }
+fn validatedGeometryMask() -> u32 { return select(1u, 16u, (L.effects.w & 32768u) != 0u); }
 fn materialAlpha(primitive: u32, bary: vec2f) -> f32 {
     let i = primitive * kAttributes;
     let flags = u32(Materials[i + 5u].z);
     let func = flags & 7u;
+    if ((L.effects.w & 4096u) != 0u && (flags & 512u) != 0u) { return 1.0; }
+    // Constant alpha tests need no interpolation or bilinear texture reads.
+    if ((L.effects.w & 2048u) != 0u) {
+        if (func == 0u) { return -1.0; }
+        if (func == 1u && (flags & 8u) == 0u) { return 1.0; }
+    }
     let w = vec3f(1.0 - bary.x - bary.y, bary.x, bary.y);
     let vertex = floor(dot(w, vec3f(Materials[i].a, Materials[i + 1u].a, Materials[i + 2u].a)) * 128.0 + 0.5);
     var a = vertex;
@@ -224,6 +233,11 @@ fn materialAlpha(primitive: u32, bary: vec2f) -> f32 {
         return -1.0;
     }
     return select(1.0, saturate(a / 128.0), (flags & 8u) != 0u);
+}
+// Only call after trace() has validated this hit's material alpha.
+fn acceptedMaterialAlpha(primitive: u32, bary: vec2f) -> f32 {
+    if ((L.effects.w & 8192u) != 0u && (materialFlags(primitive) & 8u) == 0u) { return 1.0; }
+    return materialAlpha(primitive, bary);
 }
 fn localFace(primitive: u32) -> vec3f {
     return vec3f(Materials[primitive * kAttributes + 4u].zw, Materials[primitive * kAttributes + 5u].x);
@@ -482,7 +496,7 @@ fn visibility(p: vec3f, normal: vec3f, direction: vec3f, maximum: f32, self_: u3
         if (!h.hit) {
             break;
         }
-        var alpha = saturate(materialAlpha(h.primitive, h.bary)) * instanceOpacity(h.instance);
+        var alpha = saturate(acceptedMaterialAlpha(h.primitive, h.bary)) * instanceOpacity(h.instance);
         travelled += h.t;
         alpha *= mix(creaseWeight(h, normal, direction), 1.0, smoothstep(2.0 * kMetre, 5.0 * kMetre, travelled));
         transmission *= 1.0 - alpha;
@@ -497,7 +511,7 @@ fn visibility(p: vec3f, normal: vec3f, direction: vec3f, maximum: f32, self_: u3
     return transmission;
 }
 fn ambientOcclusion(p: vec3f, normal: vec3f, rotation: f32, self_: u32) -> f32 {
-    if ((L.effects.w & 32u) != 0u) { return 1.0; } // GSR_RAY_DIAGNOSTIC=direct
+    if ((L.effects.w & (32u | 16384u)) != 0u) { return 1.0; } // direct diagnostic or zero ambient
     let t = basisT(normal);
     let b = cross(normal, t);
     var occlusion = 0.0;
@@ -505,25 +519,27 @@ fn ambientOcclusion(p: vec3f, normal: vec3f, rotation: f32, self_: u32) -> f32 {
     for (var sample = 0u; sample < rays; sample++) {
         let d = diskSample(sample, rays, rotation);
         let dir = normalize(t * d.x + b * d.y + normal * sqrt(saturate(1.0 - dot(d, d))));
-        let h = trace(p + normal * 4.0, dir, 2.0, kOcclusionRadius, 1u, kAlpha, self_);
+        let h = trace(p + normal * 4.0, dir, 2.0, kOcclusionRadius, validatedGeometryMask(), kAlpha, self_);
         if (!h.hit) {
             continue;
         }
-        let alpha = saturate(materialAlpha(h.primitive, h.bary)) * instanceOpacity(h.instance);
+        let alpha = saturate(acceptedMaterialAlpha(h.primitive, h.bary)) * instanceOpacity(h.instance);
         occlusion += alpha * creaseWeight(h, normal, dir) * (1.0 - h.t / kOcclusionRadius);
     }
     return 1.0 - kOcclusionStrength * occlusion / f32(rays);
 }
 struct Lighting { lit: vec3f, unshadowed: vec3f, sun: vec3f }
-fn nativeLighting(p: vec3f, normal: vec3f, shading: vec3f, rotation: f32, occlusion: f32, self_: u32,
-                  samples: u32) -> Lighting {
+fn nativeLightingVisible(p: vec3f, normal: vec3f, shading: vec3f, rotation: f32, occlusion: f32, self_: u32,
+                  samples: u32, secondary: bool) -> Lighting {
     var r = Lighting(vec3f(1.0), vec3f(1.0), vec3f(0.0));
-    if (L.effects.z == 0u) {
+    if (L.effects.z == 0u && !any(L.ambient.rgb > vec3f(0.0))) {
         return r;
     }
     r.unshadowed = L.ambient.rgb;
     r.lit = L.ambient.rgb * occlusion;
     for (var light = 0u; light < L.effects.z; light++) {
+        // Reject lights with no positive radiance before normalization, point-light distance or visibility work.
+        if (!any(L.lightColor[light].rgb > vec3f(0.0))) { continue; }
         var l = L.lightVector[light].xyz;
         var maximum = 1e7;
         var attenuation = 1.0;
@@ -531,12 +547,11 @@ fn nativeLighting(p: vec3f, normal: vec3f, shading: vec3f, rotation: f32, occlus
         if (local) {
             l -= p;
             let distanceSquared = dot(l, l);
+            if (distanceSquared <= 100.0 || distanceSquared >= L.lightColor[light].w) { continue; }
             maximum = sqrt(distanceSquared) - 8.0;
-            if (maximum <= 2.0 || distanceSquared >= L.lightColor[light].w) {
-                continue;
-            }
             attenuation = saturate(1.0 - distanceSquared / L.lightColor[light].w);
         }
+        if (dot(shading, l) <= 0.0) { continue; }
         let centre = normalize(l);
         let ndl = saturate(dot(shading, centre));
         if (ndl <= 0.0) {
@@ -544,25 +559,29 @@ fn nativeLighting(p: vec3f, normal: vec3f, shading: vec3f, rotation: f32, occlus
         }
         let direct = L.lightColor[light].rgb * ndl * attenuation;
         var visible = 1.0;
-        if (L.effects.y != 0u && samples > 0u && (L.effects.w & 64u) == 0u) {
-            let tangent = basisT(centre);
-            let bitangent = cross(centre, tangent);
-            var sum = 0.0;
-            if (local) {
-                let n = clamp(samples, 1u, 2u);
-                for (var sample = 0u; sample < n; sample++) {
-                    let d = diskSample(sample, n, rotation) * kPointLightRadius;
-                    let toLight = l + tangent * d.x + bitangent * d.y;
-                    sum += visibility(p, normal, normalize(toLight), length(toLight) - 8.0, self_);
-                }
-                visible = sum / f32(n);
+        if ((secondary || L.effects.y != 0u) && samples > 0u && (L.effects.w & 64u) == 0u) {
+            if (secondary) {
+                visible = visibility(p, normal, centre, maximum, self_);
             } else {
-                let n = clamp(samples, 1u, 4u);
-                for (var sample = 0u; sample < n; sample++) {
-                    let d = diskSample(sample, n, rotation) * kSunRadius;
-                    sum += visibility(p, normal, normalize(centre + tangent * d.x + bitangent * d.y), maximum, self_);
+                let tangent = basisT(centre);
+                let bitangent = cross(centre, tangent);
+                var sum = 0.0;
+                if (local) {
+                    let n = clamp(samples, 1u, 2u);
+                    for (var sample = 0u; sample < n; sample++) {
+                        let d = diskSample(sample, n, rotation) * kPointLightRadius;
+                        let toLight = l + tangent * d.x + bitangent * d.y;
+                        sum += visibility(p, normal, normalize(toLight), length(toLight) - 8.0, self_);
+                    }
+                    visible = sum / f32(n);
+                } else {
+                    let n = clamp(samples, 1u, 4u);
+                    for (var sample = 0u; sample < n; sample++) {
+                        let d = diskSample(sample, n, rotation) * kSunRadius;
+                        sum += visibility(p, normal, normalize(centre + tangent * d.x + bitangent * d.y), maximum, self_);
+                    }
+                    visible = sum / f32(n);
                 }
-                visible = sum / f32(n);
             }
         }
         r.unshadowed += direct;
@@ -573,7 +592,12 @@ fn nativeLighting(p: vec3f, normal: vec3f, shading: vec3f, rotation: f32, occlus
     }
     return r;
 }
-fn shadowRatio(l: Lighting) -> vec3f { return saturate((l.lit + 0.0001) / (l.unshadowed + 0.0001)); }
+fn nativeLighting(p: vec3f, normal: vec3f, shading: vec3f, rotation: f32, occlusion: f32, self_: u32,
+                  samples: u32) -> Lighting {
+    return nativeLightingVisible(p, normal, shading, rotation, occlusion, self_, samples, false);
+}
+// Native lighting multiplies display-referred GS vertex colors. Convert its ratio before applying it to radiance.
+fn shadowRatio(l: Lighting) -> vec3f { return toLinear(saturate((l.lit + 0.0001) / (l.unshadowed + 0.0001))); }
 fn worldPosition(pixel: vec2f, depth: f32) -> vec3f {
     let uv = (pixel + 0.5) / size();
     let ndc = (uv - C.jitter.xy / size()) * vec2f(2.0, -2.0) + vec2f(-1.0, 1.0);
@@ -582,25 +606,25 @@ fn worldPosition(pixel: vec2f, depth: f32) -> vec3f {
     return p.x * C.right.xyz + p.y * C.up.xyz - p.z * C.forward.xyz;
 }
 fn faceNormal(h: Hit) -> vec3f { return normalize(toWorld(localFace(h.primitive), h.instance)); }
-struct Surface { p: vec3f, normal: vec3f, shading: vec3f, confidence: f32, self_: u32, ok: bool }
+struct Surface { p: vec3f, normal: vec3f, shading: vec3f, confidence: f32, self_: u32, ok: bool, hit: Hit }
 // Anchors a shadow receiver to its actual triangle (see primarySurface in ray_water.hlsl).
-fn primarySurface(pIn: vec3f) -> Surface {
-    var s = Surface(pIn, vec3f(0.0), vec3f(0.0), 0.0, kNoInstance, false);
+fn primarySurface(pIn: vec3f, allowFallback: bool) -> Surface {
+    var s = Surface(pIn, vec3f(0.0), vec3f(0.0), 0.0, kNoInstance, false, Hit(0.0, 0u, 0u, vec2f(0.0), false));
     let distance = length(pIn);
     if (distance <= 0.0 || !finite(distance)) {
         return s;
     }
     let tolerance = max(32.0, distance * 0.02);
     let dir = pIn / distance;
-    var surface = trace(vec3f(0.0), dir, max(0.5, distance - tolerance), distance + tolerance, 1u, kAlpha, kNoInstance);
+    var surface = trace(vec3f(0.0), dir, max(0.5, distance - tolerance), distance + tolerance, validatedGeometryMask(), kAlpha, kNoInstance);
     var anchor = vec3f(0.0);
     if (surface.hit) {
         s.confidence = 1.0 - smoothstep(0.25, 1.0, abs(surface.t - distance) / tolerance);
         anchor = dir * surface.t;
     }
-    if (s.confidence < 1.0) {
-        let below = trace(pIn, vec3f(0.0, -1.0, 0.0), 0.0, kLodReach, 1u, kLevel, kNoInstance);
-        let above = trace(pIn, vec3f(0.0, 1.0, 0.0), 0.0, kLodReach, 1u, kLevel, kNoInstance);
+    if (allowFallback && s.confidence < 1.0) {
+        let below = trace(pIn, vec3f(0.0, -1.0, 0.0), 0.0, kLodReach, validatedGeometryMask(), kLevel, kNoInstance);
+        let above = trace(pIn, vec3f(0.0, 1.0, 0.0), 0.0, kLodReach, validatedGeometryMask(), kLevel, kNoInstance);
         let up = above.hit && (!below.hit || above.t < below.t);
         var ground = below;
         if (up) {
@@ -628,6 +652,7 @@ fn primarySurface(pIn: vec3f) -> Surface {
         s.self_ = surface.instance;
     }
     s.p = anchor;
+    s.hit = surface;
     s.ok = finite3(normal);
     return s;
 }
@@ -661,11 +686,14 @@ fn screenRadiance(uv: vec2f, expectedDepth: f32, fallback: vec3f, scale: vec3f, 
     }
     return result;
 }
-fn hitColor(p: vec3f, h: Hit, normal: vec3f, shading: vec3f, rotation: f32) -> vec3f {
-    let light = nativeLighting(p, normal, shading, rotation, 1.0, kNoInstance, 1u); // one sample: glossy anyway
+fn hitColor(p: vec3f, h: Hit, normal: vec3f, shading: vec3f, rotation: f32, secondary: bool, self_: u32) -> vec3f {
+    let light = nativeLightingVisible(p, normal, shading, rotation, 1.0, self_, 1u, secondary); // one sample: glossy anyway
     let ratio = shadowRatio(light);
     let display = materialDisplay(h.primitive, h.bary);
     let material = select(toLinear(display) * ratio, toLinear(display * light.lit), (materialFlags(h.primitive) & 128u) != 0u);
+    // A secondary transport hit describes outgoing surface radiance, independent of the camera's raster sample.
+    // The raster contains view-dependent additions and may depict an occluder or another LOD at this projection.
+    if (secondary) { return material; }
     let clip = C.projection * vec4f(viewPosition(p), 1.0);
     if (clip.w > 0.001) {
         let ndc = clip.xyz / clip.w;
@@ -704,6 +732,90 @@ fn environment(direction: vec3f, fallback: vec3f) -> vec3f {
         }
     }
     return weather;
+}
+// One secondary surface bounce only: hitColor evaluates the hit material and its native direct lighting,
+// never recursively invokes transport. Alpha-tested holes and partially transparent layers remain traversable.
+fn transportRadiance(p: vec3f, normal: vec3f, direction: vec3f, self_: u32, reach: f32,
+                     rotation: f32, sky: bool) -> vec3f {
+    var origin = p + normal * 4.0;
+    var remaining = reach;
+    var transmission = 1.0;
+    var radiance = vec3f(0.0);
+    for (var layer = 0u; layer < 4u; layer++) {
+        let h = trace(origin, direction, 2.0, remaining, validatedGeometryMask(), kAlpha, kNoInstance);
+        if (!h.hit) {
+            if (sky) { radiance += transmission * environment(direction, vec3f(0.0)); }
+            break;
+        }
+        let point = origin + direction * h.t;
+        var n = faceNormal(h);
+        if (dot(n, direction) > 0.0) { n = -n; }
+        let alpha = saturate(acceptedMaterialAlpha(h.primitive, h.bary) * instanceOpacity(h.instance));
+        let lightingSelf = select(kNoInstance, h.instance, (materialFlags(h.primitive) & 128u) != 0u);
+        let value = hitColor(point, h, n, shadingNormal(h, n), rotation, true, lightingSelf);
+        if (finite3(value)) { radiance += transmission * alpha * clamp(value, vec3f(0.0), vec3f(16.0)); }
+        transmission *= 1.0 - alpha;
+        remaining -= h.t + 2.0;
+        if (transmission < 0.01 || remaining <= 2.0) { break; }
+        origin = point + direction * 2.0;
+    }
+    return select(vec3f(0.0), clamp(radiance, vec3f(0.0), vec3f(16.0)), finite3(radiance));
+}
+fn smithG1(nd: f32, a2: f32) -> f32 {
+    return 2.0 * nd / max(nd + sqrt(a2 + (1.0 - a2) * nd * nd), 1e-5);
+}
+fn opaqueTransport(s: Surface, direction: vec3f, pixel: vec2u) -> vec4f {
+    let packed = u32(Materials[s.hit.primitive * kAttributes + 6u].w);
+    let roughness = select(f32(packed & 255u) / 255.0, 0.75, packed == 0u);
+    let f0 = select(f32((packed >> 8u) & 255u) / 255.0, 0.04, packed == 0u);
+    let view = -direction;
+    let ndv = saturate(dot(s.shading, view));
+    let tangent = basisT(s.shading);
+    let bitangent = cross(s.shading, tangent);
+    let flags = materialFlags(s.hit.primitive);
+    let glossy = (L.effects.w & 1024u) != 0u && ndv > 0.001 && (flags & 8u) == 0u && (flags & 7u) == 1u;
+    var incomingLight = vec3f(0.0);
+    var specularEnergy = 0.0;
+    if ((L.effects.w & 512u) != 0u) {
+        var incoming = vec3f(0.0);
+        let rotation = pixelNoise(pixel, 3u);
+        for (var sample = 0u; sample < 4u; sample++) {
+            let disk = diskSample(sample, 4u, rotation);
+            let d = normalize(tangent * disk.x + bitangent * disk.y + s.shading * sqrt(saturate(1.0 - dot(disk, disk))));
+            if (dot(d, s.normal) > 0.0) {
+                incoming += transportRadiance(s.p, s.normal, d, s.self_, 20.0 * kMetre, rotation, false);
+            }
+        }
+        // Cosine sampling cancels the Lambert cosine/pi. Use the receiver's material reflectance, not an
+        // arbitrary screen-brightness multiplier; missing sky evidence contributes no invented diffuse light.
+        let albedo = toLinear(saturate(materialDisplay(s.hit.primitive, s.hit.bary)));
+        incomingLight += albedo * incoming * 0.25;
+    }
+    if (glossy) {
+        let alpha = max(0.04, roughness) * max(0.04, roughness);
+        let a2 = alpha * alpha;
+        let rotation = pixelNoise(pixel, 4u);
+        var reflected = vec3f(0.0);
+        var reflectance = 0.0;
+        for (var sample = 0u; sample < 4u; sample++) {
+            let u = (f32(sample) + 0.5) * 0.25;
+            let phi = f32(sample) * 2.39996323 + rotation * 6.2831853;
+            let cosTheta = sqrt((1.0 - u) / (1.0 + (a2 - 1.0) * u));
+            let sinTheta = sqrt(saturate(1.0 - cosTheta * cosTheta));
+            let h = normalize(tangent * (cos(phi) * sinTheta) + bitangent * (sin(phi) * sinTheta) + s.shading * cosTheta);
+            let vdh = max(0.0, dot(view, h));
+            let d = reflect(direction, h);
+            let ndl = dot(s.shading, d);
+            if (vdh <= 0.0 || ndl <= 0.0 || dot(s.normal, d) <= 0.0) { continue; }
+            let fresnel = f0 + (1.0 - f0) * pow(1.0 - vdh, 5.0);
+            let weight = smithG1(ndv, a2) * smithG1(ndl, a2) * vdh / max(ndv * cosTheta, 1e-5);
+            reflectance += fresnel * weight;
+            reflected += fresnel * weight * transportRadiance(s.p, s.normal, d, s.self_, 1e7, rotation, true);
+        }
+        specularEnergy = saturate(reflectance * 0.25);
+        incomingLight = incomingLight * (1.0 - specularEnergy) + reflected * 0.25;
+    }
+    return vec4f(max(incomingLight, vec3f(0.0)), specularEnergy) * s.confidence;
 }
 struct Water { distance: f32, normal: vec3f, opacity: f32, ok: bool }
 fn waterSurface(o: vec3f, d: vec3f, tmin: f32) -> Water {
@@ -800,14 +912,14 @@ fn waterReflection(p: vec3f, geometric: vec3f, normal: vec3f, a2: f32, direction
             if (!h.hit) {
                 break;
             }
-            let alpha = saturate(materialAlpha(h.primitive, h.bary)) * instanceOpacity(h.instance);
+            let alpha = saturate(acceptedMaterialAlpha(h.primitive, h.bary)) * instanceOpacity(h.instance);
             let hit = o + reflected * h.t;
             var hitNormal = normalize(toWorld(localFace(h.primitive), h.instance));
             if (dot(hitNormal, -reflected) < 0.0) {
                 hitNormal = -hitNormal;
             }
             let hitShading = shadingNormal(h, hitNormal);
-            value += transmission * alpha * hitColor(hit, h, hitNormal, hitShading, rotation);
+            value += transmission * alpha * hitColor(hit, h, hitNormal, hitShading, rotation, false, kNoInstance);
             transmission *= 1.0 - alpha;
             o = hit + reflected * 2.0;
         }
@@ -860,10 +972,10 @@ fn lowMain(@builtin(global_invocation_id) id: vec3u) {
             }
         }
     }
-    if (!shadedWater && L.effects.y != 0u && L.effects.z != 0u && sceneDepth > 0.0) {
+    if (!shadedWater && L.effects.y != 0u && sceneDepth > 0.0) {
         let surface = worldPosition(vec2f(pixel), sceneDepth);
         if (finite3(surface)) {
-            let s = primarySurface(surface);
+            let s = primarySurface(surface, true);
             if (s.ok) {
                 let occlusion = ambientOcclusion(s.p, s.normal, pixelNoise(vec2u(pixel), 1u), s.self_);
                 ratio = mix(vec3f(1.0), shadowRatio(nativeLighting(s.p, s.normal, s.shading, pixelNoise(vec2u(pixel), 0u),
@@ -958,6 +1070,79 @@ fn upsampledShadow(pixel: vec2i, depth: f32) -> vec3f {
     return select(nearest, sum / total, total > 1e-6);
 }
 
+// Preserve material discontinuities even when adjacent surfaces have identical raster colors and normals.
+// This key fits exactly in a half float (1..1024); zero remains the invalid guide marker.
+fn transportMaterialKey(primitive: u32) -> f32 {
+    let packed = u32(Materials[primitive * kAttributes + 6u].w);
+    let roughness = select(f32(packed & 255u) / 255.0, 0.75, packed == 0u);
+    let f0 = select(f32((packed >> 8u) & 255u) / 255.0, 0.04, packed == 0u);
+    let flags = materialFlags(primitive);
+    let cutout = select(256u, 0u, (flags & 8u) == 0u && (flags & 7u) == 1u);
+    let nativeModel = select(0u, 512u, (flags & 128u) != 0u);
+    return f32(1u + u32(round(roughness * 15.0)) + (u32(round(f0 * 15.0)) << 4u) + cutout + nativeModel);
+}
+// Trace nonnegative incoming radiance and scalar reflected energy at half resolution. Keep the local raster
+// color out of the filtered signal: transferring a neighbor's negative diffuse term creates colored dark patches.
+@compute @workgroup_size(8, 8, 1)
+fn transportMain(@builtin(global_invocation_id) id: vec3u) {
+    if (any(id.xy >= (vec2u(size()) + 1u) / 2u)) { return; }
+    let pixel = min(vec2i(id.xy * 2u + 1u), vec2i(size()) - 1);
+    var transport = vec4f(0.0);
+    var guide = vec4f(0.0);
+    let depth = depthAt(pixel);
+    if (depth > 0.0) {
+        let ray = viewRay(vec2f(pixel));
+        var onWater = false;
+        if (L.effects.x != 0u && waterNear(pixel)) {
+            let water = waterSurface(vec3f(0.0), ray.xyz, ray.w);
+            if (water.ok) {
+                let clip = C.projection * vec4f(viewPosition(ray.xyz * water.distance), 1.0);
+                let waterDepth = clip.z / clip.w;
+                onWater = !(depth > waterDepth + max(1e-6, abs(waterDepth) * 0.002));
+            }
+        }
+        if (!onWater) {
+            let surface = primarySurface(worldPosition(vec2f(pixel), depth), false);
+            if (surface.ok) {
+                transport = opaqueTransport(surface, ray.xyz, vec2u(pixel));
+                guide = vec4f(surface.normal, transportMaterialKey(surface.hit.primitive));
+            }
+        }
+    }
+    textureStore(Output, id.xy, transport);
+    textureStore(OutputB, id.xy, guide);
+}
+fn filteredTransport(pixel: vec2i, depth: f32, receiver: Surface) -> vec4f {
+    let p = worldPosition(vec2f(pixel), depth);
+    let normal = receiver.normal;
+    let kind = transportMaterialKey(receiver.hit.primitive);
+    let source = toLinear(colorAt(pixel).rgb);
+    let origin = pixel / 2;
+    let lowSize = vec2i(textureDimensions(TransportIn));
+    var sum = vec4f(0.0);
+    var total = 0.0;
+    for (var y = -2; y <= 2; y++) {
+        for (var x = -2; x <= 2; x++) {
+            let q = origin + vec2i(x, y);
+            if (any(q < vec2i(0)) || any(q >= lowSize)) { continue; }
+            let transport = textureLoad(TransportIn, q, 0);
+            let guide = textureLoad(TransportGuide, q, 0);
+            if (guide.a != kind) { continue; }
+            let samplePixel = min(q * 2 + 1, vec2i(size()) - 1);
+            let sampleDepth = depthAt(samplePixel);
+            let offset = worldPosition(vec2f(samplePixel), sampleDepth) - p;
+            let plane = abs(dot(offset, normal));
+            let planeScale = max(4.0, length(p) * 0.005);
+            if (plane > planeScale * 3.0) { continue; }
+            let alignment = smoothstep(0.75, 0.95, dot(normal, guide.xyz));
+            let albedoDifference = length(toLinear(colorAt(samplePixel).rgb) - source);
+            let weight = exp(-f32(x*x + y*y) / 8.0 - plane / planeScale - albedoDifference * 4.0) * alignment;
+            sum += transport * weight;
+            total += weight;
+        }
+    }
+    return select(vec4f(0.0), sum / max(total, 1e-6) * receiver.confidence, total > 1e-6);
+}
 @compute @workgroup_size(8, 8, 1)
 fn main(@builtin(global_invocation_id) id: vec3u) {
     if (any(id.xy >= vec2u(size()))) {
@@ -1008,9 +1193,9 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
         if (!low.ok) {
             low.reflection = toLinear(original.rgb);
         }
-        waterLight = Lighting(open.unshadowed * low.shadow, open.unshadowed, open.sun * low.visible);
+        waterLight = Lighting(open.unshadowed * toDisplay(low.shadow), open.unshadowed, open.sun * low.visible);
     }
-    if (L.effects.y != 0u && L.effects.z != 0u && sceneDepth > 0.0) {
+    if (L.effects.y != 0u && sceneDepth > 0.0) {
         if (haveWater) {
             receiverShadow = shadowRatio(waterLight);
         } else {
@@ -1018,6 +1203,15 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
         }
         result = vec4f(toDisplay(toLinear(original.rgb) * receiverShadow), original.a);
         if ((L.effects.w & 128u) != 0u) { result = vec4f(receiverShadow, original.a); }
+    }
+    if (!haveWater && sceneDepth > 0.0 && (L.effects.w & 1536u) != 0u && (L.effects.w & 224u) == 0u) {
+        // Transport needs a real depth-matched material. Shadow-only terrain anchoring must not paint a
+        // nearby ground material onto unmatched characters, foliage or other native raster silhouettes.
+        let receiver = primarySurface(worldPosition(vec2f(pixel), sceneDepth), false);
+        if (receiver.ok) {
+            let transport = filteredTransport(pixel, sceneDepth, receiver);
+            result = vec4f(toDisplay(toLinear(result.rgb) * (1.0 - saturate(transport.a)) + transport.rgb), original.a);
+        }
     }
     if (L.effects.x == 0u || !haveWater || dot(geometric, -direction) <= 0.0) {
         textureStore(Output, id.xy, result);

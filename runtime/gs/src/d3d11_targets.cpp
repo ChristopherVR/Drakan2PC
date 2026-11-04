@@ -3,6 +3,29 @@
 
 namespace gsr {
 
+namespace {
+bool cleanSyncEnabled() {
+    static const bool enabled = [] {
+        const char* value = std::getenv("GSR_RB_CLEAN_SYNC");
+        return !value || value[0] != '0';
+    }();
+    return enabled;
+}
+void traceReadback(const char* kind, uint64_t frame, const RT& rt, uint32_t first = 0, uint32_t last = 0) {
+    static const bool enabled = std::getenv("GSR_RB_TRACE") != nullptr;
+    static unsigned remaining = 4096;
+    if (enabled && remaining) {
+        --remaining;
+        std::fprintf(stderr,
+                     "[rb-trace] %s frame=%llu fbp=%x fbw=%u psm=%x size=%ux%u dirty=%u..%u state=%u blocks=%x..%x "
+                     "writes=%llu clean=%llu words=%zu\n",
+                     kind, static_cast<unsigned long long>(frame), rt.fbp, rt.fbw, rt.psm, rt.w, rt.h, rt.dy0, rt.dy1,
+                     rt.wstate, first, last, static_cast<unsigned long long>(rt.writes),
+                     static_cast<unsigned long long>(rt.cleanWrites), rt.cleanWords.size());
+    }
+}
+} // namespace
+
 void D3D11Backend::Impl::allocRT(RT& rt, uint32_t newH) {
     const uint32_t W = rt.w * scale, H = newH * scale;
     ComPtr<ID3D11Texture2D> t = makeTex(W, H, D3D11_BIND_RENDER_TARGET | D3D11_BIND_SHADER_RESOURCE);
@@ -183,8 +206,60 @@ void D3D11Backend::Impl::ensureStaging(uint32_t w, uint32_t h) {
     dev->CreateTexture2D(&d, nullptr, &staging);
 }
 
+void D3D11Backend::Impl::prefetchReadback(RT& rt) {
+    static const bool enabled = [] {
+        const char* value = std::getenv("GSR_RB_PREFETCH");
+        return !value || value[0] != '0';
+    }();
+    // Learn from actual reads. Copy small scratch targets immediately after
+    // their draws, before later unrelated GPU work can get ahead of the read.
+    // World/effects targets have writes outside draw(), so never predict them.
+    if (!enabled || rt.readbackFrame == ~0ull || frame > rt.readbackFrame + 2 || !rt.dirty || rt.wstate ||
+        rt.neuralState || rt.temporalEpoch || rt.surfaceSubmittedEpoch || rt.neuralOutputEpoch)
+        return;
+    const uint32_t y0 = rt.dy0, y1 = std::min(rt.dy1, rt.h);
+    if (y1 <= y0 || uint64_t(rt.w) * (y1 - y0) > 16384)
+        return;
+    ID3D11Texture2D* compact = scale > 1 && nativeReadbackEnabled
+                                   ? nativeReadback.gather(dev.Get(), ctx.Get(), rt.srv.Get(), rt.w, y1 - y0, scale, y0)
+                                   : nullptr;
+    const uint32_t readScale = compact ? 1 : scale, w = rt.w * readScale, h = (y1 - y0) * readScale;
+    auto& copy = rt.readbackCopy;
+    if (!copy.texture || copy.width < w || copy.height < h) {
+        D3D11_TEXTURE2D_DESC d{};
+        d.Width = w;
+        d.Height = h;
+        d.MipLevels = d.ArraySize = d.SampleDesc.Count = 1;
+        d.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+        d.Usage = D3D11_USAGE_STAGING;
+        d.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
+        copy.texture.Reset();
+        if (FAILED(dev->CreateTexture2D(&d, nullptr, &copy.texture)))
+            return;
+        copy.width = w;
+        copy.height = h;
+    }
+    const uint32_t readY = compact ? 0 : y0 * scale;
+    const D3D11_BOX box{0, readY, 0, w, readY + h, 1};
+    ctx->CopySubresourceRegion(copy.texture.Get(), 0, 0, 0, 0, compact ? compact : rt.tex.Get(), 0, &box);
+    cpuProfile.copied(uint64_t(w) * h * 4);
+    copy.writes = rt.writes;
+    copy.y0 = y0;
+    copy.y1 = y1;
+    copy.readScale = readScale;
+    copy.renderScale = scale;
+    traceReadback("prefetch", frame, rt);
+}
+
 void D3D11Backend::Impl::readbackRT(RT& rt) {
     CpuProfile::Scope profile(cpuProfile, CpuProfile::ReadbackRT);
+    // A guest screenshot can read the closed world before any HUD draw/display latch triggers its deferred pass.
+    // Do not finalize an active world or a late native-water submission that still owns its geometry stream.
+    if (pendingTemporalEnd && !engineWorldOpen && !nativeWaterPass && rt.neuralState == 1) {
+        pendingTemporalEnd = false;
+        for (auto& target : rts)
+            finalizeNeuralWorld(*target);
+    }
     if (rt.wstate == 1)
         finalizeWorld(rt); // temporal upscaler: the target holds the half-drawn render rectangle
     if (!rt.dirty || rt.dy1 <= rt.dy0) {
@@ -193,20 +268,28 @@ void D3D11Backend::Impl::readbackRT(RT& rt) {
     }
     const uint32_t y0 = rt.dy0, y1 = std::min(rt.dy1, rt.h);
     const uint32_t rows = y1 - y0;
-    ID3D11Texture2D* compact = scale > 1 && nativeReadbackEnabled
+    rt.readbackFrame = frame;
+    traceReadback("readback", frame, rt);
+    auto& copy = rt.readbackCopy;
+    const bool prefetched =
+        copy.texture && copy.writes == rt.writes && copy.y0 == y0 && copy.y1 == y1 && copy.renderScale == scale;
+    ID3D11Texture2D* compact = !prefetched && scale > 1 && nativeReadbackEnabled
                                    ? nativeReadback.gather(dev.Get(), ctx.Get(), rt.srv.Get(), rt.w, rows, scale, y0)
                                    : nullptr;
-    const uint32_t readScale = compact ? 1 : scale;
-    ensureStaging(rt.w * readScale, rows * readScale);
-    const uint32_t readY = compact ? 0 : y0 * scale;
-    D3D11_BOX box{0, readY, 0, rt.w * readScale, readY + rows * readScale, 1};
-    ctx->CopySubresourceRegion(staging.Get(), 0, 0, 0, 0, compact ? compact : rt.tex.Get(), 0, &box);
-    cpuProfile.copied(uint64_t(rt.w) * rows * readScale * readScale * 4);
+    const uint32_t readScale = prefetched ? copy.readScale : compact ? 1 : scale;
+    if (!prefetched) {
+        ensureStaging(rt.w * readScale, rows * readScale);
+        const uint32_t readY = compact ? 0 : y0 * scale;
+        const D3D11_BOX box{0, readY, 0, rt.w * readScale, readY + rows * readScale, 1};
+        ctx->CopySubresourceRegion(staging.Get(), 0, 0, 0, 0, compact ? compact : rt.tex.Get(), 0, &box);
+        cpuProfile.copied(uint64_t(rt.w) * rows * readScale * readScale * 4);
+    }
+    ID3D11Texture2D* mappedTexture = prefetched ? copy.texture.Get() : staging.Get();
     D3D11_MAPPED_SUBRESOURCE ms{};
     HRESULT mapResult;
     {
         CpuProfile::Scope mapProfile(cpuProfile, CpuProfile::ReadbackMap);
-        mapResult = ctx->Map(staging.Get(), 0, D3D11_MAP_READ, 0, &ms);
+        mapResult = ctx->Map(mappedTexture, 0, D3D11_MAP_READ, 0, &ms);
     }
     if (SUCCEEDED(mapResult)) {
         CpuProfile::Scope packProfile(cpuProfile, CpuProfile::ReadbackPack);
@@ -214,13 +297,26 @@ void D3D11Backend::Impl::readbackRT(RT& rt) {
         const uint32_t half = readScale / 2;
         for (uint32_t y = 0; y < rows; ++y) {
             const uint8_t* row = src + (size_t)(y * readScale + half) * ms.RowPitch;
-            for (uint32_t x = 0; x < rt.w; ++x)
+            for (uint32_t x = 0; x < rt.w; ++x) {
                 // An upload streaming into this target owns its blocks (see beginTargetUpload).
-                if (!uploadActive || !uploadCovers(blockOf(rt.psm, rt.base(), rt.fbw, x, y0 + y)))
+                if (uploadActive && uploadPartial) {
+                    const uint32_t address = pixelAddr(rt.psm, rt.base(), rt.fbw, x, y0 + y) & (kVramSize - 1);
+                    const uint32_t shift = (address & 3) * 8;
+                    const uint32_t pixelMask = rt.psm == PSM_CT32   ? ~0u
+                                               : rt.psm == PSM_CT24 ? 0xffffffu
+                                                                    : 0xffffu << shift;
+                    const uint32_t mask = pixelMask & ~partialUpload.mask(address);
+                    const uint32_t gpu = packPixel(rt.psm, row + size_t(x * readScale + half) * 4);
+                    uint32_t cpu;
+                    std::memcpy(&cpu, mem.data() + (address & ~3u), 4);
+                    const uint32_t merged = (cpu & ~mask) | ((gpu << shift) & mask);
+                    std::memcpy(mem.data() + (address & ~3u), &merged, 4);
+                } else if (!uploadActive || !uploadCovers(blockOf(rt.psm, rt.base(), rt.fbw, x, y0 + y)))
                     mem.write(rt.psm, rt.base(), rt.fbw, x, y0 + y,
                               packPixel(rt.psm, row + (size_t)(x * readScale + half) * 4));
+            }
         }
-        ctx->Unmap(staging.Get(), 0);
+        ctx->Unmap(mappedTexture, 0);
     }
     mem.touchRect(rt.psm, rt.base(), rt.fbw, 0, y0, rt.w, rows);
     const uint32_t ph = rt.pageH();
@@ -260,11 +356,23 @@ void D3D11Backend::Impl::syncRT(RT& rt) {
         else {
             const uint32_t W = rt.w * scale;
             up.resize((size_t)W * rows * scale);
-            expandRenderTargetRows(buf.data(), up.data(), rt.w, rows, scale);
+            expandRenderTargetRows(buf.data(), up.data(), rt.w, rows, scale, runtimeFlags().rtUploadSpecialize);
             ctx->UpdateSubresource(rt.tex.Get(), 0, &box, up.data(), W * 4, 0);
         }
         rt.rowStamp[r] = mem.clock();
         rt.copyValid = false;
+        // A CPU row refresh establishes equality, unlike a draw. Keep prior
+        // known-equal blocks in other rows instead of discarding that proof
+        // when a disjoint texture upload refreshes another page row.
+        if (rt.psm == PSM_CT32 && cleanSyncEnabled()) {
+            if (rt.cleanWrites != rt.writes || rt.cleanBlocks.empty()) {
+                rt.cleanBlocks.assign(kVramBlocks / 64, 0);
+                rt.cleanWords.clear();
+            }
+            for (uint32_t b = lo; b < std::min(kVramBlocks, lo + pagesPerRow * 32u); ++b)
+                rt.cleanBlocks[b / 64] |= 1ull << (b % 64);
+            rt.cleanWrites = rt.writes + 1;
+        }
         ++rt.writes;
         st.rtUploads++;
     }
@@ -279,6 +387,7 @@ void D3D11Backend::Impl::flushToMemory(uint32_t first, uint32_t last) {
         rowSpan(*r, r->dy0, std::min(r->dy1, r->h), lo, hi);
         if (hi < first || lo > last)
             continue;
+        traceReadback("write", frame, *r, first, last);
         readbackRT(*r);
     }
 }
@@ -296,10 +405,31 @@ bool D3D11Backend::Impl::blocksAreClean(const RT& rt, uint32_t first, uint32_t l
     return true;
 }
 
+bool D3D11Backend::Impl::readBitsAreClean(const RT& rt, const PartialUpload& requested) const {
+    if (rt.cleanWrites != rt.writes || rt.cleanWords.empty())
+        return false;
+    uint32_t lo, hi;
+    rowSpan(rt, rt.dy0, std::min(rt.dy1, rt.h), lo, hi);
+    for (const auto& [block, masks] : requested.blocks) {
+        if (block < lo || block > hi)
+            continue;
+        if (!rt.cleanBlocks.empty() && ((rt.cleanBlocks[block / 64] >> (block % 64)) & 1))
+            continue;
+        for (uint32_t i = 0; i < 64; ++i) {
+            if (!masks[i])
+                continue;
+            const auto found = rt.cleanWords.find(block * 256 + i * 4);
+            if (found == rt.cleanWords.end() || (found->second & masks[i]) != masks[i])
+                return false;
+        }
+    }
+    return true;
+}
+
 // GSR_RB_VERIFY=1 (debug): reads the target back anyway and compares the pixels of blocks [first, last] with memory;
 // a difference means a skipped readback would have served stale data.
 void D3D11Backend::Impl::verifyRTBlocks(RT& rt, uint32_t first, uint32_t last, uint32_t rowLo, uint32_t rowHi,
-                                        uint32_t cmpBase, uint32_t cmpFbw) {
+                                        uint32_t cmpBase, uint32_t cmpFbw, const PartialUpload* requested) {
     if (rt.wstate == 1 || rt.dy1 <= rt.dy0)
         return;
     const uint32_t y0 = rt.dy0, y1 = std::min(rt.dy1, rt.h), rows = y1 - y0;
@@ -328,7 +458,16 @@ void D3D11Backend::Impl::verifyRTBlocks(RT& rt, uint32_t first, uint32_t last, u
             const uint32_t gpu = packPixel(rt.psm, row + (size_t)(x * readScale + half) * 4);
             const uint32_t cpu =
                 mem.read(rt.psm, cmpBase == ~0u ? rt.base() : cmpBase, cmpFbw ? cmpFbw : rt.fbw, x, y0 + y);
-            if (gpu != cpu) {
+            uint32_t mask = ~0u;
+            if (requested) {
+                const uint32_t address = pixelAddr(rt.psm, rt.base(), rt.fbw, x, y0 + y);
+                mask = requested->mask(address);
+                if (rt.psm == PSM_CT16 || rt.psm == PSM_CT16S)
+                    mask >>= (address & 3) * 8;
+                if (rt.psm == PSM_CT24)
+                    mask &= 0xffffff;
+            }
+            if (((gpu ^ cpu) & mask) != 0) {
                 ++bad;
                 ++badHere;
                 if (bad <= 8)
@@ -415,11 +554,13 @@ bool D3D11Backend::Impl::copyLocal(uint32_t spsm, uint32_t sbp, uint32_t sbw, ui
 // flushToMemory for a reader of memory. The game streams textures through VRAM every frame, a CLUT right before its
 // image, over blocks a scratch target occupies; those uploads are applied to the target as well, so asking for exactly
 // those blocks must not read the whole target back (a GPU sync) to learn what the CPU just wrote.
-void D3D11Backend::Impl::flushForRead(uint32_t first, uint32_t last) {
+void D3D11Backend::Impl::flushForRead(uint32_t first, uint32_t last, const VramRect* rect) {
     if (!readbackSkipEnabled()) {
         flushToMemory(first, last);
         return;
     }
+    PartialUpload requested;
+    bool prepared = false, usable = false;
     for (auto& r : rts) {
         if (!r->dirty)
             continue;
@@ -427,13 +568,28 @@ void D3D11Backend::Impl::flushForRead(uint32_t first, uint32_t last) {
         rowSpan(*r, r->dy0, std::min(r->dy1, r->h), lo, hi);
         if (hi < first || lo > last)
             continue;
-        if (blocksAreClean(*r, first, last)) {
+        bool clean = blocksAreClean(*r, first, last);
+        const PartialUpload* exact = nullptr;
+        if (!clean && rect && !r->cleanWords.empty()) {
+            if (!prepared) {
+                prepared = true;
+                usable = requested.prepare(rect->psm, rect->bp, rect->bw, rect->x, rect->y, rect->w, rect->h);
+                if (usable)
+                    requested.advance(uint64_t(rect->w) * rect->h);
+            }
+            if (usable && readBitsAreClean(*r, requested)) {
+                clean = true;
+                exact = &requested;
+            }
+        }
+        if (clean) {
             ++st.rtReadbacksSkipped;
             static const bool verify = std::getenv("GSR_RB_VERIFY") != nullptr;
             if (verify)
-                verifyRTBlocks(*r, std::max(first, lo), std::min(last, hi), 0, ~0u);
+                verifyRTBlocks(*r, std::max(first, lo), std::min(last, hi), 0, ~0u, ~0u, 0, exact);
             continue;
         }
+        traceReadback("read", frame, *r, first, last);
         readbackRT(*r);
     }
 }
@@ -445,9 +601,10 @@ void D3D11Backend::Impl::flushForRead(uint32_t first, uint32_t last) {
 // does not cover stay GPU-owned, so a later readback still yields the right bytes.
 bool D3D11Backend::Impl::beginTargetUpload(uint32_t psm, uint32_t bp, uint32_t bw, uint32_t x, uint32_t y, uint32_t w,
                                            uint32_t h) {
+    uploadPartial = false;
     const PsmGeom g = geomOf(psm);
     if (!w || !h || x % g.blockW || y % g.blockH || w % g.blockW || h % g.blockH)
-        return false;
+        return beginPartialUpload(psm, bp, bw, x, y, w, h);
     uint32_t lo, hi;
     spanBlocks(psm, bp, bw, x, y, w, h, lo, hi);
     bool overlaps = false;
@@ -482,6 +639,112 @@ bool D3D11Backend::Impl::beginTargetUpload(uint32_t psm, uint32_t bp, uint32_t b
     return true;
 }
 
+bool D3D11Backend::Impl::beginPartialUpload(uint32_t psm, uint32_t bp, uint32_t bw, uint32_t x, uint32_t y, uint32_t w,
+                                            uint32_t h) {
+    static const bool enabled = [] {
+        const char* value = std::getenv("GSR_PARTIAL_UPLOAD");
+        return !value || value[0] != '0';
+    }();
+    if (!enabled || !readbackSkipEnabled() || !partialUpload.prepare(psm, bp, bw, x, y, w, h))
+        return false;
+    uploadBlocks.assign(kVramBlocks / 64, 0);
+    uploadLo = kVramBlocks;
+    uploadHi = 0;
+    for (const auto& [block, masks] : partialUpload.blocks) {
+        (void)masks;
+        uploadBlocks[block / 64] |= 1ull << (block % 64);
+        uploadLo = std::min(uploadLo, block);
+        uploadHi = std::max(uploadHi, block);
+    }
+    bool overlaps = false;
+    for (const auto& r : rts) {
+        if (!r->dirty || !touchesUpload(*r))
+            continue;
+        if (r->psm != PSM_CT32 || r->wstate == 1 || frame > r->drawFrame + 1)
+            return false;
+        overlaps = true;
+    }
+    if (!overlaps || !partialUploadGpu.prepare(dev.Get(), scale))
+        return false;
+    for (auto& r : rts)
+        if (r->dirty && touchesUpload(*r))
+            syncRT(*r);
+    uploadPartial = uploadActive = true;
+    return true;
+}
+
+void D3D11Backend::Impl::completePartialUpload(bool apply, uint64_t written) {
+    partialUpload.advance(written);
+    // A progress notification never changes GPU state; only transfer completion
+    // (including an abandoned transfer's actual prefix) publishes the patch.
+    if (!apply && written)
+        return;
+    for (auto& r : rts) {
+        RT& rt = *r;
+        if (!rt.dirty || !touchesUpload(rt))
+            continue;
+        if (apply && (rt.psm != PSM_CT32 || rt.wstate == 1)) {
+            // Another GIF path may change the target while an image streams.
+            // Resolve that unusual case through memory, preserving only the
+            // actual written prefix, rather than patching a different layout.
+            readbackRT(rt);
+            std::fill(rt.rowStamp.begin(), rt.rowStamp.end(), 0);
+            rt.seen = 0;
+            syncRT(rt);
+            continue;
+        }
+        uint32_t y0, y1;
+        if (!uploadRows(rt, y0, y1))
+            continue;
+        const uint32_t ph = rt.pageH();
+        if (!apply) {
+            for (uint32_t y = y0; y < y1; y += ph)
+                rt.rowStamp[y / ph] = mem.clock();
+            continue;
+        }
+        bool touched = false;
+        if (rt.cleanWrites != rt.writes || rt.cleanBlocks.empty()) {
+            rt.cleanBlocks.assign(kVramBlocks / 64, 0);
+            rt.cleanWords.clear();
+        }
+        for (uint32_t by = y0; by < y1; by += 8)
+            for (uint32_t bx = 0; bx < rt.w; bx += 8) {
+                const uint32_t block = blockOf(PSM_CT32, rt.base(), rt.fbw, bx, by);
+                if (!uploadCovers(block))
+                    continue;
+                std::array<uint32_t, 128> patch{};
+                bool any = false, full = true;
+                for (uint32_t yy = 0; yy < 8; ++yy)
+                    for (uint32_t xx = 0; xx < 8; ++xx) {
+                        const uint32_t i = (yy * 8 + xx) * 2;
+                        patch[i] = partialUpload.mask(pixelAddr(PSM_CT32, rt.base(), rt.fbw, bx + xx, by + yy));
+                        patch[i + 1] = mem.read(PSM_CT32, rt.base(), rt.fbw, bx + xx, by + yy);
+                        any |= patch[i] != 0;
+                        full &= patch[i] == ~0u;
+                        if (patch[i])
+                            rt.cleanWords[pixelAddr(PSM_CT32, rt.base(), rt.fbw, bx + xx, by + yy)] |= patch[i];
+                    }
+                if (!any)
+                    continue;
+                partialUploadGpu.patch(ctx.Get(), rt.tex.Get(), rt.srv.Get(), bx, by, patch.data());
+                if (full)
+                    rt.cleanBlocks[block / 64] |= 1ull << (block % 64);
+                rt.rowStamp[by / ph] = mem.clock();
+                touched = true;
+            }
+        if (touched) {
+            rt.copyValid = false;
+            ++rt.writes;
+            rt.cleanWrites = rt.writes;
+            ++st.targetUploads;
+        }
+    }
+    if (apply) {
+        uploadActive = uploadPartial = false;
+        partialUpload.clear();
+    }
+}
+
 bool D3D11Backend::Impl::uploadCovers(uint32_t block) const {
     return (uploadBlocks[block / 64] >> (block % 64)) & 1;
 }
@@ -514,8 +777,14 @@ bool D3D11Backend::Impl::touchesUpload(const RT& rt) const {
 }
 
 void D3D11Backend::Impl::completeTargetUpload(uint32_t, uint32_t, uint32_t, uint32_t, uint32_t, uint32_t, uint32_t,
-                                              bool apply) {
+                                              bool apply, uint64_t written) {
     if (!uploadActive)
+        return;
+    if (uploadPartial) {
+        completePartialUpload(apply, written);
+        return;
+    }
+    if (!apply && written)
         return;
     for (auto& r : rts) {
         RT& rt = *r;
@@ -529,8 +798,10 @@ void D3D11Backend::Impl::completeTargetUpload(uint32_t, uint32_t, uint32_t, uint
         bool touched = false;
         std::vector<uint32_t> buf, up;
         // Blocks of consecutive applied uploads accumulate while nothing else wrote to the target in between.
-        if (apply && (rt.cleanWrites != rt.writes || rt.cleanBlocks.empty()))
+        if (apply && (rt.cleanWrites != rt.writes || rt.cleanBlocks.empty())) {
             rt.cleanBlocks.assign(kVramBlocks / 64, 0);
+            rt.cleanWords.clear();
+        }
         for (uint32_t by = y0; by < y1; by += g.blockH)
             for (uint32_t bx = 0; bx < rt.w;) {
                 if (!uploadCovers(blockOf(rt.psm, rt.base(), rt.fbw, bx, by))) {
@@ -564,7 +835,8 @@ void D3D11Backend::Impl::completeTargetUpload(uint32_t, uint32_t, uint32_t, uint
                         ctx->UpdateSubresource(rt.tex.Get(), 0, &box, buf.data(), runW * 4, 0);
                     else {
                         up.resize((size_t)runW * scale * runH * scale);
-                        expandRenderTargetRows(buf.data(), up.data(), runW, runH, scale);
+                        expandRenderTargetRows(buf.data(), up.data(), runW, runH, scale,
+                                               runtimeFlags().rtUploadSpecialize);
                         ctx->UpdateSubresource(rt.tex.Get(), 0, &box, up.data(), runW * scale * 4, 0);
                     }
                     cpuProfile.uploaded(uint64_t(runW) * runH * scale * scale * 4);
@@ -688,7 +960,7 @@ DepthBuf* D3D11Backend::Impl::getDepth(uint32_t zbp, uint32_t w, uint32_t h) {
     d->zbp = zbp;
     d->w = w;
     d->h = h;
-    if (upMode || neuralEnabled || modernWater || rayShadows) {
+    if (upMode || neuralEnabled || modernWater || rayShadows || rayReflections || rayGlobalIllumination) {
         d->tex = makeTex(w * scale, h * scale, D3D11_BIND_DEPTH_STENCIL | D3D11_BIND_SHADER_RESOURCE,
                          DXGI_FORMAT_R32_TYPELESS);
         D3D11_DEPTH_STENCIL_VIEW_DESC dd{};

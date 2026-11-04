@@ -751,8 +751,11 @@ bool WgpuBackend::Impl::resolveTexture(const GsDrawState& s, const ClutBuf& clut
             } else {
                 if (e.aliasTarget)
                     valid = false; // the target was read back: memory is authoritative again
-                for (auto& sp : e.spans)
-                    flushForRead(sp.first, sp.second);
+                for (uint32_t level = 0; level < e.spans.size(); ++level) {
+                    const auto& sp = e.spans[level];
+                    const auto rect = textureMemoryRect(psm, tbp, tbw, W, H, s.miptbp1, s.miptbp2, level);
+                    flushForRead(sp.first, sp.second, &rect);
+                }
             }
         }
         if (valid && e.checkedClock != mem.clock()) {
@@ -865,7 +868,8 @@ bool WgpuBackend::Impl::resolveTexture(const GsDrawState& s, const ClutBuf& clut
         spans.push_back({lo, hi});
         if (!aliased) {
             CpuProfile::Scope detail(cpuProfile, CpuProfile::TextureCoherenceFlush);
-            flushForRead(lo, hi);
+            const VramRect rect{psm, lbp, std::max(lbw, 1u), 0, 0, w, h};
+            flushForRead(lo, hi, &rect);
         }
         levels.emplace_back();
         {
@@ -1015,7 +1019,8 @@ bool WgpuBackend::Impl::resolveTexture(const GsDrawState& s, const ClutBuf& clut
     TexEntry e;
     e.w = W;
     e.h = H;
-    if ((modernWater || rayShadows) && !levels.empty() && !levels[0].empty()) {
+    if ((modernWater || rayShadows || rayReflections || rayGlobalIllumination) && !levels.empty() &&
+        !levels[0].empty()) {
         if (engineWorldOpen && !(s.zbuf & (1ull << 32))) {
             // Owned material texels for the ray pass (as on D3D11): they survive the current view and GS slot reuse.
             uint64_t hash = 14695981039346656037ull;

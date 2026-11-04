@@ -41,7 +41,8 @@ using drakan::gpu::view;
 
 constexpr uint32_t kUniformSlotBytes = 256; // binding size of every uniform slot (and the dynamic-offset alignment)
 constexpr uint32_t kMaxUniformSlots = 4;
-constexpr uint32_t kMaxTextureSlots = 4;
+// Bindings 8-15 are sampled textures; sampler bindings begin at 16. WebGPU guarantees at least 16 textures/stage.
+constexpr uint32_t kMaxTextureSlots = 8;
 constexpr uint32_t kMaxBufferSlots = 8;
 constexpr uint32_t kMaxStorageTextureSlots = 2;
 constexpr uint64_t kUniformRingBytes = 8ull << 20;
@@ -400,6 +401,11 @@ public:
     }
 
     ProgramPtr createProgram(const ProgramDesc& in, std::string* error) override {
+        if (in.textureSlots > kMaxTextureSlots) {
+            if (error)
+                *error = "RHI program exceeds the eight sampled-texture binding slots";
+            return {};
+        }
         auto program = std::make_shared<WProgram>();
         program->desc = in;
         program->module = context_.shaderModule(in.wgsl, in.label);

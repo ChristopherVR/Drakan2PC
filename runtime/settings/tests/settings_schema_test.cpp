@@ -190,7 +190,18 @@ void testRoundTrip() {
     // Dependent rows say what they wait for.
     const gameui::SettingsSchema sc3 = buildSettingsSchema(Settings{}, env(h));
     CHECK(!sc3.find("video.dlss_preset")->enabled && !sc3.find("video.dlss_preset")->needs.empty());
-    CHECK(!sc3.find("video.ray_reflections")->enabled);
+    auto unavailable = env(h);
+    unavailable.caps.modernWater = false;
+    const auto unsupported = buildSettingsSchema(Settings{}, unavailable);
+    CHECK(!unsupported.find("video.ray_reflections")->enabled);
+    CHECK(!unsupported.find("video.ray_gi")->enabled);
+    auto capable = env(h);
+    capable.caps.modernWater = true;
+    const auto independent = buildSettingsSchema(Settings{}, capable);
+    CHECK(independent.find("video.ray_reflections")->enabled); // no modern-water prerequisite
+    CHECK(independent.find("video.ray_reflections")->needs.empty());
+    CHECK(independent.find("video.ray_gi")->enabled);
+    CHECK(applySettingChange(t, link, "video.ray_gi", "1") && t.video.rayGlobalIllumination);
 }
 
 void testModernApply() {

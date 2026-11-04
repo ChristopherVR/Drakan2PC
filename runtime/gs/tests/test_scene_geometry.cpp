@@ -1,12 +1,165 @@
 #include "resident_scene.h"
 #include "ray_normals.h"
+#include "ray_world_cache.h"
 #include "drakan_scene_geometry.h"
 #include <cassert>
 #include <fstream>
 #include <iostream>
 #include <cstring>
+#include <cfenv>
+#include <random>
+
+// Original packing path, retained as a differential oracle for the bounded rounding optimization.
+static float referenceNormal(gsr::surface::Point n) {
+    const float l1 = std::abs(n.x) + std::abs(n.y) + std::abs(n.z);
+    if (!(l1 > 0) || !std::isfinite(l1))
+        n = {0, 0, 1};
+    else
+        n = {n.x / l1, n.y / l1, n.z / l1};
+    float u = n.x, v = n.y;
+    if (n.z < 0) {
+        u = (1 - std::abs(n.y)) * (n.x >= 0 ? 1.f : -1.f);
+        v = (1 - std::abs(n.x)) * (n.y >= 0 ? 1.f : -1.f);
+    }
+    const auto quantize = [](float x) { return uint32_t(std::lround((std::clamp(x, -1.f, 1.f) * .5f + .5f) * 4095)); };
+    return float(quantize(u) | quantize(v) << 12);
+}
 
 int main(int argc, char** argv) {
+    {
+        std::array<gsr::surface::Triangle, 2> batch{};
+        for (auto& tri : batch)
+            tri.shadowGeometry = false;
+        assert(!gsr::surface::hasValidatedOpaque(batch));
+        batch[0].water = batch[0].shadowGeometry = true;
+        assert(!gsr::surface::hasValidatedOpaque(batch));
+        batch[1].shadowGeometry = true;
+        assert(gsr::surface::hasValidatedOpaque(batch)); // mixed batches retain per-hit validation
+        batch[1].water = true;
+        assert(!gsr::surface::hasValidatedOpaque(batch));
+    }
+    {
+        using namespace gsr::surface;
+        ModelAlphaCoverage cache;
+        gsr::SceneModels models;
+        auto texture = std::make_shared<gsr::SceneModelTexture>();
+        texture->identity = 10;
+        texture->flags = 8;
+        texture->pixels.assign(Texture::size * Texture::size, 0x01000000);
+        models.textures.push_back(texture);
+        auto proof = cache.update(&models);
+        assert(proof.size() == 1 && proof[0] == kRayAlphaPositive);
+        gsr::SceneModelMesh mesh;
+        mesh.triangles.resize(1);
+        mesh.triangles[0].material = 0;
+        const std::vector<Point> normals(3, {0, 1, 0});
+        std::vector<Attribute> attributes, reference;
+        packModelAttributes(mesh, models, 0, normals, attributes, {}, proof);
+        packModelAttributes(mesh, models, 0, normals, reference);
+        assert(uint32_t(attributes[5][2]) == (uint32_t(reference[5][2]) | kRayAlphaPositive));
+        // A replacement with the same identity must not inherit coverage; even
+        // one transparent texel matters at a bilinear silhouette boundary.
+        auto hole = std::make_shared<gsr::SceneModelTexture>(*texture);
+        hole->pixels.back() = 0;
+        models.textures[0] = hole;
+        assert(cache.update(&models)[0] == 0);
+        models.textures[0] = texture;
+        proof = cache.update(&models);
+        texture->flags = 0x80000; // coverage never substitutes a translucent material's variable alpha
+        attributes.clear();
+        packModelAttributes(mesh, models, 0, normals, attributes, {}, proof);
+        assert(!(uint32_t(attributes[5][2]) & kRayAlphaPositive));
+        texture->identity = 0; // ad-hoc inputs can mutate in place
+        assert(cache.update(&models)[0] == kRayAlphaPositive);
+        texture->pixels[0] = 0;
+        assert(cache.update(&models)[0] == 0);
+        texture->pixels.resize(10);
+        assert(cache.update(&models)[0] == 0);
+        assert(cache.update(nullptr).empty());
+    }
+    {
+        using namespace gsr::surface;
+        // Material parameters survive all three packing paths and a warm cache invalidates on material edits.
+        Triangle tri;
+        tri.p[0] = {0, 0, 0};
+        tri.p[1] = {1, 0, 0};
+        tri.p[2] = {0, 0, 1};
+        tri.roughness = .3f;
+        tri.reflectance = .6f;
+        std::vector<Attribute> direct, cached;
+        packAttributes(tri, 0, direct);
+        const auto packed = uint32_t(direct[6][3]);
+        assert(std::abs(float(packed & 255) / 255 - .3f) <= 1.f / 255);
+        assert(std::abs(float(packed >> 8) / 255 - .6f) <= 1.f / 255);
+        assert(packRayMaterial(NAN, INFINITY) == packRayMaterial(.75f, .04f));
+        assert(packRayMaterial(-1, -1) == packRayMaterial(.04f, 0));
+        assert(packRayMaterial(2, 2) == 65535);
+        RayWorldCache cache;
+        std::vector<Point> positions;
+        uint32_t counts[3]{};
+        cache.append(std::span(&tri, 1), {}, 0, positions, cached, counts);
+        assert(cached == direct);
+        positions.clear();
+        cached.clear();
+        tri.roughness = .9f;
+        cache.append(std::span(&tri, 1), {}, 0, positions, cached, counts);
+        assert(cache.rebuiltBlocks() == 1 && cached[6][3] != direct[6][3]);
+        gsr::SceneModels models;
+        auto texture = std::make_shared<gsr::SceneModelTexture>();
+        texture->roughness = tri.roughness;
+        texture->reflectance = tri.reflectance;
+        models.textures.push_back(texture);
+        gsr::SceneModelMesh mesh;
+        mesh.triangles.resize(1);
+        mesh.triangles[0].material = 0;
+        mesh.triangles[0].position[1][0] = 1;
+        mesh.triangles[0].position[2][2] = 1;
+        std::vector<Point> normals(3, Point{0, -1, 0});
+        std::vector<Attribute> native;
+        packModelAttributes(mesh, models, 4, normals, native);
+        assert(native[6][3] == cached[6][3]);
+        rebaseModelAttributes(mesh, models, 12, native);
+        assert(native[5][1] == 12 && native[6][3] == cached[6][3]);
+    }
+    {
+        std::mt19937 random(532);
+        std::uniform_real_distribution<float> component(-1, 1);
+        std::vector<gsr::surface::Point> inputs(200000);
+        for (auto& p : inputs)
+            p = {component(random), component(random), component(random)};
+        inputs[0] = {};
+        inputs[1] = {INFINITY, 0, 0};
+        inputs[2] = {NAN, 0, 0};
+        const int previous = std::fegetround();
+        for (int mode : {FE_TONEAREST, FE_DOWNWARD, FE_UPWARD, FE_TOWARDZERO}) {
+            std::fesetround(mode);
+            for (const auto p : inputs)
+                assert(gsr::surface::packNormal(p) == referenceNormal(p));
+        }
+        std::fesetround(previous);
+        std::cout << "800000 normal packing comparisons across rounding modes: zero mismatches\n";
+        gsr::surface::CornerWelds welds;
+        for (uint32_t i = 0; i < inputs.size(); ++i) {
+            const uint32_t corner = (i * 7) % uint32_t(inputs.size());
+            welds.corners.push_back(corner);
+            if (i % 8 && i % 8 != 4)
+                inputs[corner] = inputs[welds.corners[i - 1]];
+            if (i % 8 == 7)
+                welds.ends.push_back(i + 1);
+        }
+        std::vector<float> packed;
+        for (int mode : {FE_TONEAREST, FE_DOWNWARD, FE_UPWARD, FE_TOWARDZERO}) {
+            std::fesetround(mode);
+            gsr::surface::packCornerNormals(welds, inputs, packed);
+            for (size_t i = 0; i < inputs.size(); ++i)
+                assert(packed[i] == referenceNormal(inputs[i]));
+        }
+        welds.corners.clear(); // stale topology takes the independent-corner path
+        gsr::surface::packCornerNormals(welds, inputs, packed);
+        for (size_t i = 0; i < inputs.size(); ++i)
+            assert(packed[i] == referenceNormal(inputs[i]));
+        std::fesetround(previous);
+    }
     {
         // A pose with every vertex on one point leaves its corners unwelded and says so; a real pose welds again.
         using gsr::surface::Point;
@@ -47,6 +200,19 @@ int main(int argc, char** argv) {
         for (unsigned v = 0; v < 4; ++v)
             put(0x730000 + layer * 16 + v * 4, 0x80602010u);
     }
+    const auto layout = drakan_scene_geometry::layoutIdentity(ram.data(), uint32_t(ram.size()));
+    assert(layout && !drakan_scene_geometry::layoutIdentity(nullptr, uint32_t(ram.size())));
+    // Reused layer-array address/count must still expose replaced height/material storage immediately, while
+    // animated lighting does not force a full terrain recapture every world.
+    put(0x700028, 0x740000u);
+    assert(drakan_scene_geometry::layoutIdentity(ram.data(), uint32_t(ram.size())) != layout);
+    put(0x700028, 0x720000u);
+    put(0x700130, .5f);
+    assert(drakan_scene_geometry::layoutIdentity(ram.data(), uint32_t(ram.size())) == layout);
+    put(0x4dc120, 0u);
+    assert(!drakan_scene_geometry::layoutIdentity(ram.data(), uint32_t(ram.size())));
+    put(0x4dc120, 2u);
+    assert(drakan_scene_geometry::layoutIdentity(ram.data(), uint32_t(ram.size())) == layout);
     auto scene = drakan_scene_geometry::capture(ram.data(), uint32_t(ram.size()));
     assert(scene.layers == 2 && scene.waterLayers == 1 && scene.triangles.size() == 4);
     assert(scene.triangles[0].position[0][1] == 1000 && scene.triangles[2].position[0][1] == 900);

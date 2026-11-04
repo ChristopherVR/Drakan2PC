@@ -42,13 +42,14 @@ constexpr bool pauseScreen(int cameraScreen, bool hostMenu, int hostMenuScreen) 
     return cameraScreen == kPauseScreen || (hostMenu && hostMenuScreen == kPauseScreen);
 }
 
-// The game holds the world still behind its pause menu and the pages opened
+// The game holds the world still behind the level-exit save prompt (2), its pause menu and the pages opened
 // from it (Load 4, Save 5, Options 9, Controller 10, Audio 13) but submits it
 // again every frame. A moving sub-pixel jitter then makes the temporal
 // upscaler resample one static image, and thin alpha-tested edges (grass,
 // leaves) crawl. Either side may name the screen first, as for pauseScreen.
 constexpr bool frozenWorldScreen(int screen) {
-    return screen == kPauseScreen || screen == 4 || screen == 5 || screen == 9 || screen == 10 || screen == 13;
+    return screen == kPauseScreen || screen == 2 || screen == 4 || screen == 5 || screen == 9 || screen == 10 ||
+           screen == 13;
 }
 constexpr bool frozenWorld(int cameraScreen, bool hostMenu, int hostMenuScreen) {
     return frozenWorldScreen(cameraScreen) || (hostMenu && frozenWorldScreen(hostMenuScreen));

@@ -755,8 +755,11 @@ bool D3D11Backend::Impl::resolveTexture(const GsDrawState& s, const ClutBuf& clu
             } else {
                 if (e.aliasTarget)
                     valid = false; // the target was read back: memory is authoritative again
-                for (auto& sp : e.spans)
-                    flushForRead(sp.first, sp.second);
+                for (uint32_t level = 0; level < e.spans.size(); ++level) {
+                    const auto& sp = e.spans[level];
+                    const auto rect = textureMemoryRect(psm, tbp, tbw, W, H, s.miptbp1, s.miptbp2, level);
+                    flushForRead(sp.first, sp.second, &rect);
+                }
             }
         }
         if (valid && e.checkedClock != mem.clock()) {
@@ -869,7 +872,8 @@ bool D3D11Backend::Impl::resolveTexture(const GsDrawState& s, const ClutBuf& clu
         spans.push_back({lo, hi});
         if (!aliased) {
             CpuProfile::Scope detail(cpuProfile, CpuProfile::TextureCoherenceFlush);
-            flushForRead(lo, hi);
+            const VramRect rect{psm, lbp, std::max(lbw, 1u), 0, 0, w, h};
+            flushForRead(lo, hi, &rect);
         }
         levels.emplace_back();
         {
@@ -1032,7 +1036,8 @@ bool D3D11Backend::Impl::resolveTexture(const GsDrawState& s, const ClutBuf& clu
     TexEntry e;
     e.w = W;
     e.h = H;
-    if ((modernWater || rayShadows) && !levels.empty() && !levels[0].empty()) {
+    if ((modernWater || rayShadows || rayReflections || rayGlobalIllumination) && !levels.empty() &&
+        !levels[0].empty()) {
         if (engineWorldOpen && !(s.zbuf & (1ull << 32))) {
             // Owned material texels survive the current view and GS slot reuse.
             // Never use a per-triangle average as reflected surface detail.

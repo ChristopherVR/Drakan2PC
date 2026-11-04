@@ -23,7 +23,13 @@ inline float packNormal(Point n) {
         u = (1 - std::abs(n.y)) * (n.x >= 0 ? 1.f : -1.f);
         v = (1 - std::abs(n.x)) * (n.y >= 0 ? 1.f : -1.f);
     }
-    const auto quantize = [](float x) { return uint32_t(std::lround((std::clamp(x, -1.f, 1.f) * .5f + .5f) * 4095)); };
+    const auto quantize = [](float x) {
+        const float scaled = (std::clamp(x, -1.f, 1.f) * .5f + .5f) * 4095;
+        // scaled is finite and nonnegative. Add in double so a float just below
+        // a half-integer cannot round up before truncation. This equals lround
+        // without two out-of-line library calls for every packed corner normal.
+        return uint32_t(double(scaled) + .5);
+    };
     return float(quantize(u) | quantize(v) << 12);
 }
 
@@ -44,6 +50,30 @@ struct CornerWelds {
     std::vector<uint32_t> corners, ends;
     bool collapsed = false;
 };
+// Smooth corners at one welded vertex often have exactly the same normal.
+// Quantize that value once per run, preserving hard edges and corner order.
+inline void packCornerNormals(const CornerWelds& welds, const std::vector<Point>& normals, std::vector<float>& out) {
+    out.resize(normals.size());
+    if (welds.corners.size() != normals.size()) {
+        for (size_t i = 0; i < normals.size(); ++i)
+            out[i] = packNormal(normals[i]);
+        return;
+    }
+    uint32_t first = 0;
+    for (const uint32_t end : welds.ends) {
+        const Point* previous = nullptr;
+        float packed = 0;
+        for (uint32_t i = first; i < end; ++i) {
+            const uint32_t corner = welds.corners[i];
+            const Point& n = normals[corner];
+            if (!previous || n.x != previous->x || n.y != previous->y || n.z != previous->z)
+                packed = packNormal(n);
+            out[corner] = packed;
+            previous = &n;
+        }
+        first = end;
+    }
+}
 // `corners(i, p)` fills triangle i's three positions.
 template <class Corners>
 void weldCorners(size_t triangles, Corners corners, CornerWelds& out) {

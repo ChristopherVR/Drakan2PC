@@ -47,9 +47,19 @@ RuntimeFlags parse() {
 
     // modern water / ray tracing
     f.modernWater = setAndNotZero("GSR_MODERN_WATER");
-    f.rayReflections = unsetOrNotZero("GSR_RAY_REFLECTIONS");
+    f.rayReflections = setAndNotZero("GSR_RAY_REFLECTIONS");
     f.rayShadows = setAndNotZero("GSR_RAY_SHADOWS");
+    f.rayGlobalIllumination = setAndNotZero("GSR_RAY_GI");
+    f.rayGpuTiming = present("GSR_RAY_GPU_TIMING");
+    f.rayAlphaFastPath = firstCharNotZeroDefaultOn("GSR_RAY_ALPHA_FAST_PATH");
+    f.rayAlphaCoverage = firstCharNotZeroDefaultOn("GSR_RAY_ALPHA_COVERAGE");
+    f.rayAcceptedAlpha = firstCharNotZeroDefaultOn("GSR_RAY_ACCEPTED_ALPHA");
+    f.rayZeroAmbient = firstCharNotZeroDefaultOn("GSR_RAY_ZERO_AMBIENT");
+    f.rayPruneRejected = firstCharNotZeroDefaultOn("GSR_RAY_PRUNE_REJECTED");
+    f.rtUploadSpecialize = firstCharNotZeroDefaultOn("GSR_RT_UPLOAD_SPECIALIZE");
+    f.rayUploadCache = firstCharNotZeroDefaultOn("GSR_RAY_UPLOAD_CACHE");
     f.rayCpuCache = firstCharNotZeroDefaultOn("GSR_RAY_CPU_CACHE");
+    f.rayModelReuse = firstCharNotZeroDefaultOn("GSR_RAY_MODEL_REUSE");
     f.surfaceAsync = firstCharNotZeroDefaultOn("GSR_SURFACE_ASYNC");
     if (const char* e = env("GSR_RAY_CPU_CACHE_CHECK"))
         f.rayCpuCacheCheck = e[0] == '1';

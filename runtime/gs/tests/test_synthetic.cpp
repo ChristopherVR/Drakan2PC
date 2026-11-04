@@ -5,6 +5,7 @@
 // Windows Server CI runners loses the D3D12 device partway through.
 #include "gsr/gsr.h"
 #include "gsr/scene_guide_camera.h"
+#include "gs_mem.h"
 
 #include <cmath>
 #include <functional>
@@ -1469,6 +1470,179 @@ static void uploadReadSkipTest(Config cfg) {
 // A local-to-local transfer between two whole render targets (the game copies its frame buffer to the other one) is
 // done on the GPU when the backend can: the destination must show the source, keep working as a target afterwards, and
 // reach memory once something reads it. A copy of a rectangle onto itself changes nothing.
+static void partialUploadTest(Config cfg) {
+    cfg.textureUpscale = 1;
+    const uint32_t parent = 0x100, base = parent * 32;
+    auto gs = Renderer::create(cfg);
+    if (!gs) {
+        ++g_fail;
+        return;
+    }
+    for (const uint32_t format : {gsr::PSM_CT32, gsr::PSM_CT24, gsr::PSM_CT16, gsr::PSM_T8, gsr::PSM_T4, gsr::PSM_T8H,
+                                  gsr::PSM_T4HL, gsr::PSM_T4HH})
+        for (const bool abandon : {false, true}) {
+            const uint64_t readbacksBefore = gs->stats().rtReadbacks;
+            Gif g;
+            g.ad({{FRAME_1, parent | (2ull << 16)},
+                  {ZBUF_1, 140ull | (1ull << 32)},
+                  {XYOFFSET_1, kOfs},
+                  {SCISSOR_1, 127ull << 16 | 127ull << 48},
+                  {PRMODECONT, 1},
+                  {COLCLAMP, 1},
+                  {TEST_1, mkTest(0, 1, 0, 0, 0, 0, 0, 1)},
+                  {0x49, 0},
+                  {0x4a, 0}});
+            sprite(g, 0, 0, 128, 128, 23, 47, 89, 128, 0, (int)mkPrim(6, 0, 0, 0, 0, 0));
+            const uint32_t w = 7, h = 9, x = 13, y = 5, bp = base + 5;
+            const uint32_t bits = format == gsr::PSM_CT32                                                         ? 32
+                                  : format == gsr::PSM_CT24                                                       ? 24
+                                  : format == gsr::PSM_CT16                                                       ? 16
+                                  : (format == gsr::PSM_T4 || format == gsr::PSM_T4HL || format == gsr::PSM_T4HH) ? 4
+                                                                                                                  : 8;
+            std::vector<uint8_t> bytes((w * h * bits + 7) / 8);
+            for (size_t i = 0; i < bytes.size(); ++i)
+                bytes[i] = uint8_t(i * 37 + 19);
+            g.ad({{BITBLTBUF, uint64_t(bp) << 32 | 1ull << 48 | uint64_t(format) << 56},
+                  {TRXPOS, uint64_t(x) << 32 | uint64_t(y) << 48},
+                  {TRXREG, w | uint64_t(h) << 32},
+                  {TRXDIR, 0}});
+            g.image(std::vector<uint8_t>(bytes.begin(), bytes.begin() + 16));
+            const uint32_t prefix = std::min(w * h, 128 / bits);
+            if (abandon)
+                g.ad({{TRXDIR, 3}});
+            else
+                g.image(std::vector<uint8_t>(bytes.begin() + 16, bytes.end()));
+            gs->submitGifPacket(GifPath::Path3, g.d.data(), uint32_t(g.d.size()));
+#if !defined(GSR_TEST_WEBGPU)
+            expectTrue(gs->stats().rtReadbacks == readbacksBefore, "partial image upload avoids a GPU readback");
+#endif
+            Gif read;
+            read.ad({{BITBLTBUF, uint64_t(bp) | 1ull << 16 | uint64_t(format) << 24},
+                     {TRXPOS, x | uint64_t(y) << 16},
+                     {TRXREG, w | uint64_t(h) << 32},
+                     {TRXDIR, 1}});
+            gs->submitGifPacket(GifPath::Path3, read.d.data(), uint32_t(read.d.size()));
+#if !defined(GSR_TEST_WEBGPU)
+            expectTrue(gs->stats().rtReadbacks == readbacksBefore + (abandon ? 1 : 0),
+                       "exact reads skip uploaded bits but read back untouched bits of an abandoned upload");
+#endif
+            gsr::LocalMemory reference;
+            for (uint32_t yy = 0; yy < 128; ++yy)
+                for (uint32_t xx = 0; xx < 128; ++xx)
+                    reference.write(gsr::PSM_CT32, base, 2, xx, yy, 0x80592f17);
+            for (uint32_t i = 0; i < (abandon ? prefix : w * h); ++i) {
+                uint32_t value = 0;
+                if (bits == 4)
+                    value = (bytes[i / 2] >> ((i & 1) * 4)) & 15;
+                else
+                    for (uint32_t b = 0; b < bits / 8; ++b)
+                        value |= uint32_t(bytes[i * (bits / 8) + b]) << (b * 8);
+                reference.write(format, bp, 1, x + i % w, y + i / w, value);
+            }
+            Image image;
+            if (!gs->captureFramebuffer(parent, 2, 0, 128, 128, image)) {
+                ++g_fail;
+                return;
+            }
+            bool matches = true;
+            for (uint32_t yy = 0; yy < 128 * cfg.scale; ++yy)
+                for (uint32_t xx = 0; xx < 128 * cfg.scale; ++xx) {
+                    uint32_t actual;
+                    std::memcpy(&actual, image.rgba.data() + (size_t(yy) * image.width + xx) * 4, 4);
+                    const uint32_t expected = reference.read(gsr::PSM_CT32, base, 2, xx / cfg.scale, yy / cfg.scale);
+                    if (matches && (actual & 0xffffff) != (expected & 0xffffff))
+                        std::printf("first mismatch %u,%u actual=%08x expected=%08x\n", xx, yy, actual, expected);
+                    matches &= (actual & 0xffffff) == (expected & 0xffffff); // screenshots deliberately force alpha=255
+                }
+            if (!matches)
+                std::printf("partial upload mismatch psm=%x abandon=%u scale=%u\n", format, abandon, cfg.scale);
+            expectTrue(matches, "partial upload preserves every untouched GPU bit, including an abandoned prefix");
+            gs->flushToMemory();
+            bool rawMatches = true;
+            for (uint32_t yy = 0; yy < 128; ++yy)
+                for (uint32_t xx = 0; xx < 128; ++xx)
+                    rawMatches &=
+                        gs->readVram(gsr::PSM_CT32, base, 2, xx, yy) == reference.read(gsr::PSM_CT32, base, 2, xx, yy);
+            expectTrue(rawMatches, "full VRAM readback preserves all channels, including alpha and untouched bits");
+        }
+    // The previous reads train the small-target prefetch. Multiple draws must
+    // publish the latest version, and a later CPU upload must invalidate it.
+    Gif redraw;
+    redraw.ad({{FRAME_1, parent | (2ull << 16)}});
+    sprite(redraw, 0, 0, 128, 128, 200, 11, 22, 128, 0, (int)mkPrim(6, 0, 0, 0, 0, 0));
+    sprite(redraw, 0, 0, 32, 32, 33, 44, 55, 128, 0, (int)mkPrim(6, 0, 0, 0, 0, 0));
+    gs->submitGifPacket(GifPath::Path3, redraw.d.data(), uint32_t(redraw.d.size()));
+    gs->flushToMemory();
+    expectTrue(gs->readVram(gsr::PSM_CT32, base, 2, 10, 10) == 0x80372c21 &&
+                   gs->readVram(gsr::PSM_CT32, base, 2, 80, 80) == 0x80160bc8,
+               "small-target readback uses the latest draw, including untouched pixels of earlier draws");
+    Gif refresh;
+    sprite(refresh, 0, 0, 128, 64, 9, 8, 7, 128, 0, (int)mkPrim(6, 0, 0, 0, 0, 0));
+    refresh.ad(
+        {{BITBLTBUF, uint64_t(base) << 32 | 2ull << 48}, {TRXPOS, 0}, {TRXREG, 16ull | 16ull << 32}, {TRXDIR, 0}});
+    refresh.image(std::vector<uint8_t>(16 * 16 * 4, 91));
+    refresh.ad({{TRXPOS, 96ull << 48}, {TRXREG, 8ull | 8ull << 32}, {TRXDIR, 0}});
+    refresh.image(std::vector<uint8_t>(8 * 8 * 4, 68));
+    gs->submitGifPacket(GifPath::Path3, refresh.d.data(), uint32_t(refresh.d.size()));
+    Image refreshed;
+    gs->captureFramebuffer(parent, 2, 0, 128, 128, refreshed); // refresh the disjoint CPU-written row
+    const auto beforeRead = gs->stats().rtReadbacks;
+    Gif paletteRead;
+    paletteRead.ad({{BITBLTBUF, base | 2ull << 16}, {TRXPOS, 0}, {TRXREG, 16ull | 16ull << 32}, {TRXDIR, 1}});
+    gs->submitGifPacket(GifPath::Path3, paletteRead.d.data(), uint32_t(paletteRead.d.size()));
+#if !defined(GSR_TEST_WEBGPU)
+    expectTrue(gs->stats().rtReadbacks == beforeRead,
+               "refreshing a disjoint CPU row retains the proof that uploaded palette blocks are current");
+#endif
+    expectTrue(gs->readVram(gsr::PSM_CT32, base, 2, 0, 0) == 0x5b5b5b5b &&
+                   gs->readVram(gsr::PSM_CT32, base, 2, 0, 96) == 0x44444444,
+               "palette and disjoint row refresh keep their exact CPU values");
+    for (const uint32_t format : {gsr::PSM_CT24, gsr::PSM_T4}) {
+        const uint32_t bits = format == gsr::PSM_CT24 ? 24 : 4;
+        std::vector<uint8_t> bytes((7 * 9 * bits + 7) / 8);
+        for (size_t i = 0; i < bytes.size(); ++i)
+            bytes[i] = uint8_t(i * 29 + 7);
+        Gif first;
+        sprite(first, 0, 0, 128, 128, 23, 47, 89, 128, 0, (int)mkPrim(6, 0, 0, 0, 0, 0));
+        first.ad({{BITBLTBUF, uint64_t(base + 5) << 32 | 1ull << 48 | uint64_t(format) << 56},
+                  {TRXPOS, 13ull << 32 | 5ull << 48},
+                  {TRXREG, 7ull | 9ull << 32},
+                  {TRXDIR, 0}});
+        first.image(std::vector<uint8_t>(bytes.begin(), bytes.begin() + 16));
+        gs->submitGifPacket(GifPath::Path3, first.d.data(), uint32_t(first.d.size()));
+        gs->flushToMemory(); // the upload is still active, including CT24's partial next pixel
+        Gif tail;
+        tail.image(std::vector<uint8_t>(bytes.begin() + 16, bytes.end()));
+        gs->submitGifPacket(GifPath::Path3, tail.d.data(), uint32_t(tail.d.size()));
+        gsr::LocalMemory reference;
+        for (uint32_t y = 0; y < 128; ++y)
+            for (uint32_t x = 0; x < 128; ++x)
+                reference.write(gsr::PSM_CT32, base, 2, x, y, 0x80592f17);
+        for (uint32_t i = 0; i < 63; ++i) {
+            const uint32_t value =
+                bits == 4 ? (bytes[i / 2] >> ((i & 1) * 4)) & 15
+                          : uint32_t(bytes[i * 3]) | uint32_t(bytes[i * 3 + 1]) << 8 | uint32_t(bytes[i * 3 + 2]) << 16;
+            reference.write(format, base + 5, 1, 13 + i % 7, 5 + i / 7, value);
+        }
+        Image image;
+        const bool captured = gs->captureFramebuffer(parent, 2, 0, 128, 128, image);
+        bool gpuMatches = captured, cpuMatches = true;
+        for (uint32_t y = 0; y < 128; ++y)
+            for (uint32_t x = 0; x < 128; ++x) {
+                const uint32_t expected = reference.read(gsr::PSM_CT32, base, 2, x, y);
+                cpuMatches &= gs->readVram(gsr::PSM_CT32, base, 2, x, y) == expected;
+                if (captured) {
+                    uint32_t actual;
+                    std::memcpy(&actual, image.rgba.data() + (size_t(y * cfg.scale) * image.width + x * cfg.scale) * 4,
+                                4);
+                    gpuMatches &= (actual & 0xffffff) == (expected & 0xffffff);
+                }
+            }
+        expectTrue(cpuMatches, "readback during an active upload preserves its prefix and remaining stream bytes");
+        expectTrue(gpuMatches, "an upload completed after an intermediate readback still reaches the GPU");
+    }
+}
+
 static void localCopyTest(Config cfg) {
     cfg.textureUpscale = 1;
     cfg.textureFilter = 1;
@@ -1719,6 +1893,11 @@ int main(int argc, char** argv) {
             cfg.logUnsupported = true;
     }
     cfg.vsync = false;
+#if defined(GSR_PARTIAL_UPLOAD_ONLY)
+    partialUploadTest(cfg);
+    std::printf("%d checks, %d failed\n", g_checks, g_fail);
+    return g_fail ? 1 : 0;
+#endif
 #if defined(GSR_TEST_WEBGPU)
     if (!cfg.forceWarp) {
         cfg.allowWarp = false;
@@ -1960,6 +2139,7 @@ int main(int argc, char** argv) {
     rtCacheCoherenceDiagnostic(cfg);
     uploadCoherenceTest(cfg);
     uploadReadSkipTest(cfg);
+    partialUploadTest(cfg);
     localCopyTest(cfg);
     rtOverlapTest(cfg);
     hudClusterTest(cfg);

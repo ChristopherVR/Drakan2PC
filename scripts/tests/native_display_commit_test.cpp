@@ -99,7 +99,7 @@ public:
     bool beginTargetUpload(uint32_t psm, uint32_t bp, uint32_t bw, uint32_t x, uint32_t y, uint32_t w,
                            uint32_t h) override;
     void completeTargetUpload(uint32_t psm, uint32_t bp, uint32_t bw, uint32_t x, uint32_t y, uint32_t w, uint32_t h,
-                              bool apply) override;
+                              bool apply, uint64_t written) override;
     void flushAll() override;
     void drawMovieFrame(uint32_t dbp, uint32_t dbw, uint32_t x, uint32_t y, uint32_t w, uint32_t h,
                         const MovieImage& image, uint64_t imageId) override;
@@ -159,7 +159,8 @@ void FakeBackend::flushToMemory(uint32_t, uint32_t) {}
 bool FakeBackend::beginTargetUpload(uint32_t, uint32_t, uint32_t, uint32_t, uint32_t, uint32_t, uint32_t) {
     return false;
 }
-void FakeBackend::completeTargetUpload(uint32_t, uint32_t, uint32_t, uint32_t, uint32_t, uint32_t, uint32_t, bool) {}
+void FakeBackend::completeTargetUpload(uint32_t, uint32_t, uint32_t, uint32_t, uint32_t, uint32_t, uint32_t, bool,
+                                       uint64_t) {}
 void FakeBackend::drawMovieFrame(uint32_t, uint32_t, uint32_t, uint32_t, uint32_t, uint32_t, const MovieImage&,
                                  uint64_t) {}
 void FakeBackend::flushAll() {}

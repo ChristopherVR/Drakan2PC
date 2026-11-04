@@ -747,12 +747,15 @@ static void testCombatAndFovSettings() {
 int main(int argc, char** argv) {
     {
         SettingsStore st;
-        st.loadFromText("[video]\nmodern_water=1\nray_reflections=0\nray_shadows=1\n", "");
+        CHECK(!st.loaded().video.rayGlobalIllumination && !st.loaded().video.rayReflections);
+        st.loadFromText("[video]\nmodern_water=1\nray_reflections=0\nray_shadows=1\nray_gi=1\n", "");
+        CHECK(st.loaded().video.rayGlobalIllumination);
         CHECK(st.loaded().video.modernWater && !st.loaded().video.rayReflections && st.loaded().video.rayShadows);
         auto n = st.loaded();
         n.video.modernWater = false;
         n.video.rayReflections = true;
         n.video.rayShadows = false;
+        n.video.rayGlobalIllumination = false;
         auto keys = changedKeys(st.loaded(), n);
         CHECK(std::find(keys.begin(), keys.end(), "video.modern_water") != keys.end());
         CHECK(std::find(keys.begin(), keys.end(), "video.ray_reflections") != keys.end());
@@ -763,6 +766,8 @@ int main(int argc, char** argv) {
         CHECK(!next.loaded().video.modernWater && next.loaded().video.rayReflections &&
               !next.loaded().video.rayShadows);
         CHECK(std::find(keys.begin(), keys.end(), "video.ray_shadows") != keys.end());
+        CHECK(std::find(keys.begin(), keys.end(), "video.ray_gi") != keys.end());
+        CHECK(!next.loaded().video.rayGlobalIllumination);
     }
     {
         // Living foliage: off by default, round-trips through the ini, strength is read as a float.

@@ -135,8 +135,8 @@ WgpuRay::WgpuRay(rhi::Device& device) : gpu_(device) {
     rhi::ProgramDesc d;
     d.wgsl = kRayTraceWgsl;
     d.uniformSlots = 2;
-    d.textureSlots = 4;
-    d.unfilterableMask = 0b1111;
+    d.textureSlots = 6;
+    d.unfilterableMask = 0b111111;
     d.storageBuffers = kStorageBuffers;
     d.readWriteMask = 1u << 5; // Sky
     d.storageTextures = 2;
@@ -155,6 +155,18 @@ WgpuRay::WgpuRay(rhi::Device& device) : gpu_(device) {
         d.label = "ray trace";
         main_ = gpu_.createProgram(d, &error);
     }
+    if (main_) {
+        // RHI programs use one storage format for their outputs. The transport entry writes HDR incoming radiance
+        // and receiver normals, so compile that entry with float outputs while the presentation entries stay RGBA8.
+        const std::string from = "texture_storage_2d<rgba8unorm, write>";
+        const std::string to = "texture_storage_2d<rgba16float, write>";
+        for (size_t position = 0; (position = d.wgsl.find(from, position)) != std::string::npos; position += to.size())
+            d.wgsl.replace(position, from.size(), to);
+        d.storageFormat = rhi::Format::RGBA16F;
+        d.computeEntry = "transportMain";
+        d.label = "ray half resolution transport";
+        transport_ = gpu_.createProgram(d, &error);
+    }
     skyBuffer_ = gpu_.createBuffer(7 * 16, "ray sky");
     dummy_ = gpu_.createTexture({1, 1, 1, rhi::Format::RGBA8, rhi::Sampled | rhi::CopyDst, "ray dummy"});
     if (dummy_) {
@@ -162,7 +174,7 @@ WgpuRay::WgpuRay(rhi::Device& device) : gpu_(device) {
         gpu_.writeTexture(*dummy_, 0, 0, 0, 1, 1, &white);
     }
     dummyStorage_ = gpu_.createTexture({1, 1, 1, rhi::Format::RGBA8, rhi::Storage, "ray dummy storage"});
-    if (!sky_ || !shadow_ || !main_ || !skyBuffer_ || !dummy_ || !dummyStorage_) {
+    if (!sky_ || !shadow_ || !transport_ || !main_ || !skyBuffer_ || !dummy_ || !dummyStorage_) {
         status_ = "Ray tracing shader failed: " + error;
         return;
     }
@@ -225,6 +237,17 @@ bool WgpuRay::render(const PassFrame& f, std::span<const Triangle> triangles,
     }
     if (!f.color || !f.depth || !f.width || !f.height || !std::isfinite(f.seconds))
         return false;
+    if (models && (!modelLevelValid_ || modelLevel_ != models->level)) {
+        // Native IDs/topology may be reused by another level with a different corner-seam layout. A missing
+        // model publication is not a new level; retain the last real namespace until another scene arrives.
+        meshes_.clear();
+        welds_.clear();
+        modelMaterialFlags_.clear();
+        modelAlphaCoverage_ = {};
+        textureFingerprints_.clear();
+        modelLevel_ = models->level;
+        modelLevelValid_ = true;
+    }
     ++pass_;
     const auto started = std::chrono::steady_clock::now();
     auto lap = started;
@@ -251,7 +274,8 @@ bool WgpuRay::render(const PassFrame& f, std::span<const Triangle> triangles,
     const bool frameWater = std::any_of(triangles.begin(), triangles.end(), [](const Triangle& t) { return t.water; });
     const bool staticWater =
         std::any_of(staticTriangles.begin(), staticTriangles.end(), [](const Triangle& t) { return t.water; });
-    if (!frameWater && !staticWater && !options.shadows) {
+    if (!frameWater && !staticWater && !options.shadows && !options.globalIllumination &&
+        !options.materialReflections) {
         status_ = "Ray tracing bypassed: no verified water world geometry";
         return false;
     }
@@ -398,13 +422,29 @@ bool WgpuRay::render(const PassFrame& f, std::span<const Triangle> triangles,
             chunk.blas = makeBlas(positions);
         });
     // Native model meshes new this pass (a new pose is a new mesh). Welds are shared by topology: made here first.
+    std::vector<uint32_t> materialFlags;
+    const auto alphaCoverage = modelAlphaCoverage_.update(models);
+    if (models) {
+        materialFlags.reserve(models->textures.size() * 3);
+        for (size_t index = 0; index < models->textures.size(); ++index) {
+            const auto& texture = models->textures[index];
+            materialFlags.push_back(texture->flags);
+            materialFlags.push_back(uint32_t(surface::packRayMaterial(texture->roughness, texture->reflectance)));
+            materialFlags.push_back(alphaCoverage[index]);
+        }
+    }
+    const bool materialsChanged = materialFlags != modelMaterialFlags_;
+    modelMaterialFlags_ = std::move(materialFlags);
     std::vector<Mesh*> meshList;
     if (models) {
         meshList.reserve(models->meshes.size());
         for (const auto& model : models->meshes) {
             Mesh& mesh = meshes_[model->identity];
             meshList.push_back(&mesh);
-            if (mesh.source == model) {
+            const bool unchanged = mesh.source == model || (runtimeFlags().rayModelReuse && mesh.source &&
+                                                            surface::sameModelGeometry(*mesh.source, *model));
+            if (unchanged && !materialsChanged) {
+                mesh.source = model;
                 if (mesh.textureBase != nativeTextureBase) {
                     surface::rebaseModelAttributes(*model, *models, nativeTextureBase, mesh.attributes);
                     mesh.textureBase = nativeTextureBase;
@@ -424,16 +464,19 @@ bool WgpuRay::render(const PassFrame& f, std::span<const Triangle> triangles,
                     surface::weldCorners(model->triangles.size(), corners, shared);
                 welds = &shared;
             }
-            jobs.push_back([&mesh, model, models, nativeTextureBase, welds, corners] {
+            jobs.push_back([&mesh, model, models, nativeTextureBase, welds, corners, unchanged, alphaCoverage] {
                 surface::CornerWelds unshared;
                 if (!welds)
                     surface::weldCorners(model->triangles.size(), corners, unshared);
                 std::vector<Point> normals;
                 surface::smoothNormals(model->triangles.size(), corners, welds ? *welds : unshared, normals);
+                std::vector<float> packedNormals;
+                if (runtimeFlags().rayModelReuse)
+                    surface::packCornerNormals(welds ? *welds : unshared, normals, packedNormals);
                 mesh.attributes.clear();
-                mesh.textured =
-                    surface::packModelAttributes(*model, *models, nativeTextureBase, normals, mesh.attributes);
-                if (mesh.source != model) {
+                mesh.textured = surface::packModelAttributes(*model, *models, nativeTextureBase, normals,
+                                                             mesh.attributes, packedNormals, alphaCoverage);
+                if (!unchanged) {
                     std::vector<Point> positions;
                     positions.reserve(model->triangles.size() * 3);
                     for (const auto& t : model->triangles)
@@ -459,6 +502,8 @@ bool WgpuRay::render(const PassFrame& f, std::span<const Triangle> triangles,
         staticPacked_ = staticPublished_;
     }
     stage("build");
+    const bool pruneRejected = runtimeFlags().rayPruneRejected;
+    const bool validatedFrame = !pruneRejected || surface::hasValidatedOpaque(triangles);
 
     // ---- assembly
     const uint32_t staticTotal = staticCounts_[0] + staticCounts_[1] + staticCounts_[2];
@@ -514,14 +559,18 @@ bool WgpuRay::render(const PassFrame& f, std::span<const Triangle> triangles,
         for (unsigned g = 0; g < 3; ++g) {
             if (staticCounts_[g])
                 addInstance(translate, staticRoots_[g], (31u << 19) | materialBase,
-                            (1u << g) | (g == 0 ? surface::kDirectShadowMask : 0u), staticBlas_[g].bounds);
+                            (1u << g) | (g == 0 ? surface::kDirectShadowMask | surface::kValidatedGeometryMask : 0u),
+                            staticBlas_[g].bounds);
             materialBase += staticCounts_[g];
         }
         for (const auto& chunk : frameChunks) {
             uint32_t root = 0;
             append(chunk.blas, root);
             addInstance(identity, root, (31u << 19) | (materialBase + uint32_t(chunk.first)),
-                        (1u << chunk.group) | (chunk.group == 0 ? surface::kDirectShadowMask : 0u), chunk.blas.bounds);
+                        (1u << chunk.group) | (chunk.group == 0 && validatedFrame
+                                                   ? surface::kDirectShadowMask | surface::kValidatedGeometryMask
+                                                   : 0u),
+                        chunk.blas.bounds);
             if (chunk.first + chunk.count == counts[chunk.group])
                 materialBase += counts[chunk.group];
         }
@@ -556,7 +605,8 @@ bool WgpuRay::render(const PassFrame& f, std::span<const Triangle> triangles,
             m[7] -= origin.y;
             m[11] -= origin.z;
             addInstance(m, modelRoots[source.mesh], modelOffsets[source.mesh] | (opacity << 19),
-                        1u | (source.nativeShadow ? 0u : surface::kDirectShadowMask), mesh.blas.bounds);
+                        1u | surface::kValidatedGeometryMask | (source.nativeShadow ? 0u : surface::kDirectShadowMask),
+                        mesh.blas.bounds);
         }
         std::erase_if(meshes_, [&](const auto& entry) { return entry.second.used + 120 < pass_; });
     }
@@ -691,6 +741,11 @@ bool WgpuRay::render(const PassFrame& f, std::span<const Triangle> triangles,
     lit.effects[0] = options.water && (water || coverage);
     lit.effects[1] = options.shadows;
     lit.effects[3] = (water ? 1u : 0u) | (coverage ? 2u : 0u) | (options.requireWaterCoverage ? 4u : 0u);
+    lit.effects[3] |= (options.globalIllumination ? 512u : 0u) | (options.materialReflections ? 1024u : 0u);
+    lit.effects[3] |= runtimeFlags().rayAlphaFastPath ? 2048u : 0u;
+    lit.effects[3] |= runtimeFlags().rayAlphaCoverage ? 4096u : 0u;
+    lit.effects[3] |= runtimeFlags().rayAcceptedAlpha ? 8192u : 0u;
+    lit.effects[3] |= pruneRejected ? 32768u : 0u;
     lit.effects[3] |= surface::rayDiagnosticEffects(runtimeFlags().rayDiagnostic.value_or(""));
     const uint64_t level = models ? models->level : 0;
     if (skyLevel_ != level) {
@@ -729,6 +784,8 @@ bool WgpuRay::render(const PassFrame& f, std::span<const Triangle> triangles,
             }
         }
     }
+    if (runtimeFlags().rayZeroAmbient && lit.ambient[0] == 0 && lit.ambient[1] == 0 && lit.ambient[2] == 0)
+        lit.effects[3] |= 16384u;
     lit.zmap[0] = f.zFar;
     lit.zmap[1] = f.zInvRange;
     lit.zmap[2] = 1e-7f; // sky epsilon (nr::guides::Frame::skyEpsilon)
@@ -736,11 +793,26 @@ bool WgpuRay::render(const PassFrame& f, std::span<const Triangle> triangles,
 
     // ---- dispatch: sky reduction, then the per-pixel trace
     // The low-resolution pass (shadows, water mask) runs when either effect is live this frame.
-    const bool lowPass = (options.shadows && lit.effects[2]) || lit.effects[0];
+    const bool lowPass = options.shadows || lit.effects[0];
     if (lowPass && (!shadowTex_ || shadowTex_->width() != lowW || shadowTex_->height() != lowH)) {
         shadowTex_ = gpu_.createTexture({lowW, lowH, 1, rhi::Format::RGBA8, rhi::Storage | rhi::Sampled, "ray low"});
         reflectTex_ =
             gpu_.createTexture({lowW, lowH, 1, rhi::Format::RGBA8, rhi::Storage | rhi::Sampled, "ray low reflection"});
+    }
+    const bool transportPass = (options.globalIllumination || options.materialReflections) &&
+                               !(lit.effects[3] & (surface::kRayDiagnosticNoAo | surface::kRayDiagnosticNoDirect |
+                                                   surface::kRayDiagnosticReceiver));
+    const uint32_t transportW = (f.width + 1) / 2, transportH = (f.height + 1) / 2;
+    if (transportPass &&
+        (!transportTex_ || transportTex_->width() != transportW || transportTex_->height() != transportH)) {
+        transportTex_ = gpu_.createTexture(
+            {transportW, transportH, 1, rhi::Format::RGBA16F, rhi::Storage | rhi::Sampled, "ray transport incoming"});
+        transportGuide_ = gpu_.createTexture(
+            {transportW, transportH, 1, rhi::Format::RGBA16F, rhi::Storage | rhi::Sampled, "ray transport guide"});
+    }
+    if (transportPass && (!transportTex_ || !transportGuide_)) {
+        status_ = "Ray transport texture allocation failed";
+        return false;
     }
     gpu_.setUniforms(0, &cam, sizeof cam);
     gpu_.setUniforms(1, &lit, sizeof lit);
@@ -754,6 +826,8 @@ bool WgpuRay::render(const PassFrame& f, std::span<const Triangle> triangles,
     gpu_.setBuffer(5, skyBuffer_.get());
     gpu_.setTexture(2, dummy_.get());
     gpu_.setTexture(3, dummy_.get());
+    gpu_.setTexture(4, dummy_.get());
+    gpu_.setTexture(5, dummy_.get());
     gpu_.setStorageTexture(0, output_.get());
     gpu_.setStorageTexture(1, dummyStorage_.get());
     gpu_.setProgram(sky_.get());
@@ -768,10 +842,22 @@ bool WgpuRay::render(const PassFrame& f, std::span<const Triangle> triangles,
         gpu_.setTexture(2, shadowTex_.get());
         gpu_.setTexture(3, reflectTex_.get());
     }
+    if (transportPass) {
+        gpu_.setStorageTexture(0, transportTex_.get());
+        gpu_.setStorageTexture(1, transportGuide_.get());
+        gpu_.setProgram(transport_.get());
+        gpu_.dispatch((transportW + 7) / 8, (transportH + 7) / 8);
+        gpu_.setStorageTexture(0, output_.get());
+        gpu_.setStorageTexture(1, dummyStorage_.get());
+        gpu_.setTexture(4, transportTex_.get());
+        gpu_.setTexture(5, transportGuide_.get());
+    }
     gpu_.setProgram(main_.get());
     gpu_.dispatch((f.width + 7) / 8, (f.height + 7) / 8);
     gpu_.setTexture(2, nullptr);
     gpu_.setTexture(3, nullptr);
+    gpu_.setTexture(4, nullptr);
+    gpu_.setTexture(5, nullptr);
     gpu_.setProgram(nullptr);
 
     status_ =
@@ -781,7 +867,9 @@ bool WgpuRay::render(const PassFrame& f, std::span<const Triangle> triangles,
         std::to_string(textureCount) + " material textures; " + std::to_string(models ? models->instances.size() : 0) +
         " model instances; shadows=" +
         (options.shadows
-             ? (lit.effects[2] ? std::to_string(lit.effects[2]) + " native lights" : "waiting for native lights")
+             ? (lit.effects[2] ? std::to_string(lit.effects[2]) + " native lights"
+                               : (models && models->lighting.hasContribution() ? "ambient occlusion only"
+                                                                               : "waiting for native lighting"))
              : "off") +
         "; CPU" + timing + " total " +
         std::to_string(std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - started).count()) +

@@ -310,7 +310,8 @@ public:
     // Where DLSS 5 runs when DLSS SR renders the world at a reduced size: false = on the SR output (output size),
     // true = on the reduced raster before SR, which then upscales the enhanced image. Resets both histories.
     void setNeuralResolution(bool renderResolution);
-    void setWaterRendering(bool modernWater, bool rayReflections, bool rayShadows = false);
+    void setWaterRendering(bool modernWater, bool rayReflections, bool rayShadows = false,
+                           bool rayGlobalIllumination = false);
     bool waterRenderingRequested() const;
     bool sceneModelsRequested() const;
     bool waterRenderingAvailable(std::string& status) const;

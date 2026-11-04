@@ -2629,8 +2629,9 @@ struct DrakanSettingsHost final : CommonSettingsHost {
             drakan_dlss::setNeuralResolution(n.dlssNeuralResolution);
         if (n.dlssNeural != p.dlssNeural)
             drakan_dlss::setNeural(n.dlssNeural);
-        if (n.modernWater != p.modernWater || n.rayReflections != p.rayReflections || n.rayShadows != p.rayShadows)
-            g_gs->setWaterRendering(n.modernWater, n.rayReflections, n.rayShadows);
+        if (n.modernWater != p.modernWater || n.rayReflections != p.rayReflections || n.rayShadows != p.rayShadows ||
+            n.rayGlobalIllumination != p.rayGlobalIllumination)
+            g_gs->setWaterRendering(n.modernWater, n.rayReflections, n.rayShadows, n.rayGlobalIllumination);
         if (n.hdTextures != p.hdTextures)
             g_gs->setTextureReplace(n.hdTextures);
         if (n.textureDump != p.textureDump)
@@ -2889,8 +2890,9 @@ void attachRenderer(gsr::Renderer* gs, void* parentHwnd, const WindowOps& ops) {
     drakan_save_previews::attach(gs);
     drakan_fmv_hd::attach(gs);
     gs->setWaterRendering(drakan_cfg::getBool("video", "modern_water", "GSR_MODERN_WATER", false),
-                          drakan_cfg::getBool("video", "ray_reflections", "GSR_RAY_REFLECTIONS", true),
-                          drakan_cfg::getBool("video", "ray_shadows", "GSR_RAY_SHADOWS", false));
+                          drakan_cfg::getBool("video", "ray_reflections", "GSR_RAY_REFLECTIONS", false),
+                          drakan_cfg::getBool("video", "ray_shadows", "GSR_RAY_SHADOWS", false),
+                          drakan_cfg::getBool("video", "ray_gi", "GSR_RAY_GI", false));
     g_parent = parentHwnd;
     g_ops = ops;
     g_frameLimit.store(std::max(0, drakan_cfg::getInt("video", "frame_limit", "DRAKAN_FRAME_LIMIT", 0)));

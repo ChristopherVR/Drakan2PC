@@ -145,9 +145,10 @@ int main() {
         menu.open();
         menu.pendingMut().video.modernWater = true;
         menu.pendingMut().video.rayReflections = false;
+        menu.pendingMut().video.rayGlobalIllumination = true;
         menu.applyPending(true);
         CHECK(host.videoApplies == 1 && host.lastVideo.modernWater && !host.lastVideo.rayReflections &&
-              host.restarts == 0);
+              host.lastVideo.rayGlobalIllumination && host.restarts == 0);
     }
     std::printf("%d checks, %d failed\n", checks, failures);
     return failures ? 1 : 0;

@@ -239,11 +239,11 @@ public:
     std::string adapterName() const override;
     void draw(const GsDrawState& st, const ClutBuf& clut, const DrawVertex* v, uint32_t count) override;
     void flushToMemory(uint32_t firstBlock, uint32_t lastBlock) override;
-    void flushForRead(uint32_t firstBlock, uint32_t lastBlock) override;
+    void flushForRead(uint32_t firstBlock, uint32_t lastBlock, const VramRect* rect = nullptr) override;
     bool beginTargetUpload(uint32_t psm, uint32_t bp, uint32_t bw, uint32_t x, uint32_t y, uint32_t w,
                            uint32_t h) override;
     void completeTargetUpload(uint32_t psm, uint32_t bp, uint32_t bw, uint32_t x, uint32_t y, uint32_t w, uint32_t h,
-                              bool apply) override;
+                              bool apply, uint64_t written) override;
     void flushAll() override;
     void drawMovieFrame(uint32_t dbp, uint32_t dbw, uint32_t x, uint32_t y, uint32_t w, uint32_t h,
                         const MovieImage& image, uint64_t imageId) override;
@@ -329,6 +329,7 @@ struct WgpuBackend::Impl {
     bool modernWater = runtimeFlags().modernWater;
     bool rayReflections = runtimeFlags().rayReflections;
     bool rayShadows = runtimeFlags().rayShadows;
+    bool rayGlobalIllumination = runtimeFlags().rayGlobalIllumination;
     std::unique_ptr<ray::WgpuRay> rayPass;
     surface::ResidentScene residentScene;
     std::vector<surface::Texture> reflectionTextures;
@@ -528,12 +529,12 @@ struct WgpuBackend::Impl {
     void readbackRT(RT& rt);
     void syncRT(RT& rt);
     void flushToMemory(uint32_t first, uint32_t last);
-    void flushForRead(uint32_t first, uint32_t last);
+    void flushForRead(uint32_t first, uint32_t last, const VramRect* rect = nullptr);
     bool blocksAreClean(const RT& rt, uint32_t first, uint32_t last) const;
     void trimDirtyRows(RT& rt);
     bool beginTargetUpload(uint32_t psm, uint32_t bp, uint32_t bw, uint32_t x, uint32_t y, uint32_t w, uint32_t h);
     void completeTargetUpload(uint32_t psm, uint32_t bp, uint32_t bw, uint32_t x, uint32_t y, uint32_t w, uint32_t h,
-                              bool apply);
+                              bool apply, uint64_t written);
     bool uploadCovers(uint32_t block) const;
     RT* aliasedTarget(uint32_t psm, uint32_t mxl, const std::vector<std::pair<uint32_t, uint32_t>>& spans);
     void copyAliasedBlocks(RT& rt, rhi::Texture& texture, uint32_t tbp, uint32_t tbw, uint32_t w, uint32_t h);

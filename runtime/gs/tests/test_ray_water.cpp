@@ -15,6 +15,28 @@
 #include <cstdlib>
 using Microsoft::WRL::ComPtr;
 int main(int argc, char** argv) {
+    {
+        gsr::SceneModelMesh a;
+        a.identity = 42;
+        a.topology = 7;
+        a.triangles.resize(1);
+        auto b = a;
+        assert(gsr::surface::sameModelGeometry(a, b));
+        b.triangles[0].position[0][0] = 1;
+        assert(!gsr::surface::sameModelGeometry(a, b)); // even a colliding identity must not reuse a pose
+        b = a;
+        b.triangles[0].uv[1][0] = .5f;
+        assert(!gsr::surface::sameModelGeometry(a, b));
+        b = a;
+        b.triangles[0].material = 3;
+        assert(!gsr::surface::sameModelGeometry(a, b));
+        b = a;
+        ++b.topology;
+        assert(!gsr::surface::sameModelGeometry(a, b));
+        b = a;
+        b.triangles.clear();
+        assert(!gsr::surface::sameModelGeometry(a, b));
+    }
     assert(gsr::surface::rayDiagnosticEffects("") == 0 && gsr::surface::rayDiagnosticEffects("invalid") == 0);
     assert(gsr::surface::rayDiagnosticEffects("ao") == 64 && gsr::surface::rayDiagnosticEffects("direct") == 32 &&
            gsr::surface::rayDiagnosticEffects("receiver") == 128);
@@ -103,7 +125,8 @@ int main(int argc, char** argv) {
         }
         std::cout << "Welded normals smooth shallow ridges, keep hard corners and pack exactly\n";
     }
-    const bool benchmark = argc > 1 && std::strcmp(argv[1], "--benchmark") == 0;
+    const bool benchmarkTransport = argc > 1 && std::strcmp(argv[1], "--benchmark-transport") == 0;
+    const bool benchmark = benchmarkTransport || (argc > 1 && std::strcmp(argv[1], "--benchmark") == 0);
     ComPtr<ID3D12Debug> debug;
     if (!benchmark && SUCCEEDED(D3D12GetDebugInterface(IID_PPV_ARGS(&debug)))) {
         debug->EnableDebugLayer();
@@ -195,10 +218,18 @@ int main(int argc, char** argv) {
     if (benchmark) {
         // Fixed geometry, camera, time and input textures isolate renderer cost.
         // No validation readback or debug layer is inside the timed interval.
-        std::vector<float> depths(w * h, .001f);
-        for (unsigned y = 0; y < h / 2; ++y)
+        // Match the existing z=-200 wall and y=-100 floor rather than placing raster receivers kilometres
+        // beyond the ray scene. Both benchmark modes use this identical scene; GI/specular now perform actual
+        // secondary transport across the upper opaque wall instead of returning after failed primary searches.
+        std::vector<float> depths(w * h);
+        for (unsigned y = 0; y < h; ++y) {
+            const float ndcY = 1 - 2 * (y + .5f) / h;
+            const float receiverDepth = ndcY >= -.5f ? 32.f / 200 : 32.f * -ndcY / 100;
             for (unsigned x = 0; x < w; ++x)
-                depths[y * w + x] = 0;
+                depths[y * w + x] = receiverDepth;
+        }
+        // The offscreen wall supplies genuine textured/native-colour radiance to the diffuse/reflected rays.
+        quad({-2000, -2000, 400}, {2000, -2000, 400}, {2000, 2000, 400}, {-2000, 2000, 400}, {.4f, .3f, .2f}, false);
         context->UpdateSubresource(depth.Get(), 0, nullptr, depths.data(), w * 4, 0);
         gsr::SceneModels lighting;
         lighting.level = 1;
@@ -208,7 +239,9 @@ int main(int argc, char** argv) {
         sun.vector[2] = .6f;
         sun.color[0] = sun.color[1] = sun.color[2] = 1;
         lighting.lighting.lights.push_back(sun);
-        const gsr::surface::RayOptions effects{true, true};
+        gsr::surface::RayOptions effects{true, true};
+        effects.globalIllumination = effects.materialReflections = benchmarkTransport;
+        std::cout << "Benchmark transport=" << benchmarkTransport << '\n';
         std::vector<double> samples, gpu;
         // GPU time: the D3D11 timeline waits for the D3D12 ray pass, so timestamps around
         // one frame bracket its input copies, the pass itself and the output copy.
@@ -247,6 +280,19 @@ int main(int argc, char** argv) {
         for (unsigned i = 0; i < w * h; ++i)
             for (unsigned j = 0; j < 3; ++j)
                 assert((result[i * 4 + j] & 0x7c00) != 0x7c00);
+        if (benchmarkTransport) {
+            // Validate outside the timed interval that this benchmark did not silently become a no-hit pass.
+            auto baselineEffects = effects;
+            baselineEffects.globalIllumination = baselineEffects.materialReflections = false;
+            assert(water.render(color.Get(), depth.Get(), output.Get(), c, triangles, 1, true, {}, &lighting,
+                                baselineEffects));
+            const auto baseline = read();
+            unsigned changed = 0;
+            for (unsigned i = 0; i < w * h / 2; ++i)
+                changed += result[i * 4] != baseline[i * 4];
+            assert(changed > w * h / 8);
+            std::cout << "BENCHMARK opaque_transport_changed_pixels=" << changed << '\n';
+        }
         std::cout << "BENCHMARK median_ms=" << (samples[49] + samples[50]) * .5 << " p95_ms=" << samples[94]
                   << " samples=" << samples.size() << "\n";
         return 0;
@@ -480,6 +526,15 @@ int main(int argc, char** argv) {
     const std::array textures{pattern};
     assert(water.render(color.Get(), depth.Get(), output.Get(), c, triangles, 1, true, textures));
     auto cold = read();
+    // Reconstructed opaque geometry is excluded from receiver/shadow queries,
+    // but remains visible to water reflections even when the whole batch is excluded.
+    for (auto& triangle : triangles)
+        if (!triangle.water)
+            triangle.shadowGeometry = false;
+    assert(water.render(color.Get(), depth.Get(), output.Get(), c, triangles, 1, true, textures));
+    assert(read() == cold);
+    for (auto& triangle : triangles)
+        triangle.shadowGeometry = true;
     // The native CPU water path can submit a different GS Z scale. A coverage
     // triangle at half the distance must not move the real reflecting surface.
     const auto nativeCount = triangles.size();
@@ -583,6 +638,70 @@ int main(int argc, char** argv) {
     assert(water.render(color.Get(), depth.Get(), output.Get(), c, triangles, 1, true, {}, &models));
     auto instanced = read();
     assert(instanced == cold);
+    // A fresh immutable capture of the same pose must preserve the complete image.
+    models.meshes[0] = std::make_shared<gsr::SceneModelMesh>(*model);
+    assert(models.meshes[0] != model);
+    assert(water.render(color.Get(), depth.Get(), output.Get(), c, triangles, 1, true, {}, &models));
+    assert(read() == instanced);
+    // Mesh identity is a lookup key, not proof that its BLAS still matches a newly published pose/resource.
+    // Keep the key alive continuously so end-of-pass cache pruning cannot hide a stale acceleration structure.
+    {
+        auto movedMesh = std::make_shared<gsr::SceneModelMesh>(*model);
+        for (auto& tri : movedMesh->triangles)
+            for (auto& position : tri.position)
+                position[0] += 100000;
+        models.meshes[0] = movedMesh;
+        assert(water.render(color.Get(), depth.Get(), output.Get(), c, triangles, 1, true, {}, &models));
+        assert(read() == missing);
+        models.meshes[0] = model;
+        assert(water.render(color.Get(), depth.Get(), output.Get(), c, triangles, 1, true, {}, &models));
+        assert(read() == instanced);
+        // Repeat through the deformable BLAS pool and across a level namespace change with the same IDs/counts.
+        auto posed = std::make_shared<gsr::SceneModelMesh>(*model);
+        posed->topology = 77;
+        models.meshes[0] = posed;
+        assert(water.render(color.Get(), depth.Get(), output.Get(), c, triangles, 1, true, {}, &models));
+        assert(read() == instanced);
+        movedMesh = std::make_shared<gsr::SceneModelMesh>(*movedMesh);
+        movedMesh->topology = posed->topology;
+        models.meshes[0] = movedMesh;
+        ++models.level;
+        assert(water.render(color.Get(), depth.Get(), output.Get(), c, triangles, 1, true, {}, &models));
+        assert(read() == missing);
+        models.meshes[0] = posed;
+        assert(water.render(color.Get(), depth.Get(), output.Get(), c, triangles, 1, true, {}, &models));
+        assert(read() == instanced);
+        // Same topology/count in another level can have different positional seams. Compare its warm cache
+        // against independent per-mesh welding, under directional lighting that exposes wrong smooth normals.
+        auto splitSeam = std::make_shared<gsr::SceneModelMesh>(*posed);
+        for (auto& position : splitSeam->triangles[1].position) {
+            position[0] += 300;
+            position[2] = position[1] * .5f;
+        }
+        models.meshes[0] = splitSeam;
+        ++models.level;
+        for (float& channel : models.lighting.ambient)
+            channel = .5f;
+        gsr::SceneLight seamLight;
+        seamLight.vector[2] = 1;
+        for (float& channel : seamLight.color)
+            channel = .5f;
+        models.lighting.lights.push_back(seamLight);
+        assert(water.render(color.Get(), depth.Get(), output.Get(), c, triangles, 1, true, {}, &models));
+        const auto levelSeam = read();
+        auto independentSeam = std::make_shared<gsr::SceneModelMesh>(*splitSeam);
+        independentSeam->identity = 987654;
+        independentSeam->topology = 0;
+        models.meshes[0] = independentSeam;
+        assert(water.render(color.Get(), depth.Get(), output.Get(), c, triangles, 1, true, {}, &models));
+        assert(read() == levelSeam);
+        models.lighting = {};
+        models.meshes[0] = model;
+        models.level = 0;
+        assert(water.render(color.Get(), depth.Get(), output.Get(), c, triangles, 1, true, {}, &models));
+        assert(read() == instanced);
+        std::cout << "Reused mesh IDs rebuild changed BLAS geometry within and across level namespaces\n";
+    }
     models.instances[0].nativeShadow = true;
     assert(water.render(color.Get(), depth.Get(), output.Get(), c, triangles, 1, true, {}, &models));
     assert(read() == cold); // native shadow ownership must not remove the reflector
@@ -664,6 +783,17 @@ int main(int argc, char** argv) {
         assert(cutout[i * 4 + 3] == 0x3800);
     }
     assert(holes > 25);
+    // The cutout selector stays unchanged while the immutable texture's
+    // coverage changes. The material cache must acquire and revoke its proof.
+    auto coveredPattern = std::make_shared<gsr::SceneModelTexture>(*nativePattern);
+    for (auto& pixel : coveredPattern->pixels)
+        pixel |= 0x80000000;
+    models.textures[0] = coveredPattern;
+    assert(water.render(color.Get(), depth.Get(), output.Get(), c, triangles, 1, true, {}, &models));
+    assert(read() != cutout);
+    models.textures[0] = nativePattern;
+    assert(water.render(color.Get(), depth.Get(), output.Get(), c, triangles, 1, true, {}, &models));
+    assert(read() == cutout);
     nativePattern->flags = 0x10000;
     assert(water.render(color.Get(), depth.Get(), output.Get(), c, triangles, 1, true, {}, &models));
     assert(read() == cutout);
@@ -722,6 +852,22 @@ int main(int argc, char** argv) {
     sun.color[0] = sun.color[1] = sun.color[2] = 1;
     models.lighting.lights.push_back(sun);
     const gsr::surface::RayOptions shadows{false, true};
+    // Native lighting is a GS display-space multiplier. A fully blocked sun with .25 ambient and 1 direct must
+    // retain .25/1.25 of the displayed input, rather than applying that ratio to linear radiance (too bright).
+    // Put the blocker beyond AO reach and behind the camera so neither AO nor receiver matching changes it.
+    {
+        const auto saved = triangles;
+        triangles.resize(2);
+        quad({-1000, -1000, 400}, {1000, -1000, 400}, {1000, 1000, 400}, {-1000, 1000, 400}, {.5f, .5f, .5f}, false);
+        assert(water.render(color.Get(), depth.Get(), output.Get(), c, triangles, 1, false, {}, &models, shadows));
+        const auto blocked = read();
+        const auto bits = blocked[((h / 2) * w + w / 2) * 4];
+        const float displayed = std::ldexp(float((bits & 1023) + ((bits & 0x7c00) ? 1024 : 0)),
+                                           int((bits >> 10) & 31) - ((bits & 0x7c00) ? 25 : 24));
+        assert(std::abs(displayed - .2f * (.25f / 1.25f)) < .001f);
+        triangles = saved;
+        std::cout << "Blocked native sun preserves the authored display-space ambient ratio\n";
+    }
     assert(water.render(color.Get(), depth.Get(), output.Get(), c, triangles, 1, false, {}, &models, shadows));
     auto shadowed = read();
     unsigned shadowPixels = 0;
@@ -849,6 +995,24 @@ int main(int argc, char** argv) {
     for (unsigned i = 0; i < w * h; ++i)
         leafPixels += leafShadow[i * 4] < 0x3266;
     assert(leafPixels > 25 && leafPixels + 25 < shadowPixels);
+    // Accepted opaque hits have opacity one for every comparison selector,
+    // including EQUAL 0, which accepts the texture's zero-alpha texels.
+    for (const auto selector : {7u, 5u, 4u, 0u}) {
+        for (unsigned t = 2; t < triangles.size(); ++t) {
+            triangles[t].alphaTest = selector;
+            triangles[t].alphaReference = selector == 5 ? 1.f : 0.f;
+        }
+        assert(water.render(color.Get(), depth.Get(), output.Get(), c, triangles, 1, false, {&shadowTexture, 1},
+                            &models, shadows));
+        const auto result = read();
+        if (selector == 7 || selector == 5)
+            assert(result == leafShadow);
+        else if (selector == 0)
+            assert(result == noShadow);
+        else
+            assert(result != leafShadow && result != noShadow);
+    }
+    std::cout << "Accepted opaque hits retain GREATER/GEQUAL/NOTEQUAL/EQUAL/NEVER cutout selectors\n";
     for (unsigned t = 2; t < triangles.size(); ++t) {
         auto& tri = triangles[t];
         tri.texture = ~0u;
@@ -916,6 +1080,24 @@ int main(int argc, char** argv) {
         const unsigned centre = (32 * w + 32) * 4;
         assert(nearby[centre] < open[centre] && occluded > 25);
         std::cout << "Ambient occlusion darkened " << occluded << " pixels; open ground unchanged\n";
+        // Removing a sun behind the receiver cannot remove ambient occlusion: an ambient-only native scene
+        // has exactly the same illumination and must produce exactly the same contact shading.
+        auto ambientOnly = models;
+        ambientOnly.lighting.lights.clear();
+        assert(water.render(color.Get(), depth.Get(), output.Get(), c, triangles, 1, false, {}, &ambientOnly, shadows));
+        assert(read() == nearby);
+        std::cout << "Ambient-only native lighting retains identical contact occlusion\n";
+        auto noAmbient = models;
+        std::fill(std::begin(noAmbient.lighting.ambient), std::end(noAmbient.lighting.ambient), 0.f);
+        assert(water.render(color.Get(), depth.Get(), output.Get(), c, triangles, 1, false, {}, &noAmbient, shadows));
+        assert(read() == open);
+        auto redAmbient = noAmbient;
+        redAmbient.lighting.ambient[0] = models.lighting.ambient[0];
+        assert(water.render(color.Get(), depth.Get(), output.Get(), c, triangles, 1, false, {}, &redAmbient, shadows));
+        const auto redOnly = read();
+        assert(redOnly[centre] == nearby[centre] && redOnly[centre + 1] == open[centre + 1] &&
+               redOnly[centre + 2] == open[centre + 2]);
+        std::cout << "Zero ambient adds no occlusion; one positive ambient channel retains its contact shading\n";
         // A shallow terrain crease (25 degrees) is one smoothly lit surface: neither face may occlude
         // the other, or ambient occlusion draws dark lines along triangle edges.
         triangles.clear();
@@ -1248,4 +1430,237 @@ int main(int argc, char** argv) {
     c.jitterPixels[0] = 0;
     std::cout << "Subpixel reflected detail maximum jump=" << motionJump << '\n';
     assert(motionJump < .02f);
+    // Opaque transport uses offscreen scene geometry, independently of water, DLSS and the shadow switch.
+    // A red wall behind the camera returns real coloured radiance; a black blocker removes that transport.
+    {
+        c = {};
+        c.currentViewToClip[0] = c.currentViewToClip[5] = 1;
+        c.currentViewToClip[11] = -1;
+        c.currentViewToClip[14] = 32;
+        c.clipToCameraView[0] = c.clipToCameraView[5] = 1;
+        c.clipToCameraView[11] = 1.f / 32;
+        c.clipToCameraView[14] = -1;
+        c.cameraRight[0] = c.cameraUp[1] = 1;
+        c.cameraForward[2] = -1;
+        c.nearPlane = 32;
+        clear(color.Get(), {.2f, .2f, .2f, .5f});
+        clear(depth.Get(), {.1f, 0, 0, 0});
+        models = {};
+        for (auto& channel : models.lighting.ambient)
+            channel = 1;
+        triangles.clear();
+        quad({-1000, -1000, -320}, {1000, -1000, -320}, {1000, 1000, -320}, {-1000, 1000, -320}, {.5f, .5f, .5f},
+             false);
+        quad({-10000, -10000, 400}, {10000, -10000, 400}, {10000, 10000, 400}, {-10000, 10000, 400}, {1, 0, 0}, false);
+        auto transport = [&](bool gi, bool reflections) {
+            gsr::surface::RayOptions options{false, false};
+            options.globalIllumination = gi;
+            options.materialReflections = reflections;
+            assert(water.render(color.Get(), depth.Get(), output.Get(), c, triangles, 1, false, {}, &models, options));
+            return read();
+        };
+        auto energy = [&](const std::vector<uint16_t>& image, unsigned channel) {
+            float sum = 0;
+            for (unsigned y = 24; y < 40; ++y)
+                for (unsigned x = 24; x < 40; ++x) {
+                    const unsigned i = (y * w + x) * 4;
+                    for (unsigned rgb = 0; rgb < 3; ++rgb)
+                        assert((image[i + rgb] & 0x7c00) != 0x7c00);
+                    assert(image[i + 3] == 0x3800);
+                    sum += half(image[i + channel]);
+                }
+            return sum / 256;
+        };
+        const auto bounced = transport(true, false);
+        assert(energy(bounced, 0) > .3f && std::abs(energy(bounced, 1) - .2f) < .001f);
+        // Half-resolution denoising must stop at a depth edge. The right half's raster depth has no matching
+        // resident surface, so neither a neighbouring red GI sample nor a terrain fallback may colour it.
+        std::vector<float> edgeDepth(w * h, .1f);
+        for (unsigned y = 0; y < h; ++y)
+            for (unsigned x = w / 2; x < w; ++x)
+                edgeDepth[y * w + x] = .05f;
+        context->UpdateSubresource(depth.Get(), 0, nullptr, edgeDepth.data(), w * 4, 0);
+        const auto edge = transport(true, false);
+        for (unsigned y = 24; y < 40; ++y) {
+            assert(half(edge[(y * w + w / 2 - 1) * 4]) > .3f);
+            assert(edge[(y * w + w / 2) * 4] == 0x3266);
+            assert(edge[(y * w + w / 2) * 4 + 3] == 0x3800);
+        }
+        clear(depth.Get(), {.1f, 0, 0, 0});
+        quad({-10000, -10000, 100}, {10000, -10000, 100}, {10000, 10000, 100}, {-10000, 10000, 100}, {0, 0, 0}, false);
+        const auto blocked = transport(true, false);
+        assert(energy(blocked, 0) < energy(bounced, 0) - .05f);
+        triangles.resize(4);
+        for (unsigned t = 0; t < 2; ++t) {
+            triangles[t].roughness = .04f;
+            triangles[t].reflectance = .8f;
+        }
+        const auto polished = transport(false, true);
+        assert(energy(polished, 0) > .5f && energy(polished, 1) < .15f);
+        for (unsigned t = 0; t < 2; ++t)
+            triangles[t].reflectance = .04f;
+        const auto dielectric = transport(false, true);
+        assert(energy(dielectric, 0) < energy(polished, 0) - .1f);
+        for (unsigned t = 0; t < 2; ++t) {
+            triangles[t].reflectance = .8f;
+            triangles[t].roughness = .95f;
+        }
+        const auto rough = transport(false, true);
+        assert(energy(rough, 0) < energy(polished, 0) - .05f);
+        // Constant-radiance furnace: every valid reflected sample sees the same .2 display radiance as the
+        // receiver. Reflected energy must replace exactly the diffuse energy removed, at every roughness.
+        // A smooth-view Fresnel attenuation paired with rough GGX additions fails this balance badly at high F0.
+        // This plane covers the complete sampled +Z hemisphere, including near-tangent rough rays.
+        for (unsigned t = 2; t < 4; ++t) {
+            for (float& channel : triangles[t].color)
+                channel = .2f;
+            for (auto& p : triangles[t].p) {
+                p.x = std::copysign(1e7f, p.x);
+                p.y = std::copysign(1e7f, p.y);
+            }
+        }
+        for (const float roughness : {.04f, .5f, .95f}) {
+            for (unsigned t = 0; t < 2; ++t)
+                triangles[t].roughness = roughness;
+            const auto furnace = transport(false, true);
+            for (unsigned y = 24; y < 40; ++y)
+                for (unsigned x = 24; x < 40; ++x) {
+                    const unsigned i = (y * w + x) * 4;
+                    for (unsigned channel = 0; channel < 3; ++channel)
+                        assert(std::abs(half(furnace[i + channel]) - .2f) < .001f);
+                    assert(furnace[i + 3] == 0x3800);
+                }
+        }
+        std::cout << "Constant-radiance GGX furnace preserves diffuse/specular energy across roughness\n";
+        // A black reflection removes scalar energy from each pixel's own texture. Half-resolution filtering must
+        // not transfer the sampled neighbour's coloured RGB subtraction onto a differently coloured local texel.
+        for (unsigned t = 2; t < 4; ++t)
+            for (float& channel : triangles[t].color)
+                channel = 0;
+        std::vector<uint16_t> checker(w * h * 4);
+        for (unsigned y = 0; y < h; ++y)
+            for (unsigned x = 0; x < w; ++x) {
+                const unsigned i = (y * w + x) * 4;
+                checker[i] = ((x + y) & 1) ? 0x3666 : 0x3266;
+                checker[i + 1] = ((x + y) & 1) ? 0x3266 : 0x3666;
+                checker[i + 2] = 0x2e66;
+                checker[i + 3] = 0x3800;
+            }
+        context->UpdateSubresource(color.Get(), 0, nullptr, checker.data(), w * 8, 0);
+        const auto localEnergy = transport(false, true);
+        for (unsigned y = 24; y < 40; ++y)
+            for (unsigned x = 24; x < 40; ++x) {
+                const unsigned i = (y * w + x) * 4;
+                const float r = half(localEnergy[i]), g = half(localEnergy[i + 1]), b = half(localEnergy[i + 2]);
+                assert(r > .01f);
+                assert(std::abs(g / r - (((x + y) & 1) ? .5f : 2.f)) < .01f);
+                assert(std::abs(b / r - (((x + y) & 1) ? .25f : .5f)) < .01f);
+                assert(localEnergy[i + 3] == 0x3800);
+            }
+        clear(color.Get(), {.2f, .2f, .2f, .5f});
+        std::cout << "Filtered reflection energy preserves each local coloured texel's channel ratios\n";
+        for (unsigned t = 0; t < 2; ++t)
+            triangles[t].transparent = true;
+        const auto foliage = transport(false, true);
+        assert(std::abs(energy(foliage, 0) - .2f) < .001f);
+        const gsr::surface::RayOptions onlyShadows{false, true};
+        assert(water.render(color.Get(), depth.Get(), output.Get(), c, triangles, 1, false, {}, &models, onlyShadows));
+        const auto disabled = read();
+        for (unsigned i = 0; i < w * h; ++i)
+            assert(disabled[i * 4] == 0x3266 && disabled[i * 4 + 1] == 0x3266 && disabled[i * 4 + 2] == 0x3266 &&
+                   disabled[i * 4 + 3] == 0x3800);
+        std::cout << "Offscreen coloured diffuse bounce, blocker suppression, opaque roughness/F0, foliage "
+                     "exclusion and disabled preservation passed\n";
+        // A visible red wall shares a valid raster depth with a green camera overlay. The overlay is not outgoing
+        // surface radiance and must never become green indirect illumination on the receiver below it.
+        triangles.clear();
+        quad({-1000, -1000, -320}, {1000, -1000, -320}, {1000, 1000, -320}, {-1000, 1000, -320}, {.5f, .5f, .5f},
+             false);
+        quad({80, -1000, -320}, {80, -1000, -80}, {80, 1000, -80}, {80, 1000, -320}, {1, 0, 0}, false);
+        std::vector<float> wallDepth(w * h, .1f);
+        for (unsigned y = 0; y < h; ++y)
+            for (unsigned x = 40; x < w; ++x)
+                wallDepth[y * w + x] = .4f * ((x + .5f) / w * 2 - 1);
+        context->UpdateSubresource(depth.Get(), 0, nullptr, wallDepth.data(), w * 4, 0);
+        const auto withoutOverlay = transport(true, false);
+        std::vector<uint16_t> overlay(w * h * 4, 0x3266);
+        for (unsigned y = 0; y < h; ++y)
+            for (unsigned x = 0; x < w; ++x) {
+                const unsigned i = (y * w + x) * 4;
+                overlay[i + 3] = 0x3800;
+                if (x >= 40) {
+                    overlay[i] = overlay[i + 2] = 0;
+                    overlay[i + 1] = 0x3c00;
+                }
+            }
+        context->UpdateSubresource(color.Get(), 0, nullptr, overlay.data(), w * 8, 0);
+        const auto withOverlay = transport(true, false);
+        assert(energy(withoutOverlay, 0) > energy(withoutOverlay, 1) + .01f);
+        for (unsigned y = 24; y < 40; ++y)
+            for (unsigned x = 24; x < 40; ++x)
+                for (unsigned channel = 0; channel < 4; ++channel) {
+                    const unsigned i = (y * w + x) * 4 + channel;
+                    assert(withOverlay[i] == withoutOverlay[i]);
+                }
+        std::cout << "Depth-valid camera overlays cannot contaminate coloured secondary transport\n";
+    }
+    // Sparse material changes in separated upload blocks must reach the GPU. Padding is behind the receiver,
+    // outside the bounded diffuse transport rays; adding/removing it changes buffer layout without changing light.
+    {
+        clear(color.Get(), {.2f, .2f, .2f, .5f});
+        clear(depth.Get(), {.1f, 0, 0, 0});
+        models = {};
+        for (auto& channel : models.lighting.ambient)
+            channel = 1;
+        triangles.clear();
+        quad({-1000, -1000, -320}, {1000, -1000, -320}, {1000, 1000, -320}, {-1000, 1000, -320}, {.5f, .5f, .5f},
+             false);
+        gsr::surface::Triangle padding{{{100000, 0, -100000}, {100001, 0, -100000}, {100000, 1, -100000}},
+                                       {.2f, .2f, .2f}};
+        triangles.resize(128, padding);
+        quad({-10000, -10000, 400}, {0, -10000, 400}, {0, 10000, 400}, {-10000, 10000, 400}, {1, 0, 0}, false);
+        triangles.resize(384, padding);
+        quad({0, -10000, 400}, {10000, -10000, 400}, {10000, 10000, 400}, {0, 10000, 400}, {0, 0, 1}, false);
+        triangles.resize(514, padding);
+        gsr::surface::RayOptions gi{false, false};
+        gi.globalIllumination = true;
+        auto renderBlocks = [&] {
+            assert(water.render(color.Get(), depth.Get(), output.Get(), c, triangles, 1, false, {}, &models, gi));
+            return read();
+        };
+        const auto original = renderBlocks();
+        assert(renderBlocks() == original); // exact recapture: all dynamic blocks may be skipped
+        for (unsigned t : {128u, 129u}) {
+            triangles[t].color[0] = 0;
+            triangles[t].color[1] = 1;
+        }
+        const auto firstChanged = renderBlocks();
+        assert(firstChanged != original);
+        for (unsigned t : {384u, 385u}) {
+            triangles[t].color[0] = 1;
+            triangles[t].color[2] = 0;
+        }
+        const auto separatedChanges = renderBlocks();
+        assert(separatedChanges != firstChanged);
+        assert(renderBlocks() == separatedChanges);
+        for (unsigned t : {128u, 129u}) {
+            triangles[t].color[0] = 1;
+            triangles[t].color[1] = 0;
+        }
+        for (unsigned t : {384u, 385u}) {
+            triangles[t].color[0] = 0;
+            triangles[t].color[2] = 1;
+        }
+        assert(renderBlocks() == original); // two separated dirty ranges in a single submission
+        triangles.resize(386);
+        assert(renderBlocks() == original); // shrinking invalidates the retained byte extent
+        triangles.resize(642, padding);
+        assert(renderBlocks() == original); // growing cannot reuse bytes left by a larger earlier submission
+        const std::array staticPadding{padding, padding};
+        water.setStaticWorld(staticPadding, 1001, 1001);
+        assert(renderBlocks() == original); // static triangle prefix changes the dynamic GPU destination offset
+        water.setStaticWorld({}, 1002, 1002);
+        assert(renderBlocks() == original);
+        std::cout << "Sparse dynamic upload changes, recaptures, shrink/grow and static-prefix rebasing passed\n";
+    }
 }

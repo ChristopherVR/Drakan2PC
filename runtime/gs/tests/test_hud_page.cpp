@@ -86,6 +86,12 @@ static bool nativeMenuSourceChecks() {
         return false;
     if (frozenWorld(-1, false, -1) || frozenWorld(0x15, true, 0x15) || frozenWorld(-1, false, 0x17))
         return false;
+    // Level-exit save prompt: host/camera observations can lead each other on open/close. Preserve the static
+    // world's sampling until both leave the prompt; a stale host screen alone does not freeze gameplay.
+    if (!frozenWorld(-1, true, 2) || !frozenWorld(2, false, -1) || !frozenWorld(2, true, 2))
+        return false;
+    if (frozenWorld(-1, false, 2) || frozenWorld(-1, true, -1))
+        return false;
     // The late perspective water drain after EndWorld under the pause menu.
     if (menuSubmission(false, true, 512, 512, true, true))
         return false;

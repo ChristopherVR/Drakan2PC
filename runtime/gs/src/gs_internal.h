@@ -107,7 +107,7 @@ struct LiveSettings {
     float upSharp = 0.0f;
     bool neural = false;
     bool neuralRender = false; // F_NEURAL_RES: NR on the reduced raster before SR
-    bool modernWater = false, rayReflections = true, rayShadows = false;
+    bool modernWater = false, rayReflections = false, rayShadows = false, rayGlobalIllumination = false;
 };
 
 // process wide texture hash exclusion list (gsr::excludeTextureHash)
@@ -143,7 +143,9 @@ public:
     virtual void flushToMemory(uint32_t firstBlock, uint32_t lastBlock) = 0;
     // Same, for a reader of local memory (CLUT load, texture decode, local->host read): a backend may skip a readback
     // when every block asked for is known to be identical on the GPU and in memory. Writers must use flushToMemory.
-    virtual void flushForRead(uint32_t firstBlock, uint32_t lastBlock) { flushToMemory(firstBlock, lastBlock); }
+    virtual void flushForRead(uint32_t firstBlock, uint32_t lastBlock, const VramRect* = nullptr) {
+        flushToMemory(firstBlock, lastBlock);
+    }
     // Local-to-local transfer between two whole render targets: true = done on the GPU (the destination is then
     // GPU-owned like after a draw), false = the caller copies through memory.
     virtual bool copyLocal(uint32_t /*spsm*/, uint32_t /*sbp*/, uint32_t /*sbw*/, uint32_t /*sx*/, uint32_t /*sy*/,
@@ -153,8 +155,11 @@ public:
     }
     virtual bool beginTargetUpload(uint32_t psm, uint32_t bp, uint32_t bw, uint32_t x, uint32_t y, uint32_t w,
                                    uint32_t h) = 0;
+    // apply=false reserves rows (written=0) or reports fragment progress;
+    // apply=true ends the transfer; written reports the actual received prefix,
+    // including an abort, so masked paths can preserve bits that never arrived.
     virtual void completeTargetUpload(uint32_t psm, uint32_t bp, uint32_t bw, uint32_t x, uint32_t y, uint32_t w,
-                                      uint32_t h, bool apply) = 0;
+                                      uint32_t h, bool apply, uint64_t written) = 0;
     virtual void flushAll() = 0;
     virtual void drawMovieFrame(uint32_t dbp, uint32_t dbw, uint32_t x, uint32_t y, uint32_t w, uint32_t h,
                                 const MovieImage& image, uint64_t imageId) = 0;
@@ -214,7 +219,7 @@ public:
     void draw(const GsDrawState& st, const ClutBuf& clut, const DrawVertex* v, uint32_t count);
     // make local memory reflect GPU render targets overlapping blocks [first,last]
     void flushToMemory(uint32_t firstBlock, uint32_t lastBlock);
-    void flushForRead(uint32_t firstBlock, uint32_t lastBlock);
+    void flushForRead(uint32_t firstBlock, uint32_t lastBlock, const VramRect* rect = nullptr);
     bool copyLocal(uint32_t spsm, uint32_t sbp, uint32_t sbw, uint32_t sx, uint32_t sy, uint32_t dpsm, uint32_t dbp,
                    uint32_t dbw, uint32_t dx, uint32_t dy, uint32_t w, uint32_t h);
     // host->local image upload into a GPU-owned render target: true = apply it to the target when it completes
@@ -222,7 +227,7 @@ public:
     bool beginTargetUpload(uint32_t psm, uint32_t bp, uint32_t bw, uint32_t x, uint32_t y, uint32_t w, uint32_t h);
     // apply = false: only mark the target rows current (transfer start); true: write the uploaded pixels (completion)
     void completeTargetUpload(uint32_t psm, uint32_t bp, uint32_t bw, uint32_t x, uint32_t y, uint32_t w, uint32_t h,
-                              bool apply);
+                              bool apply, uint64_t written);
     void flushAll();
     // draw an HD movie frame over the rectangle (x, y, w, h) of the frame buffer at block dbp (gs_core movie tracking);
     // imageId identifies the image so a repeated frame is not uploaded again

@@ -37,6 +37,8 @@
 #include "cpu_profile.h"
 #include "rt_upload.h"
 #include "rt_readback.h"
+#include "partial_upload.h"
+#include "partial_upload_d3d11.h"
 #include "temporal_presentation.h"
 #include "surface_geometry.h"
 #include "ray_water.h"
@@ -220,6 +222,13 @@ struct RT {
     // Blocks an applied upload made identical on the GPU and in memory (completeTargetUpload), valid while rt.writes
     // still equals cleanWrites: any later GPU write (draw, row sync, resize) invalidates the whole set.
     std::vector<uint64_t> cleanBlocks;
+    std::unordered_map<uint32_t, uint32_t> cleanWords; // known CPU/GPU-identical bits of partially uploaded words
+    struct ReadbackCopy {
+        ComPtr<ID3D11Texture2D> texture;
+        uint32_t width = 0, height = 0, y0 = 0, y1 = 0, readScale = 0, renderScale = 0;
+        uint64_t writes = ~0ull;
+    } readbackCopy;
+    uint64_t readbackFrame = ~0ull;
     uint64_t cleanWrites = ~0ull;
     hud::CanvasFrame inventoryCanvasFrame;
     uint64_t displaySeenFrame = ~0ull;
@@ -281,13 +290,13 @@ public:
     std::string adapterName() const override;
     void draw(const GsDrawState& st, const ClutBuf& clut, const DrawVertex* v, uint32_t count) override;
     void flushToMemory(uint32_t firstBlock, uint32_t lastBlock) override;
-    void flushForRead(uint32_t firstBlock, uint32_t lastBlock) override;
+    void flushForRead(uint32_t firstBlock, uint32_t lastBlock, const VramRect* rect = nullptr) override;
     bool copyLocal(uint32_t spsm, uint32_t sbp, uint32_t sbw, uint32_t sx, uint32_t sy, uint32_t dpsm, uint32_t dbp,
                    uint32_t dbw, uint32_t dx, uint32_t dy, uint32_t w, uint32_t h) override;
     bool beginTargetUpload(uint32_t psm, uint32_t bp, uint32_t bw, uint32_t x, uint32_t y, uint32_t w,
                            uint32_t h) override;
     void completeTargetUpload(uint32_t psm, uint32_t bp, uint32_t bw, uint32_t x, uint32_t y, uint32_t w, uint32_t h,
-                              bool apply) override;
+                              bool apply, uint64_t written) override;
     void flushAll() override;
     void drawMovieFrame(uint32_t dbp, uint32_t dbw, uint32_t x, uint32_t y, uint32_t w, uint32_t h,
                         const MovieImage& image, uint64_t imageId) override;
@@ -450,6 +459,7 @@ struct D3D11Backend::Impl {
     bool modernWater = runtimeFlags().modernWater;
     bool rayReflections = runtimeFlags().rayReflections;
     bool rayShadows = runtimeFlags().rayShadows;
+    bool rayGlobalIllumination = runtimeFlags().rayGlobalIllumination;
     std::unique_ptr<surface::RayWater> waterRenderer;
     surface::ResidentScene residentScene;
     std::vector<surface::Texture> reflectionTextures;
@@ -596,6 +606,9 @@ struct D3D11Backend::Impl {
     uint32_t dumpRows = runtimeFlags().rtDumpRows;
     ComPtr<ID3D11Texture2D> staging;
     NativeReadback nativeReadback;
+    PartialUpload partialUpload;
+    PartialUploadGpu partialUploadGpu;
+    bool uploadPartial = false;
     bool nativeReadbackEnabled = runtimeFlags().nativeReadback;
     uint32_t stagingW = 0, stagingH = 0;
 
@@ -661,17 +674,21 @@ struct D3D11Backend::Impl {
     static uint32_t unpackPixel(uint32_t psm, uint32_t v);
     void ensureStaging(uint32_t w, uint32_t h);
     void readbackRT(RT& rt);
+    void prefetchReadback(RT& rt);
     void syncRT(RT& rt);
     void flushToMemory(uint32_t first, uint32_t last);
-    void flushForRead(uint32_t first, uint32_t last);
+    void flushForRead(uint32_t first, uint32_t last, const VramRect* rect = nullptr);
     bool blocksAreClean(const RT& rt, uint32_t first, uint32_t last) const;
+    bool readBitsAreClean(const RT& rt, const PartialUpload& requested) const;
     void verifyRTBlocks(RT& rt, uint32_t first, uint32_t last, uint32_t rowLo, uint32_t rowHi, uint32_t cmpBase = ~0u,
-                        uint32_t cmpFbw = 0);
+                        uint32_t cmpFbw = 0, const PartialUpload* requested = nullptr);
     bool copyLocal(uint32_t spsm, uint32_t sbp, uint32_t sbw, uint32_t sx, uint32_t sy, uint32_t dpsm, uint32_t dbp,
                    uint32_t dbw, uint32_t dx, uint32_t dy, uint32_t w, uint32_t h);
     bool beginTargetUpload(uint32_t psm, uint32_t bp, uint32_t bw, uint32_t x, uint32_t y, uint32_t w, uint32_t h);
+    bool beginPartialUpload(uint32_t psm, uint32_t bp, uint32_t bw, uint32_t x, uint32_t y, uint32_t w, uint32_t h);
+    void completePartialUpload(bool apply, uint64_t written);
     void completeTargetUpload(uint32_t psm, uint32_t bp, uint32_t bw, uint32_t x, uint32_t y, uint32_t w, uint32_t h,
-                              bool apply);
+                              bool apply, uint64_t written);
     bool uploadCovers(uint32_t block) const;
     void trimDirtyRows(RT& rt);
     RT* aliasedTarget(uint32_t psm, uint32_t mxl, const std::vector<std::pair<uint32_t, uint32_t>>& spans);

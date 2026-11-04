@@ -15,6 +15,8 @@ Texture2D<float4> Color : register(t2);
 Texture2D<float> Depth : register(t3);
 RWTexture2D<float4> Output : register(u0);
 RWStructuredBuffer<float4> Sky : register(u1);
+RWTexture2D<float4> Transport : register(u2); // nonnegative incoming linear radiance, directional specular energy
+RWTexture2D<float4> TransportGuide : register(u3); // matched geometric receiver normal
 groupshared float4 SkySamples[7][256];
 float3 skyAxis(uint sector) {
     uint axis=(sector-1)/2;float sign=(sector&1)?1:-1;
@@ -138,6 +140,13 @@ float3 materialDisplay(uint primitive,float2 bary) {
 float3 materialColor(uint primitive,float2 bary) {return toLinear(materialDisplay(primitive,bary));}
 float materialAlpha(uint primitive,float2 bary) {
     uint i=primitive*kAttributes,flags=uint(Materials[i+5].z),func=flags&7;
+    if((Effects.w&4096) && (flags&512))return 1;
+    // NEVER/ALWAYS on an opaque material do not depend on interpolated alpha
+    // or texture texels. Avoid four bilinear texel reads for every candidate.
+    if(Effects.w&2048){
+        if(func==0)return -1;
+        if(func==1 && !(flags&8))return 1;
+    }
     float3 weights=float3(1-bary.x-bary.y,bary.x,bary.y);
     float vertex=floor(dot(weights,float3(Materials[i].a,Materials[i+1].a,Materials[i+2].a))*128+.5);
     float a=vertex;
@@ -148,6 +157,12 @@ float materialAlpha(uint primitive,float2 bary) {
         (func==5 && a>=ref) || (func==6 && a>ref) || (func==7 && a!=ref);
     if(!pass)return -1;
     return (flags&8)?saturate(a/128):1;
+}
+// Only for hits already accepted by materialAlpha during traversal. A passed
+// nonblended test returns one; do not sample its cutout texture a second time.
+float acceptedMaterialAlpha(uint primitive,float2 bary) {
+    if((Effects.w&8192) && !(uint(Materials[primitive*kAttributes+5].z)&8))return 1;
+    return materialAlpha(primitive,bary);
 }
 // Faceted native geometry: a neighbouring face across a shallow crease is the same smoothly lit (GS Gouraud)
 // surface, not an occluder. Hits on surfaces facing within 30 degrees of the receiver are ignored, fully counted
@@ -187,7 +202,7 @@ float visibility(float3 p,float3 normal,float3 direction,float maximum,uint self
         }
         if(query.CommittedStatus()!=COMMITTED_TRIANGLE_HIT)break;
         uint primitive=(query.CommittedInstanceID()&0x7ffff)+query.CommittedPrimitiveIndex();
-        float alpha=saturate(materialAlpha(primitive,query.CommittedTriangleBarycentrics()))*float(query.CommittedInstanceID()>>19)/31.;
+        float alpha=saturate(acceptedMaterialAlpha(primitive,query.CommittedTriangleBarycentrics()))*float(query.CommittedInstanceID()>>19)/31.;
         // A low sun over a shallow terrain crease shadows the neighbouring face in per-triangle bands ("stitched"
         // terrain). Those bands are local: a gently sloped hillside further away still casts its shadow.
         travelled+=query.CommittedRayT();
@@ -201,21 +216,21 @@ float visibility(float3 p,float3 normal,float3 direction,float maximum,uint self
 // Ray-traced ambient occlusion. The native ambient term is a flat fill that also lights creases, the ground under
 // props and characters' feet; occluding it (and only it) grounds the scene without changing open surfaces.
 float ambientOcclusion(float3 p,float3 normal,float rotation,uint self) {
-    if(Effects.w&32)return 1; // GSR_RAY_DIAGNOSTIC=direct
+    if(Effects.w&(32|16384))return 1; // direct diagnostic, or the ambient term is exactly zero
     float3 t,b;basis(normal,t,b);float occlusion=0;
     [unroll]for(uint sample=0;sample<kOcclusionRays;++sample){
         // A uniform disk point lifted onto the hemisphere is cosine distributed.
         float2 d=diskSample(sample,kOcclusionRays,rotation);
         RayDesc ray;ray.Origin=p+normal*4;ray.Direction=normalize(t*d.x+b*d.y+normal*sqrt(saturate(1-dot(d,d))));
         ray.TMin=2;ray.TMax=kOcclusionRadius;
-        RayQuery<RAY_FLAG_NONE> query;query.TraceRayInline(Scene,RAY_FLAG_NONE,1,ray);
+        RayQuery<RAY_FLAG_NONE> query;query.TraceRayInline(Scene,RAY_FLAG_NONE,(Effects.w&32768)?16:1,ray);
         while(query.Proceed())if(query.CandidateType()==CANDIDATE_NON_OPAQUE_TRIANGLE && query.CandidateInstanceIndex()!=self){
             uint primitive=(query.CandidateInstanceID()&0x7ffff)+query.CandidatePrimitiveIndex();
             if(!(uint(Materials[primitive*kAttributes+5].z)&256) && materialAlpha(primitive,query.CandidateTriangleBarycentrics())>0)query.CommitNonOpaqueTriangleHit();
         }
         if(query.CommittedStatus()!=COMMITTED_TRIANGLE_HIT)continue;
         uint primitive=(query.CommittedInstanceID()&0x7ffff)+query.CommittedPrimitiveIndex();
-        float alpha=saturate(materialAlpha(primitive,query.CommittedTriangleBarycentrics()))*float(query.CommittedInstanceID()>>19)/31.;
+        float alpha=saturate(acceptedMaterialAlpha(primitive,query.CommittedTriangleBarycentrics()))*float(query.CommittedInstanceID()>>19)/31.;
         // Counting a shallow crease draws dark lines along terrain triangle edges and per-face bands.
         float crease=creaseWeight(primitive,(float3x3)query.CommittedWorldToObject3x4(),normal,ray.Direction);
         occlusion+=alpha*crease*(1-query.CommittedRayT()/kOcclusionRadius);
@@ -223,22 +238,27 @@ float ambientOcclusion(float3 p,float3 normal,float rotation,uint self) {
     return 1-kOcclusionStrength*occlusion/kOcclusionRays;
 }
 struct Lighting {float3 lit,unshadowed,sun;}; // sun: the visible directional light alone
-Lighting nativeLighting(float3 p,float3 normal,float3 shading,float rotation,float occlusion,uint self) {
+Lighting nativeLightingVisible(float3 p,float3 normal,float3 shading,float rotation,float occlusion,uint self,bool secondary) {
     Lighting result;result.sun=0;
-    if(!Effects.z){result.lit=result.unshadowed=1;return result;}
+    if(!Effects.z && !any(Ambient.rgb>0)){result.lit=result.unshadowed=1;return result;}
     result.unshadowed=Ambient.rgb;result.lit=Ambient.rgb*occlusion;
     [loop]for(uint light=0;light<Effects.z;++light){
+        if(!any(LightColor[light].rgb>0))continue;
         float3 l=LightVector[light].xyz;float maximum=1e7,attenuation=1;bool local=LightVector[light].w>0;
-        if(local){l-=p;float distanceSquared=dot(l,l);maximum=sqrt(distanceSquared)-8;
-            if(maximum<=2 || distanceSquared>=LightColor[light].w)continue;
+        if(local){l-=p;float distanceSquared=dot(l,l);
+            if(distanceSquared<=100 || distanceSquared>=LightColor[light].w)continue;
+            maximum=sqrt(distanceSquared)-8;
             attenuation=saturate(1-distanceSquared/LightColor[light].w);}
+        if(dot(shading,l)<=0)continue;
         float3 centre=normalize(l);float ndl=saturate(dot(shading,centre));if(ndl<=0)continue;
         float3 direct=LightColor[light].rgb*ndl*attenuation;float visible=1;
-        if(Effects.y && !(Effects.w&64)){
+        if(!any(direct>0))continue; // zero-energy native lights need no visibility rays
+        if((Effects.y || secondary) && !(Effects.w&64)){
             // Soft shadows from per-pixel rotated samples over the emitter: the penumbra widens with blocker
             // distance (contact hardening), and its noise resolves temporally instead of in fixed steps.
             float3 tangent,bitangent;basis(centre,tangent,bitangent);
-            if(local){
+            if(secondary)visible=visibility(p,normal,centre,maximum,self);
+            else if(local){
                 float sum=0;
                 [unroll]for(uint sample=0;sample<2;++sample){
                     float2 d=diskSample(sample,2,rotation)*kPointLightRadius;
@@ -260,7 +280,15 @@ Lighting nativeLighting(float3 p,float3 normal,float3 shading,float rotation,flo
     }
     return result;
 }
-float3 shadowRatio(Lighting light) {return saturate((light.lit+.0001)/(light.unshadowed+.0001));}
+Lighting nativeLighting(float3 p,float3 normal,float3 shading,float rotation,float occlusion,uint self) {
+    return nativeLightingVisible(p,normal,shading,rotation,occlusion,self,false);
+}
+float3 shadowRatio(Lighting light) {
+    // Native lights modulate the GS display-space vertex colour. The scene and reflected texels are already
+    // linear here, so convert the multiplier too: applying a 0.2 display multiplier in linear space would leave
+    // 48% of the displayed brightness and wash out cast shadows instead of retaining the intended 20%.
+    return toLinear(saturate((light.lit+.0001)/(light.unshadowed+.0001)));
+}
 float3 worldPosition(float2 pixel,float depth) {
     float2 uv=(pixel+.5)/SizeTime.xy;
     float2 ndc=(uv-Jitter.xy/SizeTime.xy)*float2(2,-2)+float2(-1,1);
@@ -270,10 +298,10 @@ float3 worldPosition(float2 pixel,float depth) {
 static const float kLodReach=kMetre; // vertical search for a receiver drawn at a coarser terrain LOD
 // Closest alpha-tested level or model triangle along `ray`. A vertical search passes levelOnly: it looks for the
 // terrain under a drawn pixel, not a prop beside it.
-struct SurfaceHit {bool hit;float t;uint primitive,instance;float2 bary;float3x3 worldToObject;};
+struct SurfaceHit {bool hit,direct;float t,opacity;uint primitive,instance;float2 bary;float3x3 worldToObject;};
 SurfaceHit closestSurface(RayDesc ray,bool levelOnly) {
-    SurfaceHit h;h.hit=false;h.t=0;h.primitive=0;h.instance=kNoInstance;h.bary=0;h.worldToObject=(float3x3)0;
-    RayQuery<RAY_FLAG_NONE> query;query.TraceRayInline(Scene,RAY_FLAG_NONE,1,ray);
+    SurfaceHit h;h.hit=false;h.direct=true;h.t=0;h.opacity=0;h.primitive=0;h.instance=kNoInstance;h.bary=0;h.worldToObject=(float3x3)0;
+    RayQuery<RAY_FLAG_NONE> query;query.TraceRayInline(Scene,RAY_FLAG_NONE,(Effects.w&32768)?16:1,ray);
     while(query.Proceed())if(query.CandidateType()==CANDIDATE_NON_OPAQUE_TRIANGLE){
         uint primitive=(query.CandidateInstanceID()&0x7ffff)+query.CandidatePrimitiveIndex(),flags=uint(Materials[primitive*kAttributes+5].z);
         if(!(flags&256) && !(levelOnly && (flags&128)) && materialAlpha(primitive,query.CandidateTriangleBarycentrics())>0)query.CommitNonOpaqueTriangleHit();
@@ -281,6 +309,7 @@ SurfaceHit closestSurface(RayDesc ray,bool levelOnly) {
     if(query.CommittedStatus()!=COMMITTED_TRIANGLE_HIT)return h;
     h.hit=true;h.t=query.CommittedRayT();h.primitive=(query.CommittedInstanceID()&0x7ffff)+query.CommittedPrimitiveIndex();
     h.instance=query.CommittedInstanceIndex();h.bary=query.CommittedTriangleBarycentrics();
+    h.opacity=float(query.CommittedInstanceID()>>19)/31.;
     h.worldToObject=(float3x3)query.CommittedWorldToObject3x4();
     return h;
 }
@@ -290,12 +319,13 @@ float3 faceNormal(SurfaceHit h) {
 // GS depth is quantized and interpolated independently of DXR geometry. Anchor
 // a shadow receiver to its actual triangle rather than launching from a point
 // slightly inside a cliff (which creates diagonal self-shadow stripes).
-bool primarySurface(inout float3 p,out float3 normal,out float3 shading,out float confidence,out uint self) {
+bool primarySurface(inout float3 p,out float3 normal,out float3 shading,out float confidence,out uint self,out SurfaceHit surface,bool allowLod=true) {
+    surface=(SurfaceHit)0;
     confidence=0;normal=0;shading=0;self=kNoInstance;float distance=length(p);if(distance<=0 || !isfinite(distance))return false;
     float tolerance=max(32,distance*.02);
     RayDesc ray;ray.Origin=0;ray.Direction=p/distance;
     ray.TMin=max(.5,distance-tolerance);ray.TMax=distance+tolerance;
-    SurfaceHit surface=closestSurface(ray,false);float3 anchor=0;
+    surface=closestSurface(ray,false);float3 anchor=0;
     // Fade mismatched receivers before the search interval ends. A hard
     // hit/miss boundary stamps full-detail terrain triangles onto the raster LOD.
     if(surface.hit){confidence=1-smoothstep(.25,1,abs(surface.t-distance)/tolerance);anchor=ray.Direction*surface.t;}
@@ -303,14 +333,14 @@ bool primarySurface(inout float3 p,out float3 normal,out float3 shading,out floa
     // full-detail grid. At grazing views that is far along the view ray, outside its window, so distant terrain lost
     // its shadow tile by tile. Search the level geometry straight below and above the drawn point instead; walls
     // (steep hits) are not LOD error.
-    if(confidence<1){
+    if(allowLod && confidence<1){
         RayDesc vertical;vertical.Origin=p;vertical.TMin=0;vertical.TMax=kLodReach;
         vertical.Direction=float3(0,-1,0);SurfaceHit below=closestSurface(vertical,true);
         vertical.Direction=float3(0,1,0);SurfaceHit above=closestSurface(vertical,true);
         bool up=above.hit && (!below.hit || above.t<below.t);SurfaceHit ground=below;if(up)ground=above;
         if(ground.hit){
             float grounded=(1-smoothstep(.25,1,ground.t/kLodReach))*smoothstep(.5,.7,abs(faceNormal(ground).y));
-            if(grounded>confidence){confidence=grounded;surface=ground;anchor=p+float3(0,up?ground.t:-ground.t,0);}
+            if(grounded>confidence){confidence=grounded;surface=ground;surface.direct=false;anchor=p+float3(0,up?ground.t:-ground.t,0);}
         }
     }
     if(!surface.hit || confidence<=0)return false;
@@ -341,14 +371,18 @@ float3 screenRadiance(float2 uv,float expectedDepth,float3 fallback,float3 scale
     }
     return result;
 }
-float3 hitColor(float3 p,uint primitive,float2 bary,float3 normal,float3 shading,float rotation) {
-    Lighting light=nativeLighting(p,normal,shading,rotation,1,kNoInstance);
+float3 hitColor(float3 p,uint primitive,float2 bary,float3 normal,float3 shading,float rotation,bool secondary=false,uint self=kNoInstance) {
+    Lighting light=nativeLightingVisible(p,normal,shading,rotation,1,self,secondary);
     float3 ratio=shadowRatio(light);
     // Native models carry no GS lighting; the native lights stand in for their vertex colour and, like a GS vertex
     // colour, modulate the texel before it is linearised. Scaling the linear texel instead lit an off-screen model
     // about 2.3 times too brightly in shadow, so a reflected wall stood out as flat bright polygons.
     float3 display=materialDisplay(primitive,bary);
     float3 material=(uint(Materials[primitive*kAttributes+5].z)&128)?toLinear(display*light.lit):toLinear(display)*ratio;
+    // Transport needs outgoing surface radiance, not the camera's composited pixel. Native fog, blended water
+    // and effect overlays share the underlying depth, so a depth-valid screen sample can still be unrelated
+    // radiance. Keep secondary transport view-independent; water's established camera-reflection path may reuse it.
+    if(secondary)return material;
     float4 clip=mul(float4(viewPosition(p),1),Projection);
     if(clip.w>.001) {
         float3 ndc=clip.xyz/clip.w;float2 uv=ndc.xy*float2(.5,-.5)+.5+Jitter.xy/SizeTime.xy;
@@ -389,6 +423,71 @@ float3 environment(float3 direction,float3 fallback) {
     // A low-frequency miss environment, never a substitute for a geometry hit.
     // Retain observed weather while it briefly leaves the camera view.
     return weather;
+}
+// One bounded secondary transport segment, including alpha-tested and partially transparent surfaces. Diffuse
+// misses carry no guessed ambient; specular misses may use only sky actually observed by the sky reduction.
+float3 secondaryRadiance(float3 p,float3 geometric,float3 direction,float rotation,bool sky) {
+    RayDesc ray;ray.Origin=p+geometric*4;ray.Direction=direction;ray.TMin=2;ray.TMax=sky?1e7:20*kMetre;
+    float3 radiance=0;float transmission=1;bool escaped=false;
+    [loop]for(uint layer=0;layer<4 && transmission>.01;++layer){
+        SurfaceHit hit=closestSurface(ray,false);if(!hit.hit){escaped=true;break;}
+        float3 hitPosition=ray.Origin+direction*hit.t,normal=faceNormal(hit);
+        if(dot(normal,direction)>0)normal=-normal;
+        float3 shading=shadingNormal(hit.primitive,hit.bary,hit.worldToObject,normal);
+        float alpha=saturate(acceptedMaterialAlpha(hit.primitive,hit.bary))*hit.opacity;
+        uint self=(uint(Materials[hit.primitive*kAttributes+5].z)&128)?hit.instance:kNoInstance;
+        float3 value=hitColor(hitPosition,hit.primitive,hit.bary,normal,shading,rotation,true,self);
+        if(all(isfinite(value)))radiance+=transmission*alpha*clamp(value,0,16);
+        transmission*=1-alpha;float advance=hit.t+2;ray.Origin+=direction*advance;ray.TMax-=advance;
+        if(ray.TMax<=ray.TMin){transmission=0;break;}
+    }
+    if(sky && escaped)radiance+=transmission*environment(direction,0);
+    return all(isfinite(radiance))?clamp(radiance,0,16):0;
+}
+float2 opaqueMaterial(uint primitive) {
+    uint packed=uint(Materials[primitive*kAttributes+6].w);
+    return packed?float2(max(.04,float(packed&255)/255),float((packed>>8)&255)/255):float2(.75,.04);
+}
+uint transportMaterialKey(uint primitive) {
+    float2 material=opaqueMaterial(primitive);uint flags=uint(Materials[primitive*kAttributes+5].z);
+    return 1+uint(material.x*15+.5)+(uint(material.y*15+.5)<<4)+
+        (((flags&8) || (flags&7)!=1)?256:0)+((flags&128)?512:0);
+}
+float4 opaqueTransport(float3 p,float3 geometric,float3 normal,SurfaceHit surface,float3 view,uint2 pixel) {
+    float2 material=opaqueMaterial(surface.primitive);float roughness=material.x,f0=material.y;
+    float ndv=saturate(dot(normal,view));
+    uint flags=uint(Materials[surface.primitive*kAttributes+5].z);
+    bool glossy=(Effects.w&1024) && ndv>.001 && !(flags&8) && (flags&7)==1;
+    float3 diffuse=0,tangent,bitangent;basis(normal,tangent,bitangent);
+    if(Effects.w&512){
+        float3 incoming=0;float rotation=pixelNoise(pixel,3);
+        [unroll]for(uint sample=0;sample<4;++sample){
+            float2 d=diskSample(sample,4,rotation);
+            float3 direction=normalize(tangent*d.x+bitangent*d.y+normal*sqrt(saturate(1-dot(d,d))));
+            if(dot(direction,geometric)>0)incoming+=secondaryRadiance(p,geometric,direction,rotation,false);
+        }
+        // Cosine-weighted Lambertian estimator: BRDF*cos/pdf cancels pi. Native material colour is the only
+        // available receiver reflectance; clamp its baked lighting to keep this single bounce energy bounded.
+        diffuse+=saturate(materialColor(surface.primitive,surface.bary))*(glossy?1:1-f0)*incoming*.25;
+    }
+    if(!glossy)return float4(diffuse,0);
+    float3 reflected=0;float energy=0;float rotation=pixelNoise(pixel,4),alpha=roughness*roughness,a2=alpha*alpha;
+    [unroll]for(uint sample=0;sample<4;++sample){
+        float2 d=diskSample(sample,4,rotation);float u=dot(d,d);
+        float nh=sqrt((1-u)/(1+(a2-1)*u));
+        float3 halfVector=normalize((tangent*d.x+bitangent*d.y)*sqrt((1-nh*nh)/max(u,1e-6))+normal*nh);
+        float vh=saturate(dot(view,halfVector));float3 direction=reflect(-view,halfVector);
+        float nl=saturate(dot(normal,direction));
+        if(nl>0 && vh>0 && dot(direction,geometric)>0){
+            float geometry=(2*ndv/(ndv+sqrt(a2+(1-a2)*ndv*ndv)))*(2*nl/(nl+sqrt(a2+(1-a2)*nl*nl)));
+            float weight=max(0,geometry*vh/max(ndv*nh,1e-5));
+            float f=f0+(1-f0)*pow(1-vh,5);
+            energy+=f*weight;
+            reflected+=secondaryRadiance(p,geometric,direction,rotation,true)*f*weight;
+        }
+    }
+    energy=saturate(energy*.25);
+    return float4(diffuse*(1-energy)+reflected*.25,energy);
 }
 // Native water is several blended layers over one pixel: the surface itself (vertex alpha about 0.85) and overlay
 // passes (a sheen near 0.38, a darkening pass of 0.1-0.5, ...). CPU-clipped layers carry different GS depth scales,
@@ -456,6 +555,47 @@ float caustic(float2 p) {
     a=saturate(1-abs(a)*.5);b=saturate(1-abs(b)*.5);a*=a*a;b*=b*b;
     return a*a+b*b-.2; // about zero mean: caustics redistribute light rather than add it
 }
+// Trace transport once per 2x2 block. Filter incoming light and the scalar reflected energy separately from native
+// colour. Filtering a signed RGB delta transfers a neighbour's coloured diffuse subtraction onto another texture,
+// producing complementary red/blue patches even when all incoming radiance is neutral.
+[numthreads(8,8,1)]
+void transportMain(uint3 id : SV_DispatchThreadID) {
+    uint2 size=(uint2(SizeTime.xy)+1)/2;if(any(id.xy>=size))return;
+    Transport[id.xy]=0;TransportGuide[id.xy]=0;
+    uint2 pixel=min(id.xy*2+1,uint2(SizeTime.xy)-1);float depth=Depth.Load(int3(pixel,0));
+    if(depth<=0 || !isfinite(depth) || !(Effects.w&1536) || (Effects.w&224))return;
+    float3 surface=worldPosition(pixel,depth),normal,shading;float confidence;uint self;SurfaceHit primary;
+    if(!all(isfinite(surface)) || !primarySurface(surface,normal,shading,confidence,self,primary,false))return;
+    float4 incoming=opaqueTransport(surface,normal,shading,primary,-normalize(surface),pixel);
+    if(all(isfinite(incoming))){
+        Transport[id.xy]=max(0,incoming)*confidence;
+        TransportGuide[id.xy]=float4(normal,transportMaterialKey(primary.primitive));
+    }
+}
+float4 filteredTransport(uint2 pixel,float depth,float3 normal,uint materialClass) {
+    float3 centre=worldPosition(pixel,depth);
+    if(dot(normal,normal)<.5)return 0;
+    float3 albedo=toLinear(Color.Load(int3(pixel,0)).rgb);float4 sum=0;float total=0;
+    float footprint=2*length(centre)/max(1,SizeTime.y*abs(Projection[1][1]));
+    footprint/=max(.05,abs(dot(normal,normalize(centre))));
+    int2 size=(int2(SizeTime.xy)+1)/2,base=int2(pixel/2);
+    [unroll]for(int y=-2;y<=2;++y)[unroll]for(int x=-2;x<=2;++x){
+        int2 q=base+int2(x,y);if(any(q<0) || any(q>=size))continue;
+        float4 guide=TransportGuide[q];if(uint(guide.w)!=materialClass)continue;
+        uint2 source=min(uint2(q)*2+1,uint2(SizeTime.xy)-1);
+        float sourceDepth=Depth.Load(int3(source,0));if(sourceDepth<=0 || !isfinite(sourceDepth))continue;
+        float4 sample=Transport[q];
+        float3 delta=worldPosition(source,sourceDepth)-centre;
+        if(length(delta)>max(32,footprint*8))continue;
+        float plane=abs(dot(delta,normal)),tolerance=max(4,length(centre)*.005);
+        if(plane>3*tolerance)continue;
+        float weight=exp(-float(x*x+y*y)/8)*exp(-plane/tolerance);
+        weight*=smoothstep(.75,.95,dot(normal,guide.xyz));
+        weight*=exp(-length(toLinear(Color.Load(int3(source,0)).rgb)-albedo)*4);
+        sum+=sample*weight;total+=weight;
+    }
+    return total>1e-5?sum/total:0;
+}
 [numthreads(8,8,1)]
 void main(uint3 id : SV_DispatchThreadID) {
     if(any(id.xy>=uint2(SizeTime.xy)))return;
@@ -479,18 +619,32 @@ void main(uint3 id : SV_DispatchThreadID) {
     float rotation=pixelNoise(id.xy,0);
     Lighting waterLight;waterLight.lit=waterLight.unshadowed=1;waterLight.sun=0;
     if(haveWater)waterLight=nativeLighting(p,geometric,geometric,rotation,1,kNoInstance);
-    if(Effects.y && Effects.z && sceneDepth>0){
+    bool transportActive=(Effects.w&1536) && !(Effects.w&224);
+    float3 receiver=0,receiverNormal=0,receiverShading=0;float receiverConfidence=0;uint receiverSelf=kNoInstance;
+    SurfaceHit receiverHit=(SurfaceHit)0;bool haveReceiver=false;
+    if(!haveWater && sceneDepth>0 && (Effects.y || transportActive)){
+        receiver=worldPosition(id.xy,sceneDepth);
+        haveReceiver=all(isfinite(receiver)) && primarySurface(receiver,receiverNormal,receiverShading,
+            receiverConfidence,receiverSelf,receiverHit,Effects.y!=0);
+    }
+    if(Effects.y && sceneDepth>0){
         if(Effects.w&128)receiverShadow=0;
         if(haveWater)receiverShadow=shadowRatio(waterLight);
-        else {
-            float3 surface=worldPosition(id.xy,sceneDepth),normal,shading;float confidence;uint self;
-            if(all(isfinite(surface)) && primarySurface(surface,normal,shading,confidence,self)){
-                if(Effects.w&128){Output[id.xy]=float4(confidence.xxx,original.a);return;}
-                float occlusion=ambientOcclusion(surface,normal,pixelNoise(id.xy,1),self);
-                receiverShadow=lerp(float3(1,1,1),shadowRatio(nativeLighting(surface,normal,shading,rotation,occlusion,self)),confidence);
-            }
+        else if(haveReceiver){
+            if(Effects.w&128){Output[id.xy]=float4(receiverConfidence.xxx,original.a);return;}
+            float occlusion=ambientOcclusion(receiver,receiverNormal,pixelNoise(id.xy,1),receiverSelf);
+            receiverShadow=lerp(float3(1,1,1),shadowRatio(nativeLighting(receiver,receiverNormal,receiverShading,
+                rotation,occlusion,receiverSelf)),receiverConfidence);
         }
         Output[id.xy]=(Effects.w&128)?float4(receiverShadow,original.a):float4(toDisplay(toLinear(original.rgb)*receiverShadow),original.a);
+    }
+    // These opaque material effects are independent of water and direct-shadow switches. Diagnostic modes
+    // remain isolated so AO/direct/receiver views continue to measure only their named effect.
+    if(transportActive && haveReceiver && receiverHit.direct){
+        uint materialKey=transportMaterialKey(receiverHit.primitive);
+        float4 incoming=filteredTransport(id.xy,sceneDepth,receiverNormal,materialKey)*receiverConfidence;
+        float3 after=toLinear(Output[id.xy].rgb)*(1-saturate(incoming.a))+incoming.rgb;
+        if(all(isfinite(after)))Output[id.xy]=float4(toDisplay(max(0,after)),original.a);
     }
     if(!Effects.x || !haveWater)return;
     float bottom=distance+8000;
@@ -550,7 +704,7 @@ void main(uint3 id : SV_DispatchThreadID) {
                 }
                 if(reflection.CommittedStatus()!=COMMITTED_TRIANGLE_HIT)break;
                 uint primitive=(reflection.CommittedInstanceID()&0x7ffff)+reflection.CommittedPrimitiveIndex();float2 bary=reflection.CommittedTriangleBarycentrics();
-                float alpha=saturate(materialAlpha(primitive,bary))*float(reflection.CommittedInstanceID()>>19)/31.;float3 hit=ray.Origin+ray.Direction*reflection.CommittedRayT();
+                float alpha=saturate(acceptedMaterialAlpha(primitive,bary))*float(reflection.CommittedInstanceID()>>19)/31.;float3 hit=ray.Origin+ray.Direction*reflection.CommittedRayT();
                 float3 localNormal=float3(Materials[primitive*kAttributes+4].zw,Materials[primitive*kAttributes+5].x);
                 float3 hitNormal=normalize(mul(localNormal,(float3x3)reflection.CommittedWorldToObject3x4()));
                 if(dot(hitNormal,-ray.Direction)<0)hitNormal=-hitNormal;

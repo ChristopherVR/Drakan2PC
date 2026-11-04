@@ -337,11 +337,14 @@ void displayPage(gameui::SettingPage& pg, const Settings& st, const SchemaEnv& e
                                               "and Fresnel shading on native water layers."
                                             : caps.modernWaterStatus,
              false, caps.modernWater || v.modernWater);
-    b.toggle("video.ray_reflections", "Ray-traced water reflections",
-             "Reflections include resident terrain and ceilings outside the view. Object and alpha-tested material "
-             "coverage remains partial. Requires modern water.",
-             false, caps.modernWater && v.modernWater)
-        .needs = "Needs modern water.";
+    b.toggle("video.ray_reflections", "Ray-traced reflections",
+             "Water and rough opaque-material reflections include resident geometry outside the view. "
+             "Object and alpha-tested material coverage remains partial.",
+             false, caps.modernWater || v.rayReflections);
+    b.toggle("video.ray_gi", "Ray-traced global illumination",
+             "Experimental diffuse light bounced from nearby scene surfaces. Adds indirect illumination to "
+             "opaque materials; scene and material coverage remains partial.",
+             false, caps.modernWater || v.rayGlobalIllumination);
     if (!caps.rayTracingStatus.empty()) {
         SettingRow& r = b.row("video.ray_tracing_status", SettingKind::Info, "Ray tracing status",
                               caps.rayTracingStatus, false, true);

@@ -390,10 +390,10 @@ void D3D11Backend::Impl::draw(const GsDrawState& s, const ClutBuf& clut, const D
                                                     (waterWorldCamera.flags & SceneGuideCamera::World)
                                                 ? waterWorldCamera
                                                 : sceneCamera;
-    if ((modernWater || rayShadows) && (engineWorldOpen || pendingTemporalEnd) &&
-        surface::surfaceCameraAccepted(surfaceSource, pendingTemporalEnd) && rt->w >= surfaceSource.frameWidth &&
-        rt->h >= surfaceSource.frameHeight && (nativeWaterPass || (zte && ztst >= 2)) &&
-        !(s.flags & (DF_SPRITE | DF_LINE | DF_POINT)) && count % 3 == 0) {
+    if ((modernWater || rayShadows || rayReflections || rayGlobalIllumination) &&
+        (engineWorldOpen || pendingTemporalEnd) && surface::surfaceCameraAccepted(surfaceSource, pendingTemporalEnd) &&
+        rt->w >= surfaceSource.frameWidth && rt->h >= surfaceSource.frameHeight &&
+        (nativeWaterPass || (zte && ztst >= 2)) && !(s.flags & (DF_SPRITE | DF_LINE | DF_POINT)) && count % 3 == 0) {
         CpuProfile::Scope surfaceProfile(cpuProfile, CpuProfile::DrawSurface);
         // Same camera cache key as before the builder: every draw reaching this point may reconfigure it.
         if (surfaceBuilder->needsConfigure(surfaceSource.serial, s.xyoffset))
@@ -469,7 +469,7 @@ void D3D11Backend::Impl::draw(const GsDrawState& s, const ClutBuf& clut, const D
         rt->w >= sceneCamera.frameWidth && rt->h >= sceneCamera.frameHeight && zte && ztst >= 2 &&
         !(s.flags & DF_SPRITE))
         rt->worldEpoch = motionEpoch;
-    if (neuralEnabled || upMode || modernWater || rayShadows) {
+    if (neuralEnabled || upMode || modernWater || rayShadows || rayReflections || rayGlobalIllumination) {
         const bool worldCamera =
             !neuralWorldClosed &&
             (sceneCamera.flags &
@@ -1220,6 +1220,8 @@ void D3D11Backend::Impl::draw(const GsDrawState& s, const ClutBuf& clut, const D
         }
     }
     rt->copyValid = false;
+    if (writeMask)
+        prefetchReadback(*rt);
     if ((!rtDump.empty() && rtDump.count(di)) ||
         (rtDumpFrame >= 0 && (int64_t)frame >= rtDumpFrame && (int64_t)frame <= rtDumpFrameLast)) {
         // debug: GSR_RTDUMP=<draw>[,<draw>...] writes the scissor area of the target as rtdump_<draw>.png

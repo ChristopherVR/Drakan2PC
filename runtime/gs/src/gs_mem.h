@@ -9,6 +9,21 @@
 
 namespace gsr {
 
+struct VramRect {
+    uint32_t psm, bp, bw, x, y, w, h;
+};
+
+inline VramRect textureMemoryRect(uint32_t psm, uint32_t bp, uint32_t bw, uint32_t w, uint32_t h, uint64_t mip1,
+                                  uint64_t mip2, uint32_t level) {
+    if (level) {
+        const uint64_t mip = level <= 3 ? mip1 : mip2;
+        const uint32_t shift = ((level - 1) % 3) * 20;
+        bp = uint32_t(mip >> shift) & 0x3fff;
+        bw = uint32_t(mip >> (shift + 14)) & 63;
+    }
+    return {psm, bp, std::max(bw, 1u), 0, 0, std::max(1u, w >> level), std::max(1u, h >> level)};
+}
+
 enum Psm : uint32_t {
     PSM_CT32 = 0x00,
     PSM_CT24 = 0x01,

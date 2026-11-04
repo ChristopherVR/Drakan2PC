@@ -111,11 +111,16 @@ void sceneSink(PS2Runtime& runtime, const gsr::SceneGuideCamera& camera, void*) 
     if (camera.sourcePc == 0x139010u && !(camera.flags & gsr::SceneGuideCamera::EndWorld)) {
         shadowFrame.begin(nullptr);
         static uint64_t identity = 0;
+        static uint64_t layout = 0;
         static unsigned checks = 0;
         static bool wasOn = false;
         const bool on = lease->gs && lease->gs->sceneModelsRequested();
         drakan_scene_camera::setWaterCaptureEnabled(lease->gs && lease->gs->waterRenderingRequested());
-        if (on && (!wasOn || (++checks % 32) == 0)) {
+        const uint64_t currentLayout =
+            on ? drakan_scene_geometry::layoutIdentity(runtime.memory().getRDRAM(), PS2_RAM_SIZE) : 0;
+        const bool layoutChanged = currentLayout != layout;
+        if (on && (!wasOn || (++checks % 32) == 0 || layoutChanged || (camera.flags & gsr::SceneGuideCamera::Reset))) {
+            layout = currentLayout;
             auto geometry = drakan_scene_geometry::capture(runtime.memory().getRDRAM(), PS2_RAM_SIZE, identity);
             if (geometry.identity != identity || !wasOn) {
                 if (!wasOn && geometry.identity == identity)

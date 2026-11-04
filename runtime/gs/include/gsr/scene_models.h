@@ -1,4 +1,5 @@
 #pragma once
+#include <cmath>
 #include <cstdint>
 #include <memory>
 #include <vector>
@@ -11,12 +12,21 @@ struct SceneLight {
 struct SceneLighting {
     float ambient[3]{};
     std::vector<SceneLight> lights;
+    bool hasContribution() const {
+        if (!lights.empty())
+            return true;
+        for (float channel : ambient)
+            if (std::isfinite(channel) && channel > 0)
+                return true;
+        return false;
+    }
 };
 struct SceneModelTexture {
     uint64_t identity = 0;
     uint32_t nativeId = 0, flags = 0;
     // Original GS alpha domain (128 is unity), like the renderer's texel cache.
-    std::vector<uint32_t> pixels; // owned 128x128 RGBA8, no guest pointers
+    std::vector<uint32_t> pixels;               // owned 128x128 RGBA8, no guest pointers
+    float roughness = .75f, reflectance = .04f; // conservative dielectric fallback; optional material overrides
 };
 struct SceneModelTriangle {
     float position[3][3]{}, uv[3][2]{};

@@ -290,10 +290,12 @@ void WgpuBackend::Impl::applyLive(const LiveSettings& ls) {
         setUpscale(ls.upMode, ls.upPreset, ls.upSharp);
     if (ls.mask & L::F_WATER) {
         discardTemporalWorlds();
-        const bool newlyEnabled = !(modernWater || rayShadows) && (ls.modernWater || ls.rayShadows);
+        const bool newlyEnabled = !(modernWater || rayShadows || rayReflections || rayGlobalIllumination) &&
+                                  (ls.modernWater || ls.rayShadows || ls.rayReflections || ls.rayGlobalIllumination);
         modernWater = ls.modernWater;
         rayReflections = ls.rayReflections;
         rayShadows = ls.rayShadows;
+        rayGlobalIllumination = ls.rayGlobalIllumination;
         lastPresentedWater = lastPresentedRay = false;
         if (newlyEnabled)
             flushTexCaches(); // capture the material texels of the textures already cached

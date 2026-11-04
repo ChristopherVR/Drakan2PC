@@ -30,16 +30,26 @@ struct RuntimeFlags {
     uint64_t raySceneDumpEpoch = 200;         // GSR_RAY_SCENE_DUMP_EPOCH: positive integer; default 200
 
     // ---- modern water / ray tracing (d3d11_backend, ray_water) -------------------------------------------------
-    bool modernWater = false;                // GSR_MODERN_WATER: not-"0"; default off
-    bool rayReflections = true;              // GSR_RAY_REFLECTIONS: unset or not-"0"; default on
-    bool rayShadows = false;                 // GSR_RAY_SHADOWS: not-"0"; default off
-    bool rayCpuCache = true;                 // GSR_RAY_CPU_CACHE: first-char != '0'; default on
-    bool rayCpuCacheCheck = false;           // GSR_RAY_CPU_CACHE_CHECK: first-char == '1'; default off
-    bool surfaceAsync = true;                // GSR_SURFACE_ASYNC: first-char != '0'; surface reconstruction thread
-    bool rayWorldCache = true;               // GSR_RAY_WORLD_CACHE: first-char != '0'; default on
-    bool rayPackedTextures = true;           // GSR_RAY_PACKED_TEXTURES: first-char != '0'; default on
-    uint32_t waterCoverageDebug = 0;         // GSR_WATER_COVERAGE_DEBUG: atoi; default 0
-    std::optional<float> waterTime;          // GSR_WATER_TIME: strtof; fixes the water clock (site rejects non-finite)
+    bool modernWater = false;           // GSR_MODERN_WATER: not-"0"; default off
+    bool rayReflections = false;        // GSR_RAY_REFLECTIONS: not-"0"; default off
+    bool rayGlobalIllumination = false; // GSR_RAY_GI: not-"0"; default off
+    bool rayGpuTiming = false;          // GSR_RAY_GPU_TIMING: presence; delayed DXR stage timestamps
+    bool rayAlphaFastPath = true;       // GSR_RAY_ALPHA_FAST_PATH=0: evaluate constant alpha tests through texels
+    bool rayAlphaCoverage = true;       // GSR_RAY_ALPHA_COVERAGE=0: sample native cutouts with proven coverage
+    bool rayAcceptedAlpha = true;       // GSR_RAY_ACCEPTED_ALPHA=0: resample nonblended hits after acceptance
+    bool rayZeroAmbient = true;         // GSR_RAY_ZERO_AMBIENT=0: trace AO even when its light contribution is zero
+    bool rayPruneRejected = true;       // GSR_RAY_PRUNE_REJECTED=0: traverse batches rejected by every hit test
+    bool rtUploadSpecialize = true;     // GSR_RT_UPLOAD_SPECIALIZE=0: variable-scale CPU upload expansion
+    bool rayUploadCache = true;         // GSR_RAY_UPLOAD_CACHE: first-char != '0'; exact attribute dirty ranges
+    bool rayShadows = false;            // GSR_RAY_SHADOWS: not-"0"; default off
+    bool rayCpuCache = true;            // GSR_RAY_CPU_CACHE: first-char != '0'; default on
+    bool rayModelReuse = true;          // GSR_RAY_MODEL_REUSE: snapshot and welded-normal reuse, default on
+    bool rayCpuCacheCheck = false;      // GSR_RAY_CPU_CACHE_CHECK: first-char == '1'; default off
+    bool surfaceAsync = true;           // GSR_SURFACE_ASYNC: first-char != '0'; surface reconstruction thread
+    bool rayWorldCache = true;          // GSR_RAY_WORLD_CACHE: first-char != '0'; default on
+    bool rayPackedTextures = true;      // GSR_RAY_PACKED_TEXTURES: first-char != '0'; default on
+    uint32_t waterCoverageDebug = 0;    // GSR_WATER_COVERAGE_DEBUG: atoi; default 0
+    std::optional<float> waterTime;     // GSR_WATER_TIME: strtof; fixes the water clock (site rejects non-finite)
     std::optional<std::string> raySceneDump; // GSR_RAY_SCENE_DUMP: string; dump at raySceneDumpEpoch
     bool waterLog = false;                   // GSR_WATER_LOG: presence
     uint32_t rayWatchdogMs = 3000; // GSR_RAY_WATCHDOG_MS: atoi; a pass stuck this long on the GPU (7x on the CPU) is
@@ -66,7 +76,7 @@ struct RuntimeFlags {
 
     // ---- matched on/off comparisons and world screenshots (d3d11_backend) -----------------------------------------
     std::optional<uint64_t> matchedCompareEpoch;     // GSR_MATCHED_COMPARE_EPOCH: strtoull; world epoch to compare
-    std::optional<std::string> matchedCompareEffect; // GSR_MATCHED_COMPARE_EFFECT: water | models | shadows | other
+    std::optional<std::string> matchedCompareEffect; // GSR_MATCHED_COMPARE_EFFECT: water | models | shadows | transport
     std::optional<std::string> matchedComparePrefix; // GSR_MATCHED_COMPARE: output path prefix
     std::optional<uint64_t> worldShotAt;             // GSR_WORLD_SHOT_AT: strtoull; world epoch to screenshot
     std::optional<std::string> worldShotPrefix;      // GSR_WORLD_SHOT: output path prefix (used with the above)

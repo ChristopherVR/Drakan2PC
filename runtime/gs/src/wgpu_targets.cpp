@@ -155,6 +155,13 @@ rhi::Texture* WgpuBackend::Impl::nativeGather(RT& rt, uint32_t rows, uint32_t y0
 
 void WgpuBackend::Impl::readbackRT(RT& rt) {
     CpuProfile::Scope profile(cpuProfile, CpuProfile::ReadbackRT);
+    // Match the display/HUD boundary when the guest first consumes a closed world through a screen grab instead.
+    // Active world geometry and the late native-water stream must remain open until their real boundary.
+    if (pendingTemporalEnd && !engineWorldOpen && !nativeWaterPass && rt.neuralState == 1) {
+        pendingTemporalEnd = false;
+        for (auto& target : rts)
+            finalizeNeuralWorld(*target);
+    }
     if (rt.wstate == 1)
         finalizeWorld(rt);
     if (!rt.dirty || rt.dy1 <= rt.dy0) {
@@ -258,7 +265,7 @@ bool WgpuBackend::Impl::blocksAreClean(const RT& rt, uint32_t first, uint32_t la
     return true;
 }
 
-void WgpuBackend::Impl::flushForRead(uint32_t first, uint32_t last) {
+void WgpuBackend::Impl::flushForRead(uint32_t first, uint32_t last, const VramRect*) {
     if (!readbackSkipEnabled()) {
         flushToMemory(first, last);
         return;
@@ -382,7 +389,9 @@ bool WgpuBackend::Impl::touchesUpload(const RT& rt) const {
 }
 
 void WgpuBackend::Impl::completeTargetUpload(uint32_t, uint32_t, uint32_t, uint32_t, uint32_t, uint32_t, uint32_t,
-                                             bool apply) {
+                                             bool apply, uint64_t written) {
+    if (!apply && written)
+        return; // Fragment progress is needed only by the masked D3D11 upload path.
     if (!uploadActive)
         return;
     for (auto& r : rts) {

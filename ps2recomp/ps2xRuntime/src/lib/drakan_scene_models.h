@@ -114,6 +114,73 @@ inline bool layerGround(const Reader& r, uint32_t layer, float x, float z, float
 inline uint64_t hashBytes(uint64_t h, const void* p, size_t n) {
     return drakan_object_motion::captureHashWide(h, p, n);
 }
+// Resource addresses/IDs can be reused before the next level poll. Validate the pose-independent source once per
+// resource/LOD per capture: rebuilding strips/maps is expensive, hashing their owned metadata is not. Animated
+// position bytes are deliberately excluded so ordinary poses continue to use the indexed template fast path.
+inline uint64_t meshContentSignature(const Reader& r, uint32_t m, uint32_t slot, bool staticPositions = false) {
+    if (!r.span(m, 0xc8))
+        return 0;
+    uint64_t hash = 14695981039346656037ull;
+    auto range = [&](uint64_t address, uint64_t bytes) {
+        const bool valid = address <= UINT32_MAX && r.span(uint32_t(address), bytes);
+        hash = hashBytes(hash, &address, sizeof(address));
+        hash = hashBytes(hash, &bytes, sizeof(bytes));
+        hash = hashBytes(hash, &valid, sizeof(valid));
+        if (valid)
+            hash = hashBytes(hash, r.ram + address, size_t(bytes));
+    };
+    range(m + 0x18, 0x2c); // type, source counts/pointers and material library
+    uint32_t nv = r.u(m + 0x1c), nf = r.u(m + 0x20), first = 0, vertexFirst = 0;
+    if (r.u(m + 0x40) > 4096)
+        return 0;
+    if (r.u(m + 0x18) == 0x519a00) {
+        const auto lods = r.u(m + 0xbc), count = r.u(m + 0xc4);
+        if (count > 64 || slot >= count || !r.span(lods, uint64_t(count) * 16))
+            return 0;
+        range(uint64_t(lods) + slot * 16, 16);
+        const auto descriptor = r.u(lods + slot * 16 + 4);
+        if (!r.span(descriptor, 24))
+            return 0;
+        range(descriptor, 24);
+        const auto vertexStart = r.u(descriptor + 8), vertices = r.u(descriptor + 12);
+        first = r.u(descriptor + 16);
+        const auto faces = r.u(descriptor + 20);
+        if (vertexStart > nv || vertices > nv - vertexStart || first > nf || faces > nf - first)
+            return 0;
+        nf = faces;
+        nv = vertices;
+        vertexFirst = vertexStart;
+    }
+    if (!nv || nv > 65535 || !nf || nf > 100000)
+        return 0;
+    if (staticPositions)
+        range(uint64_t(r.u(m + 0x24)) + uint64_t(vertexFirst) * 12, uint64_t(nv) * 12);
+    range(uint64_t(r.u(m + 0x28)) + uint64_t(first) * 12, uint64_t(nf) * 12);
+    range(uint64_t(r.u(m + 0x30)) + uint64_t(first) * 32, uint64_t(nf) * 32);
+    range(r.u(m + 0x38), uint64_t(r.u(m + 0x40)) * 4);
+    const auto slots = r.u(m + 0xa8);
+    range(m + 0xa8, 4);
+    if (r.span(slots, 4)) {
+        const uint64_t prepared = uint64_t(r.u(slots)) + uint64_t(slot) * 40;
+        range(prepared, 40);
+        if (prepared <= UINT32_MAX && r.span(uint32_t(prepared), 40)) {
+            const auto p = uint32_t(prepared), parts = r.u(p + 16), count = r.u(p + 12), groups = r.u(p + 4);
+            if (count <= 4096 && groups <= 256 && r.span(parts, uint64_t(count) * 48)) {
+                range(r.u(p + 8), uint64_t(groups) * 4);
+                range(parts, uint64_t(count) * 48);
+                for (unsigned i = 0; i < count; ++i) {
+                    const auto part = parts + i * 48, selectors = r.u(part + 8), vertices = r.u(part + 16);
+                    if (selectors > 256 || vertices > 1048576)
+                        continue;
+                    range(r.u(part + 12), uint64_t(selectors) * 2);
+                    range(r.u(part + 20), vertices);
+                    range(r.u(part + 28), uint64_t(vertices) * 8);
+                }
+            }
+        }
+    }
+    return hash;
+}
 inline uint64_t key(unsigned material, std::array<uint16_t, 3> v) {
     if (v[0] > v[1])
         std::swap(v[0], v[1]);
@@ -204,6 +271,7 @@ class Capture {
     struct PosedTemplate {
         std::shared_ptr<const gsr::SceneModelMesh> base;
         Corners corners;
+        uint64_t source = 0;
     };
     BackdropTracker backdrops;
     uint64_t level = ~0ull;
@@ -288,7 +356,11 @@ class Capture {
                 refreshIndices[id] = uint32_t(refreshNext.size());
                 auto previous = textureIndices.find(id);
                 if (previous != textureIndices.end() && previous->second < textures.size() &&
-                    textures[previous->second]->identity == t->identity)
+                    textures[previous->second]->identity == t->identity &&
+                    textures[previous->second]->nativeId == t->nativeId &&
+                    textures[previous->second]->flags == t->flags &&
+                    textures[previous->second]->roughness == t->roughness &&
+                    textures[previous->second]->reflectance == t->reflectance)
                     t = textures[previous->second];
                 refreshNext.push_back(t);
             }
@@ -515,8 +587,8 @@ class Capture {
     // positions. Any pose the template cannot represent exactly (a position out of range, a triangle the first pose
     // dropped) takes the full build, so the result is always what mesh() would produce.
     std::shared_ptr<const gsr::SceneModelMesh> posedMesh(const Reader& r, uint32_t m, uint32_t id, uint32_t positions,
-                                                         uint32_t slot, uint64_t templateKey) {
-        if (auto found = templates.find(templateKey); found != templates.end()) {
+                                                         uint32_t slot, uint64_t templateKey, uint64_t source) {
+        if (auto found = templates.find(templateKey); found != templates.end() && found->second.source == source) {
             const auto& t = found->second;
             if (r.span(positions, uint64_t(t.corners.vertices) * 12)) {
                 auto out = std::make_shared<gsr::SceneModelMesh>();
@@ -548,7 +620,7 @@ class Capture {
         Corners corners;
         auto out = mesh(r, m, id, positions, slot, &corners);
         if (out && !corners.positionRejected && out->triangles.size() == corners.indices.size())
-            templates[templateKey] = PosedTemplate{out, std::move(corners)};
+            templates[templateKey] = PosedTemplate{out, std::move(corners), source};
         else
             templates.erase(templateKey);
         return out;
@@ -681,6 +753,8 @@ public:
         auto resources = r.resources(0x4dae20, 0x51cc98, 0x519a00);
         std::unordered_map<uint64_t, uint32_t> used;
         used.reserve(256);
+        std::unordered_map<uint64_t, uint64_t> sourceSignatures;
+        sourceSignatures.reserve(resources.size());
         backdrops.prune();
         for (auto object : live) {
             if (drakan_local_character::g_view.hiddenModel(object))
@@ -743,9 +817,20 @@ public:
                     continue;
                 }
             }
+            uint64_t sourceKey = templateKey ? templateKey : cacheKey;
+            const bool staticPositions = positions == 0;
+            sourceKey = hashBytes(sourceKey, &staticPositions, sizeof(staticPositions));
+            auto [source, inserted] = sourceSignatures.try_emplace(sourceKey, 0);
+            if (inserted)
+                source->second = meshContentSignature(r, it->second, slot, staticPositions);
+            if (!source->second) {
+                ++out->rejectedInstances;
+                continue;
+            }
+            cacheKey = hashBytes(cacheKey, &source->second, sizeof(source->second));
             std::shared_ptr<const gsr::SceneModelMesh> geometry;
             if (positions)
-                geometry = posedMesh(r, it->second, it->first, positions, slot, templateKey);
+                geometry = posedMesh(r, it->second, it->first, positions, slot, templateKey, source->second);
             else if (auto found = meshes.find(cacheKey); found != meshes.end())
                 geometry = found->second;
             else if (!missing.contains(cacheKey)) {

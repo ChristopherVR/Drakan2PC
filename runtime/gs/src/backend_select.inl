@@ -65,8 +65,8 @@ bool Backend::copyLocal(uint32_t spsm, uint32_t sbp, uint32_t sbw, uint32_t sx, 
                         uint32_t dbp, uint32_t dbw, uint32_t dx, uint32_t dy, uint32_t w, uint32_t h) {
     return m_api->copyLocal(spsm, sbp, sbw, sx, sy, dpsm, dbp, dbw, dx, dy, w, h);
 }
-void Backend::flushForRead(uint32_t firstBlock, uint32_t lastBlock) {
-    m_api->flushForRead(firstBlock, lastBlock);
+void Backend::flushForRead(uint32_t firstBlock, uint32_t lastBlock, const VramRect* rect) {
+    m_api->flushForRead(firstBlock, lastBlock, rect);
 }
 void Backend::flushToMemory(uint32_t firstBlock, uint32_t lastBlock) {
     m_api->flushToMemory(firstBlock, lastBlock);
@@ -76,8 +76,8 @@ bool Backend::beginTargetUpload(uint32_t psm, uint32_t bp, uint32_t bw, uint32_t
     return m_api->beginTargetUpload(psm, bp, bw, x, y, w, h);
 }
 void Backend::completeTargetUpload(uint32_t psm, uint32_t bp, uint32_t bw, uint32_t x, uint32_t y, uint32_t w,
-                                   uint32_t h, bool apply) {
-    m_api->completeTargetUpload(psm, bp, bw, x, y, w, h, apply);
+                                   uint32_t h, bool apply, uint64_t written) {
+    m_api->completeTargetUpload(psm, bp, bw, x, y, w, h, apply, written);
 }
 void Backend::flushAll() {
     m_api->flushAll();

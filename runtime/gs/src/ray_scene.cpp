@@ -6,6 +6,32 @@
 #include <cmath>
 
 namespace gsr::surface {
+std::span<const uint32_t> ModelAlphaCoverage::update(const SceneModels* models) {
+    const size_t size = models ? models->textures.size() : 0;
+    sources.resize(size);
+    coverage.resize(size);
+    for (size_t i = 0; i < size; ++i) {
+        const auto& texture = models->textures[i];
+        auto& source = sources[i];
+        // Identity zero is a mutable/ad-hoc test input: revalidate its pixels.
+        if (texture && texture->identity && texture == source.texture && texture->identity == source.identity &&
+            texture->flags == source.flags)
+            continue;
+        source = {texture, texture ? texture->identity : 0, texture ? texture->flags : 0};
+        coverage[i] = texture && texture->pixels.size() == Texture::size * Texture::size &&
+                              std::all_of(texture->pixels.begin(), texture->pixels.end(),
+                                          [](uint32_t pixel) { return (pixel >> 24) != 0; })
+                          ? kRayAlphaPositive
+                          : 0;
+    }
+    return coverage;
+}
+float packRayMaterial(float roughness, float reflectance) {
+    // A small positive roughness avoids singular specular lobes and reserves zero for old/manual attributes.
+    roughness = std::isfinite(roughness) ? std::clamp(roughness, .04f, 1.f) : .75f;
+    reflectance = std::isfinite(reflectance) ? std::clamp(reflectance, 0.f, 1.f) : .04f;
+    return float(uint32_t(roughness * 255.f + .5f) | (uint32_t(reflectance * 255.f + .5f) << 8));
+}
 uint32_t rayDiagnosticEffects(std::string_view mode) {
     if (mode == "ao")
         return kRayDiagnosticNoDirect;
@@ -73,13 +99,16 @@ uint32_t packAttributes(const Triangle& tri, size_t textures, std::vector<Attrib
     out.push_back(
         {normal.z, tri.texture < textures ? float(tri.texture) : -1.f, float(alphaFlags), tri.alphaReference});
     if (normals)
-        out.push_back({packNormal(normals[0]), packNormal(normals[1]), packNormal(normals[2]), 0});
+        out.push_back({packNormal(normals[0]), packNormal(normals[1]), packNormal(normals[2]),
+                       packRayMaterial(tri.roughness, tri.reflectance)});
     else
-        out.push_back({packNormal(normal), packNormal(normal), packNormal(normal), 0});
+        out.push_back({packNormal(normal), packNormal(normal), packNormal(normal),
+                       packRayMaterial(tri.roughness, tri.reflectance)});
     return tri.texture < textures ? 1u : 0u;
 }
 uint32_t packModelAttributes(const SceneModelMesh& mesh, const SceneModels& models, uint32_t nativeTextureBase,
-                             const std::vector<Point>& normals, std::vector<Attribute>& target) {
+                             const std::vector<Point>& normals, std::vector<Attribute>& target,
+                             std::span<const float> packedNormals, std::span<const uint32_t> alphaCoverage) {
     uint32_t texturedCount = 0;
     for (size_t index = 0; index < mesh.triangles.size(); ++index) {
         const auto& tri = mesh.triangles[index];
@@ -90,6 +119,11 @@ uint32_t packModelAttributes(const SceneModelMesh& mesh, const SceneModels& mode
         // selector, including 0x10000's 16-bit binary-alpha materials.
         const bool alpha = (flags & 0xf000a) != 0;
         const bool blend = (flags & 0xf0000) == 0x80000;
+        // Native cutout testing is GREATER 0 with vertex alpha 128 and MODULATE.
+        // A positive minimum over the complete bilinear source proves that
+        // every sample passes. Keep the original flags for material classification.
+        const uint32_t coverage =
+            alpha && !blend && tri.material < alphaCoverage.size() ? alphaCoverage[tri.material] : 0;
         for (unsigned j = 0; j < 3; ++j)
             target.push_back({textured ? 1.f : .35f, textured ? 1.f : .35f, textured ? 1.f : .35f, 1});
         target.push_back({tri.uv[0][0], tri.uv[0][1], tri.uv[1][0], tri.uv[1][1]});
@@ -103,9 +137,16 @@ uint32_t packModelAttributes(const SceneModelMesh& mesh, const SceneModels& mode
         }
         target.push_back({tri.uv[2][0], tri.uv[2][1], normal.x, normal.y});
         target.push_back({normal.z, textured ? float(nativeTextureBase + tri.material) : -1.f,
-                          float((alpha ? 6u : 1u) | (blend ? 8u : 0u) | (textured ? 16u : 0u) | 128u), 0});
+                          float((alpha ? 6u : 1u) | (blend ? 8u : 0u) | (textured ? 16u : 0u) | 128u | coverage), 0});
         const Point* n = &normals[index * 3];
-        target.push_back({packNormal(n[0]), packNormal(n[1]), packNormal(n[2]), 0});
+        const float material = textured ? packRayMaterial(models.textures[tri.material]->roughness,
+                                                          models.textures[tri.material]->reflectance)
+                                        : packRayMaterial(.75f, .04f);
+        if (packedNormals.size() == normals.size())
+            target.push_back(
+                {packedNormals[index * 3], packedNormals[index * 3 + 1], packedNormals[index * 3 + 2], material});
+        else
+            target.push_back({packNormal(n[0]), packNormal(n[1]), packNormal(n[2]), material});
     }
     return texturedCount;
 }

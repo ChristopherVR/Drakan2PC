@@ -81,7 +81,8 @@ public:
                                                    float(flags), tri.alphaReference};
                         // Per-frame draws are not welded (their blocks are cached independently): face normals.
                         const float packed = packNormal(normal);
-                        attributes[attribute++] = {packed, packed, packed, 0};
+                        attributes[attribute++] = {packed, packed, packed,
+                                                   packRayMaterial(tri.roughness, tri.reflectance)};
                     }
             }
             textured += block.textured;
