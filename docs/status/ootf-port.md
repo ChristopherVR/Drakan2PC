@@ -1,6 +1,6 @@
 # Order of the Flame in the PS2 engine: status
 
-Living tracker (reviewed 2026-11-04). Drakan 1 (Order of the Flame, PC) levels are converted from the player's own install into mod
+Living tracker (reviewed 2026-11-05). Drakan 1 (Order of the Flame, PC) levels are converted from the player's own install into mod
 packs that the recompiled PS2 engine plays; nothing from either game is committed. Detail lives in the dated notes under
 `docs/journal/2026-10-31/` and `docs/journal/2026-11-01/` (`ootf-*.md`, `arena-*.md`, `game-select-ootf-boot.md`); formats are in the
 `editor/packages/formats` submodule, pack rules in `reference/modding.md` ("Campaign packs").
@@ -10,6 +10,10 @@ Earlier isolated level loads and scripted exits below do not establish full prog
 [current-header runtime acceptance](../journal/2026-11-04/ootf-current-header-runtime.md),
 [class-reference and heap investigation](../journal/2026-11-04/ootf-class-reference-defaults.md), and earlier
 [cinematic readiness investigation](../journal/2026-11-04/ootf-native-readiness-probe.md).
+
+**November 5 progression repair:** the converter now preserves the first authored player's linked starting inventory through the synthetic Intro player. A fresh normal opening on the previously validated executable earned a native save with Atimar carried; continuations equipped it, performed an identified native melee swing, and preserved the equipped blade through save/reload. The first run was stopped after its earned save when the inventory tutorial blocked the test script; both continuations quit normally. A newer executable had reached its runtime limit during cinematic resource readiness, so this acceptance is bounded to the controlled executable and pack, not every concurrent renderer change. Ordinary progression continues from the earned checkpoint. See [starting inventory](../journal/2026-11-04/ootf-starting-inventory.md).
+
+Converted cinematic actors are also retained by default after the model/clip and display-list repairs. Normal opening solo/co-op checks and isolated later lifecycle checks support that restoration. An isolated ending diagnostic renders the original Delon animation, but its room geometry is not reaching native draw submission despite loaded model and textures; the middle black interval is an authored fade. These checks do not establish a naturally earned or visually complete ending. See [retained cinematic actors](../journal/2026-11-04/ootf-retained-cinematic-props.md).
 
 ## What works
 
