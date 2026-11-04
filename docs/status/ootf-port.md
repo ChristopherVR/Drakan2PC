@@ -48,7 +48,11 @@ at the first cinematic and the transition from scene 1.1 to 1.2; see
 * Map-file key for an adopted loadout item (the ini only knows factory resources), `arena-pvp-open-items.md`.
 * Duplicate-object warnings from source data (Alwarren, Grimstone Mines) are harmless but unexamined.
 
-* 2026-11-02 state proofs (`journal/2026-11-02/ootf-state-proofs.md`): switch -> portcullis and plate -> mover chains proven by world dumps; Dr. Evil: 3 of 4 heads killed in game (4th head blind: fixed, see `journal/2026-11-02/ootf-drevil-ending-and-creature-closeups.md`: all four die and the credits roll); dying dragon now falls. Breath visual: done, see `ootf-dragon-breath-visual.md`.
+* 2026-11-02 state proofs (`journal/2026-11-02/ootf-state-proofs.md`): switch -> portcullis and plate -> mover chains proven by world dumps.
+  An isolated Dr. Evil fight reaches credits after four real kills, using scripted wake, head HP reduced to 3, god mode and an altar
+  teleport (`journal/2026-11-02/ootf-drevil-ending-and-creature-closeups.md`). This verifies the native death-counter-to-credits chain,
+  not the natural Delon-triggered wake, normal boss difficulty or uninterrupted campaign completion. The earlier November 1 ending
+  test injected death messages. Dying dragon now falls; breath visual: done, see `ootf-dragon-breath-visual.md`.
 * 2026-11-02 pass (`journal/2026-11-02/ootf-unproven-creatures-chains.md`): Succubus drawn; Blade Dragons alive and attacking. The initial Queen / Hueges / Tick close-ups were superseded by the hidden-creature investigation below;
   Ebon Dragon and Drone now shown drawn and moving, bats alive but not photographed (`journal/2026-11-02/ootf-flyer-closeups.md`); switch-to-portcullis proven by state; the pack conflict is fixed by one combined conversion (`journal/2026-11-02/ootf-combined-pack.md`).
 
