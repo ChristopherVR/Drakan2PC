@@ -199,10 +199,10 @@ void tick(uint8_t* ram, R5900Context* c, PS2Runtime* rt) {
     }
     g_tick(ram, c, rt);
 }
-// Trace only the two native dust-particle classes implicated by the allocator census.
+// Trace the two native dust-particle classes and their generator implicated by the allocator census.
 // Factory argument t1 is a class-registry index; it is not a resource reference.
 void spawn(uint8_t* ram, R5900Context* c, PS2Runtime* rt) {
-    static unsigned counts[2] = {};
+    static unsigned counts[3] = {};
     if (c->pc == kSpawn && g_lines < g_limit) {
         const Ram r{ram};
         const uint32_t context = getRegU32(c, 4), index = getRegU32(c, 9);
@@ -211,9 +211,12 @@ void spawn(uint8_t* ram, R5900Context* c, PS2Runtime* rt) {
             index <= r.u32(registry + 0x10) && Ram::valid(table, index * 0x24 + 0x24)) {
             const uint32_t record = table + index * 0x24, resource = r.u32(record), kind = r.u32(record + 8);
             const uint32_t id = resource & 0xffff;
-            if (kind == 0x1007c && (id == 0x187a || id == 0x18ec)) {
-                const unsigned slot = id == 0x187a ? 0 : 1;
-                if (counts[slot]++ < 16) {
+            const bool dust = kind == 0x1007c && (id == 0x187a || id == 0x18ec);
+            const bool generator = kind == 0x1003e && id == 0x1890;
+            if (dust || generator) {
+                const unsigned slot = generator ? 2 : id == 0x187a ? 0 : 1;
+                if (counts[slot] < 16) {
+                    ++counts[slot];
                     const Owner current = owner(rt);
                     log("dust-spawn resource=%08x class=%08x index=%u caller=%08x thread=%d invocation=%zu sample=%u",
                         resource, kind, index, getRegU32(c, 31), current.first, current.second, counts[slot]);
@@ -223,6 +226,25 @@ void spawn(uint8_t* ram, R5900Context* c, PS2Runtime* rt) {
                     log("dust-spawn saved s0=%08x s1=%08x s2=%08x s3=%08x s4=%08x s5=%08x s6=%08x s7=%08x",
                         getRegU32(c, 16), getRegU32(c, 17), getRegU32(c, 18), getRegU32(c, 19), getRegU32(c, 20),
                         getRegU32(c, 21), getRegU32(c, 22), getRegU32(c, 23));
+                    const auto actorInfo = [&](const char* label, uint32_t handle) {
+                        if (!Ram::valid(handle, 0x14) || r.u32(handle) != 0x51b8b0)
+                            return;
+                        const uint32_t actorIndex = r.u16(handle + 0x10);
+                        if (actorIndex > r.u32(registry + 0x10) || !Ram::valid(table, actorIndex * 0x24 + 0x24))
+                            return;
+                        const uint32_t actorRecord = table + actorIndex * 0x24;
+                        log("dust-source %s handle=%08x ref=%u resource=%08x class=%08x", label, handle,
+                            r.u16(handle + 0x12), r.u32(actorRecord), r.u32(actorRecord + 8));
+                    };
+                    actorInfo("a1", getRegU32(c, 5));
+                    const uint32_t data = getRegU32(c, 19);
+                    if (Ram::valid(data, 0x90)) {
+                        log("dust-generator data=%08x parent=%08x owner=%08x vector=%08x capacity=%u count=%u", data,
+                            r.u32(data + 0x7c), r.u32(data + 0x80), r.u32(data + 0x84), r.u32(data + 0x88),
+                            r.u32(data + 0x8c));
+                        actorInfo("data-owner", r.u32(data + 0x80));
+                        actorInfo("data-parent", r.u32(data + 0x7c));
+                    }
                 }
             }
         }
