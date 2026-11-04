@@ -7,6 +7,17 @@ from ootf_coop_campaign import analyse, verdict
 
 
 class CampaignEvidenceTest(unittest.TestCase):
+    def test_watchdog_after_control_fails_even_with_zero_exit(self):
+        r = analyse(
+            "afterLevelLoad level='Target' ok=1\n(gameplay=1)\n"
+            "[watchdog t=311.9s] live thread=1 pc=0x4acdd0\n"
+            "[run] PS2X_MAX_SECONDS reached, stopping\n",
+            "Target",
+        )
+        r.update(exit_code=0, hang=False)
+        self.assertTrue(r["control"])
+        self.assertIn("a: stall", verdict({"a": r}, False)[1])
+
     def test_missing_instances_fail(self):
         self.assertFalse(verdict({}, False)[0])
         self.assertFalse(verdict({}, True)[0])

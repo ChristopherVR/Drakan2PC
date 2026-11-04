@@ -146,7 +146,7 @@ def analyse(text: str, title: str | None) -> dict:
         "loaded": any(title is None or lv == title or title.endswith(lv) for lv, ok in loads if ok == "1"),
         "control": first_gp >= 0,
         "crash": [ln.strip()[:140] for ln in text.splitlines() if CRASH.search(ln)][:3],
-        "stall": [ln.strip()[:140] for ln in text.splitlines() if "[stall]" in ln][:3],
+        "stall": [ln.strip()[:140] for ln in text.splitlines() if "[stall]" in ln or "[watchdog t=" in ln][:3],
         "flips_min": min(steady) if steady else None,
         "flips_median": int(statistics.median(steady)) if steady else None,
         "ghost": bool(re.search(r"ghost of player \d+ '.*?' spawned", text)),
