@@ -42,6 +42,7 @@ ROOT_FILES = {
     ".editorconfig",
     ".git-blame-ignore-revs",
     "pyproject.toml",
+    "cliff.toml",
     "requirements-dev.txt",
     "README.md",
     "BUILDING.md",
