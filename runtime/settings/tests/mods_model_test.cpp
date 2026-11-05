@@ -252,18 +252,46 @@ int main() {
         CHECK(n.reason == GameChoiceReason::Rejected && n.detail.find("start level") != std::string::npos);
         CHECK(gameChoiceNoteText(n, false).find("Reason: campaign start level") != std::string::npos);
         CHECK(gameChoiceNoteText(n, true).find("Reason") == std::string::npos); // the title line stays short
+        // A second pack with a campaign id that is already on the card is refused: explained, not "on the card".
+        {
+            ModInfo first = live, second = mk("second", true, ModBoot::Active);
+            second.id = "second.pack";
+            second.campaign = "valley";
+            ModsModel dm;
+            dm.setSnapshot(dir.string(), {first, second}, {});
+            GameChoiceState ds;
+            ds.offered = true;
+            ds.cardCampaigns = {"valley"};
+            ds.refused["second.pack"] = "campaign 'valley' is already given by another pack";
+            CHECK(campaignOffered(first, ds) && !campaignOffered(second, ds));
+            n = gameChoiceNote(dm, ds);
+            CHECK(n.reason == GameChoiceReason::Rejected && n.pack == "Pack second" &&
+                  n.detail.find("already given") != std::string::npos);
+            dm.setGameChoice(ds);
+            int onCardRows = 0, notOffered = 0;
+            for (const auto& sec : buildModsPage(dm).sections)
+                for (const auto& r : sec.rows)
+                    if (r.label == "Campaign") {
+                        onCardRows += r.text.rfind("On the title", 0) == 0;
+                        notOffered += r.text.rfind("Not offered", 0) == 0;
+                    }
+            CHECK(onCardRows == 1 && notOffered == 1);
+        }
         ModInfo bad = mk("bad", true, ModBoot::Skipped, "built for disc usa, this is pal");
         bad.campaign = "valley";
         lm.setSnapshot(dir.string(), {bad}, {});
         n = gameChoiceNote(lm, gs);
         CHECK(n.reason == GameChoiceReason::Skipped && n.detail == "built for disc usa, this is pal");
         lm.setGameChoice(gs);
-        bool sawChoice = false;
+        bool sawChoice = false, sawReason = false, reasonInline = false;
         for (const auto& sec : buildModsPage(lm).sections)
-            for (const auto& r : sec.rows)
+            for (const auto& r : sec.rows) {
                 sawChoice =
                     sawChoice || (r.label == "Game choice" && r.text.find("was not loaded") != std::string::npos);
-        CHECK(sawChoice);
+                reasonInline = reasonInline || (r.label == "Game choice" && r.text.find("Reason") != std::string::npos);
+                sawReason = sawReason || (r.label == "Reason" && r.text == "built for disc usa, this is pal");
+            }
+        CHECK(sawChoice && sawReason && !reasonInline); // the reason has its own row: one-line rows cut long text
     }
 
     fs::remove_all(dir);

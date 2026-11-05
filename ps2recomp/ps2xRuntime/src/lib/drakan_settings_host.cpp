@@ -145,7 +145,7 @@ void readArtFromDisc() {
     std::fprintf(stderr, "[settings] game art: %zu UI textures read from INTERFCE.TXD\n", g_art.size());
 }
 
-dsettings::ModsModel& harnessMods(); // the Mods page model (defined below)
+dsettings::ModsModel& harnessMods();                // the Mods page model (defined below)
 void titleModsAction(const gameui::TitleAction& a); // the title's new mod packs card (defined below)
 
 // Test aid: DRAKAN_OVERLAY_SHOT_DIR=<dir>. When <dir>\\shot.txt exists (its first line = a file name without extension)
@@ -2169,10 +2169,16 @@ void titleDraw(const dsettings::SettingsOverlay::ScreenFrame& f, bool background
     ui.fade = visible ? std::min(1.0f, ui.fade + dt * 8.0f) : std::max(0.0f, ui.fade - dt * 10.0f);
     tu.renderer.setFonts(*f.fonts);
     tu.renderer.setSkin(f.skin);
+    // DRAKAN_DEBUG_TITLE_PC_PAGES=0 (test aid): the title behaves as if the modern PC Settings pages were missing, so
+    // its PC Settings and Open Mods menu rows take the F1 overlay fallback (the pages always exist in this build).
+    static const bool debugNoPages = [] {
+        const char* e = std::getenv("DRAKAN_DEBUG_TITLE_PC_PAGES");
+        return e && e[0] == '0';
+    }();
     const auto titleConfig = [&tu] {
         gameui::TitleConfig cfg; // its Theme reads the active skin
         cfg.screen.measure = tu.renderer.measure();
-        cfg.pcSettingsPages = cfg.unifiedOptions = g_pcs != nullptr;
+        cfg.pcSettingsPages = cfg.unifiedOptions = g_pcs != nullptr && !debugNoPages;
         cfg.showMultiplayer = drakan_netplay::wanted();
         cfg.showCoop = cfg.showMultiplayer; // New Game asks Solo / Co-op (Co-op is not in the Multiplayer menu)
         return cfg;

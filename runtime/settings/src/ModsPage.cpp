@@ -71,9 +71,17 @@ gameui::SettingPage buildModsPage(const ModsModel& model) {
         if (fresh)
             sec.rows.push_back(info("New", std::to_string(fresh) + (fresh == 1 ? " pack" : " packs") +
                                                " found since the last start. New packs stay off until enabled."));
-        const std::string why = gameChoiceNoteText(gameChoiceNote(model, model.gameChoice()), false);
-        if (!why.empty())
+        // Info rows are one line and cannot be focused for help, so the loader's reason gets its own row instead of
+        // being cut off at the end of the Game choice line.
+        GameChoiceNote note = gameChoiceNote(model, model.gameChoice());
+        const std::string reason = note.detail;
+        note.detail.clear();
+        const std::string why = gameChoiceNoteText(note, false);
+        if (!why.empty()) {
             sec.rows.push_back(info("Game choice", why));
+            if (!reason.empty())
+                sec.rows.push_back(info("Reason", reason));
+        }
         pg.sections.push_back(std::move(sec));
     }
     if (model.size() == 0) {
@@ -133,8 +141,7 @@ gameui::SettingPage buildModsPage(const ModsModel& model) {
 
         sec.rows.push_back(info("Status", state));
         if (!m.campaign.empty()) {
-            const auto& card = model.gameChoice().cardCampaigns;
-            const bool onCard = std::find(card.begin(), card.end(), m.campaign) != card.end();
+            const bool onCard = campaignOffered(m, model.gameChoice());
             sec.rows.push_back(info("Campaign", !m.enabled ? "Enable it and restart to play it from Choose your game."
                                                 : !m.bootEnabled ? "Restart to play it from Choose your game."
                                                 : onCard         ? "On the title's Choose your game screen."

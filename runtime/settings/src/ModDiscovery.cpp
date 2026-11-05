@@ -74,12 +74,18 @@ ModNoticeContent modNoticeContent(const ModsModel& model) {
     return c;
 }
 
+bool campaignOffered(const ModInfo& m, const GameChoiceState& state) {
+    if (m.campaign.empty() || state.refused.count(m.id))
+        return false;
+    return std::any_of(state.cardCampaigns.begin(), state.cardCampaigns.end(),
+                       [&](const std::string& id) { return lower(id) == lower(m.campaign); });
+}
+
 GameChoiceNote gameChoiceNote(const ModsModel& model, const GameChoiceState& state) {
     GameChoiceNote n;
-    auto onCard = [&](const ModInfo& m) {
-        return std::any_of(state.cardCampaigns.begin(), state.cardCampaigns.end(),
-                           [&](const std::string& id) { return lower(id) == lower(m.campaign); });
-    };
+    // A pack's campaign is on the card when its id is there and the pack itself was not refused: a second pack with
+    // an id that is already taken shares the id with the card but is not offered.
+    auto onCard = [&](const ModInfo& m) { return campaignOffered(m, state); };
     // 1. Campaigns are installed and valid, but the setting picks the game without asking.
     if (!state.cardCampaigns.empty() && !state.offered) {
         n.reason = GameChoiceReason::Pinned;

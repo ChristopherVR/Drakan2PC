@@ -42,6 +42,9 @@ struct GameChoiceNote {
     std::string detail;  // Skipped / Rejected: the reason text (English, from the loader)
     bool fromEnv = false;
 };
+// The pack's campaign is on the game card: its id is listed there and the pack was not refused (a duplicate id shares
+// the id of the card's entry but is not offered).
+bool campaignOffered(const ModInfo& m, const GameChoiceState& state);
 GameChoiceNote gameChoiceNote(const ModsModel& model, const GameChoiceState& state);
 
 // One line for a menu. `translate`: through gameui::menuFormat (the title screen, follows the menu language); false
