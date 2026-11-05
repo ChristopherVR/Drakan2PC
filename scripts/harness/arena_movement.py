@@ -107,8 +107,7 @@ def client_recipe(
         if fields[0].isdigit() and int(fields[0]) > 0:
             lines[index] = f"{int(fields[0]) + delay_ms} {fields[1]}"
     if from_save or new_game:
-        # A fresh campaign needs time for AutoPress to finish the intro before pausing.
-        lines[2:2] = singleplayer_return(95000 if new_game else return_delay_ms, from_save=from_save)
+        lines[2:2] = singleplayer_return(return_delay_ms, from_save=from_save)
     return "\n".join(lines) + "\n"
 
 
@@ -117,7 +116,18 @@ def singleplayer_return(delay_ms: int, *, from_save: bool) -> list[str]:
     enter = (
         ["1400 shot continue_title", "1700 key tap UP", "2050 key tap UP", "2500 key tap ENTER"]
         if from_save
-        else ["1500 key tap ENTER"]
+        else [
+            "1500 key tap ENTER",
+            "2300 key tap ENTER",  # New Game opens the Solo / Co-op choice.
+            "0 sync screen 29 3",
+            "500 pad tap START",
+            "1000 pad tap START",
+            "1500 pad tap START",
+            # The in-engine intro continues after the movie exits.
+            "0 sync screen -1 5",
+            "1200 pad tap START",
+            "3000 pad tap START",
+        ]
     )
     quit_keys, confirm = taps(1000, ["DOWN"] * 4 + ["ENTER"], 750)
     return [
@@ -347,7 +357,7 @@ def main() -> int:
     )
     parser.add_argument("--host-from-save", metavar="SLOT1", help="Continue this PAL save before hosting")
     parser.add_argument(
-        "--return-delay-ms", type=int, default=5000, help="Time at the loaded save before the pause sequence"
+        "--return-delay-ms", type=int, default=5000, help="Time at playable singleplayer before the pause sequence"
     )
     parser.add_argument(
         "--native-graphics",
@@ -366,7 +376,7 @@ def main() -> int:
     if args.host_start_ms is None:
         args.host_start_ms = 60500
         if args.join_from_new_game:
-            args.host_start_ms = 180000
+            args.host_start_ms = 110000
         elif args.join_from_save and not args.host_from_save:
             args.host_start_ms = 95000
     if args.join_delay_ms is None:
@@ -476,8 +486,6 @@ def main() -> int:
                 PS2X_MAX_SECONDS="300",
             )
 
-            if role == "client" and args.join_from_new_game:
-                env.update(DRAKAN_AUTOPRESS="3000", DRAKAN_AUTOPRESS_UNTIL="90000")
             if args.renderer:
                 env["PS2X_GS"] = args.renderer
             if args.trace_health:
