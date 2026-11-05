@@ -9,7 +9,7 @@
 // Exit code 0 when every check passed.
 import { spawn } from 'node:child_process';
 import { existsSync } from 'node:fs';
-import { dirname, join } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
@@ -18,7 +18,11 @@ const arg = (name, fallback) => {
     const i = args.indexOf(`--${name}`);
     return i >= 0 ? args[i + 1] : fallback;
 };
-const exe = arg('exe', join(root, 'src-tauri', 'target', 'release', 'drakan-editor-desktop.exe'));
+// A relative --exe is taken from where npm was started (INIT_CWD), not from this workspace.
+const exe = resolve(
+    process.env.INIT_CWD ?? process.cwd(),
+    arg('exe', join(root, 'src-tauri', 'target', 'release', 'drakan-editor-desktop.exe')),
+);
 const port = Number(arg('port', '9339'));
 if (!existsSync(exe)) {
     console.error(`${exe} does not exist; build it with npm run build -w @drakan/desktop`);
