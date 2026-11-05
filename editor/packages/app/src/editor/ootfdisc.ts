@@ -1,4 +1,22 @@
-import { resolveDependencyStem, type LvlHeader, type OotfPs2Context, SrscReader } from '@drakan/formats';
+import {
+    resolveDependencyStem,
+    type LvlHeader,
+    type OotfPipelineOptions,
+    type OotfPs2Context,
+    SrscReader,
+} from '@drakan/formats';
+
+// The import dialog must build the same context as the in-game verified CLI (editor/scripts/ootf-convert.ts on the files
+// scripts/harness/ootf_level_run.py extracts). Reading every dependency instead changed the pack: SYSTEM hosted models in a
+// replaced System.mod, Rynn's SYSTEM.ADB clips were retargeted and FX classes got text ids without an FX.XDB.
+
+/** Template ODBs whose own MOD / TXD may host converted models (OotfPs2Context.hostFiles). */
+const HOST_ODBS = new Set(['LEVEL1ON', 'WORLDCON', 'FX', 'MOUNTAON']);
+/** MOD / ADB containers beyond the host's (OotfPs2Context.mods / adbs): the creatures. SYSTEM (Rynn) stays as it is. */
+const CREATURE_ODBS = new Set(['NPCS']);
+
+/** Pipeline options of the import dialog; the CLI's defaults (sounds are opt-in in the pipeline). */
+export const OOTF_DIALOG_OPTIONS = { sounds: true } as const satisfies OotfPipelineOptions;
 
 /** Read conversion dependencies through the language-relative disc API. */
 export async function ootfDiscContext(
@@ -21,7 +39,9 @@ export async function ootfDiscContext(
     const adbs = new Map<string, SrscReader>();
     const dbFiles = new Map<string, { dir: string; text: string }>();
     const hostFiles = new Map<string, { mod: SrscReader; txd: SrscReader }>();
-    let hostTxd: SrscReader | undefined, hostSdb: SrscReader | undefined;
+    const xdbFiles = new Set<string>();
+    let hostMod: SrscReader | undefined, hostTxd: SrscReader | undefined;
+    let hostAdb: SrscReader | undefined, hostSdb: SrscReader | undefined;
     for (const dep of header.dependencies) {
         if (/_splats$/i.test(dep.path.text)) continue;
         const base = resolveDependencyStem(dir, dep.path.text).replace(/\\/g, '/');
@@ -31,15 +51,17 @@ export async function ootfDiscContext(
             const data = await read(`${base}.${ext}`);
             if (data) readers.set(ext, await SrscReader.fromBytes(data));
         }
-        for (const [ext, map] of [
-            ['ODB', odbs],
-            ['SSD', ssds],
-            ['MOD', mods],
-            ['ADB', adbs],
-        ] as const) {
-            const r = readers.get(ext);
-            if (r) map.set(name, r);
+        const odb = readers.get('ODB'),
+            ssd = readers.get('SSD');
+        if (odb) odbs.set(name, odb);
+        if (ssd) ssds.set(name, ssd);
+        if (CREATURE_ODBS.has(name)) {
+            const m = readers.get('MOD'),
+                a = readers.get('ADB');
+            if (m) mods.set(name, m);
+            if (a) adbs.set(name, a);
         }
+        if (await read(`${base}.XDB`)) xdbFiles.add(`${name}.XDB`);
         const db = await read(`${base}.DB`);
         if (db)
             dbFiles.set(name, {
@@ -48,9 +70,11 @@ export async function ootfDiscContext(
             });
         const mod = readers.get('MOD'),
             txd = readers.get('TXD');
-        if (mod && txd) hostFiles.set(name, { mod, txd });
+        if (mod && txd && HOST_ODBS.has(name)) hostFiles.set(name, { mod, txd });
         if (name === 'RESOURES') {
+            hostMod = mod;
             hostTxd = txd;
+            hostAdb = readers.get('ADB');
             hostSdb = readers.get('SDB');
         }
     }
@@ -64,10 +88,11 @@ export async function ootfDiscContext(
             adbs,
             dbFiles,
             hostFiles,
-            hostMod: mods.get('RESOURES'),
+            xdbFiles,
+            hostMod,
             hostTxd,
             hostSdb,
-            hostAdb: adbs.get('RESOURES'),
+            hostAdb,
             splatTxd: splats['TXD'],
             procTxd: (await read('WORLDCON/PROCTEES/PROCTEES.TXD')) ?? undefined,
         },

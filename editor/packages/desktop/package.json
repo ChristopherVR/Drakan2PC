@@ -10,6 +10,7 @@
         "build": "tauri build",
         "build:debug": "tauri build --debug",
         "build:save": "tauri build --config src-tauri/tauri.save.conf.json",
+        "smoke:webview": "node scripts/webview-smoke.mjs",
         "typecheck": "node scripts/check-config.mjs"
     },
     "devDependencies": {

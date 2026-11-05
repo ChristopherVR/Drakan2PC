@@ -113,7 +113,10 @@ npm run desktop:dev     # Vite dev server + desktop window (hot reload)
 npm run desktop:build   # release build and NSIS installer under packages/desktop/src-tauri/target/release/bundle
 cd packages/desktop && npx tauri build --debug --no-bundle   # quick debug exe
 cd packages/desktop/src-tauri && cargo test                  # Rust unit tests
+npm run smoke:webview -w @drakan/desktop   # drive the built exe in WebView2 over CDP: import dialog dropdown checks
 ```
+
+`smoke:webview` (`packages/desktop/scripts/webview-smoke.mjs`) needs no game data; close other editor windows first.
 
 Downloads: the desktop apps are attached to the newest "Drakan PC" GitHub release (`DrakanEditor-Setup.exe`,
 `DrakanEditor-Portable.zip`, `DrakanSaveEditor-Setup.exe`, `DrakanSaveEditor-Portable.zip`); there is no separate editor

@@ -18,11 +18,12 @@ import {
     ps2ClassTables,
     type PcFileSource,
 } from '@drakan/formats';
-import { ootfDiscContext } from './ootfdisc.ts';
+import { OOTF_DIALOG_OPTIONS, ootfDiscContext } from './ootfdisc.ts';
 import type { Api, Method } from '../rpc.ts';
 import { h } from './dom.ts';
 import { registerCommand } from './registry.ts';
 import { canWriteFolder, writePackToModsFolder } from '../modio.ts';
+import { downloadFile } from '../platform.ts';
 
 type Call = <M extends Method>(method: M, ...args: Parameters<Api[M]>) => Promise<ReturnType<Api[M]>>;
 
@@ -323,6 +324,7 @@ function openDialog(host: OotfHost): void {
             selected.map((r) => r.path),
             context,
             {
+                ...OOTF_DIALOG_OPTIONS,
                 name: (pc) => `${prefix.value}${pcLevelName(pc.header)}`.slice(0, 60),
                 log: (message) => {
                     out.textContent = message;
@@ -371,14 +373,12 @@ function openDialog(host: OotfHost): void {
             {
                 class: 'btn primary',
                 type: 'button',
-                onclick: () => {
-                    const a = h('a', {
-                        href: URL.createObjectURL(new Blob([zip as BlobPart])),
-                        download: 'ootf-levels.zip',
-                    });
-                    a.click();
-                    setTimeout(() => URL.revokeObjectURL(a.href), 10_000);
-                },
+                // The desktop app asks where to save (a plain <a download> lands silently in Downloads in WebView2).
+                onclick: () =>
+                    void downloadFile('ootf-levels.zip', zip as BlobPart, 'application/zip').then(
+                        (where) => where && host.toast(`Saved to ${where}`, 'ok'),
+                        (e: unknown) => host.toast(e instanceof Error ? e.message : String(e), 'error'),
+                    ),
             },
             'Download mod (.zip)',
         );
