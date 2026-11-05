@@ -92,7 +92,7 @@ class Relay:
         self.sock.close()
 
 
-def recipe(moving):
+def recipe(moving, sender_probe=False):
     lines = ["clock milliseconds", "0 sync play 60", "10000 dump ram_near", "10500 shot near"]
     if moving:
         lines += [
@@ -112,15 +112,26 @@ def recipe(moving):
             "4000 key up W",
             "8000 dump ram_settled",
             "9000 shot settled",
-            "15000 quit",
         ]
+        if sender_probe:
+            lines += [
+                "16000 key down W",
+                "18300 key up W",
+                "19500 key tap TAB",
+                "0 sync screen 21 15",
+                "5000 key tap TAB",
+                "0 sync play 30",
+                "17000 quit",
+            ]
+        else:
+            lines.append("15000 quit")
     else:
         lines += [
             "23000 dump ram_before_inventory",
             "29000 dump ram_partner_inventory",
             "39000 dump ram_settled",
             "40000 shot settled",
-            "52000 quit",
+            "76000 quit" if sender_probe else "52000 quit",
         ]
     return "\n".join(lines) + "\n"
 
@@ -233,6 +244,11 @@ def main():
     ap.add_argument(
         "--burst-ms", type=int, default=0, help="Drop all relay traffic for this interval during the first walk"
     )
+    ap.add_argument(
+        "--sender-probe",
+        action="store_true",
+        help="Exercise host AI targeting the peer and repeat the inventory/return-to-play sequence",
+    )
     ap.add_argument("--seed", type=int, default=20261105)
     args = ap.parse_args()
     if not 0 <= args.loss < 1 or min(args.delay_ms, args.jitter_ms, args.burst_ms) < 0:
@@ -257,7 +273,7 @@ def main():
             folder.mkdir()
             card = make_fixture(args.card.resolve(), args.name + "-" + side, spot)
             script = folder / "recipe.txt"
-            script.write_text(recipe(side == "a"), encoding="utf-8", newline="\n")
+            script.write_text(recipe(side == "a", args.sender_probe), encoding="utf-8", newline="\n")
             extra = {
                 "DRAKAN_NET_MODE": "coop",
                 "DRAKAN_GHOST_LOG": "1",
@@ -310,6 +326,9 @@ def main():
                     "DRAKAN_WS_ASPECT": "4:3",
                 }
             )
+            if args.sender_probe and side == "a":
+                extra["DRAKAN_COOP_PROBE"] = "1"
+                extra["DRAKAN_COOP_TEST_FORCE_GHOST"] = "all"
             env.update(extra)
             (folder / "environment.json").write_text(
                 json.dumps({k: v for k, v in env.items() if k.startswith(("DRAKAN_", "PS2X_", "GSR_"))}, indent=2)
@@ -324,7 +343,7 @@ def main():
             reader.start()
             readers.append(reader)
             time.sleep(4)
-        deadline = time.monotonic() + 120
+        deadline = time.monotonic() + (160 if args.sender_probe else 120)
         for proc in procs:
             proc.wait(timeout=max(1, deadline - time.monotonic()))
     except subprocess.TimeoutExpired:
@@ -356,6 +375,11 @@ def main():
                 if (out / side / "stdout_1.log").exists()
                 else ""
             )
+            if args.sender_probe and side == "a":
+                checks["host_targeted_partner"] = "now targets a remote player's ghost (player 2;" in text
+                result["interrupted_target_restores"] = text.count(
+                    "restored local transform after interrupted target handler"
+                )
             checks[side + "_script_quit"] = "[in] script quit" in text
             checks[side + "_no_missing_target"] = "[guest-branch:missing-target]" not in text
             checks[side + "_settled_ram"] = (out / side / "ram_settled.ram").is_file()

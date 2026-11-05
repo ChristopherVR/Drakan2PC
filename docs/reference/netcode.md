@@ -1062,6 +1062,30 @@ During shorter outages it catches up at a bounded rate. A large step between rec
 travel if their wall-clock interval and preceding velocity account for it. Use `remote_motion_check.py --burst-ms 850`
 to test a bidirectional packet outage during the walk; its summary includes both sender and receiver step candidates.
 
+To check the sender, run from the repository root:
+
+```sh
+python scripts/harness/remote_motion_check.py --name sender-check --sender-probe --char-a 0x0e88 --delay-ms 65 --jitter-ms 35 --loss .08
+```
+
+Nearby AI targets the peer while the Archer host walks and opens and closes inventory twice. Compare the times and
+distances in `a_on_b.sender_steps_over_500` (published by the host) and `a_on_b.candidate_steps_over_500` (played on the
+client). The summary counts interrupted target restores logged by the host, up to the runtime's limit of eight.
+
+For the singleplayer-to-multiplayer transition, start a host and a fresh-campaign client:
+
+```sh
+python scripts/harness/arena_movement.py --joined --join-from-new-game --arena 2 --renderer d3d11 --name fresh-join --run
+```
+
+To start from a saved game, use `--host-from-save <slot>`, `--join-from-save <slot>`, or both with a PAL
+`BESCES-50006Slot1` directory. Each process gets its own copy. `--return-delay-ms 0` starts the pause sequence
+as soon as the loaded save reaches stable gameplay. Each role's `transition_progress` in `summary.json` distinguishes
+a missed menu action, an unexpected map, missing native load entry or return, and an incomplete post-load script.
+The report includes movement results and program execution errors even when the process exits zero. On timeout
+the harness attempts a process dump for each unfinished role. For a paired run on a memory-constrained machine,
+`--native-graphics` selects original movies/textures and 1x rendering in each private INI.
+
 Nearby replicated PAL player bodies request native high detail within 4,000 camera units; at 4,500 units
 the port releases its request. This uses the actor's native detail flag so the selector controls the mesh,
 posed vertices and far transitions together. The same versus camera distance (2,730 units) showed

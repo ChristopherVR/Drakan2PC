@@ -16,11 +16,12 @@ import re
 import shutil
 import struct
 import subprocess
+import time
 from pathlib import Path
 
 from combat_ram_report import report as combat_report
 from dual_wield_check import patch_ini
-from netplay_menu_two_instances import host_keys, recipe_b_text, taps
+from netplay_menu_two_instances import ARENAS, host_keys, recipe_b_text, taps
 
 ROOT = Path(__file__).resolve().parents[2]
 STAGES = ("base", "w", "w_release", "s", "s_release")
@@ -59,8 +60,18 @@ def movement(early_spawn: bool = False) -> list[str]:
     ]
 
 
-def host_recipe(arena: int, skin_steps: int, start_ms: int = 36500, *, early_spawn: bool = False) -> str:
+def host_recipe(
+    arena: int,
+    skin_steps: int,
+    start_ms: int = 36500,
+    *,
+    early_spawn: bool = False,
+    from_save: bool = False,
+    return_delay_ms: int = 5000,
+) -> str:
     lines = ["clock milliseconds", "0 sync screen 8 3"]
+    if from_save:
+        lines += singleplayer_return(return_delay_ms, from_save=True)
     t = 1500
     groups = host_keys(arena_index=arena)
     if skin_steps:
@@ -80,7 +91,9 @@ def host_recipe(arena: int, skin_steps: int, start_ms: int = 36500, *, early_spa
     return "\n".join(lines + movement(early_spawn) + ["24000 quit"]) + "\n"
 
 
-def client_recipe(delay_ms: int = 20000, from_save: bool = False) -> str:
+def client_recipe(
+    delay_ms: int = 20000, from_save: bool = False, return_delay_ms: int = 5000, *, new_game: bool = False
+) -> str:
     """Delay LAN discovery until the host has entered its lobby, before gameplay sync.
 
     This matches the successful joined arena_pickup R2/R3/R4 timing; movement
@@ -93,27 +106,78 @@ def client_recipe(delay_ms: int = 20000, from_save: bool = False) -> str:
         fields = line.split(" ", 1)
         if fields[0].isdigit() and int(fields[0]) > 0:
             lines[index] = f"{int(fields[0]) + delay_ms} {fields[1]}"
-    if from_save:
-        # The title focuses New Game even when Continue and Load Game are available above it.
-        quit_keys, _ = taps(7000, ["DOWN"] * 4 + ["ENTER"], 300)
-        lines[2:2] = [
-            "1400 shot continue_title",
-            "1700 key tap UP",
-            "2050 key tap UP",
-            "2500 key tap ENTER",
-            "3500 shot continue_requested",
-            "0 sync play 60",
-            "5000 shot singleplayer_loaded",
-            "6000 key tap ESC",
-            *quit_keys,
-            "9300 key tap ENTER",
-            "0 sync screen 8 3",
-            "1000 shot returned_to_title",
-            # The title remembers Continue after the load. Skip Load Game and New Game.
-            "1300 key tap DOWN",
-            "1600 key tap DOWN",
-        ]
+    if from_save or new_game:
+        # A fresh campaign needs time for AutoPress to finish the intro before pausing.
+        lines[2:2] = singleplayer_return(95000 if new_game else return_delay_ms, from_save=from_save)
     return "\n".join(lines) + "\n"
+
+
+def singleplayer_return(delay_ms: int, *, from_save: bool) -> list[str]:
+    # With a populated card the initial focus is New Game, two rows below Continue.
+    enter = (
+        ["1400 shot continue_title", "1700 key tap UP", "2050 key tap UP", "2500 key tap ENTER"]
+        if from_save
+        else ["1500 key tap ENTER"]
+    )
+    quit_keys, confirm = taps(1000, ["DOWN"] * 4 + ["ENTER"], 750)
+    return [
+        *enter,
+        "0 sync play 60",
+        f"{delay_ms} shot singleplayer_loaded",
+        f"{delay_ms + 1000} key tap ESC",
+        "0 sync screen 23 8",
+        *quit_keys,
+        f"{confirm + 500} key tap ENTER",
+        "0 sync screen 8 3",
+        "400 shot returned_to_title",
+        # After Continue, skip Load Game and New Game to recover the normal menu route.
+        *(["700 key tap DOWN", "1050 key tap DOWN"] if from_save else []),
+    ]
+
+
+def transition_progress(text: str, role: str, expected_level: str, *, from_save: bool = True) -> str:
+    """Recognize only ordered receipts from this trip through the two native loads."""
+    action = "HostMatch" if role == "host" else "JoinMatch"
+    stages = (
+        [
+            (r"title action Continue\(1\)", "continue_missing"),
+            (r"afterLevelLoad [^\n]*fromSave=1 ok=1", "singleplayer_load_incomplete"),
+        ]
+        if from_save
+        else [
+            (r"afterLevelLoad level='Level 0 - Intro' path=[^\n]*fromSave=0 ok=1", "campaign_intro_load_incomplete"),
+            (r"afterLevelLoad level='Level 1A - Surdana' path=[^\n]*fromSave=0 ok=1", "singleplayer_load_incomplete"),
+        ]
+    )
+    stages += [
+        (r"overlay: title session \d+ opened", "return_to_title_missing"),
+        (f"multiplayer action {action}", "match_menu_action_missing"),
+    ]
+    pos = 0
+    for pattern, missing in stages:
+        match = re.search(pattern, text[pos:])
+        if not match:
+            return missing
+        pos += match.end()
+    launch = re.search(r"multiplayer launch: New Game with '([^\r\n]+)'", text[pos:])
+    if not launch:
+        return "match_launch_missing"
+    if launch[1] != expected_level:
+        return "unexpected_multiplayer_level"
+    pos += launch.end()
+    level = re.escape(expected_level)
+    entered = re.search(rf"beforeLevelLoad level='{level}' path=[^\n]*fromSave=0", text[pos:])
+    if not entered:
+        return "multiplayer_load_entry_missing"
+    pos += entered.end()
+    finished = re.search(rf"afterLevelLoad level='{level}' path=[^\n]*fromSave=0 ok=(\d+)", text[pos:])
+    if not finished:
+        return "multiplayer_load_return_missing"
+    if finished[1] != "1":
+        return "multiplayer_load_failed"
+    if "script quit" not in text[pos + finished.end() :]:
+        return "post_load_script_incomplete"
+    return "completed"
 
 
 def snapshot(path: Path) -> dict:
@@ -193,6 +257,10 @@ def report(out: Path) -> dict:
     shots = result["snapshots"]
     checks = result["checks"]
     text = (out / "stdout_1.log").read_text(encoding="latin-1")
+    execution_error = re.search(r"Error during program execution: ([^\r\n]+)", text)
+    checks["no_execution_error"] = execution_error is None
+    if execution_error:
+        result["execution_error"] = execution_error[1]
     checks["menu_launched_native_level"] = "multiplayer launch: New Game with" in text
     checks["menu_host_or_join"] = any(f"multiplayer action {action}" in text for action in ("HostMatch", "JoinMatch"))
     checks["native_assigned_spawn"] = "[arena] player placed at spawn" in text
@@ -203,13 +271,19 @@ def report(out: Path) -> dict:
         checks["joined_client_menu_action"] = "multiplayer action JoinMatch" in text
     if (out / "run.json").exists():
         checks["native_options_prepared"] = "native options prepared for the game's normal startup loader" in text
-        if out.name == "client" and json.loads((out / "run.json").read_text()).get("arguments", {}).get(
-            "join_from_save"
-        ):
-            saved_load = re.search(r"afterLevelLoad [^\n]*fromSave=1 ok=1", text)
-            join_at = text.find("multiplayer action JoinMatch")
-            checks["joined_after_saved_game"] = bool(saved_load and saved_load.end() < join_at)
-            checks["title_returned"] = (out / "returned_to_title.png").is_file()
+        arguments = json.loads((out / "run.json").read_text(encoding="utf-8")).get("arguments", {})
+        if arguments.get("joined"):
+            _, _, match_log = text.partition("multiplayer launch: New Game with")
+            checks["received_partner_pose_in_match"] = re.search(r"\[nettrace [\d.]+\] p\d+ ", match_log) is not None
+        if renderer := arguments.get("renderer"):
+            marker = "[gsr-webgpu] renderer on" if renderer == "webgpu" else "[gsr] D3D11 renderer on"
+            checks["requested_renderer_active"] = marker in text
+        from_save = bool(arguments.get("host_from_save" if out.name == "host" else "join_from_save"))
+        if from_save or (out.name == "client" and arguments.get("join_from_new_game")):
+            result["transition_progress"] = transition_progress(
+                text, out.name, ARENAS[arguments["arena"]][1], from_save=from_save
+            )
+            checks["completed_singleplayer_transition"] = result["transition_progress"] == "completed"
     checks["all_snapshots"] = len(shots) == len(STAGES)
     observations = [*shots.values(), *result["spawn_snapshots"].values()]
     native_death = any(s.get("hp") is not None and s["hp"] <= 0 for s in observations)
@@ -250,6 +324,10 @@ def report(out: Path) -> dict:
         if not all(checks[key] for key in ("native_assigned_spawn", "placement_settled", "native_armed"))
         else "movement_or_routing_failure"
     )
+    if result.get("transition_progress", "completed") != "completed":
+        result["classification"] = result["transition_progress"]
+    if execution_error:
+        result["classification"] = "program_execution_error"
     (out / "movement.json").write_text(json.dumps(result, indent=2) + "\n", encoding="utf-8")
     return result
 
@@ -260,9 +338,23 @@ def main() -> int:
     parser.add_argument("--arena", type=int, choices=range(3), default=2)
     parser.add_argument("--skin-steps", type=int, choices=range(16), default=0)
     parser.add_argument("--joined", action="store_true")
-    parser.add_argument(
+    client_start = parser.add_mutually_exclusive_group()
+    client_start.add_argument(
+        "--join-from-new-game", action="store_true", help="Play the campaign intro on a fresh card before joining"
+    )
+    client_start.add_argument(
         "--join-from-save", metavar="SLOT1", help="Copy this PAL slot 1 for the client to load before joining"
     )
+    parser.add_argument("--host-from-save", metavar="SLOT1", help="Continue this PAL save before hosting")
+    parser.add_argument(
+        "--return-delay-ms", type=int, default=5000, help="Time at the loaded save before the pause sequence"
+    )
+    parser.add_argument(
+        "--native-graphics",
+        action="store_true",
+        help="Use 1x rendering and original movies/textures, with PC lighting and upscaling disabled",
+    )
+    parser.add_argument("--renderer", choices=("d3d11", "webgpu"))
     parser.add_argument("--host-start-ms", type=int)
     parser.add_argument("--join-delay-ms", type=int)
     parser.add_argument("--look", choices=("direct", "stick"), default="direct")
@@ -272,14 +364,24 @@ def main() -> int:
     parser.add_argument("--report", type=Path)
     args = parser.parse_args()
     if args.host_start_ms is None:
-        args.host_start_ms = 95000 if args.join_from_save else 60500
+        args.host_start_ms = 60500
+        if args.join_from_new_game:
+            args.host_start_ms = 180000
+        elif args.join_from_save and not args.host_from_save:
+            args.host_start_ms = 95000
     if args.join_delay_ms is None:
-        args.join_delay_ms = 10000 if args.join_from_save else 20000
-    if args.join_from_save and (
-        not args.joined
-        or not (Path(args.join_from_save).is_dir() and Path(args.join_from_save).name == "BESCES-50006Slot1")
-    ):
-        parser.error("--join-from-save requires --joined and a PAL BESCES-50006Slot1 directory")
+        args.join_delay_ms = 20000
+        if args.host_from_save and not (args.join_from_save or args.join_from_new_game):
+            args.join_delay_ms = 45000
+        elif args.join_from_save and not args.host_from_save:
+            args.join_delay_ms = 10000
+    if (args.join_from_save or args.join_from_new_game) and not args.joined:
+        parser.error("a singleplayer-to-join route requires --joined")
+    for slot in (args.host_from_save, args.join_from_save):
+        if slot and not (Path(slot).is_dir() and Path(slot).name == "BESCES-50006Slot1"):
+            parser.error("expected a PAL BESCES-50006Slot1 directory")
+    if args.return_delay_ms < 0:
+        parser.error("--return-delay-ms must be nonnegative")
     if args.report:
         result = report(args.report.resolve())
         print(json.dumps(result, indent=2))
@@ -290,27 +392,57 @@ def main() -> int:
     if out.exists():
         parser.error("output already exists; choose a fresh --name")
     exe = ROOT / "dist/DrakanPC/drakan.exe"
+    roles = ("host", "client") if args.joined else ("host",)
+    timeouts = {}
     processes = []
     logs = []
     try:
-        for role in ("host", "client") if args.joined else ("host",):
+        for role in roles:
             folder = out / role
             folder.mkdir(parents=True)
             (folder / "card/mc0").mkdir(parents=True)
-            if role == "client" and args.join_from_save:
-                shutil.copytree(args.join_from_save, folder / "card/mc0/BESCES-50006Slot1")
+            slot = args.host_from_save if role == "host" else args.join_from_save
+            if slot:
+                shutil.copytree(slot, folder / "card/mc0/BESCES-50006Slot1")
             main_config = (exe.parent / "drakan.ini").read_text(encoding="utf-8")
             for key in ("title_menu", "pause_menu", "save_menu", "inventory_screen"):
                 main_config = re.sub(rf"(?m)^{key}\s*=.*$", f"{key} = modern", main_config)
+            if args.native_graphics:
+                main_config = patch_ini(
+                    main_config,
+                    {
+                        "video": {
+                            "scale": "1",
+                            "hd_textures": "0",
+                            "hd_movies": "0",
+                            "texture_upscale": "1",
+                            "dlss": "off",
+                            "dlss_neural": "0",
+                            "ray_shadows": "0",
+                            "ray_gi": "0",
+                            "ray_reflections": "0",
+                            "modern_water": "0",
+                        }
+                    },
+                )
             (folder / "drakan.ini").write_text(main_config, encoding="utf-8")
             (folder / "multiplayer.ini").write_text(
                 f"name = {role}\ncolour = 0\nmodel = 0\ncharacter = 0\n", encoding="utf-8"
             )
             (folder / "native_options.ini").write_text(patch_ini("", {"options": NATIVE_OPTIONS}), encoding="utf-8")
             recipe = (
-                host_recipe(args.arena, args.skin_steps, args.host_start_ms, early_spawn=True)
+                host_recipe(
+                    args.arena,
+                    args.skin_steps,
+                    args.host_start_ms,
+                    early_spawn=True,
+                    from_save=bool(slot),
+                    return_delay_ms=args.return_delay_ms,
+                )
                 if role == "host"
-                else client_recipe(args.join_delay_ms, bool(args.join_from_save))
+                else client_recipe(
+                    args.join_delay_ms, bool(slot), args.return_delay_ms, new_game=args.join_from_new_game
+                )
             )
             (folder / "recipe.txt").write_text(recipe, encoding="utf-8")
             config = (exe.parent / "drakan_input.ini").read_text(encoding="utf-8")
@@ -340,9 +472,14 @@ def main() -> int:
                 DRAKAN_WINDOW_WIDTH="1280",
                 DRAKAN_WINDOW_HEIGHT="720",
                 DRAKAN_NET_NAME=role,
-                PS2X_MAX_SECONDS="240",
+                PS2X_WATCHDOG_DUMP_DIR=str(folder),
+                PS2X_MAX_SECONDS="300",
             )
 
+            if role == "client" and args.join_from_new_game:
+                env.update(DRAKAN_AUTOPRESS="3000", DRAKAN_AUTOPRESS_UNTIL="90000")
+            if args.renderer:
+                env["PS2X_GS"] = args.renderer
             if args.trace_health:
                 env["DRAKAN_TRACE_FN"] = "3d5710,314578"
                 env["DRAKAN_TRACE_N"] = "200"
@@ -352,25 +489,32 @@ def main() -> int:
                 arguments=vars(args) | {"report": None},
                 environment={k: v for k, v in env.items() if k.startswith(("DRAKAN_", "PS2X_"))},
             )
-            (folder / "run.json").write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
             if args.run:
                 log = (folder / "stdout_1.log").open("wb")
                 logs.append(log)
                 processes.append(
                     subprocess.Popen([str(exe)], cwd=exe.parent, env=env, stdout=log, stderr=subprocess.STDOUT)
                 )
+                manifest["pid"] = processes[-1].pid
+            (folder / "run.json").write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
         if not args.run:
             print(f"Prepared {out}; no game launched. Use a fresh --name with --run after reserving live slot.")
             return 0
         try:
-            codes = [process.wait(timeout=270) for process in processes]
+            deadline = time.monotonic() + 270
+            codes = [process.wait(timeout=max(0, deadline - time.monotonic())) for process in processes]
         except subprocess.TimeoutExpired:
             from sp_mp_transition import capture_process
 
-            for role, process in zip(("host", "client"), processes, strict=False):
-                if process.poll() is None:
-                    capture_process(process.pid, out / role / "timeout-full.dmp")
             codes = [process.poll() for process in processes]
+            for role, process, code in zip(roles, processes, codes, strict=True):
+                if code is None:
+                    dump = out / role / "timeout-full.dmp"
+                    try:
+                        capture_process(process.pid, dump)
+                        timeouts[role] = {"pid": process.pid, "dump": str(dump)}
+                    except OSError as error:
+                        timeouts[role] = {"pid": process.pid, "dump_error": str(error)}
     finally:
         for process in processes:
             if process.poll() is None:
@@ -378,9 +522,9 @@ def main() -> int:
                 process.wait()
         for log in logs:
             log.close()
-    results = {role: report(out / role) for role in (("host", "client") if args.joined else ("host",))}
+    results = {role: report(out / role) for role in roles}
     (out / "summary.json").write_text(
-        json.dumps(dict(exit_codes=codes, roles=results), indent=2) + "\n", encoding="utf-8"
+        json.dumps(dict(exit_codes=codes, timeouts=timeouts, roles=results), indent=2) + "\n", encoding="utf-8"
     )
     return 0 if all(code == 0 for code in codes) and all(r["passed"] for r in results.values()) else 1
 

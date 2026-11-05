@@ -50,3 +50,27 @@ The controlled comparison ran `--burst-ms 850 --delay-ms 65 --jitter-ms 35 --los
 ## Final checks
 
 The complete runtime preset rebuilt and ran 108 tests with zero failures and six data-dependent skips (114 registered). All 296 Python tests passed, along with Ruff and diff whitespace checks. The repository-wide guard still reports the previously tracked root release configuration `cliff.toml`. No issue comment, commit or release was published.
+
+## Follow-up on the sending player
+
+The two-player route uses a Surdana save, an Archer host and a Rynn client. The relay adds 65 ms delay, 35 ms jitter and 8% loss. The host walks, opens and closes inventory twice, and uses the existing probe that makes nearby AI choose the partner. This is available as `remote_motion_check.py --sender-probe`.
+
+In `issue1-sender-long-1`, a native data breakpoint watched writes to the controlled actor's X coordinate after inventory closed. During targeting the host's X changed from 482,833 to the peer's 477,302 and back. The host recorded two interrupted calls to handler 0x0045ba20 at 104.463 s and 104.474 s. Published host samples immediately before, between and after these calls all retained X 482,833. Neither peer's published or received trace had a step over 500 units. Both processes exited normally.
+
+For comparison, two private builds/runs used the former return-only cleanup, with an exception log that rethrew the original transfer. The data-breakpoint run exceeded its time limit and recorded no interrupted call. The repeat without the debugger completed on both peers and also recorded no interrupted call. Its large-step candidates spanned roughly seven seconds during startup. Neither comparison recreated the short gameplay jump. The live test establishes that the scoped restore runs during real interruptions. The original sender-side teleport still lacks a before/after reproduction. After restoring the source and rebuilding, the same no-debugger route passed on both peers with zero steps over 500 units and zero recorded interruptions (issue1-sender-fixed-no-watch).
+
+## Singleplayer-to-multiplayer load coverage
+
+The two-process arena harness accepts separate host and client saves and a fresh-campaign client. Each role has a private card and settings. The report follows a successful singleplayer load, a new title session, HostMatch or JoinMatch, the requested arena launch, its native load entry and successful return, and script completion. Movement and receipt of partner poses are checked separately. A missed menu input can therefore be distinguished from a hang inside the level loader.
+
+The D3D11 pair (`issue1-dual-continue-city-dx`) continued separate copies of the Surdana save and requested the pause sequence immediately after gameplay synchronization. Both loaded City of the Damned, received partner poses, walked forward and backward, and exited 0. Forward/backward displacement was 5,028/1,915 units on the host and 5,045/1,899 on the client.
+
+The first WebGPU attempt (`issue1-dual-continue-meadow-wgpu`) opened Load in the host's pause menu. We closed both instances after the wrong action was confirmed. The host never returned to title. The client reached the join menu without a host to join. The script now waits for eight frames of the pause screen and spaces the navigation taps before confirming Quit to Title.
+
+On the retry (`issue1-dual-continue-meadow-wgpu-2`), both roles loaded the requested Surdana Meadow arena on the Vulkan WebGPU backend, exchanged poses, moved forward/backward and exited 0. The separate starting-weapon check failed on both roles: the final RAM samples showed empty hands. The host capture ended 153 frames after gameplay resumed, before the 420-boundary arena sweep and later equipment checks would normally finish. This run verifies the loading transition; it does not establish eventual equipment state.
+
+The first fresh-campaign client (`issue1-newgame-join-inq-dx`) entered the intro and loaded singleplayer Surdana, then printed `Error during program execution: bad allocation` and exited 0. We closed the waiting host. The client never opened multiplayer. The harness now reports the execution error separately from the route stage and exit code. A separate native-graphics profile allows testing the route at 1x without replacement textures, HD movies, DLSS or PC ray effects.
+
+The fresh-campaign retry (`issue1-newgame-join-inq-native`, D3D11 at native scale) completed the intro, loaded singleplayer Surdana, returned to title and joined the live Inquisitor's Lair match. The client entered the multiplayer loader at 209.724 s and it returned successfully at 209.937 s. Both processes exchanged poses and reached script quit with exit code 0. The host moved in both directions. The client's assigned spawn 2 was accepted, but its first one-second RAM sample already showed HP -46. By the movement window the controlled actor was gone. This reproduces loss of control after loading. The native damage callsite was not traced in this run. Capture it before assuming the cause matches the earlier landing-damage case. The broader loading-freeze item stays open.
+
+The full Python suite passed all 300 tests. Ruff, diff whitespace checks and the source audit passed. The diagnostic game code is excluded from the follow-up commit.
