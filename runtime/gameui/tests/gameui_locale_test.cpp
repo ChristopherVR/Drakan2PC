@@ -93,7 +93,7 @@ int main() {
                     assert(hasText(noticeOut.draw, "Mod-Menü öffnen"));
                     assert(
                         menuFormat("{0} is enabled: restart the game to choose it on the title screen.", {"Pack A"}) ==
-                        "Pack A ist aktiviert: Starte das Spiel neu, um es im Titelbildschirm zu wählen.");
+                        "Pack A ist aktiviert: Starte das Spiel neu, um es im Hauptmenü zu wählen.");
                 }
                 for (const char* key :
                      {"In the mods folder: {0}.", "{0} new packs in the mods folder: {1}.", "Open Mods menu", "Later",
