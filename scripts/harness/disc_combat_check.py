@@ -259,8 +259,8 @@ def run(args):
     input_ini = patch_ini(
         (exe.parent / "drakan_input.ini").read_text(encoding="utf-8"),
         {
+            "general": {"look_mode": "direct"},
             "mouse": {
-                "mode": "direct",
                 "dragon_mode": "stick",
                 "invert_x": "0",
                 "invert_y": "0",

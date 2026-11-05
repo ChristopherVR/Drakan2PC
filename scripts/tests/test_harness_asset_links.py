@@ -10,6 +10,11 @@ from netplay_two_instances import ROOT, prepare_folder
 
 
 class HarnessAssetLinksTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        # Fresh checkouts have no build directory; the harness requires destinations beneath it.
+        (ROOT / "build").mkdir(parents=True, exist_ok=True)
+
     def test_switching_deployments_refreshes_assets_without_touching_source_or_cards(self):
         with tempfile.TemporaryDirectory(dir=ROOT / "build") as temporary:
             root = Path(temporary)

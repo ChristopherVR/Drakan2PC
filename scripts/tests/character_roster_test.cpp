@@ -3,13 +3,95 @@
 #include "drakan_pvp_targets.h"
 #include "drakan_local_character_view.h"
 #include "drakan_arena_filter.h"
+#include "drakan_arena_placement.h"
 
 #include <cassert>
 #include <cmath>
 #include <set>
 #include <limits>
+#include <cstring>
+#include <map>
+
+namespace {
+struct PlacementMemory {
+    std::map<uint32_t, uint32_t> words;
+    uint32_t read32(uint32_t address) const {
+        const auto found = words.find(address);
+        return found == words.end() ? 0 : found->second;
+    }
+    void writeF(uint32_t address, float value) {
+        uint32_t bits;
+        std::memcpy(&bits, &value, 4);
+        words[address] = bits;
+    }
+    float readF(uint32_t address) const {
+        const uint32_t bits = read32(address);
+        float value;
+        std::memcpy(&value, &bits, 4);
+        return value;
+    }
+};
+
+void testArenaPlacementMotion() {
+    constexpr uint32_t actor = 0x110000, skeleton = 0x120000, inner = 0x130000, player = 0x140000;
+    PlacementMemory memory;
+    memory.words[actor + 0xc] = 3;
+    memory.words[actor + 0x50] = skeleton;
+    memory.words[skeleton + 0xd4] = actor;
+    memory.words[actor + 0xfc] = inner;
+    memory.words[inner + 0x10] = player;
+    memory.words[player + 0x80] = actor;
+    memory.words[player + 0x90] = 0x62000;
+    memory.words[player + 0x94] = 0;
+    memory.words[0x4fbad4] = 0x12345678; // encoded native health must not be repaired or suppressed
+    memory.writeF(player + 8, 20094.0f);
+    memory.writeF(player + 0xb9c, 20094.0f);
+    memory.writeF(player + 0xb74, 0.28f);    // native airborne time remains owned by the game
+    memory.writeF(player + 0xe8, 150008.0f); // unproven fields are deliberately not reset
+    const float target[3] = {625645.0f, 129000.0f, 442713.0f};
+    for (uint32_t i = 0; i < 3; ++i) {
+        memory.writeF(skeleton + 0x174 + i * 4, 150008.0f);
+        memory.writeF(skeleton + 0xc8 + i * 4, 20000.0f);
+    }
+    assert(drakan_arena::detail::resetPlacementMotion(memory, actor, target, true));
+    for (uint32_t i = 0; i < 3; ++i) {
+        assert(memory.readF(skeleton + 0x174 + i * 4) == target[i]);
+        assert(memory.readF(skeleton + 0xc8 + i * 4) == 0.0f);
+    }
+    assert(memory.readF(player + 8) == 0.0f && memory.readF(player + 0xb9c) == 0.0f);
+    assert(memory.readF(player + 0xb74) == 0.28f && memory.readF(player + 0xe8) == 150008.0f);
+    assert(memory.read32(player + 0x90) == 0x62000 && memory.read32(player + 0x94) == 0);
+    assert(memory.read32(0x4fbad4) == 0x12345678); // normal native landing damage is not bypassed
+
+    // A different disc layout or a non-player actor cannot receive PAL player-field writes.
+    memory.writeF(player + 0xb9c, 6000.0f);
+    assert(drakan_arena::detail::resetPlacementMotion(memory, actor, target, false));
+    assert(memory.readF(player + 0xb9c) == 6000.0f);
+    // A mount can share actor type 3 with Rynn; the caller must use resource class, not type.
+    memory.words[actor + 0xc] = 3;
+    assert(drakan_arena::detail::resetPlacementMotion(memory, actor, target, false));
+    assert(memory.readF(player + 0xb9c) == 6000.0f);
+    memory.words[player + 0x80] = actor + 16; // stale inner/data ownership cannot touch unrelated player state
+    assert(drakan_arena::detail::resetPlacementMotion(memory, actor, target, true));
+    assert(memory.readF(player + 0xb9c) == 6000.0f);
+
+    memory.words[skeleton + 0xd4] = actor + 16;
+    const auto staleModel = memory.words;
+    assert(!drakan_arena::detail::resetPlacementMotion(memory, actor, target, true));
+    assert(memory.words == staleModel);
+    memory.words[actor + 0x50] = 0x1fffff0;
+    const auto before = memory.words;
+    assert(!drakan_arena::detail::resetPlacementMotion(memory, actor, target, true));
+    assert(memory.words == before);
+    assert(!drakan_arena::detail::resetPlacementMotion(memory, 0, target, true));
+    const float invalid[3] = {0, std::numeric_limits<float>::quiet_NaN(), 0};
+    assert(!drakan_arena::detail::resetPlacementMotion(memory, actor, invalid, true));
+    assert(memory.words == before);
+}
+} // namespace
 
 int main() {
+    testArenaPlacementMotion();
     using namespace drakan_coop_character;
     const auto& all = roster();
     assert(all.size() == 15 && all.front().id == 0);
@@ -93,6 +175,16 @@ int main() {
     setSelected(0xffff);
     assert(selected() == 0 && entry(0xffff).id == 0);
     drakan_local_character::View view{100, 200, {300, 400}};
+    view.bodySkeleton = 0x130000;
+    view.bodyResource = 0x51323;
+    // Stand-in actor+0x12 can be zero in normal gameplay; render eligibility deliberately requires no registry ref.
+    assert(view.matchesBody(0x51b8b0, 1, 0x130000, 0x51323, 0x51b8b0));
+    // Title teardown can retire a pooled body before a new player pose or level-load callback exists. A reused
+    // address with a different controller or model must not receive the old player's transform or substitution.
+    assert(!view.matchesBody(0x51b8b0, 0x80000001, 0x130000, 0x51323, 0x51b8b0));
+    assert(!view.matchesBody(0x51b8b0, 1, 0x140000, 0x51323, 0x51b8b0));
+    assert(!view.matchesBody(0x51b8b0, 1, 0x130000, 0x51262, 0x51b8b0));
+    assert(!view.matchesBody(0, 1, 0x130000, 0x51323, 0x51b8b0));
     assert(view.nativeObject(100) == 0);
     assert(view.nativeObject(200) == 200);
     assert(view.nativeObject(300) == 0 && view.nativeObject(400) == 0);

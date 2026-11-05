@@ -315,6 +315,38 @@ The ghost is spawned (`drakan_ghost::spawn`) when the remote player is Playing, 
 `drakan_ghost::setPose` (position, yaw and clips) every frame. It is removed when the player leaves, changes level (their `levelHash` goes to 0 while
 loading, then to the new level's hash) or when this instance loads a level or writes a save (`drakan_lifecycle`).
 
+Native paired checks on 2026-11-05 used the same final executable for a UDP-relay baseline and seeded
+40 +/- 15 ms one-way delay with 5% requested datagram loss. After both near captures, neither run had a
+receiver step above 500 units; moving-host presentation-delay fits were approximately 190 / 230 ms, with
+receipt-clock and sampling uncertainty. Inventory interior sender/receiver transforms stayed constant.
+One baseline startup gap crossed an explicit level/body removal and recreation; it was not an instantaneous
+movement step. These are bounded Surdana/default-Rynn observations, not a general WAN quality guarantee.
+See [motion evidence](../journal/2026-11-05/issue-1-remote-motion.md).
+
+The same near RAM captures identify remote Rynn model `0x20f25` at native LOD 0 with 1628 vertices, from a
+1628 / 208 vertex descriptor pair. Far captures switch to LOD 1 at roughly 6600 units. The nearby screenshot
+and actual selector distances do not reproduce an always-coarse remote mesh; they do not certify other
+characters or the reporter's exact appearance. See [LOD evidence](../journal/2026-11-05/issue-1-remote-lod.md).
+
+**Concurrent co-op pickup removal (2026-11-05):** a peer's `ObjGone` can arrive after the local
+copy has entered the player's inventory. Before putting an actor on the native kill list, co-op now
+clears matching inventory cells and hand handles and marks the list dirty, using the same helper as
+arena pickup removal. Arena performs this cleanup at its common kill boundary, including campaign
+sweeps: archived City/Inquisitor runs show native item-property calls targeting zero after a sweep
+and kill-list flush, while UDP statistics continue. This prevents subsequent equip/use code from
+following references to a freed copy. Harness acceptance now requires native scripted quit and no
+missing guest branch target, independently of network statistics. Synthetic coverage checks duplicate cells, hand slots, unrelated items and repeated removal;
+this is a race safeguard, not live acceptance of issue #1's City of the Damned freeze.
+Factory arena items created before their destination terrain is resident can also retain native
+cell `-1` and remain absent from interaction queries. Present unclaimed world items now retry the
+existing native cell lookup/refile path with a bounded per-scan budget. Native inventory ownership
+precedes the initial settling-position update, so an early receipt cannot be mistaken for movement
+of the pickup's home. Native host and client collection, server acceptance, peer removal,
+inventory/usability, movement and clean native quit passed on a private near-spawn City fixture.
+The default City's Blade and Mana now name their resource fallbacks (`0x3373c` / `0x31b33`),
+preserving original positions and indices; approach at those original positions is not certified.
+See [pickup investigation](../journal/2026-11-05/issue-1-mp-pickup.md).
+
 **Inventory preview isolation (2026-11-04):** the native inventory rotates the live player actor by pi radians for
 its camera, including when the modern inventory is selected. Outgoing poses pass through `world::InventoryPoseFilter`:
 while the native inventory-open stats flag is set (also under help/confirmation dialogs), retain the last gameplay
@@ -1014,6 +1046,26 @@ pack's `maps/<level>.ini`:
 
 Not done: team spawn sets, the USA disc (see `docs/reference/regions.md` "Multiplayer arenas on USA").
 
+## Inquisitor movement follow-up
+
+Deployed PAL joined default-Rynn validation now passes on both host and client through the actual native
+Multiplayer menu. W/S move in opposite directions with zero heading change, stable controlled actors, correct
+axis-2 input/release, settled assigned spawns and armed hands. In the final paired run the host moves
+3755.73 / 1870.46 units and the client 2307.46 / 2096.73; both retain health 100 through the early spawn samples
+and movement windows and exit normally. Evidence: `issue1-movement-joined-rynn-r3` under `build/harness`.
+
+A partial private native-options fixture reproduced the reported turning symptom because the startup loader
+rejected its missing fields and left the stick mapping uninitialized. The maintained `arena_movement.py` now
+supplies all twelve native options and requires the startup preparation receipt; no map-specific axis override
+was added. Separately, client spawn 2 exposed fatal native landing damage after arena relocation. Explicit arena
+teleports now rebase owned skeleton motion history and clear only audited PAL Rynn speed caches, with actual
+resource-class and ownership guards. Health, gravity, airborne state and native fall-damage rules remain untouched.
+The corrected joined run validates spawn survival and actual W/S movement; a separate damaging natural fall was
+not playtested. USA player cache offsets remain unaudited and are excluded.
+
+The earlier Sevoth host-only pass remains historical evidence, not the basis for joined acceptance. See
+[the investigation, fixture correction and paired native results](../journal/2026-11-05/issue-1-mp-movement.md).
+
 ## Tests
 
 `ctest --preset runtime-tests -R net_`. `net_custom_rules_test` (2026-11-02): the new mode keys and their errors, the goal / summary texts, `Score` with lives on the wire, lives and last one standing (three players, an eliminated player can neither hurt nor be hurt, the survivor wins with fewer points, the rematch gives the lives back), a late joiner (plays when the host was alone, watches after that), a leaver ending it, the team version with a team kill score, spawn protection, pickups never back / on the mode's clock, allowed weapons. `net_results_modes_test`: the results buttons (host only, other phases ignored, back to
@@ -1029,3 +1081,15 @@ arriving in part); the encode / decode round trips of the new messages are in `n
 `scripts/harness/coop_two_instances.py` (all scenarios) and `netplay_two_instances.py` (level follow), see the 2026-10-31
 journal `coop-net.md`. Everything is deterministic except the UDP smoke test, which uses localhost
 sockets with wall-clock time.
+
+### Session departure and title return
+
+A confirmed manual Quit to Title ends the network session, including a listen server. Native confirmation cancellation
+keeps it alive. Automated returns from match results preserve the lobby for the next match. Loss of an established
+connection requests the native title return and retains the error until the multiplayer menu acknowledges it with Leave;
+the title resumes that failed lobby to complete Leave, retaining the reason in offline state until the next Host/Join.
+Initial connection rejection/timeout stays in the joining menu. Legacy connections do not reconnect after an established
+session is lost. Dedicated-server lobby leadership transfers on player departure without disconnecting other clients.
+Graceful listen-server teardown sends the UDP disconnect; abrupt loss falls back to the existing 10-second timeout.
+See [the host-departure investigation](../journal/2026-11-05/issue-1-host-disconnect.md) and the `netplay_policy`,
+`net_match`, and `net_udp_smoke` regressions.

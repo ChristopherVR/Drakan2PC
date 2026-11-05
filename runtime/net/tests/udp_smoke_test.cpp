@@ -135,6 +135,34 @@ int main() {
         }));
     }
 
+    // A listen host's session teardown destroys its server transport. The client receives a real disconnect,
+    // rather than just a PlayerLeave (dedicated-server host migration), and cannot keep sending match state.
+    {
+        auto st = std::make_unique<UdpTransport>();
+        CHECK(st->listen(0));
+        auto ms = std::make_unique<MatchServer>(*st, ServerOptions{});
+        UdpTransport ct;
+        MatchClient mc(ct, ClientOptions{});
+        const uint64_t t0 = wallMs();
+        CHECK(mc.connect("127.0.0.1", st->localPort(), 0));
+        CHECK(waitFor([&] {
+            ms->tick(wallMs() - t0);
+            mc.tick(wallMs() - t0);
+            return mc.connected();
+        }));
+        collect(mc);
+        ms.reset();
+        st.reset();
+        CHECK(waitFor([&] {
+            mc.tick(wallMs() - t0);
+            return !mc.connected();
+        }));
+        const auto events = collect(mc);
+        CHECK(count<DisconnectedEvent>(events) == 1);
+        CHECK(!first<DisconnectedEvent>(events)->wasRejected);
+        CHECK(!mc.sendState(PlayerState{}));
+    }
+
     // v5 discovery: a ServerBrowser queries a listening server (unicast and the loopback sweep) and gets its status.
     {
         UdpTransport st;

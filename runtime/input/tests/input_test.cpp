@@ -158,6 +158,173 @@ static void testStickCurve() {
     CHECK(encodeStickLinear(5.0f) == 255);
 }
 
+static void testDirectionalAttacks() {
+    InputModule m;
+    m.initHeadless(Config::defaults());
+    FakeGuest guest;
+    const uint32_t ctx = 0x600000, actor = 0x610000, inner = 0x620000, player = 0x630000, vt = 0x640000;
+    guest.write32(0x5565d4, ctx);
+    guest.write32(ctx + 0x4b0, actor);
+    guest.write32(actor + 0xfc, inner);
+    guest.write32(inner + 0x10, player);
+    guest.write32(player + 0x57c, vt);
+    guest.write32(vt + 0x17c, 0x32cda8);
+    guest.write16(player + 0xed0, 42);
+    guest.write32(player + 0xe90, 0xffffffffu);
+    m.beforePadMgrUpdate(guest, false);
+    const uint16_t directions = Pad::UP | Pad::DOWN | Pad::LEFT | Pad::RIGHT;
+    const char* move[] = {"W", "S", "A", "D"};
+    const char* arrow[] = {"UP", "DOWN", "LEFT", "RIGHT"};
+    const uint16_t bits[] = {Pad::UP, Pad::DOWN, Pad::LEFT, Pad::RIGHT};
+    for (int i = 0; i < 4; ++i) {
+        // Movement held before attack still supplies the direction on the attack frame.
+        const auto movement = sampleOf(m, keys({move[i]}));
+        CHECK((movement.buttons & directions) == 0);
+        const auto prepare = sampleOf(m, keys({move[i]}, MBTN_LEFT));
+        CHECK(prepare.buttons == 0 && prepare.lx == 128 && prepare.ly == 128);
+        const auto attack = sampleOf(m, keys({move[i]}, MBTN_LEFT));
+        CHECK(attack.buttons == (Pad::SQUARE | bits[i]));
+        CHECK(attack.lx == 128 && attack.ly == 128); // analog movement otherwise overrides the native special move
+        CHECK(sampleOf(m, keys({move[i]}, MBTN_LEFT)).buttons == attack.buttons); // held attacks never defer again
+        const auto released = sampleOf(m, keys({move[i]}));
+        CHECK(released.buttons == 0); // release the projected D-pad and restore normal movement
+        CHECK(released.lx == movement.lx && released.ly == movement.ly);
+        CHECK(sampleOf(m, keys({arrow[i]})).buttons == bits[i]); // arrows remain independent
+        CHECK(sampleOf(m, FrameInput{}).buttons == 0);
+    }
+    CHECK(sampleOf(m, keys({"W", "D"}, MBTN_LEFT)).buttons == 0);
+    CHECK(sampleOf(m, keys({"W", "D"}, MBTN_LEFT)).buttons == (Pad::SQUARE | Pad::UP | Pad::RIGHT));
+    sampleOf(m, FrameInput{});
+    CHECK(sampleOf(m, keys({"W", "S", "A", "D"}, MBTN_LEFT)).buttons == Pad::SQUARE);
+    sampleOf(m, FrameInput{});
+    CHECK(sampleOf(m, keys({"W", "LEFT"}, MBTN_LEFT)).buttons == Pad::LEFT); // explicit arrows are independent
+    CHECK(sampleOf(m, keys({"W", "LEFT"}, MBTN_LEFT)).buttons == (Pad::SQUARE | Pad::UP | Pad::LEFT));
+    sampleOf(m, FrameInput{});
+    FrameInput tap = keys({"W"});
+    tap.mousePressed = MBTN_LEFT; // attack pressed and released between snapshots
+    tap.mouseReleased = MBTN_LEFT;
+    CHECK(sampleOf(m, tap).buttons == 0);
+    CHECK(sampleOf(m, FrameInput{}).buttons == (Pad::SQUARE | Pad::UP)); // even a released movement/attack tap survives
+    CHECK(sampleOf(m, keys({"W"})).buttons == 0);
+    FrameInput controller = keys({"W"});
+    controller.gamepad.connected = true;
+    controller.gamepad.buttons = Pad::SQUARE;
+    CHECK(sampleOf(m, controller).buttons == Pad::SQUARE); // native controller attack is unchanged
+    CHECK(sampleOf(m, controller).ly < 128);               // a controller attack does not suppress keyboard movement
+    controller.mouseDown = MBTN_LEFT;
+    controller.gamepad.lx = 0.5f;
+    controller.gamepad.ly = 0.25f;
+    CHECK(sampleOf(m, controller).buttons == Pad::SQUARE); // physical Square is not buffered
+    const auto merged = sampleOf(m, controller);
+    CHECK(merged.buttons == (Pad::SQUARE | Pad::UP));
+    CHECK(merged.lx == encodeStickRaw(0.5f));
+    // Repeated small physical deflections pass through the existing four-byte jitter dither.
+    CHECK(std::abs(int(merged.ly) - int(encodeStickRaw(-0.25f))) <= 4);
+
+    Config custom = Config::defaults();
+    Config::parse("[bindings]\nI = LSTICK_UP\nJ = SQUARE\n", custom, nullptr);
+    InputModule rebound;
+    rebound.initHeadless(custom);
+    rebound.beforePadMgrUpdate(guest, false);
+    CHECK(sampleOf(rebound, keys({"I", "J"})).buttons == 0);
+    CHECK(sampleOf(rebound, keys({"I", "J"})).buttons == (Pad::SQUARE | Pad::UP));
+    CHECK(sampleOf(rebound, keys({"W", "J"})).buttons == Pad::SQUARE);
+    rebound.setMenuActive(true);
+    CHECK((sampleOf(rebound, keys({"I", "J"})).buttons & directions) == 0);
+
+    // Bow shots, mounted breath, summons and unknown/stowed actors keep their movement.
+    auto unchangedMovement = [&]() {
+        const auto sample = sampleOf(m, keys({"W"}, MBTN_LEFT));
+        CHECK(sample.buttons == Pad::SQUARE && sample.ly < 128);
+    };
+    guest.write32(player + 0xe90, 5);
+    m.beforePadMgrUpdate(guest, false);
+    unchangedMovement();
+    guest.write32(player + 0xe90, 0xffffffffu);
+    m.beforePadMgrUpdate(guest, true);
+    unchangedMovement();
+    guest.write32(player + 0x1040, 2);
+    m.beforePadMgrUpdate(guest, false);
+    unchangedMovement();
+    guest.write32(player + 0x1040, 0);
+    guest.write32(player + 0xeb4, 0xffffffffu);
+    m.beforePadMgrUpdate(guest, false);
+    unchangedMovement();
+    guest.write32(player + 0xeb4, 0);
+    guest.write32(vt + 0x17c, 0);
+    m.beforePadMgrUpdate(guest, false);
+    unchangedMovement();
+    guest.write32(vt + 0x17c, 0x32cda8);
+    guest.write32(inner + 0x10, 0x1ffffff);
+    m.beforePadMgrUpdate(guest, false);
+    unchangedMovement();
+    guest.write32(inner + 0x10, player);
+    CameraProfile usa;
+    usa.layout.playerSummonState = 0x103c;
+    usa.layout.playerRightHolder = 0xeb0;
+    usa.layout.playerLeftHolder = 0xe8c;
+    m.setCameraProfile(usa);
+    guest.write16(player + 0xecc, 42);
+    guest.write32(player + 0xe8c, 0xffffffffu);
+    m.beforePadMgrUpdate(guest, false);
+    CHECK(sampleOf(m, keys({"W"}, MBTN_LEFT)).buttons == (Pad::SQUARE | Pad::UP));
+    guest.write32(player + 0xe8c, 5);
+    m.beforePadMgrUpdate(guest, false);
+    unchangedMovement();
+
+    // An interrupted preparation cannot leak a delayed attack across ownership or native context changes.
+    m.setCameraProfile(CameraProfile{});
+    guest.write32(player + 0xe90, 0xffffffffu);
+    guest.write16(player + 0xed0, 42);
+    auto prepareTap = [&]() {
+        sampleOf(m, FrameInput{});
+        m.beforePadMgrUpdate(guest, false);
+        CHECK(sampleOf(m, tap).buttons == 0);
+    };
+    auto noDelayedAttack = [&]() { CHECK((sampleOf(m, FrameInput{}).buttons & Pad::SQUARE) == 0); };
+    prepareTap();
+    m.setMenuActive(true);
+    m.beginFrame(FrameInput{}); // no pad read is needed to cancel
+    m.setMenuActive(false);
+    noDelayedAttack();
+    prepareTap();
+    m.setSuspended(true);
+    m.setSuspended(false);
+    noDelayedAttack();
+    prepareTap();
+    guest.write32(player + 0xe90, 5);
+    m.beforePadMgrUpdate(guest, false);
+    noDelayedAttack();
+    guest.write32(player + 0xe90, 0xffffffffu);
+    prepareTap();
+    m.beforePadMgrUpdate(guest, true);
+    noDelayedAttack();
+    prepareTap();
+    guest.write16(player + 0xed0, 43); // a different drawn melee weapon is still a new context
+    m.beforePadMgrUpdate(guest, false);
+    noDelayedAttack();
+    prepareTap();
+    const uint32_t replacement = player + 0x2000;
+    guest.write32(replacement + 0x57c, vt);
+    guest.write16(replacement + 0xed0, 43);
+    guest.write32(replacement + 0xe90, 0xffffffffu);
+    guest.write32(inner + 0x10, replacement);
+    m.beforePadMgrUpdate(guest, false);
+    noDelayedAttack();
+    guest.write32(inner + 0x10, player);
+    prepareTap();
+    m.reloadConfig(Config::defaults());
+    noDelayedAttack();
+    prepareTap();
+    CHECK((sampleOf(m, keys({"ESC"})).buttons & Pad::SQUARE) == 0);
+    noDelayedAttack();
+    prepareTap();
+    FrameInput unfocused;
+    unfocused.focused = false;
+    m.beginFrame(unfocused);
+    noDelayedAttack();
+}
+
 static void testPadSamples() {
     InputModule m;
     m.initHeadless(legacyPitch(Config::defaults()));
@@ -504,6 +671,86 @@ static void testCamera() {
 
 static void writeFile(const std::string& p, const std::string& t);
 // ---- controls v2: persistent pitch, strafe, capture vs menu context ----
+static void testSpellMovementAxes() {
+    Config c = Config::defaults();
+    const uint32_t rec = c.addrStickMap, actorHandle = 0x780000, actorInner = 0x790000;
+    FakeGuest g;
+    setupCamera(g, 0, 1);
+    g.write32(0x600000 + 0x4b0, actorHandle);
+    g.write32(actorHandle + 0xfc, actorInner);
+    g.write32(actorInner + 0x10, PLAYER);
+    g.write32(rec, 0);
+    g.writeF(rec + 8, 0.8f);
+    InputModule m;
+    m.initHeadless(c);
+    auto tick = [&](FrameInput f, bool dragon = false) {
+        m.beginFrame(f);
+        m.beforePadMgrUpdate(g, dragon);
+        return sampleOf(m, f);
+    };
+    CHECK(tick(keys({"A"})).lx < 128);
+    CHECK(g.read32(rec) == 3);
+    for (uint32_t state = 1; state <= 4; ++state) {
+        g.write32(PLAYER + 0x1040, state);
+        const char* move[] = {"W", "S", "A", "D"};
+        for (const char* direction : move) {
+            // No mouse button: gestures continue after the initiating Circle tap released.
+            const auto s = tick(keys({direction}));
+            CHECK(g.read32(rec) == 0);
+            NEAR(g.readF(rec + 8), 0.8, 1e-6);
+            CHECK(s.buttons == 0);
+            if (std::strcmp(direction, "A") == 0 || std::strcmp(direction, "D") == 0)
+                CHECK(s.lx != 128 && s.ly == 128);
+            else
+                CHECK(s.lx == 128 && s.ly != 128);
+        }
+    }
+    g.write32(PLAYER + 0x1040, 5); // preparation ends / spell readied
+    tick(keys({"D"}));
+    CHECK(g.read32(rec) == 3);
+    g.write32(PLAYER + 0x1040, 4);
+    tick(keys({"A"}));
+    CHECK(g.read32(rec) == 0);
+    g.write32(PLAYER + 0x1040, 0); // cancel
+    tick(keys({"A"}));
+    CHECK(g.read32(rec) == 3);
+    m.setMenuActive(true);
+    tick(keys({"A"}));
+    CHECK(g.read32(rec) == 0);
+    m.setMenuActive(false);
+    tick(keys({"A"}), true);
+    CHECK(g.read32(rec) == 0); // mount retains native mapping
+    tick(keys({"A"}));
+    CHECK(g.read32(rec) == 3);
+    g.write32(PLAYER + 0x1040, 4);
+    tick(keys({"A"}));
+    CHECK(g.read32(rec) == 0);
+    g.write32(actorInner + 0x10, PLAYER + 0x2000); // current actor replaces casting actor
+    tick(keys({"A"}));
+    CHECK(g.read32(rec) == 3);
+    g.write32(actorInner + 0x10, 0x1ffffff); // invalid/short guest allocation
+    tick(keys({"A"}));
+    CHECK(g.read32(rec) == 3);
+    CameraProfile profile;
+    profile.layout.playerSummonState = 0x103c; // USA's verified offset
+    m.setCameraProfile(profile);
+    g.write32(actorInner + 0x10, PLAYER);
+    g.write32(PLAYER + 0x1040, 0);
+    g.write32(PLAYER + 0x103c, 4);
+    tick(keys({"D"}));
+    CHECK(g.read32(rec) == 0);
+    profile.layout.playerSummonState = 0; // an unmapped profile does not read player+0
+    m.setCameraProfile(profile);
+    g.write32(PLAYER, 4);
+    tick(keys({"D"}));
+    CHECK(g.read32(rec) == 3);
+    FrameInput controller = keys({"A"});
+    controller.gamepad.connected = true;
+    controller.gamepad.lx = 0.5f;
+    tick(controller);
+    CHECK(g.read32(rec) == 0); // a physical stick keeps its native mapping
+}
+
 static void testControlsV2() {
     Config c = Config::defaults();
     c.sensX = c.sensY = 0.01f;
@@ -2923,10 +3170,12 @@ int main() {
     testConfig();
     testStickCurve();
     testPadSamples();
+    testDirectionalAttacks();
     testMouseStickMode();
     testJitterDither();
     testCamera();
     testControlsV2();
+    testSpellMovementAxes();
     testCommands();
     testWalkControl();
     testExternalCapture();

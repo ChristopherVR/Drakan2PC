@@ -3,8 +3,6 @@
 #include <gsr/scene_models.h>
 #include <algorithm>
 #include <array>
-#include <unordered_map>
-#include <unordered_set>
 #include <cmath>
 #include <cstring>
 
@@ -36,7 +34,7 @@ public:
     struct Scratch {
         std::vector<std::pair<uint32_t, const SceneModelInstance*>> previous;
         std::vector<uint32_t> current, ambiguous;
-        std::unordered_map<uint32_t, uint32_t> textures;
+        std::vector<uint32_t> textureSlots;
     };
     // prepare() against an explicit previous scene (the committed one at the time of the call), so it can run on
     // another thread while the owner does not commit.
@@ -54,8 +52,7 @@ public:
         previous.reserve(previous_->instances.size());
         for (const auto& i : previous_->instances)
             previous.push_back({i.object, &i});
-        std::stable_sort(previous.begin(), previous.end(),
-                         [](const auto& a, const auto& b) { return a.first < b.first; });
+        std::sort(previous.begin(), previous.end(), [](const auto& a, const auto& b) { return a.first < b.first; });
         auto& ambiguous = scratch_.ambiguous;
         ambiguous.clear();
         for (size_t n = 1; n < previous.size(); ++n)
@@ -141,18 +138,24 @@ public:
         // Only alpha-tested moving surfaces consume textures. Passing every
         // resident material allocates/uploads unused GPU array layers, including
         // static scenery and opaque actors whose motion needs no texels.
-        auto& textures = scratch_.textures;
-        textures.clear();
-        for (auto& vertex : out.vertices)
-            if (vertex.alphaTexture != ~0u) {
-                const auto source = vertex.alphaTexture;
-                auto [slot, inserted] = textures.emplace(source, uint32_t(out.textures.size()));
-                if (inserted) {
-                    const auto& t = scene.textures[source];
-                    out.textures.push_back({t->identity, t->pixels});
-                }
-                vertex.alphaTexture = slot->second;
+        if (out.vertices.empty())
+            return;
+        auto& slots = scratch_.textureSlots;
+        slots.assign(scene.textures.size(), ~0u);
+        for (size_t i = 0; i < out.vertices.size(); i += 3) {
+            const uint32_t source = out.vertices[i].alphaTexture;
+            if (source == ~0u)
+                continue;
+            auto& slot = slots[source];
+            if (slot == ~0u) {
+                slot = uint32_t(out.textures.size());
+                const auto& texture = scene.textures[source];
+                out.textures.push_back({texture->identity, texture->pixels});
             }
+            // All three vertices came from the same accepted triangle.
+            for (unsigned corner = 0; corner < 3; ++corner)
+                out.vertices[i + corner].alphaTexture = slot;
+        }
     }
 
 private:

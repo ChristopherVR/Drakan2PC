@@ -43,7 +43,8 @@ struct VideoSettings {
     int anisotropic = 16;            // anisotropic: 1 (off) 2 4 8 16
     int textureUpscale = 0;          // texture_upscale: 0 (auto) 1 (off) 2 4
     std::string textureUpscaleFilter = "default"; // texture_upscale_filter: names come from HostCaps
-    float mipBias = 0.0f;                         // mip_bias: -2..+2
+    float mipBias = 0.0f;                         // mip_bias: numeric override, -2..+2 in the menu
+    bool mipBiasAuto = true;                      // mip_bias = auto: renderer follows the internal resolution
     bool hdTextures = true;                       // hd_textures: use replacement textures from overrides/
     bool textureDump = false;                     // texture_dump: write decoded textures to disk
     float hudScale = 0.0f;           // hud_scale: 0 = auto (by output size), else 0.5 .. 1.5 (1 = original 4:3 size)

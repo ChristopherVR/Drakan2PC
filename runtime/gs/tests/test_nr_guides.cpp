@@ -264,6 +264,19 @@ void run(const Shaders& shaders, D3D_DRIVER_TYPE driver) {
         // still require exact zero.
         require(g.modelMotion(mesh, {}), g.status());
         f.checkMotion(g, 1, 0, true, .003f);
+        // Stream enough consecutive draws to wrap the vertex ring. Only the last two triangles
+        // have coverage. Alternating their motion detects an old range being drawn after wrap.
+        std::vector<ModelMotionVertex> stream(32766);
+        for (unsigned step = 0; step < 8; ++step) {
+            const float shift = step % 2 ? 1.f : -1.f;
+            std::copy(mesh.begin(), mesh.end(), stream.end() - mesh.size());
+            for (auto it = stream.end() - mesh.size(); it != stream.end(); ++it)
+                it->previous[0] = it->current[0] + shift * 2.f / 7;
+            ++f.frame.frameIndex;
+            require(g.prepare(f.frame), g.status());
+            require(g.modelMotion(stream, {}), g.status());
+            f.checkMotion(g, shift, 0, true, .003f);
+        }
         f.frame.jitterPixels[0] = 1;
         ++f.frame.frameIndex;
         require(g.prepare(f.frame), g.status());

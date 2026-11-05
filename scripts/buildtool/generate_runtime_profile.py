@@ -95,6 +95,9 @@ CAMERA_FIELDS = (
     "transform_right",
     "transform_back",
     "camera_orbit",
+    "player_summon_state",
+    "player_right_holder",
+    "player_left_holder",
 )
 OBSERVER_FIELDS = (
     "rynn_class",

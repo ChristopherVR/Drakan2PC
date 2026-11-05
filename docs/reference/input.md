@@ -10,6 +10,47 @@ Note: `docs/reference/iop-and-io.md` quotes libpad entry points 4 bytes off for 
 `scePadInit` 0x4b0948, `PortOpen` 0x4b0ba8, `Read` 0x4b0ef8, `GetState` 0x4b0f78, `SetMainMode` 0x4b1490, `SetActDirect` 0x4b1548.
 Use the `functions.csv` entry addresses for hooks.
 
+## Keyboard directional attacks (2026-11-05)
+
+`PadSynth::synthesizePad` projects active `LSTICK_*` bindings onto matching D-pad buttons while a
+keyboard/mouse binding supplies `SQUARE` and the current native Rynn has a drawn melee weapon. The keyboard
+left stick centers during that attack: native analog movement otherwise selects a moving attack ahead of the
+requested special move. A new directional attack first emits one neutral sample, then its direction and attack:
+native button callbacks precede stick processing, and an analog direction's release otherwise clears the new
+D-pad command. A short attack tap is buffered for that next sample; held attacks do not repeat the delay.
+Ownership/menu loss and actor/weapon changes cancel pending taps. Movement returns on attack release;
+opposing bindings cancel on each projected axis.
+Bow mode, mounted control, active spell gestures and unknown actors exclude this conversion. The profile supplies
+the native left/right weapon-holder offsets. Explicit D-pad bindings remain independent. The projection follows
+custom movement/attack bindings, includes between-frame press taps, and stops when attack releases.
+It is disabled in the menu layer and runs before the physical controller merge, preserving native controller
+input. `testDirectionalAttacks` verifies synthesis, melee gating and movement release. The maintained
+`directional_attack_check.py` compares actual upper-body skeleton clips and advancing clip times with an arrow
+baseline and neutral attack, then checks attack/movement release. A locomotion selector or delivered pad bits
+cannot establish directional parity. PAL native gameplay passed all four pairs on the deployed build:
+W/Up `0x20684`, S/Down `0x2069c`, A/Left `0x2069d`, D/Right `0x2069e`, each distinct from neutral
+attack `0x20691`; native attack clocks, release, idle stability and subsequent movement/release also passed.
+Investigation: [issue #1 directional attacks](../journal/2026-11-05/issue-1-directional-attacks.md).
+
+## Keyboard spell gestures (2026-11-05)
+
+Native spell gesture input (`0x38a548`, PAL) reads axes 0/2, whereas PC A/D strafe
+normally redirects left-stick X to axis 3. `beforePadMgrUpdate` temporarily restores
+the saved native X mapping and scale during summon states 1..4, so A/D reaches the
+horizontal gesture axis while W/S continues reaching the vertical axis. It resumes
+strafe at state 0/5 and reads the current actor every update, including after RMB
+release. The bounded actor-chain read uses profile offset `player_summon_state`
+(PAL `0x1040`, USA `0x103c`); a zero offset is skipped. Menus, Arokh, host ownership
+and physical-stick mapping behavior remain intact. `testSpellMovementAxes` verifies
+axis routing and state transitions. Deployed PAL paired native Fireball checks now
+verify matching WASD/arrow gesture prefixes including both horizontal directions,
+a fresh selected-spell reset during preparation, and native full-match ready state
+with the correct selected spell. Both controls enter native casting state 4 and
+spend mana from 100 to 85. Successful recognition clears the processed string;
+`spell_gesture_check.py` checks that native transition. Projectile travel and damage
+remain unobserved in the sampled frames and are reported separately. See
+[investigation](../journal/2026-11-05/issue-1-spell-directions.md).
+
 ## Runtime disc integration (2026-10-30)
 
 The historical analysis below describes PAL addresses. The basic SDK input backend now resolves its hooks and
@@ -530,3 +571,12 @@ aiming the bow (LMB held; the release then gives one attack with the new weapon)
 slots after save -> load (the first press after the load equips), keys ignored on the Tab screen, the strip, the map and
 the pause menu, and in water (no quick items can be set there; keys report empty). Not run: climbing, a running summon,
 a cut scene.
+
+
+## Harness profile isolation
+
+Direct-dist tests can set `DRAKAN_MULTIPLAYER_INI` to a private multiplayer profile, alongside `DRAKAN_INI`,
+`DRAKAN_INPUT_INI`, `DRAKAN_NATIVE_OPTIONS_INI` and `DRAKAN_MEMCARD_DIR`. Without the override, the game retains
+its normal executable-local `multiplayer.ini`. Give paired instances separate profiles so menu character/name
+edits do not affect the player's configuration or the other participant. `play_run.py` resolves its run directory
+before exporting paths, so relative `--out-root` arguments remain valid when the child runs from `dist/DrakanPC`.

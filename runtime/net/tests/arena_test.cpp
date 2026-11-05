@@ -116,6 +116,20 @@ int main() {
             std::fprintf(stderr, "built-in maps: %s\n", e.c_str());
         CHECK(errors.empty());
         CHECK(n >= 3);
+        // Campaign pickup initialization is filtered before the arena loads. City must
+        // instantiate these resources rather than adopt actors that no longer exist.
+        const ArenaDef* city = cat.find("city-skeleton-square");
+        CHECK(city && city->pickups.size() == 4);
+        if (city && city->pickups.size() == 4) {
+            CHECK(city->pickups[0].resId == 0x3373cu);
+            CHECK(city->pickups[0].label == "Lastat's Blade");
+            CHECK(city->pickups[0].pos[0] == 157758 && city->pickups[0].pos[1] == 170900 &&
+                  city->pickups[0].pos[2] == 469570);
+            CHECK(city->pickups[1].resId == 0x31b33u);
+            CHECK(city->pickups[1].label == "Full Mana");
+            CHECK(city->pickups[1].pos[0] == 198101 && city->pickups[1].pos[1] == 168300 &&
+                  city->pickups[1].pos[2] == 425685);
+        }
         for (const ArenaDef& a : cat.arenas()) {
             CHECK(!a.description.empty() && a.spawns.size() >= 4 && !a.pickups.empty());
             for (const ArenaSpawn& s : a.spawns)

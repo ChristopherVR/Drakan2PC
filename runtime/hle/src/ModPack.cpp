@@ -1593,8 +1593,24 @@ static std::string baseOf(const std::string& key) {
 
 size_t ModManager::installFiles(IsoFs& fsys) {
     size_t served = 0;
+    // English is the editor's portable pack namespace. Mount these files in the running
+    // language too, while retaining their explicit paths for generated DB references.
+    // Resolve collisions before installation: later packs win, and an explicit localized
+    // file wins over its English fallback within the same pack.
+    std::map<std::string, PackSource> mountedFiles = files_;
+    const std::string language = fsys.languageRoot();
+    if (!language.empty() && language != "ENGLISH") {
+        for (const auto& [path, source] : files_) {
+            if (path.rfind("ENGLISH\\", 0) != 0)
+                continue;
+            const std::string localized = language + path.substr(7);
+            const auto existing = mountedFiles.find(localized);
+            if (existing == mountedFiles.end() || existing->second.modIndex < source.modIndex)
+                mountedFiles[localized] = source;
+        }
+    }
     // 1. whole files: replacement or new
-    for (auto& [pk, src] : files_) {
+    for (auto& [pk, src] : mountedFiles) {
         std::vector<u8> b;
         if (!src.archive->read(src.path, b) || b.empty()) {
             logf("mods: %s: cannot read %s, file skipped", src.modId.c_str(), src.path.c_str());

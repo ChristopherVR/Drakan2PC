@@ -24,12 +24,15 @@ param(
     # CPU cores the compilers may use (0 = automatic: half the logical cores, at most 4). Memory still limits how many
     # run at once. Remembered in build/build-options.json for later rebuilds.
     [ValidateRange(0, 256)][int]$Cores = -1,
+    # Optional Windows logical-processor hex mask; 'default' clears a remembered mask.
+    [string]$CpuAffinity,
     # 'Low' compiles at below-normal priority so the PC stays responsive; 'Normal' is the default. Remembered too.
     [ValidateSet('', 'Normal', 'Low')][string]$Priority = '',
     # Only check the prerequisites and the ISO path, then stop (installs nothing).
     [switch]$CheckOnly
 )
 $ErrorActionPreference = 'Stop'
+. (Join-Path $PSScriptRoot 'Build-Affinity.ps1')
 $RepoRoot = (Resolve-Path -LiteralPath (Join-Path $PSScriptRoot '../..')).Path
 if (-not $WorkDir) { $WorkDir = Join-Path $RepoRoot 'build/game' }
 $WorkDir = [IO.Path]::GetFullPath($WorkDir)
@@ -124,8 +127,16 @@ try {
     }
     if ($Cores -lt 0) { $Cores = if ($saved -and $null -ne $saved.cores) { [int]$saved.cores } else { 0 } }
     if (-not $Priority) { $Priority = if ($saved -and $saved.priority) { [string]$saved.priority } else { 'Normal' } }
+    if (-not $PSBoundParameters.ContainsKey('CpuAffinity')) {
+        $CpuAffinity = if ($saved -and $saved.cpuAffinity) { [string]$saved.cpuAffinity } else { '' }
+    }
+    if ($CpuAffinity -eq 'default') { $CpuAffinity = '' }
+    if ($CpuAffinity) {
+        Resolve-BuildAffinity $CpuAffinity | Out-Null
+        Write-Host "Affinity: $CpuAffinity (Windows build processes only)"
+    }
     New-Item -ItemType Directory -Force -Path (Split-Path $optionsFile) | Out-Null
-    @{ cores = $Cores; priority = $Priority } | ConvertTo-Json | Set-Content -LiteralPath $optionsFile
+    @{ cores = $Cores; priority = $Priority; cpuAffinity = $CpuAffinity } | ConvertTo-Json | Set-Content -LiteralPath $optionsFile
 
     $logicalCores = [Environment]::ProcessorCount
     $memoryGb = [Math]::Floor((Get-CimInstance Win32_ComputerSystem).TotalPhysicalMemory / 1GB)
@@ -217,7 +228,7 @@ try {
 
     $buildArgs = @{
         IsoPath = $IsoPath; WorkDir = $WorkDir; Python = $python
-        Jobs = $jobs; CompilerProcesses = $compilerProcesses; SerialVuSlices = $true; Progress = $true
+        CpuAffinity = $CpuAffinity; Jobs = $jobs; CompilerProcesses = $compilerProcesses; SerialVuSlices = $true; Progress = $true
     }
     # The installer's shortcuts open dist\DrakanPC, whichever region the ISO is (Build-LocalGame.ps1 alone would put a
     # USA build into dist\DrakanPC-usa next to a PAL one).

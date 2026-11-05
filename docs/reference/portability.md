@@ -4,6 +4,22 @@ The single ISO pipeline is `scripts/buildtool/Build-LocalGame.ps1`. Linux uses t
 `Build-Drakan.sh` bootstrap; Windows can request `-TargetPlatform web` through WSL.
 See [BUILDING.md](../../BUILDING.md#linux-and-browser-iso-builds) for commands.
 
+## Build CPU affinity
+
+The Windows builders optionally accept `-CpuAffinity 0xFFF` alongside their
+compiler-count settings. This is a logical-processor mask for the current Windows
+processor group, limited to the caller's inherited affinity and 64 bits. The mask
+is inherited by new build descendants; MSBuild node reuse is disabled during the
+build. The caller's original mask and node-reuse environment are restored even
+when the build fails. Omitting the option leaves affinity unchanged.
+
+`Build-Drakan.ps1` and the installer's CPU page remember it; pass
+`-CpuAffinity default` to the guided builder to clear the saved choice. The direct
+`Build-LocalGame.ps1` requires the option on each run. Linux and Windows-to-WSL
+browser builds reject a requested mask rather than silently ignoring it. No
+Windows APIs or dependencies were added to portable runtime code. See
+[BUILDING.md](../../BUILDING.md#optional-windows-build-cpu-affinity).
+
 ## Current implementations
 
 | Service | Windows x64 | Linux x64 | Browser / wasm32 |

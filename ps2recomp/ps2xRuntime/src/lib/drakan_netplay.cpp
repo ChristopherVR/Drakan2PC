@@ -599,7 +599,7 @@ void runSession(const Cmd& c, drakan::net::ServerBrowser& browser, uint64_t& las
         client.tick(now);
         g_coopMode.store(client.connected() && client.config().mode == MatchMode::Coop);
 
-        if (!client.connected() && !client.rejected() && !failed &&
+        if (!client.connected() && !client.rejected() && !failed && !wasConnected &&
             (!tried || (client.state() == ClientState::Disconnected && now - lastConnectTry > 2000))) {
             if (tried && !legacy) { // a menu join does not retry forever
                 failed = true;
@@ -627,11 +627,14 @@ void runSession(const Cmd& c, drakan::net::ServerBrowser& browser, uint64_t& las
             if (const auto* d = std::get_if<DisconnectedEvent>(&ev)) {
                 netLog("disconnected%s", d->wasRejected ? " (rejected)" : "");
                 loadDoneSent = false;
-                if (!legacy && !d->wasRejected && wasConnected) {
+                if (wasConnected) {
                     failed = true;
                     failMessage = "Connection to the server lost";
+                    // Keep the error for the title lobby, which acknowledges it with Leave.
+                    // A loaded native level otherwise keeps accepting input after the socket closes.
+                    requestReturnToTitle();
                 }
-                tried = legacy ? false : tried;
+                tried = legacy && !failed ? false : tried;
             } else if (const auto* j = std::get_if<PlayerJoin>(&ev)) {
                 netLog("player %u '%s' joined", j->player, j->name.c_str());
                 addChat(0, "", j->name + " joined");
@@ -1224,8 +1227,16 @@ void netThread() {
                 runSession(c, browser, lastSweep);
                 g_inSession.store(false);
                 std::lock_guard<std::mutex> l(g_stM);
+                // The title lobby acknowledges a failed session with Leave. Keep the reason after teardown so it
+                // remains readable; Host/Join initialize a fresh State before queuing the next session.
+                const bool rejected = g_state.conn == Conn::Rejected;
+                const std::string message = rejected ? g_state.message : std::string();
                 g_state = State();
                 g_state.available = true;
+                if (rejected) {
+                    g_state.conn = Conn::Rejected;
+                    g_state.message = message;
+                }
             }
             continue; // Leave / Start / Ready / Chat outside a session: dropped
         }

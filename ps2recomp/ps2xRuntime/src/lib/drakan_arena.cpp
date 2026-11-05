@@ -5,6 +5,7 @@
 #include "drakan_config.h"
 #include "drakan_coop_character.h"
 #include "drakan_arena_filter.h"
+#include "drakan_arena_placement.h"
 #include "drakan_ghost.h"
 #include "drakan_lifecycle.h"
 #include "drakan_region.h"
@@ -13,8 +14,10 @@
 #include "ps2_runtime.h"
 #include "ps2_runtime_macros.h"
 #include "gsr/gsr.h"
+#include "world/Inventory.h"
 #include "world/Json.h"
 #include "world/Reader.h"
+#include "world/SpatialRegistration.h"
 
 #include <algorithm>
 #include <atomic>
@@ -210,6 +213,7 @@ struct Pick {
     float home[3] = {0, 0, 0}; // where the live item rests (a spawned one settles away from its map position)
     unsigned boundTick = 0;    // boundary it became present
     uint32_t spawnHandle = 0;  // the handle the factory returned for the spawn in flight (0 = none / refused)
+    world::SpatialRegistrationRetry spatialRegistration;
 };
 std::vector<Pick> g_picks;
 
@@ -277,10 +281,16 @@ uint32_t controlledActor(const uint8_t* rdram) {
     return ramPtr(ctx) ? rd32(rdram, ctx + 0x4b0) : 0;
 }
 
+void dropFromInventory(drakan_input::IGuest& guest, uint8_t* rdram, uint32_t handle);
+
 void killActor(drakan_input::IGuest& guest, uint8_t* rdram, uint32_t actor) {
     const uint32_t eng = engineCtx(rdram);
-    if (ramPtr(eng) && ramPtr(actor))
+    if (ramPtr(eng) && ramPtr(actor)) {
+        // Campaign sweeps also remove items: a touch may already have filed this copy
+        // into Rynn's inventory before the sweep's snapshot is consumed.
+        dropFromInventory(guest, rdram, actor);
         guest.call(drakan_input::GuestCall(guestAddress(kKillActor)).arg(eng).arg(actor));
+    }
 }
 
 // The data object of an actor handle (handle +0xfc -> inner +0x10): Rynn's carries the inventory controller (+0x584)
@@ -592,29 +602,19 @@ bool g_noFilter = false; // test aid DRAKAN_ARENA_NOFILTER=1: place players and 
 // here, but our own player may already hold it (she stands next to it at the spawn): the inventory cell and the hand
 // slot would then point at a destroyed actor and the engine's equip / use code calls through its freed data (a null
 // JALR at 0x341548 that ended the guest thread). Clear every reference to the handle before the actor goes.
+uint32_t itemClassOf(const uint8_t* rdram, uint32_t handle);
+
 void dropFromInventory(drakan_input::IGuest& guest, uint8_t* rdram, uint32_t handle) {
-    const uint32_t player = dataOf(rdram, controlledActor(rdram));
+    const uint32_t actor = controlledActor(rdram);
+    if (!ramPtr(actor) || itemClassOf(rdram, actor) != world::kClassRynn)
+        return;
+    const uint32_t player = dataOf(rdram, actor);
     if (!ramPtr(player) || !handle)
         return;
-    const uint32_t ctl = player + kCtlOffset;
-    unsigned n = 0;
-    for (uint32_t i = 0; i < kCellCount; ++i) {
-        const uint32_t cell = ctl + kCtlCells + i * 16u;
-        if (rd32(rdram, cell + 8) == handle) {
-            for (uint32_t k = 0; k < 16; k += 4)
-                guest.write32(cell + k, 0);
-            ++n;
-        }
-    }
-    for (uint32_t i = 0; i < 4; ++i) {
-        const uint32_t slot = player + kHandSlots + i * 0x10u;
-        if (rd32(rdram, slot) == handle) {
-            guest.write32(slot, 0);
-            ++n;
-        }
-    }
+    const unsigned n = world::detachInventoryItem(
+        itemClassOf(rdram, actor), player, handle, [&](uint32_t address) { return rd32(rdram, address); },
+        [&](uint32_t address, uint32_t value) { guest.write32(address, value); });
     if (n) {
-        guest.write32(ctl + 0x238u, 1u); // list dirty
         arenaLog("pickup copy %x was already in our inventory: %u reference(s) cleared before it is removed", handle,
                  n);
     }
@@ -676,9 +676,33 @@ void writeYaw(drakan_input::IGuest& guest, uint32_t player, float yawDeg) {
         guest.writeF(player + 0x20 + 4u * i, m[i]);
 }
 
+bool placementUsesPalRynnLayout(drakan_input::IGuest& guest, uint32_t actor) {
+    if (!drakan_region::build().identityAddresses)
+        return false;
+    const auto& layout = drakan_region::build().camera;
+    const uint32_t context = guest.read32(guestAddress(kContextPtr));
+    if (!detail::placementPointer(context, layout.contextResources + 4))
+        return false;
+    const uint32_t resources = guest.read32(context + layout.contextResources);
+    if (!detail::placementPointer(resources, std::max(layout.resourceTable, layout.resourceCount) + 4) ||
+        !detail::placementPointer(actor, layout.handleResource + 2))
+        return false;
+    const uint16_t index = guest.read16(actor + layout.handleResource);
+    if (index == 0xffff || index > guest.read32(resources + layout.resourceCount))
+        return false;
+    const uint64_t record =
+        uint64_t(guest.read32(resources + layout.resourceTable)) + uint64_t(index) * layout.resourceStride;
+    return record <= UINT32_MAX && detail::placementPointer(static_cast<uint32_t>(record), layout.resourceClass + 4) &&
+           guest.read32(static_cast<uint32_t>(record) + layout.resourceClass) == world::kClassRynn;
+}
+
 void teleportOnce(drakan_input::IGuest& guest, uint32_t player, const float pos[3]) {
-    for (int k = 0; k < 3; ++k)
-        guest.writeF(player + 0x14 + 4u * static_cast<uint32_t>(k), pos[k] + (k == 1 ? kSpawnLift : 0.0f));
+    const float placed[3] = {pos[0], pos[1] + kSpawnLift, pos[2]};
+    for (uint32_t k = 0; k < 3; ++k)
+        guest.writeF(player + 0x14 + 4 * k, placed[k]);
+    // Placement bypasses native movement. Do not turn its displacement or an old
+    // impact-speed cache into landing damage on the next native physics tick.
+    detail::resetPlacementMotion(guest, player, placed, placementUsesPalRynnLayout(guest, player));
     if (!std::isnan(g_placeYaw))
         writeYaw(guest, player, g_placeYaw);
     drakan_ghost::refileActor(guest, player);
@@ -895,7 +919,6 @@ void applyPickupEvents(drakan_input::IGuest& guest, uint8_t* rdram) {
             p.serverTaken = e.taken;
             if (e.taken && p.state == PState::Present) {
                 if (e.player != g_local.load() || !g_local.load()) {
-                    dropFromInventory(guest, rdram, p.handle);
                     killActor(guest, rdram, p.handle); // somebody else took it: ours goes too
                     arenaLog("pickup %zu (%s) taken by player %u: removed here", i, p.def.label.c_str(), e.player);
                     arenaShot("pickup" + std::to_string(i) + "_removed_here");
@@ -916,6 +939,10 @@ void pickupTick(drakan_input::IGuest& guest, uint8_t* rdram) {
         std::any_of(g_picks.begin(), g_picks.end(), [](const Pick& p) { return p.state == PState::Spawning; });
     if (needScan)
         snapshot(rdram);
+    bool attemptedSpatialRegistration = false;
+    const uint32_t owner = controlledActor(rdram);
+    const uint32_t ownerClass = itemClassOf(rdram, owner);
+    const uint32_t ownerData = ownerClass == world::kClassRynn ? dataOf(rdram, owner) : 0;
     for (size_t i = 0; i < g_picks.size(); ++i) {
         Pick& p = g_picks[i];
         switch (p.state) {
@@ -923,6 +950,11 @@ void pickupTick(drakan_input::IGuest& guest, uint8_t* rdram) {
                 break;
             case PState::Present: {
                 bool here = liveAt(rdram, p);
+                // A newly spawned item may be collected while its initial position is
+                // still settling. Inventory ownership outranks following that position.
+                if (here && world::inventoryReferencesItem(ownerClass, ramPtr(ownerData) ? ownerData : 0, p.handle,
+                                                           [&](uint32_t address) { return rd32(rdram, address); }))
+                    here = false;
                 if (here) {
                     float pos[3];
                     for (int k = 0; k < 3; ++k)
@@ -931,6 +963,19 @@ void pickupTick(drakan_input::IGuest& guest, uint8_t* rdram) {
                         std::memcpy(p.home, pos, sizeof pos);
                     const float dx = pos[0] - p.home[0], dz = pos[2] - p.home[2];
                     here = std::sqrt(dx * dx + dz * dz) < kHomeRadius && std::fabs(pos[1] - p.home[1]) < 800.0f;
+                    // The factory can run before the destination terrain streams in, leaving
+                    // a valid actor with cell -1: invisible and absent from native Use queries.
+                    // Never refile an item already moved into inventory or claimed by a peer.
+                    if (p.def.resId &&
+                        p.spatialRegistration.service(
+                            g_ticks, here && !p.serverTaken && !(rd32(rdram, p.handle + 4) & 0x80000000u),
+                            static_cast<int32_t>(rd32(rdram, p.handle + 0x7cu)), attemptedSpatialRegistration, [&] {
+                                drakan_ghost::refileActor(guest, p.handle);
+                                return static_cast<int32_t>(rd32(rdram, p.handle + 0x7cu));
+                            })) {
+                        arenaLog("pickup %zu (%s): recovered native collision cell %d for actor %x", i,
+                                 p.def.label.c_str(), static_cast<int32_t>(rd32(rdram, p.handle + 0x7cu)), p.handle);
+                    }
                 }
                 if (here)
                     break;

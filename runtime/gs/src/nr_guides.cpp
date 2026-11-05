@@ -6,6 +6,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstring>
+#include <cstdlib>
 #include <limits>
 #include <sstream>
 #if defined(_M_X64) || defined(__SSE2__)
@@ -207,6 +208,7 @@ struct Guides::Impl {
     ComPtr<ID3D11PixelShader> modelPs;
     ComPtr<ID3D11InputLayout> modelLayout;
     ComPtr<ID3D11Buffer> modelVertices;
+    std::vector<detail::ModelGpuVertex> modelUploadVertices;
     ComPtr<ID3D11RenderTargetView> modelRtv;
     ComPtr<ID3D11Texture2D> modelAlpha;
     ComPtr<ID3D11ShaderResourceView> modelAlphaSrv;
@@ -601,22 +603,27 @@ bool Guides::modelMotion(std::span<const ModelMotionVertex> vertices, std::span<
         return true;
     if (vertices.size() % 3 || vertices.size() > 1500000 || textures.size() > 768)
         return s.fail("model motion input budget/topology invalid");
+    static const bool queuedUpload = [] {
+        const char* value = std::getenv("GSR_MODEL_MOTION_UPLOAD");
+        return !value || value[0] != '0';
+    }();
     using Vertex = detail::ModelGpuVertex;
     const auto bytes = UINT(vertices.size() * sizeof(Vertex));
-    // Ring buffer: append with NO_OVERWRITE, DISCARD only on wrap. A DISCARD every frame blocked Map for several
-    // milliseconds once the GPU ran a frame behind (the renamed instance was still waiting for the ray pass).
+    // Keep several frames in one buffer so consecutive draws normally update disjoint ranges.
     if (bytes > s.modelCapacity / 4) {
         D3D11_BUFFER_DESC d{};
-        d.ByteWidth = std::max(bytes * 4, 8u << 20);
-        d.Usage = D3D11_USAGE_DYNAMIC;
+        // Round up to an 8 MiB slab so small successive peaks reuse the same ring.
+        constexpr UINT slab = 8u << 20;
+        d.ByteWidth = ((bytes * 4 + slab - 1) / slab) * slab;
+        d.Usage = queuedUpload ? D3D11_USAGE_DEFAULT : D3D11_USAGE_DYNAMIC;
         d.BindFlags = D3D11_BIND_VERTEX_BUFFER;
-        d.CPUAccessFlags = D3D11_CPU_ACCESS_WRITE;
+        d.CPUAccessFlags = queuedUpload ? 0 : D3D11_CPU_ACCESS_WRITE;
         ComPtr<ID3D11Buffer> buffer;
         if (FAILED(s.device->CreateBuffer(&d, nullptr, &buffer)))
             return s.fail("model motion vertex allocation failed");
         s.modelVertices = std::move(buffer);
         s.modelCapacity = d.ByteWidth;
-        s.modelOffset = s.modelCapacity; // the first map discards
+        s.modelOffset = s.modelCapacity; // start the first upload at zero
     }
     const auto layers = std::max(1u, UINT(textures.size()));
     if (!s.modelAlpha || s.modelLayers < layers) {
@@ -646,23 +653,32 @@ bool Guides::modelMotion(std::span<const ModelMotionVertex> vertices, std::span<
         s.modelTextureIds.assign(capacity, 0);
         ++s.modelAlphaAllocationCount;
     }
-    // The vertices are projected straight into the ring (no staging copy); a rejected input leaves the mapped range
-    // unused and nothing is drawn.
-    D3D11_MAP mode = D3D11_MAP_WRITE_NO_OVERWRITE;
-    if (bytes > s.modelCapacity - s.modelOffset) {
-        mode = D3D11_MAP_WRITE_DISCARD;
-        s.modelOffset = 0;
+    const bool wrap = bytes > s.modelCapacity - s.modelOffset;
+    const UINT offset = wrap ? 0 : s.modelOffset;
+    Vertex* destination;
+    if (queuedUpload) {
+        if (s.modelUploadVertices.size() < vertices.size())
+            s.modelUploadVertices.resize(vertices.size());
+        destination = s.modelUploadVertices.data();
+    } else {
+        D3D11_MAPPED_SUBRESOURCE map{};
+        const auto mode = wrap ? D3D11_MAP_WRITE_DISCARD : D3D11_MAP_WRITE_NO_OVERWRITE;
+        if (FAILED(s.context->Map(s.modelVertices.Get(), 0, mode, 0, &map)))
+            return s.fail("model motion vertex upload failed");
+        destination = reinterpret_cast<Vertex*>(static_cast<uint8_t*>(map.pData) + offset);
     }
-    const UINT offset = s.modelOffset;
-    s.modelOffset += bytes;
-    D3D11_MAPPED_SUBRESOURCE map{};
-    if (FAILED(s.context->Map(s.modelVertices.Get(), 0, mode, 0, &map)))
-        return s.fail("model motion vertex upload failed");
-    const char* invalid = detail::projectModelVertices(
-        vertices, textures, s.cur, s.prev, reinterpret_cast<Vertex*>(static_cast<uint8_t*>(map.pData) + offset));
-    s.context->Unmap(s.modelVertices.Get(), 0);
+    const char* invalid = detail::projectModelVertices(vertices, textures, s.cur, s.prev, destination);
+    if (!queuedUpload)
+        s.context->Unmap(s.modelVertices.Get(), 0);
     if (invalid)
         return s.fail(invalid);
+    s.modelOffset = offset + bytes;
+    if (queuedUpload) {
+        // The immediate context orders this range update after earlier draws even on wrap. Mapping
+        // a dynamic buffer with DISCARD here can block presentation behind earlier GPU work.
+        D3D11_BOX region{offset, 0, 0, offset + bytes, 1, 1};
+        s.context->UpdateSubresource(s.modelVertices.Get(), 0, &region, destination, 0, 0);
+    }
     Scope scope(s.context.Get(), s.state.Get());
     std::vector<uint8_t> alpha;
     for (size_t i = 0; i < textures.size(); ++i) {

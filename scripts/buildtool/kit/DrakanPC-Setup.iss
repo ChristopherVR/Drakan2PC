@@ -103,17 +103,21 @@ begin
     'This PC has ' + GetEnv('NUMBER_OF_PROCESSORS') + ' logical CPU cores. More cores build faster but leave less ' +
     'for other programs; memory still limits how many compilers run at once (each needs up to 6 GB). Leave the ' +
     'field empty to let the builder choose (half the cores, at most 4). These are build settings only: they do not ' +
-    'change how the game runs. "Rebuild Drakan" keeps them.');
+    'change how the game runs. Affinity applies only to the Windows build; an optional browser build uses its default. "Rebuild Drakan" keeps them.');
   CpuPage.Add('CPU cores to use (empty = automatic):', False);
   // DrakanPC-Setup.exe /CORES=8 fills it in.
   CpuPage.Values[0] := ExpandConstant('{param:CORES|}');
+  CpuPage.Add('Windows build affinity hex mask (e.g. 0xFFF; empty = default):', False);
+  CpuPage.Values[1] := ExpandConstant('{param:AFFINITY|}');
   OptionsPage.Add('Keep the PC responsive while building (compile at low priority)');
 end;
 
 function NextButtonClick(CurPageID: Integer): Boolean;
 var
   Size: Int64;
-  Cores: Integer;
+  Cores, I: Integer;
+  Mask: String;
+  Nonzero: Boolean;
 begin
   Result := True;
   // A silent install never starts the build (skipifsilent), so it does not need an ISO.
@@ -134,6 +138,21 @@ begin
       Result := False;
     end;
   end;
+  if (CurPageID = CpuPage.ID) and Result then begin
+    Mask := Lowercase(Trim(CpuPage.Values[1]));
+    if Copy(Mask, 1, 2) = '0x' then Delete(Mask, 1, 2);
+    if Trim(CpuPage.Values[1]) <> '' then begin
+      Nonzero := False;
+      if (Length(Mask) < 1) or (Length(Mask) > 16) then Result := False;
+      for I := 1 to Length(Mask) do begin
+        if Pos(Copy(Mask, I, 1), '0123456789abcdef') = 0 then Result := False;
+        if Copy(Mask, I, 1) <> '0' then Nonzero := True;
+      end;
+      if not Nonzero then Result := False;
+      if not Result then
+        MsgBox('Affinity must be a nonzero hexadecimal mask of up to 16 digits, such as 0xFFF. The builder checks available processors.', mbError, MB_OK);
+    end;
+  end;
 end;
 
 function GetIsoPath(Param: String): String;
@@ -150,6 +169,10 @@ begin
     Result := Result + ' -Web';
   // Always passed, so a reinstall replaces the choice remembered by an earlier one.
   Result := Result + ' -Cores ' + IntToStr(StrToIntDef(Trim(CpuPage.Values[0]), 0));
+  if Trim(CpuPage.Values[1]) <> '' then
+    Result := Result + ' -CpuAffinity "' + Trim(CpuPage.Values[1]) + '"'
+  else
+    Result := Result + ' -CpuAffinity default';
   if OptionsPage.Values[2] then
     Result := Result + ' -Priority Low'
   else

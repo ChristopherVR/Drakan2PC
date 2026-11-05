@@ -129,7 +129,10 @@
     "transform_position": 20,
     "transform_right": 32,
     "transform_back": 40,
-    "camera_orbit": 144
+    "camera_orbit": 144,
+    "player_summon_state": 4156,
+    "player_right_holder": 3760,
+    "player_left_holder": 3724
   },
   "combat_observer": {
     "rynn_class": 65545,

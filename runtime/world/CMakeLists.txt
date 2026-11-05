@@ -19,6 +19,14 @@ target_include_directories(drakan_world PUBLIC include)
 target_link_libraries(drakan_world PUBLIC drakan::gameui PRIVATE drakan::options)
 
 if(DRAKAN_BUILD_RUNTIME_TESTS)
+    add_executable(world_spatial_registration_test tests/spatial_registration_test.cpp)
+    target_link_libraries(world_spatial_registration_test PRIVATE drakan_world drakan::options)
+    add_test(NAME world_spatial_registration_test COMMAND world_spatial_registration_test)
+
+    add_executable(world_inventory_test tests/inventory_test.cpp)
+    target_link_libraries(world_inventory_test PRIVATE drakan_world drakan::options)
+    add_test(NAME world_inventory_test COMMAND world_inventory_test)
+
     # Wind model of the living-foliage option (header only): determinism, bounds, travelling gusts, push.
     add_executable(world_foliage_test tests/foliage_test.cpp)
     target_link_libraries(world_foliage_test PRIVATE drakan_world drakan::options)

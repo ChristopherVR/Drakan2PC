@@ -327,13 +327,37 @@ void D3D11Backend::Impl::readbackRT(RT& rt) {
     st.rtReadbacks++;
 }
 
+void D3D11Backend::Impl::uploadTargetRect(RT& rt, uint32_t x, uint32_t y, uint32_t width, uint32_t height) {
+    const size_t count = size_t(width) * height;
+    if (uploadPixels.size() < count)
+        uploadPixels.resize(count);
+    if (rt.psm == PSM_CT32)
+        mem.readRectCT32(rt.base(), rt.fbw, x, y, width, height, uploadPixels.data());
+    else
+        for (uint32_t row = 0; row < height; ++row)
+            for (uint32_t col = 0; col < width; ++col)
+                uploadPixels[size_t(row) * width + col] =
+                    unpackPixel(rt.psm, mem.read(rt.psm, rt.base(), rt.fbw, x + col, y + row));
+    const uint32_t* pixels = uploadPixels.data();
+    const size_t scaledCount = count * scale * scale;
+    if (scale > 1) {
+        if (scaledUploadPixels.size() < scaledCount)
+            scaledUploadPixels.resize(scaledCount);
+        expandRenderTargetRows(pixels, scaledUploadPixels.data(), width, height, scale,
+                               runtimeFlags().rtUploadSpecialize);
+        pixels = scaledUploadPixels.data();
+    }
+    D3D11_BOX box{x * scale, y * scale, 0, (x + width) * scale, (y + height) * scale, 1};
+    ctx->UpdateSubresource(rt.tex.Get(), 0, &box, pixels, width * scale * 4, 0);
+    cpuProfile.uploaded(scaledCount * sizeof(uint32_t));
+}
+
 void D3D11Backend::Impl::syncRT(RT& rt) {
     CpuProfile::Scope profile(cpuProfile, CpuProfile::SyncRT);
     if (rt.seen == mem.clock())
         return;
     const uint32_t ph = rt.pageH();
     const uint32_t pagesPerRow = rt.fbw;
-    std::vector<uint32_t> buf, up;
     for (uint32_t r = 0; r < rt.rowStamp.size(); ++r) {
         const uint32_t lo = rt.base() + r * pagesPerRow * 32u;
         if (lo >= kVramBlocks)
@@ -342,23 +366,7 @@ void D3D11Backend::Impl::syncRT(RT& rt) {
             continue;
         const uint32_t y0 = r * ph, y1 = std::min(y0 + ph, rt.h);
         const uint32_t rows = y1 - y0;
-        cpuProfile.uploaded(uint64_t(rt.w) * rows * scale * scale * 4);
-        buf.resize((size_t)rt.w * rows);
-        if (rt.psm == PSM_CT32)
-            mem.readRectCT32(rt.base(), rt.fbw, 0, y0, rt.w, rows, buf.data());
-        else
-            for (uint32_t y = 0; y < rows; ++y)
-                for (uint32_t x = 0; x < rt.w; ++x)
-                    buf[(size_t)y * rt.w + x] = unpackPixel(rt.psm, mem.read(rt.psm, rt.base(), rt.fbw, x, y0 + y));
-        D3D11_BOX box{0, y0 * scale, 0, rt.w * scale, y1 * scale, 1};
-        if (scale == 1)
-            ctx->UpdateSubresource(rt.tex.Get(), 0, &box, buf.data(), rt.w * 4, 0);
-        else {
-            const uint32_t W = rt.w * scale;
-            up.resize((size_t)W * rows * scale);
-            expandRenderTargetRows(buf.data(), up.data(), rt.w, rows, scale, runtimeFlags().rtUploadSpecialize);
-            ctx->UpdateSubresource(rt.tex.Get(), 0, &box, up.data(), W * 4, 0);
-        }
+        uploadTargetRect(rt, 0, y0, rt.w, rows);
         rt.rowStamp[r] = mem.clock();
         rt.copyValid = false;
         // A CPU row refresh establishes equality, unlike a draw. Keep prior
@@ -590,6 +598,16 @@ void D3D11Backend::Impl::flushForRead(uint32_t first, uint32_t last, const VramR
             continue;
         }
         traceReadback("read", frame, *r, first, last);
+        static const bool traceReader = std::getenv("GSR_RB_DRAW_TRACE") != nullptr;
+        static unsigned readersLeft = 64;
+        if (traceReader && readersLeft && uint64_t(r->w) * (r->dy1 - r->dy0) <= 16384) {
+            --readersLeft;
+            if (rect)
+                std::fprintf(stderr, "[rb-reader] target=%x psm=%x bp=%x bw=%u xy=%u,%u wh=%u,%u\n", r->fbp, rect->psm,
+                             rect->bp, rect->bw, rect->x, rect->y, rect->w, rect->h);
+            else
+                std::fprintf(stderr, "[rb-reader] target=%x blocks=%x..%x no-rectangle\n", r->fbp, first, last);
+        }
         readbackRT(*r);
     }
 }
@@ -796,7 +814,6 @@ void D3D11Backend::Impl::completeTargetUpload(uint32_t, uint32_t, uint32_t, uint
         if (!uploadRows(rt, y0, y1))
             continue;
         bool touched = false;
-        std::vector<uint32_t> buf, up;
         // Blocks of consecutive applied uploads accumulate while nothing else wrote to the target in between.
         if (apply && (rt.cleanWrites != rt.writes || rt.cleanBlocks.empty())) {
             rt.cleanBlocks.assign(kVramBlocks / 64, 0);
@@ -821,26 +838,8 @@ void D3D11Backend::Impl::completeTargetUpload(uint32_t, uint32_t, uint32_t, uint
                 // The GPU copy is (or will be) current for these rows; never refresh them from memory.
                 if (by / ph < rt.rowStamp.size())
                     rt.rowStamp[by / ph] = mem.clock();
-                if (apply) {
-                    buf.resize((size_t)runW * runH);
-                    if (rt.psm == PSM_CT32)
-                        mem.readRectCT32(rt.base(), rt.fbw, bx, by, runW, runH, buf.data());
-                    else
-                        for (uint32_t row = 0; row < runH; ++row)
-                            for (uint32_t col = 0; col < runW; ++col)
-                                buf[(size_t)row * runW + col] =
-                                    unpackPixel(rt.psm, mem.read(rt.psm, rt.base(), rt.fbw, bx + col, by + row));
-                    D3D11_BOX box{bx * scale, by * scale, 0, (bx + runW) * scale, (by + runH) * scale, 1};
-                    if (scale == 1)
-                        ctx->UpdateSubresource(rt.tex.Get(), 0, &box, buf.data(), runW * 4, 0);
-                    else {
-                        up.resize((size_t)runW * scale * runH * scale);
-                        expandRenderTargetRows(buf.data(), up.data(), runW, runH, scale,
-                                               runtimeFlags().rtUploadSpecialize);
-                        ctx->UpdateSubresource(rt.tex.Get(), 0, &box, up.data(), runW * scale * 4, 0);
-                    }
-                    cpuProfile.uploaded(uint64_t(runW) * runH * scale * scale * 4);
-                }
+                if (apply)
+                    uploadTargetRect(rt, bx, by, runW, runH);
                 bx = end;
             }
         if (touched && apply) {

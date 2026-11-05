@@ -6,6 +6,7 @@
 #include "gsr/gsr.h"
 #include "gsr/scene_guide_camera.h"
 #include "gs_mem.h"
+#include "gs_solid_mirror.h"
 
 #include <cmath>
 #include <functional>
@@ -1467,9 +1468,147 @@ static void uploadReadSkipTest(Config cfg) {
     expectTrue(gs->stats().rtReadbacks >= 1, "a later full flush reads the target back");
 }
 
-// A local-to-local transfer between two whole render targets (the game copies its frame buffer to the other one) is
-// done on the GPU when the backend can: the destination must show the source, keep working as a target afterwards, and
-// reach memory once something reads it. A copy of a rectangle onto itself changes nothing.
+// Verify exact CPU-known sprite output against actual GPU pixels and exercise conservative fallbacks.
+static void solidMirrorTest(Config cfg) {
+    GsDrawState state{};
+    state.flags = DF_SPRITE | DF_ABE;
+    state.alpha = 0xa;
+    state.zbuf = 1ull << 32;
+    state.scissor = 63ull << 16 | 63ull << 48;
+    DrawVertex vertices[6]{};
+    const float xy[6][2]{{0, 0}, {4, 0}, {0, 4}, {4, 0}, {4, 4}, {0, 4}};
+    for (unsigned i = 0; i < 6; ++i) {
+        vertices[i].x = xy[i][0];
+        vertices[i].y = xy[i][1];
+        vertices[i].r = vertices[i].g = vertices[i].b = 127;
+        vertices[i].a = 128;
+    }
+    expectTrue(bool(solidMirror(state, vertices, 6, false, 64, 64)), "constant blend sprite is provably CPU-known");
+    expectTrue(!solidMirror(state, vertices, 6, true, 64, 64), "real textures require the GPU result");
+    std::vector<DrawVertex> batch(vertices, vertices + 6);
+    batch.insert(batch.end(), vertices, vertices + 6);
+    expectTrue(solidMirrors(state, batch.data(), 12, false, 64, 64).size() == 2,
+               "bounded sprite batches retain submission order");
+    batch.back().r = 1;
+    expectTrue(solidMirrors(state, batch.data(), 12, false, 64, 64).empty(),
+               "one uncertain sprite rejects the entire CPU mirror batch");
+    expectTrue(solidMirrors(state, vertices, 6 * 65, false, 64, 64).empty(),
+               "oversized batches are rejected before reading vertex data");
+    for (unsigned rejection = 0; rejection < 9; ++rejection) {
+        auto changed = state;
+        auto verts = std::vector<DrawVertex>(vertices, vertices + 6);
+        switch (rejection) {
+            case 0:
+                changed.test = 1ull << 14;
+                break; // destination alpha
+            case 1:
+                changed.test = 1ull << 16 | 2ull << 17;
+                break; // depth dependency
+            case 2:
+                changed.test = 1 | 2ull << 1;
+                break; // alpha rejection
+            case 3:
+                changed.alpha = 0x44;
+                break; // destination blend
+            case 4:
+                changed.frame = 1ull << 32;
+                break; // partial bit mask
+            case 5:
+                changed.flags |= DF_FGE;
+                break;
+            case 6:
+                verts[4].x = 3;
+                break; // not the expected rectangle
+            case 7:
+                verts[2].r = 0;
+                break; // interpolated color
+            case 8:
+                verts[0].x = 0.5f;
+                break; // fractional coverage
+        }
+        expectTrue(!solidMirror(changed, verts.data(), 6, false, 64, 64), "uncertain sprite retains GPU readback");
+    }
+#ifndef GSR_TEST_WEBGPU
+    for (uint32_t scale : {1u, 4u}) {
+        cfg.scale = scale;
+        cfg.textureUpscale = 1;
+        auto gs = Renderer::create(cfg);
+        if (!gs) {
+            ++g_fail;
+            continue;
+        }
+        constexpr uint32_t parent = 0x100, base = parent * 32;
+        Gif g;
+        uploadImage(g, base, 1, 0, 0, 0, 64, 64, std::vector<uint8_t>(64 * 64 * 4, 17));
+        g.ad({{FRAME_1, parent | 1ull << 16},
+              {ZBUF_1, 140ull | 1ull << 32},
+              {XYOFFSET_1, kOfs},
+              {SCISSOR_1, 63ull << 16 | 63ull << 48},
+              {PRMODECONT, 1},
+              {COLCLAMP, 1},
+              {TEST_1, mkTest(1, 1, 0, 0, 0, 0, 1, 1)},
+              {ALPHA_1, 0xa},
+              {0x49, 0},
+              {0x4a, 0},
+              {TEX0_1, mkTex0(0x2000, 8, PSM_Z32, 10, 10, 1, 1, 0, 0, 0, 0, 0)}});
+        sprite(g, 0, 0, 4, 4, 127, 127, 127, 128, 0, int(mkPrim(6, 0, 1, 0, 1, 0)));
+        sprite(g, 8, 0, 12, 4, 88, 22, 33, 7, 0, int(mkPrim(6, 0, 1, 0, 1, 0)));
+        sprite(g, 10, 2, 14, 6, 55, 66, 77, 129, 0, int(mkPrim(6, 0, 1, 0, 1, 0)));
+        g.ad({{SCISSOR_1, 4ull | 6ull << 16 | 3ull << 32 | 5ull << 48}, {0x4a, 1}});
+        sprite(g, 2, 1, 8, 8, 23, 45, 67, 5, 0, int(mkPrim(6, 0, 0, 0, 1, 0)));
+        gs->submitGifPacket(GifPath::Path3, g.d.data(), uint32_t(g.d.size()));
+        Image image;
+        const bool captured = gs->captureFramebuffer(parent, 1, 0, 64, 64, image);
+        gs->flushToMemory();
+        expectTrue(gs->stats().rtReadbacks == 0, "solid sprites reach CPU memory without a GPU readback");
+        // A rejected GPU draw changes no pixels but invalidates the mirror
+        // proof. Force a real readback so alpha is checked against the GPU,
+        // not only against the CPU value the optimization wrote itself.
+        Gif invalidate;
+        invalidate.ad({{SCISSOR_1, 63ull << 16 | 63ull << 48}, {TEST_1, mkTest(1, 0, 0, 0, 0, 0, 1, 1)}});
+        sprite(invalidate, 0, 0, 64, 64, 0, 0, 0, 0, 0, int(mkPrim(6, 0, 0, 0, 0, 0)));
+        gs->submitGifPacket(GifPath::Path3, invalidate.d.data(), uint32_t(invalidate.d.size()));
+        gs->flushToMemory();
+        expectTrue(gs->stats().rtReadbacks == 1, "GPU oracle performs an actual readback including alpha");
+        bool exact = captured;
+        for (uint32_t y = 0; y < 64; ++y)
+            for (uint32_t x = 0; x < 64; ++x) {
+                uint32_t expected = 0x11111111;
+                if (x < 4 && y < 4)
+                    expected = 0x807f7f7f;
+                if (x >= 8 && x < 12 && y < 4)
+                    expected = 0x07211658;
+                if (x >= 10 && x < 14 && y >= 2 && y < 6)
+                    expected = 0x814d4237;
+                if (x >= 4 && x <= 6 && y >= 3 && y <= 5)
+                    expected = 0x85432d17;
+                exact &= gs->readVram(PSM_CT32, base, 1, x, y) == expected;
+                if (captured) {
+                    const size_t at = (size_t(y * scale + scale / 2) * image.width + x * scale + scale / 2) * 4;
+                    exact &= image.rgba[at] == (expected & 255) && image.rgba[at + 1] == ((expected >> 8) & 255) &&
+                             image.rgba[at + 2] == ((expected >> 16) & 255);
+                }
+            }
+        expectTrue(exact, "solid mirror matches GPU RGB and raw VRAM alpha, scissor, FBA and untouched pixels");
+        Gif dirty;
+        dirty.ad({{SCISSOR_1, 63ull << 16 | 127ull << 48}, {0x4a, 0}, {TEST_1, mkTest(1, 1, 0, 0, 0, 0, 1, 1)}});
+        sprite(dirty, 0, 0, 64, 128, 5, 6, 7, 128, 0, int(mkPrim(6, 0, 0, 0, 0, 0)));
+        sprite(dirty, 0, 0, 4, 4, 9, 10, 11, 128, 0, int(mkPrim(6, 0, 0, 0, 0, 0)));
+        gs->submitGifPacket(GifPath::Path3, dirty.d.data(), uint32_t(dirty.d.size()));
+        gs->flushToMemory();
+        expectTrue(gs->stats().rtReadbacks == 2 && gs->readVram(PSM_CT32, base, 1, 40, 40) == 0x80070605 &&
+                       gs->readVram(PSM_CT32, base, 1, 0, 0) == 0x800b0a09,
+                   "existing GPU-only pixels force the normal readback fallback");
+        Gif wrapping;
+        wrapping.ad({{FRAME_1, 0x1ffull | 1ull << 16}, {SCISSOR_1, 63ull << 16 | 63ull << 48}});
+        sprite(wrapping, 0, 0, 4, 4, 12, 13, 14, 128, 0, int(mkPrim(6, 0, 0, 0, 0, 0)));
+        gs->submitGifPacket(GifPath::Path3, wrapping.d.data(), uint32_t(wrapping.d.size()));
+        gs->flushToMemory();
+        expectTrue(gs->stats().rtReadbacks == 3, "target allocations crossing the VRAM boundary retain GPU readback");
+    }
+#endif
+}
+
 static void partialUploadTest(Config cfg) {
     cfg.textureUpscale = 1;
     const uint32_t parent = 0x100, base = parent * 32;
@@ -1894,6 +2033,7 @@ int main(int argc, char** argv) {
     }
     cfg.vsync = false;
 #if defined(GSR_PARTIAL_UPLOAD_ONLY)
+    solidMirrorTest(cfg);
     partialUploadTest(cfg);
     std::printf("%d checks, %d failed\n", g_checks, g_fail);
     return g_fail ? 1 : 0;

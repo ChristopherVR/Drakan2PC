@@ -275,7 +275,9 @@ private:
     std::atomic<bool> menuCtx_{false};
     bool modeFlagSaved_ = false;
     uint32_t modeFlagValue_ = 0;
-    bool dragon_ = false; // controlled-actor role reported through beforePadMgrUpdate
+    bool dragon_ = false;          // controlled-actor role reported through beforePadMgrUpdate
+    bool meleeDirections_ = false; // current native Rynn has a drawn melee weapon, no bow or summon
+    uint64_t meleeIdentity_ = 0;   // current player/weapon; changing either cancels a buffered attack
     bool strafeActive_ = false;
     int32_t strafeOrigAxis_ = 0;
     uint32_t strafeOrigScale_ = 0;

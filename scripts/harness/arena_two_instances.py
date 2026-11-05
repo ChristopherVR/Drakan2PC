@@ -74,6 +74,14 @@ def recipe(role: str, fight_s: int, delay: int = 0) -> str:
     return "\n".join(lines) + "\n"
 
 
+def guest_progress_checks(text: str) -> dict[str, bool]:
+    """Network heartbeats can outlive a terminated EE thread; require native script completion."""
+    return {
+        "no missing guest branch target": "[guest-branch:missing-target]" not in text,
+        "guest input script reached quit": "[in] script quit at frame " in text,
+    }
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--map", required=True)
@@ -83,6 +91,12 @@ def main() -> int:
     ap.add_argument("--port", type=int, default=47950)
     ap.add_argument("--frag-limit", type=int, default=3)
     ap.add_argument("--pickup", type=int, default=0, help="index of the pickup A takes (DRAKAN_ARENA_TEST_GOTO)")
+    ap.add_argument(
+        "--pickup-method",
+        choices=("take", "goto"),
+        default="take",
+        help="take simulates removal; goto teleports/sweeps toward the item and sends Use",
+    )
     ap.add_argument("--pickup-sec", type=int, default=15, help="respawn time of the pickups (test aid)")
     ap.add_argument("--fight", type=int, default=70, help="seconds A swings")
     ap.add_argument(
@@ -139,7 +153,9 @@ def main() -> int:
             "DRAKAN_NET_NAME": "Alpha",
             "DRAKAN_NET_FRAG_LIMIT": str(a.frag_limit),
             "DRAKAN_PVP_TEST_PLACE": "140",
-            "DRAKAN_ARENA_TEST_TAKE": f"{a.pickup}@{a.goto_ticks}",
+            (
+                "DRAKAN_ARENA_TEST_GOTO" if a.pickup_method == "goto" else "DRAKAN_ARENA_TEST_TAKE"
+            ): f"{a.pickup}@{a.goto_ticks}",
         },
         "b": {**common, "DRAKAN_NET_CONNECT": f"127.0.0.1:{a.port}", "DRAKAN_NET_NAME": "Bravo"},
     }
@@ -170,6 +186,7 @@ def main() -> int:
     checks: dict[str, bool] = {}
     for k in "ab":
         t = text[k]
+        checks.update({f"{k}: {name}": ok for name, ok in guest_progress_checks(t).items()})
         checks[f"{k}: arena world mode on for '{m['name']}'"] = f"arena world mode on: {m['name']}" in t
         checks[f"{k}: campaign removed (creatures and NPCs, story objects)"] = (
             re.search(r"\[arena\] removed \d+ campaign actors \((\d+) creatures / NPCs, (\d+) story objects", t)

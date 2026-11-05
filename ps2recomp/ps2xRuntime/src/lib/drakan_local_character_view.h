@@ -7,6 +7,16 @@ struct View {
     uint32_t controller = 0, body = 0;
     uint32_t weapons[2] = {};
     uint32_t poseSource = 0; // gameplay actor; may differ from the native visual model in instance data +0x80
+    uint32_t bodySkeleton = 0;
+    uint32_t bodyResource = 0;
+
+    // A pooled address can be reused during title teardown without a level-load notification. Validate the bound
+    // body's identity before writing its transform, not just its class/vtable after the write.
+    bool matchesBody(uint32_t vtable, uint32_t flags, uint32_t skeleton, uint32_t resource,
+                     uint32_t handleVtable) const {
+        return body && bodySkeleton && vtable == handleVtable && !(flags & 0x80000000u) && skeleton == bodySkeleton &&
+               resource == bodyResource;
+    }
 
     // Keep each body's native render preparation (skeleton / material state). Never substitute just the pointer
     // at the final draw: that is too late and reuses the controller's skinning / texture state.

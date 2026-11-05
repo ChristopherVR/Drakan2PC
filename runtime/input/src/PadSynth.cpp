@@ -57,7 +57,7 @@ uint8_t dither(PadSynthState& st, int idx, uint8_t want) {
 } // namespace
 
 PadSample synthesizePad(const Config& cfg, const FrameInput& in, const std::vector<Binding>& layer, bool menuActive,
-                        bool directLook, bool walk, PadSynthState& st) {
+                        bool directLook, bool walk, PadSynthState& st, bool allowDirectionalAttack) {
     PadSample s;
     bool ls[4] = {}, rs[4] = {};
     for (const Binding& b : layer) {
@@ -79,6 +79,35 @@ PadSample synthesizePad(const Config& cfg, const FrameInput& in, const std::vect
         }
     }
 
+    // Native button callbacks run before the new stick axes. Give a new melee attack
+    // one neutral sample first: the analog command must release before its D-pad
+    // replacement presses, or that release clears the fresh special-move direction.
+    // Keep a short click's intent until delivery; ordinary held attacks do not defer again.
+    uint16_t directions = 0;
+    if (ls[0] != ls[1])
+        directions |= ls[0] ? Pad::UP : Pad::DOWN;
+    if (ls[2] != ls[3])
+        directions |= ls[2] ? Pad::LEFT : Pad::RIGHT;
+    const bool attackDown = (s.buttons & Pad::SQUARE) != 0;
+    const bool attackPressed = attackDown && !st.boundAttackDown;
+    st.boundAttackDown = attackDown;
+    bool directionalAttack = false;
+    if (!allowDirectionalAttack || menuActive || !in.focused || (s.buttons & Pad::START)) {
+        st.pendingAttackDirections = 0;
+    } else if (st.pendingAttackDirections) {
+        s.buttons |= Pad::SQUARE | st.pendingAttackDirections;
+        st.pendingAttackDirections = 0;
+        directionalAttack = true;
+    } else if (attackDown && directions) {
+        directionalAttack = true;
+        if (attackPressed) {
+            st.pendingAttackDirections = directions;
+            s.buttons &= static_cast<uint16_t>(~Pad::SQUARE);
+        } else {
+            s.buttons |= directions;
+        }
+    }
+
     // --- left stick from keys: 8-way normalised linear vector (x right+, y down+)
     float lx = static_cast<float>(ls[3]) - static_cast<float>(ls[2]);
     float ly = static_cast<float>(ls[1]) - static_cast<float>(ls[0]);
@@ -90,7 +119,7 @@ PadSample synthesizePad(const Config& cfg, const FrameInput& in, const std::vect
         lx *= cfg.walkScale;
         ly *= cfg.walkScale;
     }
-    if (menuActive)
+    if (menuActive || directionalAttack)
         lx = ly = 0;
     auto enc = [&](float v) { return cfg.curveCompensation ? encodeStickLinear(v) : encodeStickRaw(v); };
     uint8_t blx = enc(lx), bly = enc(ly);

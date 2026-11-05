@@ -57,6 +57,22 @@ struct PlayingRig {
 } // namespace
 
 int main() {
+    // A dedicated server survives departure of its longest-connected player (the lobby's "host").
+    {
+        PlayingRig p;
+        const PlayerId departing = p.a.playerId();
+        collect(p.b);
+        p.a.disconnect();
+        p.rig.run(100);
+        const auto events = collect(p.b);
+        CHECK(p.b.connected());
+        CHECK(count<DisconnectedEvent>(events) == 0);
+        CHECK(count<PlayerLeave>(events) == 1);
+        CHECK(!p.b.roster().count(departing));
+        CHECK(p.rig.server->hostPlayer() == p.b.playerId());
+        CHECK(p.b.sendState(at(20)));
+    }
+
     // v5: server password, Ready, status answer.
     {
         ServerOptions o = baseOptions();

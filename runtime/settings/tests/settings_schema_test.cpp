@@ -306,6 +306,22 @@ void testModernApply() {
 int main() {
     {
         Host host;
+        bool link = true;
+        Settings settings;
+        auto schema = buildSettingsSchema(settings, env(host));
+        CHECK(schema.find("video.mip_bias")->currentValue == "auto");
+        CHECK(schema.find("video.mip_bias")->currentLabel == "Auto");
+        CHECK(applySettingChange(settings, link, "video.mip_bias", "0.00"));
+        CHECK(!settings.video.mipBiasAuto && settings.video.mipBias == 0);
+        CHECK(applySettingChange(settings, link, "video.mip_bias", "auto"));
+        CHECK(settings.video.mipBiasAuto);
+        CHECK(applySettingChange(settings, link, "video.mip_bias", "-0.37"));
+        schema = buildSettingsSchema(settings, env(host));
+        const auto* row = schema.find("video.mip_bias");
+        CHECK(row->current >= 0 && row->choices[size_t(row->current)].value == "-0.37");
+    }
+    {
+        Host host;
         host.caps.internalResolution = false;
         host.caps.directMouseLook = false;
         host.caps.unavailableBindingActions = {"QUICKSAVE", "QUICKLOAD"};

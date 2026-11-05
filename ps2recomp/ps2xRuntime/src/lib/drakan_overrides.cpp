@@ -1303,8 +1303,8 @@ void applyDrakanOverrides(PS2Runtime& runtime) {
     if constexpr (supports(Feature::DualWield))
         drakan_dual_wield::install(runtime);
     drakan_region::reportMultiplayerAvailability();
-    drakan_texscale::install(runtime);    // fast surface downscale (PAL)
-    installNullControllerGuard(runtime);  // objects without a controller in the scene walk (PAL)
+    drakan_texscale::install(runtime);   // fast surface downscale (PAL)
+    installNullControllerGuard(runtime); // objects without a controller in the scene walk (PAL)
     drakan_stomp_probe::install(runtime);
     drakan_save_reference_probe::install(runtime);
     drakan_lifecycle::install(runtime);   // engine lifecycle events (PAL addresses; no-op elsewhere)

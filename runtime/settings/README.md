@@ -80,7 +80,7 @@ set per build; `video.world_rate` always requires a restart because it is read a
 | `[video] frame_limit` | 0 | Presentation limiter | live | Presentation fps cap, 0 = off; implemented by the host loop. Does not raise the world update rate. |
 | `[video] anisotropic` | 1 | Anisotropic | live | **new key**, 1 2 4 8 16; `Renderer::setAnisotropic` |
 | `[video] texture_upscale`, `texture_upscale_filter` | 1, default | Texture upscaling | live | **new keys**; `Renderer::setTextureUpscale(factor, filter)` flushes the upscaled-texture cache (textures are decoded again, brief hitch); filter names come from `HostCaps::textureUpscaleFilters` |
-| `[video] mip_bias` | 0.0 | Mip bias | live | **new key**, -2..+2 (or `auto`); `Renderer::setMipBias` |
+| `[video] mip_bias` | auto | Mip bias | live | `auto` compensates for internal resolution; manual menu presets -2..+2, existing custom values retained; `Renderer::setMipBias(value, autoMode)` |
 | `[video] hd_textures` | 1 | HD texture replacement | live | **new key**; `Renderer::setTextureReplace` rescans the texture folder and flushes the caches (the hle override layer for other assets still needs a restart) |
 | `[video] texture_dump` | 0 | Texture dump | live | **new key**; `Renderer::setTextureDump` |
 | `[audio] enabled`, `volume` | 1, 100 | Sound, Master volume | live | % 0..200; `AudioOutput::setMuted(!enabled)` + `setMasterGain(volume/100)` (10 ms ramp, no click; also applied to the WAV dump) |

@@ -368,8 +368,18 @@ const std::vector<Field>& fields() {
         {"video", "texture_upscale_filter", false, GETS(video.textureUpscaleFilter),
          [](Settings& s, const std::string& v) { s.video.textureUpscaleFilter = trim(v); },
          "algorithm used for texture upscaling (names depend on the build)"},
-        {"video", "mip_bias", false, GETF(video.mipBias, "%.2f"), SETF(video.mipBias),
-         "texture LOD bias, negative = sharper, positive = softer"},
+        {"video", "mip_bias", false,
+         [](const Settings& s) { return s.video.mipBiasAuto ? std::string("auto") : fmt("%.2f", s.video.mipBias); },
+         [](Settings& s, const std::string& v) {
+             float n;
+             if (lower(trim(v)) == "auto")
+                 s.video.mipBiasAuto = true;
+             else if (s2f(v, n) && std::isfinite(n)) {
+                 s.video.mipBias = n;
+                 s.video.mipBiasAuto = false;
+             }
+         },
+         "texture LOD bias: auto follows internal resolution, negative = sharper, positive = softer"},
         {"video", "hd_textures", false, GETB(video.hdTextures), SETB(video.hdTextures),
          "1 = use replacement textures from the overrides folder"},
         {"video", "texture_dump", false, GETB(video.textureDump), SETB(video.textureDump),

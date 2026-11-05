@@ -46,6 +46,9 @@ struct CameraLayout {
     uint32_t transformRight = 0x20;
     uint32_t transformBack = 0x28;
     uint32_t cameraOrbit = 0x90;
+    uint32_t playerSummonState = 0x1040; // 1..4: spell preparation/gesture; 0/5: normal movement
+    uint32_t playerRightHolder = 0xeb4;  // mode at +0, drawn weapon reference at +0x1c
+    uint32_t playerLeftHolder = 0xe90;   // mode 5 is the native drawn bow
 };
 struct CameraProfile {
     CameraLayout layout;

@@ -273,6 +273,12 @@ Authoring tools (editor export, `scripts/` helpers) should write exactly this la
 
 ## Campaign packs (Order of the Flame and custom campaigns)
 
+The editor uses `files/ENGLISH/...` as the portable namespace for converted assets. The runtime also mounts these
+pack files in the selected disc language, so a converted campaign registers and loads with German or another menu
+language selected. Explicit English paths remain available for generated dependency references. Later packs win;
+within one pack, an explicitly localized file wins over its English fallback. Original ISO language paths keep their
+normal meaning.
+
 A pack whose `levels` are a whole campaign says so in the manifest (top-level keys, above the tables). Two kinds exist:
 the converted Drakan: Order of the Flame (`campaign = "ootf"`; the editor's OotF export and
 `editor/scripts/ootf-convert.ts --campaign 1` write it) and **custom campaigns** made in the editor (Project Settings >

@@ -323,6 +323,41 @@ void testPlaybackCadence() {
     }
 }
 
+void testPlaybackCadenceChangesAndLoss() {
+    PosePlaybackClock clock;
+    PoseBufferConfig config;
+    config.maxExtrapolateSec = 0; // network playback uses sender ticks, while velocity uses wall seconds
+    PoseBuffer buffer(config);
+    uint32_t tick = 1000, receivedTick = 0, serverMs = 0;
+    double played = 0;
+    PlayerPose shown;
+    for (int frame = 0; frame <= 900; ++frame) {
+        const double t = double(frame) / 60;
+        // Uncapped gameplay changes to a slower menu cadence, pauses, and resumes fast gameplay.
+        if (frame < 300 || (frame >= 600 && frame < 720))
+            tick += 4;
+        else if (frame < 600 && frame % 2 == 0)
+            ++tick;
+        // The server still snapshots a stalled sender. Lose a 1.5 s burst while it is moving slowly.
+        if (frame % 3 == 0 && !(frame >= 420 && frame < 510)) {
+            serverMs = static_cast<uint32_t>(frame * 1000 / 60);
+            if (tick != receivedTick) {
+                receivedTick = tick;
+                auto sample = pose(tick / 60.0, static_cast<float>(tick - 1000), 0, 0, 0);
+                sample.velocity.x = 1e6f; // must never invent movement during a packet gap
+                buffer.push(sample);
+            }
+        }
+        const double next = clock.advance(receivedTick, serverMs, t);
+        CHECK(next >= played && next <= receivedTick);
+        CHECK(buffer.sampleAt(next / 60, shown));
+        CHECK(shown.position.x >= 0 && shown.position.x <= receivedTick - 1000);
+        played = next;
+    }
+    NEAR(played, receivedTick, 1e-3);
+    NEAR(shown.position.x, receivedTick - 1000, 1e-3);
+}
+
 void testBridge() {
     PlayerPose p = pose(2.0, 123.5f, 0.75f, 0x2047b, 0.4f);
     p.tick = 99;
@@ -352,6 +387,7 @@ int main() {
     testBridge();
     testInventoryReplication();
     testPlaybackCadence();
+    testPlaybackCadenceChangesAndLoss();
     if (g_failed)
         std::fprintf(stderr, "world_pose_test: %d failed\n", g_failed);
     else

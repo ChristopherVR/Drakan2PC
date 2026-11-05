@@ -12,6 +12,7 @@
 #include "drakan_window.h"
 #include "drakan_menus.h"
 #include "drakan_netplay.h"
+#include "drakan_netplay_policy.h"
 #include "drakan_playtest.h"
 #include "drakan_game.h"
 #include "drakan_arena.h"
@@ -1469,6 +1470,9 @@ struct MpProfile {
 };
 MpProfile g_mpProfile;
 std::string mpProfilePath() {
+    // A direct-dist harness must not share the player's persisted name/character between its instances.
+    if (const char* path = std::getenv("DRAKAN_MULTIPLAYER_INI"); path && *path)
+        return path;
     return drakan_cfg::exeDir() + "multiplayer.ini";
 }
 void loadMpProfile() {
@@ -2206,7 +2210,10 @@ void titleDraw(const dsettings::SettingsOverlay::ScreenFrame& f, bool background
             // title up under a live session and the lobby page would sit over the level, holding the world.)
             const bool matchOver =
                 ns.phase == drakan_netplay::Phase::Lobby || ns.phase == drakan_netplay::Phase::Results;
-            if (ns.inSession && ns.conn == drakan_netplay::Conn::Connected && matchOver) {
+            if (drakan_netplay::policy::resumeLobby(ns.inSession, ns.conn == drakan_netplay::Conn::Rejected,
+                                                    ns.conn == drakan_netplay::Conn::Connected, matchOver)) {
+                // A lost session returns here with its error retained. Reopen the lobby so its rejection path
+                // shows the reason and issues Leave, completing network/launch/co-op cleanup before another join.
                 ui.screen.resumeMultiplayer(mpState(false));
                 std::fprintf(stderr, "[menu-screens] title: resumed the multiplayer lobby\n");
             }
@@ -2617,8 +2624,8 @@ struct DrakanSettingsHost final : CommonSettingsHost {
             g_gs->setSharpPresent(n.sharpPresent);
         if (n.anisotropic != p.anisotropic)
             g_gs->setAnisotropic((uint32_t)std::max(0, n.anisotropic));
-        if (n.mipBias != p.mipBias)
-            g_gs->setMipBias(n.mipBias, false);
+        if (n.mipBiasAuto != p.mipBiasAuto || n.mipBias != p.mipBias)
+            g_gs->setMipBias(n.mipBias, n.mipBiasAuto);
         if (n.textureUpscale != p.textureUpscale || n.textureUpscaleFilter != p.textureUpscaleFilter)
             g_gs->setTextureUpscale((uint32_t)std::max(0, n.textureUpscale), n.textureUpscaleFilter == "xbrz"     ? 1u
                                                                              : n.textureUpscaleFilter == "smooth" ? 2u

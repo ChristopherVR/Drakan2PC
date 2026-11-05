@@ -586,3 +586,12 @@ disabled, invalidating its FPS pairs; that issue remains open. See the
 [measurements and qualifications](../journal/2026-11-05/ray-query-work-pruning.md), including exact image regressions
 and the all-map checks. Diagnostic switches are `GSR_RAY_ACCEPTED_ALPHA`, `GSR_RAY_ZERO_AMBIENT` and
 `GSR_RAY_PRUNE_REJECTED` (`0` restores the corresponding old work).
+
+
+## Combat frame hitches (2026-11-05)
+
+The D3D11 model-motion pass projects moving poses into reusable CPU storage and queues a byte-range update
+to its vertex buffer. This removes a recurring CPU wait when discarding an in-flight buffer. Render-target
+uploads also reuse their native and scaled scratch storage. When measuring long frame intervals, separate
+scripted screenshot and memory-dump frames from ordinary gameplay. The detailed traces and A/B results are in
+[the hitch investigation](../journal/2026-11-05/occasional-frame-hitches.md).

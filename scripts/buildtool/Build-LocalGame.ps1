@@ -26,6 +26,8 @@ param(
     [string]$DependencyDirectory,
     # Optional shared HD pack. Otherwise reuse local/textures or the existing Windows play folder.
     [string]$TextureDirectory,
+    # Windows logical-processor bitmask (hex, e.g. 0xFFF); empty keeps the inherited affinity.
+    [string]$CpuAffinity = '',
     # MSBuild projects built in parallel.
     [ValidateRange(1,16)][int]$Jobs = 2,
     # Compile the four VU1 AOT slices one after another (each needs ~17 GB in cl) instead of in parallel.
@@ -50,6 +52,12 @@ param(
 )
 $ErrorActionPreference = 'Stop'
 $windowsHost = [OperatingSystem]::IsWindows()
+. (Join-Path $PSScriptRoot 'Build-Affinity.ps1')
+if ($CpuAffinity -and (-not $windowsHost -or $TargetPlatform -eq 'web')) {
+    throw '-CpuAffinity supports native Windows builds only; Linux/WSL/browser builds keep their platform defaults.'
+}
+# Validate before extraction or any other build work.
+if ($CpuAffinity) { Resolve-BuildAffinity $CpuAffinity | Out-Null }
 if ($TargetPlatform -eq 'native') { $TargetPlatform = if ($windowsHost) { 'windows' } else { 'linux' } }
 $webBuild = $TargetPlatform -eq 'web'
 if ($webBuild -and $windowsHost) {
@@ -97,7 +105,9 @@ try {
 } catch {
     throw "Another build owns $WorkDir. Wait for it to finish before rebuilding this tree."
 }
+$affinityState = $null
 try {
+$affinityState = Enter-BuildAffinity $CpuAffinity
 
 if ($Incremental) {
     if (-not (Test-Path -LiteralPath (Join-Path $WorkDir 'local-input.json') -PathType Leaf)) {
@@ -521,5 +531,5 @@ Write-Detail "Launch from PowerShell: Start-Process -FilePath '$quotedExe' -Work
 Write-Detail 'Local ISO/ELF paths and default input bindings are staged next to the executable; existing configs are preserved. No launch or upload was performed.'
 
 } finally {
-    $buildWriterLock.Dispose()
+    try { Exit-BuildAffinity $affinityState } finally { $buildWriterLock.Dispose() }
 }

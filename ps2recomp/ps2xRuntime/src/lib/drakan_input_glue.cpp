@@ -30,6 +30,7 @@
 #include "drakan_playtest.h"
 #include "drakan_coop.h"
 #include "drakan_netplay.h"
+#include "drakan_netplay_policy.h"
 #include "drakan_pvp.h"
 #include "drakan_world.h"
 #endif
@@ -674,6 +675,12 @@ void hookPadMgrUpdate(uint8_t* rdram, R5900Context* c, PS2Runtime* rt) {
         // The modern pause menu's "Quit to Title" answers the same box Yes and wants the title: suppressed once.
         const bool toTitle = g_lastScreen == 1 && g_pauseQuitToTitle.exchange(false) &&
                              std::chrono::steady_clock::now() - g_pauseQuitToTitleAt < std::chrono::seconds(30);
+#if defined(PS2X_HAVE_GSR)
+        // Confirmed manual Quit to Title ends the listen server too. Automated results/loss returns keep their
+        // session/error until the title lobby consumes it; Cancel and opening the pause menu never leave.
+        if (drakan_netplay::policy::leaveAfterTitle(g_lastScreen, scr, drakan_netplay::returnToTitleRequested()))
+            drakan_netplay::leave();
+#endif
         if (g_lastScreen == 1 && scr == 8 && toTitle) {
             ilog("[in] Quit to Title (modern pause menu): the title menu stays\n");
         } else if (g_lastScreen == 1 && scr == 8 &&

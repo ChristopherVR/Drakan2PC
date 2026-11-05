@@ -317,9 +317,24 @@ void displayPage(gameui::SettingPage& pg, const Settings& st, const SchemaEnv& e
         r.emptyText = "none available";
         Builder::select(r);
     }
-    b.slider("video.mip_bias", "Mip bias",
-             "Shifts which texture detail level is used. Negative = sharper (can shimmer), positive = softer.",
-             v.mipBias, -2.0f, 2.0f, "%+.2f", 0.05f, caps.mipBias);
+    {
+        SettingRow& r = b.row("video.mip_bias", SettingKind::Choice, "Mip bias",
+                              "Auto compensates for internal resolution. Manual values shift texture detail: negative "
+                              "= sharper (can shimmer), positive = softer. Does not change model polygons.",
+                              false, caps.mipBias);
+        r.choices.push_back({"auto", "Auto", true});
+        for (int i = -8; i <= 8; ++i) {
+            char value[32];
+            std::snprintf(value, sizeof value, "%.2f", i * 0.25);
+            r.choices.push_back({value, value, true});
+        }
+        // Keep an existing hand-edited value selectable without rounding it to one of the menu presets.
+        if (!v.mipBiasAuto &&
+            std::none_of(r.choices.begin(), r.choices.end(), [&](const auto& c) { return c.value == r.currentValue; }))
+            r.choices.push_back({r.currentValue, r.currentValue, true});
+        r.currentLabel = v.mipBiasAuto ? "Auto" : r.currentValue;
+        Builder::select(r);
+    }
     b.toggle("video.hd_textures", "HD texture replacement",
              "Load replacement textures from the overrides folder instead of the disc textures.", true,
              caps.hdTextures);

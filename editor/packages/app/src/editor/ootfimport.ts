@@ -4,11 +4,9 @@
 
 import { buildOotfPack, ootfArenaFromPc, zipOotfPack, type ModMeta } from '@drakan/editor-core';
 import {
-    LVL_TYPE_LAYERS,
     SrscReader,
     ps2BlobFor,
-    convertPcLevel,
-    dominantTexture,
+    convertOotfLevels,
     findPcLevels,
     loadPcLevel,
     matchClass,
@@ -16,11 +14,11 @@ import {
     type PcLevel,
     type ClassTables,
     parseLevelHeader,
-    parsePs2Terrain,
     pcLevelName,
     ps2ClassTables,
     type PcFileSource,
 } from '@drakan/formats';
+import { ootfDiscContext } from './ootfdisc.ts';
 import type { Api, Method } from '../rpc.ts';
 import { h } from './dom.ts';
 import { registerCommand } from './registry.ts';
@@ -165,7 +163,8 @@ function openDialog(host: OotfHost): void {
         document.head.append(st);
     }
     const ps2 = host.levels();
-    const dlg = h('dialog', { class: 'ootf-dlg' });
+    // Keep the shared dropdown popup inside the modal's top layer (body siblings are inert and paint below it).
+    const dlg = h('dialog', { class: 'ootf-dlg', 'data-dd-host': '' });
     const body = h('div', { class: 'od-body' });
     const foot = h('div', { class: 'od-foot' });
     dlg.append(h('div', { class: 'od-head' }, 'Import Order of the Flame levels'), body, foot);
@@ -315,43 +314,57 @@ function openDialog(host: OotfHost): void {
         const tplBytes = await host.call('readLevelFile', tplDir);
         const template = await SrscReader.fromBytes(tplBytes);
         const loaded = await host.call('loadLevel', tplDir);
-        const classes = ps2ClassTables(loaded.lvl.header, loaded.odbs);
-        const layersEntry = template.entries.find((e) => e.type === LVL_TYPE_LAYERS);
-        const fallback = layersEntry ? dominantTexture(parsePs2Terrain(await template.readRaw(layersEntry))) : 0;
-
+        const { context, splats } = await ootfDiscContext(template, loaded.lvl.header, tplDir, (path) =>
+            host.call('readStoryFile', path),
+        );
+        const selected = rows.filter((r) => r.box.checked);
+        const result = await convertOotfLevels(
+            src!,
+            selected.map((r) => r.path),
+            context,
+            {
+                name: (pc) => `${prefix.value}${pcLevelName(pc.header)}`.slice(0, 60),
+                log: (message) => {
+                    out.textContent = message;
+                },
+            },
+        );
+        const failed = result.stages.filter((stage) => !stage.ok);
+        if (failed.length)
+            throw new Error(`Conversion failed: ${failed.map((s) => `${s.stage}: ${s.error}`).join('; ')}`);
         const inputs = [];
         const lines: HTMLElement[] = [];
-        for (const r of rows.filter((x) => x.box.checked)) {
-            out.replaceChildren(h('div', { class: 'od-dim' }, `Converting ${r.title}...`));
-            await new Promise((res) => setTimeout(res, 0));
-            const pc = await loadPcLevel(src!, r.path);
-            const parts = convertPcLevel(pc, {
-                template: { header: loaded.lvl.header, classes },
-                textureFallback: fallback,
-            });
-            const R = parts.report;
-            const dropped = [...R.unmappedClasses].sort((a, b) => b[1] - a[1]);
+        for (const level of result.levels) {
+            const pc = await loadPcLevel(src!, level.pcPath);
+            const R = level.parts.report;
             lines.push(
                 h(
                     'tr',
                     {},
-                    h('td', {}, r.title),
+                    h('td', {}, level.title),
                     h('td', {}, `${R.objectsOut} / ${R.objectsIn}`),
                     h('td', {}, String(R.layers)),
-                    h('td', { title: dropped.map(([n, c]) => `${n} x${c}`).join('\n') }, `${dropped.length} classes`),
+                    h('td', {}, `${R.unmappedClasses.size} classes`),
                 ),
             );
-            const lvlTitle = `${prefix.value}${r.title}`.slice(0, 60);
-            // Multiplayer levels also get a map definition (spawns from the launch pads) for the Multiplayer menu.
-            inputs.push({ title: lvlTitle, parts, arena: ootfArenaFromPc(pc, lvlTitle) ?? undefined });
+            inputs.push({
+                title: level.title,
+                parts: level.parts,
+                splats: level.splats,
+                arena: ootfArenaFromPc(pc, level.title) ?? undefined,
+            });
         }
+        const start = result.levels.find((l) => !/^multiplayer[\\/]/i.test(l.pcPath));
         const meta: Omit<ModMeta, 'levels'> = {
             id: 'ootf-levels',
             name: 'Order of the Flame levels',
             description: 'Levels converted from Drakan: Order of the Flame.',
             target: { profile: host.profile() ?? 'pal' },
+            ...(start
+                ? { campaign: 'ootf', campaignName: 'Drakan: Order of the Flame', campaignStart: start.title }
+                : {}),
         };
-        const pack = await buildOotfPack(meta, template, inputs, ps2BlobFor);
+        const pack = await buildOotfPack(meta, template, inputs, ps2BlobFor, { splats, extraFiles: result.files });
         const zip = zipOotfPack(pack);
         const save = h(
             'button',
@@ -397,12 +410,14 @@ function openDialog(host: OotfHost): void {
                 ),
                 ...lines,
             ),
-            ...pack.warnings.slice(0, 6).map((w) => h('div', { class: 'od-dim' }, w)),
+            ...[...result.warnings, ...pack.warnings].slice(0, 6).map((w) => h('div', { class: 'od-dim' }, w)),
             h('div', { class: 'od-row' }, save, folder),
             h(
                 'div',
                 { class: 'od-dim' },
-                "Put the zip in the game's mods folder; the levels appear at the end of the level list.",
+                start
+                    ? "Install and enable the zip in the game's Mods menu, restart, choose Drakan: Order of the Flame, then New Game."
+                    : "Install and enable the zip in the game's Mods menu, restart, then choose the map in Multiplayer.",
             ),
         );
         refreshGo();

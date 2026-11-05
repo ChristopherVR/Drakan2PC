@@ -70,6 +70,7 @@ void InputModule::setCameraProfile(const CameraProfile& profile) {
     std::lock_guard<std::mutex> lock(m_);
     camera_ = profile;
     cameraProfileSet_ = true;
+    ps_.pendingAttackDirections = 0;
     applyCameraProfile();
 }
 
@@ -196,6 +197,8 @@ void InputModule::releaseOwnedInputLocked() { // m_ held
     pendingDx_ = pendingDy_ = 0;
     aimPitchOwned_ = aimPitchSaved_ = false;
     padReady_ = false;
+    ps_.pendingAttackDirections = 0;
+    ps_.boundAttackDown = false;
     pending_.erase(std::remove_if(pending_.begin(), pending_.end(), [](const CommandEvent& e) { return e.pressed; }),
                    pending_.end());
     tracker_.reset(&pending_);
@@ -251,6 +254,7 @@ void InputModule::applyPendingLocked() { // m_ held
     if (!p)
         return;
     cfg_ = std::move(*p);
+    ps_.pendingAttackDirections = 0;
     applyCameraProfile();
     walkHeld_ = walkLatched_ = walkActive_ = false;
     tracker_.reset(&pending_); // release commands held through the old bindings
@@ -372,6 +376,7 @@ void InputModule::beginFrame(const FrameInput& injected) {
     const bool suspended = hostOwned();
     hostFrame_ = muted_.load() && !suspended_.load() && !hostScreen_.load() && frame_.focused ? frame_ : FrameInput{};
     if (!frame_.focused || suspended) {
+        ps_.pendingAttackDirections = 0;
         frame_.keyDown.reset();
         frame_.keyPressed.reset();
         frame_.keyReleased.reset();
@@ -408,6 +413,8 @@ void InputModule::beginFrame(const FrameInput& injected) {
                                    !hostOwned());
     }
     frame_.captured = want;
+    if (menu || !want)
+        ps_.pendingAttackDirections = 0;
     // Keep input ownership across a pad button's release. An idle connected
     // controller must not turn mouse combat back into controller targeting.
     const auto& gp = frame_.gamepad;
@@ -511,7 +518,7 @@ bool InputModule::fillPadSample(int port, int /*slot*/, uint8_t out[32]) {
             f.mouseReleased &= static_cast<uint8_t>(~MBTN_RIGHT);
         }
         if (!hostOwned())
-            s = synthesizePad(cfg_, f, layer, layerIsMenu_, direct, walkActive_, ps_);
+            s = synthesizePad(cfg_, f, layer, layerIsMenu_, direct, walkActive_, ps_, meleeDirections_);
         // The inventory / map closes with SELECT; START opens the pause menu over it. The menu layer's "back" keys
         // (Esc, Backspace = START | CIRCLE) must only close it, so a bound START becomes SELECT there, and stays
         // SELECT until released: the screen is gone a frame before the layer switch drops the held key, and a START
@@ -981,7 +988,50 @@ void InputModule::beforePadMgrUpdate(IGuest& g, bool dragon) {
     // A real left stick overrides keyboard synthesis, so retain its native map.
     const bool padSteering =
         cfg_.gamepadEnabled && frame_.gamepad.connected && (frame_.gamepad.lx != 0.0f || frame_.gamepad.ly != 0.0f);
-    const bool want = cfg_.strafeKeys && !padSteering && frame_.focused && !layerIsMenu_ && !dragon && !hostOwned();
+    // Native spell gestures read axes 0/2, not the strafe axis 3. The summon state
+    // outlives the Circle press, so use the current actor rather than a mouse latch.
+    const auto& layout = camera_.layout;
+    const auto valid = [](uint32_t address, uint64_t bytes) {
+        const uint32_t p = address & 0x1fffffffu;
+        return p >= 0x100000u && p < 0x2000000u && bytes <= 0x2000000u - p;
+    };
+    uint32_t summon = 0;
+    bool melee = false;
+    uint64_t meleeIdentity = 0;
+    const uint32_t ctx = g.read32(cfg_.addrCtxPtr);
+    if (!dragon && layout.playerSummonState && valid(ctx, uint64_t(layout.contextActor) + 4)) {
+        const uint32_t handle = g.read32(ctx + layout.contextActor);
+        const uint32_t inner =
+            valid(handle, uint64_t(layout.handleInner) + 4) ? g.read32(handle + layout.handleInner) : 0;
+        const uint32_t player = valid(inner, uint64_t(layout.innerData) + 4) ? g.read32(inner + layout.innerData) : 0;
+        if (valid(player, uint64_t(layout.playerSummonState) + 4)) {
+            summon = g.read32(player + layout.playerSummonState);
+            // The same Square button fires bows and dragon breath. Only the native
+            // on-foot melee context may repurpose keyboard movement as special moves.
+            if (layout.playerRightHolder && layout.playerLeftHolder &&
+                valid(player, uint64_t(layout.playerRightHolder) + 0x20) &&
+                valid(player, uint64_t(layout.playerLeftHolder) + 4) &&
+                valid(player, uint64_t(layout.playerVtable) + 4)) {
+                const uint32_t vt = g.read32(player + layout.playerVtable);
+                const uint16_t weapon = g.read16(player + layout.playerRightHolder + 0x1c);
+                melee = valid(vt, uint64_t(layout.vtablePitch) + 4) &&
+                        g.read32(vt + layout.vtablePitch) == camera_.rynnPitch && weapon && weapon != 0xffffu &&
+                        g.read32(player + layout.playerRightHolder) != 0xffffffffu &&
+                        g.read32(player + layout.playerLeftHolder) != 5u && (summon == 0 || summon == 5);
+                if (melee)
+                    meleeIdentity = (uint64_t(player) << 16) | weapon;
+            }
+        }
+    }
+    if (meleeDirections_ != melee || meleeIdentity_ != meleeIdentity) {
+        padReady_ = false;
+        ps_.pendingAttackDirections = 0;
+    }
+    meleeDirections_ = melee;
+    meleeIdentity_ = meleeIdentity;
+    const bool casting = summon >= 1 && summon <= 4;
+    const bool want =
+        cfg_.strafeKeys && !casting && !padSteering && frame_.focused && !layerIsMenu_ && !dragon && !hostOwned();
     const int32_t axis = static_cast<int32_t>(g.read32(rec));
     if (want) {
         if (axis != 3) { // (re)installed by the options code: remember the game's own mapping, then strafe

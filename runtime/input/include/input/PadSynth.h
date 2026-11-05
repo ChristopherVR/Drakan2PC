@@ -22,13 +22,15 @@ uint8_t encodeStickRaw(float f);
 struct PadSynthState {
     uint8_t last[4] = {0x80, 0x80, 0x80, 0x80}; // rx, ry, lx, ly as last emitted (for the game's jitter filter)
     bool flip[4] = {false, false, false, false};
+    uint16_t pendingAttackDirections = 0; // replay a short melee attack after one neutral preparation sample
+    bool boundAttackDown = false;         // keyboard/mouse Square only, before physical controller merge
 };
 
 // directLook: mouse look is applied by the camera hook, so the mouse contributes nothing to the right stick.
 // The jitter filter of PadMgr_ProcessStickAxis blanks a stick whose byte is within +-47 of centre and changed by
 // <4 counts since the previous sample; the synthesizer dithers such values by 4 counts so they survive.
 PadSample synthesizePad(const Config& cfg, const FrameInput& in, const std::vector<Binding>& layer, bool menuActive,
-                        bool directLook, bool walk, PadSynthState& st);
+                        bool directLook, bool walk, PadSynthState& st, bool allowDirectionalAttack = false);
 
 // Sony layout: {0x00,0x73, ~hi, ~lo, rx, ry, lx, ly, pressure bytes...}
 void packPadSample(const PadSample& s, uint8_t out[32]);

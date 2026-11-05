@@ -128,10 +128,15 @@ def main() -> int:
     if a.list_levels:
         print("\n".join(LEVELS))
         return 0
+    a.exe = a.exe.resolve()
     if not a.exe.is_file():
         raise SystemExit(f"{a.exe} not found; build with scripts/buildtool/Build-LocalGame.ps1 first")
 
-    out = a.out_root / a.name
+    # The game runs with the executable's directory as cwd, so every exported run path must be absolute.
+    output_root = a.out_root.resolve()
+    out = (output_root / a.name).resolve()
+    if out == output_root or not out.is_relative_to(output_root):
+        raise SystemExit("--name must identify a run folder inside --out-root")
     if out.exists():
         shutil.rmtree(out)
     out.mkdir(parents=True)

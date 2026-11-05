@@ -1382,6 +1382,16 @@ void GsrBridge::hostTick() {
             drakan_pacing::preciseSleepUntil(
                 s.nextFrame); // the frame limiter: an even cadence, not a scheduler tick late
     }
+    // Once the cap deadline has passed, wake on the next completed image.
+    // Polling only at cap intervals rounds a slightly late frame up to another
+    // whole interval while its producer waits for our acknowledgement.
+    if (limit > 0 && !drakan_settings_host::isOpen() &&
+        (s.completionDriven.load(std::memory_order_acquire) || drakan_dlss::neuralRequested())) {
+        std::unique_lock<std::mutex> lock = s.lockProducer();
+        s.presentCv.wait_for(lock, std::chrono::microseconds(16667),
+                             [&] { return s.latchProgress.pending() || s.stopPresentHandoff.load(); });
+        s.nextFrame = std::max(s.nextFrame, std::chrono::steady_clock::now());
+    }
     // SetMaximumFrameLatency(1) only throttles callers of the frame-latency waitable (also NR's D3D12 swapchain).
     // Without this wait two or three vsynced flips queued up: every GPU readback then waited 2-3 refreshes (30-48 ms
     // hitches) and input lagged as much.

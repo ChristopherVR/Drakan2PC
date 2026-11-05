@@ -2,26 +2,38 @@
 #include "gsr/gsr.h"
 #include "gs_texup.h"
 
+#include <array>
 #include <cstdio>
 #include <cstring>
 
 namespace gsr {
 namespace {
-uint32_t crcTable[256];
-bool crcInit = false;
-uint32_t crc32(uint32_t crc, const uint8_t* p, size_t n) {
-    if (!crcInit) {
-        for (uint32_t i = 0; i < 256; ++i) {
-            uint32_t c = i;
-            for (int k = 0; k < 8; ++k)
-                c = (c & 1) ? 0xEDB88320u ^ (c >> 1) : c >> 1;
-            crcTable[i] = c;
-        }
-        crcInit = true;
+constexpr auto makeCrcTables() {
+    std::array<std::array<uint32_t, 256>, 4> tables{};
+    for (uint32_t i = 0; i < 256; ++i) {
+        uint32_t c = i;
+        for (int k = 0; k < 8; ++k)
+            c = (c & 1) ? 0xEDB88320u ^ (c >> 1) : c >> 1;
+        tables[0][i] = c;
     }
-    crc = ~crc;
-    for (size_t i = 0; i < n; ++i)
-        crc = crcTable[(crc ^ p[i]) & 0xFF] ^ (crc >> 8);
+    for (size_t row = 1; row < tables.size(); ++row)
+        for (size_t i = 0; i < 256; ++i) {
+            const uint32_t c = tables[row - 1][i];
+            tables[row][i] = tables[0][c & 255] ^ (c >> 8);
+        }
+    return tables;
+}
+uint32_t crc32(const uint8_t* p, size_t n) {
+    static constexpr auto tables = makeCrcTables();
+    uint32_t crc = ~0u;
+    while (n >= 4) {
+        crc = tables[3][(crc ^ p[0]) & 255] ^ tables[2][((crc >> 8) ^ p[1]) & 255] ^
+              tables[1][((crc >> 16) ^ p[2]) & 255] ^ tables[0][(crc >> 24) ^ p[3]];
+        p += 4;
+        n -= 4;
+    }
+    while (n--)
+        crc = tables[0][(crc ^ *p++) & 255] ^ (crc >> 8);
     return ~crc;
 }
 void be32(std::vector<uint8_t>& v, uint32_t x) {
@@ -32,33 +44,37 @@ void be32(std::vector<uint8_t>& v, uint32_t x) {
 }
 void chunk(std::vector<uint8_t>& out, const char* type, const std::vector<uint8_t>& data) {
     be32(out, (uint32_t)data.size());
-    std::vector<uint8_t> td(type, type + 4);
-    td.insert(td.end(), data.begin(), data.end());
-    out.insert(out.end(), td.begin(), td.end());
-    be32(out, crc32(0, td.data(), td.size()));
+    const size_t start = out.size();
+    out.insert(out.end(), type, type + 4);
+    out.insert(out.end(), data.begin(), data.end());
+    be32(out, crc32(out.data() + start, out.size() - start));
 }
 } // namespace
 
 bool writePng(const char* path, const Image& img) {
     if (!img)
         return false;
-    std::vector<uint8_t> raw;
-    raw.reserve((size_t)(img.width * 3 + 1) * img.height);
+    const size_t stride = size_t(img.width) * 3 + 1;
+    std::vector<uint8_t> raw(stride * img.height);
     for (uint32_t y = 0; y < img.height; ++y) {
-        raw.push_back(0);
-        for (uint32_t x = 0; x < img.width; ++x) {
-            const uint8_t* p = &img.rgba[((size_t)y * img.width + x) * 4];
-            raw.push_back(p[0]);
-            raw.push_back(p[1]);
-            raw.push_back(p[2]);
-        }
+        auto* dst = raw.data() + y * stride + 1; // filter byte is zero
+        const auto* src = img.rgba.data() + size_t(y) * img.width * 4;
+        for (uint32_t x = 0; x < img.width; ++x, dst += 3, src += 4)
+            std::memcpy(dst, src, 3);
     }
     std::vector<uint8_t> z = {0x78, 0x01};
+    z.reserve(6 + raw.size() + 5 * ((raw.size() + 65534) / 65535));
     size_t pos = 0;
     uint32_t a = 1, b = 0;
-    for (uint8_t c : raw) {
-        a = (a + c) % 65521;
-        b = (b + a) % 65521;
+    // Up to 5552 input bytes fit in the 32-bit Adler accumulators between reductions.
+    for (size_t begin = 0; begin < raw.size();) {
+        const size_t end = std::min(begin + 5552, raw.size());
+        while (begin < end) {
+            a += raw[begin++];
+            b += a;
+        }
+        a %= 65521;
+        b %= 65521;
     }
     while (pos < raw.size() || raw.empty()) {
         const size_t n = std::min<size_t>(65535, raw.size() - pos);
@@ -75,6 +91,7 @@ bool writePng(const char* path, const Image& img) {
     }
     be32(z, (b << 16) | a);
     std::vector<uint8_t> out = {0x89, 'P', 'N', 'G', 0x0D, 0x0A, 0x1A, 0x0A};
+    out.reserve(z.size() + 57); // signature, IHDR, IDAT and IEND overhead
     std::vector<uint8_t> ihdr;
     be32(ihdr, img.width);
     be32(ihdr, img.height);

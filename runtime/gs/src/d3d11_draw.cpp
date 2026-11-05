@@ -1,5 +1,6 @@
 // Per-draw state setup and submission (Impl::draw) and draw-level diagnostics.
 #include "d3d11_backend_impl.h"
+#include "gs_solid_mirror.h"
 
 #include <optional>
 
@@ -1207,6 +1208,38 @@ void D3D11Backend::Impl::draw(const GsDrawState& s, const ClutBuf& clut, const D
     ctx->OMSetRenderTargets(0, nullptr, nullptr);
 
     st.drawCalls++;
+    static const bool mirrorSolid = [] {
+        const char* value = std::getenv("GSR_RB_SOLID");
+        return !value || value[0] != '0';
+    }();
+    // Only mirror a clean scratch target: existing GPU-only pixels, world
+    // resolves, transformed HUD geometry and in-flight uploads keep readback.
+    // syncRT does not upload wrapped allocation rows, so exclude those too.
+    auto mirrored = mirrorSolid && !rt->dirty && !uploadActive && rt->w <= 128 && !rt->wstate && !rt->neuralState &&
+                            !rt->temporalEpoch && !rt->surfaceSubmittedEpoch && !rt->neuralOutputEpoch &&
+                            uint64_t(rt->base()) + uint64_t(rt->fbw) * 32 * (rt->h / rt->pageH()) <= kVramBlocks &&
+                            dsx == scale && dsy == scale && k.h[0] == 0 && k.h[1] == 0 && writeMask == 15
+                        ? solidMirrors(s, v, count, haveTex, rt->w, rt->h)
+                        : std::vector<SolidMirror>{};
+    if (!mirrored.empty()) {
+        uint32_t first = ~0u, last = 0;
+        for (const auto& m : mirrored) {
+            uint32_t lo, hi;
+            spanBlocks(PSM_CT32, rt->base(), rt->fbw, m.x, m.y, m.w, m.h, lo, hi);
+            first = std::min(first, lo);
+            last = std::max(last, hi);
+        }
+        for (const auto& other : rts) {
+            if (other.get() == rt || !other->dirty)
+                continue;
+            uint32_t lo, hi;
+            rowSpan(*other, other->dy0, std::min(other->dy1, other->h), lo, hi);
+            if (hi >= kVramBlocks || (lo <= last && hi >= first)) {
+                mirrored.clear(); // another GPU owner must retain its normal coherence ordering
+                break;
+            }
+        }
+    }
     if (writeMask) {
         ++rt->writes;
         rt->drawFrame = frame;
@@ -1220,6 +1253,30 @@ void D3D11Backend::Impl::draw(const GsDrawState& s, const ClutBuf& clut, const D
         }
     }
     rt->copyValid = false;
+    if (!mirrored.empty()) {
+        for (const auto& m : mirrored) {
+            for (uint32_t y = m.y; y < m.y + m.h; ++y)
+                for (uint32_t x = m.x; x < m.x + m.w; ++x)
+                    mem.write(PSM_CT32, rt->base(), rt->fbw, x, y, m.rgba);
+            mem.touchRect(PSM_CT32, rt->base(), rt->fbw, m.x, m.y, m.w, m.h);
+            for (uint32_t row = m.y / rt->pageH(); row < (m.y + m.h + rt->pageH() - 1) / rt->pageH(); ++row)
+                rt->rowStamp[row] = mem.clock();
+        }
+        rt->seen = mem.clock();
+        rt->dirty = false;
+        static const bool verify = std::getenv("GSR_RB_VERIFY") != nullptr;
+        if (verify)
+            verifyRTBlocks(*rt, 0, ~0u, 0, ~0u);
+    }
+    static const bool traceReadbackDraw = std::getenv("GSR_RB_DRAW_TRACE") != nullptr;
+    static unsigned readbackDrawsLeft = 64;
+    if (traceReadbackDraw && readbackDrawsLeft && writeMask && rt->readbackFrame != ~0ull &&
+        frame <= rt->readbackFrame + 2 && uint64_t(rt->w) * (rt->dy1 - rt->dy0) <= 16384) {
+        --readbackDrawsLeft;
+        std::fprintf(stderr, "[rb-draw] target=%x rows=%u..%u scissor=%llx writeMask=%x zmsk=%u\n", rt->fbp, rt->dy0,
+                     rt->dy1, (unsigned long long)s.scissor, writeMask, unsigned(zmsk));
+        logDraw(s, v, count);
+    }
     if (writeMask)
         prefetchReadback(*rt);
     if ((!rtDump.empty() && rtDump.count(di)) ||

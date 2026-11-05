@@ -9,6 +9,7 @@
 #include "net/Transport.h"
 #include "ps2_runtime.h"
 #include "ps2_runtime_macros.h"
+#include "world/Inventory.h"
 #include "world/Reader.h"
 
 #include <algorithm>
@@ -1036,6 +1037,18 @@ void destroyActor(drakan_input::IGuest& guest, uint8_t* rdram, uint32_t actor) {
     const uint32_t eng = engineCtx(rdram);
     if (!ramPtr(eng) || !ramPtr(actor))
         return;
+    // The local copy may have been collected before the peer's ObjGone arrived. Never
+    // leave a cell or hand pointing into the actor that the frame tail will free.
+    const uint32_t me = controlled(rdram);
+    world::EntitySnapshot owner;
+    const bool nativePlayer =
+        world::readEntity(RdramMemory(rdram), g_globals, eng, me, owner) && owner.classId == world::kClassRynn;
+    const uint32_t player = nativePlayer ? creatureData(rdram, me) : 0;
+    const unsigned detached = world::detachInventoryItem(
+        owner.classId, player, actor, [&](uint32_t address) { return rd32(rdram, address); },
+        [&](uint32_t address, uint32_t value) { guest.write32(address, value); });
+    if (detached)
+        coopLog("pickup copy %08x: cleared %u inventory references before removal", actor, detached);
     // 0x1413c0 only flags the actor and appends it to the kill list; the engine frees it in its frame tail flush.
     guest.call(drakan_input::GuestCall(drakan_region::guestAddress(0x1413c0)).arg(eng).arg(actor));
 }

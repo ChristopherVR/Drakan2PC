@@ -344,6 +344,38 @@ static void filesTests(const fs::path& root, const DiscProfile& pal) {
         CHECK(mm.bowAimFiles().empty());
     }
 
+    // Portable English pack files also serve the running language. Explicit disc
+    // lookups keep their original language, and localized files retain load precedence.
+    {
+        const fs::path mods = root / "mods_localized";
+        writeText(disc / "GERMAN/LEVELLST.TXT", "\\Levels\\Level 1A - Surdana\\Level 1A - Surdana.lvl\r\n");
+        writeFile(disc / "GERMAN/COMMON/WEAP/WEAP.TXD", makeSrsc({{{0x40, 7, 0, 0, 0}, fill(12, 0x21)}}));
+        writeZip(
+            mods / "first.zip",
+            {stored("mod.toml", toml("first", "1.0", "levels = [\"Level 9X - Clone Test\"]\n")),
+             stored("files/English/Levels/Level9st/Level9st.lvl", makeSrsc({{{0x20, 1, 0, 0, 0}, fill(10, 0x55)}})),
+             stored("files/English/Common/Weap/Weap.txd", makeSrsc({{{0x40, 7, 0, 0, 0}, fill(10, 0x61)}})),
+             stored("files/German/Common/Weap/Weap.txd", makeSrsc({{{0x40, 7, 0, 0, 0}, fill(10, 0x62)}}))});
+        writeText(mods / "last/mod.toml", toml("last"));
+        writeFile(mods / "last/files/ENGLISH/COMMON/WEAP/WEAP.TXD", makeSrsc({{{0x40, 7, 0, 0, 0}, fill(10, 0x63)}}));
+        IsoFs localized;
+        CHECK(localized.openFolder(disc.string(), &err));
+        localized.setLanguageRoot("German");
+        ModManager mm(pal);
+        CHECK(mm.load(mods.string(), {{"first", true}, {"last", false}}) == 1);
+        CHECK(mm.installFiles(localized) >= 4);
+        CHECK(mm.extraLevels().size() == 1);
+        std::vector<u8> b;
+        CHECK(entryBytes(localized, "\\Levels\\Level 9X - Clone Test\\Level 9X - Clone Test.lvl", 0x20, 1, 0, b) &&
+              b[0] == 0x55);
+        CHECK(entryBytes(localized, "GERMAN\\COMMON\\WEAP\\WEAP.TXD", 0x40, 7, 0, b) && b[0] == 0x62);
+        CHECK(entryBytes(localized, "ENGLISH\\COMMON\\WEAP\\WEAP.TXD", 0x40, 7, 0, b) && b[0] == 0x61);
+        CHECK(localized.findKey("FRENCH\\LEVELS\\LEVEL1NA\\LEVEL1NA.LVL", n) && !n.mem);
+        CHECK(mm.load(mods.string(), {{"first", true}, {"last", true}}) == 2);
+        CHECK(mm.installFiles(localized) >= 4);
+        CHECK(entryBytes(localized, "GERMAN\\COMMON\\WEAP\\WEAP.TXD", 0x40, 7, 0, b) && b[0] == 0x63);
+    }
+
     // pack with files/, LVL override, new/ entry, levels
     {
         const fs::path mods = root / "mods_files";

@@ -230,6 +230,25 @@ a runtime fix (`runtime/*`, `ps2recomp/ps2xRuntime`) recompiles a few files and 
 batches recompile. `-Regenerate` forces the recompile step. Build directories configured before the
 single CMake root (2026-10-22) are refused; do one full build into a fresh `WorkDir` first.
 
+### Optional Windows build CPU affinity
+
+`Build-Drakan.ps1 -Cores 6 -CpuAffinity 0xFFF` keeps the existing compiler-count
+choice and restricts build processes to the logical processors selected by the hex
+mask (bits 0 through 11 in this example). The installer has the same optional mask
+field and accepts `/AFFINITY=0xFFF`. The guided builder remembers the mask in
+`build/build-options.json`; `-CpuAffinity default` clears it. An empty installer
+field clears a previous choice.
+
+The direct builder accepts `Build-LocalGame.ps1 -IsoPath <iso> -Incremental
+-WorkDir build/final-game -Jobs 2 -CompilerProcesses 3 -CpuAffinity 0xFFF`.
+Its mask is optional on every invocation and is independent of concurrency. It
+must be nonzero, at most 64 bits, and a subset of the caller's permitted affinity.
+The mask addresses logical processors in the current Windows processor group;
+it does not select physical cores or processors across groups. MSBuild node reuse
+is disabled while the mask is active, and the caller's affinity and node-reuse
+setting are restored on success or failure. New build descendants inherit the mask.
+Linux and WSL/browser builds retain their defaults and reject this Windows option.
+
 ### The `dist/DrakanPC` play folder
 
 `Build-LocalGame.ps1` is the only supported way to produce `dist/DrakanPC`. Never launch or test a bare

@@ -744,6 +744,36 @@ static void testCombatAndFovSettings() {
     CHECK(st.loaded().video.fieldOfView == 60);
 }
 
+static void testMipBiasMode() {
+    SettingsStore st;
+    st.loadFromText("[video]\nmip_bias=auto\n", "");
+    CHECK(st.loaded().video.mipBiasAuto);
+    auto edited = st.loaded();
+    CHECK(setSettingValue(edited, "video.mip_bias", "0"));
+    CHECK(!edited.video.mipBiasAuto && edited.video.mipBias == 0);
+    CHECK(changedKeys(st.loaded(), edited) == std::vector<std::string>{"video.mip_bias"});
+    std::string a, b;
+    st.render(edited, a, b);
+    SettingsStore manual;
+    manual.loadFromText(a, b);
+    CHECK(!manual.loaded().video.mipBiasAuto && manual.loaded().video.mipBias == 0);
+    edited = manual.loaded();
+    CHECK(setSettingValue(edited, "video.mip_bias", "auto"));
+    CHECK(edited.video.mipBiasAuto);
+    manual.render(edited, a, b);
+    SettingsStore automatic;
+    automatic.loadFromText(a, b);
+    CHECK(automatic.loaded().video.mipBiasAuto && settingValue(automatic.loaded(), "video.mip_bias") == "auto");
+    edited = automatic.loaded();
+    CHECK(setSettingValue(edited, "video.mip_bias", "-0.37"));
+    CHECK(!edited.video.mipBiasAuto && edited.video.mipBias == -0.37f);
+    for (const char* value : {"nan", "inf", "junk"}) {
+        auto invalid = edited;
+        CHECK(setSettingValue(invalid, "video.mip_bias", value));
+        CHECK(invalid.video.mipBias == edited.video.mipBias && !invalid.video.mipBiasAuto);
+    }
+}
+
 int main(int argc, char** argv) {
     {
         SettingsStore st;
@@ -788,6 +818,7 @@ int main(int argc, char** argv) {
         next.loadFromText(a, b);
         CHECK(!next.loaded().video.foliageWind && next.loaded().video.foliageWindStrength == 0.5f);
     }
+    testMipBiasMode();
     testCombatAndFovSettings();
     testInventoryScreen();
     testPauseMenu();

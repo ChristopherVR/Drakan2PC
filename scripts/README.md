@@ -124,6 +124,14 @@ The flight check uses the level's native mounted start, measures movement/yaw/pi
 release; it does not claim breath damage or landing. All release-specific observation offsets are profile data.
 Use `--region pal` for the same checks with a native PAL card. Combat timing and damage need not be identical.
 
+`directional_attack_check.py --save <native-PAL-mc0> --name directional --timeout 300` compares neutral attack,
+arrow+attack and WASD+attack through the actual root/spine skeleton animation channels. Use `--direction up`
+for a bounded first trial. The source card is copied; a melee weapon must be available through Quick Inventory
+(the recipe taps Q). The check requires a distinct directional arrow clip, the same advancing attack clip through
+WASD, native attack release and subsequent movement/release. Reports include the executable SHA-256, channel
+clips/times, screenshots and preserved source-card hashes; completed input scripts alone cannot pass.
+`--analyze <existing-run-folder>` re-evaluates captured RAM without launching another game.
+
 `settings_check.py --region usa --mode gameplay --resume 1 --level "Level 4A - Ravenshold" --name usa-flight-settings --timeout 300`
 extends the existing pause/settings ownership check to mounted flight. `--name` preserves earlier named evidence;
 `--timeout` permits a complete native introduction before control becomes available. Neither harness uses desktop input.

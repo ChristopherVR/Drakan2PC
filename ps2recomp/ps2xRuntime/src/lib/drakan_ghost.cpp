@@ -73,6 +73,7 @@ struct Ghost {
                          // the dragon's own are replayed as received (clip prefix g_dragonClipHi)
     bool rawSet = false;
     bool standInLogged = false;
+    uint32_t loggedLod = ~0u; // DRAKAN_GHOST_LOG: initial native LOD and subsequent changes only
     world::ChannelPose rawLower, rawUpper;
     bool localVisual = false; // render-only local body: cell membership is scoped to world rendering
 };
@@ -125,6 +126,8 @@ uint32_t g_localDrawn = 0;
 world::PoseReadState g_localRead;
 
 void hookPlaySound(uint8_t* ram, R5900Context* c, PS2Runtime* rt);
+void clearLocalCharacterView();
+void resetLocalCharacter();
 
 void hookRenderObject(uint8_t* ram, R5900Context* c, PS2Runtime* rt) {
     if (c->pc == guestAddress(0x189b38u)) {
@@ -352,6 +355,7 @@ void spawnStage2(uint8_t* rdram, R5900Context* c, PS2Runtime*) {
             std::memcpy(&ref, rdram + ((actor + 0x12) & 0x1ffffffu), 2);
             std::memcpy(&res, rdram + ((actor + 0x10) & 0x1ffffffu), 2);
             it->info.handle = actor;
+            it->loggedLod = ~0u;
             std::memcpy(it->target.pos, g_flight.xform, sizeof it->target.pos);
             std::memcpy(it->target.rot, g_flight.xform + 3, sizeof it->target.rot);
             it->hold = g_hold;
@@ -700,6 +704,20 @@ void localRenderCell(uint8_t* ram, R5900Context* c, PS2Runtime* rt, uint32_t bod
 
 void hookRenderWorld(uint8_t* ram, R5900Context* c, PS2Runtime* rt) {
     if (c->pc == guestAddress(0x139010u)) {
+        { // EE-only view validation: no ownership lock or ghost mutation inside the native render wrapper.
+            const auto& view = drakan_local_character::g_view;
+            if (view.body) {
+                const uint32_t body = view.body;
+                bool live = false;
+                // Native stand-in bodies can clear actor+0x12 after spawning while remaining alive and visible.
+                // Their controller and resource identify this binding; a registry ref is not a liveness invariant.
+                if (ramPtr(body))
+                    live = view.matchesBody(rd32(ram, body), rd32(ram, body + 4), rd32(ram, body + 0x50),
+                                            rd32(ram, body + 8), guestAddress(kHandleVtable));
+                if (!live)
+                    clearLocalCharacterView();
+            }
+        }
         g_localWorldBody = drakan_local_character::g_view.body;
         g_localWorldReturn = getRegU32(c, 31);
         if (g_localWorldBody) {
@@ -799,18 +817,23 @@ void applyPose(Ghost& g, const world::PlayerPose& p) {
     }
 }
 
+// EE thread only; safe at native render entry, without touching the owned ghost list.
+void clearLocalCharacterView() {
+    drakan_local_character::g_view = {};
+    g_localWorldBody = g_localWorldReturn = 0;
+    g_localDrawn = 0;
+    g_shadowedBody = 0;
+}
+
 // g_m held, EE thread. Clearing this view restores the original body immediately: no player flags, skeleton,
 // inventory, camera links or controller pointers were changed.
 void resetLocalCharacter() {
-    drakan_local_character::g_view = {};
-    g_localWorldBody = g_localWorldReturn = 0;
+    clearLocalCharacterView();
     for (Ghost& g : g_ghosts)
         if (g.info.id == g_localId)
             g.destroyRequested = true;
     g_localId = 0;
     g_localSource = 0;
-    g_localDrawn = 0;
-    g_shadowedBody = 0;
 }
 
 uint32_t localReference(drakan_input::IGuest& guest, uint32_t ctx, uint32_t ref) {
@@ -898,6 +921,8 @@ void localCharacterTick(drakan_input::IGuest& guest, uint32_t ctx) {
     view.controller = source;
     view.poseSource = source;
     view.body = h;
+    view.bodySkeleton = guest.read32(h + 0x50);
+    view.bodyResource = guest.read32(h + 8);
     const uint32_t inner = guest.read32(source + 0xfc);
     const uint32_t data = ramPtr(inner) ? guest.read32(inner + 0x10) : 0;
     if (ramPtr(data)) {
@@ -1335,6 +1360,8 @@ void beforePadMgr(drakan_input::IGuest& guest, drakan_input::InputModule& input)
                                           : g.info.ref && guest.read32(table + (g.info.ref - 1u) * 8u) == h));
         if (!live) {
             std::fprintf(stderr, "[ghost] id %d (%x) is gone (destroyed or level change)\n", g.info.id, h);
+            if (g.info.id == g_localId)
+                resetLocalCharacter(); // pose reading may already be unavailable during Quit to Title
             g_ghosts.erase(g_ghosts.begin() + static_cast<long>(i));
             continue;
         }
@@ -1345,6 +1372,8 @@ void beforePadMgr(drakan_input::IGuest& guest, drakan_input::InputModule& input)
     for (size_t i = 0; i < g_ghosts.size();) {
         const Ghost& g = g_ghosts[i];
         if (g.destroyRequested && !g.info.handle && (!g_busy.load() || g_flight.ghostId != g.info.id)) {
+            if (g.info.id == g_localId)
+                resetLocalCharacter();
             g_ghosts.erase(g_ghosts.begin() + static_cast<long>(i));
             continue;
         }
@@ -1354,6 +1383,8 @@ void beforePadMgr(drakan_input::IGuest& guest, drakan_input::InputModule& input)
                     guest.post(drakan_input::GuestCall(guestAddress(kDestroy)).arg(ctx).arg(w));
             guest.post(drakan_input::GuestCall(guestAddress(kDestroy)).arg(ctx).arg(g.info.handle));
             std::fprintf(stderr, "[ghost] destroy id %d handle %x queued\n", g.info.id, g.info.handle);
+            if (g.info.id == g_localId)
+                resetLocalCharacter();
             g_ghosts.erase(g_ghosts.begin() + static_cast<long>(i));
             continue;
         }
@@ -1430,6 +1461,23 @@ void beforePadMgr(drakan_input::IGuest& guest, drakan_input::InputModule& input)
             }
         }
     }
+
+    // Native LOD readback, independent of pose writes. Never force the controller's slot: native selection also
+    // updates its vertex/skin buffers. These transitions distinguish a coarse source model from a stuck far LOD.
+    if (g_log)
+        for (Ghost& g : g_ghosts)
+            if (g.info.handle) {
+                const uint32_t sk = guest.read32(g.info.handle + world::skel::kHandleSkeleton);
+                if (ramPtr(sk)) {
+                    const uint32_t lod = guest.read32(sk + 0x10);
+                    if (lod != g.loggedLod) {
+                        g.loggedLod = lod;
+                        std::fprintf(stderr, "[ghost] id %d body %x resource %x native lod %u flags+104 %x\n",
+                                     g.info.id, g.info.handle, guest.read32(g.info.handle + 8), lod,
+                                     guest.read32(g.info.handle + 0x104));
+                    }
+                }
+            }
 
     // Anim readback (log only): what the engine left in channel 0 since our last write.
     if (g_log && g_tick % 30 == 0)

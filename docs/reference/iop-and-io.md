@@ -113,6 +113,11 @@ Call chain (all EE addresses): `crt0` calls `main` @0x101400 (via `jal 0x101400`
    language. Explicit skin overrides and guest/campaign/save names stay verbatim.
    Deployed German/English native-title screenshots and resource-open evidence are recorded in
    `docs/journal/2026-11-04/issue-1-language.md`.
+   Use an unmodified image for language selection; replacing English files with German files is unnecessary.
+   IsoFs trusts ISO directory extents/lengths and SRSC reads trust each archive's index; inconsistent replacements
+   can cause truncated/incorrect reads. A correctly rebuilt replacement image is not automatically corrupt, and
+   no causal link to reported stuttering has been established. The startup archive check verifies existence only.
+   Follow-up limits and code evidence: `docs/journal/2026-11-05/issue-1-german-stuttering.md`.
 3. `0x101710` **LoadIopModules**:
    * path = `sprintf("%s\%s", "cdrom0:", langname)` upper-cased, then the obfuscated suffix constant @0x5195a8
      (`"-7?NN*OHARAHX"`: reverse + 4 per byte) = `"\LEVELS.RRC;1"`; so
