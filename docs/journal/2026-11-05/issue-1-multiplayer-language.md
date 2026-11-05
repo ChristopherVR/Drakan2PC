@@ -94,3 +94,9 @@ Inquisitor spawn 2 was authored at Y 128,750. With the port's 250-unit lift the 
 - `issue1-fix-hd-inq` repeated New Game → title → Inquisitor on D3D11 at internal scale 4, with the installed HD movie and texture packs and ray settings. The HD intro decoded, its window retired before Surdana loaded, and the client joined and moved 2,380/1,921 units with 100 HP. Both peers exited 0.
 
 Ghost teardown now detaches the outgoing list under the registry mutex before running native destroy callbacks. Synchronous guest calls during menu navigation and load cleanup restore scheduler preemption depth on exceptions. A nested regression checks that temporary guest state is restored while preemption is still held and that both guards then release it. The HD decoder releases its frame window on level changes and caps FFmpeg worker count. The reflection material reader retains texture directories and decoded materials instead of holding full source archives.
+
+### Final acceptance on November 6
+
+In `issue1-hd-pressure-retry`, a private build threw a snapshot allocation failure on entry to the large Surdana scene. The client logged the native-rendering fallback, returned to title, joined Inquisitor and retained 100 HP. Both players equipped their weapons, moved in both directions and exited 0. The injection was removed before deployment. The production D3D11 repeat (`issue1-hd-inq-production`) and the two-save WebGPU Meadow repeat (`issue1-meadow-production`) passed every movement and loadout check on both processes.
+
+All 300 Python tests passed. Of 114 registered runtime tests, six skipped for missing data. The audio device-switch check failed on its initial fixed-delay read. After switching the test to the output thread's atomic frame counter and waiting for progress with a deadline, its rerun passed. The scheduler regression passed all 60 checks. The issue-comment draft strikes both multiplayer reports and describes the tested routes.
