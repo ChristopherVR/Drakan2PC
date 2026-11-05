@@ -76,6 +76,9 @@ std::string rowDescription(TitleRow r, bool enabled, const TitleState& st) {
         case TitleRow::NewGameCoop:
         case TitleRow::GameDrakan:
         case TitleRow::GameOotf:
+        case TitleRow::ModsEnable:
+        case TitleRow::ModsOpen:
+        case TitleRow::ModsKeepOff:
             break;
     }
     return {};
@@ -109,6 +112,14 @@ const char* titleRowId(TitleRow r) {
             return "new_game_solo";
         case TitleRow::NewGameCoop:
             return "new_game_coop";
+        case TitleRow::ModsEnable:
+            return "mods_enable";
+        case TitleRow::ModsOpen:
+            return "mods_open";
+        case TitleRow::ModsKeepOff:
+            return "mods_keep_off";
+        default: // game rows
+            break;
     }
     return "";
 }
@@ -168,6 +179,12 @@ const char* titleRowDefaultLabel(TitleRow r) {
             return "Drakan";
         case TitleRow::GameOotf:
             return "Order of the Flame";
+        case TitleRow::ModsEnable:
+            return menuText("Enable and restart");
+        case TitleRow::ModsOpen:
+            return menuText("Open Mods menu");
+        case TitleRow::ModsKeepOff:
+            return menuText("Keep them off");
     }
     return "";
 }
@@ -188,6 +205,12 @@ const char* titleActionName(TitleActionKind k) {
             return "QuitToDesktop";
         case TitleActionKind::SelectGame:
             return "SelectGame";
+        case TitleActionKind::ModsEnable:
+            return "ModsEnable";
+        case TitleActionKind::ModsKeepOff:
+            return "ModsKeepOff";
+        case TitleActionKind::OpenMods:
+            return "OpenMods";
     }
     return "?";
 }
@@ -252,11 +275,24 @@ Rect gameDescription() {
     const Rect cv = gameCover();
     return {cv.x, cv.bottom() + 20, cv.w, gameCard().bottom() - kGamePad + 14 - (cv.bottom() + 20)};
 }
+namespace {
+constexpr float kModsW = 1000, kModsHeadH = 290, kModsRowH = 72, kModsRowStep = 84, kModsPad = 44;
+}
+Rect modsCard() {
+    const float h = kModsHeadH + 3 * kModsRowStep - (kModsRowStep - kModsRowH) + kModsPad;
+    return {(kDesignW - kModsW) * 0.5f, (kDesignH - h) * 0.5f, kModsW, h};
+}
+Rect modsRow(int i) {
+    const Rect c = modsCard();
+    return {c.x + kModsPad + 120, c.y + kModsHeadH + static_cast<float>(i) * kModsRowStep, c.w - 2 * kModsPad - 240,
+            kModsRowH};
+}
 } // namespace design::title
 
 namespace {
 bool isGameRow(TitleRow r) {
-    return static_cast<int>(r) >= static_cast<int>(TitleRow::GameDrakan);
+    return static_cast<int>(r) >= static_cast<int>(TitleRow::GameDrakan) &&
+           static_cast<int>(r) < static_cast<int>(TitleRow::ModsEnable);
 }
 int gameOf(TitleRow r) {
     return static_cast<int>(r) - static_cast<int>(TitleRow::GameDrakan);
@@ -286,6 +322,7 @@ void TitleScreen::open() {
     options_.close();
     pcPages_.close();
     mpScreen_.close();
+    modsAsked_ = false; // the host stops passing TitleState::newMods once the player answered
     gameAsked_ = false; // every visit to the title asks which game again (the last choice has the focus)
 }
 
@@ -308,7 +345,8 @@ void TitleScreen::reactivate() {
 }
 
 static bool isCard(TitlePage p) {
-    return p == TitlePage::QuitConfirm || p == TitlePage::NewGameChoice || p == TitlePage::GameChoice;
+    return p == TitlePage::QuitConfirm || p == TitlePage::NewGameChoice || p == TitlePage::GameChoice ||
+           p == TitlePage::ModsNotice;
 }
 
 std::vector<TitleRow> TitleScreen::rows(const TitleState& st) const {
@@ -320,6 +358,8 @@ std::vector<TitleRow> TitleScreen::rowsOf(TitlePage page, const TitleState& st) 
         return {TitleRow::QuitToDesktop, TitleRow::Cancel};
     if (page == TitlePage::NewGameChoice)
         return {TitleRow::NewGameSolo, TitleRow::NewGameCoop};
+    if (page == TitlePage::ModsNotice)
+        return {TitleRow::ModsEnable, TitleRow::ModsOpen, TitleRow::ModsKeepOff};
     if (page == TitlePage::GameChoice) {
         std::vector<TitleRow> g;
         for (int i = 0; i < gameCount(st); ++i)
@@ -380,7 +420,9 @@ void TitleScreen::buildTargets(const TitleState& st) {
     for (int i = 0; i < n; ++i) {
         const TitleRow r = rs[static_cast<size_t>(i)];
         const bool en = rowEnabled(r, st);
-        const Rect rd = isCard(page_) ? design::title::cardRow(i) : rowRect(i, n);
+        const Rect rd = page_ == TitlePage::ModsNotice ? design::title::modsRow(i)
+                        : isCard(page_)                ? design::title::cardRow(i)
+                                                       : rowRect(i, n);
         targets_.push_back({{isCard(page_) ? TargetKind::CardButton : TargetKind::TitleRow, static_cast<int>(r)},
                             lf_.map(rd),
                             en,
@@ -414,7 +456,7 @@ void TitleScreen::buildHints(const TitleState& st) {
     const HitTarget* t = findTarget(focus_);
     hints_.push_back({Prompt::Confirm, menuText("Select"), t && t->enabled});
     if (card)
-        hints_.push_back({Prompt::Back, menuText("Cancel")});
+        hints_.push_back({Prompt::Back, page_ == TitlePage::ModsNotice ? menuText("Later") : menuText("Cancel")});
     (void)st;
     const detail::Paint p(lf_, cfg_.screen);
     const std::vector<Rect> rs =
@@ -469,7 +511,32 @@ void TitleScreen::activate(TitleRow r, const TitleState& st, TitleFrameOutput& o
             break;
         case TitleRow::GameDrakan:
         case TitleRow::GameOotf:
-            break; // handled above
+            break;                 // handled above
+        case TitleRow::ModsEnable: // the host turns the packs on and restarts the game
+            page_ = TitlePage::Main;
+            focus_ = mainFocus_;
+            emit(TitleActionKind::ModsEnable);
+            break;
+        case TitleRow::ModsKeepOff:
+            out.actions.push_back({0, TitleActionKind::ModsKeepOff, 0});
+            page_ = TitlePage::Main;
+            focus_ = mainFocus_;
+            out.sound = UiSound::Confirm;
+            break;
+        case TitleRow::ModsOpen:
+            if (cfg_.pcSettingsPages) { // the modern pages, on the Mods page; Back returns to the main menu
+                page_ = TitlePage::PcSettings;
+                focus_ = mainFocus_;
+                pcPages_.setTrail({menuText("Main Menu")});
+                pcPages_.open("mods");
+                out.actions.push_back({0, TitleActionKind::OpenMods, 1});
+                out.sound = UiSound::Confirm;
+            } else { // the host opens the F1 overlay on its Mods page
+                page_ = TitlePage::Main;
+                focus_ = mainFocus_;
+                emit(TitleActionKind::OpenMods, 0);
+            }
+            break;
         case TitleRow::Options:
             mainFocus_ = focus_;
             page_ = TitlePage::Options;
@@ -619,6 +686,12 @@ TitleFrameOutput TitleScreen::frame(const TitleState& st, const UiInput& in, con
         return out;
     lf_ = computeFrame(vp);
     offerGames_ = st.offerGames;
+    if (!st.newMods.empty() && !modsAsked_ && page_ == TitlePage::Main && !loading_) {
+        modsAsked_ = true; // first: enabling restarts the game, so the game card would be asked for nothing
+        mainFocus_ = focus_;
+        page_ = TitlePage::ModsNotice;
+        focus_ = {TargetKind::CardButton, static_cast<int>(TitleRow::ModsEnable)};
+    }
     if (st.offerGames && !gameAsked_ && page_ == TitlePage::Main && !loading_) {
         gameAsked_ = true;
         page_ = TitlePage::GameChoice;
@@ -725,7 +798,7 @@ TitleFrameOutput TitleScreen::frame(const TitleState& st, const UiInput& in, con
         out.draw = mpScreen_.frame(st.multiplayer, none, vp).draw;
         return out;
     }
-    if (page_ == TitlePage::PcSettings) { // opened this frame: show the pages at once (no input yet)
+    if (page_ == TitlePage::PcSettings && st.pcSettings) { // opened this frame: show the pages at once
         SettingsInput si;
         si.ui.device = in.device;
         si.now = st.now;
@@ -794,6 +867,45 @@ void TitleScreen::drawGameCard(const TitleState& st, DrawList& d) const {
         p.text(d, {dr.x, y, dr.w, 30}, lines[i], FontRole::Body, th.textMuted);
 }
 
+void TitleScreen::drawModsNotice(const TitleState& st, DrawList& d) const {
+    const detail::Paint p(lf_, cfg_.screen);
+    const Theme& th = cfg_.screen.theme;
+    const Rect c = design::title::modsCard();
+    d.rect({lf_.view.x, lf_.view.y, lf_.view.w, lf_.view.h}, withAlpha(th.backdropEdge, 120));
+    d.panel(p.map(c), PanelStyle::Main, th.panelRaised);
+    constexpr float pad = 44;
+    p.fittedText(d, {c.x + pad, c.y + 28, c.w - 2 * pad, 52},
+                 st.newMods.size() == 1 ? menuText("New mod pack found") : menuText("New mod packs found"),
+                 FontRole::Title, th.heading);
+    p.rule(d, c.x + pad, c.y + 92, c.w - 2 * pad);
+    std::string names;
+    for (const std::string& n : st.newMods)
+        names += (names.empty() ? "" : ", ") + n;
+    std::vector<std::string> body;
+    auto add = [&](const std::string& text, size_t maxLines) {
+        const std::vector<std::string> l = p.wrap(text, c.w - 2 * pad, FontRole::Body);
+        for (size_t i = 0; i < l.size() && i < maxLines; ++i)
+            body.push_back(i + 1 == maxLines && i + 1 < l.size() ? l[i] + "..." : l[i]);
+    };
+    add(st.newMods.size() == 1
+            ? menuFormat("In the mods folder: {0}.", {names})
+            : menuFormat("{0} new packs in the mods folder: {1}.", {std::to_string(st.newMods.size()), names}),
+        3);
+    add(menuText("New packs stay off until you enable them. They take effect after a restart."), 2);
+    if (st.newModCampaigns > 0)
+        add(menuText("A campaign pack adds its game to the Choose your game screen."), 2);
+    const float bottom = design::title::modsRow(0).y - 12;
+    float y = c.y + 108;
+    for (size_t i = 0; i < body.size() && y + 30 <= bottom; ++i, y += 30)
+        p.text(d, {c.x + pad, y, c.w - 2 * pad, 30}, body[i], FontRole::Body, th.textMuted);
+    const std::vector<TitleRow> cr = rowsOf(TitlePage::ModsNotice, st);
+    for (size_t i = 0; i < cr.size(); ++i) {
+        const TargetId id{TargetKind::CardButton, static_cast<int>(cr[i])};
+        p.button(d, design::title::modsRow(static_cast<int>(i)), titleRowLabel(cr[i]), focus_ == id, hover_ == id, true,
+                 TextAlign::Center);
+    }
+}
+
 void TitleScreen::draw(const TitleState& st, DrawList& d) const {
     const detail::Paint p(lf_, cfg_.screen);
     const Theme& th = cfg_.screen.theme;
@@ -854,8 +966,21 @@ void TitleScreen::draw(const TitleState& st, DrawList& d) const {
         p.text(d, {kMargin, kFooterY, 700, kHintH}, line, FontRole::Small, th.textMuted);
     }
 
+    if (!st.gameChoiceNote.empty() && !card) { // why an enabled campaign is not on the game card
+        const std::vector<std::string> lines = p.wrap(st.gameChoiceNote, 1100, FontRole::Small);
+        const size_t shown = std::min<size_t>(lines.size(), 2);
+        float y = kFooterY - 24 - 32 * static_cast<float>(shown);
+        // A plate under the line: the title art behind it is bright.
+        d.panel(p.map({kMargin - 20, y - 10, 1140, 32 * static_cast<float>(shown) + 20}), PanelStyle::Main,
+                withAlpha(th.panel, 225));
+        for (size_t i = 0; i < shown; ++i, y += 32)
+            p.text(d, {kMargin, y, 1100, 32}, lines[i], FontRole::Small, th.text);
+    }
+
     if (page_ == TitlePage::GameChoice) {
         drawGameCard(st, d);
+    } else if (page_ == TitlePage::ModsNotice) {
+        drawModsNotice(st, d);
     } else if (card) {
         if (page_ == TitlePage::NewGameChoice)
             p.confirmCard(d, design::title::cardPanel(), menuText("New Game"),

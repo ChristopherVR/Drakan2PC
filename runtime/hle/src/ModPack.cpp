@@ -1128,7 +1128,7 @@ size_t ModManager::load(const std::string& modsDir) {
     std::error_code ec;
     std::vector<std::pair<std::string, bool>> order;
     const fs::path iniPath = fs::path(modsDir) / "mods.ini";
-    std::set<std::string> listed;
+    std::set<std::string> listed, unseen; // unseen: lower-case keys the player has not decided on yet (`= new`)
     {
         std::ifstream in(iniPath);
         std::string line;
@@ -1142,10 +1142,12 @@ size_t ModManager::load(const std::string& modsDir) {
             std::string k = trim(line.substr(0, eq)), v = lower(trim(line.substr(eq + 1)));
             if (k.empty() || !listed.insert(lower(k)).second)
                 continue;
+            if (v == "new")
+                unseen.insert(lower(k));
             order.emplace_back(k, v == "on" || v == "1" || v == "true" || v == "yes");
         }
     }
-    // new packs on disk: appended as "off" (the player enables them by editing the file)
+    // new packs on disk: appended as "new" (off until the player enables them: title notice, Mods menu or the file)
     std::vector<std::string> fresh;
     if (fs::is_directory(modsDir, ec)) {
         std::vector<std::string> names;
@@ -1159,6 +1161,7 @@ size_t ModManager::load(const std::string& modsDir) {
             if (listed.insert(lower(n)).second) {
                 order.emplace_back(n, false);
                 fresh.push_back(n);
+                unseen.insert(lower(n));
             }
         if (!fresh.empty()) {
             const bool isNew = !fs::exists(iniPath, ec) || fs::file_size(iniPath, ec) == 0;
@@ -1167,13 +1170,22 @@ size_t ModManager::load(const std::string& modsDir) {
                 if (isNew)
                     o << "; Drakan mods. One pack per line (folder name or zip name without .zip). Top to bottom is\n"
                          "; the load order; later packs win conflicts. Set a pack to on to enable it, off to disable.\n"
+                         "; new = found but not decided yet (off; the title screen offers to enable it).\n"
                          "[mods]\n";
                 for (auto& n : fresh)
-                    o << n << " = off\n";
+                    o << n << " = new\n";
             }
+            for (auto& n : fresh)
+                logf("mods: new pack '%s' found: off until enabled (title screen notice or Mods menu)", n.c_str());
         }
     }
-    return load(modsDir, order);
+    const size_t loaded = load(modsDir, order);
+    for (ModStatus& st : status_) {
+        st.isNew = !st.enabled && unseen.count(lower(st.key)) != 0;
+        if (st.isNew && st.state == ModState::Disabled)
+            st.message = "new pack, not enabled yet";
+    }
+    return loaded;
 }
 
 static bool validLevelName(const std::string& n, std::string& why) {

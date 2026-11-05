@@ -43,6 +43,10 @@ enum class TitleRow : uint8_t {
     // GameDrakan + i (GameOotf = entry 1, further campaigns follow: the values past GameOotf are valid rows).
     GameDrakan,
     GameOotf,
+    // New mod packs card (TitleState::newMods). Far above the game rows (GameDrakan + up to 100 games).
+    ModsEnable = 240, // turn the new packs on and restart the game
+    ModsOpen,         // open the Mods page of the PC settings
+    ModsKeepOff,      // keep them off (a decision: not asked again)
 };
 // Label shown (the skin's `title.row.<id>` when set, else the default), stable id, default label / description.
 const char* titleRowLabel(TitleRow r);
@@ -58,6 +62,11 @@ enum class TitleActionKind : uint8_t {
     OpenPcSettings, // drakan_settings_host::requestOpen() (only without the modern PC Settings pages)
     QuitToDesktop,  // drakan_win::requestClose()
     SelectGame, // value = index in TitleState::games (0 Drakan, then the campaigns); applied at once (no native press)
+    // The new mod packs card (host only, no native press): enable the new packs and restart / keep them off / the Mods
+    // page (value 1: the title opened its own PC Settings pages on it, 0: the host opens the F1 overlay's Mods page).
+    ModsEnable,
+    ModsKeepOff,
+    OpenMods,
 };
 const char* titleActionName(TitleActionKind k);
 
@@ -114,9 +123,24 @@ struct TitleState {
     // A campaign is playing: the menu draws its own text title over the native logo (which says The Ancients'
     // Gates). brandTitle empty = native art as shipped.
     std::string brandTitle, brandSubtitle;
+    // Mod packs found at start-up without a decision (settings/ModDiscovery.h): display names. Non-empty opens the
+    // "New mod packs" card once per visit, before the game card; newModCampaigns of them are campaigns.
+    std::vector<std::string> newMods;
+    int newModCampaigns = 0;
+    // One line on the main page explaining why an enabled campaign is not on the game card (empty: none).
+    std::string gameChoiceNote;
 };
 
-enum class TitlePage : uint8_t { Main, QuitConfirm, Options, PcSettings, Multiplayer, NewGameChoice, GameChoice };
+enum class TitlePage : uint8_t {
+    Main,
+    QuitConfirm,
+    Options,
+    PcSettings,
+    Multiplayer,
+    NewGameChoice,
+    GameChoice,
+    ModsNotice, // new mod packs were found: enable them, open the Mods page or keep them off
+};
 
 struct TitleConfig {
     ScreenConfig screen;
@@ -166,6 +190,8 @@ public:
     TitlePage page() const { return page_; }
     // Do not open the game card by itself on this visit (the host rebuilt the screen after a game switch).
     void skipGameChoice() { gameAsked_ = true; }
+    // Do not open the new mod packs card by itself on this visit (it was answered or shown already).
+    void skipModsNotice() { modsAsked_ = true; }
     // Continue was chosen: the menu shows the loading card in place of its column until reactivate() / open().
     bool loading() const { return loading_; }
     // pcSettingsPages: the PC Settings pages are shown (from the main row or from Options), and those pages
@@ -200,6 +226,7 @@ private:
     uint32_t suspendLeft_ = 0;
     bool loading_ = false;
     bool gameAsked_ = false;  // the game card was shown since open()
+    bool modsAsked_ = false;  // the new mod packs card was shown since open()
     bool offerGames_ = false; // TitleState::offerGames of the last frame
     std::vector<HitTarget> targets_;
     std::vector<Hint> hints_;
@@ -216,6 +243,7 @@ private:
     void applyInput(const TitleState& st, const UiInput& in, TitleFrameOutput& out);
     void draw(const TitleState& st, DrawList& d) const;
     void drawGameCard(const TitleState& st, DrawList& d) const;
+    void drawModsNotice(const TitleState& st, DrawList& d) const;
 };
 
 namespace design::title {
@@ -229,6 +257,9 @@ Rect gameCard();
 Rect gameRow(int i); // i = visible position 0..kGameRowsShown-1
 Rect gameCover();
 Rect gameDescription();
+// The new mod packs card: a wider confirm card with a few lines of text and three buttons.
+Rect modsCard();
+Rect modsRow(int i);
 } // namespace design::title
 
 } // namespace gameui

@@ -5,6 +5,7 @@
 // restartRequired() says whether the list differs from what the running game loaded. Format: docs/reference/modding.md.
 #pragma once
 #include <functional>
+#include <map>
 #include <string>
 #include <vector>
 
@@ -24,12 +25,29 @@ struct ModInfo {
     ModBoot boot = ModBoot::Disabled; // result at start-up
     bool bootEnabled = false;         // the flag the game started with
     std::string message;              // why skipped, else a summary
+    // Discovery (docs/reference/modding.md "New packs"): the pack was found at start-up without a decision yet
+    // (mods.ini `new`, or appended this start). Stays true for the session so the Mods page can mark it; `decided`
+    // turns true when the player enables it, keeps it off or moves it, and mods.ini then gets `on` / `off` instead of
+    // `new`.
+    bool isNew = false;
+    bool decided = false;
+    std::string campaign; // manifest `campaign` id ("ootf", a custom id), empty for a plain pack
 };
 
 // One overlap between two packs (both are pack keys), as ModManager::conflicts() reports it.
 struct ModConflict {
     std::string what; // "INTERFCE.TXD 0040/97/0"
     std::string winnerKey, loserKey;
+};
+
+// What the title's game card made of the campaign packs at start-up (the host fills it, settings/ModDiscovery.h
+// explains it to the player).
+struct GameChoiceState {
+    std::string setting = "ask";                // the [general] game value the game started with
+    bool settingFromEnv = false;                // DRAKAN_GAME set it
+    bool offered = false;                       // drakan_game::offerChoice()
+    std::vector<std::string> cardCampaigns;     // campaign ids on the card (valid, loaded)
+    std::map<std::string, std::string> refused; // manifest id -> why its campaign is not on the card
 };
 
 class ModsModel {
@@ -49,9 +67,17 @@ public:
     bool moveTo(const std::string& key, int index); // clamped to [0, size)
     bool moveBy(const std::string& key, int delta);
 
+    // Packs found at start-up that the player has not decided on (new, found, still off, not decided this session).
+    std::vector<const ModInfo*> undecided() const;
+    // The title notice's answers: enable every undecided pack, or keep them off (both are decisions: mods.ini gets
+    // `on` / `off`). In memory; save() writes. Return the number of packs changed.
+    size_t enableUndecided();
+    size_t keepUndecidedOff();
+
     // The list differs from what the game loaded (enabled flags or order of the packs that matter).
     bool restartRequired() const;
-    // One line for the UI: "Active", "Disabled", "Skipped: <reason>", "Will load after restart" ...
+    // One line for the UI: "Active", "Disabled", "New: not enabled yet", "Skipped: <reason>", "Enabled, loads after
+    // restart" ...
     std::string stateText(const ModInfo& m) const;
     // Overlaps this pack had at start-up, one line each, grouped per other pack:
     // "Overrides 'B' on 3 entries (INTERFCE.TXD 0040/97/0, ...)" / "Overridden by 'B' on 1 entry (...)".
@@ -61,6 +87,10 @@ public:
     std::string iniText(const std::string& existing) const;
     // Writes <folder>/mods.ini (temp file + rename). False with `err` on failure.
     bool save(std::string* err = nullptr) const;
+
+    // The game card's start-up state, for the "why is my campaign not offered" line (ModDiscovery.h).
+    void setGameChoice(GameChoiceState s) { gameChoice_ = std::move(s); }
+    const GameChoiceState& gameChoice() const { return gameChoice_; }
 
     bool canOpenFolder() const { return static_cast<bool>(openFolder_); }
     bool openFolder() const { return openFolder_ && openFolder_(folder_); }
@@ -74,6 +104,7 @@ private:
     std::string folder_;
     std::vector<ModInfo> mods_, boot_;
     std::vector<ModConflict> conflicts_;
+    GameChoiceState gameChoice_;
     std::function<bool(const std::string&)> openFolder_;
 };
 

@@ -60,7 +60,36 @@ bool ModsModel::setEnabled(const std::string& key, bool on) {
     if (i < 0)
         return false;
     mods_[static_cast<size_t>(i)].enabled = on;
+    mods_[static_cast<size_t>(i)].decided = true;
     return true;
+}
+
+std::vector<const ModInfo*> ModsModel::undecided() const {
+    std::vector<const ModInfo*> out;
+    for (const ModInfo& m : mods_)
+        if (m.isNew && !m.decided && m.found && !m.enabled)
+            out.push_back(&m);
+    return out;
+}
+
+size_t ModsModel::enableUndecided() {
+    size_t n = 0;
+    for (ModInfo& m : mods_)
+        if (m.isNew && !m.decided && m.found && !m.enabled) {
+            m.enabled = m.decided = true;
+            ++n;
+        }
+    return n;
+}
+
+size_t ModsModel::keepUndecidedOff() {
+    size_t n = 0;
+    for (ModInfo& m : mods_)
+        if (m.isNew && !m.decided && m.found && !m.enabled) {
+            m.decided = true;
+            ++n;
+        }
+    return n;
 }
 
 bool ModsModel::moveTo(const std::string& key, int index) {
@@ -71,6 +100,7 @@ bool ModsModel::moveTo(const std::string& key, int index) {
     if (index == i)
         return true;
     ModInfo m = std::move(mods_[static_cast<size_t>(i)]);
+    m.decided = true; // moving a pack is looking at it: no longer "new" in mods.ini
     mods_.erase(mods_.begin() + i);
     mods_.insert(mods_.begin() + index, std::move(m));
     return true;
@@ -99,7 +129,7 @@ std::string ModsModel::stateText(const ModInfo& m) const {
     if (m.enabled != m.bootEnabled)
         return m.enabled ? "Enabled, loads after restart" : "Disabled, unloads after restart";
     if (!m.enabled)
-        return "Disabled";
+        return m.isNew && !m.decided ? "New: not enabled yet" : "Disabled";
     if (m.boot == ModBoot::Skipped)
         return "Skipped: " + (m.message.empty() ? std::string("not loaded") : m.message);
     return "Active";
@@ -160,7 +190,7 @@ std::string ModsModel::iniText(const std::string& existing) const {
     if (!hasSection)
         out << "[mods]\n";
     for (const ModInfo& m : mods_)
-        out << m.key << " = " << (m.enabled ? "on" : "off") << "\n";
+        out << m.key << " = " << (m.enabled ? "on" : m.isNew && !m.decided ? "new" : "off") << "\n";
     return out.str();
 }
 

@@ -75,6 +75,39 @@ int main() {
             assert(hasText(titleOut.draw, menuText("Cancel")));
             validDraw(titleOut.draw);
 
+            { // the new mod packs card and the game choice note are translated like the rest of the title
+                TitleScreen notice;
+                notice.open();
+                TitleState noticeState;
+                noticeState.newMods = {"Pack A", "Pack B"};
+                noticeState.newModCampaigns = 1;
+                const auto noticeOut = notice.frame(noticeState, {}, viewport);
+                assert(notice.page() == TitlePage::ModsNotice);
+                assert(hasText(noticeOut.draw, menuText("New mod packs found")));
+                assert(hasText(noticeOut.draw, menuText("Enable and restart")));
+                assert(hasText(noticeOut.draw, menuText("Keep them off")));
+                validDraw(noticeOut.draw);
+                if (std::string(expected.language) == "german") {
+                    assert(hasText(noticeOut.draw, "Neue Mod-Pakete gefunden"));
+                    assert(hasText(noticeOut.draw, "Aktivieren und neu starten"));
+                    assert(hasText(noticeOut.draw, "Mod-Menü öffnen"));
+                    assert(
+                        menuFormat("{0} is enabled: restart the game to choose it on the title screen.", {"Pack A"}) ==
+                        "Pack A ist aktiviert: Starte das Spiel neu, um es im Titelbildschirm zu wählen.");
+                }
+                for (const char* key :
+                     {"In the mods folder: {0}.", "{0} new packs in the mods folder: {1}.", "Open Mods menu", "Later",
+                      "New mod pack found",
+                      "New packs stay off until you enable them. They take effect after a restart.",
+                      "A campaign pack adds its game to the Choose your game screen.",
+                      "Choose your game is not shown: drakan.ini sets game = {1}. Set game = ask to choose {0}.",
+                      "Choose your game is not shown: DRAKAN_GAME is set to {1}. Clear it to choose {0}.",
+                      "{0} is enabled: restart the game to choose it on the title screen.",
+                      "{0} is enabled but was not loaded, so its campaign is not offered.",
+                      "{0} is loaded, but its campaign could not be offered."})
+                    assert(std::string(menuText(key)) != "[Missing menu text]");
+            }
+
             PauseConfig pauseConfig;
             pauseConfig.hostPages = true;
             pauseConfig.quitCard = true;

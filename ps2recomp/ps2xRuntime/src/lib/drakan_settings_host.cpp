@@ -49,6 +49,7 @@
 #include <imgui.h>
 #include <hle/IsoFs.h>
 #include <hle/ModPack.h>
+#include <settings/ModDiscovery.h>
 #include <settings/ModsModel.h>
 
 #include <algorithm>
@@ -90,6 +91,9 @@ namespace {
 std::atomic<bool> g_open{false};
 std::atomic<bool> g_openRequest{false};
 std::atomic<bool> g_openControls{false}; // the next open shows the Controls page
+std::atomic<bool> g_openMods{false};     // the next open shows the Mods page (the title's new packs card)
+std::atomic<bool> g_modsNotice{false};   // the title shows the new packs card in this run (sticky)
+bool g_modsNoticeDone = false;           // it was shown and answered / closed (overlay thread)
 std::atomic<int> g_frameLimit{0};
 std::atomic<spu2::AudioOutput*> g_audio{nullptr};
 gsr::Renderer* g_gs = nullptr;
@@ -142,6 +146,7 @@ void readArtFromDisc() {
 }
 
 dsettings::ModsModel& harnessMods(); // the Mods page model (defined below)
+void titleModsAction(const gameui::TitleAction& a); // the title's new mod packs card (defined below)
 
 // Test aid: DRAKAN_OVERLAY_SHOT_DIR=<dir>. When <dir>\\shot.txt exists (its first line = a file name without extension)
 // the presented frame, with the overlay, is written to <dir>\\<name>.bmp and shot.txt is deleted. Works without the
@@ -2243,15 +2248,29 @@ void titleDraw(const dsettings::SettingsOverlay::ScreenFrame& f, bool background
         st.multiplayer = mpState(ui.screen.page() == gameui::TitlePage::Multiplayer &&
                                  ui.screen.multiplayer().page() == gameui::mp::MpPage::Join);
         st.pcSettings = pcSettingsSchema(ui.screen.pcSettingsOpen(), now);
+        if (g_modsNotice.load() && !g_modsNoticeDone) { // the new packs card: once per run
+            const dsettings::ModNoticeContent mc = dsettings::modNoticeContent(harnessMods());
+            st.newMods = mc.names;
+            st.newModCampaigns = mc.campaigns;
+        }
+        st.gameChoiceNote =
+            dsettings::gameChoiceNoteText(dsettings::gameChoiceNote(harnessMods(), harnessMods().gameChoice()), true);
         st.now = now;
         st.capturedKey = take && capture ? g_capturedKey : std::string();
+        const bool noticeBefore = ui.screen.page() == gameui::TitlePage::ModsNotice;
         gameui::TitleFrameOutput out = ui.screen.frame(st, in, vp);
+        if (noticeBefore && ui.screen.page() != gameui::TitlePage::ModsNotice)
+            g_modsNoticeDone = true; // answered or closed (Esc: asked again on the next start, mods.ini keeps `new`)
         if (ui.screen.page() == gameui::TitlePage::Multiplayer)
             drakan_fpsmeter::setAvoidTop(true); // the multiplayer pages use the top of the window for their titles
         for (const gameui::TitleAction& a : out.actions) {
             std::fprintf(stderr, "[menu-screens] overlay t=%.3f: title action %s(%d)\n",
                          drakan_menu_screens::clockSeconds(), gameui::titleActionName(a.kind), a.value);
-            sh.titleActions.push(a);
+            if (a.kind == gameui::TitleActionKind::ModsEnable || a.kind == gameui::TitleActionKind::ModsKeepOff ||
+                a.kind == gameui::TitleActionKind::OpenMods)
+                titleModsAction(a); // host only: no native press
+            else
+                sh.titleActions.push(a);
         }
         for (const gameui::PauseAction& a : out.optionActions)
             sh.titleOptionActions.push(a);
@@ -2271,8 +2290,11 @@ void titleDraw(const dsettings::SettingsOverlay::ScreenFrame& f, bool background
         // Title rows other than Quit to Desktop are pressed natively (focus + Cross: the row's own click).
         bool titleNative = nativeSound(out.optionActions);
         for (const gameui::TitleAction& a : out.actions)
-            titleNative = titleNative || (a.kind != gameui::TitleActionKind::QuitToDesktop &&
-                                          a.kind != gameui::TitleActionKind::SelectGame);
+            titleNative =
+                titleNative ||
+                (a.kind != gameui::TitleActionKind::QuitToDesktop && a.kind != gameui::TitleActionKind::SelectGame &&
+                 a.kind != gameui::TitleActionKind::ModsEnable && a.kind != gameui::TitleActionKind::ModsKeepOff &&
+                 a.kind != gameui::TitleActionKind::OpenMods);
         hostUiSound(out.sound, titleNative);
         if (g_pcs && !out.settings.empty())
             g_pcs->applyAll(out.settings, ui.screen.pcSettings());
@@ -2491,6 +2513,7 @@ void snapshotMods(const hle::mods::ModManager* mm, const std::string& dir) {
             m.hasManifest = st.hasManifest;
             m.found = !st.source.empty();
             m.enabled = m.bootEnabled = st.enabled;
+            m.isNew = st.isNew;
             m.boot = st.state == hle::mods::ModState::Loaded     ? dsettings::ModBoot::Active
                      : st.state == hle::mods::ModState::Disabled ? dsettings::ModBoot::Disabled
                                                                  : dsettings::ModBoot::Skipped;
@@ -2505,6 +2528,7 @@ void snapshotMods(const hle::mods::ModManager* mm, const std::string& dir) {
                 m.author = mf.author;
                 m.description = mf.description;
                 m.target = joinProfiles(mf);
+                m.campaign = mf.campaign;
                 keyOfId[mf.id] = st.key;
             }
             mods.push_back(std::move(m));
@@ -2518,6 +2542,49 @@ void snapshotMods(const hle::mods::ModManager* mm, const std::string& dir) {
     }
     g_modsModel.setSnapshot(dir, std::move(mods), std::move(conflicts));
     g_modsModel.setOpenFolder(&openFolderInBrowser);
+    // The new packs card (docs/reference/modding.md "New packs"): never under a scripted input run unless
+    // DRAKAN_MODS_NOTICE=1 asks for it; DRAKAN_MODS_NOTICE=0 turns it off.
+    const char* script = std::getenv("DRAKAN_INPUT_SCRIPT");
+    const bool show = dsettings::showModNotice(
+        g_modsModel, dsettings::modNoticeModeFrom(std::getenv("DRAKAN_MODS_NOTICE")), script && *script, false);
+    g_modsNotice.store(show);
+    for (const dsettings::ModInfo* m : g_modsModel.undecided())
+        std::fprintf(stderr, "[mods] new pack '%s' (%s): off until enabled; title notice %s\n", m->key.c_str(),
+                     m->name.c_str(), show ? "on" : "off");
+}
+
+// The title's new packs card answered: write mods.ini (and restart for Enable).
+void titleModsAction(const gameui::TitleAction& a) {
+    std::string err;
+    switch (a.kind) {
+        case gameui::TitleActionKind::ModsEnable: {
+            const size_t n = g_modsModel.enableUndecided();
+            const bool ok = g_modsModel.save(&err);
+            std::fprintf(stderr, "[mods] title notice: enabled %zu new pack(s)%s%s\n", n,
+                         ok ? "" : ", not saved: ", err.c_str());
+            if (ok) { // the packs are installed before the first resource request: they load in the new process
+                relaunchSelf();
+                drakan_win::requestClose();
+            }
+            break;
+        }
+        case gameui::TitleActionKind::ModsKeepOff: {
+            const size_t n = g_modsModel.keepUndecidedOff();
+            const bool ok = g_modsModel.save(&err);
+            std::fprintf(stderr, "[mods] title notice: kept %zu new pack(s) off%s%s\n", n,
+                         ok ? "" : ", not saved: ", err.c_str());
+            break;
+        }
+        case gameui::TitleActionKind::OpenMods:
+            std::fprintf(stderr, "[mods] title notice: Mods page (%s)\n", a.value ? "title pages" : "overlay");
+            if (!a.value) {
+                g_openMods.store(true);
+                g_openRequest.store(true);
+            }
+            break;
+        default:
+            break;
+    }
 }
 
 struct DrakanSettingsHost final : CommonSettingsHost {
@@ -2835,6 +2902,8 @@ void overlayCallback(const gsr::OverlayContext& oc) {
     if (g_openRequest.exchange(false) && drakan_pause::f1Allowed()) {
         if (g_openControls.exchange(false))
             g_overlay->menu().setPage(dsettings::Page::Controls);
+        if (g_openMods.exchange(false))
+            g_overlay->menu().setPage(dsettings::Page::Mods);
         g_overlay->open();
     }
     // a movie / cut scene / loading screen started while the overlay was open (over a menu): close it, the state stays
@@ -2927,6 +2996,24 @@ void setAudio(spu2::AudioOutput* audio) {
 }
 void setModManager(const hle::mods::ModManager* mods, const std::string& modsDir) {
     snapshotMods(mods, modsDir);
+}
+void setGameChoice(const std::string& setting, bool fromEnv, bool offered, const std::vector<std::string>& campaigns,
+                   const std::vector<std::pair<std::string, std::string>>& refused) {
+    dsettings::GameChoiceState s;
+    s.setting = setting;
+    s.settingFromEnv = fromEnv;
+    s.offered = offered;
+    s.cardCampaigns = campaigns;
+    for (const auto& [id, why] : refused)
+        s.refused[id] = why;
+    g_modsModel.setGameChoice(std::move(s));
+    const std::string why =
+        dsettings::gameChoiceNoteText(dsettings::gameChoiceNote(g_modsModel, g_modsModel.gameChoice()), false);
+    if (!why.empty())
+        std::fprintf(stderr, "[game] %s\n", why.c_str());
+}
+bool modsNoticeWanted() {
+    return g_modsNotice.load();
 }
 void setArtSource(hle::IsoFs* fs) {
     std::lock_guard<std::mutex> l(g_artM);

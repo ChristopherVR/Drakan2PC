@@ -1208,7 +1208,9 @@ void setSaveModern(bool on) {
 }
 bool titleModern() {
     // The native title has no campaign selector; installed campaigns must remain reachable with default settings.
-    return drakan_game::offerChoice() || modernMode(g_title, "title_menu", "DRAKAN_TITLE_MENU");
+    // The new mod packs card is a modern title card too (drakan_settings_host::modsNoticeWanted, sticky for the run).
+    return drakan_game::offerChoice() || drakan_settings_host::modsNoticeWanted() ||
+           modernMode(g_title, "title_menu", "DRAKAN_TITLE_MENU");
 }
 void setTitleModern(bool on) {
     g_title.store(on ? 1 : 0);

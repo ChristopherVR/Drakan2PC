@@ -1483,6 +1483,7 @@ void applyDrakanOverrides(PS2Runtime& runtime) {
         // the Flame ("ootf") and custom campaigns on the title's game card; the choice redirects the opening cut scene
         // level to the campaign's first level, moves the memory card and switches the menu skin (drakan_game.h).
         std::vector<drakan_game::Campaign> campaigns;
+        std::vector<std::pair<std::string, std::string>> refused; // pack id -> why its campaign is not on the card
         if (g_mods) {
             for (const hle::mods::ModStatus& st : g_mods->status()) {
                 const hle::mods::Manifest& m = st.manifest;
@@ -1493,6 +1494,7 @@ void applyDrakanOverrides(PS2Runtime& runtime) {
                                  "[game] pack '%s': campaign id '%s' is not valid (1-32 of a-z 0-9 _ -, not d1 d2 "
                                  "drakan ask)\n",
                                  m.id.c_str(), m.campaign.c_str());
+                    refused.emplace_back(m.id, "campaign id '" + m.campaign + "' is not valid");
                     continue;
                 }
                 if (std::any_of(campaigns.begin(), campaigns.end(),
@@ -1502,6 +1504,7 @@ void applyDrakanOverrides(PS2Runtime& runtime) {
                                  std::find_if(campaigns.begin(), campaigns.end(), [&](const drakan_game::Campaign& c) {
                                      return c.id == m.campaign;
                                  })->modId.c_str());
+                    refused.emplace_back(m.id, "campaign '" + m.campaign + "' is already given by another pack");
                     continue;
                 }
                 std::vector<std::string> mine;
@@ -1514,6 +1517,7 @@ void applyDrakanOverrides(PS2Runtime& runtime) {
                 if (std::find(mine.begin(), mine.end(), start) == mine.end()) {
                     std::fprintf(stderr, "[game] pack '%s': campaign start level '%s' is not one of its levels\n",
                                  m.id.c_str(), start.c_str());
+                    refused.emplace_back(m.id, "campaign start level '" + start + "' is not one of its levels");
                     continue;
                 }
                 std::string saves = m.campaignSaves;
@@ -1558,6 +1562,15 @@ void applyDrakanOverrides(PS2Runtime& runtime) {
                         }
                 gameui::setUiSkin(std::move(skin));
             });
+        { // the title and the Mods page explain an enabled campaign that is not on the game card (ModDiscovery.h)
+            std::vector<std::string> card;
+            for (const drakan_game::GameInfo& gi : drakan_game::games())
+                if (gi.id != "d2")
+                    card.push_back(gi.id);
+            bool fromEnv = false;
+            const std::string setting = drakan_game::choiceSetting(&fromEnv);
+            drakan_settings_host::setGameChoice(setting, fromEnv, drakan_game::offerChoice(), card, refused);
+        }
     }
 #ifdef PS2X_HAVE_GSR
     {

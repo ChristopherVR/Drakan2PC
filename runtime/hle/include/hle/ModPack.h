@@ -98,6 +98,9 @@ struct ModStatus {
     Manifest manifest;  // valid when hasManifest
     bool hasManifest = false;
     bool enabled = false;
+    // Found but not acknowledged by the player yet: mods.ini says `new` (load() appends packs it has not seen before
+    // that way) or the pack was appended this start. Such a pack is disabled; the title screen offers to enable it.
+    bool isNew = false;
     ModState state = ModState::Disabled;
     std::string message; // why disabled / skipped, or a summary when loaded
     size_t entries = 0, texts = 0, rejected = 0;
@@ -138,8 +141,9 @@ class ModManager {
 public:
     explicit ModManager(DiscProfile profile, ModLimits limits = {});
     ~ModManager();
-    // Scans `modsDir`, reads/extends `<modsDir>/mods.ini` (new packs are appended as "off"), loads the enabled packs in
-    // list order. Returns the number of packs loaded. Safe to call once, before the first resource request.
+    // Scans `modsDir`, reads/extends `<modsDir>/mods.ini` (packs not listed yet are appended as "new": disabled and
+    // flagged ModStatus::isNew until the player decides), loads the enabled packs in list order. Returns the number of
+    // packs loaded. Safe to call once, before the first resource request.
     size_t load(const std::string& modsDir);
     // Same, with an explicit order/enabled list instead of mods.ini (key, enabled). Used by tests and the editor.
     size_t load(const std::string& modsDir, const std::vector<std::pair<std::string, bool>>& order);

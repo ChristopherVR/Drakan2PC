@@ -22,6 +22,8 @@ RedirectFn g_redirect;
 SkinFn g_skin;
 int g_index = 0; // 0 = the disc game, i = g_campaigns[i - 1]
 bool g_ask = true;
+std::string g_setting = "ask"; // what [general] game / DRAKAN_GAME said
+bool g_settingFromEnv = false;
 bool g_rewrite = false; // the campaign's New Game path rewrite is armed (not while DRAKAN_START_LEVEL drives the start)
 bool g_mpRedirect = false; // a multiplayer launch holds its own file redirect: no campaign rewrite meanwhile
 std::filesystem::path g_baseCard;
@@ -145,6 +147,11 @@ void configure(std::vector<Campaign> campaigns, RedirectFn redirect, SkinFn skin
     g_skin = std::move(skin);
     g_baseCard = PS2Runtime::getIoPaths().mcRoot;
     const std::string want = drakan_cfg::getString("general", "game", "DRAKAN_GAME", "ask");
+    g_setting = want.empty() ? std::string("ask") : want;
+    {
+        const char* env = std::getenv("DRAKAN_GAME");
+        g_settingFromEnv = env && *env;
+    }
     g_ask = true;
     g_index = 0;
     if (drakan_cfg::compareNoCase(want.c_str(), "d2") == 0 || drakan_cfg::compareNoCase(want.c_str(), "drakan") == 0) {
@@ -213,6 +220,13 @@ std::string currentName() {
 bool offerChoice() {
     std::lock_guard<std::mutex> l(g_m);
     return g_ask && !g_campaigns.empty();
+}
+
+std::string choiceSetting(bool* fromEnv) {
+    std::lock_guard<std::mutex> l(g_m);
+    if (fromEnv)
+        *fromEnv = g_settingFromEnv;
+    return g_setting;
 }
 
 bool select(int index) {

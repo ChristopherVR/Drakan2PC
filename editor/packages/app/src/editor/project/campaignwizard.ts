@@ -1405,7 +1405,7 @@ export function installCampaignWizard(host: WizardHost): CampaignWizard {
                     h(
                         'p',
                         {},
-                        'Use Export and install. If you save a zip, put it in the game’s mods folder, enable it in the Mods menu and restart the game to choose your campaign.',
+                        'Use Export and install. If you save a zip, put it in the game’s mods folder and start the game: the title screen offers Enable and restart, then choose your campaign.',
                     ),
                 ),
             );
@@ -1601,14 +1601,14 @@ export function installCampaignWizard(host: WizardHost): CampaignWizard {
                     ? "Install writes the pack into the game's mods folder and turns it on. The zip is for sharing."
                     : host.installAvailable()
                       ? 'Install asks for the game folder (the one with drakan.exe), writes the pack into its mods folder and turns it on.'
-                      : 'Save the zip to the game’s mods folder, enable it in the Mods menu and restart the game.',
+                      : 'Save the zip to the game’s mods folder and start the game: the title screen offers Enable and restart (or use the Mods menu).',
             ),
             lastShip && !lastShip.installed
                 ? h(
                       'div',
                       { class: 'cwz-verdict ok', id: 'cwz-saved' },
                       icon('check-circle', 16),
-                      `Saved ${lastShip.where}. Put the zip in the game’s mods folder, enable it in the Mods menu and restart. Choose ${c?.title || 'your campaign'} on the Choose your game screen.`,
+                      `Saved ${lastShip.where}. Put the zip in the game’s mods folder and start the game: the title screen offers Enable and restart (or use the Mods menu). Then choose ${c?.title || 'your campaign'} on the Choose your game screen.`,
                   )
                 : null,
             packLines && !packError

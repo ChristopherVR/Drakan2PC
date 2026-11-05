@@ -23,7 +23,8 @@ target_include_directories(drakan_settings_core PUBLIC include)
 target_link_libraries(drakan_settings_core PRIVATE drakan::options)
 
 # The schema both settings UIs draw (the F1 overlay and gameui::SettingsPages) and the modern pages' apply glue.
-add_library(drakan_settings_schema STATIC src/Schema.cpp src/ModernSettings.cpp src/ModsPage.cpp)
+add_library(drakan_settings_schema STATIC src/Schema.cpp src/ModernSettings.cpp src/ModsPage.cpp
+    src/ModDiscovery.cpp)
 target_include_directories(drakan_settings_schema PUBLIC include)
 target_link_libraries(drakan_settings_schema PUBLIC drakan_settings_core drakan::gameui PRIVATE drakan::options)
 

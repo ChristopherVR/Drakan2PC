@@ -4,6 +4,7 @@
 #include <fstream>
 #include <sstream>
 
+#include "settings/ModDiscovery.h"
 #include "settings/ModsModel.h"
 #include "settings/ModsPage.h"
 #include "settings/Schema.h"
@@ -158,6 +159,111 @@ int main() {
         ModsModel empty;
         empty.setSnapshot(dir.string(), {}, {});
         CHECK(buildModsPage(empty).sections.size() == 2);
+    }
+
+    // ---- discovery policy (ModDiscovery.h): new packs are offered, never enabled by themselves
+    {
+        ModInfo fresh = mk("fresh", false, ModBoot::Disabled);
+        fresh.isNew = true;
+        ModInfo camp = mk("camp", false, ModBoot::Disabled);
+        camp.isNew = true;
+        camp.campaign = "test-valley";
+        ModInfo gone = mk("gone", false, ModBoot::Skipped); // listed as new, then removed from the folder
+        gone.isNew = true;
+        gone.found = false;
+        ModsModel d;
+        d.setSnapshot(dir.string(), {mk("a", true, ModBoot::Active), fresh, camp, gone}, {});
+        CHECK(d.undecided().size() == 2 && d.undecided()[0]->key == "fresh" && d.undecided()[1]->key == "camp");
+        CHECK(d.stateText(*d.find("fresh")) == "New: not enabled yet");
+        CHECK(!d.find("fresh")->enabled && !d.restartRequired()); // discovery alone changes nothing
+        const ModNoticeContent nc = modNoticeContent(d);
+        CHECK(nc.names.size() == 2 && nc.names[0] == "Pack fresh" && nc.campaigns == 1);
+
+        // when the notice shows
+        CHECK(showModNotice(d, ModNoticeMode::Auto, false, false));
+        CHECK(!showModNotice(d, ModNoticeMode::Auto, true, false)); // scripted input (harness)
+        CHECK(showModNotice(d, ModNoticeMode::Force, true, false));
+        CHECK(!showModNotice(d, ModNoticeMode::Off, false, false));
+        CHECK(!showModNotice(d, ModNoticeMode::Force, false, true)); // once per run
+        CHECK(modNoticeModeFrom(nullptr) == ModNoticeMode::Auto && modNoticeModeFrom("") == ModNoticeMode::Auto);
+        CHECK(modNoticeModeFrom("0") == ModNoticeMode::Off && modNoticeModeFrom("OFF") == ModNoticeMode::Off);
+        CHECK(modNoticeModeFrom("1") == ModNoticeMode::Force && modNoticeModeFrom("maybe") == ModNoticeMode::Auto);
+
+        // undecided packs stay `new` in mods.ini; decided ones get on / off
+        fs::remove(dir / "mods.ini");
+        CHECK(d.save(&err));
+        CHECK(slurp(dir / "mods.ini").find("a = on\nfresh = new\ncamp = new\ngone = new\n") != std::string::npos);
+        ModsModel keep = d;
+        CHECK(keep.keepUndecidedOff() == 2 && keep.undecided().empty());
+        CHECK(!showModNotice(keep, ModNoticeMode::Force, false, false));
+        CHECK(keep.iniText("").find("fresh = off\ncamp = off\ngone = new\n") != std::string::npos);
+        CHECK(keep.stateText(*keep.find("fresh")) == "Disabled" && keep.find("fresh")->isNew); // still marked
+        ModsModel en = d;
+        CHECK(en.enableUndecided() == 2 && en.undecided().empty());
+        CHECK(en.find("fresh")->enabled && en.find("camp")->enabled && !en.find("gone")->enabled);
+        CHECK(en.restartRequired() && en.stateText(*en.find("camp")) == "Enabled, loads after restart");
+        CHECK(en.iniText("").find("fresh = on\ncamp = on\n") != std::string::npos);
+        ModsModel one = d; // toggling one pack on the Mods page decides that pack only
+        CHECK(one.apply("mods.enable.fresh", "0", &err));
+        CHECK(one.undecided().size() == 1 && one.undecided()[0]->key == "camp");
+        CHECK(slurp(dir / "mods.ini").find("fresh = off\ncamp = new\n") != std::string::npos);
+
+        // the Mods page marks new packs and a pending restart
+        const gameui::SettingPage pg = buildModsPage(en);
+        bool sawNew = false, sawPending = false, sawNewRow = false, sawCampaign = false;
+        for (const auto& sec : pg.sections) {
+            sawNew = sawNew || sec.title.find("[New]") != std::string::npos;
+            sawPending = sawPending || sec.title.find("[Restart pending]") != std::string::npos;
+            for (const auto& r : sec.rows) {
+                sawNewRow = sawNewRow || r.label == "New";
+                sawCampaign = sawCampaign || (r.label == "Campaign" && r.text.find("Restart") == 0);
+            }
+        }
+        CHECK(sawNew && sawPending && sawNewRow && sawCampaign);
+        CHECK(pg.description.find("Restart pending") == 0);
+
+        // why an enabled campaign is not on the game card
+        GameChoiceState gs;
+        CHECK(gameChoiceNote(d, gs).reason == GameChoiceReason::None); // the campaign pack is off: nothing to say
+        GameChoiceNote n = gameChoiceNote(en, gs);
+        CHECK(n.reason == GameChoiceReason::PendingRestart && n.pack == "Pack camp");
+        CHECK(gameChoiceNoteText(n, false) ==
+              "Pack camp is enabled: restart the game to choose it on the title screen.");
+
+        ModInfo live = mk("live", true, ModBoot::Active);
+        live.id = "live.pack";
+        live.campaign = "valley";
+        ModsModel lm;
+        lm.setSnapshot(dir.string(), {live}, {});
+        gs.cardCampaigns = {"valley"};
+        gs.offered = true;
+        CHECK(gameChoiceNote(lm, gs).reason == GameChoiceReason::None); // offered: fine
+        gs.offered = false;
+        gs.setting = "d2";
+        n = gameChoiceNote(lm, gs);
+        CHECK(n.reason == GameChoiceReason::Pinned && n.setting == "d2" && n.pack == "Pack live");
+        CHECK(gameChoiceNoteText(n, false) ==
+              "Choose your game is not shown: drakan.ini sets game = d2. Set game = ask to choose Pack live.");
+        gs.settingFromEnv = true;
+        CHECK(gameChoiceNoteText(gameChoiceNote(lm, gs), false).find("DRAKAN_GAME is set to d2") != std::string::npos);
+        gs = {};
+        gs.refused["live.pack"] = "campaign start level 'X' is not one of its levels";
+        n = gameChoiceNote(lm, gs);
+        CHECK(n.reason == GameChoiceReason::Rejected && n.detail.find("start level") != std::string::npos);
+        CHECK(gameChoiceNoteText(n, false).find("Reason: campaign start level") != std::string::npos);
+        CHECK(gameChoiceNoteText(n, true).find("Reason") == std::string::npos); // the title line stays short
+        ModInfo bad = mk("bad", true, ModBoot::Skipped, "built for disc usa, this is pal");
+        bad.campaign = "valley";
+        lm.setSnapshot(dir.string(), {bad}, {});
+        n = gameChoiceNote(lm, gs);
+        CHECK(n.reason == GameChoiceReason::Skipped && n.detail == "built for disc usa, this is pal");
+        lm.setGameChoice(gs);
+        bool sawChoice = false;
+        for (const auto& sec : buildModsPage(lm).sections)
+            for (const auto& r : sec.rows)
+                sawChoice =
+                    sawChoice || (r.label == "Game choice" && r.text.find("was not loaded") != std::string::npos);
+        CHECK(sawChoice);
     }
 
     fs::remove_all(dir);

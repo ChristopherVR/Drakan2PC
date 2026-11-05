@@ -697,7 +697,7 @@ int main() {
         CHECK(applyTo(mm.entries(), rid("INTERFCE.TXD", 0x40, 98, 3), 60) == fill(50, 0xA2));
     }
 
-    // ---- mods.ini: unknown packs are appended as "off"; order and enabled flags honoured
+    // ---- mods.ini: unknown packs are appended as "new" (off, ModStatus::isNew); order and enabled flags honoured
     {
         fs::path mods = root / "mods2";
         writeText(mods / "one/mod.toml", toml("one"));
@@ -709,7 +709,19 @@ int main() {
         std::ifstream in(mods / "mods.ini");
         std::string ini((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
         in.close();
-        CHECK(ini.find("one = off") != std::string::npos && ini.find("two = off") != std::string::npos);
+        CHECK(ini.find("one = new") != std::string::npos && ini.find("two = new") != std::string::npos);
+        CHECK(first.status().size() == 2 && first.status()[0].isNew && first.status()[1].isNew);
+        CHECK(first.status()[0].state == ModState::Disabled && !first.status()[0].enabled);
+        {
+            // `new` survives the next start (still undecided) and loads nothing; `off` is a decision.
+            ModManager again(pal);
+            CHECK(again.load(mods.string()) == 0);
+            CHECK(again.status().size() == 2 && again.status()[0].isNew && again.status()[1].isNew);
+            writeText(mods / "mods.ini", "[mods]\none = off\ntwo = new\n");
+            ModManager decided(pal);
+            CHECK(decided.load(mods.string()) == 0);
+            CHECK(!decided.status()[0].isNew && decided.status()[1].isNew);
+        }
         writeText(mods / "mods.ini", "[mods]\n; comment\ntwo = on\none = on\n");
         ModManager m2(pal);
         CHECK(m2.load(mods.string()) == 2);
@@ -719,6 +731,7 @@ int main() {
         CHECK(m3.load(mods.string()) == 1);
         CHECK(applyTo(m3.entries(), rid("A.TXD", 0x40, 1, 0), 8) == fill(8, 1));
         CHECK(fs::file_size(mods / "mods.ini") == 19); // untouched when nothing is new
+        CHECK(!m3.status()[0].isNew && !m3.status()[1].isNew);
     }
 
     // ---- profile hash, dependencies, duplicate ids, format, hints

@@ -831,6 +831,86 @@ void testTitlePcSettings() {
     CHECK(!opt.pcSettingsOpen() && opt.page() == TitlePage::Options);
 }
 
+// New mod packs card (settings/ModDiscovery.h): opens first, before the game card; three answers and Esc.
+void testTitleModsNotice() {
+    TitleState st = titleState();
+    st.newMods = {"Order of the Flame Levels"};
+    st.newModCampaigns = 1;
+    st.offerGames = true;
+    {
+        TitleScreen scr;
+        scr.open();
+        TitleFrameOutput o = scr.frame(st, {}, kVp);
+        CHECK(scr.page() == TitlePage::ModsNotice && hasText(o.draw, "New mod pack found"));
+        CHECK(hasText(o.draw, "In the mods folder: Order of the Flame Levels."));
+        CHECK(hasText(o.draw, "Enable and restart") && hasText(o.draw, "Open Mods menu") &&
+              hasText(o.draw, "Keep them off") && hasText(o.draw, "Later"));
+        CHECK(scr.focus() == (TargetId{TargetKind::CardButton, static_cast<int>(TitleRow::ModsEnable)}));
+        o = scr.frame(st, keys({UiKey::Confirm}), kVp);
+        CHECK(o.actions.size() == 1 && o.actions[0].kind == TitleActionKind::ModsEnable && scr.suspended());
+        CHECK(scr.page() == TitlePage::Main);
+    }
+    {
+        TitleScreen scr; // Keep them off: then the game card, as without the notice
+        scr.open();
+        scr.frame(st, {}, kVp);
+        TitleFrameOutput o = scr.frame(st, keys({UiKey::Down, UiKey::Down, UiKey::Confirm}), kVp);
+        CHECK(o.actions.size() == 1 && o.actions[0].kind == TitleActionKind::ModsKeepOff && !scr.suspended());
+        st.newMods.clear(); // the host stops passing them once answered
+        scr.frame(st, {}, kVp);
+        CHECK(scr.page() == TitlePage::GameChoice);
+        st.newMods = {"Order of the Flame Levels"};
+    }
+    {
+        TitleScreen scr; // Esc: closed for this visit, no action (asked again next start)
+        scr.open();
+        scr.frame(st, {}, kVp);
+        TitleFrameOutput o = scr.frame(st, keys({UiKey::Back}), kVp);
+        CHECK(o.actions.empty());
+        o = scr.frame(st, {}, kVp);
+        CHECK(scr.page() == TitlePage::GameChoice); // not the notice again
+        scr.frame(st, keys({UiKey::Back}), kVp);
+        CHECK(scr.page() == TitlePage::Main);
+        CHECK(!hasText(scr.frame(st, {}, kVp).draw, "Keep them off"));
+    }
+    {
+        TitleScreen scr; // Open Mods menu without the modern pages: the host opens the overlay
+        scr.open();
+        scr.frame(st, {}, kVp);
+        TitleFrameOutput o = scr.frame(st, keys({UiKey::Down, UiKey::Confirm}), kVp);
+        CHECK(o.actions.size() == 1 && o.actions[0].kind == TitleActionKind::OpenMods && o.actions[0].value == 0);
+    }
+    {
+        test::SettingsWorld w;
+        TitleConfig cfg;
+        cfg.pcSettingsPages = true;
+        TitleScreen scr(cfg); // with them: the title's own PC Settings pages; the schema follows next frame
+        scr.open();
+        scr.frame(st, {}, kVp);
+        TitleFrameOutput o = scr.frame(st, keys({UiKey::Down, UiKey::Confirm}), kVp);
+        CHECK(o.actions.size() == 1 && o.actions[0].kind == TitleActionKind::OpenMods && o.actions[0].value == 1);
+        CHECK(scr.page() == TitlePage::PcSettings && scr.pcSettingsOpen() && o.draw.size() > 0);
+        st.pcSettings = &w.schema;
+        scr.frame(st, {}, kVp);
+        CHECK(scr.page() == TitlePage::PcSettings);
+        st.pcSettings = nullptr;
+    }
+    {
+        TitleScreen scr; // several packs, and the line about a hidden game choice on the main page
+        TitleState many = titleState();
+        many.newMods = {"A", "B"};
+        scr.open();
+        TitleFrameOutput o = scr.frame(many, {}, kVp);
+        CHECK(hasText(o.draw, "New mod packs found") && hasText(o.draw, "2 new packs in the mods folder: A, B."));
+        TitleState note = titleState();
+        note.gameChoiceNote = "Choose your game is not shown.";
+        TitleScreen plain;
+        plain.open();
+        CHECK(hasText(plain.frame(note, {}, kVp).draw, "Choose your game is not shown."));
+    }
+    static_assert(static_cast<int>(TitleRow::ModsEnable) > static_cast<int>(TitleRow::GameDrakan) + 100);
+}
+
 // PauseScreen embedded with rootPage = Options (as the title uses it), without TitleScreen.
 void testPauseRootPage() {
     PauseConfig cfg;
@@ -947,6 +1027,7 @@ int main() {
     testTitleOptions();
     testTitleLayout();
     testTitlePcSettings();
+    testTitleModsNotice();
     testPauseRootPage();
     testProgressFeedback();
     testTitleContinueFeedback();

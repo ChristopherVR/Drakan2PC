@@ -54,6 +54,8 @@ int currentIndex();
 std::string currentName();
 // True when the title menu has a choice to offer (a campaign pack is installed and [general] game is "ask").
 bool offerChoice();
+// The [general] game value configure() read ("ask" by default); `fromEnv` = DRAKAN_GAME set it.
+std::string choiceSetting(bool* fromEnv = nullptr);
 // Switches game by its card index: redirect, memory card folder, menu skin. False when there is no such game.
 bool select(int index);
 // A level load redirect request from the multiplayer layer: empty `from` or `to` clears it and restores the campaign

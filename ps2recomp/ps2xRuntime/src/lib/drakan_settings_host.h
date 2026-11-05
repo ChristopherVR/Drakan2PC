@@ -9,6 +9,8 @@
 #include <cstdint>
 #include <memory>
 #include <string>
+#include <utility>
+#include <vector>
 
 namespace gsr {
 class Renderer;
@@ -56,6 +58,14 @@ void setArtSource(hle::IsoFs* fs);
 // The mod manager that loaded the packs at start-up (null when the mods folder does not exist) and the mods folder:
 // the Mods page of the PC settings lists them and edits mods/mods.ini (drakan_overrides.cpp, once).
 void setModManager(const hle::mods::ModManager* mods, const std::string& modsDir);
+// What the title's game card made of the campaign packs (after drakan_game::configure): the [general] game setting and
+// whether DRAKAN_GAME gave it, whether the card is offered, the campaign ids on it and, per pack id, why a campaign was
+// refused. The title screen and the Mods page explain from it why an enabled campaign is not offered.
+void setGameChoice(const std::string& setting, bool fromEnv, bool offered, const std::vector<std::string>& campaigns,
+                   const std::vector<std::pair<std::string, std::string>>& refused);
+// Thread safe: the title shows the "New mod packs" card in this run (settings/ModDiscovery.h). Sticky for the run, so
+// the modern title menu (which draws the card) stays the one in use.
+bool modsNoticeWanted();
 #else
 inline void attachRenderer(gsr::Renderer*, void*, const WindowOps&) {}
 inline void detachRenderer() {}
@@ -70,6 +80,11 @@ inline int frameLimit() {
 }
 inline void setArtSource(hle::IsoFs*) {}
 inline void setModManager(const hle::mods::ModManager*, const std::string&) {}
+inline void setGameChoice(const std::string&, bool, bool, const std::vector<std::string>&,
+                          const std::vector<std::pair<std::string, std::string>>&) {}
+inline bool modsNoticeWanted() {
+    return false;
+}
 #endif
 // Portable presentation-thread backend; no platform graphics types cross this
 // boundary. The source game frame remains available for the modern UI's crops.

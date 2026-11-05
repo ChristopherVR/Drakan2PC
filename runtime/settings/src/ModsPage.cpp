@@ -1,6 +1,9 @@
 #include "settings/ModsPage.h"
 
+#include <algorithm>
 #include <string>
+
+#include "settings/ModDiscovery.h"
 
 namespace dsettings {
 
@@ -47,6 +50,8 @@ gameui::SettingPage buildModsPage(const ModsModel& model) {
               "to mods/mods.ini at once and applies the next time the game starts.";
 
     const bool restart = model.restartRequired();
+    if (restart)
+        pg.description = "Restart pending: the mod list changed since the game started. Restart to apply it.";
     {
         gameui::SettingSection sec{"Mods", {}};
         // Always present so the rows below do not shift when the first change is made.
@@ -60,6 +65,15 @@ gameui::SettingPage buildModsPage(const ModsModel& model) {
                                   "Show the mods folder in the file browser: " + model.folder(), "Open folder",
                                   model.canOpenFolder()));
         sec.rows.push_back(info("Installed", std::to_string(model.size()) + (model.size() == 1 ? " pack" : " packs")));
+        size_t fresh = 0;
+        for (const ModInfo& m : model.mods())
+            fresh += m.isNew ? 1 : 0;
+        if (fresh)
+            sec.rows.push_back(info("New", std::to_string(fresh) + (fresh == 1 ? " pack" : " packs") +
+                                               " found since the last start. New packs stay off until enabled."));
+        const std::string why = gameChoiceNoteText(gameChoiceNote(model, model.gameChoice()), false);
+        if (!why.empty())
+            sec.rows.push_back(info("Game choice", why));
         pg.sections.push_back(std::move(sec));
     }
     if (model.size() == 0) {
@@ -72,7 +86,11 @@ gameui::SettingPage buildModsPage(const ModsModel& model) {
     const int n = static_cast<int>(model.size());
     for (int i = 0; i < n; ++i) {
         const ModInfo& m = model.mods()[static_cast<size_t>(i)];
-        const std::string title = (m.name.empty() ? m.key : m.name) + (m.version.empty() ? "" : "  v" + m.version);
+        std::string title = (m.name.empty() ? m.key : m.name) + (m.version.empty() ? "" : "  v" + m.version);
+        if (m.isNew)
+            title += "  [New]";
+        if (m.enabled != m.bootEnabled)
+            title += "  [Restart pending]";
         gameui::SettingSection sec{title, {}};
         const std::vector<std::string> conflicts = model.conflictLines(m.key);
         const std::string state = model.stateText(m);
@@ -114,6 +132,14 @@ gameui::SettingPage buildModsPage(const ModsModel& model) {
         sec.rows.push_back(std::move(ord));
 
         sec.rows.push_back(info("Status", state));
+        if (!m.campaign.empty()) {
+            const auto& card = model.gameChoice().cardCampaigns;
+            const bool onCard = std::find(card.begin(), card.end(), m.campaign) != card.end();
+            sec.rows.push_back(info("Campaign", !m.enabled ? "Enable it and restart to play it from Choose your game."
+                                                : !m.bootEnabled ? "Restart to play it from Choose your game."
+                                                : onCard         ? "On the title's Choose your game screen."
+                                                                 : "Not offered: see Game choice above and the log."));
+        }
         if (!m.author.empty())
             sec.rows.push_back(info("Author", shorten(m.author, 48)));
         sec.rows.push_back(info("Target disc", shorten(m.target.empty() ? std::string("unknown") : m.target, 48)));

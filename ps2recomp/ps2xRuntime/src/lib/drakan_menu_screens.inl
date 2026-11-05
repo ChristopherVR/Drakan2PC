@@ -876,6 +876,10 @@ void titleExecute(RecompGuest& g, uint32_t active, int id) {
                 g.call(GuestCall(titleui::kFnEnableLoad).arg(g_title.screen));
             return titleFinish(gameui::Outcome::Confirmed, true);
         }
+        case K::ModsEnable: // the new mod packs card: handled by the host glue, never queued here
+        case K::ModsKeepOff:
+        case K::OpenMods:
+            return titleFinish(gameui::Outcome::Confirmed, true);
         case K::QuitToDesktop:
             menuLog("quit to desktop: closing the window");
             g.requestQuit();

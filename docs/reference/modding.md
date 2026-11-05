@@ -161,17 +161,50 @@ experimental = off
 ```
 
 * Order top to bottom is the **load order**; later packs win. `on` / `off` enable or disable (`1 true yes` also mean on).
-* Packs found on disk but not listed are appended as `<name> = off` so the player opts in by editing the file.
+* Packs found on disk but not listed are appended as `<name> = new`: off, and not decided yet. They are never enabled by
+  themselves; see "New packs" below. `off` is a decision (the player kept the pack off), `new` is not.
 * A listed pack that is missing from the folder is reported and skipped.
+
+### New packs (title notice)
+
+A pack copied into `mods/` by hand (an editor zip, a download) used to sit there as `off` with no hint in game, so a
+campaign never reached the "Choose your game" card ([issue #2](https://github.com/ChristopherVR/Drakan2PC/issues/2)).
+Now:
+
+* `ModManager::load` appends a pack it has not seen as `<name> = new` and reports it as `ModStatus::isNew` (also on
+  later starts while mods.ini still says `new`). The log says `mods: new pack '<name>' found: off until enabled`.
+* The title screen opens a **New mod packs found** card first (before the game card): the pack names, that new packs
+  stay off until enabled and apply after a restart, and a line when one of them is a campaign. Buttons: **Enable and
+  restart** (turns them `on`, writes mods.ini and restarts the game), **Open Mods menu** (the PC Settings Mods page;
+  without the modern pages the F1 overlay's Mods page) and **Keep them off** (writes `off`: not asked again). Esc /
+  Back (**Later**) closes the card for this run and leaves `new`, so it comes back on the next start.
+* The card is shown at most once per run. When it is wanted the modern title menu is used even with
+  `[general] title_menu = native` (the native title cannot draw it), as for the game card.
+* Harness runs: not shown while `DRAKAN_INPUT_SCRIPT` drives the input, so recipes keep their title flow.
+  `DRAKAN_MODS_NOTICE=1` shows it anyway, `DRAKAN_MODS_NOTICE=0` never shows it.
+* **Game choice explained.** When an enabled campaign pack exists but the card is not offered, the title's main page
+  shows one line why, the Mods page has a **Game choice** row with the same reason and the log has `[game] ...`:
+  `[general] game` (or `DRAKAN_GAME`) is not `ask`; the pack was enabled in this session and loads after a restart;
+  the pack is enabled but was skipped (wrong disc, dependency, broken pack); or it loaded but its campaign keys were
+  refused (invalid id, duplicate id, start level not one of its levels). The Mods page line adds the loader's reason.
+* The policy is `runtime/settings` `settings/ModDiscovery.h` (`showModNotice`, `modNoticeContent`, `gameChoiceNote`,
+  `gameChoiceNoteText`) plus `ModsModel::undecided / enableUndecided / keepUndecidedOff`; tests in
+  `mods_model_test` (policy, mods.ini values, page marks), `mod_test` (`new` in mods.ini), `gameui_saveload_test`
+  (`testTitleModsNotice`) and `gameui_locale_test` (the card's strings in every menu language). The title strings are
+  in the `gameui::menuText` catalogue (German, French, Italian, Spanish); the Mods page stays English like the rest of
+  the PC settings.
 
 ### The Mods page (in game)
 
 PC Settings (F1) and the modern Options screen have a **Mods** page that lists every pack found at start-up: name,
-version, author, target disc, a status line (`Active`, `Disabled`, `Skipped: <reason>` for a wrong disc, a missing
-dependency, a newer format or a broken pack, `Enabled, loads after restart`), the overlaps it has with other packs
+version, author, target disc, a status line (`Active`, `Disabled`, `New: not enabled yet`, `Skipped: <reason>` for a
+wrong disc, a missing dependency, a newer format or a broken pack, `Enabled, loads after restart`), a **Campaign** line
+for campaign packs (enable and restart / restart / on the game card / not offered), the overlaps it has with other packs
 (`Overrides 'B' on 3 entries (...)`, `Overridden by ...`) and the description in the row help. Per pack: **Enabled**
 (toggle) and **Load position** (1..N, Left / Right moves it up or down); plus **Open mods folder** and, once the list
-differs from what the game loaded, **Restart game now**. Every change rewrites `mods/mods.ini` at once (comments and the
+differs from what the game loaded, **Restart game now**. A pack found since the last decision carries `[New]` in its
+title and the top section counts them (**New**); a pack whose flag differs from what the game loaded carries
+`[Restart pending]`, and the page description then starts with "Restart pending". Every change rewrites `mods/mods.ini` at once (comments and the
 `[mods]` header are kept) and **applies after a restart**.
 
 Why not live: the pack overrides are registered on the resource service once, before the first resource request, and
@@ -268,7 +301,8 @@ current maximum did not spawn). Authoring the class record fields (damage, grip,
 1. Extract the entry with `analysis/scripts/iop_srsc.py` (or the editor) from your own disc.
 2. Edit it and save as `mods/<pack>/overrides/<FILE>/<type hex>_<id>_<sub>.bin`.
 3. Add `mods/<pack>/mod.toml` with the manifest above.
-4. Start the game; `mods/mods.ini` gets `<pack> = off`; change it to `on` and restart.
+4. Start the game; `mods/mods.ini` gets `<pack> = new` and the title offers **Enable and restart** (or set it to `on`
+   in the file and restart).
 5. The log shows `mods: loaded '<id>' ...` plus any skip or conflict messages.
 
 Authoring tools (editor export, `scripts/` helpers) should write exactly this layout.
@@ -346,7 +380,8 @@ What the runtime does with it (`drakan_game.cpp`):
   own redirect; when it ends the campaign redirect of the chosen game is restored.
 * **Settings** `drakan.ini [general] game = ask | d2 | d1 | ootf | <campaign id>` (env `DRAKAN_GAME`): `ask` (default)
   offers the card when a campaign is installed, the others fix the game without a card (headless runs, harness); a game
-  that is not installed logs it and starts Drakan 2.
+  that is not installed logs it and starts Drakan 2. A fixed setting next to an installed campaign is explained on the
+  title and the Mods page ("New packs", Game choice explained).
   `scripts/harness/ootf_level_run.py --campaign ...` converts the level as a campaign pack and runs with `DRAKAN_GAME=d1`.
 
 ## HD textures for converted OotF mods
