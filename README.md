@@ -192,7 +192,7 @@ This is an experimental project. Expect rough edges in rendering, the widescreen
 ```powershell
 python scripts/run_tests.py                 # Python tests
 python scripts/repository_guard.py          # tracked-file audit: no game data may be committed
-git config core.hooksPath .githooks         # pre-push audit
+git config core.hooksPath .githooks         # commit-msg policy and pre-push audit
 ```
 
 Never commit disc images, extracted executables, generated code, game assets, saves or captures; the guard and the

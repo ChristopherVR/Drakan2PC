@@ -57,6 +57,20 @@ jobs:
           Copy-Item (Get-ChildItem build/release -Filter 'DrakanPC-Builder-*.zip' | Select-Object -First 1).FullName (Join-Path $out 'DrakanPC-Builder.zip')
           Get-ChildItem $out -File | ForEach-Object { "$((Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLower())  $($_.Name)" } |
             Set-Content -Encoding ascii (Join-Path $out 'SHA256SUMS.txt')
+      - name: Write the release notes
+        shell: pwsh
+        run: |
+          # What changed in the game, the editor and the save editor since the previous v* release (cliff.toml), then
+          # the standing download and install notes.
+          python -m pip install -r requirements-dev.txt
+          $PSNativeCommandUseErrorActionPreference = $false
+          git rev-parse -q --verify "refs/tags/$env:TAG" *> $null
+          $tagged = $LASTEXITCODE -eq 0
+          $PSNativeCommandUseErrorActionPreference = $true
+          if ($tagged) { git cliff --latest -o build/changes.md } else { git cliff --unreleased --tag $env:TAG -o build/changes.md }
+          $notes = (Get-Content build/changes.md -Raw).Trim() + "`n`n" + (Get-Content scripts/buildtool/kit/RELEASE-NOTES.md -Raw)
+          Set-Content -Encoding utf8NoBOM build/release-notes.md $notes
+          Get-Content build/changes.md -Raw >> $env:GITHUB_STEP_SUMMARY
       - name: Publish the release
         shell: pwsh
         run: |
@@ -67,9 +81,10 @@ jobs:
           $PSNativeCommandUseErrorActionPreference = $true
           if ($exists) {
             gh release upload $env:TAG @files --clobber
+            gh release edit $env:TAG --notes-file build/release-notes.md
           } else {
             gh release create $env:TAG @files --title "Drakan PC $env:TAG" `
-              --notes-file scripts/buildtool/kit/RELEASE-NOTES.md --target $env:GITHUB_SHA
+              --notes-file build/release-notes.md --target $env:GITHUB_SHA
           }
           # releases/latest/download/DrakanPC-Setup.exe (README, install guide) must resolve to a game release, never
           # to a newer site-media release.

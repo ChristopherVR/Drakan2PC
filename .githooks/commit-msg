@@ -1,0 +1,13 @@
+#!/bin/sh
+# Commit message policy for release notes (cliff.toml); see scripts/commit_policy.py.
+cd "$(git rev-parse --show-toplevel)" || exit 1
+for python in python3 python; do
+    if command -v "$python" >/dev/null 2>&1 && "$python" -c 'import sys; sys.exit(sys.version_info < (3, 11))' >/dev/null 2>&1; then
+        exec "$python" scripts/commit_policy.py --message-file "$1"
+    fi
+done
+if command -v py >/dev/null 2>&1; then
+    exec py -3 scripts/commit_policy.py --message-file "$1"
+fi
+echo 'Python 3.11+ is required for the commit message policy.' >&2
+exit 1

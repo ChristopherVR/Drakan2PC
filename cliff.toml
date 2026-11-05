@@ -1,0 +1,75 @@
+# git-cliff configuration: release notes for each Drakan PC release (tag v*).
+#
+# Every release shows what changed in the three things players download, in this order:
+#   game         the PC port: runtime, renderer, audio, input, multiplayer, installer and builder kit
+#   editor       the Drakan Editor (level / mod editor)
+#   save-editor  the Drakan Save Editor
+# Commits name them with a Conventional Commits scope, e.g. "fix(game): Fix VIF1 readback for CHCR.DIR=0" or
+# "feat(editor,save-editor): Read German disc images". The scope "repo" marks work that ships in none of them.
+# scripts/commit_policy.py enforces the format (commit-msg hook and CI); see BUILDING.md "Releases".
+#
+# Preview the next release:  git cliff --unreleased --tag vX.Y.Z
+# Notes for the latest tag:  git cliff --latest
+
+[changelog]
+header = ""
+body = """
+{%- set components = ["game", "editor", "save-editor"] -%}
+{%- set titles = ["Game", "Editor", "Save Editor"] -%}
+{% if version -%}
+## Drakan PC {{ version }} ({{ timestamp | date(format="%Y-%m-%d") }})
+{% else -%}
+## Unreleased
+{% endif -%}
+{% for component in components %}
+{%- set_global matched = [] -%}
+{%- for commit in commits -%}
+  {%- set scopes = commit.scope | default(value="") | split(pat=",") -%}
+  {%- if component in scopes -%}
+    {%- set_global matched = matched | concat(with=commit) -%}
+  {%- endif -%}
+{%- endfor %}
+### {{ titles | nth(n=loop.index0) }}
+{% if matched | length == 0 %}
+No changes in this release.
+{% else -%}
+{% for group, group_commits in matched | group_by(attribute="group") %}
+#### {{ group | striptags | trim }}
+{% for commit in group_commits %}
+- {% if commit.breaking %}**Breaking:** {% endif %}{{ commit.message | split(pat="\n") | first | trim }} \
+([{{ commit.id | truncate(length=7, end="") }}](https://github.com/ChristopherVR/Drakan2PC/commit/{{ commit.id }}))
+{%- endfor %}
+{% endfor -%}
+{% endif -%}
+{% endfor %}
+"""
+footer = ""
+trim = true
+
+[git]
+conventional_commits = true
+# Commits before the policy (scripts/commit_policy.py POLICY_BASE) are not conventional; the legacy parsers below
+# file them by keyword so the first release after the policy still lists them.
+filter_unconventional = false
+split_commits = false
+protect_breaking_commits = true
+filter_commits = false
+# Only game releases. site-media-* (documentation captures) and legacy editor-b* tags are not releases.
+tag_pattern = "^v[0-9]+\\.[0-9]+\\.[0-9]+$"
+topo_order = false
+sort_commits = "oldest"
+commit_parsers = [
+  { message = "^Merge ", skip = true },
+  # Conventional commits: only what players notice is listed; the rest stays in git history.
+  { message = "^feat(\\(.*\\))?!?:", group = "<!-- 0 -->New" },
+  { message = "^fix(\\(.*\\))?!?:", group = "<!-- 1 -->Fixed" },
+  { message = "^perf(\\(.*\\))?!?:", group = "<!-- 2 -->Performance" },
+  { message = "^revert(\\(.*\\))?!?:", group = "<!-- 3 -->Reverted" },
+  { message = "^(refactor|docs|test|build|ci|chore|style)(\\(.*\\))?!?:", skip = true },
+  # Legacy (pre-policy) commits. Investigation records are notes, not changes.
+  { message = "^(Record|Document|Audit|Verify|Observe|Identify|Trace|Clarify|Measure|Capture)\\b", skip = true },
+  # Legacy subjects (first line only) are filed by keyword; check these sections by hand for the first release.
+  { message = "(?i)^[^\\n]*(save[ -]?editor|save[ -]item|save inventor|exporting a save|replacement exports|inventory additions|item catalog)", group = "<!-- 4 -->Changed", default_scope = "save-editor" },
+  { message = "(?i)^[^\\n]*(\\beditor\\b|\\bexporter\\b|campaign wizard)", group = "<!-- 4 -->Changed", default_scope = "editor" },
+  { message = ".*", group = "<!-- 4 -->Changed", default_scope = "game" },
+]

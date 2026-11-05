@@ -339,6 +339,14 @@ assets `DrakanEditor-Setup.exe`, `DrakanEditor-Portable.zip`, `DrakanSaveEditor-
   ignored. Run "Editor assets" manually (optionally with a tag) to refresh by hand.
 - The workflows check out submodules (`editor/packages/formats` is the `drakan-formats` repository); the editor build
   needs them, the game builder kit does not.
+- **Release notes**: `release.yml` runs git-cliff (`cliff.toml`, pinned in `requirements-dev.txt`) over the commits
+  since the previous `v*` tag and puts a Game, Editor and Save Editor section ("No changes in this release" when empty)
+  above the standing text of `scripts/buildtool/kit/RELEASE-NOTES.md`. The sections come from the commit scope
+  (`fix(game): ...`, `feat(editor,save-editor): ...`); `feat`, `fix`, `perf` and `revert` are listed, other types and
+  the `repo` scope are not. `scripts/commit_policy.py` enforces the format from the commit-msg hook
+  (`git config core.hooksPath .githooks`) and the "Commit policy and release notes" workflow, which also previews the
+  next release's notes in its job summary. Preview locally with `git cliff --unreleased --tag vX.Y.Z`. Commits up to
+  `POLICY_BASE` (before the policy) are filed by subject keywords, so review those sections by hand for v0.1.3.
 - `editor-b*` pre-releases (b1 to b4) are legacy and no longer created; `site-media-*` pre-releases only host
   documentation captures (`--prerelease --latest=false`, see `docs/reference/github-pages.md`).
 

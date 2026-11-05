@@ -32,8 +32,10 @@ Generated output goes under `build/` (gitignored).
 - Write findings into `docs/`: update the relevant `reference/` doc; put dated investigation notes in
   `docs/journal/<date>/<topic>.md`. Don't create new top-level doc files.
 - Throwaway probes and outputs go in `build/` or a scratch dir, not the repo root or `scripts/`.
-- Commit messages: imperative subject that says what changed ("Fix VIF1 readback for CHCR.DIR=0"),
-  not "dev"/"wip".
+- Commit messages: `<type>(<scope>): <Imperative subject>`, e.g. `fix(game): Fix VIF1 readback for CHCR.DIR=0`,
+  never "dev"/"wip". Scope names what the change ships in: `game`, `editor`, `save-editor` (comma-separate several)
+  or `repo` (none of them). Types `feat`/`fix`/`perf`/`revert` appear in release notes (`cliff.toml`); `docs`, `test`,
+  `build`, `ci`, `chore`, `refactor`, `style` do not. Enforced by `scripts/commit_policy.py` (commit-msg hook and CI).
 - Commit proactively: when a task is done and verified, commit it without being asked. Stage only the
   files that task changed (other sessions may have uncommitted work in the tree); don't push unless asked.
 
