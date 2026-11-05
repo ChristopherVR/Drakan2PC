@@ -13,6 +13,7 @@ import json
 import math
 import os
 import re
+import shutil
 import struct
 import subprocess
 from pathlib import Path
@@ -79,7 +80,7 @@ def host_recipe(arena: int, skin_steps: int, start_ms: int = 36500, *, early_spa
     return "\n".join(lines + movement(early_spawn) + ["24000 quit"]) + "\n"
 
 
-def client_recipe(delay_ms: int = 20000) -> str:
+def client_recipe(delay_ms: int = 20000, from_save: bool = False) -> str:
     """Delay LAN discovery until the host has entered its lobby, before gameplay sync.
 
     This matches the successful joined arena_pickup R2/R3/R4 timing; movement
@@ -92,6 +93,26 @@ def client_recipe(delay_ms: int = 20000) -> str:
         fields = line.split(" ", 1)
         if fields[0].isdigit() and int(fields[0]) > 0:
             lines[index] = f"{int(fields[0]) + delay_ms} {fields[1]}"
+    if from_save:
+        # The title focuses New Game even when Continue and Load Game are available above it.
+        quit_keys, _ = taps(7000, ["DOWN"] * 4 + ["ENTER"], 300)
+        lines[2:2] = [
+            "1400 shot continue_title",
+            "1700 key tap UP",
+            "2050 key tap UP",
+            "2500 key tap ENTER",
+            "3500 shot continue_requested",
+            "0 sync play 60",
+            "5000 shot singleplayer_loaded",
+            "6000 key tap ESC",
+            *quit_keys,
+            "9300 key tap ENTER",
+            "0 sync screen 8 3",
+            "1000 shot returned_to_title",
+            # The title remembers Continue after the load. Skip Load Game and New Game.
+            "1300 key tap DOWN",
+            "1600 key tap DOWN",
+        ]
     return "\n".join(lines) + "\n"
 
 
@@ -182,6 +203,13 @@ def report(out: Path) -> dict:
         checks["joined_client_menu_action"] = "multiplayer action JoinMatch" in text
     if (out / "run.json").exists():
         checks["native_options_prepared"] = "native options prepared for the game's normal startup loader" in text
+        if out.name == "client" and json.loads((out / "run.json").read_text()).get("arguments", {}).get(
+            "join_from_save"
+        ):
+            saved_load = re.search(r"afterLevelLoad [^\n]*fromSave=1 ok=1", text)
+            join_at = text.find("multiplayer action JoinMatch")
+            checks["joined_after_saved_game"] = bool(saved_load and saved_load.end() < join_at)
+            checks["title_returned"] = (out / "returned_to_title.png").is_file()
     checks["all_snapshots"] = len(shots) == len(STAGES)
     observations = [*shots.values(), *result["spawn_snapshots"].values()]
     native_death = any(s.get("hp") is not None and s["hp"] <= 0 for s in observations)
@@ -232,14 +260,26 @@ def main() -> int:
     parser.add_argument("--arena", type=int, choices=range(3), default=2)
     parser.add_argument("--skin-steps", type=int, choices=range(16), default=0)
     parser.add_argument("--joined", action="store_true")
-    parser.add_argument("--host-start-ms", type=int, default=60500)
-    parser.add_argument("--join-delay-ms", type=int, default=20000)
+    parser.add_argument(
+        "--join-from-save", metavar="SLOT1", help="Copy this PAL slot 1 for the client to load before joining"
+    )
+    parser.add_argument("--host-start-ms", type=int)
+    parser.add_argument("--join-delay-ms", type=int)
     parser.add_argument("--look", choices=("direct", "stick"), default="direct")
     parser.add_argument("--trace-health", action="store_true", help="Bounded native health-write/damage-reducer trace")
     parser.add_argument("--strafe", type=int, choices=(0, 1), default=1)
     parser.add_argument("--run", action="store_true")
     parser.add_argument("--report", type=Path)
     args = parser.parse_args()
+    if args.host_start_ms is None:
+        args.host_start_ms = 95000 if args.join_from_save else 60500
+    if args.join_delay_ms is None:
+        args.join_delay_ms = 10000 if args.join_from_save else 20000
+    if args.join_from_save and (
+        not args.joined
+        or not (Path(args.join_from_save).is_dir() and Path(args.join_from_save).name == "BESCES-50006Slot1")
+    ):
+        parser.error("--join-from-save requires --joined and a PAL BESCES-50006Slot1 directory")
     if args.report:
         result = report(args.report.resolve())
         print(json.dumps(result, indent=2))
@@ -257,6 +297,8 @@ def main() -> int:
             folder = out / role
             folder.mkdir(parents=True)
             (folder / "card/mc0").mkdir(parents=True)
+            if role == "client" and args.join_from_save:
+                shutil.copytree(args.join_from_save, folder / "card/mc0/BESCES-50006Slot1")
             main_config = (exe.parent / "drakan.ini").read_text(encoding="utf-8")
             for key in ("title_menu", "pause_menu", "save_menu", "inventory_screen"):
                 main_config = re.sub(rf"(?m)^{key}\s*=.*$", f"{key} = modern", main_config)
@@ -268,7 +310,7 @@ def main() -> int:
             recipe = (
                 host_recipe(args.arena, args.skin_steps, args.host_start_ms, early_spawn=True)
                 if role == "host"
-                else client_recipe(args.join_delay_ms)
+                else client_recipe(args.join_delay_ms, bool(args.join_from_save))
             )
             (folder / "recipe.txt").write_text(recipe, encoding="utf-8")
             config = (exe.parent / "drakan_input.ini").read_text(encoding="utf-8")

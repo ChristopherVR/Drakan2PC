@@ -250,11 +250,12 @@ double PosePlaybackClock::advance(uint32_t newestTick, uint32_t sampleServerMs, 
     const double delay = std::max(3.0, rate_ * 0.1);
     const double target = static_cast<double>(newestTick) - delay;
     const double dt = std::max(0.0, nowSec - lastTime_);
-    if (reset || dt > 0.5 || target - playTick_ > rate_ * 0.5) {
-        playTick_ = target;
+    if (reset || dt > 2.0 || target - playTick_ > rate_ * 2.0) {
+        playTick_ = reset ? target : std::max(playTick_, target);
     } else {
-        const double step = (target - playTick_ + rate_ / 5.0) * (1.0 - std::exp(-dt * 5.0));
-        playTick_ = std::min(static_cast<double>(newestTick), playTick_ + std::max(0.0, step));
+        const double frame = std::min(dt, 0.05);
+        const double step = (target - playTick_ + rate_ / 5.0) * (1.0 - std::exp(-frame * 5.0));
+        playTick_ = std::min(static_cast<double>(newestTick), playTick_ + std::clamp(step, 0.0, 2.0 * rate_ * frame));
     }
     valid_ = true;
     if (reset || newestTick > newestTick_) {
@@ -322,11 +323,19 @@ bool PoseBuffer::sampleAt(double t, PlayerPose& out) const {
     const PlayerPose& a = *(it - 1);
     const double dx = b.position.x - a.position.x, dy = b.position.y - a.position.y, dz = b.position.z - a.position.z;
     if (std::sqrt(dx * dx + dy * dy + dz * dz) > cfg_.jumpDistance) { // teleport (respawn, level change): no blend
-        out = a;
-        out.timeSec = t;
-        out.lower.time += static_cast<float>(t - a.timeSec);
-        out.upper.time += static_cast<float>(t - a.timeSec);
-        return true;
+        // A runner can travel farther than the teleport threshold between sparse snapshots. Compare the
+        // displacement with the earlier velocity; never extrapolate beyond either measured position.
+        const double elapsed = b.snapshotSec - a.snapshotSec;
+        const bool continuedTravel = a.snapshotSec >= 0 && elapsed > 0 && elapsed <= 2.0 &&
+                                     std::hypot(dx - a.velocity.x * elapsed, dy - a.velocity.y * elapsed,
+                                                dz - a.velocity.z * elapsed) <= cfg_.jumpDistance;
+        if (!continuedTravel) {
+            out = a;
+            out.timeSec = t;
+            out.lower.time += static_cast<float>(t - a.timeSec);
+            out.upper.time += static_cast<float>(t - a.timeSec);
+            return true;
+        }
     }
     const double span = b.timeSec - a.timeSec;
     out = interpolatePose(a, b, static_cast<float>((t - a.timeSec) / span));

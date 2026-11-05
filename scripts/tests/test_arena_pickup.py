@@ -125,6 +125,15 @@ class ArenaPickupTest(unittest.TestCase):
         self.assertFalse(result["checks"]["blade_in_native_inventory"])
         self.assertFalse(result["passed"])
 
+    def test_authored_sites_keep_all_city_pickup_definitions(self):
+        source = (arena_pickup.ROOT / "configs/mp_maps.ini").read_text()
+        city = source.split("[arena city-skeleton-square]", 1)[1].split("[arena ", 1)[0]
+        stock = [line for line in city.splitlines() if line.startswith(("pickup =", "bounds ="))]
+        for sites in arena_pickup.CITY_SITES:
+            fixture = arena_pickup.city_site_map(sites).splitlines()
+            self.assertEqual([line for line in fixture if line.startswith(("pickup =", "bounds ="))], stock)
+            self.assertEqual(sum(line.startswith("spawn =") for line in fixture), 2)
+
     def test_real_blade_and_native_completion_pass(self):
         self.assertTrue(self.receipt(blade=True)["passed"])
 

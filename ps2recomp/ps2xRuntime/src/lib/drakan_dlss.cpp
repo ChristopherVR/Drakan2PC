@@ -135,6 +135,13 @@ void sceneSink(PS2Runtime& runtime, const gsr::SceneGuideCamera& camera, void*) 
         drakan_scene_models::enabled = on;
         if (on) {
             static drakan_scene_models::Capture capture;
+            static const bool includeSkyForComparison = [] {
+                const char* value = std::getenv("DRAKAN_RAY_INCLUDE_SKY");
+                if (!value || std::strcmp(value, "1") != 0)
+                    return false;
+                std::fprintf(stderr, "[ray-diagnostic] including native sky models for comparison\n");
+                return true;
+            }();
             static uint64_t assetLevel = ~0ull;
             if (assetLevel != identity) {
                 reflectionAssets.clear();
@@ -143,7 +150,7 @@ void sceneSink(PS2Runtime& runtime, const gsr::SceneGuideCamera& camera, void*) 
             if (!wasOn)
                 capture.reset();
             capture.loadTexture = [](uint32_t id, const std::string& path) { return reflectionAssets.load(id, path); };
-            auto models = capture.capture(runtime.memory().getRDRAM(), PS2_RAM_SIZE, identity);
+            auto models = capture.capture(runtime.memory().getRDRAM(), PS2_RAM_SIZE, identity, includeSkyForComparison);
             shadowFrame.begin(models);
             if (!wasOn || checks % 120 == 0)
                 std::fprintf(

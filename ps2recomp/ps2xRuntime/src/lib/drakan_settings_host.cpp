@@ -1800,26 +1800,17 @@ bool mpResultsUp() {
     return up;
 }
 
-// DRAKAN_MP_CAPTURE=0 turns the capture off. One capture per map and run; skipped while a picture exists. In an arena
-// match the player is put at the map's `preview` camera point (drakan_arena::requestPreviewShot); in a campaign level
-// (co-op, plain level match) the picture is the view she starts with.
+// Capture the current view for a missing map thumbnail. Moving the live player to the authored preview
+// point would send that movement to the other clients and return the player to a different spawn.
 bool mpPreviewCapture(const drakan_netplay::State& ns, const gameui::mp::HudState& hs) {
     static int hiding = 0;           // frames still drawn without the HUD
     static std::string requestedFor; // the map a capture was asked for
-    static bool arenaShot = false;   // an arena shot is under way
     static double playingSince = -1, lastPhaseAt = 0;
     static const bool off = [] {
         const char* e = std::getenv("DRAKAN_MP_CAPTURE");
         return e && e[0] == '0';
     }();
     const double now = ImGui::GetTime();
-    if (arenaShot) {
-        if (drakan_arena::previewShotState() == 1)
-            return true;
-        arenaShot = false;
-        hiding = 6; // the file is written a few frames after the request
-        return true;
-    }
     if (hiding > 0) {
         --hiding;
         return true;
@@ -1840,15 +1831,9 @@ bool mpPreviewCapture(const drakan_netplay::State& ns, const gameui::mp::HudStat
     std::error_code ec;
     std::filesystem::create_directories(dir, ec);
     const std::string file = (dir / (mapSafeName(ns.level) + ".png")).string();
-    std::fprintf(stderr, "[menu-screens] map picture: capturing %s (%s)\n", file.c_str(),
-                 arena ? "preview camera" : "start view");
-    if (arena) {
-        drakan_arena::requestPreviewShot(file);
-        arenaShot = true;
-    } else {
-        gsr::requestWindowShot(file);
-        hiding = 4;
-    }
+    std::fprintf(stderr, "[menu-screens] map picture: capturing %s (current view)\n", file.c_str());
+    gsr::requestWindowShot(file);
+    hiding = 4;
     return true;
 }
 

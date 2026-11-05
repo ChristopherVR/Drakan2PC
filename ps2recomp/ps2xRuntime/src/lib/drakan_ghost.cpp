@@ -74,6 +74,7 @@ struct Ghost {
     bool rawSet = false;
     bool standInLogged = false;
     uint32_t loggedLod = ~0u; // DRAKAN_GHOST_LOG: initial native LOD and subsequent changes only
+    bool ownsDetailRequest = false;
     world::ChannelPose rawLower, rawUpper;
     bool localVisual = false; // render-only local body: cell membership is scoped to world rendering
 };
@@ -1109,7 +1110,7 @@ void install(PS2Runtime& rt) {
                  g_debugKeys ? "F9 spawn, F10 destroy" : "for multiplayer", g_t1, g_t2, g_handlerSlot, g_forwardMask);
 }
 
-int spawnBody(const Transform* t, uint16_t character, bool dragon) {
+int spawnBody(const Transform* t, uint16_t character, bool dragon, bool remotePlayer = false) {
     if (!g_enabled.load())
         return 0;
     if (const char* why = notReadyReason()) {
@@ -1124,6 +1125,7 @@ int spawnBody(const Transform* t, uint16_t character, bool dragon) {
     g.wantRec[1] = g_forceRec[1];
     g.character = !dragon && drakan_coop_character::known(character) ? character : 0;
     g.dragon = dragon;
+    g.info.remotePlayer = remotePlayer;
     if (t) {
         g.hasTransform = true;
         g.target = *t;
@@ -1132,8 +1134,8 @@ int spawnBody(const Transform* t, uint16_t character, bool dragon) {
     return g.info.id;
 }
 
-int spawn(const Transform* t, uint16_t character) {
-    return spawnBody(t, character, false);
+int spawn(const Transform* t, uint16_t character, bool remotePlayer) {
+    return spawnBody(t, character, false, remotePlayer);
 }
 
 int spawnDragon(const Transform* t) {
@@ -1528,6 +1530,23 @@ void beforePadMgr(drakan_input::IGuest& guest, drakan_input::InputModule& input)
                 guest.writeF(g.info.handle + 0x14 + 4u * static_cast<uint32_t>(k), g.target.pos[k]);
             for (int k = 0; k < 9; ++k)
                 guest.writeF(g.info.handle + 0x20 + 4u * static_cast<uint32_t>(k), g.target.rot[k]);
+            // PAL's native selector honors this actor flag and rebuilds the appropriate skinning buffers.
+            // A nearby network Rynn can otherwise drop from 1,628 vertices to 208 at just 2,730 units.
+            if (g.info.remotePlayer && drakan_region::build().identityAddresses) {
+                constexpr uint32_t kDetailBit = 1u << 22;
+                const float dx = g.target.pos[0] - guest.readF(0x4dadc4);
+                const float dy = g.target.pos[1] - guest.readF(0x4dadc8);
+                const float dz = g.target.pos[2] - guest.readF(0x4dadcc);
+                const float distanceSq = dx * dx + dy * dy + dz * dz;
+                const uint32_t flags = guest.read32(g.info.handle + 0x104);
+                if (distanceSq <= 4000.f * 4000.f && !(flags & kDetailBit)) {
+                    guest.write32(g.info.handle + 0x104, flags | kDetailBit);
+                    g.ownsDetailRequest = true;
+                } else if (g.ownsDetailRequest && distanceSq >= 4500.f * 4500.f) {
+                    guest.write32(g.info.handle + 0x104, flags & ~kDetailBit);
+                    g.ownsDetailRequest = false;
+                }
+            }
             g.hasTransform = false;
             if (!g_busy.load()) {
                 if (g.localVisual) {

@@ -12,6 +12,7 @@ import configparser
 import csv
 import hashlib
 import json
+import math
 import os
 import platform
 import re
@@ -21,6 +22,7 @@ from collections import Counter
 from datetime import UTC, datetime
 from pathlib import Path
 
+from arena_movement import NATIVE_OPTIONS
 from play_run import resolve_level
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -30,19 +32,37 @@ CASES = {
     "observed-baseline": ("1", False, ""),
     "native-off": ("0", False, ""),
     "both": ("1", True, ""),
+    "legacy-sky": ("1", True, ""),
     "ray-only": ("0", True, ""),
     "ao": ("0", True, "ao"),
     "direct": ("0", True, "direct"),
     "receiver": ("0", True, "receiver"),
 }
 SHOTS = ("start", "ground", "yaw1", "yaw2", "skyline1", "skyline2", "skyline3")
+CLIFF_SHOTS = ("cliff_face", "cliff_left", "cliff_right")
+# Face the slope along the old planet billboard's projected shadow in PAL Surdana.
+CLIFF_POSE = (412300, 169780, 396400, -2.5726)
 
 
-def recipe() -> str:
+def recipe(cliff: bool = False) -> str:
     return "\n".join(
         [
             "clock milliseconds",
-            "0 sync play 90",
+            f"0 sync play {840 if cliff else 90}",
+            *(
+                [
+                    "0 mouse 0 -120",
+                    "400 shot cliff_face",
+                    "410 dump ram_cliff",
+                    "500 mouse -100 0",
+                    "900 shot cliff_left",
+                    "1000 mouse 200 0",
+                    "1400 shot cliff_right",
+                    "1500 mouse -100 120",
+                ]
+                if cliff
+                else []
+            ),
             "2000 shot start",
             "3000 mouse 0 500",
             "4200 shot ground",
@@ -80,8 +100,11 @@ def plan(
         raise ValueError("dump epoch must be 1..10000000")
     entries = []
     for scene in scenes:
-        level = resolve_level(scene)
+        cliff = scene == "surdana-cliff"
+        level = resolve_level("surdana" if cliff else scene)
         slug = re.sub(r"[^a-z0-9]+", "-", level.lower()).strip("-")
+        if cliff:
+            slug += "-cliff"
         for backend in backends:
             for case in cases:
                 native, shadows, diagnostic = CASES[case]
@@ -137,6 +160,10 @@ def plan(
                     "DRAKAN_SHOW_FPS": "0",
                     "DRAKAN_GHOST": "1",  # projector diagnostic hook; no network session is started
                 }
+                if cliff:
+                    env["DRAKAN_PLAYTEST_POS"] = " ".join(map(str, CLIFF_POSE))
+                if case == "legacy-sky":
+                    env["DRAKAN_RAY_INCLUDE_SKY"] = "1"
                 entries.append(
                     {
                         "case": case,
@@ -185,11 +212,13 @@ def scene_evidence(folder: Path) -> dict:
         return result
     result.update(scene=True, shader_effects=list(struct.unpack_from("<4I", params, 384)))
     floats = struct.unpack_from("<100f", params)
+    result["camera_world_xz"] = [floats[54], floats[55]]
     result["reflection_constant"] = floats[47] > 0
     if metadata.is_file():
         with metadata.open(newline="") as file:
             rows = list(csv.DictReader(file))
         result["metadata_rows"] = len(rows)
+        result["surdana_planet_instances"] = sum(row.get("resource") == "b04a6" for row in rows)
         result["metadata_level_ids"] = sorted({r["level"].lower() for r in rows if r.get("level")})
         result["metadata_camera_xz_matches"] = bool(rows) and all(
             abs(float(r["cameraX"]) - floats[54]) <= 0.1 and abs(float(r["cameraZ"]) - floats[55]) <= 0.1 for r in rows
@@ -320,6 +349,27 @@ def classify(text: str, entry: dict, exit_code: int | None, timed_out: bool, fil
     ]:
         if not ok:
             missing.append(requirement)
+    if "DRAKAN_PLAYTEST_POS" in entry["env"]:
+        # A gameplay screenshot can succeed even if streaming sent the actor back to the start.
+        before_shot = target_text.partition("screenshot cliff_face -> ok")[0]
+        settled = re.findall(r"\[playtest\] \+\d+ boundaries: player at (-?\d+) (-?\d+) (-?\d+)", before_shot)
+        requested = tuple(map(float, entry["env"]["DRAKAN_PLAYTEST_POS"].split()[:3]))
+        if (
+            not settled
+            or "screenshot cliff_face -> ok" not in target_text
+            or math.dist(tuple(map(float, settled[-1])), requested) > 600
+        ):
+            missing.append("settled player at cliff before first screenshot")
+        if not all(f"{name}.png" in files for name in CLIFF_SHOTS):
+            missing.append("three cliff-face angles")
+        if not webgpu:
+            camera = dumps.get("camera_world_xz")
+            if not camera or math.dist(camera, (requested[0], requested[2])) > 3500:
+                missing.append("DXR scene captured near cliff")
+        if not webgpu and bool(dumps.get("surdana_planet_instances")) != (entry["case"] == "legacy-sky"):
+            missing.append("expected Surdana planet model membership")
+    if entry["case"] == "legacy-sky" and "[ray-diagnostic] including native sky models for comparison" not in text:
+        missing.append("legacy sky inclusion receipt")
     if not webgpu and not (
         dumps.get("scene")
         and dumps.get("metadata_camera_xz_matches")
@@ -385,7 +435,10 @@ def write_settings(folder: Path, exe: Path, fullscreen: bool) -> None:
     (folder / "drakan_input.ini").write_text(
         "[general]\nlook_mode = direct\n[mouse]\nsensitivity_x = 0.002\nsensitivity_y = 0.002\n", newline="\n"
     )
-    (folder / "drakan_native_options.ini").write_text("[options]\nsensitivity = 1\ninvert_y = 0\n", newline="\n")
+    native = configparser.ConfigParser()
+    native["options"] = NATIVE_OPTIONS
+    with (folder / "drakan_native_options.ini").open("w", newline="\n") as file:
+        native.write(file)
 
 
 def executable_hash(exe: Path) -> str:
@@ -395,7 +448,7 @@ def executable_hash(exe: Path) -> str:
 
 def screenshot_sizes(folder: Path) -> dict:
     sizes = {}
-    for name in SHOTS:
+    for name in (*SHOTS, *CLIFF_SHOTS):
         path = folder / f"{name}.png"
         if path.is_file():
             with path.open("rb") as file:
@@ -411,7 +464,7 @@ def run_entry(entry: dict, exe: Path, timeout: int, expected_hash: str) -> dict:
     (folder / "card" / "mc0").mkdir(parents=True)
     (folder / "mods").mkdir()
     (folder / "overrides").mkdir()
-    (folder / "recipe.txt").write_text(recipe(), newline="\n")
+    (folder / "recipe.txt").write_text(recipe("DRAKAN_PLAYTEST_POS" in entry["env"]), newline="\n")
     write_settings(folder, exe, entry["env"]["DRAKAN_FULLSCREEN"] == "1")
     env = {k: v for k, v in os.environ.items() if not k.startswith(("DRAKAN_", "GSR_", "PS2X_"))}
     env.update(entry["env"])
@@ -461,7 +514,9 @@ def main() -> int:
     parser.add_argument("--case", action="append", choices=CASES)
     parser.add_argument("--all-cases", action="store_true")
     parser.add_argument("--backend", choices=("d3d11", "webgpu", "both"), default="d3d11")
-    parser.add_argument("--scene", action="append", help="New Game level name/code, default surdana; no save needed")
+    parser.add_argument(
+        "--scene", action="append", help="Level name/code, or surdana-cliff for a fixed slope and camera"
+    )
     parser.add_argument("--language", choices=("german", "english"), default="german")
     parser.add_argument("--windowed", action="store_true", help="documented departure from reporter borderless mode")
     parser.add_argument("--timeout", type=int, default=150)

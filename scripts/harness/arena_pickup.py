@@ -22,6 +22,22 @@ from netplay_menu_two_instances import recipe_b_text
 
 ROOT = Path(__file__).resolve().parents[2]
 
+# Each pair keeps the stock pickup entries. Only the two players' starting poses change.
+# The street pair uses City spawn points 1 and 2, facing their nearby mana pickups.
+CITY_SITES = {
+    "blade-mana": ((0, "0x3373c", "157758 170900 470120 0.01"), (1, "0x31b33", "198101 168300 426235 0.01")),
+    "street-mana": ((2, "0x31b33", "176268 171500 458989 90"), (3, "0x31b33", "190070 170000 460163 90")),
+}
+
+
+def city_site_map(sites: str) -> str:
+    source = (ROOT / "configs/mp_maps.ini").read_text(encoding="utf-8")
+    section = source.split("[arena city-skeleton-square]", 1)[1].split("[arena ", 1)[0]
+    lines = [line for line in section.splitlines() if not line.startswith("spawn =")]
+    return "\n".join(
+        ["[arena city-skeleton-square]", *lines, *(f"spawn = {pose}" for _, _, pose in CITY_SITES[sites]), ""]
+    )
+
 
 NATIVE_OPTION_KEYS = {
     "sensitivity",
@@ -50,11 +66,23 @@ def private_native_options(source: Path) -> str:
     return text
 
 
-def actions(native_use: bool = False) -> list[str]:
+def actions(native_use: bool = False, approach: bool = False) -> list[str]:
     if native_use:
         return [
             "4000 dump ram_before",
             "4000 shot before",
+            *(
+                [
+                    "7000 key down W",
+                    "7100 key tap E",
+                    "7250 key tap E",
+                    "7400 key tap E",
+                    "7500 key up W",
+                    "7600 key tap E",
+                ]
+                if approach
+                else []
+            ),
             "10000 key tap E",
             "11000 key tap E",
             "12000 key tap E",
@@ -128,17 +156,17 @@ def actions(native_use: bool = False) -> list[str]:
     return lines
 
 
-def pickup_host_recipe(arena: int, skin_steps: int, native_use: bool = False) -> str:
+def pickup_host_recipe(arena: int, skin_steps: int, native_use: bool = False, approach: bool = False) -> str:
     recipe = host_recipe(arena, skin_steps)
     prefix = recipe[: recipe.index("10000 dump ram_base")]
     prefix = (
         prefix.replace("35000 shot", "59000 shot").replace("36000 key", "60000 key").replace("36500 key", "60500 key")
     )
-    return prefix + "\n".join([*actions(native_use), f"{38000 if native_use else 95000} quit"]) + "\n"
+    return prefix + "\n".join([*actions(native_use, approach), f"{38000 if native_use else 95000} quit"]) + "\n"
 
 
-def pickup_client_recipe(native_use: bool = False) -> str:
-    lines = recipe_b_text("\n".join(actions(native_use)), 38000 if native_use else 95000).splitlines()
+def pickup_client_recipe(native_use: bool = False, approach: bool = False) -> str:
+    lines = recipe_b_text("\n".join(actions(native_use, approach)), 38000 if native_use else 95000).splitlines()
     for index, line in enumerate(lines):
         if "sync play" in line:
             break
@@ -222,7 +250,7 @@ def inventory(path: Path) -> dict:
     )
 
 
-def report(out: Path, pickup: int = 0, native_use: bool = False) -> dict:
+def report(out: Path, pickup: int = 0, native_use: bool = False, expected_resource: str = "0x3373c") -> dict:
     text = (out / "stdout_1.log").read_text(encoding="latin-1")
     snaps = {}
     errors = []
@@ -258,8 +286,10 @@ def report(out: Path, pickup: int = 0, native_use: bool = False) -> dict:
             if cell["resource"] not in initial and cell["resource"]
         }
     )
-    checks["blade_in_native_inventory"] = any(
-        cell["resource"] == "0x3373c" and cell["type"] == 10 and cell["props"] != "0x0"
+    item_check = "blade_in_native_inventory" if expected_resource == "0x3373c" else "mana_in_native_inventory"
+    expected_type = 10 if expected_resource == "0x3373c" else 11
+    checks[item_check] = any(
+        cell["resource"] == expected_resource and cell["type"] == expected_type and cell["props"] != "0x0"
         for snap in snaps.values()
         for cell in snap["cells"]
     )
@@ -279,17 +309,18 @@ def report(out: Path, pickup: int = 0, native_use: bool = False) -> dict:
     return result
 
 
-def peer_pickup_checks(host: str, client: str, client_pickup: int = 0) -> dict[str, bool]:
+def peer_pickup_checks(host: str, client: str, client_pickup: int = 0, host_pickup: int = 0) -> dict[str, bool]:
     return {
         f"server_accepted_player_{pid}": re.search(
-            rf"server: pickup {0 if pid == 1 else client_pickup} \(.*\) taken by player {pid}", host
+            rf"server: pickup {host_pickup if pid == 1 else client_pickup} \(.*\) taken by player {pid}", host
         )
         is not None
         for pid in (1, 2)
     } | {
         "host_removed_client_copy": re.search(rf"pickup {client_pickup} \(.*\) taken by player 2: removed here", host)
         is not None,
-        "client_removed_host_copy": re.search(r"pickup 0 \(.*\) taken by player 1: removed here", client) is not None,
+        "client_removed_host_copy": re.search(rf"pickup {host_pickup} \(.*\) taken by player 1: removed here", client)
+        is not None,
     }
 
 
@@ -301,16 +332,29 @@ def main() -> int:
     parser.add_argument("--joined", action="store_true")
     parser.add_argument("--interaction", choices=("goto", "use"), default="goto")
     parser.add_argument("--maps-file", type=Path)
+    parser.add_argument(
+        "--city-sites",
+        choices=CITY_SITES,
+        help="Host/join City at the authored pickup sites using native movement and Use",
+    )
     parser.add_argument("--look", choices=("direct", "stick"), default="direct")
     parser.add_argument("--strafe", type=int, choices=(0, 1), default=1)
     parser.add_argument("--run", action="store_true")
     parser.add_argument("--report", type=Path)
     args = parser.parse_args()
+    if args.city_sites:
+        if args.maps_file or args.arena != 1:
+            parser.error("--city-sites requires the stock City arena")
+        args.joined = True
+        args.interaction = "use"
+    targets = CITY_SITES.get(args.city_sites, ((0, "0x3373c", ""), (int(args.interaction == "use"), "0x3373c", "")))
     if args.report:
+        index, resource, _ = targets[int(args.report.resolve().name == "client")]
         result = report(
             args.report.resolve(),
-            1 if args.interaction == "use" and args.report.name == "client" else 0,
+            index,
             args.interaction == "use",
+            resource,
         )
         print(json.dumps(result, indent=2))
         return 0 if result["passed"] else 1
@@ -339,9 +383,9 @@ def main() -> int:
                 private_native_options(exe.parent / "drakan_native_options.ini"), encoding="utf-8"
             )
             recipe = (
-                pickup_host_recipe(args.arena, args.skin_steps, args.interaction == "use")
+                pickup_host_recipe(args.arena, args.skin_steps, args.interaction == "use", bool(args.city_sites))
                 if role == "host"
-                else pickup_client_recipe(args.interaction == "use")
+                else pickup_client_recipe(args.interaction == "use", bool(args.city_sites))
             )
             (folder / "recipe.txt").write_text(recipe, encoding="utf-8")
             config = (exe.parent / "drakan_input.ini").read_text(encoding="utf-8")
@@ -380,6 +424,11 @@ def main() -> int:
                 env["DRAKAN_ARENA_TEST_GOTO"] = "0@1800" if role == "host" else "0@5000"
             if args.maps_file:
                 env["DRAKAN_MP_MAPS"] = str(args.maps_file.resolve())
+            if args.city_sites:
+                maps = folder / "city.ini"
+                maps.write_text(city_site_map(args.city_sites), encoding="utf-8")
+                env["DRAKAN_MP_MAPS"] = str(maps)
+                del env["DRAKAN_ARENA_PICKUP_SEC"]
             manifest = dict(
                 executable=str(exe),
                 sha256=hashlib.sha256(exe.read_bytes()).hexdigest(),
@@ -413,14 +462,15 @@ def main() -> int:
         for log in logs:
             log.close()
     results = {
-        role: report(out / role, 1 if args.interaction == "use" and role == "client" else 0, args.interaction == "use")
-        for role in (("host", "client") if args.joined else ("host",))
+        role: report(out / role, targets[i][0], args.interaction == "use", targets[i][1])
+        for i, role in enumerate(("host", "client") if args.joined else ("host",))
     }
     network = (
         peer_pickup_checks(
             (out / "host/stdout_1.log").read_text(encoding="latin-1"),
             (out / "client/stdout_1.log").read_text(encoding="latin-1"),
-            1 if args.interaction == "use" else 0,
+            targets[1][0],
+            targets[0][0],
         )
         if args.joined
         else {}

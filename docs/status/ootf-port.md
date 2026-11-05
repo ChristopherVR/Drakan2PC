@@ -36,6 +36,8 @@ The earned route now continues through the cave and collects the Priest's Key by
   `ootf-levels` (13 levels, 9119 files) and arenas `ootf-arenas` (10 levels, 158 files, one `maps/*.ini` each).
 * Game choice at the title ("Choose your game": Drakan / Drakan: Order of the Flame, `drakan.ini [general] game = ask|d2|d1`), a
   campaign-only New Game that starts at `OotF 00 - Intro` (no Drakan 2 intro), separate save cards, Order of the Flame title plaque.
+  A regenerated editor pack from English D1 data also matches the German-target run showing the owl, logo and landscape
+  before Ruined Village. Early Intro frames show a black screen with HUD. See the [timed capture review](../journal/2026-11-05/issue-1-cliff-intro-city.md).
 * Earlier isolated tests loaded all 13 campaign levels and exercised host-fired `DRAKAN_LEVELCHANGE` exits, including Volcanic
   hops. Intro -> Ruined Village is reached naturally from the title. The November 4 converter fixes detector message routing;
   a real Ruined Village -> Wartok walk-in transition is verified with the opening cinematic disabled in that private fixture.

@@ -700,6 +700,15 @@ never activates it). Code: `ps2xRuntime/src/lib/drakan_arena.{h,cpp}` (game side
 (map format, std only), `MatchServer` arena options, protocol messages `PickupClaim` / `PickupState`. Evidence and what
 failed on the way: `docs/journal/2026-10-31/mp-arenas.md`.
 
+The stock City of the Damned arena extends to Z 424000 so its authored Full Mana pickup at
+Z 425685 is inside the playable rectangle. The built-in arena regression checks every pickup and spawn
+against its map bounds. A map override supplies its own rectangle.
+
+Run `python scripts/harness/arena_pickup.py --city-sites blade-mana --name city-blade-check --run` for
+the first two pickups, or use `--city-sites street-mana` with a fresh name for the other two. These
+two-peer checks place the players near the authors' coordinates, retain the pickup entries and respawn
+times, and exercise native collection, network claims, inventory and movement.
+
 ### Straight into the map
 
 A menu launched deathmatch no longer goes through the intro: `drakan_netplay` redirects **`Level 0 - Intro`** (the level
@@ -955,11 +964,9 @@ What the server does with a mode (`MatchServer`, selected by `MatchConfig.modeId
 | the menu | the Host page's Game Mode row lists `drakan_modes::customModes()` entries that fit the map |
 
 Map pictures the game takes itself (journal 2026-11-01/map-previews.md): the first time a match runs on a map and no picture exists,
-`mpPreviewCapture` (drakan_settings_host) waits about 12 s into the match, hides the MP HUD and calls
-`drakan_arena::requestPreviewShot(file)`: the player is put at the map's `preview` point (the first spawn point without one),
-facing its yaw, the camera's look pitch (camera object `+0x84`) is set, the shot waits until the follow camera has held still, the
-window is saved as a PNG and she goes back to a spawn point (bounds checks are suspended meanwhile; no file when she never
-settles on the point). Campaign levels (co-op, plain level matches) are captured from the view she starts with. The file goes to the
+`mpPreviewCapture` waits about 12 s in an arena or 9 s in a campaign match, hides the MP HUD and captures the current
+view. Capturing a live thumbnail leaves both the player and the replicated position at the gameplay location.
+The explicit preview authoring tool can still move the player to the configured preview camera. The file goes to the
 user's data folder, `%LOCALAPPDATA%/Drakan2PC/previews/<safe map name>.png` (`DRAKAN_PREVIEW_DIR` overrides; never the repository
 or the play folder), and the Host / Join / lobby map card picks it up (centre band only: the native HUD along the bottom and
 the stats overlay are cropped). Lookup order: `previews/<name>.png` next to the exe, `previews/mods/`, the data folder,
@@ -1047,6 +1054,24 @@ pack's `maps/<level>.ini`:
 Not done: team spawn sets, the USA disc (see `docs/reference/regions.md` "Multiplayer arenas on USA").
 
 ## Inquisitor movement follow-up
+
+Co-op AI retargeting restores the host's borrowed transform and damage routing when a guest handler returns
+or unwinds. Only a peer's network body can serve as a partner target or respawn fallback. Remote playback
+also retains its last rendered sender tick when the receiver resumes after a stall on an unchanged snapshot.
+During shorter outages it catches up at a bounded rate. A large step between received samples can be ordinary
+travel if their wall-clock interval and preceding velocity account for it. Use `remote_motion_check.py --burst-ms 850`
+to test a bidirectional packet outage during the walk; its summary includes both sender and receiver step candidates.
+
+Nearby replicated PAL player bodies request native high detail within 4,000 camera units; at 4,500 units
+the port releases its request. This uses the actor's native detail flag so the selector controls the mesh,
+posed vertices and far transitions together. The same versus camera distance (2,730 units) showed
+208 active vertices for remote Rynn before the change and 1,628 afterward. This applies to network player
+bodies; the ordinary world and the local player's renderer continue to use their own detail policy.
+
+The arena movement harness accepts `--joined --join-from-save <path-to-BESCES-50006Slot1>`. It copies the save
+into the client's private card, chooses Continue, returns to title and joins the listening host. In this mode the
+default host start is 95 seconds and the client's join delay after returning to title is 10 seconds.
+The check requires a successful native save load before JoinMatch and then the usual controls and movement receipts.
 
 Deployed PAL joined default-Rynn validation now passes on both host and client through the actual native
 Multiplayer menu. W/S move in opposite directions with zero heading change, stable controlled actors, correct

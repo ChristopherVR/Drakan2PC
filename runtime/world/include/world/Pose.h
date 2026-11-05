@@ -49,8 +49,9 @@ struct PlayerPose {
     uint32_t classId = 0; // kClassRynn, or kClassDragon while mounted
     bool mounted = false; // controlled actor is the dragon (Rynn herself is then not posed)
     bool attacking = false;
-    double timeSec = 0; // caller's monotonic clock at the read
-    uint32_t tick = 0;  // caller's frame counter (informational)
+    double timeSec = 0;      // caller's monotonic clock at the read
+    double snapshotSec = -1; // network sample time in wall seconds when timeSec uses sender ticks
+    uint32_t tick = 0;       // caller's frame counter (informational)
     Vec3 position;
     float rotation[9] = {1, 0, 0, 0, 1, 0, 0, 0, 1};
     float yaw = 0; // atan2(m[0][2], m[0][0]), same convention as EntitySnapshot

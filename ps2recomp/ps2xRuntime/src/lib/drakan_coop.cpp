@@ -1,5 +1,6 @@
 // Drakan: co-op prototype (drakan_coop.h).
 #include "drakan_coop.h"
+#include "drakan_coop_target.h"
 #include "drakan_ghost.h"
 #include "drakan_lifecycle.h"
 #include "drakan_region.h"
@@ -542,11 +543,11 @@ bool isLocalAttacker(const uint8_t* rdram, uint32_t sender) {
     return false;
 }
 
-// Remote players: the ghosts drakan_netplay keeps (any ghost is a partner).
+// AI targeting and partner respawns use peer bodies. The host's own selected costume is also a ghost.
 std::vector<uint32_t> ghostHandles() {
     std::vector<uint32_t> v;
     drakan_ghost::forEach([&](const drakan_ghost::Info& i) {
-        if (i.handle)
+        if (i.handle && i.remotePlayer)
             v.push_back(i.handle);
     });
     return v;
@@ -850,21 +851,20 @@ void aiHandler(uint8_t* rdram, R5900Context* c, PS2Runtime* rt) {
     // The tick runs with the local player's body standing where the partner's ghost is (position and rotation, 0x30
     // bytes at +0x14) and put back afterwards. Swapping the controlled actor itself crashed the guest: the ghost's data
     // object is never initialised (its handler swallows the init event), and the AI's attack code reads it.
-    uint32_t backup[12] = {};
-    if (alt) {
-        for (int i = 0; i < 12; ++i) {
-            backup[i] = rd32(rdram, saved + 0x14 + 4 * i);
-            wr32(rdram, saved + 0x14 + 4 * i, rd32(rdram, alt + 0x14 + 4 * i));
-        }
-    }
     c->pc = orig;
-    if (alt)
-        g_aiSwapActive = true;
-    fn(rdram, c, rt);
-    if (alt) {
-        g_aiSwapActive = false;
-        for (int i = 0; i < 12; ++i)
-            wr32(rdram, saved + 0x14 + 4 * i, backup[i]);
+    constexpr uint32_t kLastActor = PS2_RAM_SIZE - 0x14 - ScopedAiTarget::kTransformBytes;
+    if (!alt || saved > kLastActor || alt > kLastActor) {
+        fn(rdram, c, rt);
+        return;
+    }
+    try {
+        ScopedAiTarget target(rdram + saved + 0x14, rdram + alt + 0x14, g_aiSwapActive);
+        fn(rdram, c, rt);
+    } catch (...) {
+        static unsigned interrupted = 0;
+        if (g_probe && interrupted++ < 8)
+            coopLog("restored local transform after interrupted target handler %08x (actor %08x)", orig, actor);
+        throw;
     }
 }
 

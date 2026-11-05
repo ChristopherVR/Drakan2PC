@@ -29,6 +29,7 @@ Parse rules: **presence** = variable exists (even empty); **not-0** = exists and
 | `GSR_RAY_SCENE_DUMP` | string | unset | DXR scene dump path, plus `.models.csv` source metadata, at `GSR_RAY_SCENE_DUMP_EPOCH`. |
 | `GSR_RAY_SCENE_DUMP_EPOCH` | positive integer | `200` | DXR dump world epoch. Pair with the same `GSR_TEMPORAL_DUMP_EPOCH`; early epochs can precede gameplay. Invalid/zero values keep the default. |
 | `GSR_RAY_DIAGNOSTIC` | string | unset | `ao`: ambient occlusion only; `direct`: direct shadows only; `receiver`: land receiver confidence in grayscale. Requires ray shadows and native lights; unknown values preserve normal rendering. Recognized modes log an applied-mask receipt once after successful submission on each backend. |
+| `DRAKAN_RAY_INCLUDE_SKY` | exact `1` | off | Replay the former sky-model inclusion in the ray scene for shadow comparisons. The `legacy-sky` case in `scripts/harness/shadow_review.py` enables this diagnostic. |
 | `GSR_WATER_LOG` | presence | off | Log water passes (every `[ray-water]` pass line, not only the first three and slow ones). |
 | `GSR_RAY_WATCHDOG_MS` | atoi | 3000 | Ray pass watchdog: a pass stuck this long on the GPU (7x as long on the CPU) is abandoned, the shared D3D11/D3D12 fences are released from the CPU and modern water/ray shadows turn off for the session. `0` = log stalls, never abandon. |
 | `GSR_RAY_TEST_DROP_SIGNAL` | strtoull | unset | Test hook: the ray pass with this consumer fence value never signals D3D11, simulating a lost cross-API signal (the watchdog must recover). |

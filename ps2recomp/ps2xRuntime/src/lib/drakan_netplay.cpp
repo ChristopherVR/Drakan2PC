@@ -988,8 +988,10 @@ void runSession(const Cmd& c, drakan::net::ServerBrowser& browser, uint64_t& las
                         continue;
                     PlayerState ps;
                     uint32_t sampleMs;
-                    if (!client.newestSample(kv.first, ps, sampleMs))
+                    if (!client.newestSample(kv.first, ps, sampleMs)) {
+                        g_s.remotes.erase(kv.first); // a respawn invalidated the previous life's pose
                         continue;
+                    }
                     RemoteIn& r = g_s.remotes[kv.first];
                     r.name = kv.second.name;
                     r.state = ps;
@@ -2235,10 +2237,19 @@ void beforePadMgr(const uint8_t* rdram) {
         v.unwantedSince = -1;
         // Keep sender ticks as the interpolation coordinate, but do not equate one local update with one sender
         // update. Uncapped gameplay and inventory can run at very different cadences on the two machines.
+        // The network layer already rejects stale snapshots. A smaller tick in a newer snapshot starts a
+        // new sender timeline; keeping the old samples would freeze the body until the old tick was reached.
+        if (v.haveSample && r.state.tick < v.newestTick) {
+            v.buffer.clear();
+            v.haveSample = false;
+            v.playback = {};
+        }
         if (!v.haveSample || r.state.tick > v.newestTick) {
             v.haveSample = true;
             v.newestTick = r.state.tick;
-            v.buffer.push(world::fromPlayerState(r.state, r.state.tick / kTickHz));
+            auto sample = world::fromPlayerState(r.state, r.state.tick / kTickHz);
+            sample.snapshotSec = r.sampleServerMs * 0.001;
+            v.buffer.push(sample);
         }
         const double playTick = v.playback.advance(r.state.tick, r.sampleServerMs, t);
         world::PlayerPose p;
@@ -2274,7 +2285,7 @@ void beforePadMgr(const uint8_t* rdram) {
             std::memcpy(tr.pos, &bodyPose.position, sizeof tr.pos);
             std::memcpy(tr.rot, bodyPose.rotation, sizeof tr.rot);
             v.character = r.state.character;
-            v.ghostId = drakan_ghost::spawn(&tr, v.character);
+            v.ghostId = drakan_ghost::spawn(&tr, v.character, true);
             if (!v.ghostId) { // refused (engine not ready, transition): try again shortly
                 v.retryAt = t + 0.5;
                 continue;

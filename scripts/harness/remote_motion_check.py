@@ -41,7 +41,7 @@ EVENT = re.compile(r"respawn|vanished|removed|destroy id|spawned|level change|sn
 class Relay:
     """One-client bidirectional UDP relay, deterministic seeded per-datagram impairment."""
 
-    def __init__(self, port, target, delay, jitter, loss, seed):
+    def __init__(self, port, target, delay, jitter, loss, seed, burst_ms=0):
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         self.sock.bind(("127.0.0.1", port))
         self.sock.settimeout(0.005)
@@ -50,7 +50,9 @@ class Relay:
         self.delay, self.jitter, self.loss = delay / 1000, jitter / 1000, loss
         self.rng = random.Random(seed)
         self.stop = threading.Event()
-        self.counts = {"received": 0, "dropped": 0, "forwarded": 0, "peer_resets": 0}
+        self.burst_seconds = burst_ms / 1000
+        self.burst_at = math.inf
+        self.counts = {"received": 0, "dropped": 0, "burst_dropped": 0, "forwarded": 0, "peer_resets": 0}
         self.thread = threading.Thread(target=self.run, daemon=True)
 
     def run(self):
@@ -64,8 +66,11 @@ class Relay:
                     dest = self.client
                 else:
                     self.client, dest = source, self.target
-                if self.rng.random() < self.loss:
+                now = time.monotonic()
+                during_burst = self.burst_at <= now < self.burst_at + self.burst_seconds
+                if during_burst or self.rng.random() < self.loss:
                     self.counts["dropped"] += 1
+                    self.counts["burst_dropped"] += int(during_burst)
                 elif dest:
                     sequence += 1
                     due = time.monotonic() + max(0, self.delay + self.rng.uniform(-self.jitter, self.jitter))
@@ -120,12 +125,15 @@ def recipe(moving):
     return "\n".join(lines) + "\n"
 
 
-def capture(proc, out, rows):
+def capture(proc, out, rows, moving_relay=None):
     with (out / "stdout_1.log").open("wb") as log, (out / "timed-trace.jsonl").open("w", encoding="utf-8") as trace:
         for raw in iter(proc.stdout.readline, b""):
             received = time.monotonic()
             log.write(raw)
             line = raw.decode("latin-1").strip()
+            if moving_relay and "[in-ram-time] label=ram_near " in line:
+                # The moving recipe starts W four seconds after this sample.
+                moving_relay.burst_at = received + 4.7
             row = None
             if m := POSE.search(line):
                 row = {
@@ -142,6 +150,23 @@ def capture(proc, out, rows):
                 row["received"] = received
                 rows.append(row)
                 trace.write(json.dumps(row) + "\n")
+
+
+def large_position_steps(trace):
+    steps = []
+    for prev, cur in itertools.pairwise(trace):
+        distance = math.dist(prev["position"], cur["position"])
+        if distance > 500:
+            steps.append(
+                {
+                    "time": cur["wall_estimate"],
+                    "distance": distance,
+                    "dt": cur["t"] - prev["t"],
+                    "from": prev["position"],
+                    "to": cur["position"],
+                }
+            )
+    return steps
 
 
 def summarize(rows):
@@ -168,11 +193,6 @@ def summarize(rows):
     for sender, receiver in (("a", "b"), ("b", "a")):
         source = [r for r in rows[sender] if r["kind"] == "local"]
         remote = [r for r in rows[receiver] if r["kind"] == "remote"]
-        candidates = []
-        for prev, cur in itertools.pairwise(remote):
-            distance = math.dist(prev["position"], cur["position"])
-            if distance > 500:
-                candidates.append({"time": cur["wall_estimate"], "distance": distance, "dt": cur["t"] - prev["t"]})
         # Minimize mean horizontal error over 0..500 ms, sampling the source
         # history nearest to each receiver sample. Keep raw data for stage-specific review.
         fits = []
@@ -189,7 +209,8 @@ def summarize(rows):
                 fits.append((sum(errors) / len(errors), lag_ms, len(errors)))
         summary[f"{sender}_on_{receiver}"] = {
             "delay_fit_error_ms_samples": min(fits) if fits else None,
-            "candidate_steps_over_500": candidates,
+            "candidate_steps_over_500": large_position_steps(remote),
+            "sender_steps_over_500": large_position_steps(source),
         }
     summary["limitations"] = [
         "Receipt-derived clock offsets include scheduling uncertainty; no synchronized native clock.",
@@ -209,9 +230,12 @@ def main():
     ap.add_argument("--delay-ms", type=float, default=0)
     ap.add_argument("--jitter-ms", type=float, default=0)
     ap.add_argument("--loss", type=float, default=0)
+    ap.add_argument(
+        "--burst-ms", type=int, default=0, help="Drop all relay traffic for this interval during the first walk"
+    )
     ap.add_argument("--seed", type=int, default=20261105)
     args = ap.parse_args()
-    if not 0 <= args.loss < 1 or min(args.delay_ms, args.jitter_ms) < 0:
+    if not 0 <= args.loss < 1 or min(args.delay_ms, args.jitter_ms, args.burst_ms) < 0:
         ap.error("loss must be in [0,1); delays must be nonnegative")
     out = (ROOT / "build/harness" / args.name).resolve()
     if out.parent != (ROOT / "build/harness").resolve() or out.exists():
@@ -225,7 +249,7 @@ def main():
     failures = []
     rows = {k: [] for k in "ab"}
     procs, readers = [], []
-    relay = Relay(args.port + 1, args.port, args.delay_ms, args.jitter_ms, args.loss, args.seed)
+    relay = Relay(args.port + 1, args.port, args.delay_ms, args.jitter_ms, args.loss, args.seed, args.burst_ms)
     relay.thread.start()
     try:
         for side, spot in (("a", "475700,160700,487600"), ("b", "476800,160700,488500")):
@@ -296,7 +320,7 @@ def main():
                 [str(exe)], cwd=exe.parent, env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT
             )
             procs.append(proc)
-            reader = threading.Thread(target=capture, args=(proc, folder, rows[side]))
+            reader = threading.Thread(target=capture, args=(proc, folder, rows[side], relay if side == "a" else None))
             reader.start()
             readers.append(reader)
             time.sleep(4)
@@ -320,6 +344,7 @@ def main():
         result["executable_sha256_before"] = pre_sha
         result["executable_sha256_after"] = hashlib.sha256(exe.read_bytes()).hexdigest()
         checks = {
+            "requested_burst_observed": not args.burst_ms or relay.counts["burst_dropped"] > 0,
             "unchanged_executable": pre_sha == result["executable_sha256_after"],
             "dist_settings_unchanged": settings_before
             == {p.name: hashlib.sha256(p.read_bytes()).hexdigest() for p in exe.parent.glob("*.ini")},

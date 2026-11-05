@@ -632,7 +632,8 @@ public:
     // CPU time one capture may spend on the resident-texture refresh (tests set it very large for a synchronous pass).
     std::chrono::microseconds refreshBudget{250};
     void reset() { level = ~0ull; }
-    std::shared_ptr<gsr::SceneModels> capture(const uint8_t* ram, uint32_t bytes, uint64_t scene) {
+    std::shared_ptr<gsr::SceneModels> capture(const uint8_t* ram, uint32_t bytes, uint64_t scene,
+                                              bool includeSkyForComparison = false) {
         auto out = std::make_shared<gsr::SceneModels>();
         out->level = scene;
         Reader r{ram, bytes};
@@ -771,7 +772,7 @@ public:
             // RFL 0x1a is the native sky behaviour, including camera-following planet billboards. Those open
             // quads do not satisfy cameraShell's enclosing-volume test, but must not cast shadows on cliffs or
             // appear as nearby physical reflectors. Use ownership, not resource IDs, size or camera proximity.
-            if (r.resourceClass(object, 0x4db4c0) == 0x1001a)
+            if (!includeSkyForComparison && r.resourceClass(object, 0x4db4c0) == 0x1001a)
                 continue;
             auto it = resources.find(r.u(object + 8));
             if (it == resources.end())

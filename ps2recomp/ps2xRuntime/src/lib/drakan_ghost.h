@@ -36,6 +36,7 @@ struct Info {
     uint32_t handle = 0; // guest actor pointer, 0 while the spawn is in flight
     uint32_t ref = 0;    // actor+0x12 registry ref
     uint32_t resIndex = 0;
+    bool remotePlayer = false; // body representing a network peer, including its selected NPC appearance
 };
 
 void install(PS2Runtime& runtime); // reads DRAKAN_GHOST; registers the host trampolines
@@ -49,7 +50,7 @@ void setLocalCharacterEnabled(bool active);
 // `character` (drakan_coop_character id, 0 = Rynn's own body) makes the actor an NPC-class stand-in: it is created from
 // that class's resource record, keeps its own class init, and plays the character's own clips (setPose maps Rynn's
 // clips).
-int spawn(const Transform* t = nullptr, uint16_t character = 0);
+int spawn(const Transform* t = nullptr, uint16_t character = 0, bool remotePlayer = false);
 // A second Arokh body (the dragon of a mounted partner; Dragon record 0x20a60): created with the mode-7 recipe so its
 // init inserts it in the level but does not link to Rynn or take over the controlled actor. setPose replays the
 // dragon's own clips (the pose of a mounted sender is Arokh's). Same readiness rules as spawn().

@@ -315,6 +315,8 @@ void testPlaybackCadence() {
             for (int i = 1; i <= receiverHz * 3; ++i)
                 played = clock.advance(stoppedTick, 10000, 10 + double(i) / receiverHz);
             NEAR(played, stoppedTick, 1e-3); // a stalled sender settles on its real last coordinate
+            // A stalled receiver coming back to the same snapshot must not replay the last few steps.
+            NEAR(clock.advance(stoppedTick, 13000, 14), stoppedTick, 1e-3);
             const double resumed = clock.advance(stoppedTick + senderHz * 4, 17000, 17);
             CHECK(resumed > stoppedTick && resumed <= stoppedTick + senderHz * 4);
         }
@@ -324,6 +326,27 @@ void testPlaybackCadence() {
 }
 
 void testPlaybackCadenceChangesAndLoss() {
+    // A 0.8-second observation gap hid about 2,080 units of ordinary continuous running in a paired trace.
+    // On recovery, distinguish it from an equally large relocation from rest and limit single-frame catch-up.
+    {
+        PosePlaybackClock stalled;
+        const double before = stalled.advance(1000, 1000, 1.0);
+        const double after = stalled.advance(1048, 1800, 1.8);
+        CHECK(after > before && after - before <= 6.01);
+        for (float speed : {2600.f, 0.f}) {
+            PoseBuffer sparse;
+            auto first = pose(1000.0 / 60, 0, 0, 0, 0);
+            auto last = pose(1048.0 / 60, 2080, 0, 0, 0);
+            first.snapshotSec = 1.0;
+            last.snapshotSec = 1.8;
+            first.velocity.x = speed;
+            sparse.push(first);
+            sparse.push(last);
+            PlayerPose rendered;
+            CHECK(sparse.sampleAt(1024.0 / 60, rendered));
+            NEAR(rendered.position.x, speed == 0 ? 0 : 1040, 0.01);
+        }
+    }
     PosePlaybackClock clock;
     PoseBufferConfig config;
     config.maxExtrapolateSec = 0; // network playback uses sender ticks, while velocity uses wall seconds

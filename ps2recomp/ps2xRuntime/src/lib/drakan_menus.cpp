@@ -29,6 +29,7 @@
 #include <cmath>
 #include <filesystem>
 #include <sstream>
+#include <iomanip>
 #include <string>
 #include <vector>
 
@@ -482,29 +483,28 @@ void drawPager(MGuest& g, uint32_t scr) {
 #if defined(PS2X_HAVE_DRAKAN_SETTINGS) || defined(PS2X_HAVE_PORTABLE_UI)
 struct NativeOption {
     const char* key;
+    const char* guestKey;
+    const char* defaultValue;
     uint32_t offset;
     int lo, hi;
     bool real = false;
 };
 // The twelve serialized options in the retail table at 0x54ba00. Never persist
 // the options object wholesale: it also contains guest pointers and allocations.
-constexpr NativeOption kNativeOptions[] = {{"sensitivity", 0x78, 30, 200, true},
-                                           {"vibrate", 0x6c, 0, 1},
-                                           {"subtitles", 0x70, 0, 1},
-                                           {"stereo", 0x74, 0, 1},
-                                           {"auto_mount_dragon", 0x60, 0, 1},
-                                           {"invert_y", 0x64, 0, 1},
-                                           {"controller_scheme", 0x2e8, 0, 2},
-                                           {"sound_volume", 0x8c, 0, 100},
-                                           {"music_volume", 0x90, 0, 100},
-                                           {"difficulty", 0x94, 0, 2},
-                                           {"screen_x_offset", 0x2ec, -128, 128},
-                                           {"screen_y_offset", 0x2f0, -128, 128}};
-std::array<uint32_t, 12> g_savedOptions{};
+constexpr NativeOption kNativeOptions[] = {{"sensitivity", "Sensitivity", "1", 0x78, 30, 200, true},
+                                           {"vibrate", "Vibrate", "1", 0x6c, 0, 1},
+                                           {"subtitles", "Subtitles", "1", 0x70, 0, 1},
+                                           {"stereo", "Stereo", "1", 0x74, 0, 1},
+                                           {"auto_mount_dragon", "AutoMountDragon", "1", 0x60, 0, 1},
+                                           {"invert_y", "FlipYAxis", "0", 0x64, 0, 1},
+                                           {"controller_scheme", "JoyConfig_Scheme", "0", 0x2e8, 0, 2},
+                                           {"sound_volume", "SoundVolume", "50", 0x8c, 0, 100},
+                                           {"music_volume", "MusicVolume", "25", 0x90, 0, 100},
+                                           {"difficulty", "Difficulty", "0", 0x94, 0, 2},
+                                           {"screen_x_offset", "ScreenXOffset", "0", 0x2ec, -128, 128},
+                                           {"screen_y_offset", "ScreenYOffset", "0", 0x2f0, -128, 128}};
+std::array<uint32_t, std::size(kNativeOptions)> g_savedOptions{};
 bool g_optionsReady = false;
-constexpr const char* kGuestOptionNames[] = {"Sensitivity",     "Vibrate",    "Subtitles",        "Stereo",
-                                             "AutoMountDragon", "FlipYAxis",  "JoyConfig_Scheme", "SoundVolume",
-                                             "MusicVolume",     "Difficulty", "ScreenXOffset",    "ScreenYOffset"};
 
 bool validOption(const NativeOption& opt, const std::string& value) {
     char* end = nullptr;
@@ -514,7 +514,7 @@ bool validOption(const NativeOption& opt, const std::string& value) {
            (opt.real || n == std::floor(n));
 }
 
-bool writeGuestOptions(const dsettings::IniDoc& ini) {
+bool writeGuestOptions(const dsettings::IniDoc& ini, bool restorePartial = false) {
     namespace fs = std::filesystem;
     const auto& paths = PS2Runtime::getIoPaths();
     const fs::path root = paths.mcRoot.empty() ? paths.elfDirectory / "mc0" : paths.mcRoot;
@@ -526,6 +526,16 @@ bool writeGuestOptions(const dsettings::IniDoc& ini) {
     io.read(file.string(), old);
     // Preserve any native button bindings and unknown settings in an existing
     // options file. Replace only the twelve fields exposed by these menus.
+    std::array<std::string, std::size(kNativeOptions)> values;
+    std::array<bool, std::size(kNativeOptions)> retained{};
+    for (size_t i = 0; i < values.size(); ++i) {
+        values[i] = ini.get("options", kNativeOptions[i].key);
+        if (!validOption(kNativeOptions[i], values[i])) {
+            if (!restorePartial)
+                return false;
+            values[i].clear();
+        }
+    }
     std::istringstream input(old);
     std::string output = old.empty() ? "// PC automatically saved options\nVersion 278\n" : "", line;
     while (std::getline(input, line)) {
@@ -534,19 +544,28 @@ bool writeGuestOptions(const dsettings::IniDoc& ini) {
         parts >> verb >> key;
         bool ours = false;
         if (verb == "set")
-            for (const char* name : kGuestOptionNames)
-                if (key == name)
-                    ours = true;
+            for (size_t i = 0; i < values.size(); ++i) {
+                if (key != kNativeOptions[i].guestKey)
+                    continue;
+                std::string cardValue;
+                parts >> std::quoted(cardValue);
+                ours = !values[i].empty() || !validOption(kNativeOptions[i], cardValue);
+                if (!ours)
+                    retained[i] = true;
+                break;
+            }
         if (!ours)
             output += line + "\n";
     }
     for (size_t i = 0; i < g_savedOptions.size(); ++i) {
-        const auto& opt = kNativeOptions[i];
-        const std::string value = ini.get("options", opt.key);
-        if (!validOption(opt, value))
-            return false;
-        output += "set " + std::string(kGuestOptionNames[i]) + " \"" + value + "\"\n";
+        if (!retained[i]) {
+            const auto& opt = kNativeOptions[i];
+            output += "set " + std::string(opt.guestKey) + " \"" + (values[i].empty() ? opt.defaultValue : values[i]) +
+                      "\"\n";
+        }
     }
+    if (output == old)
+        return true;
     std::error_code error;
     fs::create_directories(file.parent_path(), error);
     return !error && io.write(file.string(), output);
@@ -561,8 +580,8 @@ std::string nativeOptionsPath() {
 
 void installNativeOptions() {
     std::string text;
-    if (dsettings::FileIO::native().read(nativeOptionsPath(), text) &&
-        writeGuestOptions(dsettings::IniDoc::parse(text)))
+    dsettings::FileIO::native().read(nativeOptionsPath(), text);
+    if (writeGuestOptions(dsettings::IniDoc::parse(text), true))
         std::fprintf(stderr, "[menus] native options prepared for the game's normal startup loader\n");
 }
 
@@ -579,7 +598,7 @@ void nativeOptionsTick(MGuest& g, int screen) {
             g_savedOptions[i] = g.read32(0x4fb6d0u + kNativeOptions[i].offset);
         g_optionsReady = true;
     }
-    std::array<uint32_t, 12> current;
+    decltype(g_savedOptions) current;
     for (size_t i = 0; i < current.size(); ++i)
         current[i] = g.read32(0x4fb6d0u + kNativeOptions[i].offset);
     if (current == g_savedOptions)

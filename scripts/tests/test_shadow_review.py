@@ -70,6 +70,28 @@ class ShadowReviewTest(unittest.TestCase):
         self.assertFalse(classify(self.text(), self.entry(), 0, True, files, {})["execution_success"])
         self.assertFalse(classify("[gsr] exit:", self.entry(), 0, False, files, {})["evidence_complete"])
 
+    def test_cliff_requires_settled_position_before_face_shot(self):
+        entry = plan("test", ["both"], ["d3d11"], ["surdana-cliff"], "german", True)["runs"][0]
+        xyz = " ".join(entry["env"]["DRAKAN_PLAYTEST_POS"].split()[:3])
+        position = f"[playtest] +240 boundaries: player at {xyz} yaw -0.785\n"
+        shot = "[in] screenshot cliff_face -> ok\n"
+        reason = "settled player at cliff before first screenshot"
+        for logs, expected in ((position + shot, False), (shot + position, True), (position, True)):
+            result = classify(self.text() + logs, entry, 0, False, set(), {})
+            self.assertEqual(reason in result["missing_evidence"], expected)
+            self.assertIn("three cliff-face angles", result["missing_evidence"])
+
+    def test_cliff_legacy_sky_requires_runtime_and_scene_evidence(self):
+        run = plan("test", ["legacy-sky", "both"], ["d3d11"], ["surdana-cliff"], "german", True)["runs"]
+        self.assertEqual(run[0]["env"]["DRAKAN_RAY_INCLUDE_SKY"], "1")
+        self.assertNotIn("DRAKAN_RAY_INCLUDE_SKY", run[1]["env"])
+        for entry, count, mismatch in ((run[0], 0, True), (run[0], 1, False), (run[1], 1, True)):
+            result = classify(self.text(), entry, 0, False, set(), {"surdana_planet_instances": count})
+            self.assertEqual("expected Surdana planet model membership" in result["missing_evidence"], mismatch)
+            self.assertEqual(
+                "legacy sky inclusion receipt" in result["missing_evidence"], entry["case"] == "legacy-sky"
+            )
+
     def test_requested_flags_do_not_prove_active_shadows_or_diagnostic(self):
         files = {f"{name}.png" for name in SHOTS}
         result = classify(self.text(), self.entry("ao"), 0, False, files, {})

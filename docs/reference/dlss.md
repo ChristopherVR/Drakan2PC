@@ -59,6 +59,10 @@ The shared resident exporter excludes models whose native resource class is sky 
 camera-following planet billboards that are not enclosing sky shells. They remain in the game's sky rendering,
 but cannot cast physical shadows or become nearby reflection/geometry-guide surfaces.
 
+For a controlled Surdana comparison, run `python scripts/harness/shadow_review.py --scene surdana-cliff --case both --case legacy-sky --backend both --dump-epoch 1800`.
+Both cases use the same placement, camera turns and lighting settings. Only the latter admits sky-class models
+to the ray scene. Check the face/left/right screenshots and the run receipts together.
+
 For characters, the native projector owns direct shadow casting when it is requested during the current world
 submission. The resolved visible caster and its lifetime generation are recorded, then published in an immutable
 model snapshot **before** EndWorld triggers the modern pass. DXR and WebGPU use a separate direct-caster mask;

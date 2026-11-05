@@ -108,7 +108,7 @@ int main() {
         CHECK(cat.add(std::string(1000, 'x') + "\n[arena z", "junk") == 0);
     }
     {
-        // the compiled-in default list (configs/mp_maps.ini) is valid: every arena has spawns inside its bounds
+        // Built-in arena spawns and pickups must be reachable without leaving the match bounds.
         ArenaCatalog cat;
         std::vector<std::string> errors;
         const size_t n = cat.add(builtinArenaText(), "built-in", &errors);
@@ -134,6 +134,8 @@ int main() {
             CHECK(!a.description.empty() && a.spawns.size() >= 4 && !a.pickups.empty());
             for (const ArenaSpawn& s : a.spawns)
                 CHECK(a.insideBounds(s.pos[0], s.pos[2]));
+            for (const ArenaPickup& pickup : a.pickups)
+                CHECK(a.insideBounds(pickup.pos[0], pickup.pos[2]));
             CHECK(a.name.size() <= kMaxLevelLength);
         }
     }

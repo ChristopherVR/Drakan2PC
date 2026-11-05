@@ -7,7 +7,9 @@ The twelve audited native option fields are stored in
 `drakan_native_options.ini` beside the executable and mirrored atomically into
 the native settings file under the configured card root. Startup restores and
 applies them through the game's ordinary loader; no blocking guest audio/apply
-routine is invoked from a copied input context. Existing native button bindings
+routine is invoked from a copied input context. On startup, valid PC fields override the matching card fields.
+Missing or invalid PC fields keep valid card settings and otherwise receive startup defaults, including controller
+scheme A on a fresh card. Live option saves still validate the complete set of native values. Existing native button bindings
 and unknown native settings lines are retained. PC overlay settings keep their
 existing Apply/OK workflow.
 

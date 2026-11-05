@@ -1405,7 +1405,7 @@ export function installCampaignWizard(host: WizardHost): CampaignWizard {
                     h(
                         'p',
                         {},
-                        'In a browser, go on to Export and install: put the pack in the game\'s mods folder, start the game and choose your campaign on the "Choose your game" screen.',
+                        'Use Export and install. If you save a zip, put it in the game’s mods folder, enable it in the Mods menu and restart the game to choose your campaign.',
                     ),
                 ),
             );
@@ -1601,14 +1601,14 @@ export function installCampaignWizard(host: WizardHost): CampaignWizard {
                     ? "Install writes the pack into the game's mods folder and turns it on. The zip is for sharing."
                     : host.installAvailable()
                       ? 'Install asks for the game folder (the one with drakan.exe), writes the pack into its mods folder and turns it on.'
-                      : "This browser cannot write into folders: save the zip, unpack it into the game's mods folder and turn it on in mods.ini.",
+                      : 'Save the zip to the game’s mods folder, enable it in the Mods menu and restart the game.',
             ),
             lastShip && !lastShip.installed
                 ? h(
                       'div',
                       { class: 'cwz-verdict ok', id: 'cwz-saved' },
                       icon('check-circle', 16),
-                      `Saved ${lastShip.where}. Unpack it into the game's mods folder, start the game and choose ${c?.title || 'your campaign'} on the Choose your game screen.`,
+                      `Saved ${lastShip.where}. Put the zip in the game’s mods folder, enable it in the Mods menu and restart. Choose ${c?.title || 'your campaign'} on the Choose your game screen.`,
                   )
                 : null,
             packLines && !packError
