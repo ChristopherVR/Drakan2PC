@@ -102,9 +102,17 @@ jobs:
           New-Item -ItemType Directory -Force "$env:GITHUB_WORKSPACE/out" | Out-Null
           $bundle = 'src-tauri/target/release/bundle/nsis'
           Get-ChildItem $bundle -Filter '*.exe' | Move-Item -Destination "$env:GITHUB_WORKSPACE/out/DrakanEditor-Setup.exe"
-          $exe = Get-ChildItem 'src-tauri/target/release' -Filter '*.exe' -File | Sort-Object LastWriteTime | Select-Object -Last 1
-          Compress-Archive -Path $exe.FullName `
+          # By name: with a reused target dir the newest *.exe can be the save editor's.
+          Compress-Archive -Path 'src-tauri/target/release/drakan-editor-desktop.exe' `
             -DestinationPath "$env:GITHUB_WORKSPACE/out/DrakanEditor-Portable.zip"
+      # Native WebView2 check of the built exe (import dialog dropdown, mouse and keyboard; no disc needed). Reliable
+      # locally (installed, portable, with and without a disc), not yet proven on the hosted runner, so it reports but
+      # does not block the release. Make it blocking once a few runs passed.
+      - name: WebView2 smoke test of the Drakan Editor
+        continue-on-error: true
+        timeout-minutes: 5
+        working-directory: editor
+        run: npm run smoke:webview -w @drakan/desktop
       - name: Build the Drakan Save Editor
         working-directory: editor/packages/desktop
         run: |
