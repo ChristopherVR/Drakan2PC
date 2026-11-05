@@ -180,6 +180,24 @@ def large_position_steps(trace):
     return steps
 
 
+def target_yield_step(log):
+    marker = "test: yielding borrowed target for one vblank"
+    offset = log.find(marker)
+    if offset < 0:
+        return None
+    prev = None
+    for match in POSE.finditer(log, 0, offset):
+        if match["kind"]:
+            prev = match
+    after = next((m for m in POSE.finditer(log, offset) if m["kind"]), None)
+    if not prev or not after:
+        return None
+    return {
+        "distance": math.dist([float(prev[c]) for c in "xyz"], [float(after[c]) for c in "xyz"]),
+        "seconds": float(after["t"]) - float(prev["t"]),
+    }
+
+
 def summarize(rows):
     summary = {}
     for side, records in rows.items():
@@ -249,8 +267,13 @@ def main():
         action="store_true",
         help="Exercise host AI targeting the peer and repeat the inventory/return-to-play sequence",
     )
+    ap.add_argument(
+        "--target-yield", action="store_true", help="Force one EE yield inside the sender's borrowed target"
+    )
     ap.add_argument("--seed", type=int, default=20261105)
     args = ap.parse_args()
+    if args.target_yield and not args.sender_probe:
+        ap.error("--target-yield requires --sender-probe")
     if not 0 <= args.loss < 1 or min(args.delay_ms, args.jitter_ms, args.burst_ms) < 0:
         ap.error("loss must be in [0,1); delays must be nonnegative")
     out = (ROOT / "build/harness" / args.name).resolve()
@@ -327,6 +350,8 @@ def main():
                 }
             )
             if args.sender_probe and side == "a":
+                if args.target_yield:
+                    extra["DRAKAN_COOP_TEST_TARGET_YIELD"] = "1"
                 extra["DRAKAN_COOP_PROBE"] = "1"
                 extra["DRAKAN_COOP_TEST_FORCE_GHOST"] = "all"
             env.update(extra)
@@ -376,6 +401,13 @@ def main():
                 else ""
             )
             if args.sender_probe and side == "a":
+                if args.target_yield:
+                    step = target_yield_step(text)
+                    result["sender_step_across_target_yield"] = step
+                    checks["target_yield_kept_sender_position"] = step is not None and step["distance"] <= 500
+                    checks["interrupted_handler_restored"] = (
+                        "restored local transform after interrupted target handler" in text
+                    )
                 checks["host_targeted_partner"] = "now targets a remote player's ghost (player 2;" in text
                 result["interrupted_target_restores"] = text.count(
                     "restored local transform after interrupted target handler"

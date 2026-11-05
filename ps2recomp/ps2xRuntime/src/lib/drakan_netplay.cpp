@@ -2,6 +2,7 @@
 #include "drakan_game.h"
 #include "drakan_netplay.h"
 #include "drakan_arena.h"
+#include "drakan_coop.h"
 #include "drakan_coop_character.h"
 #include "drakan_ghost.h"
 #include "drakan_levelchange.h"
@@ -2144,6 +2145,10 @@ void beforePadMgr(const uint8_t* rdram) {
         drakan_ghost::setLocalCharacterEnabled(false);
         return;
     }
+    // A guest callback may re-enter PadMgr while AI perception is using the partner's transform.
+    // Leave the last genuine sample in the network slot, including its original timestamp.
+    if (drakan_coop::borrowingPlayerTransform())
+        return;
     loadDragonEnv();
     const double t = nowSec();
     const uint32_t myLevel = g_levelHash.load();

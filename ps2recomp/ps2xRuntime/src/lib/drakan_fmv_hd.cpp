@@ -2,9 +2,11 @@
 #include "drakan_fmv_hd.h"
 
 #include "drakan_config.h"
+#include "drakan_lifecycle.h"
 #include "gsr/gsr.h"
 #include "runtime/ps2_ipu.h"
 
+#include <algorithm>
 #include <array>
 #include <atomic>
 #include <chrono>
@@ -111,8 +113,10 @@ public:
 
     void request(uint32_t movie, uint32_t frame) {
         std::lock_guard<std::mutex> lk(mu_);
-        if (!thread_.joinable())
+        if (!thread_.joinable()) {
+            quit_ = false;
             thread_ = std::thread([this] { run(); });
+        }
         if (movie != wantMovie_ || frame + kMaxWindow < ipuFrame_) { // another movie, or this one restarted
             summary();
             lastServed_ = ~0u; // the final frame is re-stamped after the end: counted once
@@ -126,12 +130,13 @@ public:
     std::shared_ptr<const gsr::MovieImage> get(uint32_t movie, uint32_t frame) {
         std::unique_lock<std::mutex> lk(mu_);
         if (movie != wantMovie_)
-            ipuFrame_ = frame;
-        wantMovie_ = movie;
+            return nullptr; // a queued draw from a movie retired by a level change
         gsFrame_ = frame;
         cv_.notify_all();
         const auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(120);
         for (;;) {
+            if (quit_ || movie != wantMovie_)
+                return nullptr;
             if (cacheMovie_ == movie) {
                 auto it = cache_.find(frame);
                 if (it != cache_.end()) {
@@ -155,11 +160,21 @@ public:
         return nullptr;
     }
 
+    void releaseMovie() {
+        std::lock_guard<std::mutex> lk(mu_);
+        summary();
+        wantMovie_ = cacheMovie_ = failed_ = ~0u;
+        cache_.clear();
+        cv_.notify_all();
+    }
+
     void stop() {
         {
             std::lock_guard<std::mutex> lk(mu_);
             summary();
             quit_ = true;
+            wantMovie_ = cacheMovie_ = failed_ = ~0u;
+            cache_.clear();
             cv_.notify_all();
         }
         if (thread_.joinable())
@@ -180,6 +195,8 @@ private:
         while (!quit_) {
             const uint32_t movie = wantMovie_, want = gsFrame_;
             if (movie == ~0u || movie == failed_) {
+                if (openMovie_ != ~0u)
+                    close(); // FFmpeg reference pictures and frame workers belong to the previous movie
                 cv_.wait(lk);
                 continue;
             }
@@ -202,9 +219,19 @@ private:
             lk.unlock();
             std::shared_ptr<gsr::MovieImage> image;
             uint32_t got = 0;
-            const bool ok = decodeFrame(movie, next, image, got);
+            bool ok = false;
+            try {
+                ok = decodeFrame(movie, next, image, got);
+            } catch (const std::bad_alloc&) {
+                std::fprintf(stderr, "[fmv-hd] %s: out of frame memory, using original movie frames\n",
+                             g_movies[movie].name.c_str());
+            }
             lk.lock();
+            if (movie != wantMovie_)
+                continue;
             if (!ok) {
+                cache_.clear();
+                close();
                 failed_ = movie;
                 cv_.notify_all();
                 continue;
@@ -298,14 +325,17 @@ private:
         }
         stream_ = fmt_->streams[si];
         codec_ = avcodec_alloc_context3(dec);
-        avcodec_parameters_to_context(codec_, stream_->codecpar);
-        codec_->thread_count = 0; // automatic: frame + slice threads
+        if (!codec_ || avcodec_parameters_to_context(codec_, stream_->codecpar) < 0)
+            return false;
+        codec_->thread_count = static_cast<int>(std::clamp(std::thread::hardware_concurrency(), 1u, 4u));
         if (avcodec_open2(codec_, dec, nullptr) < 0) {
             std::fprintf(stderr, "[fmv-hd] %s: decoder %s failed to open\n", m.name.c_str(), dec->name);
             return false;
         }
         frame_ = av_frame_alloc();
         packet_ = av_packet_alloc();
+        if (!frame_ || !packet_)
+            return false;
         rate_ = stream_->avg_frame_rate.num ? stream_->avg_frame_rate : AVRational{25, 1};
         start_ = stream_->start_time == AV_NOPTS_VALUE ? 0 : stream_->start_time;
         pos_ = 0;
@@ -377,8 +407,8 @@ void onIpuFrame(const uint8_t* bits, size_t bytes, const uint8_t* macroblocks, u
     uint64_t signature = 0;
     for (uint32_t i = 0; i < count; ++i)
         signature += gsr::movie::blockTerm(gsr::movie::blockHash(macroblocks + (size_t)i * gsr::movie::kBlockBytes));
-    gs->noteMovieFrame(signature, m.width, m.height, ref->movie, ref->frame);
     decoder().request(ref->movie, ref->frame);
+    gs->noteMovieFrame(signature, m.width, m.height, ref->movie, ref->frame);
 }
 #endif
 
@@ -395,6 +425,13 @@ void attach(gsr::Renderer* renderer) {
         decoder().stop();
         return;
     }
+    static const auto listener =
+        drakan_lifecycle::subscribe(drakan_lifecycle::Kind::BeforeLevelLoad, [](const drakan_lifecycle::Event&) {
+            g_lastMovie = ~0u;
+            g_lastFrame = 0;
+            decoder().releaseMovie();
+        });
+    (void)listener;
     renderer->setMovieFrameSource([](uint32_t movie, uint32_t frame) { return decoder().get(movie, frame); });
     g_gs.store(renderer, std::memory_order_release);
     PS2Ipu::setFrameObserver(&onIpuFrame);

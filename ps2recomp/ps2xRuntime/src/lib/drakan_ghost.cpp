@@ -950,24 +950,28 @@ void localCharacterTick(drakan_input::IGuest& guest, uint32_t ctx) {
 // Level load and save write (drakan_lifecycle, EE thread at the hooked call): ghosts must not survive either (the level
 // loader does not flush the kill list; the serialisers iterate every class 0x10009 actor).
 void destroyAll(const drakan_lifecycle::Event& e) {
-    std::lock_guard<std::mutex> l(g_m);
-    resetLocalCharacter();
-    g_localRetry = 0;
-    g_localRead = {};
-    for (const Ghost& g : g_ghosts)
+    std::vector<Ghost> retiring;
+    {
+        std::lock_guard<std::mutex> lock(g_m);
+        resetLocalCharacter();
+        g_localRetry = 0;
+        g_localRead = {};
+        retiring.swap(g_ghosts);
+        g_hist.clear();
+        if (g_mirror) {
+            g_autoPending = true;
+            g_autoDelay = 120;
+        }
+    }
+    // Destroying an actor runs guest callbacks. Those callbacks may query the ghost registry.
+    for (const Ghost& g : retiring)
         for (uint32_t w : g.weapon)
             if (w && drakan_lifecycle::destroyActor(e, w, true))
                 std::fprintf(stderr, "[ghost] destroyed weapon %x of id %d before %s\n", w, g.info.id,
                              drakan_lifecycle::kindName(e.kind));
-    for (const Ghost& g : g_ghosts)
+    for (const Ghost& g : retiring)
         if (g.info.handle && drakan_lifecycle::destroyActor(e, g.info.handle, true))
             std::fprintf(stderr, "[ghost] destroyed id %d before %s\n", g.info.id, drakan_lifecycle::kindName(e.kind));
-    g_ghosts.clear();
-    g_hist.clear(); // EE thread
-    if (g_mirror) {
-        g_autoPending = true;
-        g_autoDelay = 120;
-    }
 }
 
 void onLoaded(const drakan_lifecycle::Event& e) {

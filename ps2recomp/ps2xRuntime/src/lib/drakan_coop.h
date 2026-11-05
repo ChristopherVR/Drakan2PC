@@ -41,6 +41,8 @@ namespace drakan_coop {
 
 void install(PS2Runtime& runtime);
 bool enabled();
+// A nested PadMgr call must not publish the temporary AI target as the local player.
+bool borrowingPlayerTransform();
 // EE thread, at the PadMgr_Update boundary.
 void beforePadMgr(drakan_input::IGuest& guest, uint8_t* rdram);
 

@@ -1,4 +1,5 @@
 // Drakan: co-op prototype (drakan_coop.h).
+#include "runtime/ee_no_preempt.h"
 #include "drakan_coop.h"
 #include "drakan_coop_target.h"
 #include "drakan_ghost.h"
@@ -31,9 +32,6 @@
 #include <unordered_map>
 #include <utility>
 #include <vector>
-
-void ps2xNoPreemptEnter() noexcept;
-void ps2xNoPreemptLeave() noexcept;
 
 namespace drakan_coop {
 namespace {
@@ -857,8 +855,18 @@ void aiHandler(uint8_t* rdram, R5900Context* c, PS2Runtime* rt) {
         fn(rdram, c, rt);
         return;
     }
+    // Harness only: yield a real EE thread while it is borrowing a distant peer's transform.
+    // Resume at the original handler's entry, as a checkpoint there would.
+    static bool yieldTarget = std::getenv("DRAKAN_COOP_TEST_TARGET_YIELD") != nullptr;
+    const bool yieldNow = yieldTarget && g_st.aiGhostTicks > 60 && playerOfHandle(alt) > 0 &&
+                          std::abs(rdF(rdram, saved + 0x14) - rdF(rdram, alt + 0x14)) > 3000.0f;
     try {
         ScopedAiTarget target(rdram + saved + 0x14, rdram + alt + 0x14, g_aiSwapActive);
+        if (yieldNow) {
+            yieldTarget = false;
+            coopLog("test: yielding borrowed target for one vblank");
+            rt->eeWaitVSyncTicks(1, orig);
+        }
         fn(rdram, c, rt);
     } catch (...) {
         static unsigned interrupted = 0;
@@ -1747,9 +1755,8 @@ void runSpew(uint8_t* rdram, R5900Context* c, PS2Runtime* rt) {
         g_origSpew(rdram, c, rt);
         return;
     }
-    ps2xNoPreemptEnter();
+    const ScopedEeNoPreempt noPreempt;
     g_origSpew(rdram, c, rt);
-    ps2xNoPreemptLeave();
 }
 
 void hookSpew(uint8_t* rdram, R5900Context* c, PS2Runtime* rt) {
@@ -2551,6 +2558,10 @@ void testAids(drakan_input::IGuest& guest, uint8_t* rdram) {
 }
 
 } // namespace
+
+bool borrowingPlayerTransform() {
+    return g_aiSwapActive.load(std::memory_order_relaxed);
+}
 
 bool enabled() {
     return g_enabled.load();

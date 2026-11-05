@@ -2,6 +2,7 @@
 // controlled-actor setter. "After" events must survive a guest thread switch inside the hooked call (the loader waits
 // on semaphores), so the return address is redirected to a host trampoline that fires them whenever the call finally
 // returns. The hook itself fires "before" only on a real entry (c->pc == the function), never on a resume.
+#include "runtime/ee_no_preempt.h"
 #include "drakan_game.h"
 #include "drakan_lifecycle.h"
 #include "drakan_region.h"
@@ -20,9 +21,6 @@
 #include <mutex>
 #include <utility>
 #include <vector>
-
-void ps2xNoPreemptEnter() noexcept;
-void ps2xNoPreemptLeave() noexcept;
 
 namespace drakan_lifecycle {
 namespace {
@@ -593,13 +591,14 @@ uint32_t callGuest(const Event& e, uint32_t fn, uint32_t a0, uint32_t a1, uint32
     SET_GPR_U32(tmp.get(), 31, 0);
     tmp->pc = fn;
     tmp->in_delay_slot = false;
-    ps2xNoPreemptEnter();
-    for (int guard = 0; guard < 64 && tmp->pc != 0u; ++guard) {
-        if (!e.runtime->hasFunction(tmp->pc))
-            break;
-        e.runtime->lookupFunction(tmp->pc)(e.rdram, tmp.get(), e.runtime);
+    {
+        const ScopedEeNoPreempt noPreempt;
+        for (int guard = 0; guard < 64 && tmp->pc != 0u; ++guard) {
+            if (!e.runtime->hasFunction(tmp->pc))
+                break;
+            e.runtime->lookupFunction(tmp->pc)(e.rdram, tmp.get(), e.runtime);
+        }
     }
-    ps2xNoPreemptLeave();
     return getRegU32(tmp.get(), 2);
 }
 

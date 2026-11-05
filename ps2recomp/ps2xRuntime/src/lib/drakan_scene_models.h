@@ -631,7 +631,21 @@ public:
     TextureLoader loadTexture;
     // CPU time one capture may spend on the resident-texture refresh (tests set it very large for a synchronous pass).
     std::chrono::microseconds refreshBudget{250};
-    void reset() { level = ~0ull; }
+    void reset() {
+        level = ~0ull;
+        ticks = 0;
+        backdrops.clear();
+        meshes.clear();
+        templates.clear();
+        missing.clear();
+        textures.clear();
+        textureIndices.clear();
+        refreshing = false;
+        refreshNext.clear();
+        refreshIndices.clear();
+        live.clear();
+        generations.clear();
+    }
     std::shared_ptr<gsr::SceneModels> capture(const uint8_t* ram, uint32_t bytes, uint64_t scene,
                                               bool includeSkyForComparison = false) {
         auto out = std::make_shared<gsr::SceneModels>();
@@ -714,19 +728,8 @@ public:
             }
         }
         if (level != scene) {
+            reset();
             level = scene;
-            ticks = 0;
-            backdrops.clear();
-            meshes.clear();
-            templates.clear();
-            missing.clear();
-            textures.clear();
-            textureIndices.clear();
-            refreshing = false;
-            refreshNext.clear();
-            refreshIndices.clear();
-            live.clear();
-            generations.clear();
             for (uint32_t p = 0x100000; p + 0x120 <= bytes; p += 4)
                 if (r.u(p) == 0x51b8b0) {
                     live.insert(p);

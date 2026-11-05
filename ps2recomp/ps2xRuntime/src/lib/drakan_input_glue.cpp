@@ -14,6 +14,7 @@
 //   DRAKAN_AUTOPRESS=<ms>, DRAKAN_AUTOPRESS_UNTIL=<ms>   tap Start+Cross for 150 ms every period (headless menu
 //   navigation)
 #if defined(PS2X_HAVE_DRAKAN_INPUT) || defined(PS2X_HAVE_PORTABLE_UI)
+#include "runtime/ee_no_preempt.h"
 #include "ps2_runtime.h"
 #include "ps2_runtime_macros.h"
 #include "runtime/ee_scheduler.h"
@@ -92,8 +93,6 @@ static void* hostHwnd() {
     return nullptr;
 #endif
 }
-void ps2xNoPreemptEnter() noexcept;
-void ps2xNoPreemptLeave() noexcept;
 
 extern std::atomic<bool> g_drakanMovieSeen; // drakan_overrides.cpp
 
@@ -264,20 +263,21 @@ public:
         SET_GPR_U32(tmp.get(), 31, 0);
         tmp->pc = c.addr;
         tmp->in_delay_slot = false;
-        ps2xNoPreemptEnter(); // no scheduler preemption inside the nested call (it would unwind with a resume pc)
-        for (int guard = 0; guard < 64 && tmp->pc != 0u; ++guard) {
-            if (!m_rt->hasFunction(tmp->pc))
-                break;
-            PS2Runtime::RecompiledFunction fn = m_rt->lookupFunction(tmp->pc);
-            if (trace)
-                ilog("[combat-call] step=%d pc=%x ra=%x sp=%x\n", guard, tmp->pc, getRegU32(tmp.get(), 31),
-                     getRegU32(tmp.get(), 29));
-            fn(m_rdram, tmp.get(), m_rt);
-            if (trace)
-                ilog("[combat-call] step=%d returned pc=%x ra=%x sp=%x\n", guard, tmp->pc, getRegU32(tmp.get(), 31),
-                     getRegU32(tmp.get(), 29));
+        {
+            const ScopedEeNoPreempt noPreempt;
+            for (int guard = 0; guard < 64 && tmp->pc != 0u; ++guard) {
+                if (!m_rt->hasFunction(tmp->pc))
+                    break;
+                PS2Runtime::RecompiledFunction fn = m_rt->lookupFunction(tmp->pc);
+                if (trace)
+                    ilog("[combat-call] step=%d pc=%x ra=%x sp=%x\n", guard, tmp->pc, getRegU32(tmp.get(), 31),
+                         getRegU32(tmp.get(), 29));
+                fn(m_rdram, tmp.get(), m_rt);
+                if (trace)
+                    ilog("[combat-call] step=%d returned pc=%x ra=%x sp=%x\n", guard, tmp->pc, getRegU32(tmp.get(), 31),
+                         getRegU32(tmp.get(), 29));
+            }
         }
-        ps2xNoPreemptLeave();
         if (trace)
             ilog("[combat-call] leave pc=%x result=%u sp=%x\n", tmp->pc, getRegU32(tmp.get(), 2),
                  getRegU32(tmp.get(), 29));
@@ -304,13 +304,14 @@ public:
         SET_GPR_U32(tmp.get(), 31, 0);
         tmp->pc = 0x3937c8u;
         tmp->in_delay_slot = false;
-        ps2xNoPreemptEnter();
-        for (unsigned guard = 0; guard < 16 && tmp->pc; ++guard) {
-            if (!m_rt->hasFunction(tmp->pc))
-                break;
-            m_rt->lookupFunction(tmp->pc)(m_rdram, tmp.get(), m_rt);
+        {
+            const ScopedEeNoPreempt noPreempt;
+            for (unsigned guard = 0; guard < 16 && tmp->pc; ++guard) {
+                if (!m_rt->hasFunction(tmp->pc))
+                    break;
+                m_rt->lookupFunction(tmp->pc)(m_rdram, tmp.get(), m_rt);
+            }
         }
-        ps2xNoPreemptLeave();
         if (tmp->pc)
             return false;
         state = static_cast<int32_t>(getRegU32(tmp.get(), 2));
@@ -1105,11 +1106,11 @@ void hookBowLaunch(uint8_t* rdram, R5900Context* c, PS2Runtime* rt) {
         const uint16_t old = g.read16(player + 0x4da);
         g.write8(player + 0x4da, static_cast<uint8_t>(target));
         g.write8(player + 0x4db, static_cast<uint8_t>(target >> 8));
-        ps2xNoPreemptEnter();
-        g_origBowLaunch(rdram, c, rt);
-        ps2xNoPreemptLeave();
-        g.write8(player + 0x4da, static_cast<uint8_t>(old));
-        g.write8(player + 0x4db, static_cast<uint8_t>(old >> 8));
+        withTemporaryGuestState([&] { g_origBowLaunch(rdram, c, rt); },
+                                [&] {
+                                    g.write8(player + 0x4da, static_cast<uint8_t>(old));
+                                    g.write8(player + 0x4db, static_cast<uint8_t>(old >> 8));
+                                });
         ilog("[bow] third-person autoaim target=%u player=%x\n", target, player);
         return;
     }

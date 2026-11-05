@@ -1,4 +1,5 @@
 // Drakan: game menu additions (title "Quit", save pages). See drakan_menus.h and docs/reference/save-slots.md.
+#include "runtime/ee_no_preempt.h"
 #include "drakan_menus.h"
 #include "drakan_save_previews.h"
 #include "drakan_region.h"
@@ -32,9 +33,6 @@
 #include <iomanip>
 #include <string>
 #include <vector>
-
-void ps2xNoPreemptEnter() noexcept;
-void ps2xNoPreemptLeave() noexcept;
 
 namespace drakan_menus {
 namespace {
@@ -156,18 +154,19 @@ public:
         SET_GPR_U32(tmp.get(), 31, 0);
         tmp->pc = c.addr;
         tmp->in_delay_slot = false;
-        ps2xNoPreemptEnter();
-        for (int guard = 0; guard < 64 && tmp->pc != 0u; ++guard) {
-            PS2Runtime::RecompiledFunction fn = first;
-            first = nullptr;
-            if (!fn) {
-                if (!rt_->hasFunction(tmp->pc))
-                    break;
-                fn = rt_->lookupFunction(tmp->pc);
+        {
+            const ScopedEeNoPreempt noPreempt;
+            for (int guard = 0; guard < 64 && tmp->pc != 0u; ++guard) {
+                PS2Runtime::RecompiledFunction fn = first;
+                first = nullptr;
+                if (!fn) {
+                    if (!rt_->hasFunction(tmp->pc))
+                        break;
+                    fn = rt_->lookupFunction(tmp->pc);
+                }
+                fn(ram_, tmp.get(), rt_);
             }
-            fn(ram_, tmp.get(), rt_);
         }
-        ps2xNoPreemptLeave();
         if (tmp->pc != 0u)
             std::fprintf(stderr, "[menus] nested call 0x%x did not finish (pc=0x%x)\n", c.addr, tmp->pc);
         return getRegU32(tmp.get(), 2);
@@ -907,12 +906,12 @@ void crispSelectedText(uint8_t* ram, R5900Context* c, PS2Runtime* rt) {
     // stack: this wrapper would return and restore the flag/colours while the guest resumes the original function
     // mid-way, which then takes the retail fire-text path for that frame (a flicker every time the title menu ran
     // faster than the original cadence). Run the call to completion instead.
-    ps2xNoPreemptEnter();
-    g_origWidgetText(ram, c, rt);
-    ps2xNoPreemptLeave();
-    std::memcpy(ram + widget + 0x64, colors, sizeof colors);
-    const uint32_t restored = rd32(widget + 0x10) | (flags & 0x40u);
-    std::memcpy(ram + widget + 0x10, &restored, 4);
+    withTemporaryGuestState([&] { g_origWidgetText(ram, c, rt); },
+                            [&] {
+                                std::memcpy(ram + widget + 0x64, colors, sizeof colors);
+                                const uint32_t restored = rd32(widget + 0x10) | (flags & 0x40u);
+                                std::memcpy(ram + widget + 0x10, &restored, 4);
+                            });
 }
 
 void install(PS2Runtime& rt) {

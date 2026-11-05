@@ -219,6 +219,11 @@ across chunks), `hqdn3d=0:0:6:6` (temporal only) on the HD frames while encoding
 below the source's 1.66), about 77 % of the fine detail kept; the intro pack shrank from 326 to 207 MB. Rejected:
 `nlmeans` (plastic), post-only or pre-only filtering (half the gain).
 
+Before a native level load the HD movie decoder retires its frame window and closes the previous movie's FFmpeg
+context on the worker. A late draw for the retired movie uses the original pixels. A fresh IPU request starts the
+next movie. The decoder uses at most four FFmpeg workers to limit the number of full-resolution reference frames
+held alongside the incoming level. If an HD frame allocation fails, playback can continue with the original frames.
+
 ## 10. HD movie pack results (2026-10-23, RTX 5080, internal scale 4, 3840x2160 window)
 
 | Movie | Key | Frames | Pack | Build time | In game |

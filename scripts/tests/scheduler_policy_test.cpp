@@ -4,6 +4,8 @@
 // Guest execution, EE timer registers, condition-variable waits and renderer callbacks
 // are doubles; this is not a complete runtime integration test. CHECK stays active in Release.
 
+#include "../../ps2recomp/ps2xRuntime/include/runtime/ee_no_preempt.h"
+
 #include <algorithm>
 #include <atomic>
 #include <stdexcept>
@@ -106,7 +108,32 @@ void setup(bool host) {
     g_nextVblankHost = Clock::time_point::max();
     g_vblankAudit = {};
 }
+static int preemptionDepth = 0;
+void ps2xNoPreemptEnter() noexcept {
+    ++preemptionDepth;
+}
+void ps2xNoPreemptLeave() noexcept {
+    --preemptionDepth;
+}
+
 int main() {
+    int guestField = 7;
+    int cleanupDepth = 0;
+    try {
+        const ScopedEeNoPreempt outer;
+        withTemporaryGuestState(
+            [&] {
+                guestField = 11;
+                throw std::runtime_error("guest blocked");
+            },
+            [&] {
+                cleanupDepth = preemptionDepth;
+                guestField = 7;
+            });
+    } catch (const std::runtime_error&) {
+        CHECK(preemptionDepth == 0);
+    }
+    CHECK(guestField == 7 && cleanupDepth == 2);
     for (bool host : {false, true}) {
         for (auto type :
              {EeEventType::VBlankStart, EeEventType::VBlankEnd, EeEventType::Alarm, EeEventType::DelayedCall}) {

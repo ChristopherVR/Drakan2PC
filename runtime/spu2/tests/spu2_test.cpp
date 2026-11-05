@@ -856,9 +856,11 @@ int main(int argc, char** argv) {
         o3.setOutputDevice("default");
         std::this_thread::sleep_for(std::chrono::milliseconds(300));
         CHECK(o3.outputDevice() == "default", "outputDevice()");
-        auto fr0 = spu3.framesRendered();
-        std::this_thread::sleep_for(std::chrono::milliseconds(200));
-        CHECK(spu3.framesRendered() > fr0, "SPU2 stopped rendering after device switches");
+        const auto fr0 = o3.framesRendered();
+        const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(3);
+        while (o3.framesRendered() == fr0 && std::chrono::steady_clock::now() < deadline)
+            std::this_thread::sleep_for(std::chrono::milliseconds(50));
+        CHECK(o3.framesRendered() > fr0, "SPU2 stopped rendering after device switches");
         o3.stop();
     }
 

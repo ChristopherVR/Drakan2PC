@@ -8,7 +8,7 @@ namespace drakan_scene_models {
 class Assets {
     const hle::IsoFs* fs = nullptr;
     struct File {
-        std::vector<uint8_t> bytes;
+        hle::IsoFs::Node node;
         std::map<uint16_t, std::pair<uint32_t, uint32_t>> entries;
     };
     std::map<std::string, File> files;
@@ -112,31 +112,37 @@ public:
         auto [it, fresh] = files.try_emplace(path);
         auto& f = it->second;
         if (fresh) {
-            hle::IsoFs::Node node;
-            if (fs->lookup(path, node) && !node.dir && node.size <= 64 * 1024 * 1024)
-                f.bytes = fs->readAll(node);
-            if (f.bytes.size() >= 16 && std::memcmp(f.bytes.data(), "SRSC", 4) == 0) {
+            uint8_t header[16];
+            if (fs->lookup(path, f.node) && !f.node.dir && f.node.size <= 64 * 1024 * 1024 &&
+                fs->read(f.node, 0, header, sizeof header) == sizeof header && std::memcmp(header, "SRSC", 4) == 0) {
                 uint32_t index, count;
-                std::memcpy(&index, f.bytes.data() + 6, 4);
-                std::memcpy(&count, f.bytes.data() + 10, 4);
-                if (index <= f.bytes.size() && uint64_t(count) * 14 <= f.bytes.size() - index)
-                    for (unsigned i = 0; i < count; ++i) {
-                        const auto p = f.bytes.data() + index + i * 14;
-                        uint16_t type, rid, sub;
-                        uint32_t off, n;
-                        std::memcpy(&type, p, 2);
-                        std::memcpy(&rid, p + 2, 2);
-                        std::memcpy(&sub, p + 4, 2);
-                        std::memcpy(&off, p + 6, 4);
-                        std::memcpy(&n, p + 10, 4);
-                        if (type == 0x40 && sub == 0 && off <= f.bytes.size() && n <= f.bytes.size() - off)
-                            f.entries.try_emplace(rid, off, n);
-                    }
+                std::memcpy(&index, header + 6, 4);
+                std::memcpy(&count, header + 10, 4);
+                if (index <= f.node.size && uint64_t(count) * 14 <= f.node.size - index) {
+                    std::vector<uint8_t> directory(size_t(count) * 14);
+                    if (fs->read(f.node, index, directory.data(), directory.size()) == directory.size())
+                        for (unsigned i = 0; i < count; ++i) {
+                            const uint8_t* p = directory.data() + i * 14;
+                            uint16_t type, rid, sub;
+                            uint32_t off, n;
+                            std::memcpy(&type, p, 2);
+                            std::memcpy(&rid, p + 2, 2);
+                            std::memcpy(&sub, p + 4, 2);
+                            std::memcpy(&off, p + 6, 4);
+                            std::memcpy(&n, p + 10, 4);
+                            if (type == 0x40 && sub == 0 && off <= f.node.size && n <= f.node.size - off)
+                                f.entries.try_emplace(rid, off, n);
+                        }
+                }
             }
         }
         std::shared_ptr<const gsr::SceneModelTexture> result;
-        if (auto e = f.entries.find(uint16_t(id)); e != f.entries.end())
-            result = decode(id, f.bytes.data() + e->second.first, e->second.second);
+        if (auto e = f.entries.find(uint16_t(id)); e != f.entries.end() && e->second.second >= 64) {
+            // Retain the directory and decoded materials, not a second copy of every source texture archive.
+            std::vector<uint8_t> bytes(e->second.second);
+            if (fs->read(f.node, e->second.first, bytes.data(), bytes.size()) == bytes.size())
+                result = decode(id, bytes.data(), bytes.size());
+        }
         cache[key] = result;
         return result;
     }

@@ -1070,7 +1070,11 @@ python scripts/harness/remote_motion_check.py --name sender-check --sender-probe
 
 Nearby AI targets the peer while the Archer host walks and opens and closes inventory twice. Compare the times and
 distances in `a_on_b.sender_steps_over_500` (published by the host) and `a_on_b.candidate_steps_over_500` (played on the
-client). The summary counts interrupted target restores logged by the host, up to the runtime's limit of eight.
+client). The summary counts interrupted target restores logged by the host, up to the runtime's limit of eight. Add
+`--target-yield` to block the host EE thread for one vblank while a distant peer's transform is borrowed.
+The original guest handler resumes at its entry. The report checks the two genuine sender samples immediately
+around that transfer and requires a logged restore. The network sampler retains its previous sample and timestamp
+if PadMgr re-enters during AI targeting.
 
 For the singleplayer-to-multiplayer transition, start a host and a fresh-campaign client:
 
@@ -1082,7 +1086,11 @@ To start from a saved game, use `--host-from-save <slot>`, `--join-from-save <sl
 `BESCES-50006Slot1` directory. Each process gets its own copy. `--return-delay-ms 0` starts the pause sequence
 as soon as the loaded save reaches stable gameplay. Each role's `transition_progress` in `summary.json` distinguishes
 a missed menu action, an unexpected map, missing native load entry or return, and an incomplete post-load script.
-The report includes movement results and program execution errors even when the process exits zero. On timeout
+Inquisitor spawn 2 keeps its stock X/Z. Its Y marker accounts for the port's 250-unit placement lift and
+places Rynn three units above the measured floor. The native landing calculation still handles subsequent falls.
+Arena starting equipment can be granted as soon as the first pass registers the loadout. The loose-item sweep
+defers during stow, then excludes inventory and hand references. The report includes movement results and program
+execution errors even when the process exits zero. On timeout
 the harness attempts a process dump for each unfinished role. For a paired run on a memory-constrained machine,
 `--native-graphics` selects original movies/textures and 1x rendering in each private INI.
 

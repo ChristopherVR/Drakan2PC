@@ -25,6 +25,8 @@
 #include <vector>
 #include <functional>
 #include <memory>
+#include <new>
+#include <optional>
 
 #include "runtime/ps2_render_queue.h"
 
@@ -118,48 +120,75 @@ void sceneSink(PS2Runtime& runtime, const gsr::SceneGuideCamera& camera, void*) 
         drakan_scene_camera::setWaterCaptureEnabled(lease->gs && lease->gs->waterRenderingRequested());
         const uint64_t currentLayout =
             on ? drakan_scene_geometry::layoutIdentity(runtime.memory().getRDRAM(), PS2_RAM_SIZE) : 0;
-        const bool layoutChanged = currentLayout != layout;
-        if (on && (!wasOn || (++checks % 32) == 0 || layoutChanged || (camera.flags & gsr::SceneGuideCamera::Reset))) {
-            layout = currentLayout;
-            auto geometry = drakan_scene_geometry::capture(runtime.memory().getRDRAM(), PS2_RAM_SIZE, identity);
-            if (geometry.identity != identity || !wasOn) {
-                if (!wasOn && geometry.identity == identity)
-                    geometry = drakan_scene_geometry::capture(runtime.memory().getRDRAM(), PS2_RAM_SIZE);
-                identity = geometry.identity;
-                std::fprintf(stderr, "[resident-scene] identity=%llx layers=%u waterLayers=%u triangles=%zu\n",
-                             (unsigned long long)identity, geometry.layers, geometry.waterLayers,
-                             geometry.triangles.size());
-                send([geometry = std::move(geometry)](GsrBridge& bridge) { bridge.noteSceneGeometry(geometry); });
+        static drakan_scene_models::Capture capture;
+        static std::optional<uint64_t> failedLayout;
+        if (!on)
+            failedLayout.reset();
+        if (on && failedLayout == currentLayout)
+            return;
+        try {
+            const bool layoutChanged = currentLayout != layout;
+            if (on &&
+                (!wasOn || (++checks % 32) == 0 || layoutChanged || (camera.flags & gsr::SceneGuideCamera::Reset))) {
+                layout = currentLayout;
+                auto geometry = drakan_scene_geometry::capture(runtime.memory().getRDRAM(), PS2_RAM_SIZE, identity);
+                if (geometry.identity != identity || !wasOn) {
+                    if (!wasOn && geometry.identity == identity)
+                        geometry = drakan_scene_geometry::capture(runtime.memory().getRDRAM(), PS2_RAM_SIZE);
+                    identity = geometry.identity;
+                    std::fprintf(stderr, "[resident-scene] identity=%llx layers=%u waterLayers=%u triangles=%zu\n",
+                                 (unsigned long long)identity, geometry.layers, geometry.waterLayers,
+                                 geometry.triangles.size());
+                    send([geometry = std::move(geometry)](GsrBridge& bridge) { bridge.noteSceneGeometry(geometry); });
+                }
             }
-        }
-        drakan_scene_models::enabled = on;
-        if (on) {
-            static drakan_scene_models::Capture capture;
-            static const bool includeSkyForComparison = [] {
-                const char* value = std::getenv("DRAKAN_RAY_INCLUDE_SKY");
-                if (!value || std::strcmp(value, "1") != 0)
-                    return false;
-                std::fprintf(stderr, "[ray-diagnostic] including native sky models for comparison\n");
-                return true;
-            }();
-            static uint64_t assetLevel = ~0ull;
-            if (assetLevel != identity) {
-                reflectionAssets.clear();
-                assetLevel = identity;
+            drakan_scene_models::enabled = on;
+            if (on) {
+                static const bool includeSkyForComparison = [] {
+                    const char* value = std::getenv("DRAKAN_RAY_INCLUDE_SKY");
+                    if (!value || std::strcmp(value, "1") != 0)
+                        return false;
+                    std::fprintf(stderr, "[ray-diagnostic] including native sky models for comparison\n");
+                    return true;
+                }();
+                static uint64_t assetLevel = ~0ull;
+                if (assetLevel != identity) {
+                    reflectionAssets.clear();
+                    assetLevel = identity;
+                }
+                if (!wasOn)
+                    capture.reset();
+                capture.loadTexture = [](uint32_t id, const std::string& path) {
+                    return reflectionAssets.load(id, path);
+                };
+                auto models =
+                    capture.capture(runtime.memory().getRDRAM(), PS2_RAM_SIZE, identity, includeSkyForComparison);
+                shadowFrame.begin(models);
+                if (!wasOn || checks % 120 == 0)
+                    std::fprintf(stderr,
+                                 "[resident-models] level=%llx instances=%zu meshes=%zu textures=%zu rejected=%u "
+                                 "untextured=%u\n",
+                                 (unsigned long long)identity, models->instances.size(), models->meshes.size(),
+                                 models->textures.size(), models->rejectedInstances, models->untexturedTriangles);
+                send([models = std::move(models)](GsrBridge& bridge) { bridge.noteSceneModels(models); });
             }
-            if (!wasOn)
-                capture.reset();
-            capture.loadTexture = [](uint32_t id, const std::string& path) { return reflectionAssets.load(id, path); };
-            auto models = capture.capture(runtime.memory().getRDRAM(), PS2_RAM_SIZE, identity, includeSkyForComparison);
-            shadowFrame.begin(models);
-            if (!wasOn || checks % 120 == 0)
-                std::fprintf(
-                    stderr,
-                    "[resident-models] level=%llx instances=%zu meshes=%zu textures=%zu rejected=%u untextured=%u\n",
-                    (unsigned long long)identity, models->instances.size(), models->meshes.size(),
-                    models->textures.size(), models->rejectedInstances, models->untexturedTriangles);
-            send([models = std::move(models)](GsrBridge& bridge) { bridge.noteSceneModels(models); });
+        } catch (const std::bad_alloc&) {
+            // Resident geometry and model snapshots are optional inputs for the PC effects.
+            // Release this world's working set and let the native draw continue during memory pressure.
+            capture.reset();
+            reflectionAssets.clear();
+            shadowFrame.begin(nullptr);
+            drakan_scene_models::enabled = false;
+            wasOn = false;
+            failedLayout = currentLayout;
+            send([](GsrBridge& bridge) {
+                bridge.noteSceneModels(nullptr);
+                bridge.noteSceneGeometry({});
+            });
+            std::fprintf(stderr, "[resident-scene] out of snapshot memory, using native geometry for this layout\n");
+            return;
         }
+        failedLayout.reset();
         wasOn = on;
     }
 }

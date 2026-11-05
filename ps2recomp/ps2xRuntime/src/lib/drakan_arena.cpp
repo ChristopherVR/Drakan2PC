@@ -248,11 +248,12 @@ std::vector<uint32_t> g_adoptLoadout;
 uint32_t controlledActor(const uint8_t* rdram);
 bool snapshot(const uint8_t* rdram);
 
-uint32_t g_seenSerial = 0;    // session serial the EE state belongs to
-uint32_t g_loadGen = 0;       // bumps at every level load (BeforeLevelLoad)
-uint32_t g_filteredGen = ~0u; // load generation the first pass ran for
-unsigned g_ticks = 0;         // boundaries since the player was ready in this load
-unsigned g_passTick = 0;      // tick of the first pass
+uint32_t g_seenSerial = 0;         // session serial the EE state belongs to
+uint32_t g_loadGen = 0;            // bumps at every level load (BeforeLevelLoad)
+uint32_t g_filteredGen = ~0u;      // load generation the first pass ran for
+unsigned g_ticks = 0;              // boundaries since the player was ready in this load
+bool g_deferredLooseSweep = false; // recheck loose campaign items after loadout stow completes
+unsigned g_passTick = 0;           // tick of the first pass
 float g_startPos[3] = {0, 0, 0};
 bool g_haveStart = false;
 unsigned g_outsideTicks = 0;
@@ -631,6 +632,9 @@ unsigned removeCampaign(drakan_input::IGuest& guest, uint8_t* rdram, bool sweepI
         if (body.handle)
             playerBodies.push_back(body.handle);
     });
+    const uint32_t owner = controlledActor(rdram);
+    const uint32_t ownerData = ramPtr(owner) ? dataOf(rdram, owner) : 0;
+    const uint32_t ownerClass = ramPtr(ownerData) ? itemClassOf(rdram, owner) : 0;
     for (const auto& e : g_snap.entities) {
         if (detail::protectedPlayerActor(e.handle, g_snap.playerHandle, g_snap.cameraHandle,
                                          e.type == world::type::kPlayer, playerBodies))
@@ -640,7 +644,9 @@ unsigned removeCampaign(drakan_input::IGuest& guest, uint8_t* rdram, bool sweepI
         bool item = false;
         if (sweepItems && isItemEntity(e) && !storyObj) {
             const float d = dist2xz(e.position, g_startPos);
-            item = !(g_haveStart && d < kKeepRadius) && !nearAnyPickup(e.position, e.handle);
+            item = !(g_haveStart && d < kKeepRadius) && !nearAnyPickup(e.position, e.handle) &&
+                   !world::inventoryReferencesItem(ownerClass, ownerData, e.handle,
+                                                   [&](uint32_t address) { return rd32(rdram, address); });
         }
         if (!creature && !storyObj && !item)
             continue;
@@ -898,6 +904,7 @@ void firstPass(drakan_input::IGuest& guest, uint8_t* rdram, uint32_t player) {
         armLoadout(rdram, player);
     g_removed += removeCampaign(guest, rdram, true);
     g_passTick = g_ticks;
+    g_deferredLooseSweep = false;
     g_filteredGen = g_loadGen;
     if (g_assignedSpawn >=
         0) { // the placement made before / during the load is not trusted: the level start was applied
@@ -1086,7 +1093,7 @@ bool controlledIsDragon(const uint8_t* rdram, uint32_t actor) {
 void loadoutTick(drakan_input::IGuest&, uint8_t* rdram, uint32_t player) {
     if (controlledIsDragon(rdram, player))
         return;
-    if (!g_loadoutArmed || g_loadoutPhase >= 2 || g_ticks < g_passTick + kSweepTicks + 30)
+    if (!g_loadoutArmed || g_loadoutPhase >= 2)
         return;
     if (g_loadoutPhase == 0) {
         std::vector<uint32_t> ids;
@@ -1173,7 +1180,7 @@ void armTick(drakan_input::IGuest& guest, uint8_t* rdram, uint32_t actor) {
     const uint32_t player = dataOf(rdram, actor);
     if (!ramPtr(player))
         return;
-    if (g_arm.done || g_ticks < g_passTick + kSweepTicks + 40 || g_ticks < g_arm.next)
+    if (g_arm.done)
         return;
     if (controlledIsDragon(rdram, actor))
         return;
@@ -1183,7 +1190,6 @@ void armTick(drakan_input::IGuest& guest, uint8_t* rdram, uint32_t actor) {
         return;
     if (guest.postBusy() || !g_calls.empty() || !g_pendingStow.empty() || g_spawnInFlight || !g_spawnQueue.empty())
         return;
-    g_arm.next = g_ticks + 120;
     const uint32_t hand = rd32(rdram, player + kHandSlots);
     const char* preferEnv0 = std::getenv("DRAKAN_ARENA_EQUIP");
     if (ramPtr(hand) && !(preferEnv0 && std::strcmp(preferEnv0, "bow") == 0)) {
@@ -1191,6 +1197,9 @@ void armTick(drakan_input::IGuest& guest, uint8_t* rdram, uint32_t actor) {
         g_arm.done = true;
         return;
     }
+    if (g_ticks < g_arm.next)
+        return;
+    g_arm.next = g_ticks + 120;
     const uint32_t ctl = player + kCtlOffset;
     int cell = -1;
     uint32_t slot = 0;
@@ -2337,8 +2346,13 @@ void beforePadMgr(drakan_input::IGuest& guest, uint8_t* rdram) {
     }
     const unsigned since = g_ticks - g_passTick;
     if (since < kSweepTicks ? since % 20 == 0 : since % 120 == 0) {
-        if (snapshot(rdram))
-            g_removed += removeCampaign(guest, rdram, since < kSweepTicks);
+        // A newly created loadout item is briefly a loose world actor until the native stow completes.
+        const bool stowing = g_loadoutArmed && g_loadoutPhase < 2;
+        if (snapshot(rdram)) {
+            const bool sweepLoose = since < kSweepTicks || g_deferredLooseSweep;
+            g_removed += removeCampaign(guest, rdram, sweepLoose && !stowing);
+            g_deferredLooseSweep = sweepLoose && stowing;
+        }
     }
     if (g_dumpWanted && since == kSweepTicks + 120 && snapshot(rdram))
         dumpWorld("after");
