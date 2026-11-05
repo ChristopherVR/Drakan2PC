@@ -325,10 +325,16 @@ void D3D11Backend::Impl::finalizeNeuralWorld(RT& rt) {
         return;
     rt.neuralState = 2;
     bool wantNR = neuralEnabled;
+    // Pose correspondence has independent immutable inputs. Do it here while the builder
+    // finishes reconstructing the current world's surfaces.
+    if (surfaceBuilder->hasIndependentTask()) {
+        CpuProfile::Scope prepareStage(cpuProfile, CpuProfile::ModelPrepare);
+        surfaceBuilder->finishIndependentTask();
+    }
     // The reconstructed triangles and the resident material projections are complete once the builder drained.
     {
         CpuProfile::Scope drainStage(cpuProfile, CpuProfile::SurfaceDrain);
-        surfaceBuilder->drain();
+        surfaceBuilder->drain(&cpuProfile);
     }
     const bool wantWater =
         modernWater && rt.surface.epoch == motionEpoch &&

@@ -886,6 +886,7 @@ bool RayWater::submit(ID3D11Texture2D* color, ID3D11Texture2D* depth, ID3D11Text
         s.watchQueued(job->produced, consumed);
         // The pass thread owns the job (and so the signal) before D3D11 waits on it: a driver that waits on the
         // CPU for a shared fence would otherwise block the only thread that can let the signal happen.
+        stage.emplace(s.cpuProfile, CpuProfile::RayEnqueue);
         if (!s.enqueue(std::move(job), triangles))
             return false; // abandoned by the watchdog: nothing will signal this value, so D3D11 must not wait for it
         stage.emplace(s.cpuProfile, CpuProfile::RayConsume);

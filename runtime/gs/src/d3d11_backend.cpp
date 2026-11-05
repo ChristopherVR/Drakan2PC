@@ -351,15 +351,20 @@ namespace gsr {
 void D3D11Backend::noteSceneModels(std::shared_ptr<const SceneModels> models) {
     auto& s = *m_impl;
     s.nativeModels = std::move(models);
-    // Prepare this world's model motion against the committed previous scene while the world is drawn.
-    if (s.nativeModels && s.modelMotion.previous() && (s.neuralEnabled || s.combinedSr) && s.surfaceBuilder->async())
-        s.surfaceBuilder->submitTask([&s, scene = s.nativeModels, previous = s.modelMotion.previous()] {
+    // Keep both snapshots alive until this world's motion preparation runs.
+    if (s.nativeModels && s.modelMotion.previous() && (s.neuralEnabled || s.combinedSr) && s.surfaceBuilder->async()) {
+        auto prepare = [&s, scene = s.nativeModels, previous = s.modelMotion.previous()] {
             auto& pending = s.pendingModels;
             motion::Models::prepareFrom(previous.get(), *scene, false, pending.frame, pending.scratch);
             pending.scene = scene;
             pending.previous = previous;
             pending.ready = true;
-        });
+        };
+        if (s.surfaceBuilder->preferIndependentPreparation())
+            s.surfaceBuilder->stageIndependentTask(std::move(prepare));
+        else
+            s.surfaceBuilder->submitTask(std::move(prepare));
+    }
 }
 std::unique_ptr<BackendApi> createD3D11Backend(LocalMemory& mem, const Config& cfg, Stats& stats) {
     return std::make_unique<D3D11Backend>(mem, cfg, stats);

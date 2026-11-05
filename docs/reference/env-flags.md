@@ -20,7 +20,8 @@ Parse rules: **presence** = variable exists (even empty); **not-0** = exists and
 | `GSR_RAY_UPLOAD_CACHE` | first-char != `0` | on | Skip byte-identical dynamic/native material attribute blocks in the ordered DXR material buffer. `0` restores full uploads for comparison. |
 | `GSR_RAY_GPU_TIMING` | presence | off | Delayed DXR GPU timestamps: upload/AS build, sky reduction, opaque transport, composition and total; also logs material upload bytes. Reads only after the existing frame-slot fence. |
 | `GSR_RAY_CPU_CACHE_CHECK` | first-char == `1` | off | Verify the CPU cache against a fresh pack. |
-| `GSR_SURFACE_ASYNC` | first-char != `0` | on | Reconstruct ray-scene surface triangles and prepare model motion on the surface builder thread (`0`: on the GS worker, same results). |
+| `GSR_SURFACE_ASYNC` | first-char != `0` | on | Reconstruct current-world surfaces on a worker. `0` runs the same reconstruction inline. |
+| `GSR_SURFACE_OVERLAP` | first-char != `0` | on | At a geometry join, finish independent D3D11 model preparation and help process queued surfaces in order. `0` leaves the whole queue to the worker for comparisons. |
 | `GSR_RAY_WORLD_CACHE` | first-char != `0` | on | Incremental world triangle cache. |
 | `GSR_RAY_PACKED_TEXTURES` | first-char != `0` | on | 32-bit packed ray textures. |
 | `GSR_WATER_COVERAGE_DEBUG` | atoi (uint) | 0 | Water coverage debug mode passed to the shader. |

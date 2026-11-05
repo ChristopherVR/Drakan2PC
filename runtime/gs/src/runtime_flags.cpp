@@ -60,6 +60,7 @@ RuntimeFlags parse() {
     f.rayUploadCache = firstCharNotZeroDefaultOn("GSR_RAY_UPLOAD_CACHE");
     f.rayCpuCache = firstCharNotZeroDefaultOn("GSR_RAY_CPU_CACHE");
     f.rayModelReuse = firstCharNotZeroDefaultOn("GSR_RAY_MODEL_REUSE");
+    f.surfaceOverlap = firstCharNotZeroDefaultOn("GSR_SURFACE_OVERLAP");
     f.surfaceAsync = firstCharNotZeroDefaultOn("GSR_SURFACE_ASYNC");
     if (const char* e = env("GSR_RAY_CPU_CACHE_CHECK"))
         f.rayCpuCacheCheck = e[0] == '1';

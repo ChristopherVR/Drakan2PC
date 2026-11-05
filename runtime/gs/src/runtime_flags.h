@@ -46,6 +46,7 @@ struct RuntimeFlags {
     bool rayModelReuse = true;          // GSR_RAY_MODEL_REUSE: snapshot and welded-normal reuse, default on
     bool rayCpuCacheCheck = false;      // GSR_RAY_CPU_CACHE_CHECK: first-char == '1'; default off
     bool surfaceAsync = true;           // GSR_SURFACE_ASYNC: first-char != '0'; surface reconstruction thread
+    bool surfaceOverlap = true;         // GSR_SURFACE_OVERLAP: share pending work at the geometry join
     bool rayWorldCache = true;          // GSR_RAY_WORLD_CACHE: first-char != '0'; default on
     bool rayPackedTextures = true;      // GSR_RAY_PACKED_TEXTURES: first-char != '0'; default on
     uint32_t waterCoverageDebug = 0;    // GSR_WATER_COVERAGE_DEBUG: atoi; default 0

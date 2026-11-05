@@ -2,6 +2,8 @@
 // synchronous path, for a stream of draws with camera changes, world epochs, several targets and vertex-free jobs.
 // Also checks the memoized raster-to-world conversion against the plain one.
 #include "surface_builder.h"
+#include <atomic>
+#include <future>
 
 #include <cassert>
 #include <cstdio>
@@ -110,6 +112,46 @@ int main() {
         assert(!surfaceCameraAccepted(menu, false) && !surfaceCameraAccepted(menu, true));
         menu.guiScreen = -1;
         assert(!surfaceCameraAccepted(menu, false) && surfaceCameraAccepted(menu, true));
+    }
+    {
+        ResidentScene scene;
+        SurfaceBuilder builder(scene, true);
+        std::promise<void> producerDone;
+        auto completed = producerDone.get_future();
+        const auto producer = std::this_thread::get_id();
+        int result = 0;
+        builder.submitTask([&] {
+            // Waiting for the worker before doing the independent work would stall this join.
+            assert(completed.wait_for(std::chrono::seconds(3)) == std::future_status::ready);
+        });
+        // Build a backlog behind the blocked job. Once released, the worker and the joining
+        // producer must still apply the entire prefix and suffix in submission order.
+        std::atomic<unsigned> next{0};
+        for (unsigned i = 0; i < 256; ++i)
+            builder.submitTask([&, i] { assert(next.fetch_add(1) == i); });
+        builder.stageIndependentTask([&] { result = -1; });
+#if (defined(_M_X64) || defined(__SSE__)) && !defined(__EMSCRIPTEN__)
+        const unsigned originalMode = _mm_getcsr(), submittedMode = originalMode ^ 0x2000u;
+        _mm_setcsr(submittedMode);
+#endif
+        builder.stageIndependentTask([&] {
+            assert(std::this_thread::get_id() == producer && result == 0);
+#if (defined(_M_X64) || defined(__SSE__)) && !defined(__EMSCRIPTEN__)
+            assert((_mm_getcsr() & 0x6000u) == (submittedMode & 0x6000u));
+#endif
+            ++result;
+            producerDone.set_value();
+        });
+
+#if (defined(_M_X64) || defined(__SSE__)) && !defined(__EMSCRIPTEN__)
+        _mm_setcsr(originalMode);
+#endif
+        builder.drain();
+        builder.drain();
+        assert(result == 1 && next == 256 && !builder.hasIndependentTask());
+#if (defined(_M_X64) || defined(__SSE__)) && !defined(__EMSCRIPTEN__)
+        assert((_mm_getcsr() & 0x6000u) == (originalMode & 0x6000u));
+#endif
     }
     const auto geometry = grid();
     ResidentScene syncScene, asyncScene;

@@ -45,6 +45,7 @@ public:
         RayBuild,
         RayWait,
         RayConsume,
+        RayEnqueue,
         RayTriangles,
         RayModelAttributes,
         RayUpload,
@@ -54,6 +55,8 @@ public:
         DrawSubmit,
         ModelPrepare,
         SurfaceDrain,
+        SurfaceWait,
+        SurfaceAssist,
         Count
     };
     struct Scope;
@@ -105,6 +108,7 @@ private:
                                                 "rayBuild",
                                                 "rayWait",
                                                 "rayConsume",
+                                                "rayEnqueue",
                                                 "rayTriangles",
                                                 "rayModelAttributes",
                                                 "rayUpload",
@@ -113,7 +117,9 @@ private:
                                                 "drawVertexUpload",
                                                 "drawSubmit",
                                                 "modelPrepare",
-                                                "surfaceDrain"};
+                                                "surfaceDrain",
+                                                "surfaceWait",
+                                                "surfaceAssist"};
         static_assert(sizeof(names) / sizeof(names[0]) == Count, "Profiler bucket names must match Id");
         std::fprintf(stderr,
                      "[gsr-profile] %.3fs root=%.2fms readbackCopy=%.2fMiB syncUpload=%.2fMiB; "
@@ -154,12 +160,13 @@ public:
         Id id;
         Clock::time_point start{};
         double childMs = 0;
-        Scope(CpuProfile& p, Id bucket) : id(bucket) {
-            if (!p.enabled)
+        Scope(CpuProfile& p, Id bucket) : Scope(&p, bucket) {}
+        Scope(CpuProfile* p, Id bucket) : id(bucket) {
+            if (!p || !p->enabled)
                 return;
-            owner = &p;
-            parent = p.top;
-            p.top = this;
+            owner = p;
+            parent = p->top;
+            p->top = this;
             start = Clock::now();
         }
         ~Scope() {

@@ -595,3 +595,13 @@ to its vertex buffer. This removes a recurring CPU wait when discarding an in-fl
 uploads also reuse their native and scaled scratch storage. When measuring long frame intervals, separate
 scripted screenshot and memory-dump frames from ordinary gameplay. The detailed traces and A/B results are in
 [the hitch investigation](../journal/2026-11-05/occasional-frame-hitches.md).
+
+
+## Scene geometry under CPU contention (2026-11-05)
+
+After observing a draw backlog, the renderer prepares the next model pose while the surface worker finishes its queue. At a join it can take
+ownership of the remaining queued draws after the active batch completes. All geometry and material updates
+stay in submission order. With `GSR_PROFILE=2`, inspect `surfaceWait` for blocked time, `surfaceAssist` for
+useful work on the joining thread and `surfaceDrain` for the total cost of the join. A separate `rayEnqueue`
+measurement covers submitting to the bounded DXR queue, including waiting for room. Compare the two schedules
+with `GSR_SURFACE_OVERLAP`. See [the combat measurements](../journal/2026-11-05/scene-geometry-join.md).

@@ -528,8 +528,8 @@ struct D3D11Backend::Impl {
     // Shared by synchronous target uploads on this renderer's immediate context.
     std::vector<uint32_t> uploadPixels, scaledUploadPixels;
     // Declared after rts and residentScene: destroyed (and joined) before the targets and scene its jobs use.
-    std::unique_ptr<surface::SurfaceBuilder> surfaceBuilder =
-        std::make_unique<surface::SurfaceBuilder>(residentScene, runtimeFlags().surfaceAsync);
+    std::unique_ptr<surface::SurfaceBuilder> surfaceBuilder = std::make_unique<surface::SurfaceBuilder>(
+        residentScene, runtimeFlags().surfaceAsync, runtimeFlags().surfaceOverlap);
     std::vector<std::unique_ptr<DepthBuf>> depths;
     std::unordered_map<TexKey, TexEntry, TexKeyHash> texCache;
     uint64_t texBytes = 0;

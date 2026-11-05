@@ -1,21 +1,24 @@
 #pragma once
 // Reconstruction of world-space surface triangles from GS draws for the ray scene, optionally on its own thread.
 //
-// The GS worker only classifies a draw and copies its vertices; the conversion to world space, the resident-scene
-// match/observe and the append to the target's per-frame list run in submission order on a builder thread. Every
-// reader of the results (the target's list, the resident scene's material projections) calls drain() first, so the
-// lists and projections are exactly those of the synchronous path.
+// The GS worker classifies draws and submits their vertices. Reconstruction and resident material updates have
+// one owner and follow submission order. At a reader's drain, the GS worker can take over the unstarted tail
+// after the active batch finishes. Both execution paths produce the same lists and material projections.
+#include "cpu_profile.h"
 #include "gs_internal.h"
 #include "resident_scene.h"
 #include "surface_geometry.h"
 
 #include <algorithm>
+#include <array>
+#include <cfenv>
 #include <condition_variable>
 #include <cstdint>
 #include <deque>
 #include <functional>
 #include <mutex>
 #include <thread>
+#include <utility>
 #include <vector>
 #if (defined(_M_X64) || defined(_M_IX86) || defined(__SSE__)) && !defined(__EMSCRIPTEN__)
 #include <xmmintrin.h>
@@ -54,23 +57,20 @@ inline void reconstructDraw(const DrawSurfaceParams& d, const DrawVertex* v, uin
     for (uint32_t i = 0; i < count && out.size() < kMaxSurfaceTriangles; i += 3) {
         Triangle tri;
         bool valid = true;
-        tri.vertexLit = true;
-        tri.shadowGeometry = false;
-        tri.alphaTest = d.alphaTest;
-        tri.alphaReference = d.alphaReference;
-        tri.textureAlpha = d.textureAlpha;
-        tri.textureFunction = d.textureFunction;
-        tri.transparent = d.transparent;
+        for (unsigned j = 0; j < 3 && valid; ++j)
+            valid = v[i + j].z > 0 && camera.point(v[i + j].x, v[i + j].y, v[i + j].z, tri.p[j]);
+        if (!valid || length(sub(tri.p[1], tri.p[0])) > 2000000)
+            continue;
+        // A resident water match found here is also the water-layer match used below.
+        const int waterMatch = d.waterState && !d.nativeWaterPass ? scene.match(tri, true) : -1;
+        tri.water = d.waterState && (d.nativeWaterPass || waterMatch >= 0);
+        const int resident = waterMatch >= 0 ? waterMatch : scene.match(tri, tri.water);
+        const bool emit = tri.water || (resident < 0 && (d.opaqueEligible || d.materialEligible));
+        const bool observe = resident >= 0 && (d.opaqueEligible || tri.water) && d.texture != ~0u;
+        if (!emit && !observe)
+            continue;
         tri.texture = d.texture;
         for (unsigned j = 0; j < 3; ++j) {
-            valid = valid && v[i + j].z > 0 && camera.point(v[i + j].x, v[i + j].y, v[i + j].z, tri.p[j]);
-            tri.color[0] += v[i + j].r / (128.f * 3);
-            tri.color[1] += v[i + j].g / (128.f * 3);
-            tri.color[2] += v[i + j].b / (128.f * 3);
-            tri.opacity[j] = std::clamp(v[i + j].a / 128.f, 0.f, 1.f);
-            tri.lighting[j][0] = v[i + j].r / 128.f;
-            tri.lighting[j][1] = v[i + j].g / 128.f;
-            tri.lighting[j][2] = v[i + j].b / 128.f;
             const float q = d.fst ? 1.f : v[i + j].q;
             if (std::abs(q) > 1e-12) {
                 tri.uv[j][0] = v[i + j].s / q;
@@ -81,16 +81,29 @@ inline void reconstructDraw(const DrawSurfaceParams& d, const DrawVertex* v, uin
                 }
             }
         }
-        if (!valid || length(sub(tri.p[1], tri.p[0])) > 2000000)
-            continue;
-        // A resident water match found here is also the water-layer match used below.
-        const int waterMatch = d.waterState && !d.nativeWaterPass ? scene.match(tri, true) : -1;
-        tri.water = d.waterState && (d.nativeWaterPass || waterMatch >= 0);
-        const int resident = waterMatch >= 0 ? waterMatch : scene.match(tri, tri.water);
-        if (resident >= 0 && (d.opaqueEligible || tri.water))
+        if (observe)
             scene.observe(tri, resident);
-        if (tri.water || (resident < 0 && (d.opaqueEligible || d.materialEligible)))
-            out.push_back(tri);
+        if (!emit)
+            continue;
+        // A matched resident surface consumes its texture projection only. Build ray shading
+        // attributes only for geometry that will actually be appended to the frame.
+        tri.vertexLit = true;
+        tri.shadowGeometry = false;
+        tri.alphaTest = d.alphaTest;
+        tri.alphaReference = d.alphaReference;
+        tri.textureAlpha = d.textureAlpha;
+        tri.textureFunction = d.textureFunction;
+        tri.transparent = d.transparent;
+        for (unsigned j = 0; j < 3; ++j) {
+            tri.color[0] += v[i + j].r / (128.f * 3);
+            tri.color[1] += v[i + j].g / (128.f * 3);
+            tri.color[2] += v[i + j].b / (128.f * 3);
+            tri.opacity[j] = std::clamp(v[i + j].a / 128.f, 0.f, 1.f);
+            tri.lighting[j][0] = v[i + j].r / 128.f;
+            tri.lighting[j][1] = v[i + j].g / 128.f;
+            tri.lighting[j][2] = v[i + j].b / 128.f;
+        }
+        out.push_back(tri);
     }
 }
 
@@ -108,7 +121,8 @@ public:
         std::function<void()> task; // instead of a draw: run this (in order with the draw jobs)
     };
 
-    SurfaceBuilder(ResidentScene& scene, bool async) : scene_(scene), async_(async) {
+    SurfaceBuilder(ResidentScene& scene, bool async, bool assist = true)
+        : scene_(scene), async_(async), assist_(assist) {
         if (async_)
             thread_ = std::thread([this] { run(); });
     }
@@ -170,14 +184,16 @@ public:
             return;
         }
         job.vertices.assign(vertices, vertices + count);
-        {
-            std::lock_guard lock(mutex_);
-            queue_.push_back(std::move(job));
-            ++submitted_;
-        }
-        wake_.notify_one();
+        enqueue(std::move(job));
     }
-    // Runs a task on the builder thread after the jobs submitted before it (in place when synchronous).
+    // Submission and drains are serialized by one producer. Normally keep model work overlapped
+    // with rendering on the worker; a real draw backlog at the preceding join gives it priority.
+    bool preferIndependentPreparation() const { return deferNextPreparation_ || bool(independentTask_); }
+    void stageIndependentTask(std::function<void()> task) {
+        deferNextPreparation_ = false;
+        independentMathMode_ = currentMathMode();
+        independentTask_ = std::move(task); // a newer immutable snapshot supersedes unused work
+    }
     void submitTask(std::function<void()> task) {
         if (!async_) {
             task();
@@ -186,22 +202,57 @@ public:
         Job job;
         job.task = std::move(task);
         job.mathMode = currentMathMode();
-        {
-            std::lock_guard lock(mutex_);
-            queue_.push_back(std::move(job));
-            ++submitted_;
-        }
-        wake_.notify_one();
+        enqueue(std::move(job));
     }
-    // Waits until every submitted job has been applied.
-    void drain() {
+    bool hasIndependentTask() const { return bool(independentTask_); }
+    void finishIndependentTask() {
+        if (!independentTask_)
+            return;
+        auto task = std::exchange(independentTask_, {});
+        RestoreMathMode restore;
+        setMathMode(independentMathMode_);
+        task();
+    }
+    // Finish independent producer work before waiting for the ordered geometry jobs.
+    void drain(CpuProfile* profile = nullptr) {
+        finishIndependentTask();
         if (!async_)
             return;
         std::unique_lock lock(mutex_);
         if (completed_ == submitted_)
             return;
         ++drainWaits_;
-        done_.wait(lock, [this] { return completed_ == submitted_; });
+        if (!assist_ || queue_.empty() || (workerBusy_ && queue_.size() < kBatchSize)) {
+            CpuProfile::Scope wait(profile, CpuProfile::SurfaceWait);
+            done_.wait(lock, [this] { return completed_ == submitted_; });
+            return;
+        }
+
+        // The producer has reached a reader and can run the remaining FIFO itself. Wait only
+        // for the already claimed batch. Exactly one thread owns the camera, lists and resident
+        // material updates at a time; the worker cannot start another batch during this handoff.
+        producerJoining_ = true;
+        if (workerBusy_) {
+            CpuProfile::Scope wait(profile, CpuProfile::SurfaceWait);
+            done_.wait(lock, [this] { return !workerBusy_; });
+        }
+        std::deque<Job> tail;
+        tail.swap(queue_);
+        if (tail.size() >= kBatchSize)
+            deferNextPreparation_ = true;
+        producerJoining_ = false; // the sole producer owns the detached tail and submits nothing until drain returns
+        lock.unlock();
+        {
+            CpuProfile::Scope assist(profile, CpuProfile::SurfaceAssist);
+            RestoreMathMode restore;
+            for (auto& job : tail)
+                execute(job);
+        }
+        lock.lock();
+        for (auto& job : tail)
+            recycle(job);
+        completed_ += tail.size();
+        lock.unlock(); // discard any surplus vertex storage outside the queue lock
     }
     uint64_t drainWaits() const { return drainWaits_; }
 
@@ -210,7 +261,7 @@ private:
 #if (defined(_M_X64) || defined(_M_IX86) || defined(__SSE__)) && !defined(__EMSCRIPTEN__)
         return _mm_getcsr();
 #else
-        return 0;
+        return static_cast<unsigned>(std::fegetround());
 #endif
     }
     static void setMathMode(unsigned mode) {
@@ -218,9 +269,14 @@ private:
         if (_mm_getcsr() != mode)
             _mm_setcsr(mode);
 #else
-        (void)mode;
+        if (mode != static_cast<unsigned>(-1) && static_cast<unsigned>(std::fegetround()) != mode)
+            std::fesetround(static_cast<int>(mode));
 #endif
     }
+    struct RestoreMathMode {
+        unsigned saved = currentMathMode();
+        ~RestoreMathMode() { setMathMode(saved); }
+    };
     void process(const Job& job, const DrawVertex* vertices, uint32_t count) {
         auto& list = *job.list;
         if (list.epoch != job.epoch) {
@@ -231,42 +287,74 @@ private:
             camera_.configure(job.camera, job.xyoffset);
         reconstructDraw(job.params, vertices, count, camera_, scene_, list.triangles);
     }
+    void execute(Job& job) {
+        setMathMode(job.mathMode);
+        if (job.task) {
+            job.task();
+            job.task = {}; // release captured snapshots outside the queue lock
+        } else
+            process(job, job.vertices.data(), uint32_t(job.vertices.size()));
+    }
+    void recycle(Job& job) {
+        if (spare_.size() < 64 && job.vertices.capacity())
+            spare_.push_back(std::move(job.vertices));
+    }
+    void enqueue(Job&& job) {
+        bool wake;
+        {
+            std::lock_guard lock(mutex_);
+            wake = queue_.empty();
+            queue_.push_back(std::move(job));
+            ++submitted_;
+        }
+        if (wake)
+            wake_.notify_one();
+    }
     void run() {
+        // Under load there can be hundreds of queued draws. Take a small FIFO batch per lock
+        // acquisition, returning vertex storage regularly so the producer can reuse it.
+        std::array<Job, kBatchSize> batch;
         std::unique_lock lock(mutex_);
         for (;;) {
-            wake_.wait(lock, [this] { return stop_ || !queue_.empty(); });
+            wake_.wait(lock, [this] { return stop_ || (!producerJoining_ && !queue_.empty()); });
             if (queue_.empty())
-                return; // stop requested and nothing left
-            Job job = std::move(queue_.front());
-            queue_.pop_front();
+                return;
+            const size_t count = std::min(batch.size(), queue_.size());
+            for (size_t i = 0; i < count; ++i) {
+                batch[i] = std::move(queue_.front());
+                queue_.pop_front();
+            }
+            workerBusy_ = true;
             lock.unlock();
-            // The worker's MXCSR (rounding, flush-to-zero) decides the float results; use the same mode.
-            setMathMode(job.mathMode);
-            if (job.task)
-                job.task();
-            else
-                process(job, job.vertices.data(), uint32_t(job.vertices.size()));
+            for (size_t i = 0; i < count; ++i)
+                execute(batch[i]);
             lock.lock();
-            if (spare_.size() < 64)
-                spare_.push_back(std::move(job.vertices));
-            if (++completed_ == submitted_)
+            workerBusy_ = false;
+            for (size_t i = 0; i < count; ++i)
+                recycle(batch[i]);
+            completed_ += count;
+            if (producerJoining_ || completed_ == submitted_)
                 done_.notify_all();
         }
     }
 
+    static constexpr size_t kBatchSize = 8;
     ResidentScene& scene_;
-    const bool async_;
+    const bool async_, assist_;
     CachedRasterToWorld camera_; // builder side (or worker side in synchronous mode)
     uint64_t cameraSerial_ = ~0ull, cameraXY_ = 0;
     bool staged_ = false;
     SceneGuideCamera stagedCamera_;
     uint64_t stagedXY_ = 0;
+    std::function<void()> independentTask_; // producer-owned, never accessed by the worker
+    unsigned independentMathMode_ = 0;
+    bool deferNextPreparation_ = false;
     std::mutex mutex_;
     std::condition_variable wake_, done_;
     std::deque<Job> queue_;
     std::vector<std::vector<DrawVertex>> spare_;
     uint64_t submitted_ = 0, completed_ = 0, drainWaits_ = 0;
-    bool stop_ = false;
+    bool stop_ = false, workerBusy_ = false, producerJoining_ = false;
     std::thread thread_;
 };
 } // namespace gsr::surface
