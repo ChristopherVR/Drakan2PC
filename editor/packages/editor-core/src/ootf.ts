@@ -1,6 +1,7 @@
 import { strToU8 } from 'fflate';
 import {
     buildPs2Lvl,
+    isOotfArenaLevel,
     mangleComponent,
     ps2BlobBuilder,
     ps2BlobFor,
@@ -104,6 +105,8 @@ export async function buildOotfPack(
     return { meta: full, files, levels, warnings };
 }
 
+/** PC engine class of a Rynn launch pad (formats ootfclass.ts ENGINE_LIST). */
+const OOTF_RFL_RYNN_LAUNCH_PAD = 18;
 const OOTF_LOADOUT_CLUB = 0x3372b;
 const OOTF_LOADOUT_AXE = 0x33734;
 /** Weapon resources that stay spawnable as pickups in the converted levels (the axe 0x33734 only works in the loadout). */
@@ -120,10 +123,13 @@ const OOTF_PICKUP_WEAPONS: readonly (readonly [number, string])[] = [
  * it next to the Drakan 2 maps with the `Drakan 1` tag (netcode.md "Multiplayer maps").
  */
 export function ootfArenaFromPc(pc: PcLevel, title: string): ArenaDraft | null {
-    if (!/^multiplayer[\\/]/i.test(pc.path)) return null;
-    const pads = (match: RegExp): Vec3[] =>
+    if (!isOotfArenaLevel(pc)) return null;
+    const pads = (match: RegExp | number): Vec3[] =>
         pc.list.objects
-            .filter((o) => match.test(pc.classes.get(o.dbIndex)?.get(o.classId)?.name ?? ''))
+            .filter((o) => {
+                const cls = pc.classes.get(o.dbIndex)?.get(o.classId);
+                return typeof match === 'number' ? cls?.rflClass === match : match.test(cls?.name ?? '');
+            })
             .map((o): Vec3 => {
                 const g = terrainHeightAt(pc.terrain, o.pos[0], o.pos[2]);
                 return [o.pos[0], Number.isFinite(g) ? g + 400 : o.pos[1], o.pos[2]];
@@ -132,6 +138,8 @@ export function ootfArenaFromPc(pc: PcLevel, title: string): ArenaDraft | null {
             .filter((p, i, all) => all.findIndex((q) => q[0] === p[0] && q[2] === p[2]) === i);
     let starts = pads(/rynn launch pad/i);
     if (starts.length < 2) starts = pads(/launch pad/i);
+    // A localized install may name its pads differently: the engine class of a Rynn launch pad is the same everywhere.
+    if (starts.length < 2) starts = pads(OOTF_RFL_RYNN_LAUNCH_PAD);
     if (starts.length < 2) return null;
     const name = pcLevelName(pc.header) || title;
     const d = newDraft(title);

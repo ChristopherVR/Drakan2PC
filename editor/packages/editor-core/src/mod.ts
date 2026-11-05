@@ -1,5 +1,5 @@
 import { strToU8, zipSync } from 'fflate';
-import { SrscReader, writeSrsc, type SrscEntry } from '@drakan/formats';
+import { SrscReader, levelNameProblem, writeSrsc, type SrscEntry } from '@drakan/formats';
 
 /**
  * Mod pack export in the runtime's format (docs/reference/modding.md, runtime/hle ModPack.cpp):
@@ -96,6 +96,11 @@ export function validateModMeta(m: ModMeta): void {
     }
     if (m.campaignSaves !== undefined && !CAMPAIGN_SAVES_PATTERN.test(m.campaignSaves))
         throw new ModError('campaignSaves must be 1-32 characters of letters, digits _ -');
+    for (const level of m.levels ?? []) {
+        const why = levelNameProblem(level);
+        // The runtime skips such a level with only a log line, which leaves a pack that loads but has no level.
+        if (why) throw new ModError(`level "${level}": ${why}`);
+    }
     if (m.campaignStart !== undefined && !m.levels?.includes(m.campaignStart))
         throw new ModError('campaignStart must be one of the pack levels');
 }

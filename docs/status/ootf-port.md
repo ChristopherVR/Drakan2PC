@@ -1,6 +1,6 @@
 # Order of the Flame in the PS2 engine: status
 
-Living tracker (reviewed 2026-11-05). Drakan 1 (Order of the Flame, PC) levels are converted from the player's own install into mod
+Living tracker (reviewed 2026-11-06). Drakan 1 (Order of the Flame, PC) levels are converted from the player's own install into mod
 packs that the recompiled PS2 engine plays; nothing from either game is committed. Detail lives in the dated notes under
 `docs/journal/2026-10-31/` and `docs/journal/2026-11-01/` (`ootf-*.md`, `arena-*.md`, `game-select-ootf-boot.md`); formats are in the
 `editor/packages/formats` submodule, pack rules in `reference/modding.md` ("Campaign packs").
@@ -29,6 +29,13 @@ The full-hole terrain conversion now preserves the native triangle collision fla
 
 The earned route now continues through the cave and collects the Priest's Key by ordinary E interaction. The native pickup message and live Key inventory resource confirm acquisition, and that resource persists through native F5/F8. The route includes real damage from pursuers. Opening the priest's house, acquiring the book and the remaining campaign are still unverified. See [key collection and persistence](../journal/2026-11-05/ootf-normal-route.md#earned-priests-key-and-persistence).
 
+**November 6 localized installs (issue #3):** the converter now detects the PC install's language from Dragon.rrc, keys
+arenas, music, the intro, the Book and the first level on the level name ids instead of English folder and level names,
+keeps German Windows-1252 punctuation in converted text, writes ASCII titles the runtime accepts (`Höhle` -> `Hoehle`), and
+stops with an actionable `OotfSourceError` when placed objects need a missing database or a campaign level has no player
+start or no readable exit field. The English conversion is byte-identical before and after (17,334 files). No German
+install has been converted yet. See [localized installs](../journal/2026-11-06/issue-3-localized-ootf.md).
+
 ## What works
 
 * Converter `editor/scripts/ootf-convert.ts` (`--campaign 1` for the campaign): terrain, textures, models, creatures (skinned, retargeted
@@ -52,6 +59,9 @@ The earned route now continues through the cave and collects the Priest's Key by
 
 ## Known gaps
 
+* German (or other localized) PC installs are handled from source review and synthetic tests only: header texts, Dragon.rrc
+  ids, folder layout, Intro/Book timer lengths against a German dub and a German playthrough are unverified
+  (`journal/2026-11-06/issue-3-localized-ootf.md`, "Still needs a real German install").
 * Dragon breath in the air arenas draws a flame trail (host-spawned FX particles, `ootf-dragon-breath-visual.md`); it needs the FX
   resources in the arena level (true for the air arenas, other maps untested) and is not wired to the campaign dragon. Dragon health
   regeneration lifts the bar between hits (`ootf-dragon-pvp.md`).

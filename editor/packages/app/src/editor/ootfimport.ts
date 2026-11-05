@@ -47,7 +47,7 @@ dialog.ootf-dlg::backdrop { background: rgba(0,0,0,.55); }
 .ootf-dlg .od-list label { display: flex; gap: var(--sp-2); padding: 3px var(--sp-3); }
 .ootf-dlg .od-list label:hover { background: var(--surface-3); }
 .ootf-dlg .od-dim { color: var(--fg-muted); font-size: var(--fs-sm); }
-.ootf-dlg .od-bad { color: var(--bad); }
+.ootf-dlg .od-bad { color: var(--bad); white-space: pre-line; }
 .ootf-dlg table { border-collapse: collapse; width: 100%; font-size: var(--fs-sm); }
 .ootf-dlg td, .ootf-dlg th { text-align: left; padding: 2px var(--sp-3); border-bottom: 1px solid var(--border); }
 .ootf-dlg select, .ootf-dlg input[type=text] { background: var(--field); color: var(--fg); border: 1px solid var(--border);
@@ -354,7 +354,7 @@ function openDialog(host: OotfHost): void {
                 arena: ootfArenaFromPc(pc, level.title) ?? undefined,
             });
         }
-        const start = result.levels.find((l) => !/^multiplayer[\\/]/i.test(l.pcPath));
+        const start = result.levels.find((l) => !l.arena);
         const meta: Omit<ModMeta, 'levels'> = {
             id: 'ootf-levels',
             name: 'Order of the Flame levels',

@@ -65,6 +65,15 @@ describe('ootfArenaFromPc', () => {
         expect(d.pickups.every((p) => p.res > 0 && p.respawn > 0)).toBe(true);
         expect(parseArenaIni(serializeMapFile(d, [])).arenas[0]!.pickups.length).toBe(2);
     });
+    it('finds the arena of a German install by its name id and its pads by engine class', () => {
+        const l = level('Mehrspieler/Boden/Relikt/Relikt.lvl', 3);
+        (l.header.name as { text: string }).text = '<0x9011>Relikt (Boden)';
+        const cls = l.classes.get(0)!;
+        cls.set(1, { name: 'Startfeld für Rynn', rflClass: 18 } as never);
+        const d = ootfArenaFromPc(l, 'OotF - Relikt (Boden)')!;
+        expect(d.spawns.length).toBe(3);
+        expect(d.name).toBe('Relikt (Boden)');
+    });
     it('ignores campaign levels and levels with fewer than two starts', () => {
         expect(ootfArenaFromPc(level('Mountain World/Intro/Intro.lvl', 4), 'x')).toBeNull();
         expect(ootfArenaFromPc(level('Multiplayer/Ground/Relic/Relic.lvl', 1), 'x')).toBeNull();

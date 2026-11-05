@@ -164,6 +164,7 @@ if (opt['audit']) {
     for (const r of res.classAudit) if (re.test(r.name)) console.log(`audit ${r.name}: rfl ${r.rfl} ${r.kind} x${r.objects} -> ${r.outcome} ${r.template ?? r.ps2Name ?? ''} model=${r.model} ${r.reason ?? ''} ${r.detail ?? ''}`);
 }
 for (const s of res.stages) if (!s.ok) console.warn(`STAGE FAILED ${s.stage}: ${s.error}`);
+if (res.source) console.log(`source: ${res.source.language.language} install (${res.source.language.evidence})`);
 if (res.assets) {
     const a = res.assets;
     for (const c of a.creatures) console.log(`creature ${c.key}: ${c.joints} joints, ${c.groups} groups, ${c.anims} clips (${c.animsSkipped} skipped)`);
@@ -175,7 +176,7 @@ if (res.classPlan) {
 // Multiplayer/* levels also get a map definition (spawns from the launch pads), as the editor's import dialog does.
 const arenas = new Map<string, NonNullable<ReturnType<typeof ootfArenaFromPc>>>();
 for (const l of res.levels) {
-    if (!/^multiplayer[\\/]/i.test(l.pcPath)) continue;
+    if (!l.arena) continue;
     const a = ootfArenaFromPc(await loadPcLevel(src, l.pcPath), l.title);
     if (a) arenas.set(l.pcPath, a);
     else console.warn(`warning: ${l.pcPath}: no arena (fewer than two launch pads)`);

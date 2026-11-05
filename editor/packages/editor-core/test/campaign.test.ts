@@ -78,6 +78,15 @@ describe('campaign manifest keys', () => {
             'campaign = "ootf"',
         );
     });
+    it('refuses level names the runtime would skip (a localized title with umlauts loads as no level)', () => {
+        expect(() =>
+            validateModMeta({ id: 'x', target: { profile: 'pal' }, levels: ['OotF 04 - Grimstone-Höhlen'] }),
+        ).toThrow(/Grimstone-Höhlen.*not plain ASCII/);
+        expect(() => validateModMeta({ id: 'x', target: { profile: 'pal' }, levels: ['A: B'] })).toThrow(/disc path/);
+        expect(() =>
+            validateModMeta({ id: 'x', target: { profile: 'pal' }, levels: ['OotF 04 - Grimstone-Hoehlen'] }),
+        ).not.toThrow();
+    });
 });
 
 describe('project campaign settings', () => {

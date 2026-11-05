@@ -60,7 +60,9 @@ my_mod/
   directory (`RESOURES.ODB`); it is added to the file of that name in the running language tree, which is rebuilt like above.
   The entry is then an ordinary member of the container for 0x1202 requests. An existing `(type,id,sub)` is replaced.
 * **Custom levels**: list the level names in the manifest, `levels = ["Level 9X - My Map"]` (top-level key, also
-  `"levels": [...]` in mod.json). The name is the `LEVELLST.TXT` title: the game opens
+  `"levels": [...]` in mod.json). A name must be 1 to 80 printable ASCII characters without `\ / : * ? " < > | ;`
+  (`validLevelName`; a refused name is skipped with a log line only, and the editor's `validateModMeta` rejects it
+  before export). The name is the `LEVELLST.TXT` title: the game opens
   `\Levels\<Name>\<Name>.lvl`, so ship the files with `files/ENGLISH/LEVELS/<mangled name>/<mangled name>.LVL`
   (the mangler keeps 6 characters and the last 2 of an over-long name, `Level 9X - My Map` -> `LEVEL9AP`). The level also
   loads `<Name>_splats.{db,odb,txd,adb,mod,sdb}` -> `LEVEL<first 6>TS`-style names, i.e. `LEVEL9TS.DB` and
