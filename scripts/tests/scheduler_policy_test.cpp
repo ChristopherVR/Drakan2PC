@@ -240,4 +240,5 @@ int main() {
         CHECK(g_vblankAudit.maxDelay == 1ms);
     }
     std::printf("%d scheduler deadline/idle checks passed\n", checks);
+    return 0;
 }
