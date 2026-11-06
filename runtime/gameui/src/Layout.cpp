@@ -1,6 +1,7 @@
 #include "gameui/Layout.h"
 
 #include <algorithm>
+#include <cstring>
 
 namespace gameui {
 
@@ -164,6 +165,16 @@ std::vector<std::string> wrapText(std::string_view text, float width, FontRole f
             size_t e = para.find(' ', q);
             if (e == std::string_view::npos)
                 e = para.size();
+            // French puts a space before ':' ';' '!' '?': a lone mark stays with the word before it, so no line
+            // starts with one ("... lu" / ": test-zip.zip").
+            for (;;) {
+                size_t r = e;
+                while (r < para.size() && para[r] == ' ')
+                    ++r;
+                if (r >= para.size() || !std::strchr(":;!?", para[r]) || (r + 1 < para.size() && para[r + 1] != ' '))
+                    break;
+                e = r + 1;
+            }
             std::string_view word = para.substr(q, e - q);
             std::string trial = cur.empty() ? std::string(word) : cur + " " + std::string(word);
             if (!cur.empty() && measureWith(measure, trial, font, sizePx) > width) {

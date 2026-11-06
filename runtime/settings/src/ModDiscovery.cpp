@@ -94,6 +94,26 @@ std::string unreadablePacksText(const ModsModel& model, bool translate) {
                                       {std::to_string(packs.size()), names});
 }
 
+std::vector<const ModInfo*> missingPacks(const ModsModel& model) {
+    std::vector<const ModInfo*> out;
+    for (const ModInfo& m : model.mods())
+        if (!m.found && m.enabled)
+            out.push_back(&m);
+    return out;
+}
+
+std::string missingPacksText(const ModsModel& model, bool translate) {
+    const std::vector<const ModInfo*> packs = missingPacks(model);
+    if (packs.empty())
+        return {};
+    std::string names;
+    for (const ModInfo* m : packs)
+        names += (names.empty() ? "" : ", ") + m->key; // the mods.ini name: there is no file to name
+    return packs.size() == 1 ? format(translate, "A mod pack enabled in mods.ini is missing: {0}.", {names})
+                             : format(translate, "{0} mod packs enabled in mods.ini are missing: {1}.",
+                                      {std::to_string(packs.size()), names});
+}
+
 bool campaignOffered(const ModInfo& m, const GameChoiceState& state) {
     if (m.campaign.empty() || state.refused.count(m.id))
         return false;

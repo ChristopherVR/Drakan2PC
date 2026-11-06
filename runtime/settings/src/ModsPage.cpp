@@ -85,6 +85,9 @@ gameui::SettingPage buildModsPage(const ModsModel& model) {
         const std::string unreadable = unreadablePacksText(model, false);
         if (!unreadable.empty())
             sec.rows.push_back(info("Unreadable", unreadable));
+        const std::string missing = missingPacksText(model, false);
+        if (!missing.empty())
+            sec.rows.push_back(info("Missing", missing));
         pg.sections.push_back(std::move(sec));
     }
     if (model.size() == 0) {

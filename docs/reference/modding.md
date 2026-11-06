@@ -163,7 +163,17 @@ experimental = off
 * Order top to bottom is the **load order**; later packs win. `on` / `off` enable or disable (`1 true yes` also mean on).
 * Packs found on disk but not listed are appended as `<name> = new`: off, and not decided yet. They are never enabled by
   themselves; see "New packs" below. `off` is a decision (the player kept the pack off), `new` is not.
-* A listed pack that is missing from the folder is reported and skipped.
+* A listed pack that is missing from the folder (moved, renamed, deleted) is reported and skipped. What happens to its
+  line depends on the value:
+  * `on`: kept (it is a decision, and the pack may come back). The title's main page names it ("A mod pack enabled in
+    mods.ini is missing: <name>."), the Mods page has a **Missing** row and the pack's status reads
+    `Skipped: not found in the mods folder`; the log has `[mods] pack '<name>' is enabled in mods.ini but missing from
+    the mods folder`. Turning it off on the Mods page (or copying it back) ends the line.
+  * `off`: kept and not named anywhere but its Mods page entry: the player does not want it loaded anyway.
+  * `new`: the player never decided on it, so there is nothing to remember. `ModManager::load` removes the line from
+    mods.ini (temp file + rename, comments and other lines unchanged) and logs
+    `mods: new pack '<name>' is no longer in the mods folder: removed from mods.ini`. If the pack is copied back later
+    it is found again as `new`.
 
 ### New packs (title notice)
 
@@ -193,11 +203,17 @@ Now:
   the title's main page names the file ("A pack in the mods folder could not be read: broken.zip."), the Mods page
   has an **Unreadable** row and the pack's status line gives the reason, and the log has
   `[mods] pack '<file>' cannot be read (<reason>)`. Turning it off on the Mods page (or fixing / removing the file)
-  ends the line. The title's note plate sits in the top left corner of the 16:9 canvas, clear of the logo, the
-  campaign plaque and the art's copyright lines; the FPS counter moves to a bottom corner while it shows.
+  ends the line. A pack mods.ini enables but the folder lacks gets its own line (see "mods.ini" above).
+* **Note plate.** The title's note plate sits in the top left corner of the 16:9 canvas, clear of the logo, the
+  campaign plaque and the art's copyright lines; the FPS counter moves to a bottom corner while it shows. Up to three
+  notes (game choice, unreadable, missing) share its six lines: each gets an equal share (at most three), lines left
+  over go to the notes that need more, in that order, and a note cut short ends in "...". The title's hint row
+  (Select / Later / Cancel) moves up beside the art's first copyright line when it is long enough to reach the second
+  one (two hints in French, Spanish, Italian and English); see `design::title::kCopyrightLine2Right`.
 * The policy is `runtime/settings` `settings/ModDiscovery.h` (`showModNotice`, `modNoticeContent`, `gameChoiceNote`,
-  `gameChoiceNoteText`, `unreadablePacks`, `unreadablePacksText`) plus `ModsModel::undecided / enableUndecided / keepUndecidedOff`; tests in
-  `mods_model_test` (policy, mods.ini values, page marks), `mod_test` (`new` in mods.ini), `gameui_saveload_test`
+  `gameChoiceNoteText`, `unreadablePacks`, `unreadablePacksText`, `missingPacks`, `missingPacksText`) plus
+  `ModsModel::undecided / enableUndecided / keepUndecidedOff`; tests in `mods_model_test` (policy, mods.ini values,
+  page marks), `mod_test` (`new` in mods.ini, stale `new` lines dropped), `gameui_saveload_test`
   (`testTitleModsNotice`) and `gameui_locale_test` (the card's strings in every menu language). The title strings are
   in the `gameui::menuText` catalogue (German, French, Italian, Spanish); the Mods page stays English like the rest of
   the PC settings.

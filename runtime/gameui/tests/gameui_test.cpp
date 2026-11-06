@@ -441,6 +441,12 @@ void testLayout() {
     for (const std::string& l : lines)
         CHECK(estimateTextWidth(l, FontRole::Body, 20) <= 200 || l.find(' ') == std::string::npos);
     CHECK(wrapText("a\nb", 1000, FontRole::Body, 20, {}).size() == 2);
+    // French spacing: a lone ':' ';' '!' '?' never starts a line, it stays with the word before it.
+    for (const std::string& l : wrapText("aaaa bbbb : cccc ; dd ! ee ?", 100, FontRole::Body, 20, {}))
+        CHECK(!l.empty() && !std::strchr(":;!?", l[0]));
+    CHECK((wrapText("aaaa bbbb : cccc", 100, FontRole::Body, 20, {}) ==
+           std::vector<std::string>{"aaaa", "bbbb :", "cccc"}));
+    CHECK((wrapText("x :y", 1000, FontRole::Body, 20, {}) == std::vector<std::string>{"x :y"}));
     const std::string e = ellipsize("A very long item name indeed", 100, FontRole::Body, 20, {});
     CHECK(e.size() > 3 && e.substr(e.size() - 3) == "..." && estimateTextWidth(e, FontRole::Body, 20) <= 100);
     CHECK(ellipsize("Short", 1000, FontRole::Body, 20, {}) == "Short");

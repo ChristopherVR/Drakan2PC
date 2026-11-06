@@ -7,6 +7,7 @@
 #include <vector>
 
 #include "gameui/Addresses.h"
+#include "gameui/MenuText.h"
 #include "gameui/SaveLoadScreen.h"
 #include "gameui/SaveSlots.h"
 #include "gameui/TitleScreen.h"
@@ -846,6 +847,22 @@ void testTitleModsNotice() {
         CHECK(hasText(o.draw, "Enable and restart") && hasText(o.draw, "Open Mods menu") &&
               hasText(o.draw, "Keep them off") && hasText(o.draw, "Later"));
         CHECK(scr.focus() == (TargetId{TargetKind::CardButton, static_cast<int>(TitleRow::ModsEnable)}));
+        // The hint row stays off the art's copyright lines: right of the second line, or raised beside the first.
+        for (const char* lang : {"english", "french", "spanish", "italian", "german"}) {
+            setMenuLanguage(lang);
+            TitleScreen langScr;
+            langScr.open();
+            const TitleFrameOutput lo = langScr.frame(st, {}, kVp);
+            int prompts = 0;
+            for (const DrawCmd& c : lo.draw.commands())
+                if (c.kind == DrawKind::Image && c.image.kind == ImageKind::Prompt) {
+                    ++prompts;
+                    CHECK(c.rect.x >= design::title::kCopyrightLine2Right ||
+                          (c.rect.bottom() <= 1006 && c.rect.x >= design::title::kCopyrightLine1Right));
+                }
+            CHECK(prompts == 2);
+        }
+        setMenuLanguage("english");
         o = scr.frame(st, keys({UiKey::Confirm}), kVp);
         CHECK(o.actions.size() == 1 && o.actions[0].kind == TitleActionKind::ModsEnable && scr.suspended());
         CHECK(scr.page() == TitlePage::Main);
@@ -910,8 +927,37 @@ void testTitleModsNotice() {
         note.modsNote = "Cannot read x.zip.";
         const TitleFrameOutput both = plain.frame(note, {}, kVp);
         CHECK(hasText(both.draw, "Choose your game is not shown.") && hasText(both.draw, "Cannot read x.zip."));
+        note.missingModsNote = "Missing: y.";
+        const TitleFrameOutput three = plain.frame(note, {}, kVp);
+        CHECK(hasText(three.draw, "Choose your game is not shown.") && hasText(three.draw, "Cannot read x.zip.") &&
+              hasText(three.draw, "Missing: y."));
         note.gameChoiceNote.clear();
         CHECK(hasText(plain.frame(note, {}, kVp).draw, "Cannot read x.zip."));
+        note.modsNote.clear();
+        CHECK(hasText(plain.frame(note, {}, kVp).draw, "Missing: y."));
+        {
+            // Three long notes share the plate's six lines: each keeps two and ends in "...", none is dropped.
+            TitleState longNotes = titleState();
+            std::string words;
+            for (int i = 0; i < 60; ++i)
+                words += "word ";
+            longNotes.gameChoiceNote = "A " + words;
+            longNotes.modsNote = "B " + words;
+            longNotes.missingModsNote = "C " + words;
+            TitleScreen longScr;
+            longScr.open();
+            const TitleFrameOutput lo = longScr.frame(longNotes, {}, kVp);
+            int noteLines = 0, cut = 0;
+            for (const DrawCmd& c : lo.draw.commands())
+                if (c.kind == DrawKind::Text && c.text.find("word") != std::string::npos) {
+                    ++noteLines;
+                    cut += c.text.size() >= 3 && c.text.compare(c.text.size() - 3, 3, "...") == 0 ? 1 : 0;
+                }
+            CHECK(noteLines == design::title::kNoteLinesMax && cut == 3);
+            longNotes.missingModsNote = "Short.";
+            const TitleFrameOutput o2 = longScr.frame(longNotes, {}, kVp);
+            CHECK(hasText(o2.draw, "Short."));
+        }
         // The plate stays in the top left sky: clear of the logo and the campaign plaque (x >= 460 at the top), the
         // menu column and the art's copyright lines at the bottom (design y >= 960 at 16:9).
         for (int lines = 1; lines <= design::title::kNoteLinesMax; ++lines) {

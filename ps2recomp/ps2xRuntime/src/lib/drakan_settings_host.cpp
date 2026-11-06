@@ -2262,7 +2262,9 @@ void titleDraw(const dsettings::SettingsOverlay::ScreenFrame& f, bool background
         st.gameChoiceNote =
             dsettings::gameChoiceNoteText(dsettings::gameChoiceNote(harnessMods(), harnessMods().gameChoice()), true);
         st.modsNote = dsettings::unreadablePacksText(harnessMods(), true);
-        if ((!st.gameChoiceNote.empty() || !st.modsNote.empty()) && ui.screen.page() == gameui::TitlePage::Main)
+        st.missingModsNote = dsettings::missingPacksText(harnessMods(), true);
+        if ((!st.gameChoiceNote.empty() || !st.modsNote.empty() || !st.missingModsNote.empty()) &&
+            ui.screen.page() == gameui::TitlePage::Main)
             drakan_fpsmeter::setAvoidTop(true); // the note plate sits in the top left corner
         st.now = now;
         st.capturedKey = take && capture ? g_capturedKey : std::string();
@@ -2565,6 +2567,11 @@ void snapshotMods(const hle::mods::ModManager* mm, const std::string& dir) {
     for (const dsettings::ModInfo* m : dsettings::unreadablePacks(g_modsModel))
         std::fprintf(stderr, "[mods] pack '%s' cannot be read (%s): named on the title screen\n", m->file.c_str(),
                      m->readError.c_str());
+    for (const dsettings::ModInfo* m : dsettings::missingPacks(g_modsModel))
+        std::fprintf(stderr,
+                     "[mods] pack '%s' is enabled in mods.ini but missing from the mods folder: named on the title "
+                     "screen\n",
+                     m->key.c_str());
 }
 
 // The title's new packs card answered: write mods.ini (and restart for Enable).

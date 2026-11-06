@@ -367,6 +367,32 @@ static void filesTests(const fs::path& root, const DiscProfile& pal) {
         CHECK(of("gone").key == "gone" && of("gone").source.empty() && of("gone").readError.empty()); // missing
     }
 
+    // A `new` line whose pack is gone is dropped from mods.ini (never decided, nothing to keep); `on` / `off` lines of
+    // missing packs are decisions and stay, the `on` one reported as missing.
+    {
+        const fs::path mods = root / "mods_stale";
+        const std::string kept = "[mods]\n; keep me\none = new\nkept = off\nwanted = on\n";
+        writeText(mods / "one/mod.toml", toml("one"));
+        writeText(mods / "mods.ini", "[mods]\n; keep me\none = new\nGone = new\nkept = off\nwanted = on\n");
+        ModManager mm(pal);
+        CHECK(mm.load(mods.string()) == 0);
+        std::vector<std::string> keys;
+        for (const ModStatus& s : mm.status())
+            keys.push_back(s.key);
+        CHECK((keys == std::vector<std::string>{"one", "kept", "wanted"}));
+        auto readIni = [&] {
+            std::ifstream in(mods / "mods.ini", std::ios::binary);
+            return std::string((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+        };
+        CHECK(readIni() == kept);
+        CHECK(!fs::exists(mods / "mods.ini.tmp"));
+        CHECK(mm.status()[0].isNew && !mm.status()[1].isNew && mm.status()[2].source.empty() &&
+              mm.status()[2].enabled && mm.status()[2].state == ModState::Skipped);
+        ModManager again(pal); // nothing stale any more: the file is left alone
+        CHECK(again.load(mods.string()) == 0 && again.status().size() == 3);
+        CHECK(readIni() == kept);
+    }
+
     // Portable English pack files also serve the running language. Explicit disc
     // lookups keep their original language, and localized files retain load precedence.
     {

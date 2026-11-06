@@ -35,6 +35,14 @@ std::vector<const ModInfo*> unreadablePacks(const ModsModel& model);
 // `translate` as for gameChoiceNoteText (each pack's reason is on its Mods page row).
 std::string unreadablePacksText(const ModsModel& model, bool translate);
 
+// Packs that mods.ini enables (`on`) but that are not in the mods folder (moved, renamed or deleted), in load order.
+// A missing `off` pack is not named (the player does not want it anyway; the line stays in mods.ini as a decision),
+// and a missing `new` pack never gets here: ModManager::load drops that line from mods.ini. A pack turned off on the
+// Mods page in this session is no longer named.
+std::vector<const ModInfo*> missingPacks(const ModsModel& model);
+// The title line for them: "A mod pack enabled in mods.ini is missing: ootf-levels." Empty when there is none.
+std::string missingPacksText(const ModsModel& model, bool translate);
+
 // Why an enabled campaign pack does not show up on the title's game card.
 enum class GameChoiceReason {
     None,           // nothing to explain (no enabled campaign, or the card is offered)

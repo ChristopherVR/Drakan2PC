@@ -1157,6 +1157,54 @@ size_t ModManager::load(const std::string& modsDir) {
                 names.push_back(stemOf(e.path()));
         }
         std::sort(names.begin(), names.end());
+        // A `new` line whose pack is gone again: the player never decided on it, so there is nothing to remember.
+        // It is dropped from mods.ini (and from the list) instead of staying as a missing pack. `on` / `off` lines
+        // are decisions and stay (a missing `on` pack is named on the title screen, docs/reference/modding.md).
+        std::set<std::string> onDisk, stale;
+        for (auto& n : names)
+            onDisk.insert(lower(n));
+        for (auto& k : unseen)
+            if (!onDisk.count(k))
+                stale.insert(k);
+        if (!stale.empty()) {
+            std::vector<std::string> keep;
+            {
+                std::ifstream in(iniPath);
+                std::string raw;
+                while (std::getline(in, raw)) {
+                    const std::string line = trim(raw);
+                    const size_t eq = line.find('=');
+                    if (!line.empty() && line[0] != ';' && line[0] != '#' && line[0] != '[' &&
+                        eq != std::string::npos && lower(trim(line.substr(eq + 1))) == "new" &&
+                        stale.count(lower(trim(line.substr(0, eq)))))
+                        continue;
+                    keep.push_back(raw);
+                }
+            }
+            const fs::path tmp = iniPath.string() + ".tmp";
+            bool written = false;
+            {
+                std::ofstream o(tmp, std::ios::binary | std::ios::trunc);
+                for (auto& l : keep)
+                    o << l << '\n';
+                written = static_cast<bool>(o);
+            }
+            if (written) {
+                fs::rename(tmp, iniPath, ec);
+                written = !ec;
+            }
+            if (!written)
+                fs::remove(tmp, ec);
+            for (auto& [k, on] : order)
+                if (stale.count(lower(k)))
+                    logf("mods: new pack '%s' is no longer in the mods folder: %s", k.c_str(),
+                         written ? "removed from mods.ini" : "mods.ini could not be rewritten, ignored for this start");
+            order.erase(std::remove_if(order.begin(), order.end(),
+                                       [&](const auto& o) { return stale.count(lower(o.first)) != 0; }),
+                        order.end());
+            for (auto& k : stale)
+                unseen.erase(k);
+        }
         for (auto& n : names)
             if (listed.insert(lower(n)).second) {
                 order.emplace_back(n, false);

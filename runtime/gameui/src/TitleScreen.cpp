@@ -472,8 +472,13 @@ void TitleScreen::buildHints(const TitleState& st) {
         hints_.push_back({Prompt::Back, page_ == TitlePage::ModsNotice ? menuText("Later") : menuText("Cancel")});
     (void)st;
     const detail::Paint p(lf_, cfg_.screen);
-    const std::vector<Rect> rs =
+    std::vector<Rect> rs =
         p.layoutHints(hints_, kDesignW - kMargin, false, kFooterY, kHintH, kHintGlyph, kHintGap, FontRole::Body);
+    // The art's copyright lines run along the bottom (design::title::kCopyrightLine2Right): a hint row long enough to
+    // reach the second line (two hints in French or Spanish) moves up beside the shorter first line instead.
+    if (!rs.empty() && rs.front().x < design::title::kCopyrightLine2Right)
+        rs = p.layoutHints(hints_, kDesignW - kMargin, false, design::title::kRaisedHintY, kHintH, kHintGlyph, kHintGap,
+                           FontRole::Body);
     for (size_t i = 0; i < hints_.size(); ++i)
         targets_.push_back(
             {{TargetKind::Hint, static_cast<int>(hints_[i].prompt)}, lf_.map(rs[i]), false, hints_[i].enabled});
@@ -979,16 +984,30 @@ void TitleScreen::draw(const TitleState& st, DrawList& d) const {
         p.text(d, {kMargin, kFooterY, 700, kHintH}, line, FontRole::Small, th.textMuted);
     }
 
-    if (!card) { // why an enabled campaign is not on the game card, packs that could not be read
-        std::vector<std::string> lines;
-        for (const std::string* note : {&st.gameChoiceNote, &st.modsNote}) {
-            if (note->empty())
-                continue;
-            const std::vector<std::string> l = p.wrap(*note, design::title::noteTextWidth(), FontRole::Small);
-            const size_t keep = std::min<size_t>(l.size(), design::title::kNoteLinesMax / 2);
-            for (size_t i = 0; i < keep; ++i)
-                lines.push_back(i + 1 == keep && keep < l.size() ? l[i] + "..." : l[i]);
+    if (!card) { // why an enabled campaign is not on the game card, packs that could not be read or are missing
+        // The notes share the plate's lines: each gets an equal share (at most half the plate), then lines left over
+        // go to the notes that need more, in order. A note cut short ends in "...".
+        std::vector<std::vector<std::string>> notes;
+        for (const std::string* note : {&st.gameChoiceNote, &st.modsNote, &st.missingModsNote})
+            if (!note->empty())
+                notes.push_back(p.wrap(*note, design::title::noteTextWidth(), FontRole::Small));
+        std::vector<size_t> keep(notes.size());
+        size_t left = design::title::kNoteLinesMax;
+        const size_t cap = design::title::kNoteLinesMax / 2;
+        for (size_t k = 0; k < notes.size(); ++k) {
+            keep[k] =
+                std::min({notes[k].size(), cap, static_cast<size_t>(design::title::kNoteLinesMax) / notes.size()});
+            left -= keep[k];
         }
+        for (size_t k = 0; k < notes.size() && left > 0; ++k) {
+            const size_t more = std::min(left, std::min(notes[k].size(), cap) - keep[k]);
+            keep[k] += more;
+            left -= more;
+        }
+        std::vector<std::string> lines;
+        for (size_t k = 0; k < notes.size(); ++k)
+            for (size_t i = 0; i < keep[k]; ++i)
+                lines.push_back(i + 1 == keep[k] && keep[k] < notes[k].size() ? notes[k][i] + "..." : notes[k][i]);
         if (!lines.empty()) {
             // A plate under the lines: the title art behind them is bright.
             d.panel(p.map(design::title::notePlate(static_cast<int>(lines.size()))), PanelStyle::Main,

@@ -351,6 +351,46 @@ int main() {
         CHECK(sawRow);
     }
 
+    // ---- missing packs (listed `on` in mods.ini, not in the folder): named on the title; `off` ones are not
+    {
+        auto gone = [](const char* key, bool on) {
+            ModInfo m;
+            m.key = m.name = m.file = key;
+            m.found = false;
+            m.enabled = m.bootEnabled = on;
+            m.boot = ModBoot::Skipped;
+            m.message = "listed in mods.ini but not found in mods";
+            return m;
+        };
+        ModsModel g;
+        g.setSnapshot(dir.string(), {gone("ootf-levels", true), gone("old", false), mk("here", true, ModBoot::Active)},
+                      {});
+        CHECK(missingPacks(g).size() == 1 && missingPacks(g)[0]->key == "ootf-levels");
+        CHECK(missingPacksText(g, false) == "A mod pack enabled in mods.ini is missing: ootf-levels.");
+        CHECK(unreadablePacks(g).empty() && g.undecided().empty()); // not a read error, not offered on the card
+        CHECK(g.stateText(*g.find("ootf-levels")) == "Skipped: not found in the mods folder");
+        bool sawRow = false;
+        for (const auto& sec : buildModsPage(g).sections)
+            for (const auto& r : sec.rows)
+                sawRow = sawRow || (r.label == "Missing" && r.text.find("ootf-levels") != std::string::npos);
+        CHECK(sawRow);
+        gameui::setMenuLanguage("german");
+        CHECK(missingPacksText(g, true) == "Ein in mods.ini aktiviertes Mod-Paket fehlt: ootf-levels.");
+        gameui::setMenuLanguage("english");
+
+        ModsModel two;
+        two.setSnapshot(dir.string(), {gone("a", true), gone("b", true)}, {});
+        CHECK(missingPacksText(two, false) == "2 mod packs enabled in mods.ini are missing: a, b.");
+        gameui::setMenuLanguage("french");
+        CHECK(missingPacksText(two, true) == "2 packs de mods activés dans mods.ini sont introuvables : a, b.");
+        gameui::setMenuLanguage("english");
+        CHECK(two.apply("mods.enable.a", "0", &err)); // turned off on the Mods page: no longer named
+        CHECK(missingPacksText(two, false) == "A mod pack enabled in mods.ini is missing: b.");
+        CHECK(two.apply("mods.enable.b", "0", &err));
+        CHECK(missingPacks(two).empty() && missingPacksText(two, true).empty());
+        CHECK(two.iniText("").find("a = off") != std::string::npos); // kept as a decision
+    }
+
     fs::remove_all(dir);
     std::printf("%d checks, %d failed\n", g_checks, g_fail);
     return g_fail ? 1 : 0;
