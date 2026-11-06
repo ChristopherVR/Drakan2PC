@@ -32,6 +32,11 @@ if(DRAKAN_BUILD_RUNTIME_TESTS)
     target_link_libraries(world_foliage_test PRIVATE drakan_world drakan::options)
     add_test(NAME world_foliage_test COMMAND world_foliage_test)
 
+    # Near-plane clip of the engine's projected polygons (header only): bit-identical front polygons, clipped straddlers.
+    add_executable(world_polyclip_test tests/polyclip_test.cpp)
+    target_link_libraries(world_polyclip_test PRIVATE drakan_world drakan::options)
+    add_test(NAME world_polyclip_test COMMAND world_polyclip_test)
+
     # Pose model: synthetic memory + interpolation (the bridge to the real net::PlayerState is tested in runtime/net).
     add_executable(world_pose_test tests/pose_test.cpp)
     target_link_libraries(world_pose_test PRIVATE drakan_world drakan::options)

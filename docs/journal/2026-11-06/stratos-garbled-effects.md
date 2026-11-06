@@ -145,3 +145,24 @@ fan-straddle report in the trace hook.
   nothing in the GS path is wrong, so no GS guard was added (a guard would be a presentation change that the original
   does not make). If the effect should be hidden anyway, the place is a game side override of `FUN_00146378`
   (skip the polygon when its vertices straddle the camera plane), not the GS.
+
+### Fix (2026-11-07): near-plane and window clip of the engine's fans (`poly_near_clip`, default on)
+
+* Hook `drakan_polyclip.cpp` on the fan drawer `FUN_00146880` (a1 = vertices, a2 = count, PAL addresses). The pure math is
+  `runtime/world/include/world/PolyClip.h` (unit tested: `world_polyclip_test`, run by ctest in the `runtime-tests`
+  preset). Polygons that need nothing take the original path unchanged (the fast check reads at most 8 vertices).
+* A polygon is clipped when it straddles the camera (some q > 0 and some q < 0) or when a vertex lies outside the GS
+  coordinate window (|x - 2048| or |y - 2048| > 2040; the GIF XYZ2 fields are 16 bit, so the hardware wraps those
+  vertices too: a ribbon with its tip a few units from the camera has q > 0 but x = 13312 and is just as garbled).
+  Sutherland-Hodgman per fan triangle in homogeneous space against depth >= `DRAKAN_POLY_NEAR_W` (8) and a +-1800 px
+  guard band; position, z, s/t, fog and colour are interpolated where they are linear (x,y,z are lifted by the depth
+  1/q), surviving vertices are copied bit for bit, each remainder is drawn through the original fan drawer from scratch
+  vertices below `$sp`.
+* Switch: `[video] poly_near_clip=0` or `DRAKAN_POLY_NEAR_CLIP=0` restores the original look. No settings menu entry yet.
+* Verification (Level 8 Stratos, `recipes_g3/s_4.txt`, private exe copy): clip off: spiky fans, green wash, sticks in
+  8 of 16 shots and the GS trigger fires every run (frame 8657, `q=-0.32`); clip on: 0 of 16 shots garbled in the
+  final run, the trigger never fires, 2305 fans clipped of 189,400 drawn, 0 dropped. Two earlier runs with the
+  straddle-only version still showed sticks and a green wash until the window clip was added. Levels 1A and 4B
+  (`fx.txt`, attacks and walking): identical images on and off and no fan was clipped there (no behaviour change off the
+  affected effects). Cost: one pointer-sized check per fan (about 1,500 fans per second), not measurable next to the
+  game; the machine was shared with other runs so FPS numbers were not compared.

@@ -164,6 +164,7 @@ variable exists it wins over the `drakan.ini` value of `[section] key`. `DRAKAN_
 | `DRAKAN_DLSS_NEURAL` / `DRAKAN_DLSS_NEURAL_DIR` | `[video] dlss_neural` / `dlss_neural_runtime` | off / empty |
 | `DRAKAN_DLSS_NEURAL_RESOLUTION` | `[video] dlss_neural_resolution` (`output` \| `render`; see `dlss.md` "Neural rendering resolution") | `output` |
 | `GSR_MODERN_WATER` / `GSR_RAY_REFLECTIONS` / `GSR_RAY_SHADOWS` / `GSR_RAY_GI` | `[video] modern_water` / `ray_reflections` / `ray_shadows` / `ray_gi` | see the water table above |
+| `DRAKAN_POLY_NEAR_CLIP` / `DRAKAN_POLY_NEAR_W` / `DRAKAN_POLY_NEAR_CLIP_LOG` | `[video] poly_near_clip`: clip the engine's projected fans (ribbons, beams) against the camera near plane and the GS coordinate window before they reach the GIF emitter (0 = original behaviour); near depth for the plane (default 8); log counters. PAL only | on / 8 / off |
 | `DRAKAN_FOLIAGE_WIND` / `DRAKAN_FOLIAGE_STRENGTH` / `DRAKAN_FOLIAGE_LOG` | `[video] foliage_wind` / `foliage_wind_strength` (living foliage, `world-model.md` section 12); the log flag prints how many trees / plants were drawn every 5 s | off / 1.0 / off |
 | `DRAKAN_MOUSE_AUDIT` / `DRAKAN_THREAD_BOOST` | per-packet and per-tick mouse log for `scripts/perf/mouse_audit_report.py`; `DRAKAN_THREAD_BOOST=0` disables the frame-thread priority / MMCSS / power hints (`mouse-microstutter.md`) | off / on |
 | `GSR_BACKDROP_LOG` | prints the wide menu backdrop image chosen whenever it changes (D3D11) | off |

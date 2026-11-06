@@ -378,6 +378,7 @@ endfunction()
 add_library(ps2_runtime STATIC
     src/lib/game_overrides.cpp
     src/lib/drakan_overrides.cpp
+    src/lib/drakan_polyclip.cpp
     src/lib/drakan_input_glue.cpp
     src/lib/drakan_config.cpp
     src/lib/drakan_pause.cpp

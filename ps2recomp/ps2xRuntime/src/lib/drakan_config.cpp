@@ -133,6 +133,10 @@ const Entry kEntries[] = {
      "the player; render only, nothing is saved (PAL only; env DRAKAN_FOLIAGE_WIND)"},
     {"video", "foliage_wind_strength", "1.0",
      "how far foliage leans and how hard the gusts blow, 0.25 .. 2 (env DRAKAN_FOLIAGE_STRENGTH)"},
+    {"video", "poly_near_clip", "1",
+     "1 = clip the engine's projected polygons (ribbons, beams) against the camera near plane instead of drawing them "
+     "whole; fixes starburst fans when the camera is inside an effect, 0 = original behaviour (PAL only; env "
+     "DRAKAN_POLY_NEAR_CLIP)"},
     {"video", "hd_textures", "1",
      "1 = use replacement textures from texture_dir (also accepted: texture_replace) (env GSR_TEXREPLACE)"},
     {"video", "texture_dump", "0",
