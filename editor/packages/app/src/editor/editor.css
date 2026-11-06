@@ -196,6 +196,8 @@ body.ed-scrub {
 }
 .vp-left {
     left: var(--sp-4);
+    /* Its menus open over the tool bar when a narrow viewport stacks the two. */
+    z-index: 7;
 }
 .vp-right {
     right: var(--sp-4);

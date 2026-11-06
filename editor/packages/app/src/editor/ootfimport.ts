@@ -30,7 +30,7 @@ type Call = <M extends Method>(method: M, ...args: Parameters<Api[M]>) => Promis
 export interface OotfHost {
     call: Call;
     /** PS2 levels of the open disc (empty when no disc is open). */
-    levels(): { name: string; dirPath: string }[];
+    levels(): { name: string; dirPath: string; virtual?: boolean }[];
     toast(msg: string, kind?: 'info' | 'error' | 'ok' | 'warn'): void;
     /** Disc profile id for the mod manifest (`pal` / `usa`), or null. */
     profile(): string | null;
@@ -191,7 +191,8 @@ function openDialog(host: OotfHost): void {
         st.textContent = STYLE;
         document.head.append(st);
     }
-    const ps2 = host.levels();
+    // The template is a real disc level: converted levels exist only in memory and have nothing to reuse.
+    const ps2 = host.levels().filter((l) => !l.virtual);
     // Keep the shared dropdown popup inside the modal's top layer (body siblings are inert and paint below it).
     const dlg = h('dialog', { class: 'ootf-dlg', 'data-dd-host': '' });
     const body = h('div', { class: 'od-body' });

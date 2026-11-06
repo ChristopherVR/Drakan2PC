@@ -13,6 +13,8 @@ export interface LevelInfo {
     dirPath: string;
     /** False when LEVELLST names a directory this disc does not have. */
     present: boolean;
+    /** A level that exists only in memory (a converted Order of the Flame level), not on the disc. */
+    virtual?: boolean;
 }
 
 export interface OpenResult {

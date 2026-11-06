@@ -348,7 +348,12 @@ const api: { [K in keyof Api]: (...a: Parameters<Api[K]>) => Promise<ReturnType<
         for (const f of (await patchedContainers(baseIso!, language, packFiles)).files)
             virtualFiles.set(f.path.toUpperCase(), f);
         for (const l of levels)
-            virtualLevels.set(l.dirPath.toUpperCase(), { name: l.name, dirPath: l.dirPath, present: true });
+            virtualLevels.set(l.dirPath.toUpperCase(), {
+                name: l.name,
+                dirPath: l.dirPath,
+                present: true,
+                virtual: true,
+            });
         iso = overlayDisc(baseIso!, [...virtualFiles.values()]);
         gatedIso = null;
         srscCache.clear();

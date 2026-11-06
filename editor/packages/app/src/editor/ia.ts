@@ -62,6 +62,8 @@ export const PLACEMENT: Record<string, Placement> = {
         command: 'Open the Logic graph',
         keys: 'Ctrl+Shift+K',
         movable: true,
+        // A graph needs room: a short drawer left it a strip beside the details.
+        dockShare: 0.5,
     },
     menus: {
         home: 'tab',

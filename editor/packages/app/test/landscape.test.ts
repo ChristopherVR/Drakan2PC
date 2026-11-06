@@ -58,6 +58,18 @@ describe('landscape palette', () => {
 });
 
 describe('live terrain mesh', () => {
+    it('merges the many small layers of a converted level into a few meshes per texture', () => {
+        // Order of the Flame levels have hundreds of small layers; a mesh per layer and texture meant ~9000 draw calls.
+        const layers = Array.from({ length: 60 }, (_, i) => flat(i, 8, 8, i * 10, [7 + (i % 2)]));
+        const live = new EditableTerrain(
+            () => layers,
+            () => null,
+        );
+        // 600 cells across: five 128-cell chunks, two textures at most each.
+        expect(live.group.children.length).toBeLessThanOrEqual(10);
+        live.dispose();
+    });
+
     it('rebuilds only touched chunks and follows the document', () => {
         const doc = new LevelDocument();
         doc.attachTerrain([flat(0, 40, 40, 0, [7]), flat(1, 4, 4, 40, [8])]);

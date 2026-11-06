@@ -11,8 +11,11 @@ import {
 import { SCENE_SCALE, type TerrainScene } from './terrain.ts';
 import type { TextureLookup } from './textures.ts';
 
-/** Cells per chunk edge for untouched layers (merged per origin chunk and texture, like `buildTerrain`). */
-const SHARED_CHUNK = 32;
+/**
+ * Cells per chunk edge for untouched layers (merged per origin chunk and texture, like `buildTerrain`). Converted Order of
+ * the Flame levels have hundreds of small layers: 32 gave nearly 9000 draw calls on Islands, 128 a few hundred.
+ */
+const SHARED_CHUNK = 128;
 /** Cells per chunk edge of a layer being edited: a brush dab rebuilds only the few chunks it touched. */
 const EDIT_CHUNK = 16;
 
