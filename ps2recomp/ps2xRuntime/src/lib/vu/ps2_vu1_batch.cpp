@@ -1931,7 +1931,7 @@ bool enabled() {
             return false;
         // These diagnostics keep single-stream mutable scratch state.
         for (const char* key : {"PS2X_VU1_TRACE_FLAG", "PS2X_VU1_DUMP", "PS2X_VU1_CHECK", "PS2X_VU1_DEBUG_TAG",
-                                "PS2X_VIF_LOG", "PS2X_VU1_STATS", "DRAKAN_VU_RECORD"})
+                                "PS2X_VIF_LOG", "PS2X_VU1_STATS", "DRAKAN_VU_RECORD", "DRAKAN_VU_RING"})
             if (std::getenv(key))
                 return false;
         if (const char* value = std::getenv("DRAKAN_VU_STATS"); value && value[0] && value[0] != '0')

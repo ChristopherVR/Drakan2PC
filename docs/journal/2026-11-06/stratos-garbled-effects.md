@@ -75,3 +75,17 @@ in the soak are the burst frames themselves (shots show 18 to 43 FPS world rate 
 Frame range and texture filters of `GSR_DRAWLOG` / `GSR_DRAWLOGTBP` / `GSR_DRAWLOGV` are enough to log a garble draw;
 `logDraw` already prints the `GARBAGE` line for vertices at the saturated corner or with |stq| above 1e9. A
 `GSR_LOG_SATURATED` style filter that logs only vertices with `q < 0` would find these draws without frame guessing.
+
+## Follow-up 2026-11-07 (static reading, no new run yet)
+
+* VU1 microprogram: only 8 `CLIP` instructions exist (0xde8, 0x1868, 0x1b48, 0x1e30, 0x2110, 0x23f8, 0x2990, 0x29b8), in
+  the clipping variants of the transform loops. The plain transform loop at 0xca0 to 0xd70 (`MINIz.w`/`MAXy.w` fog clamp,
+  `DIV Q, vf00w, vf17w`, `FTOI4`) has no clip test at all: a vertex with `w < 0` gets a negative `Q` and a wrapped screen
+  position. So a draw produced by that loop and not by the 0xd80 variant (which stores the clip bits in the vertex `w` via
+  `ISWR.w`) relies on the EE to keep the geometry in front of the camera. This matches the observed `q = -0.22` vertices
+  and is consistent with the original engine producing the same vertices (the VU1 emulation is bit-exact against two
+  independent models, see the table above).
+* New diagnostics (uncommitted until verified in a game build): `DRAKAN_VU_RING=<file>,<N>` keeps the last N VU1 runs and
+  writes them in the `DRAKAN_VU_RECORD` format when `<file>.go` appears; `DRAKAN_VU_TRIGGER=<file>.go` makes the GS
+  create that file when a perspective-textured draw has a vertex with `q < -0.01`. Replay with `vu1ref_replay -geom`.
+  Use `PS2X_VU1_THREAD=0 DRAKAN_VU_BATCH=0`.

@@ -2,6 +2,7 @@
 #include "d3d11_backend_impl.h"
 #include "gs_solid_mirror.h"
 
+#include <cstdlib>
 #include <optional>
 
 namespace gsr {
@@ -167,6 +168,24 @@ void D3D11Backend::Impl::draw(const GsDrawState& s, const ClutBuf& clut, const D
     if (logThis) {
         std::fprintf(stderr, "#%lld ", (long long)di);
         logDraw(s, v, count);
+    }
+    {
+        // DRAKAN_VU_TRIGGER=<file>: create <file> once when a perspective-textured draw has a vertex behind the camera
+        // (q < 0); the runtime's DRAKAN_VU_RING recorder then dumps the VU1 runs that produced it.
+        static const char* trigger = std::getenv("DRAKAN_VU_TRIGGER");
+        static bool fired = false;
+        if (trigger && *trigger && !fired && (s.flags & DF_TME) && !(s.flags & DF_FST) && !(s.flags & DF_SPRITE)) {
+            for (uint32_t i = 0; i < count; ++i)
+                if (v[i].q < -0.01f) {
+                    fired = true;
+                    if (FILE* t = std::fopen(trigger, "wb")) {
+                        std::fclose(t);
+                        std::fprintf(stderr, "[vu-trigger] frame %llu draw %lld n=%u flags=%03x vertex %u q=%g\n",
+                                     (unsigned long long)frame, (long long)di, count, s.flags, i, v[i].q);
+                    }
+                    break;
+                }
+        }
     }
     if (drawStop >= 0 && di >= drawStop)
         return;

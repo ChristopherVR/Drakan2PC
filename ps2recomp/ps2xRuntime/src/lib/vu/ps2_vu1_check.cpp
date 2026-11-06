@@ -188,15 +188,77 @@ Recorder& rec() {
     static Recorder r;
     return r;
 }
+
+// DRAKAN_VU_RING=<file>,<N>: keep the last N runs in memory and write them to <file> (same format as DRAKAN_VU_RECORD)
+// once a trigger file <file>.go appears (the GS creates it when DRAKAN_VU_TRIGGER=1 and a draw has a vertex behind
+// the camera). Used to capture the VU1 input of a rare bad frame.
+struct Ring {
+    bool on = false;
+    std::string path;
+    uint32_t cap = 0, head = 0, filled = 0, tick = 0;
+    struct Slot {
+        RecEntry e;
+        std::vector<uint8_t> data;
+    };
+    std::vector<Slot> slots;
+    Ring() {
+        const char* e = std::getenv("DRAKAN_VU_RING");
+        if (!e || !*e)
+            return;
+        std::string spec = e;
+        const size_t c = spec.find(',');
+        path = spec.substr(0, c);
+        cap = c == std::string::npos ? 4096u : static_cast<uint32_t>(std::atoi(spec.c_str() + c + 1));
+        if (cap < 16)
+            cap = 16;
+        slots.resize(cap);
+        on = true;
+        std::remove((path + ".go").c_str());
+        std::fprintf(stderr, "[vuring] keeping the last %u VU1 runs, trigger file %s.go\n", cap, path.c_str());
+    }
+};
+Ring& ring() {
+    static Ring r;
+    return r;
+}
 } // namespace
 
 namespace vu1check {
 bool recording() {
-    return rec().on;
+    return rec().on || ring().on;
 }
 
 void record(bool resume, uint32_t startPC, uint32_t top, uint32_t itop, bool dEn, bool tEn, const VU1Interpreter& vu,
             const uint8_t* code, uint32_t codeSize, const uint8_t* data, uint32_t dataSize) {
+    if (Ring& g = ring(); g.on && dataSize == kDataSize) {
+        Ring::Slot& sl = g.slots[g.head];
+        sl.e = RecEntry{resume ? 1u : 0u, startPC, top, itop, dEn ? 1u : 0u, tEn ? 1u : 0u};
+        sl.data.assign(data, data + dataSize);
+        g.head = (g.head + 1) % g.cap;
+        if (g.filled < g.cap)
+            ++g.filled;
+        if ((++g.tick & 63u) == 0) {
+            if (FILE* t = std::fopen((g.path + ".go").c_str(), "rb")) {
+                std::fclose(t);
+                std::remove((g.path + ".go").c_str());
+                if (FILE* f = std::fopen(g.path.c_str(), "wb")) {
+                    RecHeader h{kRecMagic, g.filled, codeSize, static_cast<uint32_t>(sizeof(VU1State))};
+                    std::fwrite(&h, sizeof(h), 1, f);
+                    std::fwrite(code, 1, codeSize, f);
+                    std::fwrite(&vu.state(), sizeof(VU1State), 1, f);
+                    const uint32_t first = g.filled < g.cap ? 0 : g.head;
+                    for (uint32_t i = 0; i < g.filled; ++i) {
+                        const Ring::Slot& q = g.slots[(first + i) % g.cap];
+                        std::fwrite(&q.e, sizeof(q.e), 1, f);
+                        std::fwrite(q.data.data(), 1, kDataSize, f);
+                    }
+                    std::fclose(f);
+                    std::fprintf(stderr, "[vuring] wrote %u runs to %s\n", g.filled, g.path.c_str());
+                }
+                g.on = false;
+            }
+        }
+    }
     Recorder& r = rec();
     if (!r.on || dataSize != kDataSize)
         return;
