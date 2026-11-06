@@ -28,6 +28,12 @@ function Format-Duration([TimeSpan]$Span) {
 # The C/C++ sources of ps2EntryRunner.vcxproj and the projects it references (raylib's examples are configured but
 # not built), each with the object file MSBuild writes for it. CMake's Visual Studio generator puts objects in the
 # project's IntDir (<target>.dir\Release\) unless an item names its own ObjectFileName (same-named sources).
+# Project files write paths with backslashes; .NET on Linux/macOS does not treat those as separators.
+function Resolve-ProjectPath([string]$Path, [string]$BaseDir) {
+    $native = $Path -replace '[\\/]', [string][IO.Path]::DirectorySeparatorChar
+    return [IO.Path]::GetFullPath($native, $BaseDir + [IO.Path]::DirectorySeparatorChar)
+}
+
 function Get-CompilePlan([string]$RuntimeBuild, [string]$Configuration = 'Release') {
     $plan = [Collections.Generic.List[object]]::new()
     $root = Get-ChildItem -LiteralPath $RuntimeBuild -Filter 'ps2EntryRunner.vcxproj' -Recurse -File -ErrorAction SilentlyContinue |
@@ -46,25 +52,25 @@ function Get-CompilePlan([string]$RuntimeBuild, [string]$Configuration = 'Releas
             if ($node.GetAttribute('Condition') -match "'$Configuration\|") { $intDir = $node.InnerText; break }
         }
         if (-not $intDir) { $intDir = "$([IO.Path]::GetFileNameWithoutExtension($project)).dir\$Configuration\" }
-        $intDir = [IO.Path]::GetFullPath($intDir, $projectDir + [IO.Path]::DirectorySeparatorChar)
+        $intDir = Resolve-ProjectPath $intDir $projectDir
         foreach ($item in $xml.GetElementsByTagName('ClCompile')) {
             $source = $item.GetAttribute('Include')
             if (-not $source) { continue }
-            $source = [IO.Path]::GetFullPath($source, $projectDir + [IO.Path]::DirectorySeparatorChar)
+            $source = Resolve-ProjectPath $source $projectDir
             $object = $null
             foreach ($child in $item.GetElementsByTagName('ObjectFileName')) {
                 $condition = $child.GetAttribute('Condition')
                 if (-not $condition -or $condition -match "'$Configuration\|") { $object = $child.InnerText; break }
             }
             if ($object -and $object -notmatch '[\\/]$') {
-                $object = [IO.Path]::GetFullPath($object.Replace('$(IntDir)', $intDir), $projectDir + [IO.Path]::DirectorySeparatorChar)
+                $object = Resolve-ProjectPath $object.Replace('$(IntDir)', $intDir) $projectDir
             } else {
                 $object = Join-Path $intDir "$([IO.Path]::GetFileNameWithoutExtension($source)).obj"
             }
             $plan.Add([pscustomobject]@{ Source = $source; Name = Split-Path $source -Leaf; Object = $object })
         }
         foreach ($reference in $xml.GetElementsByTagName('ProjectReference')) {
-            $projects.Enqueue([IO.Path]::GetFullPath($reference.GetAttribute('Include'), $projectDir + [IO.Path]::DirectorySeparatorChar))
+            $projects.Enqueue((Resolve-ProjectPath $reference.GetAttribute('Include') $projectDir))
         }
     }
     return , $plan
