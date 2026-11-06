@@ -3,6 +3,7 @@
 #include <chrono>
 #include <cstdio>
 #include <cstdlib>
+#include <cstring>
 #include <map>
 #include <string>
 #include <thread>
@@ -57,6 +58,55 @@ std::vector<DWORD> listThreads() {
     CloseHandle(snap);
     return out;
 }
+
+// Stall forensics (PS2X_PERF): the call chain of a busy or blocked host thread as module+offset frames, taken with
+// Suspend/GetThreadContext/RtlVirtualUnwind. Main-module frames print as RVAs (resolve with the linker .map).
+std::string sampleThreadChain(DWORD tid) {
+    HANDLE h = OpenThread(THREAD_SUSPEND_RESUME | THREAD_GET_CONTEXT | THREAD_QUERY_INFORMATION, FALSE, tid);
+    if (!h)
+        return "(open failed)";
+    std::string out;
+    if (SuspendThread(h) != static_cast<DWORD>(-1)) {
+        CONTEXT ctx{};
+        ctx.ContextFlags = CONTEXT_CONTROL | CONTEXT_INTEGER;
+        if (GetThreadContext(h, &ctx)) {
+            CONTEXT c = ctx;
+            const uint64_t mainBase = reinterpret_cast<uintptr_t>(GetModuleHandleW(nullptr));
+            for (int depth = 0; depth < 28 && c.Rip != 0; ++depth) {
+                HMODULE m = nullptr;
+                char name[MAX_PATH] = "?";
+                uint64_t base = 0;
+                if (GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS |
+                                           GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+                                       reinterpret_cast<LPCWSTR>(c.Rip), &m) &&
+                    m) {
+                    GetModuleFileNameA(m, name, MAX_PATH);
+                    base = reinterpret_cast<uintptr_t>(m);
+                    const char* slash = std::strrchr(name, '\\');
+                    if (slash)
+                        std::memmove(name, slash + 1, std::strlen(slash));
+                }
+                char b[160];
+                std::snprintf(b, sizeof(b), "%s%s+0x%llx", depth ? " < " : "", base == mainBase ? "exe" : name,
+                              static_cast<unsigned long long>(c.Rip - base));
+                out += b;
+                DWORD64 imageBase = 0;
+                PRUNTIME_FUNCTION fe = RtlLookupFunctionEntry(c.Rip, &imageBase, nullptr);
+                if (!fe) {
+                    c.Rip = *reinterpret_cast<const DWORD64*>(c.Rsp);
+                    c.Rsp += 8;
+                } else {
+                    PVOID handlerData = nullptr;
+                    DWORD64 establisher = 0;
+                    RtlVirtualUnwind(UNW_FLAG_NHANDLER, imageBase, c.Rip, fe, &c, &handlerData, &establisher, nullptr);
+                }
+            }
+        }
+        ResumeThread(h);
+    }
+    CloseHandle(h);
+    return out;
+}
 } // namespace
 
 void start(void* gameThreadNativeHandle, uint64_t (*vsyncTick)(void*), void* vsyncUser) {
@@ -70,6 +120,7 @@ void start(void* gameThreadNativeHandle, uint64_t (*vsyncTick)(void*), void* vsy
                      prevVp = 0;
             auto prevT = std::chrono::steady_clock::now();
             int line = 0;
+            int stalledSeconds = 0;
             while (!g_stop.load()) {
                 std::this_thread::sleep_for(std::chrono::seconds(1));
                 const auto now = std::chrono::steady_clock::now();
@@ -79,6 +130,7 @@ void start(void* gameThreadNativeHandle, uint64_t (*vsyncTick)(void*), void* vsy
                 const uint64_t vs = vsyncTick ? vsyncTick(vsyncUser) : 0;
                 double gameCpu = 0.0, otherCpu = 0.0;
                 std::string others;
+                std::vector<DWORD> busy, all;
                 for (DWORD tid : listThreads()) {
                     HANDLE h = OpenThread(THREAD_QUERY_INFORMATION | THREAD_QUERY_LIMITED_INFORMATION, FALSE, tid);
                     if (!h)
@@ -87,10 +139,13 @@ void start(void* gameThreadNativeHandle, uint64_t (*vsyncTick)(void*), void* vsy
                     CloseHandle(h);
                     const double d = cpu - prev[tid];
                     prev[tid] = cpu;
+                    all.push_back(tid);
                     if (tid == gameTid)
                         gameCpu = d;
                     else if (d > 0.02 * dt) {
                         otherCpu += d;
+                        if (d > 0.5 * dt)
+                            busy.push_back(tid);
                         char b[48];
                         std::snprintf(b, sizeof(b), " t%lu:%.0f%%", static_cast<unsigned long>(tid), 100.0 * d / dt);
                         others += b;
@@ -119,6 +174,20 @@ void start(void* gameThreadNativeHandle, uint64_t (*vsyncTick)(void*), void* vsy
                     "vu1runs/s=%.0f vu1Mpairs/s=%.1f ee_thread_cpu=%.0f%% ee_ms/flip=%.2f other_cpu=%.0f%%%s\n",
                     line++, df / dt, df2 / dt, dv / dt, gifPk, gifMb, vuMc, vuRuns, vuMp, 100.0 * gameCpu / dt,
                     df ? 1000.0 * gameCpu / df : 0.0, 100.0 * otherCpu / dt, others.c_str());
+                // No flips for three seconds: print where the EE thread and every busy thread are, once per second.
+                stalledSeconds = df == 0 ? stalledSeconds + 1 : 0;
+                if (stalledSeconds >= 3 && stalledSeconds <= 8) {
+                    std::fprintf(stderr, "[perf-stall] ee thread %lu: %s\n", static_cast<unsigned long>(gameTid),
+                                 sampleThreadChain(gameTid).c_str());
+                    if (stalledSeconds == 3)
+                        for (DWORD tid : all)
+                            if (tid != gameTid && tid != GetCurrentThreadId())
+                                std::fprintf(stderr, "[perf-stall] thread %lu: %s\n", static_cast<unsigned long>(tid),
+                                             sampleThreadChain(tid).c_str());
+                    for (DWORD tid : busy)
+                        std::fprintf(stderr, "[perf-stall] busy thread %lu: %s\n", static_cast<unsigned long>(tid),
+                                     sampleThreadChain(tid).c_str());
+                }
             }
         });
     }

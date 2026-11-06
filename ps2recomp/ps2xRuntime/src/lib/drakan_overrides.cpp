@@ -481,10 +481,34 @@ public:
             },
             serverPriority(sid));
         {
+            // Bounded in guest time, not host time: the EE thread can sit in a host call for a long while (a cold
+            // shader compile under CPU contention blocks the GS worker and the EE waits in commitDisplay) or be
+            // starved of CPU, and the handler cannot run then. While the EE accounts cycles the budget is charged
+            // in guest seconds; while the EE thread is inside a host call from the guest nothing is charged; an idle
+            // EE is charged wall time. Giving up early used to fail the allocation and desynchronise the resource
+            // protocol, which later left the game spinning in a list walk (docs/journal/2026-11-06/boot-hang.md).
+            constexpr auto kSlice = std::chrono::milliseconds(250);
+            constexpr double kBudgetSeconds = 20.0;
+            constexpr double kEeHz = 294912000.0;
+            constexpr auto kBackstop = std::chrono::seconds(600);
+            const auto start = std::chrono::steady_clock::now();
+            double charged = 0.0;
+            uint64_t lastCycles = m_rt.eeScheduler().publishedCycles();
             std::unique_lock<std::mutex> lock(wait->m);
-            if (!wait->cv.wait_for(lock, std::chrono::seconds(20), [&] { return wait->done; })) {
-                logfmt("post(sid=0x%x fno=%u): guest handler 0x%x did not return within 20 s", sid, fno, func);
-                return -2;
+            while (!wait->done) {
+                if (wait->cv.wait_for(lock, kSlice, [&] { return wait->done; }))
+                    break;
+                const uint64_t cycles = m_rt.eeScheduler().publishedCycles();
+                if (cycles != lastCycles)
+                    charged += static_cast<double>(cycles - lastCycles) / kEeHz;
+                else if (!m_rt.eeScheduler().isExecutingGuest())
+                    charged += std::chrono::duration<double>(kSlice).count();
+                lastCycles = cycles;
+                if (charged >= kBudgetSeconds || std::chrono::steady_clock::now() - start >= kBackstop ||
+                    m_rt.isStopRequested()) {
+                    logfmt("post(sid=0x%x fno=%u): guest handler 0x%x did not return within 20 s", sid, fno, func);
+                    return -2;
+                }
             }
         }
         {

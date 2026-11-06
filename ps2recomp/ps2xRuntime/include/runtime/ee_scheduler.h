@@ -256,6 +256,10 @@ public:
     [[nodiscard]] bool checkpointDue(uint32_t cycles = kGeneratedCheckpointCycles) noexcept;
     void accountCycles(uint32_t cycles) noexcept;
     [[nodiscard]] bool isExecutingGuest() const noexcept;
+    // EE cycles accounted so far, readable from any host thread (relaxed). A host thread that waits for the guest uses
+    // it to tell "the guest is running but slow" from "the EE thread is blocked in a host call" (see
+    // EeRpcPoster::post).
+    [[nodiscard]] uint64_t publishedCycles() const noexcept { return m_publishedCycles.load(std::memory_order_relaxed); }
 
     // Kernel object API. All calls except postEvent/requestStop execute on the
     // EE executor and therefore need no host synchronization.
@@ -418,6 +422,7 @@ private:
     bool m_insideInterrupt = false;
     uint32_t m_pendingEeTimerInterrupts = 0;
     uint64_t m_eeCycle = 0;
+    std::atomic<uint64_t> m_publishedCycles{0};
     uint64_t m_sliceEndCycle = kDefaultTimeSliceCycles;
     std::thread::id m_executorThread{};
     std::atomic<bool> m_running{false};
