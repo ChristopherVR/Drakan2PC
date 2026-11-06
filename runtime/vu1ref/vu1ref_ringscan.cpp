@@ -1,5 +1,5 @@
-// vu1ref_ringscan: replays a DRAKAN_VU_RING dump (DRAKAN_VU_RECORD format) through the reference simulator and lists the
-// XGKICK vertices that have a negative Q (behind the camera). usage: vu1ref_ringscan <micromem.bin> <ring.rec> [-v]
+// vu1ref_ringscan: replays a DRAKAN_VU_RING dump (DRAKAN_VU_RECORD format) through the reference simulator and lists
+// the XGKICK vertices that have a negative Q (behind the camera). usage: vu1ref_ringscan <micromem.bin> <ring.rec> [-v]
 #include "vu1ref.h"
 #include <algorithm>
 #include <cstdio>
@@ -164,9 +164,10 @@ int main(int argc, char** argv) {
             if (neg || corner || bigz) {
                 ++badRuns;
                 printf("regs=%016llx ", (unsigned long long)tag[1]);
-                printf("run %u (%s start=%04x kick pc=%04x flags[7].x=%08x top=%u itop=%u) pk%zu prim=%llx nv=%u neg-q=%d corner=%d z>=2^31=%d\n",
-                       n, e.resume ? "mscnt" : "mscal", pc, r.kickPcs[k], *(uint32_t*)(in.data() + 112), e.top, e.itop, k,
-                       (unsigned long long)((tag[0] >> 47) & 0x7ff), nloop, neg, corner, bigz);
+                printf("run %u (%s start=%04x kick pc=%04x flags[7].x=%08x top=%u itop=%u) pk%zu prim=%llx nv=%u "
+                       "neg-q=%d corner=%d z>=2^31=%d\n",
+                       n, e.resume ? "mscnt" : "mscal", pc, r.kickPcs[k], *(uint32_t*)(in.data() + 112), e.top, e.itop,
+                       k, (unsigned long long)((tag[0] >> 47) & 0x7ff), nloop, neg, corner, bigz);
                 if (verbose && neg)
                     for (uint32_t v = 0; v < nloop; ++v) {
                         uint32_t st[4];
