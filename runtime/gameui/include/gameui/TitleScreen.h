@@ -267,7 +267,9 @@ Rect modsRow(int i);
 // The main page's note plate (TitleState::gameChoiceNote / modsNote / missingModsNote): the sky in the top left corner,
 // left of the logo and the campaign plaque. The bottom of the native art carries its copyright lines, so the note stays
 // clear of it at every aspect ratio (the art fills the viewport, the design canvas is the centred 16:9 area).
-constexpr int kNoteLinesMax = 6;
+// Seven lines fit above Rynn's hair (plate bottom at most y 256): the German game choice, unreadable and missing pack
+// notes together need seven.
+constexpr int kNoteLinesMax = 7;
 // The native art's two copyright lines (measured on the PAL title art, design units): the first ends at about
 // x 1424 (y 970-1000), the second at about x 1580 (y 1006-1044, the hint row's height). A hint row that would start
 // left of kCopyrightLine2Right is drawn at kRaisedHintY, right of the first line.

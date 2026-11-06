@@ -936,7 +936,8 @@ void testTitleModsNotice() {
         note.modsNote.clear();
         CHECK(hasText(plain.frame(note, {}, kVp).draw, "Missing: y."));
         {
-            // Three long notes share the plate's six lines: each keeps two and ends in "...", none is dropped.
+            // Three long notes share the plate's seven lines: each keeps two or three and ends in "...", none is
+            // dropped.
             TitleState longNotes = titleState();
             std::string words;
             for (int i = 0; i < 60; ++i)
@@ -958,11 +959,32 @@ void testTitleModsNotice() {
             const TitleFrameOutput o2 = longScr.frame(longNotes, {}, kVp);
             CHECK(hasText(o2.draw, "Short."));
         }
+        // The three notes of the in-game check (wrong disc profile, unreadable zip, missing pack) are not cut in any
+        // language; German needs seven lines (issue 2 follow-up).
+        for (const char* lang : {"english", "french", "spanish", "italian", "german"}) {
+            setMenuLanguage(lang);
+            TitleState real = titleState();
+            real.gameChoiceNote = menuFormat("{0} is enabled but was not loaded, so its campaign is not offered.",
+                                             {"Test Disc Campaign"});
+            real.modsNote = menuFormat("A pack in the mods folder could not be read: {0}.", {"test-zip.zip"});
+            real.missingModsNote = menuFormat("A mod pack enabled in mods.ini is missing: {0}.", {"missing-pack"});
+            TitleScreen langScr;
+            langScr.open();
+            const TitleFrameOutput lo = langScr.frame(real, {}, kVp);
+            int cut = 0, lines = 0;
+            for (const DrawCmd& c : lo.draw.commands())
+                if (c.kind == DrawKind::Text && c.rect.right() <= 460 && c.rect.bottom() <= 256) {
+                    ++lines;
+                    cut += c.text.size() >= 3 && c.text.compare(c.text.size() - 3, 3, "...") == 0 ? 1 : 0;
+                }
+            CHECK(lines >= 3 && cut == 0);
+        }
+        setMenuLanguage("english");
         // The plate stays in the top left sky: clear of the logo and the campaign plaque (x >= 460 at the top), the
         // menu column and the art's copyright lines at the bottom (design y >= 960 at 16:9).
         for (int lines = 1; lines <= design::title::kNoteLinesMax; ++lines) {
             const Rect r = design::title::notePlate(lines);
-            CHECK(r.x >= 0 && r.right() <= 460 && r.y >= 0 && r.bottom() <= 260);
+            CHECK(r.x >= 0 && r.right() <= 460 && r.y >= 0 && r.bottom() <= 256); // above Rynn's hair
             CHECK(r.right() <= design::title::menuPanel(6).x);
         }
         CHECK(design::title::noteLine(design::title::kNoteLinesMax - 1).bottom() <=

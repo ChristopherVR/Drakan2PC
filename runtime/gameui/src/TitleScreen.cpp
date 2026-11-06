@@ -288,8 +288,9 @@ Rect modsRow(int i) {
             kModsRowH};
 }
 // Left of the logo (design x >= 530) and of the campaign plaque (x >= 460), above Rynn's head on the art.
-// The plate's frame is about 30 units thick at the sides: the text keeps clear of it.
-constexpr float kNoteX = 24, kNoteY = 32, kNoteW = 432, kNotePadX = 34, kNotePadY = 22, kNoteLineH = 30;
+// The plate's frame is about 30 units thick at the sides: the text keeps clear of it. Seven 26-unit lines (Small text
+// is 19) end at y 250, above Rynn's hair, where six 30-unit lines used to end (256).
+constexpr float kNoteX = 24, kNoteY = 24, kNoteW = 432, kNotePadX = 34, kNotePadY = 22, kNoteLineH = 26;
 Rect notePlate(int lines) {
     lines = std::clamp(lines, 1, kNoteLinesMax);
     return {kNoteX, kNoteY, kNoteW, kNoteLineH * static_cast<float>(lines) + 2 * kNotePadY};
