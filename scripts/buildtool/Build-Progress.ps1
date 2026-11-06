@@ -95,7 +95,7 @@ function Get-PendingCompiles($Plan) {
 # (<WorkDir>/compile-times.json), so the estimate fits the machine from the second build on.
 function Get-CompileEstimate([string]$Name, [hashtable]$Measured) {
     if ($Measured -and $Measured.ContainsKey($Name)) { return [TimeSpan]::FromSeconds([double]$Measured[$Name]) }
-    if ($Name -like 'ps2_vu1_aot_*') { return [TimeSpan]::FromMinutes(10) }
+    if ($Name -like 'ps2_vu1_aot_*') { return [TimeSpan]::FromMinutes(6) }
     return $null
 }
 
@@ -153,7 +153,7 @@ function Get-OldestCompile($Tracker) {
     return ($Tracker.Running | Sort-Object Start | Select-Object -First 1)
 }
 
-# One line about a running file: "ps2_vu1_aot_2.cpp, 4 min so far (usually about 10 min)".
+# One line about a running file: "ps2_vu1_aot_2.cpp, 4 min so far (usually about 6 min)".
 function Format-RunningCompile($Job, [datetime]$Now) {
     $text = "$($Job.Name), $(Format-Duration ($Now - $Job.Start)) so far"
     if ($Job.Estimate) { $text += " (usually about $(Format-Duration $Job.Estimate))" }

@@ -149,10 +149,9 @@ when "Start the game when the build has finished" is ticked).
 checks Python (bundled, else 3.11+ on PATH), Git (only when the kit lacks the bundled sources) and disk space, and when
 no VS 2022 instance has the C++ x64 tools and CMake it downloads `vs_BuildTools.exe` from Microsoft, checks its
 Authenticode signature and installs the VCTools workload with `--passive` (one UAC prompt); that instance is then
-forced through `CMAKE_GENERATOR_INSTANCE`. It passes `-SerialVuSlices` (CMake `PS2X_VU1_AOT_SERIAL`: each of the four
-`ps2_vu1_aot_N.cpp` slices takes ~17 GB and ~10 min in cl, measured 16.6 GB / 591 s, so four in one `/MP` batch
-exhausted 31-61 GB machines; a distinct define per slice makes MSBuild compile them one after another) and sizes
-`-CompilerProcesses` (2 GB budget each; measured 1.3 GB on the largest generated files) and `-Jobs` (2 only with room for a slice beside them) from the
+forced through `CMAKE_GENERATOR_INSTANCE`. It sizes `-CompilerProcesses` (2 GB budget each; measured 1.3 GB on the
+largest generated files and 1.9 GB on a VU1 AOT slice, whose blocks compile in chunks of 8 pairs) and `-Jobs` (2 only
+with room for both sets plus 6 GB) from the
 installed memory, asks for the ISO when not given (file dialog; remembered in
 `build/iso-path.txt`) and calls `Build-LocalGame.ps1` with `WorkDir` `build/game` (`-Incremental` once prepared). A
 failed compile is retried once incrementally with `-Jobs 1` and half the compiler processes. `-DistDirectory` (play

@@ -117,6 +117,8 @@ packets); display of frame 2600 of the intro is pixel-identical with `PS2X_VU1_T
 
 ## What changed
 1. **Block-level AOT of the VU1 microcode** (`vu/aot/ps2_vu1_blocks.h`, `ps2_vu1_aot_slice.inc`, `Vu1Step` block support in `ps2_vu1_step.h`).
+   Blocks over 8 pairs compile as out-of-line chunks of 8 (`PS2X_VU1_AOT_CHUNK`, 0 = whole blocks): ~1.9 GB per slice in cl instead of up to
+   17.9 GB, replay speed unchanged (docs/journal/2026-11-06/vu1-compile-cost.md).
    The compiler (constant evaluation, same `Vu1Decode` data as the exact path) splits the 1523-pair image into blocks (cut at jump targets, after
    branch + delay slot, around pairs it does not handle, 32 pairs max) and computes the issue cycle of every pair for an idle-pipeline entry using the
    interpreter's stall rule. A block runs `Vu1Step::execPair` (the very code of the exact path) with those constants, then updates the busy-register

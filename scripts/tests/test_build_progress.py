@@ -97,7 +97,7 @@ class CounterTests(unittest.TestCase):
             "(Get-CompileEstimate 'ps2_vu1_aot_2.cpp' @{ 'ps2_vu1_aot_2.cpp' = 1500 }).TotalMinutes; "
             "$null -eq (Get-CompileEstimate 'main.cpp' @{})"
         )
-        self.assertEqual(out.split(), ["10", "25", "True"])
+        self.assertEqual(out.split(), ["6", "25", "True"])
 
 
 @unittest.skipUnless(PWSH, "PowerShell 7 (pwsh) not on PATH")
@@ -151,7 +151,7 @@ class TrackerTests(unittest.TestCase):
             lines = out.strip().splitlines()
             self.assertEqual(lines[0], "running 2 done 0")
             self.assertEqual(lines[1], "finished main.cpp running 1 oldest ps2_vu1_aot_0.cpp")
-            self.assertEqual(lines[2], "ps2_vu1_aot_0.cpp, 4 min so far (usually about 10 min)")
+            self.assertEqual(lines[2], "ps2_vu1_aot_0.cpp, 4 min so far (usually about 6 min)")
 
     def test_unknown_files_finish_once_the_slots_are_full(self):
         out = run(

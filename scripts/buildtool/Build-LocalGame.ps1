@@ -30,7 +30,8 @@ param(
     [string]$CpuAffinity = '',
     # MSBuild projects built in parallel.
     [ValidateRange(1,16)][int]$Jobs = 2,
-    # Compile the four VU1 AOT slices one after another (each needs ~17 GB in cl) instead of in parallel.
+    # Compile the four VU1 AOT slices one after another instead of in parallel. Only needed with whole-block slices
+    # (PS2X_VU1_AOT_CHUNK=0), which take up to ~17 GB each in cl; the default chunked slices take ~2 GB.
     [switch]$SerialVuSlices,
     # Compile without warnings (CMake DRAKAN_COMPILER_WARNINGS=OFF) so the console shows progress and errors only.
     # Applied when the build folder is configured; later -Incremental runs keep the setting.
@@ -39,7 +40,7 @@ param(
     # the tools' own output, which goes to <WorkDir>-output.log (e.g. build/game-output.log).
     [switch]$Progress,
     # Compiler processes per project (cl /MP). The generated game code is 83 files of up to 3 MB in one project, so this is
-    # what decides a full build's length: 1 compiles them one after another. Default: half the logical cores (of -CpuAffinity's, when set), at most 4 (the largest generated files use about 1.3 GB per compiler process; the VU1 AOT slices ~17 GB, see -SerialVuSlices).
+    # what decides a full build's length: 1 compiles them one after another. Default: half the logical cores (of -CpuAffinity's, when set), at most 4 (the largest generated files use about 1.3 GB per compiler process; the VU1 AOT slices ~1.9 GB).
     # Total compiler load is about Jobs x CompilerProcesses; use 1 to keep the machine free for other work.
     [ValidateRange(1,32)][int]$CompilerProcesses = [Math]::Max(1, [Math]::Min(4, [int]([Environment]::ProcessorCount / 2))),
     [switch]$PrepareOnly,
@@ -215,7 +216,7 @@ function Invoke-Logged([string]$Program, [string[]]$Arguments, [int]$CompileTota
                     Add-CompileStart $tracker $current (Get-Date)
                     $estimate = Get-CompileEstimate $current $tracker.Measured
                     $note = if ($estimate) {
-                        "  (slow file: about $(Format-Duration $estimate)$(if ($current -like 'ps2_vu1_aot_*') { ', up to 17 GB of memory' }))"
+                        "  (slow file: about $(Format-Duration $estimate))"
                     } else { '' }
                     Write-Host "  $(Format-CompileCounter $compiled $CompileTotal) $current$note"
                 }

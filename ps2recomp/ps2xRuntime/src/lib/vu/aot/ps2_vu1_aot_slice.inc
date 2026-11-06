@@ -90,6 +90,38 @@ namespace
         (Vu1Step::blockPair<kBatchFlags[B] && bi.T[K] + 4u <= bi.cycles, TimedQ, kNormalInputs[B][K]>(v, kDec<bi.first + K>, c, base + bi.T[K], static_cast<uint32_t>((bi.first + K) * 8u), batch), ...);
     }
 
+    // Blocks longer than kBlockChunk pairs are compiled as out-of-line chunks of that many pairs. The optimiser's
+    // cost grows faster than linearly with the size of one function: whole 32-pair blocks made one slice need 16.6 GB
+    // and 10+ minutes in cl; chunks of 8 need 2.1 GB (docs/journal/2026-11-06/vu1-compile-cost.md). Each chunk is still
+    // the same constant-folded pairs at the same static cycles. PS2X_VU1_AOT_CHUNK=0 compiles whole blocks.
+#ifndef PS2X_VU1_AOT_CHUNK
+#define PS2X_VU1_AOT_CHUNK 8
+#endif
+    constexpr size_t kBlockChunk = PS2X_VU1_AOT_CHUNK;
+
+    template <uint32_t B, bool TimedQ, size_t Start, size_t... K>
+    PS2_VU_NOINLINE void blockChunk(VU1Interpreter &v, Vu1Step::Ctx &c, uint64_t base, Vu1FlagBatch* batch, std::index_sequence<K...>)
+    {
+        blockPairs<B, TimedQ>(v, c, base, std::index_sequence<(Start + K)...>{}, batch);
+    }
+
+    template <uint32_t B, bool TimedQ, size_t... Ch>
+    PS2_VU_FORCEINLINE void blockChunks(VU1Interpreter &v, Vu1Step::Ctx &c, uint64_t base, Vu1FlagBatch* batch, std::index_sequence<Ch...>)
+    {
+        constexpr size_t N = kTable.b[B].count;
+        (blockChunk<B, TimedQ, Ch * kBlockChunk>(v, c, base, batch, std::make_index_sequence<(N - Ch * kBlockChunk < kBlockChunk ? N - Ch * kBlockChunk : kBlockChunk)>{}), ...);
+    }
+
+    template <uint32_t B, bool TimedQ = false, size_t... K>
+    PS2_VU_FORCEINLINE void blockBody(VU1Interpreter &v, Vu1Step::Ctx &c, uint64_t base, std::index_sequence<K...> indices, Vu1FlagBatch* batch)
+    {
+        constexpr size_t N = kTable.b[B].count;
+        if constexpr (kBlockChunk != 0 && N > kBlockChunk)
+            blockChunks<B, TimedQ>(v, c, base, batch, std::make_index_sequence<(N + kBlockChunk - 1) / kBlockChunk>{});
+        else
+            blockPairs<B, TimedQ>(v, c, base, indices, batch);
+    }
+
     template<uint32_t B, size_t... K>
     PS2_VU_FORCEINLINE void chooseBlockPairs(VU1Interpreter& v,Vu1Step::Ctx& c,uint64_t base,std::index_sequence<K...> indices,Vu1FlagBatch* batch=nullptr)
     {
@@ -97,11 +129,11 @@ namespace
         {
             if (Vu1Step::blockQDue(v,base+kTable.b[B].cycles))
             {
-                blockPairs<B,true>(v,c,base,indices,batch);
+                blockBody<B,true>(v,c,base,indices,batch);
                 return;
             }
         }
-        blockPairs<B>(v,c,base,indices,batch);
+        blockBody<B>(v,c,base,indices,batch);
     }
 
     const uint32_t kNativeLoopLimit = [] {

@@ -478,9 +478,10 @@ file(GLOB_RECURSE PS2X_VU_SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/src/lib/vu/*.cpp"
 if(MSVC)
     set_source_files_properties(${PS2X_VU_SOURCES} PROPERTIES COMPILE_OPTIONS "/GS-;/constexpr:steps200000000;/constexpr:depth2048")
     target_compile_options(ps2_runtime PRIVATE /MP)
-    # Each aot/ps2_vu1_aot_N.cpp slice takes ~17 GB and ~10 min in cl (constant evaluation), so four side by side in
-    # one /MP batch need ~70 GB. A distinct define per slice gives each its own MSBuild CL batch: they then compile one
-    # after another. Build-Drakan.ps1 (player builds) turns this on.
+    # Each aot/ps2_vu1_aot_N.cpp slice takes ~1.9 GB and 4-7 min in cl with its blocks compiled in chunks of 8 pairs
+    # (aot/ps2_vu1_aot_slice.inc). With whole blocks (PS2X_VU1_AOT_CHUNK=0) a slice takes up to ~17 GB, so four side by
+    # side in one /MP batch need ~70 GB; a distinct define per slice gives each its own MSBuild CL batch and they then
+    # compile one after another.
     option(PS2X_VU1_AOT_SERIAL "Compile the VU1 AOT slices one at a time to bound compiler memory" OFF)
     if(PS2X_VU1_AOT_SERIAL)
         foreach(slice 0 1 2 3)

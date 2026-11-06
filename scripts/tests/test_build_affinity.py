@@ -119,6 +119,9 @@ class BuildAffinityTests(unittest.TestCase):
             # No mask: unchanged automatic choice on a large PC; memory still limits small ones.
             Check 0 24 63 24 2 4
             Check 0 16 16 16 1 4
+            # VU1 slices fit the 2 GB budget: 24 GB is enough for two projects of 4 (it was 1 x 4 at 17 GB a slice).
+            Check 0 16 24 16 2 4
+            Check 0 16 21 16 1 4
             Check 0 16 8 16 1 4
             Check 0 16 4 16 1 2
             Check 8 16 16 16 1 8

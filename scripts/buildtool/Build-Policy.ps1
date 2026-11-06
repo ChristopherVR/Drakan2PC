@@ -2,9 +2,10 @@
 # Kept apart from the script so scripts/tests can run it without a real build.
 
 # How many MSBuild projects (Jobs) and cl /MP processes per project the player builder starts.
-# Measured (docs/journal/2026-11-06/issue-1-kit-build-parallelism.md): a generated-code cl process peaks at ~1.3 GB, a
-# VU1 AOT slice at ~17 GB; the slices compile one at a time and nothing else compiles beside them. Cores 0 is automatic:
-# half the usable logical cores, at most 4. Usable cores are the affinity mask's, when one is set.
+# Measured (docs/journal/2026-11-06/issue-1-kit-build-parallelism.md, vu1-compile-cost.md): a generated-code cl process
+# peaks at ~1.3 GB and a VU1 AOT slice at ~1.9 GB, so every compiler process gets the same 2 GB budget and two projects
+# run when both sets fit with 6 GB to spare. Cores 0 is automatic: half the usable logical cores, at most 4. Usable cores
+# are the affinity mask's, when one is set.
 function Get-BuildParallelism([int]$Cores, [int]$LogicalCores, [int]$MemoryGb, [int]$UsableCores = $LogicalCores) {
     $perProcessGb = 2
     $usable = [Math]::Max(1, [Math]::Min($UsableCores, $LogicalCores))
@@ -12,12 +13,12 @@ function Get-BuildParallelism([int]$Cores, [int]$LogicalCores, [int]$MemoryGb, [
     if ($Cores -gt 0) {
         # Total compiler load is about projects x processes: two projects only when there are cores for both.
         $budget = [Math]::Min($Cores, $usable)
-        $jobs = if ($budget -ge 4 -and $MemoryGb -ge 17 + $perProcessGb * [int][Math]::Floor($budget / 2) + 6) { 2 } else { 1 }
+        $jobs = if ($budget -ge 4 -and $MemoryGb -ge $perProcessGb * $budget + 6) { 2 } else { 1 }
         $processes = [Math]::Max(1, [Math]::Min([int][Math]::Floor($budget / $jobs), $memoryCap))
     } else {
         $budget = $usable
         $processes = [Math]::Max(1, [Math]::Min([Math]::Min(4, [int][Math]::Floor($usable / 2)), $memoryCap))
-        $jobs = if ($usable -ge 2 -and $MemoryGb -ge 17 + $perProcessGb * $processes + 6) { 2 } else { 1 }
+        $jobs = if ($usable -ge 2 -and $MemoryGb -ge 2 * $perProcessGb * $processes + 6) { 2 } else { 1 }
     }
     return [pscustomobject]@{ Usable = $usable; Budget = $budget; Jobs = $jobs; CompilerProcesses = $processes }
 }

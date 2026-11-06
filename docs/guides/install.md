@@ -13,7 +13,7 @@ There are two sets of requirements. **Building** the game is a one-time job that
 | Requirement | What you need |
 | --- | --- |
 | Operating system | Windows 10 or 11, 64-bit |
-| Memory | At least 16 GB; **24 GB or more recommended**. A few generated files need about 17 GB each while they compile; with less memory Windows uses its page file and the build is slow |
+| Memory | At least 8 GB; **16 GB or more recommended**. Each compiler process needs up to about 2 GB, and the builder starts fewer of them when there is less memory |
 | CPU | Any 64-bit CPU. More cores build faster; the installer's **Build speed** page sets how many the build may use |
 | Disk space | About 10 GB free: Microsoft's C++ Build Tools (about 3 GB), the build folder and the play folder |
 | Network | Internet access for Microsoft's C++ Build Tools (first run only) and, if chosen, the NVIDIA DLSS SDK |

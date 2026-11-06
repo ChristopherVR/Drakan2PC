@@ -59,6 +59,7 @@ would repeat that work and keep the heavy blocks just as heavy. The cost sits in
 (`PS2_VU_FORCEINLINE` per pair, packet trace and native loops in slice 0). Making those cheaper to compile (fewer
 forced inlines in the largest blocks, or a lower optimisation level for them) is a change to the VU1 hot path and
 needs a frame-rate A/B before it ships; it is the one change that would lower the 17 GB peak that makes 16 GB PCs page.
+Done the same day: [vu1-compile-cost.md](vu1-compile-cost.md).
 Nothing else in the build is close: the 83 generated files peak at 1.3 GB per compiler process.
 
 What this change does for slower PCs is not lose work: an interrupted or out-of-memory build continues with every

@@ -134,9 +134,8 @@ try {
         Write-Warning "The install folder path is long ($($RepoRoot.Length) characters). If the build fails with path errors, reinstall somewhere short such as C:\DrakanPC."
     }
 
-    # Compiler memory: about 1.3 GB per process on the largest generated files, ~17 GB for each of the four VU1 AOT
-    # slices. The slices always compile one after another (-SerialVuSlices); a second MSBuild project only runs when there
-    # is room for a slice plus a full set of generated-code compilers. Sizing: Get-BuildParallelism (Build-Policy.ps1).
+    # Compiler memory: up to about 2 GB per process (1.3 GB on the largest generated files, 1.9 GB on a VU1 AOT slice);
+    # a second MSBuild project only runs when there is room for both sets. Sizing: Get-BuildParallelism (Build-Policy.ps1).
     # The CPU choice (installer page or -Cores / -Priority) is remembered so "Rebuild Drakan" keeps it.
     $optionsFile = Join-Path $RepoRoot 'build/build-options.json'
     $saved = if (Test-Path -LiteralPath $optionsFile -PathType Leaf) {
@@ -185,8 +184,8 @@ try {
         $env:MSBUILDDISABLENODEREUSE = '1'
         Write-Host 'Priority: low (the PC stays responsive; the build takes longer while other programs are busy)'
     }
-    if ($memoryGb -lt 24) {
-        Write-Warning ('Less than 24 GB of memory: a few files need about 17 GB while compiling, so Windows will use its page file ' +
+    if ($memoryGb -lt 8) {
+        Write-Warning ('Less than 8 GB of memory: each compiler process needs up to about 2 GB, so Windows will use its page file ' +
             'and the build will be slow. Keep the page file enabled (the Windows default) and close other programs.')
     }
 
@@ -253,7 +252,7 @@ try {
 
     $buildArgs = @{
         IsoPath = $IsoPath; WorkDir = $WorkDir; Python = $python
-        CpuAffinity = $CpuAffinity; Jobs = $jobs; CompilerProcesses = $compilerProcesses; SerialVuSlices = $true; Progress = $true
+        CpuAffinity = $CpuAffinity; Jobs = $jobs; CompilerProcesses = $compilerProcesses; Progress = $true
     }
     # The installer's shortcuts open dist\DrakanPC, whichever region the ISO is (Build-LocalGame.ps1 alone would put a
     # USA build into dist\DrakanPC-usa next to a PAL one).
@@ -323,7 +322,7 @@ try {
     } else {
         # A folder without local-input.json stopped before the ISO was read; it holds nothing worth keeping.
         if (Test-Path -LiteralPath $WorkDir) { Remove-Item -LiteralPath $WorkDir -Recurse -Force }
-        Write-Step 'Building the game: this takes one to two hours. Some files take 10 minutes each; the window is not stuck.'
+        Write-Step 'Building the game: this takes one to two hours. A few files take several minutes each; the window is not stuck.'
     }
     $started = Get-Date
     Invoke-BuildWithRetry (Join-Path $PSScriptRoot 'Build-LocalGame.ps1') $buildArgs $prepared
