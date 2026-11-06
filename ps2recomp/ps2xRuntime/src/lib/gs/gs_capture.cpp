@@ -2,6 +2,7 @@
 #include "runtime/ps2_memory.h"
 
 #include <chrono>
+#include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <ctime>
@@ -30,6 +31,8 @@ void GsCapture::configure(const GSRegisters* regs) {
         return;
     }
     m_maxFrames = static_cast<uint64_t>(std::atol(env));
+    if (const char* roll = std::getenv("PS2X_GS_CAPTURE_ROLL"))
+        m_rollTrigger = roll;
     if (const char* from = std::getenv("PS2X_GS_CAPTURE_FROM"))
         if (std::atof(from) > 0.0) {
             m_startAfterSec = std::atof(from);
@@ -135,6 +138,24 @@ void GsCapture::onVsync(uint64_t vsyncTick) {
     writeRecord(REC_VSYNC, &vsyncTick, sizeof(vsyncTick));
     ++m_frame;
     std::fflush(m_file);
+    if (!m_rollTrigger.empty() && m_frame >= m_rollSegment) {
+        // rolling mode: until the trigger file exists, restart the capture every few frames and drop the old one; after
+        // it appears, record the usual PS2X_GS_CAPTURE frames more and keep that file
+        bool triggered = false;
+        if (FILE* t = std::fopen(m_rollTrigger.c_str(), "rb")) {
+            std::fclose(t);
+            triggered = true;
+        }
+        if (!triggered) {
+            std::fclose(m_file);
+            m_file = nullptr;
+            std::remove(m_path.c_str());
+            m_frame = 0;
+            m_haveRegs = false;
+            openFile();
+            return;
+        }
+    }
     if (m_frame >= m_maxFrames) {
         std::cerr << "[gs-capture] done: " << m_frame << " frames, " << m_packets << " packets, " << m_bytes
                   << " bytes -> " << m_path << std::endl;

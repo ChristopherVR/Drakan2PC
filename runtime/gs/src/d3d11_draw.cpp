@@ -180,6 +180,8 @@ void D3D11Backend::Impl::draw(const GsDrawState& s, const ClutBuf& clut, const D
                     fired = true;
                     if (FILE* t = std::fopen(trigger, "wb")) {
                         std::fclose(t);
+                        if (FILE* t2 = std::fopen((std::string(trigger) + ".2").c_str(), "wb"))
+                            std::fclose(t2); // second trigger for PS2X_GS_CAPTURE_ROLL
                         std::fprintf(stderr, "[vu-trigger] frame %llu draw %lld n=%u flags=%03x vertex %u q=%g\n",
                                      (unsigned long long)frame, (long long)di, count, s.flags, i, v[i].q);
                     }

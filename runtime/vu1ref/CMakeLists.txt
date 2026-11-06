@@ -19,7 +19,7 @@ target_link_libraries(drakan_vu1ref PRIVATE drakan::options)
 
 # Tools: they need a VU1 recording (see recorder_hook.txt) so they are not ctest tests.
 if(DRAKAN_BUILD_RUNTIME_TESTS)
-    foreach(tool vu1ref_replay vu1ref_dumptest)
+    foreach(tool vu1ref_replay vu1ref_dumptest vu1ref_ringscan)
         add_executable(${tool} ${tool}.cpp)
         target_link_libraries(${tool} PRIVATE drakan_vu1ref drakan::options)
         if(MSVC)

@@ -199,6 +199,7 @@ struct Ring {
     struct Slot {
         RecEntry e;
         std::vector<uint8_t> data;
+        VU1State state;
     };
     std::vector<Slot> slots;
     Ring() {
@@ -232,7 +233,8 @@ void record(bool resume, uint32_t startPC, uint32_t top, uint32_t itop, bool dEn
             const uint8_t* code, uint32_t codeSize, const uint8_t* data, uint32_t dataSize) {
     if (Ring& g = ring(); g.on && dataSize == kDataSize) {
         Ring::Slot& sl = g.slots[g.head];
-        sl.e = RecEntry{resume ? 1u : 0u, startPC, top, itop, dEn ? 1u : 0u, tEn ? 1u : 0u};
+        sl.e = RecEntry{resume ? 1u : 0u, resume ? vu.state().pc : startPC, top, itop, dEn ? 1u : 0u, tEn ? 1u : 0u};
+        sl.state = vu.state();
         sl.data.assign(data, data + dataSize);
         g.head = (g.head + 1) % g.cap;
         if (g.filled < g.cap)
@@ -253,6 +255,12 @@ void record(bool resume, uint32_t startPC, uint32_t top, uint32_t itop, bool dEn
                         std::fwrite(q.data.data(), 1, kDataSize, f);
                     }
                     std::fclose(f);
+                    // entry register state of every run (VU1State), same order, for the offline scanner
+                    if (FILE* fs = std::fopen((g.path + ".states").c_str(), "wb")) {
+                        for (uint32_t i = 0; i < g.filled; ++i)
+                            std::fwrite(&g.slots[(first + i) % g.cap].state, sizeof(VU1State), 1, fs);
+                        std::fclose(fs);
+                    }
                     std::fprintf(stderr, "[vuring] wrote %u runs to %s\n", g.filled, g.path.c_str());
                 }
                 g.on = false;

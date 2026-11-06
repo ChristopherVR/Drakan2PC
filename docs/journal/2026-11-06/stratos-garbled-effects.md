@@ -89,3 +89,32 @@ Frame range and texture filters of `GSR_DRAWLOG` / `GSR_DRAWLOGTBP` / `GSR_DRAWL
   writes them in the `DRAKAN_VU_RECORD` format when `<file>.go` appears; `DRAKAN_VU_TRIGGER=<file>.go` makes the GS
   create that file when a perspective-textured draw has a vertex with `q < -0.01`. Replay with `vu1ref_replay -geom`.
   Use `PS2X_VU1_THREAD=0 DRAKAN_VU_BATCH=0`.
+
+### Result of the recording (2026-11-07): the straddling triangles do not come from VU1
+
+Tooling: `DRAKAN_VU_RING` + `DRAKAN_VU_TRIGGER` (VU1 ring, see above), `PS2X_GS_CAPTURE_ROLL=<file>` (rolling GS capture: with
+`PS2X_GS_CAPTURE=40` it restarts every 8 frames until `<file>` appears, then records up to frame 40; the GS creates
+`<DRAKAN_VU_TRIGGER>` and `<DRAKAN_VU_TRIGGER>.2` at the first bad draw), `vu1ref_ringscan` (replays the ring through
+`vu1ref`, needs the `.states` file the ring writes next to the dump) and `analysis/scripts/gscap_straddle.py`.
+Run: `play_run.py --exe <private copy> --level Stratos --recipe build/harness/recipes_g3/s_4.txt` with
+`PS2X_VU1_THREAD=0 DRAKAN_VU_BATCH=0`; it triggers within about 100 s (frame 6200 to 8500).
+
+* VU1 side: 6000 VU1 runs before the trigger (24,215 PATH1 packets, all ST/RGBAQ/FOG/XYZ2) replayed in `vu1ref`; the replay
+  is faithful (99.4 percent of the kick-region quadwords equal the next run's recorded VU memory). Triangle level
+  analysis (strip/list/fan, ADC honoured): **0 triangles that mix positive and negative Q**. The program is not
+  producing the spikes. (Negative Q alone is not abnormal: the screen-space passes use `w = -1`, many world draws have
+  Q < 0, so `q < 0` is not a valid trigger by itself; mixed sign inside one triangle is.)
+* GS capture of 40 frames around a trigger: PATH1 566,068 all-positive + 400,389 all-negative triangles, **0 mixed**.
+  PATH3 (EE-built GIF packets via DMA channel 2): 796 all-positive and **16 mixed** triangles, all in 4-vertex
+  `PRIM=0x7d` strips (ST, RGBAQ, FOG, XYZ2, TME + ABE + FST=0): the first two vertices have `q` about 2e-4 and an
+  ordinary Z (0x1df7a78 to 0x2344f74), the other two have `q` -0.002 to -0.014 and Z about 0xf0bca440 / 0xcbc53300 /
+  0x8f1eea00, i.e. a negative integer Z interpreted as unsigned, and XY hundreds to two thousand pixels off screen.
+  That is the signature of the garble draws, and they are software-projected on the EE/VU0 side.
+* So the root cause is the producer of those PATH3 particle strips (EE or VU0 macro code projecting the glare/spark rays
+  with `1/w` and no near-plane test; a ray from an emitter in front of the camera to a tip behind it). The VU1
+  microprogram, its AOT/batch variants and the GS front end are not involved.
+* Still open: (a) whether the original EE code has a near test that our EE/VU0 emulation defeats (the quads whose
+  corner pair has `w < 0` would then never be emitted), (b) whether the real GS draws them (Z = negative as unsigned
+  against a 24 bit Z buffer, far off screen XY). Neither can be decided without the EE function (locate it by tracing
+  the DMA ch2 packets with `PRIM=0x7d`, nloop 4, back to the EE code that built them) or an original-hardware capture.
+  No GS-side guard was added: a guard would only be justified if the original shows the same result.

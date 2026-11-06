@@ -35,6 +35,8 @@ private:
     const GSRegisters* m_regs = nullptr;
     uint64_t m_frame = 0;
     uint64_t m_maxFrames = 0;
+    std::string m_rollTrigger; // PS2X_GS_CAPTURE_ROLL=<file>: keep only the last few frames until <file> appears
+    uint64_t m_rollSegment = 8;
     uint64_t m_packets = 0;
     uint64_t m_bytes = 0;
     uint64_t m_lastRegs[20] = {};
