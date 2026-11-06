@@ -10,7 +10,12 @@
 
 namespace ps2_stubs {
 using McFileWrittenCallback = void (*)(const std::filesystem::path&);
-void setMcFileWrittenCallback(McFileWrittenCallback callback);
+// Observers of a successful write (a close after writes), one slot per user, called outside the card lock.
+enum class McWriteObserver { Previews, SaveRecords, Count };
+void setMcFileWrittenCallback(McFileWrittenCallback callback, McWriteObserver who = McWriteObserver::Previews);
+// Host path of a guest card path ("mc0:/BESCES-50006Slot1/x.rsg", "BESCES-50006Slot1/x.rsg" relative to the port's
+// current directory) on `port`.
+std::filesystem::path mcHostPath(int32_t port, const std::string& guestPath);
 
 struct MemoryCardDebugOpenFile {
     int32_t fd = 0;

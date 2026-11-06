@@ -51,6 +51,7 @@
 #include "drakan_tab_screen.h"
 #include "drakan_tab_preview_policy.h"
 #include "drakan_save_previews.h"
+#include "drakan_save_guard.h"
 #include "drakan_region.h"
 #include "drakan_input_flow.h"
 #include "drakan_widescreen.h"

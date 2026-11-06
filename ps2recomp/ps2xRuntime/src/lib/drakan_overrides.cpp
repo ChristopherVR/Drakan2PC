@@ -47,6 +47,7 @@
 #include "drakan_subtitles.h"
 #include "drakan_fpsmeter.h"
 #include "drakan_menus.h"
+#include "drakan_save_guard.h"
 #include "drakan_widescreen.h"
 #include "drakan_inventory_typography.h"
 #include "drakan_frame_rate.h"
@@ -1506,6 +1507,7 @@ void applyDrakanOverrides(PS2Runtime& runtime) {
             gameui::setUiSkin(skin);
         }
         drakan_settings_host::setModManager(g_mods.get(), modsDir); // the Mods page of the PC settings
+        drakan_save_guard::configure(g_mods.get()); // saves record the content packs' builds (modding.md)
     }
     {
         // Campaign packs (manifest `campaign = "<id>"`, docs/reference/modding.md "Campaign packs"): Drakan: Order of
@@ -1828,8 +1830,10 @@ void applyDrakanOverrides(PS2Runtime& runtime) {
             runtime.replaceFunction(0x442cb0u, &hookOptionsClose);
     }
 
-    if constexpr (supports(Feature::Menus))
-        drakan_menus::install(runtime); // title Quit, save pages (drakan_menus.cpp)
+    if constexpr (supports(Feature::Menus)) {
+        drakan_menus::install(runtime);      // title Quit, save pages (drakan_menus.cpp)
+        drakan_save_guard::install(runtime); // saves made with another build of a mod pack are refused
+    }
 
     PS2Runtime::HleRpcHooks hooks{};
     hooks.canBind = &hleCanBind;

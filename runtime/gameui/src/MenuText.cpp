@@ -367,6 +367,42 @@ const Entry kEntries[] = {
       "Cette sauvegarde est endommagée et ne peut pas être chargée.",
       "Il salvataggio è danneggiato e non può essere caricato.", "Esta partida está dañada y no se puede cargar."}},
     {"Saving...", {"Wird gespeichert...", "Sauvegarde...", "Salvataggio...", "Guardando..."}},
+    // Saves and mod pack builds (SaveSlots.h savePackProblemText).
+    {"This save was made with a different version of the mod pack {0}. It cannot be loaded with the version "
+     "installed now.",
+     {"Dieser Spielstand wurde mit einer anderen Version des Mod-Pakets {0} erstellt. Mit der jetzt installierten "
+      "Version kann er nicht geladen werden.",
+      "Cette sauvegarde a été créée avec une autre version du pack de mods {0}. Elle ne peut pas être chargée avec "
+      "la version installée.",
+      "Questo salvataggio è stato creato con un'altra versione del pacchetto mod {0}. Non può essere caricato con la "
+      "versione installata.",
+      "Esta partida se guardó con otra versión del paquete de mods {0}. No se puede cargar con la versión "
+      "instalada."}},
+    {"This save was made with an earlier version of the mod pack {0}. It cannot be loaded with the version "
+     "installed now.",
+     {"Dieser Spielstand wurde mit einer früheren Version des Mod-Pakets {0} erstellt. Mit der jetzt installierten "
+      "Version kann er nicht geladen werden.",
+      "Cette sauvegarde a été créée avec une version antérieure du pack de mods {0}. Elle ne peut pas être chargée "
+      "avec la version installée.",
+      "Questo salvataggio è stato creato con una versione precedente del pacchetto mod {0}. Non può essere caricato "
+      "con la versione installata.",
+      "Esta partida se guardó con una versión anterior del paquete de mods {0}. No se puede cargar con la versión "
+      "instalada."}},
+    {"This save needs the mod pack {0}. Enable it on the Mods page and restart the game to load it.",
+     {"Dieser Spielstand benötigt das Mod-Paket {0}. Aktiviere es auf der Seite Mods und starte das Spiel neu, um "
+      "ihn zu laden.",
+      "Cette sauvegarde nécessite le pack de mods {0}. Activez-le dans la page Mods et redémarrez le jeu pour la "
+      "charger.",
+      "Questo salvataggio richiede il pacchetto mod {0}. Attivalo nella pagina Mod e riavvia il gioco per caricarlo.",
+      "Esta partida necesita el paquete de mods {0}. Actívalo en la página Mods y reinicia el juego para cargarla."}},
+    {"The list of mod packs stored with this save is damaged. The save cannot be loaded.",
+     {"Die mit diesem Spielstand gespeicherte Liste der Mod-Pakete ist beschädigt. Der Spielstand kann nicht geladen "
+      "werden.",
+      "La liste des packs de mods enregistrée avec cette sauvegarde est endommagée. La sauvegarde ne peut pas être "
+      "chargée.",
+      "L'elenco dei pacchetti mod salvato con questo salvataggio è danneggiato. Il salvataggio non può essere "
+      "caricato.",
+      "La lista de paquetes de mods guardada con esta partida está dañada. La partida no se puede cargar."}},
     {"Overwrite this save?",
      {"Spielstand überschreiben?", "Écraser cette sauvegarde ?", "Sovrascrivere il salvataggio?",
       "¿Sobrescribir esta partida?"}},

@@ -397,6 +397,13 @@ bool continueStep(uint8_t* ram, R5900Context* c, PS2Runtime* rt, RecompGuest& g,
             g_continue = {};
             return false;
         }
+        if (drakan_save_guard::checkSlot(n).refused()) { // another build of a mod pack: the screen says why
+            menuLog("continue: slot %d was made with other mod packs (left on the Load screen)", n);
+            g.write32(active + saveui::kSelection, static_cast<uint32_t>(row));
+            drakan_menu_screens::shared().slotsReactivated.fetch_add(1);
+            g_continue = {};
+            return false;
+        }
         g.write32(active + saveui::kSelection, static_cast<uint32_t>(row));
         g_continue.phase = 2;
         g_continue.phaseMs = now;
@@ -622,6 +629,13 @@ void slotsTick(uint8_t* ram, R5900Context* c, PS2Runtime* rt, RecompGuest& g, ui
     }
     if (st.card == gameui::CardState::Ready || g_slots.frames == 0)
         slotsPictures(ram, g, st);
+    if (g_slots.id == static_cast<int>(saveui::kScreenLoad) && st.card == gameui::CardState::Ready)
+        for (gameui::SaveSlot& slot : st.slots) // made with other pack builds (modding.md)
+            if (slot.state == gameui::SlotState::Used)
+                if (const auto v = drakan_save_guard::checkSlot(slot.number); v.refused()) {
+                    slot.state = gameui::SlotState::Corrupt;
+                    slot.note = v.message;
+                }
     {
         std::lock_guard<std::mutex> l(sh.m);
         sh.slots = st;

@@ -123,6 +123,7 @@ format = 1                      # optional, default 1; a pack with a higher numb
 id = "example.big-buttons"      # required: 1-64 of letters, digits . _ -  (unique among enabled packs)
 name = "Big Buttons"            # optional (default: id)
 version = "1.2.0"               # dotted numbers, used for dependency checks
+build = "a46d89ce1cbcd218"      # optional save compatibility id, see "Saves and pack builds" (the editor writes it)
 author = "someone"
 description = "Larger menu button textures."
 
@@ -323,6 +324,70 @@ RESOURES.MOD` copies of the five model entries `0200 0203 0204 0211 0207`, with 
 override all resolve in the engine. Use ids inside the existing id range of the target file (an id above the file's
 current maximum did not spawn). Authoring the class record fields (damage, grip, animation) is not possible yet: the
 0x0102 body is only decoded for the model reference.
+
+## Saves and pack builds
+
+A save restores the level's objects by class id and field layout. A save written with one build of a content pack and
+loaded with another (class ids, logic defaults or level data changed between converter versions) does not fail cleanly:
+the Volcanic sanctum quicksave of an older OotF pack stalled the restore on the current one (`[memset] bad size` from
+`0x405714`, then the allocator spun; journal `2026-11-07/save-pack-builds.md`). So every save remembers which packs it
+was made with, and the game refuses a save it cannot vouch for.
+
+* **Pack build.** Every loaded pack that ships content (`files/`, `new/`, `overrides/`; packs with only maps, pictures or
+  menu skins do not count) has a build id, `ModStatus::build`: the manifest's top-level `build` (1 to 64 of letters,
+  digits, `.`, `_`, `-`; anything else makes the manifest invalid) or, without one, the **content hash** the runtime
+  computes itself. The hash is FNV-1a 64 over one line per content file, sorted by lower-case path,
+  `<lower-case path>\0<size>\0<crc32 as 8 hex digits>\n`, as 16 hex digits (`hle::mods::packContentHash`, `SaveRecord.h`;
+  the zip directory's CRC is used, folder packs are read once). The editor computes the same value
+  (`packContentHash` / `packBuildId` in `editor/packages/formats` `packbuild.ts`) and `zipModFiles` writes it into the
+  manifest of every pack it zips (the OotF converter, level, story, campaign, arena and menu packs) unless the manifest
+  already names a `build`. The manifest, pictures, `maps/` and `ui/` do not count, so a new cover or description keeps
+  old saves. Both sides share a test vector (`save_record_test`, `packbuild.test.ts`: `8d3872dfe99031fa`). The log
+  says `mods: '<id>' build <id> (from the manifest | content hash)` and `[saves] content pack '<id>' build ...`.
+* **Pin it only on purpose.** A hand-made pack may set `build` itself and keep it across updates that leave every save
+  valid (new textures or text only). Change it (or leave it out) whenever an update changes level, class or object data.
+* **The record.** When the game writes a save into a slot folder (`<saveId>Slot<n>/<level>.rsg`, manual, quick and
+  level-change saves alike) while content packs are active, it writes `<level>.rsg.mods` beside it (memory card write
+  observer, `drakan_save_guard.cpp`; `[saves] <file>: pack record <id> <build>, ...` in the log):
+
+  ```ini
+  ; Mod packs that were active when this save was written. ...
+  format = 1
+
+  [pack ootf-levels]
+  name = Order of the Flame levels
+  version = 0
+  build = a46d89ce1cbcd218
+  ```
+
+  A save written with no content pack active removes an old record; a record whose `.rsg` is gone is removed too. The
+  `.rsg` itself is never changed (the save editor and the HD preview companions keep working).
+* **The load policy** (`hle::mods::checkSave`):
+
+  | Save | Loads when | Otherwise (the player reads) |
+  | --- | --- | --- |
+  | has a record | every recorded pack is active with the same build (packs added since do not matter) | another build: "This save was made with a different version of the mod pack X. It cannot be loaded with the version installed now."; pack not active: "This save needs the mod pack X. Enable it on the Mods page and restart the game to load it." |
+  | record unreadable (no `format = 1`, a pack without `build`) | never | "The list of mod packs stored with this save is damaged. The save cannot be loaded." |
+  | no record (stock saves, saves made without content packs, saves of earlier game versions) | unless its level (the `.rsg` name) is registered by an active pack whose manifest declares a `build` | "This save was made with an earlier version of the mod pack X. It cannot be loaded with the version installed now." |
+
+  The last row is how saves made before records existed are caught: such a save of a converted level was written by an
+  older game with an unknown build of the pack, and a pack that declares a build was made by the current editor. A pack
+  without a declared build cannot tell, so those saves keep loading as before. Stock saves are never refused for a pack
+  that only adds levels; a save made with an entry override of a disc level records that pack like any other.
+* **Refuse, do not repair.** The decision is made before the native load starts, and a refused save is never loaded:
+  there is no safe fallback inside the restore (the bad sizes come from the save's own records, the level is already
+  torn down when they are read), and guessing a migration could write a corrupt state into the next save. The save
+  stays on the card untouched, so going back to the pack build it was made with loads it again.
+* **Where it shows.** The modern Load screen draws such a slot as unavailable (dimmed, `Unavailable`, with its location
+  and picture) and its detail panel gives the reason; it cannot be confirmed, and saving over it is allowed (the new save gets a new record).
+  Continue stops on the Load screen at that slot. A quick load (F8, in game or on the title) does not start: the reason
+  shows for 8 seconds in a band at the top of the screen (`HudSlot::Notice`). Every other path (the native slot screens,
+  anything else that calls it) is caught at the native save check `0x23f170`, which then answers "not a valid save":
+  the game shows its own "could not be loaded" message and opens the title, as for a damaged save. The texts are in the
+  menu catalogue in all five languages (`gameui::savePackProblemText`).
+* Tests: `save_record_test` (hash vector, manifest key, record format, policy, ModManager build ids of zip, folder and
+  declared packs), `gameui_saveload_test` (`testPackRefusal`), editor `packbuild.test.ts` (formats) and
+  `pack-build.test.ts` (editor-core: the stamped manifest).
 
 ## Writing a pack by hand
 

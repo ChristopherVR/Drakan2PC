@@ -59,6 +59,7 @@ struct SaveSlot {
     SaveTimestamp time;       // when the save was written (invalid = unknown)
     int32_t playSeconds = -1; // play time when the glue knows it (no guest field is known yet): < 0 = not shown
     ImageRef preview;         // {SavePreview, number} for a used slot; None = no picture
+    std::string note;         // why a Corrupt slot cannot be loaded (savePackProblemText); empty = the generic text
     bool operator==(const SaveSlot&) const = default;
 };
 
@@ -81,6 +82,18 @@ struct SaveSlotsState {
     const SaveSlot* slot(int number) const;
     int firstNumber() const { return page * 4 + 1; }
 };
+
+// Why a save cannot be loaded with the mod packs active now (docs/reference/modding.md "Saves and pack builds"); the
+// glue marks such a slot Corrupt with this text as its note.
+enum class SavePackProblem : uint8_t {
+    None,
+    DifferentBuild, // a pack the save was made with is installed in another version
+    MissingPack,    // a pack the save was made with is not active
+    OlderThanPack,  // the save predates pack records and its level comes from a pack that has a build now
+    BadRecord,      // the save's pack list cannot be read
+};
+// The player-facing sentence (menu language), `pack` = the pack's display name. Empty for None.
+std::string savePackProblemText(SavePackProblem problem, const std::string& pack);
 
 struct SaveReadOptions {
     int page = 0; // the page the cells currently name

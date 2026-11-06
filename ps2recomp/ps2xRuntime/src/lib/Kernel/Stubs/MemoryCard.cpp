@@ -79,7 +79,7 @@ struct McPortState {
 };
 
 std::mutex g_mcStateMutex;
-McFileWrittenCallback g_fileWritten = nullptr;
+std::array<McFileWrittenCallback, static_cast<size_t>(McWriteObserver::Count)> g_fileWritten{};
 int32_t g_mcNextFd = 1;
 int32_t g_mcLastCmd = 0;
 bool g_mcCommandPending = false;
@@ -470,16 +470,20 @@ void sceMcChdir(uint8_t* rdram, R5900Context* ctx, PS2Runtime* runtime) {
     setReturnS32(ctx, 0);
 }
 
-void setMcFileWrittenCallback(McFileWrittenCallback callback) {
+void setMcFileWrittenCallback(McFileWrittenCallback callback, McWriteObserver who) {
     std::lock_guard<std::mutex> lock(g_mcStateMutex);
-    g_fileWritten = callback;
+    g_fileWritten[static_cast<size_t>(who)] = callback;
+}
+std::filesystem::path mcHostPath(int32_t port, const std::string& guestPath) {
+    std::lock_guard<std::mutex> lock(g_mcStateMutex);
+    return guestMcPathToHostPath(port, normalizeGuestMcPathLocked(port, guestPath));
 }
 void sceMcClose(uint8_t* rdram, R5900Context* ctx, PS2Runtime* runtime) {
     mcTrace("sceMcClose", ctx);
     const int32_t fd = static_cast<int32_t>(getRegU32(ctx, 4));
     int32_t result = kMcResultNoEntry;
     std::filesystem::path written;
-    McFileWrittenCallback callback = nullptr;
+    std::array<McFileWrittenCallback, static_cast<size_t>(McWriteObserver::Count)> callbacks{};
     {
         std::lock_guard<std::mutex> lock(g_mcStateMutex);
         auto it = g_mcFiles.find(fd);
@@ -488,7 +492,7 @@ void sceMcClose(uint8_t* rdram, R5900Context* ctx, PS2Runtime* runtime) {
                 result = kMcResultSucceed;
                 if (it->second.wrote && !it->second.writeFailed) {
                     written = it->second.hostPath;
-                    callback = g_fileWritten;
+                    callbacks = g_fileWritten;
                 }
             }
             g_mcFiles.erase(it);
@@ -496,7 +500,9 @@ void sceMcClose(uint8_t* rdram, R5900Context* ctx, PS2Runtime* runtime) {
         setMcCommandResultLocked(kMcCmdClose, result);
     }
     // Never call renderer/file observers while holding the card lock.
-    if (callback && !written.empty()) {
+    for (McFileWrittenCallback callback : callbacks) {
+        if (!callback || written.empty())
+            continue;
         try {
             callback(written);
         } catch (...) {

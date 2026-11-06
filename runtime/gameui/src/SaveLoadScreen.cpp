@@ -30,8 +30,8 @@ const char* slotTitle(const SaveSlot& s, SaveLoadMode mode) {
             return mode == SaveLoadMode::Save ? menuText("Empty slot") : menuText("Empty");
         case SlotState::NoSpace:
             return menuText("Not enough space");
-        case SlotState::Corrupt:
-            return menuText("Damaged save");
+        case SlotState::Corrupt: // a save the mod packs cannot load (note) is not damaged: keep its location
+            return s.note.empty() ? menuText("Damaged save") : nullptr;
         case SlotState::Unknown:
             break;
     }
@@ -759,13 +759,15 @@ void SaveLoadScreen::drawPreview(const SaveSlotsState& st, DrawList& d) const {
             break;
         case SlotState::Corrupt:
             desc = mode_ == SaveLoadMode::Save ? menuText("This save is damaged. Saving here replaces it.")
-                                               : menuText("This save is damaged and cannot be loaded.");
+                   : s->note.empty()           ? menuText("This save is damaged and cannot be loaded.")
+                                               : s->note;
             break;
         case SlotState::Unknown:
             break;
     }
     const std::vector<std::string> lines = p.wrap(desc, w, FontRole::Body);
-    for (size_t i = 0; i < lines.size() && i < 2; ++i, y += 30)
+    const size_t maxLines = s->note.empty() ? 2 : 4; // a mod pack note names the pack and what to do
+    for (size_t i = 0; i < lines.size() && i < maxLines; ++i, y += 30)
         p.text(d, {x, y, w, 30}, lines[i], FontRole::Body, th.textMuted);
     if (!st.message.empty())
         p.text(d, {x, pp.bottom() - 56, w, 30}, st.message, FontRole::Body, th.bad);

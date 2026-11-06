@@ -329,6 +329,45 @@ void testSave() {
     CHECK(find(o, SaveLoadActionKind::ConfirmSave) && find(o, SaveLoadActionKind::ConfirmSave)->value == 4);
 }
 
+// A save the mod packs installed now cannot load (docs/reference/modding.md "Saves and pack builds"): the glue marks
+// the slot Corrupt with the reason as its note; the Load screen shows it and never confirms that slot.
+void testPackRefusal() {
+    const std::string note = savePackProblemText(SavePackProblem::DifferentBuild, "Order of the Flame");
+    CHECK(note.find("Order of the Flame") != std::string::npos && note.find("different version") != std::string::npos);
+    CHECK(savePackProblemText(SavePackProblem::None, "x").empty());
+    for (SavePackProblem p : {SavePackProblem::DifferentBuild, SavePackProblem::MissingPack,
+                              SavePackProblem::OlderThanPack, SavePackProblem::BadRecord})
+        for (const char* language : {"english", "german", "french", "italian", "spanish"}) {
+            setMenuLanguage(language);
+            const std::string t = savePackProblemText(p, "Pack X");
+            CHECK(!t.empty() && t.find("[Missing menu text]") == std::string::npos &&
+                  t.find("{0}") == std::string::npos);
+            CHECK(p == SavePackProblem::BadRecord || t.find("Pack X") != std::string::npos);
+        }
+    setMenuLanguage("english");
+    SaveLoadScreen scr;
+    scr.open(SaveLoadMode::Load, SaveLoadContext::Title);
+    SaveSlotsState st = page();
+    st.slots[2].state = SlotState::Corrupt;
+    st.slots[2].note = note;
+    scr.frame(st, {}, kVp);
+    SaveLoadFrameOutput o = scr.frame(st, keys({UiKey::Down, UiKey::Down}), kVp);
+    CHECK(scr.focusedSlot() == 3 && !hint(scr.hints(), Prompt::Confirm)->enabled);
+    bool shown = false;
+    for (const DrawCmd& c : o.draw.commands())
+        shown = shown ||
+                (c.kind == DrawKind::Text && c.text.find("different version of the mod pack") != std::string::npos);
+    CHECK(shown && !hasText(o.draw, "This save is damaged and cannot be loaded."));
+    CHECK(hasText(o.draw, "Wartok Canyon") && !hasText(o.draw, "Damaged save")); // its location, not "damaged"
+    o = scr.frame(st, keys({UiKey::Confirm}), kVp);
+    CHECK(count(o, SaveLoadActionKind::ConfirmLoad) == 0 && scr.card() == SaveCard::None);
+    // Saving over it is allowed (the save writes a new pack list).
+    SaveLoadScreen sv;
+    sv.open(SaveLoadMode::Save, SaveLoadContext::Pause, 3);
+    sv.frame(st, {}, kVp);
+    CHECK(hint(sv.hints(), Prompt::Confirm)->enabled);
+}
+
 void testPages() {
     SaveLoadScreen scr;
     scr.open(SaveLoadMode::Load, SaveLoadContext::Pause);
@@ -1099,6 +1138,7 @@ int main() {
     testLoadInGameAsks();
     testSave();
     testPages();
+    testPackRefusal();
     testBackAndStates();
     testMouse();
     testSaveLoadAspects();

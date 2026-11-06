@@ -1,5 +1,12 @@
-import { strToU8, zipSync } from 'fflate';
-import { SrscReader, levelNameProblem, writeSrsc, type SrscEntry } from '@drakan/formats';
+import { strFromU8, strToU8, zipSync } from 'fflate';
+import {
+    PACK_BUILD_PATTERN,
+    SrscReader,
+    levelNameProblem,
+    packBuildId,
+    writeSrsc,
+    type SrscEntry,
+} from '@drakan/formats';
 
 /**
  * Mod pack export in the runtime's format (docs/reference/modding.md, runtime/hle ModPack.cpp):
@@ -22,6 +29,12 @@ export interface ModMeta {
     id: string;
     name?: string;
     version?: string;
+    /**
+     * Save compatibility id (`build`): the game stores it with every save and refuses a save made with another build
+     * of the pack. Leave it out and `zipModFiles` writes the content hash (`packBuildId`); pin it only when an update
+     * keeps every save valid (textures or text only).
+     */
+    build?: string;
     author?: string;
     description?: string;
     target: ModTarget;
@@ -90,6 +103,8 @@ export function validateModMeta(m: ModMeta): void {
     }
     if (m.version !== undefined && !/^\d+(\.\d+)*$/.test(m.version))
         throw new ModError('version must be dotted numbers');
+    if (m.build !== undefined && !PACK_BUILD_PATTERN.test(m.build))
+        throw new ModError('build must be 1-64 characters of letters, digits . _ -');
     if (m.campaign !== undefined) {
         const why = campaignIdProblem(m.campaign);
         if (why) throw new ModError(why);
@@ -111,6 +126,7 @@ export function buildManifestToml(m: ModMeta): string {
     const l: string[] = [`format = ${MOD_FORMAT_VERSION}`, `id = ${tomlStr(m.id)}`];
     l.push(`name = ${tomlStr(m.name ?? m.id)}`);
     if (m.version) l.push(`version = ${tomlStr(m.version)}`);
+    if (m.build) l.push(`build = ${tomlStr(m.build)}`);
     if (m.author) l.push(`author = ${tomlStr(m.author)}`);
     if (m.description) l.push(`description = ${tomlStr(m.description.replace(/\s*[\r\n]+\s*/g, ' '))}`);
     if (m.dependencies?.length) l.push(`dependencies = [${m.dependencies.map(tomlStr).join(', ')}]`);
@@ -149,7 +165,36 @@ export function buildModZip(meta: ModMeta, entries: ChangedEntry[]): Uint8Array 
     return zipModFiles(buildModFiles(meta, entries));
 }
 
-export const zipModFiles = (files: Record<string, Uint8Array>): Uint8Array => zipSync(files, { level: 6 });
+/**
+ * The finished pack with its build id: a manifest (`mod.toml` or `mod.json`) that names no `build` gets the content
+ * hash of the pack's files (`packBuildId`, docs/reference/modding.md "Saves and pack builds"). A pinned build is kept.
+ * Returns `files` unchanged when there is no manifest.
+ */
+export function stampPackBuild(files: Record<string, Uint8Array>): Record<string, Uint8Array> {
+    const toml = files['mod.toml'];
+    const json = files['mod.json'];
+    if (toml) {
+        const text = strFromU8(toml);
+        const lines = text.split(/\r?\n/);
+        const firstTable = lines.findIndex((l) => /^\s*\[/.test(l));
+        const top = firstTable < 0 ? lines : lines.slice(0, firstTable);
+        if (top.some((l) => /^\s*build\s*=/.test(l))) return files;
+        const at = top.findIndex((l) => /^\s*id\s*=/.test(l));
+        const nl = text.includes('\r\n') ? '\r\n' : '\n';
+        lines.splice(at < 0 ? 0 : at + 1, 0, `build = ${tomlStr(packBuildId(files))}`);
+        return { ...files, 'mod.toml': strToU8(lines.join(nl)) };
+    }
+    if (json) {
+        const doc = JSON.parse(strFromU8(json)) as Record<string, unknown>;
+        if (typeof doc !== 'object' || doc === null || Array.isArray(doc) || 'build' in doc) return files;
+        return { ...files, 'mod.json': strToU8(JSON.stringify({ ...doc, build: packBuildId(files) }, null, 4) + '\n') };
+    }
+    return files;
+}
+
+/** The pack as a zip, stamped with its build id (`stampPackBuild`). */
+export const zipModFiles = (files: Record<string, Uint8Array>): Uint8Array =>
+    zipSync(stampPackBuild(files), { level: 6 });
 
 /** Check a replacement against the runtime's growth rule: crossing the whole-entry limit is rejected at apply time. */
 export function checkEntrySize(file: string, originalSize: number, newSize: number): string | null {

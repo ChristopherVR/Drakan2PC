@@ -1,5 +1,6 @@
 #include "hle/ModPack.h"
 #include "hle/IsoFs.h"
+#include "hle/SaveRecord.h"
 #include "hle/Srsc.h"
 #include <algorithm>
 #include <cstring>
@@ -424,6 +425,7 @@ bool parseManifest(const std::string& textIn, bool json, Manifest& m, std::strin
     m.id = one("id");
     m.name = one("name");
     m.version = one("version");
+    m.build = one("build");
     m.author = one("author");
     m.description = one("description");
     m.profiles = many("target.profile");
@@ -442,6 +444,10 @@ bool parseManifest(const std::string& textIn, bool json, Manifest& m, std::strin
         m.dependencies.push_back(d);
     if (!validId(m.id)) {
         err = "'id' is missing or invalid (use 1-64 of letters, digits, '.', '_', '-')";
+        return false;
+    }
+    if (!m.build.empty() && !validId(m.build)) {
+        err = "'build' is invalid (use 1-64 of letters, digits, '.', '_', '-')";
         return false;
     }
     if (m.name.empty())
@@ -602,7 +608,7 @@ public:
     std::vector<Item> list() const override {
         std::vector<Item> v;
         for (auto& e : ents_)
-            v.push_back({e.path, e.usize});
+            v.push_back({e.path, e.usize, e.crc, true});
         return v;
     }
     bool read(const std::string& path, std::vector<u8>& out) const override {
@@ -1706,6 +1712,25 @@ size_t ModManager::load(const std::string& modsDir, const std::vector<std::pair<
         c.st.files = nFiles;
         c.st.added = nNew;
         c.st.levels = nLevels;
+        { // the save compatibility id (SaveRecord.h, modding.md "Saves and pack builds")
+            std::vector<ContentItem> items;
+            const std::string pre = lower(c.prefix);
+            c.st.buildDeclared = !c.st.manifest.build.empty();
+            for (auto& it : c.archive->list()) {
+                if (lower(it.path).compare(0, pre.size(), pre) != 0 || !isContentPath(it.path.substr(pre.size())))
+                    continue;
+                c.st.content = true;
+                if (c.st.buildDeclared)
+                    break;
+                u32 crc = it.crc;
+                if (!it.hasCrc) { // folder packs: read it once (a pack that names its build is never read here)
+                    std::vector<u8> data;
+                    crc = c.archive->read(it.path, data) ? crc32Of(data.data(), data.size()) : 0;
+                }
+                items.push_back({it.path.substr(pre.size()), it.size, crc});
+            }
+            c.st.build = c.st.buildDeclared ? c.st.manifest.build : hex64(packContentHash(std::move(items)));
+        }
         c.st.message = std::to_string(nEntries) + " entries, " + std::to_string(nTexts) + " text lines" +
                        (nFiles ? ", " + std::to_string(nFiles) + " files" : std::string()) +
                        (nNew ? ", " + std::to_string(nNew) + " new entries" : std::string()) +
@@ -1713,6 +1738,9 @@ size_t ModManager::load(const std::string& modsDir, const std::vector<std::pair<
                        (nRejected ? ", " + std::to_string(nRejected) + " rejected" : std::string());
         logf("mods: loaded '%s' %s (%s): %s", mid.c_str(), c.st.manifest.version.c_str(), c.st.key.c_str(),
              c.st.message.c_str());
+        if (c.st.content)
+            logf("mods: '%s' build %s (%s)", mid.c_str(), c.st.build.c_str(),
+                 c.st.buildDeclared ? "from the manifest" : "content hash");
         textCount_ += nTexts;
         ++loaded;
         status_.push_back(std::move(c.st));

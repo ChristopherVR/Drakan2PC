@@ -4,6 +4,7 @@
 #include <cstdio>
 
 #include "gameui/Addresses.h"
+#include "gameui/MenuText.h"
 
 namespace gameui {
 
@@ -177,6 +178,28 @@ bool readSaveSlots(const IGuestMemory& mem, uint32_t screen, const SaveReadOptio
     const int32_t sel = mem.readS32(screen + su::kSelection);
     out.nativeRow = sel >= 0 && sel < n ? sel : -1;
     return true;
+}
+
+std::string savePackProblemText(SavePackProblem problem, const std::string& pack) {
+    switch (problem) {
+        case SavePackProblem::None:
+            return {};
+        case SavePackProblem::DifferentBuild:
+            return menuFormat("This save was made with a different version of the mod pack {0}. It cannot be loaded "
+                              "with the version installed now.",
+                              {pack});
+        case SavePackProblem::OlderThanPack:
+            return menuFormat("This save was made with an earlier version of the mod pack {0}. It cannot be loaded "
+                              "with the version installed now.",
+                              {pack});
+        case SavePackProblem::MissingPack:
+            return menuFormat("This save needs the mod pack {0}. Enable it on the Mods page and restart the game to "
+                              "load it.",
+                              {pack});
+        case SavePackProblem::BadRecord:
+            return menuText("The list of mod packs stored with this save is damaged. The save cannot be loaded.");
+    }
+    return {};
 }
 
 } // namespace gameui

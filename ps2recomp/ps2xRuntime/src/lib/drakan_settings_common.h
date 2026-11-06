@@ -5,6 +5,7 @@
 #include "drakan_debug_menu.h"
 #include "drakan_dual_wield.h"
 #include "drakan_region.h"
+#include "drakan_save_guard.h"
 #include "drakan_foliage.h"
 #include "drakan_fpsmeter.h"
 #include "drakan_subtitles.h"
@@ -144,6 +145,7 @@ inline void installSharedHudLayers() {
                                  view.uiScale);
     };
     dsettings::hudLayers().set(dsettings::HudSlot::Crosshair, std::move(crosshair));
+    drakan_save_guard::installHudLayer(); // a refused quick load says why
 }
 
 } // namespace drakan_settings_host

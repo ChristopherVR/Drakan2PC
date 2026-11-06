@@ -144,7 +144,9 @@ void drawCrosshair(float x, float y, float scale) {
     dl->AddCircleFilled(ImVec2(x, y), th * 0.75f, ink);
 }
 
-void drawSubtitleBand(const std::string& s, float alpha, float w, float h, float sizeFactor) {
+namespace {
+// The translucent full-width text band of the subtitles; `top` puts it near the top of the output instead.
+void drawBand(const std::string& s, float alpha, float w, float h, float sizeFactor, bool top) {
     if (s.empty() || alpha <= 0.0f)
         return;
     ImDrawList* dl = ImGui::GetForegroundDrawList();
@@ -190,7 +192,7 @@ void drawSubtitleBand(const std::string& s, float alpha, float w, float h, float
     }
     const float padY = fs * 0.55f;
     const float bandH = lines.empty() ? 2 * padY : fs + (lines.size() - 1) * fs * 1.25f + 2 * padY;
-    const float y1 = h * 0.965f, y0 = y1 - bandH;
+    const float y0 = top ? h * 0.06f : h * 0.965f - bandH, y1 = y0 + bandH;
     const int a = static_cast<int>(255.0f * std::clamp(alpha, 0.0f, 1.0f));
     dl->AddRectFilled(ImVec2(0.0f, y0), ImVec2(w, y1), IM_COL32(0, 0, 0, a * 165 / 255));
     // centre every line on its own
@@ -206,6 +208,15 @@ void drawSubtitleBand(const std::string& s, float alpha, float w, float h, float
         y += fs * 1.25f;
     }
     dl->PopClipRect();
+}
+} // namespace
+
+void drawSubtitleBand(const std::string& s, float alpha, float w, float h, float sizeFactor) {
+    drawBand(s, alpha, w, h, sizeFactor, false);
+}
+
+void drawNoticeBand(const std::string& s, float alpha, float w, float h) {
+    drawBand(s, alpha, w, h, 1.0f, true);
 }
 
 } // namespace dsettings

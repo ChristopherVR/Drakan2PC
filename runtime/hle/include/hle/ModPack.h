@@ -36,6 +36,9 @@ constexpr int kManifestFormat = 1;
 struct Manifest {
     int format = 1;
     std::string id, name, version, author, description;
+    // top-level `build = "<id>"`: the pack's save compatibility id (1-64 of letters, digits, '.', '_', '-'; the editor
+    // writes the content hash, see packContentHash in SaveRecord.h). Empty = not declared.
+    std::string build;
     std::vector<std::string> profiles;                            // target.profile ("pal", "usa", "*")
     std::vector<std::string> profileHashes;                       // target.hash (hex), optional
     std::vector<std::string> loadAfter, loadBefore, dependencies; // dependencies: "id" or "id>=1.2.0"
@@ -60,6 +63,8 @@ public:
     struct Item {
         std::string path;
         u64 size = 0;
+        u32 crc = 0;         // CRC-32 of the content when the archive knows it without reading (zip directory)
+        bool hasCrc = false; // false: read the file to get it
     };
     virtual std::vector<Item> list() const = 0;
     virtual bool read(const std::string& path, std::vector<u8>& out) const = 0;
@@ -114,6 +119,12 @@ struct ModStatus {
     std::string readError;
     size_t entries = 0, texts = 0, rejected = 0;
     size_t files = 0, added = 0, levels = 0; // whole files, new SRSC entries, registered levels (files/new/levels)
+    // Loaded packs: the save compatibility id the game stores with every save (SaveRecord.h). The manifest's `build`
+    // when it declares one, else the content hash of the pack's files/, new/ and overrides/ (packContentHash).
+    // `content` = the pack ships any of those (packs with only maps, pictures or menu skins are not stored).
+    std::string build;
+    bool buildDeclared = false;
+    bool content = false;
 };
 struct Conflict {
     std::string what;          // "INTERFCE.TXD 0040/97/0" or "INTERFCE.XDB text 156.en"

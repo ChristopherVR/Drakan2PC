@@ -73,6 +73,14 @@ void quickSaveTick(uint8_t* ram, R5900Context* c, PS2Runtime* rt, RecompGuest& g
             menuLog("quick load ignored: no quicksave exists");
             return;
         }
+        if (request == 2) { // made with another build of a mod pack: never start the native load (modding.md)
+            const auto refused = drakan_save_guard::checkSlot(33);
+            if (refused.refused()) {
+                menuLog("quick load refused: %s", refused.message.c_str());
+                drakan_save_guard::showNotice(refused.message);
+                return;
+            }
+        }
         g_quickOperation = request;
         drakan_menu_screens::shared().quickOperation.store(request);
         g_quickSave.phase = 1;

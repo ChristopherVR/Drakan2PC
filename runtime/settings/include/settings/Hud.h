@@ -26,9 +26,9 @@ struct HudLayer {
     std::function<void(const HudView&)> draw;
 };
 
-// Draw order, bottom to top. Stats and Subtitles are also drawn while a settings menu is open; Overlay layers
-// (crosshair, debug menu, cursor) are not.
-enum class HudSlot { Stats, Subtitles, Crosshair, DebugMenu, Cursor, Count };
+// Draw order, bottom to top. Stats, Subtitles and Notice are also drawn while a settings menu is open; Overlay layers
+// (crosshair, debug menu, cursor) are not. Notice = a short message to the player (a refused quick load).
+enum class HudSlot { Stats, Subtitles, Notice, Crosshair, DebugMenu, Cursor, Count };
 
 class HudLayers {
 public:
@@ -61,5 +61,7 @@ void drawDebugMenuPanel(const std::string& title, const std::vector<DebugMenuRow
                         const std::string& help, float w, float h, float uiScale);
 // Subtitle band: full-width translucent bar near the bottom, centred wrapped text.
 void drawSubtitleBand(const std::string& utf8, float alpha, float w, float h, float sizeFactor);
+// The same band near the top of the output: a short message to the player (HudSlot::Notice).
+void drawNoticeBand(const std::string& utf8, float alpha, float w, float h);
 
 } // namespace dsettings

@@ -386,6 +386,7 @@ add_library(ps2_runtime STATIC
     src/lib/drakan_fpsmeter.cpp
     src/lib/drakan_menus.cpp
     src/lib/drakan_save_previews.cpp
+    src/lib/drakan_save_guard.cpp
     src/lib/drakan_log.cpp
     src/lib/drakan_crash.cpp
     src/lib/drakan_object_motion.cpp
