@@ -41,6 +41,9 @@ const Entry kEntries[] = {
     {"general", "language", "english",
      "english | french | german | italian | spanish: language tree of the disc to load; needs a restart (env "
      "DRAKAN_LANG)"},
+    {"general", "cpu_affinity", "auto",
+     "which logical processors the game may use: auto (let Windows choose) | cores:<n> (the first n) | a hex mask "
+     "such as 0xFFF (the first 12); needs a restart (env DRAKAN_CPU_AFFINITY)"},
     {"general", "pause_when_unfocused", "0",
      "1 = pause the game and its audio while the window is not in the foreground (or minimised); 0 = keep running at "
      "normal speed (env DRAKAN_PAUSE_UNFOCUSED)"},

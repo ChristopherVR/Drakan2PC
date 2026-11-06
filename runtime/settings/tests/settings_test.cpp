@@ -823,9 +823,7 @@ int main(int argc, char** argv) {
         SettingsStore st;
         st.loadFromText("", "");
         CHECK(st.loaded().video.polyNearClip);
-        st.loadFromText("[video]
-poly_near_clip=0
-", "");
+        st.loadFromText("[video]\npoly_near_clip=0\n", "");
         CHECK(!st.loaded().video.polyNearClip);
         auto n = st.loaded();
         n.video.polyNearClip = true;
@@ -836,6 +834,26 @@ poly_near_clip=0
         SettingsStore next;
         next.loadFromText(a, b);
         CHECK(next.loaded().video.polyNearClip);
+    }
+    {
+        // CPU cores (cpu_affinity): automatic by default, text is normalised, a mask round-trips through the ini.
+        SettingsStore st;
+        st.loadFromText("", "");
+        CHECK(st.loaded().general.cpuAffinity == "auto");
+        st.loadFromText("[general]\ncpu_affinity = 0xFFF\n", "");
+        CHECK(st.loaded().general.cpuAffinity == "0xfff");
+        st.loadFromText("[general]\ncpu_affinity =  \n", "");
+        CHECK(st.loaded().general.cpuAffinity == "auto");
+        auto n = st.loaded();
+        n.general.cpuAffinity = "cores:8";
+        auto keys = changedKeys(st.loaded(), n);
+        CHECK(std::find(keys.begin(), keys.end(), "general.cpu_affinity") != keys.end());
+        std::string a, b;
+        st.render(n, a, b);
+        CHECK(a.find("cores:8") != std::string::npos);
+        SettingsStore next;
+        next.loadFromText(a, b);
+        CHECK(next.loaded().general.cpuAffinity == "cores:8");
     }
     testMipBiasMode();
     testCombatAndFovSettings();

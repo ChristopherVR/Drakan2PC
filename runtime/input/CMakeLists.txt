@@ -13,6 +13,7 @@ add_library(drakan_input STATIC
     src/Script.cpp
     src/HostInput.cpp
     src/ThreadBoost.cpp
+    src/CpuAffinity.cpp
     src/MenuMouse.cpp
     src/DrakanInput.cpp
     src/BowAim.cpp
@@ -43,6 +44,9 @@ if(DRAKAN_BUILD_RUNTIME_TESTS)
     add_executable(inventory_views_test tests/inventory_views_tests.cpp)
     target_link_libraries(inventory_views_test PRIVATE drakan_input drakan::options)
     add_test(NAME inventory_views_test COMMAND inventory_views_test)
+    add_executable(cpu_affinity_test tests/cpu_affinity_tests.cpp)
+    target_link_libraries(cpu_affinity_test PRIVATE drakan_input drakan::options)
+    add_test(NAME cpu_affinity_test COMMAND cpu_affinity_test)
     add_executable(quick_slots_test tests/quick_slots_tests.cpp)
     target_link_libraries(quick_slots_test PRIVATE drakan_input drakan::options)
     add_test(NAME quick_slots_test COMMAND quick_slots_test)

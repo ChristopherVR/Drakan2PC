@@ -67,7 +67,7 @@ public:
         require(Feature::SceneHooks, {"video.dlss", "video.dlss_neural", "video.dlss_neural_resolution",
                                       "video.dlss_preset", "video.dlss_sharpness", "video.ray_shadows", "video.ray_gi",
                                       "video.ray_reflections", "video.modern_water"});
-        c.restartKeys = {"video.world_rate", "general.language", "general.ui_prompts"};
+        c.restartKeys = {"video.world_rate", "general.language", "general.cpu_affinity", "general.ui_prompts"};
         return c;
     }
 

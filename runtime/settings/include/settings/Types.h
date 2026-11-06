@@ -79,6 +79,8 @@ struct AudioSettings {
 
 struct GeneralSettings {
     bool skipMemcardWarning = true;
+    // cpu_affinity: which logical processors the game may use: auto | cores:<n> | 0x<hex mask> (restart).
+    std::string cpuAffinity = "auto";
     PromptStyle prompts = PromptStyle::Keyboard; // ui_prompts
     std::string language = "english";            // language: english | french | german | italian | spanish (restart)
     float uiScale = 0.0f;                        // settings_ui_scale: 0 = auto (by window height), else 0.75 .. 2.5

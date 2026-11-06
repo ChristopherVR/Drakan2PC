@@ -135,6 +135,17 @@ void testCoverage() {
     CHECK(sc.find(kKeyLinkSensitivity)->scope == gameui::SettingScope::ModernOnly);
     // Restart marks and risky rows.
     CHECK(sc.find("video.world_rate")->restart && sc.find("general.language")->restart);
+    // CPU cores: a restart-time choice with automatic first; a hex mask from drakan.ini shows as a custom value.
+    {
+        const auto* row = sc.find("general.cpu_affinity");
+        CHECK(row && row->restart && row->kind == gameui::SettingKind::Choice);
+        CHECK(row->choices.size() >= 2 && row->choices[0].value == "auto" && row->current == 0);
+        SettingsStore custom;
+        custom.loadFromText("[general]\ncpu_affinity = 0xFFF\n", "");
+        const auto csc = buildSettingsSchema(custom.loaded(), env(h));
+        const auto* crow = csc.find("general.cpu_affinity");
+        CHECK(crow && crow->current == -1 && crow->currentLabel == "Custom (0xfff)");
+    }
     CHECK(sc.find("video.window_mode")->confirm && sc.find(kKeyWindowSize)->confirm && sc.find("video.scale")->confirm);
     CHECK(!sc.find("video.vsync")->confirm);
     // Bindings: both layers, every action of the catalogue, conflicts listed.

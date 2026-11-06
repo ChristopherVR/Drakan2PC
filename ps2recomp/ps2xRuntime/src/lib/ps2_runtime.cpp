@@ -1,5 +1,6 @@
 #include "drakan_software_frame_clock.h"
 #include "ps2_runtime.h"
+#include "input/CpuAffinity.h"
 #include "input/ThreadBoost.h"
 #include "ps2_vu1_batch.h"
 #include "drakan_config.h"
@@ -2452,6 +2453,12 @@ void PS2Runtime::run() {
 
     std::atomic<bool> gameThreadFinished{false};
 
+    {
+        const std::string affinity = drakan_input::applyProcessAffinity(
+            drakan_cfg::getString("general", "cpu_affinity", "DRAKAN_CPU_AFFINITY", "auto"));
+        if (!affinity.empty())
+            std::fprintf(stderr, "%s\n", affinity.c_str());
+    }
     drakan_input::boostThread(drakan_input::ThreadRole::Frame); // this (host + present) thread
     std::thread gameThread([&]() {
         ThreadNaming::SetCurrentThreadName("GameThread");

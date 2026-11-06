@@ -659,6 +659,26 @@ void gameplayPage(gameui::SettingPage& pg, const Settings& st, const SchemaEnv& 
              "is the same swing done left-handed. Use it again to put it away. Turning this off puts the left-hand "
              "weapon back in inventory when play resumes.");
 
+    pg.sections.push_back({"Performance", {}});
+    b.sec = &pg.sections.back();
+    {
+        SettingRow& r = b.choice(
+            "general.cpu_affinity", "CPU cores",
+            "Which logical processors the game may run on. Automatic lets Windows choose. Limiting it can help on "
+            "CPUs with slow or hybrid cores, or when other programs need the rest. Takes effect after a restart. For "
+            "an exact set, write a hex mask in drakan.ini, for example cpu_affinity = 0xFFF (the first 12 logical "
+            "processors).",
+            {{"auto", "Automatic (all)"},
+             {"cores:4", "First 4"},
+             {"cores:6", "First 6"},
+             {"cores:8", "First 8"},
+             {"cores:12", "First 12"},
+             {"cores:16", "First 16"}},
+            true);
+        if (r.current < 0)
+            r.currentLabel = "Custom (" + r.currentValue + ")";
+    }
+
     pg.sections.push_back({"Developer", {}});
     b.sec = &pg.sections.back();
     b.toggle("general.debug_menu", "Developer debug menu",

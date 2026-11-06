@@ -148,6 +148,7 @@ variable exists it wins over the `drakan.ini` value of `[section] key`. `DRAKAN_
 | `DRAKAN_NATIVE_FONT_ATLAS` | `[general] native_font_atlas` | on |
 | `DRAKAN_QUIT_EXITS` / `DRAKAN_TITLE_QUIT` | `[general] quit_exits` / `title_quit` | on / on |
 | `DRAKAN_SAVE_PAGES` | `[general] save_pages` (1..8) | 4 |
+| `DRAKAN_CPU_AFFINITY` | `[general] cpu_affinity` | `auto` |
 | `DRAKAN_PAUSE_UNFOCUSED` / `DRAKAN_RESUME_ON_CLOSE` | `[general] pause_when_unfocused` / `resume_on_close` | off / off |
 | `DRAKAN_SUBTITLES` | `[subtitles] narration` | on |
 | `PS2X_GS` | `[video] renderer` | `d3d11` |

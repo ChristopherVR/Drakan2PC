@@ -64,6 +64,19 @@ PC Settings includes master volume and output-device selection where available. 
 
 Gameplay dialogue uses the game's **Show Subtitles** option. **Narration subtitles** controls the added intro/outro SRT overlay, with an independent text-size setting. No narration text appears unless matching local SRT files are installed.
 
+## CPU cores
+
+Gameplay > Performance > CPU cores limits the logical processors the game may use (Automatic, or the first 4, 6, 8, 12 or 16). It takes effect after a restart. For an exact set, write a hex mask in `drakan.ini` (or the environment variable `DRAKAN_CPU_AFFINITY`):
+
+```ini
+[general]
+cpu_affinity = 0xFFF   ; the first 12 logical processors (bit 0 = processor 0)
+; cpu_affinity = cores:8 ; the first 8 allowed processors
+; cpu_affinity = auto    ; let Windows choose (default)
+```
+
+A mask is intersected with the processors Windows allows the game to use; a mask with none of them is ignored and the log says so (`[drakan] cpu_affinity: ...`). Only the first processor group (64 logical processors) is addressed, and the setting does nothing outside Windows. To limit the processors used while building the game, use `-CpuAffinity` on the build script instead.
+
 ## Original-style setup
 
 Choose 30 FPS, 4:3, original menus and inventory, Classic bow aiming and no dual wielding, and turn off HD textures, upscaling, DLSS and ray tracing.

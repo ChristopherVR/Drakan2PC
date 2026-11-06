@@ -56,15 +56,10 @@ struct HostCaps {
     // makes the UI offer a restart (requestRestart) instead of calling the live apply path for it. Default list below
     // matches the current runtime. video.world_rate is startup-only; the menu always requires a restart for it, even
     // with a custom list.
-    std::set<std::string> restartKeys = {"video.renderer",
-                                         "video.scale",
-                                         "video.world_rate",
-                                         "general.language",
-                                         "general.ui_prompts",
-                                         "video.texture_upscale",
-                                         "video.texture_upscale_filter",
-                                         "video.hd_textures",
-                                         "audio.device"};
+    std::set<std::string> restartKeys = {
+        "video.renderer",       "video.scale",        "video.world_rate",      "general.language",
+        "general.cpu_affinity", "general.ui_prompts", "video.texture_upscale", "video.texture_upscale_filter",
+        "video.hd_textures",    "audio.device"};
 };
 
 // Result of a live apply.

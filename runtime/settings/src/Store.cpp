@@ -181,6 +181,12 @@ const std::vector<Field>& fields() {
                  s.general.prompts = PromptStyle::Ps2;
          },
          "keyboard = key/mouse prompts in the game's text, ps2 = original PlayStation 2 button icons (restart)"},
+        {"general", "cpu_affinity", false, GETS(general.cpuAffinity),
+         [](Settings& s, const std::string& v) {
+             const std::string t = lower(trim(v));
+             s.general.cpuAffinity = t.empty() ? "auto" : t;
+         },
+         "auto | cores:<n> | a hex mask such as 0xFFF: which logical processors the game may use (restart)"},
         {"general", "language", false, GETS(general.language),
          [](Settings& s, const std::string& v) { s.general.language = lower(trim(v)); },
          "english | french | german | italian | spanish: which disc language tree to load (restart)"},
@@ -768,6 +774,7 @@ std::string settingLabel(const std::string& key) {
         {"general.skip_memcard_warning", "Skip memory card warning"},
         {"general.ui_prompts", "Button prompts"},
         {"general.language", "Language"},
+        {"general.cpu_affinity", "CPU cores"},
         {"general.settings_ui_scale", "Settings menu size"},
         {"general.inventory_screen", "Inventory screen"},
         {"general.pause_menu", "Pause menu"},
