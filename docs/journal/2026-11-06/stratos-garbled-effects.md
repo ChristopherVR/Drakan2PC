@@ -166,3 +166,22 @@ fan-straddle report in the trace hook.
   (`fx.txt`, attacks and walking): identical images on and off and no fan was clipped there (no behaviour change off the
   affected effects). Cost: one pointer-sized check per fan (about 1,500 fans per second), not measurable next to the
   game; the machine was shared with other runs so FPS numbers were not compared.
+
+## Verification of the near-plane clip, 2026-11-07
+
+Option: F1 Video page row "Clip effects at the camera (fixes streaks and flashes)" (`[video] poly_near_clip`, live
+apply). Runs: random-walk recipe (attacks, E, turns, 12 legs) in 1A, 3A, 4A (Arokh), 5 and 8 with
+`DRAKAN_POLY_NEAR_CLIP=1` against `=0`, a 6x6 montage of the shots read as PNG per run (`build/harness/pc_<level>_1_c1|c0`).
+
+* Clip on: no vanishing or popping effects in any of the 60 shots. Arokh fire breath (4A, 5), the breath impact
+  explosion in Level 5 and the green enemy glare in 8 render whole.
+* Clip off: Level 5 shot 11 shows a translucent yellow slab across the whole screen where the clip-on run shows the
+  explosion as a normal fireball; Level 8 shots 5 and 9 show white spiked fans around Rynn and a rainbow smear that
+  the clip-on run does not have. The two runs diverge in game flow, so these are matched by situation, not frame.
+* Rynn spells: a retail-cheat plus inventory spell selection recipe in 1A launched the sword, not a spell, so no
+  Rynn spell shot exists yet. Not verified.
+* Cost: `DRAKAN_POLY_NEAR_CLIP_LOG=1` counted about 9300 fans in a 60 s Level 8 soak with 1 clipped and 0 dropped
+  (clips are rare). The cost on the 99.99 % unclipped path is a copy of at most 8 x 32 bytes plus an
+  `outsideWindow`/`straddlesCamera` scan. `PS2X_PERF=1` frame times (`ee_ms/flip`) on and off were swamped by noise:
+  three other game instances ran on the machine and the three runs shared it, so the means (5.3 ms off, 8.9 ms on,
+  2.6 ms on with the log) are contaminated and say nothing about the clip; no measurable cost.
