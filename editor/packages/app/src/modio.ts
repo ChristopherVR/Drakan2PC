@@ -148,6 +148,22 @@ export async function writePackToModsFolder(pack: Pick<LevelPack, 'meta' | 'file
     return `${root.name}/mods/${pack.meta.id}`;
 }
 
+/**
+ * Report a save as a toast: where it landed, or why it failed. A null result (the user cancelled) shows nothing.
+ * Every save button uses it, so a failed write is never silent.
+ */
+export function toastSaveResult(
+    save: Promise<string | null>,
+    toast: (msg: string, kind: 'ok' | 'error') => void,
+): Promise<void> {
+    return save.then(
+        (where) => {
+            if (where) toast(`Saved to ${where}`, 'ok');
+        },
+        (e: unknown) => toast(e instanceof Error ? e.message : String(e), 'error'),
+    );
+}
+
 // ---- desktop app: the shell writes into the remembered game folder -------------------------------------------------------
 
 /** The remembered play folder, asking for it the first time. Null when the user cancels. */
@@ -157,9 +173,14 @@ async function ensureGameFolder(): Promise<string | null> {
     return (await platform.pickFolder('game'))?.path ?? null;
 }
 
-/** Write the pack into `<game>/mods/<id>/` and enable it in `mods.ini` (the same edit as the browser path). */
+/** The folder the shell writes packs into without asking: the chosen mods folder, else `<game>/mods`. */
+export const knownModsFolder = (s: Pick<platform.DesktopSettings, 'modsDir' | 'gameDir'>): string | null =>
+    s.modsDir || (s.gameDir ? `${s.gameDir}/mods` : null);
+
+/** Write the pack into the mods folder as `<id>/` and enable it in `mods.ini` (the same edit as the browser path). */
 async function writePackDesktop(pack: Pick<LevelPack, 'meta' | 'files'>): Promise<string | null> {
-    if (!(await ensureGameFolder())) return null;
+    // A chosen mods folder is enough; only without one and without a game folder is the game folder asked for.
+    if (!knownModsFolder(await platform.getSettings()) && !(await ensureGameFolder())) return null;
     const ini = updateModsIni(await platform.readModsIni(), pack.meta.id, true);
     return platform.writeModPack(pack.meta.id, pack.files, ini);
 }

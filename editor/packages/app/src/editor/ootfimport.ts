@@ -22,7 +22,7 @@ import { OOTF_DIALOG_OPTIONS, ootfDiscContext } from './ootfdisc.ts';
 import type { Api, Method } from '../rpc.ts';
 import { h } from './dom.ts';
 import { registerCommand } from './registry.ts';
-import { canWriteFolder, writePackToModsFolder } from '../modio.ts';
+import { canWriteFolder, toastSaveResult, writePackToModsFolder } from '../modio.ts';
 import { downloadFile } from '../platform.ts';
 
 type Call = <M extends Method>(method: M, ...args: Parameters<Api[M]>) => Promise<ReturnType<Api[M]>>;
@@ -375,9 +375,8 @@ function openDialog(host: OotfHost): void {
                 type: 'button',
                 // The desktop app asks where to save (a plain <a download> lands silently in Downloads in WebView2).
                 onclick: () =>
-                    void downloadFile('ootf-levels.zip', zip as BlobPart, 'application/zip').then(
-                        (where) => where && host.toast(`Saved to ${where}`, 'ok'),
-                        (e: unknown) => host.toast(e instanceof Error ? e.message : String(e), 'error'),
+                    void toastSaveResult(downloadFile('ootf-levels.zip', zip as BlobPart, 'application/zip'), (m, k) =>
+                        host.toast(m, k),
                     ),
             },
             'Download mod (.zip)',
@@ -388,10 +387,7 @@ function openDialog(host: OotfHost): void {
                   {
                       class: 'btn',
                       type: 'button',
-                      onclick: () =>
-                          void writePackToModsFolder(pack).then((where) => {
-                              if (where) host.toast(`Saved to ${where}`, 'ok');
-                          }),
+                      onclick: () => void toastSaveResult(writePackToModsFolder(pack), (m, k) => host.toast(m, k)),
                   },
                   'Save to mods folder...',
               )
