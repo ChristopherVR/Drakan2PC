@@ -68,7 +68,7 @@ the converter drops "Maintain Player Position" on exits whose destination has no
 | Rift Crystal | yes (`v1`, from the Islands box on Arokh: on foot at the start, W, F5, S, F8 back at the exact saved position, D) | to Islands Night: placed on the WhirlpoolSteps, two jumps over the rim, Rynn slides onto the invisible basin floor into the PC box: prompt, save, load (`r08-09d`). Fixed: the box was cloned from a model-less PS2 trigger class and never placed (2026-11-06 progression 2) | yes: exact saved position after F8 (`v1`) | none found |
 | Islands Night | yes (`r08-09d`, from the whirlpool) | to Succubus Lair: real walk into PC detector 4928, prompt, save, load (`n09-10`) | yes: exact saved position after F8 (`r08-09d`) | none found |
 | Succubus Lair | yes (`n09-10`) | to Volcanic: standing on the ship's deck box runs the PC chain (counter, `ship2`, fade), the ship sends ON to the exit, prompt, save, load (`s10-11`) | yes: exact saved position after F8 (`n09-10`) | none found; the Drakan 2 quest line shown on arrival was the converter's shared marker class, fixed: it now reads "Get Arokh" ([quest marker text](../journal/2026-11-06/issue-5-quest-marker-text.md)) |
-| Volcanic | yes (`s10-11`) | to Rift World: mount-only box enabled by the Runeblade pickup; mounted in the box without the blade it stays closed (`v-run2`, gate kept) | yes: exact saved position after F8 (`s10-11`, and after mounting in `v-mount2`) | Arokh is caged by the opening scene until the Rune Cage Key frees him (fixed: the cage detector lost its key, class refs in object parameters were mapped in the wrong database numbering, formats `6332a2b`); with the key, scene 9.6a frees him and walking into him mounts, Cross dismounts. Fire puzzle: his breath sets off the first stage and the cave-mouth detector dismounts at the sanctum, but the launcher arrow never melts the ice, and the button scene loops (Stomp Player "In Order Loop"); Runeblade not taken, Rift World not reached ([mounting and Volcanic](../journal/2026-11-06/ootf-mounting-volcanic.md)) |
+| Volcanic | yes (`s10-11`) | to Rift World: mount-only box enabled by the Runeblade pickup; mounted in the box without the blade it stays closed (`v-run2`, gate kept) | yes: exact saved position after F8 (`s10-11`, and after mounting in `v-mount2`) | Arokh is caged by the opening scene until the Rune Cage Key frees him (fixed: the cage detector lost its key, class refs in object parameters were mapped in the wrong database numbering, formats `6332a2b`); with the key, scene 9.6a frees him and walking into him mounts, Cross dismounts. Fire puzzle: his breath sets off the first stage and the cave-mouth detector dismounts at the sanctum, but the launcher arrow never melts the ice; the button scene now plays once and returns control, and scene 9.2 plays at the cage (fixed, `vol-a`, [Stomp Player play order](../journal/2026-11-06/ootf-stomp-play-order.md)); Runeblade not taken, Rift World not reached ([mounting and Volcanic](../journal/2026-11-06/ootf-mounting-volcanic.md)) |
 | Rift World | not yet | ending | | Dr. Evil (isolated proof only); a direct start loads with no scene waiting and 12.1 MiB guest heap in use (`idle-12`) |
 
 See [progression journal](../journal/2026-11-06/ootf-progression.md), [part 2](../journal/2026-11-06/ootf-progression-2.md) and
@@ -82,6 +82,16 @@ They now go to the template's Stomp Player SSD and a Stomp Player beside each de
 lock hangs 23,000 units above the tower floor: the Bell Hammer now converts to a Key and the lock to a carry-gated detector
 column, so ringing the bell, its scene, the whirl doors and the drop into the rift box work in game (`bell-h`). See
 [Islands bell](../journal/2026-11-06/ootf-islands-bell.md) (per-level sequence audit there).
+
+**November 6 Stomp Player play order (issue 5):** the PC and PS2 Stomp Players number "List Play Order" differently (the PS2
+inserts "One Scene Per Trigger And Looped" at 2) and the PS2 player keeps playing by itself once triggered, so a copied PC
+"In Order Loop" replayed its scene for good (Volcanic "Arrow No Flame" every 5 s) and "All at Once" became "Randomly". The
+converter now maps PC 0 / 1 / 2 / 3 to the PS2 order with the same per-trigger behaviour (1 -> 2, 3 -> 4, 2 -> 3, a multi-scene
+0 -> 2), writes the PC Initial State, Message To Play Next and class-default scene lists (the PS2 class default was a Drakan 2
+scene), and starts detector scenes whose detector sends Off through a twin detector (Volcanic 9.2 never started). 24 players in
+8 levels change; in game the button scene plays once with control back and 9.2 plays at the cage (`vol-a`); Alwarren's "Bowling for Crystals"
+no longer restarts every frame and locks input (`alw-new` against `alw-old`), and Grimstone's "positioning the hider" runs at load. See
+[Stomp Player play order](../journal/2026-11-06/ootf-stomp-play-order.md).
 
 ## What works
 
