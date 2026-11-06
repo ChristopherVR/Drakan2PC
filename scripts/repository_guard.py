@@ -172,15 +172,54 @@ def reason(name: str, content: bytes | None = None) -> str | None:
     return None
 
 
+def gitlinks(revision: str) -> dict[str, str]:
+    """Submodule path -> commit recorded in a revision's tree."""
+    rows = subprocess.check_output(["git", "ls-tree", "-r", "-z", revision], cwd=ROOT).decode().split("\0")
+    links = {}
+    for row in rows:
+        if row.startswith("160000 commit "):
+            meta, path = row.split("\t", 1)
+            links[path] = meta.split()[2]
+    return links
+
+
+def unpublished_submodule_commits(revision: str, remote_revision: str) -> list[tuple[str, str]]:
+    """Submodule commits this push starts pointing at that no remote-tracking ref of the submodule contains.
+
+    Pushing such a pointer breaks every `submodules: recursive` checkout ("not our ref"), as run 42202148099 did.
+    """
+    before = {} if set(remote_revision) == {"0"} else gitlinks(remote_revision)
+    missing = []
+    for path, commit in gitlinks(revision).items():
+        if before.get(path) == commit:
+            continue
+        submodule = ROOT / path
+        if not (submodule / ".git").exists():
+            missing.append((path, commit))
+            continue
+        result = subprocess.run(
+            ["git", "-C", str(submodule), "for-each-ref", "--contains", commit, "--format=%(refname)", "refs/remotes/"],
+            capture_output=True,
+            text=True,
+        )
+        if result.returncode != 0 or not result.stdout.strip():
+            missing.append((path, commit))
+    return missing
+
+
 def pre_push(remote: str | None = None) -> int:
     # Only the destination's own refs count as already published: an object another remote holds is new here.
     published = [f"--remotes={remote}"] if remote else []
     failures = []
+    unpublished = []
     for line in sys.stdin:
         fields = line.split()
         if len(fields) != 4 or set(fields[1]) == {"0"}:
             continue
         ref, revision, _, remote_revision = fields
+        unpublished += [
+            (ref, path, commit) for path, commit in unpublished_submodule_commits(revision, remote_revision)
+        ]
         # Audit objects the destination lacks; its existing history is NOT certified and needs a full history audit.
         known = ["--not", *published] + ([] if set(remote_revision) == {"0"} else [remote_revision])
         rows = (
@@ -210,6 +249,16 @@ def pre_push(remote: str | None = None) -> int:
         print("Push rejected: reachable history includes local/generated files.", file=sys.stderr)
         for entry in failures[:20]:
             print(f"  {entry['ref']}: {entry['path']}: {entry['reason']}", file=sys.stderr)
+        return 1
+    if unpublished:
+        print(
+            "Push rejected: it points at submodule commits that are not on the submodule's remote yet.", file=sys.stderr
+        )
+        for ref, path, commit in unpublished:
+            print(f"  {ref}: {path} @ {commit[:12]}", file=sys.stderr)
+        print(
+            "Push the submodule first (git -C <path> push), or fetch it if someone else already did.", file=sys.stderr
+        )
         return 1
     print("Push source/history audit passed.")
     return 0

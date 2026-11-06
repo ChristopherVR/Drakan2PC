@@ -117,6 +117,50 @@ class SourceGuardTests(unittest.TestCase):
                 ):
                     self.assertEqual(guard.pre_push(remote), expected)
 
+    def test_submodule_pointer_must_be_published_first(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder) / "parent"
+            sub = root / "lib"
+            bare = Path(folder) / "lib.git"
+            sub.mkdir(parents=True)
+
+            def git(cwd, *args):
+                identity = ["-c", "user.name=Source audit test", "-c", "user.email=audit@example.invalid"]
+                command = ["git", *identity, *args]
+                return subprocess.check_output(command, cwd=cwd, stderr=subprocess.DEVNULL).decode().strip()
+
+            git(folder, "init", "--bare", str(bare))
+            git(sub, "init")
+            (sub / "a.txt").write_text("a\n")
+            git(sub, "add", ".")
+            git(sub, "commit", "-m", "a")
+            git(sub, "remote", "add", "origin", str(bare))
+            git(sub, "push", "origin", "HEAD:refs/heads/main")
+            (sub / "b.txt").write_text("b\n")
+            git(sub, "add", ".")
+            git(sub, "commit", "-m", "b, not pushed yet")
+            git(root, "init")
+            (root / "README.md").write_text("Synthetic source test\n")
+            git(root, "add", "README.md", "lib")
+            git(root, "commit", "-m", "point at b")
+            head = git(root, "rev-parse", "HEAD")
+
+            def push_result():
+                updates = f"refs/heads/main {head} refs/heads/main {'0' * 40}\n"
+                with (
+                    patch.object(guard, "ROOT", root),
+                    patch("sys.stdin", io.StringIO(updates)),
+                    contextlib.redirect_stdout(io.StringIO()),
+                    contextlib.redirect_stderr(io.StringIO()) as errors,
+                ):
+                    return guard.pre_push(), errors.getvalue()
+
+            code, errors = push_result()
+            self.assertEqual(code, 1)
+            self.assertIn("lib @", errors)
+            git(sub, "push", "origin", "HEAD:refs/heads/main")
+            self.assertEqual(push_result()[0], 0)
+
 
 if __name__ == "__main__":
     unittest.main()
