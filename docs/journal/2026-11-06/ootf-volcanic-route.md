@@ -69,7 +69,7 @@ press or breath). Evidence is RAM dumps decoded with `objs.py`, `chain.py` and `
 | Wall button, E | pass: "Arrow No Flame" plays once, the launcher fires |
 | Arrow hits the visible 2366 | pass: the impact (`0x1fe3c8`, then `0x39ef90` with the hit object) names 2366's handle; 2366 is gone in the next dump |
 | Ice | pass: 2378 hidden about 2 s later (`+4` bit 0 clear), the "ice cover" plug appears, morphs (its model resource changes) and destroys itself at the end (gone 18 to 24 s after the hit) |
-| Runeblade, E | **fail**: Rynn cannot reach it. The blade hovers at (116736, 56901, 227328), over the top of the platform's central disc (56177, where the ice stood); placed above it she falls through the disc to 53716 (`vr7`, `vr11`, `vr12`) and E takes nothing |
+| Runeblade, E | fail in this run, a harness artifact (see the November 7 follow-up): she was placed 1,400 units above the platform's central pillar, fell through it and E took nothing |
 | Remount by the cave mouth | pass: controlled actor `0x1001c` |
 | Mounted in the rift box 2318 | not opened, as it should without the blade (no message box; the run was stopped there) |
 
@@ -79,16 +79,47 @@ Rift World Morph Plugs (RibDoor, gate eyes) are all created (10 in the registry)
 
 Every run of the new pack (`vr9`, `vr11`, `vr12`, `rw1`) logged no `[memcpy] bad size`.
 
+## November 7 follow-up: the floor under the Runeblade, the walked exit, Rift World
+
+### The floor was never missing
+
+The sanctum central platform (PC model with a 62-shape box hierarchy) is a central pillar, 1.45 lu high, inside a spiral
+stair; the blade hovers 0.36 lu over the pillar top. Probes on the committed pack (`plat5-g`: placed 1,000 units lower than
+before, then released after 30 ticks) stand Rynn on a high stair (56550), a low stair (54912), the pillar top (56670) and
+the pillar centre (56670). Every earlier "falls through" placement started 1,400 units over the pillar top: she dropped
+through the pillar top. Placed just above it she stays, and the route's blade step passes (below). No converter change
+was needed. Two candidate changes were tried and dropped, as neither changed where she stands: bounds lists remapped
+to the split triangles, and polygons the PC lists on inner shapes only handed down to the leaf boxes
+(`build/harness/ootf-volroute/obb-remap-descend.diff`, with tests). The remap is still a real mismatch (the copied PC lists
+name PC polygon indices after quads were split), left for a separate change with its own evidence.
+
+### Walked route (`vr14`, pack from formats `918de7e`)
+
+| Step | Result |
+| --- | --- |
+| Key, 9.6a, mount, breath | pass (as `vr11`) |
+| Cave-mouth dismount | pass on the second try: the recipe places Arokh three times 100 ticks apart and holds Cross after he has landed; controlled actor `0x10009`. Not dependable: in `vr13` and `vr15` he drifted out of the cave-mouth detector after the placement, never landed (Cross held while flying lifts him) and the rest of those runs was played mounted |
+| Succ Switch twice, button, arrow on 2366, ice melts | pass (as `vr11`) |
+| Runeblade, E | **pass**: placed on the pillar top (116736, 57000, 227728) she stands at 56665; after E the blade's handle leaves the world (cell -1, as the key) |
+| Remount at the cave mouth | pass: `0x1001c` |
+| Mounted in the rift box 2318 | **pass**: message box (screen 2), save screen (5), loading (14), Rift World gameplay |
+| Rift World arrival | **pass**: mounted with control, Cross held lands Rynn on foot (`0x10009`, `+0x94` 0), W walks her 1,600 units |
+| F5, move, F8 on foot | **fail in this run**: F5 saves; F8 starts the load and the game hangs (watchdog, guest thread 1 in an eviction walk `0x15e5a0` -> `0x15c820` called from the engine tick `0x139010`, a list at `0x4dff60` that never reaches its head) |
+
+### The Rift World quick-load hang is intermittent and older than the Morph Plug fix
+
+Direct starts of Rift World, dismount, F5, move, F8 (`rwf-*`): the pack built before `918de7e` (no Morph Plugs) hung in
+1 of 3 runs (`rwf-base`, `-base2` pass, `-base3` hangs); the committed pack hung in 3 of 5 (`rw1` and `rwf-tc1` pass);
+with Rift World's plugs dropped it hung as well (`rwf-r`), and with the campaign texture budget raise turned off
+(`DRAKAN_TEX_CACHE_KB=0`) 1 of 2. When it does not hang the restore is exact on foot (`rwf-tc1`: saved (342021, 95320,
+315617), moved, loaded at (342021, 95320, 315617), D then moves her). Two converter changes tried against it (Morph
+Plug frames given the disc's one-sphere bounds, and world-morph templates with model flags 0) did not stop it and were
+dropped (`morph-sphere-flags.diff`). The cause is in the engine's cache eviction during a reload and needs its own
+investigation (which list `0x4dff60` is, who links into it during the load).
+
 ## Still open
 
-1. **Runeblade out of reach.** The sanctum central platform 2237 (a mover; PC model with a 62-shape box hierarchy whose
-   inner shapes list polygons) has no floor at its central disc on the PS2. One concrete converter defect was found there
-   and not committed: the bounds lists of every model converted without a display list keep the PC polygon indices, but
-   the conversion splits quads (this model: 56 of 568, 624 triangles) and drops polygons of unmapped textures, so the lists
-   name the wrong triangles. A remap through the PC-to-PS2 polygon map (`build/harness/ootf-volroute/obb-remap.diff`, with a
-   test) did not give Rynn the disc either (`vr12`), so the cause of the missing floor is still open: next, how the PS2
-   tests a mover's model against characters (lists of inner shapes, boxes of the leaves) against the disc's own movers.
-2. Rift World was not reached by the walked exit; only its direct start was checked (`rw1`).
-3. The F8 restore in Rift World was checked mounted, where Arokh drifts a few units; on foot it was exact in `v1` (Rift
-   Crystal) and Volcanic.
-4. 2366's model ("invisiblewall") draws as a black box; on the PC it is invisible.
+1. The Rift World quick-load hang (above): intermittent, also without converted Morph Plugs; blocks a dependable F8 there.
+2. The walked route needs test-aid placements (each trigger, the pillar top); the stair walk to the blade was not played,
+   and the placed cave-mouth landing is unreliable (1 of 3 full runs landed, see the table).
+3. 2366's model ("invisiblewall") draws as a black box; another agent is on it.
