@@ -238,6 +238,12 @@ else: 00 00 00 00, then (w+1)*(h+1) x { i8 nx, ny, nz, 0x7f }  // entry v+1 = ve
   layer, 37 in a chunk) loads and draws with all of them (docs/journal/2026-11-01/ootf-texture-limit.md).
 * **Chunks [disc]**: the layer is cut into `ceil(w/12) x ceil(h/12)` chunks of `ceil(n/pieces)` cells (last one shorter);
   vertex counts are cells+1. Matches 291 of 297 layers; the other six (13x24, 25x32, 14x12, ...) split z finer, rule open.
+* **No drawn cell = empty form [disc, game]**: in the 14 PAL levels no layer whose cells are all holes / invisible has chunks
+  (they all use `u32 0`); chunks that list no texture occur only next to chunks that do. A chunked blob in which every chunk
+  lists none makes the engine's layer draw object (vtable `0x51ad90`) end with zero draw pages: its draw pass still links it
+  into the terrain draw-data LRU (head `0x4dff60`), but the release (`FUN_0015c820`) unlinks only objects with pages, so
+  after a level reload the list runs through freed memory and the eviction walk (`FUN_0015e5a0`) can loop forever.
+  `buildPs2TerrainBlob` writes the empty form for such layers ([journal](../journal/2026-11-07/ootf-quickload-lru.md)).
 * **Texture list [disc]**: the distinct cell refs of the chunk **and of the cells that touch its vertices from the previous chunks
   (window `x0-1..x1`, `z0-1..z1`; 16 of 19 LEVEL0RO layers)**, holes (`0xffffffff`) and invisible (`0xfffffffe`) left out.
   The **order is a per-texture priority** that is global per level (no conflicting pair in 2 levels) but is not in the layer
