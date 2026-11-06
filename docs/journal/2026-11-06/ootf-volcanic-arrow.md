@@ -73,3 +73,21 @@ What to check there: 2366 hit by the arrow (`DRAKAN_TRACE_FN=0x1fe3c8`, impact a
 impact), `a4` (full route on `pack4`, heap errors and stall), `a5` (full route on `pack3`, invalid: 2 fps under contention). Packs:
 `pack3` (formats `5745259` with the Stomp Player play order fix, plus fix 1 = formats `8605c83`), `pack4` (plus the withdrawn
 Morph Plug change).
+
+## Full route on the committed converter (second pass, `ootf5_v4` / `ootf5_v5`)
+
+Pack from formats `14c9554` (all 23 levels), `dist/DrakanPC/drakan.exe`, direct start at Volcanic, god mode, placements. Runs and
+recipes are private under `build/harness/ootf5/`. Findings:
+
+* **The arrow dies on the ice, not on a flame particle.** The impact trace `0x1fe3c8` fires once per press with no target object
+  (`a2` 0), and the collision record behind it (`a3`, read from the next RAM dump) lists the registry handles of the "ice cover
+  test" 2378 and the two sanctum platform pieces at (116736, 5319x, 227328). The sweep ends at (115587, 57411, 228645), on the
+  launcher's line (launcher 109766, 57411, 234264 to 2366 at 120272, 57170, 223998), before 2366. 2366 never leaves the registry
+  and the ice stays whole 30 s after the hit (the ice cover is still there in the `at_blade` shot, the Runeblade not taken).
+  This agrees with the other session's reading in [ootf-volcanic-route.md](ootf-volcanic-route.md): the platform has to be
+  turned with the sanctum switch so that 2366 stands in front of the ice; the earlier "flame particle" reading (run `a3`) was wrong.
+* **Harness pitfalls that cost runs**, for the next person: a converted pack folder needs `mods.ini` with `ootf-levels = on`
+  (without it the pack stays "off until enabled" and a direct start sits on the loading screen); at 30 to 60 fps the cave-mouth
+  dismount has to hold Cross again once Arokh has finished landing (the first hold, timed for a faster machine, is ignored while
+  he lands, and every later `place` then fails 40 times because the controlled actor is still Arokh).
+* Not re-run after the Morph Plug fix (formats `918de7e`) or with the sanctum switch; that route belongs to `ootf-volcanic-route.md`.
