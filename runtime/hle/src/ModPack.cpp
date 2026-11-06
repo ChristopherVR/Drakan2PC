@@ -934,7 +934,77 @@ size_t countType(const std::vector<SrscEntry>& ents, u16 type) {
 bool patchesTouchCounts(const OdbCounts& before, const std::vector<SrscEntry>& after) {
     return before.classes != countType(after, 0x102) || before.groups != countType(after, 0x101);
 }
+
+// ODB 0x0103 = zlib stream of the field-definition lists, one per 0x0102 record in record order: u32 count, then per
+// field u32 type, u16 length, name. Start offsets of each list in `blob` (plus the end); false unless it parses
+// exactly.
+bool fieldListOffsets(const std::vector<u8>& blob, std::vector<size_t>& at) {
+    at.clear();
+    size_t o = 0;
+    while (o < blob.size()) {
+        at.push_back(o);
+        if (blob.size() - o < 4)
+            return false;
+        const u32 n = rd32(&blob[o]);
+        o += 4;
+        for (u32 i = 0; i < n; ++i) {
+            if (blob.size() - o < 6)
+                return false;
+            const size_t len = rd16(&blob[o + 4]);
+            if (blob.size() - o - 6 < len)
+                return false;
+            o += 6 + len;
+        }
+    }
+    at.push_back(o);
+    return true;
+}
+
+bool unzlib(const u8* p, size_t n, std::vector<u8>& out) {
+    return n > 6 && (p[0] & 0x0F) == 8 && ((p[0] << 8) | p[1]) % 31 == 0 && inflateRaw(p + 2, n - 2, out, 64u << 20);
+}
+
+// zlib stream of stored blocks (no compression; any inflater reads it).
+std::vector<u8> zlibStored(const std::vector<u8>& d) {
+    std::vector<u8> z = {0x78, 0x01};
+    size_t o = 0;
+    do {
+        const size_t len = std::min<size_t>(d.size() - o, 0xFFFF);
+        z.push_back(o + len == d.size() ? 1 : 0);
+        z.push_back((u8)len);
+        z.push_back((u8)(len >> 8));
+        z.push_back((u8)~len);
+        z.push_back((u8)(~len >> 8));
+        z.insert(z.end(), d.begin() + (std::ptrdiff_t)o, d.begin() + (std::ptrdiff_t)(o + len));
+        o += len;
+    } while (o < d.size());
+    u32 a = 1, b = 0;
+    for (u8 c : d) {
+        a = (a + c) % 65521;
+        b = (b + a) % 65521;
+    }
+    const u32 adler = (b << 16) | a;
+    for (int s = 24; s >= 0; s -= 8)
+        z.push_back((u8)(adler >> s));
+    return z;
+}
 } // namespace
+
+bool rebaseFieldLists(const std::vector<u8>& baseStored, size_t baseClasses, size_t newClasses,
+                      std::vector<u8>& packStored) {
+    std::vector<u8> base, pack;
+    std::vector<size_t> baseAt, packAt;
+    if (!unzlib(baseStored.data(), baseStored.size(), base) || !fieldListOffsets(base, baseAt) ||
+        !unzlib(packStored.data(), packStored.size(), pack) || !fieldListOffsets(pack, packAt))
+        return false;
+    const size_t baseLists = baseAt.size() - 1, packLists = packAt.size() - 1;
+    if (baseLists != baseClasses || packLists < newClasses || packLists == baseClasses + newClasses)
+        return false; // not an ODB whose lists pair with its records, or the pack already fits this container
+    std::vector<u8> merged = base;
+    merged.insert(merged.end(), pack.begin() + (std::ptrdiff_t)packAt[packLists - newClasses], pack.end());
+    packStored = zlibStored(merged);
+    return true;
+}
 
 bool patchSrsc(const std::vector<u8>& in, const std::vector<SrscPatch>& patches, std::vector<u8>& out,
                std::string& err) {
@@ -982,7 +1052,42 @@ bool patchSrsc(const std::vector<u8>& in, const std::vector<SrscPatch>& patches,
         }
         return false;
     };
-    for (const SrscPatch& p : patches) {
+    // A pack's field-list override (0x0103) is the lists of the container it was built against plus one list per record
+    // it adds. The language trees of the disc differ in their own class records (the German Level 1 - Common has 4
+    // fewer, the Italian 3 more than the English one the converter reads), so on another tree the pack's lists would
+    // pair with the wrong records. There the container keeps its own lists and gets the pack's last lists (those of the
+    // added records) appended.
+    std::vector<SrscPatch> rebased;
+    const std::vector<SrscPatch>* use = &patches;
+    {
+        size_t added = 0;
+        for (const SrscPatch& p : patches) {
+            if (!p.add || p.type != 0x102)
+                continue;
+            bool exists = false;
+            for (const SrscEntry& e : ents)
+                exists = exists || (e.type == p.type && e.id == p.id && e.sub == p.sub);
+            added += !exists;
+        }
+        for (size_t i = 0; i < patches.size() && added; ++i) {
+            if (patches[i].type != 0x103 || patches[i].add)
+                continue;
+            for (const SrscEntry& e : ents) {
+                if (e.type != 0x103 || e.id != patches[i].id || (patches[i].sub != 0xFFFF && e.sub != patches[i].sub))
+                    continue;
+                std::vector<u8> own(in.begin() + e.off, in.begin() + e.off + e.size), lists = patches[i].data;
+                if (rebaseFieldLists(own, origCounts.classes, added, lists)) {
+                    rebased = patches;
+                    rebased[i].data = std::move(lists);
+                    use = &rebased;
+                    logf("mods: field lists of an ODB with %zu own classes kept, the pack's %zu new lists appended",
+                         origCounts.classes, added);
+                }
+                break;
+            }
+        }
+    }
+    for (const SrscPatch& p : *use) {
         if (p.data.size() > 0xFFFFFFF0u) {
             err = "entry too large";
             return false;

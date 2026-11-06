@@ -58,6 +58,10 @@ my_mod/
   still applied per request.
 * **`new/<FILE>/<type hex>_<id>_<sub>.bin`** adds an entry (sub must be exact, no `x`). `FILE` is a file name without
   directory (`RESOURES.ODB`); it is added to the file of that name in the running language tree, which is rebuilt like above.
+  The language trees are not identical: `LEVEL1ON.ODB` (Level 1 - Common) has 582 class records in English, 578 in German
+  (4 English dialogue classes missing, id 2356 added), 585 in Italian (2352, 2355, 2356 added) and 583 in Spanish (2352
+  added); every other ODB matches. A new class id that a language tree already uses loses to that tree's own record, so
+  the OotF converter starts new ids 16 above the English maximum (`LANGUAGE_ID_MARGIN`).
   The entry is then an ordinary member of the container for 0x1202 requests. An existing `(type,id,sub)` is replaced.
 * **Custom levels**: list the level names in the manifest, `levels = ["Level 9X - My Map"]` (top-level key, also
   `"levels": [...]` in mod.json). A name must be 1 to 80 printable ASCII characters without `\ / : * ? " < > | ;`
@@ -281,7 +285,7 @@ language). Both paths are covered by `mod_test` ("content files"). Keys the edit
 | --- | --- | --- | --- |
 | a string (all five language slots) | `SYSTEM.XDB`, `RESOURES.XDB`, `LEVEL1ON.XDB`, ... | `0400/<string id>/<sub>` (eight `u16 length + text` slots, see level-format.md) | `overrides/` to change, `new/` for a fresh id |
 | a quest class (journal text ids, map position, optional flag) | `SYSTEM.ODB` | `0102/<class id>/<group id>` | `overrides/` to change, `new/` for a new class |
-| the field lists a new class needs | `SYSTEM.ODB` | `0103/<id>/<sub>` (zlib; one list per class record, in record order) | `overrides/` of the whole entry with the new class's list appended |
+| the field lists a new class needs | `SYSTEM.ODB` | `0103/<id>/<sub>` (zlib; one list per class record, in record order) | `overrides/` of the whole entry with the new class's list appended; on a language tree whose container has a different number of own class records the runtime keeps that tree's lists and appends only the pack's last lists, one per class the pack adds (`rebaseFieldLists`) |
 | a sound's name and subtitle text | `<LEVEL>.SDB`, `SYSTEM.SDB`, `NPCS.SDB` | `0302/<id>/<sub>` | `overrides/` (the `0304` ADPCM data is a separate entry) |
 | a sequence | `<LEVEL>.SSD` | `0311/<id>/<sub>` | `overrides/` or `new/` |
 

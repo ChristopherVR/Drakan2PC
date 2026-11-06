@@ -82,6 +82,12 @@ struct SrscPatch {
 // container.
 bool patchSrsc(const std::vector<u8>& in, const std::vector<SrscPatch>& patches, std::vector<u8>& out,
                std::string& err);
+// ODB field lists (0x0103, zlib): `packStored` (a pack's override, built against another language tree's container)
+// becomes the container's own lists (`baseStored`, one per each of its `baseClasses` records) followed by the pack's
+// last `newClasses` lists, re-stored as zlib. False (and `packStored` unchanged) when either does not parse, the base
+// lists do not pair with its records, or the pack's lists already fit (base + new).
+bool rebaseFieldLists(const std::vector<u8>& baseStored, size_t baseClasses, size_t newClasses,
+                      std::vector<u8>& packStored);
 
 // A level a pack registered. `name` is the LEVELLST.TXT title ("Level 9X - Name"), `path` the game path line
 // ("\Levels\Level 9X - Name\Level 9X - Name.lvl"), `listIndex` its 0-based position in the merged list.

@@ -327,6 +327,78 @@ static void filesTests(const fs::path& root, const DiscProfile& pal) {
         CHECK(plainCount == 2);
     }
 
+    // ODB field lists (0x0103): a pack built against the English container (3 records + 1 added) mounted on another
+    // language tree whose container has 2 records keeps that tree's lists and appends only the added record's list.
+    {
+        auto list = [](u32 nFields, u8 tag) {
+            std::vector<u8> l;
+            p32(l, nFields);
+            for (u32 i = 0; i < nFields; ++i) {
+                p32(l, 7);
+                p16(l, 2);
+                l.push_back(tag);
+                l.push_back(0);
+            }
+            return l;
+        };
+        auto stored = [](const std::vector<u8>& d) { // zlib, one stored block
+            std::vector<u8> z = {0x78, 0x01, 1, (u8)d.size(), (u8)(d.size() >> 8), (u8)~d.size(), (u8)(~d.size() >> 8)};
+            z.insert(z.end(), d.begin(), d.end());
+            u32 a = 1, b = 0;
+            for (u8 c : d)
+                a = (a + c) % 65521, b = (b + a) % 65521;
+            for (int s = 24; s >= 0; s -= 8)
+                z.push_back((u8)(((b << 16) | a) >> s));
+            return z;
+        };
+        auto cat = [](std::initializer_list<std::vector<u8>> parts) {
+            std::vector<u8> v;
+            for (auto& p : parts)
+                v.insert(v.end(), p.begin(), p.end());
+            return v;
+        };
+        auto listsOf = [&](const std::vector<u8>& b) {
+            u32 idx, n;
+            memcpy(&idx, &b[6], 4);
+            memcpy(&n, &b[10], 4);
+            for (u32 i = 0; i < n; ++i) {
+                u16 t;
+                u32 off, size;
+                memcpy(&t, &b[idx + i * 14], 2);
+                memcpy(&off, &b[idx + i * 14 + 6], 4);
+                memcpy(&size, &b[idx + i * 14 + 10], 4);
+                if (t != 0x103)
+                    continue;
+                std::vector<u8> raw;
+                CHECK(inflateRaw(&b[off + 2], size - 2, raw, 1u << 20));
+                return raw;
+            }
+            return std::vector<u8>();
+        };
+        const std::vector<u8> own = cat({list(1, 'a'), list(2, 'b')});
+        std::vector<u8> tree = makeSrsc({{{0x102, 5, 1, 0, 0}, fill(24, 2)},
+                                         {{0x102, 9, 1, 0, 0}, fill(24, 3)},
+                                         {{0x103, 0, 0, 0, 0}, stored(own)}});
+        const std::vector<u8> english = cat({list(1, 'x'), list(1, 'y'), list(1, 'z'), list(3, 'n')});
+        std::vector<SrscPatch> ps(2);
+        ps[0] = {0x102, 30, 1, fill(24, 4), true};
+        ps[1] = {0x103, 0, 0, stored(english), false};
+        std::vector<u8> out;
+        CHECK(patchSrsc(tree, ps, out, err));
+        CHECK(listsOf(out) == cat({own, list(3, 'n')}));
+        CHECK(logHas("field lists of an ODB with 2 own classes kept"));
+        // the English tree (3 records) takes the pack's lists as they are
+        std::vector<u8> en = makeSrsc({{{0x102, 5, 1, 0, 0}, fill(24, 2)},
+                                       {{0x102, 9, 1, 0, 0}, fill(24, 3)},
+                                       {{0x102, 11, 1, 0, 0}, fill(24, 3)},
+                                       {{0x103, 0, 0, 0, 0}, stored(cat({list(1, 'x'), list(1, 'y'), list(1, 'z')}))}});
+        CHECK(patchSrsc(en, ps, out, err));
+        CHECK(listsOf(out) == english);
+        std::vector<u8> merged = stored(english);
+        CHECK(!rebaseFieldLists(stored(cat({list(1, 'x'), list(1, 'y'), list(1, 'z')})), 3, 1, merged));
+        CHECK(!rebaseFieldLists({1, 2, 3}, 2, 1, merged) && merged == stored(english));
+    }
+
     // Imported-bow sidecars are bounded, enabled-pack-only, and preserve mod load order.
     {
         const fs::path mods = root / "mods_bow_metadata";
