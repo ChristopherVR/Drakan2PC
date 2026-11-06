@@ -26,3 +26,8 @@ after it, already inserts its folder into `sys.path`; `character_previews.py` di
 
 No kit was rebuilt and run end to end with the embeddable Python; `-I` stands in for it. The reporter's compiler
 parallelism and memory observations are a separate investigation.
+
+## Follow-up
+
+Verified with the real embeddable Python in a staged kit; the next step (`character_motion.py`) still failed in the
+kit (no formats submodule, no Node.js). See [issue-1-kit-build-parallelism.md](issue-1-kit-build-parallelism.md).
