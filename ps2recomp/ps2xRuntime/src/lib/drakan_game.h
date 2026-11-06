@@ -66,6 +66,9 @@ void redirect(const std::string& from, const std::string& to);
 std::string firstLevel();
 // The levels of the current campaign in play order (empty for the disc game).
 std::vector<std::string> campaignLevels();
+// True when `level` (a level title) belongs to any installed campaign pack, whichever game is being played (a converted
+// Order of the Flame level also loads under Drakan 2 through the editor's Play / DRAKAN_START_LEVEL).
+bool isCampaignPackLevel(const std::string& level);
 // The level a "Level 0 - Intro" request really loads in the current game (name unchanged otherwise).
 std::string mapLevelName(const std::string& requested);
 // "Level 0 - ..." is the opening cut scene level of the disc; a campaign pack's start level is not one.

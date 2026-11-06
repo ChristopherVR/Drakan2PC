@@ -1,7 +1,9 @@
 // Level change from the host (drakan_levelchange.h). See docs/journal/2026-10-31/level-change.md for the mechanism.
 #include "drakan_levelchange.h"
+#include "drakan_exit_guard.h"
 #include "drakan_game.h"
 #include "drakan_lifecycle.h"
+#include "drakan_pause.h"
 #include "drakan_region.h"
 #include "ps2_runtime.h"
 #include "ps2_runtime_macros.h"
@@ -485,9 +487,15 @@ std::atomic<int> g_traceCount{0};
 void touchEntry(uint8_t* rdram, R5900Context* c, PS2Runtime* rt) {
     const Ram r{rdram};
     const uint32_t inst = getRegU32(c, 4), msg = getRegU32(c, 5);
-    if (g_traceCount.fetch_add(1) < 400)
-        std::fprintf(stderr, "[levelchange] trace touch handler inst %x msg %x event %x state %x\n", inst, msg,
-                     r.u16(msg + 4), r.u16(inst));
+    if (g_traceCount.fetch_add(1) < 400) {
+        // 0x361440: the event id is the u16 behind the pointer at msg+4 (0x1001 touch, 0x1002 / 0x10a3 set state bits);
+        // a touch queues the exit unless the game mode (0x4fbac8+0x70) is 1 or 2 or the exit handle's flags (+4) have
+        // bit 2 or 3 set (already queued).
+        const uint32_t handle = r.u32(inst + 0x28);
+        std::fprintf(
+            stderr, "[levelchange] trace touch handler inst %x msg %x event %x state %x handle %x flags %x mode %x\n",
+            inst, msg, r.u16(r.u32(msg + 4)), r.u16(inst), handle, r.u32(handle + 4), r.u32(addr(0x4fbac8u) + 0x70));
+    }
     g_origTouch(rdram, c, rt);
 }
 bool fire(uint8_t* rdram, PS2Runtime* rt, uint32_t handle);
@@ -498,13 +506,38 @@ std::atomic<bool> g_traceHandlers{false};
 // ends a cut-scene level (the Intro and the Ruined Village Book have no player to walk anywhere:
 // docs/journal/2026-11-01/ ootf-campaign-walkthrough.md). The engine's own touch handler ignores it (no toucher), so
 // take the exit the way the host-fired aid does: straight to the transition, no save prompt.
+// Only an event other than the touch (0x1001) is taken this way: a detector sends ON, which the engine's touch handler
+// turns into the normal queued change with its save prompt; a Timer sends 5, which that handler only notes.
 constexpr float kRemoteExitDist = 8000.0f;
+constexpr uint32_t kTouchEvent = 0x1001u;
+constexpr int kLoadingScreen = 14; // gui screen of the loading screen (level load, level change, load game)
+// Converted levels: no exit touch before the player has walked off her start / arrival spot (drakan_exit_guard.h).
+std::mutex g_guardMutex;
+drakan_exit_guard::ArrivalGuard g_guard;
 void exitHandlerEntry(uint8_t* rdram, R5900Context* c, PS2Runtime* rt) {
     const Ram r{rdram};
     const uint32_t h = getRegU32(c, 4), msg = getRegU32(c, 5);
     if (g_traceHandlers.load() && g_traceCount.fetch_add(1) < 400)
         std::fprintf(stderr, "[levelchange] trace exit handler handle %x msg %x id %x\n", h, msg, r.u16(msg + 4));
-    if (msg == 0x20 && drakan_game::current() == drakan_game::Game::Ootf && Ram::ok(h, 0x20)) {
+    // 0x365138 passes the engine's current message (ctx+0x4e0) to the touch handler; its event id is the u16 behind +4.
+    const uint32_t ctxp = r.u32(addr(kContextPtr));
+    const uint32_t event = msg == 0x20 && Ram::ok(ctxp, 0x4e4) ? r.u16(r.u32(r.u32(ctxp + 0x4e0) + 4)) : 0;
+    if (event == kTouchEvent) {
+        bool blocked;
+        {
+            std::lock_guard<std::mutex> l(g_guardMutex);
+            blocked = g_guard.blocks();
+        }
+        if (blocked) {
+            static std::atomic<int> told{0};
+            if (told.fetch_add(1) < 20)
+                std::fprintf(stderr,
+                             "[levelchange] exit %x touched before the player walked off her arrival spot: ignored\n",
+                             h);
+            return;
+        }
+    }
+    if (msg == 0x20 && event != kTouchEvent && drakan_game::current() == drakan_game::Game::Ootf && Ram::ok(h, 0x20)) {
         const uint32_t eng = r.u32(addr(kContextPtr));
         const uint32_t pl = Ram::ok(eng, 0x4b8) ? r.u32(eng + 0x4b0) : 0;
         if (Ram::ok(pl, 0x20)) {
@@ -627,6 +660,15 @@ void hookTick(uint8_t* rdram, R5900Context* c, PS2Runtime* rt) {
         const bool live = Ram::ok(eng, 0x4b8) && r.u32(eng + 0x4b0) != 0;
         if (live) {
             ++g_framesInLevel;
+            {
+                const uint32_t gp = r.u32(eng + 0x4b0);
+                const float px = f32(r, gp + 0x14), pz = f32(r, gp + 0x1c);
+                std::lock_guard<std::mutex> l(g_guardMutex);
+                if (g_framesInLevel == 1)
+                    g_guard.levelStart(drakan_game::isCampaignPackLevel(g_currentLevel), px, pz);
+                else if (g_guard.tick(drakan_pause::gameplay(), drakan_pause::guiScreen() == kLoadingScreen, px, pz))
+                    std::fprintf(stderr, "[levelchange] the player walked off her arrival spot: exits armed\n");
+            }
             if (g_probe.steps.size() && (g_framesInLevel <= 3 || g_framesInLevel == 60 || g_framesInLevel % 100 == 0)) {
                 const uint32_t pl = r.u32(eng + 0x4b0);
                 std::fprintf(stderr, "[levelchange] arrival report '%s' frame %llu player %08x pos %.0f %.0f %.0f\n",

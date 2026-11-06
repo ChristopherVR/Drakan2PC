@@ -270,6 +270,15 @@ std::vector<std::string> campaignLevels() {
     return c ? c->levels : std::vector<std::string>{};
 }
 
+bool isCampaignPackLevel(const std::string& level) {
+    std::lock_guard<std::mutex> l(g_m);
+    for (const Campaign& c : g_campaigns)
+        for (const std::string& name : c.levels)
+            if (drakan_cfg::compareNoCase(name.c_str(), level.c_str()) == 0)
+                return true;
+    return false;
+}
+
 std::string mapLevelName(const std::string& requested) {
     std::lock_guard<std::mutex> l(g_m);
     if (const Campaign* c = cur(); c && requested == kIntroLevel)
