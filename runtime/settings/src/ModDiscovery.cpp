@@ -74,6 +74,26 @@ ModNoticeContent modNoticeContent(const ModsModel& model) {
     return c;
 }
 
+std::vector<const ModInfo*> unreadablePacks(const ModsModel& model) {
+    std::vector<const ModInfo*> out;
+    for (const ModInfo& m : model.mods())
+        if (m.found && !m.readError.empty() && (m.enabled || (m.isNew && !m.decided)))
+            out.push_back(&m);
+    return out;
+}
+
+std::string unreadablePacksText(const ModsModel& model, bool translate) {
+    const std::vector<const ModInfo*> packs = unreadablePacks(model);
+    if (packs.empty())
+        return {};
+    std::string names;
+    for (const ModInfo* m : packs)
+        names += (names.empty() ? "" : ", ") + (m->file.empty() ? m->key : m->file);
+    return packs.size() == 1 ? format(translate, "A pack in the mods folder could not be read: {0}.", {names})
+                             : format(translate, "{0} packs in the mods folder could not be read: {1}.",
+                                      {std::to_string(packs.size()), names});
+}
+
 bool campaignOffered(const ModInfo& m, const GameChoiceState& state) {
     if (m.campaign.empty() || state.refused.count(m.id))
         return false;

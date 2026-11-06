@@ -2261,6 +2261,9 @@ void titleDraw(const dsettings::SettingsOverlay::ScreenFrame& f, bool background
         }
         st.gameChoiceNote =
             dsettings::gameChoiceNoteText(dsettings::gameChoiceNote(harnessMods(), harnessMods().gameChoice()), true);
+        st.modsNote = dsettings::unreadablePacksText(harnessMods(), true);
+        if ((!st.gameChoiceNote.empty() || !st.modsNote.empty()) && ui.screen.page() == gameui::TitlePage::Main)
+            drakan_fpsmeter::setAvoidTop(true); // the note plate sits in the top left corner
         st.now = now;
         st.capturedKey = take && capture ? g_capturedKey : std::string();
         const bool noticeBefore = ui.screen.page() == gameui::TitlePage::ModsNotice;
@@ -2525,6 +2528,8 @@ void snapshotMods(const hle::mods::ModManager* mm, const std::string& dir) {
                                                                  : dsettings::ModBoot::Skipped;
             m.message = st.message;
             m.name = st.key;
+            m.readError = st.readError;
+            m.file = st.source.empty() ? st.key : std::filesystem::path(st.source).filename().string();
             if (st.hasManifest) {
                 const hle::mods::Manifest& mf = st.manifest;
                 if (!mf.name.empty())
@@ -2557,6 +2562,9 @@ void snapshotMods(const hle::mods::ModManager* mm, const std::string& dir) {
     for (const dsettings::ModInfo* m : g_modsModel.undecided())
         std::fprintf(stderr, "[mods] new pack '%s' (%s): off until enabled; title notice %s\n", m->key.c_str(),
                      m->name.c_str(), show ? "on" : "off");
+    for (const dsettings::ModInfo* m : dsettings::unreadablePacks(g_modsModel))
+        std::fprintf(stderr, "[mods] pack '%s' cannot be read (%s): named on the title screen\n", m->file.c_str(),
+                     m->readError.c_str());
 }
 
 // The title's new packs card answered: write mods.ini (and restart for Enable).

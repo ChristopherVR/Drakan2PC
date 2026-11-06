@@ -907,6 +907,20 @@ void testTitleModsNotice() {
         TitleScreen plain;
         plain.open();
         CHECK(hasText(plain.frame(note, {}, kVp).draw, "Choose your game is not shown."));
+        note.modsNote = "Cannot read x.zip.";
+        const TitleFrameOutput both = plain.frame(note, {}, kVp);
+        CHECK(hasText(both.draw, "Choose your game is not shown.") && hasText(both.draw, "Cannot read x.zip."));
+        note.gameChoiceNote.clear();
+        CHECK(hasText(plain.frame(note, {}, kVp).draw, "Cannot read x.zip."));
+        // The plate stays in the top left sky: clear of the logo and the campaign plaque (x >= 460 at the top), the
+        // menu column and the art's copyright lines at the bottom (design y >= 960 at 16:9).
+        for (int lines = 1; lines <= design::title::kNoteLinesMax; ++lines) {
+            const Rect r = design::title::notePlate(lines);
+            CHECK(r.x >= 0 && r.right() <= 460 && r.y >= 0 && r.bottom() <= 260);
+            CHECK(r.right() <= design::title::menuPanel(6).x);
+        }
+        CHECK(design::title::noteLine(design::title::kNoteLinesMax - 1).bottom() <=
+              design::title::notePlate(design::title::kNoteLinesMax).bottom());
     }
     static_assert(static_cast<int>(TitleRow::ModsEnable) > static_cast<int>(TitleRow::GameDrakan) + 100);
 }

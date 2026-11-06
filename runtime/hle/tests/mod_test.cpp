@@ -344,6 +344,29 @@ static void filesTests(const fs::path& root, const DiscProfile& pal) {
         CHECK(mm.bowAimFiles().empty());
     }
 
+    // A pack whose zip or manifest cannot be read keeps the reason, enabled or not (the title screen names it).
+    {
+        const fs::path mods = root / "mods_unreadable";
+        writeText(mods / "broken.zip", "PK");
+        writeText(mods / "ok/mod.toml", toml("ok"));
+        writeText(mods / "nomanifest/readme.txt", "x");
+        ModManager mm(pal);
+        CHECK(mm.load(mods.string(), {{"broken", false}, {"ok", false}, {"nomanifest", true}, {"gone", true}}) == 0);
+        CHECK(mm.status().size() == 4);
+        auto of = [&](const char* key) -> const ModStatus& { // status() is in resolved load order
+            for (const ModStatus& s : mm.status())
+                if (s.key == key)
+                    return s;
+            return mm.status().front();
+        };
+        CHECK(of("broken").state == ModState::Disabled && !of("broken").hasManifest &&
+              of("broken").readError == "not a zip (too small)");
+        CHECK(of("ok").hasManifest && of("ok").readError.empty());
+        CHECK(of("nomanifest").state == ModState::Skipped && of("nomanifest").readError == "no mod.toml or mod.json" &&
+              of("nomanifest").message == "invalid pack: no mod.toml or mod.json");
+        CHECK(of("gone").key == "gone" && of("gone").source.empty() && of("gone").readError.empty()); // missing
+    }
+
     // Portable English pack files also serve the running language. Explicit disc
     // lookups keep their original language, and localized files retain load precedence.
     {

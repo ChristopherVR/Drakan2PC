@@ -4,6 +4,7 @@
 #include <fstream>
 #include <sstream>
 
+#include "gameui/MenuText.h"
 #include "settings/ModDiscovery.h"
 #include "settings/ModsModel.h"
 #include "settings/ModsPage.h"
@@ -292,6 +293,62 @@ int main() {
                 sawReason = sawReason || (r.label == "Reason" && r.text == "built for disc usa, this is pal");
             }
         CHECK(sawChoice && sawReason && !reasonInline); // the reason has its own row: one-line rows cut long text
+    }
+
+    // ---- unreadable packs (a broken zip or manifest): named on the title, not offered on the new packs card
+    {
+        auto broken = [](const char* key, bool on, bool isNew) {
+            ModInfo m;
+            m.key = m.name = key;
+            m.file = std::string(key) + ".zip";
+            m.enabled = m.bootEnabled = on;
+            m.boot = on ? ModBoot::Skipped : ModBoot::Disabled;
+            m.message = on ? "invalid pack: not a zip (too small)" : "new pack, not enabled yet";
+            m.readError = "not a zip (too small)";
+            m.isNew = isNew;
+            return m;
+        };
+        ModInfo fresh = mk("fresh", false, ModBoot::Disabled);
+        fresh.isNew = true;
+        ModsModel u;
+        u.setSnapshot(dir.string(), {broken("newbad", false, true), fresh}, {});
+        // the new broken pack is not undecided: the card offers only the readable one, and enabling skips it
+        CHECK(u.undecided().size() == 1 && u.undecided()[0]->key == "fresh");
+        CHECK(modNoticeContent(u).names.size() == 1);
+        CHECK(u.stateText(*u.find("newbad")) == "Disabled, cannot be read: not a zip (too small)");
+        CHECK(unreadablePacks(u).size() == 1 && unreadablePacks(u)[0]->key == "newbad");
+        CHECK(unreadablePacksText(u, false) == "A pack in the mods folder could not be read: newbad.zip.");
+        ModsModel en = u;
+        CHECK(en.enableUndecided() == 1 && !en.find("newbad")->enabled);
+        // a broken pack alone does not open the card, but it is still named
+        ModsModel only;
+        only.setSnapshot(dir.string(), {broken("newbad", false, true)}, {});
+        CHECK(!showModNotice(only, ModNoticeMode::Force, false, false) && !unreadablePacksText(only, false).empty());
+
+        // enabled broken packs are named too (the loader skipped them); one turned off is not
+        ModsModel many;
+        many.setSnapshot(dir.string(),
+                         {broken("on1", true, false), broken("off1", false, false), broken("new2", false, true)}, {});
+        CHECK(unreadablePacks(many).size() == 2);
+        CHECK(unreadablePacksText(many, false) == "2 packs in the mods folder could not be read: on1.zip, new2.zip.");
+        CHECK(many.apply("mods.enable.on1", "0", &err)); // the player turns it off: no longer named
+        CHECK(many.apply("mods.enable.new2", "0", &err));
+        CHECK(unreadablePacks(many).empty() && unreadablePacksText(many, false).empty());
+        // a missing pack is not a read error; a readable pack has none
+        ModInfo gone = broken("gone", true, false);
+        gone.found = false;
+        many.setSnapshot(dir.string(), {gone, fresh}, {});
+        CHECK(unreadablePacks(many).empty());
+
+        // translated on the title screen; the Mods page has its own row
+        gameui::setMenuLanguage("german");
+        CHECK(unreadablePacksText(u, true) == "Ein Paket im Mod-Ordner konnte nicht gelesen werden: newbad.zip.");
+        gameui::setMenuLanguage("english");
+        bool sawRow = false;
+        for (const auto& sec : buildModsPage(u).sections)
+            for (const auto& r : sec.rows)
+                sawRow = sawRow || (r.label == "Unreadable" && r.text.find("newbad.zip") != std::string::npos);
+        CHECK(sawRow);
     }
 
     fs::remove_all(dir);

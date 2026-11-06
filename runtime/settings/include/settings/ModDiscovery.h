@@ -26,6 +26,15 @@ struct ModNoticeContent {
 };
 ModNoticeContent modNoticeContent(const ModsModel& model);
 
+// Packs in the mods folder whose zip or manifest cannot be read, unless the player turned them off: enabled ones (the
+// loader skipped them) and new ones (not offered on the new packs card, since enabling them would not load anything).
+// In load order. Without a manifest the game cannot tell whether such a pack is a campaign, so the title screen names
+// the file instead of explaining the game card.
+std::vector<const ModInfo*> unreadablePacks(const ModsModel& model);
+// The title line for them: "A pack in the mods folder could not be read: broken.zip." Empty when there is none.
+// `translate` as for gameChoiceNoteText (each pack's reason is on its Mods page row).
+std::string unreadablePacksText(const ModsModel& model, bool translate);
+
 // Why an enabled campaign pack does not show up on the title's game card.
 enum class GameChoiceReason {
     None,           // nothing to explain (no enabled campaign, or the card is offered)

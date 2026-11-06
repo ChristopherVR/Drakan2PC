@@ -33,6 +33,11 @@ bool isKeyLine(const std::string& raw) {
     return !line.empty() && line[0] != ';' && line[0] != '#' && line[0] != '[' && line.find('=') != std::string::npos;
 }
 
+// A new pack the player can still decide on: an unreadable one cannot be enabled usefully, the title names it instead.
+bool pendingNew(const ModInfo& m) {
+    return m.isNew && !m.decided && m.found && !m.enabled && m.readError.empty();
+}
+
 } // namespace
 
 void ModsModel::setSnapshot(std::string folder, std::vector<ModInfo> mods, std::vector<ModConflict> conflicts) {
@@ -67,7 +72,7 @@ bool ModsModel::setEnabled(const std::string& key, bool on) {
 std::vector<const ModInfo*> ModsModel::undecided() const {
     std::vector<const ModInfo*> out;
     for (const ModInfo& m : mods_)
-        if (m.isNew && !m.decided && m.found && !m.enabled)
+        if (pendingNew(m))
             out.push_back(&m);
     return out;
 }
@@ -75,7 +80,7 @@ std::vector<const ModInfo*> ModsModel::undecided() const {
 size_t ModsModel::enableUndecided() {
     size_t n = 0;
     for (ModInfo& m : mods_)
-        if (m.isNew && !m.decided && m.found && !m.enabled) {
+        if (pendingNew(m)) {
             m.enabled = m.decided = true;
             ++n;
         }
@@ -85,7 +90,7 @@ size_t ModsModel::enableUndecided() {
 size_t ModsModel::keepUndecidedOff() {
     size_t n = 0;
     for (ModInfo& m : mods_)
-        if (m.isNew && !m.decided && m.found && !m.enabled) {
+        if (pendingNew(m)) {
             m.decided = true;
             ++n;
         }
@@ -128,8 +133,11 @@ std::string ModsModel::stateText(const ModInfo& m) const {
         return "Skipped: not found in the mods folder";
     if (m.enabled != m.bootEnabled)
         return m.enabled ? "Enabled, loads after restart" : "Disabled, unloads after restart";
-    if (!m.enabled)
+    if (!m.enabled) {
+        if (m.found && !m.readError.empty())
+            return "Disabled, cannot be read: " + m.readError;
         return m.isNew && !m.decided ? "New: not enabled yet" : "Disabled";
+    }
     if (m.boot == ModBoot::Skipped)
         return "Skipped: " + (m.message.empty() ? std::string("not loaded") : m.message);
     return "Active";

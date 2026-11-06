@@ -103,6 +103,9 @@ struct ModStatus {
     bool isNew = false;
     ModState state = ModState::Disabled;
     std::string message; // why disabled / skipped, or a summary when loaded
+    // The pack is in the mods folder but its zip or manifest cannot be read (set whether it is enabled or not; the
+    // title screen names such a pack, docs/reference/modding.md "New packs"). Empty for a readable or missing pack.
+    std::string readError;
     size_t entries = 0, texts = 0, rejected = 0;
     size_t files = 0, added = 0, levels = 0; // whole files, new SRSC entries, registered levels (files/new/levels)
 };

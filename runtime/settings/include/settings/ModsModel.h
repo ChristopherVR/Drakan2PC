@@ -32,6 +32,10 @@ struct ModInfo {
     bool isNew = false;
     bool decided = false;
     std::string campaign; // manifest `campaign` id ("ootf", a custom id), empty for a plain pack
+    std::string file;     // file or folder name in the mods folder ("ootf-levels.zip"), falls back to key
+    // The pack is in the mods folder but its zip or manifest cannot be read (hle ModStatus::readError). Such a pack is
+    // not offered on the new packs card; the title screen names it instead (settings/ModDiscovery.h).
+    std::string readError;
 };
 
 // One overlap between two packs (both are pack keys), as ModManager::conflicts() reports it.
@@ -67,7 +71,8 @@ public:
     bool moveTo(const std::string& key, int index); // clamped to [0, size)
     bool moveBy(const std::string& key, int delta);
 
-    // Packs found at start-up that the player has not decided on (new, found, still off, not decided this session).
+    // Packs found at start-up that the player has not decided on (new, found, readable, still off, not decided this
+    // session).
     std::vector<const ModInfo*> undecided() const;
     // The title notice's answers: enable every undecided pack, or keep them off (both are decisions: mods.ini gets
     // `on` / `off`). In memory; save() writes. Return the number of packs changed.

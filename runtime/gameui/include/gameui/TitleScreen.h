@@ -129,6 +129,8 @@ struct TitleState {
     int newModCampaigns = 0;
     // One line on the main page explaining why an enabled campaign is not on the game card (empty: none).
     std::string gameChoiceNote;
+    // One line on the main page naming packs in the mods folder that could not be read (empty: none).
+    std::string modsNote;
 };
 
 enum class TitlePage : uint8_t {
@@ -260,6 +262,13 @@ Rect gameDescription();
 // The new mod packs card: a wider confirm card with a few lines of text and three buttons.
 Rect modsCard();
 Rect modsRow(int i);
+// The main page's note plate (TitleState::gameChoiceNote / modsNote): the sky in the top left corner, left of the
+// logo and the campaign plaque. The bottom of the native art carries its copyright lines, so the note stays clear of
+// it at every aspect ratio (the art fills the viewport, the design canvas is the centred 16:9 area).
+constexpr int kNoteLinesMax = 6;
+Rect notePlate(int lines); // lines clamped to 1..kNoteLinesMax
+Rect noteLine(int i);      // text rect of line i
+float noteTextWidth();
 } // namespace design::title
 
 } // namespace gameui

@@ -287,6 +287,19 @@ Rect modsRow(int i) {
     return {c.x + kModsPad + 120, c.y + kModsHeadH + static_cast<float>(i) * kModsRowStep, c.w - 2 * kModsPad - 240,
             kModsRowH};
 }
+// Left of the logo (design x >= 530) and of the campaign plaque (x >= 460), above Rynn's head on the art.
+// The plate's frame is about 30 units thick at the sides: the text keeps clear of it.
+constexpr float kNoteX = 24, kNoteY = 32, kNoteW = 432, kNotePadX = 34, kNotePadY = 22, kNoteLineH = 30;
+Rect notePlate(int lines) {
+    lines = std::clamp(lines, 1, kNoteLinesMax);
+    return {kNoteX, kNoteY, kNoteW, kNoteLineH * static_cast<float>(lines) + 2 * kNotePadY};
+}
+Rect noteLine(int i) {
+    return {kNoteX + kNotePadX, kNoteY + kNotePadY + kNoteLineH * static_cast<float>(i), noteTextWidth(), kNoteLineH};
+}
+float noteTextWidth() {
+    return kNoteW - 2 * kNotePadX;
+}
 } // namespace design::title
 
 namespace {
@@ -966,15 +979,23 @@ void TitleScreen::draw(const TitleState& st, DrawList& d) const {
         p.text(d, {kMargin, kFooterY, 700, kHintH}, line, FontRole::Small, th.textMuted);
     }
 
-    if (!st.gameChoiceNote.empty() && !card) { // why an enabled campaign is not on the game card
-        const std::vector<std::string> lines = p.wrap(st.gameChoiceNote, 1100, FontRole::Small);
-        const size_t shown = std::min<size_t>(lines.size(), 2);
-        float y = kFooterY - 24 - 32 * static_cast<float>(shown);
-        // A plate under the line: the title art behind it is bright.
-        d.panel(p.map({kMargin - 20, y - 10, 1140, 32 * static_cast<float>(shown) + 20}), PanelStyle::Main,
-                withAlpha(th.panel, 225));
-        for (size_t i = 0; i < shown; ++i, y += 32)
-            p.text(d, {kMargin, y, 1100, 32}, lines[i], FontRole::Small, th.text);
+    if (!card) { // why an enabled campaign is not on the game card, packs that could not be read
+        std::vector<std::string> lines;
+        for (const std::string* note : {&st.gameChoiceNote, &st.modsNote}) {
+            if (note->empty())
+                continue;
+            const std::vector<std::string> l = p.wrap(*note, design::title::noteTextWidth(), FontRole::Small);
+            const size_t keep = std::min<size_t>(l.size(), design::title::kNoteLinesMax / 2);
+            for (size_t i = 0; i < keep; ++i)
+                lines.push_back(i + 1 == keep && keep < l.size() ? l[i] + "..." : l[i]);
+        }
+        if (!lines.empty()) {
+            // A plate under the lines: the title art behind them is bright.
+            d.panel(p.map(design::title::notePlate(static_cast<int>(lines.size()))), PanelStyle::Main,
+                    withAlpha(th.panel, 225));
+            for (size_t i = 0; i < lines.size(); ++i)
+                p.text(d, design::title::noteLine(static_cast<int>(i)), lines[i], FontRole::Small, th.text);
+        }
     }
 
     if (page_ == TitlePage::GameChoice) {

@@ -1233,6 +1233,8 @@ size_t ModManager::load(const std::string& modsDir, const std::vector<std::pair<
         c.archive = openArchive(c.st.source, err);
         if (c.archive && readManifestFrom(*c.archive, c.st.manifest, c.prefix, err))
             c.st.hasManifest = true;
+        else
+            c.st.readError = err.empty() ? std::string("cannot be read") : err;
         if (!on) {
             c.st.state = ModState::Disabled;
             c.st.message = "disabled in mods.ini";
