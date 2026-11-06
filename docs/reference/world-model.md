@@ -345,6 +345,16 @@ instance follows (`level follow: arrived in the leader's level`, `netplay_two_in
 Fired exits during an entry cutscene still leave Rynn frozen in the next level: not `DAT_004fbafc`, not `player+0x90/0x94`
 (inventory list), not the `ctx+0x4d4` list; open (journal section 3).
 
+**2026-11-06 exit messages** ([journal](../journal/2026-11-06/ootf-progression.md)): `0x365138` message `0x20` calls
+`0x361440(inst, *(ctx+0x4e0))`; the event id is the u16 behind `+4` of that message. `0x1001` (a detector's ON) queues the
+change (`ctx+0x520` vtable `0xdc`, then message 4 opens the save prompt) unless the game mode `0x4fbac8+0x70` is 1 or 2 or
+the handle flags (`+4`) have bit 2 or 3 set; `0x1002` sets instance state bit 2 (exit disabled), `0x10a3` (message 5)
+sets bit 1 and nothing else. Every exit detector on the disc sends ON. A touch whose message 4 arrives under the loading screen
+leaves the exit queued with no prompt, and the queued exit then ignores every touch. Converted Order of the Flame levels:
+an exit touch is ignored under the loading screen and until the player has walked 1500 units off her arrival spot
+(`drakan_exit_guard.h`): PC levels put arrival markers inside the way-back detector box, and an opening scene that puts
+the player back there counts as entering it.
+
 ## 11. Dragon (Arokh): spawn, mount, dismount, dragon sections (2026-10-31)
 
 Notes: [coop-characters journal](../journal/2026-10-31/coop-characters.md). Read from the Ghidra decompile, placements from

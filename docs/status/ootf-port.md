@@ -45,6 +45,31 @@ because scene 1.2a only starts once its textures are loaded and the native 5.4 M
 run (1.3 within 2.6 s across three runs, guest heap about 2.6 MiB higher). See
 [scene timing](../journal/2026-11-06/issue-5-village-scene-timing.md).
 
+**November 6 progression past Ruined Village (issue #5):** three converter defects and one engine difference kept walked
+exits from working. The converter's own exit boxes sent message 5, which the exit's touch handler ignores (every disc
+exit detector sends ON); the PC levels fire their exits from their own detector boxes, often far from the exit object
+(the Islands exit object lies 77,000 units under the island); and two exits lost "Maintain Player Position" 0. Exit
+detectors now send ON, the walk-in boxes sit on the PC detector boxes (keeping their gating) and the PC value is kept.
+The runtime also ignores exit touches in campaign levels under the loading screen (a touch there left the exit queued
+with no prompt and dead for good) and until the player has walked off her arrival spot (a cut scene that put her back in
+the way-back box offered the level she had just left). Per-level state
+(placed near the trigger, then real walk, prompt, save screen, load; `DRAKAN_START_LEVEL` direct starts, god mode):
+
+| Level | Reached by a walked exit | Its own exit | Native F5 / F8 in the level | Blockers |
+| --- | --- | --- | --- | --- |
+| Ruined Village | from the Intro (normal New Game) | to Wartok: walk-in (Nov 4, PC detector 1075) | yes (Nov 5) | quest route (house, book, temple) still being walked |
+| Wartok Canyons | yes (Nov 4) | to Grimstone: dismount (hold Cross / C), walk east into the PC mine-mouth box, prompt, save, load (`w03-04l`) | not checked | none found (a direct start puts Rynn on Arokh) |
+| Grimstone Mines | yes (`w03-04l`) | to Grotto: PC "Creature" box, prompt, save, load (`g04-05b`) | yes: after the 120 s opening scene, exact saved position after F8 (`w03-04l`) | none found |
+| Grotto | yes (`g04-05b`) | to Islands: PC box 313, prompt, save, load (`g05-06d`) | yes: exact saved position after F8 (`g04-05b`) | none found |
+| Islands (hub) | yes (`g05-06d`, mounted) | to Rift Crystal: rift box 75,000 units above the old exit; a mounted placement beside it stopped the world drawing (`i06-08`) | F5 / F8 work, but S did not move the dragon between them, so the restore was not discriminating (`g05-06d`) | rift exit not walked yet |
+| Rift Crystal | not yet | to Islands Night: the PC box sits 2,000 units under the whirlpool surface; jumping over the basin rim drops Rynn through the basin into the void below the level, with no touch (`r08-09c`) | not checked | **blocker**: whirlpool basin has no floor for the player in the converted level (converted terrain heights say 205,300 there; collision or water volume not checked) |
+| Islands Night | not yet (needs Rift Crystal) | to Succubus Lair: real walk into PC detector 4928, prompt, save, load (`n09-10`) | | none found |
+| Succubus Lair | yes (`n09-10`) | to Volcanic: standing on the ship's deck box runs the PC chain (counter, `ship2`, fade), the ship sends ON to the exit, prompt, save, load (`s10-11`) | yes: exact saved position after F8 (`n09-10`) | none found; a German quest text from Wartok ("Rette die Frau des Bauern ...") showed on arrival, unchecked |
+| Volcanic | yes (`s10-11`) | to Rift World: mount-only box enabled by the Runeblade pickup (gate kept) | yes: exact saved position after F8 (`s10-11`) | needs the Runeblade and a flight to the rift (not run) |
+| Rift World | not yet | ending | | Dr. Evil (isolated proof only) |
+
+See [progression journal](../journal/2026-11-06/ootf-progression.md).
+
 ## What works
 
 * Converter `editor/scripts/ootf-convert.ts` (`--campaign 1` for the campaign): terrain, textures, models, creatures (skinned, retargeted
