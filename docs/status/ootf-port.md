@@ -131,6 +131,12 @@ collision are unchanged (formats `7553750`). In game the black boxes are gone in
 Lair (Invisible Walls 3474, 3483), and Rynn still stops at 3483. 2366 itself was not replayed after the breath. See
 [invisible walls](../journal/2026-11-07/ootf-invisible-walls.md).
 
+**November 7 cut-out textures (issue 5):** the TXD flags word is the engine's alpha selector (0 = alpha off). 43 converted
+8 bpp textures with hard holes (pine and snowy tree branches, torches, sconces, skeletons, banners, skies, some creatures)
+carried 0 and drew their holes solid. They now carry 1, the disc's alpha-test selector, and hole palette entries take the
+edge colour (formats `cd48742`); only three TXDs change, every LVL, MOD and ODB is byte-identical. In Grotto the pines and
+Standing Banners now show the background through their holes. See [cut-out textures](../journal/2026-11-07/ootf-cutout-textures.md).
+
 ## What works
 
 * Converter `editor/scripts/ootf-convert.ts` (`--campaign 1` for the campaign): terrain, textures, models, creatures (skinned, retargeted

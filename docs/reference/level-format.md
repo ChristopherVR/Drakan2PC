@@ -417,6 +417,15 @@ Notes:
   of 28 signed nibbles (low first); predictor filters (0,0), (60,0), (115,-52), (98,-55), (122,-60); mono, rate from the
   descriptor (22050 speech, 44100 effects). `formats/src/resources.ts` `decodeSpuAdpcm` is a port of
   `analysis/scripts/sub_adpcm_wav.py`; the editor plays it through Web Audio.
+* **Texture header (TXD 0x0040) [disc]**: 64 bytes, `u32 w, h, stride, bpp (8/16/24/32), u32 alpha selector at +16, i32
+  colour-key palette index at +20 (-1 none)`, fps byte at +36, feature byte at +37 (0x02 = has alpha), 0x80 at +38 for
+  bpp > 8. `sub_1bf838` maps the selector (only when +37 has 0x02) to native material flags: 1 -> 0x10000, 2 -> 0x20000,
+  4 -> 0x40000, 7 or 8 -> 0x80000; a key index sets 0x8. The draw path (`sub_18c52c`) enables texture alpha only for
+  `flags & 0xf0000` or the key bit, so selector 0 means opaque: alpha-0 texels draw in their colour. 0x80000 is alpha
+  blending, the others the GREATER 0 test (`runtime/gs/src/ray_scene.cpp`). On the disc: 8 bpp 0 (opaque), 8 (219 of the
+  221 with alpha-0 texels, nearly all with soft edges), 1 or 4 (one each); 16 bpp 1; 24 bpp 0; 32 bpp 7. Alpha-0 palette
+  entries carry an edge colour, never black. The OotF converter follows this (journal
+  2026-11-07/ootf-cutout-textures.md).
 * A model's texture refs follow the model container's own `.DB` (db 0 = its own TXD); `scene/decode.ts` `loadModelData` uses
   the class ODB's list instead, which is the same for the shipped data where both name the same stems.
 * **Animation clips (ADB) [disc]**: 0x0501 = `pstr name (no NUL), f32 duration (seconds), u32 flags (bit 0 = does not loop), u32 track
