@@ -259,7 +259,9 @@ public:
     // EE cycles accounted so far, readable from any host thread (relaxed). A host thread that waits for the guest uses
     // it to tell "the guest is running but slow" from "the EE thread is blocked in a host call" (see
     // EeRpcPoster::post).
-    [[nodiscard]] uint64_t publishedCycles() const noexcept { return m_publishedCycles.load(std::memory_order_relaxed); }
+    [[nodiscard]] uint64_t publishedCycles() const noexcept {
+        return m_publishedCycles.load(std::memory_order_relaxed);
+    }
 
     // Kernel object API. All calls except postEvent/requestStop execute on the
     // EE executor and therefore need no host synchronization.
