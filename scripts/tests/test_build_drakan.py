@@ -152,7 +152,7 @@ class CheckOnlyTests(unittest.TestCase):
             env = dict(os.environ, PATH=python_dir + os.pathsep + os.environ["PATH"])
             result = pwsh(
                 f"& {quote(copy / 'scripts/buildtool/Build-Drakan.ps1')} -IsoPath {quote(iso)} -CheckOnly "
-                "-CpuAffinity 0x1 -Cores 0",
+                "-CpuAffinity 0x1 -Cores 0 -VuBlocks Whole",
                 env=env,
                 timeout=300,
             )
@@ -161,7 +161,10 @@ class CheckOnlyTests(unittest.TestCase):
             self.assertIn("Ready to build.", output)
             self.assertRegex(output, r"Memory: +\d+ GB -> 1 project\(s\) x 1 compiler process\(es\)")
             self.assertTrue((copy / "build/iso-path.txt").is_file())
-            self.assertEqual(json.loads((copy / "build/build-options.json").read_text())["cpuAffinity"], "0x1")
+            options = json.loads((copy / "build/build-options.json").read_text())
+            self.assertEqual(options["cpuAffinity"], "0x1")
+            self.assertEqual(options["vuBlocks"], "Whole")
+            self.assertIn("VU1:     whole blocks", output)
 
     def test_build_local_game_prepare_only_rejects_a_synthetic_iso(self):
         with tempfile.TemporaryDirectory() as temp:

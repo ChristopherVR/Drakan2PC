@@ -33,6 +33,10 @@ param(
     # Compile the four VU1 AOT slices one after another instead of in parallel. Only needed with whole-block slices
     # (PS2X_VU1_AOT_CHUNK=0), which take up to ~17 GB each in cl; the default chunked slices take ~2 GB.
     [switch]$SerialVuSlices,
+    # VU1 AOT blocks longer than this many pairs compile as out-of-line chunks of it (CMake PS2X_VU1_AOT_CHUNK). 8: ~2 GB
+    # per slice in cl. 0 compiles whole blocks: up to ~17 GB and 10-20 min per slice, so it also implies -SerialVuSlices.
+    # Measured: no difference in VU1 speed (docs/journal/2026-11-06/vu1-compile-cost.md).
+    [ValidateRange(0, 64)][int]$VuChunk = 8,
     # Compile without warnings (CMake DRAKAN_COMPILER_WARNINGS=OFF) so the console shows progress and errors only.
     # Applied when the build folder is configured; later -Incremental runs keep the setting.
     [switch]$NoWarnings,
@@ -189,6 +193,10 @@ function Invoke-Logged([string]$Program, [string[]]$Arguments, [int]$CompileTota
         $measured = @{}
         if (Test-Path -LiteralPath $timesFile -PathType Leaf) {
             try { $measured = Get-Content -LiteralPath $timesFile -Raw | ConvertFrom-Json -AsHashtable } catch { $measured = @{} }
+        }
+        if ($VuChunk -eq 0) {
+            # Whole-block slices: about 10 minutes each on a fast PC unless this PC has measured them.
+            foreach ($slice in 0..3) { if (-not $measured.ContainsKey("ps2_vu1_aot_$slice.cpp")) { $measured["ps2_vu1_aot_$slice.cpp"] = 600 } }
         }
         $tracker = New-CompileTracker $script:compilePlan ($Jobs * $CompilerProcesses) $measured
     }
@@ -398,7 +406,7 @@ $argsList = @('-S',$RepoRoot,'--preset',$preset,'-B',$runtimeBuild,
     "-DPS2X_GENERATED_DIR=$generatedDir","-DPS2X_OUTPUT_DIR=$gameOutput","-DDRAKAN_GAME_REGION=$gameRegion")
 if ($windowsHost) {
     $argsList += @("-DGSR_DLSS=$dlssBuild",
-        "-DPS2X_VU1_AOT_SERIAL=$(if ($SerialVuSlices) { 'ON' } else { 'OFF' })")
+        "-DPS2X_VU1_AOT_SERIAL=$(if ($SerialVuSlices -or $VuChunk -eq 0) { 'ON' } else { 'OFF' })")
     if ($DlssSdkDirectory) { $argsList += "-DGSR_DLSS_SDK_DIR=$DlssSdkDirectory" }
 }
 if ($webBuild) {
@@ -407,6 +415,8 @@ if ($webBuild) {
     $argsList += @("-DCMAKE_TOOLCHAIN_FILE=$($webDeps.toolchain)","-DPS2X_WEB_FFMPEG_DIR=$($webDeps.ffmpeg)",'-DPS2X_ENABLE_FFMPEG=ON')
 }
 if ($NoWarnings) { $argsList += '-DDRAKAN_COMPILER_WARNINGS=OFF' }
+$argsList += "-DPS2X_VU1_AOT_CHUNK=$VuChunk"
+Write-Detail "VU1 blocks: $(if ($VuChunk -eq 0) { 'whole (up to ~17 GB per slice, compiled one after another)' } else { "chunks of $VuChunk pairs" })"
 if (-not $DependencyDirectory -and (Test-Path -LiteralPath (Join-Path $RepoRoot 'deps/raylib') -PathType Container)) {
     $DependencyDirectory = Join-Path $RepoRoot 'deps'
 }

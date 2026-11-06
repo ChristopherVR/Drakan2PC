@@ -101,8 +101,9 @@ class BuildAffinityTests(unittest.TestCase):
             $low = [uint64]1; while (($available -band $low) -eq 0) { $low = $low -shl 1 }
             if ((Get-BuildAffinityCount ('0x{0:X}' -f $low) 24) -ne 1) { throw 'One-bit mask miscounted' }
 
-            function Check($cores, $logical, $memory, $usable, $jobs, $processes) {
-                $s = Get-BuildParallelism -Cores $cores -LogicalCores $logical -MemoryGb $memory -UsableCores $usable
+            function Check($cores, $logical, $memory, $usable, $jobs, $processes, [switch]$Whole) {
+                $s = Get-BuildParallelism -Cores $cores -LogicalCores $logical -MemoryGb $memory -UsableCores $usable `
+                    -WholeVuBlocks:$Whole
                 if ($s.Jobs -ne $jobs -or $s.CompilerProcesses -ne $processes) {
                     throw "cores=$cores logical=$logical memory=$memory usable=$usable -> $($s.Jobs) x $($s.CompilerProcesses)"
                 }
@@ -122,6 +123,11 @@ class BuildAffinityTests(unittest.TestCase):
             # VU1 slices fit the 2 GB budget: 24 GB is enough for two projects of 4 (it was 1 x 4 at 17 GB a slice).
             Check 0 16 24 16 2 4
             Check 0 16 21 16 1 4
+            # Whole VU1 blocks (-VuBlocks Whole) keep the 17 GB reservation for a slice beside the other compilers.
+            Check 0 16 24 16 1 4 -Whole
+            Check 0 16 31 16 2 4 -Whole
+            Check 8 16 30 16 1 8 -Whole
+            Check 8 16 31 16 2 4 -Whole
             Check 0 16 8 16 1 4
             Check 0 16 4 16 1 2
             Check 8 16 16 16 1 8

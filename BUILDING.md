@@ -151,7 +151,10 @@ no VS 2022 instance has the C++ x64 tools and CMake it downloads `vs_BuildTools.
 Authenticode signature and installs the VCTools workload with `--passive` (one UAC prompt); that instance is then
 forced through `CMAKE_GENERATOR_INSTANCE`. It sizes `-CompilerProcesses` (2 GB budget each; measured 1.3 GB on the
 largest generated files and 1.9 GB on a VU1 AOT slice, whose blocks compile in chunks of 8 pairs) and `-Jobs` (2 only
-with room for both sets plus 6 GB) from the
+with room for both sets plus 6 GB) from the installed memory. `-VuBlocks Whole` (installer option "Compile the VU1
+microcode as whole blocks", `/VUBLOCKS=whole`; remembered in `build/build-options.json`) passes `Build-LocalGame.ps1
+-VuChunk 0` (CMake `PS2X_VU1_AOT_CHUNK=0`, and `PS2X_VU1_AOT_SERIAL=ON`: whole-block slices take up to ~17 GB each in
+cl) and keeps a 17 GB reservation for a slice in the `-Jobs` choice. From the
 installed memory, asks for the ISO when not given (file dialog; remembered in
 `build/iso-path.txt`) and calls `Build-LocalGame.ps1` with `WorkDir` `build/game` (`-Incremental` once prepared). A
 failed compile is retried once incrementally with `-Jobs 1` and half the compiler processes. `-DistDirectory` (play

@@ -108,7 +108,8 @@ begin
     'the NVIDIA RTX SDKs License (https://github.com/NVIDIA/DLSS/blob/v310.9.16/LICENSE.txt); ticking the box means you ' +
     'accept that licence.' + #13#10#13#10 +
     'The browser version needs Windows Subsystem for Linux with Ubuntu (wsl --install -d Ubuntu). You play it on ' +
-    'the project''s browser player page by choosing the built folder and your .iso; nothing is uploaded.',
+    'the project''s browser player page by choosing the built folder and your .iso; nothing is uploaded.' + #13#10#13#10 +
+    'Whole VU1 blocks: the older, slower way to build (up to 17 GB per file); the game runs at the same speed.',
     False, False);
   OptionsPage.Add('NVIDIA DLSS - I accept the NVIDIA RTX SDKs License');
   OptionsPage.Add('Also build the browser version (needs WSL with Ubuntu)');
@@ -117,7 +118,7 @@ begin
     'Build speed',
     'How much of this PC may the build use?',
     'This PC has ' + GetEnv('NUMBER_OF_PROCESSORS') + ' logical CPU cores. More cores build faster but leave less ' +
-    'for other programs; memory still limits how many compilers run at once (each needs up to 6 GB). Leave the ' +
+    'for other programs; memory still limits how many compilers run at once (each needs up to 2 GB). Leave the ' +
     'field empty to let the builder choose (half the cores, at most 4). These are build settings only: they do not ' +
     'change how the game runs. Affinity applies only to the Windows build; an optional browser build uses its default. "Rebuild Drakan" keeps them.');
   CpuPage.Add('CPU cores to use (empty = automatic):', False);
@@ -127,6 +128,10 @@ begin
   CpuPage.Values[1] := ExpandConstant('{param:AFFINITY|}');
   OptionsPage.Add('Keep the PC responsive while building (compile at low priority)');
   OptionsPage.Add('Start the game when the build has finished');
+  OptionsPage.Add('Compile the VU1 microcode as whole blocks (older method, needs 24 GB or more)');
+  // DrakanPC-Setup.exe /VUBLOCKS=whole ticks it; otherwise the last install's choice.
+  OptionsPage.Values[4] := (CompareText(ExpandConstant('{param:VUBLOCKS|}'), 'whole') = 0) or
+    ((ExpandConstant('{param:VUBLOCKS|}') = '') and (GetPreviousData('VuBlocks', '') = 'Whole'));
 end;
 
 function DefaultPlayDir: String;
@@ -151,6 +156,10 @@ end;
 procedure RegisterPreviousData(PreviousDataKey: Integer);
 begin
   SetPreviousData(PreviousDataKey, 'PlayFolder', GetPlayDir(''));
+  if OptionsPage.Values[4] then
+    SetPreviousData(PreviousDataKey, 'VuBlocks', 'Whole')
+  else
+    SetPreviousData(PreviousDataKey, 'VuBlocks', 'Chunked');
 end;
 
 function NextButtonClick(CurPageID: Integer): Boolean;
@@ -229,6 +238,11 @@ begin
     Result := Result + ' -Priority Normal';
   if OptionsPage.Values[3] then
     Result := Result + ' -LaunchWhenDone';
+  // Always passed, so a reinstall replaces the choice remembered by an earlier one.
+  if OptionsPage.Values[4] then
+    Result := Result + ' -VuBlocks Whole'
+  else
+    Result := Result + ' -VuBlocks Chunked';
   // Always passed, so "Rebuild Drakan" remembers it (build/build-options.json) and the shortcuts match.
   if CompareText(GetPlayDir(''), DefaultPlayDir) = 0 then
     Result := Result + ' -DistDirectory default'

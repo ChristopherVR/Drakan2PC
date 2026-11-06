@@ -475,6 +475,15 @@ endif()
 # VU1 interpreter / ahead-of-time compiled microcode: no stack cookies in the per-pair functions; the block tables of
 # aot/ps2_vu1_blocks.h are built by the compiler (constant evaluation).
 file(GLOB_RECURSE PS2X_VU_SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/src/lib/vu/*.cpp")
+# VU1 AOT blocks longer than this many pairs compile as out-of-line chunks (aot/ps2_vu1_aot_slice.inc); 0 = whole blocks.
+set(PS2X_VU1_AOT_CHUNK 8 CACHE STRING "VU1 AOT block chunk size in pairs (0 = whole blocks: up to ~17 GB per slice in cl)")
+# Only a non-default value is passed: a define on the slices alone would give them their own MSBuild CL batch.
+if(NOT PS2X_VU1_AOT_CHUNK STREQUAL "8")
+    foreach(slice 0 1 2 3)
+        set_property(SOURCE src/lib/vu/aot/ps2_vu1_aot_${slice}.cpp APPEND PROPERTY COMPILE_DEFINITIONS
+            PS2X_VU1_AOT_CHUNK=${PS2X_VU1_AOT_CHUNK})
+    endforeach()
+endif()
 if(MSVC)
     set_source_files_properties(${PS2X_VU_SOURCES} PROPERTIES COMPILE_OPTIONS "/GS-;/constexpr:steps200000000;/constexpr:depth2048")
     target_compile_options(ps2_runtime PRIVATE /MP)

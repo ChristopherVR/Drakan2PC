@@ -30,6 +30,10 @@ param(
     [string]$CpuAffinity,
     # 'Low' compiles at below-normal priority so the PC stays responsive; 'Normal' is the default. Remembered too.
     [ValidateSet('', 'Normal', 'Low')][string]$Priority = '',
+    # How the VU1 microcode compiles. 'Chunked' (default): ~2 GB per compiler. 'Whole': the older whole-block code, up to
+    # ~17 GB and 10-20 minutes for each of four files, compiled one after another; no measured speed difference in the
+    # game. Remembered too.
+    [ValidateSet('', 'Chunked', 'Whole')][string]$VuBlocks = '',
     # Start over instead of continuing an interrupted build (the play folder, saves and settings are kept).
     [switch]$Fresh,
     # Start the game when the build has finished.
@@ -143,6 +147,8 @@ try {
     }
     if ($Cores -lt 0) { $Cores = if ($saved -and $null -ne $saved.cores) { [int]$saved.cores } else { 0 } }
     if (-not $Priority) { $Priority = if ($saved -and $saved.priority) { [string]$saved.priority } else { 'Normal' } }
+    if (-not $VuBlocks) { $VuBlocks = if ($saved -and $saved.vuBlocks) { [string]$saved.vuBlocks } else { 'Chunked' } }
+    $wholeVu = $VuBlocks -eq 'Whole'
     if (-not $PSBoundParameters.ContainsKey('CpuAffinity')) {
         $CpuAffinity = if ($saved -and $saved.cpuAffinity) { [string]$saved.cpuAffinity } else { '' }
     }
@@ -163,14 +169,14 @@ try {
         Write-Host "Affinity: $CpuAffinity (Windows build processes only)"
     }
     New-Item -ItemType Directory -Force -Path (Split-Path $optionsFile) | Out-Null
-    @{ cores = $Cores; priority = $Priority; cpuAffinity = $CpuAffinity; playFolder = $DistDirectory } | ConvertTo-Json |
+    @{ cores = $Cores; priority = $Priority; cpuAffinity = $CpuAffinity; playFolder = $DistDirectory; vuBlocks = $VuBlocks } | ConvertTo-Json |
         Set-Content -LiteralPath $optionsFile
 
     $logicalCores = [Environment]::ProcessorCount
     # The compilers only run on the mask's processors, so size the build for those, not for the whole CPU.
     $usableCores = Get-BuildAffinityCount $CpuAffinity $logicalCores
     $memoryGb = [Math]::Floor((Get-CimInstance Win32_ComputerSystem).TotalPhysicalMemory / 1GB)
-    $sizing = Get-BuildParallelism -Cores $Cores -LogicalCores $logicalCores -MemoryGb $memoryGb -UsableCores $usableCores
+    $sizing = Get-BuildParallelism -Cores $Cores -LogicalCores $logicalCores -MemoryGb $memoryGb -UsableCores $usableCores -WholeVuBlocks:$wholeVu
     $jobs = $sizing.Jobs
     $compilerProcesses = $sizing.CompilerProcesses
     $usableText = if ($usableCores -lt $logicalCores) { "$usableCores of $logicalCores logical cores, from the affinity mask" }
@@ -184,7 +190,11 @@ try {
         $env:MSBUILDDISABLENODEREUSE = '1'
         Write-Host 'Priority: low (the PC stays responsive; the build takes longer while other programs are busy)'
     }
-    if ($memoryGb -lt 8) {
+    if ($wholeVu) { Write-Host 'VU1:     whole blocks (up to 17 GB per file, compiled one after another)' }
+    if ($wholeVu -and $memoryGb -lt 24) {
+        Write-Warning ('Less than 24 GB of memory with whole VU1 blocks: four files need about 17 GB each while compiling, so ' +
+            'Windows will use its page file and the build will be slow. The default (-VuBlocks Chunked) needs about 2 GB.')
+    } elseif ($memoryGb -lt 8) {
         Write-Warning ('Less than 8 GB of memory: each compiler process needs up to about 2 GB, so Windows will use its page file ' +
             'and the build will be slow. Keep the page file enabled (the Windows default) and close other programs.')
     }
@@ -253,6 +263,7 @@ try {
     $buildArgs = @{
         IsoPath = $IsoPath; WorkDir = $WorkDir; Python = $python
         CpuAffinity = $CpuAffinity; Jobs = $jobs; CompilerProcesses = $compilerProcesses; Progress = $true
+        VuChunk = $(if ($wholeVu) { 0 } else { 8 })
     }
     # The installer's shortcuts open dist\DrakanPC, whichever region the ISO is (Build-LocalGame.ps1 alone would put a
     # USA build into dist\DrakanPC-usa next to a PAL one).

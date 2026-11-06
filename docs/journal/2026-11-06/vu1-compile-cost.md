@@ -57,3 +57,12 @@ The slices now fit the 2 GB per compiler process budget, so `Build-Drakan.ps1` n
 (the switch stays for `PS2X_VU1_AOT_CHUNK=0`), `Get-BuildParallelism` drops its 17 GB reservation (24 GB now runs
 two projects of four), the low-memory warning moves from 24 GB to 8 GB, and the built-in slow-file estimate from 10
 to 6 minutes. Not measured: a full player build with the new sizing, and a PC with less than 16 GB.
+
+## Installer option
+
+The old code stays one choice away: the setup's "Compile the VU1 microcode as whole blocks" (`/VUBLOCKS=whole`) passes
+`Build-Drakan.ps1 -VuBlocks Whole`, remembered in `build/build-options.json` like the CPU choices. That gives
+`Build-LocalGame.ps1 -VuChunk 0` (CMake cache `PS2X_VU1_AOT_CHUNK=0`, slices compiled one after another), the 17 GB
+reservation in `Get-BuildParallelism -WholeVuBlocks`, the 24 GB warning and a 10-minute slow-file estimate. CMake only
+puts the define on the slices for a non-default value, so the default build's MSBuild batches are unchanged. Switching
+back and forth reconfigures and recompiles the four slices only.
