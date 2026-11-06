@@ -729,7 +729,7 @@ Visibility, Depends on Message). The full table is `FIELD_ENUMS` in `logic.ts`.
 | `0x10037` | Level Transition / Portal | `Send This Message` | player touch | section 15.4 |
 | `0x100e1` | Elevator Handler | `Send Elevator Up/Down Outgoing Message` and the switch light messages | `Go Up/Down Incoming Message`, `Player on Elevator`, Activate / Deactivate | drives lift mechanisms (`0x10023`) |
 | `0x1001d` | Pressure plate | `Message To Send At Bottom / Top` | | sinks under the player; only some levels' ODBs have the class |
-| `0x100df` / `0x10022` | Combo lock / Lock Plate | `Message to Send on Success/Failure` / `Trigger To Send` | Message List / key item code | |
+| `0x100df` / `0x10022` | Combo lock / Lock Plate | `Message to Send on Success/Failure` / `Trigger To Send` | Message List / key item code | the player's Use handler `0x3168a0` opens a Key Lock only for the nearest usable object of the touch list within 1,024 units horizontally, and only with a Key (`0x10021`) in the inventory whose field 22 (Lock Code) matches; other item classes (the 117 egg) are never matched (2026-11-06 `ootf-islands-bell.md`) |
 | `0x10079` | Vis Toggler | none | `Show Message`, `Hide Message` | shows/hides all linked props (905 links to scenery) |
 | `0x10031` and other creatures (`0x10029`, `0x10028`, `0x1001e`, `0x1009d`, `0x100ad`, ...) | NPCs | `Message To Send` (default 8, I'm Dead) when dead | 7 Move to WayPoint, 5 Blow Up | the field exists twice in some classes (index 2 and 29) |
 | `0x10070` | Waypoint | `Message to send` | | links join the waypoints of one patrol: 1317 waypoint -> waypoint links, not wiring |

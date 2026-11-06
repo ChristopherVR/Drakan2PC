@@ -64,7 +64,7 @@ the converter drops "Maintain Player Position" on exits whose destination has no
 | Wartok Canyons | yes (Nov 4) | to Grimstone: dismount (hold Cross / C), walk east into the PC mine-mouth box, prompt, save, load (`w03-04l`) | not checked | none found (a direct start puts Rynn on Arokh) |
 | Grimstone Mines | yes (`w03-04l`) | to Grotto: PC "Creature" box, prompt, save, load (`g04-05b`) | yes: after the 120 s opening scene, exact saved position after F8 (`w03-04l`) | none found |
 | Grotto | yes (`g04-05b`) | to Islands: PC box 313, prompt, save, load (`g05-06d`) | yes: exact saved position after F8 (`g04-05b`) | none found |
-| Islands (hub) | yes (`g05-06d`, mounted) | to Rift Crystal: the rift box lies under the whirl doors of the bell tower, which stands in the cave system; Rynn in the box fires it, prompt, save, exit taken (`tower-d`, `i06-08c`, `i06-08d`). The earlier blank screen was the camera inside the rock around the tower, not an engine stop (`tower-c` draws). | F5 / F8 work, but S did not move the dragon between them, so the restore was not discriminating (`g05-06d`) | none for the exit: the mounted arrival in Rift Crystal (no dragon there) crashed the guest; fixed, Rynn now arrives on foot like on the PC ([mounted arrival](../journal/2026-11-06/ootf-rift-mount-arrival.md), `v1`). The bell route itself was not played (sequences dropped) |
+| Islands (hub) | yes (`g05-06d`, mounted) | to Rift Crystal: the rift box lies under the whirl doors of the bell tower, which stands in the cave system; Rynn in the box fires it, prompt, save, exit taken (`tower-d`, `i06-08c`, `i06-08d`). The earlier blank screen was the camera inside the rock around the tower, not an engine stop (`tower-c` draws). | F5 / F8 work, but S did not move the dragon between them, so the restore was not discriminating (`g05-06d`) | none for the exit: the mounted arrival in Rift Crystal (no dragon there) crashed the guest; fixed, Rynn now arrives on foot like on the PC ([mounted arrival](../journal/2026-11-06/ootf-rift-mount-arrival.md), `v1`). The bell route works: with the Bell Hammer carried (moved onto the tower floor by a test aid), entering the tower centre rings the bell, the "Bell Hammer" scene plays, the whirl doors open and Rynn drops into the rift box and reaches Rift Crystal on foot (`bell-h`, [Islands bell](../journal/2026-11-06/ootf-islands-bell.md)); hammer from Alwarren not yet carried over |
 | Rift Crystal | yes (`v1`, from the Islands box on Arokh: on foot at the start, W, F5, S, F8 back at the exact saved position, D) | to Islands Night: placed on the WhirlpoolSteps, two jumps over the rim, Rynn slides onto the invisible basin floor into the PC box: prompt, save, load (`r08-09d`). Fixed: the box was cloned from a model-less PS2 trigger class and never placed (2026-11-06 progression 2) | yes: exact saved position after F8 (`v1`) | none found |
 | Islands Night | yes (`r08-09d`, from the whirlpool) | to Succubus Lair: real walk into PC detector 4928, prompt, save, load (`n09-10`) | yes: exact saved position after F8 (`r08-09d`) | none found |
 | Succubus Lair | yes (`n09-10`) | to Volcanic: standing on the ship's deck box runs the PC chain (counter, `ship2`, fade), the ship sends ON to the exit, prompt, save, load (`s10-11`) | yes: exact saved position after F8 (`n09-10`) | none found; the Drakan 2 quest line shown on arrival was the converter's shared marker class, fixed: it now reads "Get Arokh" ([quest marker text](../journal/2026-11-06/issue-5-quest-marker-text.md)) |
@@ -72,6 +72,14 @@ the converter drops "Maintain Player Position" on exits whose destination has no
 | Rift World | not yet | ending | | Dr. Evil (isolated proof only); a direct start loads with no scene waiting and 12.1 MiB guest heap in use (`idle-12`) |
 
 See [progression journal](../journal/2026-11-06/ootf-progression.md) and [part 2](../journal/2026-11-06/ootf-progression-2.md).
+
+**November 6 detector scenes and the Islands bell (issue #5):** detectors that play a cut scene themselves convert to FX /
+SYSTEM classes, whose databases have no SSD, so 20 scene refs of 8 levels were dropped (Islands 4, Volcanic 7, Wartok 3, ...).
+They now go to the template's Stomp Player SSD and a Stomp Player beside each detector runs them; 18 are converted, the other
+2 name sequences missing from their PC SSD. The PS2 Use handler only opens a lock with a Key of its code, and the Islands bell
+lock hangs 23,000 units above the tower floor: the Bell Hammer now converts to a Key and the lock to a carry-gated detector
+column, so ringing the bell, its scene, the whirl doors and the drop into the rift box work in game (`bell-h`). See
+[Islands bell](../journal/2026-11-06/ootf-islands-bell.md) (per-level sequence audit there).
 
 ## What works
 
@@ -104,8 +112,8 @@ See [progression journal](../journal/2026-11-06/ootf-progression.md) and [part 2
 * Dragon breath in the air arenas draws a flame trail (host-spawned FX particles, `ootf-dragon-breath-visual.md`); it needs the FX
   resources in the arena level (true for the air arenas, other maps untested) and is not wired to the campaign dragon. Dragon health
   regeneration lifts the bar between hits (`ootf-dragon-pvp.md`).
-* PC exit triggers: Islands Detector 4131 fires when Rynn is in it (the box stands under the bell tower's whirl doors; the bell
-  route was not played), Succubus `ship2` runs (`s10-11`); Volcanic Detector 2318 (mount only) was only checked not to fire on
+* PC exit triggers: Islands Detector 4131 fires when Rynn is in it (the box stands under the bell tower's whirl doors, reached
+  by the bell route, `bell-h`), Succubus `ship2` runs (`s10-11`); Volcanic Detector 2318 (mount only) was only checked not to fire on
   foot without the Runeblade.
 * Volcanic runs at about 42 fps with the rift effect live (Vortex / Inner / Outer Rift movers).
 * The exit scan cannot resolve level-local destination strings of converted levels; use the exit index with `DRAKAN_LEVELCHANGE`.
