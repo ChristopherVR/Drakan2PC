@@ -56,6 +56,7 @@
 #include "drakan_debug_menu.h"
 #include "drakan_lifecycle.h"
 #include "drakan_stomp_probe.h"
+#include "drakan_dragon_flight.h"
 #include "drakan_texture_budget.h"
 #include "drakan_save_reference_probe.h"
 #include "drakan_foliage.h"
@@ -1312,6 +1313,8 @@ void applyDrakanOverrides(PS2Runtime& runtime) {
     drakan_lifecycle::install(runtime);   // engine lifecycle events (PAL addresses; no-op elsewhere)
     drakan_levelchange::install(runtime); // host-triggered level change through the exit triggers (PAL)
     drakan_foliage::install(runtime);     // living foliage: wind sway for grass and trees, off by default (PAL)
+    // Arokh's flight look-ahead: objects he starts inside do not stop him (PAL; DRAKAN_DRAGON_RAY_TRACE).
+    drakan_dragon_flight::install(runtime);
     if constexpr (supports(Feature::SoundDebug))
         soundDebugInstall(runtime);
     if constexpr (supports(Feature::AdvancedInput)) {

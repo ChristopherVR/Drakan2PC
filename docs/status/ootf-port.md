@@ -75,6 +75,17 @@ See [progression journal](../journal/2026-11-06/ootf-progression.md), [part 2](.
 [mounting and Volcanic](../journal/2026-11-06/ootf-mounting-volcanic.md). Mounting needs no button: Rynn walks into a landed Arokh
 (as in Drakan 2, checked in Northern Tundra); Cross held dismounts once he has landed; converted Wartok remounts the same way.
 
+**November 6 Arokh flight (issue #5):** Arokh not moving under W was not a placement artifact: unplaced at the Islands start
+and after the walked Grotto exit he got full forward speed and zero velocity, while a placed Arokh in open air flew. His
+flight look-ahead (a 6,144 unit ray along the velocity) counts a hit on any object box he is inside, and the Islands
+arrival tunnel lay inside one: the converter's draw-list upgrade of rigid props had collapsed every authored collision box
+hierarchy into one box (326 props, among them the PC tunnel shell); it now keeps the hierarchy (formats `14c9554`). The
+runtime also drops look-ahead hits on an object whose box holds the start of the ray (the arrival can put him inside the
+PC "Bounding Box" slab on the tunnel floor). Now the direct start flies 38,000 units out of the tunnel in 3 s, the
+Grotto arrival climbs, turns and flies out, Ctrl lands him and Cross held hands control to Rynn; Drakan 2 flight is
+unchanged. Open: an arrival low enough to be inside the slab gets out only slowly, and Rynn could not walk off him at the
+one landing spot tried. See [Arokh flight](../journal/2026-11-06/ootf-arokh-flight.md).
+
 **November 6 detector scenes and the Islands bell (issue #5):** detectors that play a cut scene themselves convert to FX /
 SYSTEM classes, whose databases have no SSD, so 20 scene refs of 8 levels were dropped (Islands 4, Volcanic 7, Wartok 3, ...).
 They now go to the template's Stomp Player SSD and a Stomp Player beside each detector runs them; 18 are converted, the other

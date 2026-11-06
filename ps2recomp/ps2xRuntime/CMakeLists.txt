@@ -396,6 +396,7 @@ add_library(ps2_runtime STATIC
     src/lib/drakan_save_reference_probe.cpp
     src/lib/drakan_lifecycle.cpp
     src/lib/drakan_levelchange.cpp
+    src/lib/drakan_dragon_flight.cpp
     src/lib/drakan_foliage.cpp
     src/lib/drakan_region.cpp
     src/lib/drakan_game.cpp
