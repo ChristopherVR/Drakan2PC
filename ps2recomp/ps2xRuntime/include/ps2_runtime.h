@@ -344,6 +344,8 @@ public:
     void setMissingFunctionPolicy(MissingFunctionPolicy policy);
     MissingFunctionPolicy missingFunctionPolicy() const;
     void resetMissingFunctionReportOnce();
+    // True once a branch to an unknown guest target was reported (the guest thread that took it unwinds to pc 0).
+    bool missingFunctionReported() const { return m_missingFunctionReported.load(std::memory_order_acquire); }
 
     static const IoPaths& getIoPaths();
     static void setIoPaths(const IoPaths& paths);

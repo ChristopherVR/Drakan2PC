@@ -3,6 +3,8 @@
 #include "input/ThreadBoost.h"
 #include "ps2_vu1_batch.h"
 #include "drakan_config.h"
+#include "drakan_null_call_recovery.h"
+#include "drakan_region.h"
 #include "drakan_settings_host.h"
 #if defined(PS2X_HAVE_GSR)
 #include "drakan_window.h"
@@ -1597,6 +1599,21 @@ bool PS2Runtime::dispatchGuestBranch(uint8_t* rdram, R5900Context* ctx, uint32_t
 
     if (!hasFunction(targetPc)) {
         reportMissingFunction(rdram, ctx, targetPc, sourcePc, kind, debugName);
+
+        // A known null call (resource not resident): skip it instead of ending the thread. identityAddresses builds
+        // only: the call site is a PAL address.
+        if (kind == GuestBranchKind::IndirectCall && drakan_region::build().identityAddresses &&
+            drakan_null_call_recovery::shouldSkip(true, targetPc, sourcePc)) {
+            static std::atomic<uint32_t> skipped{0};
+            const uint32_t n = skipped.fetch_add(1) + 1;
+            if (n <= 3 || (n & (n - 1)) == 0)
+                std::fprintf(stderr,
+                             "[recovered] call through a null vtable slot at 0x%x skipped: the resource behind the "
+                             "handle is not resident (%u so far)\n",
+                             sourcePc, n);
+            ctx->pc = fallthroughPc;
+            return true;
+        }
 
         const MissingFunctionPolicy policy = missingFunctionPolicy();
 
