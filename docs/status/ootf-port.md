@@ -87,8 +87,10 @@ See [progression journal](../journal/2026-11-06/ootf-progression.md).
   arenas (host-claimed hits, dragon health, death, respawn), ranged and melee PvP on ground arenas.
 * Co-op stays on the Drakan campaign path and shares the New Game card; the OotF Multiplayer page has Host / Join / mplayer.com only.
 * HD textures for both packs (`analysis/scripts/ootf_hd_pack.py <zips>`, output under `dist/DrakanPC/textures`, never committed).
-  The converter still quantises object textures above 128 px to 8 bpp because the guest's 32 bpp mip loop is slow; an opt-in native
-  filter (`DRAKAN_TEXSCALE=1`, `ootf-native-mips.md`) removes the cost but stalls the heap intermittently (Islands Night), so it is off.
+  Object textures of 128 x 128 and larger with more than 256 colours are written 8 bpp when a refined palette keeps them within
+  38 dB colour PSNR and an alpha error of 8 (392 converted textures, 50.6 MiB -> 13.1 MiB); the rest stay 32 bpp
+  ([indexed textures](../journal/2026-11-06/issue-5-indexed-textures.md)). An opt-in native mip filter (`DRAKAN_TEXSCALE=1`,
+  `ootf-native-mips.md`) stalls the heap intermittently (Islands Night), so it is off.
 * Drakan 2 with both packs installed still boots normally (choose Drakan; `Level 0 - Intro` then `Level 1A - Surdana`; no OotF leakage).
 
 ## Known gaps
