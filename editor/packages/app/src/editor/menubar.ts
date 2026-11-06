@@ -28,6 +28,7 @@ export const MENUS: { id: string; label: string; items: string[] }[] = [
             '-',
             'file.export',
             'project.play',
+            'panel.mod',
             '-',
             'desktop.gameFolder',
             'desktop.modsFolder',
@@ -93,7 +94,7 @@ export const MENUS: { id: string; label: string; items: string[] }[] = [
 ];
 
 /** Window-menu order of the registered editors. */
-const WINDOW_ORDER = ['project', 'mod', 'story', 'logic', 'multiplayer', 'vendors', 'menus'];
+const WINDOW_ORDER = ['project', 'story', 'logic', 'multiplayer', 'vendors', 'menus'];
 
 function menuItems(ids: string[]): MenuItem[] {
     const out: MenuItem[] = [];
@@ -118,7 +119,9 @@ function menuItems(ids: string[]): MenuItem[] {
                 const i = WINDOW_ORDER.indexOf(x);
                 return i < 0 ? 99 : i;
             };
-            for (const e of [...eds].sort((a, b) => rank(a.id) - rank(b.id))) push(`panel.${e.id}`);
+            // Package and Play belongs with Export and Play in the File menu, not among the workspaces.
+            for (const e of [...eds].filter((x) => x.id !== 'mod').sort((a, b) => rank(a.id) - rank(b.id)))
+                push(`panel.${e.id}`);
         } else push(id);
     }
     while (out.length && 'sep' in out[out.length - 1]!) out.pop();

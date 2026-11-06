@@ -51,6 +51,8 @@ export interface StartPageActions {
 export interface LevelRef {
     name: string;
     dirPath: string;
+    /** Exists only in memory (a converted Order of the Flame level). */
+    virtual?: boolean;
 }
 
 export interface StartPage {
@@ -560,7 +562,12 @@ export function createStartPage(a: StartPageActions): StartPage {
             'div',
             { class: 'sp-disc' },
             icon('check-circle', 14),
-            h('span', {}, h('strong', {}, isoName ?? 'Your disc'), ` is open: ${levels.length} levels.`),
+            h(
+                'span',
+                {},
+                h('strong', {}, isoName ?? 'Your disc'),
+                ` is open: ${levels.filter((l) => !l.virtual).length} levels${levels.some((l) => l.virtual) ? ` and ${levels.filter((l) => l.virtual).length} converted` : ''}.`,
+            ),
             h('span', { class: 'spacer' }),
             h('button', { class: 'linkish', type: 'button', onclick: a.openIso }, 'Use another disc'),
         );

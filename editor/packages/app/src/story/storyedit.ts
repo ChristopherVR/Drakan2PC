@@ -63,6 +63,8 @@ export interface StoryEditData {
     fieldLists: { id: number; sub: number; stored: Uint8Array } | null;
     /** The ODB file name for exports. */
     odbFile: string;
+    /** Quest class ids that come from converted Order of the Flame levels (empty without any). */
+    convertedQuestIds?: number[];
 }
 
 export interface QuestUsageLevel {

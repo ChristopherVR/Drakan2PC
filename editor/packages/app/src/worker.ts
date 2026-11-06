@@ -81,6 +81,8 @@ let iso: Iso9660 | null = null;
 let baseIso: Iso9660 | null = null;
 const virtualFiles = new Map<string, VirtualFile>();
 const virtualLevels = new Map<string, LevelInfo>();
+/** Quest classes the converted pack adds to SYSTEM.ODB. */
+const convertedQuestIds = new Set<number>();
 let language = '';
 const srscCache = new Map<string, SrscReader>();
 const inflatedCache = new Map<string, { data: Uint8Array }>();
@@ -246,6 +248,10 @@ async function applyVirtual(
     // Entry patches (`overrides/`, `new/`) land in whole copies of the disc's containers (class tables, animations).
     for (const f of (await patchedContainers(baseIso!, language, packFiles)).files)
         virtualFiles.set(f.path.toUpperCase(), f);
+    for (const path of Object.keys(packFiles)) {
+        const m = /^new\/SYSTEM\.ODB\/0102_(\d+)_/i.exec(path);
+        if (m) convertedQuestIds.add(Number(m[1]));
+    }
     for (const l of levels)
         virtualLevels.set(l.dirPath.toUpperCase(), { name: l.name, dirPath: l.dirPath, present: true, virtual: true });
     iso = overlayDisc(baseIso!, [...virtualFiles.values()]);
@@ -261,6 +267,7 @@ const api: { [K in keyof Api]: (...a: Parameters<Api[K]>) => Promise<ReturnType<
         iso = baseIso;
         virtualFiles.clear();
         virtualLevels.clear();
+        convertedQuestIds.clear();
         srscCache.clear();
         const languages: string[] = [];
         for (const e of await iso.list('')) {
@@ -376,6 +383,7 @@ const api: { [K in keyof Api]: (...a: Parameters<Api[K]>) => Promise<ReturnType<
     async clearVirtualLevels(): Promise<LevelInfo[]> {
         virtualFiles.clear();
         virtualLevels.clear();
+        convertedQuestIds.clear();
         iso = baseIso;
         gatedIso = null;
         srscCache.clear();
@@ -418,7 +426,8 @@ const api: { [K in keyof Api]: (...a: Parameters<Api[K]>) => Promise<ReturnType<
         return loadItemCatalog(need(), language);
     },
     async loadStoryEdit() {
-        return loadStoryEdit(needBackground(), language);
+        const data = await loadStoryEdit(needBackground(), language);
+        return convertedQuestIds.size ? { ...data, convertedQuestIds: [...convertedQuestIds] } : data;
     },
     async scanQuestUsage() {
         const fs = needBackground();

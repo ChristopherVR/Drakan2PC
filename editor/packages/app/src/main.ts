@@ -110,6 +110,13 @@ function reportError(e: unknown): void {
 
 // ---- opening a disc -------------------------------------------------------------------------------------------
 
+/** "14 levels", or "14 levels and 23 converted levels" when converted Order of the Flame levels are laid over the disc. */
+function levelCountText(levels: { virtual?: boolean }[]): string {
+    const conv = levels.filter((l) => l.virtual).length;
+    const disc = levels.length - conv;
+    return `${disc} level${disc === 1 ? '' : 's'}${conv ? ` and ${conv} converted level${conv === 1 ? '' : 's'}` : ''}`;
+}
+
 window.addEventListener('drakan:levels-changed', () => projectUi.onDisc());
 
 async function openIso(file: IsoSource): Promise<void> {
@@ -130,7 +137,7 @@ async function openIso(file: IsoSource): Promise<void> {
         clearEntries();
         void showDir('').catch(reportError);
         setStatus(
-            `${file.name}: volume "${r.volumeId}", ${r.levels.length} levels in ${r.language || 'no language tree'}.`,
+            `${file.name}: volume "${r.volumeId}", ${levelCountText(r.levels)} in ${r.language || 'no language tree'}.`,
         );
         // The Level tab is the editor and the start page; Files is the advanced raw view.
         if (r.levels.length > 0) showTab('level');

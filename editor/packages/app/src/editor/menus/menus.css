@@ -147,6 +147,25 @@
     border-top: 1px solid var(--line);
     padding: var(--sp-3);
 }
+/* The pack fields sit in one row under the editor instead of stretching across the window as the Package form does. */
+.mn-export.mod-form {
+    flex: none;
+    border-right: 0;
+    display: grid;
+    grid-template-columns: repeat(3, minmax(140px, 260px));
+    gap: var(--sp-2) var(--sp-4);
+    align-items: end;
+    padding: var(--sp-4) var(--sp-4) var(--sp-5);
+}
+.mn-export .mf {
+    margin-bottom: 0;
+}
+.mn-export .btnrow {
+    grid-column: 1 / -1;
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--sp-2);
+}
 .mn-file {
     display: none;
 }

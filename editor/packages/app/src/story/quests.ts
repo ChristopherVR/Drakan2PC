@@ -22,7 +22,13 @@ export interface QuestsPanel extends Panel {
 }
 
 export function createQuestsPanel(session: StorySession, ctx?: () => Ctx): QuestsPanel {
-    const state = { q: '', sel: 0, slot: 0, dragging: false };
+    const state = { q: '', sel: 0, slot: 0, dragging: false, scope: '' };
+    // Converted Order of the Flame levels add quests to System.ODB; they are shown on their own so the Drakan 2 quests do not bury them.
+    const scopeSel = h('select', { class: 'story-scope', 'aria-label': 'Which quests to list', hidden: true });
+    scopeSel.addEventListener('change', () => {
+        state.scope = scopeSel.value;
+        renderList();
+    });
     const search = h('input', {
         type: 'search',
         class: 'story-search',
@@ -80,7 +86,7 @@ export function createQuestsPanel(session: StorySession, ctx?: () => Ctx): Quest
     const root = h(
         'div',
         { class: 'panel story story-quests' },
-        h('div', { class: 'story-bar' }, search, newBtn, scanBtn, info),
+        h('div', { class: 'story-bar' }, search, scopeSel, newBtn, scanBtn, info),
         h('div', { class: 'story-body' }, list, detail),
     );
     search.addEventListener('input', () => {
@@ -105,16 +111,29 @@ export function createQuestsPanel(session: StorySession, ctx?: () => Ctx): Quest
             info.textContent = '';
             return;
         }
+        const converted = new Set(session.data.convertedQuestIds ?? []);
+        scopeSel.hidden = !converted.size;
+        if (converted.size && !scopeSel.options.length) {
+            scopeSel.append(new Option('Order of the Flame quests', 'ootf'), new Option('All quests', 'all'));
+        }
+        if (!state.scope) state.scope = converted.size ? 'ootf' : 'all';
+        scopeSel.value = state.scope;
         const rows = session
             .questRows()
+            .filter((r) => state.scope !== 'ootf' || !converted.size || converted.has(r.classId) || r.isNew)
             .filter((r) => !state.q || `${titleOf(r)} ${r.name} ${r.classId}`.toLowerCase().includes(state.q));
         info.textContent = `${rows.length} quest${rows.length === 1 ? '' : 's'}`;
         const byGroup = new Map<number, QuestRow[]>();
-        for (const r of rows) byGroup.set(r.group, [...(byGroup.get(r.group) ?? []), r]);
+        // The converted quests keep Drakan 2 chapter groups in the ODB; under their own scope they are one list.
+        const ootfOnly = state.scope === 'ootf' && converted.size > 0;
+        for (const r of rows) {
+            const g = ootfOnly ? 0 : r.group;
+            byGroup.set(g, [...(byGroup.get(g) ?? []), r]);
+        }
         const groups = [...byGroup].sort((a, b) => chapterLabel(a[0]).localeCompare(chapterLabel(b[0])));
         const kids: (Node | null)[] = [];
         for (const [g, rs] of groups) {
-            kids.push(h('div', { class: 'story-group' }, chapterLabel(g)));
+            kids.push(h('div', { class: 'story-group' }, ootfOnly ? 'Order of the Flame' : chapterLabel(g)));
             for (const r of rs) {
                 kids.push(
                     h(

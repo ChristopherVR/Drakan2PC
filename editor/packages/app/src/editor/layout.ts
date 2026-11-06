@@ -85,6 +85,9 @@ export function initLayout(root: HTMLElement, onResize: () => void): Layout {
     }
     const state = readLayout(stored, LIMITS);
     const st = (k: Pane['key']): PaneState => state[k]!;
+    // A narrow window starts with the Outliner and Details folded away (one click brings them back): three columns left the
+    // viewport a few hundred pixels.
+    if (!stored.right && window.innerWidth < 900) st('right').open = false;
 
     const panes: Pane[] = [
         {

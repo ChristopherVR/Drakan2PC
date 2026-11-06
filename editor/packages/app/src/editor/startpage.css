@@ -605,3 +605,11 @@
     align-self: flex-start;
     margin-top: var(--sp-2);
 }
+
+/* The start page uses the whole height: the empty bottom dock and its gutter only take room from it. */
+.ed-mid:has(#lv-empty:not([hidden])) {
+    grid-template-rows: minmax(0, 1fr) !important;
+}
+.ed-mid:has(#lv-empty:not([hidden])) > :not(#lv-viewport) {
+    display: none !important;
+}
