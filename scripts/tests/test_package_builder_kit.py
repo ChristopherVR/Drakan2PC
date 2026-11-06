@@ -87,6 +87,15 @@ class BuilderKitTests(unittest.TestCase):
         runtime = (ROOT / "ps2recomp/ps2xRuntime/CMakeLists.txt").read_text(encoding="utf-8")
         self.assertIn(f"URL_HASH SHA256={lock['ffmpeg']['sha256']}", runtime)
 
+    def test_workflows_that_package_the_kit_check_out_submodules(self):
+        # The kit packs submodule sources; a checkout without them fails the release (run 42180772185).
+        workflows = sorted((ROOT / ".github/workflows").glob("*.yml"))
+        packaging = [path for path in workflows if "package_builder_kit.py" in path.read_text(encoding="utf-8")]
+        self.assertTrue(packaging)
+        for path in packaging:
+            with self.subTest(workflow=path.name):
+                self.assertIn("submodules: recursive", path.read_text(encoding="utf-8"))
+
 
 if __name__ == "__main__":
     unittest.main()
