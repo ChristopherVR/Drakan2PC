@@ -12,7 +12,11 @@ import hashlib
 import math
 import posixpath
 import struct
+import sys
 from pathlib import Path
+
+# The kit's embeddable Python (._pth) does not put the script's folder on sys.path.
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import coop_character_roster as roster
 import lvl_dump

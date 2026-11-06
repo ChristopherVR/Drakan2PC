@@ -149,6 +149,8 @@ $step = 0
 function Write-BuildStep([string]$Text) {
     $script:step++
     $script:stepTitle = "[$script:step/$stepCount] $Text"
+    # Build-Drakan.ps1 reads this after a failure to decide whether a less parallel retry can help.
+    $global:DrakanBuildStep = $Text
     if ($Progress) { Write-Host "`n$script:stepTitle" -ForegroundColor Cyan }
 }
 # Developer details: on the console normally, only in the output log with -Progress.

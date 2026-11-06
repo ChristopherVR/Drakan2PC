@@ -263,11 +263,14 @@ try {
         Write-Step 'Building the game: this takes one to two hours. Some files take 10 minutes each; the window is not stuck.'
     }
     $started = Get-Date
+    $global:DrakanBuildStep = $null
     try {
         & (Join-Path $PSScriptRoot 'Build-LocalGame.ps1') @buildArgs
     } catch {
-        # Most failures past the ISO check are the compiler running out of memory; retry once, one file at a time.
+        # Most compile failures are the compiler running out of memory; retry once, one file at a time. Failures in any
+        # other step (a script error, a missing file) would only fail again after the same wait, so they stop here.
         if (-not (Test-Path -LiteralPath $prepared -PathType Leaf)) { throw }
+        if ($global:DrakanBuildStep -and $global:DrakanBuildStep -notlike 'Compiling the game*') { throw }
         Write-Warning "The build stopped: $_"
         Write-Step 'Trying again with less parallel compiling'
         $buildArgs.Incremental = $true
