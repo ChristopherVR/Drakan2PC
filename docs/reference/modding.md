@@ -187,8 +187,16 @@ Now:
   `[general] game` (or `DRAKAN_GAME`) is not `ask`; the pack was enabled in this session and loads after a restart;
   the pack is enabled but was skipped (wrong disc, dependency, broken pack); or it loaded but its campaign keys were
   refused (invalid id, duplicate id, start level not one of its levels). The Mods page line adds the loader's reason.
+* **Unreadable packs.** A zip or folder in `mods/` whose archive or manifest cannot be read (`ModStatus::readError`,
+  kept whether the pack is enabled or not) has no manifest, so the game cannot tell whether it is a campaign. It is
+  not offered on the new packs card (enabling it would load nothing); instead, while it is enabled or still `new`,
+  the title's main page names the file ("A pack in the mods folder could not be read: broken.zip."), the Mods page
+  has an **Unreadable** row and the pack's status line gives the reason, and the log has
+  `[mods] pack '<file>' cannot be read (<reason>)`. Turning it off on the Mods page (or fixing / removing the file)
+  ends the line. The title's note plate sits in the top left corner of the 16:9 canvas, clear of the logo, the
+  campaign plaque and the art's copyright lines; the FPS counter moves to a bottom corner while it shows.
 * The policy is `runtime/settings` `settings/ModDiscovery.h` (`showModNotice`, `modNoticeContent`, `gameChoiceNote`,
-  `gameChoiceNoteText`) plus `ModsModel::undecided / enableUndecided / keepUndecidedOff`; tests in
+  `gameChoiceNoteText`, `unreadablePacks`, `unreadablePacksText`) plus `ModsModel::undecided / enableUndecided / keepUndecidedOff`; tests in
   `mods_model_test` (policy, mods.ini values, page marks), `mod_test` (`new` in mods.ini), `gameui_saveload_test`
   (`testTitleModsNotice`) and `gameui_locale_test` (the card's strings in every menu language). The title strings are
   in the `gameui::menuText` catalogue (German, French, Italian, Spanish); the Mods page stays English like the rest of

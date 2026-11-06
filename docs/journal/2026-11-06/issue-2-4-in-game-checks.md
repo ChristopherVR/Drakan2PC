@@ -129,3 +129,8 @@ CI-equivalent portable editor. Copied into `build/harness/verify-2-4/packs/full`
 - Movement after the scene: see the table above (`full3`, `full4w`). Pass.
 
 Not checked: levels after Ruined Village, saving and loading in the campaign, and the installer build.
+
+## Follow-up
+
+The open observation (Ruined Village scene end), the unreadable `skip-zip` pack and the note plate over the copyright
+line are resolved in [issue-5-village-scene-and-title-notes.md](issue-5-village-scene-and-title-notes.md).

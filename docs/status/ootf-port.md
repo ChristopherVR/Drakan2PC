@@ -36,6 +36,11 @@ stops with an actionable `OotfSourceError` when placed objects need a missing da
 start or no readable exit field. The English conversion is byte-identical before and after (17,334 files). No German
 install has been converted yet. See [localized installs](../journal/2026-11-06/issue-3-localized-ootf.md).
 
+**November 6 Ruined Village opening (issue #5):** with no input at all (600 s and 313 s runs, full 23-level pack) the
+opening scene ends by itself 140 to 160 s after gameplay start, the dying-villager scene follows and the HUD and player
+control arrive at about +240 to +250 s; no key is needed and nothing soft-locks. The end time varies by about 30 s
+between runs (cause not traced). See [village scene](../journal/2026-11-06/issue-5-village-scene-and-title-notes.md).
+
 ## What works
 
 * Converter `editor/scripts/ootf-convert.ts` (`--campaign 1` for the campaign): terrain, textures, models, creatures (skinned, retargeted
