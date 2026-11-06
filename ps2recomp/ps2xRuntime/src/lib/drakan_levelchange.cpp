@@ -3,6 +3,7 @@
 #include "drakan_exit_guard.h"
 #include "drakan_game.h"
 #include "drakan_lifecycle.h"
+#include "drakan_mount_arrival.h"
 #include "drakan_pause.h"
 #include "drakan_region.h"
 #include "ps2_runtime.h"
@@ -477,6 +478,59 @@ void transitionEntry(uint8_t* rdram, R5900Context* c, PS2Runtime* rt) {
     g_origTransition(rdram, c, rt);
 }
 
+// Rynn's respawn in the new level (0x362310, called by the transition for Rynn and then for her dragon): a mounted
+// arrival in a level that gives no dragon hands control to Rynn (drakan_mount_arrival.h). At the Rynn call (return
+// address kRiderRespawnRet) the transition holds the dragon it will respawn next in s7 (0 = none) and its words
+// "Rynn controlled" / "dragon controlled" at sp + kRiderWord / kDragonWord; the respawn takes the Rynn word as its
+// 7th argument (t2). The words are re-read by the rest of the transition (Rynn's input setup, the camera placement), so
+// they are rewritten together with the argument. Decided at the entry only (the function is resumable).
+constexpr uint32_t kRespawn = 0x362310u;
+constexpr uint32_t kRiderRespawnRet = 0x363decu;
+constexpr uint32_t kRiderWord = 0xbfcu;  // sp+3068 in 0x362d38
+constexpr uint32_t kDragonWord = 0xc1cu; // sp+3100
+// Rynn's input setup 0x44d6c8, called by the transition for her when she is controlled (return address
+// kRiderInputRet). Her carried state is still the rider's: data+0x94 bit 0 is set on the actor that hands control
+// over (0x44d3b0, the mount) and the word is cleared by the one that takes it (0x456de0, the end of her dismount,
+// and 0x44d3b0 for the new controlled actor). A rider who keeps it neither moves nor reads the pad, so after a foot
+// arrival it is cleared here the way 0x456de0 does.
+constexpr uint32_t kRiderInput = 0x44d6c8u;
+constexpr uint32_t kRiderInputRet = 0x3640b8u;
+constexpr uint32_t kControlWord = 0x94u;
+bool g_footArrival = false; // EE thread (the transition)
+PS2Runtime::RecompiledFunction g_origRespawn = nullptr, g_origRiderInput = nullptr;
+void riderInputEntry(uint8_t* rdram, R5900Context* c, PS2Runtime* rt) {
+    if (c->pc == addr(kRiderInput) && g_footArrival && getRegU32(c, 31) == addr(kRiderInputRet)) {
+        g_footArrival = false;
+        const Ram r{rdram};
+        const uint32_t data = getRegU32(c, 4);
+        if (Ram::ok(data, kControlWord + 4)) {
+            std::fprintf(stderr, "[levelchange] Rynn takes control on foot (control word %x cleared)\n",
+                         r.u32(data + kControlWord));
+            r.w32(data + kControlWord, 0);
+        }
+    }
+    g_origRiderInput(rdram, c, rt);
+}
+void respawnEntry(uint8_t* rdram, R5900Context* c, PS2Runtime* rt) {
+    if (c->pc == addr(kRespawn) && getRegU32(c, 31) == addr(kRiderRespawnRet)) {
+        const Ram r{rdram};
+        const uint32_t sp = getRegU32(c, 29);
+        const bool rider = getRegU32(c, 10) != 0, dragonFollows = getRegU32(c, 23) != 0;
+        const drakan_mount_arrival::Control ctl = drakan_mount_arrival::decide(rider, dragonFollows);
+        if (ctl.changed && Ram::ok(sp + kDragonWord)) {
+            SET_GPR_U32(c, 10, ctl.rider ? 1u : 0u);
+            r.w32(sp + kRiderWord, ctl.rider ? 1u : 0u);
+            r.w32(sp + kDragonWord, ctl.dragon ? 1u : 0u);
+            g_footArrival = true;
+            std::fprintf(stderr,
+                         "[levelchange] arrived on a mount in a level without a dragon: Rynn arrives on foot\n");
+        } else if (std::getenv("DRAKAN_LEVELCHANGE_TRACE"))
+            std::fprintf(stderr, "[levelchange] rider respawn: rider controlled %d, dragon follows %d\n", rider ? 1 : 0,
+                         dragonFollows ? 1 : 0);
+    }
+    g_origRespawn(rdram, c, rt);
+}
+
 // Trace of what the engine delivers to the exit triggers (DRAKAN_LEVELCHANGE_TRACE=1): the touch handler 0x361440
 // (inst, msg; event id = u16 at msg+4) and the class handler 0x365138 (handle, msg), to see whether a walk reaches
 // them.
@@ -814,6 +868,14 @@ void install(PS2Runtime& rt) {
     if (rt.hasFunction(addr(kTransition))) {
         g_origTransition = rt.lookupFunction(addr(kTransition));
         rt.replaceFunction(addr(kTransition), &transitionEntry);
+    }
+    if (rt.hasFunction(addr(kRespawn))) {
+        g_origRespawn = rt.lookupFunction(addr(kRespawn));
+        rt.replaceFunction(addr(kRespawn), &respawnEntry);
+    }
+    if (rt.hasFunction(addr(kRiderInput))) {
+        g_origRiderInput = rt.lookupFunction(addr(kRiderInput));
+        rt.replaceFunction(addr(kRiderInput), &riderInputEntry);
     }
     if (rt.hasFunction(addr(kArrivalLookup))) {
         g_origArrival = rt.lookupFunction(addr(kArrivalLookup));
