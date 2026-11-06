@@ -109,6 +109,8 @@ export interface Api {
     openFile(path: string): FileOpenResult;
     readEntry(path: string, index: number, offset: number, length: number, inflate: boolean): EntryBytes;
     exportRoundTrip(path: string, max: number): RoundTripResult;
+    /** Forget the converted levels (and the copy kept in the browser's storage). Returns the new level list. */
+    clearVirtualLevels(): LevelInfo[];
     loadLevel(dirPath: string): LevelLoadResult;
     /**
      * Lay a converted Order of the Flame pack (its files by pack path) over the disc and list `levels` next to the disc's own.

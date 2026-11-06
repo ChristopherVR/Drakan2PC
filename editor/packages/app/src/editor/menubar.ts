@@ -78,6 +78,7 @@ export const MENUS: { id: string; label: string; items: string[] }[] = [
             'mode.files',
             '-',
             'file.importOotf',
+            'file.clearOotf',
             'file.exportContent',
             'file.exportUnreal',
             '-',

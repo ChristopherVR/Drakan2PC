@@ -1,3 +1,4 @@
+import { convertedPackRequirement } from './checks.ts';
 import {
     WORKFLOWS,
     addDiscLevel,
@@ -225,6 +226,14 @@ export function installProject(host: ProjectInstallHost): ProjectInstall {
                 return p;
             },
             build: (p, progress) => buildProjectPack(exportDeps, p, undefined, progress),
+            requirements: (p) =>
+                convertedPackRequirement(
+                    p.levels.map((l) => l.title),
+                    ui
+                        .levels()
+                        .filter((l) => l.virtual)
+                        .map((l) => l.name),
+                ),
             blockers: () => [
                 ...panel
                     .issues()

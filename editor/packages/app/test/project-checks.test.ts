@@ -2,6 +2,7 @@
 import { addDiscLevel, addLevelCopy, newProject, validateProject, type ProjectIssue } from '@drakan/editor-core';
 import { describe, expect, it } from 'vitest';
 import {
+    convertedPackRequirement,
     countIssues,
     describeIssue,
     exitSummary,
@@ -191,5 +192,15 @@ describe('project name and id', () => {
     it('starts following again when the id is cleared', () => {
         const p = renameProject({ name: 'x', id: '' }, 'New name');
         expect(p.id).toBe('new-name');
+    });
+});
+
+describe('convertedPackRequirement', () => {
+    it('names the converted pack an export of edited converted levels needs', () => {
+        expect(convertedPackRequirement(['Level 1A - Surdana'], ['OotF 00 - Ruined Village'])).toEqual([]);
+        const one = convertedPackRequirement(['ootf 00 - ruined village'], ['OotF 00 - Ruined Village']);
+        expect(one).toHaveLength(1);
+        expect(one[0]).toContain('"ootf 00 - ruined village" is part of your converted Order of the Flame pack');
+        expect(convertedPackRequirement(['A', 'B', 'C'], ['a', 'b'])[0]).toContain('2 levels are part of');
     });
 });

@@ -37,6 +37,8 @@ export interface OotfHost {
     addLevels(levels: { name: string; dirPath: string }[], files: { path: string; bytes: Uint8Array }[]): Promise<void>;
     /** Open a level of the list in the viewport. */
     openLevel(dirPath: string): Promise<void>;
+    /** Forget the converted levels kept in this browser. */
+    clearLevels(): Promise<void>;
 }
 
 const STYLE = `
@@ -159,6 +161,16 @@ export function registerOotfImport(host: OotfHost): void {
         hint: 'Convert levels from your own Drakan: Order of the Flame install into a mod for this game',
         keywords: 'ootf pc convert import levels campaign multiplayer',
         run: () => openDialog(host),
+    });
+    registerCommand({
+        id: 'file.clearOotf',
+        title: 'Remove converted Order of the Flame levels',
+        category: 'File',
+        icon: 'trash',
+        hint: 'Forget the converted levels this browser keeps; your install and downloaded packs are not touched',
+        keywords: 'ootf delete clear converted levels storage',
+        enabled: () => host.levels().some((l) => l.virtual),
+        run: () => void host.clearLevels().then(() => host.toast('Converted levels removed.', 'ok')),
     });
 }
 

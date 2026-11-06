@@ -204,3 +204,22 @@ export function renameProject<P extends { name: string; id: string }>(p: P, name
     const follows = !p.id || p.id === slugId(p.name);
     return { ...p, name, id: follows ? slugId(name) : p.id };
 }
+
+/**
+ * What an export of edited converted Order of the Flame levels needs: those levels exist only in the converted pack, so
+ * the project pack holds just the edits and the game must load both. One sentence per export, empty when none is used.
+ */
+export function convertedPackRequirement(
+    projectTitles: readonly string[],
+    convertedNames: readonly string[],
+): string[] {
+    const key = (s: string): string => s.trim().toLowerCase();
+    const set = new Set(convertedNames.map(key));
+    const used = projectTitles.filter((t) => set.has(key(t)));
+    if (!used.length) return [];
+    const who = used.length === 1 ? `"${used[0]}" is` : `${used.length} levels are`;
+    const them = used.length === 1 ? 'it' : 'them';
+    return [
+        `${who} part of your converted Order of the Flame pack. This pack only holds your changes to ${them}, so the game needs the "Order of the Flame levels" pack (Tools > Import Order of the Flame levels, then Download mod) installed and turned on as well.`,
+    ];
+}

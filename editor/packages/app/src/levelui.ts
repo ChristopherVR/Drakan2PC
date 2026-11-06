@@ -910,6 +910,11 @@ export function initLevelUi(host: LevelUiHost): LevelUi {
             window.dispatchEvent(new CustomEvent('drakan:levels-changed'));
         },
         openLevel: (dirPath) => openLevel(dirPath),
+        clearLevels: async () => {
+            const all = await host.call('clearVirtualLevels');
+            if (disc) setDisc({ ...disc, levels: all });
+            window.dispatchEvent(new CustomEvent('drakan:levels-changed'));
+        },
     });
     registerUnrealExport({
         collect: () =>

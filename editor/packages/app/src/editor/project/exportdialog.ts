@@ -13,6 +13,8 @@ export interface ExportHost {
     /** The project, created on first use, with the open edited level added to it. */
     ensureProject(): ModProject;
     build(p: ModProject, progress?: (msg: string) => void): Promise<ProjectPack>;
+    /** What the pack needs beyond itself (for example the converted Order of the Flame pack), one sentence each. */
+    requirements(p: ModProject): string[];
     /** Problems that make an export pointless (the Project tab's errors). */
     blockers(): string[];
     zip(pack: ProjectPack): Uint8Array;
@@ -156,6 +158,7 @@ export function openExportDialog(host: ExportHost): void {
         // A blocker the build already reported (the campaign settings) is not said twice.
         const bl = host.blockers().filter((b) => last || b !== buildError);
         if (bl.length) summary.append(h('p', { class: 'bad' }, `Fix first: ${bl.slice(0, 3).join(' ')}`));
+        for (const r of host.requirements(projects.get() ?? p)) summary.append(h('p', { class: 'warn' }, r));
         paintId();
     }
 

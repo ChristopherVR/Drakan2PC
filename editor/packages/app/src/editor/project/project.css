@@ -1720,6 +1720,7 @@ dialog.pj-dlg::backdrop {
     padding-left: 1.2em;
 }
 .ex-summary li.warn,
+.ex-summary p.warn,
 .ex-summary .bad,
 .pj-dlg .bad {
     color: var(--warn, #d9a441);

@@ -19,6 +19,7 @@ import {
     sliceSource,
 } from '@drakan/formats';
 import { destinationLevelName, srscRoundTrips } from '@drakan/editor-core';
+import { clearConverted, loadConverted, saveConverted } from './virtualstore.ts';
 import { overlayDisc, packPathToDisc, patchedContainers, type VirtualFile } from './virtualdisc.ts';
 import { loadModelData, loadTerrainData } from './scene/decode.ts';
 import { loadItemCatalog, loadItemModels, resetItemData } from './itemdata.ts';
@@ -231,6 +232,28 @@ async function readLevel(fs: Iso9660, dirPath: string, withTerrain = false): Pro
     };
 }
 
+/** Lay a converted pack over the disc (see virtualdisc.ts); the levels list next to the disc's own. */
+async function applyVirtual(
+    levels: { name: string; dirPath: string }[],
+    files: { path: string; bytes: Uint8Array }[],
+): Promise<void> {
+    const packFiles: Record<string, Uint8Array> = {};
+    for (const f of files) {
+        packFiles[f.path] = f.bytes;
+        const path = packPathToDisc(f.path);
+        if (path) virtualFiles.set(path.toUpperCase(), { path, bytes: f.bytes });
+    }
+    // Entry patches (`overrides/`, `new/`) land in whole copies of the disc's containers (class tables, animations).
+    for (const f of (await patchedContainers(baseIso!, language, packFiles)).files)
+        virtualFiles.set(f.path.toUpperCase(), f);
+    for (const l of levels)
+        virtualLevels.set(l.dirPath.toUpperCase(), { name: l.name, dirPath: l.dirPath, present: true, virtual: true });
+    iso = overlayDisc(baseIso!, [...virtualFiles.values()]);
+    gatedIso = null;
+    srscCache.clear();
+    inflatedCache.clear();
+}
+
 const api: { [K in keyof Api]: (...a: Parameters<Api[K]>) => Promise<ReturnType<Api[K]>> } = {
     async open(file) {
         // Block cache: a level is thousands of small records, and each read of a File or URL is its own round trip.
@@ -244,6 +267,13 @@ const api: { [K in keyof Api]: (...a: Parameters<Api[K]>) => Promise<ReturnType<
             if (e.isDir && (await iso.find(`${e.name}\\LEVELLST.TXT`))) languages.push(e.name);
         }
         language = languages.includes('ENGLISH') ? 'ENGLISH' : (languages[0] ?? '');
+        // Converted levels of an earlier visit come back with the disc.
+        try {
+            const kept = await loadConverted();
+            if (kept) await applyVirtual(kept.levels, kept.files);
+        } catch {
+            // an unreadable store only means there is nothing to restore
+        }
         resetItemData();
         resetStoryData();
         let profile: DiscProfile | null = null;
@@ -338,26 +368,19 @@ const api: { [K in keyof Api]: (...a: Parameters<Api[K]>) => Promise<ReturnType<
     },
     async addVirtualLevels(levels, files): Promise<LevelInfo[]> {
         need();
-        const packFiles: Record<string, Uint8Array> = {};
-        for (const f of files) {
-            packFiles[f.path] = f.bytes;
-            const path = packPathToDisc(f.path);
-            if (path) virtualFiles.set(path.toUpperCase(), { path, bytes: f.bytes });
-        }
-        // Entry patches (`overrides/`, `new/`) land in whole copies of the disc's containers (class tables, animations).
-        for (const f of (await patchedContainers(baseIso!, language, packFiles)).files)
-            virtualFiles.set(f.path.toUpperCase(), f);
-        for (const l of levels)
-            virtualLevels.set(l.dirPath.toUpperCase(), {
-                name: l.name,
-                dirPath: l.dirPath,
-                present: true,
-                virtual: true,
-            });
-        iso = overlayDisc(baseIso!, [...virtualFiles.values()]);
+        await applyVirtual(levels, files);
+        // Kept for the next visit; a store that refuses (private window) only means the levels are gone after a reload.
+        await saveConverted({ levels, files }).catch(() => undefined);
+        return loadLevels();
+    },
+    async clearVirtualLevels(): Promise<LevelInfo[]> {
+        virtualFiles.clear();
+        virtualLevels.clear();
+        iso = baseIso;
         gatedIso = null;
         srscCache.clear();
         inflatedCache.clear();
+        await clearConverted().catch(() => undefined);
         return loadLevels();
     },
     async loadLevel(dirPath): Promise<LevelLoadResult> {
