@@ -13,6 +13,8 @@ param(
     # Your PAL SCES-500.06 or USA SCUS-971.28 ISO. Asked for (and remembered in build/iso-path.txt) when omitted.
     [string]$IsoPath,
     [string]$WorkDir,
+    # Play folder: where drakan.exe and your saves go (default dist\DrakanPC next to this builder). Remembered in
+    # build/build-options.json, so "Rebuild Drakan" keeps using it; 'default' goes back to dist\DrakanPC.
     [string]$DistDirectory,
     # Build without the optional NVIDIA features even when an SDK is present.
     [switch]$NoNvidia,
@@ -28,12 +30,17 @@ param(
     [string]$CpuAffinity,
     # 'Low' compiles at below-normal priority so the PC stays responsive; 'Normal' is the default. Remembered too.
     [ValidateSet('', 'Normal', 'Low')][string]$Priority = '',
+    # Start over instead of continuing an interrupted build (the play folder, saves and settings are kept).
+    [switch]$Fresh,
+    # Start the game when the build has finished.
+    [switch]$LaunchWhenDone,
     # Only check the prerequisites and the ISO path, then stop (installs nothing).
     [switch]$CheckOnly
 )
 $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'Build-Affinity.ps1')
 . (Join-Path $PSScriptRoot 'Build-Policy.ps1')
+. (Join-Path $PSScriptRoot 'Build-Progress.ps1')
 $RepoRoot = (Resolve-Path -LiteralPath (Join-Path $PSScriptRoot '../..')).Path
 if (-not $WorkDir) { $WorkDir = Join-Path $RepoRoot 'build/game' }
 $WorkDir = [IO.Path]::GetFullPath($WorkDir)
@@ -141,12 +148,24 @@ try {
         $CpuAffinity = if ($saved -and $saved.cpuAffinity) { [string]$saved.cpuAffinity } else { '' }
     }
     if ($CpuAffinity -eq 'default') { $CpuAffinity = '' }
+    if (-not $DistDirectory -and $saved -and $saved.playFolder) { $DistDirectory = [string]$saved.playFolder }
+    if ($DistDirectory -eq 'default') { $DistDirectory = '' }
+    if ($DistDirectory) {
+        $DistDirectory = [IO.Path]::GetFullPath($DistDirectory)
+        $inside = { param($Path, $Parent) $Path -eq $Parent -or $Path.StartsWith($Parent.TrimEnd('\') + '\', [StringComparison]::OrdinalIgnoreCase) }
+        if ($DistDirectory -eq [IO.Path]::GetPathRoot($DistDirectory) -or $DistDirectory -eq $RepoRoot -or
+            (& $inside $DistDirectory $WorkDir) -or (& $inside $DistDirectory (Join-Path $RepoRoot 'build'))) {
+            throw "The play folder cannot be a drive root, the builder folder or inside its build folder: $DistDirectory"
+        }
+        Write-Host "Play:    $DistDirectory"
+    }
     if ($CpuAffinity) {
         Resolve-BuildAffinity $CpuAffinity | Out-Null
         Write-Host "Affinity: $CpuAffinity (Windows build processes only)"
     }
     New-Item -ItemType Directory -Force -Path (Split-Path $optionsFile) | Out-Null
-    @{ cores = $Cores; priority = $Priority; cpuAffinity = $CpuAffinity } | ConvertTo-Json | Set-Content -LiteralPath $optionsFile
+    @{ cores = $Cores; priority = $Priority; cpuAffinity = $CpuAffinity; playFolder = $DistDirectory } | ConvertTo-Json |
+        Set-Content -LiteralPath $optionsFile
 
     $logicalCores = [Environment]::ProcessorCount
     # The compilers only run on the mask's processors, so size the build for those, not for the whole CPU.
@@ -217,11 +236,10 @@ try {
     Write-Host "ISO:     $IsoPath"
     New-Item -ItemType Directory -Force -Path (Split-Path $rememberedIso) | Out-Null
     Set-Content -LiteralPath $rememberedIso -Value $IsoPath -NoNewline
-    if ($CheckOnly) { Write-Host "`nReady to build."; return }
 
     # NVIDIA DLSS is opt-in: the SDK is downloaded from NVIDIA only after its licence is accepted.
     $dlssSdk = Join-Path $RepoRoot 'tools/dlss/dlss_sdk/include/nvsdk_ngx.h'
-    if (-not $NoNvidia -and -not $EnableDlss -and -not (Test-Path -LiteralPath $dlssSdk -PathType Leaf)) {
+    if (-not $CheckOnly -and -not $NoNvidia -and -not $EnableDlss -and -not (Test-Path -LiteralPath $dlssSdk -PathType Leaf)) {
         $nvidiaGpu = @(Get-CimInstance Win32_VideoController -ErrorAction SilentlyContinue |
             Where-Object { $_.PNPDeviceID -match 'VEN_10DE' }).Count -gt 0
         if ($nvidiaGpu -and [Environment]::UserInteractive) {
@@ -253,8 +271,46 @@ try {
         if (-not $builtRegion) { $builtRegion = 'pal' }
         if ($isoRegion -ne $builtRegion) {
             Write-Step "The ISO is the $($isoRegion.ToUpper()) release; the previous build was $($builtRegion.ToUpper()). Building again from scratch."
-            Remove-Item -LiteralPath $WorkDir -Recurse -Force
+            $Fresh = $true
         }
+    }
+    # Where did the last build get to? Each step's output is checked on disk, so a build that was closed, crashed or ran
+    # out of memory continues where it stopped: finished steps are only re-checked and compiled files are kept.
+    if ((Test-Path -LiteralPath $prepared -PathType Leaf) -and -not $Fresh) {
+        $state = Read-BuildState $WorkDir
+        $review = Get-BuildReview $WorkDir (Join-Path $RepoRoot 'ps2recomp') (Join-Path $WorkDir 'bin/drakan.exe')
+        $resumeAt = @($review | Where-Object { -not $_.Ok } | Select-Object -First 1)
+        Write-Step 'The last build'
+        if ($state) {
+            $when = try { ([datetime]$state.updated).ToString('yyyy-MM-dd HH:mm') } catch { $state.updated }
+            switch ($state.status) {
+                'done' { Write-Host "Finished $when." }
+                'failed' { Write-Host "Stopped at step $($state.step) of $($state.steps), $($state.title), on ${when}:" -ForegroundColor Yellow
+                    Write-Host "  $($state.error)" -ForegroundColor Yellow }
+                default { Write-Host "Interrupted at step $($state.step) of $($state.steps), $($state.title), on $when (the window was closed or the PC restarted)." -ForegroundColor Yellow }
+            }
+        }
+        foreach ($check in $review) {
+            $mark = if ($check.Ok) { '[ok]' } else { '[  ]' }
+            Write-Host ("  {0} {1}. {2}: {3}" -f $mark, $check.Step, $check.Title, $check.Detail) -ForegroundColor $(if ($check.Ok) { 'Gray' } else { 'Yellow' })
+        }
+        if ($resumeAt -and $resumeAt[0].Step -eq 1) {
+            Write-Host 'The files read from the ISO are incomplete, so the build starts over.' -ForegroundColor Yellow
+            $Fresh = $true
+        } elseif ($resumeAt -or ($state -and $state.status -ne 'done')) {
+            $from = if ($resumeAt) { $resumeAt[0] } else { [pscustomobject]@{ Step = 6; Title = $DrakanBuildSteps[5] } }
+            $kept = if ($from.Step -eq 5 -and $from.Compiled) { " ($($from.Compiled) compiled files are kept)" } else { '' }
+            Write-Host "Continuing from step $($from.Step), $($from.Title)$kept. Steps before it are only checked again."
+            if ([Environment]::UserInteractive -and -not $CheckOnly) {
+                $answer = Read-Host 'Press Enter to continue, or type S to start over'
+                if ($answer -match '^\s*s') { $Fresh = $true }
+            }
+        }
+    }
+    if ($CheckOnly) { Write-Host "`nReady to build."; return }
+    if ($Fresh -and (Test-Path -LiteralPath $WorkDir)) {
+        Write-Step 'Starting over (the play folder, saves and settings are kept)'
+        Remove-Item -LiteralPath $WorkDir -Recurse -Force
     }
     # Compiler warnings are for developers and bury the progress. Only a not yet configured folder gets this: flipping it
     # on a configured one would recompile everything, including the 10-minute VU1 slices.
@@ -288,6 +344,9 @@ try {
     Write-Host "Play folder: $play"
     Write-Host 'Start the game with the Drakan shortcut (or Play.cmd in that folder). F1 opens the PC settings.'
     Write-Host 'The game reads your ISO while it runs, so do not move or rename it.'
+    if ($LaunchWhenDone -and (Test-Path -LiteralPath (Join-Path $play 'drakan.exe') -PathType Leaf)) {
+        Start-Process -FilePath (Join-Path $play 'drakan.exe') -WorkingDirectory $play
+    }
 } finally {
     Stop-Transcript | Out-Null
 }

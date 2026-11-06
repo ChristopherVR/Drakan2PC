@@ -22,6 +22,8 @@ AppName=Drakan: The Ancients' Gates (PC builder)
 AppVersion={#AppVersion}
 AppVerName=Drakan: The Ancients' Gates PC builder {#AppVersion}
 DefaultDirName={localappdata}\DrakanPC
+; Always offer the builder folder, also on a reinstall (Inno hides it then by default).
+DisableDirPage=no
 DisableProgramGroupPage=yes
 PrivilegesRequired=lowest
 ArchitecturesAllowed=x64compatible
@@ -42,10 +44,10 @@ ExtraDiskSpaceRequired=2147483648
 Source: "{#StageDir}\*"; DestDir: "{app}"; Flags: recursesubdirs createallsubdirs ignoreversion
 
 [Icons]
-Name: "{autoprograms}\Drakan - The Ancients' Gates"; Filename: "{app}\dist\DrakanPC\drakan.exe"; WorkingDir: "{app}\dist\DrakanPC"; IconFilename: "{app}\drakan.ico"
-Name: "{autodesktop}\Drakan - The Ancients' Gates"; Filename: "{app}\dist\DrakanPC\drakan.exe"; WorkingDir: "{app}\dist\DrakanPC"; IconFilename: "{app}\drakan.ico"; Tasks: desktopicon
+Name: "{autoprograms}\Drakan - The Ancients' Gates"; Filename: "{code:GetPlayDir}\drakan.exe"; WorkingDir: "{code:GetPlayDir}"; IconFilename: "{app}\drakan.ico"
+Name: "{autodesktop}\Drakan - The Ancients' Gates"; Filename: "{code:GetPlayDir}\drakan.exe"; WorkingDir: "{code:GetPlayDir}"; IconFilename: "{app}\drakan.ico"; Tasks: desktopicon
 Name: "{autoprograms}\Rebuild Drakan"; Filename: "{app}\Build-Drakan.cmd"; WorkingDir: "{app}"
-Name: "{autoprograms}\Drakan play folder"; Filename: "{app}\dist\DrakanPC"
+Name: "{autoprograms}\Drakan play folder"; Filename: "{code:GetPlayDir}"
 
 [Tasks]
 Name: desktopicon; Description: "Create a desktop shortcut"
@@ -54,7 +56,7 @@ Name: desktopicon; Description: "Create a desktop shortcut"
 Filename: "{app}\Build-Drakan.cmd"; Parameters: "-IsoPath ""{code:GetIsoPath}""{code:GetBuildOptions}"; WorkingDir: "{app}"; Description: "Build the game now (one to two hours; installs Microsoft's C++ Build Tools if needed)"; Flags: postinstall shellexec nowait skipifsilent
 
 [UninstallDelete]
-; Build products; dist\DrakanPC (saves and settings) is left in place.
+; Build products; the play folder (saves and settings) is left in place.
 Type: filesandordirs; Name: "{app}\build"
 Type: files; Name: "{app}\build-log.txt"
 ; Generated from the disc by the build (scripts/prepare_local_runtime.py).
@@ -69,6 +71,7 @@ Type: dirifempty; Name: "{app}\ps2recomp"
 [Code]
 var
   IsoPage: TInputFileWizardPage;
+  PlayPage: TInputDirWizardPage;
   OptionsPage: TInputOptionWizardPage;
   CpuPage: TInputQueryWizardPage;
 
@@ -85,7 +88,20 @@ begin
   // DrakanPC-Setup.exe /ISO="D:\Games\Drakan.iso" fills it in.
   IsoPage.Values[0] := ExpandConstant('{param:ISO|}');
 
-  OptionsPage := CreateInputOptionPage(IsoPage.ID,
+  PlayPage := CreateInputDirPage(IsoPage.ID,
+    'Play folder',
+    'Where should the built game go?',
+    'The build puts drakan.exe here, and the game keeps its saves and settings here. Rebuilds refresh the game ' +
+    'files and keep saves, settings, mods and HD textures. Uninstalling the builder leaves this folder in place.' + #13#10#13#10 +
+    'The build itself (about 2 GB of intermediate files) stays in the builder folder chosen before.',
+    False, '');
+  PlayPage.Add('Play folder:');
+  // DrakanPC-Setup.exe /PLAYDIR="D:\Games\DrakanPC" fills it in; otherwise the previous install's choice.
+  PlayPage.Values[0] := ExpandConstant('{param:PLAYDIR|}');
+  if PlayPage.Values[0] = '' then
+    PlayPage.Values[0] := GetPreviousData('PlayFolder', '');
+
+  OptionsPage := CreateInputOptionPage(PlayPage.ID,
     'Optional extras',
     'Choose what else to build.',
     'NVIDIA DLSS works only on NVIDIA RTX graphics cards. Its SDK is downloaded from NVIDIA during the build, under ' +
@@ -110,6 +126,31 @@ begin
   CpuPage.Add('Windows build affinity hex mask (e.g. 0xFFF; empty = default):', False);
   CpuPage.Values[1] := ExpandConstant('{param:AFFINITY|}');
   OptionsPage.Add('Keep the PC responsive while building (compile at low priority)');
+  OptionsPage.Add('Start the game when the build has finished');
+end;
+
+function DefaultPlayDir: String;
+begin
+  Result := AddBackslash(WizardDirValue) + 'dist\DrakanPC';
+end;
+
+procedure CurPageChanged(CurPageID: Integer);
+begin
+  // The builder folder is only known once its page is done.
+  if (CurPageID = PlayPage.ID) and (PlayPage.Values[0] = '') then
+    PlayPage.Values[0] := DefaultPlayDir;
+end;
+
+function GetPlayDir(Param: String): String;
+begin
+  Result := RemoveBackslashUnlessRoot(Trim(PlayPage.Values[0]));
+  if Result = '' then
+    Result := DefaultPlayDir;
+end;
+
+procedure RegisterPreviousData(PreviousDataKey: Integer);
+begin
+  SetPreviousData(PreviousDataKey, 'PlayFolder', GetPlayDir(''));
 end;
 
 function NextButtonClick(CurPageID: Integer): Boolean;
@@ -127,6 +168,15 @@ begin
       Result := False;
     end else if FileSize64(IsoPage.Values[0], Size) and (Size < 100 * 1024 * 1024) then begin
       MsgBox('That file is too small to be the game disc. Choose the full .iso image.', mbError, MB_OK);
+      Result := False;
+    end;
+  end;
+  if CurPageID = PlayPage.ID then begin
+    Mask := Lowercase(AddBackslash(GetPlayDir('')));
+    if (Length(GetPlayDir('')) <= 3) or (Mask = Lowercase(AddBackslash(WizardDirValue))) or
+       (Pos(Lowercase(AddBackslash(WizardDirValue) + 'build\'), Mask) = 1) then begin
+      MsgBox('Choose a play folder of its own: not a drive root, the builder folder itself or its build folder.',
+        mbError, MB_OK);
       Result := False;
     end;
   end;
@@ -177,4 +227,11 @@ begin
     Result := Result + ' -Priority Low'
   else
     Result := Result + ' -Priority Normal';
+  if OptionsPage.Values[3] then
+    Result := Result + ' -LaunchWhenDone';
+  // Always passed, so "Rebuild Drakan" remembers it (build/build-options.json) and the shortcuts match.
+  if CompareText(GetPlayDir(''), DefaultPlayDir) = 0 then
+    Result := Result + ' -DistDirectory default'
+  else
+    Result := Result + ' -DistDirectory "' + GetPlayDir('') + '"';
 end;

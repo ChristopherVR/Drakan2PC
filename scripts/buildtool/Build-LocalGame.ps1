@@ -53,6 +53,7 @@ param(
 $ErrorActionPreference = 'Stop'
 $windowsHost = [OperatingSystem]::IsWindows()
 . (Join-Path $PSScriptRoot 'Build-Affinity.ps1')
+. (Join-Path $PSScriptRoot 'Build-Progress.ps1')
 if ($CpuAffinity -and (-not $windowsHost -or $TargetPlatform -eq 'web')) {
     throw '-CpuAffinity supports native Windows builds only; Linux/WSL/browser builds keep their platform defaults.'
 }
@@ -155,6 +156,8 @@ function Write-BuildStep([string]$Text) {
     $script:stepTitle = "[$script:step/$stepCount] $Text"
     # Build-Drakan.ps1 reads this after a failure to decide whether a less parallel retry can help.
     $global:DrakanBuildStep = $Text
+    # The next "Rebuild Drakan" reads this to say where an interrupted build stopped (Build-Progress.ps1).
+    Write-BuildState $WorkDir @{ step = $script:step; steps = $stepCount; title = $Text; status = 'running' }
     if ($Progress) { Write-Host "`n$script:stepTitle" -ForegroundColor Cyan }
 }
 # Developer details: on the console normally, only in the output log with -Progress.
@@ -179,6 +182,15 @@ function Invoke-Logged([string]$Program, [string[]]$Arguments, [int]$CompileTota
     $compiled = 0
     $current = ''
     $started = Get-Date
+    $tracker = $null
+    if ($CompileTotal -ge 0) {
+        $timesFile = Join-Path $WorkDir 'compile-times.json'
+        $measured = @{}
+        if (Test-Path -LiteralPath $timesFile -PathType Leaf) {
+            try { $measured = Get-Content -LiteralPath $timesFile -Raw | ConvertFrom-Json -AsHashtable } catch { $measured = @{} }
+        }
+        $tracker = New-CompileTracker $script:compilePlan ($Jobs * $CompilerProcesses) $measured
+    }
     $title = $Host.UI.RawUI.WindowTitle
     $process = [Diagnostics.Process]::Start($info)
     try {
@@ -196,30 +208,64 @@ function Invoke-Logged([string]$Program, [string[]]$Arguments, [int]$CompileTota
                 if ($line -match '\b(fatal )?error [A-Z]+\d+:|^CMake Error') {
                     $errors.Add($line.Trim())
                     if ($CompileTotal -ge 0) { Write-Host "  $($line.Trim())" -ForegroundColor Red }
-                } elseif ($CompileTotal -ge 0 -and $line -match '^\s+([\w.+-]+\.(c|cc|cpp|cxx))\s*$') {
+                } elseif ($tracker -and $line -match '^\s+([\w.+-]+\.(c|cc|cpp|cxx))\s*$') {
                     # MSBuild (minimal verbosity) prints each source file as cl starts on it.
                     $compiled++
                     $current = $Matches[1]
-                    $count = if ($CompileTotal -gt 0) { "{0,4}/$CompileTotal" -f $compiled } else { "{0,4}" -f $compiled }
-                    $note = if ($current -like 'ps2_vu1_aot_*') { '  (about 10 minutes and up to 17 GB of memory)' } else { '' }
-                    Write-Host "  [$count] $current$note"
+                    Add-CompileStart $tracker $current (Get-Date)
+                    $estimate = Get-CompileEstimate $current $tracker.Measured
+                    $note = if ($estimate) {
+                        "  (slow file: about $(Format-Duration $estimate)$(if ($current -like 'ps2_vu1_aot_*') { ', up to 17 GB of memory' }))"
+                    } else { '' }
+                    Write-Host "  $(Format-CompileCounter $compiled $CompileTotal) $current$note"
                 }
             }
-            $elapsed = (Get-Date) - $started
+            $now = Get-Date
+            $elapsed = $now - $started
             $status = '{0:00}:{1:00}:{2:00} elapsed' -f [int][Math]::Floor($elapsed.TotalHours), $elapsed.Minutes, $elapsed.Seconds
             $percent = -1
-            if ($CompileTotal -ge 0) {
-                $status = "$compiled$(if ($CompileTotal -gt 0) { " of $CompileTotal" }) files, $status$(if ($current) { ", compiling $current" })"
-                if ($CompileTotal -gt 0) { $percent = [Math]::Min(99, [int](100 * $compiled / $CompileTotal)) }
-                $Host.UI.RawUI.WindowTitle = "Building Drakan: $(if ($percent -ge 0) { "$percent% " })($compiled files)"
+            if ($tracker) {
+                foreach ($job in (Update-CompileTracker $tracker $now)) {
+                    if ($job.Elapsed.TotalSeconds -ge 60) {
+                        Write-Host "         finished $($job.Name) after $(Format-Duration $job.Elapsed)" -ForegroundColor DarkGray
+                    }
+                }
+                $oldest = Get-OldestCompile $tracker
+                # A file that runs for minutes gets a line every 3 minutes, so the window never looks stuck (not every
+                # console shows the progress bar, and the log keeps these lines).
+                if ($oldest -and ($now - $oldest.Start).TotalMinutes -ge $oldest.NextNote) {
+                    Write-Host "         still compiling $(Format-RunningCompile $oldest $now)" -ForegroundColor DarkGray
+                    $oldest.NextNote += 3
+                }
+                $done = [Math]::Max($tracker.Finished, $compiled - $tracker.Running.Count)
+                $status = "$done$(if ($CompileTotal -gt 0 -and $done -le $CompileTotal) { " of $CompileTotal" }) files done, $status"
+                if ($CompileTotal -gt 0) { $percent = [Math]::Min(99, [int](100 * $done / $CompileTotal)) }
+                $Host.UI.RawUI.WindowTitle = "Building Drakan: $(if ($percent -ge 0) { "$percent% " })($done files)"
+                Write-Progress -Activity $script:stepTitle -Status $status -PercentComplete $percent
+                # A second bar for the longest-running file, measured against its usual time when there is one.
+                if ($oldest -and ($now - $oldest.Start).TotalSeconds -ge 20) {
+                    $filePercent = if ($oldest.Estimate) {
+                        [Math]::Min(99, [int](100 * ($now - $oldest.Start).TotalSeconds / $oldest.Estimate.TotalSeconds))
+                    } else { -1 }
+                    Write-Progress -Id 1 -ParentId 0 -Activity "Compiling $($oldest.Name)" -Status (Format-RunningCompile $oldest $now) -PercentComplete $filePercent
+                } else {
+                    Write-Progress -Id 1 -ParentId 0 -Activity 'Compiling' -Completed
+                }
+            } else {
+                Write-Progress -Activity $script:stepTitle -Status $status -PercentComplete $percent
             }
-            Write-Progress -Activity $script:stepTitle -Status $status -PercentComplete $percent
         }
         $process.WaitForExit()
         $errorText = $stderr.Result
         if ($errorText) { $log.WriteLine($errorText) }
     } finally {
         $log.Dispose()
+        if ($tracker -and $tracker.Durations.Count) {
+            # Remember how long the slow files took on this PC: the next build's estimates use them.
+            foreach ($name in $tracker.Durations.Keys) { if ($tracker.Durations[$name] -ge 60) { $measured[$name] = $tracker.Durations[$name] } }
+            try { $measured | ConvertTo-Json | Set-Content -LiteralPath $timesFile } catch { Write-Verbose "compile-times.json: $_" }
+        }
+        if ($tracker) { Write-Progress -Id 1 -ParentId 0 -Activity 'Compiling' -Completed }
         Write-Progress -Activity $script:stepTitle -Completed
         $Host.UI.RawUI.WindowTitle = $title
     }
@@ -290,6 +336,8 @@ if ($skipRecompile) {
         }
     }
     $Compiler = (Resolve-Path -LiteralPath $Compiler).Path
+    # Without a stamp an interrupted translation is redone next time instead of trusting half-written sources.
+    Remove-Item -LiteralPath $stampPath -Force -ErrorAction SilentlyContinue
     Push-Location $WorkDir
     try { Invoke-Checked $Compiler @('config.toml') } finally { Pop-Location }
     if (-not (Test-Path -LiteralPath $generatedDir -PathType Container)) { throw 'Recompiler did not create generated output.' }
@@ -372,24 +420,22 @@ if ($DependencyDirectory) {
     if ($windowsHost) { $argsList += "-DFFMPEG_PREBUILT_URL=$($ffmpegArchive.FullName.Replace('\', '/'))" }
 }
 Invoke-Checked $cmake $argsList
-# Sources the compile step can count against: the C/C++ files of ps2EntryRunner and the projects it references
-# (raylib's examples are configured but not built). Incremental builds only recompile what changed, so they just count.
+# Sources the compile step counts against: the C/C++ files of ps2EntryRunner and the projects it references (raylib's
+# examples are configured but not built), with their object files (Build-Progress.ps1). A rebuild counts what is still
+# out of date: everything left after an interrupted build, only the edited sources after a fix (header edits add more).
 $compileTotal = 0
-if ($windowsHost -and -not $Incremental) {
-    $projects = [Collections.Generic.Queue[string]]::new()
-    $seen = [Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
-    $projects.Enqueue((Get-ChildItem -LiteralPath $runtimeBuild -Filter 'ps2EntryRunner.vcxproj' -Recurse -File | Select-Object -First 1).FullName)
-    while ($projects.Count) {
-        $project = $projects.Dequeue()
-        if (-not $project -or -not $seen.Add($project) -or -not (Test-Path -LiteralPath $project -PathType Leaf)) { continue }
-        $xml = [xml](Get-Content -LiteralPath $project -Raw)
-        $compileTotal += @($xml.GetElementsByTagName('ClCompile') | Where-Object { $_.GetAttribute('Include') }).Count
-        foreach ($reference in $xml.GetElementsByTagName('ProjectReference')) {
-            $projects.Enqueue([IO.Path]::GetFullPath($reference.GetAttribute('Include'), (Split-Path $project)))
-        }
-    }
+$script:compilePlan = @()
+$compileTitle = ''
+if ($windowsHost) {
+    $script:compilePlan = Get-CompilePlan $runtimeBuild
+    $pendingCompiles = Get-PendingCompiles $script:compilePlan
+    $compileTotal = $pendingCompiles.Count
+    $compileTitle = if (-not $script:compilePlan.Count) { '' }
+        elseif ($pendingCompiles.Count -eq $script:compilePlan.Count) { " ($compileTotal files, one to two hours on a first build)" }
+        elseif ($pendingCompiles.Count) { " ($compileTotal of $($script:compilePlan.Count) files left)" }
+        else { ' (checking for changed files)' }
 }
-Write-BuildStep "Compiling the game$(if ($compileTotal) { " ($compileTotal files, one to two hours on a first build)" })"
+Write-BuildStep "Compiling the game$compileTitle"
 if ($windowsHost) {
     $savedCompilerOptions = [Environment]::GetEnvironmentVariable('_CL_','Process')
     try {
@@ -524,6 +570,7 @@ if ($webBuild) {
     $webLaunch | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $gameOutput 'web-build.json')
     Write-Detail "Private browser build: $gameOutput"
     Write-Detail "Launch: $gameOutput/Play-Browser.sh (loopback only; ISO remains local)"
+    Write-BuildState $WorkDir @{ status = 'done'; finished = (Get-Date).ToString('s'); error = $null }
     return
 }
 $launchArgs = @((Join-Path $PSScriptRoot 'prepare_launch.py'),'--repo-root',$RepoRoot,
@@ -535,7 +582,11 @@ Write-Detail "Private executable: $gameExe"
 Write-Detail "ISO playback path: $IsoPath"
 Write-Detail "Launch from PowerShell: Start-Process -FilePath '$quotedExe' -WorkingDirectory '$quotedOutput'"
 Write-Detail 'Local ISO/ELF paths and default input bindings are staged next to the executable; existing configs are preserved. No launch or upload was performed.'
+Write-BuildState $WorkDir @{ status = 'done'; finished = (Get-Date).ToString('s'); error = $null; play = $DistDirectory }
 
+} catch {
+    Write-BuildState $WorkDir @{ status = 'failed'; error = "$_" }
+    throw
 } finally {
     try { Exit-BuildAffinity $affinityState } finally { $buildWriterLock.Dispose() }
 }

@@ -34,14 +34,15 @@ Measured on an RTX 5080 PC (29–30 October 2026); slower hardware will run the 
 ## Install and build
 
 1. Open the [GitHub releases page](https://github.com/ChristopherVR/Drakan2PC/releases/latest) and download **DrakanPC-Setup.exe**. If a release is unavailable, use the [source build instructions](../../BUILDING.md).
-2. Run the installer. Choose an installation folder and your supported ISO.
-3. Choose optional components if wanted. **NVIDIA DLSS** requires compatible hardware and acceptance of NVIDIA's SDK licence. **Browser version** requires WSL with Ubuntu. **Keep the PC responsive** compiles at low priority, so other programs stay smooth while the build runs.
-4. On **Build speed**, enter how many CPU cores the build may use, or leave it empty for the automatic choice (half the cores, at most 4). Memory still limits how many compilers run at once. These settings only affect the build, not the game, and **Rebuild Drakan** keeps them.
-5. Leave **Build the game now** selected. The builder installs Microsoft's C++ Build Tools if they are missing; Windows may ask for permission.
-6. Leave the build window open until it reports completion. Some large files can take about ten minutes without new output.
-7. Launch **Drakan - The Ancients' Gates** from the desktop or Start menu shortcut.
+2. Run the installer. Choose an installation folder (the builder and its build files, about 2 GB once built) and your supported ISO.
+3. On **Play folder**, choose where the built game goes, for example a folder on your games drive. The game keeps its saves and settings there; rebuilds refresh the game files and keep saves, settings, mods and HD textures, and uninstalling the builder leaves the folder in place. The default is `dist\DrakanPC` inside the installation folder.
+4. Choose optional components if wanted. **NVIDIA DLSS** requires compatible hardware and acceptance of NVIDIA's SDK licence. **Browser version** requires WSL with Ubuntu. **Keep the PC responsive** compiles at low priority, so other programs stay smooth while the build runs. **Start the game when the build has finished** launches it as soon as the build is done.
+5. On **Build speed**, enter how many CPU cores the build may use, or leave it empty for the automatic choice (half the cores, at most 4). Memory still limits how many compilers run at once. These settings only affect the build, not the game, and **Rebuild Drakan** keeps them.
+6. Leave **Build the game now** selected. The builder installs Microsoft's C++ Build Tools if they are missing; Windows may ask for permission.
+7. Leave the build window open until it reports completion. Slow files say so when they start, and the window prints a "still compiling" line every few minutes while they run.
+8. Launch **Drakan - The Ancients' Gates** from the desktop or Start menu shortcut.
 
-The playable Windows folder is `dist/DrakanPC` inside the installation. Launch its `drakan.exe` or the installed shortcut.
+The playable Windows folder is the play folder you chose (by default `dist\DrakanPC` inside the installation). Launch its `drakan.exe` or the installed shortcut.
 
 ## Your first game
 
@@ -53,7 +54,22 @@ Read [PC enhancements](enhancements.md) for the PS2 comparison, then [Controls &
 
 ## Interrupted build or update
 
-Use **Rebuild Drakan** in the Start menu. It resumes an interrupted build and preserves saves, INI settings and existing texture packs. It uses the CPU cores and priority chosen in the installer; to change them, run `Build-Drakan.cmd -Cores 8 -Priority Low` from the installation folder (`-Cores 0` returns to the automatic choice, `-Priority Normal` to normal priority). Avoid starting a second build against the same work folder while the first is running.
+Use **Rebuild Drakan** in the Start menu. It first shows where the last build stopped and checks each finished step's files on disk, for example:
+
+```text
+== The last build
+Stopped at step 5 of 6, Compiling the game, on 2026-11-06 19:14:
+  cl.exe failed (2)
+  [ok] 1. Reading the game from the ISO: game executable SCES_500.06 read from the ISO
+  [ok] 2. Translating the PS2 game code to C++: 83 generated C++ files
+  [ok] 3. Preparing the runtime files from the game: VU1 microcode image present
+  [ok] 4. Setting up the C++ build: build files generated
+  [  ] 5. Compiling the game: 212 of 368 files compiled
+Continuing from step 5, Compiling the game (212 compiled files are kept). Steps before it are only checked again.
+Press Enter to continue, or type S to start over
+```
+
+Press Enter to continue from there, or type **S** to start over (`Build-Drakan.cmd -Fresh` does the same without asking). Starting over keeps the play folder with your saves and settings. When the files read from the ISO are incomplete, the build starts over by itself. Rebuild Drakan preserves saves, INI settings and existing texture packs, and builds into the same play folder. It uses the CPU cores and priority chosen in the installer; to change them, run `Build-Drakan.cmd -Cores 8 -Priority Low` from the installation folder (`-Cores 0` returns to the automatic choice, `-Priority Normal` to normal priority). `Build-Drakan.cmd -DistDirectory "D:\Games\DrakanPC"` moves the play folder for this and later rebuilds (`-DistDirectory default` goes back to `dist\DrakanPC`); the installer's shortcuts keep pointing at the old folder until you run the installer again. Avoid starting a second build against the same work folder while the first is running.
 
 Before changing installations, back up your saves and settings as described in [Saves & updates](saves.md). For failures, see [Troubleshooting](troubleshooting.md).
 

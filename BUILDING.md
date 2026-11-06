@@ -140,8 +140,10 @@ embeddable package (`tools/python`), `ps2_recomp.exe` built from the same snapsh
 by `Build-LocalGame.ps1 -DependencyDirectory`, default `<repo>/deps`). Packaging needs Git, network access and Inno
 Setup 6 (`winget install JRSoftware.InnoSetup`; script `scripts/buildtool/kit/DrakanPC-Setup.iss`); downloads are
 cached in `build/builder-kit/work/cache`. The setup installs per user (default `%LOCALAPPDATA%\DrakanPC`, no admin),
-asks for the ISO, creates Start menu/desktop shortcuts to `dist\DrakanPC\drakan.exe` and a "Rebuild Drakan" entry,
-and on its last page starts `Build-Drakan.cmd -IsoPath <iso>`.
+asks for the ISO and a play folder (default `dist\DrakanPC` in the install folder; `/PLAYDIR=` on the command line,
+remembered for reinstalls), creates Start menu/desktop shortcuts to its `drakan.exe` and a "Rebuild Drakan" entry,
+and on its last page starts `Build-Drakan.cmd -IsoPath <iso> -DistDirectory <play folder>` (plus `-LaunchWhenDone`
+when "Start the game when the build has finished" is ticked).
 
 `Build-Drakan.cmd` runs `scripts/buildtool/Build-Drakan.ps1` with the bundled PowerShell (else `pwsh` on PATH). It
 checks Python (bundled, else 3.11+ on PATH), Git (only when the kit lacks the bundled sources) and disk space, and when
@@ -150,12 +152,21 @@ Authenticode signature and installs the VCTools workload with `--passive` (one U
 forced through `CMAKE_GENERATOR_INSTANCE`. It passes `-SerialVuSlices` (CMake `PS2X_VU1_AOT_SERIAL`: each of the four
 `ps2_vu1_aot_N.cpp` slices takes ~17 GB and ~10 min in cl, measured 16.6 GB / 591 s, so four in one `/MP` batch
 exhausted 31-61 GB machines; a distinct define per slice makes MSBuild compile them one after another) and sizes
-`-CompilerProcesses` (~6 GB each on the generated code) and `-Jobs` (2 only with room for a slice beside them) from the
+`-CompilerProcesses` (2 GB budget each; measured 1.3 GB on the largest generated files) and `-Jobs` (2 only with room for a slice beside them) from the
 installed memory, asks for the ISO when not given (file dialog; remembered in
 `build/iso-path.txt`) and calls `Build-LocalGame.ps1` with `WorkDir` `build/game` (`-Incremental` once prepared). A
-failed build is retried once incrementally with `-Jobs 1` and half the compiler processes. It also passes `-Progress`
-(numbered steps, a progress bar with the elapsed time, one `[n/N]` line per compiled file; the tools' own output goes to
-`build/game-output.log` and only errors and, on failure, the output's tail reach the console) and, while
+failed compile is retried once incrementally with `-Jobs 1` and half the compiler processes. `-DistDirectory` (play
+folder) is remembered in `build/build-options.json` with the CPU choices. Before a rebuild it reads
+`build/game/build-state.json` (the step `Build-LocalGame.ps1` last started and how the run ended) and checks each
+step's outputs on disk (`Get-BuildReview` in `Build-Progress.ps1`: the boot ELF and `config.toml`, generated sources
+plus `recompile.stamp`, the VU1 image, `CMakeCache.txt`, and the object of every source of `ps2EntryRunner` and its
+project references against its source), prints that, and continues from the first incomplete step (Enter) or starts
+over (`S`, or `-Fresh`); incomplete ISO files always start over. It also passes `-Progress` (numbered steps, a progress
+bar with the elapsed time, one `[n/N]` line per compiled file where N is what is still out of date, a second bar and a
+"still compiling" line every 3 minutes for the longest-running file, measured against its time on this PC from
+`build/game/compile-times.json`; cl creates an empty object when it starts a file, so a file counts as finished once
+its object is non-empty and newer than its start. The tools' own output goes to `build/game-output.log` and only errors
+and, on failure, the output's tail reach the console) and, while
 `build/game` is not configured yet, `-NoWarnings` (CMake `DRAKAN_COMPILER_WARNINGS=OFF`, `/W0` instead of `/W4`; not
 applied to a configured tree because the flag change would recompile everything). The console is logged to
 `build-log.txt`. The result is `dist/DrakanPC` in the install folder, with the `scripts/launchers` `Play*.cmd` files.
