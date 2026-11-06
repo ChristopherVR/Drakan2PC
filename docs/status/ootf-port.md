@@ -61,14 +61,14 @@ the way-back box offered the level she had just left). Per-level state
 | Wartok Canyons | yes (Nov 4) | to Grimstone: dismount (hold Cross / C), walk east into the PC mine-mouth box, prompt, save, load (`w03-04l`) | not checked | none found (a direct start puts Rynn on Arokh) |
 | Grimstone Mines | yes (`w03-04l`) | to Grotto: PC "Creature" box, prompt, save, load (`g04-05b`) | yes: after the 120 s opening scene, exact saved position after F8 (`w03-04l`) | none found |
 | Grotto | yes (`g04-05b`) | to Islands: PC box 313, prompt, save, load (`g05-06d`) | yes: exact saved position after F8 (`g04-05b`) | none found |
-| Islands (hub) | yes (`g05-06d`, mounted) | to Rift Crystal: rift box 75,000 units above the old exit; a mounted placement beside it stopped the world drawing (`i06-08`) | F5 / F8 work, but S did not move the dragon between them, so the restore was not discriminating (`g05-06d`) | rift exit not walked yet |
-| Rift Crystal | not yet | to Islands Night: the PC box sits 2,000 units under the whirlpool surface; jumping over the basin rim drops Rynn through the basin into the void below the level, with no touch (`r08-09c`) | not checked | **blocker**: whirlpool basin has no floor for the player in the converted level (converted terrain heights say 205,300 there; collision or water volume not checked) |
-| Islands Night | not yet (needs Rift Crystal) | to Succubus Lair: real walk into PC detector 4928, prompt, save, load (`n09-10`) | | none found |
+| Islands (hub) | yes (`g05-06d`, mounted) | to Rift Crystal: the rift box lies under the whirl doors of the bell tower, which stands in the cave system; Rynn in the box fires it, prompt, save, exit taken (`tower-d`, `i06-08c`, `i06-08d`). The earlier blank screen was the camera inside the rock around the tower, not an engine stop (`tower-c` draws). | F5 / F8 work, but S did not move the dragon between them, so the restore was not discriminating (`g05-06d`) | **blocker**: arriving in Rift Crystal on Arokh crashes (null method call at `0x23d924`, rider record `+0x57c`); Rift Crystal has no dragon. On foot not yet reached (a direct start is mounted and Cross does not dismount Arokh in the tower) |
+| Rift Crystal | not yet (see Islands) | to Islands Night: placed on the WhirlpoolSteps, two jumps over the rim, Rynn slides onto the invisible basin floor into the PC box: prompt, save, load (`r08-09d`). Fixed: the box was cloned from a model-less PS2 trigger class and never placed (2026-11-06 progression 2) | not checked (direct start) | none found |
+| Islands Night | yes (`r08-09d`, from the whirlpool) | to Succubus Lair: real walk into PC detector 4928, prompt, save, load (`n09-10`) | yes: exact saved position after F8 (`r08-09d`) | none found |
 | Succubus Lair | yes (`n09-10`) | to Volcanic: standing on the ship's deck box runs the PC chain (counter, `ship2`, fade), the ship sends ON to the exit, prompt, save, load (`s10-11`) | yes: exact saved position after F8 (`n09-10`) | none found; the Drakan 2 quest line shown on arrival was the converter's shared marker class, fixed: it now reads "Get Arokh" ([quest marker text](../journal/2026-11-06/issue-5-quest-marker-text.md)) |
-| Volcanic | yes (`s10-11`) | to Rift World: mount-only box enabled by the Runeblade pickup (gate kept) | yes: exact saved position after F8 (`s10-11`) | needs the Runeblade and a flight to the rift (not run) |
-| Rift World | not yet | ending | | Dr. Evil (isolated proof only) |
+| Volcanic | yes (`s10-11`) | to Rift World: mount-only box enabled by the Runeblade pickup; Rynn on foot inside the box without the blade does not fire it (`v11-12b`, gate kept) | yes: exact saved position after F8 (`s10-11`) | Runeblade sits under an ice cover (fire-arrow puzzle), E at the pedestal takes nothing; mounting Arokh by E / Triangle / Cross / walking into him did not mount (`v11-mount`); flight not run |
+| Rift World | not yet | ending | | Dr. Evil (isolated proof only); a direct start loads with no scene waiting and 12.1 MiB guest heap in use (`idle-12`) |
 
-See [progression journal](../journal/2026-11-06/ootf-progression.md).
+See [progression journal](../journal/2026-11-06/ootf-progression.md) and [part 2](../journal/2026-11-06/ootf-progression-2.md).
 
 ## What works
 
@@ -101,8 +101,9 @@ See [progression journal](../journal/2026-11-06/ootf-progression.md).
 * Dragon breath in the air arenas draws a flame trail (host-spawned FX particles, `ootf-dragon-breath-visual.md`); it needs the FX
   resources in the arena level (true for the air arenas, other maps untested) and is not wired to the campaign dragon. Dragon health
   regeneration lifts the bar between hits (`ootf-dragon-pvp.md`).
-* The real PC triggers were not walked: Islands Detector 4131, Volcanic Detector 2318 (mount only), Succubus `ship2`. The placed exit
-  boxes are the tested path (`ootf-link-regression.md`).
+* PC exit triggers: Islands Detector 4131 fires when Rynn is in it (the box stands under the bell tower's whirl doors; the bell
+  route was not played), Succubus `ship2` runs (`s10-11`); Volcanic Detector 2318 (mount only) was only checked not to fire on
+  foot without the Runeblade. A mounted arrival in a level without a dragon (Islands to Rift Crystal) crashes the guest.
 * Volcanic runs at about 42 fps with the rift effect live (Vortex / Inner / Outer Rift movers).
 * The exit scan cannot resolve level-local destination strings of converted levels; use the exit index with `DRAKAN_LEVELCHANGE`.
 * The older separate packs share patched files (`RESOURES.MOD/.TXD`, `PROCTEES.TXD`, `WORLDCON.*`, `RESOURES.SDB` entries): the
