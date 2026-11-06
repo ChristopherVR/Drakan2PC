@@ -1150,3 +1150,11 @@ session is lost. Dedicated-server lobby leadership transfers on player departure
 Graceful listen-server teardown sends the UDP disconnect; abrupt loss falls back to the existing 10-second timeout.
 See [the host-departure investigation](../journal/2026-11-05/issue-1-host-disconnect.md) and the `netplay_policy`,
 `net_match`, and `net_udp_smoke` regressions.
+
+### Issue 1 re-verification (2026-11-06)
+
+All seven multiplayer items of issue 1 were re-run on the deployed build with two real instances and none reproduced,
+including City of the Damned pickups at the authored Blade and Mana sites. `scripts/harness/mp_host_leave.py` is the
+repeatable host-departure check (host Quit to Title, guest loss message and title return, guest re-hosts). See
+[the re-verification note](../journal/2026-11-06/issue-1-mp-reverification.md).
+
