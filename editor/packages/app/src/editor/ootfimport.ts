@@ -5,6 +5,7 @@
 import { zipOotfPack } from '@drakan/editor-core';
 import {
     SrscReader,
+    detectOotfInstallLanguage,
     findPcLevels,
     loadPcLevel,
     matchClass,
@@ -224,6 +225,17 @@ export function progressText(message: string, titlePrefix: string): string {
     return 'Converting...';
 }
 
+/** " (German install)" for the folder line, or "" when the install's language cannot be told. */
+export async function languageNote(src: PcFileSource): Promise<string> {
+    try {
+        const { language } = await detectOotfInstallLanguage(src);
+        if (language.language === 'unknown') return '';
+        return ` (${language.language[0]!.toUpperCase()}${language.language.slice(1)} install)`;
+    } catch {
+        return '';
+    }
+}
+
 /** Conversion notes (retargeted rigs, skipped classes) behind a disclosure, so the result list stays readable. */
 function notesBlock(notes: string[]): HTMLElement {
     if (!notes.length) return h('div', { class: 'od-dim' }, 'Converted without notes.');
@@ -361,8 +373,8 @@ function openDialog(host: OotfHost): void {
                 rows.push({ path: p, title, box });
             }
             folderLabel.textContent = rows.length
-                ? `${rows.length} level${rows.length === 1 ? '' : 's'} found`
-                : 'No Order of the Flame levels found in that folder';
+                ? `${rows.length} level${rows.length === 1 ? '' : 's'} found${await languageNote(src!)}`
+                : 'No Order of the Flame levels found in that folder. Choose the folder of the installed game (the one holding the level folders and Dragon.rrc), not a disc image. Other languages, such as the German release, work the same way.';
             list.replaceChildren(
                 ...rows.map((r) =>
                     h(

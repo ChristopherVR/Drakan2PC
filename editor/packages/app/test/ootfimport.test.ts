@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { installFilesOf, progressText } from '../src/editor/ootfimport.ts';
+import { installFilesOf, languageNote, progressText } from '../src/editor/ootfimport.ts';
 import { filesSource } from '../src/editor/ootfconvert.ts';
 
 describe('importer progress text', () => {
@@ -20,6 +20,16 @@ describe('importer progress text', () => {
 
     it('falls back to a plain line for anything else', () => {
         expect(progressText('retarget Primitive Giant: PC 44 joints', 'OotF ')).toBe('Converting...');
+    });
+});
+
+describe('install language note', () => {
+    it('says nothing when the install has no readable Dragon.rrc', async () => {
+        expect(await languageNote({ list: async () => ['a/level.lvl'], read: async () => null })).toBe('');
+    });
+    it('does not fail on an unreadable Dragon.rrc', async () => {
+        const src = { list: async () => ['Dragon.rrc'], read: async () => new Uint8Array([1, 2, 3]) };
+        expect(await languageNote(src)).toBe('');
     });
 });
 
