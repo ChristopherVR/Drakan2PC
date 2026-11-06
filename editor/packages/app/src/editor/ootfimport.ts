@@ -2,11 +2,9 @@
 // convert (packages/formats convert.ts) and save the result as a mod pack for the PS2 port. Everything runs in the page;
 // the OotF files are read from the folder the player picks and nothing is uploaded.
 
-import { buildOotfPack, ootfArenaFromPc, zipOotfPack, type ModMeta } from '@drakan/editor-core';
+import { zipOotfPack } from '@drakan/editor-core';
 import {
     SrscReader,
-    ps2BlobFor,
-    convertOotfLevels,
     findPcLevels,
     loadPcLevel,
     matchClass,
@@ -18,7 +16,8 @@ import {
     ps2ClassTables,
     type PcFileSource,
 } from '@drakan/formats';
-import { OOTF_DIALOG_OPTIONS, ootfDiscContext } from './ootfdisc.ts';
+import type { ConvertRequest, ConvertResult, InstallFile } from './ootfconvert.ts';
+import type { FromWorker, ToWorker } from './ootfworker.ts';
 import type { Api, Method } from '../rpc.ts';
 import { h } from './dom.ts';
 import { registerCommand } from './registry.ts';
@@ -58,6 +57,15 @@ dialog.ootf-dlg::backdrop { background: rgba(0,0,0,.55); }
 .ootf-dlg select, .ootf-dlg input[type=text] { background: var(--field); color: var(--fg); border: 1px solid var(--border);
   border-radius: var(--r-sm); height: var(--h-ctl); padding: 0 var(--sp-2); }
 `;
+
+/** The picked folder's files with the top folder name dropped, for the conversion worker. */
+export function installFilesOf(files: FileList | File[]): InstallFile[] {
+    return Array.from(files).map((f) => {
+        const rel = (f as File & { webkitRelativePath?: string }).webkitRelativePath || f.name;
+        const parts = rel.split('/');
+        return { path: parts.length > 1 ? parts.slice(1).join('/') : rel, file: f };
+    });
+}
 
 /** A `PcFileSource` over the files of a folder picker; the top folder name is dropped from every path. */
 export function folderSource(files: FileList | File[]): PcFileSource {
@@ -154,6 +162,43 @@ export function registerOotfImport(host: OotfHost): void {
     });
 }
 
+/** Run the conversion in `ootfworker.ts`; the worker asks the page for the disc files the template needs. */
+function convertInWorker(
+    req: ConvertRequest,
+    readDisc: (path: string) => Promise<Uint8Array | null>,
+    progress: (message: string) => void,
+): Promise<ConvertResult> {
+    return new Promise((resolve, reject) => {
+        const worker = new Worker(new URL('./ootfworker.ts', import.meta.url), { type: 'module' });
+        worker.onmessage = (ev: MessageEvent<FromWorker>) => {
+            const m = ev.data;
+            if (m.type === 'progress') progress(m.message);
+            else if (m.type === 'read') {
+                void readDisc(m.path).then(
+                    (bytes) => {
+                        const reply: ToWorker = { type: 'disc', id: m.id, bytes };
+                        worker.postMessage(reply);
+                    },
+                    () => {
+                        const reply: ToWorker = { type: 'disc', id: m.id, bytes: null };
+                        worker.postMessage(reply);
+                    },
+                );
+            } else {
+                worker.terminate();
+                if (m.type === 'done') resolve(m.result);
+                else reject(new Error(m.message));
+            }
+        };
+        worker.onerror = (ev) => {
+            worker.terminate();
+            reject(new Error(ev.message || 'The conversion stopped unexpectedly.'));
+        };
+        const msg: ToWorker = { type: 'convert', req };
+        worker.postMessage(msg);
+    });
+}
+
 /** What the importer's progress line says: the level being converted, not the converter's internal bookkeeping. */
 export function progressText(message: string, titlePrefix: string): string {
     const lang = /^source language: (\w+)/i.exec(message);
@@ -202,6 +247,7 @@ function openDialog(host: OotfHost): void {
     dlg.addEventListener('close', () => dlg.remove());
 
     let src: PcFileSource | null = null;
+    let installFiles: InstallFile[] = [];
     let rows: Row[] = [];
 
     const close = h('button', { class: 'btn', type: 'button', onclick: () => dlg.close() }, 'Close');
@@ -280,6 +326,7 @@ function openDialog(host: OotfHost): void {
     picker.addEventListener('change', () => {
         if (!picker.files?.length) return;
         src = folderSource(picker.files);
+        installFiles = installFilesOf(picker.files);
         void (async () => {
             list.replaceChildren(h('div', { class: 'od-dim', style: 'padding:6px 12px' }, 'Reading levels...'));
             const paths = await findPcLevels(src!);
@@ -342,60 +389,32 @@ function openDialog(host: OotfHost): void {
     async function convertSelected(): Promise<void> {
         const tplDir = tplSel.value;
         const tplBytes = await host.call('readLevelFile', tplDir);
-        const template = await SrscReader.fromBytes(tplBytes);
-        const loaded = await host.call('loadLevel', tplDir);
-        const { context, splats } = await ootfDiscContext(template, loaded.lvl.header, tplDir, (path) =>
-            host.call('readStoryFile', path),
-        );
         const selected = rows.filter((r) => r.box.checked);
-        const result = await convertOotfLevels(
-            src!,
-            selected.map((r) => r.path),
-            context,
+        const result = await convertInWorker(
             {
-                ...OOTF_DIALOG_OPTIONS,
-                name: (pc) => `${prefix.value}${pcLevelName(pc.header)}`.slice(0, 60),
-                log: (message) => {
-                    out.textContent = progressText(message, prefix.value);
-                },
+                files: installFiles,
+                levels: selected.map((r) => r.path),
+                prefix: prefix.value,
+                templateDir: tplDir,
+                templateBytes: tplBytes,
+                profile: host.profile(),
+            },
+            (path) => host.call('readStoryFile', path),
+            (message) => {
+                out.textContent = progressText(message, prefix.value);
             },
         );
-        const failed = result.stages.filter((stage) => !stage.ok);
-        if (failed.length)
-            throw new Error(`Conversion failed: ${failed.map((s) => `${s.stage}: ${s.error}`).join('; ')}`);
-        const inputs = [];
-        const lines: HTMLElement[] = [];
-        for (const level of result.levels) {
-            const pc = await loadPcLevel(src!, level.pcPath);
-            const R = level.parts.report;
-            lines.push(
-                h(
-                    'tr',
-                    {},
-                    h('td', {}, level.title),
-                    h('td', {}, `${R.objectsOut} / ${R.objectsIn}`),
-                    h('td', {}, String(R.layers)),
-                    h('td', {}, `${R.unmappedClasses.size} classes`),
-                ),
-            );
-            inputs.push({
-                title: level.title,
-                parts: level.parts,
-                splats: level.splats,
-                arena: ootfArenaFromPc(pc, level.title) ?? undefined,
-            });
-        }
-        const start = result.levels.find((l) => !l.arena);
-        const meta: Omit<ModMeta, 'levels'> = {
-            id: 'ootf-levels',
-            name: 'Order of the Flame levels',
-            description: 'Levels converted from Drakan: Order of the Flame.',
-            target: { profile: host.profile() ?? 'pal' },
-            ...(start
-                ? { campaign: 'ootf', campaignName: 'Drakan: Order of the Flame', campaignStart: start.title }
-                : {}),
-        };
-        const pack = await buildOotfPack(meta, template, inputs, ps2BlobFor, { splats, extraFiles: result.files });
+        const pack = result.pack;
+        const lines = result.summaries.map((l) =>
+            h(
+                'tr',
+                {},
+                h('td', {}, l.title),
+                h('td', {}, `${l.objectsOut} / ${l.objectsIn}`),
+                h('td', {}, String(l.layers)),
+                h('td', {}, `${l.unmappedClasses} classes`),
+            ),
+        );
         const language = tplDir.split('\\')[0] ?? 'ENGLISH';
         const virtual = pack.levels.map((l) => ({ name: l.title, dirPath: `${language}\\LEVELS\\${l.mangled}` }));
         const virtualFiles = Object.entries(pack.files).map(([path, bytes]) => ({ path, bytes }));
@@ -453,14 +472,14 @@ function openDialog(host: OotfHost): void {
                 ),
                 ...lines,
             ),
-            notesBlock([...result.warnings, ...pack.warnings]),
+            notesBlock(result.notes),
             h('div', { class: 'od-row' }, save, folder),
             h('div', { class: 'od-dim' }, 'Open a converted level in the editor:'),
             h('div', { class: 'od-row od-open' }, ...openers),
             h(
                 'div',
                 { class: 'od-dim' },
-                start
+                result.campaign
                     ? "Install and enable the zip in the game's Mods menu, restart, choose Drakan: Order of the Flame, then New Game."
                     : "Install and enable the zip in the game's Mods menu, restart, then choose the map in Multiplayer.",
             ),

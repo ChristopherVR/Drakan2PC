@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { progressText } from '../src/editor/ootfimport.ts';
+import { installFilesOf, progressText } from '../src/editor/ootfimport.ts';
+import { filesSource } from '../src/editor/ootfconvert.ts';
 
 describe('importer progress text', () => {
     it('names the level being converted instead of the converter bookkeeping', () => {
@@ -19,5 +20,19 @@ describe('importer progress text', () => {
 
     it('falls back to a plain line for anything else', () => {
         expect(progressText('retarget Primitive Giant: PC 44 joints', 'OotF ')).toBe('Converting...');
+    });
+});
+
+describe('install files for the conversion worker', () => {
+    it('drops the picked folder name and reads files case-insensitively', async () => {
+        const f = new File([new Uint8Array([1, 2, 3])], 'Ruined Village.lvl');
+        Object.defineProperty(f, 'webkitRelativePath', {
+            value: 'Drakan/Mountain World/Ruined Village/Ruined Village.lvl',
+        });
+        const files = installFilesOf([f]);
+        expect(files.map((x) => x.path)).toEqual(['Mountain World/Ruined Village/Ruined Village.lvl']);
+        const src = filesSource(files);
+        expect([...(await src.read('mountain world/ruined village/RUINED VILLAGE.LVL'))!]).toEqual([1, 2, 3]);
+        expect(await src.read('missing.lvl')).toBeNull();
     });
 });
