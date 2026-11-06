@@ -41,3 +41,12 @@ function Exit-BuildAffinity($State) {
         $State.Process.Dispose()
     }
 }
+
+# Logical processors a mask selects; with no mask, all of them.
+function Get-BuildAffinityCount([string]$Mask, [int]$LogicalCores = [Environment]::ProcessorCount) {
+    if (-not $Mask) { return $LogicalCores }
+    $bits = [BitConverter]::ToUInt64([BitConverter]::GetBytes((Resolve-BuildAffinity $Mask).ToInt64()), 0)
+    $count = 0
+    while ($bits) { $count += [int]($bits -band 1); $bits = $bits -shr 1 }
+    return [Math]::Min($count, $LogicalCores)
+}

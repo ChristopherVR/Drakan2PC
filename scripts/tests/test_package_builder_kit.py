@@ -2,6 +2,7 @@
 
 import importlib.util
 import json
+import shutil
 import tempfile
 import unittest
 import zipfile
@@ -51,9 +52,33 @@ class BuilderKitTests(unittest.TestCase):
         self.assertIn(b"\r\n", kit.KIT_ROOT_FILES["Build-Drakan.cmd"].read_bytes())
         self.assertTrue((ROOT / kit.ICON).is_file())
 
+    def test_tool_zip_with_one_folder_is_flattened(self):
+        with tempfile.TemporaryDirectory() as temp:
+            for layout, expected in [("node-v1-win-x64/node.exe", "node.exe"), ("pwsh.exe", "pwsh.exe")]:
+                with self.subTest(layout=layout):
+                    archive_path = Path(temp) / "tool.zip"
+                    with zipfile.ZipFile(archive_path, "w") as archive:
+                        archive.writestr(layout, b"x")
+                    target = Path(temp) / "tools" / expected
+                    kit.extract_tool(archive_path, target.parent / "out")
+                    self.assertTrue((target.parent / "out" / expected).is_file())
+                    shutil.rmtree(target.parent)
+
+    def test_builder_scripts_are_found(self):
+        names = {path.relative_to(ROOT).as_posix() for path in kit.builder_scripts(ROOT)}
+        for name in ("scripts/buildtool/prepare_iso.py", "analysis/scripts/character_motion.py"):
+            self.assertIn(name, names)
+
+    @unittest.skipUnless((ROOT / "editor/packages/formats/.git").exists(), "formats submodule not checked out")
+    def test_snapshot_includes_submodule_sources(self):
+        # character_motion_retarget.ts imports these at build time; git archive alone leaves them out.
+        names = {name for name, _ in kit.snapshot("HEAD")}
+        for name in ("analysis/scripts/character_motion_retarget.ts", "editor/packages/formats/src/ootfanim.ts"):
+            self.assertIn(name, names)
+
     def test_installer_inputs_are_pinned(self):
         lock = json.loads((kit.KIT / "installer.lock.json").read_text(encoding="utf-8"))
-        for name in ("python", "pwsh", "ffmpeg"):
+        for name in ("python", "pwsh", "node", "ffmpeg"):
             with self.subTest(name=name):
                 self.assertTrue(lock[name]["url"].startswith("https://"))
                 self.assertRegex(lock[name]["sha256"], r"^[0-9a-f]{64}$")

@@ -4,9 +4,9 @@
 Both are a snapshot of a Git revision (HEAD by default; uncommitted changes are not included). Every source file passes
 the repository guard, so neither holds game data, generated game C++ or the private VU image; the recipient builds the
 game from their own disc with Build-Drakan.cmd. The installer also bundles what a non-technical user would otherwise
-have to install (pinned in kit/installer.lock.json): portable PowerShell 7 and Python, the prebuilt ps2_recomp.exe
-(built from the same snapshot) and the raylib / FFmpeg sources, so the build needs no Git, no Python and no downloads
-other than Microsoft's C++ Build Tools, which Build-Drakan.ps1 installs on first run.
+have to install (pinned in kit/installer.lock.json): portable PowerShell 7, Python and Node.js, the prebuilt
+ps2_recomp.exe (built from the same snapshot) and the raylib / FFmpeg sources, so the build needs no Git, no Python and
+no downloads other than Microsoft's C++ Build Tools, which Build-Drakan.ps1 installs on first run.
 """
 
 import argparse
@@ -15,6 +15,7 @@ import importlib.util
 import io
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -33,6 +34,9 @@ EXCLUDED_FILES = {"AGENTS.md", "CLAUDE.md"}
 KIT_ROOT_FILES = {"Build-Drakan.cmd": KIT / "Build-Drakan.cmd", "README.txt": KIT / "README.txt"}
 INSTALLER_ROOT_FILES = {"SETUP-INFO.txt": KIT / "SETUP-INFO.txt"}
 ICON = "ps2recomp/ps2xRuntime/src/res/drakan.ico"
+# The builders whose Python scripts the installer smoke test runs, and the Node.js script step 6 runs.
+BUILDERS = ("scripts/buildtool/Build-LocalGame.ps1", "scripts/buildtool/Build-Drakan.ps1")
+RETARGET = "analysis/scripts/character_motion_retarget.ts"
 
 
 def load_guard():
@@ -51,14 +55,28 @@ def run(args, cwd=None):
     subprocess.run([str(a) for a in args], cwd=cwd, check=True)
 
 
-def snapshot(revision):
-    """Yield (path, bytes) for every file of the revision, line endings as a checkout would have them."""
-    with tarfile.open(fileobj=io.BytesIO(git("archive", "--format=tar", revision))) as archive:
+def archive_files(revision, cwd=REPO, prefix=""):
+    with tarfile.open(fileobj=io.BytesIO(git("archive", "--format=tar", revision, cwd=cwd))) as archive:
         for member in archive:
             if member.isfile():
-                yield member.name, archive.extractfile(member).read()
+                yield prefix + member.name, archive.extractfile(member).read()
             elif not member.isdir() and member.name != "pax_global_header":
                 raise RuntimeError(f"{member.name}: links and special files are not packaged")
+
+
+def snapshot(revision):
+    """Yield (path, bytes) for every file of the revision and of its submodules, line endings as a checkout has them.
+
+    git archive leaves submodules out; character_motion.py needs the editor/packages/formats sources at build time.
+    """
+    yield from archive_files(revision)
+    for line in git("ls-tree", "-r", "-z", revision).decode().split("\0"):
+        if line.startswith("160000 "):
+            meta, path = line.split("\t", 1)
+            commit = meta.split()[2]
+            if not (REPO / path / ".git").exists():
+                raise RuntimeError(f"Submodule {path} is not checked out (git submodule update --init)")
+            yield from archive_files(commit, cwd=REPO / path, prefix=f"{path}/")
 
 
 def select(entries, guard):
@@ -143,6 +161,75 @@ def build_compiler(stage, commit, work_root):
     return Path(json.loads(result.read_text(encoding="utf-8"))["executable"])
 
 
+def extract_tool(archive_path, target):
+    """Unpack a portable tool; a zip with a single top-level folder (Node.js) is unpacked without that folder."""
+    with zipfile.ZipFile(archive_path) as archive:
+        archive.extractall(target)
+    children = list(target.iterdir())
+    if len(children) == 1 and children[0].is_dir():
+        inner = children[0]
+        for child in inner.iterdir():
+            child.rename(target / child.name)
+        inner.rmdir()
+
+
+def builder_scripts(root):
+    """Every Python script Build-LocalGame.ps1 / Build-Drakan.ps1 run, as paths under root."""
+    found = set()
+    for builder in BUILDERS:
+        text = (root / builder).read_text(encoding="utf-8")
+        for name in re.findall(r"'([\w/]+\.py)'", text):
+            for base in ("", "scripts/buildtool/", "scripts/"):
+                if (root / base / name).is_file():
+                    found.add((root / base / name).resolve())
+                    break
+    return sorted(found)
+
+
+def first_error(text):
+    lines = text.strip().splitlines()
+    return next((line.strip() for line in lines if "Error" in line), lines[-1] if lines else "no output")
+
+
+def fetch_tools(target):
+    """Unpack the pinned embeddable Python (with its ._pth as shipped) and Node.js into target/python and target/node."""
+    lock = json.loads((KIT / "installer.lock.json").read_text(encoding="utf-8"))
+    cache = target / "cache"
+    cache.mkdir(parents=True, exist_ok=True)
+    for tool in ("python", "node"):
+        archive = download(lock[tool], cache)
+        stamp = target / tool / ".source"
+        if not stamp.is_file() or stamp.read_text(encoding="utf-8") != archive.name:
+            if (target / tool).exists():
+                shutil.rmtree(target / tool)
+            extract_tool(archive, target / tool)
+            stamp.write_text(archive.name, encoding="utf-8")
+    return target
+
+
+def smoke_test(stage, tools=None, node=True):
+    """Run every builder script (and the Node part of step 6) with the bundled tools, as the kit will."""
+    tools = tools or stage / "tools"
+    python = tools / "python/python.exe"
+    failures = []
+    for script in builder_scripts(stage):
+        result = subprocess.run([python, script, "--help"], capture_output=True, text=True, cwd=stage)
+        if result.returncode != 0:
+            failures.append(f"{script.relative_to(stage).as_posix()}: {first_error(result.stderr)}")
+    if node:
+        # With no arguments the script stops after its imports resolved; a missing module fails before that.
+        result = subprocess.run(
+            [tools / "node/node.exe", "--experimental-transform-types", stage / RETARGET],
+            capture_output=True,
+            text=True,
+            cwd=stage,
+        )
+        if "scratch and output directories required" not in result.stderr:
+            failures.append(f"{RETARGET}: {first_error(result.stderr)}")
+    if failures:
+        raise RuntimeError("The bundled tools cannot run the build scripts:\n  " + "\n  ".join(failures))
+
+
 def find_iscc(explicit):
     candidates = [explicit, shutil.which("ISCC")]
     for variable, folder in (("LOCALAPPDATA", "Programs"), ("ProgramFiles(x86)", ""), ("ProgramFiles", "")):
@@ -175,14 +262,9 @@ def build_installer(entries, commit, output_directory, iscc):
     raylib = fetch_raylib(lock["raylib"], cache)
     shutil.copytree(raylib, stage / "deps/raylib", ignore=shutil.ignore_patterns(".git", "examples"))
     shutil.copyfile(download(lock["ffmpeg"], cache), stage / "deps" / lock["ffmpeg"]["url"].rsplit("/", 1)[1])
-    for tool in ("python", "pwsh"):
-        with zipfile.ZipFile(download(lock[tool], cache)) as archive:
-            archive.extractall(stage / "tools" / tool)
-    smoke = subprocess.run(
-        [stage / "tools/python/python.exe", stage / "scripts/buildtool/prepare_iso.py", "--help"], capture_output=True
-    )
-    if smoke.returncode != 0:
-        raise RuntimeError("The bundled Python cannot run the build scripts")
+    for tool in ("python", "pwsh", "node"):
+        extract_tool(download(lock[tool], cache), stage / "tools" / tool)
+    smoke_test(stage)
     version = f"1.0.{git('rev-list', '--count', commit).decode().strip()}"
     name = f"DrakanPC-Setup-{commit[:12]}"
     run(
@@ -206,7 +288,16 @@ def main():
     parser.add_argument("--name", default="DrakanPC-Builder", help="top-level folder inside the zip")
     parser.add_argument("--installer", action="store_true", help="build DrakanPC-Setup.exe instead of the zip")
     parser.add_argument("--iscc", help="path to Inno Setup's ISCC.exe")
+    parser.add_argument(
+        "--fetch-tools",
+        type=Path,
+        metavar="DIR",
+        help="only unpack the pinned embeddable Python and Node.js into DIR (for scripts/tests/test_kit_tools.py)",
+    )
     args = parser.parse_args()
+    if args.fetch_tools:
+        print(f"Kit tools: {fetch_tools(args.fetch_tools.resolve())}")
+        return
     commit = git("rev-parse", "--verify", f"{args.revision}^{{commit}}").decode().strip()
     if args.revision == "HEAD" and git("status", "--porcelain", "--untracked-files=no").strip():
         print("Note: the working tree has uncommitted changes; the package contains the committed HEAD only.")

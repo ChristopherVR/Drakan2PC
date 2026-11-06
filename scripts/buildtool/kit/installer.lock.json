@@ -8,6 +8,11 @@
     "url": "https://github.com/PowerShell/PowerShell/releases/download/v7.4.21/PowerShell-7.4.21-win-x64.zip",
     "sha256": "b47ee814b9fe5fe6b713a26667998cadd6bbb74cb3889fadea56c775f11953a2"
   },
+  "node": {
+    "url": "https://nodejs.org/dist/v24.22.1/node-v24.22.1-win-x64.zip",
+    "sha256": "d2046d28c2c3dcd211ac5145c0bf30e2047ef9dfb306693c8c6e2eccd8b95fa5",
+    "comment": "LTS; analysis/scripts/character_motion.py runs character_motion_retarget.ts with it (needs 22.7+)"
+  },
   "ffmpeg": {
     "url": "https://github.com/System233/ffmpeg-msvc-prebuilt/releases/download/n7.1-241205/ffmpeg-n7.1-241205-lgpl-amd64-shared.zip",
     "sha256": "b985887dbca8c0a9a4c47f9d2bac7ec3ab994335b1b7fe7000bdb1dcd772ac68"

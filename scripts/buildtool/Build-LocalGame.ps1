@@ -39,7 +39,7 @@ param(
     # the tools' own output, which goes to <WorkDir>-output.log (e.g. build/game-output.log).
     [switch]$Progress,
     # Compiler processes per project (cl /MP). The generated game code is 83 files of up to 3 MB in one project, so this is
-    # what decides a full build's length: 1 compiles them one after another. Default: half the logical cores, at most 4 (the large generated files use up to ~6 GB per compiler process; the VU1 AOT slices ~17 GB, see -SerialVuSlices).
+    # what decides a full build's length: 1 compiles them one after another. Default: half the logical cores (of -CpuAffinity's, when set), at most 4 (the largest generated files use about 1.3 GB per compiler process; the VU1 AOT slices ~17 GB, see -SerialVuSlices).
     # Total compiler load is about Jobs x CompilerProcesses; use 1 to keep the machine free for other work.
     [ValidateRange(1,32)][int]$CompilerProcesses = [Math]::Max(1, [Math]::Min(4, [int]([Environment]::ProcessorCount / 2))),
     [switch]$PrepareOnly,
@@ -58,6 +58,10 @@ if ($CpuAffinity -and (-not $windowsHost -or $TargetPlatform -eq 'web')) {
 }
 # Validate before extraction or any other build work.
 if ($CpuAffinity) { Resolve-BuildAffinity $CpuAffinity | Out-Null }
+# The default above counts every logical core; with a mask only the selected ones run the compilers.
+if ($CpuAffinity -and -not $PSBoundParameters.ContainsKey('CompilerProcesses')) {
+    $CompilerProcesses = [Math]::Max(1, [Math]::Min(4, [int][Math]::Floor((Get-BuildAffinityCount $CpuAffinity) / 2)))
+}
 if ($TargetPlatform -eq 'native') { $TargetPlatform = if ($windowsHost) { 'windows' } else { 'linux' } }
 $webBuild = $TargetPlatform -eq 'web'
 if ($webBuild -and $windowsHost) {

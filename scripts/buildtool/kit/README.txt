@@ -26,7 +26,8 @@ free "Visual Studio 2022 Build Tools" (the C++ compiler, about 3 GB). Windows
 asks for permission once.
 
 (If you have the zip kit instead of DrakanPC-Setup.exe, it also needs
-PowerShell 7, Python 3.11+ and Git; the builder tells you what is missing.)
+PowerShell 7, Python 3.11+, Node.js 22.7+ and Git; the builder tells you
+what is missing.)
 
 
 BUILD

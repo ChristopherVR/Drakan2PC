@@ -21,8 +21,8 @@ param(
     [switch]$EnableDlss,
     # Also build the browser version (needs WSL with Ubuntu); play it on the project's browser player page.
     [switch]$Web,
-    # CPU cores the compilers may use (0 = automatic: half the logical cores, at most 4). Memory still limits how many
-    # run at once. Remembered in build/build-options.json for later rebuilds.
+    # CPU cores the compilers may use (0 = automatic: half the logical cores, at most 4; never more than -CpuAffinity
+    # selects). Memory still limits how many run at once. Remembered in build/build-options.json for later rebuilds.
     [ValidateRange(0, 256)][int]$Cores = -1,
     # Optional Windows logical-processor hex mask; 'default' clears a remembered mask.
     [string]$CpuAffinity,
@@ -33,6 +33,7 @@ param(
 )
 $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'Build-Affinity.ps1')
+. (Join-Path $PSScriptRoot 'Build-Policy.ps1')
 $RepoRoot = (Resolve-Path -LiteralPath (Join-Path $PSScriptRoot '../..')).Path
 if (-not $WorkDir) { $WorkDir = Join-Path $RepoRoot 'build/game' }
 $WorkDir = [IO.Path]::GetFullPath($WorkDir)
@@ -98,6 +99,15 @@ try {
     }
     if ($python) { Write-Host "Python:  $python" } else { $problems.Add('Python 3.11 or newer on PATH (https://www.python.org/downloads/)') }
 
+    # Node.js 22.7+ (TypeScript support) makes the multiplayer character motions in the last step: the bundled copy
+    # first, then one on PATH. character_motion.py finds it on PATH.
+    $bundledNode = Join-Path $RepoRoot 'tools/node'
+    if (Test-Path -LiteralPath (Join-Path $bundledNode 'node.exe') -PathType Leaf) { $env:PATH = "$bundledNode;$env:PATH" }
+    $node = Get-Command node -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
+    $nodeVersion = if ($node) { (& $node.Source -p 'process.versions.node' 2>$null | Out-String).Trim() }
+    if ($nodeVersion -and [version]$nodeVersion -ge [version]'22.7') { Write-Host "Node.js: $($node.Source) ($nodeVersion)" }
+    else { $problems.Add('Node.js 22.7 or newer on PATH (winget install OpenJS.NodeJS.LTS)') }
+
     # Git is only needed to fetch sources the kit does not already carry.
     $offline = (Test-Path -LiteralPath (Join-Path $PSScriptRoot 'ps2_recomp.exe') -PathType Leaf) -and
         (Test-Path -LiteralPath (Join-Path $RepoRoot 'deps/raylib') -PathType Container)
@@ -117,9 +127,9 @@ try {
         Write-Warning "The install folder path is long ($($RepoRoot.Length) characters). If the build fails with path errors, reinstall somewhere short such as C:\DrakanPC."
     }
 
-    # Compiler memory: up to ~6 GB per process on the large generated files, ~17 GB for each of the four VU1 AOT slices.
-    # The slices always compile one after another (-SerialVuSlices); a second MSBuild project only runs beside them when
-    # there is room for a slice plus a full set of generated-code compilers.
+    # Compiler memory: about 1.3 GB per process on the largest generated files, ~17 GB for each of the four VU1 AOT
+    # slices. The slices always compile one after another (-SerialVuSlices); a second MSBuild project only runs when there
+    # is room for a slice plus a full set of generated-code compilers. Sizing: Get-BuildParallelism (Build-Policy.ps1).
     # The CPU choice (installer page or -Cores / -Priority) is remembered so "Rebuild Drakan" keeps it.
     $optionsFile = Join-Path $RepoRoot 'build/build-options.json'
     $saved = if (Test-Path -LiteralPath $optionsFile -PathType Leaf) {
@@ -139,19 +149,16 @@ try {
     @{ cores = $Cores; priority = $Priority; cpuAffinity = $CpuAffinity } | ConvertTo-Json | Set-Content -LiteralPath $optionsFile
 
     $logicalCores = [Environment]::ProcessorCount
+    # The compilers only run on the mask's processors, so size the build for those, not for the whole CPU.
+    $usableCores = Get-BuildAffinityCount $CpuAffinity $logicalCores
     $memoryGb = [Math]::Floor((Get-CimInstance Win32_ComputerSystem).TotalPhysicalMemory / 1GB)
-    $memoryCap = [Math]::Max(1, [int][Math]::Floor($memoryGb / 6))
-    if ($Cores -gt 0) {
-        # Total compiler load is about projects x processes: two projects only when there are cores for both.
-        $budget = [Math]::Min($Cores, $logicalCores)
-        $jobs = if ($budget -ge 4 -and $memoryGb -ge 17 + 6 * [int][Math]::Floor($budget / 2) + 6) { 2 } else { 1 }
-        $compilerProcesses = [Math]::Max(1, [Math]::Min([int][Math]::Floor($budget / $jobs), $memoryCap))
-        Write-Host "CPU:     $budget of $logicalCores logical cores (your choice)"
-    } else {
-        $compilerProcesses = [Math]::Max(1, [Math]::Min([Math]::Min(4, [int]($logicalCores / 2)), $memoryCap))
-        $jobs = if ($memoryGb -ge 17 + 6 * $compilerProcesses + 6) { 2 } else { 1 }
-        Write-Host "CPU:     automatic ($logicalCores logical cores)"
-    }
+    $sizing = Get-BuildParallelism -Cores $Cores -LogicalCores $logicalCores -MemoryGb $memoryGb -UsableCores $usableCores
+    $jobs = $sizing.Jobs
+    $compilerProcesses = $sizing.CompilerProcesses
+    $usableText = if ($usableCores -lt $logicalCores) { "$usableCores of $logicalCores logical cores, from the affinity mask" }
+    else { "$logicalCores logical cores" }
+    if ($Cores -gt 0) { Write-Host "CPU:     $($sizing.Budget) cores (your choice; $usableText)" }
+    else { Write-Host "CPU:     automatic ($usableText)" }
     Write-Host "Memory:  $memoryGb GB -> $jobs project(s) x $compilerProcesses compiler process(es)"
     if ($Priority -eq 'Low') {
         # Compilers started from here inherit the priority class; MSBuild nodes left over from an earlier build would not.
@@ -263,21 +270,7 @@ try {
         Write-Step 'Building the game: this takes one to two hours. Some files take 10 minutes each; the window is not stuck.'
     }
     $started = Get-Date
-    $global:DrakanBuildStep = $null
-    try {
-        & (Join-Path $PSScriptRoot 'Build-LocalGame.ps1') @buildArgs
-    } catch {
-        # Most compile failures are the compiler running out of memory; retry once, one file at a time. Failures in any
-        # other step (a script error, a missing file) would only fail again after the same wait, so they stop here.
-        if (-not (Test-Path -LiteralPath $prepared -PathType Leaf)) { throw }
-        if ($global:DrakanBuildStep -and $global:DrakanBuildStep -notlike 'Compiling the game*') { throw }
-        Write-Warning "The build stopped: $_"
-        Write-Step 'Trying again with less parallel compiling'
-        $buildArgs.Incremental = $true
-        $buildArgs.Jobs = 1
-        $buildArgs.CompilerProcesses = [Math]::Max(1, [int][Math]::Floor($compilerProcesses / 2))
-        & (Join-Path $PSScriptRoot 'Build-LocalGame.ps1') @buildArgs
-    }
+    Invoke-BuildWithRetry (Join-Path $PSScriptRoot 'Build-LocalGame.ps1') $buildArgs $prepared
     if ($Web) {
         Write-Step 'Building the browser version (WSL)'
         try {

@@ -4,26 +4,21 @@ The embeddable distribution's ._pth file keeps the script's own folder off sys.p
 with a normal Python fails in the released builder kit. `python -I` reproduces that. No game data is needed.
 """
 
-import re
+import importlib.util
 import subprocess
 import sys
 import unittest
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[2]
-BUILDERS = [REPO / "scripts/buildtool/Build-LocalGame.ps1", REPO / "scripts/buildtool/Build-Drakan.ps1"]
-SEARCH = [REPO, REPO / "scripts/buildtool", REPO / "scripts"]
+spec = importlib.util.spec_from_file_location("package_builder_kit", REPO / "scripts/buildtool/package_builder_kit.py")
+kit = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(kit)
 
 
 def builder_scripts():
-    found = set()
-    for builder in BUILDERS:
-        for name in re.findall(r"'([\w/]+\.py)'", builder.read_text(encoding="utf-8")):
-            for base in SEARCH:
-                if (base / name).is_file():
-                    found.add((base / name).resolve())
-                    break
-    return sorted(found)
+    # The installer's smoke test runs the same list with the bundled Python.
+    return kit.builder_scripts(REPO)
 
 
 class BuildScriptImportTests(unittest.TestCase):

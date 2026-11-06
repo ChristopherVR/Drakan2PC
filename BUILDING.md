@@ -42,6 +42,8 @@ failing the build; `upload_artifacts=false` skips uploading.
 ## Prerequisites
 
 - Git, Python 3.11+ and CMake 3.21+ (found through PATH or vswhere).
+- Node.js 22.7+ on PATH for a PAL game build: the play-folder step runs
+  `analysis/scripts/character_motion_retarget.ts` with it (the installer bundles Node.js).
 - Windows: VS 2022 Desktop development with C++, x64 tools and a Windows SDK.
 - Linux compiler only: GCC with C++20, CMake and Ninja.
 - Linux runtime tests additionally need ALSA development headers (`libasound2-dev` on Ubuntu).
@@ -232,16 +234,18 @@ single CMake root (2026-10-22) are refused; do one full build into a fresh `Work
 
 ### Optional Windows build CPU affinity
 
-`Build-Drakan.ps1 -Cores 6 -CpuAffinity 0xFFF` keeps the existing compiler-count
-choice and restricts build processes to the logical processors selected by the hex
-mask (bits 0 through 11 in this example). The installer has the same optional mask
+`Build-Drakan.ps1 -Cores 6 -CpuAffinity 0xFFF` restricts build processes to the
+logical processors selected by the hex mask (bits 0 through 11 in this example) and
+sizes the build for those processors: `-Cores` (and the automatic choice, half the
+usable processors, at most 4 compiler processes) never exceeds the mask's count. The installer has the same optional mask
 field and accepts `/AFFINITY=0xFFF`. The guided builder remembers the mask in
 `build/build-options.json`; `-CpuAffinity default` clears it. An empty installer
 field clears a previous choice.
 
 The direct builder accepts `Build-LocalGame.ps1 -IsoPath <iso> -Incremental
 -WorkDir build/final-game -Jobs 2 -CompilerProcesses 3 -CpuAffinity 0xFFF`.
-Its mask is optional on every invocation and is independent of concurrency. It
+Its mask is optional on every invocation; without an explicit `-CompilerProcesses`
+the default is half the mask's processors (at most 4). It
 must be nonzero, at most 64 bits, and a subset of the caller's permitted affinity.
 The mask addresses logical processors in the current Windows processor group;
 it does not select physical cores or processors across groups. MSBuild node reuse

@@ -3,7 +3,7 @@ name: Build compiler tools (no game data)
 on:
   push:
     branches: [main]
-    paths: ['CMakeLists.txt', 'CMakePresets.json', 'cmake/**', 'third_party/**', 'runtime/**', 'ps2recomp/**', 'scripts/buildtool/**', 'scripts/repository_guard.py', 'scripts/run_tests.py', 'scripts/prepare_local_runtime.py', 'scripts/tests/**', 'configs/**', '.github/workflows/build-tools.yml', 'BUILDING.md']
+    paths: ['CMakeLists.txt', 'CMakePresets.json', 'cmake/**', 'third_party/**', 'runtime/**', 'ps2recomp/**', 'scripts/buildtool/**', 'scripts/repository_guard.py', 'scripts/run_tests.py', 'scripts/prepare_local_runtime.py', 'scripts/tests/**', 'analysis/scripts/character_*', 'configs/**', '.github/workflows/build-tools.yml', 'BUILDING.md']
   pull_request:
   workflow_dispatch:
     inputs:
@@ -129,12 +129,20 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           persist-credentials: false
+          # editor/packages/formats: the builder runs character_motion_retarget.ts against it.
+          submodules: recursive
       - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
         with:
           python-version: '3.12'
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '22'
       - name: Reject tracked game data, SDK files and binaries
         run: python scripts/repository_guard.py
-      - name: Run Python tests (synthetic inputs only)
+      - name: Unpack the builder kit's pinned Python and Node.js (scripts/tests/test_kit_tools.py)
+        if: runner.os == 'Windows'
+        run: python scripts/buildtool/package_builder_kit.py --fetch-tools build/kit-tools
+      - name: Run Python tests (synthetic inputs only; builder scripts on Windows)
         run: python scripts/run_tests.py -v
       - name: Install Linux compiler tools
         if: runner.os == 'Linux'

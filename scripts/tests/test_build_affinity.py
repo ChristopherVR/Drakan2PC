@@ -13,9 +13,12 @@ PWSH = shutil.which("pwsh")
 @unittest.skipUnless(PWSH and sys.platform == "win32", "Windows PowerShell 7 affinity tests")
 class BuildAffinityTests(unittest.TestCase):
     def run_script(self, body):
-        helper = str(ROOT / "scripts/buildtool/Build-Affinity.ps1").replace("'", "''")
+        helpers = "; ".join(
+            ". '{}'".format(str(ROOT / "scripts/buildtool" / name).replace("'", "''"))
+            for name in ("Build-Affinity.ps1", "Build-Policy.ps1")
+        )
         result = subprocess.run(
-            [PWSH, "-NoProfile", "-Command", f"$ErrorActionPreference = 'Stop'; . '{helper}'; {body}"],
+            [PWSH, "-NoProfile", "-Command", f"$ErrorActionPreference = 'Stop'; {helpers}; {body}"],
             capture_output=True,
             text=True,
             timeout=30,
@@ -84,6 +87,41 @@ class BuildAffinityTests(unittest.TestCase):
             } finally { Exit-BuildAffinity $state }
             if ($p.ProcessorAffinity -ne $before) { throw 'Caller affinity not restored' }
             if ($env:MSBUILDDISABLENODEREUSE -ne 'original') { throw 'Node reuse not restored' }
+            """
+        )
+
+    def test_mask_count_sizes_the_compilers(self):
+        self.run_script(
+            """
+            $p = [Diagnostics.Process]::GetCurrentProcess()
+            $available = [BitConverter]::ToUInt64([BitConverter]::GetBytes($p.ProcessorAffinity.ToInt64()), 0)
+            $bits = 0; $v = $available; while ($v) { $bits += [int]($v -band 1); $v = $v -shr 1 }
+            if ((Get-BuildAffinityCount ('0x{0:X}' -f $available) 64) -ne $bits) { throw 'Full mask miscounted' }
+            if ((Get-BuildAffinityCount '' 24) -ne 24) { throw 'No mask must count every core' }
+            $low = [uint64]1; while (($available -band $low) -eq 0) { $low = $low -shl 1 }
+            if ((Get-BuildAffinityCount ('0x{0:X}' -f $low) 24) -ne 1) { throw 'One-bit mask miscounted' }
+
+            function Check($cores, $logical, $memory, $usable, $jobs, $processes) {
+                $s = Get-BuildParallelism -Cores $cores -LogicalCores $logical -MemoryGb $memory -UsableCores $usable
+                if ($s.Jobs -ne $jobs -or $s.CompilerProcesses -ne $processes) {
+                    throw "cores=$cores logical=$logical memory=$memory usable=$usable -> $($s.Jobs) x $($s.CompilerProcesses)"
+                }
+            }
+            # Issue 1: 24 logical cores, 63 GB, mask 0xFF (8): 2 x 4 fills the mask's 8 processors, no more.
+            Check 0 24 63 8 2 4
+            # A 4-processor mask on the same PC must not start 2 x 4 compilers.
+            Check 0 24 63 4 2 2
+            Check 0 24 63 2 2 1
+            Check 0 24 63 1 1 1
+            # An explicit core count is capped at the mask.
+            Check 12 24 63 8 2 4
+            Check 12 24 63 24 2 6
+            # No mask: unchanged automatic choice on a large PC; memory still limits small ones.
+            Check 0 24 63 24 2 4
+            Check 0 16 16 16 1 4
+            Check 0 16 8 16 1 4
+            Check 0 16 4 16 1 2
+            Check 8 16 16 16 1 8
             """
         )
 
