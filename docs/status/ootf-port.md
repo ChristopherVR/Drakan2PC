@@ -111,6 +111,13 @@ gate eyes, Alwarren, Intro logo): their frames are converted with one collision 
 corruption of the earlier trial (formats `918de7e`). Open: the Runeblade cannot be reached (no floor on the platform's central
 disc), so the Rift World exit is untested by play. See [Volcanic route](../journal/2026-11-06/ootf-volcanic-route.md).
 
+**November 7 invisible walls (issue 5):** converted invisible walls, bounding boxes and trigger volumes (119 placed objects,
+Volcanic's Arrow Detect Object 2366 among them) drew as black boxes: their fully transparent texture was written 8 bpp with
+flags word 0. It is now written like the disc's own "invisiblewall" texture (16 bpp, flags word 1, alpha clear); models and
+collision are unchanged (formats `7553750`). In game the black boxes are gone in Volcanic (cage Bounding Box) and Succubus
+Lair (Invisible Walls 3474, 3483), and Rynn still stops at 3483. 2366 itself was not replayed after the breath. See
+[invisible walls](../journal/2026-11-07/ootf-invisible-walls.md).
+
 ## What works
 
 * Converter `editor/scripts/ootf-convert.ts` (`--campaign 1` for the campaign): terrain, textures, models, creatures (skinned, retargeted
