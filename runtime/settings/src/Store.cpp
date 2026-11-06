@@ -444,6 +444,9 @@ const std::vector<Field>& fields() {
          "ray-traced diffuse indirect lighting from nearby scene surfaces; experimental, default off"},
         {"video", "ray_shadows", false, GETB(video.rayShadows), SETB(video.rayShadows),
          "hardware ray-traced soft shadows from native lights and ambient occlusion, including alpha-tested foliage"},
+        {"video", "poly_near_clip", false, GETB(video.polyNearClip), SETB(video.polyNearClip),
+         "1 = clip effect polygons (ribbons, beams) at the camera instead of drawing them whole; fixes streaks and "
+         "flashes when the camera is inside an effect"},
         {"video", "foliage_wind", false, GETB(video.foliageWind), SETB(video.foliageWind),
          "experimental: grass, flowers and trees sway in a travelling wind with gusts and grass bends away from the "
          "player (render only, nothing is saved)"},
@@ -748,6 +751,7 @@ std::string settingLabel(const std::string& key) {
         {"video.ray_reflections", "Ray-traced reflections"},
         {"video.ray_gi", "Ray-traced global illumination"},
         {"video.ray_shadows", "Ray-traced shadows"},
+        {"video.poly_near_clip", "Clip effects at the camera"},
         {"video.foliage_wind", "Living foliage"},
         {"video.foliage_wind_strength", "Foliage wind strength"},
         {"video.dlss", "DLSS"},

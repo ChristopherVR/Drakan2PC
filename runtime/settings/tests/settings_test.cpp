@@ -818,6 +818,25 @@ int main(int argc, char** argv) {
         next.loadFromText(a, b);
         CHECK(!next.loaded().video.foliageWind && next.loaded().video.foliageWindStrength == 0.5f);
     }
+    {
+        // Polygon near-plane clip: on by default, round-trips through the ini.
+        SettingsStore st;
+        st.loadFromText("", "");
+        CHECK(st.loaded().video.polyNearClip);
+        st.loadFromText("[video]
+poly_near_clip=0
+", "");
+        CHECK(!st.loaded().video.polyNearClip);
+        auto n = st.loaded();
+        n.video.polyNearClip = true;
+        auto keys = changedKeys(st.loaded(), n);
+        CHECK(std::find(keys.begin(), keys.end(), "video.poly_near_clip") != keys.end());
+        std::string a, b;
+        st.render(n, a, b);
+        SettingsStore next;
+        next.loadFromText(a, b);
+        CHECK(next.loaded().video.polyNearClip);
+    }
     testMipBiasMode();
     testCombatAndFovSettings();
     testInventoryScreen();

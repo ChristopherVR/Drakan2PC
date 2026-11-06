@@ -170,6 +170,10 @@ variables override it), so the overlay both **writes** the files and calls the h
 5. Handlers were located through the vtables (`0x54e6b8`, `0x54dfb0`, `0x54eef0`: handler at `+0x44`) and read in the decompile.
 6. `ui_layout_dump.py` prints layouts + text for cross-checking; the options table at `0x54ef48` is plain .data and can be dumped with `analysis/input/elf.py` (`u32`).
 
+## Graphics: effect clipping (2026-11-07)
+
+* Video page row **Clip effects at the camera (fixes streaks and flashes)** (`[video] poly_near_clip`, on by default, live apply via `drakan_polyclip::configure`). Greyed with a note when the PAL hook is not installed. Notes: `docs/journal/2026-11-06/stratos-garbled-effects.md`.
+
 ## Controls page / overlay input (controls branch, 2026-10-17)
 
 * New Controls rows: **Keep camera pitch** (`[mouse] pitch_persist`), **A / D strafe** (`[keyboard] strafe`), **Mouse in inventory / map** (`[menu] inventory_mouse`); "Invert vertical look" now reads "Off (default): mouse up looks up".

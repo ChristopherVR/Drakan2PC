@@ -272,6 +272,11 @@ void displayPage(gameui::SettingPage& pg, const Settings& st, const SchemaEnv& e
     b.toggle("video.smooth_menu_highlight", "Smooth menu highlight",
              "The highlighted menu entry is a fire effect that is a noisy checkerboard on a PC screen. On softens it "
              "the way a TV did.");
+    b.toggle("video.poly_near_clip", "Clip effects at the camera (fixes streaks and flashes)",
+             caps.polyNearClip ? "Spell beams, ribbons and trails that pass through the camera are cut cleanly instead "
+                                 "of flashing across the screen as streaks."
+                               : "Needs the PAL executable layout; not available for this disc.",
+             caps.polyNearClip || v.polyNearClip);
     b.toggle("video.flicker_filter", "Flicker filter",
              "Keep the game's own anti-flicker blend. It softens the picture, so it is off by default.");
     b.toggle("video.sharp_present", "Sharp scaling",

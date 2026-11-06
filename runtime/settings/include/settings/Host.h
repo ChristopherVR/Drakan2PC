@@ -47,6 +47,7 @@ struct HostCaps {
     std::string dlssNeuralStatus;
     bool modernWater = false;
     std::string modernWaterStatus;
+    bool polyNearClip = false;   // polygon near-plane clip hook installed (PAL addresses): poly_near_clip
     bool foliageWind = false;    // living foliage hook installed (PAL addresses): foliage_wind / foliage_wind_strength
     bool rendererChoice = false; // the build has both GS renderers (Windows: WebGPU and Direct3D 11): video.renderer
     std::string rayTracingStatus;

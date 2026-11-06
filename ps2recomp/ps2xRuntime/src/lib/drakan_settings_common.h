@@ -4,6 +4,7 @@
 #pragma once
 #include "drakan_debug_menu.h"
 #include "drakan_dual_wield.h"
+#include "drakan_polyclip.h"
 #include "drakan_region.h"
 #include "drakan_save_guard.h"
 #include "drakan_foliage.h"
@@ -30,6 +31,7 @@ public:
         dsettings::HostCaps c;
         c.hdTextures = true;
         c.foliageWind = drakan_foliage::available();
+        c.polyNearClip = drakan_polyclip::available();
         using drakan_region::Feature;
         using drakan_region::supports;
         c.promptStyle = supports(Feature::UiPrompts);
@@ -121,6 +123,8 @@ protected:
             drakan_fpsmeter::setCornerText(n.fpsPosition.c_str());
         if (n.fieldOfView != p.fieldOfView)
             drakan_ws::setFieldOfView(n.fieldOfView);
+        if (n.polyNearClip != p.polyNearClip)
+            drakan_polyclip::configure(n.polyNearClip);
         if (n.foliageWind != p.foliageWind || n.foliageWindStrength != p.foliageWindStrength)
             drakan_foliage::configure(n.foliageWind, n.foliageWindStrength);
     }

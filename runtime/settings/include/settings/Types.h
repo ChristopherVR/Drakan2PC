@@ -61,6 +61,7 @@ struct VideoSettings {
     bool rayReflections = false;
     bool rayShadows = false;
     bool rayGlobalIllumination = false;
+    bool polyNearClip = true; // poly_near_clip: clip effect polygons at the camera (fixes streaks and flashes)
     bool foliageWind = false; // foliage_wind: grass and trees sway in the wind, grass bends away from the player
     float foliageWindStrength = 1.0f; // foliage_wind_strength: 0.25 .. 2
     bool dlssNeural = false;          // dlss_neural: DLSS 5 neural rendering, independent of Super Resolution
