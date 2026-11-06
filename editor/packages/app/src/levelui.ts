@@ -903,6 +903,11 @@ export function initLevelUi(host: LevelUiHost): LevelUi {
         levels: () => (disc?.levels ?? []).filter((l) => l.present),
         toast,
         profile: () => disc?.profile?.profile ?? null,
+        addLevels: async (levels, files) => {
+            const all = await host.call('addVirtualLevels', levels, files);
+            if (disc) setDisc({ ...disc, levels: all });
+        },
+        openLevel: (dirPath) => openLevel(dirPath),
     });
     registerUnrealExport({
         collect: () =>

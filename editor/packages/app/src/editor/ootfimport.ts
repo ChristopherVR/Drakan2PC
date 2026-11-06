@@ -34,6 +34,10 @@ export interface OotfHost {
     toast(msg: string, kind?: 'info' | 'error' | 'ok' | 'warn'): void;
     /** Disc profile id for the mod manifest (`pal` / `usa`), or null. */
     profile(): string | null;
+    /** Make converted levels listable and openable in this session (they stay in memory; nothing is written). */
+    addLevels(levels: { name: string; dirPath: string }[], files: { path: string; bytes: Uint8Array }[]): Promise<void>;
+    /** Open a level of the list in the viewport. */
+    openLevel(dirPath: string): Promise<void>;
 }
 
 const STYLE = `
@@ -367,7 +371,24 @@ function openDialog(host: OotfHost): void {
                 : {}),
         };
         const pack = await buildOotfPack(meta, template, inputs, ps2BlobFor, { splats, extraFiles: result.files });
-        const zip = zipOotfPack(pack);
+        const language = tplDir.split('\\')[0] ?? 'ENGLISH';
+        const virtual = pack.levels.map((l) => ({ name: l.title, dirPath: `${language}\\LEVELS\\${l.mangled}` }));
+        const virtualFiles = Object.entries(pack.files).map(([path, bytes]) => ({ path, bytes }));
+        await host.addLevels(virtual, virtualFiles);
+        const openers = virtual.map((v) =>
+            h(
+                'button',
+                {
+                    class: 'btn',
+                    type: 'button',
+                    onclick: () => {
+                        dlg.close();
+                        void host.openLevel(v.dirPath);
+                    },
+                },
+                v.name,
+            ),
+        );
         const save = h(
             'button',
             {
@@ -375,8 +396,9 @@ function openDialog(host: OotfHost): void {
                 type: 'button',
                 // The desktop app asks where to save (a plain <a download> lands silently in Downloads in WebView2).
                 onclick: () =>
-                    void toastSaveResult(downloadFile('ootf-levels.zip', zip as BlobPart, 'application/zip'), (m, k) =>
-                        host.toast(m, k),
+                    void toastSaveResult(
+                        downloadFile('ootf-levels.zip', zipOotfPack(pack) as BlobPart, 'application/zip'),
+                        (m, k) => host.toast(m, k),
                     ),
             },
             'Download mod (.zip)',
@@ -408,6 +430,8 @@ function openDialog(host: OotfHost): void {
             ),
             ...[...result.warnings, ...pack.warnings].slice(0, 6).map((w) => h('div', { class: 'od-dim' }, w)),
             h('div', { class: 'od-row' }, save, folder),
+            h('div', { class: 'od-dim' }, 'Open a converted level in the editor:'),
+            h('div', { class: 'od-row od-open' }, ...openers),
             h(
                 'div',
                 { class: 'od-dim' },

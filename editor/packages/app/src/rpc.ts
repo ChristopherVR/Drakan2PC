@@ -108,6 +108,14 @@ export interface Api {
     readEntry(path: string, index: number, offset: number, length: number, inflate: boolean): EntryBytes;
     exportRoundTrip(path: string, max: number): RoundTripResult;
     loadLevel(dirPath: string): LevelLoadResult;
+    /**
+     * Lay a converted Order of the Flame pack (its files by pack path) over the disc and list `levels` next to the disc's own.
+     * Files with a disc path replace the disc file for this session. Returns the new level list.
+     */
+    addVirtualLevels(
+        levels: { name: string; dirPath: string }[],
+        files: { path: string; bytes: Uint8Array }[],
+    ): LevelInfo[];
     /** The raw `.LVL` container of the level in `dirPath` (template for converted Order of the Flame levels). */
     readLevelFile(dirPath: string): Uint8Array;
     /** Where the exits of every level on the disc lead (loads every level's object list; seconds). */

@@ -19,6 +19,7 @@ import {
     sliceSource,
 } from '@drakan/formats';
 import { destinationLevelName, srscRoundTrips } from '@drakan/editor-core';
+import { overlayDisc, packPathToDisc, patchedContainers, type VirtualFile } from './virtualdisc.ts';
 import { loadModelData, loadTerrainData } from './scene/decode.ts';
 import { loadItemCatalog, loadItemModels, resetItemData } from './itemdata.ts';
 import { loadStoryCatalog, resetStoryData } from './storydata.ts';
@@ -75,6 +76,10 @@ function remoteBlob(r: RemoteBlob): BlobLike {
 }
 
 let iso: Iso9660 | null = null;
+/** The disc as opened, without in-memory files (`addVirtualLevels` lays them over it). */
+let baseIso: Iso9660 | null = null;
+const virtualFiles = new Map<string, VirtualFile>();
+const virtualLevels = new Map<string, LevelInfo>();
 let language = '';
 const srscCache = new Map<string, SrscReader>();
 const inflatedCache = new Map<string, { data: Uint8Array }>();
@@ -146,18 +151,19 @@ async function readOdbDeps(fs: Iso9660, stemPath: string): Promise<Record<number
     return out;
 }
 
-async function loadLevels(): Promise<LevelInfo[]> {
+async function loadLevels(withVirtual = true): Promise<LevelInfo[]> {
     const fs = need();
     const f = await fs.find(`${language}\\LEVELLST.TXT`);
     if (!f) return [];
     const list = parseLevelList(decoder.decode(await fs.read(f)));
-    return Promise.all(
+    const disc = await Promise.all(
         list.map(async (l) => {
             const dirPath = `${language}\\${l.dirPath}`;
             const dir = await fs.find(dirPath);
             return { name: l.name, dirPath, present: !!dir?.isDir };
         }),
     );
+    return withVirtual ? [...disc, ...virtualLevels.values()] : disc;
 }
 
 async function getSrsc(path: string): Promise<SrscReader> {
@@ -228,7 +234,10 @@ async function readLevel(fs: Iso9660, dirPath: string, withTerrain = false): Pro
 const api: { [K in keyof Api]: (...a: Parameters<Api[K]>) => Promise<ReturnType<Api[K]>> } = {
     async open(file) {
         // Block cache: a level is thousands of small records, and each read of a File or URL is its own round trip.
-        iso = await Iso9660.open(blockCacheSource(blobSource('url' in file ? remoteBlob(file) : file)));
+        baseIso = await Iso9660.open(blockCacheSource(blobSource('url' in file ? remoteBlob(file) : file)));
+        iso = baseIso;
+        virtualFiles.clear();
+        virtualLevels.clear();
         srscCache.clear();
         const languages: string[] = [];
         for (const e of await iso.list('')) {
@@ -327,6 +336,25 @@ const api: { [K in keyof Api]: (...a: Parameters<Api[K]>) => Promise<ReturnType<
         if (!lvlFile) throw new Error(`no .LVL file in ${dirPath}`);
         return fs.source.read(lvlFile.extent * 2048, lvlFile.size);
     },
+    async addVirtualLevels(levels, files): Promise<LevelInfo[]> {
+        need();
+        const packFiles: Record<string, Uint8Array> = {};
+        for (const f of files) {
+            packFiles[f.path] = f.bytes;
+            const path = packPathToDisc(f.path);
+            if (path) virtualFiles.set(path.toUpperCase(), { path, bytes: f.bytes });
+        }
+        // Entry patches (`overrides/`, `new/`) land in whole copies of the disc's containers (class tables, animations).
+        for (const f of (await patchedContainers(baseIso!, language, packFiles)).files)
+            virtualFiles.set(f.path.toUpperCase(), f);
+        for (const l of levels)
+            virtualLevels.set(l.dirPath.toUpperCase(), { name: l.name, dirPath: l.dirPath, present: true });
+        iso = overlayDisc(baseIso!, [...virtualFiles.values()]);
+        gatedIso = null;
+        srscCache.clear();
+        inflatedCache.clear();
+        return loadLevels();
+    },
     async loadLevel(dirPath): Promise<LevelLoadResult> {
         return readLevel(need(), dirPath, true);
     },
@@ -368,7 +396,7 @@ const api: { [K in keyof Api]: (...a: Parameters<Api[K]>) => Promise<ReturnType<
         const fs = needBackground();
         const data = await loadStoryEdit(fs, language);
         const ids = new Set(data.quests.map((q) => q.cls.classId));
-        const dirs = (await loadLevels()).filter((l) => l.present).map((l) => l.dirPath);
+        const dirs = (await loadLevels(false)).filter((l) => l.present).map((l) => l.dirPath);
         return scanQuestUsage(ids, dirs, async (dir) => {
             const r = await readLevel(fs, dir);
             return { header: r.lvl.header, list: r.lvl.list, odbs: r.odbs };
@@ -382,7 +410,7 @@ const api: { [K in keyof Api]: (...a: Parameters<Api[K]>) => Promise<ReturnType<
     },
     async scanStringUsage() {
         const fs = needBackground();
-        const dirs = (await loadLevels()).filter((l) => l.present).map((l) => l.dirPath);
+        const dirs = (await loadLevels(false)).filter((l) => l.present).map((l) => l.dirPath);
         return scanStringUsage(dirs, async (dir) => {
             const r = await readLevel(fs, dir);
             return { header: r.lvl.header, list: r.lvl.list, odbs: r.odbs };
