@@ -38,8 +38,12 @@ install has been converted yet. See [localized installs](../journal/2026-11-06/i
 
 **November 6 Ruined Village opening (issue #5):** with no input at all (600 s and 313 s runs, full 23-level pack) the
 opening scene ends by itself 140 to 160 s after gameplay start, the dying-villager scene follows and the HUD and player
-control arrive at about +240 to +250 s; no key is needed and nothing soft-locks. The end time varies by about 30 s
-between runs (cause not traced). See [village scene](../journal/2026-11-06/issue-5-village-scene-and-title-notes.md).
+control arrive at about +240 to +250 s; no key is needed and nothing soft-locks. See
+[village scene](../journal/2026-11-06/issue-5-village-scene-and-title-notes.md). The end time varied by 30 s and more
+because scene 1.2a only starts once its textures are loaded and the native 5.4 MiB texture cache was full, so it waited
+0 to over 110 s for a buffer to free up; campaign packs now get an 8 MiB budget and 1.2a starts on its trigger in every
+run (1.3 within 2.6 s across three runs, guest heap about 2.6 MiB higher). See
+[scene timing](../journal/2026-11-06/issue-5-village-scene-timing.md).
 
 ## What works
 
