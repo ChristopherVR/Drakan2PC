@@ -21,6 +21,10 @@ namespace drakan_playtest {
 // DRAKAN_START_LEVEL with DRAKAN_START_LEVEL_FROM="Level 0 - Intro", see introToLevel) is set.
 void beforePadMgr(drakan_input::IGuest& guest, uint8_t* rdram);
 
+// Input-script `place x y z [yaw]` (test aid): move the controlled actor again later in the run, with the same rules
+// as DRAKAN_PLAYTEST_POS (checked, repeated, then held). EE thread (the input glue, same thread as beforePadMgr).
+void requestPlace(const float pos[3], float yaw, bool hasYaw);
+
 // Pure parser for the environment value (unit tested): up to four floats separated by spaces or commas.
 bool parsePose(const char* text, float pos[3], float& yaw, bool& hasYaw);
 

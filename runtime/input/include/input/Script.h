@@ -21,6 +21,8 @@
 //                                             (default 1; -1 = no screen); later frames are relative to that moment
 //   <frame> quit                              ask the integration to stop the process
 //   <frame> dual_wield on|off                 apply the live runtime setting (test only; does not save the INI)
+//   <frame> place  <x> <y> <z> [yaw]          ask the integration to move the controlled actor there (play test aid,
+//                                             same placement rules as DRAKAN_PLAYTEST_POS; yaw in radians)
 // `sync play <n>` still counts consecutive gameplay samples in either clock mode.
 // `tap` holds the key/button/pad bit for exactly one input sample in either mode.
 // Mouse [frames] repetitions and log [every] remain input sample counts, NOT milliseconds; mouse counts are
@@ -35,8 +37,15 @@
 
 namespace drakan_input {
 
+struct ScriptPlace {
+    float pos[3] = {};
+    float yaw = 0;
+    bool hasYaw = false;
+};
+
 struct ScriptEvents {
     std::vector<std::string> dumps;
+    std::vector<ScriptPlace> places;
     std::vector<std::string> shots;
     bool quit = false;
     int logOn = -1;     // -1 unchanged, 0 off, >0 = every N frames
@@ -64,11 +73,27 @@ public:
 private:
     struct Ev {
         int frame = 0;
-        enum Kind { Key, Button, Mouse, Wheel, Pad, Cursor, Dump, Shot, Log, Menu, Sync, Quit, DualWield } kind = Key;
+        enum Kind {
+            Key,
+            Button,
+            Mouse,
+            Wheel,
+            Pad,
+            Cursor,
+            Dump,
+            Shot,
+            Log,
+            Menu,
+            Sync,
+            Quit,
+            DualWield,
+            Place
+        } kind = Key;
         int mode = 0; // 0 up, 1 down, 2 tap
         int code = 0;
         int a = 0, b = 0, n = 1;
         std::string text;
+        ScriptPlace place;
     };
     std::vector<Ev> evs_;
     size_t next_ = 0;

@@ -111,6 +111,7 @@ struct State {
     float pos[3] = {}, yaw = 0;
     uint32_t player = 0;
     unsigned seen = 0, tries = 0, nextAt = 0, watch = 0, hold = 0;
+    bool request = false; // an input-script `place` waits for the next boundary
 };
 State g;
 
@@ -147,6 +148,17 @@ static void keepAlive(drakan_input::IGuest& guest) {
         guest.write32(stats + 0xc, ((max << 8) | (max >> 24)) ^ key);
 }
 
+void requestPlace(const float pos[3], float yaw, bool hasYaw) {
+    for (int k = 0; k < 3; ++k)
+        g.pos[k] = pos[k];
+    g.yaw = yaw;
+    g.hasYaw = hasYaw;
+    g.request = true;
+    std::fprintf(stderr, "[playtest] script place: target %.0f %.0f %.0f yaw %s %.3f\n", static_cast<double>(pos[0]),
+                 static_cast<double>(pos[1]), static_cast<double>(pos[2]), hasYaw ? "set" : "unchanged",
+                 static_cast<double>(yaw));
+}
+
 void beforePadMgr(drakan_input::IGuest& guest, uint8_t* /*rdram*/) {
     keepAlive(guest);
     if (!g.init) {
@@ -171,6 +183,22 @@ void beforePadMgr(drakan_input::IGuest& guest, uint8_t* /*rdram*/) {
                          g.enabled ? "armed" : "bad value", static_cast<double>(g.pos[0]),
                          static_cast<double>(g.pos[1]), static_cast<double>(g.pos[2]), g.hasYaw ? "set" : "unchanged",
                          static_cast<double>(g.yaw));
+    }
+    if (g.request && g.init && drakan_ghost::ready()) {
+        // A later placement: start over on the current controlled actor (Rynn, or Arokh while she rides him) and move
+        // her at once (the level is already up, so the first-placement wait does not apply).
+        const uint32_t eng = guest.read32(drakan_region::guestAddress(kContextPtr));
+        const uint32_t pl = eng ? guest.read32(eng + kControlled) : 0;
+        if (pl) {
+            g.request = false;
+            g.enabled = true;
+            g.done = false;
+            g.player = pl;
+            g.hold = 0;
+            g.tries = 0;
+            g.watch = 0;
+            g.seen = waitTicks();
+        }
     }
     if (!g.enabled || !drakan_ghost::ready())
         return;

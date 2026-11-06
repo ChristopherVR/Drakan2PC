@@ -1791,6 +1791,22 @@ static void testScriptLegacy() {
     }
 }
 
+static void testScriptPlace() {
+    ScriptTest s("clock milliseconds\n100 place 1.5 -2 300\n200 place 4 5 6 -1.25\n300 place 1 2\n");
+    CHECK(!s.warnings.empty()); // the two-number line is reported and skipped
+    s.step(1, 0, 1000);
+    CHECK(s.ev.places.empty());
+    s.step(2, 0, 1100);
+    CHECK(s.ev.places.size() == 1);
+    CHECK(s.ev.places[0].pos[0] == 1.5f && s.ev.places[0].pos[1] == -2.0f && s.ev.places[0].pos[2] == 300.0f);
+    CHECK(!s.ev.places[0].hasYaw && s.ev.places[0].yaw == 0.0f);
+    s.step(3, 0, 1200);
+    CHECK(s.ev.places.size() == 1 && s.ev.places[0].hasYaw && s.ev.places[0].yaw == -1.25f);
+    CHECK(s.ev.places[0].pos[2] == 6.0f);
+    s.step(4, 0, 1400);
+    CHECK(s.ev.places.empty());
+}
+
 static void testScriptDualWieldSetting() {
     ScriptTest s("clock milliseconds\n100 dual_wield off\n200 dual_wield on\n300 dual_wield invalid\n");
     CHECK(!s.warnings.empty());
@@ -3159,6 +3175,7 @@ int main() {
     testMouseDisplacementOwnership();
     testScriptLegacy();
     testScriptDualWieldSetting();
+    testScriptPlace();
     testScriptScreenSync();
     testScriptElapsed();
     testScriptElapsedSync();

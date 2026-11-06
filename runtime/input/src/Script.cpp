@@ -136,6 +136,15 @@ bool InputScript::load(const std::string& path, std::string* err) {
                 bad("sync play <n> | sync screen <id> [n]");
                 continue;
             }
+        } else if (cmd == "place") {
+            e.kind = Ev::Place;
+            if (!(ss >> e.place.pos[0] >> e.place.pos[1] >> e.place.pos[2])) {
+                bad("place <x> <y> <z> [yaw]");
+                continue;
+            }
+            e.place.hasYaw = static_cast<bool>(ss >> e.place.yaw);
+            if (!e.place.hasYaw)
+                e.place.yaw = 0;
         } else if (cmd == "quit") {
             e.kind = Ev::Quit;
         } else {
@@ -246,6 +255,9 @@ void InputScript::advance(int frame, int playRun, FrameInput& out, uint16_t& pad
                 break;
             case Ev::DualWield:
                 ev.dualWield = e.a;
+                break;
+            case Ev::Place:
+                ev.places.push_back(e.place);
                 break;
         }
     }

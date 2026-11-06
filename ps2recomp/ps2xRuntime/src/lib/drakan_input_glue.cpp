@@ -850,6 +850,8 @@ void hookPadMgrUpdate(uint8_t* rdram, R5900Context* c, PS2Runtime* rt) {
             } else
                 dumpState(g, d.c_str());
         }
+        for (const ScriptPlace& p : ev.places)
+            drakan_playtest::requestPlace(p.pos, p.yaw, p.hasYaw);
         if (ev.quit) {
             ilog("[in] script quit at frame %d\n", m.frameNo());
             rt->requestStop();
