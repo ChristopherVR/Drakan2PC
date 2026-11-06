@@ -5,7 +5,7 @@ top bar, or the "?" on a panel. This page is generated from `editor/packages/edi
 file and run `UPDATE_GUIDE=1 npx vitest run packages/editor-core/test/guides.test.ts` in `editor/`. It is published
 as https://christophervr.github.io/Drakan2PC/guides/editor-tasks.html; each guide id below is an anchor there, which the editor's "Open on the web" links use.
 
-Contents: [What the editor does](#start), [Learn with the tutorials](#tutorials), [Place and edit objects](#objects), [Shape and paint the ground](#landscape), [Link triggers and exits](#triggers), [Change what a shop sells](#vendors), [Add a new shop](#new-shop), [Edit quests, dialogue and cut scenes](#story), [Make a quest start and finish](#quests), [Change what characters say](#conversations), [Make a cut scene](#cutscenes), [Build a campaign from levels](#campaign), [Make your own campaign](#campaign-pack), [Make a multiplayer map](#multiplayer), [Make a multiplayer game mode](#game-modes), [Change the menus and HUD](#menus), [Play test your level](#playtest), [Package and play a mod](#package), [Edit a save](#save), [Browse the raw files](#files).
+Contents: [What the editor does](#start), [Learn with the tutorials](#tutorials), [Place and edit objects](#objects), [Shape and paint the ground](#landscape), [Link triggers and exits](#triggers), [Change what a shop sells](#vendors), [Add a new shop](#new-shop), [Edit quests, dialogue and cut scenes](#story), [Make a quest start and finish](#quests), [Change what characters say](#conversations), [Make a cut scene](#cutscenes), [Build a campaign from levels](#campaign), [Open Order of the Flame levels](#ootf), [Make your own campaign](#campaign-pack), [Make a multiplayer map](#multiplayer), [Make a multiplayer game mode](#game-modes), [Change the menus and HUD](#menus), [Play test your level](#playtest), [Package and play a mod](#package), [Edit a save](#save), [Browse the raw files](#files).
 
 A mod project (Project Settings, from the top bar) is a small JSON file: name, id, author, version, description, the levels
 it uses in campaign order, the level Play starts in, the checklist ticks and your level edits (the editor's own
@@ -249,6 +249,26 @@ Path: Create a project > Add levels > Check exits > Edit each level > Export
 * A copy starts as the original and ships as a new level. Exits inside a copy still lead where the original did; an exit out of a copy arrives at the way back to the original level.
 * To send the player into a copy, an exit must name the copy; change the exit destination in Logic with "Only this exit".
 * The Start flag sets the level Play starts in. The game's own New Game is not changed unless the project is a campaign.
+
+<a id="ootf"></a>
+
+## Open Order of the Flame levels
+
+Convert the levels of your own Drakan: Order of the Flame install and open them in the viewport like disc levels.
+
+Path: Open your disc > Choose the install > Convert > Open a level > Download the mod
+
+1. Open your Drakan: The Ancients' Gates disc image first. The converted levels build on one of its levels (the template) and on its class tables.
+2. Tools > Import Order of the Flame levels... Press "Choose install folder..." and pick the folder that holds Dragon.rrc (the install itself, not a level folder). The list shows the 23 levels it found.
+3. Tick the levels you want (all of them for the campaign and the multiplayer arenas) and keep the default template unless you know another disc level suits better. The template is always a disc level. The importer shows which language your install is in.
+4. Press Convert. The window names the level being converted and the editor stays busy for a while: about a minute for all 23 levels.
+5. When it finishes, "Open a converted level in the editor" lists the levels. Click one: it opens in the viewport with its terrain, textures and objects, and appears in the level list and in Project Settings > Add level next to the disc levels.
+6. Add the converted levels to a project to see how their exits chain on the campaign map. Exits name their destination level; the map follows them across all converted levels.
+7. "Download mod (.zip)" (or "Save to mods folder...") writes the pack the game loads. Put it in the game's mods folder, turn it on in the Mods menu, restart and choose Drakan: Order of the Flame.
+
+* Converted levels live in memory only. They are gone when you reload the page, so convert again (or keep the downloaded zip). Nothing from your install is uploaded or stored by the editor.
+* Objects whose class does not exist on the disc are left out; the "conversion notes" under the result list what was changed or skipped.
+* Story shows the quests, conversations and cut scenes of the disc the editor opened; the text of a converted level is part of the pack and is not listed there yet.
 
 <a id="campaign-pack"></a>
 

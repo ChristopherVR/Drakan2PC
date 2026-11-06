@@ -8,6 +8,12 @@ mode harness results that supersede some unproven items below. Older bullets are
 wizard, real-disc route/pack-build check, tested extractor and formats diagnostics. The null-controller mitigation
 remains an opt-in diagnostic: regression found a third unchecked controller pass, so that lifecycle bug is still open.
 
+**2026-11-06 editor pass:** converted Order of the Flame levels now open in the viewport (overlay over the opened disc,
+`editor/packages/app/src/virtualdisc.ts`), chain on the project's campaign map, and render at 57 to 60 fps (terrain draw
+calls cut from about 9000 to 3000). Details, results of the 23-level walkthrough and the open items (import runs on the page
+thread, converted levels are not persisted, Story shows disc text only, Play not re-run) are in
+[editor OotF viewport](../journal/2026-11-06/editor-ootf-viewport.md).
+
 Living tracker for the editor / mod / multiplayer / engine-portability track. Last updated at commit c03a3b0
 (editor) and c270bb9 (game and runtime). Details live in the dated notes under `docs/journal/2026-11-01/` and
 `docs/journal/2026-10-31/`; this page says what works, what is unproven, and what to do next.
