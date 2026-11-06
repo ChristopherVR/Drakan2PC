@@ -404,12 +404,26 @@ python scripts/harness/play_run.py --list-levels
 | `shot <label>` | Script command: besides the old desktop BMP (invalid for hidden / covered windows) it asks the renderer for the next presented image (`gsr::requestWindowShot`) and writes `<DRAKAN_SHOT_DIR>/<label>.png`. |
 | `DRAKAN_LOG_DIR` | `drakan.log` goes to the run folder; the runner keeps the full log as `stdout_<attempt>.log` and retries when the script never reaches `quit`. |
 
-Not done: placing Rynn at an arbitrary position at run time. Writing the render transform (`*(player+0x80)+0x14`) and
-the two physics positions in the player object (`+0xbe4`, `+0xc20`) moved her only part of the way and she drifted
-afterwards; a RAM search found the position in at least ten more places (`0x56c738`, `0x996a64`, `0xa58fe8`,
-`0xca12cc`, ... in Surdana). A working teleport needs the engine's own relocation routine (level-start / transition
-code, e.g. around `0x362d38`, the level-transition function that also prints `NEW LEVEL %s`). Until then, positions
-come from save fixtures (`combat_save_fixture.py`, used with `play_run.py --save <card>/mc0`).
+Teleport: the input script's `place <x> <y> <z> [yaw]` command moves the controlled actor (Rynn, or Arokh while she
+rides him) to a world position at run time (`drakan_playtest.cpp`, `requestPlace`; the same machinery as
+`DRAKAN_PLAYTEST_POS`). Notes for recipes:
+
+* Coordinates are the level-object units of `analysis/scripts/lvl_objects.py` (`build/lvl-objects/<LEVEL>.json`). `y` is
+  up and the engine does not snap to the floor, so add about 600 to the y of the ground or of a nearby object, or she
+  starts inside the floor; a larger offset is a fall (60000 above the ground is a lethal-looking fall test).
+* `yaw` is optional (omitted = unchanged). The convention is `yaw = atan2(-dx, -dz)` for facing along the world
+  direction `(dx, dz)` (forward is `(-sin yaw, -cos yaw)`).
+* After a placement the actor is held on the spot for about 240 sample boundaries (4 to 5 s) while the terrain
+  streams in; `DRAKAN_PLAYTEST_HOLD=<boundaries>` changes that. Walk or fight only after the hold, and give each
+  waypoint at least 5 s before the next `place`.
+* The "Trigger Detector" objects of a level are the boxes that fire exits and scripted events: to test an exit,
+  `place` next to the box and walk into it (then tap Cross on the level-change screens 2 and 5) instead of
+  walking the whole route. `DRAKAN_PLAYTEST_GOD=1` keeps her alive through a tour.
+* A placement into the void does not kill her (she keeps falling); a fall from a height onto ground does, and a
+  death reloads the last quick save (F5) in about 2 s with no loading screen 29 when a save exists, else it ends at
+  the title screen.
+* The input script's time axis is input samples, not frames; menus and loads do not advance it, so a recipe written
+  for gameplay frames needs `sync play` first and shots queued behind a load can fire together.
 
 ## 14. Jump direction (2026-10-23)
 
