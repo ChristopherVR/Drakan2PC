@@ -906,6 +906,8 @@ export function initLevelUi(host: LevelUiHost): LevelUi {
         addLevels: async (levels, files) => {
             const all = await host.call('addVirtualLevels', levels, files);
             if (disc) setDisc({ ...disc, levels: all });
+            // The project panel checks its levels against this list.
+            window.dispatchEvent(new CustomEvent('drakan:levels-changed'));
         },
         openLevel: (dirPath) => openLevel(dirPath),
     });

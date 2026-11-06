@@ -135,6 +135,10 @@ export function installLogic(ctx: Ctx, loadExits: (only?: string) => Promise<Exi
 .logic-panel .lg-form label{display:flex;flex-direction:column;gap:2px;font-size:11px}
 .logic-panel .lg-form .lg-note{flex-basis:100%;font-size:11px;opacity:.75}
 .logic-panel .panel-tools .dim.warn{color:var(--warn)}
+.logic-panel .panel-tools{flex-wrap:wrap;align-content:flex-start;gap:var(--sp-2) var(--sp-3)}
+.logic-panel .panel-tools>*{flex:none}
+.logic-panel .panel-tools>.spacer{flex:1 1 0;min-width:0}
+.logic-panel .panel-tools>:last-child{flex:0 1 auto;min-width:0;max-width:100%;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .logic-panel .lg-node rect.box{fill:var(--surface-2);stroke-width:1.5}
 .logic-panel .lg-node.sel rect.box{fill:var(--surface-3);stroke-width:3}
 .logic-panel .lg-node.drop rect.box{stroke-width:4;fill:var(--surface-3)}

@@ -110,6 +110,8 @@ function reportError(e: unknown): void {
 
 // ---- opening a disc -------------------------------------------------------------------------------------------
 
+window.addEventListener('drakan:levels-changed', () => projectUi.onDisc());
+
 async function openIso(file: IsoSource): Promise<void> {
     setStatus(`Opening ${file.name} (${fmtSize(file.size)})...`);
     try {

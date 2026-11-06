@@ -154,6 +154,30 @@ export function registerOotfImport(host: OotfHost): void {
     });
 }
 
+/** What the importer's progress line says: the level being converted, not the converter's internal bookkeeping. */
+export function progressText(message: string, titlePrefix: string): string {
+    const lang = /^source language: (\w+)/i.exec(message);
+    if (lang) return `Install language: ${lang[1]![0]!.toUpperCase()}${lang[1]!.slice(1)}. Converting...`;
+    const p = titlePrefix.trim();
+    const at = p ? message.indexOf(p) : -1;
+    if (at >= 0) {
+        const colon = message.indexOf(':', at);
+        return `Converting ${message.slice(at, colon > at ? colon : undefined).trim()}...`;
+    }
+    return 'Converting...';
+}
+
+/** Conversion notes (retargeted rigs, skipped classes) behind a disclosure, so the result list stays readable. */
+function notesBlock(notes: string[]): HTMLElement {
+    if (!notes.length) return h('div', { class: 'od-dim' }, 'Converted without notes.');
+    return h(
+        'details',
+        { class: 'od-notes' },
+        h('summary', { class: 'od-dim' }, `${notes.length} conversion note${notes.length === 1 ? '' : 's'}`),
+        ...notes.map((w) => h('div', { class: 'od-dim' }, w)),
+    );
+}
+
 interface Row {
     path: string;
     title: string;
@@ -331,7 +355,7 @@ function openDialog(host: OotfHost): void {
                 ...OOTF_DIALOG_OPTIONS,
                 name: (pc) => `${prefix.value}${pcLevelName(pc.header)}`.slice(0, 60),
                 log: (message) => {
-                    out.textContent = message;
+                    out.textContent = progressText(message, prefix.value);
                 },
             },
         );
@@ -428,7 +452,7 @@ function openDialog(host: OotfHost): void {
                 ),
                 ...lines,
             ),
-            ...[...result.warnings, ...pack.warnings].slice(0, 6).map((w) => h('div', { class: 'od-dim' }, w)),
+            notesBlock([...result.warnings, ...pack.warnings]),
             h('div', { class: 'od-row' }, save, folder),
             h('div', { class: 'od-dim' }, 'Open a converted level in the editor:'),
             h('div', { class: 'od-row od-open' }, ...openers),
@@ -440,6 +464,7 @@ function openDialog(host: OotfHost): void {
                     : "Install and enable the zip in the game's Mods menu, restart, then choose the map in Multiplayer.",
             ),
         );
+        out.scrollIntoView({ block: 'start' });
         refreshGo();
     }
 

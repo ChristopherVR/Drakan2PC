@@ -63,9 +63,16 @@ export async function levelExitData(
 ): Promise<ExitLevelData> {
     const strings = new Map<number, XdbString>();
     const stringFile = new Map<number, string>();
-    for (const d of r.lvl.header.dependencies) {
+    // Destination texts of converted Order of the Flame exits live in SYSTEM.XDB (ids from 0x7000); a level's own XDB
+    // is read after it, so on a clash the level's string wins like it does on the disc.
+    const deps = [...r.lvl.header.dependencies].sort(
+        (a, b) =>
+            Number(!/^SYSTEM$/i.test(odbStemForDependency(a.path.text))) -
+            Number(!/^SYSTEM$/i.test(odbStemForDependency(b.path.text))),
+    );
+    for (const d of deps) {
         const stem = odbStemForDependency(d.path.text);
-        if (!/^LEVEL/i.test(stem)) continue;
+        if (!/^(LEVEL|SYSTEM$)/i.test(stem)) continue;
         const f = await fs.find(`${resolveDependencyStem(dirPath, d.path.text)}.XDB`);
         if (!f || f.isDir) continue;
         try {
