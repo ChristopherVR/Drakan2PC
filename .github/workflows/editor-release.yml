@@ -105,12 +105,10 @@ jobs:
           # By name: with a reused target dir the newest *.exe can be the save editor's.
           Compress-Archive -Path 'src-tauri/target/release/drakan-editor-desktop.exe' `
             -DestinationPath "$env:GITHUB_WORKSPACE/out/DrakanEditor-Portable.zip"
-      # Native WebView2 check of the built exe (import dialog dropdown, mouse and keyboard; no disc needed). Its first
-      # hosted run failed (fresh profile, no disc: the start page asks for the disc; the test now opens the importer
-      # from the command palette then). Until editor-smoke.yml (no publishing) has passed on the hosted runner it
-      # reports but does not block the release; make it blocking then.
+      # Native WebView2 check of the built exe (import dialog dropdown, mouse and keyboard; no disc needed). With a
+      # fresh profile and no disc the test opens the importer from the command palette. Blocking since editor-smoke.yml
+      # run 42142173347 passed 3 of 3 runs on the hosted runner.
       - name: WebView2 smoke test of the Drakan Editor
-        continue-on-error: true
         timeout-minutes: 5
         working-directory: editor
         run: npm run smoke:webview -w @drakan/desktop
