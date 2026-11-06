@@ -1,0 +1,65 @@
+name: Editor smoke test
+
+# Builds the Drakan Editor exe the same way as editor-release.yml and runs its native WebView2 smoke test
+# (npm run smoke:webview -w @drakan/desktop) on the hosted runner. Publishes nothing: no release lookup, no upload,
+# read-only token. Run it by hand (gh workflow run editor-smoke.yml) to try a change of the smoke test or the import
+# dialog before it reaches the release workflow, where the same step runs after every editor build.
+on:
+  workflow_dispatch:
+    inputs:
+      runs:
+        description: How many times to run the smoke test (each on a fresh WebView2 profile)
+        required: false
+        default: '3'
+
+permissions:
+  contents: read
+
+jobs:
+  smoke:
+    name: Build the Drakan Editor and run the WebView2 smoke test
+    runs-on: windows-2022
+    timeout-minutes: 60
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          # editor/packages/formats is a submodule (ChristopherVR/drakan-formats); npm ci and the build need it.
+          submodules: recursive
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: editor/package-lock.json
+      - name: Rust toolchain
+        run: |
+          rustup toolchain install stable --profile minimal
+          rustup default stable
+      - name: Install editor dependencies
+        working-directory: editor
+        run: npm ci
+      - name: Build the Drakan Editor
+        working-directory: editor/packages/desktop
+        # The release exe without the installer: the smoke test drives drakan-editor-desktop.exe only.
+        run: npx tauri build --no-bundle
+      - name: WebView2 smoke test of the Drakan Editor
+        timeout-minutes: 15
+        working-directory: editor
+        env:
+          RUNS: ${{ inputs.runs }}
+        run: |
+          $runs = [int]$env:RUNS
+          if ($runs -lt 1) { $runs = 1 }
+          $failed = 0
+          for ($i = 1; $i -le $runs; $i++) {
+            Write-Host "Smoke run $i of $runs"
+            # A new WebView2 profile per run, like the first start on a player's machine.
+            $env:WEBVIEW2_USER_DATA_FOLDER = Join-Path $env:RUNNER_TEMP "wv2-smoke-$i"
+            npm run smoke:webview -w @drakan/desktop
+            if ($LASTEXITCODE -ne 0) { $failed++ }
+          }
+          if ($failed) { throw "$failed of $runs smoke runs failed" }
+          Write-Host "All $runs smoke runs passed"
