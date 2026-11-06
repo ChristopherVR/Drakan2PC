@@ -118,3 +118,30 @@ Run: `play_run.py --exe <private copy> --level Stratos --recipe build/harness/re
   against a 24 bit Z buffer, far off screen XY). Neither can be decided without the EE function (locate it by tracing
   the DMA ch2 packets with `PRIM=0x7d`, nloop 4, back to the EE code that built them) or an original-hardware capture.
   No GS-side guard was added: a guard would only be justified if the original shows the same result.
+
+### Producer found (2026-11-07): the engine's polygon pipeline draws unclipped ribbons
+
+Method: `PS2X_GIFDMA_FIND` (GIF DMA payloads starting with a 4 vertex `PRIM=0x7d` ST/RGBAQ/FOG/XYZ2 strip), a page
+protection write watch (`PS2X_WATCH_RDRAM`, resolve host RIPs with `bin/drakan.map`), and `DRAKAN_TRACE_FN=1d9de8` with a
+fan-straddle report in the trace hook.
+
+* The packets are not written by particle specific code. `FUN_001d9de8` (the GIF "emit vertex list" helper; per vertex it
+  does `st = (s*q, t*q, q)`, unpacks the RGBA bytes and `FTOI4`s x,y,z,w with VU0 macro ops) takes already screen
+  projected floats (`x y z w` / `s t q rgba`, 32 bytes per vertex) from `FUN_00146880` (fan, PRIM 5) / `FUN_00146810`
+  (copies the vertex pointer list), which is called from `FUN_00146378`, the generic polygon draw
+  (`draw(ctx, poly, vertexPtrs, count)`).
+* Every straddling fan observed has the same shape: `n=4`, the first edge at positive depth (`q` about +6.6e-4, `z` about
+  +5.6e6), the second edge behind the camera (`q` about -5e-4 to -8e-3, `z` -4e6 to -6.6e7), screen x/y all within a few
+  hundred pixels of the screen centre, UV (0,0)(0,1)(1,1)(1,0): a textured ribbon / beam quad crossing the camera plane.
+  Caller chain at the report: `ra=0x1468a0 (146880)`, `wra=0x14686c (146810)`, `cra=0x146458 (146378)`.
+* `FUN_00146378` only tests that at least one vertex is beyond the near distance of the polygon (`poly+108`, `c.olt`
+  against the vertex depth at `+48`, scalar FPU code) and then draws the whole polygon; there is no clip against the near
+  plane in that path (no VU0 `VDIV/VRSQRT/CLIP`, only `FPU_MUL_S/CVT_W_S/C_OLT_S` and the `FTOI4` in `FUN_001d9de8`,
+  whose saturation (`0x7fffffff` for positive overflow, `0x80000000` for negative) matches the PS2 FTOI rules).
+* So the geometry we send to the GS is what the game code produces from its inputs. A hardware GS interpolates S,T,Q
+  linearly in screen space and divides per pixel, so a quad whose Q goes through zero shows the same texture
+  singularity (starburst streaks) on real hardware; XY here is well inside the 4096 window (no 16 bit wrap) and the
+  D3D11 path already clamps Z to the buffer range. No deviation of the VU1, VU0 macro or FPU emulation was found, and
+  nothing in the GS path is wrong, so no GS guard was added (a guard would be a presentation change that the original
+  does not make). If the effect should be hidden anyway, the place is a game side override of `FUN_00146378`
+  (skip the polygon when its vertices straddle the camera plane), not the GS.

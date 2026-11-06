@@ -1005,6 +1005,28 @@ void traceHook(uint8_t* rdram, R5900Context* ctx, PS2Runtime* rt) {
                 std::snprintf(line + len, sizeof(line) - len, " slotKey=%x flags=%x selected=%u", key, flags, selected);
             }
         }
+        if (g_traceAddr[N] == 0x1d9de8u && (getRegU32(ctx, 5) & 7u) == 5u) {
+            // GIF fan emitter (FUN_001d9de8): a2 = vertices (32 bytes: x y z w, s t q rgba), a3 = count. Report fans
+            // whose q changes sign (a triangle that straddles the camera plane) with the caller.
+            const uint32_t v0 = getRegU32(ctx, 6) & 0x1FFFFFFFu, n = getRegU32(ctx, 7);
+            if (n >= 3 && n <= 64 && v0 >= 0x100000u && v0 + n * 32 <= PS2_RAM_SIZE) {
+                int pos = 0, neg = 0;
+                for (uint32_t i = 0; i < n; ++i) {
+                    float q;
+                    std::memcpy(&q, rdram + v0 + i * 32 + 24, 4);
+                    (q > 0.0f ? pos : neg)++;
+                }
+                if (pos && neg) {
+                    std::fprintf(stderr, "[fan-straddle] ra=%x wra=%x cra=%x n=%u pos=%d neg=%d:", getRegU32(ctx, 31), *reinterpret_cast<const uint32_t*>(rdram + (getRegU32(ctx, 29) & 0x1FFFFFFFu)), *reinterpret_cast<const uint32_t*>(rdram + ((getRegU32(ctx, 29) + 16 + 512) & 0x1FFFFFFFu)), n, pos, neg);
+                    for (uint32_t i = 0; i < n && i < 6; ++i) {
+                        float f[8];
+                        std::memcpy(f, rdram + v0 + i * 32, 32);
+                        std::fprintf(stderr, " [xyzw %g %g %g %g stq %g %g %g]", f[0], f[1], f[2], f[3], f[4], f[5], f[6]);
+                    }
+                    std::fputc(10, stderr);
+                }
+            }
+        }
         std::fprintf(stderr, "%s\n", line);
         if (g_traceAddr[N] == 0x4149a0u) {
             // SetSubtitle(Subtitle*, const char* text, int speaker): log the text of every subtitle the game shows.

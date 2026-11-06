@@ -707,6 +707,10 @@ bool PS2Runtime::syncCoreSubsystems() {
         dEn = (cpuContext->vu0_fbrst & (1u << 10)) != 0u;
         tEn = (cpuContext->vu0_fbrst & (1u << 11)) != 0u;
     });
+    m_memory.m_debugRaFn = [this]() -> uint32_t {
+        R5900Context* c = m_eeScheduler ? m_eeScheduler->currentContext() : nullptr;
+        return c ? getRegU32(c, 31) : 0u;
+    };
     m_memory.setVu1MscalCallback([this](uint32_t startPC, uint32_t top, uint32_t itop) {
         R5900Context* cpuContext;
         if (const vu1async::Meta* meta = vu1async::currentMeta()) {

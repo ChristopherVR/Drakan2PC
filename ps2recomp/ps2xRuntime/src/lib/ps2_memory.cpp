@@ -221,6 +221,143 @@ static inline uint32_t gs_vram_offset(uint32_t basePage, uint32_t x, uint32_t y,
     return basePage * 2048 + y * strideBytes + x * 4;
 }
 
+
+// ---------------------------------------------------------------------------------------------------------------------
+// Drakan debug: PS2X_WATCH_RDRAM=<lo>,<hi>,<triggerFile> (hex guest addresses). Once <triggerFile> exists, writes to
+// that RDRAM range are caught with page protection plus single stepping for 3 seconds and the distinct host
+// instruction addresses (RVA, resolve with the linker map) of the writers are printed with the first address and
+// value written. Finds the guest function that builds a packet.
+// ---------------------------------------------------------------------------------------------------------------------
+#ifdef _WIN32
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <windows.h>
+#include <map>
+#include <mutex>
+#include <thread>
+#include <chrono>
+namespace {
+struct WatchHit {
+    uint64_t count = 0;
+    uint32_t firstAddr = 0, firstValue = 0;
+};
+uint8_t* g_wBase = nullptr;
+uintptr_t g_wLo = 0, g_wHi = 0; // host addresses, page aligned
+std::atomic<bool> g_wArmed{false};
+std::mutex g_wMutex;
+std::map<uintptr_t, WatchHit> g_wHits;
+thread_local uintptr_t t_wPage = 0;
+thread_local uintptr_t t_wRip = 0;
+thread_local uintptr_t t_wAddr = 0;
+
+LONG CALLBACK rdramWatchVeh(EXCEPTION_POINTERS* ep) {
+    const DWORD code = ep->ExceptionRecord->ExceptionCode;
+    if (code == EXCEPTION_ACCESS_VIOLATION && g_wArmed.load(std::memory_order_relaxed) &&
+        ep->ExceptionRecord->ExceptionInformation[0] == 1) {
+        const uintptr_t a = static_cast<uintptr_t>(ep->ExceptionRecord->ExceptionInformation[1]);
+        if (a >= g_wLo && a < g_wHi) {
+            const uintptr_t page = a & ~static_cast<uintptr_t>(0xfff);
+            DWORD old;
+            VirtualProtect(reinterpret_cast<void*>(page), 0x1000, PAGE_READWRITE, &old);
+            t_wPage = page;
+            t_wAddr = a;
+            t_wRip = static_cast<uintptr_t>(ep->ContextRecord->Rip);
+            ep->ContextRecord->EFlags |= 0x100; // trap flag: single step the faulting store
+            return EXCEPTION_CONTINUE_EXECUTION;
+        }
+    } else if (code == EXCEPTION_SINGLE_STEP && t_wPage) {
+        if (g_wArmed.load(std::memory_order_relaxed)) {
+            DWORD old;
+            VirtualProtect(reinterpret_cast<void*>(t_wPage), 0x1000, PAGE_READONLY, &old);
+            static const uint32_t wantValue = [] {
+                const char* v = std::getenv("PS2X_WATCH_VALUE");
+                return v ? static_cast<uint32_t>(std::strtoul(v, nullptr, 16)) : 0u;
+            }();
+            if (wantValue) {
+                uint32_t w0 = 0, w1 = 0;
+                std::memcpy(&w0, reinterpret_cast<void*>(t_wAddr), 4);
+                std::memcpy(&w1, reinterpret_cast<void*>(t_wAddr + 4), 4);
+                bool inside = false;
+                // wanted: a store into a packet whose GIF tag (qword with hi == wantValue) lies up to 17 qwords back
+                const uintptr_t q0 = t_wAddr & ~static_cast<uintptr_t>(15);
+                for (int k = 0; k <= 17 && !inside; ++k) {
+                    const uintptr_t qa = q0 - 16u * k;
+                    if (qa < reinterpret_cast<uintptr_t>(g_wBase))
+                        break;
+                    uint32_t hi = 0, regs = 0;
+                    std::memcpy(&hi, reinterpret_cast<void*>(qa + 4), 4);
+                    std::memcpy(&regs, reinterpret_cast<void*>(qa + 8), 4);
+                    inside = hi == wantValue && (regs & 0xffff) == 0x5a12;
+                }
+                (void)w0;
+                (void)w1;
+                if (!inside) {
+                    t_wPage = 0;
+                    return EXCEPTION_CONTINUE_EXECUTION;
+                }
+            }
+            std::lock_guard<std::mutex> lock(g_wMutex);
+            WatchHit& h = g_wHits[t_wRip];
+            if (h.count++ == 0) {
+                h.firstAddr = static_cast<uint32_t>(t_wAddr - reinterpret_cast<uintptr_t>(g_wBase));
+                std::memcpy(&h.firstValue, reinterpret_cast<void*>(t_wAddr), 4);
+            }
+        }
+        t_wPage = 0;
+        return EXCEPTION_CONTINUE_EXECUTION;
+    }
+    return EXCEPTION_CONTINUE_SEARCH;
+}
+
+void rdramWatchStart(uint8_t* rdram) {
+    const char* e = std::getenv("PS2X_WATCH_RDRAM");
+    if (!e || !*e)
+        return;
+    std::fprintf(stderr, "[rdram-watch] spec %s", e);
+    std::fputc(10, stderr);
+    unsigned lo = 0, hi = 0;
+    char trig[512] = {};
+    if (std::sscanf(e, "%x,%x,%511[^,]", &lo, &hi, trig) != 3)
+        return;
+    g_wBase = rdram;
+    g_wLo = (reinterpret_cast<uintptr_t>(rdram) + lo + 0xfff) & ~static_cast<uintptr_t>(0xfff);
+    g_wHi = (reinterpret_cast<uintptr_t>(rdram) + hi) & ~static_cast<uintptr_t>(0xfff);
+    AddVectoredExceptionHandler(1, rdramWatchVeh);
+    std::string trigger = trig;
+    std::thread([trigger]() {
+        for (;;) {
+            if (FILE* t = std::fopen(trigger.c_str(), "rb")) {
+                std::fclose(t);
+                break;
+            }
+            std::this_thread::sleep_for(std::chrono::milliseconds(50));
+        }
+        DWORD old;
+        VirtualProtect(reinterpret_cast<void*>(g_wLo), g_wHi - g_wLo, PAGE_READONLY, &old);
+        g_wArmed = true;
+        std::fprintf(stderr, "[rdram-watch] armed");
+        std::fputc(10, stderr);
+        std::this_thread::sleep_for(std::chrono::seconds(3));
+        g_wArmed = false;
+        VirtualProtect(reinterpret_cast<void*>(g_wLo), g_wHi - g_wLo, PAGE_READWRITE, &old);
+        const uintptr_t base = reinterpret_cast<uintptr_t>(GetModuleHandleA(nullptr));
+        std::lock_guard<std::mutex> lock(g_wMutex);
+        for (const auto& kv : g_wHits)
+            std::fprintf(stderr, "[rdram-watch] rip=%llx (rva %llx, map %llx) count=%llu first guest addr=%08x value=%08x\n",
+                         (unsigned long long)kv.first, (unsigned long long)(kv.first - base),
+                         (unsigned long long)(kv.first - base + 0x140000000ull), (unsigned long long)kv.second.count,
+                         kv.second.firstAddr, kv.second.firstValue);
+        std::fprintf(stderr, "[rdram-watch] done, %zu distinct writers\n", g_wHits.size());
+    }).detach();
+}
+} // namespace
+#else
+namespace {
+void rdramWatchStart(uint8_t*) {}
+} // namespace
+#endif
+
 PS2Memory::PS2Memory()
     : m_rdram(nullptr), m_scratchpad(nullptr), iop_ram(nullptr), m_seenGifCopy(false), m_gsVRAM(nullptr) {
     ps2SetScratchpadHostPtr(nullptr);
@@ -320,6 +457,7 @@ bool PS2Memory::initialize(size_t ramSize) {
         // Allocate main RAM
         m_rdram = new uint8_t[ramSize];
         std::memset(m_rdram, 0, ramSize);
+        rdramWatchStart(m_rdram);
 
         // Allocate scratchpad
         m_scratchpad = new uint8_t[PS2_SCRATCHPAD_SIZE];
@@ -1369,6 +1507,32 @@ bool PS2Memory::writeIORegister(uint32_t address, uint32_t value) {
                             if (dbgGifDma > 0 && channelBase == 0x1000A000 && static_cast<int>(tagQwc) >= dbgGifDma)
                                 std::fprintf(stderr, "[gifdma] tag@%08x id=%u data=%08x qwc=%u\n", currentTagAddr, id,
                                              dataAddr, static_cast<unsigned>(tagQwc));
+                            if (static const bool findGif = std::getenv("PS2X_GIFDMA_FIND") != nullptr;
+                                findGif && channelBase == 0x1000A000 && !tagInSPR) {
+                                // Drakan debug: report GIF DMA payloads that start with a 4-vertex PRIM 0x7d ST/RGBAQ/FOG/XYZ2
+                                // strip (the Stratos glare rays), with the tag and source addresses
+                                const uint32_t da = dataAddr & 0x1ffffffu;
+                                uint64_t t0 = 0, t1 = 0;
+                                if (da + 16 <= PS2_RAM_SIZE) {
+                                    std::memcpy(&t0, m_rdram + da, 8);
+                                    std::memcpy(&t1, m_rdram + da + 8, 8);
+                                    const bool pre = (t0 >> 46) & 1;
+                                    if (pre && ((t0 >> 47) & 0x7ff) == 0x7d && (t0 & 0x7fff) == 4 && (t1 & 0xffff) == 0x5a12) {
+                                        static int nf = 0;
+                                        if (nf < 3) {
+                                            const uint32_t* w = reinterpret_cast<const uint32_t*>(m_rdram + da);
+                                            const uint32_t* b = reinterpret_cast<const uint32_t*>(m_rdram + (currentTagAddr & 0x1ffffffu));
+                                            std::fprintf(stderr, "  dmatag %08x %08x %08x %08x\n", b[0], b[1], b[2], b[3]);
+                                            for (int q = 0; q < 8; ++q)
+                                                std::fprintf(stderr, "  qw%d %08x %08x %08x %08x\n", q, w[q * 4], w[q * 4 + 1], w[q * 4 + 2], w[q * 4 + 3]);
+                                        }
+                                        if (nf++ < 40)
+                                            std::fprintf(stderr, "[gifdma-find] tag@%08x data=%08x qwc=%u chcr=%08x ra=%08x\n",
+                                                         currentTagAddr, dataAddr, static_cast<unsigned>(tagQwc), chcr,
+                                                         m_debugRaFn ? m_debugRaFn() : 0u);
+                                    }
+                                }
+                            }
                             appendData(dataAddr, tagQwc);
                         }
                         if (irq && tieEnabled)

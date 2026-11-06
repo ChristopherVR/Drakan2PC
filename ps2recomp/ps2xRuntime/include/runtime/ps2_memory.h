@@ -296,6 +296,8 @@ public:
 
     using Vu1MscalCallback = std::function<void(uint32_t startPC, uint32_t top, uint32_t itop)>;
     void setVu1MscalCallback(Vu1MscalCallback cb) { m_vu1MscalCallback = std::move(cb); }
+    // Drakan debug: returns the EE caller's $ra (used by PS2X_GIFDMA_FIND)
+    std::function<uint32_t()> m_debugRaFn;
     using Vu1MscntCallback = std::function<void(uint32_t top, uint32_t itop)>;
     void setVu1MscntCallback(Vu1MscntCallback cb) { m_vu1MscntCallback = std::move(cb); }
 
