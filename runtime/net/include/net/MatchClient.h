@@ -127,6 +127,9 @@ public:
     // (CountdownKind::None / 0 when nothing counts down or the report is older than 2 s).
     CountdownKind countdown(uint64_t nowMs, uint32_t& remainingMs) const;
     uint64_t snapshotCount() const { return snapshotCount_; }
+    // Local time of the last datagram from the server (any message; 0 = none yet): a Disconnected event right after
+    // it is the server leaving, one long after it is a timeout.
+    uint64_t lastRxMs() const { return lastRxMs_; }
     double rttMs() const { return rttMs_; }
 
 private:
@@ -145,6 +148,7 @@ private:
     PeerId peer_ = kInvalidPeer;
     uint64_t connectStartMs_ = 0;
     uint64_t now_ = 0;
+    uint64_t lastRxMs_ = 0;
     Reject reject_;
     PlayerId self_ = kNoPlayer;
     PlayerId coopAuthority_ = kNoPlayer;

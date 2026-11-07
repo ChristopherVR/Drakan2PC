@@ -1626,6 +1626,7 @@ gameui::mp::MpState mpState(bool wantLan) {
         s.modes.push_back(std::move(e));
     }
     s.selfReady = ns.selfReady;
+    s.endNotice = ns.endNotice;
     s.message = ns.launching ? std::string("Starting the match ...") : ns.message;
     for (const auto& p : ns.roster) {
         RosterRow r;
@@ -2275,7 +2276,29 @@ void titleDraw(const dsettings::SettingsOverlay::ScreenFrame& f, bool background
             dsettings::gameChoiceNoteText(dsettings::gameChoiceNote(harnessMods(), harnessMods().gameChoice()), true);
         st.modsNote = dsettings::unreadablePacksText(harnessMods(), true);
         st.missingModsNote = dsettings::missingPacksText(harnessMods(), true);
-        if ((!st.gameChoiceNote.empty() || !st.modsNote.empty() || !st.missingModsNote.empty()) &&
+        {
+            // Why a joined session ended (host left / connection lost): shown on the main page for 12 s, dropped once the
+            // player opens the Multiplayer page (its Join screen carries the same text).
+            static double s_noticeSince = -1;
+            const std::string& en = st.multiplayer.endNotice;
+            if (!en.empty() && ui.screen.page() == gameui::TitlePage::Multiplayer) {
+                drakan_netplay::dismissNotice();
+                s_noticeSince = -1;
+            } else if (!en.empty()) {
+                if (s_noticeSince < 0)
+                    s_noticeSince = now;
+                if (now - s_noticeSince > 12.0) {
+                    drakan_netplay::dismissNotice();
+                    s_noticeSince = -1;
+                } else {
+                    st.connectionNote = en;
+                }
+            } else {
+                s_noticeSince = -1;
+            }
+        }
+        if ((!st.gameChoiceNote.empty() || !st.modsNote.empty() || !st.missingModsNote.empty() ||
+             !st.connectionNote.empty()) &&
             ui.screen.page() == gameui::TitlePage::Main)
             drakan_fpsmeter::setAvoidTop(true); // the note plate sits in the top left corner
         st.now = now;

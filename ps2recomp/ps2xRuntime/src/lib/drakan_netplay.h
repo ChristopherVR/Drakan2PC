@@ -82,6 +82,9 @@ struct State {
     Conn conn = Conn::Idle;
     Phase phase = Phase::Lobby;
     std::string message; // last reject / status text
+    // Why a joined session ended on us ("The host ended the match", "Connection to the server lost"); kept after the
+    // teardown so the title screen can show it, cleared by the next Host / Join or dismissNotice().
+    std::string endNotice;
     std::string serverName, level;
     int mode = 0, maxPlayers = 8, fragLimit = 0, timeLimitSec = 0;
     std::string modeId; // the session's custom game mode (empty = standard rules)
@@ -117,6 +120,7 @@ bool hostMatch(const HostConfig& cfg, const std::string& playerName);
 bool joinMatch(const std::string& address, const std::string& password, const std::string& playerName);
 void leave();      // drop the session (the server shuts down with its host)
 State state();     // snapshot
+void dismissNotice(); // forget State::endNotice (the title screen showed it)
 bool startMatch(); // host only, in the lobby (the server counts down first: State::countdownKind 1)
 void setReady(bool ready);
 void kickPlayer(int playerId); // host only: remove a player from the lobby / match (the server checks the sender)

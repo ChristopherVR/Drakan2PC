@@ -278,6 +278,8 @@ void MatchClient::handleMessage(const TransportEvent& ev) {
         events_.push_back(DisconnectedEvent{wasRejected});
         return;
     }
+    if (ev.type == TransportEventType::Message)
+        lastRxMs_ = now_;
 
     MsgType type;
     if (!peekType(ev.data.data(), ev.data.size(), type))

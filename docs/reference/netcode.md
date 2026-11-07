@@ -1166,6 +1166,13 @@ Graceful listen-server teardown sends the UDP disconnect; abrupt loss falls back
 See [the host-departure investigation](../journal/2026-11-05/issue-1-host-disconnect.md) and the `netplay_policy`,
 `net_match`, and `net_udp_smoke` regressions.
 
+Title notice: when an established session ends on a joined client, `State::endNotice` carries "The host ended the match"
+(the server was heard less than 4 s before the Disconnected event, so it left on purpose) or "Connection to the server
+lost" (silent for 4 s or more, i.e. the 10 s timeout; `policy::disconnectNotice`, `MatchClient::lastRxMs`). It survives the
+teardown like the failure reason, and the title screen shows it as a line on the main page's note plate
+(`TitleState::connectionNote`) for 12 s, or until the Multiplayer page opens (the Join Game screen keeps its own
+message). Covered by `netplay_policy`, `net_udp_smoke` and `gameui_saveload_test`.
+
 The end of a session (`runSession` teardown in `drakan_netplay.cpp`) puts everything the match latched back to
 singleplayer: the arena world mode goes off (`drakan_arena::setSession(false)`: no more save veto, campaign stripping or
 arena `.LVL` filter), the arena / PvP local player ids go to 0, queued hit claims and level changes are dropped, and the

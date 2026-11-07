@@ -1044,6 +1044,18 @@ void testTitleModsNotice() {
         const TitleFrameOutput three = plain.frame(note, {}, kVp);
         CHECK(hasText(three.draw, "Choose your game is not shown.") && hasText(three.draw, "Cannot read x.zip.") &&
               hasText(three.draw, "Missing: y."));
+        {
+            TitleState lost = titleState();
+            TitleScreen lostScr;
+            lostScr.open();
+            CHECK(!hasText(lostScr.frame(lost, {}, kVp).draw, "The host ended the match"));
+            lost.connectionNote = "The host ended the match";
+            CHECK(hasText(lostScr.frame(lost, {}, kVp).draw, "The host ended the match"));
+            lost.connectionNote = "Connection to the server lost";
+            lost.modsNote = "Cannot read x.zip.";
+            const TitleFrameOutput lo = lostScr.frame(lost, {}, kVp);
+            CHECK(hasText(lo.draw, "Connection to the server lost") && hasText(lo.draw, "Cannot read x.zip."));
+        }
         note.gameChoiceNote.clear();
         CHECK(hasText(plain.frame(note, {}, kVp).draw, "Cannot read x.zip."));
         note.modsNote.clear();

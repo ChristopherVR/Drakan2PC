@@ -557,6 +557,7 @@ void runSession(const Cmd& c, drakan::net::ServerBrowser& browser, uint64_t& las
     bool rejectLogged = false;
     bool failed = false;
     std::string failMessage;
+    std::string endNotice; // title screen notice: the server left or the connection dropped after we were connected
     bool leaving = false;
     std::map<int, uint64_t> seenAt; // player id -> when this client first saw it (scoreboard Time column)
 
@@ -631,7 +632,11 @@ void runSession(const Cmd& c, drakan::net::ServerBrowser& browser, uint64_t& las
                 loadDoneSent = false;
                 if (wasConnected) {
                     failed = true;
-                    failMessage = "Connection to the server lost";
+                    const uint64_t rx = client.lastRxMs();
+                    endNotice = failMessage =
+                        policy::disconnectNotice(rx != 0 && now >= rx ? now - rx : policy::kHostLeftSilenceMs);
+                    netLog("server gone: '%s' (silent for %llu ms)", failMessage.c_str(),
+                           static_cast<unsigned long long>(rx != 0 && now >= rx ? now - rx : 0));
                     // Keep the error for the title lobby, which acknowledges it with Leave.
                     // A loaded native level otherwise keeps accepting input after the socket closes.
                     requestReturnToTitle();
@@ -1019,6 +1024,7 @@ void runSession(const Cmd& c, drakan::net::ServerBrowser& browser, uint64_t& las
                 s.message = failMessage;
             else if (connected)
                 s.message.clear();
+            s.endNotice = endNotice;
             if (connected) {
                 const MatchConfigData& cf = client.config();
                 s.phase = static_cast<Phase>(static_cast<int>(client.phase()));
@@ -1251,8 +1257,10 @@ void netThread() {
                 // remains readable; Host/Join initialize a fresh State before queuing the next session.
                 const bool rejected = g_state.conn == Conn::Rejected;
                 const std::string message = rejected ? g_state.message : std::string();
+                const std::string notice = g_state.endNotice; // survives the teardown; the next Host / Join clears it
                 g_state = State();
                 g_state.available = true;
+                g_state.endNotice = notice;
                 if (rejected) {
                     g_state.conn = Conn::Rejected;
                     g_state.message = message;
@@ -1533,6 +1541,11 @@ void sendChat(const std::string& text) {
     c.kind = Cmd::Chat;
     c.text = text;
     pushCmd(std::move(c));
+}
+
+void dismissNotice() {
+    std::lock_guard<std::mutex> l(g_stM);
+    g_state.endNotice.clear();
 }
 
 State state() {

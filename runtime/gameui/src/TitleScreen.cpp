@@ -989,7 +989,7 @@ void TitleScreen::draw(const TitleState& st, DrawList& d) const {
         // The notes share the plate's lines: each gets an equal share (at most half the plate), then lines left over
         // go to the notes that need more, in order. A note cut short ends in "...".
         std::vector<std::vector<std::string>> notes;
-        for (const std::string* note : {&st.gameChoiceNote, &st.modsNote, &st.missingModsNote})
+        for (const std::string* note : {&st.connectionNote, &st.gameChoiceNote, &st.modsNote, &st.missingModsNote})
             if (!note->empty())
                 notes.push_back(p.wrap(*note, design::title::noteTextWidth(), FontRole::Small));
         std::vector<size_t> keep(notes.size());

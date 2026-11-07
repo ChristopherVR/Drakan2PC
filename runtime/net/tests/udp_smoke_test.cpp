@@ -151,6 +151,7 @@ int main() {
             return mc.connected();
         }));
         collect(mc);
+        CHECK(mc.lastRxMs() != 0); // the server was heard (the host-left versus timeout notice reads this)
         ms.reset();
         st.reset();
         CHECK(waitFor([&] {
