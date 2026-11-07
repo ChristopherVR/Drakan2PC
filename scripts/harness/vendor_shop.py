@@ -167,8 +167,12 @@ def main() -> int:
     ap.add_argument("--skip-baseline", action="store_true")
     ap.add_argument("--no-pack", action="store_true", help="reuse the pack of the last run of this name")
     ap.add_argument("--exe", type=Path, default=ROOT / "build" / "final-game" / "bin" / "drakan.exe")
-    ap.add_argument("--new-shop", nargs="?", const="", default=None, help="add a shop like the editor ('x,y,z' optional)")
-    ap.add_argument("--play-dir", type=Path, default=ROOT / "build" / "vendor-play", help="private play folder (in build/)")
+    ap.add_argument(
+        "--new-shop", nargs="?", const="", default=None, help="add a shop like the editor ('x,y,z' optional)"
+    )
+    ap.add_argument(
+        "--play-dir", type=Path, default=ROOT / "build" / "vendor-play", help="private play folder (in build/)"
+    )
     ap.add_argument("--no-buy", action="store_true", help="look only, do not buy")
     args = ap.parse_args()
     add = args.add if args.add is not None else ([] if args.new_shop is not None else [f"{RES_DB}:8569"])  # Iron Mace
