@@ -324,7 +324,10 @@ names map to the engine as Opens = On (`0x1001`), Closes = Off (`0x1002`), Locks
 * **Kill all:** creatures send "I'm Dead" (8) to their counter on death; the counter sends On to an unlocked door (proved by
   Blow Up from a volume killing two creatures: counter `0x1003` twice, door opens).
 * Key lock: the lock (`0x353550`) reacts to message `0x10e4`, sent when Rynn uses the key item from her hand near it
-  (`0x3195b0`); not driven in game yet (needs the key in her hand), the Stratos catalog has the key and lock classes.
+  (`0x3195b0`); not driven in game (picking the key up did not work from `place` / E in the harness). Validation warns when a lock
+  has no key with its Lock Code in the level.
+* Held plate (On pressed, Off released) and real sword kills for the kill-all gate (AUTOAIM) are proven (`plate_hold`,
+  `killall_melee` in `puzzle_door_check.py`).
 * Repeat all of it: `python scripts/harness/puzzle_door_check.py --iso <iso>` (PASS / FAIL per scenario; lever open and toggle,
   blocked and walk-through, plate, two-plate counter, timer, locked / unlock rules, ambush, kill all).
 

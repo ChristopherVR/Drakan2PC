@@ -70,7 +70,22 @@ come from `scripts/harness/story_puzzles_author.mjs` (editor-core templates, nod
   lightning barrier off) are the natural test; not driven yet because the key has to be held. Open.
 * `scripts/harness/puzzle_door_check.py` repeats the measured scenarios with PASS / FAIL.
 
+## Third round
+
+* **Held plate, driven.** Pack "Pressure plates" with `hold`: the plate sends On when Rynn stands against it and Off when it rises
+  again; the door opens (yaw 1.73) and closes again (0.017) by the plate's own messages (`0x1001`, then `0x1002` at the door).
+  Rynn cannot step onto the stock plate (a solid block), so "released" is the plate rising while she is still beside it, not her
+  walking off. Scenario `plate_hold` passes.
+* **Kill all with real kills.** New-game Rynn carries a sword; with `DRAKAN_PLAYTEST_AUTOAIM=10031` (turns her to the nearest living
+  skeleton) and tapped attacks she kills two dormant copies of a skeleton (HP 40 to 5 per hit to dead); the counter receives `0x1003`
+  twice and the door opens (yaw 1.73). Scenario `killall_melee` (about 100 s) passes. A bow kill was not run.
+* **Key lock, still open.** Standing on or next to a placed key (Shiverbane key 52, `LEVEL5NE`) and tapping E, or walking over it,
+  did not pick it up (the key entity stays); without the key in hand the lock handler sees no `0x10e4`. Getting a key into Rynn's
+  hand needs the Use handler's pickup conditions (`0x3168a0`) or a save with the key (the save editor only copies item classes already
+  in the save). The editor side is done: the key-lock template sends Unlock, and Validation now warns when no key with the lock's
+  code is placed in the level (`key-lock-no-key`).
+
 ## Still failing / not run
 
-* Key lock with a key in Rynn's hand (see the follow-up), a held plate released in game, melee / bow kills for the kill-all gate.
+* Key lock with a key in Rynn's hand (see the follow-up and the third round below), bow kills for the kill-all gate.
 * Plate trigger needs Rynn to touch the plate (a scaled 0.4 stock plate is still a solid block in Stratos).
