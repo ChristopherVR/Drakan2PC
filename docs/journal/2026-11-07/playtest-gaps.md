@@ -179,3 +179,34 @@ sixths (median per second): flips2/s 259 (first sixth, mostly the quiet start sp
 4.5 GB with no trend; guest RAM non-zero 4K pages 25.9 -> 26.6 MB in one step around minute 10, then flat.
 Result: the earlier "20 percent drop in the second half" is not drift. Alone, the rate settles after the first minutes
 and stays flat (133 flips2/s over the last three sixths); the two-game run was contention. No growth to chase.
+
+### Second follow-up: Kragmor arrival, loud recipes, Valley
+
+**Loud recipe parser (done, tested).** A recipe line without a leading time (`sync screen 5 1`) or a lone number is now
+reported as `line N: ...` and the run stops with exit 2 at load (`drakan_input_glue.cpp`, and the USA path in
+`drakan_overrides.cpp`), unless `DRAKAN_INPUT_SCRIPT_LENIENT=1`. Blank and comment-only lines stay silent.
+`runtime/input/tests/input_test.cpp` `testScriptLoudParse` (input_test passes). Commit 6faeb551 contains only these hunks;
+the other sessions' edits of `Script.cpp`, `Script.h`, `drakan_input_glue.cpp`, `input_test.cpp` were left unstaged.
+
+**Kragmor (what the data and runs show, not a verdict).**
+* 1A detector 12249 (to 1B) has no `Detect Which?` (default), so Rynn on foot enters Kragmor and arrives on the Rynn pad
+  (14071, 343210 172681 236203; observed 342023 172626 235531). 1B also has an Arokh pad (14072) used when she is mounted.
+* The Dragon object of 1B (id 2, 354326 177002 275981) has `Initial Mode 0` (mounted and flying at level start;
+  `ootf-mounting-volcanic.md`: 0 mounted flying, 1 on foot with Arokh landing near her, 2 mounted landed; a landed Arokh is
+  mounted by walking into him, no key). That is why `--level 1b` (a level start) puts her on Arokh and the 12276 detector
+  (`Detect Which? = 1`, mount only) fires, and why my earlier redirected run passed.
+* After an exit the arrival is on foot and no Arokh is in the world: 1A -> 1B (screenshots), and the same for 4B -> 4A
+  (`gp_tp4b_5592/after20.png`: Rynn on foot in Ravenshold, whose New Game start is mounted). Arokh in 1A is parked on the
+  cast stage (y 200000, a platform with NPC models, not a mountable place; Initial Mode 1), so Rynn cannot be mounted when
+  she leaves 1A. A Fireball Power Up linked both ways to the Dragon sits in a water cave in 1B (328704 191656 235072); placing
+  Rynn there did nothing visible. So with the on-foot arrival a player in Kragmor has no Arokh and the exit needs one.
+  Whether the original summons Arokh by a story event I did not find, or whether this is a port gap in the level-change
+  arrival (mounted-start levels not applying `Initial Mode` after a transition), is open: it needs the guest transition code
+  read, not more recipes. Treat "possible soft-lock in Kragmor" as unresolved and the highest priority from this session.
+* So the on-foot -> mount -> exit flow in the true chain was not completed.
+
+**Not done in this round:** the forward chain beyond Kragmor (blocked by the above for 1B; the other hops need detectors that
+are disabled, underground or mount-only), 4B route beyond the snow slope, 1A Lair / Shadowmire entry, and the Valley lever.
+Valley: a 2 min attack-tap run at Zola Dane's position (428075 231400 87500) found Rynn mounted on Arokh in the sky (the Valley
+starts mounted) with the world clock at 0 in the later screenshot; no kill could be shown, and the lever test after it gave
+no exit (screen 2 never appeared).
