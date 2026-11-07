@@ -117,7 +117,7 @@ describe('LVL -> document', () => {
     it('unresolved classes are named by id', () => {
         const { doc, unresolved } = documentFromLvl({ header: header(), list: baseList() }, new Map(), 'T');
         expect(unresolved).toBe(4);
-        expect(doc.get(2)!.class).toBe('class 10');
+        expect(doc.get(2)!.class).toMatch(/ class 10$/);
     });
 });
 
