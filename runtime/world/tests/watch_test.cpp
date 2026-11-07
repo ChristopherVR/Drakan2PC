@@ -52,6 +52,8 @@ int main() {
     const std::string line = watch::format(12.5, e, {0, 0, 0, 0, 0x4, 0, 0xff}, {0, 0, 0, 0, 1});
     CHECK(line ==
           "[watch 12.50] ref=1234 h=00da8ab0 cls=10013 type=4 pos=100,200,300 yaw=1.500 | e+10=4 18=ff | d+10=1");
+    CHECK(watch::parse("ref=1,dataoff=a40", by) && by.dataOffset == 0xa40);
+    CHECK(watch::format(1.0, e, {}, {0, 5}, 0xa40).find("| d+a44=5") != std::string::npos);
     const std::string bare = watch::format(0.0, e, {0, 0x4}, {});
     CHECK(bare.find("| d+") == std::string::npos);
     CHECK(bare.find("| e+4=4") != std::string::npos);

@@ -162,9 +162,9 @@ void watchTick(const RdramMemory& mem, const world::Snapshot& snap) {
         if (inst && g_watchSpec.dataWords) {
             data.resize(g_watchSpec.dataWords);
             for (uint32_t i = 0; i < data.size(); ++i)
-                data[i] = mem.read32(inst + i * 4);
+                data[i] = mem.read32(inst + g_watchSpec.dataOffset + i * 4);
         }
-        std::fprintf(stderr, "%s\n", world::watch::format(now, e, ent, data).c_str());
+        std::fprintf(stderr, "%s\n", world::watch::format(now, e, ent, data, g_watchSpec.dataOffset).c_str());
     }
 }
 

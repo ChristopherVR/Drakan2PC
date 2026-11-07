@@ -8,7 +8,7 @@
 //
 // Keys: player=1 (the player's own line too: her position shows whether a door blocks her), class=<hex class id>,
 // ref=<registry ref>, near=<units from the player, 0 = any>, words=<entity words printed, from +0, default 64 = 0x100
-// bytes>, data=<instance data words, default 24 = 0x60 bytes>, max=<lines per tick, 8>, every=<seconds between lines,
+// bytes>, data=<instance data words, default 24 = 0x60 bytes>, dataoff=<hex byte offset where they start, default 0>, max=<lines per tick, 8>, every=<seconds between lines,
 // default 1>.
 #pragma once
 #include <cstdint>
@@ -27,6 +27,7 @@ struct Spec {
     uint32_t classId = 0, ref = 0;
     float near = 0.0f; // 0 = no distance limit
     uint32_t entityWords = 64, dataWords = 24, maxLines = 8;
+    uint32_t dataOffset = 0; // byte offset of the first instance data word printed
     double everySeconds = 1.0;
 };
 
@@ -68,6 +69,8 @@ inline bool parse(const char* text, Spec& out) {
             s.dataWords = static_cast<uint32_t>(std::strtoul(v.c_str(), nullptr, 0));
             if (s.dataWords > 256)
                 s.dataWords = 256;
+        } else if (k == "dataoff") {
+            s.dataOffset = static_cast<uint32_t>(std::strtoul(v.c_str(), nullptr, 16));
         } else if (k == "max") {
             s.maxLines = static_cast<uint32_t>(std::strtoul(v.c_str(), nullptr, 0));
         } else if (k == "every") {
@@ -96,27 +99,27 @@ inline bool matches(const Spec& s, const EntitySnapshot& e, const Vec3& player, 
 // of its instance data (`d+off=hex`). Zero words are left out so that two lines diff by eye. `entity[i]` is the word at
 // byte 4*i of the entity record, `data[i]` the word at 4*i of the instance data (empty when there is none).
 inline std::string format(double seconds, const EntitySnapshot& e, const std::vector<uint32_t>& entity,
-                          const std::vector<uint32_t>& data) {
+                          const std::vector<uint32_t>& data, uint32_t dataOffset = 0) {
     char b[200];
     std::snprintf(b, sizeof b, "[watch %.2f] ref=%u h=%08x cls=%05x type=%u pos=%.0f,%.0f,%.0f yaw=%.3f", seconds,
                   e.ref, e.handle, e.classId, e.type, static_cast<double>(e.position.x),
                   static_cast<double>(e.position.y), static_cast<double>(e.position.z), static_cast<double>(e.yaw));
     std::string o = b;
-    const auto words = [&o](const char* tag, const std::vector<uint32_t>& w) {
+    const auto words = [&o](const char* tag, const std::vector<uint32_t>& w, uint32_t base) {
         o += tag;
         bool first = true;
         for (size_t i = 0; i < w.size(); ++i) {
             if (!w[i])
                 continue;
             char t[32];
-            std::snprintf(t, sizeof t, "%s%x=%x", first ? "" : " ", static_cast<unsigned>(i * 4), w[i]);
+            std::snprintf(t, sizeof t, "%s%x=%x", first ? "" : " ", static_cast<unsigned>(base + i * 4), w[i]);
             o += t;
             first = false;
         }
     };
-    words(" | e+", entity);
+    words(" | e+", entity, 0);
     if (!data.empty())
-        words(" | d+", data);
+        words(" | d+", data, dataOffset);
     return o;
 }
 

@@ -85,6 +85,30 @@ come from `scripts/harness/story_puzzles_author.mjs` (editor-core templates, nod
   in the save). The editor side is done: the key-lock template sends Unlock, and Validation now warns when no key with the lock's
   code is placed in the level (`key-lock-no-key`).
 
+## Fourth round: key pickup decoded, still blocked
+
+What the Use handler (`0x3168a0`, event from E) does, from the decompile:
+
+* `0x31a278` looks through the player's candidate list (`data+0xe34`, count `data+0xe3c`) for **items** (object type 10 or 11; a key is
+  type 11, `cls 0x10021`) whose own state word (item data `+0x1c`) is 1 or 0x20 and which pass `0x349b40`. The item must lie inside
+  Rynn's class parameters `0x1fb` (radius, squared) and `0x1fc` (height difference), and two ray casts (`0x375a80`, from Rynn's
+  position and from her `+0xf0` point to the item) must not hit anything but the item. It then picks it up. `0x31a718` picks the
+  nearest non-item **usable** (levers `0x1000d`, locks `0x10022`, ...) in front of her (dot product with her forward vector).
+* A usable further than 327 units makes her walk to it first (flag `0xab0 & 0x8000000`), further than 1024 units it is ignored.
+* The lock then needs `0x3168a0`'s later branch: with a matching key it equips the key (`0x3179c8`, message `0x1045`), and the key's
+  use action (`0x3195b0`) sends `0x10e4` from her hand to the lock (`0x353550`), which runs `0x3536a8` (checks the code, sends
+  its `Trigger To Send`, default Unlock).
+
+Tried in Shiverbane (`--level 5`, new-game Rynn, sword equipped): the shipped Key 52 (type 11, state `+0x1c` = 1, so it is a valid
+pickup) at 0, 330 and 680 units, facing it, E tapped 3 times at each; the Savage Prison Key REO (its floor is 700 units below Rynn's,
+probably outside `0x1fc`) from four sides. The key entity never goes away and the lock never gets `0x10e4`. Not yet known: the
+values of `0x1fb` / `0x1fc` and whether the `place` teleport (hold for 4 to 5 s) or the hovering placement height changes the
+candidate list or the ray test; `data+0xe3c` read 92 candidates, so the key is probably in the list and fails the radius, height or
+ray test. Next step if someone continues: read the class parameters `0x1fb`, `0x1fc` from Rynn's class record
+(`DRAKAN_PLAYTEST_WATCH=...,dataoff=<hex>` prints any instance data window now) and walk Rynn onto the key with `W` after the hold
+instead of `place`, or drop the key from a save with the item already in her pack. The editor side stays as is (template sends Unlock,
+Validation warns about a missing key code).
+
 ## Still failing / not run
 
 * Key lock with a key in Rynn's hand (see the follow-up and the third round below), bow kills for the kill-all gate.
