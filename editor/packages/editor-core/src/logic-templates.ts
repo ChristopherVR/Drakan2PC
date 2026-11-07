@@ -748,17 +748,46 @@ export const TEMPLATES: LogicTemplate[] = [
         id: 'level-exit',
         title: 'Level exit to...',
         summary:
-            'A level transition object. The destination is part of the exit class: pick the exit class that leads where you want.',
-        params: [{ id: 'exit', label: 'Exit class', kind: 'class', rfl: 0x37 }],
+            'A level exit and the walk-in zone that fires it. Choose the destination afterwards: select the exit and pick the level in Logic.',
+        params: [
+            {
+                id: 'exit',
+                label: 'Exit class',
+                kind: 'class',
+                rfl: 0x37,
+                hint: 'Each class leads to one level, as its name says ("1(A) to 1 (B)" goes from Surdana to Kragmor). Change where this exit leads afterwards in Logic.',
+            },
+            { id: 'w', label: 'Zone width (cells)', kind: 'number', default: 4, min: 0.25, step: 0.25 },
+            { id: 'h', label: 'Zone height (cells)', kind: 'number', default: 3, min: 0.25, step: 0.25 },
+            { id: 'd', label: 'Zone depth (cells)', kind: 'number', default: 1, min: 0.25, step: 0.25 },
+        ],
         build: (ctx, v) =>
             guard(() => {
                 const b = new Builder(ctx);
                 const wanted = typeof v.exit === 'string' ? ctx.catalog.find((c) => c.resource === v.exit) : undefined;
                 const cls = need(wanted ?? pickClass(ctx.catalog, 0x37), 'level exit class');
-                const o = b.make(cls, ctx.at, {});
-                b.notes.push(`${cls.name} #${o.id}`);
+                // An exit on its own never fires: the game fires every shipped exit from a Trigger Detector linked to it
+                // (measured: a walk into the detector box, not onto the exit object; docs/journal/2026-11-01).
+                // The shipped detectors use Detect Which 2 (the player), Only Once off and message On.
+                const o = b.make(cls, [ctx.at[0], ctx.at[1], ctx.at[2] + 3000], {});
+                const det = pickClass(ctx.catalog, 0x3d, /^trigger detector$/i) ?? pickClass(ctx.catalog, 0x3d);
+                if (det) {
+                    const d = b.make(
+                        det,
+                        liftVolume(ctx.at),
+                        { 'Trigger Message': msg('On'), 'Detect Only Once?': 0, 'Detect Which?': 2 },
+                        { scale: [num(v, 'w', 4), num(v, 'h', 3), num(v, 'd', 1)] },
+                    );
+                    b.link(d.id, o.id);
+                    b.notes.push(`${cls.name} #${o.id} fires when the player walks into zone #${d.id}`);
+                } else {
+                    b.notes.push(`${cls.name} #${o.id}`);
+                    b.warnings.push(
+                        'This level has no trigger zone class, so nothing fires the exit: add a Trigger Detector and link it to the exit.',
+                    );
+                }
                 b.notes.push(
-                    'The destination level needs an exit that leads back here (an arrival marker); Validation checks it.',
+                    'Select the exit and pick its destination in Logic. The destination level needs an exit that leads back here (an arrival marker); Validation checks it.',
                 );
                 return b.done();
             }),

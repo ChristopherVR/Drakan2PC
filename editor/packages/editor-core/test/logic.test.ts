@@ -623,6 +623,12 @@ describe('templates', () => {
         const x = templateById('level-exit')!.build(ctxFor(d), {});
         if (isError(x)) throw new Error(x.error);
         expect(x.objects[0]!.class).toBe('Level Transition');
+        // the exit only fires from a Trigger Detector linked to it, set like the shipped ones (repeatable, message On)
+        const zone = x.objects.find((o) => o.class === 'Trigger Detector')!;
+        expect(zone.links).toEqual([x.objects[0]!.id]);
+        const f = Object.fromEntries(zone.fields!.map((q) => [q.name, q.value]));
+        expect(f['Trigger Message']).toBe(1);
+        expect(f['Detect Only Once?'] ?? 0).toBe(0);
         expect(TEMPLATES.map((t) => t.id)).toContain('pressure-plates');
     });
 });
