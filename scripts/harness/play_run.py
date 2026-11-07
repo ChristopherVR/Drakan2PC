@@ -121,6 +121,12 @@ def main() -> int:
     ap.add_argument("--audio", action="store_true", help="keep audio on (off by default)")
     ap.add_argument("--timeout", type=float, default=300, help="seconds per attempt")
     ap.add_argument("--attempts", type=int, default=3)
+    ap.add_argument(
+        "--keep-cutscene",
+        action="store_true",
+        help="stop the Start/Cross taps once the first level after the intro has loaded, so a cut scene level "
+        "(--level transition) plays out instead of being skipped (DRAKAN_AUTOPRESS_STOP_AFTER_LOAD)",
+    )
     ap.add_argument("--level-save", action="store_true", help="stop at the level-change save screen (see above)")
     ap.add_argument("--list-levels", action="store_true")
     a = ap.parse_args()
@@ -167,6 +173,8 @@ def main() -> int:
         env["DRAKAN_AUDIO"] = "0"
     if a.level:
         env["DRAKAN_START_LEVEL"] = resolve_level(a.level)
+    if a.keep_cutscene:
+        env["DRAKAN_AUTOPRESS_STOP_AFTER_LOAD"] = "1"
     if a.level_save:
         env["DRAKAN_TEST_LEVEL_SAVE"] = "1"
         env["DRAKAN_MENU_MOUSE_LOG"] = "1"

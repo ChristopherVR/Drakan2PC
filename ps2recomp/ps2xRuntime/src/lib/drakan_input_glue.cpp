@@ -182,6 +182,7 @@ int g_menuForce = -1; // -1 auto, 0 gameplay, 1 menu
 int g_logEvery = 0;
 int g_hookLog = 0;
 long g_autoPressMs = 0, g_autoPressUntil = 0;
+bool g_autoPressStopAfterLoad = false; // DRAKAN_AUTOPRESS_STOP_AFTER_LOAD=1: no taps once the first level has loaded
 std::chrono::steady_clock::time_point g_t0;
 std::FILE* g_lf = nullptr; // DRAKAN_INPUT_LOGFILE=<path>: our log lines go there (flushed) instead of stderr
 int g_lastScreen = -2;
@@ -669,6 +670,10 @@ void hookPadMgrUpdate(uint8_t* rdram, R5900Context* c, PS2Runtime* rt) {
     const int scr = activeScreenId(rdram);
     drakan_menus::tick(rdram, c, rt);
     if (scr != g_lastScreen) {
+        // The first loading screen (29) after the title is the level behind the intro cut scene: from then on a
+        // cut scene level (Level 6 Transition to Desert) plays out untouched instead of being skipped by the taps.
+        if (g_autoPressStopAfterLoad && g_lastScreen == 29 && scr != 29)
+            g_autoPressMs = 0;
         ilog("[in] t=%.2f frame %d: gui screen %d -> %d (gameplay=%d)\n", nowS(), upcoming, g_lastScreen, scr,
              gameplay ? 1 : 0);
         // The pause menu's Quit asks for confirmation in box screen 1; "Yes" returns to the title menu (8), "No" back
@@ -1290,6 +1295,7 @@ void drakanInstallInput(PS2Runtime& rt) {
         g_autoPressMs = std::atol(e);
     if (const char* e = std::getenv("DRAKAN_AUTOPRESS_UNTIL"))
         g_autoPressUntil = std::atol(e);
+    g_autoPressStopAfterLoad = std::getenv("DRAKAN_AUTOPRESS_STOP_AFTER_LOAD") != nullptr;
     if (const char* e = std::getenv("DRAKAN_INPUT_AUTOSTART"))
         g_autoStart = std::atoi(e) != 0;
     g_debugKeys = std::getenv("DRAKAN_INPUT_DEBUGKEYS") && std::atoi(std::getenv("DRAKAN_INPUT_DEBUGKEYS")) != 0;
