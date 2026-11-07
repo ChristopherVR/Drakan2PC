@@ -71,3 +71,10 @@ export async function loadAutosave(key: string): Promise<AutosaveRecord | undefi
 export async function clearAutosave(key: string): Promise<void> {
     await tx('readwrite', (s) => s.delete(key));
 }
+
+/**
+ * Are there edits that no autosave holds yet? Only a level with objects and at least one undoable edit (or edits restored
+ * from an autosave) has anything to lose; opening a level, moving the camera or changing the selection also schedule a write.
+ */
+export const editsAtRisk = (objects: number, undoDepth: number, restoredDirty: boolean): boolean =>
+    objects > 0 && (undoDepth > 0 || restoredDirty);

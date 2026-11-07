@@ -37,7 +37,7 @@ import { createSceneLoader } from './sceneload.ts';
 import { HELPER_GROUPS, helperGroupOf, type HelperGroup } from './scene/instances.ts';
 import { parseViewOptions, type ViewOptions } from './scene/viewopts.ts';
 import { createAssets, type AssetsPanel } from './editor/assets.ts';
-import { autosaveKey, clearAutosave, loadAutosave, saveAutosave } from './editor/autosave.ts';
+import { autosaveKey, clearAutosave, editsAtRisk, loadAutosave, saveAutosave } from './editor/autosave.ts';
 import type { Ctx } from './editor/ctx.ts';
 import { fill, h, icon, store } from './editor/dom.ts';
 import { createRefs } from './refs.ts';
@@ -174,6 +174,8 @@ export function initLevelUi(host: LevelUiHost): LevelUi {
     let savedTop: unknown = undefined;
     let restoredDirty = false;
     let autosaveTimer = 0;
+    /** Edits exist that no autosave holds yet (the timer is running, or the last write failed): closing now would lose them. */
+    let autosaveAtRisk = false;
     let lastAutosave = 0;
     /** Display categories switched off in the Show menu (`ObjectCategory` ids). */
     const hiddenCategories = new Set<string>();
@@ -1205,15 +1207,21 @@ export function initLevelUi(host: LevelUiHost): LevelUi {
 
     function scheduleAutosave(): void {
         window.clearTimeout(autosaveTimer);
+        // only real edits are at risk: opening a level, moving the camera or a selection change schedule a write too
+        autosaveAtRisk = !!view && editsAtRisk(view.doc.size, view.stack.depth, restoredDirty);
         autosaveTimer = window.setTimeout(() => void doAutosave(), AUTOSAVE_DELAY);
     }
 
     async function doAutosave(): Promise<void> {
         const v = view;
-        if (!v || !v.doc.size) return;
+        if (!v || !v.doc.size) {
+            autosaveAtRisk = false; // nothing open, nothing to lose
+            return;
+        }
         const key = autosaveKey(v.doc.level || levelName);
         store.set(`bookmarks:${v.doc.level || levelName}`, JSON.stringify(v.bookmarks));
         if (v.stack.depth === 0 && !restoredDirty) {
+            autosaveAtRisk = false;
             await clearAutosave(key);
             projects.edited();
             return;
@@ -1226,11 +1234,19 @@ export function initLevelUi(host: LevelUiHost): LevelUi {
             bookmarks: v.bookmarks,
         });
         if (ok) {
+            autosaveAtRisk = false;
             lastAutosave = Date.now();
             updateStatus();
             projects.edited();
         }
     }
+
+    // Edits are kept by the autosave; the browser only asks before closing while a copy is still unwritten.
+    window.addEventListener('beforeunload', (e) => {
+        if (!autosaveAtRisk) return;
+        e.preventDefault();
+        e.returnValue = '';
+    });
 
     // ---- world dump overlay ---------------------------------------------------------------------------------------
 

@@ -66,6 +66,8 @@ Path: Open a level > Place > Select and move > Change fields > Validate
 6. Change health, speed, models and sounds in the Details panel (right). Changed fields are marked and can be reset; "Revert to original" (in Details or the right-click menu) puts a whole object back as it is on the disc.
 7. Ctrl+D duplicates, Delete removes, Ctrl+Z undoes. Edit > Undo History (Ctrl+Shift+H) lists every step and jumps back to one.
 
+* Keyboard: Tab into the Outliner, then the arrow keys move, Right and Left open and close a group, Home and End jump, Enter selects (Ctrl+Enter adds to the selection). Ctrl+P finds any command, level, class or object.
+* Rynn exists once in a level: Ctrl+D skips her and says so. Closing the page right after an edit asks first, because the autosave copy is written a second and a half later; when you come back, a banner offers to restore it.
 * Right-drag and WASD fly the camera. F focuses the selection.
 * Show > Show categories hides whole groups (for example Scenery) in the viewport; hidden objects are left out of Select all too.
 * Creatures and people play their idle animation in the viewport (Display > Play animations turns it off). To see another clip on the selected one, pick it under Viewport animation in the Details panel.
