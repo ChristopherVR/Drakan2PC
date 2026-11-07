@@ -55,12 +55,49 @@ units tall; at z 281,000 the ceiling is 96,211) only at height 93,700 (at 96,000
 He then stops 2,000 to 3,300 units before the door (x 334,000 to 336,300, z 274,200 to 282,500) facing a rock slab, with the
 ornate gate frame to his right. Detector 367 works: when he nears it the RibDoor 191 changes its flags `0x19001045` ->
 `0x19009045` (`door7`, `stage4`), but the passage never opens for him in the runs made (`door5` to `door8`, up to 1,600
-ticks of W). Not yet known whether the Morph Plug moves its collision, or the tunnel is too tight for Arokh's look-ahead
+ticks of W). Superseded by section 5 (the door is not the route). Not known whether the Morph Plug moves its collision, or the tunnel is too tight for Arokh's look-ahead
 (the Islands arrival tunnel had the same symptom, see [Arokh flight](../2026-11-06/ootf-arokh-flight.md)), or the plug's
 collision hierarchy still wrongly blocks (formats `f5d3c6b`, the collision-list change, was in this pack).
 
 Not reached: the altar, Delon, the four Dr. Evil heads and the ending by natural play (the isolated head fight to credits
 of 2026-11-02 still stands).
+
+## 5. Follow-up: the RibDoors are not the route; the tunnel is a flight-clearance problem
+
+The three causes were separated with the dragon look-ahead trace (`DRAKAN_DRAGON_RAY_TRACE=1`, runs `ray1`, `ray2`, `c1`, `w1` to
+`w3`) and terrain probes (`col.mts` on the pack, `pccol.mts` / `pcmap2.mts` on the PC level, `pcmap2` prints floor to ceiling gaps):
+
+* **Not the door plug's collision.** Rays in the tunnel hit terrain (`object 0`), never an object; with both RibDoors moved out
+  of the level (`packnodoor`, test aid) Arokh stops at the same place (z 279,400, x 335,000) as with them.
+* **Not the converter.** The converted terrain matches the PC level at every probed column (`pccol.mts` against `col.mts`:
+  identical floors and ceilings, same textures). The tunnel's far end is sealed by the terrain itself in the PC data too
+  (floor equals ceiling at x 334,000 to 337,000, z below 272,000): the RibDoors guard side vaults, not the way north.
+* **The route** (PC terrain map): from the arrival the central wall (floor equals ceiling, z 279,000 to 283,000 at x 342,418) is
+  solid at every height; the way is down the left (or right) tunnel at z 283,000 to 279,000 (x 332,000 to 336,000, a ramp
+  rising from floor 81,000 to 92,500), east along the corridor at z 277,000 to 278,000 (floor 92,500, ceiling 94,600 to 95,300:
+  about 2,200 units), then north up the open central shaft (x 339,000 to 345,000, ceiling 108,600). Flown from the shaft
+  (`s1`: placed at 342,418 98,000 268,000, W) Arokh reaches z 235,000 in 12 s and stops at the first "big spine" prop
+  (object 478 at 341,982 99,452 232,363, ray hits the object), which has to be flown around (x 349,000 clears it).
+* **What stops him in the corridor**: Arokh lands. Held at a height under 1,400 above the floor he drops to the engine's
+  landed height (floor + 741: `93241` over floor 92,500, state word `+0x9c` = 1, forward speed 0, the look-ahead ray points straight
+  down), and a landed Arokh does not walk on under W; held above it the ceiling's wedge (ceiling 93,900 at z 278,600, x 335,300)
+  ends the look-ahead at 2,300 units. The window between "lands" and "hits the ceiling" is 500 to 700 units wide, which is
+  not a window a player could fly through; whether the PC dragon needs less clearance, or the engine's landing / look-ahead
+  rules (`0x271e18`, `0x274c18`, `0x274250`) differ for these tunnels, is the next thing to check (hypothesis, not shown).
+
+### New test aids (runtime, `drakan_playtest.cpp`, documented in `docs/reference/env-flags.md`, commits `5c270c0a`, `562d9785`)
+
+* `DRAKAN_PLAYTEST_AUTOAIM=<class hex>`: the controlled actor faces the nearest living object of that engine class every
+  boundary. Rift World (`aim1`): three of the four Ebon Dragons died in 12 rounds, against a dozen runs of open-loop placement.
+  Unit test `autoaim_policy`.
+* `DRAKAN_PLAYTEST_ALT=<y>` (height hold) and `DRAKAN_PLAYTEST_WAYPOINTS="x y z; ..."` with `_CLIMB` / `_WP_RADIUS` (autopilot:
+  yaw toward the current point, height moves toward its height, the recipe only holds W). `w3` flew the natural start, the left
+  tunnel ramp and into the corridor (waypoints 0 to 2 reached) before the landing above.
+
+### War giant
+
+Not re-run: `DRAKAN_PLAYTEST_AUTOAIM=1003b` is now available for it (the earlier note's "reactive driver"); the Alwarren session
+needs the hammer route first and was not replayed in this pass.
 
 ## Comment-ready summary for issue #5 (not posted)
 
