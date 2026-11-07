@@ -114,6 +114,18 @@ export function stockLists(entries: readonly StockEntry[]): {
     return { infinite, limited };
 }
 
+/**
+ * How many entries the game's shop list holds for these stock entries. The shop merges identical item classes into one
+ * entry after loading (guest `0x40ab00`, proved 2026-11-07 in `docs/journal/2026-11-07/shop-stock-limit.md`): a limited unit
+ * of an item that is also sold without limit is absorbed (the log shows `stock=4` for four unlimited items plus the same
+ * item as a limited unit), and repeated limited units share one entry. There is no per-class limit on the entry count
+ * (a shop with 5 and one with 17 entries open fine) and no class refuses an item by kind (an unlimited Iron Mace in the
+ * new Alchemist is listed and priced).
+ */
+export function stockSlots(entries: readonly Pick<StockEntry, 'stem' | 'id'>[]): number {
+    return new Set(entries.map(stockKey)).size;
+}
+
 /** What the player pays: the item's price scaled by the shop's sale mod, rounded to whole gold (rounding is inferred). */
 export const salePrice = (base: number, saleMod: number): number => Math.round(base * saleMod);
 /** What the shop pays for an item the player sells. */
@@ -318,7 +330,10 @@ export function vendorIssues(
     const both = new Set(view.entries.filter((e) => e.mode === 'infinite').map(stockKey));
     for (const e of view.entries)
         if (e.mode === 'limited' && both.has(stockKey(e)))
-            out.push({ level: 'warning', message: `${e.stem} #${e.id} is listed as limited and as infinite stock.` });
+            out.push({
+                level: 'warning',
+                message: `${e.stem} #${e.id} is listed as limited and as infinite stock; the game keeps only the unlimited entry.`,
+            });
     if (view.settings.saleMod < 0) out.push({ level: 'error', message: 'The sale price modifier cannot be negative.' });
     return out;
 }

@@ -30,6 +30,7 @@ import {
     salePrice,
     stockEntries,
     stockLists,
+    stockSlots,
     vendorIssues,
     vendorSchemaOf,
     writeSetting,
@@ -373,7 +374,35 @@ describe('vendor issues', () => {
             ...v,
             entries: [...v.entries, { stem: 'RESOURCES', id: 10, mode: 'limited' as const, count: 1 }],
         };
-        expect(vendorIssues(dup, () => 5).some((i) => /limited and as infinite/.test(i.message))).toBe(true);
+        expect(
+            vendorIssues(dup, () => 5).some((i) => /limited and as infinite.*keeps only the unlimited/.test(i.message)),
+        ).toBe(true);
         expect(vendorIssues({ ...v, settings: { ...v.settings, saleMod: -1 } }, () => 5)[0]!.level).toBe('error');
+    });
+});
+
+describe('stock slots', () => {
+    const e = (id: number, mode: 'infinite' | 'limited', count = 1): StockEntry => ({
+        stem: 'RESOURCES',
+        id,
+        mode,
+        count,
+    });
+    it('counts what the game keeps: one entry per item class, however it is listed', () => {
+        const four = [e(1, 'infinite'), e(2, 'infinite'), e(3, 'infinite'), e(4, 'infinite')];
+        // an extra item takes a slot, as the five-entry Alchemist with an Iron Mace did (stock=5 in the game log)
+        expect(stockSlots([...four, e(9, 'limited')])).toBe(5);
+        expect(stockSlots([...four, e(9, 'infinite')])).toBe(5);
+        // a limited unit of an unlimited item is absorbed (stock=4 in the game log)
+        expect(stockSlots([...four, e(1, 'limited')])).toBe(4);
+        // repeated limited units share one entry
+        expect(stockSlots([e(9, 'limited', 3)])).toBe(1);
+        expect(stockSlots([])).toBe(0);
+    });
+    it('has no per-shop limit on how many entries are written', () => {
+        // the guest accepts 5 (new Alchemist) and 17 (Blacksmith with the Mace) entries; the editor must not clamp them
+        const many = Array.from({ length: 40 }, (_, i) => e(100 + i, 'infinite'));
+        expect(stockLists(many).infinite).toHaveLength(40);
+        expect(stockSlots(many)).toBe(40);
     });
 });
