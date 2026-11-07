@@ -210,3 +210,37 @@ are disabled, underground or mount-only), 4B route beyond the snow slope, 1A Lai
 Valley: a 2 min attack-tap run at Zola Dane's position (428075 231400 87500) found Rynn mounted on Arokh in the sky (the Valley
 starts mounted) with the world clock at 0 in the later screenshot; no kill could be shown, and the lever test after it gave
 no exit (screen 2 never appeared).
+
+### Third follow-up (exe rebuilt with the parser change, `drakan_p.exe`)
+
+**Loud parser in a real run.** A recipe with a bare `sync screen 5 1` line: `[input]` log `line 3: every line needs a leading
+time ...` then `FATAL: script ... has rejected lines`, process exit code 2 before any game start (`gp_bad`). The env row
+(`DRAKAN_INPUT_SCRIPT_LENIENT`, `DRAKAN_AUTOPRESS_STOP_AFTER_LOAD`) is in `docs/reference/env-flags.md` (commit 90c68c99,
+only that hunk).
+
+**True chain hops that work on foot (New Game, god mode, teleport to the approach, F5/F8 in each level).**
+| Hop | Result |
+| --- | --- |
+| 1A -> 1C (12413) | screens 2 and 5, `exit taken in 'Level 1A - Surdana' at 508928 151050 791552`, `Level 1C - Catacombs` loaded, F5 and F8 work in 1C |
+| 1C -> 1A (12280, walked from 97280 152000 380308) | screens 2 and 5 reached in the real 1C (also after an F5/F8 in 1C); the exit is not dead after a transition. The recipe could not finish the save screen: a script `pad tap` after `sync screen 5` does not advance while the game sits in a menu (the script clock only runs in gameplay), so the run stopped on the save screen; harness limit, not a game fault |
+| 1A -> 1D, 1E, 2 and the rest | not chained (1D return is gated, Lair and Shadowmire boxes underground, the others mount-only or portals disabled) |
+A guess I made earlier, "exits are dead after a transition", was wrong; the 1B exit fails because it is mount-only.
+
+**4B route (not completed).** Findings:
+* In the yard Arokh is mounted by walking into him (waypoint autopilot, `DRAKAN_PLAYTEST_WAYPOINTS`, first point at his
+  position 839353 145800 982917) and he walks out through the cave mouth (Cave Entrance Task 7 at 839903 147014 995843, No-Fly
+  zone Task 3 at 839688 146957 997215).
+* Beyond the cave he is landed; a held W only walks him to the slope at z about 1008500 where he stops. **SPACE (taps) takes
+  off**: with SPACE taps from 25 s the autopilot flew at y 175000 and 12288 u/s through waypoints (839562 1010000) ->
+  (774404 1239885) -> (727930 1402385).
+* At (727930, 175000, 1402385) and, on a different path, at (704168, 175000, 1194249) he stops with speed 12288 and no movement,
+  inside a cyan magic barrier volume (screenshot `gp_r4b6/f100.png`). No object sits at these points; the level has 29
+  "Dragon Barrier" objects, gate detectors with Task 7 (Cave Entrance, 969282 141024 1387497; 969355 141024 1397675; 943112
+  132416 1395678 with markers at 953573-954661 132226-132246 1413871-1414127; west 576454 151024 1383451 with marker 587076
+  150732 1383279) and the two exits at 680917 1756160 (arrival) / 681024 142708 1765312 (exit detector 5595).
+  The structure suggests the ridge at z 1383000-1414000 must be crossed through one of those cave entrances; I did not get
+  Arokh into one. Not reached: the 4B exit by flight.
+
+**Not done:** Valley Zola Dane kill and lever (a fight from the sky at his position produced no kill evidence; the Valley's
+ground fight needs landing or the autoaim/altitude aids), 1A Lair and Shadowmire boxes (no `DRAKAN_PLAYTEST_POS` y below the
+surface tried, no tunnel entrance read), 4A 5132 and Valley 9779/9781 beyond the lever finding.
