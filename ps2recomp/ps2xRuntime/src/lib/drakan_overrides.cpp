@@ -1017,11 +1017,16 @@ void traceHook(uint8_t* rdram, R5900Context* ctx, PS2Runtime* rt) {
                     (q > 0.0f ? pos : neg)++;
                 }
                 if (pos && neg) {
-                    std::fprintf(stderr, "[fan-straddle] ra=%x wra=%x cra=%x n=%u pos=%d neg=%d:", getRegU32(ctx, 31), *reinterpret_cast<const uint32_t*>(rdram + (getRegU32(ctx, 29) & 0x1FFFFFFFu)), *reinterpret_cast<const uint32_t*>(rdram + ((getRegU32(ctx, 29) + 16 + 512) & 0x1FFFFFFFu)), n, pos, neg);
+                    std::fprintf(
+                        stderr, "[fan-straddle] ra=%x wra=%x cra=%x n=%u pos=%d neg=%d:", getRegU32(ctx, 31),
+                        *reinterpret_cast<const uint32_t*>(rdram + (getRegU32(ctx, 29) & 0x1FFFFFFFu)),
+                        *reinterpret_cast<const uint32_t*>(rdram + ((getRegU32(ctx, 29) + 16 + 512) & 0x1FFFFFFFu)), n,
+                        pos, neg);
                     for (uint32_t i = 0; i < n && i < 6; ++i) {
                         float f[8];
                         std::memcpy(f, rdram + v0 + i * 32, 32);
-                        std::fprintf(stderr, " [xyzw %g %g %g %g stq %g %g %g]", f[0], f[1], f[2], f[3], f[4], f[5], f[6]);
+                        std::fprintf(stderr, " [xyzw %g %g %g %g stq %g %g %g]", f[0], f[1], f[2], f[3], f[4], f[5],
+                                     f[6]);
                     }
                     std::fputc(10, stderr);
                 }

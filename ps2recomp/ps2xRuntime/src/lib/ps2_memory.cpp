@@ -221,7 +221,6 @@ static inline uint32_t gs_vram_offset(uint32_t basePage, uint32_t x, uint32_t y,
     return basePage * 2048 + y * strideBytes + x * 4;
 }
 
-
 // ---------------------------------------------------------------------------------------------------------------------
 // Drakan debug: PS2X_WATCH_RDRAM=<lo>,<hi>,<triggerFile> (hex guest addresses). Once <triggerFile> exists, writes to
 // that RDRAM range are caught with page protection plus single stepping for 3 seconds and the distinct host
@@ -344,7 +343,8 @@ void rdramWatchStart(uint8_t* rdram) {
         const uintptr_t base = reinterpret_cast<uintptr_t>(GetModuleHandleA(nullptr));
         std::lock_guard<std::mutex> lock(g_wMutex);
         for (const auto& kv : g_wHits)
-            std::fprintf(stderr, "[rdram-watch] rip=%llx (rva %llx, map %llx) count=%llu first guest addr=%08x value=%08x\n",
+            std::fprintf(stderr,
+                         "[rdram-watch] rip=%llx (rva %llx, map %llx) count=%llu first guest addr=%08x value=%08x\n",
                          (unsigned long long)kv.first, (unsigned long long)(kv.first - base),
                          (unsigned long long)(kv.first - base + 0x140000000ull), (unsigned long long)kv.second.count,
                          kv.second.firstAddr, kv.second.firstValue);
@@ -1509,25 +1509,30 @@ bool PS2Memory::writeIORegister(uint32_t address, uint32_t value) {
                                              dataAddr, static_cast<unsigned>(tagQwc));
                             if (static const bool findGif = std::getenv("PS2X_GIFDMA_FIND") != nullptr;
                                 findGif && channelBase == 0x1000A000 && !tagInSPR) {
-                                // Drakan debug: report GIF DMA payloads that start with a 4-vertex PRIM 0x7d ST/RGBAQ/FOG/XYZ2
-                                // strip (the Stratos glare rays), with the tag and source addresses
+                                // Drakan debug: report GIF DMA payloads that start with a 4-vertex PRIM 0x7d
+                                // ST/RGBAQ/FOG/XYZ2 strip (the Stratos glare rays), with the tag and source addresses
                                 const uint32_t da = dataAddr & 0x1ffffffu;
                                 uint64_t t0 = 0, t1 = 0;
                                 if (da + 16 <= PS2_RAM_SIZE) {
                                     std::memcpy(&t0, m_rdram + da, 8);
                                     std::memcpy(&t1, m_rdram + da + 8, 8);
                                     const bool pre = (t0 >> 46) & 1;
-                                    if (pre && ((t0 >> 47) & 0x7ff) == 0x7d && (t0 & 0x7fff) == 4 && (t1 & 0xffff) == 0x5a12) {
+                                    if (pre && ((t0 >> 47) & 0x7ff) == 0x7d && (t0 & 0x7fff) == 4 &&
+                                        (t1 & 0xffff) == 0x5a12) {
                                         static int nf = 0;
                                         if (nf < 3) {
                                             const uint32_t* w = reinterpret_cast<const uint32_t*>(m_rdram + da);
-                                            const uint32_t* b = reinterpret_cast<const uint32_t*>(m_rdram + (currentTagAddr & 0x1ffffffu));
-                                            std::fprintf(stderr, "  dmatag %08x %08x %08x %08x\n", b[0], b[1], b[2], b[3]);
+                                            const uint32_t* b = reinterpret_cast<const uint32_t*>(
+                                                m_rdram + (currentTagAddr & 0x1ffffffu));
+                                            std::fprintf(stderr, "  dmatag %08x %08x %08x %08x\n", b[0], b[1], b[2],
+                                                         b[3]);
                                             for (int q = 0; q < 8; ++q)
-                                                std::fprintf(stderr, "  qw%d %08x %08x %08x %08x\n", q, w[q * 4], w[q * 4 + 1], w[q * 4 + 2], w[q * 4 + 3]);
+                                                std::fprintf(stderr, "  qw%d %08x %08x %08x %08x\n", q, w[q * 4],
+                                                             w[q * 4 + 1], w[q * 4 + 2], w[q * 4 + 3]);
                                         }
                                         if (nf++ < 40)
-                                            std::fprintf(stderr, "[gifdma-find] tag@%08x data=%08x qwc=%u chcr=%08x ra=%08x\n",
+                                            std::fprintf(stderr,
+                                                         "[gifdma-find] tag@%08x data=%08x qwc=%u chcr=%08x ra=%08x\n",
                                                          currentTagAddr, dataAddr, static_cast<unsigned>(tagQwc), chcr,
                                                          m_debugRaFn ? m_debugRaFn() : 0u);
                                     }
