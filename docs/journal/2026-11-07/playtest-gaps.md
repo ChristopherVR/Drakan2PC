@@ -169,3 +169,13 @@ forward from 1A on foot (Lair and Shadowmire detectors underground, portals disa
   147014 995843) followed by a Task 3 (No-Fly Zone, mounts only, 839688 146957 997215): Arokh has to walk through the
   cave, not fly. My flight stopped at z 1007602 on the ground in front of a snow slope (screenshot f34.png), not at a
   barrier object; the walking route beyond was not found.
+
+### 4A soak rerun, alone (no other game of ours; others' games still ran)
+
+21 minutes of random input in 4A on Arokh, god mode, clean scripted quit (exit 0, 1314 s wall). Perf seconds 1144, in
+sixths (median per second): flips2/s 259 (first sixth, mostly the quiet start spot), 146, 142, 132, 133, 133; vblank
+60.0 in all six; ee ms per flip 3.3, 5.0, 4.8, 5.0, 5.2, 5.7; GIF packets/s 560k to 640k with no trend; VU1 runs/s
+127k to 158k with no trend. Host working set 1.9 GB after load, 2.1 to 2.2 GB from minute 8, flat; private bytes 3.6 to
+4.5 GB with no trend; guest RAM non-zero 4K pages 25.9 -> 26.6 MB in one step around minute 10, then flat.
+Result: the earlier "20 percent drop in the second half" is not drift. Alone, the rate settles after the first minutes
+and stays flat (133 flips2/s over the last three sixths); the two-game run was contention. No growth to chase.
