@@ -454,7 +454,7 @@ pub fn mods_write_pack(state: State<'_, AppState>, id: String, files: Vec<PackFi
         }
         std::fs::write(&target, data).map_err(|e| format!("{}: {e}", target.display()))?;
     }
-    std::fs::write(mods.join("mods.ini"), ini).map_err(err)?;
+    playpack::write_atomic(&mods.join("mods.ini"), &ini).map_err(err)?;
     Ok(pack.to_string_lossy().to_string())
 }
 
@@ -501,21 +501,35 @@ pub fn mods_write_zip(state: State<'_, AppState>, request: Request<'_>) -> Res<S
     let ini = header_text(&request, "x-ini")?;
     let mods = mods_folder(&state)?;
     std::fs::create_dir_all(&mods).map_err(err)?;
-    // A Play pack is temporary: remember `mods.ini` as it is now so it can be put back when the game closes.
-    if header_text(&request, "x-restore").is_ok_and(|v| v == "1") {
-        let before = std::fs::read_to_string(mods.join("mods.ini")).unwrap_or_default();
-        let dir = state.settings_file.parent().map(Path::to_path_buf).unwrap_or_default();
+    let restore = header_text(&request, "x-restore").is_ok_and(|v| v == "1");
+    let body = raw_body(&request)?;
+    let target = mods.join(format!("{id}.zip"));
+    let tmp = mods.join(format!("{id}.zip.part"));
+    // A Play pack is temporary: remember `mods.ini` as it is now so the keys Play changes can be put back when the game
+    // closes. This editor keeps the play-pack lock from now on, so a second editor does not restore under the running game.
+    if restore {
+        let before = match std::fs::read_to_string(mods.join("mods.ini")) {
+            Ok(t) => Some(t),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => None,
+            Err(e) => return Err(err(e)),
+        };
+        let dir = config_dir(&state);
+        playpack::hold_lock(&dir);
         playpack::save_backup(
             &dir,
-            &playpack::Backup { mods: mods.to_string_lossy().to_string(), id: id.clone(), ini: before },
+            &playpack::Backup {
+                mods: mods.to_string_lossy().to_string(),
+                id: id.clone(),
+                ini: before,
+                after: Some(ini.clone()),
+                restored: false,
+            },
         )
         .map_err(err)?;
     }
-    let target = mods.join(format!("{id}.zip"));
-    let tmp = mods.join(format!("{id}.zip.part"));
-    std::fs::write(&tmp, raw_body(&request)?).map_err(|e| format!("{}: {e}", tmp.display()))?;
+    std::fs::write(&tmp, body).map_err(|e| format!("{}: {e}", tmp.display()))?;
     std::fs::rename(&tmp, &target).map_err(|e| format!("{}: {e}", target.display()))?;
-    std::fs::write(mods.join("mods.ini"), ini).map_err(err)?;
+    playpack::write_atomic(&mods.join("mods.ini"), &ini).map_err(err)?;
     Ok(target.to_string_lossy().to_string())
 }
 
@@ -775,7 +789,16 @@ pub fn game_launch(
     if let (Some(m), false) = (&mods, default_mods) {
         cmd.env("DRAKAN_MODS", m);
     }
-    let child = cmd.spawn().map_err(|e| format!("could not start {}: {e}", exe.display()))?;
+    let child = match cmd.spawn() {
+        Ok(c) => c,
+        Err(e) => {
+            // The Play pack is already installed and no game will ever close to take it out: do it now.
+            if !extra {
+                playpack::restore_with_retry(config_dir(&state));
+            }
+            return Err(format!("could not start {}: {e}", exe.display()));
+        }
+    };
     let pid = child.id();
     if !extra && playpack::backup_path(&config_dir(&state)).exists() {
         watch_play_pack(app.clone());
@@ -809,15 +832,16 @@ fn watch_play_pack(app: AppHandle) {
             continue;
         }
         drop(g);
-        let _ = playpack::restore(&config_dir(&state));
+        playpack::restore_with_retry(config_dir(&state));
         return;
     });
 }
 
 /// Called when the editor starts: a Play pack left over from a session the editor did not outlive.
 pub fn restore_play_pack_at_start(settings_file: &Path) {
-    if let Some(dir) = settings_file.parent() {
-        let _ = playpack::restore(dir);
+    // Another editor that is still running owns a live Play session: leave its pack and mods.ini alone.
+    if let Some(dir) = settings_file.parent().filter(|d| playpack::lock_is_free(d)) {
+        playpack::restore_with_retry(dir.to_path_buf());
     }
 }
 
