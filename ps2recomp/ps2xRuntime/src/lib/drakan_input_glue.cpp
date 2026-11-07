@@ -210,6 +210,23 @@ int g_skipBits = 0;
 bool g_autoStart = false; // DRAKAN_INPUT_AUTOSTART=1: test aid, taps Cross/Start until the player is under control
 int g_tapPad = 0;         // pad bits (active high, DualShock mask) tapped for the current frame
 int g_playRun = 0;
+// Harness only (DRAKAN_INPUT_LIVE=<command file>, scripts/harness/live_drive.py): a closed-loop driver appends input
+// lines to the command file and reads guest state from this process. The block below says where the guest RAM is and
+// how far the input has got; its host address is written once to <command file>.status ("status 0x<hex>"). Nothing
+// here changes the game.
+struct LiveStatus {
+    char magic[16] = "DRAKAN_LIVE_V1";
+    uint64_t rdram = 0;   // host address of guest RAM (guest address & 0x1ffffff is the offset)
+    uint64_t ramSize = 0; // PS2_RAM_SIZE
+    int64_t frame = 0;    // input sample number (the live lines' clock)
+    int64_t playRun = 0;  // consecutive gameplay samples (0 in a menu, cut scene or loading screen)
+    int32_t screen = -1;  // active GUI screen id, -1 none
+    int32_t gameplay = 0;
+    uint64_t liveApplied = 0; // live input lines applied so far
+    uint64_t seq = 0;         // bumped after each update
+};
+LiveStatus g_liveStatus;
+bool g_live = false;
 bool g_steady = false;
 bool g_skipMemcard = true;
 bool g_wasMenu = true;
@@ -740,6 +757,16 @@ void hookPadMgrUpdate(uint8_t* rdram, R5900Context* c, PS2Runtime* rt) {
     m.setSampleRefresh(drakan_present_clock::lockedRefreshSeconds());
     if (!(g_skipBits & 16))
         beginFrame();
+    if (g_live) {
+        g_liveStatus.rdram = reinterpret_cast<uintptr_t>(rdram);
+        g_liveStatus.ramSize = PS2_RAM_SIZE;
+        g_liveStatus.frame = m.frameNo();
+        g_liveStatus.playRun = g_playRun;
+        g_liveStatus.screen = scr;
+        g_liveStatus.gameplay = gameplay ? 1 : 0;
+        g_liveStatus.liveApplied = m.liveApplied();
+        ++g_liveStatus.seq;
+    }
     RecompGuest g(rdram, c, rt);
     if constexpr (drakan_region::supports(drakan_region::Feature::DebugMenu))
         drakan_debug_menu::beforePadMgr(g, m, drakan_settings_host::isOpen());
@@ -1356,6 +1383,17 @@ void drakanInstallInput(PS2Runtime& rt) {
                  script);
             std::fflush(nullptr);
             std::exit(2);
+        }
+        if (const char* live = std::getenv("DRAKAN_INPUT_LIVE"); live && live[0] && module().scripted()) {
+            module().setLiveInput(live);
+            g_live = true;
+            const std::string statusPath = std::string(live) + ".status";
+            if (std::FILE* sf = std::fopen(statusPath.c_str(), "w")) {
+                std::fprintf(sf, "status 0x%llx\n",
+                             static_cast<unsigned long long>(reinterpret_cast<uintptr_t>(&g_liveStatus)));
+                std::fclose(sf);
+            }
+            ilog("[input] live input from '%s' (status block in %s)\n", live, statusPath.c_str());
         }
     } else {
         // raw input comes from the module's own message-only window; the host (raylib / D3D child) window is only

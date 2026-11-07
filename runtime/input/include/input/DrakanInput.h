@@ -117,6 +117,10 @@ public:
     // unreadable.
     bool loadScript(const std::string& path, std::string* err);
     bool scripted() const { return scripted_; }
+    // Harness only (DRAKAN_INPUT_LIVE): a scripted run also takes the lines appended to `path` while it runs (read up
+    // to the last complete line before each frame; see Script.h "Live input"). The file is not created here.
+    void setLiveInput(const std::string& path) { livePath_ = path; }
+    uint64_t liveApplied() const { return script_.liveApplied(); }
     // EE thread: actual window extent for virtual640x512 scripts, including initHeadless().
     void setScriptClientSize(int width, int height) {
         scriptClientW_ = width;
@@ -320,6 +324,9 @@ private:
     InputScript script_;
     ScriptEvents scriptEv_;
     bool scripted_ = false;
+    std::string livePath_;
+    uint64_t liveOffset_ = 0;
+    void pollLiveInput();
     int frameNo_ = 0;
     std::chrono::steady_clock::time_point lastFrameAt_{}; // host time of the previous beginFrame()
     bool haveFrameAt_ = false;

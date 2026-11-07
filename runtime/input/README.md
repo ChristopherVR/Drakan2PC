@@ -234,6 +234,13 @@ Window integration: Raw Input comes from the module's **own message-only window*
 
 `DRAKAN_INPUT_SCRIPT=<file>` replaces the host input by a script (`include/input/Script.h`: `key|button|mouse|wheel|pad|cursor|dump|shot|log|menu|sync|quit`, frame numbers = `PadMgr_Update` calls, `sync play <n>` waits for n consecutive gameplay frames).
 Helpers in the glue: `DRAKAN_INPUT_AUTOSTART=1` (with `DRAKAN_AUTOPRESS=4000`: menu -> New Game -> skips the intro cutscene with Start+Cross until the player camera runs; the world then renders black but is fully controllable), `DRAKAN_INPUT_LOG=<n>` (`[in-pos]` position / heading / pitch every n frames), `DRAKAN_INPUT_LOGFILE`, `DRAKAN_WINDOW_POS=x,y` (also makes the window topmost, for `shot`), `DRAKAN_SHOT_DIR` (`shot` writes `input_ingame_<label>.bmp`).
+Live input (harness only): with `DRAKAN_INPUT_LIVE=<command file>` next to a script, lines appended to that file while
+the game runs are read before each frame (up to the last complete line) and run like script lines, their `<frame>`
+counted from the sample they arrived on (`sync` / `clock` refused). The glue writes `status 0x<host address>` to
+`<command file>.status`: a small block with the guest RAM address, the sample number, gameplay / screen state and how
+many live lines were applied, so a driver can read guest state from the process (ReadProcessMemory) and steer.
+`scripts/harness/live_drive.py` is that driver (face a target, fight, follow waypoints, walk at an actor). Nothing of
+it is active without the variable.
 Debug: `DRAKAN_INPUT=0` keeps the stock pad stubs, `DRAKAN_INPUT_SKIP=<bits>` disables hooks (1 PadMgr, 2 camera, 4 bare PadMgr, 8 no after-hook, 16 no beginFrame, 32 no camera-follow hook), `DRAKAN_INPUT_MENU=0|1` forces the mode.
 The game stalls intermittently in the memory-card/level-transition dialog (needs Cross taps by wall clock, that is what `DRAKAN_AUTOPRESS` does); the test runner `build/input_tests/run.sh` simply retries.
 

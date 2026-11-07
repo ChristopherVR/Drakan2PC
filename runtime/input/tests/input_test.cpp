@@ -1854,6 +1854,59 @@ static void testScriptScreenSync() {
     }
 }
 
+// Live input (DRAKAN_INPUT_LIVE): lines arriving while the file script waits on its own sync still run, relative to
+// the sample they arrived on; sync is refused there; the applied count is the driver's acknowledgement.
+static void testScriptLive() {
+    ScriptTest s("0 sync play 100\n0 quit\n");
+    int w = 0;
+    CHECK(keyFromName("W", &w));
+    s.step(1);
+    s.step(2);
+    std::string err;
+    CHECK(s.script.appendLive("0 key down W\n2 key up W\n1 mouse 7 0 2\n0 sync play 1\n0 button tap 1\n", &err) == 4);
+    CHECK(!err.empty()); // the sync line
+    CHECK(s.script.livePending() == 4 && s.script.liveApplied() == 0);
+    s.step(3);
+    CHECK(s.out.keyPressed[w] && s.out.mousePressed == MBTN_LEFT && s.out.dx == 0 && !s.ev.quit);
+    s.step(4);
+    CHECK(s.out.keyDown[w] && s.out.mouseDown == 0 && s.out.dx == 7);
+    s.step(5);
+    CHECK(s.out.keyReleased[w] && s.out.dx == 7 && s.script.liveApplied() == 4 && s.script.livePending() == 0);
+    s.step(6);
+    CHECK(s.out.dx == 0 && s.out.keyDown.none());
+    CHECK(s.script.appendLive("0 quit\n", &err) == 1);
+    s.step(7);
+    CHECK(s.ev.quit);
+}
+
+static void testModuleLiveFile() {
+    const std::string script = "live_module_script.txt", live = "live_module_cmds.txt";
+    writeFile(script, "0 sync play 1000\n");
+    writeFile(live, "");
+    InputModule m;
+    m.initHeadless(Config::defaults());
+    CHECK(m.loadScript(script, nullptr));
+    m.setLiveInput(live);
+    m.beginFrame();
+    CHECK(m.liveApplied() == 0);
+    if (std::FILE* f = std::fopen(live.c_str(), "ab")) {
+        std::fputs("0 mouse 5 0\n0 mouse 9", f); // the second line is still being written
+        std::fclose(f);
+    }
+    m.beginFrame();
+    CHECK(m.liveApplied() == 1);
+    if (std::FILE* f = std::fopen(live.c_str(), "ab")) {
+        std::fputs(" 0\n", f);
+        std::fclose(f);
+    }
+    m.beginFrame();
+    CHECK(m.liveApplied() == 2);
+    m.beginFrame();
+    CHECK(m.liveApplied() == 2);
+    std::remove(script.c_str());
+    std::remove(live.c_str());
+}
+
 static void testScriptElapsed() {
     ScriptTest s("clock milliseconds # opt in\n0 key down W\n1000 key up W\n"
                  "1000 dump end\n1000 shot end\n1000 quit\n1100 dump later\n");
@@ -3198,6 +3251,8 @@ int main() {
     testScriptPlace();
     testScriptScreenSync();
     testScriptElapsed();
+    testScriptLive();
+    testModuleLiveFile();
     testScriptElapsedSync();
     testScriptElapsedSamples();
     testScriptElapsedRates();

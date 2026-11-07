@@ -27,6 +27,10 @@
 // `tap` holds the key/button/pad bit for exactly one input sample in either mode.
 // Mouse [frames] repetitions and log [every] remain input sample counts, NOT milliseconds; mouse counts are
 // applied once per sample, including while waiting for sync. Use timed one-shot mouse events for fixed totals.
+// Live input (harness only, DRAKAN_INPUT_LIVE, scripts/harness/live_drive.py): appendLive() adds lines of the same
+// grammar while the game runs, for a closed-loop driver that reads guest state and steers. Their <frame> counts
+// samples from the next advance (0 = that sample), independent of the file's own `sync`; they run after the file's
+// events of the same sample. `sync` and `clock` are not accepted there.
 #pragma once
 #include "input/FrameInput.h"
 #include <bitset>
@@ -69,6 +73,11 @@ public:
     // Repeated/backwards timestamps cannot rewind elapsed time or replay events.
     void advance(int frame, int playRun, FrameInput& out, uint16_t& padButtons, ScriptEvents& ev,
                  std::optional<uint64_t> monotonicMs = std::nullopt);
+    // Live lines (see above), one per line; returns how many were queued, bad lines are reported in *err.
+    int appendLive(const std::string& text, std::string* err);
+    // Live events applied so far (a driver's acknowledgement) and those still waiting for their sample.
+    uint64_t liveApplied() const { return liveApplied_; }
+    size_t livePending() const { return live_.size(); }
 
 private:
     struct Ev {
@@ -95,7 +104,13 @@ private:
         std::string text;
         ScriptPlace place;
     };
+    bool parseLine(const std::string& line, int ln, Ev& e, std::string* err);
+    void apply(const Ev& e, ScriptEvents& ev, int& wheel);
+
     std::vector<Ev> evs_;
+    std::vector<Ev> live_;
+    int lastFrame_ = 0, liveLines_ = 0;
+    uint64_t liveApplied_ = 0;
     size_t next_ = 0;
     int segBase_ = 0;
     bool milliseconds_ = false;

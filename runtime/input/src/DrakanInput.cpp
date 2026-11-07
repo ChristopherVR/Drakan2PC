@@ -54,6 +54,29 @@ bool InputModule::loadScript(const std::string& path, std::string* err) {
     return true;
 }
 
+void InputModule::pollLiveInput() {
+    std::FILE* f = std::fopen(livePath_.c_str(), "rb");
+    if (!f)
+        return;
+    std::string text;
+    if (std::fseek(f, static_cast<long>(liveOffset_), SEEK_SET) == 0) {
+        char buf[4096];
+        size_t n = 0;
+        while ((n = std::fread(buf, 1, sizeof buf, f)) > 0)
+            text.append(buf, n);
+    }
+    std::fclose(f);
+    const size_t end = text.rfind('\n');
+    if (end == std::string::npos)
+        return; // nothing new, or a line still being written
+    text.resize(end + 1);
+    liveOffset_ += text.size();
+    std::string err;
+    script_.appendLive(text, &err);
+    if (!err.empty())
+        std::fprintf(stderr, "[input] live: %s", err.c_str());
+}
+
 void InputModule::setCaptureWindow(void* hwnd) {
     if (host_)
         host_->setCaptureWindow(hwnd);
@@ -290,6 +313,8 @@ void InputModule::beginFrame() {
             std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now().time_since_epoch())
                 .count();
         script_.setScreen(activeScreen_);
+        if (!livePath_.empty())
+            pollLiveInput();
         script_.advance(frameNo_, playRun_, f, pad, scriptEv_, static_cast<uint64_t>(nowMs));
         int clientW = scriptClientW_, clientH = scriptClientH_;
         if ((clientW <= 0 || clientH <= 0) && host_) {
