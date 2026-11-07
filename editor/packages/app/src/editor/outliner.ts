@@ -36,7 +36,66 @@ export function createOutliner(ctx: Ctx): Panel {
     const searchBox = searchField('Search objects', 'Search objects by class, id or category');
     const search = searchBox.input;
     const count = h('span', { class: 'dim count' });
-    const tree = h('div', { class: 'tree', role: 'tree' });
+    const tree = h('div', {
+        class: 'tree',
+        role: 'tree',
+        tabindex: '0',
+        'aria-label': 'Objects of the level',
+        title: 'Arrow keys move, Right and Left open and close a group, Enter selects (Ctrl+Enter adds to the selection)',
+    });
+    // Keyboard position in the tree, kept by name because the tree is rebuilt when a group opens or closes.
+    let kbKey = '';
+    const rowKey = (r: HTMLElement): string =>
+        r.dataset.id ? `o${r.dataset.id}` : `g${/d\d+/.exec(r.className)?.[0] ?? ''}:${r.querySelector('.name')?.textContent ?? ''}`;
+    const treeRows = (): HTMLElement[] => [...tree.querySelectorAll<HTMLElement>('.row')];
+    function paintKb(scroll = false): void {
+        for (const r of treeRows()) {
+            const on = !!kbKey && rowKey(r) === kbKey;
+            r.classList.toggle('kb', on);
+            if (on && scroll) r.scrollIntoView({ block: 'nearest' });
+        }
+    }
+    tree.addEventListener('focus', () => {
+        const rs = treeRows();
+        if (!rs.length) return;
+        if (!kbKey || !rs.some((r) => rowKey(r) === kbKey)) kbKey = rowKey(rs.find((r) => r.classList.contains('sel')) ?? rs[0]!);
+        paintKb(true);
+    });
+    tree.addEventListener('keydown', (e) => {
+        if (e.altKey || e.target !== tree) return;
+        const rs = treeRows();
+        const i = rs.findIndex((r) => rowKey(r) === kbKey);
+        const cur = i >= 0 ? rs[i]! : null;
+        const go = (n: number): void => {
+            const r = rs[Math.max(0, Math.min(rs.length - 1, n))];
+            if (!r) return;
+            kbKey = rowKey(r);
+            paintKb(true);
+        };
+        switch (e.key) {
+            case 'ArrowDown': go(i + 1); break;
+            case 'ArrowUp': go(i - 1); break;
+            case 'Home': go(0); break;
+            case 'End': go(rs.length - 1); break;
+            case 'ArrowRight':
+            case 'ArrowLeft': {
+                const grp = cur?.classList.contains('grp') ? cur : null;
+                const open = grp?.getAttribute('aria-expanded') === 'true';
+                if (grp && (e.key === 'ArrowRight') !== open) grp.querySelector<HTMLElement>('.chev')?.click();
+                else if (e.key === 'ArrowRight') go(i + 1);
+                else go(i - 1);
+                break;
+            }
+            case 'Enter':
+            case ' ':
+                cur?.dispatchEvent(new MouseEvent('click', { bubbles: true, ctrlKey: e.ctrlKey, metaKey: e.metaKey, shiftKey: e.shiftKey }));
+                break;
+            default:
+                return;
+        }
+        e.preventDefault();
+        queueMicrotask(() => paintKb(true));
+    });
     const root = h(
         'div',
         { class: 'panel outliner' },
@@ -324,6 +383,7 @@ export function createOutliner(ctx: Ctx): Panel {
             );
         }
         fill(tree, ...nodes);
+        paintKb();
     }
 
     const syncSelection = raf(() => {

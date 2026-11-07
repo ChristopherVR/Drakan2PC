@@ -2324,3 +2324,24 @@ body.dragging-asset {
 
 /* A folded side column leaves a few pixels of its header past the window edge: never let that scroll the page. */
 html, body { overflow-x: hidden; }
+
+/* Keyboard position in the Outliner (outliner.ts): the row the arrow keys are on. */
+.tree:focus-visible { outline: none; }
+.tree:focus-visible .row.kb { outline: 2px solid var(--accent); outline-offset: -2px; }
+.tree:focus-visible .row.kb { background: color-mix(in srgb, var(--accent) 14%, transparent); }
+
+/* Controls that had no visible keyboard focus: menu bar items, custom drop-downs, splitters, link handles, category rows. */
+.mb-item:focus-visible,
+.ui-dd:focus-visible,
+.splitter:focus-visible,
+.link-handle:focus-visible,
+.ui-row:focus-visible,
+.cb-caret:focus-visible,
+.tool:focus-visible,
+.ui-input:focus-visible,
+.side-tab:focus-visible,
+.fsearch:focus-visible,
+.hp-q:focus-visible {
+  outline: 2px solid var(--accent) !important;
+  outline-offset: -2px;
+}

@@ -1162,3 +1162,15 @@ input[type='range']:disabled {
     min-width: 0 !important;
     flex-shrink: 1 !important;
 }
+
+/* Pressed state for the buttons the shared components draw: a one pixel press and a slightly darker face. */
+.ui-btn:active:not(:disabled),
+.ui-tool:active:not(:disabled),
+.ui-seg-btn:active:not(:disabled),
+.btn:active:not(:disabled),
+.tool:active:not(:disabled) {
+    transform: translateY(1px);
+    filter: brightness(0.9);
+}
+.ui-switch:hover:not(:disabled) { filter: brightness(1.12); }
+.ui-switch:disabled { opacity: 0.5; cursor: not-allowed; }

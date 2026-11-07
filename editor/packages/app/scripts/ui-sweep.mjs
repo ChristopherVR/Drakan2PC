@@ -191,6 +191,28 @@ async function setFiles(selector, files) {
     await send('DOM.setFileInputFiles', { files, nodeId: q.result.nodeId });
     return true;
 }
+/** Accessibility checks of the page as it stands: controls without a name, roles without a label, no visible focus. */
+const A11Y = `(() => {
+  const out = [];
+  const name = (e) => (e.getAttribute('aria-label') || (e.getAttribute('aria-labelledby') && document.getElementById(e.getAttribute('aria-labelledby'))?.textContent) || e.title || e.textContent || e.value || e.placeholder || '').trim();
+  const id = (e) => e.tagName.toLowerCase() + (e.id ? '#' + e.id : '') + '.' + String(e.className || '').split(' ')[0];
+  const tab = [...document.querySelectorAll('button, a[href], input, select, textarea, [role=button], [role=tab], [role=menuitem]')].filter((e) => e.offsetParent && !e.disabled);
+  for (const e of tab.slice(0, 600)) {
+    if (!name(e) && !(e.labels && e.labels.length)) out.push('no accessible name ' + id(e));
+    if (e.tagName === 'SELECT' && e.parentElement?.querySelector('.ui-dd')) continue; // the custom drop-down in front of it takes the focus
+    if (e.classList.contains('cb-caret') || e.tabIndex < 0) continue;
+    const b = getComputedStyle(e); const before = [b.outlineStyle, b.outlineWidth, b.boxShadow, b.borderColor, b.backgroundColor].join('|');
+    e.focus({ focusVisible: true });
+    if (e.closest('.collapsed, [inert]')) continue; // a folded panel is not reachable by design
+    if (document.activeElement !== e) { out.push('cannot take focus ' + id(e) + ' "' + name(e).slice(0, 16) + '"'); continue; }
+    const a = getComputedStyle(e);
+    const has = (a.outlineStyle !== 'none' && parseFloat(a.outlineWidth) > 0) || [a.outlineStyle, a.outlineWidth, a.boxShadow, a.borderColor, a.backgroundColor].join('|') !== before;
+    if (!has) out.push('no visible focus ' + id(e) + ' "' + name(e).slice(0, 16) + '"');
+    e.blur();
+  }
+  for (const e of document.querySelectorAll('[role=listbox], [role=tree], [role=menu], dialog')) if (!e.getAttribute('aria-label') && !e.getAttribute('aria-labelledby')) out.push('unlabelled ' + (e.getAttribute('role') || 'dialog') + ' ' + id(e));
+  return [...new Set(out)].slice(0, 10);
+})()`;
 const findings = [];
 const log = [];
 async function snap(size, name) {
@@ -254,6 +276,9 @@ for (const [w, h] of sizes) {
     await sleep(700);
     await ev(RESET);
     await snap(size, 'initial');
+    await send('Input.dispatchKeyEvent', { type: 'rawKeyDown', key: 'Tab', code: 'Tab', windowsVirtualKeyCode: 9 }); // keyboard modality, so :focus-visible applies
+    await send('Input.dispatchKeyEvent', { type: 'keyUp', key: 'Tab', code: 'Tab', windowsVirtualKeyCode: 9 });
+    for (const f of (await ev(A11Y)) ?? []) findings.push(`${size} initial | a11y: ${f}`);
     if (iso) {
         // level-loaded states: a selected object (Details, Outliner row, gizmo) and a viewport context menu on it
         await ev(`(() => { const c = window.drakanEditor.levelUi.ctx(); const o = [...c.doc().objects()].find((x) => x.kind === 'player') ?? [...c.doc().objects()][0]; c.view().select([o.id]); c.view().frameSelection(); })()`);

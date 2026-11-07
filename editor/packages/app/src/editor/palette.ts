@@ -36,7 +36,7 @@ export function createPalette(): Palette {
         autocomplete: 'off',
         spellcheck: 'false',
     });
-    const list = h('div', { class: 'pal-list', role: 'listbox' });
+    const list = h('div', { class: 'pal-list', role: 'listbox', 'aria-label': 'Commands, levels, classes and objects' });
     const foot = h(
         'div',
         { class: 'pal-foot' },

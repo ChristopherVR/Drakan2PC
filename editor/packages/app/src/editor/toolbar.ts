@@ -108,7 +108,7 @@ function menuButton(
         h('span', {}, label),
         icon('chevron', 10),
     );
-    const box = h('div', { class: 'popover', hidden: true, role: 'menu' });
+    const box = h('div', { class: 'popover', hidden: true, role: 'menu', 'aria-label': label });
     const wrap = h('div', { class: 'menuwrap' }, btn, box);
     const close = (): void => {
         box.hidden = true;
