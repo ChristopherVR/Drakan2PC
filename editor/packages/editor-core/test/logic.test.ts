@@ -76,7 +76,14 @@ const CLASSES: Record<string, StubClass> = {
             { name: 'Auto-Open Distance (lu)', type: 2, def: 2 },
         ],
     },
-    '0x20005': { rfl: 0x31, name: 'Orc Center', fields: [{ name: 'Message To Send', type: 7, def: 8 }] },
+    '0x20005': {
+        rfl: 0x31,
+        name: 'Orc Center',
+        fields: [
+            { name: 'Message To Send', type: 7, def: 8 },
+            { name: 'Wait For Trigger', type: 7, def: 0 },
+        ],
+    },
     '0x20006': {
         rfl: 0x07,
         name: 'Countdown to Zero',
@@ -511,6 +518,29 @@ describe('templates', () => {
         if (isError(p)) throw new Error(p.error);
         const counter = p.objects.find((o) => o.class === 'Countdown to Zero')!;
         expect(counter.fields!.find((f) => f.name === 'Message To Send')?.value ?? 1).toBe(1);
+    });
+
+    it('ambush: dormant copies of a creature and one raised volume that wakes them with On', () => {
+        const d = level();
+        d.insert(obj(30, '0x20005'));
+        const ctx = ctxFor(d, [30]);
+        const r = templateById('ambush')!.build({ ...ctx, at: [1000, 50, 2000] }, { count: 3, radius: 800 });
+        if (isError(r)) throw new Error(r.error);
+        const det = r.objects.find((o) => o.class === 'Trigger Detector')!;
+        const copies = r.objects.filter((o) => o.class === 'Orc Center');
+        expect(copies).toHaveLength(3);
+        expect(det.links).toEqual(copies.map((c) => c.id));
+        expect(det.transform.pos).toEqual([1000, 1050, 2000]); // raised by VOLUME_LIFT
+        expect(Object.fromEntries(det.fields!.map((f) => [f.name, f.value]))['Trigger Message']).toBe(1);
+        for (const c of copies) {
+            expect(c.fields!.find((f) => f.name === 'Wait For Trigger')!.value).toBe(1);
+            expect(c.links).toEqual([]);
+            expect(c.id).not.toBe(30);
+        }
+        expect(new Set(copies.map((c) => c.transform.pos.join())).size).toBe(3);
+        expect(d.get(30)!.fields ?? []).toEqual([]); // the original is untouched
+        expect('error' in templateById('ambush')!.build(ctxFor(d, []), {})).toBe(true);
+        expect('error' in templateById('ambush')!.build(ctxFor(d, [4]), { enemy: 4 })).toBe(true); // a door
     });
 
     it('a held plate sends On when pressed and Off when released straight to the door, no counter', () => {

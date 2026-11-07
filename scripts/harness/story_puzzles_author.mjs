@@ -79,7 +79,16 @@ if (kind === 'plate') tpl('pressure-plates', { target: door, count: 1, then: opt
 else if (kind === 'counter') tpl('pressure-plates', { target: door, count: 2, then: opt.then ?? 'On', axis: 'z', spacing: 1600 }, at(0, 1800, -100));
 else if (kind === 'lever') tpl('lever-door', { door, mode: opt.leverMode ?? 'open' }, at(0, 700, 100));
 else if (kind === 'timer') tpl('timer-door', { target: door, delay: 2, then: 'On', w: 3, h: 2, d: 1 }, at(0, 700, 1000));
-else throw new Error('kind ' + kind);
+else if (kind === 'ambush') {
+  const src = [...doc.objects()].find((o) => o.class === (opt.enemyClass ?? 'Human Skeleton:Center'));
+  if (!src) throw new Error('no enemy of that class in the level');
+  tpl('ambush', { enemy: src.id, count: opt.count ?? 3, radius: opt.radius ?? 1200, w: 4, h: 3, d: 2 }, at(0, opt.ambushDz ?? 900, opt.ambushDy ?? 0));
+  const det = [...doc.objects()].find((o) => o.id > 11970 && o.class === 'Trigger Detector');
+  if (opt.linkDoor) det.links.push(door); // debug: proves the volume fires
+  if (opt.wakeMsg !== undefined) { // debug: try another message than On
+    const f = C.schemaField(env.schemaFor(det.resource), 'Trigger Message'); C.setObjectField(det, f, opt.wakeMsg);
+  }
+} else throw new Error('kind ' + kind);
 // the stock plate is about 4000 units wide: shrink ours so Rynn does not spawn on it
 for (const o of doc.objects()) if (o.id > 11970 && /Pressure Plate/.test(o.class) && o.scale) o.scale = [0.4, 1, 0.4];
 const issues = C.validateDocument(doc, { sourceLevel: true }).concat(C.validateLogic(doc, env));
@@ -93,4 +102,5 @@ const files = C.buildModFiles(meta, [{ file: src.file, entry: { type: src.object
 const dir = out + '/' + id;
 for (const [p, d] of Object.entries(files)) { const full = dir + '/' + p; mkdirSync(full.slice(0, full.lastIndexOf('/')), { recursive: true }); writeFileSync(full, d); }
 writeFileSync(out + '/mods.ini', '[mods]\n' + id + ' = on\n');
+for (const o of doc.objects()) if (o.id > 11970) console.log('NEW', o.id, o.class, JSON.stringify(o.links), o.origin ?? ''); 
 console.log(JSON.stringify({ door, start: S, level: LV }));

@@ -24,6 +24,13 @@ function openMessage(ctx: TemplateContext, target: LevelObject): string {
     return 'Unlock';
 }
 
+/**
+ * A trigger volume made at a ground point is raised by this much: in game a detector centred on the floor does not fire
+ * for Rynn walking through it (measured 2026-11-07, door-proof.md), one centred 1000 units higher does.
+ */
+export const VOLUME_LIFT = 1000;
+const liftVolume = (at: LogicVec3): LogicVec3 => [at[0], at[1] + VOLUME_LIFT, at[2]];
+
 export type ParamKind = 'number' | 'bool' | 'choice' | 'object' | 'objects' | 'class';
 
 export interface TemplateParam {
@@ -135,6 +142,24 @@ class Builder {
         this.objects.push(o);
         return o;
     }
+    /** A copy of the existing object `src` (new id, no links) at `pos` with `fields` overridden. */
+    clone(src: LevelObject, pos: LogicVec3, fields: Record<string, number | number[]>): LevelObject {
+        const o = cloneObject(src);
+        o.id = this.next++;
+        o.links = [];
+        o.transform.pos = [...pos];
+        const schema = this.ctx.env.schemaFor(src.resource);
+        for (const [name, value] of Object.entries(fields)) {
+            const f = schemaField(schema, name);
+            if (!f) {
+                this.warnings.push(`${src.class} has no field "${name}"; not set`);
+                continue;
+            }
+            setObjectField(o, f, value);
+        }
+        this.objects.push(o);
+        return o;
+    }
     /** Link from a new object (direct) or an existing one (recorded). */
     link(from: number, to: number): void {
         const o = this.objects.find((x) => x.id === from);
@@ -224,7 +249,7 @@ export const TEMPLATES: LogicTemplate[] = [
                 }
                 const d = b.make(
                     det,
-                    ctx.at,
+                    liftVolume(ctx.at),
                     {
                         'Trigger Message': msg('Play Sequence'),
                         'Detect Only Once?': flag(v, 'once', true) ? 1 : 0,
@@ -286,6 +311,67 @@ export const TEMPLATES: LogicTemplate[] = [
                             'Doors with Auto-Open on also open by themselves when the player is near; keep Locked off, a locked door ignores the lever (use Unlock mode for those).',
                         );
                 }
+                return b.done();
+            }),
+    },
+    {
+        id: 'ambush',
+        title: 'Ambush: enemies wait until the player walks into a volume',
+        summary:
+            'Copies of a creature stand dormant (Wait For Trigger on) until the player enters a trigger volume, which wakes them all.',
+        params: [
+            {
+                id: 'enemy',
+                label: 'Enemy to copy',
+                kind: 'object',
+                roles: ['creature'],
+                hint: 'Uses the current selection when empty. The original is left where it is.',
+            },
+            { id: 'count', label: 'Enemies', kind: 'number', default: 3, min: 1, max: 8, step: 1 },
+            { id: 'radius', label: 'Spread (units)', kind: 'number', default: 1500, min: 0, step: 250 },
+            { id: 'w', label: 'Width (cells)', kind: 'number', default: 3, min: 0.25, step: 0.25 },
+            { id: 'h', label: 'Height (cells)', kind: 'number', default: 2, min: 0.25, step: 0.25 },
+            { id: 'd', label: 'Depth (cells)', kind: 'number', default: 1, min: 0.25, step: 0.25 },
+            { id: 'once', label: 'Only once', kind: 'bool', default: true },
+        ],
+        build: (ctx, v) =>
+            guard(() => {
+                const b = new Builder(ctx);
+                const picked = objId(v, 'enemy') ?? ctx.selection.find((id) => {
+                    const o = ctx.doc.get(id);
+                    return o && logicOf(o, ctx.env)?.role === 'creature';
+                });
+                if (picked === undefined) throw new TemplateError('Pick the enemy to copy (or select one).');
+                const src = need2(ctx, picked, 'Enemy');
+                if (logicOf(src, ctx.env)?.role !== 'creature') throw new TemplateError('The picked object is not a creature.');
+                const det = need(
+                    pickClass(ctx.catalog, 0x3d, /^trigger detector$/i) ?? pickClass(ctx.catalog, 0x3d),
+                    'trigger detector class',
+                );
+                const n = Math.max(1, Math.min(8, Math.round(num(v, 'count', 3))));
+                const radius = num(v, 'radius', 1500);
+                const d = b.make(
+                    det,
+                    liftVolume(ctx.at),
+                    {
+                        // On wakes a dormant creature (measured in game, docs/journal/2026-11-07/door-proof.md)
+                        'Trigger Message': msg('On'),
+                        'Detect Only Once?': flag(v, 'once', true) ? 1 : 0,
+                        'Detect Which?': 2,
+                    },
+                    { scale: [num(v, 'w', 3), num(v, 'h', 2), num(v, 'd', 1)] },
+                );
+                for (let i = 0; i < n; i++) {
+                    const a = (i / n) * Math.PI * 2;
+                    const at: LogicVec3 =
+                        n === 1
+                            ? [ctx.at[0], ctx.at[1], ctx.at[2] + radius]
+                            : [ctx.at[0] + Math.cos(a) * radius, ctx.at[1], ctx.at[2] + radius + Math.sin(a) * radius];
+                    const e = b.clone(src, at, { 'Wait For Trigger': 1 });
+                    b.link(d.id, e.id);
+                }
+                b.notes.push(`${n} dormant ${src.class} copies wake when the player enters trigger volume #${d.id}`);
+                b.notes.push('The original enemy #' + picked + ' is unchanged; delete it if it was only the model.');
                 return b.done();
             }),
     },
@@ -493,7 +579,7 @@ export const TEMPLATES: LogicTemplate[] = [
                 });
                 const d = b.make(
                     det,
-                    ctx.at,
+                    liftVolume(ctx.at),
                     {
                         'Trigger Message': msg('On'),
                         'Detect Only Once?': 1,
@@ -568,7 +654,7 @@ export const TEMPLATES: LogicTemplate[] = [
                 );
                 const d = b.make(
                     det,
-                    ctx.at,
+                    liftVolume(ctx.at),
                     {
                         'Trigger Message': msg(String(v.message ?? 'On')),
                         'Detect Only Once?': flag(v, 'once', true) ? 1 : 0,
