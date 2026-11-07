@@ -271,3 +271,41 @@ height, which needs terrain heights I do not have; a `CLIMB` of 300 pushes Arokh
 a grey slab in the sky with a man standing on it (`gp_zola2/z0.png`): y 230000 is a staging area (like 1A's Arokh perch at y
 200000), the object is a template that the script spawns elsewhere. A kill there means nothing for timer 20860, so the
 lever chain (20860 -> lever 18379 -> timer 18378 -> 9781) was not exercised.
+
+### Fifth follow-up: 4B ridge crossed, Savage Gate found, Valley data
+
+Tooling: `build/gaps2/` (not committed): `route.mts` (Dijkstra over the PS2 terrain layers from `parsePs2Terrain` plus object
+avoidance, emits a `WAYPOINTS` string), `loc.mts` (floor map around a point), `run.sh`. 4B is `LEVEL4RA` and 4A is `LEVEL4LD`
+in `build/lvl-objects` (the file stems do not follow the level names).
+
+**4B: the ridge is crossed, the exit is not yet reached.**
+* Mounting: the first waypoint must not be Arokh's own spot with a large radius (Rynn starts 2.9k from him and the point counts
+  as reached at once). `place 839353 146500 982917` and `E` taps mount him reliably.
+* A mounted `place` moves Arokh. `place 942294 133500 1393000 3.1416` (x 942-945k, in front of the gate door 5737, which a lever
+  5743 inside the tunnel is meant to open; the door never opened in the watch) followed by W and SPACE taps flies up the ridge
+  face at x about 944k, z 1394k to 1422k (y 137k to 145k) and over the ridge at z 1396k to 1414k: the "gate" is crossed by
+  flight at floor+4000, not through the door. Placing at x 943133 or at 945000 instead ends against the cliff or the door.
+* From (943400, 145000, 1433000) a waypoint route computed from the terrain (flight height max floor of 8 cells + 14000, capped
+  176500, trees and boulders avoided) flew Arokh to (575347, 143500, 1666996) and (659782, 176500, 1748942) in one run
+  (`g2_t4f`). Lower flights (floor+800 to 8000) stopped at the two Northland Bridge props (644117, 136428, 1504357 and 900096,
+  140000, 1420288): the decks are in the way, so fly at floor+14000 there.
+* The exit pocket (exit detector 5595 at 681024 142708 1765312, arrival Rynn 7773 / Arokh 7774 beside it) is walled off from the
+  west basin by a ridge x 655k to 675k whose floor is 150k to 190k. It is entered through the **Savage Gate** (1958 / 1959
+  wheel, closed ring door at 650275 144967 1744595, screenshot `g2_gate/g1.png`): a Savage fort interior at y about 140k lies
+  behind it (barrels, firepots, bricks x 653k to 685k, z 1740k to 1750k) and an `Invisible Static Wall` (7527, 7 x 7 x 1)
+  at 650799 144291 1744614 closes it until the Vis Toggler 5727 (fed by Timer 5728, `Trigger On Message 24`) fires. Message
+  24 is `Shoot` in `MESSAGE_NAMES` and nothing links to those timers (5728, 7795, 7796, 7798): the source is an engine
+  message, probably the Arokh fire breath or an arrow hitting the gate wheel. Arokh placed at 638000 to 640000 flying at
+  y 141800 stops at x 646.5k, 4000 short of the wall. SQUARE and R2 taps there (`pad tap`) did not open it in the one try.
+  Open: find what sends message 24 (breath on the wheel, `Stomp Player` cut scene 5513 at 621397 140387 1726379 is nearby).
+  The route plan for the next try: breath at the wheel from 640000, then W along y 141800 through the gate at floor+1500
+  to 681024 143500 1765312.
+
+**Valley (6).** The floor around Zola Dane (428075 230505 84352) is a flat 230000 slab (x 428k to 458k, z 80k to 105k) with
+Gothral, farmers, a hoe, `Dane Teleport` 20420 and `Zola Teleport Fountain` 20421 on it: a scene set, not a template. Arokh
+starts at 547462 237804 128730. 9274 is class `0x100bc` with no incoming link, and sends message 8 (death) to 20232
+(cut scene "6.01 zola dane and the prince"), 20860 (lever 18379 -> timer 18378 -> transition 9781) and 21946 (Valley icon
+21945). So the kill (or the scene) of Zola Dane feeds the lever chain. Not played in this round.
+
+**Not done:** 1A Lair 12479, 1A to 3 (18028), the forward chain beyond Kragmor, the Valley fight. No game bug found, no
+code change.
