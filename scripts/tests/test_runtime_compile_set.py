@@ -93,6 +93,16 @@ class RuntimeCompileSetTests(unittest.TestCase):
         self.assertLess(release.index("--preset runtime-check"), release.index("gh release create"))
         self.assertIn("DrakanPC-Builder", release[: release.index("--preset runtime-check")])
 
+    def test_workflows_are_valid_yaml(self):
+        # An unquoted "key: value" inside a step name made GitHub reject build-tools.yml and run no CI at all.
+        try:
+            import yaml
+        except ImportError:
+            self.skipTest("PyYAML is not installed")
+        for path in tracked(".github/workflows/*.yml"):
+            with self.subTest(path=path):
+                self.assertIsInstance(yaml.safe_load(read(path)), dict)
+
 
 if __name__ == "__main__":
     unittest.main()

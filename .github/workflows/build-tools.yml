@@ -104,7 +104,7 @@ jobs:
           $ErrorActionPreference = 'Stop'
           $dirty = git status --porcelain --untracked-files=no
           if ($dirty) { $dirty; throw 'tracked files differ from the commit under test' }
-      - name: Configure (runtime-check preset: drakan.exe settings, DRAKAN_CHECK_RUNTIME_SOURCES)
+      - name: Configure with the runtime-check preset (drakan.exe settings, DRAKAN_CHECK_RUNTIME_SOURCES)
         run: |
           $ErrorActionPreference = 'Stop'
           $PSNativeCommandUseErrorActionPreference = $true
