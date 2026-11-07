@@ -244,3 +244,30 @@ A guess I made earlier, "exits are dead after a transition", was wrong; the 1B e
 **Not done:** Valley Zola Dane kill and lever (a fight from the sky at his position produced no kill evidence; the Valley's
 ground fight needs landing or the autoaim/altitude aids), 1A Lair and Shadowmire boxes (no `DRAKAN_PLAYTEST_POS` y below the
 surface tried, no tunnel entrance read), 4A 5132 and Valley 9779/9781 beyond the lever finding.
+
+### Fourth follow-up: 4B low route, Valley, Lair and Shadowmire
+
+**Shadowmire 7969: reached on foot, chain complete.** The box is in a cave at y about 150000 under a 173000 surface. Placing
+Rynn inside that cave works when the spot is near the exit object: `place 521215 150900 451500 0.79`, hold W 12 s towards
+(514048, 444416): screens 2 and 5, `exit taken ... 521216 150563 447488`, `Level 2 - Shadowmire` loaded (real level, 1A
+is the start level). The first try from the north-west (516138 150090 452190) stopped against a wall 8000 units short.
+
+**Lair 12479: not reached.** Every placement near it (`449675 162500 489000` walking south, `441344 150800 507500`, and the
+earlier probes) ends on the plateau at y 160498 to 161010: the cave floor at y 150000 is never accepted by `place`, and the
+walk from the surface (past the Task 7 cave-entrance detectors 17924-17927 at y 161502 and 18211/18212 around 413-476k, 482-515k)
+never descends. Those Task 7 detectors are Arokh's ground-movement cave entrances (`Does Cave Entrance Teleport? 0`, Detect
+Which 0, the marker 17795 at 423666 160850 512249 hangs off the disabled 17794). So the Lair is a dragon-side cave; entering
+it as Rynn needs the real entrance, not found. Open.
+
+**4B low route: still not reached.** The autopilot (`WAYPOINTS`, `CLIMB`) takes off with SPACE and flies at the world's flight
+ceiling, which is y about 178100 (a target of 200000 saturates there). Stops seen with speed 12288 and no motion: (727930,
+175000, 1402385), (704168, 175000, 1194249), (884273, 175000, 1292154) and (888819, 178100, 1282868); at y 158000 the stop is
+earlier (797085, 1151525). No object lies within 27000 of the (884-889k, 1283-1292k) stop, so it is terrain (peaks above
+the ceiling), and lower flight only stops sooner. The route is therefore through the valleys or the gate caves at low
+height, which needs terrain heights I do not have; a `CLIMB` of 300 pushes Arokh into the cave roof (stuck at 839643 146005
+996753), 100 is safe. Not solved.
+
+**Valley: the Zola Dane object is not the live boss.** Placing Rynn at his object position (428075, 230505, 84352) puts her on
+a grey slab in the sky with a man standing on it (`gp_zola2/z0.png`): y 230000 is a staging area (like 1A's Arokh perch at y
+200000), the object is a template that the script spawns elsewhere. A kill there means nothing for timer 20860, so the
+lever chain (20860 -> lever 18379 -> timer 18378 -> 9781) was not exercised.
