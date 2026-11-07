@@ -1166,6 +1166,14 @@ Graceful listen-server teardown sends the UDP disconnect; abrupt loss falls back
 See [the host-departure investigation](../journal/2026-11-05/issue-1-host-disconnect.md) and the `netplay_policy`,
 `net_match`, and `net_udp_smoke` regressions.
 
+The end of a session (`runSession` teardown in `drakan_netplay.cpp`) puts everything the match latched back to
+singleplayer: the arena world mode goes off (`drakan_arena::setSession(false)`: no more save veto, campaign stripping or
+arena `.LVL` filter), the arena / PvP local player ids go to 0, queued hit claims and level changes are dropped, and the
+New Game level redirect, the direct-launch flag and the pending launch are cleared. Inside the session the arena mode only
+follows the match phase (`policy::arenaWorldWanted`), so without this a Quit to Title left it on and a later Continue
+crashed and New Game loaded the arena version of Surdana. See
+[the MP to SP reset note](../journal/2026-11-07/mp-to-sp-reset.md).
+
 ### Issue 1 re-verification (2026-11-06)
 
 All seven multiplayer items of issue 1 were re-run on the deployed build with two real instances and none reproduced,

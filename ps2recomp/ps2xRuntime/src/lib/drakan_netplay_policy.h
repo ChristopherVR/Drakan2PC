@@ -12,4 +12,12 @@ constexpr bool leaveAfterTitle(int previousScreen, int screen, bool automaticRet
     return previousScreen == 1 && screen == 8 && !automaticReturn;
 }
 
+// The arena world mode (drakan_arena: no saving, the campaign stripped, the arena .LVL filter) is on only while this
+// client is in a running deathmatch match (loading, playing or showing results). `sessionRunning` is false once the
+// session ended (Quit to Title, Leave): the mode must go off then, or a later Continue / Load / New Game from the title
+// loads the arena version of the level (issue #1, journal 2026-11-07/mp-to-sp-reset.md).
+constexpr bool arenaWorldWanted(bool sessionRunning, bool connected, bool coop, bool matchRunning) {
+    return sessionRunning && connected && !coop && matchRunning;
+}
+
 } // namespace drakan_netplay::policy

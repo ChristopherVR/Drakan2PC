@@ -1,6 +1,7 @@
 // Drakan: networked ghosts (drakan_netplay.h).
 #include "drakan_game.h"
 #include "drakan_netplay.h"
+#include "drakan_netplay_policy.h"
 #include "drakan_arena.h"
 #include "drakan_coop.h"
 #include "drakan_coop_character.h"
@@ -807,9 +808,10 @@ void runSession(const Cmd& c, drakan::net::ServerBrowser& browser, uint64_t& las
         // or showing its results; a menu launched match strips the campaign from any level, the DRAKAN_NET_* shortcuts
         // only for a multiplayer map.
         {
-            const bool dm = connected && client.config().mode != MatchMode::Coop &&
-                            (client.phase() == MatchPhase::Loading || client.phase() == MatchPhase::Playing ||
-                             client.phase() == MatchPhase::Results);
+            const bool dm = policy::arenaWorldWanted(true, connected, client.config().mode == MatchMode::Coop,
+                                                     client.phase() == MatchPhase::Loading ||
+                                                         client.phase() == MatchPhase::Playing ||
+                                                         client.phase() == MatchPhase::Results);
             const drakan::net::ArenaDef* def = dm ? drakan_arena::findMap(client.config().level) : nullptr;
             // A custom game mode's `loadout` is given on top of the map's.
             drakan::net::ArenaDef withMode;
@@ -1208,14 +1210,29 @@ void runSession(const Cmd& c, drakan::net::ServerBrowser& browser, uint64_t& las
         g_coopOutCreatures.clear();
         g_coopOutEvents.clear();
     }
+    // Everything the match latched goes back to singleplayer: the arena world mode (it only follows the session
+    // inside the loop above, so a Quit to Title left it on and the next Continue / New Game loaded the arena version
+    // of the level, issue #1), the player ids, the New Game level redirect and the launch.
+    drakan_arena::setSession(policy::arenaWorldWanted(false, false, false, false), nullptr);
+    drakan_arena::setLocalPlayer(0);
+    drakan_pvp::setLocalPlayer(0);
+    {
+        std::lock_guard<std::mutex> l(g_combatM);
+        g_claims.clear();
+    }
+    {
+        std::lock_guard<std::mutex> l(g_lcM);
+        g_lcOut.clear();
+    }
     setRedirect("");
-    g_launchTaps.store(false);
     {
         std::lock_guard<std::mutex> l(g_launchM);
         g_launchPending = false;
         g_launchDone = false;
+        g_launchDirect = false;
         g_matchLevel.clear();
     }
+    g_launchTaps.store(false);
 }
 
 void netThread() {
