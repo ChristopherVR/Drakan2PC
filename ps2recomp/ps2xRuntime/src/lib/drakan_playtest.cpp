@@ -192,6 +192,20 @@ static void autoSteer(drakan_input::IGuest& guest) {
         return v > 0.0f ? v : 2500.0f;
     }();
     static size_t wpIndex = 0;
+    // DRAKAN_PLAYTEST_WP_HOLD=<boundaries>: after the last point the actor's x / z are held where it arrived (height
+    // free), so a recipe that still holds W stays over the point (the altar) while it descends.
+    static const unsigned wpHold = [] {
+        const char* e = std::getenv("DRAKAN_PLAYTEST_WP_HOLD");
+        const long v = e ? std::strtol(e, nullptr, 10) : 0;
+        return v > 0 ? static_cast<unsigned>(v) : 0u;
+    }();
+    static unsigned holdLeft = 0;
+    static float pinX = 0, pinZ = 0;
+    if (holdLeft > 0) {
+        guest.writeF(pl + 0x14, pinX);
+        guest.writeF(pl + 0x1c, pinZ);
+        --holdLeft;
+    }
     if (!wps.empty() && wpIndex < wps.size()) {
         const auto& w = wps[wpIndex].p;
         const float dx = w[0] - guest.readF(pl + 0x14), dz = w[2] - guest.readF(pl + 0x1c);
@@ -199,6 +213,11 @@ static void autoSteer(drakan_input::IGuest& guest) {
             std::fprintf(stderr, "[playtest] waypoint %zu reached (%.0f %.0f %.0f)\n", wpIndex,
                          static_cast<double>(w[0]), static_cast<double>(w[1]), static_cast<double>(w[2]));
             ++wpIndex;
+            if (wpIndex == wps.size() && wpHold > 0) {
+                holdLeft = wpHold;
+                pinX = guest.readF(pl + 0x14);
+                pinZ = guest.readF(pl + 0x1c);
+            }
         } else {
             guest.writeF(pl + 0x18, drakan_autoaim::stepToward(guest.readF(pl + 0x18), w[1], climb));
             float m[9];
