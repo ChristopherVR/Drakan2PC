@@ -111,6 +111,7 @@ export const GUIDES: Guide[] = [
             'See it in the game: press Play (F5, desktop app) to start the level with the new ground, or Export (Ctrl+E). The pack carries the changed ground next to the object changes; Rynn walks on the new heights and the painted textures draw in the game.',
         ],
         notes: [
+            'Closing the editor window saves first: the level autosave and the project folder are written before the window goes. If the ground has not arrived yet the tools are hidden until it has.',
             'The game sees ground edits only in a play test or an exported mod; the footer of the Landscape panel counts the changed layers.',
             'The ground of a level is made of many layers stitched together. "Blend into neighbouring layers" (on by default) lets a brush work across the seams so no gaps open; switch it off to change only the layer under the brush.',
             'A ground cell is 2,048 units. Heights have a limited range per layer (about 65,000 units up or down from the layer height); the brush stops there.',
