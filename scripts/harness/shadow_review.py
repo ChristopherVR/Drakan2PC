@@ -524,6 +524,12 @@ def main() -> int:
         "--dump-epoch", type=int, default=1000, help="paired ray/temporal epoch; target provenance is checked"
     )
     parser.add_argument("--dry-run", action="store_true")
+    parser.add_argument(
+        "--exe",
+        type=Path,
+        default=ROOT / "dist" / "DrakanPC" / "drakan.exe",
+        help="game executable (default dist/DrakanPC; use a private play-folder copy to leave dist alone)",
+    )
     args = parser.parse_args()
     if not 30 <= args.timeout <= 900:
         parser.error("--timeout must be 30..900 seconds")
@@ -541,7 +547,7 @@ def main() -> int:
         )
     except ValueError as error:
         parser.error(str(error))
-    exe = (ROOT / "dist" / "DrakanPC" / "drakan.exe").resolve()
+    exe = args.exe.resolve()
     manifest.update(
         executable=str(exe), host={"os": platform.platform(), "cpu": platform.processor()}, timeout=args.timeout
     )
@@ -551,7 +557,7 @@ def main() -> int:
         print(json.dumps(manifest, indent=2))
         return 0
     if not exe.is_file():
-        parser.error("deployed dist/DrakanPC/drakan.exe missing; use Build-LocalGame.ps1")
+        parser.error(f"{exe} missing; use Build-LocalGame.ps1")
     manifest["executable_sha256"] = executable_hash(exe)
     out = Path(manifest["output"])
     out.mkdir(parents=True, exist_ok=False)
