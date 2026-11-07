@@ -215,7 +215,7 @@ Drakan: The Ancients' Gates engine port"); the PC install has no credits list to
 
 **Chain attempt from a fresh New Game (`chain3`, god mode, pack of formats `f5d3c6b`)**: the modern title needs Enter twice (New
 Game, then "Allein"). Level loads, seconds from process start: OotF 00 Intro at 30.4 s (auto exit at 74 s), OotF 01 Ruined Village at
-74.4 s (the 44 s Intro included). **The Ruined Village opening scene did not end by itself**: with no input it was still the same
+74.4 s (the 44 s Intro included). **(Retracted, see section 9: the scene was still running.)** The Ruined Village opening scene seemed not to end by itself: with no input it was still the same
 close-up of a villager 240 s after the level loaded (`rv_scene_over` frame of the first run); with Cross taps every 10 s it ended and
 control came at about 268 s from start (about 190 s into the level, matching the earlier 145 to 170 s runs that had input). That is
 the answer to the open question in the issue #4 note: an idle run does **not** end within 4 minutes, so the opening needs a key
@@ -224,17 +224,56 @@ Wartok was not reached: the recipe's walk from (148,480, 24,700, 216,500) did no
 trigger, whose bounds I did not read), so the single-session chain stops at Ruined Village. The other pairs were walked in separate
 runs in earlier passes; a one-process chain of all 13 levels was not achieved.
 
+## 9. Corrections and fixes: the village scene, Delon, the credits
+
+**Ruined Village opening: no regression, my reading was wrong.** The earlier method (`scene-timing/drive.py`: game choice, no input
+after New Game, audio on, `DRAKAN_STOMP_PROBE=1`) differs from my chain run only in the title Enter taps (two, New Game then
+"Allein") and audio off; I repeated it on the current exe and the current pack (`idle1`, Enter taps only, audio on, probe on, no
+other input for 500 s). The three sequences ran back to back: 1.1 (ref `00080048`) 60.76 s, 1.2a (`00080049`) 51.88 s without any
+wait at its trigger (so the 8 MiB texture budget fix holds), 1.3 (`00080047`) 86.9 s and still running at the last probe line;
+the villager close-up is the 1.3 part, and the HUD with control appears about +250 s after the level loaded (`idle10.png`), as
+in the 2026-11-06 notes (+240 to +250). In the chain run I had waited 240 s from the Intro, which is about 200 s into the
+village: the shot showed 1.3 close to its end. The earlier statement in this note that an idle run "does not end within 4
+minutes" is therefore wrong; the opening needs about 250 s, and the notes' "+140 to +160" is the 1.2a to 1.3 switch. No bisect
+was needed (no regression to find).
+
+**Delon: cause found and fixed.** The PS2 Death Mage template that Delon is cloned from has the field **"Invulnerable?" = 1**
+(NPCS.ODB class 6634, field 169; the PC Delon class has no such field), so nothing in the clone could be damaged. It also has
+Armor 0 and Defense 0 and is a ground humanoid ("Constrain To Ground?" 1, "Walk on Buildings?" 1): the hovering seen earlier was
+Delon standing on Arokh's body. Fix in the converter (formats `5e67f7c`, `ootfpuzzle.ts` `vulnerableBosses`): Delon (PC engine
+class 82, name "Delon") gets the object parameter `Invulnerable?` = 0; tests `ootfpuzzle vulnerable bosses`. Result in game
+(`dm5`, pack with the fix, direct start, Arokh landed on the altar): his hit points reach 0 (the earlier runs never moved from 650),
+he falls into the pit, and his death message decrements counter 455 (1 -> 0, `dw.py 10007`), the link that plays Stomp Player
+436. He died to Arokh landing beside him rather than to a blow of mine; sword, bow and spells on foot were not re-run (Rynn on
+foot needs a placement on the altar ring or its centre platform, which my 2,000-unit floor map only roughly gives), so "killable"
+is shown by the damage path (hp 0 and the counter), not by a played fight.
+
+**Campaign credits: implemented, but not effective in game.** Commit `a79d4c14` adds a pack file `credits/credits.txt`, a
+`CampaignCreditsOverride` that serves it for the two credits entries only while the campaign is current (unit test in
+`override_test`), the converter writes a short end card without personal names, and `modding.md` documents it. In game the
+override is registered (`[game] campaign credits: 1 pack(s)`, `DRAKAN_GAME=d1`) but never asked: while the credits scroll the
+engine makes no request for ids 8807 / 8808 through the entry layer (a log line in `wants()` never fired), so the German stock
+list still shows. The credits come from the opened `Drakan 2.rrc` by plain reads. A working version patches the file at open (the
+file service open filter and `patchSrsc`), which only applies when the game is chosen before the file opens (the title's game
+choice comes later), so it needs the open to be redone or the read hooked; not done (`d3d0f6c3` documents the gap).
+
+**Ruined Village exit, trigger bounds.** Exit 1077 is fired by PC object 1075, a "Creature" detector (Task 6 trigger only,
+Detect Which 2, "Does Cave Entrance Teleport?" 1, "Dragon Takes Off Upon Teleport?" 1) at 150,528 25,520 211,968, scale (3, 2, 1):
+by the Grimstone box (12,288 x 51,200 x 2,048 for scale 3, ?, 1) a slab 12,288 wide in x, 51,200 tall and 2,048 thick in z. Rynn on
+foot crossed z 211,968 at x 148,480, y 21,093 (inside it) in `chain3` and nothing fired: the box is a cave entrance meant for
+Arokh ("Dragon takes off"), so the exit needs the mounted dragon. The one-process chain therefore stops at Ruined Village. Numbers
+from that session: Intro load 30.4 s, village load 74.4 s, host working set 1.04 GB at 1 min, 1.18 GB at 5 and 9 min.
+
 ## Comment-ready summary for issue #5 (not posted)
 
-Pass 3 final status. Rift World is the last level and the converted campaign reaches the credits from it: natural Volcanic arrival
-(fire breath carried), the left tunnel, hall and shaft, the altar, the four Dr. Evil heads killed with real breath hits at their
-real 250 hit points, the mirror-room scene, the outro credits (about 4.5 minutes, the stock Drakan 2 list) and the return to the
-title. One 14 minute process covered Volcanic, the exit and Rift World to the credits with no crash, hang or memory growth (host
-working set about 1.1 to 1.2 GB, flat). The Ebon Dragons (150) and Alwarren's war giant (150) die to real hits with test-only aim
-aids; the tunnel is flyable by hand (an entrance window about 3,500 units tall, landing snap 1,400 over the floor); the RibDoors
-are side vaults, not the route. New finding: the Ruined Village opening scene does not end without a key press (still frozen after
-4 minutes idle; Cross taps end it). Open: Delon (the converter maps him to the PS2 Death Mage, a hovering caster that breath does not
-hurt; the ending does not need him), an Order of the Flame credits list (the PC install has none; the two credits text entries and a
-game-scoped override plan are in the journal), a chained 13-level single process (stopped at Ruined Village), and an unaided human
-run of the Rift World flight. Test-only aids are in `env-flags.md` (`DRAKAN_PLAYTEST_AUTOAIM` and its range / pitch, `_ALT`,
-`_WAYPOINTS` and its climb / radius / hold / activate).
+Pass 3 final status. Rift World is the last level and the converted campaign reaches the credits from it: natural Volcanic
+arrival (fire breath carried), the left tunnel, hall and shaft, the altar, the four Dr. Evil heads killed with real breath hits at
+their real 250 hit points, the mirror-room scene, the outro credits (about 4.5 minutes, the stock Drakan 2 list) and the return
+to the title. One 14 minute process covered Volcanic, the exit and Rift World to the credits with no crash, hang or memory growth
+(host working set about 1.1 to 1.2 GB, flat). The Ebon Dragons (150) and Alwarren's war giant (150) die to real hits with
+test-only aim aids; the tunnel is flyable by hand (an entrance window about 3,500 units tall); the RibDoors are side vaults. The
+Ruined Village opening takes about 250 s and ends by itself (an earlier line here said otherwise; wrong). Delon was invulnerable
+because the Death Mage template he is cloned from has "Invulnerable?" 1; fixed in the converter (he now takes damage and his death
+message reaches counter 455). Open: a played sword / bow fight against Delon, an Order of the Flame credits list (the pack side and
+a scoped override are in, but the engine reads the credits by plain file reads, so it is not shown yet), a chained 13-level
+single process (Ruined Village's exit is an Arokh cave entrance), and an unaided human run of the Rift World flight.
