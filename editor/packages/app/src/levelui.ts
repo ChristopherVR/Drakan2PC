@@ -274,6 +274,10 @@ export function initLevelUi(host: LevelUiHost): LevelUi {
         statusMsg.classList.toggle('error', kind === 'error');
         output.log(msg, kind === 'info' ? 'info' : kind);
     }
+    window.addEventListener('drakan:toast', (e) => {
+        const d = (e as CustomEvent<{ msg: string; kind: 'info' | 'error' | 'ok' | 'warn' }>).detail;
+        toast(d.msg, d.kind);
+    });
     const fail = (e: unknown): void => {
         // Cancelled on purpose: the loading card already went away.
         if (isCancelled(e)) return;

@@ -100,7 +100,12 @@ function editAction(kind: string): void {
 export function initDesktop(hooks: DesktopHooks): Desktop {
     if (!platform.isDesktop) return { openIsoDialog: () => undefined };
 
-    const fail = (e: unknown): void => hooks.setStatus(e instanceof Error ? e.message : String(e), true);
+    const fail = (e: unknown): void => {
+        const msg = e instanceof Error ? e.message : String(e);
+        hooks.setStatus(msg, true);
+        // a failed open (a corrupt project, a missing folder) must be seen where the author is looking, not only in the title bar
+        window.dispatchEvent(new CustomEvent('drakan:toast', { detail: { msg, kind: 'error' } }));
+    };
 
     const openIsoDialog = (): void => {
         platform

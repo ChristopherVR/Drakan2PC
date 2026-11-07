@@ -1542,7 +1542,8 @@ export function createProjectPanel(host: ProjectPanelHost): ProjectPanel {
                                   title: r,
                                   onclick: () => void host.files.openRecent(r).then(() => undefined, fail),
                               },
-                              r,
+                              h('strong', {}, r.split(/[\\/]/).filter(Boolean).pop() ?? r),
+                              h('span', { class: 'dim' }, `  ${r}`),
                           ),
                       ),
                   )
