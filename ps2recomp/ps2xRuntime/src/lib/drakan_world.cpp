@@ -9,9 +9,11 @@
 #include "world/Exchange.h"
 #include "world/Json.h"
 #include "world/Reader.h"
+#include "world/Watch.h"
 
 #include <algorithm>
 #include <atomic>
+#include <chrono>
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
@@ -52,6 +54,8 @@ bool g_headless = false; // DRAKAN_WORLD=2: sample every frame without the overl
 std::vector<uint64_t>
     g_dumpAtFrames; // DRAKAN_WORLD_DUMP_FRAME=N[,M...]: write a JSON dump at each listed sample (harness runs)
 uint64_t g_frames = 0;
+bool g_watch = false; // DRAKAN_PLAYTEST_WATCH: print matching objects' words (world/Watch.h)
+world::watch::Spec g_watchSpec;
 std::string g_dumpLevel, g_framesLevel; // DRAKAN_WORLD_DUMP_LEVEL=<substring>: only count / dump samples of that level;
                                         // the count restarts per level
 
@@ -130,10 +134,47 @@ bool matchesClass(uint32_t classId, const char* filter) {
     return std::strstr(buf, f.c_str()) != nullptr;
 }
 
+// DRAKAN_PLAYTEST_WATCH: once per `every` seconds one line for each matching entity (words of the entity record and of
+// its instance data), read straight from guest memory. Read only.
+void watchTick(const RdramMemory& mem, const world::Snapshot& snap) {
+    using Clock = std::chrono::steady_clock;
+    static const Clock::time_point start = Clock::now();
+    static double next = 0.0;
+    const double now = std::chrono::duration<double>(Clock::now() - start).count();
+    if (now < next)
+        return;
+    next = now + g_watchSpec.everySeconds;
+    const world::EntitySnapshot* player = snap.player();
+    const world::Vec3 origin = player ? player->position : world::Vec3{};
+    uint32_t lines = 0;
+    for (const auto& e : snap.entities) {
+        if (e.handle == snap.playerHandle || !world::watch::matches(g_watchSpec, e, origin))
+            continue;
+        if (g_watchSpec.near > 0.0f && !player)
+            continue;
+        if (lines++ >= g_watchSpec.maxLines)
+            break;
+        std::vector<uint32_t> ent(g_watchSpec.entityWords), data;
+        for (uint32_t i = 0; i < ent.size(); ++i)
+            ent[i] = mem.read32(e.handle + i * 4);
+        const uint32_t inner = mem.read32(e.handle + 0xfc);
+        const uint32_t inst = inner ? mem.read32(inner + 0x10) : 0;
+        if (inst && g_watchSpec.dataWords) {
+            data.resize(g_watchSpec.dataWords);
+            for (uint32_t i = 0; i < data.size(); ++i)
+                data[i] = mem.read32(inst + i * 4);
+        }
+        std::fprintf(stderr, "%s\n", world::watch::format(now, e, ent, data).c_str());
+    }
+}
+
 } // namespace
 
 void configure() {
     const char* v = std::getenv("DRAKAN_WORLD");
+    g_watch = world::watch::parse(std::getenv("DRAKAN_PLAYTEST_WATCH"), g_watchSpec);
+    if (g_watch && (!v || !*v || v[0] == '0'))
+        v = "2"; // the watch needs the headless sampler
     if (!v || !*v || v[0] == '0')
         return;
     world::Globals g;
@@ -213,6 +254,8 @@ void sample(const uint8_t* rdram, bool overlayOpen) {
         g_framesLevel = g_exchange.back().levelName;
         g_frames = 0;
     }
+    if (g_watch && g_exchange.back().status == world::ReadStatus::Ok)
+        watchTick(mem, g_exchange.back());
     if (!g_dumpAtFrames.empty() && g_exchange.back().status == world::ReadStatus::Ok && g_exchange.back().player() &&
         (g_dumpLevel.empty() || g_framesLevel.find(g_dumpLevel) != std::string::npos) &&
         (++g_frames, std::find(g_dumpAtFrames.begin(), g_dumpAtFrames.end(), g_frames) != g_dumpAtFrames.end()))

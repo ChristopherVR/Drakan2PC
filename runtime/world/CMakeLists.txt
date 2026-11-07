@@ -37,6 +37,11 @@ if(DRAKAN_BUILD_RUNTIME_TESTS)
     target_link_libraries(world_polyclip_test PRIVATE drakan_world drakan::options)
     add_test(NAME world_polyclip_test COMMAND world_polyclip_test)
 
+    # DRAKAN_PLAYTEST_WATCH helpers (header only): setting parser, filter, line text.
+    add_executable(world_watch_test tests/watch_test.cpp)
+    target_link_libraries(world_watch_test PRIVATE drakan_world drakan::options)
+    add_test(NAME world_watch_test COMMAND world_watch_test)
+
     # Pose model: synthetic memory + interpolation (the bridge to the real net::PlayerState is tested in runtime/net).
     add_executable(world_pose_test tests/pose_test.cpp)
     target_link_libraries(world_pose_test PRIVATE drakan_world drakan::options)

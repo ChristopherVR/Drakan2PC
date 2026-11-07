@@ -176,6 +176,7 @@ variable exists it wins over the `drakan.ini` value of `[section] key`. `DRAKAN_
 | `DRAKAN_SAVE_MENU` / `DRAKAN_TITLE_MENU` | `[general] save_menu` / `title_menu` (`native` \| `modern`: the host-drawn Save / Load screens and title menu, `mouse-menus.md` section 15; also F1 > Gameplay and the modern Options > Gameplay page; a switch applies from the next opening, an open modern screen falls back to its native page) | `native` |
 
 ### Debugging and test aids (plain environment, no ini key)
+| `DRAKAN_PLAYTEST_WATCH` | `class=<hex class id>` and/or `ref=<registry ref>` and/or `near=<units>` (plus `words=`, `data=`, `max=`, `every=`; `runtime/world/include/world/Watch.h`): once a second prints `[watch t] ref= h= cls= pos= yaw= \| e+<off>=<word> ... \| d+<off>=<word> ...` (the non-zero words of each matching object's record and of its instance data) to stderr, read only. Implies the headless world sampler. Door open state: `class=10013`, instance data `d+10` (0 closed, 1 or -1 open, `d+40` locked) and the entity's yaw (`e+20..`, a door swings about its origin) and `e+4` bit 8 while it moves, see `docs/journal/2026-11-07/door-proof.md`. | unset |
 
 | Variable | Meaning |
 | --- | --- |
