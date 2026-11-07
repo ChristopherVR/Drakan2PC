@@ -94,7 +94,8 @@ void hookFanDraw(uint8_t* ram, R5900Context* c, PS2Runtime* rt) {
         static std::atomic<uint32_t> tick{0};
         if ((tick.fetch_add(1) & 255u) == 0)
             std::fprintf(stderr, "[polyclip] fans=%llu clipped=%llu dropped=%llu\n",
-                         static_cast<unsigned long long>(g_calls.load()), static_cast<unsigned long long>(g_clipped.load()),
+                         static_cast<unsigned long long>(g_calls.load()),
+                         static_cast<unsigned long long>(g_clipped.load()),
                          static_cast<unsigned long long>(g_dropped.load()));
     }
 }
