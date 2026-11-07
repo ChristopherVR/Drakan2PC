@@ -202,4 +202,78 @@ std::string savePackProblemText(SavePackProblem problem, const std::string& pack
     return {};
 }
 
+std::string savePackSlotNote(SavePackProblem problem) {
+    switch (problem) {
+        case SavePackProblem::None:
+            return {};
+        case SavePackProblem::DifferentBuild:
+            return menuText("Made with another version of a mod pack.");
+        case SavePackProblem::OlderThanPack:
+            return menuText("Made with an earlier version of a mod pack.");
+        case SavePackProblem::MissingPack:
+            return menuText("Needs a mod pack that is not enabled.");
+        case SavePackProblem::BadRecord:
+            return menuText("Its list of mod packs is damaged.");
+    }
+    return {};
+}
+
+std::vector<std::string> nativeSlotNoteLines(SavePackProblem problem,
+                                             const std::function<int(const std::string&)>& measure, int width,
+                                             int maxLines) {
+    std::vector<std::string> lines;
+    const std::string reason = savePackSlotNote(problem);
+    if (reason.empty() || maxLines <= 0)
+        return lines;
+    lines.push_back(menuText("Unavailable"));
+    std::string line;
+    for (size_t i = 0; i <= reason.size();) {
+        const size_t end = std::min(reason.find(' ', i), reason.size());
+        const std::string word = reason.substr(i, end - i);
+        i = end + 1;
+        if (word.empty())
+            continue;
+        const std::string longer = line.empty() ? word : line + " " + word;
+        if (line.empty() || measure(longer) <= width) {
+            line = longer;
+        } else {
+            lines.push_back(line);
+            line = word;
+        }
+    }
+    if (!line.empty())
+        lines.push_back(line);
+    if (lines.size() > static_cast<size_t>(maxLines))
+        lines.resize(static_cast<size_t>(maxLines));
+    return lines;
+}
+
+std::vector<NativeSlotMark> nativeRefusedSlots(const IGuestMemory& mem, uint32_t screen,
+                                               const std::function<SavePackProblem(const std::string& path)>& check) {
+    namespace su = addr::saveui;
+    std::vector<NativeSlotMark> marks;
+    if (screen < addr::kRamPtrMin || screen >= addr::kRamPtrEnd ||
+        mem.read32(screen + addr::screen::kId) != su::kScreenLoad)
+        return marks;
+    const int32_t count = mem.readS32(screen + su::kCount);
+    const uint32_t entries = mem.read32(screen + su::kEntries);
+    if (count <= 0 || entries < addr::kRamPtrMin || entries >= addr::kRamPtrEnd)
+        return marks;
+    for (int i = 0; i < std::min<int32_t>(count, su::kSlotsPerPage); ++i) {
+        const uint32_t e = entries + static_cast<uint32_t>(i) * su::kEntrySize + su::kEntryPath;
+        std::string path;
+        for (uint32_t k = 0; k < 0x100; ++k) {
+            const uint8_t ch = mem.read8(e + k);
+            if (!ch)
+                break;
+            path.push_back(static_cast<char>(ch));
+        }
+        if (path.empty())
+            continue;
+        if (const SavePackProblem p = check(path); p != SavePackProblem::None)
+            marks.push_back({i, p});
+    }
+    return marks;
+}
+
 } // namespace gameui

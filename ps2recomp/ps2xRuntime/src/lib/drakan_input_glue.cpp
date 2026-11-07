@@ -74,6 +74,7 @@
 #include <exception>
 #include <stdexcept>
 #include <filesystem>
+#include <map>
 #include <memory>
 #include <optional>
 #include <string>

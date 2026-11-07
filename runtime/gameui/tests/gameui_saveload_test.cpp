@@ -368,6 +368,80 @@ void testPackRefusal() {
     CHECK(hint(sv.hints(), Prompt::Confirm)->enabled);
 }
 
+// The native Load screen (save_menu = native): the rows the glue marks and refuses, the card's short text and the
+// game font encoding of it.
+void testNativePackMarks() {
+    namespace su = addr::saveui;
+    Ram r;
+    const uint32_t scr = 0x200000, ents = 0x210000;
+    r.put32(scr + addr::screen::kId, su::kScreenLoad);
+    r.put32(scr + su::kCount, 4);
+    r.put32(scr + su::kEntries, ents);
+    auto entry = [&](int i) { return ents + static_cast<uint32_t>(i) * su::kEntrySize; };
+    r.str(entry(0) + su::kEntryPath, "BESCES-50006Slot1/Level 1A - Surdana.rsg"); // a stock save
+    r.str(entry(1) + su::kEntryPath, "BESCES-50006Slot2/OotF 11 - Volcanic.rsg"); // another pack build
+    r.str(entry(2) + su::kEntryCaption, "Empty");                                 // no save: never asked
+    r.str(entry(3) + su::kEntryPath, "BESCES-50006Slot4/OotF 02 - B\xe4"
+                                     "ckerei.rsg"); // same pack build, Latin-1
+    std::vector<std::string> asked;
+    const auto check = [&](const std::string& path) {
+        asked.push_back(path);
+        return path.find("Volcanic") != std::string::npos ? SavePackProblem::DifferentBuild : SavePackProblem::None;
+    };
+    const FlatGuestMemory m(r.b.data(), r.b.size());
+    std::vector<NativeSlotMark> marks = nativeRefusedSlots(m, scr, check);
+    CHECK(marks.size() == 1 && (marks[0] == NativeSlotMark{1, SavePackProblem::DifferentBuild}));
+    CHECK(asked.size() == 3 && asked[0] == "BESCES-50006Slot1/Level 1A - Surdana.rsg");
+    CHECK(asked.size() == 3 && asked[2] == "BESCES-50006Slot4/OotF 02 - B\xe4"
+                                           "ckerei.rsg"); // the guest bytes
+    // Every save refused: three marks in row order; nothing refused: none.
+    marks = nativeRefusedSlots(m, scr, [](const std::string&) { return SavePackProblem::MissingPack; });
+    CHECK(marks.size() == 3 && marks[0].row == 0 && marks[1].row == 1 && marks[2].row == 3);
+    CHECK(nativeRefusedSlots(m, scr, [](const std::string&) { return SavePackProblem::None; }).empty());
+    // The Save screen keeps such a save (saving over it is allowed), a list not built yet and other screens too.
+    asked.clear();
+    r.put32(scr + addr::screen::kId, su::kScreenSave);
+    CHECK(nativeRefusedSlots(m, scr, check).empty() && asked.empty());
+    r.put32(scr + addr::screen::kId, su::kScreenLoad);
+    r.put32(scr + su::kCount, 0);
+    CHECK(nativeRefusedSlots(m, scr, check).empty() && asked.empty());
+    r.put32(scr + su::kCount, 4);
+    r.put32(scr + addr::screen::kId, 0x17);
+    CHECK(nativeRefusedSlots(m, scr, check).empty() && nativeRefusedSlots(m, 0, check).empty() && asked.empty());
+
+    // The card text: "Unavailable", then the reason wrapped to the card (7 px a character here).
+    const auto measure = [](const std::string& s) { return static_cast<int>(s.size()) * 7; };
+    setMenuLanguage("english");
+    std::vector<std::string> lines = nativeSlotNoteLines(SavePackProblem::DifferentBuild, measure, 0x9a);
+    CHECK(lines.size() == 3 && lines[0] == "Unavailable");
+    CHECK(lines.size() == 3 && lines[1] == "Made with another" && lines[2] == "version of a mod pack.");
+    for (const std::string& l : lines)
+        CHECK(measure(l) <= 0x9a);
+    CHECK(nativeSlotNoteLines(SavePackProblem::None, measure, 0x9a).empty());
+    CHECK(nativeSlotNoteLines(SavePackProblem::BadRecord, measure, 0x9a, 2).size() == 2);
+    // A word wider than the card keeps a line of its own instead of looping or vanishing.
+    lines = nativeSlotNoteLines(SavePackProblem::MissingPack, measure, 20, 20);
+    CHECK(lines.size() == 9 && lines[1] == "Needs" && lines[8] == "enabled.");
+    // Every problem in every language: a text from the catalogue, at most five lines, all of it in the game font.
+    for (SavePackProblem p : {SavePackProblem::DifferentBuild, SavePackProblem::MissingPack,
+                              SavePackProblem::OlderThanPack, SavePackProblem::BadRecord})
+        for (const char* language : {"english", "german", "french", "italian", "spanish"}) {
+            setMenuLanguage(language);
+            const std::string note = savePackSlotNote(p);
+            CHECK(!note.empty() && note.find("[Missing menu text]") == std::string::npos);
+            CHECK(note.find("\xe2\x80\x94") == std::string::npos); // no em-dash
+            CHECK(note != savePackProblemText(p, "Pack X"));       // the short form
+            lines = nativeSlotNoteLines(p, measure, 0x80, 6); // the glue's width: all of it fits five lines
+            CHECK(lines.size() >= 2 && lines.size() <= 5 && lines[0] == menuText("Unavailable"));
+            for (const std::string& l : lines)
+                CHECK(utf8ToLatin1(l).find('?') == std::string::npos);
+        }
+    setMenuLanguage("english");
+    CHECK(utf8ToLatin1("Ben\xc3\xb6tigt \xc2\xbf") == "Ben\xf6tigt \xbf");
+    CHECK(utf8ToLatin1("\xe2\x80\x94 \xc3") == "? ?"); // outside Latin-1, a cut sequence
+    CHECK(latin1ToUtf8("B\xe4", 2) == "B\xc3\xa4" && utf8ToLatin1(latin1ToUtf8("B\xe4", 2)) == "B\xe4");
+}
+
 void testPages() {
     SaveLoadScreen scr;
     scr.open(SaveLoadMode::Load, SaveLoadContext::Pause);
@@ -1139,6 +1213,7 @@ int main() {
     testSave();
     testPages();
     testPackRefusal();
+    testNativePackMarks();
     testBackAndStates();
     testMouse();
     testSaveLoadAspects();

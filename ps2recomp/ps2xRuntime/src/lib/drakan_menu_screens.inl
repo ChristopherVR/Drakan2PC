@@ -229,10 +229,118 @@ void slotsFinish(gameui::Outcome o, bool reactivate = false) {
 // 43bfb0(screen): the 2 x 2 grid draw. While the host owns the screen it only makes the grid's thumbnail requests
 // (the first block of its loop: card manager vt+0x1a4(entry, 0, 0, caption, 0x28, &image), then vt+0xac), one per
 // call as a tail call on the real context (the request reads the save from the card and may block); nothing is drawn.
+// The native grid (save_menu = native) of a Load screen: a save the mod packs active now cannot load
+// (drakan_save_guard, modding.md "Saves and pack builds") gets the look the grid gives a slot without room for a save
+// (property 0xfc): no picture, a few centred lines in the picture area, grey (0xd0) over a black shadow (alpha 0xc0)
+// two units down and right, wrapped to the picture (0x80; the native text wraps at 0x9a and runs over the frame),
+// at most five lines, the block centred in the 0x71 high picture. Caption and date stay. The thumbnail request is
+// skipped (+0x154 set before the grid's first draw of the entry); the text is drawn with the grid's own text routine
+// after the grid, and only when the grid finished in the call.
+constexpr uint32_t kFnText = 0x286170u;     // (x, y, str, 0, font, colours[4], 0, 0)
+constexpr uint32_t kFnTextW = 0x2885c8u;    // (str, font, 0, len + 1) -> width
+constexpr uint32_t kFnLineH = 0x288658u;    // (font) -> line height
+constexpr uint32_t kNoteScratch = 0xFF800u; // unused low page below the ELF (drakan_menus uses 0xFF000..0xFF7ff)
+std::map<std::string, std::vector<std::string>> g_noteLines; // UTF-8 note -> Latin-1 lines (the measure is the font's)
+
+void nativeGridDraw(uint8_t* ram, R5900Context* c, PS2Runtime* rt, uint32_t screen) {
+    const std::vector<gameui::NativeSlotMark> marks = gameui::nativeRefusedSlots(
+        RdramMemory(ram), screen, [](const std::string& path) { return drakan_save_guard::checkEntry(path).problem; });
+    if (marks.empty()) {
+        g_origGridDraw(ram, c, rt);
+        return;
+    }
+    RecompGuest g(ram, c, rt);
+    const uint32_t entries = g.read32(screen + saveui::kEntries);
+    for (const gameui::NativeSlotMark& m : marks) {
+        const uint32_t e = entries + static_cast<uint32_t>(m.row) * saveui::kEntrySize;
+        if (g.read32(e + saveui::kEntryThumbRequested) == 0 && g.read32(e + saveui::kEntryThumb) == 0)
+            g.write32(e + saveui::kEntryThumbRequested, 1); // no picture: the grid never asks for it
+    }
+    // Once every entry has asked for its picture the grid does no card work: it is run to its end, so the notes
+    // follow it in every frame (a time slice ending inside it would leave the notes out of that frame).
+    bool requests = false;
+    for (int i = 0; i < std::min<int>(static_cast<int32_t>(g.read32(screen + saveui::kCount)), 4); ++i)
+        requests = requests || g.read32(entries + static_cast<uint32_t>(i) * saveui::kEntrySize +
+                                        saveui::kEntryThumbRequested) == 0;
+    const uint32_t ra = getRegU32(c, 31);
+    if (requests) {
+        g_origGridDraw(ram, c, rt);
+        if (c->pc != ra)
+            return; // preempted inside a picture request: its rest runs later, without the notes this frame
+    } else {
+        const ScopedEeNoPreempt noPreempt;
+        g_origGridDraw(ram, c, rt);
+        if (c->pc != ra)
+            return;
+    }
+    const auto putStr = [&](uint32_t a, const std::string& s) {
+        for (size_t i = 0; i <= s.size(); ++i)
+            g.write8(a + static_cast<uint32_t>(i), i < s.size() ? static_cast<uint8_t>(s[i]) : 0);
+    };
+    const uint32_t str = kNoteScratch + 0x40;
+    const auto width = [&](const std::string& latin1) {
+        putStr(str, latin1.substr(0, 0x3ff));
+        const uint32_t n = static_cast<uint32_t>(std::min<size_t>(latin1.size(), 0x3ff));
+        return static_cast<int>(g.call(GuestCall(kFnTextW).arg(str).arg(0).arg(0).arg(n + 1)));
+    };
+    int lh = static_cast<int>(g.call(GuestCall(kFnLineH).arg(0)));
+    if (lh < 8 || lh > 64)
+        lh = 20;
+    const uint32_t grey = 0x80686868u, shadow = 0x60000000u; // 129370(0xd0, 0xd0, 0xd0, 0xff) / (0, 0, 0, 0xc0)
+    for (int k = 0; k < 4; ++k) {
+        g.write32(kNoteScratch + 4u * static_cast<uint32_t>(k), grey);
+        g.write32(kNoteScratch + 0x10u + 4u * static_cast<uint32_t>(k), shadow);
+    }
+    for (const gameui::NativeSlotMark& m : marks) {
+        const std::string note = gameui::savePackSlotNote(m.problem);
+        auto it = g_noteLines.find(note);
+        if (it == g_noteLines.end()) {
+            std::vector<std::string> lines = gameui::nativeSlotNoteLines(
+                m.problem, [&](const std::string& s) { return width(gameui::utf8ToLatin1(s)); }, 0x80);
+            for (std::string& l : lines)
+                l = gameui::utf8ToLatin1(l);
+            if (g_noteLines.size() > 16)
+                g_noteLines.clear();
+            it = g_noteLines.emplace(note, std::move(lines)).first;
+        }
+        const uint32_t e = entries + static_cast<uint32_t>(m.row) * saveui::kEntrySize;
+        const int x0 = static_cast<int32_t>(g.read32(e + saveui::kEntryX));
+        int y =
+            static_cast<int32_t>(g.read32(e + saveui::kEntryY)) + (0x71 - lh * static_cast<int>(it->second.size())) / 2;
+        for (const std::string& line : it->second) {
+            const int x = x0 + (0xb8 - width(line)) / 2;
+            putStr(str, line);
+            g.call(GuestCall(kFnText)
+                       .arg(static_cast<uint32_t>(x + 2))
+                       .arg(static_cast<uint32_t>(y + 2))
+                       .arg(str)
+                       .arg(0)
+                       .arg(0)
+                       .arg(kNoteScratch + 0x10u)
+                       .arg(0)
+                       .arg(0));
+            g.call(GuestCall(kFnText)
+                       .arg(static_cast<uint32_t>(x))
+                       .arg(static_cast<uint32_t>(y))
+                       .arg(str)
+                       .arg(0)
+                       .arg(0)
+                       .arg(kNoteScratch)
+                       .arg(0)
+                       .arg(0));
+            y += lh;
+        }
+    }
+}
+
 void hookGridDraw(uint8_t* ram, R5900Context* c, PS2Runtime* rt) {
     const uint32_t screen = getRegU32(c, 4) & 0x1fffffffu;
-    if (c->pc != saveui::kFnGridDraw || !slotsHosted() || screen != g_slots.screen) {
+    if (c->pc != saveui::kFnGridDraw) {
         g_origGridDraw(ram, c, rt);
+        return;
+    }
+    if (!slotsHosted() || screen != g_slots.screen) {
+        nativeGridDraw(ram, c, rt, screen);
         return;
     }
     RecompGuest g(ram, c, rt);

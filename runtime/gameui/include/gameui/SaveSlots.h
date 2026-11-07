@@ -3,6 +3,7 @@
 // docs/journal/2026-10-25/modern-save-load-title.md section 1 has the native layout.
 #pragma once
 #include <cstdint>
+#include <functional>
 #include <string>
 #include <vector>
 
@@ -94,6 +95,31 @@ enum class SavePackProblem : uint8_t {
 };
 // The player-facing sentence (menu language), `pack` = the pack's display name. Empty for None.
 std::string savePackProblemText(SavePackProblem problem, const std::string& pack);
+
+// The native slot screens (`save_menu = native`) mark such a save on its card the way the native grid marks a slot
+// without room for a save (property 0xfc): no picture, a few centred grey lines in the picture area. The card is
+// narrow, so this is the short form: "Unavailable" and a reason without the pack's name (the message box that refuses
+// the load names it). Menu language, UTF-8; empty for None.
+std::string savePackSlotNote(SavePackProblem problem);
+// `note` word-wrapped for the native card: first "Unavailable" on its own line, then the reason. `measure` returns a
+// line's width in game font pixels, `width` is the room (the native card wraps at 0x9a). A word wider than `width`
+// keeps a line of its own; lines past `maxLines` (the native card draws five) are dropped. Empty for None.
+std::vector<std::string> nativeSlotNoteLines(SavePackProblem problem,
+                                             const std::function<int(const std::string&)>& measure, int width,
+                                             int maxLines = 5);
+
+// A row of a native slot list whose save the mod packs active now cannot load.
+struct NativeSlotMark {
+    int row = -1; // 0..3 on the shown page
+    SavePackProblem problem = SavePackProblem::None;
+    bool operator==(const NativeSlotMark&) const = default;
+};
+// The rows of a Load screen's list (`screen` = screen 4) that `check` refuses. `check` gets the entry's path as the
+// game stores it ("BESCES-50006Slot5/Level 1A - Surdana.rsg", Latin-1 bytes as they are) and is asked only for rows
+// that hold a save. Nothing for a Save screen (saving over such a save is allowed), a list that is not built yet or
+// any other screen.
+std::vector<NativeSlotMark> nativeRefusedSlots(const IGuestMemory& mem, uint32_t screen,
+                                               const std::function<SavePackProblem(const std::string& path)>& check);
 
 struct SaveReadOptions {
     int page = 0; // the page the cells currently name

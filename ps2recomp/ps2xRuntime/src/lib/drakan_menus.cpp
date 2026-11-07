@@ -1,6 +1,7 @@
 // Drakan: game menu additions (title "Quit", save pages). See drakan_menus.h and docs/reference/save-slots.md.
 #include "runtime/ee_no_preempt.h"
 #include "drakan_menus.h"
+#include "drakan_save_guard.h"
 #include "drakan_save_previews.h"
 #include "drakan_region.h"
 
@@ -305,6 +306,17 @@ void changePage(IGuest& g, uint32_t screen, int delta, uint32_t sound) {
     std::fprintf(stderr, "[menus] save page %d/%d (folders Slot%d..Slot%d)\n", p + 1, g_pages, p * 4 + 1, p * 4 + 4);
 }
 
+std::string guestPath(IGuest& g, uint32_t a) {
+    std::string s;
+    for (uint32_t i = 0; i < 0x100; ++i) {
+        const uint8_t ch = g.read8(a + i);
+        if (!ch)
+            break;
+        s.push_back(static_cast<char>(ch));
+    }
+    return s;
+}
+
 bool isSlotScreen(IGuest& g, uint32_t scr) {
     if (!okPtr(scr))
         return false;
@@ -323,7 +335,9 @@ void hookSlotKey(uint8_t* rdram, R5900Context* c, PS2Runtime* rt) {
         if (key == 0x1cu && g.read32(scr + 0x18) == kScreenLoad) {
             const uint32_t selected = g.read32(scr + 0xa4), count = g.read32(scr + 0xc0),
                            entries = g.read32(scr + 0xb8);
-            if (selected < count && selected < 4 && okPtr(entries) && g.read8(entries + selected * 0x168u) != 0) {
+            // A save the mod packs cannot load keeps the screen up (drakan_save_guard refuses it with a box).
+            if (selected < count && selected < 4 && okPtr(entries) && g.read8(entries + selected * 0x168u) != 0 &&
+                !drakan_save_guard::checkEntry(guestPath(g, entries + selected * 0x168u)).refused()) {
                 g_slotClosing = true;
                 std::lock_guard<std::mutex> lock(g_pagerMutex);
                 g_pager.visible = false;

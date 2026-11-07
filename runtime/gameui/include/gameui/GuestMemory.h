@@ -5,6 +5,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <string>
+#include <string_view>
 
 namespace gameui {
 
@@ -36,5 +37,8 @@ private:
 
 // Latin-1 -> UTF-8 (used by readString; exposed for tests).
 std::string latin1ToUtf8(const char* text, size_t n);
+// UTF-8 -> Latin-1, for text the game font draws (its glyphs are Windows-1252). A character outside Latin-1, or a
+// malformed sequence, becomes '?'.
+std::string utf8ToLatin1(std::string_view text);
 
 } // namespace gameui

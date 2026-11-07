@@ -5,6 +5,8 @@
 //    written without content packs);
 //  * the modern Load screen marks such a save unavailable with the reason (drakan_menu_screens.inl), Continue stops
 //    on the Load screen, quick load shows the reason as a notice;
+//  * the native Load screen (save_menu = native) marks the slot on its card (drakan_menu_screens.inl, grid draw) and
+//    refuses its confirm with the native message box while the screen stays up (hook of 0x43d028 here);
 //  * the native save validation (0x23f170, every load path) refuses it as an unreadable save, the safe fallback.
 #pragma once
 #include <cstdint>
@@ -36,6 +38,9 @@ Verdict checkSave(const std::filesystem::path& rsg);
 // The save in slot `slot` of the current card (1..32, 33 = the quicksave); a slot without a save loads (nothing to
 // refuse). Cached for a second per slot: the Load screen asks every frame.
 Verdict checkSlot(int slot);
+// A save as a native slot list names it (entry +0x000, "BESCES-50006Slot<n>/<level>.rsg" on memory card 1, guest
+// bytes). Cached for a second per path: the native grid asks every frame.
+Verdict checkEntry(const std::string& guestPath);
 
 // A short message over the game for a few seconds (HudSlot::Notice), from any thread.
 void showNotice(const std::string& text);

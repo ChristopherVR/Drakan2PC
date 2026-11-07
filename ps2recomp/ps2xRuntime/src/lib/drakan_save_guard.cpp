@@ -16,6 +16,7 @@
 #include <iterator>
 #include <map>
 #include <mutex>
+#include <set>
 #include <vector>
 
 namespace drakan_save_guard {
@@ -29,6 +30,19 @@ using Clock = std::chrono::steady_clock;
 // "could not be loaded" message (property 0x105) and opens the title, as for a damaged save.
 constexpr uint32_t kValidateSave = 0x23f170u;
 constexpr const char* kRecordSuffix = ".mods";
+// The native Load screen (screen 4; docs/journal/2026-10-25/modern-save-load-title.md 1.3): its message 2 (Enter,
+// Cross, a click on a slot) runs 43d028(screen, widget), which asks in game (box 0x107) and loads on the title. For a
+// refused save it opens the screen's own message box instead, as the slot screen does for "no memory card": 428568
+// (f12 = -1.0f, parent, text property, default widget) creates the box (screen 0x1b) and returns it; the caller then
+// sets box +0xbc (2: the box closes only when the card goes) and +0xb4 (the screen's callback node, screen + 0xc8).
+// Default widget OK (0x238c) = a box with OK alone. Its answer (message 0x10, screen +0xa0 = 0) does nothing else.
+constexpr uint32_t kLoadAsk = 0x43d028u;
+constexpr uint32_t kFnMessageBox = 0x428568u;
+constexpr uint32_t kPropLoadFailed = 0x105u; // the game's own "could not be loaded" text (43b4d0's failure path)
+constexpr uint32_t kWidgetOk = 0x238cu;
+constexpr uint32_t kScreenId = 0x18u, kScreenLoad = 4u;
+constexpr uint32_t kFlags = 0x9cu, kBoxState = 0xa0u, kSelection = 0xa4u, kEntries = 0xb8u, kCount = 0xc0u;
+constexpr uint32_t kEntrySize = 0x168u, kCallbackNode = 0xc8u, kBoxCardMode = 0xbcu, kBoxCallback = 0xb4u;
 
 std::mutex g_mutex;
 hle::mods::ActivePacks g_active;
@@ -37,9 +51,18 @@ struct Cached {
     Clock::time_point at;
 };
 std::map<int, Cached> g_slotCache;
+std::map<std::string, Cached> g_entryCache;
 std::string g_notice;
 Clock::time_point g_noticeUntil;
 PS2Runtime::RecompiledFunction g_origValidate = nullptr;
+PS2Runtime::RecompiledFunction g_origLoadAsk = nullptr;
+// The box call's return goes through a free slot of the function table (the trampoline), which finishes the box as
+// 43d028 does and returns to 43d028's caller. GUI thread only; one box at a time.
+uint32_t g_trampoline = 0;
+struct PendingBox {
+    bool busy = false;
+    uint32_t screen = 0, ra = 0;
+} g_box;
 
 fs::path cardRoot() {
     const auto& io = PS2Runtime::getIoPaths();
@@ -87,6 +110,7 @@ void written(const fs::path& path) {
         std::lock_guard<std::mutex> lock(g_mutex);
         packs = hle::mods::recordFor(g_active);
         g_slotCache.clear();
+        g_entryCache.clear();
     }
     const fs::path record = recordPath(path);
     std::error_code ec;
@@ -151,6 +175,71 @@ void hookValidate(uint8_t* rdram, R5900Context* c, PS2Runtime* rt) {
     SET_GPR_S32(c, 2, 1); // what the native check answers for a file that is not a valid save
     c->pc = getRegU32(c, 31);
 }
+
+uint32_t rd32(const uint8_t* rdram, uint32_t a) {
+    uint32_t v;
+    std::memcpy(&v, rdram + (a & 0x01FFFFFCu), 4);
+    return v;
+}
+void wr32(uint8_t* rdram, uint32_t a, uint32_t v) {
+    std::memcpy(rdram + (a & 0x01FFFFFCu), &v, 4);
+}
+bool okPtr(uint32_t a) {
+    a &= 0x1fffffffu;
+    return a >= 0x100000u && a < 0x02000000u - 0x200u;
+}
+
+// 43d028(screen, widget): Load screen confirm. A refused save never reaches the in-game question or the load: the
+// player reads the native message, the reason shows in the notice band, and the screen and the game stay as they are.
+void hookLoadAsk(uint8_t* rdram, R5900Context* c, PS2Runtime* rt) {
+    const uint32_t screen = getRegU32(c, 4) & 0x1fffffffu;
+    if (c->pc != drakan_region::guestAddress(kLoadAsk) || !okPtr(screen) || g_box.busy || !g_trampoline ||
+        rd32(rdram, screen + kScreenId) != kScreenLoad) {
+        g_origLoadAsk(rdram, c, rt);
+        return;
+    }
+    const uint32_t sel = rd32(rdram, screen + kSelection), count = rd32(rdram, screen + kCount);
+    const uint32_t entries = rd32(rdram, screen + kEntries) & 0x1fffffffu;
+    if (sel >= count || sel >= 4 || !okPtr(entries)) {
+        g_origLoadAsk(rdram, c, rt);
+        return;
+    }
+    const std::string path = guestString(rdram, entries + sel * kEntrySize);
+    const Verdict v = path.empty() ? Verdict{} : checkEntry(path);
+    if (!v.refused()) {
+        g_origLoadAsk(rdram, c, rt);
+        return;
+    }
+    std::fprintf(stderr, "[saves] native Load screen: '%s' refused, the screen stays (message box 0x%x)\n",
+                 path.c_str(), kPropLoadFailed);
+    showNotice(v.message);
+    uint16_t flags;
+    std::memcpy(&flags, rdram + screen + kFlags, 2);
+    flags |= 2u; // a box is up (as 43d028 marks its question): the screen's own card check waits for it
+    std::memcpy(rdram + screen + kFlags, &flags, 2);
+    wr32(rdram, screen + kBoxState, 0); // its answer arms nothing (not 5 = load, not 2 = close the screen)
+    g_box = {true, screen, getRegU32(c, 31)};
+    const uint32_t minusOne = 0xbf800000u;
+    std::memcpy(&c->f[12], &minusOne, 4);
+    SET_GPR_U32(c, 5, kPropLoadFailed);
+    SET_GPR_U32(c, 6, kWidgetOk);
+    SET_GPR_U32(c, 31, g_trampoline);
+    c->pc = drakan_region::guestAddress(kFnMessageBox); // a tail call on the real context: the box may block
+}
+
+void trampoline(uint8_t* rdram, R5900Context* c, PS2Runtime*) {
+    const uint32_t box = getRegU32(c, 2) & 0x1fffffffu;
+    if (g_box.busy && okPtr(box)) {
+        wr32(rdram, box + kBoxCardMode, 2);
+        wr32(rdram, box + kBoxCallback, g_box.screen + kCallbackNode);
+    } else {
+        std::fprintf(stderr, "[saves] native Load screen: the message box was not created\n");
+    }
+    const uint32_t ra = g_box.ra;
+    g_box = {};
+    SET_GPR_U32(c, 2, 0); // what 43d028 returns
+    c->pc = ra;
+}
 } // namespace
 
 void configure(const hle::mods::ModManager* mods) {
@@ -172,6 +261,7 @@ void configure(const hle::mods::ModManager* mods) {
     std::lock_guard<std::mutex> lock(g_mutex);
     g_active = std::move(active);
     g_slotCache.clear();
+    g_entryCache.clear();
 }
 
 void install(PS2Runtime& runtime) {
@@ -186,6 +276,22 @@ void install(PS2Runtime& runtime) {
     }
     g_origValidate = runtime.lookupFunction(addr);
     runtime.replaceFunction(addr, &hookValidate);
+    // The native Load screen's confirm (save_menu = native): refused on the screen instead of at the native check.
+    const uint32_t ask = drakan_region::guestAddress(kLoadAsk), box = drakan_region::guestAddress(kFnMessageBox);
+    if (!runtime.hasFunction(ask) || !runtime.hasFunction(box)) {
+        std::fprintf(stderr, "[saves] native Load screen confirm (0x%x) not found: refused there by the save check\n",
+                     ask);
+        return;
+    }
+    for (uint32_t a = 0x100000u; a < 0x100100u && !g_trampoline; a += 4) // a table slot no guest code reaches
+        if (!runtime.hasFunction(a) && runtime.registerFunction(a, &trampoline))
+            g_trampoline = a;
+    if (!g_trampoline) {
+        std::fprintf(stderr, "[saves] no free function slot: the native Load screen is refused by the save check\n");
+        return;
+    }
+    g_origLoadAsk = runtime.lookupFunction(ask);
+    runtime.replaceFunction(ask, &hookLoadAsk);
 }
 
 Verdict checkSave(const fs::path& rsg) {
@@ -211,6 +317,12 @@ Verdict checkSave(const fs::path& rsg) {
         return out;
     out.pack = r.pack.name.empty() ? r.pack.id : r.pack.name;
     out.message = gameui::savePackProblemText(out.problem, out.pack);
+    { // once per save and verdict: the native grid asks every second
+        static std::set<std::string> logged;
+        std::lock_guard<std::mutex> lock(g_mutex);
+        if (!logged.insert(rsg.string() + "|" + hle::mods::saveVerdictName(r.verdict)).second)
+            return out;
+    }
     std::fprintf(stderr, "[saves] %s: %s (pack '%s' build %s)\n", rsg.filename().string().c_str(),
                  hle::mods::saveVerdictName(r.verdict), r.pack.id.c_str(), r.pack.build.c_str());
     return out;
@@ -234,6 +346,24 @@ Verdict checkSlot(int slot) {
         }
     std::lock_guard<std::mutex> lock(g_mutex);
     g_slotCache[slot] = {v, now};
+    return v;
+}
+
+Verdict checkEntry(const std::string& guestPath) {
+    const auto now = Clock::now();
+    {
+        std::lock_guard<std::mutex> lock(g_mutex);
+        const auto it = g_entryCache.find(guestPath);
+        if (it != g_entryCache.end() && now - it->second.at < std::chrono::seconds(1))
+            return it->second.verdict;
+    }
+    const int port =
+        guestPath.size() > 3 && (guestPath.compare(0, 4, "mc1:") == 0 || guestPath.compare(0, 4, "MC1:") == 0);
+    const Verdict v = guestPath.empty() ? Verdict{} : checkSave(ps2_stubs::mcHostPath(port, guestPath));
+    std::lock_guard<std::mutex> lock(g_mutex);
+    if (g_entryCache.size() > 64)
+        g_entryCache.clear();
+    g_entryCache[guestPath] = {v, now};
     return v;
 }
 

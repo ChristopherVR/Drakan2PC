@@ -396,12 +396,20 @@ was made with, and the game refuses a save it cannot vouch for.
 * **Where it shows.** The modern Load screen draws such a slot as unavailable (dimmed, `Unavailable`, with its location
   and picture) and its detail panel gives the reason; it cannot be confirmed, and saving over it is allowed (the new save gets a new record).
   Continue stops on the Load screen at that slot. A quick load (F8, in game or on the title) does not start: the reason
-  shows for 8 seconds in a band at the top of the screen (`HudSlot::Notice`). Every other path (the native slot screens,
-  anything else that calls it) is caught at the native save check `0x23f170`, which then answers "not a valid save":
-  the game shows its own "could not be loaded" message and opens the title, as for a damaged save. The texts are in the
-  menu catalogue in all five languages (`gameui::savePackProblemText`).
+  shows for 8 seconds in a band at the top of the screen (`HudSlot::Notice`). The native slot screens
+  (`save_menu = native`) mark such a slot on the Load screen the way the native grid marks a slot without room for a
+  save: no picture, and in the picture area, in the grid's grey, `Unavailable` and a short reason ("Made with an
+  earlier version of a mod pack."; `gameui::savePackSlotNote`, wrapped by `nativeSlotNoteLines`); caption and date
+  stay. Confirming it (Enter, Cross, a click) opens the screen's own message box with the game's "Load Failed!" text
+  (property `0x105`) and an OK button, and the reason with the pack's name shows in the notice band; OK returns to the
+  slot list, the running level or the title is untouched. Stock and same-build saves load as before, and the Save
+  screen does not mark the slot (saving over it is allowed). Anything else that loads a save is caught at the native
+  save check `0x23f170`, which then answers "not a valid save": the game shows its own "could not be loaded" message
+  and opens the title, as for a damaged save. The texts are in the menu catalogue in all five languages
+  (`gameui::savePackProblemText`, `savePackSlotNote`).
 * Tests: `save_record_test` (hash vector, manifest key, record format, policy, ModManager build ids of zip, folder and
-  declared packs), `gameui_saveload_test` (`testPackRefusal`), editor `packbuild.test.ts` (formats) and
+  declared packs), `gameui_saveload_test` (`testPackRefusal`; `testNativePackMarks`: which native rows are marked, the
+  card text in five languages, `utf8ToLatin1`), editor `packbuild.test.ts` (formats) and
   `pack-build.test.ts` (editor-core: the stamped manifest).
 
 ## Writing a pack by hand

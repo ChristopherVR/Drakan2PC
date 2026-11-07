@@ -54,6 +54,5 @@ Packs: `packnew` = the current converted pack (`ootf-lru/packfix`, formats `5dfe
 
 * A same-build save can still stall if the engine itself is at fault (the LRU flaw of the previous note); the record
   only guards against pack changes.
-* The native slot screens (`save_menu = native`) still list a refused save as loadable; choosing it shows the native
-  "could not be loaded" message and opens the title (in game this ends the session without the host's explanation
-  band staying long enough to read on slow loads).
+* ~~The native slot screens still list a refused save as loadable~~: done, see
+  [native-slot-refused-saves.md](native-slot-refused-saves.md).

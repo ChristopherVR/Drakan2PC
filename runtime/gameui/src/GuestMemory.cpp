@@ -22,6 +22,32 @@ std::string latin1ToUtf8(const char* text, size_t n) {
     return out;
 }
 
+std::string utf8ToLatin1(std::string_view text) {
+    std::string out;
+    out.reserve(text.size());
+    for (size_t i = 0; i < text.size();) {
+        const auto c = static_cast<unsigned char>(text[i]);
+        if (c < 0x80) {
+            out.push_back(static_cast<char>(c));
+            ++i;
+            continue;
+        }
+        size_t n = (c & 0xe0) == 0xc0 ? 2 : (c & 0xf0) == 0xe0 ? 3 : (c & 0xf8) == 0xf0 ? 4 : 1;
+        uint32_t cp = n == 2 ? c & 0x1fu : n == 3 ? c & 0x0fu : c & 0x07u;
+        bool ok = n > 1 && i + n <= text.size();
+        for (size_t k = 1; ok && k < n; ++k) {
+            const auto t = static_cast<unsigned char>(text[i + k]);
+            ok = (t & 0xc0) == 0x80;
+            cp = (cp << 6) | (t & 0x3fu);
+        }
+        if (!ok)
+            n = 1;
+        out.push_back(ok && cp != 0 && cp < 0x100 ? static_cast<char>(cp) : '?');
+        i += n;
+    }
+    return out;
+}
+
 std::string IGuestMemory::readString(uint32_t addr, size_t maxBytes) const {
     std::string raw;
     for (size_t i = 0; i < maxBytes; ++i) {
