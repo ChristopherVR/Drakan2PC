@@ -1,5 +1,6 @@
 #include "drakan_playtest.h"
 
+#include "drakan_autoaim.h"
 #include "drakan_ghost.h"
 #include "drakan_lifecycle.h"
 #include "drakan_region.h"
@@ -148,6 +149,68 @@ static void keepAlive(drakan_input::IGuest& guest) {
         guest.write32(stats + 0xc, ((max << 8) | (max >> 24)) ^ key);
 }
 
+// DRAKAN_PLAYTEST_AUTOAIM=<runtime class hex> (test aid, closed loop): every boundary the controlled actor is turned to
+// face the nearest living object of that engine class (hit points at data + 0x24c above 0), within
+// DRAKAN_PLAYTEST_AUTOAIM_RANGE units (default 20000). Class 0x1001e = Ebon Dragon, 0x1003b = war giant (see
+// docs/reference/env-flags.md). DRAKAN_PLAYTEST_ALT=<y>: the controlled actor's height is held at y (Arokh through a
+// low tunnel). Both write the actor directly, like `place`, and never move it sideways.
+static void autoSteer(drakan_input::IGuest& guest) {
+    static const uint32_t cls = [] {
+        const char* e = std::getenv("DRAKAN_PLAYTEST_AUTOAIM");
+        return e && *e ? static_cast<uint32_t>(std::strtoul(e, nullptr, 16)) : 0u;
+    }();
+    static const float range = [] {
+        const char* e = std::getenv("DRAKAN_PLAYTEST_AUTOAIM_RANGE");
+        const float v = e && *e ? std::strtof(e, nullptr) : 0.0f;
+        return v > 0.0f ? v : 20000.0f;
+    }();
+    static const bool hasAlt = std::getenv("DRAKAN_PLAYTEST_ALT") != nullptr;
+    static const float alt = hasAlt ? std::strtof(std::getenv("DRAKAN_PLAYTEST_ALT"), nullptr) : 0.0f;
+    if (!cls && !hasAlt)
+        return;
+    const uint32_t eng = guest.read32(drakan_region::guestAddress(kContextPtr));
+    const uint32_t pl = eng ? guest.read32(eng + kControlled) : 0;
+    if (!pl)
+        return;
+    if (hasAlt && std::isfinite(alt))
+        guest.writeF(pl + 0x18, alt);
+    if (!cls)
+        return;
+    const uint32_t table = guest.read32(eng + 0x7c), top = guest.read32(eng + 0x84), res = guest.read32(eng + 0x320);
+    if (!table || !res || top > 20000)
+        return;
+    const uint32_t vt = drakan_region::guestAddress(0x51b8b0u);
+    const uint32_t classes = guest.read32(res + 8), nClasses = guest.read32(res + 0x10);
+    const float px = guest.readF(pl + 0x14), pz = guest.readF(pl + 0x1c);
+    float best = range * range, bdx = 0, bdz = 0;
+    bool found = false;
+    for (uint32_t s = 0; s <= top; ++s) {
+        const uint32_t h = guest.read32(table + s * 8);
+        if (!h || h == pl || guest.read32(h) != vt)
+            continue;
+        const uint32_t ix = guest.read32(h + 0x10) & 0xffffu;
+        if (ix == 0xffffu || ix > nClasses || guest.read32(classes + ix * 0x24 + 8) != cls)
+            continue;
+        const uint32_t beh = guest.read32(h + 0xfc);
+        const uint32_t q = beh ? guest.read32(beh + 0x10) : 0;
+        if (!q || guest.read32(q + 0x23c) != h || static_cast<int32_t>(guest.read32(q + 0x24c)) <= 0)
+            continue;
+        const float dx = guest.readF(h + 0x14) - px, dz = guest.readF(h + 0x1c) - pz;
+        if (dx * dx + dz * dz < best) {
+            best = dx * dx + dz * dz;
+            bdx = dx;
+            bdz = dz;
+            found = true;
+        }
+    }
+    if (!found)
+        return;
+    float m[9];
+    drakan_autoaim::yawMatrix(drakan_autoaim::yawToward(bdx, bdz), m);
+    for (int k = 0; k < 9; ++k)
+        guest.writeF(pl + 0x20 + 4u * static_cast<uint32_t>(k), m[k]);
+}
+
 void requestPlace(const float pos[3], float yaw, bool hasYaw) {
     for (int k = 0; k < 3; ++k)
         g.pos[k] = pos[k];
@@ -161,6 +224,7 @@ void requestPlace(const float pos[3], float yaw, bool hasYaw) {
 
 void beforePadMgr(drakan_input::IGuest& guest, uint8_t* /*rdram*/) {
     keepAlive(guest);
+    autoSteer(guest);
     if (!g.init) {
         g.init = true;
         // DRAKAN_START_LEVEL with DRAKAN_START_LEVEL_FROM="Level 0 - Intro" (the editor's Play on a disc level): New
