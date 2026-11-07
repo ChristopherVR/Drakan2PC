@@ -276,6 +276,21 @@ std::string IsoFs::addMemoryFile(const std::string& gamePath, std::vector<u8> da
     return key;
 }
 
+std::string IsoFs::addAlias(const std::string& gamePath, const Node& src) {
+    const std::string key = resolveKey(gamePath);
+    std::lock_guard<std::mutex> lk(mu_);
+    for (size_t p = key.find('\\'); p != std::string::npos; p = key.find('\\', p + 1)) {
+        Node d;
+        d.dir = true;
+        d.key = key.substr(0, p);
+        map_.emplace(d.key, d);
+    }
+    Node n = src;
+    n.key = key;
+    map_[key] = std::move(n);
+    return key;
+}
+
 size_t IsoFs::read(const Node& n, u64 off, void* dst, size_t len) const {
     if (n.dir || off >= n.size)
         return 0;

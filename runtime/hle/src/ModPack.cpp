@@ -1786,6 +1786,56 @@ static std::string baseOf(const std::string& key) {
     return sl == std::string::npos ? key : key.substr(sl + 1);
 }
 
+// Dependency paths of a level's header entry (SRSC type 0x0000: name, max width, max height, count, then per dependency
+// u16 db index, u16 zero, string; strings are u16 length + bytes, NUL padded). Empty when the file is not a level.
+static std::vector<std::string> levelDependencyPaths(const IsoFs& fsys, const IsoFs::Node& lvl) {
+    std::vector<std::string> out;
+    u8 h[16];
+    if (fsys.read(lvl, 0, h, 16) != 16 || memcmp(h, "SRSC", 4) != 0)
+        return out;
+    const u32 idx = rd32(h + 6), cnt = rd32(h + 10);
+    if (idx > lvl.size || (u64)cnt * 14 > lvl.size - idx)
+        return out;
+    std::vector<u8> ix((size_t)cnt * 14);
+    if (fsys.read(lvl, idx, ix.data(), ix.size()) != ix.size())
+        return out;
+    for (u32 i = 0; i < cnt; ++i) {
+        const u8* q = &ix[(size_t)i * 14];
+        const u32 off = rd32(q + 6), size = rd32(q + 10);
+        if (rd16(q) != 0 || size > (1u << 20) || (u64)off + size > lvl.size)
+            continue;
+        std::vector<u8> e(size);
+        if (fsys.read(lvl, off, e.data(), size) != size)
+            return out;
+        size_t o = 0;
+        auto str = [&](std::string& s) {
+            if (o + 2 > e.size() || o + 2 + rd16(&e[o]) > e.size())
+                return false;
+            const size_t n = rd16(&e[o]);
+            s.assign(reinterpret_cast<const char*>(&e[o + 2]), n);
+            s.resize(std::min(s.size(), s.find('\0')));
+            o += 2 + n;
+            return true;
+        };
+        std::string name;
+        if (!str(name) || o + 12 > e.size())
+            return out;
+        const u32 n = rd32(&e[o + 8]);
+        o += 12;
+        for (u32 k = 0; k < n; ++k) {
+            std::string p;
+            if (o + 4 > e.size())
+                break;
+            o += 4;
+            if (!str(p))
+                break;
+            out.push_back(p);
+        }
+        break;
+    }
+    return out;
+}
+
 size_t ModManager::installFiles(IsoFs& fsys) {
     size_t served = 0;
     // English is the editor's portable pack namespace. Mount these files in the running
@@ -1993,6 +2043,58 @@ size_t ModManager::installFiles(IsoFs& fsys) {
                 fsys.addMemoryFile(lkey, std::vector<u8>(out.begin(), out.end()));
                 ++served;
             }
+        }
+    }
+
+    // 4. level databases a pack level names without a folder. A dependency path is relative to the level's folder, and
+    // a disc level names its own database by its bare name (the intro's "Level 0 - Intro"). A level converted on such a
+    // template inherits the bare name, so the engine looks for that database next to the converted level, finds
+    // nothing and never finishes the load (GitHub issue 1: Order of the Flame packs converted on the intro template).
+    // Serve the sibling level folder's database files there, in whichever language tree runs.
+    for (const ExtraLevel& d : levelDefs_) {
+        IsoFs::Node lvl;
+        if (!fsys.lookup(d.path, lvl) || lvl.dir)
+            continue;
+        const size_t sl = lvl.key.find_last_of('\\');
+        const size_t ps = sl == std::string::npos ? std::string::npos : lvl.key.find_last_of('\\', sl - 1);
+        if (ps == std::string::npos)
+            continue;
+        const std::string levelDir = lvl.key.substr(0, sl), levelsDir = lvl.key.substr(0, ps);
+        for (const std::string& dep : levelDependencyPaths(fsys, lvl)) {
+            if (dep.empty() || dep.find_first_of("\\/") != std::string::npos ||
+                (dep.size() >= 7 && lower(dep.substr(dep.size() - 7)) == "_splats"))
+                continue;
+            const std::string stem = mangleComponent(dep);
+            auto hasStem = [&](const std::string& dir) {
+                std::vector<std::string> keys;
+                for (const std::string& k : fsys.listDir(dir)) {
+                    const std::string nm = baseOf(k);
+                    if (nm.size() > stem.size() + 1 && nm.compare(0, stem.size() + 1, stem + ".") == 0)
+                        keys.push_back(k);
+                }
+                return keys;
+            };
+            if (!hasStem(levelDir).empty())
+                continue;
+            const std::string from = levelsDir + "\\" + stem;
+            size_t n = 0;
+            for (const std::string& k : hasStem(from)) {
+                const std::string nm = baseOf(k);
+                IsoFs::Node src;
+                if (upper(nm.substr(nm.size() - 4)) == ".LVL" || !fsys.findKey(k, src) || src.dir)
+                    continue;
+                fsys.addAlias(levelDir + "\\" + nm, src);
+                ++n;
+            }
+            if (n)
+                logf("mods: %s: level '%s' names the database '%s' without a folder; serving the %zu file(s) of %s "
+                     "next to it (the level was converted on that level as its template)",
+                     d.modId.c_str(), d.name.c_str(), dep.c_str(), n, from.c_str());
+            else
+                logf("mods: %s: level '%s' depends on '%s' next to it, which is not on the disc; the level will not "
+                     "load (convert it again with Level 1A - Surdana as the template)",
+                     d.modId.c_str(), d.name.c_str(), dep.c_str());
+            served += n;
         }
     }
     return served;

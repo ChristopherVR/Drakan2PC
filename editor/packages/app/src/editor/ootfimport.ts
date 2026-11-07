@@ -212,6 +212,18 @@ function convertInWorker(
     });
 }
 
+/**
+ * The disc levels the importer offers as conversion templates, Surdana (LEVEL1NA, the template the converter was proven
+ * on in the game) first. Converted levels are left out (they exist only in memory and have nothing to reuse), and so is
+ * the intro (LEVEL0RO): its levels name the intro's own database without a folder, which only loads because the runtime
+ * serves it next to them, and the intro template drops objects (GitHub issue 1).
+ */
+export function ootfTemplateLevels<T extends { dirPath: string; virtual?: boolean }>(levels: readonly T[]): T[] {
+    const usable = levels.filter((l) => !l.virtual && !/(^|[\\/])LEVEL0RO$/i.test(l.dirPath));
+    const surdana = usable.filter((l) => /(^|[\\/])LEVEL1NA$/i.test(l.dirPath));
+    return [...surdana, ...usable.filter((l) => !surdana.includes(l))];
+}
+
 /** What the importer's progress line says: the level being converted, not the converter's internal bookkeeping. */
 export function progressText(message: string, titlePrefix: string): string {
     const lang = /^source language: (\w+)/i.exec(message);
@@ -260,8 +272,7 @@ function openDialog(host: OotfHost): void {
         st.textContent = STYLE;
         document.head.append(st);
     }
-    // The template is a real disc level: converted levels exist only in memory and have nothing to reuse.
-    const ps2 = host.levels().filter((l) => !l.virtual);
+    const ps2 = ootfTemplateLevels(host.levels());
     // Keep the shared dropdown popup inside the modal's top layer (body siblings are inert and paint below it).
     const dlg = h('dialog', { class: 'ootf-dlg', 'data-dd-host': '' });
     const body = h('div', { class: 'od-body' });
@@ -290,11 +301,8 @@ function openDialog(host: OotfHost): void {
         { class: 'btn', type: 'button', onclick: () => picker.click() },
         'Choose install folder...',
     );
+    // Surdana comes first (ootfTemplateLevels), so it is the preselected template.
     const tplSel = h('select', {}, ...ps2.map((l) => h('option', { value: l.dirPath }, l.name)));
-    // Surdana (LEVEL1NA) is the template the converter was proven on in the game; the intro level, which comes first in the
-    // list, loads but never runs a converted level.
-    const preferred = ps2.find((l) => /(^|[\\/])LEVEL1NA$/i.test(l.dirPath));
-    if (preferred) tplSel.value = preferred.dirPath;
     const prefix = h('input', { type: 'text', value: 'OotF - ', spellcheck: 'false' });
     const list = h('div', { class: 'od-list' });
     const out = h('div', {});

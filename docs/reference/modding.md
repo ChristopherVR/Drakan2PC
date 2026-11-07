@@ -409,6 +409,15 @@ language selected. Explicit English paths remain available for generated depende
 within one pack, an explicitly localized file wins over its English fallback. Original ISO language paths keep their
 normal meaning.
 
+A level's dependency paths are relative to its own folder. A disc level names its own database by its bare name (the
+intro's `Level 0 - Intro`), so a level converted on that template looks for `Levels\<level>\Level 0 - Intro.*`. The
+runtime serves the sibling folder's database files there (`IsoFs::addAlias`, every extension but `.LVL`, after the
+pack's entry patches, in the running language tree) and logs `names the database ... without a folder`; a bare name with
+no such folder logs `... which is not on the disc; the level will not load`. The start-level redirect
+(`DRAKAN_START_LEVEL`) rewrites only the redirected level's folder and the file names inside it that start with its
+name, so such a database keeps its name. The editor's importer no longer offers the intro as a template and puts
+Surdana first (`ootfTemplateLevels`). GitHub issue 1: `docs/journal/2026-11-07/issue-1-ootf-intro-template.md`.
+
 A pack whose `levels` are a whole campaign says so in the manifest (top-level keys, above the tables). Two kinds exist:
 the converted Drakan: Order of the Flame (`campaign = "ootf"`; the editor's OotF export and
 `editor/scripts/ootf-convert.ts --campaign 1` write it) and **custom campaigns** made in the editor (Project Settings >

@@ -225,6 +225,13 @@ int main() {
               "cdrom0:/ENGLISH/LEVELS/Level 4A - Ravenshold/x.db");
         CHECK(files.redirectPath("cdrom0:/English/Levels/Level 0 - Intro/Level 0 - Intro.lvl") ==
               "cdrom0:/English/Levels/Level 0 - Intro/Level 0 - Intro.lvl");
+        CHECK(files.redirectPath("cdrom0:\\English\\Levels\\Level 1A - Surdana\\Level 1A - Surdana_splats.db") ==
+              "cdrom0:\\English\\Levels\\Level 4A - Ravenshold\\Level 4A - Ravenshold_splats.db");
+        // a database named after the redirected level in another level's folder (intro-template packs) stays
+        CHECK(files.redirectPath("cdrom0:/English/Levels/Level 4A - Ravenshold/Level 1A - Surdana.odb") ==
+              "cdrom0:/English/Levels/Level 4A - Ravenshold/Level 1A - Surdana.odb");
+        CHECK(files.redirectPath("cdrom0:/English/Levels/Level 1A - Surdana.lvl") ==
+              "cdrom0:/English/Levels/Level 1A - Surdana.lvl");
         // the open itself resolves the redirected (mangled) file
         std::vector<u8> req(8 + surdana.size() + 1, 0);
         memcpy(&req[8], surdana.data(), surdana.size());

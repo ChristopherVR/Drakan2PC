@@ -61,11 +61,31 @@ std::string FileService::redirectPath(const std::string& path) const {
         std::transform(v.begin(), v.end(), v.begin(), [](unsigned char c) { return (char)std::tolower(c); });
         return v;
     };
+    // Rewrite the level folder named `from` and, inside it, the file names that start with `from` (the level, its
+    // `_splats` files). A file named after `from` in another folder stays: a level converted on the intro template
+    // names the intro's own database next to itself ("Levels/<level>/Level 0 - Intro.odb", GitHub issue 1).
     const std::string from = lower(redirectFrom_);
-    std::string out = path, low = lower(path);
-    for (size_t at = low.find(from); at != std::string::npos; at = low.find(from, at + redirectTo_.size())) {
-        out.replace(at, from.size(), redirectTo_);
-        low.replace(at, from.size(), lower(redirectTo_));
+    std::string out;
+    bool inRedirected = false;
+    size_t start = 0;
+    while (start <= path.size()) {
+        const size_t end = path.find_first_of("/\\", start);
+        const std::string comp = path.substr(start, end == std::string::npos ? std::string::npos : end - start);
+        const std::string low = lower(comp);
+        const bool isLast = end == std::string::npos;
+        if (low == from && !isLast) {
+            out += redirectTo_;
+            inRedirected = true;
+        } else if (isLast && inRedirected && low.compare(0, from.size(), from) == 0) {
+            out += redirectTo_ + comp.substr(from.size());
+        } else {
+            out += comp;
+            inRedirected = false;
+        }
+        if (isLast)
+            break;
+        out += path[end];
+        start = end + 1;
     }
     return out;
 }

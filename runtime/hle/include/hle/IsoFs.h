@@ -59,6 +59,9 @@ public:
     // `gamePath` goes through resolveKey (mangling, language root); missing parent directories are created. Call before
     // the game starts reading; not safe against concurrent readers. Returns the canonical key.
     std::string addMemoryFile(const std::string& gamePath, std::vector<u8> data);
+    // Serves the file `n` (a disc or overlay file, see findKey) under a second key as well, sharing its bytes; missing
+    // parent directories are created. Same rules as addMemoryFile. Returns the canonical key.
+    std::string addAlias(const std::string& gamePath, const Node& n);
 
     // Read file bytes. Returns bytes read (clamped to file size).
     size_t read(const Node& n, u64 offset, void* dst, size_t len) const;

@@ -647,6 +647,75 @@ static void filesTests(const fs::path& root, const DiscProfile& pal) {
         CHECK(f4.lookup("\\Levels\\LEVEL1ON\\LEVEL1ON.SSD", sn) && sn.mem);
         CHECK(f4.lookup("\\Common\\System\\SYSTEM.SDB", sn) && !sn.mem);
     }
+
+    // A pack level converted on the intro template names the intro's own database without a folder ("Level 0 - Intro"),
+    // which the engine looks for next to the converted level. It is served there from the sibling level folder, in the
+    // running language tree, with the pack's entry patches; the intro's .LVL and other folders are left alone.
+    {
+        auto lstr = [](std::vector<u8>& v, const std::string& s) {
+            p16(v, (u32)s.size() + 2);
+            v.insert(v.end(), s.begin(), s.end());
+            v.push_back(0);
+            v.push_back(0);
+        };
+        auto header = [&](const std::vector<std::string>& deps) {
+            std::vector<u8> h;
+            lstr(h, "OotF 00 - Intro");
+            p32(h, 64);
+            p32(h, 64);
+            p32(h, (u32)deps.size());
+            u32 i = 1;
+            for (const std::string& d : deps) {
+                p16(h, i++);
+                p16(h, 0);
+                lstr(h, d);
+            }
+            return h;
+        };
+        const fs::path d5 = root / "disc_intro";
+        for (const char* lang : {"ENGLISH", "GERMAN"}) {
+            const fs::path lv = d5 / lang / "LEVELS";
+            const u8 tag = lang[0] == 'G' ? 0xD0 : 0xE0;
+            writeText(d5 / lang / "LEVELLST.TXT", "\\Levels\\Level 0 - Intro\\Level 0 - Intro.lvl\r\n");
+            writeFile(lv / "LEVEL0RO/LEVEL0RO.LVL", makeSrsc({{{0x20, 1, 0, 0, 0}, fill(20, tag)}}));
+            writeFile(lv / "LEVEL0RO/LEVEL0RO.ODB", makeSrsc({{{0x102, 1, 0, 0, 0}, fill(20, tag)}}));
+            writeFile(lv / "LEVEL0RO/LEVEL0RO.SSD", makeSrsc({{{0x311, 1, 0, 0, 0}, fill(20, tag)}}));
+            writeText(lv / "LEVEL0RO/LEVEL0RO.DB", "version 1\r\ndependencies 0\r\n");
+            writeFile(lv / "LEVEL0RO/LEVEL0TS.TXD", makeSrsc({{{0x40, 1, 0, 0, 0}, fill(20, tag)}}));
+        }
+        const fs::path mods = root / "mods_intro";
+        writeText(mods / "ootf/mod.toml", toml("ootf", "1.0", "levels = [\"OotF 00 - Intro\", \"OotF 01 - Lost\"]\n"));
+        const fs::path lv = mods / "ootf/files/ENGLISH/LEVELS";
+        writeFile(lv / "OOTF00RO/OOTF00RO.LVL",
+                  makeSrsc({{{0x0, 0, 0, 0, 0},
+                             header({"..\\..\\Common\\System\\System", "Level 0 - Intro", "OotF 00 - Intro_splats"})},
+                            {{0x20, 1, 0, 0, 0}, fill(10, 0x55)}}));
+        writeFile(lv / "OOTF01ST/OOTF01ST.LVL",
+                  makeSrsc({{{0x0, 0, 0, 0, 0}, header({"Level 7 - Nowhere"})}, {{0x20, 1, 0, 0, 0}, fill(10, 0x56)}}));
+        writeFile(mods / "ootf/new/LEVEL0RO.ODB/0102_2_0.bin", fill(12, 0x77));
+        IsoFs f5;
+        std::string err5;
+        CHECK(f5.openFolder(d5.string(), &err5));
+        f5.setLanguageRoot("\\German");
+        ModManager mm(pal);
+        CHECK(mm.load(mods.string(), {{"ootf", true}}) == 1);
+        g_log.clear();
+        mm.installFiles(f5);
+        std::vector<u8> b;
+        const std::string odb = "\\Levels\\OotF 00 - Intro\\Level 0 - Intro.odb";
+        CHECK(entryBytes(f5, odb, 0x102, 1, 0, b) && b == fill(20, 0xD0)); // the German tree's own record
+        CHECK(entryBytes(f5, odb, 0x102, 2, 0, b) && b == fill(12, 0x77)); // with the pack's new entry
+        CHECK(entryBytes(f5, "\\Levels\\OotF 00 - Intro\\Level 0 - Intro.ssd", 0x311, 1, 0, b) && b == fill(20, 0xD0));
+        IsoFs::Node in;
+        CHECK(f5.lookup("\\Levels\\OotF 00 - Intro\\Level 0 - Intro.db", in) && in.size > 0);
+        CHECK(!f5.findKey("GERMAN\\LEVELS\\OOTF00RO\\LEVEL0RO.LVL", in));  // not the intro level itself
+        CHECK(!f5.findKey("GERMAN\\LEVELS\\OOTF00RO\\LEVEL0TS.TXD", in));  // nor other stems
+        CHECK(!f5.findKey("ENGLISH\\LEVELS\\OOTF00RO\\LEVEL0RO.ODB", in)); // only the running tree
+        CHECK(f5.findKey("GERMAN\\LEVELS\\OOTF00RO\\OOTF00RO.LVL", in));   // the level itself, mounted in German
+        CHECK(logHas("names the database 'Level 0 - Intro' without a folder") &&
+              logHas("serving the 3 file(s) of GERMAN\\LEVELS\\LEVEL0RO"));
+        CHECK(logHas("level 'OotF 01 - Lost' depends on 'Level 7 - Nowhere' next to it, which is not on the disc"));
+    }
 }
 
 int main() {

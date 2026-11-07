@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { installFilesOf, languageNote, progressText } from '../src/editor/ootfimport.ts';
+import { installFilesOf, languageNote, ootfTemplateLevels, progressText } from '../src/editor/ootfimport.ts';
 import { filesSource } from '../src/editor/ootfconvert.ts';
 
 describe('importer progress text', () => {
@@ -44,5 +44,27 @@ describe('install files for the conversion worker', () => {
         const src = filesSource(files);
         expect([...(await src.read('mountain world/ruined village/RUINED VILLAGE.LVL'))!]).toEqual([1, 2, 3]);
         expect(await src.read('missing.lvl')).toBeNull();
+    });
+});
+
+describe('conversion templates', () => {
+    const disc = (lang: string) => [
+        { name: 'Level 0 - Intro', dirPath: `${lang}\\LEVELS\\LEVEL0RO` },
+        { name: 'Level 1A - Surdana', dirPath: `${lang}\\LEVELS\\LEVEL1NA` },
+        { name: 'Level 2 - Shadowmire', dirPath: `${lang}\\LEVELS\\LEVEL2RE` },
+        { name: 'OotF 00 - Intro', dirPath: `${lang}\\LEVELS\\OOTF00RO`, virtual: true },
+    ];
+    it.each(['ENGLISH', 'GERMAN', 'FRENCH', 'ITALIAN', 'SPANISH'])(
+        'offers Surdana first and never the intro or a converted level (%s tree)',
+        (lang) => {
+            expect(ootfTemplateLevels(disc(lang)).map((l) => l.name)).toEqual([
+                'Level 1A - Surdana',
+                'Level 2 - Shadowmire',
+            ]);
+        },
+    );
+    it('keeps the disc order when Surdana is missing', () => {
+        const levels = disc('ENGLISH').filter((l) => !/LEVEL1NA/.test(l.dirPath));
+        expect(ootfTemplateLevels(levels).map((l) => l.name)).toEqual(['Level 2 - Shadowmire']);
     });
 });
