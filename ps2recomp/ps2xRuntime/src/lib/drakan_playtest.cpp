@@ -173,8 +173,6 @@ static void autoSteer(drakan_input::IGuest& guest) {
     const uint32_t pl = eng ? guest.read32(eng + kControlled) : 0;
     if (!pl)
         return;
-    if (hasAlt && std::isfinite(alt))
-        guest.writeF(pl + 0x18, alt);
     // DRAKAN_PLAYTEST_WAYPOINTS="x y z; x y z; ...": an autopilot for flights a time-based script cannot steer. The
     // actor is turned toward the current point (yaw only), its height moves toward the point's at DRAKAN_PLAYTEST_CLIMB
     // units per boundary (default 25), and the next point is taken within DRAKAN_PLAYTEST_WP_RADIUS units (xz, default
@@ -206,7 +204,18 @@ static void autoSteer(drakan_input::IGuest& guest) {
         guest.writeF(pl + 0x1c, pinZ);
         --holdLeft;
     }
-    if (!wps.empty() && wpIndex < wps.size()) {
+    // DRAKAN_PLAYTEST_WP_ACTIVATE=<units>: the first point only starts steering once the actor is within this xz
+    // distance of it (a recipe that plays an earlier level first must not be steered there).
+    static const float wpActivate = [] {
+        const char* e = std::getenv("DRAKAN_PLAYTEST_WP_ACTIVATE");
+        return e && *e ? std::strtof(e, nullptr) : 0.0f;
+    }();
+    static bool wpActive = wpActivate <= 0.0f;
+    if (!wpActive && !wps.empty()) {
+        const float ax = wps[0].p[0] - guest.readF(pl + 0x14), az = wps[0].p[2] - guest.readF(pl + 0x1c);
+        wpActive = ax * ax + az * az < wpActivate * wpActivate;
+    }
+    if (wpActive && !wps.empty() && wpIndex < wps.size()) {
         const auto& w = wps[wpIndex].p;
         const float dx = w[0] - guest.readF(pl + 0x14), dz = w[2] - guest.readF(pl + 0x1c);
         if (dx * dx + dz * dz < wpRadius * wpRadius) {
@@ -226,6 +235,9 @@ static void autoSteer(drakan_input::IGuest& guest) {
                 guest.writeF(pl + 0x20 + 4u * static_cast<uint32_t>(k), m[k]);
         }
     }
+    // ALT is applied once the waypoints (if any) are finished, so one run can fly a route and then hold a height.
+    if (hasAlt && std::isfinite(alt) && (wps.empty() || wpIndex >= wps.size()))
+        guest.writeF(pl + 0x18, alt);
     if (!cls)
         return;
     const uint32_t table = guest.read32(eng + 0x7c), top = guest.read32(eng + 0x84), res = guest.read32(eng + 0x320);
