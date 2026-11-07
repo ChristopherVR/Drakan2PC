@@ -1,5 +1,6 @@
 // Level change from the host (drakan_levelchange.h). See docs/journal/2026-10-31/level-change.md for the mechanism.
 #include "drakan_levelchange.h"
+#include "drakan_dragon_arrival.h"
 #include "drakan_exit_guard.h"
 #include "drakan_game.h"
 #include "drakan_lifecycle.h"
@@ -441,6 +442,36 @@ void arrivalEntry(uint8_t* rdram, R5900Context* c, PS2Runtime* rt) {
     g_origArrival(rdram, c, rt);
 }
 
+// Rynn on foot takes an exit while her dragon is parked far away (Surdana's end-of-level stage): the transition would
+// carry him that far from her into the next level (drakan_dragon_arrival.h). Put him beside her before it reads him.
+// Rynn's dragon: her data (*(*(handle + 0xfc) + 0x10)) + 0x4d8 holds his registry reference (0x3d2658).
+void bringDragon(const Ram& r, uint32_t eng) {
+    if (!Ram::ok(eng, 0x4b8) || std::getenv("DRAKAN_LEVELCHANGE_KEEP_DRAGON"))
+        return;
+    const uint32_t pl = r.u32(eng + 0x4b0);
+    if (!Ram::ok(pl, 0x100) || classOf(r, eng, pl) != 0x10009u)
+        return;
+    const uint32_t inner = r.u32(pl + 0xfc);
+    const uint32_t data = Ram::ok(inner, 0x14) ? r.u32(inner + 0x10) : 0;
+    if (!Ram::ok(data, 0x4e0))
+        return;
+    const uint32_t ref = r.u16(data + 0x4d8), table = r.u32(eng + 0x7c);
+    if (!ref || ref > r.u32(eng + 0x84) + 1 || !Ram::ok(table, ref * 8))
+        return;
+    const uint32_t dh = r.u32(table + (ref - 1) * 8);
+    if (!Ram::ok(dh, 0x30) || r.u32(dh) != addr(0x51b8b0u) || classOf(r, eng, dh) != 0x1001cu)
+        return;
+    const float rynn[3] = {f32(r, pl + 0x14), f32(r, pl + 0x18), f32(r, pl + 0x1c)};
+    const float dragon[3] = {f32(r, dh + 0x14), f32(r, dh + 0x18), f32(r, dh + 0x1c)};
+    const drakan_dragon_arrival::Placement p = drakan_dragon_arrival::decide(true, rynn, dragon);
+    if (!p.moved)
+        return;
+    setPos(r, dh, p.pos);
+    std::fprintf(stderr, "[levelchange] dragon was parked at %.0f %.0f %.0f, put beside Rynn at %.0f %.0f %.0f\n",
+                 static_cast<double>(dragon[0]), static_cast<double>(dragon[1]), static_cast<double>(dragon[2]),
+                 static_cast<double>(p.pos[0]), static_cast<double>(p.pos[1]), static_cast<double>(p.pos[2]));
+}
+
 // Wrapper of the transition function 0x362d38 (runs on the main thread when the main loop sees the pending trigger).
 // The transition keeps the player's offset from the trigger ("Maintain Player Position") and places the respawned
 // player at the destination's arrival marker plus that offset, so for a fired exit the player has to stand on the
@@ -469,6 +500,7 @@ void transitionEntry(uint8_t* rdram, R5900Context* c, PS2Runtime* rt) {
         if (Ram::ok(cam, 0x20))
             setPos(r, cam, cp);
     }
+    bringDragon(r, eng);
     if (Ram::ok(h, 0x20) && r.u32(h) == addr(0x51b8b0u)) {
         std::lock_guard<std::mutex> l(g_m);
         for (const ExitInfo& e : g_exits)
