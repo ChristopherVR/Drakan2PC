@@ -151,8 +151,9 @@ aids `DRAKAN_PLAYTEST_AUTOAIM` / `_ALT` / `_WAYPOINTS` / `_WP_HOLD`, `env-flags.
 route; PC terrain seals them too) and Arokh's stall came from flying under about 1,400 units over the floor, not from the converter.
 The Ebon Dragons die to breath (gate counter 4 -> 0, test aid `OOTF_TEST_EBONHP`, formats `4d21976`); Alwarren's war giant now dies
 to the sword at 150 hit points with the aim aid. Ebon Dragons also die at 150 with the aim aid; the tunnel is flyable by hand (entrance window about 3,500 units); one
-14 minute process (Volcanic exit, Rift World, heads, credits) ran with no crash or memory growth. Open: Delon's own fight (he
-resists breath), an Order of the Flame credits list (none in the PC install), a chained run of all levels in one process. See [progression 3](../journal/2026-11-07/ootf-progression-3.md).
+14 minute process (Volcanic exit, Rift World, heads, credits) ran with no crash or memory growth. The Ruined Village opening scene does not end without a key press (frozen after 4 minutes idle). Open: Delon (cloned from the
+PS2 Death Mage, breath does not hurt him; the ending does not need him), an Order of the Flame credits list (none in the PC install;
+the two text entries and a scoped-override plan are in the journal), a chained run of all levels in one process (stopped at Ruined Village). See [progression 3](../journal/2026-11-07/ootf-progression-3.md).
 
 ## What works
 

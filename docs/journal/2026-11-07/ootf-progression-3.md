@@ -184,16 +184,57 @@ sessions). A first attempt (`chain1`) with the autopilot active from boot steere
 (Wartok to Grimstone, Grimstone to Grotto, Grotto to Islands, Islands to Alwarren, Rift Crystal to Islands Night, Islands Night to
 Succubus Lair, Succubus Lair to Volcanic).
 
+## 8. Delon's data, the credits entries, and the chain attempt
+
+**Delon (PC object 161, class "Delon", engine class 82)**, read from the PC class data (`pccls.mts`): a ground humanoid caster, not
+a flier: Initial Health 650, Max Speed 4, Armor % 0, Defense % 100 (he always defends, Defense Reduction 0), Attack Radius 0.5,
+Missile (spell) 135864 and Summon 1527 at 50 %, Teleport? 0, Maximum Alpha 0.2 (only used when teleporting), Message To Send 8
+(his death message, the same value the heads and Ebon Dragons send); links: Death Mage waypoint 476 and counter 455 -> Stomp
+Player 436. The converter maps him to **the PS2 Death Mage** (`--audit delon`: "rfl 82 creature -> cloned Death Mage"), a
+hovering teleporting caster, and drops his attack effects ("Delon Attack: Special Effect: no safe target ... omitted", 8 classes).
+That explains what was seen: the clone hovers 1,000 to 1,800 units over the altar at Arokh's height, follows him, and its
+spell is the blue haze that whitens the breath orb. Breath did not lower his 650 in `dl1` to `dl3`, `dm2`, `dm3` (also pitched
+aim, also Arokh landed beside him); Rynn could not be brought to him on foot (the dismount from a landed Arokh at the altar put her
+in the pit, y 58,500, `dm3`). The PC data give no vulnerability gate (no "invulnerable" field, no message counter in front of him),
+so the likely causes are on the PS2 side (Death Mage damage rules while hovering or "Defense 100 %"), not a lost flag; I did not
+read the PS2 Death Mage's own damage handler, so it is not shown. How he is meant to die on the PC: by Rynn's sword, bow or spells
+on the altar (his Defense 100 % blocks melee attacks half the time), his death message 8 reaches counter 455 and scene 436 plays.
+The converted game ends without him: the heads' counter alone starts the ending.
+
+**Credits text**: the Surreal and Sony credits are two plain ASCII text entries, `0x401` id 8807 (1,575 bytes, "=Heading
+Name
+
+"
+blocks) and id 8808 (2,148 bytes), in each language's `DRAKAN2.RRC` (ISO sector 3,958 of the English tree). `OUT.LVL` (8 KB) holds only
+the Wartok farm scene and does not name them: the engine reads the two ids directly. A pack can replace them with
+`overrides/DRAKAN2.RRC/0401_8807_0.bin` (any language tree), but pack entry overrides are global, so Drakan 2 would show the same
+text when the pack is installed; a game-scoped credits override needs a small runtime change (a manifest key such as
+`campaign_credits` served for those two ids only while the campaign is the active game). Not implemented. What could be written
+without inventing names: a short card ("Drakan: Order of the Flame", "Original game: Surreal Software, 1999", "Converted for the
+Drakan: The Ancients' Gates engine port"); the PC install has no credits list to port.
+
+**Chain attempt from a fresh New Game (`chain3`, god mode, pack of formats `f5d3c6b`)**: the modern title needs Enter twice (New
+Game, then "Allein"). Level loads, seconds from process start: OotF 00 Intro at 30.4 s (auto exit at 74 s), OotF 01 Ruined Village at
+74.4 s (the 44 s Intro included). **The Ruined Village opening scene did not end by itself**: with no input it was still the same
+close-up of a villager 240 s after the level loaded (`rv_scene_over` frame of the first run); with Cross taps every 10 s it ended and
+control came at about 268 s from start (about 190 s into the level, matching the earlier 145 to 170 s runs that had input). That is
+the answer to the open question in the issue #4 note: an idle run does **not** end within 4 minutes, so the opening needs a key
+press. Host memory over the 9 minutes (working set): 1,037 MB at 1 min, 1,184 MB at 5 min, 1,183 MB at 9 min (flat). The walk-in to
+Wartok was not reached: the recipe's walk from (148,480, 24,700, 216,500) did not hit the converted exit box (the box sits on the PC
+trigger, whose bounds I did not read), so the single-session chain stops at Ruined Village. The other pairs were walked in separate
+runs in earlier passes; a one-process chain of all 13 levels was not achieved.
+
 ## Comment-ready summary for issue #5 (not posted)
 
-Pass 3 final status. Rift World is the last level and the converted campaign now reaches the credits from it: natural Volcanic
-arrival (fire breath carried), the left tunnel, the hall and the shaft over the spine props, the altar, the four Dr. Evil heads
-killed with real breath hits at their real 250 hit points, the mirror-room ending scene, the outro credits (about 4.5 minutes, the
-stock Drakan 2 list in German) and the return to the title. One 14 minute process covered Volcanic, the exit and Rift World to the
-credits with no crash, hang or memory growth (host working set about 1.1 to 1.2 GB, flat). The Ebon Dragons (150 hit points) and
-Alwarren's war giant (150) die to real breath and sword hits with test-only aim aids; the tunnel is flyable by hand (an entrance
-window about 3,500 units tall, landing snap 1,400 over the floor); the RibDoors are side vaults, not the route. Open: Delon's own
-fight (he is untouched by breath), an Order of the Flame credits list (the PC install has none to port), a chained run of all 13
-levels in one process (pairs were walked separately), and an unaided human run of the Rift World flight. New test-only aids
-(`env-flags.md`): `DRAKAN_PLAYTEST_AUTOAIM` (+ `_RANGE`, `_PITCH`), `_ALT`, `_WAYPOINTS` (+ `_CLIMB`, `_WP_RADIUS`, `_WP_HOLD`,
-`_WP_ACTIVATE`).
+Pass 3 final status. Rift World is the last level and the converted campaign reaches the credits from it: natural Volcanic arrival
+(fire breath carried), the left tunnel, hall and shaft, the altar, the four Dr. Evil heads killed with real breath hits at their
+real 250 hit points, the mirror-room scene, the outro credits (about 4.5 minutes, the stock Drakan 2 list) and the return to the
+title. One 14 minute process covered Volcanic, the exit and Rift World to the credits with no crash, hang or memory growth (host
+working set about 1.1 to 1.2 GB, flat). The Ebon Dragons (150) and Alwarren's war giant (150) die to real hits with test-only aim
+aids; the tunnel is flyable by hand (an entrance window about 3,500 units tall, landing snap 1,400 over the floor); the RibDoors
+are side vaults, not the route. New finding: the Ruined Village opening scene does not end without a key press (still frozen after
+4 minutes idle; Cross taps end it). Open: Delon (the converter maps him to the PS2 Death Mage, a hovering caster that breath does not
+hurt; the ending does not need him), an Order of the Flame credits list (the PC install has none; the two credits text entries and a
+game-scoped override plan are in the journal), a chained 13-level single process (stopped at Ruined Village), and an unaided human
+run of the Rift World flight. Test-only aids are in `env-flags.md` (`DRAKAN_PLAYTEST_AUTOAIM` and its range / pitch, `_ALT`,
+`_WAYPOINTS` and its climb / radius / hold / activate).
