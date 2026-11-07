@@ -264,6 +264,38 @@ foot crossed z 211,968 at x 148,480, y 21,093 (inside it) in `chain3` and nothin
 Arokh ("Dragon takes off"), so the exit needs the mounted dragon. The one-process chain therefore stops at Ruined Village. Numbers
 from that session: Intro load 30.4 s, village load 74.4 s, host working set 1.04 GB at 1 min, 1.18 GB at 5 and 9 min.
 
+## 10. Delon fought, credits showing, Ruined Village's dragon
+
+**Delon in a played fight (`dl4`, `dl5`, `dm6`).** With the vulnerable fix (pack `packd2`, natural arrival save with fire breath,
+`DRAKAN_PLAYTEST_AUTOAIM=10052` with `_PITCH=1`, Arokh placed over the altar) **breath takes Delon's hit points down: 650 ->
+560 -> 440 -> 335 -> 185 in four rounds of 15 taps** (`dl4`); a longer run stops at 200 because he ends up standing on Arokh's back
+(the robed figure in `dl5` `r6.png`), where the forward breath cannot reach him. So he now takes real blows; the kill itself was
+not finished by a played fight (the position problem above). Rynn on foot on the altar ring (`dm6`, placed at 342,044 100,804
+184,976 with the finer map below) stood beside him but a direct start gives her no sword (hand word 0: the loadout comes from the
+earlier levels), so 200 bare-handed attacks did nothing; a sword, bow or spell test needs a save that carries them.
+Finer floor map (`pcmap3.mts`, 500-unit steps, PC terrain): the altar is a ring, solid between x 338,000 and 346,500 for z 178,000
+to 186,000 with a hole in the middle (x 341,000 to 343,500, z 180,500 to 184,000) and two outer rims at x 330,000 to 337,000 and
+347,000 to 356,000; the rest is the pit. What the PC needs for the ending (read from the PC links): only the four heads
+(Dr. Evil 108 to 111 -> Navros DeathCounter 162 -> Ribs 472 -> Stomp Player 473, the end sequence). Delon's death message 8 goes
+to counter 455 and plays Stomp Player 436 only; the converted logic matches (the ending played after the four heads without
+Delon in `chain2`, and his death moves counter 455 from 1 to 0 in `dm5`).
+
+**Credits are effective now** (`cce1190f`). The credits entries are read with plain file reads, so `FileService::setReadOverlay`
+rewrites them per read (evaluated at read time, which also covers a game chosen on the title after the first boot read):
+`credits: read at 24536 patched entry 8807 (1567 bytes)` at boot with `DRAKAN_GAME=d1`, and again when the outro starts. In game
+(`cred6`, test pack with the ending timer) the end card ("Original game: Drakan: Order of the Flame, Surreal Software, 1999",
+"Engine: Drakan: The Ancients' Gates, Surreal Software, 2002") scrolls over the Wartok farm and the game returns to the title. Test:
+`override_test` (43 checks, a synthetic RRC, the disc game untouched, partial reads patched).
+
+**Ruined Village's exit and Arokh.** The exit detector 1075 links a "Land Morph" (terrain morph 1076) and the exit 1077; the
+village's only dragon is the Dragon object 1011 in the lair at 484,416 24,773 201,196 (with "Dragon Lair", "Dragon Falls Rocks",
+the "Dragon Clutch" detector 1089 and an "arokh awakening" scene 1625). Placed beside him facing him (`rv3`: Rynn at 482,600
+22,900 201,196 yaw -pi/2, W for 3 s) Rynn walked past him to x 487,205 without mounting, and E did nothing: he is story-gated
+(the awakening scene), not a free mount, and I did not find the step that frees him. Therefore the mounted exit, the Wartok arrival
+by dragon and the chain from Wartok on were not run in this pass. The `727aaa8e` rule (bring a parked dragon along when Rynn
+leaves on foot) is not involved here: the village exit needs the mounted dragon. No per-level table beyond the earlier numbers
+(Intro load 30.4 s, village load 74.4 s, host working set about 1.0 to 1.2 GB flat).
+
 ## Comment-ready summary for issue #5 (not posted)
 
 Pass 3 final status. Rift World is the last level and the converted campaign reaches the credits from it: natural Volcanic
@@ -274,6 +306,6 @@ to the title. One 14 minute process covered Volcanic, the exit and Rift World to
 test-only aim aids; the tunnel is flyable by hand (an entrance window about 3,500 units tall); the RibDoors are side vaults. The
 Ruined Village opening takes about 250 s and ends by itself (an earlier line here said otherwise; wrong). Delon was invulnerable
 because the Death Mage template he is cloned from has "Invulnerable?" 1; fixed in the converter (he now takes damage and his death
-message reaches counter 455). Open: a played sword / bow fight against Delon, an Order of the Flame credits list (the pack side and
-a scoped override are in, but the engine reads the credits by plain file reads, so it is not shown yet), a chained 13-level
-single process (Ruined Village's exit is an Arokh cave entrance), and an unaided human run of the Rift World flight.
+message reaches counter 455). Delon takes breath damage now (650 -> 185 in four rounds) and the campaign credits end card shows and scrolls. Open: finishing Delon
+with a sword or bow, a chained 13-level single process (Ruined Village's Arokh is story-gated, the exit needs him mounted), and an
+unaided human run of the Rift World flight.

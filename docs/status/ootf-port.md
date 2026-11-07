@@ -155,9 +155,9 @@ The Ebon Dragons die to breath (gate counter 4 -> 0, test aid `OOTF_TEST_EBONHP`
 to the sword at 150 hit points with the aim aid. Ebon Dragons also die at 150 with the aim aid; the tunnel is flyable by hand (entrance window about 3,500 units); one
 14 minute process (Volcanic exit, Rift World, heads, credits) ran with no crash or memory growth. The Ruined Village opening takes about 250 s and ends by itself (checked again with the earlier no-input method). Delon was
 invulnerable (the Death Mage template has Invulnerable 1): fixed in the converter, he now takes damage and his death reaches
-counter 455. Open: a played fight against Delon, an Order of the Flame credits list (pack file and scoped override exist but the
-engine reads the credits by plain file reads, see the journal), a chained run of all levels in one process (Ruined Village's exit
-is an Arokh cave entrance). See [progression 3](../journal/2026-11-07/ootf-progression-3.md).
+counter 455. Delon takes breath damage (650 -> 185 in four rounds) and the campaign end card replaces the credits (per-read patch, verified
+in game). Open: finishing Delon with a sword or bow, a chained run of all levels in one process (Ruined Village's Arokh is
+story-gated and its exit needs him mounted). See [progression 3](../journal/2026-11-07/ootf-progression-3.md).
 
 ## What works
 
