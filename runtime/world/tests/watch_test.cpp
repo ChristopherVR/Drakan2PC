@@ -45,6 +45,10 @@ int main() {
     CHECK(watch::parse("ref=1234,near=15000", by) && !watch::matches(by, e, player));
     CHECK(watch::parse("ref=1235", by) && !watch::matches(by, e, player));
 
+    CHECK(watch::parse("player=1", by) && by.withPlayer && watch::matches(by, e, player, true));
+    CHECK(!watch::matches(by, e, player, false) || by.near <= 0.0f); // player=1 alone adds no other object by itself
+    CHECK(watch::parse("class=10013", by) && !watch::matches(by, e, player, true));
+
     const std::string line = watch::format(12.5, e, {0, 0, 0, 0, 0x4, 0, 0xff}, {0, 0, 0, 0, 1});
     CHECK(line ==
           "[watch 12.50] ref=1234 h=00da8ab0 cls=10013 type=4 pos=100,200,300 yaw=1.500 | e+10=4 18=ff | d+10=1");

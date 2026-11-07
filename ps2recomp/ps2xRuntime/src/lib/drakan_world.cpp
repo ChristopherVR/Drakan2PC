@@ -148,7 +148,7 @@ void watchTick(const RdramMemory& mem, const world::Snapshot& snap) {
     const world::Vec3 origin = player ? player->position : world::Vec3{};
     uint32_t lines = 0;
     for (const auto& e : snap.entities) {
-        if (e.handle == snap.playerHandle || !world::watch::matches(g_watchSpec, e, origin))
+        if (!world::watch::matches(g_watchSpec, e, origin, e.handle == snap.playerHandle))
             continue;
         if (g_watchSpec.near > 0.0f && !player)
             continue;

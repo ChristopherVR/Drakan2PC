@@ -6,7 +6,7 @@
 //   DRAKAN_PLAYTEST_WATCH=class=10013,near=30000        every door within 30000 units of the player
 //   DRAKAN_PLAYTEST_WATCH=ref=1234,words=64,data=24     one object by registry ref (decimal or 0x hex)
 //
-// Keys: class=<hex class id>, ref=<registry ref>, near=<units from the player, 0 = any>, words=<entity words printed,
+// Keys: player=1 (the player's own line too: her position shows whether a door blocks her), class=<hex class id>, ref=<registry ref>, near=<units from the player, 0 = any>, words=<entity words printed,
 // from +0, default 64 = 0x100 bytes>, data=<instance data words, default 24 = 0x60 bytes>, max=<lines per tick, 8>,
 // every=<seconds between lines, default 1>.
 #pragma once
@@ -22,7 +22,7 @@
 namespace world::watch {
 
 struct Spec {
-    bool hasClass = false, hasRef = false;
+    bool hasClass = false, hasRef = false, withPlayer = false; // withPlayer: also the player's own line
     uint32_t classId = 0, ref = 0;
     float near = 0.0f; // 0 = no distance limit
     uint32_t entityWords = 64, dataWords = 24, maxLines = 8;
@@ -53,6 +53,9 @@ inline bool parse(const char* text, Spec& out) {
             s.ref = static_cast<uint32_t>(std::strtoul(v.c_str(), &e, 0));
             if (e != v.c_str())
                 s.hasRef = any = true;
+        } else if (k == "player") {
+            s.withPlayer = v != "0";
+            any = any || s.withPlayer;
         } else if (k == "near") {
             s.near = std::strtof(v.c_str(), nullptr);
             any = true;
@@ -78,7 +81,9 @@ inline bool parse(const char* text, Spec& out) {
     return true;
 }
 
-inline bool matches(const Spec& s, const EntitySnapshot& e, const Vec3& player) {
+inline bool matches(const Spec& s, const EntitySnapshot& e, const Vec3& player, bool isPlayer = false) {
+    if (isPlayer)
+        return s.withPlayer;
     if (s.hasClass && e.classId != s.classId)
         return false;
     if (s.hasRef && e.ref != s.ref)
