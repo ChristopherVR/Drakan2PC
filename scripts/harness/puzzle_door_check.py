@@ -55,6 +55,15 @@ RECIPES = {
     + "24000 place 197924 210168 457416 3.14159\n"
     + "".join(f"{31000 + i * 2000} key tap E\n" for i in range(8))
     + "50000 quit\n",
+    # stand against the plate until the door is open, then walk away from it (S) and stand clear: the plate rises, Off
+    "plate_walk_off": PRE.replace("961906", "962880") + "12000 key down S\n16000 key up S\n30000 quit\n",
+    # bow kill: pick the bow up in front of Rynn, open the inventory, equip it, close it, then fire at the dormant copies
+    # (AUTOAIM turns her to the nearest living skeleton; they stand 2300 units away, so only arrows can reach them)
+    "bow": PRE
+    + "7200 key tap E\n8500 key tap ENTER\n"
+    + "10000 key tap TAB\n13000 key tap ENTER\n14000 key tap RIGHT\n15000 key tap E\n17000 key tap TAB\n"
+    + "".join(f"{20000 + i * 2500} button down 1\n{21500 + i * 2500} button up 1\n" for i in range(24))
+    + "85000 quit\n",
     # walk at the dormant copies, then tap attack (AUTOAIM turns Rynn to the nearest living skeleton)
     "melee": PRE
     + "6500 key down W\n8500 key up W\n"
@@ -120,6 +129,13 @@ def _closed_after_open(r: Run) -> tuple[bool, str]:
     return ok, f"yaw max {max(r.door_yaw, default=0):.2f}, last {r.door_yaw[-1] if r.door_yaw else 0:.2f}"
 
 
+def _walked_off(r: Run) -> tuple[bool, str]:
+    """Open while she stands at the plate, shut after she has walked back from it."""
+    ok, detail = _closed_after_open(r)
+    back = max((p[2] for p in r.player), default=0) - min((p[2] for p in r.player[-10:]), default=0)
+    return ok and back > 500, f"{detail}, Rynn ended {back} units back from the plate"
+
+
 def _walk(blocked: bool) -> Callable[[Run], tuple[bool, str]]:
     def f(r: Run) -> tuple[bool, str]:
         zs = [p[2] for p in r.player]
@@ -130,6 +146,17 @@ def _walk(blocked: bool) -> Callable[[Run], tuple[bool, str]]:
         ), f"Rynn's highest z {top} (door at 966406), door open={opened(r)}"
 
     return f
+
+
+def _bow(r: Run, expect_open: bool) -> tuple[bool, str]:
+    """Rynn stays near her start (z 961906), so any kill came from range; the door opens only on two kills."""
+    zs = [p[2] for p in r.player]
+    walked = max(zs, default=0) - 961906
+    ok = opened(r) == expect_open and walked < 1500
+    return (
+        ok,
+        f"door open={opened(r)} (expected {expect_open}), Rynn's furthest advance {walked} units, yaw max {max(r.door_yaw, default=0):.2f}",
+    )
 
 
 def _ambush(r: Run) -> tuple[bool, str]:
@@ -189,6 +216,29 @@ SCENARIOS = [
         {"locked": 0, "autoOpen": 0, "killMsg": 1},
         RECIPES["melee"],
         lambda r: (opened(r), f"two real sword kills, yaw max {max(r.door_yaw, default=0):.2f}"),
+        env={"DRAKAN_PLAYTEST_AUTOAIM": SKELETON_CLASS},
+    ),
+    Scenario(
+        "plate_walk_off",
+        "plate",
+        {"locked": 0, "autoOpen": 0, "hold": 1},
+        RECIPES["plate_walk_off"],
+        _walked_off,
+    ),
+    Scenario(
+        "killall_bow",
+        "killall",
+        {"locked": 0, "autoOpen": 0, "killMsg": 1, "bow": "Bow", "killDz": 2300},
+        RECIPES["bow"],
+        lambda r: _bow(r, True),
+        env={"DRAKAN_PLAYTEST_AUTOAIM": SKELETON_CLASS},
+    ),
+    Scenario(  # control: the same shots without a bow in reach (the sword cannot reach them) leave the door shut
+        "killall_bow_nobow",
+        "killall",
+        {"locked": 0, "autoOpen": 0, "killMsg": 1, "killDz": 2300},
+        RECIPES["bow"],
+        lambda r: _bow(r, False),
         env={"DRAKAN_PLAYTEST_AUTOAIM": SKELETON_CLASS},
     ),
     Scenario(

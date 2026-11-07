@@ -86,12 +86,13 @@ else if (kind === 'key') {
   // two creatures that die when the volume sends Blow Up (no melee needed), a counter they report to, the door
   const src = [...doc.objects()].find((o) => o.class === (opt.enemyClass ?? 'Human Skeleton:Center'));
   const before = new Set([...doc.objects()].map((o) => o.id));
-  tpl('ambush', { enemy: src.id, count: 2, radius: 900, w: 4, h: 3, d: 2 }, at(0, 900));
+  tpl('ambush', { enemy: src.id, count: 2, radius: 900, w: 4, h: 3, d: 2 }, at(0, opt.killDz ?? 900));
   const fresh = [...doc.objects()].filter((o) => !before.has(o.id));
   const det = fresh.find((o) => o.class === 'Trigger Detector');
   const crea = fresh.filter((o) => o.class === src.class).map((o) => o.id);
   C.setObjectField(det, C.schemaField(env.schemaFor(det.resource), 'Trigger Message'), opt.killMsg ?? 5);
   tpl('kill-all-gate', { enemies: crea, gate: door }, at(0, 2500));
+  if (opt.bow) place(opt.bow, at(0, 60, 80)); // a bow to pick up in front of Rynn (the bow kill scenario)
 } else if (kind === 'ambush') {
   const src = [...doc.objects()].find((o) => o.class === (opt.enemyClass ?? 'Human Skeleton:Center'));
   if (!src) throw new Error('no enemy of that class in the level');

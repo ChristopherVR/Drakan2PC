@@ -332,6 +332,9 @@ names map to the engine as Opens = On (`0x1001`), Closes = Off (`0x1002`), Locks
   when a lock has no key with its Lock Code in the level.
 * Held plate (On pressed, Off released) and real sword kills for the kill-all gate (AUTOAIM) are proven (`plate_hold`,
   `killall_melee` in `puzzle_door_check.py`).
+* Bow kills for the kill-all gate and a plate released by Rynn leaving it are proven too (2026-11-08, `killall_bow` with its
+  no-bow control `killall_bow_nobow`, and `plate_walk_off`): with a Bow item picked up and equipped, arrows from 2300 units kill the
+  two creatures and the door opens; without the bow it stays shut. See `docs/journal/2026-11-08/editor-leftovers.md`.
 * Repeat all of it: `python scripts/harness/puzzle_door_check.py --iso <iso>` (PASS / FAIL per scenario; lever open and toggle,
   blocked and walk-through, plate, two-plate counter, timer, locked / unlock rules, ambush, kill all).
 
