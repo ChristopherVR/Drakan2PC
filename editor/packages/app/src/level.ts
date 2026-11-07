@@ -22,6 +22,7 @@ import { IconLayer, VolumeBoxes, type VolumeBox } from './scene/icons.ts';
 import { ModelLayer } from './scene/layer.ts';
 import { animRange } from './scene/animplan.ts';
 import { HELPER_GROUPS, helperGroupOf, partitionObjects, type HelperGroup } from './scene/instances.ts';
+import { drawResource } from './scene/standin.ts';
 import { docInstanceMatrix } from './scene/models.ts';
 import { clientToNdc, nearestScreenPoint, pointsInRect, type ScreenPoint } from './scene/pickmath.ts';
 import { DEFAULT_VIEW_OPTIONS, LIGHTING, type ViewOptions } from './scene/viewopts.ts';
@@ -1311,7 +1312,7 @@ export class LevelView {
 
     /** True when the object is drawn with its model (not a marker). */
     private isModelDrawn(o: LevelObject): boolean {
-        return this.viewOptions.models && this.models.has(o.resource) && this.modelIds.has(o.id);
+        return this.viewOptions.models && this.models.has(drawResource(o)) && this.modelIds.has(o.id);
     }
     private modelIds = new Set<number>();
 

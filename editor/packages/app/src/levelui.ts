@@ -35,6 +35,7 @@ import { PLAY_PACK_ID, changeCount, setConvertedPackProvider, setDesktopOnlyNoti
 import type { Api, LevelInfo, LevelLoadResult, Method } from './rpc.ts';
 import { createSceneLoader } from './sceneload.ts';
 import { HELPER_GROUPS, helperGroupOf, type HelperGroup } from './scene/instances.ts';
+import { drawResource, parseStandInResource } from './scene/standin.ts';
 import { parseViewOptions, type ViewOptions } from './scene/viewopts.ts';
 import { createAssets, type AssetsPanel } from './editor/assets.ts';
 import { autosaveKey, clearAutosave, editsAtRisk, loadAutosave, saveAutosave } from './editor/autosave.ts';
@@ -702,6 +703,11 @@ export function initLevelUi(host: LevelUiHost): LevelUi {
     function onChange(): void {
         const v = getView();
         if (!opening) empty.hidden = v.doc.size > 0;
+        // An edited or pasted object may name its own stand-in pieces: load that variant (known keys are skipped).
+        if (!opening && currentDirPath) {
+            const keys = [...v.doc.objects()].map(drawResource).filter((k) => parseStandInResource(k).refs !== null);
+            if (keys.length) void loader.ensureModels(keys);
+        }
         for (const p of panels) p.onChange?.();
         syncToolbar();
         updateStatus();
@@ -1097,7 +1103,8 @@ export function initLevelUi(host: LevelUiHost): LevelUi {
         currentDirPath = dirPath;
         if (info && !asTitle) rememberLevel({ name: info.name, dirPath });
         const resources = new Set<string>();
-        for (const o of getView().doc.objects()) resources.add(o.resource);
+        // Draw keys: an object naming its own break-away pieces ("Model List") loads them under a key of its own.
+        for (const o of getView().doc.objects()) resources.add(drawResource(o));
         loadCard.set({ objects: getView().doc.size });
         loadCard.step('objects', 'done');
         visuals = loader

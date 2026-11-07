@@ -12,6 +12,7 @@ import {
 } from './models.ts';
 import { AnimationLayer } from './animlayer.ts';
 import { helperGroupOfRfl, type HelperGroup } from './instances.ts';
+import { drawResource, standInResource, type StandInField } from './standin.ts';
 import { nearestHit } from './pickmath.ts';
 import type { TerrainScene } from './terrain.ts';
 import type { TextureCache, TextureLookup } from './textures.ts';
@@ -19,6 +20,8 @@ import type { TextureCache, TextureLookup } from './textures.ts';
 export interface LayerObject extends DocPlacement {
     id: number;
     resource: string;
+    /** Per-object parameters: an object naming its own stand-in models is drawn under its own key (`drawResource`). */
+    fields?: readonly StandInField[];
 }
 
 interface Entry {
@@ -94,15 +97,16 @@ class Outline {
         const by = new Map<string, LayerObject[]>();
         this.animatedBoxes = [];
         for (const o of objects) {
-            if (!this.layer.has(o.resource)) continue;
+            const key = drawResource(o);
+            if (!this.layer.has(key)) continue;
             // Animated instances get their tint from the animation layer (the batch only knows the bind pose).
             const animated = this.layer.anim.isAnimated(o.id);
             if (animated) {
                 this.animatedBoxes.push(o);
                 continue;
             }
-            let l = by.get(o.resource);
-            if (!l) by.set(o.resource, (l = []));
+            let l = by.get(key);
+            if (!l) by.set(key, (l = []));
             l.push(o);
         }
         for (const [res, b] of this.batches) {
@@ -159,7 +163,7 @@ class Outline {
             b.mesh.instanceMatrix.needsUpdate = true;
         }
         for (const o of this.animatedBoxes) {
-            const e = this.layer.entry(o.resource);
+            const e = this.layer.entry(drawResource(o));
             if (!e || nBox >= MAX_BOXES) continue;
             const { min, max } = e.model.bounds;
             const local = new THREE.Matrix4().compose(
@@ -338,7 +342,8 @@ export class ModelLayer {
     addModelData(data: readonly ModelData[], cache: TextureCache): string[] {
         const ok: string[] = [];
         for (const d of data) {
-            const resource = resourceString(d.dbIndex, d.classId);
+            const base = resourceString(d.dbIndex, d.classId);
+            const resource = d.standIn ? standInResource(base, d.standIn) : base;
             if (this.entries.has(resource)) continue;
             // No model named, or one with no polygons ("Bounding Vertices": an invisible mover or pickup point).
             if (d.model ? !d.model.triTexture.length : d.noModel) {

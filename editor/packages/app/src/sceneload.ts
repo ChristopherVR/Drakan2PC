@@ -2,10 +2,11 @@
 // for the Asset Browser, and the drag-preview models. Everything runs off the UI thread except building three.js
 // objects, which is done in small batches so the editor stays interactive while a level fills in.
 
-import { resourceParts, type AssetClass } from '@drakan/editor-core';
+import type { AssetClass } from '@drakan/editor-core';
 import type { LevelView } from './level.ts';
 import type { Api, Method } from './rpc.ts';
 import { TextureCache, classThumbnail, classesToLoad } from './scene/index.ts';
+import { modelRequest } from './scene/standin.ts';
 import { bindLevelTerrain, clearLevelTerrain } from './editor/landscape/terrainbind.ts';
 
 type Call = <M extends Method>(method: M, ...args: Parameters<Api[M]>) => Promise<ReturnType<Api[M]>>;
@@ -116,7 +117,7 @@ export function createSceneLoader(call: Call, view: () => LevelView, hooks: Scen
             const data = await call(
                 'loadModels',
                 path,
-                part.map((c) => resourceParts(c.resource)),
+                part.map((c) => modelRequest(c.resource)),
             );
             if (tk !== token || (stoppable && tk === stoppedTk)) return added;
             const ok = layer.addModelData(data, cache);

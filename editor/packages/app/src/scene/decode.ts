@@ -10,15 +10,13 @@ import type {
     TerrainLayer,
     TxdImage,
 } from '@drakan/formats';
+import { standInModelRefs } from './standin.ts';
 import {
-    FIELD_MODEL,
     LVL_TYPE_LAYERS,
     SrscReader,
     TXD_ENTRY_TYPE,
-    decodeFieldValue,
     decodeTxd,
     dependencyPath,
-    fieldBase,
     odbRuntimeClass,
     parseClassBody,
     parseDb,
@@ -63,38 +61,21 @@ export interface ModelData {
     noModel?: true;
     /** Engine class id (RFL) of the class record, when it was read. */
     rfl?: number;
+    /** The object's own stand-in models the request named (`ModelRequest.standIn`), echoed back. */
+    standIn?: number[];
 }
 
-/** A field of a model-less class whose models stand in for the class model in the viewport, and how they combine. */
-const FIELD_STAND_INS: readonly { name: RegExp; use: 'all' | 'first' }[] = [
-    // Break-away floors: every piece is modelled in place, together they are the intact floor.
-    { name: /^model list$/i, use: 'all' },
-    // Morph Plugs: the frames of one shape; the first is the shape at rest.
-    { name: /^morphing models?$/i, use: 'first' },
-];
+/** A class whose model to load; `standIn`: an object's own "Model List" / "Morphing Models" refs for a model-less class. */
+export interface ModelRequest {
+    classId: number;
+    dbIndex: number;
+    standIn?: number[];
+}
 
 const ODB_CLASS = 0x0102;
 const ODB_FIELDS = 0x0103;
 
-/** Most pieces merged into one stand-in model (break-away floors have about 20). */
-const MAX_PIECES = 64;
-
-/**
- * Model refs (`(db << 16) | id`) that stand in for a model-less class: the pieces of a break-away floor or the first
- * frame of a Morph Plug, from the class defaults. Empty for every other class.
- */
-export function standInModelRefs(fields: readonly ClassFieldDef[], data: readonly number[]): number[] {
-    for (const rule of FIELD_STAND_INS) {
-        const i = fields.findIndex((f) => fieldBase(f.type) === FIELD_MODEL && rule.name.test(f.name.trim()));
-        if (i < 0 || data[i] === undefined) continue;
-        const v = decodeFieldValue(fields[i]!.type, data[i]!, data);
-        const refs = (Array.isArray(v) ? v : [v]).filter(
-            (r): r is number => typeof r === 'number' && (r & 0xffff) !== 0,
-        );
-        if (refs.length) return rule.use === 'first' ? refs.slice(0, 1) : refs.slice(0, MAX_PIECES);
-    }
-    return [];
-}
+export { standInModelRefs };
 
 /**
  * LOD 0 of several models as one static model (the pieces of a break-away floor share the object's origin). Texture refs
@@ -243,7 +224,7 @@ export async function loadModelData(
     fs: Iso9660,
     dirPath: string,
     header: LvlHeader,
-    classes: { classId: number; dbIndex: number }[],
+    classes: ModelRequest[],
 ): Promise<ModelData[]> {
     const out: ModelData[] = [];
     type Db = {
@@ -286,7 +267,8 @@ export async function loadModelData(
     };
     const baseOf = (db: Db, modelDb: number): string | undefined => (modelDb === 0 ? db.stem : db.deps.get(modelDb));
     for (const c of classes) {
-        const r: ModelData = { ...c, model: null, textures: [] };
+        const r: ModelData = { classId: c.classId, dbIndex: c.dbIndex, model: null, textures: [] };
+        if (c.standIn) r.standIn = [...c.standIn];
         out.push(r);
         let db = odbCache.get(c.dbIndex);
         if (db === undefined) {
@@ -326,7 +308,8 @@ export async function loadModelData(
             // No class model: a break-away floor or a Morph Plug still names the models it shows in its fields.
             const defs = await fieldDefs(db, c.classId);
             const parsed = defs ? parseClassBody(body) : null;
-            const refs = defs && parsed ? standInModelRefs(defs, parsed.data) : [];
+            // An object naming its own pieces (a per-object "Model List") overrides the class default.
+            const refs = c.standIn?.length ? c.standIn : defs && parsed ? standInModelRefs(defs, parsed.data) : [];
             const pdb = refs.length ? refs[0]! >>> 16 : 0;
             base = refs.length ? baseOf(db, pdb) : undefined;
             if (!base) continue;

@@ -1,7 +1,7 @@
 // Message contract between the UI thread and the parsing worker.
 
 import type { DiscProfile, Lvl, OdbIndex } from '@drakan/formats';
-import type { ModelData, TerrainData } from './scene/decode.ts';
+import type { ModelData, ModelRequest, TerrainData } from './scene/decode.ts';
 import type { ItemCatalog } from './itemdata.ts';
 import type { StoryCatalog } from './storydata.ts';
 import type { QuestUsageLevel, StoryEditData } from './story/storyedit.ts';
@@ -136,8 +136,9 @@ export interface Api {
     decodeTextures(path: string, indices: number[] | null): TextureResult[];
     /** Terrain layers and their textures for the level in `dirPath` (scene/decode.ts). */
     loadTerrain(dirPath: string): TerrainData;
-    /** Models (LOD 0) and textures for object classes `(classId, dbIndex)` of the level in `dirPath`. */
-    loadModels(dirPath: string, classes: { classId: number; dbIndex: number }[]): ModelData[];
+    /** Models (LOD 0) and textures for object classes `(classId, dbIndex)` of the level in `dirPath`; `standIn` names an
+     * object's own break-away pieces. */
+    loadModels(dirPath: string, classes: ModelRequest[]): ModelData[];
     /** Class names of the shared Resources ODB, where every inventory item is defined (no level needed). */
     loadItemCatalog(): ItemCatalog;
     /** Models and textures of Resources classes by class id. */

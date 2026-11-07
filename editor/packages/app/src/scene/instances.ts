@@ -1,7 +1,7 @@
 // Instance bookkeeping for the model layer (no three.js): which objects are drawn as models, which fall back to
 // markers, which are hidden helper classes, and which classes still need their model loaded.
 
-import { resourceParts } from '@drakan/editor-core';
+import { drawResource, modelRequest, type StandInField } from './standin.ts';
 
 /** Editor-only helper classes: real models in the data (boxes, speakers, cameras) that a player never sees. */
 export type HelperGroup = 'trigger' | 'sound' | 'camera' | 'light' | 'waypoint' | 'timer' | 'spawn' | 'barrier';
@@ -77,10 +77,13 @@ export interface Placed {
     id: number;
     resource: string;
     class: string;
+    /** Per-object parameters (an object naming its own break-away pieces is drawn under its own key). */
+    fields?: readonly StandInField[];
 }
 
 export interface Partition<T> {
-    /** Objects drawn with their model, grouped per class resource (document order inside a group). */
+    /** Objects drawn with their model, grouped per draw key (`drawResource`: the class resource, or the class and the
+     * object's own stand-in models), document order inside a group. */
     byResource: Map<string, T[]>;
     /** Objects that need a marker: no model for the class (yet, or it failed to decode). */
     markers: T[];
@@ -111,26 +114,30 @@ export function partitionObjects<T extends Placed>(
             out.icons.push({ o, group: g });
             continue;
         }
-        if (hasModel(o.resource)) {
-            let list = out.byResource.get(o.resource);
-            if (!list) out.byResource.set(o.resource, (list = []));
+        const key = drawResource(o);
+        if (hasModel(key)) {
+            let list = out.byResource.get(key);
+            if (!list) out.byResource.set(key, (list = []));
             list.push(o);
         } else out.markers.push(o);
     }
     return out;
 }
 
-/** Distinct (classId, dbIndex) pairs among `resources` that are neither loaded, failed nor already requested. */
+/**
+ * Distinct draw keys among `resources` that are neither loaded, failed nor already requested, as worker requests (the
+ * class, and an object's own stand-in models for a `standInResource` key).
+ */
 export function classesToLoad(
     resources: Iterable<string>,
     known: (resource: string) => boolean,
-): { resource: string; classId: number; dbIndex: number }[] {
+): { resource: string; classId: number; dbIndex: number; standIn?: number[] }[] {
     const seen = new Set<string>();
-    const out: { resource: string; classId: number; dbIndex: number }[] = [];
+    const out: { resource: string; classId: number; dbIndex: number; standIn?: number[] }[] = [];
     for (const r of resources) {
         if (seen.has(r) || known(r)) continue;
         seen.add(r);
-        out.push({ resource: r, ...resourceParts(r) });
+        out.push({ resource: r, ...modelRequest(r) });
     }
     return out;
 }
