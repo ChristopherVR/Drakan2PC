@@ -139,6 +139,11 @@
     color: var(--fg-faint);
 }
 .cwz-step-title {
+    display: block;
+    height: auto;
+    padding: 0; /* the global h2 is a panel header bar: this one is a plain heading */
+    background: none;
+    border: 0;
     margin: 2px 0 4px;
     font-size: 20px;
     font-weight: 600;

@@ -766,6 +766,8 @@ pub fn game_launch(
             g.child = None;
         }
     }
+    // The first window to start the game owns the session; a second editor window is told to wait for it.
+    let session = if extra { 0 } else { playpack::begin_game_session(&config_dir(&state))? };
     let mut cmd = std::process::Command::new(&exe);
     cmd.current_dir(&dir)
         .stdin(std::process::Stdio::null())
@@ -794,6 +796,7 @@ pub fn game_launch(
         Err(e) => {
             // The Play pack is already installed and no game will ever close to take it out: do it now.
             if !extra {
+                playpack::end_game_session(session);
                 playpack::restore_with_retry(config_dir(&state));
             }
             return Err(format!("could not start {}: {e}", exe.display()));
@@ -807,6 +810,7 @@ pub fn game_launch(
         state.inner.lock().unwrap().extras.push(child);
     } else {
         state.inner.lock().unwrap().child = Some(child);
+        watch_game_session(app.clone(), session);
     }
     Ok(LaunchInfo {
         pid,
@@ -817,6 +821,24 @@ pub fn game_launch(
 
 fn config_dir(state: &AppState) -> PathBuf {
     state.settings_file.parent().map(Path::to_path_buf).unwrap_or_default()
+}
+
+/// When the game and its extra instances have closed, release the session lock for the other editor windows.
+fn watch_game_session(app: AppHandle, session: u64) {
+    std::thread::spawn(move || loop {
+        std::thread::sleep(std::time::Duration::from_secs(1));
+        let state = app.state::<AppState>();
+        let mut g = state.inner.lock().unwrap();
+        let alive = |c: &mut std::process::Child| matches!(c.try_wait(), Ok(None));
+        let main = g.child.as_mut().is_some_and(alive);
+        g.extras.retain_mut(alive);
+        if main || !g.extras.is_empty() {
+            continue;
+        }
+        drop(g);
+        playpack::end_game_session(session);
+        return;
+    });
 }
 
 /// When the game and its extra instances have closed, take the Play pack out and restore `mods.ini`.
@@ -848,10 +870,13 @@ pub fn restore_play_pack_at_start(settings_file: &Path) {
 #[tauri::command]
 pub fn game_running(state: State<'_, AppState>) -> bool {
     let mut g = state.inner.lock().unwrap();
-    match g.child.as_mut() {
+    let own = match g.child.as_mut() {
         Some(c) => matches!(c.try_wait(), Ok(None)),
         None => false,
-    }
+    };
+    drop(g);
+    // The game another editor window started counts too: two windows must not Play at once.
+    own || playpack::game_session_elsewhere(&config_dir(&state))
 }
 
 /// Used by `lib.rs` to find the settings file.

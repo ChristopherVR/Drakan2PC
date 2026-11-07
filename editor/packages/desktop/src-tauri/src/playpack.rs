@@ -6,6 +6,7 @@
 use serde::{Deserialize, Serialize};
 use std::fs::File;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Mutex;
 
 /// What to put back: `mods.ini` before the Play session, the text Play wrote, and the pack file to delete.
@@ -90,6 +91,61 @@ pub fn lock_is_free(config_dir: &Path) -> bool {
         return true;
     }
     open_exclusive(&lock_path(config_dir)).is_ok()
+}
+
+// ---- game session lock -------------------------------------------------------------------------------------------------
+// Two editor windows share one play folder, one mods folder and one `mods.ini`. While the game that one of them started is
+// running, that window keeps `game-session.lock` open (Windows: without sharing). The other window sees it taken, reports the
+// game as running and refuses to Play, so it cannot overwrite the pack the running game reads or have its own pack switched
+// off when the first game closes.
+
+static GAME: Mutex<Option<(u64, File)>> = Mutex::new(None);
+static GAME_GEN: AtomicU64 = AtomicU64::new(0);
+
+fn game_lock_path(config_dir: &Path) -> PathBuf {
+    config_dir.join("game-session.lock")
+}
+
+/// Is the game started by another editor window still running?
+pub fn game_session_elsewhere(config_dir: &Path) -> bool {
+    if GAME.lock().unwrap().is_some() {
+        return false;
+    }
+    match open_exclusive(&game_lock_path(config_dir)) {
+        Ok(_) => false,
+        Err(e) => is_sharing_violation(&e),
+    }
+}
+
+/// A file another process holds open without sharing (Windows ERROR_SHARING_VIOLATION / ERROR_LOCK_VIOLATION).
+fn is_sharing_violation(e: &std::io::Error) -> bool {
+    matches!(e.raw_os_error(), Some(32) | Some(33))
+}
+
+/// This window starts the game: take the session lock. `Err` with a sentence when another window holds it.
+pub fn begin_game_session(config_dir: &Path) -> Result<u64, String> {
+    let mut g = GAME.lock().unwrap();
+    *g = None; // a session of this window that already ended
+    let _ = std::fs::create_dir_all(config_dir);
+    match open_exclusive(&game_lock_path(config_dir)) {
+        Ok(f) => {
+            let gen = GAME_GEN.fetch_add(1, Ordering::SeqCst) + 1;
+            *g = Some((gen, f));
+            Ok(gen)
+        }
+        Err(e) if is_sharing_violation(&e) => {
+            Err("The game is already running from another editor window. Close that game first.".to_string())
+        }
+        Err(_) => Ok(0), // no lock possible (read-only config folder): play on, unprotected
+    }
+}
+
+/// The game of session `gen` has closed: let the other windows play again.
+pub fn end_game_session(gen: u64) {
+    let mut g = GAME.lock().unwrap();
+    if g.as_ref().is_some_and(|(n, _)| *n == gen) {
+        *g = None;
+    }
 }
 
 // ---- mods.ini line edits -----------------------------------------------------------------------------------------------
@@ -454,6 +510,22 @@ editor-play-ootf = on
         assert!(open_exclusive(&lock_path(&cfg)).is_err());
         drop(f);
         assert!(open_exclusive(&lock_path(&cfg)).is_ok());
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn a_running_game_blocks_a_second_window_until_it_ends() {
+        let cfg = tmp("cfg-game");
+        let gen = begin_game_session(&cfg).unwrap();
+        // this window owns it: not "elsewhere"; another window (a separate handle) cannot take it
+        assert!(!game_session_elsewhere(&cfg));
+        let other = open_exclusive(&game_lock_path(&cfg)).unwrap_err();
+        assert!(is_sharing_violation(&other));
+        end_game_session(gen + 1); // a stale watcher of an older session changes nothing
+        assert!(open_exclusive(&game_lock_path(&cfg)).is_err());
+        end_game_session(gen);
+        assert!(!game_session_elsewhere(&cfg));
+        assert!(open_exclusive(&game_lock_path(&cfg)).is_ok());
     }
 
     #[test]
