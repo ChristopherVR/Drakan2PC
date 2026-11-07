@@ -113,6 +113,8 @@ export interface Api {
     clearVirtualLevels(): LevelInfo[];
     /** The converted Order of the Flame pack as one stored zip (null when none is loaded): what Play installs. */
     convertedPackZip(): Uint8Array | null;
+    /** Cut scene sequences and conversation classes a converted pack adds, by level folder (`LEVEL1ON`). */
+    convertedStory(): Record<string, { sequences: number[]; classes: number[] }>;
     loadLevel(dirPath: string): LevelLoadResult;
     /**
      * Lay a converted Order of the Flame pack (its files by pack path) over the disc and list `levels` next to the disc's own.

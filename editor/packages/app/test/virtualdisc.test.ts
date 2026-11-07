@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { bufferSource, Iso9660, SrscReader, writePs2Srsc } from '@drakan/formats';
 import { buildIso } from '../../formats/test/fixtures.ts';
-import { overlayDisc, packPathToDisc, patchedContainers } from '../src/virtualdisc.ts';
+import { convertedStoryOf, overlayDisc, packPathToDisc, patchedContainers } from '../src/virtualdisc.ts';
 
 const txt = (s: string): Uint8Array => new TextEncoder().encode(s);
 
@@ -69,5 +69,21 @@ describe('patchedContainers', () => {
             r.entries.map(async (e) => `${e.id}:${new TextDecoder().decode(await r.readRaw(e))}`),
         );
         expect(got).toEqual(['1:class one', '2:class TWO', '9:class nine']);
+    });
+});
+
+describe('convertedStoryOf', () => {
+    it('lists the cut scenes and classes a pack adds per level folder, leaving the quests to their own list', () => {
+        const got = convertedStoryOf([
+            'new/LEVEL1ON.SSD/0311_5_0.bin',
+            'new/LEVEL1ON.SSD/0312_5_0.bin',
+            'new/level1on.odb/0102_900_0.bin',
+            'new/SYSTEM.ODB/0102_1000_0.bin',
+            'overrides/LEVEL1ON.SSD/0311_6_0.bin',
+            'files/ENGLISH/LEVELS/X/X.LVL',
+        ]);
+        expect([...got.keys()]).toEqual(['LEVEL1ON']);
+        expect([...got.get('LEVEL1ON')!.sequences]).toEqual([5]);
+        expect([...got.get('LEVEL1ON')!.classes]).toEqual([900]);
     });
 });

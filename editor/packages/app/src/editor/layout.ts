@@ -271,7 +271,17 @@ export function initLayout(root: HTMLElement, onResize: () => void): Layout {
     }
     applyAll();
     // The window got smaller or larger: fit the panels again (the remembered sizes stay as they are).
-    window.addEventListener('resize', applyAll);
+    // Shrinking the window below the narrow width folds the Outliner and Details away, as a narrow start does.
+    let wasNarrow = window.innerWidth < 900;
+    window.addEventListener('resize', () => {
+        const narrow = window.innerWidth < 900;
+        if (narrow && !wasNarrow && st('right').open) {
+            state.right = { size: st('right').size, open: false };
+            changed();
+        }
+        wasNarrow = narrow;
+        applyAll();
+    });
     // The right column is measured once it has a height (it has none while an editor tab covers the Level Editor).
     if (typeof ResizeObserver !== 'undefined') new ResizeObserver(() => apply(pane('outliner'))).observe(right);
 

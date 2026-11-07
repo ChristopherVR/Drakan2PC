@@ -146,3 +146,23 @@ export async function patchedContainers(
     }
     return { files: out, skipped };
 }
+
+/**
+ * Story entries a converted pack adds to the disc's level folders: `new/LEVEL1ON.SSD/0311_<id>_...` is a cut scene
+ * sequence, `new/LEVEL1ON.ODB/0102_<id>_...` a class (conversation handlers and lines among them). SYSTEM.ODB holds the
+ * quests, which have their own list.
+ */
+export function convertedStoryOf(
+    paths: Iterable<string>,
+): Map<string, { sequences: Set<number>; classes: Set<number> }> {
+    const out = new Map<string, { sequences: Set<number>; classes: Set<number> }>();
+    for (const path of paths) {
+        const m = /^new\/([^/]+)\.(?:SSD|ODB)\/(0311|0102)_(\d+)_/i.exec(path);
+        if (!m || m[1]!.toUpperCase() === 'SYSTEM') continue;
+        const key = m[1]!.toUpperCase();
+        const e = out.get(key) ?? { sequences: new Set<number>(), classes: new Set<number>() };
+        (m[2] === '0311' ? e.sequences : e.classes).add(Number(m[3]));
+        out.set(key, e);
+    }
+    return out;
+}

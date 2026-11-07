@@ -20,7 +20,7 @@ import {
 } from '@drakan/formats';
 import { destinationLevelName, srscRoundTrips, zipModFiles } from '@drakan/editor-core';
 import { clearConverted, loadConverted, saveConverted } from './virtualstore.ts';
-import { overlayDisc, packPathToDisc, patchedContainers, type VirtualFile } from './virtualdisc.ts';
+import { convertedStoryOf, overlayDisc, packPathToDisc, patchedContainers, type VirtualFile } from './virtualdisc.ts';
 import { loadModelData, loadTerrainData } from './scene/decode.ts';
 import { loadItemCatalog, loadItemModels, resetItemData } from './itemdata.ts';
 import { loadStoryCatalog, resetStoryData } from './storydata.ts';
@@ -85,6 +85,8 @@ const virtualLevels = new Map<string, LevelInfo>();
 const convertedPack = new Map<string, Uint8Array>();
 /** Quest classes the converted pack adds to SYSTEM.ODB. */
 const convertedQuestIds = new Set<number>();
+/** Story entries a converted pack adds, by level folder (`LEVEL1ON`): cut scene sequences and conversation classes. */
+const convertedStory = new Map<string, { sequences: Set<number>; classes: Set<number> }>();
 let language = '';
 const srscCache = new Map<string, SrscReader>();
 const inflatedCache = new Map<string, { data: Uint8Array }>();
@@ -255,6 +257,12 @@ async function applyVirtual(
         const m = /^new\/SYSTEM\.ODB\/0102_(\d+)_/i.exec(path);
         if (m) convertedQuestIds.add(Number(m[1]));
     }
+    for (const [stem, e] of convertedStoryOf(Object.keys(packFiles))) {
+        const have = convertedStory.get(stem) ?? { sequences: new Set<number>(), classes: new Set<number>() };
+        e.sequences.forEach((i) => have.sequences.add(i));
+        e.classes.forEach((i) => have.classes.add(i));
+        convertedStory.set(stem, have);
+    }
     for (const l of levels)
         virtualLevels.set(l.dirPath.toUpperCase(), { name: l.name, dirPath: l.dirPath, present: true, virtual: true });
     iso = overlayDisc(baseIso!, [...virtualFiles.values()]);
@@ -272,6 +280,7 @@ const api: { [K in keyof Api]: (...a: Parameters<Api[K]>) => Promise<ReturnType<
         virtualLevels.clear();
         convertedPack.clear();
         convertedQuestIds.clear();
+        convertedStory.clear();
         srscCache.clear();
         const languages: string[] = [];
         for (const e of await iso.list('')) {
@@ -384,6 +393,11 @@ const api: { [K in keyof Api]: (...a: Parameters<Api[K]>) => Promise<ReturnType<
         await saveConverted({ levels, files }).catch(() => undefined);
         return loadLevels();
     },
+    async convertedStory() {
+        return Object.fromEntries(
+            [...convertedStory].map(([k, v]) => [k, { sequences: [...v.sequences], classes: [...v.classes] }]),
+        );
+    },
     async convertedPackZip(): Promise<Uint8Array | null> {
         if (!convertedPack.size) return null;
         // Stored, not compressed: the pack is hundreds of megabytes and the game reads it as it is.
@@ -394,6 +408,7 @@ const api: { [K in keyof Api]: (...a: Parameters<Api[K]>) => Promise<ReturnType<
         convertedPack.clear();
         virtualLevels.clear();
         convertedQuestIds.clear();
+        convertedStory.clear();
         iso = baseIso;
         gatedIso = null;
         srscCache.clear();

@@ -260,15 +260,16 @@ Path: Open your disc > Choose the install > Convert > Open a level > Download th
 
 1. Open your Drakan: The Ancients' Gates disc image first. The converted levels build on one of its levels (the template) and on its class tables.
 2. Tools > Import Order of the Flame levels... Press "Choose install folder..." and pick the folder that holds Dragon.rrc (the install itself, not a level folder). The list shows the 23 levels it found.
-3. Tick the levels you want (all of them for the campaign and the multiplayer arenas) and keep the default template unless you know another disc level suits better. The template is always a disc level. The importer shows which language your install is in.
+3. Tick the levels you want (all of them for the campaign and the multiplayer arenas) and keep the default template (Surdana: the intro level as a template drops objects and the game cannot run the result). The template is always a disc level. The importer shows which language your install is in.
 4. Press Convert. The window names the level being converted and the editor stays busy for a while: about a minute for all 23 levels.
 5. When it finishes, "Open a converted level in the editor" lists the levels. Click one: it opens in the viewport with its terrain, textures and objects, and appears in the level list and in Project Settings > Add level next to the disc levels.
 6. Add the converted levels to a project to see how their exits chain on the campaign map. Exits name their destination level; the map follows them across all converted levels.
 7. "Download mod (.zip)" (or "Save to mods folder...") writes the pack the game loads. Put it in the game's mods folder, turn it on in the Mods menu, restart and choose Drakan: Order of the Flame.
 
-* Converted levels live in memory only. They are gone when you reload the page, so convert again (or keep the downloaded zip). Nothing from your install is uploaded or stored by the editor.
+* Converted levels are kept in this browser or app profile and come back with the disc. File > Remove converted Order of the Flame levels forgets them. Nothing from your install is uploaded.
+* Play (F5, desktop app) on a converted level installs the converted pack as ootf-levels.zip in the game's mods folder (replacing a pack of that name), turns it on and starts the game in the level on the language tree you converted against. In a browser, Play shows a dialog that points to the desktop app.
 * Objects whose class does not exist on the disc are left out; the "conversion notes" under the result list what was changed or skipped.
-* Story shows the quests, conversations and cut scenes of the disc the editor opened; the text of a converted level is part of the pack and is not listed there yet.
+* Story lists the Order of the Flame quests, cut scenes and conversations of a converted pack under their own scope (the menu beside the list); All adds the ones of the disc. Strings and the Text and export tab still show the text of the disc.
 
 <a id="campaign-pack"></a>
 

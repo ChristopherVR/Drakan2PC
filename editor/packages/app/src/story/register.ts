@@ -94,6 +94,7 @@ export function initStoryEditors(host: StoryEditorsHost): StoryEditors {
                 : null,
         target,
         status: host.setStatus,
+        converted: () => host.call('convertedStory'),
         ...(host.play ? { play: host.play } : {}),
         ...(host.stop ? { stop: host.stop } : {}),
         ...(host.ctx

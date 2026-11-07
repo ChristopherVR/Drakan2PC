@@ -1231,3 +1231,24 @@
         transform: none;
     }
 }
+
+/* A narrow window keeps the app bar on one line: the brand shows only its name, the folder label sits beside the name. */
+@media (max-width: 900px) {
+    #save-main.sv .sv-brand small,
+    #save-main.sv .sv-folder small {
+        display: none;
+    }
+    #save-main.sv .sv-brand b {
+        white-space: nowrap;
+    }
+    #save-main.sv .sv-folder {
+        min-width: 0;
+        flex: 1 1 60px;
+    }
+    #save-main.sv .sv-folder-name {
+        display: block;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+}

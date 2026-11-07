@@ -67,6 +67,8 @@ export interface ContentHost {
     stop?(): void;
     /** Handlers and cut scene players placed in the open level (class defaults are used when absent). */
     placed?(): PlacedStoryObject[];
+    /** Story entries a converted Order of the Flame pack adds, by level folder (absent = none known). */
+    converted?(): Promise<Record<string, { sequences: number[]; classes: number[] }>>;
     /** Show the camera path of a sequence in the level's 3D view (game units). */
     showPath?(points: [number, number, number][] | null): void;
     /** Point the 3D view at the path last shown. */
@@ -106,8 +108,15 @@ export class ContentSession {
     private stories = new Map<string, Promise<LevelStory>>();
     private edits = new Map<string, StemEdits>();
     private listeners = new Set<() => void>();
+    private convertedIds: Record<string, { sequences: number[]; classes: number[] }> = {};
 
     constructor(readonly host: ContentHost) {}
+
+    /** What the converted pack added to the open level folder (null when it added nothing here). */
+    converted(): { sequences: Set<number>; classes: Set<number> } | null {
+        const c = this.stem ? this.convertedIds[this.stem] : undefined;
+        return c ? { sequences: new Set(c.sequences), classes: new Set(c.classes) } : null;
+    }
 
     subscribe(fn: () => void): () => void {
         this.listeners.add(fn);
@@ -216,6 +225,7 @@ export class ContentSession {
         if (!p) return;
         this.story = await p;
         this.stem = stem;
+        this.convertedIds = (await this.host.converted?.().catch(() => undefined)) ?? {};
         this.emit();
     }
 

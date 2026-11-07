@@ -27,6 +27,7 @@ export interface ContentEditorsHost {
     stop?(): void;
     placed?: ContentHost['placed'];
     showPath?: ContentHost['showPath'];
+    converted?: ContentHost['converted'];
     /** Pack id / name used by the export buttons. */
     packId?: string;
     /** Adds the Cut scenes list's "New cut scene" button (`register.ts` places one at the camera target). */
@@ -43,6 +44,7 @@ export function createContentPanels(host: ContentEditorsHost): ContentEditors {
         play: host.play,
         stop: host.stop,
         placed: host.placed,
+        converted: host.converted,
         showPath: host.showPath,
     });
     const meta = (): ModMeta | null => {

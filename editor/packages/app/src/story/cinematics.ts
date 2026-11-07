@@ -58,7 +58,7 @@ export function createCinematicsPanel(
     meta: () => ModMeta | null,
     onNewCutscene?: () => void,
 ): CinematicsPanel {
-    const state = { q: '', sel: 0, t: 0, playing: false, raf: 0, t0: 0, cue: 0 };
+    const state = { q: '', sel: 0, t: 0, playing: false, raf: 0, t0: 0, cue: 0, scope: '' };
     const stemSel = h('select', { class: 'story-sel', 'aria-label': 'Level folder' });
     const search = h('input', {
         type: 'search',
@@ -105,6 +105,12 @@ export function createCinematicsPanel(
             'New sequence',
         ),
     );
+    // A converted Order of the Flame pack adds its cut scenes to the disc's level folder: they get their own scope.
+    const scopeSel = h('select', { class: 'story-scope', 'aria-label': 'Which cut scenes to list', hidden: true });
+    scopeSel.addEventListener('change', () => {
+        state.scope = scopeSel.value;
+        renderList();
+    });
     const list = h('div', { class: 'story-list', role: 'listbox', 'aria-label': 'Sequences' });
     const detail = h('div', { class: 'story-detail' });
 
@@ -155,6 +161,7 @@ export function createCinematicsPanel(
                 : null,
             loadBtn,
             stemSel,
+            scopeSel,
             search,
             exportBtn,
             info,
@@ -190,7 +197,17 @@ export function createCinematicsPanel(
         const rows: HTMLElement[] = [];
         const folders = new Map(story.folders.map((f) => [f.id, f.name]));
         let lastFolder = -1;
-        const seqs = [...session.sequences()].sort(
+        const conv = session.converted();
+        scopeSel.hidden = !conv || !conv.sequences.size;
+        if (!scopeSel.hidden && !scopeSel.options.length)
+            scopeSel.append(new Option('Order of the Flame cut scenes', 'ootf'), new Option('All cut scenes', 'all'));
+        // Until the author picks one, the converted pack's own entries are listed when it has any.
+        const scope = state.scope || (conv?.sequences.size ? 'ootf' : 'all');
+        scopeSel.value = scope;
+        const onlyOotf = !scopeSel.hidden && scope === 'ootf';
+        const seqs = [...session.sequences()]
+            .filter((r) => !onlyOotf || conv!.sequences.has(r.id) || session.sequenceIsNew(r.id))
+            .sort(
             (a, b) => a.folder - b.folder || (a.seq?.name ?? '').localeCompare(b.seq?.name ?? ''),
         );
         for (const r of seqs) {

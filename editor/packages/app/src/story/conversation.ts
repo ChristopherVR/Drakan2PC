@@ -30,9 +30,14 @@ export interface ConversationPanel extends Panel {
 }
 
 export function createConversationPanel(session: ContentSession, onNewLine?: () => void): ConversationPanel {
-    const state = { handler: 0 };
+    const state = { handler: 0, scope: '' };
     const stemSel = h('select', { class: 'story-sel', 'aria-label': 'Level folder' });
     const convSel = h('select', { class: 'story-sel', 'aria-label': 'Conversation' });
+    const scopeSel = h('select', { class: 'story-scope', 'aria-label': 'Which conversations to list', hidden: true });
+    scopeSel.addEventListener('change', () => {
+        state.scope = scopeSel.value;
+        renderAll();
+    });
     const info = h('div', { class: 'story-info' });
     const body = h('div', { class: 'cv-body' });
     const loadBtn = h(
@@ -54,7 +59,7 @@ export function createConversationPanel(session: ContentSession, onNewLine?: () 
     const root = h(
         'div',
         { class: 'panel story cv' },
-        h('div', { class: 'story-bar' }, stemSel, convSel, onNewLine ? newBtn : null, info),
+        h('div', { class: 'story-bar' }, stemSel, scopeSel, convSel, onNewLine ? newBtn : null, info),
         body,
     );
     const fail = (e: unknown): void => session.host.status(e instanceof Error ? e.message : String(e), true);
@@ -233,9 +238,18 @@ export function createConversationPanel(session: ContentSession, onNewLine?: () 
         if (stemSel.options.length !== session.stems.length)
             fill(stemSel, ...session.stems.map((t) => h('option', { value: t }, t)));
         if (session.stem) stemSel.value = session.stem;
-        fill(convSel, ...(s?.handlers ?? []).map((x) => h('option', { value: String(x.classId) }, x.name)));
+        const conv = session.converted();
+        scopeSel.hidden = !conv || !(s?.handlers ?? []).some((x) => conv.classes.has(x.classId));
+        if (!scopeSel.hidden && !scopeSel.options.length)
+            scopeSel.append(new Option('Order of the Flame conversations', 'ootf'), new Option('All conversations', 'all'));
+        // Until the author picks one, the converted pack's own entries are listed when it has any.
+        const scope = state.scope || (scopeSel.hidden ? 'all' : 'ootf');
+        scopeSel.value = scope;
+        const onlyOotf = !scopeSel.hidden && scope === 'ootf';
+        const shown = (s?.handlers ?? []).filter((x) => !onlyOotf || conv!.classes.has(x.classId));
+        fill(convSel, ...shown.map((x) => h('option', { value: String(x.classId) }, x.name)));
         info.textContent = s
-            ? `${s.handlers.length} conversation${s.handlers.length === 1 ? '' : 's'}, ${session.count()} change${session.count() === 1 ? '' : 's'}`
+            ? `${shown.length} conversation${shown.length === 1 ? '' : 's'}, ${session.count()} change${session.count() === 1 ? '' : 's'}`
             : '';
         renderBody();
     }
