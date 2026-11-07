@@ -7,6 +7,7 @@
 #include "gsr/scene_guide_camera.h"
 #include "gs_mem.h"
 #include "gs_solid_mirror.h"
+#include "gs_texdecode.h"
 
 #include <cmath>
 #include <functional>
@@ -2006,6 +2007,106 @@ static void loadingCanvasTest(Config cfg) {
             }
 }
 
+// Regression (issue 5 OotF runs, 2026-11-07): TEX1.MXL larger than the texture's size allows (a 1 x 1 texture with
+// MXL 7, a 4 x 4 one with MXL 4) asked the GPU for more mip levels than the texture can have, and WebGPU stopped the
+// game ("mip level count 8 is invalid, maximum allowed is 1"). Every size from 1 x 1 to 64 x 64, square and not, with
+// every MXL 0..7, in CT32 and T8, native and upscaled: each draw must decode the number of levels the size allows and
+// show the texture's colour.
+static void mipChainLimitTest(Config cfg, uint32_t upscale) {
+    cfg.textureUpscale = upscale;
+    cfg.textureUpscaleSync = true;
+    std::vector<TextureEvent> evs;
+    cfg.onTexture = [&](const TextureEvent& e) { evs.push_back(e); };
+    auto gs = Renderer::create(cfg);
+    if (!gs) {
+        ++g_fail;
+        return;
+    }
+    std::printf("mip chain limit test (upscale %u)\n", upscale);
+    const uint32_t tbp = 0x1000, cbp = 0x1800;
+    // A 64 x 64 CT32 image and a T8 one (index 1 everywhere, CLUT entry 1 green) of one colour each: every level of
+    // every chain (all MIPTBP entries point at the same base) samples that colour.
+    std::vector<uint8_t> ct32(64 * 64 * 4);
+    for (size_t i = 0; i < ct32.size(); i += 4) {
+        ct32[i + 0] = 200;
+        ct32[i + 1] = 40;
+        ct32[i + 2] = 20;
+        ct32[i + 3] = 0x80;
+    }
+    std::vector<uint8_t> t8(64 * 64, 1), clut(1024, 0);
+    clut[swap34(1) * 4 + 1] = 180;
+    clut[swap34(1) * 4 + 3] = 0x80;
+    {
+        Gif g;
+        g.ad({{FRAME_1, (1ull << 16)},
+              {ZBUF_1, 140ull | (1ull << 32)},
+              {XYOFFSET_1, kOfs},
+              {SCISSOR_1, 63ull << 16 | (63ull << 48)},
+              {TEST_1, mkTest(0, 1, 0, 0, 0, 0, 0, 1)},
+              {COLCLAMP, 1},
+              {PRMODECONT, 1}});
+        uploadImage(g, tbp, 1, 0x00, 0, 0, 64, 64, ct32);
+        uploadImage(g, tbp + 0x200, 1, 0x13, 0, 0, 64, 64, t8);
+        uploadImage(g, cbp, 1, 0x00, 0, 0, 16, 16, clut);
+        g.ad({{TEXFLUSH, 0}});
+        gs->submitGifPacket(GifPath::Path3, g.d.data(), (uint32_t)g.d.size());
+    }
+    const uint32_t sizes[][2] = {{0, 0}, {1, 1}, {2, 2}, {3, 3}, {6, 6}, {3, 0}, {0, 3}, {6, 1}, {2, 5}};
+    uint32_t wrong = 0, cases = 0, colourWrong = 0;
+    for (int psmKind = 0; psmKind < 2; ++psmKind)
+        for (const auto& sz : sizes)
+            for (uint32_t mxl = 0; mxl <= 7; ++mxl) {
+                const uint32_t tw = sz[0], th = sz[1];
+                const uint32_t base = psmKind ? tbp + 0x200 : tbp, psm = psmKind ? 0x13u : 0x00u;
+                const uint64_t mip =
+                    base | (1ull << 14) | ((uint64_t)base << 20) | (1ull << 34) | ((uint64_t)base << 40) | (1ull << 54);
+                // MMIN 5 (linear mip linear), MMAG linear, L 0, K = 2: the sprite is minified so the chain is used
+                const uint64_t tex1 = ((uint64_t)mxl << 2) | (1ull << 5) | (5ull << 6) | (32ull << 32);
+                evs.clear();
+                Gif g;
+                g.ad({{TEX1_1, tex1},
+                      {CLAMP_1, 0},
+                      {0x34 /* MIPTBP1_1 */, mip},
+                      {0x36 /* MIPTBP2_1 */, mip},
+                      {TEX0_1, mkTex0(base, 1, psm, tw, th, 1, 1, cbp, 0, 0, 0, psmKind ? 1 : 0)},
+                      {PRIM, mkPrim(6, 0, 1, 0, 0, 1)}});
+                sprite(g, 0, 0, 16, 16, 0x80, 0x80, 0x80, 0x80, 0, (int)mkPrim(6, 0, 1, 0, 0, 1), 0, 0,
+                       (float)(4u << tw), (float)(4u << th)); // 4 texels per pixel: LOD 2 where the size has it
+                gs->submitGifPacket(GifPath::Path3, g.d.data(), (uint32_t)g.d.size());
+                gs->writePriv(0x12000000, 1);
+                gs->writePriv(0x12000070, 0x00ull | (1ull << 9));
+                gs->writePriv(0x12000080, (63ull * 4 + 3) << 32 | (63ull << 44) | (3ull << 23));
+                gs->vsync(true);
+                ++cases;
+                const uint32_t want = textureMipLevelMax(tw, th, mxl) + 1;
+                if (evs.empty() || evs.back().mipLevels != want) {
+                    if (wrong++ < 8)
+                        std::printf("    %s %ux%u MXL %u: %u levels decoded, want %u\n", psmKind ? "T8" : "CT32",
+                                    1u << tw, 1u << th, mxl, evs.empty() ? 0u : evs.back().mipLevels, want);
+                }
+                Image img;
+                if (!gs->captureDisplay(img)) {
+                    ++colourWrong;
+                    continue;
+                }
+                const uint8_t* p = &img.rgba[((size_t)8 * cfg.scale * img.width + 8 * cfg.scale) * 4];
+                const int r = psmKind ? 0 : 200, gg = psmKind ? 180 : 40, b = psmKind ? 0 : 20;
+                if (std::abs(p[0] - r) > 6 || std::abs(p[1] - gg) > 6 || std::abs(p[2] - b) > 6) {
+                    if (colourWrong++ < 8)
+                        std::printf("    %s %ux%u MXL %u: drew (%u,%u,%u), want (%d,%d,%d)\n", psmKind ? "T8" : "CT32",
+                                    1u << tw, 1u << th, mxl, p[0], p[1], p[2], r, gg, b);
+                }
+            }
+    char what[160];
+    std::snprintf(what, sizeof what, "%u size x MXL draws decode the levels the size allows (%u wrong)", cases, wrong);
+    expectTrue(wrong == 0, what);
+    std::snprintf(what, sizeof what, "%u size x MXL draws show the texture colour (%u wrong)", cases, colourWrong);
+    expectTrue(colourWrong == 0, what);
+    expectTrue(gs->stats().texMipClamped > 0, "out-of-range MXL draws are counted (Stats::texMipClamped)");
+    if (upscale > 1)
+        expectTrue(gs->stats().texUpscaled > 0, "upscaled copies built for the clamped chains");
+}
+
 int main(int argc, char** argv) {
     Config cfg;
     bool alphaOnly = false, rtFilterOnly = false, inventoryAlphaOnly = false, rtShiftedRowOnly = false,
@@ -2060,6 +2161,13 @@ int main(int argc, char** argv) {
             guiPagePackFirstFrameTest(cfg, outDir);
             inventoryFontShadowTest(cfg);
             runtimeAtlasTest(cfg);
+            std::printf("%d checks, %d failed\n", g_checks, g_fail);
+            return g_fail ? 1 : 0;
+        }
+    for (int i = 1; i < argc; ++i)
+        if (!std::strcmp(argv[i], "--mip-chain-only")) {
+            mipChainLimitTest(cfg, 1);
+            mipChainLimitTest(cfg, 4);
             std::printf("%d checks, %d failed\n", g_checks, g_fail);
             return g_fail ? 1 : 0;
         }
@@ -2284,6 +2392,8 @@ int main(int argc, char** argv) {
     rtOverlapTest(cfg);
     hudClusterTest(cfg);
     loadingCanvasTest(cfg);
+    mipChainLimitTest(cfg, 1);
+    mipChainLimitTest(cfg, 4);
 
     std::printf("%d checks, %d failed\n", g_checks, g_fail);
     return g_fail ? 1 : 0;

@@ -142,7 +142,8 @@ struct Stats {
                  0; // HUD sprites de-stretched, smoothed highlight textures, textures classified as palette-animated
     // palette-only animated textures: HD index maps built, palette steps drawn from one
     uint64_t texPalettePlanes = 0, texPaletteHd = 0;
-    uint64_t movieFrames = 0; // HD movie frames drawn over native ones (Renderer::noteMovieFrame)
+    uint64_t movieFrames = 0;   // HD movie frames drawn over native ones (Renderer::noteMovieFrame)
+    uint64_t texMipClamped = 0; // texture resolves whose TEX1.MXL asked for more levels than the size has (cut)
 };
 
 // Result of Renderer::captureDisplay()

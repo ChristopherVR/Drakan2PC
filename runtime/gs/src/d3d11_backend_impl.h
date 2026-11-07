@@ -146,6 +146,7 @@ struct UpEntry {
     ComPtr<ID3D11ShaderResourceView> srv; // null = the job failed, keep the native texture
     ComPtr<ID3D11Texture2D> tex;
     uint32_t factor = 1;
+    uint32_t mxl = 0; // last level of the copy (upscaledMipLevelMax): the draw's LOD clamp while it is bound
     uint64_t bytes = 0;
     uint64_t lastFrame = 0;
 };

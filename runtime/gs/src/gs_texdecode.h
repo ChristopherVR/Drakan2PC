@@ -141,6 +141,26 @@ inline void decodeTextureFormat(const LocalMemory& mem, uint32_t runtimeFormat, 
 }
 } // namespace detail
 
+// Highest mip level a texture of 2^tw x 2^th texels can have: TEX1.MXL as the GS state gives it (3 bits, 0..7), cut to
+// the GS maximum of 6 and to the last level the size allows. Level l is max(1, W >> l) x max(1, H >> l), so the chain
+// ends at 1 x 1 after max(tw, th) halvings (the WebGPU / D3D11 rule: floor(log2(max(W, H))) + 1 levels). A larger MXL
+// would only repeat 1 x 1 levels, which no GPU texture can hold; the GS clamps the LOD to MXL anyway.
+inline uint32_t textureMipLevelMax(uint32_t tw, uint32_t th, uint32_t mxl) {
+    return std::min({mxl, 6u, std::max(tw, th)});
+}
+
+// Last mip level of an upscaled copy (factor N) of a W x H texture with `mxl` levels. Its level l is
+// max(1, W * N >> l) x max(1, H * N >> l), which is N times the native level only while both native sides are at least
+// 1 without clamping, l <= log2(min(W, H)). Further levels of a non-square texture keep the native short side at 1 but
+// halve the copy's, so the draw's per-texel scale N no longer fits (it read past the level: black texels). The copy
+// stops there; the draw clamps its LOD to this level while the copy is bound.
+inline uint32_t upscaledMipLevelMax(uint32_t W, uint32_t H, uint32_t mxl) {
+    uint32_t shortLog = 0;
+    while ((2u << shortLog) <= std::min(W, H))
+        ++shortLog;
+    return std::min(mxl, shortLog);
+}
+
 // Decode a mip level. CLUT expansion is local to this call: palette/TEXA changes
 // are observed every time. This does not cache memory or alter coherence/stamps.
 inline void decodeTextureLevel(const LocalMemory& mem, uint32_t psm, uint32_t tbp, uint32_t tbw, uint32_t w, uint32_t h,

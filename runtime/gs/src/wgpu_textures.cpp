@@ -172,6 +172,7 @@ void WgpuBackend::Impl::pumpUp(std::chrono::microseconds budget) {
             continue; // started before a live settings change flushed the caches
         auto ue = std::make_shared<UpEntry>();
         ue->factor = d.factor;
+        ue->mxl = d.levels.empty() ? 0u : (uint32_t)d.levels.size() - 1;
         ue->lastFrame = frame;
         if (!d.levels.empty() && d.w) {
             uint64_t bytes = 0;
@@ -498,7 +499,7 @@ void WgpuBackend::Impl::setupUpscale(TexEntry& e, const std::vector<uint32_t>& b
             d.h = H * N;
             d.levels.push_back(std::move(b0));
             uint32_t lw = d.w, lh = d.h;
-            for (uint32_t l = 1; l <= mxl; ++l) {
+            for (uint32_t l = 1; l <= upscaledMipLevelMax(W, H, mxl); ++l) {
                 std::vector<uint32_t> nx;
                 texup::downsample2x(d.levels.back().data(), lw, lh, nx);
                 lw = std::max(1u, lw / 2);
@@ -633,7 +634,7 @@ bool WgpuBackend::Impl::setupPaletteHd(TexEntry& e, const std::vector<uint8_t>& 
         texup::writePngRGBA(name + "_hd.png", d.levels.back().data(), d.w, d.h);
     }
     uint32_t lw = d.w, lh = d.h;
-    for (uint32_t l = 1; l <= mxl; ++l) {
+    for (uint32_t l = 1; l <= upscaledMipLevelMax(W, H, mxl); ++l) {
         std::vector<uint32_t> next;
         texup::downsample2x(d.levels.back().data(), lw, lh, next);
         lw = std::max(1u, lw / 2);
@@ -685,7 +686,23 @@ bool WgpuBackend::Impl::resolveTexture(const GsDrawState& s, const ClutBuf& clut
     const uint32_t W = 1u << tw, H = 1u << th;
     if (!isValidPsm(psm) || isZ(psm))
         return false;
-    const uint32_t mxl = (uint32_t)bitsOf(s.tex1, 2, 3);
+    // The texture's mip chain: creation, the per-level uploads, HD copies and the shader's LOD clamp all use this one
+    // count. A raw TEX1.MXL past the last level the size allows (seen on 1 x 1 and 4 x 4 textures) made texture
+    // creation fail validation.
+    const uint32_t mxlReg = (uint32_t)bitsOf(s.tex1, 2, 3);
+    const uint32_t mxl = textureMipLevelMax(tw, th, mxlReg);
+    if (mxl != mxlReg) {
+        st.texMipClamped++;
+        static int mipLogged = 0;
+        if (mipLogged < 16 || texLog) {
+            ++mipLogged;
+            std::fprintf(stderr,
+                         "[gsr-tex] TEX1.MXL %u past the %ux%u texture's last level %u (tbp=%u tbw=%u psm=%02x "
+                         "tex0=%016llx tex1=%016llx miptbp1=%016llx miptbp2=%016llx frame %llu)\n",
+                         mxlReg, W, H, mxl, tbp, tbw, psm, (unsigned long long)t0, (unsigned long long)s.tex1,
+                         (unsigned long long)s.miptbp1, (unsigned long long)s.miptbp2, (unsigned long long)frame);
+        }
+    }
 
     // framebuffer-as-texture
     float ox, oy;
@@ -813,9 +830,11 @@ bool WgpuBackend::Impl::resolveTexture(const GsDrawState& s, const ClutBuf& clut
                 e.up->lastFrame = frame;
                 out.srv = e.up->tex.get();
                 out.factor = e.up->factor;
-            } else
+                out.mxl = std::min(mxl, e.up->mxl);
+            } else {
                 out.srv = e.tex.get();
-            out.mxl = mxl;
+                out.mxl = mxl;
+            }
             out.fontAtlas = e.fontAtlas;
             out.menuArtwork = e.menuArtwork;
             out.titleArtwork = hud::titleArtwork(e.previewHash);
@@ -1115,6 +1134,7 @@ bool WgpuBackend::Impl::resolveTexture(const GsDrawState& s, const ClutBuf& clut
         e.up->lastFrame = frame;
         out.srv = e.up->tex.get();
         out.factor = e.up->factor;
+        out.mxl = std::min(out.mxl, e.up->mxl);
     }
     texBytes += bytes;
     texCache[key] = std::move(e);
