@@ -16,6 +16,8 @@ fn main() {
         "mods_read_ini",
         "mods_write_pack",
         "close_ack",
+        "close_beat",
+        "close_cancel",
         "mods_zip_size",
         "mods_write_zip",
         "game_launch",

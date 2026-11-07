@@ -185,6 +185,10 @@ pub fn revert_keys(current: &str, before: &str, after: &str) -> String {
             out = set_key(&out, &k, b.as_deref());
         }
     }
+    // Same keys as before Play: give the text back byte for byte (blank lines at the end included).
+    if out.trim_end() == before.trim_end() {
+        return before.to_string();
+    }
     out
 }
 
@@ -334,6 +338,19 @@ mod tests {
         let cur = "[mods]\nootf-levels = on\nother = on\n";
         // Play switched ootf-levels off; the player already turned it on again.
         assert_eq!(revert_keys(cur, BEFORE, AFTER), cur);
+    }
+
+    #[test]
+    fn a_full_revert_returns_the_original_text_exactly() {
+        let before = "[mods]
+ootf-levels = on
+
+";
+        let after = "[mods]
+ootf-levels = off
+editor-play-ootf = on
+";
+        assert_eq!(revert_keys(after, before, after), before);
     }
 
     #[test]

@@ -21,6 +21,8 @@
         "allow-mods-read-ini",
         "allow-mods-write-pack",
         "allow-close-ack",
+        "allow-close-beat",
+        "allow-close-cancel",
         "allow-mods-zip-size",
         "allow-mods-write-zip",
         "allow-game-launch",

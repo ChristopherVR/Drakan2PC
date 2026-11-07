@@ -5,15 +5,19 @@ import type { CloseChoice } from '../closeflow.ts';
 
 export function askCloseFailure(message: string): Promise<CloseChoice> {
     return new Promise((resolve) => {
-        let answer: CloseChoice = 'cancel';
+        let settled = false;
+        // Resolve straight from the click; the dialog's own close event is not relied on (it is delayed while the window is in the background).
+        const finish = (c: CloseChoice): void => {
+            if (settled) return;
+            settled = true;
+            dlg.remove();
+            resolve(c);
+        };
         const dlg = h('dialog', {
             class: 'pj-dlg ask-dlg',
             'aria-label': 'Your work could not be saved',
         }) as HTMLDialogElement;
-        const pick = (c: CloseChoice) => () => {
-            answer = c;
-            dlg.close();
-        };
+        const pick = (c: CloseChoice) => () => finish(c);
         dlg.append(
             h(
                 'form',
@@ -34,10 +38,7 @@ export function askCloseFailure(message: string): Promise<CloseChoice> {
                 ),
             ),
         );
-        dlg.addEventListener('close', () => {
-            dlg.remove();
-            resolve(answer);
-        });
+        dlg.addEventListener('close', () => finish('cancel')); // Escape
         document.body.append(dlg);
         dlg.showModal();
     });
