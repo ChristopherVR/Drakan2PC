@@ -313,8 +313,20 @@ names map to the engine as Opens = On (`0x1001`), Closes = Off (`0x1002`), Locks
   only the puzzle). The editor warns about Opens sent to a Locked door.
 * **Unlocks only unlocks.** The door then opens by Auto-Open when the player walks up (Locked on + Auto-Open on + a key lock or
   an Unlock lever is the key puzzle), or by an Opens message.
-* Not proven: a second lever press closing the door (the lever sends nothing the second time), key lock with a key item, trigger
-  to enemy spawn.
+* **A lever is One_Time by default** (Switch Type 0: `One_Time, Toggle, Crank, Reset`): the second press sends nothing. The
+  editor's "Lever opens door" template sets Toggle, and then a second press sends Off and the door closes again (measured).
+* **Plates:** "Send Message When" Both with On at the bottom and Off at the top (the "held plate" option, one plate straight to
+  the door, no counter) is the release-closes form; counters count On.
+* **Pressing E on an unlocked door does nothing**; doors open by message or Auto-Open only.
+* **Ambush:** a creature with `Wait For Trigger` on stays dormant until it gets a message; a trigger volume sending On wakes it
+  and it walks at Rynn (the "Ambush" template makes dormant copies plus the volume). A volume centred on the floor did not fire
+  for Rynn walking through; one centred 1000 units higher did, so the templates raise their volumes by 1000.
+* **Kill all:** creatures send "I'm Dead" (8) to their counter on death; the counter sends On to an unlocked door (proved by
+  Blow Up from a volume killing two creatures: counter `0x1003` twice, door opens).
+* Key lock: the lock (`0x353550`) reacts to message `0x10e4`, sent when Rynn uses the key item from her hand near it
+  (`0x3195b0`); not driven in game yet (needs the key in her hand), the Stratos catalog has the key and lock classes.
+* Repeat all of it: `python scripts/harness/puzzle_door_check.py --iso <iso>` (PASS / FAIL per scenario; lever open and toggle,
+  blocked and walk-through, plate, two-plate counter, timer, locked / unlock rules, ambush, kill all).
 
 ### Shops (vendors)
 

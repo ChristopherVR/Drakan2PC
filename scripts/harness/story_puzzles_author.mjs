@@ -79,7 +79,20 @@ if (kind === 'plate') tpl('pressure-plates', { target: door, count: 1, then: opt
 else if (kind === 'counter') tpl('pressure-plates', { target: door, count: 2, then: opt.then ?? 'On', axis: 'z', spacing: 1600 }, at(0, 1800, -100));
 else if (kind === 'lever') tpl('lever-door', { door, mode: opt.leverMode ?? 'open' }, at(0, 700, 100));
 else if (kind === 'timer') tpl('timer-door', { target: door, delay: 2, then: 'On', w: 3, h: 2, d: 1 }, at(0, 700, 1000));
-else if (kind === 'ambush') {
+else if (kind === 'key') {
+  tpl('key-lock', { door, code: opt.code ?? 62 }, at(0, 700, 100));
+  if (!opt.noKey) place(opt.keyClass ?? 'Prison Key', at(opt.keyDx ?? 0, opt.keyDz ?? 300, 80), {});
+} else if (kind === 'killall') {
+  // two creatures that die when the volume sends Blow Up (no melee needed), a counter they report to, the door
+  const src = [...doc.objects()].find((o) => o.class === (opt.enemyClass ?? 'Human Skeleton:Center'));
+  const before = new Set([...doc.objects()].map((o) => o.id));
+  tpl('ambush', { enemy: src.id, count: 2, radius: 900, w: 4, h: 3, d: 2 }, at(0, 900));
+  const fresh = [...doc.objects()].filter((o) => !before.has(o.id));
+  const det = fresh.find((o) => o.class === 'Trigger Detector');
+  const crea = fresh.filter((o) => o.class === src.class).map((o) => o.id);
+  C.setObjectField(det, C.schemaField(env.schemaFor(det.resource), 'Trigger Message'), opt.killMsg ?? 5);
+  tpl('kill-all-gate', { enemies: crea, gate: door }, at(0, 2500));
+} else if (kind === 'ambush') {
   const src = [...doc.objects()].find((o) => o.class === (opt.enemyClass ?? 'Human Skeleton:Center'));
   if (!src) throw new Error('no enemy of that class in the level');
   tpl('ambush', { enemy: src.id, count: opt.count ?? 3, radius: opt.radius ?? 1200, w: 4, h: 3, d: 2 }, at(0, opt.ambushDz ?? 900, opt.ambushDy ?? 0));

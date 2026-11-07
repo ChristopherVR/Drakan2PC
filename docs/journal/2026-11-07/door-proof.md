@@ -45,12 +45,32 @@ come from `scripts/harness/story_puzzles_author.mjs` (editor-core templates, nod
 | Locked 1 + lever Unlock, Auto-Open 0 | `d+40` cleared, yaw stays 0: Unlock only unlocks |
 | Locked 1 + lever Unlock, Auto-Open 1, Rynn walks up | opens (yaw 1.71) |
 
+## Follow-up (same day)
+
+* **Lever second press, solved.** Lever params: `Switch Type` is `One_Time,Toggle,Crank,Reset` and defaults to One_Time (0); the use
+  handler (`0x415198`) only flips the state for Toggle. The lever template now writes Toggle (commit 7151b2fc "Make the lever
+  template a Toggle"). Measured: press 1 yaw 0 -> 1.714 (open), press 2 yaw back to 0.014 (closed). Pressing E on an unlocked door
+  (Auto-Open off) did nothing: doors only react to messages and proximity.
+* **Held plate.** Plate params `Send Message When` (Reached Top, Reached Bottom, Both, Never), `Message To Send At Top / Bottom`.
+  "Pressure plates" has a `hold` option (On at the bottom, Off at the top, straight to the door). Unit-tested; not driven in game.
+* **Template defaults.** "Pressure plates" and "Kill all" sent Unlock by default, which does nothing to an unlocked door: they now
+  send On to an unlocked door and Unlock to a locked one.
+* **Ambush (spawn on trigger).** The shipped levels use Object Generators (class rfl 0x3f, `Spawn Object`, `Run Mode`, `On Trigger`) for
+  effects (dust, flames, rubble); no placed generator spawns creatures. Creatures have `Wait For Trigger` (field 27): dormant until a
+  message. Two Stratos clones of a skeleton, trigger volume sending On: before the walk they stay put; after it the message
+  `0x1001` reaches each, one walked 2800 units to Rynn. New template "Ambush" (dormant copies plus one volume). A volume centred on
+  the floor never fired for Rynn walking through it (the same volume 1000 units higher did), so all detector templates now lift
+  their volume by `VOLUME_LIFT = 1000`.
+* **Kill all.** Volume sends Blow Up (`0x10a3`) to two creatures, each sends I'm Dead (`0x1003`) to the counter, the counter sends On to
+  the door: door yaw 1.714. Melee / bow kills were not driven (the new-game Rynn has no weapon fixture); the death message path is
+  the same.
+* **Key lock.** Key items are rfl 0x21 (`Lock Code`), locks rfl 0x22 (`Lock Code`, `Trigger To Send`). The lock handler `0x353550`
+  reacts to message `0x10e4` (event 0x20), which the key item's use action sends from Rynn's hand; E at the lock sends nothing. The
+  Shiverbane locks (`LEVEL5NE`, Lock Plate Iron codes 51 to 54, keys 52 to 54 on the floor, each lock feeding a timer that switches a
+  lightning barrier off) are the natural test; not driven yet because the key has to be held. Open.
+* `scripts/harness/puzzle_door_check.py` repeats the measured scenarios with PASS / FAIL.
+
 ## Still failing / not run
 
-* Lever second press: the lever receives the use message again but sends nothing, the door never closes (tried 4.5 s and 12 s
-  later). Close by lever (Off) is unproven; the Off handler itself is decoded only.
-* Key lock (no key item class in Stratos to test with; it only sends Unlock, so it needs Auto-Open, as above), trigger ->
-  enemy spawn (the editor has no spawn class; "Move to WayPoint" / "Blow Up" to a creature was not run) and kill-all-gate
-  (needs kills) were not run in game.
+* Key lock with a key in Rynn's hand (see the follow-up), a held plate released in game, melee / bow kills for the kill-all gate.
 * Plate trigger needs Rynn to touch the plate (a scaled 0.4 stock plate is still a solid block in Stratos).
-* Does Use (E) on an unlocked door open it? Not tested.
