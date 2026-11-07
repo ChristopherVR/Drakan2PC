@@ -6,6 +6,7 @@
  *   - a palette source: typing "tutorial" or a tour's name in Ctrl+P starts it.
  */
 import { h, icon } from '../dom.ts';
+import { trapFocus } from '../focustrap.ts';
 import { fuzzyScore, registerCommand, registerSource } from '../registry.ts';
 import { TourOverlay } from './engine.ts';
 import { TourProgress, type KeyValue, type Tour } from './model.ts';
@@ -168,7 +169,11 @@ export function openPicker(): void {
         }
     };
     window.addEventListener('keydown', onKey, true);
-    pickerOff = () => window.removeEventListener('keydown', onKey, true);
+    const untrap = trapFocus(back, () => true);
+    pickerOff = () => {
+        window.removeEventListener('keydown', onKey, true);
+        untrap();
+    };
     document.body.append(back);
     pickerEl = back;
     (list.querySelector<HTMLElement>('button.primary') ?? list.querySelector<HTMLElement>('button'))?.focus();

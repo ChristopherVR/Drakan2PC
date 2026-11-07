@@ -1,4 +1,5 @@
 import { h } from './dom.ts';
+import { trapFocus } from './focustrap.ts';
 
 /** One keyboard shortcut. `keys` use `Ctrl+Shift+Z` notation; the matcher compares `KeyboardEvent.code`/`key`. */
 export interface Shortcut {
@@ -161,6 +162,7 @@ export function helpOverlay(): { el: HTMLElement; toggle(open?: boolean): void }
         l.push(s);
     }
     const card = h('div', { class: 'help-card', role: 'dialog', 'aria-label': 'Keyboard shortcuts' });
+    const closeBtn = h('button', { type: 'button', class: 'ui-btn help-close', onclick: () => toggle(false) }, 'Close');
     card.append(h('h2', {}, 'Keyboard and mouse'));
     const cols = h('div', { class: 'help-cols' });
     for (const [g, list] of groups) {
@@ -183,9 +185,13 @@ export function helpOverlay(): { el: HTMLElement; toggle(open?: boolean): void }
                 'kept in the mod project; Export writes a mod pack for the game. Help in the top bar has step-by-step guides.',
         ),
     );
+    card.append(closeBtn);
+    card.tabIndex = -1;
     const el = h('div', { class: 'help-overlay', hidden: true }, card);
+    trapFocus(el);
     const toggle = (open?: boolean): void => {
         el.hidden = open === undefined ? !el.hidden : !open;
+        if (!el.hidden) card.focus();
     };
     el.addEventListener('pointerdown', (e) => {
         if (e.target === el) toggle(false);

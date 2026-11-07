@@ -1022,6 +1022,10 @@ div.play {
     border-radius: var(--r-md);
     font: 600 var(--fs-xs) var(--ed-mono);
 }
+.help-close {
+    margin-top: 10px;
+    justify-self: end;
+}
 .help-foot {
     margin: 4px 0 0;
     color: var(--dim);

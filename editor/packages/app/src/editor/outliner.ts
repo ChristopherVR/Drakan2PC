@@ -211,7 +211,7 @@ export function createOutliner(ctx: Ctx): Panel {
         const locked = v.lockedIds.has(o.id);
         const row = h(
             'div',
-            { class: 'row obj', role: 'treeitem', 'data-id': o.id, draggable: false },
+            { class: 'row obj', role: 'treeitem', 'data-id': o.id, draggable: false, 'aria-label': `${o.class}, number ${o.id}` },
             h('span', { class: 'indent' }),
             h('span', { class: 'name' }, `#${o.id}`, h('span', { class: 'dim' }, ` ${o.class}`)),
             eyeBtn(hidden, () => v.setHidden([o.id], !v.hiddenIds.has(o.id)), hidden ? 'Show' : 'Hide'),
@@ -264,6 +264,7 @@ export function createOutliner(ctx: Ctx): Panel {
                 class: `row grp d${depth}`,
                 role: 'treeitem',
                 'aria-expanded': String(open),
+                'aria-label': `${label}, ${count} object${count === 1 ? '' : 's'}`,
                 ...(hint ? { title: hint } : {}),
             },
             h(

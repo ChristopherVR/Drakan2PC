@@ -1,4 +1,5 @@
 import { h, icon, store } from './dom.ts';
+import { trapFocus } from './focustrap.ts';
 import { allCommands, allSources, fuzzyScore, onRegistryChange, type Command, type PaletteItem } from './registry.ts';
 import './shellux.css';
 
@@ -67,6 +68,7 @@ export function createPalette(): Palette {
     );
     const el = h('div', { class: 'pal-overlay', hidden: true }, card);
     document.body.append(el);
+    trapFocus(el);
 
     let rows: Row[] = [];
     let sel = 0;

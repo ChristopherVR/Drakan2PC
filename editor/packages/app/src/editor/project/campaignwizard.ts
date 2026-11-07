@@ -3,6 +3,7 @@
 // gives each exit its own destination string, the Logic panel's "Only this exit"), the campaign checks with one-click
 // fixes, play tests, export and install. It edits the same project as Project Settings > Campaign (campaign.ts).
 // The pure part (steps, link plans, fixes) is wizardplan.ts. Format: docs/reference/modding.md "Campaign packs".
+import { trapFocus } from '../focustrap.ts';
 import {
     COVER_PALETTES,
     CAMPAIGN_DESCRIPTION_MAX,
@@ -193,6 +194,7 @@ export function installCampaignWizard(host: WizardHost): CampaignWizard {
         h('footer', { class: 'cwz-foot' }, backBtn, status, nextBtn),
     );
     const root = h('div', { class: 'cwz-backdrop', id: 'cwz-root', hidden: true }, panel);
+    trapFocus(root);
     root.addEventListener('keydown', (e) => {
         if (e.key === 'Escape' && !document.querySelector('.tour-card')) {
             e.stopPropagation();

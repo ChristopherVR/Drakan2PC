@@ -224,7 +224,26 @@ async function snap(size, name) {
         const line = `${size} ${name} | ${f}`;
         if (!KNOWN.some((k) => k.test(line))) findings.push(line);
     }
+    await trapCheck(size, name);
     log.push({ size, name, findings: found.length });
+}
+
+// A modal keeps Tab and Shift+Tab inside itself: press each way a dozen times and check where the focus is.
+const MODAL = `(() => { const m = [...document.querySelectorAll('dialog[open], .pal-overlay:not([hidden]) .pal-card, .help-overlay:not([hidden]) .help-card, .tour-picker, #cwz-root:not([hidden]) #cwz')].find((e) => e.offsetParent !== null || e.tagName === 'DIALOG'); if (!m) return null; m.setAttribute('data-sweep-modal', ''); return true; })()`;
+const INSIDE = `(() => { const m = document.querySelector('[data-sweep-modal]'); const a = document.activeElement; return !!m && !!a && (m.contains(a) || a === m || m.parentElement === a); })()`;
+async function trapCheck(size, name) {
+    if (!(await ev(MODAL))) return;
+    for (const shift of [false, true]) {
+        for (let i = 0; i < 14; i++) {
+            await send('Input.dispatchKeyEvent', { type: 'rawKeyDown', key: 'Tab', code: 'Tab', windowsVirtualKeyCode: 9, modifiers: shift ? 8 : 0 });
+            await send('Input.dispatchKeyEvent', { type: 'keyUp', key: 'Tab', code: 'Tab', windowsVirtualKeyCode: 9, modifiers: shift ? 8 : 0 });
+            if (!(await ev(INSIDE))) {
+                findings.push(`${size} ${name} | focus left the modal on ${shift ? 'Shift+Tab' : 'Tab'} press ${i + 1}`);
+                i = 99;
+            }
+        }
+    }
+    await ev(`document.querySelector('[data-sweep-modal]')?.removeAttribute('data-sweep-modal')`);
 }
 
 await send('Page.navigate', { url });

@@ -346,6 +346,7 @@ export function createLogicGraph(host: GraphHost): LogicGraphView {
             class: `lg-node${selected ? ' sel' : ''}${probs.length ? ' warn' : ''}`,
             transform: `translate(${p.x} ${p.y})`,
             'data-id': n.id,
+            role: 'group',
         });
         const title = nodeTitle(n);
         g.append(
@@ -355,6 +356,7 @@ export function createLogicGraph(host: GraphHost): LogicGraphView {
             svg('text', { class: 'name', x: 10, y: HD + 20 }, title.length > 27 ? `${title.slice(0, 26)}...` : title),
             svg('text', { class: 'sub', x: 10, y: HD + 36 }, nodeLine(n)),
         );
+        g.setAttribute('aria-label', `${title}, ${plainRoleName(n.spec)}, object ${n.id}${selected ? ', selected' : ''}`);
         g.append(svg('title', {}, `${title} (${plainRoleName(n.spec)}, object ${n.id}). ${nodeSummary(n.spec)}`));
         // typed pins: the input takes messages, the output sends the one this object is set to send
         const inp = svg('circle', {
