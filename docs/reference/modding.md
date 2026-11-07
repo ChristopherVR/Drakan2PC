@@ -302,6 +302,20 @@ commit 048b136 also dropped `overrides/<ODB>/0103` (check `rebuilt with N entry 
 `text.ini` still only patches strings that exist; adding a string always goes through `new/`.
 The editor's Strings and Quests panels write exactly these files (editor-core `story.ts`, `buildStoryPackFiles`).
 
+### Puzzles: doors, levers, plates, timers
+
+Measured in game (2026-11-07, `docs/journal/2026-11-07/door-proof.md`, test aid `DRAKAN_PLAYTEST_WATCH`). The editor's message
+names map to the engine as Opens = On (`0x1001`), Closes = Off (`0x1002`), Locks (`0x1101`), Unlocks (`0x1102`).
+
+* A **lever, plate -> counter, counter with two plates, or timer** that sends **Opens** to a door opens it (the door swings
+  about its origin, about 100 degrees), and Rynn is blocked by the closed door and walks through the open one.
+* A **locked door ignores Opens.** For a lever / plate / timer puzzle leave Locked **off** (and Auto-Open off if it must obey
+  only the puzzle). The editor warns about Opens sent to a Locked door.
+* **Unlocks only unlocks.** The door then opens by Auto-Open when the player walks up (Locked on + Auto-Open on + a key lock or
+  an Unlock lever is the key puzzle), or by an Opens message.
+* Not proven: a second lever press closing the door (the lever sends nothing the second time), key lock with a key item, trigger
+  to enemy spawn.
+
 ### Shops (vendors)
 
 | What | File | Entry | Note |

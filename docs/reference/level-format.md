@@ -717,7 +717,7 @@ were not play-tested.
   0..7" inference was wrong for Off / On (swapped: Off = 0x1002, On = 0x1001) and for 2..7; the proven handler facts fit the table
   (conversation handler: 0x1001 active, 0x1002 inactive, 0x116d start, 0x116e quest done). The editor's ordinal list is unchanged and
   consistent with it. The ordinal names of 10..17 and 19..27 remain unverified beyond their table position.
-* Door On/Off: no door handler was isolated, so "On opens / Off closes" stays inference from the link data (3/2 land on doors).
+* Door On/Off: decoded and proven in game 2026-11-07 (`docs/journal/2026-11-07/door-proof.md`): handler `0x45ba20`, `0x1001` opens an unlocked door, `0x1002` closes, `0x1101` locks, `0x1102` unlocks only; a locked door ignores On.
 * Detector volume: not decompiled; the box (model collision with the LVL scale) remains the editor's model.
 
 Other enum names found in the same tables **[elf]**: Trigger Detector Task (Transfer Link, Enable/Disable Saving, Message

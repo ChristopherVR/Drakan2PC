@@ -112,9 +112,10 @@ Engine 5; textures move to UE5-style PBR sets.
 
 - Quests: prove a quest starts and completes in game. The writer now uses ordinal 30 (Quest Initiate) instead of
   31 (Item PickedUp); unverified. Item classes send no messages, so "complete on pickup" is an area around the item.
-- Puzzles: no on-screen proof of a door opening yet (Stratos plates are tall blocks; pick a level with a walkable
-  plate). Counter with two plates, lever, timer -> door and key lock are not run in game. The NecroBB door death
-  at +7000 units is undiagnosed. See `puzzle-messages.md`.
+- Puzzles: lever, plate -> counter, two-plate counter and timer -> door are proven in game with a measured open state and
+  a walk-through control (`docs/journal/2026-11-07/door-proof.md`, `DRAKAN_PLAYTEST_WATCH`). A locked door ignores On; Unlock
+  only unlocks. Open: a second lever press does not close the door, key lock with a key item, trigger -> enemy spawn.
+  The NecroBB door death at +7000 units is undiagnosed.
 - The ordinal table's address and stride differ between two readings (`0x4fbc40` 8-byte slots vs `0x4fbd48` u16);
   values agree. Recheck before relying on the location.
 - Cut scenes: single-step retiming, animation swap on its own, sound and message steps, and walking into a new
