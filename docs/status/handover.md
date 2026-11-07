@@ -16,6 +16,8 @@ thread, converted levels are not persisted, Story shows disc text only, Play not
 
 **Round 3 (2026-11-07):** Play from the desktop app now works for disc and converted OotF levels (the converted pack is installed as `mods/ootf-levels.zip`); see [editor round 3](../journal/2026-11-07/editor-round3.md) (the UI sweep `npm run ui-sweep -w @drakan/editor-app` re-checks every workspace at 820, 1280 and 1920 px) for what was verified and what is left (see the follow-up section for the temporary Play pack, strings scope and terrain draws).
 
+**Round 4 (2026-11-07):** first-user workflow, error states, keyboard and ARIA, viewport, autosave and prompts are in [editor round 4](../journal/2026-11-07/editor-round4.md). Open: converted OotF levels converted with the Surdana template show most classes as unnamed markers in the editor (253 of 297 on Islands; the game runs them), landscape painting and level-exit chaining were not exercised end to end, and the desktop project open/close/switch flows were not tested.
+
 Living tracker for the editor / mod / multiplayer / engine-portability track. Last updated at commit c03a3b0
 (editor) and c270bb9 (game and runtime). Details live in the dated notes under `docs/journal/2026-11-01/` and
 `docs/journal/2026-10-31/`; this page says what works, what is unproven, and what to do next.
