@@ -212,6 +212,12 @@ int currentIndex() {
     return g_index;
 }
 
+std::string currentModId() {
+    std::lock_guard<std::mutex> l(g_m);
+    const Campaign* c = cur();
+    return c ? c->modId : std::string();
+}
+
 std::string currentName() {
     std::lock_guard<std::mutex> l(g_m);
     return nameOf(cur());

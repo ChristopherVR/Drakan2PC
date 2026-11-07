@@ -194,6 +194,24 @@ const pack = await buildOotfPack(
     ps2BlobFor,
     { splats, extraFiles: res.files },
 );
+// The campaign's own end card: the game serves it in place of the Drakan 2 credits while this campaign is the current game
+// (docs/reference/modding.md "Campaign credits"). No names beyond the studio and the game: the PC install carries no credits.
+if (opt['campaign'] !== undefined) {
+    const nl = String.fromCharCode(13, 10);
+    const card = [
+        '=Drakan: Order of the Flame',
+        'Converted campaign for Drakan: The Ancients\' Gates',
+        '',
+        '=Original game',
+        'Drakan: Order of the Flame, Surreal Software, 1999',
+        '',
+        '=Engine',
+        'Drakan: The Ancients\' Gates, Surreal Software, 2002',
+        '',
+        '',
+    ].join(nl);
+    pack.files['credits/credits.txt'] = new TextEncoder().encode(card);
+}
 for (const w of [...res.warnings, ...pack.warnings]) console.warn('warning:', w);
 writeFileSync(need('out'), zipOotfPack(pack));
 console.log(`wrote ${opt['out']} (${pack.levels.length} levels, ${Object.keys(pack.files).length} files)`);

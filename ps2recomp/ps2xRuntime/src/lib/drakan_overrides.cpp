@@ -1625,6 +1625,15 @@ void applyDrakanOverrides(PS2Runtime& runtime) {
                         }
                 gameui::setUiSkin(std::move(skin));
             });
+        if (g_mods && !g_mods->creditsFiles().empty()) {
+            // A campaign pack's credits/credits.txt replaces the credits text only while that campaign is the current game.
+            auto credits = std::make_shared<hle::CampaignCreditsOverride>();
+            for (const auto& [modId, text] : g_mods->creditsFiles())
+                credits->add(modId, text);
+            credits->setActive([] { return drakan_game::currentModId(); });
+            host->iop.res.addOverride(credits);
+            std::fprintf(stderr, "[game] campaign credits: %zu pack(s)\n", g_mods->creditsFiles().size());
+        }
         { // the title and the Mods page explain an enabled campaign that is not on the game card (ModDiscovery.h)
             std::vector<std::string> card;
             for (const drakan_game::GameInfo& gi : drakan_game::games())

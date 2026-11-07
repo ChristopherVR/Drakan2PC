@@ -50,6 +50,8 @@ Game current();
 // The game card's entries (Drakan first, then the campaigns in load order) and the index of the current one.
 std::vector<GameInfo> games();
 int currentIndex();
+// The pack id of the current game's campaign, empty for the disc game (campaign credits, ResourceOverride.h).
+std::string currentModId();
 // The name of the current game ("Drakan", "Drakan: Order of the Flame", the campaign's title).
 std::string currentName();
 // True when the title menu has a choice to offer (a campaign pack is installed and [general] game is "ask").

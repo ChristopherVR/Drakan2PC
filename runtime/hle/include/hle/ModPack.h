@@ -193,6 +193,10 @@ public:
     // UI skins (docs/reference/modding.md "Menus and HUD"): the text of every `ui/*.ini` of every loaded pack, in load
     // order. `first` is "mod <id>: <path>", `second` the file content (gameui::parseUiSkin reads it).
     const std::vector<std::pair<std::string, std::string>>& uiFiles() const { return uiFiles_; }
+    // Campaign credits: the text of every loaded pack's `credits/credits.txt` (<= 64 KiB), `first` = the pack id. The game
+    // serves it in place of the credits text entries (DRAKAN2.RRC 0x401 ids 8807 / 8808) only while that pack's campaign is
+    // the current game (CampaignCreditsOverride).
+    const std::vector<std::pair<std::string, std::string>>& creditsFiles() const { return creditsFiles_; }
     // Imported bow automatic-aiming sidecars, in enabled pack load order.
     const std::vector<std::pair<std::string, std::string>>& bowAimFiles() const { return bowAimFiles_; }
 
@@ -222,6 +226,7 @@ private:
     std::vector<std::pair<std::string, std::string>> mapFiles_;
     std::vector<std::pair<std::string, std::vector<u8>>> previewFiles_;
     std::vector<std::pair<std::string, std::string>> uiFiles_;
+    std::vector<std::pair<std::string, std::string>> creditsFiles_;
     std::vector<std::pair<std::string, std::string>> bowAimFiles_;
     std::shared_ptr<XdbTextOverride> texts_;
     size_t textCount_ = 0;

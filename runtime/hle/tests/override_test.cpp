@@ -243,6 +243,30 @@ int main() {
     }
 
     fs::remove_all(root);
+    // ---- campaign credits: served only while the pack's campaign is the current game, only for the two credits entries
+    {
+        std::string active;
+        CampaignCreditsOverride cc;
+        cc.add("ootf-levels", "=Drakan: Order of the Flame\r\nTest\r\n");
+        cc.setActive([&] { return active; });
+        ResourceId first{"DRAKAN2.RRC", "ENGLISH\\DRAKAN2.RRC", 0x401, 8807, 0};
+        ResourceId second = first;
+        second.id = 8808;
+        ResourceId other = first;
+        other.id = 8809;
+        ResourceId wrongFile = first;
+        wrongFile.file = "INTERFCE.XDB";
+        CHECK(!cc.wants(first)); // the disc game: nothing served
+        active = "someone-else";
+        CHECK(!cc.wants(first));
+        active = "ootf-levels";
+        CHECK(cc.wants(first) && cc.wants(second) && !cc.wants(other) && !cc.wants(wrongFile));
+        std::vector<u8> d(10, 1);
+        CHECK(cc.apply(first, d) && std::string(d.begin(), d.end()) == "=Drakan: Order of the Flame\r\nTest\r\n");
+        CHECK(cc.apply(second, d) && std::string(d.begin(), d.end()) == "\r\n");
+        active = "";
+        CHECK(!cc.wants(first));
+    }
     printf("override_test: %d checks passed, %d failed\n", g_pass, g_fail);
     return g_fail ? 1 : 0;
 }

@@ -266,4 +266,27 @@ bool XdbTextOverride::apply(const ResourceId& id, std::vector<u8>& data) {
     return changed;
 }
 
+
+// ---- campaign credits
+const std::string* CampaignCreditsOverride::current() const {
+    if (!active_)
+        return nullptr;
+    const auto it = texts_.find(active_());
+    return it == texts_.end() ? nullptr : &it->second;
+}
+
+bool CampaignCreditsOverride::wants(const ResourceId& id) {
+    return id.type == kType && (id.id == kFirstId || id.id == kSecondId) && id.file == "DRAKAN2.RRC" && current();
+}
+
+bool CampaignCreditsOverride::apply(const ResourceId& id, std::vector<u8>& data) {
+    const std::string* text = current();
+    if (!text || id.type != kType)
+        return false;
+    // The first entry carries the pack's text, the second (the disc's second credits block) is emptied so the scroll ends.
+    const std::string body = id.id == kFirstId ? *text : std::string("\r\n");
+    data.assign(body.begin(), body.end());
+    return true;
+}
+
 } // namespace hle

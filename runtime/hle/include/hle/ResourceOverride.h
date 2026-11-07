@@ -65,6 +65,24 @@ private:
     const std::string* find(const ResourceId& id) const;
 };
 
+// ---- campaign credits
+// ----------------------------------------------------------------------------------------------------------------
+// The end credits are two plain text entries of DRAKAN2.RRC (type 0x401, ids 8807 and 8808; "=Heading" lines, names, a blank line) the engine reads by id. This serves a campaign pack's own text in place of both while `activeMod()` names that
+// pack (the current game is its campaign), so the disc game's credits are untouched.
+class CampaignCreditsOverride final : public IResourceOverride {
+public:
+    static constexpr u16 kType = 0x401, kFirstId = 8807, kSecondId = 8808;
+    void add(const std::string& modId, std::string text) { texts_[modId] = std::move(text); }
+    void setActive(std::function<std::string()> f) { active_ = std::move(f); }
+    bool wants(const ResourceId& id) override;
+    bool apply(const ResourceId& id, std::vector<u8>& data) override;
+
+private:
+    const std::string* current() const;
+    std::map<std::string, std::string> texts_;
+    std::function<std::string()> active_;
+};
+
 // ---- XDB text
 // ----------------------------------------------------------------------------------------------------------------
 namespace xdb {

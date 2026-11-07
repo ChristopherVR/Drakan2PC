@@ -487,6 +487,15 @@ What the runtime does with it (`drakan_game.cpp`):
   title and the Mods page ("New packs", Game choice explained).
   `scripts/harness/ootf_level_run.py --campaign ...` converts the level as a campaign pack and runs with `DRAKAN_GAME=d1`.
 
+### Campaign credits
+
+A campaign pack may ship `credits/credits.txt` (up to 64 KiB, plain text in the credits format: `=Heading` lines followed by
+names, a blank line between blocks). While that campaign is the current game the engine's end credits show this text
+instead of Drakan 2's: the credits are two text entries (`0x401` ids 8807 and 8808 in `DRAKAN2.RRC`) the engine reads by id,
+and the pack's text is served for the first while the second is emptied (`hle::CampaignCreditsOverride`, test
+`override_test`). The disc game keeps its own list. `ootf-convert.ts --campaign 1` writes a short end card (the game, the
+original studio, the engine) with no personal names, since the PC install carries no credits.
+
 ## HD textures for converted OotF mods
 
 One command after converting (campaign pack, multiplayer arenas, any pack):
