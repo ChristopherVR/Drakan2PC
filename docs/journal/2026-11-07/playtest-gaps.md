@@ -127,3 +127,45 @@ the rest was not logged by the perf line (not investigated).
   materialised (3A opening, Valley opening); placements into solid ground are lifted to the top surface.
 * Game bugs found: none new. No crash, hang or soft-lock in any run of this session.
 * Not done: 1A Lair and Shadowmire walk-ins, 1A to 3, gated portals, message-driven exits, 4B full flight.
+
+## Follow-up (same day)
+
+### Checks run
+
+`clang-format --dry-run --Werror` (VS 2022 LLVM `clang-format.exe`) on `drakan_input_glue.cpp`, ruff check and format on the
+touched Python, `repository_guard.py` (2487 approved, 0 prohibited) and `ctest --preset runtime-tests` (122 of 122 pass,
+6 data-dependent tests skip: hle_test, fmv_vdb, gameui_ram_test, world_ram_test, world_pose_ram_test, live) are all clean.
+
+### True campaign chain (normal New Game, no `--level`)
+
+`gen_chain.py`: New Game, intro skipped by the autopress, then per hop `place` into the detector, Cross on screens 2 and
+5, wait for the arrival, F5 then F8 in each level. (A recipe line needs a time prefix: `0 sync screen 5 1`; a bare
+`sync ...` line is silently ignored as an unknown command, which made my first two chain runs fire every hop at once.)
+
+| Hop | Result |
+| --- | --- |
+| New Game -> intro -> `Level 1A - Surdana` loaded | F5 (save screen 23 -> 5 -> gameplay) and F8 (23 -> 4 -> 14 -> gameplay, level reloaded) work |
+| 1A detector 12249 -> `Level 1B - Kragmor` (real level) | screens 2, 5, `exit taken in 'Level 1A - Surdana' at 729088 152750 772096`, `Level 1B - Kragmor loaded`; F5 and F8 work in 1B |
+| 1B detector 12276 -> 1A | **does not fire** for Rynn on foot: teleported into the box, and walked through it from the arrival pad (342023 172626 235531) to a wall at x 331551 |
+
+The 1B exit detector has `Detect Which? = 1` (Rynn on a mount, see `ootf-campaign-walkthrough.md`: the class default does not
+fire for a mounted Rynn and 1 fires only for one). The level data has Arokh ("Dragon" 0x1001c id 2 at 354326 177002
+275981 and an "Arokh Level Trans Teleporter") but he is not in the world at the start (screenshot after walking to his
+spot and pressing E: nothing to mount). So the way back from Kragmor is by Arokh, who appears through story logic not
+found here. This is gating, not a crash or hang. The earlier redirected 1B run fired because that run is a different
+start state; that contradiction is not explained. The same enum explains 1A 18028: `Detect Which? = 1`, mounted only.
+The chain therefore stops in Kragmor; 1C, 1D, 1E, Shadowmire, 3A/3B, 4A/4B, 5 and the Valley could not be chained
+forward from 1A on foot (Lair and Shadowmire detectors underground, portals disabled, 18028 needs Arokh).
+
+### Exits that need other triggers (evidence only, not driven)
+
+* 1A Lair 12479 and Shadowmire 7969: boxes below the surface, `place` lifts to 160498 / 173016; no tunnel mouth found.
+* Valley lever 18379: its timer 20860 is triggered by the death of the boss "Zola Dane (Combatant)" (9274, 428075 230505
+  84352), so the lever only works after that fight. Not tried.
+* 3A 8021: timers 13610 and 13551, fed by three mounted-only detectors (7318, 13786, 13794) at y 215000-229000 in the
+  air: it is the end-of-level flight, Rynn on Arokh.
+* Level 8 8143 and 10481: no incoming link (10481 only via its timer 10482), driven by the boss/story script.
+* 4B: the cave yard mouth is a Trigger Detector with Task 7 (Cave Entrance, "allows dragon ground movement", 839903
+  147014 995843) followed by a Task 3 (No-Fly Zone, mounts only, 839688 146957 997215): Arokh has to walk through the
+  cave, not fly. My flight stopped at z 1007602 on the ground in front of a snow slope (screenshot f34.png), not at a
+  barrier object; the walking route beyond was not found.
