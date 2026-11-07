@@ -25,6 +25,13 @@ impl Settings {
             .unwrap_or_default()
     }
 
+    /// Drop one folder from the recent projects (a folder that no longer exists). Returns whether it was listed.
+    pub fn forget_project(&mut self, dir: &str) -> bool {
+        let n = self.recent_projects.len();
+        self.recent_projects.retain(|p| !p.eq_ignore_ascii_case(dir));
+        self.recent_projects.len() != n
+    }
+
     pub fn save(&self, file: &Path) -> Result<(), String> {
         if let Some(dir) = file.parent() {
             std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
@@ -75,6 +82,15 @@ mod tests {
             s.recent_isos.iter().filter(|p| p.to_lowercase().ends_with("5.iso")).count(),
             1
         );
+    }
+
+    #[test]
+    fn forget_project_drops_one_entry() {
+        let mut s = Settings::default();
+        s.recent_projects = vec!["C:/a".into(), "C:/b".into()];
+        assert!(s.forget_project("c:/A"));
+        assert_eq!(s.recent_projects, vec!["C:/b".to_string()]);
+        assert!(!s.forget_project("C:/zzz"));
     }
 
     #[test]

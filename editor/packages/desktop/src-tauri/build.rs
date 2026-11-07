@@ -3,6 +3,7 @@ fn main() {
     const COMMANDS: &[&str] = &[
         "settings_get",
         "settings_forget",
+        "recent_project_forget",
         "iso_pick",
         "iso_open",
         "folder_pick",
@@ -14,6 +15,7 @@ fn main() {
         "file_save_as",
         "mods_read_ini",
         "mods_write_pack",
+        "close_ack",
         "mods_zip_size",
         "mods_write_zip",
         "game_launch",

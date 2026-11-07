@@ -13,6 +13,8 @@ export interface DesktopHooks {
     setStatus(msg: string, error?: boolean): void;
     /** Project folder operations (File > New / Open Project). */
     projectFiles(): ProjectFiles;
+    /** Write everything that is not saved yet (the level autosave, the project folder). Called before the window closes. */
+    flushAll(): Promise<void>;
 }
 
 export interface Desktop {
@@ -203,6 +205,7 @@ export function initDesktop(hooks: DesktopHooks): Desktop {
         }
     };
     void platform.onMenuAction(onAction);
+    void platform.onCloseRequested(() => hooks.flushAll());
 
     registerCommand({
         id: 'desktop.gameFolder',

@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-recent-project-forget"
+description = "Enables the recent_project_forget command without any pre-configured scope."
+commands.allow = ["recent_project_forget"]
+
+[[permission]]
+identifier = "deny-recent-project-forget"
+description = "Denies the recent_project_forget command without any pre-configured scope."
+commands.deny = ["recent_project_forget"]

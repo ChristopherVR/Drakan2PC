@@ -9,6 +9,7 @@ import { installVendors } from './editor/vendor.ts';
 import { vendorChangeSource, vendorPrices } from './editor/vendorprices.ts';
 import { installProject } from './editor/project/install.ts';
 import { runCommand } from './editor/registry.ts';
+import { projects } from './editor/project/store.ts';
 import { showArea } from './editor/workspace.ts';
 import { installMenuBar } from './editor/menubar.ts';
 import './files.css';
@@ -616,6 +617,10 @@ const desktop = initDesktop({
     showTab,
     setStatus,
     projectFiles: () => projectUi.files,
+    flushAll: async () => {
+        await levelUi.flushAutosave();
+        if (projects.folder) await projectUi.files.save(true);
+    },
 });
 
 // Browser: File / Edit / Window / Tools / Help menu bar and the project chip (the desktop app has a native menu bar).

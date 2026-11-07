@@ -77,6 +77,8 @@ async function invokeRaw<T>(cmd: string, body: Uint8Array, headers: Record<strin
 // ---- remembered choices -------------------------------------------------------------------------------------------------
 
 export const getSettings = (): Promise<DesktopSettings> => invoke('settings_get');
+/** Desktop: drop one project folder from the recent list (it no longer exists). */
+export const forgetRecentProject = (dir: string): Promise<DesktopSettings> => invoke('recent_project_forget', { dir });
 export const forgetRecent = (): Promise<DesktopSettings> => invoke('settings_forget');
 
 // ---- disc image ---------------------------------------------------------------------------------------------------------
@@ -224,6 +226,20 @@ export async function openAppWindow(which: 'main' | 'save', action?: 'file' | 'f
     }
     const page = which === 'save' ? 'save.html' : 'index.html';
     window.open(`${page}${action ? `#open=${action}` : ''}`, which === 'save' ? 'drakan-save-editor' : 'drakan-editor');
+}
+
+/**
+ * Desktop: the shell is about to close the editor window (File > Exit, Alt+F4, the close button) and waits for
+ * `closeAck()`. Write what is not saved, then answer.
+ */
+export async function onCloseRequested(fn: () => Promise<void>): Promise<() => void> {
+    if (!isDesktop) return () => {};
+    const { listen } = await import('@tauri-apps/api/event');
+    return listen('app-close-requested', () => {
+        void fn()
+            .catch(() => undefined)
+            .finally(() => void invoke('close_ack'));
+    });
 }
 
 /** Desktop: actions sent to the save editor window (`file`, `folder`). */

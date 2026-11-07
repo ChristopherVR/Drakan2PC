@@ -66,6 +66,20 @@ pub fn settings_forget(app: AppHandle, state: State<'_, AppState>) -> Res<Settin
     Ok(out)
 }
 
+/// Remove a project folder that is gone from the recent list; returns the new settings.
+#[tauri::command]
+pub fn recent_project_forget(app: AppHandle, state: State<'_, AppState>, dir: String) -> Res<Settings> {
+    let out = {
+        let mut g = state.inner.lock().unwrap();
+        if g.settings.forget_project(&dir) {
+            g.settings.save(&state.settings_file).map_err(err)?;
+        }
+        g.settings.clone()
+    };
+    crate::menu::refresh(&app);
+    Ok(out)
+}
+
 // ---- disc image --------------------------------------------------------------------------------------------------------
 
 #[derive(Serialize)]
@@ -442,6 +456,12 @@ pub fn mods_write_pack(state: State<'_, AppState>, id: String, files: Vec<PackFi
     }
     std::fs::write(mods.join("mods.ini"), ini).map_err(err)?;
     Ok(pack.to_string_lossy().to_string())
+}
+
+/// The page has written its unsaved work; the window may close now.
+#[tauri::command]
+pub fn close_ack(state: State<'_, AppState>) {
+    state.close_ack.store(true, std::sync::atomic::Ordering::SeqCst);
 }
 
 /// Size in bytes of `<mods>/<id>.zip`, or null when it is not there (the editor skips a rewrite of the same pack).

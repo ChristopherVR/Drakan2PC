@@ -188,7 +188,16 @@ export function createProjectFiles(host: FolderHost): ProjectFiles {
             return info ? openInfo(info) : false;
         },
         async openRecent(dir) {
-            return openInfo(await platform.projectOpenPath(dir));
+            try {
+                return await openInfo(await platform.projectOpenPath(dir));
+            } catch (e) {
+                // A folder that is gone (moved, deleted, a drive that is not plugged in) stays in the list forever otherwise.
+                if (/not a project folder|cannot find|not found|no such|os error 3|os error 2/i.test(String((e as Error)?.message ?? e))) {
+                    await platform.forgetRecentProject(dir).catch(() => undefined);
+                    throw new Error(`${dir} is no longer a project folder; it was removed from the recent projects.`);
+                }
+                throw e;
+            }
         },
         async openText(text) {
             const { project, edits, story } = parseProjectFile(text);
