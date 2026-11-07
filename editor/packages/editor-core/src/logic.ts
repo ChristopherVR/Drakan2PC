@@ -506,6 +506,21 @@ export function validateLogic(doc: LevelDocument, env: LogicEnv, opts: LogicVali
     const specs = new Map<number, LogicClass | undefined>();
     for (const o of doc.objects()) specs.set(o.id, logicOf(o, env));
 
+    // key locks (rfl 0x22) open for the key item (rfl 0x21) with the same Lock Code
+    const keyCodes = new Set<number>();
+    for (const o of doc.objects()) if (env.rflOf(o.resource) === 0x21) keyCodes.add(numField(o, env, 'Lock Code') ?? 0);
+    for (const o of doc.objects()) {
+        if (env.rflOf(o.resource) !== 0x22) continue;
+        const code = numField(o, env, 'Lock Code') ?? 0;
+        if (!keyCodes.has(code))
+            out.push({
+                severity: 'warning',
+                code: 'key-lock-no-key',
+                ids: [o.id],
+                message: `${lbl(o)} needs a key with Lock Code ${code}, but no key item with that code is placed in this level (Rynn may carry one in from another level)`,
+            });
+    }
+
     // reachability from objects that act on their own
     const live = new Set<number>();
     const stack: number[] = [];

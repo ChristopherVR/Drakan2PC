@@ -120,6 +120,7 @@ const CLASSES: Record<string, StubClass> = {
             { name: 'Trigger To Send', type: 7, def: 1 },
         ],
     },
+    '0x2000e': { rfl: 0x21, name: 'Brass Key', fields: [{ name: 'Lock Code', type: 1, def: 7 }] },
     '0x2000d1': {
         rfl: 0x1d,
         name: 'Pressure Plate',
@@ -541,6 +542,18 @@ describe('templates', () => {
         expect(d.get(30)!.fields ?? []).toEqual([]); // the original is untouched
         expect('error' in templateById('ambush')!.build(ctxFor(d, []), {})).toBe(true);
         expect('error' in templateById('ambush')!.build(ctxFor(d, [4]), { enemy: 4 })).toBe(true); // a door
+    });
+
+    it('warns when a key lock has no key item with its code in the level', () => {
+        const d = level();
+        d.insert(obj(40, '0x2000d', { fields: [field('Lock Code', '0x2000d', 49)] }));
+        const codes = () => validateLogic(d, env).filter((i) => i.code === 'key-lock-no-key');
+        expect(codes().map((i) => i.ids)).toEqual([[40]]);
+        expect(codes()[0]!.message).toMatch(/Lock Code 49/);
+        d.insert(obj(41, '0x2000e', { fields: [field('Lock Code', '0x2000e', 7)] }));
+        expect(codes()).toHaveLength(1); // a key with another code does not help
+        d.get(41)!.fields = [field('Lock Code', '0x2000e', 49)];
+        expect(codes()).toEqual([]);
     });
 
     it('a held plate sends On when pressed and Off when released straight to the door, no counter', () => {

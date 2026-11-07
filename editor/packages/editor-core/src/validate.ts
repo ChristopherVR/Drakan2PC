@@ -16,7 +16,8 @@ export type IssueCode =
     | 'exit-no-destination'
     | 'exit-no-arrival'
     | 'message-ignored'
-    | 'door-locked-ignores-open';
+    | 'door-locked-ignores-open'
+    | 'key-lock-no-key';
 
 export interface ValidationIssue {
     severity: IssueSeverity;
