@@ -854,6 +854,12 @@ camera (`Shopkeer View Distance in Front / to Side / Up`, `...Target Vertical Of
 fifteen dialog classes (`Greeting`, `Farewell`, `Item Sold To Player`, `Not Enough Money`, `No Room in Inventory`, `Won't Buy`, `Item
 Repaired`, spell dialogs, ... [19..36]), `Chance of Verbose Dialog` [37], `Quest Conversations` [38] and `One Free Sale Message` [39].
 
+**Stock slots.** The shop load (`0x40a128`, then `0x40ab00`) merges identical item classes into one list entry: `stock=` in the
+`DRAKAN_DEBUG_OPEN_SHOP` log counts distinct classes, a limited unit of an item that is also unlimited is absorbed, repeated limited
+units share one entry. There is no per-class entry limit (5, 17 entries run) and no class refuses an item by kind (an Iron Mace sells
+from the new Alchemist, limited or unlimited); proved 2026-11-07, `docs/journal/2026-11-07/shop-stock-limit.md`. `stockSlots` in
+`editor-core/src/vendor.ts` mirrors it.
+
 **The price of an item** is not on the shop. Every item class (RFL 14 weapons and items, 45 armour, 79 bows, 144 shields, 178 spell
 unlockers, ...) has `Cost to Buy (in Gold)` (an int; index 17 in the 49-field weapon class, 17 in the 25-field unlocker class) and `Quantity`
 (units a purchase gives, 1 for weapons). 283 RESOURES classes and 30 MAGIC classes have the field. Surdana examples: Rusty Short Sword 165,

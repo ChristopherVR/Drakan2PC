@@ -6,6 +6,8 @@
 options. `scripts/harness/vendor_shop.py --new-shop --play-dir build/ed-a/play --shop 4 --no-buy` / buy run on a private play folder:
 Surdana shop 4 (the new Alchemist, keeper handle 4676) opened as screen 21 and sold the first item, gold 1000 -> 900.
 
+**Correction (see `shop-stock-limit.md`): this finding was a harness artifact; the edit had been written to the Blacksmith, not the new Alchemist. There is no stock limit and a weapon sells fine from an Alchemist.**
+
 Finding: adding an Iron Mace (`--add RESOURES:8569`) to the new Alchemist made the shop screen fail (the game logs `stock=4`
 although five entries were written, the shop UI never draws its items and the harness never gets past `sync screen 21`; two attempts).
 The same shop without the extra entry works. A shop class seems to hold a fixed number of stock slots, or a weapon in an alchemist's
