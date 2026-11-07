@@ -413,6 +413,14 @@ tree, so a stem to file map is enough):
 Notes:
 
 * Array types (`0x1004` models, `0x1005` sounds 4759x, `0x1009` animations 5488x, `0x100b` sequences) hold one such word per element.
+* **Break-away floors (engine class 44) [disc, game]**: the class has no model of its own; `Model List` (`0x1004`) names the
+  pieces, each modelled in place around the object's origin, so together they draw the intact floor. Eight of the nine disc
+  floor classes name their pieces with db 0 (their ODB's own MOD; LEVEL1ON "Bridge Breakway Pieces" 950..963), LEVEL6EN's
+  through its `.DB` (db 5); the sampled pieces (LEVEL1ON, MOUNTAON) each have a one-shape OBB 0x0207 and a 0x0211 display
+  list. At level load each piece becomes a registry entity of the same class at the floor's
+  origin; with `Break Away on Trigger Only` 0 the pieces under the player fall when she stands on them (the others stay).
+  An object may name its own pieces in the same field. Converted OotF floors get their PC pieces
+  in the template ODB's own MOD the same way (journal 2026-11-07/ootf-breakaway-floors.md).
 * **SPU ADPCM (0x0304)** is the stock PS2 VAG block format: 16 bytes = `shift | predictor << 4`, flag (1 end, 4 loop start), 14 bytes
   of 28 signed nibbles (low first); predictor filters (0,0), (60,0), (115,-52), (98,-55), (122,-60); mono, rate from the
   descriptor (22050 speech, 44100 effects). `formats/src/resources.ts` `decodeSpuAdpcm` is a port of
