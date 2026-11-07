@@ -156,3 +156,21 @@ fault in the perf thread, taking the process down. Fix: capture only raw RIPs in
   to 0 (`hasAlt` tests only `getenv != nullptr`); `ix > nClasses` should be `>=`. Only matters with the env vars set.
 * `runtime/hle/src/ResourceOverride.cpp` `patchRead`: logs one line per patched read; the credits are read in many small
   chunks, so cap the log to the first few.
+
+## Resolved
+
+Runtime findings fixed in a follow-up (editor items 2 to 4 are tracked separately).
+
+| Finding | Resolved | How |
+| --- | --- | --- |
+| 1 polyclip preemption | yes | The clip loop (`drakan_polyclip_fan.h`) stops at the first original call that did not return normally and the hook returns without touching `pc`, `a1`, `a2` (the scheduler re-enters the live frame later; the rest of that fan is dropped). Normal finish restores the entry `pc` as before. Scratch vertices moved from `sp - 4 KB` to 64 slots of reserved low RDRAM (0xf0000, below the ELF; checked zero once, else clipping is off), keyed by the caller's stack. Test `polyclip_fan_policy` forces a mid-draw unwind in a stub. |
+| 5 stale missing-function flag | yes | `missingFunctionReported()` now reads a flag set only when no recovery or skip policy handled the target. |
+| 6 alloc RPC hang signal | yes | One log line after 30 s of "EE blocked in a host call" (no cycles published while executing guest code). |
+| 7 stall dumper | yes | Raw RIPs captured into a fixed array while suspended; the stack fallback read uses `ReadProcessMemory`; names resolved after resume. |
+| 8 remapObbPolygons | yes | Lists over 65535 entries return null (shape lists kept as authored) and a one-time warning is logged. Formats commit b0f7cdd. |
+| 8 terrain over 8 textures | yes | `TerrainBlobOptions.stats.reducedChunks` counts them; the converter warns once. |
+| 8 bringDragon | partly | Skipped for campaign pack and editor levels (`isCampaignPackLevel`), the 100000 unit rule is documented in `drakan_dragon_arrival.h`. No collision query is available there; the dragon is placed 3000 units above Rynn so he drops onto open ground. |
+| 8 worker pools vs affinity | yes | `gsr::usableCpus()` (affinity popcount on Windows and Linux) sizes the GS tile workers, texture upload pools, ray workers and the FMV decoder. |
+| 8 rejected script line | yes | `requestStop()` instead of `std::exit(2)`. |
+| 8 playtest | yes | Empty `DRAKAN_PLAYTEST_ALT` is unset; `ix >= nClasses`. |
+| 8 patchRead log | yes | First 8 patched reads are logged. |

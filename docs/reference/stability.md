@@ -179,3 +179,9 @@ Owned changes: `ps2xRecomp/CMakeLists.txt`, nine translator/emitter sources incl
 ## 8. Boot hang under load (2026-11-06)
 
 A boot that hung about 3 launches in 5 while several instances loaded was not a guest bug: a host stall of the EE thread (first shader compile in the NVIDIA driver blocking the GS worker, EE waiting in `commitDisplay`) outlasted the 20 s wall-clock wait of `EeRpcPoster::post`, the EE allocation RPC failed and the resource protocol desynchronised, after which the game spun in a list walk (`f_0x286008`). `post` now bounds the wait in guest time (`EeScheduler::publishedCycles()`). To investigate a stall, run with `PS2X_PERF=1`: after 3 s without flips `[perf-stall]` prints the call chain of the EE thread and of every other thread (resolve `exe+0x...` frames with the linker map). Stress recipe: 12 to 20 simultaneous `play_run.py` launches plus 16 CPU hogs. Details and numbers: `docs/journal/2026-11-06/boot-hang.md`.
+
+After 30 wall seconds with no cycles published while the EE is inside a host call, `post` logs `EE blocked in a host call for 30 s` once (the backstop stays 600 s). The `PS2X_PERF` stall dumper captures raw return addresses while the target is suspended and resolves module names only after resuming it, and validates stack reads with `ReadProcessMemory`.
+
+## 9. Preemption inside the polygon clip hook (2026-11-07)
+
+The near-plane clip hook on 0x146880 draws a clipped fan with one original call per triangle. Each original call can be unwound at a checkpoint (`PS2_JAL` -> `cpTick`), leaving its frame live for the scheduler to re-enter. The hook now returns at the first call whose `pc` is not the return address and touches no registers; the remaining triangles of that fan are dropped. Scratch vertices live in reserved low RDRAM (0xf0000 to 0xf8000), not below `$sp`. `missingFunctionReported()` is true only for a missing target that nothing recovered. See `docs/journal/2026-11-07/review-findings.md`.
