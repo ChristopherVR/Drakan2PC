@@ -63,7 +63,8 @@ jobs:
           if ($dirty) { $dirty; throw 'tracked files differ from the tagged commit' }
           $zip = (Get-ChildItem build/release -Filter 'DrakanPC-Builder-*.zip' | Select-Object -First 1).FullName
           Expand-Archive -LiteralPath $zip -DestinationPath build/kit-verify
-          $kit = (Get-ChildItem build/kit-verify -Directory | Select-Object -First 1).FullName
+          $kit = (Get-ChildItem build/kit-verify -Directory | Where-Object { Test-Path "$($_.FullName)/CMakePresets.json" } | Select-Object -First 1).FullName
+          if (-not $kit) { throw 'the kit zip has no CMakePresets.json' }
           Push-Location $kit
           cmake --preset runtime-check
           cmake --build --preset runtime-check --parallel 4
