@@ -323,9 +323,13 @@ names map to the engine as Opens = On (`0x1001`), Closes = Off (`0x1002`), Locks
   for Rynn walking through; one centred 1000 units higher did, so the templates raise their volumes by 1000.
 * **Kill all:** creatures send "I'm Dead" (8) to their counter on death; the counter sends On to an unlocked door (proved by
   Blow Up from a volume killing two creatures: counter `0x1003` twice, door opens).
-* Key lock: the lock (`0x353550`) reacts to message `0x10e4`, sent when Rynn uses the key item from her hand near it
-  (`0x3195b0`); not driven in game (picking the key up did not work from `place` / E in the harness). Validation warns when a lock
-  has no key with its Lock Code in the level.
+* Key lock, driven in game (2026-11-07, `puzzle_door_check.py` scenarios `keylock` / `keylock_nokey`, Shadowmire start, open
+  ground): the lock (`0x353550`) reacts to message `0x10e4`, sent when Rynn uses the key item from her hand (`0x3195b0`). With a key
+  item (class `Hermit Key.`, same `Lock Code` as the lock) 300 units in front of her, tapping E picks it up (state word +0x1c 1 -> 2),
+  a further E at the lock (700 units away: she walks to it) uses it, the lock sends Unlock and the Auto-Open door swings (yaw 1.7);
+  without a key item in the level the same E taps do nothing and the door stays shut. The key item must carry the lock's `Lock Code`
+  (the template places only the lock: add a key of a class that already exists in the level and set its Lock Code). Validation warns
+  when a lock has no key with its Lock Code in the level.
 * Held plate (On pressed, Off released) and real sword kills for the kill-all gate (AUTOAIM) are proven (`plate_hold`,
   `killall_melee` in `puzzle_door_check.py`).
 * Repeat all of it: `python scripts/harness/puzzle_door_check.py --iso <iso>` (PASS / FAIL per scenario; lever open and toggle,

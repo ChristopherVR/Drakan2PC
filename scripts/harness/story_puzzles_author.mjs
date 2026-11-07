@@ -81,7 +81,7 @@ else if (kind === 'lever') tpl('lever-door', { door, mode: opt.leverMode ?? 'ope
 else if (kind === 'timer') tpl('timer-door', { target: door, delay: 2, then: 'On', w: 3, h: 2, d: 1 }, at(0, 700, 1000));
 else if (kind === 'key') {
   tpl('key-lock', { door, code: opt.code ?? 62 }, at(0, 700, 100));
-  if (!opt.noKey) place(opt.keyClass ?? 'Prison Key', at(opt.keyDx ?? 0, opt.keyDz ?? 300, 80), {});
+  if (!opt.noKey) place(opt.keyClass ?? 'Prison Key', at(opt.keyDx ?? 0, opt.keyDz ?? 300, opt.keyDy ?? 80), { 'Lock Code': opt.keyCode ?? opt.code ?? 62 });
 } else if (kind === 'killall') {
   // two creatures that die when the volume sends Blow Up (no melee needed), a counter they report to, the door
   const src = [...doc.objects()].find((o) => o.class === (opt.enemyClass ?? 'Human Skeleton:Center'));

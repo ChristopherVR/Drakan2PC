@@ -8,7 +8,7 @@ word, creature positions, Rynn's position), never a screenshot. See docs/journal
     python scripts/harness/puzzle_door_check.py --iso "<iso>" [--exe build/final-game/bin/drakan.exe] [--only lever_open,...]
 
 Scenarios: lever_open, lever_toggle, walk_blocked, walk_through, plate, counter2, timer, locked_ignores_on, unlock_only,
-unlock_auto, ambush, killall. Each takes about a minute.
+unlock_auto, ambush, killall, keylock, keylock_nokey (Shadowmire, key picked up and used at a lock). Each takes about a minute.
 """
 
 from __future__ import annotations
@@ -31,6 +31,7 @@ WATCH_LINE = re.compile(
 DOOR_CLASS, SKELETON_CLASS = "10013", "10031"
 OPEN_YAW = 1.4  # a door counts as open past this (it turns about 1.7 rad)
 
+KEY_START = "197924 210168 456966"  # Rynn's start in Shadowmire (LEVEL2RE), open ground, facing +z
 PRE = "clock milliseconds\n0 sync play 90\n500 place 651612 147580 961906 3.14159\n"
 RECIPES = {
     "press": PRE + "6500 key tap E\n16000 quit\n",
@@ -45,6 +46,15 @@ RECIPES = {
     "idle": PRE + "22000 quit\n",
     # stand against the plate (a solid block in Stratos): the held plate sends On, then Off when it rises again
     "plate_hold": PRE.replace("961906", "962880") + "26000 quit\n",
+    # Shadowmire start (open ground): the first E taps pick the key up, then Rynn is placed 250 units from the lock (inside the
+    # 327 units the Use handler walks from) and the next E taps use the key there
+    "key": "clock milliseconds\n0 sync play 90\n500 place "
+    + KEY_START
+    + " 3.14159\n"
+    + "".join(f"{15000 + i * 2000} key tap E\n" for i in range(4))
+    + "24000 place 197924 210168 457416 3.14159\n"
+    + "".join(f"{31000 + i * 2000} key tap E\n" for i in range(8))
+    + "50000 quit\n",
     # walk at the dormant copies, then tap attack (AUTOAIM turns Rynn to the nearest living skeleton)
     "melee": PRE
     + "6500 key down W\n8500 key up W\n"
@@ -100,6 +110,8 @@ class Scenario:
     watch: str = f"class={DOOR_CLASS},player=1,words=0,data=24,max=4"
     trace: str = ""
     env: dict = field(default_factory=dict)
+    level: str = "8"  # play_run level argument
+    start: str = START
 
 
 def _closed_after_open(r: Run) -> tuple[bool, str]:
@@ -125,7 +137,45 @@ def _ambush(r: Run) -> tuple[bool, str]:
     return moved > 800, f"{len(r.creatures)} creatures, furthest one moved {moved} units from its dormant spot"
 
 
+KEY_OPTS = {
+    "level": "LEVEL2RE",
+    "start": [197924, 210168, 456966],
+    "doorClass": "GF Wood Door01",
+    "locked": 1,
+    "autoOpen": 1,
+    "keyClass": "Hermit Key.",
+    "doorDz": 3000,
+    "code": 62,
+}
+KEY_WATCH = "near=3500,player=1,words=0,data=72,max=40"
+
 SCENARIOS = [
+    Scenario(
+        "keylock",
+        "key",
+        KEY_OPTS,
+        RECIPES["key"],
+        lambda r: (
+            opened(r),
+            f"Rynn picks the key up, uses it at the lock, the door swings (yaw max {max(r.door_yaw, default=0):.2f})",
+        ),
+        watch=KEY_WATCH,
+        level="2",
+        start=KEY_START + " 3.14159",
+    ),
+    Scenario(
+        "keylock_nokey",
+        "key",
+        {**KEY_OPTS, "noKey": 1},
+        RECIPES["key"],
+        lambda r: (
+            not opened(r),
+            f"no key placed, E at the lock does nothing (yaw max {max(r.door_yaw, default=0):.2f})",
+        ),
+        watch=KEY_WATCH,
+        level="2",
+        start=KEY_START + " 3.14159",
+    ),
     Scenario(
         "plate_hold",
         "plate",
@@ -243,13 +293,13 @@ def run_scenario(s: Scenario, a: argparse.Namespace) -> bool:
         "--exe",
         str(a.play / "drakan.exe"),
         "--level",
-        "8",
+        s.level,
         "--recipe",
         str(recipe),
         "--env",
         f"DRAKAN_MODS={mods}",
         "--env",
-        f"DRAKAN_PLAYTEST_POS={START}",
+        f"DRAKAN_PLAYTEST_POS={s.start}",
         "--env",
         f"DRAKAN_PLAYTEST_WATCH={s.watch}",
         "--env",

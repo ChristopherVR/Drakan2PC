@@ -112,7 +112,27 @@ ray test. Next step if someone continues: read the class parameters `0x1fb`, `0x
 instead of `place`, or drop the key from a save with the item already in her pack. The editor side stays as is (template sends Unlock,
 Validation warns about a missing key code).
 
+## Fifth round: key lock proven in the open
+
+The Shiverbane keys fail because of solid geometry; in Shadowmire (`--level 2`, LEVEL2RE) Rynn starts on open ground with an axe
+(no cut scene: Valley of the Fallen's start plays one and blocks input). Pack: `story_puzzles_author.mjs key` with
+`{"level":"LEVEL2RE","start":[197924,210168,456966],"doorClass":"GF Wood Door01","locked":1,"autoOpen":1,"keyClass":"Hermit Key.",
+"doorDz":3000,"code":62}`: a locked Auto-Open door 3000 units ahead, a lock (template, Unlock) 700 ahead and a key item 300 ahead,
+all of classes that already exist in LEVEL2RE (the first attempt in Stratos used classes absent from the level, written with
+default bodies; the key never showed up as a class `0x10021` entity there). The author script now sets the key's `Lock Code`.
+
+Recipe: place Rynn, tap E every 2 s for 30 s. Watch (`near=3500,player=1,data=72`): the key item (`cls 10021`, state +0x1c) goes
+1 -> 2 and moves into her hand; the lock gets `0x10e4` (trace of `0x353550` event 0x20, then `0x3536a8`); the door (`cls 10013`)
+loses its Locked word `d+40` and its yaw goes 0 -> 1.718 about 9 s after the pickup. Rynn walks 372 units toward the lock by herself
+(usable beyond 327 units); that walk stops 328 units short, right at the limit, so the scenario places her 250 units from the lock before the
+final E taps (the plain walk-up run opened the door once and stalled once). Control (no key item placed, identical taps): she also walks to the lock, the door never moves (yaw
+0, `d+40 = 1`). Scenarios `keylock` and `keylock_nokey` PASS in `puzzle_door_check.py`.
+
+What the earlier failures were: not the class radius (the key at 300 units is accepted; Rynn's `0x1fb` / `0x1fc` values were not
+read, the pickup works at that distance and height), but the keys behind solid geometry plus the Valley cut scene. The watch window
+of the second tap round matters: with `DRAKAN_TRACE_FN` the game runs slowly and a fixed recipe ends before the door moves.
+
 ## Still failing / not run
 
-* Key lock with a key in Rynn's hand (see the follow-up and the third round below), bow kills for the kill-all gate.
+* Bow kills for the kill-all gate (the key lock is proven, fifth round).
 * Plate trigger needs Rynn to touch the plate (a scaled 0.4 stock plate is still a solid block in Stratos).
