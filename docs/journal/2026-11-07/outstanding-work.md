@@ -31,12 +31,15 @@ converter bug (formats `5e67f7c`), and his hit points reach 0 under breath. The 
 
 Open:
 
-1. **Ruined Village exit.** The exit (PC object 1075, a Creature detector with "Does Cave Entrance Teleport? 1" and "Dragon Takes
-   Off Upon Teleport? 1") is meant for a mounted dragon. Arokh is story-gated: he sits in the lair at 484416 24773 201196 tied to
-   the Dragon Clutch detector 1089, a Dragon Falls prop and the "arokh awakening" scene 1625. Nobody found the step that frees
-   him; E beside him did nothing. Next: read the PC links of 1089 and scene 1625 and play the step.
-2. **Chain from Wartok on in one process.** Only separate walk-in pairs were proven. No per-level time, FPS and memory table
-   exists past the Intro and Ruined Village. Use the closed-loop driver (`f5dab15f`, `docs/journal/2026-11-07/ootf-closed-loop-driver.md`).
+1. **Ruined Village exit: solved.** The Soul Crystal in the lair (Creature detector 3345 on the crystal base) plays the "arokh
+   awakening" scene 1625; the scene ends with the save prompt and the exit to Wartok Canyons, and Rynn arrives mounted (controlled
+   actor Arokh). A Cross tap after the load dismounts her, which is a test trap, not a fault. Evidence:
+   `ootf-ruined-village-crystal.md`, `ootf-wartok-chain.md` (section a). Not found: a natural walk from the village start to the
+   lair (runs place Rynn on the ledge at 482600 25200 201196, W for about 2 s).
+2. **Chain from Wartok on: every exit fires through Volcanic.** Wartok, Grimstone, Grotto, Islands, Rift Crystal (not Alwarren),
+   Islands Night, Succubus Lair, Volcanic, each walk-in with message box, save and load; table of exit positions and load times in
+   `ootf-wartok-chain.md` (section b). Run in segments with fresh cards, not one process for all 8 levels. Still open: a
+   per-level FPS and memory table, and Alwarren (07), which the Islands exit does not lead to.
 3. **Delon on foot.** Rynn arrives in Rift World mounted with an empty inventory, so a sword fight was never played. Options:
    a weapon item placed on the altar ring (needs a weapon class in the Rift World object database), a spell through the
    inventory flow, or a natural save that carries Atimar. His Defense 100% behaviour and damage while shielding are unmeasured.
