@@ -165,7 +165,7 @@ static void autoSteer(drakan_input::IGuest& guest) {
         const float v = e && *e ? std::strtof(e, nullptr) : 0.0f;
         return v > 0.0f ? v : 20000.0f;
     }();
-    static const bool hasAlt = std::getenv("DRAKAN_PLAYTEST_ALT") != nullptr;
+    static const bool hasAlt = std::getenv("DRAKAN_PLAYTEST_ALT") != nullptr && std::getenv("DRAKAN_PLAYTEST_ALT")[0] != 0;
     static const float alt = hasAlt ? std::strtof(std::getenv("DRAKAN_PLAYTEST_ALT"), nullptr) : 0.0f;
     if (!cls && !hasAlt && !std::getenv("DRAKAN_PLAYTEST_WAYPOINTS"))
         return;
@@ -253,7 +253,7 @@ static void autoSteer(drakan_input::IGuest& guest) {
         if (!h || h == pl || guest.read32(h) != vt)
             continue;
         const uint32_t ix = guest.read32(h + 0x10) & 0xffffu;
-        if (ix == 0xffffu || ix > nClasses || guest.read32(classes + ix * 0x24 + 8) != cls)
+        if (ix == 0xffffu || ix >= nClasses || guest.read32(classes + ix * 0x24 + 8) != cls)
             continue;
         const uint32_t beh = guest.read32(h + 0xfc);
         const uint32_t q = beh ? guest.read32(beh + 0x10) : 0;

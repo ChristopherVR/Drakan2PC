@@ -1383,7 +1383,8 @@ void drakanInstallInput(PS2Runtime& rt) {
             ilog("[input] FATAL: script '%s' has rejected lines (set DRAKAN_INPUT_SCRIPT_LENIENT=1 to skip them)\n",
                  script);
             std::fflush(nullptr);
-            std::exit(2);
+            rt.requestStop(); // the normal stop path: logs flush, audio and the GS shut down in order
+            return;
         }
         if (const char* live = std::getenv("DRAKAN_INPUT_LIVE"); live && live[0] && module().scripted()) {
             module().setLiveInput(live);

@@ -339,8 +339,13 @@ void CampaignCreditsOverride::patchRead(const IsoFs& fs, const IsoFs::Node& node
             continue;
         const std::string body = bodyFor(r.id, r.size);
         memcpy(data + (a - offset), body.data() + (a - r.off), (size_t)(b - a));
-        logf("credits: read at %llu patched entry %u (%llu bytes)", (unsigned long long)a, (unsigned)r.id,
-             (unsigned long long)(b - a));
+        // The credits are read in many small chunks: log the first few only.
+        static unsigned logged = 0;
+        if (logged < 8) {
+            ++logged;
+            logf("credits: read at %llu patched entry %u (%llu bytes)%s", (unsigned long long)a, (unsigned)r.id,
+                 (unsigned long long)(b - a), logged == 8 ? " (further patched reads not logged)" : "");
+        }
     }
 }
 
