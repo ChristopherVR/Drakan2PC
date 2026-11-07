@@ -607,3 +607,13 @@ stay in submission order. With `GSR_PROFILE=2`, inspect `surfaceWait` for blocke
 useful work on the joining thread and `surfaceDrain` for the total cost of the join. A separate `rayEnqueue`
 measurement covers submitting to the bounded DXR queue, including waiting for room. Compare the two schedules
 with `GSR_SURFACE_OVERLAP`. See [the combat measurements](../journal/2026-11-05/scene-geometry-join.md).
+
+## Northern Tundra weak spots (2026-11-07)
+
+Weak 4B spots (45 fps world rate against 160 elsewhere in the level, display presents stay at 60 Hz) are a steady GPU limit,
+not a stall: in a clean window `presentCall` rose from 1.8 to 8.5 ms per present, DXR `compose` from 1.7 to 7 ms
+(`GSR_RAY_GPU_TIMING=1`), while draws, uploads and `syncRT` per frame stayed flat and no `[perf-stall]` or slow GS record
+appeared. The earlier `nvwgf2umx` stall lines came from several games sharing the GPU. Effect attribution by toggles was not
+possible on the shared machine; see the [journal](../journal/2026-11-07/fps-4b.md) for numbers and the open A/B plan.
+Use the `.map` that belongs to the exe under test with `hostprof.py`.
+
