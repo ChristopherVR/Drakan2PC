@@ -74,21 +74,31 @@ export async function saveConverted(data: StoredLevels, disc: DiscKey): Promise<
         const tx = db.transaction([FILES, META], 'readwrite');
         const files = tx.objectStore(FILES);
         const meta = tx.objectStore(META);
-        const [storedDisc, storedLevels] = await Promise.all([
-            get<DiscKey>(meta, 'disc'),
-            get<StoredLevels['levels']>(meta, 'levels'),
-        ]);
-        let levels = storedLevels ?? [];
-        if (!sameDisc(storedDisc, disc)) {
-            files.clear();
-            levels = [];
+        try {
+            const [storedDisc, storedLevels] = await Promise.all([
+                get<DiscKey>(meta, 'disc'),
+                get<StoredLevels['levels']>(meta, 'levels'),
+            ]);
+            let levels = storedLevels ?? [];
+            if (!sameDisc(storedDisc, disc)) {
+                files.clear();
+                levels = [];
+            }
+            const byDir = new Map(levels.map((l) => [l.dirPath.toUpperCase(), l]));
+            for (const l of data.levels) byDir.set(l.dirPath.toUpperCase(), l);
+            for (const f of data.files) files.put(f.bytes, f.path);
+            meta.put([...byDir.values()], 'levels');
+            meta.put({ volumeId: disc.volumeId, language: disc.language }, 'disc');
+            await done(tx);
+        } catch (e) {
+            // A put that throws (a full store) must not leave the earlier puts to commit: the store stays as it was.
+            try {
+                tx.abort();
+            } catch {
+                // already finished or aborted
+            }
+            throw e;
         }
-        const byDir = new Map(levels.map((l) => [l.dirPath.toUpperCase(), l]));
-        for (const l of data.levels) byDir.set(l.dirPath.toUpperCase(), l);
-        for (const f of data.files) files.put(f.bytes, f.path);
-        meta.put([...byDir.values()], 'levels');
-        meta.put({ volumeId: disc.volumeId, language: disc.language }, 'disc');
-        await done(tx);
     } finally {
         db.close();
     }

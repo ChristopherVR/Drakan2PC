@@ -224,6 +224,17 @@ export function installCampaignWizard(host: WizardHost): CampaignWizard {
         h('span', {}, 'Back to the campaign wizard'),
     );
     document.body.append(root, resume);
+    // The opener often loses the focus just before the wizard opens (its button is redrawn): remember the last control
+    // outside the wizard that had it, so closing returns there.
+    let lastOutside: HTMLElement | null = null;
+    document.addEventListener(
+        'focusin',
+        (e) => {
+            if (e.target instanceof HTMLElement && !root.contains(e.target) && !resume.contains(e.target))
+                lastOutside = e.target;
+        },
+        true,
+    );
 
     const project = (): ModProject | null => projects.get();
     const campaign = (): ProjectCampaign | null => (project()?.campaign?.enabled ? project()!.campaign! : null);
@@ -1666,6 +1677,7 @@ export function installCampaignWizard(host: WizardHost): CampaignWizard {
         titleEl.textContent = c?.title.trim() ? `Make a campaign: ${c.title.trim()}` : 'Make a campaign';
         const active = document.activeElement as HTMLInputElement | null;
         const focusId = active && body.contains(active) ? active.id : '';
+        const hadFocus = !!active && panel.contains(active);
         const pos = focusId && 'selectionStart' in active! ? active!.selectionStart : null;
         const scroll = body.querySelector('.cwz-content')?.scrollTop ?? 0;
         paintRail();
@@ -1686,7 +1698,7 @@ export function installCampaignWizard(host: WizardHost): CampaignWizard {
                 'div',
                 { class: 'cwz-content', 'data-step': step },
                 h('div', { class: 'cwz-stepno' }, `Step ${i + 1} of ${WIZARD_STEPS.length}`),
-                h('h2', { class: 'cwz-step-title' }, s.title),
+                h('h2', { class: 'cwz-step-title', tabindex: -1 }, s.title),
                 h('p', { class: 'cwz-intro' }, s.intro),
                 content,
             ),
@@ -1712,6 +1724,10 @@ export function installCampaignWizard(host: WizardHost): CampaignWizard {
                 }
             }
         }
+        // The control that had the focus was replaced: keep the keyboard inside the wizard, on the step heading.
+        if (hadFocus && !panel.contains(document.activeElement)) {
+            body.querySelector<HTMLElement>('.cwz-step-title')?.focus({ preventScroll: true });
+        }
     }
 
     function move(d: -1 | 1): void {
@@ -1736,7 +1752,10 @@ export function installCampaignWizard(host: WizardHost): CampaignWizard {
     }
 
     function open(at?: WizardStepId): void {
-        if (!shown) previousFocus = document.activeElement as HTMLElement | null;
+        if (!shown) {
+            const a = document.activeElement as HTMLElement | null;
+            previousFocus = a && a !== document.body ? a : lastOutside;
+        }
         shown = true;
         root.hidden = false;
         resume.hidden = true;
@@ -1758,7 +1777,15 @@ export function installCampaignWizard(host: WizardHost): CampaignWizard {
         root.hidden = true;
         resume.hidden = true;
         store.set(BACK_KEY, '');
-        previousFocus?.focus();
+        // The opener may have been redrawn while the wizard was open: fall back to the start page button or the toolbar.
+        if (previousFocus?.isConnected && previousFocus.getClientRects().length > 0) previousFocus.focus();
+        else {
+            const shown = (el: HTMLElement): boolean =>
+                el.getClientRects().length > 0 && !el.closest('[hidden], [inert]');
+            [...document.querySelectorAll<HTMLElement>('main button:not(:disabled), #appbar button')]
+                .find(shown)
+                ?.focus();
+        }
     }
 
     /** Leave the wizard for the editor (a map click): a button in the corner brings it back. */

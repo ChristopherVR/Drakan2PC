@@ -8,6 +8,7 @@
         "build": "vite build",
         "preview": "vite preview",
         "ui-sweep": "node scripts/ui-sweep.mjs",
+        "keyboard-check": "node scripts/keyboard-check.mjs",
         "typecheck": "tsc -p tsconfig.json"
     },
     "dependencies": {

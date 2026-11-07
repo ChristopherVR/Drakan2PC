@@ -73,7 +73,6 @@ export function enhanceSelect(sel: HTMLSelectElement): HTMLButtonElement | null 
             role: 'combobox',
             'aria-haspopup': 'listbox',
             'aria-expanded': 'false',
-            'aria-controls': `${id}-list`,
         },
         valueEl,
         icon('chevron-down', 12),
@@ -320,6 +319,7 @@ export function enhanceSelect(sel: HTMLSelectElement): HTMLButtonElement | null 
             current = null;
             pop.remove();
             trigger.setAttribute('aria-expanded', 'false');
+            trigger.removeAttribute('aria-controls'); // the list exists only while open
             trigger.classList.remove('open');
             document.removeEventListener('pointerdown', onDown, true);
             document.removeEventListener('scroll', onScroll, true);
@@ -360,6 +360,7 @@ export function enhanceSelect(sel: HTMLSelectElement): HTMLButtonElement | null 
         // a host (e.g. Save mode) can re-map the colour tokens for its own popups
         (trigger.closest('[data-dd-host]') ?? document.body).append(pop);
         trigger.setAttribute('aria-expanded', 'true');
+        trigger.setAttribute('aria-controls', `${id}-list`);
         trigger.classList.add('open');
         current = { sel, close };
         position();

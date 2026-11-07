@@ -683,3 +683,7 @@
         padding: 16px;
     }
 }
+
+.cwz-step-title:focus {
+    outline: none;
+}

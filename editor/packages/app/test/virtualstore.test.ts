@@ -1,6 +1,6 @@
 // Synthetic only: the converted-levels store (accumulation, disc keying, batched load, quota messages) on fake IndexedDB.
 import 'fake-indexeddb/auto';
-import { beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { clearConverted, loadConverted, saveConverted, storeFailureMessage } from '../src/virtualstore.ts';
 
 const disc = { volumeId: 'DRAKAN_DISC', language: 'ENGLISH' };
@@ -55,5 +55,48 @@ describe('persisted converted levels', () => {
         expect(storeFailureMessage(quota)).toMatch(/no room left/);
         expect(storeFailureMessage(new Error('boom'))).toMatch(/would not keep/);
         expect(storeFailureMessage(quota)).not.toMatch(/IndexedDB|QuotaExceeded/);
+    });
+
+    describe('a browser store that fills up while writing', () => {
+        afterEach(() => vi.restoreAllMocks());
+
+        const full = () => new DOMException('The quota has been exceeded.', 'QuotaExceededError');
+
+        it('keeps the earlier levels whole when a later write is refused part way', async () => {
+            await saveConverted({ levels: [lvl('A')], files: [file('new/a.bin', 4, 1)] }, disc);
+            const put = IDBObjectStore.prototype.put;
+            let n = 0;
+            vi.spyOn(IDBObjectStore.prototype, 'put').mockImplementation(function (
+                this: IDBObjectStore,
+                ...a: [unknown, IDBValidKey?]
+            ) {
+                if (++n === 3) throw full(); // two files land, the third does not fit
+                return put.apply(this, a as [unknown, IDBValidKey?]);
+            });
+            const files = [file('new/b1.bin', 4), file('new/b2.bin', 4), file('new/b3.bin', 4), file('new/b4.bin', 4)];
+            const err = await saveConverted({ levels: [lvl('B')], files }, disc).then(
+                () => null,
+                (e: unknown) => e,
+            );
+            expect(storeFailureMessage(err)).toMatch(/no room left/);
+            vi.restoreAllMocks();
+            const got = await loadConverted(disc);
+            expect(got?.levels.map((l) => l.name)).toEqual(['A']);
+            expect(got?.files.map((f) => f.path)).toEqual(['new/a.bin']); // none of the half written level B is kept
+        });
+
+        it('is refused by an aborted transaction the same way (the quota error arrives late)', async () => {
+            const spy = vi.spyOn(IDBObjectStore.prototype, 'put').mockImplementation(function (this: IDBObjectStore) {
+                this.transaction.abort();
+                throw full();
+            });
+            const err = await saveConverted({ levels: [lvl('A')], files: [file('new/a.bin', 4)] }, disc).then(
+                () => null,
+                (e: unknown) => e,
+            );
+            spy.mockRestore();
+            expect(storeFailureMessage(err)).toMatch(/no room left/);
+            expect(await loadConverted(disc)).toBeNull();
+        });
     });
 });

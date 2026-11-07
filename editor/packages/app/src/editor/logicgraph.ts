@@ -278,7 +278,7 @@ export function createLogicGraph(host: GraphHost): LogicGraphView {
         const sel = doc.size ? ctx.view().selection : new Set<number>();
         empty.hidden = graph.nodes.size > 0;
         if (!empty.hidden) renderEmpty();
-        if (!world.querySelector('defs')) canvas.prepend(arrowDefs());
+        if (!canvas.querySelector('defs')) canvas.prepend(arrowDefs());
         for (const e of graph.edges) {
             const g = svg('g');
             const d = edgePath(e.from, e.to);
