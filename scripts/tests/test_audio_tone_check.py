@@ -4,7 +4,10 @@ import sys
 import unittest
 from pathlib import Path
 
-import numpy as np
+try:
+    import numpy as np
+except ImportError:
+    raise unittest.SkipTest("numpy is not installed") from None
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "harness"))
 import audio_tone_check as tone
