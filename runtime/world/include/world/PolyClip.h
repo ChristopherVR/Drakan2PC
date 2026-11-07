@@ -3,11 +3,11 @@
 // The polygon pipeline (FUN_00146378 -> FUN_00146880 -> GIF emitter FUN_001d9de8) receives vertices that are already
 // projected: screen x / y (GS primitive units, centre 2048), z proportional to q, w (fog / alpha float), s / t (plain
 // texture coordinates), q = 1 / camera depth and a packed RGBA word. The engine only checks that one vertex is in front
-// of the camera and then draws the whole polygon, so a ribbon whose far edge is behind the camera is sent to the GS with
-// q < 0 on two vertices: the perspective division flips, the texture coordinates pass through a singularity and the
-// screen fills with starburst fans. This header clips such polygons against the plane camera depth = nearW (and against
-// a guard band that keeps the result inside the GS 16 bit coordinate window) with Sutherland-Hodgman in homogeneous
-// space, interpolating position, depth, s / t, fog and colour exactly where they are linear.
+// of the camera and then draws the whole polygon, so a ribbon whose far edge is behind the camera is sent to the GS
+// with q < 0 on two vertices: the perspective division flips, the texture coordinates pass through a singularity and
+// the screen fills with starburst fans. This header clips such polygons against the plane camera depth = nearW (and
+// against a guard band that keeps the result inside the GS 16 bit coordinate window) with Sutherland-Hodgman in
+// homogeneous space, interpolating position, depth, s / t, fog and colour exactly where they are linear.
 #pragma once
 
 #include <cmath>
@@ -50,9 +50,9 @@ inline bool straddlesCamera(const Vertex* v, int n) {
     return front && back;
 }
 
-// True when the polygon is outside the GS coordinate window (|x - centre| or |y - centre| beyond Params::trigger on some
-// vertex): the GIF XYZ2 fields are 16 bit, so the hardware wraps such vertices and draws garbage, which is the other
-// way a ribbon with its tip close to the camera becomes a starburst.
+// True when the polygon is outside the GS coordinate window (|x - centre| or |y - centre| beyond Params::trigger on
+// some vertex): the GIF XYZ2 fields are 16 bit, so the hardware wraps such vertices and draws garbage, which is the
+// other way a ribbon with its tip close to the camera becomes a starburst.
 inline bool outsideWindow(const Vertex* v, int n, const Params& p) {
     for (int i = 0; i < n; ++i) {
         if (!std::isfinite(v[i].x) || !std::isfinite(v[i].y) || !std::isfinite(v[i].q) || !std::isfinite(v[i].z) ||
@@ -104,11 +104,16 @@ inline HV lerp(const HV& a, const HV& b, float u) {
 }
 inline float dist(const HV& h, int plane, const Params& p) {
     switch (plane) {
-    case 0: return h.W - p.nearW;
-    case 1: return p.guard * h.W - h.X;
-    case 2: return p.guard * h.W + h.X;
-    case 3: return p.guard * h.W - h.Y;
-    default: return p.guard * h.W + h.Y;
+        case 0:
+            return h.W - p.nearW;
+        case 1:
+            return p.guard * h.W - h.X;
+        case 2:
+            return p.guard * h.W + h.X;
+        case 3:
+            return p.guard * h.W - h.Y;
+        default:
+            return p.guard * h.W + h.Y;
     }
 }
 inline Vertex lower(const HV& h, const Vertex* in, const Params& p) {

@@ -304,8 +304,8 @@ void EeScheduler::run() {
                 continue;
             }
             if (running->id == kMainThreadId && m_runtime.missingFunctionReported()) {
-                // A branch to an unknown target (typically a call through a null vtable slot, target 0) left pc at 0, so
-                // every guest frame above it returned and the main thread ended. Without this the game just stops
+                // A branch to an unknown target (typically a call through a null vtable slot, target 0) left pc at 0,
+                // so every guest frame above it returned and the main thread ended. Without this the game just stops
                 // flipping frames while the vblank thread keeps ticking (docs/journal/2026-11-07/surdana-null-jalr.md).
                 std::fprintf(stderr,
                              "[fatal] main thread unwound to pc 0 after a missing branch target (see the "

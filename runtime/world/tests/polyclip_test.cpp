@@ -71,8 +71,8 @@ void testStraddleIsClippedToFront() {
     const float uExpected = (1500.0f - p.nearW) / 1900.0f;
     bool found = false;
     for (int i = 0; i < n; ++i)
-        if (std::memcmp(&out[i], &quad[0], sizeof(Vertex)) != 0 && std::memcmp(&out[i], &quad[1], sizeof(Vertex)) != 0 &&
-            std::fabs(out[i].t - 0.0f) < 1e-3f) {
+        if (std::memcmp(&out[i], &quad[0], sizeof(Vertex)) != 0 &&
+            std::memcmp(&out[i], &quad[1], sizeof(Vertex)) != 0 && std::fabs(out[i].t - 0.0f) < 1e-3f) {
             CHECK(std::fabs(out[i].s - uExpected) < 1e-3f);
             // colour alpha lerps 0x44 -> 0xff by u
             const float a = static_cast<float>(out[i].rgba >> 24);
@@ -125,7 +125,8 @@ void testOutsideWindowIsClipped() {
     const int n = clipPolygon(tri, 4, p, out);
     CHECK(n >= 3);
     for (int i = 0; i < n; ++i)
-        CHECK(std::fabs(out[i].x - p.centreX) <= p.guard * 1.001f && std::fabs(out[i].y - p.centreY) <= p.guard * 1.001f);
+        CHECK(std::fabs(out[i].x - p.centreX) <= p.guard * 1.001f &&
+              std::fabs(out[i].y - p.centreY) <= p.guard * 1.001f);
     // in range polygons never trigger
     const Vertex ok[3] = {project(0, 0, 1000, 0, 0, 0), project(500, 0, 1000, 0, 1, 0), project(0, 500, 800, 1, 1, 0)};
     CHECK(!needsClip(ok, 3, p));
