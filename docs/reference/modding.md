@@ -518,6 +518,11 @@ and the pack's text is served for the first while the second is emptied (`hle::C
 `override_test`). The disc game keeps its own list. `ootf-convert.ts --campaign 1` writes a short end card (the game, the
 original studio, the engine) with no personal names, since the PC install carries no credits.
 
+**Known gap:** in game the credits did not change. While they scroll the engine makes no request for ids 8807 / 8808 through
+the entry override layer (a request log line in `CampaignCreditsOverride::wants` never fired), so the override is not reached:
+the text comes from a plain read of the opened `Drakan 2.rrc`. Making it work needs a game-scoped patch of that file at open
+(the file service's open filter with `patchSrsc`), which only applies when the game is chosen before the file is opened.
+
 ## HD textures for converted OotF mods
 
 One command after converting (campaign pack, multiplayer arenas, any pack):
