@@ -51,11 +51,11 @@ const cls = exits.find((c) => new RegExp(opt.exitClass ?? 'Inquisitor', 'i').tes
 console.log('using', cls.name);
 const at = opt.at ?? [735232, 152900, 768800];
 const t = C.templateById('level-exit');
-const r = t.build({ doc, env, catalog, at, selection: [] }, { exit: cls.resource, w: opt.w ?? 6, h: 3, d: 1 });
+const r = t.build({ doc, env, catalog, at, selection: [] }, { exit: cls.resource, w: opt.w ?? 6, h: 3, d: opt.d ?? 1 });
 if (C.isError(r)) throw new Error(r.error);
 console.log(r.notes, r.warnings);
 stack.run(new C.ApplyTemplateCommand(r, 'Template: ' + t.title));
-for (const o of r.objects) console.log('NEW', o.id, o.class, o.transform.pos.join(' '), JSON.stringify(o.links));
+for (const o of r.objects) console.log('NEW', o.id, o.class, o.transform.pos.join(' '), JSON.stringify(o.links), 'scale', JSON.stringify(o.scale), JSON.stringify(o.fields));
 
 const { list, report } = C.applyDocumentToLvl(lvl.list, doc);
 console.log(JSON.stringify(report.diff), report.warnings);
@@ -70,3 +70,16 @@ for (const [p, d] of Object.entries(files)) {
     writeFileSync(full, d);
 }
 writeFileSync(out + '/mods.ini', '[mods]\n' + id + ' = on\n');
+if (opt.dump) {
+    const ship = doc.get(12249);
+    const mine = r.objects.find((o) => o.class === 'Trigger Detector');
+    const names = env.schemaFor(mine.resource).fields.map((f) => f.name);
+    for (const n of names) console.log('FIELD', n, '| shipped', JSON.stringify(C.fieldValueOf(ship, env, n)), '| new', JSON.stringify(C.fieldValueOf(mine, env, n)));
+}
+if (opt.dump) {
+    const ship = doc.get(12249);
+    const mine = r.objects.find((o) => o.class === 'Trigger Detector');
+    const strip = (o) => JSON.stringify({ ...o, fields: undefined, template: undefined, raw: undefined }).slice(0, 600);
+    console.log('OBJ ship', strip(ship));
+    console.log('OBJ mine', strip(mine));
+}

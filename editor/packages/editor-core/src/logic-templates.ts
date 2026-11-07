@@ -759,7 +759,7 @@ export const TEMPLATES: LogicTemplate[] = [
             },
             { id: 'w', label: 'Zone width (cells)', kind: 'number', default: 4, min: 0.25, step: 0.25 },
             { id: 'h', label: 'Zone height (cells)', kind: 'number', default: 3, min: 0.25, step: 0.25 },
-            { id: 'd', label: 'Zone depth (cells)', kind: 'number', default: 1, min: 0.25, step: 0.25 },
+            { id: 'd', label: 'Zone depth (cells)', kind: 'number', default: 4, min: 0.25, step: 0.25 },
         ],
         build: (ctx, v) =>
             guard(() => {
@@ -768,7 +768,9 @@ export const TEMPLATES: LogicTemplate[] = [
                 const cls = need(wanted ?? pickClass(ctx.catalog, 0x37), 'level exit class');
                 // An exit on its own never fires: the game fires every shipped exit from a Trigger Detector linked to it
                 // (measured: a walk into the detector box, not onto the exit object; docs/journal/2026-11-01).
-                // The shipped detectors use Detect Which 2 (the player), Only Once off and message On.
+                // The shipped detectors use Detect Which 2 (the player), Only Once off and message On. The zone is 4 x 3 x 4 cells:
+                // a 6 x 3 x 1 box (not turned like the shipped one) never fired when walked through, a 4 x 3 x 4 box did
+                // (docs/journal/2026-11-07/editor-round8.md).
                 const o = b.make(cls, [ctx.at[0], ctx.at[1], ctx.at[2] + 3000], {});
                 const det = pickClass(ctx.catalog, 0x3d, /^trigger detector$/i) ?? pickClass(ctx.catalog, 0x3d);
                 if (det) {
@@ -776,7 +778,7 @@ export const TEMPLATES: LogicTemplate[] = [
                         det,
                         liftVolume(ctx.at),
                         { 'Trigger Message': msg('On'), 'Detect Only Once?': 0, 'Detect Which?': 2 },
-                        { scale: [num(v, 'w', 4), num(v, 'h', 3), num(v, 'd', 1)] },
+                        { scale: [num(v, 'w', 4), num(v, 'h', 3), num(v, 'd', 4)] },
                     );
                     b.link(d.id, o.id);
                     b.notes.push(`${cls.name} #${o.id} fires when the player walks into zone #${d.id}`);
