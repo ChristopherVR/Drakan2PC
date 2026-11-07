@@ -431,7 +431,7 @@ void testNativePackMarks() {
             CHECK(!note.empty() && note.find("[Missing menu text]") == std::string::npos);
             CHECK(note.find("\xe2\x80\x94") == std::string::npos); // no em-dash
             CHECK(note != savePackProblemText(p, "Pack X"));       // the short form
-            lines = nativeSlotNoteLines(p, measure, 0x80, 6); // the glue's width: all of it fits five lines
+            lines = nativeSlotNoteLines(p, measure, 0x80, 6);      // the glue's width: all of it fits five lines
             CHECK(lines.size() >= 2 && lines.size() <= 5 && lines[0] == menuText("Unavailable"));
             for (const std::string& l : lines)
                 CHECK(utf8ToLatin1(l).find('?') == std::string::npos);
