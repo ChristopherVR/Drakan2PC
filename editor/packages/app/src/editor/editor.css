@@ -2345,3 +2345,6 @@ html, body { overflow-x: hidden; }
   outline: 2px solid var(--accent) !important;
   outline-offset: -2px;
 }
+
+/* A drag that the viewport accepts (a class from the Place panel): a dashed frame, like the Logic graph's drop target. */
+#lv-viewport.drop-ready { outline: 2px dashed var(--accent); outline-offset: -4px; }

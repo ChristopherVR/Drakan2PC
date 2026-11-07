@@ -278,7 +278,10 @@ export class LevelView {
         el.addEventListener('contextmenu', (e) => e.preventDefault());
         el.addEventListener('wheel', this.onWheel, { passive: true });
         host.addEventListener('dragover', this.onDragOver);
-        host.addEventListener('dragleave', () => (this.placeGhost.visible = false));
+        host.addEventListener('dragleave', () => {
+            this.placeGhost.visible = false;
+            host.classList.remove('drop-ready');
+        });
         host.addEventListener('drop', this.onDrop);
         window.addEventListener('keydown', this.onKeyDown);
         window.addEventListener('keyup', this.onKeyUp);
@@ -705,6 +708,7 @@ export class LevelView {
         if (!this.dragKey) return;
         e.preventDefault();
         if (e.dataTransfer) e.dataTransfer.dropEffect = 'copy';
+        this.host.classList.add('drop-ready'); // the viewport shows it accepts the drop
         this.dragHover(e);
     };
 
@@ -771,6 +775,7 @@ export class LevelView {
     }
 
     private onDrop = (e: DragEvent): void => {
+        this.host.classList.remove('drop-ready');
         if (!this.dragKey) return;
         e.preventDefault();
         e.stopPropagation();

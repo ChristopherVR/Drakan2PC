@@ -219,7 +219,7 @@ export function initLevelUi(host: LevelUiHost): LevelUi {
     const help = helpOverlay();
     document.body.append(help.el);
 
-    const statusMsg = h('span', { class: 'sb-msg' }, 'Ready');
+    const statusMsg = h('span', { class: 'sb-msg', role: 'status', 'aria-live': 'polite' }, 'Ready');
     const sbSel = h('span', { class: 'sb-item', id: 'sb-sel' });
     const sbCam = h('span', { class: 'sb-item mono', id: 'sb-cam' });
     const sbSnap = h('span', { class: 'sb-item', id: 'sb-snap' });
@@ -265,7 +265,8 @@ export function initLevelUi(host: LevelUiHost): LevelUi {
 
     function toast(raw: string, kind: 'info' | 'error' | 'ok' | 'warn' = 'info'): void {
         const msg = kind === 'error' ? friendlyMessage(raw) : raw;
-        const t = h('div', { class: `toast ${kind}`, role: 'status' }, msg);
+        // an error is announced at once (role alert), everything else politely
+        const t = h('div', { class: `toast ${kind}`, role: kind === 'error' ? 'alert' : 'status' }, msg);
         toasts.append(t);
         window.setTimeout(() => t.classList.add('out'), kind === 'error' || kind === 'warn' ? 6000 : 2800);
         window.setTimeout(() => t.remove(), kind === 'error' || kind === 'warn' ? 6400 : 3200);
