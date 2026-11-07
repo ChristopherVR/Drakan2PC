@@ -98,6 +98,15 @@
       }
     },
     {
+      "name": "runtime-check",
+      "displayName": "Windows / MSVC: compile drakan.exe's runtime sources (no link, no game data, no recompiler output; downloads raylib and FFmpeg)",
+      "inherits": "game",
+      "cacheVariables": {
+        "DRAKAN_BUILD_GAME": "OFF",
+        "DRAKAN_CHECK_RUNTIME_SOURCES": "ON"
+      }
+    },
+    {
       "name": "linux-recompiler",
       "displayName": "Linux / Ninja: ps2_recomp only (CI compiler job)",
       "generator": "Ninja",
@@ -205,6 +214,14 @@
       "configuration": "Release",
       "targets": [
         "ps2EntryRunner"
+      ]
+    },
+    {
+      "name": "runtime-check",
+      "configurePreset": "runtime-check",
+      "configuration": "Release",
+      "targets": [
+        "drakan_runtime_check"
       ]
     },
     {

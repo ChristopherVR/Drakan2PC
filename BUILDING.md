@@ -77,6 +77,7 @@ tests that already had `/WX`. `-DDRAKAN_COMPILER_WARNINGS=OFF` (player builds) c
 | `runtime-tests` | libraries, tests and policies only; no network fetches, no game data (what CI runs) |
 | `recompiler` / `linux-recompiler` | `ps2_recomp` only (what `build_tool.py` configures) |
 | `ps2x-tests` | `windows-msvc` plus `ps2xTest` |
+| `runtime-check` | compiles every `drakan.exe` runtime source (`ps2_runtime` plus the runner, `drakan_overrides.cpp` included) with the `game` settings but no recompiler output, no disc files and no link; only the VU files that include the local `ps2_vu1_image.inc` are skipped. Downloads raylib and FFmpeg. CI job `runtime-source-check` and the Release gate run it; `scripts/tests/test_runtime_compile_set.py` keeps its file set equal to the game's |
 | `game` | `drakan.exe`; used by `Build-LocalGame.ps1` and `scripts/harness/build_game.ps1` |
 | `linux-runtime-tests` | portable libraries (including SPU2/ALSA), settings UI and policy/host-service tests; no game data |
 | `linux-game` | native runtime/generated game build with the software GS; selected by the ISO builder |
@@ -350,6 +351,11 @@ assets `DrakanEditor-Setup.exe`, `DrakanEditor-Portable.zip`, `DrakanSaveEditor-
 - **New game release**: push a `v*` tag (or run Release with a tag). `release.yml` publishes the game files, marks the
   release Latest, then calls `editor-release.yml` for the same tag, so the release gets editor builds of the same commit.
   If the editor job fails, re-run just that job; the game files are already published.
+- **Release gate**: before publishing, `release.yml` unpacks the `DrakanPC-Builder` zip it just built (a `git archive` of the
+  tagged commit, so no uncommitted edit can be in it) and compiles the runtime sources with the `runtime-check` preset.
+  A tree that does not compile therefore never becomes a Setup. `pre-push` (`repository_guard.py`) also refuses a push
+  while tracked files under `ps2recomp/`, `runtime/`, `cmake/` or the CMake roots differ from `HEAD`
+  (`DRAKAN_ALLOW_DIRTY_PUSH=1` overrides), because local builds would then pass on code the commit lacks.
 - **Editor changes between game releases**: a push to `main` touching `editor/**` rebuilds the apps and replaces the
   four editor assets on the newest `v*` release (`gh release upload --clobber`, fixed file names, so nothing stale
   remains). "Newest" means the most recently created published `v*` release; `site-media-*` and legacy `editor-b*` are

@@ -51,6 +51,23 @@ jobs:
         run: python scripts/buildtool/package_builder_kit.py --installer --iscc "$env:ISCC" --output-directory build/release
       - name: Build the zip kit
         run: python scripts/buildtool/package_builder_kit.py --output-directory build/release
+      # Gate: the Setup builds the game on the player's PC from this tree, so a tree whose runtime does not compile
+      # must never become a release. Compile the runtime sources from the packaged kit (a git archive of the tagged
+      # commit, exactly what the player gets) in a clean directory. Compile only: no disc, no recompiler output.
+      - name: Gate - the packaged kit's game runtime sources compile
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $PSNativeCommandUseErrorActionPreference = $true
+          $dirty = git status --porcelain --untracked-files=no
+          if ($dirty) { $dirty; throw 'tracked files differ from the tagged commit' }
+          $zip = (Get-ChildItem build/release -Filter 'DrakanPC-Builder-*.zip' | Select-Object -First 1).FullName
+          Expand-Archive -LiteralPath $zip -DestinationPath build/kit-verify
+          $kit = (Get-ChildItem build/kit-verify -Directory | Select-Object -First 1).FullName
+          Push-Location $kit
+          cmake --preset runtime-check
+          cmake --build --preset runtime-check --parallel 4
+          Pop-Location
       - name: Stage release files
         shell: pwsh
         run: |

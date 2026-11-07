@@ -35,6 +35,7 @@ set(DRAKAN_PS2RECOMP_DIR "${DRAKAN_ROOT_DIR}/ps2recomp")
 option(DRAKAN_BUILD_RECOMPILER "Build the PS2 recompiler (ps2_recomp)" ON)
 option(DRAKAN_BUILD_RUNTIME_TESTS "Build the runtime libraries (runtime/*) with their tests and the policy tests; no game data needed" ON)
 option(DRAKAN_BUILD_GAME "Build drakan.exe; needs PS2X_GENERATED_DIR and the local files from scripts/prepare_local_runtime.py" OFF)
+option(DRAKAN_CHECK_RUNTIME_SOURCES "Compile (no link, no game data, no recompiler output) every drakan.exe runtime source that needs no generated or disc-derived file; CI and the release gate use it (preset runtime-check)" OFF)
 option(DRAKAN_BUILD_PS2X_TESTS "Build the PS2 runtime unit tests in ps2recomp/ps2xTest (pulls in raylib and FFmpeg)" OFF)
 
 if(ANDROID)
@@ -74,7 +75,7 @@ endif()
 enable_testing()
 
 set(DRAKAN_NEED_RUNTIME_LIBS OFF)
-if(DRAKAN_BUILD_RUNTIME_TESTS OR DRAKAN_BUILD_GAME OR DRAKAN_BUILD_PS2X_TESTS)
+if(DRAKAN_BUILD_RUNTIME_TESTS OR DRAKAN_BUILD_GAME OR DRAKAN_BUILD_PS2X_TESTS OR DRAKAN_CHECK_RUNTIME_SOURCES)
     set(DRAKAN_NEED_RUNTIME_LIBS ON)
 endif()
 
@@ -117,7 +118,7 @@ if(DRAKAN_NEED_RUNTIME_LIBS)
     add_subdirectory(runtime/net)      # multiplayer protocol, match server/client, transports, drakan_server
 endif()
 
-if(DRAKAN_BUILD_GAME OR DRAKAN_BUILD_PS2X_TESTS)
+if(DRAKAN_BUILD_GAME OR DRAKAN_BUILD_PS2X_TESTS OR DRAKAN_CHECK_RUNTIME_SOURCES)
     add_subdirectory(ps2recomp/ps2xIOP)
     add_subdirectory(ps2recomp/ps2xRuntime)
 endif()

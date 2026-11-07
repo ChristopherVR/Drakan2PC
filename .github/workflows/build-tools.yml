@@ -84,6 +84,37 @@ jobs:
           ./build/runtime-tests/bin/Release/gsr_test_synthetic.exe --warp --scale 1 --rt-shifted-row-only
           ./build/runtime-tests/bin/Release/gsr_test_synthetic.exe --warp --scale 1 --rt-cache-coherence-only
 
+  # The game's own runtime sources (drakan_overrides.cpp, drakan_*.cpp, ps2_*.cpp, Kernel/, the runner) need the
+  # recompiler output and the player's disc only at link time, so they are compiled here from this clean checkout.
+  # Without this a source that fails to compile (Rabe's v0.1.6 C3481) is green in every other job. Compile only, no link;
+  # the VU files that include the locally generated image are the only ones skipped (the configure step lists them).
+  runtime-source-check:
+    name: Windows game runtime sources compile / clean checkout, no game data
+    runs-on: windows-2022
+    timeout-minutes: 40
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Clean checkout has no uncommitted source edits
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $dirty = git status --porcelain --untracked-files=no
+          if ($dirty) { $dirty; throw 'tracked files differ from the commit under test' }
+      - name: Configure (runtime-check preset: drakan.exe settings, DRAKAN_CHECK_RUNTIME_SOURCES)
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $PSNativeCommandUseErrorActionPreference = $true
+          cmake --preset runtime-check
+      - name: Compile ps2_runtime and the runner sources (no link)
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $PSNativeCommandUseErrorActionPreference = $true
+          cmake --build --preset runtime-check --parallel 4
+
   linux-runtime-checks:
     name: Linux portable runtime checks / no game data
     runs-on: ubuntu-24.04

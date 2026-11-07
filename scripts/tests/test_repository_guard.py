@@ -117,6 +117,43 @@ class SourceGuardTests(unittest.TestCase):
                 ):
                     self.assertEqual(guard.pre_push(remote), expected)
 
+    def test_push_refused_while_build_inputs_have_uncommitted_edits(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+
+            def git(*args):
+                return subprocess.check_output(["git", *args], cwd=root, stderr=subprocess.DEVNULL).decode().strip()
+
+            git("init")
+            git("config", "user.name", "Source audit test")
+            git("config", "user.email", "audit@example.invalid")
+            (root / "ps2recomp").mkdir()
+            (root / "ps2recomp" / "a.cpp").write_text("int a;\n")
+            (root / "README.md").write_text("n\n")
+            git("add", ".")
+            git("commit", "-m", "clean")
+            head = git("rev-parse", "HEAD")
+            updates = f"refs/heads/main {head} refs/heads/main {'0' * 40}\n"
+
+            def push(env=None):
+                with (
+                    patch.object(guard, "ROOT", root),
+                    patch.dict("os.environ", env or {}),
+                    patch("sys.stdin", io.StringIO(updates)),
+                    contextlib.redirect_stdout(io.StringIO()),
+                    contextlib.redirect_stderr(io.StringIO()) as errors,
+                ):
+                    return guard.pre_push(), errors.getvalue()
+
+            self.assertEqual(push(), (0, ""))
+            (root / "README.md").write_text("edited docs do not matter\n")
+            self.assertEqual(push()[0], 0)
+            (root / "ps2recomp" / "a.cpp").write_text("int a = 1;\n")
+            code, errors = push()
+            self.assertEqual(code, 1)
+            self.assertIn("ps2recomp/a.cpp", errors)
+            self.assertEqual(push({"DRAKAN_ALLOW_DIRTY_PUSH": "1"})[0], 0)
+
     def test_submodule_pointer_must_be_published_first(self):
         with tempfile.TemporaryDirectory() as folder:
             root = Path(folder) / "parent"

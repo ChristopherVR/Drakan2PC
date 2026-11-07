@@ -9,6 +9,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import os
 import re
 import shutil
 import subprocess
@@ -207,7 +208,29 @@ def unpublished_submodule_commits(revision: str, remote_revision: str) -> list[t
     return missing
 
 
+# Trees whose compiled sources decide whether the shipped game builds. The Setup and the builder kit are a git archive
+# of a commit, so an edit that exists only in the working tree makes local builds pass and the release fail (v0.1.6).
+BUILD_INPUT_PATHS = ("ps2recomp", "runtime", "cmake", "CMakeLists.txt", "CMakePresets.json", "configs", "third_party")
+
+
+def uncommitted_build_inputs() -> list[str]:
+    """Tracked files under BUILD_INPUT_PATHS that differ from HEAD (staged or not)."""
+    out = subprocess.check_output(["git", "diff", "--name-only", "-z", "HEAD", "--", *BUILD_INPUT_PATHS], cwd=ROOT)
+    return [name for name in out.decode().split("\0") if name]
+
+
 def pre_push(remote: str | None = None) -> int:
+    dirty = uncommitted_build_inputs()
+    if dirty and os.environ.get("DRAKAN_ALLOW_DIRTY_PUSH") != "1":
+        print(
+            "Push rejected: tracked build inputs have uncommitted edits, so local builds would pass on code that\n"
+            "is not in the commit you are pushing (the release Setup is built from the commit alone):",
+            file=sys.stderr,
+        )
+        for name in dirty[:20]:
+            print(f"  {name}", file=sys.stderr)
+        print("Commit or stash them (DRAKAN_ALLOW_DIRTY_PUSH=1 overrides).", file=sys.stderr)
+        return 1
     # Only the destination's own refs count as already published: an object another remote holds is new here.
     published = [f"--remotes={remote}"] if remote else []
     failures = []

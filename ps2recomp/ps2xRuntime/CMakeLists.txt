@@ -739,6 +739,34 @@ if(EMSCRIPTEN)
 else()
     target_link_libraries(ps2_runtime PUBLIC ps2_host_backend ffmpeg ps2_iop)
 endif()
+
+# Source check (DRAKAN_CHECK_RUNTIME_SOURCES, preset runtime-check, scripts/tests/test_runtime_compile_set.py): the game's own targets, built
+# without the recompiler output and the disc-derived files. ps2_runtime compiles every source it lists except the ones
+# that include the locally generated VU image (ps2_vu1_image.inc, never committed); `drakan_runtime_check` also compiles
+# the runner's own sources (no link). The skipped files are printed so a source is never dropped silently.
+if(DRAKAN_CHECK_RUNTIME_SOURCES AND NOT PS2X_GENERATED_DIR)
+    set(DRAKAN_CHECK_SKIPPED "")
+    get_target_property(DRAKAN_CHECK_SOURCES ps2_runtime SOURCES)
+    foreach(src IN LISTS DRAKAN_CHECK_SOURCES)
+        cmake_path(ABSOLUTE_PATH src BASE_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}" OUTPUT_VARIABLE src_abs)
+        if(src_abs MATCHES "[.]cpp$")
+            file(READ "${src_abs}" src_text)
+            if(src_text MATCHES "ps2_vu1_(image|aot_slice)[.]inc" AND
+                NOT EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/src/lib/vu/aot/ps2_vu1_image.inc")
+                set_source_files_properties("${src_abs}" PROPERTIES HEADER_FILE_ONLY TRUE)
+                list(APPEND DRAKAN_CHECK_SKIPPED "${src}")
+            endif()
+        endif()
+    endforeach()
+    message(STATUS "Source check: skipped (need the local VU image): ${DRAKAN_CHECK_SKIPPED}")
+    set(DRAKAN_RUNNER_CHECK_SOURCES ${RUNNER_SRC_FILES})
+    list(FILTER DRAKAN_RUNNER_CHECK_SOURCES EXCLUDE REGEX "register_functions[.]cpp$")
+    add_library(drakan_runner_check OBJECT ${DRAKAN_RUNNER_CHECK_SOURCES})
+    target_include_directories(drakan_runner_check PRIVATE "$<TARGET_PROPERTY:drakan::input,INTERFACE_INCLUDE_DIRECTORIES>")
+    target_link_libraries(drakan_runner_check PRIVATE ps2_runtime)
+    add_custom_target(drakan_runtime_check DEPENDS ps2_runtime drakan_runner_check)
+endif()
+
 drakan_attach_portable_gpu(ps2_runtime)
 drakan_stage_portable_gpu(ps2EntryRunner)
 target_link_libraries(ps2EntryRunner
