@@ -90,6 +90,11 @@ Open:
 7. **Harness limits:** a pad tap after `sync screen 5` does not advance the save screen, the Valley and 3A openings take 60 to
    130 s and block `place`, and `place` into solid ground is lifted to the surface.
 
+Round 6 (2026-11-08, `docs/journal/2026-11-08/playtest-gaps-6.md`): the Valley's Zola Dane slab is a frozen cut scene set
+(items 2); the lever chain needs the east detectors 18376 / 18975 (sequence 731) with a mounted player, on foot the lever
+stays dead; the 1A Dragon is a frozen stage actor and cannot be mounted; 4B pocket (exit 5595) has no route under the
+flight ceiling, so the Savage Gate must open (item 1) before a full start to exit flight exists. Items 3 to 5 still open.
+
 ## 3. Puzzle wiring and the editor
 
 Evidence: `docs/journal/2026-11-07/door-proof.md`, `editor-round3.md` to `editor-round8.md`, `docs/reference/modding.md`
