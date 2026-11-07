@@ -475,6 +475,10 @@ const api: { [K in keyof Api]: (...a: Parameters<Api[K]>) => Promise<ReturnType<
             return { header: r.lvl.header, list: r.lvl.list, odbs: r.odbs };
         });
     },
+    async readDiscFile(path) {
+        if (!baseIso) throw new Error('Open a disc first.');
+        return isoStoryFs(baseIso, language).read(path);
+    },
     async readStoryFile(path) {
         return isoStoryFs(need(), language).read(path);
     },

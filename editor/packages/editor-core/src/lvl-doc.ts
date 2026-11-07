@@ -89,12 +89,35 @@ const fieldsOf = (o: LvlObject): DocField[] =>
         value: paramValueOf(o, slot),
     }));
 
+/**
+ * A readable stand-in for a class no ODB names: the kind of database it belongs to and its id ("Effects class 12180"),
+ * not the bare "class 12180". `db` is the ODB stem the level's dependency table points at (`FX`, `NPCS`, `LEVEL1ON`).
+ */
+export function unresolvedClassName(db: string | undefined, classId: number): string {
+    const label = db ? (DB_NAMES[db.toUpperCase()] ?? db.charAt(0).toUpperCase() + db.slice(1).toLowerCase()) : 'Unknown';
+    return `${label} class ${classId}`;
+}
+const DB_NAMES: Record<string, string> = {
+    SYSTEM: 'System',
+    RESOURES: 'Resources',
+    RESOURCES: 'Resources',
+    FX: 'Effects',
+    NPCS: 'Character',
+    MAGIC: 'Magic',
+    SOUND: 'Sound',
+    PS2MUSIC: 'Music',
+    INTERFCE: 'Interface',
+    DEBUG: 'Debug',
+    WORLDCON: 'World',
+    MOUNTAON: 'Mountain world',
+};
+
 function convertObject(header: Lvl['header'], odbs: OdbIndex, o: LvlObject): { obj: LevelObject; resolved: boolean } {
     const r = resolveClass(header, odbs, o.classId, o.dbIndex);
     const name = r.class?.name;
     const obj: LevelObject = {
         id: o.id,
-        class: name ?? `class ${o.classId}`,
+        class: name ?? unresolvedClassName(r.db, o.classId),
         type: -1,
         kind: kindOf(name ?? ''),
         resource: `0x${(((o.dbIndex << 16) | o.classId) >>> 0).toString(16)}`,

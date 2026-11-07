@@ -124,6 +124,11 @@ export interface Api {
         levels: { name: string; dirPath: string }[],
         files: { path: string; bytes: Uint8Array }[],
     ): LevelInfo[];
+    /**
+     * A file of the disc exactly as it is on the disc (language-relative path), without any converted levels laid over it:
+     * what the Order of the Flame converter must read, so a second conversion never sees the first one's classes.
+     */
+    readDiscFile(path: string): Uint8Array | null;
     /** The raw `.LVL` container of the level in `dirPath` (template for converted Order of the Flame levels). */
     readLevelFile(dirPath: string): Uint8Array;
     /** Where the exits of every level on the disc lead (loads every level's object list; seconds). */

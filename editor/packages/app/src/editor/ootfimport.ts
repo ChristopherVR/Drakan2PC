@@ -427,7 +427,8 @@ function openDialog(host: OotfHost): void {
                 templateBytes: tplBytes,
                 profile: host.profile(),
             },
-            (path) => host.call('readStoryFile', path),
+            // the pristine disc: reading through the overlay would feed an earlier conversion's classes into this one
+            (path) => host.call('readDiscFile', path),
             (message) => {
                 out.textContent = progressText(message, prefix.value);
             },
