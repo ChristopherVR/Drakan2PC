@@ -1,5 +1,6 @@
 // override_test: self-contained test of the resource override layer (no ISO needed; builds a tiny folder game tree in a
 // temp dir).
+#include <algorithm>
 #include "hle/RsrcIop.h"
 #include <cstdio>
 #include <array>
@@ -267,6 +268,39 @@ int main() {
         CHECK(cc.apply(second, d) && std::string(d.begin(), d.end()) == "\r\n");
         active = "";
         CHECK(!cc.wants(first));
+    }
+    // ---- campaign credits through plain file reads: the overlay rewrites the two entries inside the opened RRC, at read time
+    {
+        std::vector<u8> first(120, 'a'), second(60, 'b'), other(40, 'c');
+        writeFile(game / "ENGLISH/DRAKAN2.RRC",
+                  makeSrsc({{0x401, 8807, 0, first}, {0x401, 8808, 0, second}, {0x401, 9000, 0, other}}));
+        IsoFs rrc;
+        std::string e2;
+        CHECK(rrc.openFolder(game.string(), &e2));
+        rrc.setLanguageRoot("\\ENGLISH");
+        IsoFs::Node node;
+        CHECK(rrc.lookup("\\ENGLISH\\DRAKAN2.RRC", node) || rrc.lookup("ENGLISH\\DRAKAN2.RRC", node));
+        std::string active;
+        CampaignCreditsOverride cc;
+        cc.add("ootf-levels", "=Drakan: Order of the Flame\r\nTest\r\n");
+        cc.setActive([&] { return active; });
+        std::vector<u8> all(node.size);
+        CHECK(rrc.read(node, 0, all.data(), all.size()) == all.size());
+        const std::vector<u8> orig = all;
+        cc.patchRead(rrc, node, 0, all.data(), all.size());
+        CHECK(all == orig); // the disc game: untouched
+        active = "ootf-levels";
+        cc.patchRead(rrc, node, 0, all.data(), all.size());
+        auto find = [&](const std::vector<u8>& v, u8 c) { return std::find(v.begin(), v.end(), c) - v.begin(); };
+        const size_t at = find(orig, 'a'), at2 = find(orig, 'b'), at3 = find(orig, 'c');
+        CHECK(std::string(all.begin() + at, all.begin() + at + 7) == "=Drakan");
+        CHECK(all[at + 119] == 10 && all[at + 118] == 13); // padded with spaces, ends with a line break
+        CHECK(all[at2] == ' ' && all[at2 + 59] == 10);       // the second entry is one blank line
+        CHECK(std::vector<u8>(all.begin() + at3, all.begin() + at3 + 40) == other); // other entries untouched
+        // a read that covers only the middle of the first entry gets the matching bytes
+        std::vector<u8> part(orig.begin() + at + 10, orig.begin() + at + 30);
+        cc.patchRead(rrc, node, at + 10, part.data(), part.size());
+        CHECK(part == std::vector<u8>(all.begin() + at + 10, all.begin() + at + 30));
     }
     printf("override_test: %d checks passed, %d failed\n", g_pass, g_fail);
     return g_fail ? 1 : 0;

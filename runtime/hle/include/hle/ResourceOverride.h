@@ -15,6 +15,7 @@
 //                      overrides/<FILE>/text.ini lines   "<id>[.<lang>] = text"
 #pragma once
 #include "Interfaces.h"
+#include "IsoFs.h"
 #include <functional>
 #include <map>
 #include <memory>
@@ -77,9 +78,20 @@ public:
     void setActive(std::function<std::string()> f) { active_ = std::move(f); }
     bool wants(const ResourceId& id) override;
     bool apply(const ResourceId& id, std::vector<u8>& data) override;
+    // The engine reads the credits with plain file reads of the opened DRAKAN2.RRC, not through the entry layer: a
+    // FileService read overlay (setReadOverlay) calls this to rewrite the bytes of the two entries in place. The text is
+    // padded with spaces to the entry's size (a longer text is cut at a line end); the second entry becomes one blank line.
+    void patchRead(const IsoFs& fs, const IsoFs::Node& node, u64 offset, u8* data, size_t n);
 
 private:
     const std::string* current() const;
+    struct Range {
+        u16 id;
+        u64 off, size;
+    };
+    std::map<std::string, std::vector<Range>> ranges_; // file key -> the entries' byte ranges
+    const std::vector<Range>& rangesOf(const IsoFs& fs, const IsoFs::Node& node);
+    std::string bodyFor(u16 id, u64 size);
     std::map<std::string, std::string> texts_;
     std::function<std::string()> active_;
 };

@@ -35,6 +35,11 @@ public:
     // handle's bytes. Runs under the file-service lock; use IsoFs directly, not FileService, inside the callback.
     using OpenFilter = std::function<bool(const IsoFs&, IsoFs::Node&, std::string&)>;
     void setOpenFilter(OpenFilter filter);
+    // Per-read view of an open file: called after every plain read with the bytes just read (`data`, `n`, starting at
+    // file offset `offset`) and may rewrite them in place. Evaluated at read time (not open time), so it can depend on
+    // state that changes after the file was opened, e.g. the game chosen on the title. Runs under the file-service lock.
+    using ReadOverlay = std::function<void(const IsoFs&, const IsoFs::Node&, u64 offset, u8* data, size_t n)>;
+    void setReadOverlay(ReadOverlay overlay);
     // `path` with the redirect applied (unchanged when it does not match).
     std::string redirectPath(const std::string& path) const;
 
@@ -50,6 +55,7 @@ private:
     std::vector<Open> files_;
     std::string redirectFrom_, redirectTo_;
     OpenFilter openFilter_;
+    ReadOverlay readOverlay_;
 };
 
 } // namespace hle

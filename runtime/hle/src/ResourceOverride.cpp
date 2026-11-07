@@ -289,4 +289,59 @@ bool CampaignCreditsOverride::apply(const ResourceId& id, std::vector<u8>& data)
     return true;
 }
 
+const std::vector<CampaignCreditsOverride::Range>& CampaignCreditsOverride::rangesOf(const IsoFs& fs,
+                                                                                         const IsoFs::Node& node) {
+    auto it = ranges_.find(node.key);
+    if (it != ranges_.end())
+        return it->second;
+    std::vector<Range>& out = ranges_[node.key];
+    u8 h[16];
+    if (node.size < 16 || fs.read(node, 0, h, 16) != 16 || memcmp(h, "SRSC", 4) != 0)
+        return out;
+    const u32 idx = h[6] | (h[7] << 8) | (h[8] << 16) | ((u32)h[9] << 24);
+    const u32 cnt = h[10] | (h[11] << 8) | (h[12] << 16) | ((u32)h[13] << 24);
+    if (idx < 16 || idx > node.size || (u64)cnt * 14 > node.size - idx)
+        return out;
+    std::vector<u8> ix((size_t)cnt * 14);
+    if (fs.read(node, idx, ix.data(), ix.size()) != ix.size())
+        return out;
+    for (u32 i = 0; i < cnt; ++i) {
+        const u8* q = &ix[(size_t)i * 14];
+        const u16 type = q[0] | (q[1] << 8), id = q[2] | (q[3] << 8);
+        const u32 off = q[6] | (q[7] << 8) | (q[8] << 16) | ((u32)q[9] << 24);
+        const u32 size = q[10] | (q[11] << 8) | (q[12] << 16) | ((u32)q[13] << 24);
+        if (type == kType && (id == kFirstId || id == kSecondId))
+            out.push_back({id, off, size});
+    }
+    return out;
+}
+
+std::string CampaignCreditsOverride::bodyFor(u16 id, u64 size) {
+    const std::string* text = current();
+    const std::string crlf = std::string(1, (char)13) + std::string(1, (char)10);
+    std::string body = id == kFirstId && text ? *text : std::string();
+    if (body.size() + crlf.size() > size) { // cut at a line end that fits
+        body.resize(size > crlf.size() ? size - crlf.size() : 0);
+        const size_t cut = body.rfind((char)10);
+        body.resize(cut == std::string::npos ? 0 : cut + 1);
+    }
+    body.resize(size > crlf.size() ? size - crlf.size() : 0, ' ');
+    return (body + crlf).substr(0, size);
+}
+
+void CampaignCreditsOverride::patchRead(const IsoFs& fs, const IsoFs::Node& node, u64 offset, u8* data, size_t n) {
+    const size_t k = node.key.size();
+    if (k < 11 || node.key.compare(k - 11, 11, "DRAKAN2.RRC") != 0 || !current())
+        return;
+    for (const Range& r : rangesOf(fs, node)) {
+        const u64 a = std::max<u64>(offset, r.off), b = std::min<u64>(offset + n, r.off + r.size);
+        if (a >= b)
+            continue;
+        const std::string body = bodyFor(r.id, r.size);
+        memcpy(data + (a - offset), body.data() + (a - r.off), (size_t)(b - a));
+        logf("credits: read at %llu patched entry %u (%llu bytes)", (unsigned long long)a, (unsigned)r.id,
+             (unsigned long long)(b - a));
+    }
+}
+
 } // namespace hle

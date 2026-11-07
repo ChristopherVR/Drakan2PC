@@ -49,6 +49,11 @@ void FileService::setLevelRedirect(std::string from, std::string to) {
     redirectTo_ = std::move(to);
 }
 
+void FileService::setReadOverlay(ReadOverlay overlay) {
+    std::lock_guard<std::mutex> l(mu_);
+    readOverlay_ = std::move(overlay);
+}
+
 void FileService::setOpenFilter(OpenFilter filter) {
     std::lock_guard<std::mutex> lock(mu_);
     openFilter_ = std::move(filter);
@@ -195,6 +200,8 @@ int FileService::handle(u32 fno, const void* send, u32 sendSize, void* reply, u3
                     if (!got)
                         break;
                 }
+                if (readOverlay_ && got)
+                    readOverlay_(fs_, o.node, o.pos + done, buf.data(), got);
                 if (!mem_.write(dst + done, buf.data(), got)) {
                     logf("file read: bad EE addr %08x", dst + done);
                     return rep32(-5);

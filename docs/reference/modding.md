@@ -518,10 +518,11 @@ and the pack's text is served for the first while the second is emptied (`hle::C
 `override_test`). The disc game keeps its own list. `ootf-convert.ts --campaign 1` writes a short end card (the game, the
 original studio, the engine) with no personal names, since the PC install carries no credits.
 
-**Known gap:** in game the credits did not change. While they scroll the engine makes no request for ids 8807 / 8808 through
-the entry override layer (a request log line in `CampaignCreditsOverride::wants` never fired), so the override is not reached:
-the text comes from a plain read of the opened `Drakan 2.rrc`. Making it work needs a game-scoped patch of that file at open
-(the file service's open filter with `patchSrsc`), which only applies when the game is chosen before the file is opened.
+The engine reads the credits with plain file reads of the opened `Drakan 2.rrc`, not through the entry layer, so the text is
+patched per read: a `FileService` read overlay (`setReadOverlay`, evaluated at read time, so a game chosen on the title after the
+file was first read still counts) rewrites the two entries' bytes in place (`CampaignCreditsOverride::patchRead`; the text is padded
+with spaces to the entry's size, a longer one is cut at a line end, the second entry becomes one blank line). Verified in game: the
+end card scrolls over the Wartok farm and the game returns to the title (`credits: read at ... patched entry 8807` in the log).
 
 ## HD textures for converted OotF mods
 
