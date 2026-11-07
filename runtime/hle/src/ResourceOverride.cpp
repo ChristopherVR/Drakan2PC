@@ -266,7 +266,6 @@ bool XdbTextOverride::apply(const ResourceId& id, std::vector<u8>& data) {
     return changed;
 }
 
-
 // ---- campaign credits
 const std::string* CampaignCreditsOverride::current() const {
     if (!active_)
@@ -283,7 +282,8 @@ bool CampaignCreditsOverride::apply(const ResourceId& id, std::vector<u8>& data)
     const std::string* text = current();
     if (!text || id.type != kType)
         return false;
-    // The first entry carries the pack's text, the second (the disc's second credits block) is emptied so the scroll ends.
+    // The first entry carries the pack's text, the second (the disc's second credits block) is emptied so the scroll
+    // ends.
     const std::string body = id.id == kFirstId ? *text : std::string("\r\n");
     data.assign(body.begin(), body.end());
     return true;

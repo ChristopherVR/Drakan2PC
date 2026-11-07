@@ -1626,7 +1626,8 @@ void applyDrakanOverrides(PS2Runtime& runtime) {
                 gameui::setUiSkin(std::move(skin));
             });
         if (g_mods && !g_mods->creditsFiles().empty()) {
-            // A campaign pack's credits/credits.txt replaces the credits text only while that campaign is the current game.
+            // A campaign pack's credits/credits.txt replaces the credits text only while that campaign is the current
+            // game.
             auto credits = std::make_shared<hle::CampaignCreditsOverride>();
             for (const auto& [modId, text] : g_mods->creditsFiles())
                 credits->add(modId, text);

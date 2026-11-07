@@ -243,7 +243,8 @@ int main() {
     }
 
     fs::remove_all(root);
-    // ---- campaign credits: served only while the pack's campaign is the current game, only for the two credits entries
+    // ---- campaign credits: served only while the pack's campaign is the current game, only for the two credits
+    // entries
     {
         std::string active;
         CampaignCreditsOverride cc;

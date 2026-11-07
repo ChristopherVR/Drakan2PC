@@ -67,8 +67,9 @@ private:
 
 // ---- campaign credits
 // ----------------------------------------------------------------------------------------------------------------
-// The end credits are two plain text entries of DRAKAN2.RRC (type 0x401, ids 8807 and 8808; "=Heading" lines, names, a blank line) the engine reads by id. This serves a campaign pack's own text in place of both while `activeMod()` names that
-// pack (the current game is its campaign), so the disc game's credits are untouched.
+// The end credits are two plain text entries of DRAKAN2.RRC (type 0x401, ids 8807 and 8808; "=Heading" lines, names, a
+// blank line) the engine reads by id. This serves a campaign pack's own text in place of both while `activeMod()` names
+// that pack (the current game is its campaign), so the disc game's credits are untouched.
 class CampaignCreditsOverride final : public IResourceOverride {
 public:
     static constexpr u16 kType = 0x401, kFirstId = 8807, kSecondId = 8808;

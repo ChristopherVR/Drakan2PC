@@ -6,9 +6,10 @@
 //   DRAKAN_PLAYTEST_WATCH=class=10013,near=30000        every door within 30000 units of the player
 //   DRAKAN_PLAYTEST_WATCH=ref=1234,words=64,data=24     one object by registry ref (decimal or 0x hex)
 //
-// Keys: player=1 (the player's own line too: her position shows whether a door blocks her), class=<hex class id>, ref=<registry ref>, near=<units from the player, 0 = any>, words=<entity words printed,
-// from +0, default 64 = 0x100 bytes>, data=<instance data words, default 24 = 0x60 bytes>, max=<lines per tick, 8>,
-// every=<seconds between lines, default 1>.
+// Keys: player=1 (the player's own line too: her position shows whether a door blocks her), class=<hex class id>,
+// ref=<registry ref>, near=<units from the player, 0 = any>, words=<entity words printed, from +0, default 64 = 0x100
+// bytes>, data=<instance data words, default 24 = 0x60 bytes>, max=<lines per tick, 8>, every=<seconds between lines,
+// default 1>.
 #pragma once
 #include <cstdint>
 #include <cstdio>
@@ -91,8 +92,8 @@ inline bool matches(const Spec& s, const EntitySnapshot& e, const Vec3& player, 
     return s.near <= 0.0f || distance(e.position, player) <= s.near;
 }
 
-// One line: time, identity, position, yaw, then every non-zero word of the entity (`e+off=hex`, off in hex bytes) and of
-// its instance data (`d+off=hex`). Zero words are left out so that two lines diff by eye. `entity[i]` is the word at
+// One line: time, identity, position, yaw, then every non-zero word of the entity (`e+off=hex`, off in hex bytes) and
+// of its instance data (`d+off=hex`). Zero words are left out so that two lines diff by eye. `entity[i]` is the word at
 // byte 4*i of the entity record, `data[i]` the word at 4*i of the instance data (empty when there is none).
 inline std::string format(double seconds, const EntitySnapshot& e, const std::vector<uint32_t>& entity,
                           const std::vector<uint32_t>& data) {
