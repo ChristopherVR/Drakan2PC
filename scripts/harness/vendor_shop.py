@@ -148,7 +148,9 @@ def main() -> int:
     ap.add_argument("--iso", type=Path, help="PS2 ISO (default build/iso-path.txt or drakan.ini)")
     ap.add_argument("--level", default="LEVEL1NA", help="disc level stem of the vendor (Surdana = LEVEL1NA)")
     ap.add_argument(
-        "--vendor", default="1648", help="object id of the vendor in that level (1648 = Surdana blacksmith)"
+        "--vendor",
+        default=None,
+        help="object id of the vendor in that level (default 1648, the Surdana blacksmith; with --new-shop the new shop)",
     )
     ap.add_argument("--shop", type=int, default=1, help="n-th shop of the level for DRAKAN_DEBUG_OPEN_SHOP")
     ap.add_argument("--add", action="append", default=None, help="STEM:id[:unlimited|count] added to the stock")
@@ -196,9 +198,11 @@ def main() -> int:
             str(mods),
             "--level",
             args.level,
-            "--vendor",
-            args.vendor,
         ]
+        # a new shop is edited by default; passing the blacksmith id here sent the edits to the Blacksmith (2026-11-07)
+        vendor = args.vendor or (None if args.new_shop is not None else "1648")
+        if vendor:
+            cmd += ["--vendor", vendor]
         if args.new_shop is not None:
             cmd += ["--new-shop"] + ([args.new_shop] if args.new_shop else [])
         for a in add:
