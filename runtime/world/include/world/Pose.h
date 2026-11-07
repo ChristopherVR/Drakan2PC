@@ -101,22 +101,42 @@ private:
     bool valid_ = false, wasOpen_ = false;
 };
 
-// Sender ticks are a sample coordinate, not the receiving instance's update clock. Advance on elapsed time,
-// estimate the sender's cadence, and never run past its newest sample (wire velocity is in wall seconds).
+// Jitter buffer for a remote player's samples. Sender ticks are the sample coordinate (since protocol v9 the sender's
+// pose time in milliseconds; older senders counted their frames), not the receiving instance's update clock. The
+// shown tick advances on elapsed time at the sender's cadence, measured over a ~2 s window of
+// (tick, snapshot server time) pairs so that snapshot quantisation does not modulate the speed. The speed is trimmed
+// by at most a few percent so that the buffered time left just before each new sample (its low envelope) settles on
+// a small margin: the playback neither runs dry (a freeze followed by a burst) nor drifts behind. Never runs past the
+// newest received tick, never goes backwards; after an outage it catches up smoothly, or jumps when more than
+// kSnapSec behind.
 class PosePlaybackClock {
 public:
+    // `nominalRate`: the cadence assumed until the first measurement (1000 for millisecond ticks).
+    explicit PosePlaybackClock(double nominalRate = 60) : rate_(nominalRate) {}
     double advance(uint32_t newestTick, uint32_t sampleServerMs, double nowSec);
+    double rate() const { return rate_; } // estimated sender ticks per second
+    double bufferedSec() const;           // newest received tick minus the shown one, in seconds
+
+    static constexpr double kStartDelaySec = 0.12; // buffered time after a reset
+    static constexpr double kMarginSec = 0.04;     // target low envelope of the buffered time
+    static constexpr double kSnapSec = 1.0;        // further behind than this: jump
 
 private:
-    bool valid_ = false;
+    struct Mark {
+        uint32_t tick, serverMs;
+    };
+    std::deque<Mark> marks_;
+    bool valid_ = false, rateKnown_ = false;
     uint32_t newestTick_ = 0, sampleServerMs_ = 0;
-    double playTick_ = 0, rate_ = 60, lastTime_ = 0;
+    double playTick_ = 0, rate_, lastTime_ = 0, lastArrival_ = 0;
+    double lowHeadroom_ = kStartDelaySec; // seconds
 };
 
 // Interpolation of two poses at `alpha` in [0,1]: position and velocity lerp, rotation nlerp of the quaternions, clip
 // time lerp when both play the same clip without a wrap (else advance); a clip change snaps to b's clip when b is
 // reached (a's clip keeps playing until then). Flags / weapons come from a until alpha reaches 1.
-PlayerPose interpolatePose(const PlayerPose& a, const PlayerPose& b, float alpha);
+// `clipRate`: clip seconds per unit of timeSec (1 when timeSec is wall seconds) for the advance across a wrap.
+PlayerPose interpolatePose(const PlayerPose& a, const PlayerPose& b, float alpha, double clipRate = 1.0);
 
 struct PoseBufferConfig {
     double delaySec = 0.100;         // render this far behind the newest sample
@@ -136,8 +156,8 @@ public:
     const PlayerPose* newest() const { return samples_.empty() ? nullptr : &samples_.back(); }
     // Pose to render at `nowSec` (the buffer's clock; the delay is applied here). False when empty.
     bool sample(double nowSec, PlayerPose& out) const { return sampleAt(nowSec - cfg_.delaySec, out); }
-    // Pose at an exact buffer time (no delay).
-    bool sampleAt(double t, PlayerPose& out) const;
+    // Pose at an exact buffer time (no delay). `clipRate` as in interpolatePose.
+    bool sampleAt(double t, PlayerPose& out, double clipRate = 1.0) const;
     const PoseBufferConfig& config() const { return cfg_; }
 
 private:

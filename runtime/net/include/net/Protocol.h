@@ -9,7 +9,8 @@
 
 namespace drakan::net {
 
-constexpr uint16_t kProtocolVersion = 8; // v8: PlayerState.pitch / roll / clipHi (a mounted partner's dragon);
+constexpr uint16_t kProtocolVersion = 9; // v9: PlayerState.tick is the sender's pose time in ms (was a frame count);
+                                         // v8: PlayerState.pitch / roll / clipHi (a mounted partner's dragon);
                                          // v7: PlayerState.character (co-op stand-in character, 0 = Rynn);
                                          // v6: co-op mode (CoopAuthority / CoopCreatures / CoopEvent) and LevelChange;
                                          // v5: Hello.password, Ready, MatchConfig.serverName, LAN Query / ServerInfo;
@@ -197,7 +198,7 @@ struct PlayerState {
     static constexpr MsgType kType = MsgType::PlayerState;
     PlayerId player = kNoPlayer; // server overwrites with the sender's id
     uint32_t sequence = 0;       // increases per state sent; wraps
-    uint32_t tick = 0;           // sender's world tick (PadMgr boundary); receivers replay on it. 0 = client numbers it
+    uint32_t tick = 0;           // sender's pose time in ms (PadMgr boundary, v9); receivers replay on it. 0 = numbered
     float pos[3] = {0, 0, 0};
     float yaw = 0; // radians
     float vel[3] = {0, 0, 0};

@@ -240,33 +240,70 @@ bool InventoryPoseFilter::apply(PlayerPose& pose, bool inventoryOpen) {
     return true;
 }
 
+double PosePlaybackClock::bufferedSec() const {
+    return valid_ ? (static_cast<double>(newestTick_) - playTick_) / rate_ : 0.0;
+}
+
 double PosePlaybackClock::advance(uint32_t newestTick, uint32_t sampleServerMs, double nowSec) {
-    const bool reset = !valid_ || newestTick < newestTick_;
-    if (!reset && newestTick > newestTick_ && sampleServerMs > sampleServerMs_) {
-        const double measured = (newestTick - newestTick_) * 1000.0 / (sampleServerMs - sampleServerMs_);
-        if (measured > 5 && measured < 2000)
-            rate_ += (measured - rate_) * 0.2;
-    }
-    const double delay = std::max(3.0, rate_ * 0.1);
-    const double target = static_cast<double>(newestTick) - delay;
-    const double dt = std::max(0.0, nowSec - lastTime_);
-    if (reset || dt > 2.0 || target - playTick_ > rate_ * 2.0) {
-        playTick_ = reset ? target : std::max(playTick_, target);
-    } else {
-        const double frame = std::min(dt, 0.05);
-        const double step = (target - playTick_ + rate_ / 5.0) * (1.0 - std::exp(-frame * 5.0));
-        playTick_ = std::min(static_cast<double>(newestTick), playTick_ + std::clamp(step, 0.0, 2.0 * rate_ * frame));
-    }
-    valid_ = true;
-    if (reset || newestTick > newestTick_) {
+    constexpr double kWindowMs = 2000;         // cadence measurement window
+    constexpr double kMinWindowMs = 150;       // first measurement
+    constexpr double kOutageSec = 0.25;        // a longer silence is an outage / stall, not jitter
+    constexpr double kGain = 1.5;              // speed trim per second of envelope error
+    constexpr double kTrim = 0.12;             // ordinary trim limit
+    if (!valid_ || newestTick < newestTick_) { // first sample, or a new sender timeline
+        marks_.clear();
+        marks_.push_back({newestTick, sampleServerMs});
+        valid_ = true;
         newestTick_ = newestTick;
         sampleServerMs_ = sampleServerMs;
+        playTick_ = static_cast<double>(newestTick) - rate_ * kStartDelaySec;
+        lowHeadroom_ = kStartDelaySec;
+        lastTime_ = lastArrival_ = nowSec;
+        return playTick_;
+    }
+    if (newestTick > newestTick_) {
+        const double since = nowSec - lastArrival_;
+        if (since < kOutageSec) {
+            // What was left to play just before this sample: low envelope, fast attack, slow release (faster when
+            // the buffer is clearly fuller than needed, e.g. after a catch-up).
+            const double h = (static_cast<double>(newestTick_) - playTick_) / rate_;
+            if (h < lowHeadroom_)
+                lowHeadroom_ = h;
+            else
+                lowHeadroom_ += (h - lowHeadroom_) * (1.0 - std::exp(-since / (h - lowHeadroom_ > 0.15 ? 0.5 : 2.0)));
+        }
+        if (sampleServerMs <= sampleServerMs_ || sampleServerMs - sampleServerMs_ > kOutageSec * 1000)
+            marks_.clear(); // a gap (stall, outage): the ticks across it do not measure the cadence
+        marks_.push_back({newestTick, sampleServerMs});
+        while (marks_.size() > 2 && sampleServerMs - marks_[1].serverMs >= kWindowMs)
+            marks_.pop_front();
+        const Mark& first = marks_.front();
+        if (sampleServerMs - first.serverMs >= kMinWindowMs) {
+            const double measured = (newestTick - first.tick) * 1000.0 / (sampleServerMs - first.serverMs);
+            if (measured > 5 && measured < 5000) {
+                rate_ = rateKnown_ ? rate_ + (measured - rate_) * 0.1 : measured;
+                rateKnown_ = true;
+            }
+        }
+        newestTick_ = newestTick;
+        sampleServerMs_ = sampleServerMs;
+        lastArrival_ = nowSec;
+    }
+    const double newest = static_cast<double>(newestTick_);
+    if ((newest - playTick_) / rate_ > kSnapSec) {
+        playTick_ = newest - rate_ * kStartDelaySec; // far behind (an outage, a long stall): no slow-motion replay
+        lowHeadroom_ = kStartDelaySec;
+    } else {
+        const double err = lowHeadroom_ - kMarginSec;
+        const double speed = 1.0 + std::clamp(kGain * err, -kTrim, kTrim + std::max(0.0, err - 0.3));
+        const double frame = std::clamp(nowSec - lastTime_, 0.0, 0.05); // a receiver hitch does not skip ahead
+        playTick_ = std::min(newest, playTick_ + rate_ * speed * frame);
     }
     lastTime_ = nowSec;
     return playTick_;
 }
 
-PlayerPose interpolatePose(const PlayerPose& a, const PlayerPose& b, float alpha) {
+PlayerPose interpolatePose(const PlayerPose& a, const PlayerPose& b, float alpha, double clipRate) {
     alpha = std::clamp(alpha, 0.0f, 1.0f);
     PlayerPose r = alpha >= 1.0f ? b : a;
     const double span = b.timeSec - a.timeSec;
@@ -281,8 +318,8 @@ PlayerPose interpolatePose(const PlayerPose& a, const PlayerPose& b, float alpha
         Quat{lerpf(qa.w, qb.w, alpha), lerpf(qa.x, qb.x, alpha), lerpf(qa.y, qb.y, alpha), lerpf(qa.z, qb.z, alpha)},
         r.rotation);
     r.yaw = std::atan2(r.rotation[2], r.rotation[0]);
-    r.lower = blendChannel(a.lower, b.lower, span, dt, alpha);
-    r.upper = blendChannel(a.upper, b.upper, span, dt, alpha);
+    r.lower = blendChannel(a.lower, b.lower, span * clipRate, dt * clipRate, alpha);
+    r.upper = blendChannel(a.upper, b.upper, span * clipRate, dt * clipRate, alpha);
     if (alpha < 1.0f)
         r.lowerMask = a.lowerMask;
     return r;
@@ -296,7 +333,7 @@ void PoseBuffer::push(const PlayerPose& p) {
         samples_.pop_front();
 }
 
-bool PoseBuffer::sampleAt(double t, PlayerPose& out) const {
+bool PoseBuffer::sampleAt(double t, PlayerPose& out, double clipRate) const {
     if (samples_.empty())
         return false;
     const PlayerPose& first = samples_.front();
@@ -312,8 +349,8 @@ bool PoseBuffer::sampleAt(double t, PlayerPose& out) const {
         const auto f = static_cast<float>(dt);
         out.position = {last.position.x + last.velocity.x * f, last.position.y + last.velocity.y * f,
                         last.position.z + last.velocity.z * f};
-        out.lower.time += f;
-        out.upper.time += f;
+        out.lower.time += static_cast<float>(dt * clipRate);
+        out.upper.time += static_cast<float>(dt * clipRate);
         return true;
     }
     // first sample with timeSec > t
@@ -332,13 +369,13 @@ bool PoseBuffer::sampleAt(double t, PlayerPose& out) const {
         if (!continuedTravel) {
             out = a;
             out.timeSec = t;
-            out.lower.time += static_cast<float>(t - a.timeSec);
-            out.upper.time += static_cast<float>(t - a.timeSec);
+            out.lower.time += static_cast<float>((t - a.timeSec) * clipRate);
+            out.upper.time += static_cast<float>((t - a.timeSec) * clipRate);
             return true;
         }
     }
     const double span = b.timeSec - a.timeSec;
-    out = interpolatePose(a, b, static_cast<float>((t - a.timeSec) / span));
+    out = interpolatePose(a, b, static_cast<float>((t - a.timeSec) / span), clipRate);
     return true;
 }
 

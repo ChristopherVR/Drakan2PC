@@ -335,7 +335,7 @@ int main() {
 
     // v6: co-op messages round trip, strict lengths and ranges.
     {
-        static_assert(kProtocolVersion == 8);
+        static_assert(kProtocolVersion == 9);
         CoopAuthority a;
         a.player = 2;
         CoopAuthority ao;

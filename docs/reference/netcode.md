@@ -1,4 +1,4 @@
-# Netcode: protocol v8, authority model, `runtime/net`
+# Netcode: protocol v9, authority model, `runtime/net`
 
 Status 2026-10-31 (later): protocol v6 adds the **co-op game mode** and a real `LevelChange` message (see "Co-op mode
 (protocol v6)"); co-op rides the same session as deathmatch and the hidden `@@LC` chat line is gone. Earlier the same day: the protocol, match state machine, transports and the headless `drakan_server` exist and are tested;
@@ -109,7 +109,12 @@ block) every EE tick and hands them to `drakan_netplay::setLocalVitals`; the par
 own health has no known address yet, so the dragon fields are sent as 0 and the HUD's second bar stays hidden (the field and
 bar are in place: `HudPartner::dragonKnown`).
 
-## Protocol v8
+## Protocol v9
+
+v9 (2026-11-07): no wire change; `PlayerState.tick` is the sender's pose time in milliseconds (strictly increasing,
+read at the PadMgr boundary) instead of its PadMgr frame count. Uncapped frames are not evenly spaced, so a replay on
+frame counts at a constant rate moved the remote body faster and slower than it really moved (issue #1). The version
+bump keeps a v8 peer, whose ticks mean frames, out of the session.
 
 v8 (2026-10-31, after v7): `PlayerState.pitch`, `roll` (two `i16`, radians x 10000) and `clipHi` (`u16`), trailing; PlayerState is
 78 bytes. A mounted sender's pose is Arokh's: rotation is `Ry(yaw) * Rx(pitch) * Rz(roll)` (yaw then is the Euler angle),
@@ -307,10 +312,17 @@ Environment (all opt-in; also set `DRAKAN_GHOST=1`, the ghosts are `drakan_ghost
 How it works: sockets, the embedded server and the `MatchClient` live on one network thread that never touches guest
 memory. At each `PadMgr_Update` the EE thread reads the controlled actor with `world::readPlayerPose`, converts it with
 `toPlayerState` and drops it into a mutex-protected slot; the network thread sends it at 20 Hz. Raw received snapshot samples
-go the other way into a `world::PoseBuffer` per player, indexed by the sender's PadMgr counter (`PlayerState.tick`).
-`world::PosePlaybackClock` advances using elapsed time and an estimated sender cadence, with phase correction and a
-ceiling at the newest received tick. It does not assume matching update rates between instances. Network pose
-extrapolation is disabled: sender-tick seconds and the transmitted velocity's wall seconds have different units.
+go the other way into a `world::PoseBuffer` per player, indexed by the sender's pose time in milliseconds
+(`PlayerState.tick`, protocol v9). `world::PosePlaybackClock` is the jitter buffer: the shown time advances on elapsed
+time at the sender's cadence, measured over a ~2 s window of (tick, snapshot server time) pairs (a pairwise estimate
+swung with every snapshot that carried two or zero new states). The speed is trimmed by at most 12 % so that the
+buffered time left just before each new sample (a low envelope: fast attack, slow release) settles on 40 ms. It never
+passes the newest received sample and never goes backwards; more than 1 s behind (an outage) it jumps, otherwise it
+catches up smoothly. Clip times that wrap between two samples advance in sender seconds. Network pose extrapolation is
+disabled. The previous clock chased `newest - 100 ms` with a gain of 5/s, which re-accelerated and decelerated the body
+on every snapshot (the per-frame speed changed by more than 5 % on 75..88 % of moving frames in the paired harness
+runs; 33 % after the change). Unit model: `world_pose_test` `testPlaybackAliasedStream` (two unsynchronised 20 Hz
+clocks, uneven sender frames, jitter, an outage). See `docs/journal/2026-11-07/issue-1-remote-rubberband.md`.
 The ghost is spawned (`drakan_ghost::spawn`) when the remote player is Playing, mounted-off, and in the same level, and driven with
 `drakan_ghost::setPose` (position, yaw and clips) every frame. It is removed when the player leaves, changes level (their `levelHash` goes to 0 while
 loading, then to the new level's hash) or when this instance loads a level or writes a save (`drakan_lifecycle`).

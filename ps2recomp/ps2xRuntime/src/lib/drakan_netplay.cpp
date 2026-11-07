@@ -1260,10 +1260,14 @@ world::Globals g_globals;
 world::PoseReadState g_poseState;
 world::InventoryPoseFilter g_inventoryPose;
 uint32_t g_tick = 0;
+uint32_t g_stampMs = 0;      // the last PlayerState.tick sent: this pose's time in ms (protocol v9)
 double g_spawnNotBefore = 0; // EE thread
 constexpr double kSettleSec = 1.5;
 constexpr double kDebounceSec = 0.5;
-constexpr double kTickHz = 60.0; // PoseBuffer time unit: sender ticks / kTickHz
+// PlayerState.tick is the sender's pose time in milliseconds (protocol v9; it used to count the sender's frames, which
+// are not evenly spaced when uncapped, so a constant-rate replay ran the body faster and slower than it really moved).
+// PoseBuffer time unit: sender ticks / kTickHz = sender seconds.
+constexpr double kTickHz = 1000.0;
 
 world::PoseBufferConfig bufferConfig() {
     world::PoseBufferConfig c;
@@ -1276,7 +1280,7 @@ struct RemoteView {
     world::PoseBuffer buffer{bufferConfig()};
     bool haveSample = false;
     uint32_t newestTick = 0;
-    world::PosePlaybackClock playback;
+    world::PosePlaybackClock playback{kTickHz};
     int ghostId = 0;
     int dragonId = 0; // the partner's Arokh while the partner is mounted (a second, visual-only dragon body)
     world::PlayerPose lastDragonPose; // the dragon's last mounted pose (where a dismounted dragon is parked)
@@ -1312,7 +1316,7 @@ void forgetGhosts() {
         kv.second.wasVisible = false;
         kv.second.buffer.clear();
         kv.second.haveSample = false;
-        kv.second.playback = {};
+        kv.second.playback = world::PosePlaybackClock(kTickHz);
     }
     g_ghostsVisible.store(0);
 }
@@ -1339,7 +1343,7 @@ void hide(drakan::net::PlayerId id, RemoteView& v, const char* why) {
     }
     v.buffer.clear();
     v.haveSample = false;
-    v.playback = {};
+    v.playback = world::PosePlaybackClock(kTickHz);
     v.wasVisible = false;
     v.failures = 0;
     v.retryAt = 0;
@@ -2185,6 +2189,9 @@ void beforePadMgr(const uint8_t* rdram) {
             if (pose.weaponRight != g_s.local.weaponRight || pose.weaponLeft != g_s.local.weaponLeft)
                 netLog("local weapons: right %x left %x", pose.weaponRight, pose.weaponLeft);
             world::toPlayerState(pose, g_s.local);
+            // The sample coordinate receivers replay on: when this pose was read, strictly increasing.
+            g_stampMs = std::max(g_stampMs + 1, static_cast<uint32_t>(t * 1000.0) + 1);
+            g_s.local.tick = g_stampMs;
             g_s.local.character = drakan_coop_character::selected();
             g_s.local.levelHash = myLevel;
             g_s.haveLocal = true;
@@ -2247,7 +2254,7 @@ void beforePadMgr(const uint8_t* rdram) {
         if (v.haveSample && r.state.tick < v.newestTick) {
             v.buffer.clear();
             v.haveSample = false;
-            v.playback = {};
+            v.playback = world::PosePlaybackClock(kTickHz);
         }
         if (!v.haveSample || r.state.tick > v.newestTick) {
             v.haveSample = true;
@@ -2258,7 +2265,7 @@ void beforePadMgr(const uint8_t* rdram) {
         }
         const double playTick = v.playback.advance(r.state.tick, r.sampleServerMs, t);
         world::PlayerPose p;
-        if (!v.buffer.sampleAt(playTick / kTickHz, p))
+        if (!v.buffer.sampleAt(playTick / kTickHz, p, kTickHz / v.playback.rate()))
             continue;
         if (p.mounted) {
             // DRAKAN_DRAGON_TEST_SPREAD=1: partner N is drawn N times the offset away (three dragons side by side)

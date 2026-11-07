@@ -1,4 +1,5 @@
 // world::readPlayerPose / PoseBuffer / PlayerState bridge over SYNTHETIC memory (no game bytes).
+#include <algorithm>
 #include <cmath>
 #include <cstdio>
 #include <cstring>
@@ -381,6 +382,188 @@ void testPlaybackCadenceChangesAndLoss() {
     NEAR(shown.position.x, receivedTick - 1000, 1e-3);
 }
 
+// The live pipeline (issue #1, remote players "faster than their speed, then corrected back"): the sender's network
+// thread publishes its newest pose every ~50 ms, the server snapshots every ~50 ms on its own unsynchronised loop, both
+// with a few ms of polling and network jitter, and an uncapped receiver replays them. The two 20 Hz clocks beat, so the
+// newest tick sometimes does not change for 100 ms and then advances two intervals at once.
+struct StreamStats {
+    double minRatio = 1e9, maxRatio = 0, p10 = 0, p90 = 0;
+    int frozenWindows = 0, windows = 0, backward = 0;
+    double meanDelaySec = 0, maxStepRatio = 0;
+};
+
+// `msTicks`: the sender stamps PlayerState.tick with its pose time in milliseconds (protocol v9) instead of counting
+// its frames. Uncapped frame times vary two to three times between frames (harness traces: p10 8 ms, p90 16 ms), so
+// frame counts are not a uniform timeline: replaying them at a constant rate turns the sender's frame time changes
+// into speed changes of the remote body (up to 1.9 times its real speed in this model, with the old clock too).
+StreamStats simulateStream(uint32_t seed, double senderHz, double receiverHz, double jitterMs, bool msTicks,
+                           double outageAt = -1) {
+    uint32_t rng = seed;
+    const auto uni = [&rng](double lo, double hi) {
+        rng = rng * 1664525u + 1013904223u;
+        return lo + (hi - lo) * ((rng >> 8) / double(1u << 24));
+    };
+    constexpr double kSpeed = 600; // units per wall second
+    constexpr double kEnd = 20;
+    struct Sent {
+        double at;
+        uint32_t tick;
+        double x;
+    };
+    // Sender game frames (uncapped, +-10 % frame time) and its network thread (polls every 4..6 ms, 50 ms interval).
+    std::vector<Sent> toServer;
+    {
+        double t = 0, lastSend = -1;
+        uint32_t tick = 1000;
+        double frameAt = 0, lastFrame = 0;
+        while (t < kEnd) {
+            while (frameAt <= t) {
+                tick = msTicks ? static_cast<uint32_t>(1000 + frameAt * 1000) : tick + 1;
+                lastFrame = frameAt;
+                frameAt += (uni(0, 1) < 0.02 ? 3.0 : uni(0.6, 1.5)) / senderHz;
+            }
+            if (t - lastSend >= 0.050) {
+                lastSend = t;
+                // The newest pose is the one read at the last frame boundary.
+                toServer.push_back({t + 0.020 + uni(-jitterMs, jitterMs) * 1e-3, tick, kSpeed * lastFrame});
+            }
+            t += uni(0, 1) < 0.03 ? 0.030 : uni(0.004, 0.006); // a busy PC sometimes wakes the thread late
+        }
+    }
+    // Server loop: newest received state, a snapshot every >= 50 ms.
+    std::vector<Sent> toClient; // .at = arrival at the client, .x / .tick = state, server ms in snapMs
+    std::vector<uint32_t> snapMs;
+    {
+        double t = 0.0123, lastSnap = -1;
+        bool have = false;
+        Sent newest{};
+        while (t < kEnd) {
+            for (const Sent& s : toServer)
+                if (s.at <= t && (!have || s.tick > newest.tick)) {
+                    newest = s;
+                    have = true;
+                }
+            if (have && t - lastSnap >= 0.050) {
+                lastSnap = t;
+                if (outageAt >= 0 && t >= outageAt && t < outageAt + 0.6) { // a 600 ms outage of the server's sends
+                    t += 0.005;
+                    continue;
+                }
+                toClient.push_back({t + 0.020 + uni(-jitterMs, jitterMs) * 1e-3, newest.tick, newest.x});
+                snapMs.push_back(static_cast<uint32_t>(t * 1000));
+            }
+            t += uni(0, 1) < 0.03 ? 0.030 : uni(0.004, 0.006);
+        }
+    }
+    const double unit = msTicks ? 1000.0 : 60.0;
+    PosePlaybackClock clock(unit);
+    PoseBufferConfig config;
+    config.maxExtrapolateSec = 0;
+    PoseBuffer buffer(config);
+    uint32_t newestTick = 0, newestMs = 0;
+    bool have = false;
+    std::vector<std::pair<double, double>> shown; // (wall time, x)
+    double delaySum = 0;
+    int delayCount = 0;
+    StreamStats st;
+    double prevX = -1e9, prevT = 0;
+    for (double t = 0; t < kEnd; t += uni(0.85, 1.15) / receiverHz) {
+        for (size_t i = 0; i < toClient.size(); ++i)
+            if (toClient[i].at <= t && snapMs[i] > newestMs) { // the client keeps the newest snapshot's sample
+                newestMs = snapMs[i];
+                if (!have || toClient[i].tick > newestTick) {
+                    newestTick = toClient[i].tick;
+                    buffer.push(pose(newestTick / unit, static_cast<float>(toClient[i].x), 0, 0, 0));
+                }
+                have = true;
+            }
+        if (!have)
+            continue;
+        const double play = clock.advance(newestTick, newestMs, t);
+        PlayerPose p;
+        CHECK(buffer.sampleAt(play / unit, p));
+        if (p.position.x < prevX - 1e-3)
+            ++st.backward;
+        if (prevX > -1e8 && t > 0.5) // no frame steps ahead faster than a catch-up (no teleport, also at the start)
+            st.maxStepRatio = std::max(st.maxStepRatio, (p.position.x - prevX) / ((t - prevT) * kSpeed));
+        prevX = p.position.x;
+        prevT = t;
+        shown.emplace_back(t, p.position.x);
+        if (t > 4) {
+            delaySum += t - p.position.x / kSpeed;
+            ++delayCount;
+        }
+    }
+    // Displayed speed over 50 ms windows after a 4 s warm-up, relative to the true speed.
+    std::vector<double> ratios;
+    size_t j = 0;
+    for (size_t i = 0; i < shown.size(); ++i) {
+        if (shown[i].first < 4)
+            continue;
+        while (j < shown.size() && shown[j].first < shown[i].first + 0.050)
+            ++j;
+        if (j >= shown.size())
+            break;
+        const double r = (shown[j].second - shown[i].second) / (shown[j].first - shown[i].first) / kSpeed;
+        ratios.push_back(r);
+        if (r < 0.2)
+            ++st.frozenWindows;
+        i = j - 1;
+    }
+    std::sort(ratios.begin(), ratios.end());
+    st.windows = static_cast<int>(ratios.size());
+    if (!ratios.empty()) {
+        st.minRatio = ratios.front();
+        st.maxRatio = ratios.back();
+        st.p10 = ratios[ratios.size() / 10];
+        st.p90 = ratios[ratios.size() * 9 / 10];
+    }
+    st.meanDelaySec = delayCount ? delaySum / delayCount : 0;
+    return st;
+}
+
+void testPlaybackAliasedStream() {
+    int seed = 1;
+    for (double senderHz : {60.0, 112.0, 240.0})
+        for (double receiverHz : {60.0, 144.0})
+            for (double jitterMs : {2.0, 10.0}) {
+                const StreamStats st =
+                    simulateStream(static_cast<uint32_t>(seed++), senderHz, receiverHz, jitterMs, true);
+                std::printf("aliased stream sender %3.0f Hz receiver %3.0f Hz jitter %2.0f ms: speed p10 %.2f p90 %.2f "
+                            "min %.2f max %.2f, frozen %d/%d, backward %d, delay %.0f ms\n",
+                            senderHz, receiverHz, jitterMs, st.p10, st.p90, st.minRatio, st.maxRatio, st.frozenWindows,
+                            st.windows, st.backward, st.meanDelaySec * 1000);
+                CHECK(st.windows > 200);
+                CHECK(st.backward == 0);
+                CHECK(st.frozenWindows == 0); // the replay never runs dry while the sender keeps moving
+                CHECK(st.p10 >= 0.9 && st.p90 <= 1.1);
+                CHECK(st.minRatio >= 0.8 && st.maxRatio <= 1.2); // no bursts above the real speed, no stalls
+                CHECK(st.maxStepRatio <= 1.3);
+                CHECK(st.meanDelaySec >= 0.1 && st.meanDelaySec <= 0.3);
+            }
+    // A 600 ms outage: the body stops at the last received position, then catches up without a jump.
+    const StreamStats st = simulateStream(99, 112, 144, 10, true, 8.0);
+    std::printf("aliased stream with a 600 ms outage: max step %.2f x the real speed, backward %d, delay %.0f ms\n",
+                st.maxStepRatio, st.backward, st.meanDelaySec * 1000);
+    CHECK(st.backward == 0);
+    CHECK(st.maxStepRatio <= 1.8);
+    CHECK(st.meanDelaySec <= 0.35);
+}
+
+void testClipRate() {
+    // Millisecond ticks: buffer time is tick / 1000 (wall seconds, clip rate 1); frame ticks stored as tick / 60 from
+    // a 120 Hz sender: one buffer second is half a wall second. A wrapping clip advances in clip (wall) seconds.
+    PoseBuffer b;
+    b.push(pose(1.0, 0, 0, 0x2047b, 0.95f));
+    b.push(pose(1.1, 100, 0, 0x2047b, 0.05f)); // wrapped
+    PlayerPose p;
+    CHECK(b.sampleAt(1.05, p, 0.5));
+    NEAR(p.lower.time, 0.975, 1e-4);
+    CHECK(b.sampleAt(1.05, p));
+    NEAR(p.lower.time, 1.0, 1e-4);
+    NEAR(p.position.x, 50, 1e-3);
+}
+
 void testBridge() {
     PlayerPose p = pose(2.0, 123.5f, 0.75f, 0x2047b, 0.4f);
     p.tick = 99;
@@ -411,6 +594,8 @@ int main() {
     testInventoryReplication();
     testPlaybackCadence();
     testPlaybackCadenceChangesAndLoss();
+    testPlaybackAliasedStream();
+    testClipRate();
     if (g_failed)
         std::fprintf(stderr, "world_pose_test: %d failed\n", g_failed);
     else

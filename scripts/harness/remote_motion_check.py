@@ -180,6 +180,49 @@ def large_position_steps(trace):
     return steps
 
 
+def replay_smoothness(trace, window=0.05):
+    """Horizontal replay speed over fixed windows while the body travels.
+
+    A stop-go replay shows as windows far above the median speed next to stalls
+    (issue #1: "faster than their speed, then corrected back").
+    """
+    speeds = []
+    i = 0
+    while i < len(trace):
+        j = i
+        while j < len(trace) and trace[j]["t"] < trace[i]["t"] + window:
+            j += 1
+        if j >= len(trace):
+            break
+        a, b = trace[i], trace[j]
+        dt = b["t"] - a["t"]
+        if 0 < dt < 4 * window:
+            speeds.append(math.hypot(b["position"][0] - a["position"][0], b["position"][2] - a["position"][2]) / dt)
+        else:
+            speeds.append(None)
+        i = j
+    moving = sorted(v for v in speeds if v and v > 300)
+    if not moving:
+        return None
+    median = moving[len(moving) // 2]
+    stalls = sum(
+        1
+        for k in range(1, len(speeds) - 1)
+        if speeds[k] is not None
+        and speeds[k] < 0.2 * median
+        and (speeds[k - 1] or 0) > 300
+        and (speeds[k + 1] or 0) > 300
+    )
+    return {
+        "moving_windows": len(moving),
+        "median_speed": median,
+        "p10_over_median": moving[len(moving) // 10] / median,
+        "p90_over_median": moving[len(moving) * 9 // 10] / median,
+        "max_over_median": moving[-1] / median,
+        "stalls_between_moving_windows": stalls,
+    }
+
+
 def target_yield_step(log):
     marker = "test: yielding borrowed target for one vblank"
     offset = log.find(marker)
@@ -240,6 +283,8 @@ def summarize(rows):
             "delay_fit_error_ms_samples": min(fits) if fits else None,
             "candidate_steps_over_500": large_position_steps(remote),
             "sender_steps_over_500": large_position_steps(source),
+            "replay_smoothness": replay_smoothness(remote),
+            "sender_smoothness": replay_smoothness(source),
         }
     summary["limitations"] = [
         "Receipt-derived clock offsets include scheduling uncertainty; no synchronized native clock.",
