@@ -24,8 +24,15 @@ struct PadSynthState {
     bool flip[4] = {false, false, false, false};
     uint16_t pendingAttackDirections = 0; // replay a short melee attack after one neutral preparation sample
     bool boundAttackDown = false;         // keyboard/mouse Square only, before physical controller merge
+    // [keyboard] directional_attack: decided when the bound attack is pressed and kept until it is released
+    bool directionalLatched = false;
+    uint16_t lastDirections = 0; // projected keyboard movement directions of the previous sample
+    float directionAge = 1.0e9f; // seconds since a movement direction last turned on (Tap mode)
 };
 
+// allowDirectionalAttack: the native actor may perform a directional melee move (drawn melee weapon, on foot). Whether
+// held keyboard movement then turns a new keyboard / mouse attack into one follows cfg.directionalAttack: a plain
+// attack never centers the keyboard left stick or adds D-pad buttons, so walking and strafing keep working.
 // directLook: mouse look is applied by the camera hook, so the mouse contributes nothing to the right stick.
 // The jitter filter of PadMgr_ProcessStickAxis blanks a stick whose byte is within +-47 of centre and changed by
 // <4 counts since the previous sample; the synthesizer dithers such values by 4 counts so they survive.

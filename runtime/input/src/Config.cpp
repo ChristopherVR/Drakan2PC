@@ -165,6 +165,11 @@ bool parseAction(const std::string& a, Binding& b) {
         b.act = Binding::DebugMenu;
         return true;
     }
+    if (u == "DIRECTIONAL_ATTACK") {
+        b.act = Binding::DirAttack;
+        b.value = 0;
+        return true;
+    }
     if (u == "VIEW_MAP" || u == "VIEW_STRIP") {
         b.act = Binding::View;
         b.value = u == "VIEW_MAP" ? kViewMap : kViewStrip;
@@ -214,6 +219,35 @@ std::string padComboToText(uint16_t mask) {
     return s.empty() ? std::string("NONE") : s;
 }
 
+const char* directionalAttackModeName(DirectionalAttackMode m) {
+    switch (m) {
+        case DirectionalAttackMode::Modifier:
+            return "modifier";
+        case DirectionalAttackMode::Tap:
+            return "tap";
+        case DirectionalAttackMode::Always:
+            return "always";
+        case DirectionalAttackMode::Off:
+            return "off";
+    }
+    return "modifier";
+}
+
+bool directionalAttackModeFromName(const std::string& name, DirectionalAttackMode* m) {
+    const std::string u = upper(trim(name));
+    if (u == "MODIFIER")
+        *m = DirectionalAttackMode::Modifier;
+    else if (u == "TAP")
+        *m = DirectionalAttackMode::Tap;
+    else if (u == "ALWAYS")
+        *m = DirectionalAttackMode::Always;
+    else if (u == "OFF" || u == "NONE" || u == "0")
+        *m = DirectionalAttackMode::Off;
+    else
+        return false;
+    return true;
+}
+
 bool keyFromName(const std::string& name, int* dik) {
     std::string u = upper(name);
     for (auto& k : kKeys)
@@ -253,6 +287,8 @@ const char* Config::defaultIniText() {
 ;             VIEW_MAP / VIEW_STRIP      [bindings] only: open the full-screen map / the inventory strip (the same key,
 ;                                        Esc, right click or Tab closes it)
 ;             QUICKSAVE / QUICKLOAD      [bindings] only: replace / load the dedicated quicksave (F5 / F8)
+;             DIRECTIONAL_ATTACK         [bindings] only: hold with Attack and a movement key for a directional special
+;                                        move ([keyboard] directional_attack = modifier; Left Alt by default)
 ;             DEBUG_MENU                 [bindings] only: open / close the game's developer debug menu (F3; needs
 ;                                        drakan.ini [general] debug_menu = 1)
 ;             QUICK1 .. QUICK9           [bindings] only: use / equip the Nth quick-slot item (marked with Cross / F in
@@ -291,6 +327,7 @@ walk_scale = 0.5
 toggle_run = 0             ; 1 = press WALK to switch between running and walking; starts running
 strafe = 1                 ; A / D strafe like Drakan: Order of the Flame (0 = the game's own mapping: A / D turn). Needs no change in the game's Options.
 curve_compensation = 1     ; undo the game's squared stick response so WASD is full speed
+directional_attack = modifier ; when WASD + attack is a directional special move: modifier = only while DIRECTIONAL_ATTACK (Left Alt) is held, so a plain attack keeps walking / strafing; tap = press the movement key and attack together; always = whenever a movement key is held; off = arrow keys only
 
 [gamepad]
 enabled = 1                ; XInput pad is merged with keyboard/mouse
@@ -334,6 +371,7 @@ S = LSTICK_DOWN
 A = LSTICK_LEFT
 D = LSTICK_RIGHT
 LSHIFT = WALK
+LALT = DIRECTIONAL_ATTACK  ; hold with Attack and W / A / S / D for a directional special move
 ; combat / actions: these follow the game's own Standard controller scheme (Options > Controller screen)
 MOUSE1 = SQUARE            ; Attack
 MOUSE2 = CIRCLE            ; Bow sight / Use Magic / Parry
@@ -565,7 +603,10 @@ void Config::parse(const std::string& text, Config& c, std::string* warn) {
                 B(c.strafeKeys);
             else if (K == "CURVE_COMPENSATION")
                 B(c.curveCompensation);
-            else
+            else if (K == "DIRECTIONAL_ATTACK") {
+                if (!directionalAttackModeFromName(v, &c.directionalAttack))
+                    w("directional_attack must be modifier|tap|always|off");
+            } else
                 w("unknown key " + k);
         } else if (section == "GAMEPAD") {
             if (K == "ENABLED")
@@ -781,6 +822,13 @@ void Config::migrate(Config& c) {
         std::any_of(c.game.begin(), c.game.end(), [](const Binding& b) { return b.act == Binding::DebugMenu; });
     if (!has(c.game, kDikF3) && !none(kDikF3) && !debugBound)
         c.game.push_back({Binding::Key, kDikF3, Binding::DebugMenu, 0});
+    // Files that predate the directional attack modifier: Left Alt (unbound before) becomes DIRECTIONAL_ATTACK unless
+    // the file binds it, says LALT = NONE or already binds the action to another source.
+    constexpr int kDikLAlt = 0x38;
+    const bool dirAttackBound =
+        std::any_of(c.game.begin(), c.game.end(), [](const Binding& b) { return b.act == Binding::DirAttack; });
+    if (!has(c.game, kDikLAlt) && !none(kDikLAlt) && !dirAttackBound)
+        c.game.push_back({Binding::Key, kDikLAlt, Binding::DirAttack, 0});
     constexpr int kDikM = 0x32;
     if (!has(c.game, kDikM) && !none(kDikM) && !bindsView(kViewMap)) {
         Binding b;

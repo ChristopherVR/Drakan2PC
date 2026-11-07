@@ -98,6 +98,7 @@ set per build; `video.world_rate` always requires a restart because it is read a
 | `drakan_input.ini [general] capture_mouse, release_on_esc, toggle_key, look_mode` | 1, 0, F10, direct | Mouse and gamepad | live | `drakan_input::reloadConfig(path)` (swapped in between frames) |
 | `[mouse] sensitivity_x/y, invert_y` | 0.0020, 0 | | live | |
 | `[keyboard] walk_scale, curve_compensation` | 0.5, 1 | | live | |
+| `[keyboard] directional_attack` | modifier | Keyboard movement > Directional attacks | live | **new key**: `modifier` (hold `DIRECTIONAL_ATTACK`, Left Alt by default), `tap`, `always`, `off`; `LALT = DIRECTIONAL_ATTACK` is an implicit binding like F5 / F8 / F3 |
 | `[gamepad] enabled, deadzone` | 1, 0.15 | | live | |
 | `[gamepad] debug_menu_combo` | L3+R3 | Gamepad > Debug menu shortcut | live | **new key**: buttons held 0.5 s to open / close the debug menu (`L3+R3`, `SELECT+R3`, any `+`-joined names, `NONE`) |
 | `[bindings]`, `[menu_bindings]` | see input README | key editor | live | rewritten line by line, see below |

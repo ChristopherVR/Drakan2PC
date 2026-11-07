@@ -211,7 +211,9 @@ static void testLoad() {
     CHECK(s.video.vsync && s.video.aspect == Aspect::Ratio4x3 && s.video.scaleAuto);
     CHECK(s.audio.device == "Speakers (Realtek #2)");
     CHECK(s.controls.captureMouse && s.controls.sensX == 0.0020f);
-    CHECK_EQ(s.controls.game.lines.size(), 10u); // seven explicit bindings plus migrated F5/F8/F3
+    CHECK_EQ(s.controls.game.lines.size(), 11u); // seven explicit bindings plus migrated F5/F8/F3/LALT
+    CHECK((s.controls.game.sourcesFor("DIRECTIONAL_ATTACK") == std::vector<std::string>{"LALT"}));
+    CHECK_EQ(s.controls.directionalAttack, std::string("modifier"));
     CHECK_EQ(s.controls.menu.lines.size(), 2u);
     CHECK((s.controls.menu.sourcesFor("CIRCLE") == std::vector<std::string>{"ESC"}));
     CHECK(s.controls.game.lines[1].docLine >= 0);
@@ -381,6 +383,7 @@ static void testSaveMinimalDiff() {
     t.controls.invertX = true;
     t.controls.lookMode = LookMode::Stick;
     t.controls.toggleRun = true;
+    t.controls.directionalAttack = "tap";
     st.render(t, a, b);
     CHECK_EQ(a, kDrakanIni);
     CHECK(contains(b, "sensitivity_x = 0.0035     ; radians per count\n"));
@@ -390,6 +393,8 @@ static void testSaveMinimalDiff() {
     roundtrip.loadFromText(a, b);
     CHECK(roundtrip.loaded().controls.invertX && roundtrip.loaded().controls.invertY);
     CHECK(roundtrip.loaded().controls.toggleRun);
+    CHECK_EQ(roundtrip.loaded().controls.directionalAttack, std::string("tap"));
+    CHECK(contains(b, "directional_attack = tap"));
     CHECK(contains(b, "look_mode = stick\n"));
     CHECK(contains(b, "custom_key = hello         # unknown keys survive\n"));
     CHECK(contains(b, "[unknown_section]\nkeep = me\n"));

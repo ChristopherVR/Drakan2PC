@@ -60,6 +60,7 @@ PadSample synthesizePad(const Config& cfg, const FrameInput& in, const std::vect
                         bool directLook, bool walk, PadSynthState& st, bool allowDirectionalAttack) {
     PadSample s;
     bool ls[4] = {}, rs[4] = {};
+    bool modifierHeld = false;
     for (const Binding& b : layer) {
         bool on = sourceLevel(b, in, true);
         if (!on)
@@ -73,6 +74,9 @@ PadSample synthesizePad(const Config& cfg, const FrameInput& in, const std::vect
                 break;
             case Binding::RStick:
                 rs[b.value & 3] = true;
+                break;
+            case Binding::DirAttack:
+                modifierHeld = true;
                 break;
             default:
                 break;
@@ -91,6 +95,31 @@ PadSample synthesizePad(const Config& cfg, const FrameInput& in, const std::vect
     const bool attackDown = (s.buttons & Pad::SQUARE) != 0;
     const bool attackPressed = attackDown && !st.boundAttackDown;
     st.boundAttackDown = attackDown;
+
+    // Which attacks are directional ([keyboard] directional_attack) is decided when the attack is pressed and kept for
+    // that press. A plain attack leaves the movement vector alone, so Rynn keeps walking / strafing while she swings.
+    const uint16_t newDirections = static_cast<uint16_t>(directions & ~st.lastDirections);
+    st.lastDirections = directions;
+    st.directionAge = newDirections ? 0.0f : std::min(st.directionAge + std::max(in.frameSeconds, 0.0f), 1.0e9f);
+    if (!attackDown) {
+        st.directionalLatched = false;
+    } else if (attackPressed) {
+        switch (cfg.directionalAttack) {
+            case DirectionalAttackMode::Always:
+                st.directionalLatched = true;
+                break;
+            case DirectionalAttackMode::Modifier:
+                st.directionalLatched = modifierHeld;
+                break;
+            case DirectionalAttackMode::Tap: // the movement key went down with (or just before) the attack
+                st.directionalLatched = directions && st.directionAge <= kDirectionalTapSeconds;
+                break;
+            case DirectionalAttackMode::Off:
+                st.directionalLatched = false;
+                break;
+        }
+    }
+
     bool directionalAttack = false;
     if (!allowDirectionalAttack || menuActive || !in.focused || (s.buttons & Pad::START)) {
         st.pendingAttackDirections = 0;
@@ -98,7 +127,7 @@ PadSample synthesizePad(const Config& cfg, const FrameInput& in, const std::vect
         s.buttons |= Pad::SQUARE | st.pendingAttackDirections;
         st.pendingAttackDirections = 0;
         directionalAttack = true;
-    } else if (attackDown && directions) {
+    } else if (attackDown && directions && st.directionalLatched) {
         directionalAttack = true;
         if (attackPressed) {
             st.pendingAttackDirections = directions;

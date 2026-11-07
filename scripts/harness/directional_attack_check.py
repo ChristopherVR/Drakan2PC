@@ -2,6 +2,9 @@
 
 Run from the deployed play folder through disc_combat_check; no desktop input is sent.
 An ordinary attack matching both controls is deliberately insufficient to pass.
+With the default [keyboard] directional_attack = modifier, the "wasd" control holds Left Alt
+(DIRECTIONAL_ATTACK) and must match the arrow move; the "plain" control holds only the movement
+key and must stay an ordinary moving attack that keeps Rynn moving.
 """
 
 from __future__ import annotations
@@ -20,6 +23,9 @@ import disc_combat_check as combat
 
 DIRECTIONS = {"up": ("UP", "W"), "down": ("DOWN", "S"), "left": ("LEFT", "A"), "right": ("RIGHT", "D")}
 ATTACK_FRAMES = tuple(range(1, 42, 4))
+MODIFIER = "LALT"
+CONTROLS = ("arrow", "wasd", "plain")
+PLAIN_HOLD = 60  # frames the plain control keeps walking, through the whole attack window
 
 
 def native_pose(path):
@@ -67,10 +73,16 @@ def recipe(directions):
     lines = ["0 sync play 90", "2 key tap Q"]
     frame = 100
     for direction in ("neutral", *directions):
-        controls = (("neutral", None),) if direction == "neutral" else zip(("arrow", "wasd"), DIRECTIONS[direction])
+        if direction == "neutral":
+            controls = (("neutral", None),)
+        else:
+            arrow, move = DIRECTIONS[direction]
+            controls = (("arrow", arrow), ("wasd", move), ("plain", move))
         for control, key in controls:
             label = f"{direction}_{control}"
             lines.append(f"{frame} dump ram_{label}_base")
+            if control == "wasd":
+                lines.append(f"{frame + 2} key down {MODIFIER}")
             if key:
                 lines.append(f"{frame + 2} key down {key}")
             lines.append(f"{frame + 10} dump ram_{label}_move")
@@ -81,7 +93,9 @@ def recipe(directions):
                     lines.append(f"{frame + 12 + offset} shot {label}_attack_{offset:02}")
             lines.append(f"{frame + 18} button up 1")
             if key:
-                lines.append(f"{frame + 20} key up {key}")
+                lines.append(f"{frame + (PLAIN_HOLD if control == 'plain' else 20)} key up {key}")
+            if control == "wasd":
+                lines.append(f"{frame + 20} key up {MODIFIER}")
             lines.extend([f"{frame + 100} dump ram_{label}_released", f"{frame + 120} dump ram_{label}_idle"])
             frame += 140
     # Resume ordinary WASD movement after every attack/release check.
@@ -104,7 +118,7 @@ def evaluate(samples, directions):
     checks, traces = {}, {}
     try:
         for direction in ("neutral", *directions):
-            for control in ("neutral",) if direction == "neutral" else ("arrow", "wasd"):
+            for control in ("neutral",) if direction == "neutral" else CONTROLS:
                 label = f"{direction}_{control}"
                 base, move, released, idle = (
                     samples[f"ram_{label}_{phase}"] for phase in ("base", "move", "released", "idle")
@@ -142,6 +156,12 @@ def evaluate(samples, directions):
             checks[f"{direction}_directional_baseline"] = bool(arrow - neutral)
             checks[f"{direction}_same_native_move"] = bool((arrow & wasd) - neutral)
             checks[f"{direction}_no_extra_attack"] = wasd == arrow
+            # Without the modifier, held movement is an ordinary attack and Rynn keeps moving through it.
+            plain = set(traces[f"{direction}_plain"]["attack_only"])
+            checks[f"{direction}_plain_not_directional"] = not (plain & (arrow - neutral))
+            first = samples[f"ram_{direction}_plain_attack_{ATTACK_FRAMES[0]:02}"]["rynn"]["position"]
+            last = samples[f"ram_{direction}_plain_attack_{ATTACK_FRAMES[-1]:02}"]["rynn"]["position"]
+            checks[f"{direction}_plain_keeps_moving"] = math.dist(first, last) > 10
         pos = lambda label: samples[label]["rynn"]["position"]
         checks["movement_after_attack"] = math.dist(pos("ram_movement_before"), pos("ram_movement_after")) > 10
         checks["movement_release"] = math.dist(pos("ram_movement_idle1"), pos("ram_movement_idle2")) < 1

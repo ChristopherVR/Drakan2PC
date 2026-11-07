@@ -74,7 +74,7 @@ The defaults follow the game's own **Standard controller scheme** (Options > Con
 | Esc | START | Game Menu (pause) |
 | 1 2 3 4 5 | `QUICK1..QUICK5` | use / equip the 1st..5th quick-slot item through the native Quick Inventory bar |
 | 6, wheel | `ACT:` ids | Quick Inventory (0x403a), prev/next weapon through the shipped PC keymap |
-| Arrow keys; movement keys while attacking with drawn melee | D-pad | Special Moves (one neutral preparation sample before a buffered attack; keyboard movement resumes on release; bow and mounted movement stay native) |
+| Arrow keys; Left Alt + movement keys + attack with drawn melee | D-pad | Special Moves (one neutral preparation sample before a buffered attack; keyboard movement resumes on release; bow and mounted movement stay native). Without Left Alt (`DIRECTIONAL_ATTACK`, rebindable) a held movement key gives an ordinary attack and Rynn keeps walking / strafing. `[keyboard] directional_attack = modifier` (default) \| `tap` (movement key pressed within 0.25 s before or with the attack) \| `always` (any held movement key, the old behaviour) \| `off` (arrow keys only); Settings > Controls > Keyboard movement > Directional attacks |
 | XInput | A=Cross B=Circle X=Square Y=Triangle LB/RB=L1/R1 LT/RT=L2/R2 Back/Start, sticks, D-pad | merged with keyboard/mouse |
 
 **Enter / keypad Enter = CROSS in the gameplay layer too** (confirms info boxes / popups with an "OK" button; also Crouch like Ctrl if no popup is detected). Files written before this

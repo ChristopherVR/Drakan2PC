@@ -12,11 +12,12 @@ enum class CallAbi { FprFloat, GprBits }; // how the float angle is passed to FU
 struct Binding {
     enum Src { Key, Mouse, WheelUp, WheelDown } src = Key;
     int code = 0; // Key: DIK scancode; Mouse: MouseBtn bit
-    enum Act { PadBtn, LStick, RStick, Walk, Action, Command, View, Quick, Save, DebugMenu } act = PadBtn;
+    enum Act { PadBtn, LStick, RStick, Walk, Action, Command, View, Quick, Save, DebugMenu, DirAttack } act = PadBtn;
     uint32_t value = 0; // PadBtn: Pad mask; L/RStick: 0 up,1 down,2 left,3 right; Action: action id; Command: command
                         // id; View: kViewMap / kViewStrip; Quick: quick-slot number 1..kQuickSlotMax;
                         // Save: kQuickSave / kQuickLoad; DebugMenu: 0 (open / close the engine's debug menu,
-                        // handled by the integration)
+                        // handled by the integration); DirAttack: 0 (DIRECTIONAL_ATTACK, the directional attack
+                        // modifier read by the pad synthesis)
 };
 // VIEW_MAP / VIEW_STRIP: open (gameplay) or close an Order-of-the-Flame style view of the inventory screen. Handled by
 // the integration (drakan_inventory_views.inl), not by the pad synthesis.
@@ -26,6 +27,15 @@ constexpr uint32_t kViewMap = 1, kViewStrip = 2;
 constexpr uint32_t kQuickSlotMax = 9;
 constexpr uint32_t kQuickSave = 1, kQuickLoad = 2;
 constexpr int kDebugMenuHoldMs = 500;
+// [keyboard] directional_attack: when keyboard movement turns a melee attack into a directional special move.
+//   Modifier: only while a DIRECTIONAL_ATTACK key is held (Left Alt by default); a plain attack keeps moving.
+//   Tap:      when a movement key and the attack are pressed within kDirectionalTapSeconds of each other.
+//   Always:   whenever a movement key is held (the 2026-11-05 behaviour; walking while attacking is not possible).
+//   Off:      never; use the D-pad bindings (arrow keys) for special moves.
+enum class DirectionalAttackMode { Modifier, Tap, Always, Off };
+constexpr float kDirectionalTapSeconds = 0.25f;
+const char* directionalAttackModeName(DirectionalAttackMode m); // "modifier" | "tap" | "always" | "off"
+bool directionalAttackModeFromName(const std::string& name, DirectionalAttackMode* m);
 // "L3+R3" -> the DualShock mask (button names as in the bindings, joined by '+'); NONE / OFF / "" -> 0. False when a
 // name is unknown (*mask is left unchanged).
 bool padComboFromText(const std::string& text, uint16_t* mask);
@@ -69,6 +79,7 @@ struct Config {
     bool strafeKeys = true; // A / D (left stick x) strafe instead of turn, like Drakan: Order of the Flame (on foot;
                             // the Arokh flight keeps the game's mapping)
     bool curveCompensation = true; // pre-invert the game's pow(|v|,2) so keyboard movement is linear/full speed
+    DirectionalAttackMode directionalAttack = DirectionalAttackMode::Modifier; // [keyboard] directional_attack
     // [gamepad]
     bool gamepadEnabled = true;
     float gamepadDeadzone = 0.15f;

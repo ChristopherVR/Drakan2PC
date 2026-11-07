@@ -528,6 +528,15 @@ const std::vector<Field>& fields() {
         {"keyboard", "toggle_run", true, GETB(controls.toggleRun), SETB(controls.toggleRun), nullptr},
         {"keyboard", "curve_compensation", true, GETB(controls.curveCompensation), SETB(controls.curveCompensation),
          nullptr},
+        {"keyboard", "directional_attack", true, GETS(controls.directionalAttack),
+         [](Settings& s, const std::string& v) {
+             const std::string u = lower(trim(v));
+             if (u == "modifier" || u == "tap" || u == "always" || u == "off")
+                 s.controls.directionalAttack = u;
+         },
+         "when W / A / S / D + attack is a directional special move: modifier = only while DIRECTIONAL_ATTACK (Left "
+         "Alt) is held, tap = movement key pressed with the attack, always = whenever a movement key is held, off = "
+         "arrow keys only"},
         {"gamepad", "enabled", true, GETB(controls.gamepadEnabled), SETB(controls.gamepadEnabled), nullptr},
         {"gamepad", "deadzone", true, GETF(controls.gamepadDeadzone, "%.2f"), SETF(controls.gamepadDeadzone), nullptr},
         {"gamepad", "debug_menu_combo", true, GETS(controls.debugMenuCombo), SETS(controls.debugMenuCombo), nullptr},
@@ -579,8 +588,8 @@ BindingLayer parseLayer(const IniDoc& doc, const std::string& section) {
     }
     if (section == "bindings") {
         // Match the input module's implicit shortcuts so an older ini shows its effective F5/F8 bindings.
-        for (const auto& [key, action] :
-             {std::pair{"F5", "QUICKSAVE"}, std::pair{"F8", "QUICKLOAD"}, std::pair{"F3", "DEBUG_MENU"}})
+        for (const auto& [key, action] : {std::pair{"F5", "QUICKSAVE"}, std::pair{"F8", "QUICKLOAD"},
+                                          std::pair{"F3", "DEBUG_MENU"}, std::pair{"LALT", "DIRECTIONAL_ATTACK"}})
             if (!doc.has(section, key) && l.sourcesFor(action).empty())
                 l.bind(action, key);
     }
@@ -590,8 +599,8 @@ BindingLayer parseLayer(const IniDoc& doc, const std::string& section) {
 void writeLayer(const BindingLayer& before, const BindingLayer& requested, IniDoc& doc, const std::string& section) {
     BindingLayer after = requested;
     if (section == "bindings")
-        for (const auto& [key, action] :
-             {std::pair{"F5", "QUICKSAVE"}, std::pair{"F8", "QUICKLOAD"}, std::pair{"F3", "DEBUG_MENU"}})
+        for (const auto& [key, action] : {std::pair{"F5", "QUICKSAVE"}, std::pair{"F8", "QUICKLOAD"},
+                                          std::pair{"F3", "DEBUG_MENU"}, std::pair{"LALT", "DIRECTIONAL_ATTACK"}})
             if (!before.sourcesFor(action).empty() && requested.sourcesFor(action).empty() &&
                 requested.actionsFor(key).empty())
                 after.bind("NONE", key);
@@ -600,7 +609,8 @@ void writeLayer(const BindingLayer& before, const BindingLayer& requested, IniDo
             if (after.actionsFor(line.source).empty() &&
                 (std::find(line.actions.begin(), line.actions.end(), "QUICKSAVE") != line.actions.end() ||
                  std::find(line.actions.begin(), line.actions.end(), "QUICKLOAD") != line.actions.end() ||
-                 std::find(line.actions.begin(), line.actions.end(), "DEBUG_MENU") != line.actions.end()))
+                 std::find(line.actions.begin(), line.actions.end(), "DEBUG_MENU") != line.actions.end() ||
+                 std::find(line.actions.begin(), line.actions.end(), "DIRECTIONAL_ATTACK") != line.actions.end()))
                 after.bind("NONE", line.source); // preserve a deliberate unbind across input-config migration
     if (before == after)
         return;
@@ -727,6 +737,8 @@ std::string settingLabel(const std::string& key) {
         return "Modern bow aiming";
     if (key == "input.gamepad.debug_menu_combo")
         return "Debug menu shortcut";
+    if (key == "input.keyboard.directional_attack")
+        return "Directional attacks";
     static const struct {
         const char* k;
         const char* v;

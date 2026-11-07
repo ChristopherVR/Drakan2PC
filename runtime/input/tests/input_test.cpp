@@ -110,8 +110,9 @@ static void testConfig() {
     Config::parse(
         "[bindings]\nX = CROSS | ACT:0x12\nBOGUS = CROSS\nQ = NOPE\n[mouse]\nsensitivity_x = 0.5\ninvert_y = 1\n", d,
         &w);
-    // X has two actions; migration adds Enter, keypad Enter, map, quicksave, quickload and the debug menu.
-    CHECK(d.game.size() == 8);
+    // X has two actions; migration adds Enter, keypad Enter, map, quicksave, quickload, the debug menu and the
+    // directional attack modifier.
+    CHECK(d.game.size() == 9);
     {
         int enters = 0;
         for (const auto& bd : d.game)
@@ -159,8 +160,12 @@ static void testStickCurve() {
 }
 
 static void testDirectionalAttacks() {
+    // The movement-held projection itself ([keyboard] directional_attack = always); the default modifier mode and the
+    // other modes are covered by directional_attack_mode_tests.cpp.
+    Config always = Config::defaults();
+    always.directionalAttack = DirectionalAttackMode::Always;
     InputModule m;
-    m.initHeadless(Config::defaults());
+    m.initHeadless(always);
     FakeGuest guest;
     const uint32_t ctx = 0x600000, actor = 0x610000, inner = 0x620000, player = 0x630000, vt = 0x640000;
     guest.write32(0x5565d4, ctx);
@@ -221,7 +226,7 @@ static void testDirectionalAttacks() {
     // Repeated small physical deflections pass through the existing four-byte jitter dither.
     CHECK(std::abs(int(merged.ly) - int(encodeStickRaw(-0.25f))) <= 4);
 
-    Config custom = Config::defaults();
+    Config custom = always;
     Config::parse("[bindings]\nI = LSTICK_UP\nJ = SQUARE\n", custom, nullptr);
     InputModule rebound;
     rebound.initHeadless(custom);
@@ -313,7 +318,7 @@ static void testDirectionalAttacks() {
     noDelayedAttack();
     guest.write32(inner + 0x10, player);
     prepareTap();
-    m.reloadConfig(Config::defaults());
+    m.reloadConfig(always);
     noDelayedAttack();
     prepareTap();
     CHECK((sampleOf(m, keys({"ESC"})).buttons & Pad::SQUARE) == 0);

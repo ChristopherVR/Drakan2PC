@@ -28,11 +28,12 @@ def fixture():
             },
         }
 
-    for label, animation in (("neutral_neutral", 10), ("up_arrow", 20), ("up_wasd", 20)):
+    for label, animation in (("neutral_neutral", 10), ("up_arrow", 20), ("up_wasd", 20), ("up_plain", 30)):
         for phase in ("base", "move", "released", "idle"):
             samples[f"ram_{label}_{phase}"] = sample()
         for offset in directional.ATTACK_FRAMES:
-            samples[f"ram_{label}_attack_{offset:02}"] = sample(animation, time=offset / 30)
+            position = offset if label == "up_plain" else 0
+            samples[f"ram_{label}_attack_{offset:02}"] = sample(animation, position=position, time=offset / 30)
     for phase, position in (("before", 0), ("after", 100), ("idle1", 100), ("idle2", 100)):
         samples[f"ram_movement_{phase}"] = sample(position=position)
     return samples
@@ -115,13 +116,30 @@ class DirectionalAttackCheckTest(unittest.TestCase):
         self.assertFalse(checks["up_wasd_released"])
         self.assertFalse(checks["movement_after_attack"])
 
+    def test_plain_attack_must_stay_ordinary_and_moving(self):
+        samples = fixture()
+        for offset in directional.ATTACK_FRAMES:
+            samples[f"ram_up_plain_attack_{offset:02}"]["pose"]["upper"]["clip"] = 20
+        checks, _ = directional.evaluate(samples, ["up"])
+        self.assertFalse(checks["up_plain_not_directional"])
+        samples = fixture()
+        for offset in directional.ATTACK_FRAMES:
+            samples[f"ram_up_plain_attack_{offset:02}"]["rynn"]["position"] = [0, 0, 0]
+        checks, _ = directional.evaluate(samples, ["up"])
+        self.assertFalse(checks["up_plain_keeps_moving"])
+
     def test_recipe_releases_before_idle_and_covers_controls(self):
         lines = directional.recipe(["up"]).splitlines()
         self.assertEqual(lines, sorted(lines, key=lambda line: int(line.split()[0])))
         self.assertIn("242 key down UP", lines)
+        self.assertIn("382 key down LALT", lines)
         self.assertIn("382 key down W", lines)
-        self.assertEqual(sum("button down 1" in line for line in lines), 3)
-        self.assertEqual(sum("button up 1" in line for line in lines), 3)
+        self.assertIn("400 key up LALT", lines)
+        self.assertIn("522 key down W", lines)
+        self.assertIn("580 key up W", lines)
+        self.assertNotIn("522 key down LALT", lines)
+        self.assertEqual(sum("button down 1" in line for line in lines), 4)
+        self.assertEqual(sum("button up 1" in line for line in lines), 4)
 
 
 if __name__ == "__main__":

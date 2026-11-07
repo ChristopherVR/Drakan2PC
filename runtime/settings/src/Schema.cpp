@@ -585,6 +585,15 @@ void controlsPage(gameui::SettingPage& pg, const Settings& st, const SchemaEnv& 
              "PS2 controls.");
     b.toggle("input.keyboard.curve_compensation", "Full speed on keyboard",
              "The game squares stick input; this undoes it so WASD gives full speed.");
+    b.choice("input.keyboard.directional_attack", "Directional attacks",
+             "When W / A / S / D with Attack makes a special move (needs a drawn melee weapon). Hold modifier: only "
+             "while the Directional attack key (Left Alt by default) is held, so Rynn keeps walking and strafing "
+             "through ordinary attacks. Tap: press the movement key together with Attack. Always: whenever a "
+             "movement key is held (no moving attacks). Arrow keys only: never from W / A / S / D.",
+             {{"modifier", "Hold modifier"},
+              {"tap", "Tap direction with attack"},
+              {"always", "Always"},
+              {"off", "Arrow keys only"}});
 
     pg.sections.push_back({"Gamepad", {}});
     b.sec = &pg.sections.back();

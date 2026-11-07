@@ -71,6 +71,9 @@ const std::vector<ActionDef>& gameActions() {
         {"LSTICK_LEFT", "Turn left", "Left stick left (strafe in control scheme C)", "Movement"},
         {"LSTICK_RIGHT", "Turn right", "Left stick right (strafe in control scheme C)", "Movement"},
         {"WALK", "Walk / run", "Hold to walk, or switch pace with Toggle run enabled", "Movement"},
+        {"DIRECTIONAL_ATTACK", "Directional attack",
+         "Hold with Attack and a movement key for a special move (Left Alt by default; see Directional attacks)",
+         "Actions"},
         {"TRIANGLE", "Jump", "Triangle", "Actions"},
         {"CROSS", "Crouch", "Cross", "Actions"},
         {"SQUARE", "Attack", "Square", "Actions"},
@@ -257,6 +260,7 @@ stick_sign_y = 1
 strafe = 1
 walk_scale = 0.5
 curve_compensation = 1
+directional_attack = modifier
 
 [gamepad]
 enabled = 1
@@ -268,6 +272,7 @@ S = LSTICK_DOWN
 A = LSTICK_LEFT
 D = LSTICK_RIGHT
 LSHIFT = WALK
+LALT = DIRECTIONAL_ATTACK
 MOUSE1 = SQUARE
 MOUSE2 = CIRCLE
 MOUSE3 = R2

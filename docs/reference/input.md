@@ -32,6 +32,16 @@ W/Up `0x20684`, S/Down `0x2069c`, A/Left `0x2069d`, D/Right `0x2069e`, each dist
 attack `0x20691`; native attack clocks, release, idle stability and subsequent movement/release also passed.
 Investigation: [issue #1 directional attacks](../journal/2026-11-05/issue-1-directional-attacks.md).
 
+**When movement makes an attack directional (2026-11-07).** Projecting every held movement key made walking or
+strafing through ordinary attacks impossible. `[keyboard] directional_attack` now decides it, once per attack press
+(kept until release): `modifier` (default) only while a `DIRECTIONAL_ATTACK` binding is held (`LALT` by default,
+migrated into older files unless `LALT` is bound / `NONE` or the action is already bound); `tap` when a movement
+direction turned on at most `kDirectionalTapSeconds` (0.25 s) before or with the attack; `always` the 2026-11-05
+behaviour above; `off` arrow keys only. A plain attack adds no D-pad bits and leaves the keyboard left stick as it is.
+The native melee gating, preparation sample, tap buffering and cancellation are unchanged, and the controller merge
+is unaffected. Settings > Controls > Keyboard movement > **Directional attacks**. Tests: `directional_attack_mode_tests.cpp`.
+Notes: [directional attack modifier](../journal/2026-11-07/issue-1-directional-attack-modifier.md).
+
 ## Keyboard spell gestures (2026-11-05)
 
 Native spell gesture input (`0x38a548`, PAL) reads axes 0/2, whereas PC A/D strafe
