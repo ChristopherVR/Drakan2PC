@@ -2302,3 +2302,28 @@ body.dragging-asset {
 @media (max-width: 1000px) {
   #sb-cam { display: none; }
 }
+
+/* Below 1100 px the toolbar keeps Play and Export on screen: menu buttons show their icon only, the separators go and the
+   level picker narrows. Titles and the menus themselves are unchanged. */
+@media (max-width: 1100px) {
+  .ed-toolbar { gap: 2px; padding: 0 var(--sp-2); }
+  .ed-toolbar .tsep { display: none; }
+  #level-main .ui-dd.levelpick { width: 130px; }
+  .ed-toolbar .menuwrap > .tool > span,
+  #level-main .ed-toolbar #ed-export { font-size: 0; gap: 0; }
+  #level-main .ed-toolbar #ed-export svg { font-size: 14px; }
+}
+
+/* Below 900 px the rarely used toolbar items (duplicate, delete, saved flag, theme, help) leave the bar: they stay in the
+   Edit menu, the shortcuts (Ctrl+D, Del, F1, Ctrl+Shift+L) and the command palette. */
+@media (max-width: 900px) {
+  #level-main .ed-toolbar #ed-dup,
+  #level-main .ed-toolbar #ed-del,
+  #level-main .ed-toolbar #ed-theme,
+  #level-main .ed-toolbar #ed-help,
+  #level-main .ed-toolbar .dirty { display: none; }
+  #level-main .ui-dd.levelpick { width: 110px; }
+}
+
+/* A folded side column leaves a few pixels of its header past the window edge: never let that scroll the page. */
+html, body { overflow-x: hidden; }

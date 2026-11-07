@@ -13,9 +13,11 @@ import type { TextureLookup } from './textures.ts';
 
 /**
  * Cells per chunk edge for untouched layers (merged per origin chunk and texture, like `buildTerrain`). Converted Order of
- * the Flame levels have hundreds of small layers: 32 gave nearly 9000 draw calls on Islands, 128 a few hundred.
+ * the Flame levels have hundreds of small layers: 32 gave nearly 9000 draw calls on Islands, 128 about 1900 for the
+ * terrain, 256 about 830, 512 under 100 (a layer is keyed by its origin, so no level is split further). Measured with the
+ * software-rendered test browser; the picture is the same (docs/journal/2026-11-07/editor-round3.md).
  */
-const SHARED_CHUNK = 128;
+const SHARED_CHUNK = 512;
 /** Cells per chunk edge of a layer being edited: a brush dab rebuilds only the few chunks it touched. */
 const EDIT_CHUNK = 16;
 

@@ -52,3 +52,51 @@ under that id gets it replaced by the levels the editor converted.
   the lighting and fog; raising `SHARED_CHUNK` trades culling for draws and was not measured.
 * The full polish pass was screenshots of the start page, Level Editor, Story, Project Settings, Menus and the Save
   editor at 1920x1080, 1280x720 and 820x700 (not every dialog); no cramped or unstyled spot beyond the ones above.
+
+## Follow-up: temporary Play pack, scoped strings, terrain draws, narrow toolbar
+
+**Play never touches the player's pack.** The converted levels go into `mods/editor-play-ootf.zip` with the manifest
+retagged (`id`, `name`). Two converted OotF packs cannot be on together (both replace the widened `RESOURES.MOD` /
+`WORLDCON.MOD` and hand out class ids from the same ranges), so for the session every `ootf*` entry of `mods.ini` is
+switched off and the Play pack on; the desktop shell (`playpack.rs`) keeps the original `mods.ini` text in
+`%APPDATA%/dev.drakan.editor/play-pack-backup.json`, restores it and deletes the zip when the game and its extra
+instances have closed, and again at the next editor start if the editor was closed first. A second session keeps the
+first backup. Checked in the desktop app with the player's own `ootf-levels` pack present and enabled: the game log
+listed only `drakan-character-motion` and `editor-play-ootf`, no `conflict` lines, the player was placed in the level,
+and after the window closed `mods.ini` and the mods folder were as before (`play-pack-backup.json` gone). Tests:
+`play-pack.test.ts` (ini edit, manifest retag, id), `playpack::tests` (restore, backup kept).
+
+**Strings** get the same Order of the Flame tick as the other Story lists (ids from `new/<STEM>.XDB/0400_<id>_`).
+
+**Terrain draw calls.** Chunk size of untouched layers is now 512 cells (`SHARED_CHUNK`). A texture array or atlas was not
+built: the numbers below show terrain is down to well under 100 draws, the rest is object models.
+Software-rendered browser (Playwright Chromium, SwiftShader), Islands and Volcanic converted with the Surdana template,
+three runs each, draws read from the status bar after the load finished:
+
+| Chunk | Islands draws / fps | Volcanic draws / fps |
+| --- | --- | --- |
+| 128 (before) | 3141 / 32 | 2168 / 50 |
+| 256 | 2108 / 41 | 1280 / 60 |
+| 512 or 1024 | 1351 / 51 to 59 | 1280 / 60 |
+
+Triangles are identical in every run (1082k and 991k). Open time (object list, then terrain and models) stayed within
+the run-to-run noise (about 3 to 6 s); the JS heap reading moved between 250 and 610 MB from run to run on the same
+chunk size, so no heap difference can be claimed. Screenshots of 128 and 512 differ in 164 and 140 pixels out of
+574k (animated parts), i.e. the picture is the same. The cost is coarser frustum culling; on a GPU that is not visible.
+
+**Narrow toolbar.** At 820 px the Level Editor toolbar was 1200 px wide: Arrange, Export and Play were pushed off the
+screen. Below 1100 px the menu buttons show their icon only and the separators go; below 900 px duplicate, delete, the
+saved flag, theme and help leave the bar too (their shortcuts and menu entries remain). Play and Export are on screen at
+820 px (checked in the desktop app). The page no longer scrolls sideways when a folded column leaves a few pixels
+past the edge.
+
+**Polish pass, what was checked.** An automated sweep (overlap, off-screen and clipped-text checks) ran over 29 states
+(start page, level picker, importer, undo history, Add dialogs, Unreal export, shortcuts, help drawer, the four Story
+areas, Disc Files, Landscape, Logic, Menus, Vendors, World Settings, Package and Play, Project Settings and the three
+bottom docks) at 820x700 and 1280x720. 1280x720 was clean apart from the 4 px sideways scroll fixed above; 820x700 showed
+the toolbar problem above. The final 820 sweep did not complete (a file chooser opened mid-run), and 1920x1080 was only
+looked at on the start page, so those are not claimed.
+
+Still open: the left Place panel keeps 320 px at 820 px (the viewport is about 400 px wide there), the task checklist
+pill overlaps the bottom right of a short dock, and the Strings scope was not exercised against a pack that adds text
+(the test pack adds none to SYSTEM or LEVEL1ON).

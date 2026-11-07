@@ -14,7 +14,7 @@ calls cut from about 9000 to 3000). Details, results of the 23-level walkthrough
 thread, converted levels are not persisted, Story shows disc text only, Play not re-run) are in
 [editor OotF viewport](../journal/2026-11-06/editor-ootf-viewport.md).
 
-**Round 3 (2026-11-07):** Play from the desktop app now works for disc and converted OotF levels (the converted pack is installed as `mods/ootf-levels.zip`); see [editor round 3](../journal/2026-11-07/editor-round3.md) for what was verified and what is left (OotF strings, terrain draw calls).
+**Round 3 (2026-11-07):** Play from the desktop app now works for disc and converted OotF levels (the converted pack is installed as `mods/ootf-levels.zip`); see [editor round 3](../journal/2026-11-07/editor-round3.md) for what was verified and what is left (see the follow-up section for the temporary Play pack, strings scope and terrain draws).
 
 Living tracker for the editor / mod / multiplayer / engine-portability track. Last updated at commit c03a3b0
 (editor) and c270bb9 (game and runtime). Details live in the dated notes under `docs/journal/2026-11-01/` and
