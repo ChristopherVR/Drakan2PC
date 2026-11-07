@@ -28,6 +28,9 @@ struct PassFrame {
     uint32_t coverageDebug = 0;
     // Rays per pixel: sun samples (1-4), occlusion rays, reflection rays (1-4); and render pixels per shadow pixel.
     uint32_t sunSamples = 4, occlusionRays = 4, reflectionRays = 4, shadowScale = 1;
+    // Global illumination and opaque reflections: render pixels per transport pixel (2 = the DXR pass's half
+    // resolution) and diffuse bounce rays per transport pixel (1-4).
+    uint32_t transportScale = 2, diffuseRays = 4;
 };
 
 class WgpuRay {
@@ -43,6 +46,8 @@ public:
                 std::span<const surface::Texture> textures, const SceneModels* models,
                 const surface::RayOptions& options);
     rhi::Texture* output() const { return output_.get(); }
+    // Pixels the last pass traced global illumination / opaque reflections at (0 when it skipped that dispatch).
+    uint64_t transportPixels() const { return transportPixels_; }
 
 private:
     struct Gpu4 {
@@ -85,6 +90,7 @@ private:
     size_t staticTextureCount_ = ~size_t(0);
     surface::Point staticBase_{};
     uint32_t staticCounts_[3]{}, staticTextured_ = 0;
+    bool staticGlossy_ = false; // a static triangle has a glossy material (opaque reflections)
     Blas staticBlas_[3];
     std::vector<Node> staticNodes_;
     std::vector<Gpu4> staticTris_;
@@ -109,7 +115,7 @@ private:
     std::unordered_map<uint64_t, surface::CornerWelds> welds_;
     bool modelLevelValid_ = false;
     uint64_t modelLevel_ = 0;
-    uint64_t pass_ = 0;
+    uint64_t pass_ = 0, transportPixels_ = 0;
     std::vector<uint64_t> textureFingerprints_;
     uint32_t texelCapacity_ = 0; // textures the texel buffer holds
     uint64_t skyLevel_ = ~0ull;

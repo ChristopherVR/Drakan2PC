@@ -15,7 +15,7 @@ struct Camera {
     up: vec4f,
     forward: vec4f,
     sizeTime: vec4f,      // guide size, elapsed scene seconds, reflections
-    jitter: vec4f,
+    jitter: vec4f,        // xy: raster jitter; z: render pixels per transport pixel; w: diffuse bounce rays
     limits: vec4f,        // near plane, opaque triangles, camera world x / z (world-anchored water detail)
     quality: vec4u,       // sun samples, occlusion rays, reflection rays, shadow scale (render pixels per shadow pixel)
 }
@@ -792,8 +792,9 @@ fn opaqueTransport(s: Surface, direction: vec3f, pixel: vec2u) -> vec4f {
     if ((L.effects.w & 512u) != 0u) {
         var incoming = vec3f(0.0);
         let rotation = pixelNoise(pixel, 3u);
-        for (var sample = 0u; sample < 4u; sample++) {
-            let disk = diskSample(sample, 4u, rotation);
+        let rays = u32(clamp(C.jitter.w, 1.0, 4.0));
+        for (var sample = 0u; sample < rays; sample++) {
+            let disk = diskSample(sample, rays, rotation);
             let d = normalize(tangent * disk.x + bitangent * disk.y + s.shading * sqrt(saturate(1.0 - dot(disk, disk))));
             if (dot(d, s.normal) > 0.0) {
                 incoming += transportRadiance(s.p, s.normal, d, s.self_, 20.0 * kMetre, rotation, false);
@@ -802,7 +803,7 @@ fn opaqueTransport(s: Surface, direction: vec3f, pixel: vec2u) -> vec4f {
         // Cosine sampling cancels the Lambert cosine/pi. Use the receiver's material reflectance, not an
         // arbitrary screen-brightness multiplier; missing sky evidence contributes no invented diffuse light.
         let albedo = toLinear(saturate(materialDisplay(s.hit.primitive, s.hit.bary)));
-        incomingLight += albedo * incoming * 0.25;
+        incomingLight += albedo * incoming / f32(rays);
     }
     if (glossy) {
         let alpha = max(0.04, roughness) * max(0.04, roughness);
@@ -1083,6 +1084,12 @@ fn upsampledShadow(pixel: vec2i, depth: f32) -> vec3f {
     return select(nearest, sum / total, total > 1e-6);
 }
 
+fn transportScale() -> u32 { return u32(clamp(C.jitter.z, 1.0, 16.0)); }
+// The render pixel a transport pixel traces: the centre of its block (pixel 2q + 1 at the DXR pass's half resolution).
+fn transportPixel(q: vec2i) -> vec2i {
+    let k = i32(transportScale());
+    return min(q * k + k / 2, vec2i(size()) - 1);
+}
 // Preserve material discontinuities even when adjacent surfaces have identical raster colors and normals.
 // This key fits exactly in a half float (1..1024); zero remains the invalid guide marker.
 fn transportMaterialKey(primitive: u32) -> f32 {
@@ -1094,12 +1101,14 @@ fn transportMaterialKey(primitive: u32) -> f32 {
     let nativeModel = select(0u, 512u, (flags & 128u) != 0u);
     return f32(1u + u32(round(roughness * 15.0)) + (u32(round(f0 * 15.0)) << 4u) + cutout + nativeModel);
 }
-// Trace nonnegative incoming radiance and scalar reflected energy at half resolution. Keep the local raster
+// Trace nonnegative incoming radiance and scalar reflected energy at one pixel per transportScale() render pixels
+// (half resolution like the DXR pass, or native resolution in game: software traversal). Keep the local raster
 // color out of the filtered signal: transferring a neighbor's negative diffuse term creates colored dark patches.
 @compute @workgroup_size(8, 8, 1)
 fn transportMain(@builtin(global_invocation_id) id: vec3u) {
-    if (any(id.xy >= (vec2u(size()) + 1u) / 2u)) { return; }
-    let pixel = min(vec2i(id.xy * 2u + 1u), vec2i(size()) - 1);
+    let k = transportScale();
+    if (any(id.xy >= (vec2u(size()) + k - 1u) / k)) { return; }
+    let pixel = transportPixel(vec2i(id.xy));
     var transport = vec4f(0.0);
     var guide = vec4f(0.0);
     let depth = depthAt(pixel);
@@ -1125,12 +1134,34 @@ fn transportMain(@builtin(global_invocation_id) id: vec3u) {
     textureStore(Output, id.xy, transport);
     textureStore(OutputB, id.xy, guide);
 }
-fn filteredTransport(pixel: vec2i, depth: f32, receiver: Surface) -> vec4f {
+// A render pixel's transport receiver: its normal (xyz) and material key (w, 0 = none), with its confidence.
+struct Receiver { guide: vec4f, confidence: f32 }
+// The transport pixel of this render pixel's own block already traced its surface: reuse its guide when this pixel
+// lies on that sample's plane (a full-resolution ray per pixel was most of the main pass). Otherwise trace it.
+fn transportReceiver(pixel: vec2i, depth: f32) -> Receiver {
     let p = worldPosition(vec2f(pixel), depth);
-    let normal = receiver.normal;
-    let kind = transportMaterialKey(receiver.hit.primitive);
+    let q = min(pixel / i32(transportScale()), vec2i(textureDimensions(TransportGuide)) - 1);
+    let guide = textureLoad(TransportGuide, q, 0);
+    let samplePixel = transportPixel(q);
+    let sampleDepth = depthAt(samplePixel);
+    if (guide.a != 0.0 && sampleDepth > 0.0 && dot(guide.xyz, p) < 0.0) {
+        let plane = abs(dot(worldPosition(vec2f(samplePixel), sampleDepth) - p, guide.xyz));
+        if (plane <= max(4.0, length(p) * 0.005)) {
+            return Receiver(guide, 1.0);
+        }
+    }
+    let traced = primarySurface(p, false);
+    if (!traced.ok) {
+        return Receiver(vec4f(0.0), 0.0);
+    }
+    return Receiver(vec4f(traced.normal, transportMaterialKey(traced.hit.primitive)), traced.confidence);
+}
+fn filteredTransport(pixel: vec2i, depth: f32, receiver: Receiver) -> vec4f {
+    let p = worldPosition(vec2f(pixel), depth);
+    let normal = receiver.guide.xyz;
+    let kind = receiver.guide.w;
     let source = toLinear(colorAt(pixel).rgb);
-    let origin = pixel / 2;
+    let origin = pixel / i32(transportScale());
     let lowSize = vec2i(textureDimensions(TransportIn));
     var sum = vec4f(0.0);
     var total = 0.0;
@@ -1141,7 +1172,7 @@ fn filteredTransport(pixel: vec2i, depth: f32, receiver: Surface) -> vec4f {
             let transport = textureLoad(TransportIn, q, 0);
             let guide = textureLoad(TransportGuide, q, 0);
             if (guide.a != kind) { continue; }
-            let samplePixel = min(q * 2 + 1, vec2i(size()) - 1);
+            let samplePixel = transportPixel(q);
             let sampleDepth = depthAt(samplePixel);
             let offset = worldPosition(vec2f(samplePixel), sampleDepth) - p;
             let plane = abs(dot(offset, normal));
@@ -1217,11 +1248,21 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
         result = vec4f(toDisplay(toLinear(original.rgb) * receiverShadow), original.a);
         if ((L.effects.w & 128u) != 0u) { result = vec4f(receiverShadow, original.a); }
     }
+    if (L.scene.z == 4u) {
+        // GSR_WATER_COVERAGE_DEBUG=4 (as ray_water.hlsl): the ray scene's receiver colour, black without a receiver.
+        var receiverColor = vec3f(0.0);
+        if (sceneDepth > 0.0) {
+            let receiver = primarySurface(worldPosition(vec2f(pixel), sceneDepth), false);
+            if (receiver.ok) { receiverColor = saturate(materialDisplay(receiver.hit.primitive, receiver.hit.bary)); }
+        }
+        textureStore(Output, id.xy, vec4f(receiverColor, original.a));
+        return;
+    }
     if (!haveWater && sceneDepth > 0.0 && (L.effects.w & 1536u) != 0u && (L.effects.w & 224u) == 0u) {
         // Transport needs a real depth-matched material. Shadow-only terrain anchoring must not paint a
         // nearby ground material onto unmatched characters, foliage or other native raster silhouettes.
-        let receiver = primarySurface(worldPosition(vec2f(pixel), sceneDepth), false);
-        if (receiver.ok) {
+        let receiver = transportReceiver(pixel, sceneDepth);
+        if (receiver.confidence > 0.0) {
             let transport = filteredTransport(pixel, sceneDepth, receiver);
             result = vec4f(toDisplay(toLinear(result.rgb) * (1.0 - saturate(transport.a)) + transport.rgb), original.a);
         }

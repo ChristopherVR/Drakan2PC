@@ -404,6 +404,26 @@ int main() {
         const auto bounced = sample();
         check(channel(bounced, 0) > channel(off, 0) + 12 && channel(bounced, 0) > channel(bounced, 1) + 12,
               "one diffuse bounce carries red from geometry absent from raster pixels");
+        {
+            // The game's budget (issue 1): one transport pixel per 4 render pixels, two bounce rays.
+            f.transportScale = 4;
+            f.diffuseRays = 2;
+            const auto coarse = sample();
+            check(channel(coarse, 0) > channel(off, 0) + 12 && channel(coarse, 0) > channel(coarse, 1) + 12 &&
+                      std::abs(channel(coarse, 0) - channel(bounced, 0)) < 12,
+                  "native-resolution transport with two bounce rays carries the same red bounce");
+            check(pass.transportPixels() == (W / 4) * (H / 4), "transport traces one pixel per 4x4 render pixels");
+            f.transportScale = 2;
+            f.diffuseRays = 4;
+            // Opaque reflections alone trace glossy materials only: with none in the scene nothing is traced.
+            transport.globalIllumination = false;
+            transport.materialReflections = true;
+            check(sample() == off, "reflections without a glossy material leave the image untouched");
+            check(pass.status().find("Ray scene traced") == 0 && pass.transportPixels() == 0,
+                  "the pass runs without a transport dispatch when no material is glossy");
+            transport.materialReflections = false;
+            transport.globalIllumination = true;
+        }
         // Put the same secondary ceiling into the raster, then give its raster pixels an unrelated green color.
         // A diffuse bounce must still use the red surface material/native lighting, not camera-dependent pixels.
         std::vector<float> visibleCeilingDepth(W * H, 0.0f);

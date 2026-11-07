@@ -33,6 +33,8 @@ struct ContextOptions {
     bool preferRayQuery = false;       // reserved: hardware ray queries cannot be enabled through wgpu-native v29
     bool allowSoftwareAdapter = false; // accept a CPU adapter (tests, headless CI)
     const NativeWindow* compatibleWith = nullptr; // pick an adapter that can present to this window
+    // Request GPU timestamp queries when the adapter has them (profiling; GSR_RAY_GPU_TIMING also asks for them).
+    bool timestampQuery = false;
 };
 
 class Surface;
@@ -63,6 +65,7 @@ public:
     bool fxcShaderCompiler() const { return fxc_; }
     bool rayQuery() const { return rayQuery_; }
     bool dualSourceBlending() const { return dualSource_; }
+    bool timestampQuery() const { return timestamps_; } // WGPUFeatureName_TimestampQuery is enabled
     WGPULimits limits() const { return limits_; }
 
     // True once a validation / out-of-memory error was reported or the device was lost.
@@ -103,6 +106,7 @@ private:
     bool fxc_ = false;
     bool rayQuery_ = false;
     bool dualSource_ = false;
+    bool wantTimestamps_ = false, timestamps_ = false;
     std::unique_ptr<State> state_;
 };
 

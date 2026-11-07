@@ -282,6 +282,12 @@ public:
         flush();
         context_.poll(true);
         clearBindGroups();
+        if (timingQueries_)
+            wgpuQuerySetRelease(timingQueries_);
+        if (timingResolve_)
+            wgpuBufferRelease(timingResolve_);
+        if (timingRead_)
+            wgpuBufferRelease(timingRead_);
         if (point_)
             wgpuSamplerRelease(point_);
         if (linear_)
@@ -749,7 +755,16 @@ public:
         if (!group)
             return;
         endPass();
-        WGPUComputePassEncoder pass = wgpuCommandEncoderBeginComputePass(encoder(), nullptr);
+        auto timestamps = WGPU_PASS_TIMESTAMP_WRITES_INIT;
+        auto passDesc = WGPU_COMPUTE_PASS_DESCRIPTOR_INIT;
+        if (timing_ && timed_ < kTimedDispatches) {
+            timestamps.querySet = timingQueries_;
+            timestamps.beginningOfPassWriteIndex = 2 * timed_;
+            timestamps.endOfPassWriteIndex = 2 * timed_ + 1;
+            passDesc.timestampWrites = &timestamps;
+            ++timed_;
+        }
+        WGPUComputePassEncoder pass = wgpuCommandEncoderBeginComputePass(encoder(), &passDesc);
         wgpuComputePassEncoderSetPipeline(pass, program_->compute);
         std::array<uint32_t, kMaxUniformSlots> offsets{};
         const uint32_t uniformCount = std::min(program_->desc.uniformSlots, kMaxUniformSlots);
@@ -759,6 +774,66 @@ public:
         wgpuComputePassEncoderDispatchWorkgroups(pass, x, y, z);
         wgpuComputePassEncoderEnd(pass);
         wgpuComputePassEncoderRelease(pass);
+    }
+
+    bool beginDispatchTiming() override {
+        if (timing_ || timingBusy_ || !context_.timestampQuery())
+            return false;
+        if (!timingQueries_) {
+            auto q = WGPU_QUERY_SET_DESCRIPTOR_INIT;
+            q.type = WGPUQueryType_Timestamp;
+            q.count = 2 * kTimedDispatches;
+            timingQueries_ = wgpuDeviceCreateQuerySet(device_, &q);
+            auto b = WGPU_BUFFER_DESCRIPTOR_INIT;
+            b.size = 2 * kTimedDispatches * sizeof(uint64_t);
+            b.usage = WGPUBufferUsage_QueryResolve | WGPUBufferUsage_CopySrc;
+            timingResolve_ = wgpuDeviceCreateBuffer(device_, &b);
+            b.usage = WGPUBufferUsage_MapRead | WGPUBufferUsage_CopyDst;
+            timingRead_ = wgpuDeviceCreateBuffer(device_, &b);
+            if (!timingQueries_ || !timingResolve_ || !timingRead_)
+                return false;
+        }
+        timing_ = true;
+        timed_ = 0;
+        return true;
+    }
+    void endDispatchTiming(std::function<void(std::vector<double>&&)> done) override {
+        if (!timing_)
+            return;
+        timing_ = false;
+        const uint32_t count = timed_;
+        if (!count)
+            return;
+        endPass();
+        const uint64_t bytes = uint64_t(count) * 2 * sizeof(uint64_t);
+        wgpuCommandEncoderResolveQuerySet(encoder(), timingQueries_, 0, 2 * count, timingResolve_, 0);
+        wgpuCommandEncoderCopyBufferToBuffer(encoder(), timingResolve_, 0, timingRead_, 0, bytes);
+        submit();
+        timingBusy_ = true;
+        struct Read {
+            WDevice* self;
+            uint32_t count;
+            std::function<void(std::vector<double>&&)> done;
+        };
+        auto callback = WGPU_BUFFER_MAP_CALLBACK_INFO_INIT;
+        callback.mode = WGPUCallbackMode_AllowSpontaneous;
+        callback.userdata1 = new Read{this, count, std::move(done)};
+        callback.callback = [](WGPUMapAsyncStatus status, WGPUStringView, void* user, void*) {
+            std::unique_ptr<Read> r(static_cast<Read*>(user));
+            std::vector<double> ms;
+            if (status == WGPUMapAsyncStatus_Success) {
+                const auto* ticks = static_cast<const uint64_t*>(
+                    wgpuBufferGetConstMappedRange(r->self->timingRead_, 0, r->count * 2 * sizeof(uint64_t)));
+                for (uint32_t i = 0; ticks && i < r->count; ++i) // nanoseconds (WebGPU timestamps)
+                    ms.push_back(ticks[2 * i + 1] > ticks[2 * i] ? double(ticks[2 * i + 1] - ticks[2 * i]) * 1e-6
+                                                                 : 0.0);
+                wgpuBufferUnmap(r->self->timingRead_);
+            }
+            r->self->timingBusy_ = false;
+            if (r->done && !ms.empty())
+                r->done(std::move(ms));
+        };
+        wgpuBufferMapAsync(timingRead_, WGPUMapMode_Read, 0, bytes, callback);
     }
 
     void flush() override {
@@ -1078,6 +1153,10 @@ struct U { origin: vec4u }
     WGPUCommandEncoder encoder_ = nullptr;
     WGPURenderPassEncoder pass_ = nullptr;
     WGPUSampler point_ = nullptr, linear_ = nullptr;
+    WGPUQuerySet timingQueries_ = nullptr; // dispatch timing: begin / end per timed dispatch
+    WGPUBuffer timingResolve_ = nullptr, timingRead_ = nullptr;
+    bool timing_ = false, timingBusy_ = false;
+    uint32_t timed_ = 0;
     Ring uniforms_, vertices_, uploads_;
     ProgramPtr depthProgram_;
 

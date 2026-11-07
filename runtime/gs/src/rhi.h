@@ -222,6 +222,14 @@ public:
     virtual void setStorageTexture(uint32_t slot, Texture* texture) = 0;
     virtual void dispatch(uint32_t x, uint32_t y, uint32_t z = 1) = 0;
 
+    // ---- GPU timing (profiling: WebGPU timestamp queries, requested with GSR_RAY_GPU_TIMING) ----
+    // Times the following dispatches (at most kTimedDispatches) until endDispatchTiming. False without timestamp
+    // queries, or while the previous measurement is still being read back (never waits for it).
+    static constexpr uint32_t kTimedDispatches = 16;
+    virtual bool beginDispatchTiming() { return false; }
+    // `done` later receives the GPU milliseconds of each timed dispatch, in order (natively from poll()).
+    virtual void endDispatchTiming(std::function<void(std::vector<double>&& milliseconds)> done) { (void)done; }
+
     // Submit recorded work (frame end / before handing a texture to another API).
     virtual void flush() = 0;
 };

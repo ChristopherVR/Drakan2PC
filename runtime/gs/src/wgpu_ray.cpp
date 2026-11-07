@@ -297,6 +297,7 @@ bool WgpuRay::render(const PassFrame& f, std::span<const Triangle> triangles,
             staticPacked_.reset();
             staticCounts_[0] = staticCounts_[1] = staticCounts_[2] = 0;
             staticTextured_ = 0;
+            staticGlossy_ = false;
             staticGeometry_ = staticAttributes_ = ~0ull;
             staticTextureCount_ = ~size_t(0);
         }
@@ -386,6 +387,8 @@ bool WgpuRay::render(const PassFrame& f, std::span<const Triangle> triangles,
                 staticChunkTextured_[c] = textured;
             });
         staticRepack_ = true;
+        staticGlossy_ = std::any_of(staticTriangles.begin(), staticTriangles.end(),
+                                    [](const Triangle& t) { return surface::rayMaterialGlossy(t.roughness); });
         staticAttributes_ = publishedAttributes_;
         staticTextureCount_ = textureCount;
     }
@@ -723,6 +726,8 @@ bool WgpuRay::render(const PassFrame& f, std::span<const Triangle> triangles,
     cam.sizeTime[3] = f.reflections ? 1.f : 0.f;
     cam.jitter[0] = f.jitter[0];
     cam.jitter[1] = f.jitter[1];
+    cam.jitter[2] = float(std::clamp(f.transportScale, 1u, 16u));
+    cam.jitter[3] = float(std::clamp(f.diffuseRays, 1u, 4u));
     cam.limits[0] = f.camera.nearPlane;
     cam.limits[1] = float(counts[0] + staticCounts_[0]);
     cam.limits[2] = origin.x;
@@ -742,7 +747,16 @@ bool WgpuRay::render(const PassFrame& f, std::span<const Triangle> triangles,
     lit.effects[0] = options.water && (water || coverage);
     lit.effects[1] = options.shadows;
     lit.effects[3] = (water ? 1u : 0u) | (coverage ? 2u : 0u) | (options.requireWaterCoverage ? 4u : 0u);
-    lit.effects[3] |= (options.globalIllumination ? 512u : 0u) | (options.materialReflections ? 1024u : 0u);
+    // Opaque reflections trace glossy materials only (kRayMaterialGlossy). Native assets have none, so without one in
+    // the scene the transport passes would trace every pixel for nothing (most of the reflection setting's cost).
+    bool glossy = staticGlossy_ || std::any_of(triangles.begin(), triangles.end(), [](const Triangle& t) {
+                      return surface::rayMaterialGlossy(t.roughness);
+                  });
+    if (models)
+        for (const auto& texture : models->textures)
+            glossy = glossy || surface::rayMaterialGlossy(texture->roughness);
+    const bool opaqueReflections = options.materialReflections && glossy;
+    lit.effects[3] |= (options.globalIllumination ? 512u : 0u) | (opaqueReflections ? 1024u : 0u);
     lit.effects[3] |= runtimeFlags().rayAlphaFastPath ? 2048u : 0u;
     lit.effects[3] |= runtimeFlags().rayAlphaCoverage ? 4096u : 0u;
     lit.effects[3] |= runtimeFlags().rayAcceptedAlpha ? 8192u : 0u;
@@ -800,10 +814,13 @@ bool WgpuRay::render(const PassFrame& f, std::span<const Triangle> triangles,
         reflectTex_ =
             gpu_.createTexture({lowW, lowH, 1, rhi::Format::RGBA8, rhi::Storage | rhi::Sampled, "ray low reflection"});
     }
-    const bool transportPass = (options.globalIllumination || options.materialReflections) &&
+    const bool transportPass = (options.globalIllumination || opaqueReflections) &&
                                !(lit.effects[3] & (surface::kRayDiagnosticNoAo | surface::kRayDiagnosticNoDirect |
                                                    surface::kRayDiagnosticReceiver));
-    const uint32_t transportW = (f.width + 1) / 2, transportH = (f.height + 1) / 2;
+    // One transport pixel per transportScale render pixels (see PassFrame).
+    const uint32_t transportScale = std::clamp(f.transportScale, 1u, 16u);
+    const uint32_t transportW = (f.width + transportScale - 1) / transportScale;
+    const uint32_t transportH = (f.height + transportScale - 1) / transportScale;
     if (transportPass &&
         (!transportTex_ || transportTex_->width() != transportW || transportTex_->height() != transportH)) {
         transportTex_ = gpu_.createTexture(
@@ -811,6 +828,7 @@ bool WgpuRay::render(const PassFrame& f, std::span<const Triangle> triangles,
         transportGuide_ = gpu_.createTexture(
             {transportW, transportH, 1, rhi::Format::RGBA16F, rhi::Storage | rhi::Sampled, "ray transport guide"});
     }
+    transportPixels_ = transportPass ? uint64_t(transportW) * transportH : 0;
     if (transportPass && (!transportTex_ || !transportGuide_)) {
         status_ = "Ray transport texture allocation failed";
         return false;
@@ -831,13 +849,20 @@ bool WgpuRay::render(const PassFrame& f, std::span<const Triangle> triangles,
     gpu_.setTexture(5, dummy_.get());
     gpu_.setStorageTexture(0, output_.get());
     gpu_.setStorageTexture(1, dummyStorage_.get());
+    // GSR_RAY_GPU_TIMING: GPU time of each dispatch (timestamp queries), logged when it has been read back.
+    if (runtimeFlags().rayGpuTiming)
+        gpu_.poll(false); // delivers the previous measurement (the renderer itself never polls)
+    const bool timed = runtimeFlags().rayGpuTiming && gpu_.beginDispatchTiming();
+    std::string timedNames;
     gpu_.setProgram(sky_.get());
     gpu_.dispatch(1, 1);
+    timedNames += "sky";
     if (lowPass && shadowTex_ && reflectTex_) {
         gpu_.setStorageTexture(0, shadowTex_.get());
         gpu_.setStorageTexture(1, reflectTex_.get());
         gpu_.setProgram(shadow_.get());
         gpu_.dispatch((lowW + 7) / 8, (lowH + 7) / 8);
+        timedNames += " low";
         gpu_.setStorageTexture(0, output_.get());
         gpu_.setStorageTexture(1, dummyStorage_.get());
         gpu_.setTexture(2, shadowTex_.get());
@@ -848,6 +873,7 @@ bool WgpuRay::render(const PassFrame& f, std::span<const Triangle> triangles,
         gpu_.setStorageTexture(1, transportGuide_.get());
         gpu_.setProgram(transport_.get());
         gpu_.dispatch((transportW + 7) / 8, (transportH + 7) / 8);
+        timedNames += " transport";
         gpu_.setStorageTexture(0, output_.get());
         gpu_.setStorageTexture(1, dummyStorage_.get());
         gpu_.setTexture(4, transportTex_.get());
@@ -855,6 +881,37 @@ bool WgpuRay::render(const PassFrame& f, std::span<const Triangle> triangles,
     }
     gpu_.setProgram(main_.get());
     gpu_.dispatch((f.width + 7) / 8, (f.height + 7) / 8);
+    timedNames += " main";
+    if (timed) {
+        char facts[320];
+        std::snprintf(
+            facts, sizeof facts,
+            "size=%ux%u low_size=%ux%u transport_size=%ux%u instances=%zu frame_chunks=%zu frame_triangles=%u "
+            "static_triangles=%u nodes=%zu upload_bytes=%llu",
+            f.width, f.height, lowPass ? lowW : 0, lowPass ? lowH : 0, transportPass ? transportW : 0,
+            transportPass ? transportH : 0, instanceData.size(), frameChunks.size(), counts[0] + counts[1] + counts[2],
+            staticTotal, staticNodes_.size() + nodes.size(),
+            static_cast<unsigned long long>(nodes.size() * sizeof(Node) + tris.size() * sizeof(Gpu4) +
+                                            attributes.size() * sizeof(Attribute) +
+                                            instanceData.size() * sizeof(Instance)));
+        gpu_.endDispatchTiming([pass = pass_, names = std::move(timedNames), facts = std::string(facts),
+                                cpu = timing](std::vector<double>&& ms) {
+            std::string line = "[ray-gpu] backend=webgpu pass=" + std::to_string(pass);
+            double total = 0;
+            size_t start = 0;
+            for (double t : ms) {
+                const size_t end = std::min(names.find(' ', start), names.size());
+                char item[64];
+                std::snprintf(item, sizeof item, " %s=%.3fms", names.substr(start, end - start).c_str(), t);
+                line += item;
+                start = end + 1;
+                total += t;
+            }
+            char tail[48];
+            std::snprintf(tail, sizeof tail, " total=%.3fms ", total);
+            std::fprintf(stderr, "%s%s%s cpu:%s\n", line.c_str(), tail, facts.c_str(), cpu.c_str());
+        });
+    }
     gpu_.setTexture(2, nullptr);
     gpu_.setTexture(3, nullptr);
     gpu_.setTexture(4, nullptr);

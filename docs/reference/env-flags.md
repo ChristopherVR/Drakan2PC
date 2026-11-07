@@ -18,13 +18,16 @@ Parse rules: **presence** = variable exists (even empty); **not-0** = exists and
 | `GSR_RAY_SHADOWS` | not-0 | off | Ray-traced shadows. |
 | `GSR_RAY_CPU_CACHE` | first-char != `0` | on | CPU cache of packed ray textures. |
 | `GSR_RAY_UPLOAD_CACHE` | first-char != `0` | on | Skip byte-identical dynamic/native material attribute blocks in the ordered DXR material buffer. `0` restores full uploads for comparison. |
-| `GSR_RAY_GPU_TIMING` | presence | off | Delayed DXR GPU timestamps: upload/AS build, sky reduction, opaque transport, composition and total; also logs material upload bytes. Reads only after the existing frame-slot fence. |
+| `GSR_RAY_GPU_TIMING` | presence | off | Delayed GPU timestamps of the ray pass as `[ray-gpu]` lines. DXR: upload/AS build, sky reduction, opaque transport, composition and total, plus material upload bytes; reads only after the existing frame-slot fence. WebGPU: requests the adapter's timestamp queries and logs each dispatch (`sky`, `low`, `transport`, `main`), the scene facts (sizes, instances, frame triangles, upload bytes) and the CPU stages; read back asynchronously, a frame later. `scripts/perf/ray_gpu_summary.py <stdout.log> [--budget transport=MS]` prints medians and checks a budget. |
+| `GSR_RAY_SHADOW_SCALE` | atoi (1-16) | internal scale | WebGPU: render pixels per traced shadow / water pixel (default: one per native pixel). |
+| `GSR_RAY_TRANSPORT_SCALE` | atoi (1-16) | max(2, internal scale) | WebGPU: render pixels per traced global illumination / opaque reflection pixel. The DXR pass traces at half resolution (2); software traversal traces one per native pixel. |
+| `GSR_RAY_DIFFUSE_RAYS` | atoi (1-4) | 2 | WebGPU: diffuse bounce rays per transport pixel (the DXR pass uses 4). |
 | `GSR_RAY_CPU_CACHE_CHECK` | first-char == `1` | off | Verify the CPU cache against a fresh pack. |
 | `GSR_SURFACE_ASYNC` | first-char != `0` | on | Reconstruct current-world surfaces on a worker. `0` runs the same reconstruction inline. |
 | `GSR_SURFACE_OVERLAP` | first-char != `0` | on | At a geometry join, finish independent D3D11 model preparation and help process queued surfaces in order. `0` leaves the whole queue to the worker for comparisons. |
 | `GSR_RAY_WORLD_CACHE` | first-char != `0` | on | Incremental world triangle cache. |
 | `GSR_RAY_PACKED_TEXTURES` | first-char != `0` | on | 32-bit packed ray textures. |
-| `GSR_WATER_COVERAGE_DEBUG` | atoi (uint) | 0 | Water coverage debug mode passed to the shader. DXR `4`: the ray scene's receiver colour (texel times vertex colour), black without a receiver; `5`: the radiance that surface returns to a bounce ray; `6`: the incoming diffuse bounce light alone (white receivers, times four). 4 and 5 need ray shadows or a transport effect, 6 needs global illumination. |
+| `GSR_WATER_COVERAGE_DEBUG` | atoi (uint) | 0 | Water coverage debug mode passed to the shader. DXR and WebGPU `4`: the ray scene's receiver colour (texel times vertex colour), black without a receiver; DXR only `5`: the radiance that surface returns to a bounce ray; `6`: the incoming diffuse bounce light alone (white receivers, times four). 4 and 5 need ray shadows or a transport effect, 6 needs global illumination. |
 | `GSR_WATER_TIME` | strtof | unset | Fix the water clock (finite, abs < 1e6). |
 | `GSR_RAY_SCENE_DUMP` | string | unset | DXR scene dump path, plus `.models.csv` source metadata, at `GSR_RAY_SCENE_DUMP_EPOCH`. |
 | `GSR_RAY_SCENE_DUMP_EPOCH` | positive integer | `200` | DXR dump world epoch. Pair with the same `GSR_TEMPORAL_DUMP_EPOCH`; early epochs can precede gameplay. Invalid/zero values keep the default. |

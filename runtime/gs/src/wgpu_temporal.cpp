@@ -327,6 +327,15 @@ void WgpuBackend::Impl::traceWorld(RT& rt, bool jittered) {
     f.sunSamples = jittered ? 1 : 2;
     f.occlusionRays = jittered ? 2 : 4;
     f.reflectionRays = jittered ? 2 : 4;
+    // Global illumination is most of the pass (GitHub issue 1: 200+ ms per frame at internal scale 4 when traced at
+    // half the render resolution with four bounce rays): trace it at the native resolution too, with two bounce rays.
+    // GSR_RAY_TRANSPORT_SCALE / GSR_RAY_DIFFUSE_RAYS override.
+    f.transportScale = std::max(2u, scale);
+    f.diffuseRays = 2;
+    if (const char* e = std::getenv("GSR_RAY_TRANSPORT_SCALE"))
+        f.transportScale = std::clamp(std::atoi(e), 1, 16);
+    if (const char* e = std::getenv("GSR_RAY_DIFFUSE_RAYS"))
+        f.diffuseRays = std::clamp(std::atoi(e), 1, 4);
     static const std::vector<surface::Triangle> noTriangles;
     const auto& scene = current ? rt.surface.triangles : noTriangles;
     if (!rayPass->render(

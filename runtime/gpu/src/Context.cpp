@@ -167,9 +167,9 @@ void Context::createAsync(const ContextOptions& options, CreateCallback done) {
             cb(std::move(ctx), error);
         }
     };
-    (void)options;
     auto* pending = new Pending{std::unique_ptr<Context>(new Context()), std::move(done)};
     Context& c = *pending->context;
+    c.wantTimestamps_ = options.timestampQuery;
     c.state_ = std::make_unique<State>();
     c.instance_ = wgpuCreateInstance(nullptr);
     if (!c.instance_)
@@ -210,6 +210,7 @@ bool Context::init(const ContextOptions& options, std::string* error) {
         std::fprintf(stderr, "[gpu] %s\n", why.c_str());
         return false;
     };
+    wantTimestamps_ = options.timestampQuery;
 #if defined(DRAKAN_WGPU_NATIVE)
     Backend wanted = options.backend;
     if (const char* env = std::getenv("DRAKAN_GPU_BACKEND"); env && *env && wanted == Backend::Auto)
@@ -325,6 +326,12 @@ void Context::requestDevice(std::function<void(bool, const std::string&)> done) 
         dualSource_ = true;
     }
 #endif
+    // GPU timestamps for profiling only (GSR_RAY_GPU_TIMING): a feature no shipped path needs.
+    if ((wantTimestamps_ || std::getenv("GSR_RAY_GPU_TIMING")) &&
+        wgpuAdapterHasFeature(adapter_, WGPUFeatureName_TimestampQuery)) {
+        features.push_back(WGPUFeatureName_TimestampQuery);
+        timestamps_ = true;
+    }
     // Ask for everything the adapter offers: large render targets and many bindings for the GS caches.
     wgpuAdapterGetLimits(adapter_, &limits_);
 
@@ -361,8 +368,9 @@ void Context::requestDevice(std::function<void(bool, const std::string&)> done) 
         c.device_ = device;
         c.queue_ = wgpuDeviceGetQueue(device);
         wgpuDeviceGetLimits(device, &c.limits_);
-        std::fprintf(stderr, "[gpu] device: %s via %s%s%s\n", c.adapterName_.c_str(), backendName(c.backend_),
-                     c.software_ ? " (software)" : "", c.dualSource_ ? ", dual-source blending" : "");
+        std::fprintf(stderr, "[gpu] device: %s via %s%s%s%s\n", c.adapterName_.c_str(), backendName(c.backend_),
+                     c.software_ ? " (software)" : "", c.dualSource_ ? ", dual-source blending" : "",
+                     c.timestamps_ ? ", timestamp queries" : "");
         r->done(true, {});
     };
     wgpuAdapterRequestDevice(adapter_, &desc, callback);
