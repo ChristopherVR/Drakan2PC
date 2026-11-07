@@ -78,7 +78,7 @@ export function installMultiplayerMaps(host: ArenaInstallHost): { store: ArenaSt
         });
         if (blockers.length) return { problem: `Fix the map first: ${blockers[0]}` };
         const target = host.ui.modTarget();
-        if (!target) return { problem: 'The disc profile is unknown; open the ISO first' };
+        if (!target) return { problem: 'Open your disc image first' };
         const meta = {
             id: `mp-${d.id}`.slice(0, 64),
             name: d.name || d.id,

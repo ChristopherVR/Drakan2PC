@@ -1026,7 +1026,7 @@ export function buildFieldsPanel(
                             : 'No field matches the filter.'
                         : provider
                           ? 'The class of this object has no fields.'
-                          : 'No class field list is available (no disc level loaded); only per-object overrides can be shown.',
+                          : 'No class field list is available (no level is open); only per-object overrides can be shown.',
                 ),
             );
         }

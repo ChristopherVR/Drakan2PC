@@ -99,7 +99,7 @@ const SHORT: Record<string, string> = {
     version: 'The version is not numbers like 1.0.0',
     'title-clash': 'Same file name as another level',
     'copy-source': 'The level it copies is not on the disc',
-    'copy-title': 'Its title is taken by a disc level',
+    'copy-title': 'Its title is taken by an original Drakan level',
     'missing-level': 'Not a level of the open disc',
     start: 'The start level is not in the project',
 };

@@ -76,7 +76,7 @@ export function showArea(a: Area): void {
 const TOOL_TABS: { id: string; title: string; icon: string; tip: string; closable: boolean }[] = [
     {
         id: 'inspect',
-        title: 'Disc Files',
+        title: 'Game Files',
         icon: 'folder',
         tip: 'Advanced: browse the raw files on your disc',
         closable: true,

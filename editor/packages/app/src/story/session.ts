@@ -401,7 +401,7 @@ export class StorySession {
 
     meta(id: string, name: string, author: string): ModMeta {
         const target = this.host.target();
-        if (!target) throw new ModError('The disc profile is unknown; open the ISO first.');
+        if (!target) throw new ModError('Open your disc image first.');
         return {
             id,
             name: name || undefined,

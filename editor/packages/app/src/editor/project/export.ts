@@ -140,7 +140,7 @@ export async function buildProjectPack(
         return new Promise((r) => setTimeout(r, 0));
     };
     const target = deps.target();
-    if (!target) throw new ModError('The disc profile is unknown; open your disc image first.');
+    if (!target) throw new ModError('Open your disc image first.');
     const warnings: string[] = [];
     const lines: string[] = [];
     // A campaign whose settings are wrong would not show in the game (the exit checks run in the Campaign section).

@@ -143,7 +143,7 @@ export function questStepsBlock(ctx: Ctx, classId: number): HTMLElement {
             return fill(
                 host,
                 h('div', { class: 'lbl' }, 'Steps in the open level'),
-                h('div', { class: 'dim small' }, 'Open a level of the disc to wire this quest.'),
+                h('div', { class: 'dim small' }, 'Open a level to wire this quest.'),
             );
         const kids: (Node | null)[] = [h('div', { class: 'lbl' }, 'Steps in the open level')];
         if (!wirings.length)

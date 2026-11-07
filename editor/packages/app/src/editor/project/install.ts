@@ -425,7 +425,7 @@ export function installProject(host: ProjectInstallHost): ProjectInstall {
     });
     registerCommand({
         id: 'mode.files',
-        title: 'Disc Files',
+        title: 'Game Files',
         category: 'Tools',
         icon: 'folder',
         keywords: 'go to files tab inspect disc browser raw hex textures advanced',

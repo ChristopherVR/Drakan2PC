@@ -500,7 +500,7 @@ export function createModPanel(ctx: Ctx, host: ModHost): ModPanel {
     };
     function meta(): ModMeta {
         const t = host.target();
-        if (!t) throw new Error('The disc profile is unknown; open your disc image first.');
+        if (!t) throw new Error('Open your disc image first.');
         const p = projects.get();
         return {
             id: p?.id || 'editor.level-edit',

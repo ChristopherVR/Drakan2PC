@@ -350,7 +350,7 @@ export function installCampaignWizard(host: WizardHost): CampaignWizard {
         const p = project();
         const l = p?.levels.find((x) => x.title === levelTitle);
         if (!p || !l || !exitIds.length) return 0;
-        if (!l.copyOf) throw new Error(`"${l.title}" is a disc level: make it a copy first.`);
+        if (!l.copyOf) throw new Error(`"${l.title}" is an original Drakan level: make it a copy first.`);
         const ed = exitEditHost();
         if (!ed) throw new Error('The level strings are not ready yet. Try again in a moment.');
         await ed.ensure();
@@ -826,7 +826,7 @@ export function installCampaignWizard(host: WizardHost): CampaignWizard {
                         { class: 'cwz-lvl-sub' },
                         l.copyOf
                             ? `copy of ${l.copyOf}${i === 0 ? ', New Game starts here' : ''}`
-                            : 'a disc level: changing it would change Drakan too',
+                            : 'an original Drakan level: changing it would change Drakan too',
                     ),
                 ),
                 l.copyOf
@@ -983,7 +983,7 @@ export function installCampaignWizard(host: WizardHost): CampaignWizard {
                     h(
                         'p',
                         {},
-                        'A campaign is installed next to Drakan, not over it. Each of its levels is a copy of a disc level with a name of its own, so everything you change stays in your campaign and Drakan plays exactly as before.',
+                        'A campaign is installed next to Drakan, not over it. Each of its levels is a copy of an original Drakan level with a name of its own, so everything you change stays in your campaign and Drakan plays exactly as before.',
                     ),
                 ),
             ),
@@ -1142,7 +1142,7 @@ export function installCampaignWizard(host: WizardHost): CampaignWizard {
                 break;
             }
             case 'disc':
-                state = h('span', { class: 'cwz-chip warn' }, `${plan.from.title} is a disc level`);
+                state = h('span', { class: 'cwz-chip warn' }, `${plan.from.title} is an original Drakan level`);
                 action = h(
                     'button',
                     {

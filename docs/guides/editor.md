@@ -42,7 +42,7 @@ The layout follows familiar level editors such as Unreal Engine: a viewport in t
 | **Bottom area** | **Content Browser** (every object class the level can use; drag one into the viewport), **Output Log**, **Validation** (problems to fix before you export) and **Logic** (how triggers, doors and quests are wired). |
 | **Status bar** | Selection count, grid and snap settings, camera position. |
 
-Story, Menus, Vendors and Project Settings open as tabs of their own from the **Window** menu. **Tools > Disc Files** is an advanced browser for the raw files on the disc; you never need it to make a mod.
+Story, Menus, Vendors and Project Settings open as tabs of their own from the **Window** menu. **Tools > Game Files** is an advanced browser for the raw files on the disc; you never need it to make a mod.
 
 ## Find anything with Ctrl+P
 

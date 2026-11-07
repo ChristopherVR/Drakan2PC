@@ -78,7 +78,7 @@ function checkbox(id: string, on: boolean): HTMLInputElement {
 function openDialog(host: UnrealExportHost): void {
     const ctx = host.collect();
     if (!ctx) {
-        host.toast('Open a disc level first.', 'warn');
+        host.toast('Open a level first.', 'warn');
         return;
     }
     if (!document.getElementById('ue-dlg-style')) {

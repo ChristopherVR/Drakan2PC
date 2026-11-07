@@ -341,7 +341,7 @@ export function createCampaignPane(host: CampaignHost): CampaignPane {
                 h(
                     'option',
                     { value: l.title, disabled: !l.copyOf },
-                    l.copyOf ? l.title : `${l.title} (a disc level: cannot start a campaign)`,
+                    l.copyOf ? l.title : `${l.title} (an original Drakan level: make a copy to use it)`,
                 ),
             );
         start.value = c.start ?? '';
