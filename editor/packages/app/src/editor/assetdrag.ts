@@ -6,6 +6,18 @@ import { h } from './dom.ts';
 export const dragState = { suppressClick: false };
 
 /**
+ * What a drag looks like over the panels: they do not take a class or a story set-up, so the ghost turns red, says where
+ * the drop works and the cursor shows "not allowed". Over the viewport the ghost goes translucent, over anything else it
+ * stays as it is.
+ */
+function showDropTarget(ghost: HTMLElement, x: number, y: number, overViewport: boolean): void {
+    const panel = !overViewport && !!document.elementFromPoint(x, y)?.closest('#ed-left, #ed-right, #ed-bottom, #ed-toolbar');
+    ghost.classList.toggle('no', panel);
+    ghost.title = panel ? 'Drop it in the level view' : '';
+    document.body.classList.toggle('drag-no', panel);
+}
+
+/**
  * Pointer-based drag of a catalog class into the viewport (Content Browser tiles and list rows share it). Works
  * with a mouse, touch and pen, shows the model thumbnail as the ghost and a ground marker in the viewport. The native
  * HTML5 drag is not used: browsers differ and automation cannot start it.
@@ -40,19 +52,21 @@ export function attachAssetDrag(
             }
             ghost.style.left = `${m.clientX + 12}px`;
             ghost.style.top = `${m.clientY + 12}px`;
-            if (view.isOverViewport(m.clientX, m.clientY)) {
+            const over = view.isOverViewport(m.clientX, m.clientY);
+            if (over) {
                 view.dragHover(m);
                 ghost.classList.add('over');
             } else {
                 view.placeGhostHide();
                 ghost.classList.remove('over');
             }
+            showDropTarget(ghost, m.clientX, m.clientY, over);
         };
         const end = (u: PointerEvent, cancelled: boolean): void => {
             window.removeEventListener('pointermove', move);
             window.removeEventListener('pointerup', up);
             window.removeEventListener('pointercancel', cancel);
-            document.body.classList.remove('dragging-asset');
+            document.body.classList.remove('dragging-asset', 'drag-no');
             if (!ghost) return;
             ghost.remove();
             if (!cancelled && view.isOverViewport(u.clientX, u.clientY)) {
@@ -99,19 +113,21 @@ export function attachPointDrag(
             }
             ghost.style.left = `${m.clientX + 12}px`;
             ghost.style.top = `${m.clientY + 12}px`;
-            if (view.isOverViewport(m.clientX, m.clientY)) {
+            const over = view.isOverViewport(m.clientX, m.clientY);
+            if (over) {
                 view.dragHover(m);
                 ghost.classList.add('over');
             } else {
                 view.placeGhostHide();
                 ghost.classList.remove('over');
             }
+            showDropTarget(ghost, m.clientX, m.clientY, over);
         };
         const end = (u: PointerEvent, cancelled: boolean): void => {
             window.removeEventListener('pointermove', move);
             window.removeEventListener('pointerup', up);
             window.removeEventListener('pointercancel', cancel);
-            document.body.classList.remove('dragging-asset');
+            document.body.classList.remove('dragging-asset', 'drag-no');
             if (!ghost) return;
             ghost.remove();
             const at = !cancelled && view.isOverViewport(u.clientX, u.clientY) ? view.groundAt(u) : null;

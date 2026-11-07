@@ -469,6 +469,13 @@ $('vp-reset').onclick = () => viewport?.reset();
 
 // ---- input: picker + drag/drop --------------------------------------------------------------------------------
 
+// The Open ISO label is a button for the keyboard too: Enter and Space open the picker.
+document.getElementById('open-iso')?.addEventListener('keydown', (e) => {
+    if (e.key !== 'Enter' && e.key !== ' ') return;
+    e.preventDefault();
+    document.getElementById('iso-input')?.click();
+});
+
 // Desktop app: the Open ISO button and every programmatic click on the input use the native dialog, which remembers the
 // disc and lets the worker range-read it by path.
 $<HTMLInputElement>('iso-input').addEventListener(
@@ -500,11 +507,13 @@ const drop = $('drop');
 let dragDepth = 0;
 window.addEventListener('dragenter', (e) => {
     e.preventDefault();
+    // Only a file from the computer gets the drop frame: dragging text or a link across the page does not.
+    if (!e.dataTransfer?.types.includes('Files')) return;
     dragDepth++;
     drop.hidden = false;
 });
 window.addEventListener('dragleave', () => {
-    if (--dragDepth <= 0) {
+    if (dragDepth > 0 && --dragDepth <= 0) {
         dragDepth = 0;
         drop.hidden = true;
     }

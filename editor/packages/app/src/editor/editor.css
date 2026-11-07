@@ -1066,6 +1066,15 @@ div.play {
 body.dragging-asset {
     cursor: grabbing;
 }
+/* Over a panel that does not take the drop: a red ghost and a not-allowed cursor. */
+.drag-ghost.live.no {
+    background: color-mix(in srgb, var(--bad) 80%, transparent);
+    opacity: 0.85;
+}
+body.dragging-asset.drag-no,
+body.dragging-asset.drag-no * {
+    cursor: not-allowed;
+}
 /* ---- inspector fields (class schema) ---- */
 .ftoolbar {
     display: flex;

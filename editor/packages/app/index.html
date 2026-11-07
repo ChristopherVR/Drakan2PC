@@ -26,7 +26,7 @@
             </div>
             <nav id="menubar" aria-label="Menu bar"></nav>
             <span id="project-chip-host"></span>
-            <label class="ui-btn sm" id="open-iso" title="Open your own disc image. Nothing is uploaded.">
+            <label class="ui-btn sm" id="open-iso" role="button" tabindex="0" title="Open your own disc image. Nothing is uploaded.">
                 Open ISO
                 <input id="iso-input" type="file" accept=".iso,.bin,.img" hidden />
             </label>
@@ -94,13 +94,13 @@
                 </section>
             </div>
             <div class="fl-cols">
-                <nav id="sidebar" class="fl-col" aria-label="Disc files">
+                <nav id="sidebar" class="fl-col" aria-label="Game files">
                     <section>
                         <h2>Levels</h2>
                         <ul id="levels" class="list"></ul>
                     </section>
                     <section>
-                        <h2>Disc files <small id="files-path"></small></h2>
+                        <h2>Game files <small id="files-path"></small></h2>
                         <ul id="files" class="list"></ul>
                     </section>
                 </nav>
@@ -195,7 +195,7 @@
             <section id="ed-doc" aria-label="Editor" hidden></section>
             <footer id="ed-status"></footer>
         </main>
-        <div id="drop" hidden>Drop the ISO to open it</div>
+        <div id="drop" hidden>Drop a disc image (.iso), a saved level (.json) or a save (.rsg) to open it</div>
         <script type="module" src="/src/main.ts"></script>
     </body>
 </html>
