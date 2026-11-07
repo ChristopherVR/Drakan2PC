@@ -4,6 +4,7 @@
 #include <algorithm>
 #include <cstdint>
 #include <cstring>
+#include <iterator>
 #include <map>
 #include <set>
 #include <tuple>
@@ -37,14 +38,32 @@ class Tracker {
         uint32_t base = 0, end = 0;
         Scope scope;
     };
+    using TopologyKey =
+        std::tuple<uint64_t, uint64_t, uint64_t, uint64_t, uint32_t>; // object, generation, mesh, part, pass
     std::map<uint32_t, Life> lives;
-    std::map<std::tuple<uint64_t, uint64_t, uint64_t, uint64_t, uint32_t>, Topology> topologies;
+    std::map<TopologyKey, Topology> topologies;
+    // Mesh and part address -> topology keys naming it (the object address is the map's own first key element), so a
+    // free looks up only the keys inside its range instead of scanning every topology. One entry per address field
+    // of a live key; removed together with the key.
+    std::multimap<uint64_t, TopologyKey> topologyByAddress;
     std::map<uint32_t, Mark> tags;
     std::map<std::pair<uint64_t, uint32_t>, Scope> references;
     std::set<uint64_t> referenceScenes;
     uint64_t frame = 0, scene = 0, submission = 0;
 
+    void eraseTopology(const TopologyKey& key) {
+        if (!topologies.erase(key))
+            return; // already gone (named by two address fields of one free)
+        for (uint64_t address : {std::get<2>(key), std::get<3>(key)}) {
+            auto [first, last] = topologyByAddress.equal_range(address);
+            for (auto it = first; it != last;)
+                it = it->second == key ? topologyByAddress.erase(it) : std::next(it);
+        }
+    }
+
 public:
+    size_t topologyCount() const { return topologies.size(); }
+    size_t topologyIndexCount() const { return topologyByAddress.size(); }
     uint64_t frameEpoch() const { return frame; }
     void nextFrame() {
         ++frame;
@@ -61,23 +80,26 @@ public:
         references.clear();
         referenceScenes.clear();
         topologies.clear();
+        topologyByAddress.clear();
         for (auto& x : lives)
             x.second.dead = true;
     }
+    // Marks lives at `base` (bytes == 0) or inside [base, base + bytes) dead and drops the topology certificates whose
+    // object, mesh or part address is there. Ordered range lookups: called for every pool constructor / destructor.
     void freed(uint32_t base, uint32_t bytes) {
-        const uint64_t end = (uint64_t)base + bytes;
-        for (auto& x : lives)
-            if (x.first == base || (bytes && x.first >= base && x.first < end))
-                x.second.dead = true;
+        const uint64_t end = bytes ? (uint64_t)base + bytes : (uint64_t)base + 1;
+        for (auto it = lives.lower_bound(base); it != lives.end() && it->first < end; ++it)
+            it->second.dead = true;
         // Invalidate certificates whose owning object/mesh/part is freed.
         // Index content is hashed on every use, independently of its address.
-        for (auto it = topologies.begin(); it != topologies.end();) {
-            auto inside = [&](uint64_t p) { return p == base || (bytes && p >= base && p < end); };
-            if (inside(std::get<0>(it->first)) || inside(std::get<2>(it->first)) || inside(std::get<3>(it->first)))
-                it = topologies.erase(it);
-            else
-                ++it;
-        }
+        std::vector<TopologyKey> doomed;
+        for (auto it = topologies.lower_bound(TopologyKey{base, 0, 0, 0, 0});
+             it != topologies.end() && std::get<0>(it->first) < end; ++it)
+            doomed.push_back(it->first);
+        for (auto it = topologyByAddress.lower_bound(base); it != topologyByAddress.end() && it->first < end; ++it)
+            doomed.push_back(it->second);
+        for (const TopologyKey& key : doomed)
+            eraseTopology(key);
     }
     Scope object(uint32_t address, uint32_t allocation, uint32_t bytes, uint64_t signature, uint32_t mesh,
                  uint32_t pc) {
@@ -122,7 +144,13 @@ public:
             return p;
         }
         auto key = std::make_tuple(p.objectId, p.generation, p.meshId, p.partId, pass);
-        auto& t = topologies[key];
+        auto [slot, inserted] = topologies.try_emplace(key);
+        if (inserted) {
+            topologyByAddress.emplace(std::get<2>(key), key);
+            if (std::get<3>(key) != std::get<2>(key))
+                topologyByAddress.emplace(std::get<3>(key), key);
+        }
+        auto& t = slot->second;
         const bool duplicate = t.frame == frame;
         if (!duplicate && !t.duplicate && t.frame + 1 == frame && t.hash == hash && t.vertices == vertices &&
             t.indices == indices && !(p.flags & Scope::Reset))

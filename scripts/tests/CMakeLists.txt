@@ -45,6 +45,12 @@ add_executable(polyclip_fan_policy_test "${PS2X_RUNTIME_SOURCE}/ps2xRuntime/test
 drakan_enable_asserts(polyclip_fan_policy_test)
 target_include_directories(polyclip_fan_policy_test PRIVATE "${DRAKAN_ROOT}/runtime/world/include")
 add_test(NAME polyclip_fan_policy COMMAND polyclip_fan_policy_test)
+add_executable(object_motion_freed_policy_test "${PS2X_RUNTIME_SOURCE}/ps2xRuntime/tests/object_motion_freed_policy_tests.cpp")
+drakan_enable_asserts(object_motion_freed_policy_test)
+target_include_directories(object_motion_freed_policy_test PRIVATE "${PS2X_RUNTIME_SOURCE}/ps2xRuntime/include"
+  "${DRAKAN_ROOT}/runtime/gs/include")
+target_compile_features(object_motion_freed_policy_test PRIVATE cxx_std_20)
+add_test(NAME object_motion_freed_policy COMMAND object_motion_freed_policy_test)
 add_executable(mount_arrival_policy_test "${PS2X_RUNTIME_SOURCE}/ps2xRuntime/tests/mount_arrival_policy_tests.cpp")
 drakan_enable_asserts(mount_arrival_policy_test)
 add_test(NAME mount_arrival_policy COMMAND mount_arrival_policy_test)
