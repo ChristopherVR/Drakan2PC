@@ -1,6 +1,7 @@
 #include "drakan_polyclip.h"
 
 #include "drakan_config.h"
+#include "drakan_polyclip_fan.h"
 #include "drakan_region.h"
 #include "ps2_runtime.h"
 #include "ps2_runtime_macros.h"
@@ -26,7 +27,7 @@ std::atomic<bool> g_enabled{true};
 PS2Runtime::RecompiledFunction g_orig = nullptr;
 world::polyclip::Params g_params;
 bool g_log = false;
-std::atomic<uint64_t> g_calls{0}, g_clipped{0}, g_dropped{0};
+std::atomic<uint64_t> g_calls{0}, g_clipped{0}, g_dropped{0}, g_preempted{0};
 // PS2X_PERF accounting: nanoseconds spent in the hook itself (everything except the original fan draw) and fans seen.
 bool g_perf = false;
 uint64_t g_nowNs = 0; // measured cost of one steady_clock::now(), subtracted once per timed segment
@@ -97,30 +98,40 @@ void hookFanDraw(uint8_t* ram, R5900Context* c, PS2Runtime* rt) {
         finish();
         return;
     }
-    // Clip every triangle of the fan and draw each remainder as its own fan. The scratch vertices live in the unused
-    // stack below $sp (the original needs a few hundred bytes there, the scratch starts 4 KB down).
-    const uint32_t sp = GPR_U32(c, 29) & kRamMask;
-    const uint32_t scratch = (sp - 4096u - 16u * world::polyclip::kMaxClipped * 2u) & ~15u;
-    if (scratch < 0x100000u) {
+    // Clip every triangle of the fan and draw each remainder as its own fan, from a reserved scratch slot in low RDRAM
+    // (never the stack: the callee chain below $sp has no asserted depth). If a draw is preempted at a checkpoint the
+    // original's frame is live and the scheduler re-enters it later: touch nothing and return (see drakan_polyclip_fan.h).
+    // The scratch area must be untouched RAM: check once (first clip) that it is still all zero, else do not clip.
+    static std::atomic<int> scratchState{0};
+    if (scratchState.load() == 0) {
+        bool zero = true;
+        for (uint32_t i = 0; i < drakan_polyclip::kScratchSlots * drakan_polyclip::kScratchSlotBytes; ++i)
+            zero = zero && ram[drakan_polyclip::kScratchBase + i] == 0;
+        scratchState = zero ? 1 : 2;
+        if (!zero)
+            std::fprintf(stderr, "[polyclip] scratch RAM in use, clipping disabled\n");
+    }
+    if (scratchState.load() != 1) {
         callOrig();
         finish();
         return;
     }
+    const uint32_t ra = GPR_U32(c, 31);
     const uint64_t a1 = GPR_U64(c, 5), a2 = GPR_U64(c, 6);
     const uint32_t pc = c->pc;
-    int drawn = 0;
-    for (uint32_t i = 1; i + 1 < n; ++i) {
-        const Vertex tri[3] = {v[0], v[i], v[i + 1]};
-        Vertex out[world::polyclip::kMaxClipped];
-        const int m = world::polyclip::clipPolygon(tri, 3, g_params, out);
-        if (m < 3)
-            continue;
-        std::memcpy(ram + scratch, out, static_cast<size_t>(m) * sizeof(Vertex));
-        SET_GPR_U64(c, 5, scratch);
+    const uint32_t scratch = drakan_polyclip::scratchFor(GPR_U32(c, 29) & kRamMask);
+    const auto r = drakan_polyclip::drawClippedFan(ram, scratch, v, n, g_params, [&](uint32_t at, int m) {
+        SET_GPR_U64(c, 5, at);
         SET_GPR_U64(c, 6, static_cast<uint64_t>(m));
         c->pc = kFanDraw;
         callOrig();
-        ++drawn;
+        return c->pc == ra || (c->pc == kFanDraw && !g_ps2Unwinding);
+    });
+    const int drawn = r.drawn;
+    if (r.preempted) {
+        g_preempted.fetch_add(1, std::memory_order_relaxed);
+        finish();
+        return;
     }
     SET_GPR_U64(c, 5, a1);
     SET_GPR_U64(c, 6, a2);
