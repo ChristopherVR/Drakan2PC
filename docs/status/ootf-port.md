@@ -141,6 +141,14 @@ carried 0 and drew their holes solid. They now carry 1, the disc's alpha-test se
 edge colour (formats `cd48742`); only three TXDs change, every LVL, MOD and ODB is byte-identical. In Grotto the pines and
 Standing Banners now show the background through their holes. See [cut-out textures](../journal/2026-11-07/ootf-cutout-textures.md).
 
+**November 7 Rift World, the last level (issue 5):** Rift World is the final level (13 campaign levels, then the ending inside it).
+A fresh 23-level pack (formats `f5d3c6b`) plays. Arriving from Volcanic carries Arokh's fire breath (direct starts have none); breath
+does 15 damage and refills in about 500 ticks. The four Ebon Dragons die to real breath hits (test aid `OOTF_TEST_EBONHP`, formats
+`4d21976`; at 150 hit points an open-loop script cannot land enough hits) and the gate counter reads 4 -> 0 from the real deaths;
+Detector 367 sets the RibDoor flags when Arokh nears it. Open: Arokh stops 2,000 to 3,300 units before the hexagonal RibDoor tunnel
+door (height 93,700 needed to enter it), so the altar, Delon and Dr. Evil are not reached by natural play. See
+[progression 3](../journal/2026-11-07/ootf-progression-3.md).
+
 ## What works
 
 * Converter `editor/scripts/ootf-convert.ts` (`--campaign 1` for the campaign): terrain, textures, models, creatures (skinned, retargeted
