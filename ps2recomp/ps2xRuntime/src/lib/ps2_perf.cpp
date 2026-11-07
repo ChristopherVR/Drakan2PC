@@ -67,35 +67,29 @@ std::string sampleThreadChain(DWORD tid) {
     HANDLE h = OpenThread(THREAD_SUSPEND_RESUME | THREAD_GET_CONTEXT | THREAD_QUERY_INFORMATION, FALSE, tid);
     if (!h)
         return "(open failed)";
-    std::string out;
+    // While the target is suspended it may hold the loader or heap lock: capture raw RIPs into a fixed array only (no
+    // allocation, no module lookups, no stdio), resume, then resolve names.
+    constexpr int kMaxDepth = 28;
+    DWORD64 rips[kMaxDepth];
+    int depthCount = 0;
     if (SuspendThread(h) != static_cast<DWORD>(-1)) {
         CONTEXT ctx{};
         ctx.ContextFlags = CONTEXT_CONTROL | CONTEXT_INTEGER;
         if (GetThreadContext(h, &ctx)) {
             CONTEXT c = ctx;
-            const uint64_t mainBase = reinterpret_cast<uintptr_t>(GetModuleHandleW(nullptr));
-            for (int depth = 0; depth < 28 && c.Rip != 0; ++depth) {
-                HMODULE m = nullptr;
-                char name[MAX_PATH] = "?";
-                uint64_t base = 0;
-                if (GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS |
-                                           GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
-                                       reinterpret_cast<LPCWSTR>(c.Rip), &m) &&
-                    m) {
-                    GetModuleFileNameA(m, name, MAX_PATH);
-                    base = reinterpret_cast<uintptr_t>(m);
-                    const char* slash = std::strrchr(name, '\\');
-                    if (slash)
-                        std::memmove(name, slash + 1, std::strlen(slash));
-                }
-                char b[160];
-                std::snprintf(b, sizeof(b), "%s%s+0x%llx", depth ? " < " : "", base == mainBase ? "exe" : name,
-                              static_cast<unsigned long long>(c.Rip - base));
-                out += b;
+            for (int depth = 0; depth < kMaxDepth && c.Rip != 0; ++depth) {
+                rips[depthCount++] = c.Rip;
                 DWORD64 imageBase = 0;
                 PRUNTIME_FUNCTION fe = RtlLookupFunctionEntry(c.Rip, &imageBase, nullptr);
                 if (!fe) {
-                    c.Rip = *reinterpret_cast<const DWORD64*>(c.Rsp);
+                    DWORD64 ret = 0;
+                    SIZE_T got = 0;
+                    // The stack pointer of a leaf frame is not guaranteed readable: validate through the kernel.
+                    if (!ReadProcessMemory(GetCurrentProcess(), reinterpret_cast<LPCVOID>(c.Rsp), &ret, sizeof(ret),
+                                           &got) ||
+                        got != sizeof(ret))
+                        break;
+                    c.Rip = ret;
                     c.Rsp += 8;
                 } else {
                     PVOID handlerData = nullptr;
@@ -105,6 +99,27 @@ std::string sampleThreadChain(DWORD tid) {
             }
         }
         ResumeThread(h);
+    }
+    std::string out;
+    const uint64_t mainBase = reinterpret_cast<uintptr_t>(GetModuleHandleW(nullptr));
+    for (int depth = 0; depth < depthCount; ++depth) {
+        const DWORD64 rip = rips[depth];
+        HMODULE m = nullptr;
+        char name[MAX_PATH] = "?";
+        uint64_t base = 0;
+        if (GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+                               reinterpret_cast<LPCWSTR>(rip), &m) &&
+            m) {
+            GetModuleFileNameA(m, name, MAX_PATH);
+            base = reinterpret_cast<uintptr_t>(m);
+            const char* slash = std::strrchr(name, '\\');
+            if (slash)
+                std::memmove(name, slash + 1, std::strlen(slash));
+        }
+        char b[160];
+        std::snprintf(b, sizeof(b), "%s%s+0x%llx", depth ? " < " : "", base == mainBase ? "exe" : name,
+                      static_cast<unsigned long long>(rip - base));
+        out += b;
     }
     CloseHandle(h);
     return out;
