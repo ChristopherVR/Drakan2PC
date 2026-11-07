@@ -23,7 +23,9 @@ const arg = (n, d) => {
     return i >= 0 ? args[i + 1] : d;
 };
 const out = resolve(process.env.INIT_CWD ?? process.cwd(), arg('out', 'build/ui-sweep'));
-const sizes = arg('sizes', '820x700,1280x720,1920x1080')
+const iso0 = arg('iso', process.env.DRAKAN_SWEEP_ISO ?? '');
+// With a disc the level is drawn in software at every size: two sizes by default.
+const sizes = arg('sizes', iso0 ? '820x700,1280x720' : '820x700,1280x720,1920x1080')
     .split(',')
     .map((s) => s.split('x').map(Number));
 const iso = arg('iso', process.env.DRAKAN_SWEEP_ISO ?? '');
@@ -177,6 +179,18 @@ const menus = ['File', 'Edit', 'Window', 'Tools', 'Help']; // the browser menu b
 const toolbarMenus = ['Select', 'Arrange', 'Add', 'Show', 'Display', 'Views'];
 
 const BACK = `(() => { const b = [...document.querySelectorAll('#tabs button, button.ws-tab')].find((x) => /Level Editor/.test(x.textContent)); b?.click(); document.getElementById('cwz-close')?.click(); })()`;
+const junk = join(profile, 'junk');
+mkdirSync(junk, { recursive: true });
+writeFileSync(join(junk, 'junk.iso'), Buffer.alloc(4096, 7));
+writeFileSync(join(junk, 'broken.json'), '{ "level": [ not json');
+writeFileSync(join(junk, 'notes.txt'), 'this folder is not an Order of the Flame install');
+async function setFiles(selector, files) {
+    const doc = (await send('DOM.getDocument', { depth: 1 })).result.root.nodeId;
+    const q = await send('DOM.querySelector', { nodeId: doc, selector });
+    if (!q.result?.nodeId) return false;
+    await send('DOM.setFileInputFiles', { files, nodeId: q.result.nodeId });
+    return true;
+}
 const findings = [];
 const log = [];
 async function snap(size, name) {
@@ -193,6 +207,34 @@ async function snap(size, name) {
 
 await send('Page.navigate', { url });
 await sleep(2500);
+// Error states, injected with files that are not what the editor expects (before any real disc is opened).
+for (const [w, h] of sizes) {
+    const size = `${w}x${h}`;
+    await send('Emulation.setDeviceMetricsOverride', { width: w, height: h, deviceScaleFactor: 1, mobile: false });
+    await sleep(500);
+    await ev(RESET);
+    await setFiles('#iso-input', [join(junk, 'junk.iso')]);
+    await sleep(2500);
+    await snap(size, 'error not a disc image');
+    await ev(RESET);
+    await setFiles('#lv-load', [join(junk, 'broken.json')]);
+    await sleep(1500);
+    await snap(size, 'error corrupt saved level');
+    await ev(RESET);
+    await ev(runPalette('Import Order of the Flame'));
+    await sleep(800);
+    await setFiles('dialog.ootf-dlg input[type=file]', [join(junk, 'notes.txt')]);
+    await sleep(1500);
+    await snap(size, 'error not an OotF install');
+    await ev(RESET);
+    await ev(`document.getElementById('ed-play')?.click()`);
+    await sleep(700);
+    await snap(size, 'play needs the desktop app');
+    await ev(RESET);
+    await ev(`window.drakanEditor?.levelUi.openLevel('ENGLISH\LEVELS\NOPE').catch(() => {})`);
+    await sleep(1500);
+    await snap(size, 'error level missing');
+}
 if (iso) {
     const doc = (await send('DOM.getDocument')).result.root.nodeId;
     const q = await send('DOM.querySelector', { nodeId: doc, selector: '#iso-input' });
@@ -203,6 +245,8 @@ if (iso) {
     }
     await ev(`(async () => { const o = [...document.querySelectorAll('select option')].find((x) => /Surdana/.test(x.textContent)); if (o) await window.drakanEditor.levelUi.openLevel(o.value); })()`);
     await sleep(8000);
+    // software rendering: draw the 3D view at a third of the resolution (the layout checks do not look at the picture)
+    await ev(`(() => { const r = window.drakanEditor.levelUi.ctx().view().renderer; r.setPixelRatio(0.3); })()`);
 }
 for (const [w, h] of sizes) {
     const size = `${w}x${h}`;
@@ -210,6 +254,17 @@ for (const [w, h] of sizes) {
     await sleep(700);
     await ev(RESET);
     await snap(size, 'initial');
+    if (iso) {
+        // level-loaded states: a selected object (Details, Outliner row, gizmo) and a viewport context menu on it
+        await ev(`(() => { const c = window.drakanEditor.levelUi.ctx(); const o = [...c.doc().objects()].find((x) => x.kind === 'player') ?? [...c.doc().objects()][0]; c.view().select([o.id]); c.view().frameSelection(); })()`);
+        await sleep(1200);
+        await snap(size, 'level object selected');
+        await send('Input.dispatchMouseEvent', { type: 'mousePressed', x: Math.round(w / 2), y: Math.round(h / 3), button: 'right', clickCount: 1 });
+        await send('Input.dispatchMouseEvent', { type: 'mouseReleased', x: Math.round(w / 2), y: Math.round(h / 3), button: 'right', clickCount: 1 });
+        await sleep(500);
+        await snap(size, 'level context menu');
+        await ev(RESET);
+    }
     for (const q of palette) {
         await ev(RESET);
         await ev(BACK);

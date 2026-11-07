@@ -1,5 +1,6 @@
 import type { DiscProfile } from '@drakan/formats';
 import type { Api, EntryInfo, FileInfo, FileOpenResult, LevelInfo, Method, Request, Response } from './rpc.ts';
+import { friendlyMessage } from './shared/friendly.ts';
 import { TextureViewport } from './viewport.ts';
 import { initLevelUi } from './levelui.ts';
 import { installMultiplayerMaps } from './editor/arena/install.ts';
@@ -86,7 +87,7 @@ let isoName = '';
 let discProfile: DiscProfile | null = null;
 
 function setStatus(msg: string, error = false): void {
-    status.textContent = msg;
+    status.textContent = error ? friendlyMessage(msg) : msg;
     status.classList.toggle('error', error);
 }
 

@@ -71,6 +71,7 @@ import { registerOotfImport } from './editor/ootfimport.ts';
 import { createStartPage, rememberLevel } from './editor/startpage.ts';
 import { createViewportHint } from './editor/hint.ts';
 import { downloadFile, isDesktop } from './platform.ts';
+import { friendlyMessage } from './shared/friendly.ts';
 import { registerUnrealExport } from './editor/unrealexport.ts';
 import './editor/editor.css';
 
@@ -260,7 +261,8 @@ export function initLevelUi(host: LevelUiHost): LevelUi {
         }
     }
 
-    function toast(msg: string, kind: 'info' | 'error' | 'ok' | 'warn' = 'info'): void {
+    function toast(raw: string, kind: 'info' | 'error' | 'ok' | 'warn' = 'info'): void {
+        const msg = kind === 'error' ? friendlyMessage(raw) : raw;
         const t = h('div', { class: `toast ${kind}`, role: 'status' }, msg);
         toasts.append(t);
         window.setTimeout(() => t.classList.add('out'), kind === 'error' || kind === 'warn' ? 6000 : 2800);

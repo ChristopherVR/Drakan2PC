@@ -356,7 +356,15 @@ export function installLogic(ctx: Ctx, loadExits: (only?: string) => Promise<Exi
             });
             // selected first, then by id
             cands.sort((a, b) => Number(sel.has(b.id)) - Number(sel.has(a.id)) || a.id - b.id);
-            if (p.kind === 'object') {
+            if (p.kind === 'object' && !cands.length && !p.optional) {
+                // An empty drop-down read as a form the author had filled in wrong; say what is missing instead.
+                control = h(
+                    'span',
+                    { class: 'dim warn' },
+                    `No ${p.label.toLowerCase()} in this level yet. Place one first, then open this again.`,
+                );
+                vals[p.id] = undefined;
+            } else if (p.kind === 'object') {
                 const s = h(
                     'select',
                     { class: 'sel' },
