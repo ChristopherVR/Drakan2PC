@@ -18,8 +18,8 @@ namespace drakan_dragon_arrival {
 // A dragon this far from Rynn is not where a player left him. The rule is applied to the disc game's levels only
 // (bringDragon skips campaign pack and editor levels, where the author may park the dragon far away on purpose).
 constexpr float kStrayDistance = 100000.0f;
-constexpr float kBesideDistance = 4000.0f;  // where he is put: beside Rynn
-constexpr float kAbove = 3000.0f;           // and above her, so he comes down onto the ground
+constexpr float kBesideDistance = 4000.0f; // where he is put: beside Rynn
+constexpr float kAbove = 3000.0f;          // and above her, so he comes down onto the ground
 
 struct Placement {
     bool moved = false;

@@ -1,7 +1,7 @@
 // Clipped fan loop of the polyclip hook (header only, no guest state, testable with a stub draw).
 //
-// The original fan drawer reaches the GIF emitter through PS2_JAL, whose checkpoint can unwind the guest in the middle of
-// a draw (the frames return upward and the scheduler re-enters at the resume address later). After such a draw the
+// The original fan drawer reaches the GIF emitter through PS2_JAL, whose checkpoint can unwind the guest in the middle
+// of a draw (the frames return upward and the scheduler re-enters at the resume address later). After such a draw the
 // original's own frame is live, so the hook must not touch registers or issue another call: the loop below stops at the
 // first draw that did not complete and reports it. The remaining triangles of that fan are dropped (one frame, rare).
 #pragma once

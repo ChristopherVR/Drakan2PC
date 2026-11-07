@@ -25,8 +25,8 @@ Vertex vtx(float x, float y, float depth) {
 int main() {
     std::vector<uint8_t> ram(0x100000, 0);
     // A fan of four triangles whose far edge is behind the camera (negative depth): every triangle needs clipping.
-    const Vertex fan[6] = {vtx(2048, 2048, 100),  vtx(2400, 2048, 100),  vtx(2400, 2400, -50),
-                           vtx(2048, 2400, -50),  vtx(1700, 2400, -50),  vtx(1700, 2048, 100)};
+    const Vertex fan[6] = {vtx(2048, 2048, 100), vtx(2400, 2048, 100), vtx(2400, 2400, -50),
+                           vtx(2048, 2400, -50), vtx(1700, 2400, -50), vtx(1700, 2048, 100)};
     const Params params;
     const uint32_t scratch = scratchFor(0x01ff1000u);
     assert(scratch >= kScratchBase && scratch + kScratchSlotBytes <= kScratchBase + kScratchSlots * kScratchSlotBytes);

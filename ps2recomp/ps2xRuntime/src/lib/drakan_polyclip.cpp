@@ -100,8 +100,9 @@ void hookFanDraw(uint8_t* ram, R5900Context* c, PS2Runtime* rt) {
     }
     // Clip every triangle of the fan and draw each remainder as its own fan, from a reserved scratch slot in low RDRAM
     // (never the stack: the callee chain below $sp has no asserted depth). If a draw is preempted at a checkpoint the
-    // original's frame is live and the scheduler re-enters it later: touch nothing and return (see drakan_polyclip_fan.h).
-    // The scratch area must be untouched RAM: check once (first clip) that it is still all zero, else do not clip.
+    // original's frame is live and the scheduler re-enters it later: touch nothing and return (see
+    // drakan_polyclip_fan.h). The scratch area must be untouched RAM: check once (first clip) that it is still all
+    // zero, else do not clip.
     static std::atomic<int> scratchState{0};
     if (scratchState.load() == 0) {
         bool zero = true;

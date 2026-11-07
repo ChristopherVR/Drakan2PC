@@ -165,7 +165,8 @@ static void autoSteer(drakan_input::IGuest& guest) {
         const float v = e && *e ? std::strtof(e, nullptr) : 0.0f;
         return v > 0.0f ? v : 20000.0f;
     }();
-    static const bool hasAlt = std::getenv("DRAKAN_PLAYTEST_ALT") != nullptr && std::getenv("DRAKAN_PLAYTEST_ALT")[0] != 0;
+    static const bool hasAlt =
+        std::getenv("DRAKAN_PLAYTEST_ALT") != nullptr && std::getenv("DRAKAN_PLAYTEST_ALT")[0] != 0;
     static const float alt = hasAlt ? std::strtof(std::getenv("DRAKAN_PLAYTEST_ALT"), nullptr) : 0.0f;
     if (!cls && !hasAlt && !std::getenv("DRAKAN_PLAYTEST_WAYPOINTS"))
         return;
