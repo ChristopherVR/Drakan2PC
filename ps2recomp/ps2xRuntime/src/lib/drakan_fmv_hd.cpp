@@ -1,4 +1,5 @@
 // Drakan port: HD movie pack. See drakan_fmv_hd.h and docs/reference/fmv.md section 9.
+#include "gsr/usable_cpus.h"
 #include "drakan_fmv_hd.h"
 
 #include "drakan_config.h"
@@ -327,7 +328,7 @@ private:
         codec_ = avcodec_alloc_context3(dec);
         if (!codec_ || avcodec_parameters_to_context(codec_, stream_->codecpar) < 0)
             return false;
-        codec_->thread_count = static_cast<int>(std::clamp(std::thread::hardware_concurrency(), 1u, 4u));
+        codec_->thread_count = static_cast<int>(std::clamp(gsr::usableCpus(), 1u, 4u));
         if (avcodec_open2(codec_, dec, nullptr) < 0) {
             std::fprintf(stderr, "[fmv-hd] %s: decoder %s failed to open\n", m.name.c_str(), dec->name);
             return false;

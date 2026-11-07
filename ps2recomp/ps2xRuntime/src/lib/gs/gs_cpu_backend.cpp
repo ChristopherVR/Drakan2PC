@@ -1,3 +1,4 @@
+#include "gsr/usable_cpus.h"
 #include "runtime/gs/gs_cpu_backend.h"
 #include "gs_cpu_raster_math.h"
 #include "gs_hd_source_cache.h"
@@ -570,7 +571,7 @@ void GSCpuBackend::Initialize(uint8_t* vram, uint32_t vramSize) {
     // HD sampling benefits from extra parallelism, while EE/audio and host
     // presentation still need two CPUs on the eight-CPU native configuration.
     if (m_texturePack && !std::getenv("PS2X_CPU_RASTER_THREADS")) {
-        const unsigned available = std::thread::hardware_concurrency();
+        const unsigned available = gsr::usableCpus();
         if (available >= 8)
             m_rasterThreads = std::min(available - 2, 8u);
     }

@@ -2,6 +2,7 @@
 // attribute layout ([static world][frame triangles][native models]), instance groups and masks (1 opaque, 2 water
 // coverage, 4 native water, 8 direct-shadow casters), instance IDs (material base | opacity << 19) and camera-relative
 // coordinates.
+#include "gsr/usable_cpus.h"
 #include "wgpu_ray.h"
 #include "runtime_flags.h"
 
@@ -285,7 +286,7 @@ bool WgpuRay::render(const PassFrame& f, std::span<const Triangle> triangles,
     // they change, this frame's three triangle groups and every native model mesh new this pass. Assembly into the
     // buffer layout (static, frame, models, top level) follows on this thread.
     if (!workers_)
-        workers_ = std::make_unique<Workers>(std::clamp(std::thread::hardware_concurrency(), 2u, 8u) - 1);
+        workers_ = std::make_unique<Workers>(std::clamp(gsr::usableCpus(), 2u, 8u) - 1);
     std::vector<std::function<void()>> jobs;
     bool staticChanged = false;
     if (staticTriangles.empty()) {

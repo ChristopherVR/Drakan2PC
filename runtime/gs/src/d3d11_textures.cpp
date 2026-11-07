@@ -1,4 +1,5 @@
 // Texture cache: decode, HD texture pack, background upscaling and replacement.
+#include "gsr/usable_cpus.h"
 #include "d3d11_backend_impl.h"
 
 namespace gsr {
@@ -69,7 +70,7 @@ uint32_t D3D11Backend::Impl::normUpFactor(uint32_t f) {
 void D3D11Backend::Impl::ensurePool() {
     const bool anyJob = upFactorCfg != 1 || texDump || (texReplace && !replIndex.empty());
     if (anyJob && !upSync && !pool) {
-        const unsigned hc = std::max(2u, std::thread::hardware_concurrency());
+        const unsigned hc = std::max(2u, gsr::usableCpus());
         pool = std::make_unique<texup::Pool>(std::clamp(hc / 2, 1u, 4u));
     }
 }

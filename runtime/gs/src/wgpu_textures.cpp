@@ -1,5 +1,6 @@
 // Texture cache: decode, HD texture pack, background upscaling and replacement (WebGPU backend; policy as
 // d3d11_textures.cpp).
+#include "gsr/usable_cpus.h"
 #include "wgpu_backend_impl.h"
 
 namespace gsr {
@@ -70,7 +71,7 @@ uint32_t WgpuBackend::Impl::normUpFactor(uint32_t f) {
 void WgpuBackend::Impl::ensurePool() {
     const bool anyJob = upFactorCfg != 1 || texDump || (texReplace && !replIndex.empty());
     if (anyJob && !upSync && !pool) {
-        const unsigned hc = std::max(2u, std::thread::hardware_concurrency());
+        const unsigned hc = std::max(2u, gsr::usableCpus());
         pool = std::make_unique<texup::Pool>(std::clamp(hc / 2, 1u, 4u));
     }
 }

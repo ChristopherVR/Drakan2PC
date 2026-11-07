@@ -1,4 +1,5 @@
 #pragma once
+#include "gsr/usable_cpus.h"
 #include "runtime/gs/gs_texture_page_cache.h"
 #include <algorithm>
 #include <atomic>
@@ -19,7 +20,7 @@ struct GSPrimitiveBatch;
 namespace gs_cpu {
 inline constexpr unsigned kMaxRasterThreads = 16;
 inline unsigned rasterThreadCount() {
-    const unsigned available = std::thread::hardware_concurrency();
+    const unsigned available = gsr::usableCpus();
     unsigned count = std::clamp(available, 1u, 8u);
 #if defined(__linux__) && !defined(__EMSCRIPTEN__)
     // Leave room for EE, resource/audio and presentation work. Four render
@@ -137,7 +138,7 @@ class TileWorkers {
 
 public:
     explicit TileWorkers(unsigned requested = rasterThreadCount()) {
-        const unsigned count = std::min(requested, std::max(std::thread::hardware_concurrency(), 1u));
+        const unsigned count = std::min(requested, std::max(gsr::usableCpus(), 1u));
         for (unsigned index = 1; index < count; ++index) {
             try {
                 threads_.emplace_back([this, index] { worker(index); });
