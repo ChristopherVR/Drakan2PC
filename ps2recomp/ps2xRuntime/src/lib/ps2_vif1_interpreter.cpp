@@ -4,13 +4,109 @@
 #include "drakan_object_motion.h"
 #include "ps2_vif_unpack.h"
 #include "ps2_vu1_batch_capture.h"
+#include <algorithm>
 #include <cstring>
 #include <cstdio>
 #include <cstdlib>
+#include <string>
+#include <utility>
+#include <vector>
 
 namespace drakan_vu1 {
 std::atomic<UploadHook> g_uploadHook{nullptr};
 }
+
+namespace {
+bool vifRegLogOn() {
+    static const bool on = std::getenv("PS2X_VIF_REGLOG") != nullptr;
+    return on;
+}
+// Commands parsed so far in the current processVIF1Data call (only with PS2X_VIF_REGLOG): position and code.
+thread_local std::vector<std::pair<uint32_t, uint32_t>> t_vifTrace;
+inline void vifRegTrace(uint32_t pos, uint32_t cmd) {
+    if (!vifRegLogOn())
+        return;
+    if (pos == 0u)
+        t_vifTrace.clear();
+    if (t_vifTrace.size() < 4096u)
+        t_vifTrace.emplace_back(pos, cmd);
+}
+// Drakan debug: PS2X_VIF_REGLOG=1 reports the first occurrence of every distinct STCYCL / STMOD value and every MPG
+// in the VIF1 stream with the bytes around it (the game sets CYCLE once and never uploads microcode in a level, so a
+// new value means the stream is being parsed out of step).
+void vifRegLog(const char* what, uint32_t cmd, const uint8_t* data, uint32_t pos, uint32_t size, uint32_t offsetBase,
+               const uint8_t* rdram) {
+    if (!vifRegLogOn())
+        return;
+    static uint32_t seen[64];
+    static int nSeen = 0, reports = 0;
+    for (int i = 0; i < nSeen; ++i)
+        if (seen[i] == cmd)
+            return;
+    if (nSeen < 64)
+        seen[nSeen++] = cmd;
+    if (reports++ >= 48)
+        return;
+    std::fprintf(stderr, "[vif-reglog] %s cmd=%08x at %u of %u (slice offset %u)\n", what, cmd, pos, size, offsetBase);
+    if (const char* dir = std::getenv("PS2X_VIF_REGLOG"); dir && std::strlen(dir) > 1u) {
+        // PS2X_VIF_REGLOG=<dir>: also keep the whole transfer
+        const std::string path = std::string(dir) + "/vif-reglog-" + std::to_string(reports) + ".bin";
+        if (FILE* f = std::fopen(path.c_str(), "wb")) {
+            std::fwrite(data, 1, size, f);
+            std::fclose(f);
+        }
+    }
+    const uint32_t from = pos >= 128u ? (pos - 128u) & ~15u : 0u;
+    const uint32_t to = std::min<uint32_t>(size, pos + 64u);
+    for (uint32_t a = from; a + 16u <= to; a += 16u) {
+        uint32_t w[4];
+        std::memcpy(w, data + a, 16);
+        std::fprintf(stderr, "[vif-reglog]   +%u %08x %08x %08x %08x\n", a, w[0], w[1], w[2], w[3]);
+    }
+    {
+        std::string line;
+        char buf[32];
+        for (const auto& [p, c] : t_vifTrace) {
+            std::snprintf(buf, sizeof buf, " %u:%08x", p, c);
+            line += buf;
+            if (line.size() > 180u) {
+                std::fprintf(stderr, "[vif-reglog]   trace%s\n", line.c_str());
+                line.clear();
+            }
+        }
+        if (!line.empty())
+            std::fprintf(stderr, "[vif-reglog]   trace%s\n", line.c_str());
+    }
+    // Where in guest RAM do these bytes live, and which DMA tags (REF/REFE/REFS/CNT/NEXT/CALL) send from just before?
+    const uint32_t key = (pos & ~15u) >= 32u ? (pos & ~15u) - 32u : 0u;
+    if (!rdram || key + 48u > size)
+        return;
+    int hits = 0;
+    for (uint32_t a = 0; a + 48u <= PS2_RAM_SIZE && hits < 4; a += 16u) {
+        if (std::memcmp(rdram + a, data + key, 48) != 0)
+            continue;
+        ++hits;
+        const uint32_t src = a + (pos - key);
+        std::fprintf(stderr, "[vif-reglog]   bytes found at guest %08x (command at %08x)\n", a, src);
+        int tags = 0;
+        for (uint32_t t = 0; t + 16u <= PS2_RAM_SIZE && tags < 8; t += 16u) {
+            uint64_t tag;
+            std::memcpy(&tag, rdram + t, 8);
+            const uint32_t id = static_cast<uint32_t>((tag >> 28) & 7u), qwc = static_cast<uint32_t>(tag & 0xffffu);
+            const uint32_t addr = static_cast<uint32_t>(tag >> 32) & 0x1ffffff0u;
+            const uint32_t dataAt = (id == 1u || id == 2u || id == 5u || id == 6u || id == 7u) ? t + 16u : addr;
+            if (qwc == 0u || ((tag >> 16) & 0xfffu) != 0u || dataAt > src || dataAt + qwc * 16u <= src ||
+                src - dataAt > 0x10000u)
+                continue;
+            if (id != 0u && id != 3u && id != 4u)
+                continue; // payload-follows tags would match any data; only reference tags are informative
+            ++tags;
+            std::fprintf(stderr, "[vif-reglog]     tag at %08x id=%u qwc=%u addr=%08x (command %u bytes in)\n", t, id,
+                         qwc, addr, src - dataAt);
+        }
+    }
+}
+} // namespace
 
 enum VIFCmd : uint8_t {
     VIF_NOP = 0x00,
@@ -304,6 +400,7 @@ void PS2Memory::processVIF1Data(const uint8_t* data, uint32_t sizeBytes, uint32_
             (!vu1batch::captureActive || !vu1batch::captureDrain(this)) && m_gifArbiter && !m_gifArbiter->empty())
             m_gifArbiter->drain();
         drakan_object_motion::command(pos + offsetBase);
+        vifRegTrace(pos, cmd);
         pos += 4;
 
         uint8_t opcode = (cmd >> 24) & 0x7F;
@@ -320,6 +417,7 @@ void PS2Memory::processVIF1Data(const uint8_t* data, uint32_t sizeBytes, uint32_
         if (opcode == VIF_NOP) {
             continue;
         } else if (opcode == VIF_STCYCL) {
+            vifRegLog("STCYCL", cmd, data, pos - 4u, sizeBytes, offsetBase, m_rdram);
             vif1_regs.cycle = imm;
             continue;
         } else if (opcode == VIF_OFFSET) {
@@ -338,6 +436,7 @@ void PS2Memory::processVIF1Data(const uint8_t* data, uint32_t sizeBytes, uint32_
             vif1_regs.itops = imm & 0x3FFu;
             continue;
         } else if (opcode == VIF_STMOD) {
+            vifRegLog("STMOD", cmd, data, pos - 4u, sizeBytes, offsetBase, m_rdram);
             vif1_regs.mode = imm & 3u;
             continue;
         } else if (opcode == VIF_MSKPATH3) {
@@ -429,6 +528,7 @@ void PS2Memory::processVIF1Data(const uint8_t* data, uint32_t sizeBytes, uint32_
             pos += 16;
             continue;
         } else if (opcode == VIF_MPG) {
+            vifRegLog("MPG", cmd, data, pos - 4u, sizeBytes, offsetBase, m_rdram);
             uint32_t destAddr = (uint32_t)imm * 8u;
             const uint32_t instructionCount = (num == 0u) ? 256u : static_cast<uint32_t>(num);
             const uint32_t mpgBytes = instructionCount * 8u;

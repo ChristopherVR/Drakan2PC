@@ -232,9 +232,14 @@ else: 00 00 00 00, then (w+1)*(h+1) x { i8 nx, ny, nz, 0x7f }  // entry v+1 = ve
 * **Limit [game]**: at most **10 textures per chunk**. The chunk record is 0x4c bytes: `+0x00 x0, +0x08 x1, +0x04 z0, +0x0c z1,
   +0x10 ntex, +0x14..0x3b ref[10], +0x3c vw, +0x40 vh, +0x44 n, +0x48 weights ptr`; `FUN_00165840` (stream reader) copies `ntex`
   refs without a bounds check, so an 11th ref overwrites the weight-array descriptor and the heap allocator (`FUN_004acd80`)
-  later loops forever. The runtime builder (`FUN_00165f68`) checks `ntex < 10`. The PAL discs never exceed 8. There is no
+  later loops forever. The runtime builder (`FUN_00165f68`) checks `ntex < 10`. The PAL discs never exceed 8. **10 is not
+  safe either [game]**: the draw pages built from a 10-texture chunk fill only 7 texture groups (68-byte records, page `+84`),
+  the mesh drawer `FUN_00158148` still walks all of them and `FUN_001ed0b8` sends an empty one as VIF `UNPACK NUM=0` (= 256),
+  which parses the rest of the packet out of step, changes STMOD and leaves VU1 drawing garbage for the rest of the session
+  ("VU1 reserved lower", 2 fps; [journal](../journal/2026-11-07/vu1-reserved-lower.md)). So the limit is 8. There is no
   per-layer limit: chunk rectangles are free-form in the file, so `buildPs2TerrainBlob` splits a chunk whose texture list
-  (with the neighbour window) exceeds 10 into halves (a 2x2-cell chunk lists at most 9). Ruined Village (42 textures in a
+  (with the neighbour window, cells x0-1..x1 / z0-1..z1, so a 1x2 chunk sees 12 cells) exceeds 8, down to single cells; a
+  single cell that still sees more keeps its own texture and the neighbours' most used ones. Ruined Village (42 textures in a
   layer, 37 in a chunk) loads and draws with all of them (docs/journal/2026-11-01/ootf-texture-limit.md).
 * **Chunks [disc]**: the layer is cut into `ceil(w/12) x ceil(h/12)` chunks of `ceil(n/pieces)` cells (last one shorter);
   vertex counts are cells+1. Matches 291 of 297 layers; the other six (13x24, 25x32, 14x12, ...) split z finer, rule open.

@@ -1196,10 +1196,38 @@ const VU1Interpreter::DecodedInstructionPair& VU1Interpreter::getDecodedInstruct
 }
 
 void VU1Interpreter::reportReservedInstruction(bool upper, uint32_t instruction) {
+    // Values from 0xfffffff5 up are not instruction words but the internal stop reasons below. Once the VU data is
+    // garbage (for example after the VIF stream was parsed out of step) every run stops the same way, thousands per
+    // second, so after the first 32 reports only every 4096th is printed, with the running total.
+    static std::atomic<uint64_t> s_reports{0};
+    const uint64_t n = s_reports.fetch_add(1, std::memory_order_relaxed) + 1u;
+    m_stopRequested = true;
+    if (n > 32u && (n & 4095u) != 0u)
+        return;
+    const char* why = "";
+    switch (instruction) {
+        case 0xFFFFFFF8u:
+            why = " (XGKICK: GIF tag with FLG=3 in the packet)";
+            break;
+        case 0xFFFFFFFBu:
+            why = " (XGKICK: packet runs past 64 KB without EOP)";
+            break;
+        case 0xFFFFFFFFu:
+        case 0xFFFFFFFEu:
+        case 0xFFFFFFFDu:
+        case 0xFFFFFFFAu:
+        case 0xFFFFFFF9u:
+        case 0xFFFFFFF7u:
+        case 0xFFFFFFF6u:
+        case 0xFFFFFFF5u:
+            why = " (pipeline full)";
+            break;
+        default:
+            break;
+    }
     RUNTIME_ERROR("[VU" << (m_unit == Unit::VU1 ? "1" : "0") << " reserved " << (upper ? "upper" : "lower")
                         << "] cycle=" << m_cycle << " pc=0x" << std::hex << m_state.pc << " instruction=0x"
-                        << instruction << std::dec << '\n');
-    m_stopRequested = true;
+                        << instruction << std::dec << why << " (report " << n << ")\n");
 }
 
 namespace {

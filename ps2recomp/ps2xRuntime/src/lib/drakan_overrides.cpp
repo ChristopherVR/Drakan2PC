@@ -1033,6 +1033,37 @@ void traceHook(uint8_t* rdram, R5900Context* ctx, PS2Runtime* rt) {
                 }
             }
         }
+        if (g_traceAddr[N] == 0x1ed0b8u && getRegU32(ctx, 7) == 0u) {
+            // S-8 unpack packet builder (FUN_001ed0b8: a1 = bytes, a2 = VU offset, a3 = count) called by the mesh
+            // drawer FUN_00158148 with a 68-byte group record in s5; a count of 0 becomes VIF UNPACK NUM=0 (256).
+            auto dump = [&](const char* what, uint32_t a, uint32_t bytes) {
+                a &= 0x1FFFFFFFu;
+                if (a < 0x100000u || a + bytes > PS2_RAM_SIZE)
+                    return;
+                std::fprintf(stderr, "[unpack0] %s %08x:", what, a);
+                for (uint32_t k = 0; k < bytes; k += 4)
+                    std::fprintf(stderr, " %08x", *reinterpret_cast<const uint32_t*>(rdram + a + k));
+                std::fputc(10, stderr);
+            };
+            std::fprintf(stderr, "[unpack0] ra=%x s0..s7=%x %x %x %x %x %x %x %x\n", getRegU32(ctx, 31),
+                         getRegU32(ctx, 16), getRegU32(ctx, 17), getRegU32(ctx, 18), getRegU32(ctx, 19),
+                         getRegU32(ctx, 20), getRegU32(ctx, 21), getRegU32(ctx, 22), getRegU32(ctx, 23));
+            dump("group", getRegU32(ctx, 21), 68);
+            const uint32_t sp = getRegU32(ctx, 29) & 0x1FFFFFFFu;
+            if (sp + 104 <= PS2_RAM_SIZE) {
+                const uint32_t obj = *reinterpret_cast<const uint32_t*>(rdram + sp + 72);
+                dump("object", obj, 128);
+                static uint32_t lastObj = 0;
+                if (obj != lastObj && (obj & 0x1FFFFFFFu) + 128 <= PS2_RAM_SIZE) {
+                    lastObj = obj;
+                    const uint32_t recs = *reinterpret_cast<const uint32_t*>(rdram + (obj & 0x1FFFFFFFu) + 84);
+                    for (uint32_t k = 0; k < 14; ++k)
+                        dump("record", recs + k * 68, 68);
+                }
+            }
+        } else if (g_traceAddr[N] == 0x1ed0b8u) {
+            return g_traceOrig[N](rdram, ctx, rt);
+        }
         std::fprintf(stderr, "%s\n", line);
         if (g_traceAddr[N] == 0x4149a0u) {
             // SetSubtitle(Subtitle*, const char* text, int speaker): log the text of every subtitle the game shows.
