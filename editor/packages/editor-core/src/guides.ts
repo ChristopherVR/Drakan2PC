@@ -136,7 +136,7 @@ export const GUIDES: Guide[] = [
             'Open Validation and fix every error before you export.',
         ],
         notes: [
-            'Wiring by dragging was checked end to end: place a door and a lever, select both, open Logic (Ctrl+Shift+K), drag from the lever\'s round pin to the door card and pick Opens. The link is stored on the lever and exported with the level. A class placed from the Place panel with no copy in the level is written with a default body (the export says so); copy an existing lever or door of the level when the exact behaviour matters. In the game the lever fires when Rynn presses E next to it (checked: its state changes and returns). Whether a placed door then opens was not shown in a run: the shipped Surdana lever sends Unlock to its Town Door, so test your door in the game and prefer a copy of a shipped door and lever pair.',
+            "Wiring by dragging was checked end to end: place a door and a lever, select both, open Logic (Ctrl+Shift+K), drag from the lever's round pin to the door card and pick Opens. The link is stored on the lever and exported with the level. A class placed from the Place panel with no copy in the level is written with a default body (the export says so); copy an existing lever or door of the level when the exact behaviour matters. In the game the lever fires when Rynn presses E next to it (checked: its state changes and returns). Whether a placed door then opens was not shown in a run: the shipped Surdana lever sends Unlock to its Town Door, so test your door in the game and prefer a copy of a shipped door and lever pair.",
             'A link means: when this object triggers, it sends its message to that one. Arrows in the viewport show them.',
             'Trigger volumes are boxes or spheres; drag their face handles to resize them.',
             'Unlock only unlocks a door (proved in game): it then opens by Auto-Open when the player is near, or by an On message. A locked door ignores On.',
@@ -146,7 +146,8 @@ export const GUIDES: Guide[] = [
     {
         id: 'puzzles',
         title: 'Build a puzzle',
-        summary: 'Make a lever, pressure plates, a timer, an ambush or a key lock open a door, and check it before you play.',
+        summary:
+            'Make a lever, pressure plates, a timer, an ambush or a key lock open a door, and check it before you play.',
         flow: ['Open a level', 'Ready-made setup', 'Pick the door', 'Create', 'Check Logic and Validation', 'Play'],
         steps: [
             'Open a level, then open Logic (Ctrl+Shift+K) and press "Ready-made setup". Select the door (or the creatures) in the level first and the setup uses it; otherwise pick it in the form. "Show in level" next to a pick selects it and looks at it, so you can see what you chose.',
@@ -328,9 +329,9 @@ export const GUIDES: Guide[] = [
         notes: [
             'Conversion always reads your disc as it is, never the converted levels laid over it, so converting twice (or again after an update) gives the same classes and names.',
             'Converted levels are kept in this browser or app profile and come back with the disc. File > Remove converted Order of the Flame levels forgets them. Nothing from your install is uploaded.',
-            'Play (F5, desktop app) on a converted level writes the converted levels as a temporary pack, editor-play-ootf.zip, in the game\'s mods folder and turns it on. Your own Order of the Flame packs (names starting with ootf) are switched off while the game runs, because they share files and class ids with it. When the game closes the editor puts mods.ini back and deletes the temporary pack; if the editor was closed first, it does so the next time it starts. In a browser, Play shows a dialog that points to the desktop app.',
+            "Play (F5, desktop app) on a converted level writes the converted levels as a temporary pack, editor-play-ootf.zip, in the game's mods folder and turns it on. Your own Order of the Flame packs (names starting with ootf) are switched off while the game runs, because they share files and class ids with it. When the game closes the editor puts back only the mods.ini lines Play changed (a pack you switched in the game\x27s Mods menu meanwhile stays as you left it; a mods.ini that Play created is removed) and deletes the temporary pack, trying again for a few minutes if the game still holds the file; if the editor was closed first, it does so the next time it starts, unless another editor window is running the game. Converted levels kept in the browser for the next visit are added up over several imports and belong to the disc and language they were converted for; if the browser has no room left a message says they will be gone after a reload. In the desktop app, closing the window waits for the level autosave and the project folder to be written, however long that takes; if a write fails it asks whether to try again, close anyway or keep editing. In a browser, Play shows a dialog that points to the desktop app.",
             'Objects whose class does not exist on the disc are left out; the "conversion notes" under the result list what was changed or skipped.',
-            'Story lists the Order of the Flame quests, cut scenes, conversations and strings of a converted pack under their own scope (the menu or tick beside the list); turn it off to see the disc\'s as well.',
+            "Story lists the Order of the Flame quests, cut scenes, conversations and strings of a converted pack under their own scope (the menu or tick beside the list); turn it off to see the disc's as well.",
         ],
     },
     {
