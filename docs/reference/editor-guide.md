@@ -112,14 +112,14 @@ Path: Select a trigger > Link to... > Choose the message > Check Validation
 4. Click the word on a link to change what it does, or select the link and press Delete to remove it. Problems show on the card with a yellow mark: a trigger linked to nothing, a message the target ignores, a counter nothing counts down.
 5. Right-click an object and choose "Link to..." to link from the level view instead, or use the link handle on the selection.
 6. For a whole setup in one go use Ready-made setup in the Logic panel (for example "Trigger volume plays cut scene"), or the ready-made rows of the Place panel.
-7. Puzzle templates: "Pressure plates puzzle" (N plates feed a counter that opens a target; plates can be laid along X or Z), "Lever opens door", "Timed trigger" (a volume starts a timer that fires after a delay) and "Key lock opens door" (sends Unlock; the key item needs the same Lock Code). Doors that should only obey the puzzle need Locked on and Auto-Open off.
+7. Puzzle templates: "Pressure plates puzzle" (N plates feed a counter that opens a target; plates can be laid along X or Z), "Lever opens door", "Timed trigger" (a volume starts a timer that fires after a delay) and "Key lock opens door" (sends Unlock; the key item needs the same Lock Code). A lever, plate or counter that sends On (Opens) needs the door unlocked (Locked off): a locked door ignores On. For a key or Unlock puzzle set Locked on and Auto-Open on, so the door swings open when the player walks up after the Unlock.
 8. Exits: select an exit object (Level exits in the Place panel, Level exits & teleporters in the Outliner). Logic shows its destination; pick another level there. "Only this exit" (on by default) changes this one exit and leaves the others of the same kind alone. Logic warns when the destination has no way back.
 9. Open Validation and fix every error before you export.
 
 * Wiring by dragging was checked end to end: place a door and a lever, select both, open Logic (Ctrl+Shift+K), drag from the lever's round pin to the door card and pick Opens. The link is stored on the lever and exported with the level. A class placed from the Place panel with no copy in the level is written with a default body (the export says so); copy an existing lever or door of the level when the exact behaviour matters. In the game the lever fires when Rynn presses E next to it (checked: its state changes and returns). Whether a placed door then opens was not shown in a run: the shipped Surdana lever sends Unlock to its Town Door, so test your door in the game and prefer a copy of a shipped door and lever pair.
 * A link means: when this object triggers, it sends its message to that one. Arrows in the viewport show them.
 * Trigger volumes are boxes or spheres; drag their face handles to resize them.
-* Unlock only unlocks a door: it still has to be opened by Auto-Open or an On message.
+* Unlock only unlocks a door (proved in game): it then opens by Auto-Open when the player is near, or by an On message. A locked door ignores On.
 * If an exit has no matching exit in the destination level, the player arrives with no marker and can fall out of the world. An exit out of a level copy uses the way back to the level it was copied from.
 
 <a id="vendors"></a>

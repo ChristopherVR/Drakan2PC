@@ -327,6 +327,20 @@ describe('validation', () => {
         expect(by('unreachable-cutscene')).not.toContain(3);
         expect(by('message-ignored')).toEqual(expect.arrayContaining([22, 4]));
     });
+    it('warns when On is sent to a Locked door (the game ignores it) and not once the door is unlocked or gets Unlock', () => {
+        const d = level();
+        const by = () =>
+            validateLogic(d, env)
+                .filter((i) => i.code === 'door-locked-ignores-open')
+                .map((i) => i.ids);
+        expect(by()).toEqual([[6, 4]]); // counter 6 sends On (1) to the Locked Town Door 4
+        d.get(6)!.fields = [field('Message To Send', '0x20006', 3)]; // Unlock
+        expect(by()).toEqual([]);
+        d.get(6)!.fields = [field('Message To Send', '0x20006', 1)];
+        d.get(4)!.fields = [field('Locked', '0x20004', 0)];
+        expect(by()).toEqual([]);
+    });
+
     it('a cut scene that starts on counts as reachable; a disabled detector with nothing feeding it does not start a chain', () => {
         const d = new LevelDocument();
         d.insert(obj(1, '0x20003', { fields: [field('Initial State', '0x20003', 1)] }));

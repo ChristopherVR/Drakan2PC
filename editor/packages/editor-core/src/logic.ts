@@ -6,6 +6,7 @@ import {
     type LogicClass,
     type LogicRole,
     MESSAGE_LOAD,
+    MESSAGE_ON,
     MESSAGE_PLAY_SEQUENCE,
 } from '@drakan/formats';
 import type { LevelDocument, LevelObject } from './document.ts';
@@ -590,6 +591,15 @@ export function validateLogic(doc: LevelDocument, env: LogicEnv, opts: LogicVali
                     code: 'message-ignored',
                     ids: [o.id, t],
                     message: `${lbl(o)} sends "${m.name}" (${m.field}) to ${lbl(to)}, which only reacts to ${[...accepts].map(messageName).join(', ')}`,
+                });
+            }
+            // measured in game (docs/journal/2026-11-07/door-proof.md): a locked door ignores On, only Unlock frees it
+            if (ts.role === 'door' && m.value === MESSAGE_ON && (numField(to, env, 'Locked') ?? 0) !== 0) {
+                out.push({
+                    severity: 'warning',
+                    code: 'door-locked-ignores-open',
+                    ids: [o.id, t],
+                    message: `${lbl(o)} sends "${m.name}" to ${lbl(to)}, but that door is Locked and a locked door ignores it: turn Locked off, or send Unlock (with Auto-Open on) instead`,
                 });
             }
         }

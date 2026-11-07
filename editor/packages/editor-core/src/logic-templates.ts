@@ -268,7 +268,7 @@ export const TEMPLATES: LogicTemplate[] = [
                     const dl = logicOf(ctx.doc.get(door)!, ctx.env);
                     if (dl?.role === 'door')
                         b.notes.push(
-                            'Doors with Auto-Open on also open by themselves when the player is near; set Locked to force the lever.',
+                            'Doors with Auto-Open on also open by themselves when the player is near; keep Locked off, a locked door ignores the lever (use Unlock mode for those).',
                         );
                 }
                 return b.done();
