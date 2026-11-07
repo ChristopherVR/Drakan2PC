@@ -40,16 +40,21 @@ Open:
    Islands Night, Succubus Lair, Volcanic, each walk-in with message box, save and load; table of exit positions and load times in
    `ootf-wartok-chain.md` (section b). Run in segments with fresh cards, not one process for all 8 levels. Still open: a
    per-level FPS and memory table, and Alwarren (07), which the Islands exit does not lead to.
-3. **Delon on foot.** Rynn arrives in Rift World mounted with an empty inventory, so a sword fight was never played. Options:
-   a weapon item placed on the altar ring (needs a weapon class in the Rift World object database), a spell through the
-   inventory flow, or a natural save that carries Atimar. His Defense 100% behaviour and damage while shielding are unmeasured.
+3. **Delon on foot: not won, blockers recorded** in `ootf-rift-flight-and-delon.md`. Rynn arrives in Rift World mounted with an
+   empty inventory and nothing gives her a weapon there (no cheat, no save-editor source); Atimar exists only on a card played from
+   the opening. Next: play the chain in segments on one pack, each ended with a level-change save and continued from the title
+   ("Fortsetzen", `ootf-credits-title-chosen.md`), then fight on the altar ring (or place a weapon item on it, which needs a weapon
+   class in the Rift World object database). His Defense 100% behaviour and damage while shielding are unmeasured.
    Altar floor map: ring solid for x 338000..346500, z 178000..186000, hole about x 341000..343500, z 180500..184000;
    `place 342044 100804 184976` lands on the floor.
 4. **Human flyability of the RibDoor tunnel.** Scripted W-only flights enter the hall between heights 94000 and 97500 (about a
-   3500 unit window, dive of about 3000 from the arrival height 100119). No person has flown it. The tightest point is the ramp at
-   x 334000, z 279000 (floor 92500, ceiling 97262). Nothing was changed.
-5. **Credits after a title-chosen game.** The per-read overlay is meant to cover a game chosen on the title after boot; only a
-   `DRAKAN_GAME=d1` run was verified in game.
+   3500 unit window, dive of about 3000 from the arrival height 100119). A closed loop on real inputs (W, SPACE, mouse; private
+   `fly.py`, `ootf-rift-flight-and-delon.md`) flies the dive, the mouth and the first half of the ramp (332500 94790 279900 after
+   335 frames, never landed) but slows to about 12 units per frame under the ceiling wedge, and **a sequence (`0x00080052`) fires
+   about 6 s after Rift World starts and moves Arokh to the altar and into the rift**, so the hall and shaft were not reached. New
+   open item: what starts that sequence, and whether it also fires after a natural arrival. No person has flown it.
+5. **Credits after a title-chosen game: done.** Code argument plus one real run (title game card, Continue into Rift World, the
+   campaign end card scrolls): `ootf-credits-title-chosen.md`.
 6. **War giant hammer reveal** after the kill was not re-checked.
 7. **Issue #5 comment.** A comment-ready summary is in `ootf-progression-3.md`. It has not been posted.
 
