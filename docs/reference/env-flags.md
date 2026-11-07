@@ -182,6 +182,7 @@ variable exists it wins over the `drakan.ini` value of `[section] key`. `DRAKAN_
 | `DRAKAN_ISO` | Disc image path for the runtime (`drakan_overrides.cpp`). |
 | `DRAKAN_INPUT` | Input module on/off (`drakan_input_glue.cpp`); `DRAKAN_INPUT_INI` selects its ini; `DRAKAN_INPUT_MENU`, `DRAKAN_INPUT_SCREEN_LAYER`, `DRAKAN_INPUT_AUTOSTART`, `DRAKAN_INPUT_SKIP`, `DRAKAN_INPUT_DEBUGKEYS` tune it. |
 | `DRAKAN_INPUT_SCRIPT` | Scripted input recipe (format in `docs/reference/input.md`). `DRAKAN_PADSEQ` presses DualShock buttons at given times; `DRAKAN_AUTOPRESS`, `DRAKAN_AUTOPRESS_UNTIL`, `DRAKAN_AUTOPRESS_NOSTART`, `DRAKAN_AUTOSTART` auto-press buttons for headless runs. |
+| `DRAKAN_INPUT_SCRIPT_LENIENT` / `DRAKAN_AUTOPRESS_STOP_AFTER_LOAD` | `LENIENT=1`: a recipe line the parser rejects (no leading time, unknown command, bad arguments) is skipped; by default every rejected line is logged as `line N: ...` and the run exits with code 2 at load. `AUTOPRESS_STOP_AFTER_LOAD=1` (`play_run.py --keep-cutscene`): the autopress taps stop once the first level after the title has loaded, so a `--level` cut scene level plays out. |
 | `DRAKAN_INPUT_LOG`, `DRAKAN_INPUT_LOGFILE`, `DRAKAN_INPUT_LOGDUMP` | Log pad input to stderr / a file / dump the log. |
 | `DRAKAN_WINDOW_POS` | Place the window at a fixed position (test aid). |
 | `DRAKAN_SHOT_DIR`, `DRAKAN_OVERLAY_SHOT_DIR` | Directory for screenshots / settings-overlay screenshots. |
