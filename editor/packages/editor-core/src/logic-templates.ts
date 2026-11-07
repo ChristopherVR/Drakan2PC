@@ -256,7 +256,10 @@ export const TEMPLATES: LogicTemplate[] = [
                     'lever class',
                 );
                 const unlock = v.mode === 'unlock';
+                // Switch Type defaults to One_Time (0): a second press sends nothing, so the door could never close
+                // (measured in game, docs/journal/2026-11-07/door-proof.md). Toggle (1) alternates on / off.
                 const lever = b.make(cls, ctx.at, {
+                    'Switch Type': 1,
                     'Message to send when on': msg(unlock ? 'Unlock' : 'On'),
                     'Message to send when off': msg(unlock ? 'Lock' : 'Off'),
                 });

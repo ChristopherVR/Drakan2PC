@@ -95,6 +95,7 @@ const CLASSES: Record<string, StubClass> = {
         rfl: 0x0d,
         name: 'Lever 2000',
         fields: [
+            { name: 'Switch Type', type: 7, def: 0 },
             { name: 'Message to send when on', type: 7, def: 1 },
             { name: 'Message to send when off', type: 7, def: 0 },
         ],
@@ -446,11 +447,12 @@ describe('templates', () => {
         if (isError(open)) throw new Error(open.error);
         const lever = open.objects[0]!;
         expect(lever.links).toEqual([4]);
-        // class defaults (On / Off) mean no overrides
-        expect(lever.fields).toEqual([]);
+        // On / Off are class defaults; the lever is a Toggle so a second press closes the door again
+        expect(Object.fromEntries(lever.fields!.map((f) => [f.name, f.value]))).toEqual({ 'Switch Type': 1 });
         const unlock = templateById('lever-door')!.build(ctxFor(d), { door: 4, mode: 'unlock' });
         if (isError(unlock)) throw new Error(unlock.error);
         expect(Object.fromEntries(unlock.objects[0]!.fields!.map((f) => [f.name, f.value]))).toEqual({
+            'Switch Type': 1,
             'Message to send when on': 3,
             'Message to send when off': 2,
         });
