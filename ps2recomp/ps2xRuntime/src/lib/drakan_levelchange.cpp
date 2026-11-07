@@ -445,8 +445,14 @@ void arrivalEntry(uint8_t* rdram, R5900Context* c, PS2Runtime* rt) {
 // Rynn on foot takes an exit while her dragon is parked far away (Surdana's end-of-level stage): the transition would
 // carry him that far from her into the next level (drakan_dragon_arrival.h). Put him beside her before it reads him.
 // Rynn's dragon: her data (*(*(handle + 0xfc) + 0x10)) + 0x4d8 holds his registry reference (0x3d2658).
+// Only for the disc game's own levels: a level of a campaign pack or an editor level may park the dragon far away on
+// purpose, so those keep the author's placement (the 100000 unit stray rule in drakan_dragon_arrival.h is a heuristic
+// for the base game's Surdana stage). The target is not collision checked (no cheap query exists at this point); the
+// dragon is put 3000 units above Rynn so he drops onto open ground rather than being embedded beside a wall.
 void bringDragon(const Ram& r, uint32_t eng) {
     if (!Ram::ok(eng, 0x4b8) || std::getenv("DRAKAN_LEVELCHANGE_KEEP_DRAGON"))
+        return;
+    if (drakan_game::isCampaignPackLevel(g_currentLevel))
         return;
     const uint32_t pl = r.u32(eng + 0x4b0);
     if (!Ram::ok(pl, 0x100) || classOf(r, eng, pl) != 0x10009u)
