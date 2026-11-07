@@ -113,6 +113,16 @@ const CLASSES: Record<string, StubClass> = {
             { name: 'Trigger To Send', type: 7, def: 1 },
         ],
     },
+    '0x2000d1': {
+        rfl: 0x1d,
+        name: 'Pressure Plate',
+        fields: [
+            { name: 'Sink Distance (wu)', type: 2, def: 100 },
+            { name: 'Send Message When', type: 7, def: 0 },
+            { name: 'Message To Send At Top', type: 7, def: 1 },
+            { name: 'Message To Send At Bottom', type: 7, def: 1 },
+        ],
+    },
     '0x2000c': { rfl: 0x68, name: 'Kill the Inquisitor', fields: [{ name: 'Type', type: 7, def: 1 }] },
 };
 
@@ -486,10 +496,34 @@ describe('templates', () => {
         expect('error' in templateById('kill-all-gate')!.build(ctxFor(d), { gate: 4 })).toBe(true);
     });
 
-    it('reports a missing class instead of building a half setup', () => {
+    it('counter messages follow the door: On for an unlocked door, Unlock for a locked one', () => {
         const d = level();
-        const r = templateById('pressure-plates')!.build(ctxFor(d), { target: 4, count: 3 });
-        expect(isError(r) && r.error).toMatch(/no pressure plate class/);
+        d.insert(obj(30, '0x20005'));
+        const sent = (door: number) => {
+            const r = templateById('kill-all-gate')!.build(ctxFor(d, [30]), { gate: door });
+            if (isError(r)) throw new Error(r.error);
+            return r.objects[0]!.fields!.find((f) => f.name === 'Message To Send')?.value ?? 1; // 1 = class default
+        };
+        expect(sent(4)).toBe(3); // the fixture door is Locked
+        d.get(4)!.fields = [field('Locked', '0x20004', 0)];
+        expect(sent(4)).toBe(1);
+        const p = templateById('pressure-plates')!.build(ctxFor(d), { target: 4, count: 2 });
+        if (isError(p)) throw new Error(p.error);
+        const counter = p.objects.find((o) => o.class === 'Countdown to Zero')!;
+        expect(counter.fields!.find((f) => f.name === 'Message To Send')?.value ?? 1).toBe(1);
+    });
+
+    it('a held plate sends On when pressed and Off when released straight to the door, no counter', () => {
+        const d = level();
+        const r = templateById('pressure-plates')!.build(ctxFor(d), { target: 4, count: 5, hold: true });
+        if (isError(r)) throw new Error(r.error);
+        expect(r.objects).toHaveLength(1);
+        const plate = r.objects[0]!;
+        expect(plate.links).toEqual([4]);
+        expect(Object.fromEntries(plate.fields!.map((f) => [f.name, f.value]))).toMatchObject({
+            'Send Message When': 2,
+            'Message To Send At Top': 0,
+        });
     });
 
     it('timed trigger: volume starts a timer that fires at the target', () => {

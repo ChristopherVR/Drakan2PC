@@ -15,7 +15,8 @@ export type IssueCode =
     | 'unreachable-cutscene'
     | 'exit-no-destination'
     | 'exit-no-arrival'
-    | 'message-ignored';
+    | 'message-ignored'
+    | 'door-locked-ignores-open';
 
 export interface ValidationIssue {
     severity: IssueSeverity;

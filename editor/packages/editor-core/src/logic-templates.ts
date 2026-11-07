@@ -3,7 +3,7 @@ import type { AssetClass } from './catalog.ts';
 import { newObjectFromClass, resourceString } from './catalog.ts';
 import type { Command } from './commands.ts';
 import { cloneObject, type LevelDocument, type LevelObject } from './document.ts';
-import { addLink, logicOf, schemaField, type LogicEnv, type LogicVec3 } from './logic.ts';
+import { addLink, logicOf, numField, schemaField, type LogicEnv, type LogicVec3 } from './logic.ts';
 import { setObjectField } from './schema.ts';
 
 /**
@@ -11,6 +11,18 @@ import { setObjectField } from './schema.ts';
  * needs (with class defaults except the fields it sets) and links them. Building is pure: it returns the objects and the
  * links to add to existing objects, and `ApplyTemplateCommand` applies it as one undo step.
  */
+
+/**
+ * The message a counter / lever should send to open `target`: a cut scene plays, a timer starts, a door gets On unless it
+ * is Locked (a locked door ignores On, so it gets Unlock and relies on Auto-Open), anything else gets Unlock.
+ */
+function openMessage(ctx: TemplateContext, target: LevelObject): string {
+    const role = logicOf(target, ctx.env)?.role;
+    if (role === 'cutscene') return 'Play Sequence';
+    if (role === 'timer') return 'On';
+    if (role === 'door') return (numField(target, ctx.env, 'Locked') ?? 0) !== 0 ? 'Unlock' : 'On';
+    return 'Unlock';
+}
 
 export type ParamKind = 'number' | 'bool' | 'choice' | 'object' | 'objects' | 'class';
 
@@ -294,8 +306,9 @@ export const TEMPLATES: LogicTemplate[] = [
                 id: 'then',
                 label: 'At zero send',
                 kind: 'choice',
-                default: 'Unlock',
+                default: 'auto',
                 options: [
+                    { value: 'auto', label: 'By gate (On for an unlocked door, Unlock for a locked one)' },
                     { value: 'Unlock', label: 'Unlock' },
                     { value: 'On', label: 'On (open)' },
                     { value: 'Play Sequence', label: 'Play Sequence' },
@@ -313,7 +326,8 @@ export const TEMPLATES: LogicTemplate[] = [
                 if (!enemies.length) throw new TemplateError('Select the creatures that have to die first.');
                 const gate = objId(v, 'gate');
                 if (gate === undefined) throw new TemplateError('Pick the gate the counter opens.');
-                need2(ctx, gate, 'Gate');
+                const thenMsg =
+                    typeof v.then === 'string' && v.then !== 'auto' ? v.then : openMessage(ctx, need2(ctx, gate, 'Gate'));
                 const cls = need(
                     pickClass(ctx.catalog, 0x07, /count/i) ?? pickClass(ctx.catalog, 0x07),
                     'counter class',
@@ -322,7 +336,7 @@ export const TEMPLATES: LogicTemplate[] = [
                     'Initial Counter Value': enemies.length,
                     'When Triggered?': 1,
                     'Decrement (-1) Message': msg("I'm Dead"),
-                    'Message To Send': msg(String(v.then ?? 'Unlock')),
+                    'Message To Send': msg(thenMsg),
                     'Destroy After Counter Hits Zero ?': 0,
                 });
                 for (const e of enemies) {
@@ -356,6 +370,12 @@ export const TEMPLATES: LogicTemplate[] = [
             { id: 'count', label: 'Plates', kind: 'number', default: 3, min: 1, max: 8, step: 1 },
             { id: 'target', label: 'Target', kind: 'object', roles: ['door', 'mechanism', 'cutscene', 'timer'] },
             { id: 'plate', label: 'Plate class', kind: 'class', rfl: 0x1d },
+            {
+                id: 'hold',
+                label: 'Door shuts again when the plate is released (one plate, no counter)',
+                kind: 'bool',
+                default: false,
+            },
             { id: 'spacing', label: 'Plate spacing (units)', kind: 'number', default: 3000, min: 1000, step: 500 },
             {
                 id: 'axis',
@@ -373,7 +393,7 @@ export const TEMPLATES: LogicTemplate[] = [
                 kind: 'choice',
                 default: 'auto',
                 options: [
-                    { value: 'auto', label: 'By target (Play Sequence for a cut scene, On for a timer, else Unlock)' },
+                    { value: 'auto', label: 'By target (Play Sequence for a cut scene, On for a timer or an unlocked door, Unlock for a locked door)' },
                     { value: 'Unlock', label: 'Unlock' },
                     { value: 'On', label: 'On (open)' },
                     { value: 'Play Sequence', label: 'Play Sequence' },
@@ -386,16 +406,9 @@ export const TEMPLATES: LogicTemplate[] = [
                 const target = objId(v, 'target');
                 if (target === undefined) throw new TemplateError('Pick the object the plates open.');
                 const targetObj = need2(ctx, target, 'Target');
-                const role = logicOf(targetObj, ctx.env)?.role;
-                const then =
-                    typeof v.then === 'string' && v.then !== 'auto'
-                        ? v.then
-                        : role === 'cutscene'
-                          ? 'Play Sequence'
-                          : role === 'timer'
-                            ? 'On'
-                            : 'Unlock';
-                const n = Math.max(1, Math.min(8, Math.round(num(v, 'count', 3))));
+                const then = typeof v.then === 'string' && v.then !== 'auto' ? v.then : openMessage(ctx, targetObj);
+                const hold = v.hold === true || v.hold === 1;
+                const n = hold ? 1 : Math.max(1, Math.min(8, Math.round(num(v, 'count', 3))));
                 const wanted =
                     typeof v.plate === 'string' ? ctx.catalog.find((c) => c.resource === v.plate) : undefined;
                 const plate = need(wanted ?? pickClass(ctx.catalog, 0x1d), 'pressure plate class');
@@ -403,12 +416,14 @@ export const TEMPLATES: LogicTemplate[] = [
                     pickClass(ctx.catalog, 0x07, /count/i) ?? pickClass(ctx.catalog, 0x07),
                     'counter class',
                 );
-                const counter = b.make(cc, [ctx.at[0], ctx.at[1], ctx.at[2] + 3000], {
-                    'Initial Counter Value': n,
-                    'When Triggered?': 1,
-                    'Decrement (-1) Message': msg('On'),
-                    'Message To Send': msg(then),
-                });
+                const counter = hold
+                    ? undefined
+                    : b.make(cc, [ctx.at[0], ctx.at[1], ctx.at[2] + 3000], {
+                          'Initial Counter Value': n,
+                          'When Triggered?': 1,
+                          'Decrement (-1) Message': msg('On'),
+                          'Message To Send': msg(then),
+                      });
                 for (let i = 0; i < n; i++) {
                     const step = num(v, 'spacing', 3000) * i;
                     const along = v.axis === 'z';
@@ -417,12 +432,17 @@ export const TEMPLATES: LogicTemplate[] = [
                         [ctx.at[0] + (along ? 0 : step), ctx.at[1], ctx.at[2] + (along ? step : 0)],
                         {
                             'Sink Distance (wu)': 50, // the placed plates of Stratos use 50 (class default 100)
-                            'Send Message When': 1, // Reached Bottom (the class default 0 only sends at the top)
+                            // Reached Bottom (the class default 0 only sends at the top); a held plate sends at both ends
+                            'Send Message When': hold ? 2 : 1,
                             'Message To Send At Bottom': msg('On'),
-                            'Message To Send At Top': msg('<none>'),
+                            'Message To Send At Top': msg(hold ? 'Off' : '<none>'),
                         },
                     );
-                    b.link(p.id, counter.id);
+                    b.link(p.id, counter ? counter.id : target);
+                }
+                if (!counter) {
+                    b.notes.push(`The plate sends On when pressed and Off when released straight to #${target}`);
+                    return b.done();
                 }
                 b.link(counter.id, target);
                 b.notes.push(`${n} plate(s) feed counter #${counter.id}, which sends ${then} to #${target}`);
