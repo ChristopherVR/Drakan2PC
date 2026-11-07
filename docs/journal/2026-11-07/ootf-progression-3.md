@@ -201,9 +201,9 @@ read the PS2 Death Mage's own damage handler, so it is not shown. How he is mean
 on the altar (his Defense 100 % blocks melee attacks half the time), his death message 8 reaches counter 455 and scene 436 plays.
 The converted game ends without him: the heads' counter alone starts the ending.
 
-**Credits text**: the Surreal and Sony credits are two plain ASCII text entries, `0x401` id 8807 (1,575 bytes, "=Heading
-Name
-
+**Credits text**: the Surreal and Sony credits are two plain ASCII text entries, `0x401` id 8807 (1,575 bytes, "=Heading
+Name
+
 "
 blocks) and id 8808 (2,148 bytes), in each language's `DRAKAN2.RRC` (ISO sector 3,958 of the English tree). `OUT.LVL` (8 KB) holds only
 the Wartok farm scene and does not name them: the engine reads the two ids directly. A pack can replace them with
@@ -295,6 +295,18 @@ the "Dragon Clutch" detector 1089 and an "arokh awakening" scene 1625). Placed b
 by dragon and the chain from Wartok on were not run in this pass. The `727aaa8e` rule (bring a parked dragon along when Rynn
 leaves on foot) is not involved here: the village exit needs the mounted dragon. No per-level table beyond the earlier numbers
 (Intro load 30.4 s, village load 74.4 s, host working set about 1.0 to 1.2 GB flat).
+
+## 11. Delon on foot: no weapon source yet (partial)
+
+Tried to get a weapon into Rynn's hand in Rift World (private runner without the slot lock, own exe copy): both the direct
+start and the natural-arrival card (`cards/rw-arrive`, F8) start her **mounted on Arokh with an empty inventory** (Tab: no item,
+no weapon; the native pad cheat only adds the Spells tab). Holding C dismounts her, `place 342044 100804 184976` then puts her on
+the altar ring beside Delon, who walks around her (his hit points 650 / 650 throughout the watch, `d+0x24c` / `d+0x250` in the
+`DRAKAN_PLAYTEST_WATCH` data window, `data=600`). 60 attack taps with no weapon and no spell did nothing, as before. A sword is
+therefore not obtainable by cheat or card in this level; the key-lock proof (door-proof.md, fifth round) shows that item pickup
+by E works in the open, so the next step is a pack that places a weapon item class on the altar ring (needs a weapon item class
+present in the Rift World object database, or a spell cast through the inventory flow from `combat_encounter_magic_cast.txt`).
+Delon's Defense 100 % and damage while shielding were not measured. Not done: melee kill, counter 455 by a blow.
 
 ## Comment-ready summary for issue #5 (not posted)
 
