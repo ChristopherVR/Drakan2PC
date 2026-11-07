@@ -135,6 +135,7 @@ export const GUIDES: Guide[] = [
             'Open Validation and fix every error before you export.',
         ],
         notes: [
+            'Wiring by dragging was checked end to end: place a door and a lever, select both, open Logic (Ctrl+Shift+K), drag from the lever\'s round pin to the door card and pick Opens. The link is stored on the lever and exported with the level. A class placed from the Place panel with no copy in the level is written with a default body (the export says so); copy an existing lever or door of the level when the exact behaviour matters.',
             'A link means: when this object triggers, it sends its message to that one. Arrows in the viewport show them.',
             'Trigger volumes are boxes or spheres; drag their face handles to resize them.',
             'Unlock only unlocks a door: it still has to be opened by Auto-Open or an On message.',
@@ -300,6 +301,7 @@ export const GUIDES: Guide[] = [
             '"Download mod (.zip)" (or "Save to mods folder...") writes the pack the game loads. Put it in the game\'s mods folder, turn it on in the Mods menu, restart and choose Drakan: Order of the Flame.',
         ],
         notes: [
+            'Conversion always reads your disc as it is, never the converted levels laid over it, so converting twice (or again after an update) gives the same classes and names.',
             'Converted levels are kept in this browser or app profile and come back with the disc. File > Remove converted Order of the Flame levels forgets them. Nothing from your install is uploaded.',
             'Play (F5, desktop app) on a converted level writes the converted levels as a temporary pack, editor-play-ootf.zip, in the game\'s mods folder and turns it on. Your own Order of the Flame packs (names starting with ootf) are switched off while the game runs, because they share files and class ids with it. When the game closes the editor puts mods.ini back and deletes the temporary pack; if the editor was closed first, it does so the next time it starts. In a browser, Play shows a dialog that points to the desktop app.',
             'Objects whose class does not exist on the disc are left out; the "conversion notes" under the result list what was changed or skipped.',

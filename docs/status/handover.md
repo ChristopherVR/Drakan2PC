@@ -18,6 +18,8 @@ thread, converted levels are not persisted, Story shows disc text only, Play not
 
 **Round 4 (2026-11-07):** first-user workflow, error states, keyboard and ARIA, viewport, autosave and prompts are in [editor round 4](../journal/2026-11-07/editor-round4.md). Open: converted OotF levels converted with the Surdana template show most classes as unnamed markers in the editor (253 of 297 on Islands; the game runs them), landscape painting and level-exit chaining were not exercised end to end, and the desktop project open/close/switch flows were not tested.
 
+**Round 5 (2026-11-07):** the unresolved-class finding of round 4 is fixed (the importer read through its own overlay; see [editor round 5](../journal/2026-11-07/editor-round5.md)), lever-to-door wiring by dragging is verified to the exported level, and the desktop project flows are checked. Open: shop and quest forms to the end, trigger to enemy, a new exit chained to a second level, landscape strokes, pulling the lever in the game, and a desktop close hook so an edit younger than the autosave delay survives closing the window.
+
 Living tracker for the editor / mod / multiplayer / engine-portability track. Last updated at commit c03a3b0
 (editor) and c270bb9 (game and runtime). Details live in the dated notes under `docs/journal/2026-11-01/` and
 `docs/journal/2026-10-31/`; this page says what works, what is unproven, and what to do next.
