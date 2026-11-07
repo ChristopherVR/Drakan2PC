@@ -75,7 +75,7 @@ const door = place(
     opt.doorYaw ?? 0,
 );
 console.log('door', door);
-if (kind === 'plate') tpl('pressure-plates', { target: door, count: 1, then: opt.then ?? 'On', axis: 'z' }, at(0, 1800, -100));
+if (kind === 'plate') tpl('pressure-plates', { target: door, count: 1, then: opt.then ?? 'On', axis: 'z', hold: !!opt.hold }, at(0, 1800, -100));
 else if (kind === 'counter') tpl('pressure-plates', { target: door, count: 2, then: opt.then ?? 'On', axis: 'z', spacing: 1600 }, at(0, 1800, -100));
 else if (kind === 'lever') tpl('lever-door', { door, mode: opt.leverMode ?? 'open' }, at(0, 700, 100));
 else if (kind === 'timer') tpl('timer-door', { target: door, delay: 2, then: 'On', w: 3, h: 2, d: 1 }, at(0, 700, 1000));

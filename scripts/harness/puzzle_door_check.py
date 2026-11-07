@@ -43,6 +43,13 @@ RECIPES = {
     "walk": PRE + "6500 key down W\n12500 key up W\n22000 quit\n",
     "counter": PRE + "6500 place 651612 147580 962880 3.14159\n13000 place 651612 147580 964480 3.14159\n20000 quit\n",
     "idle": PRE + "22000 quit\n",
+    # stand against the plate (a solid block in Stratos): the held plate sends On, then Off when it rises again
+    "plate_hold": PRE.replace("961906", "962880") + "26000 quit\n",
+    # walk at the dormant copies, then tap attack (AUTOAIM turns Rynn to the nearest living skeleton)
+    "melee": PRE
+    + "6500 key down W\n8500 key up W\n"
+    + "".join(f"{9500 + i * 800} button down 1\n{9650 + i * 800} button up 1\n" for i in range(80))
+    + "75000 quit\n",
 }
 
 
@@ -92,6 +99,7 @@ class Scenario:
     check: Callable[[Run], tuple[bool, str]]
     watch: str = f"class={DOOR_CLASS},player=1,words=0,data=24,max=4"
     trace: str = ""
+    env: dict = field(default_factory=dict)
 
 
 def _closed_after_open(r: Run) -> tuple[bool, str]:
@@ -118,6 +126,21 @@ def _ambush(r: Run) -> tuple[bool, str]:
 
 
 SCENARIOS = [
+    Scenario(
+        "plate_hold",
+        "plate",
+        {"locked": 0, "autoOpen": 0, "hold": 1},
+        RECIPES["plate_hold"],
+        _closed_after_open,
+    ),
+    Scenario(
+        "killall_melee",
+        "killall",
+        {"locked": 0, "autoOpen": 0, "killMsg": 1},
+        RECIPES["melee"],
+        lambda r: (opened(r), f"two real sword kills, yaw max {max(r.door_yaw, default=0):.2f}"),
+        env={"DRAKAN_PLAYTEST_AUTOAIM": SKELETON_CLASS},
+    ),
     Scenario(
         "lever_open",
         "lever",
@@ -234,6 +257,8 @@ def run_scenario(s: Scenario, a: argparse.Namespace) -> bool:
         "--timeout",
         "400",
     ]
+    for k, v in s.env.items():
+        cmd += ["--env", f"{k}={v}"]
     if s.trace:
         cmd += ["--env", f"DRAKAN_TRACE_FN={s.trace}", "--env", "DRAKAN_TRACE_N=100000"]
     subprocess.run(cmd, check=False, stdout=subprocess.DEVNULL)
