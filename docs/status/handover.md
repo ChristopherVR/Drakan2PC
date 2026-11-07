@@ -79,6 +79,9 @@ Engine 5; textures move to UE5-style PBR sets.
 
 ## Open work
 
+**Outstanding after the 2026-11-07 sessions:** [outstanding-work.md](../journal/2026-11-07/outstanding-work.md) lists what is still open (OotF Ruined Village exit and chain, 4B Savage Gate, Valley fight, 1A Lair and portal, shop and level exit proofs in game, Save As in the desktop app, accessibility, reporter-side items) with evidence and next steps. It supersedes the older lists below where they overlap.
+
+
 ### Editor
 
 - Play test (2026-11-02, `docs/journal/2026-11-02/editor-play-direct.md`): the toolbar Play / F5 now starts the open
