@@ -134,7 +134,8 @@ struct TitleState {
     // One line on the main page naming packs mods.ini enables but the mods folder lacks (empty: none).
     std::string missingModsNote;
     // One line on the main page saying why a multiplayer session ended on us ("The host ended the match",
-    // "Connection to the server lost"; empty: none). The glue clears it after a while or once the Multiplayer page opens.
+    // "Connection to the server lost"; empty: none). The glue clears it after a while or once the Multiplayer page
+    // opens.
     std::string connectionNote;
 };
 

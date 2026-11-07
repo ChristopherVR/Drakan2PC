@@ -2277,8 +2277,8 @@ void titleDraw(const dsettings::SettingsOverlay::ScreenFrame& f, bool background
         st.modsNote = dsettings::unreadablePacksText(harnessMods(), true);
         st.missingModsNote = dsettings::missingPacksText(harnessMods(), true);
         {
-            // Why a joined session ended (host left / connection lost): shown on the main page for 12 s, dropped once the
-            // player opens the Multiplayer page (its Join screen carries the same text).
+            // Why a joined session ended (host left / connection lost): shown on the main page for 12 s, dropped once
+            // the player opens the Multiplayer page (its Join screen carries the same text).
             static double s_noticeSince = -1;
             const std::string& en = st.multiplayer.endNotice;
             if (!en.empty() && ui.screen.page() == gameui::TitlePage::Multiplayer) {
