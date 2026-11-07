@@ -1,5 +1,7 @@
 #include "ps2_perf.h"
 
+#include "drakan_polyclip.h"
+
 #include <chrono>
 #include <cstdio>
 #include <cstdlib>
@@ -168,12 +170,16 @@ void start(void* gameThreadNativeHandle, uint64_t (*vsyncTick)(void*), void* vsy
                 prevFlips = flips;
                 const uint64_t dv = vs - prevVs;
                 prevVs = vs;
+                uint64_t clipNs = 0, clipFans = 0;
+                drakan_polyclip::takeHookStats(clipNs, clipFans);
                 std::fprintf(
                     stderr,
                     "[perf %d] flips/s=%.1f flips2/s=%.1f vblank/s=%.1f gifpk/s=%.0f gifMB/s=%.1f vu1Mcyc/s=%.1f "
-                    "vu1runs/s=%.0f vu1Mpairs/s=%.1f ee_thread_cpu=%.0f%% ee_ms/flip=%.2f other_cpu=%.0f%%%s\n",
+                    "vu1runs/s=%.0f vu1Mpairs/s=%.1f ee_thread_cpu=%.0f%% ee_ms/flip=%.2f other_cpu=%.0f%% "
+                    "clip_fans/s=%.0f clip_us/s=%.1f clip_ee_pct=%.3f%s\n",
                     line++, df / dt, df2 / dt, dv / dt, gifPk, gifMb, vuMc, vuRuns, vuMp, 100.0 * gameCpu / dt,
-                    df ? 1000.0 * gameCpu / df : 0.0, 100.0 * otherCpu / dt, others.c_str());
+                    df ? 1000.0 * gameCpu / df : 0.0, 100.0 * otherCpu / dt, clipFans / dt, clipNs / dt / 1e3,
+                    gameCpu > 0 ? 100.0 * (clipNs / 1e9) / gameCpu : 0.0, others.c_str());
                 // No flips for three seconds: print where the EE thread and every busy thread are, once per second.
                 stalledSeconds = df == 0 ? stalledSeconds + 1 : 0;
                 if (stalledSeconds >= 3 && stalledSeconds <= 8) {

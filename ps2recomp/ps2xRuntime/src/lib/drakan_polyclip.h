@@ -16,5 +16,7 @@ void install(PS2Runtime& runtime);
 bool available();
 void configure(bool enabled);
 bool enabled();
+// PS2X_PERF: nanoseconds spent in the hook itself (not the original draw) and fans seen since the last call.
+void takeHookStats(uint64_t& ns, uint64_t& fans);
 
 } // namespace drakan_polyclip

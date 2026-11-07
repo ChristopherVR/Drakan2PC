@@ -185,3 +185,20 @@ apply). Runs: random-walk recipe (attacks, E, turns, 12 legs) in 1A, 3A, 4A (Aro
   `outsideWindow`/`straddlesCamera` scan. `PS2X_PERF=1` frame times (`ee_ms/flip`) on and off were swamped by noise:
   three other game instances ran on the machine and the three runs shared it, so the means (5.3 ms off, 8.9 ms on,
   2.6 ms on with the log) are contaminated and say nothing about the clip; no measurable cost.
+
+## Spell casts and hook cost, 2026-11-07 (follow-up)
+
+* Rynn spell setup that works in a new game, no save: the native pad cheat (L1 R2 L2 R1 Up Down Left Right Right Left
+  Down Up) unlocks the spells; Tab, Enter (info popup), E, E (Spells tab), Enter (info popup), Enter (Summon Feuerball),
+  Esc. The fireball then sits in her hand. A tap of attack only swings the flourish; RMB held plus the gesture W A S D W
+  and an attack tap gives the ready sparks and the fireball animating around her. Recipes and montages are in
+  `build/pcset` (not committed); `exp2.txt` is the cast sequence.
+* Clip on against off, same recipe: Level 1A (Rynn spell prep, ready, cast sparks) and Level 3A (Arokh fire ring, rain
+  sparks, 15,000 fans/s) look the same in both; no effect vanishes or pops with the clip on. Dust (1A random walk) and
+  the Level 8 enemy glare were covered in the earlier section. A projectile flying off and an enemy casting at Rynn were
+  not captured; `Rynn spell` shots show the cast, not the hit.
+* Cost, deterministic: `PS2X_PERF=1` now prints `clip_fans/s`, `clip_us/s` and `clip_ee_pct` (time inside the hook with
+  the original draw excluded and the steady_clock cost subtracted). Per fan 74 ns (3A), 98 ns (1A cast), 162 ns (1A
+  random cast); the busiest scene, the 3A Arokh fire at up to 71,700 fans/s, costs 0.22 % of the EE thread on average and
+  0.78 % in its worst second; 1A casts 0.05 to 0.06 % mean. Below the 0.5 % mean threshold, so the fast path (copy of at
+  most 256 bytes plus one scan) was not changed.
