@@ -136,18 +136,64 @@ lay 12,600 away and the range left her unaimed). The converter side of the hamme
 
 ### Not covered
 
-Delon himself (class 0x1003b like the heads, 650 hit points, found in a direct start at 342,518 103,683 186,366 next to Arokh)
-was not in the object list after the quick load and was not fought; the Ebon Dragons were fought at 15 hit points only (150 not
+Delon himself (see section 7) was not killed; the Ebon Dragons were fought at 15 hit points only (150 not
 retried with AUTOAIM). The corridor ramp's waypoints reach the hall most but not all runs (the autopilot's timing).
+
+## 7. Delon, the Ebon Dragons at 150, flyability, the outro and one continuous session
+
+**Delon survives a quick load (no bug).** I had searched for him in the wrong class: Delon (PC object 161) is engine class
+`0x10052` (the Death Mage / NPC class, 650 hit points), not `0x1003b` like the four heads (`findcls.py 10052`: slot 25 in a
+direct start, slot 24 after F8, hp 650 in `ram_saved`, `hf2`, `hf4`; the six "Death Mage ghost" clones are the same class with 75).
+F8 inside the arena keeps him. He hovers at Arokh's height (y 104,800 to 107,100) within 1,000 to 2,500 units of him, casts a
+blue haze over the screen and the breath orb turns white; **breath did not damage him** in three runs even with the new pitched aim
+(`dl1` to `dl3`: 650 -> 650), so his fight was not won (an open question: invulnerable until a message, vulnerable to Rynn's
+sword only, or the spell disables the breath). The ending does not need him: the heads' DeathCounter (162) alone starts it.
+
+**Ebon Dragons at the real 150 hit points** (`eb1`, pack `packaid`, natural arrival save): `DRAKAN_PLAYTEST_AUTOAIM=1001e` with the
+new `DRAKAN_PLAYTEST_AUTOAIM_PITCH=1` (aims up or down as well) and a `place` 3,250 units from each dragon 900 above it: all four
+died in 16 rounds of 14 breath taps (16 attempts, 4 dead) and the gate counter 558 reads 0. So kills work without lowering the
+hit points. (`OOTF_TEST_EBONHP` is no longer needed for that.)
+
+**Human flyability (`hum1`)**: a plain scripted flight, no height hold and no steering, W held from 286,000 north of the
+ramp, placed at six heights over the tunnel mouth. At 94,000 / 94,800 / 95,500 / 96,500 / 97,500 Arokh flies the ramp and enters
+the hall (end z 276,100 to 277,600), the state word `+0x9c` stays 0 (never landed); at 98,500 he is stopped by the ramp's ceiling at
+z 283,851. So the entrance window is about 3,500 units tall (94,000 to 97,500 at z 286,000; the arrival height is 100,119, so a
+player dives about 3,000 units), against the landing snap 1,400 over the floor. The tightest point on the route is the ramp
+at x 334,000, z 279,000 (floor 92,500, ceiling 97,262: 4,800 units, 3,400 over the snap); the 2,200-unit sill at z 278,000 is not
+on it. Nothing in the converter or the runtime needs to change; the safe corridor is: from the arrival dive to about 95,500, fly
+north along x 333,000 to 335,000 (left tunnel), then bear east in the hall (ceiling 100,700) and climb to 99,000 for the shaft.
+I could not compare with the PC engine's own landing rule (no PC executable run); the PC level data are identical, and the
+route is flyable here with margin, so no fix is scoped.
+
+**Outro**: the PC Order of the Flame install holds no credits content that the pack could carry (no movie, no credits asset, no
+credits strings in `Drakan.exe`, `Dragon.rrc` or the resource files: searched). The PS2 outro (`OUT.LVL`, the Wartok farm and
+Surreal's German credits scroll) plays as in Drakan 2. Replacing it would need a rewritten `OUT.LVL` text list (the
+format of its scroll text was not examined); not done, documented as a known gap.
+
+**One continuous session (`chain2`, Volcanic start, god mode, one process, 14 minutes)**: Volcanic (key, cage, Runeblade handle
+moved next to Arokh by the test aid, mount, rift box, exit, save screen) -> Rift World (arrival mounted, fire breath) -> autopilot
+route (waypoints, `place` into the hall) -> the four heads killed at 250 hit points (30 rounds) -> mirror-room scene -> outro
+credits. Level loads: Volcanic at t = 15 s, Rift World at 188.6 s (about 170 s in Volcanic including the cage scene, the
+walk and the exit); the heads fight and the route took about 7 minutes of game time and the credits are still scrolling at the
+end of the recipe (they run about 4.5 minutes). Frame rates on the overlay: Volcanic 31 to 46 fps, Rift World 55 to 90 fps,
+credits 400+ fps (a static scene). Memory of the host process (sampled every 30 s): working set 1,165 MB at 3 min, 1,211 MB at
+6 min, 1,158 / 1,150 / 1,113 MB later, private bytes 1,497 to 1,651 MB then 1,549 MB: no growth over the session. No crash, no
+watchdog stall, no guest allocator spin (the one `ray-water` watchdog line of an earlier run was GPU contention from other
+sessions). A first attempt (`chain1`) with the autopilot active from boot steered Rynn in Volcanic; `WP_ACTIVATE` fixes that
+(committed). The earlier levels were not chained in one process in this pass: their walk-in pairs were checked in separate runs
+(Wartok to Grimstone, Grimstone to Grotto, Grotto to Islands, Islands to Alwarren, Rift Crystal to Islands Night, Islands Night to
+Succubus Lair, Succubus Lair to Volcanic).
 
 ## Comment-ready summary for issue #5 (not posted)
 
-Pass 3. Rift World is the last level, and the chain now reaches the end of the game: a natural arrival from Volcanic (fire
-breath carried), the left tunnel and the hall, the central shaft over the spine props, the altar, the four Dr. Evil heads
-killed with real breath hits at their real 250 hit points, the mirror-room ending scene, the outro credits (about 4.5 minutes,
-the stock Drakan 2 list in German) and the return to the title. The "RibDoor" tunnel was not the way (the doors guard side
-vaults and the PC terrain seals them too), and Arokh's stall in the tunnel came from flying too low (the engine lands him within
-about 1,400 units of the floor), not from the converter. Alwarren's war giant now dies to the sword at 150 hit points (about 10
-hits) with a test aid that keeps Rynn facing him. New test-only aids (env-flags.md): `DRAKAN_PLAYTEST_AUTOAIM`, `_ALT`,
-`_WAYPOINTS`, `_WP_HOLD`, and `OOTF_TEST_EBONHP` in the converter. Still open: Delon's own fight, Ebon Dragons at 150 hit points
-with the aim aid, the Order of the Flame credits list, and an unaided human run of the Rift World flight.
+Pass 3 final status. Rift World is the last level and the converted campaign now reaches the credits from it: natural Volcanic
+arrival (fire breath carried), the left tunnel, the hall and the shaft over the spine props, the altar, the four Dr. Evil heads
+killed with real breath hits at their real 250 hit points, the mirror-room ending scene, the outro credits (about 4.5 minutes, the
+stock Drakan 2 list in German) and the return to the title. One 14 minute process covered Volcanic, the exit and Rift World to the
+credits with no crash, hang or memory growth (host working set about 1.1 to 1.2 GB, flat). The Ebon Dragons (150 hit points) and
+Alwarren's war giant (150) die to real breath and sword hits with test-only aim aids; the tunnel is flyable by hand (an entrance
+window about 3,500 units tall, landing snap 1,400 over the floor); the RibDoors are side vaults, not the route. Open: Delon's own
+fight (he is untouched by breath), an Order of the Flame credits list (the PC install has none to port), a chained run of all 13
+levels in one process (pairs were walked separately), and an unaided human run of the Rift World flight. New test-only aids
+(`env-flags.md`): `DRAKAN_PLAYTEST_AUTOAIM` (+ `_RANGE`, `_PITCH`), `_ALT`, `_WAYPOINTS` (+ `_CLIMB`, `_WP_RADIUS`, `_WP_HOLD`,
+`_WP_ACTIVATE`).

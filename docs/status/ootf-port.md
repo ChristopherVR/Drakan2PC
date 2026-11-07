@@ -148,8 +148,9 @@ aids `DRAKAN_PLAYTEST_AUTOAIM` / `_ALT` / `_WAYPOINTS` / `_WP_HOLD`, `env-flags.
 (Drakan 2's German list, about 4.5 minutes) played and the game returned to the title. The RibDoors guard side vaults (not the
 route; PC terrain seals them too) and Arokh's stall came from flying under about 1,400 units over the floor, not from the converter.
 The Ebon Dragons die to breath (gate counter 4 -> 0, test aid `OOTF_TEST_EBONHP`, formats `4d21976`); Alwarren's war giant now dies
-to the sword at 150 hit points with the aim aid. Open: Delon's own fight, Ebon Dragons at 150 with the aim aid, an Order of the Flame
-credits list, an unaided human flight of the tunnel. See [progression 3](../journal/2026-11-07/ootf-progression-3.md).
+to the sword at 150 hit points with the aim aid. Ebon Dragons also die at 150 with the aim aid; the tunnel is flyable by hand (entrance window about 3,500 units); one
+14 minute process (Volcanic exit, Rift World, heads, credits) ran with no crash or memory growth. Open: Delon's own fight (he
+resists breath), an Order of the Flame credits list (none in the PC install), a chained run of all levels in one process. See [progression 3](../journal/2026-11-07/ootf-progression-3.md).
 
 ## What works
 
