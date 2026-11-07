@@ -130,7 +130,12 @@ export function installLogic(ctx: Ctx, loadExits: (only?: string) => Promise<Exi
 .logic-panel .lg-wrap{flex:1;min-width:0;position:relative;background:var(--surface-0);overflow:hidden}
 .logic-panel .lg-wrap.drop-target{outline:2px dashed var(--accent);outline-offset:-3px}
 .logic-panel .lg-canvas{display:block;user-select:none;outline:none;cursor:grab}
-.logic-panel .lg-side{width:320px;overflow:auto;border-left:1px solid var(--border);padding:10px;font-size:12px}
+.logic-panel{container-type:inline-size}
+.logic-panel .lg-side{width:320px;flex:none;overflow:auto;border-left:1px solid var(--border);padding:10px;font-size:12px}
+/* A narrow dock keeps the graph first: the side column gets slimmer, and the empty-graph help (the empty state in the
+   canvas already says the same) folds away until something is selected. */
+@container (max-width: 820px){.logic-panel .lg-side{width:clamp(200px,30cqw,260px)}}
+@container (max-width: 640px){.logic-panel .lg-side:has(.lg-howto){display:none}.logic-panel .lg-side{width:clamp(180px,38cqw,240px)}}
 .logic-panel .lg-form{padding:8px;border-bottom:1px solid var(--border);display:flex;flex-wrap:wrap;gap:8px;align-items:end}
 .logic-panel .lg-form label{display:flex;flex-direction:column;gap:2px;font-size:11px}
 .logic-panel .lg-form .lg-note{flex-basis:100%;font-size:11px;opacity:.75}

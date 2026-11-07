@@ -68,6 +68,8 @@ pub fn run() {
             commands::file_save_as,
             commands::mods_read_ini,
             commands::mods_write_pack,
+            commands::mods_zip_size,
+            commands::mods_write_zip,
             commands::game_launch,
             commands::game_running,
             commands::project_new,

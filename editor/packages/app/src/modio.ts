@@ -185,6 +185,37 @@ async function writePackDesktop(pack: Pick<LevelPack, 'meta' | 'files'>): Promis
     return platform.writeModPack(pack.meta.id, pack.files, ini);
 }
 
+/** Id of the converted Order of the Flame pack (its `mod.toml`), as the importer names it. */
+export const OOTF_PACK_ID = 'ootf-levels';
+
+type ConvertedPackProvider = (level: string) => Promise<{ zip: Uint8Array; language: string } | null>;
+let convertedProvider: ConvertedPackProvider | null = null;
+/** The UI registers how to get the converted pack when `level` is a converted Order of the Flame level (else null). */
+export function setConvertedPackProvider(p: ConvertedPackProvider | null): void {
+    convertedProvider = p;
+}
+
+/**
+ * A converted level exists only in the editor: the game can open it once its pack is in the mods folder. Writes the pack
+ * as `<mods>/ootf-levels.zip` (enabled) unless a zip of the same size is already there. Returns whether it was written.
+ */
+async function installConvertedPack(level: string | null): Promise<{ written: boolean; language: string } | null> {
+    if (!level || !convertedProvider) return null;
+    const found = await convertedProvider(level);
+    if (!found) return null;
+    const { zip, language } = found;
+    if (!knownModsFolder(await platform.getSettings()) && !(await ensureGameFolder())) return null;
+    if ((await platform.modsZipSize(OOTF_PACK_ID)) === zip.length) return { written: false, language };
+    await platform.writeModZip(OOTF_PACK_ID, zip, updateModsIni(await platform.readModsIni(), OOTF_PACK_ID, true));
+    return { written: true, language };
+}
+
+let desktopOnly: () => void = () => {};
+/** The browser build shows a "Play needs the desktop app" notice instead of an error (registered by the UI). */
+export function setDesktopOnlyNotice(fn: () => void): void {
+    desktopOnly = fn;
+}
+
 /**
  * Desktop "Play": write the pack (when there are edits) into the mods folder, enabled, then start the game from the
  * play folder with the options' environment. Returns a one-line summary, or null when cancelled.
@@ -195,13 +226,20 @@ export async function playInGame(
     level: string | null,
     extraEnv: Record<string, string> = {},
 ): Promise<string | null> {
-    if (!platform.isDesktop) throw new ModError('Play needs the desktop app.');
+    if (!platform.isDesktop) {
+        desktopOnly();
+        return null;
+    }
     const env = { ...launchEnv(opts, level), ...extraEnv }; // validate before touching the disk
     if (!(await ensureGameFolder())) return null;
     if (await platform.gameRunning()) throw new ModError('The game is already running. Close it first.');
+    const converted = await installConvertedPack(level);
+    // The converted pack holds the language tree of the disc it was converted against; the game must read that tree.
+    if (converted?.language) env.DRAKAN_LANG = converted.language.toLowerCase();
     const where = pack ? await writePackDesktop(pack) : null;
     await platform.launchGame(env);
     const parts = [where ? `mod '${pack!.meta.id}' installed` : 'no edits'];
+    if (converted?.written) parts.push('Order of the Flame levels installed');
     if (env.DRAKAN_START_LEVEL)
         parts.push(`starting in ${env.DRAKAN_START_LEVEL}${env.DRAKAN_START_LEVEL_FROM ? ' (no intro)' : ''}`);
     if (env.DRAKAN_NET_HOST) parts.push(`hosting on port ${env.DRAKAN_NET_HOST}`);

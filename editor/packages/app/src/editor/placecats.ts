@@ -91,6 +91,9 @@ const VENDOR = /shop|vendor|merchant|trader|store/i;
 const EFFECT_NAME =
     /!!|\bgen\b|generator|missile|\bblur\b|\bflash\b|\bbeams?\b|\bcloud\b|\bsparks?\b|explosion|dmgfx|\bfx\b|\btrail|\bmorph\b|polysuck|\bgib\b/i;
 
+const EXIT_NAME = /transition|portal|teleport|exit|gate|warp/i;
+const PARTICLE_NAME = /particle|spawner|dust|\bfx\b|blood|skin/i;
+
 /** Where a class is listed in the Place panel. */
 export function placeCategory(c: Pick<AssetClass, 'name' | 'kind' | 'rflClass'>): PlaceCat {
     const cat = classCategory(c);
@@ -99,6 +102,10 @@ export function placeCategory(c: Pick<AssetClass, 'name' | 'kind' | 'rflClass'>)
     if (cat === 'quest')
         return CONVERSATION.test(c.name) ? 'conversations' : VENDOR.test(c.name) ? 'vendors' : 'quests';
     if (cat === 'other' && EFFECT_NAME.test(c.name)) return 'effects';
+    // RFL class 0x48 is a bare marker: converted levels bring "Particle Spawner_null" and "null marker" under it, which
+    // are not ways out of a level.
+    if (cat === 'exit' && c.rflClass === 0x48 && !EXIT_NAME.test(c.name))
+        return PARTICLE_NAME.test(c.name) ? 'effects' : 'other';
     return FROM_CATEGORY[cat];
 }
 

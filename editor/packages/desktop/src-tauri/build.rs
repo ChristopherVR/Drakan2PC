@@ -14,6 +14,8 @@ fn main() {
         "file_save_as",
         "mods_read_ini",
         "mods_write_pack",
+        "mods_zip_size",
+        "mods_write_zip",
         "game_launch",
         "game_running",
         "project_new",

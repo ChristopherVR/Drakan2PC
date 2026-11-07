@@ -291,6 +291,10 @@ function openDialog(host: OotfHost): void {
         'Choose install folder...',
     );
     const tplSel = h('select', {}, ...ps2.map((l) => h('option', { value: l.dirPath }, l.name)));
+    // Surdana (LEVEL1NA) is the template the converter was proven on in the game; the intro level, which comes first in the
+    // list, loads but never runs a converted level.
+    const preferred = ps2.find((l) => /(^|[\\/])LEVEL1NA$/i.test(l.dirPath));
+    if (preferred) tplSel.value = preferred.dirPath;
     const prefix = h('input', { type: 'text', value: 'OotF - ', spellcheck: 'false' });
     const list = h('div', { class: 'od-list' });
     const out = h('div', {});

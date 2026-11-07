@@ -443,6 +443,35 @@ pub fn mods_write_pack(state: State<'_, AppState>, id: String, files: Vec<PackFi
     Ok(pack.to_string_lossy().to_string())
 }
 
+/// Size in bytes of `<mods>/<id>.zip`, or null when it is not there (the editor skips a rewrite of the same pack).
+#[tauri::command]
+pub fn mods_zip_size(state: State<'_, AppState>, id: String) -> Res<Option<f64>> {
+    if !valid_mod_id(&id) {
+        return Err(format!("'{id}' is not a valid mod id (letters, digits, . _ - only)."));
+    }
+    let file = mods_folder(&state)?.join(format!("{id}.zip"));
+    Ok(std::fs::metadata(file).ok().map(|m| m.len() as f64))
+}
+
+/// Write a finished pack zip as `<mods>/<id>.zip` (raw body) and replace `mods.ini` with the text of header `x-ini`
+/// (base64). Used for the converted Order of the Flame pack, which is thousands of files: one zip, one transfer.
+#[tauri::command]
+pub fn mods_write_zip(state: State<'_, AppState>, request: Request<'_>) -> Res<String> {
+    let id = header_text(&request, "x-id")?;
+    if !valid_mod_id(&id) {
+        return Err(format!("'{id}' is not a valid mod id (letters, digits, . _ - only)."));
+    }
+    let ini = header_text(&request, "x-ini")?;
+    let mods = mods_folder(&state)?;
+    std::fs::create_dir_all(&mods).map_err(err)?;
+    let target = mods.join(format!("{id}.zip"));
+    let tmp = mods.join(format!("{id}.zip.part"));
+    std::fs::write(&tmp, raw_body(&request)?).map_err(|e| format!("{}: {e}", tmp.display()))?;
+    std::fs::rename(&tmp, &target).map_err(|e| format!("{}: {e}", target.display()))?;
+    std::fs::write(mods.join("mods.ini"), ini).map_err(err)?;
+    Ok(target.to_string_lossy().to_string())
+}
+
 // ---- projects ----------------------------------------------------------------------------------------------------------
 
 /// The file that makes a folder a project.

@@ -22,7 +22,7 @@ import './loadprogress.css';
  */
 export interface LoadProgress {
     /** Start showing the load of `name`. `covering`: no level is open, so the card hides the empty viewport. */
-    begin(name: string, o: { covering: boolean; onCancel(): void; onStop(): void }): void;
+    begin(name: string, o: { covering: boolean; converted?: boolean; onCancel(): void; onStop(): void }): void;
     step(id: LoadStepId, state: LoadStepState): void;
     set(patch: Partial<Pick<LoadState, 'objects' | 'layers' | 'models' | 'error'>>): void;
     /** Everything is in: say so briefly, then go. */
@@ -195,7 +195,8 @@ export function createLoadProgress(host: HTMLElement): LoadProgress {
             actions = o;
             const [t, st] = splitTitle(name);
             title = t;
-            sub.textContent = st ? `${st}, from your disc` : 'From your disc';
+            const origin = o.converted ? 'converted from Order of the Flame' : 'from your disc';
+            sub.textContent = st ? `${st}, ${origin}` : origin.charAt(0).toUpperCase() + origin.slice(1);
             el.classList.toggle('covering', o.covering);
             since = performance.now();
             el.hidden = false;

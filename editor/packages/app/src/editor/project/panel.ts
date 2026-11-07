@@ -760,6 +760,7 @@ export function createProjectPanel(host: ProjectPanelHost): ProjectPanel {
     }
 
     function levelRows(p: ModProject, l: ProjectLevel, i: number): HTMLElement[] {
+        const converted = !l.copyOf && host.levels().some((x) => x.virtual && x.name === l.title);
         const edits = counts.get(l.title) ?? 0;
         const isStart = p.start === l.title;
         // Like the map: with no start picked, the first level is shown as the start.
@@ -817,9 +818,13 @@ export function createProjectPanel(host: ProjectPanelHost): ProjectPanel {
                 'div',
                 {
                     class: 'pjx-c pjx-c-type',
-                    title: l.copyOf ? `A new level that starts as ${l.copyOf}` : 'A level of the disc',
+                    title: l.copyOf
+                        ? `A new level that starts as ${l.copyOf}`
+                        : converted
+                          ? 'A level converted from Drakan: Order of the Flame'
+                          : 'A level of the disc',
                 },
-                l.copyOf ? 'Copy' : 'Disc',
+                l.copyOf ? 'Copy' : converted ? 'Converted' : 'Disc',
             ),
             h(
                 'div',

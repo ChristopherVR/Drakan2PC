@@ -77,6 +77,7 @@ pub fn allowed_env(key: &str) -> bool {
         "DRAKAN_START_LEVEL"
             | "DRAKAN_START_LEVEL_FROM"
             | "DRAKAN_GAME"
+            | "DRAKAN_LANG"
             | "DRAKAN_SKIP_MEMCARD_WARNING"
             | "DRAKAN_AUTOPRESS"
             | "DRAKAN_AUTOPRESS_UNTIL"
@@ -206,6 +207,7 @@ mod tests {
     fn env_allow_list() {
         assert!(allowed_env("DRAKAN_START_LEVEL"));
         assert!(allowed_env("DRAKAN_NET_GAME_MODE"));
+        assert!(allowed_env("DRAKAN_LANG"));
         assert!(!allowed_env("PATH"));
         assert!(!allowed_env("DRAKAN_MODS"));
         assert!(!allowed_env("DRAKAN_MEMCARD_DIR"));

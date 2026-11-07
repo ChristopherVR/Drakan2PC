@@ -19,6 +19,8 @@
         "allow-file-save-as",
         "allow-mods-read-ini",
         "allow-mods-write-pack",
+        "allow-mods-zip-size",
+        "allow-mods-write-zip",
         "allow-game-launch",
         "allow-game-running",
         "allow-project-new",

@@ -18,7 +18,7 @@ import {
     resolveDependencyStem,
     sliceSource,
 } from '@drakan/formats';
-import { destinationLevelName, srscRoundTrips } from '@drakan/editor-core';
+import { destinationLevelName, srscRoundTrips, zipModFiles } from '@drakan/editor-core';
 import { clearConverted, loadConverted, saveConverted } from './virtualstore.ts';
 import { overlayDisc, packPathToDisc, patchedContainers, type VirtualFile } from './virtualdisc.ts';
 import { loadModelData, loadTerrainData } from './scene/decode.ts';
@@ -81,6 +81,8 @@ let iso: Iso9660 | null = null;
 let baseIso: Iso9660 | null = null;
 const virtualFiles = new Map<string, VirtualFile>();
 const virtualLevels = new Map<string, LevelInfo>();
+/** The converted pack as it came in (pack paths), for installing it into a game's mods folder. */
+const convertedPack = new Map<string, Uint8Array>();
 /** Quest classes the converted pack adds to SYSTEM.ODB. */
 const convertedQuestIds = new Set<number>();
 let language = '';
@@ -242,6 +244,7 @@ async function applyVirtual(
     const packFiles: Record<string, Uint8Array> = {};
     for (const f of files) {
         packFiles[f.path] = f.bytes;
+        convertedPack.set(f.path, f.bytes);
         const path = packPathToDisc(f.path);
         if (path) virtualFiles.set(path.toUpperCase(), { path, bytes: f.bytes });
     }
@@ -267,6 +270,7 @@ const api: { [K in keyof Api]: (...a: Parameters<Api[K]>) => Promise<ReturnType<
         iso = baseIso;
         virtualFiles.clear();
         virtualLevels.clear();
+        convertedPack.clear();
         convertedQuestIds.clear();
         srscCache.clear();
         const languages: string[] = [];
@@ -380,8 +384,14 @@ const api: { [K in keyof Api]: (...a: Parameters<Api[K]>) => Promise<ReturnType<
         await saveConverted({ levels, files }).catch(() => undefined);
         return loadLevels();
     },
+    async convertedPackZip(): Promise<Uint8Array | null> {
+        if (!convertedPack.size) return null;
+        // Stored, not compressed: the pack is hundreds of megabytes and the game reads it as it is.
+        return zipModFiles(Object.fromEntries(convertedPack), 0);
+    },
     async clearVirtualLevels(): Promise<LevelInfo[]> {
         virtualFiles.clear();
+        convertedPack.clear();
         virtualLevels.clear();
         convertedQuestIds.clear();
         iso = baseIso;

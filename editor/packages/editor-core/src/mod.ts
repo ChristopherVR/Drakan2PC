@@ -193,8 +193,8 @@ export function stampPackBuild(files: Record<string, Uint8Array>): Record<string
 }
 
 /** The pack as a zip, stamped with its build id (`stampPackBuild`). */
-export const zipModFiles = (files: Record<string, Uint8Array>): Uint8Array =>
-    zipSync(stampPackBuild(files), { level: 6 });
+export const zipModFiles = (files: Record<string, Uint8Array>, level: 0 | 1 | 6 = 6): Uint8Array =>
+    zipSync(stampPackBuild(files), { level });
 
 /** Check a replacement against the runtime's growth rule: crossing the whole-entry limit is rejected at apply time. */
 export function checkEntrySize(file: string, originalSize: number, newSize: number): string | null {

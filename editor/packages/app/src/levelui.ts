@@ -31,7 +31,7 @@ import {
 } from '@drakan/editor-core';
 import type { DiscProfile } from '@drakan/formats';
 import { KINDS, LevelView, type ToolMode } from './level.ts';
-import { changeCount } from './modio.ts';
+import { changeCount, setConvertedPackProvider, setDesktopOnlyNotice } from './modio.ts';
 import type { Api, LevelInfo, LevelLoadResult, Method } from './rpc.ts';
 import { createSceneLoader } from './sceneload.ts';
 import { HELPER_GROUPS, helperGroupOf, type HelperGroup } from './scene/instances.ts';
@@ -66,12 +66,15 @@ import { createWorkspace, type Workspace } from './editor/workspace.ts';
 import { installLogic } from './editor/logicpanel.ts';
 import { registerShellCommands } from './editor/shellcommands.ts';
 import { exportContentPackage, type ContentExportHost } from './editor/contentexport.ts';
+import { showPlayNeedsDesktop } from './editor/needsdesktop.ts';
 import { registerOotfImport } from './editor/ootfimport.ts';
 import { createStartPage, rememberLevel } from './editor/startpage.ts';
 import { createViewportHint } from './editor/hint.ts';
 import { downloadFile, isDesktop } from './platform.ts';
 import { registerUnrealExport } from './editor/unrealexport.ts';
 import './editor/editor.css';
+
+setDesktopOnlyNotice(showPlayNeedsDesktop);
 
 const $ = <T extends HTMLElement>(id: string): T => {
     const el = document.getElementById(id);
@@ -153,6 +156,12 @@ export function initLevelUi(host: LevelUiHost): LevelUi {
     /** Disc directory of the open disc level (for the Unreal export); empty for documents without one. */
     let currentDirPath = '';
     let disc: DiscContext | null = null;
+    // Play on a converted Order of the Flame level installs the converted pack first (modio.ts).
+    setConvertedPackProvider(async (level) => {
+        const info = disc?.levels.find((l) => l.virtual && l.name === level);
+        const zip = info ? await host.call('convertedPackZip') : null;
+        return info && zip ? { zip, language: info.dirPath.split(/[\\/]/)[0] ?? '' } : null;
+    });
     /** The level the document was loaded from (LVL source); null for a world dump or a saved document. */
     let src: LevelLoadResult | null = null;
     let catalog: AssetClass[] = [];
@@ -508,12 +517,12 @@ export function initLevelUi(host: LevelUiHost): LevelUi {
             // Like Play in Unreal: with a level open the game starts on it with the player where the camera looks
             // (editor/playtestui.ts, F5). Without a level: the Mod panel's Play (the whole mod, from New Game).
             if (isDesktop && src && runCommand('play.camera')) return;
-            ws.show('mod');
             if (isDesktop) {
+                ws.show('mod');
                 void modPanel.play().catch(fail);
                 return;
             }
-            modPanel.el.querySelector('div.play')?.scrollIntoView({ block: 'nearest' });
+            showPlayNeedsDesktop();
         },
         exportMod: () => {
             projects.handlers.export?.();
@@ -1028,6 +1037,7 @@ export function initLevelUi(host: LevelUiHost): LevelUi {
         empty.hidden = true;
         loadCard.begin(shown, {
             covering: !hadLevel,
+            converted: !!info?.virtual,
             onCancel: () => {
                 openToken++;
                 opening = false;

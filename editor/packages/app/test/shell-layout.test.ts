@@ -102,6 +102,14 @@ describe('Place panel groups', () => {
     // No engine class known: the class name (then the stored kind) decides, as for a world dump.
     const cls = (name: string, kind = 'other') => placeCategory({ name, kind: kind as never, rflClass: null });
 
+    it('keeps bare marker classes of converted levels out of the exits group', () => {
+        const rfl = (name: string) => placeCategory({ name, kind: 'other' as never, rflClass: 0x48 });
+        expect(rfl('Particle Spawner_null')).toBe('effects');
+        expect(rfl('null marker')).toBe('other');
+        expect(rfl('Teleporter Location')).toBe('exits');
+        expect(placeCategory({ name: 'Level Transition', kind: 'other' as never, rflClass: 0x37 })).toBe('exits');
+    });
+
     it('lists every group once, with a title and an icon', () => {
         const ids = PLACE_CATS.map((c) => c.id);
         expect(new Set(ids).size).toBe(ids.length);
