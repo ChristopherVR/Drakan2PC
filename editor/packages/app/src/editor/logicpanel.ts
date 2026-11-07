@@ -1,5 +1,6 @@
 import {
     ApplyTemplateCommand,
+    numField,
     TEMPLATES,
     destinationLevelName,
     isError,
@@ -87,14 +88,22 @@ export function installLogic(ctx: Ctx, loadExits: (only?: string) => Promise<Exi
         contextMenu(
             r.left,
             r.bottom + 2,
-            TEMPLATES.map((t) => ({
-                label: t.title,
-                hint: t.summary.length > 60 ? `${t.summary.slice(0, 58)}...` : t.summary,
-                run: () => {
-                    tplSel.value = t.id;
-                    tplSel.dispatchEvent(new Event('change'));
+            [
+                ...TEMPLATES.map((t) => ({
+                    label: t.title,
+                    hint: t.summary.length > 60 ? `${t.summary.slice(0, 58)}...` : t.summary,
+                    run: () => {
+                        tplSel.value = t.id;
+                        tplSel.dispatchEvent(new Event('change'));
+                    },
+                })),
+                { sep: true as const },
+                {
+                    label: 'Puzzles guide...',
+                    hint: 'How each puzzle works, and what to check before you play it',
+                    run: () => runCommand('help.guide.puzzles'),
                 },
-            })),
+            ],
         );
     });
     const form = h('div', { class: 'lg-form', hidden: true });
@@ -136,8 +145,13 @@ export function installLogic(ctx: Ctx, loadExits: (only?: string) => Promise<Exi
    canvas already says the same) folds away until something is selected. */
 @container (max-width: 820px){.logic-panel .lg-side{width:clamp(200px,30cqw,260px)}}
 @container (max-width: 640px){.logic-panel .lg-side:has(.lg-howto){display:none}.logic-panel .lg-side{width:clamp(180px,38cqw,240px)}}
-.logic-panel .lg-form{padding:8px;border-bottom:1px solid var(--border);display:flex;flex-wrap:wrap;gap:8px;align-items:end}
+.logic-panel .lg-form{padding:8px;border-bottom:1px solid var(--border);display:flex;flex-wrap:wrap;gap:8px 12px;align-items:flex-start}
+.logic-panel .lg-form>strong{align-self:center;min-width:120px}
 .logic-panel .lg-form label{display:flex;flex-direction:column;gap:2px;font-size:11px}
+.logic-panel .lg-form .lg-hint{font-size:11px;max-width:260px;line-height:1.3}
+.logic-panel .lg-form .lg-hint.warn{color:var(--warn)}
+.logic-panel .lg-form .lg-hint.err{flex-basis:100%;max-width:none;color:var(--bad)}
+.logic-panel .lg-form .lg-find{align-self:flex-start;margin-top:2px}
 .logic-panel .lg-form .lg-note{flex-basis:100%;font-size:11px;opacity:.75}
 .logic-panel .panel-tools .dim.warn{color:var(--warn)}
 .logic-panel .panel-tools{flex-wrap:wrap;align-content:flex-start;gap:var(--sp-2) var(--sp-3)}
@@ -146,6 +160,8 @@ export function installLogic(ctx: Ctx, loadExits: (only?: string) => Promise<Exi
 .logic-panel .panel-tools>:last-child{flex:0 1 auto;min-width:0;max-width:100%;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .logic-panel .lg-node rect.box{fill:var(--surface-2);stroke-width:1.5}
 .logic-panel .lg-node.sel rect.box{fill:var(--surface-3);stroke-width:3}
+.logic-panel .lg-live{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+.logic-panel .lg-canvas:focus-visible{outline:2px solid var(--accent);outline-offset:-2px}
 .logic-panel .lg-node.drop rect.box{stroke-width:4;fill:var(--surface-3)}
 .logic-panel .lg-node text{pointer-events:none}
 .logic-panel .lg-node text.role{fill:#101114;font-size:9px;font-weight:700;letter-spacing:.06em}
@@ -365,19 +381,41 @@ export function installLogic(ctx: Ctx, loadExits: (only?: string) => Promise<Exi
                 );
                 vals[p.id] = undefined;
             } else if (p.kind === 'object') {
+                // Real doors first, then the other mechanisms; what is selected in the level comes before both.
+                const groups: [string, LevelObject[]][] = [['Selected in the level', []]];
+                const names: Record<string, string> = {
+                    door: 'Doors',
+                    mechanism: 'Other mechanisms',
+                    cutscene: 'Cut scenes',
+                    timer: 'Timers',
+                    visibility: 'Visibility',
+                };
+                for (const r of p.roles ?? []) groups.push([names[r] ?? r, []]);
+                const roleOf = (o: LevelObject): string => logicOf(o, e)?.role ?? '';
+                for (const o of cands.slice(0, 400)) {
+                    if (sel.has(o.id)) groups[0]![1].push(o);
+                    else groups[Math.max(1, 1 + (p.roles ?? []).indexOf(roleOf(o) as never))]?.[1].push(o);
+                }
+                // A door the game does not class as one (a "slamming door", a gate) is still named like one.
+                const looksLikeDoor = /door|gate|portcullis/i;
+                const doorsIdx = groups.findIndex(([n]) => n === 'Doors');
+                const mechIdx = groups.findIndex(([n]) => n === 'Other mechanisms');
+                if (doorsIdx > 0 && mechIdx > 0) {
+                    const moved = groups[mechIdx]![1].filter((o) => looksLikeDoor.test(o.class));
+                    groups[doorsIdx]![1].push(...moved);
+                    groups[mechIdx]![1] = groups[mechIdx]![1].filter((o) => !moved.includes(o));
+                }
+                const optionOf = (o: LevelObject): HTMLElement =>
+                    h('option', { value: String(o.id) }, `${o.class} (object ${o.id})`);
                 const s = h(
                     'select',
                     { class: 'sel' },
                     ...(p.optional ? [h('option', { value: '0' }, 'new')] : []),
-                    ...cands
-                        .slice(0, 400)
-                        .map((o) =>
-                            h(
-                                'option',
-                                { value: String(o.id) },
-                                `${sel.has(o.id) ? '* ' : ''}${o.class} (object ${o.id})`,
-                            ),
-                        ),
+                    ...(groups.filter(([, l]) => l.length).length > 1 || (p.roles?.length ?? 0) > 1
+                        ? groups
+                              .filter(([, l]) => l.length)
+                              .map(([n, l]) => h('optgroup', { label: n }, ...l.map(optionOf)))
+                        : groups.flatMap(([, l]) => l.map(optionOf))),
                 );
                 vals[p.id] = Number(s.value);
                 s.addEventListener('change', () => (vals[p.id] = Number(s.value)));
@@ -388,7 +426,40 @@ export function installLogic(ctx: Ctx, loadExits: (only?: string) => Promise<Exi
             }
         }
         void t;
-        return h('label', { title: p.hint ?? '' }, p.label, control);
+        const extras: HTMLElement[] = [];
+        if (p.hint) extras.push(h('span', { class: 'lg-hint dim' }, p.hint));
+        if (p.kind === 'object' && control instanceof HTMLSelectElement) {
+            const sel = control;
+            // Say what matters about the chosen door before the form is submitted: a Locked door ignores Opens.
+            const note = h('span', { class: 'lg-hint warn', role: 'status', hidden: true });
+            const refresh = (): void => {
+                const o = doc.get(Number(sel.value));
+                const locked = !!o && (numField(o, e, 'Locked') ?? 0) !== 0;
+                note.hidden = !locked;
+                note.textContent = locked
+                    ? 'This door is Locked, so it ignores Opens until something unlocks it. Turn Locked off in Details, or choose Unlock.'
+                    : '';
+            };
+            sel.addEventListener('change', refresh);
+            refresh();
+            extras.push(
+                note,
+                h(
+                    'button',
+                    {
+                        type: 'button',
+                        class: 'btn lg-find',
+                        title: 'Select this object and look at it in the level view',
+                        onclick: () => {
+                            const id = Number(sel.value);
+                            if (doc.has(id)) ctx.locate([id]);
+                        },
+                    },
+                    'Show in level',
+                ),
+            );
+        }
+        return h('label', { title: p.hint ?? '' }, p.label, control, ...extras);
     }
 
     openTemplateHook = (id, preset) => {
@@ -405,6 +476,7 @@ export function installLogic(ctx: Ctx, loadExits: (only?: string) => Promise<Exi
         const vals: ParamValues = {};
         const inputs = t.params.map((p) => paramInput(t, p, vals));
         const go = h('button', { class: 'btn primary', type: 'button' }, `Create`);
+        const problem = h('div', { class: 'lg-hint err', role: 'alert', hidden: true });
         go.addEventListener('click', () => {
             const v = ctx.view();
             const sel = [...v.selection];
@@ -414,7 +486,11 @@ export function installLogic(ctx: Ctx, loadExits: (only?: string) => Promise<Exi
                 { doc: ctx.doc(), env: env()!, catalog: ctx.catalog(), at: [at[0], at[1], at[2]], selection: sel },
                 vals,
             );
-            if (isError(r)) return ctx.toast(r.error, 'error');
+            if (isError(r)) {
+                problem.textContent = r.error;
+                problem.hidden = false;
+                return ctx.toast(r.error, 'error');
+            }
             const cmd = new ApplyTemplateCommand(r, t.title);
             v.run(cmd);
             v.select(cmd.ids);
@@ -427,6 +503,7 @@ export function installLogic(ctx: Ctx, loadExits: (only?: string) => Promise<Exi
             form,
             h('strong', {}, t.title),
             ...inputs,
+            problem,
             go,
             h('button', { class: 'btn', type: 'button', onclick: () => (form.hidden = true) }, 'Cancel'),
             h(

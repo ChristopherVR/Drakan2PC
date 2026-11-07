@@ -774,3 +774,8 @@ pre {
     padding: 0;
     border: 0;
 }
+
+/* The hidden attribute always wins: a rule such as display:flex must not keep a closed form on screen. */
+[hidden] {
+    display: none !important;
+}

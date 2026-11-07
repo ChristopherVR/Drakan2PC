@@ -30,6 +30,7 @@ export const GUIDE_ICONS: Record<string, string> = {
     start: 'rocket',
     objects: 'place',
     triggers: 'trigger',
+    puzzles: 'trigger',
     vendors: 'shop',
     campaign: 'layers',
     multiplayer: 'world',

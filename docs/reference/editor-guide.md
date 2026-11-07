@@ -5,7 +5,7 @@ top bar, or the "?" on a panel. This page is generated from `editor/packages/edi
 file and run `UPDATE_GUIDE=1 npx vitest run packages/editor-core/test/guides.test.ts` in `editor/`. It is published
 as https://christophervr.github.io/Drakan2PC/guides/editor-tasks.html; each guide id below is an anchor there, which the editor's "Open on the web" links use.
 
-Contents: [What the editor does](#start), [Learn with the tutorials](#tutorials), [Place and edit objects](#objects), [Shape and paint the ground](#landscape), [Link triggers and exits](#triggers), [Change what a shop sells](#vendors), [Add a new shop](#new-shop), [Edit quests, dialogue and cut scenes](#story), [Make a quest start and finish](#quests), [Change what characters say](#conversations), [Make a cut scene](#cutscenes), [Build a campaign from levels](#campaign), [Open Order of the Flame levels](#ootf), [Make your own campaign](#campaign-pack), [Make a multiplayer map](#multiplayer), [Make a multiplayer game mode](#game-modes), [Change the menus and HUD](#menus), [Play test your level](#playtest), [Package and play a mod](#package), [Edit a save](#save), [Browse the raw files](#files).
+Contents: [What the editor does](#start), [Learn with the tutorials](#tutorials), [Place and edit objects](#objects), [Shape and paint the ground](#landscape), [Link triggers and exits](#triggers), [Build a puzzle](#puzzles), [Change what a shop sells](#vendors), [Add a new shop](#new-shop), [Edit quests, dialogue and cut scenes](#story), [Make a quest start and finish](#quests), [Change what characters say](#conversations), [Make a cut scene](#cutscenes), [Build a campaign from levels](#campaign), [Open Order of the Flame levels](#ootf), [Make your own campaign](#campaign-pack), [Make a multiplayer map](#multiplayer), [Make a multiplayer game mode](#game-modes), [Change the menus and HUD](#menus), [Play test your level](#playtest), [Package and play a mod](#package), [Edit a save](#save), [Browse the raw files](#files).
 
 A mod project (Project Settings, from the top bar) is a small JSON file: name, id, author, version, description, the levels
 it uses in campaign order, the level Play starts in, the checklist ticks and your level edits (the editor's own
@@ -122,6 +122,30 @@ Path: Select a trigger > Link to... > Choose the message > Check Validation
 * Unlock only unlocks a door (proved in game): it then opens by Auto-Open when the player is near, or by an On message. A locked door ignores On.
 * If an exit has no matching exit in the destination level, the player arrives with no marker and can fall out of the world. An exit out of a level copy uses the way back to the level it was copied from.
 
+<a id="puzzles"></a>
+
+## Build a puzzle
+
+Make a lever, pressure plates, a timer, an ambush or a key lock open a door, and check it before you play.
+
+Path: Open a level > Ready-made setup > Pick the door > Create > Check Logic and Validation > Play
+
+1. Open a level, then open Logic (Ctrl+Shift+K) and press "Ready-made setup". Select the door (or the creatures) in the level first and the setup uses it; otherwise pick it in the form. "Show in level" next to a pick selects it and looks at it, so you can see what you chose.
+2. Lever opens door: the lever toggles, so the first pull opens the door and the second closes it. Choose "Unlock / lock" instead when the door should only be freed (it then needs Auto-Open on to swing open when the player walks up).
+3. Pressure plates puzzle: N plates feed a counter that opens the target when all are pressed. Tick the hold option (one plate, no counter) for a door that shuts again when the plate rises.
+4. Timed trigger: a volume the player walks into starts a timer, and after the delay the timer sends On, Off, Unlock, Lock or Play Sequence to the target.
+5. Ambush: copies of a creature stay dormant until the player walks into a volume. Delete the original if it was only the model.
+6. Kill all enemies opens gate: each creature reports its death to a counter, and the counter opens the gate when the last one dies.
+7. Key lock opens door: the lock sends Unlock when the player uses the matching key. The key item needs the same Lock Code as the lock.
+8. Look at the Logic graph: each plate, lever, timer, counter and door is a card, and each link is labelled with what it does ("opens", "unlocks"). Undo (Ctrl+Z) removes the whole setup in one step.
+9. Open Validation. Fix the warnings that name your objects, then Play (F5) and try the puzzle.
+
+* A locked door ignores Opens. For a lever, plates, a timer or a counter that opens a door, keep Locked off. The form warns when the chosen door is Locked.
+* Unlock only unlocks. The door then opens by itself only when Auto-Open is on and the player walks up, or when something sends it Opens.
+* Trigger volumes are lifted off the floor on purpose: a volume centred on the ground did not fire when the player walked through it.
+* Measured in the game: the lever, the plate, the counter, the timer, the held plate, the ambush and the kill-all gate open or wake what they should. The key lock is only checked in the editor so far, because the key could not be picked up in a test run.
+* Plates in the stock model are solid blocks, so the player presses them by walking against them.
+
 <a id="vendors"></a>
 
 ## Change what a shop sells
@@ -176,7 +200,7 @@ Path: Open Story > Pick a page > Change or create entries > Play > Export
 5. Text and export: Texts lists every piece of game text; search, edit, and see where it is used.
 6. Story pack: review every change, including the new lines, scenes and quests. Export (Ctrl+E) puts them in the same pack as your level edits.
 
-* Text in other languages is edited separately; pick the language in the Disc Files header (Tools > Disc Files).
+* Text in other languages is edited separately; pick the language in the Game Files header (Tools > Game Files).
 * Placement and wiring in the level are undo steps named after the objects they create ("Place quest ...: Quest #12").
 
 <a id="quests"></a>
@@ -416,7 +440,7 @@ Look inside the disc for textures, text and the structure of a level (advanced).
 
 Path: Pick a folder > Pick a file > Pick an entry > Preview
 
-1. Open Tools > Disc Files. The left pane is the file tree of your disc, in the language you chose.
+1. Open Tools > Game Files. The left pane is the file tree of your disc, in the language you chose.
 2. Click a file. Files that hold many resources (.LVL, .TXD, .XDB and so on) list their entries in the middle.
 3. Click an entry to preview it: textures are drawn, string tables are listed as text, anything else is shown as hex.
 4. Use the buttons above the preview to open the file in the right editor: a level opens in the Level Editor, a string table in the Story editor.

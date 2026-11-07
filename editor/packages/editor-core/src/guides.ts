@@ -144,6 +144,30 @@ export const GUIDES: Guide[] = [
         ],
     },
     {
+        id: 'puzzles',
+        title: 'Build a puzzle',
+        summary: 'Make a lever, pressure plates, a timer, an ambush or a key lock open a door, and check it before you play.',
+        flow: ['Open a level', 'Ready-made setup', 'Pick the door', 'Create', 'Check Logic and Validation', 'Play'],
+        steps: [
+            'Open a level, then open Logic (Ctrl+Shift+K) and press "Ready-made setup". Select the door (or the creatures) in the level first and the setup uses it; otherwise pick it in the form. "Show in level" next to a pick selects it and looks at it, so you can see what you chose.',
+            'Lever opens door: the lever toggles, so the first pull opens the door and the second closes it. Choose "Unlock / lock" instead when the door should only be freed (it then needs Auto-Open on to swing open when the player walks up).',
+            'Pressure plates puzzle: N plates feed a counter that opens the target when all are pressed. Tick the hold option (one plate, no counter) for a door that shuts again when the plate rises.',
+            'Timed trigger: a volume the player walks into starts a timer, and after the delay the timer sends On, Off, Unlock, Lock or Play Sequence to the target.',
+            'Ambush: copies of a creature stay dormant until the player walks into a volume. Delete the original if it was only the model.',
+            'Kill all enemies opens gate: each creature reports its death to a counter, and the counter opens the gate when the last one dies.',
+            'Key lock opens door: the lock sends Unlock when the player uses the matching key. The key item needs the same Lock Code as the lock.',
+            'Look at the Logic graph: each plate, lever, timer, counter and door is a card, and each link is labelled with what it does ("opens", "unlocks"). Undo (Ctrl+Z) removes the whole setup in one step.',
+            'Open Validation. Fix the warnings that name your objects, then Play (F5) and try the puzzle.',
+        ],
+        notes: [
+            'A locked door ignores Opens. For a lever, plates, a timer or a counter that opens a door, keep Locked off. The form warns when the chosen door is Locked.',
+            'Unlock only unlocks. The door then opens by itself only when Auto-Open is on and the player walks up, or when something sends it Opens.',
+            'Trigger volumes are lifted off the floor on purpose: a volume centred on the ground did not fire when the player walked through it.',
+            'Measured in the game: the lever, the plate, the counter, the timer, the held plate, the ambush and the kill-all gate open or wake what they should. The key lock is only checked in the editor so far, because the key could not be picked up in a test run.',
+            'Plates in the stock model are solid blocks, so the player presses them by walking against them.',
+        ],
+    },
+    {
         id: 'vendors',
         tour: 'vendor',
         title: 'Change what a shop sells',
@@ -204,7 +228,7 @@ export const GUIDES: Guide[] = [
             'Story pack: review every change, including the new lines, scenes and quests. Export (Ctrl+E) puts them in the same pack as your level edits.',
         ],
         notes: [
-            'Text in other languages is edited separately; pick the language in the Disc Files header (Tools > Disc Files).',
+            'Text in other languages is edited separately; pick the language in the Game Files header (Tools > Game Files).',
             'Placement and wiring in the level are undo steps named after the objects they create ("Place quest ...: Quest #12").',
         ],
     },
@@ -450,7 +474,7 @@ export const GUIDES: Guide[] = [
         summary: 'Look inside the disc for textures, text and the structure of a level (advanced).',
         flow: ['Pick a folder', 'Pick a file', 'Pick an entry', 'Preview'],
         steps: [
-            'Open Tools > Disc Files. The left pane is the file tree of your disc, in the language you chose.',
+            'Open Tools > Game Files. The left pane is the file tree of your disc, in the language you chose.',
             'Click a file. Files that hold many resources (.LVL, .TXD, .XDB and so on) list their entries in the middle.',
             'Click an entry to preview it: textures are drawn, string tables are listed as text, anything else is shown as hex.',
             'Use the buttons above the preview to open the file in the right editor: a level opens in the Level Editor, a string table in the Story editor.',

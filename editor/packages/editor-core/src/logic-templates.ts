@@ -267,7 +267,13 @@ export const TEMPLATES: LogicTemplate[] = [
         title: 'Lever opens door',
         summary: 'A lever that opens a door when pulled and closes it when pulled back (or unlocks and locks it).',
         params: [
-            { id: 'door', label: 'Door', kind: 'object', roles: ['door', 'mechanism'] },
+            {
+                id: 'door',
+                label: 'Door',
+                kind: 'object',
+                roles: ['door', 'mechanism'],
+                hint: 'Choose a door that is not Locked: a locked door ignores Opens.',
+            },
             { id: 'lever', label: 'Lever class', kind: 'class', rfl: 0x0d },
             {
                 id: 'mode',
