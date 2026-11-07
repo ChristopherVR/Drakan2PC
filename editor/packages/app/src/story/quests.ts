@@ -330,7 +330,7 @@ export function createQuestsPanel(session: StorySession, ctx?: () => Ctx): Quest
                 titleOf(r),
                 h('span', { class: 'dim' }, ` class ${r.classId}, ${chapterLabel(r.group)}`),
             ),
-            h('div', { class: 'dim small' }, `Developer name: ${r.name}`),
+            h('div', { class: 'dim small' }, `Name in the game files: ${r.name}`),
             h('label', { class: 'mf' }, h('span', {}, 'Kind'), kindSel),
             h('label', { class: 'story-chk' }, opt, 'Optional quest (listed under Optional Quests)'),
             r.draft.kind !== 'map' ? textField(r, 'Journal entry', 'journalId') : null,

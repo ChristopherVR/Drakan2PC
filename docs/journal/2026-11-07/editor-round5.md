@@ -55,4 +55,8 @@ Two valid project folders and one corrupt one, opened from the recent list.
 
 ## 5. Sweep
 
-See the end of this note for the last full run.
+Full run with the disc, all three sizes (820x700, 1280x720, 1920x1080), 198 states each reading the page: 0 findings (overlap,
+clipped text, off-window, viewport width, accessible names, labels, focus rings). It took about 100 minutes in software
+rendering with other work running. The quest form's "Developer name" label (developer-facing) now reads "Name in the game
+files"; a new quest is created as class 4000 with Kind, Optional and Journal entry fields, but it was not placed and run in
+the game.
