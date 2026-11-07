@@ -213,9 +213,12 @@ async function readLevel(fs: Iso9660, dirPath: string, withTerrain = false): Pro
     for (const d of lvl.header.dependencies) {
         const stem = odbStemForDependency(d.path.text);
         if (odbReaders.has(stem)) continue;
-        const f = await fs.find(`${resolveDependencyStem(dirPath, d.path.text)}.ODB`);
+        const depStem = resolveDependencyStem(dirPath, d.path.text);
+        const f = await fs.find(`${depStem}.ODB`);
         if (!f || f.isDir) {
-            missingOdbs.push(d.path.text);
+            // The terrain splat set (a .DB and a .TXD, no class table) is a dependency of every level: not missing.
+            const txd = await fs.find(`${depStem}.TXD`);
+            if (!txd || txd.isDir) missingOdbs.push(d.path.text);
             continue;
         }
         try {

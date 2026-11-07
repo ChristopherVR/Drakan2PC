@@ -11,6 +11,7 @@ import {
     type DocPlacement,
 } from './models.ts';
 import { AnimationLayer } from './animlayer.ts';
+import { helperGroupOfRfl, type HelperGroup } from './instances.ts';
 import { nearestHit } from './pickmath.ts';
 import type { TerrainScene } from './terrain.ts';
 import type { TextureCache, TextureLookup } from './textures.ts';
@@ -209,6 +210,8 @@ export class ModelLayer {
     terrain: TerrainScene | null = null;
     private readonly entries = new Map<string, Entry>();
     private readonly failed = new Set<string>();
+    /** Classes without a visible model of their own (normal for logic and helpers), with their engine class id. */
+    private readonly modelless = new Map<string, number | null>();
     private readonly batches = new Map<string, Batch>();
     private readonly ghosts = new Map<string, THREE.Object3D>();
     private readonly sel: Outline;
@@ -286,9 +289,9 @@ export class ModelLayer {
         return this.entries.has(resource);
     }
 
-    /** True once the class was tried: it has a model or decoding failed (so a marker stays). */
+    /** True once the class was tried: it has a model, has none of its own, or decoding failed (so a marker stays). */
     known(resource: string): boolean {
-        return this.entries.has(resource) || this.failed.has(resource);
+        return this.entries.has(resource) || this.failed.has(resource) || this.modelless.has(resource);
     }
 
     entry(resource: string): Entry | undefined {
@@ -306,9 +309,29 @@ export class ModelLayer {
         return e ? { model: e.model, lookup: e.lookup } : null;
     }
 
-    /** Classes whose model failed to decode or that have none (a marker stays for their objects). */
+    /** Classes that name a model which did not resolve or decode (a marker stays for their objects). */
     get failedResources(): ReadonlySet<string> {
         return this.failed;
+    }
+
+    /** Classes with no visible model of their own: detectors, timers, generators, level logic. Not an error. */
+    get modellessResources(): ReadonlySet<string> {
+        return new Set(this.modelless.keys());
+    }
+
+    get modellessCount(): number {
+        return this.modelless.size;
+    }
+
+    /**
+     * Editor icon group of a class without a model of its own, from its engine class (a converted Order of the Flame
+     * "Orc Plate waypoint" or "Soul Flare Generator" is named nothing like the disc's helpers). Null when it has no icon,
+     * undefined when the class is not known to be model-less.
+     */
+    modellessGroup(resource: string): HelperGroup | null | undefined {
+        if (!this.modelless.has(resource)) return undefined;
+        const rfl = this.modelless.get(resource);
+        return rfl === null || rfl === undefined ? null : helperGroupOfRfl(rfl);
     }
 
     /** Register worker results. Returns the resources that now have a model. */
@@ -317,10 +340,16 @@ export class ModelLayer {
         for (const d of data) {
             const resource = resourceString(d.dbIndex, d.classId);
             if (this.entries.has(resource)) continue;
-            if (!d.model || !d.model.triTexture.length) {
+            // No model named, or one with no polygons ("Bounding Vertices": an invisible mover or pickup point).
+            if (d.model ? !d.model.triTexture.length : d.noModel) {
+                this.modelless.set(resource, d.rfl ?? null);
+                continue;
+            }
+            if (!d.model) {
                 this.failed.add(resource);
                 continue;
             }
+            this.modelless.delete(resource);
             const lookup = cache.addShared(d.textures);
             const geometry = modelGeometry(d.model, resource);
             const radius = geometry.boundingSphere?.radius ?? 0.1;
@@ -473,6 +502,7 @@ export class ModelLayer {
         this.ghosts.clear();
         this.entries.clear();
         this.failed.clear();
+        this.modelless.clear();
         clearModelCache();
     }
 

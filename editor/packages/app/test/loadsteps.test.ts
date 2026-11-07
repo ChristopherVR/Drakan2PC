@@ -57,7 +57,13 @@ describe('level load steps', () => {
         s.models = { done: 538, total: 538, missing: 101 };
         expect(loadFinished(s)).toBe(true);
         expect(loadFraction(s)).toBe(1);
-        expect(readyLine(s, 'Surdana')).toBe('Surdana is ready. 101 object types have no model and show as markers.');
+        expect(readyLine(s, 'Surdana')).toBe(
+            'Surdana is ready. 101 object types could not load a model and show as markers.',
+        );
+        s.models.missing = 1;
+        expect(readyLine(s, 'Surdana')).toBe(
+            'Surdana is ready. 1 object type could not load a model and shows as markers.',
+        );
         s.models.missing = 0;
         expect(readyLine(s, 'Surdana')).toBe('Surdana is ready.');
         s.steps.models = 'stopped';

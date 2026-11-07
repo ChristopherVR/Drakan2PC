@@ -1,14 +1,28 @@
 // Worker-side decoding for the scene builders: terrain layers, models and the textures they use. No three.js here.
 // The functions take an open disc and return plain typed-array data that can cross the worker boundary.
 
-import type { Iso9660, LvlHeader, Model, TerrainLayer, TxdImage } from '@drakan/formats';
+import type {
+    ClassFieldDef,
+    Iso9660,
+    LvlHeader,
+    Model,
+    ModelTextureRef,
+    TerrainLayer,
+    TxdImage,
+} from '@drakan/formats';
 import {
+    FIELD_MODEL,
     LVL_TYPE_LAYERS,
     SrscReader,
     TXD_ENTRY_TYPE,
+    decodeFieldValue,
     decodeTxd,
     dependencyPath,
+    fieldBase,
+    odbRuntimeClass,
+    parseClassBody,
     parseDb,
+    parseFieldLists,
     parseModel,
     parseTerrain,
     resolveDependencyStem,
@@ -41,6 +55,114 @@ export interface ModelData {
     dbIndex: number;
     model: Model | null;
     textures: SceneTexture[];
+    /**
+     * True when the class names no model of its own (detectors, timers, generators, waypoints, level logic): normal, the
+     * editor draws an icon or a marker and nothing is wrong. Absent when the class names a model (then `model` null means
+     * the reference did not resolve or decode) or the class record itself was not found.
+     */
+    noModel?: true;
+    /** Engine class id (RFL) of the class record, when it was read. */
+    rfl?: number;
+}
+
+/** A field of a model-less class whose models stand in for the class model in the viewport, and how they combine. */
+const FIELD_STAND_INS: readonly { name: RegExp; use: 'all' | 'first' }[] = [
+    // Break-away floors: every piece is modelled in place, together they are the intact floor.
+    { name: /^model list$/i, use: 'all' },
+    // Morph Plugs: the frames of one shape; the first is the shape at rest.
+    { name: /^morphing models?$/i, use: 'first' },
+];
+
+const ODB_CLASS = 0x0102;
+const ODB_FIELDS = 0x0103;
+
+/** Most pieces merged into one stand-in model (break-away floors have about 20). */
+const MAX_PIECES = 64;
+
+/**
+ * Model refs (`(db << 16) | id`) that stand in for a model-less class: the pieces of a break-away floor or the first
+ * frame of a Morph Plug, from the class defaults. Empty for every other class.
+ */
+export function standInModelRefs(fields: readonly ClassFieldDef[], data: readonly number[]): number[] {
+    for (const rule of FIELD_STAND_INS) {
+        const i = fields.findIndex((f) => fieldBase(f.type) === FIELD_MODEL && rule.name.test(f.name.trim()));
+        if (i < 0 || data[i] === undefined) continue;
+        const v = decodeFieldValue(fields[i]!.type, data[i]!, data);
+        const refs = (Array.isArray(v) ? v : [v]).filter(
+            (r): r is number => typeof r === 'number' && (r & 0xffff) !== 0,
+        );
+        if (refs.length) return rule.use === 'first' ? refs.slice(0, 1) : refs.slice(0, MAX_PIECES);
+    }
+    return [];
+}
+
+/**
+ * LOD 0 of several models as one static model (the pieces of a break-away floor share the object's origin). Texture refs
+ * are merged by `(id, db)`; pieces stop being added once the vertex count would not fit 16-bit indices.
+ */
+export function mergeModels(parts: readonly Model[], id: number, name: string): Model | null {
+    const live = parts.filter((m) => m.lod0.triCount > 0);
+    if (live.length <= 1) return live[0] ?? null;
+    const use: Model[] = [];
+    let verts = 0;
+    let tris = 0;
+    for (const m of live) {
+        const n = m.positions.length / 3;
+        if (verts + n > 0xffff) break;
+        use.push(m);
+        verts += n;
+        tris += m.lod0.triCount;
+    }
+    const textures: ModelTextureRef[] = [];
+    const texAt = new Map<string, number>();
+    const positions = new Float32Array(verts * 3);
+    const normals = new Float32Array(verts * 3);
+    const indices = new Uint16Array(tris * 3);
+    const triTexture = new Uint16Array(tris);
+    const uvs = new Float32Array(tris * 6);
+    const min: [number, number, number] = [Infinity, Infinity, Infinity];
+    const max: [number, number, number] = [-Infinity, -Infinity, -Infinity];
+    let v0 = 0;
+    let t = 0;
+    for (const m of use) {
+        positions.set(m.positions, v0 * 3);
+        normals.set(m.normals.subarray(0, m.positions.length), v0 * 3);
+        const local = m.textures.map((r) => {
+            const k = `${r.db}:${r.id}`;
+            let at = texAt.get(k);
+            if (at === undefined) {
+                texAt.set(k, (at = textures.length));
+                textures.push(r);
+            }
+            return at;
+        });
+        const { firstTri, triCount } = m.lod0;
+        for (let k = firstTri; k < firstTri + triCount; k++, t++) {
+            for (let c = 0; c < 3; c++) indices[t * 3 + c] = m.indices[k * 3 + c]! + v0;
+            triTexture[t] = local[m.triTexture[k]!] ?? 0;
+            uvs.set(m.uvs.subarray(k * 6, k * 6 + 6), t * 6);
+        }
+        for (let a = 0; a < 3; a++) {
+            min[a] = Math.min(min[a]!, m.bounds.min[a]!);
+            max[a] = Math.max(max[a]!, m.bounds.max[a]!);
+        }
+        v0 += m.positions.length / 3;
+    }
+    return {
+        id,
+        name,
+        shading: use[0]!.shading,
+        textures,
+        positions,
+        normals,
+        indices,
+        triTexture,
+        uvs,
+        lods: [],
+        skinned: false,
+        bounds: { min, max },
+        lod0: { firstTri: 0, triCount: tris },
+    };
 }
 
 async function open(fs: Iso9660, path: string): Promise<SrscReader | null> {
@@ -124,7 +246,14 @@ export async function loadModelData(
     classes: { classId: number; dbIndex: number }[],
 ): Promise<ModelData[]> {
     const out: ModelData[] = [];
-    const odbCache = new Map<number, { odb: SrscReader; stem: string; deps: Map<number, string> } | null>();
+    type Db = {
+        odb: SrscReader;
+        stem: string;
+        deps: Map<number, string>;
+        /** Field definitions per class id, read once the first model-less class of this ODB needs them. */
+        fields?: Map<number, ClassFieldDef[]> | null;
+    };
+    const odbCache = new Map<number, Db | null>();
     const modCache = new Map<string, SrscReader | null>();
     const txdCache = new Map<string, SrscReader | null>();
     const texMemo = new Map<string, SceneTexture | null>();
@@ -136,6 +265,26 @@ export async function loadModelData(
         if (!m.has(key)) m.set(key, await make());
         return m.get(key) ?? null;
     };
+    const fieldDefs = async (db: Db, classId: number): Promise<ClassFieldDef[] | null> => {
+        if (db.fields === undefined) {
+            db.fields = null;
+            const fe = db.odb.entries.find((e) => e.type === ODB_FIELDS);
+            const records = db.odb.entries.filter((e) => e.type === ODB_CLASS);
+            const lists = fe ? parseFieldLists((await db.odb.read(fe)).data) : null;
+            if (lists && lists.length === records.length)
+                db.fields = new Map(records.map((e, k) => [e.id, lists[k]!] as [number, ClassFieldDef[]]));
+        }
+        return db.fields?.get(classId) ?? null;
+    };
+    const readModel = async (base: string, modelId: number): Promise<Model | null> => {
+        try {
+            const mod = await cached(modCache, base, () => open(fs, `${base}.MOD`));
+            return mod ? await parseModel(mod, modelId) : null;
+        } catch {
+            return null;
+        }
+    };
+    const baseOf = (db: Db, modelDb: number): string | undefined => (modelDb === 0 ? db.stem : db.deps.get(modelDb));
     for (const c of classes) {
         const r: ModelData = { ...c, model: null, textures: [] };
         out.push(r);
@@ -160,22 +309,38 @@ export async function loadModelData(
             odbCache.set(c.dbIndex, db);
         }
         if (!db) continue;
-        const rec = db.odb.entries.find((x) => x.type === 0x0102 && x.id === c.classId);
+        const rec = db.odb.entries.find((x) => x.type === ODB_CLASS && x.id === c.classId);
         if (!rec) continue;
         const raw = await db.odb.readRaw(rec);
         const nl = raw[0]! | (raw[1]! << 8);
         const at = 2 + nl;
         if (at + 6 > raw.length) continue;
+        const body = raw.subarray(at);
+        const rt = odbRuntimeClass(body);
+        if (rt !== null) r.rfl = rt & 0xffff;
         const modelId = raw[at + 2]! | (raw[at + 3]! << 8);
         const modelDb = raw[at + 4]! | (raw[at + 5]! << 8);
-        if (modelId === 0) continue;
-        const base = modelDb === 0 ? db.stem : db.deps.get(modelDb);
-        if (!base) continue;
-        try {
-            const mod = await cached(modCache, base, () => open(fs, `${base}.MOD`));
-            r.model = mod ? await parseModel(mod, modelId) : null;
-        } catch {
-            r.model = null;
+        let base: string | undefined;
+        if (modelId === 0) {
+            r.noModel = true;
+            // No class model: a break-away floor or a Morph Plug still names the models it shows in its fields.
+            const defs = await fieldDefs(db, c.classId);
+            const parsed = defs ? parseClassBody(body) : null;
+            const refs = defs && parsed ? standInModelRefs(defs, parsed.data) : [];
+            const pdb = refs.length ? refs[0]! >>> 16 : 0;
+            base = refs.length ? baseOf(db, pdb) : undefined;
+            if (!base) continue;
+            const parts: Model[] = [];
+            for (const ref of refs) {
+                if (ref >>> 16 !== pdb) continue;
+                const m = await readModel(base, ref & 0xffff);
+                if (m) parts.push(m);
+            }
+            r.model = mergeModels(parts, refs[0]! & 0xffff, parts[0]?.name ?? '');
+        } else {
+            base = baseOf(db, modelDb);
+            if (!base) continue;
+            r.model = await readModel(base, modelId);
         }
         if (!r.model) continue;
         // Model texture refs: db 0 = the container's own TXD, otherwise a dependency of the same .DB.

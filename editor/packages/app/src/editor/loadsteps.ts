@@ -22,6 +22,10 @@ export interface LoadState {
     steps: Record<LoadStepId, LoadStepState>;
     objects: number;
     layers: number;
+    /**
+     * `missing`: classes whose model could not be loaded. Classes without a model of their own (detectors, timers, level
+     * logic) are not counted: they show as icons or markers by design.
+     */
     models: { done: number; total: number; missing: number };
     /** Progress of the active step that has no count of its own (0..1, an estimate from elapsed time). */
     partial: number;
@@ -118,6 +122,6 @@ export function readyLine(s: LoadState, title: string): string {
     if (s.steps.models === 'stopped')
         return `${title} is open. Models that were not loaded show as markers; reopen the level to load them.`;
     if (miss > 0)
-        return `${title} is ready. ${n(miss)} object type${miss === 1 ? ' has' : 's have'} no model and show as markers.`;
+        return `${title} is ready. ${n(miss)} object type${miss === 1 ? '' : 's'} could not load a model and show${miss === 1 ? 's' : ''} as markers.`;
     return `${title} is ready.`;
 }

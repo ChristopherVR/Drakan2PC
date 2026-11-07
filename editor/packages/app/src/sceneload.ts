@@ -22,7 +22,16 @@ export interface SceneLoaderHooks {
 /** How far a level load got, for the viewport's loading card (editor/loadprogress.ts). */
 export type SceneProgress =
     | { step: 'terrain'; state: 'active' | 'done' | 'failed'; layers?: number }
-    | { step: 'models'; state: 'active' | 'done' | 'failed'; done: number; total: number; missing?: number };
+    | {
+          step: 'models';
+          state: 'active' | 'done' | 'failed';
+          done: number;
+          total: number;
+          /** Classes whose model reference did not resolve or decode (shown as markers). */
+          missing?: number;
+          /** Classes with no visible model of their own (logic, helpers): icons or markers, not a problem. */
+          modelless?: number;
+      };
 
 /** Classes per worker request while a level loads (keeps each request short and progress visible). */
 const BATCH = 24;
@@ -40,6 +49,14 @@ export interface SceneLoader {
     /** Cached thumbnail, or null. */
     thumbnail(resource: string): string | null;
     clear(): void;
+}
+
+/** The status line after a level's models have loaded. Classes without a model of their own are not a failure. */
+export function modelsStatus(added: number, total: number, modelless: number, missing: number): string {
+    let s = `Models: ${added} of ${total} classes decoded`;
+    if (modelless) s += `; ${modelless} have no model of their own (shown as icons or markers)`;
+    if (missing) s += `; ${missing} could not be loaded (shown as markers)`;
+    return `${s}.`;
 }
 
 export function createSceneLoader(call: Call, view: () => LevelView, hooks: SceneLoaderHooks): SceneLoader {
@@ -188,16 +205,15 @@ export function createSceneLoader(call: Call, view: () => LevelView, hooks: Scen
                 );
                 const added = await run;
                 if (tk !== token || tk === stoppedTk) return;
-                const missing = want.length - added;
+                const layer = view().models;
+                const missing = want.filter((c) => layer.failedResources.has(c.resource)).length;
+                const modelless = want.filter((c) => layer.modellessResources.has(c.resource)).length;
                 hooks.modelsChanged();
-                hooks.status(
-                    `Models: ${added} of ${want.length} classes decoded` +
-                        (missing ? `; ${missing} show as markers (no model or undecodable).` : '.'),
-                );
-                progress?.({ step: 'models', state: 'done', done: total, total, missing });
+                hooks.status(modelsStatus(added, want.length, modelless, missing));
+                progress?.({ step: 'models', state: 'done', done: total, total, missing, modelless });
                 // The loading card says it when there is one.
                 if (missing && !progress)
-                    hooks.toast(`${missing} of ${want.length} classes have no model: shown as markers.`);
+                    hooks.toast(`${missing} of ${want.length} classes could not load their model: shown as markers.`);
             } catch (e) {
                 if (tk !== token) return;
                 progress?.({ step: 'models', state: 'failed', done: 0, total });

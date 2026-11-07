@@ -43,6 +43,30 @@ const HELPER_RULES: [RegExp, HelperGroup][] = [
     [/^(static|dynamic) \(vertex\) light|light ?rays?/i, 'light'],
 ];
 
+/**
+ * Engine classes (RFL ids, docs/reference/level-format.md) that are editor helpers when the class has no model of its
+ * own. Checked on the disc and on converted Order of the Flame levels, whose classes keep the PC names.
+ */
+const HELPER_RFL: ReadonlyMap<number, HelperGroup> = new Map([
+    [6, 'sound'], // Looping / Triggered Sound
+    [129, 'sound'], // Music Trigger
+    [131, 'sound'], // Ambient Sound Transition
+    [7, 'timer'], // Count Down To Zero
+    [62, 'timer'],
+    [27, 'camera'],
+    [61, 'trigger'], // Detector
+    [112, 'waypoint'],
+    [72, 'waypoint'], // Null Marker / Attractor
+    [63, 'spawn'], // Generator
+    [132, 'light'],
+    [133, 'light'],
+]);
+
+/** Helper group of a model-less class by its engine class id, or null. */
+export function helperGroupOfRfl(rfl: number): HelperGroup | null {
+    return HELPER_RFL.get(rfl) ?? null;
+}
+
 /** Helper group of a class by name, or null for a normal class. */
 export function helperGroupOf(className: string): HelperGroup | null {
     for (const [re, g] of HELPER_RULES) if (re.test(className)) return g;

@@ -1329,6 +1329,9 @@ export class LevelView {
                 if (g && t !== null) this.debugTextures.set(t, g);
             }
         }
+        // A class without a model of its own (a converted waypoint, generator or timer) gets its icon from its engine class.
+        const own = this.models.modellessGroup(resource);
+        if (own !== undefined) return own;
         let g = this.helperByModel.get(resource);
         if (g === undefined) {
             const t = this.cubeTexture(resource);
@@ -1349,9 +1352,9 @@ export class LevelView {
         }
         return out;
     }
-    /** Changes when more models have loaded (a learned group may appear). */
+    /** Changes when more models have loaded or classes turned out to have none (a learned group may appear). */
     get helperRevision(): number {
-        return this.models.entryCount;
+        return this.models.entryCount + this.models.modellessCount;
     }
     private cubeTexture(resource: string): number | null {
         const e = this.models.entry(resource);

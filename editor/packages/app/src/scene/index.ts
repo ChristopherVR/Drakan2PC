@@ -37,7 +37,14 @@ export { groundHeightAt, raycastScene, type SceneHit } from './pick.ts';
 export type { ModelData, SceneTexture, TerrainData } from './decode.ts';
 export { ModelLayer, type LayerObject } from './layer.ts';
 export { IconLayer, type IconItem } from './icons.ts';
-export { HELPER_GROUPS, classesToLoad, helperGroupOf, partitionObjects, type HelperGroup } from './instances.ts';
+export {
+    HELPER_GROUPS,
+    classesToLoad,
+    helperGroupOf,
+    helperGroupOfRfl,
+    partitionObjects,
+    type HelperGroup,
+} from './instances.ts';
 export {
     clientToNdc,
     nearestHit,
