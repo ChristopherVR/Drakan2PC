@@ -63,7 +63,14 @@ class ModelAlphaCoverage {
 public:
     std::span<const uint32_t> update(const SceneModels* models);
 };
-// Attribute 6.w: two UNORM8 channels, represented exactly as a float integer (roughness, normal-incidence F0).
+// Attribute 6.w: two UNORM8 channels, represented exactly as a float integer (roughness, normal-incidence F0),
+// plus kRayMaterialGlossy. Both shaders trace opaque-material reflections only for glossy materials.
+// Native textures carry their (baked) lighting already; a rough dielectric's specular lobe is close to the
+// irradiance that lighting represents, so adding it again lifted dark ground towards the sky colour (a milky,
+// low-contrast haze, GitHub issue 1). Rough materials therefore keep their native colour.
+constexpr float kRayGlossyRoughness = .5f;
+constexpr uint32_t kRayMaterialGlossy = 1u << 16;
+bool rayMaterialGlossy(float roughness);
 float packRayMaterial(float roughness, float reflectance);
 // Capturing a pose can publish a new immutable snapshot of unchanged geometry.
 // Pointer identity alone would rebuild its normals/materials (and WebGPU BLAS).

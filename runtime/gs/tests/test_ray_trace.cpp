@@ -214,6 +214,27 @@ int main() {
             check(std::abs(float(out[(34 * W + 32) * 4]) - expected) < 5,
                   "native display-lighting ratio is not gamma weakened");
         }
+        // Sun occluders fade out by 16 m (8000 units) along the shadow ray: a huge cliff about 11000 units away does
+        // not put the open ground into shadow (GitHub issue 1), matching the scene without it.
+        {
+            auto open = world, cliff = world;
+            open.resize(2);
+            for (size_t i = 2; i < cliff.size(); ++i)
+                for (auto& point : cliff[i].p) {
+                    point.x = point.x < 0 ? -50000.f : 50000.f;
+                    point.y = point.y > 0 ? 50000.f : -100.f;
+                    point.z = -12000;
+                }
+            std::vector<uint8_t> reference;
+            check(pass.render(f, open, {}, &lighting, so) &&
+                      device->readTexture(*pass.output(), 0, 0, 0, W, H, reference),
+                  "open-ground sun pass runs");
+            check(pass.render(f, cliff, {}, &lighting, so) && device->readTexture(*pass.output(), 0, 0, 0, W, H, out),
+                  "far-cliff sun pass runs");
+            check(out.size() == reference.size() && out[(34 * W + 32) * 4] == reference[(34 * W + 32) * 4] &&
+                      reference[(34 * W + 32) * 4] >= 120,
+                  "a sun occluder beyond the shadow reach leaves open ground lit");
+        }
         // A light facing away contributes no direct illumination. Removing it must keep exactly the same AO
         // in the ambient-only scene, rather than disabling the dispatch or falling back to unity lighting.
         SceneModels ambient;

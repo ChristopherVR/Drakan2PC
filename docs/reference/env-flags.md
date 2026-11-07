@@ -13,7 +13,7 @@ Parse rules: **presence** = variable exists (even empty); **not-0** = exists and
 | Variable | Type / rule | Default | Effect |
 | --- | --- | --- | --- |
 | `GSR_MODERN_WATER` | not-0 | off | Modern (ray-traced) water pass. |
-| `GSR_RAY_REFLECTIONS` | not-0 | off | Ray-traced water and rough opaque-material reflections; independent of modern water. |
+| `GSR_RAY_REFLECTIONS` | not-0 | off | Ray-traced water and glossy opaque-material reflections (rough native textures keep their colour); independent of modern water. |
 | `GSR_RAY_GI` | not-0 | off | Experimental ray-traced diffuse indirect illumination from nearby surfaces. |
 | `GSR_RAY_SHADOWS` | not-0 | off | Ray-traced shadows. |
 | `GSR_RAY_CPU_CACHE` | first-char != `0` | on | CPU cache of packed ray textures. |
@@ -24,7 +24,7 @@ Parse rules: **presence** = variable exists (even empty); **not-0** = exists and
 | `GSR_SURFACE_OVERLAP` | first-char != `0` | on | At a geometry join, finish independent D3D11 model preparation and help process queued surfaces in order. `0` leaves the whole queue to the worker for comparisons. |
 | `GSR_RAY_WORLD_CACHE` | first-char != `0` | on | Incremental world triangle cache. |
 | `GSR_RAY_PACKED_TEXTURES` | first-char != `0` | on | 32-bit packed ray textures. |
-| `GSR_WATER_COVERAGE_DEBUG` | atoi (uint) | 0 | Water coverage debug mode passed to the shader. |
+| `GSR_WATER_COVERAGE_DEBUG` | atoi (uint) | 0 | Water coverage debug mode passed to the shader. DXR `4`: the ray scene's receiver colour (texel times vertex colour), black without a receiver; `5`: the radiance that surface returns to a bounce ray; `6`: the incoming diffuse bounce light alone (white receivers, times four). 4 and 5 need ray shadows or a transport effect, 6 needs global illumination. |
 | `GSR_WATER_TIME` | strtof | unset | Fix the water clock (finite, abs < 1e6). |
 | `GSR_RAY_SCENE_DUMP` | string | unset | DXR scene dump path, plus `.models.csv` source metadata, at `GSR_RAY_SCENE_DUMP_EPOCH`. |
 | `GSR_RAY_SCENE_DUMP_EPOCH` | positive integer | `200` | DXR dump world epoch. Pair with the same `GSR_TEMPORAL_DUMP_EPOCH`; early epochs can precede gameplay. Invalid/zero values keep the default. |

@@ -29,11 +29,17 @@ static const float kMetre=500;
 static const float kSunRadius=.006;              // angular radius (rad) of the soft directional-light disk
 static const float kPointLightRadius=.06*kMetre; // native point lights are points; give them a small emitter
 static const float kTerminatorOffset=.1*kMetre;  // extra normal offset at grazing light (low-poly self-shadow)
+// Directional (sun) occluders fade out between these distances along the shadow ray. The native lighting of terrain
+// and models ignores occlusion, and the authored look of a level assumes it: Surdana's valley floor is lit although
+// the cliffs around it block a 28 degree sun from every point of it. Far terrain and large rock models therefore cast
+// no sun shadow; characters, props, trees and nearby walls (contact shadows) still do.
+static const float kSunShadowFade=8*kMetre,kSunShadowReach=16*kMetre;
 static const uint kOcclusionRays=4;
 static const float kOcclusionRadius=kMetre;      // ambient occlusion reach: contact grounding and creases
 static const float kOcclusionStrength=.6;        // full-strength AO inks every wall/ground contact like an outline
 static const uint kNoInstance=0xffffffff;
 static const uint kAttributes=7; // float4 material attributes per triangle (kTriangleAttributes)
+static const uint kMaterialGlossy=65536; // kRayMaterialGlossy in attribute 6.w
 static const float kWaterExtinction=.35/kMetre;  // Beer-Lambert extinction outside the water's own colour
 static const float kFoamDepth=.06*kMetre;        // vertical depth over which shoreline foam forms
 static const float kCausticStrength=.9;
@@ -188,11 +194,12 @@ float3 shadingNormal(uint primitive,float2 bary,float3x3 worldToObject,float3 ge
     if(dot(mul(face,worldToObject),geometric)<0)n=-n;
     return all(isfinite(n)) && dot(n,geometric)>.1?n:geometric;
 }
-float visibility(float3 p,float3 normal,float3 direction,float maximum,uint self) {
+float visibility(float3 p,float3 normal,float3 direction,float maximum,uint self,bool sun) {
     // The normal offset grows towards the terminator: faceted native terrain otherwise shadows its own
     // neighbours in triangle-shaped stripes where the smooth GS lighting is still lit.
     float offset=4+kTerminatorOffset*(1-saturate(dot(normal,direction)));
-    RayDesc ray;ray.Origin=p+normal*offset+direction*2;ray.Direction=direction;ray.TMin=2;ray.TMax=maximum;
+    RayDesc ray;ray.Origin=p+normal*offset+direction*2;ray.Direction=direction;ray.TMin=2;
+    ray.TMax=sun?min(maximum,kSunShadowReach):maximum;
     float transmission=1,travelled=0;
     [loop]for(uint layer=0;layer<8 && transmission>.01;++layer){
         RayQuery<RAY_FLAG_NONE> query;query.TraceRayInline(Scene,RAY_FLAG_NONE,8,ray); // direct-shadow caster mask
@@ -208,6 +215,7 @@ float visibility(float3 p,float3 normal,float3 direction,float maximum,uint self
         travelled+=query.CommittedRayT();
         alpha*=lerp(creaseWeight(primitive,(float3x3)query.CommittedWorldToObject3x4(),normal,direction),1,
                     smoothstep(2*kMetre,5*kMetre,travelled));
+        if(sun)alpha*=1-smoothstep(kSunShadowFade,kSunShadowReach,travelled);
         transmission*=1-alpha;float advance=query.CommittedRayT()+2;ray.Origin+=direction*advance;ray.TMax-=advance;travelled+=2;
         if(ray.TMax<=ray.TMin)break;
     }
@@ -257,20 +265,20 @@ Lighting nativeLightingVisible(float3 p,float3 normal,float3 shading,float rotat
             // Soft shadows from per-pixel rotated samples over the emitter: the penumbra widens with blocker
             // distance (contact hardening), and its noise resolves temporally instead of in fixed steps.
             float3 tangent,bitangent;basis(centre,tangent,bitangent);
-            if(secondary)visible=visibility(p,normal,centre,maximum,self);
+            if(secondary)visible=visibility(p,normal,centre,maximum,self,!local);
             else if(local){
                 float sum=0;
                 [unroll]for(uint sample=0;sample<2;++sample){
                     float2 d=diskSample(sample,2,rotation)*kPointLightRadius;
                     float3 toLight=l+tangent*d.x+bitangent*d.y;
-                    sum+=visibility(p,normal,normalize(toLight),length(toLight)-8,self);
+                    sum+=visibility(p,normal,normalize(toLight),length(toLight)-8,self,false);
                 }
                 visible=sum*.5;
             } else {
                 float sum=0;
                 [unroll]for(uint sample=0;sample<4;++sample){
                     float2 d=diskSample(sample,4,rotation)*kSunRadius;
-                    sum+=visibility(p,normal,normalize(centre+tangent*d.x+bitangent*d.y),maximum,self);
+                    sum+=visibility(p,normal,normalize(centre+tangent*d.x+bitangent*d.y),maximum,self,true);
                 }
                 visible=sum*.25;
             }
@@ -299,12 +307,17 @@ static const float kLodReach=kMetre; // vertical search for a receiver drawn at 
 // Closest alpha-tested level or model triangle along `ray`. A vertical search passes levelOnly: it looks for the
 // terrain under a drawn pixel, not a prop beside it.
 struct SurfaceHit {bool hit,direct;float t,opacity;uint primitive,instance;float2 bary;float3x3 worldToObject;};
-SurfaceHit closestSurface(RayDesc ray,bool levelOnly) {
+// Cutout or blended native model materials (grass, flowers, leaves): their ray-scene cards do not match what the GS
+// draws (texture-only colour without the native vertex tint, no distance fade), so as diffuse bounce sources they
+// printed saturated pink, blue and green bands on the ground around them (GitHub issue 1). Bounce rays pass them.
+bool foliage(uint flags) {return (flags&128) && ((flags&8) || (flags&7)!=1);}
+SurfaceHit closestSurface(RayDesc ray,bool levelOnly,bool bounce=false) {
     SurfaceHit h;h.hit=false;h.direct=true;h.t=0;h.opacity=0;h.primitive=0;h.instance=kNoInstance;h.bary=0;h.worldToObject=(float3x3)0;
     RayQuery<RAY_FLAG_NONE> query;query.TraceRayInline(Scene,RAY_FLAG_NONE,(Effects.w&32768)?16:1,ray);
     while(query.Proceed())if(query.CandidateType()==CANDIDATE_NON_OPAQUE_TRIANGLE){
         uint primitive=(query.CandidateInstanceID()&0x7ffff)+query.CandidatePrimitiveIndex(),flags=uint(Materials[primitive*kAttributes+5].z);
-        if(!(flags&256) && !(levelOnly && (flags&128)) && materialAlpha(primitive,query.CandidateTriangleBarycentrics())>0)query.CommitNonOpaqueTriangleHit();
+        if(!(flags&256) && !(levelOnly && (flags&128)) && !(bounce && foliage(flags)) &&
+           materialAlpha(primitive,query.CandidateTriangleBarycentrics())>0)query.CommitNonOpaqueTriangleHit();
     }
     if(query.CommittedStatus()!=COMMITTED_TRIANGLE_HIT)return h;
     h.hit=true;h.t=query.CommittedRayT();h.primitive=(query.CommittedInstanceID()&0x7ffff)+query.CommittedPrimitiveIndex();
@@ -430,7 +443,7 @@ float3 secondaryRadiance(float3 p,float3 geometric,float3 direction,float rotati
     RayDesc ray;ray.Origin=p+geometric*4;ray.Direction=direction;ray.TMin=2;ray.TMax=sky?1e7:20*kMetre;
     float3 radiance=0;float transmission=1;bool escaped=false;
     [loop]for(uint layer=0;layer<4 && transmission>.01;++layer){
-        SurfaceHit hit=closestSurface(ray,false);if(!hit.hit){escaped=true;break;}
+        SurfaceHit hit=closestSurface(ray,false,!sky);if(!hit.hit){escaped=true;break;}
         float3 hitPosition=ray.Origin+direction*hit.t,normal=faceNormal(hit);
         if(dot(normal,direction)>0)normal=-normal;
         float3 shading=shadingNormal(hit.primitive,hit.bary,hit.worldToObject,normal);
@@ -457,7 +470,10 @@ float4 opaqueTransport(float3 p,float3 geometric,float3 normal,SurfaceHit surfac
     float2 material=opaqueMaterial(surface.primitive);float roughness=material.x,f0=material.y;
     float ndv=saturate(dot(normal,view));
     uint flags=uint(Materials[surface.primitive*kAttributes+5].z);
-    bool glossy=(Effects.w&1024) && ndv>.001 && !(flags&8) && (flags&7)==1;
+    // Only materials classified glossy on the CPU (kRayMaterialGlossy) reflect: rough native textures already hold
+    // their lit appearance, and a rough lobe of the sky added on top washed them out.
+    bool glossy=(Effects.w&1024) && ndv>.001 && !(flags&8) && (flags&7)==1 &&
+        (uint(Materials[surface.primitive*kAttributes+6].w)&kMaterialGlossy);
     float3 diffuse=0,tangent,bitangent;basis(normal,tangent,bitangent);
     if(Effects.w&512){
         float3 incoming=0;float rotation=pixelNoise(pixel,3);
@@ -468,7 +484,7 @@ float4 opaqueTransport(float3 p,float3 geometric,float3 normal,SurfaceHit surfac
         }
         // Cosine-weighted Lambertian estimator: BRDF*cos/pdf cancels pi. Native material colour is the only
         // available receiver reflectance; clamp its baked lighting to keep this single bounce energy bounded.
-        diffuse+=saturate(materialColor(surface.primitive,surface.bary))*(glossy?1:1-f0)*incoming*.25;
+        diffuse+=(SceneInfo.w==6?1:saturate(materialColor(surface.primitive,surface.bary)))*(glossy?1:1-f0)*incoming*.25;
     }
     if(!glossy)return float4(diffuse,0);
     float3 reflected=0;float energy=0;float rotation=pixelNoise(pixel,4),alpha=roughness*roughness,a2=alpha*alpha;
@@ -627,6 +643,12 @@ void main(uint3 id : SV_DispatchThreadID) {
         haveReceiver=all(isfinite(receiver)) && primarySurface(receiver,receiverNormal,receiverShading,
             receiverConfidence,receiverSelf,receiverHit,Effects.y!=0);
     }
+    // GSR_WATER_COVERAGE_DEBUG=4: the ray scene's own receiver colour (texel times vertex colour), black without one.
+    // Compare it with the raster to check resident terrain materials; needs ray shadows or a transport effect.
+    if(SceneInfo.w==4){Output[id.xy]=float4(haveReceiver?saturate(materialDisplay(receiverHit.primitive,receiverHit.bary)):0,original.a);return;}
+    // 5: the radiance this surface returns to a secondary (bounce or reflection) ray that hits it.
+    if(SceneInfo.w==5){float3 v=haveReceiver?hitColor(receiver,receiverHit.primitive,receiverHit.bary,receiverNormal,
+        receiverShading,pixelNoise(id.xy,0),true,receiverSelf):0;Output[id.xy]=float4(toDisplay(v),original.a);return;}
     if(Effects.y && sceneDepth>0){
         if(Effects.w&128)receiverShadow=0;
         if(haveWater)receiverShadow=shadowRatio(waterLight);
@@ -644,6 +666,7 @@ void main(uint3 id : SV_DispatchThreadID) {
         uint materialKey=transportMaterialKey(receiverHit.primitive);
         float4 incoming=filteredTransport(id.xy,sceneDepth,receiverNormal,materialKey)*receiverConfidence;
         float3 after=toLinear(Output[id.xy].rgb)*(1-saturate(incoming.a))+incoming.rgb;
+        if(SceneInfo.w==6)after=incoming.rgb*4; // 6: incoming bounce light alone (white receivers), times four
         if(all(isfinite(after)))Output[id.xy]=float4(toDisplay(max(0,after)),original.a);
     }
     if(!Effects.x || !haveWater)return;

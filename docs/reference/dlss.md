@@ -18,7 +18,7 @@ has not yet been reproduced. See [the investigation](../journal/2026-11-05/rynn-
 
 F1 â†’ Video â†’ Ray tracing now offers **Ray-traced global illumination** (`ray_gi`, environment `GSR_RAY_GI`)
 and **Ray-traced reflections** (`ray_reflections`, `GSR_RAY_REFLECTIONS`). Both work independently of modern water
-and direct shadows. The reflection setting includes rough opaque surfaces as well as water. Fresh settings default
+and direct shadows. The reflection setting covers water and glossy opaque materials (rough native textures are excluded since 7 November, see below). Fresh settings default
 both off; explicit saved choices are respected.
 
 DXR and WebGPU trace one diffuse bounce from textured resident geometry, including offscreen surfaces, and sample
@@ -37,6 +37,30 @@ This supplements original lighting rather than replacing it with a full path tra
 PBR maps, some material colors already contain authored lighting, and geometry/material export remains partial.
 It is not DLSS Ray Reconstruction. Implementation, sampling/coverage limits and validation are recorded in
 [the transport investigation](../journal/2026-11-04/ray-transport.md).
+
+## Ray tracing artefacts from issue 1, 7 November 2026
+
+Three corrections, on both backends (DXR `ray_water.hlsl`, WebGPU `ray_trace.wgsl`):
+
+- **Reflections are glossy-only.** `packRayMaterial` marks a material glossy (`kRayMaterialGlossy`, bit 16 of
+  attribute 6.w) when its roughness is at most `kRayGlossyRoughness` (0.5). Opaque reflections trace only glossy,
+  nonblended, non-cutout materials. Native textures default to a rough dielectric (0.75 / 0.04) and already hold
+  their lit appearance; adding the rough sky lobe on top lifted all ground towards the sky colour (milky, low
+  contrast). Until assets carry authored roughness, the reflection setting changes water only.
+- **Diffuse bounce passes foliage.** Bounce rays ignore cutout or blended native model materials (grass, flower
+  and leaf cards). Their ray-scene cards carry the bare texture colour without the GS vertex tint or distance fade
+  and lit the ground around them in saturated pink, blue and green bands. Shadows, AO and reflections still see them.
+- **Terrain materials are per cell.** A terrain layer stores one texture reference per cell, but the resident scene
+  kept a single projection per layer, so every cell of a layer took one texture in the ray scene. `ResidentScene` now keeps the observed
+  projection of each drawn cell; the layer projection only fills cells that were never drawn.
+- **Sun occluders fade with distance.** Directional (sun) shadow rays fade occluders out between 8 m and 16 m
+  (`kSunShadowFade` / `kSunShadowReach`, 4000 / 8000 units). Native lighting ignores occlusion and the levels were lit
+  with that in mind: the cliffs around Surdana's valley block a 28 degree sun from all of its floor, which the full
+  trace turned into one large shadow. Characters, props, trees and nearby walls still cast; point lights are
+  unchanged.
+
+DXR debug views: `GSR_WATER_COVERAGE_DEBUG=4` the ray scene's receiver colour, `5` the radiance a surface returns
+to a bounce ray, `6` the incoming bounce light alone. Evidence: [the investigation](../journal/2026-11-07/issue-1-ray-artifacts.md).
 
 ## Shadow contrast and ambient-only coverage, 4 November 2026
 

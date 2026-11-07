@@ -50,6 +50,10 @@ const kMetre = 500.0;
 const kSunRadius = 0.006;
 const kPointLightRadius = 0.06 * kMetre;
 const kTerminatorOffset = 0.1 * kMetre;
+// Directional (sun) occluders fade out between these distances along the shadow ray (see ray_water.hlsl): native
+// lighting ignores occlusion, so far terrain and large rock models cast no sun shadow; contact shadows remain.
+const kSunShadowFade = 8.0 * kMetre;
+const kSunShadowReach = 16.0 * kMetre;
 const kOcclusionRadius = kMetre;
 const kOcclusionStrength = 0.6;
 const kNoInstance = 0xffffffffu;
@@ -256,10 +260,12 @@ const kReflect = 2u;   // kAlpha (no self) except water-scope layers lying on th
 const kOpaque = 3u;    // every triangle (RAY_FLAG_FORCE_OPAQUE)
 const kCoverage = 4u;  // every candidate counted (max vertex opacity), none committed
 const kShadow = 5u;    // kAlpha, ending the walk at a hit that alone blocks the light (traceBlocked)
+const kBounce = 6u;    // kAlpha except cutout/blended native model materials (diffuse bounce, see ray_water.hlsl)
 struct Hit { t: f32, primitive: u32, instance: u32, bary: vec2f, hit: bool }
 var<private> coverageOpacity: f32;
 var<private> coverageSeen: bool;
 var<private> traceBlocked: bool;
+var<private> shadowSun: bool; // kShadow: a directional light's ray (distance fade applies)
 var<private> shadowTravelled: f32; // kShadow: the distance travelled before this segment, and the receiver normal
 var<private> shadowReceiver: vec3f;
 var<private> reflectOrigin: vec3f;  // kReflect: the water point and its plane normal
@@ -292,7 +298,8 @@ fn accept(kind: u32, primitive: u32, instance: u32, bary: vec2f, t: f32, dir: ve
         if (waterLayer(primitive, height, reflectNormal)) {
             return false;
         }
-    } else if ((flags & 256u) != 0u || (kind == kLevel && (flags & 128u) != 0u)) {
+    } else if ((flags & 256u) != 0u || (kind == kLevel && (flags & 128u) != 0u) ||
+               (kind == kBounce && (flags & 128u) != 0u && ((flags & 8u) != 0u || (flags & 7u) != 1u))) {
         return false;
     }
     let alpha = materialAlpha(primitive, bary);
@@ -308,7 +315,8 @@ fn accept(kind: u32, primitive: u32, instance: u32, bary: vec2f, t: f32, dir: ve
         let facing = dot(hitNormal, shadowReceiver);
         let crease = select(1.0, 1.0 - smoothstep(0.5, 0.87, facing), finite(facing));
         let block = saturate(alpha) * instanceOpacity(instance) *
-                    mix(crease, 1.0, smoothstep(2.0 * kMetre, 5.0 * kMetre, shadowTravelled + t));
+                    mix(crease, 1.0, smoothstep(2.0 * kMetre, 5.0 * kMetre, shadowTravelled + t)) *
+                    select(1.0, 1.0 - smoothstep(kSunShadowFade, kSunShadowReach, shadowTravelled + t), shadowSun);
         traceBlocked = block >= 0.999;
     }
     return true;
@@ -480,10 +488,11 @@ fn shadingNormal(h: Hit, geometric: vec3f) -> vec3f {
     }
     return select(geometric, n, finite3(n) && dot(n, geometric) > 0.1);
 }
-fn visibility(p: vec3f, normal: vec3f, direction: vec3f, maximum: f32, self_: u32) -> f32 {
+fn visibility(p: vec3f, normal: vec3f, direction: vec3f, maximum: f32, self_: u32, sun: bool) -> f32 {
     let offset = 4.0 + kTerminatorOffset * (1.0 - saturate(dot(normal, direction)));
     var o = p + normal * offset + direction * 2.0;
-    var tmax = maximum;
+    var tmax = select(maximum, min(maximum, kSunShadowReach), sun);
+    shadowSun = sun;
     var transmission = 1.0;
     var travelled = 0.0;
     shadowReceiver = normal;
@@ -499,6 +508,7 @@ fn visibility(p: vec3f, normal: vec3f, direction: vec3f, maximum: f32, self_: u3
         var alpha = saturate(acceptedMaterialAlpha(h.primitive, h.bary)) * instanceOpacity(h.instance);
         travelled += h.t;
         alpha *= mix(creaseWeight(h, normal, direction), 1.0, smoothstep(2.0 * kMetre, 5.0 * kMetre, travelled));
+        if (sun) { alpha *= 1.0 - smoothstep(kSunShadowFade, kSunShadowReach, travelled); }
         transmission *= 1.0 - alpha;
         let advance = h.t + 2.0;
         o += direction * advance;
@@ -561,7 +571,7 @@ fn nativeLightingVisible(p: vec3f, normal: vec3f, shading: vec3f, rotation: f32,
         var visible = 1.0;
         if ((secondary || L.effects.y != 0u) && samples > 0u && (L.effects.w & 64u) == 0u) {
             if (secondary) {
-                visible = visibility(p, normal, centre, maximum, self_);
+                visible = visibility(p, normal, centre, maximum, self_, !local);
             } else {
                 let tangent = basisT(centre);
                 let bitangent = cross(centre, tangent);
@@ -571,14 +581,15 @@ fn nativeLightingVisible(p: vec3f, normal: vec3f, shading: vec3f, rotation: f32,
                     for (var sample = 0u; sample < n; sample++) {
                         let d = diskSample(sample, n, rotation) * kPointLightRadius;
                         let toLight = l + tangent * d.x + bitangent * d.y;
-                        sum += visibility(p, normal, normalize(toLight), length(toLight) - 8.0, self_);
+                        sum += visibility(p, normal, normalize(toLight), length(toLight) - 8.0, self_, false);
                     }
                     visible = sum / f32(n);
                 } else {
                     let n = clamp(samples, 1u, 4u);
                     for (var sample = 0u; sample < n; sample++) {
                         let d = diskSample(sample, n, rotation) * kSunRadius;
-                        sum += visibility(p, normal, normalize(centre + tangent * d.x + bitangent * d.y), maximum, self_);
+                        sum += visibility(p, normal, normalize(centre + tangent * d.x + bitangent * d.y), maximum, self_,
+                                          true);
                     }
                     visible = sum / f32(n);
                 }
@@ -742,7 +753,7 @@ fn transportRadiance(p: vec3f, normal: vec3f, direction: vec3f, self_: u32, reac
     var transmission = 1.0;
     var radiance = vec3f(0.0);
     for (var layer = 0u; layer < 4u; layer++) {
-        let h = trace(origin, direction, 2.0, remaining, validatedGeometryMask(), kAlpha, kNoInstance);
+        let h = trace(origin, direction, 2.0, remaining, validatedGeometryMask(), select(kBounce, kAlpha, sky), kNoInstance);
         if (!h.hit) {
             if (sky) { radiance += transmission * environment(direction, vec3f(0.0)); }
             break;
@@ -773,7 +784,9 @@ fn opaqueTransport(s: Surface, direction: vec3f, pixel: vec2u) -> vec4f {
     let tangent = basisT(s.shading);
     let bitangent = cross(s.shading, tangent);
     let flags = materialFlags(s.hit.primitive);
-    let glossy = (L.effects.w & 1024u) != 0u && ndv > 0.001 && (flags & 8u) == 0u && (flags & 7u) == 1u;
+    // Only CPU-classified glossy materials (kRayMaterialGlossy) reflect; rough native textures keep their colour.
+    let glossy = (L.effects.w & 1024u) != 0u && ndv > 0.001 && (flags & 8u) == 0u && (flags & 7u) == 1u &&
+                 (packed & 65536u) != 0u;
     var incomingLight = vec3f(0.0);
     var specularEnergy = 0.0;
     if ((L.effects.w & 512u) != 0u) {

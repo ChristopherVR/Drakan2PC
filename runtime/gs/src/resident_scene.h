@@ -24,6 +24,12 @@ class ResidentScene {
     // Triangle indices per 2048-unit cell (by centroid), in insertion order.
     std::unordered_map<int64_t, std::vector<uint32_t>> cells;
     std::unordered_map<uint32_t, Projection> materials;
+    // Per resident triangle: the projection of the draw observed on that terrain cell. A layer stores one texture
+    // reference per cell (grass, path, rock, ... in one layer), so the layer projection above is only the fallback
+    // for cells not drawn yet. Using it everywhere gave whole cells the wrong texture in ray hits and as the
+    // receiver albedo of global illumination: strange colours along terrain creases (GitHub issue 1).
+    std::unordered_map<uint32_t, Projection> cellMaterials;
+    std::unordered_map<uint32_t, uint64_t> triangleChanged;
     // Triangle indices per material layer, and the projection version that first includes each layer's latest
     // material. A new projection repacks only the layers changed since the buffer it reuses was built.
     std::unordered_map<uint32_t, std::vector<uint32_t>> layerTriangles;
@@ -60,9 +66,13 @@ class ResidentScene {
     // projections) with its layer's material applied.
     void project(size_t i, Triangle& t) const {
         std::memcpy(&t, &triangles[i], sizeof(Triangle));
-        const auto found = materials.find(layers[i]);
-        if (found != materials.end()) {
-            const auto& m = found->second;
+        const Projection* material = nullptr;
+        if (const auto cell = cellMaterials.find(uint32_t(i)); cell != cellMaterials.end())
+            material = &cell->second;
+        else if (const auto layer = materials.find(layers[i]); layer != materials.end())
+            material = &layer->second;
+        if (material) {
+            const auto& m = *material;
             t.texture = m.texture;
             for (unsigned j = 0; j < 3; ++j) {
                 t.uv[j][0] = m.u[0] * t.p[j].x + m.u[1] * t.p[j].z + m.u[2];
@@ -130,6 +140,8 @@ public:
         layers.clear();
         cells.clear();
         materials.clear();
+        cellMaterials.clear();
+        triangleChanged.clear();
         layerTriangles.clear();
         layerChanged.clear();
         spares.clear();
@@ -217,8 +229,11 @@ public:
         const float det = ax * bz - az * bx;
         if (std::abs(det) < 10000)
             return;
+        const auto cell = cellMaterials.find(uint32_t(index));
+        const bool cellNewer = cell == cellMaterials.end() || cell->second.area < std::abs(det);
         const auto previous = materials.find(layers[index]);
-        if (previous != materials.end() && previous->second.area >= std::abs(det))
+        const bool layerNewer = previous == materials.end() || previous->second.area < std::abs(det);
+        if (!cellNewer && !layerNewer)
             return;
         Projection m;
         m.texture = draw.texture;
@@ -231,9 +246,21 @@ public:
             coefficients[1] = (ax * b - bx * a) / det;
             coefficients[2] = draw.uv[0][component] - coefficients[0] * draw.p[0].x - coefficients[1] * draw.p[0].z;
         }
-        materials[layers[index]] = m;
-        layerChanged[layers[index]] = projectedVersion + 1;
-        projectionDirty = true;
+        if (cellNewer) {
+            const bool same = cell != cellMaterials.end() && cell->second.texture == m.texture &&
+                              std::memcmp(cell->second.u, m.u, sizeof(m.u)) == 0 &&
+                              std::memcmp(cell->second.v, m.v, sizeof(m.v)) == 0;
+            cellMaterials[uint32_t(index)] = m;
+            if (!same) {
+                triangleChanged[uint32_t(index)] = projectedVersion + 1;
+                projectionDirty = true;
+            }
+        }
+        if (layerNewer) {
+            materials[layers[index]] = m;
+            layerChanged[layers[index]] = projectedVersion + 1;
+            projectionDirty = true;
+        }
     }
     // Triangles with the observed material projections applied. Valid until the next replace/observe call.
     std::span<const Triangle> projectedTriangles() const { return *projectedShared(); }
@@ -279,6 +306,9 @@ public:
                     if (const auto found = layerTriangles.find(layer); found != layerTriangles.end())
                         for (auto i : found->second)
                             project(i, out[i]);
+            for (const auto& [i, version] : triangleChanged)
+                if (version > target->version)
+                    project(i, out[i]);
         }
         projectionDirty = false;
         projectionMode = mode;

@@ -26,11 +26,16 @@ std::span<const uint32_t> ModelAlphaCoverage::update(const SceneModels* models) 
     }
     return coverage;
 }
+bool rayMaterialGlossy(float roughness) {
+    return std::isfinite(roughness) && roughness <= kRayGlossyRoughness;
+}
 float packRayMaterial(float roughness, float reflectance) {
     // A small positive roughness avoids singular specular lobes and reserves zero for old/manual attributes.
+    const bool glossy = rayMaterialGlossy(roughness);
     roughness = std::isfinite(roughness) ? std::clamp(roughness, .04f, 1.f) : .75f;
     reflectance = std::isfinite(reflectance) ? std::clamp(reflectance, 0.f, 1.f) : .04f;
-    return float(uint32_t(roughness * 255.f + .5f) | (uint32_t(reflectance * 255.f + .5f) << 8));
+    return float(uint32_t(roughness * 255.f + .5f) | (uint32_t(reflectance * 255.f + .5f) << 8) |
+                 (glossy ? kRayMaterialGlossy : 0u));
 }
 uint32_t rayDiagnosticEffects(std::string_view mode) {
     if (mode == "ao")

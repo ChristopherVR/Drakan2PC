@@ -865,8 +865,25 @@ int main(int argc, char** argv) {
         const float displayed = std::ldexp(float((bits & 1023) + ((bits & 0x7c00) ? 1024 : 0)),
                                            int((bits >> 10) & 31) - ((bits & 0x7c00) ? 25 : 24));
         assert(std::abs(displayed - .2f * (.25f / 1.25f)) < .001f);
+        // Sun occluders fade out from 8 m to 16 m (4000-8000 units): the native lighting the levels were authored
+        // with ignores occlusion, so far cliffs must not put a lit valley floor into full shadow (GitHub issue 1).
+        auto sunBlockerAt = [&](float z) {
+            triangles.resize(2);
+            quad({-1000, -1000, z}, {1000, -1000, z}, {1000, 1000, z}, {-1000, 1000, z}, {.5f, .5f, .5f}, false);
+            assert(water.render(color.Get(), depth.Get(), output.Get(), c, triangles, 1, false, {}, &models, shadows));
+            const auto bits = read()[((h / 2) * w + w / 2) * 4];
+            return std::ldexp(float((bits & 1023) + ((bits & 0x7c00) ? 1024 : 0)),
+                              int((bits >> 10) & 31) - ((bits & 0x7c00) ? 25 : 24));
+        };
+        const float nearSun = sunBlockerAt(-320 + 3500), fading = sunBlockerAt(-320 + 6000),
+                    farSun = sunBlockerAt(-320 + 9000);
+        assert(std::abs(nearSun - .2f * (.25f / 1.25f)) < .001f);
+        assert(fading > nearSun + .01f && fading < .2f - .01f);
+        assert(std::abs(farSun - .2f) < .001f);
         triangles = saved;
-        std::cout << "Blocked native sun preserves the authored display-space ambient ratio\n";
+        std::cout << "Blocked native sun preserves the authored display-space ambient ratio; far sun occluders fade "
+                     "out (near "
+                  << nearSun << ", 12 m " << fading << ", 18 m " << farSun << ")\n";
     }
     assert(water.render(color.Get(), depth.Get(), output.Get(), c, triangles, 1, false, {}, &models, shadows));
     auto shadowed = read();
@@ -1507,6 +1524,20 @@ int main(int argc, char** argv) {
         }
         const auto rough = transport(false, true);
         assert(energy(rough, 0) < energy(polished, 0) - .05f);
+        // Native diffuse textures (default rough dielectric) keep their colour: a rough sky lobe added on top of
+        // their baked lighting washed the ground out (GitHub issue 1). Only glossy materials reflect.
+        assert(!gsr::surface::rayMaterialGlossy(.75f) && gsr::surface::rayMaterialGlossy(.5f));
+        for (unsigned t = 0; t < 2; ++t) {
+            triangles[t].roughness = .75f;
+            triangles[t].reflectance = .04f;
+        }
+        const auto nativeRough = transport(false, true);
+        for (unsigned channel = 0; channel < 3; ++channel)
+            assert(std::abs(energy(nativeRough, channel) - .2f) < .001f);
+        for (unsigned t = 0; t < 2; ++t) {
+            triangles[t].roughness = .95f;
+            triangles[t].reflectance = .8f;
+        }
         // Constant-radiance furnace: every valid reflected sample sees the same .2 display radiance as the
         // receiver. Reflected energy must replace exactly the diffuse energy removed, at every roughness.
         // A smooth-view Fresnel attenuation paired with rough GGX additions fails this balance badly at high F0.
@@ -1532,6 +1563,8 @@ int main(int argc, char** argv) {
                 }
         }
         std::cout << "Constant-radiance GGX furnace preserves diffuse/specular energy across roughness\n";
+        for (unsigned t = 0; t < 2; ++t)
+            triangles[t].roughness = .5f; // the roughest material that still reflects
         // A black reflection removes scalar energy from each pixel's own texture. Half-resolution filtering must
         // not transfer the sampled neighbour's coloured RGB subtraction onto a differently coloured local texel.
         for (unsigned t = 2; t < 4; ++t)

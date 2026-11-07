@@ -8,6 +8,8 @@
 #include <cstring>
 #include <cfenv>
 #include <random>
+#include <cmath>
+#include <tuple>
 
 // Original packing path, retained as a differential oracle for the bounded rounding optimization.
 static float referenceNormal(gsr::surface::Point n) {
@@ -90,7 +92,7 @@ int main(int argc, char** argv) {
         packAttributes(tri, 0, direct);
         const auto packed = uint32_t(direct[6][3]);
         assert(std::abs(float(packed & 255) / 255 - .3f) <= 1.f / 255);
-        assert(std::abs(float(packed >> 8) / 255 - .6f) <= 1.f / 255);
+        assert(std::abs(float((packed >> 8) & 255) / 255 - .6f) <= 1.f / 255 && (packed & kRayMaterialGlossy));
         assert(packRayMaterial(NAN, INFINITY) == packRayMaterial(.75f, .04f));
         assert(packRayMaterial(-1, -1) == packRayMaterial(.04f, 0));
         assert(packRayMaterial(2, 2) == 65535);
@@ -406,6 +408,79 @@ int main(int argc, char** argv) {
         std::cout << "Live native snapshot: " << live.layers << " layers, " << live.waterLayers << " water layers, "
                   << live.triangles.size() << " triangles, " << differentTint
                   << " water triangles beyond the old tint\n";
+    }
+    {
+        // One terrain layer stores a texture per cell (grass beside a path). Every observed cell keeps its own
+        // projection; the layer projection only fills cells that were never drawn (GitHub issue 1: global
+        // illumination showed the wrong layer texture's colours along terrain creases).
+        gsr::SceneGeometry cells;
+        for (unsigned cell = 0; cell < 3; ++cell)
+            for (unsigned half = 0; half < 2; ++half) {
+                gsr::SceneTriangle t;
+                const float x0 = cell * 2048.f, x1 = x0 + 2048.f;
+                const float corners[2][3][2] = {{{x0, 0}, {x1, 0}, {x0, 2048}}, {{x1, 0}, {x1, 2048}, {x0, 2048}}};
+                for (unsigned j = 0; j < 3; ++j) {
+                    t.position[j][0] = corners[half][j][0];
+                    t.position[j][2] = corners[half][j][1];
+                    for (auto& c : t.color[j])
+                        c = 1;
+                }
+                cells.triangles.push_back(t);
+            }
+        cells.layers = 1;
+        gsr::surface::ResidentScene layer;
+        layer.replace(cells);
+        auto observe = [&](unsigned index, uint32_t texture, float scale) {
+            auto draw = layer.triangles[index];
+            draw.texture = texture;
+            for (unsigned j = 0; j < 3; ++j) {
+                draw.uv[j][0] = draw.p[j].x / scale;
+                draw.uv[j][1] = draw.p[j].z / scale;
+            }
+            layer.observe(draw, layer.match(draw, false));
+        };
+        observe(0, 4, 2048); // grass
+        observe(2, 9, 1024); // path in the next cell, drawn with another texture and tiling
+        std::vector<gsr::surface::Triangle> projected;
+        layer.append(projected);
+        assert(projected.size() == 6);
+        assert(projected[0].texture == 4 && projected[2].texture == 9);
+        assert(std::abs(projected[0].uv[1][0] - projected[0].p[1].x / 2048) < 1e-5f);
+        assert(std::abs(projected[2].uv[1][0] - projected[2].p[1].x / 1024) < 1e-5f);
+        // Unobserved cells fall back to the layer's largest observation.
+        assert(projected[4].texture == 4 && projected[5].texture == 4);
+        // A repeated equal observation changes nothing; projections stay byte identical.
+        const auto version = layer.attributeVersion();
+        observe(2, 9, 1024);
+        assert(layer.attributeVersion() == version);
+        // An incremental projection matches a fresh one after more cells are observed.
+        observe(4, 11, 512);
+        const auto incremental = *layer.projectedShared();
+        gsr::surface::ResidentScene fresh;
+        fresh.replace(cells);
+        for (auto [index, texture, scale] : {std::tuple{0u, 4u, 2048.f}, {2u, 9u, 1024.f}, {4u, 11u, 512.f}}) {
+            auto draw = fresh.triangles[index];
+            draw.texture = texture;
+            for (unsigned j = 0; j < 3; ++j) {
+                draw.uv[j][0] = draw.p[j].x / scale;
+                draw.uv[j][1] = draw.p[j].z / scale;
+            }
+            fresh.observe(draw, fresh.match(draw, false));
+        }
+        const auto expected = *fresh.projectedShared();
+        assert(incremental.size() == expected.size());
+        for (size_t i = 0; i < expected.size(); ++i)
+            assert(std::memcmp(&incremental[i], &expected[i], sizeof(expected[i])) == 0);
+        assert(incremental[4].texture == 11 && incremental[5].texture == 4);
+        // Material classification: native rough dielectrics never trace opaque reflections; glossy ones are marked.
+        assert(!gsr::surface::rayMaterialGlossy(.75f) && !gsr::surface::rayMaterialGlossy(.51f));
+        assert(gsr::surface::rayMaterialGlossy(.5f) && gsr::surface::rayMaterialGlossy(.04f));
+        assert(!gsr::surface::rayMaterialGlossy(std::nanf("")));
+        const auto packed = [](float r, float f) { return uint32_t(gsr::surface::packRayMaterial(r, f)); };
+        assert(packed(.75f, .04f) == (191u | (10u << 8)));
+        assert(packed(.04f, .8f) == (10u | (204u << 8) | gsr::surface::kRayMaterialGlossy));
+        assert(float(packed(.04f, 1.f)) == gsr::surface::packRayMaterial(.04f, 1.f)); // exact as a float
+        std::cout << "Per-cell terrain materials, layer fallback and glossy material classification\n";
     }
     std::cout << "PASS pre-cull geometry, constant height, native water classification, holes, material projection, "
                  "stable lifetime, bounds and replacement\n";
