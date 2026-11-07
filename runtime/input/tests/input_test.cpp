@@ -1747,6 +1747,20 @@ struct ScriptTest {
     }
 };
 
+static void testScriptLoudParse() {
+    // A line without a leading time used to be skipped silently; every rejected line must now be reported by number.
+    ScriptTest quiet("# comment only\n\n   \n1 key down W  # trailing comment\n");
+    CHECK(quiet.warnings.empty());
+    ScriptTest bare("0 sync play 2\nsync screen 5 1\n3 key tap SPACE\n");
+    CHECK(bare.warnings.find("line 2") != std::string::npos);
+    CHECK(bare.warnings.find("leading time") != std::string::npos);
+    CHECK(bare.warnings.find("line 3") == std::string::npos);
+    ScriptTest lonely("4\n");
+    CHECK(lonely.warnings.find("line 1") != std::string::npos);
+    ScriptTest unknown("5 teleport 1 2 3\n");
+    CHECK(unknown.warnings.find("line 1") != std::string::npos);
+}
+
 static void testScriptLegacy() {
     const std::string text = "# Default clock remains PadMgr call numbers\n"
                              "1 key down W\n1 mouse 3 -2 3\n"
@@ -3174,6 +3188,7 @@ int main() {
     testHeldOverKeys();
     testMouseDisplacementOwnership();
     testScriptLegacy();
+    testScriptLoudParse();
     testScriptDualWieldSetting();
     testScriptPlace();
     testScriptScreenSync();

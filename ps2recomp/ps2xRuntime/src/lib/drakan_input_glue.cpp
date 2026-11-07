@@ -1349,6 +1349,14 @@ void drakanInstallInput(PS2Runtime& rt) {
             ilog("[input] script '%s' not loaded: %s\n", script, err.c_str());
         else
             ilog("[input] SCRIPTED host input from '%s'%s%s\n", script, err.empty() ? "" : "\n", err.c_str());
+        // A recipe line the parser rejected (no time prefix, unknown command) used to be skipped silently and the run
+        // went on with a different script than written. Stop at once unless DRAKAN_INPUT_SCRIPT_LENIENT is set.
+        if (!err.empty() && !std::getenv("DRAKAN_INPUT_SCRIPT_LENIENT")) {
+            ilog("[input] FATAL: script '%s' has rejected lines (set DRAKAN_INPUT_SCRIPT_LENIENT=1 to skip them)\n",
+                 script);
+            std::fflush(nullptr);
+            std::exit(2);
+        }
     } else {
         // raw input comes from the module's own message-only window; the host (raylib / D3D child) window is only
         // used for cursor clipping and hiding

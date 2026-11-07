@@ -1298,6 +1298,9 @@ void installRegionInput(PS2Runtime& runtime) {
         std::string error;
         if (!module.loadScript(script, &error))
             throw std::runtime_error("Cannot load input script: " + error);
+        if (!error.empty() && !std::getenv("DRAKAN_INPUT_SCRIPT_LENIENT")) // rejected lines: stop
+            throw std::runtime_error("Input script has rejected lines (DRAKAN_INPUT_SCRIPT_LENIENT=1 skips them): " +
+                                     error);
         std::fprintf(stderr, "[input] SCRIPTED host input from '%s'\n", script);
     } else {
         module.init(nullptr, ini);

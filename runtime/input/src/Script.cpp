@@ -1,5 +1,6 @@
 #include "input/Script.h"
 #include "input/Config.h"
+#include <cstdlib>
 #include <fstream>
 #include <sstream>
 
@@ -39,9 +40,20 @@ bool InputScript::load(const std::string& path, std::string* err) {
         ss.clear();
         ss.str(line);
         Ev e;
-        std::string cmd;
-        if (!(ss >> e.frame >> cmd))
+        std::string cmd, first;
+        if (!(ss >> first))
+            continue; // blank or comment-only line
+        char* endp = nullptr;
+        const long when = std::strtol(first.c_str(), &endp, 10);
+        if (*endp != '\0') {
+            bad("every line needs a leading time: '<time> <command> ...' (for example '0 sync play 600')");
             continue;
+        }
+        e.frame = static_cast<int>(when);
+        if (!(ss >> cmd)) {
+            bad("missing command after the time");
+            continue;
+        }
         auto mode = [&](const std::string& m) { return m == "down" ? 1 : m == "up" ? 0 : m == "tap" ? 2 : -1; };
         std::string a, b;
         if (cmd == "key") {
