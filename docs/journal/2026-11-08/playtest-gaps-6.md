@@ -1,7 +1,8 @@
 # Base-game playtest gaps, round 6 (2026-11-08)
 
 > **Follow-up (2026-11-08):** `4b-flight-and-savage-gate.md` confirms the 4B result below with real flights and finds what
-> opens the gate (sequence 1536 after the 4A conference).
+> opens the gate (sequence 1536 after the 4A conference); `valley-vault-and-exits.md` follows up the Valley items and
+> corrects the Valley detectors (18975 / 18376 detect both, on foot is the only way through the vault door).
 
 Follows `docs/journal/2026-11-07/playtest-gaps.md` and `savage-gate-route.md`. Own exe copy `build/gaps6/play` (copy of
 `dist/DrakanPC`, the 2026-11-07 16:27 build), recipes and routing output in `build/gaps6/` (not committed), runs

@@ -84,9 +84,9 @@ build/gaps7/pack_1536`, `DRAKAN_TRACE_FN=395e48` on the timer handler):
   saved to continue", `exitbox.png`): exit 5595 fires.
 
 The closed-gate controls are F1b above (Arokh stops at 647042) and `savage-gate-shoot-dispatch.md` g4_foot1 (Rynn on foot
-stops at 649609). Killing the five footmen where they wait (their y 200000 stage, x 742k to 746k, z 1795k to 1805k) does not
-work: in g7_G1 about 1700 sword strikes left the stage footman at 100 hit points. They are sequence actors until 1342 moves
-them.
+stops at 649609). Killing the five footmen where they wait (their y 200000 stage, x 742k to 746k, z 1795k to 1805k) was
+tried first (g7_G1) and gave nothing: about 1700 attack taps left the stage footman at 100 hit points, but a direct New Game
+start has no weapon in the inventory, so that run says nothing about the footmen.
 
 ## Is anything at fault
 

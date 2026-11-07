@@ -80,15 +80,20 @@ Open:
    (4A items, conference, 4B fight) was not played.
 2. **Valley of the Fallen.** Zola Dane's object 9274 sits on a scene set at y 230000 (Gothral, farmers, `Dane Teleport` 20420,
    `Zola Teleport Fountain` 20421) with no incoming link. His death (message 8) feeds cut scene 20233, the lever chain
-   (timer 20860, lever 18379, timer 18378, transition 9781) and the Valley icon. What enables the real fight is unknown; the
-   fight and the lever were not played.
+   (timer 20860, lever 18379, timer 18378, transition 9781) and the Valley icon. Round 7 (`../2026-11-08/valley-vault-and-exits.md`):
+   on foot, 18975 opens the vault door and 18376 plays sequence 731, which moves Zola into the vault hall for the fight
+   (mounted, Arokh cannot pass the door). Zola stayed at 200 hit points (no weapon in a direct start; an axe picked up did
+   not help), so message 8 was not seen. With 20860 forced by a test pack the lever gets On, but Use at the lever did nothing
+   (Switch Type 3 unknown). Still open: killing Zola, using the lever, exit 9781.
 3. **1A Lair exit 12479** (cave at y about 150000 under a 160498 plateau; `place` never accepts the cave floor) and **1A to 3
    portal 18028** (Detect Which? = 1, mount only). In 1A Arokh is parked on a cast stage at y 200000, about 570k units away and
    not mountable. How a player gets him there is unknown.
 4. **Forward New Game chain** past 1A, 1B and 1C was not run (1D's return is gated, others are mount only, disabled or
    underground). Needs the mechanisms from items 1 to 3.
 5. **Exits never driven:** level 8 (8143, 10481, story script driven), 3A 8021 (end-of-level Arokh flight), 4A 5132 (no links),
-   Valley 9779 and 9781.
+   Valley 9779 and 9781. Round 7: 10481 works (sequence 600 "Jasaad Defeat" forced by a test pack loads the outro); 8143,
+   9779 and 5132 have no sender in links or sequences and cannot fire; 3A 8021 not reached (mounted flight through detector
+   7318 with its enabling timer forced, no exit, not traced); 9781 see item 2.
 6. **Shadowmire spot** (320168, 205764, 503600): not a soft-lock, drops into a lower cavern with its own detector. Unknown
    whether a player can fall in legitimately.
 7. **Harness limits:** a pad tap after `sync screen 5` does not advance the save screen, the Valley and 3A openings take 60 to
@@ -98,7 +103,9 @@ Round 6 (2026-11-08, `docs/journal/2026-11-08/playtest-gaps-6.md`): the Valley's
 (items 2); the lever chain needs the east detectors 18376 / 18975 (sequence 731) with a mounted player, on foot the lever
 stays dead; the 1A Dragon is a frozen stage actor and cannot be mounted; 4B pocket (exit 5595) has no route under the
 flight ceiling, so the Savage Gate must open (item 1) before a full start to exit flight exists. Items 3 to 5 still open.
-Round 7 (2026-11-08) confirms the 4B part with real flights and finds the gate opener (item 1, now resolved).
+Round 7 (2026-11-08, `4b-flight-and-savage-gate.md`, `valley-vault-and-exits.md`) confirms the 4B part with real flights
+and finds the gate opener (item 1, now resolved); it corrects the Valley part: 18975 / 18376 detect both, and only Rynn on
+foot gets through the vault door to 18376 (items 2 and 5 updated).
 
 ## 3. Puzzle wiring and the editor
 
