@@ -119,7 +119,11 @@ for (const ext of ['DB', 'TXD']) {
     const f = join(splatDir, `${splatStem}.${ext}`);
     if (existsSync(f)) splats[ext] = new Uint8Array(readFileSync(f));
 }
-if (!Object.keys(splats).length) console.warn(`warning: no ${splatStem}.DB/.TXD in ${splatDir} (--splats <dir>); the pack will crash the game`);
+if (!Object.keys(splats).length) {
+    // A pack without the template's splat files never finishes its level load (result -4, a black screen the player reads as a freeze).
+    console.error(`error: no ${splatStem}.DB/.TXD in ${splatDir} (--splats <dir>); a pack without them cannot load its levels`);
+    process.exit(2);
+}
 
 const prefix = opt['prefix'] ?? 'OotF - ';
 const only = opt['only'] ? new Set(opt['only'].split(',')) : null; // stage switches: --only textures,models,...
