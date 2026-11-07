@@ -496,6 +496,8 @@ public:
             const auto start = std::chrono::steady_clock::now();
             double charged = 0.0;
             uint64_t lastCycles = m_rt.eeScheduler().publishedCycles();
+            auto blockedSince = std::chrono::steady_clock::time_point{};
+            bool blockedLogged = false;
             std::unique_lock<std::mutex> lock(wait->m);
             while (!wait->done) {
                 if (wait->cv.wait_for(lock, kSlice, [&] { return wait->done; }))
@@ -505,6 +507,21 @@ public:
                     charged += static_cast<double>(cycles - lastCycles) / kEeHz;
                 else if (!m_rt.eeScheduler().isExecutingGuest())
                     charged += std::chrono::duration<double>(kSlice).count();
+                // No cycles published while the EE runs guest code: it is blocked in a host call (GS worker deadlock,
+                // driver hang). Nothing is charged, so say so once after 30 wall seconds instead of freezing silently.
+                if (cycles == lastCycles && m_rt.eeScheduler().isExecutingGuest()) {
+                    const auto now = std::chrono::steady_clock::now();
+                    if (blockedSince == std::chrono::steady_clock::time_point{})
+                        blockedSince = now;
+                    else if (!blockedLogged && now - blockedSince >= std::chrono::seconds(30)) {
+                        blockedLogged = true;
+                        logfmt("post(sid=0x%x fno=%u): EE blocked in a host call for 30 s, waiting for the guest "
+                               "handler 0x%x (backstop 600 s; PS2X_PERF shows the sampled chain)",
+                               sid, fno, func);
+                    }
+                } else {
+                    blockedSince = std::chrono::steady_clock::time_point{};
+                }
                 lastCycles = cycles;
                 if (charged >= kBudgetSeconds || std::chrono::steady_clock::now() - start >= kBackstop ||
                     m_rt.isStopRequested()) {
