@@ -19,7 +19,7 @@ import {
     sliceSource,
 } from '@drakan/formats';
 import { destinationLevelName, retagManifestToml, srscRoundTrips, zipModFiles } from '@drakan/editor-core';
-import { clearConverted, loadConverted, saveConverted } from './virtualstore.ts';
+import { clearConverted, loadConverted, saveConverted, storeFailureMessage, type DiscKey } from './virtualstore.ts';
 import { convertedStoryOf, overlayDisc, readPristineDiscFile, packPathToDisc, patchedContainers, type VirtualFile } from './virtualdisc.ts';
 import { loadModelData, loadTerrainData } from './scene/decode.ts';
 import { loadItemCatalog, loadItemModels, resetItemData } from './itemdata.ts';
@@ -241,6 +241,12 @@ async function readLevel(fs: Iso9660, dirPath: string, withTerrain = false): Pro
     };
 }
 
+/** Why the last converted pack could not be kept for the next visit (null: it was kept). */
+let storeWarning: string | null = null;
+
+/** The disc and language the converted pack belongs to (the key of what is persisted). */
+const discKey = (): DiscKey => ({ volumeId: baseIso?.volumeId ?? '', language });
+
 /** Lay a converted pack over the disc (see virtualdisc.ts); the levels list next to the disc's own. */
 async function applyVirtual(
     levels: { name: string; dirPath: string }[],
@@ -293,7 +299,7 @@ const api: { [K in keyof Api]: (...a: Parameters<Api[K]>) => Promise<ReturnType<
         language = languages.includes('ENGLISH') ? 'ENGLISH' : (languages[0] ?? '');
         // Converted levels of an earlier visit come back with the disc.
         try {
-            const kept = await loadConverted();
+            const kept = await loadConverted(discKey());
             if (kept) await applyVirtual(kept.levels, kept.files);
         } catch {
             // an unreadable store only means there is nothing to restore
@@ -393,9 +399,16 @@ const api: { [K in keyof Api]: (...a: Parameters<Api[K]>) => Promise<ReturnType<
     async addVirtualLevels(levels, files): Promise<LevelInfo[]> {
         need();
         await applyVirtual(levels, files);
-        // Kept for the next visit; a store that refuses (private window) only means the levels are gone after a reload.
-        await saveConverted({ levels, files }).catch(() => undefined);
+        // Kept for the next visit (added to what is stored for this disc); a store that refuses (private window, no room)
+        // only means the levels are gone after a reload, which the page tells the user.
+        storeWarning = null;
+        await saveConverted({ levels, files }, discKey()).catch((e: unknown) => {
+            storeWarning = storeFailureMessage(e);
+        });
         return loadLevels();
+    },
+    async convertedStoreWarning() {
+        return storeWarning;
     },
     async convertedStory() {
         return Object.fromEntries(

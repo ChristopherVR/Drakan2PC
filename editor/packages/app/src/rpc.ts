@@ -124,6 +124,8 @@ export interface Api {
         levels: { name: string; dirPath: string }[],
         files: { path: string; bytes: Uint8Array }[],
     ): LevelInfo[];
+    /** Why the last `addVirtualLevels` could not be kept for the next visit (storage full or blocked), or null. */
+    convertedStoreWarning(): string | null;
     /**
      * A file of the disc exactly as it is on the disc (language-relative path), without any converted levels laid over it:
      * what the Order of the Flame converter must read, so a second conversion never sees the first one's classes.

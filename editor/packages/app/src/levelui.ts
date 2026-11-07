@@ -933,6 +933,8 @@ export function initLevelUi(host: LevelUiHost): LevelUi {
         profile: () => disc?.profile?.profile ?? null,
         addLevels: async (levels, files) => {
             const all = await host.call('addVirtualLevels', levels, files);
+            const warning = await host.call('convertedStoreWarning');
+            if (warning) toast(warning, 'error');
             if (disc) setDisc({ ...disc, levels: all });
             // The project panel checks its levels against this list.
             window.dispatchEvent(new CustomEvent('drakan:levels-changed'));
@@ -1261,9 +1263,9 @@ export function initLevelUi(host: LevelUiHost): LevelUi {
             updateStatus();
             projects.edited();
         }
+        return ok;
     }
 
-        return ok;
     // Edits are kept by the autosave; the browser only asks before closing while a copy is still unwritten.
     window.addEventListener('beforeunload', (e) => {
         if (!autosaveAtRisk) return;
@@ -1346,14 +1348,14 @@ export function initLevelUi(host: LevelUiHost): LevelUi {
             window.clearTimeout(autosaveTimer);
             await doAutosave();
         },
-        levels: () => disc?.levels ?? [],
-        modTarget: () => target(),
         flushAutosaveOrThrow: async () => {
             window.clearTimeout(autosaveTimer);
             if (!(await doAutosave())) {
                 throw new Error('The level autosave could not be written (the browser storage is full or unavailable).');
             }
         },
+        levels: () => disc?.levels ?? [],
+        modTarget: () => target(),
         /** Class name and model render for a resource string (used by Save mode's inventory); null without a level. */
         classInfo(resource: string): { name: string; thumb: string | null } | null {
             const cls = catalog.find((c) => c.resource === resource);
