@@ -72,6 +72,7 @@ import { createStartPage, rememberLevel } from './editor/startpage.ts';
 import { createViewportHint } from './editor/hint.ts';
 import { downloadFile, isDesktop } from './platform.ts';
 import { friendlyMessage } from './shared/friendly.ts';
+import { beginLoading } from './editor/loadstate.ts';
 import { registerUnrealExport } from './editor/unrealexport.ts';
 import './editor/editor.css';
 
@@ -1044,6 +1045,7 @@ export function initLevelUi(host: LevelUiHost): LevelUi {
         // A level that was still filling in stops; this one takes the viewport.
         loader.stop();
         opening = true;
+        const endLoading = beginLoading();
         empty.hidden = true;
         loadCard.begin(shown, {
             covering: !hadLevel,
@@ -1068,6 +1070,7 @@ export function initLevelUi(host: LevelUiHost): LevelUi {
         try {
             r = await Promise.race([host.call('loadLevel', dirPath), cancelled]);
         } catch (e) {
+            endLoading();
             if (tk === openToken && !isCancelled(e)) {
                 opening = false;
                 loadCard.step('read', 'failed');
@@ -1077,7 +1080,10 @@ export function initLevelUi(host: LevelUiHost): LevelUi {
             }
             throw e;
         }
-        if (tk !== openToken) throw new LoadCancelled();
+        if (tk !== openToken) {
+            endLoading();
+            throw new LoadCancelled();
+        }
         loadCard.step('read', 'done');
         loadCard.step('objects', 'active');
         // The export compares edits against this read: keeping it spares a second parse in the busy worker.
@@ -1086,6 +1092,7 @@ export function initLevelUi(host: LevelUiHost): LevelUi {
             await openLoaded(r, asTitle ?? info?.name ?? r.file);
         } finally {
             opening = false;
+            endLoading();
         }
         currentDirPath = dirPath;
         if (info && !asTitle) rememberLevel({ name: info.name, dirPath });

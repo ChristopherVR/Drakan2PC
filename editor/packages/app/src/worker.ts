@@ -20,7 +20,7 @@ import {
 } from '@drakan/formats';
 import { destinationLevelName, retagManifestToml, srscRoundTrips, zipModFiles } from '@drakan/editor-core';
 import { clearConverted, loadConverted, saveConverted } from './virtualstore.ts';
-import { convertedStoryOf, overlayDisc, packPathToDisc, patchedContainers, type VirtualFile } from './virtualdisc.ts';
+import { convertedStoryOf, overlayDisc, readPristineDiscFile, packPathToDisc, patchedContainers, type VirtualFile } from './virtualdisc.ts';
 import { loadModelData, loadTerrainData } from './scene/decode.ts';
 import { loadItemCatalog, loadItemModels, resetItemData } from './itemdata.ts';
 import { loadStoryCatalog, resetStoryData } from './storydata.ts';
@@ -476,8 +476,7 @@ const api: { [K in keyof Api]: (...a: Parameters<Api[K]>) => Promise<ReturnType<
         });
     },
     async readDiscFile(path) {
-        if (!baseIso) throw new Error('Open a disc first.');
-        return isoStoryFs(baseIso, language).read(path);
+        return readPristineDiscFile(baseIso, language, path);
     },
     async readStoryFile(path) {
         return isoStoryFs(need(), language).read(path);

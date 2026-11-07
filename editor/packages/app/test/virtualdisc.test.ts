@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { bufferSource, Iso9660, SrscReader, writePs2Srsc } from '@drakan/formats';
 import { buildIso } from '../../formats/test/fixtures.ts';
-import { convertedStoryOf, overlayDisc, packPathToDisc, patchedContainers } from '../src/virtualdisc.ts';
+import { convertedStoryOf, overlayDisc, packPathToDisc, patchedContainers, readPristineDiscFile } from '../src/virtualdisc.ts';
 
 const txt = (s: string): Uint8Array => new TextEncoder().encode(s);
 
@@ -89,5 +89,20 @@ describe('convertedStoryOf', () => {
         expect([...got.get('LEVEL1ON')!.texts]).toEqual([5]);
         expect([...got.get('LEVEL1ON')!.sequences]).toEqual([5]);
         expect([...got.get('LEVEL1ON')!.classes]).toEqual([900]);
+    });
+});
+
+describe('readPristineDiscFile', () => {
+    it('reads the disc itself while a converted pack is laid over it', async () => {
+        const base = await disc([{ path: 'ENGLISH/COMMON/FX/FX.ODB', data: txt('disc classes') }]);
+        const over = overlayDisc(base, [{ path: 'ENGLISH\\COMMON\\FX\\FX.ODB', bytes: txt('disc plus converted classes') }]);
+        // the overlay is what the editor shows; the converter must not read it
+        expect(new TextDecoder().decode(await over.read('ENGLISH\\COMMON\\FX\\FX.ODB'))).toBe('disc plus converted classes');
+        const got = await readPristineDiscFile(base, 'ENGLISH', 'COMMON/FX/FX.ODB');
+        expect(new TextDecoder().decode(got!)).toBe('disc classes');
+        expect(await readPristineDiscFile(base, 'ENGLISH', 'COMMON/FX/NOPE.ODB')).toBeNull();
+    });
+    it('asks for a disc when none is open', async () => {
+        await expect(readPristineDiscFile(null, 'ENGLISH', 'X')).rejects.toThrow(/Open a disc/);
     });
 });

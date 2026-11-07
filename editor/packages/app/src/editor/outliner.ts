@@ -8,7 +8,8 @@ import {
 import type { Ctx, Panel } from './ctx.ts';
 import { fill, h, icon, raf } from './dom.ts';
 import { buildObjectMenu } from './objectmenu.ts';
-import { emptyState, onContextMenu, searchField, type MenuItem } from './ui.ts';
+import { emptyState, onContextMenu, searchField, skeletonRows, type MenuItem } from './ui.ts';
+import { isLoading, onLoading } from './loadstate.ts';
 
 interface ClassGroup {
     key: string;
@@ -326,6 +327,11 @@ export function createOutliner(ctx: Ctx): Panel {
         const searching = query.length > 0;
         const total = ctx.doc().size;
         count.textContent = total ? `${groups.reduce((n, g) => n + g.count, 0)} / ${total}` : '';
+        if (!groups.length && isLoading()) {
+            count.textContent = '';
+            fill(tree, skeletonRows(9, 'Loading the level objects'));
+            return;
+        }
         if (!groups.length) {
             fill(
                 tree,
@@ -422,6 +428,11 @@ export function createOutliner(ctx: Ctx): Panel {
             query = search.value.trim().toLowerCase();
             build();
         }, 120);
+    });
+
+    // the placeholder rows come and go with a load
+    onLoading(() => {
+        if (!ctx.doc().size) build();
     });
 
     return {

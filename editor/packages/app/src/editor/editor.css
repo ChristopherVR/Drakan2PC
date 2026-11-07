@@ -2348,3 +2348,12 @@ html, body { overflow-x: hidden; }
 
 /* A drag that the viewport accepts (a class from the Place panel): a dashed frame, like the Logic graph's drop target. */
 #lv-viewport.drop-ready { outline: 2px dashed var(--accent); outline-offset: -4px; }
+
+/* Placeholder rows while the Outliner or the Content Browser waits for a load (ui.ts skeletonRows). */
+.ui-skeleton { display: grid; gap: 6px; padding: 10px 8px; }
+.ui-skel-row { display: flex; align-items: center; gap: 8px; height: 22px; }
+.ui-skel-row i { width: 14px; height: 14px; border-radius: 4px; background: var(--surface-3); flex: none; }
+.ui-skel-row b { width: var(--w, 60%); height: 10px; border-radius: 5px; background: var(--surface-3); }
+.ui-skel-row i, .ui-skel-row b { animation: ui-skel 1.4s ease-in-out infinite; }
+@keyframes ui-skel { 0%, 100% { opacity: 0.55; } 50% { opacity: 1; } }
+@media (prefers-reduced-motion: reduce) { .ui-skel-row i, .ui-skel-row b { animation: none; } }

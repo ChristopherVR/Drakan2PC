@@ -2,6 +2,7 @@
 // the player exports the pack; the viewer reads them through this overlay exactly like files of the disc. A virtual file
 // that has the same path as a disc file replaces it (the pack ships widened model containers under their disc names).
 
+import { isoStoryFs } from './story/storyfs.ts';
 import { Iso9660, SrscReader, writePs2Srsc, type ByteSource, type IsoEntry } from '@drakan/formats';
 
 export interface VirtualFile {
@@ -98,6 +99,19 @@ export function overlayDisc(base: Iso9660, files: readonly VirtualFile[]): Iso96
         },
     });
     return overlay;
+}
+
+/**
+ * Read a language-relative file (`LEVELS\LEVEL1NA\LEVEL1NA.LVL`) of the pristine disc. The Order of the Flame converter
+ * reads through this, never through `overlayDisc`, so a second conversion cannot see the first one's classes.
+ */
+export async function readPristineDiscFile(
+    base: Iso9660 | null,
+    language: string,
+    path: string,
+): Promise<Uint8Array | null> {
+    if (!base) throw new Error('Open a disc first.');
+    return isoStoryFs(base, language).read(path);
 }
 
 const ENTRY_FILE = /^(overrides|new)\/([^/]+)\/([0-9a-f]{4})_(\d+)_(\d+)\.bin$/i;

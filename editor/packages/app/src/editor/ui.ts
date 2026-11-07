@@ -50,6 +50,14 @@ export function searchField(placeholder: string, label = placeholder): { el: HTM
 // ---- empty state ---------------------------------------------------------------------------------------------------
 
 /** Icon, one-line title, one sentence of guidance and an optional primary action. */
+/** Placeholder rows for a list that is being filled (`aria-busy`, announced as loading, a quiet shimmer). */
+export function skeletonRows(count = 8, label = 'Loading'): HTMLElement {
+    const rows = Array.from({ length: count }, (_, i) =>
+        h('div', { class: 'ui-skel-row', style: `--w:${48 + ((i * 17) % 40)}%` }, h('i', {}), h('b', {})),
+    );
+    return h('div', { class: 'ui-skeleton', role: 'status', 'aria-busy': 'true', 'aria-label': label }, ...rows);
+}
+
 export function emptyState(
     ico: string,
     title: string,

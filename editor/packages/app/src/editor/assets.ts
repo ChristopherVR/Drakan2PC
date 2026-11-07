@@ -11,7 +11,8 @@ import {
 import type { Ctx, Panel } from './ctx.ts';
 import { attachAssetDrag, dragState } from './assetdrag.ts';
 import { fill, h, hex, icon, raf, store } from './dom.ts';
-import { emptyState, onContextMenu, searchField } from './ui.ts';
+import { emptyState, onContextMenu, searchField, skeletonRows } from './ui.ts';
+import { isLoading, onLoading } from './loadstate.ts';
 
 /** Supplies a thumbnail for a class (the model renderer plugs in here); null means "use the icon". */
 export type ThumbnailProvider = (cls: AssetClass) => HTMLCanvasElement | HTMLImageElement | string | null;
@@ -430,6 +431,10 @@ export function createAssets(ctx: Ctx): AssetsPanel {
                         : folder;
         fill(crumb, icon('folder-open', 14), h('span', { class: 'dim' }, 'Content'), icon('chevron', 11), folderName);
         info.textContent = all.length ? `${list.length} of ${all.length} classes` : '';
+        if (!all.length && isLoading()) {
+            fill(body, skeletonRows(10, 'Loading the classes'));
+            return;
+        }
         if (!all.length) {
             fill(
                 body,
@@ -513,6 +518,8 @@ export function createAssets(ctx: Ctx): AssetsPanel {
     });
 
     const rebuildSoon = raf(build);
+    onLoading(rebuildSoon);
+
     return {
         el: root,
         favourites: favs,

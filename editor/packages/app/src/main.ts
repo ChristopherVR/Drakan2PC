@@ -1,6 +1,7 @@
 import type { DiscProfile } from '@drakan/formats';
 import type { Api, EntryInfo, FileInfo, FileOpenResult, LevelInfo, Method, Request, Response } from './rpc.ts';
 import { friendlyMessage } from './shared/friendly.ts';
+import { beginLoading } from './editor/loadstate.ts';
 import { TextureViewport } from './viewport.ts';
 import { initLevelUi } from './levelui.ts';
 import { installMultiplayerMaps } from './editor/arena/install.ts';
@@ -123,6 +124,7 @@ window.addEventListener('drakan:levels-changed', () => projectUi.onDisc());
 
 async function openIso(file: IsoSource): Promise<void> {
     setStatus(`Opening ${file.name} (${fmtSize(file.size)})...`);
+    const endLoading = beginLoading();
     try {
         const r = await call('open', file);
         langSel.replaceChildren(...r.languages.map((l) => new Option(l, l, false, l === r.language)));
@@ -149,6 +151,8 @@ async function openIso(file: IsoSource): Promise<void> {
         }
     } catch (e) {
         reportError(e);
+    } finally {
+        endLoading();
     }
 }
 
