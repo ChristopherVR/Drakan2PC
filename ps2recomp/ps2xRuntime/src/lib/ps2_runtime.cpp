@@ -1293,6 +1293,7 @@ PS2Runtime::MissingFunctionPolicy PS2Runtime::missingFunctionPolicy() const {
 
 void PS2Runtime::resetMissingFunctionReportOnce() {
     m_missingFunctionReported.store(false, std::memory_order_release);
+    m_missingFunctionUnrecovered.store(false, std::memory_order_release);
 }
 
 void PS2Runtime::reportMissingFunction(uint8_t* rdram, R5900Context* ctx, uint32_t targetPc, uint32_t sourcePc,
@@ -1622,6 +1623,9 @@ bool PS2Runtime::dispatchGuestBranch(uint8_t* rdram, R5900Context* ctx, uint32_t
             ctx->pc = fallthroughPc;
             return true;
         }
+
+        // Nothing recovered or skipped it: this target ends the calling thread (EeScheduler reads the flag at pc 0).
+        m_missingFunctionUnrecovered.store(true, std::memory_order_release);
 
         if (policy == MissingFunctionPolicy::ContinueToTarget) {
             ctx->pc = targetPc;

@@ -345,7 +345,8 @@ public:
     MissingFunctionPolicy missingFunctionPolicy() const;
     void resetMissingFunctionReportOnce();
     // True once a branch to an unknown guest target was reported (the guest thread that took it unwinds to pc 0).
-    bool missingFunctionReported() const { return m_missingFunctionReported.load(std::memory_order_acquire); }
+    // True only for a missing target that no recovery or skip policy handled (a benign skipped target does not count).
+    bool missingFunctionReported() const { return m_missingFunctionUnrecovered.load(std::memory_order_acquire); }
 
     static const IoPaths& getIoPaths();
     static void setIoPaths(const IoPaths& paths);
@@ -525,6 +526,7 @@ private:
 
     std::atomic<uint32_t> m_missingFunctionPolicy{static_cast<uint32_t>(MissingFunctionPolicy::ContinueToTarget)};
     std::atomic<bool> m_missingFunctionReported{false};
+    std::atomic<bool> m_missingFunctionUnrecovered{false};
     std::atomic<bool> m_stopRequested{false};
     DebugUiCallback m_debugUiInitCallback = nullptr;
     DebugUiCallback m_debugUiDrawCallback = nullptr;
