@@ -210,7 +210,7 @@ const A11Y = `(() => {
     if (!has) out.push('no visible focus ' + id(e) + ' "' + name(e).slice(0, 16) + '"');
     e.blur();
   }
-  for (const e of document.querySelectorAll('[role=listbox], [role=tree], [role=menu], dialog')) if (!e.getAttribute('aria-label') && !e.getAttribute('aria-labelledby')) out.push('unlabelled ' + (e.getAttribute('role') || 'dialog') + ' ' + id(e));
+  for (const e of document.querySelectorAll('[role=listbox], [role=tree], [role=menu], dialog, nav, aside')) if (!e.getAttribute('aria-label') && !e.getAttribute('aria-labelledby')) out.push('unlabelled ' + (e.getAttribute('role') || e.tagName.toLowerCase()) + ' ' + id(e));
   return [...new Set(out)].slice(0, 10);
 })()`;
 const findings = [];

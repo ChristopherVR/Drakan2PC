@@ -358,6 +358,7 @@ export function createStartPage(a: StartPageActions): StartPage {
             {
                 class: `sp-details${picking === t.id ? ' picking' : ''}`,
                 'aria-live': 'polite',
+                'aria-label': 'About the selected template',
                 'data-template': t.id,
             },
             h('div', { class: 'sp-details-art' }, templateArt(t.id)),

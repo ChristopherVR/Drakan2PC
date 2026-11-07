@@ -189,7 +189,7 @@ export function installCampaignWizard(host: WizardHost): CampaignWizard {
                 icon('x', 14),
             ),
         ),
-        h('div', { class: 'cwz-main' }, h('nav', { class: 'cwz-nav' }, rail), body),
+        h('div', { class: 'cwz-main' }, h('nav', { class: 'cwz-nav', 'aria-label': 'Campaign steps' }, rail), body),
         h('footer', { class: 'cwz-foot' }, backBtn, status, nextBtn),
     );
     const root = h('div', { class: 'cwz-backdrop', id: 'cwz-root', hidden: true }, panel);

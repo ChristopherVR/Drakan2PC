@@ -202,11 +202,17 @@ export function createPalette(): Palette {
         window.setTimeout(r.run, 0);
     }
 
+    let opener: HTMLElement | null = null;
     function close(): void {
         el.hidden = true;
         input.blur();
+        // focus goes back to where it was, so a keyboard or screen reader user is not dropped at the top of the page
+        if (opener?.isConnected) opener.focus({ preventScroll: true });
+        opener = null;
     }
     function open(initial = ''): void {
+        const a = document.activeElement;
+        if (el.hidden) opener = a instanceof HTMLElement && a !== document.body && !el.contains(a) ? a : null;
         input.value = initial;
         sel = 0;
         el.hidden = false;
