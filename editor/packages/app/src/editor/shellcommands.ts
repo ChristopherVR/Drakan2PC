@@ -177,9 +177,9 @@ export function registerShellCommands(s: ShellHost): void {
     cmd('view.links.all', 'Show all links', 'View', () => a.setLinks('all'));
     cmd('view.links.off', 'Hide links', 'View', () => a.setLinks('off'));
     cmd('view.theme', 'Switch dark and light theme', 'View', () => a.theme(), { keys: 'Ctrl+Shift+L' });
-    cmd('view.right', 'Toggle the Outliner and Details', 'View', () => a.togglePanel('right'));
-    cmd('view.bottom', 'Toggle the bottom panel', 'View', () => a.togglePanel('bottom'));
-    cmd('view.reset', 'Reset the panel layout', 'View', () => a.resetLayout());
+    cmd('view.right', 'Toggle the Outliner and Details', 'View', () => a.togglePanel('right'), { icon: 'outliner' });
+    cmd('view.bottom', 'Toggle the bottom panel', 'View', () => a.togglePanel('bottom'), { icon: 'terminal' });
+    cmd('view.reset', 'Reset the panel layout', 'View', () => a.resetLayout(), { icon: 'sidebar' });
     for (const [tab, title, ico, keys] of [
         ['assets', 'Content Browser', 'folder-open', 'Ctrl+Space'],
         ['output', 'Output Log', 'terminal', ''],

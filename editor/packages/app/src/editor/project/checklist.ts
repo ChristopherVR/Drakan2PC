@@ -96,6 +96,17 @@ export function createChecklist(host: ChecklistHost): { el: HTMLElement; refresh
         el.style.right = fits ? 'auto' : '';
         el.style.bottom = fits ? `${Math.round(window.innerHeight - r!.bottom + 12)}px` : '';
         el.style.maxHeight = fits ? `${Math.round(r!.height - 70)}px` : '';
+        // A viewport too small for the card (a narrow window) still gets the pill, in its top-right corner: the window's
+        // bottom-right corner is where the bottom dock's content (buttons, lists) ends.
+        const vr = vp && vp.offsetParent ? vp.getBoundingClientRect() : null;
+        const corner = !fits && !!vr && vr.width > 200;
+        el.classList.toggle('in-corner', corner);
+        el.style.top = corner ? `${Math.round(vr!.top + 12)}px` : '';
+        if (corner) {
+            el.style.left = 'auto';
+            el.style.right = `${Math.round(window.innerWidth - vr!.right + 12)}px`;
+            el.style.bottom = 'auto';
+        }
     }
 
     /** The start page is open over a level (Home): the card would cover its button, and the page shows the same. */

@@ -2291,11 +2291,8 @@ body.dragging-asset {
     transform: rotate(90deg);
 }
 
-/* A narrow Place panel keeps its header on one line: the Landscape button shows only its icon. */
-#ed-left { container-type: inline-size; }
-@container (max-width: 250px) {
-  .pl-landscape { font-size: 0; gap: 0; padding-inline: 6px; }
-}
+/* A narrow Place panel keeps its header on one line (placepanel.ts measures it and sets `compact`). */
+.pl-panel-head.compact .pl-landscape { font-size: 0; gap: 0; padding-inline: 6px; }
 
 /* A narrow window drops the camera position from the status bar instead of scrolling the page sideways. */
 #ed-status { overflow: hidden; }

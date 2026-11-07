@@ -134,3 +134,7 @@
     font-size: var(--fs-sm);
     color: var(--fg-muted);
 }
+
+/* The workspace help button sits in the top right corner: the Campaign header's switch keeps clear of it. */
+header.pjx-pane-head:has(> .cpg-inline[for='cpg-on']) { padding-right: 40px !important; }
+header.pjx-pane-head .pjx-count { white-space: nowrap; flex: none; }

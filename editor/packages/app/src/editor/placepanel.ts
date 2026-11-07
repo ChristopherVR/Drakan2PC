@@ -88,7 +88,7 @@ export function createPlacePanel(ctx: Ctx, host: PlaceHost): Panel {
         { class: 'panel place' },
         h(
             'div',
-            { class: 'panel-head' },
+            { class: 'panel-head pl-panel-head' },
             h('span', { class: 'panel-title' }, icon('place', 14), 'Place'),
             h('span', { class: 'spacer' }),
             // Landscape mode (editor/landscape/landscape.ts) swaps this panel for its ground tools.
@@ -529,6 +529,24 @@ export function createPlacePanel(ctx: Ctx, host: PlaceHost): Panel {
     // The host finishes setting up the level view after the panels are made: fill the list once it has.
     queueMicrotask(rebuild);
 
+    // The header keeps one line: when the title, the Landscape button, the hide button and the help button at the right edge
+    // no longer fit in the panel's measured width, the Landscape button shows its icon only.
+    const head = el.querySelector<HTMLElement>('.pl-panel-head');
+    const fitHeader = (): void => {
+        if (!head || !head.clientWidth) return;
+        head.classList.remove('compact');
+        const cs = getComputedStyle(head);
+        const kids = [...head.children].filter((c) => !c.classList.contains('spacer')) as HTMLElement[];
+        const gap = parseFloat(cs.columnGap) || 0;
+        const used =
+            kids.reduce((n, c) => n + c.offsetWidth, 0) +
+            gap * Math.max(0, kids.length - 1) +
+            (parseFloat(cs.paddingLeft) || 0) +
+            (parseFloat(cs.paddingRight) || 0);
+        // 40 px: the panel help button that sits at the header's right edge, plus a little air.
+        if (used + 40 > head.clientWidth) head.classList.add('compact');
+    };
+    if (typeof ResizeObserver !== 'undefined' && head) new ResizeObserver(fitHeader).observe(head);
     return {
         el,
         onSelection: refreshStory,

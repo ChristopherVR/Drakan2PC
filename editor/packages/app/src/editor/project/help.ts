@@ -26,7 +26,7 @@ export interface Help {
 }
 
 /** Icon of each guide in the list (display only). */
-const GUIDE_ICONS: Record<string, string> = {
+export const GUIDE_ICONS: Record<string, string> = {
     start: 'rocket',
     objects: 'place',
     triggers: 'trigger',
@@ -38,6 +38,16 @@ const GUIDE_ICONS: Record<string, string> = {
     package: 'download',
     save: 'save',
     files: 'folder',
+    tutorials: 'play',
+    landscape: 'ground',
+    'new-shop': 'shop',
+    quests: 'check-circle',
+    conversations: 'chat',
+    cutscenes: 'camera',
+    ootf: 'download',
+    'campaign-pack': 'layers',
+    'game-modes': 'world',
+    playtest: 'play',
 };
 
 const WIDTH_KEY = 'help-width';

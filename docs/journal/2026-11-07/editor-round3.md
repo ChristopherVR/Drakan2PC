@@ -100,3 +100,32 @@ looked at on the start page, so those are not claimed.
 Still open: the left Place panel keeps 320 px at 820 px (the viewport is about 400 px wide there), the task checklist
 pill overlaps the bottom right of a short dock, and the Strings scope was not exercised against a pack that adds text
 (the test pack adds none to SYSTEM or LEVEL1ON).
+
+## Round 3 close-out: restore path, real-pack strings, layouts, repeatable sweep
+
+* **Restore at the next start, for real.** Desktop app, the player's pack enabled: Play on a converted level, then the
+  editor process was killed while the game ran. `mods.ini` still showed the Play state (`ootf-levels = off`,
+  `editor-play-ootf = on`) and `play-pack-backup.json` was present. Starting the editor again restored `mods.ini`
+  to the original, deleted `editor-play-ootf.zip` and removed the backup. Nothing needed fixing.
+* **Strings against a real pack.** The full 23-level conversion of the player's OotF install, opened in the editor
+  (browser build): the Order of the Flame tick lists 37 of the 150 SYSTEM strings and 3 of the 55 LEVEL1ON strings; with the
+  tick off all are listed.
+* **Place panel at 820 px.** A narrow window now keeps at least 520 px for the viewport (the side panels give way
+  first; measured 292 px Place + 520 px viewport at 820). Opening one side column below 900 px folds the other. The
+  Landscape button goes icon-only when the measured header content plus the help button no longer fits the header.
+* **Task checklist pill** no longer sits in the window's bottom-right corner when the viewport is too small for the card:
+  it moves to the viewport's top-right corner, clear of the dock's content.
+* **Help drawer icons.** Eleven guides showed the generic question mark; every guide now has its own icon (test added).
+* **Other findings fixed:** Disc Files lists had no empty state without a disc; the Window menu's three toggles had no
+  icons; the Campaign header's switch sat under the workspace help button and its id pill wrapped to two lines.
+* **The sweep is a script now.** `editor/packages/app/scripts/ui-sweep.mjs` (`npm run ui-sweep -w @drakan/editor-app`
+  after `npm run build -w @drakan/editor-app`) serves `dist`, starts Chrome or Edge headless over the DevTools protocol
+  (no packages, no game data, file choosers intercepted) and visits 59 states per size: 45 palette commands covering
+  every workspace, dialog and panel, the five menu-bar menus, six toolbar menus, a viewport context menu and the light
+  theme, at 820x700, 1280x720 and 1920x1080 (177 states). It writes a screenshot per state and `report.json`, checks for
+  sideways page scroll, text clipped out of its box, controls off the window or drawn over each other (drawers, wizards
+  and menus excluded) and a viewport under 520 px at narrow widths, and exits 1 on findings. With `--iso <disc>` it
+  opens a level first (slow in software rendering). Without a disc the level-dependent panels show their empty states,
+  which is what it covers; error states (a failed Play, a bad pack) are not scripted. Last run: 0 findings at all
+  three sizes. I also read the 1920x1080 start page, Project Settings, Story and menu screenshots; spacing, icon
+  weight and typography were consistent with the rest of the editor and no further changes were made there.

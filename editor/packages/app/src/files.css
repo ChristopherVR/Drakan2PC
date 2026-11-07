@@ -274,3 +274,14 @@
 .fl-cols[hidden] {
     display: none;
 }
+
+/* Empty states of the Disc Files lists (no disc open yet). */
+#levels:empty::before,
+#files:empty::before {
+    display: block;
+    padding: var(--sp-4, 10px) var(--sp-5, 12px);
+    color: var(--fg-muted, #9aa0a6);
+    font-size: var(--fs-sm, 12px);
+}
+#levels:empty::before { content: 'Open a disc image to list its levels.'; }
+#files:empty::before { content: 'Open a disc image to browse its files.'; }

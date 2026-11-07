@@ -54,7 +54,8 @@ export interface Layout {
 
 const STORE_KEY = 'layout';
 /** The viewport keeps at least this much of the window: a fixed floor, or a share of a small window. */
-const viewportW = (total: number): number => Math.max(360, Math.round(total * 0.4)) + 8;
+// A narrow window keeps at least 520 px for the viewport (the side panels give way first).
+const viewportW = (total: number): number => Math.max(total < 1000 ? 520 : 360, Math.round(total * 0.4)) + 8;
 const viewportH = (total: number): number => Math.max(160, Math.round(total * 0.3)) + 4;
 const detailsH = (): number => 164;
 const TIP = 'Drag to resize. Double-click to go back to the starting size.';
@@ -289,6 +290,10 @@ export function initLayout(root: HTMLElement, onResize: () => void): Layout {
         toggle(key, open) {
             const s = st(key);
             state[key] = { size: s.size, open: open ?? !s.open };
+            // In a narrow window only one side column fits beside a viewport of a usable width: opening one folds the other.
+            const other = key === 'left' ? 'right' : key === 'right' ? 'left' : null;
+            if (other && state[key]!.open && window.innerWidth < 900 && st(other).open)
+                state[other] = { size: st(other).size, open: false };
             changed();
         },
         isOpen: (key) => st(key).open,
