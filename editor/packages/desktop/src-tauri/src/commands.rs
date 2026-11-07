@@ -461,7 +461,23 @@ pub fn mods_write_pack(state: State<'_, AppState>, id: String, files: Vec<PackFi
 /// The page has written its unsaved work; the window may close now.
 #[tauri::command]
 pub fn close_ack(state: State<'_, AppState>) {
-    state.close_ack.store(true, std::sync::atomic::Ordering::SeqCst);
+    state.close.ack();
+}
+
+/// The page is still saving (busy) or waits for the user to decide after a failed save (ask).
+#[tauri::command]
+pub fn close_beat(state: State<'_, AppState>, ask: Option<bool>) {
+    if ask.unwrap_or(false) {
+        state.close.ask_beat();
+    } else {
+        state.close.beat();
+    }
+}
+
+/// The user chose to keep the window open.
+#[tauri::command]
+pub fn close_cancel(state: State<'_, AppState>) {
+    state.close.cancel();
 }
 
 /// Size in bytes of `<mods>/<id>.zip`, or null when it is not there (the editor skips a rewrite of the same pack).

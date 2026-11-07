@@ -4,6 +4,7 @@
 //
 // The Tauri API is imported lazily, so the browser build never loads it.
 
+import { runCloseFlow, type CloseChoice } from './closeflow.ts';
 import type { RemoteBlob } from './rpc.ts';
 
 export const isDesktop: boolean = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
@@ -232,13 +233,25 @@ export async function openAppWindow(which: 'main' | 'save', action?: 'file' | 'f
  * Desktop: the shell is about to close the editor window (File > Exit, Alt+F4, the close button) and waits for
  * `closeAck()`. Write what is not saved, then answer.
  */
-export async function onCloseRequested(fn: () => Promise<void>): Promise<() => void> {
+export async function onCloseRequested(
+    fn: () => Promise<void>,
+    askFailure: (message: string) => Promise<CloseChoice>,
+): Promise<() => void> {
     if (!isDesktop) return () => {};
     const { listen } = await import('@tauri-apps/api/event');
+    let running = false;
     return listen('app-close-requested', () => {
-        void fn()
-            .catch(() => undefined)
-            .finally(() => void invoke('close_ack'));
+        if (running) return; // the shell swallows repeated requests; this is only a guard against a doubled event
+        running = true;
+        const quiet = (p: Promise<unknown>): void => void p.catch(() => undefined);
+        void runCloseFlow(fn, {
+            beat: (ask) => quiet(invoke('close_beat', { ask })),
+            ack: () => quiet(invoke('close_ack')),
+            cancel: () => quiet(invoke('close_cancel')),
+            askFailure,
+        }).finally(() => {
+            running = false;
+        });
     });
 }
 

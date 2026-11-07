@@ -2,6 +2,7 @@
 // in a plain browser (`initDesktop` returns inert functions), so the browser build is unaffected.
 
 import * as platform from './platform.ts';
+import { askCloseFailure } from './editor/askchoice.ts';
 import { registerCommand, runCommand } from './editor/registry.ts';
 import type { ProjectFiles } from './editor/project/folder.ts';
 
@@ -208,7 +209,7 @@ export function initDesktop(hooks: DesktopHooks): Desktop {
         }
     };
     void platform.onMenuAction(onAction);
-    void platform.onCloseRequested(() => hooks.flushAll());
+    void platform.onCloseRequested(() => hooks.flushAll(), askCloseFailure);
 
     registerCommand({
         id: 'desktop.gameFolder',

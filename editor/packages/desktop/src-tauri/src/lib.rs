@@ -12,7 +12,7 @@ mod windows;
 use std::collections::HashSet;
 use std::path::PathBuf;
 use std::process::Child;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::Ordering;
 use std::sync::Mutex;
 use tauri::{Emitter, Manager};
 
@@ -30,10 +30,8 @@ pub struct Inner {
 pub struct AppState {
     pub inner: Mutex<Inner>,
     pub settings_file: PathBuf,
-    /// The main window has been asked to close once (the next request goes through).
-    pub closing: AtomicBool,
-    /// The page wrote its unsaved work and said so (`close_ack`).
-    pub close_ack: AtomicBool,
+    /// The state of the close attempt of the main window (the page saves first; see `closing`).
+    pub close: closing::CloseGate,
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -54,8 +52,7 @@ pub fn run() {
                     extras: Vec::new(),
                 }),
                 settings_file: file,
-                closing: AtomicBool::new(false),
-                close_ack: AtomicBool::new(false),
+                close: closing::CloseGate::new(),
             });
             // The standalone save editor (tauri.save.conf.json) has no level editor window and no menu bar.
             if app.config().app.windows.iter().any(|w| w.label == "main" && w.create) {
@@ -70,17 +67,21 @@ pub fn run() {
                     return;
                 }
                 let state = window.state::<AppState>();
-                if state.closing.swap(true, Ordering::SeqCst) {
+                if state.close.passthrough.load(Ordering::SeqCst) {
                     return;
                 }
+                // A close request while the page is still saving (or asking the user) neither closes nor stacks.
                 api.prevent_close();
-                state.close_ack.store(false, Ordering::SeqCst);
+                if !state.close.begin() {
+                    return;
+                }
                 let _ = window.emit("app-close-requested", ());
                 let w = window.clone();
                 std::thread::spawn(move || {
                     let state = w.state::<AppState>();
-                    closing::wait_for_ack(&state.close_ack, closing::ACK_WAIT);
-                    let _ = w.close();
+                    if state.close.wait(closing::SILENCE, closing::OVERALL) != closing::Outcome::Cancelled {
+                        let _ = w.close();
+                    }
                 });
             }
         })
@@ -101,6 +102,8 @@ pub fn run() {
             commands::mods_read_ini,
             commands::mods_write_pack,
             commands::close_ack,
+            commands::close_beat,
+            commands::close_cancel,
             commands::mods_zip_size,
             commands::mods_write_zip,
             commands::game_launch,

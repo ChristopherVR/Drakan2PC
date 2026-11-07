@@ -120,6 +120,8 @@ export interface LevelUi {
     modTarget(): ModMeta['target'] | null;
     /** Write the open level's edits to the autosave now (the project folder is saved from it). */
     flushAutosave(): Promise<void>;
+    /** Like `flushAutosave`, but rejects when a needed write failed (the close flow reports it). */
+    flushAutosaveOrThrow(): Promise<void>;
 }
 
 const AUTOSAVE_DELAY = 1500;
@@ -1231,11 +1233,12 @@ export function initLevelUi(host: LevelUiHost): LevelUi {
         autosaveTimer = window.setTimeout(() => void doAutosave(), AUTOSAVE_DELAY);
     }
 
-    async function doAutosave(): Promise<void> {
+    /** Write the autosave now. False when a write that was needed failed. */
+    async function doAutosave(): Promise<boolean> {
         const v = view;
         if (!v || !v.doc.size) {
             autosaveAtRisk = false; // nothing open, nothing to lose
-            return;
+            return true;
         }
         const key = autosaveKey(v.doc.level || levelName);
         store.set(`bookmarks:${v.doc.level || levelName}`, JSON.stringify(v.bookmarks));
@@ -1243,7 +1246,7 @@ export function initLevelUi(host: LevelUiHost): LevelUi {
             autosaveAtRisk = false;
             await clearAutosave(key);
             projects.edited();
-            return;
+            return true;
         }
         const ok = await saveAutosave({
             key,
@@ -1260,6 +1263,7 @@ export function initLevelUi(host: LevelUiHost): LevelUi {
         }
     }
 
+        return ok;
     // Edits are kept by the autosave; the browser only asks before closing while a copy is still unwritten.
     window.addEventListener('beforeunload', (e) => {
         if (!autosaveAtRisk) return;
@@ -1344,6 +1348,12 @@ export function initLevelUi(host: LevelUiHost): LevelUi {
         },
         levels: () => disc?.levels ?? [],
         modTarget: () => target(),
+        flushAutosaveOrThrow: async () => {
+            window.clearTimeout(autosaveTimer);
+            if (!(await doAutosave())) {
+                throw new Error('The level autosave could not be written (the browser storage is full or unavailable).');
+            }
+        },
         /** Class name and model render for a resource string (used by Save mode's inventory); null without a level. */
         classInfo(resource: string): { name: string; thumb: string | null } | null {
             const cls = catalog.find((c) => c.resource === resource);

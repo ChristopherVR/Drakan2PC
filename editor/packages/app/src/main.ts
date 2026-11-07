@@ -631,8 +631,12 @@ const desktop = initDesktop({
     setStatus,
     projectFiles: () => projectUi.files,
     flushAll: async () => {
-        await levelUi.flushAutosave();
-        if (projects.folder) await projectUi.files.save(true);
+        await levelUi.flushAutosaveOrThrow();
+        if (projects.folder) {
+            await projectUi.files.save(true);
+            // The project write reports its failure on the folder state instead of throwing.
+            if (projects.folder?.error) throw new Error(`The project folder could not be written: ${projects.folder.error}`);
+        }
     },
 });
 
