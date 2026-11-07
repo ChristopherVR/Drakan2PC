@@ -25,6 +25,21 @@ int main() {
            near(stepToward(0, -100, 25), -25));
     const auto w = parseWaypoints("1 2 3; 4,5,6 ;bad; 7 8");
     assert(w.size() == 2 && near(w[1].p[2], 6));
+    {
+        // pitched aim: forward (= -column 2) points at the target, the basis is orthonormal, the pure-yaw case matches
+        // yawMatrix
+        float m[9];
+        aimMatrix(300, -400, -1200, m);
+        const float len = std::sqrt(300.0f * 300 + 400.0f * 400 + 1200.0f * 1200);
+        assert(near(-m[2], 300 / len) && near(-m[5], -400 / len) && near(-m[8], -1200 / len));
+        assert(near(m[0] * m[1] + m[3] * m[4] + m[6] * m[7], 0.0f));
+        assert(near(m[0] * m[0] + m[3] * m[3] + m[6] * m[6], 1.0f));
+        float flat[9], yaw[9];
+        aimMatrix(500, 0, -200, flat);
+        yawMatrix(yawToward(500, -200), yaw);
+        for (int i = 0; i < 9; ++i)
+            assert(near(flat[i], yaw[i]));
+    }
     std::cout << "autoaim policy: ok\n";
     return 0;
 }

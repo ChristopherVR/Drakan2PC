@@ -234,7 +234,7 @@ static void autoSteer(drakan_input::IGuest& guest) {
     const uint32_t vt = drakan_region::guestAddress(0x51b8b0u);
     const uint32_t classes = guest.read32(res + 8), nClasses = guest.read32(res + 0x10);
     const float px = guest.readF(pl + 0x14), pz = guest.readF(pl + 0x1c);
-    float best = range * range, bdx = 0, bdz = 0;
+    float best = range * range, bdx = 0, bdy = 0, bdz = 0;
     bool found = false;
     for (uint32_t s = 0; s <= top; ++s) {
         const uint32_t h = guest.read32(table + s * 8);
@@ -251,6 +251,7 @@ static void autoSteer(drakan_input::IGuest& guest) {
         if (dx * dx + dz * dz < best) {
             best = dx * dx + dz * dz;
             bdx = dx;
+            bdy = guest.readF(h + 0x18) - guest.readF(pl + 0x18);
             bdz = dz;
             found = true;
         }
@@ -258,7 +259,11 @@ static void autoSteer(drakan_input::IGuest& guest) {
     if (!found)
         return;
     float m[9];
-    drakan_autoaim::yawMatrix(drakan_autoaim::yawToward(bdx, bdz), m);
+    static const bool pitch = std::getenv("DRAKAN_PLAYTEST_AUTOAIM_PITCH") != nullptr;
+    if (pitch)
+        drakan_autoaim::aimMatrix(bdx, bdy, bdz, m);
+    else
+        drakan_autoaim::yawMatrix(drakan_autoaim::yawToward(bdx, bdz), m);
     for (int k = 0; k < 9; ++k)
         guest.writeF(pl + 0x20 + 4u * static_cast<uint32_t>(k), m[k]);
 }

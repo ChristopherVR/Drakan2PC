@@ -26,6 +26,29 @@ inline float yawOfMatrix(const float m[9]) {
     return std::atan2(m[2], m[0]);
 }
 
+// Rotation that faces the vector (dx, dy, dz) including pitch, in the engine's layout (the axes are the matrix columns:
+// forward = -column 2, yaw 0 faces -z, up = column 1). Writes 9 floats row major, like yawMatrix.
+inline void aimMatrix(float dx, float dy, float dz, float m[9]) {
+    const float horiz = std::sqrt(dx * dx + dz * dz);
+    const float len = std::sqrt(horiz * horiz + dy * dy);
+    if (len < 1e-3f) {
+        yawMatrix(0.0f, m);
+        return;
+    }
+    const float yaw = yawToward(dx, dz);
+    const float pitch = std::atan2(dy, horiz);
+    const float cp = std::cos(pitch), sp = std::sin(pitch), sy = std::sin(yaw), cy = std::cos(yaw);
+    const float f[3] = {-sy * cp, sp, -cy * cp}; // forward
+    const float c2[3] = {-f[0], -f[1], -f[2]};   // column 2
+    const float c0[3] = {cy, 0.0f, -sy};         // column 0 (right), horizontal
+    const float c1[3] = {c2[1] * c0[2] - c2[2] * c0[1], c2[2] * c0[0] - c2[0] * c0[2], c2[0] * c0[1] - c2[1] * c0[0]};
+    for (int r = 0; r < 3; ++r) {
+        m[r * 3 + 0] = c0[r];
+        m[r * 3 + 1] = c1[r];
+        m[r * 3 + 2] = c2[r];
+    }
+}
+
 // Moves `cur` toward `target` by at most `maxStep`.
 inline float stepToward(float cur, float target, float maxStep) {
     const float d = target - cur;
