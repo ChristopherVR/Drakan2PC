@@ -247,12 +247,13 @@ export function installLandscape(ctx: Ctx, host: LandscapeHost): Landscape {
     const optionsBox = h('div', { class: 'ls-section ls-options' });
     const footer = h('div', { class: 'ls-foot' });
     const body = h('div', { class: 'ls-body' }, groupTabs, toolGrid, howText, brushBox, optionsBox);
+    const emptyText = h('span', {}, 'Open a level from the disc. Its ground loads a moment after the objects.');
     const emptyBox = h(
         'div',
         { class: 'ls-empty' },
         landscapeIcon('landscape', 28),
         h('strong', {}, 'No ground to edit yet'),
-        h('span', {}, 'Open a level from the disc. Its ground loads a moment after the objects.'),
+        emptyText,
     );
     const el = h(
         'div',
@@ -657,6 +658,11 @@ export function installLandscape(ctx: Ctx, host: LandscapeHost): Landscape {
     function rebuild(): void {
         const has = !!terrain();
         emptyBox.hidden = has;
+        // a level is open but its ground has not arrived: say that, not "open a level"
+        emptyText.textContent =
+            ctx.doc().size > 0
+                ? 'The ground of this level is still loading. The tools appear when it is there.'
+                : 'Open a level from the disc. Its ground loads a moment after the objects.';
         body.hidden = !has;
         const g = info().group;
         fill(
