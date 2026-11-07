@@ -21,7 +21,7 @@ export interface StoryArea {
 
 export function createStoryArea(tabs: readonly StoryTab[], initial?: string, sub = false): StoryArea {
     let cur = tabs.find((t) => t.id === initial)?.id ?? tabs[0]!.id;
-    const strip = h('div', { class: `story-tabs${sub ? ' sub' : ''}`, role: 'tablist', 'aria-label': 'Story editors' });
+    const strip = h('div', { class: `story-tabs${sub ? ' sub' : ''}`, role: 'tablist', 'aria-label': sub ? 'Story section' : 'Story editors' });
     const body = h('div', { class: 'story-area-body' });
     const root = h('div', { class: 'panel story-area' }, strip, body);
     const active = (): StoryTab => tabs.find((t) => t.id === cur) ?? tabs[0]!;

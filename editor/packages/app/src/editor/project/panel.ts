@@ -822,9 +822,9 @@ export function createProjectPanel(host: ProjectPanelHost): ProjectPanel {
                         ? `A new level that starts as ${l.copyOf}`
                         : converted
                           ? 'A level converted from Drakan: Order of the Flame'
-                          : 'A level of the disc',
+                          : 'A level of the original game',
                 },
-                l.copyOf ? 'Copy' : converted ? 'Converted' : 'Disc',
+                l.copyOf ? 'Copy' : converted ? 'Converted' : 'Original',
             ),
             h(
                 'div',
@@ -1210,6 +1210,8 @@ export function createProjectPanel(host: ProjectPanelHost): ProjectPanel {
                     id: `pj-filter-${s}`,
                     'aria-pressed': String(filter[s]),
                     title: `${filter[s] ? 'Hide' : 'Show'} ${SEV_NAME[s][1]}`,
+                    // The button shows a bare count; spoken it needs to say what is counted.
+                    'aria-label': `Show ${plural(all[s], SEV_NAME[s])}`,
                     onclick: () => {
                         filter[s] = !filter[s];
                         store.set(FILTER_KEY, JSON.stringify(filter));

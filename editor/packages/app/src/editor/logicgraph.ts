@@ -301,7 +301,12 @@ export function createLogicGraph(host: GraphHost): LogicGraphView {
             const w = label.length * 5.6 + 18;
             const mx = (p.x + q.x) / 2;
             const my = (p.y + q.y) / 2;
-            const pill = svg('g', { class: `lg-pill${bad ? ' bad' : ''}`, transform: `translate(${mx} ${my})` });
+            const pill = svg('g', {
+                class: `lg-pill${bad ? ' bad' : ''}`,
+                transform: `translate(${mx} ${my})`,
+                role: 'button',
+                'aria-label': `${nodeLabel(e.from)} ${words} ${nodeLabel(e.to)}${bad ? ', the target ignores this' : ''}. Change what this link does`,
+            });
             pill.append(
                 svg('rect', { x: -w / 2, y: -10, width: w, height: 20, rx: 10 }),
                 svg('text', { y: 4, 'text-anchor': 'middle' }, label),

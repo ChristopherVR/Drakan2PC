@@ -564,6 +564,16 @@ export function createHelp(): Help {
             bottomGuides.delete(host);
             const have = host.querySelector<HTMLElement>(':scope > .hp-q');
             if (have) {
+                // The same panel can show another task (the left dock is Place or Landscape): follow it.
+                if (have.dataset.help !== guideId) {
+                    have.dataset.help = guideId;
+                    have.title = tip;
+                    have.setAttribute('aria-label', tip);
+                    have.onclick = (e: Event) => {
+                        e.stopPropagation();
+                        open(guideId);
+                    };
+                }
                 tidy();
                 return;
             }

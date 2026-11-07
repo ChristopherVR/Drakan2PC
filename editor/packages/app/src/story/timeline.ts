@@ -75,6 +75,9 @@ export interface Timeline {
 
 const LABEL_W = 150;
 
+/** A key moved from the keyboard: the timeline is rebuilt, so the moved key takes the focus again once it exists. */
+let refocus: { actor: number; time: number } | null = null;
+
 export function createTimeline(o: TimelineOptions): Timeline {
     const lanes = lanesOf(o.seq);
     const playhead = h('div', { class: 'tl-playhead' });
@@ -102,7 +105,25 @@ export function createTimeline(o: TimelineOptions): Timeline {
                 type: 'button',
                 style: `left:${(k.action.time / o.dur) * 100}%;--c:${color}`,
                 title: `${lane.actor}: ${o.describe?.(lane.actorIndex, k.action) ?? KIND_TITLE[lane.kind] ?? lane.kind} at ${k.action.time.toFixed(2)} s. Drag to move it.`,
-                'aria-label': `${KIND_TITLE[lane.kind] ?? lane.kind} key at ${k.action.time.toFixed(2)} seconds`,
+                'aria-label': `${lane.actor}, ${KIND_TITLE[lane.kind] ?? lane.kind} key at ${k.action.time.toFixed(2)} seconds. Left and Right arrows move it by a tenth of a second, with Shift by a second.`,
+            });
+            if (refocus && refocus.actor === lane.actorIndex && Math.abs(refocus.time - k.action.time) < 1e-3) {
+                key.dataset.refocus = '1';
+                refocus = null;
+            }
+            // Keyboard: the same two things the pointer does, pick a key and move it.
+            key.addEventListener('keydown', (e) => {
+                if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault();
+                    o.pick?.(lane.actorIndex, k.index);
+                } else if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
+                    e.preventDefault();
+                    const by = (e.shiftKey ? 1 : 0.1) * (e.key === 'ArrowLeft' ? -1 : 1);
+                    const t = Math.min(o.dur, Math.max(0, Math.round((k.action.time + by) * 100) / 100));
+                    if (Math.abs(t - k.action.time) < 1e-6) return;
+                    refocus = { actor: lane.actorIndex, time: t };
+                    o.moveKey(lane.actorIndex, k.index, t);
+                }
             });
             key.addEventListener('pointerdown', (e) => {
                 if (e.button !== 0) return;
@@ -157,6 +178,9 @@ export function createTimeline(o: TimelineOptions): Timeline {
         );
     const area = h('div', { class: 'tl-area' }, ...rows, playhead);
     const el = h('div', { class: 'tl', style: `--label:${LABEL_W}px` }, area);
+    if (el.querySelector('[data-refocus]')) {
+        requestAnimationFrame(() => el.querySelector<HTMLElement>('[data-refocus]')?.focus({ preventScroll: true }));
+    }
 
     const place = (): void => {
         const r = rulerTrack.getBoundingClientRect();

@@ -143,6 +143,14 @@ export function createQuestsPanel(session: StorySession, ctx?: () => Ctx): Quest
                             role: 'option',
                             class: `story-row${r.classId === state.sel ? ' sel' : ''}`,
                             'aria-selected': r.classId === state.sel,
+                            // The tags read "J", "Map", "Opt" on screen; spoken they are words.
+                            'aria-label': `${titleOf(r)}, quest ${r.classId}, ${
+                                r.draft.kind === 'both'
+                                    ? 'journal entry and map marker'
+                                    : r.draft.kind === 'map'
+                                      ? 'map marker'
+                                      : 'journal entry'
+                            }${r.draft.optional ? ', optional' : ''}${r.isNew ? ', new' : r.edited ? ', edited' : ''}`,
                             onclick: () => {
                                 state.sel = r.classId;
                                 renderList();

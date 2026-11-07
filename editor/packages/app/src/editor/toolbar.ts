@@ -552,7 +552,12 @@ export function createToolbar(
         icon('gauge', 14),
         speed,
     );
-    speed.addEventListener('input', () => a.setFlySpeed(2 ** (Number(speed.value) / 5)));
+    const speedText = (): string => `x${(2 ** (Number(speed.value) / 5)).toFixed(2)}`;
+    speed.setAttribute('aria-valuetext', speedText());
+    speed.addEventListener('input', () => {
+        a.setFlySpeed(2 ** (Number(speed.value) / 5));
+        speed.setAttribute('aria-valuetext', speedText());
+    });
     const bookmarks = menuButton(
         'Views',
         'camera',

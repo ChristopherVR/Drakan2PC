@@ -300,10 +300,13 @@ export function installLandscape(ctx: Ctx, host: LandscapeHost): Landscape {
             'aria-label': label,
             title: hint,
         }) as HTMLInputElement;
+        // A screen reader reads the number the slider holds (0.512); the label beside it says what that means.
+        input.setAttribute('aria-valuetext', text(value));
         input.addEventListener('input', () => {
             const v = Number(input.value);
             set(v);
             out.textContent = text(v);
+            input.setAttribute('aria-valuetext', text(v));
             save();
             refreshCursor();
         });

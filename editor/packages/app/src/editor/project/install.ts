@@ -539,7 +539,9 @@ export function installProject(host: ProjectInstallHost): ProjectInstall {
         checklist.refresh();
         for (const [sel, guide] of HELP_TARGETS) {
             const el = document.querySelector(sel);
-            if (el) help.attach(el, guide);
+            if (!el) continue;
+            const landscape = sel === '#ed-left' && el.querySelector('.panel.landscape:not([hidden])');
+            help.attach(el, landscape ? 'landscape' : guide);
         }
     }
     window.setInterval(tick, 700);
