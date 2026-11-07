@@ -577,9 +577,7 @@ pub async fn project_new(app: AppHandle, state: State<'_, AppState>, name: Strin
         return Ok(None);
     };
     let dir = p.into_path().map_err(err)?.join(folder);
-    if dir.join(PROJECT_FILE).exists() {
-        return Err(format!("{} already holds a project. Open it instead, or pick another folder.", dir.display()));
-    }
+    paths::check_new_project_dir(&dir, PROJECT_FILE)?;
     std::fs::create_dir_all(&dir).map_err(|e| format!("{}: {e}", dir.display()))?;
     grant_project(&app, &state, &dir)?;
     Ok(Some(project_info(&dir, None)))

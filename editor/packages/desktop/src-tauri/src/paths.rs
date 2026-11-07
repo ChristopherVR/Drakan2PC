@@ -117,6 +117,25 @@ pub fn has_ext(p: &Path, ext: &str) -> bool {
         .is_some_and(|e| e.eq_ignore_ascii_case(ext))
 }
 
+/// A folder a new project (or Save As) may be created in: it does not exist yet, or it is empty. Anything else is refused,
+/// so a project is never written between someone's other files or on top of another project.
+pub fn check_new_project_dir(dir: &Path, project_file: &str) -> Result<(), String> {
+    if dir.join(project_file).exists() {
+        return Err(format!("{} already holds a project. Open it instead, or pick another name.", dir.display()));
+    }
+    match std::fs::read_dir(dir) {
+        Ok(mut it) => {
+            if it.next().is_some() {
+                Err(format!("{} already has files in it. Pick another name, or an empty folder.", dir.display()))
+            } else {
+                Ok(())
+            }
+        }
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(e) => Err(format!("{}: {e}", dir.display())),
+    }
+}
+
 /// The game executable inside a play folder (`drakan.exe`, any case).
 pub fn find_game_exe(dir: &Path) -> Option<PathBuf> {
     let rd = std::fs::read_dir(dir).ok()?;
@@ -201,6 +220,23 @@ mod tests {
         let have = vec!["A.rsg".to_string(), "A.rsg.bak".to_string(), "A.rsg.bak.1".to_string()];
         assert_eq!(next_backup_name(&have, "A.rsg"), "A.rsg.bak.2");
         assert_eq!(next_backup_name(&[], "A.rsg"), "A.rsg.bak");
+    }
+
+    #[test]
+    fn new_project_dirs() {
+        let base = std::env::temp_dir().join(format!("drakan-newproj-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&base);
+        let free = base.join("free");
+        assert!(check_new_project_dir(&free, "project.drakan.json").is_ok()); // does not exist yet
+        std::fs::create_dir_all(&free).unwrap();
+        assert!(check_new_project_dir(&free, "project.drakan.json").is_ok()); // empty
+        std::fs::write(free.join("notes.txt"), b"x").unwrap();
+        assert!(check_new_project_dir(&free, "project.drakan.json").unwrap_err().contains("already has files"));
+        let proj = base.join("proj");
+        std::fs::create_dir_all(&proj).unwrap();
+        std::fs::write(proj.join("project.drakan.json"), b"{}").unwrap();
+        assert!(check_new_project_dir(&proj, "project.drakan.json").unwrap_err().contains("already holds a project"));
+        let _ = std::fs::remove_dir_all(&base);
     }
 
     #[test]

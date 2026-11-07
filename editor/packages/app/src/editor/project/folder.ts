@@ -3,12 +3,15 @@ import {
     newProject,
     parseProjectFile,
     serializeProjectFile,
+    slugId,
+    suggestSaveAsName,
     type ModProject,
     type ProjectEdits,
     type ProjectStory,
     type TaskId,
 } from '@drakan/editor-core';
 import * as platform from '../../platform.ts';
+import { askText } from '../asktext.ts';
 import { autosaveKey, clearAutosave, loadAutosave, saveAutosave } from '../autosave.ts';
 import { projects } from './store.ts';
 
@@ -37,6 +40,8 @@ export interface ProjectFiles {
     openRecent(dir: string): Promise<boolean>;
     /** Browser (or any): open a project file's text. */
     openText(text: string): Promise<void>;
+    /** Desktop: write the open project into a new folder (asks for its name and where) and continue in that copy. */
+    saveAs(): Promise<boolean>;
     /** Close the project so the start card shows (the folder is saved first). */
     close(): Promise<void>;
     /** Re-open the folder the last session ended with (desktop). */
@@ -202,6 +207,29 @@ export function createProjectFiles(host: FolderHost): ProjectFiles {
         async openText(text) {
             const { project, edits, story } = parseProjectFile(text);
             await adopt(project, edits, story, null);
+        },
+        async saveAs() {
+            const p = projects.get();
+            if (!p) {
+                host.toast('There is no project to save yet. Start one first.', 'warn');
+                return false;
+            }
+            if (!platform.isDesktop) {
+                await save();
+                return true;
+            }
+            const recent = (await platform.getSettings()).recentProjects.map((r) => r.split(/[\\/]/).filter(Boolean).pop() ?? r);
+            const name = await askText('Save project as', 'Name of the new project', suggestSaveAsName(p.name, recent), 'Choose folder...');
+            if (!name) return false;
+            // the open project is written first, so nothing of it is lost if the copy fails
+            if (projects.folder) await save(true);
+            const info = await platform.projectNew(name);
+            if (!info) return false;
+            projects.update((q) => ({ ...q, name, id: slugId(name) }));
+            projects.setFolder({ dir: info.dir, savedAt: null, error: null });
+            await save(true);
+            host.toast(`Saved a copy as "${name}" in ${info.dir}. You are now working in the copy.`, 'ok');
+            return true;
         },
         async close() {
             if (projects.folder) {

@@ -1106,3 +1106,15 @@ export function validateCampaign(p: ModProject, ctx: ProjectCheckContext): Proje
     }
     return out;
 }
+
+/** A name for the copy Save As makes: `My mod copy`, then `My mod copy 2` ... the first one not in `taken` (case-insensitive). */
+export function suggestSaveAsName(name: string, taken: readonly string[] = []): string {
+    const base = (name.trim() || 'My mod').replace(/ copy( \d+)?$/i, '');
+    const used = new Set(taken.map((t) => t.toLowerCase()));
+    let n = 1;
+    for (;;) {
+        const candidate = n === 1 ? `${base} copy` : `${base} copy ${n}`;
+        if (!used.has(candidate.toLowerCase())) return candidate;
+        n++;
+    }
+}

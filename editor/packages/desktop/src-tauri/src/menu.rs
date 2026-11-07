@@ -50,6 +50,7 @@ pub fn build(app: &AppHandle) -> tauri::Result<Menu<Wry>> {
     let file = SubmenuBuilder::new(app, "&File")
         .item(&item(app, "project-new", "&New Project...", Some("CmdOrCtrl+Shift+N"))?)
         .item(&item(app, "project-open", "Open &Project...", Some("CmdOrCtrl+Shift+O"))?)
+        .item(&item(app, "project-save-as", "Save Project &As...", Some("CmdOrCtrl+Shift+S"))?)
         .item(&recent_proj)
         .separator()
         .item(&item(app, "cmd:view.startPage", "S&tart Page", None)?)

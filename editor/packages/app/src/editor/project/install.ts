@@ -445,6 +445,15 @@ export function installProject(host: ProjectInstallHost): ProjectInstall {
     });
     if (isDesktop) {
         registerCommand({
+            id: 'project.saveAs',
+            title: 'Save the project as...',
+            category: 'File',
+            icon: 'save',
+            keywords: 'copy project folder duplicate',
+            enabled: () => !!projects.get(),
+            run: () => void files.saveAs().catch((e: unknown) => ctx.toast(e instanceof Error ? e.message : String(e), 'error')),
+        });
+        registerCommand({
             id: 'project.new',
             title: 'New project folder...',
             category: 'File',

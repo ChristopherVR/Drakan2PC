@@ -175,6 +175,9 @@ export function initDesktop(hooks: DesktopHooks): Desktop {
                 hooks.showTab('level');
                 runCommand('project.new');
                 break;
+            case 'project-save-as':
+                hooks.projectFiles().saveAs().catch(fail);
+                break;
             case 'project-open':
                 hooks.projectFiles().openFolder().catch(fail);
                 break;

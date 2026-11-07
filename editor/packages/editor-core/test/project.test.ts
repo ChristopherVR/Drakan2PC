@@ -1,4 +1,5 @@
 // Synthetic only: titles and exit tables are made up.
+import { suggestSaveAsName } from '../src/project.ts';
 import { describe, expect, it } from 'vitest';
 import {
     WORKFLOWS,
@@ -167,5 +168,14 @@ describe('exit destination text', () => {
         expect(exitDestinationText({ dest: null, portal: true })).toBe('Portal inside this level');
         expect(exitDestinationText({ dest: null, portal: false })).toBe('unknown destination');
         expect(exitDestinationText({ dest: 'Level B - Two', portal: false })).toBe('Level B - Two');
+    });
+});
+
+describe('suggestSaveAsName', () => {
+    it('adds "copy" and counts up past names that are taken', () => {
+        expect(suggestSaveAsName('My mod')).toBe('My mod copy');
+        expect(suggestSaveAsName('My mod', ['my mod copy'])).toBe('My mod copy 2');
+        expect(suggestSaveAsName('My mod copy', ['My mod copy'])).toBe('My mod copy 2');
+        expect(suggestSaveAsName('  ')).toBe('My mod copy');
     });
 });
