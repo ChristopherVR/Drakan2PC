@@ -13,5 +13,8 @@ Rabe's latest unresolved items on issue #1 were checked against git history befo
 
 - WebGPU ray path performance ("notably worse" than D3D11/DXR) has never been measured; no profile exists. WebGPU is covered
   by `gsr_test_ray_trace` only, and the artifact fixes were verified live on D3D11 at the Surdana start only.
+  Update (later on 8 November): measured and fixed (GI traced at native resolution, all three effects 157 -> 30 ms GPU
+  per frame at scale 4), artifact fixes verified on WebGPU, view 4 dashes explained, `tap` / `always` attack modes run
+  in game: [issue-1-webgpu-ray-perf.md](issue-1-webgpu-ray-perf.md). The dirt-path overlay stays absent from the ray scene.
 - Reporter should confirm the fixes with the next release build; no reply was posted (not asked).
 - No new code was changed in this pass.
