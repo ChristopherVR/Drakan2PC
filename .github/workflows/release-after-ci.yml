@@ -74,10 +74,13 @@ jobs:
 
           IFS=. read -r major minor patch <<< "$last"
           next="v$major.$minor.$((patch + 1))"
-          if git ls-remote --exit-code --tags origin "$next" > /dev/null 2>&1 \
-             || gh release view "$next" > /dev/null 2>&1; then
-            out false "Skip: $next already exists."; exit 0
-          fi
+          # Either spelling counts as taken (0.1.4 and v0.1.4 are the same version).
+          for t in "$next" "${next#v}"; do
+            if git ls-remote --exit-code --tags origin "$t" > /dev/null 2>&1 \
+               || gh release view "$t" > /dev/null 2>&1; then
+              out false "Skip: version ${next#v} already exists as $t."; exit 0
+            fi
+          done
           if gh run list --workflow release.yml --limit 20 --json status,event,headSha \
                --jq '[.[] | select(.status != "completed" and .event == "workflow_dispatch")] | length' | grep -qv '^0$'; then
             out false "Skip: a Release run is already in progress."; exit 0
