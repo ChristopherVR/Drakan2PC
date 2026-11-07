@@ -141,13 +141,15 @@ carried 0 and drew their holes solid. They now carry 1, the disc's alpha-test se
 edge colour (formats `cd48742`); only three TXDs change, every LVL, MOD and ODB is byte-identical. In Grotto the pines and
 Standing Banners now show the background through their holes. See [cut-out textures](../journal/2026-11-07/ootf-cutout-textures.md).
 
-**November 7 Rift World, the last level (issue 5):** Rift World is the final level (13 campaign levels, then the ending inside it).
-A fresh 23-level pack (formats `f5d3c6b`) plays. Arriving from Volcanic carries Arokh's fire breath (direct starts have none); breath
-does 15 damage and refills in about 500 ticks. The four Ebon Dragons die to real breath hits (test aid `OOTF_TEST_EBONHP`, formats
-`4d21976`; at 150 hit points an open-loop script cannot land enough hits) and the gate counter reads 4 -> 0 from the real deaths;
-Detector 367 sets the RibDoor flags when Arokh nears it. Open: Arokh stops 2,000 to 3,300 units before the hexagonal RibDoor tunnel
-door (height 93,700 needed to enter it), so the altar, Delon and Dr. Evil are not reached by natural play. See
-[progression 3](../journal/2026-11-07/ootf-progression-3.md).
+**November 7 Rift World, the last level, and the ending (issue 5):** Rift World is the final level (13 campaign levels). The
+chain was played from a natural Volcanic arrival (Arokh keeps his fire breath; direct starts have none) through the left tunnel, the
+hall and the central shaft to the altar, the four Dr. Evil heads were killed with real breath hits at their real 250 hit points (test
+aids `DRAKAN_PLAYTEST_AUTOAIM` / `_ALT` / `_WAYPOINTS` / `_WP_HOLD`, `env-flags.md`), the mirror-room scene and the outro credits
+(Drakan 2's German list, about 4.5 minutes) played and the game returned to the title. The RibDoors guard side vaults (not the
+route; PC terrain seals them too) and Arokh's stall came from flying under about 1,400 units over the floor, not from the converter.
+The Ebon Dragons die to breath (gate counter 4 -> 0, test aid `OOTF_TEST_EBONHP`, formats `4d21976`); Alwarren's war giant now dies
+to the sword at 150 hit points with the aim aid. Open: Delon's own fight, Ebon Dragons at 150 with the aim aid, an Order of the Flame
+credits list, an unaided human flight of the tunnel. See [progression 3](../journal/2026-11-07/ootf-progression-3.md).
 
 ## What works
 
