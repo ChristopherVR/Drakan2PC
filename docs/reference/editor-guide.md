@@ -267,9 +267,9 @@ Path: Open your disc > Choose the install > Convert > Open a level > Download th
 7. "Download mod (.zip)" (or "Save to mods folder...") writes the pack the game loads. Put it in the game's mods folder, turn it on in the Mods menu, restart and choose Drakan: Order of the Flame.
 
 * Converted levels are kept in this browser or app profile and come back with the disc. File > Remove converted Order of the Flame levels forgets them. Nothing from your install is uploaded.
-* Play (F5, desktop app) on a converted level installs the converted pack as ootf-levels.zip in the game's mods folder (replacing a pack of that name), turns it on and starts the game in the level on the language tree you converted against. In a browser, Play shows a dialog that points to the desktop app.
+* Play (F5, desktop app) on a converted level writes the converted levels as a temporary pack, editor-play-ootf.zip, in the game's mods folder and turns it on. Your own Order of the Flame packs (names starting with ootf) are switched off while the game runs, because they share files and class ids with it. When the game closes the editor puts mods.ini back and deletes the temporary pack; if the editor was closed first, it does so the next time it starts. In a browser, Play shows a dialog that points to the desktop app.
 * Objects whose class does not exist on the disc are left out; the "conversion notes" under the result list what was changed or skipped.
-* Story lists the Order of the Flame quests, cut scenes and conversations of a converted pack under their own scope (the menu beside the list); All adds the ones of the disc. Strings and the Text and export tab still show the text of the disc.
+* Story lists the Order of the Flame quests, cut scenes, conversations and strings of a converted pack under their own scope (the menu or tick beside the list); turn it off to see the disc's as well.
 
 <a id="campaign-pack"></a>
 

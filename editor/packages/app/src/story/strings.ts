@@ -10,7 +10,14 @@ const LANG_LABEL = ['English', 'German', 'French', 'Italian', 'Spanish'];
 const LIMIT = 300;
 
 export function createStringsPanel(session: StorySession): Panel {
-    const state = { file: SYSTEM_XDB, q: '', slot: 0, sel: 0 as number, onlyChanged: false, unused: false };
+    const state = { file: SYSTEM_XDB, q: '', slot: 0, sel: 0 as number, onlyChanged: false, unused: false, ootf: true };
+    // String ids a converted Order of the Flame pack adds, by table (`SYSTEM`, `LEVEL1ON`): they get their own scope.
+    let converted: Record<string, number[]> = {};
+    const stemOf = (file: string): string => (file.split(/[\\/]/).pop() ?? file).replace(/\.XDB$/i, '').toUpperCase();
+    const addedIds = (): Set<number> | null => {
+        const ids = converted[stemOf(state.file)];
+        return ids?.length ? new Set(ids) : null;
+    };
     const fileSel = h('select', { class: 'story-sel', 'aria-label': 'String table' });
     const slotSel = h(
         'select',
@@ -26,6 +33,9 @@ export function createStringsPanel(session: StorySession): Panel {
     });
     const changedBox = h('input', { type: 'checkbox' });
     const unusedBox = h('input', { type: 'checkbox' });
+    const ootfBox = h('input', { type: 'checkbox', checked: true });
+    const ootfLabel = h('label', { class: 'story-chk', title: 'Only the strings the converted pack adds' }, ootfBox, 'Order of the Flame');
+    ootfLabel.hidden = true;
     const list = h('div', { class: 'story-list', role: 'listbox', 'aria-label': 'Strings' });
     const detail = h('div', { class: 'story-detail' });
     const info = h('div', { class: 'story-info' });
@@ -64,6 +74,7 @@ export function createStringsPanel(session: StorySession): Panel {
             slotSel,
             search,
             h('label', { class: 'story-chk' }, changedBox, 'Changed'),
+            ootfLabel,
             h('label', { class: 'story-chk', title: 'Strings no class default points at' }, unusedBox, 'Unused'),
             addBtn,
             info,
@@ -86,6 +97,10 @@ export function createStringsPanel(session: StorySession): Panel {
     });
     changedBox.addEventListener('change', () => {
         state.onlyChanged = changedBox.checked;
+        renderList();
+    });
+    ootfBox.addEventListener('change', () => {
+        state.ootf = ootfBox.checked;
         renderList();
     });
     unusedBox.addEventListener('change', () => {
@@ -113,7 +128,10 @@ export function createStringsPanel(session: StorySession): Panel {
 
     function rows(): { id: number; text: string; used: number; changed: boolean; sub: number }[] {
         const out = [];
+        const added = addedIds();
+        ootfLabel.hidden = !added;
         for (const s of session.strings(state.file)) {
+            if (added && state.ootf && !added.has(s.id) && !session.isNewString(state.file, s.id)) continue;
             const text = session.text(state.file, s.id, state.slot);
             const hay = `${s.id} ${text}`.toLowerCase();
             if (state.q && !hay.includes(state.q)) continue;
@@ -301,6 +319,13 @@ export function createStringsPanel(session: StorySession): Panel {
     session.subscribe(() => {
         if (session.data && !inited) {
             inited = true;
+            void session.host
+                .call('convertedStory')
+                .then((c) => {
+                    converted = Object.fromEntries(Object.entries(c).map(([k, v]) => [k, v.texts ?? []]));
+                    renderList();
+                })
+                .catch(() => undefined);
             state.slot = session.data.slot;
             slotSel.value = String(state.slot);
         }

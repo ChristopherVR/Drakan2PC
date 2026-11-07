@@ -4,6 +4,7 @@
 mod commands;
 mod menu;
 mod paths;
+mod playpack;
 mod store;
 mod windows;
 
@@ -36,6 +37,7 @@ pub fn run() {
         .plugin(tauri_plugin_window_state::Builder::default().build())
         .setup(|app| {
             let file = commands::settings_path(app.handle());
+            commands::restore_play_pack_at_start(&file);
             let settings = store::Settings::load(&file);
             app.manage(AppState {
                 inner: Mutex::new(Inner {

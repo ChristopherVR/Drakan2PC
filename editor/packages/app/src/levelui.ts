@@ -31,7 +31,7 @@ import {
 } from '@drakan/editor-core';
 import type { DiscProfile } from '@drakan/formats';
 import { KINDS, LevelView, type ToolMode } from './level.ts';
-import { changeCount, setConvertedPackProvider, setDesktopOnlyNotice } from './modio.ts';
+import { PLAY_PACK_ID, changeCount, setConvertedPackProvider, setDesktopOnlyNotice } from './modio.ts';
 import type { Api, LevelInfo, LevelLoadResult, Method } from './rpc.ts';
 import { createSceneLoader } from './sceneload.ts';
 import { HELPER_GROUPS, helperGroupOf, type HelperGroup } from './scene/instances.ts';
@@ -159,7 +159,7 @@ export function initLevelUi(host: LevelUiHost): LevelUi {
     // Play on a converted Order of the Flame level installs the converted pack first (modio.ts).
     setConvertedPackProvider(async (level) => {
         const info = disc?.levels.find((l) => l.virtual && l.name === level);
-        const zip = info ? await host.call('convertedPackZip') : null;
+        const zip = info ? await host.call('convertedPackZip', PLAY_PACK_ID) : null;
         return info && zip ? { zip, language: info.dirPath.split(/[\\/]/)[0] ?? '' } : null;
     });
     /** The level the document was loaded from (LVL source); null for a world dump or a saved document. */

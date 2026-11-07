@@ -188,9 +188,16 @@ export function writeModPack(id: string, files: Record<string, Uint8Array>, ini:
 
 /** Size of `<mods>/<id>.zip` in bytes, or null when the pack is not installed as a zip. */
 export const modsZipSize = (id: string): Promise<number | null> => invoke('mods_zip_size', { id });
-/** Write a finished pack zip as `<mods>/<id>.zip` and replace `mods.ini` with `ini`. Returns the file's path. */
-export const writeModZip = (id: string, zip: Uint8Array, ini: string): Promise<string> =>
-    invokeRaw('mods_write_zip', zip, { 'x-id': b64Text(id), 'x-ini': b64Text(ini) });
+/**
+ * Write a finished pack zip as `<mods>/<id>.zip` and replace `mods.ini` with `ini`. Returns the file's path. `temporary`:
+ * the shell restores `mods.ini` and deletes the zip when the game closes.
+ */
+export const writeModZip = (id: string, zip: Uint8Array, ini: string, temporary = false): Promise<string> =>
+    invokeRaw('mods_write_zip', zip, {
+        'x-id': b64Text(id),
+        'x-ini': b64Text(ini),
+        ...(temporary ? { 'x-restore': b64Text('1') } : {}),
+    });
 
 /** `extra`: start one more instance beside the running game (multiplayer tests: a second player joining a host). */
 export const launchGame = (env: Record<string, string>, extra = false): Promise<LaunchInfo> =>

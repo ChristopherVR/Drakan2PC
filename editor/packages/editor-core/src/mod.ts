@@ -259,3 +259,33 @@ export async function srscRoundTrips(reader: SrscReader, indices: number[]): Pro
     }
     return true;
 }
+
+/** The manifest text with another pack id (and name), so a copy of a pack can sit beside the original. */
+export function retagManifestToml(toml: string, id: string, name: string): string {
+    return toml
+        .replace(/^id\s*=\s*".*"$/m, `id = "${id}"`)
+        .replace(/^name\s*=\s*".*"$/m, `name = "${name}"`);
+}
+
+/**
+ * `mods.ini` for one Play session with a temporary converted pack: packs whose name starts with `ootf` (the player's own
+ * converted levels share files and class ids with the Play pack) are switched off and the Play pack on. The desktop
+ * shell puts the original text back when the game closes.
+ */
+export function playPackIni(ini: string, playId: string): string {
+    let out = ini;
+    let inMods = false;
+    for (const raw of ini.split(String.fromCharCode(10))) {
+        const t = raw.trim();
+        const sec = /^\[(.+)\]$/.exec(t);
+        if (sec) {
+            inMods = sec[1]!.trim().toLowerCase() === 'mods';
+            continue;
+        }
+        const eq = t.indexOf('=');
+        if (!inMods || eq <= 0 || t.startsWith(';') || t.startsWith('#')) continue;
+        const name = t.slice(0, eq).trim();
+        if (/^ootf/i.test(name) && name !== playId) out = updateModsIni(out, name, false);
+    }
+    return updateModsIni(out, playId, true);
+}

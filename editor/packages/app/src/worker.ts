@@ -18,7 +18,7 @@ import {
     resolveDependencyStem,
     sliceSource,
 } from '@drakan/formats';
-import { destinationLevelName, srscRoundTrips, zipModFiles } from '@drakan/editor-core';
+import { destinationLevelName, retagManifestToml, srscRoundTrips, zipModFiles } from '@drakan/editor-core';
 import { clearConverted, loadConverted, saveConverted } from './virtualstore.ts';
 import { convertedStoryOf, overlayDisc, packPathToDisc, patchedContainers, type VirtualFile } from './virtualdisc.ts';
 import { loadModelData, loadTerrainData } from './scene/decode.ts';
@@ -86,7 +86,7 @@ const convertedPack = new Map<string, Uint8Array>();
 /** Quest classes the converted pack adds to SYSTEM.ODB. */
 const convertedQuestIds = new Set<number>();
 /** Story entries a converted pack adds, by level folder (`LEVEL1ON`): cut scene sequences and conversation classes. */
-const convertedStory = new Map<string, { sequences: Set<number>; classes: Set<number> }>();
+const convertedStory = new Map<string, { sequences: Set<number>; classes: Set<number>; texts: Set<number> }>();
 let language = '';
 const srscCache = new Map<string, SrscReader>();
 const inflatedCache = new Map<string, { data: Uint8Array }>();
@@ -258,7 +258,8 @@ async function applyVirtual(
         if (m) convertedQuestIds.add(Number(m[1]));
     }
     for (const [stem, e] of convertedStoryOf(Object.keys(packFiles))) {
-        const have = convertedStory.get(stem) ?? { sequences: new Set<number>(), classes: new Set<number>() };
+        const have = convertedStory.get(stem) ?? { sequences: new Set<number>(), classes: new Set<number>(), texts: new Set<number>() };
+        e.texts.forEach((i) => have.texts.add(i));
         e.sequences.forEach((i) => have.sequences.add(i));
         e.classes.forEach((i) => have.classes.add(i));
         convertedStory.set(stem, have);
@@ -395,13 +396,20 @@ const api: { [K in keyof Api]: (...a: Parameters<Api[K]>) => Promise<ReturnType<
     },
     async convertedStory() {
         return Object.fromEntries(
-            [...convertedStory].map(([k, v]) => [k, { sequences: [...v.sequences], classes: [...v.classes] }]),
+            [...convertedStory].map(([k, v]) => [k, { sequences: [...v.sequences], classes: [...v.classes], texts: [...v.texts] }]),
         );
     },
-    async convertedPackZip(): Promise<Uint8Array | null> {
+    async convertedPackZip(id?: string): Promise<Uint8Array | null> {
         if (!convertedPack.size) return null;
         // Stored, not compressed: the pack is hundreds of megabytes and the game reads it as it is.
-        return zipModFiles(Object.fromEntries(convertedPack), 0);
+        const files = Object.fromEntries(convertedPack);
+        const toml = files['mod.toml'];
+        if (toml && id) {
+            files['mod.toml'] = new TextEncoder().encode(
+                retagManifestToml(new TextDecoder().decode(toml), id, 'Order of the Flame levels (editor Play)'),
+            );
+        }
+        return zipModFiles(files, 0);
     },
     async clearVirtualLevels(): Promise<LevelInfo[]> {
         virtualFiles.clear();

@@ -166,6 +166,7 @@ experimental = off
 ```
 
 * Order top to bottom is the **load order**; later packs win. `on` / `off` enable or disable (`1 true yes` also mean on).
+* Two converted Order of the Flame packs cannot be on together: both replace the same widened `RESOURES.MOD` / `WORLDCON.MOD` files and hand out new class ids from the same ranges. The editor's Play on a converted level therefore installs its own temporary pack `editor-play-ootf.zip`, switches every `ootf*` pack off in `mods.ini` for the session, and puts `mods.ini` back and deletes its zip when the game closes (desktop shell `playpack.rs`; a leftover is cleaned when the editor next starts).
 * Packs found on disk but not listed are appended as `<name> = new`: off, and not decided yet. They are never enabled by
   themselves; see "New packs" below. `off` is a decision (the player kept the pack off), `new` is not.
 * A listed pack that is missing from the folder (moved, renamed, deleted) is reported and skipped. What happens to its

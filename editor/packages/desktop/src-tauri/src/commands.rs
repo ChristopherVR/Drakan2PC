@@ -1,6 +1,7 @@
 //! The commands the webview may call. Every path that is read or written is either chosen by the user in a native dialog
 //! during this session, remembered from an earlier one (`settings.json`), or derived from the chosen game folder.
 
+use crate::playpack;
 use crate::paths::{self, allowed_env, valid_env_value, valid_mod_id};
 use crate::store::Settings;
 use crate::AppState;
@@ -464,6 +465,16 @@ pub fn mods_write_zip(state: State<'_, AppState>, request: Request<'_>) -> Res<S
     let ini = header_text(&request, "x-ini")?;
     let mods = mods_folder(&state)?;
     std::fs::create_dir_all(&mods).map_err(err)?;
+    // A Play pack is temporary: remember `mods.ini` as it is now so it can be put back when the game closes.
+    if header_text(&request, "x-restore").is_ok_and(|v| v == "1") {
+        let before = std::fs::read_to_string(mods.join("mods.ini")).unwrap_or_default();
+        let dir = state.settings_file.parent().map(Path::to_path_buf).unwrap_or_default();
+        playpack::save_backup(
+            &dir,
+            &playpack::Backup { mods: mods.to_string_lossy().to_string(), id: id.clone(), ini: before },
+        )
+        .map_err(err)?;
+    }
     let target = mods.join(format!("{id}.zip"));
     let tmp = mods.join(format!("{id}.zip.part"));
     std::fs::write(&tmp, raw_body(&request)?).map_err(|e| format!("{}: {e}", tmp.display()))?;
@@ -672,6 +683,7 @@ pub struct LaunchInfo {
 /// Start the game from the remembered play folder. Only the documented `DRAKAN_*` debugging variables can be set.
 #[tauri::command]
 pub fn game_launch(
+    app: AppHandle,
     state: State<'_, AppState>,
     env: HashMap<String, String>,
     extra: Option<bool>,
@@ -731,6 +743,9 @@ pub fn game_launch(
     }
     let child = cmd.spawn().map_err(|e| format!("could not start {}: {e}", exe.display()))?;
     let pid = child.id();
+    if !extra && playpack::backup_path(&config_dir(&state)).exists() {
+        watch_play_pack(app.clone());
+    }
     if extra {
         state.inner.lock().unwrap().extras.push(child);
     } else {
@@ -741,6 +756,35 @@ pub fn game_launch(
         exe: exe.to_string_lossy().to_string(),
         mods: mods.map(|m| m.to_string_lossy().to_string()).unwrap_or_default(),
     })
+}
+
+fn config_dir(state: &AppState) -> PathBuf {
+    state.settings_file.parent().map(Path::to_path_buf).unwrap_or_default()
+}
+
+/// When the game and its extra instances have closed, take the Play pack out and restore `mods.ini`.
+fn watch_play_pack(app: AppHandle) {
+    std::thread::spawn(move || loop {
+        std::thread::sleep(std::time::Duration::from_secs(2));
+        let state = app.state::<AppState>();
+        let mut g = state.inner.lock().unwrap();
+        let alive = |c: &mut std::process::Child| matches!(c.try_wait(), Ok(None));
+        let main = g.child.as_mut().is_some_and(alive);
+        g.extras.retain_mut(alive);
+        if main || !g.extras.is_empty() {
+            continue;
+        }
+        drop(g);
+        let _ = playpack::restore(&config_dir(&state));
+        return;
+    });
+}
+
+/// Called when the editor starts: a Play pack left over from a session the editor did not outlive.
+pub fn restore_play_pack_at_start(settings_file: &Path) {
+    if let Some(dir) = settings_file.parent() {
+        let _ = playpack::restore(dir);
+    }
 }
 
 #[tauri::command]

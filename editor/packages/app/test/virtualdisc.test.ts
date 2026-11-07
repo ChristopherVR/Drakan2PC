@@ -79,10 +79,14 @@ describe('convertedStoryOf', () => {
             'new/LEVEL1ON.SSD/0312_5_0.bin',
             'new/level1on.odb/0102_900_0.bin',
             'new/SYSTEM.ODB/0102_1000_0.bin',
+            'new/SYSTEM.XDB/0400_28672_1.bin',
+            'new/LEVEL1ON.XDB/0400_5_1.bin',
             'overrides/LEVEL1ON.SSD/0311_6_0.bin',
             'files/ENGLISH/LEVELS/X/X.LVL',
         ]);
-        expect([...got.keys()]).toEqual(['LEVEL1ON']);
+        expect([...got.keys()].sort()).toEqual(['LEVEL1ON', 'SYSTEM']);
+        expect([...got.get('SYSTEM')!.texts]).toEqual([28672]);
+        expect([...got.get('LEVEL1ON')!.texts]).toEqual([5]);
         expect([...got.get('LEVEL1ON')!.sequences]).toEqual([5]);
         expect([...got.get('LEVEL1ON')!.classes]).toEqual([900]);
     });

@@ -5,6 +5,7 @@ import {
     checkEntrySize,
     hasTerrainEdits,
     terrainPackEntry,
+    playPackIni,
     updateModsIni,
     zipModFiles,
     type ApplyReport,
@@ -185,8 +186,8 @@ async function writePackDesktop(pack: Pick<LevelPack, 'meta' | 'files'>): Promis
     return platform.writeModPack(pack.meta.id, pack.files, ini);
 }
 
-/** Id of the converted Order of the Flame pack (its `mod.toml`), as the importer names it. */
-export const OOTF_PACK_ID = 'ootf-levels';
+/** Id of the temporary pack Play installs for converted Order of the Flame levels (never a pack of the player's). */
+export const PLAY_PACK_ID = 'editor-play-ootf';
 
 type ConvertedPackProvider = (level: string) => Promise<{ zip: Uint8Array; language: string } | null>;
 let convertedProvider: ConvertedPackProvider | null = null;
@@ -196,18 +197,18 @@ export function setConvertedPackProvider(p: ConvertedPackProvider | null): void 
 }
 
 /**
- * A converted level exists only in the editor: the game can open it once its pack is in the mods folder. Writes the pack
- * as `<mods>/ootf-levels.zip` (enabled) unless a zip of the same size is already there. Returns whether it was written.
+ * A converted level exists only in the editor: the game opens it once its pack is in the mods folder. Writes the pack as
+ * `<mods>/editor-play-ootf.zip` under its own id and turns off the player's `ootf*` packs for this session (they share
+ * files and class ids with it); the shell puts `mods.ini` back and deletes the zip when the game closes.
  */
-async function installConvertedPack(level: string | null): Promise<{ written: boolean; language: string } | null> {
+async function installConvertedPack(level: string | null): Promise<{ language: string } | null> {
     if (!level || !convertedProvider) return null;
     const found = await convertedProvider(level);
     if (!found) return null;
-    const { zip, language } = found;
     if (!knownModsFolder(await platform.getSettings()) && !(await ensureGameFolder())) return null;
-    if ((await platform.modsZipSize(OOTF_PACK_ID)) === zip.length) return { written: false, language };
-    await platform.writeModZip(OOTF_PACK_ID, zip, updateModsIni(await platform.readModsIni(), OOTF_PACK_ID, true));
-    return { written: true, language };
+    const ini = playPackIni(await platform.readModsIni(), PLAY_PACK_ID);
+    await platform.writeModZip(PLAY_PACK_ID, found.zip, ini, true);
+    return { language: found.language };
 }
 
 let desktopOnly: () => void = () => {};
@@ -235,11 +236,11 @@ export async function playInGame(
     if (await platform.gameRunning()) throw new ModError('The game is already running. Close it first.');
     const converted = await installConvertedPack(level);
     // The converted pack holds the language tree of the disc it was converted against; the game must read that tree.
-    if (converted?.language) env.DRAKAN_LANG = converted.language.toLowerCase();
+    if (converted) env.DRAKAN_LANG = converted.language.toLowerCase();
     const where = pack ? await writePackDesktop(pack) : null;
     await platform.launchGame(env);
     const parts = [where ? `mod '${pack!.meta.id}' installed` : 'no edits'];
-    if (converted?.written) parts.push('Order of the Flame levels installed');
+    if (converted) parts.push('Order of the Flame levels in a temporary pack');
     if (env.DRAKAN_START_LEVEL)
         parts.push(`starting in ${env.DRAKAN_START_LEVEL}${env.DRAKAN_START_LEVEL_FROM ? ' (no intro)' : ''}`);
     if (env.DRAKAN_NET_HOST) parts.push(`hosting on port ${env.DRAKAN_NET_HOST}`);

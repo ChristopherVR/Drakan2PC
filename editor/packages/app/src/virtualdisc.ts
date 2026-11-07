@@ -154,13 +154,21 @@ export async function patchedContainers(
  */
 export function convertedStoryOf(
     paths: Iterable<string>,
-): Map<string, { sequences: Set<number>; classes: Set<number> }> {
-    const out = new Map<string, { sequences: Set<number>; classes: Set<number> }>();
+): Map<string, { sequences: Set<number>; classes: Set<number>; texts: Set<number> }> {
+    const out = new Map<string, { sequences: Set<number>; classes: Set<number>; texts: Set<number> }>();
     for (const path of paths) {
+        const x = /^new\/([^/]+)\.XDB\/0400_(\d+)_/i.exec(path);
+        if (x) {
+            const key = x[1]!.toUpperCase();
+            const e = out.get(key) ?? { sequences: new Set<number>(), classes: new Set<number>(), texts: new Set<number>() };
+            e.texts.add(Number(x[2]));
+            out.set(key, e);
+            continue;
+        }
         const m = /^new\/([^/]+)\.(?:SSD|ODB)\/(0311|0102)_(\d+)_/i.exec(path);
         if (!m || m[1]!.toUpperCase() === 'SYSTEM') continue;
         const key = m[1]!.toUpperCase();
-        const e = out.get(key) ?? { sequences: new Set<number>(), classes: new Set<number>() };
+        const e = out.get(key) ?? { sequences: new Set<number>(), classes: new Set<number>(), texts: new Set<number>() };
         (m[2] === '0311' ? e.sequences : e.classes).add(Number(m[3]));
         out.set(key, e);
     }
