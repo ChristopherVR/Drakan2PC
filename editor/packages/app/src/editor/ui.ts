@@ -82,15 +82,23 @@ export type MenuItem =
     | { heading: string };
 
 let openMenu: HTMLElement | null = null;
+/** Where the keyboard was before the menu opened; it goes back there when the menu closes without moving focus. */
+let menuOpener: HTMLElement | SVGElement | null = null;
 
 export function closeContextMenu(): void {
-    openMenu?.remove();
+    const menu = openMenu;
+    const hadFocus = !!menu && (menu.contains(document.activeElement) || document.activeElement === document.body);
+    menu?.remove();
     openMenu = null;
+    if (menu && hadFocus && menuOpener?.isConnected) menuOpener.focus({ preventScroll: true });
+    menuOpener = null;
 }
 
 /** Show a menu at viewport coordinates; closes on outside click, Escape, scroll or blur. */
 export function contextMenu(x: number, y: number, items: MenuItem[]): void {
     closeContextMenu();
+    const was = document.activeElement;
+    menuOpener = was instanceof HTMLElement || was instanceof SVGElement ? was : null;
     const menu = h('div', { class: 'ui-menu', role: 'menu' });
     for (const it of items) {
         if ('sep' in it) menu.append(h('div', { class: 'ui-menu-sep', role: 'separator' }));
@@ -140,11 +148,12 @@ export function contextMenu(x: number, y: number, items: MenuItem[]): void {
     window.addEventListener('blur', away, true);
     window.addEventListener('wheel', away, true);
     menu.addEventListener('keydown', (e) => {
-        if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp') return;
+        if (!['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(e.key)) return;
         e.preventDefault();
         const btns = [...menu.querySelectorAll<HTMLButtonElement>('button:not(:disabled)')];
         const i = btns.indexOf(document.activeElement as HTMLButtonElement);
-        btns[(i + (e.key === 'ArrowDown' ? 1 : -1) + btns.length) % btns.length]?.focus();
+        const next = e.key === 'Home' ? 0 : e.key === 'End' ? btns.length - 1 : i + (e.key === 'ArrowDown' ? 1 : -1);
+        btns[(next + btns.length) % btns.length]?.focus();
     });
 }
 

@@ -150,11 +150,21 @@ export function createLogicGraph(host: GraphHost): LogicGraphView {
     );
     const fitBtn = h('button', { class: 'btn', type: 'button', title: 'Zoom to show every card' }, 'Fit');
     const info = h('span', { class: 'dim' });
-    const canvas = svg('svg', { class: 'lg-canvas', width: '100%', height: '100%', tabindex: 0 });
+    const canvas = svg('svg', {
+        class: 'lg-canvas',
+        width: '100%',
+        height: '100%',
+        tabindex: 0,
+        role: 'group',
+        'aria-label':
+            'Logic graph. Arrow keys move between cards, L starts a link from the current card, E steps through its links, Enter changes the chosen link, Delete removes it, F fits the view.',
+    });
+    // Spoken feedback for keyboard use: what moved, what is linked, what is chosen.
+    const live = h('div', { class: 'lg-live', role: 'status', 'aria-live': 'polite' });
     const world = svg('g');
     canvas.append(world);
     const empty = h('div', { class: 'lg-empty', hidden: true });
-    const wrap = h('div', { class: 'lg-wrap' }, canvas, empty);
+    const wrap = h('div', { class: 'lg-wrap' }, canvas, empty, live);
     const side = h('div', { class: 'lg-side' });
     const el = h('div', { class: 'lg-body' }, wrap, side);
 
@@ -168,7 +178,7 @@ export function createLogicGraph(host: GraphHost): LogicGraphView {
             graph = { nodes: new Map(), edges: [] };
             place = new Map();
             problems = new Map();
-            info.textContent = e ? 'No level open.' : 'Open a disc level to see its logic.';
+            info.textContent = e ? 'No level open.' : 'Open a level to see its logic.';
             draw();
             return;
         }
@@ -439,7 +449,7 @@ export function createLogicGraph(host: GraphHost): LogicGraphView {
                 {},
                 e && doc.size
                     ? 'Click an object in the level, drag one in from the Outliner, or add one here. Then drag from a card’s round pin to another card to link them.'
-                    : 'Open a level of the disc to see how its triggers, doors and cut scenes are wired.',
+                    : 'Open a level to see how its triggers, doors and cut scenes are wired.',
             ),
             e && doc.size
                 ? h(
@@ -604,14 +614,150 @@ export function createLogicGraph(host: GraphHost): LogicGraphView {
         },
         { passive: false },
     );
+    // ---- keyboard: move between cards, link, step through links, change or delete a link ---------------------------------
+    /** Link made from the keyboard: the card it starts from, and the card the cursor is on. */
+    let kbLink: { from: number; to: number | null } | null = null;
+    const say = (text: string): void => {
+        live.textContent = '';
+        window.setTimeout(() => (live.textContent = text), 40);
+    };
+    const currentNode = (): number | null => {
+        if (kbLink?.to != null) return kbLink.to;
+        const sel = ctx.doc().size ? [...ctx.view().selection] : [];
+        const hit = sel.find((id) => graph.nodes.has(id));
+        if (hit !== undefined) return hit;
+        const ids = [...graph.nodes.keys()].sort((p, q) => pos(p).x - pos(q).x || pos(p).y - pos(q).y);
+        return ids[0] ?? null;
+    };
+    /** The card nearest to `from` in a direction (best by how far off the line it lies, then by distance). */
+    function neighbour(from: number, dx: number, dy: number): number | null {
+        const a = pos(from);
+        let best: number | null = null;
+        let bestScore = Infinity;
+        for (const id of graph.nodes.keys()) {
+            if (id === from) continue;
+            const b = pos(id);
+            const vx = b.x - a.x;
+            const vy = b.y - a.y;
+            const along = vx * dx + vy * dy;
+            if (along <= 0) continue;
+            const across = Math.abs(vx * dy - vy * dx);
+            const score = across * 2 + along;
+            if (score < bestScore) {
+                bestScore = score;
+                best = id;
+            }
+        }
+        return best;
+    }
+    function markCursor(): void {
+        world.querySelectorAll('.lg-node.drop').forEach((n) => n.classList.remove('drop'));
+        if (kbLink?.to != null) world.querySelector(`.lg-node[data-id="${kbLink.to}"]`)?.classList.add('drop');
+    }
+    function stopLink(): void {
+        kbLink = null;
+        markCursor();
+    }
+    /** Screen position of a card, for menus that open next to it. */
+    function screenOf(id: number): { x: number; y: number } {
+        const r = canvas.getBoundingClientRect();
+        const p = pos(id);
+        return { x: r.left + cam.x + (p.x + NW) * cam.k, y: r.top + cam.y + (p.y + NH / 2) * cam.k };
+    }
+    function edgesOf(id: number): LogicGraph['edges'] {
+        return [
+            ...graph.edges.filter((e) => e.from === id),
+            ...graph.edges.filter((e) => e.to === id && e.from !== id),
+        ];
+    }
+    function describeCard(id: number): string {
+        const n = graph.nodes.get(id);
+        const out = graph.edges.filter((e) => e.from === id).length;
+        const inn = graph.edges.filter((e) => e.to === id).length;
+        return `${nodeLabel(id)}, ${n ? plainRoleName(n.spec) : 'object'}, ${out} link${out === 1 ? '' : 's'} out, ${inn} in`;
+    }
+    function describeEdge(e: { from: number; to: number }): string {
+        return `${nodeLabel(e.from)} ${edgeWords(e.from, e.to)} ${nodeLabel(e.to)}`;
+    }
     canvas.addEventListener('keydown', (ev) => {
-        if ((ev.key === 'Delete' || ev.key === 'Backspace') && selEdge) {
+        if (ev.ctrlKey || ev.metaKey || ev.altKey) return;
+        const key = ev.key;
+        const dir: Record<string, [number, number]> = {
+            ArrowRight: [1, 0],
+            ArrowLeft: [-1, 0],
+            ArrowDown: [0, 1],
+            ArrowUp: [0, -1],
+        };
+        const cur = currentNode();
+        if (dir[key] && cur !== null) {
+            ev.preventDefault();
+            const [dx, dy] = dir[key]!;
+            const next = neighbour(cur, dx, dy);
+            if (next === null) return say('No card in that direction.');
+            if (kbLink) {
+                kbLink.to = next;
+                markCursor();
+                return say(`Link to ${describeCard(next)}. Enter to link, Escape to cancel.`);
+            }
+            selEdge = null;
+            pinned.add(next);
+            ctx.view().select([next]);
+            say(describeCard(next));
+        } else if ((key === 'l' || key === 'L') && cur !== null && !kbLink) {
+            ev.preventDefault();
+            const n = graph.nodes.get(cur);
+            if (n && !n.spec.out.length) return say(`${nodeLabel(cur)} sends nothing on its own, so it cannot start a link.`);
+            kbLink = { from: cur, to: null };
+            say(`Linking from ${nodeLabel(cur)}. Use the arrow keys to choose the card it should tell, then Enter. Escape cancels.`);
+        } else if (key === 'Escape') {
+            if (kbLink) {
+                ev.preventDefault();
+                stopLink();
+                say('Link cancelled.');
+            } else if (selEdge) {
+                selEdge = null;
+                draw();
+                renderSide();
+                say('Link no longer chosen.');
+            }
+        } else if (key === 'Enter') {
+            ev.preventDefault();
+            if (kbLink) {
+                if (kbLink.to === null) return say('Choose the card to link to with the arrow keys first.');
+                const { from, to } = kbLink;
+                stopLink();
+                connect(from, to, screenOf(to));
+                say(`Choose what ${nodeLabel(from)} should do to ${nodeLabel(to)}, then press Enter.`);
+            } else if (selEdge) {
+                const [a, b] = selEdge.split('>').map(Number) as [number, number];
+                if (!askLinkMessage(ctx, [a], b, screenOf(a))) say('This link has no message to change.');
+            } else if (cur !== null) {
+                ctx.locate([cur]);
+                say(`Showing ${nodeLabel(cur)} in the level.`);
+            }
+        } else if ((key === 'e' || key === 'E') && cur !== null) {
+            ev.preventDefault();
+            const list = edgesOf(cur);
+            if (!list.length) return say(`${nodeLabel(cur)} has no links.`);
+            const at = list.findIndex((e) => e.key === selEdge);
+            const next = list[(at + (ev.shiftKey ? list.length - 1 : 1)) % list.length]!;
+            selEdge = next.key;
+            draw();
+            renderSide();
+            say(`Link ${list.indexOf(next) + 1} of ${list.length}: ${describeEdge(next)}. Enter changes it, Delete removes it.`);
+        } else if ((key === 'Delete' || key === 'Backspace') && selEdge) {
+            ev.preventDefault();
             const [a, b] = selEdge.split('>').map(Number) as [number, number];
+            const text = describeEdge({ from: a, to: b });
             unlink(a, b);
-        } else if ((ev.key === 'a' || ev.key === 'A') && !ev.ctrlKey && !ev.metaKey) {
+            say(`Removed the link: ${text}.`);
+        } else if ((key === 'a' || key === 'A') && !ev.shiftKey) {
             ev.preventDefault();
             openAddMenu();
-        } else if (ev.key === 'f' || ev.key === 'F') fit();
+        } else if (key === 'f' || key === 'F') fit();
+    });
+    canvas.addEventListener('blur', () => {
+        if (kbLink) stopLink();
     });
 
     function unlink(a: number, b: number): void {
@@ -715,7 +861,7 @@ export function createLogicGraph(host: GraphHost): LogicGraphView {
         closeAdd();
         const e = env();
         const doc = ctx.doc();
-        if (!e || doc.size === 0) return void ctx.toast('Open a level of the disc first.', 'warn');
+        if (!e || doc.size === 0) return void ctx.toast('Open a level first.', 'warn');
         const r = wrap.getBoundingClientRect();
         const px = at?.x ?? r.left + 40;
         const py = at?.y ?? r.top + 40;
@@ -963,7 +1109,7 @@ export function createLogicGraph(host: GraphHost): LogicGraphView {
     function renderSide(): void {
         const e = env();
         const doc = ctx.doc();
-        if (!e) return fill(side, h('div', { class: 'dim' }, 'Open a level of the disc to see its logic.'));
+        if (!e) return fill(side, h('div', { class: 'dim' }, 'Open a level to see its logic.'));
         if (selEdge) {
             const edge = graph.edges.find((x) => x.key === selEdge);
             if (edge) {
