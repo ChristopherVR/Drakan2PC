@@ -101,7 +101,10 @@ What the Use handler (`0x3168a0`, event from E) does, from the decompile:
 
 Tried in Shiverbane (`--level 5`, new-game Rynn, sword equipped): the shipped Key 52 (type 11, state `+0x1c` = 1, so it is a valid
 pickup) at 0, 330 and 680 units, facing it, E tapped 3 times at each; the Savage Prison Key REO (its floor is 700 units below Rynn's,
-probably outside `0x1fc`) from four sides. The key entity never goes away and the lock never gets `0x10e4`. Not yet known: the
+probably outside `0x1fc`) from four sides. The key entity never goes away and the lock never gets `0x10e4`. Walking instead of placing did not help: placed at 2000 units from Key 52 and holding W for 3 s, Rynn moved only 44 units
+(633400 to 633356) and stopped, so something solid stands between her and the key (the Shiverbane locks sit behind lightning
+barriers and walls), which would also fail the ray tests. A clear approach path to a key (read the level's collision, or pick a
+key in the open such as a Surdana / Catacombs one) is the first thing to find. Not yet known: the
 values of `0x1fb` / `0x1fc` and whether the `place` teleport (hold for 4 to 5 s) or the hovering placement height changes the
 candidate list or the ray test; `data+0xe3c` read 92 candidates, so the key is probably in the list and fails the radius, height or
 ray test. Next step if someone continues: read the class parameters `0x1fb`, `0x1fc` from Rynn's class record
