@@ -26,6 +26,7 @@
 #include "drakan_tab_screen.h"
 #include "drakan_inventory_views_policy.h"
 #include "drakan_tab_preview_policy.h"
+#include "drakan_map_preview_policy.h"
 
 #include <gsr/gsr.h>
 #include <spu2/AudioOutput.h>
@@ -1296,15 +1297,29 @@ void updatePreviewTextures() {
 // ---- multiplayer map pictures ----
 // A map's picture is optional: `previews/<map name>.png` next to the exe (the player's own capture or a mod pack's
 // image; nothing from the disc is stored in the repository). The menu draws a generated sketch when there is none.
+// Which folders count and when a match captures one: drakan_map_preview_policy.h.
 std::mutex g_mapPreviewM;
 std::map<uint32_t, std::string> g_mapPreviewPaths; // previewId -> file
 std::map<uint32_t, PreviewTexture> g_mapPreviews;
 
+// DRAKAN_MP_CAPTURE=1: a match on a map without a picture captures the current view (off by default, issue #1).
+bool mapAutoCapture() {
+    static const bool on = drakan_map_preview::autoCaptureEnabled(std::getenv("DRAKAN_MP_CAPTURE"));
+    return on;
+}
+
+// An explicit picture folder (DRAKAN_PREVIEW_DIR), or "" when there is none.
+std::string explicitPreviewDir() {
+    if (const char* e = std::getenv("DRAKAN_PREVIEW_DIR"); e && *e)
+        return std::string(e) + "/";
+    return {};
+}
+
 // Where the game's own map pictures are cached: the user's data folder (DRAKAN_PREVIEW_DIR overrides), never the
 // repository or the play folder. Falls back to previews/captured/ next to the exe when there is none.
 std::string capturedPreviewDir() {
-    if (const char* e = std::getenv("DRAKAN_PREVIEW_DIR"); e && *e)
-        return std::string(e) + "/";
+    if (std::string e = explicitPreviewDir(); !e.empty())
+        return e;
 #ifdef _WIN32
     if (const char* l = std::getenv("LOCALAPPDATA"); l && *l)
         return std::string(l) + "/Drakan2PC/previews/";
@@ -1323,8 +1338,8 @@ std::string mapSafeName(const std::string& mapName) {
 }
 
 // previews/<name>.png (the player's own picture) wins, then previews/mods/<name>.png (drakan_overrides copies the
-// previews/<name>.png of every loaded mod pack there), then previews/captured/<name>.png (the game's own capture of the
-// map in a match, mpPreviewCapture) in the user's data folder (capturedPreviewDir()).
+// previews/<name>.png of every loaded mod pack there), then DRAKAN_PREVIEW_DIR, then (DRAKAN_MP_CAPTURE=1 only) the
+// game's own captures of the map in a match (mpPreviewCapture) in the user's data folder.
 uint32_t mapPreviewId(const std::string& mapName) {
     struct Known {
         uint32_t id = 0;
@@ -1339,9 +1354,8 @@ uint32_t mapPreviewId(const std::string& mapName) {
     const std::string safe = mapSafeName(mapName);
     std::error_code ec;
     uint32_t id = 0;
-    const std::string captured = capturedPreviewDir();
-    for (const std::string& base : {drakan_cfg::exeDir() + "previews/", drakan_cfg::exeDir() + "previews/mods/",
-                                    captured, drakan_cfg::exeDir() + "previews/captured/"}) {
+    for (const std::string& base : drakan_map_preview::searchDirs(drakan_cfg::exeDir(), explicitPreviewDir(),
+                                                                  capturedPreviewDir(), mapAutoCapture())) {
         const std::string path = base + safe + ".png";
         if (!std::filesystem::exists(path, ec))
             continue;
@@ -1805,16 +1819,14 @@ bool mpResultsUp() {
     return up;
 }
 
-// Capture the current view for a missing map thumbnail. Moving the live player to the authored preview
-// point would send that movement to the other clients and return the player to a different spawn.
+// DRAKAN_MP_CAPTURE=1 only: capture the current view for a missing map thumbnail. Moving the live player to the
+// authored preview point would send that movement to the other clients and return the player to a different spawn.
+// Off by default: the current view is whatever the player looks at, and the menu kept showing it as the map's picture.
 bool mpPreviewCapture(const drakan_netplay::State& ns, const gameui::mp::HudState& hs) {
     static int hiding = 0;           // frames still drawn without the HUD
     static std::string requestedFor; // the map a capture was asked for
     static double playingSince = -1, lastPhaseAt = 0;
-    static const bool off = [] {
-        const char* e = std::getenv("DRAKAN_MP_CAPTURE");
-        return e && e[0] == '0';
-    }();
+    const bool off = !mapAutoCapture(); // a current-view capture is a random frame, not a map picture (issue #1)
     const double now = ImGui::GetTime();
     if (hiding > 0) {
         --hiding;
