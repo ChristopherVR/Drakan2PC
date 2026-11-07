@@ -21,6 +21,9 @@ int main() {
         yawMatrix(y, m);
         assert(near(yawOfMatrix(m), y));
     }
+    assert(near(stepToward(0, 100, 25), 25) && near(stepToward(90, 100, 25), 100) && near(stepToward(0, -100, 25), -25));
+    const auto w = parseWaypoints("1 2 3; 4,5,6 ;bad; 7 8");
+    assert(w.size() == 2 && near(w[1].p[2], 6));
     std::cout << "autoaim policy: ok\n";
     return 0;
 }

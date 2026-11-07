@@ -14,6 +14,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <string>
+#include <vector>
 
 namespace drakan_playtest {
 
@@ -166,7 +167,7 @@ static void autoSteer(drakan_input::IGuest& guest) {
     }();
     static const bool hasAlt = std::getenv("DRAKAN_PLAYTEST_ALT") != nullptr;
     static const float alt = hasAlt ? std::strtof(std::getenv("DRAKAN_PLAYTEST_ALT"), nullptr) : 0.0f;
-    if (!cls && !hasAlt)
+    if (!cls && !hasAlt && !std::getenv("DRAKAN_PLAYTEST_WAYPOINTS"))
         return;
     const uint32_t eng = guest.read32(drakan_region::guestAddress(kContextPtr));
     const uint32_t pl = eng ? guest.read32(eng + kControlled) : 0;
@@ -174,6 +175,38 @@ static void autoSteer(drakan_input::IGuest& guest) {
         return;
     if (hasAlt && std::isfinite(alt))
         guest.writeF(pl + 0x18, alt);
+    // DRAKAN_PLAYTEST_WAYPOINTS="x y z; x y z; ...": an autopilot for flights a time-based script cannot steer. The
+    // actor is turned toward the current point (yaw only), its height moves toward the point's at DRAKAN_PLAYTEST_CLIMB
+    // units per boundary (default 25), and the next point is taken within DRAKAN_PLAYTEST_WP_RADIUS units (xz, default
+    // 2500). The recipe only holds W.
+    static const std::vector<drakan_autoaim::Waypoint> wps =
+        drakan_autoaim::parseWaypoints(std::getenv("DRAKAN_PLAYTEST_WAYPOINTS"));
+    static const float climb = [] {
+        const char* e = std::getenv("DRAKAN_PLAYTEST_CLIMB");
+        const float v = e && *e ? std::strtof(e, nullptr) : 0.0f;
+        return v > 0.0f ? v : 25.0f;
+    }();
+    static const float wpRadius = [] {
+        const char* e = std::getenv("DRAKAN_PLAYTEST_WP_RADIUS");
+        const float v = e && *e ? std::strtof(e, nullptr) : 0.0f;
+        return v > 0.0f ? v : 2500.0f;
+    }();
+    static size_t wpIndex = 0;
+    if (!wps.empty() && wpIndex < wps.size()) {
+        const auto& w = wps[wpIndex].p;
+        const float dx = w[0] - guest.readF(pl + 0x14), dz = w[2] - guest.readF(pl + 0x1c);
+        if (dx * dx + dz * dz < wpRadius * wpRadius) {
+            std::fprintf(stderr, "[playtest] waypoint %zu reached (%.0f %.0f %.0f)\n", wpIndex,
+                         static_cast<double>(w[0]), static_cast<double>(w[1]), static_cast<double>(w[2]));
+            ++wpIndex;
+        } else {
+            guest.writeF(pl + 0x18, drakan_autoaim::stepToward(guest.readF(pl + 0x18), w[1], climb));
+            float m[9];
+            drakan_autoaim::yawMatrix(drakan_autoaim::yawToward(dx, dz), m);
+            for (int k = 0; k < 9; ++k)
+                guest.writeF(pl + 0x20 + 4u * static_cast<uint32_t>(k), m[k]);
+        }
+    }
     if (!cls)
         return;
     const uint32_t table = guest.read32(eng + 0x7c), top = guest.read32(eng + 0x84), res = guest.read32(eng + 0x320);
