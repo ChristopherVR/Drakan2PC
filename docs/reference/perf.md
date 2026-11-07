@@ -610,10 +610,11 @@ with `GSR_SURFACE_OVERLAP`. See [the combat measurements](../journal/2026-11-05/
 
 ## Northern Tundra weak spots (2026-11-07)
 
-Weak 4B spots (45 fps world rate against 160 elsewhere in the level, display presents stay at 60 Hz) are a steady GPU limit,
-not a stall: in a clean window `presentCall` rose from 1.8 to 8.5 ms per present, DXR `compose` from 1.7 to 7 ms
-(`GSR_RAY_GPU_TIMING=1`), while draws, uploads and `syncRT` per frame stayed flat and no `[perf-stall]` or slow GS record
-appeared. The earlier `nvwgf2umx` stall lines came from several games sharing the GPU. Effect attribution by toggles was not
-possible on the shared machine; see the [journal](../journal/2026-11-07/fps-4b.md) for numbers and the open A/B plan.
-Use the `.map` that belongs to the exe under test with `hostprof.py`.
+On a quiet machine (0 other `drakan.exe`, 3 repeats) the 4B spots run 175 (A), 139 (B), 98 (C), 149 (D), 168 (E) world fps with
+display presents at 60 Hz. The earlier 45 fps reading was contention from other games. C, the worst, is limited by the **EE thread**
+(ee_ms/flip 8.1 against 4.3 at A, thread 96% busy), not the GPU: `presentCall` is lowest there (0.3 to 0.8 ms), and the toggles
+`GSR_RAY_SHADOWS=0` (+12%), water/reflections off (+7%), `DRAKAN_POLY_NEAR_CLIP=0` (0%) do not move ee_ms/flip; DLSS off is slower (-22%).
+The EE profile is diffuse guest code (more objects in view), our capture hooks are flat at about 1 ms. Numbers and method:
+[journal](../journal/2026-11-07/fps-4b.md). Use the `.map` that belongs to the exe under test with `hostprof.py`
+(`hostprof.csv` is written to the exe's folder and overwritten by the next run, copy it before starting another).
 

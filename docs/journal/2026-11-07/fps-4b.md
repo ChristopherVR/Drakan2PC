@@ -64,3 +64,49 @@ At the weak stretch (C, 45 fps; later D/E 46 to 65) against the fast stretch (A,
 3. Note for `scripts/perf/hostprof.py`: the `.map` must be the one written with the exe under test. `build/final-game/bin`
    changes whenever another session rebuilds, so copy the exe and the map together (my first hostprof used a newer
    map and resolved to wrong symbols, which is how this was found).
+
+## Quiet-machine rerun (deployed exe of 16:27, own copy in `build/fps4b2/play`)
+
+Every run started with `tasklist | grep -ci drakan.exe` = 0 (checked per run, 0 others for all 27 runs), strictly one game at a time,
+`PS2X_PERF=1 DRAKAN_PLAYTEST_GOD=1`, recipes `place`d the spot and measured 19 to 23 s of steady state after 6 s settling. The earlier
+run "diag" numbers were a fluke of the shared machine only for the absolute values; the rerun reproduces its shape exactly.
+
+Median of 3 repeats (spread = min to max of the three run medians):
+
+| Spot | flips2/s | vblank/s | ee_ms/flip | ee thread cpu | compose ms | presentCall ms | rejected tris |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| A | 175.8 (174.0 to 175.8) | 60.1 | 4.30 | 95 to 98% | 1.97 | 1.2 to 1.6 | 8.3k |
+| B | 138.9 (138.8 to 141.0) | 59.9 | 5.86 | 93 to 94% | 2.28 | 1.4 to 1.7 | 15k |
+| C | 97.9 (95.8 to 98.4) | 60.0 | 8.06 | 96 to 97.5% | 3.34 | 0.3 to 0.8 | 20.9k |
+| D | 149.3 (146.3 to 160.2) | 60.1 | 5.38 | 94 to 97% | 2.27 | 0.65 to 1.35 | 5.7k to 10k |
+| E | 167.5 (166.5 to 168.3) | 60.0 | 3.58 | 76 to 80% | 2.07 | 2.8 to 3.0 | 8.5k |
+
+So nothing is below 95 fps on a quiet machine (the 45 fps of the shared run was contention); C is the worst spot and the only one near 100.
+
+Toggles at C, 3 repeats each, back to back (flips2/s, run medians):
+
+| Setting | flips2/s | ee_ms/flip | compose ms |
+| --- | --- | --- | --- |
+| baseline | 99, 100, 100 | 8.06 to 8.18 | 3.35 |
+| `GSR_RAY_SHADOWS=0` | 110, 112, 114 | 8.18 | 0.83 |
+| `GSR_MODERN_WATER=0 GSR_RAY_REFLECTIONS=0` | 107, 103, 106 | 8.0 to 8.2 | 2.7 |
+| `DRAKAN_DLSS=off` | 78, 74, 78 | 6.9 to 7.4 | 7.4 |
+| `DRAKAN_POLY_NEAR_CLIP=0` | 99, 100, 92 | 8.0 to 8.1 | 3.3 |
+
+Attribution: the world rate at C is set by the EE thread, not the GPU. ee_ms/flip stays at 8 ms in every setting (it is
+a property of the guest workload at that spot), presentCall is the smallest of all spots at C (0.3 to 0.8 ms, the GPU is
+waiting for the EE, not the reverse), and killing the biggest GPU cost (shadows, compose 3.3 to 0.8 ms) buys only 12%. DLSS off is
+worse (compose doubles because the DXR pass then runs at the larger native size). The near clip hook is neutral.
+
+EE side (host RIP sampler, `PS2X_HOSTPROF=12`, EE thread only, `build/final-game/bin/drakan.map` which is byte-matched to the
+deployed exe) at A against C, as share of EE thread samples: guest generated code (`f_0x*`) 45% vs 39.5% (about 1.9 ms vs 3.2 ms per
+flip), `PS2Memory`/`EeScheduler` helpers 12% vs 18.6% (0.5 vs 1.5 ms), our capture hooks (`drakan_scene_models`,
+`drakan_object_motion`) 20% vs 14% (0.9 vs 1.1 ms, i.e. flat). VU1 runs on its own worker (`vu1async`): 1.06 M pairs/flip at A against
+3.45 M at C, so VU1 is busy but off the EE thread. The extra EE cost at C is spread over many guest functions (top one
+`f_0x116990` is 4.7% in both) i.e. it is the game doing more per frame there (more visible/animated objects), not one hotspot.
+Expected best case from trimming our hooks entirely is about 13% at C.
+
+Decision: no code change. There is no function or effect that explains the 8 ms; the largest single removable item (compose, shadows) is worth
+12% at C and costs image quality; the hooks are 1.1 ms of 8. What would move C is a faster guest dispatch (`translateAddress`,
+`read64`, `checkpointDue` take 5 to 6% together) or fewer guest instructions per frame, both larger projects. The cheap
+micro-fix seen in the profile is `Tracker::freed` (linear scan over `lives` and `topologies` per free, 2.4 to 4.7% of EE), worth under 3%.
