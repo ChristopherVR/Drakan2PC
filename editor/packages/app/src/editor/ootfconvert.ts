@@ -36,6 +36,8 @@ export interface LevelSummary {
     objectsIn: number;
     layers: number;
     unmappedClasses: number;
+    /** Objects of PC classes kept out on purpose (sky and fog switches, multiplayer pads ...; listed in the notes). */
+    keptOut: number;
 }
 
 export interface ConvertResult {
@@ -91,6 +93,7 @@ export async function runConversion(
             objectsIn: R.objectsIn,
             layers: R.layers,
             unmappedClasses: R.unmappedClasses.size,
+            keptOut: [...(R.omittedClasses?.values() ?? [])].reduce((n, o) => n + o.objects, 0),
         });
         inputs.push({
             title: level.title,

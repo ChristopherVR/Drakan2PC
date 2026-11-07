@@ -159,7 +159,7 @@ const res = await convertOotfLevels(
 for (const l of res.levels) {
     const R = l.parts.report;
     console.log(
-        `${l.pcPath}: ${R.objectsOut}/${R.objectsIn} objects, ${R.unmappedClasses.size} classes unmapped, ${R.layers} layers, ${R.cellsMapped} cells textured, ${R.cellsFallback} on fallback`,
+        `${l.pcPath}: ${R.objectsOut}/${R.objectsIn} objects, ${R.unmappedClasses.size} classes unmapped, ${[...(R.omittedClasses?.values() ?? [])].reduce((n, o) => n + o.objects, 0)} objects kept out on purpose, ${R.layers} layers, ${R.cellsMapped} cells textured, ${R.cellsFallback} on fallback`,
     );
 }
 // --audit <regex>: print the class-plan row (outcome, PS2 class, model state) of every PC class whose name matches.

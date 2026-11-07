@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { installFilesOf, languageNote, ootfTemplateLevels, progressText } from '../src/editor/ootfimport.ts';
+import {
+    installFilesOf,
+    languageNote,
+    leftOutText,
+    ootfTemplateLevels,
+    progressText,
+} from '../src/editor/ootfimport.ts';
 import { filesSource } from '../src/editor/ootfconvert.ts';
 
 describe('importer progress text', () => {
@@ -20,6 +26,16 @@ describe('importer progress text', () => {
 
     it('falls back to a plain line for anything else', () => {
         expect(progressText('retarget Primitive Giant: PC 44 joints', 'OotF ')).toBe('Converting...');
+    });
+});
+
+describe('left out column', () => {
+    it('says none when every class converted, and names the objects kept out on purpose', () => {
+        expect(leftOutText({ unmappedClasses: 0 })).toBe('none');
+        expect(leftOutText({ unmappedClasses: 0, keptOut: 0 })).toBe('none');
+        expect(leftOutText({ unmappedClasses: 0, keptOut: 10 })).toBe('none (10 kept out on purpose)');
+        expect(leftOutText({ unmappedClasses: 1, keptOut: 3 })).toBe('1 class (3 kept out on purpose)');
+        expect(leftOutText({ unmappedClasses: 2 })).toBe('2 classes');
     });
 });
 

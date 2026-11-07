@@ -248,6 +248,13 @@ export async function languageNote(src: PcFileSource): Promise<string> {
     }
 }
 
+/** The "Left out" cell of a converted level: real gaps first, then the objects kept out on purpose (see the notes). */
+export function leftOutText(l: { unmappedClasses: number; keptOut?: number }): string {
+    const kept = l.keptOut ?? 0;
+    const gaps = l.unmappedClasses ? `${l.unmappedClasses} class${l.unmappedClasses === 1 ? '' : 'es'}` : 'none';
+    return kept ? `${gaps} (${kept} kept out on purpose)` : gaps;
+}
+
 /** Conversion notes (retargeted rigs, skipped classes) behind a disclosure, so the result list stays readable. */
 function notesBlock(notes: string[]): HTMLElement {
     if (!notes.length) return h('div', { class: 'od-dim' }, 'Converted without notes.');
@@ -292,7 +299,7 @@ function openDialog(host: OotfHost): void {
     const intro = h(
         'div',
         { class: 'od-dim' },
-        'Convert levels from your own Order of the Flame install. Nothing is uploaded. Objects without a matching class are left out; the report lists them.',
+        'Convert levels from your own Order of the Flame install. Nothing is uploaded. Every object gets a matching, converted or stand-in class; the few PC-only ones kept out on purpose (sky and fog switches, multiplayer pads) are listed in the notes with the reason.',
     );
     const picker = h('input', { type: 'file', webkitdirectory: true, multiple: true, hidden: true });
     const folderLabel = h('span', { class: 'od-dim' }, 'No folder chosen');
@@ -327,7 +334,7 @@ function openDialog(host: OotfHost): void {
             overviewNote.textContent =
                 `${pcLevelName(pc.header)}: ${pc.list.objects.length} objects, ${pc.terrain.length} layers` +
                 (tplClasses
-                    ? `, ${r.mapped} have a same-named class in the template (green), the rest are left out (orange)`
+                    ? `, ${r.mapped} have a same-named class in the template (green), the rest get a converted or stand-in class when you convert (orange)`
                     : '');
         } catch (e) {
             overviewNote.textContent = e instanceof Error ? e.message : String(e);
@@ -449,7 +456,7 @@ function openDialog(host: OotfHost): void {
                 h('td', {}, l.title),
                 h('td', {}, `${l.objectsOut} / ${l.objectsIn}`),
                 h('td', {}, String(l.layers)),
-                h('td', {}, `${l.unmappedClasses} classes`),
+                h('td', {}, leftOutText(l)),
             ),
         );
         const language = tplDir.split('\\')[0] ?? 'ENGLISH';

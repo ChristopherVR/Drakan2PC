@@ -51,6 +51,15 @@ export interface OotfPackOptions {
     extraFiles?: Readonly<Record<string, Uint8Array>>;
 }
 
+/**
+ * The conversion notes of one level that go into the pack warnings: every class kept out on purpose and every real gap
+ * (so the importer can list each with its reason), then the first three of the other notes.
+ */
+export function packLevelNotes(warnings: readonly string[]): string[] {
+    const always = (e: string): boolean => /^(kept out on purpose: |no PS2 class for )/.test(e);
+    return [...warnings.filter(always), ...warnings.filter((e) => !always(e)).slice(0, 3)];
+}
+
 export async function buildOotfPack(
     meta: Omit<ModMeta, 'levels'>,
     template: SrscReader,
@@ -90,7 +99,7 @@ export async function buildOotfPack(
             files[`files/ENGLISH/LEVELS/${mangled}/${stem}.${ext.toUpperCase()}`] = data;
         }
         if (!options.splats) warnings.push(`${title}: no splat files given; the game crashes after loading without them`);
-        for (const e of input.parts.report.warnings.slice(0, 3)) warnings.push(`${title}: ${e}`);
+        for (const e of packLevelNotes(input.parts.report.warnings)) warnings.push(`${title}: ${e}`);
     }
     for (const [path, data] of Object.entries(options.extraFiles ?? {})) {
         if (path in files) warnings.push(`${path} is produced twice; the extra file wins`);

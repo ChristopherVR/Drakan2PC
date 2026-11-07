@@ -164,6 +164,10 @@ story-gated and its exit needs him mounted). See [progression 3](../journal/2026
 * Converter `editor/scripts/ootf-convert.ts` (`--campaign 1` for the campaign): terrain, textures, models, creatures (skinned, retargeted
   to PS2 rigs), classes, puzzles (plates, doors, counters), exits, texts, music, sounds. Release packs of 2026-11-02: campaign
   `ootf-levels` (13 levels, 9119 files) and arenas `ootf-arenas` (10 levels, 158 files, one `maps/*.ini` each).
+* Class coverage (issue 3): with the Surdana template no placed PC class is unmapped in any of the 23 levels, for the English
+  and the German install alike. Quickening Effect has a Particle Spawner stand-in, Brick17 and the arena Ambient Sound map;
+  fog and sky changers (31), props whose model the install lacks (8) and the arena pads and crystals (108, exported to
+  `maps/*.ini`) are kept out on purpose with a note each. See [class coverage](../journal/2026-11-08/ootf-class-coverage.md).
 * Game choice at the title ("Choose your game": Drakan / Drakan: Order of the Flame, `drakan.ini [general] game = ask|d2|d1`), a
   campaign-only New Game that starts at `OotF 00 - Intro` (no Drakan 2 intro), separate save cards, Order of the Flame title plaque.
   A regenerated editor pack from English D1 data also matches the German-target run showing the owl, logo and landscape
