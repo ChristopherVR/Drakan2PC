@@ -71,6 +71,8 @@ export interface CameraBookmark {
 export interface LevelViewEvents {
     onSelection(ids: number[]): void;
     onChange(): void;
+    /** A refused or adjusted action the author should hear about (a toast). */
+    onNotice?(msg: string): void;
     /** Hover over an object (or off, `id` null); `x`/`y` are client coordinates. */
     onHover?(id: number | null, x: number, y: number): void;
     /** Right click without dragging (a plain right button press is the fly camera): object under it and the ground point. */
@@ -91,6 +93,9 @@ export interface GroundSource {
 }
 
 /** three.js level view: instanced markers per entity kind, picking, gizmo, filters and the undoable document. */
+/** The player object Rynn (the level's player start). */
+export const isRynnStart = (o: LevelObject | undefined): boolean => !!o && o.kind === 'player' && /^rynn$/i.test(o.class);
+
 export class LevelView {
     readonly renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true });
     readonly scene = new THREE.Scene();
@@ -431,8 +436,13 @@ export class LevelView {
             this.stack.run(new DeleteCommand(ids, `Delete ${this.describe(ids)}`));
     }
     duplicateSelected(): void {
-        const ids = this.editable();
-        if (!this.policy.structural || !ids.length) return;
+        const all = this.editable();
+        if (!this.policy.structural || !all.length) return;
+        // Rynn's player object exists once in a level (the game starts the player there): copying her would leave the
+        // level with two starts.
+        const ids = all.filter((i) => !isRynnStart(this.doc.get(i)));
+        if (ids.length < all.length) this.ev.onNotice?.('Rynn exists once in a level. Move her instead of copying her.');
+        if (!ids.length) return;
         const cmd = this.stack.duplicate(ids);
         this.select(cmd.ids);
     }

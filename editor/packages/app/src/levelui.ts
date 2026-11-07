@@ -634,6 +634,7 @@ export function initLevelUi(host: LevelUiHost): LevelUi {
             view = new LevelView($('lv-viewport'), {
                 onSelection: () => onSelection(),
                 onChange: () => onChange(),
+                onNotice: (m) => toast(m, 'warn'),
                 onHover: (id, x, y) => onHover(id, x, y),
                 onContextMenu: (id, x, y, ground) => {
                     const items = buildObjectMenu(ctx, id === null ? [] : [id], { ground });
