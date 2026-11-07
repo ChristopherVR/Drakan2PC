@@ -1,5 +1,8 @@
 # 4B Savage Gate: where message 24 (Shoot) can come from (2026-11-07)
 
+> **Correction (2026-11-08, `../2026-11-08/4b-flight-and-savage-gate.md`):** the gate timers do not need message 24. Their
+> Start Mode is the class default 1 (run on any message), and sequence 1536 "4.7c Zeggoro Lands New" sends them On.
+
 Analysis of the guest (PAL ELF, own disassembly, nothing verbatim kept) plus one on-foot run in `build/gaps4/play`.
 
 ## Dispatch findings

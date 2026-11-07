@@ -1,5 +1,9 @@
 # 4B Savage Gate: how exit 5595 is reached (2026-11-07)
 
+> **Correction (2026-11-08, `../2026-11-08/4b-flight-and-savage-gate.md`):** the conclusion below is wrong. The exit hall
+> is a closed tunnel entered only through the Savage Gate (g5_a started inside it). The gate is opened by cut scene
+> sequence 1536 "4.7c Zeggoro Lands New" after the 4A conference; a test pack that plays it reaches exit 5595 through the gate.
+
 Own exe copy `build/gaps5/play` (the 16:27 build, `ootf-levels` mod switched off), recipes `build/gaps5/r_a.txt` and
 `r_e.txt` (not committed), runs `build/harness/g5_a` and `g5_e`. Positions come from the decoded LEVEL4RA object list and the
 `[in-pos]` log. Follows `savage-gate-shoot-dispatch.md` and `savage-gate-breath.md`.

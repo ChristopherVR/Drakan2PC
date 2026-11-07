@@ -69,11 +69,15 @@ soaks of 3A and 4A show no growth, Kragmor no longer strands the player (`727aaa
 
 Open:
 
-1. **4B Northern Tundra exit.** Arokh mounts reliably and crosses the ridge by flight, then reaches the Savage Gate (closed ring
-   door at 650275 144967 1744595) in front of the pocket holding exit detector 5595 (681024 142708 1765312). An Invisible Static
-   Wall (7527) closes it until Vis Toggler 5727 fires, fed by timers 5728, 7795, 7796 and 7798 on message 24 ("Shoot") with no
-   incoming links, so an engine message such as breath or an arrow on the gate wheel is the likely source. Not yet tried:
-   aimed breath at the wheel from x 640000, y 141800; check Stomp Player 5513 at 621397 140387 1726379.
+1. **4B Northern Tundra exit: resolved (2026-11-08, `../2026-11-08/4b-flight-and-savage-gate.md`).** Corrected conclusion: the
+   exit hall (exit detector 5595, 681024 142708 1765312) is a closed tunnel; the only way in is the Savage Gate. A closed-loop
+   flight from the real level start reaches the west basin and stops at the wall 7527 (gate height), the mountain (above the
+   Dragon Barriers) or the ridge (at the flight ceiling, lowest saddle 180146); `savage-gate-route.md` was wrong. The gate is
+   not dead data: cut scene sequence 1536 "4.7c Zeggoro Lands New" (Stomp Player 5513) sends On to timers 5728 / 7795 / 7798,
+   whose class default Start Mode 1 runs on any message, and that hides the wall. It plays when the five Savage footmen of
+   sequence 1342 die, which follows the 4A Zeggoro conference (sequence 813) via the "Play Stomp Part B" objects. A test pack
+   that plays 1536 at load lets Rynn / Arokh walk through the gate to the exit box. No game bug. Open: the full story path
+   (4A items, conference, 4B fight) was not played.
 2. **Valley of the Fallen.** Zola Dane's object 9274 sits on a scene set at y 230000 (Gothral, farmers, `Dane Teleport` 20420,
    `Zola Teleport Fountain` 20421) with no incoming link. His death (message 8) feeds cut scene 20233, the lever chain
    (timer 20860, lever 18379, timer 18378, transition 9781) and the Valley icon. What enables the real fight is unknown; the
@@ -94,6 +98,7 @@ Round 6 (2026-11-08, `docs/journal/2026-11-08/playtest-gaps-6.md`): the Valley's
 (items 2); the lever chain needs the east detectors 18376 / 18975 (sequence 731) with a mounted player, on foot the lever
 stays dead; the 1A Dragon is a frozen stage actor and cannot be mounted; 4B pocket (exit 5595) has no route under the
 flight ceiling, so the Savage Gate must open (item 1) before a full start to exit flight exists. Items 3 to 5 still open.
+Round 7 (2026-11-08) confirms the 4B part with real flights and finds the gate opener (item 1, now resolved).
 
 ## 3. Puzzle wiring and the editor
 
