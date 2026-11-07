@@ -98,3 +98,45 @@ and run `vr.py` on both executables.
 Other traps met on the way: Arokh does not stay where the cage scene leaves him. If Rynn is away for more than a few seconds he
 flies to a ledge about 18,000 units off (272,000 155,500 472,000) that she cannot walk to, and E (Call Arokh) did not bring him
 back in ten calls (`vr3`, `vr4`); `vr5` placed her behind him (the `approach` mission's `--start-from`) and then walked in.
+
+A check with the newer `build/final-game` executable (`vr7`, sha256 `81a206d8...`, own copy in `build/ootf11/play2`) was
+inconclusive: Arokh was not mounted after five placements, and the blade was not picked up in that run either.
+
+## 4. The RibDoor tunnel flown end to end by the closed loop
+
+With the clean pack the flight is no longer cut off. `fly2`: direct start of Rift World, `DRAKAN_PLAYTEST_HOLD=1`, god mode,
+the private `fly.py` mission on `live_drive` (W held, SPACE to climb, mouse x steered on the heading error minus 22 frames of
+the measured turn rate, mouse y holding the pitch toward the next point; nothing placed, no height hold, no autopilot). One
+change to the mission since 2026-11-07: a waypoint also counts as passed when the next one is nearer than it (in `fly1` Arokh
+flew past the ramp point 3,300 units wide, entered the hall, turned back for the missed point and stuck against the hall wall at
+339,384 95,107 275,553 for the rest of the run).
+
+Waypoints: the dive and left tunnel of the earlier `fly5` (338500 97500 300000, 335500 96000 288000, 334300 95300 281000, 333800
+95000 277500), the hall (337000 95500 276500, 342000 98000 272000), then the shaft and causeway of the 2026-11-07 autopilot
+route (342418 at heights 100,500 to 108,800 from z 262,000 to 188,000) and the altar (342100 103000 183200).
+
+| Frame | Position | Waypoint passed |
+| --- | --- | --- |
+| 3,981 | 339,596 97,620 300,872 | 0 (dive) |
+| 4,117 | 334,318 95,283 282,377 | 2 (tunnel mouth, ramp) |
+| 4,240 | 332,404 94,919 278,016 | 3 (end of the ramp) |
+| 4,310 | 341,081 97,965 272,566 | 5 (hall, into the shaft) |
+| 4,582 | 342,778 108,792 226,289 | 9 (over the spines) |
+| 4,684 | 342,199 102,440 184,218 | 13 (over the altar) |
+
+All 14 waypoints in 703 input samples (about 14 s); the lowest point was 94,741, the "landed" word `+0x9c` stayed 0 the whole
+way, and the slow state `+0x94` = 10 appeared in the ramp and hall (139 of 191 samples between waypoints 2 and 5) without
+stopping him. The end picture shows Arokh over the altar ring with a Dr. Evil head beside it. So the tunnel, hall, shaft and
+causeway are flyable by a closed loop on a player's inputs from the arrival; the earlier "cut short after 450 frames" was the
+test-aid scene of section 1.
+
+## 5. Not done in this pass
+
+* **Volcanic to Rift World to the credits in one process**: blocked by section 3 (no exit from Volcanic with this pack and
+  executable). The Rift World half is shown in pieces: the flight (section 4), Delon (section 2); the heads, the end sequence
+  and the credits were shown on 2026-11-07 (`ootf-progression-3.md`, `ootf-credits-title-chosen.md`).
+* The chain from the opening in segments on one pack (Atimar): not needed for a weapon any more (the Runeblade is the weapon
+  the PC campaign gives for this fight), not run.
+
+Private scripts and runs: `build/ootf11/h` (`run.py`, `go.sh`, `fly.py`, `vr.py`, `dl.py`, recipes), RAM readers in
+`build/ootf11/x` (`inv.py` carry cells, `objat.py` registry actors at a point, `ps2obj.mts` converted objects of a pack level).
