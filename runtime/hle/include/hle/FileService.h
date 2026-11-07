@@ -37,7 +37,8 @@ public:
     void setOpenFilter(OpenFilter filter);
     // Per-read view of an open file: called after every plain read with the bytes just read (`data`, `n`, starting at
     // file offset `offset`) and may rewrite them in place. Evaluated at read time (not open time), so it can depend on
-    // state that changes after the file was opened, e.g. the game chosen on the title. Runs under the file-service lock.
+    // state that changes after the file was opened, e.g. the game chosen on the title. Runs under the file-service
+    // lock.
     using ReadOverlay = std::function<void(const IsoFs&, const IsoFs::Node&, u64 offset, u8* data, size_t n)>;
     void setReadOverlay(ReadOverlay overlay);
     // `path` with the redirect applied (unchanged when it does not match).

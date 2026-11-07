@@ -8,8 +8,8 @@
 //
 // Keys: player=1 (the player's own line too: her position shows whether a door blocks her), class=<hex class id>,
 // ref=<registry ref>, near=<units from the player, 0 = any>, words=<entity words printed, from +0, default 64 = 0x100
-// bytes>, data=<instance data words, default 24 = 0x60 bytes>, dataoff=<hex byte offset where they start, default 0>, max=<lines per tick, 8>, every=<seconds between lines,
-// default 1>.
+// bytes>, data=<instance data words, default 24 = 0x60 bytes>, dataoff=<hex byte offset where they start, default 0>,
+// max=<lines per tick, 8>, every=<seconds between lines, default 1>.
 #pragma once
 #include <cstdint>
 #include <cstdio>

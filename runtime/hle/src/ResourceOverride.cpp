@@ -290,7 +290,7 @@ bool CampaignCreditsOverride::apply(const ResourceId& id, std::vector<u8>& data)
 }
 
 const std::vector<CampaignCreditsOverride::Range>& CampaignCreditsOverride::rangesOf(const IsoFs& fs,
-                                                                                         const IsoFs::Node& node) {
+                                                                                     const IsoFs::Node& node) {
     auto it = ranges_.find(node.key);
     if (it != ranges_.end())
         return it->second;

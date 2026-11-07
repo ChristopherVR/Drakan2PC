@@ -79,8 +79,9 @@ public:
     bool wants(const ResourceId& id) override;
     bool apply(const ResourceId& id, std::vector<u8>& data) override;
     // The engine reads the credits with plain file reads of the opened DRAKAN2.RRC, not through the entry layer: a
-    // FileService read overlay (setReadOverlay) calls this to rewrite the bytes of the two entries in place. The text is
-    // padded with spaces to the entry's size (a longer text is cut at a line end); the second entry becomes one blank line.
+    // FileService read overlay (setReadOverlay) calls this to rewrite the bytes of the two entries in place. The text
+    // is padded with spaces to the entry's size (a longer text is cut at a line end); the second entry becomes one
+    // blank line.
     void patchRead(const IsoFs& fs, const IsoFs::Node& node, u64 offset, u8* data, size_t n);
 
 private:

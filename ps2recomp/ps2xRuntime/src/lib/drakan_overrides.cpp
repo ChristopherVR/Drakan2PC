@@ -1688,8 +1688,9 @@ void applyDrakanOverrides(PS2Runtime& runtime) {
         if (g_mods) {
             if (auto entries = g_mods->entries()) {
                 // English text of a level string a pack replaced (an exit pointed at a level copy).
-            host->iop.file.setReadOverlay([credits](const hle::IsoFs& fs, const hle::IsoFs::Node& node, uint64_t offset,
-                                                    uint8_t* data, size_t n) { credits->patchRead(fs, node, offset, data, n); });
+                host->iop.file.setReadOverlay([credits](const hle::IsoFs& fs, const hle::IsoFs::Node& node,
+                                                        uint64_t offset, uint8_t* data,
+                                                        size_t n) { credits->patchRead(fs, node, offset, data, n); });
                 drakan_levelchange::setDestinationTextHook([entries](const std::string& group, uint32_t id) {
                     hle::ResourceId rid;
                     rid.file = group + ".XDB";

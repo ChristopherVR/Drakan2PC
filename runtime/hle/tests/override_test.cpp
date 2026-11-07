@@ -269,7 +269,8 @@ int main() {
         active = "";
         CHECK(!cc.wants(first));
     }
-    // ---- campaign credits through plain file reads: the overlay rewrites the two entries inside the opened RRC, at read time
+    // ---- campaign credits through plain file reads: the overlay rewrites the two entries inside the opened RRC, at
+    // read time
     {
         std::vector<u8> first(120, 'a'), second(60, 'b'), other(40, 'c');
         writeFile(game / "ENGLISH/DRAKAN2.RRC",
@@ -295,7 +296,7 @@ int main() {
         const size_t at = find(orig, 'a'), at2 = find(orig, 'b'), at3 = find(orig, 'c');
         CHECK(std::string(all.begin() + at, all.begin() + at + 7) == "=Drakan");
         CHECK(all[at + 119] == 10 && all[at + 118] == 13); // padded with spaces, ends with a line break
-        CHECK(all[at2] == ' ' && all[at2 + 59] == 10);       // the second entry is one blank line
+        CHECK(all[at2] == ' ' && all[at2 + 59] == 10);     // the second entry is one blank line
         CHECK(std::vector<u8>(all.begin() + at3, all.begin() + at3 + 40) == other); // other entries untouched
         // a read that covers only the middle of the first entry gets the matching bytes
         std::vector<u8> part(orig.begin() + at + 10, orig.begin() + at + 30);
