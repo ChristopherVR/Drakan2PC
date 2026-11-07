@@ -16,16 +16,65 @@ Browser build (Vite dev server, Playwright Chromium, software rendering), the pl
 | Export (Ctrl+E) with no edits | the dialog says "Nothing to export yet: no level in the project has changes and there are no story edits" instead of writing an empty pack |
 | Console errors during the run | none |
 
-## Not done in this round
+## Continuation: the rest of round 4
 
-The coordinator's round 4 list is far larger than this pass. These were **not** done and nothing is claimed for them:
+Everything below was done by running it (browser build, Chromium with software rendering, the player's PAL disc and the
+23-level OotF conversion; the desktop app for the game start). Timings are from that machine.
 
-* The full first-time-user path (new mod from a template, enemy plus pickup plus door plus lever plus trigger wired in the
-  Logic graph, conversation, shop, quest, cut scene, level exit chained to a second level, landscape painting, export
-  and Play of the result in the desktop app).
-* The ui-sweep level-loaded states in software rendering and the injected error states (bad pack, failed Play, missing
-  game folder, corrupt project, unsupported disc).
-* The interaction-state audit of `shared/components.ts` (hover, focus ring, disabled, pressed, drag-over, skeletons),
-  keyboard-only use of menus and docks, and an ARIA audit.
-* Viewport quality checks (camera navigation feel, selection outline, object icons, picking speed on the biggest level).
-* Autosave and crash recovery, unsaved-changes prompts, project open, close and switch flows.
+### 1. First-user path
+
+| Step | Result |
+| --- | --- |
+| Place by double-click: creature (Ballista), item (Ale), door/mechanism (ALC), triggers | each adds one object and selects it; the Place rows list class names alphabetically, so Doors & mechanisms starts with "ALC", "Altar_R_01" (no search-first hint) |
+| Single click on a Place "action" row (Lever opens door, Timed trigger ...) | opens the ready-made form in the Logic dock, placing nothing until Create (as its tooltip says) |
+| Ready-made puzzle form with no door in the level | **Friction fixed:** an empty "Door" drop-down and a toast "Pick the door the lever controls." after Create. The form now says "No door in this level yet. Place one first, then open this again." |
+| Story: New cut scene | 2 objects (a player and a trigger box) plus sequence 1411 in 4.4 s, with a toast saying so |
+| Export (Ctrl+E) of those edits | 3 files: the changed LEVEL1NA.LVL entry and the story sequence; downloaded as a zip |
+| That zip in a copy of the play folder (`build/editorplay`, `mods.ini` switched and put back) | the game logged `mods: loaded 'my-campaign-mod' 1.0.0 ... 1 new entries` next to the character motion pack |
+| Add > Cut scene / Dialogue line / Quest / Vendor | open the Story composers (no object until their forms are filled), as designed |
+
+Not done in this item: wiring the placed lever, door and trigger together in the Logic graph by dragging pins, the shop
+and quest forms filled to the end, a level exit chained to a second level, landscape painting, and Play of the
+exported edits in the desktop app (the Play paths themselves were verified earlier: disc level, converted level, restore).
+
+### 2. Sweep
+
+`ui-sweep.mjs` now injects five error states (a file that is not a disc image, a corrupt saved level, a folder that is not
+an Order of the Flame install, Play in a browser, a level that does not exist) and, with `--iso`, selects an object and
+opens its context menu. With a disc, one size takes about 25 minutes in software rendering (the 3D view is drawn at 30
+percent resolution); without a disc, three sizes take about 5 minutes. Findings fixed: raw parser messages in the status
+line and toasts ("primary volume descriptor not found", "Unexpected token ... is not valid JSON") now read as sentences
+(`shared/friendly.ts`, tests); two drop-downs in the dialogue composer overlapped. Level-loaded last run: only overlaps
+between the 3D view's own badges remained, which the sweep now excludes. Not scripted: a failed Play on the desktop, a
+missing game folder, a corrupt project folder (they need the desktop shell).
+
+### 3. Interaction states, keyboard, ARIA
+
+* The Outliner had roles but no keyboard operation at all. Arrow keys, Home and End, Right and Left (open and close a group),
+  Enter and Space (select, Ctrl adds) now work; the row under the keys has a ring. Verified by pressing the keys.
+* No visible focus ring on the menu bar, custom drop-downs, splitters, tool buttons, search fields, side tabs, help
+  buttons, link handles and category rows: added (found by focusing every control and comparing its style).
+* Menus, the palette list and the tree had no label: added. 0 controls without an accessible name.
+* No pressed state on buttons, no hover or disabled state on the switch: added.
+* Not audited: drag-over and loading skeleton states per component, screen reader output.
+
+### 4. Viewport
+
+Islands (the largest converted level, 2382 objects, 976k triangles): picks take 0.3 ms median and 1.3 ms worst over 60
+points, 60 fps, the object list is ready 0.3 s after the open call. F frames the selected object exactly; wheel zoom,
+middle-drag pan and right-mouse WASD fly work (orbit is Alt + left drag, as the shortcuts list says). **Fixed:** fly speed
+was a fixed 60 units per second, about 38 units in 0.6 s with the camera 1000 units out; it now scales with the distance to
+the focus point (minimum 60). **Open finding:** with the Surdana template, 253 of 297 classes used by Islands are not in the
+editor's class list, so objects show as "class 16948" markers and the status line says "33 of 297 classes decoded"
+(the earlier Intro-template conversion decoded 316 of 342). The game runs those levels; the editor view of them is poor.
+Root cause not found.
+
+### 5. Autosave and prompts
+
+An edit is written 1.5 s later to IndexedDB, the status bar says "autosaved hh:mm", and opening the level again shows the
+banner "Autosaved edits from ... found for this level" with Restore (4675 to 4676 objects) and Discard. **Added:** the page
+asks before closing only while an edit is not yet written (checked: no prompt on a clean level, a prompt 0.3 s after an
+edit, none after the autosave); the first version of this prompt fired on every close because opening a level also
+schedules a write, which a check in the browser caught and a test now covers (`editsAtRisk`). Switching to another level
+with edits asks nothing and loses nothing: the banner offers the edit when you come back. Project open, close and switch
+in the desktop app were not exercised in this pass.

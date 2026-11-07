@@ -1254,7 +1254,10 @@ export class LevelView {
         }
         if (!this.flying) return;
         const boost = this.keys.has('ShiftLeft') || this.keys.has('ShiftRight') ? 4 : 1;
-        const speed = 60 * this.flySpeed * boost * dt;
+        // Far from what you look at the camera covers the level in seconds; close up it stays gentle (the slider and Shift
+        // still scale it). A fixed 60 units/s took half a minute to cross an Order of the Flame island from the start view.
+        const base = Math.max(60, this.camera.position.distanceTo(this.orbit.target) * 0.35);
+        const speed = base * this.flySpeed * boost * dt;
         const f = new THREE.Vector3();
         this.camera.getWorldDirection(f);
         const r = new THREE.Vector3().crossVectors(f, this.camera.up).normalize();

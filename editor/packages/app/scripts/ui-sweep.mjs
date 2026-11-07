@@ -139,7 +139,7 @@ const SCAN = `(() => {
   for (let i = 0; i < btns.length; i++) for (let j = i + 1; j < btns.length; j++) {
     const a = btns[i], b = btns[j];
     if (a.contains(b) || b.contains(a)) continue;
-    if (a.closest('.popover, [role=menu]') || b.closest('.popover, [role=menu]')) continue; // menus open over other controls
+    if (a.closest('.popover, [role=menu], .sv-badge, .link-handle') || b.closest('.popover, [role=menu]') || a.matches('.sv-badge, .link-handle') || b.matches('.sv-badge, .link-handle')) continue; // menus and the 3D view's own badges draw over things // menus open over other controls
     if (overlay(a) !== overlay(b)) continue; // a drawer or wizard over the toolbar covers it by design
     const onTop = (e) => { const r = e.getBoundingClientRect(); const t = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2); return !!t && e.contains(t); };
     if (!onTop(a) || !onTop(b)) continue; // one of them is clipped or covered, not drawn over the other

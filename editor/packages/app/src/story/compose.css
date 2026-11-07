@@ -132,3 +132,7 @@
     align-items: center;
     flex-wrap: wrap;
 }
+
+/* Two drop-downs side by side (Phase / Position) may not grow past their column. */
+.cmp-row > .cmp-field { min-width: 0; }
+.cmp-field .ui-dd { max-width: 100% !important; width: 100%; min-width: 0 !important; box-sizing: border-box; }
