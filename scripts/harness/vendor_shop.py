@@ -167,10 +167,13 @@ def main() -> int:
     ap.add_argument("--skip-baseline", action="store_true")
     ap.add_argument("--no-pack", action="store_true", help="reuse the pack of the last run of this name")
     ap.add_argument("--exe", type=Path, default=ROOT / "build" / "final-game" / "bin" / "drakan.exe")
+    ap.add_argument("--new-shop", nargs="?", const="", default=None, help="add a shop like the editor ('x,y,z' optional)")
+    ap.add_argument("--play-dir", type=Path, default=ROOT / "build" / "vendor-play", help="private play folder (in build/)")
     ap.add_argument("--no-buy", action="store_true", help="look only, do not buy")
     args = ap.parse_args()
-    add = args.add if args.add is not None else [f"{RES_DB}:8569"]  # Iron Mace
-    price = args.price if args.price is not None else [f"{RES_DB}:7869=7"]  # Rusty Short Sword 165 -> 7
+    add = args.add if args.add is not None else ([] if args.new_shop is not None else [f"{RES_DB}:8569"])  # Iron Mace
+    default_price = [] if args.new_shop is not None else [f"{RES_DB}:7869=7"]
+    price = args.price if args.price is not None else default_price  # Rusty Short Sword 165 -> 7
 
     out = ROOT / "build" / "vendor-proof" / args.name
     out.mkdir(parents=True, exist_ok=True)
@@ -192,6 +195,8 @@ def main() -> int:
             "--vendor",
             args.vendor,
         ]
+        if args.new_shop is not None:
+            cmd += ["--new-shop"] + ([args.new_shop] if args.new_shop else [])
         for a in add:
             cmd += ["--add", a]
         for r in args.remove:
@@ -202,7 +207,7 @@ def main() -> int:
             cmd += ["--sale-mod", args.sale_mod]
         print(subprocess.run(cmd, cwd=ROOT, capture_output=True, text=True, check=True).stdout.strip())
 
-    exe = prepare_folder(ROOT / "dist" / "DrakanPC", args.exe, ROOT / "build" / "vendor-play")
+    exe = prepare_folder(ROOT / "dist" / "DrakanPC", args.exe, args.play_dir)
     buy = not args.no_buy
     report: dict[str, object] = {"gold_start": args.gold, "price_edits": price, "added": add}
     ok = True
@@ -225,7 +230,11 @@ def main() -> int:
         k, _, v = p.partition("=")
         if k.endswith(":7869"):
             want = int(v)
-    if buy and "modded" in report and want is not None:
+    if buy and "modded" in report and args.new_shop is not None:
+        spent = report["modded"]["spent"]  # type: ignore[index]
+        report["pass"] = bool(spent and spent > 0)
+        ok = ok and bool(report["pass"])
+    elif buy and "modded" in report and want is not None:
         spent = report["modded"]["spent"]  # type: ignore[index]
         report["expected_spent"] = want
         report["pass"] = spent == want

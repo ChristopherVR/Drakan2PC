@@ -4,13 +4,19 @@
 //   node --experimental-transform-types --no-warnings editor/scripts/vendor-pack.ts --iso <game.iso> --out <mods dir> \
 //        [--level LEVEL1NA] [--vendor 1648] [--id vendor.proof] \
 //        [--add RESOURES:8569[:unlimited|:<count>]]... [--remove RESOURES:7869]... [--price RESOURES:7869=7]... \
-//        [--sale-mod 1.5] [--buy-mod 0.5] [--list]
+//        [--sale-mod 1.5] [--buy-mod 0.5] [--list] [--new-shop [x,y,z]]
+// `--new-shop` adds a shop with its keeper and keeper box like the editor's "Add shop here" (default spot: 1800 units in front
+// of Rynn's start in Surdana) and edits that new shop with the other options.
 //
 // Writes <out>/<id>/ (a pack folder) and <out>/mods.ini enabling it. `--list` prints the level's vendors and stock.
 import { mkdirSync, openAsBlob, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import {
+    ApplyTemplateCommand,
     CommandStack,
+    buildCatalog,
+    buildNewShop,
+    isError,
     SchemaProvider,
     applyDocumentToLvl,
     overridePath,
@@ -98,7 +104,18 @@ if (opt.has('list')) {
     process.exit(0);
 }
 
-const vendorId = Number(one('vendor', String(vendors[0]?.id)));
+const stack = new CommandStack(doc);
+let newShopId: number | undefined;
+if (opt.has('new-shop')) {
+    const at = (one('new-shop', '446100,171300,344205') || '446100,171300,344205').split(',').map(Number) as [number, number, number];
+    const catalog = buildCatalog(lvl.header, odbs, doc.objects());
+    const built = buildNewShop({ doc, env: provider, catalog, at, selection: [] });
+    if (isError(built)) throw new Error(built.error);
+    stack.run(new ApplyTemplateCommand(built, 'Add shop here'));
+    newShopId = built.objects[0]!.id;
+    console.log('new shop', newShopId, built.objects.map((o) => `${o.class} #${o.id}`).join(', '), built.warnings);
+}
+const vendorId = Number(one('vendor', String(newShopId ?? vendors[0]?.id)));
 const shop = doc.get(vendorId);
 const schema = shop && vendorSchemaOf(shop, provider);
 if (!shop || !schema) throw new Error(`object ${vendorId} is not a vendor of ${levelStem}`);
@@ -121,7 +138,6 @@ for (const a of many('add')) {
         count: unlimited ? 1 : Math.max(1, Number(how ?? 1)),
     });
 }
-const stack = new CommandStack(doc);
 const cmd = editObjects(doc, [vendorId], 'Edit vendor', (o) => {
     const r = writeStock(o, schema, provider, entries);
     if (r.unreachable.length) throw new Error(`the shop cannot name ${JSON.stringify(r.unreachable)}`);
@@ -131,6 +147,7 @@ const cmd = editObjects(doc, [vendorId], 'Edit vendor', (o) => {
 if (cmd) stack.run(cmd);
 const view = readVendor(doc.get(vendorId)!, schema, provider);
 console.log(`vendor #${vendorId} ${shop.class}: ${view.entries.length} stock entries, sale x${view.settings.saleMod}`);
+for (const e of view.entries) console.log('  stock', e.mode, e.count, e.stem + ':' + e.id, itemName(e.stem, e.id));
 
 const prices = new VendorPrices({
     readFile: async (p) => {
@@ -156,7 +173,7 @@ const meta = {
 const files = buildStoryPackFiles(meta, await prices.changes());
 const { list, report } = applyDocumentToLvl(lvl.list, doc);
 console.log('level diff', JSON.stringify(report.diff), report.warnings);
-if (cmd) {
+if (cmd || newShopId !== undefined) {
     const data = writeObjectList(list);
     files[overridePath(lvlFile.name, objEntry)] = data;
 }
