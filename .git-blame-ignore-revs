@@ -47,3 +47,6 @@ b9ab477eedca0d9ba83c17fc814e05a2f50cbe9c
 
 # clang-format drift fixes
 34deba4c28d9ff988b355508ef881fa6cd7c5f40
+
+# style(repo): Apply clang-format to recent multiplayer and Modern UI changes
+279afc81c85de19c22e50e46637b5ca059c6c8b4
