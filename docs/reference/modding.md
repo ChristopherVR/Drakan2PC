@@ -194,8 +194,8 @@ Now:
   restart** (turns them `on`, writes mods.ini and restarts the game), **Open Mods menu** (the PC Settings Mods page;
   without the modern pages the F1 overlay's Mods page) and **Keep them off** (writes `off`: not asked again). Esc /
   Back (**Later**) closes the card for this run and leaves `new`, so it comes back on the next start.
-* The card is shown at most once per run. When it is wanted the modern title menu is used even with
-  `[general] title_menu = native` (the native title cannot draw it), as for the game card.
+* The card is shown at most once per run. The new packs card needs the modern title menu; with an explicit
+  `[general] title_menu = native` it is not shown (the Mods page lists the packs).
 * Harness runs: not shown while `DRAKAN_INPUT_SCRIPT` drives the input, so recipes keep their title flow.
   `DRAKAN_MODS_NOTICE=1` shows it anyway, `DRAKAN_MODS_NOTICE=0` never shows it.
 * **Game choice explained.** When an enabled campaign pack exists but the card is not offered, the title's main page
@@ -512,7 +512,10 @@ the exit's own parameter in the copy's LVL), which adds instead of replacing. Th
 What the runtime does with it (`drakan_game.cpp`):
 
 * **Title menu**: when a campaign is installed, the card "Choose your game" opens with the title and again after Back on the
-  main page; Esc on the card keeps the current game. It lists Drakan, then every campaign (Order of the Flame and the custom
+  main page; Esc on the card keeps the current game. With `[general] title_menu = native` (Original) the same choice is
+  asked first as a plain list in the original menus' style (heading and game names as text over the native title art, no
+  panels, covers or descriptions; Up / Down, Enter, mouse, same sounds; Esc keeps the current game), then the game's own
+  title menu carries on (`TitleState::classicGameChoice`, `drakan_menu_screens.inl` titleExecute SelectGame). It lists Drakan, then every campaign (Order of the Flame and the custom
   ones) on the left, and the focused game's cover and description on the right ("Playing" marks the current one; more than
   seven games scroll). The main menu (New Game, Load Game, Continue, Multiplayer, Options ...) then runs for the chosen game;
   the footer names it. Code: `gameui::TitleState::games`, `TitlePage::GameChoice`, `TitleActionKind::SelectGame` (value =

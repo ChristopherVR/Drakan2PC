@@ -118,6 +118,10 @@ struct TitleState {
         ImageRef cover;
     };
     bool offerGames = false;
+    // The game's own (native) title menu is the title style: the game card is drawn in the original menus' plain
+    // style (a heading and a list of names over the native art, no panels or covers) and picking a game, or Back, hands
+    // the screen to the native title (the host glue restores it after the SelectGame action).
+    bool classicGameChoice = false;
     int game = 0; // the game the menu is running for (index in `games`)
     std::vector<Game> games = {{"d2", "Drakan", "", {}}, {"ootf", "Drakan: Order of the Flame", "", {}}};
     // A campaign is playing: the menu draws its own text title over the native logo (which says The Ancients'
@@ -236,6 +240,8 @@ private:
     bool gameAsked_ = false;  // the game card was shown since open()
     bool modsAsked_ = false;  // the new mod packs card was shown since open()
     bool offerGames_ = false; // TitleState::offerGames of the last frame
+    bool classic_ = false;    // TitleState::classicGameChoice of the last frame
+    int classicGame_ = 0;     // TitleState::game of the last frame (Back keeps it)
     std::vector<HitTarget> targets_;
     std::vector<Hint> hints_;
     LayoutFrame lf_;
@@ -252,6 +258,7 @@ private:
     void draw(const TitleState& st, DrawList& d) const;
     void drawGameCard(const TitleState& st, DrawList& d) const;
     void drawModsNotice(const TitleState& st, DrawList& d) const;
+    void drawClassicGameChoice(const TitleState& st, DrawList& d) const;
 };
 
 namespace design::title {
@@ -265,6 +272,9 @@ Rect gameCard();
 Rect gameRow(int i); // i = visible position 0..kGameRowsShown-1
 Rect gameCover();
 Rect gameDescription();
+// The classic (original style) game list: a heading and plain rows centred on the screen.
+Rect classicHeading();
+Rect classicRow(int i); // i = visible position 0..kGameRowsShown-1
 // The new mod packs card: a wider confirm card with a few lines of text and three buttons.
 Rect modsCard();
 Rect modsRow(int i);

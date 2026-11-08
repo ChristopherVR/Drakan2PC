@@ -762,6 +762,9 @@ void slotsTick(uint8_t* ram, R5900Context* c, PS2Runtime* rt, RecompGuest& g, ui
 struct TitleGlue {
     uint32_t screen = 0;
     bool fallBack = false, child = false, covered = false;
+    // The title style is Original (the game's own menu) and the game card is up: only the plain game list is hosted,
+    // the native title is restored as soon as a game is picked (titleExecute SelectGame).
+    bool classic = false;
     int awayFrames = 0, frames = 0;
     std::optional<gameui::TitleAction> action;
     PauseGlue exec;    // the title actions' press / wait counters (pausePress)
@@ -821,10 +824,11 @@ void titleScanSaves(gameui::TitleState& st) {
     }
 }
 
-void titleBegin(RecompGuest& g, uint32_t screen) {
+void titleBegin(RecompGuest& g, uint32_t screen, bool classic = false) {
     auto& sh = drakan_menu_screens::shared();
     g_title = {};
     g_title.screen = screen;
+    g_title.classic = classic;
     g_title.exec.screen = g_title.options.screen = screen;
     g_title.options.optionsRow = static_cast<uint16_t>(titleui::kWidgetOptions);
     sh.titleActions.clear();
@@ -836,7 +840,7 @@ void titleBegin(RecompGuest& g, uint32_t screen) {
     sh.titleActive.store(true);
     module().setHostScreen(true);
     (void)g;
-    menuLog("modern title bound to %x", screen);
+    menuLog(classic ? "classic game choice bound to %x" : "modern title bound to %x", screen);
 }
 void titleEnd(const char* why) {
     if (!g_title.screen)
@@ -996,6 +1000,10 @@ void titleExecute(RecompGuest& g, uint32_t active, int id) {
             // Load Game's native enable state came from the old card: the title's own refresh (message 4) from 37e810.
             if (id == static_cast<int>(titleui::kScreenTitle))
                 g.call(GuestCall(titleui::kFnEnableLoad).arg(g_title.screen));
+            if (g_title.classic) { // the choice is made: the game's own title menu carries on
+                titleFinish(gameui::Outcome::Confirmed);
+                return titleFallBack("game chosen (Original title menu)");
+            }
             return titleFinish(gameui::Outcome::Confirmed, true);
         }
         case K::ModsEnable: // the new mod packs card: handled by the host glue, never queued here
@@ -1023,8 +1031,12 @@ void titleTick(const uint8_t* ram, RecompGuest& g) {
         drakan_menu_screens::titleModern() && drakan_tab::shared().layerReady.load())
         titleEnd("modern title chosen again");
     if (!g_title.screen) {
-        if (id == titleId && drakan_menu_screens::titleModern() && drakan_tab::shared().layerReady.load())
-            titleBegin(g, active);
+        if (id == titleId && drakan_tab::shared().layerReady.load()) {
+            if (drakan_menu_screens::titleModern())
+                titleBegin(g, active);
+            else if (drakan_game::offerChoice()) // Original title menu: the plain game list first, then the native menu
+                titleBegin(g, active, true);
+        }
         if (!g_title.screen)
             return;
     }
@@ -1040,7 +1052,7 @@ void titleTick(const uint8_t* ram, RecompGuest& g) {
     }
     if (g_title.fallBack)
         return;
-    if (!drakan_menu_screens::titleModern() || !drakan_tab::shared().layerReady.load()) {
+    if ((!g_title.classic && !drakan_menu_screens::titleModern()) || !drakan_tab::shared().layerReady.load()) {
         titleFallBack("title_menu switched to native while the title was open");
         return;
     }
@@ -1083,6 +1095,7 @@ void titleTick(const uint8_t* ram, RecompGuest& g) {
         }
         st.canQuit = drakan_menus::titleQuit();
         st.offerGames = drakan_game::offerChoice();
+        st.classicGameChoice = g_title.classic;
         st.game = drakan_game::currentIndex();
         st.games.clear();
         for (const drakan_game::GameInfo& gi : drakan_game::games())

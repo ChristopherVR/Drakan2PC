@@ -657,8 +657,8 @@ void gameplayPage(gameui::SettingPage& pg, const Settings& st, const SchemaEnv& 
     b.choice(
         "general.title_menu", "Title menu",
         "Modern: the main menu (Load Game, New Game, Options, Credits, Quit) as a PC menu over the title art. "
-        "Original: the game's own title menu (it cannot list extra campaigns or mod packs). Takes effect right away on "
-        "the title screen.",
+        "Original: the game's own title menu; with extra campaigns installed it first shows a plain Choose your game "
+        "list in the same style (no covers, no mod pack card). Takes effect right away on the title screen.",
         {{"modern", "Modern"}, {"native", "Original"}});
 
     pg.sections.push_back({"Combat", {}});

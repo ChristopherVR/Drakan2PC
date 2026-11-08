@@ -266,6 +266,12 @@ Rect gameRow(int i) {
     const Rect c = gameCard();
     return {c.x + kGamePad, c.y + kGameHeadH + static_cast<float>(i) * kGameRowStep, kGameListW, kGameRowH};
 }
+Rect classicHeading() {
+    return {460, 330, 1000, 80};
+}
+Rect classicRow(int i) {
+    return {560, 430 + static_cast<float>(i) * 62, 800, 56};
+}
 Rect gameCover() {
     const Rect c = gameCard();
     const float x = c.x + kGamePad + kGameListW + 40, w = c.right() - kGamePad - x;
@@ -426,7 +432,8 @@ void TitleScreen::buildTargets(const TitleState& st) {
         const int first = gameScroll(focused, n);
         for (int i = first; i < n && i < first + design::title::kGameRowsShown; ++i)
             targets_.push_back({{TargetKind::CardButton, static_cast<int>(gameRowOf(i))},
-                                lf_.map(design::title::gameRow(i - first)),
+                                lf_.map(classic_ ? design::title::classicRow(i - first)
+                                                 : design::title::gameRow(i - first)),
                                 true,
                                 true});
         return;
@@ -598,13 +605,20 @@ void TitleScreen::activate(TitleRow r, const TitleState& st, TitleFrameOutput& o
 }
 
 void TitleScreen::back(TitleFrameOutput& out) {
+    if (classic_ && page_ == TitlePage::GameChoice) { // the original menus' Back: keep the game the menu runs for
+        out.actions.push_back({0, TitleActionKind::SelectGame, classicGame_});
+        page_ = TitlePage::Main;
+        focus_ = {};
+        out.sound = UiSound::Back;
+        return;
+    }
     if (isCard(page_)) {
         page_ = TitlePage::Main;
         focus_ = mainFocus_;
         out.sound = UiSound::Back;
-    }
-    // Main: the title has no "back" (the native page ignores Esc too), except to the game choice.
-    else if (page_ == TitlePage::Main && offerGames_) {
+    } else if (page_ == TitlePage::Main && classic_) {
+        // Nothing to go back to: the native title is next.
+    } else if (page_ == TitlePage::Main && offerGames_) {
         mainFocus_ = focus_;
         page_ = TitlePage::GameChoice;
         focus_ = {};
@@ -614,6 +628,8 @@ void TitleScreen::back(TitleFrameOutput& out) {
 
 void TitleScreen::applyInput(const TitleState& st, const UiInput& in, TitleFrameOutput& out) {
     hover_ = {};
+    if (classic_ && page_ == TitlePage::Main)
+        return; // the pick was made: the native title takes over, nothing of ours is drawn or pressable
     if (in.pointerValid) {
         for (size_t i = targets_.size(); i-- > 0;)
             if (targets_[i].rect.contains(in.pointerX, in.pointerY)) {
@@ -705,6 +721,8 @@ TitleFrameOutput TitleScreen::frame(const TitleState& st, const UiInput& in, con
         return out;
     lf_ = computeFrame(vp);
     offerGames_ = st.offerGames;
+    classic_ = st.classicGameChoice;
+    classicGame_ = std::clamp(st.game, 0, gameCount(st) - 1);
     if (!st.newMods.empty() && !modsAsked_ && page_ == TitlePage::Main && !loading_) {
         modsAsked_ = true; // first: enabling restarts the game, so the game card would be asked for nothing
         mainFocus_ = focus_;
@@ -887,6 +905,33 @@ void TitleScreen::drawGameCard(const TitleState& st, DrawList& d) const {
         p.text(d, {dr.x, y, dr.w, 30}, lines[i], FontRole::Body, th.textMuted);
 }
 
+// The original menus' look: no panels, covers or descriptions. A heading and the game names as plain centred text over
+// the native title art (dimmed a little so the text reads), the focused one in the heading colour with markers.
+void TitleScreen::drawClassicGameChoice(const TitleState& st, DrawList& d) const {
+    const detail::Paint p(lf_, cfg_.screen);
+    const Theme& th = cfg_.screen.theme;
+    d.rect({lf_.view.x, lf_.view.y, lf_.view.w, lf_.view.h}, withAlpha(th.backdropEdge, 150));
+    p.text(d, design::title::classicHeading(), menuText("Choose your game"), FontRole::Title, th.text,
+           TextAlign::Center);
+    const int n = gameCount(st);
+    const int focused =
+        focus_.kind == TargetKind::CardButton ? std::clamp(gameOf(static_cast<TitleRow>(focus_.index)), 0, n - 1) : 0;
+    const int first = gameScroll(focused, n);
+    for (int i = first; i < n && i < first + design::title::kGameRowsShown; ++i) {
+        const TargetId id{TargetKind::CardButton, static_cast<int>(gameRowOf(i))};
+        const std::string name = i < static_cast<int>(st.games.size()) ? st.games[static_cast<size_t>(i)].name : "?";
+        const Rect r = design::title::classicRow(i - first);
+        const bool foc = focus_ == id;
+        p.text(d, r, foc ? "> " + name + " <" : name, FontRole::Heading, foc ? th.heading : th.textMuted,
+               TextAlign::Center);
+    }
+    if (first > 0)
+        p.text(d, {560, 406, 800, 24}, menuText("More above"), FontRole::Small, th.textMuted, TextAlign::Center);
+    if (first + design::title::kGameRowsShown < n)
+        p.text(d, {560, 430 + design::title::kGameRowsShown * 62.0f, 800, 24}, menuText("More below"), FontRole::Small,
+               th.textMuted, TextAlign::Center);
+}
+
 void TitleScreen::drawModsNotice(const TitleState& st, DrawList& d) const {
     const detail::Paint p(lf_, cfg_.screen);
     const Theme& th = cfg_.screen.theme;
@@ -932,6 +977,17 @@ void TitleScreen::draw(const TitleState& st, DrawList& d) const {
     const Rect view{lf_.view.x, lf_.view.y, lf_.view.w, lf_.view.h};
     if (st.backdrop.kind != ImageKind::None)
         d.image(view, st.backdrop);
+    if (st.classicGameChoice) { // the native title is the menu: only its game list is ours
+        if (page_ == TitlePage::GameChoice) {
+            drawClassicGameChoice(st, d);
+            for (const Hint& h : hints_) {
+                const TargetId id{TargetKind::Hint, static_cast<int>(h.prompt)};
+                if (const HitTarget* t = findTarget(id))
+                    p.drawHint(d, h, t->rect, hover_ == id && h.enabled, kHintGlyph, FontRole::Body);
+            }
+        }
+        return;
+    }
     // No header band: the art carries the logo. A low gradient under the footer keeps the hints readable.
     Rect fb = lf_.band(960, 120);
     fb.h = std::max(fb.h, lf_.view.y + lf_.view.h - fb.y); // to the viewport bottom (letterboxed 4:3)

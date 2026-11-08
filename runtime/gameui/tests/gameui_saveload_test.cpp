@@ -669,6 +669,57 @@ void testTitleRows() {
     CHECK(t3.rows(none).size() == 4);
 }
 
+// The game's own (native) title menu is in use: the game list is plain text in the original menus' style (no panels,
+// covers or descriptions), Back keeps the current game, and nothing but the list is ever drawn or pressable.
+void testTitleClassicGameChoice() {
+    TitleState st = titleState();
+    st.offerGames = true;
+    st.classicGameChoice = true;
+    st.games = {{"d2", "Drakan", "The disc.", {}},
+                {"ootf", "Drakan: Order of the Flame", "A long description.", {ImageKind::LevelPreview, 5}},
+                {"test-valley", "The Test Valley", "", {}}};
+    st.game = 1;
+    TitleScreen scr;
+    scr.open();
+    TitleFrameOutput o = scr.frame(st, {}, kVp);
+    CHECK(scr.page() == TitlePage::GameChoice && hasText(o.draw, "Choose your game"));
+    CHECK(hasText(o.draw, "The Test Valley") && hasText(o.draw, "Drakan"));
+    CHECK(!hasText(o.draw, "A long description.") && !hasText(o.draw, "Playing")); // no card extras
+    CHECK(!hasText(o.draw, "Continue") && !hasText(o.draw, "Load Game"));           // no modern main column
+    CHECK(findImage(o.draw, ImageKind::LevelPreview, 5) == nullptr);                // no cover
+    CHECK(scr.focus() == (TargetId{TargetKind::CardButton, static_cast<int>(TitleRow::GameOotf)})); // the current game
+    // Up / Down move with the Move sound; Confirm picks (the host then restores the native title).
+    o = scr.frame(st, keys({UiKey::Down}), kVp);
+    CHECK(o.sound == UiSound::Move && o.actions.empty());
+    CHECK(scr.focus() == (TargetId{TargetKind::CardButton, static_cast<int>(TitleRow::GameDrakan) + 2}));
+    o = scr.frame(st, keys({UiKey::Confirm}), kVp);
+    CHECK(o.actions.size() == 1 && o.actions[0].kind == TitleActionKind::SelectGame && o.actions[0].value == 2);
+    CHECK(o.sound == UiSound::Confirm && scr.page() == TitlePage::Main);
+    // Afterwards the screen draws nothing and ignores input (no hidden main-menu rows to press).
+    o = scr.frame(st, keys({UiKey::Confirm, UiKey::Back}), kVp);
+    CHECK(o.actions.empty() && o.draw.size() == 0);
+    // Back keeps the game the menu runs for.
+    TitleScreen bk;
+    bk.open();
+    bk.frame(st, {}, kVp);
+    o = bk.frame(st, keys({UiKey::Back}), kVp);
+    CHECK(o.actions.size() == 1 && o.actions[0].kind == TitleActionKind::SelectGame && o.actions[0].value == 1);
+    CHECK(o.sound == UiSound::Back);
+    // A mouse click on a row picks it.
+    TitleScreen mk;
+    mk.open();
+    mk.frame(st, {}, kVp);
+    const Rect r = mk.targets()[2].rect; // the third row
+    UiInput click;
+    click.pointerValid = true;
+    click.pointerX = r.x + r.w * 0.5f;
+    click.pointerY = r.y + r.h * 0.5f;
+    click.pointerMoved = true;
+    click.leftClick = true;
+    o = mk.frame(st, click, kVp);
+    CHECK(o.actions.size() == 1 && o.actions[0].value == 2);
+}
+
 // Game choice (drakan_game): the card opens first when a campaign pack is installed, and again after Back on the main
 // page.
 void testTitleGameChoice() {
@@ -1233,6 +1284,7 @@ int main() {
     testTitleRows();
     testTitleActions();
     testTitleGameChoice();
+    testTitleClassicGameChoice();
     testTitleOptions();
     testTitleLayout();
     testTitlePcSettings();
