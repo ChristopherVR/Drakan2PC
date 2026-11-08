@@ -1,6 +1,8 @@
 // CPU-only integration checks: compile the real bridge and gs_core against a
 // recording backend. No D3D implementation, device, swapchain or window is used.
 // External host integrations are stubs; production window creation is not called.
+#include <string>
+#include <vector>
 #include <memory>
 #define private public
 #include "runtime/gs/gs_gsr_bridge.h"
@@ -365,6 +367,9 @@ uint64_t hashContent(const uint32_t*, uint32_t, uint32_t) {
 }
 uint64_t hashContentRgb(const uint32_t*, uint32_t, uint32_t) {
     return 0;
+}
+bool readImageFile(const std::string&, std::vector<uint32_t>&, uint32_t&, uint32_t&) {
+    return false;
 }
 } // namespace gsr::texup
 
