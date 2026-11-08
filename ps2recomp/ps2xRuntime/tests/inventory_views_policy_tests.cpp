@@ -109,6 +109,16 @@ int main() {
         check(detailsLines({9, 12, 15, 9, 6, 19, 4}) == 6, "0x2c4 replaces 0x450");
         check(detailsLines({0, 0, 0, 0, 0, 0, 0}) == 0, "nothing");
     }
+    {
+        // 16:9 numbers from a run: target 216 x 142.2, native grid 305 x 163 -> kx 0.709, ky 0.873. The mean (0.791)
+        // made the grid 241 wide, outside the 216 plate; the fit scale keeps it inside on both axes.
+        const float kx = 216.0f / 305.0f, ky = 142.2f / 163.0f;
+        const float k = gridFitScale(kx, ky, 0.25f, 4.0f);
+        check(305.0f * k <= 216.0f + 0.01f && 163.0f * k <= 142.2f + 0.01f, "grid fits inside its target");
+        check(near(k, kx), "the tighter axis decides");
+        check(gridFitScale(0.1f, 0.2f, 0.25f, 4.0f) == 0.25f && gridFitScale(9.0f, 8.0f, 0.25f, 4.0f) == 4.0f,
+              "scale clamped");
+    }
     check(gridCentrePlaneX(-210, 60) == 0 && gridCentrePlaneY(64, 64) == 0, "grid centre in plane units");
     {
         // A linear projection: sx = 300 + 2u, sy = 200 - 3v. Solve for screen (400, 50).

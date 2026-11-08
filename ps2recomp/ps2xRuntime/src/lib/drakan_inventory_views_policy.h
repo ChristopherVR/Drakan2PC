@@ -260,6 +260,16 @@ constexpr float gridCentrePlaneY(float y0, float ch) {
     return y0 - 1.0f * ch;
 }
 
+// Uniform scale for the native grid's cell spacing (which also sizes its icons) so that the whole grid fits inside its
+// target rectangle: kx / ky are the target's size over the grid's current size per axis. Their mean (the old choice)
+// left the grid wider than the target whenever the page is compressed (16:9: the grid's cells stood up to half a cell
+// outside the opaque plate, and the icon crops, which are cut from the native cells, took the live world beside the
+// icon: a tan block next to every item).
+constexpr float gridFitScale(float kx, float ky, float lo, float hi) {
+    const float k = kx < ky ? kx : ky;
+    return k < lo ? lo : (k > hi ? hi : k);
+}
+
 // One Newton step for a plane point p whose projection should be `target`, given the projection at p and its
 // Jacobian (d screen / d plane). Returns false when the Jacobian is degenerate.
 inline bool solvePlane(float px, float py, float sx, float sy, float dxdu, float dxdv, float dydu, float dydv,

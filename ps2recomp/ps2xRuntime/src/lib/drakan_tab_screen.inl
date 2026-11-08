@@ -842,7 +842,7 @@ void tabPlaceGrid(RecompGuest& g, uint32_t section) {
         return;
     const float gridW = std::fabs(ax - sx) * 8, gridH = std::fabs(by - sy) * 3;
     const float kx = (t.x1 - t.x0) / std::max(gridW, 1.0f), ky = (t.y1 - t.y0) / std::max(gridH, 1.0f);
-    const float k = std::clamp(0.5f * (kx + ky), 0.25f, 4.0f);
+    const float k = gridFitScale(kx, ky, 0.25f, 4.0f);
     const float ncw = cw * k, nch = ch * k;
     const float tx = 0.5f * (t.x0 + t.x1), ty = 0.5f * (t.y0 + t.y1);
     u = gridCentrePlaneX(x0, ncw);
