@@ -113,3 +113,11 @@ load on (`blk-final` 46 to 52 s). The few black seconds after a host-fired exit 
   class that fades a model's alpha was not looked for.
 * If a camera inside a trimmed shell turned back toward the dropped wall, it would see through it. No such shot exists in
   the Intro.
+
+## Follow-up: shells only in cinematic levels
+
+A full 23-level conversion also logged `shell sky: 4 of 6 walls left out`: Succubus Lair's `sky` box, whose cut-scene
+cameras stand outside it while its player camera plays inside it. Shell trimming now runs only in levels with no PC
+player that are not arenas (`isCinematicLevel`, formats `256ae56`); the full conversion trims only the Intro's
+`Black Background`. The regenerated pack is installed in `dist/DrakanPC/mods` (old pack kept privately under
+`build/ootf-regen/`); a New Game smoke run loads the Intro and Ruined Village and quits cleanly.
