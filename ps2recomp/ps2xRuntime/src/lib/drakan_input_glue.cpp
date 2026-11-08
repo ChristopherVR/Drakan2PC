@@ -1267,11 +1267,15 @@ void setSaveModern(bool on) {
     g_save.store(on ? 1 : 0);
 }
 bool titleModern() {
-    // The native title has no campaign selector; installed campaigns must remain reachable with default settings.
-    // The new mod packs card is a modern title card too (drakan_settings_host::modsNoticeWanted, sticky for the run).
-    // An explicit pick in Gameplay > Title menu wins over both.
+    // An explicit title_menu (drakan.ini or DRAKAN_TITLE_MENU, i.e. the player's Gameplay > Title menu pick saved in an
+    // earlier run) wins: Original keeps the game's own title even with campaigns or new mod packs installed (the
+    // native title cannot list them; the Mods page says so). Only a missing value falls back to the modern title when
+    // it is needed for them.
     if (g_titleChosen.load())
         return g_title.load() == 1;
+    const std::string explicitMode = drakan_cfg::getString("general", "title_menu", "DRAKAN_TITLE_MENU", "");
+    if (!explicitMode.empty())
+        return modernMode(g_title, "title_menu", "DRAKAN_TITLE_MENU");
     return drakan_game::offerChoice() || drakan_settings_host::modsNoticeWanted() ||
            modernMode(g_title, "title_menu", "DRAKAN_TITLE_MENU");
 }
