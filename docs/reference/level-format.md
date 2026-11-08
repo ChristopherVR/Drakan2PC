@@ -229,6 +229,11 @@ else: 00 00 00 00, then (w+1)*(h+1) x { i8 nx, ny, nz, 0x7f }  // entry v+1 = ve
   **new** `seq` (one past the highest) was not drawn at all (collision kept) [game, 2026-11-02].
   Groups hold 1..20 layers (LEVEL1NA seq 1: twelve layers shelf-packed at x 0..11, 12..15, 16..31 / z 0..15, 0..3, ... in a 64
   pool). `planTerrainSlots` (terrainblob.ts) does the same for converted levels; in-game accepted (Volcano: 941 layers).
+* **Far textures [disc, game]**: texture n of the level's `_splats` TXD (`LEVEL1TS.TXD` for LEVEL1NA) is the far texture of group
+  `seq` n: `pool x pool`, 8 bpp, header flags 0, +40 = 0, +44 = 256.0. Each cell is a 4 x 4 block of its texture's mean colour
+  at `x_lo + 4 cx`, `z_lo + 4 cz` (stored rows; no lighting baked), unused texels are a magenta (248, 100, 248) filler. The engine
+  draws distant chunks with it. A converted level needs its own (`buildTerrainPoolTxd`, ootfterrain.ts): the template's drew
+  its colours and filler on converted terrain ([journal](../journal/2026-11-08/ootf-pink-textures.md)).
 * **Limit [game]**: at most **10 textures per chunk**. The chunk record is 0x4c bytes: `+0x00 x0, +0x08 x1, +0x04 z0, +0x0c z1,
   +0x10 ntex, +0x14..0x3b ref[10], +0x3c vw, +0x40 vh, +0x44 n, +0x48 weights ptr`; `FUN_00165840` (stream reader) copies `ntex`
   refs without a bounds check, so an 11th ref overwrites the weight-array descriptor and the heap allocator (`FUN_004acd80`)

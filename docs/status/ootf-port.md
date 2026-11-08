@@ -175,6 +175,13 @@ regions now change the music inside a level: each becomes Trigger Detector halve
 stops) switching one Triggered Music Loop per music id, verified in Ruined Village
 ([level music triggers](../journal/2026-11-08/ootf-level-music-triggers.md)).
 
+**November 8 pink terrain:** distant converted terrain drew pink (Wartok Canyons' cliffs and peaks at the start). Packs shipped
+the template's splat TXD, whose texture n is Surdana's baked far texture of terrain group n with a magenta filler in its
+unused area; converted slots sampled it (12 to 35 % of drawn cells per level landed on the filler, all other far terrain showed
+Surdana's colours). The converter now writes each level's own far textures (formats `3e7d62f`); 0 pink pixels in Intro, Ruined
+Village, Wartok, Islands and Volcanic with HD on and off (Wartok before: 4,939). Needs a regenerated pack. See
+[pink terrain](../journal/2026-11-08/ootf-pink-textures.md).
+
 ## What works
 
 * Converter `editor/scripts/ootf-convert.ts` (`--campaign 1` for the campaign): terrain, textures, models, creatures (skinned, retargeted
