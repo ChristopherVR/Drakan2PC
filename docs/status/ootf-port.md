@@ -268,11 +268,11 @@ while they are. Seen in game: Intro 1 shows only the owl, plate and "Presents", 
 unchanged. Model faders still pop instead of fading. Needs a regenerated pack. See
 [Intro graphics](../journal/2026-11-08/ootf-intro-graphics.md).
 
-**November 9 opening cut and impale (investigation):** the Ruined Village scene 1.1 to 1.2a cut and the Wartok's impale of the
-villager were captured in game (the harness autopress skipped these scenes before; the capture recipe is in the note). The
-89 unit rise of Rynn's last scene key is not what makes her look afloat, and the impale's victim stands overlapping the Wartok
-from the attach at 43 s; neither was changed because no PC reference decides the right result. Open items are in
-[opening cut and impale](../journal/2026-11-09/ootf-opening-cut-and-impale.md).
+**November 9 opening cut and impale:** Rynn's lying pose in Ruined Village scene 1.1 hung 450 to 535 units over the ground (the PC
+keys place her standing origin 500 up, a lying pose has its joints near the origin): scene keys under a lying clip now rest the body
+on the terrain. The Wartok's victim in scene 1.2a hung at the Wartok's hand; the PS2 attach puts the carried origin on the joint and
+ignores later keys, so the converter replaces such attaches by world keys that lift him onto the spear tip (seen in game). See
+[opening cut and impale](../journal/2026-11-09/ootf-opening-cut-and-impale.md). Needs a regenerated pack.
 
 ## What works
 

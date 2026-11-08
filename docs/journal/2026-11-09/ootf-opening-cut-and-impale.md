@@ -48,7 +48,30 @@ leave one at the title; stagger them.
   away; she is not in it with or without the carry-over, so nothing visible changed and the code was dropped. Her state between
   1.1 and 1.3 stays unseen in game; a per-frame position dump (not done) would settle where she is.
 
-## Not changed
+## Fixes (formats `ootfseq.ts`, new `ootfcarry.ts`, `ootfpipeline.ts`)
 
-No converter or runtime code changed (the temporary rise-clamp and attach-drop experiments were removed). The scene
-retarget notes in `2026-11-08/ootf-rynn-scenes.md` and `ootf-grunt-pose-fixes.md` apply to both.
+**Rynn lying and floating.** The scene keys put her origin where the PC clip wants it: 508 over the ground standing, 242 crouching, and
+546 then 635 over a ground of 20000 while she lies knocked out (clip 0x3ea, `1_1w`, a one-frame pose). Forward kinematics of the
+retargeted pose (PC `System.adb`, 33-joint Rynn) puts every joint of that pose within -25 to +86 of the origin (standing: the toes at
+-477), so the body hung 450 to 535 units above the grass; the earlier test that moved only the last key by 89 could not show it
+because the key under the lying clip was the one 54.92 s placed. `settlePlayerLying` now rests the lowest joint (plus 75 for the
+body) on the terrain for every player key under a clip whose pose is lying (lowest joint above -200), and adds a key where such a clip
+starts; keys that are less than 150 over that height (sitting and kneeling in scene 1.3) and every standing key are kept. Scene 1.1 now
+has y 20100 from 56.29 s; in game the last frames before the cut show her flat on the grass.
+
+**Impale on the spear tip.** The PC keeps a carried creature where the attach found him; the PS2 engine puts his origin on the channel
+joint and ignores later transform keys (a key after the attach, plain or relative to the Wartok, changed nothing). So the converter
+replaces the attach pair of a skinned creature carried by a creature (`ootfcarry.ts`) by world keys every 0.1 s: he moves from his
+placed pose to the far end of the weapon the carrier holds on another channel (the spear, 938 units of model z from the grip, found
+from the carrier's own PC skeleton and clip, so it does not depend on channel numbers of any PS2 rig) and hangs there with his feet
+650 below the tip, until the detach. Forward kinematics fixed the convention (only the transposed scene quaternion puts the spear
+end within 400 units of the villager at the attach). Props and the player, Arokh and the camera keep the native attach. In game from
+43 s the villager is lifted and skewered on the tip, in the air (`carry2`); before he hung at the hand beside the body.
+
+Capture recipe and flags are above; frames are private under `build/ootf-run/{cut-g,carry2,lie1,fin1}/run`.
+
+## Open
+
+Other levels' scenes that carry a creature were not scanned or run. The hang offset (650) and the pose of the victim are chosen by eye.
+When the scene Wartoks move to the disc rig the carry keys still apply (they use the PC skeleton and clips, not the PS2 channels), but
+the spear tip must then also be where the retargeted pose puts it.
