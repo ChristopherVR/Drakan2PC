@@ -190,7 +190,10 @@ void hookFanDraw(uint8_t* ram, R5900Context* c, PS2Runtime* rt) {
     }
     SET_GPR_U64(c, 5, a1);
     SET_GPR_U64(c, 6, a2);
-    c->pc = pc;
+    // Return like the original's `jr ra`. Leaving pc at the entry (as before) is only tolerated by PS2_JAL: when the
+    // scheduler itself calls the hook (resuming a call that unwound at its pre-call checkpoint), pc == entry means
+    // "call it again", and every clipped fan was redrawn forever (game hang; found by DRAKAN_POLY_NEAR_TRIGGER=200).
+    c->pc = drakan_polyclip::pcAfterClippedFan(ra);
     finish();
     if (g_log) {
         g_clipped.fetch_add(1, std::memory_order_relaxed);

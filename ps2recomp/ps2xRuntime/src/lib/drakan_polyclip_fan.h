@@ -28,6 +28,13 @@ constexpr uint32_t scratchFor(uint32_t sp) {
     return kScratchBase + ((sp >> 8) & (kScratchSlots - 1u)) * kScratchSlotBytes;
 }
 
+// Guest pc after a clipped fan that completed: the caller's return address, as the original's `jr ra` leaves it. The
+// hook can be entered from PS2_JAL (pc == entry) or by the scheduler resuming a call that unwound at its pre-call
+// checkpoint; leaving pc at the entry makes the scheduler call the hook again, endlessly.
+constexpr uint32_t pcAfterClippedFan(uint32_t ra) {
+    return ra;
+}
+
 // draw(scratchAddr, vertexCount) -> true when the original returned normally (pc == return address).
 template <class Draw>
 FanResult drawClippedFan(uint8_t* ram, uint32_t scratch, const world::polyclip::Vertex* v, uint32_t n,

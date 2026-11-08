@@ -22,6 +22,10 @@ Vertex vtx(float x, float y, float depth) {
 }
 } // namespace
 
+// A completed clipped fan returns to the caller like the original's `jr ra`, never to the hook's own entry (the
+// scheduler would call the hook again forever when it, not PS2_JAL, entered it).
+static_assert(pcAfterClippedFan(0x0012a4c8u) == 0x0012a4c8u);
+
 int main() {
     std::vector<uint8_t> ram(0x100000, 0);
     // A fan of four triangles whose far edge is behind the camera (negative depth): every triangle needs clipping.
