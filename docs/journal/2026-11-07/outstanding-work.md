@@ -40,14 +40,14 @@ Open:
    Islands Night, Succubus Lair, Volcanic, each walk-in with message box, save and load; table of exit positions and load times in
    `ootf-wartok-chain.md` (section b). Run in segments with fresh cards, not one process for all 8 levels. Still open: a
    per-level FPS and memory table, and Alwarren (07), which the Islands exit does not lead to.
-3. **Delon on foot: won** (`2026-11-08/ootf-rift-sequence-delon-tunnel.md`, section 2). The weapon is the Runeblade: the PC
-   campaign's one for this fight is Volcanic's (2239), and the pack does not drop it (carry cells after the Volcanic pickup and
-   after a Rift World arrival hold it; the earlier "empty inventory" was a misreading). Equip it through the modern inventory
-   (TAB, ENTER, ENTER, TAB; the `1` key does not). With the Rift World Runeblade (512, picked up after a `place`) and the
-   `live_drive` fight mission (`--stay`) Delon died twice: 650 to -1 in 13 blows of 50 with Rynn on the ring, and his death plays
-   10.2a (`0x00080054`). Still open: the same fight with the blade carried in from Volcanic (needs item 8), his spell damage
-   (god mode). Altar floor map: ring solid for x 338000..346500, z 178000..186000, hole about x 341000..343500, z
-   180500..184000; `place 342044 100804 184976` lands on the floor; a fight policy that steps back drops her into the hole.
+3. **Delon on foot: won, also with the Volcanic blade and god mode off** (`2026-11-08/ootf-rift-sequence-delon-tunnel.md`,
+   section 2; `2026-11-08/ootf-volcanic-rift-box-bisect.md`, section 3). The weapon is the Runeblade: the PC campaign's one
+   for this fight is Volcanic's (2239), and a natural Rift World arrival carries it. With the blade carried in from Volcanic
+   (natural arrival save), no `DRAKAN_PLAYTEST_GOD`, the inventory route TAB, RIGHT, ENTER, TAB (cell 1; cell 0 is the cage
+   key) and the `live_drive` fight mission (`--stay`): Delon 650 to -1 in 13 blows of 50 in about 12 s; his hits reach Rynn
+   (50 to 35 to 20 of 100) and she survives. Not separated: whether those two hits of 15 were his spell or his melee. Altar
+   floor map: ring solid for x 338000..346500, z 178000..186000, hole about x 341000..343500, z 180500..184000; `place 342044
+   100804 184976` lands on the floor; a fight policy that steps back drops her into the hole.
 4. **RibDoor tunnel: flown end to end by the closed loop** (same note, section 4): from the arrival through the dive, the left
    tunnel ramp, the hall, the shaft and over the spines to the altar, 14 of 14 waypoints in 703 input samples, never landed,
    real inputs only (private `fly.py`). **The `0x00080052` "6 s sequence" was the ending test aid**: it is the PC "end
@@ -57,11 +57,21 @@ Open:
    campaign end card scrolls): `ootf-credits-title-chosen.md`.
 6. **War giant hammer reveal** after the kill was not re-checked.
 7. **Issue #5 comment.** A comment-ready summary is in `ootf-progression-3.md`. It has not been posted.
-8. **Volcanic rift box does not open after the Runeblade** (same note, section 3, runs `vr2`, `vr5`): mounted in detector
-   2318 and its twin, no message box; the Runeblade's Timer 2331 never starts in RAM. It passed on 2026-11-06 (formats
-   `918de7e`) and 2026-11-07 (`f5d3c6b`, blade moved). Pack or executable not separated (the inputs for an older pack were deleted
-   from `build/`). This blocks the one-process run Volcanic to Rift World to the credits. Next: rebuild the pack at `f5d3c6b`
-   (needs `build/odbx/data` from the ISO and the OotF install in `build/ootf/cab_disc`) and rerun `vr.py` on both executables.
+8. **Volcanic rift box: no regression, closed** (`2026-11-08/ootf-volcanic-rift-box-bisect.md`, section 1). Packs rebuilt at
+   formats `918de7e`, `f5d3c6b` and `9e1856f` (inputs re-extracted from the user's `Drakan.zip` and ISO) give identical
+   Volcanic objects for the blade, Timer 2331 and the boxes; on the same executable the old pack fails the same way. The
+   runs that found the box closed had never taken the blade (the recipe skipped the fire-arrow puzzle, so it was still in
+   the ice; carry cells show only the cage key), and every run that took it fired Timer 2331. Regression scenario:
+   `scripts/harness/ootf_volcanic_route.py` (each step checked in RAM, the blade step only passes with the blade carried and
+   the timer gone; unit test `scripts/tests/test_ootf_volcanic_route.py`).
+9. **Volcanic to Rift World to the credits in one process on a clean pack: done** (same note, section 2, `full2`): every
+   step of the scenario passed in one process with a pack built without `OOTF_TEST_*` (placements as test aids, real
+   inputs for each trigger), the four heads died to breath, the mirror scene and the campaign end card played and the game
+   returned to the Order of the Flame title. Host memory flat (1.2 GB working set over 15 minutes).
+10. **Arokh flying off, E not calling him** (same note, section 4): native PS2 dragon AI fed by the PC's own fields (Follow
+   Human Distance 10 lu; cave-entrance meeting), not a converter fault. A tapped E is Use; the call is E held past 0.5 s (the
+   trace shows the call routine running), but in Volcanic a called Arokh did not leave a landing spot he had chosen within
+   30 s. Open: whether the PC engine lands him nearer (needs a PC run).
 
 ## 2. Base-game playtest gaps
 
