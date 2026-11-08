@@ -223,7 +223,10 @@ orc's pass-through `root` joint, which lowers the body, had no PS2 partner and w
 converted root tracks keep absolute positions. A grunt killed with the sword was seen lying on the ground; seated grunts were
 checked offline only. Creatures placed dead in a level (a Ruined Village grunt, dead slaves) now lie in their death clip
 (seen in a frame). The spear grunt's arm hidden from behind matches the original Drakan 2 Purple Orc (the trident stance holds
-the left forearm in front of the body); no frame of an arm actually missing was found. Needs a regenerated pack. See [grunt poses](../journal/2026-11-08/ootf-grunt-pose-fixes.md).
+the left forearm in front of the body). The arm that was really missing belonged to the converted scene orcs: a PC skinned
+model's last channels (their right forearm, the Leather Wartok's right hand, a Wartok shin, the Scavenger's forearm) were cut
+off with the stump caps miscounted; fixed and seen in the ambush. The scene Wartoks' head sits low between the shoulders by
+design. Needs a regenerated pack. See [grunt poses](../journal/2026-11-08/ootf-grunt-pose-fixes.md).
 
 **November 8 level map:** the map screen of converted levels showed Surdana's picture (the converter never set the Level
 Properties `Map Object`) and no quest markers (PC markers have no coordinates; they were written as journal-only). Each campaign

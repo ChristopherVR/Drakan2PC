@@ -111,6 +111,39 @@ grunt lies on the ground beside the living one for the whole run.
   does not play on a direct start of Ruined Village even with `DRAKAN_AUTOPRESS_STOP_AFTER_LOAD=1` (`grunt-open2`), so the
   scene Wartoks are still unseen.
 
+## The missing arm found: converted creatures lost their last polygons (formats `62477e8`)
+
+A New Game run into the Ruined Village ambush (Intro + Ruined Village campaign pack, `DRAKAN_AUTOPRESS=0`, title Enter on New Game
+and Solo; frames `build/grunt/runs/camp/s070.png` before, `build/grunt/runs/camp2/s070.png` after, side by side in
+`build/grunt/forearm_cmp.png`) shows the scene's spear orcs (the "Heuge" actors: converted PC hueges models, not the
+Drakan 2 models) with a hand floating beside the spear and no forearm between it and the elbow.
+
+Cause: a PC skinned model splits its polygons by choppable channel. Each channel cap is
+`{stumpFirst, stumpCount, firstPoly, polyCount, joint}`, and the stump polygons (which close the cut once a limb is chopped
+off) sit inside the LOD's run. The LOD record's `polyCount` counts the run without them, and the converter took the first
+`polyCount` polygons, so the last channels were cut off:
+
+| PC model | LOD 0 run | `polyCount` | lost |
+| --- | ---: | ---: | --- |
+| hueges 3713 / 3714 (scene spear orcs) | 374 | 361 | the right forearm and part of the right hand |
+| troll 3508 (scene Leather Wartok) | 246 | 225 | the right hand and part of the left thigh |
+| troll 3534 / 3536 (Chain / Plate Wartok) | 239 | 225 | part of the right shin |
+| scavenger 3773 | 332 | 323 | most of the left forearm |
+
+`skinnedLodPolygons` now takes the run up to the next LOD's first polygon (or the last channel cap) and leaves the stump caps
+out (they also showed through the body before). After the fix the same frame shows every spear orc's forearm joining the upper
+arm to the hand.
+
+## The "headless" scene Wartoks are their real shape
+
+The ambush frame reported as a headless Wartok (`build/ootf-run/title-art/rv_71s_wartok.png`) and the same Wartoks in
+`build/grunt/runs/camp2/s070.png` were checked against an offline render of the converted Plate Wartok, posed with its scene
+idle and skinned exactly as the PS2 data says (`build/grunt/r_all.png`, `r_views.png`, head polygons red). The OotF troll's
+head is not above the shoulders: it hangs forward and low between them, at chest height, in the authored bind pose as well. From
+the front it is the oval between the shoulders that looked like a neck stump; from behind the back hides it completely.
+Geometry, weights, display list (225 of 225 triangles, the 85 near head height all present) and the head joint's motion are
+intact, so nothing is dropped there. The hand the Leather Wartok lost is restored by the fix above.
+
 ## Evidence (private, under `build/`)
 
 * Killed by Rynn: `build/ootf-run/grunt-sword/run` (pack `build/grunt/sword`, pulled Atimar Blade picked up with E and
