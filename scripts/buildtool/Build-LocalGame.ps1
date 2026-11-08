@@ -529,6 +529,15 @@ if (-not $NoDist) {
         New-Item -ItemType Directory -Force -Path (Join-Path $DistDirectory 'previews') | Out-Null
         Copy-Item -LiteralPath $coverPicture -Destination (Join-Path $DistDirectory 'previews/game-d2.png') -Force
     }
+    # Likewise the character meshes of the multiplayer menu: previews/ is kept, so a regenerated set (a new pose, new
+    # roster) would never reach the play folder. They are cheap to rebuild and derive only from the disc, so replace them.
+    $charPreviews = Join-Path $gameOutput 'previews/chars'
+    if ($gameRegion -eq 'pal' -and (Test-Path -LiteralPath $charPreviews -PathType Container)) {
+        $charDest = Join-Path $DistDirectory 'previews/chars'
+        New-Item -ItemType Directory -Force -Path $charDest | Out-Null
+        Copy-Item -Path (Join-Path $charPreviews '*.dcpm') -Destination $charDest -Force
+        Copy-Item -LiteralPath (Join-Path $charPreviews 'source.sha256') -Destination $charDest -Force -ErrorAction SilentlyContinue
+    }
     if ($gameRegion -eq 'pal') {
         Invoke-Checked $Python @((Join-Path $PSScriptRoot 'install_private_mods.py'),
             '--source',(Join-Path $gameOutput 'mods/drakan-character-motion.zip'),
