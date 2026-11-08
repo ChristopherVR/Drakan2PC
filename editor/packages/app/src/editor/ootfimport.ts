@@ -311,6 +311,8 @@ function openDialog(host: OotfHost): void {
     // Surdana comes first (ootfTemplateLevels), so it is the preselected template.
     const tplSel = h('select', {}, ...ps2.map((l) => h('option', { value: l.dirPath }, l.name)));
     const prefix = h('input', { type: 'text', value: 'OotF - ', spellcheck: 'false' });
+    // Optional picture for the campaign's "Choose your game" card and menu background (stays on this computer).
+    const coverPicker = h('input', { type: 'file', accept: 'image/png' });
     const list = h('div', { class: 'od-list' });
     const out = h('div', {});
     const overview = h('canvas', {
@@ -356,6 +358,13 @@ function openDialog(host: OotfHost): void {
             h('span', { class: 'od-dim' }, 'its dependencies and extra data are reused'),
         ),
         h('div', { class: 'od-row' }, h('span', {}, 'Title prefix'), prefix),
+        h(
+            'div',
+            { class: 'od-row' },
+            h('span', {}, 'Cover picture'),
+            coverPicker,
+            h('span', { class: 'od-dim' }, 'optional PNG, up to 8 MB: the campaign card cover and menu background'),
+        ),
         list,
         overview,
         overviewNote,
@@ -433,6 +442,11 @@ function openDialog(host: OotfHost): void {
         const tplDir = tplSel.value;
         const tplBytes = await host.call('readLevelFile', tplDir);
         const selected = rows.filter((r) => r.box.checked);
+        const coverFile = coverPicker.files?.[0];
+        const cover =
+            coverFile && coverFile.size > 0 && coverFile.size <= 8 << 20
+                ? new Uint8Array(await coverFile.arrayBuffer())
+                : undefined;
         const result = await convertInWorker(
             {
                 files: installFiles,
@@ -441,6 +455,7 @@ function openDialog(host: OotfHost): void {
                 templateDir: tplDir,
                 templateBytes: tplBytes,
                 profile: host.profile(),
+                cover,
             },
             // the pristine disc: reading through the overlay would feed an earlier conversion's classes into this one
             (path) => host.call('readDiscFile', path),

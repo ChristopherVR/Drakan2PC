@@ -28,6 +28,8 @@ export interface ConvertRequest {
     templateDir: string;
     templateBytes: Uint8Array;
     profile: string | null;
+    /** Optional PNG: the campaign's card cover and menu background (previews/campaign-ootf.png, background-ootf.png). */
+    cover?: Uint8Array;
 }
 
 export interface LevelSummary {
@@ -112,5 +114,9 @@ export async function runConversion(
     };
     progress('Building the mod pack');
     const pack = await buildOotfPack(meta, template, inputs, ps2BlobFor, { splats, extraFiles: result.files });
+    if (start && req.cover?.length) {
+        pack.files['previews/campaign-ootf.png'] = req.cover;
+        pack.files['previews/background-ootf.png'] = req.cover;
+    }
     return { pack, summaries, notes: [...result.warnings, ...pack.warnings], campaign: !!start };
 }
