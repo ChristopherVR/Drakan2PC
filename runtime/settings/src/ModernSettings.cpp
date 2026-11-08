@@ -41,6 +41,7 @@ const gameui::SettingsSchema& ModernSettings::schema() {
         env.linkSensitivity = link_;
         env.mods = host_.mods();
         schema_ = buildSettingsSchema(applied_, env);
+        gameui::localizeSchema(schema_); // menu language: titles and labels the catalog knows
         schema_.revision = ++revision_;
         dirty_ = false;
     }

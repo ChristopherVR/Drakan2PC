@@ -111,6 +111,10 @@ void drakanInstallPortableCamera(PS2Runtime& runtime);
 
 std::atomic<bool> g_drakanMovieSeen{
     false}; // set when the game requests the logo movie (= the memory card warning was dismissed)
+// Set by the input glue while a skip of the logo / intro movie is wanted (the skip_intro_videos setting or Esc): the
+// "Full" movie pacing is then not applied, so a movie the game itself does not let the player skip (the logo) runs
+// through at the engine's tick rate.
+std::atomic<bool> g_drakanSkipMovie{false};
 uint32_t g_drakanWrite4[8] = {};
 std::atomic<uint32_t> g_drakanWrite4Next{0};
 
@@ -199,6 +203,8 @@ void hookMovieDecodeStep(uint8_t* rdram, R5900Context* c, PS2Runtime* rt) {
             std::fprintf(stderr, "[drakan] movie player 0x%x: boot logo fast-forwarded (DRAKAN_FAST_START)\n", player);
             lastPlayer = player;
         }
+    } else if (fpsIndex == 0u && g_drakanSkipMovie.load(std::memory_order_relaxed)) {
+        lastPlayer = 0; // skipping: no pacing, the pace restarts cleanly if a later movie plays
     } else if (fpsIndex == 0u) {
         const auto now = Clock::now();
         if (player != lastPlayer) {

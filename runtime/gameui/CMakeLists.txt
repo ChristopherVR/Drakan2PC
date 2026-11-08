@@ -23,6 +23,7 @@ add_library(drakan_gameui STATIC
     src/PauseScreen.cpp
     src/SettingsSchema.cpp
     src/SettingsPages.cpp
+    src/SettingPreview.cpp
     src/SaveSlots.cpp
     src/SaveLoadScreen.cpp
     src/Multiplayer.cpp

@@ -241,3 +241,12 @@ held alongside the incoming level. If an HD frame allocation fails, playback can
 * Aspect: the engine keeps updating the 3D camera during the movies (logo = GUI screen 30, intro / outro = 29), so the
   camera-recency rule of `widescreen.md` section 9 widened them to 16:9. `WorldPolicy` now stays 4:3 while the IPU
   decoded a frame in the last 15 vblanks (`PS2Ipu::decodedFrameCount`); verified pillarboxed in a 16:9 window.
+
+## 10. Skipping the logo and intro movie
+
+`[general] skip_intro_videos = 1` (Gameplay > Skip intro videos, env `DRAKAN_SKIP_INTRO_VIDEOS`, read at start-up) skips the
+boot logo (GUI screen 0x1e) and the New Game intro movie (screen 0x1d). Esc skips whichever of the two is playing, with or
+without the setting. The game ignores START in the logo, so it is not paused to the 25 fps rate while a skip is wanted
+(`g_drakanSkipMovie`, `hookMovieDecodeStep`) and runs through in about a second. The intro is skipped with START taps from
+the pad hook (`hookPadRead`), the game's own skip (three presses), 600 ms after its screen appears when the setting is on.
+Not yet checked on the USA disc profile (screen ids assumed equal to PAL).

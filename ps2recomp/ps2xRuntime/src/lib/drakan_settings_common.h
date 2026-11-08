@@ -43,8 +43,8 @@ public:
         require(Feature::DirectMouseLook,
                 {"input.mouse.free_combat", "input.mouse.camera_follow", "input.mouse.pitch_persist"});
         require(Feature::MovementInput, {"input.keyboard.strafe"});
-        require(Feature::AdvancedInput,
-                {"input.mouse.bow_aim", "input.menu.inventory_mouse", "general.skip_memcard_warning"});
+        require(Feature::AdvancedInput, {"input.mouse.bow_aim", "input.menu.inventory_mouse",
+                                         "general.skip_memcard_warning", "general.skip_intro_videos"});
         if (!supports(Feature::AdvancedInput))
             c.unavailableBindingActions = {"QUICKSAVE", "QUICKLOAD", "QUICK1",    "QUICK2",   "QUICK3",
                                            "QUICK4",    "QUICK5",    "QUICK6",    "QUICK7",   "QUICK8",

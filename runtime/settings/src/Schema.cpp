@@ -365,11 +365,6 @@ void displayPage(gameui::SettingPage& pg, const Settings& st, const SchemaEnv& e
              "Experimental diffuse light bounced from nearby scene surfaces. Adds indirect illumination to "
              "opaque materials; scene and material coverage remains partial.",
              false, caps.modernWater || v.rayGlobalIllumination);
-    if (!caps.rayTracingStatus.empty()) {
-        SettingRow& r = b.row("video.ray_tracing_status", SettingKind::Info, "Ray tracing status",
-                              caps.rayTracingStatus, false, true);
-        r.text = caps.rayTracingStatus;
-    }
 
     pg.sections.push_back({"Vegetation", {}});
     b.sec = &pg.sections.back();
@@ -386,11 +381,6 @@ void displayPage(gameui::SettingPage& pg, const Settings& st, const SchemaEnv& e
 
     pg.sections.push_back({"NVIDIA DLSS", {}});
     b.sec = &pg.sections.back();
-    if ((caps.dlss && caps.dlssNvidia) || caps.dlssNeural) {
-        // Attribution required by the NVIDIA RTX SDKs licence wherever the DLSS SDK is in use.
-        SettingRow& r = b.row("video.dlss_credit", SettingKind::Info, "Credits", kNvidiaDlssCredit, false, true);
-        r.text = kNvidiaDlssCredit;
-    }
     // Neural rendering rows only appear for a renderer that reports the capability; this build has no such backend.
     if (caps.dlssNeural)
         b.toggle("video.dlss_neural", "DLSS 5 neural rendering",
@@ -624,6 +614,10 @@ void gameplayPage(gameui::SettingPage& pg, const Settings& st, const SchemaEnv& 
     b.sec = &pg.sections.back();
     b.toggle("general.skip_memcard_warning", "Skip memory card warning",
              "Dismiss the start-up memory card message automatically. Saves are written to a folder next to the game.");
+    b.toggle("general.skip_intro_videos", "Skip intro videos",
+             "Skip the logo movie at start-up and the intro movie that plays when a new game begins. Esc skips them "
+             "while they play, whatever this setting is. Takes effect after a restart.",
+             true);
     b.choice("general.ui_prompts", "Button prompts",
              "Keyboard: the game's text and help pictures name your keys and mouse buttons, following the key "
              "bindings. PS2: original controller icons.",

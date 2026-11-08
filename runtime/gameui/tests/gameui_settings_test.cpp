@@ -501,7 +501,7 @@ void testUnifiedOptions() {
     o = run({});
     CHECK(hasText(o.draw, "Options") && hasText(o.draw, "Audio") && !hasText(o.draw, "PC Settings"));
     // Audio: the native Audio screen is entered; the game's rows first, the PC rows after.
-    o = run({UiKey::Down, UiKey::Confirm});
+    o = run({UiKey::PageNext}); // Options opens on the Display tab: the next tab is Audio
     CHECK(count(o.actions, PauseActionKind::EnterPage, int32_t(PausePage::Audio)) == 1);
     o = run({});
     CHECK(hasText(o.draw, "Game volume") && hasText(o.draw, "Music volume") && hasText(o.draw, "Output volume"));
@@ -535,10 +535,9 @@ void testUnifiedOptions() {
     CHECK(hasText(o.draw, "Control scheme") && hasText(o.draw, "Invert horizontal look"));
     o = run({UiKey::Right});
     CHECK(count(o.actions, PauseActionKind::SetControllerScheme, 1) == 1);
-    // Back: the landing (Controller left), then the pause root with Options focused (Options left).
+    // Back leaves the Options pages at once (there is no landing list): Controller then Options are left.
     o = run({UiKey::Back});
     CHECK(count(o.actions, PauseActionKind::LeavePage, int32_t(PausePage::Controller)) == 1);
-    o = run({UiKey::Back});
     CHECK(!scr.pcSettingsOpen() && scr.page() == PausePage::Root && !o.wantsResume);
     CHECK(count(o.actions, PauseActionKind::LeavePage, int32_t(PausePage::Options)) == 1);
     CHECK(scr.focus() == (TargetId{TargetKind::MenuRow, static_cast<int>(PauseRow::Options)}));

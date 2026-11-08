@@ -45,13 +45,16 @@ gameui::SettingPage buildModsPage(const ModsModel& model) {
     gameui::SettingPage pg;
     pg.id = "mods";
     pg.title = "Mods";
-    pg.description = "Turn installed mod packs on or off and set their load order. Changes apply after a restart.";
+    pg.description = "A mod pack changes the game: levels, textures, menus. Select a pack to see its picture and "
+                     "details. 1. Turn it on. 2. Order the packs: a later one wins when two change the same file. "
+                     "3. Restart the game to apply.";
     pg.note = "Packs load from top to bottom; a later pack wins when two change the same file. Every change is saved "
               "to mods/mods.ini at once and applies the next time the game starts.";
 
     const bool restart = model.restartRequired();
     if (restart)
-        pg.description = "Restart pending: the mod list changed since the game started. Restart to apply it.";
+        pg.description = "Restart pending: the mod list changed since the game started. Use Restart game now (or "
+                         "close and start the game) to apply it. " + pg.description;
     {
         gameui::SettingSection sec{"Mods", {}};
         // Always present so the rows below do not shift when the first change is made.
@@ -109,12 +112,8 @@ gameui::SettingPage buildModsPage(const ModsModel& model) {
         const std::vector<std::string> conflicts = model.conflictLines(m.key);
         const std::string state = model.stateText(m);
 
-        std::string help = m.description.empty() ? std::string("No description.") : m.description;
-        if (!m.author.empty())
-            help += " By " + m.author + ".";
-        help += " Target disc: " + (m.target.empty() ? std::string("unknown") : m.target) + ". Status: " + state + ".";
-        for (const std::string& c : conflicts)
-            help += " " + c + ".";
+        const std::string help = "Turn this pack on or off. The details beside the list say what it is and whether it "
+                                 "overlaps another pack. Takes effect after a restart.";
 
         gameui::SettingRow en;
         en.key = std::string(kKeyModsEnable) + m.key;
@@ -153,13 +152,25 @@ gameui::SettingPage buildModsPage(const ModsModel& model) {
                                                 : onCard         ? "On the title's Choose your game screen."
                                                                  : "Not offered: see Game choice above and the log."));
         }
-        if (!m.author.empty())
-            sec.rows.push_back(info("Author", shorten(m.author, 48)));
-        sec.rows.push_back(info("Target disc", shorten(m.target.empty() ? std::string("unknown") : m.target, 48)));
-        if (!m.description.empty())
-            sec.rows.push_back(info("About", shorten(m.description, 56)));
         for (const std::string& c : conflicts)
             sec.rows.push_back(info("Conflict", shorten(c, 64)));
+
+        // What the help panel shows beside the list for this pack: the picture, the facts and what to do next.
+        sec.picture = m.picture;
+        if (!m.author.empty())
+            sec.details.push_back({"By", m.author});
+        sec.details.push_back({"Status", state});
+        sec.details.push_back({"Target disc", m.target.empty() ? std::string("unknown") : m.target});
+        if (!m.campaign.empty())
+            sec.details.push_back({"Adds a game", "Campaign \"" + m.campaign + "\" on Choose your game"});
+        if (!m.description.empty())
+            sec.details.push_back({"About", m.description});
+        for (const std::string& c : conflicts)
+            sec.details.push_back({"Conflict", c});
+        sec.hint = !m.found       ? "This pack is not in the mods folder any more."
+                   : !m.readError.empty() ? "This pack cannot be read: " + m.readError
+                   : m.enabled    ? "On. Select Enabled and press Enter to turn it off."
+                                  : "Off. Select Enabled and press Enter to turn it on.";
         pg.sections.push_back(std::move(sec));
     }
     return pg;

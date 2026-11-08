@@ -124,7 +124,7 @@ public:
     const std::vector<std::string>& restartNeeded() const { return restartNeeded_; }
 
     // Design-space layout (exposed for tests).
-    static Rect landingRow(int i);
+    static Rect landingRow(int i, int n = 6); // row i of n (the rows shrink to fit the panel)
     static Rect pagePanel();
     static Rect helpPanel();
     static Rect tabRect(int i, int n);

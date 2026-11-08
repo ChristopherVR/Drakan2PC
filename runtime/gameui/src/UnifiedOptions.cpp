@@ -2,6 +2,8 @@
 
 #include <string>
 
+#include "gameui/MenuText.h"
+
 namespace gameui {
 
 namespace {
@@ -142,6 +144,9 @@ void foldGameOptions(const SettingsSchema& pc, const PauseOptionsState& o, Setti
         for (PauseOption opt : kAll)
             if (gameOptionPage(opt) == pg.id)
                 game.rows.push_back(gameRow(opt, o));
+        game.title = menuTextOrSelf(game.title);
+        for (SettingRow& r : game.rows)
+            r.label = menuTextOrSelf(r.label);
         pg.sections.insert(pg.sections.begin(), std::move(game));
         if (audio) {
             pg.description = "The game's volumes, subtitles and stereo, the output volume of the whole mix and the "
@@ -150,7 +155,7 @@ void foldGameOptions(const SettingsSchema& pc, const PauseOptionsState& o, Setti
             for (SettingSection& s : pg.sections)
                 for (SettingRow& r : s.rows)
                     if (r.key == "audio.volume")
-                        r.label = "Output volume";
+                        r.label = menuText("Output volume");
         } else {
             pg.description = "The game's control scheme, vibration and pitch, mouse look, keyboard movement and the "
                              "gamepad.";

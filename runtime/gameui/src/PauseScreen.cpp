@@ -509,7 +509,7 @@ void PauseScreen::openUnified(PauseFrameOutput* out) {
         trail.push_back(pausePageName(PausePage::Root));
     pcPages_.setTrail(trail);
     pcPages_.setTitle(menuText("Options"));
-    pcPages_.open();
+    pcPages_.open("display"); // straight onto the tabs: the landing list only repeated them
     pcOpen_ = unified_ = true;
     unifiedPending_ = false;
     nativeSub_ = PausePage::Options;

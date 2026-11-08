@@ -4,6 +4,7 @@
 // the first resource request and the guest caches what it loaded), so every change waits for a restart:
 // restartRequired() says whether the list differs from what the running game loaded. Format: docs/reference/modding.md.
 #pragma once
+#include <cstdint>
 #include <functional>
 #include <map>
 #include <string>
@@ -36,6 +37,9 @@ struct ModInfo {
     // The pack is in the mods folder but its zip or manifest cannot be read (hle ModStatus::readError). Such a pack is
     // not offered on the new packs card; the title screen names it instead (settings/ModDiscovery.h).
     std::string readError;
+    // The pack's picture on the Mods page (gameui::ImageKind::LevelPreview id the host resolved from the pack's
+    // previews/pack.png); 0 = the pack has none.
+    uint32_t picture = 0;
 };
 
 // One overlap between two packs (both are pack keys), as ModManager::conflicts() reports it.

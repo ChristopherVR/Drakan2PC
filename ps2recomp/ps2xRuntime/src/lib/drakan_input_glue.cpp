@@ -97,6 +97,7 @@ static void* hostHwnd() {
 }
 
 extern std::atomic<bool> g_drakanMovieSeen; // drakan_overrides.cpp
+extern std::atomic<bool> g_drakanSkipMovie; // drakan_overrides.cpp
 
 namespace {
 using namespace drakan_input;
@@ -230,6 +231,7 @@ LiveStatus g_liveStatus;
 bool g_live = false;
 bool g_steady = false;
 bool g_skipMemcard = true;
+bool g_skipIntro = false; // drakan.ini [general] skip_intro_videos (env DRAKAN_SKIP_INTRO_VIDEOS overrides)
 bool g_wasMenu = true;
 QuickInventoryBridge g_quickInventory;
 QuickSlotDriver g_quickSlots; // QUICK1..QUICK9 keys through the native Quick Inventory bar (input/QuickSlots.h)
@@ -519,6 +521,27 @@ void hookPadRead(uint8_t* rdram, R5900Context* c, PS2Runtime* rt) {
         if (!said && t > 2.0) {
             said = true;
             ilog("[input] skipping the memory card warning: tapping Cross until the game starts the logo movie\n");
+        }
+    }
+    if (port == 0) {
+        // The logo (screen 0x1e) and the New Game intro movie (0x1d): skipped at once with skip_intro_videos, or by Esc
+        // while they play. The intro takes START taps (its own skip, three presses); the game ignores START in the
+        // logo, which instead runs through unpaced (g_drakanSkipMovie, hookMovieDecodeStep).
+        static std::chrono::steady_clock::time_point movieSince{};
+        static int movieScreen = -1;
+        const bool onMovie = g_lastScreen == 0x1d || g_lastScreen == 0x1e;
+        if (onMovie && g_lastScreen != movieScreen)
+            movieSince = std::chrono::steady_clock::now();
+        movieScreen = onMovie ? g_lastScreen : -1;
+        const bool esc = onMovie && module().frame().keyDown.test(0x01);
+        const bool skip = onMovie && (g_skipIntro || esc);
+        g_drakanSkipMovie.store(skip, std::memory_order_relaxed);
+        if (skip && g_lastScreen == 0x1d) {
+            const auto since = std::chrono::steady_clock::now() - movieSince;
+            // Give the screen time to start its movie job; the taps are 150 ms down, 100 ms up.
+            if (since > std::chrono::milliseconds(esc ? 0 : 600) &&
+                std::chrono::duration_cast<std::chrono::milliseconds>(since).count() % 250 < 150)
+                s[2] &= static_cast<uint8_t>(~(0x08u)); // START
         }
     }
     if (port == 0 && g_tapPad) {
@@ -1358,6 +1381,18 @@ void drakanInstallInput(PS2Runtime& rt) {
         }
         if (const char* e = std::getenv("DRAKAN_SKIP_MEMCARD_WARNING"))
             g_skipMemcard = std::atoi(e) != 0;
+        if (std::FILE* f2 = std::fopen(cfg.c_str(), "rb")) { // [general] skip_intro_videos
+            char line[256];
+            while (std::fgets(line, sizeof line, f2)) {
+                const char* k = std::strstr(line, "skip_intro_videos");
+                const char* eq = k ? std::strchr(k, '=') : nullptr;
+                if (k && eq && line[0] != ';')
+                    g_skipIntro = std::atoi(eq + 1) != 0 || std::strstr(eq + 1, "true") != nullptr;
+            }
+            std::fclose(f2);
+        }
+        if (const char* e = std::getenv("DRAKAN_SKIP_INTRO_VIDEOS"))
+            g_skipIntro = std::atoi(e) != 0;
     }
     std::string ini;
     if (const char* e = std::getenv("DRAKAN_INPUT_INI"))

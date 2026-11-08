@@ -6,6 +6,7 @@
 #pragma once
 #include <cstdint>
 #include <string>
+#include <utility>
 #include <vector>
 
 namespace gameui {
@@ -81,6 +82,10 @@ struct SettingRow {
 struct SettingSection {
     std::string title;
     std::vector<SettingRow> rows;
+    // The help panel shows these while one of the section's rows is focused (the Mods page: one section per pack).
+    uint32_t picture = 0;                                         // nonzero: ImageKind::LevelPreview id of a picture
+    std::vector<std::pair<std::string, std::string>> details;     // "Author" / "Ada", wrapped in the help panel
+    std::string hint;                                             // what to do with it ("Press Enter to turn it on")
 };
 
 struct SettingPage {
@@ -132,5 +137,9 @@ struct SettingsSchema {
 
     const SettingRow* find(const std::string& key) const;
 };
+
+// Translates the page titles, section titles, row labels and choice labels that the menu text catalog knows into the
+// menu language (MenuText.h); anything else (help texts, a pack's own text) stays as written.
+void localizeSchema(SettingsSchema& schema);
 
 } // namespace gameui

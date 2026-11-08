@@ -3,6 +3,8 @@
 #include <cmath>
 #include <cstdio>
 
+#include "gameui/MenuText.h"
+
 namespace gameui {
 
 std::string SettingRow::formatValue(float v) const {
@@ -20,7 +22,7 @@ std::string SettingRow::formatValue(float v) const {
 std::string SettingRow::valueText() const {
     switch (kind) {
         case SettingKind::Toggle:
-            return on ? "On" : "Off";
+            return menuText(on ? "On" : "Off");
         case SettingKind::Choice:
             if (!currentLabel.empty())
                 return currentLabel;
@@ -35,6 +37,23 @@ std::string SettingRow::valueText() const {
             return std::to_string(width) + " x " + std::to_string(height);
     }
     return {};
+}
+
+void localizeSchema(SettingsSchema& schema) {
+    if (menuLanguage() == MenuLanguage::English)
+        return;
+    for (SettingPage& pg : schema.pages) {
+        pg.title = menuTextOrSelf(pg.title);
+        for (SettingSection& sec : pg.sections) {
+            sec.title = menuTextOrSelf(sec.title);
+            for (SettingRow& r : sec.rows) {
+                r.label = menuTextOrSelf(r.label);
+                r.currentLabel = menuTextOrSelf(r.currentLabel);
+                for (SettingChoice& c : r.choices)
+                    c.label = menuTextOrSelf(c.label);
+            }
+        }
+    }
 }
 
 std::vector<std::string> BindingLayerView::actionsOn(const std::string& source) const {

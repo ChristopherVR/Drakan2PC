@@ -172,6 +172,7 @@ const std::vector<Field>& fields() {
         // ---------------- drakan.ini ----------------
         {"general", "skip_memcard_warning", false, GETB(general.skipMemcardWarning), SETB(general.skipMemcardWarning),
          nullptr},
+        {"general", "skip_intro_videos", false, GETB(general.skipIntroVideos), SETB(general.skipIntroVideos), nullptr},
         {"general", "ui_prompts", false, [](const Settings& s) { return std::string(toIni(s.general.prompts)); },
          [](Settings& s, const std::string& v) {
              std::string u = lower(trim(v));
@@ -784,6 +785,7 @@ std::string settingLabel(const std::string& key) {
         {"audio.volume", "Master volume"},
         {"audio.device", "Output device"},
         {"general.skip_memcard_warning", "Skip memory card warning"},
+        {"general.skip_intro_videos", "Skip intro videos"},
         {"general.ui_prompts", "Button prompts"},
         {"general.language", "Language"},
         {"general.cpu_affinity", "CPU cores"},

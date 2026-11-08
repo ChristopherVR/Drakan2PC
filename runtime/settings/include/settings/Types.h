@@ -79,6 +79,7 @@ struct AudioSettings {
 
 struct GeneralSettings {
     bool skipMemcardWarning = true;
+    bool skipIntroVideos = false; // skip_intro_videos: the boot logo and the New Game intro movie (restart)
     // cpu_affinity: which logical processors the game may use: auto | cores:<n> | 0x<hex mask> (restart).
     std::string cpuAffinity = "auto";
     PromptStyle prompts = PromptStyle::Keyboard; // ui_prompts

@@ -1,5 +1,8 @@
 #include "gameui/SettingsPages.h"
 
+#include "gameui/MenuText.h"
+#include "gameui/SettingPreview.h"
+
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
@@ -32,6 +35,7 @@ constexpr float kCardRowH = 68, kCardRowStep = 78;
 constexpr float kChoiceH = 52, kChoiceStep = 56;
 constexpr int kChoiceVisible = 8;
 constexpr float kCaptureBoxH = 92;
+constexpr float kPreviewH = 224; // the help panel's picture
 constexpr int kCardBase = 1000, kChoiceBase = 2000;
 
 const char* const kSlotNames[] = {"Primary", "Secondary", "Extra"};
@@ -95,8 +99,18 @@ const char* settingsActionName(SettingsActionKind k) {
 
 // ---- layout ----
 
-Rect SettingsPages::landingRow(int i) {
-    return {kRowX, kRowY + static_cast<float>(i) * kRowStep, kRowW, kRowH};
+Rect SettingsPages::landingRow(int i, int n) {
+    // The rows shrink to stay inside the panel when there are more than the usual six (the last one is Back).
+    const float avail = kPanelY + kPanelH - 20 - kRowY;
+    float step = kRowStep, h = kRowH;
+    if (n > 1 && static_cast<float>(n - 1) * step + h > avail) {
+        step = (avail - h) / static_cast<float>(n - 1);
+        if (step < h + 6) {
+            h = std::max(40.0f, (avail - 6.0f * static_cast<float>(n - 1)) / static_cast<float>(n));
+            step = n > 1 ? (avail - h) / static_cast<float>(n - 1) : step;
+        }
+    }
+    return {kRowX, kRowY + static_cast<float>(i) * step, kRowW, h};
 }
 Rect SettingsPages::pagePanel() {
     return {kMargin, kPanelY, kPageW, kPanelH};
@@ -263,12 +277,13 @@ void SettingsPages::build() {
         return;
     const int np = static_cast<int>(schema_->pages.size());
     if (view_ == SettingsView::Landing) {
+        const int n = np + (schema_->bindings.empty() ? 0 : 1) + 1; // categories, Key Bindings, Back
         int i = 0;
         for (; i < np; ++i)
-            items_.push_back({Item::Category, i, 0, 0, landingRow(i)});
+            items_.push_back({Item::Category, i, 0, 0, landingRow(i, n)});
         if (!schema_->bindings.empty())
-            items_.push_back({Item::BindLayer, 0, 0, 0, landingRow(i++)});
-        items_.push_back({Item::Back, 0, 0, 0, landingRow(i)});
+            items_.push_back({Item::BindLayer, 0, 0, 0, landingRow(i++, n)});
+        items_.push_back({Item::Back, 0, 0, 0, landingRow(i, n)});
         return;
     }
     const int nt = tabCount();
@@ -348,17 +363,17 @@ float SettingsPages::cardHeight(int bodyLines, int rows, bool box) const {
 std::vector<std::string> SettingsPages::cardRows() const {
     switch (card_) {
         case SettingsCard::KeepDisplay:
-            return {"Keep", "Revert"};
+            return {menuText("Keep"), menuText("Revert")};
         case SettingsCard::Restart:
-            return {"Restart Now", "Later"};
+            return {menuText("Restart Now"), menuText("Later")};
         case SettingsCard::Problem:
-            return {"OK"};
+            return {menuText("OK")};
         case SettingsCard::Defaults:
-            return {"Restore Defaults", "Cancel"};
+            return {menuText("Restore Defaults"), menuText("Cancel")};
         case SettingsCard::Capture:
-            return {"Bind Esc", "Clear", "Cancel"};
+            return {menuText("Bind Esc"), menuText("Clear"), menuText("Cancel")};
         case SettingsCard::Conflict:
-            return {"Replace", "Use for Both", "Cancel"};
+            return {menuText("Replace"), menuText("Use for Both"), menuText("Cancel")};
         default:
             return {};
     }
@@ -553,28 +568,28 @@ void SettingsPages::buildHints() {
         case SettingsCard::None:
             break;
         case SettingsCard::Capture:
-            hints_.push_back({Prompt::Back, "Cancel"});
+            hints_.push_back({Prompt::Back, menuText("Cancel")});
             break;
         case SettingsCard::KeepDisplay:
-            hints_.push_back({Prompt::Confirm, "Select"});
-            hints_.push_back({Prompt::Back, "Revert"});
+            hints_.push_back({Prompt::Confirm, menuText("Select")});
+            hints_.push_back({Prompt::Back, menuText("Revert")});
             break;
         default:
-            hints_.push_back({Prompt::Confirm, "Select"});
-            hints_.push_back({Prompt::Back, "Cancel"});
+            hints_.push_back({Prompt::Confirm, menuText("Select")});
+            hints_.push_back({Prompt::Back, menuText("Cancel")});
             break;
     }
     if (card_ == SettingsCard::None) {
         const Item* it = itemFor(focus_);
         if (view_ == SettingsView::Landing) {
-            hints_.push_back({Prompt::Confirm, "Select"});
+            hints_.push_back({Prompt::Confirm, menuText("Select")});
         } else if (it && it->kind == Item::Row) {
             const SettingRow* r = rowAt(it->a, it->b);
             const bool en = r && r->enabled;
             if (r && r->kind == SettingKind::Slider)
                 hints_.push_back({Prompt::Adjust, "Adjust", en});
             else if (r && r->kind == SettingKind::Choice) {
-                hints_.push_back({Prompt::Adjust, "Change", en});
+                hints_.push_back({Prompt::Adjust, menuText("Change"), en});
                 hints_.push_back({Prompt::Confirm, "List", en});
             } else if (r && r->kind == SettingKind::Toggle)
                 hints_.push_back({Prompt::Confirm, "Toggle", en});
@@ -591,7 +606,7 @@ void SettingsPages::buildHints() {
             hints_.push_back({Prompt::Tertiary, "Defaults"});
         if (view_ != SettingsView::Landing)
             hints_.push_back({Prompt::PageNext, "Next Page"});
-        hints_.push_back({Prompt::Back, "Back"});
+        hints_.push_back({Prompt::Back, menuText("Back")});
     }
     const detail::Paint p(lf_, cfg_.screen);
     const std::vector<Rect> rs =
@@ -1439,7 +1454,7 @@ void SettingsPages::drawLanding(DrawList& d) const {
         d.panel(rp, PanelStyle::Card, hov ? th.panelRaised : th.panel);
         if (foc)
             p.focus(d, rp);
-        std::string label = "Back";
+        std::string label = menuText("Back");
         if (it.kind == Item::Category && schema_)
             label = schema_->pages[static_cast<size_t>(it.a)].title;
         else if (it.kind == Item::BindLayer)
@@ -1652,6 +1667,8 @@ void SettingsPages::drawHelp(DrawList& d) const {
 
     std::string kicker, title, body;
     std::vector<std::pair<std::string, Color>> notes;
+    const SettingRow* picRow = nullptr;         // the focused setting row (an illustration of what it does)
+    const SettingSection* picSec = nullptr;     // its section (a mod pack's cover, details and what to do)
     const int np = schema_ ? static_cast<int>(schema_->pages.size()) : 0;
     if (it && (it->kind == Item::Category || it->kind == Item::Tab) && schema_ && it->a < np) {
         const SettingPage& pg = schema_->pages[static_cast<size_t>(it->a)];
@@ -1676,6 +1693,8 @@ void SettingsPages::drawHelp(DrawList& d) const {
         const SettingRow* r = rowAt(it->a, it->b);
         const SettingPage* pg = currentPage();
         if (r && pg) {
+            picRow = r;
+            picSec = &pg->sections[static_cast<size_t>(it->a)];
             kicker = pg->sections[static_cast<size_t>(it->a)].title;
             title = r->label;
             body = r->help;
@@ -1723,6 +1742,48 @@ void SettingsPages::drawHelp(DrawList& d) const {
         p.rule(d, x, y, w);
         y += 18;
     }
+    // The picture under the title: a pack's cover, or a small animation of what the focused setting does (it follows
+    // the value the row shows right now).
+    bool picture = false;
+    if (picRow && picSec) {
+        const Rect box{x, y, w, kPreviewH};
+        const Rect px = p.map(box);
+        if (!picSec->details.empty()) { // a mod pack
+            d.panel(px, PanelStyle::Inset, th.inset);
+            if (picSec->picture) {
+                d.pushClip(px);
+                d.image(px, ImageRef{ImageKind::LevelPreview, picSec->picture});
+                d.popClip();
+                d.outline(px, th.brassDim, p.px(1.5f), p.px(2));
+            } else {
+                p.text(d, {box.x, box.y, box.w, box.h * 0.6f}, "No preview picture", FontRole::Body, th.textMuted,
+                       TextAlign::Center);
+                p.text(d, {box.x + 16, box.y + box.h * 0.45f, box.w - 32, 28},
+                       "A pack can ship previews/pack.png", FontRole::Small, th.textDisabled, TextAlign::Center);
+            }
+            picture = true;
+        } else {
+            PreviewState ps;
+            ps.time = now_;
+            ps.on = picRow->kind == SettingKind::Toggle && shownOn(*picRow);
+            if (picRow->kind == SettingKind::Choice) {
+                const int ci = shownChoice(*picRow);
+                if (ci >= 0 && ci < static_cast<int>(picRow->choices.size()))
+                    ps.value = picRow->choices[static_cast<size_t>(ci)].value;
+            }
+            if (picRow->kind == SettingKind::Slider)
+                ps.number = shownSlider(*picRow);
+            picture = drawSettingPreview(d, px, *picRow, ps, th);
+        }
+        if (picture)
+            y += kPreviewH + 14;
+    }
+    if (picSec && !picSec->details.empty()) {
+        for (const auto& kv : picSec->details)
+            notes.push_back({kv.first + ": " + kv.second, th.textMuted});
+        if (!picSec->hint.empty())
+            notes.push_back({picSec->hint, th.brass});
+    }
     // The footer of the panel: settings that wait for a restart, else how changes are kept.
     std::vector<std::string> foot;
     Color footC = th.textMuted;
@@ -1740,7 +1801,7 @@ void SettingsPages::drawHelp(DrawList& d) const {
         foot.resize(3);
     const float footY = bottom - static_cast<float>(foot.size()) * 26;
     for (const std::string& l : p.wrap(body, w, FontRole::Body, 23)) {
-        if (y + 30 > footY - 80)
+        if (y + 30 > footY - (picture ? 36 : 80))
             break;
         p.text(d, {x, y, w, 30}, l, FontRole::Body, th.text, TextAlign::Left, 23);
         y += 30;
