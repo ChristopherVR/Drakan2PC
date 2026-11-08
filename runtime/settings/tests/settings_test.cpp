@@ -747,6 +747,25 @@ static void testCombatAndFovSettings() {
     CHECK(st.loaded().video.fieldOfView == 120);
     st.loadFromText("[video]\nfov=-999", "");
     CHECK(st.loaded().video.fieldOfView == 60);
+
+    // Bow combat: ootf (default) | native (the original PS2 bow) | modern; classic and ps2 are accepted aliases.
+    st.loadFromText("", "");
+    CHECK(!st.loaded().controls.bowAimModern && !st.loaded().controls.bowAimNative);
+    CHECK(settingValue(st.loaded(), "input.mouse.bow_aim") == "ootf");
+    st.loadFromText("", "[mouse]\nbow_aim = ps2\n");
+    CHECK(st.loaded().controls.bowAimNative && !st.loaded().controls.bowAimModern);
+    CHECK(settingValue(st.loaded(), "input.mouse.bow_aim") == "native");
+    auto bow = st.loaded();
+    CHECK(setSettingValue(bow, "input.mouse.bow_aim", "modern"));
+    CHECK(bow.controls.bowAimModern && !bow.controls.bowAimNative);
+    CHECK(setSettingValue(bow, "input.mouse.bow_aim", "native"));
+    std::string bowA, bowB;
+    st.loadFromText("", "");
+    st.render(bow, bowA, bowB);
+    CHECK(bowB.find("bow_aim = native") != std::string::npos);
+    SettingsStore bowBack;
+    bowBack.loadFromText(bowA, bowB);
+    CHECK(bowBack.loaded().controls.bowAimNative);
 }
 
 static void testMipBiasMode() {

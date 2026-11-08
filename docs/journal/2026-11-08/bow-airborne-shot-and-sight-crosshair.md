@@ -56,3 +56,38 @@ the teleport (`bow-jump-live2/3`: Rynn held at the `place` target in the air, th
 shows the same torso/base split at the shot). Other attempts ended with exit -1 before or after the bow sequence,
 including a run without any bow (`bow-pickup-dbg`), so they are not attributed to this change. Crossbows (holder
 mode 4) are not covered by any bow adapter; their native attack mask already allows jumping.
+
+## Follow-up: A/B jump, crosshair picture, crossbows, bow combat choice
+
+**Teleport deaths.** `place` holds the player on the target for 240 ticks; after a long teleport (the bow at
+425126 to the start path at 447781) the terrain there is not resident, she ends below it and falls, so those runs
+died and reloaded. Short teleports inside the bow's resident area work. The A/B runs therefore use the archery range
+north of the bow (start 424900, 160800, 444500, yaw pi, facing the target at z 450304) with
+`DRAKAN_PLAYTEST_HOLD=60`, D3D11 and ray effects off (a scratch copy of the player's `drakan.ini`).
+
+`build/harness/bow-ab3` (clean scripted quit), measured from takeoff to landing in the `[in-pos]` / `[in-anim]` rows:
+
+| Running jump (type 2) | Airborne | Horizontal | Speed | Rise |
+| --- | --- | --- | --- | --- |
+| no shot, from (424900, 444500) | 0.76 s | 2169 | 2843 / s | 575 |
+| shot 0.36 s after takeoff, from (424932, 446355) | 0.94 s | 2702 | 2865 / s | 576 |
+
+During the shot `f94` is 90, the torso channel (`aec` 2) plays 20896 and the base keeps the jump clip 208e5. The
+horizontal speed and the rise match the jump without a shot; the airborne times differ with the slope of the ground.
+
+**Crosshair picture.** `DRAKAN_OVERLAY_SHOT_DIR` (the settings host's harness inbox: `shot.txt` saves the presented
+frame including the HUD overlay) captured the open sight in `bow-ab2` and `bow-ab3`: the gold host crosshair sits at
+the centre of the game image over the archery target, ammo 199 after the one jump shot.
+
+**Crossbows.** The decoded placed-object lists of 11 campaign levels contain only bows (Wood, Battle, Rune, Speed,
+Bow of the Order, Stomp Bow); no crossbow item is placed for the player. The native Villiager Cross Bow is an NPC
+weapon. The user's "crossbow" is the player's bow. Eight cut-scene / test LVLs did not decode.
+
+**Bow combat choice.** User request: OotF behaviour by default, with a Gameplay option back to the PS2 game's own
+bow ("zoomed in is the normal PS2 approach"). `[mouse] bow_aim` now takes `ootf` (default) | `native` (alias `ps2`) |
+`modern`, shown as Options > Gameplay > Combat > "Bow combat" (it replaces the Controls toggle "Modern bow aiming").
+`native` keeps every OotF adapter out: jump gate, torso-channel shot, sight jump / locomotion / orientation /
+forward-look / shot basis, third-person auto-aim and the host crosshair. Tests: `bow_aim_test` 212, `input_test`
+3747, `settings_test` 452, `settings_schema_test` 1110, all passing. The game build compiled, but its deployment to
+`dist/DrakanPC` stopped because the player had the game open from there (no file was removed); the native mode still
+needs a live run after the next deployment.

@@ -130,7 +130,8 @@ struct BindingLayer {
 
 struct ControlSettings {
     bool freeCombat = true;                 // [mouse] free_combat: unrestricted combat mouse, no target lock
-    bool bowAimModern = true;               // [mouse] bow_aim: modern (hold to aim, release to shoot) | classic
+    bool bowAimModern = false;              // [mouse] bow_aim = modern (hold to aim, release to shoot)
+    bool bowAimNative = false;              // [mouse] bow_aim = native: the original PS2 bow (default ootf)
     LookMode lookMode = LookMode::Direct;   // [general] look_mode
     bool captureMouse = true;               // [general] capture_mouse
     bool releaseOnEsc = false;              // [general] release_on_esc

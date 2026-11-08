@@ -305,6 +305,8 @@ Details: `docs/reference/input.md` section 15, `docs/journal/2026-10-24/mouse-ca
 
 `[mouse] bow_aim = ootf` is the default: LMB fires on press, RMB toggles the native first-person sight, and third-person
 shots acquire a nearby visible target around the camera centre through the native selector. `classic` is an alias.
+`bow_aim = native` (alias `ps2`; Gameplay > Combat > Bow combat > Original) keeps the PS2 game's own bow: no jump gate,
+torso-channel shot, sight movement/camera/shot adapters, auto-aim or host crosshair.
 `bow_aim = modern` remains optional, `[mouse] bow_zoom = 0.85`. With the bow out, hold the left button to
 aim (zoom, over-the-shoulder offset, crosshair), release to shoot at the crosshair; RMB still opens the native sight.
 `src/BowAim.cpp`, `tests/bow_aim_tests.cpp`; details and measurements in `docs/reference/input.md` section 16.

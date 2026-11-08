@@ -47,16 +47,18 @@ The Windows controller path uses XInput and maps the original DualShock layout o
 
 ## Modern bow aiming
 
-Enable **Modern bow aiming** in the mouse settings. With a bow equipped, **hold left mouse** to aim with a slight zoom and a crosshair; **release** to shoot toward it. Turn the setting off for the original controls: left click shoots and right click opens the original sight.
+Choose the bow style in **Options > Gameplay > Combat > Bow combat**:
+
+* **Order of the Flame** (default): left click shoots at once and aims itself at an enemy near the middle of the screen. Right click opens the zoomed sight with a crosshair; Rynn can still move, jump and shoot in it. A shot in the air keeps the jump going.
+* **Original (PS2)**: the PlayStation 2 game's own bow, built around its zoomed sight.
+* **Modern (hold to aim)**: **hold left mouse** to aim over the shoulder with a slight zoom and a crosshair; **release** to shoot toward it.
 
 The corresponding setting in `drakan_input.ini` is:
 
 ```ini
 [mouse]
-bow_aim = modern
+bow_aim = ootf     ; or native, or modern
 ```
-
-Use `classic` for the original behavior.
 
 ![Rynn drawing the bow, aiming at the crosshair and firing two arrows](https://github.com/ChristopherVR/Drakan2PC/releases/download/site-media-20261029/bow-aim.jpg)
 

@@ -466,6 +466,36 @@ void testAirborneShotChannel() {
     check(PLAYER, caller, 0); // unknown reader
 }
 
+// bow_aim = native (Gameplay > Bow combat > Original): the PS2 game's own bow, every OotF adapter stays out.
+void testNativeBow() {
+    Config c = Config::defaults();
+    Config::parse("[mouse]\nbow_aim = native\n", c, nullptr);
+    CHECK(c.bowAimNative && !c.bowAimModern);
+    Config::parse("[mouse]\nbow_aim = ps2\n", c, nullptr);
+    CHECK(c.bowAimNative && !c.bowAimModern);
+    Config::parse("[mouse]\nbow_aim = ootf\n", c, nullptr);
+    CHECK(!c.bowAimNative && !c.bowAimModern);
+    Config::parse("[mouse]\nbow_aim = native\n", c, nullptr);
+    InputModule m;
+    m.initHeadless(c);
+    FakeGuest g;
+    setup(g);
+    m.beginFrame(FrameInput{});
+    g.write32(PLAYER + 0x94, 0x10);
+    CHECK(m.bowAttackMask(g, PLAYER, 0x31de5c, 0x104b70) == 0x104b70); // no jumping shots
+    CHECK(m.bowShotChannel(g, PLAYER, 0x301b7c, 0) == 0);
+    g.write32(PLAYER + 0x94, 0);
+    g.write32(CAM + 0x48, 0x220);
+    m.updateBowAim(g);
+    CHECK(!m.bowCrosshairVisible()); // no host crosshair over the native sight
+    CHECK(!m.keepBowSightOnJump(g, PLAYER, CAM, 0x2f9610));
+    CHECK(!m.suppressBowSightForwardLook(g, PLAYER, 0x44e680, 2));
+    CHECK(!m.stabilizeBowSightOrientation(g, CAM, 0x218794));
+    g.write32(CAM + 0x48, 0x200);
+    const auto calls = g.calls.size();
+    CHECK(m.bowAutoTarget(g, BOW, 0x6f0000) == 0 && g.calls.size() == calls); // no third-person auto-aim
+}
+
 // The OotF bow sight ("targeted first-person view") shows the crosshair; third person (auto-aim) does not.
 void testSightCrosshair() {
     InputModule m;
@@ -794,6 +824,7 @@ int main() {
     testOotfJumpAttackGate();
     testAirborneShotChannel();
     testSightCrosshair();
+    testNativeBow();
     testOotfSightJumpCommand();
     testOotfSightForwardLook();
     testOotfSightLocomotion();

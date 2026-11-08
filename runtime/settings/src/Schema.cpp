@@ -523,16 +523,6 @@ void controlsPage(gameui::SettingPage& pg, const Settings& st, const SchemaEnv& 
              "Off: mouse right turns right. On: reverses horizontal mouse movement.");
     b.toggle("input.mouse.invert_y", "Invert vertical look",
              "Off (default): mouse up looks up. On: mouse up looks down.");
-    {
-        SettingRow& r = b.row("input.mouse.bow_aim", SettingKind::Toggle, "Modern bow aiming",
-                              "With the bow out: hold the left button to aim (slight zoom and a crosshair), release "
-                              "to shoot at the crosshair. Off (default): left click fires, right click toggles "
-                              "the first-person sight, as in Order of the Flame.",
-                              false, true);
-        r.onValue = "modern";
-        r.offValue = "ootf";
-        r.on = c.bowAimModern;
-    }
     b.toggle("input.mouse.free_combat", "Free mouse combat",
              "Mouse movement turns Rynn freely during combat. F and middle click toggle native target lock; the bow "
              "sight keeps its native aiming camera.");
@@ -608,7 +598,9 @@ void gameplayPage(gameui::SettingPage& pg, const Settings& st, const SchemaEnv& 
     const HostCaps& caps = env.caps;
     pg.id = "gameplay";
     pg.title = "Gameplay";
-    pg.description = "Start-up, button prompts, language, the modern menus, dual wielding and the narration subtitles.";
+    pg.description =
+        "Start-up, button prompts, language, the modern menus, bow combat, dual wielding and the narration "
+        "subtitles.";
     Builder b{st};
     pg.sections.push_back({"Game", {}});
     b.sec = &pg.sections.back();
@@ -668,6 +660,14 @@ void gameplayPage(gameui::SettingPage& pg, const Settings& st, const SchemaEnv& 
              "(the inventory shows Equip Left Hand). Her strikes then alternate hands: every second strike in a combo "
              "is the same swing done left-handed. Use it again to put it away. Turning this off puts the left-hand "
              "weapon back in inventory when play resumes.");
+    b.choice(
+        "input.mouse.bow_aim", "Bow combat",
+        "Order of the Flame (default): attack fires at once and aims itself at an enemy near the middle of the "
+        "screen; the alternate attack opens the zoomed sight with a crosshair, where Rynn can still move, jump and "
+        "shoot. Shots in the air keep the jump going. Original: the PlayStation 2 game's own bow, built around "
+        "its zoomed sight. Modern: hold the left mouse button to aim over the shoulder, release to shoot at the "
+        "crosshair.",
+        {{"ootf", "Order of the Flame"}, {"native", "Original (PS2)"}, {"modern", "Modern (hold to aim)"}});
 
     pg.sections.push_back({"Performance", {}});
     b.sec = &pg.sections.back();

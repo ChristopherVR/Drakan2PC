@@ -127,6 +127,17 @@ void testCoverage() {
     }
     CHECK(keys.count(kKeyWindowSize) && keys.count(kKeyWindowCustom) && keys.count(kKeyLinkSensitivity));
     CHECK(keys.count("general.dual_wield"));
+    // Bow combat: a Gameplay choice, Order of the Flame by default, the original PS2 bow or modern.
+    {
+        const auto* bow = sc.find("input.mouse.bow_aim");
+        CHECK(bow && bow->kind == gameui::SettingKind::Choice && bow->choices.size() == 3);
+        CHECK(bow && bow->current == 0 && bow->choices[0].value == "ootf" && bow->choices[1].value == "native");
+        bool onGameplay = false;
+        for (const auto& sec : sc.pages[3].sections)
+            for (const auto& row : sec.rows)
+                onGameplay |= row.key == "input.mouse.bow_aim";
+        CHECK(onGameplay);
+    }
     CHECK(keys.count("general.debug_menu"));
     CHECK(keys.count("input.gamepad.debug_menu_combo"));
     CHECK(keys.count("input.keyboard.directional_attack"));

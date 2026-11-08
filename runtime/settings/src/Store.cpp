@@ -538,15 +538,18 @@ const std::vector<Field>& fields() {
         {"mouse", "camera_follow", true, GETF(controls.cameraFollow, "%.0f"), SETF(controls.cameraFollow),
          "how quickly the camera catches up as Rynn moves; turning stays locked (0 = the game's own rubber band)"},
         {"mouse", "bow_aim", true,
-         [](const Settings& s) { return std::string(s.controls.bowAimModern ? "modern" : "ootf"); },
+         [](const Settings& s) {
+             return std::string(s.controls.bowAimModern ? "modern" : s.controls.bowAimNative ? "native" : "ootf");
+         },
          [](Settings& s, const std::string& v) {
              const std::string u = lower(trim(v));
-             if (u == "modern")
-                 s.controls.bowAimModern = true;
-             else if (u == "classic" || u == "ootf")
-                 s.controls.bowAimModern = false;
+             if (u == "modern" || u == "classic" || u == "ootf" || u == "native" || u == "ps2") {
+                 s.controls.bowAimModern = u == "modern";
+                 s.controls.bowAimNative = u == "native" || u == "ps2";
+             }
          },
-         "ootf: left click fires, right click toggles the sight; modern: hold left to aim, release to shoot"},
+         "ootf: left click fires (auto-aim), right click toggles the sight; native: the original PS2 bow; modern: hold "
+         "left to aim, release to shoot"},
         {"mouse", "free_combat", true, GETB(controls.freeCombat), SETB(controls.freeCombat),
          "free mouse combat: no controller target lock; mouse turns Rynn through attack animations"},
         {"keyboard", "strafe", true, GETB(controls.strafeKeys), SETB(controls.strafeKeys), nullptr},
@@ -760,7 +763,7 @@ std::string settingLabel(const std::string& key) {
     if (key == "input.mouse.camera_follow")
         return "Camera follow";
     if (key == "input.mouse.bow_aim")
-        return "Modern bow aiming";
+        return "Bow combat";
     if (key == "input.gamepad.debug_menu_combo")
         return "Debug menu shortcut";
     if (key == "input.keyboard.directional_attack")

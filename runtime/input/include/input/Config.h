@@ -68,6 +68,7 @@ struct Config {
                                // game's own rubber band (turns swing round ~0.5 s late)
     bool bowAimModern = false; // [mouse] bow_aim = modern: hold LMB with the bow out to aim (zoom + crosshair), release
                                // to shoot at the crosshair; ootf/classic = press fires, RMB toggles the native sight
+    bool bowAimNative = false; // [mouse] bow_aim = native (ps2): the original PS2 bow, none of the OotF adapters
     float bowZoom = 0.85f;     // [mouse] bow_zoom: field of view factor while aiming (1 = no zoom)
     float pitchViewGain = 1.8f;    // [mouse] pitch_view_gain: the on-foot camera shows 1.8 x cam+0x84; mouse pitch is
                                    // divided by it so a count turns the view as far up / down as sideways (1 = off)

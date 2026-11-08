@@ -504,9 +504,9 @@ ratio). F1 > Controls > Camera follow edits `camera_follow`. Details and limits:
 
 ## 16. Bow aiming (2026-10-24, default revised 2026-11-04)
 
-`[mouse] bow_aim = ootf` (default; `classic` is an alias), `modern` (optional hold/release adapter),
-`[mouse] bow_zoom = 0.85` (modern only), F1 > Controls >
-"Modern bow aiming". Code: `runtime/input/src/BowAim.cpp`, glue hooks in `drakan_input_glue.cpp`, crosshair in
+`[mouse] bow_aim = ootf` (default; `classic` is an alias), `native` (alias `ps2`: the PS2 game's own bow, every OotF
+adapter below off), `modern` (optional hold/release adapter), `[mouse] bow_zoom = 0.85` (modern only); Options >
+Gameplay > Combat > "Bow combat" (Order of the Flame / Original (PS2) / Modern). Code: `runtime/input/src/BowAim.cpp`, glue hooks in `drakan_input_glue.cpp`, crosshair in
 `drakan_settings_host.cpp` (`SettingsOverlay::drawCrosshair`). `DRAKAN_INPUT_SKIP` bit 64 disables the launch hook.
 
 The original [publisher manual](https://www.arokhslair.net/downloads/Drakan_Manual.pdf), printed page 15, specifies

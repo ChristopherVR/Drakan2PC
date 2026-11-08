@@ -313,7 +313,7 @@ uint32_t InputModule::bowAttackMask(IGuest& g, uint32_t player, uint32_t caller,
     // adds that bit for bows. The PS2 reset callback 307198 returns to 31de5c with the mask in s2. Preserve
     // the optional held-object refusal bit1000, falling bit20, and every other native gate.
     // Applies in modern mode too: its release tap mid-jump would otherwise be refused and the aimed shot lost.
-    if (dragon_ || caller != 0x31de5cu || (mask & ~0x1000u) != 0x104b70u || !player ||
+    if (cfg_.bowAimNative || dragon_ || caller != 0x31de5cu || (mask & ~0x1000u) != 0x104b70u || !player ||
         player != contextPlayer(g, g.read32(cfg_.addrCtxPtr)) || g.read32(player + 0xe90) != kBowMode ||
         !(g.read32(player + 0x94) & 0x10u) || !g.read32(0x4fb730) || g.read32(0x4fbafc))
         return mask;
@@ -328,7 +328,7 @@ uint32_t InputModule::bowAttackMask(IGuest& g, uint32_t player, uint32_t caller,
 // native attack completion check in 31da90 follows the torso clip.
 uint32_t InputModule::bowShotChannel(IGuest& g, uint32_t player, uint32_t caller, uint32_t channel) {
     std::lock_guard<std::mutex> lock(m_);
-    if (caller != 0x301b7cu || channel != 0 || dragon_ || !player ||
+    if (cfg_.bowAimNative || caller != 0x301b7cu || channel != 0 || dragon_ || !player ||
         player != contextPlayer(g, g.read32(cfg_.addrCtxPtr)) || g.read32(player + 0xe90) != kBowMode ||
         !(g.read32(player + 0x94) & 0x10u) || !g.read32(0x4fb730) || g.read32(0x4fbafc))
         return channel;
@@ -355,15 +355,16 @@ uint32_t InputModule::bowShotChannel(IGuest& g, uint32_t player, uint32_t caller
 
 bool InputModule::bowSightCrosshair(IGuest& g) const {
     const auto ctx = g.read32(cfg_.addrCtxPtr), cam = contextCamera(g, ctx), player = contextPlayer(g, ctx);
-    return cam && player && !dragon_ && g.read32(cam + 0x14c) == 6 && (g.read32(cam + 0x48) & kCameraSightFlag) &&
-           g.read32(player + 0xe90) == kBowMode && g.read32(0x4fb730) && !g.read32(0x4fbafc);
+    return !cfg_.bowAimNative && cam && player && !dragon_ && g.read32(cam + 0x14c) == 6 &&
+           (g.read32(cam + 0x48) & kCameraSightFlag) && g.read32(player + 0xe90) == kBowMode && g.read32(0x4fb730) &&
+           !g.read32(0x4fbafc);
 }
 
 uint32_t InputModule::ootfBowSightCamera(IGuest& g, uint32_t player) const {
     const bool padSteering = cfg_.gamepadEnabled && frame_.gamepad.connected &&
                              (frame_.gamepad.lx != 0.0f || frame_.gamepad.ly != 0.0f || frame_.gamepad.rx != 0.0f ||
                               frame_.gamepad.ry != 0.0f);
-    if (cfg_.bowAimModern || dragon_ || !player || !mouseKeyboardOwner_ || padSteering ||
+    if (cfg_.bowAimModern || cfg_.bowAimNative || dragon_ || !player || !mouseKeyboardOwner_ || padSteering ||
         cfg_.lookMode != LookMode::Direct || nativeLookControlActive() || !g.read32(0x4fb730) || g.read32(0x4fbafc))
         return 0;
     const auto ctx = g.read32(cfg_.addrCtxPtr), cam = contextCamera(g, ctx);
@@ -648,7 +649,7 @@ uint16_t InputModule::bowAutoTarget(IGuest& g, uint32_t bow, uint32_t scratch) {
     if (std::getenv("DRAKAN_BOW_LOG"))
         std::fprintf(stderr, "[bow] autoaim entry: bow=%x modern=%d dragon=%d mouseOwner=%d scratch=%x\n", bow,
                      cfg_.bowAimModern, dragon_, mouseKeyboardOwner_, scratch);
-    if (cfg_.bowAimModern || dragon_ || !mouseKeyboardOwner_ || !bow || !scratch)
+    if (cfg_.bowAimModern || cfg_.bowAimNative || dragon_ || !mouseKeyboardOwner_ || !bow || !scratch)
         return 0;
     const uint32_t ctx = g.read32(cfg_.addrCtxPtr), cam = contextCamera(g, ctx), player = contextPlayer(g, ctx);
     if (std::getenv("DRAKAN_BOW_LOG"))
