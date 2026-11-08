@@ -184,6 +184,7 @@ int g_menuForce = -1; // -1 auto, 0 gameplay, 1 menu
 int g_logEvery = 0;
 int g_hookLog = 0;
 long g_autoPressMs = 0, g_autoPressUntil = 0;
+bool g_autoPressSawTitle = false;
 bool g_autoPressStopAfterLoad = false; // DRAKAN_AUTOPRESS_STOP_AFTER_LOAD=1: no taps once the first level has loaded
 std::chrono::steady_clock::time_point g_t0;
 std::FILE* g_lf = nullptr; // DRAKAN_INPUT_LOGFILE=<path>: our log lines go there (flushed) instead of stderr
@@ -720,6 +721,12 @@ void hookPadMgrUpdate(uint8_t* rdram, R5900Context* c, PS2Runtime* rt) {
         // cut scene level (Level 6 Transition to Desert) plays out untouched instead of being skipped by the taps.
         if (g_autoPressStopAfterLoad && g_lastScreen == 29 && scr != 29)
             g_autoPressMs = 0;
+        // A campaign start (Order of the Flame, DRAKAN_GAME=d1) has no loading screen 29: the title (8) goes through the
+        // new-game screens to the world (-1). Stop at the first world after the title so its opening scene plays out.
+        if (scr == 8)
+            g_autoPressSawTitle = true;
+        if (g_autoPressStopAfterLoad && g_autoPressSawTitle && scr == -1)
+            g_autoPressMs = 0;
         ilog("[in] t=%.2f frame %d: gui screen %d -> %d (gameplay=%d)\n", nowS(), upcoming, g_lastScreen, scr,
              gameplay ? 1 : 0);
         // The pause menu's Quit asks for confirmation in box screen 1; "Yes" returns to the title menu (8), "No" back
@@ -1145,8 +1152,14 @@ void hookBowAttackReset(uint8_t* rdram, R5900Context* c, PS2Runtime* rt) {
 // FUN_0032cf30 (f12..f14 blend/start/rate, a0 = player, a1 = motion, a2 = channel): the player's motion setter.
 // Only attack start's first archer-clip call (return 0x301b7c) is considered; see InputModule::bowShotChannel.
 void hookBowShotMotion(uint8_t* rdram, R5900Context* c, PS2Runtime* rt) {
+    if (c->pc == 0x32cf30u && std::getenv("DRAKAN_BOW_LOG2"))
+        ilog("[bow] motion call: ret=%x player=%x source=%x channel=%u\n", getRegU32(c, 31), getRegU32(c, 4),
+             getRegU32(c, 5), getRegU32(c, 6));
     if (c->pc == 0x32cf30u && getRegU32(c, 31) == 0x301b7cu && getRegU32(c, 6) == 0) {
         RecompGuest g(rdram, c, rt);
+        if (std::getenv("DRAKAN_BOW_LOG"))
+            ilog("[bow] archer clip call: player=%x source=%x blend=%g\n", getRegU32(c, 4), getRegU32(c, 5), 0.0);
+        module().noteBowArcherClip(getRegU32(c, 5));
         const uint32_t channel = module().bowShotChannel(g, getRegU32(c, 4), getRegU32(c, 31), 0);
         SET_GPR_U32(c, 6, channel);
     }
@@ -1159,6 +1172,8 @@ void hookBowLaunch(uint8_t* rdram, R5900Context* c, PS2Runtime* rt) {
         g_origBowLaunch(rdram, c, rt);
         return;
     }
+    if (module().suppressBowLaunch())
+        return; // the held draw's clip event: the arrow stays nocked until the release
     const uint32_t bow = getRegU32(c, 4);
     RecompGuest g(rdram, c, rt);
     beforeBowLaunch(g, bow);

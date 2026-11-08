@@ -86,3 +86,33 @@ with `cursor 250 146` and press ENTER twice: the first press only dismisses the 
   200 units, beside the camera ray: about 150 units at 2000 units range, about 100 at 4000). A correct fix needs the
   ray's hit point. The guest has a ray cast (`0x375a80`, used by the item pickup `0x31a278`, called through a vtable),
   but its argument layout is not decoded yet; the arrow landing against near and far targets was not measured.
+
+## Held draw pose (implemented, `[mouse] bow_draw = 1`, default on)
+
+Decoded live from RAM dumps during normal shots. The player model's animation records are at `*(model+0xe8) + i * 0x80`
+(`model = *(actor+0x50)`): `+0x50` clip id, `+0x54` playback rate, `+0x58` phase in seconds (advances by dt * rate).
+Rynn's bow draw/loose clip is id `0x20896` (rate 1.25), passed as `source` to the motion setter `0x32cf30` at return
+`0x301b7c` (first call, channel 0) and `0x301c5c` (torso channel, 2); after the shot `0x20895` plays on the torso. The
+**arrow launch is an event inside that clip at about 0.02 s** (`0x20e6c8` runs right after the clip starts), not at its
+end, so starting the clip fires an arrow. A walking shot keeps the legs' own clip on records 0 and 3 (`0x206ad`) and the
+archer clip on records 1 and 2.
+
+Design (`InputModule::bowDrawFrame`): at press the same motion setter plays `0x20896` on the torso channel (property
+`0x52`) at rate 0.5; the launch hook is muted while the aim is held (`suppressBowLaunch`), so the early event does
+not shoot; when the record's phase reaches 0.20 its rate is set to 0, which holds the pose. If native locomotion
+overwrites the clip it is started again. On release the frozen clip stays until the release tap's native attack starts
+its own clip over it (so ammo, `+0xb38` cooldown, attack state and the launch all stay native); if the tap is refused
+(reload) for 12 frames the clip is given its rate back and launches stay muted for 60 frames. The clip id is learned from
+the native call (`noteBowArcherClip`), default `0x20896`. `bowChannelFrames_` (separate from the aim window) keeps the
+walking torso-channel redirect valid until the attack starts.
+
+Live (`play_run`, run `build/harness/bowhold-d`): standing hold and strafing hold both show records 1 and 2 frozen at
+rate 0, phase 0.20, with the legs' idle/run clip untouched; overlay frames (`DRAKAN_OVERLAY_SHOT_DIR`) show Rynn with
+the bow raised and arm drawn plus the gold crosshair; two releases gave exactly two launches and the ammo counter went
+200, 199, 198; the strafing release took the torso channel (`aec` 2) with the legs keeping `0x206ad`. The held frame
+flickers back to the start when native code overwrites the clip (the clip restarts at 0.5 rate). Not run live: holding
+while jumping or running backward (the same records apply; only strafing and standing were exercised), the crouched
+clip `0xe7`, and the post-release snap (the native attack restarts the clip from its start, so the pose jumps from the
+frozen frame back to the nock while the arrow leaves).
+
+Parallax / raycast: not attempted beyond the notes above; the 8000-unit convergence stays.

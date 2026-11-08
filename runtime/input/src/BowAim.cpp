@@ -62,6 +62,8 @@ bool InputModule::bowLmbIsSquare() const {
 void InputModule::bowAimFrame() {
     if (bowShotFrames_ > 0)
         --bowShotFrames_;
+    if (bowChannelFrames_ > 0)
+        --bowChannelFrames_;
     const bool ready = bowHoldAim() && bowReady_.load() && frame_.captured && !layerIsMenu_ &&
                        !menuActive_.load() && !hostOwned() && bowLmbIsSquare();
     if (!ready) {
@@ -76,7 +78,7 @@ void InputModule::bowAimFrame() {
     if (bowAiming_.load() && (released || !down)) {
         bowAiming_.store(false);
         injectPadTap(Pad::SQUARE, 2); // the native draw-and-shoot animation; the arrow leaves on its event
-        bowShotFrames_ = kBowShotFrames;
+        bowShotFrames_ = bowChannelFrames_ = kBowShotFrames;
     }
     // The button belongs to the aim while the bow is out: it never reaches the pad as Square.
     frame_.mouseDown &= static_cast<uint8_t>(~left);
@@ -98,6 +100,8 @@ void InputModule::updateBowAim(IGuest& g) {
                        (g.read32(player + 0xe90) == kBowMode || g.read32(player + 0xe90) == kCrossbowMode) &&
                        g.read32(0x4fb730) && !g.read32(0x4fbafc);
     bowReady_.store(ready);
+    bowDrawFrame(g, player, ready && bowAiming_.load() && cfg_.bowDrawPose && bowShotFrames_ <= 0 &&
+                                (g.read32(player + 0x94) & 0x80u) == 0);
     const bool sightOpen = bowSightCrosshair(g); // the OotF "targeted first-person view" shows the crosshair
     if (sightOpen != bowSightOpen_.exchange(sightOpen) && std::getenv("DRAKAN_BOW_LOG"))
         std::fprintf(stderr, "[bow] sight crosshair %s\n", sightOpen ? "shown" : "hidden");
@@ -150,6 +154,16 @@ void InputModule::updateBowAim(IGuest& g) {
 
 void InputModule::beforeBowLaunch(IGuest& g, uint32_t bow) {
     std::lock_guard<std::mutex> lock(m_);
+    if (std::getenv("DRAKAN_BOW_LOG")) { // decode aid: the playback phase of every animation record at the launch event
+        const uint32_t ctxL = g.read32(cfg_.addrCtxPtr), pl = contextPlayer(g, ctxL);
+        const uint32_t actor = pl ? g.read32(pl + 0x80) : 0, model = actor ? g.read32(actor + 0x50) : 0;
+        const uint32_t recs = model ? g.read32(model + 0xe8) : 0;
+        if (recs >= 0x100000u && recs < 0x1ff0000u)
+            for (uint32_t c = 0; c < 4; ++c)
+                std::fprintf(stderr, "[bow] launch rec%u motion=%x rate=%g phase=%g\n", c,
+                             g.read32(recs + c * 0x80 + 0x50), g.readF(recs + c * 0x80 + 0x54),
+                             g.readF(recs + c * 0x80 + 0x58));
+    }
     if (!bowHoldAim() || bowShotFrames_ <= 0 || !bow)
         return;
     const uint32_t ctx = g.read32(cfg_.addrCtxPtr);
@@ -323,6 +337,103 @@ uint32_t InputModule::bowAttackMask(IGuest& g, uint32_t player, uint32_t caller,
     return mask & ~0x10u;
 }
 
+// The torso channel of the archer clip: the native attack start reads it as player property 0x52 (reader at actor+0x54).
+uint32_t InputModule::bowTorsoChannel(IGuest& g, uint32_t player) {
+    const auto valid = [](uint32_t p, uint32_t bytes) { return p >= 0x100000u && p <= 0x2000000u - bytes; };
+    const auto actor = player ? g.read32(player + 0x80) : 0;
+    const auto reader = valid(actor, 0x58) ? g.read32(actor + 0x54) : 0;
+    const auto vt = valid(reader, 12) ? g.read32(reader + 8) : 0;
+    const auto get = valid(vt, 0x20) ? g.read32(vt + 0x1c) : 0;
+    if (!get)
+        return 0;
+    const auto field = g.call(GuestCall(get)
+                                  .arg(reader + static_cast<uint32_t>(static_cast<int32_t>(g.readS16(vt + 0x18))))
+                                  .arg(0x52)
+                                  .arg(0xffffffffu));
+    const auto torso = valid(field, 4) ? g.read32(field) : 0;
+    return torso > 0 && torso <= 15 ? torso : 0;
+}
+
+bool InputModule::suppressBowLaunch() {
+    std::lock_guard<std::mutex> lock(m_);
+    return (bowDrawActive_ && bowAiming_.load()) || bowDrawQuiet_ > 0;
+}
+
+void InputModule::noteBowArcherClip(uint32_t clip) {
+    std::lock_guard<std::mutex> lock(m_);
+    if (clip)
+        bowArcherClip_ = clip;
+}
+
+// Held draw: while the aim is held, the native archer clip (the one the release tap plays) runs on the torso channel,
+// over the legs' own locomotion, and is frozen at kBowDrawHold seconds by zeroing the animation record's rate
+// (record = *(model+0xe8) + i * 0x80: +0x50 clip, +0x54 rate, +0x58 phase in seconds). The native attack then starts
+// its own clip when the release tap arrives; the frozen one is given its rate back first.
+void InputModule::bowDrawFrame(IGuest& g, uint32_t player, bool want) {
+    constexpr float kBowDrawHold = 0.20f; // the arrow leaves on the clip event at about 0.25 s
+    constexpr uint32_t kRecords = 8;
+    const auto valid = [](uint32_t p) { return p >= 0x100000u && p < 0x1ff0000u; };
+    const auto actor = player ? g.read32(player + 0x80) : 0;
+    const auto model = valid(actor) ? g.read32(actor + 0x50) : 0;
+    const auto recs = valid(model) ? g.read32(model + 0xe8) : 0;
+    if (!valid(recs) || (bowDrawActive_ && player != bowDrawPlayer_)) {
+        bowDrawActive_ = false;
+        return;
+    }
+    if (bowDrawQuiet_ > 0)
+        --bowDrawQuiet_;
+    const auto each = [&](auto&& fn) {
+        for (uint32_t c = 0; c < kRecords; ++c)
+            if (g.read32(recs + c * 0x80 + 0x50) == bowArcherClip_)
+                fn(recs + c * 0x80);
+    };
+    if (!bowDrawActive_ && bowDrawRelease_ > 0) {
+        if ((g.read32(player + 0x94) & 0x80u) != 0 || want) {
+            bowDrawRelease_ = 0; // the native attack owns the torso now
+        } else if (--bowDrawRelease_ == 0) { // the tap was refused (reload, state): let the clip run out, muted
+            each([&](uint32_t r) {
+                if (g.readF(r + 0x54) == 0.0f)
+                    g.writeF(r + 0x54, 1.25f);
+            });
+            bowDrawQuiet_ = 60;
+        }
+        if (!want)
+            return;
+    }
+    bool present = false;
+    if (bowDrawActive_)
+        each([&](uint32_t) { present = true; });
+    if (want && (!bowDrawActive_ || !present)) {
+        const uint32_t torso = bowTorsoChannel(g, player);
+        if (!torso)
+            return;
+        GuestCall play(0x32cf30u);
+        play.argf(0.15f).argf(-1.0f).argf(0.5f); // slow start: the freeze below must land before the launch event
+        play.arg(player).arg(bowArcherClip_).arg(torso).arg(0).arg(0);
+        g.call(play);
+        bowDrawActive_ = true;
+        bowDrawPlayer_ = player;
+        if (std::getenv("DRAKAN_BOW_LOG"))
+            std::fprintf(stderr, "[bow] draw started: clip %x torso channel %u\n", bowArcherClip_, torso);
+        return;
+    }
+    if (!bowDrawActive_)
+        return;
+    if (want) {
+        each([&](uint32_t r) {
+            if (g.readF(r + 0x58) >= kBowDrawHold) {
+                g.writeF(r + 0x54, 0.0f);
+                g.writeF(r + 0x58, kBowDrawHold);
+            }
+        });
+        return;
+    }
+    // Released: the frozen clip stays until the native attack (the release tap) starts its own clip over it, so the
+    // shot's launch event comes from the native clip and the shot channel hook still sees the pending shot.
+    bowDrawActive_ = false;
+    bowDrawRelease_ = 12;
+}
+
 // PS2 attack start 3016e8 clears the shot channel player+aec to 0 and then plays the archer clip on it (motion setter
 // 32cf30, return 301b7c) before repeating it on the torso channel (player property 0x52). Channel 0 is the base
 // motion: mid-jump it replaces the jump clip and its velocity-driven travel, so a forward jump turns into a vertical
@@ -333,8 +444,10 @@ uint32_t InputModule::bowShotChannel(IGuest& g, uint32_t player, uint32_t caller
     std::lock_guard<std::mutex> lock(m_);
     // Airborne shots keep the jump; a shot released from the hold-to-aim while the movement keys are down keeps the
     // legs running, strafing or backing away (walk and shoot in every direction, as in the original PC game).
-    const bool walking = bowHoldAim() && bowShotFrames_ > 0 && player &&
+    const bool walking = bowHoldAim() && bowChannelFrames_ > 0 && player &&
                          (g.read32(player + 0x504) != 0 || g.read32(player + 0x508) != 0);
+    if (caller == 0x301b7cu && std::getenv("DRAKAN_BOW_LOG") && player)
+        std::fprintf(stderr, "[bow] shot channel check: walking=%d frames=%d f504=%x f508=%x f94=%x ch=%u\n", walking, bowShotFrames_, g.read32(player + 0x504), g.read32(player + 0x508), g.read32(player + 0x94), channel);
     if (cfg_.bowAimNative || caller != 0x301b7cu || channel != 0 || dragon_ || !player ||
         player != contextPlayer(g, g.read32(cfg_.addrCtxPtr)) ||
         (g.read32(player + 0xe90) != kBowMode && !(walking && g.read32(player + 0xe90) == kCrossbowMode)) ||

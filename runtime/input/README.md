@@ -318,3 +318,9 @@ bar's own column-major order. `src/QuickSlots.cpp` (`QuickSlotDriver`) sets the 
 Quick Inventory and Attack buttons on the next pad samples (the glue applies the overlay in its scePadRead hook);
 `tests/quick_slots_tests.cpp`. Old files' `ACT:0x02..0x06` migrate to `QUICK1..5`. Details in
 `docs/reference/input.md` section 17.
+
+## Held bow draw (2026-11-09)
+
+`[mouse] bow_draw = 1` (default, OotF and modern styles): holding LMB with the bow out plays the native archer clip on the
+torso channel and freezes it at 0.20 s by zeroing the animation record's rate, muting the clip's own launch event until the
+release; the release tap then fires natively. Records, offsets and limits: `docs/journal/2026-11-09/ootf-bow-hold-aim.md`.

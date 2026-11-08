@@ -520,7 +520,9 @@ released from the hold starts while `player+0x504` / `+0x508` (forward-back / st
 for airborne shots. The arrow flies along the crosshair ray (`beforeBowLaunch`), so the third-person auto-aim
 (`bowAutoTarget`) stands aside for it (`bowAimedLaunch_`); it only serves non-LMB fire bindings. The crosshair is the
 centre of the game image, the point the arrow is aimed at 8000 units down the camera ray (nearer targets sit slightly
-off by the shoulder offset). Crossbows are holder mode 4, not the bow's mode 5, and are not covered by any of these adapters yet (their
+off by the shoulder offset). Held draw (`[mouse] bow_draw = 1`, default): the native archer clip `0x20896` is started on the torso channel at press, its launch event muted, and frozen at phase 0.20 through the animation record (`*(model+0xe8) + i * 0x80`: `+0x50` clip, `+0x54` rate, `+0x58` phase); release fires natively. Details: `docs/journal/2026-11-09/ootf-bow-hold-aim.md`.
+
+Crossbows are holder mode 4, not the bow's mode 5, and are not covered by any of these adapters yet (their
 attack mask already allows jumping); they keep the native press-to-fire.
 
 The original [publisher manual](https://www.arokhslair.net/downloads/Drakan_Manual.pdf), printed page 15, specifies
