@@ -165,15 +165,19 @@ guest functions.
 
 Open:
 
-1. **Polyclip preemption path** has a unit test with a stub only. No run actually hit a preempted draw. The scratch vertices live
-   at RDRAM 0xf0000 behind a one-time all-zero check; nothing proves no other code uses that area.
+1. **Polyclip preemption path**: done 2026-11-08 (`docs/journal/2026-11-08/perf-leftovers.md` section 3). Forced preemption
+   (`DRAKAN_POLY_NEAR_CLIP_FORCE_PREEMPT`) preempted 1023 of 1024 clipped draws in Stratos with no corruption; the scratch guard saw
+   no foreign write. The forced runs found a hang (clipped path returned to its own entry when the scheduler had called it), fixed.
 2. **Real PS2 behaviour** for the straddling ribbons is unverified. The clip is an enhancement, not a hardware-faithful fix.
 3. **Near-clip cost** in the Level 8 `s_4` scene has no counter number (the runs predate the counter). The 3A fire ring costs
    0.22% of EE time on average and 0.78% in the worst second.
-4. **First shader/pipeline compile** can block the EE for up to about 30 s under heavy CPU contention. Warming the pipelines
-   before the first guest frame would remove the stall that the guest-time RPC wait (`1f27d1ea`) only survives.
-5. **EE cost at 4B spot C** (8 ms per flip): faster guest memory and dispatch or fewer guest instructions per frame. One cheap
-   item: `Tracker::freed` in `object_motion_tracker.h` scans whole maps on every free (2.4 to 4.7% of the EE thread).
+4. **First shader/pipeline compile**: done 2026-11-08 (`perf-leftovers.md` section 1): parallel start-up compile, blob cache,
+   warm draws before the guest, background prewarm of every lazy shader and of the DXR device; no late compile on the GS worker
+   left. The 30 s first-draw driver stall itself did not reproduce on this machine (no `[perf-stall]` even with 48 hogs).
+5. **EE cost at 4B spot C**: profiled 2026-11-08 (`perf-leftovers.md` section 2). About 23 percent of the EE thread is the guest
+   spinning on GS FINISH in `f_0x1dbfa8` before a per-frame readback (VU1 + GS worker latency, not EE work); scene model capture
+   about 9.5 percent; JALR dispatch negligible. `Tracker::freed` fixed (4 percent to 0.2). Open: what the per-frame readback
+   reads and whether the VU1 / GS path up to FINISH can be shortened; per-capture mesh signature hashing.
 6. **`bringDragon`** has no wall check (no cheap collision query), and is skipped on campaign pack and editor levels. Nothing
    else of the review findings is open; see the "Resolved" table in `review-findings.md`.
 7. **Rejected script lines** now call `requestStop()` instead of exiting with code 2, so the process exit code is no longer 2.

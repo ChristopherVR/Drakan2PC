@@ -618,3 +618,14 @@ The EE profile is diffuse guest code (more objects in view), our capture hooks a
 [journal](../journal/2026-11-07/fps-4b.md). Use the `.map` that belongs to the exe under test with `hostprof.py`
 (`hostprof.csv` is written to the exe's folder and overwritten by the next run, copy it before starting another).
 
+
+## Shader prewarm and the Northern Tundra spot C profile (2026-11-08)
+
+* D3D11 shader work never runs on the GS worker while the guest waits: the uber shader variants compile side by side
+  before the guest starts, every start-up pipeline is drawn once (drivers translate at the first draw), and a
+  background thread compiles the lazy shaders and builds the DXR device. Compiled blobs are cached in
+  `<exe>/shadercache`. Anything still compiled late prints `[gsr-shader] late ...` (switches in `env-flags.md`).
+* `PS2X_HOSTPROF_STACKS=1` with `PS2X_HOSTPROF` records EE call chains; `scripts/perf/hostprof_stacks.py` gives
+  inclusive cost. At spot C about 23 percent of the EE thread is the guest polling GS FINISH (`f_0x1dbfa8`, loop at
+  0x1dc688) before a per-frame readback, i.e. waiting for the VU1 and GS workers; JALR dispatch is negligible; scene
+  model capture is about 9.5 percent. Details: `docs/journal/2026-11-08/perf-leftovers.md`.
