@@ -565,7 +565,8 @@ void hostTick() {
         target = windowAspect();
     const float winAspect = (mode == Mode::Auto || mode == Mode::Stretch) ? target : 0.0f;
     target = std::min(target, kMaxAspect); // sane bounds: beyond 32:9 the picture is pillarboxed instead of stretched
-    const auto layout = detail::layoutPolicy(scr, g_stateWide, mode != Mode::Native, target, hud);
+    const int layoutScr = g_worldPolicy.layoutScreen(scr);
+    const auto layout = detail::layoutPolicy(layoutScr, g_stateWide, mode != Mode::Native, target, hud);
     const bool wide = layout.presentWide || layout.stretchImage;
     float present = k43; // forced presenter aspect (0 = native display aspect)
     bool stretch = false;
@@ -600,7 +601,7 @@ void hostTick() {
 
     g_projAspect.store(proj, std::memory_order_relaxed);
     g_wide.store(proj > 1.4f);
-    const int menuScreen = layout.menu ? scr : -1; // picks the wide backdrop before the screen's own draw packet
+    const int menuScreen = layout.menu ? layoutScr : -1; // picks the wide backdrop before the screen's own draw packet
     if (!g_pushedValid || layout.menu != g_pushedMenu || menuScreen != g_pushedMenuScreen || wide != g_pushedWide ||
         present != g_pushedAspect || stretch != g_pushedStretch || std::fabs(hudScale - g_pushedHud) > 1e-4f ||
         std::fabs(hudSize - g_pushedSize) > 1e-3f) {

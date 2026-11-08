@@ -144,6 +144,19 @@ struct WorldPolicy {
     // between two frames (disc refill, HD-pack seek, slow host) and for the last ~50 vblanks after the final frame.
     static constexpr uint64_t kMovieGrace = 15;
 
+    // A level change draws the save-in-progress screen (0x1a) between two stretches of the loading screen (0xe):
+    // 0xe -> 0x1a -> 0xe -> gameplay. Alone, 0x1a is neither a menu nor a world, so those ~10 vblanks were presented
+    // as a 4:3 pillarbox in the middle of a wide loading screen. The screen that decides the layout therefore stays
+    // the loading screen while 0x1a follows it (and ends with the first screen that is neither).
+    bool loadingLatch = false;
+    int layoutScreen(int screen) {
+        if (screen == 0xe)
+            loadingLatch = true;
+        else if (!saveWriteScreen(screen))
+            loadingLatch = false;
+        return loadingLatch ? 0xe : screen;
+    }
+
     void update(uint64_t now, uint64_t cameraTick, int screen, bool settingsOpen, uint64_t movieTick = 0) {
         // F1 holds the EE. Refresh the same grace period used on native menu
         // close so the first resumed host frame cannot expire the held world.

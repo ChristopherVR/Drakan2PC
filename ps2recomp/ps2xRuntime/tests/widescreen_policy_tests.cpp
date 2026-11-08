@@ -242,6 +242,28 @@ int main() {
         cold.update(100, 0, 0x1a, false);
         check(!cold.wide, "save write cannot establish a world without camera");
     }
+    {
+        // Level change: gameplay -> save write -> loading -> save write -> loading -> gameplay (OotF Intro -> Ruined
+        // Village). The second save write must keep the wide loading layout, not flash a 4:3 pillarbox.
+        WorldPolicy lvl;
+        const auto wideMenu = [](int s, bool world) {
+            return drakan_ws::detail::layoutPolicy(s, world, true, 16.0f / 9, true);
+        };
+        lvl.update(900, 900, 0x1a, false);
+        check(wideMenu(lvl.layoutScreen(0x1a), lvl.wide).presentWide, "save write in gameplay stays wide");
+        check(lvl.layoutScreen(0x1a) == 0x1a, "save write alone keeps its own id");
+        lvl.update(902, 900, 0xe, false);
+        check(wideMenu(lvl.layoutScreen(0xe), lvl.wide).menu, "loading is a menu page");
+        lvl.update(915, 900, 0x1a, false);
+        const auto mid = wideMenu(lvl.layoutScreen(0x1a), lvl.wide);
+        check(mid.presentWide && mid.menu, "save write between loading stretches keeps the wide loading layout");
+        lvl.update(924, 900, 0xe, false);
+        check(wideMenu(lvl.layoutScreen(0xe), lvl.wide).presentWide, "loading resumes wide");
+        lvl.update(932, 932, -1, false);
+        check(lvl.layoutScreen(-1) == -1 && lvl.wide, "gameplay releases the loading latch");
+        lvl.update(940, 932, 0x1a, false);
+        check(lvl.layoutScreen(0x1a) == 0x1a, "a later save write is not held as loading");
+    }
     p.update(30006, 300, -1, false);
     check(p.wide, "closing menu retains six-vblank resume grace");
     p.update(30007, 30007, -1, false);

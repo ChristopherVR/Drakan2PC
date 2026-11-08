@@ -266,3 +266,9 @@ backdrop at all) still shows the native title tiles.
 A reported 4:3 title flash "when a game loads" was not reproduced on the title Continue / Load Game, in-game quick load
 and Quit to Title paths (2026-11-08); `GSR_BACKDROP_LOG=1` now logs any title tile drawn without its wide replacement.
 Details: `docs/journal/2026-11-08/title-43-flash.md`.
+
+A level change draws the save-in-progress screen (0x1a) in the middle of the loading screen (0xe -> 0x1a -> 0xe).
+That slice used to be presented as a 4:3 pillarbox inside the wide loading screen; `WorldPolicy::layoutScreen` now keeps
+the loading layout while 0x1a follows 0xe, so loading keeps one presentation for its whole length (2026-11-08,
+`docs/journal/2026-11-08/loading-aspect-flip.md`). Movies stay 4:3.
+
