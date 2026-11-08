@@ -648,6 +648,11 @@ struct D3D11Backend::Impl {
     ComPtr<ID3D11ShaderResourceView> dispSrv;
     uint32_t dispW = 0, dispH = 0;
     Impl(LocalMemory& m, const Config& c, Stats& s);
+    // ~D3D11Backend joins the prewarm threads before it releases NGX and the pools; an Impl destroyed on its own (the
+    // renderer tests) still has to, or the joinable prewarmThread calls std::terminate. Joining twice is harmless.
+    ~Impl() { joinPrewarm(); }
+    Impl(const Impl&) = delete;
+    Impl& operator=(const Impl&) = delete;
 
     // ---------------------------------------------------------------------------------------------
     // texture quality options / HD texture pack
