@@ -27,7 +27,9 @@ WgpuBackend::Impl::Impl(LocalMemory& m, const Config& c, Stats& s) : mem(m), cfg
 }
 
 WgpuBackend::Impl::~Impl() {
-    pool.reset(); // workers first: they reference members below
+    pool.reset();     // workers first: they reference members below
+    rayLoader.join(); // the ray programs' compile uses the device
+    rayLoader.take(); // and an unadopted result dies before it
     // GPU objects before the device that created them, then the surface, then the context.
     texCache.clear();
     upCache.clear();
@@ -144,6 +146,8 @@ bool WgpuBackend::Impl::init() {
     ok = true;
     std::fprintf(stderr, "[gsr-webgpu] renderer on %s, internal scale %u, %s blending\n", adapter.c_str(), scale,
                  progHw ? "fixed-function" : "shader");
+    if (modernWater || rayShadows || rayReflections || rayGlobalIllumination)
+        startRayPrewarm();
     { // temporal AA: config + environment (GSR_UPSCALE / GSR_UPSCALE_PRESET / GSR_UPSCALE_SHARP), as on D3D11
         const RuntimeFlags& f = runtimeFlags();
         const uint32_t m = f.upscaleMode ? *f.upscaleMode : cfg.upscaleMode;
@@ -289,6 +293,8 @@ void WgpuBackend::Impl::applyLive(const LiveSettings& ls) {
     if (ls.mask & L::F_UPSCALE)
         setUpscale(ls.upMode, ls.upPreset, ls.upSharp);
     if (ls.mask & L::F_WATER) {
+        if (ls.modernWater || ls.rayShadows || ls.rayReflections || ls.rayGlobalIllumination)
+            startRayPrewarm(); // compile the ray programs now, not inside the first world frame
         discardTemporalWorlds();
         const bool newlyEnabled = !(modernWater || rayShadows || rayReflections || rayGlobalIllumination) &&
                                   (ls.modernWater || ls.rayShadows || ls.rayReflections || ls.rayGlobalIllumination);
@@ -337,5 +343,33 @@ void WgpuBackend::Impl::reset() {
 }
 
 void WgpuBackend::Impl::noteVuUpload(uint32_t, uint32_t, const float*) {}
+
+// The ray programs (four large compute pipelines) compile on a background thread as soon as a ray effect is
+// configured; a world frame adopts them once finished and creates the pass's buffers on this thread. The proxy device
+// (browser) records for one thread only: there the pass is made in the frame, as before (the browser's own pipeline
+// creation does not wait for the compile).
+void WgpuBackend::Impl::startRayPrewarm() {
+    if (!gpu || rayPass || !gpu->concurrentPrograms())
+        return;
+    rhi::Device* device = gpu.get();
+    rayLoader.start([device] { return ray::WgpuRay::compilePrograms(*device); }, raystatus::prewarmDelay());
+}
+
+ray::WgpuRay* WgpuBackend::Impl::acquireRayPass() {
+    if (!gpu)
+        return nullptr;
+    if (!rayPass && !gpu->concurrentPrograms()) {
+        rayPass = std::make_unique<ray::WgpuRay>(*gpu);
+        std::fprintf(stderr, "[modern-water] %s\n", rayPass->status().c_str());
+        return rayPass.get();
+    }
+    return raystatus::acquirePass(
+        rayPass, rayLoader, [&] { startRayPrewarm(); },
+        [&](std::unique_ptr<ray::WgpuRay::Programs> programs) {
+            auto pass = std::make_unique<ray::WgpuRay>(*gpu, std::move(programs));
+            std::fprintf(stderr, "[modern-water] ray tracing ready: %s\n", pass->status().c_str());
+            return pass;
+        });
+}
 
 } // namespace gsr

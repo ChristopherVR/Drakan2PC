@@ -371,6 +371,10 @@ public:
                l.maxStorageTexturesPerShaderStage >= 1 && l.maxComputeInvocationsPerWorkgroup >= 256 &&
                l.maxComputeWorkgroupStorageSize >= 16384;
     }
+#if defined(DRAKAN_WGPU_NATIVE)
+    // Device-level creation in wgpu-native is thread-safe, and its error scopes (Context::shaderModule) are per thread.
+    bool concurrentPrograms() const override { return true; }
+#endif
 
     TexturePtr createTexture(const TextureDesc& in) override {
         TextureDesc d = in;

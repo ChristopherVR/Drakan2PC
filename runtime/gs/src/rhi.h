@@ -167,6 +167,10 @@ public:
     // Compute programs with this many storage buffers of this size are available (false on GL-class backends, and on
     // D3D12 without DXC: FXC may never finish compiling a large compute shader).
     virtual bool compute(uint32_t storageBuffers, uint64_t bufferBytes) const = 0;
+    // createProgram (and compute()) may be called from another thread while the owning thread records: true for the
+    // native device (wgpu-native objects are thread-safe), false for the proxy, whose recorded batches belong to one
+    // thread. Lets a slow pipeline compile run in the background (the ray pass, wgpu_ray.h).
+    virtual bool concurrentPrograms() const { return false; }
 
     // ---- window surface (devices from open() with a window) ----
     virtual bool hasSurface() const { return false; }

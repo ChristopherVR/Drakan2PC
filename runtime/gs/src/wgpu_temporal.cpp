@@ -295,11 +295,8 @@ void WgpuBackend::Impl::traceWorld(RT& rt, bool jittered) {
         }
         return;
     }
-    if (!rayPass) {
-        rayPass = std::make_unique<ray::WgpuRay>(*gpu);
-        std::fprintf(stderr, "[modern-water] %s\n", rayPass->status().c_str());
-    }
-    if (!rayPass->ready())
+    // Null while the background thread still compiles the ray programs: this frame keeps the plain raster.
+    if (!acquireRayPass() || !rayPass->ready())
         return;
     rayPass->shareStaticWorld(residentScene.projectedShared(), residentScene.geometryVersion,
                               residentScene.attributeVersion());

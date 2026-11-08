@@ -127,12 +127,15 @@ private:
 
 WgpuRay::~WgpuRay() = default;
 
-WgpuRay::WgpuRay(rhi::Device& device) : gpu_(device) {
-    if (!gpu_.compute(kStorageBuffers, 64ull << 20)) {
-        status_ = "Ray tracing needs WebGPU compute shaders with large storage buffers (not available on this adapter, "
-                  "or D3D12 without dxcompiler.dll and dxil.dll beside the game)";
-        return;
+std::unique_ptr<WgpuRay::Programs> WgpuRay::compilePrograms(rhi::Device& gpu) {
+    auto p = std::make_unique<Programs>();
+    if (!gpu.compute(kStorageBuffers, 64ull << 20)) {
+        p->error =
+            "Ray tracing needs WebGPU compute shaders with large storage buffers (not available on this adapter, "
+            "or D3D12 without dxcompiler.dll and dxil.dll beside the game)";
+        return p;
     }
+    p->compute = true;
     rhi::ProgramDesc d;
     d.wgsl = kRayTraceWgsl;
     d.uniformSlots = 2;
@@ -145,18 +148,18 @@ WgpuRay::WgpuRay(rhi::Device& device) : gpu_(device) {
     std::string error;
     d.computeEntry = "skyMain";
     d.label = "ray sky";
-    sky_ = gpu_.createProgram(d, &error);
-    if (sky_) {
+    p->sky = gpu.createProgram(d, &error);
+    if (p->sky) {
         d.computeEntry = "lowMain";
         d.label = "ray low resolution";
-        shadow_ = gpu_.createProgram(d, &error);
+        p->shadow = gpu.createProgram(d, &error);
     }
-    if (shadow_) {
+    if (p->shadow) {
         d.computeEntry = "main";
         d.label = "ray trace";
-        main_ = gpu_.createProgram(d, &error);
+        p->main = gpu.createProgram(d, &error);
     }
-    if (main_) {
+    if (p->main) {
         // RHI programs use one storage format for their outputs. The transport entry writes HDR incoming radiance
         // and receiver normals, so compile that entry with float outputs while the presentation entries stay RGBA8.
         const std::string from = "texture_storage_2d<rgba8unorm, write>";
@@ -166,8 +169,27 @@ WgpuRay::WgpuRay(rhi::Device& device) : gpu_(device) {
         d.storageFormat = rhi::Format::RGBA16F;
         d.computeEntry = "transportMain";
         d.label = "ray half resolution transport";
-        transport_ = gpu_.createProgram(d, &error);
+        p->transport = gpu.createProgram(d, &error);
     }
+    p->error = std::move(error);
+    return p;
+}
+
+WgpuRay::WgpuRay(rhi::Device& device) : WgpuRay(device, compilePrograms(device)) {}
+
+WgpuRay::WgpuRay(rhi::Device& device, std::unique_ptr<Programs> programs) : gpu_(device) {
+    if (!programs) {
+        status_ = "Ray tracing shader failed: no programs";
+        return;
+    }
+    if (!programs->compute) {
+        status_ = programs->error;
+        return;
+    }
+    sky_ = std::move(programs->sky);
+    shadow_ = std::move(programs->shadow);
+    main_ = std::move(programs->main);
+    transport_ = std::move(programs->transport);
     skyBuffer_ = gpu_.createBuffer(7 * 16, "ray sky");
     dummy_ = gpu_.createTexture({1, 1, 1, rhi::Format::RGBA8, rhi::Sampled | rhi::CopyDst, "ray dummy"});
     if (dummy_) {
@@ -176,7 +198,7 @@ WgpuRay::WgpuRay(rhi::Device& device) : gpu_(device) {
     }
     dummyStorage_ = gpu_.createTexture({1, 1, 1, rhi::Format::RGBA8, rhi::Storage, "ray dummy storage"});
     if (!sky_ || !shadow_ || !transport_ || !main_ || !skyBuffer_ || !dummy_ || !dummyStorage_) {
-        status_ = "Ray tracing shader failed: " + error;
+        status_ = "Ray tracing shader failed: " + programs->error;
         return;
     }
     ready_ = true;

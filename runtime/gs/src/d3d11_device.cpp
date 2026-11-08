@@ -371,54 +371,36 @@ void D3D11Backend::Impl::startPrewarm() {
         startRayPrewarm();
 }
 
-// The ray tracing renderer (its own D3D12 device and three compute pipelines) takes about a second to create, more
-// under load. Build it on a background thread as soon as a ray effect is configured (start-up or the live settings
-// the host applies right after it), so the first world frame only takes the finished object (takeRayWater).
+// The ray tracing renderer (its own D3D12 device and three compute pipelines) takes about a second to create, 18 s
+// with a cold driver cache. Build it on a background thread as soon as a ray effect is configured (start-up or the
+// live settings the host applies right after it); world frames adopt it once it is finished (rayPass) and draw
+// without the ray effects until then. Nothing waits for it.
 void D3D11Backend::Impl::startRayPrewarm() {
-    if (const char* v = std::getenv("GSR_SHADER_PREWARM"); v && v[0] == '0')
-        return;
-    {
-        std::lock_guard lock(prewarmMutex);
-        if (prewarmRayPending || prewarmedRay || waterRenderer || rayPrewarmThread.joinable())
-            return; // once per process: later toggles reuse waterRenderer
-        prewarmRayPending = true;
-    }
     ID3D11Device* device = dev.Get();
-    rayPrewarmThread = std::thread([this, device] {
-        shader_compile::markPrewarmThread();
-        std::unique_ptr<surface::RayWater> made;
-        {
+    rayLoader.start(
+        [device] {
+            shader_compile::markPrewarmThread();
             shader_compile::Timed timed("ray tracing device and pipelines");
-            made = std::make_unique<surface::RayWater>(device, nullptr);
-        }
-        {
-            std::lock_guard lock(prewarmMutex);
-            prewarmedRay = std::move(made);
-            prewarmRayPending = false;
-        }
-        prewarmCv.notify_all();
-    });
+            return std::make_unique<surface::RayWater>(device, nullptr);
+        },
+        raystatus::prewarmDelay());
 }
 
 void D3D11Backend::Impl::joinPrewarm() {
     if (prewarmThread.joinable())
         prewarmThread.join();
-    if (rayPrewarmThread.joinable())
-        rayPrewarmThread.join();
+    rayLoader.join();
 }
 
-std::unique_ptr<surface::RayWater> D3D11Backend::Impl::takeRayWater() {
-    {
-        std::unique_lock lock(prewarmMutex);
-        if (prewarmRayPending) {
-            shader_compile::Timed timed("wait for the ray tracing prewarm");
-            prewarmCv.wait(lock, [&] { return !prewarmRayPending; });
-        }
-        if (prewarmedRay)
-            return std::move(prewarmedRay);
-    }
-    shader_compile::Timed timed("ray tracing device and pipelines");
-    return std::make_unique<surface::RayWater>(dev.Get(), ctx.Get());
+// The ray pass for this frame, or null while it is still being built (the frame then draws the plain raster). Starts
+// the build when no setting did (GSR_SHADER_PREWARM=0 or a renderer created with the effects off).
+surface::RayWater* D3D11Backend::Impl::rayPass() {
+    return raystatus::acquirePass(
+        waterRenderer, rayLoader, [&] { startRayPrewarm(); },
+        [](std::unique_ptr<surface::RayWater> built) {
+            std::fprintf(stderr, "[modern-water] ray tracing ready: %s\n", built->status().c_str());
+            return built;
+        });
 }
 
 void D3D11Backend::Impl::createSwapchain() {

@@ -257,8 +257,11 @@ bool WgpuBackend::waterRenderingAvailable(std::string& status) const {
         status = "Ray tracing needs the WebGPU device";
         return false;
     }
-    if (!s.rayPass)
-        s.rayPass = std::make_unique<ray::WgpuRay>(*s.gpu);
+    // Never compiles or waits here (the window thread asks): start the background compile or adopt its result.
+    if (!s.acquireRayPass()) {
+        status = raystatus::kStarting;
+        return true;
+    }
     status = s.rayPass->status();
     return s.rayPass->ready();
 }
@@ -267,6 +270,8 @@ std::string WgpuBackend::waterRenderingStatus() const {
     raystatus::PassView pass;
     if (s.modernWater && s.rayPass)
         pass = {true, s.rayPass->ready(), s.rayPass->status()};
+    else if (s.modernWater && s.rayStarting())
+        return raystatus::kStarting;
     return raystatus::waterStatus(s.modernWater, pass, s.lastPresentedWater, s.rayReflections,
                                   "ray-traced reflections");
 }
@@ -274,6 +279,8 @@ std::string WgpuBackend::rayTracingStatus() const {
     const auto& s = *m_impl;
     if (!s.modernWater && !s.rayShadows && !s.rayReflections && !s.rayGlobalIllumination)
         return "Ray tracing off";
+    if (s.rayStarting())
+        return raystatus::kStarting;
     if (s.rayPass && !s.rayPass->ready())
         return s.rayPass->status();
     if (s.rayShadows && !s.rayReflections && !s.rayGlobalIllumination && s.nativeModels &&

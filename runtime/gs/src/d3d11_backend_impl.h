@@ -41,6 +41,7 @@
 #include "partial_upload_d3d11.h"
 #include "temporal_presentation.h"
 #include "surface_geometry.h"
+#include "ray_pass_loader.h"
 #include "ray_water.h"
 #include "shader_compile_d3d.h"
 #include "surface_builder.h"
@@ -471,12 +472,12 @@ struct D3D11Backend::Impl {
     std::unique_ptr<surface::RayWater> waterRenderer;
     // Start-up prewarm (d3d11_device.cpp): a background thread compiles and creates every lazily used shader and
     // builds the ray tracing device while the guest boots, so the GS worker never waits for a compiler.
-    std::thread prewarmThread, rayPrewarmThread;
-    std::mutex prewarmMutex;
-    std::condition_variable prewarmCv;
-    bool prewarmRayPending = false;
-    std::unique_ptr<surface::RayWater> prewarmedRay;
-    std::unique_ptr<surface::RayWater> takeRayWater();
+    std::thread prewarmThread;
+    // The ray tracing device and pipelines, built off the GS worker (18 s with a cold driver cache). waterRenderer
+    // stays null until a world frame adopts the finished build (rayPass): frames meanwhile draw without ray effects.
+    raystatus::PassLoader<surface::RayWater> rayLoader;
+    surface::RayWater* rayPass();
+    bool rayStarting() const { return !waterRenderer && rayLoader.pending(); }
     void startPrewarm();
     void startRayPrewarm();
     void joinPrewarm();

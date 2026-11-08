@@ -22,6 +22,7 @@
 #include "rhi.h"
 #include "resident_scene.h"
 #include "surface_builder.h"
+#include "ray_pass_loader.h"
 #include "wgpu_ray.h"
 #include <gsr/scene_models.h>
 #include <gsr/scene_guide_camera.h>
@@ -332,6 +333,12 @@ struct WgpuBackend::Impl {
     bool rayShadows = runtimeFlags().rayShadows;
     bool rayGlobalIllumination = runtimeFlags().rayGlobalIllumination;
     std::unique_ptr<ray::WgpuRay> rayPass;
+    // The ray programs, compiled on a background thread when the device allows it (native): rayPass stays null until
+    // a world frame adopts them (acquireRayPass), and frames meanwhile draw without ray effects. Never waits.
+    raystatus::PassLoader<ray::WgpuRay::Programs> rayLoader;
+    ray::WgpuRay* acquireRayPass();
+    void startRayPrewarm();
+    bool rayStarting() const { return !rayPass && rayLoader.pending(); }
     surface::ResidentScene residentScene;
     std::vector<surface::Texture> reflectionTextures;
     std::unordered_map<uint64_t, uint32_t> reflectionTextureHashes;

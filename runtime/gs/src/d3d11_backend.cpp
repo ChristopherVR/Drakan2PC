@@ -275,36 +275,31 @@ std::string D3D11Backend::neuralRenderingStatus() const {
 namespace gsr {
 bool D3D11Backend::waterRenderingAvailable(std::string& status) const {
     auto& s = *m_impl;
-    {
-        // The settings host asks at start-up, while the prewarm thread is still building the device: do not wait
-        // for it here (the caller may be the thread the guest waits on). The menu re-reads its capabilities.
-        std::lock_guard lock(s.prewarmMutex);
-        if (s.prewarmRayPending && !s.waterRenderer) {
-            status = "Ray tracing is starting";
-            return true;
-        }
+    // The settings host asks from the window thread: never build or wait for the pass here, only start the background
+    // build or adopt the finished one (the renderer lock serialises this with the GS worker). "Starting" counts as
+    // available so the menu offers the effects; it re-reads its capabilities.
+    if (!s.rayPass()) {
+        status = raystatus::kStarting;
+        return true;
     }
-    if (!s.waterRenderer)
-        s.waterRenderer = s.takeRayWater();
     status = s.waterRenderer->status();
     return s.waterRenderer->ready();
 }
 std::string D3D11Backend::waterRenderingStatus() const {
-    auto& s = *m_impl; // the prewarm lock
+    auto& s = *m_impl;
     raystatus::PassView pass;
-    if (s.modernWater && s.waterRenderer) // null while the prewarm thread still builds it
+    if (s.modernWater && s.waterRenderer) // null until a world frame adopted the background build
         pass = {true, s.waterRenderer->ready(), s.waterRenderer->status()};
-    else if (s.modernWater) {
-        std::lock_guard lock(s.prewarmMutex);
-        if (s.prewarmRayPending)
-            return "Ray tracing is starting";
-    }
+    else if (s.modernWater && s.rayStarting())
+        return raystatus::kStarting;
     return raystatus::waterStatus(s.modernWater, pass, s.lastPresentedWater, s.rayReflections, "DXR reflections");
 }
 std::string D3D11Backend::rayTracingStatus() const {
     const auto& s = *m_impl;
     if (!s.modernWater && !s.rayShadows && !s.rayReflections && !s.rayGlobalIllumination)
         return "Ray tracing off";
+    if (s.rayStarting())
+        return raystatus::kStarting;
     if (s.waterRenderer && !s.waterRenderer->ready())
         return s.waterRenderer->status();
     if (s.rayShadows && !s.rayReflections && !s.rayGlobalIllumination && s.nativeModels &&

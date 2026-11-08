@@ -35,7 +35,17 @@ struct PassFrame {
 
 class WgpuRay {
 public:
-    explicit WgpuRay(rhi::Device& device);
+    // The four compute pipelines, the slow part (the driver compiles WGSL to its shader code). compilePrograms only
+    // creates programs, so it may run on a background thread (the RHI device creates them thread-safely); the pass
+    // itself (buffers, textures, uploads in the command stream) is made on the renderer thread from the result.
+    struct Programs {
+        bool compute = false; // the adapter runs compute programs with large storage buffers
+        rhi::ProgramPtr sky, shadow, main, transport;
+        std::string error;
+    };
+    static std::unique_ptr<Programs> compilePrograms(rhi::Device& device);
+    explicit WgpuRay(rhi::Device& device); // compiles on the calling thread
+    WgpuRay(rhi::Device& device, std::unique_ptr<Programs> programs);
     ~WgpuRay();
     bool ready() const { return ready_; }
     std::string status() const { return status_; }

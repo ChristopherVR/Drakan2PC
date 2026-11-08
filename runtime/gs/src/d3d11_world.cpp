@@ -347,7 +347,10 @@ void D3D11Backend::Impl::finalizeNeuralWorld(RT& rt) {
         std::any_of(rt.surface.triangles.begin(), rt.surface.triangles.end(), [](const auto& t) { return t.water; });
     // Ambient-only worlds still need the contact-occlusion part of the shadow pass.
     const bool wantShadows = rayShadows && nativeModels && nativeModels->lighting.hasContribution();
-    const bool wantRayScene = wantWater || wantShadows || rayReflections || rayGlobalIllumination;
+    const bool wantRayEffect = wantWater || wantShadows || rayReflections || rayGlobalIllumination;
+    // While the background thread still builds the ray pass, this frame draws the plain raster (the settings say "Ray
+    // tracing is starting"); the first frame after the build finished adopts it. Never waits for the compile.
+    const bool wantRayScene = wantRayEffect && rayPass();
     wantNR = false;
     const bool wantSR = rt.temporalSR && combinedSr;
     if ((!wantNR && !wantSR && !wantRayScene) || !neuralGuides)
@@ -426,9 +429,7 @@ void D3D11Backend::Impl::finalizeNeuralWorld(RT& rt) {
     }
     bool waterEvaluated = false, rayEvaluated = false;
     if (success && wantRayScene) {
-        CpuProfile::Scope stage(cpuProfile, CpuProfile::RayScene);
-        if (!waterRenderer)
-            waterRenderer = takeRayWater();
+        CpuProfile::Scope stage(cpuProfile, CpuProfile::RayScene); // waterRenderer exists: wantRayScene
         float waterSeconds = std::chrono::duration<float>(std::chrono::steady_clock::now() - waterStartTime).count();
         if (runtimeFlags().waterTime) {
             const float value = *runtimeFlags().waterTime;
