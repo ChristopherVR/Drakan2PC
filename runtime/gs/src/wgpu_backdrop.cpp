@@ -1,6 +1,7 @@
 // Wide menu backdrops: optional pack images (<textureDir>/wide/<name>_<a>x<b>.png) drawn behind the centered native
 // 4:3 menu canvas (WebGPU backend; see d3d11_backdrop.cpp and docs/reference/widescreen.md).
 #include "wgpu_backend_impl.h"
+#include "title_backdrop.h"
 
 #include <cstdio>
 
@@ -13,26 +14,35 @@ const std::vector<WgpuBackend::Impl::WideBackdrop>& WgpuBackend::Impl::wideBackd
     std::vector<WideBackdrop>& set = wideBackdrops[name];
     const std::string dir = texDir + "/wide";
     const std::string prefix = name + "_";
-    for (const std::string& file : texup::listDir(dir)) {
+    // The host's title picture (title_backdrop.h): one image of its own aspect.
+    const bool picture = title_backdrop::isPicture(name);
+    std::vector<std::string> files;
+    if (picture)
+        files.push_back(title_backdrop::picturePath(name));
+    else
+        files = texup::listDir(dir);
+    for (const std::string& file : files) {
         unsigned a = 0, b = 0;
         int used = 0;
-        if (file.compare(0, prefix.size(), prefix) != 0 ||
-            std::sscanf(file.c_str() + prefix.size(), "%ux%u.png%n", &a, &b, &used) < 2 || !a || !b ||
-            prefix.size() + used != file.size())
+        if (!picture && (file.compare(0, prefix.size(), prefix) != 0 ||
+                         std::sscanf(file.c_str() + prefix.size(), "%ux%u.png%n", &a, &b, &used) < 2 || !a || !b ||
+                         prefix.size() + used != file.size()))
             continue;
         std::vector<uint32_t> px;
         uint32_t w = 0, h = 0;
-        if (!texup::readImageFile(dir + "/" + file, px, w, h) || !w || !h || w > gpu->maxTextureSize() ||
-            h > gpu->maxTextureSize()) {
+        if (!texup::readImageFile(picture ? file : dir + "/" + file, px, w, h) || !w || !h ||
+            w > gpu->maxTextureSize() || h > gpu->maxTextureSize()) {
             std::fprintf(stderr, "[gsr] wide backdrop '%s' could not be loaded\n", file.c_str());
             continue;
         }
+        if (picture)
+            title_backdrop::shrink(px, w, h);
         WideBackdrop bd;
         bd.tex = createTexture(w, h, rhi::Sampled | rhi::CopyDst, rhi::Format::RGBA8, 1, "wide backdrop");
         if (!bd.tex)
             continue;
         gpu->writeTexture(*bd.tex, 0, 0, 0, w, h, px.data(), w * 4);
-        bd.aspect = (float)a / (float)b;
+        bd.aspect = picture ? (float)w / (float)h : (float)a / (float)b;
         set.push_back(std::move(bd));
     }
     if (!set.empty())
@@ -51,10 +61,12 @@ bool WgpuBackend::Impl::drawWideBackdrop(RT& rt, int guiScreen) {
     const std::string names[4] = {
         guiScreen == 14 && titleBackdropRecent() ? std::string("screen8") : std::string(), screenName(guiScreen),
         nativeMenuScreen != guiScreen ? screenName(nativeMenuScreen) : std::string(), "default"};
+    const std::string picture = title_backdrop::get();
     for (const std::string& name : names) {
         if (name.empty())
             continue;
-        const auto& set = wideBackdropSet(name);
+        const std::string setKey = title_backdrop::setName(name, picture);
+        const auto& set = wideBackdropSet(setKey);
         std::vector<float> aspects;
         for (const auto& bd : set)
             aspects.push_back(bd.aspect);
@@ -62,9 +74,16 @@ bool WgpuBackend::Impl::drawWideBackdrop(RT& rt, int guiScreen) {
         if (pick < 0)
             continue;
         const float W = (float)(rt.w * scale), H = (float)(std::min(rt.h, 512u) * scale);
-        const auto place = hud::widePlacement(set[pick].aspect, hudScale);
+        auto place = hud::widePlacement(set[pick].aspect, hudScale);
+        float top = 0, height = 1;
+        if (title_backdrop::isPicture(setKey)) { // any aspect: fill the output, cropping the long side
+            const auto c = title_backdrop::cover(set[pick].aspect, hudScale);
+            place = {c.left, c.width};
+            top = c.top;
+            height = c.height;
+        }
         // Alpha 0x80 like the native canvas.
-        const float rect[4] = {place.left * W, 0, (place.left + place.width) * W, H};
+        const float rect[4] = {place.left * W, top * H, (place.left + place.width) * W, (top + height) * H};
         const float alpha[4] = {0, 0, 0, 128.0f / 255.0f};
         drawRect(*rt.tex, rect, set[pick].tex.get(), alpha, {0, 0, (uint32_t)W, (uint32_t)H});
         if (name == "screen8" && guiScreen == 8)

@@ -252,6 +252,17 @@ screen after the intro movie (screen 29 in between) has no title art and is unch
 `GSR_BACKDROP_LOG=1` prints which backdrop image is chosen when it changes (D3D11). Checked in game on D3D11 with
 `DRAKAN_WS_LOG=2` and dense screen grabs; the WebGPU change mirrors it and is not checked live.
 
+### A campaign's own title art (2026-11-08)
+
+While a campaign other than the disc game is chosen (Order of the Flame, a custom campaign), the host
+(`syncTitleBackdrop`, `drakan_settings_host.cpp`) hands the renderer that game's picture with
+`gsr::setTitleBackdropImage`: `previews/background-<id>.png`, else `campaign-<id>.png` / `game-<id>.png` (the same files
+the game card shows). Both renderers then look up the `screen8` set under the picture's own key (`title_backdrop.h`), so
+the title and the loading screen after it draw that picture instead of the disc art, in both menu styles. Any aspect is
+accepted: it fills the output and the long side is cropped (`title_backdrop::cover`); pictures wider than 3840 pixels are
+box-shrunk by a whole factor on load. The disc game keeps its art. Only the wide path is covered: a 4:3 output (no wide
+backdrop at all) still shows the native title tiles.
+
 A reported 4:3 title flash "when a game loads" was not reproduced on the title Continue / Load Game, in-game quick load
 and Quit to Title paths (2026-11-08); `GSR_BACKDROP_LOG=1` now logs any title tile drawn without its wide replacement.
 Details: `docs/journal/2026-11-08/title-43-flash.md`.

@@ -1,6 +1,7 @@
 // Wide menu backdrops: optional pack images (<textureDir>/wide/<name>_<a>x<b>.png) drawn behind the centered native
 // 4:3 menu canvas, so title/menu art can fill 16:9, 21:9 and wider outputs. See docs/reference/widescreen.md.
 #include "d3d11_backend_impl.h"
+#include "title_backdrop.h"
 
 #include <cstdio>
 #include <cstdlib>
@@ -29,19 +30,28 @@ const std::vector<D3D11Backend::Impl::WideBackdrop>& D3D11Backend::Impl::wideBac
     std::vector<WideBackdrop>& set = wideBackdrops[name];
     const std::string dir = texDir + "/wide";
     const std::string prefix = name + "_";
-    for (const std::string& file : texup::listDir(dir)) {
+    // The host's title picture (title_backdrop.h): one image of its own aspect.
+    const bool picture = title_backdrop::isPicture(name);
+    std::vector<std::string> files;
+    if (picture)
+        files.push_back(title_backdrop::picturePath(name));
+    else
+        files = texup::listDir(dir);
+    for (const std::string& file : files) {
         unsigned a = 0, b = 0;
         int used = 0;
-        if (file.compare(0, prefix.size(), prefix) != 0 ||
-            std::sscanf(file.c_str() + prefix.size(), "%ux%u.png%n", &a, &b, &used) < 2 || !a || !b ||
-            prefix.size() + used != file.size())
+        if (!picture && (file.compare(0, prefix.size(), prefix) != 0 ||
+                         std::sscanf(file.c_str() + prefix.size(), "%ux%u.png%n", &a, &b, &used) < 2 || !a || !b ||
+                         prefix.size() + used != file.size()))
             continue;
         std::vector<uint32_t> px;
         uint32_t w = 0, h = 0;
-        if (!texup::readImageFile(dir + "/" + file, px, w, h) || !w || !h || w > 16384 || h > 16384) {
+        if (!texup::readImageFile(picture ? file : dir + "/" + file, px, w, h) || !w || !h || w > 16384 || h > 16384) {
             std::fprintf(stderr, "[gsr] wide backdrop '%s' could not be loaded\n", file.c_str());
             continue;
         }
+        if (picture)
+            title_backdrop::shrink(px, w, h);
         D3D11_TEXTURE2D_DESC td{};
         td.Width = w;
         td.Height = h;
@@ -56,7 +66,7 @@ const std::vector<D3D11Backend::Impl::WideBackdrop>& D3D11Backend::Impl::wideBac
         if (FAILED(dev->CreateTexture2D(&td, &sd, &tex)) ||
             FAILED(dev->CreateShaderResourceView(tex.Get(), nullptr, &bd.srv)))
             continue;
-        bd.aspect = (float)a / (float)b;
+        bd.aspect = picture ? (float)w / (float)h : (float)a / (float)b;
         set.push_back(std::move(bd));
     }
     if (!set.empty())
@@ -87,10 +97,12 @@ bool D3D11Backend::Impl::drawWideBackdrop(RT& rt, int guiScreen) {
     const std::string names[4] = {
         guiScreen == 14 && titleBackdropRecent() ? std::string("screen8") : std::string(), screenName(guiScreen),
         nativeMenuScreen != guiScreen ? screenName(nativeMenuScreen) : std::string(), "default"};
+    const std::string picture = title_backdrop::get();
     for (const std::string& name : names) {
         if (name.empty())
             continue;
-        const auto& set = wideBackdropSet(name);
+        const std::string setKey = title_backdrop::setName(name, picture);
+        const auto& set = wideBackdropSet(setKey);
         std::vector<float> aspects;
         for (const auto& bd : set)
             aspects.push_back(bd.aspect);
@@ -108,7 +120,14 @@ bool D3D11Backend::Impl::drawWideBackdrop(RT& rt, int guiScreen) {
         if (!psWideBackdrop)
             return false;
         const float W = (float)(rt.w * scale), H = (float)(std::min(rt.h, 512u) * scale);
-        const auto place = hud::widePlacement(set[pick].aspect, hudScale);
+        auto place = hud::widePlacement(set[pick].aspect, hudScale);
+        float top = 0, height = 1;
+        if (title_backdrop::isPicture(setKey)) { // any aspect: fill the output, cropping the long side
+            const auto c = title_backdrop::cover(set[pick].aspect, hudScale);
+            place = {c.left, c.width};
+            top = c.top;
+            height = c.height;
+        }
         ID3D11ShaderResourceView* srv = set[pick].srv.Get();
         ID3D11SamplerState* smp = smpLin.Get();
         ctx->PSSetShaderResources(0, 1, &srv);
@@ -119,7 +138,7 @@ bool D3D11Backend::Impl::drawWideBackdrop(RT& rt, int guiScreen) {
         ctx->VSSetShader(vsFull.Get(), nullptr, 0);
         ctx->PSSetShader(psWideBackdrop.Get(), nullptr, 0);
         ctx->RSSetState(rast.Get());
-        D3D11_VIEWPORT vp{place.left * W, 0, place.width * W, H, 0, 1};
+        D3D11_VIEWPORT vp{place.left * W, top * H, place.width * W, height * H, 0, 1};
         ctx->RSSetViewports(1, &vp);
         D3D11_RECT clip{0, 0, (LONG)W, (LONG)H};
         ctx->RSSetScissorRects(1, &clip);

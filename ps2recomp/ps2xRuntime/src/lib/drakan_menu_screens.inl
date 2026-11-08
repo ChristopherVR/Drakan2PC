@@ -1100,16 +1100,7 @@ void titleTick(const uint8_t* ram, RecompGuest& g) {
         st.games.clear();
         for (const drakan_game::GameInfo& gi : drakan_game::games())
             st.games.push_back({gi.id, gi.name, gi.description, {}}); // covers: the host side (titleDraw)
-        if (drakan_game::current() != drakan_game::Game::Drakan) { // own title text over the native Drakan 2 logo
-            const std::string full = drakan_game::currentName();
-            if (full.rfind("Drakan: ", 0) == 0) {
-                st.brandTitle = "DRAKAN";
-                st.brandSubtitle = full.substr(8);
-            } else { // a custom campaign: its title, "a Drakan campaign" under it
-                st.brandTitle = full;
-                st.brandSubtitle = "A Drakan campaign";
-            }
-        }
+        // A campaign's own art replaces the disc's title art under the menu (syncTitleBackdrop, the renderer).
         st.dateOrder = menuDateOrder(g, st.clock24);
         gameui::readPauseOptions(RdramMemory(ram), st.options);
         if (++g_title.frames <= 1)

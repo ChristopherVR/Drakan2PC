@@ -4,6 +4,7 @@
 #include "runtime_flags.h"
 #include "gs_texup.h"
 #include "gs_image_upload.h"
+#include "title_backdrop.h"
 #include <gsr/scene_guide_camera.h>
 
 #include <algorithm>
@@ -1747,6 +1748,9 @@ uint64_t textureContentHash(const uint32_t* rgba, uint32_t w, uint32_t h) {
 void excludeTextureHash(uint64_t hash) {
     std::lock_guard<std::mutex> l(exclMutex());
     exclSet().insert(hash);
+}
+void setTitleBackdropImage(const std::string& path) {
+    title_backdrop::set(path);
 }
 bool isTextureHashExcluded(uint64_t hash) {
     std::lock_guard<std::mutex> l(exclMutex());

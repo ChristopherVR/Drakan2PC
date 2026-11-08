@@ -373,6 +373,10 @@ uint64_t textureContentHash(const uint32_t* rgba, uint32_t w, uint32_t h);
 // exists). Used for textures the runtime generates itself (keyboard prompts), whose pixels depend on the user's key
 // bindings. Automatic scaling of those current pixels remains allowed; this only blocks file dumps/replacements.
 void excludeTextureHash(uint64_t hash);
+// A picture (image file path) drawn in place of the disc's title art on the title and on the loading screen after it,
+// filling the wide output (cropped to fit). For a campaign with its own art (Order of the Flame); empty = the disc's
+// art. Process wide, thread safe; used where wide menu backdrops are drawn (docs/reference/widescreen.md).
+void setTitleBackdropImage(const std::string& path);
 // Photographic UI images (save thumbnails) use bicubic sharpening rather than
 // the pixel-art scaler. Registration is content-based and process-local.
 void preferPhotographicTexture(uint64_t hash);

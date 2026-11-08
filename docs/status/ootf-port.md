@@ -192,7 +192,7 @@ Village, Wartok, Islands and Volcanic with HD on and off (Wartok before: 4,939).
   fog and sky changers (31), props whose model the install lacks (8) and the arena pads and crystals (108, exported to
   `maps/*.ini`) are kept out on purpose with a note each. See [class coverage](../journal/2026-11-08/ootf-class-coverage.md).
 * Game choice at the title ("Choose your game": Drakan / Drakan: Order of the Flame, `drakan.ini [general] game = ask|d2|d1`), a
-  campaign-only New Game that starts at `OotF 00 - Intro` (no Drakan 2 intro), separate save cards, Order of the Flame title plaque.
+  campaign-only New Game that starts at `OotF 00 - Intro` (no Drakan 2 intro), separate save cards, and the Order of the Flame picture as the title and post-title loading art instead of the disc art ([title art](../journal/2026-11-08/ootf-title-art.md)).
   A regenerated editor pack from English D1 data also matches the German-target run showing the owl, logo and landscape
   before Ruined Village. See the [timed capture review](../journal/2026-11-05/issue-1-cliff-intro-city.md). Since November 8 the
   Intro draws no HUD (its scenes hold the synthetic player, as the disc Intro's scene holds Rynn) and converted scenes play at the

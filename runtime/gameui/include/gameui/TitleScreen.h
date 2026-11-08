@@ -127,9 +127,6 @@ struct TitleState {
     bool classicGameChoice = false;
     int game = 0; // the game the menu is running for (index in `games`)
     std::vector<Game> games = {{"d2", "Drakan", "", {}}, {"ootf", "Drakan: Order of the Flame", "", {}}};
-    // A campaign is playing: the menu draws its own text title over the native logo (which says The Ancients'
-    // Gates). brandTitle empty = native art as shipped.
-    std::string brandTitle, brandSubtitle;
     // Mod packs found at start-up without a decision (settings/ModDiscovery.h): display names. Non-empty opens the
     // "New mod packs" card once per visit, before the game card; newModCampaigns of them are campaigns.
     std::vector<std::string> newMods;

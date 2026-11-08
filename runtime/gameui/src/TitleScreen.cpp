@@ -293,7 +293,7 @@ Rect modsRow(int i) {
     return {c.x + kModsPad + 120, c.y + kModsHeadH + static_cast<float>(i) * kModsRowStep, c.w - 2 * kModsPad - 240,
             kModsRowH};
 }
-// Left of the logo (design x >= 530) and of the campaign plaque (x >= 460), above Rynn's head on the art.
+// Left of the logo (design x >= 530), above Rynn's head on the art.
 // The plate's frame is about 30 units thick at the sides: the text keeps clear of it. Seven 26-unit lines (Small text
 // is 19) end at y 250, above Rynn's hair, where six 30-unit lines used to end (256).
 constexpr float kNoteX = 24, kNoteY = 24, kNoteW = 432, kNotePadX = 34, kNotePadY = 22, kNoteLineH = 26;
@@ -1010,15 +1010,6 @@ void TitleScreen::draw(const TitleState& st, DrawList& d) const {
     fb.h = std::max(fb.h, lf_.view.y + lf_.view.h - fb.y); // to the viewport bottom (letterboxed 4:3)
     d.gradient(fb, withAlpha(th.panel, 0), withAlpha(th.panel, 220));
 
-    if (!st.brandTitle.empty()) { // a text plaque over the native logo
-        const Rect plaque{460, 30, 1000, 300};
-        d.panel(p.map(plaque), PanelStyle::Main,
-                withAlpha(th.panel, 255)); // opaque: the native logo must not ghost through
-        p.text(d, {plaque.x, plaque.y + 50, plaque.w, 120}, st.brandTitle, FontRole::Title, th.text, TextAlign::Center);
-        if (!st.brandSubtitle.empty())
-            p.text(d, {plaque.x, plaque.y + 175, plaque.w, 70}, st.brandSubtitle, FontRole::Heading, th.textMuted,
-                   TextAlign::Center);
-    }
     if (loading_) {
         p.confirmCard(d, design::title::cardPanel(), menuText("Loading..."),
                       st.continueLocation.empty() ? std::string(menuText("Continuing your last game."))
