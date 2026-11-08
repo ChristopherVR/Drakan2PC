@@ -1,0 +1,50 @@
+# OotF scenes: Rynn's hands, hair, Julian's hand and the scene end, a rig audit (2026-11-09)
+
+User report: walking at the start (Rynn and Delon), the off hand does not hold the weapon properly; Rynn's hair flies upwards
+in scenes; Julian's hand (the man whose sword Rynn takes in scene 1.3; "Adam" in the report) is awkward at the start and then
+corrects; Rynn's body is wrongly posed when the scene ends and control returns. No converter change came out of this pass:
+none of the four could be reproduced in a frame, so the findings below are measurements, not fixes. Probes are private
+(`build/rynn-probe`, nothing from either game is quoted).
+
+## What was measured (PC Rynn 3713 retargeted onto the PS2 Rynn of SYSTEM.MOD, 342 clips)
+
+* Joint match: 33 of 33 PC joints find a same-named PS2 joint. The 32 unmatched PS2 joints (eyebrows, eyelids, jaw, mouth
+  corners, eyes, 24 finger joints, shield, sphere1) hold their bind rotation in every retargeted clip.
+* Bind frames: only `Rweapon` (108 degrees) and `hair1` (10 degrees) differ between the two rigs.
+* Fingers: native PS2 clips curl them (first-key mean angle from bind: armed clips right about 24, left 60 to 78; unarmed
+  walk 5 to 9). Retargeted scene clips keep the bind pose, so a sword in the right hand sits in an open hand and the left hand
+  is never closed. This is the best candidate for "not both hands hold the weapon properly" but was not seen in a frame.
+* `Lweapon`: native clips leave it on the bind (median 0), the retargeted clips put it 151 degrees away (the PC clips key it
+  so; the world-joint rule keeps the PC frame). Nothing is attached to Rynn's left hand in 1.1, so this only matters for a
+  held item there.
+* Hair: for the 22 clips Rynn plays in 1.1 / 1.3, `hair1` is 40 to 90 degrees from bind (native median 70), `hair2` and `hair3`
+  0 to 34 (native p90 about 50). Same-named native clips differ by 12 / 4 / 7 degrees on the first key. Only 8 of 342 clips
+  swing a hair joint past 100 degrees (`10_2o`, `death1a`, `demo_death`, `1_6f`, the two tread clips, `10_1b`, `10_c`; native
+  has 2 of 499). So the keys are faithful; the hair is not a retarget error in the scene clips. The owl agent's finding
+  (graded-alpha skinned cards drawn without depth write, formats `956e798`) is the likelier cause of "flying" hair cards;
+  re-check on a regenerated pack.
+* Julian: own PC rig (NPCs.mod 3728, 30 joints), converted with the identical-tree path. Scene 1.3 starts him on clip `0x69e`
+  (`1_3u`), a one-key static pose of every joint, and at 9.2 s switches to `0x698` (`1_3o`) which animates the head and the
+  right arm (45 keys). The first nine seconds are therefore the authored static pose; the right hand then moves, which matches
+  "awkward, then corrects". No converter fault found: single-key tracks are kept (`convertPcAnimToPs2`).
+* Scene end: the player's last scene clips are plain clips on channel 0 (1.3 ends on `1_3n`), the 1.1 talk clip `1_1rynntalk`
+  runs on PC channel 2 (PS2 channel 3, the neck subtree) as a layer and is replaced by `stompwalk` on the same channel at
+  7.8 s. Whether the engine keeps a channel layer alive after the scene releases Rynn (head, neck and hair held in the scene
+  pose) is untested. The release itself is the run/stop action at the end of the player's actions (`convertSequence`
+  hold-actor path in `ootfseq.ts`, shared with the floating-body fix at the 1.1 to 1.2a cut).
+
+## Why nothing was verified in a frame
+
+Runs of the Ruined Village on a fresh pack (`rig-a` to `rig-g`) ended scene 1.1 after about 4 s: the harness autopress taps
+Start + Cross until the first level has loaded and skips the scene (the Intro tip: `DRAKAN_AUTOPRESS_UNTIL`; with a value
+low enough to keep the scene the title menu is never left, with `DRAKAN_AUTOPRESS_STOP_AFTER_LOAD=1` and no taps the run
+stalled on the title). So the walk, the hands at the walk and Julian's opening in 1.3 were never on screen in this pass. Also
+seen in those runs: Rynn's boots keep the same pose in two shots 1.5 s apart during the first close-up (the scene clock may
+stall under several simultaneous games).
+
+## Next steps
+
+1. Get a frame sequence of 1.1 (walk) and 1.3 (Julian) with the autopress stopped once New Game has been taken.
+2. If the hands are open: borrow the finger pose of a native armed clip for the unmatched finger joints of the player's
+   retargeted clips (`retargetPcAnim` option for unmatched joints; right hand grip, left hand relaxed).
+3. If a head / neck layer survives the scene end: write an explicit neutral clip on channel 3 at the end of the player's actions.
