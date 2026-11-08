@@ -54,7 +54,8 @@ gameui::SettingPage buildModsPage(const ModsModel& model) {
     const bool restart = model.restartRequired();
     if (restart)
         pg.description = "Restart pending: the mod list changed since the game started. Use Restart game now (or "
-                         "close and start the game) to apply it. " + pg.description;
+                         "close and start the game) to apply it. " +
+                         pg.description;
     {
         gameui::SettingSection sec{"Mods", {}};
         // Always present so the rows below do not shift when the first change is made.
@@ -167,10 +168,10 @@ gameui::SettingPage buildModsPage(const ModsModel& model) {
             sec.details.push_back({"About", m.description});
         for (const std::string& c : conflicts)
             sec.details.push_back({"Conflict", c});
-        sec.hint = !m.found       ? "This pack is not in the mods folder any more."
+        sec.hint = !m.found               ? "This pack is not in the mods folder any more."
                    : !m.readError.empty() ? "This pack cannot be read: " + m.readError
-                   : m.enabled    ? "On. Select Enabled and press Enter to turn it off."
-                                  : "Off. Select Enabled and press Enter to turn it on.";
+                   : m.enabled            ? "On. Select Enabled and press Enter to turn it off."
+                                          : "Off. Select Enabled and press Enter to turn it on.";
         pg.sections.push_back(std::move(sec));
     }
     return pg;

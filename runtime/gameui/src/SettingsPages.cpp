@@ -1667,8 +1667,8 @@ void SettingsPages::drawHelp(DrawList& d) const {
 
     std::string kicker, title, body;
     std::vector<std::pair<std::string, Color>> notes;
-    const SettingRow* picRow = nullptr;         // the focused setting row (an illustration of what it does)
-    const SettingSection* picSec = nullptr;     // its section (a mod pack's cover, details and what to do)
+    const SettingRow* picRow = nullptr;     // the focused setting row (an illustration of what it does)
+    const SettingSection* picSec = nullptr; // its section (a mod pack's cover, details and what to do)
     const int np = schema_ ? static_cast<int>(schema_->pages.size()) : 0;
     if (it && (it->kind == Item::Category || it->kind == Item::Tab) && schema_ && it->a < np) {
         const SettingPage& pg = schema_->pages[static_cast<size_t>(it->a)];
@@ -1762,8 +1762,8 @@ void SettingsPages::drawHelp(DrawList& d) const {
             } else {
                 p.text(d, {box.x, box.y, box.w, box.h * 0.6f}, "No preview picture", FontRole::Body, th.textMuted,
                        TextAlign::Center);
-                p.text(d, {box.x + 16, box.y + box.h * 0.45f, box.w - 32, 28},
-                       "A pack can ship previews/pack.png", FontRole::Small, th.textDisabled, TextAlign::Center);
+                p.text(d, {box.x + 16, box.y + box.h * 0.45f, box.w - 32, 28}, "A pack can ship previews/pack.png",
+                       FontRole::Small, th.textDisabled, TextAlign::Center);
             }
             picture = true;
         } else {
