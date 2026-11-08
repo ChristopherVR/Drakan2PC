@@ -185,6 +185,71 @@ int main() {
         assert(menuFormat("Slot {0} ({1}) is replaced by your current progress.", {"7", arbitrary}).find(arbitrary) !=
                std::string::npos);
     }
+    { // the game card: every string is translated in all five languages; a pack's own text stays as authored
+        const char* const cardKeys[] = {"Choose your game",
+                                        "Each game keeps its own saves.",
+                                        "Playing",
+                                        "More above",
+                                        "More below",
+                                        "A campaign from an installed mod pack.",
+                                        "The game on your disc.",
+                                        "The first Drakan, rebuilt on this engine: its own levels and saves."};
+        const char* const languages[] = {"english", "german", "french", "italian", "spanish"};
+        for (const char* key : cardKeys) {
+            setMenuLanguage("english");
+            assert(std::string(menuText(key)) == key);
+            for (const char* language : languages) {
+                setMenuLanguage(language);
+                const std::string text = menuText(key);
+                assert(!text.empty() && text != "[Missing menu text]");
+                if (std::string(language) != "english")
+                    assert(text != key);
+            }
+        }
+        TitleState card;
+        card.offerGames = true;
+        card.game = 0;
+        card.games = {{"ootf",
+                       "Drakan: Order of the Flame",
+                       "The first Drakan, rebuilt on this engine: its own levels and saves.",
+                       {}},
+                      {"pack", "Pack Game", "Authored by the pack.", {}},
+                      {"d2", "Drakan: The Ancients' Gates", "The game on your disc.", {}}};
+        auto anyTextStarts = [](const DrawList& draw, const std::string& prefix) {
+            for (const DrawCmd& command : draw.commands())
+                if (command.kind == DrawKind::Text && command.text.rfind(prefix, 0) == 0)
+                    return true;
+            return false;
+        };
+        struct CardExpected {
+            const char* language;
+            const char* heading;
+            const char* ootf;
+            const char* disc;
+        };
+        const CardExpected cardLocales[] = {
+            {"english", "Choose your game", "The first Drakan", "The game on your disc."},
+            {"german", "Spiel auswählen", "Das erste Drakan", "Das Spiel auf deiner Disc."},
+            {"french", "Choisissez votre jeu", "Le premier Drakan", "Le jeu présent sur votre disque."},
+            {"italian", "Scegli il gioco", "Il primo Drakan", "Il gioco sul tuo disco."},
+            {"spanish", "Elige tu juego", "El primer Drakan", "El juego de tu disco."},
+        };
+        for (const auto& e : cardLocales) {
+            setMenuLanguage(e.language);
+            TitleScreen screen;
+            screen.open();
+            auto out = screen.frame(card, {}, Viewport{0, 0, 1920, 1080});
+            assert(screen.page() == TitlePage::GameChoice && hasText(out.draw, e.heading));
+            assert(anyTextStarts(out.draw, e.ootf));
+            validDraw(out.draw);
+            UiInput down;
+            down.keys = {UiKey::Down};
+            out = screen.frame(card, down, Viewport{0, 0, 1920, 1080});
+            assert(anyTextStarts(out.draw, "Authored by the pack."));
+            out = screen.frame(card, down, Viewport{0, 0, 1920, 1080});
+            assert(hasText(out.draw, e.disc));
+        }
+    }
     setMenuLanguage("GERMAN");
     assert(menuLanguage() == MenuLanguage::German);
     assert(std::string(menuText("Overwrite")) == "Überschreiben");

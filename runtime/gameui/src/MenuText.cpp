@@ -57,6 +57,14 @@ const Entry kEntries[] = {
     {"Playing", {"Aktiv", "En cours", "In uso", "En juego"}},
     {"More above", {"Weitere oben", "Plus haut", "Altri sopra", "Más arriba"}},
     {"More below", {"Weitere unten", "Plus bas", "Altri sotto", "Más abajo"}},
+    {"The game on your disc.",
+     {"Das Spiel auf deiner Disc.", "Le jeu présent sur votre disque.", "Il gioco sul tuo disco.",
+      "El juego de tu disco."}},
+    {"The first Drakan, rebuilt on this engine: its own levels and saves.",
+     {"Das erste Drakan, neu aufgebaut auf dieser Engine: mit eigenen Levels und Spielständen.",
+      "Le premier Drakan, reconstruit sur ce moteur : ses propres niveaux et sauvegardes.",
+      "Il primo Drakan, ricostruito su questo motore: livelli e salvataggi propri.",
+      "El primer Drakan, reconstruido sobre este motor: con sus propios niveles y partidas."}},
     {"A campaign from an installed mod pack.",
      {"Eine Kampagne aus einem installierten Mod-Paket.", "Une campagne d'un pack de mods installé.",
       "Una campagna di un pacchetto mod installato.", "Una campaña de un paquete de mods instalado."}},
@@ -466,6 +474,12 @@ const char* menuText(std::string_view english) {
     }
     // Only catalog keys/literals are accepted; unknown keys have a stable diagnostic fallback.
     return "[Missing menu text]";
+}
+std::string menuTextOrSelf(std::string_view text) {
+    for (const Entry& entry : kEntries)
+        if (text == entry.english)
+            return menuText(text);
+    return std::string(text);
 }
 std::string menuFormat(std::string_view english, std::initializer_list<std::string_view> arguments) {
     std::string result;

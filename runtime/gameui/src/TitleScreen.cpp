@@ -879,7 +879,8 @@ void TitleScreen::drawGameCard(const TitleState& st, DrawList& d) const {
     const Rect dr = design::title::gameDescription();
     p.text(d, {dr.x, dr.y, dr.w, 40}, g.name, FontRole::Heading, th.text);
     const std::vector<std::string> lines =
-        p.wrap(g.description.empty() ? std::string(menuText("A campaign from an installed mod pack.")) : g.description,
+        p.wrap(g.description.empty() ? std::string(menuText("A campaign from an installed mod pack."))
+                                     : menuTextOrSelf(g.description),
                dr.w, FontRole::Body);
     float y = dr.y + 46;
     for (size_t i = 0; i < lines.size() && y + 30 <= dr.bottom() + 1; ++i, y += 30)

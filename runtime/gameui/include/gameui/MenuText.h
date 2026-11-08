@@ -10,6 +10,8 @@ enum class MenuLanguage { English, German, French, Italian, Spanish };
 void setMenuLanguage(std::string_view name);
 MenuLanguage menuLanguage();
 const char* menuText(std::string_view english);
+// Like menuText, but text that is not a catalog key (a pack's own authored text) is returned unchanged.
+std::string menuTextOrSelf(std::string_view text);
 // Substitute {0}, {1}, ... after selecting the translation; arguments stay verbatim.
 std::string menuFormat(std::string_view english, std::initializer_list<std::string_view> arguments);
 } // namespace gameui
