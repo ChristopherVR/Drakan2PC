@@ -758,6 +758,12 @@ constexpr int kFollowReleaseTicks = 10;
 // 41f848 plain on-foot branch: view pitch = -(0.9 / -0.5) * cam+0x84.
 constexpr float kPlainViewGain = 1.8f;
 
+// A heading change per camera tick above this (~143 degrees) is not steering but the game re-seating Rynn's
+// transform: when the inventory closes, 300468 flips it by 180 degrees at the end of her return to idle (the
+// animation turns the model back, so she looks the same), ~0.5 s after the screen is gone. Carrying the camera round
+// her by that flip threw it to her far side a second time, after the native ease back had finished.
+constexpr float kMaxCarryYaw = 2.5f;
+
 // v rotated by `angle` about the unit axis a (Rodrigues).
 void rotateAbout(float v[3], const float a[3], float angle) {
     const float c = std::cos(angle), s = std::sin(angle);
@@ -820,7 +826,11 @@ void InputModule::beforeCameraFollow(IGuest& g, uint32_t cam) {
         // settled camera bearing by +68.8 degrees); a positive turn about +y lowers atan2(dz, dx), so the heading
         // change is the angle about +y.
         const float up[3] = {0, 1, 0};
-        const float yaw = heading - orbitHeading_;
+        float yaw = heading - orbitHeading_;
+        constexpr float kPi = 3.14159265f;
+        const float wrapped = std::remainder(yaw, 2.0f * kPi);
+        if (std::fabs(wrapped) > kMaxCarryYaw)
+            yaw = 0.0f; // the transform was re-seated, not turned: the camera stays where it is
         rotateAbout(off, up, yaw);
         rotateAbout(right, up, yaw);
         rotateAbout(back, up, yaw);

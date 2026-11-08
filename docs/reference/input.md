@@ -501,6 +501,7 @@ Rynn's anchor by her heading and view-pitch change before each tick, and its tra
 (microstutter) and is not used and `[mouse] pitch_view_gain = 1.8` (vertical counts are divided by the plain-branch gain, 1 = old
 ratio). F1 > Controls > Camera follow edits `camera_follow`. Details and limits: `runtime/input/README.md`,
 `docs/journal/2026-10-24/mouse-camera-follow.md`.
+A heading change above 2.5 rad in one tick is not carried: the game flips Rynn's transform by 180 degrees ~0.5 s after the inventory closes (`300468`), and carrying the camera with it threw it to her far side a second time (`docs/journal/2026-11-08/inventory-camera.md`).
 
 ## 16. Bow aiming (2026-10-24, default revised 2026-11-04)
 

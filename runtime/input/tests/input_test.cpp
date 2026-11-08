@@ -3095,6 +3095,15 @@ static void testCameraFollowAndPitchGain() {
     g.writeF(HEAD + 0x20, 1.0f);
     m.beforeCameraFollow(g, CAM);
     NEAR(g.readF(camObj + 0x14), 50.0 + 1000.0, 1e-1);
+    // A half turn in one tick is the game re-seating her transform (the inventory's return to idle), not steering:
+    // the camera stays where it is instead of being thrown round her a second time.
+    g.writeF(HEAD + 0x20, -1.0f);
+    m.beforeCameraFollow(g, CAM);
+    NEAR(g.readF(camObj + 0x14), 50.0 + 1000.0, 1e-1);
+    NEAR(g.readF(camObj + 0x1c), 0.0, 1e-1);
+    g.writeF(HEAD + 0x20, 1.0f);
+    m.beforeCameraFollow(g, CAM);
+    NEAR(g.readF(camObj + 0x14), 50.0 + 1000.0, 1e-1);
     // Looking up 0.1 (view 0.18 in the plain branch) carries the camera down round the anchor point by 0.18 rad.
     {
         g.writeF(HEAD + 0x14, 0.0f); // Rynn at the origin, anchor 240 up
