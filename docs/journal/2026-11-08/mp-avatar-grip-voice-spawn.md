@@ -42,3 +42,21 @@ climbing sounds use Rynn's voice.
 
 The harness frames show one shadow per character. The selected body's held items are now part of the avatar set
 (`bodyWeapons`), but no projector change was made without a reproduction. A save or screenshot of the case is needed.
+
+## Weapon shadow / hand pose harness (`scripts/harness/mp_weapon_shadow.py`)
+
+Two co-op instances with non-Rynn characters (default Monk / Ranwulf), dagger equipped through the native inventory.
+They look down in steps (idle and mid-swing), stand still for the hands, idle 10 s, walk, then use next / previous
+weapon (mouse wheel: weapon cycling, not zoom) and quick slot 1. `DRAKAN_SHADOW_TRACE=<n>` (new, opt-in) logs each
+native character-projector call with the object's role (controller, selected body, original or body item, remote
+ghost body or item); `shadow_summary.json` counts them per frame.
+
+* `build/harness/wshadow1`: about 1050 frames per side. Held items are never projected on their own; they come only as
+  part of their character's silhouette. One weapon shadow per character in every ground frame.
+* `wshadow-noray` (`GSR_RAY_SHADOWS=0`) and `wshadow-nonative` (`DRAKAN_NATIVE_CHARACTER_SHADOWS=0`): the character
+  shadow is the native projection alone. With it off, no character or weapon shadow remains, so the ray pass adds
+  no second weapon shadow.
+* `wshadow-sheathe` (Rynn host / Monk joiner): idle, walk and the dagger grip of the Monk match Rynn frame for frame.
+  Rynn's own idle splays and flexes her off-hand fingers; the Monk reproduces exactly that, so the finger motion
+  comes from her clip, not from the retarget. The fixture save has one weapon and an empty quick bar, and the
+  game did not sheathe during 10 s idle, so weapon switching and putting the weapon away are not exercised yet.

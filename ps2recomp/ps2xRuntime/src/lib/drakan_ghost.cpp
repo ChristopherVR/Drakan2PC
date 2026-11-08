@@ -155,6 +155,14 @@ void hookRenderObject(uint8_t* ram, R5900Context* c, PS2Runtime* rt) {
     g_renderObject(ram, c, rt);
 }
 
+uint32_t resourceOf(const uint8_t* ram, uint32_t object) { // actor+8, for the shadow trace
+    uint32_t v = 0;
+    object &= 0x1ffffffu;
+    if (object + 12 <= PS2_RAM_SIZE)
+        std::memcpy(&v, ram + object + 8, 4);
+    return v;
+}
+
 void hookCharacterProjector(uint8_t* ram, R5900Context* c, PS2Runtime* rt) {
     // This is the character projector, not the generic model-shadow renderer. a0 is its manager; a1 is the model.
     // Redirect before silhouette bounds / pose / projected geometry are prepared, retaining the manager and light.
@@ -175,6 +183,34 @@ void hookCharacterProjector(uint8_t* ram, R5900Context* c, PS2Runtime* rt) {
         }
         const uint32_t source = getRegU32(c, 5);
         const uint32_t caster = drakan_local_character::g_view.shadowObject(source);
+        // DRAKAN_SHADOW_TRACE=<n>: log the first n projector calls (which objects cast a character shadow, and what
+        // the local view made of each: the duplicate-shadow harness reads these lines).
+        static long traceLeft = [] {
+            const char* v = std::getenv("DRAKAN_SHADOW_TRACE");
+            return v ? std::strtol(v, nullptr, 10) : 0L;
+        }();
+        if (traceLeft > 0) {
+            --traceLeft;
+            const auto& view = drakan_local_character::g_view;
+            const char* role = source == view.controller                                        ? "controller"
+                               : source == view.body                                            ? "body"
+                               : source == view.weapons[0] || source == view.weapons[1]         ? "original-item"
+                               : source == view.bodyWeapons[0] || source == view.bodyWeapons[1] ? "body-item"
+                                                                                                : "other";
+            int ghostId = 0;
+            const char* ghostPart = "";
+            {
+                std::lock_guard<std::mutex> lock(g_m); // the render path already takes it (hookRenderObject)
+                for (const Ghost& g : g_ghosts) {
+                    if (g.info.handle == source)
+                        ghostId = g.info.id, ghostPart = g.localVisual ? "local-body" : "remote-body";
+                    else if (source && (g.weapon[0] == source || g.weapon[1] == source))
+                        ghostId = g.info.id, ghostPart = g.localVisual ? "local-item" : "remote-item";
+                }
+            }
+            std::fprintf(stderr, "[shadow-trace] tick %u source %x res %x role %s ghost %d %s caster %x\n", g_tick,
+                         source, resourceOf(ram, source), role, ghostId, ghostPart, caster);
+        }
         if (!caster) {
             SET_GPR_U32(c, 2, 0u);
             c->pc = getRegU32(c, 31);
