@@ -291,6 +291,24 @@ int main() {
         CHECK(mr.map(music, 0x302, disc) == disc && mr.map(music, 0x304, disc) == disc);
         CHECK(mr.wanted() == disc);
     }
+    // a campaign's music cue replaces the playing loop: the older track's chunks are served silent
+    {
+        bool on = false;
+        CampaignMusicDucker md;
+        md.setActive([&] { return on; });
+        const std::string music = "ENGLISH\MUSIC\PS2MUSIC\PS2MUSIC.SDB";
+        CHECK(!md.silence(music, 0x302, 8, 0) && !md.silence(music, 0x304, 8, 0)); // Drakan 2: nothing changes
+        on = true;
+        CHECK(!md.silence(music, 0x302, 8, 0) && !md.silence(music, 0x304, 8, 0) && !md.silence(music, 0x304, 8, 163840));
+        CHECK(!md.silence(music, 0x302, 6, 0)); // the cue's descriptor: the loop is replaced
+        CHECK(md.silence(music, 0x304, 8, 245760) && !md.silence(music, 0x304, 6, 0) && !md.silence(music, 0x304, 6, 163840));
+        CHECK(md.silence(music, 0x304, 8, 0)); // a wrapping loop with no gap stays silent
+        CHECK(!md.silence("ENGLISH\COMMON\SOUNDS\SOUND.SDB", 0x304, 8, 0)); // other files untouched
+        std::vector<u8> blocks(32, 0xff);
+        CampaignMusicDucker::silenceAdpcm(blocks);
+        CHECK(blocks[0] == 0 && blocks[1] == 0xff && blocks[2] == 0 && blocks[15] == 0 && blocks[16] == 0 &&
+              blocks[17] == 0xff);
+    }
     // ---- campaign credits through plain file reads: the overlay rewrites the two entries inside the opened RRC, at
     // read time
     {

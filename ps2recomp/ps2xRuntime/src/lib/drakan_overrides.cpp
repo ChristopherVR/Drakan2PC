@@ -1716,6 +1716,12 @@ void applyDrakanOverrides(PS2Runtime& runtime) {
                 music->setActive([] { return drakan_game::currentModId(); });
                 host->iop.res.setIdRedirect(
                     [music](const std::string& key, uint16_t type, uint16_t id) { return music->map(key, type, id); });
+                // a campaign's music cue replaces the playing loop, as on the PC
+                auto ducker = std::make_shared<hle::CampaignMusicDucker>();
+                ducker->setActive([music] { return music->campaignActive(); });
+                host->iop.res.setChunkDuck([ducker](const std::string& key, uint16_t type, uint16_t id, uint32_t off) {
+                    return ducker->silence(key, type, id, off);
+                });
             }
         }
         { // the title and the Mods page explain an enabled campaign that is not on the game card (ModDiscovery.h)

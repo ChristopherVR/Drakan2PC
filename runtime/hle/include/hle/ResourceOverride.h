@@ -16,6 +16,7 @@
 #pragma once
 #include "Interfaces.h"
 #include "IsoFs.h"
+#include <chrono>
 #include <functional>
 #include <map>
 #include <memory>
@@ -119,11 +120,39 @@ public:
     // The id the current game would play now (the disc id when no campaign track applies).
     u16 wanted() const;
     size_t size() const { return tracks_.size(); }
+    // A campaign with its own title track is the current game.
+    bool campaignActive() const { return active_ && tracks_.count(active_()) != 0; }
 
 private:
     std::map<std::string, u16> tracks_;
     std::function<std::string()> active_;
     u16 latched_ = 0; // 0 = no descriptor read yet: follow the current game
+    std::mutex mu_;
+};
+
+// ---- campaign music replaces the playing music
+// ----------------------------------------------------------------------------------------------------------------
+// On the PC a new music cue replaces the playing music (DirectMusic switches the primary segment). The PS2 engine plays a
+// cue on top of the level's Triggered Music Loops, and a sequence message does not reach those loops, so in a campaign
+// the sample chunks (PS2MUSIC.SDB 0x304) of every track but the newest one are served silent (ADPCM blocks with the
+// predictor, shift and data zeroed, the loop flags kept). A track starts when its descriptor (0x302) is read; a track
+// whose chunk requests stop for a while and begin again at offset 0 starts again too. Drakan 2 is not affected.
+class CampaignMusicDucker {
+public:
+    void setActive(std::function<bool()> f) { active_ = std::move(f); }
+    // Observe a request; true = serve this sample chunk silent.
+    bool silence(const std::string& fileKey, u16 type, u16 id, u32 offset);
+    // Silence the ADPCM blocks of `data` (16-byte blocks, flag byte kept).
+    static void silenceAdpcm(std::vector<u8>& data);
+
+private:
+    struct Track {
+        std::chrono::steady_clock::time_point last{};
+        bool muted = false;
+    };
+    std::function<bool()> active_;
+    std::map<u16, Track> tracks_;
+    u16 current_ = 0;
     std::mutex mu_;
 };
 

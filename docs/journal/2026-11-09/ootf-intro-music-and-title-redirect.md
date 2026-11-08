@@ -32,22 +32,29 @@ and then the OotF main theme: two different main tracks one after the other. Fix
 length of 0xFFFFFFFF is "whole entry" and never "too long". Verified: `0302/196/-1 +0 len 60` is now served from id 4 (60 bytes)
 and `0304/196 +0` follows.
 
-## Root cause 2 (found, not fixed): scene 381 plays its cue over the level loop
+## Root cause 2 (fixed in the runtime): scene 381 plays its cue over the level loop
 
 Ruined Village starts its loop 8 ("nitetime1", `Initial Music ID`) and its opening scene 381 plays PC cue 6 ("Dark Union") at
 11.5 s (fade in 7 s, fade out 3 s); scene 390 stops music at 4.6 s (fade out 9 s). The PC replaces the playing music with each cue.
-The PS2 plays a cue on top of the level's Triggered Music Loops, so in game both tracks stream together from the cue on
-(`0304/8` and `0304/6` chunks alternate for the rest of the run; the intro hand-over itself is clean: 4 stops before 8 starts).
+The PS2 plays a cue on top of the level's Triggered Music Loops, so both tracks streamed together from the cue on
+(`0304/8` and `0304/6` chunks alternated for the rest of the run; the intro hand-over itself is clean).
 
-Tried, in game, without effect (reverted, nothing committed):
+A converter-side fix failed: a sequence music stop only affects cue music, and sequence messages (Off = 0 or 4098, to actors on
+the loop objects, ids checked) do not reach a Triggered Music Loop. Reverted.
 
-* a sequence music stop (cue id 0) in front of each cue: the PS2 stop only affects cue music, loop 8 kept streaming;
-* extra sequence actors on the level's loop objects (ids reserved before the scenes are converted, then given to
-  `applyLevelMusic`) sending the loops' Off message at each cue's time, with Off = 0 and with Off = 4098: loop 8 kept streaming.
-  The ids matched the placed loops, so a sequence message does not reach a Triggered Music Loop (it probably only listens to
-  messages of linked triggers, as the detector halves send them).
+Fix (`hle::CampaignMusicDucker`, `runtime/hle/src/ResourceOverride.cpp`, hooked in `ResourceService::process`): while a campaign
+with its own title music is the current game, a track starts when its descriptor (0x302) is read, and every other track still
+streaming is then served silent chunks (ADPCM blocks with predictor, shift and data zeroed, loop flags kept). A silenced track
+starts again with its descriptor, or with a chunk at offset 0 after a gap of more than 8 s (a looping stream wraps to offset 0
+with no gap). Drakan 2 does nothing (the ducker needs the campaign). The PC does not resume the level loop after the cue
+(scene 390 stops everything), so the loop stays silent. There is no crossfade: the old track cuts at the cue.
 
-Ideas left: let a linked Trigger Detector be fired by the scene (or a Timer at the cue time) that sends Off to the loops, or
-play the cue as a loop (one loop per cue id with the On message) and fire both from the same linked object.
+Verified (`build/ootf-run/mus2`, Intro + Ruined Village, HLE log + 48 kHz dump, best-lag normalised correlation of 4 s windows
+against the pack's decoded tracks): log `music: track 6 replaces 8`; the dump follows track 8 (ncc 0.41 to 0.74) until the cue and
+track 6 (0.35 to 0.52) after it, track 8 at 0.07 to 0.10 (no longer audible). Unit test in `override_test` (ducker).
 
+## Title music at New Game after 60 s idle
 
+`build/ootf-run/mus1` (`DRAKAN_AUTOPRESS=62000`): the title streams the redirected theme (`0304/196` chunks from +0 to
++737280, about 58 s) and requests no more after New Game; the Intro's cue starts a fresh track (`0302/4`, `0304/4 +0`). The dump
+level dips at the level load. No overlap of the two.

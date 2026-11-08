@@ -177,8 +177,9 @@ stops) switching one Triggered Music Loop per music id, verified in Ruined Villa
 
 **November 9 intro music:** "Psygnosis Presents" is the engine-rendered Intro 1 scene (the install has no movie file), nothing
 new found in it. The title menu played the Drakan 2 SeaHigh GUI track instead of the OotF theme with `game = d1`: the runtime
-refused the title redirect because the guest requests descriptors with length 0xFFFFFFFF (fixed in the executable). Still open:
-Ruined Village scene 381's cue 6 plays over the level's loop 8 (a sequence stop or message does not stop a Triggered Music Loop).
+refused the title redirect because the guest requests descriptors with length 0xFFFFFFFF (fixed in the executable). Ruined Village scene 381's cue 6
+played over the level's loop 8 (the PS2 plays cues on top of loops, sequence messages do not reach them): the runtime now serves
+silent chunks for every track but the newest in a campaign, as the PC replaces the playing music.
 See [intro music](../journal/2026-11-09/ootf-intro-music-and-title-redirect.md).
 
 **November 8 Drakan 2 characters and weapons:** Wartoks, orcs and the spider (already played by the disc classes) now keep

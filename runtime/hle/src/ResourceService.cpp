@@ -1,4 +1,5 @@
 #include "hle/ResourceService.h"
+#include "hle/ResourceOverride.h"
 #include <algorithm>
 #include <cstring>
 
@@ -63,6 +64,7 @@ s32 ResourceService::process(const FileService::Open& f, const ResourceRequestWi
     }
     if (!e)
         e = f.srsc.find(r.type, r.id, r.sub);
+    const bool duck = e && duck_ && duck_(f.node.key, r.type, id, r.offset);
     if (!e) {
         logf("resource: %s: %04x/%u/%d not found", f.node.key.c_str(), r.type, r.id, (s16)r.sub);
         return ST_NOT_FOUND;
@@ -192,6 +194,8 @@ s32 ResourceService::process(const FileService::Open& f, const ResourceRequestWi
         }
     } else if (dtype == 1) {
         adpcmFixup(data, r.flags);
+        if (duck)
+            CampaignMusicDucker::silenceAdpcm(data);
         u32 padded = (len + 0x3f) & ~0x3fu; // IOP transfers len rounded up to 64
         data.resize(padded, 0);
         spu_.ramWrite(r.dest, data.data(), padded);
