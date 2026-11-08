@@ -86,7 +86,10 @@ Runs with audio on, `DRAKAN_SND_DBG=1`, `DRAKAN_HLE_LOG`, `DRAKAN_AUDIO_DUMP` (4
   keep the Drakan 2 track for the whole title visit, so a play latched to the disc track switches to the campaign's at its
   next chunk (at most 6.5 s); the guest keeps the disc descriptor's length for that play (61 s, then the OotF track restarts
   from its beginning) and the next descriptor read plays the full track. `ResourceService` serves the original entry when the
-  target is too short for a request.
+  target is too short for a request. Verified on the rebuilt exe (`build/ootf-run/music-ask`, `game = ask`, Up then Enter
+  at 26 / 27.5 s): the title logs `title track 196 -> 196 (disc game)`, then `SelectGame(0)` at 28.8 s and
+  `title track 196 -> 4 (campaign chosen during the play)` at the next chunk (`0304/196 +327680`), every later chunk served
+  from the campaign track. Earlier Enter taps (before about 20 s after launch) are lost or pick Drakan.
 * Tests: `npm test` (editor, 1156 + 8 new in `ootfdmusic.test.ts`: MS-ADPCM, DLS / segment parsing, note pitch and timing,
   intro / loop passes and tail folding, PS2MUSIC entries, id allocation and sharing, level start object, trigger ids), ctest
   `override_test` (`CampaignMusicRedirect`: disc game, campaign, latch, switch during a play, other files / types untouched).
