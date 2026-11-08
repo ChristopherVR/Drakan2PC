@@ -18,6 +18,7 @@ namespace {
 constexpr int kBowShotFrames = 120;          // a launch this long after the release still belongs to the aimed shot
 constexpr float kBowAimDistance = 8000.0f;   // the arrow converges on the camera's centre ray this far ahead
 constexpr uint32_t kBowMode = 5;             // player+0xe90 while the bow is the active weapon
+constexpr uint32_t kCrossbowMode = 4;        // player+0xe90 while the crossbow is the active weapon
 constexpr uint32_t kCameraSightFlag = 0x20u; // cam+0x48 bit5: the native bow sight (FUN_0032a608)
 // Over the shoulder while aiming: the camera target moves this far along the camera's right axis (world-space target
 // offset cam+0x10c / +0x114, read by FUN_0041f848; the native easing slides the camera there). Without it the screen
@@ -94,7 +95,8 @@ void InputModule::updateBowAim(IGuest& g) {
     }
     const bool camOk = cam && g.read32(cam + 0x14c) == 6 && !(g.read32(cam + 0x48) & kCameraSightFlag);
     const bool ready = bowHoldAim() && camOk && player && !dragon_ && mouseKeyboardOwner_ &&
-                       g.read32(player + 0xe90) == kBowMode && g.read32(0x4fb730) && !g.read32(0x4fbafc);
+                       (g.read32(player + 0xe90) == kBowMode || g.read32(player + 0xe90) == kCrossbowMode) &&
+                       g.read32(0x4fb730) && !g.read32(0x4fbafc);
     bowReady_.store(ready);
     const bool sightOpen = bowSightCrosshair(g); // the OotF "targeted first-person view" shows the crosshair
     if (sightOpen != bowSightOpen_.exchange(sightOpen) && std::getenv("DRAKAN_BOW_LOG"))
@@ -334,7 +336,8 @@ uint32_t InputModule::bowShotChannel(IGuest& g, uint32_t player, uint32_t caller
     const bool walking = bowHoldAim() && bowShotFrames_ > 0 && player &&
                          (g.read32(player + 0x504) != 0 || g.read32(player + 0x508) != 0);
     if (cfg_.bowAimNative || caller != 0x301b7cu || channel != 0 || dragon_ || !player ||
-        player != contextPlayer(g, g.read32(cfg_.addrCtxPtr)) || g.read32(player + 0xe90) != kBowMode ||
+        player != contextPlayer(g, g.read32(cfg_.addrCtxPtr)) ||
+        (g.read32(player + 0xe90) != kBowMode && !(walking && g.read32(player + 0xe90) == kCrossbowMode)) ||
         !((g.read32(player + 0x94) & 0x10u) || walking) || !g.read32(0x4fb730) || g.read32(0x4fbafc))
         return channel;
     const auto valid = [](uint32_t p, uint32_t bytes) { return p >= 0x100000u && p <= 0x2000000u - bytes; };

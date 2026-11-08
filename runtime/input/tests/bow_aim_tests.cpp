@@ -521,6 +521,29 @@ void testWalkingShotChannel() {
     CHECK(ps2.bowShotChannel(g, PLAYER, caller, 0) == 0);
 }
 
+// The crossbow (holder mode 4) holds to aim like the bow: crosshair while held, one Square tap on release.
+void testCrossbowHoldAim() {
+    InputModule m;
+    m.initHeadless(Config::defaults());
+    FakeGuest g;
+    setup(g);
+    g.write32(PLAYER + 0xe90, 4);
+    m.beginFrame(FrameInput{});
+    m.updateBowAim(g);
+    PadSample s = pad(m, mouse(MBTN_LEFT, MBTN_LEFT, 0));
+    CHECK(m.bowCrosshairVisible());
+    CHECK(!(s.buttons & Pad::SQUARE));
+    pad(m, mouse(0, 0, MBTN_LEFT));
+    s = pad(m, FrameInput{});
+    CHECK(s.buttons & Pad::SQUARE);
+    g.write32(PLAYER + 0xe90, 3); // another weapon: plain attack
+    m.updateBowAim(g);
+    for (int i = 0; i < 3; ++i)
+        pad(m, FrameInput{});
+    s = pad(m, mouse(MBTN_LEFT, MBTN_LEFT, 0));
+    CHECK(s.buttons & Pad::SQUARE);
+}
+
 // bow_aim = native (Gameplay > Bow combat > Original): the PS2 game's own bow, every OotF adapter stays out.
 void testNativeBow() {
     Config c = Config::defaults();
@@ -881,6 +904,7 @@ int main() {
     testOotfJumpAttackGate();
     testAirborneShotChannel();
     testWalkingShotChannel();
+    testCrossbowHoldAim();
     testSightCrosshair();
     testNativeBow();
     testOotfSightJumpCommand();
