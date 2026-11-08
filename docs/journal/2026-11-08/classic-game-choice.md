@@ -14,3 +14,16 @@ The pick goes through the same `SelectGame` title action as the modern card (`dr
 refresh); in classic mode the glue then finishes the action and calls `titleFallBack`, which restores the native title
 page. A new visit to the title asks again, like the modern card. Strings are the modern card's ("Choose your game",
 "More above", "More below"), so no new translations. Test: `testTitleClassicGameChoice` (gameui_saveload_test).
+
+## Background (follow-up)
+
+The native art is the Ancients' Gates picture, so it is hidden while the list is up (`HiddenDraw` without the art widget
+kept, drakan_menu_screens.inl `menuScreenDraw`); the host draws black, or the focused game's
+`previews/background-<id>.png` (`TitleState::Game::background`, same lookup as the covers) dimmed. The native title shows
+again once a game is picked. Tests: `testTitleClassicGameChoice` (background follows the focus).
+
+Order of the Flame background: not generated. The Drakan 1 install's `Dragon.rrc` was decoded (type 0x40 records: 4-byte
+w, h, 54-byte header, zlib, 16-bit pixels, 83 pictures of 256 x 256 plus smaller ones): they are the parchment level maps,
+objective text sheets, HUD / pack frames, the Surreal and a publisher logo. No title, menu or loading background exists
+in the install (the title art is video), so the converter emits nothing. Until a source exists the player's own
+`previews/background-ootf.png` (or the supplied cover as that file) serves; a pack may ship `background-ootf.png`.

@@ -116,6 +116,9 @@ struct TitleState {
         std::string id; // "d2", "ootf", a campaign id
         std::string name, description;
         ImageRef cover;
+        // A full-screen menu picture drawn behind the classic game list while this game is focused (the host reads
+        // previews/background-<id>.png: a pack's, or the player's next to the exe). None = plain black.
+        ImageRef background;
     };
     bool offerGames = false;
     // The game's own (native) title menu is the title style: the game card is drawn in the original menus' plain

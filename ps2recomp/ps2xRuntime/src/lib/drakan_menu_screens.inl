@@ -1136,7 +1136,9 @@ bool menuScreenDraw(uint8_t* ram, R5900Context* c, PS2Runtime* rt, uint32_t scre
     if (!titleHosted())
         return false;
     if (screen == g_title.screen) {
-        HiddenDraw hidden(g, c, screen, static_cast<uint16_t>(titleui::kWidgetArt), true);
+        // The classic game choice hides the native art too (it is the Ancients' Gates picture: it must not show
+        // before a game is picked); the host draws black or the game's own background.
+        HiddenDraw hidden(g, c, screen, g_title.classic ? uint16_t(0) : static_cast<uint16_t>(titleui::kWidgetArt), true);
         g_origScreenDraw(ram, c, rt);
         return true;
     }

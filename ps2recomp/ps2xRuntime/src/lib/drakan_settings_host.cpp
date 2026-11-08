@@ -2273,6 +2273,10 @@ void titleDraw(const dsettings::SettingsOverlay::ScreenFrame& f, bool background
                 pic = mapPreviewId("game-" + g.id);
             if (pic != 0)
                 g.cover = {gameui::ImageKind::LevelPreview, pic};
+            // The classic game choice's full-screen background: previews/background-<id>.png (a pack's, or the player's
+            // picture of "d2" / "ootf" next to the exe); none = plain black.
+            if (const uint32_t bg = mapPreviewId("background-" + g.id); bg != 0)
+                g.background = {gameui::ImageKind::LevelPreview, bg};
         }
         st.multiplayer = mpState(ui.screen.page() == gameui::TitlePage::Multiplayer &&
                                  ui.screen.multiplayer().page() == gameui::mp::MpPage::Join);

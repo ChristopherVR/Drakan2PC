@@ -515,7 +515,11 @@ What the runtime does with it (`drakan_game.cpp`):
   main page; Esc on the card keeps the current game. With `[general] title_menu = native` (Original) the same choice is
   asked first as a plain list in the original menus' style (heading and game names as text over the native title art, no
   panels, covers or descriptions; Up / Down, Enter, mouse, same sounds; Esc keeps the current game), then the game's own
-  title menu carries on (`TitleState::classicGameChoice`, `drakan_menu_screens.inl` titleExecute SelectGame). It lists Drakan, then every campaign (Order of the Flame and the custom
+  title menu carries on (`TitleState::classicGameChoice`, `drakan_menu_screens.inl` titleExecute SelectGame).
+  The native title art (it names The Ancients' Gates) is hidden while the list is up: the screen is black, or shows the
+  focused game's own background, `previews/background-<id>.png` (a pack ships it like `campaign-<id>.png`, in its
+  `previews/` folder; the player can put `background-d2.png` / `background-ootf.png` in `previews/` next to the exe; the
+  same lookup as the covers, `mapPreviewId`), dimmed under the text. `TitleState::Game::background`. It lists Drakan, then every campaign (Order of the Flame and the custom
   ones) on the left, and the focused game's cover and description on the right ("Playing" marks the current one; more than
   seven games scroll). The main menu (New Game, Load Game, Continue, Multiplayer, Options ...) then runs for the chosen game;
   the footer names it. Code: `gameui::TitleState::games`, `TitlePage::GameChoice`, `TitleActionKind::SelectGame` (value =

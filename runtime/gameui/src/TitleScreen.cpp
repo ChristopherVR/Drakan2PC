@@ -910,12 +910,19 @@ void TitleScreen::drawGameCard(const TitleState& st, DrawList& d) const {
 void TitleScreen::drawClassicGameChoice(const TitleState& st, DrawList& d) const {
     const detail::Paint p(lf_, cfg_.screen);
     const Theme& th = cfg_.screen.theme;
-    d.rect({lf_.view.x, lf_.view.y, lf_.view.w, lf_.view.h}, withAlpha(th.backdropEdge, 150));
-    p.text(d, design::title::classicHeading(), menuText("Choose your game"), FontRole::Title, th.text,
-           TextAlign::Center);
     const int n = gameCount(st);
     const int focused =
         focus_.kind == TargetKind::CardButton ? std::clamp(gameOf(static_cast<TitleRow>(focus_.index)), 0, n - 1) : 0;
+    // The native title art is hidden while the list is up (it names The Ancients' Gates): black, or the focused game's
+    // own background picture dimmed a little under the text.
+    const Rect view{lf_.view.x, lf_.view.y, lf_.view.w, lf_.view.h};
+    d.rect(view, rgba(0, 0, 0, 255));
+    if (focused < static_cast<int>(st.games.size()) && st.games[static_cast<size_t>(focused)].background.kind != ImageKind::None) {
+        d.image(view, st.games[static_cast<size_t>(focused)].background);
+        d.rect(view, rgba(0, 0, 0, 110));
+    }
+    p.text(d, design::title::classicHeading(), menuText("Choose your game"), FontRole::Title, th.text,
+           TextAlign::Center);
     const int first = gameScroll(focused, n);
     for (int i = first; i < n && i < first + design::title::kGameRowsShown; ++i) {
         const TargetId id{TargetKind::CardButton, static_cast<int>(gameRowOf(i))};

@@ -688,6 +688,18 @@ void testTitleClassicGameChoice() {
     CHECK(!hasText(o.draw, "Continue") && !hasText(o.draw, "Load Game"));           // no modern main column
     CHECK(findImage(o.draw, ImageKind::LevelPreview, 5) == nullptr);                // no cover
     CHECK(scr.focus() == (TargetId{TargetKind::CardButton, static_cast<int>(TitleRow::GameOotf)})); // the current game
+    // Black (the native art is hidden by the host) until a game has a background picture: the focused game's own.
+    CHECK(findImage(o.draw, ImageKind::LevelPreview, 91) == nullptr);
+    st.games[2].background = {ImageKind::LevelPreview, 91};
+    st.games[1].background = {ImageKind::LevelPreview, 92};
+    TitleScreen bg;
+    bg.open();
+    o = bg.frame(st, {}, kVp); // focus: the current game (1)
+    CHECK(findImage(o.draw, ImageKind::LevelPreview, 92) != nullptr && findImage(o.draw, ImageKind::LevelPreview, 91) == nullptr);
+    o = bg.frame(st, keys({UiKey::Down}), kVp);
+    CHECK(findImage(o.draw, ImageKind::LevelPreview, 91) != nullptr && findImage(o.draw, ImageKind::LevelPreview, 92) == nullptr);
+    st.games[2].background = {};
+    st.games[1].background = {};
     // Up / Down move with the Move sound; Confirm picks (the host then restores the native title).
     o = scr.frame(st, keys({UiKey::Down}), kVp);
     CHECK(o.sound == UiSound::Move && o.actions.empty());
