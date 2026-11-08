@@ -66,8 +66,10 @@ struct Config {
     float cameraFollow = 5.0f; // [mouse] camera_follow: while mouse / keyboard steer on foot, turns carry the camera
                                // round Rynn at once and its travel behind her eases at this rate (1/s); 0 = the
                                // game's own rubber band (turns swing round ~0.5 s late)
-    bool bowAimModern = false; // [mouse] bow_aim = modern: hold LMB with the bow out to aim (zoom + crosshair), release
-                               // to shoot at the crosshair; ootf/classic = press fires, RMB toggles the native sight
+    bool bowAimModern = false; // [mouse] bow_aim = modern: like ootf, but without the OotF first-person sight adapters
+    bool bowHoldAim = true;    // hold LMB with the bow out to draw and aim (zoom + crosshair at the arrow's aim point),
+                               // release to shoot; RMB still toggles the native sight (ootf and modern, not native).
+                               // Cleared by the camera profile when the advanced input hooks are unavailable
     bool bowAimNative = false; // [mouse] bow_aim = native (ps2): the original PS2 bow, none of the OotF adapters
     float bowZoom = 0.85f;     // [mouse] bow_zoom: field of view factor while aiming (1 = no zoom)
     float pitchViewGain = 1.8f;    // [mouse] pitch_view_gain: the on-foot camera shows 1.8 x cam+0x84; mouse pitch is

@@ -313,7 +313,7 @@ pitch_persist = 1          ; the camera pitch stays where the mouse left it (the
 free_combat = 1            ; free combat look; explicit target lock and bow aiming remain available
 camera_follow = 5          ; mouse / keyboard on foot: turning carries the camera round Rynn at once, its travel behind her eases at this rate (1/s; higher = stiffer, 0 = the game's own slow rubber band)
 pitch_view_gain = 1.8      ; the game shows 1.8x the camera pitch on foot; mouse up / down is divided by this so both axes turn the view equally (1 = old feel)
-bow_aim = ootf             ; ootf: left click fires (auto-aim), right click toggles the first-person sight; native = the original PS2 bow; modern = hold left to aim, release to shoot
+bow_aim = ootf             ; ootf: hold left to draw and aim (crosshair), release to shoot, walk any direction, right click toggles the first-person sight; native = the original PS2 bow (click fires); modern = ootf without the first-person sight adapters
 bow_zoom = 0.85            ; field of view factor while aiming the bow (1 = no zoom)
 dragon_mode = stick        ; Arokh flight: stick = the mouse steers through the game's own right-stick path (OotF style flight), direct = raw angles like on foot (unverified)
 yaw_sign = -1              ; verified in the running game: mouse right turns right

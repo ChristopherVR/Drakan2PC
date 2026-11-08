@@ -109,7 +109,7 @@ void InputModule::applyCameraProfile() {
     cfg_.addrStickMap = camera_.stickMap;
     cfg_.turnCallAbi = CallAbi::FprFloat;
     if (!camera_.advancedInput)
-        cfg_.bowAimModern = false;
+        cfg_.bowAimModern = cfg_.bowHoldAim = false;
     if (!camera_.movementInput)
         cfg_.strafeKeys = false;
     else {

@@ -61,7 +61,7 @@ bool InputModule::bowLmbIsSquare() const {
 void InputModule::bowAimFrame() {
     if (bowShotFrames_ > 0)
         --bowShotFrames_;
-    const bool ready = cfg_.bowAimModern && bowReady_.load() && frame_.captured && !layerIsMenu_ &&
+    const bool ready = bowHoldAim() && bowReady_.load() && frame_.captured && !layerIsMenu_ &&
                        !menuActive_.load() && !hostOwned() && bowLmbIsSquare();
     if (!ready) {
         bowAiming_.store(false); // a sight, weapon change or menu cancels the aim without a shot
@@ -93,7 +93,7 @@ void InputModule::updateBowAim(IGuest& g) {
         bowSightLocomotionPlayer_ = bowSightLocomotionMotion_ = 0;
     }
     const bool camOk = cam && g.read32(cam + 0x14c) == 6 && !(g.read32(cam + 0x48) & kCameraSightFlag);
-    const bool ready = cfg_.bowAimModern && camOk && player && !dragon_ && mouseKeyboardOwner_ &&
+    const bool ready = bowHoldAim() && camOk && player && !dragon_ && mouseKeyboardOwner_ &&
                        g.read32(player + 0xe90) == kBowMode && g.read32(0x4fb730) && !g.read32(0x4fbafc);
     bowReady_.store(ready);
     const bool sightOpen = bowSightCrosshair(g); // the OotF "targeted first-person view" shows the crosshair
@@ -148,7 +148,7 @@ void InputModule::updateBowAim(IGuest& g) {
 
 void InputModule::beforeBowLaunch(IGuest& g, uint32_t bow) {
     std::lock_guard<std::mutex> lock(m_);
-    if (!cfg_.bowAimModern || bowShotFrames_ <= 0 || !bow)
+    if (!bowHoldAim() || bowShotFrames_ <= 0 || !bow)
         return;
     const uint32_t ctx = g.read32(cfg_.addrCtxPtr);
     const uint32_t cam = contextCamera(g, ctx);
@@ -224,6 +224,7 @@ void InputModule::beforeBowLaunch(IGuest& g, uint32_t bow) {
         g.writeF(arrow + 0x24 + 4 * static_cast<uint32_t>(3 * i), c1[i]);
         g.writeF(arrow + 0x28 + 4 * static_cast<uint32_t>(3 * i), c2[i]);
     }
+    bowAimedLaunch_ = true; // this launch is pointed at the crosshair: the third-person auto-aim must stay out of it
     std::fprintf(stderr, "[bow] aimed shot: arrow 0x%x dir (%.3f %.3f %.3f) from (%.0f %.0f %.0f)\n", arrow, d[0], d[1],
                  d[2], from[0], from[1], from[2]);
 }
@@ -328,9 +329,13 @@ uint32_t InputModule::bowAttackMask(IGuest& g, uint32_t player, uint32_t caller,
 // native attack completion check in 31da90 follows the torso clip.
 uint32_t InputModule::bowShotChannel(IGuest& g, uint32_t player, uint32_t caller, uint32_t channel) {
     std::lock_guard<std::mutex> lock(m_);
+    // Airborne shots keep the jump; a shot released from the hold-to-aim while the movement keys are down keeps the
+    // legs running, strafing or backing away (walk and shoot in every direction, as in the original PC game).
+    const bool walking = bowHoldAim() && bowShotFrames_ > 0 && player &&
+                         (g.read32(player + 0x504) != 0 || g.read32(player + 0x508) != 0);
     if (cfg_.bowAimNative || caller != 0x301b7cu || channel != 0 || dragon_ || !player ||
         player != contextPlayer(g, g.read32(cfg_.addrCtxPtr)) || g.read32(player + 0xe90) != kBowMode ||
-        !(g.read32(player + 0x94) & 0x10u) || !g.read32(0x4fb730) || g.read32(0x4fbafc))
+        !((g.read32(player + 0x94) & 0x10u) || walking) || !g.read32(0x4fb730) || g.read32(0x4fbafc))
         return channel;
     const auto valid = [](uint32_t p, uint32_t bytes) { return p >= 0x100000u && p <= 0x2000000u - bytes; };
     const auto actor = g.read32(player + 0x80);
@@ -649,6 +654,10 @@ uint16_t InputModule::bowAutoTarget(IGuest& g, uint32_t bow, uint32_t scratch) {
     if (std::getenv("DRAKAN_BOW_LOG"))
         std::fprintf(stderr, "[bow] autoaim entry: bow=%x modern=%d dragon=%d mouseOwner=%d scratch=%x\n", bow,
                      cfg_.bowAimModern, dragon_, mouseKeyboardOwner_, scratch);
+    if (bowAimedLaunch_) { // the arrow already flies along the crosshair ray (beforeBowLaunch)
+        bowAimedLaunch_ = false;
+        return 0;
+    }
     if (cfg_.bowAimModern || cfg_.bowAimNative || dragon_ || !mouseKeyboardOwner_ || !bow || !scratch)
         return 0;
     const uint32_t ctx = g.read32(cfg_.addrCtxPtr), cam = contextCamera(g, ctx), player = contextPlayer(g, ctx);

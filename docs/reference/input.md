@@ -510,6 +510,19 @@ adapter below off), `modern` (optional hold/release adapter), `[mouse] bow_zoom 
 Gameplay > Combat > "Bow combat" (Order of the Flame / Original (PS2) / Modern). Code: `runtime/input/src/BowAim.cpp`, glue hooks in `drakan_input_glue.cpp`, crosshair in
 `drakan_settings_host.cpp` (`SettingsOverlay::drawCrosshair`). `DRAKAN_INPUT_SKIP` bit 64 disables the launch hook.
 
+Hold to aim (2026-11-09): the default `ootf` style now draws and aims on the held left button and shoots on release,
+as in Drakan: Order of the Flame; `modern` is the same minus the OotF sight adapters, `native` keeps press-to-fire.
+The hold is `InputModule::bowHoldAim()` (`ootf` or `modern`, not `native`, and only with the advanced input hooks).
+With the sight closed LMB belongs to the aim; with the RMB sight open it still fires on press. Walking: the hold itself
+touches no guest state, so every direction already moves; the release tap used to start the whole-body archer clip on
+channel 0 and so stopped the legs. `bowShotChannel` now also moves that first clip to the torso channel when a shot
+released from the hold starts while `player+0x504` / `+0x508` (forward-back / strafe command) are non-zero, exactly as
+for airborne shots. The arrow flies along the crosshair ray (`beforeBowLaunch`), so the third-person auto-aim
+(`bowAutoTarget`) stands aside for it (`bowAimedLaunch_`); it only serves non-LMB fire bindings. The crosshair is the
+centre of the game image, the point the arrow is aimed at 8000 units down the camera ray (nearer targets sit slightly
+off by the shoulder offset). Crossbows are holder mode 4, not the bow's mode 5, and are not covered by any of these adapters yet (their
+attack mask already allows jumping); they keep the native press-to-fire.
+
 The original [publisher manual](https://www.arokhslair.net/downloads/Drakan_Manual.pdf), printed page 15, specifies
 press-to-fire in third person with automatic aiming near the screen centre; alternate attack toggles a zoomed
 first-person sight and toggles back. The default now delivers LMB on press and leaves the native sight open after RMB

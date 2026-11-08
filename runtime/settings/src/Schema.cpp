@@ -662,11 +662,11 @@ void gameplayPage(gameui::SettingPage& pg, const Settings& st, const SchemaEnv& 
              "weapon back in inventory when play resumes.");
     b.choice(
         "input.mouse.bow_aim", "Bow combat",
-        "Order of the Flame (default): attack fires at once and aims itself at an enemy near the middle of the "
-        "screen; the alternate attack opens the zoomed sight with a crosshair, where Rynn can still move, jump and "
-        "shoot. Shots in the air keep the jump going. Original: the PlayStation 2 game's own bow, built around "
-        "its zoomed sight. Modern: hold the left mouse button to aim over the shoulder, release to shoot at the "
-        "crosshair.",
+        "Order of the Flame (default): hold the left mouse button to draw the bow and aim; a crosshair shows where the "
+        "arrow will go and letting go shoots. Rynn can walk, strafe and back away the whole time. The alternate "
+        "attack opens the zoomed sight with a crosshair, where she can still move, jump and shoot. Shots in the air "
+        "keep the jump going. Original: the PlayStation 2 game's own bow (click to shoot), built around its zoomed "
+        "sight. Modern: the same hold to aim, without the Order of the Flame first-person sight handling.",
         {{"ootf", "Order of the Flame"}, {"native", "Original (PS2)"}, {"modern", "Modern (hold to aim)"}});
 
     pg.sections.push_back({"Performance", {}});

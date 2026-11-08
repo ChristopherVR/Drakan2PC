@@ -227,10 +227,12 @@ private:
     bool pitchAllowed(IGuest& g, uint32_t player, uint32_t cam);
     bool nativeLookControlActive() const;
     float pitchViewGain(IGuest& g, uint32_t player, uint32_t cam) const;
+    bool bowHoldAim() const { return cfg_.bowHoldAim && !cfg_.bowAimNative; } // hold LMB to aim, release to shoot
     void bowAimFrame(); // beginFrame, m_ held: LMB = aim while the bow is out, release = one Square tap
     bool bowLmbIsSquare() const;
     std::atomic<bool> bowReady_{false}, bowAiming_{false}, bowSightOpen_{false};
     bool bowSightCrosshair(IGuest& g) const; // m_ held: the native first-person bow sight is open in gameplay
+    bool bowAimedLaunch_ = false;            // beforeBowLaunch pointed the arrow; consumed by bowAutoTarget
     int bowShotFrames_ = 0;                  // frames during which a launch belongs to a shot released from the aim
     bool bowZoomActive_ = false;
     uint32_t bowZoomCam_ = 0;

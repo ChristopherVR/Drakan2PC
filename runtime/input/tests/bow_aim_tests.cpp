@@ -172,11 +172,22 @@ static void testAimAndRelease() {
     CHECK(s.buttons & Pad::SQUARE);
     pad(m, mouse(0, 0, MBTN_LEFT));
     g.write32(CAM + 0x48, 0);
-    // bow_aim = classic: the game's own bow.
+    // bow_aim = classic (= ootf) holds to aim just like modern: the OotF bow is drawn and released, never press-fired.
     Config::parse("[mouse]\nbow_aim = classic\nbow_zoom = 1\n", c, nullptr);
-    CHECK(!c.bowAimModern);
+    CHECK(!c.bowAimModern && !c.bowAimNative);
     m.reloadConfig(c);
     pad(m, FrameInput{});
+    m.updateBowAim(g);
+    s = pad(m, mouse(MBTN_LEFT, MBTN_LEFT, 0));
+    CHECK(!(s.buttons & Pad::SQUARE));
+    CHECK(m.bowCrosshairVisible());
+    pad(m, mouse(0, 0, MBTN_LEFT));
+    m.updateBowAim(g);
+    // bow_aim = native (ps2): the original press-to-fire bow, no aim state and no crosshair.
+    Config::parse("[mouse]\nbow_aim = ps2\n", c, nullptr);
+    m.reloadConfig(c);
+    for (int i = 0; i < 4; ++i)
+        pad(m, FrameInput{});
     m.updateBowAim(g);
     s = pad(m, mouse(MBTN_LEFT, MBTN_LEFT, 0));
     CHECK(s.buttons & Pad::SQUARE);
@@ -464,6 +475,50 @@ void testAirborneShotChannel() {
     g.write32(FIELD, 2);
     g.write32(READERVT + 0x1c, 0);
     check(PLAYER, caller, 0); // unknown reader
+}
+
+// A shot released from the hold-to-aim while a movement key is down keeps the legs going (the archer clip goes to the
+// torso channel); standing still and the PS2 bow keep the native whole-body clip.
+void testWalkingShotChannel() {
+    InputModule m;
+    Config c = Config::defaults();
+    m.initHeadless(c);
+    FakeGuest g;
+    setup(g);
+    constexpr uint32_t caller = 0x301b7c, ACTOR = 0x690000, READER = 0x6a0000, READERVT = 0x6b0000, FIELD = 0x6c0000,
+                       GET = 0x192e48;
+    g.write32(PLAYER + 0x80, ACTOR);
+    g.write32(ACTOR + 0x54, READER);
+    g.write32(READER + 8, READERVT);
+    g.write16(READERVT + 0x18, 0);
+    g.write32(READERVT + 0x1c, GET);
+    g.write32(FIELD, 2);
+    g.returns[GET] = FIELD;
+    m.beginFrame(FrameInput{});
+    m.updateBowAim(g);
+    pad(m, mouse(MBTN_LEFT, MBTN_LEFT, 0));
+    m.updateBowAim(g);
+    pad(m, mouse(0, 0, MBTN_LEFT)); // released: a shot is pending
+    g.write32(PLAYER + 0x504, 2);   // S: backwards
+    CHECK(m.bowShotChannel(g, PLAYER, caller, 0) == 2);
+    g.write32(PLAYER + 0x504, 0);
+    g.write32(PLAYER + 0x508, 1); // strafe
+    g.write32(PLAYER + 0xaec, 0);
+    CHECK(m.bowShotChannel(g, PLAYER, caller, 0) == 2);
+    g.write32(PLAYER + 0x508, 0);
+    CHECK(m.bowShotChannel(g, PLAYER, caller, 0) == 0); // standing still: the native clip
+    // No pending shot (not our release): native.
+    InputModule other;
+    other.initHeadless(c);
+    other.beginFrame(FrameInput{});
+    g.write32(PLAYER + 0x504, 1);
+    CHECK(other.bowShotChannel(g, PLAYER, caller, 0) == 0);
+    // PS2 bow: never.
+    Config::parse("[mouse]\nbow_aim = native\n", c, nullptr);
+    InputModule ps2;
+    ps2.initHeadless(c);
+    ps2.beginFrame(FrameInput{});
+    CHECK(ps2.bowShotChannel(g, PLAYER, caller, 0) == 0);
 }
 
 // bow_aim = native (Gameplay > Bow combat > Original): the PS2 game's own bow, every OotF adapter stays out.
@@ -802,13 +857,15 @@ void testSightShotBasis() {
 int main() {
     {
         InputModule m;
-        m.initHeadless(Config::defaults());
+        Config ps2 = Config::defaults();
+        ps2.bowAimNative = true;
+        m.initHeadless(ps2);
         FakeGuest g;
         setup(g);
         m.beginFrame(FrameInput{});
         m.updateBowAim(g);
         const PadSample press = pad(m, mouse(MBTN_LEFT, MBTN_LEFT, 0));
-        CHECK(press.buttons & Pad::SQUARE); // original PC behavior: attack starts on press
+        CHECK(press.buttons & Pad::SQUARE); // the PS2 bow: attack starts on press
         CHECK(!m.bowCrosshairVisible());
         const PadSample release = pad(m, mouse(0, 0, MBTN_LEFT));
         CHECK(!(release.buttons & Pad::SQUARE));
@@ -823,6 +880,7 @@ int main() {
     testImportedBowAutoAimMetadata();
     testOotfJumpAttackGate();
     testAirborneShotChannel();
+    testWalkingShotChannel();
     testSightCrosshair();
     testNativeBow();
     testOotfSightJumpCommand();

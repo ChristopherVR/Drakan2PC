@@ -49,9 +49,9 @@ The Windows controller path uses XInput and maps the original DualShock layout o
 
 Choose the bow style in **Options > Gameplay > Combat > Bow combat**:
 
-* **Order of the Flame** (default): left click shoots at once and aims itself at an enemy near the middle of the screen. Right click opens the zoomed sight with a crosshair; Rynn can still move, jump and shoot in it. A shot in the air keeps the jump going.
-* **Original (PS2)**: the PlayStation 2 game's own bow, built around its zoomed sight.
-* **Modern (hold to aim)**: **hold left mouse** to aim over the shoulder with a slight zoom and a crosshair; **release** to shoot toward it.
+* **Order of the Flame** (default): **hold left mouse** to draw the bow and aim over the shoulder with a slight zoom; a crosshair shows where the arrow will go and **releasing** shoots. Rynn can walk, strafe and back away the whole time, also while the arrow is released. Right click opens the zoomed sight with a crosshair, where she can still move, jump and shoot. A shot in the air keeps the jump going.
+* **Original (PS2)**: the PlayStation 2 game's own bow (click to shoot), built around its zoomed sight.
+* **Modern**: the same hold to aim, without the Order of the Flame handling of the zoomed sight.
 
 The corresponding setting in `drakan_input.ini` is:
 
