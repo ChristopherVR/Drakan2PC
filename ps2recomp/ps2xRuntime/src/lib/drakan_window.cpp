@@ -86,6 +86,20 @@ LRESULT CALLBACK WndProc(HWND h, UINT m, WPARAM w, LPARAM l) {
     }
     return DefWindowProcW(h, m, w, l);
 }
+
+// Fill the client area black straight away. The window becomes visible (borderless fullscreen) inside the renderer
+// start-up, which does not pump messages for seconds before the first present; WM_ERASEBKGND above never paints, so
+// until then DWM showed the never-drawn surface: a white box the size of the windowed rect on a black screen.
+void paintClientBlack(HWND h) {
+    RECT rc{};
+    if (!GetClientRect(h, &rc))
+        return;
+    if (HDC dc = GetDC(h)) {
+        FillRect(dc, &rc, (HBRUSH)GetStockObject(BLACK_BRUSH));
+        ReleaseDC(h, dc);
+    }
+    GdiFlush();
+}
 } // namespace
 
 bool create(const char* utf8Title, int clientW, int clientH) {
@@ -133,6 +147,7 @@ bool create(const char* utf8Title, int clientW, int clientH) {
 void show() {
     if (!g_hwnd)
         return;
+    paintClientBlack(g_hwnd);
     // Scripted test runs (scripts/harness/play_run.py) set DRAKAN_NO_ACTIVATE=1: shown behind the other windows, never
     // activated, so a run does not take the foreground from what the user is doing. Rendering and the scripted input
     // do not need the foreground.
@@ -257,6 +272,7 @@ void setFullscreen(bool on) {
         SetWindowLongPtrW(g_hwnd, GWL_STYLE, (g_savedStyle & ~(LONG_PTR)WS_OVERLAPPEDWINDOW) | WS_POPUP | WS_VISIBLE);
         SetWindowPos(g_hwnd, HWND_TOP, mi.rcMonitor.left, mi.rcMonitor.top, mi.rcMonitor.right - mi.rcMonitor.left,
                      mi.rcMonitor.bottom - mi.rcMonitor.top, SWP_FRAMECHANGED | SWP_NOOWNERZORDER | SWP_SHOWWINDOW);
+        paintClientBlack(g_hwnd);
     } else {
         SetWindowLongPtrW(g_hwnd, GWL_STYLE, g_savedStyle | WS_VISIBLE);
         SetWindowPos(g_hwnd, HWND_NOTOPMOST, g_savedRect.left, g_savedRect.top, g_savedRect.right - g_savedRect.left,
