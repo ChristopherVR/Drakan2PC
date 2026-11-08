@@ -10,6 +10,7 @@ import {
     parseLevelHeader,
     pcLevelName,
     type PcFileSource,
+    type Ps2ModelSwapOptions,
     type LevelMapOverride,
     type Ps2TextureSwapOptions,
 } from '@drakan/formats';
@@ -36,6 +37,8 @@ export interface ConvertRequest {
     previews?: Readonly<Record<string, Uint8Array>>;
     /** Drakan 2 textures in place of OotF ones (the dialog's "Drakan 2 textures" section; default the pipeline's: on). */
     ps2Textures?: Ps2TextureSwapOptions;
+    /** Drakan 2 characters and weapons in place of OotF ones (the dialog's section; default the pipeline's: on). */
+    ps2Models?: Ps2ModelSwapOptions;
     /** Map screen choices by lower-case PC level path (the dialog's "Map screen" section); levels not listed keep their own map. */
     levelMaps?: Record<string, LevelMapOverride>;
 }
@@ -59,6 +62,8 @@ export interface ConvertResult {
     campaign: boolean;
     /** Drakan 2 textures used in place of OotF ones. */
     ps2Textures?: { used: { label: string }[] };
+    /** Drakan 2 models used in place of OotF ones. */
+    ps2Models?: { used: { label: string }[] };
 }
 
 export function filesSource(files: readonly InstallFile[]): PcFileSource {
@@ -95,6 +100,7 @@ export async function runConversion(
         {
             ...OOTF_DIALOG_OPTIONS,
             ps2Textures: req.ps2Textures,
+            ps2Models: req.ps2Models,
             levelMaps: req.levelMaps,
             name: (pc) => `${req.prefix}${pcLevelName(pc.header)}`.slice(0, 60),
             log: progress,
@@ -146,5 +152,6 @@ export async function runConversion(
         notes: [...result.warnings, ...pack.warnings],
         campaign: !!start,
         ps2Textures: result.ps2Textures && { used: result.ps2Textures.used.map((u) => ({ label: u.label })) },
+        ps2Models: result.ps2Models && { used: result.ps2Models.used.map((u) => ({ label: u.label })) },
     };
 }

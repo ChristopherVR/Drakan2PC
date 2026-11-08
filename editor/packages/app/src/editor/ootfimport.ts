@@ -25,6 +25,7 @@ import { registerCommand } from './registry.ts';
 import { canWriteFolder, toastSaveResult, writePackToModsFolder } from '../modio.ts';
 import { downloadFile } from '../platform.ts';
 import { ps2TexturePanel, resultText as ps2TextureResult } from './ootfps2tex.ts';
+import { modelResultText, ps2ModelPanel } from './ootfps2model.ts';
 import { levelMapsPanel } from './ootfmaps.ts';
 
 type Call = <M extends Method>(method: M, ...args: Parameters<Api[M]>) => Promise<ReturnType<Api[M]>>;
@@ -317,6 +318,7 @@ function openDialog(host: OotfHost): void {
     const coverPicker = h('input', { type: 'file', accept: 'image/png' });
     const list = h('div', { class: 'od-list' });
     const ps2Tex = ps2TexturePanel();
+    const ps2Model = ps2ModelPanel();
     const maps = levelMapsPanel(() => src);
     const out = h('div', {});
     const overview = h('canvas', {
@@ -370,6 +372,7 @@ function openDialog(host: OotfHost): void {
             h('span', { class: 'od-dim' }, 'optional PNG, up to 8 MB: the campaign card cover and menu background'),
         ),
         ps2Tex.el,
+        ps2Model.el,
         maps.el,
         list,
         overview,
@@ -467,6 +470,7 @@ function openDialog(host: OotfHost): void {
                 profile: host.profile(),
                 cover,
                 ps2Textures: ps2Tex.options(),
+                ps2Models: ps2Model.options(),
                 levelMaps: maps.overrides(),
             },
             // the pristine disc: reading through the overlay would feed an earlier conversion's classes into this one
@@ -544,6 +548,7 @@ function openDialog(host: OotfHost): void {
                 ...lines,
             ),
             h('div', { class: 'od-dim' }, ps2TextureResult(result.ps2Textures, ps2Tex.enabled())),
+            h('div', { class: 'od-dim' }, modelResultText(result.ps2Models, ps2Model.enabled())),
             notesBlock(result.notes),
             h('div', { class: 'od-row' }, save, folder),
             h('div', { class: 'od-dim' }, 'Open a converted level in the editor:'),

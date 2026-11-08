@@ -630,6 +630,39 @@ Drakan 2 Proc Textures counterpart.
 See [the matching survey](../journal/2026-11-08/ootf-ps2-texture-substitution.md) for how the pairs were found and what has
 no Drakan 2 counterpart.
 
+## Drakan 2 characters and weapons for converted OotF levels
+
+Where Drakan 2 has the same creature or the same kind of weapon, the converter uses the disc's own model (with its textures,
+skeleton, clips and HD textures) instead of the converted PC one (formats `ootfps2model.ts`, table
+`DEFAULT_PS2_MODEL_SUBSTITUTIONS`, class names only):
+
+| Group | OotF class | Drakan 2 class | Notes |
+| --- | --- | --- | --- |
+| Enemies | Troll Leather / Chain / Plate (and their "defense side attack" flankers) | LeatherWartock / ChainTock / PlateTock Center / Flank | same creature and skeleton |
+| Enemies | Orc Leather (purple), Orc Plate (yellow) | Purple Orc Center, Yellow Orc : Center | same creature and skeleton |
+| Enemies | Spider | Spider | same creature, same 37 joints |
+| Enemies | Scavenger | Scavenger | off by default: other skeleton, so turned on it plays as the Drakan 2 class (its health and attacks) |
+| Weapons | Short Sword, Long Sword, 2-Handed, Scimitar, Speed Scimitar | Steel Short Sword, Steel Longsword, Steel Two Handed Sword, Steel Scimitar, Iron Scimitar | plain blades |
+| Weapons | Mace, Battle Axe, Battle Hammer, club, Goblin Club, Troll Axe | Steel Mace, Steel Axe, Steel Hammer, club, Wood Club, Leathertock Axe - Lev [1] | plain blunt weapons and the Wartok axe |
+| Weapons | Long Bow, Heavy Bow, Speed Bow (one PC model), Arrows | Wood Bow: Long, Wood Bow - Arrow Short (the plain quiver) | |
+
+* Enemies are played by the Drakan 2 class (they already were: `PC_CLASS_ALIASES`). By default they keep the disc's own clips;
+  `enemyAnimations: 'ootf'` (CLI `--enemy-animations ootf`, editor "Order of the Flame animations on the Drakan 2 model") retargets
+  the PC clips onto the disc rig as the converter did before. A row turned off converts the PC model with its own skeleton.
+* Weapons keep their PC class data (damage, reach, effects, the cloned template); only the model becomes the disc weapon's, a
+  model of the host's own `RESOURES.MOD`, named in place (`OotfAssetBuilder.useNativeModel`). One PC model shared by several
+  classes takes the first row's model. Magic, elemental and quest weapons (Runeblade, Atimar Blade, Flame Sword ...) are not in
+  the table.
+* Rynn and Arokh are always the disc's: the player class and the player's dragon are name-mapped onto the Drakan 2 Rynn and
+  Arokh. The OotF villagers, Delon, the slaves and the scene-only characters have no Drakan 2 counterpart.
+* CLI: `--ps2-models 0` converts the OotF models of the table's enemies and weapons; `--ps2-model-map <file.json>` edits the
+  table with `[{ "ootf": "<OotF class>", "ps2": "<Drakan 2 class>" | null, "category"?: "enemies" | "weapons" }]`.
+* Editor: Import Order of the Flame levels > "Use Drakan 2 characters and weapons where the disc has the same one", with a tick
+  per group and per pair, the enemy animation choice and "Add your own pair"; remembered in the browser.
+* Pipeline: `OotfPipelineOptions.ps2Models` (`{ enabled, categoriesOff, off, on, extra, enemyAnimations }`).
+
+See [the model survey](../journal/2026-11-08/ootf-ps2-model-substitution.md).
+
 ## Menus and HUD (UI skins)
 
 The modern menus (title, pause, Options pages) and the multiplayer HUD read a small INI file, so a pack can rename and

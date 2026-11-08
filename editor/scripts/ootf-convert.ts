@@ -2,7 +2,7 @@
 //
 //   node --experimental-transform-types --no-warnings editor/scripts/ootf-convert.ts \
 //        --ootf <OotF install dir> --ps2 <dir with the extracted PS2 LEVEL*.LVL and *.ODB> \
-//        --template LEVEL1NA --out build/ootf-pack.zip [--id ootf-levels] [--prefix "OotF - "] [--splats <dir with LEVEL1TS.DB and .TXD, default --ps2>] [--campaign 1] [--cover <png>] [--previews <dir of <safe map name>.png>] [--background <png>] [--player <dir with SYSTEM.MOD and .ADB, default <ps2>/../player>] [--hd [--hd-out <textures dir>]] [--ps2-textures 0|1] [--ps2-texture-map <json>] [--iso <disc image>] [--list] <pc level paths...>
+//        --template LEVEL1NA --out build/ootf-pack.zip [--id ootf-levels] [--prefix "OotF - "] [--splats <dir with LEVEL1TS.DB and .TXD, default --ps2>] [--campaign 1] [--cover <png>] [--previews <dir of <safe map name>.png>] [--background <png>] [--player <dir with SYSTEM.MOD and .ADB, default <ps2>/../player>] [--hd [--hd-out <textures dir>]] [--ps2-textures 0|1] [--ps2-texture-map <json>] [--ps2-models 0|1] [--enemy-animations drakan2|ootf] [--ps2-model-map <json>] [--iso <disc image>] [--list] <pc level paths...>
 //
 // Level paths are relative to the install dir, e.g. "Multiplayer/Ground/Relic/Relic.lvl". Without paths every level.
 //
@@ -11,12 +11,16 @@
 // --ps2-texture-map <json> edits the table: a list of { "ootf": "<container>#<id>", "ps2": "<disc TXD path>#<id>" | null } rows
 // (null turns a row off). Disc TXDs are read from --ps2-txd <dir>, <ps2>/txd, <ps2> or the hosts dir, else from the disc image
 // (--iso, env DRAKAN_ISO, or the iso of dist/DrakanPC/drakan.ini).
+//
+// Drakan 2 models (formats ootfps2model.ts): Wartoks, orcs and plain weapons use the disc's own models. --ps2-models 0 keeps the
+// converter's earlier choices; --enemy-animations ootf retargets the PC clips onto the disc rigs instead of the disc's own clips;
+// --ps2-model-map <json> edits the table: a list of { "ootf": "<OotF class>", "ps2": "<Drakan 2 class>" | null } rows.
 import { createHash } from 'node:crypto';
 import { closeSync, existsSync, fstatSync, mkdirSync, openSync, readFileSync, readSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { join, relative, sep } from 'node:path';
 import { buildOotfPack, ootfArenaFromPc, previewFileName, zipOotfPack } from '@drakan/editor-core';
-import { Iso9660, SrscReader, convertOotfLevels, findPcLevels, setExactSink, loadPcLevel, ps2BlobFor, pcLevelName, ps2TextureSwapFromEdits, type PcFileSource, type Ps2TextureSwapOptions } from '@drakan/formats';
+import { Iso9660, SrscReader, convertOotfLevels, findPcLevels, setExactSink, loadPcLevel, ps2BlobFor, pcLevelName, ps2ModelSwapFromEdits, ps2TextureSwapFromEdits, type PcFileSource, type Ps2ModelSwapOptions, type Ps2TextureSwapOptions } from '@drakan/formats';
 
 const args = process.argv.slice(2);
 const opt: Record<string, string> = {};
@@ -144,6 +148,11 @@ if (!Object.keys(splats).length) {
 // Drakan 2 textures in place of OotF ones (see the header): options and the disc TXD reader.
 let ps2Textures: Ps2TextureSwapOptions = { enabled: opt['ps2-textures'] !== '0' };
 if (opt['ps2-texture-map']) ps2Textures = ps2TextureSwapFromEdits(JSON.parse(readFileSync(opt['ps2-texture-map'], 'utf8')), ps2Textures);
+let ps2Models: Ps2ModelSwapOptions = {
+    enabled: opt['ps2-models'] !== '0',
+    enemyAnimations: opt['enemy-animations'] === 'ootf' ? 'ootf' : 'drakan2',
+};
+if (opt['ps2-model-map']) ps2Models = ps2ModelSwapFromEdits(JSON.parse(readFileSync(opt['ps2-model-map'], 'utf8')), ps2Models);
 const isoFile = ((): string | undefined => {
     if (opt['iso']) return opt['iso'];
     if (process.env['DRAKAN_ISO']) return process.env['DRAKAN_ISO'];
@@ -205,8 +214,10 @@ const res = await convertOotfLevels(
         sounds: !only || only.has('sounds'),
         sequences: !only || only.has('sequences'),
         ps2Textures,
+        ps2Models,
     },
 );
+if (res.ps2Models) console.log(`drakan 2 models: ${res.ps2Models.used.length} used${res.ps2Models.used.length ? ` (${res.ps2Models.used.map((u) => `${u.ootf} -> ${u.ps2}`).join(', ')})` : ''}`);
 if (res.ps2Textures) console.log(`drakan 2 textures: ${res.ps2Textures.used.length} used${res.ps2Textures.used.length ? ` (${res.ps2Textures.used.map((u) => u.label).join(', ')})` : ''}, ${res.ps2Textures.skipped.length} not used`);
 for (const l of res.levels) {
     const R = l.parts.report;
