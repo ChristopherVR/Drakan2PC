@@ -197,6 +197,14 @@ lip-sync bit 0x20. Verified in the Ruined Village opening (walk, stance, sword i
 bound in RAM); the jaw motion in a frame and a gameplay weapon draw were not captured. Needs a regenerated pack. See
 [Rynn in scenes](../journal/2026-11-08/ootf-rynn-scenes.md).
 
+**November 8 grunt poses:** killed Ruined Village grunts (PC orcs retargeted onto the PS2 Purple / Yellow Orc rig) stood back
+up because every converted clip was written looping (PC clips have no loop flag); retargeted clips now take the flags of the
+disc clip they replace and converted creatures' death clips play once. Seated, dice and lookout grunts hovered because the PC
+orc's pass-through `root` joint, which lowers the body, had no PS2 partner and was dropped; it is now folded into `hueges`, and
+converted root tracks keep absolute positions. A grunt killed with the sword was seen lying on the ground; seated grunts were
+checked offline only. Still open: the spear grunts' sometimes missing arm (not reproduced) and corpses placed dead in the level,
+which stand. Needs a regenerated pack. See [grunt poses](../journal/2026-11-08/ootf-grunt-pose-fixes.md).
+
 ## What works
 
 * Converter `editor/scripts/ootf-convert.ts` (`--campaign 1` for the campaign): terrain, textures, models, creatures (skinned, retargeted
