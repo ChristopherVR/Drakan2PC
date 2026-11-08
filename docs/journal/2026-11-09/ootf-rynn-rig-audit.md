@@ -23,6 +23,20 @@ fault of the converter. Probes are private (`build/rynn-probe`, nothing from eit
   an ordinary idle with the head and neck neutral; the channel-3 layer hypothesis is not supported. 1.2a's Rynn actor only
   shows (`type 6` = 1) at 52 s, as authored, which explains her absence from that scene's earlier shots.
 
+## Second follow-up (two-hand hold, scene-end snap)
+
+* **Off arm is faithful.** FK of the PC clip on the PC rig against the retargeted clip on the PS2 rig, 342 clips: the left hand
+  stays within 0.001 to 0.008 model units of the PC hand, the left-hand to `Rweapon` distance differs by at most 0.012 (0.033
+  against 0.032 in `1_1readysword`, a static two-handed pose). No bind or roll fault in the arm chain, so no world-space arm
+  retarget was needed. What the frames show was the hands: the grip pose came from an armed one-handed idle and the left hand
+  looked splayed. The grip now comes from the native two-handed clips (`2H_RandomIdle`, fallback `2H_Walk`; formats `ed2b9df`):
+  in the 1.1 sword hold both fists wrap the hilt (`rig-o`).
+* **Scene-end snap not reproduced.** Frames at 50 ms around the end of 1.3 (`rig-p`) and at 100 ms around the 1.1 to 1.2a cut
+  (`rig-q`): the scene ends in a fade to black (5 frames, 0.25 s at 20 fps sampling), gameplay fades in on an ordinary idle;
+  frame differences after the fade are fade-in brightness for about 0.4 s, then idle noise (0.2 to 0.5). The only change seen is
+  the legs settling from wider to narrower over the first 2 to 3 frames. The scene pose to idle switch itself happens under black
+  at every scene cut checked, so a snap would need a capture without the fade (the user's run) or per-joint RAM reads; not done.
+
 ## First pass (measurements before the frames)
 
 ## What was measured (PC Rynn 3713 retargeted onto the PS2 Rynn of SYSTEM.MOD, 342 clips)
