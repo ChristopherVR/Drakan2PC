@@ -506,13 +506,13 @@ if (-not $NoDist) {
     }
     if ($ModDirectory) {
         Invoke-Checked $Python @((Join-Path $PSScriptRoot 'install_private_mods.py'),
+            '--source',$ModDirectory,'--target',(Join-Path $DistDirectory 'mods'))
+    }
     # previews/ is kept across builds, so the generated cover is placed explicitly (a hand-made game-d2.png is replaced).
     $coverPicture = Join-Path $gameOutput 'previews/game-d2.png'
     if (Test-Path -LiteralPath $coverPicture -PathType Leaf) {
         New-Item -ItemType Directory -Force -Path (Join-Path $DistDirectory 'previews') | Out-Null
         Copy-Item -LiteralPath $coverPicture -Destination (Join-Path $DistDirectory 'previews/game-d2.png') -Force
-    }
-            '--source',$ModDirectory,'--target',(Join-Path $DistDirectory 'mods'))
     }
     if ($gameRegion -eq 'pal') {
         Invoke-Checked $Python @((Join-Path $PSScriptRoot 'install_private_mods.py'),
