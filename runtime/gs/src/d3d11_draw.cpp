@@ -573,6 +573,19 @@ void D3D11Backend::Impl::draw(const GsDrawState& s, const ClutBuf& clut, const D
         if (wideReplaceFrame == frame && wideReplaceRT == rt)
             return; // a wide image drew the whole picture
     }
+    if (haveTex && tb.titleArtwork && rt->w >= 480 && (writeMask & 7)) {
+        static const bool log = std::getenv("GSR_BACKDROP_LOG") != nullptr;
+        static int left = 400;
+        if (log && left > 0) {
+            --left;
+            std::fprintf(
+                stderr,
+                "[backdrop] frame %llu: native title tile (gui=%d menu=%d nativeMenu=%d world=%d hudScale=%.3f "
+                "replaced=%llu)\n",
+                (unsigned long long)frame, sceneCamera.guiScreen, nativeMenuScreen, (int)nativeMenu,
+                (int)engineWorldOpen, (double)hudScale, (unsigned long long)wideReplaceFrame);
+        }
+    }
     // Any other screen (the intro movie, the world) ends the title: a later loading screen shows no title art.
     if (sceneCamera.guiScreen >= 0 && sceneCamera.guiScreen != 8 && sceneCamera.guiScreen != 14)
         titleBackdropAt = {};

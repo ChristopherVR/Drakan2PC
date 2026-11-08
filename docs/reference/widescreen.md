@@ -251,3 +251,7 @@ tiles (bounding box at least 120 x 120 native pixels) are skipped; the bar and t
 screen after the intro movie (screen 29 in between) has no title art and is unchanged. Both renderers (D3D11, WebGPU).
 `GSR_BACKDROP_LOG=1` prints which backdrop image is chosen when it changes (D3D11). Checked in game on D3D11 with
 `DRAKAN_WS_LOG=2` and dense screen grabs; the WebGPU change mirrors it and is not checked live.
+
+A reported 4:3 title flash "when a game loads" was not reproduced on the title Continue / Load Game, in-game quick load
+and Quit to Title paths (2026-11-08); `GSR_BACKDROP_LOG=1` now logs any title tile drawn without its wide replacement.
+Details: `docs/journal/2026-11-08/title-43-flash.md`.
