@@ -123,6 +123,18 @@ for (const [modelIndex, model] of manifest.models.entries()) {
         if (d < 0 || match.map[d] < 0)
             throw new Error(`missing essential bone ${model.id}:${name}`);
     }
+    // Held items attach to Rweapon / Lweapon and their models are Rynn's, authored on her weapon frames. NPC weapon
+    // joints sit 55-150 degrees off hers at bind, so a bind-relative delta turned every held weapon by that much:
+    // give these leaf joints Rynn's exact model-space orientation instead.
+    const worldJoints = target.names.flatMap((name, d) =>
+        (name === 'Rweapon' || name === 'Lweapon') &&
+        match.map[d] >= 0 &&
+        !target.parents.includes(d)
+            ? [d]
+            : [],
+    );
+    if (worldJoints.length !== 2)
+        throw new Error(`weapon joints not matched on ${model.id}`);
     const scale = rigSize(target) / rigSize(source);
     let moving = 0;
     for (const [clipIndex, clip] of manifest.clips.entries()) {
@@ -135,6 +147,7 @@ for (const [modelIndex, model] of manifest.models.entries()) {
             channels: sk.channels.length,
             scale,
             inPlace: true,
+            worldJoints,
         });
         if (
             !anim.tracks.every((t) =>
