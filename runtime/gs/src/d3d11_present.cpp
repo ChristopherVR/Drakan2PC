@@ -1,5 +1,6 @@
 // Display rendering, latching and presentation, end-of-frame work.
 #include "d3d11_backend_impl.h"
+#include "ray_status.h"
 
 namespace gsr {
 
@@ -104,8 +105,8 @@ bool D3D11Backend::Impl::renderDisplay(const DisplayState& d, uint32_t& outW, ui
             if (latchedGameWorld)
                 gameplayAspect = cfg.forcedAspect > 0 ? cfg.forcedAspect : 4.0f / 3.0f;
             latchedNeuralWorld = latchedGameWorld && rt->neuralOutputEpoch == rt->worldEpoch;
-            latchedWaterWorld = latchedGameWorld && rt->waterOutputEpoch == rt->worldEpoch;
-            latchedRayWorld = latchedGameWorld && rt->rayOutputEpoch == rt->worldEpoch;
+            latchedWaterWorld = raystatus::outputLatched(latchedGameWorld, rt->waterOutputEpoch, rt->worldEpoch);
+            latchedRayWorld = raystatus::outputLatched(latchedGameWorld, rt->rayOutputEpoch, rt->worldEpoch);
         }
         srv[i] = rt->srv.Get();
         float* r = i ? dc.r2 : dc.r1;

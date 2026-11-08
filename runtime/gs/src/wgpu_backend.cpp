@@ -1,5 +1,6 @@
 // WgpuBackend: the BackendApi of this backend; forwards to WgpuBackend::Impl (WebGPU backend, wgpu_backend_impl.h).
 #include "wgpu_backend_impl.h"
+#include "ray_status.h"
 
 namespace gsr {
 
@@ -263,17 +264,11 @@ bool WgpuBackend::waterRenderingAvailable(std::string& status) const {
 }
 std::string WgpuBackend::waterRenderingStatus() const {
     const auto& s = *m_impl;
-    if (!s.modernWater)
-        return "Modern water off";
-    if (s.rayPass && !s.rayPass->ready())
-        return s.rayPass->status();
-    if (s.lastPresentedWater)
-        return std::string("Modern water pass completed for the last gameplay image; ") +
-               (s.rayReflections ? "ray-traced reflections on. " : "ray-traced reflections off. ") +
-               s.rayPass->status();
-    if (s.rayPass)
-        return "Modern water enabled; no water output in the last displayed image. Last pass: " + s.rayPass->status();
-    return "Modern water enabled; no eligible water world in the current frame. Coverage follows native water layers.";
+    raystatus::PassView pass;
+    if (s.modernWater && s.rayPass)
+        pass = {true, s.rayPass->ready(), s.rayPass->status()};
+    return raystatus::waterStatus(s.modernWater, pass, s.lastPresentedWater, s.rayReflections,
+                                  "ray-traced reflections");
 }
 std::string WgpuBackend::rayTracingStatus() const {
     const auto& s = *m_impl;

@@ -1,5 +1,6 @@
 // D3D11Backend: the BackendApi of this backend; forwards to D3D11Backend::Impl (d3d11_backend_impl.h).
 #include "d3d11_backend_impl.h"
+#include "ray_status.h"
 
 namespace gsr {
 
@@ -289,18 +290,16 @@ bool D3D11Backend::waterRenderingAvailable(std::string& status) const {
     return s.waterRenderer->ready();
 }
 std::string D3D11Backend::waterRenderingStatus() const {
-    const auto& s = *m_impl;
-    if (!s.modernWater)
-        return "Modern water off";
-    if (s.waterRenderer && !s.waterRenderer->ready())
-        return s.waterRenderer->status();
-    if (s.lastPresentedWater)
-        return std::string("Modern water pass completed for the last gameplay image; ") +
-               (s.rayReflections ? "DXR reflections on. " : "DXR reflections off. ") + s.waterRenderer->status();
-    if (s.waterRenderer)
-        return "Modern water enabled; no water output in the last displayed image. Last pass: " +
-               s.waterRenderer->status();
-    return "Modern water enabled; no eligible water world in the current frame. Coverage follows native water layers.";
+    auto& s = *m_impl; // the prewarm lock
+    raystatus::PassView pass;
+    if (s.modernWater && s.waterRenderer) // null while the prewarm thread still builds it
+        pass = {true, s.waterRenderer->ready(), s.waterRenderer->status()};
+    else if (s.modernWater) {
+        std::lock_guard lock(s.prewarmMutex);
+        if (s.prewarmRayPending)
+            return "Ray tracing is starting";
+    }
+    return raystatus::waterStatus(s.modernWater, pass, s.lastPresentedWater, s.rayReflections, "DXR reflections");
 }
 std::string D3D11Backend::rayTracingStatus() const {
     const auto& s = *m_impl;

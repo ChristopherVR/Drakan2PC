@@ -1,5 +1,6 @@
 // Display rendering, latching and presentation, end-of-frame work (WebGPU backend; policy as d3d11_present.cpp).
 #include "wgpu_backend_impl.h"
+#include "ray_status.h"
 
 namespace gsr {
 
@@ -84,8 +85,8 @@ bool WgpuBackend::Impl::renderDisplay(const DisplayState& d, uint32_t& outW, uin
             latchedGameWorld = (rt->worldPhaseSeen != 0 || rt->worldEpoch != 0) && sceneCamera.guiScreen < 0;
             if (latchedGameWorld)
                 gameplayAspect = cfg.forcedAspect > 0 ? cfg.forcedAspect : 4.0f / 3.0f;
-            latchedWaterWorld = latchedGameWorld && rt->waterOutputEpoch == rt->worldEpoch;
-            latchedRayWorld = latchedGameWorld && rt->rayOutputEpoch == rt->worldEpoch;
+            latchedWaterWorld = raystatus::outputLatched(latchedGameWorld, rt->waterOutputEpoch, rt->worldEpoch);
+            latchedRayWorld = raystatus::outputLatched(latchedGameWorld, rt->rayOutputEpoch, rt->worldEpoch);
         }
         srv[i] = rt->tex.get();
         float* r = i ? dc.r2 : dc.r1;
