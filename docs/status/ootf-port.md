@@ -265,6 +265,12 @@ while they are. Seen in game: Intro 1 shows only the owl, plate and "Presents", 
 unchanged. Model faders still pop instead of fading. Needs a regenerated pack. See
 [Intro graphics](../journal/2026-11-08/ootf-intro-graphics.md).
 
+**November 9 opening cut and impale (investigation):** the Ruined Village scene 1.1 to 1.2a cut and the Wartok's impale of the
+villager were captured in game (the harness autopress skipped these scenes before; the capture recipe is in the note). The
+89 unit rise of Rynn's last scene key is not what makes her look afloat, and the impale's victim stands overlapping the Wartok
+from the attach at 43 s; neither was changed because no PC reference decides the right result. Open items are in
+[opening cut and impale](../journal/2026-11-09/ootf-opening-cut-and-impale.md).
+
 ## What works
 
 * Converter `editor/scripts/ootf-convert.ts` (`--campaign 1` for the campaign): terrain, textures, models, creatures (skinned, retargeted
