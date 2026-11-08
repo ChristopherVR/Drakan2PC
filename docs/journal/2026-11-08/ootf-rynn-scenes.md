@@ -80,3 +80,45 @@ attach and was not reported as different from Drakan 2.
   PS2 Arokh); not checked.
 * Lip sync for other converted speakers (Delon, the Wartok, NPCs) needs their PS2 template class's `Jaw Channel` checked
   against the converted rig before the bit is set for them.
+
+## Follow-up: the Intro's Rynn, the sword's grip, the jaw level (same day)
+
+User test of a pack converted from formats `98661d6`: "the cinematics don't seem to contain PS2 Rynn with lips moving" and
+"the weapon is now equipped but facing the wrong way". Fixed in formats `d69bec4` (plus `c7fd626`, see the note at the end).
+
+**Which scene still showed the PC Rynn.** A census of every campaign level's scene actors named Rynn (PC object, engine class,
+model) finds one that is not the player: the Intro's "Intro 3" plays obj 2853, an engine class 17 prop whose model is the PC
+Rynn (3713). The Intro has no PC player, so its scenes only held the synthetic PS2 player. Now, in a level without a PC player,
+a prop of a class named Rynn is replaced by the synthetic player: the scenes address the player (with the clip retarget,
+channel map and lip-sync bit), the player stands where the prop stood (Intro: 200448, 207035, 164352) and the prop is dropped.
+The scene still holds the player (a held actor that is also a PC actor gets the run/stop action 0 at t = 0). Every other
+campaign scene Rynn already is the player.
+
+**Sword facing the wrong way.** PC and PS2 Rynn share every bind frame within a few degrees except the weapon joints: the PS2
+`Rweapon` is turned about 104 degrees (mostly about its y axis) from the PC one. The retargeted scene clips carried the PC
+deltas on the PS2 bind, so the PC sword in her hand pointed back along her forearm (`rynn-b/run/t087000.png`). As formats
+`e5d7f00` does for PS2 motion, `retargetPcAnim` now takes `worldJoints`, and the player's clips give `Rweapon` / `Lweapon` the
+PC joint's model-space orientation: the blade comes forward out of her fist
+(`build/ootf-run/rynn-e/sword_before_after.png`; test `ootfretarget.test.ts`).
+
+**Jaw too small.** The converted tracks were half the disc level (90th percentile median 16,683 against 29,226 / 30,935 for
+SYSTEM / LEVEL1ON speech), so the jaw opened about 5 degrees. `encodeLipSync` now scales a track so its 90th percentile is
+30,000 (at most 4x).
+
+**Jaw verified in frames.**
+* `rynn-g` (unmodified pack, scene 1.3, her line at 87.6 s, 2560 x 1440, internal scale 1): `jaw_strip.png`, mouth closed
+  before the line, then open at 248.05 to 248.35 s while the controller reads 26,858 to 27,354.
+* `rynn-i` (test fixture, not shipped: her 1.1 line moved from 1.5 s to 8.6 s so it plays over the face close-up that follows
+  the walk; in the authored scene the line ends before the close-up): `jaw_closeup_strip.png`, 26 frames 100 ms apart, mouth
+  closed before the voice (53.8 to 54.1 s), then opening and closing with the track (54.5 s: 25,465; 57.0 s: 32,767).
+
+**In-game sword (ordinary play).** `rynn-f`: Alwarren direct start with the converted Mithril Long Sword pulled next to Rynn
+(test aid `DRAKAN_DBG_PULL`), picked up with E, equipped in the inventory (Tab, close the first-time help, Enter, Tab), attack.
+She holds it blade up out of her fist at rest and swings it blade first (`build/ootf-run/rynn-f/gameplay_sword.png`): ordinary
+play runs native PS2 clips, whose `Rweapon` motion already holds PC-authored items the right way, so nothing changed there.
+The wrong grip was only in the retargeted scene clips.
+
+**Commit note.** `d69bec4` was built from a stale base of `ootfpipeline.ts` and dropped the death-pose placement of `6ab2b0f`
+(restored unchanged in `c7fd626`). It also swept in another session's staged `ootfmap.ts`, `ootfpuzzle.ts`, `index.ts` and
+`test/ootfmap.test.ts` from the shared index; their `ootfpipeline.ts` part of that work was not in it and stays uncommitted in
+the working tree.
