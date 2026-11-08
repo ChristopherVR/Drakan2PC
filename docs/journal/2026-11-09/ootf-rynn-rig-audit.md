@@ -95,3 +95,39 @@ stall under several simultaneous games).
 2. If the hands are open: borrow the finger pose of a native armed clip for the unmatched finger joints of the player's
    retargeted clips (`retargetPcAnim` option for unmatched joints; right hand grip, left hand relaxed).
 3. If a head / neck layer survives the scene end: write an explicit neutral clip on channel 3 at the end of the player's actions.
+
+## Third pass (user report: hair a stiff strip, off hand not on the sword, mushed fingers)
+
+Evidence (private, `build/review/rig/`): `hands-before-after-1_1-crouch-4x.png`, `fingers-before-after-1_1-crouch-5x.png`,
+`hair-scene-crouch-before-after.png`, `hair-scene-crouch-forced-hair1-key-test.png`,
+`before-gameplay-ponytail-ootf-top-vs-drakan2-bottom.png`, `gameplay-ponytail-ootf-pitch-sequence.png`,
+`gameplay-walk-ootf.png` / `gameplay-walk-drakan2.png`, `model-offline-ponytail-*.png`, `user-gameplay-ponytail-crop.png`.
+
+* **Which Rynn.** Gameplay and scenes both use the PS2 Rynn of `SYSTEM.MOD` (model 3877, 65 joints); the pack ships no Rynn
+  model, only extra `SYSTEM.ADB` clips (scene clips retargeted from the PC Rynn) and the field-definition blob (identical prefix).
+* **Hair, gameplay.** At the default camera the ponytail is 30 % of Rynn's height in both OotF and Drakan 2 (same mesh, same
+  idle). The user's long strip is the same mesh seen from a high camera: a ponytail hanging down and slightly back is stretched
+  down the screen when the camera looks down (`gameplay-ponytail-ootf-pitch-sequence.png`). No converter fault found.
+* **Hair, scenes (the horizontal kinked bar in the 1.1 crouch and the lunge).** Not clip data. FK of the converted clips puts
+  the chain hanging (idle: 78 degrees below horizontal) or slightly back (crouch 1_1readysword: 29 degrees, same as the PC
+  clip on the PC rig; `walk` converted from the PC clip equals the native PS2 `walk` key for key), yet in the game the bar looks
+  the same for three different hair keys: the old clips, clips whose hair1 to hair3 were rewritten to the idle hang (via a
+  tried and dropped gravity pass), and a clip with hair1 forced to a 90 degree turn on every key
+  (`hair-scene-crouch-forced-hair1-key-test.png`). So the engine drives the hair itself (the Rynn class has `Hair1 Channel` =
+  joint 6, hair1) and ignores the keys of the scene clips for it. Why it is horizontal only in converted scenes (Drakan 2 scenes
+  hang normally) is open: the next step is reading the hair joint matrices from RAM during the crouch. The converter's
+  quaternion conversion is not the cause: PC `walk` and `NCIdle` converted with `convertPcAnimToPs2` reproduce the native PS2
+  hair pose to 1 to 6 degrees on identical-bind rigs. Retargeting onto the PS2 rig (hair1 bind differs by 10 degrees) leaves a
+  10 degree error that the engine override hides.
+* **Off hand (fixed, formats `HandHold`).** The two arms differ: with the PC clip the PS2 Lhand ends 30 units (model units
+  x 2048) off the native two-handed grip along the right weapon frame, about one palm: the off hand floated beside the hilt. Where a
+  clip holds the left hand within 90 to 150 units of `Rweapon` the retarget now solves Luparm / Lforearm (two bone, elbow
+  towards the PC elbow) and sets the hand frame to the left hand of the native `2H_RandomIdle` in the weapon frame, blended by
+  distance. FK check: Lhand lands at (3, -24, 34) in the weapon frame, the native value, in 8 of 8 sampled hold clips
+  (`1_1j`, `1_1k`, `1_1standup`, ...). In the game both hands now close on the grip (`hands-before-after-1_1-crouch-4x.png`).
+  Wrongly applying the grip in the weapon frame before the weapon frames take the PC orientation missed by 100 units (the hold
+  runs after the weapon-frame step).
+* **Fingers.** The finger quaternions are the native clip's own (not converted), so the finger-chain twist in
+  `convertPcAnimToPs2` found by the owl check does not touch them. What looked mushed was the palm being off the grip; with the
+  hand on the grip the left hand wraps the hilt. The right hand's fingers still point along the hilt below it (they are the
+  first key of `2H_RandomIdle`, which curls them around the PS2 sword's thicker grip).

@@ -245,6 +245,8 @@ closing in captured close-ups; the in-game sword grip is correct. Needs a regene
 
 **November 9 Rynn rig audit:** the PS2 Rynn's 24 finger joints have no PC partner and sat on their open bind pose in every retargeted scene clip; they now take a native armed clip's grip (formats `a60809d`), both hands close on the scene sword. Hair (graded-alpha cards fixed in `956e798`), Julian's start pose in 1.3 and the scene-end handoff were checked in frames and are not converter faults. `DRAKAN_AUTOPRESS_STOP_AFTER_LOAD=1` now also works for campaign starts, so the Ruined Village opening can be captured whole. See [rig audit](../journal/2026-11-09/ootf-rynn-rig-audit.md).
 
+**November 9 Rynn hands and hair, third pass:** the off hand floated a palm beside the sword hilt because the PS2 arm is not the PC arm; where a scene clip holds the left hand at the sword the retarget now solves the arm onto the native two-handed grip (formats `HandHold`, both hands on the hilt in the 1.1 crouch). Gameplay hair matches Drakan 2 (same mesh, seen from a high camera); the horizontal kinked ponytail in scene crouches is not clip data (three different hair key sets look the same), so the engine drives it: open, needs hair matrices read from RAM. See [rig audit](../journal/2026-11-09/ootf-rynn-rig-audit.md). Needs a regenerated pack.
+
 **November 8 grunt poses:** killed Ruined Village grunts (PC orcs retargeted onto the PS2 Purple / Yellow Orc rig) stood back
 up because every converted clip was written looping (PC clips have no loop flag); retargeted clips now take the flags of the
 disc clip they replace and converted creatures' death clips play once. Seated, dice and lookout grunts hovered because the PC
