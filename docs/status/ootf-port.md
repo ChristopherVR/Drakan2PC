@@ -181,6 +181,18 @@ fronds, pine trunk and log bark, old tree and oak bark (formats `1e12669`). Ruin
 the OotF ones without; the copies keep the Drakan 2 HD textures. Tree canopies, palms and terrain have no Drakan 2 counterpart.
 See [Drakan 2 textures](../journal/2026-11-08/ootf-ps2-texture-substitution.md) and `reference/modding.md`.
 
+**November 8 cage collision:** Rynn could walk into converted cages (shown on Volcanic's two; Wartok Canyons and
+Grimstone Mines use the same models). The PC collides them through one sphere or boxes listing the bar polygons; on the
+PS2 a prop's sphere does not stop her and she pushes 100 to 150 units past listed bars. Cage models now get one solid
+box without polygons, the disc's usual prop form (formats `246d61e`): with Volcanic's two cages lowered to her body in
+test packs, the shipped pack let her up to 126 units into one and 30 units from the other's axis, the fixed one stops
+her 359 to 450 units from either axis on every side walked. Found on the way (formats `c6ad739`): the display-list
+upgrade of rigid props had rebuilt their collision lists by polygon centre, dropping 74,147 list entries from 303
+campaign props and the blocker boxes of 83 (Dragon Platform, crates, the lock); the PC lists are now mapped through.
+Open: the user's spot was not walked in place (the cages hang above the floor); other sphere-bounded props such as the
+Arokh braces are unchanged; needs a regenerated pack. See [cage
+collision](../journal/2026-11-08/ootf-cage-collision.md).
+
 **November 8 pink terrain:** distant converted terrain drew pink (Wartok Canyons' cliffs and peaks at the start). Packs shipped
 the template's splat TXD, whose texture n is Surdana's baked far texture of terrain group n with a magenta filler in its
 unused area; converted slots sampled it (12 to 35 % of drawn cells per level landed on the filler, all other far terrain showed

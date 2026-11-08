@@ -342,7 +342,13 @@ All records of a model share its SRSC id.
     exist and have one track per joint; the one that does not is a listed id with no ADB entry).
   Open: the LOD table is still found by signature in `model.ts` (`findCharacterLods`), the channel caps and sphere unknown
   field are decoded but not interpreted.
-* **0x0207**: bounds (not used; the editor measures the vertices).
+* **0x0207**: bounds and object collision (the editor measures the vertices instead). Sphere, box, then `u16 num_shapes,
+  u16 is_obb` and a first-child / next-sibling hierarchy; OBB shapes carry `u16 n + n x u16` polygon indices. The PC lists a
+  polygon in every box it crosses and the root lists all of them; a leaf box without polygons is a solid block. On the disc
+  inner shapes list none, and most hierarchies (716 of 863 in the host MODs) list no polygons at all. **[game]** Rynn
+  is not stopped by a prop's sphere, and she pushes 100 to 150 units past thin listed polygons (a cage's bars); a box
+  without polygons stops her outside it. The converter maps the PC lists through its polygon splits and reorders and gives
+  cage models one solid box ([cage collision](../journal/2026-11-08/ootf-cage-collision.md)).
 * **0x0211 (strip display list) [disc]**: decoded; the engine needs it for skinned models and the Birch tree class (a static prop
   draws from 0x0203/0x0204 alone). Layout, little endian, unaligned:
   `u32 1, u32 V, u32 0`, V vertex groups as `count[0], cum[0], count[1], cum[1] .. count[V-1]` (`cum` = start of the next group,
