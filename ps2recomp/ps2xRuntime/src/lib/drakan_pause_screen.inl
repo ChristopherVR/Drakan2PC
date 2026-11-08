@@ -732,6 +732,18 @@ void pauseExecute(RecompGuest& g) {
 // EE thread, every PadMgr update: binding, child screens, input mode, snapshot, executor, watchdog.
 void pauseTick(uint8_t* ram, RecompGuest& g) {
     hiddenDrawRestorePending(g); // a frame boundary: unfinished hidden draws (of any host screen) are done
+    if ((!g_pause.screen || g_pause.fallBack) && drakan_pause_screen::enabled() &&
+        drakan_tab::shared().layerReady.load()) {
+        // Pause menu switched to Modern while the native pause page is up (or after it fell back): bind to the open
+        // page now instead of at the next Esc.
+        const uint32_t slot = g.read32(kPauseSlot);
+        if (pauseValidPtr(slot) && g.read32(kInvScreenVar) == slot &&
+            pauseScreenId(g, slot) == static_cast<int>(gameui::addr::gui::kScreenPause)) {
+            if (g_pause.screen)
+                pauseEnd("modern pause chosen again");
+            pauseBegin(ram, slot);
+        }
+    }
     if (!g_pause.screen)
         return;
     auto& sh = drakan_pause_screen::shared();

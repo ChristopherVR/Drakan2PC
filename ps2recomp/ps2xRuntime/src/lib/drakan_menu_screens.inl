@@ -1017,6 +1017,11 @@ void titleTick(const uint8_t* ram, RecompGuest& g) {
     const int titleId = static_cast<int>(titleui::kScreenTitle);
     if (g_title.screen && id == titleId && active != g_title.screen)
         titleEnd("another title screen");
+    // The native page was restored (Title menu set to Original) and the player picked Modern again: bind again on this
+    // very title screen instead of waiting for the next one (the begin below).
+    if (g_title.screen && g_title.fallBack && id == titleId && active == g_title.screen &&
+        drakan_menu_screens::titleModern() && drakan_tab::shared().layerReady.load())
+        titleEnd("modern title chosen again");
     if (!g_title.screen) {
         if (id == titleId && drakan_menu_screens::titleModern() && drakan_tab::shared().layerReady.load())
             titleBegin(g, active);
