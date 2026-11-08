@@ -237,3 +237,5 @@ tiled then reported with exit 1) into `dist/DrakanPC/textures`. Full 13-level ca
 128 px, 1002 at 64, 423 at 32, 284 at 256), 1382 new, 18 s index + 162 s upscale (RTX 5080), +1.2 GB; a rerun takes 1 s. See
 `docs/journal/2026-11-01/ootf-hd-all-levels.md` for the in-game check (hashes of the enlarged terrain textures match the runtime;
 unmatched dump entries are non-texture noise and 1x1 fills).
+Textures the converter takes from the disc instead of converting (Drakan 2 textures for OotF objects, `docs/reference/modding.md`)
+are byte-for-byte copies, so their hash is the disc texture's: the Drakan 2 pack's replacement applies and `ootf_hd_pack.py` skips them.

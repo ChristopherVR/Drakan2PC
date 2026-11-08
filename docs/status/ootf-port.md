@@ -175,6 +175,12 @@ regions now change the music inside a level: each becomes Trigger Detector halve
 stops) switching one Triggered Music Loop per music id, verified in Ruined Village
 ([level music triggers](../journal/2026-11-08/ootf-level-music-triggers.md)).
 
+**November 8 Drakan 2 textures:** where Drakan 2 has a texture for the same kind of surface, the converter now copies the disc
+texture instead of the OotF one (on by default; `--ps2-textures 0`, per pair in the editor's import dialog). Table: tropical plant
+fronds, pine trunk and log bark, old tree and oak bark (formats `1e12669`). Ruined Village shows Drakan 2 pine trunks with it and
+the OotF ones without; the copies keep the Drakan 2 HD textures. Tree canopies, palms and terrain have no Drakan 2 counterpart.
+See [Drakan 2 textures](../journal/2026-11-08/ootf-ps2-texture-substitution.md) and `reference/modding.md`.
+
 **November 8 pink terrain:** distant converted terrain drew pink (Wartok Canyons' cliffs and peaks at the start). Packs shipped
 the template's splat TXD, whose texture n is Surdana's baked far texture of terrain group n with a magenta filler in its
 unused area; converted slots sampled it (12 to 35 % of drawn cells per level landed on the filler, all other far terrain showed

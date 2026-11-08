@@ -2,15 +2,21 @@
 //
 //   node --experimental-transform-types --no-warnings editor/scripts/ootf-convert.ts \
 //        --ootf <OotF install dir> --ps2 <dir with the extracted PS2 LEVEL*.LVL and *.ODB> \
-//        --template LEVEL1NA --out build/ootf-pack.zip [--id ootf-levels] [--prefix "OotF - "] [--splats <dir with LEVEL1TS.DB and .TXD, default --ps2>] [--campaign 1] [--cover <png>] [--previews <dir of <safe map name>.png>] [--background <png>] [--player <dir with SYSTEM.MOD and .ADB, default <ps2>/../player>] [--hd [--hd-out <textures dir>]] [--list] <pc level paths...>
+//        --template LEVEL1NA --out build/ootf-pack.zip [--id ootf-levels] [--prefix "OotF - "] [--splats <dir with LEVEL1TS.DB and .TXD, default --ps2>] [--campaign 1] [--cover <png>] [--previews <dir of <safe map name>.png>] [--background <png>] [--player <dir with SYSTEM.MOD and .ADB, default <ps2>/../player>] [--hd [--hd-out <textures dir>]] [--ps2-textures 0|1] [--ps2-texture-map <json>] [--iso <disc image>] [--list] <pc level paths...>
 //
 // Level paths are relative to the install dir, e.g. "Multiplayer/Ground/Relic/Relic.lvl". Without paths every level.
+//
+// Drakan 2 textures (formats ootfps2tex.ts): where the curated table names a Drakan 2 texture for an OotF one (a pine trunk, the
+// tropical plant fronds), the disc texture is copied instead of the converted OotF one. --ps2-textures 0 keeps every OotF texture;
+// --ps2-texture-map <json> edits the table: a list of { "ootf": "<container>#<id>", "ps2": "<disc TXD path>#<id>" | null } rows
+// (null turns a row off). Disc TXDs are read from --ps2-txd <dir>, <ps2>/txd, <ps2> or the hosts dir, else from the disc image
+// (--iso, env DRAKAN_ISO, or the iso of dist/DrakanPC/drakan.ini).
 import { createHash } from 'node:crypto';
-import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { closeSync, existsSync, fstatSync, mkdirSync, openSync, readFileSync, readSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { join, relative, sep } from 'node:path';
 import { buildOotfPack, ootfArenaFromPc, previewFileName, zipOotfPack } from '@drakan/editor-core';
-import { SrscReader, convertOotfLevels, findPcLevels, setExactSink, loadPcLevel, ps2BlobFor, pcLevelName, type PcFileSource } from '@drakan/formats';
+import { Iso9660, SrscReader, convertOotfLevels, findPcLevels, setExactSink, loadPcLevel, ps2BlobFor, pcLevelName, ps2TextureSwapFromEdits, type PcFileSource, type Ps2TextureSwapOptions } from '@drakan/formats';
 
 const args = process.argv.slice(2);
 const opt: Record<string, string> = {};
@@ -135,12 +141,47 @@ if (!Object.keys(splats).length) {
     process.exit(2);
 }
 
+// Drakan 2 textures in place of OotF ones (see the header): options and the disc TXD reader.
+let ps2Textures: Ps2TextureSwapOptions = { enabled: opt['ps2-textures'] !== '0' };
+if (opt['ps2-texture-map']) ps2Textures = ps2TextureSwapFromEdits(JSON.parse(readFileSync(opt['ps2-texture-map'], 'utf8')), ps2Textures);
+const isoFile = ((): string | undefined => {
+    if (opt['iso']) return opt['iso'];
+    if (process.env['DRAKAN_ISO']) return process.env['DRAKAN_ISO'];
+    const ini = join(import.meta.dirname, '..', '..', 'dist', 'DrakanPC', 'drakan.ini');
+    const m = existsSync(ini) ? /^\s*iso\s*=\s*(.+?)\s*$/m.exec(readFileSync(ini, 'utf8')) : null;
+    return m?.[1];
+})();
+let iso: Promise<Iso9660 | null> | null = null;
+const readPs2Txd = async (discPath: string): Promise<Uint8Array | null> => {
+    const name = discPath.split('/').pop()!.toUpperCase();
+    for (const d of [opt['ps2-txd'], join(ps2, 'txd'), ps2, opt['hosts'] ?? join(ps2, '..', 'hosts')]) {
+        const f = d && existsSync(d) && readdirSync(d, { withFileTypes: true }).find((e) => e.isFile() && e.name.toUpperCase() === name);
+        if (f) return new Uint8Array(readFileSync(join(d, f.name)));
+    }
+    if (!isoFile || !existsSync(isoFile)) return null;
+    iso ??= (async () => {
+        const fd = openSync(isoFile, 'r');
+        const size = fstatSync(fd).size;
+        process.once('exit', () => closeSync(fd));
+        return Iso9660.open({
+            size,
+            read: async (o: number, n: number) => {
+                const b = new Uint8Array(Math.max(0, Math.min(n, size - o)));
+                readSync(fd, b, 0, b.length, o);
+                return b;
+            },
+        }).catch(() => null);
+    })();
+    const disc = await iso;
+    return disc && (await disc.find(`ENGLISH/${discPath}`)) ? disc.read(`ENGLISH/${discPath}`) : null;
+};
+
 const prefix = opt['prefix'] ?? 'OotF - ';
 const only = opt['only'] ? new Set(opt['only'].split(',')) : null; // stage switches: --only textures,models,...
 const res = await convertOotfLevels(
     src,
     levels,
-    { template, odbs, ssds, dbFiles, hostMod: await optReader('RESOURES.MOD'), hostTxd: await optReader('RESOURES.TXD'), hostAdb: await optReader('RESOURES.ADB'), hostSdb: await optReader('RESOURES.SDB'), playerMod, playerAdb, musicSdb: await optReader('PS2MUSIC.SDB'), mods: await optMap('MOD'), hostFiles, adbs: await optMap('ADB'), xdbFiles: readdirSync(ps2).some((f) => /\.XDB$/i.test(f)) ? new Set(readdirSync(ps2).filter((f) => /\.XDB$/i.test(f)).map((f) => f.toUpperCase())) : undefined, splatTxd: splats['TXD'], procTxd: existsSync(join(ps2, 'PROCTEES.TXD')) ? new Uint8Array(readFileSync(join(ps2, 'PROCTEES.TXD'))) : undefined },
+    { template, odbs, ssds, dbFiles, hostMod: await optReader('RESOURES.MOD'), hostTxd: await optReader('RESOURES.TXD'), hostAdb: await optReader('RESOURES.ADB'), hostSdb: await optReader('RESOURES.SDB'), playerMod, playerAdb, musicSdb: await optReader('PS2MUSIC.SDB'), mods: await optMap('MOD'), hostFiles, adbs: await optMap('ADB'), xdbFiles: readdirSync(ps2).some((f) => /\.XDB$/i.test(f)) ? new Set(readdirSync(ps2).filter((f) => /\.XDB$/i.test(f)).map((f) => f.toUpperCase())) : undefined, splatTxd: splats['TXD'], procTxd: existsSync(join(ps2, 'PROCTEES.TXD')) ? new Uint8Array(readFileSync(join(ps2, 'PROCTEES.TXD'))) : undefined, readPs2Txd },
     {
         name: (pc) => `${prefix}${pcLevelName(pc.header)}`,
         log: (m) => console.warn(m),
@@ -163,8 +204,10 @@ const res = await convertOotfLevels(
         music: !only || only.has('music'),
         sounds: !only || only.has('sounds'),
         sequences: !only || only.has('sequences'),
+        ps2Textures,
     },
 );
+if (res.ps2Textures) console.log(`drakan 2 textures: ${res.ps2Textures.used.length} used${res.ps2Textures.used.length ? ` (${res.ps2Textures.used.map((u) => u.label).join(', ')})` : ''}, ${res.ps2Textures.skipped.length} not used`);
 for (const l of res.levels) {
     const R = l.parts.report;
     console.log(

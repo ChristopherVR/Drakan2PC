@@ -10,6 +10,7 @@ import {
     parseLevelHeader,
     pcLevelName,
     type PcFileSource,
+    type Ps2TextureSwapOptions,
 } from '@drakan/formats';
 import { OOTF_DIALOG_OPTIONS, ootfDiscContext } from './ootfdisc.ts';
 
@@ -32,6 +33,8 @@ export interface ConvertRequest {
     cover?: Uint8Array;
     /** Optional menu pictures of the multiplayer maps, by file name (`previewFileName(arena name)`, e.g. from map_previews.py). */
     previews?: Readonly<Record<string, Uint8Array>>;
+    /** Drakan 2 textures in place of OotF ones (the dialog's "Drakan 2 textures" section; default the pipeline's: on). */
+    ps2Textures?: Ps2TextureSwapOptions;
 }
 
 export interface LevelSummary {
@@ -51,6 +54,8 @@ export interface ConvertResult {
     notes: string[];
     /** True when a campaign (not only arenas) was converted. */
     campaign: boolean;
+    /** Drakan 2 textures used in place of OotF ones. */
+    ps2Textures?: { used: { label: string }[] };
 }
 
 export function filesSource(files: readonly InstallFile[]): PcFileSource {
@@ -79,11 +84,18 @@ export async function runConversion(
     if (!tplEntry) throw new Error('The template level has no header record; choose another template.');
     const header = parseLevelHeader((await template.read(tplEntry)).data);
     const { context, splats } = await ootfDiscContext(template, header, req.templateDir, readDisc);
-    const result = await convertOotfLevels(src, req.levels, context, {
-        ...OOTF_DIALOG_OPTIONS,
-        name: (pc) => `${req.prefix}${pcLevelName(pc.header)}`.slice(0, 60),
-        log: progress,
-    });
+    // Drakan 2 textures come from the same disc (language-relative paths, as the template's dependencies).
+    const result = await convertOotfLevels(
+        src,
+        req.levels,
+        { ...context, readPs2Txd: readDisc },
+        {
+            ...OOTF_DIALOG_OPTIONS,
+            ps2Textures: req.ps2Textures,
+            name: (pc) => `${req.prefix}${pcLevelName(pc.header)}`.slice(0, 60),
+            log: progress,
+        },
+    );
     const failed = result.stages.filter((stage) => !stage.ok);
     if (failed.length) throw new Error(`Conversion failed: ${failed.map((s) => `${s.stage}: ${s.error}`).join('; ')}`);
     const inputs = [];
@@ -124,5 +136,11 @@ export async function runConversion(
         pack.files['previews/campaign-ootf.png'] = req.cover;
         pack.files['previews/background-ootf.png'] = req.cover;
     }
-    return { pack, summaries, notes: [...result.warnings, ...pack.warnings], campaign: !!start };
+    return {
+        pack,
+        summaries,
+        notes: [...result.warnings, ...pack.warnings],
+        campaign: !!start,
+        ps2Textures: result.ps2Textures && { used: result.ps2Textures.used.map((u) => ({ label: u.label })) },
+    };
 }

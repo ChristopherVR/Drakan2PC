@@ -599,6 +599,37 @@ Cost for the 13-level campaign plus the 10 arenas: 3129 unique textures, 1382 no
 RTX 5080; the textures folder grows by about 1.2 GB (4969 files, 1.86 GB with the disc pack). Output is never committed. Default
 settings (`texture_upscale = auto`, `texture_dir = textures`) apply it; no pack change. Details: `docs/reference/hd-textures.md`.
 
+## Drakan 2 textures for converted OotF objects
+
+Where Drakan 2 has its own texture for the same kind of surface as an Order of the Flame object, the converter copies the disc
+texture into the pack instead of converting the PC picture (formats `ootfps2tex.ts`). The copy is byte for byte, so the game
+draws it as it draws the disc's own texture and the Drakan 2 HD pack replaces it too (same decoded picture, same hash); the OotF
+HD step (`ootf_hd_pack.py`) skips it because the hash is already in `dist/DrakanPC/textures`. The pairs are a curated table of
+names and ids (`DEFAULT_PS2_TEXTURE_SUBSTITUTIONS`, each row with a reason), never a guess at conversion time:
+
+| OotF texture | Drakan 2 texture | What |
+| --- | --- | --- |
+| `Tropical Common#5425` | `LEVELS/LEVEL3ON/LEVEL3ON.TXD#6041` | tropical plant fronds: Drakan 2 ships the same model (same 80 polygons) with this repaint |
+| `Mountain World Common#4619`, `Intro Level Common#4619` | `WORLDCON/WORLDCON/WORLDCON.TXD#412` | pine trunk bark (Drakan 2 PineTree01, pine1SNOW) |
+| `Mountain World Common#5279`, `Intro Level Common#5279` | `WORLDCON/WORLDCON/WORLDCON.TXD#412` | log bark (Drakan 2 wraps its SnowyLog in it) |
+| `Ruined Village#5433`, `Intro Level#116` | `LEVELS/LEVEL2RE/LEVEL2RE.TXD#545` | old tree / oak trunk bark (Drakan 2 Restoration Tree, 256 px) |
+
+Rules: the disc texture must have the OotF texture's aspect ratio (UVs are normalised, so a different size is harmless); a
+texture of a skinned model must stay 8 bpp and square or the OotF one is kept; an animated disc texture brings its frames;
+several OotF textures naming one disc texture share one copy. Object textures only: no OotF terrain texture has a better
+Drakan 2 Proc Textures counterpart.
+
+* CLI: on by default; `--ps2-textures 0` keeps every OotF texture. `--ps2-texture-map <file.json>` edits the table with
+  `[{ "ootf": "<container>#<id>", "ps2": "<disc TXD path>#<id>" | null }]` rows (`null` turns a row off, a new `ootf` adds a
+  pair, an existing one replaces it). The disc TXDs are read by file name from `--ps2-txd <dir>`, `<ps2>/txd`, `<ps2>` or the
+  hosts dir, else from the disc image (`--iso`, `DRAKAN_ISO`, or `iso` in `dist/DrakanPC/drakan.ini`).
+* Editor: Import Order of the Flame levels > "Use Drakan 2 textures where the disc has a matching one" (on by default), with a
+  tick per pair and "Add your own pair"; the choice is remembered in the browser and the result line lists what was used.
+* Pipeline: `OotfPipelineOptions.ps2Textures` (`{ enabled, off, extra }`) with `OotfPs2Context.readPs2Txd`.
+
+See [the matching survey](../journal/2026-11-08/ootf-ps2-texture-substitution.md) for how the pairs were found and what has
+no Drakan 2 counterpart.
+
 ## Menus and HUD (UI skins)
 
 The modern menus (title, pause, Options pages) and the multiplayer HUD read a small INI file, so a pack can rename and
