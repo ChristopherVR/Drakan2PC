@@ -189,6 +189,8 @@ dialog; formats `d18eb87`). Rynn and Arokh were already the disc's. Seen in game
 die lying down, Rynn holds and swings the Drakan 2 long sword, the Ruined Village opening and the Islands arrival on Arokh
 play. See [Drakan 2 characters and weapons](../journal/2026-11-08/ootf-ps2-model-substitution.md).
 
+**November 9 spider-like creatures:** melee on Wartok Canyons' creatures was measured with a sword in hand. The disc-class Spider is hit but takes 1 to 2 of 15 hit points per blow; the converted-model Scavenger took no damage in 120 swings from the sides and close in front, and died only from the front at the end of Rynn's reach, while the disc Scavenger class is hit normally. Not fixed. See [spider melee hits](../journal/2026-11-09/ootf-spider-melee-hits.md).
+
 **November 8 Drakan 2 textures:** where Drakan 2 has a texture for the same kind of surface, the converter now copies the disc
 texture instead of the OotF one (on by default; `--ps2-textures 0`, per pair in the editor's import dialog). Table: tropical plant
 fronds, pine trunk and log bark, old tree and oak bark (formats `1e12669`). Ruined Village shows Drakan 2 pine trunks with it and
