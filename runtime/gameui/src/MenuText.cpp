@@ -57,16 +57,26 @@ const Entry kEntries[] = {
     {"Playing", {"Aktiv", "En cours", "In uso", "En juego"}},
     {"More above", {"Weitere oben", "Plus haut", "Altri sopra", "Más arriba"}},
     {"More below", {"Weitere unten", "Plus bas", "Altri sotto", "Más abajo"}},
-    {"The sequel on your disc. Rynn and Arokh return to face a new threat as the Ancients' Gates open, in a story of sword, magic and dragonflight.",
-     {"Die Fortsetzung auf deiner Disc. Rynn und Arokh kehren zurück und stellen sich einer neuen Bedrohung, als sich die Tore der Uralten öffnen: eine Geschichte aus Schwert, Magie und Drachenflug.",
-      "La suite présente sur votre disque. Rynn et Arokh reviennent affronter une nouvelle menace à l'ouverture des Portes des Anciens, entre épée, magie et vol de dragon.",
-      "Il seguito sul tuo disco. Rynn e Arokh tornano per affrontare una nuova minaccia mentre si aprono le Porte degli Antichi, tra spada, magia e voli in groppa al drago.",
-      "La secuela de tu disco. Rynn y Arokh regresan para enfrentarse a una nueva amenaza cuando se abren las Puertas de los Antiguos: espada, magia y vuelo de dragón."}},
-    {"The first Drakan, rebuilt on this engine. Rynn, a warrior, and her dragon Arokh fight through the lands on foot and in the air. Its own levels and saves.",
-     {"Das erste Drakan, neu aufgebaut auf dieser Engine. Die Kriegerin Rynn und ihr Drache Arokh kämpfen zu Fuß und in der Luft durch die Lande. Mit eigenen Levels und Spielständen.",
-      "Le premier Drakan, reconstruit sur ce moteur. La guerrière Rynn et son dragon Arokh se battent à pied et dans les airs. Ses propres niveaux et sauvegardes.",
-      "Il primo Drakan, ricostruito su questo motore. La guerriera Rynn e il suo drago Arokh combattono a terra e in volo. Livelli e salvataggi propri.",
-      "El primer Drakan, reconstruido sobre este motor. La guerrera Rynn y su dragón Arokh luchan a pie y por los cielos. Con sus propios niveles y partidas."}},
+    {"The sequel on your disc. Rynn and Arokh return to face a new threat as the Ancients' Gates open, in a story of "
+     "sword, magic and dragonflight.",
+     {"Die Fortsetzung auf deiner Disc. Rynn und Arokh kehren zurück und stellen sich einer neuen Bedrohung, als sich "
+      "die Tore der Uralten öffnen: eine Geschichte aus Schwert, Magie und Drachenflug.",
+      "La suite présente sur votre disque. Rynn et Arokh reviennent affronter une nouvelle menace à l'ouverture des "
+      "Portes des Anciens, entre épée, magie et vol de dragon.",
+      "Il seguito sul tuo disco. Rynn e Arokh tornano per affrontare una nuova minaccia mentre si aprono le Porte "
+      "degli Antichi, tra spada, magia e voli in groppa al drago.",
+      "La secuela de tu disco. Rynn y Arokh regresan para enfrentarse a una nueva amenaza cuando se abren las Puertas "
+      "de los Antiguos: espada, magia y vuelo de dragón."}},
+    {"The first Drakan, rebuilt on this engine. Rynn, a warrior, and her dragon Arokh fight through the lands on foot "
+     "and in the air. Its own levels and saves.",
+     {"Das erste Drakan, neu aufgebaut auf dieser Engine. Die Kriegerin Rynn und ihr Drache Arokh kämpfen zu Fuß und "
+      "in der Luft durch die Lande. Mit eigenen Levels und Spielständen.",
+      "Le premier Drakan, reconstruit sur ce moteur. La guerrière Rynn et son dragon Arokh se battent à pied et dans "
+      "les airs. Ses propres niveaux et sauvegardes.",
+      "Il primo Drakan, ricostruito su questo motore. La guerriera Rynn e il suo drago Arokh combattono a terra e in "
+      "volo. Livelli e salvataggi propri.",
+      "El primer Drakan, reconstruido sobre este motor. La guerrera Rynn y su dragón Arokh luchan a pie y por los "
+      "cielos. Con sus propios niveles y partidas."}},
     {"A campaign from an installed mod pack.",
      {"Eine Kampagne aus einem installierten Mod-Paket.", "Une campagne d'un pack de mods installé.",
       "Una campagna di un pacchetto mod installato.", "Una campaña de un paquete de mods instalado."}},

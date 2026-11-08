@@ -82,9 +82,8 @@ int main() {
     {
         Rig r;
         CHECK(r.s.page() == MpPage::Menu && r.s.rows().size() == 7);
-        const RowId order[] = {RowId::MenuName,       RowId::MenuColour, RowId::MenuHumanSkin,
-                               RowId::MenuDragonSkin, RowId::MenuHost,   RowId::MenuJoin,
-                               RowId::MenuBack};
+        const RowId order[] = {RowId::MenuName, RowId::MenuColour, RowId::MenuHumanSkin, RowId::MenuDragonSkin,
+                               RowId::MenuHost, RowId::MenuJoin,   RowId::MenuBack};
         for (size_t i = 0; i < 7; ++i)
             CHECK(r.s.rows()[i].id == order[i]);
         CHECK(r.s.setup().name == "Tester");

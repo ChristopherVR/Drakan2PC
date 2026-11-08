@@ -299,7 +299,8 @@ std::vector<Page> InventoryScreen::visiblePages(const Snapshot& s) const {
 void InventoryScreen::open(const Snapshot& s, Page initial) {
     open_ = true;
     closePending_ = false;
-    page_ = (cfg_.includeShopPage && s.shop.active) ? Page::Shop : (pageEnabled(s, initial) ? initial : Page::Inventory);
+    page_ =
+        (cfg_.includeShopPage && s.shop.active) ? Page::Shop : (pageEnabled(s, initial) ? initial : Page::Inventory);
     filter_ = CategoryFilter::All;
     focus_ = hover_ = {};
     for (TargetId& t : pageFocus_)

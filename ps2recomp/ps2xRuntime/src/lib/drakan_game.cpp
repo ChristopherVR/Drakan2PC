@@ -201,10 +201,14 @@ std::vector<GameInfo> games() {
     for (const Campaign& c : g_campaigns) {
         std::string d = c.description;
         if (d.empty() && c.id == "ootf")
-            d = "The first Drakan, rebuilt on this engine. Rynn, a warrior, and her dragon Arokh fight through the lands on foot and in the air. Its own levels and saves.";
+            d = "The first Drakan, rebuilt on this engine. Rynn, a warrior, and her dragon Arokh fight through the "
+                "lands on foot and in the air. Its own levels and saves.";
         v.push_back({c.id, nameOf(&c), d, kindOf(&c)});
     }
-    v.push_back({"d2", "Drakan: The Ancients' Gates", "The sequel on your disc. Rynn and Arokh return to face a new threat as the Ancients' Gates open, in a story of sword, magic and dragonflight.", Game::Drakan});
+    v.push_back({"d2", "Drakan: The Ancients' Gates",
+                 "The sequel on your disc. Rynn and Arokh return to face a new threat as the Ancients' Gates open, in "
+                 "a story of sword, magic and dragonflight.",
+                 Game::Drakan});
     return v;
 }
 

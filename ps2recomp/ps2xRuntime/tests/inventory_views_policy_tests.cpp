@@ -33,7 +33,8 @@ int main() {
           "a step from the preset Journal lands beyond it");
     check(skipJournalPreset(kKeyNext, kMapSection, kSectionCount, false) == -1, "single player: unchanged");
     check(skipJournalPreset(kKeyPrevious, kEquipmentSection, kSectionCount, false) == -1, "single player: unchanged");
-    check(skipJournalPreset(kKeyNext, 1, kSectionCount, true) == -1 && skipJournalPreset(kKeyPrevious, 3, 5, true) == -1,
+    check(skipJournalPreset(kKeyNext, 1, kSectionCount, true) == -1 &&
+              skipJournalPreset(kKeyPrevious, 3, 5, true) == -1,
           "other steps untouched");
     check(skipJournalPreset(kKeyNext, kMapSection, 3, true) == -1, "a shop (three sections) is untouched");
 

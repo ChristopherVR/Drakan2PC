@@ -13,9 +13,9 @@
 namespace drakan_mp_death {
 namespace {
 
-constexpr uint32_t kHpSetter = 0x3d5710u;    // (stats block, new HP): the leaf of the damage method 0x314ab0
-constexpr uint32_t kStatsBlock = 0x4fbac8u;  // the local player's stats
-constexpr uint32_t kHpKey = 0x4fe86cu;       // HP is stored as rotl8(v) ^ key
+constexpr uint32_t kHpSetter = 0x3d5710u;   // (stats block, new HP): the leaf of the damage method 0x314ab0
+constexpr uint32_t kStatsBlock = 0x4fbac8u; // the local player's stats
+constexpr uint32_t kHpKey = 0x4fe86cu;      // HP is stored as rotl8(v) ^ key
 constexpr uint32_t kHpField = 0xcu;
 
 PS2Runtime::RecompiledFunction g_origSetter = nullptr;
@@ -42,8 +42,8 @@ bool sessionActive() {
 void hookHpSetter(uint8_t* rdram, R5900Context* c, PS2Runtime* rt) {
     const uint32_t stats = getRegU32(c, 4);
     const int32_t newHp = static_cast<int32_t>(getRegU32(c, 5));
-    if (newHp <= 0 && interceptsDeath(sessionActive(), stats == drakan_region::guestAddress(kStatsBlock), newHp,
-                                      storedHp(rdram))) {
+    if (newHp <= 0 &&
+        interceptsDeath(sessionActive(), stats == drakan_region::guestAddress(kStatsBlock), newHp, storedHp(rdram))) {
         std::fprintf(stderr, "[mpdeath] lethal damage in a session (HP %d -> %d): kept at %d, respawn queued\n",
                      storedHp(rdram), newHp, kSurviveHp);
         SET_GPR_U32(c, 5, static_cast<uint32_t>(kSurviveHp));
@@ -56,7 +56,8 @@ void hookHpSetter(uint8_t* rdram, R5900Context* c, PS2Runtime* rt) {
 
 void install(PS2Runtime& rt) {
     const uint32_t a = drakan_region::guestAddress(kHpSetter);
-    if (!a || !drakan_region::guestAddress(kStatsBlock) || !rt.hasFunction(a) || !(g_origSetter = rt.lookupFunction(a))) {
+    if (!a || !drakan_region::guestAddress(kStatsBlock) || !rt.hasFunction(a) ||
+        !(g_origSetter = rt.lookupFunction(a))) {
         std::fprintf(stderr, "[mpdeath] disabled: no HP setter for this disc profile\n");
         return;
     }

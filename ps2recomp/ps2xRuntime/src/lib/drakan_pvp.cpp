@@ -74,7 +74,7 @@ std::vector<Crumb> g_enemies; // positions of the ghosts the last time any exist
 std::string g_level;          // last loaded level stem
 unsigned g_lifeTicks = 0, g_ready = 0;
 float g_deathTime = 0.0f;
-int g_pendingHp = -1; // engine HP to write once no posted engine call is in flight
+int g_pendingHp = -1;    // engine HP to write once no posted engine call is in flight
 bool g_envDeath = false; // the death shown came from the environment: the server does not know, the host respawns
 struct RespawnReq {
     uint8_t spawn = 0;
@@ -1028,8 +1028,8 @@ void beforePadMgr(drakan_input::IGuest& guest, uint8_t* rdram) {
     if (!enemies.empty())
         g_enemies = std::move(enemies);
 
-    // An environmental death (a fall, lava, drowning): the hook kept the engine's HP at 1; show the death and get her up
-    // at an arena spawn after a moment (the server never hears of it, so no Respawn comes).
+    // An environmental death (a fall, lava, drowning): the hook kept the engine's HP at 1; show the death and get her
+    // up at an arena spawn after a moment (the server never hears of it, so no Respawn comes).
     if (drakan_mp_death::takeDeath() && g_life.load() == static_cast<int>(Life::Alive) && g_local.load()) {
         std::fprintf(stderr, "[pvp] environmental death: frozen with the death clip, respawn follows\n");
         g_life.store(static_cast<int>(Life::Dying));

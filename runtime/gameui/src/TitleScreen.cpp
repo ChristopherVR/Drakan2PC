@@ -431,11 +431,11 @@ void TitleScreen::buildTargets(const TitleState& st) {
             focus_.kind == TargetKind::CardButton ? gameOf(static_cast<TitleRow>(focus_.index)) : st.game;
         const int first = gameScroll(focused, n);
         for (int i = first; i < n && i < first + design::title::kGameRowsShown; ++i)
-            targets_.push_back({{TargetKind::CardButton, static_cast<int>(gameRowOf(i))},
-                                lf_.map(classic_ ? design::title::classicRow(i - first)
-                                                 : design::title::gameRow(i - first)),
-                                true,
-                                true});
+            targets_.push_back(
+                {{TargetKind::CardButton, static_cast<int>(gameRowOf(i))},
+                 lf_.map(classic_ ? design::title::classicRow(i - first) : design::title::gameRow(i - first)),
+                 true,
+                 true});
         return;
     }
     for (int i = 0; i < n; ++i) {
@@ -924,7 +924,8 @@ void TitleScreen::drawClassicGameChoice(const TitleState& st, DrawList& d) const
     // own background picture dimmed a little under the text.
     const Rect view{lf_.view.x, lf_.view.y, lf_.view.w, lf_.view.h};
     d.rect(view, rgba(0, 0, 0, 255));
-    if (focused < static_cast<int>(st.games.size()) && st.games[static_cast<size_t>(focused)].background.kind != ImageKind::None) {
+    if (focused < static_cast<int>(st.games.size()) &&
+        st.games[static_cast<size_t>(focused)].background.kind != ImageKind::None) {
         d.image(view, st.games[static_cast<size_t>(focused)].background);
         d.rect(view, rgba(0, 0, 0, 110));
     }

@@ -1,15 +1,15 @@
-// drakan_arena_power_policy.h: every multiplayer (arena) character starts at the maximum level with every spell unlocked,
-// whatever the campaign save behind the match looks like. Pure decisions and the stat word encoding; the guest reads
-// and writes live in drakan_arena.cpp (docs/reference/netcode.md "Starting power").
+// drakan_arena_power_policy.h: every multiplayer (arena) character starts at the maximum level with every spell
+// unlocked, whatever the campaign save behind the match looks like. Pure decisions and the stat word encoding; the
+// guest reads and writes live in drakan_arena.cpp (docs/reference/netcode.md "Starting power").
 #pragma once
 
 #include <cstdint>
 
 namespace drakan_arena_power {
 
-constexpr int32_t kMaxLevel = 12;      // "All Experience" debug option: level 1 to 12
-constexpr int32_t kMaxXp = 219623;     // the experience that option reaches (level 12)
-constexpr uint32_t kMaxSkill = 8;      // skill record maximum (melee, archery, magic), plain ints
+constexpr int32_t kMaxLevel = 12;       // "All Experience" debug option: level 1 to 12
+constexpr int32_t kMaxXp = 219623;      // the experience that option reaches (level 12)
+constexpr uint32_t kMaxSkill = 8;       // skill record maximum (melee, archery, magic), plain ints
 constexpr uint32_t kSkillRecord = 0x4c; // skill table record size: {id, level, max, name...}
 constexpr uint32_t kSpellRecord = 0x14; // spell table entry size: +0 known level (0 = not learned)
 constexpr uint32_t kMaxSpellSlots = 32; // sanity bound on the spell count

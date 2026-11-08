@@ -664,9 +664,10 @@ void endDeath(uint8_t* rdram) {
     g_savedHandler.store(0);
 }
 
-// Host: an environmental death (a fall, lava, drowning; the hook in drakan_mp_death kept the engine's HP at 1). The host
-// has no one to respawn beside, so she gets up at the last stable position she stood on (sampled about twice a second,
-// a sample taken while falling is skipped) with full HP; the engine's own death would reload the last save instead.
+// Host: an environmental death (a fall, lava, drowning; the hook in drakan_mp_death kept the engine's HP at 1). The
+// host has no one to respawn beside, so she gets up at the last stable position she stood on (sampled about twice a
+// second, a sample taken while falling is skipped) with full HP; the engine's own death would reload the last save
+// instead.
 struct HostSafe {
     bool have = false;
     float pos[3] = {};
