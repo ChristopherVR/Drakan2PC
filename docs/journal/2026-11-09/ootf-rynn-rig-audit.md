@@ -43,6 +43,13 @@ fault of the converter. Probes are private (`build/rynn-probe`, nothing from eit
   frames after the fade-in is about half as large (consecutive-frame difference 0.065 / 0.10 / 0.08 / 0.095 against 0.19 /
   0.235 / 0.12 / 0.06; a crude metric that includes fade-in), not gone. Only 1.3 of the Ruined Village releases Rynn, so no
   second scene end could be checked.
+* **Idle clip read from RAM (`rig-s`, `log on 1` over the end of 1.3).** The base layer's animation record
+  (`*(model+0xe8) + idx*0x80`, `+0x50` id, `+0x54` rate, `+0x58` phase) runs the scene's last two retargeted clips (ids 0x20918,
+  0x20919 = new SYSTEM.ADB clips 2328 and 2329) and then, once control is back, id 0x2047b = clip 1147 = `NCIdle` at rate 1.0
+  from phase 0.019. So the clip chosen for the pre-release blend is exactly the engine's gameplay idle, and no start phase is
+  needed. The blend runs 0.5 s early, so at the release the pose is `NCIdle` at about 0.5 s while the engine restarts it at
+  0; the difference between two idle poses is small against the scene pose to idle jump it replaces. Per-joint world
+  positions from RAM were not read (the pose matrices were not located).
 
 ## First pass (measurements before the frames)
 
