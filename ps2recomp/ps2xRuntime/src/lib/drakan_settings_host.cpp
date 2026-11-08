@@ -2461,15 +2461,37 @@ void switchButtonDraw(const dsettings::SettingsOverlay::ScreenFrame& f) {
     tu.renderer.setSkin(f.skin);
     const gameui::Viewport vp{0, 0, f.w, f.h};
     const gameui::Rect r = gameui::TitleScreen::switchButtonRect(vp);
-    const ImVec2 mp = ImGui::GetIO().MousePos;
-    const bool hover = ImGui::IsMousePosValid(&mp) && r.contains(mp.x, mp.y);
+    // ImGui is not fed the mouse while the native title owns the input (OverlayEvents: only a screen that wants input
+    // is), so the pointer is read from the OS (client area scaled to the back buffer) and the click is the physical
+    // left button's press edge.
+    ImVec2 mp = ImGui::GetIO().MousePos;
+    bool pointerOk = ImGui::IsMousePosValid(&mp);
+#ifdef _WIN32
+    if (HWND hw = static_cast<HWND>(drakan_win::surface().window)) {
+        POINT pt{};
+        RECT rc{};
+        if (GetCursorPos(&pt) && ScreenToClient(hw, &pt) && GetClientRect(hw, &rc) && rc.right > 0 && rc.bottom > 0) {
+            mp = ImVec2(static_cast<float>(pt.x) * f.w / static_cast<float>(rc.right),
+                        static_cast<float>(pt.y) * f.h / static_cast<float>(rc.bottom));
+            pointerOk = true;
+        }
+    }
+#endif
+    const bool hover = pointerOk && r.contains(mp.x, mp.y);
+    static bool lHeld = false;
+    const bool lDown = drakan_win::focused() && drakan_win::keyDown(drakan_win::vk::LeftButton);
+    const bool click = lDown && !lHeld;
+    lHeld = lDown;
     static bool gHeld = false;
     const bool gDown = drakan_win::focused() && drakan_win::keyDown('G');
     const bool key = gDown && !gHeld;
     gHeld = gDown;
-    if ((hover && ImGui::IsMouseClicked(ImGuiMouseButton_Left)) || key ||
-        ImGui::IsKeyPressed(ImGuiKey_GamepadBack, false))
+    const bool pad = ImGui::IsKeyPressed(ImGuiKey_GamepadBack, false);
+    if ((hover && click) || key || pad) {
         sh.switchRequest.store(true);
+        std::fprintf(stderr, "[menu-screens] Switch Campaigns pressed (%s) at (%.0f, %.0f) of %.0fx%.0f\n",
+                     hover && click ? "click" : key ? "G" : "pad", mp.x, mp.y, f.w, f.h);
+    }
     { // Test aid: DRAKAN_DEBUG_SWITCH_CLICK=<seconds> presses the button once when the log clock passes it.
         static const double at = [] {
             const char* e = std::getenv("DRAKAN_DEBUG_SWITCH_CLICK");
