@@ -275,6 +275,17 @@ works in every state (gameplay, the native menus), so F1 keeps one meaning. Prev
 (the real schema, `runtime/settings`) and `gameui_preview` (`pcsettings_*`, synthetic), rendered with
 `render_drawlist.py`; notes in `docs/journal/2026-10-25/modern-pc-settings.md`.
 
+**Previews in the help panel.** The panel on the right shows a picture under the title of the focused row
+(`SettingPreview.h`, tested by `gameui_preview_test`): a small animation of what the setting does, drawn with plain
+`DrawList` primitives (no game art, nothing stored), keyed by the row's `key` (`hasSettingPreview`). It follows the value
+the row shows right now: toggles are an "Off | On" comparison with the current side lit, choices and sliders show the
+current value (aspect ratio frames, render scale pixels, texture filtering, anisotropic floor, field of view wedge, frame
+rate steps, window mode, HUD size, volume, mouse sensitivity, dead zone ...). A row without an illustration keeps the
+plain help; add one by adding a function and a `kEntries` line. A **mod pack section** (`SettingSection::details`) shows
+the pack's cover (`SettingSection::picture`, an `ImageKind::LevelPreview` id; "No preview picture" when 0), its name as
+the title, its facts (`details`) and what to do next (`hint`). The glue resolves the picture (`IconSource`, pause and
+title hosts).
+
 **One schema.** `SettingsSchema` (`SettingsSchema.h`) is plain data: pages (`display`, `audio`, `controls`, `gameplay`)
 of sections of `SettingRow`s (`key`, `kind` Toggle / Choice / Slider / Info / Size, label, help, `unavailable` / `needs`,
 `enabled`, `restart`, `confirm`, `currentValue`, choices with labels and enabled flags, slider range / step / format /

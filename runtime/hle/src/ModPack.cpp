@@ -1394,6 +1394,24 @@ size_t ModManager::load(const std::string& modsDir, const std::vector<std::pair<
             c.st.hasManifest = true;
         else
             c.st.readError = err.empty() ? std::string("cannot be read") : err;
+        if (c.archive && c.st.hasManifest) {
+            // The cover: the pack's picture for the Mods page (names matched case-insensitively, like the scans below).
+            const std::string want1 = lower(c.prefix) + "previews/pack.png",
+                              want2 = lower(c.prefix) + "previews/campaign-" + lower(c.st.manifest.id) + ".png";
+            std::string found1, found2;
+            for (const auto& it : c.archive->list()) {
+                const std::string lp = lower(it.path);
+                if (it.size == 0 || it.size > (8u << 20))
+                    continue;
+                if (lp == want1)
+                    found1 = it.path;
+                else if (lp == want2)
+                    found2 = it.path;
+            }
+            const std::string& pick = !found1.empty() ? found1 : found2;
+            if (!pick.empty() && !c.archive->read(pick, c.st.cover))
+                c.st.cover.clear();
+        }
         if (!on) {
             c.st.state = ModState::Disabled;
             c.st.message = "disabled in mods.ini";

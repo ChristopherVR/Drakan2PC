@@ -1060,6 +1060,8 @@ bool nativeSound(const std::vector<gameui::PauseAction>& actions) {
     return false;
 }
 
+bool previewCrop(const gameui::ImageRef& ref, dsettings::IconCrop& c); // below: a picture's texture
+
 // `background`: another host screen is on top this frame (the modern Save / Load screen over the pause or the title):
 // this one only fades and draws, it reads no input (the events are the top screen's).
 void pauseDraw(const dsettings::SettingsOverlay::ScreenFrame& f, bool background = false) {
@@ -1153,8 +1155,10 @@ void pauseDraw(const dsettings::SettingsOverlay::ScreenFrame& f, bool background
     canvas.frameH = f.frameH;
     canvas.additive = f.additive;
     canvas.opaque = f.opaque;
-    const dsettings::IconSource none = [](const gameui::ImageRef&, dsettings::IconCrop&) { return false; };
-    tu.renderer.draw(ImGui::GetBackgroundDrawList(), ui.last, canvas, none, now, ui.fade);
+    const dsettings::IconSource pics = [](const gameui::ImageRef& ref, dsettings::IconCrop& c) {
+        return ref.kind == gameui::ImageKind::LevelPreview && previewCrop(ref, c); // a mod pack's picture
+    };
+    tu.renderer.draw(ImGui::GetBackgroundDrawList(), ui.last, canvas, pics, now, ui.fade);
     if (visible && ui.last.size() > 0)
         sh.hostDrawn.fetch_add(1); // the EE watchdog (drakan_pause_screen.inl pauseTick)
     if (in.pointerValid && tu.device == gameui::InputDevice::KeyboardMouse && f.input && visible)
@@ -2567,6 +2571,25 @@ void snapshotMods(const hle::mods::ModManager* mm, const std::string& dir) {
             m.name = st.key;
             m.readError = st.readError;
             m.file = st.source.empty() ? st.key : std::filesystem::path(st.source).filename().string();
+            if (!st.cover.empty()) {
+                // The pack's picture for the Mods page: written next to the exe like the map pictures, found by name.
+                std::string safe;
+                for (char ch : st.key)
+                    safe += (std::isalnum(static_cast<unsigned char>(ch)) || ch == '-' || ch == '_') ? ch : '_';
+                std::error_code ec;
+                const std::filesystem::path dir = std::filesystem::path(drakan_cfg::exeDir()) / "previews" / "mods";
+                const std::filesystem::path f = dir / ("pack-" + safe + ".png");
+                std::vector<char> have;
+                if (std::ifstream in(f, std::ios::binary); in)
+                    have.assign(std::istreambuf_iterator<char>(in), {});
+                if (have.size() != st.cover.size() || !std::equal(have.begin(), have.end(), st.cover.begin())) {
+                    std::filesystem::create_directories(dir, ec);
+                    std::ofstream(f, std::ios::binary)
+                        .write(reinterpret_cast<const char*>(st.cover.data()),
+                               static_cast<std::streamsize>(st.cover.size()));
+                }
+                m.picture = mapPreviewId("pack-" + safe);
+            }
             if (st.hasManifest) {
                 const hle::mods::Manifest& mf = st.manifest;
                 if (!mf.name.empty())

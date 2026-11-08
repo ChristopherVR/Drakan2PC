@@ -552,6 +552,17 @@ static void filesTests(const fs::path& root, const DiscProfile& pal) {
                      "\\Levels\\Level 9X - Clone Test\\Level 9X - Clone Test.lvl\r\n");
     }
 
+    // the Mods page cover: previews/pack.png of a pack is read even while the pack is off; a pack without one has none
+    {
+        const fs::path mods = root / "mods_cover";
+        writeText(mods / "pic/mod.toml", toml("pic"));
+        writeText(mods / "pic/previews/pack.png", "PNGDATA");
+        writeText(mods / "plain/mod.toml", toml("plain"));
+        ModManager mm(pal);
+        mm.load(mods.string(), {{"pic", false}, {"plain", false}});
+        CHECK(mm.status().size() == 2 && mm.status()[0].cover.size() == 7 && mm.status()[1].cover.empty());
+    }
+
     // guest limits: a replacement whose entry crosses the whole-entry limit where the original did not is rejected
     {
         const fs::path mods = root / "mods_files2";

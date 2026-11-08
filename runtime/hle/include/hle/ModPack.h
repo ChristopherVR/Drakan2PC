@@ -117,6 +117,9 @@ struct ModStatus {
     // The pack is in the mods folder but its zip or manifest cannot be read (set whether it is enabled or not; the
     // title screen names such a pack, docs/reference/modding.md "New packs"). Empty for a readable or missing pack.
     std::string readError;
+    // The pack's own picture for the Mods page: `previews/pack.png` (else `previews/campaign-<id>.png`), <= 8 MiB, PNG
+    // bytes. Read for every readable pack, enabled or not, so a pack can be looked at before it is turned on.
+    std::vector<u8> cover;
     size_t entries = 0, texts = 0, rejected = 0;
     size_t files = 0, added = 0, levels = 0; // whole files, new SRSC entries, registered levels (files/new/levels)
     // Loaded packs: the save compatibility id the game stores with every save (SaveRecord.h). The manifest's `build`

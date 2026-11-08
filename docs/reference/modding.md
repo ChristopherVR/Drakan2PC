@@ -483,6 +483,11 @@ Plus, optionally, **`previews/campaign-<id>.png`** in the pack: the cover pictur
 `previews/mods/` next to the exe; `previews/campaign-<id>.png` there wins). Without one the card shows the title on a plain
 panel.
 
+A pack can also ship **`previews/pack.png`** (else `previews/campaign-<id>.png`): its picture on the **Mods** page, shown in the
+panel beside the list when the pack is selected (PNG, at most 8 MiB, 16:9; 960 x 540 is plenty). It is read for every readable
+pack, **enabled or not**, so a pack can be looked at before it is turned on (`ModStatus::cover`; the game writes it to
+`previews/mods/pack-<key>.png` next to the exe). Without one the panel says "No preview picture".
+
 Rules (`drakan_overrides.cpp`, logged as `[game] pack ...`): only packs that are **enabled and loaded** count. The id is 1-32
 of `a-z 0-9 _ -`, a letter or digit first, not `d1`, `d2`, `drakan` or `ask`; a second pack with the same id is ignored (the
 first in load order wins). The start level must be one of the pack's registered levels (`levels`, LVL present), else

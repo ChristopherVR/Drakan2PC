@@ -14,10 +14,10 @@ namespace gameui {
 
 // What the preview draws: the value the row shows right now (not necessarily the applied one).
 struct PreviewState {
-    bool on = false;    // Toggle: shown state
-    std::string value;  // Choice: the shown choice's value ("4:3", "bilinear", "8"); Toggle: unused
-    float number = 0;   // Slider: the shown number
-    double time = 0;    // seconds, drives the animation
+    bool on = false;   // Toggle: shown state
+    std::string value; // Choice: the shown choice's value ("4:3", "bilinear", "8"); Toggle: unused
+    float number = 0;  // Slider: the shown number
+    double time = 0;   // seconds, drives the animation
 };
 
 // True when `key` has an illustration (a row key such as "video.vsync").

@@ -77,6 +77,10 @@ if(DRAKAN_BUILD_RUNTIME_TESTS)
     add_executable(gameui_settings_test tests/gameui_settings_test.cpp)
     target_link_libraries(gameui_settings_test PRIVATE drakan_gameui drakan::options)
     add_test(NAME gameui_settings_test COMMAND gameui_settings_test)
+    # Setting previews (the help panel's illustrations) and the Mods page's pack picture / details.
+    add_executable(gameui_preview_test tests/gameui_preview_test.cpp)
+    target_link_libraries(gameui_preview_test PRIVATE drakan_gameui drakan::options)
+    add_test(NAME gameui_preview_test COMMAND gameui_preview_test)
     # SaveLoadScreen, TitleScreen, the slot reader and PauseScreen's embedded (rootPage) mode.
     add_executable(gameui_saveload_test tests/gameui_saveload_test.cpp)
     target_link_libraries(gameui_saveload_test PRIVATE drakan_gameui drakan::options)

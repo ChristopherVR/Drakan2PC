@@ -1698,6 +1698,10 @@ void SettingsPages::drawHelp(DrawList& d) const {
             kicker = pg->sections[static_cast<size_t>(it->a)].title;
             title = r->label;
             body = r->help;
+            if (!picSec->details.empty()) { // a mod pack: its name leads, the row's label is the kicker
+                kicker = r->label;
+                title = picSec->title;
+            }
             if (!r->enabled)
                 notes.push_back({"Unavailable: " + (r->needs.empty() ? r->unavailable : r->needs), th.textMuted});
             if (r->restart)

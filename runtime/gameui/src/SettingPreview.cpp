@@ -125,8 +125,8 @@ void renderScale(const Ctx& c, bool, const std::string& v, float) {
                      mixc(rgba(240, 200, 120), rgba(206, 120, 60), (y - (cy - rad)) / (rad * 2)));
     }
     c.d.popClip();
-    label(c, {r.x + 8, r.bottom() - fsize(r) - 8, r.w - 16, fsize(r) + 4}, std::to_string(s) + "x pixels",
-          c.th.heading, TextAlign::Right);
+    label(c, {r.x + 8, r.bottom() - fsize(r) - 8, r.w - 16, fsize(r) + 4}, std::to_string(s) + "x pixels", c.th.heading,
+          TextAlign::Right);
 }
 
 // A tiny brick texture magnified: blocky (point) or smooth (bilinear).
@@ -134,7 +134,8 @@ Color texel(int i, int j) {
     const bool mortar = (j % 3 == 2) || ((i + (j / 3) * 2) % 4 == 3);
     const unsigned h = static_cast<unsigned>(i * 73856093 ^ j * 19349663);
     const int v = static_cast<int>(h % 24);
-    return mortar ? rgba(static_cast<uint8_t>(70 + v / 2), 58, 48) : rgba(static_cast<uint8_t>(150 + v), 82 + v / 2, 56);
+    return mortar ? rgba(static_cast<uint8_t>(70 + v / 2), 58, 48)
+                  : rgba(static_cast<uint8_t>(150 + v), static_cast<uint8_t>(82 + v / 2), 56);
 }
 void magnified(const Ctx& c, bool smooth) {
     const Rect& r = c.r;
@@ -155,7 +156,8 @@ void magnified(const Ctx& c, bool smooth) {
                     const int i0 = static_cast<int>(std::floor(u)), j0 = static_cast<int>(std::floor(w));
                     const float fx = u - static_cast<float>(i0), fy = w - static_cast<float>(j0);
                     auto at = [&](int a, int b) { return texel(std::clamp(a, 0, kW - 1), std::clamp(b, 0, kH - 1)); };
-                    const Color top = mixc(at(i0, j0), at(i0 + 1, j0), fx), bot = mixc(at(i0, j0 + 1), at(i0 + 1, j0 + 1), fx);
+                    const Color top = mixc(at(i0, j0), at(i0 + 1, j0), fx),
+                                bot = mixc(at(i0, j0 + 1), at(i0 + 1, j0 + 1), fx);
                     c.d.rect({r.x + (static_cast<float>(i) + static_cast<float>(si) / kSub) * cw,
                               r.y + (static_cast<float>(j) + static_cast<float>(sj) / kSub) * ch, cw / kSub + 0.5f,
                               ch / kSub + 0.5f},
@@ -189,7 +191,8 @@ void anisotropic(const Ctx& c, bool, const std::string& v, float) {
             const bool light = ((i + k) & 1) == 0;
             const Color base = light ? rgba(190, 150, 100) : rgba(64, 46, 34);
             const Color grey = rgba(124, 98, 68);
-            c.d.rect({r.cx() + static_cast<float>(i) * w0, yTop, w0 + 0.5f, yBot - yTop + 0.5f}, mixc(base, grey, blur));
+            c.d.rect({r.cx() + static_cast<float>(i) * w0, yTop, w0 + 0.5f, yBot - yTop + 0.5f},
+                     mixc(base, grey, blur));
         }
     }
     c.d.popClip();
@@ -214,7 +217,8 @@ void hdTextures(const Ctx& c, bool on, const std::string&, float) {
             const float bw = r.w / 4;
             const unsigned h = static_cast<unsigned>((i + 7) * 2654435761u ^ static_cast<unsigned>(j) * 40503u);
             const int v = static_cast<int>(h % 32);
-            const Rect b{r.x + static_cast<float>(i) * bw + off + 2, r.y + static_cast<float>(j) * bh + 2, bw - 4, bh - 4};
+            const Rect b{r.x + static_cast<float>(i) * bw + off + 2, r.y + static_cast<float>(j) * bh + 2, bw - 4,
+                         bh - 4};
             c.d.rect(b, rgba(static_cast<uint8_t>(150 + v), static_cast<uint8_t>(84 + v / 2), 58), 2);
             c.d.rect({b.x, b.y, b.w, 2}, rgba(220, 160, 110, 180));
             c.d.rect({b.x, b.bottom() - 2, b.w, 2}, rgba(60, 30, 20, 160));
@@ -247,8 +251,8 @@ void fov(const Ctx& c, bool, const std::string&, float deg) {
     }
     c.d.rect({cx - 9, cy - 5, 18, 14}, c.th.ember, 3);
     c.d.popClip();
-    label(c, {r.x + 8, r.y + 6, r.w - 16, fsize(r) + 4}, "top view: " + std::to_string(static_cast<int>(deg)) + " degrees",
-          c.th.heading);
+    label(c, {r.x + 8, r.y + 6, r.w - 16, fsize(r) + 4},
+          "top view: " + std::to_string(static_cast<int>(deg)) + " degrees", c.th.heading);
 }
 
 // Smoothness: the ball's path sampled at the frame rate.
@@ -265,12 +269,13 @@ void frameRate(const Ctx& c, bool, const std::string& v, float) {
     const float step = hz >= 100 ? 0.0f : 1.0f / hz;
     for (int k = 7; k >= 1; --k) {
         const float a = 1.0f - static_cast<float>(k) / 8.0f;
-        disc(c.d, pos(tq - k * (step > 0 ? step : 0.012)), y, r.h * 0.07f, withAlpha(c.th.brass, static_cast<uint8_t>(110 * a)));
+        disc(c.d, pos(tq - k * (step > 0 ? step : 0.012)), y, r.h * 0.07f,
+             withAlpha(c.th.brass, static_cast<uint8_t>(110 * a)));
     }
     disc(c.d, pos(tq), y, r.h * 0.1f, c.th.heading);
     label(c, {r.x + 8, r.bottom() - fsize(r) - 8, r.w - 16, fsize(r) + 4},
-          hz >= 100 ? "very smooth motion" : std::to_string(static_cast<int>(hz)) + " pictures a second",
-          c.th.heading, TextAlign::Right);
+          hz >= 100 ? "very smooth motion" : std::to_string(static_cast<int>(hz)) + " pictures a second", c.th.heading,
+          TextAlign::Right);
 }
 
 void windowMode(const Ctx& c, bool, const std::string& v, float) {
@@ -291,7 +296,8 @@ void windowMode(const Ctx& c, bool, const std::string& v, float) {
         c.d.pushClip(g);
         sky(c, g);
         c.d.popClip();
-        label(c, {scr.x, scr.bottom() - scr.h * 0.1f - 2, scr.w, scr.h * 0.1f}, "  desktop and taskbar stay", c.th.textMuted);
+        label(c, {scr.x, scr.bottom() - scr.h * 0.1f - 2, scr.w, scr.h * 0.1f}, "  desktop and taskbar stay",
+              c.th.textMuted);
     } else {
         sky(c, scr);
         if (v == "exclusive")
@@ -341,7 +347,9 @@ void hudScale(const Ctx& c, bool, const std::string& v, float) {
     const float d = r.h * 0.2f * s;
     c.d.rect({r.x + 12, r.bottom() - d - 10, d, d}, withAlpha(c.th.hp, 235), d * 0.5f);
     c.d.rect({r.right() - d - 12, r.bottom() - d - 10, d, d}, withAlpha(c.th.mana, 235), d * 0.5f);
-    label(c, {r.x + 8, r.y + 6, r.w - 16, fsize(r) + 4}, v == "0" || v.empty() ? "follows window size" : "HUD at " + std::to_string(static_cast<int>(s * 100 + 0.5f)) + "%",
+    label(c, {r.x + 8, r.y + 6, r.w - 16, fsize(r) + 4},
+          v == "0" || v.empty() ? "follows window size"
+                                : "HUD at " + std::to_string(static_cast<int>(s * 100 + 0.5f)) + "%",
           c.th.heading, TextAlign::Right);
 }
 
@@ -349,7 +357,8 @@ void hudAspect(const Ctx& c, bool on, const std::string&, float) {
     const Rect& r = c.r;
     sky(c, r);
     const float d = r.h * 0.34f;
-    c.d.rect({r.cx() - (on ? d : d * 1.7f) * 0.5f, r.cy() - d * 0.5f, on ? d : d * 1.7f, d}, withAlpha(c.th.hp, 235), d * 0.5f);
+    c.d.rect({r.cx() - (on ? d : d * 1.7f) * 0.5f, r.cy() - d * 0.5f, on ? d : d * 1.7f, d}, withAlpha(c.th.hp, 235),
+             d * 0.5f);
     label(c, {r.x + 8, r.bottom() - fsize(r) - 8, r.w - 16, fsize(r) + 4}, on ? "orbs stay round" : "orbs stretch",
           c.th.heading, TextAlign::Right);
 }
@@ -362,12 +371,13 @@ void nearClip(const Ctx& c, bool on, const std::string&, float) {
         c.d.line({r.x + r.w * 0.1f, r.bottom() - r.h * 0.1f}, {r.cx(), r.cy()}, rgba(150, 210, 255), 6);
     } else {
         for (int i = -2; i <= 2; ++i)
-            c.d.line({r.x + r.w * 0.1f, r.bottom() - r.h * 0.1f}, {r.cx() + static_cast<float>(i) * r.w * 0.34f, r.y - 20},
+            c.d.line({r.x + r.w * 0.1f, r.bottom() - r.h * 0.1f},
+                     {r.cx() + static_cast<float>(i) * r.w * 0.34f, r.y - 20},
                      withAlpha(rgba(150, 210, 255), static_cast<uint8_t>(210 - std::abs(i) * 50)), 5);
     }
     c.d.popClip();
-    label(c, {r.x + 8, r.bottom() - fsize(r) - 8, r.w - 16, fsize(r) + 4}, on ? "cut cleanly" : "streaks across the screen",
-          on ? c.th.good : c.th.bad, TextAlign::Right);
+    label(c, {r.x + 8, r.bottom() - fsize(r) - 8, r.w - 16, fsize(r) + 4},
+          on ? "cut cleanly" : "streaks across the screen", on ? c.th.good : c.th.bad, TextAlign::Right);
 }
 
 void menuHighlight(const Ctx& c, bool on, const std::string&, float) {
@@ -395,8 +405,8 @@ void rayShadows(const Ctx& c, bool on, const std::string&, float) {
     const float base = r.y + r.h * 0.8f;
     if (on) {
         for (int i = 0; i < 5; ++i)
-            c.d.rect({r.x + r.w * 0.36f + static_cast<float>(i) * 3, base - r.h * 0.05f + static_cast<float>(i), r.w * (0.36f - 0.02f * static_cast<float>(i)),
-                      r.h * 0.07f},
+            c.d.rect({r.x + r.w * 0.36f + static_cast<float>(i) * 3, base - r.h * 0.05f + static_cast<float>(i),
+                      r.w * (0.36f - 0.02f * static_cast<float>(i)), r.h * 0.07f},
                      rgba(0, 0, 0, 40), r.h * 0.035f);
     }
     pillar(c, r.x + r.w * 0.3f, base, r.w * 0.1f, r.h * 0.5f);
@@ -411,7 +421,8 @@ void rayReflections(const Ctx& c, bool on, const std::string&, float) {
     if (on) {
         const float h = r.h * 0.3f;
         c.d.gradient({r.x + r.w * 0.4f, shore, r.w * 0.1f, h}, rgba(120, 100, 84, 200), rgba(120, 100, 84, 0));
-        c.d.gradient({r.x + r.w * 0.1f, shore, r.w * 0.8f, r.bottom() - shore}, rgba(176, 108, 70, 70), rgba(176, 108, 70, 0));
+        c.d.gradient({r.x + r.w * 0.1f, shore, r.w * 0.8f, r.bottom() - shore}, rgba(176, 108, 70, 70),
+                     rgba(176, 108, 70, 0));
     }
 }
 
@@ -427,7 +438,8 @@ void rayGi(const Ctx& c, bool on, const std::string&, float) {
         }
     }
     pillar(c, r.x + r.w * 0.3f, base, r.w * 0.1f, r.h * 0.5f);
-    c.d.rect({r.x + r.w * 0.62f, base - r.h * 0.25f, r.w * 0.2f, r.h * 0.25f}, on ? rgba(210, 120, 64) : rgba(96, 52, 30), 3);
+    c.d.rect({r.x + r.w * 0.62f, base - r.h * 0.25f, r.w * 0.2f, r.h * 0.25f},
+             on ? rgba(210, 120, 64) : rgba(96, 52, 30), 3);
 }
 
 void modernWater(const Ctx& c, bool on, const std::string&, float) {
@@ -438,13 +450,16 @@ void modernWater(const Ctx& c, bool on, const std::string&, float) {
     for (int j = 0; j < kRows; ++j) {
         const float y = r.y + (static_cast<float>(j) + 0.5f) * r.h / kRows;
         if (!on) {
-            c.d.rect({r.x, y - 3, r.w, 6}, ((j + static_cast<int>(c.t * 1.5)) & 1) ? rgba(34, 78, 104) : rgba(26, 60, 82));
+            c.d.rect({r.x, y - 3, r.w, 6},
+                     ((j + static_cast<int>(c.t * 1.5)) & 1) ? rgba(34, 78, 104) : rgba(26, 60, 82));
             continue;
         }
         Vec2 prev{r.x, y};
         for (int i = 1; i <= kSeg; ++i) {
             const float x = r.x + r.w * static_cast<float>(i) / kSeg;
-            const float yy = y + std::sin(static_cast<float>(i) * 0.7f + static_cast<float>(j) + static_cast<float>(c.t) * 2.2f) * r.h * 0.025f;
+            const float yy =
+                y + std::sin(static_cast<float>(i) * 0.7f + static_cast<float>(j) + static_cast<float>(c.t) * 2.2f) *
+                        r.h * 0.025f;
             c.d.line(prev, {x, yy}, withAlpha(rgba(170, 220, 240), static_cast<uint8_t>(90 + 20 * (j % 3))), 2.2f);
             prev = {x, yy};
         }
@@ -458,7 +473,8 @@ void foliage(const Ctx& c, bool on, const std::string&, float amp) {
     const float base = r.bottom() - r.h * 0.06f;
     const float sway = c.row.kind == SettingKind::Toggle ? (on ? 1.0f : 0.0f) : std::clamp(amp, 0.0f, 2.0f);
     for (int i = 0; i < 14; ++i) {
-        const float x = r.x + (static_cast<float>(i) + 0.5f) * r.w / 14, h = r.h * (0.34f + 0.12f * static_cast<float>((i * 7) % 5) / 4);
+        const float x = r.x + (static_cast<float>(i) + 0.5f) * r.w / 14,
+                    h = r.h * (0.34f + 0.12f * static_cast<float>((i * 7) % 5) / 4);
         const float dx = std::sin(static_cast<float>(c.t) * 2.0f + static_cast<float>(i) * 0.6f) * r.w * 0.03f * sway;
         c.d.line({x, base}, {x + dx * 0.5f, base - h * 0.5f}, rgba(70, 120, 56), 3);
         c.d.line({x + dx * 0.5f, base - h * 0.5f}, {x + dx, base - h}, rgba(110, 170, 70), 2.5f);
@@ -501,11 +517,14 @@ void masterVolume(const Ctx& c, bool, const std::string&, float pct) {
     for (int i = 0; i < kBars; ++i) {
         const float k = static_cast<float>(i) / kBars;
         const float bob = 0.5f + 0.5f * std::sin(static_cast<float>(c.t) * 5 + static_cast<float>(i) * 0.8f);
-        const float h = r.h * 0.5f * std::min(1.0f, level) * (0.45f + 0.55f * bob) * (0.5f + 0.5f * (1 - std::fabs(k - 0.5f) * 1.2f));
+        const float h = r.h * 0.5f * std::min(1.0f, level) * (0.45f + 0.55f * bob) *
+                        (0.5f + 0.5f * (1 - std::fabs(k - 0.5f) * 1.2f));
         const bool clip = level > 1.0f && k > 0.7f;
-        c.d.rect({x0 + static_cast<float>(i) * bw + 1, base - h, bw - 2, std::max(2.0f, h)}, clip ? c.th.bad : c.th.brass);
+        c.d.rect({x0 + static_cast<float>(i) * bw + 1, base - h, bw - 2, std::max(2.0f, h)},
+                 clip ? c.th.bad : c.th.brass);
     }
-    label(c, {r.x + 8, r.y + 6, r.w - 16, fsize(r) + 4}, level > 1.0f ? "boosted: may clip" : std::to_string(static_cast<int>(pct + 0.5f)) + "%",
+    label(c, {r.x + 8, r.y + 6, r.w - 16, fsize(r) + 4},
+          level > 1.0f ? "boosted: may clip" : std::to_string(static_cast<int>(pct + 0.5f)) + "%",
           level > 1.0f ? c.th.bad : c.th.heading, TextAlign::Right);
 }
 
@@ -527,8 +546,8 @@ void invertY(const Ctx& c, bool on, const std::string&, float) {
     c.d.popClip();
     c.d.line({view.cx() - 8, view.cy()}, {view.cx() + 8, view.cy()}, c.th.heading, 2);
     c.d.line({view.cx(), view.cy() - 8}, {view.cx(), view.cy() + 8}, c.th.heading, 2);
-    label(c, {view.x, view.bottom() - fsize(r) - 2, view.w, fsize(r) + 4}, on ? "mouse forward: look down" : "mouse forward: look up",
-          c.th.textMuted, TextAlign::Center);
+    label(c, {view.x, view.bottom() - fsize(r) - 2, view.w, fsize(r) + 4},
+          on ? "mouse forward: look down" : "mouse forward: look up", c.th.textMuted, TextAlign::Center);
 }
 
 void mouseSensitivity(const Ctx& c, bool, const std::string&, float v) {
@@ -567,7 +586,8 @@ void deadZone(const Ctx& c, bool, const std::string&, float dz) {
     const float mag = std::sqrt(px * px + py * py);
     disc(c.d, cx + px * rad, cy + py * rad, rad * 0.1f, mag < fz * 2.0f ? c.th.textMuted : c.th.heading);
     label(c, {r.x + 8, r.bottom() - fsize(r) - 8, r.w - 16, fsize(r) + 4},
-          mag < fz * 2.0f ? "ignored: no movement" : "moves the character", mag < fz * 2.0f ? c.th.bad : c.th.good, TextAlign::Right);
+          mag < fz * 2.0f ? "ignored: no movement" : "moves the character", mag < fz * 2.0f ? c.th.bad : c.th.good,
+          TextAlign::Right);
 }
 
 void prompts(const Ctx& c, bool, const std::string& v, float) {
@@ -595,12 +615,13 @@ void prompts(const Ctx& c, bool, const std::string& v, float) {
             const float w = i == 0 ? u : u * 1.6f;
             c.d.rect({x, r.cy() - u * 0.5f, w, u}, rgba(44, 38, 34), 5);
             c.d.outline({x, r.cy() - u * 0.5f, w, u}, c.th.brass, 2, 5);
-            c.d.text({x, r.cy() - u * 0.5f, w, u}, keys[i], FontRole::Body, fsize(r) * 1.1f, c.th.heading, TextAlign::Center);
+            c.d.text({x, r.cy() - u * 0.5f, w, u}, keys[i], FontRole::Body, fsize(r) * 1.1f, c.th.heading,
+                     TextAlign::Center);
             x += w + u * 0.35f;
         }
     }
-    label(c, {r.x + 8, r.bottom() - fsize(r) - 8, r.w - 16, fsize(r) + 4}, v == "ps2" ? "PlayStation 2 buttons" : "your keys and mouse",
-          c.th.textMuted, TextAlign::Right);
+    label(c, {r.x + 8, r.bottom() - fsize(r) - 8, r.w - 16, fsize(r) + 4},
+          v == "ps2" ? "PlayStation 2 buttons" : "your keys and mouse", c.th.textMuted, TextAlign::Right);
 }
 
 struct Entry {
@@ -677,7 +698,8 @@ bool drawSettingPreview(DrawList& d, const Rect& box, const SettingRow& row, con
     d.pushClip(box);
     if (row.kind == SettingKind::Toggle) {
         const float gap = 4;
-        const Rect left{box.x, box.y, (box.w - gap) * 0.5f, box.h}, right{box.x + (box.w + gap) * 0.5f, box.y, (box.w - gap) * 0.5f, box.h};
+        const Rect left{box.x, box.y, (box.w - gap) * 0.5f, box.h},
+            right{box.x + (box.w + gap) * 0.5f, box.y, (box.w - gap) * 0.5f, box.h};
         const Ctx a{d, left, st.time, th, row}, b{d, right, st.time, th, row};
         for (int i = 0; i < 2; ++i) {
             const Ctx& cx = i == 0 ? a : b;
@@ -688,8 +710,9 @@ bool drawSettingPreview(DrawList& d, const Rect& box, const SettingRow& row, con
                 d.rect(cx.r, rgba(0, 0, 0, 120)); // the side that is not selected is dimmed
             const float fs = fsize(cx.r);
             d.rect({cx.r.x, cx.r.y, cx.r.w, fs + 10}, rgba(0, 0, 0, 150));
-            d.text({cx.r.x + 8, cx.r.y + 3, cx.r.w - 16, fs + 4}, i == 0 ? (e->offLabel ? e->offLabel : "Off") : (e->onLabel ? e->onLabel : "On"),
-                   FontRole::Small, fs, current ? th.heading : th.textMuted, TextAlign::Left);
+            d.text({cx.r.x + 8, cx.r.y + 3, cx.r.w - 16, fs + 4},
+                   i == 0 ? (e->offLabel ? e->offLabel : "Off") : (e->onLabel ? e->onLabel : "On"), FontRole::Small, fs,
+                   current ? th.heading : th.textMuted, TextAlign::Left);
             d.popClip();
         }
         d.outline(st.on ? right : left, th.select, 2.5f, 2);
