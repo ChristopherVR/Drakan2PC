@@ -205,6 +205,8 @@ play. See [Drakan 2 characters and weapons](../journal/2026-11-08/ootf-ps2-model
 
 **November 9 scene Wartoks:** the cut-scene Wartoks (`Wartock Leather / Chain / Plate`, class 17 props) now use the disc Wartok model and rig by default (formats `d052dd4`, opt out per row): their PC clips are retargeted onto the disc rig, unmatched disc joints keep a native pose, and scene channels are remapped (spear: PC 9 to disc 10, left hand: PC 12 to disc 14). Seen in the Ruined Village opening (bridge, impale); see [scene Wartoks](../journal/2026-11-09/ootf-scene-wartoks.md).
 
+**November 9 scene orcs and the scene-creature audit:** every creature actor of every OotF scene was audited; the cut-scene orcs (`Heuge Purple / Yellow`, class 17, Ruined Village 1.1 / 1.2a and Volcanic) were the one Wartok-or-orc class still on a converted PC model, and now use the disc Purple / Yellow Orc model and rig by default (scene rows, opt-out per row). Scene Sailors, Death Mages, Ebon Knights, Succubi and villagers stay PC models (no disc counterpart or under half of the joints match). Seen in the Ruined Village opening; later-level scenes are trigger-based and were not reached. See [scene creature audit](../journal/2026-11-09/ootf-scene-creatures-audit.md).
+
 **November 8 Drakan 2 textures:** where Drakan 2 has a texture for the same kind of surface, the converter now copies the disc
 texture instead of the OotF one (on by default; `--ps2-textures 0`, per pair in the editor's import dialog). Table: tropical plant
 fronds, pine trunk and log bark, old tree and oak bark (formats `1e12669`). Ruined Village shows Drakan 2 pine trunks with it and
