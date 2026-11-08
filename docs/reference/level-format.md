@@ -598,7 +598,7 @@ Action = `u16 type, f32 time (seconds)` + payload:
 | 6 | unnamed | 10 | u32 0 / 1 | size proven |
 | 7 | message | 14 | u32 message number, u32 param | size proven; 4097 (256x), 4259, 4263, 4098, 4162, 4257 ... Inferred: `0x1000 + n` is the object message enum of `logic.ts` (4097 = On), 4257 = Play Sequence (OotF list) |
 | 8 | unnamed | 34 | u32, u32, 4 x f32, u32 1 | size proven (9 on the disc, camera actors) |
-| 9 | camera setup | 14 | f32 1.0, u32 (40, 50, 55) | size proven, first real action of camera actors; "field of view" is **inferred** |
+| 9 | camera setup | 14 | f32 1.0, u32 (40, 50, 55) | size proven, first real action of camera actors; the u32 is the field of view in degrees (proven 2026-11-08: the scene tick `0x1a68d8` hands it, interpolated between keys, to the render object's FOV setter, vtable `+0x54` of `*(0x5565c8)+0x124`; the f32 goes to `0x1435a0`) |
 | 10 | hold | 6 | nothing | size proven; always followed by a type 0 or 9 at the same time |
 
 The camera is the actor named `Camera` (type 9 and 5, then keyframes, sounds and messages). The same list carries Rynn, NPCs, props,
@@ -644,7 +644,11 @@ Panels `app/src/story/compose.ts` (Story > New dialogue, New cut scene, Quest ma
   two keys 0.01 s apart make a cut. Orientation is interpolated too.
 * **HUD / camera setup.** The Valley entry scene (player 7577, `Initial State` 1, plays at load) hides the HUD and shows subtitles for its
   sound actions; a new scene without a type 9 camera action keeps the HUD. Type 9's second value (`CutsceneSpec.camSetup`) changes the view
-  angle (40 zooms in strongly versus none), so it is a field of view.
+  angle (40 zooms in strongly versus none), so it is a field of view. What hides the HUD is the player being an actor of a running
+  scene, not the camera action (2026-11-08): converted Order of the Flame Intro scenes with a camera and a type 9 drew the health and
+  mana orbs throughout, and adding the level's player as an actor with one run/stop action hid them
+  ([journal](../journal/2026-11-08/ootf-intro-hud-and-owl-camera.md)). A scene that holds the player can also be skipped with
+  Start / Cross, as the disc Intro's is.
 * **Edits that changed the game picture:** camera key position (y + 30000), camera orientation (all keys yawed 90 degrees), camera
   retime (x2.5), animation id swap; asserted by `story_cinematic.py` (phases stock / edit / new).
 * The Rynn start object is not where Rynn stands at runtime; use `DRAKAN_PLAYTEST_POS` to put her somewhere.

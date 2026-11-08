@@ -144,7 +144,7 @@ def main() -> int:
     import zipfile
 
     toml = zipfile.ZipFile(zip_path).read("mod.toml").decode()
-    title = re.search(r'levels = \["(.*)"\]', toml).group(1)
+    title = re.search(r'levels = \["([^"]*)"', toml).group(1)  # the first (start) level of a multi-level pack
     recipe = a.recipe or work / "recipe.txt"
     if not a.recipe:
         recipe.write_text(RECIPE, encoding="utf-8", newline="\n")
