@@ -38,3 +38,41 @@ Private copy of dist/DrakanPC, OotF Ruined Village pack (campaign), window 1280 
 
 Drakan 2 New Game HUD at scale 2 after the fix looks unchanged. Not verified: the WebGPU backend (same edit, not run),
 other render-target sprites such as inventory pieces (the footprint only applies after EndWorld, never to world draws).
+
+## Follow-up: a thin vertical line still shows with the player's real settings (open)
+
+The player still sees a thin vertical line just past the right end of the health orb and of the compass orb (screenshot
+3397 x 2101, scale 5, widescreen, HD textures, DLSS quality). The first fix was only tested at 1280 x 720 / scale 2-3.
+
+Reproduced in a private copy of dist/DrakanPC (all settings from the player's drakan.ini, OotF campaign intro level, HUD over
+black or over the world) with a 3397 x 2032 window and PS2X_GS_SCALE=5. Presented-frame captures use
+`DRAKAN_OVERLAY_SHOT_DIR` (the renderer `shot` does not show the HUD the same way).
+
+Bisect (line present = yes), all at 3397 wide:
+
+| Setting changed | Line |
+| --- | --- |
+| none (scale 5, HD, xBRZ, DLSS quality) | yes, faint, about 3 output px wide, orb height |
+| `GSR_TEXUP=off` | yes |
+| `DRAKAN_HD_TEXTURES=0` | yes |
+| `DRAKAN_DLSS=off` | yes |
+| `PS2X_GS_SCALE=3` / `2` | yes |
+| `PS2X_GS_SCALE=1` | no |
+| `DRAKAN_HUD_ASPECT=1`, `GSR_HUDSCALE=1` | yes |
+| `GSR_SEAMFIX=0` | yes |
+| `GSR_SPRITE_FOOTPRINT=0` | much brighter (pure white) line on the right and bottom edge: the earlier bug |
+
+So HD textures, xBRZ, DLSS, the widescreen HUD map and the seam filler are not the cause. The line needs a render scale
+above 1 and survives the footprint clamp (which only removes the bright white part, see the GSR_SPRITE_FOOTPRINT=0 row).
+The Drakan 2 New Game HUD at the same settings showed no line in a 2000 x 1237 and a 3397 x 2032 run.
+
+Draw log of the left orb (frame with `GSR_DRAWLOG`, tex0 TBP 0x3280 sheet 128 x 512 at origin y=128): the orb is drawn by
+single 60 x 58/60 sprites at x 47..107 / 48..108 reading u 28.5..88.5, plus the frame sprite 54..109 (tex TBP 0x3380, not a
+render target) and the 7 x 97 pillar fill 39..46; the pillar fill and face come in one 12-vertex batch. All carry the
+footprint flag (consts fl bit 24). The remaining line is therefore not texel 88 bleed; the next step is to find which of
+these draws leaves the column (a debug skip by tex0 TBP is the planned bisect, the build was blocked, see below).
+
+Evidence: build/review/hud/before.png (4x nearest crops of both orbs with the line).
+
+Status: not fixed. The incremental build could not run because ps2recomp/ps2xRuntime/src/lib/drakan_settings_host.cpp in the
+shared working tree is a 0-byte file (modified 08:48 by another session; HEAD has 3366 lines), which breaks the link.
