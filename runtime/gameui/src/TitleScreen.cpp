@@ -859,14 +859,10 @@ void TitleScreen::drawGameCard(const TitleState& st, DrawList& d) const {
     const int n = gameCount(st);
     const int focused =
         focus_.kind == TargetKind::CardButton ? std::clamp(gameOf(static_cast<TitleRow>(focus_.index)), 0, n - 1) : 0;
-    // Black until a game is chosen; the focused game's own background picture (dimmed) once it has one.
+    // Black behind the list, whichever game is focused: a campaign's background picture is drawn only by the classic
+    // game choice, so this card shows the same for every campaign (The Ancients' Gates' way) until one is chosen.
     const Rect view{lf_.view.x, lf_.view.y, lf_.view.w, lf_.view.h};
     d.rect(view, rgba(0, 0, 0, 255));
-    if (focused < static_cast<int>(st.games.size()) &&
-        st.games[static_cast<size_t>(focused)].background.kind != ImageKind::None) {
-        d.image(view, st.games[static_cast<size_t>(focused)].background);
-        d.rect(view, rgba(0, 0, 0, 110));
-    }
     d.panel(p.map(c), PanelStyle::Main, th.panelRaised);
     constexpr float pad = 44;
     p.text(d, {c.x + pad, c.y + 28, c.w - 2 * pad, 52}, menuText("Choose your game"), FontRole::Title, th.heading);
@@ -991,7 +987,7 @@ void TitleScreen::draw(const TitleState& st, DrawList& d) const {
     const Theme& th = cfg_.screen.theme;
     const Rect view{lf_.view.x, lf_.view.y, lf_.view.w, lf_.view.h};
     // The native title art names The Ancients' Gates, so the game list does not sit on it (as the original menu):
-    // drawGameCard paints black, then the focused game's own background.
+    // drawGameCard paints black; the classic game choice paints the focused game's own background.
     if (st.backdrop.kind != ImageKind::None && !(page_ == TitlePage::GameChoice && !st.classicGameChoice))
         d.image(view, st.backdrop);
     if (st.classicGameChoice) { // the native title is the menu: only its game list is ours

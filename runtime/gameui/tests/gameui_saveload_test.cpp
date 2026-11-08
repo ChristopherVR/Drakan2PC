@@ -669,6 +669,29 @@ void testTitleRows() {
     CHECK(t3.rows(none).size() == 4);
 }
 
+// The Modern game card is black behind its list whichever campaign is focused, Order of the Flame included (as The
+// Ancients' Gates has no picture there); only the classic game choice draws a campaign's own background.
+void testTitleModernGameCardNoBackground() {
+    TitleState st = titleState();
+    st.offerGames = true;
+    st.games = {{"d2", "Drakan", "The disc.", {}},
+                {"ootf", "Drakan: Order of the Flame", "A long description.", {ImageKind::LevelPreview, 5}}};
+    st.games[1].background = {ImageKind::LevelPreview, 92};
+    st.game = 1;
+    TitleScreen scr;
+    scr.open();
+    TitleFrameOutput o = scr.frame(st, {}, kVp);
+    CHECK(scr.page() == TitlePage::GameChoice && hasText(o.draw, "Choose your game"));
+    CHECK(scr.focus() == (TargetId{TargetKind::CardButton, static_cast<int>(TitleRow::GameOotf)})); // focused
+    CHECK(findImage(o.draw, ImageKind::LevelPreview, 92) == nullptr);
+    TitleState classic = st;
+    classic.classicGameChoice = true;
+    TitleScreen cls;
+    cls.open();
+    o = cls.frame(classic, {}, kVp);
+    CHECK(findImage(o.draw, ImageKind::LevelPreview, 92) != nullptr); // the classic list keeps its background
+}
+
 // The game's own (native) title menu is in use: the game list is plain text in the original menus' style (no panels,
 // covers or descriptions), Back keeps the current game, and nothing but the list is ever drawn or pressable.
 void testTitleClassicGameChoice() {
@@ -1294,6 +1317,7 @@ int main() {
     testTitleActions();
     testTitleGameChoice();
     testTitleClassicGameChoice();
+    testTitleModernGameCardNoBackground();
     testTitleOptions();
     testTitleLayout();
     testTitlePcSettings();
