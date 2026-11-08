@@ -36,20 +36,9 @@ bool hasText(const DrawList& d, const std::string& s) {
 void testEveryIllustrationDraws() {
     const Theme th;
     const Rect box{0, 0, 496, 224};
-    const char* toggles[] = {"video.vsync",
-                             "video.hd_textures",
-                             "video.flicker_filter",
-                             "video.sharp_present",
-                             "video.hud_aspect_correct",
-                             "video.poly_near_clip",
-                             "video.smooth_menu_highlight",
-                             "video.ray_shadows",
-                             "video.ray_reflections",
-                             "video.ray_gi",
-                             "video.modern_water",
-                             "video.foliage_wind",
-                             "audio.enabled",
-                             "input.mouse.invert_y"};
+    const char* toggles[] = {"video.hd_textures", "video.hud_aspect_correct",
+                             "video.ray_shadows", "video.ray_reflections",
+                             "video.ray_gi",      "video.modern_water"};
     for (const char* key : toggles) {
         CHECK(hasSettingPreview(key));
         SettingRow r;
@@ -73,11 +62,7 @@ void testEveryIllustrationDraws() {
                           {"video.scale", {"auto", "1", "4", "8"}},
                           {"video.filter", {"game", "point", "bilinear", "bilinear"}},
                           {"video.anisotropic", {"1", "2", "8", "16"}},
-                          {"video.world_rate", {"uncapped", "60", "30", "30"}},
-                          {"video.frame_limit", {"0", "30", "60", "144"}},
-                          {"video.window_mode", {"windowed", "borderless", "exclusive", "exclusive"}},
-                          {"video.hud_scale", {"0", "0.5", "1", "1.5"}},
-                          {"general.ui_prompts", {"keyboard", "ps2", "ps2", "keyboard"}}};
+                          {"video.hud_scale", {"0", "0.5", "1", "1.5"}}};
     for (const Ch& c : choices) {
         CHECK(hasSettingPreview(c.key));
         SettingRow r;
@@ -92,8 +77,7 @@ void testEveryIllustrationDraws() {
             CHECK(d.size() > 3);
         }
     }
-    const char* sliders[] = {"video.fov", "video.foliage_wind_strength", "audio.volume", "input.mouse.sensitivity_x",
-                             "input.gamepad.deadzone"};
+    const char* sliders[] = {"video.fov"};
     for (const char* key : sliders) {
         CHECK(hasSettingPreview(key));
         SettingRow r;
@@ -101,7 +85,6 @@ void testEveryIllustrationDraws() {
         r.kind = SettingKind::Slider;
         r.min = 0.0003f;
         r.max = 0.5f;
-        r.logarithmic = std::string(key) == "input.mouse.sensitivity_x";
         for (float v : {0.0003f, 0.01f, 0.5f}) {
             DrawList d;
             PreviewState st;
@@ -109,6 +92,12 @@ void testEveryIllustrationDraws() {
             CHECK(drawSettingPreview(d, box, r, st, th));
         }
     }
+    // Settings with no visible effect on a still picture have no picture at all.
+    for (const char* key :
+         {"video.vsync", "video.world_rate", "video.frame_limit", "video.window_mode", "video.flicker_filter",
+          "video.sharp_present", "video.smooth_menu_highlight", "video.foliage_wind", "audio.enabled", "audio.volume",
+          "input.mouse.invert_y", "input.mouse.sensitivity_x", "input.gamepad.deadzone", "general.ui_prompts"})
+        CHECK(!hasSettingPreview(key));
     // A row without an illustration draws nothing.
     SettingRow none;
     none.key = "video.texture_dump";
@@ -129,19 +118,21 @@ void testEveryIllustrationDraws() {
     for (size_t i = 0; !differs && i < a.size(); ++i)
         differs = !(a.commands()[i].rect == b.commands()[i].rect);
     CHECK(differs);
-    // The animation moves with time.
-    SettingRow vs;
-    vs.key = "video.vsync";
-    vs.kind = SettingKind::Toggle;
-    DrawList t0, t1;
-    PreviewState p0, p1;
-    p0.time = 0.0;
-    p1.time = 0.9;
-    drawSettingPreview(t0, box, vs, p0, th);
-    drawSettingPreview(t1, box, vs, p1, th);
+    // The illustrations animate: at least the water and the light bounces move with time.
     bool moved = false;
-    for (size_t i = 0; i < std::min(t0.size(), t1.size()); ++i)
-        moved = moved || !(t0.commands()[i].rect == t1.commands()[i].rect);
+    for (const char* key : {"video.modern_water", "video.ray_gi", "video.ray_reflections", "video.ray_shadows"}) {
+        SettingRow ray;
+        ray.key = key;
+        ray.kind = SettingKind::Toggle;
+        DrawList t0, t1;
+        PreviewState p0, p1;
+        p0.time = 0.0;
+        p1.time = 0.9;
+        drawSettingPreview(t0, box, ray, p0, th);
+        drawSettingPreview(t1, box, ray, p1, th);
+        for (size_t i = 0; i < std::min(t0.size(), t1.size()); ++i)
+            moved = moved || !(t0.commands()[i].rect == t1.commands()[i].rect);
+    }
     CHECK(moved);
 }
 
@@ -163,12 +154,30 @@ void testHelpPanelShowsPreview() {
     Pages p;
     p.pg.open("display");
     SettingsFrameOutput o = p.frame(UiKey::Down, false);
-    for (int i = 0; i < 20 && p.pg.focusedKey() != "video.vsync"; ++i)
+    for (int i = 0; i < 20 && p.pg.focusedKey() != "video.hd_textures"; ++i)
         o = p.frame(UiKey::Down, true);
-    CHECK(p.pg.focusedKey() == "video.vsync");
+    CHECK(p.pg.focusedKey() == "video.hd_textures");
     o = p.frame(UiKey::Down, false);
-    CHECK(hasText(o.draw, "tearing") || hasText(o.draw, "in step with the screen"));
     CHECK(hasText(o.draw, "Off") && hasText(o.draw, "On"));
+    // With a real capture of the game for the shown value, the help panel draws that picture instead.
+    setSettingShotResolver([](const std::string& key, const std::string& value) -> uint32_t {
+        return key == "video.hd_textures" && (value == "on" || value == "off") ? 0x77u : 0u;
+    });
+    o = p.frame(UiKey::Down, false);
+    bool shot = false;
+    for (const DrawCmd& c : o.draw.commands())
+        shot = shot || (c.kind == DrawKind::Image && c.image.kind == ImageKind::LevelPreview && c.image.index == 0x77);
+    CHECK(shot);
+    // A setting with no visible effect gets neither a picture nor an illustration, whatever the resolver says.
+    setSettingShotResolver([](const std::string&, const std::string&) -> uint32_t { return 0x99u; });
+    for (int i = 0; i < 40 && p.pg.focusedKey() != "video.vsync"; ++i)
+        o = p.frame(UiKey::Up, true);
+    o = p.frame(UiKey::Up, false);
+    shot = false;
+    for (const DrawCmd& c : o.draw.commands())
+        shot = shot || (c.kind == DrawKind::Image && c.image.kind == ImageKind::LevelPreview && c.image.index == 0x99);
+    CHECK(p.pg.focusedKey() == "video.vsync" && !shot);
+    setSettingShotResolver({});
     // A row with no illustration keeps the plain help.
     for (int i = 0; i < 20 && p.pg.focusedKey() != "video.texture_dump"; ++i)
         o = p.frame(UiKey::Down, true);
@@ -216,14 +225,7 @@ void testModPackSection() {
 // GAMEUI_PREVIEW_DIR=<dir>: writes the help panel with several previews as JSON lines (render_drawlist.py).
 void dumpFrames(const char* dir) {
     std::filesystem::create_directories(dir);
-    const char* keys[] = {"video.vsync",
-                          "video.scale",
-                          "video.fov",
-                          "video.flicker_filter",
-                          "video.hd_textures",
-                          "video.sharp_present",
-                          "video.smooth_menu_highlight",
-                          "video.window_mode"};
+    const char* keys[] = {"video.scale", "video.fov", "video.hd_textures", "video.aspect"};
     for (const char* key : keys) {
         Pages p;
         p.pg.open("display");

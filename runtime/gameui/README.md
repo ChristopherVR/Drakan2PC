@@ -276,12 +276,14 @@ works in every state (gameplay, the native menus), so F1 keeps one meaning. Prev
 `render_drawlist.py`; notes in `docs/journal/2026-10-25/modern-pc-settings.md`.
 
 **Previews in the help panel.** The panel on the right shows a picture under the title of the focused row
-(`SettingPreview.h`, tested by `gameui_preview_test`): a small animation of what the setting does, drawn with plain
-`DrawList` primitives (no game art, nothing stored), keyed by the row's `key` (`hasSettingPreview`). It follows the value
-the row shows right now: toggles are an "Off | On" comparison with the current side lit, choices and sliders show the
-current value (aspect ratio frames, render scale pixels, texture filtering, anisotropic floor, field of view wedge, frame
-rate steps, window mode, HUD size, volume, mouse sensitivity, dead zone ...). A row without an illustration keeps the
-plain help; add one by adding a function and a `kEntries` line. A **mod pack section** (`SettingSection::details`) shows
+(`SettingPreview.h`, tested by `gameui_preview_test`). Only settings with a visible effect on a still picture have one
+(aspect ratio, field of view, HUD size and aspect correction, render scale, texture filtering, anisotropic filtering, HD
+textures, modern water, the ray-traced effects); window mode, VSync, frame rate, volume, mouse speed, button prompts and
+the like show plain help. The picture is a **real screenshot of the game** with the value applied
+(`previews/settings/<row key>/<value>.png` next to the exe, 16:9, written on the player's machine by
+`scripts/harness/setting_shots.py` through the overlay's real Apply path; never committed, kept across builds). The host
+installs `setSettingShotResolver` (key, shown value -> an `ImageKind::LevelPreview` id; a slider takes the nearest
+captured number). Without a capture a visual setting falls back to a small drawn illustration (`kEntries`). A **mod pack section** (`SettingSection::details`) shows
 the pack's cover (`SettingSection::picture`, an `ImageKind::LevelPreview` id; "No preview picture" when 0), its name as
 the title, its facts (`details`) and what to do next (`hint`). The glue resolves the picture (`IconSource`, pause and
 title hosts).

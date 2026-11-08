@@ -57,21 +57,6 @@ void pillar(const Ctx& c, float x, float baseY, float w, float h) {
 
 // ---------------------------------------------------------------- display
 
-void vsync(const Ctx& c, bool on, const std::string&, float) {
-    const Rect& r = c.r;
-    c.d.rect(r, rgba(14, 12, 12));
-    const float bar = r.w * 0.14f, x = r.x + frac(c.t * 0.45) * (r.w - bar);
-    const float tear = r.y + r.h * 0.52f;
-    c.d.rect({x, r.y, bar, tear - r.y}, c.th.heading);
-    c.d.rect({on ? x : std::max(r.x, x - r.w * 0.09f), tear, bar, r.bottom() - tear}, c.th.heading);
-    if (!on) {
-        c.d.rect({r.x, tear - 1.5f, r.w, 3}, c.th.bad);
-        label(c, {r.x + 8, tear + 6, r.w - 16, fsize(r) + 4}, "tearing", c.th.bad, TextAlign::Left);
-    } else {
-        label(c, {r.x + 8, r.bottom() - fsize(r) - 10, r.w - 16, fsize(r) + 4}, "in step with the screen", c.th.good);
-    }
-}
-
 void aspect(const Ctx& c, bool, const std::string& v, float) {
     const Rect& r = c.r;
     c.d.rect(r, rgba(4, 3, 3));
@@ -255,91 +240,6 @@ void fov(const Ctx& c, bool, const std::string&, float deg) {
           "top view: " + std::to_string(static_cast<int>(deg)) + " degrees", c.th.heading);
 }
 
-// Smoothness: the ball's path sampled at the frame rate.
-void frameRate(const Ctx& c, bool, const std::string& v, float) {
-    const Rect& r = c.r;
-    c.d.rect(r, rgba(14, 12, 12));
-    float hz = 120;
-    if (v != "uncapped" && v != "0")
-        hz = std::clamp(static_cast<float>(std::atof(v.c_str())), 10.0f, 240.0f);
-    const float track = r.w * 0.78f, x0 = r.cx() - track * 0.5f, y = r.cy();
-    auto pos = [&](double t) { return x0 + track * (0.5f + 0.5f * std::sin(static_cast<float>(t) * 2.0f)); };
-    const double tq = std::floor(c.t * hz) / hz;
-    c.d.line({x0, y + r.h * 0.2f}, {x0 + track, y + r.h * 0.2f}, c.th.textDisabled, 2);
-    const float step = hz >= 100 ? 0.0f : 1.0f / hz;
-    for (int k = 7; k >= 1; --k) {
-        const float a = 1.0f - static_cast<float>(k) / 8.0f;
-        disc(c.d, pos(tq - k * (step > 0 ? step : 0.012)), y, r.h * 0.07f,
-             withAlpha(c.th.brass, static_cast<uint8_t>(110 * a)));
-    }
-    disc(c.d, pos(tq), y, r.h * 0.1f, c.th.heading);
-    label(c, {r.x + 8, r.bottom() - fsize(r) - 8, r.w - 16, fsize(r) + 4},
-          hz >= 100 ? "very smooth motion" : std::to_string(static_cast<int>(hz)) + " pictures a second", c.th.heading,
-          TextAlign::Right);
-}
-
-void windowMode(const Ctx& c, bool, const std::string& v, float) {
-    const Rect& r = c.r;
-    const Rect mon = r.inset(std::min(r.w, r.h) * 0.08f);
-    c.d.rect(mon, rgba(8, 8, 10), 8);
-    c.d.outline(mon, c.th.brassDim, 3, 8);
-    const Rect scr = mon.inset(9);
-    c.d.pushClip(scr);
-    if (v == "windowed") {
-        c.d.rect(scr, rgba(36, 48, 64));
-        c.d.rect({scr.x, scr.bottom() - scr.h * 0.1f, scr.w, scr.h * 0.1f}, rgba(18, 22, 30));
-        const Rect win{scr.x + scr.w * 0.18f, scr.y + scr.h * 0.12f, scr.w * 0.64f, scr.h * 0.64f};
-        c.d.rect({win.x, win.y, win.w, win.h * 0.14f}, rgba(70, 70, 78));
-        for (int i = 0; i < 3; ++i)
-            disc(c.d, win.right() - 12.0f - static_cast<float>(i) * 14, win.y + win.h * 0.07f, 4, rgba(200, 190, 180));
-        const Rect g{win.x, win.y + win.h * 0.14f, win.w, win.h * 0.86f};
-        c.d.pushClip(g);
-        sky(c, g);
-        c.d.popClip();
-        label(c, {scr.x, scr.bottom() - scr.h * 0.1f - 2, scr.w, scr.h * 0.1f}, "  desktop and taskbar stay",
-              c.th.textMuted);
-    } else {
-        sky(c, scr);
-        if (v == "exclusive")
-            label(c, {scr.x + 6, scr.y + 6, scr.w - 12, fsize(r) + 4}, "own video mode", c.th.heading, TextAlign::Left);
-        else
-            label(c, {scr.x + 6, scr.y + 6, scr.w - 12, fsize(r) + 4}, "no border, instant Alt+Tab", c.th.heading,
-                  TextAlign::Left);
-    }
-    c.d.popClip();
-}
-
-void flicker(const Ctx& c, bool on, const std::string&, float) {
-    const Rect& r = c.r;
-    constexpr int kN = 14;
-    const float h = r.h / kN;
-    for (int i = 0; i < kN; ++i) {
-        Color col = (i & 1) ? rgba(228, 214, 186) : rgba(26, 20, 18);
-        if (on)
-            col = mixc(col, rgba(128, 118, 102), 0.62f);
-        c.d.rect({r.x, r.y + static_cast<float>(i) * h, r.w, h + 0.5f}, col);
-    }
-    label(c, {r.x + 8, r.bottom() - fsize(r) - 8, r.w - 16, fsize(r) + 4}, on ? "softer, no shimmer" : "crisp lines",
-          c.th.bad, TextAlign::Right);
-}
-
-void sharpPresent(const Ctx& c, bool on, const std::string&, float) {
-    const Rect& r = c.r;
-    c.d.rect(r, rgba(30, 22, 18));
-    c.d.pushClip(r);
-    const Vec2 a{r.x + r.w * 0.15f, r.bottom() - r.h * 0.18f}, b{r.right() - r.w * 0.15f, r.y + r.h * 0.18f};
-    if (on) {
-        c.d.line(a, b, c.th.heading, 3);
-    } else {
-        for (int i = -3; i <= 3; ++i)
-            c.d.line({a.x, a.y + static_cast<float>(i) * 2.2f}, {b.x, b.y + static_cast<float>(i) * 2.2f},
-                     withAlpha(c.th.heading, static_cast<uint8_t>(190 - std::abs(i) * 50)), 2.4f);
-    }
-    c.d.popClip();
-    label(c, {r.x + 8, r.bottom() - fsize(r) - 8, r.w - 16, fsize(r) + 4}, on ? "sharp edges" : "soft edges",
-          c.th.textMuted, TextAlign::Right);
-}
-
 void hudScale(const Ctx& c, bool, const std::string& v, float) {
     const Rect& r = c.r;
     sky(c, r);
@@ -361,40 +261,6 @@ void hudAspect(const Ctx& c, bool on, const std::string&, float) {
              d * 0.5f);
     label(c, {r.x + 8, r.bottom() - fsize(r) - 8, r.w - 16, fsize(r) + 4}, on ? "orbs stay round" : "orbs stretch",
           c.th.heading, TextAlign::Right);
-}
-
-void nearClip(const Ctx& c, bool on, const std::string&, float) {
-    const Rect& r = c.r;
-    sky(c, r);
-    c.d.pushClip(r);
-    if (on) {
-        c.d.line({r.x + r.w * 0.1f, r.bottom() - r.h * 0.1f}, {r.cx(), r.cy()}, rgba(150, 210, 255), 6);
-    } else {
-        for (int i = -2; i <= 2; ++i)
-            c.d.line({r.x + r.w * 0.1f, r.bottom() - r.h * 0.1f},
-                     {r.cx() + static_cast<float>(i) * r.w * 0.34f, r.y - 20},
-                     withAlpha(rgba(150, 210, 255), static_cast<uint8_t>(210 - std::abs(i) * 50)), 5);
-    }
-    c.d.popClip();
-    label(c, {r.x + 8, r.bottom() - fsize(r) - 8, r.w - 16, fsize(r) + 4},
-          on ? "cut cleanly" : "streaks across the screen", on ? c.th.good : c.th.bad, TextAlign::Right);
-}
-
-void menuHighlight(const Ctx& c, bool on, const std::string&, float) {
-    const Rect& r = c.r;
-    c.d.rect(r, rgba(21, 14, 10));
-    const Rect band{r.x + r.w * 0.08f, r.cy() - r.h * 0.14f, r.w * 0.84f, r.h * 0.28f};
-    if (on) {
-        c.d.gradient(band, rgba(150, 48, 30), rgba(96, 26, 16));
-    } else {
-        constexpr int kN = 14;
-        const float cw = band.w / kN, ch = band.h / 4;
-        for (int j = 0; j < 4; ++j)
-            for (int i = 0; i < kN; ++i)
-                c.d.rect({band.x + static_cast<float>(i) * cw, band.y + static_cast<float>(j) * ch, cw, ch},
-                         ((i + j) & 1) ? rgba(176, 56, 34) : rgba(70, 18, 12));
-    }
-    c.d.text(band, "Menu entry", FontRole::Body, fsize(r) * 1.3f, c.th.heading, TextAlign::Center);
 }
 
 // ---------------------------------------------------------------- picture
@@ -467,162 +333,9 @@ void modernWater(const Ctx& c, bool on, const std::string&, float) {
     c.d.popClip();
 }
 
-void foliage(const Ctx& c, bool on, const std::string&, float amp) {
-    const Rect& r = c.r;
-    sky(c, r, 0.55f);
-    const float base = r.bottom() - r.h * 0.06f;
-    const float sway = c.row.kind == SettingKind::Toggle ? (on ? 1.0f : 0.0f) : std::clamp(amp, 0.0f, 2.0f);
-    for (int i = 0; i < 14; ++i) {
-        const float x = r.x + (static_cast<float>(i) + 0.5f) * r.w / 14,
-                    h = r.h * (0.34f + 0.12f * static_cast<float>((i * 7) % 5) / 4);
-        const float dx = std::sin(static_cast<float>(c.t) * 2.0f + static_cast<float>(i) * 0.6f) * r.w * 0.03f * sway;
-        c.d.line({x, base}, {x + dx * 0.5f, base - h * 0.5f}, rgba(70, 120, 56), 3);
-        c.d.line({x + dx * 0.5f, base - h * 0.5f}, {x + dx, base - h}, rgba(110, 170, 70), 2.5f);
-    }
-}
-
 // ---------------------------------------------------------------- audio
 
-void speaker(const Ctx& c, const Rect& r, int waves, bool slash, Color col) {
-    const float u = std::min(r.w, r.h) * 0.12f;
-    const float x = r.cx() - u * 2.5f, y = r.cy();
-    c.d.rect({x, y - u, u * 1.4f, u * 2}, col, 2);
-    for (int i = 0; i < 6; ++i) {
-        const float k = static_cast<float>(i) / 5;
-        c.d.rect({x + u * 1.4f + k * u * 1.4f, y - u * (1.0f + k * 1.4f), u * 0.3f, u * (2.0f + k * 2.8f)}, col);
-    }
-    for (int w = 0; w < waves; ++w) {
-        const float rad = u * (1.8f + 1.5f * static_cast<float>(w));
-        Vec2 prev{x + u * 3.2f + rad * 0.0f, y - rad * 0.9f};
-        for (int i = 1; i <= 6; ++i) {
-            const float a = -0.9f + 1.8f * static_cast<float>(i) / 6;
-            const Vec2 p{x + u * 2.4f + std::cos(a) * rad, y + std::sin(a) * rad};
-            c.d.line(prev, p, col, 2.5f);
-            prev = p;
-        }
-    }
-    if (slash)
-        c.d.line({r.cx() - u * 3, r.cy() + u * 3.5f}, {r.cx() + u * 3, r.cy() - u * 3.5f}, c.th.bad, 4);
-}
-void soundOnOff(const Ctx& c, bool on, const std::string&, float) {
-    c.d.rect(c.r, rgba(18, 14, 12));
-    speaker(c, c.r, on ? 3 : 0, !on, on ? c.th.heading : c.th.textMuted);
-}
-void masterVolume(const Ctx& c, bool, const std::string&, float pct) {
-    const Rect& r = c.r;
-    c.d.rect(r, rgba(18, 14, 12));
-    const float level = std::clamp(pct / 100.0f, 0.0f, 2.0f);
-    constexpr int kBars = 16;
-    const float bw = r.w * 0.7f / kBars, x0 = r.cx() - r.w * 0.35f, base = r.bottom() - r.h * 0.22f;
-    for (int i = 0; i < kBars; ++i) {
-        const float k = static_cast<float>(i) / kBars;
-        const float bob = 0.5f + 0.5f * std::sin(static_cast<float>(c.t) * 5 + static_cast<float>(i) * 0.8f);
-        const float h = r.h * 0.5f * std::min(1.0f, level) * (0.45f + 0.55f * bob) *
-                        (0.5f + 0.5f * (1 - std::fabs(k - 0.5f) * 1.2f));
-        const bool clip = level > 1.0f && k > 0.7f;
-        c.d.rect({x0 + static_cast<float>(i) * bw + 1, base - h, bw - 2, std::max(2.0f, h)},
-                 clip ? c.th.bad : c.th.brass);
-    }
-    label(c, {r.x + 8, r.y + 6, r.w - 16, fsize(r) + 4},
-          level > 1.0f ? "boosted: may clip" : std::to_string(static_cast<int>(pct + 0.5f)) + "%",
-          level > 1.0f ? c.th.bad : c.th.heading, TextAlign::Right);
-}
-
 // ---------------------------------------------------------------- controls
-
-void invertY(const Ctx& c, bool on, const std::string&, float) {
-    const Rect& r = c.r;
-    c.d.rect(r, rgba(18, 14, 12));
-    const float push = std::sin(static_cast<float>(c.t) * 1.8f); // mouse forward (up) when positive
-    const Rect mouse{r.x + r.w * 0.1f, r.cy() - r.h * 0.16f - push * r.h * 0.08f, r.w * 0.16f, r.h * 0.32f};
-    c.d.rect(mouse, rgba(190, 176, 150), mouse.w * 0.5f);
-    c.d.line({mouse.cx(), mouse.y + 2}, {mouse.cx(), mouse.y + mouse.h * 0.4f}, rgba(60, 50, 40), 2);
-    const Rect view{r.x + r.w * 0.36f, r.y + r.h * 0.12f, r.w * 0.58f, r.h * 0.76f};
-    c.d.pushClip(view);
-    const float horizon = view.cy() + (on ? -1.0f : 1.0f) * push * view.h * 0.22f;
-    c.d.rect({view.x, view.y, view.w, std::max(0.0f, horizon - view.y)}, kSkyTop);
-    c.d.rect({view.x, horizon, view.w, std::max(0.0f, view.bottom() - horizon)}, kGround);
-    c.d.rect({view.x, horizon - 1, view.w, 2}, kSkyLow);
-    c.d.popClip();
-    c.d.line({view.cx() - 8, view.cy()}, {view.cx() + 8, view.cy()}, c.th.heading, 2);
-    c.d.line({view.cx(), view.cy() - 8}, {view.cx(), view.cy() + 8}, c.th.heading, 2);
-    label(c, {view.x, view.bottom() - fsize(r) - 2, view.w, fsize(r) + 4},
-          on ? "mouse forward: look down" : "mouse forward: look up", c.th.textMuted, TextAlign::Center);
-}
-
-void mouseSensitivity(const Ctx& c, bool, const std::string&, float v) {
-    const Rect& r = c.r;
-    float f = 0.5f;
-    if (c.row.max > c.row.min && c.row.min > 0 && c.row.logarithmic)
-        f = (std::log(std::max(v, c.row.min)) - std::log(c.row.min)) / (std::log(c.row.max) - std::log(c.row.min));
-    else if (c.row.max > c.row.min)
-        f = (v - c.row.min) / (c.row.max - c.row.min);
-    f = std::clamp(f, 0.0f, 1.0f);
-    sky(c, r, 0.7f);
-    c.d.pushClip(r);
-    // The same hand movement (a fixed sweep) turns the view by more or less.
-    const float sweep = std::sin(static_cast<float>(c.t) * 1.6f);
-    const float shift = sweep * r.w * (0.08f + 0.9f * f);
-    for (int i = -6; i <= 6; ++i) {
-        const float x = r.cx() + static_cast<float>(i) * r.w * 0.22f - shift;
-        pillar(c, x, r.y + r.h * 0.78f, r.w * 0.05f, r.h * 0.4f);
-    }
-    c.d.popClip();
-    c.d.line({r.cx() - 8, r.cy()}, {r.cx() + 8, r.cy()}, c.th.heading, 2);
-    c.d.line({r.cx(), r.cy() - 8}, {r.cx(), r.cy() + 8}, c.th.heading, 2);
-    label(c, {r.x + 8, r.y + 6, r.w - 16, fsize(r) + 4}, "same hand movement", c.th.heading, TextAlign::Right);
-}
-
-void deadZone(const Ctx& c, bool, const std::string&, float dz) {
-    const Rect& r = c.r;
-    c.d.rect(r, rgba(18, 14, 12));
-    const float rad = std::min(r.w, r.h) * 0.38f;
-    const float cx = r.cx(), cy = r.cy();
-    disc(c.d, cx, cy, rad, rgba(40, 30, 24));
-    const float fz = std::clamp(dz / std::max(0.01f, c.row.max), 0.0f, 1.0f) * 0.5f;
-    disc(c.d, cx, cy, rad * fz * 2.0f, withAlpha(c.th.bad, 110));
-    const float a = static_cast<float>(c.t) * 1.3f, m = 0.5f + 0.5f * std::sin(static_cast<float>(c.t) * 0.9f);
-    const float px = std::cos(a) * m, py = std::sin(a) * m; // stick position, 0..1 of the throw
-    const float mag = std::sqrt(px * px + py * py);
-    disc(c.d, cx + px * rad, cy + py * rad, rad * 0.1f, mag < fz * 2.0f ? c.th.textMuted : c.th.heading);
-    label(c, {r.x + 8, r.bottom() - fsize(r) - 8, r.w - 16, fsize(r) + 4},
-          mag < fz * 2.0f ? "ignored: no movement" : "moves the character", mag < fz * 2.0f ? c.th.bad : c.th.good,
-          TextAlign::Right);
-}
-
-void prompts(const Ctx& c, bool, const std::string& v, float) {
-    const Rect& r = c.r;
-    c.d.rect(r, rgba(18, 14, 12));
-    const float u = r.h * 0.26f;
-    if (v == "ps2") {
-        const float y = r.cy();
-        const Color cols[4] = {rgba(96, 150, 230), rgba(230, 90, 90), rgba(110, 200, 120), rgba(230, 140, 200)};
-        for (int i = 0; i < 4; ++i) {
-            const float x = r.cx() + (static_cast<float>(i) - 1.5f) * u * 1.5f;
-            c.d.rect({x - u * 0.5f, y - u * 0.5f, u, u}, rgba(30, 28, 34), u * 0.5f);
-            c.d.outline({x - u * 0.5f, y - u * 0.5f, u, u}, cols[i], 3, u * 0.5f);
-            if (i == 0) {
-                c.d.line({x - u * 0.2f, y - u * 0.2f}, {x + u * 0.2f, y + u * 0.2f}, cols[i], 3);
-                c.d.line({x + u * 0.2f, y - u * 0.2f}, {x - u * 0.2f, y + u * 0.2f}, cols[i], 3);
-            } else if (i == 1) {
-                c.d.outline({x - u * 0.2f, y - u * 0.2f, u * 0.4f, u * 0.4f}, cols[i], 3, u * 0.2f);
-            }
-        }
-    } else {
-        const char* keys[] = {"E", "Space", "Shift"};
-        float x = r.cx() - u * 2.4f;
-        for (int i = 0; i < 3; ++i) {
-            const float w = i == 0 ? u : u * 1.6f;
-            c.d.rect({x, r.cy() - u * 0.5f, w, u}, rgba(44, 38, 34), 5);
-            c.d.outline({x, r.cy() - u * 0.5f, w, u}, c.th.brass, 2, 5);
-            c.d.text({x, r.cy() - u * 0.5f, w, u}, keys[i], FontRole::Body, fsize(r) * 1.1f, c.th.heading,
-                     TextAlign::Center);
-            x += w + u * 0.35f;
-        }
-    }
-    label(c, {r.x + 8, r.bottom() - fsize(r) - 8, r.w - 16, fsize(r) + 4},
-          v == "ps2" ? "PlayStation 2 buttons" : "your keys and mouse", c.th.textMuted, TextAlign::Right);
-}
 
 struct Entry {
     const char* key;
@@ -632,35 +345,18 @@ struct Entry {
 };
 
 const Entry kEntries[] = {
-    {"video.vsync", vsync, "Off", "On"},
     {"video.aspect", aspect, nullptr, nullptr},
     {"video.scale", renderScale, nullptr, nullptr},
     {"video.filter", textureFilter, nullptr, nullptr},
     {"video.anisotropic", anisotropic, nullptr, nullptr},
     {"video.hd_textures", hdTextures, "Disc textures", "HD textures"},
     {"video.fov", fov, nullptr, nullptr},
-    {"video.world_rate", frameRate, nullptr, nullptr},
-    {"video.frame_limit", frameRate, nullptr, nullptr},
-    {"video.window_mode", windowMode, nullptr, nullptr},
-    {"video.flicker_filter", flicker, "Off", "On"},
-    {"video.sharp_present", sharpPresent, "Off", "On"},
     {"video.hud_scale", hudScale, nullptr, nullptr},
     {"video.hud_aspect_correct", hudAspect, "Off", "On"},
-    {"video.poly_near_clip", nearClip, "Off", "On"},
-    {"video.smooth_menu_highlight", menuHighlight, "Off", "On"},
     {"video.ray_shadows", rayShadows, "Off", "On"},
     {"video.ray_reflections", rayReflections, "Off", "On"},
     {"video.ray_gi", rayGi, "Off", "On"},
     {"video.modern_water", modernWater, "Original", "Modern"},
-    {"video.foliage_wind", foliage, "Still", "Swaying"},
-    {"video.foliage_wind_strength", foliage, nullptr, nullptr},
-    {"audio.enabled", soundOnOff, "Muted", "Sound"},
-    {"audio.volume", masterVolume, nullptr, nullptr},
-    {"input.mouse.invert_y", invertY, "Off", "On"},
-    {"input.mouse.sensitivity_x", mouseSensitivity, nullptr, nullptr},
-    {"input.mouse.sensitivity_y", mouseSensitivity, nullptr, nullptr},
-    {"input.gamepad.deadzone", deadZone, nullptr, nullptr},
-    {"general.ui_prompts", prompts, nullptr, nullptr},
 };
 
 const Entry* find(const std::string& key) {
@@ -671,6 +367,25 @@ const Entry* find(const std::string& key) {
 }
 
 } // namespace
+
+namespace {
+SettingShotResolver g_shotResolver;
+}
+void setSettingShotResolver(SettingShotResolver resolver) {
+    g_shotResolver = std::move(resolver);
+}
+std::string settingShotValue(const SettingRow& row, const PreviewState& st) {
+    if (row.kind == SettingKind::Toggle)
+        return st.on ? "on" : "off";
+    if (row.kind == SettingKind::Choice)
+        return st.value;
+    char b[32];
+    std::snprintf(b, sizeof b, "%g", static_cast<double>(st.number));
+    return b;
+}
+uint32_t settingShotId(const SettingRow& row, const PreviewState& st) {
+    return g_shotResolver && find(row.key) ? g_shotResolver(row.key, settingShotValue(row, st)) : 0;
+}
 
 bool hasSettingPreview(const std::string& key) {
     return find(key) != nullptr;

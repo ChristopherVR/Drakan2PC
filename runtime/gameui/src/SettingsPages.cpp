@@ -1750,9 +1750,29 @@ void SettingsPages::drawHelp(DrawList& d) const {
     // the value the row shows right now).
     bool picture = false;
     if (picRow && picSec) {
-        const Rect box{x, y, w, kPreviewH};
+        float previewH = kPreviewH;
+        PreviewState shotState; // the value the row shows now, for a real capture of the game
+        shotState.on = picRow->kind == SettingKind::Toggle && shownOn(*picRow);
+        if (picRow->kind == SettingKind::Choice) {
+            const int ci = shownChoice(*picRow);
+            if (ci >= 0 && ci < static_cast<int>(picRow->choices.size()))
+                shotState.value = picRow->choices[static_cast<size_t>(ci)].value;
+        }
+        if (picRow->kind == SettingKind::Slider)
+            shotState.number = shownSlider(*picRow);
+        const uint32_t shot = picSec->details.empty() ? settingShotId(*picRow, shotState) : 0;
+        if (shot)
+            previewH = w * 9.0f / 16.0f; // the captures are 16:9 pictures of the game
+        const Rect box{x, y, w, previewH};
         const Rect px = p.map(box);
-        if (!picSec->details.empty()) { // a mod pack
+        if (shot) { // a real picture of the game with this setting applied
+            d.panel(px, PanelStyle::Inset, th.inset);
+            d.pushClip(px);
+            d.image(px, ImageRef{ImageKind::LevelPreview, shot});
+            d.popClip();
+            d.outline(px, th.brassDim, p.px(1.5f), p.px(2));
+            picture = true;
+        } else if (!picSec->details.empty()) { // a mod pack
             d.panel(px, PanelStyle::Inset, th.inset);
             if (picSec->picture) {
                 d.pushClip(px);
@@ -1780,7 +1800,7 @@ void SettingsPages::drawHelp(DrawList& d) const {
             picture = drawSettingPreview(d, px, *picRow, ps, th);
         }
         if (picture)
-            y += kPreviewH + 14;
+            y += previewH + 14;
     }
     if (picSec && !picSec->details.empty()) {
         for (const auto& kv : picSec->details)

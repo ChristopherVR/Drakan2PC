@@ -34,6 +34,7 @@
 #include <input/Config.h>
 #include <settings/GameUiRenderer.h>
 #include <settings/Menu.h>
+#include <gameui/SettingPreview.h>
 #include <settings/ModernSettings.h>
 #include <settings/Overlay.h>
 #if DRAKAN_SETTINGS_WEBGPU
@@ -65,6 +66,7 @@
 #include <map>
 #include <memory>
 #include <mutex>
+#include <set>
 #include <string>
 #include <cmath>
 #include <vector>
@@ -1374,6 +1376,68 @@ uint32_t mapPreviewId(const std::string& mapName) {
     return id;
 }
 
+// ---- real pictures of the settings (gameui/SettingPreview.h) ----
+// previews/settings/<row key>/<value>.png next to the exe: screenshots of this game with that value applied, written by
+// scripts/harness/setting_shots.py on the player's machine (never committed). A value without its own file takes the
+// nearest numeric one (a slider between two captures); nothing at all means the help panel draws no real picture.
+std::set<uint32_t> g_settingShotIds; // picture ids that are stretched to the 16:9 box, not centre cropped
+
+uint32_t settingShotPicture(const std::string& key, const std::string& value) {
+    struct Capture {
+        std::string value, path;
+        double number = 0;
+        bool numeric = false;
+    };
+    struct Folder {
+        std::vector<Capture> files;
+        std::chrono::steady_clock::time_point checked;
+    };
+    static std::map<std::string, Folder> cache;
+    std::lock_guard<std::mutex> l(g_mapPreviewM);
+    const auto now = std::chrono::steady_clock::now();
+    Folder& f = cache[key];
+    if (f.checked.time_since_epoch().count() == 0 || now - f.checked > std::chrono::seconds(5)) {
+        f.checked = now;
+        f.files.clear();
+        std::error_code ec;
+        for (const auto& e :
+             std::filesystem::directory_iterator(drakan_cfg::exeDir() + "previews/settings/" + key, ec)) {
+            if (e.path().extension() != ".png")
+                continue;
+            Capture c;
+            c.value = e.path().stem().string();
+            c.path = e.path().generic_string();
+            char* end = nullptr;
+            c.number = std::strtod(c.value.c_str(), &end);
+            c.numeric = end && end != c.value.c_str() && *end == 0;
+            f.files.push_back(std::move(c));
+        }
+    }
+    std::string safe = value;
+    std::replace(safe.begin(), safe.end(), ':', 'x');
+    const Capture* best = nullptr;
+    for (const Capture& c : f.files)
+        if (c.value == safe)
+            best = &c;
+    if (!best) {
+        char* end = nullptr;
+        const double v = std::strtod(value.c_str(), &end);
+        if (end && end != value.c_str() && *end == 0)
+            for (const Capture& c : f.files)
+                if (c.numeric && (!best || std::abs(c.number - v) < std::abs(best->number - v)))
+                    best = &c;
+    }
+    if (!best)
+        return 0;
+    uint32_t id = 2166136261u;
+    for (unsigned char c : best->path)
+        id = (id ^ c) * 16777619u;
+    id |= 1u;
+    g_mapPreviewPaths[id] = best->path;
+    g_settingShotIds.insert(id);
+    return id;
+}
+
 void updateMapPreviews() {
     std::vector<std::pair<uint32_t, std::string>> want;
     {
@@ -1457,6 +1521,10 @@ bool previewCrop(const gameui::ImageRef& ref, dsettings::IconCrop& c) {
         c.uv1 = it->second.uv1;
         c.w = it->second.w;
         c.h = it->second.h;
+        {
+            std::lock_guard<std::mutex> l(g_mapPreviewM);
+            c.stretch = g_settingShotIds.count(ref.index) != 0; // a settings capture shows the whole frame
+        }
         return true;
     }
     if (ref.kind != gameui::ImageKind::SavePreview)
@@ -2892,6 +2960,8 @@ void overlayCallback(const gsr::OverlayContext& oc) {
         if (drakan_world::enabled())
             g_overlay->setMenuExtra(&drakan_world::drawPanel);
         // The modern PC Settings pages share the overlay's host and store (the F1 overlay stays as it is).
+        gameui::setSettingShotResolver(
+            [](const std::string& key, const std::string& value) { return settingShotPicture(key, value); });
         g_pcs = std::make_unique<dsettings::ModernSettings>(g_host, g_overlay->store());
         g_pcs->open();
         { // the host screens: the modern Tab screen, the I strip, the M map panel, the modern pause menu

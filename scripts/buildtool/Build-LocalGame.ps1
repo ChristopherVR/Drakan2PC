@@ -487,7 +487,7 @@ if (-not $NoDist) {
         throw 'DistDirectory cannot be a filesystem root or the source checkout.'
     }
     # Saves, user settings and hand-staged assets survive the clean; everything else is a build product or stale.
-    $keep = 'mc0','mc1','mc0_*','mc1_*','saves','mods','textures','movies','subtitles','nr','ngx_data','*.ini','Play*.cmd','Play*.sh','PLAY.txt'
+    $keep = 'mc0','mc1','mc0_*','mc1_*','saves','mods','textures','previews','movies','subtitles','nr','ngx_data','*.ini','Play*.cmd','Play*.sh','PLAY.txt'
     New-Item -ItemType Directory -Force -Path $DistDirectory | Out-Null
     foreach ($item in Get-ChildItem -LiteralPath $DistDirectory -Force) {
         $name = $item.Name

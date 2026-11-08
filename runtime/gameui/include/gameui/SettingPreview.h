@@ -4,6 +4,8 @@
 // Toggles are drawn as a split "Off | On" comparison with the current side lit; choices and sliders show the current
 // value. std only, platform free. Contract: runtime/gameui/README.md, "PC Settings pages".
 #pragma once
+#include <cstdint>
+#include <functional>
 #include <string>
 
 #include "gameui/Draw.h"
@@ -19,6 +21,18 @@ struct PreviewState {
     float number = 0;  // Slider: the shown number
     double time = 0;   // seconds, drives the animation
 };
+
+// Real pictures: screenshots of the game itself, captured on the player's own machine (scripts/harness/setting_shots.py
+// writes previews/settings/<key>/<value>.png next to the executable; nothing is stored in the repository). The host
+// installs a resolver that maps (row key, shown value) to a picture id it can draw as ImageKind::LevelPreview (0 = no
+// such capture). Settings with no visible effect on a still picture (window mode, VSync, volume, mouse speed ...) have
+// no picture at all; the drawn illustration below is only the stand-in for a visual setting whose capture is missing.
+using SettingShotResolver = std::function<uint32_t(const std::string& key, const std::string& value)>;
+void setSettingShotResolver(SettingShotResolver resolver);
+// The capture name for the shown value: "on" / "off", the choice value ("16:9"), the slider number ("90").
+std::string settingShotValue(const SettingRow& row, const PreviewState& st);
+// The picture id of the capture for the shown value, 0 when there is none (or no resolver).
+uint32_t settingShotId(const SettingRow& row, const PreviewState& st);
 
 // True when `key` has an illustration (a row key such as "video.vsync").
 bool hasSettingPreview(const std::string& key);
