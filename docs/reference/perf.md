@@ -629,3 +629,7 @@ The EE profile is diffuse guest code (more objects in view), our capture hooks a
   inclusive cost. At spot C about 23 percent of the EE thread is the guest polling GS FINISH (`f_0x1dbfa8`, loop at
   0x1dc688) before a per-frame readback, i.e. waiting for the VU1 and GS workers; JALR dispatch is negligible; scene
   model capture is about 9.5 percent. Details: `docs/journal/2026-11-08/perf-leftovers.md`.
+
+## Multiplayer versus single player (2026-11-08)
+
+Measured, no MP-specific overhead: the depths arena (solo host) and single player at the same spot of Level 1E run at the same world rate (about 60 fps at 720p and at 4K, EE and GS threads near 100 %). The MP inventory (`World 0.0 fps`, Present about 63 fps) behaves like the SP inventory: the guest still draws the paused 3D world every frame. Details and candidates: `docs/journal/2026-11-08/mp-performance.md`.
