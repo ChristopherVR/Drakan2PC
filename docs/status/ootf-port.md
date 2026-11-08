@@ -189,7 +189,9 @@ dialog; formats `d18eb87`). Rynn and Arokh were already the disc's. Seen in game
 die lying down, Rynn holds and swings the Drakan 2 long sword, the Ruined Village opening and the Islands arrival on Arokh
 play. See [Drakan 2 characters and weapons](../journal/2026-11-08/ootf-ps2-model-substitution.md).
 
-**November 9 spider-like creatures:** the converted-model Scavenger could not be hit by melee from most sides while the disc Scavenger class is (damage in 11 of 16 close cells from seven bearings on the default pack); it now plays as the disc Scavenger by default (formats `a06ddb0`, opt out per pair). The disc Spider is hit but takes 1 to 2 of 15 hit points per blow (its own class); Ticks keep their PC model. Scene-only Wartok props still use PC models. See [spider melee hits](../journal/2026-11-09/ootf-spider-melee-hits.md).
+**November 9 spider-like creatures:** the converted-model Scavenger could not be hit by melee from most sides while the disc Scavenger class is (damage in 11 of 16 close cells from seven bearings on the default pack); it now plays as the disc Scavenger by default (formats `a06ddb0`, opt out per pair). The disc Spider is hit but takes 1 to 2 of 15 hit points per blow (its own class); Ticks keep their PC model. See [spider melee hits](../journal/2026-11-09/ootf-spider-melee-hits.md).
+
+**November 9 scene Wartoks:** the cut-scene Wartoks (`Wartock Leather / Chain / Plate`, class 17 props) now use the disc Wartok model and rig by default (formats `d052dd4`, opt out per row): their PC clips are retargeted onto the disc rig, unmatched disc joints keep a native pose, and scene channels are remapped (spear: PC 9 to disc 10, left hand: PC 12 to disc 14). Seen in the Ruined Village opening (bridge, impale); see [scene Wartoks](../journal/2026-11-09/ootf-scene-wartoks.md).
 
 **November 8 Drakan 2 textures:** where Drakan 2 has a texture for the same kind of surface, the converter now copies the disc
 texture instead of the OotF one (on by default; `--ps2-textures 0`, per pair in the editor's import dialog). Table: tropical plant

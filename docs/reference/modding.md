@@ -647,6 +647,7 @@ skeleton, clips and HD textures) instead of the converted PC one (formats `ootfp
 | Group | OotF class | Drakan 2 class | Notes |
 | --- | --- | --- | --- |
 | Enemies | Troll Leather / Chain / Plate (and their "defense side attack" flankers) | LeatherWartock / ChainTock / PlateTock Center / Flank | same creature and skeleton |
+| Enemies | Wartock Leather / Chain / Plate (cut-scene props, engine class 17) | LeatherWartock / ChainTock / PlateTock Center | on by default: the scene Wartok is the disc model and rig; its PC scene clips are retargeted onto the disc rig and its scene attach channels are remapped by joint (rows marked `scene`); turn the row off to keep the PC model |
 | Enemies | Orc Leather (purple), Orc Plate (yellow) | Purple Orc Center, Yellow Orc : Center | same creature and skeleton |
 | Enemies | Spider | Spider | same creature, same 37 joints |
 | Enemies | Scavenger | Scavenger | on by default: the converted PC model could not be hit by melee; plays as the Drakan 2 class (its health and attacks), turn the row off to keep the PC model |
