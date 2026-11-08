@@ -118,10 +118,10 @@ struct LanServer {
 bool hostMatch(const HostConfig& cfg, const std::string& playerName);
 // Join a server ("host:port", port defaults to 47800). False when unavailable, bad address or already in a session.
 bool joinMatch(const std::string& address, const std::string& password, const std::string& playerName);
-void leave();      // drop the session (the server shuts down with its host)
-State state();     // snapshot
+void leave();         // drop the session (the server shuts down with its host)
+State state();        // snapshot
 void dismissNotice(); // forget State::endNotice (the title screen showed it)
-bool startMatch(); // host only, in the lobby (the server counts down first: State::countdownKind 1)
+bool startMatch();    // host only, in the lobby (the server counts down first: State::countdownKind 1)
 void setReady(bool ready);
 void kickPlayer(int playerId); // host only: remove a player from the lobby / match (the server checks the sender)
 // The results screen's buttons (host only, the server checks): 1 back to the lobby for everybody, 2 the next map

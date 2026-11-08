@@ -163,7 +163,7 @@ struct MpState {
     std::vector<RosterRow> roster;
     bool selfReady = false;
     std::string endNotice; // why the joined session ended on us (kept after the teardown, for the title screen)
-    std::string message; // status / rejection text ("wrong password", "Connecting to 192.168.1.4:47800 ...")
+    std::string message;   // status / rejection text ("wrong password", "Connecting to 192.168.1.4:47800 ...")
     std::vector<LanServer> lan;
     bool lanScanning = false;
     std::vector<LevelEntry> levels;          // the level catalogue (vanilla + mods); empty = vanillaLevels()

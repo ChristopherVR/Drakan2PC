@@ -24,7 +24,7 @@ int main() {
     assert(!arenaWorldWanted(true, true, false, false)); // lobby: the next title New Game is ordinary
     assert(!arenaWorldWanted(true, false, false, true)); // connection lost
     assert(!arenaWorldWanted(false, true, false, true)); // session torn down (Quit to Title): singleplayer again
-    assert(std::string(disconnectNotice(0)) == "The host ended the match");     // heard a moment ago: the host left
+    assert(std::string(disconnectNotice(0)) == "The host ended the match"); // heard a moment ago: the host left
     assert(std::string(disconnectNotice(3999)) == "The host ended the match");
     assert(std::string(disconnectNotice(4000)) == "Connection to the server lost"); // silent first: a timeout
     assert(std::string(disconnectNotice(10000)) == "Connection to the server lost");
