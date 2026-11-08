@@ -5,6 +5,7 @@
 #include "drakan_region.h"
 #include "ps2_runtime.h"
 #include "ps2_runtime_macros.h"
+#include "runtime/ee_scheduler.h"
 #include "world/PolyClip.h"
 
 #include <atomic>
@@ -32,6 +33,22 @@ std::atomic<uint64_t> g_calls{0}, g_clipped{0}, g_dropped{0}, g_preempted{0};
 bool g_perf = false;
 uint64_t g_nowNs = 0; // measured cost of one steady_clock::now(), subtracted once per timed segment
 std::atomic<uint64_t> g_hookNs{0}, g_hookFans{0};
+// Regression aids (docs/journal/2026-11-08/polyclip-preemption.md). DRAKAN_POLY_NEAR_CLIP_GUARD=1 checks that nothing
+// but the hook writes the scratch area and that no two stacks share a slot a preempted draw still reads.
+// DRAKAN_POLY_NEAR_CLIP_FORCE_PREEMPT=N makes the first original draw of every Nth clipped fan unwind at its first
+// checkpoint, i.e. forces the preempted state the hook must leave alone. The hook runs on the EE thread only.
+bool g_guardOn = false;
+ScratchGuard g_guard;
+uint32_t g_forceEvery = 0, g_forceTick = 0;
+uint64_t g_clippedFans = 0, g_forced = 0, g_entryUnwinds = 0, g_violations = 0, g_collisions = 0;
+void reportGuard() {
+    std::fprintf(stderr,
+                 "[polyclip] guard: clipped=%llu forced=%llu preempted=%llu entry_unwinds=%llu scratch_violations=%llu "
+                 "slot_collisions=%llu\n",
+                 static_cast<unsigned long long>(g_clippedFans), static_cast<unsigned long long>(g_forced),
+                 static_cast<unsigned long long>(g_preempted.load()), static_cast<unsigned long long>(g_entryUnwinds),
+                 static_cast<unsigned long long>(g_violations), static_cast<unsigned long long>(g_collisions));
+}
 using Clock = std::chrono::steady_clock;
 inline uint64_t nsBetween(Clock::time_point a, Clock::time_point b) {
     return static_cast<uint64_t>(std::chrono::duration_cast<std::chrono::nanoseconds>(b - a).count());
@@ -120,8 +137,43 @@ void hookFanDraw(uint8_t* ram, R5900Context* c, PS2Runtime* rt) {
     const uint32_t ra = GPR_U32(c, 31);
     const uint64_t a1 = GPR_U64(c, 5), a2 = GPR_U64(c, 6);
     const uint32_t pc = c->pc;
-    const uint32_t scratch = drakan_polyclip::scratchFor(GPR_U32(c, 29) & kRamMask);
+    const uint32_t sp = GPR_U32(c, 29) & kRamMask;
+    const uint32_t scratch = drakan_polyclip::scratchFor(sp);
+    if (g_guardOn || g_forceEvery) {
+        ++g_clippedFans;
+        if (g_guardOn) {
+            if (!g_guard.active())
+                g_guard.start(ram);
+            const int64_t at = g_guard.verify(ram);
+            if (at >= 0) {
+                if (++g_violations <= 8)
+                    std::fprintf(stderr, "[polyclip] guard: scratch byte 0x%llx (slot %llu) changed outside the hook\n",
+                                 static_cast<unsigned long long>(kScratchBase + at),
+                                 static_cast<unsigned long long>(at / kScratchSlotBytes));
+                g_guard.resync(ram);
+            }
+            if (!g_guard.claim(sp) && ++g_collisions <= 8)
+                std::fprintf(stderr, "[polyclip] guard: sp 0x%x maps to a slot a preempted draw may still read\n", sp);
+        }
+        if (g_forceEvery && pc == kFanDraw && ++g_forceTick % g_forceEvery == 0) {
+            // A checkpoint already due here unwinds at the hook's entry (pc is still the entry), exactly like the
+            // pre-call check of PS2_JAL: the scheduler calls the hook again later.
+            if (rt->cpTick(PS2Runtime::kCpFlushCycles)) {
+                ++g_entryUnwinds;
+                finish();
+                return;
+            }
+            // Accumulate just below a flush and request a checkpoint: the original's first call unwinds.
+            (void)rt->cpTick(PS2Runtime::kCpFlushCycles - 1u);
+            rt->eeScheduler().postHostTask([] {});
+            ++g_forced;
+        }
+        if ((g_clippedFans & 1023u) == 0)
+            reportGuard();
+    }
     const auto r = drakan_polyclip::drawClippedFan(ram, scratch, v, n, g_params, [&](uint32_t at, int m) {
+        if (g_guardOn)
+            g_guard.wrote(at, ram + at, static_cast<size_t>(m) * sizeof(Vertex));
         SET_GPR_U64(c, 5, at);
         SET_GPR_U64(c, 6, static_cast<uint64_t>(m));
         c->pc = kFanDraw;
@@ -131,6 +183,8 @@ void hookFanDraw(uint8_t* ram, R5900Context* c, PS2Runtime* rt) {
     const int drawn = r.drawn;
     if (r.preempted) {
         g_preempted.fetch_add(1, std::memory_order_relaxed);
+        if (g_guardOn)
+            g_guard.pin(sp);
         finish();
         return;
     }
@@ -175,7 +229,14 @@ void install(PS2Runtime& rt) {
     configure(drakan_cfg::getBool("video", "poly_near_clip", "DRAKAN_POLY_NEAR_CLIP", true));
     if (const char* e = std::getenv("DRAKAN_POLY_NEAR_W"))
         g_params.nearW = static_cast<float>(std::atof(e));
+    // Test aid: a small trigger (e.g. 200) sends most fans through the clipped path (inside the guard band the clip
+    // only splits them into triangles), so the preemption handling runs thousands of times per second.
+    if (const char* e = std::getenv("DRAKAN_POLY_NEAR_TRIGGER"))
+        g_params.trigger = static_cast<float>(std::atof(e));
     g_log = std::getenv("DRAKAN_POLY_NEAR_CLIP_LOG") != nullptr;
+    g_guardOn = std::getenv("DRAKAN_POLY_NEAR_CLIP_GUARD") != nullptr;
+    if (const char* e = std::getenv("DRAKAN_POLY_NEAR_CLIP_FORCE_PREEMPT"))
+        g_forceEvery = static_cast<uint32_t>(std::strtoul(e, nullptr, 10));
     g_perf = std::getenv("PS2X_PERF") != nullptr;
     if (g_perf) {
         const auto a = Clock::now();

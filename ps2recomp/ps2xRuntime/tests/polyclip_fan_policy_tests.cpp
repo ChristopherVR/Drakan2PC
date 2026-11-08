@@ -56,6 +56,31 @@ int main() {
         return true;
     });
     assert(!r.preempted && r.drawn == 0);
+
+    // Scratch guard: the hook's own writes keep the image in step, a foreign write is found (once), and a slot
+    // pinned by a preempted draw is refused to another stack until its owner comes back.
+    {
+        std::vector<uint8_t> mem(0x100000, 0);
+        static ScratchGuard guard; // 32 KB image: not on the stack
+        guard.start(mem.data());
+        assert(guard.verify(mem.data()) == -1);
+        const uint32_t slot = scratchFor(0x01ff1000u);
+        const uint8_t bytes[64] = {1, 2, 3, 4};
+        std::memcpy(mem.data() + slot, bytes, sizeof bytes);
+        guard.wrote(slot, mem.data() + slot, sizeof bytes);
+        assert(guard.verify(mem.data()) == -1);
+        mem[kScratchBase + 5000] ^= 0x10; // someone else writes into the reserved area
+        assert(guard.verify(mem.data()) == 5000);
+        guard.resync(mem.data());
+        assert(guard.verify(mem.data()) == -1);
+        const uint32_t owner = 0x01ff1000u, other = owner + kScratchSlots * 256u; // same slot, different stack
+        assert(scratchFor(owner) == scratchFor(other));
+        assert(guard.claim(owner) && guard.claim(other));
+        guard.pin(owner);
+        assert(!guard.claim(other));
+        assert(guard.claim(owner)); // the owner came back: its preempted draw has finished
+        assert(guard.claim(other));
+    }
     std::cout << "polyclip fan policy ok\n";
     return 0;
 }

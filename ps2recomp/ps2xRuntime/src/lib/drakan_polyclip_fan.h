@@ -49,4 +49,53 @@ FanResult drawClippedFan(uint8_t* ram, uint32_t scratch, const world::polyclip::
     return r;
 }
 
+// Diagnostic guard of the scratch area (DRAKAN_POLY_NEAR_CLIP_GUARD): the hook keeps its own image of what it wrote
+// there. Guest RAM differing from that image means other code wrote into the reserved area. A slot that a preempted
+// draw may still read (its original resumes later and reads the vertices from it) is pinned to the stack that owns it
+// until that stack enters the hook again; a different stack mapping to a pinned slot is a possible collision.
+class ScratchGuard {
+public:
+    static constexpr uint32_t kBytes = kScratchSlots * kScratchSlotBytes;
+    void start(const uint8_t* ram) {
+        std::memcpy(image, ram + kScratchBase, kBytes);
+        std::memset(pinned, 0, sizeof pinned);
+        started = true;
+    }
+    bool active() const { return started; }
+    // Offset (from kScratchBase) of the first byte that differs from the hook's image, or -1.
+    int64_t verify(const uint8_t* ram) const {
+        if (!started)
+            return -1;
+        const uint8_t* live = ram + kScratchBase;
+        if (std::memcmp(live, image, kBytes) == 0)
+            return -1;
+        for (uint32_t i = 0; i < kBytes; ++i)
+            if (live[i] != image[i])
+                return i;
+        return -1;
+    }
+    // Re-learn the area after a reported difference, so one foreign write is reported once.
+    void resync(const uint8_t* ram) { std::memcpy(image, ram + kScratchBase, kBytes); }
+    void wrote(uint32_t scratch, const void* bytes, size_t n) {
+        if (started && scratch >= kScratchBase && scratch - kScratchBase + n <= kBytes)
+            std::memcpy(image + (scratch - kScratchBase), bytes, n);
+    }
+    // Entry of a clipped draw from stack `sp`: false when the slot is pinned by a preempted draw of another stack.
+    bool claim(uint32_t sp) {
+        uint32_t& owner = pinned[slotOf(sp)];
+        if (owner == 0 || owner == sp) {
+            owner = 0;
+            return true;
+        }
+        return false;
+    }
+    void pin(uint32_t sp) { pinned[slotOf(sp)] = sp; }
+
+private:
+    static uint32_t slotOf(uint32_t sp) { return (scratchFor(sp) - kScratchBase) / kScratchSlotBytes; }
+    uint8_t image[kBytes] = {};
+    uint32_t pinned[kScratchSlots] = {};
+    bool started = false;
+};
+
 } // namespace drakan_polyclip
