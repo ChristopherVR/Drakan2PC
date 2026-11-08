@@ -37,6 +37,15 @@ int main() {
         assert(b.valid && b.u1 == 89 - .5f / n);
         ++checks;
     }
+    // The Order of the Flame health/compass orbs: a 60 x 58 native sprite sampling a 128 x 128 render-target sheet.
+    // Sampled at render scale 2 its last render pixel lands past texel 87; the neighbouring texel 88 / row 2 holds
+    // the white outline of another piece, which showed as a thin line on the right and bottom edge.
+    quad(v, 421, 481, 434, 492, 28.5f, 88.5f, 60.5f, 2.5f);
+    auto rt = bounds(v, 6, true, 128, 128, 2);
+    assert(rt.valid && rt.u0 == 28.25f && rt.u1 == 87.75f);
+    assert(rt.v0 == 3.25f && rt.v1 == 60.75f);
+    assert(std::floor(rt.u1) == 87 && std::floor(rt.v0) == 3);
+    ++checks;
     quad(v, 13.25f, 73.25f, 20.25f, 78.25f, 88.5f, 28.5f, 2.5f, 60.5f);
     auto b = bounds(v, 6, true, 128, 128, 1);
     assert(b.valid && b.u0 == 28.5f && b.u1 == 87.5f && b.v0 == 3.5f && b.v1 == 60.5f);
