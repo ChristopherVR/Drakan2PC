@@ -108,7 +108,7 @@ constexpr uint32_t kPadInit = 0x4b0948u, kPadPortOpen = 0x4b0ba8u, kPadRead = 0x
 
 PS2Runtime::RecompiledFunction g_origPadMgrUpdate = nullptr, g_origCameraLook = nullptr;
 PS2Runtime::RecompiledFunction g_origCameraFollow = nullptr, g_origBowLaunch = nullptr;
-PS2Runtime::RecompiledFunction g_origBowAttackReset = nullptr;
+PS2Runtime::RecompiledFunction g_origBowAttackReset = nullptr, g_origBowShotMotion = nullptr;
 PS2Runtime::RecompiledFunction g_origBowSightController = nullptr, g_origBowSightGuard = nullptr;
 PS2Runtime::RecompiledFunction g_origBowSightClose = nullptr, g_origBowSightFinalize = nullptr;
 bool g_bowSightControls = false;
@@ -1133,6 +1133,17 @@ void hookBowAttackReset(uint8_t* rdram, R5900Context* c, PS2Runtime* rt) {
     g_origBowAttackReset(rdram, c, rt);
 }
 
+// FUN_0032cf30 (f12..f14 blend/start/rate, a0 = player, a1 = motion, a2 = channel): the player's motion setter.
+// Only attack start's first archer-clip call (return 0x301b7c) is considered; see InputModule::bowShotChannel.
+void hookBowShotMotion(uint8_t* rdram, R5900Context* c, PS2Runtime* rt) {
+    if (c->pc == 0x32cf30u && getRegU32(c, 31) == 0x301b7cu && getRegU32(c, 6) == 0) {
+        RecompGuest g(rdram, c, rt);
+        const uint32_t channel = module().bowShotChannel(g, getRegU32(c, 4), getRegU32(c, 31), 0);
+        SET_GPR_U32(c, 6, channel);
+    }
+    g_origBowShotMotion(rdram, c, rt);
+}
+
 // FUN_0020e6c8 (a0 = bow object): launches the nocked arrow along its matrix, retargeted for a native target.
 void hookBowLaunch(uint8_t* rdram, R5900Context* c, PS2Runtime* rt) {
     if (c->pc != kBowLaunch) {
@@ -1522,6 +1533,9 @@ void drakanInstallInput(PS2Runtime& rt) {
         g_origBowAttackReset = rt.lookupFunction(0x307198u);
         if (g_origBowAttackReset && !(skip & 64))
             rt.replaceFunction(0x307198u, &hookBowAttackReset);
+        g_origBowShotMotion = rt.lookupFunction(0x32cf30u);
+        if (g_origBowShotMotion && !(skip & 64))
+            rt.replaceFunction(0x32cf30u, &hookBowShotMotion);
         if (!(skip & 64))
             installBowSightControls(rt);
     }
@@ -1550,6 +1564,9 @@ void drakanInstallPortableMenuHooks(PS2Runtime& rt) {
         g_origBowAttackReset = rt.lookupFunction(0x307198u);
         if (g_origBowAttackReset)
             rt.replaceFunction(0x307198u, &hookBowAttackReset);
+        g_origBowShotMotion = rt.lookupFunction(0x32cf30u);
+        if (g_origBowShotMotion)
+            rt.replaceFunction(0x32cf30u, &hookBowShotMotion);
         installBowSightControls(rt);
     }
     if (g_origBowLaunch)

@@ -78,14 +78,20 @@ public:
     // At the native attack gate's reset callback, permit the original PC bow's jumping state without changing
     // the actor state or any other native refusal condition. Unrecognized callers/masks remain native.
     uint32_t bowAttackMask(IGuest& g, uint32_t player, uint32_t caller, uint32_t mask);
+    // At the native motion setter 0x32cf30 called from attack start (return 0x301b7c): the channel for the archer
+    // clip. A local airborne bow shot moves from the base channel (0) to the torso channel, so the jump keeps going.
+    uint32_t bowShotChannel(IGuest& g, uint32_t player, uint32_t caller, uint32_t channel);
     void captureBowSightJump(IGuest& g, uint32_t player);
     bool restoreBowSightJump(IGuest& g, uint32_t player, uint32_t caller);
     bool keepBowSightOnJump(IGuest& g, uint32_t player, uint32_t cam, uint32_t caller);
     bool suppressBowSightForwardLook(IGuest& g, uint32_t player, uint32_t caller, uint32_t axis);
     bool updateBowSightLocomotion(IGuest& g, uint32_t player, uint32_t caller);
     bool stabilizeBowSightOrientation(IGuest& g, uint32_t camera, uint32_t caller);
-    // While aiming: draw a crosshair at the centre of the game image (overlay thread).
-    bool bowCrosshairVisible() const { return bowAiming_.load() && !hostOwned() && !menuActive_.load(); }
+    // While aiming (modern) or with the native bow sight open: draw a crosshair at the centre of the game image
+    // (overlay thread).
+    bool bowCrosshairVisible() const {
+        return (bowAiming_.load() || bowSightOpen_.load()) && !hostOwned() && !menuActive_.load();
+    }
     // Before-hook for PadMgr_Update: A / D strafe (on foot) by pointing the left stick's X at the strafe axis (3)
     // instead of the turn axis (0). `dragon` = current controlled-actor role: the game's mapping is restored there.
     void beforePadMgrUpdate(IGuest& g, bool dragon);
@@ -223,8 +229,9 @@ private:
     float pitchViewGain(IGuest& g, uint32_t player, uint32_t cam) const;
     void bowAimFrame(); // beginFrame, m_ held: LMB = aim while the bow is out, release = one Square tap
     bool bowLmbIsSquare() const;
-    std::atomic<bool> bowReady_{false}, bowAiming_{false};
-    int bowShotFrames_ = 0; // frames during which a launch belongs to a shot released from the aim
+    std::atomic<bool> bowReady_{false}, bowAiming_{false}, bowSightOpen_{false};
+    bool bowSightCrosshair(IGuest& g) const; // m_ held: the native first-person bow sight is open in gameplay
+    int bowShotFrames_ = 0;                  // frames during which a launch belongs to a shot released from the aim
     bool bowZoomActive_ = false;
     uint32_t bowZoomCam_ = 0;
     float bowZoomNative_ = 0, bowZoomTarget_ = 0;

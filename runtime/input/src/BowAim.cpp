@@ -96,6 +96,9 @@ void InputModule::updateBowAim(IGuest& g) {
     const bool ready = cfg_.bowAimModern && camOk && player && !dragon_ && mouseKeyboardOwner_ &&
                        g.read32(player + 0xe90) == kBowMode && g.read32(0x4fb730) && !g.read32(0x4fbafc);
     bowReady_.store(ready);
+    const bool sightOpen = bowSightCrosshair(g); // the OotF "targeted first-person view" shows the crosshair
+    if (sightOpen != bowSightOpen_.exchange(sightOpen) && std::getenv("DRAKAN_BOW_LOG"))
+        std::fprintf(stderr, "[bow] sight crosshair %s\n", sightOpen ? "shown" : "hidden");
     // Zoom: the camera tick eases its FOV (cam+0x5c) towards cam+0x60; borrow that target while aiming.
     const bool want = ready && bowAiming_.load() && cfg_.bowZoom > 0.2f && cfg_.bowZoom < 1.0f;
     if (bowZoomActive_) {
@@ -309,11 +312,51 @@ uint32_t InputModule::bowAttackMask(IGuest& g, uint32_t player, uint32_t caller,
     // PC attack entry 1006f9d0 excludes jumping (actor+68 bit10) from its refusal mask; PS2 31da90 explicitly
     // adds that bit for bows. The PS2 reset callback 307198 returns to 31de5c with the mask in s2. Preserve
     // the optional held-object refusal bit1000, falling bit20, and every other native gate.
-    if (cfg_.bowAimModern || dragon_ || caller != 0x31de5cu || (mask & ~0x1000u) != 0x104b70u || !player ||
+    // Applies in modern mode too: its release tap mid-jump would otherwise be refused and the aimed shot lost.
+    if (dragon_ || caller != 0x31de5cu || (mask & ~0x1000u) != 0x104b70u || !player ||
         player != contextPlayer(g, g.read32(cfg_.addrCtxPtr)) || g.read32(player + 0xe90) != kBowMode ||
         !(g.read32(player + 0x94) & 0x10u) || !g.read32(0x4fb730) || g.read32(0x4fbafc))
         return mask;
     return mask & ~0x10u;
+}
+
+// PS2 attack start 3016e8 clears the shot channel player+aec to 0 and then plays the archer clip on it (motion setter
+// 32cf30, return 301b7c) before repeating it on the torso channel (player property 0x52). Channel 0 is the base
+// motion: mid-jump it replaces the jump clip and its velocity-driven travel, so a forward jump turns into a vertical
+// one. The original PC jump transition 1005a830 instead keeps the bow pose on the torso channel. Play an airborne
+// shot there (the sight branch already stores that channel in +aec), so the legs keep the native jump and the
+// native attack completion check in 31da90 follows the torso clip.
+uint32_t InputModule::bowShotChannel(IGuest& g, uint32_t player, uint32_t caller, uint32_t channel) {
+    std::lock_guard<std::mutex> lock(m_);
+    if (caller != 0x301b7cu || channel != 0 || dragon_ || !player ||
+        player != contextPlayer(g, g.read32(cfg_.addrCtxPtr)) || g.read32(player + 0xe90) != kBowMode ||
+        !(g.read32(player + 0x94) & 0x10u) || !g.read32(0x4fb730) || g.read32(0x4fbafc))
+        return channel;
+    const auto valid = [](uint32_t p, uint32_t bytes) { return p >= 0x100000u && p <= 0x2000000u - bytes; };
+    const auto actor = g.read32(player + 0x80);
+    const auto reader = valid(actor, 0x58) ? g.read32(actor + 0x54) : 0;
+    const auto vt = valid(reader, 12) ? g.read32(reader + 8) : 0;
+    const auto get = valid(vt, 0x20) ? g.read32(vt + 0x1c) : 0;
+    if (!get)
+        return channel;
+    // The same property read the native attack start uses for its torso call: (reader + vt[0x18], 0x52, -1).
+    const auto field = g.call(GuestCall(get)
+                                  .arg(reader + static_cast<uint32_t>(static_cast<int32_t>(g.readS16(vt + 0x18))))
+                                  .arg(0x52)
+                                  .arg(0xffffffffu));
+    const auto torso = valid(field, 4) ? g.read32(field) : 0;
+    if (torso == 0 || torso > 15)
+        return channel;
+    g.write32(player + 0xaec, torso);
+    if (std::getenv("DRAKAN_BOW_LOG"))
+        std::fprintf(stderr, "[bow] airborne shot on torso channel %u: player=%x\n", torso, player);
+    return torso;
+}
+
+bool InputModule::bowSightCrosshair(IGuest& g) const {
+    const auto ctx = g.read32(cfg_.addrCtxPtr), cam = contextCamera(g, ctx), player = contextPlayer(g, ctx);
+    return cam && player && !dragon_ && g.read32(cam + 0x14c) == 6 && (g.read32(cam + 0x48) & kCameraSightFlag) &&
+           g.read32(player + 0xe90) == kBowMode && g.read32(0x4fb730) && !g.read32(0x4fbafc);
 }
 
 uint32_t InputModule::ootfBowSightCamera(IGuest& g, uint32_t player) const {

@@ -34,6 +34,7 @@ struct FakeGuest : IGuest {
     std::vector<GuestCall> calls;
     uint32_t selectedTarget = 0;
     std::map<uint32_t, uint32_t> motions;
+    std::map<uint32_t, uint32_t> returns; // fixed results of other guest calls, by address
     uint8_t read8(uint32_t a) override {
         const auto it = mem.find(a);
         return it == mem.end() ? 0 : it->second;
@@ -54,6 +55,8 @@ struct FakeGuest : IGuest {
         calls.push_back(c);
         if (c.addr == 0x325650u)
             return motions[c.i[1]];
+        if (const auto it = returns.find(c.addr); it != returns.end())
+            return it->second;
         return c.addr == 0x49ec60 ? selectedTarget : 0;
     }
 };
@@ -410,7 +413,84 @@ void testOotfJumpAttackGate() {
     c.bowAimModern = true;
     m.reloadConfig(c);
     m.beginFrame(FrameInput{});
-    CHECK(m.bowAttackMask(g, PLAYER, caller, native) == native);
+    // Modern mode's release tap mid-jump must not be refused either (the aimed shot would be lost).
+    CHECK(m.bowAttackMask(g, PLAYER, caller, native) == (native & ~0x10u));
+}
+
+// An airborne shot plays the archer clip on the torso channel instead of replacing the jump on the base channel.
+void testAirborneShotChannel() {
+    InputModule m;
+    m.initHeadless(Config::defaults());
+    FakeGuest g;
+    setup(g);
+    constexpr uint32_t caller = 0x301b7c, ACTOR = 0x690000, READER = 0x6a0000, READERVT = 0x6b0000, FIELD = 0x6c0000,
+                       GET = 0x192e48;
+    g.write32(PLAYER + 0x80, ACTOR);
+    g.write32(ACTOR + 0x54, READER);
+    g.write32(READER + 8, READERVT);
+    g.write16(READERVT + 0x18, 0);
+    g.write32(READERVT + 0x1c, GET);
+    g.write32(FIELD, 2); // Rynn's property 0x52: torso channel 2
+    g.returns[GET] = FIELD;
+    g.write32(PLAYER + 0x94, 0x10);
+    g.write32(PLAYER + 0xaec, 0);
+    CHECK(m.bowShotChannel(g, PLAYER, caller, 0) == 2);
+    CHECK(g.read32(PLAYER + 0xaec) == 2); // the native completion check then follows the torso clip
+    CHECK(g.calls.back().addr == GET && g.calls.back().i[0] == READER && g.calls.back().i[1] == 0x52 &&
+          g.calls.back().i[2] == 0xffffffffu);
+    CHECK(g.read32(PLAYER + 0x94) == 0x10); // the jump state itself is untouched
+    const auto check = [&](uint32_t player, uint32_t from, uint32_t channel) {
+        g.write32(PLAYER + 0xaec, 0);
+        const auto calls = g.calls.size();
+        CHECK(m.bowShotChannel(g, player, from, channel) == channel);
+        CHECK(g.read32(PLAYER + 0xaec) == 0 && g.calls.size() == calls);
+    };
+    check(PLAYER, caller + 4, 0); // another motion call
+    check(PLAYER, caller, 2);     // already on a layer channel
+    check(PLAYER + 4, caller, 0); // another actor
+    g.write32(PLAYER + 0x94, 0);
+    check(PLAYER, caller, 0); // grounded shots keep the native whole-body clip
+    g.write32(PLAYER + 0x94, 0x10);
+    g.write32(PLAYER + 0xe90, 1);
+    check(PLAYER, caller, 0); // melee
+    g.write32(PLAYER + 0xe90, 5);
+    g.write32(0x4fbafc, 1);
+    check(PLAYER, caller, 0); // scripted sequence
+    g.write32(0x4fbafc, 0);
+    g.write32(FIELD, 0);
+    g.write32(PLAYER + 0xaec, 0);
+    CHECK(m.bowShotChannel(g, PLAYER, caller, 0) == 0); // no torso channel: native behaviour
+    CHECK(g.read32(PLAYER + 0xaec) == 0);
+    g.write32(FIELD, 2);
+    g.write32(READERVT + 0x1c, 0);
+    check(PLAYER, caller, 0); // unknown reader
+}
+
+// The OotF bow sight ("targeted first-person view") shows the crosshair; third person (auto-aim) does not.
+void testSightCrosshair() {
+    InputModule m;
+    m.initHeadless(Config::defaults());
+    FakeGuest g;
+    setup(g);
+    m.beginFrame(FrameInput{});
+    m.updateBowAim(g);
+    CHECK(!m.bowCrosshairVisible());
+    g.write32(CAM + 0x48, 0x220);
+    m.updateBowAim(g);
+    CHECK(m.bowCrosshairVisible());
+    g.write32(0x4fbafc, 1);
+    m.updateBowAim(g);
+    CHECK(!m.bowCrosshairVisible()); // scripted scene
+    g.write32(0x4fbafc, 0);
+    g.write32(PLAYER + 0xe90, 1);
+    m.updateBowAim(g);
+    CHECK(!m.bowCrosshairVisible()); // bow put away
+    g.write32(PLAYER + 0xe90, 5);
+    m.updateBowAim(g);
+    CHECK(m.bowCrosshairVisible());
+    g.write32(CAM + 0x48, 0x200);
+    m.updateBowAim(g);
+    CHECK(!m.bowCrosshairVisible()); // sight closed
 }
 
 void testOotfSightJumpCommand() {
@@ -712,6 +792,8 @@ int main() {
     testOotfAutoTarget();
     testImportedBowAutoAimMetadata();
     testOotfJumpAttackGate();
+    testAirborneShotChannel();
+    testSightCrosshair();
     testOotfSightJumpCommand();
     testOotfSightForwardLook();
     testOotfSightLocomotion();

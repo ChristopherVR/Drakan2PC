@@ -544,6 +544,21 @@ and all flight properties. Intentional tracking arrows retain their native solve
 bindings, stick-look mode and `modern` retain their existing sight path as a whole. The former private test gate is
 removed. This is a validated controls/aiming checkpoint, not complete1:1 original combat.
 
+Airborne shots keep the jump (2026-11-08). The jump gate above lets a bow attack start while `player+0x94` bit
+0x10 is set, now in `modern` too (its release tap mid-jump was refused and the aimed shot lost). Native attack start
+`0x3016e8` then clears the shot channel `player+0xaec` to 0 and plays the archer clip through the motion setter
+`0x32cf30` first on that channel (return `0x301b7c`) and then on the torso channel (player property `0x52`).
+Channel 0 is the base motion, so mid-jump the archer clip replaced the jump clip and its velocity-driven travel: a
+running jump turned into a vertical one. `InputModule::bowShotChannel` moves only that first call, for the local
+player's airborne bow shot, to the torso channel and stores it in `+0xaec` (as the sight branch does), so the legs
+keep the native jump and the attack completion check in `0x31da90` follows the torso clip. This matches the original
+PC jump transition, which keeps the bow pose on torso channel 2. Grounded shots keep the native whole-body clip.
+
+Crosshair: the host crosshair is also drawn while the native first-person sight is open (camera mode 6, `cam+0x48`
+bit 0x20, bow out, gameplay), the manual's "targeted first-person view". The native HUD (`0x3ac540`) only centres a
+sight texture taken from bow property `0x11` when that texture is loaded. Third person stays without a reticle
+(automatic aim). Fake-guest checks only so far; the jump-shot and crosshair need a live run with a bow save.
+
 Live default Short/Long Bow combined and launch-direction evidence, native call sites and remaining limits:
 [bow-cadence-and-airborne-evidence.md](../journal/2026-11-04/bow-cadence-and-airborne-evidence.md).
 
@@ -553,7 +568,7 @@ Native bow (static analysis, live-checked where noted):
 | --- | --- |
 | Bow out | `player+0xe90 == 5`; the bow sits in the `player+0xEAC` channel (live: e90 5, EAC 0x4c0 after equipping the Short Wood Bow). |
 | Sight (Circle) | `FUN_003016e8` toggles it: camera flag `cam+0x48` bit 5 (0x20), view `FUN_0032a608` from the bone frame at player+0x54c/+0x558, FOV target `cam+0x60` = bow prop 0x1e (current `cam+0x5c`, eased by the camera tick `FUN_00218350` at camera prop 6 x dt), reticle `FUN_003ac540`. Flag 0x800 / `cam+0x94/98` is not the sight. |
-| Shot (Square) | Press sets attack bit 2 (`0x307198`); `FUN_003016e8` plays the draw animation 0xe1 (0xe7 crouched). The arrow leaves on the animation event, not on button release: `FUN_0020e6c8(bow)` launches `*(bow+0x158)` and sets the cooldown `player+0xb38`. |
+| Shot (Square) | Press sets attack bit 2 (`0x307198`); `FUN_003016e8` plays the draw animation 0xe1 (0xe7 crouched) on channel `player+0xaec` (0 = base) and on the torso channel (property 0x52). The arrow leaves on the animation event, not on button release: `FUN_0020e6c8(bow)` launches `*(bow+0x158)` and sets the cooldown `player+0xb38`. |
 | Launch direction | `FUN_0020e6c8`: with a locked target (`player+0x4da`) or a homing arrow (prop 0x10) it solves a ballistic direction and rewrites the arrow matrix (column 0 = -dir); otherwise the arrow flies along its own matrix (the hand pose). Live: an arrow whose column 0 was set to -d flew exactly along d with no visible drop over 7400 units. |
 
 Modern mode: with the bow out (on foot, gameplay, sight closed, mouse / keyboard owner), LMB (when bound to SQUARE) no
