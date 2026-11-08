@@ -190,7 +190,11 @@ stops) switching one Triggered Music Loop per music id, verified in Ruined Villa
   before Ruined Village. See the [timed capture review](../journal/2026-11-05/issue-1-cliff-intro-city.md). Since November 8 the
   Intro draws no HUD (its scenes hold the synthetic player, as the disc Intro's scene holds Rynn) and converted scenes play at the
   PC field of view of 80 instead of 40, so the owl shot shows the owl's head and Ruined Village scenes are no longer cropped
-  ([Intro HUD and owl framing](../journal/2026-11-08/ootf-intro-hud-and-owl-camera.md)).
+  ([Intro HUD and owl framing](../journal/2026-11-08/ootf-intro-hud-and-owl-camera.md)). The Intro no longer starts with 12 s
+  of black: the near wall of its inward-facing "Black Background" box (culled on the PC, drawn on the PS2) is left out, so
+  the Psygnosis owl flies in from the first frame. The model faders (Psygnosis plate, "Presents", the DRAKAN title letters,
+  Surreal text) now convert as props and show
+  ([Intro black start](../journal/2026-11-08/ootf-intro-black-start.md)).
 * Earlier isolated tests loaded all 13 campaign levels and exercised host-fired `DRAKAN_LEVELCHANGE` exits, including Volcanic
   hops. Intro -> Ruined Village is reached naturally from the title. The November 4 converter fixes detector message routing;
   a real Ruined Village -> Wartok walk-in transition is verified with the opening cinematic disabled in that private fixture.
