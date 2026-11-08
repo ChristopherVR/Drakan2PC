@@ -57,3 +57,21 @@ the converter log and the new retargeted clips.
   game. The audit and the converter log cover them (the Mines and Grotto Wartoks are gameplay classes already on the disc
   model); the Volcanic scene orcs share the Ruined Village rows.
 * Whether the red orcs in the ambush line-up are the `Heuge` actors (they look the same with and without the row).
+
+## Follow-up: are the line-up trolls PC models? (no, A/B and native reference)
+
+Report: the big red trolls of the scene 1.1 spear line-up and the ambush look like PC models. Checked three ways, all in
+`build/review/scenecre/`:
+
+* Class: scene 1.1 (sequence 381) holds `Wartock Chain x2`, `Wartock Plate x1`, `Wartock Leather x1` (objects 1858 to 1862,
+  all class 17 with the Wartok model, `row=ChainTock / PlateTock / LeatherWartock : Center (scene)`) plus `Heuge Purple x4`
+  and `Heuge Yellow x3`. The red trolls are the Wartock actors; the smaller pink and yellow kilted ones are the Heuge orcs.
+* Hide-one-class experiment: the same scene with only the three Wartock rows turned off (`--ps2-model-map`) shows the red
+  trolls as the dark brown PC trolls with a grey vest; with the rows on they are red with a mane, bare arms and a white vest.
+  So the actors do load the disc model and nothing else (second model slot, per-object override) overrides it.
+* Native reference: a Drakan 2 Wartok in disc level 3B (`play_run.py --level 3b`) is red skinned with a mane, the same
+  look as the rows-on trolls (`wartok_native_vs_lineup.png`).
+
+A pack converted before `d052dd4` (or before the orc rows) shows the PC trolls, so the user's installed pack was most
+likely stale; the coordinator's reinstall of the current converter output carries both. No converter change was needed.
+Not done: RAM read of actor+0x50 (the A/B above is decisive), pulling scene props into view (scenes move them).
