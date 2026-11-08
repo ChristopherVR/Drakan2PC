@@ -89,6 +89,10 @@ bool takePickupClaim(uint16_t& index);                          // net::PickupCl
 // collision cell and arms the first-spawn loadout.
 bool placeAtSpawn(drakan_input::IGuest& guest, uint8_t* rdram, int index);
 
+// EE thread. The spawn point farthest from the other players (the choice the out-of-map return makes), for a player who
+// died of the environment and has no server Respawn coming; -1 when the map has none.
+int pickRespawnSpawn(uint8_t* rdram);
+
 // EE thread. Create the object of resource `resId` (an effect: a flame emitter) at `pos` with rotation `rot` (3x3, rows
 // as the actor transform) through the engine's factory; the actor is killed after `lifeTicks` pad updates. False when
 // the level has no such resource or spawns are backed up.

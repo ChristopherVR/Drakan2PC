@@ -2291,6 +2291,22 @@ bool placeAtSpawn(drakan_input::IGuest& guest, uint8_t* rdram, int index) {
     return true;
 }
 
+int pickRespawnSpawn(uint8_t* rdram) {
+    ArenaDef def;
+    {
+        std::lock_guard<std::mutex> l(g_sessM);
+        if (!g_active.load() || !g_hasDef || !g_defFits.load() || g_def.spawns.empty())
+            return -1;
+        def = g_def;
+    }
+    std::vector<std::pair<float, float>> others;
+    drakan_ghost::forEach([&](const drakan_ghost::Info& i) {
+        if (i.handle)
+            others.emplace_back(rdf(rdram, i.handle + 0x14), rdf(rdram, i.handle + 0x1c));
+    });
+    return def.pickSpawn(others);
+}
+
 void requestPreviewShot(const std::string& file) {
     if (file.empty() || g_shotStage.load())
         return;

@@ -73,8 +73,9 @@ add_executable(widescreen_policy_test "${PS2X_RUNTIME_SOURCE}/ps2xRuntime/tests/
 add_executable(inventory_views_policy_test "${PS2X_RUNTIME_SOURCE}/ps2xRuntime/tests/inventory_views_policy_tests.cpp")
 add_executable(tab_preview_policy_test "${PS2X_RUNTIME_SOURCE}/ps2xRuntime/tests/tab_preview_policy_tests.cpp")
 add_executable(pose_mirror_test "${PS2X_RUNTIME_SOURCE}/ps2xRuntime/tests/pose_mirror_tests.cpp")
+add_executable(mp_death_policy_test "${PS2X_RUNTIME_SOURCE}/ps2xRuntime/tests/mp_death_policy_tests.cpp")
 foreach(target pacing_bridge_test vblank_handoff_test frame_cadence_test widescreen_policy_test
-        inventory_views_policy_test tab_preview_policy_test pose_mirror_test)
+        inventory_views_policy_test tab_preview_policy_test pose_mirror_test mp_death_policy_test)
   target_include_directories(${target} PRIVATE
     "${PS2X_RUNTIME_SOURCE}/ps2xRuntime/src/lib/gs"
     "${PS2X_RUNTIME_SOURCE}/ps2xRuntime/src/lib"
@@ -266,6 +267,7 @@ add_test(NAME widescreen_policy COMMAND widescreen_policy_test)
 add_test(NAME inventory_views_policy COMMAND inventory_views_policy_test)
 add_test(NAME tab_preview_policy COMMAND tab_preview_policy_test)
 add_test(NAME pose_mirror COMMAND pose_mirror_test)
+add_test(NAME mp_death_policy COMMAND mp_death_policy_test)
 if(TARGET native_display_commit_test)
   add_test(NAME native_display_commit COMMAND native_display_commit_test)
 endif()

@@ -4,6 +4,7 @@
 #include "drakan_coop_target.h"
 #include "drakan_ghost.h"
 #include "drakan_lifecycle.h"
+#include "drakan_mp_death.h"
 #include "drakan_region.h"
 #include "input/GuestInterface.h"
 #include "drakan_netplay.h"
@@ -661,6 +662,50 @@ void endDeath(uint8_t* rdram) {
     if (ramPtr(inner) && g_savedHandler.load())
         wr32(rdram, inner + 0x14, g_savedHandler.load());
     g_savedHandler.store(0);
+}
+
+// Host: an environmental death (a fall, lava, drowning; the hook in drakan_mp_death kept the engine's HP at 1). The host
+// has no one to respawn beside, so she gets up at the last stable position she stood on (sampled about twice a second,
+// a sample taken while falling is skipped) with full HP; the engine's own death would reload the last save instead.
+struct HostSafe {
+    bool have = false;
+    float pos[3] = {};
+    uint32_t ticks = 0, actor = 0;
+    int pendingHp = -1;
+} g_hostSafe;
+
+void tickHostLife(drakan_input::IGuest& guest, uint8_t* rdram) {
+    const uint32_t me = controlled(rdram);
+    if (!ramPtr(me))
+        return;
+    if (g_hostSafe.actor != me) { // a new level / actor: the remembered position belongs to the old one
+        g_hostSafe = HostSafe();
+        g_hostSafe.actor = me;
+    }
+    if (drakan_mp_death::takeDeath()) {
+        if (g_hostSafe.have) {
+            for (int i = 0; i < 3; ++i)
+                guest.writeF(me + 0x14 + 4u * i, g_hostSafe.pos[i] + (i == 1 ? 20.0f : 0.0f));
+            drakan_ghost::refileActor(guest, me);
+        }
+        g_hostSafe.pendingHp = std::max(1, playerHpMax(rdram));
+        coopLog("host: environmental death, respawned %s (HP -> %d)",
+                g_hostSafe.have ? "at the last stable position" : "where she fell (none remembered)",
+                g_hostSafe.pendingHp);
+    } else if (++g_hostSafe.ticks % 30 == 0 && playerHp(rdram) > 1) {
+        float p[3];
+        for (int i = 0; i < 3; ++i)
+            p[i] = rdF(rdram, me + 0x14 + 4u * i);
+        if (std::isfinite(p[0]) && std::isfinite(p[1]) && std::isfinite(p[2]) &&
+            (!g_hostSafe.have || p[1] > g_hostSafe.pos[1] - 250.0f)) {
+            std::memcpy(g_hostSafe.pos, p, sizeof p);
+            g_hostSafe.have = true;
+        }
+    }
+    if (g_hostSafe.pendingHp >= 0 && !guest.postBusy()) {
+        setPlayerHp(rdram, g_hostSafe.pendingHp);
+        g_hostSafe.pendingHp = -1;
+    }
 }
 
 // Client, every boundary: keeps the death clip going, gets the player up on the host's respawn, writes the HP that
@@ -2843,8 +2888,14 @@ void beforePadMgr(drakan_input::IGuest& guest, uint8_t* rdram) {
     if (++g_ticksSinceLoad < kSettleTicks)
         return;
     ++g_tickTotal;
-    if (!g_host)
+    if (g_host) {
+        tickHostLife(guest, rdram);
+    } else {
+        // An environmental death (the hook kept the engine's HP at 1) is a co-op death: the host respawns her.
+        if (drakan_mp_death::takeDeath() && !g_life.dead)
+            startDeath(rdram);
         tickLife(guest, rdram);
+    }
     if (g_keyedThisLevel) // events name objects by key: they wait (in the inbox) until this side has keyed the level
         drainEvents(guest, rdram, level);
     if (g_host)

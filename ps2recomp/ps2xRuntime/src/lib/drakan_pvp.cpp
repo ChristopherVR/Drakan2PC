@@ -5,6 +5,7 @@
 #include "drakan_arena.h"
 #include "drakan_ghost.h"
 #include "drakan_lifecycle.h"
+#include "drakan_mp_death.h"
 #include "drakan_netplay.h"
 #include "drakan_region.h"
 #include "input/GuestInterface.h"
@@ -74,6 +75,7 @@ std::string g_level;          // last loaded level stem
 unsigned g_lifeTicks = 0, g_ready = 0;
 float g_deathTime = 0.0f;
 int g_pendingHp = -1; // engine HP to write once no posted engine call is in flight
+bool g_envDeath = false; // the death shown came from the environment: the server does not know, the host respawns
 struct RespawnReq {
     uint8_t spawn = 0;
     uint16_t health = 100;
@@ -736,6 +738,7 @@ bool pickSpawn(uint8_t index, float out[3]) {
 
 void reviveLocal(drakan_input::IGuest& guest, uint8_t* rdram) {
     endDeath(rdram);
+    g_envDeath = false;
     const uint32_t player = controlledActor(rdram);
     float spawn[3];
     if (drakan_arena::placeAtSpawn(guest, rdram, g_resp.spawn)) {
@@ -802,6 +805,7 @@ void handleEvent(drakan_input::IGuest& guest, uint8_t* rdram, const Event& e) {
             if (e.a != 2 && life == Life::Dying) {
                 g_resp.spawn = 0;
                 g_resp.health = 100;
+                g_envDeath = false;
                 endDeath(rdram);
                 if (controlledIsDragon(rdram))
                     setDragonHp(guest, rdram, 100);
@@ -942,6 +946,7 @@ void install(PS2Runtime& rt) {
     const bool want = v && *v ? v[0] != '0' : drakan_netplay::wanted();
     if (!want)
         return;
+    drakan_mp_death::install(rt); // environmental deaths (falls, lava, drowning) never reach the engine's game over
     const uint32_t a = guestAddress(kBladeHit);
     if (!a || !guestAddress(kContextPtr) || !guestAddress(kDamageMethod) || !(g_origBladeHit = rt.lookupFunction(a))) {
         std::fprintf(stderr, "[pvp] disabled: no address translation / function for this disc profile\n");
@@ -987,6 +992,8 @@ void install(PS2Runtime& rt) {
         g_proj.clear();
         g_savedHandler.store(0);
         g_deadActor = 0;
+        g_envDeath = false;
+        drakan_mp_death::takeDeath(); // a death queued before the load belongs to the old world
         g_life.store(static_cast<int>(Life::Alive));
         g_pendingHp = -1;
     });
@@ -1021,6 +1028,16 @@ void beforePadMgr(drakan_input::IGuest& guest, uint8_t* rdram) {
     if (!enemies.empty())
         g_enemies = std::move(enemies);
 
+    // An environmental death (a fall, lava, drowning): the hook kept the engine's HP at 1; show the death and get her up
+    // at an arena spawn after a moment (the server never hears of it, so no Respawn comes).
+    if (drakan_mp_death::takeDeath() && g_life.load() == static_cast<int>(Life::Alive) && g_local.load()) {
+        std::fprintf(stderr, "[pvp] environmental death: frozen with the death clip, respawn follows\n");
+        g_life.store(static_cast<int>(Life::Dying));
+        g_lifeTicks = 0;
+        g_envDeath = true;
+        startDeath(rdram);
+    }
+
     switch (static_cast<Life>(g_life.load())) {
         case Life::Alive:
             recordCrumb(rdram, player);
@@ -1037,6 +1054,11 @@ void beforePadMgr(drakan_input::IGuest& guest, uint8_t* rdram) {
             if (!(dt > 0.0f && dt < 0.25f))
                 dt = 1.0f / 60.0f;
             showDeath(guest, rdram, dt);
+            if (g_envDeath && drakan_mp_death::selfRespawnDue(g_deathTime)) {
+                g_resp.spawn = static_cast<uint8_t>(std::max(0, drakan_arena::pickRespawnSpawn(rdram)));
+                g_resp.health = 100;
+                reviveLocal(guest, rdram);
+            }
             break;
         }
     }
