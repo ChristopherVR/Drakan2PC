@@ -482,6 +482,8 @@ Plus, optionally, **`previews/campaign-<id>.png`** in the pack: the cover pictur
 960 x 540 is what the editor writes). It goes through the map picture path (`ModManager::previewFiles()`, copied to
 `previews/mods/` next to the exe; `previews/campaign-<id>.png` there wins). Without one the card shows the title on a plain
 panel.
+The built-in games use the same path: `previews/campaign-d2.png` (or `previews/game-d2.png`) is the cover of The Ancients' Gates and
+`previews/campaign-ootf.png` (or `game-ootf.png`) the cover of Order of the Flame, so a pack can replace either picture.
 
 A pack can also ship **`previews/pack.png`** (else `previews/campaign-<id>.png`): its picture on the **Mods** page, shown in the
 panel beside the list when the pack is selected (PNG, at most 8 MiB, 16:9; 960 x 540 is plenty). It is read for every readable

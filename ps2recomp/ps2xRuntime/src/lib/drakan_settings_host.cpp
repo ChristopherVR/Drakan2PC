@@ -2264,10 +2264,16 @@ void titleDraw(const dsettings::SettingsOverlay::ScreenFrame& f, bool background
     tu.renderer.setGamepadPrompts(tu.device == gameui::InputDevice::Gamepad);
     if (visible && ui.screen.isOpen()) {
         gameui::TitleState st = sh.titleState();
-        for (gameui::TitleState::Game& g : st.games) // a campaign's cover: the pack's previews/campaign-<id>.png
-            if (g.id != "d2")
-                if (const uint32_t pic = mapPreviewId("campaign-" + g.id))
-                    g.cover = {gameui::ImageKind::LevelPreview, pic};
+        // A game's cover: previews/campaign-<id>.png (a mod pack's campaign, or a pack / the player replacing the
+        // cover of "d2" = The Ancients' Gates, "ootf" = Order of the Flame), else previews/game-<id>.png (the logo
+        // picture the player drops in for a built-in game). Nothing from the disc is stored in the repository.
+        for (gameui::TitleState::Game& g : st.games) {
+            uint32_t pic = mapPreviewId("campaign-" + g.id);
+            if (pic == 0)
+                pic = mapPreviewId("game-" + g.id);
+            if (pic != 0)
+                g.cover = {gameui::ImageKind::LevelPreview, pic};
+        }
         st.multiplayer = mpState(ui.screen.page() == gameui::TitlePage::Multiplayer &&
                                  ui.screen.multiplayer().page() == gameui::mp::MpPage::Join);
         st.pcSettings = pcSettingsSchema(ui.screen.pcSettingsOpen(), now);
