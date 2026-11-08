@@ -99,6 +99,19 @@ int main(int argc, char** argv) {
                 CHECK(opaque > 150 && cv.get(0, 0).a == 0); // a disc, not a square cap
             }
     }
+    // ---- glyph names for the modern screens (glyph escapes 030 to 037)
+    {
+        GlyphLabels k = glyphLabels(Bindings::defaults());
+        CHECK(k.stickRun.empty());
+        for (const std::string& n : k.name)
+            CHECK(!n.empty() && n != "-");
+        CHECK(k.name[4] == "A" && k.name[5] == "D" && k.name[6] == "W" && k.name[7] == "S"); // left stick = W A S D
+        GlyphLabels x = glyphLabels(Bindings::pad(PadStyle::Xbox));
+        CHECK(x.name[0] == "B" && x.name[1] == "X" && x.name[2] == "Y" && x.name[3] == "A");
+        CHECK(x.stickRun == "Left Stick");
+        GlyphLabels p = glyphLabels(Bindings::pad(PadStyle::Ps5));
+        CHECK(p.name[0] == "Circle" && p.name[3] == "Cross");
+    }
     // ---- text rewrite
     {
         Bindings d = Bindings::defaults();

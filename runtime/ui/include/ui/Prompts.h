@@ -14,6 +14,7 @@
 #include "hle/ResourceOverride.h"
 #include "hle/ResourceService.h"
 #include "ui/Bindings.h"
+#include <array>
 #include <cstdint>
 #include <functional>
 #include <memory>
@@ -59,6 +60,16 @@ private:
 hle::XdbTextOverride::Rule makeTextRule(const Bindings& b);
 // The rewrite itself, exposed for tests. `file` = upper-case file name, `id` = text id, `lang` 0..4.
 bool rewriteText(const Bindings& b, const std::string& file, unsigned id, int lang, std::string& text);
+
+// What the eight glyph escapes \030..\037 are called for the player's device: the name of the bound key or button
+// (action CIRCLE, SQUARE, TRIANGLE, CROSS; the stick directions through LSTICK_* or DPAD_*). Used by the modern
+// screens, which have no glyph pictures. `stickRun` is the phrase for a run of direction glyphs on a controller
+// (their own pictures show the whole stick), empty on a keyboard where each key is named.
+struct GlyphLabels {
+    std::array<std::string, 8> name;
+    std::string stickRun;
+};
+GlyphLabels glyphLabels(const Bindings& b);
 
 struct Options {
     std::string iniPath;                       // drakan_input.ini

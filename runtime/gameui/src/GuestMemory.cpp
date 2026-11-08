@@ -1,4 +1,5 @@
 #include "gameui/GuestMemory.h"
+#include "gameui/GlyphText.h"
 
 namespace gameui {
 
@@ -56,7 +57,7 @@ std::string IGuestMemory::readString(uint32_t addr, size_t maxBytes) const {
             break;
         raw.push_back(static_cast<char>(c));
     }
-    return latin1ToUtf8(raw.data(), raw.size());
+    return expandGlyphEscapes(latin1ToUtf8(raw.data(), raw.size()));
 }
 
 uint8_t FlatGuestMemory::read8(uint32_t addr) const {

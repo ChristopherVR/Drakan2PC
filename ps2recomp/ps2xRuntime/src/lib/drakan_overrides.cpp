@@ -24,6 +24,7 @@
 #include "hle/RsrcIop.h"
 #include "hle/ModPack.h"
 #include "gameui/UiSkin.h"
+#include "gameui/GlyphText.h"
 #include "gameui/MenuText.h"
 #ifdef PS2X_HAVE_UI
 #include "ui/Prompts.h"
@@ -1894,6 +1895,20 @@ void applyDrakanOverrides(PS2Runtime& runtime) {
                                       : drakan_ui::PadStyle::None;
         }
         std::fprintf(stderr, "[drakan] %s\n", drakan_ui::install(host->iop.res, uiOpt).c_str());
+        // The modern screens read the same strings but have no glyph pictures: they name the controls the original UI
+        // shows (keys of drakan_input.ini, the chosen controller, or the PS2 pad names).
+        if (uiOpt.prompts) {
+            const drakan_ui::Bindings bindings = uiOpt.pad != drakan_ui::PadStyle::None
+                                                     ? drakan_ui::Bindings::pad(uiOpt.pad)
+                                                     : drakan_ui::Bindings::load(uiOpt.iniPath);
+            const drakan_ui::GlyphLabels labels = drakan_ui::glyphLabels(bindings);
+            gameui::GlyphNames names;
+            names.name = labels.name;
+            names.stickRun = labels.stickRun;
+            gameui::setGlyphNames(std::move(names));
+        } else {
+            gameui::setGlyphNames(gameui::defaultGlyphNames());
+        }
     }
 #if defined(PS2X_HAVE_DRAKAN_SETTINGS) || defined(PS2X_HAVE_PORTABLE_UI)
     if constexpr (supports(Feature::OptionsSettings)) {

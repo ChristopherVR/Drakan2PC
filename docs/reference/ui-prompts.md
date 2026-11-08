@@ -182,3 +182,20 @@ body in `build/browser-keyboard-controls.png`. This changes the game's own
 resources and wording, not the browser shell. Windows generation is unchanged.
 Native-resolution text/geometry and the remaining portable settings/host-screen
 work are not claimed equivalent to the Windows HD renderer yet.
+
+## 12. Glyph escapes in the modern screens (2026-11-08)
+
+The modern screens (dialog boxes, Tab inventory text, journal, item details) read the game's strings from guest
+memory and draw them with their own font, which has none of the eight pictures of INTERFCE.TXD 97. The escapes
+\030..\037 reached it as plain characters (reported for German with the Modern UI: the text showed
+\034\035\036\037 where the original UI shows the W A S D caps). The strings hold the escapes as the four characters
+backslash 0 3 digit (the XDB form) or as the control bytes 0x18..0x1f.
+
+`gameui::IGuestMemory::readString` now expands both forms through `gameui::expandGlyphEscapes`
+(`runtime/gameui/src/GlyphText.cpp`) into the name of the control the original UI shows: the key of
+`drakan_input.ini` (W A S D for the stick directions, the bound keys for Circle / Square / Triangle / Cross), the
+chosen controller's buttons (`ui_prompts = xbox | ps5`; a run of direction glyphs reads "Left Stick") or the PS2 pad
+names (`ui_prompts = ps2`). `drakan_ui::glyphLabels` derives the names from the same `Bindings` the glyph font is
+generated from; `drakan_overrides.cpp` hands them to `gameui::setGlyphNames` at start. Menu prompts that the text rule
+already rewrote (the Cross glyph in confirm lines) are unaffected. Like the generated font, the names follow the
+bindings and prompt style read at start up. Language does not matter: the escapes are the same in every table.

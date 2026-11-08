@@ -9,6 +9,7 @@ drakan_component_begin(gameui)
 
 add_library(drakan_gameui STATIC
     src/GuestMemory.cpp
+    src/GlyphText.cpp
     src/Dialog.cpp
     src/Model.cpp
     src/Reader.cpp
@@ -39,6 +40,10 @@ if(DRAKAN_BUILD_RUNTIME_TESTS)
     target_link_libraries(gameui_locale_test PRIVATE drakan_gameui drakan::options)
     drakan_enable_asserts(gameui_locale_test)
     add_test(NAME gameui_locale_test COMMAND gameui_locale_test)
+
+    add_executable(gameui_glyph_text_test tests/gameui_glyph_text_test.cpp)
+    target_link_libraries(gameui_glyph_text_test PRIVATE drakan_gameui)
+    add_test(NAME gameui_glyph_text_test COMMAND gameui_glyph_text_test)
 
     add_executable(gameui_dialog_test tests/gameui_dialog_test.cpp)
     target_link_libraries(gameui_dialog_test PRIVATE drakan_gameui drakan::options)

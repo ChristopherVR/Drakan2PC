@@ -390,6 +390,21 @@ bool PromptOverride::apply(const hle::ResourceId& id, std::vector<u8>& data) {
     return true;
 }
 
+GlyphLabels glyphLabels(const Bindings& b) {
+    GlyphLabels g;
+    for (size_t i = 0; i < g.name.size(); ++i) {
+        const FontIcon& ic = kFontIcons[i];
+        const Label l = ic.dirGlyph ? directionLabel(b, ic.action) : b.primary(ic.action);
+        if (!l.bound())
+            g.name[i] = "-";
+        else
+            g.name[i] = l.kind == Label::Key && l.cap.size() == 1 ? l.cap : (l.name.empty() ? l.cap : l.name);
+    }
+    if (b.isPad())
+        g.stickRun = "Left Stick";
+    return g;
+}
+
 // ---------------------------------------------------------------------------------------------------------------------------------
 Options Options::fromEnvironment() {
     namespace fs = std::filesystem;
