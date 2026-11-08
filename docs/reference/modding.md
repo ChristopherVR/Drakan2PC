@@ -649,7 +649,7 @@ skeleton, clips and HD textures) instead of the converted PC one (formats `ootfp
 | Enemies | Troll Leather / Chain / Plate (and their "defense side attack" flankers) | LeatherWartock / ChainTock / PlateTock Center / Flank | same creature and skeleton |
 | Enemies | Orc Leather (purple), Orc Plate (yellow) | Purple Orc Center, Yellow Orc : Center | same creature and skeleton |
 | Enemies | Spider | Spider | same creature, same 37 joints |
-| Enemies | Scavenger | Scavenger | off by default: other skeleton, so turned on it plays as the Drakan 2 class (its health and attacks) |
+| Enemies | Scavenger | Scavenger | on by default: the converted PC model could not be hit by melee; plays as the Drakan 2 class (its health and attacks), turn the row off to keep the PC model |
 | Weapons | Short Sword, Long Sword, 2-Handed, Scimitar, Speed Scimitar | Steel Short Sword, Steel Longsword, Steel Two Handed Sword, Steel Scimitar, Iron Scimitar | plain blades |
 | Weapons | Mace, Battle Axe, Battle Hammer, club, Goblin Club, Troll Axe | Steel Mace, Steel Axe, Steel Hammer, club, Wood Club, Leathertock Axe - Lev [1] | plain blunt weapons and the Wartok axe |
 | Weapons | Long Bow, Heavy Bow, Speed Bow (one PC model), Arrows | Wood Bow: Long, Wood Bow - Arrow Short (the plain quiver) | |

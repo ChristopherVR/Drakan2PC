@@ -1,7 +1,7 @@
 # Spider-like OotF creatures that melee seems unable to hit (2026-11-09)
 
-Report: the spider-like creatures of Wartok Canyons (50 `Spider`, 13 `Scavenger`) seem impossible to hit with melee. No fix landed;
-this note records what was measured so the next session does not repeat it. Probes, packs and runs are private under
+Report: the spider-like creatures of Wartok Canyons (50 `Spider`, 13 `Scavenger`) seem impossible to hit with melee. Fix: the
+Scavenger now plays as the disc Scavenger by default (formats `a06ddb0`), see the end. Probes, packs and runs are private under
 `build/spider/` (packs `pack*`, sweeps `sweep*.py`, runs `ld/`); nothing from either game is quoted.
 
 ## Method
@@ -44,3 +44,25 @@ A weapon is needed: unarmed Rynn never dealt damage to anything.
   centres against the actor position (the root sphere's bytes were not found in guest RAM, so the engine keeps another form),
   or testing the 630 front distance on the synthesised sphere variant.
 * Arrows were not tested.
+
+## Fix and follow-up (same day)
+
+* Grid of 48 cells (8 bearings x 250 / 400 / 550 / 650 / 750 / 900 units, 5 swings each, creature health reset each cell through a
+  private WriteProcessMemory): the converted-model Scavenger took damage in 16 cells, mostly behind it (12 of 16 had Rynn at a
+  negative offset along its facing, hits up to 750 units behind), the disc Scavenger in 27, mostly in front (22 of 27). So the
+  PC sphere hierarchy lands on the opposite side from where the disc one does, with the creature awake and moving in both, which
+  makes a clean offset unmeasurable; a z flip of the centres was prepared but superseded by the decision below. For the PC-model
+  option: the PC hit volume is a coarse bound (the PC engine hits on polygons), 10 spheres with thin limbs, and not placed like the
+  disc's.
+* Decision: the Scavenger row of `DEFAULT_PS2_MODEL_SUBSTITUTIONS` is on by default (opt out with `--ps2-model-map`
+  `{"ootf":"Scavenger","ps2":null}` or the import dialog). Default pack grid, same 48 cells: damage in 31, and in 11 of the 16
+  cells at 400 units or less, from seven of eight bearings. A Scavenger dies from sword hits (earlier sweeps killed the disc one:
+  4 to 12 hit points per 10 swings of its 35 to 40). It keeps its PC placement; health, attacks and clips are the disc class's.
+  Animations were not inspected in a screenshot sequence.
+* Tick (the small PC spider-like creature, same engine class as Spider): the PC model is hit in 21 of 48 cells; mapped to the disc
+  Spider it fell to 3 of 48, so it was left as the PC model (no row).
+* Wartoks in play (`Troll Leather / Chain / Plate` and the flankers) already use the disc classes by default (November 8).
+  The scene-only `Wartock Leather / Chain / Plate` props (rfl 17, cloned onto a goblin-prop template and moved only by scenes)
+  still use PC models: swapping them needs the scene clips retargeted onto the disc Wartok rig and the weapon and impale attach
+  channels remapped (`ootfretarget.ts`, the Rynn clip builder in `ootfpipeline.ts`); not done.
+* Spiders' low damage per hit (1 to 2 of 15 hit points against 5 on a Wartok) is the disc Spider class's own behaviour; unchanged.
