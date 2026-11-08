@@ -69,7 +69,7 @@ std::string sampleThreadChain(DWORD tid) {
         return "(open failed)";
     // While the target is suspended it may hold the loader or heap lock: capture raw RIPs into a fixed array only (no
     // allocation, no module lookups, no stdio), resume, then resolve names.
-    constexpr int kMaxDepth = 28;
+    constexpr int kMaxDepth = 64; // deep enough to reach the exe frames below a driver shader compile
     DWORD64 rips[kMaxDepth];
     int depthCount = 0;
     if (SuspendThread(h) != static_cast<DWORD>(-1)) {
@@ -276,6 +276,14 @@ void start(void* gameThreadNativeHandle, uint64_t (*vsyncTick)(void*), void* vsy
                 uint64_t rip;
                 uint64_t caller; // first return address inside the main module (for samples in system DLLs), as RVA
             };
+            // PS2X_HOSTPROF_STACKS=1: also unwind the EE thread's main-module frames of every sample (leaf first,
+            // RVAs) so cumulative (inclusive) cost per function can be computed: hostprof_stacks.csv.
+            const char* stacksEnv = std::getenv("PS2X_HOSTPROF_STACKS");
+            const bool wantStacks = stacksEnv && stacksEnv[0] && stacksEnv[0] != '0';
+            const DWORD eeTid =
+                gameThreadNativeHandle ? GetThreadId(reinterpret_cast<HANDLE>(gameThreadNativeHandle)) : 0;
+            constexpr int kStackDepth = 48;
+            std::map<std::vector<uint32_t>, uint64_t> stacks;
             const uint64_t mainBase = reinterpret_cast<uintptr_t>(GetModuleHandleW(nullptr));
             uint64_t mainSize = 0;
             {
@@ -307,6 +315,38 @@ void start(void* gameThreadNativeHandle, uint64_t (*vsyncTick)(void*), void* vsy
                     CONTEXT ctx{};
                     ctx.ContextFlags = CONTEXT_CONTROL | CONTEXT_INTEGER;
                     if (GetThreadContext(h, &ctx) && samples.size() < samples.capacity()) {
+                        if (wantStacks && tid == eeTid) {
+                            // Raw main-module frames while suspended (fixed array, no allocation), counted after the
+                            // thread is resumed.
+                            uint32_t frames[kStackDepth];
+                            int depth = 0;
+                            CONTEXT c = ctx;
+                            for (int i = 0; i < 96 && c.Rip != 0 && depth < kStackDepth; ++i) {
+                                if (c.Rip - mainBase < mainSize)
+                                    frames[depth++] = static_cast<uint32_t>(c.Rip - mainBase);
+                                DWORD64 imageBase = 0;
+                                PRUNTIME_FUNCTION fe = RtlLookupFunctionEntry(c.Rip, &imageBase, nullptr);
+                                if (!fe) {
+                                    DWORD64 ret = 0;
+                                    SIZE_T got = 0;
+                                    if (!ReadProcessMemory(GetCurrentProcess(), reinterpret_cast<LPCVOID>(c.Rsp), &ret,
+                                                           sizeof(ret), &got) ||
+                                        got != sizeof(ret))
+                                        break;
+                                    c.Rip = ret;
+                                    c.Rsp += 8;
+                                } else {
+                                    PVOID handlerData = nullptr;
+                                    DWORD64 establisher = 0;
+                                    RtlVirtualUnwind(UNW_FLAG_NHANDLER, imageBase, c.Rip, fe, &c, &handlerData,
+                                                     &establisher, nullptr);
+                                }
+                            }
+                            samples.push_back({tid, ctx.Rip, 0});
+                            ResumeThread(h);
+                            ++stacks[std::vector<uint32_t>(frames, frames + depth)];
+                            continue;
+                        }
                         uint64_t caller = 0;
                         if (ctx.Rip - mainBase >= mainSize) {
                             CONTEXT c = ctx;
@@ -368,6 +408,18 @@ void start(void* gameThreadNativeHandle, uint64_t (*vsyncTick)(void*), void* vsy
                                  std::get<1>(k).c_str(), static_cast<unsigned long long>(std::get<2>(k)),
                                  static_cast<unsigned long long>(c), static_cast<unsigned long long>(std::get<3>(k)));
                 std::fclose(f);
+            }
+            if (wantStacks) {
+                if (FILE* sf = std::fopen("hostprof_stacks.csv", "w")) {
+                    std::fprintf(sf, "count,frames\n");
+                    for (const auto& [frames, count] : stacks) {
+                        std::fprintf(sf, "%llu,", static_cast<unsigned long long>(count));
+                        for (size_t i = 0; i < frames.size(); ++i)
+                            std::fprintf(sf, "%s%x", i ? ";" : "", frames[i]);
+                        std::fputc('\n', sf);
+                    }
+                    std::fclose(sf);
+                }
             }
             std::fprintf(stderr, "[hostprof] %zu samples written to hostprof.csv\n", samples.size());
             for (auto& [tid, h] : handles)
