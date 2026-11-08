@@ -155,3 +155,30 @@ Evidence (private, `build/review/rig/hair-fix-*.png`): `hair-fix-offline-crouch-
 * **Right hand fingers not changed.** They are the native `2H_RandomIdle` grip of the right hand, which wraps the PS2 sword's
   grip axis; the PC sword's grip axis in the weapon frame differs, so the fingers run along the hilt. A fix needs the hilt axis
   of the scene sword in the Rweapon frame (rotate the right hand about it); not done.
+
+## Fifth pass: the engine drives hair1 only; hair2 and hair3 now rest hanging (formats `ootfhair.ts`)
+
+Evidence (private, `build/review/rig/`): `hair-final-scene-1_1-before-after.png`, `hair-final-gameplay-ootf-before.png`,
+`hair-final-gameplay-ootf-after.png`, `hair-final-gameplay-drakan2.png`.
+
+* **Step 1 (Ghidra) did not find the consumer.** The ELF field table has no member offsets, the class data is addressed by
+  index, and the speech and joint controller code next to the jaw is not the hair code. Not diffed against a disc scene Rynn:
+  the converter writes no Rynn class (the scenes use the player object of the template, the same class), and the disc's own scenes
+  hold Rynn in mode 1 / 0 like ours. Not chased further.
+* **What the data says.** With the hair joints' bind rewritten (all three, to the native idle's hanging pose) the first segment of
+  the ponytail in a scene stayed horizontal and only the lower part hung: hair2 and hair3 follow the bind pose of the model, hair1
+  does not. The engine owns hair1 (class field `Hair1 Channel` = joint 6) and sets its rotation itself; in the 1.1 crouch that is
+  its old bind orientation relative to the head (straight back, which points up and back with the head bowed). Clip keys do not
+  reach hair1, hair2 or hair3 in scenes.
+* **What is shipped.** For a pack that adds player scene clips, `overrides/SYSTEM.MOD/0208_*` and `0203_*` rewrite the hair
+  joints of every Rynn record with an `NCIdle` rig (3877, 3945, 3982): hair1 untouched, hair2 and hair3 take the world orientation of
+  the native idle's hair, their inverse bind matrices, vertices and normals move with them. A clip pose (absolute parent-relative
+  keys) skins to the same vertices as before (checked on `NCIdle`, `walk`, `2H_RandomIdle`: only 2 of 30 hair vertices that are
+  shared with other joints differ, by 12 to 43 model units / 2048). Result in the scene: a short stub straight back, then the
+  ponytail hangs, instead of a straight horizontal bar. Not natural yet: the stub is the hair1 strip, which the engine keeps
+  pointing back.
+* **Gameplay.** Idle, run and jump captured with the same recipe on the old pack, the new pack and Drakan 2: the hair hangs as a
+  strip down the back in all three at idle and swings in the run; no visible change from the patch.
+* **Open.** A full fix needs hair1's controller: either its input (what makes it point straight back in scenes while it hangs
+  in gameplay) or re-weighting the hair1 strip onto the head joint (weights live in the `0208` joint lists; the writer of
+  `ootfanim.ts` does not round-trip these records byte for byte, so it needs an in-place patch). Right hand fingers: later.
