@@ -484,6 +484,12 @@ Plus, optionally, **`previews/campaign-<id>.png`** in the pack: the cover pictur
 panel.
 The built-in games use the same path: `previews/campaign-d2.png` (or `previews/game-d2.png`) is the cover of The Ancients' Gates and
 `previews/campaign-ootf.png` (or `game-ootf.png`) the cover of Order of the Flame, so a pack can replace either picture.
+`Build-LocalGame.ps1` writes `previews/game-d2.png` itself (PAL disc): `analysis/scripts/title_cover.py` decodes the title
+screen backdrop (six 256 x 256 tiles, ids 72..77 of `INTERFCE.TXD`), crops its top 768 x 432 (logo, heroine and dragon, not the
+copyright lines) and scales it to 1280 x 720; the file is a private derivative of the player's disc and is not tracked. There is
+no equivalent for Order of the Flame: a Drakan 1 install carries no title picture (the converter's source has only the map,
+loading and menu-frame art), so `game-ootf.png` / `campaign-ootf.png` stay hand-supplied and the card shows the plain panel
+without one.
 
 A pack can also ship **`previews/pack.png`** (else `previews/campaign-<id>.png`): its picture on the **Mods** page, shown in the
 panel beside the list when the pack is selected (PNG, at most 8 MiB, 16:9; 960 x 540 is plenty). It is read for every readable

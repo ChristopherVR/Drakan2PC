@@ -469,6 +469,10 @@ if ($gameRegion -eq 'pal') {
         '--out',(Join-Path $gameOutput 'mods/drakan-character-motion.zip'))
 
 }
+    # The Choose-your-game cover of The Ancients' Gates: the title screen artwork of the supplied disc.
+    Write-Detail 'Extracting the Drakan 2 cover picture'
+    Invoke-Checked $Python @('-I',(Join-Path $RepoRoot 'analysis/scripts/title_cover.py'),'--iso',$IsoPath,
+        '--out',(Join-Path $gameOutput 'previews/game-d2.png'))
 if (-not $NoDist) {
     # A non-PAL build gets its own play folder so it never replaces the PAL one (dist/DrakanPC-usa).
     $regionSuffix = if ($gameRegion -eq 'pal') { '' } else { "-$gameRegion" }
@@ -500,6 +504,12 @@ if (-not $NoDist) {
     }
     if ($ModDirectory) {
         Invoke-Checked $Python @((Join-Path $PSScriptRoot 'install_private_mods.py'),
+    # previews/ is kept across builds, so the generated cover is placed explicitly (a hand-made game-d2.png is replaced).
+    $coverPicture = Join-Path $gameOutput 'previews/game-d2.png'
+    if (Test-Path -LiteralPath $coverPicture -PathType Leaf) {
+        New-Item -ItemType Directory -Force -Path (Join-Path $DistDirectory 'previews') | Out-Null
+        Copy-Item -LiteralPath $coverPicture -Destination (Join-Path $DistDirectory 'previews/game-d2.png') -Force
+    }
             '--source',$ModDirectory,'--target',(Join-Path $DistDirectory 'mods'))
     }
     if ($gameRegion -eq 'pal') {
