@@ -5,6 +5,7 @@
 #include "drakan_config.h"
 #include "drakan_coop_character.h"
 #include "drakan_arena_filter.h"
+#include "drakan_arena_power_policy.h"
 #include "drakan_arena_placement.h"
 #include "drakan_ghost.h"
 #include "drakan_lifecycle.h"
@@ -1378,6 +1379,84 @@ void spellTick(drakan_input::IGuest& guest, uint8_t* rdram, uint32_t actor) {
     }
 }
 
+// Starting power: every arena character is at the maximum level with every spell unlocked, whatever the campaign save
+// behind the match holds (docs/reference/netcode.md "Starting power"). The stats block (level +0x28, experience +0x24,
+// obfuscated like the health words) and the skill records (plain ints) are written straight; the spell list lives in
+// the player's data object, which is new on every level load, so the console's `shaman` (one spell level per call) is
+// posted again after each load until nothing rises any more. Saving is vetoed while the arena mode is on, so a
+// campaign save is never written with these values.
+struct PowerState {
+    int shamanCalls = 0;
+    uint32_t lastSum = 0;
+    unsigned next = 0;
+    unsigned waited = 0;
+    bool spellsDone = false;
+} g_power;
+
+uint32_t spellLevelSum(const uint8_t* rdram, uint32_t player) {
+    const uint32_t table = rd32(rdram, player + 0x1028u), count = rd32(rdram, player + 0x1030u);
+    if (!ramPtr(table) || count == 0 || count > drakan_arena_power::kMaxSpellSlots)
+        return 0;
+    uint32_t sum = 0;
+    for (uint32_t i = 0; i < count; ++i)
+        sum += rd32(rdram, table + i * drakan_arena_power::kSpellRecord);
+    return sum;
+}
+
+void powerTick(drakan_input::IGuest& guest, uint8_t* rdram, uint32_t actor) {
+    using namespace drakan_arena_power;
+    if (g_ticks < g_passTick + kSweepTicks + 60 || g_ticks < g_power.next || guest.postBusy() ||
+        controlledIsDragon(rdram, actor))
+        return;
+    const uint32_t stats = g_globals.playerStats, keyAddr = g_globals.hpKey;
+    if (!ramPtr(stats) || !ramPtr(keyAddr))
+        return;
+    g_power.next = g_ticks + 30;
+    const uint32_t key = rd32(rdram, keyAddr);
+    const int32_t level = decodeStat(rd32(rdram, stats + 0x28), key), xp = decodeStat(rd32(rdram, stats + 0x24), key);
+    if (needsLevel(level, xp)) {
+        if (xp < kMaxXp)
+            guest.write32(stats + 0x24, encodeStat(kMaxXp, key));
+        if (level < kMaxLevel)
+            guest.write32(stats + 0x28, encodeStat(kMaxLevel, key));
+        arenaLog("power: level %d -> %d, experience %d -> %d", level, std::max(level, kMaxLevel), xp,
+                 std::max(xp, kMaxXp));
+    }
+    const uint32_t skills = rd32(rdram, stats), skillCount = rd32(rdram, stats + 8);
+    if (ramPtr(skills) && skillCount > 0 && skillCount <= 8) {
+        for (uint32_t i = 0; i < skillCount; ++i) {
+            const uint32_t rec = skills + i * kSkillRecord;
+            const uint32_t have = rd32(rdram, rec + 4), mx = rd32(rdram, rec + 8);
+            if (needsSkill(have, mx)) {
+                guest.write32(rec + 4, skillTarget(mx));
+                arenaLog("power: skill %u level %u -> %u", rd32(rdram, rec), have, skillTarget(mx));
+            }
+        }
+    }
+    if (g_power.spellsDone)
+        return;
+    const uint32_t player = dataOf(rdram, actor);
+    if (!ramPtr(player))
+        return;
+    if (!ramPtr(rd32(rdram, player + 0x1028u)) || rd32(rdram, player + 0x1030u) == 0) { // the spell list is not built yet
+        if ((g_power.waited += 30) > 1800) {
+            arenaLog("power: no spell list, giving up");
+            g_power.spellsDone = true;
+        }
+        return;
+    }
+    const uint32_t sum = spellLevelSum(rdram, player);
+    if (!callShamanAgain(g_power.lastSum, sum, g_power.shamanCalls)) {
+        arenaLog("power: spells unlocked (level sum %u after %d calls)", sum, g_power.shamanCalls);
+        g_power.spellsDone = true;
+        return;
+    }
+    g_power.lastSum = sum;
+    ++g_power.shamanCalls;
+    g_power.next = g_ticks + 45; // the posted call runs on the guest thread; read the result next time
+    guest.post(drakan_input::GuestCall(guestAddress(0x240480u)).arg(guestAddress(0x51e3c8u)));
+}
+
 void boundsTick(drakan_input::IGuest& guest, uint8_t* rdram, uint32_t player) {
     if (g_shotStage.load()) {
         g_outsideTicks = 0;
@@ -2308,6 +2387,7 @@ void install(PS2Runtime& rt) {
         g_pendingStow.clear();
         g_arm = ArmState();
         g_spell = SpellState();
+        g_power = PowerState();
         g_loadoutPhase = 0;
         g_loadoutArmed = false;
     });
@@ -2391,6 +2471,7 @@ void beforePadMgr(drakan_input::IGuest& guest, uint8_t* rdram) {
     loadoutTick(guest, rdram, player);
     armTick(guest, rdram, player);
     spellTick(guest, rdram, player);
+    powerTick(guest, rdram, player);
     placementTick(guest, rdram, player);
     gotoTick(guest, rdram, player);
     testFallTick(guest, rdram, player, since);
