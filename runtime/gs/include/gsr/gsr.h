@@ -377,6 +377,8 @@ void excludeTextureHash(uint64_t hash);
 // filling the wide output (cropped to fit). For a campaign with its own art (Order of the Flame); empty = the disc's
 // art. Process wide, thread safe; used where wide menu backdrops are drawn (docs/reference/widescreen.md).
 void setTitleBackdropImage(const std::string& path);
+// Decode (and shrink) such a picture on a worker thread now, so a later setTitleBackdropImage shows it at once.
+void preloadTitleBackdropImage(const std::string& path);
 // Photographic UI images (save thumbnails) use bicubic sharpening rather than
 // the pixel-art scaler. Registration is content-based and process-local.
 void preferPhotographicTexture(uint64_t hash);

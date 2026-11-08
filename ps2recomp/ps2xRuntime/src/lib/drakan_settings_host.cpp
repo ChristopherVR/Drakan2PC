@@ -2916,26 +2916,38 @@ void drainHarnessSettings() {
 // The title and the loading screen after it show the chosen game's own picture (previews/background-<id>.png, else its
 // cover campaign-<id> / game-<id>, the same files as the game card) instead of the disc's title art, which names The
 // Ancients' Gates. The disc game keeps its art. Both menu styles: the renderer swaps the art under the menus.
+// The picture of one game card entry ("" for the disc game or when the game has none).
+std::string titlePictureOf(const drakan_game::GameInfo& g) {
+    if (g.kind == drakan_game::Game::Drakan)
+        return {};
+    for (const char* kind : {"background-", "campaign-", "game-"})
+        if (const uint32_t id = mapPreviewId(kind + g.id); id != 0) {
+            std::lock_guard<std::mutex> l(g_mapPreviewM);
+            return g_mapPreviewPaths[id];
+        }
+    return {};
+}
+
 void syncTitleBackdrop() {
     static int s_game = -2;
     static std::string s_path;
     static std::chrono::steady_clock::time_point s_checked;
+    static bool s_preloaded = false;
+    const std::vector<drakan_game::GameInfo> games = drakan_game::games();
+    if (!s_preloaded) { // decode every campaign's picture now, so choosing one on the game card swaps the art at once
+        s_preloaded = true;
+        for (const drakan_game::GameInfo& g : games)
+            if (const std::string p = titlePictureOf(g); !p.empty())
+                gsr::preloadTitleBackdropImage(p);
+    }
     const int game = drakan_game::currentIndex();
     const auto now = std::chrono::steady_clock::now();
     if (game == s_game && (!s_path.empty() || now - s_checked < std::chrono::seconds(3)))
         return; // no picture yet: look again every 3 s (mapPreviewId's own retry)
     s_game = game;
     s_checked = now;
-    std::string path;
-    const std::vector<drakan_game::GameInfo> games = drakan_game::games();
-    if (game >= 0 && game < static_cast<int>(games.size()) &&
-        games[static_cast<size_t>(game)].kind != drakan_game::Game::Drakan)
-        for (const char* kind : {"background-", "campaign-", "game-"})
-            if (const uint32_t id = mapPreviewId(kind + games[static_cast<size_t>(game)].id); id != 0) {
-                std::lock_guard<std::mutex> l(g_mapPreviewM);
-                path = g_mapPreviewPaths[id];
-                break;
-            }
+    const std::string path =
+        game >= 0 && game < static_cast<int>(games.size()) ? titlePictureOf(games[static_cast<size_t>(game)]) : "";
     if (path == s_path)
         return;
     s_path = path;

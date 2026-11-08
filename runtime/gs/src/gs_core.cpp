@@ -1749,8 +1749,15 @@ void excludeTextureHash(uint64_t hash) {
     std::lock_guard<std::mutex> l(exclMutex());
     exclSet().insert(hash);
 }
+bool title_backdrop::readPicture(const std::string& path, Picture& out) {
+    return texup::readImageFile(path, out.px, out.w, out.h);
+}
 void setTitleBackdropImage(const std::string& path) {
+    title_backdrop::preload(path, &title_backdrop::readPicture);
     title_backdrop::set(path);
+}
+void preloadTitleBackdropImage(const std::string& path) {
+    title_backdrop::preload(path, &title_backdrop::readPicture);
 }
 bool isTextureHashExcluded(uint64_t hash) {
     std::lock_guard<std::mutex> l(exclMutex());

@@ -30,13 +30,21 @@ const std::vector<WgpuBackend::Impl::WideBackdrop>& WgpuBackend::Impl::wideBackd
             continue;
         std::vector<uint32_t> px;
         uint32_t w = 0, h = 0;
-        if (!texup::readImageFile(picture ? file : dir + "/" + file, px, w, h) || !w || !h ||
-            w > gpu->maxTextureSize() || h > gpu->maxTextureSize()) {
+        bool read = false;
+        if (picture) { // decoded and shrunk ahead on a worker (preloadTitleBackdropImage), else now
+            if (const title_backdrop::PicturePtr pic = title_backdrop::picture(file, &title_backdrop::readPicture)) {
+                px = pic->px;
+                w = pic->w;
+                h = pic->h;
+                read = true;
+            }
+        } else {
+            read = texup::readImageFile(dir + "/" + file, px, w, h);
+        }
+        if (!read || !w || !h || w > gpu->maxTextureSize() || h > gpu->maxTextureSize()) {
             std::fprintf(stderr, "[gsr] wide backdrop '%s' could not be loaded\n", file.c_str());
             continue;
         }
-        if (picture)
-            title_backdrop::shrink(px, w, h);
         WideBackdrop bd;
         bd.tex = createTexture(w, h, rhi::Sampled | rhi::CopyDst, rhi::Format::RGBA8, 1, "wide backdrop");
         if (!bd.tex)

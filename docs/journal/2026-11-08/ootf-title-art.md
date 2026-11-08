@@ -26,3 +26,13 @@ Private run `build/ootf-run/title-art` (D3D11, 1280 x 720, `DRAKAN_GAME=ootf`, M
 Order of the Flame picture with no plaque; New Game > Solo shows "Loading..." and its bar over the same picture
 (`ms_0022025.png`); the log names `previews/background-ootf.png` as the title art. Not checked live: WebGPU, the Original
 title style, a 4:3 output (not covered, see widescreen.md).
+
+## Follow-up: the disc art flashed after choosing the game
+
+User report: choosing Order of the Flame on "Choose your game" showed the Ancients' Gates art for a moment before the
+Order of the Flame picture. The renderer decoded the 7680 x 4800 PNG on its own thread the first time the title drew it,
+after the choice, and the last frame (the disc art) stayed up meanwhile. Now the host asks for every campaign's picture at
+start-up (`gsr::preloadTitleBackdropImage`); a worker decodes and shrinks it (`title_backdrop::preload`), and the
+renderer only waits if the worker has not finished. Run `build/ootf-run/title-swap` (game card, Up, Enter, 30 ms window
+shots, `switch_sheet.png`): the frames go from the card straight to the Order of the Flame art; the log shows the game
+switch, the title art and the backdrop set in the same frame as the choice.

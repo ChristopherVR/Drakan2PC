@@ -3,6 +3,9 @@
 // loading screen after it, so a campaign such as Order of the Flame shows its own art instead of The Ancients' Gates.
 // Set by the host with gsr::setTitleBackdropImage (process wide); both renderers' drawWideBackdrop look it up.
 #include <cstdint>
+#include <future>
+#include <map>
+#include <memory>
 #include <mutex>
 #include <string>
 #include <vector>
@@ -63,6 +66,48 @@ inline void shrink(std::vector<uint32_t>& px, uint32_t& w, uint32_t& h, uint32_t
     px.swap(out);
     w = nw;
     h = nh;
+}
+
+// Decoded pictures, by path. Decoding the 7680 x 4800 Order of the Flame PNG takes long enough that doing it on the
+// render thread when the game is chosen left the disc's art on screen meanwhile; the host asks for every campaign's
+// picture at start-up (gsr::preloadTitleBackdropImage) and a worker decodes and shrinks it ahead of time.
+struct Picture {
+    std::vector<uint32_t> px;
+    uint32_t w = 0, h = 0;
+};
+using PicturePtr = std::shared_ptr<const Picture>;
+using Decode = bool (*)(const std::string& path, Picture& out);
+inline std::map<std::string, std::shared_future<PicturePtr>>& pictures() {
+    static std::map<std::string, std::shared_future<PicturePtr>> m;
+    return m;
+}
+inline std::shared_future<PicturePtr> startDecode(const std::string& path, Decode decode, bool worker) {
+    std::lock_guard<std::mutex> l(lock());
+    auto it = pictures().find(path);
+    if (it != pictures().end())
+        return it->second;
+    auto job = [path, decode]() -> PicturePtr {
+        auto p = std::make_shared<Picture>();
+        if (!decode(path, *p) || !p->w || !p->h)
+            return nullptr;
+        shrink(p->px, p->w, p->h);
+        return p;
+    };
+    std::shared_future<PicturePtr> f =
+        std::async(worker ? std::launch::async : std::launch::deferred, std::move(job)).share();
+    pictures()[path] = f;
+    return f;
+}
+// The renderers' decoder (gs_core.cpp: texup::readImageFile).
+bool readPicture(const std::string& path, Picture& out);
+// Start decoding on a worker (no-op when already started).
+inline void preload(const std::string& path, Decode decode) {
+    if (!path.empty())
+        (void)startDecode(path, decode, true);
+}
+// The decoded picture: waits for a preload still running, decodes now when none was asked for; null = unreadable.
+inline PicturePtr picture(const std::string& path, Decode decode) {
+    return startDecode(path, decode, false).get();
 }
 
 // Where an image of `imageAspect` goes so it fills the whole wide output (cropping the long side), as fractions of the

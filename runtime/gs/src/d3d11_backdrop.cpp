@@ -46,12 +46,21 @@ const std::vector<D3D11Backend::Impl::WideBackdrop>& D3D11Backend::Impl::wideBac
             continue;
         std::vector<uint32_t> px;
         uint32_t w = 0, h = 0;
-        if (!texup::readImageFile(picture ? file : dir + "/" + file, px, w, h) || !w || !h || w > 16384 || h > 16384) {
+        bool read = false;
+        if (picture) { // decoded and shrunk ahead on a worker (preloadTitleBackdropImage), else now
+            if (const title_backdrop::PicturePtr pic = title_backdrop::picture(file, &title_backdrop::readPicture)) {
+                px = pic->px;
+                w = pic->w;
+                h = pic->h;
+                read = true;
+            }
+        } else {
+            read = texup::readImageFile(dir + "/" + file, px, w, h);
+        }
+        if (!read || !w || !h || w > 16384 || h > 16384) {
             std::fprintf(stderr, "[gsr] wide backdrop '%s' could not be loaded\n", file.c_str());
             continue;
         }
-        if (picture)
-            title_backdrop::shrink(px, w, h);
         D3D11_TEXTURE2D_DESC td{};
         td.Width = w;
         td.Height = h;
