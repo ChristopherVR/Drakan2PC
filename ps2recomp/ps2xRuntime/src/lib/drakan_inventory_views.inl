@@ -208,6 +208,7 @@ void inventoryViewsTick(RecompGuest& g, int scr, bool gameplay) {
             break;
     }
     m.menuMouseRw().setInventoryView(g_invView.layout ? int(g_invView.view) : 0);
+    m.menuMouseRw().setJournalDisabled(multiplayerSessionActive());
     g_centredScreen.store(g_invView.layout ? g_invView.screen : 0, std::memory_order_relaxed);
 }
 
@@ -220,6 +221,30 @@ void hookViewHandler(uint8_t* ram, R5900Context* c, PS2Runtime* rt) {
     }
     RecompGuest g(ram, c, rt);
     const uint32_t screen = getRegU32(c, 4), msg = getRegU32(c, 6);
+    const bool mp = multiplayerSessionActive();
+    if (msg == 10 && mp && g.read32(screen + 0x1b0) == uint32_t(kSectionCount) &&
+        g.read32(screen + 0x154) == uint32_t(kJournalSection) && g.readF(screen + 0x158) == 1.0f &&
+        g.readF(screen + 0x15c) == 0.0f && g.read32(screen + 0x3c) == 0) {
+        // Multiplayer began with the Journal current: one native "next" (Journal -> Equipment) instead of this
+        // frame's draw, so the Original menu falls back to the Inventory without entering anything.
+        const uint32_t savedKey = g.read32(screen + 0x50);
+        g.write32(screen + 0x50, kKeyNext);
+        SET_GPR_U32(c, 6, 0xbu);
+        const uint32_t ra = getRegU32(c, 31);
+        g_origViewHandler(ram, c, rt);
+        if (c->pc == ra)
+            g.write32(screen + 0x50, savedKey);
+        invViewLog("multiplayer: Journal left, section -> %u", g.read32(screen + 0x154));
+        return;
+    }
+    const bool viewKeepsSection = g_invView.screen == screen && g_invView.layout && g_invView.view != View::Modern;
+    if (msg == 0xb && !viewKeepsSection) {
+        // R1 / L1 (keys, pad, wheel and mouse clicks on the tabs all arrive here): never step onto the Journal.
+        const int preset = skipJournalPreset(g.read32(screen + 0x50), int(g.read32(screen + 0x154)),
+                                             int(g.read32(screen + 0x1b0)), mp);
+        if (preset >= 0)
+            g.write32(screen + 0x154, uint32_t(preset));
+    }
     if (msg == 3) {
         // A new activation: bound to a pending view request, otherwise an ordinary open (Tab) without a view.
         if (g_invViewRequest != View::None) {

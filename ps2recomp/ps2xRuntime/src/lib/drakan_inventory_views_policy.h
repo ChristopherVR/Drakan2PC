@@ -18,7 +18,23 @@ namespace drakan_views {
 enum class View : uint8_t { None = 0, Map = 1, Strip = 2, Modern = 3 };
 
 // Inventory sections (screen+0x154): 0 Equipment, 1 Spells, 2 Skills, 3 Map, 4 Journal.
-constexpr int kEquipmentSection = 0, kMapSection = 3, kSectionCount = 5;
+constexpr int kEquipmentSection = 0, kMapSection = 3, kJournalSection = 4, kSectionCount = 5;
+
+// Native section keys (4309d8): 0xd1 = next (R1), 0xd3 = previous (L1).
+constexpr uint32_t kKeyNext = 0xd1u, kKeyPrevious = 0xd3u;
+
+// Multiplayer disables the Journal. A step that would land on it is made to skip it: the screen is preset to the
+// Journal itself, so the same native step (next from Journal = Equipment, previous from Journal = Map) lands on the
+// section beyond it and the Journal's enter handler never runs. Returns the section to preset, -1 = no change.
+constexpr int skipJournalPreset(uint32_t key, int current, int count, bool multiplayer) {
+    if (!multiplayer || count != kSectionCount)
+        return -1;
+    if (key == kKeyNext && current == kMapSection)
+        return kJournalSection;
+    if (key == kKeyPrevious && current == kEquipmentSection)
+        return kJournalSection;
+    return -1;
+}
 
 constexpr int targetSection(View v) {
     return v == View::Map ? kMapSection : kEquipmentSection;

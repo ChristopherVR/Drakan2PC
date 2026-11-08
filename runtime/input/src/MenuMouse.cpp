@@ -1152,7 +1152,7 @@ MenuMouseResult MenuMouse::updateInventory(IGuest& g, uint32_t scr, const MenuMo
         if (ty >= r.top && ty < r.bottom)
             categoryBand = true;
         if (tx >= r.left && tx < r.right && ty >= r.top && ty < r.bottom)
-            categoryHit = int(i);
+            categoryHit = (journalDisabled_ && i == 4) ? -1 : int(i); // the band still swallows the click
     }
     dbg_.categoryHit = categoryHit;
     if (categoryBand) {

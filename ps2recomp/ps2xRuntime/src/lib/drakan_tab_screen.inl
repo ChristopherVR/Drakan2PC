@@ -729,6 +729,7 @@ void tabFrame(uint8_t* ram, R5900Context* c, PS2Runtime* rt, uint32_t screen) {
     RdramMemory mem(ram);
     gameui::Snapshot& back = sh.model.back();
     const gameui::ReadStatus st = gameui::readSnapshot(mem, g_tab.reader, back);
+    back.multiplayer = multiplayerSessionActive(); // the Modern screen greys out and skips the Journal page
     if (arenaWorldMode())
         back.quests.clear(); // multiplayer arena: no story, the Journal and the map markers stay empty
     if (++g_tab.frames <= 2 || st != gameui::ReadStatus::Ok)

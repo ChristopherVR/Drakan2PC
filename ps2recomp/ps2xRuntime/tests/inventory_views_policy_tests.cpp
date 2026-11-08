@@ -24,6 +24,19 @@ int main() {
           "one previous step reaches the target");
     check(targetSection(View::Map) == 3 && targetSection(View::Strip) == 0, "view sections");
 
+    // Multiplayer: the native Journal (section 4) is skipped by the section keys; single player is unchanged.
+    check(skipJournalPreset(kKeyNext, kMapSection, kSectionCount, true) == kJournalSection, "next from Map skips");
+    check(skipJournalPreset(kKeyPrevious, kEquipmentSection, kSectionCount, true) == kJournalSection,
+          "previous from Equipment skips");
+    check((kJournalSection + 1) % kSectionCount == kEquipmentSection &&
+              (kJournalSection + kSectionCount - 1) % kSectionCount == kMapSection,
+          "a step from the preset Journal lands beyond it");
+    check(skipJournalPreset(kKeyNext, kMapSection, kSectionCount, false) == -1, "single player: unchanged");
+    check(skipJournalPreset(kKeyPrevious, kEquipmentSection, kSectionCount, false) == -1, "single player: unchanged");
+    check(skipJournalPreset(kKeyNext, 1, kSectionCount, true) == -1 && skipJournalPreset(kKeyPrevious, 3, 5, true) == -1,
+          "other steps untouched");
+    check(skipJournalPreset(kKeyNext, kMapSection, 3, true) == -1, "a shop (three sections) is untouched");
+
     // Fit: largest uniform scale, centred, inside the box.
     {
         const Fit f = fitCentred(256, 192, 12, 12, 500, 472);

@@ -380,6 +380,11 @@ inline bool arenaWorldMode() {
 #endif
 }
 
+// In a multiplayer session (a PvP arena or a co-op match): the inventory's Journal is disabled in both menus.
+inline bool multiplayerSessionActive() {
+    return arenaWorldMode() || drakan_netplay::coopMatch();
+}
+
 #include "drakan_map_mouse_hooks.inl"
 #include "drakan_inventory_content_hooks.inl"
 #include "drakan_inventory_views.inl"

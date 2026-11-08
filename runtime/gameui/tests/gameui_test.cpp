@@ -641,6 +641,59 @@ void testScreenMouse() {
     CHECK(o.wantsClose && !scr.isOpen());
 }
 
+// Multiplayer sessions: the Journal tab is greyed out, skipped by page cycling, not clickable and not enterable.
+void testScreenJournalDisabledInMultiplayer() {
+    World w;
+    ReaderState st;
+    Snapshot s = w.read(st);
+    const Viewport vp{0, 0, 1920, 1080};
+    InventoryScreen scr;
+    CHECK(InventoryScreen::pageEnabled(s, Page::Journal)); // single player unchanged
+    s.multiplayer = true;
+    CHECK(!InventoryScreen::pageEnabled(s, Page::Journal) && InventoryScreen::pageEnabled(s, Page::Map));
+
+    // Opening on the Journal falls back to the Inventory.
+    scr.open(s, Page::Journal);
+    scr.frame(s, {}, vp);
+    CHECK(scr.page() == Page::Inventory);
+
+    // The tab is still listed but disabled.
+    bool listed = false, disabled = false;
+    for (const HitTarget& t : scr.targets())
+        if (t.id == TargetId{TargetKind::PageTab, static_cast<int>(Page::Journal)}) {
+            listed = true;
+            disabled = !t.enabled;
+        }
+    CHECK(listed && disabled);
+
+    // Forward cycling goes Skills -> Map, backward Map -> Skills.
+    FrameOutput o = scr.frame(s, keys({UiKey::PageNext, UiKey::PageNext, UiKey::PageNext}), vp);
+    CHECK(scr.page() == Page::Skills);
+    o = scr.frame(s, keys({UiKey::PageNext}), vp);
+    CHECK(scr.page() == Page::Map && !hasAction(o, ActionKind::SwitchSection, 4));
+    o = scr.frame(s, keys({UiKey::PagePrev}), vp);
+    CHECK(scr.page() == Page::Skills && !hasAction(o, ActionKind::SwitchSection, 4));
+
+    // A click on the tab does nothing.
+    const Rect tab = design::pageTab(4, 6);
+    UiInput in;
+    in.pointerValid = in.leftClick = true;
+    in.pointerX = tab.cx();
+    in.pointerY = tab.cy();
+    o = scr.frame(s, in, vp);
+    CHECK(scr.page() == Page::Skills && !hasAction(o, ActionKind::SwitchSection, 4));
+
+    // The Journal was current when the session began: back to the Inventory.
+    Snapshot sp = w.read(st);
+    InventoryScreen j;
+    j.open(sp, Page::Journal);
+    j.frame(sp, {}, vp);
+    CHECK(j.page() == Page::Journal);
+    sp.multiplayer = true;
+    o = j.frame(sp, {}, vp);
+    CHECK(j.page() == Page::Inventory);
+}
+
 void testScreenShopAndGuards() {
     World w;
     using S = FakeGame::ItemSpec;
@@ -854,6 +907,7 @@ int main() {
     testLayout();
     testScreenNavigation();
     testScreenMouse();
+    testScreenJournalDisabledInMultiplayer();
     testScreenShopAndGuards();
     testKeyGate();
     testCloseExecutor();

@@ -299,7 +299,7 @@ std::vector<Page> InventoryScreen::visiblePages(const Snapshot& s) const {
 void InventoryScreen::open(const Snapshot& s, Page initial) {
     open_ = true;
     closePending_ = false;
-    page_ = (cfg_.includeShopPage && s.shop.active) ? Page::Shop : initial;
+    page_ = (cfg_.includeShopPage && s.shop.active) ? Page::Shop : (pageEnabled(s, initial) ? initial : Page::Inventory);
     filter_ = CategoryFilter::All;
     focus_ = hover_ = {};
     for (TargetId& t : pageFocus_)
@@ -402,7 +402,7 @@ void InventoryScreen::buildTargets(const Snapshot& s) {
     const std::vector<Page> pages = visiblePages(s);
     for (size_t i = 0; i < pages.size(); ++i)
         add(TargetKind::PageTab, static_cast<int>(pages[i]),
-            design::pageTab(static_cast<int>(i), static_cast<int>(pages.size())), false);
+            design::pageTab(static_cast<int>(i), static_cast<int>(pages.size())), false, pageEnabled(s, pages[i]));
     if (!s.native.valid)
         return;
 
@@ -612,7 +612,7 @@ void InventoryScreen::buildHints(const Snapshot& s) {
 }
 
 void InventoryScreen::setPage(Page p, const Snapshot& s, FrameOutput& out) {
-    if (p == page_)
+    if (p == page_ || !pageEnabled(s, p))
         return;
     pageFocus_[static_cast<int>(page_)] = focus_;
     page_ = p;
@@ -784,7 +784,11 @@ void InventoryScreen::press(Prompt p, const Snapshot& s, FrameOutput& out) {
             auto cur = std::find(pages.begin(), pages.end(), page_);
             int i = cur == pages.end() ? 0 : static_cast<int>(cur - pages.begin());
             const int n = static_cast<int>(pages.size());
-            i = (i + (p == Prompt::PageNext ? 1 : n - 1)) % n;
+            for (int step = 0; step < n; ++step) {
+                i = (i + (p == Prompt::PageNext ? 1 : n - 1)) % n;
+                if (pageEnabled(s, pages[static_cast<size_t>(i)]))
+                    break;
+            }
             setPage(pages[static_cast<size_t>(i)], s, out);
             break;
         }
@@ -912,6 +916,8 @@ FrameOutput InventoryScreen::frame(const Snapshot& s, const UiInput& in, const V
     lf_ = computeFrame(vp);
     if (page_ == Page::Shop && !s.shop.active)
         page_ = Page::Inventory;
+    if (!pageEnabled(s, page_)) // a multiplayer session started while the Journal was up
+        setPage(Page::Inventory, s, out);
 
     buildTargets(s);
     ensureFocus(s);
@@ -1032,7 +1038,8 @@ void InventoryScreen::drawHeader(const Snapshot& s, DrawList& d) const {
         const Rect r = design::pageTab(i, n);
         const Page pg = pages[static_cast<size_t>(i)];
         const bool cur = pg == page_;
-        const bool hov = hover_.kind == TargetKind::PageTab && hover_.index == static_cast<int>(pg);
+        const bool off = !pageEnabled(s, pg);
+        const bool hov = !off && hover_.kind == TargetKind::PageTab && hover_.index == static_cast<int>(pg);
         if (cur) {
             d.panel(lf_.map(r), PanelStyle::Card, th.panelRaised);
             d.rect(lf_.map({r.x + 16, r.bottom() - 3, r.w - 32, 2}), th.gilt);
@@ -1044,9 +1051,10 @@ void InventoryScreen::drawHeader(const Snapshot& s, DrawList& d) const {
         const float lw = measure(label, FontRole::Body, fontPx(FontRole::Body)) / std::max(lf_.scale, 1e-6f);
         const float x0 = r.cx() - (kIcon + kIconGap + lw) * 0.5f;
         d.image(lf_.map({x0, r.cy() - kIcon * 0.5f, kIcon, kIcon}), {ImageKind::PageIcon, uint32_t(pg)},
-                cur ? 0xffffffffu : (hov ? withAlpha(rgba(235, 225, 210), 235) : rgba(180, 165, 150, 175)));
+                off ? rgba(120, 112, 105, 90)
+                    : (cur ? 0xffffffffu : (hov ? withAlpha(rgba(235, 225, 210), 235) : rgba(180, 165, 150, 175))));
         textD(d, {x0 + kIcon + kIconGap, r.y, lw + 8, r.h}, label, FontRole::Body,
-              cur ? th.heading : (hov ? th.text : th.textMuted), TextAlign::Left);
+              off ? th.textDisabled : (cur ? th.heading : (hov ? th.text : th.textMuted)), TextAlign::Left);
     }
     if (n > 0) {
         const Rect first = design::pageTab(0, n), last = design::pageTab(n - 1, n);
