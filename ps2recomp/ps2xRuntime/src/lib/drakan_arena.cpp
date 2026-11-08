@@ -255,6 +255,12 @@ uint32_t g_filteredGen = ~0u;      // load generation the first pass ran for
 unsigned g_ticks = 0;              // boundaries since the player was ready in this load
 bool g_deferredLooseSweep = false; // recheck loose campaign items after loadout stow completes
 unsigned g_passTick = 0;           // tick of the first pass
+// The local player has not reached the arena spawn the server assigns yet: the level is still coming up, the
+// assignment has not arrived, or the placement is still retrying while terrain streams in. Players stand at the level's
+// own start meanwhile, so their avatars are hidden (drakan_ghost locally, PlayerState.placing for everyone else).
+// Bounded: a placement that never takes shows the player where she is after kAwaitSpawnTicks.
+std::atomic<bool> g_awaitingSpawn{false};
+constexpr unsigned kAwaitSpawnTicks = 600;
 float g_startPos[3] = {0, 0, 0};
 bool g_haveStart = false;
 unsigned g_outsideTicks = 0;
@@ -1438,7 +1444,8 @@ void powerTick(drakan_input::IGuest& guest, uint8_t* rdram, uint32_t actor) {
     const uint32_t player = dataOf(rdram, actor);
     if (!ramPtr(player))
         return;
-    if (!ramPtr(rd32(rdram, player + 0x1028u)) || rd32(rdram, player + 0x1030u) == 0) { // the spell list is not built yet
+    if (!ramPtr(rd32(rdram, player + 0x1028u)) ||
+        rd32(rdram, player + 0x1030u) == 0) { // the spell list is not built yet
         if ((g_power.waited += 30) > 1800) {
             arenaLog("power: no spell list, giving up");
             g_power.spellsDone = true;
@@ -1611,7 +1618,8 @@ void previewShotTick(drakan_input::IGuest& guest, uint8_t* rdram, uint32_t playe
             const float dx = rdf(rdram, player + 0x14) - pos[0], dy = rdf(rdram, player + 0x18) - pos[1],
                         dz = rdf(rdram, player + 0x1c) - pos[2];
             // No authored preview point (the spawn stands in): an air arena's pad hangs high above the floor and she
-            // lands below and beside it (the pad pushes her off), so the settle check only applies to an authored point.
+            // lands below and beside it (the pad pushes her off), so the settle check only applies to an authored
+            // point.
             if (def.hasPreview && (std::sqrt(dx * dx + dz * dz) > 1500.0f || std::fabs(dy) > 2500.0f)) {
                 if (++g_shotTries >= 4) {
                     arenaLog("preview shot: the player never settled at the point, no picture");
@@ -2267,6 +2275,10 @@ bool journalHidden() {
     return g_active.load();
 }
 
+bool awaitingSpawn() {
+    return g_awaitingSpawn.load();
+}
+
 bool placeAtSpawn(drakan_input::IGuest& guest, uint8_t* rdram, int index) {
     ArenaDef def;
     {
@@ -2432,8 +2444,21 @@ void beforePadMgr(drakan_input::IGuest& guest, uint8_t* rdram) {
         resetEeState();
     }
     studioTick(guest, rdram);
-    if (!g_active.load())
+    if (!g_active.load()) {
+        g_awaitingSpawn.store(false);
         return;
+    }
+    {
+        bool spawns = false;
+        {
+            std::lock_guard<std::mutex> l(g_sessM);
+            spawns = g_hasDef && !g_def.spawns.empty();
+        }
+        const bool loading = g_filteredGen != g_loadGen;
+        const bool unplaced = g_place.active || g_assignedSpawn < 0;
+        g_awaitingSpawn.store(spawns &&
+                              (loading || (g_defFits.load() && unplaced && g_ticks - g_passTick < kAwaitSpawnTicks)));
+    }
     const uint32_t player = controlledActor(rdram);
     {
         static bool lastReady = true;

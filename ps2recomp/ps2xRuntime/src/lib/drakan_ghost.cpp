@@ -1,6 +1,7 @@
 // Drakan: ghost players (drakan_ghost.h). PAL addresses are canonical, translated through the disc profile.
 #include "drakan_ghost.h"
 #include "drakan_dlss.h"
+#include "drakan_arena.h"
 #include "drakan_coop_character.h"
 #include "drakan_local_character_view.h"
 #include "drakan_lifecycle.h"
@@ -550,30 +551,106 @@ double nowSeconds() {
     return duration<double>(steady_clock::now().time_since_epoch()).count();
 }
 
-// Writes the driven clips into the ghost skeleton's channels (sk = *(handle+0x50), channels at sk+0xe8, stride 0x80,
-// clip +0x50, time +0x58). Returns the number of channels written.
+// Who may speak with Rynn's voice: every player body (local controller / its render-only body, each remote ghost)
+// and the character it shows. Refreshed each PadMgr boundary; read by the PlaySound hook, which can run while g_m is
+// held by a guest call, hence its own lock.
+struct VoiceOwner {
+    uint32_t actor = 0;
+    uint16_t character = 0;
+};
+std::mutex g_voiceMutex;
+std::vector<VoiceOwner> g_voiceOwners;
+
+// g_m held, EE thread. `player` is the controlled actor (ctx+0x4b0), 0 when unknown.
+void refreshVoiceOwners(uint32_t player) {
+    std::vector<VoiceOwner> owners;
+    if (g_localEnabled && g_localId) {
+        const uint16_t mine = drakan_coop_character::selected();
+        owners.push_back({g_localSource, mine});
+        const auto& view = drakan_local_character::g_view;
+        if (view.controller && view.controller != g_localSource)
+            owners.push_back({view.controller, mine});
+        if (view.body)
+            owners.push_back({view.body, mine});
+    } else if (player && !g_ghosts.empty()) {
+        // Playing Rynn: keep her own lines hers even when an NPC-bodied opponent stands right next to her.
+        owners.push_back({player, 0});
+    }
+    for (const Ghost& g : g_ghosts)
+        if (g.info.handle && !g.dragon && !g.localVisual)
+            owners.push_back({g.info.handle, g.character});
+    std::lock_guard<std::mutex> lock(g_voiceMutex);
+    g_voiceOwners.swap(owners);
+}
+
 void hookPlaySound(uint8_t* ram, R5900Context* c, PS2Runtime* rt) {
-    // PlaySound's a1 is a resource id. Only damage vocalizations change; impact / weapon / ambient sounds pass through.
-    // The controller remains Rynn for gameplay, so its native HitRxn arrays would otherwise supply Rynn's voice.
-    if (c->pc == guestAddress(0x1b7f30u) && g_localEnabled && g_localSource && g_localId) {
-        const uint32_t sound = getRegU32(c, 5);
-        const uint32_t sysHi = g_levelSysHi.load();
-        // A relocated SYSTEM bank can leave another resource in bank 2. Do not reinterpret that resource as Rynn.
-        const uint32_t canonical =
-            sysHi && (sound & 0xffff0000u) != sysHi ? 0u : (sysHi ? 0x20000u | (sound & 0xffffu) : sound);
-        const uint32_t mapped = drakan_coop_character::mapHitSound(drakan_coop_character::selected(), canonical);
-        if (mapped != canonical) {
-            if (!mapped) {
-                SET_GPR_U32(c, 2, 0u); // NPC has no damage voice: no sound instance, preserving native caller contract
-                c->pc = getRegU32(c, 31);
-                return;
+    // PlaySound(mgr, id, pos*, flags): a1 is a resource id. Only Rynn's vocalizations change (damage / death cries
+    // to the character's own male set, every other line silenced); impact / weapon / ambient sounds pass through.
+    // The local controller remains Rynn for gameplay, and NPC bodies play clips retargeted from Rynn's, so both would
+    // otherwise speak with Rynn's voice. The emitter decides the character: the animation-event caller (0x10d100,
+    // returning to 0x10d1c0) holds the actor in s0+8; every other caller passes a copy of the emitter's position.
+    if (c->pc == guestAddress(0x1b7f30u)) {
+        std::vector<VoiceOwner> owners;
+        {
+            std::lock_guard<std::mutex> lock(g_voiceMutex);
+            owners = g_voiceOwners;
+        }
+        if (!owners.empty()) {
+            const uint32_t sound = getRegU32(c, 5);
+            const uint32_t sysHi = g_levelSysHi.load();
+            // A relocated SYSTEM bank can leave another resource in bank 2. Do not reinterpret that resource as Rynn.
+            const uint32_t canonical =
+                sysHi && (sound & 0xffff0000u) != sysHi ? 0u : (sysHi ? 0x20000u | (sound & 0xffffu) : sound);
+            // Cheap reject: an unrelated sound keeps the native path untouched.
+            if (canonical && drakan_coop_character::mapVoiceSound(0x177fu, canonical) != canonical) {
+                const VoiceOwner* who = nullptr;
+                uint32_t emitter = 0;
+                if (getRegU32(c, 31) == guestAddress(0x10d1c0u)) {
+                    const uint32_t slot = getRegU32(c, 16);
+                    emitter = ramPtr(slot) ? rd32(ram, slot + 8) : 0;
+                }
+                for (const VoiceOwner& o : owners)
+                    if (emitter && o.actor == emitter)
+                        who = &o;
+                const uint32_t pos = getRegU32(c, 6);
+                if (!who && !emitter && ramPtr(pos)) {
+                    float p[3];
+                    std::memcpy(p, ram + (pos & 0x1ffffffu), sizeof p);
+                    float best = 256.0f * 256.0f;
+                    for (const VoiceOwner& o : owners) {
+                        if (!ramPtr(o.actor))
+                            continue;
+                        float q[3];
+                        std::memcpy(q, ram + ((o.actor + 0x14u) & 0x1ffffffu), sizeof q);
+                        const float dx = p[0] - q[0], dy = p[1] - q[1], dz = p[2] - q[2];
+                        const float d = dx * dx + dy * dy + dz * dz;
+                        if (d < best) {
+                            best = d;
+                            who = &o;
+                        }
+                    }
+                }
+                // A non-positional Rynn line (or an emitter far from every body) belongs to the local player.
+                if (!who && !emitter && g_localEnabled && g_localId)
+                    who = &owners.front();
+                const uint32_t mapped =
+                    who ? drakan_coop_character::mapVoiceSound(who->character, canonical) : canonical;
+                if (mapped != canonical) {
+                    if (!mapped) {
+                        SET_GPR_U32(c, 2, 0u); // no sound instance: the native caller contract for a culled sound
+                        c->pc = getRegU32(c, 31);
+                        return;
+                    }
+                    SET_GPR_U32(c, 5, mapped);
+                }
             }
-            SET_GPR_U32(c, 5, mapped);
         }
     }
     g_playSound(ram, c, rt);
 }
 
+// Writes the driven clips into the ghost skeleton's channels (sk = *(handle+0x50), channels at sk+0xe8, stride 0x80,
+// clip +0x50, time +0x58). Returns the number of channels written.
 int writeAnim(drakan_input::IGuest& guest, const Ghost& g) {
     if (g.character && g.rawSet) { // stand-in character: its own clips; channel 0 (locomotion) lower, the others upper
         const uint32_t sk = guest.read32(g.info.handle + world::skel::kHandleSkeleton);
@@ -848,15 +925,16 @@ uint32_t localReference(drakan_input::IGuest& guest, uint32_t ctx, uint32_t ref)
                : 0;
 }
 
-void localCharacterTick(drakan_input::IGuest& guest, uint32_t ctx) {
+// Returns true while a selected character's body is wanted but not visible yet (the original model would show).
+bool localCharacterUpdate(drakan_input::IGuest& guest, uint32_t ctx) {
     const uint16_t character = drakan_coop_character::selected();
     if (!g_localEnabled || !character || !g_renderObject || drakan_lifecycle::transitionActive() ||
         g_cutsceneLevel.load()) {
         resetLocalCharacter();
-        return;
+        return false;
     }
     if (g_sinceLoad.load() < kReadyTicks)
-        return;
+        return true;
     world::Globals globals;
     globals.contextPtr = guestAddress(kContextPtr);
     globals.hpKey = guestAddress(globals.hpKey);
@@ -864,7 +942,7 @@ void localCharacterTick(drakan_input::IGuest& guest, uint32_t ctx) {
     globals.handleVtable = guestAddress(kHandleVtable);
     world::PlayerPose pose;
     if (world::readPlayerPose(GuestMem(guest), globals, g_localRead, g_gameTime, g_tick, pose) != world::PoseStatus::Ok)
-        return;
+        return !drakan_local_character::g_view.body;
     uint32_t source = pose.handle;
     if (pose.mounted) {
         const uint32_t inner = guest.read32(source + 0xfc);
@@ -872,7 +950,7 @@ void localCharacterTick(drakan_input::IGuest& guest, uint32_t ctx) {
         source = ramPtr(data) ? localReference(guest, ctx, guest.read16(data + 0x4d8)) : 0;
         if (!source) {
             resetLocalCharacter();
-            return;
+            return false;
         }
         // The actual passenger supplies its world transform and Ride clip, not the dragon's animation.
         pose.position = {guest.readF(source + 0x14), guest.readF(source + 0x18), guest.readF(source + 0x1c)};
@@ -881,7 +959,7 @@ void localCharacterTick(drakan_input::IGuest& guest, uint32_t ctx) {
         const uint32_t sk = guest.read32(source + 0x50);
         const uint32_t ch = ramPtr(sk) ? guest.read32(sk + world::skel::kChannels) : 0;
         if (!ramPtr(ch))
-            return;
+            return !drakan_local_character::g_view.body;
         pose.lower =
             pose.upper = {guest.read32(ch + world::skel::kChannelClip), guest.readF(ch + world::skel::kChannelTime)};
         pose.weaponRight = pose.weaponLeft = 0;
@@ -896,7 +974,7 @@ void localCharacterTick(drakan_input::IGuest& guest, uint32_t ctx) {
     }
     if (!g_localId) {
         if (g_tick < g_localRetry)
-            return;
+            return true;
         Ghost body;
         body.info.id = g_nextId++;
         body.character = character;
@@ -914,7 +992,7 @@ void localCharacterTick(drakan_input::IGuest& guest, uint32_t ctx) {
     it->wantRec[1] = pose.weaponLeft;
     const uint32_t h = it->info.handle;
     if (!h || !ramPtr(guest.read32(h + 0x50)))
-        return; // retain the original body while the selected body is loading
+        return true; // the selected body is loading (applyLocalHide decides whether the original model shows)
     if (!drakan_local_character::g_view.body)
         std::fprintf(stderr, "[local-character] visible %04x: body %x replaces model %x (render only)\n", character, h,
                      source);
@@ -924,6 +1002,8 @@ void localCharacterTick(drakan_input::IGuest& guest, uint32_t ctx) {
     view.body = h;
     view.bodySkeleton = guest.read32(h + 0x50);
     view.bodyResource = guest.read32(h + 8);
+    view.bodyWeapons[0] = it->weapon[0];
+    view.bodyWeapons[1] = it->weapon[1];
     const uint32_t inner = guest.read32(source + 0xfc);
     const uint32_t data = ramPtr(inner) ? guest.read32(inner + 0x10) : 0;
     if (ramPtr(data)) {
@@ -945,6 +1025,84 @@ void localCharacterTick(drakan_input::IGuest& guest, uint32_t ctx) {
                     localReference(guest, ctx, guest.read16(data + holder + world::playerdata::kHolderWeaponRef));
             }
     drakan_local_character::g_view = view;
+    return false;
+}
+
+// Hide the whole local avatar while she waits for her arena spawn placement (she would be seen at the level start and
+// then jump), and while a selected body is still loading (Rynn would flash first). The loading part is bounded: a
+// body that never comes shows the original model again after kPendingHideTicks rather than an invisible player.
+constexpr unsigned kPendingHideTicks = 300;
+bool g_pendingActive = false;
+unsigned g_pendingSince = 0;
+bool g_hideLogged = false;
+
+uint32_t heldItem(drakan_input::IGuest& guest, uint32_t ctx, uint32_t data, unsigned hand) {
+    const uint32_t holder = hand ? world::playerdata::kLeftHolder : world::playerdata::kRightHolder;
+    return localReference(guest, ctx, guest.read16(data + holder + world::playerdata::kHolderWeaponRef));
+}
+
+void applyLocalHide(drakan_input::IGuest& guest, uint32_t ctx, bool bodyPending) {
+    if (bodyPending && !g_pendingActive) {
+        g_pendingActive = true;
+        g_pendingSince = g_tick;
+    } else if (!bodyPending) {
+        g_pendingActive = false;
+    }
+    auto& view = drakan_local_character::g_view;
+    const bool awaiting = drakan_arena::awaitingSpawn();
+    const bool hide = g_localEnabled && !drakan_lifecycle::transitionActive() &&
+                      (awaiting || (bodyPending && g_tick - g_pendingSince < kPendingHideTicks));
+    if (!hide) {
+        if (view.hideAll) {
+            view.hideAll = false;
+            if (!view.body)
+                view = {};
+        }
+        if (g_hideLogged)
+            std::fprintf(stderr, "[local-character] avatar shown\n");
+        g_hideLogged = false;
+        return;
+    }
+    if (!view.body) {
+        // No selected body yet (or Rynn is the choice): name the original model and its held items directly.
+        const uint32_t player = guest.read32(ctx + 0x4b0);
+        if (!ramPtr(player) || guest.read32(player) != guestAddress(kHandleVtable))
+            return;
+        const uint32_t inner = guest.read32(player + 0xfc);
+        const uint32_t data = ramPtr(inner) ? guest.read32(inner + 0x10) : 0;
+        const uint32_t db = guest.read32(ctx + 0x320);
+        const uint32_t records = ramPtr(db) ? guest.read32(db + 8) : 0;
+        const uint32_t res = guest.read16(player + 0x10);
+        if (!ramPtr(data) || !ramPtr(records) || res == 0xffffu ||
+            guest.read32(records + res * 0x24u + 8) != kRynnClass)
+            return; // mounted (the dragon is controlled) or not Rynn: leave everything visible
+        drakan_local_character::View v;
+        v.poseSource = player;
+        v.controller = player;
+        const uint32_t visual = guest.read32(data + 0x80);
+        if (ramPtr(visual) && guest.read32(visual) == guestAddress(kHandleVtable))
+            v.controller = visual;
+        for (unsigned hand = 0; hand < 2; ++hand)
+            v.weapons[hand] = heldItem(guest, ctx, data, hand);
+        view = v;
+    } else if (const uint32_t source = view.poseSource ? view.poseSource : view.controller; ramPtr(source)) {
+        // The original held items are named only once the selected body holds its own: name them for hiding too.
+        const uint32_t inner = guest.read32(source + 0xfc);
+        const uint32_t data = ramPtr(inner) ? guest.read32(inner + 0x10) : 0;
+        if (ramPtr(data))
+            for (unsigned hand = 0; hand < 2; ++hand)
+                if (!view.weapons[hand])
+                    view.weapons[hand] = heldItem(guest, ctx, data, hand);
+    }
+    if (!g_hideLogged)
+        std::fprintf(stderr, "[local-character] avatar hidden: %s\n",
+                     awaiting ? "not at the arena spawn yet" : "selected body still loading");
+    g_hideLogged = true;
+    view.hideAll = true;
+}
+
+void localCharacterTick(drakan_input::IGuest& guest, uint32_t ctx) {
+    applyLocalHide(guest, ctx, localCharacterUpdate(guest, ctx));
 }
 
 // Level load and save write (drakan_lifecycle, EE thread at the hooked call): ghosts must not survive either (the level
@@ -957,6 +1115,7 @@ void destroyAll(const drakan_lifecycle::Event& e) {
         g_localRetry = 0;
         g_localRead = {};
         retiring.swap(g_ghosts);
+        refreshVoiceOwners(0);
         g_hist.clear();
         if (g_mirror) {
             g_autoPending = true;
@@ -1407,6 +1566,7 @@ void beforePadMgr(drakan_input::IGuest& guest, drakan_input::InputModule& input)
         engineDt = 1.0f / 60.0f;
     g_gameTime += static_cast<double>(engineDt);
     localCharacterTick(guest, ctx);
+    refreshVoiceOwners(guest.read32(ctx + 0x4b0));
     if (g_mirror) {
         // Record the local player and replay the pose from 1.0 s ago beside it (EE thread).
         world::PlayerPose cur, past;

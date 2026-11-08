@@ -2223,6 +2223,7 @@ void beforePadMgr(const uint8_t* rdram) {
             g_stampMs = std::max(g_stampMs + 1, static_cast<uint32_t>(t * 1000.0) + 1);
             g_s.local.tick = g_stampMs;
             g_s.local.character = drakan_coop_character::selected();
+            g_s.local.placing = drakan_arena::awaitingSpawn(); // receivers hide us until we stand at the spawn
             g_s.local.levelHash = myLevel;
             g_s.haveLocal = true;
             g_s.localAtMs = nowMs();
@@ -2255,7 +2256,10 @@ void beforePadMgr(const uint8_t* rdram) {
         RemoteView& v = g_views[kv.first];
         const RemoteIn& r = kv.second;
         const bool sameLevel = r.state.levelHash != 0 && r.state.levelHash == myLevel;
-        const bool want = posed && playing && sameLevel;
+        // A player still at the level start (her arena spawn placement has not taken yet) is not shown: she would
+        // appear there and then jump to her spawn point a few seconds later.
+        const bool placing = r.state.placing;
+        const bool want = posed && playing && sameLevel && !placing;
         if (g_trace && t - v.lastWantLog >= 2.0) { // one line per remote every 2 s: why a ghost is (not) wanted
             v.lastWantLog = t;
             std::fprintf(
@@ -2265,15 +2269,16 @@ void beforePadMgr(const uint8_t* rdram) {
         if (!want) {
             // Our own load / save is immediate (the guest is about to free the actors). Anything else must persist
             // kDebounceSec: the pose read fails for a frame or two when a menu opens, which must not flap the ghost.
-            const bool immediate = transition || myLevel == 0;
+            const bool immediate = transition || myLevel == 0 || (placing && posed && playing && sameLevel);
             if (v.unwantedSince < 0)
                 v.unwantedSince = t;
             if ((v.ghostId || v.wasVisible) && (immediate || t - v.unwantedSince >= kDebounceSec))
                 hide(kv.first, v,
-                     immediate    ? "local level change"
-                     : !posed     ? "local pose unavailable"
-                     : !sameLevel ? "player in another level"
-                                  : "match not playing");
+                     placing && !transition && myLevel != 0 ? "player not at the spawn yet"
+                     : immediate                            ? "local level change"
+                     : !posed                               ? "local pose unavailable"
+                     : !sameLevel                           ? "player in another level"
+                                                            : "match not playing");
             continue;
         }
         v.unwantedSince = -1;

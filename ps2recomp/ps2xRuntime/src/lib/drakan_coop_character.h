@@ -70,9 +70,10 @@ struct Mapped {
 };
 // Rynn's clip `rynnClip` (low 16 bits are enough) at `time` seconds, as played by character `id`.
 Mapped mapClip(uint16_t id, uint32_t rynnClip, float time);
-// Replace only Rynn damage vocalizations. Missing NPC voices use the original nonverbal male damage voice set.
-// Unrelated effects, Rynn and unknown characters preserve the original sound resource id.
-uint32_t mapHitSound(uint16_t id, uint32_t sound);
+// Replace Rynn's vocalizations for a stand-in character `id`: damage and death cries use the character's own damage
+// voice (the original Nichols male set when it has none); every other Rynn line (attack / jump / hoist / landing
+// grunts, spoken remarks) returns 0 = play nothing. Unrelated effects, Rynn and unknown characters keep `sound`.
+uint32_t mapVoiceSound(uint16_t id, uint32_t sound);
 // Enabled only after the matching private generated asset pack is loaded.
 void setRetargetedMotion(bool enabled);
 // Route live channels by their actual owning node; runtime indices differ from MOD channel definitions.

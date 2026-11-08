@@ -110,4 +110,8 @@ bool takeQuickSlot();
 // Journal / quest entries must stay empty while this is true (the tab and pause screens clear them).
 bool journalHidden();
 
+// EE thread: the local player is in a versus arena but not yet at the spawn point the server assigned (level coming up,
+// assignment pending, placement retrying). Her avatar is hidden meanwhile; bounded to a few seconds after level up.
+bool awaitingSpawn();
+
 } // namespace drakan_arena

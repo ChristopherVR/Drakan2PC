@@ -117,6 +117,13 @@ int main() {
               so.character == 0x0ee7); // v7: the stand-in character travels with the state
         CHECK(std::fabs(so.pitch + 0.4f) < 1e-4f && std::fabs(so.roll - 0.25f) < 1e-4f &&
               so.clipHi == 4); // v8: a mounted sender's orientation and clip prefix
+        CHECK(!so.placing);
+        {
+            PlayerState placed = s;
+            placed.placing = true;
+            PlayerState po;
+            CHECK(decode(encode(placed), po) && po.placing && po.mounted); // v10: both flags travel together
+        }
 
         Snapshot snap;
         snap.serverTimeMs = 4242;
@@ -236,8 +243,10 @@ int main() {
         // Bad mounted flag.
         bytes = encode(sampleState());
         bytes[bytes.size() - 1 - sizeof(uint32_t) - 4 * sizeof(uint16_t)] =
-            2; // the flag precedes levelHash, character, pitch, roll, clipHi
+            4; // the flag precedes levelHash, character, pitch, roll, clipHi; bits 0 / 1 only
         CHECK(!decode(bytes, o));
+        bytes[bytes.size() - 1 - sizeof(uint32_t) - 4 * sizeof(uint16_t)] = 2; // v10: placing, not mounted
+        CHECK(decode(bytes, o) && o.placing && !o.mounted);
 
         // Oversized strings.
         Hello h;
@@ -335,7 +344,7 @@ int main() {
 
     // v6: co-op messages round trip, strict lengths and ranges.
     {
-        static_assert(kProtocolVersion == 9);
+        static_assert(kProtocolVersion == 10);
         CoopAuthority a;
         a.player = 2;
         CoopAuthority ao;

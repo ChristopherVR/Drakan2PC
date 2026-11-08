@@ -27,6 +27,11 @@ struct CharacterRow {
     Cell clips[static_cast<size_t>(Act::Count)];
 };
 
+struct VoiceSound {
+    uint32_t id;
+    int kind; // 0 damage cry, 1 death cry, 2 any other Rynn line (generated table)
+};
+
 struct HitVoiceRow {
     uint16_t classId;
     unsigned count;
@@ -150,13 +155,12 @@ void setSelected(uint16_t id) {
     g_selected.store(known(id) ? id : 0);
 }
 
-uint32_t mapHitSound(uint16_t id, uint32_t sound) {
+uint32_t mapVoiceSound(uint16_t id, uint32_t sound) {
     if (!id)
         return sound;
-    const auto* begin = std::begin(kRynnHitSounds);
-    const auto* end = std::end(kRynnHitSounds);
-    const auto* voice = std::find(begin, end, sound);
-    if (voice == end)
+    const auto* voice = std::find_if(std::begin(kRynnVoiceSounds), std::end(kRynnVoiceSounds),
+                                     [&](const VoiceSound& v) { return v.id == sound; });
+    if (voice == std::end(kRynnVoiceSounds))
         return sound;
     const HitVoiceRow* chosen = nullptr;
     const HitVoiceRow* maleFallback = nullptr;
@@ -167,10 +171,20 @@ uint32_t mapHitSound(uint16_t id, uint32_t sound) {
             maleFallback = &row; // original Nichols nonverbal male damage reactions, shared when no own voice exists
     }
     if (!chosen)
-        return sound;
+        return sound; // not a roster character: keep the original
+    // Jump / hoist / attack grunts and spoken remarks have no original male equivalent: never play Rynn's voice.
+    if (voice->kind == 2)
+        return 0;
     if (!chosen->count)
         chosen = maleFallback;
-    return chosen && chosen->count ? chosen->sounds[static_cast<unsigned>(voice - begin) % chosen->count] : sound;
+    if (!chosen || !chosen->count)
+        return 0;
+    // Damage and death cries pick a stable sample from the character's damage set.
+    const auto* hit = std::find(std::begin(kRynnHitSounds), std::end(kRynnHitSounds), sound);
+    const unsigned index = hit != std::end(kRynnHitSounds)
+                               ? static_cast<unsigned>(hit - std::begin(kRynnHitSounds))
+                               : static_cast<unsigned>(voice - std::begin(kRynnVoiceSounds));
+    return chosen->sounds[index % chosen->count];
 }
 
 bool nodeUsesLower(uint16_t id, uint32_t targetNode) {

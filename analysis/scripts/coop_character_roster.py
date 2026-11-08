@@ -182,6 +182,58 @@ def npc_clips(cls):
     return c
 
 
+# Rynn's own vocalizations (SYSTEM bank): her class's voice fields plus the SDB samples her clips trigger through
+# animation events (jump / hoist / falling grunts are not class fields). Kind 0 = damage cry, 1 = death cry,
+# 2 = any other line (attack grunt, jump, hoist, landing, exertion, spoken remark). A male stand-in has no original
+# equivalent for kind 2: it stays silent rather than speaking with Rynn's voice.
+RYNN_VOICE_FIELDS = {
+    "HitRxn": 0,
+    "Death Sound": 1,
+    "Drown Sound": 1,
+    "Attack Grunts": 2,
+    "Hard Landing Sound": 2,
+    "Push Object Sounds": 2,
+    "Can't Reach Sound": 2,
+    "Can't Use Sound": 2,
+    "Inventory Full Sound": 2,
+    "Not Skilled Enough To Use": 2,
+    "Item Unusable Sound": 2,
+    "No Arokh Sound": 2,
+    "Call Mount Sound": 2,
+    "Separated Sounds": 2,
+}
+RYNN_VOICE_NAMES = re.compile(r"^(Rynn[ _](Attack|Death|Falling|Hit|HardLanding|Jump|low laugh)|Hoist Rynn)")
+
+
+def sdb_names(blob):
+    """SDB 0x0302 sound descriptors: {id: name}."""
+    out = {}
+    for e in lvl_dump.parse_srsc(blob):
+        if e.type == 0x302:
+            (n,) = struct.unpack_from("<H", blob, e.offset)
+            out[e.id] = blob[e.offset + 2 : e.offset + 2 + n].rstrip(b"\0").decode("latin1")
+    return out
+
+
+def rynn_voices(rynn, sys_sdb):
+    """{SYSTEM sound id: kind} of every Rynn vocalization."""
+    out = {}
+    for field in rynn["fields"]:
+        if "sound" not in field["type_name"]:
+            continue
+        kind = next((k for prefix, k in RYNN_VOICE_FIELDS.items() if field["name"].startswith(prefix)), None)
+        if kind is None:
+            continue
+        v = field["default"]
+        for x in v if isinstance(v, list) else [v]:
+            if isinstance(x, int) and x:
+                out.setdefault(x, kind)
+    for x, name in sys_sdb.items():
+        if RYNN_VOICE_NAMES.match(name):
+            out.setdefault(x, 0 if name.startswith("Rynn Hit") else 1 if "Death" in name else 2)
+    return out
+
+
 def selectable(cls):
     return bool(cls.get("model") and cls["rfl_class"] not in EXCLUDED_BEHAVIOURS and npc_clips(cls)["Idle"])
 
@@ -201,6 +253,7 @@ def main(argv=None):
         npc_odb = odb_fields.load_classes(get("/ENGLISH/COMMON/NPC/NPCS.ODB"))
         sys_adb = adb_table(get("/ENGLISH/COMMON/SYSTEM/SYSTEM.ADB"))
         npc_adb = adb_table(get("/ENGLISH/COMMON/NPC/NPCS.ADB"))
+        sys_sdb = sdb_names(get("/ENGLISH/COMMON/SYSTEM/SYSTEM.SDB"))
     finally:
         f.close()
 
@@ -280,6 +333,14 @@ def main(argv=None):
                 }
             )
             fh.write("constexpr uint32_t kRynnHitSounds[] = {" + ", ".join(hex(0x20000 | x) for x in hit_ids) + "};\n")
+            voices = rynn_voices(sys_odb[RYNN_CLASS], sys_sdb)
+            assert all(voices.get(x) == 0 for x in hit_ids), "every HitRxn sound must be a damage cry"
+            fh.write("// Every Rynn vocalization {SYSTEM sound id, kind: 0 damage, 1 death, 2 other line}.\n")
+            fh.write(
+                "constexpr VoiceSound kRynnVoiceSounds[] = {"
+                + ", ".join("{0x%x, %d}" % (0x20000 | x, k) for x, k in sorted(voices.items()))
+                + "};\n"
+            )
             fh.write("constexpr HitVoiceRow kHitVoices[] = {\n")
             for cid in CHARACTER_IDS[1:]:
                 sounds = next(

@@ -9,13 +9,14 @@
 
 namespace drakan::net {
 
-constexpr uint16_t kProtocolVersion = 9; // v9: PlayerState.tick is the sender's pose time in ms (was a frame count);
-                                         // v8: PlayerState.pitch / roll / clipHi (a mounted partner's dragon);
-                                         // v7: PlayerState.character (co-op stand-in character, 0 = Rynn);
-                                         // v6: co-op mode (CoopAuthority / CoopCreatures / CoopEvent) and LevelChange;
-                                         // v5: Hello.password, Ready, MatchConfig.serverName, LAN Query / ServerInfo;
-                                         // v4: weaponRight/weaponLeft record ids replace the weapon byte; v3: v3:
-                                         // levelHash in PlayerState (v2: upper-body clip + channel mask)
+constexpr uint16_t kProtocolVersion = 10; // v10: PlayerState.placing (flags bit 1);
+                                          // v9: PlayerState.tick is the sender's pose time in ms (was a frame count);
+                                          // v8: PlayerState.pitch / roll / clipHi (a mounted partner's dragon);
+                                          // v7: PlayerState.character (co-op stand-in character, 0 = Rynn);
+                                          // v6: co-op mode (CoopAuthority / CoopCreatures / CoopEvent) and LevelChange;
+                                          // v5: Hello.password, Ready, MatchConfig.serverName, LAN Query / ServerInfo;
+                                          // v4: weaponRight/weaponLeft record ids replace the weapon byte; v3: v3:
+                                          // levelHash in PlayerState (v2: upper-body clip + channel mask)
 constexpr size_t kMaxPlayers = 16;
 constexpr size_t kMaxTeams = 4; // custom game modes: 2..4 teams (standard team deathmatch has two)
 constexpr size_t kMaxModeIdLength = 32;
@@ -210,6 +211,7 @@ struct PlayerState {
     uint32_t weaponRight = 0;         // resource record id of the right-hand (melee) item, 0 = empty hand (v4)
     uint32_t weaponLeft = 0;          // same for the left hand (bow)
     bool mounted = false;             // riding the dragon
+    bool placing = false;             // v10: not yet at the assigned arena spawn: receivers hide the body
     // FNV-1a of the sender's loaded level name; 0 while it is loading or unknown. A receiver shows a ghost only when
     // this equals its own level's hash (clients run their own world, the server never sees level data).
     uint32_t levelHash = 0;

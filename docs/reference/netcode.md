@@ -1,4 +1,4 @@
-# Netcode: protocol v9, authority model, `runtime/net`
+# Netcode: protocol v10, authority model, `runtime/net`
 
 Status 2026-10-31 (later): protocol v6 adds the **co-op game mode** and a real `LevelChange` message (see "Co-op mode
 (protocol v6)"); co-op rides the same session as deathmatch and the hidden `@@LC` chat line is gone. Earlier the same day: the protocol, match state machine, transports and the headless `drakan_server` exist and are tested;
@@ -153,7 +153,7 @@ Application message = 1 type byte (`MsgType`) + body; every decode requires the 
 | 3 Reject | S>C | `u8 reason` (0 version, 1 profile, 2 full, 3 name, 4 password), `u16 serverVersion`, `str message` |
 | 4 MatchConfig | S>C | `u8 mode` (0 DM, 1 TDM), `str level` (<=64), `u16 fragLimit`, `u16 timeLimitSec`, `u8 maxPlayers` (1..16), `u16 respawnDelayMs`, `u16 startHealth`, `str serverName` (<=32; v5) |
 | 5 PhaseChange | S>C | `u8 phase` (0 lobby, 1 loading, 2 playing, 3 results), `u32 serverTimeMs` |
-| 6 PlayerState | C>S, unreliable | `u8 player`, `u32 sequence`, `u32 tick`, `f32 pos[3]`, `f32 yaw`, `f32 vel[3]`, `u16 animId`, `f32 animTime` (lower body), `u16 upperAnimId`, `f32 upperAnimTime`, `u32 lowerMask` (bit i: skeleton channel i plays the lower clip; see `world-model.md` section 6), `u32 weaponRight`, `u32 weaponLeft` (resource record ids of the held items, 0 = empty hand; v4), `u8 mounted` (0/1), `u32 levelHash` (FNV-1a of the sender's level name, 0 = loading; v3), `u16 character` (stand-in character id, 0 = Rynn; v7), `i16 pitch`, `i16 roll`, `u16 clipHi` (mounted sender's orientation and clip prefix; v8); 78 bytes |
+| 6 PlayerState | C>S, unreliable | `u8 player`, `u32 sequence`, `u32 tick`, `f32 pos[3]`, `f32 yaw`, `f32 vel[3]`, `u16 animId`, `f32 animTime` (lower body), `u16 upperAnimId`, `f32 upperAnimTime`, `u32 lowerMask` (bit i: skeleton channel i plays the lower clip; see `world-model.md` section 6), `u32 weaponRight`, `u32 weaponLeft` (resource record ids of the held items, 0 = empty hand; v4), `u8 flags` (bit 0 mounted; bit 1 placing, v10: not yet at the assigned arena spawn, receivers show no body), `u32 levelHash` (FNV-1a of the sender's level name, 0 = loading; v3), `u16 character` (stand-in character id, 0 = Rynn; v7), `i16 pitch`, `i16 roll`, `u16 clipHi` (mounted sender's orientation and clip prefix; v8); 78 bytes |
 | 7 Snapshot | S>C, unreliable | `u32 serverTimeMs`, `u8 count` (<=16), count x PlayerState body (live players with a known state) |
 | 8 Hit | C>S claim, S>C accepted | `u8 attacker`, `u8 victim`, `u8 weapon` (which item: 0 right-hand melee, 1 left-hand melee, 2 projectile; the server checks it against the attacker's held `weaponRight` / `weaponLeft`), `u16 damage` (claim: as the engine computed it; broadcast: after `damageScale`), `u16 healthAfter` (client sends attacker 0) |
 | 9 Death | S>C | `u8 victim`, `u8 killer`, `u8 weapon` |
@@ -610,14 +610,29 @@ also excludes the old model / held items, retaining the selected body for reflec
 controller pointers, inventory, HP, camera or skeleton are swapped. Movement / combat use the existing player mechanics;
 All selectable NPCs have native combat clips. The PAL build also generates a private compatible motion pack from the
 user's disc: all 219 Rynn controller clips are retargeted through source/target bind frames to each selected NPC rig.
+The held-item joints `Rweapon` / `Lweapon` are the exception: their bind frames sit 55 to 150 degrees off Rynn's on every
+NPC rig, and the items are Rynn's own models. They therefore take Rynn's exact model-space orientation
+(`RetargetAnimOptions.worldJoints`) instead of a bind-relative delta, so a weapon points the way it does in her hand.
 When this pack is loaded, exact source clip/time mapping preserves directional jumps, rolls/cartwheels, landing phases,
 weapon grips and attacks. NPCs receive a native torso playback channel, and live channels are routed by their actual owning nodes, retaining
 independent lower and upper body motion. Without the pack, missing airborne/evasive animations fall back to a held own-rig ready pose.
 
-The local NPC sound hook substitutes only the seven Rynn `HitRxn` vocalizations. Characters with configured damage
-voices use those; other curated male NPCs share the original Nichols nonverbal male damage reaction set. Weapon
-impacts, hard landings and unrelated audio remain unchanged. Rynn and ordinary single-player audio retain the original
-path. This supplies appropriate shared male reactions, not newly recorded individual character voices.
+The PlaySound hook (`0x1b7f30`) replaces every Rynn vocalization for a non-Rynn character, local or remote. The
+generated table `kRynnVoiceSounds` lists her voice fields (HitRxn, Death, Drown, Attack Grunts, Hard Landing, Push
+Object, the spoken remarks) plus the SDB samples her clips trigger through animation events ("Rynn Jump 1..3",
+"Hoist Rynn 1..3", "Rynn Falling 01", "Rynn low laugh"). Damage and death cries use the character's own damage voice;
+characters without one use the original Nichols nonverbal male set. All other lines are silenced, because the disc has
+no male equivalents. The emitter decides whose voice it is. On the animation-event path (`0x10d100`, return
+`0x10d1c0`) the actor is `s0+8`. Every other caller passes a copy of the emitter's position, which is matched to the
+nearest player body within 256 units. NPC bodies play clips retargeted from Rynn's, so a remote stand-in needs this too.
+Weapon impacts, footsteps and unrelated audio remain unchanged, and so do Rynn players.
+
+**Hidden until placed (2026-11-08).** In a versus arena the player first stands at the level's own start. The server's
+spawn assignment and its retried teleport (terrain streams in) come seconds later. `drakan_arena::awaitingSpawn()` is true
+from the level coming up until the placement takes (at most 600 ticks after level up). Meanwhile `View::hideAll` hides
+the whole local avatar: the original model, the selected body, every held item, the projected shadow and the scene
+export. `PlayerState.placing` tells receivers to show no ghost. A selected body that is still loading is hidden for at
+most 300 ticks instead of flashing Rynn first; a body that never arrives falls back to the original model.
 
 Avatar preparation is asynchronous and never covers gameplay or mutes input. It starts during a session's level
 loading rather than waiting for Playing. At RenderWorld entry, the cosmetic body takes the completed gameplay

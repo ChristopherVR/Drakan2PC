@@ -208,7 +208,7 @@ void PlayerState::write(ByteWriter& w) const {
     w.u32(lowerMask);
     w.u32(weaponRight);
     w.u32(weaponLeft);
-    w.u8(mounted ? 1 : 0);
+    w.u8(static_cast<uint8_t>((mounted ? 1u : 0u) | (placing ? 2u : 0u)));
     w.u32(levelHash);
     w.u16(character);
     w.u16(static_cast<uint16_t>(static_cast<int16_t>(std::lround(pitch * 10000.0f))));
@@ -232,9 +232,10 @@ bool PlayerState::read(ByteReader& r) {
     weaponRight = r.u32();
     weaponLeft = r.u32();
     const uint8_t flags = r.u8();
-    if (flags > 1)
+    if (flags > 3)
         r.fail();
-    mounted = flags == 1;
+    mounted = (flags & 1u) != 0;
+    placing = (flags & 2u) != 0;
     levelHash = r.u32();
     character = r.u16();
     pitch = static_cast<float>(static_cast<int16_t>(r.u16())) / 10000.0f;

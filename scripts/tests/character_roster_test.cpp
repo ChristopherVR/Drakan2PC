@@ -147,15 +147,23 @@ int main() {
         assert(mapClip(e.id, 0x205b5, std::numeric_limits<float>::infinity()).time == 0);
     }
     setRetargetedMotion(false);
-    // Original voice resource ids from Rynn's HitRxn arrays; weapon impacts and other SYSTEM voices are unaffected.
-    assert(mapHitSound(0, 0x201a1) == 0x201a1);
-    assert(mapHitSound(0xffff, 0x201a1) == 0x201a1);
-    assert(mapHitSound(0x16bf, 0x201a1) == 0x50804); // shared original male damage voice
-    assert(mapHitSound(0x177f, 0x201a1) == 0x50804); // Nichols uses his own original voice
-    assert(mapHitSound(0x177f, 0x201a2) == 0x50805);
-    assert(mapHitSound(0x177f, 0x2024c) == 0x50804);
-    assert(mapHitSound(0x177f, 0x201cc) == 0x201cc); // hard landing, outside the HitRxn set
-    assert(mapHitSound(0x177f, 0x501a1) == 0x501a1); // same low id in another sound bank
+    // Original voice resource ids from Rynn's voice fields / SDB; weapon impacts and unrelated sounds are unaffected.
+    assert(mapVoiceSound(0, 0x201a1) == 0x201a1); // Rynn keeps her own voice
+    assert(mapVoiceSound(0, 0x202ea) == 0x202ea);
+    assert(mapVoiceSound(0xffff, 0x201a1) == 0x201a1);
+    assert(mapVoiceSound(0x16bf, 0x201a1) == 0x50804); // shared original male damage voice
+    assert(mapVoiceSound(0x177f, 0x201a1) == 0x50804); // Nichols uses his own original voice
+    assert(mapVoiceSound(0x177f, 0x201a2) == 0x50805);
+    assert(mapVoiceSound(0x177f, 0x2024c) == 0x50804);
+    assert(mapVoiceSound(0x16bf, 0x2019c) != 0 && (mapVoiceSound(0x16bf, 0x2019c) >> 16) == 5u); // death cry
+    assert(mapVoiceSound(0x16bf, 0x20191) == 0);       // "Rynn Attack Long 01": attack grunt, silent
+    assert(mapVoiceSound(0x16bf, 0x202ea) == 0);       // "Rynn Jump 1"
+    assert(mapVoiceSound(0x16bf, 0x202e7) == 0);       // "Hoist Rynn 3" (climbing)
+    assert(mapVoiceSound(0x177f, 0x201cc) == 0);       // "Rynn_HardLanding_1"
+    assert(mapVoiceSound(0x16bf, 0x201fd) == 0);       // "I don't have any room"
+    assert(mapVoiceSound(0x177f, 0x201d9) == 0x201d9); // footstep, not a voice
+    assert(mapVoiceSound(0x177f, 0x301c2) == 0x301c2); // weapon swish, other bank
+    assert(mapVoiceSound(0x177f, 0x501a1) == 0x501a1); // same low id in another sound bank
     using drakan_pvp::detail::usePlayerMeleeMask;
     assert(usePlayerMeleeMask(false, 100, 100, 2, 0x1009d));  // local blade versus a registered NPC opponent
     assert(!usePlayerMeleeMask(true, 100, 100, 2, 0x1009d));  // co-op friendly fire remains native
