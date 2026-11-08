@@ -73,3 +73,25 @@ the exit is taken at 41.55 s of wall time into the level (it was 43.70 s), and R
 is a resource-bound scene change: the preloader stalls of 0.4 to 0.6 s at each scene change (intro-movie note) are not part of the
 wait. A shorter hand-over (at Arokh's exit, about 38 s) would cut the authored owl tail; that is a content decision left open.
 Timeline: `build/review/owl/freeze_timeline.txt`. The movie must be re-rendered for the new length (it ends at 44.02 s now).
+
+### Follow-up 2: converted clips against raw PC keys and the PS2 engine's own clips
+
+Question: does `convertPcAnimToPs2` rotate end joints (horns, ruff, hair) wrongly? Checks:
+
+* Raw PC owl keys (37 joints, clips 37 / 38 / 39): no scale (row norms 1.000), every key and bind determinant 1 (no mirrored joint), no
+  keys beyond the head, the spine and the two ear joints that matter. `l_ear` / `r_ear` have one key (static) in clips 37 and 39 and
+  move (up to 40 degrees) only in clip 38, so a horn swinging across the face is the head's own roll (68 degree keys) carrying the
+  horns, as in the bind-pose geometry.
+* The rotation basis `Q = B Wp K Wp^T` was re-validated against the PS2 engine's own clips instead of the one spider: 12 same-named
+  NPCS animations with the same joint count, 425 joint samples: median error 1.6 degrees, p95 10 degrees; the only large errors are
+  finger middle joints (29 to 34 degrees on jnt5_2, jnt7_2, jnt9_2, jnt13_2), not head, ear, spine or limb joints. No wrong
+  quaternion order or sign, no missing parent-space conversion shows up.
+* Non-root translation keys (the dropped "squash" translations; up to 0.2 on the ears in clip 38): posed in the offline rasterizer
+  as absolute keys, as bind plus delta, and as bind plus delta turned into the parent frame, they deform the owl (collapsed body,
+  torn ruff cards). The conversion without them is the sane one, so dropping them stays.
+* PS2 clips do carry non-root `hasPos` tracks (1684 in SYSTEM.ADB, 2820 in NPCS.ADB), so the engine can take them; the PC keys
+  are not usable as they are.
+
+No converter change. Open: the finger middle-joint differences (not owl, not hair) are PS2 versus PC authoring or a real fault in
+chains with a twisted bind; not traced. Evidence under `build/review/owl`: `anim_variants_A_B_C_D.png`, `anim_converted_poses.png`,
+`anim_validation.txt`.
