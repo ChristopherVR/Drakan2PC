@@ -247,6 +247,8 @@ nothing: the cart by the small house was invisible, so its barrel and crate floa
 hidden orc, opened by PS2 proximity before him; ambush doors now keep Auto-Open off. Verified before / after in game. See
 [Ruined Village ambush and props](../journal/2026-11-08/ootf-ruined-village-ambush-props.md).
 
+**November 9 Intro owl:** the perched owl showed brown and dark triangles over its chest. Its texture has graded alpha (selector 8, blended, no depth write) and the mesh is overlapping feather cards, so hidden cards painted over the body. Skinned-model textures now cut alpha at 50 % (depth-writing selector 1); verified in game on the Intro 1 close-up. Needs a regenerated pack. See [owl feathers](../journal/2026-11-09/ootf-intro-owl-feathers.md).
+
 **November 8 Intro graphics:** the Intro showed mirrored Surreal Software logos under the Psygnosis owl and "a Production"
 overlaid with its own mirror image. The PC culls back faces and the PS2 draws converted models from both sides; the title
 cards are single-sided planes and flattened boxes. In cinematic levels the converter now samples every played scene: polygons
