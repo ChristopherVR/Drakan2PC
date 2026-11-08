@@ -79,6 +79,9 @@ def extract(iso: Path, data: Path, template: str) -> None:
         ):  # own MOD / TXD of template ODBs that host models
             (data.parent / "hosts").mkdir(parents=True, exist_ok=True)
             (data.parent / "hosts" / n).write_bytes(read(f, files[p]))
+        if n in ("SYSTEM.MOD", "SYSTEM.ADB"):  # the player's rig and clips (ootf-convert.ts --player)
+            (data.parent / "player").mkdir(parents=True, exist_ok=True)
+            (data.parent / "player" / n).write_bytes(read(f, files[p]))
         if n.endswith(".ODB"):  # the ODB's .DB (dependency list) and its disc directory, for the converter's model refs
             db = p[: -len(".ODB")] + ".DB" if p.upper().endswith(".ODB") else None
             if db in files:
@@ -127,6 +130,7 @@ def main() -> int:
         or not (data / "PROCTEES.TXD").is_file()
         or not (data / "RESOURES.SDB").is_file()
         or not (data.parent / "hosts" / "LEVEL1ON.MOD").is_file()
+        or not (data.parent / "player" / "SYSTEM.ADB").is_file()
     ):
         extract(iso_path(a.iso), data, a.template)
     zip_path = mods / "ootf-levels.zip"

@@ -182,6 +182,15 @@ Surdana's colours). The converter now writes each level's own far textures (form
 Village, Wartok, Islands and Volcanic with HD on and off (Wartok before: 4,939). Needs a regenerated pack. See
 [pink terrain](../journal/2026-11-08/ootf-pink-textures.md).
 
+**November 8 Rynn in scenes:** in converted scenes Rynn slid in a standing pose, her drawn sword hung from her head through
+her neck, her boots sank below the ground while the scene expected a crouch, and her mouth never moved. The player's scene
+clips named ids of the converted PC Rynn's ADB instead of the PS2 Rynn's `SYSTEM.ADB`; they are now retargeted onto the PS2
+rig as new `SYSTEM.ADB` clips. Attach points and animation channels are skeleton channel indices and are now remapped by joint
+name (PC 4 `Rweapon` is PS2 21). Converted speech gets decoded-format 0x0305 lip-sync tracks and the player's speech the
+lip-sync bit 0x20. Verified in the Ruined Village opening (walk, stance, sword in hand, feet on the ground, lip controller
+bound in RAM); the jaw motion in a frame and a gameplay weapon draw were not captured. Needs a regenerated pack. See
+[Rynn in scenes](../journal/2026-11-08/ootf-rynn-scenes.md).
+
 ## What works
 
 * Converter `editor/scripts/ootf-convert.ts` (`--campaign 1` for the campaign): terrain, textures, models, creatures (skinned, retargeted

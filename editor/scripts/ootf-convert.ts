@@ -2,7 +2,7 @@
 //
 //   node --experimental-transform-types --no-warnings editor/scripts/ootf-convert.ts \
 //        --ootf <OotF install dir> --ps2 <dir with the extracted PS2 LEVEL*.LVL and *.ODB> \
-//        --template LEVEL1NA --out build/ootf-pack.zip [--id ootf-levels] [--prefix "OotF - "] [--splats <dir with LEVEL1TS.DB and .TXD, default --ps2>] [--campaign 1] [--cover <png>] [--previews <dir of <safe map name>.png>] [--background <png>] [--hd [--hd-out <textures dir>]] [--list] <pc level paths...>
+//        --template LEVEL1NA --out build/ootf-pack.zip [--id ootf-levels] [--prefix "OotF - "] [--splats <dir with LEVEL1TS.DB and .TXD, default --ps2>] [--campaign 1] [--cover <png>] [--previews <dir of <safe map name>.png>] [--background <png>] [--player <dir with SYSTEM.MOD and .ADB, default <ps2>/../player>] [--hd [--hd-out <textures dir>]] [--list] <pc level paths...>
 //
 // Level paths are relative to the install dir, e.g. "Multiplayer/Ground/Relic/Relic.lvl". Without paths every level.
 import { createHash } from 'node:crypto';
@@ -111,6 +111,16 @@ const hostFiles = new Map<string, { mod: SrscReader; txd: SrscReader }>();
     }
 }
 
+// The PS2 player's SYSTEM.MOD / SYSTEM.ADB (scripts/harness/ootf_level_run.py writes them to <ps2>/../player, --player <dir>): the PC
+// clips the converted scenes play on Rynn are retargeted onto its rig as new SYSTEM.ADB clips (OotfPs2Context.playerMod). Kept out of
+// --ps2 so the player is never name-mapped like a creature.
+const playerDir = opt['player'] ?? join(ps2, '..', 'player');
+const playerReader = async (name: string): Promise<SrscReader | undefined> =>
+    existsSync(join(playerDir, name)) ? SrscReader.fromBytes(new Uint8Array(readFileSync(join(playerDir, name)))) : undefined;
+const playerMod = await playerReader('SYSTEM.MOD');
+const playerAdb = await playerReader('SYSTEM.ADB');
+if (!playerMod || !playerAdb) console.warn(`warning: no SYSTEM.MOD / SYSTEM.ADB in ${playerDir}: Rynn plays no clips in converted scenes`);
+
 // The template's splat files (LEVEL1TS.DB / .TXD): needed beside every converted LVL (the game crashes without them).
 const splatDir = opt['splats'] ?? ps2;
 const splatStem = opt['splat-stem'] ?? `${tplName.slice(0, 6)}TS`;
@@ -130,7 +140,7 @@ const only = opt['only'] ? new Set(opt['only'].split(',')) : null; // stage swit
 const res = await convertOotfLevels(
     src,
     levels,
-    { template, odbs, ssds, dbFiles, hostMod: await optReader('RESOURES.MOD'), hostTxd: await optReader('RESOURES.TXD'), hostAdb: await optReader('RESOURES.ADB'), hostSdb: await optReader('RESOURES.SDB'), musicSdb: await optReader('PS2MUSIC.SDB'), mods: await optMap('MOD'), hostFiles, adbs: await optMap('ADB'), xdbFiles: readdirSync(ps2).some((f) => /\.XDB$/i.test(f)) ? new Set(readdirSync(ps2).filter((f) => /\.XDB$/i.test(f)).map((f) => f.toUpperCase())) : undefined, splatTxd: splats['TXD'], procTxd: existsSync(join(ps2, 'PROCTEES.TXD')) ? new Uint8Array(readFileSync(join(ps2, 'PROCTEES.TXD'))) : undefined },
+    { template, odbs, ssds, dbFiles, hostMod: await optReader('RESOURES.MOD'), hostTxd: await optReader('RESOURES.TXD'), hostAdb: await optReader('RESOURES.ADB'), hostSdb: await optReader('RESOURES.SDB'), playerMod, playerAdb, musicSdb: await optReader('PS2MUSIC.SDB'), mods: await optMap('MOD'), hostFiles, adbs: await optMap('ADB'), xdbFiles: readdirSync(ps2).some((f) => /\.XDB$/i.test(f)) ? new Set(readdirSync(ps2).filter((f) => /\.XDB$/i.test(f)).map((f) => f.toUpperCase())) : undefined, splatTxd: splats['TXD'], procTxd: existsSync(join(ps2, 'PROCTEES.TXD')) ? new Uint8Array(readFileSync(join(ps2, 'PROCTEES.TXD'))) : undefined },
     {
         name: (pc) => `${prefix}${pcLevelName(pc.header)}`,
         log: (m) => console.warn(m),

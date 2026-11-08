@@ -8,7 +8,8 @@ import {
 
 // The import dialog must build the same context as the in-game verified CLI (editor/scripts/ootf-convert.ts on the files
 // scripts/harness/ootf_level_run.py extracts). Reading every dependency instead changed the pack: SYSTEM hosted models in a
-// replaced System.mod, Rynn's SYSTEM.ADB clips were retargeted and FX classes got text ids without an FX.XDB.
+// replaced System.mod, Rynn's SYSTEM.ADB clips were retargeted and FX classes got text ids without an FX.XDB. SYSTEM.MOD / .ADB
+// only go to playerMod / playerAdb (new clips for Rynn's scenes, never overrides).
 
 /** Template ODBs whose own MOD / TXD may host converted models (OotfPs2Context.hostFiles). */
 const HOST_ODBS = new Set(['LEVEL1ON', 'WORLDCON', 'FX', 'MOUNTAON']);
@@ -43,6 +44,7 @@ export async function ootfDiscContext(
     let hostMod: SrscReader | undefined, hostTxd: SrscReader | undefined;
     let hostAdb: SrscReader | undefined, hostSdb: SrscReader | undefined;
     let musicSdb: SrscReader | undefined;
+    let playerMod: SrscReader | undefined, playerAdb: SrscReader | undefined;
     for (const dep of header.dependencies) {
         if (/_splats$/i.test(dep.path.text)) continue;
         const base = resolveDependencyStem(dir, dep.path.text).replace(/\\/g, '/');
@@ -78,6 +80,11 @@ export async function ootfDiscContext(
             hostAdb = readers.get('ADB');
             hostSdb = readers.get('SDB');
         }
+        if (name === 'SYSTEM') {
+            // The player's rig and clips: only the PC clips its scenes play are retargeted, as new SYSTEM.ADB clips.
+            playerMod = readers.get('MOD');
+            playerAdb = readers.get('ADB');
+        }
         if (name === 'PS2MUSIC') musicSdb = readers.get('SDB'); // the rendered OotF music gets free ids of it
     }
     return {
@@ -95,6 +102,8 @@ export async function ootfDiscContext(
             hostTxd,
             hostSdb,
             hostAdb,
+            playerMod,
+            playerAdb,
             musicSdb,
             splatTxd: splats['TXD'],
             procTxd: (await read('WORLDCON/PROCTEES/PROCTEES.TXD')) ?? undefined,

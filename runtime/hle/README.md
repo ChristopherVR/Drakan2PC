@@ -129,7 +129,7 @@ These replace the corresponding statements above / in `docs/reference/iop-and-io
    away and the loader thread answers later through 0x1302/0x1301. Running the end function after the batch deadlocks (a completion handler
    submits the next request through the still locked client). The host adapter queues the batch to one worker thread.
 8. Absent entries: the COMMON sets have no `.ssd` (`INTERFCE.SSD`, `SYSTEM.SSD`, ...; the per-level `LEVEL*.SSD` files DO exist, are found and parsed), and type 0x305 (the
-   **lip-sync track of a speech sample**: rate, 882-sample frames = 25/s, frame count, 4-bit mouth shapes) exists only for speech samples in SYSTEM / NPCS / level SDBs. The game
+   **lip-sync track of a speech sample**: rate, 882-sample step = 25/s, n, n u16 mouth openings; see docs/reference/sound-debug.md) exists only for speech samples in SYSTEM / NPCS / level SDBs. The game
    requests `0305/<id>` for samples of a set regardless (INTERFCE 26/32/71/77 ...); "not found" (-1) / completion status -1 is the real IOP's answer and the game continues
    (docs/reference/sound-debug.md section 2). The "missing sound" bug of 2026-10-17 was not in this layer (it was the SQRT.S translation).
 9. **0x1301 header word 0 = data offset.** For allocated destinations (flag 0x80) the IOP sets header word 0 to the 0x1303 reply word 2 (offset of the allocated

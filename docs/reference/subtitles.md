@@ -68,7 +68,7 @@ base = 2 + namelen
 +8  u32 sample rate (0x5622 = 22050)    +12 s32 detune   +20 f32 15.0 (dialogue) / 20.0 (sfx)   +28 u32 0x55
 +32 u16 text length (bytes incl. NUL padding), +34 text (cp1252, NUL padded)    (no text: u32 2 follows instead)
 ```
-The audio of the same resource id/sub is type 0x304 (SPU-ADPCM, 22050 Hz mono, `sub_adpcm_wav.py` decodes it), type 0x305 is the **lip-sync track** of a speech sample (25 entries/s of 4-bit mouth shapes, see `docs/reference/sound-debug.md`).
+The audio of the same resource id/sub is type 0x304 (SPU-ADPCM, 22050 Hz mono, `sub_adpcm_wav.py` decodes it), type 0x305 is the **lip-sync track** of a speech sample (25 u16 mouth openings per second, see `docs/reference/sound-debug.md`).
 Key: **resource (id, sub) of the sound == the line**; there is no separate dialogue table. Text per language lives in that language's SDB
 (`FRENCH\LEVELS\LEVEL1ON\LEVEL1ON.SDB` ...), so `language =` in drakan.ini switches subtitle language together with the voices (the German/French voices are different recordings).
 

@@ -50,8 +50,11 @@ screen** (rendered half-empty). All three work with the fix.
   also FRENCH/GERMAN/...; 13-100 KB; SRSC with types 0x310/0x311/0x312, names like "0.01 Intro Stomp", sound scripts of the level) and are opened and
   parsed when present (`LEVEL1ON.SSD` -> handle 36 srsc 1/63). They do not exist for the COMMON sets (INTERFCE, SYSTEM, FX, NPCS, RESOURES, SOUND, MAGIC,
   DEBUG, music, WORLDCON): the real IOP returns "not found" there too. Path mangling, language root and case are correct (all 8.3 keys resolve).
-  **Type 0x305** is the **lip-sync track** of a speech sample, not "sound-set" data: `u32 0, u32 rate (22050), u32 882 (= 22050/25: one entry per 1/25 s),
-  u32 frame count, u32 byte count, 4-bit mouth shapes`. It exists only for speech in SYSTEM.SDB (136), NPCS.SDB (392) and LEVEL SDBs (16 in LEVEL0RO).
+  **Type 0x305** is the **lip-sync track** of a speech sample, not "sound-set" data: `u32 0 (raw; non-zero = compressed), u32 rate (22050),
+  u32 step (882 = rate / 25), u32 95 (skipped), u32 n, then n u16 mouth openings` (20 + 2n bytes; 25000 = the class's `Max Jaw Angle`).
+  Each value is the peak |sample| of the first half of its 1/25 s frame (loader `FUN_001b3f60`, jaw tick `FUN_00404e08`, lip bit 0x20 of
+  a sequence sound action; full decode in `docs/journal/2026-11-08/ootf-rynn-scenes.md`). Earlier notes called it "4-bit mouth shapes"; that was wrong.
+  It exists only for speech in SYSTEM.SDB (136), NPCS.SDB (392) and LEVEL SDBs (16 in LEVEL0RO).
   The game requests `0305/<id>` for every sample of a set (INTERFCE 26/32/71/77 ...) and treats -1 as "no lip sync". Reporting them as success was not needed.
 * **SPU2**: key-on of short one-shots, voice allocation (48 voices: the game takes them from the top, core1 v23 first; the free list is intact, priority
   stealing works), ADSR (`1e0f/1fdf` for every sound), sample upload addresses (the game's allocator, no overlap with the streaming buffers found), loop /
