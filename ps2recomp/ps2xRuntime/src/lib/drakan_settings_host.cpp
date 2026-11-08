@@ -2267,6 +2267,7 @@ void titleDraw(const dsettings::SettingsOverlay::ScreenFrame& f, bool background
         cfg.screen.measure = tu.renderer.measure();
         cfg.pcSettingsPages = cfg.unifiedOptions = g_pcs != nullptr && !debugNoPages;
         cfg.showMultiplayer = drakan_netplay::wanted();
+        cfg.showSwitchCampaigns = true; // shown only while more than one game is installed
         cfg.showCoop = cfg.showMultiplayer; // New Game asks Solo / Co-op (Co-op is not in the Multiplayer menu)
         return cfg;
     };
@@ -2438,6 +2439,44 @@ void titleDraw(const dsettings::SettingsOverlay::ScreenFrame& f, bool background
         dsettings::drawMenuCursor(in.pointerX, in.pointerY, std::clamp(f.h / 1080.0f, 0.62f, 3.0f));
 }
 
+// The Original title menu is the game's own page: with several games installed the host draws a Switch Campaigns button
+// over it (mouse click, G or the pad's Back button). It only sets a request; the EE glue (drakan_menu_screens.inl
+// titleTick) brings the plain game list back, the same path as at start-up. It takes no input from the game.
+bool switchButtonShown() {
+    return drakan_menu_screens::shared().switchShown.load();
+}
+void switchButtonDraw(const dsettings::SettingsOverlay::ScreenFrame& f) {
+    auto& sh = drakan_menu_screens::shared();
+    TabUi& tu = g_tabUi;
+    tu.renderer.setFonts(*f.fonts);
+    tu.renderer.setSkin(f.skin);
+    const gameui::Viewport vp{0, 0, f.w, f.h};
+    const gameui::Rect r = gameui::TitleScreen::switchButtonRect(vp);
+    const ImVec2 mp = ImGui::GetIO().MousePos;
+    const bool hover = ImGui::IsMousePosValid(&mp) && r.contains(mp.x, mp.y);
+    static bool gHeld = false;
+    const bool gDown = drakan_win::focused() && drakan_win::keyDown('G');
+    const bool key = gDown && !gHeld;
+    gHeld = gDown;
+    if ((hover && ImGui::IsMouseClicked(ImGuiMouseButton_Left)) || key ||
+        ImGui::IsKeyPressed(ImGuiKey_GamepadBack, false))
+        sh.switchRequest.store(true);
+    { // Test aid: DRAKAN_DEBUG_SWITCH_CLICK=<seconds> presses the button once when the log clock passes it.
+        static const double at = [] {
+            const char* e = std::getenv("DRAKAN_DEBUG_SWITCH_CLICK");
+            return e ? std::atof(e) : -1.0;
+        }();
+        static bool done = false;
+        if (at >= 0 && !done && drakan_menu_screens::clockSeconds() >= at) {
+            done = true;
+            sh.switchRequest.store(true);
+        }
+    }
+    gameui::ScreenConfig cfg;
+    cfg.measure = tu.renderer.measure();
+    drawHostList(f, gameui::TitleScreen::drawSwitchButton(vp, hover, cfg), ImGui::GetTime(), 1.0f, {});
+}
+
 struct SlotsUi {
     gameui::SaveLoadScreen screen;
     gameui::DrawList last;
@@ -2572,6 +2611,8 @@ void hostScreenDraw(const dsettings::SettingsOverlay::ScreenFrame& f) {
             }
         }
     }
+    if (switchButtonShown() && !titleShown() && !slotsShown() && !pauseShown())
+        switchButtonDraw(f);
     if (slotsShown()) {
         if (pauseShown())
             pauseDraw(f, true);
@@ -3042,7 +3083,7 @@ void overlayCallback(const gsr::OverlayContext& oc) {
             dsettings::SettingsOverlay::ScreenLayer tl;
             tl.active = []() {
                 return drakan_tab::shared().active.load() || g_tabUi.fade > 0.0f || pauseShown() || titleShown() ||
-                       slotsShown() || drakan_menu_screens::shared().quickOperation.load() != 0 || mpHudActive();
+                       switchButtonShown() || slotsShown() || drakan_menu_screens::shared().quickOperation.load() != 0 || mpHudActive();
             };
             tl.wantsInput = []() {
                 const auto& ms = drakan_menu_screens::shared();

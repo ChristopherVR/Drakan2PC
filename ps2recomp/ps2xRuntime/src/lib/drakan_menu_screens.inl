@@ -765,6 +765,8 @@ struct TitleGlue {
     // The title style is Original (the game's own menu) and the game card is up: only the plain game list is hosted,
     // the native title is restored as soon as a game is picked (titleExecute SelectGame).
     bool classic = false;
+    // The Switch Campaigns button of the native title asked for the plain game list although the game is pinned.
+    bool forceCard = false;
     int awayFrames = 0, frames = 0;
     std::optional<gameui::TitleAction> action;
     PauseGlue exec;    // the title actions' press / wait counters (pausePress)
@@ -1030,6 +1032,21 @@ void titleTick(const uint8_t* ram, RecompGuest& g) {
     if (g_title.screen && g_title.fallBack && id == titleId && active == g_title.screen &&
         drakan_menu_screens::titleModern() && drakan_tab::shared().layerReady.load())
         titleEnd("modern title chosen again");
+    { // Original title menu (the game's own page): a Switch Campaigns button over it when there is a game to switch to.
+        const bool shown = id == titleId && drakan_tab::shared().layerReady.load() && drakan_game::games().size() > 1 &&
+                           (g_title.screen ? g_title.fallBack : !drakan_menu_screens::titleModern());
+        sh.switchShown.store(shown);
+        if (sh.switchRequest.exchange(false) && shown) {
+            // The same path as the start-up card: the plain game list hosts the title again, picking a game goes
+            // through titleExecute SelectGame (drakan_game::select) and hands the native menu back.
+            menuLog("title: Switch Campaigns (Original menu)");
+            if (g_title.screen)
+                titleEnd("switch campaigns");
+            titleBegin(g, active, true);
+            g_title.forceCard = true;
+            sh.switchShown.store(false);
+        }
+    }
     if (!g_title.screen) {
         if (id == titleId && drakan_tab::shared().layerReady.load()) {
             if (drakan_menu_screens::titleModern())
@@ -1095,6 +1112,7 @@ void titleTick(const uint8_t* ram, RecompGuest& g) {
         }
         st.canQuit = drakan_menus::titleQuit();
         st.offerGames = drakan_game::offerChoice();
+        st.forceGameChoice = g_title.forceCard;
         st.classicGameChoice = g_title.classic;
         st.game = drakan_game::currentIndex();
         st.games.clear();

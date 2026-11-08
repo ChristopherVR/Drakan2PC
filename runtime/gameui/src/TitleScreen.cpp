@@ -70,6 +70,8 @@ std::string rowDescription(TitleRow r, bool enabled, const TitleState& st) {
             return menuText("Close the game.");
         case TitleRow::Multiplayer:
             return menuText("Host or join a match over the network.");
+        case TitleRow::SwitchCampaigns:
+            return menuText("Go back to Choose your game.");
         case TitleRow::QuitToDesktop:
         case TitleRow::Cancel:
         case TitleRow::NewGameSolo:
@@ -118,6 +120,8 @@ const char* titleRowId(TitleRow r) {
             return "mods_open";
         case TitleRow::ModsKeepOff:
             return "mods_keep_off";
+        case TitleRow::SwitchCampaigns:
+            return "switch_campaigns";
         default: // game rows
             break;
     }
@@ -140,6 +144,8 @@ const char* titleRowDefaultDescription(TitleRow r) {
             return menuText("Close the game.");
         case TitleRow::Multiplayer:
             return menuText("Host or join a match over the network.");
+        case TitleRow::SwitchCampaigns:
+            return menuText("Go back to Choose your game.");
         default:
             return nullptr;
     }
@@ -185,6 +191,8 @@ const char* titleRowDefaultLabel(TitleRow r) {
             return menuText("Open Mods menu");
         case TitleRow::ModsKeepOff:
             return menuText("Keep them off");
+        case TitleRow::SwitchCampaigns:
+            return menuText("Switch Campaigns");
     }
     return "";
 }
@@ -268,6 +276,9 @@ Rect gameRow(int i) {
 }
 Rect classicHeading() {
     return {460, 330, 1000, 80};
+}
+Rect switchButton() {
+    return {1480, 40, 344, 56};
 }
 Rect classicRow(int i) {
     return {560, 430 + static_cast<float>(i) * 62, 800, 56};
@@ -395,6 +406,8 @@ std::vector<TitleRow> TitleScreen::rowsOf(TitlePage page, const TitleState& st) 
     r.insert(r.end(), {TitleRow::Options, TitleRow::Credits});
     if (cfg_.showPcSettings && !cfg_.unifiedOptions) // one Options screen: PC Settings is inside it
         r.push_back(TitleRow::PcSettings);
+    if (cfg_.showSwitchCampaigns && st.games.size() > 1)
+        r.push_back(TitleRow::SwitchCampaigns);
     if (st.canQuit)
         r.push_back(TitleRow::Quit);
     return applyRowOrder("title.main", std::move(r), [](TitleRow x) { return titleRowId(x); }); // skin order / hidden
@@ -533,6 +546,12 @@ void TitleScreen::activate(TitleRow r, const TitleState& st, TitleFrameOutput& o
                                     // scope)
             page_ = TitlePage::Multiplayer;
             mpScreen_.open(st.multiplayer, mp::MpScope::Coop);
+            out.sound = UiSound::Confirm;
+            break;
+        case TitleRow::SwitchCampaigns: // the same card the start-up path opens; picking a game goes through SelectGame
+            mainFocus_ = focus_;
+            page_ = TitlePage::GameChoice;
+            focus_ = {TargetKind::CardButton, static_cast<int>(gameRowOf(std::clamp(st.game, 0, gameCount(st) - 1)))};
             out.sound = UiSound::Confirm;
             break;
         case TitleRow::GameDrakan:
@@ -729,7 +748,7 @@ TitleFrameOutput TitleScreen::frame(const TitleState& st, const UiInput& in, con
         page_ = TitlePage::ModsNotice;
         focus_ = {TargetKind::CardButton, static_cast<int>(TitleRow::ModsEnable)};
     }
-    if (st.offerGames && !gameAsked_ && page_ == TitlePage::Main && !loading_) {
+    if ((st.offerGames || st.forceGameChoice) && !gameAsked_ && page_ == TitlePage::Main && !loading_) {
         gameAsked_ = true;
         page_ = TitlePage::GameChoice;
         focus_ = {TargetKind::CardButton, static_cast<int>(gameRowOf(std::clamp(st.game, 0, gameCount(st) - 1)))};
@@ -941,6 +960,18 @@ void TitleScreen::drawClassicGameChoice(const TitleState& st, DrawList& d) const
     if (first + design::title::kGameRowsShown < n)
         p.text(d, {560, 430 + design::title::kGameRowsShown * 62.0f, 800, 24}, menuText("More below"), FontRole::Small,
                th.textMuted, TextAlign::Center);
+}
+
+Rect TitleScreen::switchButtonRect(const Viewport& vp) {
+    return computeFrame(vp).map(design::title::switchButton());
+}
+
+DrawList TitleScreen::drawSwitchButton(const Viewport& vp, bool hover, const ScreenConfig& cfg) {
+    DrawList d;
+    const LayoutFrame lf = computeFrame(vp);
+    const detail::Paint p(lf, cfg);
+    p.button(d, design::title::switchButton(), menuText("Switch Campaigns"), hover, hover, true);
+    return d;
 }
 
 void TitleScreen::drawModsNotice(const TitleState& st, DrawList& d) const {

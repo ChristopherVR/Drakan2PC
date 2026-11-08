@@ -528,6 +528,14 @@ What the runtime does with it (`drakan_game.cpp`):
   seven games scroll). The main menu (New Game, Load Game, Continue, Multiplayer, Options ...) then runs for the chosen game;
   the footer names it. Code: `gameui::TitleState::games`, `TitlePage::GameChoice`, `TitleActionKind::SelectGame` (value =
   card index), `drakan_game::select(index)`.
+* **Switch Campaigns**: with more than one game installed the main menu has a "Switch Campaigns" button that returns to
+  Choose your game without restarting (the same `SelectGame` / `drakan_game::select` path as at start-up, so the pack redirect,
+  memory card folder, menu skin, title art and title music follow; Continue / Load Game rescan the other game's saves). Modern:
+  a row before Quit (`TitleRow::SwitchCampaigns`, `TitleConfig::showSwitchCampaigns`). Original (the game's own page, which
+  the host does not draw): a small button in the top right corner over the native title, pressed with the mouse, G or the
+  pad's Back button; it works even when `game` is pinned (`TitleState::forceGameChoice`; `Shared::switchShown` /
+  `switchRequest`, `drakan_menu_screens.inl` titleTick). The label and its tooltip are in the `MenuText` tables (five
+  languages). Test aid: `DRAKAN_DEBUG_SWITCH_CLICK=<seconds>` presses the Original button once.
 * **Title art**: the native art carries the Drakan 2 logo, so while a campaign is chosen the menu draws a text plaque over
   it: "DRAKAN" and the part of `campaign_name` after "Drakan: " (Order of the Flame), or the campaign's title over "A Drakan
   campaign". A pack-supplied title image is not implemented. Drakan 2 keeps the native art.

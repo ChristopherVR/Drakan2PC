@@ -204,6 +204,9 @@ struct Shared {
     std::atomic<bool> titleCovered{false}; // the modern Save / Load screen is on top (it draws instead)
     std::atomic<uint32_t> titleSession{0}, titleReactivated{0};
     std::atomic<uint64_t> titleDrawn{0};
+    // Original title menu with more than one game installed: the native title is up and the host draws a Switch Campaigns
+    // button over it (EE writes `switchShown`, the overlay sets `switchRequest` when it is pressed).
+    std::atomic<bool> switchShown{false}, switchRequest{false};
     gameui::TitleActionQueue titleActions;
     gameui::PauseActionQueue titleOptionActions; // the embedded Options pages (pause stage 2 executor)
     // ---- save / load (screens 4 / 5) ----

@@ -47,6 +47,9 @@ enum class TitleRow : uint8_t {
     ModsEnable = 240, // turn the new packs on and restart the game
     ModsOpen,         // open the Mods page of the PC settings
     ModsKeepOff,      // keep them off (a decision: not asked again)
+    // Main page, shown when TitleConfig::showSwitchCampaigns is set and more than one game is installed: back to the
+    // Choose your game card without restarting.
+    SwitchCampaigns,
 };
 // Label shown (the skin's `title.row.<id>` when set, else the default), stable id, default label / description.
 const char* titleRowLabel(TitleRow r);
@@ -121,6 +124,9 @@ struct TitleState {
         ImageRef background;
     };
     bool offerGames = false;
+    // The Original menu style: the player pressed Switch Campaigns on the native title, so the plain game list opens
+    // even though [general] game is pinned (offerGames is false then).
+    bool forceGameChoice = false;
     // The game's own (native) title menu is the title style: the game card is drawn in the original menus' plain
     // style (a heading and a list of names over the native art, no panels or covers) and picking a game, or Back, hands
     // the screen to the native title (the host glue restores it after the SelectGame action).
@@ -159,6 +165,7 @@ struct TitleConfig {
     bool showContinue = true;     // a Continue row when TitleState::continueSlot is set
     bool showPcSettings = true;   // a PC Settings row on the main page
     bool showMultiplayer = false; // a Multiplayer row (after New Game); the host glue turns it on
+    bool showSwitchCampaigns = false; // a Switch Campaigns row (before Quit) while TitleState::games has several games
     bool showCoop = false; // New Game asks Solo / Co-op first (Co-op is played on the campaign, not in Multiplayer)
     uint32_t suspendFrames = 240; // input ignored after an action that leaves the menu, until reactivate()
     int32_t sliderStep = 5;       // Options pages (PauseConfig)
@@ -198,6 +205,10 @@ public:
     bool suspended() const { return suspendLeft_ > 0 || options_.suspended(); }
 
     TitleFrameOutput frame(const TitleState& st, const UiInput& in, const Viewport& vp);
+    // The Original style's Switch Campaigns button, drawn over the native title: hover/pressed state in, the draw list
+    // out. Hit test with switchButtonRect(). Sizes follow the viewport like the modern screens.
+    static Rect switchButtonRect(const Viewport& vp);
+    static DrawList drawSwitchButton(const Viewport& vp, bool hover, const ScreenConfig& cfg);
 
     TitlePage page() const { return page_; }
     // Do not open the game card by itself on this visit (the host rebuilt the screen after a game switch).
@@ -275,6 +286,9 @@ Rect gameDescription();
 // The classic (original style) game list: a heading and plain rows centred on the screen.
 Rect classicHeading();
 Rect classicRow(int i); // i = visible position 0..kGameRowsShown-1
+// The Switch Campaigns button the Original menu style gets over the game's own title menu (bottom left, clear of the
+// native menu column and the copyright lines).
+Rect switchButton();
 // The new mod packs card: a wider confirm card with a few lines of text and three buttons.
 Rect modsCard();
 Rect modsRow(int i);

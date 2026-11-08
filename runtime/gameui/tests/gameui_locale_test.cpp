@@ -188,6 +188,8 @@ int main() {
     { // the game card: every string is translated in all five languages; a pack's own text stays as authored
         const char* const cardKeys[] = {
             "Choose your game",
+            "Switch Campaigns",
+            "Go back to Choose your game.",
             "Each game keeps its own saves.",
             "Playing",
             "More above",

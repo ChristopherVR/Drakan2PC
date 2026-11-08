@@ -2,6 +2,7 @@
 // (TitleScreen) and PauseScreen's embedded Options mode (PauseConfig::rootPage). Synthetic data only.
 #include <cmath>
 #include <cstdio>
+#include <algorithm>
 #include <cstring>
 #include <string>
 #include <vector>
@@ -757,6 +758,59 @@ void testTitleClassicGameChoice() {
     CHECK(o.actions.size() == 1 && o.actions[0].value == 2);
 }
 
+// Switch Campaigns: a main page row (only with several games and the config on) that opens the Choose your game card
+// again; picking a game goes through the same SelectGame action as at start-up.
+void testTitleSwitchCampaigns() {
+    TitleState st = titleState();
+    st.game = 1;
+    TitleConfig on;
+    on.showSwitchCampaigns = true;
+    TitleScreen off; // config off: no row
+    off.open();
+    off.frame(st, {}, kVp);
+    const std::vector<TitleRow> offRows = off.rows(st);
+    CHECK(std::find(offRows.begin(), offRows.end(), TitleRow::SwitchCampaigns) == offRows.end());
+    TitleState single = st;
+    single.games.resize(1);
+    TitleScreen one(on); // one game: no row
+    one.open();
+    one.frame(single, {}, kVp);
+    const std::vector<TitleRow> oneRows = one.rows(single);
+    CHECK(std::find(oneRows.begin(), oneRows.end(), TitleRow::SwitchCampaigns) == oneRows.end());
+    TitleScreen scr(on);
+    scr.open();
+    TitleFrameOutput o = scr.frame(st, {}, kVp);
+    CHECK(scr.page() == TitlePage::Main && hasText(o.draw, "Switch Campaigns"));
+    const std::vector<TitleRow> rs = scr.rows(st);
+    CHECK(!rs.empty() && rs.back() == TitleRow::Quit && rs[rs.size() - 2] == TitleRow::SwitchCampaigns);
+    while (!titleFocused(scr, TitleRow::SwitchCampaigns))
+        scr.frame(st, keys({UiKey::Down}), kVp);
+    o = scr.frame(st, keys({UiKey::Confirm}), kVp);
+    CHECK(scr.page() == TitlePage::GameChoice && o.actions.empty() && hasText(o.draw, "Choose your game"));
+    CHECK(scr.focus() == (TargetId{TargetKind::CardButton, static_cast<int>(TitleRow::GameOotf)})); // the current game
+    o = scr.frame(st, keys({UiKey::Up, UiKey::Confirm}), kVp);
+    CHECK(scr.page() == TitlePage::Main && o.actions.size() == 1);
+    CHECK(o.actions[0].kind == TitleActionKind::SelectGame && o.actions[0].value == 0);
+    // Esc on the card keeps the game and returns to the main page.
+    while (!titleFocused(scr, TitleRow::SwitchCampaigns))
+        scr.frame(st, keys({UiKey::Down}), kVp);
+    scr.frame(st, keys({UiKey::Confirm}), kVp);
+    o = scr.frame(st, keys({UiKey::Back}), kVp);
+    CHECK(scr.page() == TitlePage::Main && o.actions.empty());
+    // The Original style's button: hit rect inside the viewport, drawn with the label.
+    const Rect r = TitleScreen::switchButtonRect(kVp);
+    CHECK(r.w > 0 && r.x >= 0 && r.right() <= kVp.w);
+    CHECK(hasText(TitleScreen::drawSwitchButton(kVp, false, ScreenConfig{}), "Switch Campaigns"));
+    // forceGameChoice opens the card although the game is pinned (offerGames false).
+    TitleState forced = st;
+    forced.forceGameChoice = true;
+    forced.classicGameChoice = true;
+    TitleScreen fc;
+    fc.open();
+    fc.frame(forced, {}, kVp);
+    CHECK(fc.page() == TitlePage::GameChoice);
+}
+
 // Game choice (drakan_game): the card opens first when a campaign pack is installed, and again after Back on the main
 // page.
 void testTitleGameChoice() {
@@ -1316,6 +1370,7 @@ int main() {
     testTitleRows();
     testTitleActions();
     testTitleGameChoice();
+    testTitleSwitchCampaigns();
     testTitleClassicGameChoice();
     testTitleModernGameCardNoBackground();
     testTitleOptions();
