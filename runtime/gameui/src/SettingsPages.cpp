@@ -1760,7 +1760,9 @@ void SettingsPages::drawHelp(DrawList& d) const {
         }
         if (picRow->kind == SettingKind::Slider)
             shotState.number = shownSlider(*picRow);
-        const uint32_t shot = picSec->details.empty() ? settingShotId(*picRow, shotState) : 0;
+        // The previous picture stays up while this value's capture is still being decoded (never an empty flash).
+        const uint32_t shot =
+            picSec->details.empty() ? settingShotToDraw(settingShotId(*picRow, shotState), shownShot_) : 0;
         if (shot)
             previewH = w * 9.0f / 16.0f; // the captures are 16:9 pictures of the game
         const Rect box{x, y, w, previewH};

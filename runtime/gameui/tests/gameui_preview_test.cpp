@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cstdio>
 #include <string>
+#include <vector>
 
 #include <cstdlib>
 #include <filesystem>
@@ -119,6 +120,57 @@ void testHelpPanelShowsPreview() {
     setSettingShotResolver({});
 }
 
+uint32_t shownShot(const DrawList& d) {
+    for (const DrawCmd& c : d.commands())
+        if (c.kind == DrawKind::Image && c.image.kind == ImageKind::LevelPreview)
+            return c.image.index;
+    return 0;
+}
+
+// A capture that the host has not decoded yet must not blank the box: the last ready picture stays up until the new
+// one is ready, and a picture that was ready once is drawn again at once (no reload, no flash).
+void testPreviewKeepsLastReadyPicture() {
+    uint32_t pick = 0;
+    CHECK(settingShotToDraw(0, pick) == 0 && pick == 0);
+    std::vector<uint32_t> ready;
+    setSettingShotReady([&ready](uint32_t id) { return std::find(ready.begin(), ready.end(), id) != ready.end(); });
+    CHECK(settingShotToDraw(5, pick) == 5 && pick == 0); // nothing ready yet: the wanted one (an empty box)
+    ready.push_back(5);
+    CHECK(settingShotToDraw(5, pick) == 5 && pick == 5);
+    CHECK(settingShotToDraw(6, pick) == 5 && pick == 5); // 6 decoding: 5 stays
+    ready.push_back(6);
+    CHECK(settingShotToDraw(6, pick) == 6 && pick == 6);
+    CHECK(settingShotToDraw(5, pick) == 5 && pick == 5); // back to a decoded one: immediately
+
+    // Through the help panel: toggling HD textures switches on -> off while "off" is still decoding.
+    Pages p;
+    p.pg.open("display");
+    SettingsFrameOutput o = p.frame(UiKey::Down, false);
+    for (int i = 0; i < 20 && p.pg.focusedKey() != "video.hd_textures"; ++i)
+        o = p.frame(UiKey::Down, true);
+    CHECK(p.pg.focusedKey() == "video.hd_textures");
+    setSettingShotResolver([](const std::string& key, const std::string& value) -> uint32_t {
+        return key == "video.hd_textures" ? (value == "on" ? 0x10u : 0x20u) : 0u;
+    });
+    ready = {0x10u, 0x20u};
+    o = p.frame(UiKey::Down, false);
+    const uint32_t first = shownShot(o.draw);
+    CHECK(first == 0x10u || first == 0x20u);
+    const uint32_t second = first == 0x10u ? 0x20u : 0x10u;
+    ready = {first}; // the other value's capture is not decoded yet
+    o = p.frame(UiKey::Right, true);
+    CHECK(shownShot(o.draw) == first);
+    for (int i = 0; i < 5; ++i) {
+        o = p.frame(UiKey::Right, false);
+        CHECK(shownShot(o.draw) == first); // every frame: no empty flash in between
+    }
+    ready.push_back(second);
+    o = p.frame(UiKey::Right, false);
+    CHECK(shownShot(o.draw) == second);
+    setSettingShotResolver({});
+    setSettingShotReady({});
+}
+
 void testModPackSection() {
     Pages p;
     SettingPage mods;
@@ -198,6 +250,7 @@ int main() {
         dumpFrames(dir);
     testPictureKeys();
     testHelpPanelShowsPreview();
+    testPreviewKeepsLastReadyPicture();
     testModPackSection();
     std::printf("%d checks, %d failed\n", checks, failures);
     return failures ? 1 : 0;

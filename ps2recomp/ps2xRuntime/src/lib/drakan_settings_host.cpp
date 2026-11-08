@@ -2987,6 +2987,12 @@ void overlayCallback(const gsr::OverlayContext& oc) {
         // The modern PC Settings pages share the overlay's host and store (the F1 overlay stays as it is).
         gameui::setSettingShotResolver(
             [](const std::string& key, const std::string& value) { return settingShotPicture(key, value); });
+        // Settled = uploaded, or its decode finished without a texture (a bad file shows the empty box, not the
+        // previous value's picture). Until then the help panel keeps the last picture up (no blank flash).
+        gameui::setSettingShotReady([](uint32_t id) {
+            const auto it = g_mapPreviews.find(id);
+            return it != g_mapPreviews.end() && (it->second.tex || !it->second.decode.valid());
+        });
         g_pcs = std::make_unique<dsettings::ModernSettings>(g_host, g_overlay->store());
         g_pcs->open();
         { // the host screens: the modern Tab screen, the I strip, the M map panel, the modern pause menu

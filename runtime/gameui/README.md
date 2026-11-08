@@ -283,7 +283,10 @@ the like show plain help. The picture is a **real screenshot of the game** with 
 (`previews/settings/<row key>/<value>.png` next to the exe, 16:9, written on the player's machine by
 `scripts/harness/setting_shots.py` through the overlay's real Apply path; never committed, kept across builds). The host
 installs `setSettingShotResolver` (key, shown value -> an `ImageKind::LevelPreview` id; a slider takes the nearest
-captured number). Without a capture a visual setting falls back to a small drawn illustration (`kEntries`). A **mod pack section** (`SettingSection::details`) shows
+captured number) and `setSettingShotReady` (id -> decoded and uploaded, or its decode settled). The PNGs decode on a
+worker, so a value's picture is not drawable on the frame it is first asked for: the panel keeps the last ready picture
+up until the new one is ready (`settingShotToDraw`), never an empty box in between, and a picture decoded once stays
+cached (`g_mapPreviews`) and is shown again at once. Without a capture a visual setting shows plain help. A **mod pack section** (`SettingSection::details`) shows
 the pack's cover (`SettingSection::picture`, an `ImageKind::LevelPreview` id; "No preview picture" when 0), its name as
 the title, its facts (`details`) and what to do next (`hint`). The glue resolves the picture (`IconSource`, pause and
 title hosts).

@@ -180,6 +180,9 @@ private:
     bool returnOnBack_ = false; // opened straight onto a page: Back from it leaves (wantsClose)
     std::vector<Held> held_;
     double now_ = 0;
+    // The help panel's last setting picture that was ready to draw: it stays up while the next one is still being
+    // decoded by the host (settingShotReady), so changing the value or the row never blanks the picture.
+    mutable uint32_t shownShot_ = 0;
 
     std::string choiceKey_;
     int choiceScroll_ = 0;

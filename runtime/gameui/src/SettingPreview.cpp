@@ -7,6 +7,7 @@ namespace gameui {
 
 namespace {
 SettingShotResolver g_shotResolver;
+SettingShotReady g_shotReady;
 
 // The settings with pictures (scripts/harness/setting_shots.py PLAN).
 const char* const kKeys[] = {
@@ -43,6 +44,24 @@ bool hasSettingPreview(const std::string& key) {
 
 uint32_t settingShotId(const SettingRow& row, const PreviewState& st) {
     return g_shotResolver && hasSettingPreview(row.key) ? g_shotResolver(row.key, settingShotValue(row, st)) : 0;
+}
+
+void setSettingShotReady(SettingShotReady ready) {
+    g_shotReady = std::move(ready);
+}
+
+bool settingShotReady(uint32_t id) {
+    return id != 0 && (!g_shotReady || g_shotReady(id));
+}
+
+uint32_t settingShotToDraw(uint32_t wanted, uint32_t& shown) {
+    if (!wanted)
+        return 0;
+    if (settingShotReady(wanted)) {
+        shown = wanted;
+        return wanted;
+    }
+    return settingShotReady(shown) ? shown : wanted;
 }
 
 } // namespace gameui

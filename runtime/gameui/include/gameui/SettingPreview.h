@@ -30,4 +30,14 @@ uint32_t settingShotId(const SettingRow& row, const PreviewState& st);
 // True when `key` is a setting that has pictures (the ones setting_shots.py makes).
 bool hasSettingPreview(const std::string& key);
 
+// Whether the host can draw picture `id` this frame (its PNG decoded and uploaded). A picture that is not ready yet
+// is not drawn: the help panel keeps the last ready one up until it is, so a value or row change never blanks the
+// box. Without a callback every picture counts as ready.
+using SettingShotReady = std::function<bool(uint32_t id)>;
+void setSettingShotReady(SettingShotReady ready);
+bool settingShotReady(uint32_t id);
+// The picture the help panel draws: `wanted` when it is ready, else `shown` (the last one drawn) while that one is
+// still ready, else `wanted` (an empty box until it arrives). `shown` is updated to the picture drawn when ready.
+uint32_t settingShotToDraw(uint32_t wanted, uint32_t& shown);
+
 } // namespace gameui
