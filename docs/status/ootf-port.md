@@ -175,6 +175,12 @@ regions now change the music inside a level: each becomes Trigger Detector halve
 stops) switching one Triggered Music Loop per music id, verified in Ruined Village
 ([level music triggers](../journal/2026-11-08/ootf-level-music-triggers.md)).
 
+**November 9 intro music:** "Psygnosis Presents" is the engine-rendered Intro 1 scene (the install has no movie file), nothing
+new found in it. The title menu played the Drakan 2 SeaHigh GUI track instead of the OotF theme with `game = d1`: the runtime
+refused the title redirect because the guest requests descriptors with length 0xFFFFFFFF (fixed in the executable). Still open:
+Ruined Village scene 381's cue 6 plays over the level's loop 8 (a sequence stop or message does not stop a Triggered Music Loop).
+See [intro music](../journal/2026-11-09/ootf-intro-music-and-title-redirect.md).
+
 **November 8 Drakan 2 characters and weapons:** Wartoks, orcs and the spider (already played by the disc classes) now keep
 the disc's own animations by default, and plain weapons (swords, maces, axes, hammers, clubs, the long bow, the arrow quiver)
 use the disc weapon model with their OotF damage (`--ps2-models 0`, `--enemy-animations ootf`, per pair in the editor's import
