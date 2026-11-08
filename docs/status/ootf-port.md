@@ -233,6 +233,15 @@ or adjust the covered area with a live preview. Ruined Village shows its parchme
 (Grotto, Grimstone Mines, Wartok Canyons) cannot open the map at the start. Markers: PC markers whose class is the generic "Map
 Trigger" carry only mission text bitmaps, so Ruined Village and Grotto have none. See [level map](../journal/2026-11-08/ootf-level-map.md).
 
+**November 8 Ruined Village props and ambush:** converted rigid models of drawn classes other than generic props
+(mechanisms, boulders, keys, locks, flames, items) had no strip display list and drew nothing while keeping their
+collision (the village waterfall rocks, Dragon Falls rocks, swing blades, temple floor and stairs: 103 models); every
+native model of those classes has one, so they now get it. A display-list model with a non-square texture also draws
+nothing: the cart by the small house was invisible, so its barrel and crate floated; such textures are written square
+(also the wreck carts, chests, ruined tables). The outhouse door, which the PC opens only with the trigger that shows its
+hidden orc, opened by PS2 proximity before him; ambush doors now keep Auto-Open off. Verified before / after in game. See
+[Ruined Village ambush and props](../journal/2026-11-08/ootf-ruined-village-ambush-props.md).
+
 ## What works
 
 **November 8 Intro graphics:** the Intro showed mirrored Surreal Software logos under the Psygnosis owl and "a Production"
