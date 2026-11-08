@@ -213,7 +213,9 @@ clips named ids of the converted PC Rynn's ADB instead of the PS2 Rynn's `SYSTEM
 rig as new `SYSTEM.ADB` clips. Attach points and animation channels are skeleton channel indices and are now remapped by joint
 name (PC 4 `Rweapon` is PS2 21). Converted speech gets decoded-format 0x0305 lip-sync tracks and the player's speech the
 lip-sync bit 0x20. Verified in the Ruined Village opening (walk, stance, sword in hand, feet on the ground, lip controller
-bound in RAM); the jaw motion in a frame and a gameplay weapon draw were not captured. Needs a regenerated pack. See
+bound in RAM). Follow-up: the Intro's Rynn prop is now the PS2 Rynn too, the scene sword keeps the PC grip (weapon joints
+keep the PC orientation in the retarget), lip tracks are scaled to the disc's speech level, and the jaw is seen opening and
+closing in captured close-ups; the in-game sword grip is correct. Needs a regenerated pack. See
 [Rynn in scenes](../journal/2026-11-08/ootf-rynn-scenes.md).
 
 **November 8 grunt poses:** killed Ruined Village grunts (PC orcs retargeted onto the PS2 Purple / Yellow Orc rig) stood back
@@ -245,8 +247,6 @@ nothing: the cart by the small house was invisible, so its barrel and crate floa
 hidden orc, opened by PS2 proximity before him; ambush doors now keep Auto-Open off. Verified before / after in game. See
 [Ruined Village ambush and props](../journal/2026-11-08/ootf-ruined-village-ambush-props.md).
 
-## What works
-
 **November 8 Intro graphics:** the Intro showed mirrored Surreal Software logos under the Psygnosis owl and "a Production"
 overlaid with its own mirror image. The PC culls back faces and the PS2 draws converted models from both sides; the title
 cards are single-sided planes and flattened boxes. In cinematic levels the converter now samples every played scene: polygons
@@ -254,6 +254,8 @@ the camera never sees from the front are left out, and models turned away from t
 while they are. Seen in game: Intro 1 shows only the owl, plate and "Presents", "Production" reads correctly, Intro 3 is
 unchanged. Model faders still pop instead of fading. Needs a regenerated pack. See
 [Intro graphics](../journal/2026-11-08/ootf-intro-graphics.md).
+
+## What works
 
 * Converter `editor/scripts/ootf-convert.ts` (`--campaign 1` for the campaign): terrain, textures, models, creatures (skinned, retargeted
   to PS2 rigs), classes, puzzles (plates, doors, counters), exits, texts, music, sounds. Release packs of 2026-11-02: campaign
@@ -293,7 +295,8 @@ unchanged. Model faders still pop instead of fading. Needs a regenerated pack. S
   water layers carry no chunk data). Hole vertices of water layers are kept under the water and the bank (they drew as sheets in
   the air). Mountain water uses Surdana Water, the Islands the plain Water material; waterfalls use the Drakan 2 Surdana falls
   texture. Verified swimming in the Ruined Village ocean; Islands and Wartok water seen from Arokh. See
-  [water](../journal/2026-11-08/ootf-water.md).
+  [water](../journal/2026-11-08/ootf-water.md). Every layer now lists the water layers within 96 cells in its `visible` list (the PC lists were made for a short draw
+  distance, so the Ruined Village sea ended in an edge against the sky); see [sea and sky](../journal/2026-11-09/ootf-sea-sky.md).
 * Drakan 2 with both packs installed still boots normally (choose Drakan; `Level 0 - Intro` then `Level 1A - Surdana`; no OotF leakage).
 
 ## Known gaps
