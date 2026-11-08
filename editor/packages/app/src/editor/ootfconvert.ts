@@ -10,6 +10,7 @@ import {
     parseLevelHeader,
     pcLevelName,
     type PcFileSource,
+    type LevelMapOverride,
     type Ps2TextureSwapOptions,
 } from '@drakan/formats';
 import { OOTF_DIALOG_OPTIONS, ootfDiscContext } from './ootfdisc.ts';
@@ -35,6 +36,8 @@ export interface ConvertRequest {
     previews?: Readonly<Record<string, Uint8Array>>;
     /** Drakan 2 textures in place of OotF ones (the dialog's "Drakan 2 textures" section; default the pipeline's: on). */
     ps2Textures?: Ps2TextureSwapOptions;
+    /** Map screen choices by lower-case PC level path (the dialog's "Map screen" section); levels not listed keep their own map. */
+    levelMaps?: Record<string, LevelMapOverride>;
 }
 
 export interface LevelSummary {
@@ -92,6 +95,7 @@ export async function runConversion(
         {
             ...OOTF_DIALOG_OPTIONS,
             ps2Textures: req.ps2Textures,
+            levelMaps: req.levelMaps,
             name: (pc) => `${req.prefix}${pcLevelName(pc.header)}`.slice(0, 60),
             log: progress,
         },

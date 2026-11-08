@@ -25,6 +25,7 @@ import { registerCommand } from './registry.ts';
 import { canWriteFolder, toastSaveResult, writePackToModsFolder } from '../modio.ts';
 import { downloadFile } from '../platform.ts';
 import { ps2TexturePanel, resultText as ps2TextureResult } from './ootfps2tex.ts';
+import { levelMapsPanel } from './ootfmaps.ts';
 
 type Call = <M extends Method>(method: M, ...args: Parameters<Api[M]>) => Promise<ReturnType<Api[M]>>;
 
@@ -316,6 +317,7 @@ function openDialog(host: OotfHost): void {
     const coverPicker = h('input', { type: 'file', accept: 'image/png' });
     const list = h('div', { class: 'od-list' });
     const ps2Tex = ps2TexturePanel();
+    const maps = levelMapsPanel(() => src);
     const out = h('div', {});
     const overview = h('canvas', {
         width: 480,
@@ -368,6 +370,7 @@ function openDialog(host: OotfHost): void {
             h('span', { class: 'od-dim' }, 'optional PNG, up to 8 MB: the campaign card cover and menu background'),
         ),
         ps2Tex.el,
+        maps.el,
         list,
         overview,
         overviewNote,
@@ -376,6 +379,10 @@ function openDialog(host: OotfHost): void {
 
     const refreshGo = (): void => {
         go.disabled = !src || !ps2.length || !rows.some((r) => r.box.checked);
+        maps.setLevels(
+            rows.filter((r) => r.box.checked).map((r) => ({ path: r.path, title: r.title })),
+            rows.map((r) => ({ path: r.path, title: r.title })),
+        );
     };
 
     picker.addEventListener('change', () => {
@@ -460,6 +467,7 @@ function openDialog(host: OotfHost): void {
                 profile: host.profile(),
                 cover,
                 ps2Textures: ps2Tex.options(),
+                levelMaps: maps.overrides(),
             },
             // the pristine disc: reading through the overlay would feed an earlier conversion's classes into this one
             (path) => host.call('readDiscFile', path),

@@ -194,9 +194,7 @@ clips named ids of the converted PC Rynn's ADB instead of the PS2 Rynn's `SYSTEM
 rig as new `SYSTEM.ADB` clips. Attach points and animation channels are skeleton channel indices and are now remapped by joint
 name (PC 4 `Rweapon` is PS2 21). Converted speech gets decoded-format 0x0305 lip-sync tracks and the player's speech the
 lip-sync bit 0x20. Verified in the Ruined Village opening (walk, stance, sword in hand, feet on the ground, lip controller
-bound in RAM). Follow-up: the Intro's Rynn prop is now the PS2 Rynn too, the scene sword keeps the PC grip (weapon joints
-keep the PC orientation in the retarget), lip tracks are scaled to the disc's speech level, and the jaw is seen opening and
-closing in captured close-ups; the in-game sword grip is correct. Needs a regenerated pack. See
+bound in RAM); the jaw motion in a frame and a gameplay weapon draw were not captured. Needs a regenerated pack. See
 [Rynn in scenes](../journal/2026-11-08/ootf-rynn-scenes.md).
 
 **November 8 grunt poses:** killed Ruined Village grunts (PC orcs retargeted onto the PS2 Purple / Yellow Orc rig) stood back
@@ -207,6 +205,14 @@ converted root tracks keep absolute positions. A grunt killed with the sword was
 checked offline only. Creatures placed dead in a level (a Ruined Village grunt, dead slaves) now lie in their death clip
 (seen in a frame). The spear grunt's arm hidden from behind matches the original Drakan 2 Purple Orc (the trident stance holds
 the left forearm in front of the body); no frame of an arm actually missing was found. Needs a regenerated pack. See [grunt poses](../journal/2026-11-08/ootf-grunt-pose-fixes.md).
+
+**November 8 level map:** the map screen of converted levels showed Surdana's picture (the converter never set the Level
+Properties `Map Object`) and no quest markers (PC markers have no coordinates; they were written as journal-only). Each campaign
+level now gets a Map class with its `Dragon.rrc` parchment (5 tiles joined to 640 x 480) and an estimated calibration, quest
+markers are placed from their world position (type 2), and the import dialog has a "Map screen" section to pick another picture
+or adjust the covered area with a live preview. Ruined Village shows its parchment with Rynn's arrow; levels that start mounted
+(Grotto, Grimstone Mines, Wartok Canyons) cannot open the map at the start. Markers: PC markers whose class is the generic "Map
+Trigger" carry only mission text bitmaps, so Ruined Village and Grotto have none. See [level map](../journal/2026-11-08/ootf-level-map.md).
 
 ## What works
 

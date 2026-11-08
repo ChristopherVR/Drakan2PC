@@ -897,3 +897,16 @@ Spells and the shop list. Square buys ("Buy this item?" box, text in INTERFCE.XD
 item price is a class-record override. `readVendor` / `writeStock` group repeated limited elements into one entry with a count and write
 infinite entries once, limited entries `count` times, as references the shop's own `.DB` list can name (an item of a database the shop class
 cannot reach is refused, not written wrongly). Test: `editor-core/test/vendor.test.ts`.
+
+## 17. The level map: `Map Object`, Map classes and quest markers (2026-11-08)
+
+The map screen of a level is data: the Level Properties object's `Map Object` (class ref, field 0x5a) names a **Map class** of the
+level's own ODB (LEVEL1ON: Surdana, Kragmor, Catacombs, City of the Damned). Fields: `Map Texture` (texture id of the level's TXD,
+a 256 x 256 picture; the screen shows it at 4:3), `Upper Left / Lower Right Level Corner X / Z (lu)` (world rectangle, 1 lu =
+one terrain cell = 2048 world units) and `Upper Left / Lower Right Map Corner X / Z (pixels)` (the part of the texture it covers).
+Rynn's red arrow is placed by that linear map; a quest marker is drawn at its quest class's `Map X / Y Coordinate` (texture
+pixels) when the class `Type` is 0 or 2. **[game]** a converted level with a new Map class (cloned, texture appended to
+LEVEL1ON.TXD, `Map Object` set) shows its own parchment with the arrow at the calibrated spot. Order of the Flame has no such
+class: its parchments are five 256 x 256 tiles of `Dragon.rrc` per level that join into 640 x 480, and the PC calibration is not
+in the data (the converter estimates it: terrain box over the lit part of the picture). See `ootfmap.ts` and
+`docs/journal/2026-11-08/ootf-level-map.md`.
