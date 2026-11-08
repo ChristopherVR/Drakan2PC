@@ -46,3 +46,18 @@ the start recipe (PASS).
 * Not reproduced exactly: the user's quicksave cannot load into a private pack (a play card with saves opens the load menu, and
   the save records the pack build), so shots use `place` near the church. The sheets still seen from mid-air at the church are
   PC pools with no bank; flattening or dropping those is not done.
+
+## Follow-up 2: the user's quicksave spot (church path)
+
+* Reproduced exactly: the user's slot 33 loads in a private copy with the installed pack (build 1a8d4afc503be6a1; the card slot copied
+  to slot 1 so the harness's autopress Continue picks it, `.mods` record untouched). The "after" run swaps only the terrain entry
+  (LVL type 1) of that pack's Ruined Village level for the new converter's (`writeSrsc`), so the save still restores (`fromSave=1 ok=1`)
+  and the camera is the user's. Images: `build/review/water/user_spot.png` (before left, after right).
+* The sheet belongs to the layers Temple Water 06 (origin cell 139,77; 9x7), 04 and 03 at height 11000. They are authored water
+  (cells touching the ground, W0 to W3 in the audit) on a ledge; the cells beyond the lip are holes over a drop of 6000 to 9000, so the
+  edge is the layer's own cell outline. The PC lists those layers from the church layers (`inPcVisible` true), so the PC draws the same
+  sheet. The sheet is not floating water from the converter: no per-cell visibility or depth test was found that the converter drops.
+* Tried: turning water-layer hole cells with a vertex over 512 above the ground into invisible cells; the picture did not change,
+  so those hole cells are not what draws there. Reverted.
+* After the fix the left horizon shows the sea (before: void) and a dark slab over the valley is gone; the sheet is larger because
+  the shore half cells are water now.
