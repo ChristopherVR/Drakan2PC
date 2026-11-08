@@ -1841,6 +1841,18 @@ static void testScriptDualWieldSetting() {
     CHECK(s.ev.dualWield == -1);
 }
 
+static void testScriptSetting() {
+    ScriptTest s("clock milliseconds\n100 setting video.fov 90\n100 setting video.ray_gi 1\n200 setting video.fov\n");
+    CHECK(!s.warnings.empty()); // a setting without a value is reported and skipped
+    s.step(1, 0, 1000);
+    CHECK(s.ev.settings.empty());
+    s.step(2, 0, 1100);
+    CHECK(s.ev.settings.size() == 2 && s.ev.settings[0].first == "video.fov" && s.ev.settings[0].second == "90");
+    CHECK(s.ev.settings[1].first == "video.ray_gi" && s.ev.settings[1].second == "1");
+    s.step(3, 0, 1300);
+    CHECK(s.ev.settings.empty());
+}
+
 static void testScriptScreenSync() {
     ScriptTest s("1 sync screen 5 2\n0 dump on5\n2 quit\n3 sync screen x\n");
     CHECK(!s.warnings.empty()); // the bad sync line is reported and skipped
@@ -3248,6 +3260,7 @@ int main() {
     testScriptLegacy();
     testScriptLoudParse();
     testScriptDualWieldSetting();
+    testScriptSetting();
     testScriptPlace();
     testScriptScreenSync();
     testScriptElapsed();

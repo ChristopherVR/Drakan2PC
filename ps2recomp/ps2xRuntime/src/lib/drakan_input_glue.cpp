@@ -871,6 +871,10 @@ void hookPadMgrUpdate(uint8_t* rdram, R5900Context* c, PS2Runtime* rt) {
             drakan_dual_wield::setEnabled(ev.dualWield != 0);
             ilog("[in] script dual_wield=%d\n", ev.dualWield);
         }
+        for (const auto& [key, value] : ev.settings) {
+            drakan_settings_host::harnessSetting(key, value);
+            ilog("[in] script setting %s=%s\n", key.c_str(), value.c_str());
+        }
         if (ev.menu != -2)
             g_menuForce = ev.menu;
         if (ev.logOn >= 0)

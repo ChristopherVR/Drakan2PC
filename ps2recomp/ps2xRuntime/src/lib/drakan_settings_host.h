@@ -66,6 +66,9 @@ void setGameChoice(const std::string& setting, bool fromEnv, bool offered, const
 // Thread safe: the title shows the "New mod packs" card in this run (settings/ModDiscovery.h). Sticky for the run, so
 // the modern title menu (which draws the card) stays the one in use.
 bool modsNoticeWanted();
+// Test aid (input script `setting <key> <value>`): change a setting at once, without the menu and without saving.
+// Thread safe; the present thread applies it on its next frame through the same path as the PC Settings pages.
+void harnessSetting(const std::string& key, const std::string& value);
 #else
 inline void attachRenderer(gsr::Renderer*, void*, const WindowOps&) {}
 inline void detachRenderer() {}
@@ -85,6 +88,7 @@ inline void setGameChoice(const std::string&, bool, bool, const std::vector<std:
 inline bool modsNoticeWanted() {
     return false;
 }
+inline void harnessSetting(const std::string&, const std::string&) {}
 #endif
 // Portable presentation-thread backend; no platform graphics types cross this
 // boundary. The source game frame remains available for the modern UI's crops.

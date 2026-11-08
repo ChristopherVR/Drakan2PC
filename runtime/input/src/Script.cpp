@@ -132,6 +132,15 @@ bool InputScript::parseLine(const std::string& line, int ln, Ev& e, std::string*
         e.kind = Ev::Menu;
         ss >> a;
         e.a = a == "on" ? 1 : a == "off" ? 0 : -1;
+    } else if (cmd == "setting") {
+        std::string value;
+        ss >> e.text >> value;
+        if (e.text.empty() || value.empty()) {
+            bad("setting <key> <value>");
+            return false;
+        }
+        e.kind = Ev::Setting;
+        e.text += " " + value; // "<key> <value>"
     } else if (cmd == "dual_wield") {
         ss >> a;
         if (a != "on" && a != "off") {
@@ -257,6 +266,11 @@ void InputScript::apply(const Ev& e, ScriptEvents& ev, int& wheel) {
         case Ev::Place:
             ev.places.push_back(e.place);
             break;
+        case Ev::Setting: {
+            const size_t sp = e.text.find(' ');
+            ev.settings.emplace_back(e.text.substr(0, sp), e.text.substr(sp + 1));
+            break;
+        }
     }
 }
 

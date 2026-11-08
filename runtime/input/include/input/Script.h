@@ -21,6 +21,9 @@
 //                                             (default 1; -1 = no screen); later frames are relative to that moment
 //   <frame> quit                              ask the integration to stop the process
 //   <frame> dual_wield on|off                 apply the live runtime setting (test only; does not save the INI)
+//   <frame> setting <key> <value>             change a PC setting at once, without opening the menu (test aid; the row
+//                                             key of the settings pages, e.g. video.fov 90 or video.ray_gi 1; nothing
+//                                             is saved to the INI)
 //   <frame> place  <x> <y> <z> [yaw]          ask the integration to move the controlled actor there (play test aid,
 //                                             same placement rules as DRAKAN_PLAYTEST_POS; yaw in radians)
 // `sync play <n>` still counts consecutive gameplay samples in either clock mode.
@@ -52,8 +55,9 @@ struct ScriptEvents {
     std::vector<ScriptPlace> places;
     std::vector<std::string> shots;
     bool quit = false;
-    int logOn = -1;     // -1 unchanged, 0 off, >0 = every N frames
-    int menu = -2;      // -2 unchanged, -1 auto, 0 gameplay, 1 menu
+    int logOn = -1;                                            // -1 unchanged, 0 off, >0 = every N frames
+    int menu = -2;                                             // -2 unchanged, -1 auto, 0 gameplay, 1 menu
+    std::vector<std::pair<std::string, std::string>> settings; // `setting <key> <value>`, in order
     int dualWield = -1; // -1 unchanged; live runtime setting, without changing the user's INI
 };
 
@@ -96,7 +100,8 @@ private:
             Sync,
             Quit,
             DualWield,
-            Place
+            Place,
+            Setting
         } kind = Key;
         int mode = 0; // 0 up, 1 down, 2 tap
         int code = 0;

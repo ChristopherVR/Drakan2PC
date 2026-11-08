@@ -1377,7 +1377,7 @@ uint32_t mapPreviewId(const std::string& mapName) {
 }
 
 // ---- real pictures of the settings (gameui/SettingPreview.h) ----
-// previews/settings/<row key>/<value>.png next to the exe: screenshots of this game with that value applied, written by
+// previews/settings/<row key>/<value>.webp next to the exe: screenshots of this game with that value applied, written by
 // scripts/harness/setting_shots.py on the player's machine (never committed). A value without its own file takes the
 // nearest numeric one (a slider between two captures); nothing at all means the help panel draws no real picture.
 std::set<uint32_t> g_settingShotIds; // picture ids that are stretched to the 16:9 box, not centre cropped
@@ -1402,7 +1402,7 @@ uint32_t settingShotPicture(const std::string& key, const std::string& value) {
         std::error_code ec;
         for (const auto& e :
              std::filesystem::directory_iterator(drakan_cfg::exeDir() + "previews/settings/" + key, ec)) {
-            if (e.path().extension() != ".png")
+            if (e.path().extension() != ".webp" && e.path().extension() != ".png") // WebP needs the decoder (gs_texup)
                 continue;
             Capture c;
             c.value = e.path().stem().string();
@@ -2890,8 +2890,31 @@ struct DrakanSettingsHost final : CommonSettingsHost {
 
 DrakanSettingsHost g_host;
 
+std::mutex g_harnessSettingsM;
+std::vector<std::pair<std::string, std::string>> g_harnessSettings;
+
+void drainHarnessSettings() {
+    std::vector<std::pair<std::string, std::string>> now;
+    {
+        std::lock_guard<std::mutex> l(g_harnessSettingsM);
+        now.swap(g_harnessSettings);
+    }
+    for (const auto& [key, value] : now) {
+        gameui::SettingsAction a;
+        a.kind = gameui::SettingsActionKind::Change;
+        a.key = key;
+        a.value = value;
+        a.final = false; // applied live, never written to the INI
+        const gameui::SettingsFeedback fb = g_pcs->apply(a);
+        std::fprintf(stderr, "[settings-harness] setting %s=%s %s%s\n", key.c_str(), value.c_str(),
+                     fb.ok ? "ok" : "error: ", fb.error.c_str());
+    }
+}
+
 void overlayCallback(const gsr::OverlayContext& oc) {
     drakan_fpsmeter::onPresent();
+    if (g_pcs)
+        drainHarnessSettings();
     if (!g_overlay) {
         if (g_overlayFailed)
             return;
@@ -3173,6 +3196,10 @@ void setGameChoice(const std::string& setting, bool fromEnv, bool offered, const
 }
 bool modsNoticeWanted() {
     return g_modsNotice.load();
+}
+void harnessSetting(const std::string& key, const std::string& value) {
+    std::lock_guard<std::mutex> l(g_harnessSettingsM);
+    g_harnessSettings.emplace_back(key, value);
 }
 void setArtSource(hle::IsoFs* fs) {
     std::lock_guard<std::mutex> l(g_artM);
