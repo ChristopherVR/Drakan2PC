@@ -26,9 +26,10 @@ struct HudLayer {
     std::function<void(const HudView&)> draw;
 };
 
-// Draw order, bottom to top. Stats, Subtitles and Notice are also drawn while a settings menu is open; Overlay layers
-// (crosshair, debug menu, cursor) are not. Notice = a short message to the player (a refused quick load).
-enum class HudSlot { Stats, Subtitles, Notice, Crosshair, DebugMenu, Cursor, Count };
+// Draw order, bottom to top. Movie = a full-output cover (the pre-rendered opening, drakan_intro_movie.h). Stats,
+// Subtitles and Notice are also drawn while a settings menu is open; Overlay layers (crosshair, debug menu, cursor) are
+// not. Notice = a short message to the player (a refused quick load).
+enum class HudSlot { Movie, Stats, Subtitles, Notice, Crosshair, DebugMenu, Cursor, Count };
 
 class HudLayers {
 public:

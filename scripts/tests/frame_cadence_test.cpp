@@ -102,5 +102,20 @@ int main() {
     assert(near(snapTickToRefresh(0.016, 0.0, carry), 0.016) && carry == 0); // not vsync-locked
     carry = 0.002;
     assert(snapTickToRefresh(-1.0, T, carry) == -1.0 && carry == 0);
+    // Cut scene loop: one ~31 ms tick and one ~2 ms tick per 33.3 ms. The short tick repays what the long one was
+    // rounded up by, so the world keeps the clock's pace (it ran 6 % fast when the debt was dropped).
+    carry = measuredSum = givenSum = 0;
+    for (int i = 0; i < 3000; ++i) {
+        for (const double measured : {0.0313, 0.002}) {
+            const double given = snapTickToRefresh(measured, T, carry);
+            assert(given > 0.0);
+            assert(std::fabs(carry) <= T / 2 + 1e-12);
+            measuredSum += measured;
+            givenSum += given;
+        }
+    }
+    assert(std::fabs(givenSum / measuredSum - 1.0) < 0.005); // within 0.5 % over 100 s (was +7 %)
+    carry = -0.0023;
+    assert(near(snapTickToRefresh(0.002, T, carry), 0.0005) && near(carry, -0.0008)); // never zero
     std::puts("Frame cadence and forward-jump checks passed");
 }

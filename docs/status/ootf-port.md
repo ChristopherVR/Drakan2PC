@@ -175,6 +175,18 @@ regions now change the music inside a level: each becomes Trigger Detector halve
 stops) switching one Triggered Music Loop per music id, verified in Ruined Village
 ([level music triggers](../journal/2026-11-08/ootf-level-music-triggers.md)).
 
+**November 9 intro movie:** the OotF opening stuttered and ran fast. Measured: with vsync the cut scene loop ran a full tick plus a
+1 to 3 ms tick per 33 ms and the tick-snap dropped the rounding debt on the short tick, so every scene ran 6.5 % fast (fixed in
+`snapTickToRefresh`; now 1.00 s of scene per second); with the player's vsync-off uncapped settings frames arrive in bursts
+(flips 2 ms apart for about 70 ms, then a 65 to 100 ms hitch, not fixed); and each of the three scene changes stalls the engine
+0.4 to 0.6 s while it loads and then catches its clock up. Fix by construction: the opening is rendered once on the player's machine
+into `movies/ootf_intro.mkv` (fixed 1/60 s step, lockstep audio, 4:3 1920x1440 x264, `analysis/scripts/ootf_intro_movie.py`) and the
+campaign start plays it over the live level, which still does the hand-over; Esc / Start / Cross skip it and fire the level's exit.
+Verified: 2641 frames = 44.02 s of picture, sound and engine time; the playback mix equals the file's sound (correlation 1.0000), game
+sound silenced, 0 repeated and 0 skipped pictures over the 44 s at vsync 60 Hz, skip and natural hand-over both load Ruined Village.
+Unverified: HD textures in the render, fullscreen / DLSS displays, other refresh rates. See
+[intro movie](../journal/2026-11-09/ootf-intro-movie.md) and `reference/modding.md` ("Intro movie").
+
 **November 9 intro music:** "Psygnosis Presents" is the engine-rendered Intro 1 scene (the install has no movie file), nothing
 new found in it. The title menu played the Drakan 2 SeaHigh GUI track instead of the OotF theme with `game = d1`: the runtime
 refused the title redirect because the guest requests descriptors with length 0xFFFFFFFF (fixed in the executable). Ruined Village scene 381's cue 6

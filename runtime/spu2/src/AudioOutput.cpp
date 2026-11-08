@@ -56,6 +56,14 @@ void AudioOutput::renderBlock(float* stereo, size_t frames) {
     }
     spu_.renderFloat(stereo, frames);
     framesRendered_.fetch_add(frames, std::memory_order_relaxed);
+    gameRamp_.process(stereo, frames, silenceGame_.load() ? 0.0f : 1.0f, 480.0f);
+    std::shared_ptr<ExternalSource> ext;
+    {
+        std::lock_guard<std::mutex> g(extM_);
+        ext = ext_;
+    }
+    if (ext && *ext)
+        (*ext)(stereo, frames);
     pauseRamp_.process(stereo, frames, hold ? 0.0f : 1.0f, 240.0f);
     ramp_.process(stereo, frames, muted_.load() ? 0.0f : gain_.load());
     dumpWrite(stereo, frames);

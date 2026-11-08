@@ -6,6 +6,9 @@
 #include "drakan_software_frame_clock.h"
 #include "drakan_dlss.h"
 #include "drakan_present_clock.h"
+#if defined(PS2X_HAVE_GSR)
+#include "drakan_intro_movie.h"
+#endif
 #include "runtime/ee_scheduler.h"
 #include <chrono>
 #include <cmath>
@@ -236,6 +239,17 @@ inline void tickTimeHook(uint8_t* ram, R5900Context* ctx, PS2Runtime* rt) {
     if (ctx->pc != ra || ra != 0x1433e8u || out < 0x100000u || out > PS2_RAM_SIZE - 4 || timer < 0x100000u ||
         timer > PS2_RAM_SIZE - 0x2c)
         return;
+#if defined(PS2X_HAVE_GSR)
+    // DRAKAN_INTRO_RENDER: a fixed time step per tick, whatever the clock measured (drakan_intro_movie.h).
+    if (const double fixedStep = drakan_intro_movie::renderTickSeconds(); fixedStep > 0.0) {
+        const float fixedScale = readFloat(ram, timer + 0x28);
+        if (fixedScale > 0.0f) {
+            const float fixedGiven = static_cast<float>(fixedStep * fixedScale);
+            std::memcpy(ram + out, &fixedGiven, 4);
+            return;
+        }
+    }
+#endif
     const double refresh = drakan_present_clock::lockedRefreshSeconds();
     const float scale = readFloat(ram, timer + 0x28);
     if (!(refresh > 0.0) || !(scale > 0.0f)) {

@@ -700,7 +700,7 @@ if(TARGET drakan::gs)
     # Linux. Only the window / input host differs: Win32 (drakan_window.cpp, Raw Input) or GLFW (drakan_window_glfw.cpp,
     # drakan_input_glfw.cpp; raylib's GLFW).
     target_sources(ps2_runtime PRIVATE src/lib/gs/gs_gsr_bridge.cpp src/lib/drakan_dlss.cpp
-        src/lib/drakan_scene_camera.cpp src/lib/drakan_settings_host.cpp src/lib/drakan_fmv_hd.cpp
+        src/lib/drakan_scene_camera.cpp src/lib/drakan_settings_host.cpp src/lib/drakan_fmv_hd.cpp src/lib/drakan_intro_movie.cpp src/lib/drakan_intro_render.cpp
         src/lib/drakan_debug_menu.cpp src/lib/drakan_world.cpp src/lib/drakan_ghost.cpp src/lib/drakan_netplay.cpp
         src/lib/drakan_coop_character.cpp src/lib/drakan_coop.cpp src/lib/drakan_pvp.cpp src/lib/drakan_mp_death.cpp src/lib/drakan_arena.cpp
         src/lib/drakan_playtest.cpp)

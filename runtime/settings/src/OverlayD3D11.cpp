@@ -119,6 +119,55 @@ public:
         if (auto* srv = reinterpret_cast<ID3D11ShaderResourceView*>(texture))
             srv->Release();
     }
+    ImTextureID createDynamicTexture(uint32_t w, uint32_t h) override {
+        if (!w || !h)
+            return 0;
+        D3D11_TEXTURE2D_DESC td{};
+        td.Width = w;
+        td.Height = h;
+        td.MipLevels = 1;
+        td.ArraySize = 1;
+        td.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+        td.SampleDesc.Count = 1;
+        td.Usage = D3D11_USAGE_DYNAMIC;
+        td.BindFlags = D3D11_BIND_SHADER_RESOURCE;
+        td.CPUAccessFlags = D3D11_CPU_ACCESS_WRITE;
+        ID3D11Texture2D* tex = nullptr;
+        if (FAILED(device_->CreateTexture2D(&td, nullptr, &tex)) || !tex)
+            return 0;
+        ID3D11ShaderResourceView* srv = nullptr;
+        const HRESULT hr = device_->CreateShaderResourceView(tex, nullptr, &srv);
+        tex->Release();
+        if (FAILED(hr) || !srv)
+            return 0;
+        return reinterpret_cast<ImTextureID>(srv);
+    }
+    bool updateTexture(ImTextureID texture, const void* rgba, uint32_t w, uint32_t h) override {
+        auto* srv = reinterpret_cast<ID3D11ShaderResourceView*>(texture);
+        if (!srv || !rgba || !w || !h)
+            return false;
+        ID3D11Resource* res = nullptr;
+        srv->GetResource(&res);
+        if (!res)
+            return false;
+        D3D11_MAPPED_SUBRESOURCE m{};
+        bool ok = false;
+        if (SUCCEEDED(context_->Map(res, 0, D3D11_MAP_WRITE_DISCARD, 0, &m)) && m.pData) {
+            const auto* src = static_cast<const uint8_t*>(rgba);
+            auto* dst = static_cast<uint8_t*>(m.pData);
+            if (m.RowPitch == w * 4) {
+                std::memcpy(dst, src, static_cast<size_t>(w) * h * 4);
+            } else {
+                for (uint32_t y = 0; y < h; ++y)
+                    std::memcpy(dst + static_cast<size_t>(y) * m.RowPitch, src + static_cast<size_t>(y) * w * 4,
+                                static_cast<size_t>(w) * 4);
+            }
+            context_->Unmap(res, 0);
+            ok = true;
+        }
+        res->Release();
+        return ok;
+    }
 
     ImTextureID copyTarget(void* target, uint32_t* w, uint32_t* h) override {
         ID3D11Texture2D* bb = targetTexture(target);

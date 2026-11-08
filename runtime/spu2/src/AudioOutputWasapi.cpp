@@ -294,7 +294,8 @@ void AudioOutput::threadMain() {
                     nextTry = Clock::now();
                     break;
                 } // another device was requested: try it now
-                renderBlock(tmp.data(), 240);
+                if (!manual_.load())
+                    renderBlock(tmp.data(), 240);
                 next += std::chrono::milliseconds(5);
                 std::this_thread::sleep_until(next);
                 if (Clock::now() > next + std::chrono::milliseconds(100))

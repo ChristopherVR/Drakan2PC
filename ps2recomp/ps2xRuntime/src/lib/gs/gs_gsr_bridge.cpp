@@ -6,6 +6,7 @@
 #include "../drakan_config.h"
 #include "../drakan_runtime_profile.h"
 #include "../drakan_fpsmeter.h"
+#include "../drakan_intro_movie.h"
 #include "../drakan_window.h"
 #include "../drakan_pause.h"
 #include "../drakan_settings_host.h"
@@ -1176,6 +1177,8 @@ void GsrBridge::Impl::completedFrameDiagnostics() {
                      (unsigned long long)st.drawCalls, (unsigned long long)st.textureDecodes,
                      (unsigned long long)s.latchProgress.latest(), (unsigned long long)s.duplicateWorldVblanks);
     }
+    if (drakan_intro_movie::renderModeActive())
+        drakan_intro_movie::onCompletedFrame(*s.gs, s.frames);
     if (!s.shotPath.empty() && !s.shotDone && s.frames >= s.shotAt) {
         s.shotDone = true;
         gsr::Image img;

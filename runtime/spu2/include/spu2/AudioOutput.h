@@ -9,6 +9,8 @@
 #include "spu2/Spu2.h"
 #include <atomic>
 #include <cstddef>
+#include <functional>
+#include <memory>
 #include <mutex>
 #include <string>
 #include <thread>
@@ -96,6 +98,32 @@ public:
     // unfocused with pause_when_unfocused, settings overlay open, ...), otherwise a streamed voice keeps replaying its
     // last buffered chunk.
     void setPaused(bool p) { paused_.store(p); }
+    // Host audio mixed on top of the SPU2 (a pre-rendered movie's sound track). `source(stereo, frames)` ADDS 48 kHz
+    // interleaved stereo float to the block and runs on the render thread, so it must not block; master gain, mute and
+    // the dump apply to it like to the game's sound. Empty = none. While `silenceGame` is set the SPU2 still renders
+    // (voices, streams and the guest's polling go on) but its output is dropped, so a movie plays without the live
+    // level's sound under it. Thread safe.
+    using ExternalSource = std::function<void(float* stereo, size_t frames)>;
+    void setExternalSource(ExternalSource source, bool silenceGame) {
+        const bool has = static_cast<bool>(source);
+        std::shared_ptr<ExternalSource> next = has ? std::make_shared<ExternalSource>(std::move(source)) : nullptr;
+        {
+            std::lock_guard<std::mutex> g(extM_);
+            ext_ = std::move(next);
+        }
+        silenceGame_.store(silenceGame && has);
+    }
+    void setGameSilenced(bool silenced) { silenceGame_.store(silenced); }
+    // Offline rendering (the movie render mode): while on, the wall-clock thread that drives the SPU2 without a device
+    // renders nothing and the owner steps the SPU2 itself with renderManual, so game sound advances exactly one block
+    // per video frame whatever the wall clock does. Only for the no-device (DRAKAN_AUDIO=0) mode.
+    void setManualRender(bool on) { manual_.store(on); }
+    bool manualRender() const { return manual_.load(); }
+    void renderManual(size_t frames) {
+        if (manualBuf_.size() < frames * 2)
+            manualBuf_.resize(frames * 2);
+        renderBlock(manualBuf_.data(), frames);
+    }
     bool paused() const { return paused_.load(); }
     // Guest liveness watchdog: `tick` must advance while the emulated EE runs (the runtime's vblank counter). When it
     // has not changed for `staleMs` the guest is stalled for some other reason (blocked host call, debugger, console
@@ -145,7 +173,12 @@ private:
     uint64_t hbLast_ = 0;
     long long hbSinceMs_ = 0;
     bool hbSeen_ = false;
-    GainRamp ramp_, pauseRamp_;
+    GainRamp ramp_, pauseRamp_, gameRamp_;
+    std::mutex extM_;
+    std::shared_ptr<ExternalSource> ext_;
+    std::atomic<bool> silenceGame_{false};
+    std::atomic<bool> manual_{false};
+    std::vector<float> manualBuf_;
     mutable std::mutex devM_;
     std::string device_ = "default";
     std::string curId_;

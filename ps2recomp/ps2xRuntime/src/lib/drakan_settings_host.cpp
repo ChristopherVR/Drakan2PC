@@ -22,6 +22,7 @@
 #include "settings/CharacterPreview.h"
 #include "drakan_world.h"
 #include "drakan_fmv_hd.h"
+#include "drakan_intro_movie.h"
 #include "drakan_save_previews.h"
 #include "drakan_tab_screen.h"
 #include "drakan_inventory_views_policy.h"
@@ -1231,6 +1232,14 @@ void dropTexture(ImTextureID& tex) {
         g_overlay->renderer().releaseTexture(tex);
     tex = 0;
 }
+
+// The pre-rendered intro movie's picture (HudSlot::Movie layer, present thread).
+struct MovieTexture {
+    ImTextureID id = 0;
+    uint64_t serial = 0;
+    uint32_t w = 0, h = 0;
+};
+MovieTexture g_movieTex;
 
 bool futureReady(const std::future<PreviewDecode>& f) {
     return f.valid() && f.wait_for(std::chrono::seconds(0)) == std::future_status::ready;
@@ -3169,6 +3178,46 @@ void overlayCallback(const gsr::OverlayContext& oc) {
                     dsettings::drawMenuCursor(x, y, scale);
             };
             dsettings::hudLayers().set(dsettings::HudSlot::Cursor, std::move(cl));
+        }
+        { // the pre-rendered Order of the Flame opening (drakan_intro_movie.h): a black cover with the picture on it
+            dsettings::HudLayer ml;
+            ml.active = []() {
+                if (drakan_intro_movie::coverActive())
+                    return true;
+                dropTexture(g_movieTex.id); // the cover is gone: free the picture texture
+                g_movieTex = MovieTexture{};
+                return false;
+            };
+            ml.draw = [](const dsettings::HudView& view) {
+                MovieTexture& mt = g_movieTex;
+                ImDrawList* dl = ImGui::GetForegroundDrawList();
+                dl->AddRectFilled(ImVec2(0, 0), ImVec2(view.w, view.h), IM_COL32(0, 0, 0, 255));
+                float alpha = 0.0f;
+                const auto frame = drakan_intro_movie::currentFrame(alpha);
+                if (frame && frame->serial != mt.serial && frame->width && frame->height && g_overlay) {
+                    // One dynamic texture rewritten per picture; backends without one create a texture each time.
+                    if (mt.id && (frame->width != mt.w || frame->height != mt.h))
+                        dropTexture(mt.id);
+                    if (!mt.id)
+                        mt.id = g_overlay->renderer().createDynamicTexture(frame->width, frame->height);
+                    if (!(mt.id && g_overlay->renderer().updateTexture(mt.id, frame->rgba.data(), frame->width,
+                                                                       frame->height))) {
+                        dropTexture(mt.id);
+                        mt.id = makeTexture(frame->rgba.data(), frame->width, frame->height);
+                    }
+                    mt.serial = frame->serial;
+                    mt.w = frame->width;
+                    mt.h = frame->height;
+                }
+                if (!mt.id || alpha <= 0.0f || !mt.w || !mt.h)
+                    return;
+                const float scale = std::min(view.w / static_cast<float>(mt.w), view.h / static_cast<float>(mt.h));
+                const float dw = static_cast<float>(mt.w) * scale, dh = static_cast<float>(mt.h) * scale;
+                const float x0 = (view.w - dw) * 0.5f, y0 = (view.h - dh) * 0.5f;
+                dl->AddImage(mt.id, ImVec2(x0, y0), ImVec2(x0 + dw, y0 + dh), ImVec2(0, 0), ImVec2(1, 1),
+                             IM_COL32(255, 255, 255, static_cast<int>(alpha * 255.0f)));
+            };
+            dsettings::hudLayers().set(dsettings::HudSlot::Movie, std::move(ml));
             drakan_input::module().setOverlayCursorAvailable(true);
         }
         std::fprintf(stderr, "[settings] overlay ready (F1 / Back+LB+RB / Options > PC Settings)\n");
@@ -3224,6 +3273,7 @@ void attachRenderer(gsr::Renderer* gs, void* parentHwnd, const WindowOps& ops) {
     g_gs = gs;
     drakan_save_previews::attach(gs);
     drakan_fmv_hd::attach(gs);
+    drakan_intro_movie::attach(gs);
     gs->setWaterRendering(drakan_cfg::getBool("video", "modern_water", "GSR_MODERN_WATER", false),
                           drakan_cfg::getBool("video", "ray_reflections", "GSR_RAY_REFLECTIONS", false),
                           drakan_cfg::getBool("video", "ray_shadows", "GSR_RAY_SHADOWS", false),
@@ -3237,6 +3287,7 @@ void attachRenderer(gsr::Renderer* gs, void* parentHwnd, const WindowOps& ops) {
 void detachRenderer() {
     drakan_save_previews::attach(nullptr);
     drakan_fmv_hd::attach(nullptr);
+    drakan_intro_movie::attach(nullptr);
     if (g_gs)
         g_gs->setOverlayCallback(nullptr);
     for (auto& p : g_previews) {
@@ -3267,6 +3318,7 @@ void detachRenderer() {
 
 void setAudio(spu2::AudioOutput* audio) {
     g_audio.store(audio);
+    drakan_intro_movie::setAudio(audio);
 }
 void setModManager(const hle::mods::ModManager* mods, const std::string& modsDir) {
     snapshotMods(mods, modsDir);

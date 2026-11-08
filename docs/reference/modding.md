@@ -589,6 +589,39 @@ file was first read still counts) rewrites the two entries' bytes in place (`Cam
 with spaces to the entry's size, a longer one is cut at a line end, the second entry becomes one blank line). Verified in game: the
 end card scrolls over the Wartok farm and the game returns to the title (`credits: read at ... patched entry 8807` in the log).
 
+### Intro movie (pre-rendered opening)
+
+The PC install has no intro movie: "Psygnosis Presents", the owl and the title scenes are the engine-rendered level
+`OotF 00 - Intro` (three scenes, then a 44 s timer hands over to Ruined Village). Played live they are only as smooth as the
+frame times of that moment, so the player renders them once into `movies/ootf_intro.mkv` next to the exe and the campaign
+start plays that file instead. Nothing from either game is committed: the file is made on the player's machine
+(`python analysis/scripts/ootf_intro_movie.py [--play-dir <folder>] [--scale 3] [--height 1440] [--crf 15]`, needs ffmpeg with
+libx264 and aac, the Order of the Flame pack in `mods/` and the ISO in `drakan.ini`; about a minute). It is not part of
+`Build-LocalGame.ps1`, and `Build-LocalGame.ps1` keeps `movies/`.
+
+* **Render mode** (env `DRAKAN_INTRO_RENDER=<folder>`, `ps2xRuntime/src/lib/drakan_intro_render.cpp`; the tool sets everything):
+  the engine time step is fixed at 1/60 s per tick (`renderTickSeconds`, in the tick-time hook, whatever the clock measured), vsync
+  is on so one tick belongs to one frame, and from the first frame with the world on screen every completed frame
+  (`Renderer::captureDisplay`, the game image at the internal scale, no window furniture) goes to an ffmpeg pipe. The SPU2 is
+  stepped in lockstep (`AudioOutput::setManualRender` / `renderManual`, 800 samples per frame, the audio thread idles), so the
+  sound of the dump (`DRAKAN_AUDIO_DUMP`) is as deterministic as the picture: a slow capture changes the render time, never the
+  speed or the sync. The game quits when the next level starts loading; `render.json` and `frames.csv` (audio position of every
+  frame) are written for the tool, which cuts the dump to the video and muxes `ootf_intro.mkv` (x264 crf 15 scaled to 4:3 at
+  1920x1440, 60 fps, AAC 256k). The picture is the PS2's 4:3 frame (pillarboxed in a wide window like the Drakan 2 movies).
+  The first run on the development PC: 2641 frames, 44.02 s of picture and sound, 30.8 MB.
+* **Playback** (`drakan_intro_movie.cpp`): when `OotF 00 - Intro` finishes loading from a New Game (not from a save) and the file
+  exists, a black cover with the picture (`HudSlot::Movie`, one dynamic texture rewritten per picture) hides the live level, the
+  movie's sound is mixed into the audio output (`AudioOutput::setExternalSource`) and the game's own sound is silenced
+  (the SPU2 keeps running). The picture follows the display (one picture per present when the display runs at about the movie's
+  rate, otherwise the audio clock). The live level keeps running unseen and does the hand-over to Ruined Village as before. The
+  cover stays through the end of the movie; when the next level is loading and the movie is over it goes and the game sound
+  returns (a movie that ends first fires the level's exit itself). Esc / Start / Cross / Circle / Triangle skip: the picture
+  fades to black and the live level's exit is fired (scene skips do not end that level, the 44 s timer would). Without the file
+  (or `DRAKAN_OOTF_INTRO_MOVIE=0`) the live level plays as before. Log lines `[intro-movie]`; `DRAKAN_INTRO_MOVIE_LOG=1` logs every
+  repeated or skipped picture.
+* Not covered: a widescreen picture (the movie is the 4:3 frame), the host subtitle band (the Intro has no speech), a save made
+  during the Intro.
+
 ## HD textures for converted OotF mods
 
 One command after converting (campaign pack, multiplayer arenas, any pack):

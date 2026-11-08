@@ -27,6 +27,7 @@
 #include "drakan_menus.h"
 #if defined(PS2X_HAVE_GSR) // compiled with the GS renderer only
 #include "drakan_ghost.h"
+#include "drakan_intro_movie.h"
 #include "drakan_arena.h"
 #include "drakan_playtest.h"
 #include "drakan_coop.h"
@@ -609,6 +610,10 @@ void hookPadRead(uint8_t* rdram, R5900Context* c, PS2Runtime* rt) {
             s[3] &= static_cast<uint8_t>(~(0x40u));     // CROSS 0x40
         }
     }
+#if defined(PS2X_HAVE_GSR)
+    if (port == 0)
+        drakan_intro_movie::padTick(s, module().frame().keyDown.test(0x01)); // the Order of the Flame opening movie
+#endif
     std::memcpy(rdram + (buf & 0x1FFFFFFFu & (PS2_RAM_SIZE - 1)), s, 32);
     ret(c, 32);
 }

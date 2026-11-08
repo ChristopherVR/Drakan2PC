@@ -27,6 +27,21 @@ public:
     // An RGBA8 texture (rows top down, tightly packed); 0 on failure. Freed with releaseTexture.
     virtual ImTextureID createTexture(const void* rgba, uint32_t w, uint32_t h) = 0;
     virtual void releaseTexture(ImTextureID texture) = 0;
+    // A texture whose pixels are replaced often (video pictures): created once, then updateTexture overwrites it in
+    // place (an immutable createTexture per picture costs a driver allocation and an upload each time). 0 / false when
+    // the backend has no such texture; the caller then falls back to createTexture. Freed with releaseTexture.
+    virtual ImTextureID createDynamicTexture(uint32_t w, uint32_t h) {
+        (void)w;
+        (void)h;
+        return 0;
+    }
+    virtual bool updateTexture(ImTextureID texture, const void* rgba, uint32_t w, uint32_t h) {
+        (void)texture;
+        (void)rgba;
+        (void)w;
+        (void)h;
+        return false;
+    }
 
     // A copy of `target` as it is now (before the overlay draws), into one texture reused every call; 0 when the
     // target cannot be copied.

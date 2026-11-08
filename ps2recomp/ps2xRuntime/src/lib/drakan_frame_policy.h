@@ -54,7 +54,10 @@ constexpr bool keepUnrebuildableLighting(uint32_t ra, const ObjectLighting& obje
 // 1 ms game clock wherever the EE happens to be after the previous present, so release jitter moved the world 14 then
 // 19 ms per 16.7 ms frame. Give the tick whole refreshes and carry the difference into the next one (total game time
 // stays the clock's within half a refresh). A tick shorter than half a refresh (a catch-up after a stall) is off the
-// grid: it passes through and drops the carry. `carry`: seconds measured but not yet given, may be negative.
+// grid: it passes through and drops a positive carry. A negative carry (earlier ticks were rounded up) is repaid by
+// such a tick instead: the cut scene loop runs a full tick and a 1 - 3 ms tick per 33 ms, and dropping the debt there
+// ran every scene 6 % fast (2.3 ms rounded up + the 2 ms tick, per cycle). `carry`: seconds measured but not yet
+// given, may be negative.
 inline double snapTickToRefresh(double measured, double refresh, double& carry) {
     if (!(measured >= 0.0) || !(refresh > 0.0)) {
         carry = 0.0;
@@ -62,6 +65,12 @@ inline double snapTickToRefresh(double measured, double refresh, double& carry) 
     }
     const double due = measured + carry;
     if (due < refresh * 0.5) {
+        if (carry < 0.0) {
+            constexpr double kMinTick = 0.0005; // never hand the engine a zero time step
+            const double given = due > kMinTick ? due : kMinTick;
+            carry = due - given;
+            return given;
+        }
         carry = 0.0;
         return measured;
     }
