@@ -35,6 +35,19 @@ leave one at the title; stagger them.
   also removed the spear attach, so the spear vanished). Open: whether the PS2 engine places an attached actor's origin at the
   channel joint (a weapon grip) while the PC keeps the actor's own offset; nothing in the data decides it.
 
+## Follow-up: attach and pose carry-over
+
+* Native scenes attach whole creatures the same way (Arokh attaches Rynn on channel 14, Rynn attaches General Denman on channel
+  21 in `LEVEL1ON.SSD`), so the villager attach is a supported form. In game it takes effect: from 43 s the villager hangs from
+  the Wartok's left hand (channel 12 is `Weapon_L` in the converted troll's 20-channel list), his torso behind the Wartok's
+  body, and the level spear crosses his midsection (`cut-g` t153000 / t154000, zoom). No defect in the attach, the channel
+  mapping or the action type was found; whether the spear should pierce him cleaner is an animation fine point that needs the PC
+  footage.
+* Carry-over of the end pose: a test pack replayed scene 1.1's last Rynn transform and clip at t = 0 of 1.2a (the player holds
+  only the AI there). The shot of 1.2a that was meant to show her (camera from 8.7 s) is an overhead of the Wartoks running
+  away; she is not in it with or without the carry-over, so nothing visible changed and the code was dropped. Her state between
+  1.1 and 1.3 stays unseen in game; a per-frame position dump (not done) would settle where she is.
+
 ## Not changed
 
 No converter or runtime code changed (the temporary rise-clamp and attach-drop experiments were removed). The scene
