@@ -151,7 +151,6 @@ const res = await convertOotfLevels(
         preferCreatures: opt['creatures-first'] === '1',
         texts: !only || only.has('texts'),
         music: !only || only.has('music'),
-        musicStartOn: opt['music-start-on'] === '1',
         sounds: !only || only.has('sounds'),
         sequences: !only || only.has('sequences'),
     },

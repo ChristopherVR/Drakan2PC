@@ -170,8 +170,10 @@ title). See [Arokh fly-away report](../journal/2026-11-08/ootf-arokh-flyaway-cra
 **November 8 music:** the PC music (`Music.rrc`: 11 DirectMusic segments + DLS banks) is now rendered by the converter
 (`ootfdmusic.ts`) into PS2MUSIC.SDB tracks. The OotF main theme ("gui", PC id 4) plays on the title menu while Order of the
 Flame is the chosen game (`campaign_title_music`) and at the start of the Intro (its cut scene music action); levels start
-with their PC `Initial Music ID`. In-level music changes (the PC Music Trigger regions) are not converted yet. See
-[OotF main music](../journal/2026-11-08/ootf-main-music.md).
+with their PC `Initial Music ID`. See [OotF main music](../journal/2026-11-08/ootf-main-music.md). The PC Music Trigger
+regions now change the music inside a level: each becomes Trigger Detector halves (front plays `Music 1`, back `Music 2`, 0
+stops) switching one Triggered Music Loop per music id, verified in Ruined Village
+([level music triggers](../journal/2026-11-08/ootf-level-music-triggers.md)).
 
 ## What works
 

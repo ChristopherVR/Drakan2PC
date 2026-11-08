@@ -21,7 +21,7 @@ Read from the user's install (`build/ootf/cab_disc`, counts and ids only):
   Ruined Village 8, Wartok 1, Grotto 1, Grimstone Mines 9, Rift Crystal 7, Succubus Lair 10, Rift World 6, the Intro, Book,
   Islands and Volcano 0 (arenas: 0, 6 or 7).
 * Music Trigger objects (37) carry `Music 1 ID` / `Music 2 ID` and no links: they are region triggers (two sides, like the PS2
-  "Music Ambient Trans"), not detector targets.
+  "Music Ambient Trans"), not detector targets (converted since: [ootf-level-music-triggers.md](ootf-level-music-triggers.md)).
 
 So the "main music" is segment 4 ("gui"): on the PC it plays on the title menu and again from the start of the Intro.
 
@@ -96,9 +96,9 @@ Runs with audio on, `DRAKAN_SND_DBG=1`, `DRAKAN_HLE_LOG`, `DRAKAN_AUDIO_DUMP` (4
 
 ## Open
 
-* The Music Trigger regions are still not converted to PS2 transition planes (Surdana uses FX "AmbientTransition" objects
-  with Front / Back exit messages to its Triggered Music Loops); in-level music changes therefore do not happen yet, only the
-  level start music and the cut scene music.
+* Done the same day: the Music Trigger regions now switch the music inside a level (Trigger Detector halves and one loop
+  per music id, not Ambient Transitions: only the first transition on a box fires), see
+  [ootf-level-music-triggers.md](ootf-level-music-triggers.md).
 * The PS2 loop restarts at the intro; the PC loops only the body.
 * The synth has no EG2 / filter (DLS1 has none), no pan (mono output) and an approximate reverb; nobody has compared the
   render with the PC game by ear.
