@@ -130,7 +130,7 @@ const only = opt['only'] ? new Set(opt['only'].split(',')) : null; // stage swit
 const res = await convertOotfLevels(
     src,
     levels,
-    { template, odbs, ssds, dbFiles, hostMod: await optReader('RESOURES.MOD'), hostTxd: await optReader('RESOURES.TXD'), hostAdb: await optReader('RESOURES.ADB'), hostSdb: await optReader('RESOURES.SDB'), mods: await optMap('MOD'), hostFiles, adbs: await optMap('ADB'), xdbFiles: readdirSync(ps2).some((f) => /\.XDB$/i.test(f)) ? new Set(readdirSync(ps2).filter((f) => /\.XDB$/i.test(f)).map((f) => f.toUpperCase())) : undefined, splatTxd: splats['TXD'], procTxd: existsSync(join(ps2, 'PROCTEES.TXD')) ? new Uint8Array(readFileSync(join(ps2, 'PROCTEES.TXD'))) : undefined },
+    { template, odbs, ssds, dbFiles, hostMod: await optReader('RESOURES.MOD'), hostTxd: await optReader('RESOURES.TXD'), hostAdb: await optReader('RESOURES.ADB'), hostSdb: await optReader('RESOURES.SDB'), musicSdb: await optReader('PS2MUSIC.SDB'), mods: await optMap('MOD'), hostFiles, adbs: await optMap('ADB'), xdbFiles: readdirSync(ps2).some((f) => /\.XDB$/i.test(f)) ? new Set(readdirSync(ps2).filter((f) => /\.XDB$/i.test(f)).map((f) => f.toUpperCase())) : undefined, splatTxd: splats['TXD'], procTxd: existsSync(join(ps2, 'PROCTEES.TXD')) ? new Uint8Array(readFileSync(join(ps2, 'PROCTEES.TXD'))) : undefined },
     {
         name: (pc) => `${prefix}${pcLevelName(pc.header)}`,
         log: (m) => console.warn(m),
@@ -197,6 +197,8 @@ const pack = await buildOotfPack(
         target: { profile: 'pal' },
         // --campaign: the levels are the campaign in play order (the title menu offers "Drakan: Order of the Flame")
         ...(opt['campaign'] !== undefined ? { campaign: 'ootf' as const, campaignName: 'Drakan: Order of the Flame' } : {}),
+        // the rendered OotF title theme ("gui", PC Background Music ID 4) plays on the title menu while the campaign is chosen
+        ...(opt['campaign'] !== undefined && res.music?.title ? { campaignTitleMusic: res.music.title } : {}),
     },
     template,
     res.levels.map((l) => ({ title: l.title, parts: l.parts, splats: l.splats, arena: arenas.get(l.pcPath), preview: previewPng(arenas.get(l.pcPath)?.name) })),

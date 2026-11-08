@@ -269,6 +269,28 @@ int main() {
         active = "";
         CHECK(!cc.wants(first));
     }
+    // ---- campaign title music: the disc's title track is served from the campaign's track while it is the current
+    // game; the choice is latched at the descriptor so one play never mixes the two tracks
+    {
+        std::string active;
+        CampaignMusicRedirect mr;
+        const std::string music = "ENGLISH\\MUSIC\\PS2MUSIC\\PS2MUSIC.SDB";
+        constexpr u16 disc = CampaignMusicRedirect::kDiscTitleMusic;
+        CHECK(mr.map(music, 0x302, disc) == disc); // no campaign track registered
+        mr.add("ootf-levels", 4);
+        mr.setActive([&] { return active; });
+        CHECK(mr.map(music, 0x302, disc) == disc && mr.map(music, 0x304, disc) == disc); // the disc game
+        active = "ootf-levels";
+        CHECK(mr.map(music, 0x304, disc) == 4); // a disc play switches to the campaign's track at its next chunk
+        CHECK(mr.map(music, 0x302, disc) == 4 && mr.map(music, 0x304, disc) == 4 && mr.map(music, 0x305, disc) == disc);
+        CHECK(mr.map(music, 0x304, 88) == 88);                                    // other tracks untouched
+        CHECK(mr.map("ENGLISH\\COMMON\\SOUNDS\\SOUND.SDB", 0x302, disc) == disc); // other files untouched
+        CHECK(mr.map(music, 0x400, disc) == disc);                                // other entry types untouched
+        active = "";
+        CHECK(mr.map(music, 0x304, disc) == 4); // still the campaign's play until the next descriptor read
+        CHECK(mr.map(music, 0x302, disc) == disc && mr.map(music, 0x304, disc) == disc);
+        CHECK(mr.wanted() == disc);
+    }
     // ---- campaign credits through plain file reads: the overlay rewrites the two entries inside the opened RRC, at
     // read time
     {

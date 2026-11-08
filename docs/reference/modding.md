@@ -478,6 +478,8 @@ campaign_name = "The Test Valley"                    # optional: the title on th
 campaign_description = "Two valleys, one road."      # optional: one line under the cover on the game card
 campaign_start = "Surdana Copy"                      # optional: the level New Game opens (default the first of `levels`)
 campaign_saves = "testvalley"                        # optional: memory card folder suffix (default the id)
+campaign_title_music = 4                             # optional: PS2MUSIC.SDB sound id the title menu plays while
+                                                     #   this campaign is chosen (the pack adds it, see below)
 ```
 
 Plus, optionally, **`previews/campaign-<id>.png`** in the pack: the cover picture of the game card (PNG, at most 8 MiB, 16:9;
@@ -552,6 +554,17 @@ What the runtime does with it (`drakan_game.cpp`):
   that is not installed logs it and starts Drakan 2. A fixed setting next to an installed campaign is explained on the
   title and the Mods page ("New packs", Game choice explained).
   `scripts/harness/ootf_level_run.py --campaign ...` converts the level as a campaign pack and runs with `DRAKAN_GAME=d1`.
+
+### Campaign title music
+
+`campaign_title_music = <id>` names a PS2MUSIC.SDB sound the pack adds with `new/PS2MUSIC.SDB/0302_<id>_<group>.bin` and
+`0304_<id>_<group>.bin` (descriptor and ADPCM, the layout `ps2SoundEntries` writes; flags 0xa for a looping track). While
+the campaign is the current game, the runtime serves the disc's title track (PS2MUSIC.SDB 196 "SeaHigh GUI", INTERFCE.ODB
+class 1 `Background Music File` = 0x100c4) from that id (`hle::CampaignMusicRedirect`, `ResourceService::setIdRedirect`,
+log `[game] campaign '<id>': title music PS2MUSIC.SDB <n>` and `[hle] music: title track 196 -> <n>`). The choice is
+latched when the guest reads the track's descriptor, so a play that started for one game finishes with that game's track.
+`ootf-convert.ts --campaign 1` and the editor's converter write the rendered Order of the Flame theme ("gui", the PC title
+music) there; journal `2026-11-08/ootf-main-music.md`.
 
 ### Campaign credits
 

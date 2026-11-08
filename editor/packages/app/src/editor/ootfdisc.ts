@@ -42,6 +42,7 @@ export async function ootfDiscContext(
     const xdbFiles = new Set<string>();
     let hostMod: SrscReader | undefined, hostTxd: SrscReader | undefined;
     let hostAdb: SrscReader | undefined, hostSdb: SrscReader | undefined;
+    let musicSdb: SrscReader | undefined;
     for (const dep of header.dependencies) {
         if (/_splats$/i.test(dep.path.text)) continue;
         const base = resolveDependencyStem(dir, dep.path.text).replace(/\\/g, '/');
@@ -77,6 +78,7 @@ export async function ootfDiscContext(
             hostAdb = readers.get('ADB');
             hostSdb = readers.get('SDB');
         }
+        if (name === 'PS2MUSIC') musicSdb = readers.get('SDB'); // the rendered OotF music gets free ids of it
     }
     return {
         splats,
@@ -93,6 +95,7 @@ export async function ootfDiscContext(
             hostTxd,
             hostSdb,
             hostAdb,
+            musicSdb,
             splatTxd: splats['TXD'],
             procTxd: (await read('WORLDCON/PROCTEES/PROCTEES.TXD')) ?? undefined,
         },

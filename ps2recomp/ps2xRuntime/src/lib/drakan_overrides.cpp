@@ -1692,6 +1692,31 @@ void applyDrakanOverrides(PS2Runtime& runtime) {
                                                     size_t n) { credits->patchRead(fs, node, offset, data, n); });
             std::fprintf(stderr, "[game] campaign credits: %zu pack(s)\n", g_mods->creditsFiles().size());
         }
+        if (g_mods) {
+            // A campaign's own title menu music (manifest `campaign_title_music`): requests for the disc's title track
+            // are served from the pack's track while that campaign is the current game (hle::CampaignMusicRedirect).
+            auto music = std::make_shared<hle::CampaignMusicRedirect>();
+            for (const hle::mods::ModStatus& st : g_mods->status()) {
+                const hle::mods::Manifest& m = st.manifest;
+                if (st.state != hle::mods::ModState::Loaded || m.campaign.empty() || m.campaignTitleMusic.empty())
+                    continue;
+                char* end = nullptr;
+                const unsigned long id = std::strtoul(m.campaignTitleMusic.c_str(), &end, 10);
+                if (!end || *end || id == 0 || id > 0xFFFF) {
+                    std::fprintf(stderr, "[game] pack '%s': campaign_title_music '%s' is not a sound id\n",
+                                 m.id.c_str(), m.campaignTitleMusic.c_str());
+                    continue;
+                }
+                music->add(m.id, (uint16_t)id);
+                std::fprintf(stderr, "[game] campaign '%s': title music PS2MUSIC.SDB %lu (disc %u)\n",
+                             m.campaign.c_str(), id, (unsigned)hle::CampaignMusicRedirect::kDiscTitleMusic);
+            }
+            if (music->size()) {
+                music->setActive([] { return drakan_game::currentModId(); });
+                host->iop.res.setIdRedirect(
+                    [music](const std::string& key, uint16_t type, uint16_t id) { return music->map(key, type, id); });
+            }
+        }
         { // the title and the Mods page explain an enabled campaign that is not on the game card (ModDiscovery.h)
             std::vector<std::string> card;
             for (const drakan_game::GameInfo& gi : drakan_game::games())

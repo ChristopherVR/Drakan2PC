@@ -47,7 +47,22 @@ s32 ResourceService::process(const FileService::Open& f, const ResourceRequestWi
         logf("resource: file %s has no SRSC index", f.node.key.c_str());
         return ST_NOT_FOUND;
     }
-    const SrscEntry* e = f.srsc.find(r.type, r.id, r.sub);
+    u16 id = r.id;
+    const SrscEntry* e = nullptr;
+    if (redirect_ && (id = redirect_(f.node.key, r.type, r.id)) != r.id) {
+        e = f.srsc.find(r.type, id, r.sub);
+        if (!e)
+            e = f.srsc.find(r.type, id, 0xFFFF);
+        if (e && (u64)r.offset + r.length > e->size)
+            e = nullptr; // the target cannot serve this request (a shorter track): the original entry does
+        if (!e) {
+            logf("resource: %s: redirect %04x/%u -> %u not found, serving the original", f.node.key.c_str(), r.type,
+                 r.id, id);
+            id = r.id;
+        }
+    }
+    if (!e)
+        e = f.srsc.find(r.type, r.id, r.sub);
     if (!e) {
         logf("resource: %s: %04x/%u/%d not found", f.node.key.c_str(), r.type, r.id, (s16)r.sub);
         return ST_NOT_FOUND;
@@ -63,7 +78,7 @@ s32 ResourceService::process(const FileService::Open& f, const ResourceRequestWi
         size_t osl = oid.path.find_last_of("\\/");
         oid.file = osl == std::string::npos ? oid.path : oid.path.substr(osl + 1);
         oid.type = r.type;
-        oid.id = r.id;
+        oid.id = id;
         oid.sub = e->sub;
         observer_(oid, r.offset);
     }
@@ -78,7 +93,7 @@ s32 ResourceService::process(const FileService::Open& f, const ResourceRequestWi
         size_t sl = rid.path.find_last_of("\\/");
         rid.file = sl == std::string::npos ? rid.path : rid.path.substr(sl + 1);
         rid.type = r.type;
-        rid.id = r.id;
+        rid.id = id;
         rid.sub = e->sub;
         for (auto& o : overrides_) {
             if (!o->wants(rid))

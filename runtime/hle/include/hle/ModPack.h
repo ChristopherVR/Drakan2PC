@@ -48,8 +48,10 @@ struct Manifest {
     // top-level `campaign = "<id>"`: the pack's `levels` are a whole campaign ("ootf" = Drakan: Order of the Flame, any
     // other id a custom campaign); the title's game card then offers it. `campaign_name` = its title (default by id),
     // `campaign_start` = the level New Game opens (default the first of `levels`), `campaign_description` = the card's
-    // one-line description, `campaign_saves` = the memory card folder suffix (`<card>_<saves>`, default the id).
-    std::string campaign, campaignName, campaignStart, campaignDescription, campaignSaves;
+    // one-line description, `campaign_saves` = the memory card folder suffix (`<card>_<saves>`, default the id),
+    // `campaign_title_music` = the PS2MUSIC.SDB sound id (decimal) the title menu plays while the campaign is chosen
+    // (hle::CampaignMusicRedirect; the pack adds that track with `new/PS2MUSIC.SDB/` entries).
+    std::string campaign, campaignName, campaignStart, campaignDescription, campaignSaves, campaignTitleMusic;
 };
 // Parses mod.toml (json=false) or mod.json (json=true). Returns false with `err` on a syntax or schema error.
 bool parseManifest(const std::string& text, bool json, Manifest& out, std::string& err);

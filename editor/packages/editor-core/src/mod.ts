@@ -55,6 +55,11 @@ export interface ModMeta {
     campaignDescription?: string;
     campaignStart?: string;
     campaignSaves?: string;
+    /**
+     * PS2MUSIC.SDB sound id the title menu plays while the campaign is the current game (the pack adds that track as
+     * `new/PS2MUSIC.SDB/` entries; the OotF converter writes the rendered "gui" theme, ootfdmusic.ts).
+     */
+    campaignTitleMusic?: number;
 }
 
 /** A campaign id: 1-32 of a-z 0-9 _ -, starting with a letter or digit. */
@@ -111,6 +116,11 @@ export function validateModMeta(m: ModMeta): void {
     }
     if (m.campaignSaves !== undefined && !CAMPAIGN_SAVES_PATTERN.test(m.campaignSaves))
         throw new ModError('campaignSaves must be 1-32 characters of letters, digits _ -');
+    if (
+        m.campaignTitleMusic !== undefined &&
+        (!Number.isInteger(m.campaignTitleMusic) || m.campaignTitleMusic < 1 || m.campaignTitleMusic > 0xffff)
+    )
+        throw new ModError('campaignTitleMusic must be a sound id 1-65535');
     for (const level of m.levels ?? []) {
         const why = levelNameProblem(level);
         // The runtime skips such a level with only a log line, which leaves a pack that loads but has no level.
@@ -138,6 +148,7 @@ export function buildManifestToml(m: ModMeta): string {
         l.push(`campaign_description = ${tomlStr(oneLine(m.campaignDescription).slice(0, CAMPAIGN_DESCRIPTION_MAX))}`);
     if (m.campaign && m.campaignStart) l.push(`campaign_start = ${tomlStr(m.campaignStart)}`);
     if (m.campaign && m.campaignSaves) l.push(`campaign_saves = ${tomlStr(m.campaignSaves)}`);
+    if (m.campaign && m.campaignTitleMusic) l.push(`campaign_title_music = ${m.campaignTitleMusic}`);
     l.push('', '[target]');
     if (m.target.profile !== undefined) {
         const p = m.target.profile;

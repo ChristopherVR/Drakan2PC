@@ -43,6 +43,11 @@ public:
     // subtitles). Register before the first request.
     using RequestObserver = std::function<void(const ResourceId&, u32 offset)>;
     void setRequestObserver(RequestObserver o) { observer_ = std::move(o); }
+    // Entry id redirect (campaign title music, CampaignMusicRedirect): called for every request before the index lookup
+    // with the file key and the requested type / id; returns the id to serve. A redirected id is looked up with the
+    // requested sub, then any sub; when it is missing the requested entry is served. Register before the first request.
+    using IdRedirect = std::function<u16(const std::string& fileKey, u16 type, u16 id)>;
+    void setIdRedirect(IdRedirect f) { redirect_ = std::move(f); }
     bool skipFailureCompletions = false; // experiment: do not report failed requests (status != 0) to the EE at all
 
     // `handle` = RPC fno. Processes all entries synchronously, posts completions. Call from a worker thread.
@@ -64,6 +69,7 @@ private:
     ISpu2& spu_;
     std::vector<std::shared_ptr<IResourceOverride>> overrides_;
     RequestObserver observer_;
+    IdRedirect redirect_;
     Delivery delivery_ =
         Delivery::Rpc1301; // faithful path; Direct only works when the request carries a real destination
 };

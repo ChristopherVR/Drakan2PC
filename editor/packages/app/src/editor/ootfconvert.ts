@@ -115,6 +115,8 @@ export async function runConversion(
         description: 'Levels converted from Drakan: Order of the Flame.',
         target: { profile: req.profile ?? 'pal' },
         ...(start ? { campaign: 'ootf', campaignName: 'Drakan: Order of the Flame', campaignStart: start.title } : {}),
+        // the rendered OotF title theme plays on the title menu while the campaign is chosen
+        ...(start && result.music?.title ? { campaignTitleMusic: result.music.title } : {}),
     };
     progress('Building the mod pack');
     const pack = await buildOotfPack(meta, template, inputs, ps2BlobFor, { splats, extraFiles: result.files });

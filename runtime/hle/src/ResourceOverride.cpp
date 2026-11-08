@@ -266,6 +266,44 @@ bool XdbTextOverride::apply(const ResourceId& id, std::vector<u8>& data) {
     return changed;
 }
 
+// ---- campaign title music
+u16 CampaignMusicRedirect::wanted() const {
+    if (!active_ || tracks_.empty())
+        return kDiscTitleMusic;
+    const auto it = tracks_.find(active_());
+    return it == tracks_.end() ? kDiscTitleMusic : it->second;
+}
+
+u16 CampaignMusicRedirect::map(const std::string& fileKey, u16 type, u16 id) {
+    if (id != kDiscTitleMusic || type < 0x302 || type > 0x304 || tracks_.empty())
+        return id;
+    const size_t k = fileKey.size();
+    if (k < 12 || fileKey.compare(k - 12, 12, "PS2MUSIC.SDB") != 0)
+        return id;
+    std::lock_guard<std::mutex> lock(mu_);
+    if (type == 0x302 || latched_ == 0) {
+        const u16 w = wanted();
+        if (type == 0x302 && w != latched_)
+            logf("music: title track %u -> %u (%s)", id, w, w == id ? "disc game" : "campaign");
+        if (type == 0x302)
+            latched_ = w;
+        return w;
+    }
+    // The title menu starts its music before the game choice (`game = ask`): a play latched to the disc track switches
+    // to the campaign's at its next chunk. The guest keeps the disc descriptor's length for that play (it loops at the
+    // disc track's end), so this is only done towards a campaign track; ResourceService serves the original when the
+    // target entry is too short for a request. The other way round the play keeps its track until the next descriptor
+    // read.
+    if (latched_ == kDiscTitleMusic) {
+        const u16 w = wanted();
+        if (w != kDiscTitleMusic) {
+            logf("music: title track %u -> %u (campaign chosen during the play)", id, w);
+            latched_ = w;
+        }
+    }
+    return latched_;
+}
+
 // ---- campaign credits
 const std::string* CampaignCreditsOverride::current() const {
     if (!active_)

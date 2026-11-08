@@ -19,6 +19,7 @@
 #include <functional>
 #include <map>
 #include <memory>
+#include <mutex>
 #include <string>
 #include <vector>
 
@@ -95,6 +96,35 @@ private:
     std::string bodyFor(u16 id, u64 size);
     std::map<std::string, std::string> texts_;
     std::function<std::string()> active_;
+};
+
+// ---- campaign title music
+// ----------------------------------------------------------------------------------------------------------------
+// The title menu plays one PS2MUSIC.SDB track: INTERFCE.ODB class 1 "Background Music File" = 0x100c4 (db 1 of
+// INTERFCE.DB = PS2 Music, id 196 "SeaHigh GUI" on the PAL disc). A campaign pack names its own title track in the
+// manifest
+// (`campaign_title_music = <id>`, an id the pack adds to PS2MUSIC.SDB with `new/` entries); while that campaign is the
+// current game, requests for the disc's title track are served from it. ResourceService consults `map` before its index
+// lookup (setIdRedirect). The two tracks differ in length, so the choice is latched when the guest reads the track's
+// descriptor (0x302, at the start of each play) and the sample (0x304) requests of that play follow it (music has no
+// 0x305); a disc play switches to the campaign track at its next chunk when the campaign is chosen during it (`game =
+// ask`).
+class CampaignMusicRedirect {
+public:
+    static constexpr u16 kDiscTitleMusic = 196;
+    void add(const std::string& modId, u16 id) { tracks_[modId] = id; }
+    void setActive(std::function<std::string()> f) { active_ = std::move(f); }
+    // The id to serve for a request of `type` / `id` in the file `fileKey` (upper-case canonical key).
+    u16 map(const std::string& fileKey, u16 type, u16 id);
+    // The id the current game would play now (the disc id when no campaign track applies).
+    u16 wanted() const;
+    size_t size() const { return tracks_.size(); }
+
+private:
+    std::map<std::string, u16> tracks_;
+    std::function<std::string()> active_;
+    u16 latched_ = 0; // 0 = no descriptor read yet: follow the current game
+    std::mutex mu_;
 };
 
 // ---- XDB text
