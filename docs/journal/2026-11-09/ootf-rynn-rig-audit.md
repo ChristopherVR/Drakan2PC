@@ -131,3 +131,27 @@ Evidence (private, `build/review/rig/`): `hands-before-after-1_1-crouch-4x.png`,
   `convertPcAnimToPs2` found by the owl check does not touch them. What looked mushed was the palm being off the grip; with the
   hand on the grip the left hand wraps the hilt. The right hand's fingers still point along the hilt below it (they are the
   first key of `2H_RandomIdle`, which curls them around the PS2 sword's thicker grip).
+
+## Fourth pass: the scene ponytail sits at its bind pose (engine side), tests and what is left
+
+Evidence (private, `build/review/rig/hair-fix-*.png`): `hair-fix-offline-crouch-clip-vs-hair-at-bind.png`,
+`hair-fix-channel-layer-test-bar-unchanged.png`, `hair-fix-gameplay-idle-hair1-forced-no-change.png`.
+
+* **The bar is the hair at its bind pose.** Skinning the PS2 mesh in the 1.1 crouch with hair1 to hair3 at their bind rotations
+  (all other joints from the retargeted clip) gives the long horizontal bar with the kinked tip seen in the game; with the clip's
+  own hair keys it hangs down the back. The bind pose of the chain points straight back (hair1 to hair3 about 10 degrees below
+  horizontal), so in converted scenes the engine leaves the hair joints at rest and ignores their tracks.
+* **Tracks are ignored, on any layer.** Besides the earlier test (all hair keys of the scene clips replaced, even forced to a 90
+  degree turn: no change), a duplicate of every whole-body player clip on the hair channel (skeleton channel 5, then joint id 6)
+  with forced hair keys also changed nothing; so did forcing hair1 in seven native idle clips in gameplay (override
+  `SYSTEM.ADB` entries; gameplay hair keeps its look, the override may not apply to native ids). The Rynn class `Hair1 Channel`
+  field (default 6) is read by the engine for a hair controller that is not driven by clip data.
+* **Not the actor mode.** The disc's own scenes hold Rynn like ours: 59 of 85 Rynn actors in the PS2 SSDs are mode 1, 25 mode 0.
+* **Engine code not found yet.** The field table in the ELF (`0x4fe930`, 3295 entries of default, 0, name pointer, type) has no
+  member offsets, and the jaw controller found next to it (`FUN_00404e08` family, `Controller_Update_C` callers) is a generic
+  joint controller with angle fields; hair has only a channel field. Next: Ghidra on the Rynn class constructor to see which
+  object takes `Hair1 Channel` and what it does in scene mode, or ship a Rynn model whose hair joints rest in a hanging bind
+  pose (rotate the hair vertices and the hair1 bind together; gameplay would still be driven by whatever the engine does today).
+* **Right hand fingers not changed.** They are the native `2H_RandomIdle` grip of the right hand, which wraps the PS2 sword's
+  grip axis; the PC sword's grip axis in the weapon frame differs, so the fingers run along the hilt. A fix needs the hilt axis
+  of the scene sword in the Rweapon frame (rotate the right hand about it); not done.
