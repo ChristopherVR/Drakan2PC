@@ -228,6 +228,14 @@ Trigger" carry only mission text bitmaps, so Ruined Village and Grotto have none
 
 ## What works
 
+**November 8 Intro graphics:** the Intro showed mirrored Surreal Software logos under the Psygnosis owl and "a Production"
+overlaid with its own mirror image. The PC culls back faces and the PS2 draws converted models from both sides; the title
+cards are single-sided planes and flattened boxes. In cinematic levels the converter now samples every played scene: polygons
+the camera never sees from the front are left out, and models turned away from the camera are hidden by the converted scenes
+while they are. Seen in game: Intro 1 shows only the owl, plate and "Presents", "Production" reads correctly, Intro 3 is
+unchanged. Model faders still pop instead of fading. Needs a regenerated pack. See
+[Intro graphics](../journal/2026-11-08/ootf-intro-graphics.md).
+
 * Converter `editor/scripts/ootf-convert.ts` (`--campaign 1` for the campaign): terrain, textures, models, creatures (skinned, retargeted
   to PS2 rigs), classes, puzzles (plates, doors, counters), exits, texts, music, sounds. Release packs of 2026-11-02: campaign
   `ootf-levels` (13 levels, 9119 files) and arenas `ootf-arenas` (10 levels, 158 files, one `maps/*.ini` each).
