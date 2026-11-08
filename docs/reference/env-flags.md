@@ -15,7 +15,7 @@ Parse rules: **presence** = variable exists (even empty); **not-0** = exists and
 | `GSR_MODERN_WATER` | not-0 | off | Modern (ray-traced) water pass. |
 | `GSR_RAY_REFLECTIONS` | not-0 | off | Ray-traced water and glossy opaque-material reflections (rough native textures keep their colour); independent of modern water. |
 | `GSR_RAY_GI` | not-0 | off | Experimental ray-traced diffuse indirect illumination from nearby surfaces. |
-| `GSR_RAY_SHADOWS` | not-0 | off | Ray-traced shadows. |
+| `GSR_RAY_SHADOWS` | not-0 | off | Ray-traced shadows. Their frame light set (layer sun/ambient plus three point lights ranked for the camera) is held with hysteresis and fades, so it no longer pops as the camera turns or crosses a layer or terrain hole (`docs/journal/2026-11-08/cave-lighting-texture-review.md`). |
 | `GSR_RAY_CPU_CACHE` | first-char != `0` | on | CPU cache of packed ray textures. |
 | `GSR_RAY_UPLOAD_CACHE` | first-char != `0` | on | Skip byte-identical dynamic/native material attribute blocks in the ordered DXR material buffer. `0` restores full uploads for comparison. |
 | `GSR_RAY_GPU_TIMING` | presence | off | Delayed GPU timestamps of the ray pass as `[ray-gpu]` lines. DXR: upload/AS build, sky reduction, opaque transport, composition and total, plus material upload bytes; reads only after the existing frame-slot fence. WebGPU: requests the adapter's timestamp queries and logs each dispatch (`sky`, `low`, `transport`, `main`), the scene facts (sizes, instances, frame triangles, upload bytes) and the CPU stages; read back asynchronously, a frame later. `scripts/perf/ray_gpu_summary.py <stdout.log> [--budget transport=MS]` prints medians and checks a budget. |

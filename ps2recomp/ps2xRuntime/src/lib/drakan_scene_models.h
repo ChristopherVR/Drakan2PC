@@ -258,6 +258,155 @@ public:
         std::erase_if(entries, [](const auto& item) { return !live.contains(item.first); });
     }
 };
+// The ray pass gets one camera-chosen light set for the whole frame: the layer under the eye gives the sun and
+// ambient, and its three point lights that rank highest for the eye. Taken as is each frame, that set pops: a torch
+// leaves the top three as the camera turns, the eye crosses into another layer or over a terrain hole and the whole
+// frame loses its sun, ambient and every point light (docs/journal/2026-11-08/cave-lighting-texture-review.md).
+// This keeps the set stable: a held light outranks a newcomer by kHold, lights fade in and out over kFadeCaptures,
+// sun/ambient move toward a new layer's values over a few captures, and captures without any layer (a terrain hole,
+// a gap between layers) keep the last lighting for up to kHoldMissing captures instead of dropping every ray shadow
+// and the ambient occlusion. Past that the former no-lighting result returns, so a cave that really has no layer
+// under it is not lit by the outdoor sun it was entered from.
+class LightSelection {
+public:
+    struct Candidate {
+        uint32_t key = 0; // the guest light record
+        float score = 0;
+        gsr::SceneLight light;
+    };
+    struct Environment {
+        float ambient[3]{};
+        bool hasSun = false;
+        gsr::SceneLight sun;
+    };
+    static constexpr unsigned kSlots = 3;      // the ray shaders take four lights: the sun plus three point lights
+    static constexpr float kHold = 1.5f;       // a newcomer must outrank a held light by this factor to replace it
+    static constexpr float kFadeCaptures = 12; // ~0.2 s at 60 world frames per second
+    static constexpr float kEnvironmentRate = .125f;
+    static constexpr unsigned kHoldMissing = 90; // ~1.5 s
+
+    void reset() {
+        slots.clear();
+        started = false;
+        missing = 0;
+        current = {};
+    }
+    // `environment` null: no layer is under the eye this capture; keep the previous lighting.
+    void apply(const Environment* environment, std::vector<Candidate> candidates, gsr::SceneLighting& out) {
+        if (!environment) {
+            if (started && ++missing > kHoldMissing)
+                reset();
+            emit(out);
+            return;
+        }
+        missing = 0;
+        const bool first = !started;
+        started = true;
+        blend(*environment, first);
+        for (auto& slot : slots)
+            slot.present = false;
+        std::vector<std::pair<float, size_t>> ranked;
+        ranked.reserve(candidates.size());
+        for (size_t i = 0; i < candidates.size(); ++i) {
+            float score = candidates[i].score;
+            for (auto& slot : slots)
+                if (slot.key == candidates[i].key) {
+                    slot.present = true;
+                    slot.light = candidates[i].light; // a moving or flickering light keeps its latest values
+                    if (slot.wanted)
+                        score *= kHold;
+                }
+            ranked.emplace_back(score, i);
+        }
+        std::stable_sort(ranked.begin(), ranked.end(), [](const auto& a, const auto& b) { return a.first > b.first; });
+        std::vector<uint32_t> wanted;
+        for (const auto& item : ranked) {
+            if (wanted.size() >= kSlots)
+                break;
+            if (std::find(wanted.begin(), wanted.end(), candidates[item.second].key) == wanted.end())
+                wanted.push_back(candidates[item.second].key);
+        }
+        for (auto& slot : slots)
+            slot.wanted = slot.present && std::find(wanted.begin(), wanted.end(), slot.key) != wanted.end();
+        // A newcomer takes a slot only once a fading light has left it, so no more than kSlots ever reach the shader.
+        for (uint32_t key : wanted) {
+            if (std::any_of(slots.begin(), slots.end(), [&](const Slot& s) { return s.key == key; }))
+                continue;
+            if (slots.size() >= kSlots)
+                break;
+            for (const auto& c : candidates)
+                if (c.key == key) {
+                    slots.push_back({key, first ? 1.f : 0.f, true, true, c.light});
+                    break;
+                }
+        }
+        for (auto& slot : slots)
+            slot.weight = std::clamp(slot.weight + (slot.wanted ? 1.f : -1.f) / kFadeCaptures, 0.f, 1.f);
+        std::erase_if(slots, [](const Slot& s) { return !s.wanted && s.weight <= 0; });
+        emit(out);
+    }
+
+private:
+    struct Slot {
+        uint32_t key = 0;
+        float weight = 0;
+        bool wanted = false, present = false;
+        gsr::SceneLight light;
+    };
+    std::vector<Slot> slots;
+    bool started = false;
+    unsigned missing = 0;
+    Environment current;
+    void blend(const Environment& target, bool first) {
+        const float t = first ? 1.f : kEnvironmentRate;
+        for (unsigned c = 0; c < 3; ++c)
+            current.ambient[c] += (target.ambient[c] - current.ambient[c]) * t;
+        if (target.hasSun) {
+            if (!current.hasSun) { // fade a new sun in along its own direction
+                current.sun = target.sun;
+                for (float& channel : current.sun.color)
+                    channel = first ? channel : 0.f;
+                current.hasSun = true;
+            }
+            float length = 0;
+            for (unsigned c = 0; c < 3; ++c) {
+                current.sun.color[c] += (target.sun.color[c] - current.sun.color[c]) * t;
+                current.sun.vector[c] += (target.sun.vector[c] - current.sun.vector[c]) * t;
+                length += current.sun.vector[c] * current.sun.vector[c];
+            }
+            if (length > 1e-6f) {
+                length = std::sqrt(length);
+                for (float& v : current.sun.vector)
+                    v /= length;
+            } else {
+                std::copy(target.sun.vector, target.sun.vector + 3, current.sun.vector);
+            }
+        } else if (current.hasSun) {
+            float remaining = 0;
+            for (float& channel : current.sun.color) {
+                channel -= channel * t;
+                remaining += channel;
+            }
+            if (first || remaining < 1e-3f)
+                current.hasSun = false;
+        }
+    }
+    void emit(gsr::SceneLighting& out) const {
+        if (!started)
+            return;
+        std::copy(current.ambient, current.ambient + 3, out.ambient);
+        if (current.hasSun)
+            out.lights.push_back(current.sun);
+        for (const auto& slot : slots) {
+            if (slot.weight <= 0)
+                continue;
+            auto light = slot.light;
+            for (float& channel : light.color)
+                channel *= slot.weight;
+            out.lights.push_back(light);
+        }
+    }
+};
 // 12b640's resource buckets, 189b38/18bb90's model faces and 1ec160/1ec8f0's
 // packed position selectors, zero-delimited strips and per-output-vertex UVs.
 class Capture {
@@ -274,6 +423,7 @@ class Capture {
         uint64_t source = 0;
     };
     BackdropTracker backdrops;
+    LightSelection lights;
     uint64_t level = ~0ull;
     unsigned ticks = 0;
     bool refreshing = false;
@@ -634,6 +784,7 @@ public:
     void reset() {
         level = ~0ull;
         ticks = 0;
+        lights.reset();
         backdrops.clear();
         meshes.clear();
         templates.clear();
@@ -653,14 +804,18 @@ public:
         Reader r{ram, bytes};
         if (!r.span(0x4dae20, 0x220))
             return out;
+        if (level != scene)
+            lights.reset();
         // 185db0 -> 1c4148 transforms the shared scratch light set into
         // object space. Read the native WORLD-space layer source instead.
+        LightSelection::Environment environment;
+        std::vector<LightSelection::Candidate> local;
+        uint32_t selected = 0;
         if (r.span(0x4dc118, 12)) {
             const auto base = r.u(0x4dc118), count = r.u(0x4dc120);
             float eye[3]{};
             for (unsigned c = 0; c < 3; ++c)
                 eye[c] = r.f(0x4dadc4 + c * 4);
-            uint32_t selected = 0;
             float closest = 1e30f;
             if (count <= 4096 && r.span(base, uint64_t(count) * 0x164))
                 for (unsigned i = 0; i < count; ++i) {
@@ -681,24 +836,25 @@ public:
                     }
                 }
             if (selected) {
-                gsr::SceneLight sun;
+                gsr::SceneLight& sun = environment.sun;
                 bool valid = true;
                 for (unsigned c = 0; c < 3; ++c) {
                     sun.vector[c] = r.f(selected + 0x124 + c * 4);
                     sun.color[c] = r.f(selected + 0x130 + c * 4);
-                    out->lighting.ambient[c] = r.f(selected + 0x13c + c * 4);
+                    environment.ambient[c] = r.f(selected + 0x13c + c * 4);
                     valid &= std::isfinite(sun.vector[c]) && std::isfinite(sun.color[c]) && sun.color[c] >= 0 &&
-                             sun.color[c] <= 16 && std::isfinite(out->lighting.ambient[c]) &&
-                             out->lighting.ambient[c] >= 0 && out->lighting.ambient[c] <= 16;
+                             sun.color[c] <= 16 && std::isfinite(environment.ambient[c]) &&
+                             environment.ambient[c] >= 0 && environment.ambient[c] <= 16;
                 }
                 const float n =
                     sun.vector[0] * sun.vector[0] + sun.vector[1] * sun.vector[1] + sun.vector[2] * sun.vector[2];
-                if (valid && n > .5f && n < 1.5f)
-                    out->lighting.lights.push_back(sun);
-                const auto list = r.u(selected + 0x5c), lights = r.u(selected + 0x64);
-                std::vector<std::pair<float, gsr::SceneLight>> local;
-                if (lights <= 4096 && r.span(list, uint64_t(lights) * 4))
-                    for (unsigned i = 0; i < lights; ++i) {
+                environment.hasSun = valid && n > .5f && n < 1.5f;
+                if (!valid) // the former path still applied finite ambient channels; keep only those
+                    for (float& channel : environment.ambient)
+                        channel = std::isfinite(channel) ? std::clamp(channel, 0.f, 16.f) : 0.f;
+                const auto list = r.u(selected + 0x5c), count = r.u(selected + 0x64);
+                if (count <= 4096 && r.span(list, uint64_t(count) * 4))
+                    for (unsigned i = 0; i < count; ++i) {
                         auto p = r.u(list + i * 4);
                         if (!r.span(p, 28))
                             continue;
@@ -719,14 +875,11 @@ public:
                             brightness += light.color[c];
                         }
                         if (finite)
-                            local.emplace_back(brightness * light.radiusSquared / distance, light);
+                            local.push_back({p, brightness * light.radiusSquared / distance, light});
                     }
-                std::stable_sort(local.begin(), local.end(),
-                                 [](const auto& a, const auto& b) { return a.first > b.first; });
-                for (unsigned i = 0; i < std::min<size_t>(3, local.size()); ++i)
-                    out->lighting.lights.push_back(local[i].second);
             }
         }
+        lights.apply(selected ? &environment : nullptr, std::move(local), out->lighting);
         if (level != scene) {
             reset();
             level = scene;

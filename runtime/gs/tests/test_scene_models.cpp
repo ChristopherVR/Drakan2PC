@@ -3,6 +3,7 @@
 #include "drakan_shadow_ownership.h"
 #include <fstream>
 #include <cassert>
+#include <cmath>
 #include <iostream>
 #include <limits>
 int main(int argc, char** argv) {
@@ -19,6 +20,84 @@ int main(int argc, char** argv) {
         lighting.ambient[2] = 0;
         lighting.lights.push_back({});
         assert(lighting.hasContribution()); // preserve the existing direct-light eligibility
+    }
+    {
+        // The frame light set must not pop as the camera re-ranks torches, crosses layers or a terrain hole.
+        using C = LightSelection::Candidate;
+        LightSelection::Environment env;
+        env.ambient[0] = env.ambient[1] = env.ambient[2] = .1f;
+        env.hasSun = true;
+        env.sun.vector[1] = 1;
+        env.sun.color[0] = env.sun.color[1] = env.sun.color[2] = .8f;
+        auto run = [](LightSelection& s, const LightSelection::Environment* e, std::vector<C> c) {
+            gsr::SceneLighting out;
+            s.apply(e, std::move(c), out);
+            return out;
+        };
+        auto red = [](const gsr::SceneLighting& l, uint32_t key) { // the fade weight of that light, 0 when absent
+            for (const auto& x : l.lights)
+                if (x.type == gsr::SceneLight::Point && x.radiusSquared == float(key) * 1e6f)
+                    return x.color[0];
+            return 0.f;
+        };
+        auto tagged = [](uint32_t key, float score) { // the radius identifies the light, color[0] reports its weight
+            C c{key, score, {}};
+            c.light.type = gsr::SceneLight::Point;
+            c.light.color[0] = 1;
+            c.light.radiusSquared = float(key) * 1e6f;
+            return c;
+        };
+        LightSelection s;
+        std::vector<C> four{tagged(1, 10), tagged(2, 9), tagged(3, 8), tagged(4, 7)};
+        auto first = run(s, &env, four); // the first capture of a level is exact: no fade-in
+        assert(first.lights.size() == 4 && first.lights[0].type == gsr::SceneLight::Directional);
+        assert(red(first, 1) == 1 && red(first, 2) == 1 && red(first, 3) == 1 && red(first, 4) == 0);
+        assert(first.ambient[0] == .1f);
+        // Light 4 now outranks light 3 by less than kHold: no change.
+        four[3].score = 8 * 1.4f;
+        auto held = run(s, &env, four);
+        assert(red(held, 3) == 1 && red(held, 4) == 0);
+        // Clearly stronger: light 3 fades out first, then 4 fades in; never more than three point lights.
+        four[3].score = 8 * 2.f;
+        float previous3 = 1, previous4 = 0;
+        bool swapped = false;
+        for (unsigned frame = 0; frame < 40; ++frame) {
+            auto l = run(s, &env, four);
+            assert(l.lights.size() <= 4);
+            float w3 = red(l, 3), w4 = red(l, 4);
+            assert(w3 <= previous3 + 1e-6f && w4 >= previous4 - 1e-6f);
+            assert(previous3 - w3 <= 1.f / LightSelection::kFadeCaptures + 1e-5f);
+            assert(w4 - previous4 <= 1.f / LightSelection::kFadeCaptures + 1e-5f);
+            previous3 = w3;
+            previous4 = w4;
+            swapped |= w4 == 1;
+        }
+        assert(swapped && previous3 == 0);
+        // A terrain hole: the last lighting is held, then the former no-lighting result returns.
+        for (unsigned frame = 0; frame < LightSelection::kHoldMissing; ++frame) {
+            auto l = run(s, nullptr, {});
+            assert(l.lights.size() == 4 && l.ambient[0] == .1f);
+        }
+        auto gone = run(s, nullptr, {});
+        assert(gone.lights.empty() && !gone.hasContribution());
+        // Back on a layer, then on a darker one: sun and ambient move over several captures, not in one.
+        run(s, &env, four);
+        auto dark = env;
+        dark.ambient[0] = .02f;
+        dark.sun.color[0] = .2f;
+        auto step = run(s, &dark, four);
+        assert(step.ambient[0] < .1f && step.ambient[0] > .02f);
+        assert(step.lights[0].color[0] < .8f && step.lights[0].color[0] > .2f);
+        for (unsigned frame = 0; frame < 80; ++frame)
+            step = run(s, &dark, four);
+        assert(std::fabs(step.ambient[0] - .02f) < 1e-3f && std::fabs(step.lights[0].color[0] - .2f) < 1e-3f);
+        // A layer without a valid sun fades the old one out instead of dropping it.
+        dark.hasSun = false;
+        auto fading = run(s, &dark, four);
+        assert(fading.lights[0].type == gsr::SceneLight::Directional && fading.lights[0].color[0] > 0);
+        for (unsigned frame = 0; frame < 120; ++frame)
+            fading = run(s, &dark, four);
+        assert(fading.lights[0].type == gsr::SceneLight::Point);
     }
     Capture cache;
     assert(cache.capture(nullptr, 0, 1)->instances.empty());
