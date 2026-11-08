@@ -202,8 +202,9 @@ up because every converted clip was written looping (PC clips have no loop flag)
 disc clip they replace and converted creatures' death clips play once. Seated, dice and lookout grunts hovered because the PC
 orc's pass-through `root` joint, which lowers the body, had no PS2 partner and was dropped; it is now folded into `hueges`, and
 converted root tracks keep absolute positions. A grunt killed with the sword was seen lying on the ground; seated grunts were
-checked offline only. Still open: the spear grunts' sometimes missing arm (not reproduced) and corpses placed dead in the level,
-which stand. Needs a regenerated pack. See [grunt poses](../journal/2026-11-08/ootf-grunt-pose-fixes.md).
+checked offline only. Creatures placed dead in a level (a Ruined Village grunt, dead slaves) now lie in their death clip
+(seen in a frame). The spear grunt's arm hidden from behind matches the original Drakan 2 Purple Orc (the trident stance holds
+the left forearm in front of the body); no frame of an arm actually missing was found. Needs a regenerated pack. See [grunt poses](../journal/2026-11-08/ootf-grunt-pose-fixes.md).
 
 ## What works
 

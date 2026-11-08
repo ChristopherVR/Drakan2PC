@@ -64,9 +64,9 @@ seconds (world dump of `grunt-base`). Rynn is not affected by either change: eve
 root exactly at the origin, and her rig has no unmatched joint, so her retargeted scene clips are unchanged (her sunken feet
 in scenes had their own cause, `ootf-rynn-scenes.md`).
 
-## The "missing arm" (not found, still open)
+## The "missing arm" (first pass)
 
-Not found, and a later user report on a pack without these changes says the spear grunts "still don't always show their arm". On the grunts the arm joints are matched one to one (`rshoulder` .. `rhand`, `rweapon`, the left side) with equal
+Not found in the first pass; see the second pass below. On the grunts the arm joints are matched one to one (`rshoulder` .. `rhand`, `rweapon`, the left side) with equal
 bind positions, and forward kinematics of the retargeted `ready`, `walk` and `idle_lookingaround` put shoulders, elbows and hands
 within 0.006 of the disc's own clips. The converted troll model of the scene Wartoks (`Wartock Leather`, PC 3508) keeps vertex
 weights on every arm joint (both arms 6 to 13 vertices per joint, against 7 to 14 on the PC LOD 0). In the screenshots
@@ -82,13 +82,34 @@ parameter or kept PC class default touches a channel or body-part field. Not yet
 the disc's own attack and hit clips that these classes still play (`Attack_Mid`, `Attack_Low`, `HitRxn*`, never replaced),
 and whether the arm is hidden by the trident's own geometry.
 
-## Placed corpses still stand (open)
+## Placed corpses stood upright (fixed, formats `6ab2b0f`)
 
-Ruined Village places one grunt already dead (object 2798, `Initial Health` -50) and Wartok Canyons and Ruined Village dead
-slaves (`Initial Health` 0); the disc never places a dead creature. The PS2 engine spawns such an object as dead (no hit
-points, out of the AI lists) without playing any death clip, so it stands in its idle frame, with and without the loop fix
-(`grunt-single-turn`, `grunt-single-base-turn`). A placed corpse needs its own handling (for instance a prop posed at the last
-frame of its death clip); not done.
+Ruined Village places one grunt already dead (object 2798, `Initial Health` -50), and Ruined Village and Wartok Canyons place
+dead slaves (`Initial Health` 0); the disc never places a dead creature. The PS2 engine spawns such an object dead (no hit
+points, out of the AI lists) without playing any death clip, so it stood in its idle frame, with and without the loop fix
+(`grunt-single-turn`, `grunt-single-base-turn`: both orcs upright). Such an object's `Base Idle` is now the class's
+`Idle Death` clip, else its `Death` clip (which plays once and holds), and its spontaneous idles are cleared
+(`placedCorpsePose`; 2 objects in Ruined Village). Run `build/ootf-run/grunt-corpse/run` (`t00` to `t05`): the placed dead
+grunt lies on the ground beside the living one for the whole run.
+
+## Second pass on the arm (after "still don't always show their arm")
+
+* The working tree now converts the orcs with the disc's own models and clips by default (another session's
+  `--enemy-animations drakan2`, formats `d18eb87`), so these runs show the disc's look.
+* Combat burst, 73 shots 200 ms apart (`build/ootf-run/grunt-arm/run`, crops `build/grunt/purple_z.png`): a trident grunt
+  seen from behind shows its right arm holding the trident and a left arm that ends at the elbow, held still for 2.4 s.
+* The original game, same class: `build/grunt/ps2/ps2center` (Drakan 2 Surdana, the PS2 `Purple Orc Center` object 5002,
+  Rynn placed next to it with `DRAKAN_PLAYTEST_POS`; crop `build/grunt/ps2center_z.png`). From behind it looks the same: the
+  trident in the right hand, the left arm ending at the elbow. The trident stance holds the left forearm and hand in front of the
+  belly (forward kinematics of the disc's `ready`: left hand 0.126 in front of the root and 0.059 to the side, inside the
+  torso's width), so from behind the body hides it. This is how the disc model and clips look, not a conversion loss; a frame of
+  the forearm from the front was not captured.
+* Distance: the second LOD of models 4395 / 4396 (100 vertices, from 12,000 units) weights both arms alike (3 and 6 vertices on
+  each upper arm and forearm).
+* Not reproduced: an arm missing from the front, in an attack or hit clip (the burst caught the grunts swinging pickaxes and
+  tridents at each other with both arms), or on the Wartok Canyons trolls (PS2 axes, not spears; not run). The opening scene
+  does not play on a direct start of Ruined Village even with `DRAKAN_AUTOPRESS_STOP_AFTER_LOAD=1` (`grunt-open2`), so the
+  scene Wartoks are still unseen.
 
 ## Evidence (private, under `build/`)
 
