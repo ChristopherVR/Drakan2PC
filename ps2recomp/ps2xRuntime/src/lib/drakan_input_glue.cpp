@@ -1206,9 +1206,11 @@ void hookBowLaunch(uint8_t* rdram, R5900Context* c, PS2Runtime* rt) {
                                     g.write8(player + 0x4db, static_cast<uint8_t>(old >> 8));
                                 });
         ilog("[bow] third-person autoaim target=%u player=%x\n", target, player);
+        module().afterBowLaunch(g);
         return;
     }
     g_origBowLaunch(rdram, c, rt);
+    module().afterBowLaunch(g);
 }
 
 } // namespace

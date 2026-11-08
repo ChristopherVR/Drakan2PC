@@ -116,3 +116,26 @@ clip `0xe7`, and the post-release snap (the native attack restarts the clip from
 frozen frame back to the nock while the arrow leaves).
 
 Parallax / raycast: not attempted beyond the notes above; the 8000-unit convergence stays.
+
+## Follow-up pass: running, jumping, flicker, snap
+
+- **Root motion**: starting the archer clip through `0x32cf30` also clears the model's root-motion flags (`model+8` bits
+  0x10 / 0x40, 0x20) the way the locomotion transitions do; `bowDrawFrame` now reads them before and after the call and
+  restores them with the model vtable callbacks (`+0xb4`, `+0xc4`, `+0xbc`), as `updateBowSightLocomotion` does.
+- **Speeds** (per-frame `[in-pos]` rows, 0.25 s means, runs `bowhold-r4-nohold` / `-hold` / `-jump`): run forward about
+  2400 to 2650 units/s without the hold and 2140 to 2820 with it (hold from +0.3 s to +1.7 s, release inside the run);
+  backward about 900 without and 910 with; the held jump travelled 2430 to 3260 units/s. The earlier RAM-dump position
+  readings were unreliable (dumps taken a script-clock second apart could land in the same frame when other games load the machine;
+  identical consecutive dumps were that, not a game stall).
+- **Torso records while running and jumping**: records 1 and 2 stay at clip `0x20896`, rate 0, phase 0.20 with the legs
+  on `0x208ff` / `0x206ac` (run, back) or `0x208e5` (jump, `+0x94` = 0x10); the release in the air gave one launch
+  (`aec` = 2, `+0x94` = 0x90) and the arrow count dropped by one.
+- **Flicker**: native code overwrites the held clip now and then (idle: about once a second; running forward and
+  backward: not seen; a jump: once at takeoff). A restart used to run the clip from 0 at rate 0.5 (a visible dip); it now
+  starts at the held frame (`f13` = 0.20, rate 0.01) and is frozen at once, so only the 0.15 s blend shows.
+- **Snap on release**: after the native launch (`InputModule::afterBowLaunch`, called from the launch hook) the
+  clip's phase is moved to 0.20 if it is still before it, so the loose continues from the held frame. Checked: two
+  releases still gave two launches and the ammo counter 200 to 198.
+- **Debug logs**: kept, env-gated like the rest of the bow code: `DRAKAN_BOW_LOG=1` (draw start, shot channel, the
+  animation records at each launch) and `DRAKAN_BOW_LOG2=1` (every motion setter call with its return address, source and
+  channel, used to find `0x20896`). The temporary per-shot channel check was removed.
