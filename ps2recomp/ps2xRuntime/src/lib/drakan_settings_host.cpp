@@ -1063,6 +1063,7 @@ bool nativeSound(const std::vector<gameui::PauseAction>& actions) {
 }
 
 bool previewCrop(const gameui::ImageRef& ref, dsettings::IconCrop& c); // below: a picture's texture
+void updateMapPreviews(); // below: queues and uploads the pictures the screens asked for (settings pictures too)
 
 // `background`: another host screen is on top this frame (the modern Save / Load screen over the pause or the title):
 // this one only fades and draws, it reads no input (the events are the top screen's).
@@ -1125,6 +1126,7 @@ void pauseDraw(const dsettings::SettingsOverlay::ScreenFrame& f, bool background
         }
         return;
     }
+    updateMapPreviews(); // the help panel's setting pictures (the pause menu shows the PC Settings pages too)
     const gameui::Viewport vp{0, 0, f.w, f.h};
     const bool take = !background && f.input && visible;
     const bool capture = ui.screen.pcSettingsOpen() && ui.screen.pcSettings().capturing();
@@ -1377,7 +1379,7 @@ uint32_t mapPreviewId(const std::string& mapName) {
 }
 
 // ---- real pictures of the settings (gameui/SettingPreview.h) ----
-// previews/settings/<row key>/<value>.webp next to the exe: screenshots of this game with that value applied, written by
+// previews/settings/<row key>/<value>.png next to the exe: screenshots of this game with that value applied, written by
 // scripts/harness/setting_shots.py on the player's machine (never committed). A value without its own file takes the
 // nearest numeric one (a slider between two captures); nothing at all means the help panel draws no real picture.
 std::set<uint32_t> g_settingShotIds; // picture ids that are stretched to the 16:9 box, not centre cropped
@@ -1402,7 +1404,7 @@ uint32_t settingShotPicture(const std::string& key, const std::string& value) {
         std::error_code ec;
         for (const auto& e :
              std::filesystem::directory_iterator(drakan_cfg::exeDir() + "previews/settings/" + key, ec)) {
-            if (e.path().extension() != ".webp" && e.path().extension() != ".png") // WebP needs the decoder (gs_texup)
+            if (e.path().extension() != ".png")
                 continue;
             Capture c;
             c.value = e.path().stem().string();

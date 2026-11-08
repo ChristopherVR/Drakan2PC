@@ -10,9 +10,9 @@ the same moment of the same scene and differs only by the setting. Rynn plays ra
 only when she stood still between its two shots, anything else is made again in another run. Scenes: the meadow where
 Rynn starts (field of view, aspect, HUD, filtering, shadows, vegetation) and the pond (water, reflections).
 
-Pictures are saved as previews/settings/<row key>/<value>.webp (1280 x 720, lossy) next to the executable; the panel
+Pictures are saved as previews/settings/<row key>/<value>.png (1280 x 720) next to the executable; the panel
 (gameui/SettingPreview.h) shows the one for the value a row has right now. They are made from the player's disc and never
-committed. Needs Pillow (the game saves 3840 x 2160 PNGs and Pillow writes WebP). Settings with no visible effect on a
+committed. Needs Pillow (the game saves 3840 x 2160 PNGs; they are shrunk to 1280 x 720). Settings with no visible effect on a
 still picture have none on purpose, and neither do values like Auto aspect that depend on the window.
 """
 
@@ -37,6 +37,7 @@ START = 420  # samples after the level starts: the opening quest message is gone
 POND = ("382176", "163000", "522638", "1.571")  # the Surdana pond, looking across the water
 MEADOW = None  # where Rynn starts: trees, grass, a tent at the edge (no placement)
 STILL = 1.6  # mean change (0..255) of the middle of the frame between a value's two pictures when Rynn stands still
+STILL_BY_KEY = {"scale": 3.2}  # the render scale shimmers more between two samples (grass, edges)
 EFFECT = 0.12  # a ray effect that is on must change the picture at least this much against off (else not ready yet)
 
 BASELINE = {
@@ -102,12 +103,12 @@ def ini_value(value: str) -> str:
 BASELINE_INI = {k: ini_value(v) for k, v in BASELINE.items()}
 
 
-def recipe_for(place, todo: list[tuple[str, list[str], dict]]) -> str:
+def recipe_for(place, todo: list[tuple[str, list[str], dict]], start: int) -> str:
     """The input script of one run: every wanted (setting, value) once, each followed by two pictures."""
     lines = ["0 sync play 80"]
     if place:
         lines.append(f"20 place {' '.join(place)}")
-    t = START
+    t = start
     for key, values, before in todo:
         for k, v in before.items():
             lines.append(f"{t} setting video.{k} {ini_value(v)}")
@@ -128,7 +129,7 @@ def recipe_for(place, todo: list[tuple[str, list[str], dict]]) -> str:
     return "\n".join(lines) + "\n"
 
 
-def run_scene(exe: Path, name: str, place, todo, workdir: Path) -> Path | None:
+def run_scene(exe: Path, name: str, place, todo, workdir: Path, start: int) -> Path | None:
     """One game run of a scene; returns the folder with the pictures, None if the game did not finish."""
     run = workdir / name
     shutil.rmtree(run, ignore_errors=True)
@@ -147,7 +148,7 @@ def run_scene(exe: Path, name: str, place, todo, workdir: Path) -> Path | None:
     )
     (run / "drakan.ini").write_text(ini, encoding="utf-8")
     shutil.copy(exe.parent / "drakan_input.ini", run / "drakan_input.ini")
-    (run / "recipe.txt").write_text(recipe_for(place, todo))
+    (run / "recipe.txt").write_text(recipe_for(place, todo, start))
     env = dict(os.environ)
     env.update(
         DRAKAN_NO_ACTIVATE="1",
@@ -202,7 +203,7 @@ def message_shown(im) -> bool:
 
 
 def collect(run: Path, todo, out_root: Path) -> list[tuple[str, str]]:
-    """Saves the pictures that are fine as WebP; returns the (setting, value) pairs that must be made again."""
+    """Saves the pictures that are fine as PNG; returns the (setting, value) pairs that must be made again."""
     from PIL import Image
 
     again = []
@@ -214,7 +215,7 @@ def collect(run: Path, todo, out_root: Path) -> list[tuple[str, str]]:
                 again.append((key, value))
                 continue
             ia, ib = Image.open(a).convert("RGB"), Image.open(b).convert("RGB")
-            if message_shown(ib) or change(ia, ib) > STILL:
+            if message_shown(ib) or change(ia, ib) > STILL_BY_KEY.get(key, STILL):
                 again.append((key, value))
                 continue
             taken.setdefault(key, {})[value] = ib
@@ -224,9 +225,9 @@ def collect(run: Path, todo, out_root: Path) -> list[tuple[str, str]]:
             pictures.pop("on")
     for key, pictures in taken.items():
         for value, im in pictures.items():
-            dest = out_root / f"video.{key}" / f"{file_value(value)}.webp"
+            dest = out_root / f"video.{key}" / f"{file_value(value)}.png"
             dest.parent.mkdir(parents=True, exist_ok=True)
-            im.resize((WIDTH, HEIGHT), Image.LANCZOS).save(dest, "WEBP", quality=88, method=6)
+            im.resize((WIDTH, HEIGHT), Image.LANCZOS).save(dest, optimize=True)
             print(f"saved video.{key}={value}", flush=True)
     return again
 
@@ -255,7 +256,7 @@ def main() -> int:
             if only and key not in only:
                 continue
             missing = [
-                v for v in values if args.force or not (out_root / f"video.{key}" / f"{file_value(v)}.webp").exists()
+                v for v in values if args.force or not (out_root / f"video.{key}" / f"{file_value(v)}.png").exists()
             ]
             if missing:
                 todo.append((key, missing, before))
@@ -263,7 +264,7 @@ def main() -> int:
             if not todo:
                 break
             print(f"{scene}: pass {attempt + 1}, {sum(len(v) for _, v, _ in todo)} pictures", flush=True)
-            run = run_scene(exe, f"{scene}_{attempt}", place, todo, workdir)
+            run = run_scene(exe, f"{scene}_{attempt}", place, todo, workdir, START + 300 * attempt)
             if run is None:
                 print("the game did not finish; trying again", flush=True)
                 continue
