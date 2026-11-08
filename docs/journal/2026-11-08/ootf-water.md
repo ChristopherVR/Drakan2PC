@@ -80,3 +80,55 @@ entry keeps the picture). `npm test` (130 files, 1203 tests, with other sessions
   and the PS2's other water looks (Surdana Water 240, Stormy Water 230 for the tropical sea) are not chosen per level.
 * Grotto's only water layer has a snow material texture and type 0 vertices: it stays a non-swimmable layer as before.
 * The water colours come from the template's Level Properties (Surdana's (A)..(H) colours); not compared with the PC look.
+
+## Follow-up: water standing in the air, waterfalls, per-world water (same day)
+
+User reports on a pack with the fix above: "some water is higher in the sky", and the waterfalls do not look like Drakan 2's.
+
+### Water above the surface
+
+* Cause: the PS2 water pass also draws a water layer's hole cells. The disc keeps every vertex of a water layer at the surface
+  height (flat), so its hole cells lie under the bank. The PC lifts the vertices that no water cell uses up the bank, in places
+  far above it ("Copy of Ocean 01": surface 11000, hole vertices up to 16494). Converted, those hole cells drew as sheets of
+  water standing in the air (the slanted sheet in front of the Ruined Village rock spire, a strip across the Islands cave mouth).
+  Proof: flattening only those vertices (pack `water-fix2`) removed both; the water cells themselves were never involved (3 of
+  7646 sloped water cells in Ruined Village stand above the ground).
+* Fix (`waterHoleHeights`, convert.ts): a vertex no water cell uses is lowered to the height of the nearest water vertex (breadth
+  first over the grid) and to `WATER_HOLE_SINK` (64) below the highest floor under it (`terrainGroundBelow`), but no more than
+  2048 below that water height (a cliff foot would otherwise make a wall of water); a lower PC height is kept. Water cell
+  vertices are untouched (sloped rivers keep their slope). A first try that only kept hole vertices under the ground (not
+  under the water) left the spire sheet (`water-fix3`): the ground under it is high.
+* Counts (hole vertices standing above their water height): 0 by construction. Hole cells with a corner more than 1000 above
+  the floor: Ruined Village 67 -> 56, Islands 195 -> 116 (those corners now sit at most 2048 below the surface, over a much
+  lower floor); Surdana has 16.
+
+### Per-world water material
+
+Water now maps to PROCTEES 0x471d (material 240 "Surdana Water") for the mountain world and keeps 0x10e (material 1 "Water") for
+the Islands world (`nativeWaterTextures`). Tried and rejected for the Islands: 0x467f "Stormy Water_Level 3a" drew grey gravel
+(its wave texture is grey; Andrellian Isles colours it), Surdana Water drew pale sand coloured over the Islands' 0x71 vertices
+(`water-isl3`, `water-isl4`).
+
+### Waterfalls
+
+The disc's waterfalls are the same mechanism as the OotF ones (an animated texture listed frame by frame in the model):
+`SurdanaFalls02` and `SurdanaFalls_05LU` use WORLDCON 652..681 (64 x 64, 8 bpp, 30 frames at 30 fps, alpha selector 8 = blended),
+`SurdanaFalls01` WORLDCON 591..620 (32 x 32, 15 fps, a noisy sheet like the OotF one). Every OotF waterfall sheet uses one
+30-frame texture per world (`Intro Objects` 5024, `Ruined Village` 5024, `Wartok Canyons` 5064, `Tropical Common` 5663,
+`Alwarren` 5732; 32 x 32, 30 or 40 fps); rocks and pools around them use other textures. Five rows in
+`DEFAULT_PS2_TEXTURE_SUBSTITUTIONS` (ootfps2tex.ts) give them WORLDCON 652 with its frames; both are square, so the UVs carry.
+
+### Verification
+
+Same harness and private play folder as above.
+
+* Ruined Village ocean (`water-fix4`): the spire sheet is gone, Rynn still floats (y 10790..10857) and swims; Islands from Arokh
+  (`water-isl4`/`water-isl5`): the cave mouth strip is gone. `build/ootf-run/water/compare_float.png` (before = the 93d009f7 pack).
+* Waterfall: Rynn placed at three sides of Ruined Village "Waterfall Tall #2" (210944, 16500, 239616), packs with the row off
+  (`--ps2-texture-map` turning it off, `falls-old`) and on (`falls-new`): the sheet changes from the blue noisy OotF texture to the
+  streaked Drakan 2 falls, still animated. `build/ootf-run/falls/compare_rv_falls.png` (night level, the bottom row shows the falls).
+  The Intro owl shot could not be compared: in this run the pause menu opened over it (autopress taps), so the Intro falls are not
+  photographed with the new texture.
+
+Still open: shore foam has no OotF counterpart to swap (the PC levels have no foam objects or textures near water); the PC water
+flow directions are not carried; the Islands keep the plain Water material.
