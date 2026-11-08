@@ -117,10 +117,6 @@ const std::vector<std::string>& dragonSkinNames() {
     static const std::vector<std::string> v = {"Arokh (original)"};
     return v;
 }
-const std::vector<std::string>& speedNames() {
-    static const std::vector<std::string> v = {"Modem 28.8k", "Modem 33.6k", "Modem 56k", "ISDN 112k", "LAN / T1 1M"};
-    return v;
-}
 const std::vector<std::string>& colourNames() {
     static const std::vector<std::string> v = {"Crimson", "Azure", "Emerald", "Gold",
                                                "Violet",  "Amber", "Silver",  "Onyx"};
@@ -392,16 +388,14 @@ void MultiplayerScreen::buildRows(const MpState& st) {
         return v[static_cast<size_t>(wrapIdx(i, static_cast<int>(v.size())))];
     };
     switch (page_) {
-        case MpPage::Menu: // the OotF "Multiplayer" screen: Player Name, Player Color, skins, Connection Speed, buttons
+        case MpPage::Menu: // the OotF "Multiplayer" screen: Player Name, Player Color, skins, buttons
             add(RowId::MenuName, RowKind::Text, "Player Name", setup_.name);
             add(RowId::MenuColour, RowKind::Choice, "Player Color", pick(colourNames(), setup_.colour));
             add(RowId::MenuHumanSkin, RowKind::Choice, "Character", selectedCharacter(st).name,
                 allowedCharacters(st).size() > 1);
             add(RowId::MenuDragonSkin, RowKind::Choice, "Dragon Appearance", "Arokh (original)", false);
-            add(RowId::MenuSpeed, RowKind::Choice, "Connection Speed", pick(speedNames(), setup_.speed));
             add(RowId::MenuHost, RowKind::Action, "Host Game", {}, net);
             add(RowId::MenuJoin, RowKind::Action, "Join Game", {}, net);
-            add(RowId::MenuMaster, RowKind::Action, "mplayer.com", {}, false);
             add(RowId::MenuBack, RowKind::Action, "Back");
             break;
         case MpPage::Host: {
@@ -573,18 +567,14 @@ void MultiplayerScreen::layoutRows(const MpState& st) {
             case RowId::MenuColour:
             case RowId::MenuHumanSkin:
             case RowId::MenuDragonSkin:
-            case RowId::MenuSpeed:
                 r.rect = {80, 150 + static_cast<float>(static_cast<int>(r.id) - static_cast<int>(RowId::MenuName)) * 76,
                           900, 64};
                 break;
             case RowId::MenuHost:
-                r.rect = {80, 548, 900, 80};
+                r.rect = {80, 480, 900, 80};
                 break;
             case RowId::MenuJoin:
-                r.rect = {80, 640, 900, 80};
-                break;
-            case RowId::MenuMaster:
-                r.rect = {80, 732, 900, 64};
+                r.rect = {80, 572, 900, 80};
                 break;
             case RowId::MenuBack:
                 r.rect = {80, 910, 900, 64};
@@ -839,9 +829,6 @@ void MultiplayerScreen::adjust(int i, int dir, const MpState& st, MpFrameOutput&
             break;
         case RowId::MenuDragonSkin:
             setup_.dragonSkin = wrapIdx(setup_.dragonSkin + dir, static_cast<int>(dragonSkinNames().size()));
-            break;
-        case RowId::MenuSpeed:
-            setup_.speed = wrapIdx(setup_.speed + dir, static_cast<int>(speedNames().size()));
             break;
         case RowId::MenuHumanSkin:
         case RowId::LobbyCharacter: {
@@ -1464,8 +1451,7 @@ void MultiplayerScreen::draw(const MpState& st, DrawList& d, const std::vector<H
             // Left: the form and the buttons; right: the character preview.
             for (int i = 0; i < rowCount(); ++i) {
                 const Row& r = rows_[static_cast<size_t>(i)];
-                if (r.id == RowId::MenuHost || r.id == RowId::MenuJoin || r.id == RowId::MenuMaster ||
-                    r.id == RowId::MenuBack)
+                if (r.id == RowId::MenuHost || r.id == RowId::MenuJoin || r.id == RowId::MenuBack)
                     button(i, 34);
                 else
                     field(i, 330, 26);

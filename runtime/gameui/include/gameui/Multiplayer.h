@@ -23,7 +23,7 @@ namespace gameui::mp {
 inline constexpr int kMaxPlayers = 12; // OotF: 2..12 (Dragon.rrc)
 inline constexpr int kMinPlayers = 2;
 
-// Menu is the OotF "Multiplayer" screen: player name / colour / skins / connection speed plus Host Game and Join Game.
+// Menu is the OotF "Multiplayer" screen: player name / colour / skins plus Host Game and Join Game.
 enum class MpPage : uint8_t { Menu, Host, Join, Lobby };
 
 // What the screen is for. Versus is the Multiplayer menu (deathmatch on arena maps; no Co-op), Coop is the campaign's
@@ -106,10 +106,8 @@ struct SetupForm {
     int colour = 0;     // Player Color
     int model = 0;      // Human Skin
     int dragonSkin = 0; // Dragon Skin (no effect until dragon matches exist)
-    int speed = 4;      // Connection Speed (LAN / T1 default)
 };
 const std::vector<std::string>& dragonSkinNames();
-const std::vector<std::string>& speedNames();  // Modem 28.8k .. LAN/T1 1M
 const std::vector<std::string>& colourNames(); // swatch names; colourRgba(i) gives the swatch
 Color colourRgba(int i);
 
@@ -215,10 +213,8 @@ enum class RowId : uint8_t {
     MenuColour,
     MenuHumanSkin,
     MenuDragonSkin,
-    MenuSpeed,
     MenuHost,
     MenuJoin,
-    MenuMaster,
     MenuBack,
     HostName,
     HostPassword,

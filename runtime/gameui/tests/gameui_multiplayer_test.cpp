@@ -78,16 +78,15 @@ LanServer lan(const char* name, bool pw = false) {
 } // namespace
 
 int main() {
-    // The Multiplayer page is OotF's player setup screen: name, colour, skins, connection speed, Host / Join buttons.
+    // The Multiplayer page is OotF's player setup screen: name, colour, skins, Host / Join buttons.
     {
         Rig r;
-        CHECK(r.s.page() == MpPage::Menu && r.s.rows().size() == 9);
+        CHECK(r.s.page() == MpPage::Menu && r.s.rows().size() == 7);
         const RowId order[] = {RowId::MenuName,       RowId::MenuColour, RowId::MenuHumanSkin,
-                               RowId::MenuDragonSkin, RowId::MenuSpeed,  RowId::MenuHost,
-                               RowId::MenuJoin,       RowId::MenuMaster, RowId::MenuBack};
-        for (size_t i = 0; i < 9; ++i)
+                               RowId::MenuDragonSkin, RowId::MenuHost,   RowId::MenuJoin,
+                               RowId::MenuBack};
+        for (size_t i = 0; i < 7; ++i)
             CHECK(r.s.rows()[i].id == order[i]);
-        CHECK(!r.s.rows()[7].enabled); // mplayer.com is gone
         CHECK(r.s.setup().name == "Tester");
         CHECK(r.last.draw.size() == 0); // nothing before the first frame
         r.press(UiKey::Down);
@@ -95,10 +94,6 @@ int main() {
         CHECK(r.last.draw.size() > 10);
         r.press(UiKey::Right);
         CHECK(r.s.setup().colour == 1);
-        r.focusRow(RowId::MenuSpeed);
-        CHECK(r.focused().value == "LAN / T1 1M");
-        r.press(UiKey::Left);
-        CHECK(r.s.setup().speed == 3);
         // Typing the name.
         r.focusRow(RowId::MenuName);
         r.s.setup().name.clear();
@@ -174,7 +169,7 @@ int main() {
         r.st.available = false;
         r.st.unavailableWhy = "no UDP";
         r.press(UiKey::Down);
-        CHECK(!r.s.rows()[5].enabled && !r.s.rows()[6].enabled);
+        CHECK(!r.s.rows()[4].enabled && !r.s.rows()[5].enabled);
         CHECK(r.focused().id == RowId::MenuColour);
     }
 
@@ -1003,7 +998,7 @@ int main() {
         CHECK(t.focus().index == static_cast<int>(TitleRow::Multiplayer));
         TitleFrameOutput o = t.frame(st, key(UiKey::Confirm), kVp);
         CHECK(t.page() == TitlePage::Multiplayer && o.draw.size() > 10);
-        for (int i = 0; i < 4; ++i) // No runtime catalogue: Character and Dragon Appearance are disabled.
+        for (int i = 0; i < 3; ++i) // No runtime catalogue: Character and Dragon Appearance are disabled.
             o = t.frame(st, key(UiKey::Down), kVp);
         o = t.frame(st, key(UiKey::Confirm), kVp);
         CHECK(o.mpActions.size() == 2 && o.mpActions[1].kind == MpActionKind::RefreshLan);
