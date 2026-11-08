@@ -167,6 +167,12 @@ folder belonged to a harness run. Found on that path instead: a death in any con
 record. Every `.rsg` written now gets one; a death in Ruined Village reloads the level and Rynn walks (native and modern
 title). See [Arokh fly-away report](../journal/2026-11-08/ootf-arokh-flyaway-crash.md).
 
+**November 8 music:** the PC music (`Music.rrc`: 11 DirectMusic segments + DLS banks) is now rendered by the converter
+(`ootfdmusic.ts`) into PS2MUSIC.SDB tracks. The OotF main theme ("gui", PC id 4) plays on the title menu while Order of the
+Flame is the chosen game (`campaign_title_music`) and at the start of the Intro (its cut scene music action); levels start
+with their PC `Initial Music ID`. In-level music changes (the PC Music Trigger regions) are not converted yet. See
+[OotF main music](../journal/2026-11-08/ootf-main-music.md).
+
 ## What works
 
 * Converter `editor/scripts/ootf-convert.ts` (`--campaign 1` for the campaign): terrain, textures, models, creatures (skinned, retargeted
@@ -179,7 +185,10 @@ title). See [Arokh fly-away report](../journal/2026-11-08/ootf-arokh-flyaway-cra
 * Game choice at the title ("Choose your game": Drakan / Drakan: Order of the Flame, `drakan.ini [general] game = ask|d2|d1`), a
   campaign-only New Game that starts at `OotF 00 - Intro` (no Drakan 2 intro), separate save cards, Order of the Flame title plaque.
   A regenerated editor pack from English D1 data also matches the German-target run showing the owl, logo and landscape
-  before Ruined Village. Early Intro frames show a black screen with HUD. See the [timed capture review](../journal/2026-11-05/issue-1-cliff-intro-city.md).
+  before Ruined Village. See the [timed capture review](../journal/2026-11-05/issue-1-cliff-intro-city.md). Since November 8 the
+  Intro draws no HUD (its scenes hold the synthetic player, as the disc Intro's scene holds Rynn) and converted scenes play at the
+  PC field of view of 80 instead of 40, so the owl shot shows the owl's head and Ruined Village scenes are no longer cropped
+  ([Intro HUD and owl framing](../journal/2026-11-08/ootf-intro-hud-and-owl-camera.md)).
 * Earlier isolated tests loaded all 13 campaign levels and exercised host-fired `DRAKAN_LEVELCHANGE` exits, including Volcanic
   hops. Intro -> Ruined Village is reached naturally from the title. The November 4 converter fixes detector message routing;
   a real Ruined Village -> Wartok walk-in transition is verified with the opening cinematic disabled in that private fixture.
@@ -192,6 +201,9 @@ title). See [Arokh fly-away report](../journal/2026-11-08/ootf-arokh-flyaway-cra
   38 dB colour PSNR and an alpha error of 8 (392 converted textures, 50.6 MiB -> 13.1 MiB); the rest stay 32 bpp
   ([indexed textures](../journal/2026-11-06/issue-5-indexed-textures.md)). An opt-in native mip filter (`DRAKAN_TEXSCALE=1`,
   `ootf-native-mips.md`) stalls the heap intermittently (Islands Night), so it is off.
+* Animated object textures play (waterfalls, torch and sconce flames, the Surreal logo): every frame is listed after the first in
+  the model's texture list as on the disc; the Intro waterfall is shown flowing in game. See
+  [waterfall flow](../journal/2026-11-08/ootf-waterfall-flow.md).
 * Drakan 2 with both packs installed still boots normally (choose Drakan; `Level 0 - Intro` then `Level 1A - Surdana`; no OotF leakage).
 
 ## Known gaps
