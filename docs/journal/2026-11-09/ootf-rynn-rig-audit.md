@@ -37,6 +37,13 @@ fault of the converter. Probes are private (`build/rynn-probe`, nothing from eit
   the legs settling from wider to narrower over the first 2 to 3 frames. The scene pose to idle switch itself happens under black
   at every scene cut checked, so a snap would need a capture without the fade (the user's run) or per-joint RAM reads; not done.
 
+* **Mitigation for the settle after the fade (formats `convertSequence`).** Before an actor's release (a type-5 action with a
+  non-zero payload) the player now plays the native idle (`NCIdle`, SYSTEM.ADB) from 0.5 s earlier with a 0.4 s blend, so the
+  pose under the fade is already the idle stance. Frame check at 50 ms (`rig-r` against `rig-p`): the leg change in the first
+  frames after the fade-in is about half as large (consecutive-frame difference 0.065 / 0.10 / 0.08 / 0.095 against 0.19 /
+  0.235 / 0.12 / 0.06; a crude metric that includes fade-in), not gone. Only 1.3 of the Ruined Village releases Rynn, so no
+  second scene end could be checked.
+
 ## First pass (measurements before the frames)
 
 ## What was measured (PC Rynn 3713 retargeted onto the PS2 Rynn of SYSTEM.MOD, 342 clips)
