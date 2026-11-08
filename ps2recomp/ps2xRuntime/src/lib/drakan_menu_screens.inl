@@ -989,7 +989,7 @@ void titleExecute(RecompGuest& g, uint32_t active, int id) {
                 titleFinish(gameui::Outcome::Confirmed, true);
             return;
         case K::SelectGame: { // the game card (drakan_game.h): the card folder and the New Game redirect follow at once
-            if (!drakan_game::select(a.value)) // the card index: 0 Drakan, then the campaigns
+            if (!drakan_game::select(a.value)) // the card index: the campaigns, then Drakan
                 return refuse("that game is not installed");
             menuLog("game: %s", drakan_game::currentName().c_str());
             g_title.scanned = false; // the other game's saves: Continue / Load Game

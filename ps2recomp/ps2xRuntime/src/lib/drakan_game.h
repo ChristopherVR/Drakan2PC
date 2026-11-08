@@ -30,7 +30,8 @@ struct Campaign {
     std::vector<std::string> levels;
 };
 
-// One entry of the title's game card. Index 0 is always the disc game.
+// One entry of the title's game card. The card lists the campaigns first (Order of the Flame leads) and the disc game
+// last; games(), currentIndex() and select() all use that card order.
 struct GameInfo {
     std::string id; // "d2", "ootf", the campaign id
     std::string name, description;
@@ -47,7 +48,8 @@ void configure(std::vector<Campaign> campaigns, RedirectFn redirect, SkinFn skin
 
 bool ootfAvailable();
 Game current();
-// The game card's entries (Drakan first, then the campaigns in load order) and the index of the current one.
+// The game card's entries (the campaigns in load order, then Drakan: The Ancients' Gates) and the index of the current
+// one.
 std::vector<GameInfo> games();
 int currentIndex();
 // The pack id of the current game's campaign, empty for the disc game (campaign credits, ResourceOverride.h).

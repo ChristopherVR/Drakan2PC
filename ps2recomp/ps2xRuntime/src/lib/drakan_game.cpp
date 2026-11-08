@@ -197,19 +197,21 @@ Game current() {
 std::vector<GameInfo> games() {
     std::lock_guard<std::mutex> l(g_m);
     std::vector<GameInfo> v;
-    v.push_back({"d2", "Drakan", "The Ancients' Gates, the game on your disc.", Game::Drakan});
+    // The card lists the campaigns first (Order of the Flame leads) and the disc game last.
     for (const Campaign& c : g_campaigns) {
         std::string d = c.description;
         if (d.empty() && c.id == "ootf")
             d = "The first Drakan, rebuilt on this engine: its own levels and saves.";
         v.push_back({c.id, nameOf(&c), d, kindOf(&c)});
     }
+    v.push_back({"d2", "Drakan: The Ancients' Gates", "The game on your disc.", Game::Drakan});
     return v;
 }
 
 int currentIndex() {
     std::lock_guard<std::mutex> l(g_m);
-    return g_index;
+    // g_index counts the disc game as 0 and the campaigns from 1; the card puts the disc game after the campaigns.
+    return g_index == 0 ? static_cast<int>(g_campaigns.size()) : g_index - 1;
 }
 
 std::string currentModId() {
@@ -235,10 +237,12 @@ std::string choiceSetting(bool* fromEnv) {
     return g_setting;
 }
 
-bool select(int index) {
+bool select(int cardIndex) {
     std::lock_guard<std::mutex> l(g_m);
-    if (index < 0 || index > static_cast<int>(g_campaigns.size()))
+    const int campaigns = static_cast<int>(g_campaigns.size());
+    if (cardIndex < 0 || cardIndex > campaigns)
         return false;
+    const int index = cardIndex < campaigns ? cardIndex + 1 : 0; // card order -> g_index (0 = the disc game)
     if (index != g_index) {
         g_index = index;
         if (!g_rewrite && index > 0) { // the title's choice: the campaign start replaces a test aid's start
