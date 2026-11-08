@@ -55,7 +55,10 @@ param(
     [switch]$Incremental,
     [switch]$Regenerate,
     # Skip making the multiplayer menu's map pictures (scripts/harness/map_previews.py runs the game briefly per map).
-    [switch]$NoMapPictures
+    [switch]$NoMapPictures,
+    # Also make the pictures of the PC Settings help panel (scripts/harness/setting_shots.py: about 100 short game runs
+    # the first time, none once they exist; delete previews/settings in the play folder to make them again).
+    [switch]$SettingPictures
 )
 $ErrorActionPreference = 'Stop'
 $windowsHost = [OperatingSystem]::IsWindows()
@@ -623,9 +626,6 @@ if ($windowsHost -and $gameRegion -eq 'pal' -and -not $NoDist -and -not $NoMapPi
         $message = "Some multiplayer map pictures are missing (the menu draws a sketch for them): $_"
         if ($Progress) { Write-Detail $message } else { Write-Warning $message }
     }
-}
-$quotedExe = $gameExe.Replace("'", "''")
-$quotedOutput = $gameOutput.Replace("'", "''")
     # The enabled packs' own maps (Order of the Flame levels in mods/ootf-levels.zip) were pictured by the same run; put
     # the pictures into the packs so they travel with them. mod.toml is untouched, so a pack's `build` id (saves) stays.
     try {
@@ -635,6 +635,22 @@ $quotedOutput = $gameOutput.Replace("'", "''")
         $message = "Could not add the map pictures to the mod packs (the packs still get them from previews/maps): $_"
         if ($Progress) { Write-Detail $message } else { Write-Warning $message }
     }
+}
+if ($windowsHost -and $gameRegion -eq 'pal' -and -not $NoDist -and $SettingPictures) {
+    # The real pictures of the PC Settings help panel: screenshots of this game with each setting applied, made from the
+    # player's disc into previews/settings/ (kept across builds, so later builds only make what is missing). A failure
+    # only leaves a setting without a picture; it does not fail the build.
+    Write-Detail 'Making the settings pictures (a short game run per picture that is missing)'
+    try {
+        Invoke-Checked $Python @((Join-Path $RepoRoot 'scripts/harness/setting_shots.py'),
+            '--exe',(Join-Path $DistDirectory 'drakan.exe'),'--out',(Join-Path $DistDirectory 'previews/settings'))
+    } catch {
+        $message = "Some settings pictures are missing (those settings show plain help): $_"
+        if ($Progress) { Write-Detail $message } else { Write-Warning $message }
+    }
+}
+$quotedExe = $gameExe.Replace("'", "''")
+$quotedOutput = $gameOutput.Replace("'", "''")
 Write-Detail "Private executable: $gameExe"
 Write-Detail "ISO playback path: $IsoPath"
 Write-Detail "Launch from PowerShell: Start-Process -FilePath '$quotedExe' -WorkingDirectory '$quotedOutput'"

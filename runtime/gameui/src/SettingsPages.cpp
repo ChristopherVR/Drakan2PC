@@ -1786,18 +1786,6 @@ void SettingsPages::drawHelp(DrawList& d) const {
                        FontRole::Small, th.textDisabled, TextAlign::Center);
             }
             picture = true;
-        } else {
-            PreviewState ps;
-            ps.time = now_;
-            ps.on = picRow->kind == SettingKind::Toggle && shownOn(*picRow);
-            if (picRow->kind == SettingKind::Choice) {
-                const int ci = shownChoice(*picRow);
-                if (ci >= 0 && ci < static_cast<int>(picRow->choices.size()))
-                    ps.value = picRow->choices[static_cast<size_t>(ci)].value;
-            }
-            if (picRow->kind == SettingKind::Slider)
-                ps.number = shownSlider(*picRow);
-            picture = drawSettingPreview(d, px, *picRow, ps, th);
         }
         if (picture)
             y += previewH + 14;

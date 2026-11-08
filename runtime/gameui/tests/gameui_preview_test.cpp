@@ -33,107 +33,42 @@ bool hasText(const DrawList& d, const std::string& s) {
     return false;
 }
 
-void testEveryIllustrationDraws() {
-    const Theme th;
-    const Rect box{0, 0, 496, 224};
-    const char* toggles[] = {"video.hd_textures", "video.hud_aspect_correct",
-                             "video.ray_shadows", "video.ray_reflections",
-                             "video.ray_gi",      "video.modern_water"};
-    for (const char* key : toggles) {
+void testPictureKeys() {
+    for (const char* key :
+         {"video.aspect", "video.fov", "video.hud_scale", "video.hud_aspect_correct", "video.scale", "video.filter",
+          "video.anisotropic", "video.hd_textures", "video.modern_water", "video.ray_reflections", "video.ray_shadows",
+          "video.ray_gi", "video.foliage_wind", "video.foliage_wind_strength"})
         CHECK(hasSettingPreview(key));
-        SettingRow r;
-        r.key = key;
-        r.kind = SettingKind::Toggle;
-        for (bool on : {false, true}) {
-            DrawList d;
-            PreviewState st;
-            st.on = on;
-            st.time = 1.25;
-            CHECK(drawSettingPreview(d, box, r, st, th));
-            CHECK(d.size() > 4);
-        }
-        CHECK(settingPreviewCaption(r, {}).find('|') != std::string::npos);
-    }
-    struct Ch {
-        const char* key;
-        const char* values[4];
-    };
-    const Ch choices[] = {{"video.aspect", {"4:3", "16:9", "21:9", "stretch"}},
-                          {"video.scale", {"auto", "1", "4", "8"}},
-                          {"video.filter", {"game", "point", "bilinear", "bilinear"}},
-                          {"video.anisotropic", {"1", "2", "8", "16"}},
-                          {"video.hud_scale", {"0", "0.5", "1", "1.5"}}};
-    for (const Ch& c : choices) {
-        CHECK(hasSettingPreview(c.key));
-        SettingRow r;
-        r.key = c.key;
-        r.kind = SettingKind::Choice;
-        for (const char* v : c.values) {
-            DrawList d;
-            PreviewState st;
-            st.value = v;
-            st.time = 0.7;
-            CHECK(drawSettingPreview(d, box, r, st, th));
-            CHECK(d.size() > 3);
-        }
-    }
-    const char* sliders[] = {"video.fov"};
-    for (const char* key : sliders) {
-        CHECK(hasSettingPreview(key));
-        SettingRow r;
-        r.key = key;
-        r.kind = SettingKind::Slider;
-        r.min = 0.0003f;
-        r.max = 0.5f;
-        for (float v : {0.0003f, 0.01f, 0.5f}) {
-            DrawList d;
-            PreviewState st;
-            st.number = v;
-            CHECK(drawSettingPreview(d, box, r, st, th));
-        }
-    }
     // Settings with no visible effect on a still picture have no picture at all.
     for (const char* key :
          {"video.vsync", "video.world_rate", "video.frame_limit", "video.window_mode", "video.flicker_filter",
-          "video.sharp_present", "video.smooth_menu_highlight", "video.foliage_wind", "audio.enabled", "audio.volume",
-          "input.mouse.invert_y", "input.mouse.sensitivity_x", "input.gamepad.deadzone", "general.ui_prompts"})
+          "video.sharp_present", "video.smooth_menu_highlight", "audio.enabled", "audio.volume", "input.mouse.invert_y",
+          "input.mouse.sensitivity_x", "input.gamepad.deadzone", "general.ui_prompts", "video.texture_dump"})
         CHECK(!hasSettingPreview(key));
-    // A row without an illustration draws nothing.
-    SettingRow none;
-    none.key = "video.texture_dump";
-    DrawList nd;
-    CHECK(!hasSettingPreview(none.key));
-    CHECK(!drawSettingPreview(nd, box, none, {}, th) && nd.size() == 0);
-    // Different values draw different pictures (the preview follows the row).
-    SettingRow aspect;
-    aspect.key = "video.aspect";
-    aspect.kind = SettingKind::Choice;
-    DrawList a, b;
-    PreviewState s43, s169;
-    s43.value = "4:3";
-    s169.value = "16:9";
-    drawSettingPreview(a, box, aspect, s43, th);
-    drawSettingPreview(b, box, aspect, s169, th);
-    bool differs = a.size() != b.size();
-    for (size_t i = 0; !differs && i < a.size(); ++i)
-        differs = !(a.commands()[i].rect == b.commands()[i].rect);
-    CHECK(differs);
-    // The illustrations animate: at least the water and the light bounces move with time.
-    bool moved = false;
-    for (const char* key : {"video.modern_water", "video.ray_gi", "video.ray_reflections", "video.ray_shadows"}) {
-        SettingRow ray;
-        ray.key = key;
-        ray.kind = SettingKind::Toggle;
-        DrawList t0, t1;
-        PreviewState p0, p1;
-        p0.time = 0.0;
-        p1.time = 0.9;
-        drawSettingPreview(t0, box, ray, p0, th);
-        drawSettingPreview(t1, box, ray, p1, th);
-        for (size_t i = 0; i < std::min(t0.size(), t1.size()); ++i)
-            moved = moved || !(t0.commands()[i].rect == t1.commands()[i].rect);
-    }
-    CHECK(moved);
+    // The capture is named by the shown value.
+    SettingRow t, c, sl;
+    t.key = "video.hd_textures";
+    t.kind = SettingKind::Toggle;
+    c.key = "video.aspect";
+    c.kind = SettingKind::Choice;
+    sl.key = "video.fov";
+    sl.kind = SettingKind::Slider;
+    PreviewState st;
+    st.on = true;
+    st.value = "16:9";
+    st.number = 93;
+    CHECK(settingShotValue(t, st) == "on" && settingShotValue(c, st) == "16:9" && settingShotValue(sl, st) == "93");
+    // Without a resolver there is no picture; with one, only a setting that has pictures asks it.
+    CHECK(settingShotId(sl, st) == 0);
+    setSettingShotResolver([](const std::string& key, const std::string& value) -> uint32_t {
+        return key == "video.fov" && value == "93" ? 7u : 0u;
+    });
+    CHECK(settingShotId(sl, st) == 7);
+    SettingRow other;
+    other.key = "video.vsync";
+    other.kind = SettingKind::Toggle;
+    CHECK(settingShotId(other, st) == 0);
+    setSettingShotResolver({});
 }
 
 struct Pages {
@@ -158,13 +93,17 @@ void testHelpPanelShowsPreview() {
         o = p.frame(UiKey::Down, true);
     CHECK(p.pg.focusedKey() == "video.hd_textures");
     o = p.frame(UiKey::Down, false);
-    CHECK(hasText(o.draw, "Off") && hasText(o.draw, "On"));
-    // With a real capture of the game for the shown value, the help panel draws that picture instead.
+    // Without a capture nothing is drawn in the picture's place (no stand-in illustration).
+    bool shot = false;
+    for (const DrawCmd& c : o.draw.commands())
+        shot = shot || (c.kind == DrawKind::Image && c.image.kind == ImageKind::LevelPreview);
+    CHECK(!shot);
+    // With a real capture of the game for the shown value, the help panel draws that picture.
     setSettingShotResolver([](const std::string& key, const std::string& value) -> uint32_t {
         return key == "video.hd_textures" && (value == "on" || value == "off") ? 0x77u : 0u;
     });
     o = p.frame(UiKey::Down, false);
-    bool shot = false;
+    shot = false;
     for (const DrawCmd& c : o.draw.commands())
         shot = shot || (c.kind == DrawKind::Image && c.image.kind == ImageKind::LevelPreview && c.image.index == 0x77);
     CHECK(shot);
@@ -178,11 +117,6 @@ void testHelpPanelShowsPreview() {
         shot = shot || (c.kind == DrawKind::Image && c.image.kind == ImageKind::LevelPreview && c.image.index == 0x99);
     CHECK(p.pg.focusedKey() == "video.vsync" && !shot);
     setSettingShotResolver({});
-    // A row with no illustration keeps the plain help.
-    for (int i = 0; i < 20 && p.pg.focusedKey() != "video.texture_dump"; ++i)
-        o = p.frame(UiKey::Down, true);
-    o = p.frame(UiKey::Down, false);
-    CHECK(!hasText(o.draw, "tearing") && !hasText(o.draw, "in step with the screen"));
 }
 
 void testModPackSection() {
@@ -262,7 +196,7 @@ void dumpFrames(const char* dir) {
 int main() {
     if (const char* dir = std::getenv("GAMEUI_PREVIEW_DIR"))
         dumpFrames(dir);
-    testEveryIllustrationDraws();
+    testPictureKeys();
     testHelpPanelShowsPreview();
     testModPackSection();
     std::printf("%d checks, %d failed\n", checks, failures);
