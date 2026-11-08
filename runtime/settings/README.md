@@ -56,7 +56,7 @@ Pages (left column; Pg Up / Pg Dn, L2 / R2 or the mouse switch pages), bottom ba
   actions) are amber with a tooltip and a *Replace / Use for both / Cancel* question; keys the port reserves (F1, F11, the mouse-capture key) are red. Unknown tokens in the file (`CMD:..`) are listed under
   "Other bindings in the file". *Mouse and gamepad*: look mode (direct / stick), sensitivity X/Y (linked or separate), invert Y, capture mouse, Esc releases the mouse, capture toggle key,
   walk speed, full-speed keyboard (curve compensation), gamepad on/off and dead zone.
-* **Gameplay**: skip memory card warning, button prompts (keyboard and mouse / PlayStation 2 icons), language (English / French / German / Italian / Spanish), menu size; hotkey overview.
+* **Gameplay**: skip memory card warning, button prompts (keyboard and mouse / Xbox / PlayStation 5 / PlayStation 2 icons), language (English / French / German / Italian / Spanish), menu size; hotkey overview.
 
 Behaviour: **Apply** writes the files and calls the host (live where possible); a window mode / size / scale / aspect change opens "Keep display settings?" with a 12 s auto-revert; settings
 that cannot be applied live (amber `*` next to the label) end in a "Restart required" dialog (`requestRestart`). **Cancel** / F1 / Esc discard edits. Everything is navigable with keyboard
@@ -87,7 +87,7 @@ set per build; `video.world_rate` always requires a restart because it is read a
 | `[audio] device` | default | Output device | live | name or part of it; the menu stores the endpoint name, `AudioOutput::setOutputDevice` re-opens the stream (list: `AudioOutput::enumerateDevices`) |
 | `[general] skip_memcard_warning` | 1 | Skip memory card warning | live | |
 | `[general] skip_intro_videos` | 0 | Skip intro videos | restart | **new key**: the boot logo and the New Game intro movie are skipped (the logo runs unpaced, the intro gets START taps); Esc skips either while it plays regardless |
-| `[general] ui_prompts` | keyboard | Button prompts | restart | **new key**: `keyboard` or `ps2` (the existing switch is env `DRAKAN_UI_PROMPTS=0`) |
+| `[general] ui_prompts` | keyboard | Button prompts | restart | **new key**: `keyboard`, `xbox`, `ps5` or `ps2` (Xbox / PS5 name that pad's buttons in the game's text and in the PC menus; the existing switch is env `DRAKAN_UI_PROMPTS=0`) |
 | `[general] language` | english | Language | restart | **new key**: `english\|french\|german\|italian\|spanish` |
 | `[general] settings_ui_scale` | auto | Menu size | live | **new key**, `auto` or 0.75..2.5 |
 | `[general] inventory_screen` | native | Gameplay > Inventory screen | next open | **new key**: `native` (original Tab screen) or `modern` (host-drawn screen, `runtime/gameui`) |

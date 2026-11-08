@@ -80,6 +80,8 @@ std::vector<u8> PromptOverride::patchFont(const std::vector<u8>& blob, const Bin
         return {};
     KeyStyle st = defaultStyle(bg, 0x7f);
     for (const FontIcon& ic : kFontIcons) {
+        if (ic.dirGlyph && b.isPad())
+            continue; // a controller keeps the game's own boxed direction arrows
         Cell c = upright(ic.cell, t.height());
         // the original icon must be there (some opaque pixel inside the box), otherwise this is a different font
         // version
@@ -334,6 +336,8 @@ bool PromptOverride::wants(const hle::ResourceId& id) {
         return false;
     if (id.id != 96 && id.id != 97 && id.id != 124 && id.id != 94)
         return false;
+    if (id.id == 124 && b_.isPad())
+        return false; // the pad diagram keeps the original DualShock picture
     return !(user_ && user_->wants(id));
 }
 
@@ -427,7 +431,8 @@ std::string install(hle::ResourceService& res, const Options& opt) {
     if (nfiles)
         res.addOverride(dir);
     if (opt.prompts) {
-        Bindings b = Bindings::load(opt.iniPath, &found);
+        Bindings b = opt.pad != PadStyle::None ? Bindings::pad(opt.pad) : Bindings::load(opt.iniPath, &found);
+        found = found || opt.pad != PadStyle::None;
         auto po = std::make_shared<PromptOverride>(b);
         po->setUserOverride(dir);
         if (opt.onGenerated)

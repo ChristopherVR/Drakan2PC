@@ -17,11 +17,11 @@ enum class Aspect {
 enum class Deinterlace { Weave, Bob, Blend };
 enum class TexFilter { Game, Point, Bilinear };
 enum class LookMode { Direct, Stick };
-enum class PromptStyle { Keyboard, Ps2 };      // ini [general] ui_prompts = keyboard | ps2
-enum class InventoryScreen { Native, Modern }; // ini [general] inventory_screen = native | modern
-enum class PauseMenu { Native, Modern };       // ini [general] pause_menu = native | modern
-enum class SaveMenu { Native, Modern };        // ini [general] save_menu = native | modern
-enum class TitleMenu { Native, Modern };       // ini [general] title_menu = native | modern
+enum class PromptStyle { Keyboard, Ps2, Xbox, Ps5 }; // ini [general] ui_prompts = keyboard | ps2 | xbox | ps5
+enum class InventoryScreen { Native, Modern };       // ini [general] inventory_screen = native | modern
+enum class PauseMenu { Native, Modern };             // ini [general] pause_menu = native | modern
+enum class SaveMenu { Native, Modern };              // ini [general] save_menu = native | modern
+enum class TitleMenu { Native, Modern };             // ini [general] title_menu = native | modern
 
 struct VideoSettings {
     // ---- keys that exist in drakan.ini today ----
@@ -177,6 +177,10 @@ const char* toIni(Deinterlace);
 const char* toIni(TexFilter);
 const char* toIni(LookMode);
 const char* toIni(PromptStyle);
+// The Button prompts style the menus draw their glyphs in right now (the host sets it at start-up and when the setting
+// changes; it does not need a restart for the menus, only the game's own text does).
+void setActivePromptStyle(PromptStyle);
+PromptStyle activePromptStyle();
 const char* toIni(InventoryScreen);
 const char* toIni(PauseMenu);
 const char* toIni(SaveMenu);

@@ -423,6 +423,7 @@ void drawPortableUi(PS2Runtime& runtime, int w, int h, unsigned frameTexture) {
         }
         if (migrate)
             ui.store.save(initial);
+        dsettings::setActivePromptStyle(initial.general.prompts);
         drakan_menu_screens::setTitleModern(initial.general.titleMenu == dsettings::TitleMenu::Modern);
         drakan_menu_screens::setSaveModern(initial.general.saveMenu == dsettings::SaveMenu::Modern);
         drakan_pause_screen::setEnabled(initial.general.pauseMenu == dsettings::PauseMenu::Modern);

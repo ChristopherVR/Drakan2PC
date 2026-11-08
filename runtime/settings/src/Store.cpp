@@ -1,6 +1,7 @@
 #include "settings/Store.h"
 #include "settings/Bindings.h"
 
+#include <atomic>
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
@@ -67,7 +68,26 @@ const char* toIni(LookMode m) {
     return m == LookMode::Direct ? "direct" : "stick";
 }
 const char* toIni(PromptStyle p) {
-    return p == PromptStyle::Keyboard ? "keyboard" : "ps2";
+    switch (p) {
+        case PromptStyle::Keyboard:
+            return "keyboard";
+        case PromptStyle::Xbox:
+            return "xbox";
+        case PromptStyle::Ps5:
+            return "ps5";
+        case PromptStyle::Ps2:
+            break;
+    }
+    return "ps2";
+}
+namespace {
+std::atomic<int> g_activePromptStyle{static_cast<int>(PromptStyle::Keyboard)};
+}
+void setActivePromptStyle(PromptStyle s) {
+    g_activePromptStyle.store(static_cast<int>(s));
+}
+PromptStyle activePromptStyle() {
+    return static_cast<PromptStyle>(g_activePromptStyle.load());
 }
 const char* toIni(InventoryScreen s) {
     return s == InventoryScreen::Modern ? "modern" : "native";
@@ -180,8 +200,13 @@ const std::vector<Field>& fields() {
                  s.general.prompts = PromptStyle::Keyboard;
              else if (u == "ps2")
                  s.general.prompts = PromptStyle::Ps2;
+             else if (u == "xbox")
+                 s.general.prompts = PromptStyle::Xbox;
+             else if (u == "ps5")
+                 s.general.prompts = PromptStyle::Ps5;
          },
-         "keyboard = key/mouse prompts in the game's text, ps2 = original PlayStation 2 button icons (restart)"},
+         "keyboard = key/mouse prompts in the game's text, ps2 = original PlayStation 2 button icons, xbox = Xbox "
+         "controller icons, ps5 = PlayStation 5 controller icons (restart)"},
         {"general", "cpu_affinity", false, GETS(general.cpuAffinity),
          [](Settings& s, const std::string& v) {
              const std::string t = lower(trim(v));
@@ -876,6 +901,7 @@ bool SettingsStore::load(std::string* warnings) {
     if (!okB && warnings)
         *warnings += paths_.inputIni + " not found, using defaults\n";
     loadFromText(a, b, okB);
+    setActivePromptStyle(loaded_.general.prompts);
     return true;
 }
 

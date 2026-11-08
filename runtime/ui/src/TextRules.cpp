@@ -92,8 +92,43 @@ const KeyRow kKeys[] = {
     {"DEL", "Entf", "Suppr", "Canc", "Supr"},
 };
 
+// A controller button as a phrase of the language ("le bouton A", "die A-Taste" = "A-Taste" + the article rule).
+Loc padLoc(const Label& l, int lang) {
+    struct Sym {
+        const char* name[5];
+    };
+    static const Sym syms[] = {
+        {{"Cross", "Kreuz", "Croix", "Croce", "Cruz"}},
+        {{"Circle", "Kreis", "Rond", "Cerchio", "C\xc3\xadrculo"}},
+        {{"Square", "Quadrat", "Carr\xc3\xa9", "Quadrato", "Cuadrado"}},
+        {{"Triangle", "Dreieck", "Triangle", "Triangolo", "Tri\xc3\xa1ngulo"}},
+    };
+    std::string n = l.name;
+    if (l.padPs5 && l.padSymbol >= 1 && l.padSymbol <= 4)
+        n = syms[l.padSymbol - 1].name[lang];
+    else if (l.name == "Create")
+        n = lang == FR   ? "Cr\xc3\xa9"
+                           "er"
+            : lang == IT ? "Crea"
+            : lang == ES ? "Crear"
+                         : "Create";
+    else if (l.name == "Options" && lang == ES)
+        n = "Opciones";
+    n = L(n.c_str());
+    Loc r;
+    r.whole = true;
+    r.name = lang == DE   ? n + "-Taste"
+             : lang == FR ? "le bouton " + n
+             : lang == IT ? "il tasto " + n
+                          : "el bot\xc3\xb3n " + n;
+    r.name = lang == ES ? L("el bot\xc3\xb3n ") + n : r.name;
+    return r;
+}
+
 Loc locOf(const Label& l, int lang) {
     Loc r;
+    if (l.kind == Label::Pad)
+        return padLoc(l, lang);
     if (l.kind == Label::Mouse) {
         static const char* de[] = {
             "", "link%s Maustaste", "recht%s Maustaste", "mittler%s Maustaste", "Maustaste 4", "Maustaste 5"};
@@ -206,6 +241,7 @@ std::string phrase(const Loc& x, int lang, bool noun, bool dative, bool plural =
 // "L1 button" -> "E key" (or just the mouse button name), "the L1" -> "the E key"
 bool replaceTokenEn(std::string& s, const std::string& token, const Label& l) {
     bool changed = false, mouse = l.kind == Label::Mouse || l.kind == Label::Wheel;
+    const bool pad = l.kind == Label::Pad; // "the L1 button" -> "the LB button"
     for (size_t p = 0; (p = s.find(token, p)) != std::string::npos;) {
         size_t e = p + token.size();
         bool wordStart = p == 0 || !isWordChar(s[p - 1]);
@@ -218,8 +254,8 @@ bool replaceTokenEn(std::string& s, const std::string& token, const Label& l) {
         size_t consume = 0;
         if (s.compare(e, 7, " button") == 0) {
             consume = 7;
-            rep = mouse ? l.name : l.name + " key";
-        } else if (before(s, p, "the ") && !mouse)
+            rep = mouse ? l.name : pad ? l.name + " button" : l.name + " key";
+        } else if (before(s, p, "the ") && !mouse && !pad)
             rep = l.name + " key";
         s.replace(p, token.size() + consume, rep);
         p += rep.size();
@@ -422,7 +458,7 @@ bool rewriteText(const Bindings& b, const std::string& file, unsigned id, int la
     if (lang == ES && endsWith(text, L("los botones L1")))
         text.replace(text.size() - 14, 14, "L1 y R1"); // truncated on the disc (INTERFCE 148)
 
-    if (lang == EN) {
+    if (lang == EN && !b.isPad()) { // a controller keeps the game's "directional buttons" / "left analog stick"
         std::string dk = dirKeys(b, "DPAD_");
         if (!dk.empty())
             replaceAll(text, "directional buttons", dk);
@@ -431,7 +467,7 @@ bool rewriteText(const Bindings& b, const std::string& file, unsigned id, int la
             replaceAll(text, "left analog stick", mk);
         if (b.sources("RSTICK_UP").empty())
             replaceAll(text, "right stick", "mouse"); // look = mouse
-    } else if (lang == ES) {
+    } else if (lang == ES && !b.isPad()) {
         replaceAll(text, L("uno de los botones de direcci\xc3\xb3n"), L("una de las teclas de direcci\xc3\xb3n"));
         replaceAll(text, L("los botones de direcci\xc3\xb3n"), L("las teclas de direcci\xc3\xb3n"));
     }

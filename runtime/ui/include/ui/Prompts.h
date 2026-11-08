@@ -63,7 +63,8 @@ bool rewriteText(const Bindings& b, const std::string& file, unsigned id, int la
 struct Options {
     std::string iniPath;                       // drakan_input.ini
     std::string overridesDir;                  // overrides/<FILE>/...
-    bool prompts = true;                       // generate the keyboard/mouse prompts
+    bool prompts = true;                       // generate the keyboard/mouse (or controller) prompts
+    PadStyle pad = PadStyle::None;             // Xbox / PlayStation 5: name that controller's buttons, not keys
     PromptOverride::GeneratedHook onGenerated; // see PromptOverride::setGeneratedHook
     // Environment (DRAKAN_INPUT_INI, DRAKAN_OVERRIDES, DRAKAN_UI_PROMPTS=0) + executable directory / working directory
     // lookup.

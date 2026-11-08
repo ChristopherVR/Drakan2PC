@@ -185,6 +185,8 @@ bool saveModern();
 void setSaveModern(bool on);
 bool titleModern();
 void setTitleModern(bool on);
+// The player changed Gameplay > Title menu: from now on this choice also beats the campaign / mod pack overrides.
+void chooseTitleModern(bool on);
 
 // A slot's picture: the native 128 x 128 thumbnail (RGBA8, rows as stored in the entry's image) and the save's HD
 // companion (drakan_save_previews::previewPath), whichever exists.

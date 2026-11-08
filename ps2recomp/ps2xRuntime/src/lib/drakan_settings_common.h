@@ -97,6 +97,7 @@ public:
 
     dsettings::ApplyResult applyGeneral(const dsettings::GeneralSettings& n,
                                         const dsettings::GeneralSettings& p) override {
+        dsettings::setActivePromptStyle(n.prompts); // the menus follow at once; the game's own text after a restart
         drakan_tab::setEnabled(n.inventoryScreen == dsettings::InventoryScreen::Modern);
         if (n.pauseMenu != p.pauseMenu) // applies from the next Esc (an open pause falls back to the native page)
             drakan_pause_screen::setEnabled(n.pauseMenu == dsettings::PauseMenu::Modern);
@@ -104,7 +105,7 @@ public:
         if (n.saveMenu != p.saveMenu)
             drakan_menu_screens::setSaveModern(n.saveMenu == dsettings::SaveMenu::Modern);
         if (n.titleMenu != p.titleMenu)
-            drakan_menu_screens::setTitleModern(n.titleMenu == dsettings::TitleMenu::Modern);
+            drakan_menu_screens::chooseTitleModern(n.titleMenu == dsettings::TitleMenu::Modern);
         drakan_dual_wield::setEnabled(n.dualWield);
 #if defined(PS2X_HAVE_DRAKAN_INPUT)
         drakan_debug_menu::setEnabled(n.debugMenu);

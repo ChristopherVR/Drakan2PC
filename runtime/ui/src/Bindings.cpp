@@ -133,7 +133,66 @@ std::vector<std::string> Bindings::sources(const std::string& action, bool menu)
     return r;
 }
 
+namespace {
+// Face button colours (the picture is drawn by drawLabelCap): Xbox A green, B red, X blue, Y yellow; PlayStation 5
+// cross blue, circle red, square pink, triangle green.
+Label padLabel(PadStyle style, const std::string& action) {
+    struct Row {
+        const char* action;
+        const char* xboxCap;
+        const char* xboxName;
+        int xboxTone;
+        const char* ps5Cap;
+        const char* ps5Name;
+        int symbol;
+        int ps5Tone;
+    };
+    static const Row rows[] = {
+        {"CROSS", "A", "A", 1, "X", "Cross", 1, 1},
+        {"CIRCLE", "B", "B", 2, "O", "Circle", 2, 2},
+        {"SQUARE", "X", "X", 3, "SQ", "Square", 3, 3},
+        {"TRIANGLE", "Y", "Y", 4, "TRI", "Triangle", 4, 4},
+        {"L1", "LB", "LB", 0, "L1", "L1", 0, 0},
+        {"R1", "RB", "RB", 0, "R1", "R1", 0, 0},
+        {"L2", "LT", "LT", 0, "L2", "L2", 0, 0},
+        {"R2", "RT", "RT", 0, "R2", "R2", 0, 0},
+        {"START", "MNU", "Menu", 0, "OPT", "Options", 0, 0},
+        {"SELECT", "VW", "View", 0, "CRT", "Create", 0, 0},
+    };
+    Label l;
+    for (const Row& r : rows) {
+        if (action != r.action)
+            continue;
+        l.kind = Label::Pad;
+        l.padPs5 = style == PadStyle::Ps5;
+        l.cap = l.padPs5 ? r.ps5Cap : r.xboxCap;
+        l.name = l.padPs5 ? r.ps5Name : r.xboxName;
+        l.padSymbol = l.padPs5 ? r.symbol : 0;
+        l.padTone = l.padPs5 ? r.ps5Tone : r.xboxTone;
+        return l;
+    }
+    static const struct {
+        const char* action;
+        const char* source;
+    } dirs[] = {{"DPAD_UP", "UP"},   {"DPAD_DOWN", "DOWN"},   {"DPAD_LEFT", "LEFT"},   {"DPAD_RIGHT", "RIGHT"},
+                {"LSTICK_UP", "UP"}, {"LSTICK_DOWN", "DOWN"}, {"LSTICK_LEFT", "LEFT"}, {"LSTICK_RIGHT", "RIGHT"}};
+    for (const auto& d : dirs)
+        if (action == d.action)
+            return Bindings::labelFor(d.source);
+    return l;
+}
+} // namespace
+
+Bindings Bindings::pad(PadStyle style) {
+    Bindings b;
+    b.pad_ = style;
+    b.haveGame_ = b.haveMenu_ = true;
+    return b;
+}
+
 Label Bindings::primary(const std::string& action, bool menu) const {
+    if (pad_ != PadStyle::None)
+        return padLabel(pad_, up(action));
     auto s = sources(action, menu);
     return s.empty() ? Label{} : labelFor(s.front());
 }

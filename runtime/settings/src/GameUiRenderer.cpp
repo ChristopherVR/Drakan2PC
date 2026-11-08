@@ -5,6 +5,7 @@
 #include <cfloat>
 #include <cmath>
 #include <cstring>
+#include <atomic>
 #include <utility>
 #include <vector>
 
@@ -688,6 +689,29 @@ static void arrowPair(ImDrawList* dl, ImVec2 c, float h, bool horizontal, ImU32 
 }
 
 // Button glyphs: Xbox face buttons / shoulder pills, or keyboard caps (the README's mapping).
+namespace {
+// A PlayStation face symbol (cross, circle, triangle, square) centred in a box of radius `s`.
+void psSymbol(ImDrawList* dl, ImVec2 c, float s, int which, ImU32 col, float thick) {
+    switch (which) {
+        case 0: // cross
+            dl->AddLine(ImVec2(c.x - s, c.y - s), ImVec2(c.x + s, c.y + s), col, thick);
+            dl->AddLine(ImVec2(c.x - s, c.y + s), ImVec2(c.x + s, c.y - s), col, thick);
+            break;
+        case 1: // circle
+            dl->AddCircle(c, s * 1.05f, col, 24, thick);
+            break;
+        case 2: // triangle
+            dl->AddTriangle(ImVec2(c.x, c.y - s * 1.1f), ImVec2(c.x + s * 1.1f, c.y + s * 0.85f),
+                            ImVec2(c.x - s * 1.1f, c.y + s * 0.85f), col, thick);
+            break;
+        default: // square
+            dl->AddRect(ImVec2(c.x - s * 0.95f, c.y - s * 0.95f), ImVec2(c.x + s * 0.95f, c.y + s * 0.95f), col, 0.0f,
+                        0, thick);
+            break;
+    }
+}
+} // namespace
+
 void GameUiRenderer::drawPrompt(ImDrawList* dl, const Rect& r, uint32_t prompt, ImU32 tint, float fade) const {
     enum P { Confirm, Back, Secondary, Tertiary, PagePrev, PageNext, FilterPrev, FilterNext, Navigate, Adjust };
     const float a = static_cast<float>((tint >> IM_COL32_A_SHIFT) & 0xffu) / 255.0f * fade;
@@ -730,19 +754,30 @@ void GameUiRenderer::drawPrompt(ImDrawList* dl, const Rect& r, uint32_t prompt, 
         return;
     }
     if (gamepad_) {
+        const PromptStyle style = activePromptStyle();
+        const bool playstation = style == PromptStyle::Ps5 || style == PromptStyle::Ps2;
         static const char* face[] = {"A", "B", "Y", "X"};
-        static const ImU32 tone[] = {IM_COL32(110, 200, 90, 255), IM_COL32(220, 80, 70, 255),
-                                     IM_COL32(230, 190, 60, 255), IM_COL32(80, 140, 230, 255)};
+        static const ImU32 xboxTone[] = {IM_COL32(110, 200, 90, 255), IM_COL32(220, 80, 70, 255),
+                                         IM_COL32(230, 190, 60, 255), IM_COL32(80, 140, 230, 255)};
+        // Confirm, Back, Secondary, Tertiary = cross (blue), circle (red), triangle (green), square (pink)
+        static const ImU32 psTone[] = {IM_COL32(112, 160, 240, 255), IM_COL32(236, 100, 96, 255),
+                                       IM_COL32(96, 204, 146, 255), IM_COL32(234, 130, 192, 255)};
+        static const int psShape[] = {0, 1, 2, 3};
         if (prompt <= Tertiary) {
             const float rad = h * 0.42f;
             dl->AddCircleFilled(c, rad, rgbaA(18, 15, 12, 0.92f * a), 28);
-            const ImU32 t = (tone[prompt] & ~IM_COL32_A_MASK) | (static_cast<ImU32>(a * 255.0f) << IM_COL32_A_SHIFT);
+            const ImU32 base = playstation ? psTone[prompt] : xboxTone[prompt];
+            const ImU32 t = (base & ~IM_COL32_A_MASK) | (static_cast<ImU32>(a * 255.0f) << IM_COL32_A_SHIFT);
             dl->AddCircle(c, rad, t, 28, std::max(1.0f, h * 0.06f));
-            label(face[prompt], h * 0.52f, t);
+            if (playstation)
+                psSymbol(dl, c, rad * 0.46f, psShape[prompt], t, std::max(1.5f, h * 0.07f));
+            else
+                label(face[prompt], h * 0.52f, t);
             return;
         }
-        static const char* sh[] = {"LB", "RB", "LT", "RT"};
-        const char* s = sh[std::min<uint32_t>(prompt - PagePrev, 3)];
+        static const char* xboxShoulder[] = {"LB", "RB", "LT", "RT"};
+        static const char* psShoulder[] = {"L1", "R1", "L2", "R2"};
+        const char* s = (playstation ? psShoulder : xboxShoulder)[std::min<uint32_t>(prompt - PagePrev, 3)];
         const float w = h * 1.05f, hh = h * 0.62f;
         dl->AddRectFilled(v(c.x - w * 0.5f, c.y - hh * 0.5f), v(c.x + w * 0.5f, c.y + hh * 0.5f),
                           rgbaA(18, 15, 12, 0.92f * a), hh * 0.5f);

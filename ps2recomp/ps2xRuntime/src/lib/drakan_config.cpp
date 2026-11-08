@@ -38,7 +38,8 @@ const Entry kEntries[] = {
      "path of the extracted boot ELF, SCES_500.06 or SCUS_971.28 (optional). Empty = read it straight from the disc "
      "image (env DRAKAN_ELF)"},
     {"general", "ui_prompts", "keyboard",
-     "button prompts in the game's text: keyboard (keys and mouse) or ps2 (PlayStation 2 icons); needs a restart (env "
+     "button prompts in the game's text: keyboard (keys and mouse), xbox, ps5 (PlayStation 5) or ps2 (PlayStation 2 "
+     "icons); needs a restart (env "
      "DRAKAN_UI_PROMPTS=0|1)"},
     {"general", "language", "english",
      "english | french | german | italian | spanish: language tree of the disc to load; needs a restart (env "

@@ -1,5 +1,7 @@
 #include "ui/Draw.h"
 #include <algorithm>
+#include <cmath>
+#include <cstdlib>
 #include <cstring>
 
 namespace drakan_ui {
@@ -180,6 +182,7 @@ int capWidth(const Label& l, int minW) {
     switch (l.kind) {
         case Label::Key:
         case Label::ArrowKey:
+        case Label::Pad:
             tw = textWidth(l.cap, 1);
             break;
         case Label::Mouse:
@@ -195,9 +198,89 @@ int capWidth(const Label& l, int minW) {
     return std::max(minW, tw + 6);
 }
 
+namespace {
+// Button colours of the controller badges (opaque alpha taken from the style).
+Rgba padTone(const Label& l, uint8_t a) {
+    static const Rgba xbox[] = {{0, 0, 0, 0}, {82, 176, 62, 0}, {214, 64, 56, 0}, {52, 118, 214, 0}, {236, 190, 36, 0}};
+    static const Rgba ps5[] = {
+        {0, 0, 0, 0}, {104, 156, 236, 0}, {236, 96, 92, 0}, {232, 124, 188, 0}, {88, 200, 140, 0}};
+    Rgba t = (l.padPs5 ? ps5 : xbox)[std::max(0, std::min(4, l.padTone))];
+    t.a = a;
+    return t;
+}
+
+void padLine(Canvas& c, int x0, int y0, int x1, int y1, Rgba col) {
+    const int n = std::max(std::abs(x1 - x0), std::abs(y1 - y0));
+    for (int i = 0; i <= n; ++i) {
+        const int x = n ? x0 + (x1 - x0) * i / n : x0, y = n ? y0 + (y1 - y0) * i / n : y0;
+        c.set(x, y, col);
+        c.set(x + 1, y, col);
+    }
+}
+
+// A round badge for a face button: a coloured disc with the letter (Xbox), a dark disc with the coloured symbol
+// (PlayStation 5). Flat colours only (the target textures are palettised).
+void drawPadBadge(Canvas& c, int x, int y, int w, int h, const Label& l, const KeyStyle& st) {
+    const int d = std::min(w, h);
+    const float cx = x + w * 0.5f - 0.5f, cy = y + h * 0.5f - 0.5f, r = d * 0.5f;
+    const Rgba tone = padTone(l, st.text.a);
+    const Rgba dark{26, 28, 36, st.text.a};
+    for (int j = 0; j < h; ++j)
+        for (int i = 0; i < w; ++i) {
+            const float dx = x + i - cx, dy = y + j - cy;
+            if (dx * dx + dy * dy <= r * r)
+                c.set(x + i, y + j, l.padPs5 ? dark : tone);
+        }
+    if (!l.padPs5) {
+        const std::string s = l.cap.substr(0, 1);
+        const int scale = d >= 16 ? 2 : 1;
+        const int tw = textWidth(s, scale), th = kGlyphH * scale;
+        const int tx = x + (w - tw) / 2, ty = y + (h - th) / 2;
+        const Rgba ink = l.padTone == 4 ? Rgba{30, 24, 6, st.text.a} : st.text; // dark letter on the yellow Y
+        drawText(c, tx, ty, s, scale, ink);
+        if (scale == 2)
+            drawText(c, tx + 1, ty, s, 2, ink);
+        return;
+    }
+    const int mx = (int)std::lround(cx), my = (int)std::lround(cy);
+    const int s = std::max(3, (int)(r * 0.5f));
+    switch (l.padSymbol) {
+        case 1: // cross
+            padLine(c, mx - s, my - s, mx + s, my + s, tone);
+            padLine(c, mx - s, my + s, mx + s, my - s, tone);
+            break;
+        case 2: // circle
+            for (int j = -s - 1; j <= s + 1; ++j)
+                for (int i = -s - 1; i <= s + 1; ++i) {
+                    const float dist = std::sqrt((float)(i * i + j * j));
+                    if (dist <= s + 0.9f && dist >= s - 1.1f)
+                        c.set(mx + i, my + j, tone);
+                }
+            break;
+        case 3: // square
+            c.frame(mx - s, my - s, 2 * s + 1, 2 * s + 1, tone);
+            c.frame(mx - s + 1, my - s + 1, 2 * s - 1, 2 * s - 1, tone);
+            break;
+        case 4: { // triangle
+            const int top = my - s, bot = my + s - 1;
+            padLine(c, mx, top, mx - s, bot, tone);
+            padLine(c, mx, top, mx + s, bot, tone);
+            padLine(c, mx - s, bot, mx + s, bot, tone);
+            break;
+        }
+        default:
+            break;
+    }
+}
+} // namespace
+
 void drawLabelCap(Canvas& c, int x, int y, int w, int h, const Label& l, const KeyStyle& st) {
     // transparent surround so the cell is fully defined
     c.rect(x, y, w, h, st.bg);
+    if (l.kind == Label::Pad && l.padTone != 0) {
+        drawPadBadge(c, x, y, w, h, l, st);
+        return;
+    }
     if (l.kind == Label::Mouse || l.kind == Label::Wheel) {
         int bh = h, bw = std::min(w, std::max(10, h * 2 / 3));
         drawMouse(c, x + (w - bw) / 2, y, bw, bh, l.kind == Label::Mouse ? l.mouseButton : 3,

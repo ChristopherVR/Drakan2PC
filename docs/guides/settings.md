@@ -66,7 +66,7 @@ Gameplay dialogue uses the game's **Show Subtitles** option. **Narration subtitl
 
 ## CPU cores
 
-Gameplay > Performance > CPU cores limits the logical processors the game may use (Automatic, or the first 4, 6, 8, 12 or 16). It takes effect after a restart. For an exact set, write a hex mask in `drakan.ini` (or the environment variable `DRAKAN_CPU_AFFINITY`):
+Gameplay > Performance > CPU cores sets how much of your processor the game may use (Automatic, or 4, 6, 8, 12 or 16 cores). Leave it on Automatic unless you have a reason to change it. It takes effect the next time you start the game. For an exact set, write a hex mask in `drakan.ini` (or the environment variable `DRAKAN_CPU_AFFINITY`):
 
 ```ini
 [general]

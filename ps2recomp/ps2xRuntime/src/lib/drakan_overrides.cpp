@@ -1864,6 +1864,9 @@ void applyDrakanOverrides(PS2Runtime& runtime) {
             std::string up = drakan_cfg::getString("general", "ui_prompts", nullptr, "keyboard");
             std::transform(up.begin(), up.end(), up.begin(), [](unsigned char ch) { return (char)std::tolower(ch); });
             uiOpt.prompts = up != "ps2";
+            uiOpt.pad = up == "xbox"  ? drakan_ui::PadStyle::Xbox
+                        : up == "ps5" ? drakan_ui::PadStyle::Ps5
+                                      : drakan_ui::PadStyle::None;
         }
         std::fprintf(stderr, "[drakan] %s\n", drakan_ui::install(host->iop.res, uiOpt).c_str());
     }

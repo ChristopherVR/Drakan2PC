@@ -1173,13 +1173,13 @@ void SettingsMenu::drawControls() {
                 view = PromptStyle::Keyboard;
             ImGui::SameLine();
             if (PlateWidget("Controller###cv1", ImVec2(S(250), S(46)), !kb))
-                view = PromptStyle::Ps2;
+                view = kb ? PromptStyle::Ps2 : view;
         } else {
             if (ImGui::RadioButton("Keyboard and mouse", kb))
                 view = PromptStyle::Keyboard;
             ImGui::SameLine();
             if (ImGui::RadioButton("Controller", !kb))
-                view = PromptStyle::Ps2;
+                view = kb ? PromptStyle::Ps2 : view;
         }
         if (caps_.promptStyle) {
             ImGui::SameLine();
@@ -1189,7 +1189,7 @@ void SettingsMenu::drawControls() {
         }
         ImGui::Dummy(ImVec2(0, S(4)));
     }
-    if (view == PromptStyle::Ps2) {
+    if (view != PromptStyle::Keyboard) {
         drawControllerView();
         return;
     }

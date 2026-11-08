@@ -1249,6 +1249,7 @@ Shared& shared() {
 namespace drakan_menu_screens {
 namespace {
 std::atomic<int> g_save{-1}, g_title{-1};
+std::atomic<bool> g_titleChosen{false}; // the player picked the title style in the settings during this run
 bool modernMode(std::atomic<int>& v, const char* key, const char* env) {
     int on = v.load();
     if (on < 0) {
@@ -1268,11 +1269,18 @@ void setSaveModern(bool on) {
 bool titleModern() {
     // The native title has no campaign selector; installed campaigns must remain reachable with default settings.
     // The new mod packs card is a modern title card too (drakan_settings_host::modsNoticeWanted, sticky for the run).
+    // An explicit pick in Gameplay > Title menu wins over both.
+    if (g_titleChosen.load())
+        return g_title.load() == 1;
     return drakan_game::offerChoice() || drakan_settings_host::modsNoticeWanted() ||
            modernMode(g_title, "title_menu", "DRAKAN_TITLE_MENU");
 }
 void setTitleModern(bool on) {
     g_title.store(on ? 1 : 0);
+}
+void chooseTitleModern(bool on) {
+    g_title.store(on ? 1 : 0);
+    g_titleChosen.store(true);
 }
 Shared& shared() {
     static Shared s;

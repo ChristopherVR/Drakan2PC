@@ -72,6 +72,33 @@ int main(int argc, char** argv) {
         CHECK(c.primary("CROSS").cap == "N5" && c.primary("CIRCLE").cap == "UNK");
         CHECK(c.primary("SQUARE").kind == Label::None);
     }
+    // ---- controller prompts (ui_prompts = xbox | ps5)
+    {
+        Bindings x = Bindings::pad(PadStyle::Xbox), p = Bindings::pad(PadStyle::Ps5);
+        CHECK(x.isPad() && !Bindings::defaults().isPad());
+        CHECK(x.primary("CROSS").kind == Label::Pad && x.primary("CROSS").cap == "A" &&
+              x.primary("CROSS").padTone == 1);
+        CHECK(x.primary("TRIANGLE").cap == "Y" && x.primary("L1").cap == "LB" && x.primary("R2").cap == "RT");
+        CHECK(p.primary("CROSS").padSymbol == 1 && p.primary("CROSS").name == "Cross" && p.primary("L1").cap == "L1");
+        CHECK(x.primary("DPAD_LEFT").kind == Label::ArrowKey && !x.primary("L3").bound());
+        std::string t = "Hold the L1 button and press START";
+        CHECK(rewriteText(x, "LEVEL1ON.XDB", 20, 0, t) && t == "Hold the LB button and press Menu");
+        t = "Press the L1 button";
+        CHECK(rewriteText(p, "LEVEL1ON.XDB", 20, 3, t) && t.find("il tasto L1") != std::string::npos);
+        t = "Use the left analog stick";
+        CHECK(!rewriteText(x, "LEVEL1ON.XDB", 21, 0, t) && t == "Use the left analog stick");
+        // The face buttons draw as round badges with the opaque alpha of the style.
+        const KeyStyle st = defaultStyle(Rgba{}, 0x7f);
+        for (const Bindings* b : {&x, &p})
+            for (const char* a : {"CROSS", "CIRCLE", "SQUARE", "TRIANGLE"}) {
+                Canvas cv(22, 20, Rgba{});
+                drawLabelCap(cv, 0, 0, 22, 20, b->primary(a), st);
+                int opaque = 0;
+                for (const Rgba& c : cv.px)
+                    opaque += c.a == 0x7f;
+                CHECK(opaque > 150 && cv.get(0, 0).a == 0); // a disc, not a square cap
+            }
+    }
     // ---- text rewrite
     {
         Bindings d = Bindings::defaults();

@@ -619,9 +619,14 @@ void gameplayPage(gameui::SettingPage& pg, const Settings& st, const SchemaEnv& 
              "while they play, whatever this setting is. Takes effect after a restart.",
              true);
     b.choice("general.ui_prompts", "Button prompts",
-             "Keyboard: the game's text and help pictures name your keys and mouse buttons, following the key "
-             "bindings. PS2: original controller icons.",
-             {{"keyboard", "Keyboard and mouse"}, {"ps2", "PlayStation 2 icons"}}, true, caps.promptStyle);
+             "Which buttons the game shows in its text, help pictures and menus. Keyboard and mouse follows your key "
+             "bindings. Xbox and PlayStation 5 show that controller's buttons (A, B, X, Y or the PlayStation "
+             "symbols), and PlayStation 2 keeps the game's original pictures. Takes effect after a restart.",
+             {{"keyboard", "Keyboard and mouse"},
+              {"xbox", "Xbox icons"},
+              {"ps5", "PlayStation 5 icons"},
+              {"ps2", "PlayStation 2 icons (original)"}},
+             true, caps.promptStyle);
     {
         SettingRow& r = b.choice("general.language", "Language",
                                  "Text, voices and menus come from the matching disc language tree. Takes effect "
@@ -649,10 +654,12 @@ void gameplayPage(gameui::SettingPage& pg, const Settings& st, const SchemaEnv& 
              "Modern: Save Game and Load Game as a PC slot browser with large previews of each save. Original: the "
              "game's own slot screens. Takes effect the next time a save or load screen opens.",
              {{"modern", "Modern"}, {"native", "Original"}});
-    b.choice("general.title_menu", "Title menu",
-             "Modern: the main menu (Load Game, New Game, Options, Credits, Quit) as a PC menu over the title art. "
-             "Original: the game's own title menu. Takes effect the next time the title menu opens.",
-             {{"modern", "Modern"}, {"native", "Original"}});
+    b.choice(
+        "general.title_menu", "Title menu",
+        "Modern: the main menu (Load Game, New Game, Options, Credits, Quit) as a PC menu over the title art. "
+        "Original: the game's own title menu (it cannot list extra campaigns or mod packs). Takes effect right away on "
+        "the title screen.",
+        {{"modern", "Modern"}, {"native", "Original"}});
 
     pg.sections.push_back({"Combat", {}});
     b.sec = &pg.sections.back();
@@ -667,16 +674,16 @@ void gameplayPage(gameui::SettingPage& pg, const Settings& st, const SchemaEnv& 
     {
         SettingRow& r = b.choice(
             "general.cpu_affinity", "CPU cores",
-            "Which logical processors the game may run on. Automatic lets Windows choose. Limiting it can help on "
-            "CPUs with slow or hybrid cores, or when other programs need the rest. Takes effect after a restart. For "
-            "an exact set, write a hex mask in drakan.ini, for example cpu_affinity = 0xFFF (the first 12 logical "
-            "processors).",
-            {{"auto", "Automatic (all)"},
-             {"cores:4", "First 4"},
-             {"cores:6", "First 6"},
-             {"cores:8", "First 8"},
-             {"cores:12", "First 12"},
-             {"cores:16", "First 16"}},
+            "How much of your computer's processor the game is allowed to use. Leave it on Automatic unless you have "
+            "a reason to change it. Choosing fewer cores can stop the game from slowing down other programs you have "
+            "open, and on some newer processors it can make the game run more smoothly. Takes effect the next time "
+            "you start the game.",
+            {{"auto", "Automatic (recommended)"},
+             {"cores:4", "Use 4 cores"},
+             {"cores:6", "Use 6 cores"},
+             {"cores:8", "Use 8 cores"},
+             {"cores:12", "Use 12 cores"},
+             {"cores:16", "Use 16 cores"}},
             true);
         if (r.current < 0)
             r.currentLabel = "Custom (" + r.currentValue + ")";
