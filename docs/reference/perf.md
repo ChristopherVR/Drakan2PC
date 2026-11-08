@@ -633,3 +633,14 @@ The EE profile is diffuse guest code (more objects in view), our capture hooks a
 ## Multiplayer versus single player (2026-11-08)
 
 Measured, no MP-specific overhead: the depths arena (solo host) and single player at the same spot of Level 1E run at the same world rate (about 60 fps at 720p and at 4K, EE and GS threads near 100 %). The MP inventory (`World 0.0 fps`, Present about 63 fps) behaves like the SP inventory: the guest still draws the paused 3D world every frame. Details and candidates: `docs/journal/2026-11-08/mp-performance.md`.
+
+## Shipped-settings review (2026-11-08)
+
+With the shipped `drakan.ini` (4K, `scale = auto`, DLSS SR quality, ray effects off) the **GS worker thread** is the
+limit in the 1E arena spot and the Catacombs start (never idle, 11.5 to 15.8 ms per world frame); the GPU and VU1
+worker are not. Auto scale picks 8 at 3840x2160 (16:9, `ceil(3840 / 512)`), and target page-row refreshes
+(`syncRT` -> `uploadTargetRect`) replicate pixels scale x scale on the CPU: 1.8 to 2.6 ms per frame and 5 to 6 GB/s of
+`UpdateSubresource`. Scale 5 measured 94 to 97 against 62 to 85 world fps (1E) and 94 against 71 (Catacombs). DLSS SR
+object motion costs 1.2 to 2.3 ms per frame; a per-frame 32x32 GS-to-EE readback (guest `f_0x1dda88`, FINISH wait
+in `f_0x1dbfa8`) serialises EE and renderer (36 % of the EE thread at 1E with DLSS off). HD textures cost nothing
+measurable. Ranked fixes and numbers: [journal](../journal/2026-11-08/perf-review.md).
