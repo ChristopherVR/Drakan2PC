@@ -159,6 +159,14 @@ counter 455. Delon takes breath damage (650 -> 185 in four rounds) and the campa
 in game). Open: finishing Delon with a sword or bow, a chained run of all levels in one process (Ruined Village's Arokh is
 story-gated and its exit needs him mounted). See [progression 3](../journal/2026-11-07/ootf-progression-3.md).
 
+**November 8 "crash after Arokh flies away":** Arokh flies away at the end of the Intro ("Intro 3"), just before the
+Ruined Village hand-over. 13 runs with the user's two packs, audio and display settings, by `game = ask` and by `d1`,
+idle and with input, all reached the village opening and control: no crash reproduced, and the 0-byte dumps in the play
+folder belonged to a harness run. Found on that path instead: a death in any converted level ended at the title with
+"This save was made with an earlier version of the mod pack", because the level-start save the game reloads had no pack
+record. Every `.rsg` written now gets one; a death in Ruined Village reloads the level and Rynn walks (native and modern
+title). See [Arokh fly-away report](../journal/2026-11-08/ootf-arokh-flyaway-crash.md).
+
 ## What works
 
 * Converter `editor/scripts/ootf-convert.ts` (`--campaign 1` for the campaign): terrain, textures, models, creatures (skinned, retargeted

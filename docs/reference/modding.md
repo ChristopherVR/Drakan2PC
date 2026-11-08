@@ -383,9 +383,11 @@ was made with, and the game refuses a save it cannot vouch for.
   says `mods: '<id>' build <id> (from the manifest | content hash)` and `[saves] content pack '<id>' build ...`.
 * **Pin it only on purpose.** A hand-made pack may set `build` itself and keep it across updates that leave every save
   valid (new textures or text only). Change it (or leave it out) whenever an update changes level, class or object data.
-* **The record.** When the game writes a save into a slot folder (`<saveId>Slot<n>/<level>.rsg`, manual, quick and
-  level-change saves alike) while content packs are active, it writes `<level>.rsg.mods` beside it (memory card write
-  observer, `drakan_save_guard.cpp`; `[saves] <file>: pack record <id> <build>, ...` in the log):
+* **The record.** When the game writes a save (`<saveId>Slot<n>/<level>.rsg`, manual, quick and level-change saves
+  alike, and the level-start save `<card>/<level>.rsg` that a death reloads) while content packs are active, it writes
+  `<level>.rsg.mods` beside it (memory card write observer, `drakan_save_guard.cpp`; `[saves] <file>: pack record <id>
+  <build>, ...` in the log). Before 2026-11-08 the level-start save had none, so a death in a converted level was
+  refused and ended at the title ([report](../journal/2026-11-08/ootf-arokh-flyaway-crash.md)):
 
   ```ini
   ; Mod packs that were active when this save was written. ...

@@ -71,8 +71,11 @@ fs::path cardRoot() {
 std::string slotPrefix() {
     return std::string(drakan_region::build().saveId) + "Slot";
 }
-bool isSlotSave(const fs::path& rsg) {
-    return rsg.extension() == ".rsg" && rsg.parent_path().filename().string().rfind(slotPrefix(), 0) == 0;
+// Every save the game writes gets a record: the slot saves (manual, quick, level change) and the level-start save at
+// the card root (`/<level>.rsg`), which the game reloads when the player dies. Without a record that one was refused as
+// "made before pack builds were recorded" in every pack level, so a death in a converted level ended at the title.
+bool isRecordedSave(const fs::path& rsg) {
+    return rsg.extension() == ".rsg";
 }
 fs::path recordPath(const fs::path& rsg) {
     return fs::path(rsg.native() + fs::path(kRecordSuffix).native());
@@ -101,9 +104,9 @@ gameui::SavePackProblem problemOf(SaveVerdict v) {
     return gameui::SavePackProblem::None;
 }
 
-// After every successful write on the card: the pack record of a save in a slot folder.
+// After every successful write on the card: the pack record of a save (slot folder or card root).
 void written(const fs::path& path) {
-    if (!isSlotSave(path))
+    if (!isRecordedSave(path))
         return;
     std::vector<hle::mods::PackStamp> packs;
     {
