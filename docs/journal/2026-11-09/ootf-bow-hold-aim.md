@@ -63,3 +63,26 @@ with `cursor 250 146` and press ENTER twice: the first press only dismisses the 
 - Not run live: the crossbow (no crossbow could be obtained in the test level, holder mode 4 code is covered by unit
   tests only), and the drawn upper-body pose while the button is held (not implemented: the native draw clip only
   plays on the release tap, so the hold shows normal locomotion).
+
+## Crosshair, crossbow, draw pose, parallax (follow-up)
+
+- **Crosshair drawn**: confirmed with the settings host's harness inbox (`DRAKAN_OVERLAY_SHOT_DIR`, a `shot.txt` written
+  every 0.5 s by a helper while the recipe ran). Frames taken while LMB was held show the gold crosshair at the centre of
+  the game image over the archery target (about 20 of 77 frames); frames outside the hold show none. The renderer
+  `shot` command does not include the overlay, which is why the earlier PNGs had none.
+- **Crossbow**: no player crossbow exists. The 2026-11-08 notes decoded the placed-object lists of 11 campaign levels
+  (only bows) and the native Villiager Cross Bow is an NPC weapon, so "the crossbow" is the player's bow. The mode 4
+  support added above only affects a holder in mode 4 and cannot be exercised in game.
+- **Held draw pose: not implemented.** The native attack `0x3016e8` plays one clip (0xe1, 0xe7 crouched) through the
+  motion setter `0x32cf30`, first on `player+0xaec` and then on the torso channel (property `0x52`); the arrow leaves
+  on that clip's launch event (`0x20e6c8`), so there is no separate "held" clip. Holding the drawn frame would need
+  (a) starting that clip on the torso channel at press, (b) deferring the launch event until release (skip the
+  launch hook and call it later with the nocked arrow still in `bow+0x158`) and (c) pausing the torso channel's playback
+  at the last drawn frame, which needs the channel record's rate/phase fields in the model (`model+0xe8`, stride 0x80,
+  record `+0x50` = motion) written safely. None of that is verified, and a half version would break shooting (attack
+  state, cooldown `+0xb38`, ammunition), so the hold still shows normal locomotion plus the crosshair.
+- **Parallax**: the arrow converges on the camera ray 8000 units ahead, so a target nearer than that is hit
+  roughly `lateral offset * (1 - D / 8000)` to the side of the crosshair (the arrow starts about the shoulder offset,
+  200 units, beside the camera ray: about 150 units at 2000 units range, about 100 at 4000). A correct fix needs the
+  ray's hit point. The guest has a ray cast (`0x375a80`, used by the item pickup `0x31a278`, called through a vtable),
+  but its argument layout is not decoded yet; the arrow landing against near and far targets was not measured.
