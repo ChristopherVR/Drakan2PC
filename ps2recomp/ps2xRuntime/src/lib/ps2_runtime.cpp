@@ -408,7 +408,8 @@ static void UploadFrame(Texture2D& tex, PS2Runtime* rt, uint32_t& outWidth, uint
 #endif
     if (!hasFrame) {
         drakan_presentation::g_frameMetrics.uploadError();
-        Image blank = GenImageColor(tex.width, tex.height, MAGENTA);
+        // No guest frame yet (start-up): show black, not a debug colour box in the middle of the window.
+        Image blank = GenImageColor(tex.width, tex.height, BLACK);
         UpdateTexture(tex, blank.data);
         UnloadImage(blank);
         outWidth = tex.width;

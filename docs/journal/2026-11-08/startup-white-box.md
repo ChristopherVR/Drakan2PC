@@ -12,3 +12,11 @@ The in-game `GSR_WINSHOT` captures never showed it because it is not in the swap
 Fix: `drakan_window.cpp` fills the client area black with GDI right after the fullscreen `SetWindowPos` and in
 `show()`, both before the first present. Desktop captures every 150 ms after launch now show a solid black screen
 until the first rendered frame.
+
+## Other renderers
+
+- WebGPU (`renderer = webgpu` / `PS2X_GS=webgpu`) uses the same native window and fullscreen switch, so the same fix
+  covers it; a desktop capture of its start-up is black until the first frame.
+- The fallback window (raylib, used when D3D11 / WebGPU cannot start, and for `renderer = sw`) had its own box: until
+  the first guest frame the software presenter uploaded a magenta placeholder (`ps2_runtime.cpp`). It is black now;
+  `PrintWindow` captures of that window from its first visible frame show black, then the loading text.
