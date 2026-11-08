@@ -224,7 +224,7 @@ keep the PC orientation in the retarget), lip tracks are scaled to the disc's sp
 closing in captured close-ups; the in-game sword grip is correct. Needs a regenerated pack. See
 [Rynn in scenes](../journal/2026-11-08/ootf-rynn-scenes.md).
 
-**November 9 Rynn rig audit (open):** reports of an open off hand at the opening walk, flying hair, Julian's hand at the start of 1.3 and a wrong pose when the scene ends were measured, not fixed: the retarget keeps every hair and arm key faithfully (same-named native clips within 4 to 12 degrees), the 32 unmatched PS2 joints (24 fingers, face) sit at bind where native armed clips curl them (candidate for the hands), Julian starts on a static one-key pose by design, and the hair is likely the graded-alpha card draw order fixed in formats `956e798`. None was seen in a frame (the harness autopress skips 1.1 after about 4 s). See [rig audit](../journal/2026-11-09/ootf-rynn-rig-audit.md).
+**November 9 Rynn rig audit:** the PS2 Rynn's 24 finger joints have no PC partner and sat on their open bind pose in every retargeted scene clip; they now take a native armed clip's grip (formats `a60809d`), both hands close on the scene sword. Hair (graded-alpha cards fixed in `956e798`), Julian's start pose in 1.3 and the scene-end handoff were checked in frames and are not converter faults. `DRAKAN_AUTOPRESS_STOP_AFTER_LOAD=1` now also works for campaign starts, so the Ruined Village opening can be captured whole. See [rig audit](../journal/2026-11-09/ootf-rynn-rig-audit.md).
 
 **November 8 grunt poses:** killed Ruined Village grunts (PC orcs retargeted onto the PS2 Purple / Yellow Orc rig) stood back
 up because every converted clip was written looping (PC clips have no loop flag); retargeted clips now take the flags of the

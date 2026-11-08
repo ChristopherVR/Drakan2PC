@@ -2,9 +2,28 @@
 
 User report: walking at the start (Rynn and Delon), the off hand does not hold the weapon properly; Rynn's hair flies upwards
 in scenes; Julian's hand (the man whose sword Rynn takes in scene 1.3; "Adam" in the report) is awkward at the start and then
-corrects; Rynn's body is wrongly posed when the scene ends and control returns. No converter change came out of this pass:
-none of the four could be reproduced in a frame, so the findings below are measurements, not fixes. Probes are private
-(`build/rynn-probe`, nothing from either game is quoted).
+corrects; Rynn's body is wrongly posed when the scene ends and control returns. Outcome: the player's retargeted scene
+clips now close her fingers (formats `a60809d`, `dfd5203`); hair, Julian and the scene end were checked in frames and show no
+fault of the converter. Probes are private (`build/rynn-probe`, nothing from either game is quoted).
+
+## Follow-up with frames (same day)
+
+* **Capture.** `DRAKAN_AUTOPRESS_STOP_AFTER_LOAD=1` (`play_run.py --keep-cutscene`) never fired for a campaign start (no loading
+  screen 29: the screens run 31, 30, title 8, 14, world -1). It now also stops at the first world screen after the title, so
+  the Ruined Village opening plays out (1.1, 1.2a, 1.3 about 210 s). Recipe: shots only, no pad taps; runs `rig-g` to `rig-k`.
+* **Fingers (fixed).** The unmatched PS2 finger joints now take the first-key pose of the native armed clip `A_RandomIdle`
+  (fallbacks `A_1HandedRMUB`, `NCIdle2Magic_Sword`) in every retargeted player clip. Frames: both hands are closed fists on
+  the sword in the 1.1 crouch and at the scene end (`rig-k` against `rig-g`).
+* **Hair (no fault).** Close-ups of 1.1 and 1.3 show the ponytail hanging normally on a pack that includes the alpha-cut fix
+  (`956e798`). The long red-brown bar seen from above in the 1.1 walk is not hair: replacing hair1 to hair3 by a native idle
+  pose did not change it (tried and dropped). It looks like the back sheath or the scene sword placed behind her; not chased.
+* **Julian (no fault).** In 1.3 his right hand starts on the spear shaft that pins him (clip `0x69e`) and drops at 9.2 s
+  (`0x698`); the PC action carries the blend (transition word 0.85 s), which the PS2 action keeps. Not a converter fault.
+* **Scene end (no fault found).** Dense frames every 0.7 s around the end of 1.3 (`rig-j`): last scene pose, black frame, then
+  an ordinary idle with the head and neck neutral; the channel-3 layer hypothesis is not supported. 1.2a's Rynn actor only
+  shows (`type 6` = 1) at 52 s, as authored, which explains her absence from that scene's earlier shots.
+
+## First pass (measurements before the frames)
 
 ## What was measured (PC Rynn 3713 retargeted onto the PS2 Rynn of SYSTEM.MOD, 342 clips)
 
@@ -33,7 +52,7 @@ none of the four could be reproduced in a frame, so the findings below are measu
   pose) is untested. The release itself is the run/stop action at the end of the player's actions (`convertSequence`
   hold-actor path in `ootfseq.ts`, shared with the floating-body fix at the 1.1 to 1.2a cut).
 
-## Why nothing was verified in a frame
+## Why nothing was verified in a frame in the first pass
 
 Runs of the Ruined Village on a fresh pack (`rig-a` to `rig-g`) ended scene 1.1 after about 4 s: the harness autopress taps
 Start + Cross until the first level has loaded and skips the scene (the Intro tip: `DRAKAN_AUTOPRESS_UNTIL`; with a value
