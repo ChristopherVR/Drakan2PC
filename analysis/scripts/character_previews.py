@@ -98,6 +98,142 @@ def mesh(container, model):
     return positions, triangles, textures
 
 
+ARM_ANGLE = math.radians(
+    15
+)  # final angle between each upper arm and straight down (outward), 0 = flat against the body
+
+
+def read_rig(data):
+    """Decode the part of a PS2 0x0208 record the pose needs: node names, joint origins, tree and skin weights.
+
+    Layout and conventions: editor/packages/formats/src/ootfanim.ts `parseSkeleton` and skeleton.ts. A joint matrix
+    (t[3], R[3][3], row vectors) is the inverse of its bind transform, so the joint origin in model space is -(R t).
+    """
+    count = struct.unpack_from("<H", data, 64)[0]
+    offset = 66
+    for _ in range(count - 1):
+        offset += 2 + struct.unpack_from("<H", data, offset)[0]
+    nodes = struct.unpack_from("<H", data, offset)[0]
+    offset += 2
+    names = {}
+    for _ in range(nodes):
+        joint = struct.unpack_from("<i", data, offset + 32)[0]
+        if joint >= 0:
+            names.setdefault(joint, data[offset : offset + 32].split(b"\0")[0].decode("latin-1"))
+        offset += 36
+    offset += 4  # total vertex count
+    joints = struct.unpack_from("<H", data, offset)[0]
+    offset += 2
+    origins, child, sibling, weights = [], [], [], []
+    for _ in range(joints):
+        t = struct.unpack_from("<3f", data, offset)
+        r = struct.unpack_from("<9f", data, offset + 12)
+        origins.append(tuple(-sum(t[i] * r[j * 3 + i] for i in range(3)) for j in range(3)))
+        _mesh, first, nxt = struct.unpack_from("<3i", data, offset + 48)
+        child.append(first)
+        sibling.append(nxt)
+        offset += 60
+        per_lod = []
+        for _ in range(count):
+            n = struct.unpack_from("<H", data, offset)[0]
+            per_lod.append(struct.unpack_from("<" + "If" * n, data, offset + 2))
+            offset += 2 + 8 * n
+        weights.append(per_lod)
+    # the LOD table follows the joints: u16 1, f32 distance, u32 usage, node, first vertex, vertex count, first poly, polys
+    first = [struct.unpack_from("<I", data, offset + i * 30 + 14)[0] for i in range(count)]
+    return names, origins, child, sibling, weights, first
+
+
+def lower_arms(positions, record):
+    """Swing both arms from the T-pose down beside the body with the real skeleton and skin weights.
+
+    Each upper-arm joint (and everything below it) is rotated about its own origin so the arm points `ARM_ANGLE` off
+    straight down (outward), then the vertices are skinned with their original weights, so shoulders, sleeves and
+    hands deform like in game. Models without arm joints (dragons, ...) or without a lateral T-pose arm are unchanged.
+    """
+    try:
+        names, origins, child, sibling, weights, first = read_rig(record)
+    except (struct.error, ValueError, IndexError):
+        return positions
+    by_name = {name: joint for joint, name in names.items()}
+    parent = {}
+
+    def walk(first, up):
+        joint = first
+        while 0 <= joint < len(origins) and joint not in parent:
+            parent[joint] = up
+            if child[joint] > 0:
+                walk(child[joint], joint)
+            if sibling[joint] <= 0:
+                break
+            joint = sibling[joint]
+
+    walk(0, -1)
+    turns = {}  # joint -> (pivot, rotation matrix rows) applied to the vertices it carries
+    for side in "LR":
+        shoulder, elbow = by_name.get(side + "uparm"), by_name.get(side + "forearm")
+        if shoulder is None or elbow is None or shoulder not in parent or elbow not in parent:
+            continue
+        pivot = origins[shoulder]
+        d = [origins[elbow][i] - pivot[i] for i in range(3)]
+        length = math.sqrt(sum(v * v for v in d))
+        flat = math.hypot(d[0], d[2])
+        if length < 1e-6 or flat < 0.6 * length:  # not a sideways T-pose arm
+            continue
+        d = [v / length for v in d]
+        flat = math.hypot(d[0], d[2])
+        target = (d[0] / flat * math.sin(ARM_ANGLE), -math.cos(ARM_ANGLE), d[2] / flat * math.sin(ARM_ANGLE))
+        axis = (
+            d[1] * target[2] - d[2] * target[1],
+            d[2] * target[0] - d[0] * target[2],
+            d[0] * target[1] - d[1] * target[0],
+        )
+        sine = math.sqrt(sum(v * v for v in axis))
+        cosine = sum(a * b for a, b in zip(d, target))
+        if sine < 1e-6:
+            continue
+        x, y, z = (v / sine for v in axis)
+        k = 1 - cosine
+        # Rodrigues for column vectors, stored as rows: v' = M v
+        m = (
+            (cosine + x * x * k, x * y * k - z * sine, x * z * k + y * sine),
+            (y * x * k + z * sine, cosine + y * y * k, y * z * k - x * sine),
+            (z * x * k - y * sine, z * y * k + x * sine, cosine + z * z * k),
+        )
+        for joint in parent:
+            up = joint
+            while up >= 0 and up != shoulder:
+                up = parent[up]
+            if up == shoulder:
+                turns[joint] = (pivot, m)
+    if not turns:
+        return positions
+    influences = {}
+    for joint, per_lod in enumerate(weights):
+        for lod, lod_weights in enumerate(per_lod):
+            for index in range(0, len(lod_weights), 2):
+                influences.setdefault((lod, lod_weights[index]), []).append((joint, lod_weights[index + 1]))
+    out = list(positions)
+    for (lod, local), joints in influences.items():
+        vertex = first[lod] + local
+        if vertex >= len(positions):
+            continue
+        total = sum(w for _, w in joints) or 1.0
+        p = positions[vertex]
+        moved = [0.0, 0.0, 0.0]
+        for joint, w in joints:
+            if joint in turns:
+                pivot, m = turns[joint]
+                rel = [p[i] - pivot[i] for i in range(3)]
+                q = [pivot[i] + sum(m[i][j] * rel[j] for j in range(3)) for i in range(3)]
+            else:
+                q = p
+            for i in range(3):
+                moved[i] += w / total * q[i]
+        out[vertex] = tuple(moved)
+    return out
+
+
 def render(positions, triangles, textures, angle):
     """Orthographic, two-sided, depth-tested textured bind pose. Texture alpha cuts out hair / clothing."""
     used = {i for tri, _, _ in triangles for i in tri}
@@ -235,6 +371,8 @@ def main():
             if key not in rendered:
                 try:
                     positions, triangles, refs = mesh(container(base + ".MOD"), model)
+                    if (0x208, model) in container(base + ".MOD"):
+                        positions = lower_arms(positions, container(base + ".MOD")[0x208, model])
                     materials = [texture(base, *ref) for ref in refs]
                     rendered[key] = (turntable if args.turntables else model_bytes)(positions, triangles, materials)
                 except (ValueError, KeyError, IndexError, struct.error) as error:
