@@ -1531,7 +1531,9 @@ void previewShotTick(drakan_input::IGuest& guest, uint8_t* rdram, uint32_t playe
             // of a fall. Try again a few times, then give up without a file.
             const float dx = rdf(rdram, player + 0x14) - pos[0], dy = rdf(rdram, player + 0x18) - pos[1],
                         dz = rdf(rdram, player + 0x1c) - pos[2];
-            if (std::sqrt(dx * dx + dz * dz) > 1500.0f || std::fabs(dy) > 2500.0f) {
+            // No authored preview point (the spawn stands in): an air arena's pad hangs high above the floor and she
+            // lands below and beside it (the pad pushes her off), so the settle check only applies to an authored point.
+            if (def.hasPreview && (std::sqrt(dx * dx + dz * dz) > 1500.0f || std::fabs(dy) > 2500.0f)) {
                 if (++g_shotTries >= 4) {
                     arenaLog("preview shot: the player never settled at the point, no picture");
                     g_shotTries = 0;
@@ -2069,6 +2071,10 @@ const ArenaDef* findMap(const std::string& idOrName) {
     return g_catalog.find(idOrName);
 }
 
+// DRAKAN_ARENA_FORCE named a map that was not in the catalog at init (a mod pack's map: the packs load after init);
+// addMaps retries it as the packs register their maps.
+static std::atomic<bool> g_forcePending{false};
+
 size_t addMaps(const std::string& text, const std::string& source, const std::string& defaultGame) {
     loadDefaults();
     std::vector<std::string> errors;
@@ -2080,6 +2086,15 @@ size_t addMaps(const std::string& text, const std::string& source, const std::st
     for (const std::string& e : errors)
         arenaLog("maps: %s", e.c_str());
     arenaLog("maps: %zu from %s", n, source.c_str());
+    if (g_forcePending.load()) {
+        if (const char* f = std::getenv("DRAKAN_ARENA_FORCE"); f && *f) {
+            if (const ArenaDef* d = findMap(f)) {
+                g_forcePending = false;
+                arenaLog("DRAKAN_ARENA_FORCE: '%s' found in %s", f, source.c_str());
+                setSession(true, d);
+            }
+        }
+    }
     return n;
 }
 
@@ -2305,8 +2320,10 @@ void install(PS2Runtime& rt) {
         const ArenaDef* d = findMap(f);
         if (d)
             setSession(true, d);
-        else
-            arenaLog("DRAKAN_ARENA_FORCE: unknown map '%s'", f);
+        else {
+            g_forcePending = true;
+            arenaLog("DRAKAN_ARENA_FORCE: unknown map '%s' (waiting for the mod packs' maps)", f);
+        }
     }
 }
 

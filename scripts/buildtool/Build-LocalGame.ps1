@@ -626,6 +626,15 @@ if ($windowsHost -and $gameRegion -eq 'pal' -and -not $NoDist -and -not $NoMapPi
 }
 $quotedExe = $gameExe.Replace("'", "''")
 $quotedOutput = $gameOutput.Replace("'", "''")
+    # The enabled packs' own maps (Order of the Flame levels in mods/ootf-levels.zip) were pictured by the same run; put
+    # the pictures into the packs so they travel with them. mod.toml is untouched, so a pack's `build` id (saves) stays.
+    try {
+        Invoke-Checked $Python @((Join-Path $RepoRoot 'scripts/harness/pack_map_previews.py'),
+            '--mods',(Join-Path $DistDirectory 'mods'),'--pictures',(Join-Path $DistDirectory 'previews/maps'))
+    } catch {
+        $message = "Could not add the map pictures to the mod packs (the packs still get them from previews/maps): $_"
+        if ($Progress) { Write-Detail $message } else { Write-Warning $message }
+    }
 Write-Detail "Private executable: $gameExe"
 Write-Detail "ISO playback path: $IsoPath"
 Write-Detail "Launch from PowerShell: Start-Process -FilePath '$quotedExe' -WorkingDirectory '$quotedOutput'"

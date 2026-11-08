@@ -4,7 +4,8 @@
     python scripts/harness/map_previews.py --maps surdana-meadow --force    # one map again
     python scripts/harness/map_previews.py --out dist/DrakanPC/previews/maps --src dist/DrakanPC --exe <drakan.exe>
 
-For each [arena] of configs/mp_maps.ini (and --maps-file) one game instance loads the map's level in the arena world mode
+For each [arena] of configs/mp_maps.ini (and --maps-file, and the maps/*.ini of the enabled packs in <src>/mods, e.g. the
+Order of the Flame levels; --no-mods skips those) one game instance loads the map's level in the arena world mode
 (DRAKAN_ARENA_FORCE, no network session) and takes the authored picture (DRAKAN_ARENA_PREVIEW_SHOT: the player stands at
 the map's `preview` point, the follow camera settles, the window is saved). The frame is checked (a black or flat frame
 is a level that never came up, retried once), the HUD strip at the bottom is cut away, and the rest is centre-cropped to
@@ -21,6 +22,7 @@ import struct
 import subprocess
 import sys
 import time
+import zipfile
 import zlib
 from pathlib import Path
 
@@ -47,6 +49,33 @@ def arenas(text: str) -> list[dict[str, str]]:
             k, v = line.split("=", 1)
             cur.setdefault(k.strip().lower(), v.strip())
     return [a for a in found if a.get("id") and a.get("level")]
+
+
+def mod_arenas(src: Path) -> list[dict[str, str]]:
+    """The [arena] sections of the enabled mod packs (<src>/mods/*.zip, maps/*.ini; mods.ini lists `id = on|off`, a pack
+    it does not list is on, like the game). The game loads the packs itself, so DRAKAN_ARENA_FORCE finds them by id."""
+    mods = src / "mods"
+    off: set[str] = set()
+    ini = mods / "mods.ini"
+    if ini.is_file():
+        for raw in ini.read_text(encoding="utf-8", errors="replace").splitlines():
+            k, _, v = raw.split(";", 1)[0].partition("=")
+            if v.strip().lower() in ("off", "0", "false", "no"):
+                off.add(k.strip().lower())
+    found: list[dict[str, str]] = []
+    for zp in sorted(mods.glob("*.zip")) if mods.is_dir() else []:
+        if zp.stem.lower() in off:
+            continue
+        try:
+            with zipfile.ZipFile(zp) as z:
+                for n in sorted(z.namelist()):
+                    if n.startswith("maps/") and n.lower().endswith(".ini"):
+                        for m in arenas(z.read(n).decode("utf-8", errors="replace")):
+                            m["pack"] = zp.name
+                            found.append(m)
+        except (OSError, zipfile.BadZipFile) as e:
+            print(f"mod pack {zp.name}: unreadable ({e})")
+    return found
 
 
 def safe_name(name: str) -> str:
@@ -179,6 +208,9 @@ def capture(m: dict[str, str], a: argparse.Namespace, exe: Path) -> Path | None:
         "DRAKAN_WS_ASPECT": "16:9",
         "DRAKAN_SHOW_FPS": "0",
         "DRAKAN_HUD_SCALE": "0.5",
+        # the air arenas start on a launch pad high above the ground: without this Rynn dies in the fall and the
+        # game returns to the title before the shot
+        "DRAKAN_PLAYTEST_GOD": "1",
     }
     if a.maps_file:
         extra["DRAKAN_MP_MAPS"] = str(a.maps_file.resolve())
@@ -213,6 +245,8 @@ def main() -> int:
     ap.add_argument("--out", type=Path, default=ROOT / "dist" / "DrakanPC" / "previews" / "maps")
     ap.add_argument("--maps", default="", help="arena ids or names, comma separated (default: all)")
     ap.add_argument("--maps-file", type=Path, default=None, help="an extra mp_maps.ini (DRAKAN_MP_MAPS)")
+    ap.add_argument("--no-mods", action="store_true", help="skip the arenas of the enabled mod packs in <src>/mods")
+    ap.add_argument("--only-mods", action="store_true", help="only the arenas of the enabled mod packs")
     ap.add_argument("--force", action="store_true", help="make the picture again even when one exists")
     ap.add_argument("--timeout", type=int, default=150, help="seconds per map")
     ap.add_argument("--exe", type=Path, default=ROOT / "build" / "final-game" / "bin" / "drakan.exe")
@@ -222,6 +256,11 @@ def main() -> int:
     maps = arenas((ROOT / "configs" / "mp_maps.ini").read_text(encoding="utf-8"))
     if a.maps_file:
         maps += arenas(a.maps_file.read_text(encoding="utf-8"))
+    if a.only_mods:
+        maps = []
+    if not a.no_mods:
+        have = {m["id"] for m in maps}
+        maps += [m for m in mod_arenas(a.src) if m["id"] not in have]
     if a.maps:
         want = {s.strip().lower() for s in a.maps.split(",") if s.strip()}
         maps = [m for m in maps if m["id"].lower() in want or m.get("name", "").lower() in want]

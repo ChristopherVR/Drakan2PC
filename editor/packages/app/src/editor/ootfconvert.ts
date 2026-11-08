@@ -1,7 +1,7 @@
 // The heavy half of "Import Order of the Flame levels": reading the install, converting the levels and building the mod
 // pack. It runs in `ootfworker.ts` so the editor stays responsive; the dialog only shows the progress and the result.
 
-import { buildOotfPack, ootfArenaFromPc, type ModMeta, type OotfPack } from '@drakan/editor-core';
+import { buildOotfPack, ootfArenaFromPc, previewFileName, type ModMeta, type OotfPack } from '@drakan/editor-core';
 import {
     SrscReader,
     ps2BlobFor,
@@ -30,6 +30,8 @@ export interface ConvertRequest {
     profile: string | null;
     /** Optional PNG: the campaign's card cover and menu background (previews/campaign-ootf.png, background-ootf.png). */
     cover?: Uint8Array;
+    /** Optional menu pictures of the multiplayer maps, by file name (`previewFileName(arena name)`, e.g. from map_previews.py). */
+    previews?: Readonly<Record<string, Uint8Array>>;
 }
 
 export interface LevelSummary {
@@ -97,11 +99,13 @@ export async function runConversion(
             unmappedClasses: R.unmappedClasses.size,
             keptOut: [...(R.omittedClasses?.values() ?? [])].reduce((n, o) => n + o.objects, 0),
         });
+        const arena = ootfArenaFromPc(pc, level.title) ?? undefined;
         inputs.push({
             title: level.title,
             parts: level.parts,
             splats: level.splats,
-            arena: ootfArenaFromPc(pc, level.title) ?? undefined,
+            arena,
+            preview: arena ? req.previews?.[previewFileName(arena.name)] : undefined,
         });
     }
     const start = result.levels.find((l) => !l.arena);

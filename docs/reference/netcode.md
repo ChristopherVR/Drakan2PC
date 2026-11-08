@@ -982,7 +982,15 @@ without a picture it starts the game once in the arena world mode (`DRAKAN_ARENA
 flat frames (one retry), cuts the bottom 16 % (HUD orbs) and centre-crops to 16:9 into `previews/maps/<safe map name>.png`.
 `previews/` survives the play folder clean, so later builds skip maps that have one (`--force` remakes them). The pictures
 are made from the player's disc and never committed. The shot is a "hero shot" with Rynn in it (no free camera yet).
-Tests: `scripts/tests/test_map_previews.py`.
+Mod-pack maps (journal 2026-11-08/ootf-mp-map-pictures.md): the same script also pictures the `[arena]` sections of the
+enabled packs in `<play folder>/mods` (`maps/*.ini` of each zip, `mods.ini` honoured; `--no-mods` skips them), e.g. the ten
+Order of the Flame maps; `DRAKAN_ARENA_FORCE` waits for the packs' maps if the id is not known at init. Then
+`scripts/harness/pack_map_previews.py` adds `previews/<safe map name>.png` to each pack zip (idempotent, `mod.toml` and so
+the pinned `build` id are untouched); `Build-LocalGame.ps1` runs both. The editor side: `buildOotfPack` takes a per-level
+`preview` PNG (`OotfLevelInput.preview`, shipped as `previews/<previewFileName(arena name)>`), `ConvertRequest.previews`
+and the CLI's `--previews <dir>` feed it.
+Tests: `scripts/tests/test_map_previews.py`, `scripts/tests/test_pack_map_previews.py`,
+`editor/packages/editor-core/test/ootf-previews.test.ts`.
 
 Map pictures the game takes itself (journal 2026-11-01/map-previews.md, 2026-11-07/mp-map-preview-stale-frame.md): opt in
 only, `DRAKAN_MP_CAPTURE=1`. Then the first time a match runs on a map and no picture exists, `mpPreviewCapture` waits about

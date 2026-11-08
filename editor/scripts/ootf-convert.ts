@@ -2,14 +2,14 @@
 //
 //   node --experimental-transform-types --no-warnings editor/scripts/ootf-convert.ts \
 //        --ootf <OotF install dir> --ps2 <dir with the extracted PS2 LEVEL*.LVL and *.ODB> \
-//        --template LEVEL1NA --out build/ootf-pack.zip [--id ootf-levels] [--prefix "OotF - "] [--splats <dir with LEVEL1TS.DB and .TXD, default --ps2>] [--campaign 1] [--cover <png>] [--background <png>] [--hd [--hd-out <textures dir>]] [--list] <pc level paths...>
+//        --template LEVEL1NA --out build/ootf-pack.zip [--id ootf-levels] [--prefix "OotF - "] [--splats <dir with LEVEL1TS.DB and .TXD, default --ps2>] [--campaign 1] [--cover <png>] [--previews <dir of <safe map name>.png>] [--background <png>] [--hd [--hd-out <textures dir>]] [--list] <pc level paths...>
 //
 // Level paths are relative to the install dir, e.g. "Multiplayer/Ground/Relic/Relic.lvl". Without paths every level.
 import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { join, relative, sep } from 'node:path';
-import { buildOotfPack, ootfArenaFromPc, zipOotfPack } from '@drakan/editor-core';
+import { buildOotfPack, ootfArenaFromPc, previewFileName, zipOotfPack } from '@drakan/editor-core';
 import { SrscReader, convertOotfLevels, findPcLevels, setExactSink, loadPcLevel, ps2BlobFor, pcLevelName, type PcFileSource } from '@drakan/formats';
 
 const args = process.argv.slice(2);
@@ -185,6 +185,11 @@ for (const l of res.levels) {
     if (a) arenas.set(l.pcPath, a);
     else console.warn(`warning: ${l.pcPath}: no arena (fewer than two launch pads)`);
 }
+// --previews <dir>: menu pictures of the multiplayer maps (<safe map name>.png, e.g. previews/maps from scripts/harness/map_previews.py)
+const previewPng = (name: string | undefined): Uint8Array | undefined => {
+    const f = name && opt['previews'] ? join(opt['previews'], previewFileName(name)) : '';
+    return f && existsSync(f) ? new Uint8Array(readFileSync(f)) : undefined;
+};
 const pack = await buildOotfPack(
     {
         id: opt['id'] ?? 'ootf-levels',
@@ -194,7 +199,7 @@ const pack = await buildOotfPack(
         ...(opt['campaign'] !== undefined ? { campaign: 'ootf' as const, campaignName: 'Drakan: Order of the Flame' } : {}),
     },
     template,
-    res.levels.map((l) => ({ title: l.title, parts: l.parts, splats: l.splats, arena: arenas.get(l.pcPath) })),
+    res.levels.map((l) => ({ title: l.title, parts: l.parts, splats: l.splats, arena: arenas.get(l.pcPath), preview: previewPng(arenas.get(l.pcPath)?.name) })),
     ps2BlobFor,
     { splats, extraFiles: res.files },
 );

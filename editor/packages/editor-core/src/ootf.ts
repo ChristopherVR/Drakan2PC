@@ -14,7 +14,7 @@ import {
     type Ps2LevelParts,
     type SrscReader,
 } from '@drakan/formats';
-import { newDraft, serializeMapFile, slugify, type ArenaDraft, type MarkerKind, type Vec3 } from './arena.ts';
+import { newDraft, previewFileName, serializeMapFile, slugify, type ArenaDraft, type MarkerKind, type Vec3 } from './arena.ts';
 import { buildManifestToml, ModError, MOD_MAX_ENTRY, zipModFiles, type ModMeta } from './mod.ts';
 
 /**
@@ -30,6 +30,8 @@ export interface OotfLevelInput {
     splats?: Readonly<Record<string, Uint8Array>>;
     /** A multiplayer map on this level (`ootfArenaFromPc`): shipped as `maps/<mangled>.ini`, tagged Drakan 1. */
     arena?: ArenaDraft;
+    /** A PNG picture of the arena (menu card), shipped as `previews/<previewFileName(arena name)>`; needs `arena`. */
+    preview?: Uint8Array;
 }
 
 export interface OotfPack {
@@ -93,7 +95,8 @@ export async function buildOotfPack(
             const arena = { ...input.arena, level: title, game: input.arena.game || 'Drakan 1' };
             if (!arena.id) arena.id = slugify(arena.name || title) || mangled.toLowerCase();
             files[`maps/${mangled}.ini`] = strToU8(serializeMapFile(arena, []));
-        }
+            if (input.preview?.length) files[`previews/${previewFileName(arena.name || title)}`] = input.preview;
+        } else if (input.preview?.length) warnings.push(`${title}: a picture was given but the level has no arena; ignored`);
         const stem = mangled.slice(0, 6) + 'TS';
         for (const [ext, data] of Object.entries({ ...options.splats, ...input.splats })) {
             files[`files/ENGLISH/LEVELS/${mangled}/${stem}.${ext.toUpperCase()}`] = data;
