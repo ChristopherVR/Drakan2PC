@@ -4,7 +4,9 @@
 // in the user's data folder. That is whatever the player happened to look at (a wall, a fall, a half-drawn frame), and
 // the menu then showed it as the map's picture for good (issue #1). The automatic capture is now opt in
 // (DRAKAN_MP_CAPTURE=1), and the data folder those captures went to is only read when it is on, so the old captures
-// left on a player's disk stop showing. Maps without a picture get the drawn sketch.
+// left on a player's disk stop showing. The pictures the menu shows by default are made on the player's machine from
+// the map's authored camera point (scripts/harness/map_previews.py, run by Build-LocalGame) into previews/maps/. Maps
+// without a picture get the drawn sketch.
 #pragma once
 
 #include <string>
@@ -18,12 +20,12 @@ inline bool autoCaptureEnabled(const char* env) {
 }
 
 // The folders searched for `<safe map name>.png`, first hit wins: the player's own picture next to the exe, then the
-// mod packs' pictures, then an explicit DRAKAN_PREVIEW_DIR (a picture source set on purpose, e.g. by the harnesses),
-// then, only with the capture on, the game's own captures (the data folder, the old previews/captured/ fallback).
-// Every folder ends in '/'.
+// mod packs' pictures, then the generated pictures of the built-in maps (previews/maps/), then an explicit
+// DRAKAN_PREVIEW_DIR (a picture source set on purpose, e.g. by the harnesses), then, only with the capture on, the
+// game's own captures (the data folder, the old previews/captured/ fallback). Every folder ends in '/'.
 inline std::vector<std::string> searchDirs(const std::string& exeDir, const std::string& explicitDir,
                                            const std::string& dataDir, bool capturesOn) {
-    std::vector<std::string> dirs{exeDir + "previews/", exeDir + "previews/mods/"};
+    std::vector<std::string> dirs{exeDir + "previews/", exeDir + "previews/mods/", exeDir + "previews/maps/"};
     if (!explicitDir.empty())
         dirs.push_back(explicitDir);
     else if (capturesOn && !dataDir.empty())

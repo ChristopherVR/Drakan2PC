@@ -25,20 +25,22 @@ int main() {
     assert(autoCaptureEnabled("1"));
 
     const std::string exe = "C:/Drakan/", data = "C:/Users/p/AppData/Local/Drakan2PC/previews/";
-    // Default: the player's own picture and the mod packs' pictures only; the old captures are not read.
+    // Default: the player's own picture, the mod packs' pictures, then the generated pictures of the built-in maps
+    // (map_previews.py); the old captures are not read.
     const auto plain = searchDirs(exe, "", data, false);
-    assert((plain == std::vector<std::string>{exe + "previews/", exe + "previews/mods/"}));
+    assert((plain == std::vector<std::string>{exe + "previews/", exe + "previews/mods/", exe + "previews/maps/"}));
     assert(!has(plain, data));
     assert(!has(plain, exe + "previews/captured/"));
     // An explicit DRAKAN_PREVIEW_DIR is a picture source set on purpose: read after the exe folders, capture or not.
     const auto expl = searchDirs(exe, "D:/pics/", data, false);
-    assert((expl == std::vector<std::string>{exe + "previews/", exe + "previews/mods/", "D:/pics/"}));
+    assert((expl ==
+            std::vector<std::string>{exe + "previews/", exe + "previews/mods/", exe + "previews/maps/", "D:/pics/"}));
     // Capture on: the data folder and the old fallback come back, after the player's and the mods' pictures.
     const auto cap = searchDirs(exe, "", data, true);
-    assert(
-        (cap == std::vector<std::string>{exe + "previews/", exe + "previews/mods/", data, exe + "previews/captured/"}));
+    assert((cap == std::vector<std::string>{exe + "previews/", exe + "previews/mods/", exe + "previews/maps/", data,
+                                            exe + "previews/captured/"}));
     // The data folder may be the fallback itself (no LOCALAPPDATA); listing it twice is harmless.
-    assert(searchDirs(exe, "", "", true).size() == 3);
+    assert(searchDirs(exe, "", "", true).size() == 4);
     std::puts("map_preview_policy: ok");
     return 0;
 }

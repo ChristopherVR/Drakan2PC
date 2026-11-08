@@ -53,7 +53,9 @@ param(
     # Reuse an existing WorkDir: skip ISO extraction, rerun the recompiler only when its inputs changed,
     # then let CMake/MSBuild rebuild just the changed sources and relink. -Regenerate forces the recompile.
     [switch]$Incremental,
-    [switch]$Regenerate
+    [switch]$Regenerate,
+    # Skip making the multiplayer menu's map pictures (scripts/harness/map_previews.py runs the game briefly per map).
+    [switch]$NoMapPictures
 )
 $ErrorActionPreference = 'Stop'
 $windowsHost = [OperatingSystem]::IsWindows()
@@ -597,12 +599,25 @@ if ($webBuild) {
 $launchArgs = @((Join-Path $PSScriptRoot 'prepare_launch.py'),'--repo-root',$RepoRoot,
     '--output-directory',$gameOutput,'--iso',$IsoPath,'--elf',$bootElf)
 Invoke-Checked $Python $launchArgs
+if ($windowsHost -and $gameRegion -eq 'pal' -and -not $NoDist -and -not $NoMapPictures) {
+    # The multiplayer menu's map pictures: one short game run per built-in arena without a picture yet, from the map's
+    # authored camera point (previews/maps/ survives the play folder clean, so later builds skip this). A failure
+    # only leaves the drawn sketch in the menu; it does not fail the build.
+    Write-Detail 'Making the multiplayer map pictures (a short game run per map without one)'
+    try {
+        Invoke-Checked $Python @((Join-Path $RepoRoot 'scripts/harness/map_previews.py'),'--exe',$gameExe,
+            '--src',$DistDirectory,'--out',(Join-Path $DistDirectory 'previews/maps'))
+    } catch {
+        $message = "Some multiplayer map pictures are missing (the menu draws a sketch for them): $_"
+        if ($Progress) { Write-Detail $message } else { Write-Warning $message }
+    }
+}
 $quotedExe = $gameExe.Replace("'", "''")
 $quotedOutput = $gameOutput.Replace("'", "''")
 Write-Detail "Private executable: $gameExe"
 Write-Detail "ISO playback path: $IsoPath"
 Write-Detail "Launch from PowerShell: Start-Process -FilePath '$quotedExe' -WorkingDirectory '$quotedOutput'"
-Write-Detail 'Local ISO/ELF paths and default input bindings are staged next to the executable; existing configs are preserved. No launch or upload was performed.'
+Write-Detail 'Local ISO/ELF paths and default input bindings are staged next to the executable; existing configs are preserved. Nothing was uploaded.'
 Write-BuildState $WorkDir @{ status = 'done'; finished = (Get-Date).ToString('s'); error = $null; play = $DistDirectory }
 
 } catch {

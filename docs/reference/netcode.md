@@ -975,6 +975,15 @@ What the server does with a mode (`MatchServer`, selected by `MatchConfig.modeId
 | spawn `team` / yaw, `keep` / `remove` | authored only: parsed, listed, not executed |
 | the menu | the Host page's Game Mode row lists `drakan_modes::customModes()` entries that fit the map |
 
+Built-in map pictures (journal 2026-11-08/mp-map-pictures.md): `Build-LocalGame.ps1` runs `scripts/harness/map_previews.py`
+after deploying the play folder (Windows, PAL; `-NoMapPictures` skips it). For every `[arena]` of `configs/mp_maps.ini`
+without a picture it starts the game once in the arena world mode (`DRAKAN_ARENA_FORCE`, `DRAKAN_ARENA_PREVIEW_SHOT`, a
+1600 x 900 16:9 window, no stats overlay, HUD scale 0.5), takes the shot from the map's `preview` point, rejects black or
+flat frames (one retry), cuts the bottom 16 % (HUD orbs) and centre-crops to 16:9 into `previews/maps/<safe map name>.png`.
+`previews/` survives the play folder clean, so later builds skip maps that have one (`--force` remakes them). The pictures
+are made from the player's disc and never committed. The shot is a "hero shot" with Rynn in it (no free camera yet).
+Tests: `scripts/tests/test_map_previews.py`.
+
 Map pictures the game takes itself (journal 2026-11-01/map-previews.md, 2026-11-07/mp-map-preview-stale-frame.md): opt in
 only, `DRAKAN_MP_CAPTURE=1`. Then the first time a match runs on a map and no picture exists, `mpPreviewCapture` waits about
 12 s in an arena or 9 s in a campaign match, hides the MP HUD and captures the current view. It is off by default because the
@@ -983,7 +992,8 @@ current view is whatever the player happens to look at, and the menu then kept s
 the user's data folder, `%LOCALAPPDATA%/Drakan2PC/previews/<safe map name>.png` (`DRAKAN_PREVIEW_DIR` overrides; never the
 repository or the play folder), and the Host / Join / lobby map card picks it up (centre band only: the native HUD along the
 bottom and the stats overlay are cropped). Lookup order (`drakan_map_preview_policy.h`, `map_preview_policy` test):
-`previews/<name>.png` next to the exe, `previews/mods/`, then `DRAKAN_PREVIEW_DIR` when set, then, with the capture on only,
+`previews/<name>.png` next to the exe, `previews/mods/`, `previews/maps/` (the generated built-in pictures above), then
+`DRAKAN_PREVIEW_DIR` when set, then, with the capture on only,
 the data folder and `previews/captured/`. A map without a picture shows the drawn sketch. Test aid
 `DRAKAN_ARENA_PREVIEW_SHOT=<file>` takes the shot by itself with `DRAKAN_ARENA_FORCE`
 (`scripts/harness/arena_tour.py --map <id> --tour 0 --env DRAKAN_ARENA_PREVIEW_SHOT=<file>`; `--maps-file` reads an extra
