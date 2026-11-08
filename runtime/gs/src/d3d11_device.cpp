@@ -1,5 +1,6 @@
 // Device, swap chain, neural bridge lifecycle, live settings and reset.
 #include "d3d11_backend_impl.h"
+#include "shader_cache.h"
 
 namespace gsr {
 
@@ -28,8 +29,8 @@ D3D11Backend::Impl::Impl(LocalMemory& m, const Config& c, Stats& s) : mem(m), cf
 bool D3D11Backend::Impl::compile(const char* entry, const char* target, const char* defines, ComPtr<ID3DBlob>& out) {
     D3D_SHADER_MACRO macros[] = {{"HW_BLEND", defines}, {nullptr, nullptr}};
     ComPtr<ID3DBlob> err;
-    HRESULT hr = D3DCompile(kHlslMain, std::strlen(kHlslMain), "gs_shaders", macros, nullptr, entry, target,
-                            D3DCOMPILE_OPTIMIZATION_LEVEL3, 0, &out, &err);
+    HRESULT hr = shader_compile::compile(kHlslMain, std::strlen(kHlslMain), "gs_shaders", macros, entry, target,
+                                         D3DCOMPILE_OPTIMIZATION_LEVEL3, &out, &err);
     if (FAILED(hr)) {
         std::fprintf(stderr, "[gsr] shader compile failed (%s): %s\n", entry,
                      err ? (const char*)err->GetBufferPointer() : "?");
@@ -39,6 +40,30 @@ bool D3D11Backend::Impl::compile(const char* entry, const char* target, const ch
 }
 
 bool D3D11Backend::Impl::init() {
+    const auto initStart = std::chrono::steady_clock::now();
+    shader_compile::configureDirectory();
+    {
+        // The uber shader variants are independent compiles of one source: run them side by side (the sequential
+        // creation below then takes them from the cache).
+        struct Variant {
+            const char* entry;
+            const char* target;
+            const char* define;
+        };
+        static constexpr Variant kMain[] = {
+            {"VSMain", "vs_5_0", "0"},    {"VSMotion", "vs_5_0", "0"},   {"PSMotion", "ps_5_0", "0"},
+            {"PSMain", "ps_5_0", "1"},    {"PSMain", "ps_5_0", "0"},     {"VSFull", "vs_5_0", "0"},
+            {"PSDisplay", "ps_5_0", "0"}, {"PSBlit", "ps_5_0", "0"},     {"PSBlitPt", "ps_5_0", "0"},
+            {"PSPresent", "ps_5_0", "0"}, {"PSCopyRGBA", "ps_5_0", "0"}, {"PSStretchDepth", "ps_5_0", "0"}};
+        std::vector<std::thread> compilers;
+        for (const Variant& v : kMain)
+            compilers.emplace_back([this, v] {
+                ComPtr<ID3DBlob> ignored;
+                compile(v.entry, v.target, v.define, ignored);
+            });
+        for (auto& t : compilers)
+            t.join();
+    }
     UINT flags = D3D11_CREATE_DEVICE_BGRA_SUPPORT;
     if (cfg.debugLayer)
         flags |= D3D11_CREATE_DEVICE_DEBUG;
@@ -67,8 +92,8 @@ bool D3D11Backend::Impl::init() {
         // normal scissor/raster states, without adding shader-file dependencies.
         constexpr char solid[] = "float4 main():SV_Target{return float4(0,0,0,128.0/255.0);}";
         ComPtr<ID3DBlob> shader, errors;
-        if (FAILED(D3DCompile(solid, sizeof(solid) - 1, "inventory_canvas", nullptr, nullptr, "main", "ps_5_0", 0, 0,
-                              &shader, &errors)) ||
+        if (FAILED(shader_compile::compile(solid, sizeof(solid) - 1, "inventory_canvas", nullptr, "main", "ps_5_0", 0,
+                                           &shader, &errors)) ||
             FAILED(dev->CreatePixelShader(shader->GetBufferPointer(), shader->GetBufferSize(), nullptr,
                                           &psInventoryCanvas)))
             return false;
@@ -190,7 +215,210 @@ bool D3D11Backend::Impl::init() {
     neuralAtRender = cfg.neuralAtRenderResolution;
     if (cfg.neuralRendering)
         setNeural(true);
+    warmMainPipelines();
+    startPrewarm();
+    shader_compile::markStartupDone();
+    const auto stats = shader_cache::global().stats();
+    const std::string cacheDir = shader_cache::global().directory();
+    std::fprintf(stderr,
+                 "[gsr-shader] renderer start-up %.0f ms: %llu compiled (%.0f ms), %llu from the disk cache, %llu "
+                 "from memory; cache folder %s\n",
+                 std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - initStart).count(),
+                 (unsigned long long)stats.produced, stats.produceMs, (unsigned long long)stats.diskHits,
+                 (unsigned long long)stats.memoryHits, cacheDir.empty() ? "(off)" : cacheDir.c_str());
     return true;
+}
+
+void D3D11Backend::Impl::warmMainPipelines() {
+    // Drivers translate a shader for the GPU at its first draw, not at Create*Shader: on a clean machine under load
+    // that took 13 to 30 s inside the first menu frame, on the GS worker, while the EE waited for its commit
+    // (docs/journal/2026-11-06/boot-hang.md). Draw every start-up pipeline once into tiny targets here, before the
+    // guest runs, and wait for the GPU.
+    if (const char* v = std::getenv("GSR_SHADER_WARM_DRAWS"); v && v[0] == '0')
+        return;
+    shader_compile::Timed timed("main pipelines (warm draws)");
+    auto colorTex = makeTex(8, 8, D3D11_BIND_RENDER_TARGET | D3D11_BIND_SHADER_RESOURCE);
+    auto sourceTex = makeTex(8, 8, D3D11_BIND_RENDER_TARGET | D3D11_BIND_SHADER_RESOURCE);
+    auto motionTex = makeTex(8, 8, D3D11_BIND_RENDER_TARGET, DXGI_FORMAT_R32G32B32A32_FLOAT);
+    auto depthTex = makeTex(8, 8, D3D11_BIND_DEPTH_STENCIL, DXGI_FORMAT_D32_FLOAT);
+    ComPtr<ID3D11RenderTargetView> colorRtv, motionRtv;
+    ComPtr<ID3D11ShaderResourceView> sourceSrv;
+    ComPtr<ID3D11DepthStencilView> dsv;
+    if (!colorTex || !sourceTex || !motionTex || !depthTex ||
+        FAILED(dev->CreateRenderTargetView(colorTex.Get(), nullptr, &colorRtv)) ||
+        FAILED(dev->CreateRenderTargetView(motionTex.Get(), nullptr, &motionRtv)) ||
+        FAILED(dev->CreateShaderResourceView(sourceTex.Get(), nullptr, &sourceSrv)) ||
+        FAILED(dev->CreateDepthStencilView(depthTex.Get(), nullptr, &dsv)))
+        return;
+    ComPtr<ID3D11Buffer> vb, mvb;
+    {
+        D3D11_BUFFER_DESC d{};
+        d.ByteWidth = 3 * sizeof(DrawVertex);
+        d.Usage = D3D11_USAGE_DEFAULT;
+        d.BindFlags = D3D11_BIND_VERTEX_BUFFER;
+        const DrawVertex tri[3] = {{0, 0, 0, 0, 255, 255, 255, 128, 0, 0, 1},
+                                   {8, 0, 0, 0, 255, 255, 255, 128, 1, 0, 1},
+                                   {0, 8, 0, 0, 255, 255, 255, 128, 0, 1, 1}};
+        D3D11_SUBRESOURCE_DATA vertices{tri, 0, 0};
+        dev->CreateBuffer(&d, &vertices, &vb);
+        d.ByteWidth = 3 * sizeof(motion::Previous);
+        const motion::Previous prev[3]{};
+        D3D11_SUBRESOURCE_DATA previous{prev, 0, 0};
+        dev->CreateBuffer(&d, &previous, &mvb);
+    }
+    if (!vb || !mvb)
+        return;
+    const D3D11_VIEWPORT vp{0, 0, 8, 8, 0, 1};
+    const D3D11_RECT sc{0, 0, 8, 8};
+    ctx->RSSetViewports(1, &vp);
+    ctx->RSSetScissorRects(1, &sc);
+    ctx->RSSetState(rast.Get());
+    ctx->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+    ID3D11SamplerState* smps[2] = {smpPt.Get(), smpLin.Get()};
+    ctx->PSSetSamplers(0, 2, smps);
+    ID3D11ShaderResourceView* srvs[2] = {sourceSrv.Get(), sourceSrv.Get()};
+    ID3D11ShaderResourceView* nulls[2] = {nullptr, nullptr};
+    // GS pixel pipeline: both uber shader variants, opaque and alpha blended, with and without depth writes.
+    const UINT stride = sizeof(DrawVertex), mstride = sizeof(motion::Previous), zero = 0;
+    ctx->IASetInputLayout(layout.Get());
+    ctx->IASetVertexBuffers(0, 1, vb.GetAddressOf(), &stride, &zero);
+    ctx->VSSetShader(vs.Get(), nullptr, 0);
+    ctx->VSSetConstantBuffers(0, 1, cbPS.GetAddressOf());
+    ctx->PSSetConstantBuffers(0, 1, cbPS.GetAddressOf());
+    ctx->PSSetShaderResources(0, 2, srvs);
+    ctx->OMSetRenderTargets(1, colorRtv.GetAddressOf(), dsv.Get());
+    ID3D11BlendState* blends[2] = {
+        blendOff.Get(), getBlendState(true, D3D11_BLEND_OP_ADD, D3D11_BLEND_SRC_ALPHA, D3D11_BLEND_INV_SRC_ALPHA, 0xF)};
+    for (ID3D11PixelShader* ps : {psHw.Get(), psSb.Get()})
+        for (ID3D11BlendState* bs : blends)
+            for (bool zw : {false, true}) {
+                ctx->PSSetShader(ps, nullptr, 0);
+                ctx->OMSetBlendState(bs, nullptr, 0xffffffffu);
+                ctx->OMSetDepthStencilState(getDepthState(D3D11_COMPARISON_GREATER_EQUAL, zw), 0);
+                ctx->Draw(3, 0);
+            }
+    // Velocity pass of the motion pipeline.
+    ctx->PSSetShaderResources(0, 2, nulls);
+    ctx->OMSetRenderTargets(1, motionRtv.GetAddressOf(), dsv.Get());
+    ctx->OMSetBlendState(blendOff.Get(), nullptr, 0xffffffffu);
+    ctx->OMSetDepthStencilState(getDepthState(D3D11_COMPARISON_EQUAL, false), 0);
+    ctx->IASetInputLayout(motionLayout.Get());
+    ctx->IASetVertexBuffers(1, 1, mvb.GetAddressOf(), &mstride, &zero);
+    ctx->VSSetShader(vsMotion.Get(), nullptr, 0);
+    ctx->PSSetShader(psMotion.Get(), nullptr, 0);
+    ctx->Draw(3, 0);
+    ID3D11Buffer* noBuffer = nullptr;
+    ctx->IASetVertexBuffers(1, 1, &noBuffer, &zero, &zero);
+    // Full-screen passes (display, blits, present, copies, inventory canvas, depth stretch).
+    ctx->IASetInputLayout(nullptr);
+    ctx->VSSetShader(vsFull.Get(), nullptr, 0);
+    ctx->PSSetConstantBuffers(1, 1, cbDisp.GetAddressOf());
+    ctx->PSSetConstantBuffers(2, 1, cbPresent.GetAddressOf());
+    ctx->OMSetBlendState(blendOff.Get(), nullptr, 0xffffffffu);
+    ctx->OMSetDepthStencilState(nullptr, 0);
+    ctx->OMSetRenderTargets(1, colorRtv.GetAddressOf(), nullptr);
+    ctx->PSSetShaderResources(0, 2, srvs);
+    for (ID3D11PixelShader* ps :
+         {psDisplay.Get(), psBlit.Get(), psBlitPt.Get(), psPresent.Get(), psCopyRGBA.Get(), psInventoryCanvas.Get()}) {
+        if (!ps)
+            continue;
+        ctx->PSSetShader(ps, nullptr, 0);
+        ctx->Draw(3, 0);
+    }
+    ctx->PSSetShaderResources(0, 2, nulls);
+    if (psStretchDepth) {
+        ctx->OMSetRenderTargets(0, nullptr, dsv.Get());
+        ctx->OMSetDepthStencilState(getDepthState(D3D11_COMPARISON_ALWAYS, true), 0);
+        ctx->PSSetShaderResources(0, 1, srvs);
+        ctx->PSSetShader(psStretchDepth.Get(), nullptr, 0);
+        ctx->Draw(3, 0);
+        ctx->PSSetShaderResources(0, 2, nulls);
+    }
+    ctx->OMSetRenderTargets(0, nullptr, nullptr);
+    D3D11_QUERY_DESC qd{D3D11_QUERY_EVENT, 0};
+    ComPtr<ID3D11Query> done;
+    if (FAILED(dev->CreateQuery(&qd, &done)))
+        return;
+    ctx->End(done.Get());
+    ctx->Flush();
+    const auto until = std::chrono::steady_clock::now() + std::chrono::seconds(120);
+    BOOL finished = FALSE;
+    while (ctx->GetData(done.Get(), &finished, sizeof finished, 0) == S_FALSE &&
+           std::chrono::steady_clock::now() < until)
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+}
+
+void D3D11Backend::Impl::startPrewarm() {
+    if (const char* v = std::getenv("GSR_SHADER_PREWARM"); v && v[0] == '0')
+        return;
+    // The device outlives the thread: ~D3D11Backend joins it before releasing anything. D3D11 device methods are
+    // free-threaded; the immediate context is never touched here.
+    ID3D11Device* device = dev.Get();
+    prewarmThread = std::thread([device] {
+        shader_compile::markPrewarmThread();
+        const auto t0 = std::chrono::steady_clock::now();
+        TemporalPipeline::prewarm(device);
+        sr_combined::Pipeline::prewarm(device);
+        nr::guides::prewarm(device);
+        NativeReadback::prewarm(device);
+        PartialUploadGpu::prewarm(device);
+        prewarmMovieShader(device);
+        prewarmBackdropShader(device);
+        std::fprintf(stderr, "[gsr-shader] background prewarm done in %.0f ms\n",
+                     std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count());
+    });
+    if (modernWater || rayShadows || rayReflections || rayGlobalIllumination)
+        startRayPrewarm();
+}
+
+// The ray tracing renderer (its own D3D12 device and three compute pipelines) takes about a second to create, more
+// under load. Build it on a background thread as soon as a ray effect is configured (start-up or the live settings
+// the host applies right after it), so the first world frame only takes the finished object (takeRayWater).
+void D3D11Backend::Impl::startRayPrewarm() {
+    if (const char* v = std::getenv("GSR_SHADER_PREWARM"); v && v[0] == '0')
+        return;
+    {
+        std::lock_guard lock(prewarmMutex);
+        if (prewarmRayPending || prewarmedRay || waterRenderer || rayPrewarmThread.joinable())
+            return; // once per process: later toggles reuse waterRenderer
+        prewarmRayPending = true;
+    }
+    ID3D11Device* device = dev.Get();
+    rayPrewarmThread = std::thread([this, device] {
+        shader_compile::markPrewarmThread();
+        std::unique_ptr<surface::RayWater> made;
+        {
+            shader_compile::Timed timed("ray tracing device and pipelines");
+            made = std::make_unique<surface::RayWater>(device, nullptr);
+        }
+        {
+            std::lock_guard lock(prewarmMutex);
+            prewarmedRay = std::move(made);
+            prewarmRayPending = false;
+        }
+        prewarmCv.notify_all();
+    });
+}
+
+void D3D11Backend::Impl::joinPrewarm() {
+    if (prewarmThread.joinable())
+        prewarmThread.join();
+    if (rayPrewarmThread.joinable())
+        rayPrewarmThread.join();
+}
+
+std::unique_ptr<surface::RayWater> D3D11Backend::Impl::takeRayWater() {
+    {
+        std::unique_lock lock(prewarmMutex);
+        if (prewarmRayPending) {
+            shader_compile::Timed timed("wait for the ray tracing prewarm");
+            prewarmCv.wait(lock, [&] { return !prewarmRayPending; });
+        }
+        if (prewarmedRay)
+            return std::move(prewarmedRay);
+    }
+    shader_compile::Timed timed("ray tracing device and pipelines");
+    return std::make_unique<surface::RayWater>(dev.Get(), ctx.Get());
 }
 
 void D3D11Backend::Impl::createSwapchain() {
@@ -446,6 +674,8 @@ void D3D11Backend::Impl::applyLive(const LiveSettings& ls) {
     if (ls.mask & L::F_UPSCALE)
         setUpscale(ls.upMode, ls.upPreset, ls.upSharp);
     if (ls.mask & L::F_WATER) {
+        if (ls.modernWater || ls.rayShadows || ls.rayReflections || ls.rayGlobalIllumination)
+            startRayPrewarm(); // build the ray tracing device now, not inside the first world frame
         discardTemporalWorlds();
         const bool newlyEnabled = !(modernWater || rayShadows || rayReflections || rayGlobalIllumination) &&
                                   (ls.modernWater || ls.rayShadows || ls.rayReflections || ls.rayGlobalIllumination);

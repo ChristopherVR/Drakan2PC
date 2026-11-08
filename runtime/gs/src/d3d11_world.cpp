@@ -153,14 +153,20 @@ void D3D11Backend::Impl::enterTemporalWorld(RT& rt, uint32_t zbp, float zmax, ui
     }
     temporalOwner = &rt;
     temporalOwnerEpoch = motionEpoch;
-    if (!neuralGuides)
+    if (!neuralGuides) {
+        shader_compile::Timed timed("nr_guides pipeline");
         neuralGuides = std::make_unique<nr::guides::Guides>(dev.Get(), ctx.Get());
+    }
     if (!upMode || upFault || (neuralEnabled && neuralLastPresent == presentCount))
         return;
-    if (!combinedSr)
+    if (!combinedSr) {
+        shader_compile::Timed timed("sr_combined pipeline");
         combinedSr = std::make_unique<sr_combined::Pipeline>(dev.Get(), ctx.Get());
-    if (!tp)
+    }
+    if (!tp) {
+        shader_compile::Timed timed("temporal pipeline");
         tp = std::make_unique<TemporalPipeline>(dev.Get(), ctx.Get());
+    }
     const auto geometry = tp->geometry(rt.wgeom.frameW, rt.wgeom.frameH, scale, upMode);
     const sr_combined::Config config{
         {geometry.renderW, geometry.renderH}, {geometry.outW, geometry.outH}, upMode, upPreset};
@@ -422,7 +428,7 @@ void D3D11Backend::Impl::finalizeNeuralWorld(RT& rt) {
     if (success && wantRayScene) {
         CpuProfile::Scope stage(cpuProfile, CpuProfile::RayScene);
         if (!waterRenderer)
-            waterRenderer = std::make_unique<surface::RayWater>(dev.Get(), ctx.Get());
+            waterRenderer = takeRayWater();
         float waterSeconds = std::chrono::duration<float>(std::chrono::steady_clock::now() - waterStartTime).count();
         if (runtimeFlags().waterTime) {
             const float value = *runtimeFlags().waterTime;
@@ -785,8 +791,10 @@ void D3D11Backend::Impl::setUpscale(uint32_t mode, uint32_t preset, float sharp)
     // A fresh pipeline drops feature history, failure latches and NGX state on each explicit toggle.
     tp.reset();
     upFault = false;
-    if (mode && !tp)
+    if (mode && !tp) {
+        shader_compile::Timed timed("temporal pipeline");
         tp = std::make_unique<TemporalPipeline>(dev.Get(), ctx.Get());
+    }
     if (mode && tp && !tp->supported()) {
         upStatusText = tp->status();
         std::fprintf(stderr, "[gsr] upscaler unavailable: %s\n", upStatusText.c_str());

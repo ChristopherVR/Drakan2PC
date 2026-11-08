@@ -18,7 +18,8 @@ D3D11Backend::~D3D11Backend() {
                          m_impl->texPeakBytes / 1048576.0, m_impl->texBudget / 1048576.0,
                          (unsigned long long)m_impl->st.texVolatile, (unsigned long long)m_impl->st.texPalettePlanes,
                          (unsigned long long)m_impl->st.texPaletteHd);
-        m_impl->tp.reset(); // release feature + NGX before context/device teardown
+        m_impl->joinPrewarm(); // its shader objects and ray device use the device
+        m_impl->tp.reset();    // release feature + NGX before context/device teardown
         m_impl->combinedSr.reset();
         m_impl->neuralGuides.reset();
         dlssShutdown(m_impl->dev.Get());
@@ -273,8 +274,17 @@ std::string D3D11Backend::neuralRenderingStatus() const {
 namespace gsr {
 bool D3D11Backend::waterRenderingAvailable(std::string& status) const {
     auto& s = *m_impl;
+    {
+        // The settings host asks at start-up, while the prewarm thread is still building the device: do not wait
+        // for it here (the caller may be the thread the guest waits on). The menu re-reads its capabilities.
+        std::lock_guard lock(s.prewarmMutex);
+        if (s.prewarmRayPending && !s.waterRenderer) {
+            status = "Ray tracing is starting";
+            return true;
+        }
+    }
     if (!s.waterRenderer)
-        s.waterRenderer = std::make_unique<surface::RayWater>(s.dev.Get(), s.ctx.Get());
+        s.waterRenderer = s.takeRayWater();
     status = s.waterRenderer->status();
     return s.waterRenderer->ready();
 }

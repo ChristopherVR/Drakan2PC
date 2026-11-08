@@ -2,6 +2,7 @@
 // and docs/reference/dlss.md.
 #include "temporal.h"
 #include "runtime_flags.h"
+#include "shader_compile_d3d.h"
 
 #include <d3dcompiler.h>
 
@@ -197,8 +198,9 @@ struct TemporalPipeline::Impl {
 
     bool compile(const char* entry, const char* target, ID3DBlob** out) {
         ComPtr<ID3DBlob> err;
-        HRESULT hr = D3DCompile(kTemporalHlsl, std::strlen(kTemporalHlsl), "temporal", nullptr, nullptr, entry, target,
-                                D3DCOMPILE_OPTIMIZATION_LEVEL3 | D3DCOMPILE_PACK_MATRIX_ROW_MAJOR, 0, out, &err);
+        HRESULT hr =
+            shader_compile::compile(kTemporalHlsl, std::strlen(kTemporalHlsl), "temporal", nullptr, entry, target,
+                                    D3DCOMPILE_OPTIMIZATION_LEVEL3 | D3DCOMPILE_PACK_MATRIX_ROW_MAJOR, out, &err);
         if (FAILED(hr)) {
             std::fprintf(stderr, "[temporal] shader %s failed: %s\n", entry,
                          err ? (const char*)err->GetBufferPointer() : "?");
@@ -330,6 +332,14 @@ struct TemporalPipeline::Impl {
         return true;
     }
 };
+
+void TemporalPipeline::prewarm(ID3D11Device* dev) {
+    Impl warm;
+    warm.dev = dev;
+    warm.ctx = nullptr;
+    shader_compile::Timed timed("temporal shaders");
+    warm.init();
+}
 
 TemporalPipeline::TemporalPipeline(ID3D11Device* dev, ID3D11DeviceContext* ctx) : m_impl(new Impl) {
     m_impl->dev = dev;

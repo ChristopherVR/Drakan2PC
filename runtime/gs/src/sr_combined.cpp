@@ -1,5 +1,6 @@
 #include "sr_combined.h"
 #include "temporal.h" // existing Upscaler interface and createDlssUpscaler factory
+#include "shader_compile_d3d.h"
 #include <d3d11_1.h>
 #include <d3dcompiler.h>
 #include <wrl/client.h>
@@ -131,10 +132,10 @@ struct Pipeline::Impl {
     }
     bool compile(const char* entry, const char* profile, ID3DBlob** blob) {
         ComPtr<ID3DBlob> errors;
-        const HRESULT hr =
-            D3DCompile(kShader, std::strlen(kShader), "sr_combined", nullptr, nullptr, entry, profile,
-                       D3DCOMPILE_ENABLE_STRICTNESS | D3DCOMPILE_WARNINGS_ARE_ERRORS | D3DCOMPILE_OPTIMIZATION_LEVEL3,
-                       0, blob, &errors);
+        const HRESULT hr = shader_compile::compile(
+            kShader, std::strlen(kShader), "sr_combined", nullptr, entry, profile,
+            D3DCOMPILE_ENABLE_STRICTNESS | D3DCOMPILE_WARNINGS_ARE_ERRORS | D3DCOMPILE_OPTIMIZATION_LEVEL3, blob,
+            &errors);
         if (FAILED(hr)) {
             status = std::string(entry) + ": " +
                      (errors ? static_cast<const char*>(errors->GetBufferPointer()) : "compile failed");
@@ -191,6 +192,23 @@ struct Pipeline::Impl {
                 ctx->ClearUnorderedAccessViewFloat(t->uav.Get(), zero);
     }
 };
+void Pipeline::prewarm(ID3D11Device* device) {
+    Impl s;
+    shader_compile::Timed timed("sr_combined shaders");
+    ComPtr<ID3DBlob> blob;
+    ComPtr<ID3D11ComputeShader> cs;
+    ComPtr<ID3D11VertexShader> vs;
+    ComPtr<ID3D11PixelShader> ps;
+    if (s.compile("CSConvert", "cs_5_0", &blob))
+        device->CreateComputeShader(blob->GetBufferPointer(), blob->GetBufferSize(), nullptr, &cs);
+    blob.Reset();
+    if (s.compile("VSCompose", "vs_5_0", &blob))
+        device->CreateVertexShader(blob->GetBufferPointer(), blob->GetBufferSize(), nullptr, &vs);
+    blob.Reset();
+    if (s.compile("PSCompose", "ps_5_0", &blob))
+        device->CreatePixelShader(blob->GetBufferPointer(), blob->GetBufferSize(), nullptr, &ps);
+}
+
 Pipeline::Pipeline(ID3D11Device* device, ID3D11DeviceContext* context) : impl(new Impl) {
     Impl& s = *impl;
     s.device = device;

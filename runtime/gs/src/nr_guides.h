@@ -95,6 +95,8 @@ const char* projectModelVerticesReference(std::span<const ModelMotionVertex> ver
 // Offline CPU-only D3DCompile of embedded HLSL, cs/vs/ps_5_0. No device needed.
 bool compileShaders(Shaders&, std::string& status);
 const char* shaderSource(); // optional fxc/build integration
+// Compile and create the guide shaders once, device only (start-up prewarm thread).
+void prewarm(ID3D11Device*);
 
 class Guides final {
 public:

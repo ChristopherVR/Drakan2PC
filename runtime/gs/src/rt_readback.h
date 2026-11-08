@@ -1,6 +1,7 @@
 #pragma once
 #include <d3d11.h>
 #include <d3dcompiler.h>
+#include "shader_compile_d3d.h"
 #include <wrl/client.h>
 #include <cstdint>
 
@@ -16,11 +17,7 @@ class NativeReadback {
     Ptr<ID3D11UnorderedAccessView> output;
     uint32_t width = 0, height = 0;
 
-public:
-    ID3D11Texture2D* gather(ID3D11Device* dev, ID3D11DeviceContext* ctx, ID3D11ShaderResourceView* source, uint32_t w,
-                            uint32_t rows, uint32_t scale, uint32_t y0) {
-        if (!shader) {
-            static constexpr char code[] = R"(
+    static constexpr char kCode[] = R"(
 Texture2D<float4> source : register(t0);
 RWTexture2D<unorm float4> output : register(u0);
 cbuffer Constants : register(b0) { uint width, rows, scale, y0; };
@@ -28,9 +25,22 @@ cbuffer Constants : register(b0) { uint width, rows, scale, y0; };
     if(p.x<width && p.y<rows)
         output[p.xy]=source.Load(int3(p.x*scale+scale/2,(p.y+y0)*scale+scale/2,0));
 })";
+
+public:
+    // Compile and create the shader once, device only (start-up prewarm thread).
+    static void prewarm(ID3D11Device* dev) {
+        Ptr<ID3DBlob> binary;
+        Ptr<ID3D11ComputeShader> made;
+        if (SUCCEEDED(shader_compile::compile(kCode, sizeof(kCode) - 1, "native_readback", nullptr, "main", "cs_5_0",
+                                              D3DCOMPILE_OPTIMIZATION_LEVEL3, &binary, nullptr)))
+            dev->CreateComputeShader(binary->GetBufferPointer(), binary->GetBufferSize(), nullptr, &made);
+    }
+    ID3D11Texture2D* gather(ID3D11Device* dev, ID3D11DeviceContext* ctx, ID3D11ShaderResourceView* source, uint32_t w,
+                            uint32_t rows, uint32_t scale, uint32_t y0) {
+        if (!shader) {
             Ptr<ID3DBlob> binary, errors;
-            if (FAILED(D3DCompile(code, sizeof(code) - 1, "native_readback", nullptr, nullptr, "main", "cs_5_0",
-                                  D3DCOMPILE_OPTIMIZATION_LEVEL3, 0, &binary, &errors)))
+            if (FAILED(shader_compile::compile(kCode, sizeof(kCode) - 1, "native_readback", nullptr, "main", "cs_5_0",
+                                               D3DCOMPILE_OPTIMIZATION_LEVEL3, &binary, &errors)))
                 return nullptr;
             if (FAILED(dev->CreateComputeShader(binary->GetBufferPointer(), binary->GetBufferSize(), nullptr, &shader)))
                 return nullptr;

@@ -15,6 +15,14 @@ constexpr char kMoviePs[] = "Texture2D<float4> Src : register(t0);\n"
                             "{ return float4(Src.Sample(Smp, uv).rgb, 128.0 / 255.0); }\n";
 } // namespace
 
+void prewarmMovieShader(ID3D11Device* dev) {
+    ComPtr<ID3DBlob> shader;
+    ComPtr<ID3D11PixelShader> made;
+    if (SUCCEEDED(shader_compile::compile(kMoviePs, sizeof(kMoviePs) - 1, "movie_frame", nullptr, "main", "ps_5_0", 0,
+                                          &shader, nullptr)))
+        dev->CreatePixelShader(shader->GetBufferPointer(), shader->GetBufferSize(), nullptr, &made);
+}
+
 void D3D11Backend::Impl::drawMovieFrame(uint32_t dbp, uint32_t dbw, uint32_t x, uint32_t y, uint32_t w, uint32_t h,
                                         const MovieImage& image, uint64_t imageId) {
     if (dbp % 32u || !w || !h || image.rgba.size() < (size_t)image.width * image.height || image.width > 16384 ||
@@ -26,8 +34,8 @@ void D3D11Backend::Impl::drawMovieFrame(uint32_t dbp, uint32_t dbw, uint32_t x, 
         sd.Filter = D3D11_FILTER_MIN_MAG_MIP_LINEAR;
         sd.AddressU = sd.AddressV = sd.AddressW = D3D11_TEXTURE_ADDRESS_CLAMP;
         sd.MaxLOD = D3D11_FLOAT32_MAX;
-        if (FAILED(D3DCompile(kMoviePs, sizeof(kMoviePs) - 1, "movie_frame", nullptr, nullptr, "main", "ps_5_0", 0, 0,
-                              &shader, &errors)) ||
+        if (FAILED(shader_compile::compile(kMoviePs, sizeof(kMoviePs) - 1, "movie_frame", nullptr, "main", "ps_5_0", 0,
+                                           &shader, &errors)) ||
             FAILED(dev->CreatePixelShader(shader->GetBufferPointer(), shader->GetBufferSize(), nullptr, &psMovie)) ||
             FAILED(dev->CreateSamplerState(&sd, &smpMovie))) {
             movieShaderFailed = true;

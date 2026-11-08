@@ -14,6 +14,14 @@ constexpr char kWideBackdropPs[] = "Texture2D<float4> Src : register(t0);\n"
                                    "{ return float4(Src.SampleLevel(Smp, uv, 0).rgb, 128.0 / 255.0); }\n";
 } // namespace
 
+void prewarmBackdropShader(ID3D11Device* dev) {
+    ComPtr<ID3DBlob> shader;
+    ComPtr<ID3D11PixelShader> made;
+    if (SUCCEEDED(shader_compile::compile(kWideBackdropPs, sizeof(kWideBackdropPs) - 1, "wide_backdrop", nullptr,
+                                          "main", "ps_5_0", 0, &shader, nullptr)))
+        dev->CreatePixelShader(shader->GetBufferPointer(), shader->GetBufferSize(), nullptr, &made);
+}
+
 const std::vector<D3D11Backend::Impl::WideBackdrop>& D3D11Backend::Impl::wideBackdropSet(const std::string& name) {
     auto it = wideBackdrops.find(name);
     if (it != wideBackdrops.end())
@@ -91,8 +99,8 @@ bool D3D11Backend::Impl::drawWideBackdrop(RT& rt, int guiScreen) {
             continue;
         if (!psWideBackdrop && !wideBackdropShaderFailed) {
             ComPtr<ID3DBlob> shader, errors;
-            if (FAILED(D3DCompile(kWideBackdropPs, sizeof(kWideBackdropPs) - 1, "wide_backdrop", nullptr, nullptr,
-                                  "main", "ps_5_0", 0, 0, &shader, &errors)) ||
+            if (FAILED(shader_compile::compile(kWideBackdropPs, sizeof(kWideBackdropPs) - 1, "wide_backdrop", nullptr,
+                                               "main", "ps_5_0", 0, &shader, &errors)) ||
                 FAILED(dev->CreatePixelShader(shader->GetBufferPointer(), shader->GetBufferSize(), nullptr,
                                               &psWideBackdrop)))
                 wideBackdropShaderFailed = true;

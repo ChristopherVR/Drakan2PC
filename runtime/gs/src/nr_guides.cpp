@@ -1,5 +1,6 @@
 #include "nr_guides.h"
 #include "guide_camera.h"
+#include "shader_compile_d3d.h"
 #include <d3d11_1.h>
 #include <d3dcompiler.h>
 #include <wrl/client.h>
@@ -175,10 +176,10 @@ bool compileShaders(Shaders& out, std::string& status) {
     Shaders shaders;
     auto compile = [&](const char* entry, const char* target, std::vector<uint8_t>& bytes) {
         ComPtr<ID3DBlob> blob, error;
-        const HRESULT hr =
-            D3DCompile(kHlsl, std::strlen(kHlsl), "nr_guides", nullptr, nullptr, entry, target,
-                       D3DCOMPILE_ENABLE_STRICTNESS | D3DCOMPILE_WARNINGS_ARE_ERRORS | D3DCOMPILE_OPTIMIZATION_LEVEL3,
-                       0, &blob, &error);
+        const HRESULT hr = shader_compile::compile(kHlsl, std::strlen(kHlsl), "nr_guides", nullptr, entry, target,
+                                                   D3DCOMPILE_ENABLE_STRICTNESS | D3DCOMPILE_WARNINGS_ARE_ERRORS |
+                                                       D3DCOMPILE_OPTIMIZATION_LEVEL3,
+                                                   &blob, &error);
         if (FAILED(hr)) {
             status = std::string(entry) + ": " +
                      (error ? static_cast<const char*>(error->GetBufferPointer()) : "D3DCompile failed");
@@ -195,6 +196,22 @@ bool compileShaders(Shaders& out, std::string& status) {
     out = std::move(shaders);
     status = "all three shaders compiled offline";
     return true;
+}
+
+void prewarm(ID3D11Device* device) {
+    shader_compile::Timed timed("nr_guides shaders");
+    Shaders shaders;
+    std::string status;
+    if (!compileShaders(shaders, status))
+        return;
+    ComPtr<ID3D11ComputeShader> cs;
+    ComPtr<ID3D11VertexShader> vs, modelVs;
+    ComPtr<ID3D11PixelShader> ps, modelPs;
+    device->CreateComputeShader(shaders.prepare.data(), shaders.prepare.size(), nullptr, &cs);
+    device->CreateVertexShader(shaders.vertex.data(), shaders.vertex.size(), nullptr, &vs);
+    device->CreatePixelShader(shaders.compose.data(), shaders.compose.size(), nullptr, &ps);
+    device->CreateVertexShader(shaders.modelVertex.data(), shaders.modelVertex.size(), nullptr, &modelVs);
+    device->CreatePixelShader(shaders.modelPixel.data(), shaders.modelPixel.size(), nullptr, &modelPs);
 }
 
 struct Guides::Impl {

@@ -48,6 +48,8 @@ public:
     // Links the existing createDlssUpscaler implementation; does NOT initialize
     // an independent NGX wrapper or shut down a session shared with the renderer.
     Pipeline(ID3D11Device*, ID3D11DeviceContext*);
+    // Compile and create the pipeline shaders once, device only (start-up prewarm thread).
+    static void prewarm(ID3D11Device*);
     ~Pipeline();
     Pipeline(const Pipeline&) = delete;
     Pipeline& operator=(const Pipeline&) = delete;

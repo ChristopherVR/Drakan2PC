@@ -1,6 +1,7 @@
 #pragma once
 #include <d3d11.h>
 #include <d3dcompiler.h>
+#include "shader_compile_d3d.h"
 #include <wrl/client.h>
 #include <cstdint>
 
@@ -15,10 +16,7 @@ class PartialUploadGpu {
     Ptr<ID3D11UnorderedAccessView> output;
     uint32_t scale = 0;
 
-public:
-    bool prepare(ID3D11Device* dev, uint32_t newScale) {
-        if (!shader) {
-            static constexpr char code[] = R"(
+    static constexpr char kCode[] = R"(
 Texture2D<float4> source : register(t0);
 StructuredBuffer<uint2> patches : register(t1);
 RWTexture2D<unorm float4> output : register(u0);
@@ -31,9 +29,21 @@ cbuffer Constants : register(b0) { uint x0, y0, scale, unused; };
     raw=(raw&~entry.x)|(entry.y&entry.x);
     output[p.xy]=float4(raw&255,(raw>>8)&255,(raw>>16)&255,raw>>24)/255.;
 })";
+
+public:
+    // Compile and create the shader once, device only (start-up prewarm thread).
+    static void prewarm(ID3D11Device* dev) {
+        Ptr<ID3DBlob> binary;
+        Ptr<ID3D11ComputeShader> made;
+        if (SUCCEEDED(shader_compile::compile(kCode, sizeof(kCode) - 1, "partial_upload", nullptr, "main", "cs_5_0",
+                                              D3DCOMPILE_OPTIMIZATION_LEVEL3, &binary, nullptr)))
+            dev->CreateComputeShader(binary->GetBufferPointer(), binary->GetBufferSize(), nullptr, &made);
+    }
+    bool prepare(ID3D11Device* dev, uint32_t newScale) {
+        if (!shader) {
             Ptr<ID3DBlob> binary, errors;
-            if (FAILED(D3DCompile(code, sizeof(code) - 1, "partial_upload", nullptr, nullptr, "main", "cs_5_0",
-                                  D3DCOMPILE_OPTIMIZATION_LEVEL3, 0, &binary, &errors)) ||
+            if (FAILED(shader_compile::compile(kCode, sizeof(kCode) - 1, "partial_upload", nullptr, "main", "cs_5_0",
+                                               D3DCOMPILE_OPTIMIZATION_LEVEL3, &binary, &errors)) ||
                 FAILED(dev->CreateComputeShader(binary->GetBufferPointer(), binary->GetBufferSize(), nullptr, &shader)))
                 return false;
             D3D11_BUFFER_DESC d{};

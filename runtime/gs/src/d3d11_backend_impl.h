@@ -42,6 +42,7 @@
 #include "temporal_presentation.h"
 #include "surface_geometry.h"
 #include "ray_water.h"
+#include "shader_compile_d3d.h"
 #include "surface_builder.h"
 #include "runtime_flags.h"
 #include <gsr/scene_models.h>
@@ -59,12 +60,18 @@
 #include <cstring>
 #include <memory>
 #include <mutex>
+#include <thread>
+#include <condition_variable>
 #include <unordered_map>
 #include <unordered_set>
 
 using Microsoft::WRL::ComPtr;
 
 namespace gsr {
+
+// Start-up prewarm of the small lazily created shaders (d3d11_movie.cpp, d3d11_backdrop.cpp).
+void prewarmMovieShader(ID3D11Device* dev);
+void prewarmBackdropShader(ID3D11Device* dev);
 
 namespace d3d11_detail {
 // PS constant flag bits (mirror gs_shaders.h)
@@ -462,6 +469,18 @@ struct D3D11Backend::Impl {
     bool rayShadows = runtimeFlags().rayShadows;
     bool rayGlobalIllumination = runtimeFlags().rayGlobalIllumination;
     std::unique_ptr<surface::RayWater> waterRenderer;
+    // Start-up prewarm (d3d11_device.cpp): a background thread compiles and creates every lazily used shader and
+    // builds the ray tracing device while the guest boots, so the GS worker never waits for a compiler.
+    std::thread prewarmThread, rayPrewarmThread;
+    std::mutex prewarmMutex;
+    std::condition_variable prewarmCv;
+    bool prewarmRayPending = false;
+    std::unique_ptr<surface::RayWater> prewarmedRay;
+    std::unique_ptr<surface::RayWater> takeRayWater();
+    void startPrewarm();
+    void startRayPrewarm();
+    void joinPrewarm();
+    void warmMainPipelines();
     surface::ResidentScene residentScene;
     std::vector<surface::Texture> reflectionTextures;
     std::unordered_map<uint64_t, uint32_t> reflectionTextureHashes;

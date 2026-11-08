@@ -22,6 +22,11 @@ add_library(drakan_texture STATIC src/gs_texup.cpp src/gs_texup.h src/texture_pa
 add_library(drakan::texture ALIAS drakan_texture)
 target_link_libraries(drakan_texture PUBLIC drakan::gs_headers PRIVATE drakan::options Threads::Threads)
 
+# Compiled shader blob cache (memory + disk, one compile per key); portable, the D3D11 compiler wrapper uses it.
+add_library(gsr_shader_cache STATIC src/shader_cache.cpp src/shader_cache.h)
+target_include_directories(gsr_shader_cache PUBLIC src)
+target_link_libraries(gsr_shader_cache PUBLIC Threads::Threads PRIVATE drakan::options)
+
 include("${CMAKE_CURRENT_LIST_DIR}/../../cmake/PortableGpu.cmake")
 
 if(EMSCRIPTEN)
@@ -47,6 +52,10 @@ if(DRAKAN_BUILD_RUNTIME_TESTS)
       set_tests_properties(portable_gpu PROPERTIES SKIP_RETURN_CODE 77 TIMEOUT 60)
     endif()
   endif()
+  add_executable(gsr_test_shader_cache tests/test_shader_cache.cpp)
+  target_link_libraries(gsr_test_shader_cache PRIVATE gsr_shader_cache)
+  target_compile_options(gsr_test_shader_cache PRIVATE $<$<CXX_COMPILER_ID:MSVC>:/UNDEBUG> $<$<NOT:$<CXX_COMPILER_ID:MSVC>>:-UNDEBUG>)
+  add_test(NAME shader_cache COMMAND gsr_test_shader_cache)
   add_executable(gsr_test_texup tests/test_texup.cpp)
   target_link_libraries(gsr_test_texup PRIVATE drakan::texture drakan::options)
   target_include_directories(gsr_test_texup PRIVATE src)
@@ -149,6 +158,11 @@ set(GSR_PS2RECOMP_GS_INCLUDE "${DRAKAN_PS2RECOMP_DIR}/ps2xRuntime/include"
     CACHE PATH "PS2Recomp ps2xRuntime include dir (used only to cross-check swizzle tables in tests)")
 set(GSR_BUILD_TESTS ${DRAKAN_BUILD_RUNTIME_TESTS})
 
+# D3DCompile through the blob cache, with the start-up prewarm accounting (src/shader_compile_d3d.h).
+add_library(gsr_shader_compile STATIC src/shader_compile_d3d.cpp src/shader_compile_d3d.h)
+target_compile_definitions(gsr_shader_compile PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN)
+target_link_libraries(gsr_shader_compile PUBLIC gsr_shader_cache d3dcompiler PRIVATE drakan::options)
+
 add_library(gsr_d3d11_backend STATIC
   src/d3d11_backend.cpp src/d3d11_backend_impl.h
   src/d3d11_device.cpp src/d3d11_textures.cpp src/d3d11_targets.cpp src/d3d11_world.cpp src/d3d11_backdrop.cpp
@@ -159,7 +173,7 @@ add_library(gsr_d3d11_backend STATIC
   src/gs_mem.h src/gs_texdecode.h src/gs_shaders.h)
 target_include_directories(gsr_d3d11_backend PRIVATE src)
 target_compile_definitions(gsr_d3d11_backend PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN)
-target_link_libraries(gsr_d3d11_backend PUBLIC gsr_core d3d11 dxgi d3dcompiler PRIVATE drakan::texture drakan::options)
+target_link_libraries(gsr_d3d11_backend PUBLIC gsr_core gsr_shader_compile d3d11 dxgi d3dcompiler PRIVATE drakan::texture drakan::options)
 
 # D3D11 only (its tests), and the Windows game's renderer with both backends.
 add_library(gsr STATIC src/backend_select_d3d11.cpp)
@@ -248,7 +262,7 @@ if(GSR_BUILD_TESTS)
   endif()
   add_executable(gsr_test_rt_readback tests/test_rt_readback.cpp)
   target_include_directories(gsr_test_rt_readback PRIVATE src)
-  target_link_libraries(gsr_test_rt_readback PRIVATE d3d11 d3dcompiler)
+  target_link_libraries(gsr_test_rt_readback PRIVATE d3d11 d3dcompiler gsr_shader_compile)
   if(MSVC)
     target_compile_options(gsr_test_rt_readback PRIVATE /UNDEBUG)
   endif()
@@ -284,7 +298,7 @@ if(GSR_BUILD_TESTS)
   add_executable(gsr_test_sr_sharpness tests/test_sr_sharpness.cpp src/sr_combined.cpp)
   target_include_directories(gsr_test_sr_sharpness PRIVATE src)
   target_compile_definitions(gsr_test_sr_sharpness PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN)
-  target_link_libraries(gsr_test_sr_sharpness PRIVATE d3d11 d3dcompiler)
+  target_link_libraries(gsr_test_sr_sharpness PRIVATE d3d11 d3dcompiler gsr_shader_compile)
   add_executable(gsr_test_alpha_pipeline tests/test_alpha_pipeline.cpp)
   target_include_directories(gsr_test_alpha_pipeline PRIVATE src include)
   target_link_libraries(gsr_test_alpha_pipeline PRIVATE d3dcompiler)
@@ -320,7 +334,7 @@ if(GSR_BUILD_TESTS)
   target_link_libraries(gsr_test_stretch_depth PRIVATE d3d11 d3dcompiler)
   add_executable(gsr_test_nr_guides tests/test_nr_guides.cpp src/nr_guides.cpp src/guide_camera.cpp)
   target_include_directories(gsr_test_nr_guides PRIVATE src)
-  target_link_libraries(gsr_test_nr_guides PRIVATE d3d11 d3dcompiler)
+  target_link_libraries(gsr_test_nr_guides PRIVATE d3d11 d3dcompiler gsr_shader_compile)
   target_compile_definitions(gsr_test_nr_guides PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN)
   add_executable(gsr_test_swizzle tests/test_swizzle.cpp)
   target_include_directories(gsr_test_swizzle PRIVATE src)

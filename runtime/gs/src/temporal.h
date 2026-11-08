@@ -65,6 +65,8 @@ class TemporalPipeline {
 public:
     TemporalPipeline(ID3D11Device* dev, ID3D11DeviceContext* ctx);
     ~TemporalPipeline();
+    // Compile and create this pipeline's shaders once without a context (start-up prewarm thread; device only).
+    static void prewarm(ID3D11Device* dev);
 
     // mode: 0 off, 1 DLAA, 2 quality, 3 balanced, 4 performance. Returns the render scale ratio (render / output) of
     // the mode.
