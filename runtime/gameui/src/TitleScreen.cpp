@@ -856,16 +856,23 @@ void TitleScreen::drawGameCard(const TitleState& st, DrawList& d) const {
     const detail::Paint p(lf_, cfg_.screen);
     const Theme& th = cfg_.screen.theme;
     const Rect c = design::title::gameCard();
-    d.rect({lf_.view.x, lf_.view.y, lf_.view.w, lf_.view.h}, withAlpha(th.backdropEdge, 120));
+    const int n = gameCount(st);
+    const int focused =
+        focus_.kind == TargetKind::CardButton ? std::clamp(gameOf(static_cast<TitleRow>(focus_.index)), 0, n - 1) : 0;
+    // Black until a game is chosen; the focused game's own background picture (dimmed) once it has one.
+    const Rect view{lf_.view.x, lf_.view.y, lf_.view.w, lf_.view.h};
+    d.rect(view, rgba(0, 0, 0, 255));
+    if (focused < static_cast<int>(st.games.size()) &&
+        st.games[static_cast<size_t>(focused)].background.kind != ImageKind::None) {
+        d.image(view, st.games[static_cast<size_t>(focused)].background);
+        d.rect(view, rgba(0, 0, 0, 110));
+    }
     d.panel(p.map(c), PanelStyle::Main, th.panelRaised);
     constexpr float pad = 44;
     p.text(d, {c.x + pad, c.y + 28, c.w - 2 * pad, 52}, menuText("Choose your game"), FontRole::Title, th.heading);
     p.text(d, {c.x + pad, c.y + 40, c.w - 2 * pad, 40}, menuText("Each game keeps its own saves."), FontRole::Small,
            th.textMuted, TextAlign::Right);
     p.rule(d, c.x + pad, c.y + 92, c.w - 2 * pad);
-    const int n = gameCount(st);
-    const int focused =
-        focus_.kind == TargetKind::CardButton ? std::clamp(gameOf(static_cast<TitleRow>(focus_.index)), 0, n - 1) : 0;
     const int first = gameScroll(focused, n);
     const float listW = design::title::gameRow(0).w;
     for (int i = first; i < n && i < first + design::title::kGameRowsShown; ++i) {
@@ -982,7 +989,9 @@ void TitleScreen::draw(const TitleState& st, DrawList& d) const {
     const detail::Paint p(lf_, cfg_.screen);
     const Theme& th = cfg_.screen.theme;
     const Rect view{lf_.view.x, lf_.view.y, lf_.view.w, lf_.view.h};
-    if (st.backdrop.kind != ImageKind::None)
+    // The native title art names The Ancients' Gates, so the game list does not sit on it (as the original menu):
+    // drawGameCard paints black, then the focused game's own background.
+    if (st.backdrop.kind != ImageKind::None && !(page_ == TitlePage::GameChoice && !st.classicGameChoice))
         d.image(view, st.backdrop);
     if (st.classicGameChoice) { // the native title is the menu: only its game list is ours
         if (page_ == TitlePage::GameChoice) {

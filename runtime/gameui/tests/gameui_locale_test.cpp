@@ -192,8 +192,8 @@ int main() {
                                         "More above",
                                         "More below",
                                         "A campaign from an installed mod pack.",
-                                        "The game on your disc.",
-                                        "The first Drakan, rebuilt on this engine: its own levels and saves."};
+                                        "The sequel on your disc. Rynn and Arokh return to face a new threat as the Ancients' Gates open, in a story of sword, magic and dragonflight.",
+                                        "The first Drakan, rebuilt on this engine. Rynn, a warrior, and her dragon Arokh fight through the lands on foot and in the air. Its own levels and saves."};
         const char* const languages[] = {"english", "german", "french", "italian", "spanish"};
         for (const char* key : cardKeys) {
             setMenuLanguage("english");
@@ -211,10 +211,10 @@ int main() {
         card.game = 0;
         card.games = {{"ootf",
                        "Drakan: Order of the Flame",
-                       "The first Drakan, rebuilt on this engine: its own levels and saves.",
+                       "The first Drakan, rebuilt on this engine. Rynn, a warrior, and her dragon Arokh fight through the lands on foot and in the air. Its own levels and saves.",
                        {}},
                       {"pack", "Pack Game", "Authored by the pack.", {}},
-                      {"d2", "Drakan: The Ancients' Gates", "The game on your disc.", {}}};
+                      {"d2", "Drakan: The Ancients' Gates", "The sequel on your disc. Rynn and Arokh return to face a new threat as the Ancients' Gates open, in a story of sword, magic and dragonflight.", {}}};
         auto anyTextStarts = [](const DrawList& draw, const std::string& prefix) {
             for (const DrawCmd& command : draw.commands())
                 if (command.kind == DrawKind::Text && command.text.rfind(prefix, 0) == 0)
@@ -228,11 +228,11 @@ int main() {
             const char* disc;
         };
         const CardExpected cardLocales[] = {
-            {"english", "Choose your game", "The first Drakan", "The game on your disc."},
-            {"german", "Spiel auswählen", "Das erste Drakan", "Das Spiel auf deiner Disc."},
-            {"french", "Choisissez votre jeu", "Le premier Drakan", "Le jeu présent sur votre disque."},
-            {"italian", "Scegli il gioco", "Il primo Drakan", "Il gioco sul tuo disco."},
-            {"spanish", "Elige tu juego", "El primer Drakan", "El juego de tu disco."},
+            {"english", "Choose your game", "The first Drakan", "The sequel on your disc."},
+            {"german", "Spiel auswählen", "Das erste Drakan", "Die Fortsetzung auf deiner"},
+            {"french", "Choisissez votre jeu", "Le premier Drakan", "La suite présente sur"},
+            {"italian", "Scegli il gioco", "Il primo Drakan", "Il seguito sul tuo"},
+            {"spanish", "Elige tu juego", "El primer Drakan", "La secuela de tu"},
         };
         for (const auto& e : cardLocales) {
             setMenuLanguage(e.language);
@@ -247,7 +247,7 @@ int main() {
             out = screen.frame(card, down, Viewport{0, 0, 1920, 1080});
             assert(anyTextStarts(out.draw, "Authored by the pack."));
             out = screen.frame(card, down, Viewport{0, 0, 1920, 1080});
-            assert(hasText(out.draw, e.disc));
+            assert(anyTextStarts(out.draw, e.disc));
         }
     }
     setMenuLanguage("GERMAN");
