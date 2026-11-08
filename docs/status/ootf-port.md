@@ -194,7 +194,9 @@ clips named ids of the converted PC Rynn's ADB instead of the PS2 Rynn's `SYSTEM
 rig as new `SYSTEM.ADB` clips. Attach points and animation channels are skeleton channel indices and are now remapped by joint
 name (PC 4 `Rweapon` is PS2 21). Converted speech gets decoded-format 0x0305 lip-sync tracks and the player's speech the
 lip-sync bit 0x20. Verified in the Ruined Village opening (walk, stance, sword in hand, feet on the ground, lip controller
-bound in RAM); the jaw motion in a frame and a gameplay weapon draw were not captured. Needs a regenerated pack. See
+bound in RAM). Follow-up: the Intro's Rynn prop is now the PS2 Rynn too, the scene sword keeps the PC grip (weapon joints
+keep the PC orientation in the retarget), lip tracks are scaled to the disc's speech level, and the jaw is seen opening and
+closing in captured close-ups; the in-game sword grip is correct. Needs a regenerated pack. See
 [Rynn in scenes](../journal/2026-11-08/ootf-rynn-scenes.md).
 
 **November 8 grunt poses:** killed Ruined Village grunts (PC orcs retargeted onto the PS2 Purple / Yellow Orc rig) stood back
