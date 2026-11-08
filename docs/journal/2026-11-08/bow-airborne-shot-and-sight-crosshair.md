@@ -91,3 +91,18 @@ forward-look / shot basis, third-person auto-aim and the host crosshair. Tests: 
 3747, `settings_test` 452, `settings_schema_test` 1110, all passing. The game build compiled, but its deployment to
 `dist/DrakanPC` stopped because the player had the game open from there (no file was removed); the native mode still
 needs a live run after the next deployment.
+
+## Deployment with the game open, and the live bow combat check
+
+`Build-LocalGame.ps1` cleaned `dist/DrakanPC` with `Remove-Item`, which fails on the exe and DLLs of a game running
+from there. Windows allows renaming those files, so the cleanup now renames an in-use file to `<name>.in-use-<n>`
+(the running game keeps its copy, the new build goes beside it) and a later build deletes the leftovers once nothing
+uses them. Directories still fail loudly. Deployed with two games open from the play folder; no crash dump appeared.
+
+Live, new build, archery-range recipe (`DRAKAN_PLAYTEST_HOLD=60`):
+
+* `build/harness/bow-native1`, `bow_aim = native` (scratch input ini, confirmed by the `input active (config ...)`
+  line): bow equipped (archer clips 208xx), no jump-gate, torso, launch or crosshair logs; during the running jump
+  (208e5, `f94` 10) the attack bit never appears, the PS2 game's own refusal. Opening the sight sets `aec` 2 natively.
+* `build/harness/bow-ootf-final`, the player's own `drakan_input.ini` (default ootf): jump gate, `airborne shot on
+  torso channel 2`, launch entry, crosshair shown, overlay picture captured.

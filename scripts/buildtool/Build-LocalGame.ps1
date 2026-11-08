@@ -494,7 +494,19 @@ if (-not $NoDist) {
         if ($keep | Where-Object { $name -like $_ }) { continue }
         $resolvedItem = [IO.Path]::GetFullPath($item.FullName)
         if (-not $resolvedItem.StartsWith($DistDirectory + [IO.Path]::DirectorySeparatorChar)) { throw 'Deployment cleanup escaped DistDirectory.' }
-        Remove-Item -LiteralPath $resolvedItem -Recurse -Force
+        try {
+            Remove-Item -LiteralPath $resolvedItem -Recurse -Force -ErrorAction Stop
+        } catch {
+            # A game running from the play folder keeps its exe and DLLs open: Windows refuses to delete them but
+            # allows a rename, so the running game keeps its copy and the new build goes in beside it. A leftover
+            # from an earlier build that is still in use simply stays until a later build.
+            if ($item.PSIsContainer) { throw }
+            if ($name -like '*.in-use-*') { continue }
+            $n = 1
+            while (Test-Path -LiteralPath "$resolvedItem.in-use-$n") { $n++ }
+            Rename-Item -LiteralPath $resolvedItem -NewName "$name.in-use-$n" -ErrorAction Stop
+            Write-Detail "In use by a running game, set aside: $name -> $name.in-use-$n"
+        }
     }
     foreach ($item in Get-ChildItem -LiteralPath $gameOutput -Force) {
         $name = $item.Name
