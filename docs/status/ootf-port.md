@@ -226,6 +226,11 @@ bound in RAM); the jaw motion in a frame and a gameplay weapon draw were not cap
 * Animated object textures play (waterfalls, torch and sconce flames, the Surreal logo): every frame is listed after the first in
   the model's texture list as on the disc; the Intro waterfall is shown flowing in game. See
   [waterfall flow](../journal/2026-11-08/ootf-waterfall-flow.md).
+* Water: Rynn swims in converted water (water layers keep the PC water vertex kinds, moved into the PS2 range) and the
+  surface draws with the engine's own water material (PC liquid textures map to the native Proc Textures water / lava entries,
+  water layers carry no chunk data). Verified swimming in the Ruined Village ocean; Islands and Wartok water seen from Arokh.
+  Sloped shore strips of some PC water layers show, and every liquid uses the plain "Water" material. See
+  [water](../journal/2026-11-08/ootf-water.md).
 * Drakan 2 with both packs installed still boots normally (choose Drakan; `Level 0 - Intro` then `Level 1A - Surdana`; no OotF leakage).
 
 ## Known gaps

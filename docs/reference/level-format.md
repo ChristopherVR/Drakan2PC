@@ -191,7 +191,15 @@ cell   = u16 flags, u32 texture, 8 x u16 uv      // row-major, top-left first, l
   ref per cell (PC: one per triangle); the editor applies it to both triangles. Only 33 distinct refs in all of Surdana.
 * **UV [D][disc]**: 8 x u16, `0xffff` = 1.0, order `Uc Ud Ub Ua Vc Vd Vb Va` with corners `a b / c d`; v up (GL). 13 distinct
   patterns in Surdana (the 8 flips/rotations of the unit square plus about 20 odd cells **[?]**).
-* **Vertex words [inf]**: first u16 (0x200, 0x241, 0x000, ...) **[?]**; second u16 low 4 bits = which of the four surrounding
+* **Layer type [disc, game]**: 0 floor, 1 ceiling, 2 **water** (both platforms; the engine's draw loop `0x152330` puts type 2
+  layers on the water list for `0x161a78`, and the player swims in them). Every water layer of the 14 PAL levels has the empty
+  inline blob (no chunks); its cells name Proc Textures entries whose material is a water material (section 12b, texture header).
+* **Vertex words [inf]**: first u16 (0x200, 0x241, 0x000, ...): the low byte is the vertex type. PS2 list (ELF strings): 0 Normal,
+  1..64 `Vertex Color 1..64` (the Level Properties colours), then the water kinds. Water layers use 0x41, 0x71, 0x5a; that is
+  the Drakan 1 vertex type (PC type byte, `Dragon.rfl` list: 0 Normal, 1 Water Still, 2..25 currents, 37..44 Water Phase,
+  45..49 Shallow Water 92%..60%, 64..71 Underwater) plus 0x40 (PC 1 = 0x41, PC 49 = 0x71). A water layer with type 0 vertices
+  does not make the player swim (converted OotF levels, journal 2026-11-08/ootf-water.md) [game]. Bits 0x100 / 0x200 **[?]**
+  (0x100 on vertices with no adjacent cell). Second u16 low 4 bits = which of the four surrounding
   cells exist **and are not holes** (8 down-right, 4 down-left, 2 up-right, 1 up-left; 98.8 % of LEVEL1NA vertices, "exist"
   alone 91 %); its upper byte is 0 on every disc vertex [disc, 2026-11-02].
 * **`visible` [disc]**: every layer lists itself (483 of 483 in LEVEL1NA, first in 175); 90 % of links are symmetric. An
@@ -443,7 +451,12 @@ Notes:
   blending, the others the GREATER 0 test (`runtime/gs/src/ray_scene.cpp`). On the disc: 8 bpp 0 (opaque), 8 (219 of the
   221 with alpha-0 texels, nearly all with soft edges), 1 or 4 (one each); 16 bpp 1; 24 bpp 0; 32 bpp 7. Alpha-0 palette
   entries carry an edge colour, never black. The OotF converter follows this (journal
-  2026-11-07/ootf-cutout-textures.md).
+  2026-11-07/ootf-cutout-textures.md). The PC flags byte sits at +37 (0x40 dynamic, 0x02 alpha: water entries have 0x42).
+  **+40 is the texture's material**, a class of the TXD's own ODB (Proc Textures: `PROCTEES.ODB`): 1 "Water", 240 "Surdana Water",
+  230 "Stormy Water_Level 3a", 232 "Northman Water", 95 "goblin forest water", 220 "Desert Water", 94 "Lava (Base)" (engine class
+  0x100d1: first / second scrolling texture, flow, alpha by distance, wave amplitude, specular), 20 "Tan Dirt", 45 "Blue Snow"
+  (splat materials: tiling, weight, fade). The disc's water entries (0x10e, 0x471d, 0x467f, 0x4682, 0x270, 0x3972, lava 0x1d7)
+  are 64 x 64 placeholder pictures (a "T", an arrow) that the water pass never shows; it draws the material [disc, game].
 * A model's texture refs follow the model container's own `.DB` (db 0 = its own TXD); `scene/decode.ts` `loadModelData` uses
   the class ODB's list instead, which is the same for the shipped data where both name the same stems.
 * **Animation clips (ADB) [disc]**: 0x0501 = `pstr name (no NUL), f32 duration (seconds), u32 flags (bit 0 = does not loop), u32 track
