@@ -666,9 +666,24 @@ void InputModule::beforeCameraUpdateLook(IGuest& g, bool dragon, uint32_t player
     std::lock_guard<std::mutex> lock(m_);
     modeFlagSaved_ = false;
     aimPitchSaved_ = false;
-    if (cfg_.lookMode != LookMode::Direct || layerIsMenu_ || menuActive_.load() || !frame_.captured || hostOwned() ||
-        nativeLookControlActive()) {
+    // Camera_UpdateLook: rate mode, no Camera_SoftLimitAxis re-centring. Restored by afterCameraUpdateLook.
+    auto holdPitch = [&] {
+        const uint32_t v = g.read32(cfg_.addrStickModeFlag);
+        if (v == 0)
+            return;
+        modeFlagValue_ = v;
+        modeFlagSaved_ = true;
+        g.write32(cfg_.addrStickModeFlag, 0);
+    };
+    const bool mouseLook = cfg_.lookMode == LookMode::Direct && !layerIsMenu_ && !menuActive_.load() && !hostOwned() &&
+                           !nativeLookControlActive();
+    if (!mouseLook || !frame_.captured) {
         aimPitchOwned_ = false;
+        // Focus loss (Alt, Alt+Tab, a click outside) or a cursor released with Esc drops the capture, but the mouse
+        // still owns the view: the neutral stick must not let the native re-centring swing a lowered (or raised)
+        // pitch back to level while the window is in the background.
+        if (mouseLook && mouseKeyboardOwner_ && cfg_.pitchPersist && !(dragon && cfg_.dragonStick))
+            holdPitch();
         return;
     }
     // A physical right stick (pad) keeps the game's own behaviour (position mode: the pitch follows the stick and
@@ -708,12 +723,7 @@ void InputModule::beforeCameraUpdateLook(IGuest& g, bool dragon, uint32_t player
         }
     } else
         aimPitchOwned_ = false;
-    const uint32_t v = g.read32(cfg_.addrStickModeFlag);
-    if (v == 0)
-        return;
-    modeFlagValue_ = v;
-    modeFlagSaved_ = true;
-    g.write32(cfg_.addrStickModeFlag, 0); // Camera_UpdateLook: rate mode, no Camera_SoftLimitAxis re-centring
+    holdPitch();
 }
 
 float InputModule::pitchViewGain(IGuest& g, uint32_t player, uint32_t cam) const {

@@ -787,6 +787,26 @@ static void testControlsV2() {
         CHECK(!m.afterCameraUpdateLook(g, PLAYER, LIM, false));
         CHECK(g.read32(FLAG) == 1);
         NEAR(g.readF(CAM + 0x84), 0.2, 1e-5);
+        // Alt / Alt+Tab: focus loss drops the capture, but the native re-centring must stay off so a lowered pitch
+        // is not swung back up while the window is in the background
+        FrameInput unfocused;
+        unfocused.focused = false;
+        m.beginFrame(unfocused);
+        CHECK(!m.captured());
+        m.beforeCameraUpdateLook(g, false);
+        CHECK(g.read32(FLAG) == 0);
+        CHECK(!m.afterCameraUpdateLook(g, PLAYER, LIM, false));
+        CHECK(g.read32(FLAG) == 1);
+        NEAR(g.readF(CAM + 0x84), 0.2, 1e-5);
+        // a controller user keeps the native re-centring when the window loses focus
+        FrameInput pad;
+        pad.gamepad.connected = true;
+        pad.gamepad.lx = 0.5f;
+        m.beginFrame(pad);
+        m.beginFrame(unfocused);
+        m.beforeCameraUpdateLook(g, false);
+        CHECK(g.read32(FLAG) == 1);
+        m.afterCameraUpdateLook(g, PLAYER, LIM, false);
     }
     // a physical right stick keeps the game's re-centring; menus / uncaptured leave the flag alone
     {
