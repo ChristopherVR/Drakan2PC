@@ -132,3 +132,8 @@ Same harness and private play folder as above.
 
 Still open: shore foam has no OotF counterpart to swap (the PC levels have no foam objects or textures near water); the PC water
 flow directions are not carried; the Islands keep the plain Water material.
+
+Wartok Canyons from Arokh (`water-wk2`, `build/ootf-run/water/compare_wartok.png`): with Surdana Water the river at the start
+draws pale and nearly flat in daylight where the plain Water material drew darker blue ripples; the cave pool looks alike. Surdana
+Water is Surdana's lake look, but whether it suits OotF rivers is a matter of taste; `nativeWaterTextures` is the one place to
+change it.
