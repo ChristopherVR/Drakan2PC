@@ -2,7 +2,7 @@
 //
 //   node --experimental-transform-types --no-warnings editor/scripts/ootf-convert.ts \
 //        --ootf <OotF install dir> --ps2 <dir with the extracted PS2 LEVEL*.LVL and *.ODB> \
-//        --template LEVEL1NA --out build/ootf-pack.zip [--id ootf-levels] [--prefix "OotF - "] [--splats <dir with LEVEL1TS.DB and .TXD, default --ps2>] [--campaign 1] [--hd [--hd-out <textures dir>]] [--list] <pc level paths...>
+//        --template LEVEL1NA --out build/ootf-pack.zip [--id ootf-levels] [--prefix "OotF - "] [--splats <dir with LEVEL1TS.DB and .TXD, default --ps2>] [--campaign 1] [--cover <png>] [--background <png>] [--hd [--hd-out <textures dir>]] [--list] <pc level paths...>
 //
 // Level paths are relative to the install dir, e.g. "Multiplayer/Ground/Relic/Relic.lvl". Without paths every level.
 import { createHash } from 'node:crypto';
@@ -215,6 +215,16 @@ if (opt['campaign'] !== undefined) {
         '',
     ].join(nl);
     pack.files['credits/credits.txt'] = new TextEncoder().encode(card);
+}
+// --cover <png> / --background <png>: the campaign's card cover (previews/campaign-ootf.png) and its menu background
+// (previews/background-ootf.png, docs/reference/modding.md "Campaign packs"). The art is the player's own file (never committed);
+// a single picture passed as --cover also serves as the background.
+if (opt['campaign'] !== undefined) {
+    const cover = opt['cover'] ?? opt['background'];
+    const background = opt['background'] ?? opt['cover'];
+    if (cover && existsSync(cover)) pack.files['previews/campaign-ootf.png'] = new Uint8Array(readFileSync(cover));
+    if (background && existsSync(background)) pack.files['previews/background-ootf.png'] = new Uint8Array(readFileSync(background));
+    for (const k of ['cover', 'background']) if (opt[k] && !existsSync(opt[k]!)) console.warn(`warning: --${k} ${opt[k]} not found; no picture added`);
 }
 for (const w of [...res.warnings, ...pack.warnings]) console.warn('warning:', w);
 writeFileSync(need('out'), zipOotfPack(pack));
