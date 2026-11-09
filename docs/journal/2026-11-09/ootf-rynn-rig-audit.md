@@ -200,3 +200,48 @@ Evidence (private, `build/review/rig/`): `hair-reweight-scene.png`, `hair-reweig
 * **Not applied.** The pipeline no longer calls `hangingHairOverrides` (the earlier commit applied the hair2 / hair3 variant; that
   is withdrawn too). A real fix needs gravity: either the engine's hair controller in scene mode, or a hair strip that hangs in
   model space instead of riding a joint (it would have to be a joint of its own that the engine does not drive, under the root).
+
+## Seventh pass: the ponytail is a cloth simulation that a stale "attached" bit switched off (fixed, formats `fa98a83`)
+
+Evidence (private, `build/review/rig/`): `hair-opus-scene-1_1-crouch-before-after.png`, `hair-opus-scene-1_1-lunge-before-after.png`,
+`hair-opus-intro-end-before-after.png`, `hair-opus-gameplay-*.png`. RAM dumps and frames: `build/ootf-run/hair-opus-*` (private).
+
+* **The earlier passes measured the wrong thing.** A RAM read of Rynn's pose records (`*(model+0x10c) + joint*0x6c`: `+0` model-space
+  affine `t, R`, `+0x4c` local quaternion, `+0x68` palette index) during the 1.1 crouch shows hair1 to hair3 holding exactly the
+  scene clip's keys (hair1 `0.456, 0.158, 0.852, 0.204` in both the clip and RAM), not the bind pose, and the `Hair1 Channel`
+  controller (record `+0x10` = Rynn `+0xd14`, an identity 3x3) changes nothing. Skinning the PS2 mesh offline with the RAM matrices
+  gives a ponytail lying along the back. Still the game drew the bar, so the bar was not the joints.
+* **The controller.** The class field `Hair1 Channel` (index 90, read as `(*(h+0x54))->vt[0x1c](.., 90, -1)`) is only a camera-pitch
+  counter-rotation: `0x327060` installs record controllers (neck `+0x390/+0x3b4`, torso `+0xccc/+0xcf0/+0xdc8`, hair `+0xd14`),
+  `Player_CameraLookTick` (`0x44de40`) sets the hair matrix to an axis-angle of 1.7 x pitch, `0x327328` removes them. The real
+  ponytail motion is a vertex cloth simulation: the mesh resource's `+0x50` block (18 simulated vertices listed at `+0x44`, 0x3c
+  bytes each, with spring, damping and gravity constants) and per-object state at handle `+0xb4` (u16 flags: bit 0 initialised,
+  bit 1 reset, bit 3 off, bit 4 teleported; then the object frame and particle arrays). The tick is `0x11d368`; `0x11fd58`
+  re-anchors the particles when the object moves and `0x120730` seeds them. The skinning pass `0x116990` copies the simulated
+  vertices instead of skinning them and then ticks the simulation, but only when the handle's `+4` bit 0x80 is clear; that bit means
+  "attached to a parent's channel" (`0x103af0` sets it, `0x103df0` clears it), and an attached object's simulation runs from the
+  parent's attachment pass `0x1042c8` instead. While the simulation never runs (flags bit 0 clear) the copied vertices are the raw
+  rest positions in model space: the long kinked bar, standing up and back from the bowed head.
+* **Why only converted scenes, and only sometimes.** Started directly in Ruined Village (no Intro), the scene 1.1 ponytail is fine
+  (sim flags 1, frame in RAM). Through the Intro it is the bar: the Intro's last scene ("Intro 3", PC seq 452) has Arokh attach
+  actor slot 2 (Rynn) to his point 19 (PS2 channel 49 of the converted dragon prop) at t = 0, and the level ends on a timer with
+  her still on the saddle. The new level's player handle comes back with `+4` = `0x1b0810c9` (bit 0x80 set) and no model attaches
+  it, so `0x116990` skips the tick and the state stays at flags 0x10 with empty particles. Native scenes never end a level with Rynn
+  attached; every OotF scene that leaves her on Arokh and hands her back (Islands, Volcano, Rift World, the Ruined Village Arokh
+  scene) does so mounted, where the dragon's attachment pass runs the simulation.
+* **Fix (formats `detachHeldPlayer` in `convertSequence`).** In a scene that holds the player to the level's end (`holdPlayerObjectId`,
+  the Intro), any actor that still carries her at the end gets an attach action with actor slot 0 on the same point (the engine's
+  detach, case 4 of `0x1a4c50`) at the scene's last action time (Intro 3: 16.39 s, before the 41.4 s level timer). Scenes that
+  release the player are untouched. Test: `ootfseq.test.ts` "ends a held scene with the player detached".
+* **Verified in game** (Intro then Ruined Village, private copy of `dist/DrakanPC`, `DRAKAN_OOTF_INTRO_MOVIE=0`): after the fix the
+  player handle reads `0x17081049` (bit clear) from the first Ruined Village dump and the cloth state flags 1; in the 1.1 crouch and the
+  lunge the ponytail hangs from the head and falls with her movement (before: the bar in the same shots, about 1 s apart between
+  runs). The last Intro frames look the same before and after (the detach runs under the wide owl shot).
+* **Gameplay after the Intro** (scenes played out, then idle, run and jump): before the fix the player handle still read
+  `0x1b0810e9` (bit 0x80) with the cloth state at 0x10, so the ponytail stayed frozen in gameplay too; after it `0x17081069` and
+  state 1 (`hair-opus-gameplay-before-after.png`; the shots are dark and distant, the RAM state is the evidence). Clips are not
+  touched, so gameplay started without the Intro is unchanged.
+* **Withdrawn conclusions of passes four to six:** hair keys are not ignored in scenes, hair2 / hair3 do not follow the bind pose,
+  and hair1 is not set by the engine. The bind-pose look of the bar was the rest positions of the simulated vertices. The hair
+  re-weighting (`ootfhair.ts`) is not needed and stays unapplied.
+* **Open:** a save written in Ruined Village by a pack before this fix may carry the stale bit (not tested); a new game fixes it.

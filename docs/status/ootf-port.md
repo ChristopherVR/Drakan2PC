@@ -247,6 +247,15 @@ closing in captured close-ups; the in-game sword grip is correct. Needs a regene
 
 **November 9 Rynn hands and hair, third pass:** the off hand floated a palm beside the sword hilt because the PS2 arm is not the PC arm; where a scene clip holds the left hand at the sword the retarget now solves the arm onto the native two-handed grip (formats `HandHold`, both hands on the hilt in the 1.1 crouch). Gameplay hair matches Drakan 2 (same mesh, seen from a high camera); the horizontal kinked ponytail in scene crouches is not clip data (three different hair key sets look the same), so the engine drives it: open, needs hair matrices read from RAM. See [rig audit](../journal/2026-11-09/ootf-rynn-rig-audit.md). Needs a regenerated pack.
 
+**November 9 Rynn's ponytail, seventh pass (fixed):** the bar behind her head in scene 1.1 (crouch, lunge) was the engine's
+ponytail cloth simulation never running, not clip data. The Intro's last scene puts Rynn on Arokh's saddle and the level ends
+with her there; the handle's "attached" bit (`+4` 0x80) survives the level change, and the skinning pass skips the hair
+simulation of an attached object, so its 18 simulated vertices were drawn at their raw rest positions for the whole Ruined
+Village (scenes and gameplay). A scene that holds the player to the level's end now detaches her from whatever still carries her
+at its last action (formats `fa98a83`, `detachHeldPlayer`); scenes that hand her back mounted are unchanged. Seen in frames
+after the Intro: the ponytail hangs and swings in the crouch and the lunge. Needs a regenerated pack (and a new game: a save made
+in Ruined Village after the old Intro may keep the stale bit, not tested). See [rig audit](../journal/2026-11-09/ootf-rynn-rig-audit.md).
+
 **November 8 grunt poses:** killed Ruined Village grunts (PC orcs retargeted onto the PS2 Purple / Yellow Orc rig) stood back
 up because every converted clip was written looping (PC clips have no loop flag); retargeted clips now take the flags of the
 disc clip they replace and converted creatures' death clips play once. Seated, dice and lookout grunts hovered because the PC
