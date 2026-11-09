@@ -27,6 +27,10 @@ import subprocess
 import sys
 import time
 
+# The guided build keeps numpy / Pillow in its own folder when the interpreter has none (scripts/buildtool/extras.py).
+for _site in filter(None, os.environ.get("DRAKAN_PY_SITE", "").split(os.pathsep)):
+    sys.path.insert(0, _site)
+
 import numpy as np
 from PIL import Image
 

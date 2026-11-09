@@ -21,5 +21,24 @@
     "url": "https://github.com/raysan5/raylib.git",
     "commit": "c1ab645ca298a2801097931d1079b10ff7eb9df8",
     "comment": "tag 5.5, the GIT_TAG ps2recomp/ps2xRuntime/CMakeLists.txt fetches"
+  },
+  "hd": {
+    "comment": "Optional extras (scripts/buildtool/extras.py): fetched on demand, never bundled. numpy and Pillow are the cp312 wheels for the pinned embeddable Python; realesrgan is the v0.2.5.0 ncnn Vulkan release; fflate is the converter's only third-party package.",
+    "numpy": {
+      "url": "https://files.pythonhosted.org/packages/ad/9c/4a93b8e395b755c53628573d75d7b21985d9a0f416e978d637084ccc8ec3/numpy-2.0.0-cp312-cp312-win_amd64.whl",
+      "sha256": "a356364941fb0593bb899a1076b92dfa2029f6f5b8ba88a14fd0984aaf76d0df"
+    },
+    "pillow": {
+      "url": "https://files.pythonhosted.org/packages/57/97/73f756c338c1d86bb802ee88c3cab015ad7ce4b838f8a24f16b676b1ac7c/pillow-11.0.0-cp312-cp312-win_amd64.whl",
+      "sha256": "8ec4a89295cd6cd4d1058a5e6aec6bf51e0eaaf9714774e1bfac7cfc9051db47"
+    },
+    "realesrgan": {
+      "url": "https://github.com/xinntao/Real-ESRGAN/releases/download/v0.2.5.0/realesrgan-ncnn-vulkan-20220424-windows.zip",
+      "sha256": "abc02804e17982a3be33675e4d471e91ea374e65b70167abc09e31acb412802d"
+    },
+    "fflate": {
+      "url": "https://registry.npmjs.org/fflate/-/fflate-0.8.3.tgz",
+      "sha256": "38c2cd824402407b43153c782274aec2ea83ea688e4aa0b743c5f2c305857d92"
+    }
   }
 }

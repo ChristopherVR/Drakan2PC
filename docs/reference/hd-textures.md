@@ -76,6 +76,10 @@ The pack is generated **from the disc**, offline, with `analysis/scripts/hd_pack
 `realesrgan-x4plus` and `realesrgan-x4plus-anime`) that lives in `tools/hdpack/realesrgan/` (downloaded from github.com/xinntao/Real-ESRGAN releases; not part of the pack). The generated pack stays on this machine.
 
 ### Regenerate
+The guided builder does this for you: `Build-Drakan.ps1 -HdTextures on` (installer option "Make HD textures after the build") downloads
+the pinned tools once and runs the same `extract` / `modextract` / `upscale` steps into `<play folder>/textures`, including the
+converted Order of the Flame pack when chosen, and prints an estimate first (`BUILDING.md`, "Optional extras"; `scripts/buildtool/extras.py`).
+By hand:
 ```
 python -I analysis\scripts\hd_pack.py extract --iso <disc.iso>  # ISO (or set DRAKAN_ISO) -> build\hdpack\src\<hash>.png + index.json (2962 unique textures, ~15 s)
 python -I analysis\scripts\hd_pack.py upscale            # Real-ESRGAN on the GPU -> dist\DrakanPC\textures\<hash>.png + alias.txt (resumable; 2962 textures in 616 s on an RTX 5080)

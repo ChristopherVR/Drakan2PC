@@ -63,9 +63,25 @@ Play-Original30.cmd in dist\DrakanPC runs the world at the original 30 fps.
 
 OPTIONAL EXTRAS
 ---------------
-* HD textures: generated from your disc with an AI upscaler; see
-  docs\reference\hd-textures.md ("Regenerate"). Needs numpy, Pillow and
-  realesrgan-ncnn-vulkan.
+* Drakan: Order of the Flame (the first game, PC): give the setup the folder
+  it is installed in, a copy of its disc, its disc image (.mdx / .iso) or the
+  Drakan.zip that holds the image (the setup's "Drakan: Order of the Flame"
+  page; Build-Drakan.cmd -OotfSource <path> does the same). The builder converts
+  its 13 levels and 10 multiplayer arenas, with scenes and music, into a mod pack
+  before the game build and installs it; the title menu then offers both
+  games. About 3 to 8 minutes and 1 GB. It is made on this PC from your own files and
+  never uploaded. -OotfSource none removes it from later rebuilds.
+* HD textures: tick "Make HD textures after the build" in the setup (or run
+  Build-Drakan.cmd -HdTextures on). Every texture of the disc, and of Order of
+  the Flame when chosen, is upscaled 4x with the free Real-ESRGAN AI upscaler on
+  your graphics card (any Vulkan card). The builder downloads the tools once
+  (about 75 MB, checked against pinned SHA-256 hashes) and prints the estimated
+  time for your own graphics card before it starts: about 11 to 20 minutes
+  on a fast NVIDIA or AMD card, 17 to 31 minutes with Order of the Flame, several
+  times longer on an older card and hours on integrated graphics. It needs about
+  2 GB (4 GB with Order of the Flame). The step can be stopped and resumed: run the
+  build again. -HdGpu <n> picks the Vulkan device when the first one is not your
+  graphics card.
 * NVIDIA DLSS (NVIDIA RTX GPUs): tick the DLSS box in the setup, or answer "y"
   when the build asks. The SDK is then downloaded from NVIDIA under the NVIDIA
   RTX SDKs License, which you accept by doing so.

@@ -21,7 +21,6 @@ from __future__ import annotations
 
 import argparse
 import configparser
-import json
 import re
 import subprocess
 import sys
@@ -29,6 +28,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "analysis" / "scripts"))
+from ootf_ps2_data import extract, is_complete  # noqa: E402
 
 RECIPE = """clock milliseconds
 0 sync play 60
@@ -49,45 +49,6 @@ def iso_path(arg: str | None) -> Path:
     ini = configparser.ConfigParser(interpolation=None)
     ini.read(ROOT / "dist" / "DrakanPC" / "drakan.ini", encoding="utf-8")
     return Path(ini.get("general", "iso"))
-
-
-HOST_FILES = {f"{s}.{e}" for s in ("LEVEL1ON", "WORLDCON", "FX", "MOUNTAON") for e in ("MOD", "TXD")}
-
-
-def extract(iso: Path, data: Path, template: str) -> None:
-    from ui_layout_dump import iso_files, read
-
-    f, files = iso_files(str(iso))
-    data.mkdir(parents=True, exist_ok=True)
-    stem = template[:6] + "TS"
-    dirs: dict[str, str] = {}
-    for p in sorted(files):
-        parts = p.strip("/").split("/")
-        if parts[0].upper() != "ENGLISH":
-            continue
-        n = parts[-1].upper()
-        in_template = len(parts) > 2 and parts[-2].upper() == template
-        if (
-            n.endswith((".ODB", ".LVL", ".SSD", ".XDB"))
-            or n
-            in ("PROCTEES.TXD", "RESOURES.MOD", "RESOURES.TXD", "RESOURES.SDB", "RESOURES.ADB", "NPCS.MOD", "NPCS.ADB")
-            or (in_template and n.startswith(stem))
-        ):
-            (data / n).write_bytes(read(f, files[p]))
-        if n in HOST_FILES and not any(
-            x in p.upper() for x in ("/DESERTON/",)
-        ):  # own MOD / TXD of template ODBs that host models
-            (data.parent / "hosts").mkdir(parents=True, exist_ok=True)
-            (data.parent / "hosts" / n).write_bytes(read(f, files[p]))
-        if n in ("SYSTEM.MOD", "SYSTEM.ADB"):  # the player's rig and clips (ootf-convert.ts --player)
-            (data.parent / "player").mkdir(parents=True, exist_ok=True)
-            (data.parent / "player" / n).write_bytes(read(f, files[p]))
-        if n.endswith(".ODB"):  # the ODB's .DB (dependency list) and its disc directory, for the converter's model refs
-            db = p[: -len(".ODB")] + ".DB" if p.upper().endswith(".ODB") else None
-            if db in files:
-                (data / (n[:-4] + ".DB")).write_bytes(read(f, files[db]))
-                dirs[n[:-4]] = "/".join(parts[:-1])
-    (data / "paths.json").write_text(json.dumps(dirs), encoding="utf-8")
 
 
 def main() -> int:
@@ -122,16 +83,7 @@ def main() -> int:
     work = ROOT / "build" / "ootf-run" / a.name
     mods = work / "mods"
     data = ROOT / "build" / "odbx" / "data"
-    if (
-        not (data / f"{a.template}.LVL").is_file()
-        or not (data / f"{a.template[:6]}TS.TXD").is_file()
-        or not (data / "paths.json").is_file()
-        or not (data / "RESOURES.MOD").is_file()
-        or not (data / "PROCTEES.TXD").is_file()
-        or not (data / "RESOURES.SDB").is_file()
-        or not (data.parent / "hosts" / "LEVEL1ON.MOD").is_file()
-        or not (data.parent / "player" / "SYSTEM.ADB").is_file()
-    ):
+    if not is_complete(data, a.template):
         extract(iso_path(a.iso), data, a.template)
     zip_path = mods / "ootf-levels.zip"
     if not a.no_convert:

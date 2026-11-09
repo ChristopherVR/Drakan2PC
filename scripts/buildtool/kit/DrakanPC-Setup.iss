@@ -72,8 +72,73 @@ Type: dirifempty; Name: "{app}\ps2recomp"
 var
   IsoPage: TInputFileWizardPage;
   PlayPage: TInputDirWizardPage;
+  OotfPage: TWizardPage;
+  OotfEdit: TNewEdit;
   OptionsPage: TInputOptionWizardPage;
   CpuPage: TInputQueryWizardPage;
+
+procedure OotfBrowseFolder(Sender: TObject);
+var
+  Dir: String;
+begin
+  Dir := OotfEdit.Text;
+  if BrowseForFolder('Choose the folder Drakan: Order of the Flame is installed in (or a copy of its disc)', Dir, False) then
+    OotfEdit.Text := Dir;
+end;
+
+procedure OotfBrowseFile(Sender: TObject);
+var
+  Name: String;
+begin
+  Name := OotfEdit.Text;
+  if GetOpenFileName('Choose the Drakan: Order of the Flame disc image', Name, '',
+    'Disc images and zips (*.mdx;*.iso;*.zip)|*.mdx;*.iso;*.zip|All files (*.*)|*.*', 'mdx') then
+    OotfEdit.Text := Name;
+end;
+
+procedure CreateOotfPage;
+var
+  Info: TNewStaticText;
+  FolderButton, FileButton: TNewButton;
+begin
+  OotfPage := CreateCustomPage(PlayPage.ID,
+    'Drakan: Order of the Flame (optional)',
+    'Add the first Drakan as a second campaign.');
+  Info := TNewStaticText.Create(OotfPage);
+  Info.Parent := OotfPage.Surface;
+  Info.WordWrap := True;
+  Info.Width := OotfPage.SurfaceWidth;
+  Info.Caption :=
+    'If you own the PC game Drakan: Order of the Flame, the builder can convert its 13 campaign levels and 10 ' +
+    'multiplayer arenas, with their cut scenes and music, into a mod pack for this game. The title menu then offers ' +
+    'both games. Choose its install folder (the one holding Dragon.rrc), a copy of the disc, its disc image ' +
+    '(.mdx or .iso) or the Drakan.zip that holds the image. Leave the field empty to skip it.' + #13#10#13#10 +
+    'The conversion runs on this PC from your own files, adds about 3 to 8 min to the build and needs about 1 GB ' +
+    'of disk space. Nothing is uploaded and no game data is included in this setup.';
+  OotfEdit := TNewEdit.Create(OotfPage);
+  OotfEdit.Parent := OotfPage.Surface;
+  OotfEdit.Top := Info.Top + Info.Height + ScaleY(16);
+  OotfEdit.Left := 0;
+  OotfEdit.Width := OotfPage.SurfaceWidth;
+  // DrakanPC-Setup.exe /OOTF="D:\Games\Drakan" fills it in.
+  OotfEdit.Text := ExpandConstant('{param:OOTF|}');
+  FolderButton := TNewButton.Create(OotfPage);
+  FolderButton.Parent := OotfPage.Surface;
+  FolderButton.Caption := 'Choose install folder...';
+  FolderButton.Top := OotfEdit.Top + OotfEdit.Height + ScaleY(8);
+  FolderButton.Left := 0;
+  FolderButton.Width := ScaleX(150);
+  FolderButton.Height := ScaleY(23);
+  FolderButton.OnClick := @OotfBrowseFolder;
+  FileButton := TNewButton.Create(OotfPage);
+  FileButton.Parent := OotfPage.Surface;
+  FileButton.Caption := 'Choose disc image or zip...';
+  FileButton.Top := FolderButton.Top;
+  FileButton.Left := FolderButton.Left + FolderButton.Width + ScaleX(8);
+  FileButton.Width := ScaleX(170);
+  FileButton.Height := ScaleY(23);
+  FileButton.OnClick := @OotfBrowseFile;
+end;
 
 procedure InitializeWizard;
 begin
@@ -101,7 +166,9 @@ begin
   if PlayPage.Values[0] = '' then
     PlayPage.Values[0] := GetPreviousData('PlayFolder', '');
 
-  OptionsPage := CreateInputOptionPage(PlayPage.ID,
+  CreateOotfPage;
+
+  OptionsPage := CreateInputOptionPage(OotfPage.ID,
     'Optional extras',
     'Choose what else to build.',
     'NVIDIA DLSS works only on NVIDIA RTX graphics cards. Its SDK is downloaded from NVIDIA during the build, under ' +
@@ -109,6 +176,11 @@ begin
     'accept that licence.' + #13#10#13#10 +
     'The browser version needs Windows Subsystem for Linux with Ubuntu (wsl --install -d Ubuntu). You play it on ' +
     'the project''s browser player page by choosing the built folder and your .iso; nothing is uploaded.' + #13#10#13#10 +
+    'HD textures: after the build every texture is upscaled 4x with the free Real-ESRGAN AI upscaler on your graphics ' +
+    'card (it downloads about 75 MB of tools once). About 11 to 20 min on a fast graphics card (about 2 GB), ' +
+    '17 to 31 min together with Order of the Flame (about 4 GB); several times longer on an older card and ' +
+    'hours on integrated graphics. The game plays without them and the build can be run again to make them later. The ' +
+    'build window shows the estimate for your own PC before it starts.' + #13#10#13#10 +
     'Whole VU1 blocks: the older, slower way to build (up to 17 GB per file); the game runs at the same speed.',
     False, False);
   OptionsPage.Add('NVIDIA DLSS - I accept the NVIDIA RTX SDKs License');
@@ -129,9 +201,12 @@ begin
   OptionsPage.Add('Keep the PC responsive while building (compile at low priority)');
   OptionsPage.Add('Start the game when the build has finished');
   OptionsPage.Add('Compile the VU1 microcode as whole blocks (older method, needs 24 GB or more)');
+  OptionsPage.Add('Make HD textures after the build (needs a Vulkan graphics card)');
   // DrakanPC-Setup.exe /VUBLOCKS=whole ticks it; otherwise the last install's choice.
   OptionsPage.Values[4] := (CompareText(ExpandConstant('{param:VUBLOCKS|}'), 'whole') = 0) or
     ((ExpandConstant('{param:VUBLOCKS|}') = '') and (GetPreviousData('VuBlocks', '') = 'Whole'));
+  // DrakanPC-Setup.exe /HD=1 ticks it.
+  OptionsPage.Values[5] := ExpandConstant('{param:HD|}') = '1';
 end;
 
 function DefaultPlayDir: String;
@@ -177,6 +252,13 @@ begin
       Result := False;
     end else if FileSize64(IsoPage.Values[0], Size) and (Size < 100 * 1024 * 1024) then begin
       MsgBox('That file is too small to be the game disc. Choose the full .iso image.', mbError, MB_OK);
+      Result := False;
+    end;
+  end;
+  if (CurPageID = OotfPage.ID) and (Trim(OotfEdit.Text) <> '') then begin
+    if not (FileExists(Trim(OotfEdit.Text)) or DirExists(Trim(OotfEdit.Text))) then begin
+      MsgBox('That file or folder does not exist. Choose your Drakan: Order of the Flame folder, disc image or zip, ' +
+        'or leave the field empty to skip it.', mbError, MB_OK);
       Result := False;
     end;
   end;
@@ -243,6 +325,15 @@ begin
     Result := Result + ' -VuBlocks Whole'
   else
     Result := Result + ' -VuBlocks Chunked';
+  // Always passed, so a reinstall replaces what an earlier one remembered. The builder checks the source and says so.
+  if Trim(OotfEdit.Text) <> '' then
+    Result := Result + ' -OotfSource "' + Trim(OotfEdit.Text) + '"'
+  else
+    Result := Result + ' -OotfSource none';
+  if OptionsPage.Values[5] then
+    Result := Result + ' -HdTextures on'
+  else
+    Result := Result + ' -HdTextures off';
   // Always passed, so "Rebuild Drakan" remembers it (build/build-options.json) and the shortcuts match.
   if CompareText(GetPlayDir(''), DefaultPlayDir) = 0 then
     Result := Result + ' -DistDirectory default'

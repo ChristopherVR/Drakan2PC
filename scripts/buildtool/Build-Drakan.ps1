@@ -23,6 +23,17 @@ param(
     [switch]$EnableDlss,
     # Also build the browser version (needs WSL with Ubuntu); play it on the project's browser player page.
     [switch]$Web,
+    # Drakan: Order of the Flame (Drakan 1, PC), optional: its install folder, disc folder (SETUP\DATA1.CAB), disc image
+    # (.mdx / .iso) or the Drakan.zip that holds one. It is converted into a campaign mod pack before the build and
+    # installed in the play folder (the title menu then offers "Drakan: Order of the Flame"). 'none' removes a remembered
+    # choice. Asked for on the first interactive run; remembered in build/build-options.json.
+    [string]$OotfSource,
+    # HD textures, optional: after the build every texture of the disc (and of Order of the Flame, when chosen) is
+    # upscaled 4x with Real-ESRGAN into <play folder>	extures. 'on' | 'off'; asked for (with the estimated time on this PC)
+    # when omitted on the first interactive run, then remembered. Needs a Vulkan graphics card.
+    [ValidateSet('', 'on', 'off')][string]$HdTextures = '',
+    # Vulkan device number the upscaler uses (default: the first). -1 clears a remembered choice.
+    [ValidateRange(-1, 15)][int]$HdGpu = -2,
     # CPU cores the compilers may use (0 = automatic: half the logical cores, at most 4; never more than -CpuAffinity
     # selects). Memory still limits how many run at once. Remembered in build/build-options.json for later rebuilds.
     [ValidateRange(0, 256)][int]$Cores = -1,
@@ -54,6 +65,19 @@ $webPlayerUrl = 'https://christophervr.github.io/Drakan2PC/'
 $vsComponents = 'Microsoft.VisualStudio.Component.VC.Tools.x86.x64', 'Microsoft.VisualStudio.Component.VC.CMake.Project'
 
 function Write-Step([string]$Text) { Write-Host "`n== $Text" -ForegroundColor Cyan }
+
+# Optional extras (scripts/buildtool/extras.py): what they cost on this PC, printed before anything long starts.
+function Get-GpuNames {
+    @(Get-CimInstance Win32_VideoController -ErrorAction SilentlyContinue | ForEach-Object { $_.Name } | Where-Object { $_ }) -join '|'
+}
+
+function Show-ExtrasEstimate([string]$Python, [string]$Extras, [bool]$Ootf, [string]$Source, [bool]$Hd) {
+    $estimateArgs = @($Extras, 'estimate', '--timings', (Join-Path $RepoRoot 'build/extras-timings.json'), '--gpu-names', (Get-GpuNames))
+    if ($Ootf) { $estimateArgs += '--ootf' }
+    if ($Source) { $estimateArgs += @('--source', $Source) }
+    if ($Hd) { $estimateArgs += '--hd' }
+    & $Python @estimateArgs
+}
 
 function Find-VisualStudio {
     $vswhere = "${env:ProgramFiles(x86)}/Microsoft Visual Studio/Installer/vswhere.exe"
@@ -155,6 +179,13 @@ try {
     if ($CpuAffinity -eq 'default') { $CpuAffinity = '' }
     if (-not $DistDirectory -and $saved -and $saved.playFolder) { $DistDirectory = [string]$saved.playFolder }
     if ($DistDirectory -eq 'default') { $DistDirectory = '' }
+    # Optional extras. A remembered key (even an empty one) means the question was answered before.
+    $extrasKnown = [bool]($saved -and $saved.PSObject.Properties['ootfSource'])
+    $hdKnown = [bool]($saved -and $saved.PSObject.Properties['hdTextures'])
+    if (-not $PSBoundParameters.ContainsKey('OotfSource') -and $extrasKnown) { $OotfSource = [string]$saved.ootfSource }
+    if ($OotfSource -eq 'none') { $OotfSource = '' }
+    if (-not $HdTextures -and $hdKnown) { $HdTextures = if ($saved.hdTextures) { 'on' } else { 'off' } }
+    if ($HdGpu -eq -2) { $HdGpu = if ($saved -and $null -ne $saved.hdGpu) { [int]$saved.hdGpu } else { -1 } }
     if ($DistDirectory) {
         $DistDirectory = [IO.Path]::GetFullPath($DistDirectory)
         $inside = { param($Path, $Parent) $Path -eq $Parent -or $Path.StartsWith($Parent.TrimEnd('\') + '\', [StringComparison]::OrdinalIgnoreCase) }
@@ -169,8 +200,17 @@ try {
         Write-Host "Affinity: $CpuAffinity (Windows build processes only)"
     }
     New-Item -ItemType Directory -Force -Path (Split-Path $optionsFile) | Out-Null
-    @{ cores = $Cores; priority = $Priority; cpuAffinity = $CpuAffinity; playFolder = $DistDirectory; vuBlocks = $VuBlocks } | ConvertTo-Json |
-        Set-Content -LiteralPath $optionsFile
+    $saveOptions = {
+        $options = @{ cores = $Cores; priority = $Priority; cpuAffinity = $CpuAffinity; playFolder = $DistDirectory
+                      vuBlocks = $VuBlocks; hdGpu = $HdGpu }
+        # Only answered questions are remembered, so a run that never got to ask still asks the next time.
+        if ($extrasKnown) { $options.ootfSource = $OotfSource }
+        if ($hdKnown) { $options.hdTextures = ($HdTextures -eq 'on') }
+        $options | ConvertTo-Json | Set-Content -LiteralPath $optionsFile
+    }
+    if ($extrasKnown -or $PSBoundParameters.ContainsKey('OotfSource')) { $extrasKnown = $true }
+    if ($hdKnown -or $HdTextures) { $hdKnown = $true }
+    & $saveOptions
 
     $logicalCores = [Environment]::ProcessorCount
     # The compilers only run on the mask's processors, so size the build for those, not for the whole CPU.
@@ -260,6 +300,44 @@ try {
         }
     }
 
+    # Optional extras: Drakan: Order of the Flame and HD textures (scripts/buildtool/extras.py). Both are made from files
+    # the player owns and stay on this PC. A first interactive run asks once; the answers are remembered.
+    $extras = Join-Path $PSScriptRoot 'extras.py'
+    $interactive = [Environment]::UserInteractive -and -not $CheckOnly
+    if ($OotfSource) {
+        & $python $extras check-source $OotfSource | Out-Null
+        if ($LASTEXITCODE) { & $python $extras check-source $OotfSource; throw "The Order of the Flame source cannot be used: $OotfSource" }
+    }
+    if (-not $extrasKnown -and -not $OotfSource -and $interactive) {
+        Write-Host "`nOptional: Drakan: Order of the Flame (Drakan 1) as a second campaign. It is converted from your own PC copy"
+        Write-Host '(install folder, disc folder, .mdx / .iso disc image or Drakan.zip) into a mod pack on this PC; the title menu then'
+        Write-Host 'offers it next to Drakan: The Ancients'' Gates. Nothing is uploaded.'
+        Show-ExtrasEstimate $python $extras $true '' $false
+        $answer = (Read-Host 'Path to your Order of the Flame copy (drag it into this window), or Enter to skip').Trim().Trim('"')
+        if ($answer) {
+            & $python $extras check-source $answer
+            if ($LASTEXITCODE) { Write-Warning 'That is not usable, so Order of the Flame is skipped this time.' } else { $OotfSource = $answer }
+        }
+        $extrasKnown = $true
+    }
+    if (-not $HdTextures -and $interactive) {
+        Write-Host "`nOptional: HD textures. Every texture is upscaled 4x with the free Real-ESRGAN AI upscaler on your graphics card"
+        Write-Host '(downloads about 75 MB of pinned tools once). The game plays without them; they can be made later by running the build again.'
+        Show-ExtrasEstimate $python $extras ([bool]$OotfSource) $OotfSource $true
+        $answer = Read-Host 'Make the HD textures after the build? [y/N]'
+        $HdTextures = if ($answer -match '^\s*y') { 'on' } else { 'off' }
+        $hdKnown = $true
+    }
+    if (-not $HdTextures) { $HdTextures = 'off' }
+    & $saveOptions
+    if ($OotfSource -or $HdTextures -eq 'on') {
+        Write-Step 'Optional extras selected'
+        if ($OotfSource) { Write-Host "Order of the Flame: $OotfSource" }
+        if ($HdTextures -eq 'on') { Write-Host ('HD textures: on' + $(if ($HdGpu -ge 0) { " (graphics device $HdGpu)" } else { '' })) }
+        Show-ExtrasEstimate $python $extras ([bool]$OotfSource) $OotfSource ($HdTextures -eq 'on')
+        Write-Host 'The game build below takes one to two hours on its own; the extras are added to that.'
+    }
+
     $buildArgs = @{
         IsoPath = $IsoPath; WorkDir = $WorkDir; Python = $python
         CpuAffinity = $CpuAffinity; Jobs = $jobs; CompilerProcesses = $compilerProcesses; Progress = $true
@@ -336,6 +414,24 @@ try {
         Write-Step 'Building the game: this takes one to two hours. A few files take several minutes each; the window is not stuck.'
     }
     $started = Get-Date
+    $extraNotes = [Collections.Generic.List[string]]::new()
+    $ootfPack = $null
+    if ($OotfSource) {
+        # Before the game build: the converter needs only the ISO's level template, and the build then installs the pack
+        # (-ModDirectory) and pictures its maps. A failure here does not stop the game build.
+        Write-Step 'Converting Drakan: Order of the Flame'
+        $ootfArgs = @($extras, 'ootf', '--iso', $IsoPath, '--source', $OotfSource, '--work', (Join-Path $RepoRoot 'build/ootf'))
+        if ($HdTextures -eq 'on') { $ootfArgs += '--hd' }
+        & $python @ootfArgs
+        if ($LASTEXITCODE -eq 0) {
+            $ootfMods = Join-Path $RepoRoot 'build/ootf/mods'
+            $ootfPack = Join-Path $ootfMods 'ootf-levels.zip'
+            $buildArgs.ModDirectory = $ootfMods
+        } else {
+            Write-Warning 'Order of the Flame was not converted. The game build continues without it; run the build again to retry.'
+            $extraNotes.Add('Order of the Flame: not converted (see the message above); run the build again to retry')
+        }
+    }
     Invoke-BuildWithRetry (Join-Path $PSScriptRoot 'Build-LocalGame.ps1') $buildArgs $prepared
     if ($Web) {
         Write-Step 'Building the browser version (WSL)'
@@ -348,12 +444,25 @@ try {
             Write-Warning 'It needs WSL with Ubuntu (wsl --install -d Ubuntu). The Windows game is ready either way.'
         }
     }
-    $elapsed = (Get-Date) - $started
     $play = if ($DistDirectory) { [IO.Path]::GetFullPath($DistDirectory) } else { Join-Path $RepoRoot 'dist/DrakanPC' }
+    if ($HdTextures -eq 'on') {
+        Write-Step 'HD textures (the long step can be stopped and resumed by running the build again)'
+        $hdArgs = @($extras, 'hd', '--iso', $IsoPath, '--play', $play, '--work', (Join-Path $RepoRoot 'build/hdpack'))
+        if ($ootfPack) { $hdArgs += @('--ootf-pack', $ootfPack) }
+        if ($HdGpu -ge 0) { $hdArgs += @('--gpu-index', $HdGpu) }
+        & $python @hdArgs
+        if ($LASTEXITCODE -ne 0) {
+            Write-Warning 'The HD textures are not finished. The game works without them; run the build again to continue.'
+            $extraNotes.Add('HD textures: not finished (see the message above); run the build again to continue')
+        }
+    }
+    $elapsed = (Get-Date) - $started
     Write-Step "Done in $([int]$elapsed.TotalMinutes) min"
     Write-Host "Play folder: $play"
     Write-Host 'Start the game with the Drakan shortcut (or Play.cmd in that folder). F1 opens the PC settings.'
     Write-Host 'The game reads your ISO while it runs, so do not move or rename it.'
+    if ($ootfPack) { Write-Host 'Drakan: Order of the Flame is installed: choose it on the title menu ("Choose your game").' }
+    foreach ($note in $extraNotes) { Write-Host $note -ForegroundColor Yellow }
     if ($LaunchWhenDone -and (Test-Path -LiteralPath (Join-Path $play 'drakan.exe') -PathType Leaf)) {
         Start-Process -FilePath (Join-Path $play 'drakan.exe') -WorkingDirectory $play
     }

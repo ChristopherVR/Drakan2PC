@@ -176,6 +176,37 @@ applied to a configured tree because the flag change would recompile everything)
 `Build-Drakan.cmd -CheckOnly` stops after the checks and installs nothing. The built game is derived from the disc and
 is not for sharing; only the setup/kit is.
 
+### Optional extras: Order of the Flame and HD textures
+
+Both are made on the player's PC from files the player owns (`scripts/buildtool/extras.py`, standard library only, so it
+runs under the kit's embeddable Python; nothing is uploaded or committed). The setup has an "Order of the Flame" page
+(`/OOTF=<path>`) and an extras checkbox (`/HD=1`); `Build-Drakan.ps1` takes `-OotfSource <path|none>`, `-HdTextures
+on|off` and `-HdGpu <n>`, asks once on an interactive first run and remembers the answers in `build/build-options.json`.
+
+* **Drakan: Order of the Flame** (`-OotfSource`): an install folder (`Dragon.rrc` beside a world folder, found one level
+  down too), a copy of the disc (`SETUP/DATA1.CAB`), a disc image (`.mdx` / `.iso`, 2048-byte sectors) or the `.zip` that
+  holds one. Images and cabinets are unpacked into `build/ootf/cab_disc` (`analysis/scripts/ootf_cab.py`); an install is
+  read in place. The Drakan 2 level template comes from the ISO already chosen (`analysis/scripts/ootf_ps2_data.py`, into
+  `build/ootf/ps2/data`). `editor/scripts/ootf-convert.ts --campaign 1` writes `build/ootf/mods/ootf-levels.zip` (23
+  levels, with `--hd` also the lossless texture sources) plus a `mods.ini`; this runs **before** the game build, which
+  installs the folder through `Build-LocalGame.ps1 -ModDirectory` and pictures its maps. The converter needs only Node
+  and the pinned `fflate` (no `npm install`): `extras.py` unpacks it into `editor/node_modules` and writes one
+  re-exporting stub per editor workspace package. A rebuild converts again only when the source, the ISO, the converter
+  code (`KIT-VERSION.txt` or the Git revision) or the need for HD sources changed (`build/ootf/convert-state.json`). A
+  failed conversion is reported and the game build goes on without it.
+* **HD textures** (`-HdTextures on`): after the game build `analysis/scripts/hd_pack.py` decodes every disc texture and
+  every texture of the converted pack, then Real-ESRGAN (`realesrgan-ncnn-vulkan`, any Vulkan GPU) upscales them 4x into
+  `<play folder>/textures`; two passes (disc, then the pack), both resumable. numpy, Pillow (cp312 wheels for the pinned
+  Python), Real-ESRGAN v0.2.5.0 and `fflate` are fetched on demand, never bundled, pinned by SHA-256 in
+  `scripts/buildtool/kit/installer.lock.json` (`hd`), and refused when a hash differs. A TLS failure in Python falls back
+  to `curl.exe` / PowerShell; the hash is still checked. A Python that already has numpy and Pillow is used as it is.
+* **Time estimates.** `extras.py estimate` prints a per-step table, the total and the disk space before anything long
+  starts; the setup text carries the same figures (a test keeps them equal). Reference figures, measured on an RTX
+  5080: conversion 168 s, index 15 s + 18 s, upscale 616 s for 2,962 disc textures and 162 s for about 1,400 new
+  Order of the Flame textures. Other cards are scaled by class (RTX 50 / 40 x1, RTX 30 / 20 and RX 7000 / 6000 x2, GTX 16 /
+  10 x4, integrated graphics x10; no Vulkan card: not recommended). Steps this PC has timed before
+  (`build/extras-timings.json`) use their own last duration instead. Estimates, not promises.
+
 ## Point the tool at your ISO
 
 PAL **SCES_500.06** is verified; USA **SCUS_971.28** is accepted as an experimental baseline

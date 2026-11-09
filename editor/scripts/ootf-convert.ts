@@ -299,8 +299,9 @@ if (opt['campaign'] !== undefined) {
 for (const w of [...res.warnings, ...pack.warnings]) console.warn('warning:', w);
 writeFileSync(need('out'), zipOotfPack(pack));
 console.log(`wrote ${opt['out']} (${pack.levels.length} levels, ${Object.keys(pack.files).length} files)`);
+// --hd-sources-only 1: only write the lossless sources next to the pack; the caller (scripts/buildtool/extras.py) runs the HD pack.
 // --hd [--hd-out dir]: HD pack for the converted textures (Real-ESRGAN, by decoded-RGBA hash) into dist/DrakanPC/textures or <dir>; never committed.
-if (hd) {
+if (hd && opt['hd-sources-only'] === undefined) {
     const hdArgs = ['-I', 'analysis/scripts/ootf_hd_pack.py', need('out'), ...(opt['hd-out'] ? ['--out', opt['hd-out']] : [])];
     const r = spawnSync('python', hdArgs, { stdio: 'inherit' });
     if (r.status) process.exit(r.status);

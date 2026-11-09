@@ -165,24 +165,53 @@ def extract_cab(cab: bytes, root: Path) -> int:
     return len(entries)
 
 
-def main() -> int:
-    ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("image", type=Path, help="DRAKAN.mdx, or the zip that holds it")
-    ap.add_argument("--out", type=Path, default=ROOT / "build" / "ootf" / "cab_disc")
-    a = ap.parse_args()
-    if a.image.suffix.lower() == ".zip":
-        with zipfile.ZipFile(a.image) as z:
+def read_image(image: Path) -> bytes:
+    """The raw disc image: a .mdx / .iso file, or the one image inside a .zip."""
+    if image.suffix.lower() == ".zip":
+        with zipfile.ZipFile(image) as z:
             names = [n for n in z.namelist() if n.lower().endswith((".mdx", ".iso"))]
             if len(names) != 1:
                 raise ValueError("zip must contain exactly one MDX or ISO image")
-            name = names[0]
-            img = z.read(name)
-    else:
-        img = a.image.read_bytes()
+            return z.read(names[0])
+    return image.read_bytes()
+
+
+def extract_image(image: Path, out: Path) -> int:
+    """Extract SETUP/DATA1.CAB of a disc image (or of the zip that holds it) into `out`; returns the file count."""
+    img = read_image(image)
     base = 0 if img[16 * 2048 + 1 : 16 * 2048 + 6] == b"CD001" else 0x40
     off, size = iso_find(img, base, "SETUP/DATA1.CAB")
-    cab = img[off : off + size]
-    n = extract_cab(cab, a.out)
+    return extract_cab(img[off : off + size], out)
+
+
+def find_cab_file(folder: Path) -> Path | None:
+    """DATA1.CAB of a mounted or copied disc folder (SETUP/DATA1.CAB, or the cabinet itself), any letter case."""
+    for candidate in (folder / "SETUP" / "DATA1.CAB", folder / "DATA1.CAB"):
+        if candidate.is_file():
+            return candidate
+    for child in folder.iterdir() if folder.is_dir() else ():
+        if child.is_dir() and child.name.upper() == "SETUP":
+            for entry in child.iterdir():
+                if entry.name.upper() == "DATA1.CAB" and entry.is_file():
+                    return entry
+    for entry in folder.iterdir() if folder.is_dir() else ():
+        if entry.name.upper() == "DATA1.CAB" and entry.is_file():
+            return entry
+    return None
+
+
+def main() -> int:
+    ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument("image", type=Path, help="DRAKAN.mdx, the zip that holds it, or a disc folder with SETUP/DATA1.CAB")
+    ap.add_argument("--out", type=Path, default=ROOT / "build" / "ootf" / "cab_disc")
+    a = ap.parse_args()
+    if a.image.is_dir():
+        cab = find_cab_file(a.image)
+        if cab is None:
+            raise FileNotFoundError(f"no SETUP/DATA1.CAB in {a.image}")
+        n = extract_cab(cab.read_bytes(), a.out)
+    else:
+        n = extract_image(a.image, a.out)
     print(f"extracted {n} files to {a.out}")
     return 0
 

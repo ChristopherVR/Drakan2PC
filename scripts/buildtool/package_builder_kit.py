@@ -37,6 +37,7 @@ ICON = "ps2recomp/ps2xRuntime/src/res/drakan.ico"
 # The builders whose Python scripts the installer smoke test runs, and the Node.js script step 6 runs.
 BUILDERS = ("scripts/buildtool/Build-LocalGame.ps1", "scripts/buildtool/Build-Drakan.ps1")
 RETARGET = "analysis/scripts/character_motion_retarget.ts"
+EXTRAS = "scripts/buildtool/extras.py"
 
 
 def load_guard():
@@ -216,6 +217,15 @@ def smoke_test(stage, tools=None, node=True):
         result = subprocess.run([python, script, "--help"], capture_output=True, text=True, cwd=stage)
         if result.returncode != 0:
             failures.append(f"{script.relative_to(stage).as_posix()}: {first_error(result.stderr)}")
+    # The optional extras (Order of the Flame, HD textures) only use the standard library; their time estimate must run.
+    result = subprocess.run(
+        [python, stage / EXTRAS, "estimate", "--ootf", "--hd", "--gpu", "NVIDIA GeForce RTX 4070"],
+        capture_output=True,
+        text=True,
+        cwd=stage,
+    )
+    if result.returncode != 0 or "Total" not in result.stdout:
+        failures.append(f"{EXTRAS}: {first_error(result.stderr)}")
     if node:
         # With no arguments the script stops after its imports resolved; a missing module fails before that.
         result = subprocess.run(

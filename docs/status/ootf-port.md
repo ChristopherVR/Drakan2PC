@@ -309,6 +309,10 @@ The scene held Rynn and the camera to the level's end, which left her held (no H
 now releases them at the scene's end (formats). `OOTF_BOOK_SCENE=0` restores the 28 s empty Book. Verified on a full 23-level pack
 through the real path. See [Book backstory](../journal/2026-11-09/ootf-book-scene.md). Needs a regenerated pack and runtime.
 
+**November 9 builder:** the guided builder (`DrakanPC-Setup.exe`, `Build-Drakan.cmd -OotfSource <path>`) can now convert Order of the
+Flame from an install folder, disc folder, `.mdx` / `.iso` or zip and install the pack, and make HD textures for the disc and the pack,
+with an estimated time per step. See [builder extras](../journal/2026-11-09/builder-extras.md) and `BUILDING.md`.
+
 ## What works
 
 * Converter `editor/scripts/ootf-convert.ts` (`--campaign 1` for the campaign): terrain, textures, models, creatures (skinned, retargeted

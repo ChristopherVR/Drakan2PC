@@ -12,6 +12,10 @@ What happens:
      (downloaded from NVIDIA under its licence) and a browser version (needs WSL).
      You can also choose how many CPU cores the build may use, and whether it
      compiles at low priority so the PC stays responsive.
+     Optional: add your own Drakan: Order of the Flame (PC) as a second
+     campaign (3 to 8 minutes, 1 GB), and make HD textures with an AI upscaler
+     on your graphics card (11 to 20 minutes on a fast card, 17 to 31 with Order
+     of the Flame, more on older cards; the build shows the estimate for your PC).
   2. The builder is copied to the install folder.
   3. A build window opens. On the first run it downloads and installs
      Microsoft's free "Visual Studio 2022 Build Tools" (the C++ compiler,
