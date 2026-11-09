@@ -96,6 +96,12 @@ OPTIONAL EXTRAS
   WSL with Ubuntu: wsl --install -d Ubuntu). Play it with Play-Browser.cmd in
   dist\DrakanPC-web, or on the project's browser player page by choosing that
   folder and your .iso (nothing is uploaded).
+* Game options (setup page "Game options", -MenuStyle modern|original,
+  -BowCombat ootf|native, -DualWield on|off): the starting values of the modernised
+  PC menus, the Order of the Flame bow combat (left click fires with auto-aim) and
+  dual wielding (experimental). They are written into drakan.ini and
+  drakan_input.ini after the build; change any of them later in the game with F1
+  or in those files. A plain "Rebuild Drakan" leaves your settings alone.
 * VU1 build method (setup page "Other options", -VuBlocks Chunked|Whole): the
   PlayStation 2's second vector processor (VU1) runs much of the game's 3D
   geometry code; the builder translates it to C++ and compiles it. Chunked (the

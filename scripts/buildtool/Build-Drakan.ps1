@@ -34,6 +34,13 @@ param(
     [ValidateSet('', 'on', 'off')][string]$HdTextures = '',
     # Vulkan device number the upscaler uses (default: the first). -1 clears a remembered choice.
     [ValidateRange(-1, 15)][int]$HdGpu = -2,
+    # Starting values of three PC features, written into the play folder's ini files after the build (only the ones given;
+    # a plain rebuild leaves the settings alone). All of them can be changed in the game's PC settings (F1) afterwards.
+    # -MenuStyle modern (the PC main menu) | original (the game's own menus); -BowCombat ootf (Order of the Flame bow:
+    # left click fires with auto-aim) | native (the PS2 bow); -DualWield on | off (experimental).
+    [ValidateSet('', 'modern', 'original')][string]$MenuStyle = '',
+    [ValidateSet('', 'ootf', 'native')][string]$BowCombat = '',
+    [ValidateSet('', 'on', 'off')][string]$DualWield = '',
     # CPU cores the compilers may use (0 = automatic: half the logical cores, at most 4; never more than -CpuAffinity
     # selects). Memory still limits how many run at once. Remembered in build/build-options.json for later rebuilds.
     [ValidateRange(0, 256)][int]$Cores = -1,
@@ -462,6 +469,15 @@ try {
             Write-Warning 'The HD textures are not finished. The game works without them; run the build again to continue.'
             $extraNotes.Add('HD textures: not finished (see the message above); run the build again to continue')
         }
+    }
+    if ($MenuStyle -or $BowCombat -or $DualWield) {
+        Write-Step 'Setting the starting game options (they can be changed in the game with F1)'
+        $defaultArgs = @((Join-Path $PSScriptRoot 'apply_defaults.py'), '--play', $play)
+        if ($MenuStyle) { $defaultArgs += @('--menus', $MenuStyle) }
+        if ($BowCombat) { $defaultArgs += @('--bow', $BowCombat) }
+        if ($DualWield) { $defaultArgs += @('--dual-wield', $DualWield) }
+        & $python @defaultArgs
+        if ($LASTEXITCODE -ne 0) { $extraNotes.Add('Starting game options: not applied (see the message above); change them in the game with F1') }
     }
     $elapsed = (Get-Date) - $started
     Write-Step "Done in $([int]$elapsed.TotalMinutes) min"

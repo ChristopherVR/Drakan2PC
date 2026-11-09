@@ -181,6 +181,16 @@ so. Later builds skip the pictures already made.
 `Build-Drakan.cmd -CheckOnly` stops after the checks and installs nothing. The built game is derived from the disc and
 is not for sharing; only the setup/kit is.
 
+### Game options page
+
+The setup's "Game options" page asks whether to start with the modernised menus (`drakan.ini title_menu = modern`, else
+`native` = the original PS2 menus), the Order of the Flame bow combat (`drakan_input.ini bow_aim = ootf`, else `native`) and
+dual wielding (`drakan.ini dual_wield = 1`, experimental). It passes `-MenuStyle`, `-BowCombat` and `-DualWield` to
+`Build-Drakan.ps1`, which runs `scripts/buildtool/apply_defaults.py` on the play folder after the build (only the keys given; comments
+and line endings are kept). They are starting values only: the in-game PC settings (F1) and the ini files change them later, and
+a plain "Rebuild Drakan" does not pass them, so it never overwrites the player's choices. `/MENUS=original`, `/BOW=ootf` and
+`/DUAL=1` pre-set the boxes on the command line.
+
 ### Optional extras: Order of the Flame and HD textures
 
 Both are made on the player's PC from files the player owns (`scripts/buildtool/extras.py`, standard library only, so it

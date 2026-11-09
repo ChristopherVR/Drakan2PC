@@ -485,10 +485,19 @@ if ($gameRegion -eq 'pal') {
 
 }
     # The Choose-your-game cover of The Ancients' Gates: the title screen artwork of the supplied disc.
-    Write-Stage 'Extracting the Drakan 2 cover picture'
-    Invoke-Checked $Python @('-I',(Join-Path $RepoRoot 'analysis/scripts/title_cover.py'),'--iso',$IsoPath,
-        '--out',(Join-Path $gameOutput 'previews/game-d2.png'),
-        '--background-out',(Join-Path $gameOutput 'previews/background-d2.png'))
+    # The tracked widescreen cover (kit/art/d2-cover.png) is copied; a tree without it cuts the picture from the disc.
+    $trackedCover = Join-Path $PSScriptRoot 'kit/art/d2-cover.png'
+    if (Test-Path -LiteralPath $trackedCover -PathType Leaf) {
+        Write-Stage 'Copying the Drakan 2 cover picture'
+        New-Item -ItemType Directory -Force -Path (Join-Path $gameOutput 'previews') | Out-Null
+        Copy-Item -LiteralPath $trackedCover -Destination (Join-Path $gameOutput 'previews/game-d2.png') -Force
+        Copy-Item -LiteralPath $trackedCover -Destination (Join-Path $gameOutput 'previews/background-d2.png') -Force
+    } else {
+        Write-Stage 'Extracting the Drakan 2 cover picture'
+        Invoke-Checked $Python @('-I',(Join-Path $RepoRoot 'analysis/scripts/title_cover.py'),'--iso',$IsoPath,
+            '--out',(Join-Path $gameOutput 'previews/game-d2.png'),
+            '--background-out',(Join-Path $gameOutput 'previews/background-d2.png'))
+    }
 if (-not $NoDist) {
     # A non-PAL build gets its own play folder so it never replaces the PAL one (dist/DrakanPC-usa).
     $regionSuffix = if ($gameRegion -eq 'pal') { '' } else { "-$gameRegion" }

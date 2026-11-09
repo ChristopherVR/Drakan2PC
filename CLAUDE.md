@@ -46,8 +46,8 @@ Generated output goes under `build/` (gitignored).
 - That script also produces the play folder `dist/DrakanPC` (cleaned and refilled each build; saves, `textures/`,
   `subtitles/`, `nr/`, `ngx_data/` and `*.ini` are kept). Launch and test from `dist/DrakanPC`, never from a bare
   `WORKDIR/bin` (default settings, no HD textures). Do not copy files into `dist/` by hand.
-- The only currently permitted tracked binaries are the SHA-pinned original `drakan.ico` and the Order of the Flame
-  campaign cover `scripts/buildtool/kit/art/ootf-cover.png` in `scripts/repository_guard.py`; NVIDIA SDK/runtime binaries must stay under ignored `local/` or `tools/`.
+- The only currently permitted tracked binaries are the SHA-pinned original `drakan.ico` and the two game covers
+  `scripts/buildtool/kit/art/{ootf,d2}-cover.png` in `scripts/repository_guard.py`; NVIDIA SDK/runtime binaries must stay under ignored `local/` or `tools/`.
   HD textures stay uncommitted and are regenerated with `analysis/scripts/hd_pack.py`.
 
 ## Conventions

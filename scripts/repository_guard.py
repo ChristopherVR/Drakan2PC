@@ -109,6 +109,9 @@ ALLOWED_BINARIES = {
     "ps2recomp/ps2xRuntime/src/res/drakan.ico": "92ae70a057c098687dff194a7bd972b793012d178510e20fab22c8943d077946",
     # The Order of the Flame campaign cover (7680 x 4800): the title art of the converted campaign, shipped by the builder
     # because an install folder holds no title picture. Tracked on the owner's decision; see THIRD_PARTY.md.
+    # The Drakan: The Ancients' Gates cover (1280 x 720): the widescreen title art the "Choose your game" card and the original
+    # menus' background use; the build copies it as previews/game-d2.png and background-d2.png. See THIRD_PARTY.md.
+    "scripts/buildtool/kit/art/d2-cover.png": "165cecc53fb5b7b4f255801eb337b0bf52de69d2b5e31d602c5abdcc7ec1a6d6",
     "scripts/buildtool/kit/art/ootf-cover.png": "e1ac723f61550d1fa58e45b42df50cb112ff2cdbc86f3f0acbf46d8813c3cdbc",
 }
 TOKEN_PATTERNS = [

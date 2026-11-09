@@ -76,6 +76,7 @@ var
   OotfEdit: TNewEdit;
   DlssPage: TInputOptionWizardPage;
   HdPage: TInputOptionWizardPage;
+  DefaultsPage: TInputOptionWizardPage;
   OptionsPage: TInputOptionWizardPage;
   OotfRejected: Boolean;
   CpuPage: TInputQueryWizardPage;
@@ -195,7 +196,22 @@ begin
   // DrakanPC-Setup.exe /HD=1 ticks it.
   HdPage.Values[0] := ExpandConstant('{param:HD|}') = '1';
 
-  OptionsPage := CreateInputOptionPage(HdPage.ID,
+  DefaultsPage := CreateInputOptionPage(HdPage.ID,
+    'Game options (optional)',
+    'Choose how the game starts. You can change all of these in the game later.',
+    'These are only starting values. Press F1 in the game for the PC settings, ' +
+    'or edit drakan.ini and drakan_input.ini in the play folder, to change any of them at any time. Leave a box empty to ' +
+    'keep the original behaviour.',
+    False, False);
+  DefaultsPage.Add('Modernise the menus (the PC main menu over the title art). Leave empty for the original PS2 menus.');
+  DefaultsPage.Add('Use the Order of the Flame bow combat: left click fires with auto-aim, right click toggles the sight.');
+  DefaultsPage.Add('Enable dual wielding (experimental): a second one-handed weapon goes in the left hand.');
+  // DrakanPC-Setup.exe /MENUS=modern, /BOW=ootf and /DUAL=1 tick them; the menus default to modern.
+  DefaultsPage.Values[0] := CompareText(ExpandConstant('{param:MENUS|modern}'), 'original') <> 0;
+  DefaultsPage.Values[1] := CompareText(ExpandConstant('{param:BOW|}'), 'ootf') = 0;
+  DefaultsPage.Values[2] := ExpandConstant('{param:DUAL|}') = '1';
+
+  OptionsPage := CreateInputOptionPage(DefaultsPage.ID,
     'Other options',
     'Browser version, build priority and the VU1 build method.',
     'The browser version needs Windows Subsystem for Linux with Ubuntu (wsl --install -d Ubuntu). You play it on ' +
@@ -415,6 +431,19 @@ begin
     Result := Result + ' -OotfSource "' + Trim(OotfEdit.Text) + '"'
   else
     Result := Result + ' -OotfSource none';
+  // Always passed, so a reinstall applies what this page says; a plain rebuild leaves the settings alone.
+  if DefaultsPage.Values[0] then
+    Result := Result + ' -MenuStyle modern'
+  else
+    Result := Result + ' -MenuStyle original';
+  if DefaultsPage.Values[1] then
+    Result := Result + ' -BowCombat ootf'
+  else
+    Result := Result + ' -BowCombat native';
+  if DefaultsPage.Values[2] then
+    Result := Result + ' -DualWield on'
+  else
+    Result := Result + ' -DualWield off';
   if HdPage.Values[0] then
     Result := Result + ' -HdTextures on'
   else

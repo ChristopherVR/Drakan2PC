@@ -655,6 +655,19 @@ class CoverArtTests(unittest.TestCase):
         spec_guard.loader.exec_module(guard)
         return guard
 
+    def test_the_drakan_2_cover_is_pinned_and_copied_by_the_build(self):
+        art = "scripts/buildtool/kit/art/d2-cover.png"
+        data = (ROOT / art).read_bytes()
+        self.assertEqual(data[:8], b"\x89PNG\r\n\x1a\n")
+        self.assertEqual((int.from_bytes(data[16:20], "big"), int.from_bytes(data[20:24], "big")), (1280, 720))
+        guard = self.guard()
+        self.assertEqual(guard.ALLOWED_BINARIES[art], hashlib.sha256(data).hexdigest())
+        self.assertIsNone(guard.reason(art, data))
+        build = (ROOT / "scripts/buildtool/Build-LocalGame.ps1").read_text(encoding="utf-8")
+        self.assertIn("kit/art/d2-cover.png", build)
+        self.assertIn("previews/game-d2.png", build)
+        self.assertIn("previews/background-d2.png", build)
+
     def test_the_cover_is_a_png_pinned_by_the_guard(self):
         path = ROOT / extras.COVER
         data = path.read_bytes()
@@ -884,6 +897,7 @@ class PolicyTests(unittest.TestCase):
             "CreateInputOptionPage(OotfPage.ID",
             "CreateInputOptionPage(DlssPage.ID",
             "CreateInputOptionPage(HdPage.ID",
+            "CreateInputOptionPage(DefaultsPage.ID",
             "CreateInputQueryPage(OptionsPage.ID",
         ]
         positions = [text.index(item) for item in order]
@@ -898,6 +912,39 @@ class PolicyTests(unittest.TestCase):
         self.assertNotIn("DLSS", other)
         self.assertNotIn("Real-ESRGAN", other)
         self.assertEqual(other.count("OptionsPage.Add("), 4, "browser, priority, start the game, VU1 blocks")
+
+    def test_the_game_options_page_offers_the_three_features_and_says_they_can_be_changed(self):
+        text = re.sub(r"'\s*\+\s*\n\s*'", "", ISS.read_text(encoding="utf-8"))
+        page = text[text.index("DefaultsPage := ") : text.index("OptionsPage := ")]
+        self.assertEqual(page.count("DefaultsPage.Add("), 3)
+        for needle in (
+            "Modernise the menus",
+            "original PS2 menus",
+            "Order of the Flame bow combat",
+            "dual wielding (experimental)",
+        ):
+            self.assertIn(needle, page)
+        self.assertIn("change all of these in the game later", page)
+        self.assertIn("F1", page)
+        for needle in (
+            "-MenuStyle modern",
+            "-MenuStyle original",
+            "-BowCombat ootf",
+            "-BowCombat native",
+            "-DualWield on",
+            "-DualWield off",
+        ):
+            self.assertIn(needle, text)
+
+    def test_the_builder_applies_the_game_options_after_the_build_and_only_when_given(self):
+        text = BUILD_DRAKAN.read_text(encoding="utf-8")
+        for needle in ("[string]$MenuStyle", "[string]$BowCombat", "[string]$DualWield", "'apply_defaults.py'"):
+            self.assertIn(needle, text)
+        self.assertIn("if ($MenuStyle -or $BowCombat -or $DualWield)", text)
+        self.assertGreater(text.index("'apply_defaults.py'"), text.index("Invoke-BuildWithRetry (Join-Path"))
+        self.assertNotIn(
+            "menuStyle", text.split("$saveOptions = {")[1].split("}")[0], "a rebuild must not reapply them"
+        )
 
     def test_the_vu1_option_is_explained(self):
         text = re.sub(r"'\s*\+\s*\n\s*'", "", ISS.read_text(encoding="utf-8"))
