@@ -182,3 +182,21 @@ Evidence (private, `build/review/rig/`): `hair-final-scene-1_1-before-after.png`
 * **Open.** A full fix needs hair1's controller: either its input (what makes it point straight back in scenes while it hangs
   in gameplay) or re-weighting the hair1 strip onto the head joint (weights live in the `0208` joint lists; the writer of
   `ootfanim.ts` does not round-trip these records byte for byte, so it needs an in-place patch). Right hand fingers: later.
+
+## Sixth pass: re-weighting the ponytail did not fix the scene, so it is not applied
+
+Evidence (private, `build/review/rig/`): `hair-reweight-scene.png`, `hair-reweight-gameplay.png`.
+
+* **What was built** (formats `ootfhair.ts`, tests `ootfhair.test.ts`): in-place patch of the `0208` weight lists (byte exact apart from
+  the lists, `locateJoints` finds them), hair vertices moved to the native idle's hanging shape, hair1 to hair3 emptied; the weight goes
+  to the head joint, shifting to the chest towards the tip (`rootBlend`, `toHead`). Verified as an override of `SYSTEM.MOD` records in
+  the game (a +0.4 shift of the hair vertices moved the strip, so the records are used).
+* **Result in the 1.1 crouch.** Still a bar. Weighted to the head alone, a strip that hangs in the head's frame points back when the
+  head is bowed (the crouch tilts it past 60 degrees); with the tip on the chest it is a little shorter but still sticks out. The
+  bind-pose variants before it (hair2 and hair3 only; hair2 and hair3 pivoting on hair1) kept the engine-driven hair1 and hair2 strip
+  horizontal with a flap hanging off its end.
+* **Gameplay.** Idle, mouse pitch, run and jump look like the old pack and Drakan 2 at rest, but the ponytail no longer swings on its
+  own joints, and in the landing frame it stands out sideways from the head. Worse than the old pack there, with no gain in scenes.
+* **Not applied.** The pipeline no longer calls `hangingHairOverrides` (the earlier commit applied the hair2 / hair3 variant; that
+  is withdrawn too). A real fix needs gravity: either the engine's hair controller in scene mode, or a hair strip that hangs in
+  model space instead of riding a joint (it would have to be a joint of its own that the engine does not drive, under the root).
